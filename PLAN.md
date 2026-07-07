@@ -6,19 +6,19 @@ Balance numbers come from `packages/sim/src/balance.ts`, seeded from rules.md.
 
 ## Phase 0 — Foundation: deterministic sim + render loop
 
-- [ ] Scaffold Bun workspace monorepo (`sim`, `client`, `server`, `tools`),
+- [x] Scaffold Bun workspace monorepo (`sim`, `client`, `server`, `tools`),
       Biome, strict tsconfig, `bun test` wired up
-- [ ] `sim`: SoA entity storage with free-list, fixed caps, dense id iteration
-- [ ] `sim`: `simMath.ts` — committed LUT sin/cos, vec2 helpers, mulberry32;
+- [x] `sim`: SoA entity storage with free-list, fixed caps, dense id iteration
+- [x] `sim`: `simMath.ts` — committed LUT sin/cos, vec2 helpers, mulberry32;
       unit tests pinning exact output values
-- [ ] `sim`: `createSim / step / hash / writeSnapshot` API per architecture.md,
+- [x] `sim`: `createSim / step / hash / writeSnapshot` API per architecture.md,
       tick loop with quantized `TickInputs`
-- [ ] `sim`: FNV-1a state hash + replay record/verify in `tools/replay`
-- [ ] `sim`: test map `MapData` with 128×128 heightfield + bilinear sampling
-- [ ] `client`: Three scene — heightfield mesh, orbit debug cam, one greybox
+- [x] `sim`: FNV-1a state hash + replay record/verify in `tools/replay`
+- [x] `sim`: test map `MapData` with 128×128 heightfield + bilinear sampling
+- [x] `client`: Three scene — heightfield mesh, orbit debug cam, one greybox
       cube driven by keyboard through the full input→tick→snapshot→interpolate path
-- [ ] Golden replay #1: 60 s scripted input, hash sequence committed
-- [ ] CI-style check: `bun test` runs goldens; a deliberately broken determinism
+- [x] Golden replay #1: 60 s scripted input, hash sequence committed
+- [x] CI-style check: `bun test` runs goldens; a deliberately broken determinism
       rule (temporary test) is caught by the golden
 
 **DoD:** cube drives over terrain at 60 fps with 30 Hz sim; same replay produces
