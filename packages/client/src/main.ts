@@ -24,8 +24,10 @@ import {
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { AudioStub } from "./audio";
 import { PlayerOneInput } from "./input/keyboard";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
+import { buildBaseStructures } from "./render/structures";
 import { buildTerrainMesh, buildWaterPlane } from "./render/terrain";
 
 // --- Simulation setup --------------------------------------------------------
@@ -45,6 +47,7 @@ let countPrev = 0;
 let countCurr = 0;
 
 const input = new PlayerOneInput(window);
+const audio = new AudioStub();
 
 function runTick(): void {
   const a = sim.avatarId[0];
@@ -53,6 +56,7 @@ function runTick(): void {
   }
   input.sample(inputQueue[(sim.tick + LOCAL_INPUT_DELAY_TICKS) % QUEUE_SIZE].players[0]);
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
+  audio.pump(sim.events); // events are per-tick transients: drain immediately
   const swap = snapPrev;
   snapPrev = snapCurr;
   snapCurr = swap;
@@ -77,6 +81,7 @@ sun.updateMatrix();
 scene.add(sun);
 scene.add(buildTerrainMesh(map));
 scene.add(buildWaterPlane(map));
+buildBaseStructures(scene, map);
 const greybox = createGreyboxMeshes(scene);
 
 const extent = worldExtent(map);
@@ -120,6 +125,7 @@ addEventListener("mousemove", (e) => {
 });
 let hudFrames = 0;
 let hudLastUpdate = 0;
+const unitCounts = new Int32Array(2);
 
 function wrapAngleDelta(d: number): number {
   return ((((d + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
@@ -234,10 +240,26 @@ function frame(now: number): void {
         ? `hp ${Math.ceil(sim.ent.hp[a])}  heavy ${sim.ent.ammoA[a]}  special ${sim.ent.ammoB[a]}  ` +
           `${(sim.ent.animState[a] & ANIM_HOVER) !== 0 ? "HOVER" : "WALKER"}`
         : `respawn in ${Math.ceil(sim.respawnTimer[0] / TICK_HZ)}s`;
+    // Unit counts come from the snapshot (renderer-side derivation).
+    unitCounts[0] = 0;
+    unitCounts[1] = 0;
+    for (let c = 0; c < countCurr; c++) {
+      const o = c * SNAPSHOT_STRIDE;
+      const archetype = snapCurr[o + 1];
+      const team = snapCurr[o + 2];
+      if (archetype >= 1 && archetype <= 4 && (team === 0 || team === 1)) {
+        unitCounts[team] += 1;
+      }
+    }
+    const banner =
+      sim.winner >= 0
+        ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} BREACHED THE GATE`
+        : "";
     hud.textContent =
-      `${status}  points ${sim.points[0]}\n` +
-      `tick ${sim.tick}  fps ${hudFrames}  entities ${countCurr}  map ${map.id}\n` +
-      "WASD drive · mouse aim · LMB/RMB/MMB fire · Q transform · Space jump";
+      `${status}  points ${sim.points[0]}:${sim.points[1]}  units ${unitCounts[0]}v${unitCounts[1]}\n` +
+      `tick ${sim.tick}  fps ${hudFrames}  entities ${countCurr}  sfx ${audio.lastCue || "-"}  map ${map.id}\n` +
+      "WASD drive · mouse aim · LMB/RMB/MMB fire · Q transform · Space jump · " +
+      `E buy at console (+RMB heavy)${banner}`;
     hudFrames = 0;
     hudLastUpdate = now;
   }

@@ -50,7 +50,7 @@ test dummies, die, respawn. Golden replay #2 covers a movement+combat script.
 - [x] Juggernaut & Fortress (limits: 1 alive each)
 - [x] Radial separation between friendly ground units
 - [x] Win check system + match end state
-- [ ] Event ring buffer → minimal HUD (points, unit counts) + audio stubs
+- [x] Event ring buffer → minimal HUD (points, unit counts) + audio stubs
 
 **DoD:** scripted match: spawn Runners on both sides, one side breaches, match
 ends correctly. Golden replay #3 = full mini-match, breach on a known tick.

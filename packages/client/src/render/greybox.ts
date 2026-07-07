@@ -30,6 +30,10 @@ export interface Bucket {
 export interface GreyboxMeshes {
   readonly avatarWalker: Bucket;
   readonly avatarHover: Bucket;
+  readonly runner: Bucket;
+  readonly guardian: Bucket;
+  readonly juggernaut: Bucket;
+  readonly fortress: Bucket;
   readonly turret: Bucket;
   readonly projectile: Bucket;
   readonly all: Bucket[];
@@ -66,6 +70,31 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     box(1.0, 0.4, 1.0, 1.3, 0.25, 0), // nose
     box(0.5, 0.5, 2.2, -1.1, 0.5, 0), // tail spoiler
   ]);
+  // Runner: squat tank — tracked hull, small turret, stub barrel. +X forward.
+  const runnerGeometry = mergeGeometries([
+    box(1.7, 0.6, 1.3, 0, 0.3, 0), // hull
+    box(0.8, 0.5, 0.8, -0.1, 0.85, 0), // turret
+    box(0.9, 0.2, 0.2, 0.7, 0.95, 0), // barrel
+  ]);
+  // Guardian: small plane — fuselage, straight wing, tail fin. +X forward.
+  const guardianGeometry = mergeGeometries([
+    box(2.2, 0.5, 0.7, 0, 0, 0), // fuselage
+    box(0.7, 0.12, 3.2, -0.1, 0.1, 0), // wing
+    box(0.5, 0.7, 0.12, -0.95, 0.35, 0), // tail fin
+  ]);
+  // Juggernaut: hulking siege tank — twin barrels, high back. +X forward.
+  const juggernautGeometry = mergeGeometries([
+    box(3.6, 1.4, 2.6, 0, 0.7, 0), // hull
+    box(1.8, 1.0, 1.8, -0.5, 1.9, 0), // casemate
+    box(1.6, 0.28, 0.3, 1.5, 2.1, -0.45), // barrel L
+    box(1.6, 0.28, 0.3, 1.5, 2.1, 0.45), // barrel R
+  ]);
+  // Fortress: broad flying wing with a fat body. +X forward.
+  const fortressGeometry = mergeGeometries([
+    box(2.8, 0.9, 1.5, 0, 0, 0), // body
+    box(1.3, 0.25, 5.0, -0.3, 0.15, 0), // wing
+    box(1.0, 0.5, 0.8, 1.6, -0.1, 0), // nose
+  ]);
   // Turret: base cylinder + barrel toward +X.
   const turretBase = new THREE.CylinderGeometry(1.2, 1.4, 1.6, 8);
   turretBase.translate(0, 0.8, 0);
@@ -79,21 +108,26 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
 
   const avatarWalker = bucket(scene, walkerGeometry, 4);
   const avatarHover = bucket(scene, hoverGeometry, 4);
+  const runner = bucket(scene, runnerGeometry, 128);
+  const guardian = bucket(scene, guardianGeometry, 64);
+  const juggernaut = bucket(scene, juggernautGeometry, 4);
+  const fortress = bucket(scene, fortressGeometry, 4);
   const turret = bucket(scene, turretGeometry, 64);
   const projectile = bucket(scene, projectileGeometry, 128);
   return {
     avatarWalker,
     avatarHover,
+    runner,
+    guardian,
+    juggernaut,
+    fortress,
     turret,
     projectile,
-    all: [avatarWalker, avatarHover, turret, projectile],
+    all: [avatarWalker, avatarHover, runner, guardian, juggernaut, fortress, turret, projectile],
   };
 }
 
-/**
- * Routes a snapshot entity to its render bucket (or undefined to skip).
- * Archetypes without meshes yet (units) come with their phases.
- */
+/** Routes a snapshot entity to its render bucket (or undefined to skip). */
 export function bucketFor(
   greybox: GreyboxMeshes,
   archetype: number,
@@ -102,6 +136,10 @@ export function bucketFor(
   if (archetype === ARCHETYPE.AVATAR) {
     return (animState & ANIM_HOVER) !== 0 ? greybox.avatarHover : greybox.avatarWalker;
   }
+  if (archetype === ARCHETYPE.RUNNER) return greybox.runner;
+  if (archetype === ARCHETYPE.GUARDIAN) return greybox.guardian;
+  if (archetype === ARCHETYPE.JUGGERNAUT) return greybox.juggernaut;
+  if (archetype === ARCHETYPE.FORTRESS) return greybox.fortress;
   if (archetype === ARCHETYPE.TURRET) return greybox.turret;
   if (archetype === ARCHETYPE.PROJECTILE) return greybox.projectile;
   return undefined;
