@@ -206,6 +206,33 @@ describe("hover drift", () => {
     expect(sim.ent.velY[0]).toBeGreaterThan(AVATAR_HOVER_SPEED * 0.8);
   });
 
+  it("counter-steer kills drift far faster than coasting", () => {
+    // Two identical hovers at full speed north; one releases the stick, the
+    // other counter-steers. The brake must bite hard while the coast glides.
+    const half = AVATAR_HOVER_SPEED * 0.5;
+    const ticksToHalfSpeed = (steer: number): number => {
+      reset();
+      const sim = freshSim();
+      p0.buttons = BUTTON_TRANSFORM;
+      step(sim, inputs);
+      p0.buttons = 0;
+      p0.moveY = 127;
+      for (let i = 0; i < 150; i++) step(sim, inputs); // reach top speed
+      expect(sim.ent.velY[0]).toBeGreaterThan(AVATAR_HOVER_SPEED * 0.95);
+      p0.moveY = steer;
+      for (let t = 1; t <= 120; t++) {
+        step(sim, inputs);
+        if (sim.ent.velY[0] < half) return t;
+      }
+      return 121;
+    };
+    const brakeTicks = ticksToHalfSpeed(-127);
+    const coastTicks = ticksToHalfSpeed(0);
+    expect(brakeTicks).toBeLessThan(8); // counter-steer stops the slide fast
+    expect(coastTicks).toBeGreaterThan(20); // released stick keeps gliding
+    expect(brakeTicks * 4).toBeLessThan(coastTicks);
+  });
+
   it("hover cannot climb the steep wall", () => {
     reset();
     const sim = freshSim();

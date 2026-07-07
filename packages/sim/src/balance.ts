@@ -35,10 +35,14 @@ export const AVATAR_JUMP_SPEED = 8; // m/s up → 1.6 m apex, clears 1.4 m ledge
 export const GRAVITY = 20; // m/s²
 export const HOVER_CLEARANCE = 0.8; // ride height above ground/water surface
 /**
- * Hover traction: fraction of the velocity error closed per tick. Low values
- * = drifty. FEEL-TUNING KNOB — needs a human pass on real hardware.
+ * Hover traction: fraction of the velocity error closed per tick, picked by
+ * what the stick is doing. Throttle responds, counter-steer bites hard (drift
+ * is escapable), a released stick glides for over a second. All three are
+ * FEEL-TUNING KNOBS — defaults need a human pass on real hardware.
  */
-export const HOVER_TRACTION = 0.08;
+export const HOVER_TRACTION_ACCEL = 0.1; // stick along velocity (or standstill)
+export const HOVER_TRACTION_BRAKE = 0.25; // stick against velocity
+export const HOVER_TRACTION_COAST = 0.02; // stick released
 
 // Ammo capacities (rules.md §2: heavy/special finite).
 export const AVATAR_AMMO_HEAVY = 20;

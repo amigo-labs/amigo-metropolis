@@ -30,7 +30,9 @@ import {
   HEAVY_SPEED,
   HEAVY_TTL_TICKS,
   HOVER_CLEARANCE,
-  HOVER_TRACTION,
+  HOVER_TRACTION_ACCEL,
+  HOVER_TRACTION_BRAKE,
+  HOVER_TRACTION_COAST,
   MAX_PLAYERS,
   POINTS_KILL_AVATAR,
   POINTS_KILL_TURRET,
@@ -221,10 +223,17 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       my *= inv;
     }
 
-    // Traction model: walker is exact, hover drifts toward the target.
+    // Traction model: walker is exact; hover drifts toward the target with
+    // stick-dependent grip — throttle accelerates, counter-steer brakes hard,
+    // a released stick coasts (rules.md §2 "fast, drifty").
     if (hover) {
-      ent.velX[id] += (mx * AVATAR_HOVER_SPEED - ent.velX[id]) * HOVER_TRACTION;
-      ent.velY[id] += (my * AVATAR_HOVER_SPEED - ent.velY[id]) * HOVER_TRACTION;
+      let traction = HOVER_TRACTION_COAST;
+      if (l2 > 0) {
+        const along = mx * ent.velX[id] + my * ent.velY[id];
+        traction = along < 0 ? HOVER_TRACTION_BRAKE : HOVER_TRACTION_ACCEL;
+      }
+      ent.velX[id] += (mx * AVATAR_HOVER_SPEED - ent.velX[id]) * traction;
+      ent.velY[id] += (my * AVATAR_HOVER_SPEED - ent.velY[id]) * traction;
     } else {
       ent.velX[id] = mx * AVATAR_WALKER_SPEED;
       ent.velY[id] = my * AVATAR_WALKER_SPEED;

@@ -4,4 +4,5 @@
 //     the walker/hover movement model.
 // v3: Phase 1 combat — weapons, projectiles, damage/death/respawn, sandbox
 //     dummy turrets, points stub (hash covers dummy spot state).
-export const SIM_VERSION = 3;
+// v4: hover traction split into accel/brake/coast (stick-dependent grip).
+export const SIM_VERSION = 4;

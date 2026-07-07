@@ -31,7 +31,8 @@ identical hash sequence across two different browsers; zero frame-loop allocatio
       3 lanes (waypoint polylines), 6 neutral turret spots, 2 outpost spots
       (map format: JSON in `packages/sim/maps/`, validated by schema test)
 - [x] Avatar entity: walker/hover modes, transform lock, slope/water rules, jump
-- [ ] Hover drift handling (traction model) — tune until it *feels* right
+- [x] Hover drift handling (traction model) — tune until it *feels* right
+      (accel/brake/coast knobs in balance.ts; defaults await a hardware feel pass)
 - [x] Weapons: primary hitscan, heavy projectile w/ AoE, special; ammo model
 - [x] Damage/death/respawn for Avatar; kill event + points hook (stub economy)
 - [x] Chase camera (per-player), aim reticle
