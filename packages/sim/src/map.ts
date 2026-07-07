@@ -190,8 +190,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (!inBounds(s.x, s.y)) fail(id, `spawn out of bounds (${s.x}, ${s.y})`);
   }
   const point = (p: number[], what: string): MapPoint => {
+    if (!Array.isArray(p) || p.length !== 2) fail(id, `${what} is not an [x, y] pair`);
     const [x, y] = p;
-    if (p.length !== 2 || typeof x !== "number" || typeof y !== "number") {
+    if (typeof x !== "number" || typeof y !== "number") {
       fail(id, `${what} is not an [x, y] pair`);
     }
     if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
@@ -211,6 +212,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
   };
   if (!Array.isArray(raw.bases) || raw.bases.length !== 2) fail(id, "need exactly 2 bases");
   const bases: MapBase[] = raw.bases.map((b, team) => {
+    if (!b || typeof b !== "object") fail(id, `base ${team} is not an object`);
+    if (!Array.isArray(b.turrets)) fail(id, `base ${team} turrets is not a list`);
     if (b.turrets.length > 8) {
       fail(id, `base ${team} has ${b.turrets.length} ring turrets (max 8)`);
     }

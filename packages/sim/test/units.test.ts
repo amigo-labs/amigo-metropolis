@@ -129,6 +129,19 @@ describe("base structures", () => {
     expect(sim.ent.hp[back]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
   });
 
+  it("owned turrets never fight each other, even in mutual range", () => {
+    reset();
+    // Both rings authored 10 m apart mid-map — well inside TURRET_RANGE.
+    const sim = createSim(loadMapFromJson(warzone({ west: [[26, 30]], east: [[34, 30]] })), 42);
+    const w = sim.baseTurretEntity[0];
+    const e = sim.baseTurretEntity[1];
+    for (let t = 0; t < 300; t++) step(sim, inputs);
+    expect(sim.ent.alive[w]).toBe(1);
+    expect(sim.ent.alive[e]).toBe(1);
+    expect(sim.ent.hp[w]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
+    expect(sim.ent.hp[e]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
+  });
+
   it("the pad repairs a damaged avatar standing on it", () => {
     reset();
     const sim = openSim(); // avatar 0 spawns on its pad

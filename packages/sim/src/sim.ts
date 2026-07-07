@@ -626,7 +626,7 @@ function systemTargeting(state: SimState): void {
       const target =
         ent.ownerId[id] < 0
           ? nearestEnemyAvatar(state, id, TURRET_RANGE)
-          : nearestEnemyInRange(state, id, TURRET_RANGE);
+          : nearestEnemyInRange(state, id, TURRET_RANGE, true); // never turret-vs-turret
       if (target < 0) continue;
       ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
       if (ent.cooldownA[id] <= 0) {

@@ -212,6 +212,16 @@ describe("loadMapFromJson validation", () => {
     const badRing = tiny();
     badRing.bases[1].turrets = new Array(9).fill([1, 1]);
     expect(() => loadMapFromJson(badRing)).toThrow("max 8");
+    // Malformed base shapes must fail with actionable messages, not TypeErrors.
+    const nullBase = tiny();
+    (nullBase.bases as unknown[])[0] = null;
+    expect(() => loadMapFromJson(nullBase)).toThrow("base 0 is not an object");
+    const badTurrets = tiny();
+    (badTurrets.bases[1] as { turrets: unknown }).turrets = "nope";
+    expect(() => loadMapFromJson(badTurrets)).toThrow("base 1 turrets is not a list");
+    const badCore = tiny();
+    (badCore.bases[0] as { core: unknown }).core = undefined;
+    expect(() => loadMapFromJson(badCore)).toThrow("core is not an [x, y] pair");
   });
 });
 

@@ -73,8 +73,9 @@ export const BASE_TURRET_RESPAWN_TICKS = 1800; // 60 s (rules.md §5)
 // Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
 export const PAD_REPAIR_HP_PER_TICK = 0.5; // 15 hp/s
 
-// Console purchases. Phase 2 stub: edge-triggered interact on the pad spawns
-// the unit for free; Phase 3 replaces this with hold-to-buy and point costs.
+// Console purchases. Phase 2 stub: edge-triggered interact at the ground/air
+// console spawns the unit for free; Phase 3 replaces this with hold-to-buy
+// and point costs.
 export const CONSOLE_RADIUS = 3;
 export const JUGGERNAUT_ALIVE_LIMIT = 1; // rules.md §3
 export const FORTRESS_ALIVE_LIMIT = 1;
