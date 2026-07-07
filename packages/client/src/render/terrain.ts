@@ -2,11 +2,30 @@
 // sim samples (single source of truth, architecture.md §2). Init-time
 // allocation is fine; nothing here runs in the frame loop.
 
-import type { MapData } from "@metropolis/sim";
+import { type MapData, worldExtent } from "@metropolis/sim";
 import * as THREE from "three";
 
-const LOW_COLOR = new THREE.Color(0x1e3a46);
+const LOW_COLOR = new THREE.Color(0x2e4436);
 const HIGH_COLOR = new THREE.Color(0xc9b98f);
+const RIVERBED_COLOR = new THREE.Color(0x14303e);
+
+/** Translucent plane at the water surface so the river reads as water. */
+export function buildWaterPlane(map: MapData): THREE.Mesh {
+  const extent = worldExtent(map);
+  const geometry = new THREE.PlaneGeometry(extent, extent);
+  geometry.rotateX(-Math.PI / 2);
+  geometry.translate(extent / 2, map.waterLevel, extent / 2);
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x2f6f8f,
+    transparent: true,
+    opacity: 0.55,
+    flatShading: true,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.matrixAutoUpdate = false;
+  mesh.updateMatrix();
+  return mesh;
+}
 
 export function buildTerrainMesh(map: MapData): THREE.Mesh {
   const s = map.size;
@@ -30,7 +49,11 @@ export function buildTerrainMesh(map: MapData): THREE.Mesh {
       positions[k * 3] = i * map.cellSize; // sim x → three x
       positions[k * 3 + 1] = h; //             sim height → three y
       positions[k * 3 + 2] = j * map.cellSize; // sim y → three z
-      c.copy(LOW_COLOR).lerp(HIGH_COLOR, (h - minH) * invRange);
+      if (map.waterMask[k] === 1) {
+        c.copy(RIVERBED_COLOR);
+      } else {
+        c.copy(LOW_COLOR).lerp(HIGH_COLOR, (h - minH) * invRange);
+      }
       colors[k * 3] = c.r;
       colors[k * 3 + 1] = c.g;
       colors[k * 3 + 2] = c.b;
