@@ -45,6 +45,12 @@ export function sampleHeight(map: MapData, x: number, y: number): number {
   return lerp(h0, h1, fy);
 }
 
+/** Map registry: resolves the mapId stored in replays/net handshakes. */
+export function getMapById(id: string): MapData {
+  if (id === TEST_MAP_ID) return createTestMap();
+  throw new Error(`unknown map id: ${id}`);
+}
+
 export const TEST_MAP_ID = "test-128";
 export const TEST_MAP_SIZE = 128;
 export const TEST_MAP_CELL_SIZE = 2;

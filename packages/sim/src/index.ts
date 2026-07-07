@@ -6,6 +6,8 @@ export * from "./entities";
 export * from "./hash";
 export * from "./inputs";
 export * from "./map";
+export * from "./replay";
+export * from "./runner";
 export * from "./sim";
 export * from "./simMath";
 export * from "./version";
