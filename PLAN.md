@@ -27,15 +27,15 @@ identical hash sequence across two different browsers; zero frame-loop allocatio
 
 ## Phase 1 — Arena & Avatar
 
-- [ ] Author "District 01" map: heightfield, water mask, 2 base plots,
+- [x] Author "District 01" map: heightfield, water mask, 2 base plots,
       3 lanes (waypoint polylines), 6 neutral turret spots, 2 outpost spots
       (map format: JSON in `packages/sim/maps/`, validated by schema test)
-- [ ] Avatar entity: walker/hover modes, transform lock, slope/water rules, jump
+- [x] Avatar entity: walker/hover modes, transform lock, slope/water rules, jump
 - [ ] Hover drift handling (traction model) — tune until it *feels* right
-- [ ] Weapons: primary hitscan, heavy projectile w/ AoE, special; ammo model
-- [ ] Damage/death/respawn for Avatar; kill event + points hook (stub economy)
-- [ ] Chase camera (per-player), aim reticle
-- [ ] Greybox archetype renderer w/ instance colors replaces debug cube
+- [x] Weapons: primary hitscan, heavy projectile w/ AoE, special; ammo model
+- [x] Damage/death/respawn for Avatar; kill event + points hook (stub economy)
+- [x] Chase camera (per-player), aim reticle
+- [x] Greybox archetype renderer w/ instance colors replaces debug cube
 
 **DoD:** solo sandbox — drive both modes across the arena, shoot destructible
 test dummies, die, respawn. Golden replay #2 covers a movement+combat script.
