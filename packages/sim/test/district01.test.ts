@@ -56,6 +56,49 @@ describe("district-01 schema", () => {
     }
   });
 
+  it("base structures sit dry on their own flat plots", () => {
+    expect(map.bases.length).toBe(2);
+    for (let team = 0; team < 2; team++) {
+      const base = map.bases[team];
+      const plotC = map.basePlots[team];
+      expect(base.turrets.length).toBeGreaterThanOrEqual(4); // rules.md §5: ring of 4-6
+      expect(base.turrets.length).toBeLessThanOrEqual(6);
+      const pts = [
+        { x: base.gate.x, y: base.gate.y },
+        base.core,
+        base.groundConsole,
+        base.airConsole,
+        { x: base.pad.x, y: base.pad.y },
+        ...base.turrets,
+      ];
+      for (const p of pts) {
+        expect(Math.hypot(p.x - plotC.x, p.y - plotC.y)).toBeLessThanOrEqual(plotC.radius);
+        expect(isWater(map, p.x, p.y)).toBe(false);
+        expect(sampleHeight(map, p.x, p.y)).toBeCloseTo(2.0, 1);
+      }
+    }
+  });
+
+  it("bases are exact 180° mirrors of each other (fairness)", () => {
+    const e = worldExtent(map);
+    const [w, ea] = map.bases;
+    const mirrored = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+      expect(b.x).toBe(e - a.x);
+      expect(b.y).toBe(e - a.y);
+    };
+    mirrored(w.gate, ea.gate);
+    expect(ea.gate.radius).toBe(w.gate.radius);
+    mirrored(w.core, ea.core);
+    mirrored(w.groundConsole, ea.groundConsole);
+    mirrored(w.airConsole, ea.airConsole);
+    mirrored(w.pad, ea.pad);
+    expect(ea.pad.radius).toBe(w.pad.radius);
+    expect(ea.turrets.length).toBe(w.turrets.length);
+    for (let i = 0; i < w.turrets.length; i++) {
+      mirrored(w.turrets[i], ea.turrets[i]);
+    }
+  });
+
   it("every lane starts near base 0 and ends near base 1", () => {
     for (const lane of map.lanes) {
       const first = lane[0];
@@ -109,6 +152,24 @@ describe("loadMapFromJson validation", () => {
       { x: 0, y: 0, radius: 1 },
       { x: 1, y: 1, radius: 1 },
     ],
+    bases: [
+      {
+        gate: { x: 0, y: 1, radius: 1 },
+        core: [0, 0],
+        groundConsole: [0, 0],
+        airConsole: [0, 0],
+        pad: { x: 0, y: 0, radius: 1 },
+        turrets: [],
+      },
+      {
+        gate: { x: 1, y: 0, radius: 1 },
+        core: [1, 1],
+        groundConsole: [1, 1],
+        airConsole: [1, 1],
+        pad: { x: 1, y: 1, radius: 1 },
+        turrets: [],
+      },
+    ],
     lanes: [],
     turretSpots: [],
     outpostSpots: [],
@@ -142,6 +203,15 @@ describe("loadMapFromJson validation", () => {
     );
     expect(() => loadMapFromJson({ ...tiny(), turretSpots: [[9, 0]] })).toThrow("out of bounds");
     expect(() => loadMapFromJson({ ...tiny(), lanes: [[[0, 0]]] })).toThrow("fewer than 2");
+    expect(() => loadMapFromJson({ ...tiny(), bases: [tiny().bases[0]] })).toThrow(
+      "exactly 2 bases",
+    );
+    const badGate = tiny();
+    badGate.bases[0].gate = { x: 9, y: 0, radius: 1 };
+    expect(() => loadMapFromJson(badGate)).toThrow("gate out of bounds");
+    const badRing = tiny();
+    badRing.bases[1].turrets = new Array(9).fill([1, 1]);
+    expect(() => loadMapFromJson(badRing)).toThrow("max 8");
   });
 });
 

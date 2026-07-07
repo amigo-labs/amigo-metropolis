@@ -42,6 +42,26 @@ function arenaJson(): MapJson {
       { x: 12, y: 30, radius: 8 },
       { x: 50, y: 30, radius: 8 },
     ],
+    // Minimal bases: pads mirror the plots, gates tucked into far corners,
+    // no ring turrets — movement tests stay combat-free.
+    bases: [
+      {
+        gate: { x: 2, y: 2, radius: 2 },
+        core: [4, 30],
+        groundConsole: [12, 22],
+        airConsole: [12, 38],
+        pad: { x: 12, y: 30, radius: 8 },
+        turrets: [],
+      },
+      {
+        gate: { x: 58, y: 58, radius: 2 },
+        core: [56, 30],
+        groundConsole: [50, 22],
+        airConsole: [50, 38],
+        pad: { x: 50, y: 30, radius: 8 },
+        turrets: [],
+      },
+    ],
     lanes: [],
     turretSpots: [],
     outpostSpots: [],

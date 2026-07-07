@@ -46,6 +46,26 @@ function flatArena(dummies: number[][]): MapJson {
       { x: 20, y: 30, radius: 6 },
       { x: 30, y: 58, radius: 6 },
     ],
+    // Minimal bases: pads mirror the plots (ammo refill semantics), gates in
+    // far corners, no ring turrets — the dummy spot stays the only hostile.
+    bases: [
+      {
+        gate: { x: 2, y: 2, radius: 2 },
+        core: [14, 30],
+        groundConsole: [20, 24],
+        airConsole: [20, 36],
+        pad: { x: 20, y: 30, radius: 6 },
+        turrets: [],
+      },
+      {
+        gate: { x: 58, y: 58, radius: 2 },
+        core: [36, 58],
+        groundConsole: [30, 52],
+        airConsole: [24, 58],
+        pad: { x: 30, y: 58, radius: 6 },
+        turrets: [],
+      },
+    ],
     lanes: [],
     turretSpots: [],
     outpostSpots: [],
