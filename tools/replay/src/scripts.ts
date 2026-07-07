@@ -9,6 +9,7 @@ import {
   BUTTON_FIRE1,
   BUTTON_FIRE2,
   BUTTON_FIRE3,
+  BUTTON_INTERACT,
   BUTTON_JUMP,
   BUTTON_TRANSFORM,
   clearTickInputs,
@@ -103,7 +104,45 @@ export function combat01(tick: number, out: TickInputs): void {
   }
 }
 
+/**
+ * Golden #3 (Phase 2 DoD): a full scripted mini-match on district-01, both
+ * players buying units. Player 0 walks to its ground console, opens with a
+ * runner wave (one per lane) and sacrifices Juggernaut #1 into base East's
+ * north turret pair; a purchase-spam window then buys Juggernaut #2 the tick
+ * the one-alive limit frees up, and — with the north approach cleared and two
+ * late escort runners drawing fire — it walks the same lane into the gate.
+ * Player 1 buys two runners (they die to base West's intact ring) and idles.
+ * The final tail of the replay runs PAST the breach, pinning the post-win
+ * freeze into the golden hash sequence.
+ */
+export function match01(tick: number, out: TickInputs): void {
+  clearTickInputs(out);
+  const p0 = out.players[0];
+  const p1 = out.players[1];
+
+  // Both avatars walk from spawn to their ground console (12.65 m) and stay.
+  if (tick < 76) {
+    p0.moveX = -40;
+    p0.moveY = -120;
+    p1.moveX = 40;
+    p1.moveY = 120;
+    return;
+  }
+
+  // Player 0: a sustained runner wave, one purchase every 2 s across the
+  // round-robin lanes. Ring turrets always shoot the NEAREST target, so the
+  // stream soaks their volleys, grinds the ring down and lets trailing
+  // runners slip through — the original's tank-queue play.
+  if (tick >= 200 && tick < 3200 && tick % 60 === 20) p0.buttons = BUTTON_INTERACT;
+  // One Juggernaut rides the middle of the wave for punch and staying power.
+  if (tick === 1000) p0.buttons = BUTTON_INTERACT | BUTTON_FIRE2;
+
+  // Player 1: two runners into base West's intact ring, then idle.
+  if (tick === 200 || tick === 230) p1.buttons = BUTTON_INTERACT;
+}
+
 export const SCRIPTS: Record<string, { script: InputScript; ticks: number; mapId?: string }> = {
   "drive-01": { script: drive01, ticks: 60 * TICK_HZ },
   "combat-01": { script: combat01, ticks: 90 * TICK_HZ, mapId: "district-01" },
+  "match-01": { script: match01, ticks: 160 * TICK_HZ, mapId: "district-01" },
 };
