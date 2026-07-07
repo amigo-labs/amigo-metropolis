@@ -15,3 +15,15 @@ export const MAX_PLAYERS = 2;
 export const AVATAR_HP = 300;
 export const AVATAR_WALKER_SPEED = 5;
 export const AVATAR_HOVER_SPEED = 9;
+
+// Max HP per archetype, indexed by ARCHETYPE value (rules.md §4 placeholders;
+// turret/projectile values are stand-ins until their phases land).
+export const ARCHETYPE_MAX_HP: readonly number[] = [
+  AVATAR_HP, // AVATAR
+  60, // RUNNER
+  50, // GUARDIAN
+  600, // JUGGERNAUT
+  500, // FORTRESS
+  200, // TURRET
+  1, // PROJECTILE
+];

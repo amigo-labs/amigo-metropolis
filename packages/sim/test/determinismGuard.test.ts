@@ -19,6 +19,11 @@ const BANNED: { name: string; re: RegExp }[] = [
   { name: "DOM/engine globals", re: /\b(?:window|document|navigator|requestAnimationFrame)\b/ },
 ];
 
+/** Crude but sufficient comment stripper so prose never triggers the guard. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+}
+
 function listSources(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -38,7 +43,7 @@ describe("determinism guard", () => {
 
   for (const file of files) {
     it(`bans nondeterministic constructs in ${file.slice(SRC.length + 1)}`, () => {
-      const text = readFileSync(file, "utf8");
+      const text = stripComments(readFileSync(file, "utf8"));
       for (const rule of BANNED) {
         const match = rule.re.exec(text);
         if (match) {
