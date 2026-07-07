@@ -145,8 +145,10 @@ for (let j = 0; j < SIZE; j++) {
     h = h * (1 - 0.8 * laneW) + LANE_HEIGHT * 0.8 * laneW;
 
     // River: carve toward the bed; near a lane the bed becomes a dry ford.
+    // Bank blend spans 12 m: smoothstep peaks at 1.5× mean slope, so banks
+    // stay under ~0.32 rise/run — hover (limit 0.35) can always climb out.
     const dr = Math.abs(x - riverX(y));
-    const riverW = 1 - smoothstep(7, 15, dr);
+    const riverW = 1 - smoothstep(7, 19, dr);
     const bed = dl < 9 ? FORD_BED : RIVER_BED;
     h = h * (1 - riverW) + bed * riverW;
 
@@ -194,6 +196,7 @@ const mapJson = {
   cellSize: CELL,
   heights,
   water,
+  waterLevel: WATER_LEVEL,
   spawns: [
     { x: 30, y: 127, yaw: 0 },
     { x: 224, y: 127, yaw: Math.PI },

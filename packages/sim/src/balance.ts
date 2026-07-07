@@ -29,6 +29,21 @@ export const AVATAR_HOVER_SPEED = 9;
 export const AVATAR_WALKER_MAX_SLOPE = 0.6;
 export const AVATAR_HOVER_MAX_SLOPE = 0.35;
 
+// Transform & jump (rules.md §2).
+export const TRANSFORM_LOCK_TICKS = 15; // ~0.5 s: no move/jump/weapons
+export const AVATAR_JUMP_SPEED = 8; // m/s up → 1.6 m apex, clears 1.4 m ledges
+export const GRAVITY = 20; // m/s²
+export const HOVER_CLEARANCE = 0.8; // ride height above ground/water surface
+/**
+ * Hover traction: fraction of the velocity error closed per tick. Low values
+ * = drifty. FEEL-TUNING KNOB — needs a human pass on real hardware.
+ */
+export const HOVER_TRACTION = 0.08;
+
+// Ammo capacities (rules.md §2: heavy/special finite).
+export const AVATAR_AMMO_HEAVY = 20;
+export const AVATAR_AMMO_SPECIAL = 5;
+
 // Max HP per archetype, indexed by ARCHETYPE value (rules.md §4 placeholders;
 // turret/projectile values are stand-ins until their phases land).
 export const ARCHETYPE_MAX_HP: readonly number[] = [

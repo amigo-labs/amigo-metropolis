@@ -29,19 +29,19 @@ describe("quantizeAxis", () => {
 
 describe("sim tick loop", () => {
   it("pins the initial state hash", () => {
-    expect(hash(createSim(map, 0xdead))).toBe(890713881);
+    expect(hash(createSim(map, 0xdead))).toBe(1112561664);
   });
 
   it("pins hashes for idle and movement scripts", () => {
     const sim = createSim(map, 0xdead);
     const inputs = createTickInputs();
     for (let i = 0; i < 10; i++) step(sim, inputs);
-    expect(hash(sim)).toBe(1662003875);
+    expect(hash(sim)).toBe(3224540898);
     expect(sim.tick).toBe(10);
 
     inputs.players[0].moveX = 127;
     for (let i = 0; i < 30; i++) step(sim, inputs);
-    expect(hash(sim)).toBe(259527750);
+    expect(hash(sim)).toBe(3141401990);
     expect(sim.ent.posX[0]).toBe(132.00010681152344);
     expect(sim.ent.posY[0]).toBe(127);
     expect(sim.ent.height[0]).toBe(0.46052786707878113);
@@ -84,14 +84,14 @@ describe("sim tick loop", () => {
 });
 
 describe("writeSnapshot", () => {
-  it("writes the documented stride-10 record for the debug avatar", () => {
+  it("writes stride-10 records for both avatars in dense id order", () => {
     const sim = createSim(map, 0xdead);
     const inputs = createTickInputs();
     inputs.players[0].moveX = 127;
     for (let i = 0; i < 30; i++) step(sim, inputs);
     const out = new Float32Array(MAX_ENTITIES * SNAPSHOT_STRIDE);
     const n = writeSnapshot(sim, out);
-    expect(n).toBe(1);
+    expect(n).toBe(2);
     expect(Array.from(out.slice(0, SNAPSHOT_STRIDE))).toEqual([
       0, // id
       0, // archetype AVATAR
@@ -104,5 +104,10 @@ describe("writeSnapshot", () => {
       1, // hpFrac
       0, // aux
     ]);
+    // Player 1's avatar idles at the test map's center spawn.
+    expect(out[10]).toBe(1); // id
+    expect(out[12]).toBe(1); // team
+    expect(out[13]).toBe(127); // x
+    expect(out[17]).toBe(0); // animState: idle
   });
 });

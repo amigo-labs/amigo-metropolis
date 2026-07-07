@@ -95,6 +95,7 @@ describe("loadMapFromJson validation", () => {
     id: "t",
     size: 2,
     cellSize: 1,
+    waterLevel: 0,
     heights: [
       [0, 32],
       [-16, 64],

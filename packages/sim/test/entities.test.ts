@@ -74,7 +74,7 @@ describe("entity store", () => {
 
   it("keeps the free-list Int32Array 4-byte aligned for odd caps", () => {
     const s = createEntityStore(7);
-    expect(s.fieldBytes % 4).toBe(0);
+    expect(s.freeList.byteOffset % 4).toBe(0);
     expect(spawn(s, ARCHETYPE.RUNNER, 0)).toBe(0);
     despawn(s, 0);
     expect(s.freeList[0]).toBe(0);

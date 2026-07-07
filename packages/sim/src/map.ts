@@ -34,6 +34,8 @@ export interface MapData {
   readonly heights: Float32Array;
   /** 1 = water (hover only). Row-major like heights, sampled per vertex. */
   readonly waterMask: Uint8Array;
+  /** Water surface height in meters — hover rides on max(terrain, this). */
+  readonly waterLevel: number;
   /** Avatar spawn per team (index = team id). */
   readonly spawns: readonly MapSpawn[];
   /** Base plot per team (index = team id): flat build area, ammo stub. */
@@ -109,6 +111,8 @@ export interface MapJson {
   heights: number[][];
   /** Rows of '0'/'1' characters, 1 = water. */
   water: string[];
+  /** Water surface height in meters. */
+  waterLevel: number;
   spawns: { x: number; y: number; yaw: number }[];
   basePlots: { x: number; y: number; radius: number }[];
   /** Point lists are [x, y] pairs; length is validated at load time. */
@@ -128,6 +132,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
   if (!id || typeof id !== "string") fail("?", "missing id");
   if (!Number.isInteger(size) || size < 2 || size > 1024) fail(id, `bad size ${size}`);
   if (!(cellSize > 0)) fail(id, `bad cellSize ${cellSize}`);
+  if (typeof raw.waterLevel !== "number") fail(id, "missing waterLevel");
   if (raw.heights.length !== size) fail(id, `expected ${size} height rows`);
   if (raw.water.length !== size) fail(id, `expected ${size} water rows`);
 
@@ -174,6 +179,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     cellSize,
     heights,
     waterMask,
+    waterLevel: raw.waterLevel,
     spawns: raw.spawns.map((s) => ({ x: s.x, y: s.y, yaw: s.yaw })),
     basePlots: raw.basePlots.map((p) => ({ x: p.x, y: p.y, radius: p.radius })),
     lanes: raw.lanes.map((lane) => lane.map((p) => point(p, "lane waypoint"))),
@@ -212,6 +218,7 @@ export function createTestMap(): MapData {
     cellSize: TEST_MAP_CELL_SIZE,
     heights,
     waterMask: new Uint8Array(size * size),
+    waterLevel: -10, // below every valley: the test map has no water at all
     spawns: [
       { x: center, y: center, yaw: 0 },
       { x: center, y: center, yaw: 0 },
