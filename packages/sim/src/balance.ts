@@ -22,6 +22,13 @@ export const AVATAR_HP = 300;
 export const AVATAR_WALKER_SPEED = 5;
 export const AVATAR_HOVER_SPEED = 9;
 
+// Slope limits as rise/run. Walker handles everything except deliberate
+// jump-only ledges (rise ≈ 0.7); hover is blocked by anything steeper than a
+// river bank. Map authoring relies on these — the district-01 schema test
+// checks lane traversability against the walker limit.
+export const AVATAR_WALKER_MAX_SLOPE = 0.6;
+export const AVATAR_HOVER_MAX_SLOPE = 0.35;
+
 // Max HP per archetype, indexed by ARCHETYPE value (rules.md §4 placeholders;
 // turret/projectile values are stand-ins until their phases land).
 export const ARCHETYPE_MAX_HP: readonly number[] = [

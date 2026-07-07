@@ -35,7 +35,7 @@
   },
   "overrides": [
     {
-      "includes": ["packages/sim/src/sinTable.ts"],
+      "includes": ["packages/sim/src/sinTable.ts", "packages/sim/maps/*.json"],
       "formatter": {
         "enabled": false
       },
