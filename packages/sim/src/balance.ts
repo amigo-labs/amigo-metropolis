@@ -11,6 +11,12 @@ export const TICK_DT = 1 / TICK_HZ;
 export const MAX_ENTITIES = 1024;
 export const MAX_PLAYERS = 2;
 
+/**
+ * Local input delay in ticks (architecture.md §4): even solo play routes
+ * inputs through this queue so online (3 ticks) feels near-identical.
+ */
+export const LOCAL_INPUT_DELAY_TICKS = 2;
+
 // Avatar (rules.md §2, §4) — Phase 0 only uses walker speed for the debug cube.
 export const AVATAR_HP = 300;
 export const AVATAR_WALKER_SPEED = 5;
