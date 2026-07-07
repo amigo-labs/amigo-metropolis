@@ -38,6 +38,13 @@
       "includes": ["packages/sim/src/sinTable.ts"],
       "formatter": {
         "enabled": false
+      },
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noApproximativeNumericConstant": "off"
+          }
+        }
       }
     }
   ]
