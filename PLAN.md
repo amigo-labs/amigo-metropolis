@@ -6,19 +6,19 @@ Balance numbers come from `packages/sim/src/balance.ts`, seeded from rules.md.
 
 ## Phase 0 — Foundation: deterministic sim + render loop
 
-- [ ] Scaffold Bun workspace monorepo (`sim`, `client`, `server`, `tools`),
+- [x] Scaffold Bun workspace monorepo (`sim`, `client`, `server`, `tools`),
       Biome, strict tsconfig, `bun test` wired up
-- [ ] `sim`: SoA entity storage with free-list, fixed caps, dense id iteration
-- [ ] `sim`: `simMath.ts` — committed LUT sin/cos, vec2 helpers, mulberry32;
+- [x] `sim`: SoA entity storage with free-list, fixed caps, dense id iteration
+- [x] `sim`: `simMath.ts` — committed LUT sin/cos, vec2 helpers, mulberry32;
       unit tests pinning exact output values
-- [ ] `sim`: `createSim / step / hash / writeSnapshot` API per architecture.md,
+- [x] `sim`: `createSim / step / hash / writeSnapshot` API per architecture.md,
       tick loop with quantized `TickInputs`
-- [ ] `sim`: FNV-1a state hash + replay record/verify in `tools/replay`
-- [ ] `sim`: test map `MapData` with 128×128 heightfield + bilinear sampling
-- [ ] `client`: Three scene — heightfield mesh, orbit debug cam, one greybox
+- [x] `sim`: FNV-1a state hash + replay record/verify in `tools/replay`
+- [x] `sim`: test map `MapData` with 128×128 heightfield + bilinear sampling
+- [x] `client`: Three scene — heightfield mesh, orbit debug cam, one greybox
       cube driven by keyboard through the full input→tick→snapshot→interpolate path
-- [ ] Golden replay #1: 60 s scripted input, hash sequence committed
-- [ ] CI-style check: `bun test` runs goldens; a deliberately broken determinism
+- [x] Golden replay #1: 60 s scripted input, hash sequence committed
+- [x] CI-style check: `bun test` runs goldens; a deliberately broken determinism
       rule (temporary test) is caught by the golden
 
 **DoD:** cube drives over terrain at 60 fps with 30 Hz sim; same replay produces
@@ -27,15 +27,15 @@ identical hash sequence across two different browsers; zero frame-loop allocatio
 
 ## Phase 1 — Arena & Avatar
 
-- [ ] Author "District 01" map: heightfield, water mask, 2 base plots,
+- [x] Author "District 01" map: heightfield, water mask, 2 base plots,
       3 lanes (waypoint polylines), 6 neutral turret spots, 2 outpost spots
       (map format: JSON in `packages/sim/maps/`, validated by schema test)
-- [ ] Avatar entity: walker/hover modes, transform lock, slope/water rules, jump
+- [x] Avatar entity: walker/hover modes, transform lock, slope/water rules, jump
 - [ ] Hover drift handling (traction model) — tune until it *feels* right
-- [ ] Weapons: primary hitscan, heavy projectile w/ AoE, special; ammo model
-- [ ] Damage/death/respawn for Avatar; kill event + points hook (stub economy)
-- [ ] Chase camera (per-player), aim reticle
-- [ ] Greybox archetype renderer w/ instance colors replaces debug cube
+- [x] Weapons: primary hitscan, heavy projectile w/ AoE, special; ammo model
+- [x] Damage/death/respawn for Avatar; kill event + points hook (stub economy)
+- [x] Chase camera (per-player), aim reticle
+- [x] Greybox archetype renderer w/ instance colors replaces debug cube
 
 **DoD:** solo sandbox — drive both modes across the arena, shoot destructible
 test dummies, die, respawn. Golden replay #2 covers a movement+combat script.

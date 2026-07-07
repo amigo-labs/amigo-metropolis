@@ -1,0 +1,22 @@
+{
+  "name": "amigo-metropolis",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "tools/*"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "lint": "biome check .",
+    "typecheck": "bun run --filter '*' typecheck",
+    "dev": "bun run --filter @metropolis/client dev",
+    "replay:verify": "bun run tools/replay/src/cli.ts verify-goldens",
+    "replay:verify:browser": "bun run tools/replay/src/browserVerify.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.2",
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}
