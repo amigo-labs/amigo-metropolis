@@ -11,6 +11,8 @@ export const EV_EXPLOSION = 2; // a=x*16, b=y*16 (quantized), c=weapon slot
 export const EV_HIT = 3; //       a=target id, b=attacker player, c=damage
 export const EV_DEATH = 4; //     a=victim id, b=killer player (-1 none), c=archetype
 export const EV_RESPAWN = 5; //   a=entity id, b=player
+export const EV_PURCHASE = 6; //  a=entity id, b=player, c=archetype
+export const EV_BREACH = 7; //    a=unit id, b=winning team
 
 export interface EventBuffer {
   count: number;

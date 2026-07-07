@@ -5,4 +5,7 @@
 // v3: Phase 1 combat — weapons, projectiles, damage/death/respawn, sandbox
 //     dummy turrets, points stub (hash covers dummy spot state).
 // v4: hover traction split into accel/brake/coast (stick-dependent grip).
-export const SIM_VERSION = 4;
+// v5: Phase 2 — base ring turrets (60 s respawn), ammo/repair pad, console
+//     unit purchases, unit movement/targeting, win check; dummies neutral;
+//     hash covers winner, lane counters and ring turret slots.
+export const SIM_VERSION = 5;

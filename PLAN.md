@@ -43,13 +43,13 @@ test dummies, die, respawn. Golden replay #2 covers a movement+combat script.
 
 ## Phase 2 — Bases, units, lanes
 
-- [ ] Base structure: gate trigger volume, core (indestructible), turret ring
+- [x] Base structure: gate trigger volume, core (indestructible), turret ring
       with 60 s respawn, ground/air consoles, ammo/repair pad
-- [ ] Runner: spawn → lane-follow → engage-in-path → gate breach detection
-- [ ] Guardian: base patrol mode + outpost assault mode (spawn-site switch)
-- [ ] Juggernaut & Fortress (limits: 1 alive each)
-- [ ] Radial separation between friendly ground units
-- [ ] Win check system + match end state
+- [x] Runner: spawn → lane-follow → engage-in-path → gate breach detection
+- [x] Guardian: base patrol mode + outpost assault mode (spawn-site switch)
+- [x] Juggernaut & Fortress (limits: 1 alive each)
+- [x] Radial separation between friendly ground units
+- [x] Win check system + match end state
 - [ ] Event ring buffer → minimal HUD (points, unit counts) + audio stubs
 
 **DoD:** scripted match: spawn Runners on both sides, one side breaches, match

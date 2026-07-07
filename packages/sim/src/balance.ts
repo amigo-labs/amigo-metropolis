@@ -63,11 +63,49 @@ export const SPECIAL_SPEED = 12;
 export const SPECIAL_TTL_TICKS = 90;
 export const SPECIAL_AOE_RADIUS = 4;
 
-// Sandbox dummy turrets (Phase 1 targets; real turrets rebalance in Phase 2).
+// Turrets (sandbox dummies AND base ring turrets share combat stats for now).
 export const TURRET_RANGE = 28;
 export const TURRET_DAMAGE = 15;
 export const TURRET_COOLDOWN_TICKS = 20;
 export const DUMMY_RESPAWN_TICKS = 450; // 15 s
+export const BASE_TURRET_RESPAWN_TICKS = 1800; // 60 s (rules.md §5)
+
+// Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
+export const PAD_REPAIR_HP_PER_TICK = 0.5; // 15 hp/s
+
+// Console purchases. Phase 2 stub: edge-triggered interact on the pad spawns
+// the unit for free; Phase 3 replaces this with hold-to-buy and point costs.
+export const CONSOLE_RADIUS = 3;
+export const JUGGERNAUT_ALIVE_LIMIT = 1; // rules.md §3
+export const FORTRESS_ALIVE_LIMIT = 1;
+
+// Units (rules.md §4 placeholder stat table; dps = damage / cooldown).
+export const RUNNER_SPEED = 4;
+export const RUNNER_DAMAGE = 4;
+export const RUNNER_COOLDOWN_TICKS = 15; // 8 dps
+export const RUNNER_RANGE = 14;
+export const GUARDIAN_SPEED = 7;
+export const GUARDIAN_DAMAGE = 5;
+export const GUARDIAN_COOLDOWN_TICKS = 15; // 10 dps
+export const GUARDIAN_RANGE = 18;
+export const GUARDIAN_PATROL_RADIUS = 30;
+export const GUARDIAN_ASSAULT_STANDOFF = 14; // hold-off distance from the enemy core
+export const JUGGERNAUT_SPEED = 2.5;
+export const JUGGERNAUT_DAMAGE = 10;
+export const JUGGERNAUT_COOLDOWN_TICKS = 15; // 20 dps
+export const JUGGERNAUT_RANGE = 16;
+export const FORTRESS_SPEED = 6;
+export const FORTRESS_DAMAGE = 25;
+export const FORTRESS_COOLDOWN_TICKS = 30; // 25 dps
+export const FORTRESS_RANGE = 30;
+export const FORTRESS_PATROL_RADIUS = 45;
+
+// Unit movement shared knobs.
+export const AIR_ALTITUDE = 6; // flyers ride this high above ground/water
+export const WAYPOINT_RADIUS = 3; // lane waypoint advance distance
+export const ORBIT_ANGULAR_SPEED = 0.6; // rad/s patrol orbit
+export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart
+export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tick
 
 // Death & respawn (rules.md §2: 8 s).
 export const RESPAWN_TICKS = 240;
@@ -76,6 +114,36 @@ export const RESPAWN_TICKS = 240;
 export const POINTS_KILL_AVATAR = 10;
 export const POINTS_KILL_TURRET = 2;
 export const POINTS_KILL_UNIT = 1;
+
+// Unit combat stats indexed by ARCHETYPE value (avatar/turret/projectile
+// slots unused — those fight through their own constants above).
+export const UNIT_RANGE: readonly number[] = [
+  0, // AVATAR
+  RUNNER_RANGE,
+  GUARDIAN_RANGE,
+  JUGGERNAUT_RANGE,
+  FORTRESS_RANGE,
+  0, // TURRET
+  0, // PROJECTILE
+];
+export const UNIT_DAMAGE: readonly number[] = [
+  0,
+  RUNNER_DAMAGE,
+  GUARDIAN_DAMAGE,
+  JUGGERNAUT_DAMAGE,
+  FORTRESS_DAMAGE,
+  0,
+  0,
+];
+export const UNIT_FIRE_COOLDOWN_TICKS: readonly number[] = [
+  0,
+  RUNNER_COOLDOWN_TICKS,
+  GUARDIAN_COOLDOWN_TICKS,
+  JUGGERNAUT_COOLDOWN_TICKS,
+  FORTRESS_COOLDOWN_TICKS,
+  0,
+  0,
+];
 
 /** 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP. */
 export const ARCHETYPE_RADIUS: readonly number[] = [

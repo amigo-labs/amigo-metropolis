@@ -10,7 +10,7 @@
 // dummies), projectiles, damage/death and (re)spawning; later phases fill in
 // the rest WITHOUT reordering.
 
-import { ARCHETYPE } from "./archetypes";
+import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
   ARCHETYPE_MAX_HP,
   ARCHETYPE_RADIUS,
@@ -22,7 +22,10 @@ import {
   AVATAR_JUMP_SPEED,
   AVATAR_WALKER_MAX_SLOPE,
   AVATAR_WALKER_SPEED,
+  BASE_TURRET_RESPAWN_TICKS,
+  CONSOLE_RADIUS,
   DUMMY_RESPAWN_TICKS,
+  FORTRESS_ALIVE_LIMIT,
   GRAVITY,
   HEAVY_AOE_RADIUS,
   HEAVY_COOLDOWN_TICKS,
@@ -33,7 +36,9 @@ import {
   HOVER_TRACTION_ACCEL,
   HOVER_TRACTION_BRAKE,
   HOVER_TRACTION_COAST,
+  JUGGERNAUT_ALIVE_LIMIT,
   MAX_PLAYERS,
+  PAD_REPAIR_HP_PER_TICK,
   POINTS_KILL_AVATAR,
   POINTS_KILL_TURRET,
   POINTS_KILL_UNIT,
@@ -51,14 +56,19 @@ import {
   TURRET_COOLDOWN_TICKS,
   TURRET_DAMAGE,
   TURRET_RANGE,
+  UNIT_DAMAGE,
+  UNIT_FIRE_COOLDOWN_TICKS,
+  UNIT_RANGE,
 } from "./balance";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
 import {
   clearEvents,
   createEventBuffer,
+  EV_BREACH,
   EV_DEATH,
   EV_EXPLOSION,
   EV_HIT,
+  EV_PURCHASE,
   EV_RESPAWN,
   EV_SHOT,
   type EventBuffer,
@@ -69,12 +79,21 @@ import {
   BUTTON_FIRE1,
   BUTTON_FIRE2,
   BUTTON_FIRE3,
+  BUTTON_INTERACT,
   BUTTON_JUMP,
   BUTTON_TRANSFORM,
   type TickInputs,
 } from "./inputs";
 import { isWater, type MapData, sampleHeight, worldExtent } from "./map";
 import { atan2Poly, cosLUT, sinLUT } from "./simMath";
+import {
+  isGroundUnit,
+  isUnit,
+  nearestEnemyInRange,
+  snapUnitHeight,
+  systemUnitMovement,
+  UNIT_MODE_PATROL,
+} from "./units";
 
 // Avatar modes (EntityStore.mode).
 export const MODE_WALKER = 0;
@@ -95,6 +114,8 @@ export interface SimState {
   tick: number;
   /** mulberry32 state word. */
   prng: number;
+  /** Winning team, -1 while the match runs. Set once; the sim then freezes. */
+  winner: number;
   readonly map: MapData;
   readonly ent: EntityStore;
   /** Entity id of each player's avatar, -1 while dead/none. */
@@ -105,9 +126,14 @@ export interface SimState {
   readonly lastButtons: Uint8Array;
   /** Points ledger per player (stub economy until Phase 3). */
   readonly points: Uint32Array;
+  /** Next lane index per player (ground-unit round-robin). */
+  readonly laneCounter: Uint8Array;
   /** Sandbox dummy turrets: entity id (-1 dead) + respawn countdown per spot. */
   readonly dummyEntity: Int32Array;
   readonly dummyRespawn: Int32Array;
+  /** Base ring turrets, slots flattened base 0 then base 1 (rules.md §5). */
+  readonly baseTurretEntity: Int32Array;
+  readonly baseTurretRespawn: Int32Array;
   /** Per-tick transient events (NOT hashed). */
   readonly events: EventBuffer;
 }
@@ -133,11 +159,15 @@ export function spawnAvatar(state: SimState, player: number): number {
   return id;
 }
 
-/** Spawns the sandbox dummy turret for map dummy spot `k` (team 1). */
+/**
+ * Spawns the sandbox dummy turret for map dummy spot `k`. Dummies are NEUTRAL
+ * (they only ever engage avatars — Phase 1 target-practice behavior) so units
+ * neither engage them nor get shredded by them.
+ */
 function spawnDummy(state: SimState, k: number): number {
   const ent = state.ent;
   const spot = state.map.dummySpots[k];
-  const id = spawn(ent, ARCHETYPE.TURRET, 1);
+  const id = spawn(ent, ARCHETYPE.TURRET, TEAM_NEUTRAL);
   if (id < 0) return -1;
   ent.posX[id] = spot.x;
   ent.posY[id] = spot.y;
@@ -148,22 +178,97 @@ function spawnDummy(state: SimState, k: number): number {
   return id;
 }
 
+/** Resolves flattened ring slot `k` to its map spot (base 0 slots first). */
+function baseTurretSpot(map: MapData, k: number): { team: number; x: number; y: number } {
+  const n0 = map.bases[0].turrets.length;
+  const team = k < n0 ? 0 : 1;
+  const spot = map.bases[team].turrets[k < n0 ? k : k - n0];
+  return { team, x: spot.x, y: spot.y };
+}
+
+/** Spawns the base ring turret for slot `k`; owned, so it defends its base. */
+function spawnBaseTurret(state: SimState, k: number): number {
+  const ent = state.ent;
+  const { team, x, y } = baseTurretSpot(state.map, k);
+  const id = spawn(ent, ARCHETYPE.TURRET, team);
+  if (id < 0) return -1;
+  ent.posX[id] = x;
+  ent.posY[id] = y;
+  ent.height[id] = sampleHeight(state.map, x, y);
+  ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
+  ent.ownerId[id] = team;
+  state.baseTurretEntity[k] = id;
+  return id;
+}
+
+/**
+ * Spawns a combat unit for `team` at (x, y). Ground units pick their lane via
+ * the per-player round-robin counter; flyers start their patrol orbit at the
+ * bearing from their anchor. `mode` is the Guardian spawn-site switch
+ * (UNIT_MODE_PATROL at a base, UNIT_MODE_ASSAULT at an outpost — Phase 3).
+ */
+export function spawnUnit(
+  state: SimState,
+  archetype: number,
+  team: number,
+  x: number,
+  y: number,
+  mode: number = UNIT_MODE_PATROL,
+): number {
+  const ent = state.ent;
+  const id = spawn(ent, archetype as 1 | 2 | 3 | 4, team);
+  if (id < 0) return -1;
+  ent.posX[id] = x;
+  ent.posY[id] = y;
+  ent.hp[id] = ARCHETYPE_MAX_HP[archetype];
+  ent.ownerId[id] = team;
+  ent.mode[id] = mode;
+  const gate = state.map.bases[team ^ 1].gate;
+  ent.yaw[id] = atan2Poly(gate.y - y, gate.x - x);
+  if (isGroundUnit(archetype)) {
+    const lanes = state.map.lanes;
+    if (lanes.length > 0) {
+      const lane = state.laneCounter[team] % lanes.length;
+      state.laneCounter[team] = (lane + 1) % lanes.length;
+      ent.timerA[id] = lane;
+      ent.timerB[id] = team === 0 ? 0 : lanes[lane].length - 1;
+    } else {
+      ent.timerA[id] = 0;
+      ent.timerB[id] = -1; // no lanes on this map: beeline the gate
+    }
+    snapUnitHeight(state, id, false);
+  } else {
+    const core = state.map.bases[team].core;
+    ent.timerA[id] = atan2Poly(y - core.y, x - core.x);
+    snapUnitHeight(state, id, true);
+  }
+  return id;
+}
+
 export function createSim(map: MapData, seed: number): SimState {
+  const ringSlots = map.bases[0].turrets.length + map.bases[1].turrets.length;
   const state: SimState = {
     tick: 0,
     prng: seed | 0,
+    winner: -1,
     map,
     ent: createEntityStore(),
     avatarId: new Int32Array(MAX_PLAYERS).fill(-1),
     respawnTimer: new Int32Array(MAX_PLAYERS),
     lastButtons: new Uint8Array(MAX_PLAYERS),
     points: new Uint32Array(MAX_PLAYERS),
+    laneCounter: new Uint8Array(MAX_PLAYERS),
     dummyEntity: new Int32Array(map.dummySpots.length).fill(-1),
     dummyRespawn: new Int32Array(map.dummySpots.length),
+    baseTurretEntity: new Int32Array(ringSlots).fill(-1),
+    baseTurretRespawn: new Int32Array(ringSlots),
     events: createEventBuffer(),
   };
   for (let p = 0; p < MAX_PLAYERS; p++) {
     spawnAvatar(state, p);
+  }
+  for (let k = 0; k < ringSlots; k++) {
+    spawnBaseTurret(state, k);
   }
   for (let k = 0; k < map.dummySpots.length; k++) {
     spawnDummy(state, k);
@@ -323,7 +428,61 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
 
     // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub.
     avatarWeapons(state, p, id, input.buttons, nowLocked);
+    // Console purchases (Phase 2 stub: edge-triggered and free; Phase 3
+    // replaces this with hold-to-buy against the points ledger).
+    if ((pressed & BUTTON_INTERACT) !== 0) {
+      consolePurchase(state, p, id, input.buttons);
+    }
   }
+}
+
+/**
+ * Interact at the own base's ground/air console spawns a unit there. Holding
+ * FIRE2 upgrades the order to the heavy variant (Juggernaut/Fortress), which
+ * are capped at one alive each (rules.md §3).
+ */
+function consolePurchase(state: SimState, player: number, id: number, buttons: number): void {
+  const ent = state.ent;
+  const base = state.map.bases[player];
+  const heavy = (buttons & BUTTON_FIRE2) !== 0;
+  const x = ent.posX[id];
+  const y = ent.posY[id];
+  const r2 = CONSOLE_RADIUS * CONSOLE_RADIUS;
+  let archetype = -1;
+  let cx = 0;
+  let cy = 0;
+  const gdx = x - base.groundConsole.x;
+  const gdy = y - base.groundConsole.y;
+  const adx = x - base.airConsole.x;
+  const ady = y - base.airConsole.y;
+  if (gdx * gdx + gdy * gdy <= r2) {
+    archetype = heavy ? ARCHETYPE.JUGGERNAUT : ARCHETYPE.RUNNER;
+    cx = base.groundConsole.x;
+    cy = base.groundConsole.y;
+  } else if (adx * adx + ady * ady <= r2) {
+    archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
+    cx = base.airConsole.x;
+    cy = base.airConsole.y;
+  }
+  if (archetype < 0) return;
+  if (archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS) {
+    const limit =
+      archetype === ARCHETYPE.JUGGERNAUT ? JUGGERNAUT_ALIVE_LIMIT : FORTRESS_ALIVE_LIMIT;
+    if (countAliveOfArchetype(state, archetype, player) >= limit) return;
+  }
+  const uid = spawnUnit(state, archetype, player, cx, cy, UNIT_MODE_PATROL);
+  if (uid >= 0) {
+    pushEvent(state.events, EV_PURCHASE, uid, player, archetype);
+  }
+}
+
+function countAliveOfArchetype(state: SimState, archetype: number, team: number): number {
+  const ent = state.ent;
+  let n = 0;
+  for (let id = 0; id < ent.high; id++) {
+    if (ent.alive[id] && ent.archetype[id] === archetype && ent.team[id] === team) n += 1;
+  }
+  return n;
 }
 
 /**
@@ -350,14 +509,17 @@ function avatarWeapons(
   if (ent.cooldownB[id] > 0) ent.cooldownB[id] -= 1;
   if (ent.cooldownC[id] > 0) ent.cooldownC[id] -= 1;
 
-  // Ammo/repair stub until base pads exist (Phase 2): standing on the own
-  // base plot refills heavy/special.
-  const plot = state.map.basePlots[player];
-  const pdx = ent.posX[id] - plot.x;
-  const pdy = ent.posY[id] - plot.y;
-  if (pdx * pdx + pdy * pdy <= plot.radius * plot.radius) {
+  // Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
+  const pad = state.map.bases[player].pad;
+  const pdx = ent.posX[id] - pad.x;
+  const pdy = ent.posY[id] - pad.y;
+  if (pdx * pdx + pdy * pdy <= pad.radius * pad.radius) {
     ent.ammoA[id] = AVATAR_AMMO_HEAVY;
     ent.ammoB[id] = AVATAR_AMMO_SPECIAL;
+    if (ent.hp[id] < AVATAR_HP) {
+      ent.hp[id] += PAD_REPAIR_HP_PER_TICK;
+      if (ent.hp[id] > AVATAR_HP) ent.hp[id] = AVATAR_HP;
+    }
   }
 
   if (locked) return;
@@ -447,37 +609,64 @@ function applyDamage(state: SimState, target: number, damage: number, attacker: 
   pushEvent(state.events, EV_HIT, target, attacker, damage);
 }
 
-/** Sandbox dummy turrets: face and shoot the nearest enemy avatar in range. */
+/**
+ * Turrets and units acquire the nearest hostile and fire. All non-avatar
+ * shots are instant hits at this stage (Phase 1/2 simplicity — the Fortress'
+ * homing projectiles are flavor for a later pass). Owned turrets defend
+ * against avatars AND units; neutral dummies keep their Phase 1 behavior and
+ * only ever engage avatars. Turrets never target turrets.
+ */
 function systemTargeting(state: SimState): void {
   const ent = state.ent;
   for (let id = 0; id < ent.high; id++) {
-    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.TURRET) continue;
-    if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
-    let bestD2 = TURRET_RANGE * TURRET_RANGE;
-    let bestId = -1;
-    for (let p = 0; p < MAX_PLAYERS; p++) {
-      const a = state.avatarId[p];
-      if (a < 0 || ent.team[a] === ent.team[id]) continue;
-      const dx = ent.posX[a] - ent.posX[id];
-      const dy = ent.posY[a] - ent.posY[id];
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bestD2) {
-        bestD2 = d2;
-        bestId = a;
+    if (!ent.alive[id]) continue;
+    const archetype = ent.archetype[id];
+    if (archetype === ARCHETYPE.TURRET) {
+      if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
+      const target =
+        ent.ownerId[id] < 0
+          ? nearestEnemyAvatar(state, id, TURRET_RANGE)
+          : nearestEnemyInRange(state, id, TURRET_RANGE);
+      if (target < 0) continue;
+      ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
+      if (ent.cooldownA[id] <= 0) {
+        ent.cooldownA[id] = TURRET_COOLDOWN_TICKS;
+        pushEvent(state.events, EV_SHOT, id, 0, 0);
+        // ownerId is the owning player for base turrets (kill credit) and
+        // -1 for dummies (no credit) — exactly the Phase 1 rule.
+        applyDamage(state, target, TURRET_DAMAGE, ent.ownerId[id]);
+      }
+    } else if (isUnit(archetype)) {
+      if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
+      const target = nearestEnemyInRange(state, id, UNIT_RANGE[archetype]);
+      if (target < 0) continue;
+      ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
+      if (ent.cooldownA[id] <= 0) {
+        ent.cooldownA[id] = UNIT_FIRE_COOLDOWN_TICKS[archetype];
+        pushEvent(state.events, EV_SHOT, id, 0, 0);
+        applyDamage(state, target, UNIT_DAMAGE[archetype], ent.ownerId[id]);
       }
     }
-    if (bestId < 0) continue;
-    const dx = ent.posX[bestId] - ent.posX[id];
-    const dy = ent.posY[bestId] - ent.posY[id];
-    ent.yaw[id] = atan2Poly(dy, dx);
-    if (ent.cooldownA[id] <= 0) {
-      ent.cooldownA[id] = TURRET_COOLDOWN_TICKS;
-      pushEvent(state.events, EV_SHOT, id, 0, 0);
-      // Turret shots always connect at this range (Phase 1 simplicity);
-      // attacker -1 = no player gets kill credit for dummy fire.
-      applyDamage(state, bestId, TURRET_DAMAGE, -1);
+  }
+}
+
+/** Phase 1 dummy-turret targeting: nearest enemy avatar in range, or -1. */
+function nearestEnemyAvatar(state: SimState, id: number, range: number): number {
+  const ent = state.ent;
+  let bestD2 = range * range;
+  let bestId = -1;
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const a = state.avatarId[p];
+    if (a < 0 || ent.team[a] === ent.team[id]) continue;
+    const dx = ent.posX[a] - ent.posX[id];
+    const dy = ent.posY[a] - ent.posY[id];
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      bestId = a;
     }
   }
+  return bestId;
 }
 
 /** Projectiles: fly, expire, explode on contact or terrain. */
@@ -560,11 +749,22 @@ function systemDamageDeath(state: SimState): void {
       state.avatarId[player] = -1;
       state.respawnTimer[player] = RESPAWN_TICKS;
     } else if (archetype === ARCHETYPE.TURRET) {
+      let slotted = false;
       for (let k = 0; k < state.dummyEntity.length; k++) {
         if (state.dummyEntity[k] === id) {
           state.dummyEntity[k] = -1;
           state.dummyRespawn[k] = DUMMY_RESPAWN_TICKS;
+          slotted = true;
           break;
+        }
+      }
+      if (!slotted) {
+        for (let k = 0; k < state.baseTurretEntity.length; k++) {
+          if (state.baseTurretEntity[k] === id) {
+            state.baseTurretEntity[k] = -1;
+            state.baseTurretRespawn[k] = BASE_TURRET_RESPAWN_TICKS;
+            break;
+          }
         }
       }
     }
@@ -592,20 +792,55 @@ function systemSpawning(state: SimState): void {
       }
     }
   }
+  for (let k = 0; k < state.baseTurretRespawn.length; k++) {
+    if (state.baseTurretRespawn[k] > 0) {
+      state.baseTurretRespawn[k] -= 1;
+      if (state.baseTurretRespawn[k] === 0) {
+        const id = spawnBaseTurret(state, k);
+        if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, -1, 0);
+      }
+    }
+  }
+}
+
+/**
+ * Win check (rules.md §1): a friendly GROUND unit physically inside the
+ * enemy gate volume ends the match — nothing else does. Lowest entity id
+ * wins a same-tick tie deterministically.
+ */
+function systemWinCheck(state: SimState): void {
+  const ent = state.ent;
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id] || !isGroundUnit(ent.archetype[id])) continue;
+    const team = ent.team[id];
+    if (team !== 0 && team !== 1) continue;
+    const gate = state.map.bases[team ^ 1].gate;
+    const dx = ent.posX[id] - gate.x;
+    const dy = ent.posY[id] - gate.y;
+    if (dx * dx + dy * dy <= gate.radius * gate.radius) {
+      state.winner = team;
+      pushEvent(state.events, EV_BREACH, id, team, 0);
+      return;
+    }
+  }
 }
 
 /** Advances the sim by exactly one tick. Synchronous, allocation-free. */
 export function step(state: SimState, inputs: TickInputs): void {
   clearEvents(state.events);
-  systemAvatarMovement(state, inputs);
-  // systemLaneFollowing(state)   — Phase 2
-  systemTargeting(state);
-  systemProjectiles(state);
-  systemDamageDeath(state);
-  // systemCapture(state)         — Phase 3
-  // systemEconomy(state)         — Phase 3
-  systemSpawning(state);
-  // systemWinCheck(state)        — Phase 2
+  // A breached match freezes: the tick (and thus the hash stream) keeps
+  // advancing for replays/netcode, but no gameplay system runs anymore.
+  if (state.winner === -1) {
+    systemAvatarMovement(state, inputs);
+    systemUnitMovement(state);
+    systemTargeting(state);
+    systemProjectiles(state);
+    systemDamageDeath(state);
+    // systemCapture(state)         — Phase 3
+    // systemEconomy(state)         — Phase 3
+    systemSpawning(state);
+    systemWinCheck(state);
+  }
   state.tick += 1;
 }
 
@@ -620,6 +855,7 @@ export function hash(state: SimState): number {
   let h = fnv1aInit();
   h = fnv1aU32(h, state.tick >>> 0);
   h = fnv1aU32(h, state.prng >>> 0);
+  h = fnv1aU32(h, state.winner >>> 0);
   h = fnv1aU32(h, ent.high >>> 0);
   h = fnv1aU32(h, ent.freeCount >>> 0);
   h = fnv1aBytes(h, ent.bytes, 0, ent.fieldBytes);
@@ -631,10 +867,15 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.respawnTimer[p] >>> 0);
     h = fnv1aU32(h, state.lastButtons[p]);
     h = fnv1aU32(h, state.points[p] >>> 0);
+    h = fnv1aU32(h, state.laneCounter[p]);
   }
   for (let k = 0; k < state.dummyEntity.length; k++) {
     h = fnv1aU32(h, state.dummyEntity[k] >>> 0);
     h = fnv1aU32(h, state.dummyRespawn[k] >>> 0);
+  }
+  for (let k = 0; k < state.baseTurretEntity.length; k++) {
+    h = fnv1aU32(h, state.baseTurretEntity[k] >>> 0);
+    h = fnv1aU32(h, state.baseTurretRespawn[k] >>> 0);
   }
   return h;
 }
