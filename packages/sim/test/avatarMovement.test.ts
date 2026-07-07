@@ -42,6 +42,26 @@ function arenaJson(): MapJson {
       { x: 12, y: 30, radius: 8 },
       { x: 50, y: 30, radius: 8 },
     ],
+    // Minimal bases: pads mirror the plots, gates tucked into far corners,
+    // no ring turrets — movement tests stay combat-free.
+    bases: [
+      {
+        gate: { x: 2, y: 2, radius: 2 },
+        core: [4, 30],
+        groundConsole: [12, 22],
+        airConsole: [12, 38],
+        pad: { x: 12, y: 30, radius: 8 },
+        turrets: [],
+      },
+      {
+        gate: { x: 58, y: 58, radius: 2 },
+        core: [56, 30],
+        groundConsole: [50, 22],
+        airConsole: [50, 38],
+        pad: { x: 50, y: 30, radius: 8 },
+        turrets: [],
+      },
+    ],
     lanes: [],
     turretSpots: [],
     outpostSpots: [],
@@ -204,6 +224,33 @@ describe("hover drift", () => {
     p0.moveY = 0;
     step(sim, inputs);
     expect(sim.ent.velY[0]).toBeGreaterThan(AVATAR_HOVER_SPEED * 0.8);
+  });
+
+  it("counter-steer kills drift far faster than coasting", () => {
+    // Two identical hovers at full speed north; one releases the stick, the
+    // other counter-steers. The brake must bite hard while the coast glides.
+    const half = AVATAR_HOVER_SPEED * 0.5;
+    const ticksToHalfSpeed = (steer: number): number => {
+      reset();
+      const sim = freshSim();
+      p0.buttons = BUTTON_TRANSFORM;
+      step(sim, inputs);
+      p0.buttons = 0;
+      p0.moveY = 127;
+      for (let i = 0; i < 150; i++) step(sim, inputs); // reach top speed
+      expect(sim.ent.velY[0]).toBeGreaterThan(AVATAR_HOVER_SPEED * 0.95);
+      p0.moveY = steer;
+      for (let t = 1; t <= 120; t++) {
+        step(sim, inputs);
+        if (sim.ent.velY[0] < half) return t;
+      }
+      return 121;
+    };
+    const brakeTicks = ticksToHalfSpeed(-127);
+    const coastTicks = ticksToHalfSpeed(0);
+    expect(brakeTicks).toBeLessThan(8); // counter-steer stops the slide fast
+    expect(coastTicks).toBeGreaterThan(20); // released stick keeps gliding
+    expect(brakeTicks * 4).toBeLessThan(coastTicks);
   });
 
   it("hover cannot climb the steep wall", () => {

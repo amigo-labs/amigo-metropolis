@@ -11,4 +11,5 @@ export * from "./replay";
 export * from "./runner";
 export * from "./sim";
 export * from "./simMath";
+export * from "./units";
 export * from "./version";

@@ -31,7 +31,8 @@ identical hash sequence across two different browsers; zero frame-loop allocatio
       3 lanes (waypoint polylines), 6 neutral turret spots, 2 outpost spots
       (map format: JSON in `packages/sim/maps/`, validated by schema test)
 - [x] Avatar entity: walker/hover modes, transform lock, slope/water rules, jump
-- [ ] Hover drift handling (traction model) — tune until it *feels* right
+- [x] Hover drift handling (traction model) — tune until it *feels* right
+      (accel/brake/coast knobs in balance.ts; defaults await a hardware feel pass)
 - [x] Weapons: primary hitscan, heavy projectile w/ AoE, special; ammo model
 - [x] Damage/death/respawn for Avatar; kill event + points hook (stub economy)
 - [x] Chase camera (per-player), aim reticle
@@ -42,27 +43,28 @@ test dummies, die, respawn. Golden replay #2 covers a movement+combat script.
 
 ## Phase 2 — Bases, units, lanes
 
-- [ ] Base structure: gate trigger volume, core (indestructible), turret ring
+- [x] Base structure: gate trigger volume, core (indestructible), turret ring
       with 60 s respawn, ground/air consoles, ammo/repair pad
-- [ ] Runner: spawn → lane-follow → engage-in-path → gate breach detection
-- [ ] Guardian: base patrol mode + outpost assault mode (spawn-site switch)
-- [ ] Juggernaut & Fortress (limits: 1 alive each)
-- [ ] Radial separation between friendly ground units
-- [ ] Win check system + match end state
-- [ ] Event ring buffer → minimal HUD (points, unit counts) + audio stubs
+- [x] Runner: spawn → lane-follow → engage-in-path → gate breach detection
+- [x] Guardian: base patrol mode + outpost assault mode (spawn-site switch)
+- [x] Juggernaut & Fortress (limits: 1 alive each)
+- [x] Radial separation between friendly ground units
+- [x] Win check system + match end state
+- [x] Event ring buffer → minimal HUD (points, unit counts) + audio stubs
 
 **DoD:** scripted match: spawn Runners on both sides, one side breaches, match
 ends correctly. Golden replay #3 = full mini-match, breach on a known tick.
 
 ## Phase 3 — Economy & capture
 
-- [ ] Points ledger per player: all earn events from rules.md §3 + trickle
-- [ ] Console purchase interaction (pad presence + hold-to-buy, per-unit hold)
-- [ ] Neutral turret capture (3 s uncontested radius), ownership, husk/respawn
-- [ ] Outpost claim (30 pts at console), forward spawning at 2× cost,
+- [x] Points ledger per player: all earn events from rules.md §3 + trickle
+- [x] Console purchase interaction (pad presence + hold-to-buy, per-unit hold)
+- [x] Neutral turret capture (3 s uncontested radius), ownership, husk/respawn
+- [x] Outpost claim (30 pts at console), forward spawning at 2× cost,
       console destruction reverts to neutral
-- [ ] HUD: own+enemy points (open info), buy prompts, capture progress
-- [ ] Balance pass #1 against rules.md placeholder table
+- [x] HUD: own+enemy points (open info), buy prompts, capture progress
+- [x] Balance pass #1 against rules.md placeholder table
+      (constants verified 1:1 vs rules.md §3/§4/§5; play-tuning stays ongoing)
 
 **DoD:** full rules of the game playable by two local debug inputs; a human can
 play a complete match against a scripted opponent doing fixed build orders.

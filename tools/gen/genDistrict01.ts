@@ -3,6 +3,10 @@
 // Like the sin table, this runs at AUTHORING time only: the committed JSON is
 // the deterministic artifact (heights are integers in 1/32 m units, parsed
 // back to bit-exact floats), so this generator may use any Math.* it likes.
+// CONSEQUENCE: rerunning it on a different engine/version yields slightly
+// different heights — a full regen is a deliberate map change (heights-pin
+// test + every district golden must be regenerated with a SIM_VERSION bump).
+// For additive feature edits, patch the committed JSON instead.
 //
 // Layout (254 m square, 180°-rotationally symmetric for fairness):
 //   - two flat base plots west/east, avatar spawns on them
@@ -29,6 +33,35 @@ const BASE_W = { x: 26, y: 127, radius: 20 };
 const BASE_E = { x: 228, y: 127, radius: 20 };
 
 type P = [number, number];
+
+// Base structures (rules.md §5), authored for team 0 (west) and mirrored
+// 180° for team 1. Everything sits on the flat plot (≤ 20 m from center);
+// the gate faces the arena at the plot edge, ring turrets guard the north
+// and south approaches without blocking the center lane.
+const BASE_W_STRUCTURES = {
+  gate: { x: 46, y: 127, radius: 6 },
+  core: [22, 127] as P,
+  groundConsole: [26, 115] as P,
+  airConsole: [26, 139] as P,
+  pad: { x: 34, y: 127, radius: 4 },
+  turrets: [
+    [35, 112],
+    [41, 118],
+    [41, 136],
+    [35, 142],
+  ] as P[],
+};
+
+/** 180° rotational mirror: (x, y) → (EXTENT - x, EXTENT - y), integer-exact. */
+const mirror = ([x, y]: P): P => [EXTENT - x, EXTENT - y];
+const BASE_E_STRUCTURES = {
+  gate: { x: EXTENT - BASE_W_STRUCTURES.gate.x, y: 127, radius: BASE_W_STRUCTURES.gate.radius },
+  core: mirror(BASE_W_STRUCTURES.core),
+  groundConsole: mirror(BASE_W_STRUCTURES.groundConsole),
+  airConsole: mirror(BASE_W_STRUCTURES.airConsole),
+  pad: { x: EXTENT - BASE_W_STRUCTURES.pad.x, y: 127, radius: BASE_W_STRUCTURES.pad.radius },
+  turrets: BASE_W_STRUCTURES.turrets.map(mirror),
+};
 const LANES: P[][] = [
   // north arc
   [
@@ -202,6 +235,7 @@ const mapJson = {
     { x: 224, y: 127, yaw: Math.PI },
   ],
   basePlots: [BASE_W, BASE_E],
+  bases: [BASE_W_STRUCTURES, BASE_E_STRUCTURES],
   lanes: LANES,
   turretSpots: TURRET_SPOTS,
   outpostSpots: OUTPOST_SPOTS,
@@ -227,6 +261,26 @@ for (const lane of LANES) {
   }
 }
 console.log(`spawn heights: W ${h(30, 127).toFixed(2)} E ${h(224, 127).toFixed(2)}`);
+for (const [name, base] of [
+  ["W", BASE_W_STRUCTURES],
+  ["E", BASE_E_STRUCTURES],
+] as const) {
+  const pts: P[] = [
+    [base.gate.x, base.gate.y],
+    base.core,
+    base.groundConsole,
+    base.airConsole,
+    [base.pad.x, base.pad.y],
+    ...base.turrets,
+  ];
+  for (const [x, y] of pts) {
+    const bh = h(x, y);
+    if (bh < WATER_LEVEL) console.error(`BASE ${name} STRUCTURE UNDER WATER at (${x}, ${y})!`);
+    if (Math.abs(bh - PLOT_HEIGHT) > 0.2) {
+      console.error(`BASE ${name} structure off the flat plot at (${x}, ${y}): h=${bh.toFixed(2)}`);
+    }
+  }
+}
 console.log(
   `ford bed heights: N ${h(127, 54).toFixed(2)} C ${h(127, 127).toFixed(2)} S ${h(127, 200).toFixed(2)}`,
 );

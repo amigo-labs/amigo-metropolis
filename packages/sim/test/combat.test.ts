@@ -8,10 +8,12 @@ import {
   AVATAR_HP,
   DUMMY_RESPAWN_TICKS,
   HEAVY_COOLDOWN_TICKS,
-  POINTS_KILL_TURRET,
   PRIMARY_COOLDOWN_TICKS,
   PRIMARY_DAMAGE,
   RESPAWN_TICKS,
+  STARTING_POINTS,
+  TRICKLE_INTERVAL_TICKS,
+  TRICKLE_POINTS,
   TURRET_DAMAGE,
 } from "../src/balance";
 import { countAlive } from "../src/entities";
@@ -45,6 +47,26 @@ function flatArena(dummies: number[][]): MapJson {
     basePlots: [
       { x: 20, y: 30, radius: 6 },
       { x: 30, y: 58, radius: 6 },
+    ],
+    // Minimal bases: pads mirror the plots (ammo refill semantics), gates in
+    // far corners, no ring turrets — the dummy spot stays the only hostile.
+    bases: [
+      {
+        gate: { x: 2, y: 2, radius: 2 },
+        core: [14, 30],
+        groundConsole: [20, 24],
+        airConsole: [20, 36],
+        pad: { x: 20, y: 30, radius: 6 },
+        turrets: [],
+      },
+      {
+        gate: { x: 58, y: 58, radius: 2 },
+        core: [36, 58],
+        groundConsole: [30, 52],
+        airConsole: [24, 58],
+        pad: { x: 30, y: 58, radius: 6 },
+        turrets: [],
+      },
     ],
     lanes: [],
     turretSpots: [],
@@ -101,7 +123,7 @@ describe("primary hitscan", () => {
     expect(sim.ent.hp[dummy]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
   });
 
-  it("killing the dummy awards turret points and schedules its respawn", () => {
+  it("killing the neutral dummy awards nothing and schedules its respawn", () => {
     reset();
     const sim = simWithDummy();
     p0.aimX = 127;
@@ -115,7 +137,9 @@ describe("primary hitscan", () => {
     }
     expect(died).toBe(true);
     expect(sim.dummyEntity[0]).toBe(-1);
-    expect(sim.points[0]).toBe(POINTS_KILL_TURRET);
+    // Rules.md §3 pays for ENEMY-OWNED turrets only — a neutral dummy is
+    // target practice, so the ledger still shows the starting balance.
+    expect(sim.points[0]).toBe(STARTING_POINTS);
     expect(sim.dummyRespawn[0]).toBeGreaterThan(0);
 
     // Stop firing; the dummy respawns after its timer with full hp.
@@ -187,7 +211,10 @@ describe("dummy turret retaliation, death and respawn", () => {
     // systemSpawning runs after damage/death in the same tick, so the timer
     // has already counted down once.
     expect(sim.respawnTimer[0]).toBe(RESPAWN_TICKS - 1);
-    expect(sim.points[1]).toBe(0); // dummies never earn players points
+    // Dummies never earn players points: only starting balance + trickle
+    // (which fired for every processed tick that was a multiple of 300).
+    const trickled = Math.floor((sim.tick - 1) / TRICKLE_INTERVAL_TICKS) * TRICKLE_POINTS;
+    expect(sim.points[1]).toBe(STARTING_POINTS + trickled);
 
     // Respawn: full hp, back at the spawn point, EV_RESPAWN fired.
     let respawned = false;

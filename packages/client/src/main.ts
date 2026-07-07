@@ -9,12 +9,16 @@
 
 import {
   ANIM_HOVER,
+  BUTTON_INTERACT,
+  CAPTURE_TICKS,
+  CONSOLE_HOLD_TICKS,
   createSim,
   createTickInputs,
   DISTRICT_01_ID,
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   MAX_ENTITIES,
+  type PlayerInput,
   SNAPSHOT_STRIDE,
   step,
   TICK_HZ,
@@ -24,8 +28,10 @@ import {
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { AudioStub } from "./audio";
 import { PlayerOneInput } from "./input/keyboard";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
+import { buildBaseStructures } from "./render/structures";
 import { buildTerrainMesh, buildWaterPlane } from "./render/terrain";
 
 // --- Simulation setup --------------------------------------------------------
@@ -45,14 +51,39 @@ let countPrev = 0;
 let countCurr = 0;
 
 const input = new PlayerOneInput(window);
+const audio = new AudioStub();
+
+// Scripted opponent (?opponent=feeder|idle, Phase 3 DoD): player 2 runs a
+// fixed build order — walk to its ground console, then hold-to-buy runner
+// bursts forever, spending whatever its ledger allows. Phase 4's Warden
+// replaces this with a real in-sim AI.
+const opponentMode = params.get("opponent") ?? "feeder";
+
+function scriptOpponent(tick: number, out: PlayerInput): void {
+  out.moveX = 0;
+  out.moveY = 0;
+  out.aimX = 0;
+  out.aimY = 0;
+  out.buttons = 0;
+  if (opponentMode !== "feeder") return;
+  if (tick < 76) {
+    out.moveX = 40; // spawn → own ground console (matches map authoring)
+    out.moveY = 120;
+    return;
+  }
+  if (tick % 900 < 300) out.buttons = BUTTON_INTERACT; // 10 s burst, 20 s pause
+}
 
 function runTick(): void {
   const a = sim.avatarId[0];
   if (a >= 0) {
     input.updateAim(camera, sim.ent.posX[a], sim.ent.posY[a], sim.ent.height[a]);
   }
-  input.sample(inputQueue[(sim.tick + LOCAL_INPUT_DELAY_TICKS) % QUEUE_SIZE].players[0]);
+  const queued = inputQueue[(sim.tick + LOCAL_INPUT_DELAY_TICKS) % QUEUE_SIZE];
+  input.sample(queued.players[0]);
+  scriptOpponent(sim.tick + LOCAL_INPUT_DELAY_TICKS, queued.players[1]);
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
+  audio.pump(sim.events); // events are per-tick transients: drain immediately
   const swap = snapPrev;
   snapPrev = snapCurr;
   snapCurr = swap;
@@ -77,6 +108,7 @@ sun.updateMatrix();
 scene.add(sun);
 scene.add(buildTerrainMesh(map));
 scene.add(buildWaterPlane(map));
+buildBaseStructures(scene, map);
 const greybox = createGreyboxMeshes(scene);
 
 const extent = worldExtent(map);
@@ -120,6 +152,7 @@ addEventListener("mousemove", (e) => {
 });
 let hudFrames = 0;
 let hudLastUpdate = 0;
+const unitCounts = new Int32Array(2);
 
 function wrapAngleDelta(d: number): number {
   return ((((d + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
@@ -234,10 +267,41 @@ function frame(now: number): void {
         ? `hp ${Math.ceil(sim.ent.hp[a])}  heavy ${sim.ent.ammoA[a]}  special ${sim.ent.ammoB[a]}  ` +
           `${(sim.ent.animState[a] & ANIM_HOVER) !== 0 ? "HOVER" : "WALKER"}`
         : `respawn in ${Math.ceil(sim.respawnTimer[0] / TICK_HZ)}s`;
+    // Unit counts come from the snapshot (renderer-side derivation).
+    unitCounts[0] = 0;
+    unitCounts[1] = 0;
+    for (let c = 0; c < countCurr; c++) {
+      const o = c * SNAPSHOT_STRIDE;
+      const archetype = snapCurr[o + 1];
+      const team = snapCurr[o + 2];
+      if (archetype >= 1 && archetype <= 4 && (team === 0 || team === 1)) {
+        unitCounts[team] += 1;
+      }
+    }
+    // Phase 3 progress readouts: active buy hold, capture progress, outposts.
+    let progress = "";
+    if (sim.buyTarget[0] >= 0) {
+      progress += `  buying ${sim.buyProgress[0]}/${CONSOLE_HOLD_TICKS}`;
+    }
+    for (let k = 0; k < sim.captureTeam.length; k++) {
+      if (sim.captureTeam[k] === 0) {
+        progress += `  capturing ${Math.round((sim.captureProgress[k] / CAPTURE_TICKS) * 100)}%`;
+      }
+    }
+    let ownOutposts = 0;
+    for (let k = 0; k < sim.outpostOwner.length; k++) {
+      if (sim.outpostOwner[k] === 0) ownOutposts += 1;
+    }
+    if (ownOutposts > 0) progress += `  outposts ${ownOutposts}`;
+    const banner =
+      sim.winner >= 0
+        ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} BREACHED THE GATE`
+        : "";
     hud.textContent =
-      `${status}  points ${sim.points[0]}\n` +
-      `tick ${sim.tick}  fps ${hudFrames}  entities ${countCurr}  map ${map.id}\n` +
-      "WASD drive · mouse aim · LMB/RMB/MMB fire · Q transform · Space jump";
+      `${status}  points ${sim.points[0]}:${sim.points[1]}  units ${unitCounts[0]}v${unitCounts[1]}${progress}\n` +
+      `tick ${sim.tick}  fps ${hudFrames}  entities ${countCurr}  sfx ${audio.lastCue || "-"}  map ${map.id}\n` +
+      "WASD drive · mouse aim · LMB/RMB/MMB fire · Q transform · Space jump · " +
+      `hold E to buy/claim/capture (+RMB heavy)${banner}`;
     hudFrames = 0;
     hudLastUpdate = now;
   }

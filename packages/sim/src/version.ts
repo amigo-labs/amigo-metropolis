@@ -4,4 +4,11 @@
 //     the walker/hover movement model.
 // v3: Phase 1 combat — weapons, projectiles, damage/death/respawn, sandbox
 //     dummy turrets, points stub (hash covers dummy spot state).
-export const SIM_VERSION = 3;
+// v4: hover traction split into accel/brake/coast (stick-dependent grip).
+// v5: Phase 2 — base ring turrets (60 s respawn), ammo/repair pad, console
+//     unit purchases, unit movement/targeting, win check; dummies neutral;
+//     hash covers winner, lane counters and ring turret slots.
+// v6: Phase 3 — points economy (starting balance, trickle, earn table,
+//     hold-to-buy costs), capturable neutral turrets, outposts with claim /
+//     forward spawn / console destruction; hash covers the new ledgers.
+export const SIM_VERSION = 6;
