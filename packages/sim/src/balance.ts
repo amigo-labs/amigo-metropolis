@@ -73,12 +73,35 @@ export const BASE_TURRET_RESPAWN_TICKS = 1800; // 60 s (rules.md §5)
 // Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
 export const PAD_REPAIR_HP_PER_TICK = 0.5; // 15 hp/s
 
-// Console purchases. Phase 2 stub: edge-triggered interact at the ground/air
-// console spawns the unit for free; Phase 3 replaces this with hold-to-buy
-// and point costs.
+// Economy (rules.md §3). One resource: points, open information.
+export const STARTING_POINTS = 20; // enough for an opening wave, not a Juggernaut
+export const TRICKLE_INTERVAL_TICKS = 300; // 1 pt per 10 s
+export const TRICKLE_POINTS = 1;
+export const POINTS_CAPTURE_TURRET = 3;
+export const COST_RUNNER = 1;
+export const COST_GUARDIAN = 1;
+export const COST_JUGGERNAUT = 50;
+export const COST_FORTRESS = 50;
+export const COST_OUTPOST_CLAIM = 30;
+/** Units bought at an owned outpost (forward spawn) cost this multiple. */
+export const OUTPOST_COST_MULTIPLIER = 2;
+
+// Console purchases: stand on the console pad and HOLD interact — one unit
+// per completed hold (rules.md §3: 0.5 s per unit). FIRE2 modifier orders the
+// heavy variant at base consoles and the air unit at outpost consoles.
 export const CONSOLE_RADIUS = 3;
+export const CONSOLE_HOLD_TICKS = 15; // 0.5 s
 export const JUGGERNAUT_ALIVE_LIMIT = 1; // rules.md §3
 export const FORTRESS_ALIVE_LIMIT = 1;
+
+// Neutral turret capture (rules.md §5).
+export const CAPTURE_RADIUS = 5;
+export const CAPTURE_TICKS = 90; // 3 s uncontested
+export const NEUTRAL_TURRET_RESPAWN_TICKS = 1350; // 45 s, respawns neutral
+/** Destroyed outpost consoles return (neutral) after this many ticks. */
+export const OUTPOST_CONSOLE_RESPAWN_TICKS = 300; // 10 s
+/** Owned outposts refill ammo (no repair) within this radius of the console. */
+export const OUTPOST_PAD_RADIUS = 4;
 
 // Units (rules.md §4 placeholder stat table; dps = damage / cooldown).
 export const RUNNER_SPEED = 4;
@@ -126,6 +149,7 @@ export const UNIT_RANGE: readonly number[] = [
   FORTRESS_RANGE,
   0, // TURRET
   0, // PROJECTILE
+  0, // CONSOLE
 ];
 export const UNIT_DAMAGE: readonly number[] = [
   0,
@@ -135,6 +159,7 @@ export const UNIT_DAMAGE: readonly number[] = [
   FORTRESS_DAMAGE,
   0,
   0,
+  0,
 ];
 export const UNIT_FIRE_COOLDOWN_TICKS: readonly number[] = [
   0,
@@ -142,6 +167,7 @@ export const UNIT_FIRE_COOLDOWN_TICKS: readonly number[] = [
   GUARDIAN_COOLDOWN_TICKS,
   JUGGERNAUT_COOLDOWN_TICKS,
   FORTRESS_COOLDOWN_TICKS,
+  0,
   0,
   0,
 ];
@@ -155,6 +181,7 @@ export const ARCHETYPE_RADIUS: readonly number[] = [
   2.6, // FORTRESS
   1.5, // TURRET
   0.4, // PROJECTILE
+  1.2, // CONSOLE
 ];
 
 // Max HP per archetype, indexed by ARCHETYPE value (rules.md §4 placeholders;
@@ -167,4 +194,5 @@ export const ARCHETYPE_MAX_HP: readonly number[] = [
   500, // FORTRESS
   100, // TURRET (Phase 1 dummy value; Phase 2 rebalances)
   1, // PROJECTILE
+  150, // CONSOLE
 ];

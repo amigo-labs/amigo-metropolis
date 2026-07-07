@@ -8,4 +8,7 @@
 // v5: Phase 2 — base ring turrets (60 s respawn), ammo/repair pad, console
 //     unit purchases, unit movement/targeting, win check; dummies neutral;
 //     hash covers winner, lane counters and ring turret slots.
-export const SIM_VERSION = 5;
+// v6: Phase 3 — points economy (starting balance, trickle, earn table,
+//     hold-to-buy costs), capturable neutral turrets, outposts with claim /
+//     forward spawn / console destruction; hash covers the new ledgers.
+export const SIM_VERSION = 6;

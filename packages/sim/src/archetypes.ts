@@ -9,6 +9,8 @@ export const ARCHETYPE = {
   FORTRESS: 4,
   TURRET: 5,
   PROJECTILE: 6,
+  /** Outpost console: claimable when neutral, destructible when owned. */
+  CONSOLE: 7,
 } as const;
 
 export type Archetype = (typeof ARCHETYPE)[keyof typeof ARCHETYPE];

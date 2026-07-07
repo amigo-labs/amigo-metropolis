@@ -6,6 +6,8 @@
 
 import {
   EV_BREACH,
+  EV_CAPTURE,
+  EV_CLAIM,
   EV_DEATH,
   EV_EXPLOSION,
   EV_HIT,
@@ -24,6 +26,8 @@ cues[EV_DEATH] = "death";
 cues[EV_RESPAWN] = "respawn";
 cues[EV_PURCHASE] = "purchase";
 cues[EV_BREACH] = "breach";
+cues[EV_CAPTURE] = "capture";
+cues[EV_CLAIM] = "claim";
 
 export class AudioStub {
   /** Total cues seen, indexed by event type. */

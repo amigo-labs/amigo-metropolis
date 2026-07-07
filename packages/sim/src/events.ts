@@ -13,6 +13,8 @@ export const EV_DEATH = 4; //     a=victim id, b=killer player (-1 none), c=arch
 export const EV_RESPAWN = 5; //   a=entity id, b=player
 export const EV_PURCHASE = 6; //  a=entity id, b=player, c=archetype
 export const EV_BREACH = 7; //    a=unit id, b=winning team
+export const EV_CAPTURE = 8; //   a=turret id, b=team, c=turret spot index
+export const EV_CLAIM = 9; //     a=console id, b=team, c=outpost index
 
 export interface EventBuffer {
   count: number;

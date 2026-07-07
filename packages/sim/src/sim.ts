@@ -23,7 +23,15 @@ import {
   AVATAR_WALKER_MAX_SLOPE,
   AVATAR_WALKER_SPEED,
   BASE_TURRET_RESPAWN_TICKS,
+  CAPTURE_RADIUS,
+  CAPTURE_TICKS,
+  CONSOLE_HOLD_TICKS,
   CONSOLE_RADIUS,
+  COST_FORTRESS,
+  COST_GUARDIAN,
+  COST_JUGGERNAUT,
+  COST_OUTPOST_CLAIM,
+  COST_RUNNER,
   DUMMY_RESPAWN_TICKS,
   FORTRESS_ALIVE_LIMIT,
   GRAVITY,
@@ -38,7 +46,12 @@ import {
   HOVER_TRACTION_COAST,
   JUGGERNAUT_ALIVE_LIMIT,
   MAX_PLAYERS,
+  NEUTRAL_TURRET_RESPAWN_TICKS,
+  OUTPOST_CONSOLE_RESPAWN_TICKS,
+  OUTPOST_COST_MULTIPLIER,
+  OUTPOST_PAD_RADIUS,
   PAD_REPAIR_HP_PER_TICK,
+  POINTS_CAPTURE_TURRET,
   POINTS_KILL_AVATAR,
   POINTS_KILL_TURRET,
   POINTS_KILL_UNIT,
@@ -51,8 +64,11 @@ import {
   SPECIAL_DAMAGE,
   SPECIAL_SPEED,
   SPECIAL_TTL_TICKS,
+  STARTING_POINTS,
   TICK_DT,
   TRANSFORM_LOCK_TICKS,
+  TRICKLE_INTERVAL_TICKS,
+  TRICKLE_POINTS,
   TURRET_COOLDOWN_TICKS,
   TURRET_DAMAGE,
   TURRET_RANGE,
@@ -65,6 +81,8 @@ import {
   clearEvents,
   createEventBuffer,
   EV_BREACH,
+  EV_CAPTURE,
+  EV_CLAIM,
   EV_DEATH,
   EV_EXPLOSION,
   EV_HIT,
@@ -92,6 +110,7 @@ import {
   nearestEnemyInRange,
   snapUnitHeight,
   systemUnitMovement,
+  UNIT_MODE_ASSAULT,
   UNIT_MODE_PATROL,
 } from "./units";
 
@@ -102,6 +121,11 @@ export const MODE_HOVER = 1;
 // Projectile kinds (EntityStore.mode on PROJECTILE entities).
 export const PROJ_HEAVY = 1;
 export const PROJ_SPECIAL = 2;
+
+// Turret kinds (EntityStore.mode on TURRET entities).
+export const TURRET_BASE = 0; //        base ring: full targeting
+export const TURRET_DUMMY = 1; //       Phase 1 sandbox: engages avatars only
+export const TURRET_CAPTURABLE = 2; //  neutral spot: dormant until captured
 
 // animState bits (renderer-facing; snapshot field 7).
 export const ANIM_MOVING = 1 << 0;
@@ -134,6 +158,19 @@ export interface SimState {
   /** Base ring turrets, slots flattened base 0 then base 1 (rules.md §5). */
   readonly baseTurretEntity: Int32Array;
   readonly baseTurretRespawn: Int32Array;
+  /** Capturable turrets, one slot per map turretSpot (rules.md §5). */
+  readonly neutralTurretEntity: Int32Array;
+  readonly neutralTurretRespawn: Int32Array;
+  /** Capture progress per turret spot: capturing team (-1 none) + held ticks. */
+  readonly captureTeam: Int8Array;
+  readonly captureProgress: Int32Array;
+  /** Outposts, one slot per map outpostSpot: owner, console entity, respawn. */
+  readonly outpostOwner: Int8Array;
+  readonly outpostConsole: Int32Array;
+  readonly outpostRespawn: Int32Array;
+  /** Hold-to-buy per player: encoded console target (-1 none) + held ticks. */
+  readonly buyTarget: Int32Array;
+  readonly buyProgress: Int32Array;
   /** Per-tick transient events (NOT hashed). */
   readonly events: EventBuffer;
 }
@@ -174,7 +211,40 @@ function spawnDummy(state: SimState, k: number): number {
   ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
   ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
   ent.ownerId[id] = -1;
+  ent.mode[id] = TURRET_DUMMY;
   state.dummyEntity[k] = id;
+  return id;
+}
+
+/** Spawns the capturable turret for map turret spot `k`, neutral + dormant. */
+function spawnNeutralTurret(state: SimState, k: number): number {
+  const ent = state.ent;
+  const spot = state.map.turretSpots[k];
+  const id = spawn(ent, ARCHETYPE.TURRET, TEAM_NEUTRAL);
+  if (id < 0) return -1;
+  ent.posX[id] = spot.x;
+  ent.posY[id] = spot.y;
+  ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
+  ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
+  ent.ownerId[id] = -1;
+  ent.mode[id] = TURRET_CAPTURABLE;
+  state.neutralTurretEntity[k] = id;
+  return id;
+}
+
+/** Spawns outpost `k`'s console, neutral (claimable) unless owned. */
+function spawnOutpostConsole(state: SimState, k: number): number {
+  const ent = state.ent;
+  const spot = state.map.outpostSpots[k];
+  const team = state.outpostOwner[k];
+  const id = spawn(ent, ARCHETYPE.CONSOLE, team);
+  if (id < 0) return -1;
+  ent.posX[id] = spot.x;
+  ent.posY[id] = spot.y;
+  ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
+  ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.CONSOLE];
+  ent.ownerId[id] = team;
+  state.outpostConsole[k] = id;
   return id;
 }
 
@@ -203,9 +273,10 @@ function spawnBaseTurret(state: SimState, k: number): number {
 
 /**
  * Spawns a combat unit for `team` at (x, y). Ground units pick their lane via
- * the per-player round-robin counter; flyers start their patrol orbit at the
- * bearing from their anchor. `mode` is the Guardian spawn-site switch
- * (UNIT_MODE_PATROL at a base, UNIT_MODE_ASSAULT at an outpost — Phase 3).
+ * the per-player round-robin counter — or, when `forward` (outpost spawn),
+ * join at the nearest waypoint of the nearest lane. Flyers start their patrol
+ * orbit at the bearing from their anchor. `mode` is the Guardian spawn-site
+ * switch (UNIT_MODE_PATROL at a base, UNIT_MODE_ASSAULT at an outpost).
  */
 export function spawnUnit(
   state: SimState,
@@ -214,6 +285,7 @@ export function spawnUnit(
   x: number,
   y: number,
   mode: number = UNIT_MODE_PATROL,
+  forward = false,
 ): number {
   const ent = state.ent;
   const id = spawn(ent, archetype as 1 | 2 | 3 | 4, team);
@@ -228,10 +300,31 @@ export function spawnUnit(
   if (isGroundUnit(archetype)) {
     const lanes = state.map.lanes;
     if (lanes.length > 0) {
-      const lane = state.laneCounter[team] % lanes.length;
-      state.laneCounter[team] = (lane + 1) % lanes.length;
+      let lane: number;
+      let wp: number;
+      if (forward) {
+        lane = 0;
+        wp = 0;
+        let best = Infinity;
+        for (let li = 0; li < lanes.length; li++) {
+          for (let wi = 0; wi < lanes[li].length; wi++) {
+            const dx = lanes[li][wi].x - x;
+            const dy = lanes[li][wi].y - y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < best) {
+              best = d2;
+              lane = li;
+              wp = wi;
+            }
+          }
+        }
+      } else {
+        lane = state.laneCounter[team] % lanes.length;
+        state.laneCounter[team] = (lane + 1) % lanes.length;
+        wp = team === 0 ? 0 : lanes[lane].length - 1;
+      }
       ent.timerA[id] = lane;
-      ent.timerB[id] = team === 0 ? 0 : lanes[lane].length - 1;
+      ent.timerB[id] = wp;
     } else {
       ent.timerA[id] = 0;
       ent.timerB[id] = -1; // no lanes on this map: beeline the gate
@@ -256,12 +349,21 @@ export function createSim(map: MapData, seed: number): SimState {
     avatarId: new Int32Array(MAX_PLAYERS).fill(-1),
     respawnTimer: new Int32Array(MAX_PLAYERS),
     lastButtons: new Uint8Array(MAX_PLAYERS),
-    points: new Uint32Array(MAX_PLAYERS),
+    points: new Uint32Array(MAX_PLAYERS).fill(STARTING_POINTS),
     laneCounter: new Uint8Array(MAX_PLAYERS),
     dummyEntity: new Int32Array(map.dummySpots.length).fill(-1),
     dummyRespawn: new Int32Array(map.dummySpots.length),
     baseTurretEntity: new Int32Array(ringSlots).fill(-1),
     baseTurretRespawn: new Int32Array(ringSlots),
+    neutralTurretEntity: new Int32Array(map.turretSpots.length).fill(-1),
+    neutralTurretRespawn: new Int32Array(map.turretSpots.length),
+    captureTeam: new Int8Array(map.turretSpots.length).fill(-1),
+    captureProgress: new Int32Array(map.turretSpots.length),
+    outpostOwner: new Int8Array(map.outpostSpots.length).fill(-1),
+    outpostConsole: new Int32Array(map.outpostSpots.length).fill(-1),
+    outpostRespawn: new Int32Array(map.outpostSpots.length),
+    buyTarget: new Int32Array(MAX_PLAYERS).fill(-1),
+    buyProgress: new Int32Array(MAX_PLAYERS),
     events: createEventBuffer(),
   };
   for (let p = 0; p < MAX_PLAYERS; p++) {
@@ -272,6 +374,12 @@ export function createSim(map: MapData, seed: number): SimState {
   }
   for (let k = 0; k < map.dummySpots.length; k++) {
     spawnDummy(state, k);
+  }
+  for (let k = 0; k < map.turretSpots.length; k++) {
+    spawnNeutralTurret(state, k);
+  }
+  for (let k = 0; k < map.outpostSpots.length; k++) {
+    spawnOutpostConsole(state, k);
   }
   return state;
 }
@@ -428,51 +536,122 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
 
     // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub.
     avatarWeapons(state, p, id, input.buttons, nowLocked);
-    // Console purchases (Phase 2 stub: edge-triggered and free; Phase 3
-    // replaces this with hold-to-buy against the points ledger).
-    if ((pressed & BUTTON_INTERACT) !== 0) {
-      consolePurchase(state, p, id, input.buttons);
-    }
+    // Hold-to-buy at consoles (rules.md §3): runs every tick, holds decay.
+    systemBuy(state, p, id, input.buttons);
   }
 }
 
 /**
- * Interact at the own base's ground/air console spawns a unit there. Holding
- * FIRE2 upgrades the order to the heavy variant (Juggernaut/Fortress), which
- * are capped at one alive each (rules.md §3).
+ * Hold-to-buy (rules.md §3): standing on a console pad with INTERACT held
+ * buys one unit per completed CONSOLE_HOLD_TICKS hold. Switching consoles,
+ * toggling the FIRE2 heavy modifier, releasing the button, running out of
+ * points or hitting an alive-limit all reset the hold. FIRE2 orders the
+ * heavy variant at base consoles and the (assault) air unit at outposts;
+ * a neutral outpost console sells the outpost itself — the 30-point claim.
  */
-function consolePurchase(state: SimState, player: number, id: number, buttons: number): void {
+function systemBuy(state: SimState, player: number, id: number, buttons: number): void {
   const ent = state.ent;
-  const base = state.map.bases[player];
-  const heavy = (buttons & BUTTON_FIRE2) !== 0;
+  const map = state.map;
+  const r2 = CONSOLE_RADIUS * CONSOLE_RADIUS;
+  const heavy = (buttons & BUTTON_FIRE2) !== 0 ? 1 : 0;
   const x = ent.posX[id];
   const y = ent.posY[id];
-  const r2 = CONSOLE_RADIUS * CONSOLE_RADIUS;
+
+  let target = -1;
+  let cost = 0;
   let archetype = -1;
-  let cx = 0;
-  let cy = 0;
-  const gdx = x - base.groundConsole.x;
-  const gdy = y - base.groundConsole.y;
-  const adx = x - base.airConsole.x;
-  const ady = y - base.airConsole.y;
-  if (gdx * gdx + gdy * gdy <= r2) {
-    archetype = heavy ? ARCHETYPE.JUGGERNAUT : ARCHETYPE.RUNNER;
-    cx = base.groundConsole.x;
-    cy = base.groundConsole.y;
-  } else if (adx * adx + ady * ady <= r2) {
-    archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
-    cx = base.airConsole.x;
-    cy = base.airConsole.y;
+  let spawnX = 0;
+  let spawnY = 0;
+  let mode = UNIT_MODE_PATROL;
+  let forward = false;
+  let claim = -1;
+
+  if ((buttons & BUTTON_INTERACT) !== 0) {
+    const base = map.bases[player];
+    const gdx = x - base.groundConsole.x;
+    const gdy = y - base.groundConsole.y;
+    const adx = x - base.airConsole.x;
+    const ady = y - base.airConsole.y;
+    if (gdx * gdx + gdy * gdy <= r2) {
+      target = 256 + heavy;
+      archetype = heavy ? ARCHETYPE.JUGGERNAUT : ARCHETYPE.RUNNER;
+      cost = heavy ? COST_JUGGERNAUT : COST_RUNNER;
+      spawnX = base.groundConsole.x;
+      spawnY = base.groundConsole.y;
+    } else if (adx * adx + ady * ady <= r2) {
+      target = 512 + heavy;
+      archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
+      cost = heavy ? COST_FORTRESS : COST_GUARDIAN;
+      spawnX = base.airConsole.x;
+      spawnY = base.airConsole.y;
+    } else {
+      for (let k = 0; k < map.outpostSpots.length; k++) {
+        const s = map.outpostSpots[k];
+        const dx = x - s.x;
+        const dy = y - s.y;
+        if (dx * dx + dy * dy > r2) continue;
+        const owner = state.outpostOwner[k];
+        if (owner === player) {
+          // Forward spawn at 2× cost (rules.md §3); guardians leave in
+          // assault mode — the outpost spawn-site switch (rules.md §4).
+          target = 768 + k * 2 + heavy;
+          archetype = heavy ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
+          cost = (heavy ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
+          spawnX = s.x;
+          spawnY = s.y;
+          mode = heavy ? UNIT_MODE_ASSAULT : UNIT_MODE_PATROL;
+          forward = true;
+        } else if (owner === -1 && state.outpostConsole[k] >= 0) {
+          target = 1024 + k * 2;
+          cost = COST_OUTPOST_CLAIM;
+          claim = k;
+        }
+        break;
+      }
+    }
   }
-  if (archetype < 0) return;
-  if (archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS) {
-    const limit =
-      archetype === ARCHETYPE.JUGGERNAUT ? JUGGERNAUT_ALIVE_LIMIT : FORTRESS_ALIVE_LIMIT;
-    if (countAliveOfArchetype(state, archetype, player) >= limit) return;
+
+  // Affordability and alive-limits gate the hold itself.
+  if (target >= 0) {
+    if (state.points[player] < cost) {
+      target = -1;
+    } else if (
+      archetype === ARCHETYPE.JUGGERNAUT &&
+      countAliveOfArchetype(state, archetype, player) >= JUGGERNAUT_ALIVE_LIMIT
+    ) {
+      target = -1;
+    } else if (
+      archetype === ARCHETYPE.FORTRESS &&
+      countAliveOfArchetype(state, archetype, player) >= FORTRESS_ALIVE_LIMIT
+    ) {
+      target = -1;
+    }
   }
-  const uid = spawnUnit(state, archetype, player, cx, cy, UNIT_MODE_PATROL);
+
+  if (state.buyTarget[player] !== target) {
+    state.buyTarget[player] = target;
+    state.buyProgress[player] = 0;
+  }
+  if (target < 0) return;
+  state.buyProgress[player] += 1;
+  if (state.buyProgress[player] < CONSOLE_HOLD_TICKS) return;
+  state.buyProgress[player] = 0; // per-unit hold: the next unit starts fresh
+
+  state.points[player] -= cost;
+  if (claim >= 0) {
+    state.outpostOwner[claim] = player;
+    const cid = state.outpostConsole[claim];
+    ent.team[cid] = player;
+    ent.ownerId[cid] = player;
+    ent.hp[cid] = ARCHETYPE_MAX_HP[ARCHETYPE.CONSOLE];
+    pushEvent(state.events, EV_CLAIM, cid, player, claim);
+    return;
+  }
+  const uid = spawnUnit(state, archetype, player, spawnX, spawnY, mode, forward);
   if (uid >= 0) {
     pushEvent(state.events, EV_PURCHASE, uid, player, archetype);
+  } else {
+    state.points[player] += cost; // entity cap hit: refund, nothing spawned
   }
 }
 
@@ -519,6 +698,17 @@ function avatarWeapons(
     if (ent.hp[id] < AVATAR_HP) {
       ent.hp[id] += PAD_REPAIR_HP_PER_TICK;
       if (ent.hp[id] > AVATAR_HP) ent.hp[id] = AVATAR_HP;
+    }
+  }
+  // Owned outposts also refill ammo — but never repair (rules.md §5).
+  for (let k = 0; k < state.outpostOwner.length; k++) {
+    if (state.outpostOwner[k] !== player) continue;
+    const s = state.map.outpostSpots[k];
+    const odx = ent.posX[id] - s.x;
+    const ody = ent.posY[id] - s.y;
+    if (odx * odx + ody * ody <= OUTPOST_PAD_RADIUS * OUTPOST_PAD_RADIUS) {
+      ent.ammoA[id] = AVATAR_AMMO_HEAVY;
+      ent.ammoB[id] = AVATAR_AMMO_SPECIAL;
     }
   }
 
@@ -622,11 +812,14 @@ function systemTargeting(state: SimState): void {
     if (!ent.alive[id]) continue;
     const archetype = ent.archetype[id];
     if (archetype === ARCHETYPE.TURRET) {
+      // Capturable neutral turrets are dormant: no owner, nobody to fire at
+      // (rules.md §5 "fires at enemies of its owner").
+      if (ent.mode[id] === TURRET_CAPTURABLE && ent.ownerId[id] < 0) continue;
       if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
       const target =
         ent.ownerId[id] < 0
           ? nearestEnemyAvatar(state, id, TURRET_RANGE)
-          : nearestEnemyInRange(state, id, TURRET_RANGE, true); // never turret-vs-turret
+          : nearestEnemyInRange(state, id, TURRET_RANGE, true); // mobile targets only
       if (target < 0) continue;
       ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
       if (ent.cooldownA[id] <= 0) {
@@ -739,15 +932,20 @@ function systemDamageDeath(state: SimState): void {
     const killer = ent.aux[id] - 1; // -1 = environment/dummy
     const archetype = ent.archetype[id];
     pushEvent(state.events, EV_DEATH, id, killer, archetype);
+    // Earn table (rules.md §3): avatars 10, ENEMY-OWNED turrets 2, units 1.
+    // Neutral turrets (dummies, dormant capturables) and consoles pay nothing.
     if (killer >= 0 && killer < MAX_PLAYERS && ent.team[id] !== killer) {
       if (archetype === ARCHETYPE.AVATAR) state.points[killer] += POINTS_KILL_AVATAR;
-      else if (archetype === ARCHETYPE.TURRET) state.points[killer] += POINTS_KILL_TURRET;
-      else state.points[killer] += POINTS_KILL_UNIT;
+      else if (archetype === ARCHETYPE.TURRET && ent.ownerId[id] >= 0)
+        state.points[killer] += POINTS_KILL_TURRET;
+      else if (isUnit(archetype)) state.points[killer] += POINTS_KILL_UNIT;
     }
     if (archetype === ARCHETYPE.AVATAR) {
       const player = ent.ownerId[id];
       state.avatarId[player] = -1;
       state.respawnTimer[player] = RESPAWN_TICKS;
+      state.buyTarget[player] = -1; // death drops any buy hold
+      state.buyProgress[player] = 0;
     } else if (archetype === ARCHETYPE.TURRET) {
       let slotted = false;
       for (let k = 0; k < state.dummyEntity.length; k++) {
@@ -763,8 +961,30 @@ function systemDamageDeath(state: SimState): void {
           if (state.baseTurretEntity[k] === id) {
             state.baseTurretEntity[k] = -1;
             state.baseTurretRespawn[k] = BASE_TURRET_RESPAWN_TICKS;
+            slotted = true;
             break;
           }
+        }
+      }
+      if (!slotted) {
+        // Capturable turret: husk now, back as NEUTRAL in 45 s (rules.md §5)
+        // regardless of who owned it when it died.
+        for (let k = 0; k < state.neutralTurretEntity.length; k++) {
+          if (state.neutralTurretEntity[k] === id) {
+            state.neutralTurretEntity[k] = -1;
+            state.neutralTurretRespawn[k] = NEUTRAL_TURRET_RESPAWN_TICKS;
+            break;
+          }
+        }
+      }
+    } else if (archetype === ARCHETYPE.CONSOLE) {
+      // Console destruction reverts the outpost to neutral (rules.md §5).
+      for (let k = 0; k < state.outpostConsole.length; k++) {
+        if (state.outpostConsole[k] === id) {
+          state.outpostConsole[k] = -1;
+          state.outpostOwner[k] = -1;
+          state.outpostRespawn[k] = OUTPOST_CONSOLE_RESPAWN_TICKS;
+          break;
         }
       }
     }
@@ -801,6 +1021,73 @@ function systemSpawning(state: SimState): void {
       }
     }
   }
+  for (let k = 0; k < state.neutralTurretRespawn.length; k++) {
+    if (state.neutralTurretRespawn[k] > 0) {
+      state.neutralTurretRespawn[k] -= 1;
+      if (state.neutralTurretRespawn[k] === 0) {
+        const id = spawnNeutralTurret(state, k);
+        if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, -1, 0);
+      }
+    }
+  }
+  for (let k = 0; k < state.outpostRespawn.length; k++) {
+    if (state.outpostRespawn[k] > 0) {
+      state.outpostRespawn[k] -= 1;
+      if (state.outpostRespawn[k] === 0) {
+        const id = spawnOutpostConsole(state, k);
+        if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, -1, 0);
+      }
+    }
+  }
+}
+
+/**
+ * Capture progress (rules.md §5): a lone team's avatar inside the capture
+ * radius of a NEUTRAL capturable turret for 3 s takes ownership. An enemy
+ * avatar in the radius contests — progress resets. Presence is currency:
+ * only avatars capture, units never do.
+ */
+function systemCapture(state: SimState): void {
+  const ent = state.ent;
+  const spots = state.map.turretSpots;
+  for (let k = 0; k < spots.length; k++) {
+    const tid = state.neutralTurretEntity[k];
+    if (tid < 0 || ent.ownerId[tid] >= 0) {
+      state.captureTeam[k] = -1;
+      state.captureProgress[k] = 0;
+      continue;
+    }
+    let present = 0; // team presence bitmask
+    for (let p = 0; p < MAX_PLAYERS; p++) {
+      const a = state.avatarId[p];
+      if (a < 0) continue;
+      const dx = ent.posX[a] - spots[k].x;
+      const dy = ent.posY[a] - spots[k].y;
+      if (dx * dx + dy * dy <= CAPTURE_RADIUS * CAPTURE_RADIUS) present |= 1 << p;
+    }
+    const team = present === 1 ? 0 : present === 2 ? 1 : -1; // both/none = -1
+    if (team < 0 || state.captureTeam[k] !== team) {
+      state.captureTeam[k] = team;
+      state.captureProgress[k] = 0;
+      if (team < 0) continue;
+    }
+    state.captureProgress[k] += 1;
+    if (state.captureProgress[k] < CAPTURE_TICKS) continue;
+    state.captureProgress[k] = 0;
+    state.captureTeam[k] = -1;
+    ent.team[tid] = team;
+    ent.ownerId[tid] = team;
+    state.points[team] += POINTS_CAPTURE_TURRET;
+    pushEvent(state.events, EV_CAPTURE, tid, team, k);
+  }
+}
+
+/** Trickle income (rules.md §3): +1 to both ledgers every 10 s. */
+function systemEconomy(state: SimState): void {
+  if (state.tick === 0 || state.tick % TRICKLE_INTERVAL_TICKS !== 0) return;
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    state.points[p] += TRICKLE_POINTS;
+  }
 }
 
 /**
@@ -836,8 +1123,8 @@ export function step(state: SimState, inputs: TickInputs): void {
     systemTargeting(state);
     systemProjectiles(state);
     systemDamageDeath(state);
-    // systemCapture(state)         — Phase 3
-    // systemEconomy(state)         — Phase 3
+    systemCapture(state);
+    systemEconomy(state);
     systemSpawning(state);
     systemWinCheck(state);
   }
@@ -868,6 +1155,8 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.lastButtons[p]);
     h = fnv1aU32(h, state.points[p] >>> 0);
     h = fnv1aU32(h, state.laneCounter[p]);
+    h = fnv1aU32(h, state.buyTarget[p] >>> 0);
+    h = fnv1aU32(h, state.buyProgress[p] >>> 0);
   }
   for (let k = 0; k < state.dummyEntity.length; k++) {
     h = fnv1aU32(h, state.dummyEntity[k] >>> 0);
@@ -876,6 +1165,17 @@ export function hash(state: SimState): number {
   for (let k = 0; k < state.baseTurretEntity.length; k++) {
     h = fnv1aU32(h, state.baseTurretEntity[k] >>> 0);
     h = fnv1aU32(h, state.baseTurretRespawn[k] >>> 0);
+  }
+  for (let k = 0; k < state.neutralTurretEntity.length; k++) {
+    h = fnv1aU32(h, state.neutralTurretEntity[k] >>> 0);
+    h = fnv1aU32(h, state.neutralTurretRespawn[k] >>> 0);
+    h = fnv1aU32(h, state.captureTeam[k] >>> 0);
+    h = fnv1aU32(h, state.captureProgress[k] >>> 0);
+  }
+  for (let k = 0; k < state.outpostOwner.length; k++) {
+    h = fnv1aU32(h, state.outpostOwner[k] >>> 0);
+    h = fnv1aU32(h, state.outpostConsole[k] >>> 0);
+    h = fnv1aU32(h, state.outpostRespawn[k] >>> 0);
   }
   return h;
 }

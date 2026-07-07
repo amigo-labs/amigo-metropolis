@@ -36,6 +36,7 @@ export interface GreyboxMeshes {
   readonly fortress: Bucket;
   readonly turret: Bucket;
   readonly projectile: Bucket;
+  readonly console: Bucket;
   readonly all: Bucket[];
 }
 
@@ -105,6 +106,14 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   // Projectile: small low-poly ball.
   const projectileGeometry = new THREE.SphereGeometry(0.35, 6, 4);
   projectileGeometry.translate(0, 0.35, 0);
+  // Outpost console: slab + pedestal + tilted screen (a live entity — it
+  // changes team on claim and respawns — unlike the static base consoles).
+  const consoleGeometry = mergeGeometries([
+    box(3.4, 0.25, 3.4, 0, 0.125, 0),
+    box(1.0, 1.3, 1.0, 0, 0.9, 0),
+    box(1.4, 0.35, 1.0, 0, 1.7, 0),
+    box(0.15, 2.4, 0.15, -0.5, 3.0, -0.5),
+  ]);
 
   const avatarWalker = bucket(scene, walkerGeometry, 4);
   const avatarHover = bucket(scene, hoverGeometry, 4);
@@ -114,6 +123,7 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const fortress = bucket(scene, fortressGeometry, 4);
   const turret = bucket(scene, turretGeometry, 64);
   const projectile = bucket(scene, projectileGeometry, 128);
+  const consoleBucket = bucket(scene, consoleGeometry, 8);
   return {
     avatarWalker,
     avatarHover,
@@ -123,7 +133,18 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     fortress,
     turret,
     projectile,
-    all: [avatarWalker, avatarHover, runner, guardian, juggernaut, fortress, turret, projectile],
+    console: consoleBucket,
+    all: [
+      avatarWalker,
+      avatarHover,
+      runner,
+      guardian,
+      juggernaut,
+      fortress,
+      turret,
+      projectile,
+      consoleBucket,
+    ],
   };
 }
 
@@ -142,6 +163,7 @@ export function bucketFor(
   if (archetype === ARCHETYPE.FORTRESS) return greybox.fortress;
   if (archetype === ARCHETYPE.TURRET) return greybox.turret;
   if (archetype === ARCHETYPE.PROJECTILE) return greybox.projectile;
+  if (archetype === ARCHETYPE.CONSOLE) return greybox.console;
   return undefined;
 }
 

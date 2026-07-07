@@ -6,6 +6,7 @@
 // SIM_VERSION bump).
 
 import {
+  AVATAR_WALKER_SPEED,
   BUTTON_FIRE1,
   BUTTON_FIRE2,
   BUTTON_FIRE3,
@@ -105,44 +106,128 @@ export function combat01(tick: number, out: TickInputs): void {
 }
 
 /**
- * Golden #3 (Phase 2 DoD): a full scripted mini-match on district-01, both
- * players buying units. Player 0 walks to its ground console, opens with a
- * runner wave (one per lane) and sacrifices Juggernaut #1 into base East's
- * north turret pair; a purchase-spam window then buys Juggernaut #2 the tick
- * the one-alive limit frees up, and — with the north approach cleared and two
- * late escort runners drawing fire — it walks the same lane into the gate.
- * Player 1 buys two runners (they die to base West's intact ring) and idles.
- * The final tail of the replay runs PAST the breach, pinning the post-win
- * freeze into the golden hash sequence.
+ * Golden #3 (Phase 2 DoD "mini-match", replayed on the Phase 3 economy): the
+ * full toolkit in one script. Player 0's avatar hovers the dummy-free
+ * north-edge corridor (the golden-02 route), walks down behind base East and
+ * snipes all four ring turrets from outside their range — earning the
+ * enemy-owned turret bounty — then claims the (176, 88) outpost with it and
+ * forward-spawns runners at 2× cost straight through the dead ring before
+ * its 60 s respawns land. Player 1 runs a fixed losing build order: three
+ * feeder runners into base West's intact ring, then idles. The replay tail
+ * runs PAST the breach, pinning the post-win freeze into the golden.
+ *
+ * Aim vectors are dead-reckoned from the deterministic avatar positions at
+ * the snipe ticks (verified by the golden03 beats test): the sim is exact,
+ * so these constants hold on every engine.
  */
+interface MatchPhase {
+  until: number;
+  moveX: number;
+  moveY: number;
+  aimX: number;
+  aimY: number;
+  buttons: number;
+}
+
+/**
+ * Player 0's choreography as a timeline built from waypoints: walk legs at
+ * exact walker speed (durations derived from distances), snipe pauses with
+ * aim vectors dead-reckoned from the expected position. The avatar walks
+ * the NORTH LANE — carved terrain the district schema test guarantees is
+ * walker-traversable — killing the two dummies that cover it from outside
+ * their range, then snipes base East's ring from beyond TURRET_RANGE,
+ * claims the (176, 88) outpost and forward-buys the winning runners.
+ */
+function buildMatch01Timeline(): MatchPhase[] {
+  const phases: MatchPhase[] = [];
+  let t = 100;
+  let px = 30;
+  let py = 127; // player 0 spawn
+  const push = (
+    ticks: number,
+    p: Partial<Pick<MatchPhase, "moveX" | "moveY" | "aimX" | "aimY" | "buttons">>,
+  ) => {
+    t += ticks;
+    phases.push({ until: t, moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: 0, ...p });
+  };
+  const walkTo = (x: number, y: number, settle = 6) => {
+    const dx = x - px;
+    const dy = y - py;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    push(Math.round((d / AVATAR_WALKER_SPEED) * TICK_HZ), {
+      moveX: quantizeAxis(dx / d),
+      moveY: quantizeAxis(dy / d),
+    });
+    push(settle, {}); // full stop between legs
+    px = x;
+    py = y;
+  };
+  const snipe = (x: number, y: number, ticks: number) => {
+    const dx = x - px;
+    const dy = y - py;
+    const inv = 1 / Math.sqrt(dx * dx + dy * dy);
+    push(ticks, {
+      aimX: quantizeAxis(dx * inv),
+      aimY: quantizeAxis(dy * inv),
+      buttons: BUTTON_FIRE1,
+    });
+  };
+
+  snipe(60, 110, 110); // dummy (60,110) covers the lane entry — kill from spawn
+  walkTo(40, 116); // join the north lane
+  walkTo(62, 84);
+  walkTo(92, 62);
+  snipe(127, 60, 110); // dummy (127,60) sits on the mid-lane ford
+  walkTo(127, 54);
+  walkTo(162, 62);
+  walkTo(192, 84); // lane end short of base East
+  walkTo(196, 90); // snipe spot: outside all four ring turrets' range
+  snipe(213, 118, 130); // ring north-inner
+  snipe(219, 112, 130); // ring north-outer
+  walkTo(206, 110); // advance: south-inner shoots back for ~2 s here
+  snipe(213, 136, 130); // ring south-inner
+  snipe(219, 142, 130); // ring south-outer
+  walkTo(176, 88); // outpost console
+  return phases;
+}
+
+const MATCH01_TIMELINE = buildMatch01Timeline();
+const MATCH01_HOLD_FROM = MATCH01_TIMELINE[MATCH01_TIMELINE.length - 1].until;
+
 export function match01(tick: number, out: TickInputs): void {
   clearTickInputs(out);
   const p0 = out.players[0];
   const p1 = out.players[1];
 
-  // Both avatars walk from spawn to their ground console (12.65 m) and stay.
-  if (tick < 76) {
-    p0.moveX = -40;
-    p0.moveY = -120;
-    p1.moveX = 40;
-    p1.moveY = 120;
-    return;
+  // --- Player 0: lane walk, dummy + ring snipes, outpost claim, forward wave.
+  if (tick >= 100 && tick < MATCH01_HOLD_FROM) {
+    for (let i = 0; i < MATCH01_TIMELINE.length; i++) {
+      const phase = MATCH01_TIMELINE[i];
+      if (tick < phase.until) {
+        p0.moveX = phase.moveX;
+        p0.moveY = phase.moveY;
+        p0.aimX = phase.aimX;
+        p0.aimY = phase.aimY;
+        p0.buttons = phase.buttons;
+        break;
+      }
+    }
+  } else if (tick >= MATCH01_HOLD_FROM) {
+    // Claim the outpost (30 pts: start + trickle + ring bounty), then keep
+    // holding — forward runners at 2× walk through the dead ring's window.
+    p0.buttons = BUTTON_INTERACT;
   }
 
-  // Player 0: a sustained runner wave, one purchase every 2 s across the
-  // round-robin lanes. Ring turrets always shoot the NEAREST target, so the
-  // stream soaks their volleys, grinds the ring down and lets trailing
-  // runners slip through — the original's tank-queue play.
-  if (tick >= 200 && tick < 3200 && tick % 60 === 20) p0.buttons = BUTTON_INTERACT;
-  // One Juggernaut rides the middle of the wave for punch and staying power.
-  if (tick === 1000) p0.buttons = BUTTON_INTERACT | BUTTON_FIRE2;
-
-  // Player 1: two runners into base West's intact ring, then idle.
-  if (tick === 200 || tick === 230) p1.buttons = BUTTON_INTERACT;
+  // --- Player 1: fixed (losing) build order — three feeders, then idle rich.
+  if (tick < 76) {
+    p1.moveX = 40;
+    p1.moveY = 120; // walk spawn → own ground console
+  }
+  if (tick >= 1000 && tick < 1046) p1.buttons = BUTTON_INTERACT;
 }
 
 export const SCRIPTS: Record<string, { script: InputScript; ticks: number; mapId?: string }> = {
   "drive-01": { script: drive01, ticks: 60 * TICK_HZ },
   "combat-01": { script: combat01, ticks: 90 * TICK_HZ, mapId: "district-01" },
-  "match-01": { script: match01, ticks: 160 * TICK_HZ, mapId: "district-01" },
+  "match-01": { script: match01, ticks: 150 * TICK_HZ, mapId: "district-01" },
 };

@@ -36,7 +36,8 @@ Design pillars, in priority order:
 
 ## 3. Economy
 
-One resource: **Points**. Earned by:
+One resource: **Points**. Both players start with `STARTING_POINTS`
+(placeholder: 20 — an opening wave, not a Juggernaut). Earned by:
 
 | Event                          | Points |
 |--------------------------------|--------|

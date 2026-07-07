@@ -41,13 +41,14 @@ export const UNIT_MODE_ASSAULT = 1;
  * lowest id). Neutral entities are never engaged by units, and projectiles
  * are never targets. Shared by unit movement AND the targeting system so
  * "halts the unit" and "gets shot" agree exactly. Turret callers pass
- * `skipTurrets` — turrets never target turrets — while units DO engage them.
+ * `skipStructures` — turrets only ever fire at mobile targets, never at
+ * turrets or consoles — while units DO engage structures in their path.
  */
 export function nearestEnemyInRange(
   state: SimState,
   id: number,
   range: number,
-  skipTurrets = false,
+  skipStructures = false,
 ): number {
   const ent = state.ent;
   const x = ent.posX[id];
@@ -61,7 +62,9 @@ export function nearestEnemyInRange(
     if (tt === team || tt === TEAM_NEUTRAL) continue;
     const archetype = ent.archetype[t];
     if (archetype === ARCHETYPE.PROJECTILE) continue;
-    if (skipTurrets && archetype === ARCHETYPE.TURRET) continue;
+    if (skipStructures && (archetype === ARCHETYPE.TURRET || archetype === ARCHETYPE.CONSOLE)) {
+      continue;
+    }
     const dx = ent.posX[t] - x;
     const dy = ent.posY[t] - y;
     const d2 = dx * dx + dy * dy;
