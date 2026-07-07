@@ -29,19 +29,19 @@ describe("quantizeAxis", () => {
 
 describe("sim tick loop", () => {
   it("pins the initial state hash", () => {
-    expect(hash(createSim(map, 0xdead))).toBe(1112561664);
+    expect(hash(createSim(map, 0xdead))).toBe(998415789);
   });
 
   it("pins hashes for idle and movement scripts", () => {
     const sim = createSim(map, 0xdead);
     const inputs = createTickInputs();
     for (let i = 0; i < 10; i++) step(sim, inputs);
-    expect(hash(sim)).toBe(3224540898);
+    expect(hash(sim)).toBe(2466451919);
     expect(sim.tick).toBe(10);
 
     inputs.players[0].moveX = 127;
     for (let i = 0; i < 30; i++) step(sim, inputs);
-    expect(hash(sim)).toBe(3141401990);
+    expect(hash(sim)).toBe(3594599802);
     expect(sim.ent.posX[0]).toBe(132.00010681152344);
     expect(sim.ent.posY[0]).toBe(127);
     expect(sim.ent.height[0]).toBe(0.46052786707878113);

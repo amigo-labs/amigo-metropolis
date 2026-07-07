@@ -89,7 +89,7 @@ function cmdRecord(scriptName: string, outPath: string, seedArg?: string): numbe
     return 1;
   }
   const seed = seedArg ? Number(seedArg) >>> 0 : 0xc0ffee;
-  const replay = createReplayData(TEST_MAP_ID, seed, entry.ticks);
+  const replay = createReplayData(entry.mapId ?? TEST_MAP_ID, seed, entry.ticks);
   const inputs = createTickInputs();
   for (let t = 0; t < entry.ticks; t++) {
     entry.script(t, inputs);

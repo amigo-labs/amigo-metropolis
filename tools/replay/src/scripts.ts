@@ -8,7 +8,9 @@
 import {
   BUTTON_FIRE1,
   BUTTON_FIRE2,
+  BUTTON_FIRE3,
   BUTTON_JUMP,
+  BUTTON_TRANSFORM,
   clearTickInputs,
   cosLUT,
   quantizeAxis,
@@ -54,6 +56,54 @@ export function drive01(tick: number, out: TickInputs): void {
   }
 }
 
-export const SCRIPTS: Record<string, { script: InputScript; ticks: number }> = {
+/**
+ * Golden #2 (Phase 1): 70 s movement+combat on district-01. Kills the dummy
+ * turret east of base 0 with the primary, transforms to hover, crosses the
+ * central ford, trades heavy/special fire at the mid dummy, then loiters in
+ * turret range until killed, respawns, and drives again. Open-loop script —
+ * the golden test asserts the death/respawn/points beats actually happen.
+ */
+export function combat01(tick: number, out: TickInputs): void {
+  clearTickInputs(out);
+  const p = out.players[0];
+  const t = tick / TICK_HZ;
+  // Transform "mash": edge-triggered presses every few ticks, robust against
+  // the exact respawn tick shifting when balance numbers are retuned.
+  const mash = Math.floor(t * 5) % 2 === 0 ? BUTTON_TRANSFORM : 0;
+  if (t < 4.5) {
+    p.moveX = 127; // walk east off the plot, shooting the (85,127) dummy
+    p.aimX = 127;
+    p.buttons = BUTTON_FIRE1;
+  } else if (t < 20) {
+    p.aimX = 127; // hold position in the dummy crossfire: death → respawn
+    p.buttons = BUTTON_FIRE1;
+  } else if (t < 24) {
+    p.buttons = mash; // freshly respawned: switch to hover
+  } else if (t < 38) {
+    p.moveY = -127; // hover north along the west edge — no dummy covers it
+    p.aimX = 127;
+    p.buttons = BUTTON_FIRE1;
+  } else if (t < 56) {
+    p.moveX = 127; // east along the north edge: crosses open river water
+    p.aimX = 127; //  (away from any ford), heavies detonating on terrain
+    p.buttons = t > 46 ? BUTTON_FIRE2 : BUTTON_FIRE1;
+  } else if (t < 60) {
+    p.buttons = mash; // back to walker on the dry east side
+  } else if (t < 62) {
+    p.aimY = 127; // special shot (exercises TTL/terrain detonation)
+    p.buttons = BUTTON_FIRE3;
+  } else if (t < 76) {
+    p.moveY = 127; // walk south with jump chatter
+    p.aimX = -127;
+    p.buttons = BUTTON_FIRE1 | (Math.floor(t * 2) % 2 === 0 ? BUTTON_JUMP : 0);
+  } else {
+    p.moveX = quantizeAxis(cosLUT(t)); // circle + hop until the replay ends
+    p.moveY = quantizeAxis(sinLUT(t));
+    if (Math.floor(t * 2) % 2 === 0) p.buttons = BUTTON_JUMP;
+  }
+}
+
+export const SCRIPTS: Record<string, { script: InputScript; ticks: number; mapId?: string }> = {
   "drive-01": { script: drive01, ticks: 60 * TICK_HZ },
+  "combat-01": { script: combat01, ticks: 90 * TICK_HZ, mapId: "district-01" },
 };

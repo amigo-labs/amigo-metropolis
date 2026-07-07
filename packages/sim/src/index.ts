@@ -3,6 +3,7 @@
 export * from "./archetypes";
 export * from "./balance";
 export * from "./entities";
+export * from "./events";
 export * from "./hash";
 export * from "./inputs";
 export * from "./map";

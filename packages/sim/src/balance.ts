@@ -44,6 +44,46 @@ export const HOVER_TRACTION = 0.08;
 export const AVATAR_AMMO_HEAVY = 20;
 export const AVATAR_AMMO_SPECIAL = 5;
 
+// Weapons (rules.md §2: primary hitscan, heavy projectile w/ AoE, special).
+export const PRIMARY_COOLDOWN_TICKS = 5;
+export const PRIMARY_DAMAGE = 8;
+export const PRIMARY_RANGE = 40;
+export const HEAVY_COOLDOWN_TICKS = 24;
+export const HEAVY_DAMAGE = 60;
+export const HEAVY_SPEED = 25;
+export const HEAVY_TTL_TICKS = 75;
+export const HEAVY_AOE_RADIUS = 6;
+export const SPECIAL_COOLDOWN_TICKS = 60;
+export const SPECIAL_DAMAGE = 150;
+export const SPECIAL_SPEED = 12;
+export const SPECIAL_TTL_TICKS = 90;
+export const SPECIAL_AOE_RADIUS = 4;
+
+// Sandbox dummy turrets (Phase 1 targets; real turrets rebalance in Phase 2).
+export const TURRET_RANGE = 28;
+export const TURRET_DAMAGE = 15;
+export const TURRET_COOLDOWN_TICKS = 20;
+export const DUMMY_RESPAWN_TICKS = 450; // 15 s
+
+// Death & respawn (rules.md §2: 8 s).
+export const RESPAWN_TICKS = 240;
+
+// Points (rules.md §3, the Phase 1 stub subset).
+export const POINTS_KILL_AVATAR = 10;
+export const POINTS_KILL_TURRET = 2;
+export const POINTS_KILL_UNIT = 1;
+
+/** 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP. */
+export const ARCHETYPE_RADIUS: readonly number[] = [
+  1.2, // AVATAR
+  1.0, // RUNNER
+  1.2, // GUARDIAN
+  2.2, // JUGGERNAUT
+  2.6, // FORTRESS
+  1.5, // TURRET
+  0.4, // PROJECTILE
+];
+
 // Max HP per archetype, indexed by ARCHETYPE value (rules.md §4 placeholders;
 // turret/projectile values are stand-ins until their phases land).
 export const ARCHETYPE_MAX_HP: readonly number[] = [
@@ -52,6 +92,6 @@ export const ARCHETYPE_MAX_HP: readonly number[] = [
   50, // GUARDIAN
   600, // JUGGERNAUT
   500, // FORTRESS
-  200, // TURRET
+  100, // TURRET (Phase 1 dummy value; Phase 2 rebalances)
   1, // PROJECTILE
 ];
