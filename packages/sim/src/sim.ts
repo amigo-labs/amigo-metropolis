@@ -34,11 +34,13 @@ export function createSim(map: MapData, seed: number): SimState {
   // Phase 0: one debug avatar for player 0 at the map center.
   const half = worldExtent(map) / 2;
   const id = spawn(ent, ARCHETYPE.AVATAR, 0);
-  ent.posX[id] = half;
-  ent.posY[id] = half;
-  ent.height[id] = sampleHeight(map, half, half);
-  ent.hp[id] = AVATAR_HP;
-  avatarId[0] = id;
+  if (id >= 0) {
+    ent.posX[id] = half;
+    ent.posY[id] = half;
+    ent.height[id] = sampleHeight(map, half, half);
+    ent.hp[id] = AVATAR_HP;
+    avatarId[0] = id;
+  }
   return state;
 }
 

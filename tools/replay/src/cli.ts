@@ -52,6 +52,23 @@ function verifyReplay(replayPath: string, hashesPath: string): boolean {
     );
     return false;
   }
+  // The hashes file must describe THIS replay, otherwise a divergence report
+  // would point at the wrong problem.
+  if (
+    expected.simVersion !== replay.simVersion ||
+    expected.mapId !== replay.mapId ||
+    expected.seed !== replay.seed ||
+    expected.tickCount !== replay.tickCount ||
+    expected.hashes.length !== replay.tickCount
+  ) {
+    console.error(
+      `${basename(replayPath)}: hashes file does not match replay header — ` +
+        `expected (v${expected.simVersion}, ${expected.mapId}, seed ${expected.seed}, ` +
+        `${expected.tickCount} ticks, ${expected.hashes.length} hashes) vs replay ` +
+        `(v${replay.simVersion}, ${replay.mapId}, seed ${replay.seed}, ${replay.tickCount} ticks)`,
+    );
+    return false;
+  }
   const got = simulateReplayHashes(replay);
   const div = firstDivergence(got, expected.hashes);
   if (div !== -1) {

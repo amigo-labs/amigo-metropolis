@@ -1,7 +1,9 @@
-// Scripted input generators for authoring golden replays. Scripts use only
-// simMath primitives, so a regenerated replay is byte-identical on any
-// machine — goldens change only when someone deliberately edits a script or
-// the sim itself (which is a SIM_VERSION bump).
+// Scripted input generators for authoring golden replays. Scripts avoid
+// engine-dependent constructs — simMath LUT trig instead of Math trig, no
+// randomness, no wall-clock; IEEE-exact ops like Math.floor are fine — so a
+// regenerated replay is byte-identical on any machine. Goldens change only
+// when someone deliberately edits a script or the sim itself (which is a
+// SIM_VERSION bump).
 
 import {
   BUTTON_FIRE1,

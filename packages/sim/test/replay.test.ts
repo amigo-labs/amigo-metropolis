@@ -57,4 +57,12 @@ describe("replay format", () => {
     expect(() => decodeReplay(badMagic)).toThrow("not a MREP replay file");
     expect(() => decodeReplay(good.slice(0, good.length - 1))).toThrow("length mismatch");
   });
+
+  it("rejects over-long and non-ASCII mapIds", () => {
+    expect(() => encodeReplay(createReplayData("x".repeat(256), 1, 0))).toThrow("mapId too long");
+    expect(() => encodeReplay(createReplayData("täst", 1, 0))).toThrow("must be ASCII");
+    const bytes = encodeReplay(createReplayData("test-128", 1, 0));
+    bytes[17] = 0xff; // corrupt the first mapId byte past the encoder's check
+    expect(() => decodeReplay(bytes)).toThrow("mapId must be ASCII");
+  });
 });

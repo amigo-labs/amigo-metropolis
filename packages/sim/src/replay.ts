@@ -71,6 +71,9 @@ export function readFrame(replay: ReplayData, tick: number, out: TickInputs): vo
 }
 
 export function encodeReplay(replay: ReplayData): Uint8Array {
+  if (replay.mapId.length > 255) {
+    throw new Error(`mapId too long (${replay.mapId.length} > 255)`);
+  }
   const headerBytes = 17 + replay.mapId.length;
   const out = new Uint8Array(headerBytes + replay.frames.length);
   out[0] = MAGIC[0];
@@ -83,7 +86,7 @@ export function encodeReplay(replay: ReplayData): Uint8Array {
   out[7] = (replay.simVersion >>> 8) & 0xff;
   writeU32(out, 8, replay.seed);
   writeU32(out, 12, replay.tickCount);
-  out[16] = replay.mapId.length & 0xff;
+  out[16] = replay.mapId.length;
   for (let i = 0; i < replay.mapId.length; i++) {
     const c = replay.mapId.charCodeAt(i);
     if (c > 0x7f) throw new Error(`mapId must be ASCII: ${replay.mapId}`);
@@ -114,7 +117,11 @@ export function decodeReplay(bytes: Uint8Array): ReplayData {
   const headerBytes = 17 + mapIdLen;
   let mapId = "";
   for (let i = 0; i < mapIdLen; i++) {
-    mapId += String.fromCharCode(bytes[17 + i]);
+    const c = bytes[17 + i];
+    if (c > 0x7f) {
+      throw new Error("replay mapId must be ASCII");
+    }
+    mapId += String.fromCharCode(c);
   }
   const expected = headerBytes + tickCount * FRAME_BYTES;
   if (bytes.length !== expected) {
