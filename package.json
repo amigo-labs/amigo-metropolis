@@ -11,7 +11,8 @@
     "lint": "biome check .",
     "typecheck": "bun run --filter '*' typecheck",
     "dev": "bun run --filter @metropolis/client dev",
-    "replay:verify": "bun run tools/replay/src/cli.ts verify-goldens"
+    "replay:verify": "bun run tools/replay/src/cli.ts verify-goldens",
+    "replay:verify:browser": "bun run tools/replay/src/browserVerify.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",

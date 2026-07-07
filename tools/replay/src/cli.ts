@@ -81,7 +81,7 @@ function cmdRecord(scriptName: string, outPath: string, seedArg?: string): numbe
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, encodeReplay(replay));
   const hashes = simulateReplayHashes(replay);
-  const hashesPath = outPath.replace(/\.mrep$/, "") + ".hashes.json";
+  const hashesPath = `${outPath.replace(/\.mrep$/, "")}.hashes.json`;
   writeFileSync(hashesPath, `${JSON.stringify(hashFileFor(replay, hashes), null, 2)}\n`);
   console.log(
     `recorded ${scriptName}: ${entry.ticks} ticks, seed ${seed}, sim v${SIM_VERSION}\n` +

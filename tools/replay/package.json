@@ -8,5 +8,8 @@
   },
   "dependencies": {
     "@metropolis/sim": "workspace:*"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.61.1"
   }
 }
