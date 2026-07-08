@@ -167,6 +167,12 @@ export class AudioEngine {
     }
   }
 
+  /** Unlocks (if needed) and plays one cue — for the settings "test" button. */
+  preview(cue: string): void {
+    this.unlock();
+    this.play(cue);
+  }
+
   private play(cue: string): void {
     if (!this.ctx || !this.sfxGain || this.activeVoices >= MAX_VOICES) return;
     const buffer = this.buffers.get(cue);

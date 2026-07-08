@@ -4,7 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="data:," />
-    <title>Metropolis — sandbox</title>
+    <meta
+      name="description"
+      content="District Breach — a browser arena strategy-action game. Break the enemy base's gate. Solo vs AI, couch splitscreen, or online 1v1."
+    />
+    <meta name="theme-color" content="#0b0e14" />
+    <title>District Breach</title>
     <style>
       html,
       body {
@@ -80,6 +85,238 @@
       }
       body {
         cursor: crosshair;
+      }
+
+      /* --- Title screen / menu (Phase 7) ------------------------------------ */
+      .menu {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: radial-gradient(
+          120% 120% at 50% 0%,
+          rgba(11, 14, 20, 0.72),
+          rgba(6, 8, 13, 0.92)
+        );
+        color: #e2e8f0;
+        font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
+        z-index: 20;
+        overflow: auto;
+      }
+      .menu-card {
+        width: 100%;
+        max-width: 420px;
+        background: rgba(11, 14, 20, 0.94);
+        border: 1px solid #26304a;
+        border-radius: 14px;
+        padding: 28px 28px 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      }
+      .menu-kicker {
+        color: #7ef2ff;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+      .menu-title {
+        margin: 6px 0 10px;
+        font-size: 40px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        line-height: 1.05;
+        background: linear-gradient(180deg, #ffffff, #9fb2cc);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .menu-objective {
+        margin: 0 0 18px;
+        color: #b6c2d4;
+      }
+      .menu-modes {
+        display: grid;
+        gap: 8px;
+      }
+      .menu-mode {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        width: 100%;
+        padding: 12px 14px;
+        border: 1px solid #2b3650;
+        border-radius: 10px;
+        background: #131a29;
+        color: #e2e8f0;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition:
+          border-color 0.12s,
+          background 0.12s,
+          transform 0.06s;
+      }
+      .menu-mode:hover {
+        border-color: #3d4d72;
+        background: #172136;
+      }
+      .menu-mode:active {
+        transform: translateY(1px);
+      }
+      .menu-mode.is-active {
+        border-color: #7ef2ff;
+        background: #16273a;
+      }
+      .menu-mode b {
+        font-size: 16px;
+      }
+      .menu-mode span {
+        color: #8ea0ba;
+        font-size: 12px;
+      }
+      .menu-panel,
+      .menu-drawer {
+        margin-top: 12px;
+        padding: 14px;
+        border: 1px solid #26304a;
+        border-radius: 10px;
+        background: #0e1420;
+      }
+      .menu-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .menu-label {
+        flex: 0 0 78px;
+        color: #b6c2d4;
+      }
+      .menu-value {
+        flex: 0 0 34px;
+        text-align: right;
+        color: #7ef2ff;
+        font-variant-numeric: tabular-nums;
+      }
+      .menu-slider {
+        flex: 1;
+        accent-color: #7ef2ff;
+      }
+      .menu-code {
+        flex: 1;
+        padding: 10px 12px;
+        border: 1px solid #2b3650;
+        border-radius: 8px;
+        background: #0b0f18;
+        color: #fff;
+        font: 600 18px/1 ui-monospace, monospace;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+      }
+      .menu-code:focus {
+        outline: none;
+        border-color: #7ef2ff;
+      }
+      .menu-go {
+        width: 100%;
+        margin-top: 6px;
+        padding: 11px 14px;
+        border: 0;
+        border-radius: 9px;
+        background: #7ef2ff;
+        color: #06222b;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .menu-go:hover {
+        background: #a6f6ff;
+      }
+      .menu-go--ghost {
+        margin-top: 8px;
+        background: transparent;
+        border: 1px solid #2b3650;
+        color: #cdd8e8;
+        font-weight: 600;
+      }
+      .menu-go--ghost:hover {
+        border-color: #3d4d72;
+        background: #131a29;
+      }
+      .menu-hint {
+        margin: 8px 0 0;
+        color: #8ea0ba;
+        font-size: 12.5px;
+      }
+      .menu-hint a {
+        color: #7ef2ff;
+      }
+      .menu-err {
+        margin-top: 8px;
+        color: #fca5a5;
+        font-size: 12.5px;
+        min-height: 1em;
+      }
+      .menu-footer {
+        display: flex;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .menu-link {
+        padding: 6px 10px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: #9fb0c8;
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .menu-link:hover {
+        color: #e2e8f0;
+      }
+      .menu-link.is-active {
+        color: #7ef2ff;
+        border-color: #26304a;
+      }
+      .menu-link--accent {
+        margin-left: auto;
+        color: #fbbf24;
+      }
+      .menu-h2 {
+        margin: 4px 0 8px;
+        font-size: 13px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8ea0ba;
+      }
+      .menu-h2:not(:first-child) {
+        margin-top: 14px;
+      }
+      .menu-keys {
+        display: grid;
+        gap: 4px;
+      }
+      .menu-key-row {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+      .menu-key-row kbd {
+        flex: 0 0 140px;
+        color: #dbe4f0;
+        font: 12px/1.6 ui-monospace, monospace;
+      }
+      .menu-key-row span {
+        color: #8ea0ba;
+        font-size: 13px;
+      }
+      .menu-credits {
+        margin-top: 14px;
+        color: #55617a;
+        font-size: 11px;
       }
     </style>
   </head>

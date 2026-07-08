@@ -50,6 +50,7 @@ import { AudioEngine } from "./audio/engine";
 import { PlayerOneInput } from "./input/keyboard";
 import type { LocalInputSource } from "./input/types";
 import { runLobby } from "./lobby";
+import { runMenu } from "./menu";
 import { NetLockstep } from "./net/lockstep";
 import { WsTransport } from "./net/wsTransport";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
@@ -85,6 +86,18 @@ const seed = online
 const wardenDifficulty =
   splitscreen || online ? 0 : Math.trunc(Number(params.get("warden") ?? "0"));
 const warden = wardenDifficulty >= 1;
+
+// A bare URL shows the title/menu (Phase 7). Any explicit mode — a network or
+// splitscreen match, an AI/scripted opponent, ?play=1 from the menu, or ?debug
+// for the harness — boots straight into the match and skips the menu, so every
+// deep link and test entry point behaves exactly as before.
+const explicitMode =
+  online ||
+  splitscreen ||
+  warden ||
+  params.has("opponent") ||
+  params.has("play") ||
+  params.has("debug");
 // Offline builds the sim now; online defers to the server's authoritative
 // config (arrives in MSG_WELCOME) so both peers build a byte-identical sim.
 let sim: SimState = online
@@ -607,17 +620,34 @@ function connectOnline(code: string): void {
   net.start(config);
 }
 
-if (online) {
-  connectOnline(onlineCode as string);
-} else if (splitscreen) {
-  // Render a static overview as the lobby backdrop, then assign devices.
+/** Renders a single static overview frame as a backdrop behind menu/lobby cards. */
+function renderBackdrop(): void {
   const overview = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
   overview.position.set(extent / 2, extent * 0.9, extent * 1.4);
   overview.lookAt(extent / 2, 0, extent / 2);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.setScissor(0, 0, innerWidth, innerHeight);
   renderer.render(scene, overview);
+}
+
+if (online) {
+  connectOnline(onlineCode as string);
+} else if (splitscreen) {
+  renderBackdrop();
   runLobby({ needed: MAX_PLAYERS, keyboard }).then(startMatch);
-} else {
+} else if (explicitMode) {
   startMatch([{ slot: 0, input: keyboard }]);
+} else {
+  // Bare URL: title screen over a static arena backdrop; a choice reloads into
+  // the picked mode. The reticle/crosshair only makes sense in a live match.
+  reticle.style.display = "none";
+  document.body.style.cursor = "default";
+  renderBackdrop();
+  const menu = runMenu({ audio });
+  // The install prompt usually fires after the menu mounts; reveal it then.
+  addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    const evt = e as Event & { prompt(): Promise<void> };
+    menu.offerInstall(() => void evt.prompt());
+  });
 }
