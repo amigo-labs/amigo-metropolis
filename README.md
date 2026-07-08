@@ -13,7 +13,8 @@ touching code. Work follows `PLAN.md` phase by phase.
 ```sh
 bun install
 bun test               # sim tests + golden replays (must pass before any commit)
-bun run dev            # Phase 0 sandbox: WASD/arrows drive, mouse orbits
+bun run dev            # sandbox: WASD + mouse solo; ?warden=1-10 vs the AI;
+                       #   ?splitscreen (two gamepads, press A to join) for couch
 bun run lint           # Biome
 bun run typecheck      # tsc per package
 bun run replay:verify  # re-simulate goldens against the current sim

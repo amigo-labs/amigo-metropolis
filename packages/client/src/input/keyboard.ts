@@ -15,6 +15,7 @@ import {
 } from "@metropolis/sim";
 import type * as THREE from "three";
 import { Raycaster, Vector2, Vector3 } from "three";
+import type { LocalInputSource, Viewport } from "./types";
 
 const BUTTON_KEYS: readonly [string, number][] = [
   ["KeyQ", BUTTON_TRANSFORM],
@@ -33,7 +34,10 @@ const raycaster = new Raycaster();
 const planeNormal = new Vector3(0, 1, 0);
 const hit = new Vector3();
 
-export class PlayerOneInput {
+export class PlayerOneInput implements LocalInputSource {
+  readonly label = "Keyboard / Mouse";
+  readonly hint =
+    "WASD drive · mouse aim · LMB/RMB/MMB fire · Q transform · Space jump · hold E to buy/claim/capture";
   private readonly down = new Set<string>();
   private mouseButtons = 0;
   private mouseX = 0;
@@ -66,13 +70,30 @@ export class PlayerOneInput {
     target.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
+  /** A keyboard is always present. */
+  isConnected(): boolean {
+    return true;
+  }
+
+  /** Haptics are gamepad-only; the keyboard source ignores rumble. */
+  rumble(_strength: number, _durationMs: number): void {}
+
   /**
    * Projects the cursor onto the horizontal plane at the avatar's height and
-   * stores the world-space aim direction. Call once per tick before sample().
-   * Allocation-free.
+   * stores the world-space aim direction. NDC is taken relative to the player's
+   * viewport, so mouse aim is correct even in a splitscreen half. Call once per
+   * tick before sample(). Allocation-free.
    */
-  updateAim(camera: THREE.Camera, avatarX: number, avatarY: number, avatarHeight: number): void {
-    ndc.set((this.mouseX / innerWidth) * 2 - 1, -(this.mouseY / innerHeight) * 2 + 1);
+  updateAim(
+    camera: THREE.Camera,
+    avatarX: number,
+    avatarY: number,
+    avatarHeight: number,
+    viewport: Viewport,
+  ): void {
+    const vx = ((this.mouseX - viewport.left) / viewport.width) * 2 - 1;
+    const vy = -((this.mouseY - viewport.top) / viewport.height) * 2 + 1;
+    ndc.set(vx, vy);
     raycaster.setFromCamera(ndc, camera);
     // Intersect ray with plane y = avatarHeight (sim height axis = three y).
     const dir = raycaster.ray.direction;

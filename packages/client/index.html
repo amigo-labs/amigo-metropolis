@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="data:," />
-    <title>Metropolis — Phase 0 sandbox</title>
+    <title>Metropolis — sandbox</title>
     <style>
       html,
       body {
@@ -16,15 +16,55 @@
       canvas {
         display: block;
       }
-      #hud {
+      .hud {
         position: fixed;
         top: 8px;
         left: 8px;
         color: #cbd5e1;
         font: 12px/1.5 ui-monospace, monospace;
-        white-space: pre;
+        white-space: pre-wrap;
+        max-width: 46ch;
         pointer-events: none;
         text-shadow: 0 1px 2px #000;
+      }
+      #lobby {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(7, 10, 18, 0.55);
+        color: #e2e8f0;
+        font: 15px/1.7 ui-monospace, monospace;
+        z-index: 10;
+      }
+      .lobby-card {
+        background: rgba(11, 14, 20, 0.92);
+        border: 1px solid #334155;
+        border-radius: 10px;
+        padding: 24px 32px;
+        min-width: 340px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+      }
+      .lobby-card h1 {
+        margin: 0 0 14px;
+        font-size: 18px;
+        letter-spacing: 0.04em;
+      }
+      .lobby-slot {
+        padding: 4px 0;
+      }
+      .lobby-go {
+        margin-top: 14px;
+        color: #7ef2ff;
+      }
+      .lobby-hint {
+        margin-top: 14px;
+        color: #94a3b8;
+        font-size: 13px;
+      }
+      .lobby-card b {
+        color: #fbbf24;
       }
       #reticle {
         position: fixed;
@@ -44,7 +84,6 @@
     </style>
   </head>
   <body>
-    <div id="hud"></div>
     <div id="reticle"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
