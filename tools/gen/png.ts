@@ -62,7 +62,9 @@ export function encodePng(
     raw[dst] = 0;
     raw.set(rgba.subarray(src, src + stride), dst + 1);
   }
-  const idat = new Uint8Array(deflateSync(raw, { level: 9 }));
+  // deflateSync already returns a Uint8Array (Buffer); chunk() only reads it, so
+  // no defensive copy is needed.
+  const idat = deflateSync(raw, { level: 9 });
 
   const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
   const parts = [sig, chunk("IHDR", ihdr), chunk("IDAT", idat), chunk("IEND", new Uint8Array(0))];

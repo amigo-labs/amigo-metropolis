@@ -10,7 +10,7 @@
 // reference swatch PNG from these same entries.
 
 export interface PaletteEntry {
-  /** Stable key used by code, the .pal comment column, and tests. */
+  /** Stable key used by code, the reference swatch sheet, and tests. */
   readonly name: string;
   /** 24-bit sRGB, the authoring space (Three converts to linear on load). */
   readonly hex: number;
@@ -66,7 +66,9 @@ export const PALETTE: readonly PaletteEntry[] = [
 export const PALETTE_HEX: readonly number[] = PALETTE.map((e) => e.hex);
 
 const INDEX_BY_NAME: Readonly<Record<string, number>> = (() => {
-  const m: Record<string, number> = {};
+  // Null-prototype map so lookups can't resolve to inherited Object keys —
+  // paletteIndex("toString") must throw like any other unknown name.
+  const m: Record<string, number> = Object.create(null);
   for (let i = 0; i < PALETTE.length; i++) m[PALETTE[i].name] = i;
   return m;
 })();

@@ -31,8 +31,12 @@ describe("palette data", () => {
     }
   });
 
-  test("paletteIndex rejects unknown names", () => {
+  test("paletteIndex rejects unknown names, including inherited Object keys", () => {
     expect(() => paletteIndex("no_such_color")).toThrow();
+    // The lookup map is null-prototype, so these must not resolve to functions.
+    expect(() => paletteIndex("toString")).toThrow();
+    expect(() => paletteIndex("__proto__")).toThrow();
+    expect(() => paletteIndex("constructor")).toThrow();
   });
 });
 

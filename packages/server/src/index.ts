@@ -53,9 +53,11 @@ export default {
       const stub = env.ROOM.get(env.ROOM.idFromName(code));
       return stub.fetch(request);
     }
-    // Anything that isn't a relay route is the client app. run_worker_first only
-    // routes "/room/*" here, so this is just a safety net (e.g. a bare "/room"):
-    // hand it to the asset layer, which SPA-falls-back to the app shell.
+    // Anything that isn't a relay route is the client app. run_worker_first pins
+    // only "/room/*" to the Worker, so this is just a safety net for a codeless
+    // relay path like "/room/": hand it to the asset layer, which SPA-falls-back
+    // to the app shell. (A bare "/room" never reaches here — it doesn't match
+    // "/room/*", so the asset layer serves it directly.)
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
