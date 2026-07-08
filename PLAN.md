@@ -105,17 +105,33 @@ viewport renders, so only draw calls double, not sim or scene rebuilds.)
 
 ## Phase 6 — Online 1v1 (Durable Objects)
 
-- [ ] `server`: Worker + DO, room codes, WebSocket Hibernation, binary protocol
+- [x] `server`: Worker + DO, room codes, WebSocket Hibernation, binary protocol
       per architecture.md §5
-- [ ] Client net module: input send, frame receive, stall handling ("waiting
+- [x] Client net module: input send, frame receive, stall handling ("waiting
       for opponent" overlay), 3-tick delay
-- [ ] Hash exchange every 30 ticks, desync flag + graceful end + dump both replays
-- [ ] Reconnect: DO input history → rejoin fast-forward
-- [ ] simVersion handshake
-- [ ] Playtest across two real networks; measure input latency feel
+- [x] Hash exchange every 30 ticks, desync flag + graceful end + dump both replays
+- [x] Reconnect: DO input history → rejoin fast-forward
+- [x] simVersion handshake
+- [~] Playtest across two real networks; measure input latency feel
 
 **DoD:** two machines complete a match over the internet; artificially induced
 desync (debug flag) is detected within 30 ticks and both replays are dumped.
+(The binary protocol lives in `packages/sim/src/protocol.ts` beside the replay
+codec — the per-tick input frame IS the replay frame. The relay's decidable
+logic is a pure, Cloudflare-free `RoomLogic` (`packages/server/src/room.ts`,
+14 unit tests); `index.ts` is a thin Worker + Durable Object over it using the
+WebSocket Hibernation API, persisting config + confirmed frames to DO storage
+so reconnect survives eviction. The client's `NetLockstep`
+(`packages/client/src/net/`) sends input 3 ticks ahead and steps only
+server-confirmed frames. The DoD is proven IN-PROCESS by
+`packages/client/test/netLockstep.test.ts`: two clients wired through the real
+`RoomLogic` stay bit-identical to the offline sim, an induced desync is flagged
+within 30 ticks with both replays dumped, and a dropped client re-simulates to
+the same state. Wired into the client at `?online=<CODE>` (+ `?relay=<wsBase>`);
+the seed is derived from the room code so both peers build an identical sim.
+Open, like the hover-feel / difficulty / splitscreen-perf passes: the live
+deploy (`wrangler dev`/`deploy` — no Workers runtime here) and the two-network
+latency playtest.)
 
 ## Phase 7 — Look & sound (Stage B/C of assets.md)
 
