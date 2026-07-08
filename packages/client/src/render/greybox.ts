@@ -8,18 +8,15 @@
 import { ANIM_HOVER, ARCHETYPE } from "@metropolis/sim";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { NEUTRAL_RAMP, PROJECTILE_HEX, TEAM_RAMPS } from "./palette";
 
-export const TEAM_COLORS: readonly THREE.Color[] = [
-  new THREE.Color(0x3b82f6), // team 0: blue
-  new THREE.Color(0xef4444), // team 1: red
-];
-export const NEUTRAL_COLOR = new THREE.Color(0x9ca3af);
-const PROJECTILE_COLORS: readonly THREE.Color[] = [
-  new THREE.Color(0xffffff),
-  new THREE.Color(0xffb020), // heavy: orange
-  new THREE.Color(0x7ef2ff), // special: cyan
-  new THREE.Color(0xff5470), // warden bomb: red
-];
+// Colors come from the shared game palette (assets.md §3) — team meshes use the
+// ramp's base shade; base structures reach for the dark shade themselves.
+export const TEAM_COLORS: readonly THREE.Color[] = TEAM_RAMPS.map(
+  (ramp) => new THREE.Color(ramp.base),
+);
+export const NEUTRAL_COLOR = new THREE.Color(NEUTRAL_RAMP.base);
+const PROJECTILE_COLORS: readonly THREE.Color[] = PROJECTILE_HEX.map((hex) => new THREE.Color(hex));
 
 export interface Bucket {
   readonly mesh: THREE.InstancedMesh;
