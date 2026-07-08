@@ -46,7 +46,7 @@ import {
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { AudioStub } from "./audio";
+import { AudioEngine } from "./audio/engine";
 import { PlayerOneInput } from "./input/keyboard";
 import type { LocalInputSource } from "./input/types";
 import { runLobby } from "./lobby";
@@ -145,7 +145,9 @@ let countPrev = 0;
 let countCurr = 0;
 
 const keyboard = new PlayerOneInput(window);
-const audio = new AudioStub();
+const audio = new AudioEngine();
+// Browsers gate audio behind a gesture; the first pointer/key/touch unlocks it.
+audio.armUnlock();
 
 // Scripted opponent (?opponent=feeder|idle, Phase 3 DoD): player 2 runs a
 // fixed build order — walk to its ground console, then hold-to-buy runner
