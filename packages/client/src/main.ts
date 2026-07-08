@@ -1,23 +1,31 @@
-// Phase 1 sandbox: fixed 30 Hz sim under a variable-rate render loop on the
-// district-01 arena. Frame loop contract (CLAUDE.md renderer rules): ZERO
-// allocations — all scratch objects live at module scope, snapshots rotate
-// between two preallocated buffers, and entity rendering reads sim state ONLY
-// via writeSnapshot(). (The 1 Hz debug HUD reads sim fields directly — it is
-// host-side debug UI, not part of the renderer.)
+// Sandbox entry: a fixed 30 Hz sim under a variable-rate render loop on the
+// district-01 arena, now driving one-to-two LOCAL players. Frame loop contract
+// (CLAUDE.md renderer rules): ZERO allocations — all scratch objects live at
+// module scope, snapshots rotate between two preallocated buffers, and entity
+// rendering reads sim state ONLY via writeSnapshot(). (The 1 Hz debug HUD reads
+// sim fields directly — it is host-side debug UI, not part of the renderer.)
 //
-// URL params: ?map=test-128 ?cam=orbit ?seed=123 ?warden=8 ?opponent=idle
+// Modes (architecture.md §4 "inputs differ, sim doesn't"):
+//   solo               ?warden=<1-10> | ?opponent=feeder|idle   (1 view)
+//   couch splitscreen  ?splitscreen | ?players=2                 (2 views)
+// URL params: ?map=test-128 ?cam=orbit ?seed=123 ?split=v|h ?rumble=0
 
 import {
   ANIM_HOVER,
+  ARCHETYPE,
   BUTTON_INTERACT,
   CAPTURE_TICKS,
   CONSOLE_HOLD_TICKS,
   createSim,
   createTickInputs,
   DISTRICT_01_ID,
+  EV_DEATH,
+  EV_HIT,
+  EVENT_STRIDE,
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   MAX_ENTITIES,
+  MAX_PLAYERS,
   type PlayerInput,
   SNAPSHOT_STRIDE,
   step,
@@ -30,20 +38,41 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AudioStub } from "./audio";
 import { PlayerOneInput } from "./input/keyboard";
+import type { LocalInputSource } from "./input/types";
+import { runLobby } from "./lobby";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
+import {
+  createPlayerViews,
+  layoutViews,
+  type PlayerView,
+  type SplitOrientation,
+} from "./render/playerView";
 import { buildBaseStructures } from "./render/structures";
 import { buildTerrainMesh, buildWaterPlane } from "./render/terrain";
 
-// --- Simulation setup --------------------------------------------------------
+// --- Mode + simulation setup -------------------------------------------------
 
 const params = new URLSearchParams(location.search);
 const seed = Number(params.get("seed") ?? "0xc0ffee") >>> 0;
 const map = getMapById(params.get("map") ?? DISTRICT_01_ID);
-// ?warden=<1-10> puts the Phase 4 AI on player 2's slot (rules.md §7).
-const wardenDifficulty = Math.trunc(Number(params.get("warden") ?? "0"));
+const splitscreen = params.has("splitscreen") || params.get("players") === "2";
+const splitOrientation: SplitOrientation = params.get("split") === "h" ? "h" : "v";
+const rumbleEnabled = params.get("rumble") !== "0";
+const orbitMode = params.get("cam") === "orbit";
+
+// ?warden=<1-10> puts the Phase 4 AI on player 2's slot (rules.md §7). It is a
+// solo feature — splitscreen fills both slots with humans, so the AI stays off.
+const wardenDifficulty = splitscreen ? 0 : Math.trunc(Number(params.get("warden") ?? "0"));
 const warden = wardenDifficulty >= 1;
 const sim = createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined);
 
+// ?debug exposes the live sim for the console / e2e harness (host-side only,
+// like the debug HUD — nothing in the sim or renderer reads it back).
+if (params.has("debug")) (globalThis as { metropolisSim?: typeof sim }).metropolisSim = sim;
+
+// Local-input delay queue (architecture.md §4): even offline, every local
+// player's input is delayed LOCAL_INPUT_DELAY_TICKS so online (3 ticks) feels
+// identical. In splitscreen BOTH humans route through it — same parity.
 const QUEUE_SIZE = LOCAL_INPUT_DELAY_TICKS + 1;
 const inputQueue: TickInputs[] = [];
 for (let i = 0; i < QUEUE_SIZE; i++) inputQueue.push(createTickInputs());
@@ -53,13 +82,13 @@ let snapCurr = new Float32Array(MAX_ENTITIES * SNAPSHOT_STRIDE);
 let countPrev = 0;
 let countCurr = 0;
 
-const input = new PlayerOneInput(window);
+const keyboard = new PlayerOneInput(window);
 const audio = new AudioStub();
 
 // Scripted opponent (?opponent=feeder|idle, Phase 3 DoD): player 2 runs a
 // fixed build order — walk to its ground console, then hold-to-buy runner
-// bursts forever, spending whatever its ledger allows. Superseded by the
-// Warden (?warden): with the AI active, the sim ignores player 2's inputs.
+// bursts forever. Only used for a slot that is neither a local human nor the
+// Warden (i.e. solo ?opponent play).
 const opponentMode = warden ? "idle" : (params.get("opponent") ?? "feeder");
 
 function scriptOpponent(tick: number, out: PlayerInput): void {
@@ -77,28 +106,12 @@ function scriptOpponent(tick: number, out: PlayerInput): void {
   if (tick % 900 < 300) out.buttons = BUTTON_INTERACT; // 10 s burst, 20 s pause
 }
 
-function runTick(): void {
-  const a = sim.avatarId[0];
-  if (a >= 0) {
-    input.updateAim(camera, sim.ent.posX[a], sim.ent.posY[a], sim.ent.height[a]);
-  }
-  const queued = inputQueue[(sim.tick + LOCAL_INPUT_DELAY_TICKS) % QUEUE_SIZE];
-  input.sample(queued.players[0]);
-  scriptOpponent(sim.tick + LOCAL_INPUT_DELAY_TICKS, queued.players[1]);
-  step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
-  audio.pump(sim.events); // events are per-tick transients: drain immediately
-  const swap = snapPrev;
-  snapPrev = snapCurr;
-  snapCurr = swap;
-  countPrev = countCurr;
-  countCurr = writeSnapshot(sim, snapCurr);
-}
-
 // --- Scene setup --------------------------------------------------------------
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
+renderer.setScissorTest(true); // splitscreen renders one scissored view per player
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -115,30 +128,12 @@ buildBaseStructures(scene, map);
 const greybox = createGreyboxMeshes(scene);
 
 const extent = worldExtent(map);
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
-camera.position.set(map.spawns[0].x - 14, 12, map.spawns[0].y);
 
-const orbitMode = params.get("cam") === "orbit";
-let controls: OrbitControls | undefined;
-if (orbitMode) {
-  controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(extent / 2, 0, extent / 2);
-  controls.enableDamping = true;
-  controls.update();
-}
-
-addEventListener("resize", () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
-
-// --- Frame loop ----------------------------------------------------------------
+// --- Frame-loop scratch (never allocate inside frame/runTick) ----------------
 
 const TICK_MS = 1000 / TICK_HZ;
 const MAX_STEPS_PER_FRAME = 5;
 
-// Module-scope scratch: never allocate inside frame().
 const scratchMatrix = new THREE.Matrix4();
 const scratchQuat = new THREE.Quaternion();
 const scratchPos = new THREE.Vector3();
@@ -148,28 +143,88 @@ const camEye = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const TAU = Math.PI * 2;
 
-const hud = document.getElementById("hud") as HTMLDivElement;
 const reticle = document.getElementById("reticle") as HTMLDivElement;
 addEventListener("mousemove", (e) => {
   reticle.style.transform = `translate(${e.clientX - 10}px, ${e.clientY - 10}px)`;
 });
-let hudFrames = 0;
-let hudLastUpdate = 0;
 const unitCounts = new Int32Array(2);
+
+// Interpolated pose of each player's avatar (sim x,y,height,yaw in 0..3; slot
+// 4 = found), keyed by player slot. Filled by renderEntities for chase cams+HUD.
+const avatarPoses: Float32Array[] = [];
+for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses.push(new Float32Array(5));
+// Avatar id per player captured BEFORE each step, so we can attribute this
+// tick's hit/death events (which clear avatarId) back to a player for rumble.
+const prevAvatarId = new Int32Array(MAX_PLAYERS);
 
 function wrapAngleDelta(d: number): number {
   return ((((d + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
 }
 
-// Interpolated pose of player 0's avatar, updated by renderEntities for the
-// chase camera and HUD (sim x,y,height,yaw in slots 0..3; slot 4 = found).
-const avatarPose = new Float32Array(5);
+// Set once the match starts (after the lobby, if any).
+let views: PlayerView[] = [];
+const viewBySlot: (PlayerView | undefined)[] = new Array(MAX_PLAYERS).fill(undefined);
+let orbitControls: OrbitControls | undefined;
+
+function runTick(): void {
+  // Refresh pointer aim for each local view (uses last frame's chase camera).
+  for (let v = 0; v < views.length; v++) {
+    const view = views[v];
+    const a = sim.avatarId[view.slot];
+    if (a >= 0) {
+      view.input.updateAim(
+        view.camera,
+        sim.ent.posX[a],
+        sim.ent.posY[a],
+        sim.ent.height[a],
+        view.viewport,
+      );
+    }
+  }
+  // Sample every slot into the delayed frame: local humans from their device,
+  // the Warden slot left alone (the sim ignores it), everything else scripted.
+  const futureTick = sim.tick + LOCAL_INPUT_DELAY_TICKS;
+  const queued = inputQueue[futureTick % QUEUE_SIZE];
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const view = viewBySlot[p];
+    if (view) view.input.sample(queued.players[p]);
+    else if (p !== sim.wardenPlayer) scriptOpponent(futureTick, queued.players[p]);
+  }
+
+  for (let p = 0; p < MAX_PLAYERS; p++) prevAvatarId[p] = sim.avatarId[p];
+  step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
+  audio.pump(sim.events); // events are per-tick transients: drain immediately
+  if (rumbleEnabled) pumpRumble();
+
+  const swap = snapPrev;
+  snapPrev = snapCurr;
+  snapCurr = swap;
+  countPrev = countCurr;
+  countCurr = writeSnapshot(sim, snapCurr);
+}
+
+/** Turns this tick's hit/death events on a local avatar into a haptic pulse. */
+function pumpRumble(): void {
+  const ev = sim.events;
+  for (let i = 0; i < ev.count; i++) {
+    const o = i * EVENT_STRIDE;
+    const type = ev.data[o];
+    if (type !== EV_HIT && type !== EV_DEATH) continue;
+    const target = ev.data[o + 1];
+    for (let v = 0; v < views.length; v++) {
+      const view = views[v];
+      if (prevAvatarId[view.slot] !== target) continue;
+      if (type === EV_DEATH) view.input.rumble(1, 300);
+      else view.input.rumble(Math.min(ev.data[o + 3] / 60, 1) * 0.4 + 0.1, 120);
+    }
+  }
+}
 
 function renderEntities(alpha: number): void {
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }
-  avatarPose[4] = 0;
+  for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses[p][4] = 0;
   let p = 0;
   for (let c = 0; c < countCurr; c++) {
     const o = c * SNAPSHOT_STRIDE;
@@ -198,12 +253,16 @@ function renderEntities(alpha: number): void {
       yaw = snapPrev[po + 6] + wrapAngleDelta(yaw - snapPrev[po + 6]) * alpha;
     }
 
-    if (archetype === 0 && snapCurr[o + 2] === 0) {
-      avatarPose[0] = x;
-      avatarPose[1] = y;
-      avatarPose[2] = height;
-      avatarPose[3] = yaw;
-      avatarPose[4] = 1;
+    // Player avatars (archetype AVATAR, team === player slot) feed that
+    // player's chase camera and HUD.
+    const team = snapCurr[o + 2];
+    if (archetype === ARCHETYPE.AVATAR && team >= 0 && team < MAX_PLAYERS) {
+      const pose = avatarPoses[team];
+      pose[0] = x;
+      pose[1] = y;
+      pose[2] = height;
+      pose[3] = yaw;
+      pose[4] = 1;
     }
 
     // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
@@ -212,7 +271,6 @@ function renderEntities(alpha: number): void {
     scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
     bucket.mesh.setMatrixAt(slot, scratchMatrix);
 
-    const team = snapCurr[o + 2];
     const aux = snapCurr[o + 9];
     const key = tintKey(archetype, team, aux);
     if (bucket.tintCache[slot] !== key) {
@@ -228,18 +286,71 @@ function renderEntities(alpha: number): void {
   }
 }
 
-/** Chase cam: behind the avatar's facing, smoothed exponentially. */
-function updateChaseCamera(dtMs: number): void {
-  if (avatarPose[4] === 0) return;
-  const yaw = avatarPose[3];
+/** Chase cam: behind the avatar's facing, smoothed exponentially. Per view. */
+function updateChaseCamera(view: PlayerView, dtMs: number): void {
+  const pose = avatarPoses[view.slot];
+  if (pose[4] === 0) return;
+  const yaw = pose[3];
   const fx = Math.cos(yaw);
   const fy = Math.sin(yaw);
-  camEye.set(avatarPose[0] - fx * 13, avatarPose[2] + 8.5, avatarPose[1] - fy * 13);
+  camEye.set(pose[0] - fx * 13, pose[2] + 8.5, pose[1] - fy * 13);
   const k = 1 - Math.exp(-dtMs / 180);
-  camera.position.lerp(camEye, k);
-  camTarget.set(avatarPose[0] + fx * 4, avatarPose[2] + 2, avatarPose[1] + fy * 4);
-  camera.lookAt(camTarget);
+  view.camera.position.lerp(camEye, k);
+  camTarget.set(pose[0] + fx * 4, pose[2] + 2, pose[1] + fy * 4);
+  view.camera.lookAt(camTarget);
 }
+
+// --- HUD (1 Hz, host-side debug UI; reads sim directly) ----------------------
+
+let hudFrames = 0;
+let hudLastUpdate = 0;
+
+function refreshHud(fps: number): void {
+  unitCounts[0] = 0;
+  unitCounts[1] = 0;
+  for (let c = 0; c < countCurr; c++) {
+    const o = c * SNAPSHOT_STRIDE;
+    const archetype = snapCurr[o + 1];
+    const team = snapCurr[o + 2];
+    if (archetype >= 1 && archetype <= 4 && (team === 0 || team === 1)) unitCounts[team] += 1;
+  }
+  const banner =
+    sim.winner >= 0 ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} BREACHED THE GATE` : "";
+  for (let v = 0; v < views.length; v++) {
+    views[v].hud.textContent = hudText(views[v], fps, banner);
+  }
+}
+
+function hudText(view: PlayerView, fps: number, banner: string): string {
+  const slot = view.slot;
+  const a = sim.avatarId[slot];
+  const status =
+    a >= 0
+      ? `hp ${Math.ceil(sim.ent.hp[a])}  heavy ${sim.ent.ammoA[a]}  special ${sim.ent.ammoB[a]}  ` +
+        `${(sim.ent.animState[a] & ANIM_HOVER) !== 0 ? "HOVER" : "WALKER"}`
+      : `respawn in ${Math.ceil(sim.respawnTimer[slot] / TICK_HZ)}s`;
+  let progress = "";
+  if (sim.buyTarget[slot] >= 0)
+    progress += `  buying ${sim.buyProgress[slot]}/${CONSOLE_HOLD_TICKS}`;
+  for (let k = 0; k < sim.captureTeam.length; k++) {
+    if (sim.captureTeam[k] === slot) {
+      progress += `  capturing ${Math.round((sim.captureProgress[k] / CAPTURE_TICKS) * 100)}%`;
+    }
+  }
+  let ownOutposts = 0;
+  for (let k = 0; k < sim.outpostOwner.length; k++) {
+    if (sim.outpostOwner[k] === slot) ownOutposts += 1;
+  }
+  if (ownOutposts > 0) progress += `  outposts ${ownOutposts}`;
+  const tag = slot === 0 ? "BLUE" : "RED";
+  return (
+    `P${slot + 1} ${tag}  ${status}  points ${sim.points[slot]}  units ${unitCounts[0]}v${unitCounts[1]}${progress}\n` +
+    `tick ${sim.tick}  fps ${fps}  entities ${countCurr}  sfx ${audio.lastCue || "-"}  map ${map.id}` +
+    `${warden ? `  warden d${sim.wardenDifficulty}` : ""}\n${view.input.hint}${banner}`
+  );
+}
+
+// --- Frame loop --------------------------------------------------------------
 
 let last = performance.now();
 let accumulator = 0;
@@ -257,59 +368,60 @@ function frame(now: number): void {
   if (accumulator >= TICK_MS) accumulator = TICK_MS; // shed backlog, stay stable
 
   renderEntities(accumulator / TICK_MS);
-  if (controls) controls.update();
-  else updateChaseCamera(dtMs);
-  renderer.render(scene, camera);
+  for (let v = 0; v < views.length; v++) {
+    const view = views[v];
+    if (orbitControls && v === 0) orbitControls.update();
+    else updateChaseCamera(view, dtMs);
+    const vp = view.viewport;
+    const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
+    renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
+    renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
+    renderer.render(scene, view.camera);
+  }
 
   hudFrames++;
   if (now - hudLastUpdate > 1000) {
-    // Debug HUD (1 Hz): reads sim directly — host-side UI, not the renderer.
-    const a = sim.avatarId[0];
-    const status =
-      a >= 0
-        ? `hp ${Math.ceil(sim.ent.hp[a])}  heavy ${sim.ent.ammoA[a]}  special ${sim.ent.ammoB[a]}  ` +
-          `${(sim.ent.animState[a] & ANIM_HOVER) !== 0 ? "HOVER" : "WALKER"}`
-        : `respawn in ${Math.ceil(sim.respawnTimer[0] / TICK_HZ)}s`;
-    // Unit counts come from the snapshot (renderer-side derivation).
-    unitCounts[0] = 0;
-    unitCounts[1] = 0;
-    for (let c = 0; c < countCurr; c++) {
-      const o = c * SNAPSHOT_STRIDE;
-      const archetype = snapCurr[o + 1];
-      const team = snapCurr[o + 2];
-      if (archetype >= 1 && archetype <= 4 && (team === 0 || team === 1)) {
-        unitCounts[team] += 1;
-      }
-    }
-    // Phase 3 progress readouts: active buy hold, capture progress, outposts.
-    let progress = "";
-    if (sim.buyTarget[0] >= 0) {
-      progress += `  buying ${sim.buyProgress[0]}/${CONSOLE_HOLD_TICKS}`;
-    }
-    for (let k = 0; k < sim.captureTeam.length; k++) {
-      if (sim.captureTeam[k] === 0) {
-        progress += `  capturing ${Math.round((sim.captureProgress[k] / CAPTURE_TICKS) * 100)}%`;
-      }
-    }
-    let ownOutposts = 0;
-    for (let k = 0; k < sim.outpostOwner.length; k++) {
-      if (sim.outpostOwner[k] === 0) ownOutposts += 1;
-    }
-    if (ownOutposts > 0) progress += `  outposts ${ownOutposts}`;
-    const banner =
-      sim.winner >= 0
-        ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} BREACHED THE GATE`
-        : "";
-    hud.textContent =
-      `${status}  points ${sim.points[0]}:${sim.points[1]}  units ${unitCounts[0]}v${unitCounts[1]}${progress}\n` +
-      `tick ${sim.tick}  fps ${hudFrames}  entities ${countCurr}  sfx ${audio.lastCue || "-"}  map ${map.id}` +
-      `${warden ? `  warden d${sim.wardenDifficulty}` : ""}\n` +
-      "WASD drive · mouse aim · LMB/RMB/MMB fire · Q transform · Space jump · " +
-      `hold E to buy/claim/capture (+RMB heavy)${banner}`;
+    refreshHud(hudFrames);
     hudFrames = 0;
     hudLastUpdate = now;
   }
   requestAnimationFrame(frame);
 }
 
-requestAnimationFrame(frame);
+// --- Boot: (optional lobby →) build views → run ------------------------------
+
+function startMatch(localPlayers: readonly { slot: number; input: LocalInputSource }[]): void {
+  views = createPlayerViews(localPlayers, map.spawns);
+  for (let v = 0; v < views.length; v++) viewBySlot[views[v].slot] = views[v];
+  layoutViews(views, splitOrientation, innerWidth, innerHeight);
+
+  if (orbitMode && views.length === 1) {
+    orbitControls = new OrbitControls(views[0].camera, renderer.domElement);
+    orbitControls.target.set(extent / 2, 0, extent / 2);
+    orbitControls.enableDamping = true;
+    orbitControls.update();
+  }
+  // The mouse reticle only makes sense for a single full-window pointer player.
+  reticle.style.display = views.length === 1 ? "block" : "none";
+
+  addEventListener("resize", () => {
+    renderer.setSize(innerWidth, innerHeight);
+    layoutViews(views, splitOrientation, innerWidth, innerHeight);
+  });
+
+  last = performance.now();
+  requestAnimationFrame(frame);
+}
+
+if (splitscreen) {
+  // Render a static overview as the lobby backdrop, then assign devices.
+  const overview = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
+  overview.position.set(extent / 2, extent * 0.9, extent * 1.4);
+  overview.lookAt(extent / 2, 0, extent / 2);
+  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  renderer.setScissor(0, 0, innerWidth, innerHeight);
+  renderer.render(scene, overview);
+  runLobby({ needed: MAX_PLAYERS, keyboard }).then(startMatch);
+} else {
+  startMatch([{ slot: 0, input: keyboard }]);
+}

@@ -87,12 +87,21 @@ difficulty curve stays open, like the hover feel pass; play via `?warden=N`.)
 
 ## Phase 5 — Couch splitscreen
 
-- [ ] Gamepad API: enumeration, assignment screen (press A to join), rumble opt.
-- [ ] Two-camera setScissor/setViewport rendering, per-player HUD anchors
-- [ ] 2-tick local input delay queue for all modes (parity with online feel)
-- [ ] Perf pass: 60 fps splitscreen on mid-range laptop + iPad Safari
+- [x] Gamepad API: enumeration, assignment screen (press A to join), rumble opt.
+- [x] Two-camera setScissor/setViewport rendering, per-player HUD anchors
+- [x] 2-tick local input delay queue for all modes (parity with online feel)
+- [~] Perf pass: 60 fps splitscreen on mid-range laptop + iPad Safari
 
 **DoD:** two humans on one machine play a full match with gamepads.
+(Playable via `?splitscreen` (or `?players=2`): a lobby assigns devices —
+gamepad "A" to join, Start/Enter to begin — then two chase-cam viewports split
+`?split=v|h` with per-player HUDs. Controls are world-relative (parity with the
+keyboard/mouse scheme); left stick drives, right stick aims. Rumble on hit/death
+(`?rumble=0` to mute). A synthetic-gamepad e2e drives both slots and confirms
+each avatar moves in-sim. The 60 fps pass on real mid-range hardware / iPad
+Safari stays open, like the hover-feel and difficulty-curve passes — the frame
+loop is allocation-free and shares one set of instance matrices across both
+viewport renders, so only draw calls double, not sim or scene rebuilds.)
 
 ## Phase 6 — Online 1v1 (Durable Objects)
 
