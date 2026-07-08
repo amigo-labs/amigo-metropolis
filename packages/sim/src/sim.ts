@@ -376,12 +376,16 @@ export function spawnUnit(
 
 export function createSim(map: MapData, seed: number, options?: SimOptions): SimState {
   const ringSlots = map.bases[0].turrets.length + map.bases[1].turrets.length;
-  const wardenPlayer =
-    options && options.wardenPlayer !== undefined && options.wardenPlayer >= 0
-      ? Math.min(options.wardenPlayer, MAX_PLAYERS - 1)
-      : -1;
+  // Both config values end up as array indices (avatarId[player], the
+  // difficulty knob tables), so coerce to integers — a fractional or NaN
+  // input must degrade to a sane config, never poison the sim.
+  const rawPlayer = options?.wardenPlayer ?? -1;
+  const wardenPlayer = rawPlayer >= 0 ? Math.min(Math.floor(rawPlayer), MAX_PLAYERS - 1) : -1; // NaN fails the >=
+  const rawDifficulty = options?.wardenDifficulty ?? 5;
   const wardenDifficulty =
-    wardenPlayer >= 0 ? Math.min(Math.max(options?.wardenDifficulty ?? 5, 1), 10) : 0;
+    wardenPlayer >= 0
+      ? Math.min(Math.max(rawDifficulty >= 1 ? Math.floor(rawDifficulty) : 1, 1), 10)
+      : 0;
   const state: SimState = {
     tick: 0,
     prng: seed | 0,

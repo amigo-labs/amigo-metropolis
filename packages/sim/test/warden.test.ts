@@ -37,10 +37,26 @@ describe("warden", () => {
     expect(plain.ent.archetype[plain.avatarId[1]]).toBe(ARCHETYPE.AVATAR);
   });
 
-  it("clamps the difficulty into 1–10", () => {
+  it("clamps the difficulty into 1–10 and coerces config to integers", () => {
     expect(wardenSim(0).wardenDifficulty).toBe(1);
     expect(wardenSim(99).wardenDifficulty).toBe(10);
     expect(wardenSim(7).wardenDifficulty).toBe(7);
+    // Both values become array indices — fractional/NaN input must degrade
+    // to a sane integer config, never poison the sim.
+    expect(wardenSim(7.9).wardenDifficulty).toBe(7);
+    expect(wardenSim(Number.NaN).wardenDifficulty).toBe(1);
+    const fractional = createSim(getMapById(DISTRICT_01_ID), 1, {
+      wardenPlayer: 0.5,
+      wardenDifficulty: 5,
+    });
+    expect(fractional.wardenPlayer).toBe(0);
+    expect(fractional.ent.archetype[fractional.avatarId[0]]).toBe(ARCHETYPE.WARDEN);
+    const off = createSim(getMapById(DISTRICT_01_ID), 1, {
+      wardenPlayer: Number.NaN,
+      wardenDifficulty: 5,
+    });
+    expect(off.wardenPlayer).toBe(-1);
+    expect(off.wardenDifficulty).toBe(0);
   });
 
   it("is deterministic: two identical runs, identical hash streams", () => {

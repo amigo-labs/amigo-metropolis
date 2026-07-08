@@ -97,12 +97,26 @@ export function encodeReplay(replay: ReplayData): Uint8Array {
   if (replay.mapId.length > 255) {
     throw new Error(`mapId too long (${replay.mapId.length} > 255)`);
   }
+  // Enforce the same invariants the decoder checks, so a hand-built
+  // ReplayData can never encode a header that silently normalizes (or fails
+  // to round-trip). Integer checks matter: byte writes would truncate.
   if (replay.wardenPlayer >= 0) {
-    if (replay.wardenPlayer >= MAX_PLAYERS) {
+    if (!Number.isInteger(replay.wardenPlayer) || replay.wardenPlayer >= MAX_PLAYERS) {
       throw new Error(`bad wardenPlayer ${replay.wardenPlayer}`);
     }
-    if (replay.wardenDifficulty < 1 || replay.wardenDifficulty > 10) {
+    if (
+      !Number.isInteger(replay.wardenDifficulty) ||
+      replay.wardenDifficulty < 1 ||
+      replay.wardenDifficulty > 10
+    ) {
       throw new Error(`bad wardenDifficulty ${replay.wardenDifficulty}`);
+    }
+  } else {
+    if (replay.wardenPlayer !== -1) {
+      throw new Error(`bad wardenPlayer ${replay.wardenPlayer}`);
+    }
+    if (replay.wardenDifficulty !== 0) {
+      throw new Error("wardenDifficulty set without a wardenPlayer");
     }
   }
   const headerBytes = 19 + replay.mapId.length;

@@ -65,6 +65,20 @@ describe("replay format", () => {
     expect(() => encodeReplay(createReplayData("m", 1, 0, { player: 0, difficulty: 11 }))).toThrow(
       "bad wardenDifficulty",
     );
+    // Hand-built inconsistent/non-integer headers must throw, not silently
+    // normalize (byte writes would truncate fractional values).
+    expect(() => encodeReplay({ ...createReplayData("m", 1, 0), wardenDifficulty: 3 })).toThrow(
+      "wardenDifficulty set without",
+    );
+    expect(() =>
+      encodeReplay({
+        ...createReplayData("m", 1, 0, { player: 0, difficulty: 5 }),
+        wardenDifficulty: 5.5,
+      }),
+    ).toThrow("bad wardenDifficulty");
+    expect(() =>
+      encodeReplay({ ...createReplayData("m", 1, 0), wardenPlayer: Number.NaN }),
+    ).toThrow("bad wardenPlayer");
     const bytes = encodeReplay(createReplayData("m", 1, 0));
     bytes[17] = 3; // difficulty without a warden player (0xff)
     expect(() => decodeReplay(bytes)).toThrow("wardenDifficulty set without");
