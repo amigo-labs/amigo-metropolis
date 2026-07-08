@@ -97,6 +97,10 @@ class HubTransport implements Transport {
   deliver(bytes: Uint8Array): void {
     this.msgCb?.(bytes);
   }
+  /** Simulate the socket dropping (fires the close handler, like ws error/close). */
+  drop(): void {
+    this.closeCb?.();
+  }
 }
 
 class TestHub {
@@ -254,5 +258,25 @@ describe("online lockstep (in-memory relay)", () => {
     expect(net0.simTick).toBe(100);
     // The reconnected client re-derived every tick it missed, bit-for-bit.
     expect(h1.slice(0, 100)).toEqual(h0.slice(0, 100));
+  });
+
+  it("surfaces a transport drop as a distinct 'closed' end state", () => {
+    const hub = new TestHub();
+    let closed = false;
+    const c0 = hub.newClient("c0");
+    const net0 = new NetLockstep(c0, {
+      sampleInput: sampler(0),
+      onClose: () => {
+        closed = true;
+      },
+    });
+    net0.start(CONFIG);
+    expect(net0.isEnded).toBe(null);
+
+    c0.drop(); // socket dies (no clean protocol close)
+
+    expect(closed).toBe(true);
+    expect(net0.isEnded).toBe("closed");
+    expect(net0.tryStep()).toBe(false); // no silent progress after a drop
   });
 });

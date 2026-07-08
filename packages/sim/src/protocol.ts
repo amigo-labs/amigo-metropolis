@@ -107,7 +107,13 @@ class Writer {
     this.o += 4;
   }
   ascii(s: string): void {
-    for (let i = 0; i < s.length; i++) this.u8(s.charCodeAt(i));
+    // Enforce ASCII on encode too (Reader.ascii rejects it on decode): keeps
+    // the codec symmetric and never silently truncates a non-ASCII code point.
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c > 0x7f) throw new Error("string must be ASCII");
+      this.u8(c);
+    }
   }
   bytes(): Uint8Array {
     if (this.o !== this.view.byteLength) {
@@ -160,6 +166,12 @@ class Reader {
     }
     this.o += len;
     return s;
+  }
+  /** Rejects a buffer with bytes left over after the message body (§ untrusted). */
+  expectEnd(): void {
+    if (this.o !== this.view.byteLength) {
+      throw new Error(`trailing bytes after message (${this.view.byteLength - this.o} extra)`);
+    }
   }
 }
 
@@ -299,7 +311,14 @@ export function encodeMessage(msg: NetMessage): Uint8Array {
 
 export function decodeMessage(bytes: Uint8Array): NetMessage {
   const r = new Reader(bytes);
-  const type = r.u8();
+  const msg = decodeBody(r, r.u8());
+  // Reject any bytes past the expected body — this is untrusted network data,
+  // and a frame with trailing garbage is ambiguous, not "valid with extras".
+  r.expectEnd();
+  return msg;
+}
+
+function decodeBody(r: Reader, type: number): NetMessage {
   switch (type) {
     case MSG_HELLO:
       return { type: MSG_HELLO, protocol: r.u8(), config: readConfig(r) };

@@ -229,16 +229,22 @@ export class RoomLogic {
   // where it left off. All of this is plain in-memory bookkeeping — no messages
   // are emitted — which keeps it unit-testable without a Workers runtime.
 
-  /** Restores config and the confirmed frame history (index = tick). */
+  /**
+   * Restores config and the confirmed frame history (index = tick). Only the
+   * CONTIGUOUS prefix from tick 0 is trusted: if persisted storage is sparse
+   * (a missing/corrupt tick), we stop at the gap rather than claim to have
+   * sequenced through it — the room then resumes from the last solid tick.
+   */
   hydrate(config: MatchConfig, started: boolean, frames: PlayerInput[][]): void {
     this.config = config;
     this.started = started;
-    for (let tick = 0; tick < frames.length; tick++) {
-      const players = frames[tick];
-      if (!players) continue;
-      for (let s = 0; s < MAX_PLAYERS; s++) this.slotInputs[s][tick] = cloneInput(players[s]);
+    let next = 0;
+    while (next < frames.length && frames[next]) {
+      const players = frames[next];
+      for (let s = 0; s < MAX_PLAYERS; s++) this.slotInputs[s][next] = cloneInput(players[s]);
+      next++;
     }
-    this.nextBroadcastTick = frames.length;
+    this.nextBroadcastTick = next;
   }
 
   /** Re-associates a surviving socket with its slot (no output). */

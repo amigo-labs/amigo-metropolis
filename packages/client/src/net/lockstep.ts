@@ -62,9 +62,15 @@ export interface NetCallbacks {
   onDesync?(tick: number, replay: Uint8Array): void;
   /** Join rejected (version mismatch, room full, …). */
   onError?(code: number): void;
+  /**
+   * The transport dropped (socket close/error). Distinct from a peer-input
+   * stall: the session is over unless the host starts a fresh one (a new
+   * NetLockstep with the rejoin option). Lets the UI show "disconnected".
+   */
+  onClose?(): void;
 }
 
-export type NetEnded = "desync" | null;
+export type NetEnded = "desync" | "closed" | null;
 
 function copyInput(dst: PlayerInput, src: PlayerInput): void {
   dst.moveX = src.moveX;
@@ -95,6 +101,15 @@ export class NetLockstep {
     private readonly rejoin?: { config: MatchConfig; slot: number },
   ) {
     transport.onMessage((bytes) => this.onMessage(bytes));
+    transport.onClose(() => this.handleClose());
+  }
+
+  /** Transport dropped: end the session (unless a desync already ended it). */
+  private handleClose(): void {
+    if (this.ended) return;
+    this.ended = "closed";
+    this.waitingForPeer = false;
+    this.cb.onClose?.();
   }
 
   get slot(): number {

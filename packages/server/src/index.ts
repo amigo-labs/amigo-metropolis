@@ -83,9 +83,17 @@ export class Room implements DurableObject {
       const stored = await this.ctx.storage.list<ArrayBuffer>({ prefix: FRAME_KEY });
       const frames: PlayerInput[][] = [];
       for (const [key, buf] of stored) {
+        // Guard corrupted storage: a bad key or undecodable buffer must not
+        // throw out of the constructor and brick the room on wake. Skip it and
+        // let hydrate() trust only the contiguous prefix up to any gap.
         const tick = Number(key.slice(FRAME_KEY.length));
-        const msg = decodeMessage(new Uint8Array(buf));
-        if (msg.type === MSG_FRAME) frames[tick] = msg.inputs;
+        if (!Number.isInteger(tick) || tick < 0) continue;
+        try {
+          const msg = decodeMessage(new Uint8Array(buf));
+          if (msg.type === MSG_FRAME) frames[tick] = msg.inputs;
+        } catch {
+          // corrupted frame — leave a gap; hydrate stops the history there
+        }
       }
       this.room.hydrate(config, started, frames);
     }

@@ -227,4 +227,22 @@ describe("RoomLogic reconnect", () => {
     expect(frame).toMatchObject({ type: MSG_FRAME, tick: 3 });
     expect(room.sequencedTicks).toBe(4);
   });
+
+  it("trusts only the contiguous prefix when hydrated history is sparse", () => {
+    // Corrupt/sparse storage: tick 2 is missing. The room must resume at the
+    // gap (sequenced through 0,1), not claim it reached tick 4.
+    const frames: PlayerInput[][] = [];
+    frames[0] = [inp(0), inp(0)];
+    frames[1] = [inp(1), inp(1)];
+    frames[3] = [inp(3), inp(3)]; // tick 2 hole
+    const room = new RoomLogic();
+    room.hydrate(CONFIG, true, frames);
+    room.reseat("a", 0);
+    room.reseat("b", 1);
+    expect(room.sequencedTicks).toBe(2);
+    // Play resumes by re-confirming tick 2, then flows into the next tick.
+    expect(types(room.handleMessage("a", input(2, 2)))).toEqual([]);
+    expect(types(room.handleMessage("b", input(2, 22)))).toEqual([MSG_FRAME]);
+    expect(room.sequencedTicks).toBe(3);
+  });
 });

@@ -592,6 +592,12 @@ function connectOnline(code: string): void {
       netStatus = `Cannot join room ${code}: ${NET_ERROR_TEXT[errCode] ?? "unknown error"}`;
       refreshOverlay();
     },
+    onClose: () => {
+      // A desync already sets its own final status; don't overwrite it.
+      if (net?.isEnded === "desync") return;
+      netStatus = `Connection lost — reload to rejoin room ${code}.`;
+      refreshOverlay();
+    },
   });
 
   netStatus = `Room ${code} — waiting for opponent…`;

@@ -114,6 +114,21 @@ describe("protocol codec", () => {
     expect(() => decodeMessage(new Uint8Array([MSG_INPUT]))).toThrow(/truncated/);
   });
 
+  it("rejects trailing bytes after a well-formed message", () => {
+    const good = encodeMessage({ type: MSG_START, startTick: 0 });
+    const padded = new Uint8Array(good.length + 1);
+    padded.set(good);
+    padded[good.length] = 0x99; // one garbage byte past the body
+    expect(() => decodeMessage(padded)).toThrow(/trailing/);
+  });
+
+  it("rejects a non-ASCII mapId on encode (symmetric with decode)", () => {
+    const bad: MatchConfig = { ...CONFIG, mapId: "district-é" };
+    expect(() =>
+      encodeMessage({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config: bad }),
+    ).toThrow(/ASCII/);
+  });
+
   it("rejects a config with a non-ASCII mapId on decode", () => {
     const bytes = encodeMessage({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config: CONFIG });
     // Corrupt the first mapId byte (after tag,protocol,simVersion,seed,warden×2,len).
