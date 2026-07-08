@@ -65,8 +65,8 @@ export type NetMessage =
       readonly protocol: number;
       readonly simVersion: number;
       readonly slot: number;
-      /** Highest tick the client has already simulated. */
-      readonly haveTick: number;
+      /** First tick the client still needs streamed (0 = re-sim from scratch). */
+      readonly fromTick: number;
     }
   | { readonly type: typeof MSG_INPUT; readonly tick: number; readonly input: PlayerInput }
   | { readonly type: typeof MSG_HASH; readonly tick: number; readonly hash: number }
@@ -233,7 +233,7 @@ export function encodeMessage(msg: NetMessage): Uint8Array {
       w.u8(msg.protocol);
       w.u16(msg.simVersion);
       w.u8(msg.slot);
-      w.u32(msg.haveTick);
+      w.u32(msg.fromTick);
       return w.bytes();
     }
     case MSG_INPUT: {
@@ -309,7 +309,7 @@ export function decodeMessage(bytes: Uint8Array): NetMessage {
         protocol: r.u8(),
         simVersion: r.u16(),
         slot: r.u8(),
-        haveTick: r.u32(),
+        fromTick: r.u32(),
       };
     case MSG_INPUT:
       return { type: MSG_INPUT, tick: r.u32(), input: readInput(r) };

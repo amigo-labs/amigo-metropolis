@@ -126,11 +126,11 @@ export class RoomLogic {
       // Out of range, or the slot is still occupied — not reclaimable.
       return this.err(connId, ERR_BAD_REJOIN);
     }
-    return this.admit(connId, slot, /*rejoin*/ true, msg.haveTick);
+    return this.admit(connId, slot, /*rejoin*/ true, msg.fromTick);
   }
 
   /** Seats connId in slot and emits WELCOME, presence, (history), and START. */
-  private admit(connId: string, slot: number, rejoin: boolean, haveTick: number): Outgoing[] {
+  private admit(connId: string, slot: number, rejoin: boolean, fromTick: number): Outgoing[] {
     this.slotConn[slot] = connId;
     this.connSlot.set(connId, slot);
     const config = this.config as MatchConfig;
@@ -144,9 +144,9 @@ export class RoomLogic {
     out.push({ connId: null, msg: { type: MSG_PEER, slot, present: true } });
 
     if (rejoin) {
-      // Fast-forward: resend every confirmed frame the client is missing so it
-      // can re-simulate up to the live tick (architecture.md §5 reconnect).
-      const from = Math.max(0, haveTick + 1);
+      // Fast-forward: resend every confirmed frame from the requested tick so
+      // the client can re-simulate up to the live tick (architecture.md §5).
+      const from = Math.max(0, Math.min(fromTick, this.nextBroadcastTick));
       for (let t = from; t < this.nextBroadcastTick; t++) {
         out.push({ connId, msg: this.frameMessage(t) });
       }

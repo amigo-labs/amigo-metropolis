@@ -176,13 +176,13 @@ describe("RoomLogic reconnect", () => {
     }
     expect(room.sequencedTicks).toBe(5);
     room.handleDisconnect("b");
-    // b rejoins having simulated up to tick 2 → wants frames 3 and 4.
+    // b rejoins wanting frames from tick 3 onward → gets 3 and 4.
     const out = room.handleMessage("b2", {
       type: MSG_REJOIN,
       protocol: PROTOCOL_VERSION,
       simVersion: SIM_VERSION,
       slot: 1,
-      haveTick: 2,
+      fromTick: 3,
     });
     expect(find(out, MSG_WELCOME)).toMatchObject({ slot: 1 });
     const frames = out
@@ -204,7 +204,7 @@ describe("RoomLogic reconnect", () => {
       protocol: PROTOCOL_VERSION,
       simVersion: SIM_VERSION,
       slot: 0,
-      haveTick: 0,
+      fromTick: 0,
     });
     expect(find(out, MSG_ERROR)).toEqual({ type: MSG_ERROR, code: ERR_BAD_REJOIN });
   });

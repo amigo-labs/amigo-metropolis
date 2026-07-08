@@ -60,7 +60,7 @@ describe("protocol codec", () => {
       protocol: PROTOCOL_VERSION,
       simVersion: SIM_VERSION,
       slot: 1,
-      haveTick: 123456,
+      fromTick: 123456,
     };
     expect(roundTrip(msg)).toEqual(msg);
   });
