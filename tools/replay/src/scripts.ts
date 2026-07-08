@@ -19,6 +19,7 @@ import {
   sinLUT,
   TICK_HZ,
   type TickInputs,
+  type WardenConfig,
 } from "@metropolis/sim";
 
 export type InputScript = (tick: number, out: TickInputs) => void;
@@ -226,8 +227,53 @@ export function match01(tick: number, out: TickInputs): void {
   if (tick >= 1000 && tick < 1046) p1.buttons = BUTTON_INTERACT;
 }
 
-export const SCRIPTS: Record<string, { script: InputScript; ticks: number; mapId?: string }> = {
+/**
+ * Golden #4 (Phase 4 DoD "AI match"): the Warden (difficulty 8) as player 1
+ * against a scripted player 0 running an open-loop patrol-and-shoot defense
+ * near its own base — enough resistance to exercise the Warden's harass /
+ * retreat / defend paths, but a losing game plan. The Warden must capture,
+ * build and breach through it; the golden04 beats test pins the outcome.
+ * Player 1's input channel stays all-zero: the AI ignores TickInputs.
+ */
+export function warden01(tick: number, out: TickInputs): void {
+  clearTickInputs(out);
+  const p = out.players[0];
+  const t = tick / TICK_HZ;
+  const phase = t % 40; // repeating 40 s patrol loop, survives respawns
+  if (phase < 8) {
+    p.moveX = 100; // push out east toward mid
+    p.moveY = -60;
+  } else if (phase < 12) {
+    p.aimX = 127; // stand and burst east
+    p.buttons = BUTTON_FIRE1;
+  } else if (phase < 20) {
+    p.moveX = -80; // fall back northwest
+    p.moveY = -80;
+  } else if (phase < 24) {
+    p.aimX = 90; // burst southeast (covers the lane approach)
+    p.aimY = 90;
+    p.buttons = BUTTON_FIRE1;
+  } else if (phase < 32) {
+    p.moveX = -40; // drift back south toward the base
+    p.moveY = 120;
+  } else {
+    p.aimX = 90; // burst northeast until the loop restarts
+    p.aimY = -90;
+    p.buttons = BUTTON_FIRE1;
+  }
+}
+
+export const SCRIPTS: Record<
+  string,
+  { script: InputScript; ticks: number; mapId?: string; warden?: WardenConfig }
+> = {
   "drive-01": { script: drive01, ticks: 60 * TICK_HZ },
   "combat-01": { script: combat01, ticks: 90 * TICK_HZ, mapId: "district-01" },
   "match-01": { script: match01, ticks: 150 * TICK_HZ, mapId: "district-01" },
+  "warden-01": {
+    script: warden01,
+    ticks: 300 * TICK_HZ,
+    mapId: "district-01",
+    warden: { player: 1, difficulty: 8 },
+  },
 };

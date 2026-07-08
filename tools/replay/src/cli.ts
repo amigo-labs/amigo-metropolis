@@ -30,6 +30,9 @@ interface HashFile {
   mapId: string;
   seed: number;
   tickCount: number;
+  /** Absent in pre-Phase-4 hash files — treated as "no Warden". */
+  wardenPlayer?: number;
+  wardenDifficulty?: number;
   hashes: number[];
 }
 
@@ -39,6 +42,8 @@ function hashFileFor(replay: ReplayData, hashes: Uint32Array): HashFile {
     mapId: replay.mapId,
     seed: replay.seed,
     tickCount: replay.tickCount,
+    wardenPlayer: replay.wardenPlayer,
+    wardenDifficulty: replay.wardenDifficulty,
     hashes: Array.from(hashes),
   };
 }
@@ -59,6 +64,8 @@ function verifyReplay(replayPath: string, hashesPath: string): boolean {
     expected.mapId !== replay.mapId ||
     expected.seed !== replay.seed ||
     expected.tickCount !== replay.tickCount ||
+    (expected.wardenPlayer ?? -1) !== replay.wardenPlayer ||
+    (expected.wardenDifficulty ?? 0) !== replay.wardenDifficulty ||
     expected.hashes.length !== replay.tickCount
   ) {
     console.error(
@@ -89,7 +96,7 @@ function cmdRecord(scriptName: string, outPath: string, seedArg?: string): numbe
     return 1;
   }
   const seed = seedArg ? Number(seedArg) >>> 0 : 0xc0ffee;
-  const replay = createReplayData(entry.mapId ?? TEST_MAP_ID, seed, entry.ticks);
+  const replay = createReplayData(entry.mapId ?? TEST_MAP_ID, seed, entry.ticks, entry.warden);
   const inputs = createTickInputs();
   for (let t = 0; t < entry.ticks; t++) {
     entry.script(t, inputs);
