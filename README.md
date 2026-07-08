@@ -13,9 +13,12 @@ touching code. Work follows `PLAN.md` phase by phase.
 ```sh
 bun install
 bun test               # sim tests + golden replays (must pass before any commit)
-bun run dev            # sandbox: WASD + mouse solo; ?warden=1-10 vs the AI;
+bun run dev            # opens the "District Breach" title menu (solo / couch /
+                       #   online). Deep links skip it: ?warden=1-10 vs the AI;
                        #   ?splitscreen (two gamepads, press A to join) for couch;
-                       #   ?online=<CODE> for 1v1 lockstep (see below)
+                       #   ?online=<CODE> for 1v1 lockstep (see below); ?play or
+                       #   ?debug boot the solo sandbox directly
+bun run build          # production bundle (installable PWA, offline solo)
 bun run lint           # Biome
 bun run typecheck      # tsc per package
 bun run replay:verify  # re-simulate goldens against the current sim
@@ -31,7 +34,7 @@ sequences bit-exactly (needs a Chromium binary; set `CHROMIUM_PATH`).
 - `packages/client` — Three.js renderer, input, interpolation, PWA shell
 - `packages/server` — Cloudflare Worker + Durable Object relay (Phase 6)
 - `tools/replay` — replay record/verify CLI + cross-engine harness
-- `tools/gen` — code generators (committed sin LUT)
+- `tools/gen` — authoring-time generators (committed sin LUT, map JSON, PWA icons)
 
 ## Online 1v1 (Phase 6)
 
