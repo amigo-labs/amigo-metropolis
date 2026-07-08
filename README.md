@@ -40,13 +40,22 @@ sequences and rebroadcasts them, and each client steps a tick once it holds
 both players' inputs for it (3-tick input delay). The relay never simulates.
 
 ```sh
-cd packages/server && bunx wrangler dev   # local relay (Worker + Durable Object)
+cd packages/server
+bun run dev      # local relay (Worker + Durable Object) via wrangler dev
+bun run build    # validate the Worker bundles (wrangler deploy --dry-run)
+bun run deploy   # deploy the relay to Cloudflare (wrangler deploy)
 ```
 
 Then open two tabs at `…/?online=ABCDE&relay=ws://localhost:8787` (same 5-char
 code = same room). The room code seeds the match, so both peers build an
 identical sim; only inputs cross the wire. `?relay=<wsBase>` points at the
 relay (defaults to same-origin).
+
+The relay's Cloudflare config lives in `packages/server/wrangler.toml`, so a
+**Workers Builds** Git integration must set its *root directory* to
+`packages/server` (build command `bun run build`, deploy command
+`bunx wrangler deploy`). `bun run build` at the repo root builds every package
+that has a build (client bundle + Worker dry-run).
 
 The protocol is binary and shared with the replay format — one definition in
 `packages/sim/src/protocol.ts`. The full lockstep contract (bit-identical
