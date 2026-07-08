@@ -8,5 +8,8 @@
   },
   "dependencies": {
     "@metropolis/sim": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260708.1"
   }
 }

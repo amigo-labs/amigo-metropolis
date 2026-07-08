@@ -1,0 +1,18 @@
+# Cloudflare Worker + Durable Object relay (architecture.md §5, §7).
+# `wrangler dev` runs it locally against a Miniflare DO; `wrangler deploy`
+# ships it. The client points at it with ?online=<CODE> (+ optional ?relay=URL).
+name = "metropolis-relay"
+main = "src/index.ts"
+compatibility_date = "2026-07-08"
+
+# One Durable Object class: a room is addressed by env.ROOM.idFromName(<CODE>),
+# so the same 5-char code always maps to the same room instance.
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+# SQLite-backed storage (current default for new DOs) — holds the match config
+# and confirmed frame history so reconnect fast-forward survives hibernation.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
