@@ -32,7 +32,9 @@ export function buildModeQuery(choice: MenuChoice): string {
     case "couch":
       return "?splitscreen";
     case "online":
-      return `?online=${choice.code.toUpperCase()}`;
+      // Encode defensively: valid codes are unaffected, but an unexpected value
+      // can't smuggle extra query params (& / =) into the URL.
+      return `?online=${encodeURIComponent(choice.code.toUpperCase())}`;
   }
 }
 
@@ -130,6 +132,8 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     const label = el("label", "menu-label", "Difficulty");
     const value = el("span", "menu-value", "4");
     const slider = el("input", "menu-slider") as HTMLInputElement;
+    slider.id = "menu-difficulty";
+    label.htmlFor = slider.id;
     slider.type = "range";
     slider.min = "1";
     slider.max = "10";
@@ -158,6 +162,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     input.type = "text";
     input.maxLength = 5;
     input.placeholder = "CODE";
+    input.setAttribute("aria-label", "Room code");
     input.autocapitalize = "characters";
     input.spellcheck = false;
     const join = el("button", "menu-go", "Join") as HTMLButtonElement;
@@ -267,6 +272,8 @@ export function runMenu(opts: MenuOptions): MenuHandle {
       const label = el("label", "menu-label", name);
       const value = el("span", "menu-value", String(Math.round(vols[kind] * 100)));
       const slider = el("input", "menu-slider") as HTMLInputElement;
+      slider.id = `menu-vol-${kind}`;
+      label.htmlFor = slider.id;
       slider.type = "range";
       slider.min = "0";
       slider.max = "100";

@@ -111,7 +111,12 @@ export class AudioEngine {
     this.volumes[kind] = clamp01(value);
     this.persist();
     this.applyGains();
-    if (kind !== "sfx" && this.unlocked && this.volumes.music > 0) this.ensureMusic();
+    // Don't leave the loop running muted at 0 (wastes CPU/battery on mobile);
+    // ensureMusic() spins up a fresh source when it's turned back up.
+    if (this.unlocked) {
+      if (this.volumes.music > 0) this.ensureMusic();
+      else this.stopMusic();
+    }
   }
 
   /** Creates the context + gain graph, pre-renders every buffer. Idempotent. */
@@ -194,6 +199,18 @@ export class AudioEngine {
     src.connect(this.musicGain);
     src.start();
     this.musicSource = src;
+  }
+
+  /** A looping source can't be restarted, so stop + drop it; ensureMusic remakes it. */
+  private stopMusic(): void {
+    if (!this.musicSource) return;
+    try {
+      this.musicSource.stop();
+    } catch {
+      // already stopped
+    }
+    this.musicSource.disconnect();
+    this.musicSource = null;
   }
 
   private applyGains(): void {
