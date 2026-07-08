@@ -1,0 +1,12 @@
+{
+  "_comment": "Synthetic, freely-invented prop actors for synthetic-3lane.net.json. No EA/Future Cop data. Two bases, two turrets (guarding the north lane), two spawns (near the south lane), one capture objective. Placed symmetrically; each snaps onto a NET node.",
+  "actors": [
+    { "type": "base", "x": 0, "y": 0, "z": 100 },
+    { "type": "base", "x": 200, "y": 0, "z": 100 },
+    { "type": "turret", "x": 60, "y": 0, "z": 170 },
+    { "type": "turret", "x": 140, "y": 0, "z": 170 },
+    { "type": "spawn", "x": 70, "y": 0, "z": 30 },
+    { "type": "spawn", "x": 130, "y": 0, "z": 30 },
+    { "type": "capture", "x": 100, "y": 0, "z": 55 }
+  ]
+}

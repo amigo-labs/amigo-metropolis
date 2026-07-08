@@ -38,6 +38,10 @@
       "name": "@metropolis/sim",
       "version": "0.0.1",
     },
+    "tools/mapalyze": {
+      "name": "@metropolis/tools-mapalyze",
+      "version": "0.0.1",
+    },
     "tools/replay": {
       "name": "@metropolis/tools-replay",
       "version": "0.0.1",
@@ -203,6 +207,8 @@
     "@metropolis/server": ["@metropolis/server@workspace:packages/server"],
 
     "@metropolis/sim": ["@metropolis/sim@workspace:packages/sim"],
+
+    "@metropolis/tools-mapalyze": ["@metropolis/tools-mapalyze@workspace:tools/mapalyze"],
 
     "@metropolis/tools-replay": ["@metropolis/tools-replay@workspace:tools/replay"],
 
