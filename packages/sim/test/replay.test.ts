@@ -1,10 +1,13 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { BUTTON_FIRE1, BUTTON_JUMP, createTickInputs } from "../src/inputs";
 import {
   createReplayData,
   decodeReplay,
   encodeReplay,
   FRAME_BYTES,
+  REPLAY_FORMAT_VERSION,
   readFrame,
   writeFrame,
 } from "../src/replay";
@@ -23,11 +26,13 @@ describe("replay format", () => {
     writeFrame(replay, 1, inputs);
 
     const decoded = decodeReplay(encodeReplay(replay));
-    expect(decoded.formatVersion).toBe(1);
+    expect(decoded.formatVersion).toBe(REPLAY_FORMAT_VERSION);
     expect(decoded.simVersion).toBe(SIM_VERSION);
     expect(decoded.seed).toBe(0xdeadbeef);
     expect(decoded.mapId).toBe("test-128");
     expect(decoded.tickCount).toBe(3);
+    expect(decoded.wardenPlayer).toBe(-1);
+    expect(decoded.wardenDifficulty).toBe(0);
     expect(decoded.frames).toEqual(replay.frames);
 
     const out = createTickInputs();
@@ -44,10 +49,44 @@ describe("replay format", () => {
     expect(out.players[0].moveX).toBe(0);
   });
 
+  it("round-trips the Warden config (format 2 header)", () => {
+    const replay = createReplayData("district-01", 7, 2, { player: 1, difficulty: 8 });
+    const decoded = decodeReplay(encodeReplay(replay));
+    expect(decoded.wardenPlayer).toBe(1);
+    expect(decoded.wardenDifficulty).toBe(8);
+    expect(decoded.mapId).toBe("district-01");
+    expect(decoded.tickCount).toBe(2);
+  });
+
+  it("rejects out-of-range Warden configs", () => {
+    expect(() => encodeReplay(createReplayData("m", 1, 0, { player: 2, difficulty: 5 }))).toThrow(
+      "bad wardenPlayer",
+    );
+    expect(() => encodeReplay(createReplayData("m", 1, 0, { player: 0, difficulty: 11 }))).toThrow(
+      "bad wardenDifficulty",
+    );
+    const bytes = encodeReplay(createReplayData("m", 1, 0));
+    bytes[17] = 3; // difficulty without a warden player (0xff)
+    expect(() => decodeReplay(bytes)).toThrow("wardenDifficulty set without");
+  });
+
+  it("still decodes format 1 replays (goldens 1–3 predate the Warden)", () => {
+    const bytes = new Uint8Array(
+      readFileSync(join(import.meta.dir, "goldens", "golden-01-drive.mrep")),
+    );
+    expect(bytes[4] | (bytes[5] << 8)).toBe(1); // committed as format 1
+    const decoded = decodeReplay(bytes);
+    expect(decoded.formatVersion).toBe(1);
+    expect(decoded.mapId).toBe("test-128");
+    expect(decoded.wardenPlayer).toBe(-1);
+    expect(decoded.wardenDifficulty).toBe(0);
+    expect(decoded.tickCount).toBe(1800);
+  });
+
   it("frames are 5 bytes per player (network format contract)", () => {
     expect(FRAME_BYTES).toBe(10);
     const replay = createReplayData("m", 1, 7);
-    expect(encodeReplay(replay).length).toBe(17 + 1 + 7 * FRAME_BYTES);
+    expect(encodeReplay(replay).length).toBe(19 + 1 + 7 * FRAME_BYTES);
   });
 
   it("rejects bad magic and truncated files", () => {
@@ -62,7 +101,7 @@ describe("replay format", () => {
     expect(() => encodeReplay(createReplayData("x".repeat(256), 1, 0))).toThrow("mapId too long");
     expect(() => encodeReplay(createReplayData("täst", 1, 0))).toThrow("must be ASCII");
     const bytes = encodeReplay(createReplayData("test-128", 1, 0));
-    bytes[17] = 0xff; // corrupt the first mapId byte past the encoder's check
+    bytes[19] = 0xff; // corrupt the first mapId byte past the encoder's check
     expect(() => decodeReplay(bytes)).toThrow("mapId must be ASCII");
   });
 });

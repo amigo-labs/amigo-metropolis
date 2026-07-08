@@ -11,4 +11,8 @@
 // v6: Phase 3 — points economy (starting balance, trickle, earn table,
 //     hold-to-buy costs), capturable neutral turrets, outposts with claim /
 //     forward spawn / console destruction; hash covers the new ledgers.
+//     (Phase 4's Warden did NOT bump this: its state is hashed only in
+//     matches that enable it, so every existing replay's hash sequence is
+//     unchanged — goldens 1–3 prove it. Warden config travels in the replay
+//     header, format 2, and in the future online handshake.)
 export const SIM_VERSION = 6;

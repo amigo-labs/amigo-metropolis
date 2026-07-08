@@ -134,6 +134,57 @@ export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tic
 // Death & respawn (rules.md §2: 8 s).
 export const RESPAWN_TICKS = 240;
 
+// --- Warden (rules.md §7, PLAN Phase 4) -------------------------------------
+// The solo-opponent superplane: flies over everything, stronger than the
+// player Avatar, plays by the same economy. All decision inputs that scale
+// with difficulty live in the arrays below, indexed by (difficulty - 1).
+
+export const WARDEN_HP = 450; // "stronger than the player Avatar" (300)
+export const WARDEN_SPEED = 10; // a hair above hover (9): it can disengage
+export const WARDEN_ALTITUDE = 7; // cruise height above ground/water surface
+
+// Own weapon set (rules.md §7): hitscan cannon + AoE bomb, both cooldown-only
+// (a superplane carries no ammo counter; returning to base is never forced).
+export const WARDEN_PRIMARY_DAMAGE = 10;
+export const WARDEN_PRIMARY_COOLDOWN_TICKS = 5;
+export const WARDEN_PRIMARY_RANGE = 42;
+export const WARDEN_HEAVY_DAMAGE = 60;
+export const WARDEN_HEAVY_COOLDOWN_TICKS = 36;
+export const WARDEN_HEAVY_SPEED = 25;
+export const WARDEN_HEAVY_TTL_TICKS = 75;
+export const WARDEN_HEAVY_AOE_RADIUS = 6;
+export const WARDEN_HEAVY_RANGE = 30; // only bombs targets closer than this
+
+// Decision-layer geometry (difficulty-independent).
+export const WARDEN_DEFEND_RADIUS = 55; // enemy ground unit this close to own gate → intercept
+export const WARDEN_STANDOFF = 24; // approach distance for attack goals
+export const WARDEN_ESCORT_DISTANCE = 6; // hover distance from the escorted unit
+export const WARDEN_RETREAT_DONE_HP_PERCENT = 80; // leave the pad at this hp
+
+/**
+ * Difficulty 1–10 knobs (PLAN Phase 4), indexed by (difficulty - 1):
+ * reaction delay between decision re-plans, trickle-income multiplier in
+ * percent (100 = the player's rate — the Warden never cheats other earnings),
+ * and the aggression percent that gates harassing, Juggernaut savings and how
+ * low its hp may drop before it runs home to repair.
+ */
+export const WARDEN_REACTION_TICKS: readonly number[] = [48, 42, 36, 30, 24, 18, 12, 8, 5, 3];
+export const WARDEN_INCOME_PERCENT: readonly number[] = [
+  50, 65, 80, 90, 100, 110, 125, 140, 170, 200,
+];
+export const WARDEN_AGGRESSION_PERCENT: readonly number[] = [
+  10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
+];
+export const WARDEN_RETREAT_HP_PERCENT: readonly number[] = [
+  40, 38, 35, 32, 30, 28, 25, 22, 20, 15,
+];
+/** Runners bought per console trip. */
+export const WARDEN_WAVE_SIZE: readonly number[] = [1, 1, 2, 2, 3, 3, 4, 4, 5, 6];
+/** Guardians kept alive for base defense. */
+export const WARDEN_GUARDIAN_TARGET: readonly number[] = [0, 0, 1, 1, 1, 2, 2, 2, 3, 3];
+/** Aggression at or above this saves 50 points for a Juggernaut push. */
+export const WARDEN_JUGGERNAUT_AGGRO = 60;
+
 // Points (rules.md §3, the Phase 1 stub subset).
 export const POINTS_KILL_AVATAR = 10;
 export const POINTS_KILL_TURRET = 2;
@@ -150,6 +201,7 @@ export const UNIT_RANGE: readonly number[] = [
   0, // TURRET
   0, // PROJECTILE
   0, // CONSOLE
+  0, // WARDEN
 ];
 export const UNIT_DAMAGE: readonly number[] = [
   0,
@@ -160,6 +212,7 @@ export const UNIT_DAMAGE: readonly number[] = [
   0,
   0,
   0,
+  0, // WARDEN
 ];
 export const UNIT_FIRE_COOLDOWN_TICKS: readonly number[] = [
   0,
@@ -170,6 +223,7 @@ export const UNIT_FIRE_COOLDOWN_TICKS: readonly number[] = [
   0,
   0,
   0,
+  0, // WARDEN
 ];
 
 /** 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP. */
@@ -182,6 +236,7 @@ export const ARCHETYPE_RADIUS: readonly number[] = [
   1.5, // TURRET
   0.4, // PROJECTILE
   1.2, // CONSOLE
+  1.6, // WARDEN — a superplane is a bigger target
 ];
 
 // Max HP per archetype, indexed by ARCHETYPE value (rules.md §4 placeholders;
@@ -195,4 +250,5 @@ export const ARCHETYPE_MAX_HP: readonly number[] = [
   100, // TURRET (Phase 1 dummy value; Phase 2 rebalances)
   1, // PROJECTILE
   150, // CONSOLE
+  WARDEN_HP, // WARDEN
 ];
