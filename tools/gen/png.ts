@@ -1,6 +1,6 @@
-// Minimal, dependency-free PNG encoder shared by the authoring-time generators
-// (genIcons, genPalette). Emits a truecolor-with-alpha (RGBA, 8-bit) PNG using
-// only node:zlib for the IDAT deflate stream — no image library.
+// Minimal, dependency-free PNG encoder used by the authoring-time generators
+// (genPalette). Emits a truecolor-with-alpha (RGBA, 8-bit) PNG using only
+// node:zlib for the IDAT deflate stream — no image library.
 //
 // rgba is row-major, 4 bytes/pixel (R,G,B,A), length === width * height * 4.
 

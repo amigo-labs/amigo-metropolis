@@ -34,8 +34,8 @@ sequences bit-exactly (needs a Chromium binary; set `CHROMIUM_PATH`).
 - `packages/client` — Three.js renderer, input, interpolation, PWA shell
 - `packages/server` — Cloudflare Worker + Durable Object relay (Phase 6)
 - `tools/replay` — replay record/verify CLI + cross-engine harness
-- `tools/gen` — authoring-time generators (committed sin LUT, map JSON, PWA
-  icons, shared color palette)
+- `tools/gen` — authoring-time generators (committed sin LUT, map JSON, shared
+  color palette, and brand icons/backdrop from `assets/brand/` via `genBrand.py`)
 
 ## Online 1v1 (Phase 6)
 

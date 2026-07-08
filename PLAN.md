@@ -157,8 +157,9 @@ Audio is real now: a dependency-free clean-room sfxr synth renders committed
 JSON presets (`audio/presets.ts`) for every event cue and a self-authored CC0
 music loop, mixed through a tiny WebAudio wrapper with persisted master/sfx/music
 volumes, triggered only from the sim event ring buffer. PWA: web manifest,
-self-authored generated icons (`tools/gen/genIcons.ts`), a dependency-free
-service worker for offline solo, and an install prompt; `CREDITS.md` created.
+app/favicon icons (now the CC0 Metropolis shield brand art, cropped by
+`tools/gen/genBrand.py`), a dependency-free service worker for offline solo, and
+an install prompt; `CREDITS.md` created.
 The shared game palette (assets.md §3) is now in place — an in-house, CC0
 ~32-color palette with 3-shade team ramps is the single source of truth for
 every in-game color (`packages/client/src/render/palette.ts`), replacing the
