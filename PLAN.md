@@ -95,8 +95,9 @@ difficulty curve stays open, like the hover feel pass; play via `?warden=N`.)
 **DoD:** two humans on one machine play a full match with gamepads.
 (Playable via `?splitscreen` (or `?players=2`): a lobby assigns devices —
 gamepad "A" to join, Start/Enter to begin — then two chase-cam viewports split
-`?split=v|h` with per-player HUDs. Controls are world-relative (parity with the
-keyboard/mouse scheme); left stick drives, right stick aims. Rumble on hit/death
+`?split=v|h` with per-player HUDs. Controls are camera-relative (parity with the
+keyboard/mouse scheme): the left stick / WASD drive relative to the chase
+camera, the right stick / mouse aims. Rumble on hit/death
 (`?rumble=0` to mute). A synthetic-gamepad e2e drives both slots and confirms
 each avatar moves in-sim. The 60 fps pass on real mid-range hardware / iPad
 Safari stays open, like the hover-feel and difficulty-curve passes — the frame
@@ -148,7 +149,7 @@ playtest on the live deploy.)
 
 **DoD:** a stranger can open the URL, understand the game, and finish a solo
 match without explanation.
-(Shell + audio landed. A bare URL opens the "District Breach" title screen over
+(Shell + audio landed. A bare URL opens the "Metropolis" title screen over
 an arena backdrop with one click per mode — Solo (Warden difficulty), Couch,
 Online (host/join room codes) — plus How-to-play and Sound drawers; deep links
 (`?warden`, `?splitscreen`, `?online`, `?play`, `?debug`) still boot straight in.

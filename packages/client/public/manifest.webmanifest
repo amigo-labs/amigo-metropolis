@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "District Breach",
-  "short_name": "Breach",
+  "name": "Metropolis",
+  "short_name": "Metropolis",
   "description": "A browser arena strategy-action game. Break the enemy base's gate. Solo vs AI, couch splitscreen, or online 1v1.",
   "start_url": ".",
   "scope": "/",

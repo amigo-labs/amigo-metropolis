@@ -3,7 +3,7 @@
 Browser-based arena strategy-action game — a mechanics homage to the *Precinct
 Assault* mode of Future Cop: L.A.P.D. (1998), zero original IP. One
 deterministic lockstep simulation drives solo, couch splitscreen and online
-1v1. Working title: "District Breach".
+1v1. Title: **Metropolis**.
 
 Read `CLAUDE.md` (hard rules) and `docs/specs/` (source of truth) before
 touching code. Work follows `PLAN.md` phase by phase.
@@ -13,7 +13,7 @@ touching code. Work follows `PLAN.md` phase by phase.
 ```sh
 bun install
 bun test               # sim tests + golden replays (must pass before any commit)
-bun run dev            # opens the "District Breach" title menu (solo / couch /
+bun run dev            # opens the "Metropolis" title menu (solo / couch /
                        #   online). Deep links skip it: ?warden=1-10 vs the AI;
                        #   ?splitscreen (two gamepads, press A to join) for couch;
                        #   ?online=<CODE> for 1v1 lockstep (see below); ?play or

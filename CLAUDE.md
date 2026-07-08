@@ -2,7 +2,7 @@
 
 Browser-based arena strategy-action game. Spiritual successor to the *Precinct Assault*
 mode of Future Cop: L.A.P.D. (1998) — mechanics homage, zero original IP.
-Codename: **Metropolis**. Display title: TBD (working title "District Breach").
+Codename: **Metropolis**. Display title: **Metropolis**.
 
 Solo vs. AI, couch splitscreen, and online 1v1 — all driven by one deterministic
 lockstep simulation.
