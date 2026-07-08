@@ -4,10 +4,12 @@
 
 import { type MapData, worldExtent } from "@metropolis/sim";
 import * as THREE from "three";
+import { TERRAIN_HEX } from "./palette";
 
-const LOW_COLOR = new THREE.Color(0x2e4436);
-const HIGH_COLOR = new THREE.Color(0xc9b98f);
-const RIVERBED_COLOR = new THREE.Color(0x14303e);
+// Terrain colors come from the shared game palette (assets.md §3).
+const LOW_COLOR = new THREE.Color(TERRAIN_HEX.low);
+const HIGH_COLOR = new THREE.Color(TERRAIN_HEX.high);
+const RIVERBED_COLOR = new THREE.Color(TERRAIN_HEX.riverbed);
 
 /** Translucent plane at the water surface so the river reads as water. */
 export function buildWaterPlane(map: MapData): THREE.Mesh {
@@ -16,7 +18,7 @@ export function buildWaterPlane(map: MapData): THREE.Mesh {
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(extent / 2, map.waterLevel, extent / 2);
   const material = new THREE.MeshStandardMaterial({
-    color: 0x2f6f8f,
+    color: TERRAIN_HEX.water,
     transparent: true,
     opacity: 0.55,
     flatShading: true,

@@ -95,8 +95,9 @@ difficulty curve stays open, like the hover feel pass; play via `?warden=N`.)
 **DoD:** two humans on one machine play a full match with gamepads.
 (Playable via `?splitscreen` (or `?players=2`): a lobby assigns devices —
 gamepad "A" to join, Start/Enter to begin — then two chase-cam viewports split
-`?split=v|h` with per-player HUDs. Controls are world-relative (parity with the
-keyboard/mouse scheme); left stick drives, right stick aims. Rumble on hit/death
+`?split=v|h` with per-player HUDs. Controls are camera-relative (parity with the
+keyboard/mouse scheme): the left stick / WASD drive relative to the chase
+camera, the right stick / mouse aims. Rumble on hit/death
 (`?rumble=0` to mute). A synthetic-gamepad e2e drives both slots and confirms
 each avatar moves in-sim. The 60 fps pass on real mid-range hardware / iPad
 Safari stays open, like the hover-feel and difficulty-curve passes — the frame
@@ -129,9 +130,14 @@ server-confirmed frames. The DoD is proven IN-PROCESS by
 within 30 ticks with both replays dumped, and a dropped client re-simulates to
 the same state. Wired into the client at `?online=<CODE>` (+ `?relay=<wsBase>`);
 the seed is derived from the room code so both peers build an identical sim.
-Open, like the hover-feel / difficulty / splitscreen-perf passes: the live
-deploy (`wrangler dev`/`deploy` — no Workers runtime here) and the two-network
-latency playtest.)
+Deploy is wired for a single origin: the root `wrangler.toml` now publishes ONE
+Worker that both serves the built client (`[assets]` over `packages/client/dist`,
+built by a `[build]` step, SPA fallback) and runs the relay (`run_worker_first`
+pins `/room/*` to the Worker + Durable Object). Client and relay share a host,
+so the deployed URL plays Solo/Couch immediately and online 1v1 needs no
+separate relay host (same-origin `wss://<host>/room/<CODE>`). Still open, like
+the hover-feel / difficulty / splitscreen-perf passes: the two-network latency
+playtest on the live deploy.)
 
 ## Phase 7 — Look & sound (Stage B/C of assets.md)
 
@@ -143,7 +149,7 @@ latency playtest.)
 
 **DoD:** a stranger can open the URL, understand the game, and finish a solo
 match without explanation.
-(Shell + audio landed. A bare URL opens the "District Breach" title screen over
+(Shell + audio landed. A bare URL opens the "Metropolis" title screen over
 an arena backdrop with one click per mode — Solo (Warden difficulty), Couch,
 Online (host/join room codes) — plus How-to-play and Sound drawers; deep links
 (`?warden`, `?splitscreen`, `?online`, `?play`, `?debug`) still boot straight in.
@@ -151,14 +157,24 @@ Audio is real now: a dependency-free clean-room sfxr synth renders committed
 JSON presets (`audio/presets.ts`) for every event cue and a self-authored CC0
 music loop, mixed through a tiny WebAudio wrapper with persisted master/sfx/music
 volumes, triggered only from the sim event ring buffer. PWA: web manifest,
-self-authored generated icons (`tools/gen/genIcons.ts`), a dependency-free
-service worker for offline solo, and an install prompt; `CREDITS.md` created.
+app/favicon icons (now the CC0 Metropolis shield brand art, cropped by
+`tools/gen/genBrand.py`), a dependency-free service worker for offline solo, and
+an install prompt; `CREDITS.md` created.
+The shared game palette (assets.md §3) is now in place — an in-house, CC0
+~32-color palette with 3-shade team ramps is the single source of truth for
+every in-game color (`packages/client/src/render/palette.ts`), replacing the
+hex literals scattered across the greybox meshes, base structures and terrain.
+`tools/gen/genPalette.ts` emits the committed `.pal` (JASC-PAL) + reference PNG
+in `assets/palette/`, and a unit test keeps the `.pal` in sync with the data.
+Still open on that line item — the texture atlases themselves and the runtime
+NearestFilter sampling path, which want real per-archetype art to exercise.
+
 Still open — the two asset-import tasks: the Stage B CC0 3D-model pass and the
-Pincel texture atlas / shared-palette / NearestFilter pipeline. They need
-external CC0 binaries chosen and license-verified against assets.md §2, so they
-are best done with the asset sources in hand rather than committed blind; the
-game meets the DoD in greybox until then. The feel-tuning of the SFX presets
-stays an open pass like the hover-feel / difficulty-curve passes.)
+Pincel texture-atlas / NearestFilter pipeline. They need external CC0 binaries
+chosen and license-verified against assets.md §2, so they are best done with the
+asset sources in hand rather than committed blind; the game meets the DoD in
+greybox until then. The feel-tuning of the SFX presets stays an open pass like
+the hover-feel / difficulty-curve passes.)
 
 ## Backlog (post-v1, do not start)
 

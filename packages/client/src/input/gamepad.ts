@@ -1,12 +1,14 @@
 // Gamepad input (PLAN Phase 5, primary splitscreen device). Reads the W3C
 // Standard Gamepad each tick and quantizes at the boundary — analog sticks
 // become int8 axes, so raw gamepad floats never enter the sim (architecture.md
-// §2). Controls are world-relative, matching the keyboard/mouse scheme (WASD +
-// absolute aim): left stick drives, right stick aims (and holds the last
-// facing when released, like the mouse). Allocation-free in sample().
+// §2). Controls are camera-relative, matching the keyboard/mouse scheme: the
+// left stick drives relative to the chase camera (via the current facing), the
+// right stick aims (and holds the last facing when released, like the mouse).
+// Allocation-free in sample().
 
 import { type PlayerInput, quantizeAxis } from "@metropolis/sim";
 import { GAMEPAD_BUTTON_MAP, STICK_DEADZONE, stickWithDeadzone, type Vec2 } from "./gamepadMapping";
+import { cameraRelativeMove } from "./movement";
 import type { LocalInputSource } from "./types";
 
 // Module-scope scratch: sample() runs inside the tick loop for every player in
@@ -54,13 +56,10 @@ export class GamepadInput implements LocalInputSource {
       return;
     }
     const ax = p.axes;
-    // Left stick → analog move. Gamepad Y is +down, sim +y is forward: invert.
-    stickWithDeadzone(ax[0] ?? 0, ax[1] ?? 0, STICK_DEADZONE, move);
-    out.moveX = quantizeAxis(move.x);
-    out.moveY = quantizeAxis(-move.y);
-    // Right stick → aim. Beyond the deadzone we snap to a unit vector (crisp
-    // facing that clears the sim's aim threshold) and remember it; released,
-    // the avatar keeps facing where it last aimed (parity with the mouse).
+    // Right stick → aim first, so the move below rotates by this tick's facing.
+    // Beyond the deadzone we snap to a unit vector (crisp facing that clears the
+    // sim's aim threshold) and remember it; released, the avatar keeps facing
+    // where it last aimed (parity with the mouse).
     const mag = stickWithDeadzone(ax[2] ?? 0, ax[3] ?? 0, STICK_DEADZONE, aim);
     if (mag > 0) {
       const inv = 1 / Math.sqrt(aim.x * aim.x + aim.y * aim.y);
@@ -69,6 +68,12 @@ export class GamepadInput implements LocalInputSource {
     }
     out.aimX = quantizeAxis(this.aimX);
     out.aimY = quantizeAxis(this.aimY);
+    // Left stick → analog move, camera-relative (rotated by the facing above).
+    // Gamepad Y is +down, sim +y is forward: invert for "forward".
+    stickWithDeadzone(ax[0] ?? 0, ax[1] ?? 0, STICK_DEADZONE, move);
+    cameraRelativeMove(move.x, -move.y, this.aimX, this.aimY, move);
+    out.moveX = quantizeAxis(move.x);
+    out.moveY = quantizeAxis(move.y);
     const b = p.buttons;
     let buttons = 0;
     for (let i = 0; i < GAMEPAD_BUTTON_MAP.length; i++) {

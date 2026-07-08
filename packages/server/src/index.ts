@@ -35,6 +35,9 @@ import { type Outgoing, RoomLogic } from "./room";
 
 export interface Env {
   ROOM: DurableObjectNamespace;
+  // Static client assets (the Vite build). Configured in wrangler.toml so this
+  // one Worker serves the game AND the relay from a single origin.
+  ASSETS: Fetcher;
 }
 
 const ROOM_CODE = /^[A-Z0-9]{5}$/;
@@ -50,7 +53,12 @@ export default {
       const stub = env.ROOM.get(env.ROOM.idFromName(code));
       return stub.fetch(request);
     }
-    return new Response("metropolis relay — open a WebSocket to /room/<CODE>", { status: 200 });
+    // Anything that isn't a relay route is the client app. run_worker_first pins
+    // only "/room/*" to the Worker, so this is just a safety net for a codeless
+    // relay path like "/room/": hand it to the asset layer, which SPA-falls-back
+    // to the app shell. (A bare "/room" never reaches here — it doesn't match
+    // "/room/*", so the asset layer serves it directly.)
+    return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
 

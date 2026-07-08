@@ -93,7 +93,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   root.appendChild(card);
 
   card.appendChild(el("div", "menu-kicker", "arena strategy-action · solo · couch · online"));
-  card.appendChild(el("h1", "menu-title", "DISTRICT&nbsp;BREACH"));
+  card.appendChild(el("h1", "menu-title", "METROPOLIS"));
   card.appendChild(
     el(
       "p",

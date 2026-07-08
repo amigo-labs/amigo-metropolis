@@ -3,7 +3,7 @@
 Browser-based arena strategy-action game — a mechanics homage to the *Precinct
 Assault* mode of Future Cop: L.A.P.D. (1998), zero original IP. One
 deterministic lockstep simulation drives solo, couch splitscreen and online
-1v1. Working title: "District Breach".
+1v1. Title: **Metropolis**.
 
 Read `CLAUDE.md` (hard rules) and `docs/specs/` (source of truth) before
 touching code. Work follows `PLAN.md` phase by phase.
@@ -13,7 +13,7 @@ touching code. Work follows `PLAN.md` phase by phase.
 ```sh
 bun install
 bun test               # sim tests + golden replays (must pass before any commit)
-bun run dev            # opens the "District Breach" title menu (solo / couch /
+bun run dev            # opens the "Metropolis" title menu (solo / couch /
                        #   online). Deep links skip it: ?warden=1-10 vs the AI;
                        #   ?splitscreen (two gamepads, press A to join) for couch;
                        #   ?online=<CODE> for 1v1 lockstep (see below); ?play or
@@ -34,7 +34,8 @@ sequences bit-exactly (needs a Chromium binary; set `CHROMIUM_PATH`).
 - `packages/client` — Three.js renderer, input, interpolation, PWA shell
 - `packages/server` — Cloudflare Worker + Durable Object relay (Phase 6)
 - `tools/replay` — replay record/verify CLI + cross-engine harness
-- `tools/gen` — authoring-time generators (committed sin LUT, map JSON, PWA icons)
+- `tools/gen` — authoring-time generators (committed sin LUT, map JSON, shared
+  color palette, and brand icons/backdrop from `assets/brand/` via `genBrand.py`)
 
 ## Online 1v1 (Phase 6)
 
@@ -56,12 +57,28 @@ relay (defaults to same-origin).
 
 The relay's Cloudflare config is `wrangler.toml` at the **repo root** (its
 `main` points into `packages/server`). It sits at the root so a **Workers
-Builds** Git integration works with the default settings — build command
-`bun run build`, deploy command `npx wrangler deploy` from the workspace root —
-without a custom root directory (wrangler won't auto-detect an app inside a Bun
-workspace root, so it needs the config there). `bun run build` at the root
-builds every package that has one (client bundle + Worker dry-run); the
-`name` must match the Workers Builds project.
+Builds** Git integration works with the default settings — deploy command
+`npx wrangler deploy` from the workspace root — without a custom root directory
+(wrangler won't auto-detect an app inside a Bun workspace root, so it needs the
+config there). The `name` must match the Workers Builds project.
+
+## One deploy, whole game (Cloudflare)
+
+`wrangler deploy` publishes a **single Worker** that serves both the game and
+the relay:
+
+- a `[build]` step builds the client (`packages/client/dist`);
+- `[assets]` serves that build as static files, with an SPA fallback to the app
+  shell;
+- `run_worker_first = ["/room/*"]` keeps the relay WebSocket routes on the
+  Worker + Durable Object.
+
+Because the client and relay share one origin, opening the deployed URL boots
+the title screen and Solo/Couch play immediately, and **online 1v1 works with
+no extra host** — the client's relay URL defaults to `wss://<host>/room/<CODE>`.
+Two players just open `…/?online=ABCDE` with the same 5-char code (or use the
+menu's host/join). The whole thing runs offline in dev with `wrangler dev` from
+`packages/server`.
 
 The protocol is binary and shared with the replay format — one definition in
 `packages/sim/src/protocol.ts`. The full lockstep contract (bit-identical

@@ -9,13 +9,13 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="District Breach" />
+    <meta name="apple-mobile-web-app-title" content="Metropolis" />
     <meta
       name="description"
-      content="District Breach — a browser arena strategy-action game. Break the enemy base's gate. Solo vs AI, couch splitscreen, or online 1v1."
+      content="Metropolis — a browser arena strategy-action game. Break the enemy base's gate. Solo vs AI, couch splitscreen, or online 1v1."
     />
     <meta name="theme-color" content="#0b0e14" />
-    <title>District Breach</title>
+    <title>Metropolis</title>
     <style>
       html,
       body {
@@ -101,11 +101,15 @@
         align-items: center;
         justify-content: center;
         padding: 24px;
-        background: radial-gradient(
-          120% 120% at 50% 0%,
-          rgba(11, 14, 20, 0.72),
-          rgba(6, 8, 13, 0.92)
-        );
+        /* City backdrop behind the menu. The dark gradient keeps the card
+           legible and, if bg/menu.jpg is absent, still renders a clean dark
+           screen over the base color (graceful fallback). */
+        background-color: #06080d;
+        background-image: linear-gradient(rgba(6, 8, 13, 0.55), rgba(6, 8, 13, 0.86)),
+          url("/bg/menu.jpg");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
         color: #e2e8f0;
         font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
         z-index: 20;
