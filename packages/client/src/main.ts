@@ -162,6 +162,15 @@ const audio = new AudioEngine();
 // Browsers gate audio behind a gesture; the first pointer/key/touch unlocks it.
 audio.armUnlock();
 
+// Service worker for offline solo play (production builds only — the dev server
+// runs HMR and its own module graph). Best-effort: a failure just means no
+// offline cache, never a broken load.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+
 // Scripted opponent (?opponent=feeder|idle, Phase 3 DoD): player 2 runs a
 // fixed build order — walk to its ground console, then hold-to-buy runner
 // bursts forever. Only used for a slot that is neither a local human nor the

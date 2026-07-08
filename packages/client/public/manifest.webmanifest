@@ -1,0 +1,27 @@
+{
+  "id": "/",
+  "name": "District Breach",
+  "short_name": "Breach",
+  "description": "A browser arena strategy-action game. Break the enemy base's gate. Solo vs AI, couch splitscreen, or online 1v1.",
+  "start_url": ".",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0e14",
+  "theme_color": "#0b0e14",
+  "categories": ["games"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
