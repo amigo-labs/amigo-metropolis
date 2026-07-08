@@ -11,6 +11,8 @@ export const ARCHETYPE = {
   PROJECTILE: 6,
   /** Outpost console: claimable when neutral, destructible when owned. */
   CONSOLE: 7,
+  /** Solo-opponent superplane avatar (rules.md §7) — AI-driven, flies. */
+  WARDEN: 8,
 } as const;
 
 export type Archetype = (typeof ARCHETYPE)[keyof typeof ARCHETYPE];

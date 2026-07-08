@@ -18,6 +18,7 @@ const PROJECTILE_COLORS: readonly THREE.Color[] = [
   new THREE.Color(0xffffff),
   new THREE.Color(0xffb020), // heavy: orange
   new THREE.Color(0x7ef2ff), // special: cyan
+  new THREE.Color(0xff5470), // warden bomb: red
 ];
 
 export interface Bucket {
@@ -37,6 +38,7 @@ export interface GreyboxMeshes {
   readonly turret: Bucket;
   readonly projectile: Bucket;
   readonly console: Bucket;
+  readonly warden: Bucket;
   readonly all: Bucket[];
 }
 
@@ -114,6 +116,16 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     box(1.4, 0.35, 1.0, 0, 1.7, 0),
     box(0.15, 2.4, 0.15, -0.5, 3.0, -0.5),
   ]);
+  // Warden: the solo-opponent superplane — long fuselage, swept main wing,
+  // canards and a twin tail. Clearly bigger than a Guardian. +X forward.
+  const wardenGeometry = mergeGeometries([
+    box(3.6, 0.8, 1.1, 0, 0, 0), // fuselage
+    box(1.6, 0.2, 4.6, -0.6, 0.15, 0), // main wing
+    box(0.8, 0.15, 2.0, 1.2, 0.1, 0), // canards
+    box(0.9, 1.0, 0.15, -1.5, 0.6, -0.8), // tail fin L
+    box(0.9, 1.0, 0.15, -1.5, 0.6, 0.8), // tail fin R
+    box(1.2, 0.5, 0.7, 1.9, 0, 0), // nose
+  ]);
 
   const avatarWalker = bucket(scene, walkerGeometry, 4);
   const avatarHover = bucket(scene, hoverGeometry, 4);
@@ -124,6 +136,7 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const turret = bucket(scene, turretGeometry, 64);
   const projectile = bucket(scene, projectileGeometry, 128);
   const consoleBucket = bucket(scene, consoleGeometry, 8);
+  const warden = bucket(scene, wardenGeometry, 2);
   return {
     avatarWalker,
     avatarHover,
@@ -134,6 +147,7 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     turret,
     projectile,
     console: consoleBucket,
+    warden,
     all: [
       avatarWalker,
       avatarHover,
@@ -144,6 +158,7 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
       turret,
       projectile,
       consoleBucket,
+      warden,
     ],
   };
 }
@@ -164,6 +179,7 @@ export function bucketFor(
   if (archetype === ARCHETYPE.TURRET) return greybox.turret;
   if (archetype === ARCHETYPE.PROJECTILE) return greybox.projectile;
   if (archetype === ARCHETYPE.CONSOLE) return greybox.console;
+  if (archetype === ARCHETYPE.WARDEN) return greybox.warden;
   return undefined;
 }
 

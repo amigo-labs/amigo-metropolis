@@ -5,7 +5,7 @@
 // via writeSnapshot(). (The 1 Hz debug HUD reads sim fields directly — it is
 // host-side debug UI, not part of the renderer.)
 //
-// URL params: ?map=test-128 ?cam=orbit ?seed=123
+// URL params: ?map=test-128 ?cam=orbit ?seed=123 ?warden=8 ?opponent=idle
 
 import {
   ANIM_HOVER,
@@ -39,7 +39,10 @@ import { buildTerrainMesh, buildWaterPlane } from "./render/terrain";
 const params = new URLSearchParams(location.search);
 const seed = Number(params.get("seed") ?? "0xc0ffee") >>> 0;
 const map = getMapById(params.get("map") ?? DISTRICT_01_ID);
-const sim = createSim(map, seed);
+// ?warden=<1-10> puts the Phase 4 AI on player 2's slot (rules.md §7).
+const wardenDifficulty = Math.trunc(Number(params.get("warden") ?? "0"));
+const warden = wardenDifficulty >= 1;
+const sim = createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined);
 
 const QUEUE_SIZE = LOCAL_INPUT_DELAY_TICKS + 1;
 const inputQueue: TickInputs[] = [];
@@ -55,9 +58,9 @@ const audio = new AudioStub();
 
 // Scripted opponent (?opponent=feeder|idle, Phase 3 DoD): player 2 runs a
 // fixed build order — walk to its ground console, then hold-to-buy runner
-// bursts forever, spending whatever its ledger allows. Phase 4's Warden
-// replaces this with a real in-sim AI.
-const opponentMode = params.get("opponent") ?? "feeder";
+// bursts forever, spending whatever its ledger allows. Superseded by the
+// Warden (?warden): with the AI active, the sim ignores player 2's inputs.
+const opponentMode = warden ? "idle" : (params.get("opponent") ?? "feeder");
 
 function scriptOpponent(tick: number, out: PlayerInput): void {
   out.moveX = 0;
@@ -299,7 +302,8 @@ function frame(now: number): void {
         : "";
     hud.textContent =
       `${status}  points ${sim.points[0]}:${sim.points[1]}  units ${unitCounts[0]}v${unitCounts[1]}${progress}\n` +
-      `tick ${sim.tick}  fps ${hudFrames}  entities ${countCurr}  sfx ${audio.lastCue || "-"}  map ${map.id}\n` +
+      `tick ${sim.tick}  fps ${hudFrames}  entities ${countCurr}  sfx ${audio.lastCue || "-"}  map ${map.id}` +
+      `${warden ? `  warden d${sim.wardenDifficulty}` : ""}\n` +
       "WASD drive · mouse aim · LMB/RMB/MMB fire · Q transform · Space jump · " +
       `hold E to buy/claim/capture (+RMB heavy)${banner}`;
     hudFrames = 0;

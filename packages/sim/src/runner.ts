@@ -10,7 +10,10 @@ import { createSim, hash, step } from "./sim";
 /** Hash after every tick of the replay (length = tickCount). */
 export function simulateReplayHashes(replay: ReplayData): Uint32Array {
   const map = getMapById(replay.mapId);
-  const sim = createSim(map, replay.seed);
+  const sim = createSim(map, replay.seed, {
+    wardenPlayer: replay.wardenPlayer,
+    wardenDifficulty: replay.wardenDifficulty,
+  });
   const inputs = createTickInputs();
   const hashes = new Uint32Array(replay.tickCount);
   for (let t = 0; t < replay.tickCount; t++) {

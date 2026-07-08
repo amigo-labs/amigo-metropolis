@@ -75,6 +75,11 @@ import {
   UNIT_DAMAGE,
   UNIT_FIRE_COOLDOWN_TICKS,
   UNIT_RANGE,
+  WARDEN_ALTITUDE,
+  WARDEN_HEAVY_AOE_RADIUS,
+  WARDEN_HEAVY_DAMAGE,
+  WARDEN_HP,
+  WARDEN_INCOME_PERCENT,
 } from "./balance";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
 import {
@@ -113,6 +118,7 @@ import {
   UNIT_MODE_ASSAULT,
   UNIT_MODE_PATROL,
 } from "./units";
+import { systemWarden, WGOAL_IDLE } from "./warden";
 
 // Avatar modes (EntityStore.mode).
 export const MODE_WALKER = 0;
@@ -121,6 +127,7 @@ export const MODE_HOVER = 1;
 // Projectile kinds (EntityStore.mode on PROJECTILE entities).
 export const PROJ_HEAVY = 1;
 export const PROJ_SPECIAL = 2;
+export const PROJ_WARDEN = 3; // the Warden's bomb (own damage/AoE numbers)
 
 // Turret kinds (EntityStore.mode on TURRET entities).
 export const TURRET_BASE = 0; //        base ring: full targeting
@@ -132,6 +139,17 @@ export const ANIM_MOVING = 1 << 0;
 export const ANIM_HOVER = 1 << 1;
 export const ANIM_AIRBORNE = 1 << 2;
 export const ANIM_TRANSFORMING = 1 << 3;
+
+/**
+ * Match configuration beyond map+seed. Part of the replay header (format 2)
+ * and the online handshake — every peer must create the sim identically.
+ */
+export interface SimOptions {
+  /** Player slot driven by the in-sim Warden AI (rules.md §7). */
+  wardenPlayer?: number;
+  /** Warden difficulty 1–10 (clamped). */
+  wardenDifficulty?: number;
+}
 
 export interface SimState {
   /** The only clock the sim knows. */
@@ -171,26 +189,44 @@ export interface SimState {
   /** Hold-to-buy per player: encoded console target (-1 none) + held ticks. */
   readonly buyTarget: Int32Array;
   readonly buyProgress: Int32Array;
+  /** Player slot the Warden AI drives, -1 for a match without one (config). */
+  readonly wardenPlayer: number;
+  /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
+  readonly wardenDifficulty: number;
+  /** Warden decision state: current goal (WGOAL_* in warden.ts). */
+  wardenGoal: number;
+  /** Goal operand: entity id, spot index or remaining-purchase count. */
+  wardenSlot: number;
+  /** Ticks until the next decision re-plan (the reaction delay). */
+  wardenThink: number;
+  /** Fixed-point (percent) remainder of the Warden's trickle multiplier. */
+  wardenIncomeAcc: number;
   /** Per-tick transient events (NOT hashed). */
   readonly events: EventBuffer;
 }
 
-/** Spawns a fresh avatar for `player` at its map spawn point. */
+/**
+ * Spawns a fresh avatar for `player` at its map spawn point. The Warden's
+ * slot gets the superplane instead (rules.md §7) — same spawn point, riding
+ * its cruise altitude.
+ */
 export function spawnAvatar(state: SimState, player: number): number {
   const ent = state.ent;
   const s = state.map.spawns[player];
-  const id = spawn(ent, ARCHETYPE.AVATAR, player);
+  const warden = player === state.wardenPlayer;
+  const id = spawn(ent, warden ? ARCHETYPE.WARDEN : ARCHETYPE.AVATAR, player);
   if (id < 0) return -1;
   ent.posX[id] = s.x;
   ent.posY[id] = s.y;
-  ent.height[id] = sampleHeight(state.map, s.x, s.y);
+  const ground = sampleHeight(state.map, s.x, s.y);
+  ent.height[id] = warden ? Math.max(ground, state.map.waterLevel) + WARDEN_ALTITUDE : ground;
   ent.yaw[id] = s.yaw;
   ent.aimX[id] = cosLUT(s.yaw);
   ent.aimY[id] = sinLUT(s.yaw);
-  ent.hp[id] = AVATAR_HP;
+  ent.hp[id] = warden ? WARDEN_HP : AVATAR_HP;
   ent.mode[id] = MODE_WALKER;
-  ent.ammoA[id] = AVATAR_AMMO_HEAVY;
-  ent.ammoB[id] = AVATAR_AMMO_SPECIAL;
+  ent.ammoA[id] = warden ? 0 : AVATAR_AMMO_HEAVY;
+  ent.ammoB[id] = warden ? 0 : AVATAR_AMMO_SPECIAL;
   ent.ownerId[id] = player;
   state.avatarId[player] = id;
   return id;
@@ -338,8 +374,18 @@ export function spawnUnit(
   return id;
 }
 
-export function createSim(map: MapData, seed: number): SimState {
+export function createSim(map: MapData, seed: number, options?: SimOptions): SimState {
   const ringSlots = map.bases[0].turrets.length + map.bases[1].turrets.length;
+  // Both config values end up as array indices (avatarId[player], the
+  // difficulty knob tables), so coerce to integers — a fractional or NaN
+  // input must degrade to a sane config, never poison the sim.
+  const rawPlayer = options?.wardenPlayer ?? -1;
+  const wardenPlayer = rawPlayer >= 0 ? Math.min(Math.floor(rawPlayer), MAX_PLAYERS - 1) : -1; // NaN fails the >=
+  const rawDifficulty = options?.wardenDifficulty ?? 5;
+  const wardenDifficulty =
+    wardenPlayer >= 0
+      ? Math.min(Math.max(rawDifficulty >= 1 ? Math.floor(rawDifficulty) : 1, 1), 10)
+      : 0;
   const state: SimState = {
     tick: 0,
     prng: seed | 0,
@@ -364,6 +410,12 @@ export function createSim(map: MapData, seed: number): SimState {
     outpostRespawn: new Int32Array(map.outpostSpots.length),
     buyTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     buyProgress: new Int32Array(MAX_PLAYERS),
+    wardenPlayer,
+    wardenDifficulty,
+    wardenGoal: WGOAL_IDLE,
+    wardenSlot: -1,
+    wardenThink: 0,
+    wardenIncomeAcc: 0,
     events: createEventBuffer(),
   };
   for (let p = 0; p < MAX_PLAYERS; p++) {
@@ -396,6 +448,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
   const map = state.map;
   const extent = worldExtent(map);
   for (let p = 0; p < MAX_PLAYERS; p++) {
+    // The Warden's slot ignores TickInputs entirely: its superplane is moved
+    // by systemWarden, deterministically on every peer.
+    if (p === state.wardenPlayer) continue;
     const id = state.avatarId[p];
     if (id < 0) {
       state.lastButtons[p] = inputs.players[p].buttons;
@@ -548,8 +603,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
  * points or hitting an alive-limit all reset the hold. FIRE2 orders the
  * heavy variant at base consoles and the (assault) air unit at outposts;
  * a neutral outpost console sells the outpost itself — the 30-point claim.
+ * Exported for the Warden, which buys through the exact same rules with
+ * synthesized buttons (rules.md §7: same rules and economy as a player).
  */
-function systemBuy(state: SimState, player: number, id: number, buttons: number): void {
+export function systemBuy(state: SimState, player: number, id: number, buttons: number): void {
   const ent = state.ent;
   const map = state.map;
   const r2 = CONSOLE_RADIUS * CONSOLE_RADIUS;
@@ -720,7 +777,7 @@ function avatarWeapons(
   if ((buttons & BUTTON_FIRE1) !== 0 && ent.cooldownA[id] <= 0) {
     ent.cooldownA[id] = PRIMARY_COOLDOWN_TICKS;
     pushEvent(state.events, EV_SHOT, id, 0, 0);
-    hitscan(state, id, player, dirX, dirY);
+    hitscan(state, id, player, dirX, dirY, PRIMARY_RANGE, PRIMARY_DAMAGE);
   }
   if ((buttons & BUTTON_FIRE2) !== 0 && ent.cooldownB[id] <= 0 && ent.ammoA[id] > 0) {
     ent.cooldownB[id] = HEAVY_COOLDOWN_TICKS;
@@ -736,13 +793,21 @@ function avatarWeapons(
   }
 }
 
-/** First enemy hit along the 2D ray within PRIMARY_RANGE, if any. */
-function hitscan(state: SimState, shooter: number, player: number, dx: number, dy: number): void {
+/** First enemy hit along the 2D ray within `range`, if any (shared w/ Warden). */
+export function hitscan(
+  state: SimState,
+  shooter: number,
+  player: number,
+  dx: number,
+  dy: number,
+  range: number,
+  damage: number,
+): void {
   const ent = state.ent;
   const ox = ent.posX[shooter];
   const oy = ent.posY[shooter];
   const team = ent.team[shooter];
-  let bestT = PRIMARY_RANGE;
+  let bestT = range;
   let bestId = -1;
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id] || id === shooter) continue;
@@ -761,11 +826,11 @@ function hitscan(state: SimState, shooter: number, player: number, dx: number, d
     }
   }
   if (bestId >= 0) {
-    applyDamage(state, bestId, PRIMARY_DAMAGE, player);
+    applyDamage(state, bestId, damage, player);
   }
 }
 
-function spawnProjectile(
+export function spawnProjectile(
   state: SimState,
   shooter: number,
   player: number,
@@ -902,8 +967,18 @@ function systemProjectiles(state: SimState): void {
 function explode(state: SimState, id: number): void {
   const ent = state.ent;
   const kind = ent.mode[id];
-  const radius = kind === PROJ_SPECIAL ? SPECIAL_AOE_RADIUS : HEAVY_AOE_RADIUS;
-  const damage = kind === PROJ_SPECIAL ? SPECIAL_DAMAGE : HEAVY_DAMAGE;
+  const radius =
+    kind === PROJ_SPECIAL
+      ? SPECIAL_AOE_RADIUS
+      : kind === PROJ_WARDEN
+        ? WARDEN_HEAVY_AOE_RADIUS
+        : HEAVY_AOE_RADIUS;
+  const damage =
+    kind === PROJ_SPECIAL
+      ? SPECIAL_DAMAGE
+      : kind === PROJ_WARDEN
+        ? WARDEN_HEAVY_DAMAGE
+        : HEAVY_DAMAGE;
   const x = ent.posX[id];
   const y = ent.posY[id];
   const team = ent.team[id];
@@ -932,15 +1007,17 @@ function systemDamageDeath(state: SimState): void {
     const killer = ent.aux[id] - 1; // -1 = environment/dummy
     const archetype = ent.archetype[id];
     pushEvent(state.events, EV_DEATH, id, killer, archetype);
-    // Earn table (rules.md §3): avatars 10, ENEMY-OWNED turrets 2, units 1.
-    // Neutral turrets (dummies, dormant capturables) and consoles pay nothing.
+    // Earn table (rules.md §3): avatars 10 (the Warden counts as one),
+    // ENEMY-OWNED turrets 2, units 1. Neutral turrets (dummies, dormant
+    // capturables) and consoles pay nothing.
     if (killer >= 0 && killer < MAX_PLAYERS && ent.team[id] !== killer) {
-      if (archetype === ARCHETYPE.AVATAR) state.points[killer] += POINTS_KILL_AVATAR;
+      if (archetype === ARCHETYPE.AVATAR || archetype === ARCHETYPE.WARDEN)
+        state.points[killer] += POINTS_KILL_AVATAR;
       else if (archetype === ARCHETYPE.TURRET && ent.ownerId[id] >= 0)
         state.points[killer] += POINTS_KILL_TURRET;
       else if (isUnit(archetype)) state.points[killer] += POINTS_KILL_UNIT;
     }
-    if (archetype === ARCHETYPE.AVATAR) {
+    if (archetype === ARCHETYPE.AVATAR || archetype === ARCHETYPE.WARDEN) {
       const player = ent.ownerId[id];
       state.avatarId[player] = -1;
       state.respawnTimer[player] = RESPAWN_TICKS;
@@ -1082,11 +1159,23 @@ function systemCapture(state: SimState): void {
   }
 }
 
-/** Trickle income (rules.md §3): +1 to both ledgers every 10 s. */
+/**
+ * Trickle income (rules.md §3): +1 to both ledgers every 10 s. The Warden's
+ * trickle is scaled by its difficulty's income multiplier (PLAN Phase 4) —
+ * the ONLY resource asymmetry it gets; every other earn event is the shared
+ * table. Fixed-point percent accumulator keeps the math integer-exact.
+ */
 function systemEconomy(state: SimState): void {
   if (state.tick === 0 || state.tick % TRICKLE_INTERVAL_TICKS !== 0) return;
   for (let p = 0; p < MAX_PLAYERS; p++) {
-    state.points[p] += TRICKLE_POINTS;
+    if (p === state.wardenPlayer) {
+      const pct = WARDEN_INCOME_PERCENT[state.wardenDifficulty - 1];
+      const total = TRICKLE_POINTS * pct + state.wardenIncomeAcc;
+      state.points[p] += Math.floor(total / 100);
+      state.wardenIncomeAcc = total % 100;
+    } else {
+      state.points[p] += TRICKLE_POINTS;
+    }
   }
 }
 
@@ -1119,6 +1208,10 @@ export function step(state: SimState, inputs: TickInputs): void {
   // advancing for replays/netcode, but no gameplay system runs anymore.
   if (state.winner === -1) {
     systemAvatarMovement(state, inputs);
+    // The Warden slots in directly after the human avatars: it IS the other
+    // avatar (decision layer + superplane movement + weapons + buying), so it
+    // observes the same pre-unit-movement world a player does.
+    systemWarden(state);
     systemUnitMovement(state);
     systemTargeting(state);
     systemProjectiles(state);
@@ -1176,6 +1269,17 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.outpostOwner[k] >>> 0);
     h = fnv1aU32(h, state.outpostConsole[k] >>> 0);
     h = fnv1aU32(h, state.outpostRespawn[k] >>> 0);
+  }
+  // Warden decision state is hashed only when a Warden exists: matches
+  // without one keep their exact pre-Phase-4 hash sequences (goldens 1–3
+  // stay valid). The flag itself is match config, identical on every peer.
+  if (state.wardenPlayer >= 0) {
+    h = fnv1aU32(h, state.wardenPlayer >>> 0);
+    h = fnv1aU32(h, state.wardenDifficulty >>> 0);
+    h = fnv1aU32(h, state.wardenGoal >>> 0);
+    h = fnv1aU32(h, state.wardenSlot >>> 0);
+    h = fnv1aU32(h, state.wardenThink >>> 0);
+    h = fnv1aU32(h, state.wardenIncomeAcc >>> 0);
   }
   return h;
 }

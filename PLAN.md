@@ -71,15 +71,19 @@ play a complete match against a scripted opponent doing fixed build orders.
 
 ## Phase 4 — Warden (AI opponent)
 
-- [ ] Warden avatar: superplane movement (ignores terrain), own weapon set
-- [ ] Decision layer (runs inside sim, PRNG-only randomness): state machine or
+- [x] Warden avatar: superplane movement (ignores terrain), own weapon set
+- [x] Decision layer (runs inside sim, PRNG-only randomness): state machine or
       behavior tree over {defend, harass avatar, capture, escort push, buy logic}
-- [ ] Difficulty 1–10: income multiplier, reaction delay ticks, aggression
+- [x] Difficulty 1–10: income multiplier, reaction delay ticks, aggression
       thresholds in `balance.ts`
-- [ ] AI must be replay-stable (goldens include AI matches)
+- [x] AI must be replay-stable (goldens include AI matches)
 
 **DoD:** difficulty 3 loses to a competent human, difficulty 8 usually wins;
 golden replay #4 = full AI-vs-scripted-input match.
+(Golden #4 committed: d8 breaches a scripted defense at tick 7660. Probe runs:
+d3 cannot crack an intact turret ring — no Juggernaut below the aggression
+threshold — while d8 wins in ~4 min. The human calibration pass on the
+difficulty curve stays open, like the hover feel pass; play via `?warden=N`.)
 
 ## Phase 5 — Couch splitscreen
 
