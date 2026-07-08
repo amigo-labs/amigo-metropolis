@@ -1,124 +1,166 @@
 # SPEC — Netcode & Determinism (amigo-metropolis)
 
-> Ziel-Repo: `amigo-metropolis` · Ort: `docs/specs/netcode.spec.md`
-> Status: Draft v0.1 · Go-Gate offen (§9)
-> Verwandt: `input.spec` (definiert `InputCommand`), `camera.spec` (render-only, nie synchronisiert)
+> Target repo: `amigo-metropolis` · Location: `docs/specs/netcode.spec.md`
+> Status: Draft v0.1 · Go-Gate open (§9)
+> Related: `input.spec` (defines `InputCommand`), `camera.spec` (render-only, never synchronized)
 
 ---
 
-## 1. Ziel & Modell
+## 1. Goal & model
 
-Deterministisches **Lockstep** über eine **Cloudflare Durable Object**-Relay. Kern-Setup ist 1v1 (Precinct Assault). Die Sim läuft **auf den Clients**; die DO koordiniert Inputs und ordnet Ticks. Bei Lockstep synchronisieren wir **nur Inputs**, nie Weltzustand — das setzt **harten Determinismus** voraus. Ein Desync = ruiniertes Match, daher ist Determinismus Entscheidung Nr. 1.
+Deterministic **lockstep** over a **Cloudflare Durable Object** relay. The core
+setup is 1v1 (Precinct Assault). The sim runs **on the clients**; the DO
+coordinates inputs and orders ticks. In lockstep we synchronize **only inputs**,
+never world state — which requires **hard determinism**. A desync = a ruined
+match, so determinism is decision No. 1.
 
 ---
 
-## 2. Determinismus-Substrat (die kritische Entscheidung)
+## 2. Determinism substrate (the critical decision)
 
 ### Problem
-- IEEE-754-Grundoperationen (`+ − × ÷ sqrt`) sind spezifiziert und plattformübergreifend konsistent.
-- **Transzendente Funktionen** (`Math.sin/cos/tan/atan2/exp/pow/hypot`) sind **nicht** bit-identisch über JS-Engines/OS/CPU — die Spec erlaubt implementierungsdefinierte Ergebnisse. Genau hier desyncen Lockstep-Titel still.
+- IEEE-754 base operations (`+ − × ÷ sqrt`) are specified and consistent across
+  platforms.
+- **Transcendental functions** (`Math.sin/cos/tan/atan2/exp/pow/hypot`) are
+  **not** bit-identical across JS engines/OS/CPU — the spec allows
+  implementation-defined results. This is exactly where lockstep titles desync
+  silently.
 
-### Empfehlung: **Fixed-Point-Integer-Simulation**
-Der einzige Ansatz mit **harter** Cross-Plattform-Garantie.
+### Recommendation: **fixed-point integer simulation**
+The only approach with a **hard** cross-platform guarantee.
 
-- Sim-State vollständig in **Integern** (kein Float im Sim-Pfad).
-- Repräsentation: **Q16.16** (32-bit) als Default. Multiplikation braucht 64-bit-Zwischenschritt → `BigInt` **oder** High/Low-Split; Addition/Subtraktion in `| 0`-Range, `Math.imul` wo sinnvoll. Wertebereiche/Overflow explizit dokumentieren.
-- **Winkel als 16-bit brads** (0..65535 = ein Turn) — passt zum `aimYaw` aus `input.spec`.
-- Deterministische Mathe-Lib:
-  - `sqrt`: Integer-Newton-Raphson.
-  - `sin/cos`: **LUT** mit fixed-point-Interpolation (identische Tabelle auf allen Clients).
-  - `atan2`: fixed-point-Approx/LUT.
-- **RNG**: geseedeter Integer-PRNG (PCG/xorshift), **Teil des Sim-State**, nur im Sim-Tick fortgeschrieben. Kein `Math.random` in der Sim.
+- Sim state entirely in **integers** (no float in the sim path).
+- Representation: **Q16.16** (32-bit) as the default. Multiplication needs a
+  64-bit intermediate → `BigInt` **or** a high/low split; addition/subtraction in
+  `| 0` range, `Math.imul` where sensible. Document value ranges/overflow
+  explicitly.
+- **Angles as 16-bit brads** (0..65535 = one turn) — matches `aimYaw` from
+  `input.spec`.
+- Deterministic math lib:
+  - `sqrt`: integer Newton-Raphson.
+  - `sin/cos`: **LUT** with fixed-point interpolation (identical table on all
+    clients).
+  - `atan2`: fixed-point approximation/LUT.
+- **RNG**: a seeded integer PRNG (PCG/xorshift), **part of the sim state**,
+  advanced only in the sim tick. No `Math.random` in the sim.
 
-### Starke Alternative: **Rust → WASM als Sim-Core**
-Empfohlen zu prüfen, weil es exzellent zu deinem Stack passt:
-- Integer-Fixed-Point in Rust ist trivial deterministisch, portabel und schnell.
-- Wiederverwendbar in der DO (Workers unterstützen WASM) für einen späteren **server-seitigen Shadow-Sim** (Anti-Cheat).
-- Synergie mit `amigo-engine` (deterministische Rust-Sim, dein bestehender Muskel).
-- Trade-off: WASM/JS-Bridge + Build-Komplexität vs. reiner TS-Sim. Bei „TS-Sim" bleibt Fixed-Point Pflicht.
+### Strong alternative: **Rust → WASM as the sim core**
+Recommended to evaluate, because it fits your stack excellently:
+- Integer fixed-point in Rust is trivially deterministic, portable and fast.
+- Reusable in the DO (Workers support WASM) for a later **server-side shadow sim**
+  (anti-cheat).
+- Synergy with `amigo-engine` (a deterministic Rust sim, your existing muscle).
+- Trade-off: WASM/JS bridge + build complexity vs. a pure TS sim. With a "TS sim",
+  fixed-point stays mandatory.
 
-### Determinismus-Hygiene (gilt für beide Wege)
-- Keine `Date.now()`/`performance.now()`/Locale/Async-Reihenfolge im Sim-Pfad.
-- **Stabile Iterationsreihenfolge**: nur Arrays mit deterministischer Sortierung; Entity-IDs deterministisch vergeben; keine Ordnung über unsortierte Strukturen.
-- Kosmetik (Partikel, Audio, UI) nutzt eine **separate** Nicht-Sim-RNG, damit sie die Sim niemals stören kann.
-
----
-
-## 3. Sim/Render-Schleife (Client)
-
-- **Fixer 30-Hz-Akkumulator** für die Sim. Render über `rAF` mit variablem `dt`.
-- Render **interpoliert** zwischen den zwei jüngsten Sim-Snapshots (Alpha) — Kamera folgt dem interpolierten Zustand (`camera.spec`).
-- Die Sim läuft **nie** direkt auf `rAF`-`dt`.
-
----
-
-## 4. Lockstep-Verfahren
-
-### Empfehlung: **Delay-based Lockstep, rollback-ready** (v1)
-- Alle Clients rücken Tick `N` erst vor, wenn die Inputs **aller** Spieler für `N` vorliegen.
-- **Input-Delay** `D` (Ticks) versteckt Latenz: lokaler Input für jetzt gilt für Tick `T + D`. Start: **D = 2–3** (≈ 66–100 ms). Später adaptiv möglich.
-- Begründung: Precinct Assault ist Action, aber kein Frame-1-Twitch, und der Kern ist 1v1 — delay-based ist einfacher **korrekt** hinzubekommen als Rollback und hat bei niedrigem `D` akzeptables Gefühl.
-
-### Rollback-ready von Tag 1
-Auch wenn v1 nicht zurückrollt: Die Sim **muss** von Anfang an unterstützen:
-- **Save/Restore** des kompletten Sim-State in O(kompakt) — bei Fixed-Point-Integer-State trivial serialisierbar.
-- **Re-Simulation** ab einem Snapshot über einen Input-Log.
-
-Damit ist der Upgrade auf **GGPO-artiges Rollback** (Prädiktion remoter Inputs → bei Abweichung zurückrollen + neu simulieren) später ein additiver Schritt, kein Rewrite. Das entschärft dann auch den Input-Delay.
+### Determinism hygiene (applies to both paths)
+- No `Date.now()`/`performance.now()`/locale/async ordering in the sim path.
+- **Stable iteration order**: only arrays with deterministic sorting; entity IDs
+  assigned deterministically; no ordering over unsorted structures.
+- Cosmetics (particles, audio, UI) use a **separate** non-sim RNG so they can
+  never disturb the sim.
 
 ---
 
-## 5. Rolle des Durable Object
+## 3. Sim/render loop (client)
 
-Die DO ist **autoritativer Relay + Input-Orderer + Tick-Barriere**, **kein** vollwertiger Sim-Server (Sim bleibt auf den Clients, DO bleibt billig).
-
-Verantwortlich für:
-- Match-/Session-Lifecycle, Mitgliedschaft, **Seed- und Config-Verteilung** (beide Clients starten bit-identisch).
-- Empfang der per-Tick-`InputCommand`s, Ordnung/Stempelung, **Broadcast des bestätigten Input-Sets** je Tick.
-- Tick-Kadenz/Laggard-Handling (Input-Timeout → definierter Fallback: „letzten Input wiederholen" oder kurz pausieren).
-- **Desync-Detection** (§7): periodische State-Hashes einsammeln und vergleichen.
-- **Input-Log** für Reconnect/Late-Join (§8).
-
-Transport: **WebSocket** zur DO (Hibernation-API für Kosten prüfen).
-
-### Sicherheits-Trade-off (bewusst)
-- Reines Relay heißt: ein Client könnte illegale Inputs senden. v1 akzeptiert das (Vertrauensmodell).
-- Upgrade-Pfad: DO validiert Input-**Ranges** (leichtgewichtig) oder betreibt einen **Shadow-Sim** mit demselben deterministischen Core (WASM in der DO). Deshalb ist der Rust→WASM-Core (§2) auch hier attraktiv.
+- **Fixed 30 Hz accumulator** for the sim. Render via `rAF` with variable `dt`.
+- Render **interpolates** between the two most recent sim snapshots (alpha) — the
+  camera follows the interpolated state (`camera.spec`).
+- The sim **never** runs directly on the `rAF` `dt`.
 
 ---
 
-## 6. Was synchronisiert wird — und was nicht
+## 4. Lockstep procedure
 
-| Synchronisiert (deterministisch, Lockstep) | Lokal (nie synchronisiert) |
+### Recommendation: **delay-based lockstep, rollback-ready** (v1)
+- All clients advance tick `N` only once the inputs of **all** players for `N` are
+  available.
+- **Input delay** `D` (ticks) hides latency: local input for now applies to tick
+  `T + D`. Start: **D = 2–3** (≈ 66–100 ms). Adaptive later possible.
+- Rationale: Precinct Assault is action, but not frame-1 twitch, and the core is
+  1v1 — delay-based is easier to get **correct** than rollback and feels
+  acceptable at low `D`.
+
+### Rollback-ready from day 1
+Even if v1 does not roll back, the sim **must** support from the start:
+- **Save/restore** of the complete sim state in O(compact) — trivially
+  serializable with fixed-point integer state.
+- **Re-simulation** from a snapshot over an input log.
+
+That makes the upgrade to **GGPO-style rollback** (predict remote inputs → on
+divergence roll back + re-simulate) a later additive step, not a rewrite. It also
+defuses the input delay then.
+
+---
+
+## 5. Role of the Durable Object
+
+The DO is an **authoritative relay + input orderer + tick barrier**, **not** a
+full sim server (the sim stays on the clients, the DO stays cheap).
+
+Responsible for:
+- Match/session lifecycle, membership, **seed and config distribution** (both
+  clients start bit-identical).
+- Receiving the per-tick `InputCommand`s, ordering/stamping, **broadcasting the
+  confirmed input set** per tick.
+- Tick cadence/laggard handling (input timeout → defined fallback: "repeat the
+  last input" or pause briefly).
+- **Desync detection** (§7): collect and compare periodic state hashes.
+- **Input log** for reconnect/late-join (§8).
+
+Transport: **WebSocket** to the DO (evaluate the Hibernation API for cost).
+
+### Security trade-off (deliberate)
+- A pure relay means a client could send illegal inputs. v1 accepts this (trust
+  model).
+- Upgrade path: the DO validates input **ranges** (lightweight) or runs a
+  **shadow sim** with the same deterministic core (WASM in the DO). This is also
+  why the Rust→WASM core (§2) is attractive here.
+
+---
+
+## 6. What is synchronized — and what is not
+
+| Synchronized (deterministic, lockstep) | Local (never synchronized) |
 | --- | --- |
-| `InputCommand`s (siehe `input.spec`) | Kamera (`camera.spec`) |
-| Seed, Match-Config | Audio, Partikel, kosmetische RNG |
-| Tick-Nummern | UI, lokale Config/Keybindings |
-| periodische State-Hashes | Sicht-Prädiktion (falls, render-only) |
+| `InputCommand`s (see `input.spec`) | Camera (`camera.spec`) |
+| Seed, match config | Audio, particles, cosmetic RNG |
+| Tick numbers | UI, local config/keybindings |
+| periodic state hashes | View prediction (if any, render-only) |
 
 ---
 
-## 7. Desync-Detection & Recovery
+## 7. Desync detection & recovery
 
-- Alle **N Ticks** (Start: N = 30 ≈ 1 s) berechnet jeder Client einen **Hash des vollständigen Sim-State** (Fixed-Point → stabiler Hash, z. B. FNV-1a/xxhash über den serialisierten Integer-State) und schickt ihn an die DO.
-- DO vergleicht. **Mismatch → Desync**: Match abbrechen, beide States für Diffing dumpen (Dev-Tooling).
-- Billig, aber essentiell — die einzige verlässliche Sicherung gegen stillen Determinismus-Drift.
-
----
-
-## 8. Reconnect / Late-Join
-
-- Da die Sim deterministisch ist und die DO **Seed + Config + Input-Log** hält, holt ein zurückkehrender Client auf, indem er ab dem letzten **Checkpoint-Snapshot** den Input-Log **schnell durchsimuliert** (Fast-Forward).
-- Periodische Checkpoints (State-Snapshot alle K Sekunden) begrenzen die Replay-Länge.
-- Spectator-Late-Join analog.
+- Every **N ticks** (start: N = 30 ≈ 1 s) each client computes a **hash of the
+  complete sim state** (fixed-point → stable hash, e.g. FNV-1a/xxhash over the
+  serialized integer state) and sends it to the DO.
+- The DO compares. **Mismatch → desync**: abort the match, dump both states for
+  diffing (dev tooling).
+- Cheap but essential — the only reliable safeguard against silent determinism
+  drift.
 
 ---
 
-## 9. Offene Fragen (Go-Gate)
+## 8. Reconnect / late-join
 
-- [ ] Substrat final: **TS-Fixed-Point** oder **Rust→WASM-Core**? (Empfehlung: Rust→WASM prüfen — Determinismus-Garantie, DO-Wiederverwendung, `amigo-engine`-Synergie.)
-- [ ] Lockstep: delay-based v1 mit `D = 2–3` bestätigen; Rollback als v2 einplanen?
-- [ ] Laggard-Fallback: Input-Wiederholung vs. Pause?
-- [ ] Fixed-Point-Format: Q16.16 ausreichend, oder brauchen große Karten/Präzision Q-größer bzw. 64-bit?
-- [ ] Checkpoint-Intervall K und Hash-Intervall N festlegen.
-- [ ] Anti-Cheat: v1 reines Vertrauens-Relay akzeptieren, Shadow-Sim als v2?
+- Since the sim is deterministic and the DO holds **seed + config + input log**, a
+  returning client catches up by **fast-forwarding** the input log from the last
+  **checkpoint snapshot** (fast-forward).
+- Periodic checkpoints (state snapshot every K seconds) bound the replay length.
+- Spectator late-join analogous.
+
+---
+
+## 9. Open questions (Go-Gate)
+
+- [ ] Substrate final: **TS fixed-point** or **Rust→WASM core**? (Recommendation:
+      evaluate Rust→WASM — determinism guarantee, DO reuse, `amigo-engine`
+      synergy.)
+- [ ] Lockstep: confirm delay-based v1 with `D = 2–3`; plan rollback as v2?
+- [ ] Laggard fallback: input repetition vs. pause?
+- [ ] Fixed-point format: is Q16.16 sufficient, or do large maps/precision need a
+      bigger Q or 64-bit?
+- [ ] Fix the checkpoint interval K and the hash interval N.
+- [ ] Anti-cheat: accept a pure trust relay in v1, shadow sim as v2?

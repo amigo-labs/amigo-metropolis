@@ -1,157 +1,212 @@
 # SPEC — Input & Aiming (amigo-metropolis)
 
-> Ziel-Repo: `amigo-metropolis` · Ort: `docs/specs/input.spec.md`
-> Status: Draft v0.1 · Go-Gate offen (§9)
-> Verwandt: `camera.spec` (liefert Yaw-Basis), `netcode.spec` (konsumiert `InputCommand`)
+> Target repo: `amigo-metropolis` · Location: `docs/specs/input.spec.md`
+> Status: Draft v0.1 · Go-Gate open (§9)
+> Related: `camera.spec` (supplies the yaw basis), `netcode.spec` (consumes `InputCommand`)
 
 ---
 
-## 1. Ziel
+## 1. Goal
 
-Ein Eingabemodell, das (a) die FC-Schwächen behebt — **Aim von Facing/Kamera entkoppelt**, echtes Twin-Stick statt Lock-on-Zwang — und (b) sauber in das deterministische 30-Hz-Lockstep passt.
+An input model that (a) fixes the FC weaknesses — **aim decoupled from
+facing/camera**, real twin-stick instead of forced lock-on — and (b) fits cleanly
+into the deterministic 30 Hz lockstep.
 
-**Kernprinzip:** Roh-Input (Maus/Tasten/Gamepad) wird **einmal pro Sim-Tick** zu einem **deterministischen, quantisierten `InputCommand`** verdichtet. Nur dieses Command wird synchronisiert und von der Sim konsumiert. Roh-Floats erreichen die Sim **nie**.
-
----
-
-## 2. Die Determinismus-Grenze (das Wichtigste)
-
-Aim und Bewegung werden lokal aus der Kamera abgeleitet — und die Kamera ist **client-lokal und nicht deterministisch** über Clients (siehe `camera.spec`). Das ist unkritisch, weil:
-
-1. Der Raycast (Cursor → Bodenebene) und die kamera-relative Umrechnung laufen **lokal in Floats**.
-2. Das **Ergebnis** (Aim-Winkel, Bewegungs-Intent in Weltkoordinaten) wird **quantisiert** (Fixed-Point) und ins `InputCommand` geschrieben.
-3. Dieses Command wird übertragen. **Alle** Client-Sims verarbeiten denselben quantisierten Wert identisch.
-
-> Merksatz: *Aim ist ein Input, keine Sim-Berechnung.* Der lokale, kamera-abhängige Weg zum Wert darf nicht-deterministisch sein — der **übertragene Wert** ist kanonisch.
+**Core principle:** raw input (mouse/keys/gamepad) is condensed **once per sim
+tick** into a **deterministic, quantized `InputCommand`**. Only this command is
+synchronized and consumed by the sim. Raw floats **never** reach the sim.
 
 ---
 
-## 3. `InputCommand` (der geteilte Contract)
+## 2. The determinism boundary (the most important part)
 
-Kompakt, bit-packbar (30 Hz → Bandbreite zählt). Fixed-Point-Konventionen aus `netcode.spec`.
+Aim and movement are derived locally from the camera — and the camera is
+**client-local and non-deterministic** across clients (see `camera.spec`). That is
+unproblematic, because:
+
+1. The raycast (cursor → ground plane) and the camera-relative conversion run
+   **locally in floats**.
+2. The **result** (aim angle, movement intent in world coordinates) is
+   **quantized** (fixed-point) and written into the `InputCommand`.
+3. This command is transmitted. **All** client sims process the same quantized
+   value identically.
+
+> Mnemonic: *Aim is an input, not a sim computation.* The local, camera-dependent
+> path to the value may be non-deterministic — the **transmitted value** is
+> canonical.
+
+---
+
+## 3. `InputCommand` (the shared contract)
+
+Compact, bit-packable (30 Hz → bandwidth counts). Fixed-point conventions from
+`netcode.spec`.
 
 ```ts
-/** Genau ein Command pro Sim-Tick, pro Spieler. */
+/** Exactly one command per sim tick, per player. */
 export interface InputCommand {
-  readonly tick: number;          // Sim-Tick, für den dieser Input gilt (T + delay)
-  readonly moveIntent: FixVec2;   // Welt-Richtung*Magnitude, Fixed-Point, |v| ≤ 1.0
-  readonly aimYaw: number;        // 16-bit "brads" (0..65535 = ein Turn), Fixed-Point-Winkel
-  readonly buttons: number;       // Bitmaske, HELD-State (siehe §6)
-  readonly edges: number;         // Bitmaske, im Tickfenster aufgetretene Press-Edges
-  readonly deploy: DeployCommand | null; // Precinct-Assault-Kauf/Deploy, optional
-  readonly lockTarget: number | null;    // optionaler Ziel-Entity-ID (Soft-Lock, §4.3)
+  readonly tick: number;          // sim tick this input applies to (T + delay)
+  readonly moveIntent: FixVec2;   // world direction*magnitude, fixed-point, |v| ≤ 1.0
+  readonly aimYaw: number;        // 16-bit "brads" (0..65535 = one turn), fixed-point angle
+  readonly buttons: number;       // bitmask, HELD state (see §6)
+  readonly edges: number;         // bitmask, press edges that occurred in the tick window
+  readonly deploy: DeployCommand | null; // Precinct-Assault purchase/deploy, optional
+  readonly lockTarget: number | null;    // optional target entity ID (soft-lock, §4.3)
 }
 
 export interface DeployCommand {
-  readonly unitType: number;      // Enum (Hovertank/Dreadnought/Heli/Superplane…)
-  readonly lane: number;          // Lane-Index aus map.spec ODER
-  readonly point: FixVec2 | null; // Fixed-Point-Zielpunkt (falls frei platzierbar)
+  readonly unitType: number;      // enum (Hovertank/Dreadnought/Heli/Superplane…)
+  readonly lane: number;          // lane index from map.spec OR
+  readonly point: FixVec2 | null; // fixed-point target point (if freely placeable)
 }
 ```
 
-`FixVec2` = zwei Fixed-Point-Komponenten (Def. in `netcode.spec`). Wire-Encoding: Bit-Packing, nur belegte Felder; `deploy`/`lockTarget` per Flag-Bit.
+`FixVec2` = two fixed-point components (def. in `netcode.spec`). Wire encoding:
+bit-packing, only populated fields; `deploy`/`lockTarget` via a flag bit.
 
 ---
 
-## 4. Aim-Modell
+## 4. Aim model
 
-### 4.1 Maus + Tastatur (primär)
-- Ray von Kamera durch Cursor → Schnitt mit Bodenebene (`y = groundHeight`) → Welt-Zielpunkt.
-- Aim = Yaw vom Unit zum Zielpunkt (um die Up-Achse), quantisiert zu **16-bit brads**. Für einen top-down-lastigen Shooter reicht der Bodenebenen-Yaw als Kern.
-- Der Unit richtet sich am `aimYaw` aus — **unabhängig von Bewegungsrichtung** (das ist die FC-Modernisierung).
+### 4.1 Mouse + keyboard (primary)
+- Ray from camera through cursor → intersection with the ground plane
+  (`y = groundHeight`) → world target point.
+- Aim = yaw from the unit to the target point (about the up axis), quantized to
+  **16-bit brads**. For a top-down-leaning shooter the ground-plane yaw suffices
+  as the core.
+- The unit orients to `aimYaw` — **independent of movement direction** (this is
+  the FC modernization).
 
 ### 4.2 Gamepad
-- **Rechter Stick = Aim-Richtung direkt** (Twin-Stick). Stick-Vektor → Yaw → brads.
-- **Linker Stick = kamera-relative Bewegung** (§5).
-- Das ist die saubere Zwei-Stick-Steuerung, die die PS1 mangels DualShock nicht hatte.
+- **Right stick = aim direction directly** (twin-stick). Stick vector → yaw →
+  brads.
+- **Left stick = camera-relative movement** (§5).
+- This is the clean two-stick control the PS1 lacked for want of a DualShock.
 
-### 4.3 Vertikale Ziele (Helis, Superplane)
-- Precinct Assault hat fliegende Einheiten. **Automatische Elevation**: Waffen zielen vertikal automatisch auf das erfasste/gelockte Ziel; der Spieler steuert nur den Boden-Yaw. Die Sim rechnet die Elevation deterministisch aus der Ziel-Entity-Position.
+### 4.3 Vertical targets (helis, superplane)
+- Precinct Assault has flying units. **Automatic elevation**: weapons aim
+  vertically at the acquired/locked target automatically; the player controls
+  only the ground yaw. The sim computes the elevation deterministically from the
+  target entity's position.
 
-### 4.4 Soft-Lock — konfigurierbar, zwei Modi
+### 4.4 Soft-lock — configurable, two modes
 
-Historik: Das Original hatte **kein** freies Zielen — es erfasste automatisch das nächste Ziel (rote Ziellinie), Zielwahl nur per Ziel-Wechsel-Taste. Free-Aim ist unsere Modernisierung; Soft-Lock ist der bewusste, **einstellbare** Rückgriff auf das FC-Gefühl.
+History: the original had **no** free aiming — it auto-acquired the nearest target
+(red aim line), target choice only via a target-switch key. Free-aim is our
+modernization; soft-lock is the deliberate, **configurable** callback to the FC
+feel.
 
-Einstellung `aimAssistMode: "off" | "assist" | "lock"` — die beiden Soft-Lock-Modi sind **Assist** und **Lock**, `off` = reines Free-Aim.
+Setting `aimAssistMode: "off" | "assist" | "lock"` — the two soft-lock modes are
+**assist** and **lock**, `off` = pure free-aim.
 
-| Modus | Verhalten | Übertragener Kanal | Auflösung |
+| Mode | Behavior | Transmitted channel | Resolution |
 | --- | --- | --- | --- |
-| `off` | reines Free-Aim (Maus-Raycast / rechter Stick) | `aimYaw` | — |
-| `assist` | Free-Aim primär, Aim wird lokal Richtung nächstes Ziel im Kegel gezogen (Magnetismus) | `aimYaw` (geformt) | **lokal**, vor Quantisierung |
-| `lock` | harter Lock auf eine Entity, Aim trackt sie automatisch; Ziel-Zyklus per Taste | `lockTarget` (+ `aimYaw` als Fallback) | **in der Sim**, jeden Tick |
+| `off` | pure free-aim (mouse raycast / right stick) | `aimYaw` | — |
+| `assist` | free-aim primary, aim is pulled locally toward the nearest target in the cone (magnetism) | `aimYaw` (shaped) | **local**, before quantization |
+| `lock` | hard lock onto an entity, aim tracks it automatically; target cycle via key | `lockTarget` (+ `aimYaw` as fallback) | **in the sim**, every tick |
 
-**Assist (Magnetismus):**
-- Kandidat = nächstes gültiges Ziel innerhalb `assistConeDeg` um den aktuellen Free-Aim.
-- Der Free-Aim-Yaw wird um bis zu `assistStrength` Richtung Kandidat interpoliert — **lokale Input-Shaping-Stufe VOR der Quantisierung**. Formt nur den eigenen, ohnehin übertragenen `aimYaw`. Kein Sim-Eingriff, keine cross-client-Divergenz.
-- `lockTarget = null`. Der Spieler behält jederzeit die Kontrolle.
+**Assist (magnetism):**
+- Candidate = nearest valid target within `assistConeDeg` around the current
+  free-aim.
+- The free-aim yaw is interpolated up to `assistStrength` toward the candidate — a
+  **local input-shaping stage BEFORE quantization**. It only shapes the player's
+  own, already-transmitted `aimYaw`. No sim intervention, no cross-client
+  divergence.
+- `lockTarget = null`. The player keeps control at all times.
 
-**Lock (Tracking):**
-- Ziel-Zyklus-Taste (Bit 6) wählt/wechselt die gelockte Entity → `lockTarget = entityId` im Command.
-- Die **Sim** berechnet den Aim (Yaw + Auto-Elevation) jeden Tick deterministisch aus der aktuellen Ziel-Position → perfektes Tracking in Sim-Zeit.
-- **Fallback**: `aimYaw` wird weiterhin mitgesendet. Ist `lockTarget` ungültig (Ziel tot/außer Reichweite), nutzt die Sim `aimYaw` und der Lock wird freigegeben (Re-Lock per Taste).
-- Ziel-Akquise-Politik (nearest / Kegel / Priorität Luft) → §9.
+**Lock (tracking):**
+- The target-cycle key (bit 6) selects/switches the locked entity →
+  `lockTarget = entityId` in the command.
+- The **sim** computes the aim (yaw + auto-elevation) every tick deterministically
+  from the current target position → perfect tracking in sim time.
+- **Fallback**: `aimYaw` continues to be sent along. If `lockTarget` is invalid
+  (target dead/out of range), the sim uses `aimYaw` and the lock is released
+  (re-lock via key).
+- Target-acquisition policy (nearest / cone / air priority) → §9.
 
-**Determinismus-Konsequenz:** Der *Modus* ist lokale Config; **was** übertragen wird, unterscheidet sich (`aimYaw` bei off/assist, zusätzlich `lockTarget` bei lock) — aber beide Felder existieren bereits im `InputCommand`. **Keine Protokolländerung.**
+**Determinism consequence:** the *mode* is local config; **what** is transmitted
+differs (`aimYaw` for off/assist, plus `lockTarget` for lock) — but both fields
+already exist in the `InputCommand`. **No protocol change.**
 
 ---
 
-## 5. Bewegung (kamera-relativ)
+## 5. Movement (camera-relative)
 
-- Input-Intent ist ein 2D-Vektor im **Screen/Kamera-Raum** (hoch = von der Kamera weg).
-- Umrechnung in Weltkoordinaten über den **read-only Yaw** aus `camera.spec`, dann **quantisiert** → `moveIntent`.
-- Tastatur (WASD): normalisierter Richtungsvektor, |v| = 1. Analog-Stick: Magnitude bleibt erhalten (Gehen/Rennen).
-- Auch hier: die kamera-relative Umrechnung passiert **lokal vor der Quantisierung**; übertragen wird der Welt-Intent.
+- Input intent is a 2D vector in **screen/camera space** (up = away from the
+  camera).
+- Conversion into world coordinates via the **read-only yaw** from `camera.spec`,
+  then **quantized** → `moveIntent`.
+- Keyboard (WASD): normalized direction vector, |v| = 1. Analog stick: magnitude
+  is preserved (walk/run).
+- Here too: the camera-relative conversion happens **locally before
+  quantization**; the world intent is what's transmitted.
 
 ---
 
-## 6. Aktionen & Buttons
+## 6. Actions & buttons
 
-`buttons` = HELD-State pro Tick, `edges` = im Tickfenster aufgetretene Press-Edges (damit schnelle Taps zwischen zwei Ticks nicht verloren gehen). Die Sim leitet Release-Edges deterministisch aus dem Tick-zu-Tick-Diff von `buttons` ab.
+`buttons` = HELD state per tick, `edges` = press edges that occurred in the tick
+window (so fast taps between two ticks are not lost). The sim derives release
+edges deterministically from the tick-to-tick diff of `buttons`.
 
-Bit-Belegung (Vorschlag):
+Bit assignment (proposal):
 
-| Bit | Aktion | Typ |
+| Bit | Action | Type |
 | --- | --- | --- |
-| 0 | Fire — Gun (leicht) | held |
+| 0 | Fire — Gun (light) | held |
 | 1 | Fire — Heavy | held |
-| 2 | Fire — Special | held/edge (Manual-Detonation à la FC-Plasma-Flare) |
+| 2 | Fire — Special | held/edge (manual detonation à la FC plasma flare) |
 | 3 | Jump | edge |
 | 4 | Transform (walker ↔ pursuit) | edge |
 | 5 | Action/Interact | edge |
-| 6 | Target-Cycle (Soft-Lock) | edge |
+| 6 | Target-Cycle (soft-lock) | edge |
 
-Kauf/Deploy läuft über `deploy` (diskretes Command), nicht über Bits.
-
----
-
-## 7. Sampling-Disziplin
-
-- Roh-Input wird auf **Render-Rate** gepollt, aber **ein Command pro Sim-Tick latched**.
-- Press-Edges innerhalb des Tickfensters werden akkumuliert (OR in `edges`), damit ein Tap kürzer als ein Tick nicht verschwindet.
-- **Quantisierung ist die Determinismus-Grenze**: Nach dem Latchen ist der Wert kanonisch. Nie Roh-Float in die Sim.
-- Command gilt für Tick `T + inputDelay` (siehe `netcode.spec`).
+Purchase/deploy runs through `deploy` (a discrete command), not through bits.
 
 ---
 
-## 8. Lokale Config (nie synchronisiert)
+## 7. Sampling discipline
 
-Diese betreffen nur die Produktion `Roh-Input → InputCommand`:
-- Keybindings / Gamepad-Mapping
-- Maus-Sensitivität, Stick-Deadzones, Invert
-- **`aimAssistMode`** (`off` / `assist` / `lock`) + Parameter: `assistConeDeg`, `assistStrength`, Ziel-Akquise-Politik
-- (später) weitere Aim-Assist-Feinjustierung
-
-Sie werden **vor** der Quantisierung angewandt. Übertragen wird immer nur das fertige, quantisierte Command → kein Determinismus-Risiko. Der `lock`-Modus sendet zusätzlich `lockTarget`; die Sim löst das Tracking auf (§4.4).
+- Raw input is polled at **render rate**, but **one command is latched per sim
+  tick**.
+- Press edges within the tick window are accumulated (OR into `edges`) so a tap
+  shorter than one tick does not disappear.
+- **Quantization is the determinism boundary**: after latching the value is
+  canonical. Never a raw float into the sim.
+- The command applies to tick `T + inputDelay` (see `netcode.spec`).
 
 ---
 
-## 9. Offene Fragen (Go-Gate)
+## 8. Local config (never synchronized)
 
-- [ ] Aim-Repräsentation: reiner Boden-Yaw (16-bit brads) bestätigen, oder brauchen wir doch einen Pitch-Kanal für manuelles Luftzielen? (Empfehlung: Yaw + Auto-Elevation via `lockTarget`.)
-- [ ] Soft-Lock: die zwei Modi als `assist` + `lock` bestätigen (neben `off`) — oder anderes Modus-Paar gemeint?
-- [ ] Ziel-Akquise-Politik für beide Modi: nächstes / im Kegel / Priorität Luft — und Auto-Reacquire nach Ziel-Verlust im `lock`-Modus (Empfehlung: Freigabe → Free-Aim, Re-Lock per Taste)?
-- [ ] Default-Werte für `assistConeDeg` / `assistStrength` (im Playtest zu tunen).
-- [ ] Modus-Wechsel: nur im Menü, oder auch per Hotkey mitten im Match?
-- [ ] Lokale Sicht-Prädiktion des eigenen Units bei Input-Delay: v1 ohne (Delay niedrig halten) — bestätigen? (Rollback-Pfad entschärft das ohnehin, siehe `netcode.spec`.)
-- [ ] `deploy`: Lane-Index vs. freier Punkt — hängt an `map.spec`.
-- [ ] Special-Feuer: Held oder Tap-to-fire + Tap-to-detonate (FC-Verhalten)?
+These only affect the production of `raw input → InputCommand`:
+- Keybindings / gamepad mapping
+- Mouse sensitivity, stick deadzones, invert
+- **`aimAssistMode`** (`off` / `assist` / `lock`) + parameters: `assistConeDeg`,
+  `assistStrength`, target-acquisition policy
+- (later) further aim-assist fine-tuning
+
+They are applied **before** quantization. Only the finished, quantized command is
+ever transmitted → no determinism risk. The `lock` mode additionally sends
+`lockTarget`; the sim resolves the tracking (§4.4).
+
+---
+
+## 9. Open questions (Go-Gate)
+
+- [ ] Aim representation: confirm pure ground yaw (16-bit brads), or do we need a
+      pitch channel after all for manual air aiming? (Recommendation: yaw +
+      auto-elevation via `lockTarget`.)
+- [ ] Soft-lock: confirm the two modes as `assist` + `lock` (alongside `off`) — or
+      was a different mode pair meant?
+- [ ] Target-acquisition policy for both modes: nearest / in cone / air priority —
+      and auto-reacquire after target loss in `lock` mode (recommendation: release
+      → free-aim, re-lock via key)?
+- [ ] Default values for `assistConeDeg` / `assistStrength` (to be tuned in
+      playtest).
+- [ ] Mode switch: only in the menu, or also via hotkey mid-match?
+- [ ] Local view prediction of the own unit under input delay: v1 without (keep
+      delay low) — confirm? (The rollback path defuses this anyway, see
+      `netcode.spec`.)
+- [ ] `deploy`: lane index vs. free point — depends on `map.spec`.
+- [ ] Special fire: held or tap-to-fire + tap-to-detonate (FC behavior)?

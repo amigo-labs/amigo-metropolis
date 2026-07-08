@@ -1,141 +1,174 @@
 # SPEC — Camera System (amigo-metropolis)
 
-> Ziel-Repo: `amigo-metropolis` · Ort: `docs/specs/camera.spec.md`
-> Status: Draft v0.1 · Go-Gate offen (siehe §11)
-> Verwandt: `rules`, `architecture`, `input` (TBD)
+> Target repo: `amigo-metropolis` · Location: `docs/specs/camera.spec.md`
+> Status: Draft v0.1 · Go-Gate open (see §11)
+> Related: `rules`, `architecture`, `input` (TBD)
 
 ---
 
-## 1. Ziel & Leitidee
+## 1. Goal & guiding idea
 
-Modern lesbare Kamera für einen Precinct-Assault-Nachfolger. Vorlage ist die **Vertikal-Sichtänderung** von *Future Cop: L.A.P.D.* (dort ein `SELECT`-Zyklus über feste Presets: standard → close-up → side → sky).
+A modern, readable camera for a Precinct-Assault successor. The reference is the
+**vertical view change** of *Future Cop: L.A.P.D.* (there a `SELECT` cycle over
+fixed presets: standard → close-up → side → sky).
 
-Design-Übersetzung:
-- **Behalten:** die *Idee* eines Kontinuums von „taktisch oben" (Precinct-Assault-Überblick) bis „nah dran" (Action). Das ist die eigentliche DNA.
-- **Verwerfen:** diskrete Preset-Stufen und die an die Bewegung gekoppelte „drunken camera", die automatisch hinter den Spieler schwenkt. Das war der PS1-Kompromiss und die Hauptschwäche.
-- **Neu:** ein **stufenloser Pitch-+-Zoom-Rig** mit einem einzigen Steuerparameter, dämpfungsgeglättet, mit fixer Weltausrichtung als Default.
+Design translation:
+- **Keep:** the *idea* of a continuum from "tactically high up" (Precinct-Assault
+  overview) to "up close" (action). That is the actual DNA.
+- **Discard:** discrete preset steps and the movement-coupled "drunken camera"
+  that automatically swings behind the player. That was the PS1 compromise and
+  the main weakness.
+- **New:** a **stepless pitch-and-zoom rig** with a single control parameter,
+  damping-smoothed, with a fixed world orientation as the default.
 
 ---
 
-## 2. Architektur-Grundsatz (nicht verhandelbar)
+## 2. Architectural principle (non-negotiable)
 
-**Die Kamera ist zu 100 % Client-lokaler Render-State.**
+**The camera is 100 % client-local render state.**
 
-- [ ] Kein Teil der Simulation. Die Kamera liest niemals in den Sim-State und schreibt niemals hinein.
-- [ ] Nicht im Lockstep. Kamera-State wird **nie** serialisiert, **nie** über die Durable-Object-Relay geschickt, **nie** in Snapshots/Inputs aufgenommen.
-- [ ] Determinismus-neutral: Zwei Clients mit völlig unterschiedlichem Kamera-State (Zoom, Pan, Pitch) müssen eine **byte-identische** Simulation erzeugen. Die Kamera berührt keine RNG, keinen Tick, keine Reihenfolge.
-- [ ] Kein kamera-getriebenes Gameplay: keine Sichtbarkeit/Fog, kein Aim-Assist, keine Trefferlogik, die vom Kamerawinkel abhängt. Alles Sim-autoritativ.
+- [ ] Not part of the simulation. The camera never reads from the sim state and
+      never writes into it.
+- [ ] Not in lockstep. Camera state is **never** serialized, **never** sent over
+      the Durable-Object relay, **never** included in snapshots/inputs.
+- [ ] Determinism-neutral: two clients with completely different camera state
+      (zoom, pan, pitch) must produce a **byte-identical** simulation. The camera
+      touches no RNG, no tick, no ordering.
+- [ ] No camera-driven gameplay: no visibility/fog, no aim-assist, no hit logic
+      that depends on the camera angle. Everything is sim-authoritative.
 
-### Sim/Render-Taktung
-- Simulation: fixer **30-Hz-Tick** (Lockstep).
+### Sim/render cadence
+- Simulation: fixed **30 Hz tick** (lockstep).
 - Render: `requestAnimationFrame`, variable `dt`.
-- Die Kamera folgt der **interpolierten** Render-Transform des Ziel-Units (Alpha-Blend zwischen den zwei jüngsten Sim-Snapshots) — **nie** der rohen Sim-Position (sonst 30-Hz-Ruckeln).
-- Kamera-Update läuft pro Render-Frame mit echtem `dt`. Alle Dämpfungen sind **framerate-stabil** (exponentiell/Feder mit `dt`, kein fixes Lerp pro Frame).
+- The camera follows the **interpolated** render transform of the target unit
+  (alpha blend between the two most recent sim snapshots) — **never** the raw
+  sim position (otherwise 30 Hz stutter).
+- The camera update runs per render frame with real `dt`. All damping is
+  **framerate-stable** (exponential/spring with `dt`, not a fixed lerp per frame).
 
 ---
 
-## 3. Kamera-Modell
+## 3. Camera model
 
-Orbit-Follow-Rig um einen Fokuspunkt (`focus`), gerendert über eine `THREE.PerspectiveCamera`.
+Orbit-follow rig around a focus point (`focus`), rendered via a
+`THREE.PerspectiveCamera`.
 
-Ableitbare Parameter:
+Derivable parameters:
 
-| Parameter | Bedeutung |
+| Parameter | Meaning |
 | --- | --- |
-| `focus: Vec3` | Zielpunkt am Boden (interpolierte Unit-Position + `focusHeight`) |
-| `t: number ∈ [0,1]` | **Sicht-Kontinuum**: `0` = ACTION (tief, nah), `1` = TACTICAL (hoch, fern) |
-| `pitch` | aus `t` interpoliert (Elevation über Horizont) |
-| `distance` | aus `t` interpoliert (Dolly) |
-| `fov` | aus `t` interpoliert |
-| `yaw` | Azimut; **Default weltfixiert (north-up)**, optional manuell |
-| `lookAhead: Vec3` | Fokus-Versatz Richtung Bewegung/Aim |
+| `focus: Vec3` | Target point on the ground (interpolated unit position + `focusHeight`) |
+| `t: number ∈ [0,1]` | **View continuum**: `0` = ACTION (low, near), `1` = TACTICAL (high, far) |
+| `pitch` | interpolated from `t` (elevation above horizon) |
+| `distance` | interpolated from `t` (dolly) |
+| `fov` | interpolated from `t` |
+| `yaw` | azimuth; **default world-fixed (north-up)**, optionally manual |
+| `lookAhead: Vec3` | focus offset toward movement/aim |
 
-`t` ist der einzige „Sicht"-Regler des Spielers — die stufenlose Ablösung des `SELECT`-Zyklus. `pitch`, `distance`, `fov` werden aus `t` per Easing gemeinsam gezogen (ein Regler, kohärentes Framing).
+`t` is the player's only "view" control — the stepless replacement for the
+`SELECT` cycle. `pitch`, `distance`, `fov` are pulled together from `t` via
+easing (one control, coherent framing).
 
-### Yaw-Politik
-- **Default: weltfixiert** (Karte immer gleich orientiert, MOBA-typisch). Löst das FC-Aim/Facing-Problem: Kamera dreht **nicht** automatisch hinter die Bewegung.
-- **Optional: manuelle Rotation** (Tastendruck/Drag). Nie automatisch bewegungsgekoppelt.
-
----
-
-## 4. Verhalten
-
-### 4.1 Follow & Dämpfung
-- `focus` folgt dem interpolierten Unit-Punkt über eine **kritisch gedämpfte Feder** (oder exponentielle Glättung), `dt`-basiert.
-- `t`, `yaw` ebenfalls gedämpft gegen ihre Zielwerte (`tTarget`, `yawTarget`).
-- Kleine **Deadzone** um `focus`, um Mikro-Jitter bei Stillstand zu vermeiden.
-
-### 4.2 Look-Ahead
-- Versatz des Fokus in Richtung der Unit-Velocity (aus zwei interpolierten Positionen) und/oder Aim-Richtung, skaliert bis `lookAheadMax` bei Höchsttempo. Gibt dem Spieler mehr Sicht in Laufrichtung.
-
-### 4.3 Transform-Awareness (walker vs pursuit)
-- Additiver **Bias** auf `tTarget`, nicht Override:
-  - **Pursuit/Hover (schnell):** leicht Richtung TACTICAL + mehr Look-Ahead (Speed-Framing).
-  - **Walker (präzise):** leicht Richtung ACTION (näher, für Nahkampf-Genauigkeit).
-- Spieler-Input auf `t` gewinnt immer gegen den Bias (Bias verschiebt nur den Ruhepunkt).
-
-### 4.4 Tactical Free-Look (MOBA)
-- Im oberen `t`-Bereich (`t ≥ tFreeLookThreshold`): Fokus darf **vom Unit entkoppelt** werden — RTS-artiges Edge-Pan / Drag / Tasten, um Lanes, Türme und Basen zu überblicken (Käufe, Deploys).
-- **Recenter**-Taste snappt `focus` zurück auf den Unit (gedämpft).
-- Unterhalb der Schwelle bleibt der Fokus hart am Unit.
+### Yaw policy
+- **Default: world-fixed** (map always oriented the same way, MOBA-typical).
+  Solves the FC aim/facing problem: the camera does **not** automatically rotate
+  behind the movement.
+- **Optional: manual rotation** (key press/drag). Never automatically coupled to
+  movement.
 
 ---
 
-## 5. Eingabe-Kopplung
+## 4. Behavior
 
-Die Kamera liefert der Input/Movement-Schicht nur eine **read-only Basis** (Yaw-Frame). Sie steuert selbst keine Unit-Bewegung.
+### 4.1 Follow & damping
+- `focus` follows the interpolated unit point via a **critically damped spring**
+  (or exponential smoothing), `dt`-based.
+- `t`, `yaw` are likewise damped toward their target values (`tTarget`,
+  `yawTarget`).
+- Small **deadzone** around `focus` to avoid micro-jitter while standing still.
 
-- **Bewegung = kamera-relativ:** Movement-Input wird gegen den Kamera-`yaw` in Weltrichtung übersetzt (Screen-relativ „hoch = weg von der Kamera").
-- **Aim = unabhängig:** Ziel über Maus-Raycast auf die Bodenebene (bzw. rechter Stick). **Aim ist von Facing/Kamera entkoppelt** — die zentrale Modernisierung ggü. FC.
-- Grenze: Kamera → stellt `yaw`/Basis bereit. Aim & Bewegung → gehören zu Input+Sim, nicht in diese Spec.
+### 4.2 Look-ahead
+- Offset of the focus toward the unit velocity (from two interpolated positions)
+  and/or aim direction, scaled up to `lookAheadMax` at top speed. Gives the
+  player more visibility in the direction of travel.
+
+### 4.3 Transform awareness (walker vs pursuit)
+- Additive **bias** on `tTarget`, not an override:
+  - **Pursuit/Hover (fast):** slightly toward TACTICAL + more look-ahead
+    (speed framing).
+  - **Walker (precise):** slightly toward ACTION (nearer, for melee accuracy).
+- Player input on `t` always wins against the bias (the bias only shifts the
+  resting point).
+
+### 4.4 Tactical free-look (MOBA)
+- In the upper `t` range (`t ≥ tFreeLookThreshold`): the focus may be
+  **decoupled from the unit** — RTS-style edge-pan / drag / keys, to survey
+  lanes, towers and bases (purchases, deploys).
+- A **recenter** key snaps `focus` back onto the unit (damped).
+- Below the threshold the focus stays hard on the unit.
 
 ---
 
-## 6. Datentypen (Contract)
+## 5. Input coupling
+
+The camera provides the input/movement layer only a **read-only basis** (yaw
+frame). It does not drive any unit movement itself.
+
+- **Movement = camera-relative:** movement input is translated against the camera
+  `yaw` into a world direction (screen-relative "up = away from the camera").
+- **Aim = independent:** targeting via mouse raycast onto the ground plane (or the
+  right stick). **Aim is decoupled from facing/camera** — the central
+  modernization vs. FC.
+- Boundary: camera → provides `yaw`/basis. Aim & movement → belong to input+sim,
+  not to this spec.
+
+---
+
+## 6. Data types (contract)
 
 ```ts
-// docs/specs/camera — Referenz-Typen (Render-Layer, NICHT im Sim-Modul)
+// docs/specs/camera — reference types (render layer, NOT in the sim module)
 export type Vec3 = { x: number; y: number; z: number };
 
-/** Anker eines Sicht-Endes; ACTION = t0, TACTICAL = t1. */
+/** Anchor of one view end; ACTION = t0, TACTICAL = t1. */
 export interface ViewAnchor {
-  readonly pitchDeg: number;   // Elevation über Horizont
-  readonly distance: number;   // Weltmeter Dolly
+  readonly pitchDeg: number;   // elevation above horizon
+  readonly distance: number;   // world meters dolly
   readonly fovDeg: number;
 }
 
 export interface CameraRigConfig {
   readonly action: ViewAnchor;        // t = 0
   readonly tactical: ViewAnchor;      // t = 1
-  readonly focusHeight: number;       // Anhebung des Fokus über Boden
-  readonly yawLocked: boolean;        // Default true (north-up)
-  readonly followSmoothTime: number;  // s, Feder-Zeitkonstante focus
-  readonly paramSmoothTime: number;   // s, für t/pitch/distance/fov
+  readonly focusHeight: number;       // raise of the focus above ground
+  readonly yawLocked: boolean;        // default true (north-up)
+  readonly followSmoothTime: number;  // s, spring time constant for focus
+  readonly paramSmoothTime: number;   // s, for t/pitch/distance/fov
   readonly yawSmoothTime: number;     // s
-  readonly lookAheadMax: number;      // Weltmeter bei Höchsttempo
-  readonly tFreeLookThreshold: number;// ab hier Edge-Pan erlaubt
-  readonly transformBias: number;     // +/- auf tTarget je Modus
-  readonly deadzone: number;          // Weltmeter
+  readonly lookAheadMax: number;      // world meters at top speed
+  readonly tFreeLookThreshold: number;// edge-pan allowed from here up
+  readonly transformBias: number;     // +/- on tTarget per mode
+  readonly deadzone: number;          // world meters
 }
 
 export interface CameraState {
-  readonly focus: Vec3;      // gedämpfter Fokus (Welt)
-  readonly t: number;        // aktueller Sichtwert [0,1]
+  readonly focus: Vec3;      // damped focus (world)
+  readonly t: number;        // current view value [0,1]
   readonly yaw: number;      // rad
-  readonly panOffset: Vec3;  // Free-Look-Versatz vom Unit (nur Tactical)
+  readonly panOffset: Vec3;  // free-look offset from the unit (tactical only)
 }
 
 export interface CameraInput {
-  readonly zoomDelta: number;    // Wheel/Pinch → verschiebt tTarget
-  readonly yawDelta: number;     // optional, nur wenn !yawLocked
-  readonly panDelta: Vec3;       // Edge/Drag (nur Tactical)
-  readonly recenter: boolean;    // snappt panOffset → 0
-  readonly snapPreset: number | null; // optionales tTarget-Snap
+  readonly zoomDelta: number;    // wheel/pinch → shifts tTarget
+  readonly yawDelta: number;     // optional, only when !yawLocked
+  readonly panDelta: Vec3;       // edge/drag (tactical only)
+  readonly recenter: boolean;    // snaps panOffset → 0
+  readonly snapPreset: number | null; // optional tTarget snap
 }
 
 /**
- * Pro Render-Frame. Liest INTERPOLIERTE Zielwerte (Render-Layer),
- * nie rohen Sim-State. Kein Effekt auf Simulation/Determinismus.
+ * Per render frame. Reads INTERPOLATED target values (render layer),
+ * never raw sim state. No effect on simulation/determinism.
  */
 export function updateCamera(
   prev: CameraState,
@@ -148,65 +181,75 @@ export function updateCamera(
 ): CameraState;
 ```
 
-Der Rig-Output (Kamera-Position/-Rotation) wird aus `CameraState` + `cfg` deterministisch für den Renderer berechnet und auf die `PerspectiveCamera` geschrieben.
+The rig output (camera position/rotation) is computed deterministically from
+`CameraState` + `cfg` for the renderer and written to the `PerspectiveCamera`.
 
 ---
 
-## 7. Default-Parameter (Startwerte, im Playtest zu tunen)
+## 7. Default parameters (starting values, to be tuned in playtest)
 
-| Feld | Wert | Notiz |
+| Field | Value | Note |
 | --- | --- | --- |
-| `action.pitchDeg` | 30 | tiefer Action-Winkel |
-| `action.distance` | 14 | nah |
+| `action.pitchDeg` | 30 | low action angle |
+| `action.distance` | 14 | near |
 | `action.fovDeg` | 55 | |
-| `tactical.pitchDeg` | 62 | hoher Überblick, nicht ganz Top-down (Lesbarkeit) |
-| `tactical.distance` | 34 | fern |
+| `tactical.pitchDeg` | 62 | high overview, not quite top-down (readability) |
+| `tactical.distance` | 34 | far |
 | `tactical.fovDeg` | 50 | |
-| `focusHeight` | 1.0 | ~Unit-Mitte |
+| `focusHeight` | 1.0 | ~unit center |
 | `followSmoothTime` | 0.12 | s |
 | `paramSmoothTime` | 0.18 | s |
 | `yawSmoothTime` | 0.15 | s |
-| `lookAheadMax` | 4.0 | Weltmeter |
+| `lookAheadMax` | 4.0 | world meters |
 | `tFreeLookThreshold` | 0.7 | |
 | `transformBias` | 0.15 | Pursuit +, Walker − |
-| `deadzone` | 0.15 | Weltmeter |
+| `deadzone` | 0.15 | world meters |
 
-> Zahlen sind bewusst Startwerte. `pitch`/`distance` gemeinsam justieren, `t`-Kurve ggf. mit Easing (z. B. smoothstep) statt linear.
-
----
-
-## 8. Occlusion / Collision (später, optional)
-
-Bei überwiegend top-down-lastigem Framing zweitrangig. Bei tiefem `t` (ACTION) kann Geometrie den Unit verdecken:
-- Option A: weicher Dolly-in bei Occluder-Raycast Kamera→Unit.
-- Option B: Occluder faden/dithern.
-- Für v1 zurückstellen; als eigenes Ticket führen.
+> The numbers are deliberately starting values. Tune `pitch`/`distance`
+> together; the `t` curve may use easing (e.g. smoothstep) instead of linear.
 
 ---
 
-## 9. Non-Goals (v1)
+## 8. Occlusion / collision (later, optional)
 
-- Keine skriptgesteuerte/cinematische Kamera.
-- Keine First-Person-/Cockpit-Sicht.
-- **Kein** automatisches Yaw-Schwenken hinter die Bewegung (bewusst gegen FC).
-- Kein Split-Screen (Netz-Titel über DO-Relay → eine Kamera pro Client).
+With mostly top-down-leaning framing this is secondary. At low `t` (ACTION)
+geometry can occlude the unit:
+- Option A: soft dolly-in on an occluder raycast camera→unit.
+- Option B: fade/dither the occluder.
+- Deferred for v1; track as its own ticket.
+
+---
+
+## 9. Non-goals (v1)
+
+- No scripted/cinematic camera.
+- No first-person/cockpit view.
+- **No** automatic yaw swing behind the movement (deliberately against FC).
+- No split-screen (net title over the DO relay → one camera per client).
 
 ---
 
 ## 10. Test / DoD
 
-- [ ] `updateCamera` unit-getestet: Dämpfung bei 30/60/144 fps `dt` konvergiert gleich (framerate-stabil).
-- [ ] Determinismus-Test: identische Sim-Inputs → identischer Sim-Hash, unabhängig von Kamera-Aktionen zweier Clients.
-- [ ] Kein Import aus dem Sim-Modul in das Kamera-Modul (Lint-Boundary/Dependency-Regel).
-- [ ] Kamera liest ausschließlich interpolierte Render-Transforms.
-- [ ] Free-Look-Recenter, Zoom, Transform-Bias visuell verifiziert.
+- [ ] `updateCamera` unit-tested: damping at 30/60/144 fps `dt` converges the
+      same (framerate-stable).
+- [ ] Determinism test: identical sim inputs → identical sim hash, independent of
+      the camera actions of two clients.
+- [ ] No import from the sim module into the camera module (lint boundary /
+      dependency rule).
+- [ ] The camera reads exclusively interpolated render transforms.
+- [ ] Free-look recenter, zoom, transform bias verified visually.
 
 ---
 
-## 11. Offene Fragen (Go-Gate)
+## 11. Open questions (Go-Gate)
 
-- [ ] Yaw-Default **weltfixiert** bestätigen (Empfehlung: ja), manuelle Rotation als Option ja/nein?
-- [ ] `t`-Kurve linear oder smoothstep? (Empfehlung: smoothstep für weicheres Framing)
-- [ ] Free-Look-Modell: Edge-Pan, Drag, oder beides?
-- [ ] Aim-Modell final: Maus-Raycast auf Bodenebene als Primär, rechter Stick als Gamepad-Äquivalent — hier fixieren oder in eigene `input.spec` auslagern?
-- [ ] Occlusion in v1 oder v2?
+- [ ] Confirm yaw default **world-fixed** (recommendation: yes); manual rotation
+      as an option yes/no?
+- [ ] `t` curve linear or smoothstep? (recommendation: smoothstep for softer
+      framing)
+- [ ] Free-look model: edge-pan, drag, or both?
+- [ ] Aim model final: mouse raycast onto the ground plane as primary, right
+      stick as the gamepad equivalent — fix it here or split into its own
+      `input.spec`?
+- [ ] Occlusion in v1 or v2?
