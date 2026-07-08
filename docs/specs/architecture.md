@@ -34,11 +34,16 @@ tools/        # replay recorder/verifier CLI, balance sheets
 - **API surface** (keep this exact shape):
 
 ```ts
-createSim(mapData: MapData, seed: number): SimState
+createSim(mapData: MapData, seed: number, options?: SimOptions): SimState
 step(state: SimState, inputs: TickInputs): void          // advances 1 tick
 hash(state: SimState): number                            // FNV-1a 32-bit
 writeSnapshot(state: SimState, out: Float32Array): number // returns entity count
 ```
+
+- `SimOptions` is match config beyond map+seed — currently the Warden
+  assignment `{wardenPlayer, wardenDifficulty}` (rules.md §7). It travels in
+  the replay header and the online handshake; every peer must pass the same
+  options or the sims diverge by construction.
 
 - **Inputs** (`TickInputs`): per player `{ moveX, moveY, aimX, aimY, buttons }`
   with axes quantized to int8 (-127..127) — quantization is part of determinism
@@ -104,8 +109,10 @@ Flat `Float32Array`, stride 10 per entity:
 
 ## 6. Replays & desync tooling
 
-- A replay = `{mapId, seed, version, inputFrames[]}`. Byte format = network
-  format. Recorded in every mode automatically (dev builds).
+- A replay = `{mapId, seed, version, wardenConfig, inputFrames[]}`. Byte
+  format = network format. Recorded in every mode automatically (dev builds).
+  Format 2 added the Warden config (the AI runs inside the sim, so AI matches
+  replay from the header alone); format-1 files still decode as warden-less.
 - `tools/replay`: `record`, `verify` (re-simulate, compare hash sequence),
   `bisect` (find first diverging tick between two runs).
 - **Golden replays** live in `packages/sim/test/goldens/` and run in CI/`bun test`.
