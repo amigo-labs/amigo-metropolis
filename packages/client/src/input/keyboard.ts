@@ -15,6 +15,8 @@ import {
 } from "@metropolis/sim";
 import type * as THREE from "three";
 import { Raycaster, Vector2, Vector3 } from "three";
+import type { Vec2 } from "./gamepadMapping";
+import { cameraRelativeMove } from "./movement";
 import type { LocalInputSource, Viewport } from "./types";
 
 const BUTTON_KEYS: readonly [string, number][] = [
@@ -33,6 +35,7 @@ const ndc = new Vector2();
 const raycaster = new Raycaster();
 const planeNormal = new Vector3(0, 1, 0);
 const hit = new Vector3();
+const moveScratch: Vec2 = { x: 0, y: 0 };
 
 export class PlayerOneInput implements LocalInputSource {
   readonly label = "Keyboard / Mouse";
@@ -120,8 +123,11 @@ export class PlayerOneInput implements LocalInputSource {
     if (this.down.has("KeyD") || this.down.has("ArrowRight")) x += 1;
     if (this.down.has("KeyW") || this.down.has("ArrowUp")) y += 1;
     if (this.down.has("KeyS") || this.down.has("ArrowDown")) y -= 1;
-    out.moveX = quantizeAxis(x);
-    out.moveY = quantizeAxis(y);
+    // Camera-relative: rotate the screen-frame WASD axes by the current aim
+    // (== the chase camera's ground-forward) so W always drives into the screen.
+    cameraRelativeMove(x, y, this.aimX, this.aimY, moveScratch);
+    out.moveX = quantizeAxis(moveScratch.x);
+    out.moveY = quantizeAxis(moveScratch.y);
     out.aimX = quantizeAxis(this.aimX);
     out.aimY = quantizeAxis(this.aimY);
     let buttons = 0;
