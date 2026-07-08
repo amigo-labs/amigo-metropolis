@@ -51,11 +51,14 @@ code = same room). The room code seeds the match, so both peers build an
 identical sim; only inputs cross the wire. `?relay=<wsBase>` points at the
 relay (defaults to same-origin).
 
-The relay's Cloudflare config lives in `packages/server/wrangler.toml`, so a
-**Workers Builds** Git integration must set its *root directory* to
-`packages/server` (build command `bun run build`, deploy command
-`bunx wrangler deploy`). `bun run build` at the repo root builds every package
-that has a build (client bundle + Worker dry-run).
+The relay's Cloudflare config is `wrangler.toml` at the **repo root** (its
+`main` points into `packages/server`). It sits at the root so a **Workers
+Builds** Git integration works with the default settings — build command
+`bun run build`, deploy command `npx wrangler deploy` from the workspace root —
+without a custom root directory (wrangler won't auto-detect an app inside a Bun
+workspace root, so it needs the config there). `bun run build` at the root
+builds every package that has one (client bundle + Worker dry-run); the
+`name` must match the Workers Builds project.
 
 The protocol is binary and shared with the replay format — one definition in
 `packages/sim/src/protocol.ts`. The full lockstep contract (bit-identical
