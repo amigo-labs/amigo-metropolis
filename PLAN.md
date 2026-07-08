@@ -129,9 +129,14 @@ server-confirmed frames. The DoD is proven IN-PROCESS by
 within 30 ticks with both replays dumped, and a dropped client re-simulates to
 the same state. Wired into the client at `?online=<CODE>` (+ `?relay=<wsBase>`);
 the seed is derived from the room code so both peers build an identical sim.
-Open, like the hover-feel / difficulty / splitscreen-perf passes: the live
-deploy (`wrangler dev`/`deploy` — no Workers runtime here) and the two-network
-latency playtest.)
+Deploy is wired for a single origin: the root `wrangler.toml` now publishes ONE
+Worker that both serves the built client (`[assets]` over `packages/client/dist`,
+built by a `[build]` step, SPA fallback) and runs the relay (`run_worker_first`
+pins `/room/*` to the Worker + Durable Object). Client and relay share a host,
+so the deployed URL plays Solo/Couch immediately and online 1v1 needs no
+separate relay host (same-origin `wss://<host>/room/<CODE>`). Still open, like
+the hover-feel / difficulty / splitscreen-perf passes: the two-network latency
+playtest on the live deploy.)
 
 ## Phase 7 — Look & sound (Stage B/C of assets.md)
 

@@ -1,4 +1,10 @@
-# Cloudflare Worker + Durable Object relay (architecture.md §5, §7).
+# Cloudflare Worker + Durable Object relay AND static client host
+# (architecture.md §5, §7).
+#
+# One Worker serves both: the built Three.js client (as static assets) and the
+# lockstep relay (`/room/<CODE>` WebSocket → Durable Object). Hosting them on a
+# single origin means the client's default same-origin relay URL
+# (wss://<host>/room/<CODE>) just works — online 1v1 needs no separate host.
 #
 # This config lives at the repo root (not packages/server) on purpose: the
 # Cloudflare Workers Builds "deploy" step runs `wrangler deploy` from the
@@ -12,6 +18,22 @@
 name = "amigo-metropolis"
 main = "packages/server/src/index.ts"
 compatibility_date = "2026-07-08"
+
+# Build the client before deploy so packages/client/dist exists for [assets].
+# Runs from the repo root during `wrangler deploy` (deps are already installed
+# by the Workers Builds step; the extra install is a cheap no-op safety net).
+[build]
+command = "bun install && bun run --filter @metropolis/client build"
+
+# Serve the Vite build as static assets from this same Worker. The client routes
+# entirely via query string on "/", so an unmatched path falls back to the app
+# shell (index.html) rather than 404. Relay paths must ALWAYS hit the Worker,
+# never the asset layer / SPA fallback — run_worker_first pins "/room/*".
+[assets]
+directory = "packages/client/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/room/*"]
 
 # One Durable Object class: a room is addressed by env.ROOM.idFromName(<CODE>),
 # so the same 5-char code always maps to the same room instance.
