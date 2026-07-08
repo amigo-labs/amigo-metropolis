@@ -30,8 +30,9 @@ export class GamepadInput implements LocalInputSource {
   }
 
   private pad(): Gamepad | null {
-    // getGamepads snapshots live state; the slot may be null if unplugged.
-    const pads = navigator.getGamepads();
+    // getGamepads snapshots live state; the slot may be null if unplugged. The
+    // API itself can be absent/disabled (?. guards that) — treat it as no pad.
+    const pads = navigator.getGamepads?.();
     return pads ? (pads[this.index] ?? null) : null;
   }
 

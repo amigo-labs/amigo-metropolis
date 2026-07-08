@@ -65,20 +65,24 @@ export function layoutViews(
       vp.width = width;
       vp.height = height;
     } else if (orientation === "v") {
-      // Side by side: P1 left, P2 right.
-      vp.width = Math.floor(width / 2);
-      vp.height = height;
-      vp.left = i === 0 ? 0 : width - vp.width;
+      // Side by side: P1 left, P2 gets the remainder so the halves exactly
+      // cover an odd width (no 1px seam).
+      const half = Math.floor(width / 2);
+      vp.left = i === 0 ? 0 : half;
       vp.top = 0;
+      vp.width = i === 0 ? half : width - half;
+      vp.height = height;
     } else {
-      // Stacked: P1 top, P2 bottom.
-      vp.width = width;
-      vp.height = Math.floor(height / 2);
+      // Stacked: P1 top, P2 gets the remainder (exact cover on odd heights).
+      const half = Math.floor(height / 2);
       vp.left = 0;
-      vp.top = i === 0 ? 0 : height - vp.height;
+      vp.top = i === 0 ? 0 : half;
+      vp.width = width;
+      vp.height = i === 0 ? half : height - half;
     }
     const cam = views[i].camera;
-    cam.aspect = vp.width / vp.height;
+    // Guard a degenerate (zero-height) viewport so aspect never goes NaN/Inf.
+    cam.aspect = vp.width / Math.max(vp.height, 1);
     cam.updateProjectionMatrix();
     const hud = views[i].hud.style;
     hud.left = `${vp.left + 8}px`;
