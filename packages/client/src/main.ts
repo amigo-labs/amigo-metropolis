@@ -8,7 +8,14 @@
 // Modes (architecture.md §4 "inputs differ, sim doesn't"):
 //   solo               ?warden=<1-10> | ?opponent=feeder|idle   (1 view)
 //   couch splitscreen  ?splitscreen | ?players=2                 (2 views)
+//   online 1v1         ?online=<CODE> (+ ?relay=<wsBase>)        (1 view, lockstep)
 // URL params: ?map=test-128 ?cam=orbit ?seed=123 ?split=v|h ?rumble=0
+//
+// Online is the same sim driven by network-confirmed inputs instead of a local
+// delay queue (§5): both peers derive the seed from the room code, then step
+// only ticks the relay has confirmed for BOTH players. All the netcode lives in
+// net/lockstep.ts (proven by packages/client/test/netLockstep.test.ts); this
+// file just samples the local device, renders, and shows connection state.
 
 import {
   ANIM_HOVER,
@@ -26,7 +33,10 @@ import {
   LOCAL_INPUT_DELAY_TICKS,
   MAX_ENTITIES,
   MAX_PLAYERS,
+  type MatchConfig,
   type PlayerInput,
+  SIM_VERSION,
+  type SimState,
   SNAPSHOT_STRIDE,
   step,
   TICK_HZ,
@@ -40,6 +50,8 @@ import { AudioStub } from "./audio";
 import { PlayerOneInput } from "./input/keyboard";
 import type { LocalInputSource } from "./input/types";
 import { runLobby } from "./lobby";
+import { NetLockstep } from "./net/lockstep";
+import { WsTransport } from "./net/wsTransport";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import {
   createPlayerViews,
@@ -53,22 +65,72 @@ import { buildTerrainMesh, buildWaterPlane } from "./render/terrain";
 // --- Mode + simulation setup -------------------------------------------------
 
 const params = new URLSearchParams(location.search);
-const seed = Number(params.get("seed") ?? "0xc0ffee") >>> 0;
 const map = getMapById(params.get("map") ?? DISTRICT_01_ID);
-const splitscreen = params.has("splitscreen") || params.get("players") === "2";
+// ?online=<CODE> is 1v1 lockstep; it owns both slots, so warden/splitscreen off.
+const onlineCode = normalizeCode(params.get("online"));
+const online = onlineCode !== null;
+const splitscreen = !online && (params.has("splitscreen") || params.get("players") === "2");
 const splitOrientation: SplitOrientation = params.get("split") === "h" ? "h" : "v";
 const rumbleEnabled = params.get("rumble") !== "0";
-const orbitMode = params.get("cam") === "orbit";
+const orbitMode = !online && params.get("cam") === "orbit";
+
+// The room code seeds an online match: both peers derive the same seed from it,
+// so no seed negotiation is needed and the relay stays a dumb input relay (§5).
+const seed = online
+  ? seedFromCode(onlineCode as string)
+  : Number(params.get("seed") ?? "0xc0ffee") >>> 0;
 
 // ?warden=<1-10> puts the Phase 4 AI on player 2's slot (rules.md §7). It is a
 // solo feature — splitscreen fills both slots with humans, so the AI stays off.
-const wardenDifficulty = splitscreen ? 0 : Math.trunc(Number(params.get("warden") ?? "0"));
+const wardenDifficulty =
+  splitscreen || online ? 0 : Math.trunc(Number(params.get("warden") ?? "0"));
 const warden = wardenDifficulty >= 1;
-const sim = createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined);
+// Offline builds the sim now; online defers to the server's authoritative
+// config (arrives in MSG_WELCOME) so both peers build a byte-identical sim.
+let sim: SimState = online
+  ? (undefined as unknown as SimState)
+  : createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined);
 
 // ?debug exposes the live sim for the console / e2e harness (host-side only,
 // like the debug HUD — nothing in the sim or renderer reads it back).
-if (params.has("debug")) (globalThis as { metropolisSim?: typeof sim }).metropolisSim = sim;
+if (params.has("debug") && !online) {
+  (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
+}
+
+// --- Online helpers (no-ops unless ?online) ----------------------------------
+
+/** 5 alphanumeric chars, upper-cased; anything else → not an online session. */
+function normalizeCode(raw: string | null): string | null {
+  if (!raw) return null;
+  const code = raw.toUpperCase();
+  return /^[A-Z0-9]{5}$/.test(code) ? code : null;
+}
+
+/** Deterministic seed from the room code (FNV-1a) — identical on both peers. */
+function seedFromCode(code: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < code.length; i++) h = Math.imul(h ^ code.charCodeAt(i), 0x01000193) >>> 0;
+  return h >>> 0;
+}
+
+/** Relay WebSocket URL: ?relay=<wsBase> overrides the same-origin default. */
+function relayUrl(code: string): string {
+  const base = params.get("relay");
+  if (base) return `${base.replace(/\/+$/, "")}/room/${code}`;
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${location.host}/room/${code}`;
+}
+
+const NET_ERROR_TEXT: Record<number, string> = {
+  1: "version mismatch — update the game",
+  2: "room is full",
+  3: "cannot reconnect to that slot",
+  4: "protocol error",
+};
+
+let net: NetLockstep | undefined;
+/** Sticky connection status shown over the scene; null once playing normally. */
+let netStatus: string | null = null;
 
 // Local-input delay queue (architecture.md §4): even offline, every local
 // player's input is delayed LOCAL_INPUT_DELAY_TICKS so online (3 ticks) feels
@@ -149,6 +211,49 @@ addEventListener("mousemove", (e) => {
 });
 const unitCounts = new Int32Array(2);
 
+// Full-screen status overlay for online mode (connecting / waiting / desync).
+// Reuses the lobby card look; only touched when the text actually changes.
+const overlayEl = document.createElement("div");
+overlayEl.id = "lobby";
+overlayEl.style.display = "none";
+const overlayCard = document.createElement("div");
+overlayCard.className = "lobby-card";
+overlayEl.appendChild(overlayCard);
+document.body.appendChild(overlayEl);
+let overlayText: string | null = null;
+
+function setOverlay(text: string | null): void {
+  if (text === overlayText) return;
+  overlayText = text;
+  if (text === null) {
+    overlayEl.style.display = "none";
+  } else {
+    overlayCard.textContent = text;
+    overlayEl.style.display = "flex";
+  }
+}
+
+/** Picks the status to show: sticky netStatus wins, else the live stall state. */
+function refreshOverlay(): void {
+  let text = netStatus;
+  if (!text && net && net.isStarted && !net.isEnded && net.isWaiting) {
+    text = "Waiting for opponent…";
+  }
+  setOverlay(text);
+}
+
+/** Triggers a browser download of a dumped replay (desync forensics, §6). */
+function downloadReplay(bytes: Uint8Array, name: string): void {
+  const url = URL.createObjectURL(
+    new Blob([bytes as BlobPart], { type: "application/octet-stream" }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // Interpolated pose of each player's avatar (sim x,y,height,yaw in 0..3; slot
 // 4 = found), keyed by player slot. Filled by renderEntities for chase cams+HUD.
 const avatarPoses: Float32Array[] = [];
@@ -195,7 +300,11 @@ function runTick(): void {
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
   audio.pump(sim.events); // events are per-tick transients: drain immediately
   if (rumbleEnabled) pumpRumble();
+  rotateSnapshot();
+}
 
+/** Rotates the double-buffered snapshots and writes the current sim state. */
+function rotateSnapshot(): void {
   const swap = snapPrev;
   snapPrev = snapCurr;
   snapCurr = swap;
@@ -361,11 +470,19 @@ function frame(now: number): void {
   last = now;
   let steps = 0;
   while (accumulator >= TICK_MS && steps < MAX_STEPS_PER_FRAME) {
-    runTick();
+    // Online steps only confirmed ticks (net.tryStep); a stall (peer input not
+    // yet in) breaks out and the overlay explains the pause. Offline steps
+    // locally every tick. Both stay paced at 30 Hz by the accumulator.
+    if (net) {
+      if (!net.tryStep()) break;
+    } else {
+      runTick();
+    }
     accumulator -= TICK_MS;
     steps++;
   }
   if (accumulator >= TICK_MS) accumulator = TICK_MS; // shed backlog, stay stable
+  if (net) refreshOverlay();
 
   renderEntities(accumulator / TICK_MS);
   for (let v = 0; v < views.length; v++) {
@@ -413,7 +530,84 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   requestAnimationFrame(frame);
 }
 
-if (splitscreen) {
+/**
+ * Online 1v1: connect to the relay, then let the netcode drive. The local
+ * device samples for whichever slot the server assigns; the sim it builds from
+ * the authoritative MSG_WELCOME config replaces the (deferred) module sim, and
+ * the frame loop steps it through net.tryStep(). Everything else — render,
+ * chase cam, HUD — is unchanged from solo, since only the input source differs.
+ */
+function connectOnline(code: string): void {
+  const config: MatchConfig = {
+    simVersion: SIM_VERSION,
+    seed,
+    mapId: map.id,
+    wardenPlayer: -1,
+    wardenDifficulty: 0,
+  };
+  // One reusable input object; NetLockstep serializes it immediately on send.
+  const localInput = createTickInputs().players[0];
+
+  net = new NetLockstep(new WsTransport(relayUrl(code)), {
+    sampleInput: () => {
+      const view = views[0];
+      if (view) {
+        const a = sim.avatarId[view.slot];
+        if (a >= 0) {
+          view.input.updateAim(
+            view.camera,
+            sim.ent.posX[a],
+            sim.ent.posY[a],
+            sim.ent.height[a],
+            view.viewport,
+          );
+        }
+        view.input.sample(localInput);
+      }
+      return localInput;
+    },
+    onStep: (_tick, stepped) => {
+      audio.pump(stepped.events); // per-tick transients, drained immediately
+      rotateSnapshot();
+    },
+    onWelcome: (slotIdx, welcomed) => {
+      sim = welcomed;
+      if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
+      if (views.length === 0) startMatch([{ slot: slotIdx, input: keyboard }]);
+    },
+    onStart: () => {
+      netStatus = null;
+      refreshOverlay();
+    },
+    onPeer: (_slot, present) => {
+      netStatus = present ? null : "Opponent disconnected — waiting to reconnect…";
+      refreshOverlay();
+    },
+    onDesync: (tick, replay) => {
+      netStatus = `Desync detected at tick ${tick} — match ended. Replay downloaded.`;
+      refreshOverlay();
+      downloadReplay(replay, `desync-${code}-t${tick}.mrep`);
+    },
+    onError: (errCode) => {
+      netStatus = `Cannot join room ${code}: ${NET_ERROR_TEXT[errCode] ?? "unknown error"}`;
+      refreshOverlay();
+    },
+    onClose: () => {
+      // A desync already sets its own final status; don't overwrite it.
+      if (net?.isEnded === "desync") return;
+      netStatus = `Connection lost — reload to rejoin room ${code}.`;
+      refreshOverlay();
+    },
+  });
+
+  netStatus = `Room ${code} — waiting for opponent…`;
+  setOverlay(netStatus);
+  net.start(config);
+}
+
+if (online) {
+  connectOnline(onlineCode as string);
+} else if (splitscreen) {
   // Render a static overview as the lobby backdrop, then assign devices.
   const overview = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
   overview.position.set(extent / 2, extent * 0.9, extent * 1.4);

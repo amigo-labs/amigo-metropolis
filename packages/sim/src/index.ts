@@ -7,6 +7,7 @@ export * from "./events";
 export * from "./hash";
 export * from "./inputs";
 export * from "./map";
+export * from "./protocol";
 export * from "./replay";
 export * from "./runner";
 export * from "./sim";

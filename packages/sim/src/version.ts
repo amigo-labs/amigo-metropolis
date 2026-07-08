@@ -14,5 +14,11 @@
 //     (Phase 4's Warden did NOT bump this: its state is hashed only in
 //     matches that enable it, so every existing replay's hash sequence is
 //     unchanged — goldens 1–3 prove it. Warden config travels in the replay
-//     header, format 2, and in the future online handshake.)
+//     header, format 2, and in the online handshake.)
+//     (Phase 6's online lockstep did NOT bump this either: protocol.ts is pure
+//     byte (de)serialization of inputs/hashes and never touches the tick, so
+//     every golden's hash sequence is unchanged. The wire framing has its own
+//     PROTOCOL_VERSION; SIM_VERSION is what the DO checks to reject mismatched
+//     rooms — a hash-affecting change bumps it and desyncs are impossible by
+//     construction between matched peers.)
 export const SIM_VERSION = 6;

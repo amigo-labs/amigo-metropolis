@@ -3,10 +3,21 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./room": "./src/room.ts"
+  },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "wrangler deploy --dry-run --outdir dist --config ../../wrangler.toml",
+    "deploy": "wrangler deploy --config ../../wrangler.toml",
+    "dev": "wrangler dev --config ../../wrangler.toml"
   },
   "dependencies": {
     "@metropolis/sim": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260708.1",
+    "wrangler": "^4.108.0"
   }
 }

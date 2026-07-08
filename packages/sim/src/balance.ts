@@ -17,6 +17,14 @@ export const MAX_PLAYERS = 2;
  */
 export const LOCAL_INPUT_DELAY_TICKS = 2;
 
+/**
+ * Online input delay in ticks (architecture.md §5): a client tags its local
+ * input for tick T+this and only steps a tick once it holds BOTH players'
+ * confirmed inputs for it. 3 ticks ≈ 100 ms of round-trip slack. Kept one
+ * above LOCAL_INPUT_DELAY_TICKS so the added lag online is a single tick.
+ */
+export const ONLINE_INPUT_DELAY_TICKS = 3;
+
 // Avatar (rules.md §2, §4) — Phase 0 only uses walker speed for the debug cube.
 export const AVATAR_HP = 300;
 export const AVATAR_WALKER_SPEED = 5;
