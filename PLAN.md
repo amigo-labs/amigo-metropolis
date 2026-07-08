@@ -137,12 +137,28 @@ latency playtest.)
 
 - [ ] CC0 model pass (Quaternius/Kenney) mapped to archetypes, CREDITS.md
 - [ ] Pincel texture atlases + shared palette; NearestFilter pipeline
-- [ ] jsfxr SFX set wired to event buffer; CC0 music loop; volume settings
-- [ ] PWA polish: manifest, icons, offline solo mode, install prompt
-- [ ] Title screen with working title; menu flow (solo / couch / online)
+- [x] jsfxr SFX set wired to event buffer; CC0 music loop; volume settings
+- [x] PWA polish: manifest, icons, offline solo mode, install prompt
+- [x] Title screen with working title; menu flow (solo / couch / online)
 
 **DoD:** a stranger can open the URL, understand the game, and finish a solo
 match without explanation.
+(Shell + audio landed. A bare URL opens the "District Breach" title screen over
+an arena backdrop with one click per mode — Solo (Warden difficulty), Couch,
+Online (host/join room codes) — plus How-to-play and Sound drawers; deep links
+(`?warden`, `?splitscreen`, `?online`, `?play`, `?debug`) still boot straight in.
+Audio is real now: a dependency-free clean-room sfxr synth renders committed
+JSON presets (`audio/presets.ts`) for every event cue and a self-authored CC0
+music loop, mixed through a tiny WebAudio wrapper with persisted master/sfx/music
+volumes, triggered only from the sim event ring buffer. PWA: web manifest,
+self-authored generated icons (`tools/gen/genIcons.ts`), a dependency-free
+service worker for offline solo, and an install prompt; `CREDITS.md` created.
+Still open — the two asset-import tasks: the Stage B CC0 3D-model pass and the
+Pincel texture atlas / shared-palette / NearestFilter pipeline. They need
+external CC0 binaries chosen and license-verified against assets.md §2, so they
+are best done with the asset sources in hand rather than committed blind; the
+game meets the DoD in greybox until then. The feel-tuning of the SFX presets
+stays an open pass like the hover-feel / difficulty-curve passes.)
 
 ## Backlog (post-v1, do not start)
 
