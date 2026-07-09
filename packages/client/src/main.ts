@@ -47,6 +47,7 @@ import {
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AudioEngine } from "./audio/engine";
+import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
 import type { LocalInputSource } from "./input/types";
 import { runLobby } from "./lobby";
@@ -75,6 +76,8 @@ const splitscreen = !online && (params.has("splitscreen") || params.get("players
 const splitOrientation: SplitOrientation = params.get("split") === "h" ? "h" : "v";
 const rumbleEnabled = params.get("rumble") !== "0";
 const orbitMode = !online && params.get("cam") === "orbit";
+// Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
+aimAssist.mode = parseAimAssistMode(params.get("aim"));
 
 // The room code seeds an online match: both peers derive the same seed from it,
 // so no seed negotiation is needed and the relay stays a dumb input relay (§5).
@@ -306,6 +309,32 @@ function wrapAngleDelta(d: number): number {
   return ((((d + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
 }
 
+// Enemy positions (packed x,y in sim coords) for "assist" aim magnetism, filled
+// per view from live sim state. Reused scratch — the input source copies it.
+const enemyScratch = new Float32Array(MAX_ENTITIES * 2);
+function fillEnemies(slot: number): number {
+  const ent = sim.ent;
+  let n = 0;
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id]) continue;
+    const team = ent.team[id];
+    if (team < 0 || team === slot) continue; // neutral or own team
+    const a = ent.archetype[id];
+    // Combat entities only: avatars, spawned units, the Warden.
+    if (
+      a !== ARCHETYPE.AVATAR &&
+      !(a >= ARCHETYPE.RUNNER && a <= ARCHETYPE.FORTRESS) &&
+      a !== ARCHETYPE.WARDEN
+    ) {
+      continue;
+    }
+    enemyScratch[n * 2] = ent.posX[id];
+    enemyScratch[n * 2 + 1] = ent.posY[id];
+    n++;
+  }
+  return n;
+}
+
 // Set once the match starts (after the lobby, if any).
 let views: PlayerView[] = [];
 const viewBySlot: (PlayerView | undefined)[] = new Array(MAX_PLAYERS).fill(undefined);
@@ -317,12 +346,15 @@ function runTick(): void {
     const view = views[v];
     const a = sim.avatarId[view.slot];
     if (a >= 0) {
+      const ec = aimAssist.mode === "assist" ? fillEnemies(view.slot) : 0;
       view.input.updateAim(
         view.camera,
         sim.ent.posX[a],
         sim.ent.posY[a],
         sim.ent.height[a],
         view.viewport,
+        enemyScratch,
+        ec,
       );
     }
   }
@@ -618,12 +650,15 @@ function connectOnline(code: string): void {
       if (view) {
         const a = sim.avatarId[view.slot];
         if (a >= 0) {
+          const ec = aimAssist.mode === "assist" ? fillEnemies(view.slot) : 0;
           view.input.updateAim(
             view.camera,
             sim.ent.posX[a],
             sim.ent.posY[a],
             sim.ent.height[a],
             view.viewport,
+            enemyScratch,
+            ec,
           );
         }
         view.input.sample(localInput);
