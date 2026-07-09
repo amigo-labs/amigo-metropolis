@@ -296,7 +296,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     el(
       "div",
       "menu-credits",
-      "Original mechanics homage · zero original IP · CC0 assets. " + "A working-title prototype.",
+      "A Future Cop: Precinct Assault homage · a working-title prototype.",
     ),
   );
 

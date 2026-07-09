@@ -5,6 +5,7 @@
 // and a schema test); the Phase 0 test map stays procedurally generated.
 
 import districtJson from "../maps/district-01.json";
+import urbanJungleJson from "../maps/urban-jungle.json";
 import { clamp, cosLUT, lerp, sinLUT } from "./simMath";
 
 export interface MapPoint {
@@ -108,10 +109,14 @@ export function isWater(map: MapData, x: number, y: number): boolean {
 export function getMapById(id: string): MapData {
   if (id === TEST_MAP_ID) return createTestMap();
   if (id === DISTRICT_01_ID) return loadMapFromJson(districtJson);
+  if (id === URBAN_JUNGLE_ID) return loadMapFromJson(urbanJungleJson);
   throw new Error(`unknown map id: ${id}`);
 }
 
 export const DISTRICT_01_ID = "district-01";
+
+/** FCOP "Urban Jungle" arena (mission Conft), heightfield extracted 1:1. */
+export const URBAN_JUNGLE_ID = "urban-jungle";
 
 /**
  * Fixed-point scale for JSON heights: 1/32 m steps are exact binary

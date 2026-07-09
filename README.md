@@ -1,9 +1,8 @@
 # amigo-metropolis
 
-Browser-based arena strategy-action game — a mechanics homage to the *Precinct
-Assault* mode of Future Cop: L.A.P.D. (1998), zero original IP. One
-deterministic lockstep simulation drives solo, couch splitscreen and online
-1v1. Title: **Metropolis**.
+Browser-based arena strategy-action game — a homage to the *Precinct
+Assault* mode of Future Cop: L.A.P.D. (1998). One deterministic lockstep
+simulation drives solo, couch splitscreen and online 1v1. Title: **Metropolis**.
 
 Read `CLAUDE.md` (hard rules) and `docs/specs/` (source of truth) before
 touching code. Work follows `PLAN.md` phase by phase.
@@ -34,8 +33,8 @@ sequences bit-exactly (needs a Chromium binary; set `CHROMIUM_PATH`).
 - `packages/client` — Three.js renderer, input, interpolation, PWA shell
 - `packages/server` — Cloudflare Worker + Durable Object relay (Phase 6)
 - `tools/replay` — replay record/verify CLI + cross-engine harness
-- `tools/gen` — authoring-time generators (committed sin LUT, map JSON, shared
-  color palette, and brand icons/backdrop from `assets/brand/` via `genBrand.py`)
+- `tools/gen` — authoring-time generators (committed sin LUT, map JSON, and
+  brand icons/backdrop from `assets/brand/` via `genBrand.py`)
 
 ## Online 1v1 (Phase 6)
 

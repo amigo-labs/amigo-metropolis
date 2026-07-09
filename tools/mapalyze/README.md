@@ -15,16 +15,18 @@ survive. See `PLAN.md` at the repo root for the full spec.
 > `node:` builtins (runs under Bun). All transforms are pure and deterministic:
 > same input → byte-identical output.
 
-## Guardrails (non-negotiable — `PLAN.md` §2)
+## Guardrails (mapalyze scope — `PLAN.md` §2)
 
 - **Input is only `NET` + `ACT` JSON.** mapalyze never reads `TIL`/`OBJ`
   geometry, `BMP`/`PYR` textures, or glTF.
 - **Output is always normalized + quantized.** Positions are remapped to the
   unit square `[0,1]²` and snapped to a grid (default `100`, i.e. 2 decimals).
   No raw world coordinates ever appear in the output.
-- **Raw exports are never committed.** They live in the git-ignored
-  `tools/mapalyze/_local/`. Only the abstracted output under
-  `docs/specs/maps/_references/` may be committed.
+- **mapalyze never commits raw exports.** Its own inputs live in the git-ignored
+  `tools/mapalyze/_local/`; only mapalyze's abstracted output under
+  `docs/specs/maps/_references/` may be committed. (This guardrail bounds
+  *mapalyze*, not the repo: FCOP-derived map data committed elsewhere with
+  provenance is permitted by `docs/specs/assets.md` §2.)
 - **No EA-derived test fixtures.** Every fixture in `fixtures/` is synthetic and
   freely invented.
 

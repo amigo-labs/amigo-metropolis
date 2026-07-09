@@ -83,19 +83,3 @@ describe("greybox colors derive from the palette", () => {
     expect(NEUTRAL_COLOR.getHex()).toBe(paletteHex("neutral"));
   });
 });
-
-describe("committed .pal artifact stays in sync", () => {
-  test("assets/palette/metropolis.pal matches the palette data", async () => {
-    const url = new URL("../../../assets/palette/metropolis.pal", import.meta.url);
-    const text = await Bun.file(url).text();
-    const lines = text.split("\n");
-    expect(lines[0]).toBe("JASC-PAL");
-    expect(lines[1]).toBe("0100");
-    expect(lines[2]).toBe(String(PALETTE.length));
-    for (let i = 0; i < PALETTE.length; i++) {
-      const hex = PALETTE[i].hex;
-      const expected = `${(hex >> 16) & 0xff} ${(hex >> 8) & 0xff} ${hex & 0xff}`;
-      expect(lines[3 + i]).toBe(expected);
-    }
-  });
-});
