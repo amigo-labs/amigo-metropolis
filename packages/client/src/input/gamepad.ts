@@ -2,14 +2,19 @@
 // Standard Gamepad each tick and quantizes at the boundary — analog sticks
 // become int8 axes, so raw gamepad floats never enter the sim (architecture.md
 // §2). Controls are camera-relative, matching the keyboard/mouse scheme: the
-// left stick drives relative to the chase camera (via the current facing), the
-// right stick aims (and holds the last facing when released, like the mouse).
-// Allocation-free in sample().
+// left stick drives relative to the camera's world-fixed ground-forward
+// (camera.spec §5), the right stick aims independently (twin-stick), holding the
+// last facing when released. Allocation-free in sample().
 
-import { type PlayerInput, quantizeAxis } from "@metropolis/sim";
+import { BUTTON_TARGET_CYCLE, MAX_ENTITIES, type PlayerInput, quantizeAxis } from "@metropolis/sim";
+import type * as THREE from "three";
+import { ASSIST_CONE_COS, ASSIST_STRENGTH, aimAssist, applyAimAssist } from "./aimAssist";
 import { GAMEPAD_BUTTON_MAP, STICK_DEADZONE, stickWithDeadzone, type Vec2 } from "./gamepadMapping";
-import { cameraRelativeMove } from "./movement";
+import { cameraGroundForward, cameraRelativeMove } from "./movement";
 import type { LocalInputSource } from "./types";
+
+// Standard-gamepad B button — cycles the soft-lock target in "lock" aim mode.
+const GAMEPAD_TARGET_CYCLE_BUTTON = 1;
 
 // Module-scope scratch: sample() runs inside the tick loop for every player in
 // turn, so a shared scratch is safe (synchronous, non-reentrant).
@@ -25,6 +30,15 @@ export class GamepadInput implements LocalInputSource {
   // Last non-neutral aim direction (unit vector). Defaults to +x facing.
   private aimX = 1;
   private aimY = 0;
+  // Camera ground-forward (sim coords) used as the camera-relative move basis;
+  // refreshed each tick in updateAim. Defaults to +x before the camera is ready.
+  private readonly moveBasis: Vec2 = { x: 1, y: 0 };
+  // Per-tick aim-assist context stashed in updateAim (own pos + enemy copy).
+  private selfX = 0;
+  private selfY = 0;
+  private enemyCount = 0;
+  private readonly enemies = new Float32Array(MAX_ENTITIES * 2);
+  private readonly assistOut: Vec2 = { x: 0, y: 0 };
 
   constructor(index: number) {
     this.index = index;
@@ -42,8 +56,24 @@ export class GamepadInput implements LocalInputSource {
     return this.pad()?.connected ?? false;
   }
 
-  // Stick aim is world-relative and needs no camera projection.
-  updateAim(): void {}
+  // Stick aim is world-relative (no camera projection), but movement still needs
+  // the camera's ground-forward as its basis (camera.spec §5). Also stashes the
+  // aim-assist context (own pos + a copy of the enemy list) for sample().
+  updateAim(
+    camera: THREE.Camera,
+    avatarX: number,
+    avatarY: number,
+    _avatarHeight: number,
+    _viewport: unknown,
+    enemies: Float32Array,
+    enemyCount: number,
+  ): void {
+    cameraGroundForward(camera, this.moveBasis);
+    this.selfX = avatarX;
+    this.selfY = avatarY;
+    this.enemyCount = Math.min(enemyCount, MAX_ENTITIES);
+    this.enemies.set(enemies.subarray(0, this.enemyCount * 2));
+  }
 
   sample(out: PlayerInput): void {
     const p = this.pad();
@@ -66,18 +96,40 @@ export class GamepadInput implements LocalInputSource {
       this.aimX = aim.x * inv;
       this.aimY = -aim.y * inv;
     }
-    out.aimX = quantizeAxis(this.aimX);
-    out.aimY = quantizeAxis(this.aimY);
-    // Left stick → analog move, camera-relative (rotated by the facing above).
-    // Gamepad Y is +down, sim +y is forward: invert for "forward".
+    // "assist" magnetism shapes the free aim locally, before quantization.
+    let aimX = this.aimX;
+    let aimY = this.aimY;
+    if (aimAssist.mode === "assist") {
+      applyAimAssist(
+        aimX,
+        aimY,
+        this.selfX,
+        this.selfY,
+        this.enemies,
+        this.enemyCount,
+        ASSIST_CONE_COS,
+        ASSIST_STRENGTH,
+        this.assistOut,
+      );
+      aimX = this.assistOut.x;
+      aimY = this.assistOut.y;
+    }
+    out.aimX = quantizeAxis(aimX);
+    out.aimY = quantizeAxis(aimY);
+    // Left stick → analog move, camera-relative (rotated by the camera-forward,
+    // NOT the aim). Gamepad Y is +down, sim +y is forward: invert for "forward".
     stickWithDeadzone(ax[0] ?? 0, ax[1] ?? 0, STICK_DEADZONE, move);
-    cameraRelativeMove(move.x, -move.y, this.aimX, this.aimY, move);
+    cameraRelativeMove(move.x, -move.y, this.moveBasis.x, this.moveBasis.y, move);
     out.moveX = quantizeAxis(move.x);
     out.moveY = quantizeAxis(move.y);
     const b = p.buttons;
     let buttons = 0;
     for (let i = 0; i < GAMEPAD_BUTTON_MAP.length; i++) {
       if (b[GAMEPAD_BUTTON_MAP[i][0]]?.pressed) buttons |= GAMEPAD_BUTTON_MAP[i][1];
+    }
+    // Target-cycle (B) only emits in "lock" mode; the sim owns the tracking.
+    if (aimAssist.mode === "lock" && b[GAMEPAD_TARGET_CYCLE_BUTTON]?.pressed) {
+      buttons |= BUTTON_TARGET_CYCLE;
     }
     out.buttons = buttons;
   }

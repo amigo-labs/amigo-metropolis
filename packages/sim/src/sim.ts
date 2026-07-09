@@ -20,6 +20,7 @@ import {
   AVATAR_HOVER_SPEED,
   AVATAR_HP,
   AVATAR_JUMP_SPEED,
+  AVATAR_LOCK_RANGE,
   AVATAR_WALKER_MAX_SLOPE,
   AVATAR_WALKER_SPEED,
   BASE_TURRET_RESPAWN_TICKS,
@@ -104,6 +105,7 @@ import {
   BUTTON_FIRE3,
   BUTTON_INTERACT,
   BUTTON_JUMP,
+  BUTTON_TARGET_CYCLE,
   BUTTON_TRANSFORM,
   type TickInputs,
 } from "./inputs";
@@ -189,6 +191,8 @@ export interface SimState {
   /** Hold-to-buy per player: encoded console target (-1 none) + held ticks. */
   readonly buyTarget: Int32Array;
   readonly buyProgress: Int32Array;
+  /** Soft-lock target entity per player (-1 none); acquired/cycled in-sim. */
+  readonly lockTarget: Int32Array;
   /** Player slot the Warden AI drives, -1 for a match without one (config). */
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
@@ -409,6 +413,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     outpostConsole: new Int32Array(map.outpostSpots.length).fill(-1),
     outpostRespawn: new Int32Array(map.outpostSpots.length),
     buyTarget: new Int32Array(MAX_PLAYERS).fill(-1),
+    lockTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     buyProgress: new Int32Array(MAX_PLAYERS),
     wardenPlayer,
     wardenDifficulty,
@@ -568,19 +573,43 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       ent.height[id] = h;
     }
 
-    // Facing: aim wins over movement; both quantized already.
-    const ax = input.aimX * AXIS_SCALE;
-    const ay = input.aimY * AXIS_SCALE;
-    if (ax * ax + ay * ay > 0.04) {
-      const inv = 1 / Math.sqrt(ax * ax + ay * ay);
-      ent.aimX[id] = ax * inv;
-      ent.aimY[id] = ay * inv;
-      ent.yaw[id] = atan2Poly(ay, ax);
-    } else if (l2 > 0) {
-      const inv = 1 / Math.sqrt(l2);
-      ent.aimX[id] = mx * inv;
-      ent.aimY[id] = my * inv;
-      ent.yaw[id] = atan2Poly(my, mx);
+    // Soft-lock (input.spec §4.4 "lock"): the Target-Cycle button acquires or
+    // cycles an enemy; the lock lives in the sim so it tracks deterministically
+    // on every peer. A lock that dies or drifts out of range releases to free
+    // aim (re-lock via the key). The transmitted aim is the fallback.
+    if ((pressed & BUTTON_TARGET_CYCLE) !== 0) cycleLockTarget(state, p, id, x, y);
+    let lockId = state.lockTarget[p];
+    if (lockId >= 0 && !isLockValid(state, p, id, lockId, x, y)) {
+      lockId = -1;
+      state.lockTarget[p] = -1;
+    }
+
+    // Facing: a valid lock tracks its target; else aim wins over movement.
+    if (lockId >= 0) {
+      const dx = ent.posX[lockId] - x;
+      const dy = ent.posY[lockId] - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > 1e-6) {
+        const inv = 1 / Math.sqrt(d2);
+        ent.aimX[id] = dx * inv;
+        ent.aimY[id] = dy * inv;
+        ent.yaw[id] = atan2Poly(dy, dx);
+      }
+    } else {
+      // aim wins over movement; both quantized already.
+      const ax = input.aimX * AXIS_SCALE;
+      const ay = input.aimY * AXIS_SCALE;
+      if (ax * ax + ay * ay > 0.04) {
+        const inv = 1 / Math.sqrt(ax * ax + ay * ay);
+        ent.aimX[id] = ax * inv;
+        ent.aimY[id] = ay * inv;
+        ent.yaw[id] = atan2Poly(ay, ax);
+      } else if (l2 > 0) {
+        const inv = 1 / Math.sqrt(l2);
+        ent.aimX[id] = mx * inv;
+        ent.aimY[id] = my * inv;
+        ent.yaw[id] = atan2Poly(my, mx);
+      }
     }
 
     ent.animState[id] =
@@ -594,6 +623,77 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // Hold-to-buy at consoles (rules.md §3): runs every tick, holds decay.
     systemBuy(state, p, id, input.buttons);
   }
+}
+
+/** Lockable = enemy combat entities: avatars, spawned units, and the Warden. */
+function isLockable(archetype: number): boolean {
+  return archetype <= ARCHETYPE.FORTRESS || archetype === ARCHETYPE.WARDEN;
+}
+
+/** A lock holds while its target is a live enemy within AVATAR_LOCK_RANGE. */
+function isLockValid(
+  state: SimState,
+  player: number,
+  selfId: number,
+  targetId: number,
+  x: number,
+  y: number,
+): boolean {
+  const ent = state.ent;
+  if (targetId === selfId || !ent.alive[targetId]) return false;
+  const team = ent.team[targetId];
+  if (team < 0 || team === player) return false; // neutral or own team
+  if (!isLockable(ent.archetype[targetId])) return false;
+  const dx = ent.posX[targetId] - x;
+  const dy = ent.posY[targetId] - y;
+  return dx * dx + dy * dy <= AVATAR_LOCK_RANGE * AVATAR_LOCK_RANGE;
+}
+
+/**
+ * Target-Cycle (input.spec §4.4): with no lock, acquire the nearest in-range
+ * enemy (ties broken by lowest entity id); with a lock, cycle to the next valid
+ * enemy by ascending id, wrapping. Sets `lockTarget[player]` to -1 when nothing
+ * is in range. Scans entity arrays in dense id order — identical on every peer.
+ */
+function cycleLockTarget(
+  state: SimState,
+  player: number,
+  selfId: number,
+  x: number,
+  y: number,
+): void {
+  const ent = state.ent;
+  const cur = state.lockTarget[player];
+  if (cur < 0) {
+    let best = -1;
+    let bestD2 = AVATAR_LOCK_RANGE * AVATAR_LOCK_RANGE + 1;
+    for (let e = 0; e < ent.high; e++) {
+      if (!isLockValid(state, player, selfId, e, x, y)) continue;
+      const dx = ent.posX[e] - x;
+      const dy = ent.posY[e] - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        best = e;
+        bestD2 = d2;
+      }
+    }
+    state.lockTarget[player] = best;
+    return;
+  }
+  // Already locked: advance to the next valid id after cur, wrapping to 0..cur.
+  for (let e = cur + 1; e < ent.high; e++) {
+    if (isLockValid(state, player, selfId, e, x, y)) {
+      state.lockTarget[player] = e;
+      return;
+    }
+  }
+  for (let e = 0; e <= cur; e++) {
+    if (isLockValid(state, player, selfId, e, x, y)) {
+      state.lockTarget[player] = e;
+      return;
+    }
+  }
+  state.lockTarget[player] = -1;
 }
 
 /**
@@ -1023,6 +1123,7 @@ function systemDamageDeath(state: SimState): void {
       state.respawnTimer[player] = RESPAWN_TICKS;
       state.buyTarget[player] = -1; // death drops any buy hold
       state.buyProgress[player] = 0;
+      state.lockTarget[player] = -1; // and any soft-lock
     } else if (archetype === ARCHETYPE.TURRET) {
       let slotted = false;
       for (let k = 0; k < state.dummyEntity.length; k++) {
@@ -1250,6 +1351,7 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.laneCounter[p]);
     h = fnv1aU32(h, state.buyTarget[p] >>> 0);
     h = fnv1aU32(h, state.buyProgress[p] >>> 0);
+    h = fnv1aU32(h, state.lockTarget[p] >>> 0);
   }
   for (let k = 0; k < state.dummyEntity.length; k++) {
     h = fnv1aU32(h, state.dummyEntity[k] >>> 0);

@@ -60,6 +60,11 @@ export const AVATAR_AMMO_SPECIAL = 5;
 export const PRIMARY_COOLDOWN_TICKS = 5;
 export const PRIMARY_DAMAGE = 8;
 export const PRIMARY_RANGE = 40;
+// Soft-lock (input.spec §4.4 "lock"): the max distance at which the Target-Cycle
+// button can acquire/hold an enemy — a touch beyond PRIMARY_RANGE so you can
+// lock a target just before it enters firing range. A lock that drifts past this
+// releases back to free aim.
+export const AVATAR_LOCK_RANGE = 44;
 export const HEAVY_COOLDOWN_TICKS = 24;
 export const HEAVY_DAMAGE = 60;
 export const HEAVY_SPEED = 25;

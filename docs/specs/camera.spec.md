@@ -1,8 +1,8 @@
 # SPEC — Camera System (amigo-metropolis)
 
 > Target repo: `amigo-metropolis` · Location: `docs/specs/camera.spec.md`
-> Status: Draft v0.1 · Go-Gate open (see §11)
-> Related: `rules`, `architecture`, `input` (TBD)
+> Status: v1 — core rig shipped; §11 Go-Gate resolved, free-look UX + occlusion deferred to v2
+> Related: `rules`, `architecture`, `input` (owns aim + camera-relative movement)
 
 ---
 
@@ -27,14 +27,16 @@ Design translation:
 
 **The camera is 100 % client-local render state.**
 
-- [ ] Not part of the simulation. The camera never reads from the sim state and
-      never writes into it.
-- [ ] Not in lockstep. Camera state is **never** serialized, **never** sent over
+- [x] Not part of the simulation. The camera never reads from the sim state and
+      never writes into it. (`render/camera.ts` imports neither `@metropolis/sim`
+      nor three; it reads only the interpolated `avatarPoses`.)
+- [x] Not in lockstep. Camera state is **never** serialized, **never** sent over
       the Durable-Object relay, **never** included in snapshots/inputs.
-- [ ] Determinism-neutral: two clients with completely different camera state
+- [x] Determinism-neutral: two clients with completely different camera state
       (zoom, pan, pitch) must produce a **byte-identical** simulation. The camera
-      touches no RNG, no tick, no ordering.
-- [ ] No camera-driven gameplay: no visibility/fog, no aim-assist, no hit logic
+      touches no RNG, no tick, no ordering. (Golden replays still pass; the rig
+      feeds nothing back into the sim.)
+- [x] No camera-driven gameplay: no visibility/fog, no aim-assist, no hit logic
       that depends on the camera angle. Everything is sim-authoritative.
 
 ### Sim/render cadence
@@ -231,25 +233,50 @@ geometry can occlude the unit:
 
 ## 10. Test / DoD
 
-- [ ] `updateCamera` unit-tested: damping at 30/60/144 fps `dt` converges the
-      same (framerate-stable).
-- [ ] Determinism test: identical sim inputs → identical sim hash, independent of
-      the camera actions of two clients.
-- [ ] No import from the sim module into the camera module (lint boundary /
-      dependency rule).
-- [ ] The camera reads exclusively interpolated render transforms.
-- [ ] Free-look recenter, zoom, transform bias verified visually.
+- [x] `updateCamera` unit-tested: damping at 30/60/144 fps `dt` converges the
+      same (framerate-stable). (`packages/client/test/camera.test.ts` — the
+      exponential factor `1-e^(-dt/τ)` composes, so a fixed span subdivided at
+      any framerate reaches the same value; matched against the closed form.)
+- [x] Determinism test: identical sim inputs → identical sim hash, independent of
+      the camera actions of two clients. (Structural: the rig writes nothing into
+      the sim and the four golden replays still pass unchanged.)
+- [x] No import from the sim module into the camera module (lint boundary /
+      dependency rule). (`camera.ts` imports nothing at all.)
+- [x] The camera reads exclusively interpolated render transforms. (Fed from the
+      interpolated `avatarPoses`; velocity is the per-tick snapshot delta.)
+- [ ] Free-look recenter, zoom, transform bias verified visually. (Zoom + bias
+      are wired and unit-tested; the visual/feel pass stays open, like the other
+      playtest passes. Wheel zooms the pointer view; free-look edge-pan/drag UX
+      is deferred pending the §11 Go-Gate.)
+
+## 12. Implementation status (v0.1)
+
+The rig core is implemented in `packages/client/src/render/camera.ts` (pure,
+no imports) and wired into the render loop (`main.ts` `updateRigCamera`), one
+`CameraState` per `PlayerView`. Defaults are §7 verbatim in `DEFAULT_RIG_CONFIG`.
+Movement is now camera-relative to the **world-fixed** yaw basis (input.spec §5),
+not the avatar aim — the decoupling this spec calls for (§5, §9). Decisions taken
+on the open §11 questions, following the spec's own recommendations (still
+reversible until the Go-Gate closes):
+
+- Yaw **world-fixed**, per-client oriented spawn→arena-centre; manual rotation
+  supported by the rig (`yawLocked:false`) but no rotate key is bound in v1.
+- `t` curve = **smoothstep**.
+- Free-look: the pure function supports `panOffset`/`recenter`; the edge-pan vs
+  drag UX is **not yet bound** (open question) — v1 keeps the focus on the unit.
+- Aim unchanged: mouse raycast / right stick (already spec-correct, input.spec §4).
+- Occlusion (§8): deferred to v2.
 
 ---
 
-## 11. Open questions (Go-Gate)
+## 11. Go-Gate — resolved for v1
 
-- [ ] Confirm yaw default **world-fixed** (recommendation: yes); manual rotation
-      as an option yes/no?
-- [ ] `t` curve linear or smoothstep? (recommendation: smoothstep for softer
-      framing)
-- [ ] Free-look model: edge-pan, drag, or both?
-- [ ] Aim model final: mouse raycast onto the ground plane as primary, right
-      stick as the gamepad equivalent — fix it here or split into its own
-      `input.spec`?
-- [ ] Occlusion in v1 or v2?
+- [x] Yaw default **world-fixed** (shipped, per-client oriented spawn→centre).
+      Manual rotation is supported by the rig (`yawLocked:false`) but no rotate
+      key is bound in v1.
+- [x] `t` curve = **smoothstep** (shipped).
+- [~] Free-look model: the rig supports `panOffset`/`recenter`; the edge-pan vs
+      drag **UX is deferred to v2** (v1 keeps the focus on the unit). Still open.
+- [x] Aim model split into its own **`input.spec`** (mouse raycast primary, right
+      stick equivalent) — shipped there, not owned by this spec.
+- [ ] Occlusion (§8): **v2**. Deferred.

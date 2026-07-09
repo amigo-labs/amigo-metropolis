@@ -1,15 +1,18 @@
 // Camera-relative movement mapping (shared by keyboard and gamepad).
 //
 // WASD / the left stick are authored in a SCREEN frame: `forward` is "up the
-// screen / away from the camera", `strafe` is "to the screen right". The chase
-// camera sits behind the avatar's facing, so the player's facing vector IS the
-// camera's ground-forward. Rotating the screen axes by that facing makes
-// "forward" always drive where the camera looks, instead of a fixed world axis.
+// screen / away from the camera", `strafe` is "to the screen right". The basis
+// (fx, fy) is the CAMERA's ground-forward in sim coords (camera.spec §5): the
+// camera yaw is world-fixed, so movement is relative to the view, NOT to the
+// avatar's aim/facing — that decoupling is the deliberate modernisation vs. the
+// original's movement-coupled camera (camera.spec §9). Rotating the screen axes
+// by the camera-forward makes "forward" always drive where the camera looks.
 //
-// facing (fx, fy) is the avatar's aim/facing vector in sim coords (need not be
-// normalized). When it is ~zero (no aim yet) we fall back to world-relative
-// axes, matching the pre-aim behavior. Pure + allocation-free (caller owns out).
+// When the basis is ~zero (camera not ready) we fall back to world-relative
+// axes. Pure + allocation-free (caller owns out).
 
+import type * as THREE from "three";
+import { Vector3 } from "three";
 import type { Vec2 } from "./gamepadMapping";
 
 export function cameraRelativeMove(
@@ -44,5 +47,26 @@ export function cameraRelativeMove(
   }
   out.x = wx;
   out.y = wy;
+  return out;
+}
+
+// Scratch for the world-direction read; sample()/updateAim() are synchronous and
+// non-reentrant within a tick, so a shared module scratch is allocation-free-safe.
+const fwd = new Vector3();
+
+/**
+ * The camera's ground-forward as a sim-space unit vector (sim x,y = three x,z),
+ * i.e. the horizontal projection of the camera's look direction. This is the
+ * read-only yaw basis the movement layer consumes (camera.spec §5). Writes into
+ * `out`; leaves `out` untouched (keeping the last basis) when the look direction
+ * is near-vertical so a degenerate top-down frame never zeroes movement.
+ */
+export function cameraGroundForward(camera: THREE.Camera, out: Vec2): Vec2 {
+  camera.getWorldDirection(fwd);
+  const len = Math.sqrt(fwd.x * fwd.x + fwd.z * fwd.z);
+  if (len > 1e-6) {
+    out.x = fwd.x / len;
+    out.y = fwd.z / len;
+  }
   return out;
 }

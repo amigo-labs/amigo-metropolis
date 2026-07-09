@@ -9,14 +9,17 @@ import {
   BUTTON_FIRE3,
   BUTTON_INTERACT,
   BUTTON_JUMP,
+  BUTTON_TARGET_CYCLE,
   BUTTON_TRANSFORM,
+  MAX_ENTITIES,
   type PlayerInput,
   quantizeAxis,
 } from "@metropolis/sim";
 import type * as THREE from "three";
 import { Raycaster, Vector2, Vector3 } from "three";
+import { ASSIST_CONE_COS, ASSIST_STRENGTH, aimAssist, applyAimAssist } from "./aimAssist";
 import type { Vec2 } from "./gamepadMapping";
-import { cameraRelativeMove } from "./movement";
+import { cameraGroundForward, cameraRelativeMove } from "./movement";
 import type { LocalInputSource, Viewport } from "./types";
 
 const BUTTON_KEYS: readonly [string, number][] = [
@@ -47,6 +50,16 @@ export class PlayerOneInput implements LocalInputSource {
   private mouseY = 0;
   private aimX = 0;
   private aimY = 0;
+  // Camera ground-forward (sim coords) used as the camera-relative move basis;
+  // refreshed each tick in updateAim. Defaults to +x before the camera is ready.
+  private readonly moveBasis: Vec2 = { x: 1, y: 0 };
+  // Per-tick aim-assist context, stashed in updateAim: own position and a copy
+  // of the enemy positions (packed x,y) used by "assist" magnetism in sample().
+  private selfX = 0;
+  private selfY = 0;
+  private enemyCount = 0;
+  private readonly enemies = new Float32Array(MAX_ENTITIES * 2);
+  private readonly assistOut: Vec2 = { x: 0, y: 0 };
 
   constructor(target: Window) {
     target.addEventListener("keydown", (e) => {
@@ -93,7 +106,18 @@ export class PlayerOneInput implements LocalInputSource {
     avatarY: number,
     avatarHeight: number,
     viewport: Viewport,
+    enemies: Float32Array,
+    enemyCount: number,
   ): void {
+    // Movement basis = the camera's world-fixed ground-forward (camera.spec §5),
+    // independent of where the mouse aims below.
+    cameraGroundForward(camera, this.moveBasis);
+    // Stash aim-assist context (own position + a copy of the enemy list) for
+    // sample(); the caller's `enemies` scratch is reused across views.
+    this.selfX = avatarX;
+    this.selfY = avatarY;
+    this.enemyCount = Math.min(enemyCount, MAX_ENTITIES);
+    this.enemies.set(enemies.subarray(0, this.enemyCount * 2));
     const vx = ((this.mouseX - viewport.left) / viewport.width) * 2 - 1;
     const vy = -((this.mouseY - viewport.top) / viewport.height) * 2 + 1;
     ndc.set(vx, vy);
@@ -123,13 +147,31 @@ export class PlayerOneInput implements LocalInputSource {
     if (this.down.has("KeyD") || this.down.has("ArrowRight")) x += 1;
     if (this.down.has("KeyW") || this.down.has("ArrowUp")) y += 1;
     if (this.down.has("KeyS") || this.down.has("ArrowDown")) y -= 1;
-    // Camera-relative: rotate the screen-frame WASD axes by the current aim
-    // (== the chase camera's ground-forward) so W always drives into the screen.
-    cameraRelativeMove(x, y, this.aimX, this.aimY, moveScratch);
+    // Camera-relative: rotate the screen-frame WASD axes by the camera's
+    // ground-forward so W always drives into the screen — decoupled from aim.
+    cameraRelativeMove(x, y, this.moveBasis.x, this.moveBasis.y, moveScratch);
     out.moveX = quantizeAxis(moveScratch.x);
     out.moveY = quantizeAxis(moveScratch.y);
-    out.aimX = quantizeAxis(this.aimX);
-    out.aimY = quantizeAxis(this.aimY);
+    // "assist" magnetism shapes the free aim locally, before quantization.
+    let aimX = this.aimX;
+    let aimY = this.aimY;
+    if (aimAssist.mode === "assist") {
+      applyAimAssist(
+        aimX,
+        aimY,
+        this.selfX,
+        this.selfY,
+        this.enemies,
+        this.enemyCount,
+        ASSIST_CONE_COS,
+        ASSIST_STRENGTH,
+        this.assistOut,
+      );
+      aimX = this.assistOut.x;
+      aimY = this.assistOut.y;
+    }
+    out.aimX = quantizeAxis(aimX);
+    out.aimY = quantizeAxis(aimY);
     let buttons = 0;
     for (let i = 0; i < BUTTON_KEYS.length; i++) {
       if (this.down.has(BUTTON_KEYS[i][0])) buttons |= BUTTON_KEYS[i][1];
@@ -137,6 +179,8 @@ export class PlayerOneInput implements LocalInputSource {
     for (let i = 0; i < MOUSE_BUTTON_BITS.length; i++) {
       if ((this.mouseButtons & (1 << i)) !== 0) buttons |= MOUSE_BUTTON_BITS[i];
     }
+    // Target-cycle (T) only emits in "lock" mode; the sim owns the tracking.
+    if (aimAssist.mode === "lock" && this.down.has("KeyT")) buttons |= BUTTON_TARGET_CYCLE;
     out.buttons = buttons;
   }
 }

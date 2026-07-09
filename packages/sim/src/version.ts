@@ -21,4 +21,10 @@
 //     PROTOCOL_VERSION; SIM_VERSION is what the DO checks to reject mismatched
 //     rooms — a hash-affecting change bumps it and desyncs are impossible by
 //     construction between matched peers.)
-export const SIM_VERSION = 6;
+// v7: soft-lock aiming (input.spec §4.4 "lock") — a per-player target held in
+//     the sim, acquired/cycled by the new BUTTON_TARGET_CYCLE and hashed. The
+//     button fits the existing u8 (no wire/replay format change), so goldens are
+//     re-recorded only for the new hash sequence; their input scripts never
+//     press the bit, so the trajectories (and the golden 02/03/04 event beats)
+//     are byte-for-byte unchanged — only the hash bytes differ.
+export const SIM_VERSION = 7;
