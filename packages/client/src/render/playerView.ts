@@ -9,6 +9,13 @@
 
 import * as THREE from "three";
 import type { LocalInputSource, Viewport } from "../input/types";
+import {
+  type CameraInput,
+  type CameraState,
+  createCameraState,
+  DEFAULT_RIG_CONFIG,
+  deriveCameraPose,
+} from "./camera";
 
 export type SplitOrientation = "v" | "h";
 
@@ -20,27 +27,55 @@ export interface PlayerView {
   readonly hud: HTMLDivElement;
   /** Screen rectangle in CSS px, top-left origin (recomputed on resize). */
   readonly viewport: Viewport;
+  /** Orbit-follow rig state (camera.spec) — client-local, mutated per frame. */
+  readonly cam: CameraState;
+  /** Per-frame rig input, reused (zeroed then filled) to stay allocation-free. */
+  readonly camInput: CameraInput;
 }
 
-/** Builds a view per local player, appending each HUD element to the document. */
+/**
+ * Builds a view per local player, appending each HUD element to the document.
+ * Each rig starts world-fixed (camera.spec §3), oriented so "up the screen"
+ * points from that player's spawn toward the arena centre (`arenaExtent`) — a
+ * fixed per-client azimuth that never auto-rotates behind movement.
+ */
 export function createPlayerViews(
   players: readonly { slot: number; input: LocalInputSource }[],
   spawns: readonly { x: number; y: number }[],
+  arenaExtent: number,
 ): PlayerView[] {
   const views: PlayerView[] = [];
+  const center = arenaExtent / 2;
   for (const p of players) {
     const spawn = spawns[p.slot] ?? spawns[0];
-    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
-    camera.position.set(spawn.x - 14, 12, spawn.y);
+    const camera = new THREE.PerspectiveCamera(DEFAULT_RIG_CONFIG.action.fovDeg, 1, 0.1, 2000);
+    // Ground-forward = spawn → centre, in render (x, z). yaw = atan2(dz, dx).
+    const yaw = Math.atan2(center - spawn.y, center - spawn.x);
     const hud = document.createElement("div");
     hud.className = "hud";
     document.body.appendChild(hud);
+    const cam = createCameraState({ x: spawn.x, y: 0, z: spawn.y }, yaw);
+    // Seed the first-frame pose so aim/movement have a sensible camera basis on
+    // tick 1 (before the frame loop's first rig update). Allocation is fine here
+    // — this runs once at match start, not in the frame loop.
+    const target = new THREE.Vector3();
+    deriveCameraPose(cam, DEFAULT_RIG_CONFIG, camera.position, target);
+    camera.lookAt(target);
+    camera.updateMatrixWorld();
     views.push({
       slot: p.slot,
       input: p.input,
       camera,
       hud,
       viewport: { left: 0, top: 0, width: 1, height: 1 },
+      cam,
+      camInput: {
+        zoomDelta: 0,
+        yawDelta: 0,
+        panDelta: { x: 0, y: 0, z: 0 },
+        recenter: false,
+        snapTarget: null,
+      },
     });
   }
   return views;

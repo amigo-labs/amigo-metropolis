@@ -2,13 +2,14 @@
 // Standard Gamepad each tick and quantizes at the boundary — analog sticks
 // become int8 axes, so raw gamepad floats never enter the sim (architecture.md
 // §2). Controls are camera-relative, matching the keyboard/mouse scheme: the
-// left stick drives relative to the chase camera (via the current facing), the
-// right stick aims (and holds the last facing when released, like the mouse).
-// Allocation-free in sample().
+// left stick drives relative to the camera's world-fixed ground-forward
+// (camera.spec §5), the right stick aims independently (twin-stick), holding the
+// last facing when released. Allocation-free in sample().
 
 import { type PlayerInput, quantizeAxis } from "@metropolis/sim";
+import type * as THREE from "three";
 import { GAMEPAD_BUTTON_MAP, STICK_DEADZONE, stickWithDeadzone, type Vec2 } from "./gamepadMapping";
-import { cameraRelativeMove } from "./movement";
+import { cameraGroundForward, cameraRelativeMove } from "./movement";
 import type { LocalInputSource } from "./types";
 
 // Module-scope scratch: sample() runs inside the tick loop for every player in
@@ -25,6 +26,9 @@ export class GamepadInput implements LocalInputSource {
   // Last non-neutral aim direction (unit vector). Defaults to +x facing.
   private aimX = 1;
   private aimY = 0;
+  // Camera ground-forward (sim coords) used as the camera-relative move basis;
+  // refreshed each tick in updateAim. Defaults to +x before the camera is ready.
+  private readonly moveBasis: Vec2 = { x: 1, y: 0 };
 
   constructor(index: number) {
     this.index = index;
@@ -42,8 +46,11 @@ export class GamepadInput implements LocalInputSource {
     return this.pad()?.connected ?? false;
   }
 
-  // Stick aim is world-relative and needs no camera projection.
-  updateAim(): void {}
+  // Stick aim is world-relative (no camera projection), but movement still needs
+  // the camera's ground-forward as its basis (camera.spec §5).
+  updateAim(camera: THREE.Camera): void {
+    cameraGroundForward(camera, this.moveBasis);
+  }
 
   sample(out: PlayerInput): void {
     const p = this.pad();
@@ -68,10 +75,10 @@ export class GamepadInput implements LocalInputSource {
     }
     out.aimX = quantizeAxis(this.aimX);
     out.aimY = quantizeAxis(this.aimY);
-    // Left stick → analog move, camera-relative (rotated by the facing above).
-    // Gamepad Y is +down, sim +y is forward: invert for "forward".
+    // Left stick → analog move, camera-relative (rotated by the camera-forward,
+    // NOT the aim). Gamepad Y is +down, sim +y is forward: invert for "forward".
     stickWithDeadzone(ax[0] ?? 0, ax[1] ?? 0, STICK_DEADZONE, move);
-    cameraRelativeMove(move.x, -move.y, this.aimX, this.aimY, move);
+    cameraRelativeMove(move.x, -move.y, this.moveBasis.x, this.moveBasis.y, move);
     out.moveX = quantizeAxis(move.x);
     out.moveY = quantizeAxis(move.y);
     const b = p.buttons;

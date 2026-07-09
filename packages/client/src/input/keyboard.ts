@@ -16,7 +16,7 @@ import {
 import type * as THREE from "three";
 import { Raycaster, Vector2, Vector3 } from "three";
 import type { Vec2 } from "./gamepadMapping";
-import { cameraRelativeMove } from "./movement";
+import { cameraGroundForward, cameraRelativeMove } from "./movement";
 import type { LocalInputSource, Viewport } from "./types";
 
 const BUTTON_KEYS: readonly [string, number][] = [
@@ -47,6 +47,9 @@ export class PlayerOneInput implements LocalInputSource {
   private mouseY = 0;
   private aimX = 0;
   private aimY = 0;
+  // Camera ground-forward (sim coords) used as the camera-relative move basis;
+  // refreshed each tick in updateAim. Defaults to +x before the camera is ready.
+  private readonly moveBasis: Vec2 = { x: 1, y: 0 };
 
   constructor(target: Window) {
     target.addEventListener("keydown", (e) => {
@@ -94,6 +97,9 @@ export class PlayerOneInput implements LocalInputSource {
     avatarHeight: number,
     viewport: Viewport,
   ): void {
+    // Movement basis = the camera's world-fixed ground-forward (camera.spec §5),
+    // independent of where the mouse aims below.
+    cameraGroundForward(camera, this.moveBasis);
     const vx = ((this.mouseX - viewport.left) / viewport.width) * 2 - 1;
     const vy = -((this.mouseY - viewport.top) / viewport.height) * 2 + 1;
     ndc.set(vx, vy);
@@ -123,9 +129,9 @@ export class PlayerOneInput implements LocalInputSource {
     if (this.down.has("KeyD") || this.down.has("ArrowRight")) x += 1;
     if (this.down.has("KeyW") || this.down.has("ArrowUp")) y += 1;
     if (this.down.has("KeyS") || this.down.has("ArrowDown")) y -= 1;
-    // Camera-relative: rotate the screen-frame WASD axes by the current aim
-    // (== the chase camera's ground-forward) so W always drives into the screen.
-    cameraRelativeMove(x, y, this.aimX, this.aimY, moveScratch);
+    // Camera-relative: rotate the screen-frame WASD axes by the camera's
+    // ground-forward so W always drives into the screen — decoupled from aim.
+    cameraRelativeMove(x, y, this.moveBasis.x, this.moveBasis.y, moveScratch);
     out.moveX = quantizeAxis(moveScratch.x);
     out.moveY = quantizeAxis(moveScratch.y);
     out.aimX = quantizeAxis(this.aimX);

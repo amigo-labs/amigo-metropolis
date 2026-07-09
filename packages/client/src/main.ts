@@ -53,6 +53,7 @@ import { runLobby } from "./lobby";
 import { runMenu } from "./menu";
 import { NetLockstep } from "./net/lockstep";
 import { WsTransport } from "./net/wsTransport";
+import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import {
   createPlayerViews,
@@ -225,9 +226,21 @@ const scratchQuat = new THREE.Quaternion();
 const scratchPos = new THREE.Vector3();
 const scratchScale = new THREE.Vector3(1, 1, 1);
 const camTarget = new THREE.Vector3();
-const camEye = new THREE.Vector3();
+const rigFocus = { x: 0, y: 0, z: 0 };
+const rigVel = { x: 0, y: 0, z: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 const TAU = Math.PI * 2;
+
+// Mouse-wheel zoom for the pointer view: accumulated between frames, drained
+// into that view's rig input once per frame (kept out of the sim entirely).
+let wheelAccum = 0;
+addEventListener(
+  "wheel",
+  (e) => {
+    wheelAccum += e.deltaY;
+  },
+  { passive: true },
+);
 
 const reticle = document.getElementById("reticle") as HTMLDivElement;
 addEventListener("mousemove", (e) => {
@@ -280,8 +293,11 @@ function downloadReplay(bytes: Uint8Array, name: string): void {
 
 // Interpolated pose of each player's avatar (sim x,y,height,yaw in 0..3; slot
 // 4 = found), keyed by player slot. Filled by renderEntities for chase cams+HUD.
+// Per-player avatar render state, filled by renderEntities for the chase rigs:
+// [threeX, threeZ, height, found(0/1), pursuit(0/1), velX, velZ]. velX/velZ are
+// world u/s in render space, from the raw per-tick snapshot delta.
 const avatarPoses: Float32Array[] = [];
-for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses.push(new Float32Array(5));
+for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses.push(new Float32Array(7));
 // Avatar id per player captured BEFORE each step, so we can attribute this
 // tick's hit/death events (which clear avatarId) back to a player for rumble.
 const prevAvatarId = new Int32Array(MAX_PLAYERS);
@@ -357,7 +373,7 @@ function renderEntities(alpha: number): void {
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }
-  for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses[p][4] = 0;
+  for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses[p][3] = 0;
   let p = 0;
   for (let c = 0; c < countCurr; c++) {
     const o = c * SNAPSHOT_STRIDE;
@@ -391,11 +407,19 @@ function renderEntities(alpha: number): void {
     const team = snapCurr[o + 2];
     if (archetype === ARCHETYPE.AVATAR && team >= 0 && team < MAX_PLAYERS) {
       const pose = avatarPoses[team];
-      pose[0] = x;
-      pose[1] = y;
-      pose[2] = height;
-      pose[3] = yaw;
-      pose[4] = 1;
+      pose[0] = x; // three x
+      pose[1] = y; // three z (sim y)
+      pose[2] = height; // three y
+      pose[3] = 1; // found
+      pose[4] = (animState & ANIM_HOVER) !== 0 ? 1 : 0; // pursuit/hover framing
+      // Look-ahead velocity: raw per-tick delta → world u/s, in render space.
+      if (hasPrev) {
+        pose[5] = (snapCurr[o + 3] - snapPrev[po + 3]) * TICK_HZ;
+        pose[6] = (snapCurr[o + 4] - snapPrev[po + 4]) * TICK_HZ;
+      } else {
+        pose[5] = 0;
+        pose[6] = 0;
+      }
     }
 
     // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
@@ -419,17 +443,28 @@ function renderEntities(alpha: number): void {
   }
 }
 
-/** Chase cam: behind the avatar's facing, smoothed exponentially. Per view. */
-function updateChaseCamera(view: PlayerView, dtMs: number): void {
+/**
+ * Orbit-follow rig (camera.spec): world-fixed yaw, a stepless pitch+zoom `t`
+ * continuum, look-ahead and a walker/pursuit resting-point bias. Client-local
+ * render state — reads only the interpolated avatar pose, never the sim. Per
+ * view; framerate-stable in real `dt` seconds.
+ */
+function updateRigCamera(view: PlayerView, dtSec: number): void {
   const pose = avatarPoses[view.slot];
-  if (pose[4] === 0) return;
-  const yaw = pose[3];
-  const fx = Math.cos(yaw);
-  const fy = Math.sin(yaw);
-  camEye.set(pose[0] - fx * 13, pose[2] + 8.5, pose[1] - fy * 13);
-  const k = 1 - Math.exp(-dtMs / 180);
-  view.camera.position.lerp(camEye, k);
-  camTarget.set(pose[0] + fx * 4, pose[2] + 2, pose[1] + fy * 4);
+  if (pose[3] === 0) return; // avatar not present this frame
+  rigFocus.x = pose[0];
+  rigFocus.y = pose[2]; // three y (height) — the rig adds focusHeight
+  rigFocus.z = pose[1];
+  rigVel.x = pose[5];
+  rigVel.y = 0;
+  rigVel.z = pose[6];
+  const pursuit = pose[4] !== 0;
+  updateCamera(view.cam, view.camInput, rigFocus, rigVel, pursuit, DEFAULT_RIG_CONFIG, dtSec);
+  const fov = deriveCameraPose(view.cam, DEFAULT_RIG_CONFIG, view.camera.position, camTarget);
+  if (view.camera.fov !== fov) {
+    view.camera.fov = fov;
+    view.camera.updateProjectionMatrix();
+  }
   view.camera.lookAt(camTarget);
 }
 
@@ -509,16 +544,21 @@ function frame(now: number): void {
   if (net) refreshOverlay();
 
   renderEntities(accumulator / TICK_MS);
+  // Drain accumulated wheel into the pointer view's rig (scroll up → zoom in →
+  // toward ACTION). Splitscreen/gamepad views take no zoom for now.
+  const dtSec = dtMs / 1000;
   for (let v = 0; v < views.length; v++) {
     const view = views[v];
+    view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
     if (orbitControls && v === 0) orbitControls.update();
-    else updateChaseCamera(view, dtMs);
+    else updateRigCamera(view, dtSec);
     const vp = view.viewport;
     const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
     renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
     renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
     renderer.render(scene, view.camera);
   }
+  wheelAccum = 0; // consumed for this frame
 
   hudFrames++;
   if (now - hudLastUpdate > 1000) {
@@ -532,7 +572,7 @@ function frame(now: number): void {
 // --- Boot: (optional lobby →) build views → run ------------------------------
 
 function startMatch(localPlayers: readonly { slot: number; input: LocalInputSource }[]): void {
-  views = createPlayerViews(localPlayers, map.spawns);
+  views = createPlayerViews(localPlayers, map.spawns, extent);
   for (let v = 0; v < views.length; v++) viewBySlot[views[v].slot] = views[v];
   layoutViews(views, splitOrientation, innerWidth, innerHeight);
 
