@@ -1,7 +1,7 @@
 # SPEC — Netcode & Determinism (amigo-metropolis)
 
 > Target repo: `amigo-metropolis` · Location: `docs/specs/netcode.spec.md`
-> Status: Draft v0.1 · Go-Gate open (§9)
+> Status: v1 — matches the shipped netcode (Phase 6); remaining §9 items are explicit v2 upgrades
 > Related: `input.spec` (defines `InputCommand`), `camera.spec` (render-only, never synchronized)
 
 ---
@@ -16,49 +16,58 @@ match, so determinism is decision No. 1.
 
 ---
 
-## 2. Determinism substrate (the critical decision)
+## 2. Determinism substrate (the critical decision — resolved)
 
-### Problem
-- IEEE-754 base operations (`+ − × ÷ sqrt`) are specified and consistent across
-  platforms.
-- **Transcendental functions** (`Math.sin/cos/tan/atan2/exp/pow/hypot`) are
-  **not** bit-identical across JS engines/OS/CPU — the spec allows
-  implementation-defined results. This is exactly where lockstep titles desync
-  silently.
+### The hazard
+- IEEE-754 base operations (`+ − × ÷`, `sqrt`) **are** specified as correctly
+  rounded (round-to-nearest-even) and are bit-identical across JS engines/OS/CPU.
+- **Transcendental functions** (`Math.sin/cos/tan/atan2/exp/pow/hypot`) are the
+  real danger: ECMAScript leaves them implementation-defined, so they differ
+  across engines and silently desync lockstep titles.
 
-### Recommendation: **fixed-point integer simulation**
-The only approach with a **hard** cross-platform guarantee.
+### Decision (shipped): pure-TS float64 over a restricted, IEEE-exact op subset
+`packages/sim` is a **pure-TypeScript** simulation — no Rust, no WASM, no
+fixed-point (CLAUDE.md: *"TypeScript only … The sim is portable pure TS."*).
+Determinism is guaranteed not by integer state but by **restricting which float
+operations the sim may use** to exactly the ones IEEE-754 pins:
 
-- Sim state entirely in **integers** (no float in the sim path).
-- Representation: **Q16.16** (32-bit) as the default. Multiplication needs a
-  64-bit intermediate → `BigInt` **or** a high/low split; addition/subtraction in
-  `| 0` range, `Math.imul` where sensible. Document value ranges/overflow
-  explicitly.
-- **Angles as 16-bit brads** (0..65535 = one turn) — matches `aimYaw` from
-  `input.spec`.
-- Deterministic math lib:
-  - `sqrt`: integer Newton-Raphson.
-  - `sin/cos`: **LUT** with fixed-point interpolation (identical table on all
-    clients).
-  - `atan2`: fixed-point approximation/LUT.
-- **RNG**: a seeded integer PRNG (PCG/xorshift), **part of the sim state**,
-  advanced only in the sim tick. No `Math.random` in the sim.
+- **Allowed arithmetic:** `+ − × ÷`, `Math.sqrt`, `Math.floor/ceil/abs/min/max/sign`,
+  `Math.imul` and integer bitwise ops — all correctly-rounded / exactly-specified
+  and identical on V8/JSC/SpiderMonkey. JS additionally has **no FMA contraction**
+  and **no x87 extended-precision** intermediates, so `a*b + c` rounds the same
+  everywhere.
+- **Banned in the sim:** every engine-dependent `Math.*` transcendental.
+  Trigonometry comes from `simMath.ts` — a committed **sine lookup table**
+  (`sinTable.ts`, `sinLUT`/`cosLUT`) and a **polynomial `atan2`**, identical on
+  every client. Prefer direction vectors + normalize over angles wherever possible.
+- **Angles:** radians as doubles, quantized through the LUT. There is no brad
+  representation in the sim; the `input.spec` aim field is a quantized direction
+  vector (see that spec).
+- **RNG:** seeded **mulberry32**, stored in the sim state and advanced only inside
+  the tick. Never `Math.random` in the sim.
+- **Hash:** a 32-bit **FNV-1a** over the canonical serialized state every tick
+  (`hash.ts`). Golden-replay tests assert the full hash sequence and run across
+  browsers — the empirical proof that the restricted-float approach stays
+  bit-identical in practice, not just in theory.
 
-### Strong alternative: **Rust → WASM as the sim core**
-Recommended to evaluate, because it fits your stack excellently:
-- Integer fixed-point in Rust is trivially deterministic, portable and fast.
-- Reusable in the DO (Workers support WASM) for a later **server-side shadow sim**
-  (anti-cheat).
-- Synergy with `amigo-engine` (a deterministic Rust sim, your existing muscle).
-- Trade-off: WASM/JS bridge + build complexity vs. a pure TS sim. With a "TS sim",
-  fixed-point stays mandatory.
-
-### Determinism hygiene (applies to both paths)
+### Determinism hygiene (enforced)
 - No `Date.now()`/`performance.now()`/locale/async ordering in the sim path.
-- **Stable iteration order**: only arrays with deterministic sorting; entity IDs
-  assigned deterministically; no ordering over unsorted structures.
+- **Stable iteration order:** entity storage is a dense array indexed by entity
+  id, iterated in id order; never over unsorted `Map`/`Set`/object keys.
 - Cosmetics (particles, audio, UI) use a **separate** non-sim RNG so they can
   never disturb the sim.
+
+### Deferred alternatives (considered, NOT adopted)
+Kept on record; neither is planned, because the shipped approach already passes
+cross-browser golden replays:
+- **Fixed-point integers (Q16.16 …)** — a "harder" guarantee in theory, but in JS
+  it needs `BigInt` or hi/lo-split multiplies, adding complexity and bug surface
+  for no real gain over the restricted-float subset that already works. Revisit
+  only if goldens ever drift on a target platform.
+- **Rust → WASM sim core** — would add a build toolchain + a JS↔WASM bridge and a
+  rewrite of the working TS sim, and contradicts the repo's TypeScript-only
+  charter. Its one unique upside is a **server-side shadow sim** in the Durable
+  Object for anti-cheat (§5) — a speculative v2+ concern, not a v1 need.
 
 ---
 
@@ -109,7 +118,8 @@ Responsible for:
 - **Desync detection** (§7): collect and compare periodic state hashes.
 - **Input log** for reconnect/late-join (§8).
 
-Transport: **WebSocket** to the DO (evaluate the Hibernation API for cost).
+Transport: **WebSocket** to the DO via the **Hibernation API** (shipped — keeps
+an idle room cheap).
 
 ### Security trade-off (deliberate)
 - A pure relay means a client could send illegal inputs. v1 accepts this (trust
@@ -153,14 +163,19 @@ Transport: **WebSocket** to the DO (evaluate the Hibernation API for cost).
 
 ---
 
-## 9. Open questions (Go-Gate)
+## 9. Go-Gate — resolved for v1
 
-- [ ] Substrate final: **TS fixed-point** or **Rust→WASM core**? (Recommendation:
-      evaluate Rust→WASM — determinism guarantee, DO reuse, `amigo-engine`
-      synergy.)
-- [ ] Lockstep: confirm delay-based v1 with `D = 2–3`; plan rollback as v2?
-- [ ] Laggard fallback: input repetition vs. pause?
-- [ ] Fixed-point format: is Q16.16 sufficient, or do large maps/precision need a
-      bigger Q or 64-bit?
-- [ ] Fix the checkpoint interval K and the hash interval N.
-- [ ] Anti-cheat: accept a pure trust relay in v1, shadow sim as v2?
+- [x] **Substrate:** pure-TS float64 over the restricted IEEE-exact op subset +
+      LUT trig (shipped; §2). Fixed-point / Rust→WASM explicitly deferred.
+- [x] **Lockstep:** delay-based, confirmed. Local input delay is 2 ticks; online
+      input is sent 3 ticks ahead and only server-confirmed frames are stepped
+      (Phase 6). Rollback stays a v2 upgrade — the sim is already save/restore +
+      re-simulate capable (§4).
+- [x] **Laggard fallback:** the relay stalls the tick barrier and the client
+      shows a "waiting for opponent" overlay; no last-input repetition in v1.
+- [x] **Fixed-point format:** moot — no fixed-point (see §2).
+- [x] **Hash interval:** N = 30 ticks (shipped). Reconnect fast-forwards the DO's
+      confirmed-frame log (§8); a separate periodic checkpoint-snapshot cadence K
+      stays a later optimization, not required for correctness.
+- [ ] **Anti-cheat (v2):** v1 is a pure trust relay. A DO shadow sim remains the
+      one strong reason to revisit a Rust→WASM core; unscheduled.
