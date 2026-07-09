@@ -10,6 +10,15 @@ export const BUTTON_FIRE3 = 1 << 2;
 export const BUTTON_TRANSFORM = 1 << 3;
 export const BUTTON_JUMP = 1 << 4;
 export const BUTTON_INTERACT = 1 << 5;
+/**
+ * Soft-lock target cycle (input.spec §4.4 "lock" mode). Edge-triggered: each
+ * press acquires the nearest enemy or, when already locked, cycles to the next.
+ * The lock lives in the sim (deterministic on every peer), so no target id is
+ * transmitted — only this held bit, which fits the existing u8 buttons field
+ * (bit 7 stays free). The chosen aim-assist mode is a LOCAL client setting
+ * (input.spec §8); the wire format is unchanged.
+ */
+export const BUTTON_TARGET_CYCLE = 1 << 6;
 
 /** Axes are integers in [-127, 127]; buttons is a u8 bitfield. */
 export interface PlayerInput {
