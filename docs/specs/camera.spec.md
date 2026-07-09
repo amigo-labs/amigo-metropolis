@@ -1,8 +1,8 @@
 # SPEC — Camera System (amigo-metropolis)
 
 > Target repo: `amigo-metropolis` · Location: `docs/specs/camera.spec.md`
-> Status: Draft v0.1 · Go-Gate open (see §11)
-> Related: `rules`, `architecture`, `input` (TBD)
+> Status: v1 — core rig shipped; §11 Go-Gate resolved, free-look UX + occlusion deferred to v2
+> Related: `rules`, `architecture`, `input` (owns aim + camera-relative movement)
 
 ---
 
@@ -269,14 +269,14 @@ reversible until the Go-Gate closes):
 
 ---
 
-## 11. Open questions (Go-Gate)
+## 11. Go-Gate — resolved for v1
 
-- [ ] Confirm yaw default **world-fixed** (recommendation: yes); manual rotation
-      as an option yes/no?
-- [ ] `t` curve linear or smoothstep? (recommendation: smoothstep for softer
-      framing)
-- [ ] Free-look model: edge-pan, drag, or both?
-- [ ] Aim model final: mouse raycast onto the ground plane as primary, right
-      stick as the gamepad equivalent — fix it here or split into its own
-      `input.spec`?
-- [ ] Occlusion in v1 or v2?
+- [x] Yaw default **world-fixed** (shipped, per-client oriented spawn→centre).
+      Manual rotation is supported by the rig (`yawLocked:false`) but no rotate
+      key is bound in v1.
+- [x] `t` curve = **smoothstep** (shipped).
+- [~] Free-look model: the rig supports `panOffset`/`recenter`; the edge-pan vs
+      drag **UX is deferred to v2** (v1 keeps the focus on the unit). Still open.
+- [x] Aim model split into its own **`input.spec`** (mouse raycast primary, right
+      stick equivalent) — shipped there, not owned by this spec.
+- [ ] Occlusion (§8): **v2**. Deferred.
