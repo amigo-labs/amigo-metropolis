@@ -46,3 +46,6 @@ assets and Future Cop trademarks may be used (see `docs/specs/assets.md` §2).
 | Map | Source | How it's made |
 | --- | --- | --- |
 | `packages/sim/maps/urban-jungle.json` | *Future Cop: L.A.P.D.* mission **Conft** | walkable-floor heightfield extracted from the original mission (int8, 1/32 m units), padded square (225→257) and authored with amigo-metropolis features (bases/spawns/lanes); no original art, textures, or geometry meshes committed |
+| `packages/sim/maps/proving-ground.json` | *Future Cop: L.A.P.D.* mission **Slim** | same pipeline (padded square 225→257), features authored on the flat 0 m play field |
+| `packages/sim/maps/la-cantina.json` | *Future Cop: L.A.P.D.* mission **Mp** | same pipeline (padded square 209→241), features authored on the 0.594 m apron around the central building |
+| `packages/sim/maps/bug-hunt.json` | *Future Cop: L.A.P.D.* mission **Joke** | same pipeline (padded square 225→257), a Proving Ground terrain variant with lanes re-routed on its own heights |

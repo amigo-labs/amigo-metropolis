@@ -4,7 +4,10 @@
 // Real maps ship as JSON in packages/sim/maps/ (validated by loadMapFromJson
 // and a schema test); the Phase 0 test map stays procedurally generated.
 
+import bugHuntJson from "../maps/bug-hunt.json";
 import districtJson from "../maps/district-01.json";
+import laCantinaJson from "../maps/la-cantina.json";
+import provingGroundJson from "../maps/proving-ground.json";
 import urbanJungleJson from "../maps/urban-jungle.json";
 import { clamp, cosLUT, lerp, sinLUT } from "./simMath";
 
@@ -119,6 +122,15 @@ export const DISTRICT_01_ID = "district-01";
 /** FCOP "Urban Jungle" arena (mission Conft), heightfield extracted 1:1. */
 export const URBAN_JUNGLE_ID = "urban-jungle";
 
+/** FCOP "Proving Ground" arena (mission Slim), heightfield extracted 1:1. */
+export const PROVING_GROUND_ID = "proving-ground";
+
+/** FCOP "La Cantina" arena (mission Mp), heightfield extracted 1:1. */
+export const LA_CANTINA_ID = "la-cantina";
+
+/** FCOP "Bug Hunt" arena (mission Joke), heightfield extracted 1:1. */
+export const BUG_HUNT_ID = "bug-hunt";
+
 /** Metadata for one selectable arena — what a map picker needs to offer it. */
 export interface MapInfo {
   /** Registry id — the exact string stored in replays and the net handshake. */
@@ -131,6 +143,9 @@ export interface MapInfo {
 const REGISTRY: readonly { readonly info: MapInfo; readonly json: MapJson }[] = [
   { info: { id: DISTRICT_01_ID, displayName: "District 01" }, json: districtJson },
   { info: { id: URBAN_JUNGLE_ID, displayName: "Urban Jungle" }, json: urbanJungleJson },
+  { info: { id: PROVING_GROUND_ID, displayName: "Proving Ground" }, json: provingGroundJson },
+  { info: { id: LA_CANTINA_ID, displayName: "La Cantina" }, json: laCantinaJson },
+  { info: { id: BUG_HUNT_ID, displayName: "Bug Hunt" }, json: bugHuntJson },
 ];
 
 /** Selectable arenas in display order. test-128 stays a debug-only deep link. */

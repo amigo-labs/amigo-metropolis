@@ -4,10 +4,13 @@
 import { describe, expect, it } from "bun:test";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
+  BUG_HUNT_ID,
   createTestMap,
   DISTRICT_01_ID,
   getMapById,
+  LA_CANTINA_ID,
   MAP_REGISTRY,
+  PROVING_GROUND_ID,
   sampleHeight,
   TEST_MAP_ID,
   URBAN_JUNGLE_ID,
@@ -37,7 +40,13 @@ describe("test map", () => {
 
 describe("map registry", () => {
   it("lists the selectable arenas in menu order with unique ids", () => {
-    expect(MAP_REGISTRY.map((m) => m.id)).toEqual([DISTRICT_01_ID, URBAN_JUNGLE_ID]);
+    expect(MAP_REGISTRY.map((m) => m.id)).toEqual([
+      DISTRICT_01_ID,
+      URBAN_JUNGLE_ID,
+      PROVING_GROUND_ID,
+      LA_CANTINA_ID,
+      BUG_HUNT_ID,
+    ]);
     expect(new Set(MAP_REGISTRY.map((m) => m.id)).size).toBe(MAP_REGISTRY.length);
   });
 
