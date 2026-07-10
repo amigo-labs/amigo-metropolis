@@ -10,6 +10,7 @@
 // tweaks audio volumes (which persist to localStorage and survive the reload).
 
 import type { AudioEngine } from "./audio/engine";
+import { MUSIC_OPTIONS, parseMusicSelection } from "./audio/tracks";
 
 export type MenuChoice =
   | { mode: "solo" } // sandbox vs the scripted feeder opponent
@@ -262,6 +263,42 @@ export function runMenu(opts: MenuOptions): MenuHandle {
 
   function buildSound(): void {
     const vols = audio.getVolumes();
+
+    // Track picker first — picking a track is the on/off switch; the Music
+    // slider below is only its level (bumped to 60 when a pick would be mute).
+    const trackRow = el("div", "menu-row");
+    const trackLabel = el("label", "menu-label", "Track");
+    const select = el("select", "menu-select") as HTMLSelectElement;
+    select.id = "menu-music-track";
+    trackLabel.htmlFor = select.id;
+    for (const opt of MUSIC_OPTIONS) {
+      const o = el("option", undefined, opt.name) as HTMLOptionElement;
+      o.value = opt.id;
+      select.appendChild(o);
+    }
+    select.value = audio.getMusicTrack();
+    const trackErr = el("div", "menu-err");
+    trackRow.append(trackLabel, select);
+    drawer.append(trackRow, trackErr);
+
+    let musicSlider: HTMLInputElement | undefined;
+    let musicValue: HTMLSpanElement | undefined;
+    select.onchange = () => {
+      trackErr.textContent = "";
+      const sel = parseMusicSelection(select.value);
+      if (sel !== "off" && audio.getVolumes().music === 0) {
+        audio.setVolume("music", 0.6);
+        if (musicSlider) musicSlider.value = "60";
+        if (musicValue) musicValue.textContent = "60";
+      }
+      void audio.setMusicTrack(sel).then((res) => {
+        if (res === "missing") {
+          trackErr.textContent = "Track file not found — drop mp3s into /music/.";
+          select.value = audio.getMusicTrack();
+        }
+      });
+    };
+
     const kinds: [import("./audio/engine").VolumeKind, string][] = [
       ["master", "Master"],
       ["sfx", "Effects"],
@@ -284,11 +321,19 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         audio.setVolume(kind, v);
         if (kind !== "music") audio.preview(kind === "master" ? "capture" : "shot");
       };
+      if (kind === "music") {
+        musicSlider = slider;
+        musicValue = value;
+      }
       row.append(label, slider, value);
       drawer.appendChild(row);
     }
     drawer.appendChild(
-      el("p", "menu-hint", "Music is off by default. Settings are saved on this device."),
+      el(
+        "p",
+        "menu-hint",
+        "Pick a track to turn music on (off by default). Settings are saved on this device.",
+      ),
     );
   }
 
