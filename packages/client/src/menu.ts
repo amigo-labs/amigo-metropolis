@@ -4,10 +4,11 @@
 // ?online=CODE, ?play, ?debug) skip the menu entirely, so shareable URLs and the
 // test harnesses are untouched (see main.ts `explicitMode`).
 //
-// Choosing a mode navigates by rewriting the query string and letting main.ts
-// boot that mode on reload — the same param-driven path every deep link takes.
-// That keeps this file free of any sim/render coupling: it only builds a URL and
-// tweaks audio volumes (which persist to localStorage and survive the reload).
+// Choosing a mode emits a MenuChoice through opts.onChoice; main.ts starts the
+// picked mode in-process (no reload — the live menu world morphs into the
+// match) and pushState()s the matching deep-link query. This file stays free of
+// any sim/render coupling: it only builds DOM, emits choices, and tweaks audio
+// settings (which persist to localStorage).
 
 import type { AudioEngine } from "./audio/engine";
 import { MUSIC_OPTIONS, parseMusicSelection } from "./audio/tracks";
@@ -56,22 +57,16 @@ export function randomRoomCode(rand: () => number = Math.random): string {
 
 export interface MenuOptions {
   audio: AudioEngine;
+  /** Called once when the player picks a mode; main.ts starts it in-process. */
+  onChoice(choice: MenuChoice): void;
 }
 
 /** Handle returned by runMenu so a late `beforeinstallprompt` can add Install. */
 export interface MenuHandle {
   /** Reveals the Install button and wires it to `prompt`. */
   offerInstall(prompt: () => void): void;
-}
-
-/**
- * Navigates to `choice`, carrying over the relay override so online play works
- * against a non-default relay set on the current URL (?relay=…).
- */
-function go(choice: MenuChoice): void {
-  const query = buildModeQuery(choice);
-  const relay = new URLSearchParams(location.search).get("relay");
-  location.search = relay ? `${query}&relay=${encodeURIComponent(relay)}` : query;
+  /** Fades the menu out and removes it from the DOM. */
+  dismiss(): void;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(
@@ -85,9 +80,10 @@ const el = <K extends keyof HTMLElementTagNameMap>(
   return node;
 };
 
-/** Builds and mounts the title/menu overlay. A mode choice navigates the page. */
+/** Builds and mounts the title/menu overlay. A mode choice emits onChoice. */
 export function runMenu(opts: MenuOptions): MenuHandle {
   const { audio } = opts;
+  const go = opts.onChoice;
 
   const root = el("div", "menu");
   const card = el("div", "menu-card");
@@ -144,14 +140,21 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     };
     row.append(label, slider, value);
     panel.appendChild(row);
-    panel.appendChild(
-      el(
-        "p",
-        "menu-hint",
-        "Low levels play defensively; higher levels push Juggernauts. " +
-          "Prefer a target dummy? <a href='?play=1'>Open the sandbox</a>.",
-      ),
+    const hint = el(
+      "p",
+      "menu-hint",
+      "Low levels play defensively; higher levels push Juggernauts. " +
+        "Prefer a target dummy? <a href='?play=1'>Open the sandbox</a>.",
     );
+    // In-process like every other choice; the href stays for middle-click/copy.
+    const sandbox = hint.querySelector("a");
+    if (sandbox) {
+      sandbox.onclick = (e) => {
+        e.preventDefault();
+        go({ mode: "solo" });
+      };
+    }
+    panel.appendChild(hint);
     const start = el("button", "menu-go", "Start match");
     start.onclick = () => go({ mode: "warden", difficulty: Number(slider.value) });
     panel.appendChild(start);
@@ -351,6 +354,19 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     offerInstall(prompt: () => void): void {
       installBtn.onclick = () => prompt();
       installBtn.style.display = "";
+    },
+    dismiss(): void {
+      root.classList.add("is-leaving");
+      let removed = false;
+      const remove = (): void => {
+        if (removed) return;
+        removed = true;
+        root.remove();
+      };
+      // transitionend can be swallowed (display changes, reduced motion) — the
+      // timeout guarantees the DOM never keeps a dead overlay around.
+      root.addEventListener("transitionend", remove, { once: true });
+      setTimeout(remove, 500);
     },
   };
 }

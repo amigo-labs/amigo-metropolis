@@ -101,19 +101,30 @@
         align-items: center;
         justify-content: center;
         padding: 24px;
-        /* City backdrop behind the menu. The dark gradient keeps the card
-           legible and, if bg/menu.jpg is absent, still renders a clean dark
-           screen over the base color (graceful fallback). */
-        background-color: #06080d;
-        background-image: linear-gradient(rgba(6, 8, 13, 0.55), rgba(6, 8, 13, 0.86)),
-          url("/bg/menu.jpg");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
+        /* The live demo battle renders on the canvas behind this overlay; a
+           light vignette keeps the opaque card legible without hiding it. */
+        background: linear-gradient(rgba(6, 8, 13, 0.2), rgba(6, 8, 13, 0.55));
         color: #e2e8f0;
         font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
         z-index: 20;
         overflow: auto;
+        transition: opacity 0.4s;
+      }
+      .menu.is-leaving {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #fade-cover {
+        position: fixed;
+        inset: 0;
+        background: #06080d;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+        z-index: 30;
+      }
+      #fade-cover.is-on {
+        opacity: 1;
       }
       .menu-card {
         width: 100%;
