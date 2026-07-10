@@ -8,7 +8,9 @@
 // boot that mode on reload — the same param-driven path every deep link takes.
 // That keeps this file free of any sim/render coupling: it only builds a URL and
 // tweaks audio volumes (which persist to localStorage and survive the reload).
+// The only sim import is MAP_REGISTRY — static arena metadata for the picker.
 
+import { DISTRICT_01_ID, MAP_REGISTRY } from "@metropolis/sim";
 import type { AudioEngine } from "./audio/engine";
 
 export type MenuChoice =
@@ -19,23 +21,30 @@ export type MenuChoice =
 
 /**
  * Pure mapping from a menu choice to the query string main.ts understands.
- * Kept separate from the DOM so it is unit-testable.
+ * Kept separate from the DOM so it is unit-testable. `mapId` (the picker's
+ * arena) rides along as the ?map= deep-link param main.ts already reads.
  */
-export function buildModeQuery(choice: MenuChoice): string {
+export function buildModeQuery(choice: MenuChoice, mapId?: string): string {
+  let query: string;
   switch (choice.mode) {
     case "solo":
-      return "?play=1";
+      query = "?play=1";
+      break;
     case "warden": {
       const d = Math.max(1, Math.min(10, Math.trunc(choice.difficulty) || 1));
-      return `?warden=${d}`;
+      query = `?warden=${d}`;
+      break;
     }
     case "couch":
-      return "?splitscreen";
+      query = "?splitscreen";
+      break;
     case "online":
       // Encode defensively: valid codes are unaffected, but an unexpected value
       // can't smuggle extra query params (& / =) into the URL.
-      return `?online=${encodeURIComponent(choice.code.toUpperCase())}`;
+      query = `?online=${encodeURIComponent(choice.code.toUpperCase())}`;
+      break;
   }
+  return mapId ? `${query}&map=${encodeURIComponent(mapId)}` : query;
 }
 
 /** 5 upper-case alphanumerics, matching main.ts's room-code validation. */
@@ -64,11 +73,11 @@ export interface MenuHandle {
 }
 
 /**
- * Navigates to `choice`, carrying over the relay override so online play works
- * against a non-default relay set on the current URL (?relay=…).
+ * Navigates to `choice` on `mapId`, carrying over the relay override so online
+ * play works against a non-default relay set on the current URL (?relay=…).
  */
-function go(choice: MenuChoice): void {
-  const query = buildModeQuery(choice);
+function go(choice: MenuChoice, mapId: string): void {
+  const query = buildModeQuery(choice, mapId);
   const relay = new URLSearchParams(location.search).get("relay");
   location.search = relay ? `${query}&relay=${encodeURIComponent(relay)}` : query;
 }
@@ -111,6 +120,31 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   modes.append(soloBtn, couchBtn, onlineBtn);
   card.appendChild(modes);
 
+  // --- Arena picker (persistent row, applies to every mode) -----------------
+  // Pre-select a ?map= already on the URL so arena deep links keep their pick
+  // through the menu; unknown ids quietly fall back to the default arena.
+  const urlMapId = new URLSearchParams(location.search).get("map");
+  let selectedMapId = MAP_REGISTRY.some((m) => m.id === urlMapId)
+    ? (urlMapId as string)
+    : DISTRICT_01_ID;
+  const arenas = el("div", "menu-arenas");
+  arenas.appendChild(el("span", "menu-arenas-label", "Arena"));
+  const arenaButtons = MAP_REGISTRY.map((info) => {
+    const btn = el("button", "menu-arena", info.displayName);
+    btn.onclick = () => {
+      selectedMapId = info.id;
+      for (let i = 0; i < arenaButtons.length; i++) {
+        arenaButtons[i].classList.toggle("is-active", MAP_REGISTRY[i].id === selectedMapId);
+      }
+    };
+    arenas.appendChild(btn);
+    return btn;
+  });
+  for (let i = 0; i < arenaButtons.length; i++) {
+    arenaButtons[i].classList.toggle("is-active", MAP_REGISTRY[i].id === selectedMapId);
+  }
+  card.appendChild(arenas);
+
   // A single sub-panel below the buttons reveals the chosen mode's options.
   const panel = el("div", "menu-panel");
   panel.style.display = "none";
@@ -152,7 +186,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
       ),
     );
     const start = el("button", "menu-go", "Start match");
-    start.onclick = () => go({ mode: "warden", difficulty: Number(slider.value) });
+    start.onclick = () => go({ mode: "warden", difficulty: Number(slider.value) }, selectedMapId);
     panel.appendChild(start);
   }
 
@@ -173,7 +207,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         err.textContent = "Enter a 5-character room code.";
         return;
       }
-      go({ mode: "online", code });
+      go({ mode: "online", code }, selectedMapId);
     };
     input.oninput = () => {
       input.value = input.value.toUpperCase();
@@ -187,7 +221,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     panel.appendChild(row);
 
     const host = el("button", "menu-go menu-go--ghost", "Host a new room");
-    host.onclick = () => go({ mode: "online", code: randomRoomCode() });
+    host.onclick = () => go({ mode: "online", code: randomRoomCode() }, selectedMapId);
     panel.appendChild(host);
     panel.appendChild(
       el(
@@ -201,7 +235,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
 
   soloBtn.onclick = () => setActive(active === "solo" ? null : "solo");
   onlineBtn.onclick = () => setActive(active === "online" ? null : "online");
-  couchBtn.onclick = () => go({ mode: "couch" });
+  couchBtn.onclick = () => go({ mode: "couch" }, selectedMapId);
 
   // --- Footer: how-to, settings, install ------------------------------------
   const footer = el("div", "menu-footer");

@@ -68,7 +68,9 @@ import { buildTerrainMesh, buildWaterPlane } from "./render/terrain";
 // --- Mode + simulation setup -------------------------------------------------
 
 const params = new URLSearchParams(location.search);
-const map = getMapById(params.get("map") ?? DISTRICT_01_ID);
+// `let`: online the server's MSG_WELCOME config is authoritative — a joiner
+// whose URL names a different arena rebuilds map + scene (see rebuildArena).
+let map = getMapById(params.get("map") ?? DISTRICT_01_ID);
 // ?online=<CODE> is 1v1 lockstep; it owns both slots, so warden/splitscreen off.
 const onlineCode = normalizeCode(params.get("online"));
 const online = onlineCode !== null;
@@ -212,12 +214,42 @@ sun.position.set(120, 180, 60);
 sun.matrixAutoUpdate = false;
 sun.updateMatrix();
 scene.add(sun);
-scene.add(buildTerrainMesh(map));
-scene.add(buildWaterPlane(map));
-buildBaseStructures(scene, map);
+// All static arena visuals live in one group so an online joiner can swap the
+// arena wholesale when the authoritative config names a different map.
+function buildArenaGroup(m: typeof map): THREE.Group {
+  const group = new THREE.Group();
+  group.matrixAutoUpdate = false; // identity transform, per renderer rules
+  group.add(buildTerrainMesh(m));
+  group.add(buildWaterPlane(m));
+  buildBaseStructures(group, m);
+  return group;
+}
+let arenaGroup = buildArenaGroup(map);
+scene.add(arenaGroup);
 const greybox = createGreyboxMeshes(scene);
 
-const extent = worldExtent(map);
+let extent = worldExtent(map);
+
+/**
+ * Online only: the server's MSG_WELCOME config is authoritative. If it names a
+ * different arena than this client's URL, rebuild map, extent and the static
+ * scene BEFORE the views/cameras are created — render must match the sim.
+ */
+function rebuildArena(mapId: string): void {
+  if (mapId === map.id) return;
+  map = getMapById(mapId);
+  extent = worldExtent(map);
+  scene.remove(arenaGroup);
+  arenaGroup.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.isMesh) {
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    }
+  });
+  arenaGroup = buildArenaGroup(map);
+  scene.add(arenaGroup);
+}
 
 // --- Frame-loop scratch (never allocate inside frame/runTick) ----------------
 
@@ -669,7 +701,8 @@ function connectOnline(code: string): void {
       audio.pump(stepped.events); // per-tick transients, drained immediately
       rotateSnapshot();
     },
-    onWelcome: (slotIdx, welcomed) => {
+    onWelcome: (slotIdx, welcomed, welcomedConfig) => {
+      rebuildArena(welcomedConfig.mapId); // host map wins; joiner ?map is moot
       sim = welcomed;
       if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
       if (views.length === 0) startMatch([{ slot: slotIdx, input: keyboard }]);

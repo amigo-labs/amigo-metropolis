@@ -25,6 +25,21 @@ describe("buildModeQuery", () => {
   test("online upper-cases the room code", () => {
     expect(buildModeQuery({ mode: "online", code: "abcde" })).toBe("?online=ABCDE");
   });
+
+  test("a picked arena rides along as the ?map deep-link param", () => {
+    expect(buildModeQuery({ mode: "solo" }, "urban-jungle")).toBe("?play=1&map=urban-jungle");
+    expect(buildModeQuery({ mode: "couch" }, "district-01")).toBe("?splitscreen&map=district-01");
+    expect(buildModeQuery({ mode: "warden", difficulty: 4 }, "urban-jungle")).toBe(
+      "?warden=4&map=urban-jungle",
+    );
+    expect(buildModeQuery({ mode: "online", code: "abcde" }, "urban-jungle")).toBe(
+      "?online=ABCDE&map=urban-jungle",
+    );
+  });
+
+  test("without a map id the query stays bare", () => {
+    expect(buildModeQuery({ mode: "solo" })).toBe("?play=1");
+  });
 });
 
 describe("normalizeRoomCode", () => {

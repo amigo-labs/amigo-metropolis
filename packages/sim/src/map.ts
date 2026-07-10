@@ -108,8 +108,9 @@ export function isWater(map: MapData, x: number, y: number): boolean {
 /** Map registry: resolves the mapId stored in replays/net handshakes. */
 export function getMapById(id: string): MapData {
   if (id === TEST_MAP_ID) return createTestMap();
-  if (id === DISTRICT_01_ID) return loadMapFromJson(districtJson);
-  if (id === URBAN_JUNGLE_ID) return loadMapFromJson(urbanJungleJson);
+  for (const entry of REGISTRY) {
+    if (entry.info.id === id) return loadMapFromJson(entry.json);
+  }
   throw new Error(`unknown map id: ${id}`);
 }
 
@@ -117,6 +118,23 @@ export const DISTRICT_01_ID = "district-01";
 
 /** FCOP "Urban Jungle" arena (mission Conft), heightfield extracted 1:1. */
 export const URBAN_JUNGLE_ID = "urban-jungle";
+
+/** Metadata for one selectable arena — what a map picker needs to offer it. */
+export interface MapInfo {
+  /** Registry id — the exact string stored in replays and the net handshake. */
+  readonly id: string;
+  /** Human-readable arena name. */
+  readonly displayName: string;
+}
+
+// Adding an arena = one entry here + its JSON in packages/sim/maps/.
+const REGISTRY: readonly { readonly info: MapInfo; readonly json: MapJson }[] = [
+  { info: { id: DISTRICT_01_ID, displayName: "District 01" }, json: districtJson },
+  { info: { id: URBAN_JUNGLE_ID, displayName: "Urban Jungle" }, json: urbanJungleJson },
+];
+
+/** Selectable arenas in display order. test-128 stays a debug-only deep link. */
+export const MAP_REGISTRY: readonly MapInfo[] = REGISTRY.map((e) => e.info);
 
 /**
  * Fixed-point scale for JSON heights: 1/32 m steps are exact binary
