@@ -27,4 +27,10 @@
 //     re-recorded only for the new hash sequence; their input scripts never
 //     press the bit, so the trajectories (and the golden 02/03/04 event beats)
 //     are byte-for-byte unchanged — only the hash bytes differ.
-export const SIM_VERSION = 7;
+// v8: wall collision (FCOP arenas stage 2) — edge blockers on grid lines
+//     (map wallsV/wallsH) gate every axis move of avatars and ground units
+//     (collision.ts). Wall-free maps are provably untouched: the helpers
+//     early-out on empty wall arrays, so goldens 01–04 keep byte-identical
+//     hash arrays (re-recorded only for this header version). Peers on
+//     opposite sides of this bump would diverge on any walled arena.
+export const SIM_VERSION = 8;

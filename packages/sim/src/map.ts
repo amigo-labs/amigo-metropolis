@@ -56,6 +56,16 @@ export interface MapData {
   readonly waterMask: Uint8Array;
   /** Water surface height in meters — hover rides on max(terrain, this). */
   readonly waterLevel: number;
+  /**
+   * Vertical wall segments (edge blockers on grid lines): wallsV[j*size+i]=1
+   * blocks ±x crossings of the line x = i*cellSize within cell row j. EMPTY
+   * (length 0) when the map has no walls — collision helpers early-out on
+   * that, which is what keeps wall-free maps provably hash-identical.
+   */
+  readonly wallsV: Uint8Array;
+  /** Horizontal twin: wallsH[j*size+i]=1 blocks ±y crossings of the line
+   *  y = j*cellSize within cell column i. Empty when the map has no walls. */
+  readonly wallsH: Uint8Array;
   /** Avatar spawn per team (index = team id). */
   readonly spawns: readonly MapSpawn[];
   /** Base plot per team (index = team id): the flat build area. */
@@ -169,6 +179,14 @@ export interface MapJson {
   water: string[];
   /** Water surface height in meters. */
   waterLevel: number;
+  /**
+   * OPTIONAL wall data (both present or both absent): size rows of size
+   * '0'/'1' chars each. wallsV[j][i] blocks ±x over line x = i*cellSize in
+   * cell row j; wallsH[j][i] blocks ±y over line y = j*cellSize in cell
+   * column i. Absent → the loaded map has EMPTY wall arrays (no-op movement).
+   */
+  wallsV?: string[];
+  wallsH?: string[];
   spawns: { x: number; y: number; yaw: number }[];
   basePlots: { x: number; y: number; radius: number }[];
   bases: MapBaseJson[];
@@ -219,6 +237,27 @@ export function loadMapFromJson(raw: MapJson): MapData {
       waterMask[j * size + i] = w - 0x30;
     }
   }
+
+  // Walls are optional but must come as a pair; a lone array is authoring rot.
+  if ((raw.wallsV === undefined) !== (raw.wallsH === undefined)) {
+    fail(id, "wallsV and wallsH must both be present or both be absent");
+  }
+  const parseWalls = (rows: string[], what: string): Uint8Array => {
+    if (rows.length !== size) fail(id, `expected ${size} ${what} rows`);
+    const bits = new Uint8Array(size * size);
+    for (let j = 0; j < size; j++) {
+      const row = rows[j];
+      if (row.length !== size) fail(id, `${what} row ${j} has ${row.length} chars`);
+      for (let i = 0; i < size; i++) {
+        const c = row.charCodeAt(i);
+        if (c !== 0x30 && c !== 0x31) fail(id, `${what} row ${j} has non-0/1 char at ${i}`);
+        bits[j * size + i] = c - 0x30;
+      }
+    }
+    return bits;
+  };
+  const wallsV = raw.wallsV ? parseWalls(raw.wallsV, "wallsV") : new Uint8Array(0);
+  const wallsH = raw.wallsH ? parseWalls(raw.wallsH, "wallsH") : new Uint8Array(0);
 
   const extent = (size - 1) * cellSize;
   const inBounds = (x: number, y: number) => x >= 0 && x <= extent && y >= 0 && y <= extent;
@@ -272,6 +311,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
     heights,
     waterMask,
     waterLevel: raw.waterLevel,
+    wallsV,
+    wallsH,
     spawns: raw.spawns.map((s) => ({ x: s.x, y: s.y, yaw: s.yaw })),
     basePlots: raw.basePlots.map((p) => ({ x: p.x, y: p.y, radius: p.radius })),
     bases,
@@ -324,6 +365,8 @@ export function createTestMap(): MapData {
     heights,
     waterMask: new Uint8Array(size * size),
     waterLevel: -10, // below every valley: the test map has no water at all
+    wallsV: new Uint8Array(0),
+    wallsH: new Uint8Array(0),
     spawns: [
       { x: center, y: center, yaw: 0 },
       { x: center, y: center, yaw: 0 },

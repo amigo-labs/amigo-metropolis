@@ -82,6 +82,7 @@ import {
   WARDEN_HP,
   WARDEN_INCOME_PERCENT,
 } from "./balance";
+import { crossesWallX, crossesWallY } from "./collision";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
 import {
   clearEvents,
@@ -529,6 +530,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
       let ok = true;
       if (!hover && isWater(map, nx, y)) ok = false;
+      if (ok && crossesWallX(map, x, nx, y)) ok = false;
       if (ok && !airborne) {
         const rise = rideHeight(map, nx, y, hover) - rideHeight(map, x, y, hover);
         if (rise > GROUND_EPS && rise > Math.abs(nx - x) * maxSlope) ok = false;
@@ -541,6 +543,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       const ny = Math.min(Math.max(y + stepY, 0), extent);
       let ok = true;
       if (!hover && isWater(map, x, ny)) ok = false;
+      if (ok && crossesWallY(map, x, y, ny)) ok = false;
       if (ok && !airborne) {
         const rise = rideHeight(map, x, ny, hover) - rideHeight(map, x, y, hover);
         if (rise > GROUND_EPS && rise > Math.abs(ny - y) * maxSlope) ok = false;
