@@ -293,11 +293,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   }
 
   card.appendChild(
-    el(
-      "div",
-      "menu-credits",
-      "A Future Cop: Precinct Assault homage · a working-title prototype.",
-    ),
+    el("div", "menu-credits", "A Future Cop: Precinct Assault homage · a working-title prototype."),
   );
 
   document.body.appendChild(root);
