@@ -7,3 +7,6 @@ coverage/
 # mapalyze: raw FCMissionReader exports must NEVER be committed (PLAN.md §2).
 # Only the abstracted mapalyze output under docs/specs/maps/_references/ may be.
 tools/mapalyze/_local/
+
+# wrangler dev local state (packages/server bun run dev)
+.wrangler/
