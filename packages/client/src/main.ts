@@ -20,7 +20,6 @@
 import {
   ANIM_HOVER,
   ARCHETYPE,
-  BUTTON_INTERACT,
   CAPTURE_TICKS,
   CONSOLE_HOLD_TICKS,
   createSim,
@@ -51,10 +50,12 @@ import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
 import type { LocalInputSource } from "./input/types";
 import { runLobby } from "./lobby";
-import { runMenu } from "./menu";
+import { buildModeQuery, type MenuChoice, type MenuHandle, runMenu } from "./menu";
+import { createDemoSim, demoFeeder, updateFlyoverCamera, zeroPlayerInput } from "./menuWorld";
 import { NetLockstep } from "./net/lockstep";
 import { WsTransport } from "./net/wsTransport";
 import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
+import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import {
   createPlayerViews,
@@ -79,17 +80,16 @@ const orbitMode = !online && params.get("cam") === "orbit";
 // Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
 aimAssist.mode = parseAimAssistMode(params.get("aim"));
 
-// The room code seeds an online match: both peers derive the same seed from it,
-// so no seed negotiation is needed and the relay stays a dumb input relay (§5).
-const seed = online
-  ? seedFromCode(onlineCode as string)
-  : Number(params.get("seed") ?? "0xc0ffee") >>> 0;
+// Offline match seed. Online matches ignore it — the room code seeds them
+// (connectOnline derives the same seed on both peers, so no seed negotiation
+// is needed and the relay stays a dumb input relay, §5).
+const seed = Number(params.get("seed") ?? "0xc0ffee") >>> 0;
 
 // ?warden=<1-10> puts the Phase 4 AI on player 2's slot (rules.md §7). It is a
 // solo feature — splitscreen fills both slots with humans, so the AI stays off.
-const wardenDifficulty =
-  splitscreen || online ? 0 : Math.trunc(Number(params.get("warden") ?? "0"));
-const warden = wardenDifficulty >= 1;
+// Mutable (`let`) because a menu choice now re-targets them in-process.
+let wardenDifficulty = splitscreen || online ? 0 : Math.trunc(Number(params.get("warden") ?? "0"));
+let warden = wardenDifficulty >= 1;
 
 // A bare URL shows the title/menu (Phase 7). Any explicit mode — a network or
 // splitscreen match, an AI/scripted opponent, ?play=1 from the menu, or ?debug
@@ -102,11 +102,16 @@ const explicitMode =
   params.has("opponent") ||
   params.has("play") ||
   params.has("debug");
-// Offline builds the sim now; online defers to the server's authoritative
-// config (arrives in MSG_WELCOME) so both peers build a byte-identical sim.
+// Offline match modes build the sim now; online defers to the server's
+// authoritative config (arrives in MSG_WELCOME) so both peers build a
+// byte-identical sim. The menu and the splitscreen lobby instead show a local
+// throwaway demo battle (Warden vs feeder) under the flyover camera — the real
+// match sim replaces it via resetForMatch() when play actually starts.
 let sim: SimState = online
   ? (undefined as unknown as SimState)
-  : createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined);
+  : explicitMode && !splitscreen
+    ? createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined)
+    : createDemoSim(map);
 
 // ?debug exposes the live sim for the console / e2e harness (host-side only,
 // like the debug HUD — nothing in the sim or renderer reads it back).
@@ -175,25 +180,16 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
   });
 }
 
-// Scripted opponent (?opponent=feeder|idle, Phase 3 DoD): player 2 runs a
-// fixed build order — walk to its ground console, then hold-to-buy runner
-// bursts forever. Only used for a slot that is neither a local human nor the
-// Warden (i.e. solo ?opponent play).
+// Scripted opponent (?opponent=feeder|idle, Phase 3 DoD): a slot that is
+// neither a local human nor the Warden runs the feeder build order — walk to
+// its ground console, then hold-to-buy runner bursts forever. Used for solo
+// ?opponent play AND the menu demo battle's slot 0; the (slot-aware) script
+// itself lives in menuWorld.ts, shared by both.
 const opponentMode = warden ? "idle" : (params.get("opponent") ?? "feeder");
 
-function scriptOpponent(tick: number, out: PlayerInput): void {
-  out.moveX = 0;
-  out.moveY = 0;
-  out.aimX = 0;
-  out.aimY = 0;
-  out.buttons = 0;
-  if (opponentMode !== "feeder") return;
-  if (tick < 76) {
-    out.moveX = 40; // spawn → own ground console (matches map authoring)
-    out.moveY = 120;
-    return;
-  }
-  if (tick % 900 < 300) out.buttons = BUTTON_INTERACT; // 10 s burst, 20 s pause
+function scriptOpponent(slot: number, tick: number, out: PlayerInput): void {
+  if (opponentMode === "feeder") demoFeeder(slot, tick, out);
+  else zeroPlayerInput(out);
 }
 
 // --- Scene setup --------------------------------------------------------------
@@ -218,6 +214,19 @@ buildBaseStructures(scene, map);
 const greybox = createGreyboxMeshes(scene);
 
 const extent = worldExtent(map);
+
+// --- App phase ----------------------------------------------------------------
+// One persistent rAF loop drives every phase; the phase only decides which
+// camera renders (flyover vs per-view rigs) and whether match-only side
+// effects (SFX, rumble, HUD) run. The sim underneath is the demo battle until
+// resetForMatch() swaps the real match in.
+type Phase = "menu" | "lobby" | "connecting" | "match";
+let phase: Phase = online ? "connecting" : splitscreen ? "lobby" : explicitMode ? "match" : "menu";
+
+// Flyover camera for the menu/lobby/connecting backdrop world.
+const flyCam = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
+// Menu→match camera blend (solo starts): flyover pose eases into the chase rig.
+const blend = createCameraBlend();
 
 // --- Frame-loop scratch (never allocate inside frame/runTick) ----------------
 
@@ -365,13 +374,16 @@ function runTick(): void {
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const view = viewBySlot[p];
     if (view) view.input.sample(queued.players[p]);
-    else if (p !== sim.wardenPlayer) scriptOpponent(futureTick, queued.players[p]);
+    else if (p !== sim.wardenPlayer) scriptOpponent(p, futureTick, queued.players[p]);
   }
 
   for (let p = 0; p < MAX_PLAYERS; p++) prevAvatarId[p] = sim.avatarId[p];
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
-  audio.pump(sim.events); // events are per-tick transients: drain immediately
-  if (rumbleEnabled) pumpRumble();
+  // The demo battle stays sonically calm — music only, no SFX/rumble.
+  if (phase === "match") {
+    audio.pump(sim.events); // events are per-tick transients: drain immediately
+    if (rumbleEnabled) pumpRumble();
+  }
   rotateSnapshot();
 }
 
@@ -561,13 +573,16 @@ function frame(now: number): void {
   last = now;
   let steps = 0;
   while (accumulator >= TICK_MS && steps < MAX_STEPS_PER_FRAME) {
-    // Online steps only confirmed ticks (net.tryStep); a stall (peer input not
-    // yet in) breaks out and the overlay explains the pause. Offline steps
-    // locally every tick. Both stay paced at 30 Hz by the accumulator.
-    if (net) {
+    // Online matches step only confirmed ticks (net.tryStep); a stall (peer
+    // input not yet in) breaks out and the overlay explains the pause.
+    // Everything else — offline matches AND the menu/lobby/connecting demo
+    // battle — steps locally every tick. All paced at 30 Hz by the accumulator.
+    if (phase === "match" && net) {
       if (!net.tryStep()) break;
-    } else {
+    } else if (sim) {
       runTick();
+    } else {
+      break; // online deep link: no sim at all until MSG_WELCOME
     }
     accumulator -= TICK_MS;
     steps++;
@@ -575,20 +590,40 @@ function frame(now: number): void {
   if (accumulator >= TICK_MS) accumulator = TICK_MS; // shed backlog, stay stable
   if (net) refreshOverlay();
 
+  // The demo battle is throwaway ambience — when a gate falls, roll a fresh
+  // one (rare, seconds-apart event; the allocation is outside the hot path).
+  if (phase !== "match" && sim && sim.winner >= 0) {
+    sim = createDemoSim(map);
+    countPrev = 0;
+    countCurr = writeSnapshot(sim, snapCurr);
+  }
+
   renderEntities(accumulator / TICK_MS);
-  // Drain accumulated wheel into the pointer view's rig (scroll up → zoom in →
-  // toward ACTION). Splitscreen/gamepad views take no zoom for now.
   const dtSec = dtMs / 1000;
-  for (let v = 0; v < views.length; v++) {
-    const view = views[v];
-    view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
-    if (orbitControls && v === 0) orbitControls.update();
-    else updateRigCamera(view, dtSec);
-    const vp = view.viewport;
-    const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
-    renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
-    renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
-    renderer.render(scene, view.camera);
+  if (views.length === 0) {
+    // No views yet: menu / lobby / waiting-for-opponent — flyover over the demo.
+    updateFlyoverCamera(flyCam, now / 1000, extent);
+    renderer.setViewport(0, 0, innerWidth, innerHeight);
+    renderer.setScissor(0, 0, innerWidth, innerHeight);
+    renderer.render(scene, flyCam);
+  } else {
+    // Drain accumulated wheel into the pointer view's rig (scroll up → zoom in
+    // → toward ACTION). Splitscreen/gamepad views take no zoom for now.
+    for (let v = 0; v < views.length; v++) {
+      const view = views[v];
+      view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
+      if (orbitControls && v === 0) {
+        orbitControls.update();
+      } else {
+        updateRigCamera(view, dtSec);
+        if (blend.active) applyBlend(blend, view.camera, dtSec);
+      }
+      const vp = view.viewport;
+      const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
+      renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
+      renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
+      renderer.render(scene, view.camera);
+    }
   }
   wheelAccum = 0; // consumed for this frame
 
@@ -601,10 +636,29 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 
-// --- Boot: (optional lobby →) build views → run ------------------------------
+// --- Boot: (optional menu/lobby →) build views → run --------------------------
+
+/**
+ * Swaps the module sim for the real match sim and clears every piece of state
+ * the demo battle may have dirtied: queued (delayed) inputs, the snapshot
+ * double-buffer, and accumulated wheel zoom. Called by every in-process start;
+ * deep links never need it (their sim was built fresh at boot).
+ */
+function resetForMatch(newSim: SimState): void {
+  sim = newSim;
+  for (let i = 0; i < inputQueue.length; i++) {
+    for (let p = 0; p < MAX_PLAYERS; p++) zeroPlayerInput(inputQueue[i].players[p]);
+  }
+  countPrev = 0;
+  countCurr = writeSnapshot(sim, snapCurr);
+  wheelAccum = 0;
+  if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
+}
 
 function startMatch(localPlayers: readonly { slot: number; input: LocalInputSource }[]): void {
+  phase = "match";
   views = createPlayerViews(localPlayers, map.spawns, extent);
+  viewBySlot.fill(undefined);
   for (let v = 0; v < views.length; v++) viewBySlot[views[v].slot] = views[v];
   layoutViews(views, splitOrientation, innerWidth, innerHeight);
 
@@ -616,14 +670,22 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   }
   // The mouse reticle only makes sense for a single full-window pointer player.
   reticle.style.display = views.length === 1 ? "block" : "none";
+  document.body.style.cursor = ""; // back to the stylesheet crosshair
+}
 
-  addEventListener("resize", () => {
-    renderer.setSize(innerWidth, innerHeight);
-    layoutViews(views, splitOrientation, innerWidth, innerHeight);
-  });
+// Short full-screen fade that covers hard view switches (flyover → splitscreen
+// or online views) where a camera blend would look broken. DOM-side, not part
+// of the frame loop, so the transition handling may allocate freely.
+const fadeEl = document.createElement("div");
+fadeEl.id = "fade-cover";
+document.body.appendChild(fadeEl);
 
-  last = performance.now();
-  requestAnimationFrame(frame);
+function fadeCover(action: () => void): void {
+  fadeEl.classList.add("is-on");
+  setTimeout(() => {
+    action();
+    fadeEl.classList.remove("is-on");
+  }, 320); // slightly past the 0.3 s CSS transition so the cover is fully opaque
 }
 
 /**
@@ -636,7 +698,7 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
 function connectOnline(code: string): void {
   const config: MatchConfig = {
     simVersion: SIM_VERSION,
-    seed,
+    seed: seedFromCode(code), // both peers derive it from the shared room code
     mapId: map.id,
     wardenPlayer: -1,
     wardenDifficulty: 0,
@@ -670,9 +732,14 @@ function connectOnline(code: string): void {
       rotateSnapshot();
     },
     onWelcome: (slotIdx, welcomed) => {
-      sim = welcomed;
-      if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
-      if (views.length === 0) startMatch([{ slot: slotIdx, input: keyboard }]);
+      if (views.length === 0) {
+        fadeCover(() => {
+          resetForMatch(welcomed);
+          startMatch([{ slot: slotIdx, input: keyboard }]);
+        });
+      } else {
+        resetForMatch(welcomed);
+      }
     },
     onStart: () => {
       netStatus = null;
@@ -704,34 +771,86 @@ function connectOnline(code: string): void {
   net.start(config);
 }
 
-/** Renders a single static overview frame as a backdrop behind menu/lobby cards. */
-function renderBackdrop(): void {
-  const overview = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
-  overview.position.set(extent / 2, extent * 0.9, extent * 1.4);
-  overview.lookAt(extent / 2, 0, extent / 2);
-  renderer.setViewport(0, 0, innerWidth, innerHeight);
-  renderer.setScissor(0, 0, innerWidth, innerHeight);
-  renderer.render(scene, overview);
+let menuHandle: MenuHandle | undefined;
+
+/**
+ * In-process mode start for menu choices — the live demo world morphs into the
+ * match instead of reloading the page. The URL is pushState()d to the matching
+ * deep link (carrying a ?relay override), so it stays shareable and a refresh
+ * re-enters through the deep-link path exactly as before.
+ */
+function handleMenuChoice(choice: MenuChoice): void {
+  const query = buildModeQuery(choice);
+  const relay = params.get("relay");
+  history.pushState(null, "", relay ? `${query}&relay=${encodeURIComponent(relay)}` : query);
+  menuHandle?.dismiss();
+  switch (choice.mode) {
+    case "solo":
+    case "warden": {
+      warden = choice.mode === "warden";
+      wardenDifficulty = choice.mode === "warden" ? choice.difficulty : 0;
+      resetForMatch(
+        createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined),
+      );
+      // The flagship transition: one continuous shot from flyover to chase rig.
+      if (!orbitMode) beginBlend(blend, flyCam, 1.2);
+      startMatch([{ slot: 0, input: keyboard }]);
+      break;
+    }
+    case "couch":
+      phase = "lobby"; // demo battle keeps running under the lobby overlay
+      void runLobby({ needed: MAX_PLAYERS, keyboard }).then((assigns) => {
+        fadeCover(() => {
+          resetForMatch(createSim(map, seed));
+          startMatch(assigns);
+        });
+      });
+      break;
+    case "online":
+      phase = "connecting"; // demo battle keeps running under the net overlay
+      connectOnline(choice.code);
+      break;
+  }
 }
 
 if (online) {
   connectOnline(onlineCode as string);
 } else if (splitscreen) {
-  renderBackdrop();
-  runLobby({ needed: MAX_PLAYERS, keyboard }).then(startMatch);
+  // Deep-link couch: the assignment lobby sits over the live demo battle; the
+  // real match sim is built when everyone has joined.
+  runLobby({ needed: MAX_PLAYERS, keyboard }).then((assigns) => {
+    fadeCover(() => {
+      resetForMatch(createSim(map, seed));
+      startMatch(assigns);
+    });
+  });
 } else if (explicitMode) {
   startMatch([{ slot: 0, input: keyboard }]);
 } else {
-  // Bare URL: title screen over a static arena backdrop; a choice reloads into
-  // the picked mode. The reticle/crosshair only makes sense in a live match.
+  // Bare URL: title screen over the live demo world; a choice starts its mode
+  // in-process. The reticle/crosshair only makes sense in a live match.
   reticle.style.display = "none";
   document.body.style.cursor = "default";
-  renderBackdrop();
-  const menu = runMenu({ audio });
+  menuHandle = runMenu({ audio, onChoice: handleMenuChoice });
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     const evt = e as Event & { prompt(): Promise<void> };
-    menu.offerInstall(() => void evt.prompt());
+    menuHandle?.offerInstall(() => void evt.prompt());
   });
 }
+
+// Menu choices pushState() their deep link; back/forward would silently desync
+// URL ↔ app state, so just re-boot through the (deep-link) param path.
+addEventListener("popstate", () => location.reload());
+
+addEventListener("resize", () => {
+  renderer.setSize(innerWidth, innerHeight);
+  flyCam.aspect = innerWidth / innerHeight;
+  flyCam.updateProjectionMatrix();
+  if (views.length > 0) layoutViews(views, splitOrientation, innerWidth, innerHeight);
+});
+
+// The single persistent frame loop — every phase renders through it.
+last = performance.now();
+requestAnimationFrame(frame);

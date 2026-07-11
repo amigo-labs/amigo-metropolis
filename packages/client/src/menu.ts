@@ -4,12 +4,14 @@
 // ?online=CODE, ?play, ?debug) skip the menu entirely, so shareable URLs and the
 // test harnesses are untouched (see main.ts `explicitMode`).
 //
-// Choosing a mode navigates by rewriting the query string and letting main.ts
-// boot that mode on reload — the same param-driven path every deep link takes.
-// That keeps this file free of any sim/render coupling: it only builds a URL and
-// tweaks audio volumes (which persist to localStorage and survive the reload).
+// Choosing a mode emits a MenuChoice through opts.onChoice; main.ts starts the
+// picked mode in-process (no reload — the live menu world morphs into the
+// match) and pushState()s the matching deep-link query. This file stays free of
+// any sim/render coupling: it only builds DOM, emits choices, and tweaks audio
+// settings (which persist to localStorage).
 
 import type { AudioEngine } from "./audio/engine";
+import { MUSIC_OPTIONS, parseMusicSelection } from "./audio/tracks";
 
 export type MenuChoice =
   | { mode: "solo" } // sandbox vs the scripted feeder opponent
@@ -55,22 +57,16 @@ export function randomRoomCode(rand: () => number = Math.random): string {
 
 export interface MenuOptions {
   audio: AudioEngine;
+  /** Called once when the player picks a mode; main.ts starts it in-process. */
+  onChoice(choice: MenuChoice): void;
 }
 
 /** Handle returned by runMenu so a late `beforeinstallprompt` can add Install. */
 export interface MenuHandle {
   /** Reveals the Install button and wires it to `prompt`. */
   offerInstall(prompt: () => void): void;
-}
-
-/**
- * Navigates to `choice`, carrying over the relay override so online play works
- * against a non-default relay set on the current URL (?relay=…).
- */
-function go(choice: MenuChoice): void {
-  const query = buildModeQuery(choice);
-  const relay = new URLSearchParams(location.search).get("relay");
-  location.search = relay ? `${query}&relay=${encodeURIComponent(relay)}` : query;
+  /** Fades the menu out and removes it from the DOM. */
+  dismiss(): void;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(
@@ -84,9 +80,10 @@ const el = <K extends keyof HTMLElementTagNameMap>(
   return node;
 };
 
-/** Builds and mounts the title/menu overlay. A mode choice navigates the page. */
+/** Builds and mounts the title/menu overlay. A mode choice emits onChoice. */
 export function runMenu(opts: MenuOptions): MenuHandle {
   const { audio } = opts;
+  const go = opts.onChoice;
 
   const root = el("div", "menu");
   const card = el("div", "menu-card");
@@ -143,14 +140,21 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     };
     row.append(label, slider, value);
     panel.appendChild(row);
-    panel.appendChild(
-      el(
-        "p",
-        "menu-hint",
-        "Low levels play defensively; higher levels push Juggernauts. " +
-          "Prefer a target dummy? <a href='?play=1'>Open the sandbox</a>.",
-      ),
+    const hint = el(
+      "p",
+      "menu-hint",
+      "Low levels play defensively; higher levels push Juggernauts. " +
+        "Prefer a target dummy? <a href='?play=1'>Open the sandbox</a>.",
     );
+    // In-process like every other choice; the href stays for middle-click/copy.
+    const sandbox = hint.querySelector("a");
+    if (sandbox) {
+      sandbox.onclick = (e) => {
+        e.preventDefault();
+        go({ mode: "solo" });
+      };
+    }
+    panel.appendChild(hint);
     const start = el("button", "menu-go", "Start match");
     start.onclick = () => go({ mode: "warden", difficulty: Number(slider.value) });
     panel.appendChild(start);
@@ -262,6 +266,42 @@ export function runMenu(opts: MenuOptions): MenuHandle {
 
   function buildSound(): void {
     const vols = audio.getVolumes();
+
+    // Track picker first — picking a track is the on/off switch; the Music
+    // slider below is only its level (bumped to 60 when a pick would be mute).
+    const trackRow = el("div", "menu-row");
+    const trackLabel = el("label", "menu-label", "Track");
+    const select = el("select", "menu-select") as HTMLSelectElement;
+    select.id = "menu-music-track";
+    trackLabel.htmlFor = select.id;
+    for (const opt of MUSIC_OPTIONS) {
+      const o = el("option", undefined, opt.name) as HTMLOptionElement;
+      o.value = opt.id;
+      select.appendChild(o);
+    }
+    select.value = audio.getMusicTrack();
+    const trackErr = el("div", "menu-err");
+    trackRow.append(trackLabel, select);
+    drawer.append(trackRow, trackErr);
+
+    let musicSlider: HTMLInputElement | undefined;
+    let musicValue: HTMLSpanElement | undefined;
+    select.onchange = () => {
+      trackErr.textContent = "";
+      const sel = parseMusicSelection(select.value);
+      if (sel !== "off" && audio.getVolumes().music === 0) {
+        audio.setVolume("music", 0.6);
+        if (musicSlider) musicSlider.value = "60";
+        if (musicValue) musicValue.textContent = "60";
+      }
+      void audio.setMusicTrack(sel).then((res) => {
+        if (res === "missing") {
+          trackErr.textContent = "Track file not found — drop mp3s into /music/.";
+          select.value = audio.getMusicTrack();
+        }
+      });
+    };
+
     const kinds: [import("./audio/engine").VolumeKind, string][] = [
       ["master", "Master"],
       ["sfx", "Effects"],
@@ -284,11 +324,19 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         audio.setVolume(kind, v);
         if (kind !== "music") audio.preview(kind === "master" ? "capture" : "shot");
       };
+      if (kind === "music") {
+        musicSlider = slider;
+        musicValue = value;
+      }
       row.append(label, slider, value);
       drawer.appendChild(row);
     }
     drawer.appendChild(
-      el("p", "menu-hint", "Music is off by default. Settings are saved on this device."),
+      el(
+        "p",
+        "menu-hint",
+        "Pick a track to turn music on (off by default). Settings are saved on this device.",
+      ),
     );
   }
 
@@ -306,6 +354,19 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     offerInstall(prompt: () => void): void {
       installBtn.onclick = () => prompt();
       installBtn.style.display = "";
+    },
+    dismiss(): void {
+      root.classList.add("is-leaving");
+      let removed = false;
+      const remove = (): void => {
+        if (removed) return;
+        removed = true;
+        root.remove();
+      };
+      // transitionend can be swallowed (display changes, reduced motion) — the
+      // timeout guarantees the DOM never keeps a dead overlay around.
+      root.addEventListener("transitionend", remove, { once: true });
+      setTimeout(remove, 500);
     },
   };
 }

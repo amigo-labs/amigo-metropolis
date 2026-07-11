@@ -29,6 +29,7 @@ import {
 import { renderMusicLoop } from "./music";
 import { DETUNE_CUES, PRESETS } from "./presets";
 import { renderSfxr } from "./sfxr";
+import { MUSIC_OPTIONS, type MusicSelection, parseMusicSelection } from "./tracks";
 
 const cueByType: string[] = [];
 cueByType[EV_SHOT] = "shot";
@@ -47,6 +48,10 @@ export interface Volumes {
   sfx: number;
   music: number;
 }
+/** Everything persisted under STORAGE_KEY: volumes plus the music track pick. */
+export interface AudioSettings extends Volumes {
+  track: MusicSelection;
+}
 
 const STORAGE_KEY = "metropolis.audio.v1";
 const DEFAULT_VOLUMES: Volumes = { master: 0.8, sfx: 1, music: 0 };
@@ -54,21 +59,32 @@ const MAX_VOICES = 24;
 /** Cues that can fire many times per tick and would stack into noise. */
 const COALESCE = new Set(["shot", "hit", "explosion"]);
 
-function loadVolumes(): Volumes {
+/**
+ * Parses the persisted settings JSON. Pure so tests can cover it without a
+ * DOM. Legacy 3-field payloads (pre-track) parse to track "off", which sounds
+ * identical to what those users had.
+ */
+export function parseAudioSettings(raw: string | null): AudioSettings {
+  const out: AudioSettings = { ...DEFAULT_VOLUMES, track: "off" };
+  if (!raw) return out;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const p = JSON.parse(raw) as Partial<Volumes>;
-      return {
-        master: clamp01(p.master ?? DEFAULT_VOLUMES.master),
-        sfx: clamp01(p.sfx ?? DEFAULT_VOLUMES.sfx),
-        music: clamp01(p.music ?? DEFAULT_VOLUMES.music),
-      };
-    }
+    const p = JSON.parse(raw) as Partial<AudioSettings>;
+    out.master = clamp01(typeof p.master === "number" ? p.master : out.master);
+    out.sfx = clamp01(typeof p.sfx === "number" ? p.sfx : out.sfx);
+    out.music = clamp01(typeof p.music === "number" ? p.music : out.music);
+    out.track = parseMusicSelection(p.track);
   } catch {
     // ignore malformed storage
   }
-  return { ...DEFAULT_VOLUMES };
+  return out;
+}
+
+function loadSettings(): AudioSettings {
+  try {
+    return parseAudioSettings(localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return parseAudioSettings(null);
+  }
 }
 
 function clamp01(v: number): number {
@@ -86,9 +102,12 @@ export class AudioEngine {
   private sfxGain: GainNode | null = null;
   private musicGain: GainNode | null = null;
   private readonly buffers = new Map<string, AudioBuffer>();
-  private musicBuffer: AudioBuffer | null = null;
+  /** Decoded/rendered music, cached per selection so re-picks are instant. */
+  private readonly musicBuffers = new Map<MusicSelection, AudioBuffer>();
   private musicSource: AudioBufferSourceNode | null = null;
-  private volumes: Volumes = loadVolumes();
+  /** Bumped per load/switch; a stale async decode must not start playback. */
+  private musicLoadGen = 0;
+  private settings: AudioSettings = loadSettings();
   private activeVoices = 0;
   private readonly onVoiceEnded = (): void => {
     if (this.activeVoices > 0) this.activeVoices--;
@@ -104,19 +123,52 @@ export class AudioEngine {
   }
 
   getVolumes(): Volumes {
-    return { ...this.volumes };
+    const { master, sfx, music } = this.settings;
+    return { master, sfx, music };
   }
 
   setVolume(kind: VolumeKind, value: number): void {
-    this.volumes[kind] = clamp01(value);
+    this.settings[kind] = clamp01(value);
     this.persist();
     this.applyGains();
     // Don't leave the loop running muted at 0 (wastes CPU/battery on mobile);
-    // ensureMusic() spins up a fresh source when it's turned back up.
+    // startSelectedMusic() spins up a fresh source when it's turned back up.
     if (this.unlocked) {
-      if (this.volumes.music > 0) this.ensureMusic();
+      if (this.settings.music > 0) this.startSelectedMusic();
       else this.stopMusic();
     }
+  }
+
+  getMusicTrack(): MusicSelection {
+    return this.settings.track;
+  }
+
+  /**
+   * Persists the pick and switches playback. Resolves "missing" when a file
+   * track can't be fetched/decoded (placeholder mp3 not dropped in yet) — the
+   * selection then reverts to "off" so a reload doesn't retry a dead URL.
+   */
+  async setMusicTrack(sel: MusicSelection): Promise<"ok" | "missing"> {
+    // The picker interaction is itself a gesture, so unlocking here is legal
+    // (mirrors preview()). No-op when already unlocked.
+    this.unlock();
+    this.settings.track = sel;
+    this.persist();
+    this.stopMusic();
+    if (sel === "off") return "ok";
+    const gen = ++this.musicLoadGen;
+    const buf = await this.loadMusicBuffer(sel);
+    if (!buf) {
+      if (this.settings.track === sel) {
+        this.settings.track = "off";
+        this.persist();
+      }
+      return "missing";
+    }
+    if (gen === this.musicLoadGen && this.settings.track === sel && this.settings.music > 0) {
+      this.startMusicSource(buf);
+    }
+    return "ok";
   }
 
   /** Creates the context + gain graph, pre-renders every buffer. Idempotent. */
@@ -145,11 +197,9 @@ export class AudioEngine {
       audioBuf.copyToChannel(pcm, 0);
       this.buffers.set(name, audioBuf);
     }
-    const music = renderMusicLoop(rate);
-    this.musicBuffer = this.ctx.createBuffer(1, music.length, rate);
-    this.musicBuffer.copyToChannel(music, 0);
-
-    if (this.volumes.music > 0) this.ensureMusic();
+    // Music is loaded on demand (per selected track), not at unlock — see
+    // startSelectedMusic(); the synth loop renders lazily through the same path.
+    this.startSelectedMusic();
   }
 
   pump(events: EventBuffer): void {
@@ -191,17 +241,58 @@ export class AudioEngine {
     this.activeVoices++;
   }
 
-  private ensureMusic(): void {
-    if (!this.ctx || !this.musicGain || !this.musicBuffer || this.musicSource) return;
+  /** Starts the persisted selection if audible and not already playing. */
+  private startSelectedMusic(): void {
+    const sel = this.settings.track;
+    if (sel === "off" || this.settings.music === 0 || this.musicSource) return;
+    const gen = ++this.musicLoadGen;
+    void this.loadMusicBuffer(sel).then((buf) => {
+      if (!buf || gen !== this.musicLoadGen || this.settings.track !== sel) return;
+      if (this.settings.music > 0 && !this.musicSource) this.startMusicSource(buf);
+    });
+  }
+
+  /**
+   * Returns the cached buffer for `sel`, rendering (synth) or fetching+decoding
+   * (file tracks) on first use. Null on any failure — 404s are expected while
+   * the mp3 slots are placeholders.
+   */
+  private async loadMusicBuffer(sel: MusicSelection): Promise<AudioBuffer | null> {
+    if (!this.ctx || sel === "off") return null;
+    const cached = this.musicBuffers.get(sel);
+    if (cached) return cached;
+    let buf: AudioBuffer | null = null;
+    if (sel === "synth") {
+      const rate = this.ctx.sampleRate;
+      const pcm = renderMusicLoop(rate);
+      buf = this.ctx.createBuffer(1, pcm.length, rate);
+      buf.copyToChannel(pcm, 0);
+    } else {
+      const url = MUSIC_OPTIONS.find((o) => o.id === sel)?.url;
+      if (!url) return null;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+      } catch {
+        return null; // network error or undecodable file
+      }
+    }
+    this.musicBuffers.set(sel, buf);
+    return buf;
+  }
+
+  private startMusicSource(buffer: AudioBuffer): void {
+    if (!this.ctx || !this.musicGain || this.musicSource) return;
     const src = this.ctx.createBufferSource();
-    src.buffer = this.musicBuffer;
+    src.buffer = buffer;
     src.loop = true;
     src.connect(this.musicGain);
     src.start();
     this.musicSource = src;
   }
 
-  /** A looping source can't be restarted, so stop + drop it; ensureMusic remakes it. */
+  /** A looping source can't be restarted, so stop + drop it; startSelectedMusic remakes it. */
   private stopMusic(): void {
     if (!this.musicSource) return;
     try {
@@ -214,14 +305,14 @@ export class AudioEngine {
   }
 
   private applyGains(): void {
-    if (this.masterGain) this.masterGain.gain.value = this.volumes.master;
-    if (this.sfxGain) this.sfxGain.gain.value = this.volumes.sfx;
-    if (this.musicGain) this.musicGain.gain.value = this.volumes.music;
+    if (this.masterGain) this.masterGain.gain.value = this.settings.master;
+    if (this.sfxGain) this.sfxGain.gain.value = this.settings.sfx;
+    if (this.musicGain) this.musicGain.gain.value = this.settings.music;
   }
 
   private persist(): void {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.volumes));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
     } catch {
       // ignore storage failures (private mode, quota)
     }
