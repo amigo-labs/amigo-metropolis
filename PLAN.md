@@ -186,7 +186,7 @@ before touching any of this.
 
 - [x] H0 — Setup & Wrangler: DO bindings (`LobbyDO`, `DirectoryDO`,
       `GatekeeperDO`), routes (`/lobby/*`, `/api/*`), test scaffold
-- [ ] H1 — Signaling DO: lobby create/join, SDP/ICE brokering for exactly
+- [x] H1 — Signaling DO: lobby create/join, SDP/ICE brokering for exactly
       2 peers, in-memory state, alarm TTL
 - [ ] H2 — WebRTC transport in the client: relay-only `RTCPeerConnection`,
       unordered/no-retransmit DataChannel, input redundancy (last k ticks per
