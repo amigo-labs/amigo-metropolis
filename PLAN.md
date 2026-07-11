@@ -176,6 +176,36 @@ asset sources in hand rather than committed blind; the game meets the DoD in
 greybox until then. The feel-tuning of the SFX presets stays an open pass like
 the hover-feel / difficulty-curve passes.)
 
+## Phase 8 — Netcode transport & hosting (P2P/TURN) — hosting.spec.md
+
+Zero-cost online path: match traffic goes peer-to-peer over a relay-only WebRTC
+DataChannel through Cloudflare TURN; Durable Objects handle only the handshake
+(lobby/signaling, directory, budget gatekeeper). The Phase-6 WS relay
+(`/room/<CODE>`) stays as the code-based fallback. Read `docs/specs/hosting.spec.md`
+before touching any of this.
+
+- [ ] H0 — Setup & Wrangler: DO bindings (`LobbyDO`, `DirectoryDO`,
+      `GatekeeperDO`), routes (`/lobby/*`, `/api/*`), test scaffold
+- [ ] H1 — Signaling DO: lobby create/join, SDP/ICE brokering for exactly
+      2 peers, in-memory state, alarm TTL
+- [ ] H2 — WebRTC transport in the client: relay-only `RTCPeerConnection`,
+      unordered/no-retransmit DataChannel, input redundancy (last k ticks per
+      packet, k = D + 2), wired to the sim tick
+- [ ] H3 — Lobby system & directory: optional password (server-side hash
+      check), public list vs. private code, directory register/unregister,
+      lobby UI in the menu
+- [ ] H4 — Budget gatekeeper: token bucket + per-UTC-day hard counter,
+      reservation/reconciliation, reset 00:00 UTC, "sold out" UI path
+- [ ] H5 — Hardening: short-lived TURN credentials, reconnect/abort logic,
+      chaos-tested lifecycle cleanup (no ghost lobbies)
+
+**DoD:** two machines complete a deterministic match over the P2P path with
+identical tick hashes; a public lobby is discoverable and a password-protected
+one is joinable only with the right password; a simulated budget overrun turns
+new sessions away with "sold out" and recovers at UTC midnight; abort chaos
+leaves no ghost lobbies. Live two-network TURN playtest stays an open pass,
+like the Phase-6 relay playtest.
+
 ## Backlog (post-v1, do not start)
 
 More arenas · map editor · rollback netcode upgrade · 2v2 · touch controls ·
