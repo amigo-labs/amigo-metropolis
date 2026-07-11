@@ -49,6 +49,7 @@ const LOBBY_ERROR_TEXT: Record<string, string> = {
   versionMismatch: "version mismatch — update the game",
   badPassword: "wrong password",
   noPeer: "peer left during signaling",
+  soldOut: "sold out for today — free capacity resets at midnight UTC",
 };
 
 const CLOSE_TEXT: Record<string, string> = {

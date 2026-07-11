@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./room": "./src/room.ts",
     "./lobby": "./src/lobby.ts",
-    "./directory": "./src/directory.ts"
+    "./directory": "./src/directory.ts",
+    "./gatekeeper": "./src/gatekeeper.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

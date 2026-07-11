@@ -53,7 +53,8 @@ export type LobbyErrorCode =
   | "full" // both seats taken
   | "versionMismatch" // joiner runs a different SIM_VERSION
   | "badPassword" // wrong (or missing) password hash
-  | "noPeer"; // signal sent while alone
+  | "noPeer" // signal sent while alone
+  | "soldOut"; // budget gate closed (issued by the DO adapter, not this logic)
 
 export type LobbyServerMsg =
   | { readonly t: "created"; readonly lobbyId: string }
@@ -62,7 +63,7 @@ export type LobbyServerMsg =
   | { readonly t: "signal"; readonly data: unknown }
   | { readonly t: "peerLeft" }
   | { readonly t: "closed"; readonly reason: LobbyCloseReason }
-  | { readonly t: "error"; readonly code: LobbyErrorCode };
+  | { readonly t: "error"; readonly code: LobbyErrorCode; readonly retryAtMs?: number };
 
 /** One message to send; `close` drops that socket after delivery. */
 export interface LobbyOutgoing {

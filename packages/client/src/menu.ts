@@ -276,8 +276,24 @@ export function runMenu(opts: MenuOptions): MenuHandle {
       } catch {
         hint.textContent = "Lobby list unavailable (offline or the server is asleep).";
       }
+      void loadBudget();
     };
-    void load();
+
+    // "Sold out" path (hosting.spec.md §6): if the budget gatekeeper has no
+    // capacity left, grey out hosting up front instead of failing the create.
+    const loadBudget = async (): Promise<void> => {
+      try {
+        const res = await fetch(`${apiBase()}/api/budget`);
+        if (!res.ok) return;
+        const budget = (await res.json()) as { available: boolean; retryAtMs: number | null };
+        create.disabled = !budget.available;
+        budgetHint.textContent = budget.available
+          ? ""
+          : "Sold out for today — free capacity resets at midnight UTC.";
+      } catch {
+        // no budget info — leave hosting enabled; the server still enforces it
+      }
+    };
     const refresh = el("button", "menu-go menu-go--ghost", "Refresh list");
     refresh.onclick = () => void load();
     panel.appendChild(refresh);
@@ -312,6 +328,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     pubLabel.append(pubCheck, document.createTextNode("List publicly (else share the code)"));
     panel.appendChild(pubLabel);
     const create = el("button", "menu-go", "Create lobby");
+    const budgetHint = el("p", "menu-err");
     create.onclick = async () => {
       const code = randomRoomCode();
       const passwordHash = pwInput.value ? await hashLobbyPassword(code, pwInput.value) : undefined;
@@ -324,6 +341,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
       go({ mode: "p2p", code });
     };
     panel.appendChild(create);
+    panel.appendChild(budgetHint);
     panel.appendChild(
       el(
         "p",
@@ -333,6 +351,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
           "never sent in plain text.",
       ),
     );
+    void load();
   }
 
   soloBtn.onclick = () => setActive(active === "solo" ? null : "solo");

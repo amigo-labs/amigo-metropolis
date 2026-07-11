@@ -12,6 +12,7 @@
 // simply retry with a fresh code. The persisted alarm still fires and finds
 // nothing to do.
 
+import { GATE_SESSION_TURN_MB } from "./gatekeeper";
 import type { Env } from "./index";
 import { LobbyLogic, type LobbyResult, type LobbyServerMsg } from "./lobby";
 
@@ -24,6 +25,12 @@ export class LobbyDO implements DurableObject {
   private readonly conns = new Map<string, WebSocket>();
   /** connIds this instance has seen — distinguishes pre-eviction sockets. */
   private readonly known = new Set<string>();
+  /** Budget reservation for this lobby's session (hosting.spec.md §3.4). */
+  private sessionId: string | null = null;
+  /** Actual DO events handled — the reconciliation's request count. */
+  private requestCount = 0;
+  private matched = false;
+  private reconciled = false;
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -31,6 +38,7 @@ export class LobbyDO implements DurableObject {
   ) {}
 
   async fetch(request: Request): Promise<Response> {
+    this.requestCount++;
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected a WebSocket upgrade", { status: 426 });
     }
@@ -49,6 +57,7 @@ export class LobbyDO implements DurableObject {
   }
 
   async webSocketMessage(ws: WebSocket, data: ArrayBuffer | string): Promise<void> {
+    this.requestCount++;
     const connId = this.connIdOf(ws);
     if (connId === null) return this.orphan(ws);
     let raw: unknown = null; // binary is never valid signaling → protocol error
@@ -59,10 +68,32 @@ export class LobbyDO implements DurableObject {
         raw = null;
       }
     }
+    // Budget gate (hosting.spec.md §5): a lobby only opens if the gatekeeper
+    // grants a session — enforced HERE so no client can skip the check.
+    if (
+      this.sessionId === null &&
+      typeof raw === "object" &&
+      raw !== null &&
+      (raw as { t?: unknown }).t === "create"
+    ) {
+      const gate = await this.gateReserve();
+      if (!gate.ok) {
+        const msg: LobbyServerMsg = { t: "error", code: "soldOut", retryAtMs: gate.retryAtMs };
+        try {
+          ws.send(JSON.stringify(msg));
+          ws.close(1000, "sold out");
+        } catch {
+          // already gone
+        }
+        return;
+      }
+      this.sessionId = gate.sessionId;
+    }
     await this.apply(this.logic.handleMessage(connId, raw, Date.now()));
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> {
+    this.requestCount++;
     const connId = this.connIdOf(ws);
     if (connId === null) return;
     this.conns.delete(connId);
@@ -74,6 +105,7 @@ export class LobbyDO implements DurableObject {
   }
 
   async alarm(): Promise<void> {
+    this.requestCount++;
     await this.apply(this.logic.handleAlarm(Date.now()));
   }
 
@@ -97,8 +129,50 @@ export class LobbyDO implements DurableObject {
     }
   }
 
+  /**
+   * Asks the gatekeeper singleton for a session. A transport failure fails
+   * OPEN (a gate glitch must not black out the game); an explicit denial is
+   * honoured — that is the "sold out for today" path.
+   */
+  private async gateReserve(): Promise<
+    { ok: true; sessionId: string | null } | { ok: false; retryAtMs?: number }
+  > {
+    const stub = this.env.GATEKEEPER.get(this.env.GATEKEEPER.idFromName("gatekeeper"));
+    try {
+      const res = await stub.fetch("https://gatekeeper/reserve", { method: "POST" });
+      const body = (await res.json()) as
+        | { ok: true; sessionId: string }
+        | { ok: false; retryAtMs: number };
+      return body.ok
+        ? { ok: true, sessionId: body.sessionId }
+        : { ok: false, retryAtMs: body.retryAtMs };
+    } catch {
+      return { ok: true, sessionId: null };
+    }
+  }
+
+  /** Settles the reservation once the lobby is done (fire-and-forget). */
+  private async gateReconcile(): Promise<void> {
+    if (this.sessionId === null || this.reconciled) return;
+    this.reconciled = true;
+    const stub = this.env.GATEKEEPER.get(this.env.GATEKEEPER.idFromName("gatekeeper"));
+    const body = JSON.stringify({
+      sessionId: this.sessionId,
+      // +1 for the reconcile call itself; TURN egress only accrues if the
+      // peers actually matched (kept at the estimate — we never see the wire).
+      requests: this.requestCount + 1,
+      turnMb: this.matched ? GATE_SESSION_TURN_MB : 0,
+    });
+    try {
+      await stub.fetch("https://gatekeeper/reconcile", { method: "POST", body });
+    } catch {
+      // tolerated — the reservation keeps its conservative estimate
+    }
+  }
+
   private async apply(result: LobbyResult): Promise<void> {
     for (const o of result.out) {
+      if (o.msg.t === "closed" && o.msg.reason === "matched") this.matched = true;
       const ws = this.conns.get(o.connId);
       if (!ws) continue;
       try {
@@ -135,5 +209,6 @@ export class LobbyDO implements DurableObject {
         }
       }
     }
+    if (this.logic.status === "closed") await this.gateReconcile();
   }
 }

@@ -194,7 +194,7 @@ before touching any of this.
 - [x] H3 — Lobby system & directory: optional password (server-side hash
       check), public list vs. private code, directory register/unregister,
       lobby UI in the menu
-- [ ] H4 — Budget gatekeeper: token bucket + per-UTC-day hard counter,
+- [x] H4 — Budget gatekeeper: token bucket + per-UTC-day hard counter,
       reservation/reconciliation, reset 00:00 UTC, "sold out" UI path
 - [ ] H5 — Hardening: short-lived TURN credentials, reconnect/abort logic,
       chaos-tested lifecycle cleanup (no ghost lobbies)
