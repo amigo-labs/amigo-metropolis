@@ -188,7 +188,7 @@ before touching any of this.
       `GatekeeperDO`), routes (`/lobby/*`, `/api/*`), test scaffold
 - [x] H1 — Signaling DO: lobby create/join, SDP/ICE brokering for exactly
       2 peers, in-memory state, alarm TTL
-- [ ] H2 — WebRTC transport in the client: relay-only `RTCPeerConnection`,
+- [x] H2 — WebRTC transport in the client: relay-only `RTCPeerConnection`,
       unordered/no-retransmit DataChannel, input redundancy (last k ticks per
       packet, k = D + 2), wired to the sim tick
 - [ ] H3 — Lobby system & directory: optional password (server-side hash

@@ -25,6 +25,14 @@ export const LOCAL_INPUT_DELAY_TICKS = 2;
  */
 export const ONLINE_INPUT_DELAY_TICKS = 3;
 
+/**
+ * P2P input redundancy (hosting.spec.md §3.1, §9): every packet on the
+ * unreliable DataChannel carries the last k ticks of local input, so any
+ * single lost packet is covered by the next one. k = delay + 2 gives two
+ * packets of slack beyond the lockstep window; tune empirically.
+ */
+export const P2P_INPUT_REDUNDANCY_TICKS = ONLINE_INPUT_DELAY_TICKS + 2;
+
 // Avatar (rules.md §2, §4) — Phase 0 only uses walker speed for the debug cube.
 export const AVATAR_HP = 300;
 export const AVATAR_WALKER_SPEED = 5;
