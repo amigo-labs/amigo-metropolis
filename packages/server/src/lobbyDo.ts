@@ -121,7 +121,9 @@ export class LobbyDO implements DurableObject {
         case "unregister": {
           // Fire-and-forget: a directory glitch must never break signaling.
           const body = JSON.stringify(
-            e.kind === "register" ? { lobbyId: e.lobbyId, name: e.name } : { lobbyId: e.lobbyId },
+            e.kind === "register"
+              ? { lobbyId: e.lobbyId, name: e.name, hasPassword: e.hasPassword }
+              : { lobbyId: e.lobbyId },
           );
           const stub = this.env.DIRECTORY.get(this.env.DIRECTORY.idFromName("directory"));
           try {

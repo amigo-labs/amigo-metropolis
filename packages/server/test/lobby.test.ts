@@ -62,7 +62,7 @@ describe("LobbyLogic lifecycle", () => {
     expect(r.out).toEqual([{ connId: "h", msg: { t: "created", lobbyId: "ABCDE" } }]);
     expect(r.effects).toEqual([
       { kind: "setAlarm", atMs: T0 + LOBBY_OPEN_TTL_MS },
-      { kind: "register", lobbyId: "ABCDE", name: "Test Arena" },
+      { kind: "register", lobbyId: "ABCDE", name: "Test Arena", hasPassword: false },
     ]);
     expect(logic.status).toBe("open");
   });
@@ -179,7 +179,7 @@ describe("LobbyLogic lifecycle", () => {
     expect(r.out).toEqual([{ connId: "h", msg: { t: "peerLeft" } }]);
     expect(r.effects).toEqual([
       { kind: "setAlarm", atMs: T0 + 2000 + LOBBY_OPEN_TTL_MS },
-      { kind: "register", lobbyId: "ABCDE", name: "Test Arena" },
+      { kind: "register", lobbyId: "ABCDE", name: "Test Arena", hasPassword: false },
     ]);
     expect(logic.status).toBe("open");
     expect(seatJoiner(logic).out.length).toBe(2);
@@ -282,5 +282,68 @@ describe("parseLobbyClientMsg", () => {
   test("rejects an over-long lobby name", () => {
     const longName = { ...goodCreate, name: "x".repeat(41) };
     expect(parseLobbyClientMsg(longName)).toBeNull();
+  });
+});
+
+describe("LobbyLogic passwords (server-side gate)", () => {
+  const HASH_A = "a".repeat(64);
+  const HASH_B = "b".repeat(64);
+
+  function openLocked(logic: LobbyLogic): void {
+    logic.handleOpen("h", "ABCDE", T0);
+    logic.handleMessage(
+      "h",
+      { t: "create", name: "Locked", visibility: "public", config: CFG, passwordHash: HASH_A },
+      T0,
+    );
+  }
+
+  test("a locked lobby registers as password-protected", () => {
+    const logic = new LobbyLogic();
+    logic.handleOpen("h", "ABCDE", T0);
+    const r = logic.handleMessage(
+      "h",
+      { t: "create", name: "Locked", visibility: "public", config: CFG, passwordHash: HASH_A },
+      T0,
+    );
+    expect(r.effects).toContainEqual({
+      kind: "register",
+      lobbyId: "ABCDE",
+      name: "Locked",
+      hasPassword: true,
+    });
+  });
+
+  test("wrong or missing password is rejected without seating — retry allowed", () => {
+    const logic = new LobbyLogic();
+    openLocked(logic);
+    logic.handleOpen("j", "ABCDE", T0);
+    const missing = logic.handleMessage("j", { t: "join", simVersion: 7 }, T0);
+    expect(missing.out).toEqual([{ connId: "j", msg: { t: "error", code: "badPassword" } }]);
+    const wrong = logic.handleMessage("j", { t: "join", simVersion: 7, passwordHash: HASH_B }, T0);
+    expect(wrong.out).toEqual([{ connId: "j", msg: { t: "error", code: "badPassword" } }]);
+    expect(logic.status).toBe("open"); // nothing about the host was released
+    const right = logic.handleMessage("j", { t: "join", simVersion: 7, passwordHash: HASH_A }, T0);
+    expect(right.out.map((o) => o.msg.t).sort()).toEqual(["joined", "peerJoined"]);
+    expect(logic.status).toBe("signaling");
+  });
+
+  test("an open lobby ignores a supplied password", () => {
+    const logic = new LobbyLogic();
+    openLobby(logic);
+    logic.handleOpen("j", "ABCDE", T0);
+    const r = logic.handleMessage("j", { t: "join", simVersion: 7, passwordHash: HASH_B }, T0);
+    expect(r.out.map((o) => o.msg.t).sort()).toEqual(["joined", "peerJoined"]);
+  });
+
+  test("a malformed password hash is a protocol error", () => {
+    const logic = new LobbyLogic();
+    openLocked(logic);
+    logic.handleOpen("j", "ABCDE", T0);
+    const r = logic.handleMessage("j", { t: "join", simVersion: 7, passwordHash: "HUNTER2" }, T0);
+    expect(r.out).toEqual([{ connId: "j", msg: { t: "error", code: "protocol" }, close: true }]);
+    expect(
+      parseLobbyClientMsg({ t: "join", simVersion: 7, passwordHash: "A".repeat(64) }),
+    ).toBeNull();
   });
 });

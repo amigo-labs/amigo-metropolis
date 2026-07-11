@@ -22,6 +22,10 @@ describe("buildModeQuery", () => {
     expect(buildModeQuery({ mode: "warden", difficulty: Number.NaN })).toBe("?warden=1");
   });
 
+  test("p2p routes to the lobby-brokered mode", () => {
+    expect(buildModeQuery({ mode: "p2p", code: "abcde" })).toBe("?p2p=ABCDE");
+  });
+
   test("online upper-cases the room code", () => {
     expect(buildModeQuery({ mode: "online", code: "abcde" })).toBe("?online=ABCDE");
   });

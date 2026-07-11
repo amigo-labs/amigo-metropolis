@@ -38,8 +38,10 @@ export type LobbyClientMsg =
       readonly name: string;
       readonly visibility: LobbyVisibility;
       readonly config: MatchConfig;
+      /** SHA-256 hex of the lobby password (hashed client-side); absent = open. */
+      readonly passwordHash?: string;
     }
-  | { readonly t: "join"; readonly simVersion: number }
+  | { readonly t: "join"; readonly simVersion: number; readonly passwordHash?: string }
   | { readonly t: "signal"; readonly data: unknown }
   | { readonly t: "matchStarted" };
 
@@ -50,6 +52,7 @@ export type LobbyErrorCode =
   | "closed" // lobby is not (or no longer) joinable
   | "full" // both seats taken
   | "versionMismatch" // joiner runs a different SIM_VERSION
+  | "badPassword" // wrong (or missing) password hash
   | "noPeer"; // signal sent while alone
 
 export type LobbyServerMsg =
@@ -70,7 +73,12 @@ export interface LobbyOutgoing {
 
 /** Side effects the DO adapter must execute (pure logic never does I/O). */
 export type LobbyEffect =
-  | { readonly kind: "register"; readonly lobbyId: string; readonly name: string }
+  | {
+      readonly kind: "register";
+      readonly lobbyId: string;
+      readonly name: string;
+      readonly hasPassword: boolean;
+    }
   | { readonly kind: "unregister"; readonly lobbyId: string }
   | { readonly kind: "setAlarm"; readonly atMs: number }
   | { readonly kind: "clearAlarm" };
@@ -116,6 +124,11 @@ function parseConfig(v: unknown): MatchConfig | null {
   };
 }
 
+/** A client-side SHA-256 digest: exactly 64 lowercase hex chars. */
+function isPasswordHash(v: unknown): v is string {
+  return typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
+}
+
 /** Strict shape check for untrusted client JSON; null = malformed. */
 export function parseLobbyClientMsg(v: unknown): LobbyClientMsg | null {
   if (!isRecord(v)) return null;
@@ -125,11 +138,15 @@ export function parseLobbyClientMsg(v: unknown): LobbyClientMsg | null {
       if (v.visibility !== "public" && v.visibility !== "private") return null;
       const config = parseConfig(v.config);
       if (!config) return null;
-      return { t: "create", name: v.name, visibility: v.visibility, config };
+      if (v.passwordHash !== undefined && !isPasswordHash(v.passwordHash)) return null;
+      const base = { t: "create", name: v.name, visibility: v.visibility, config } as const;
+      return v.passwordHash === undefined ? base : { ...base, passwordHash: v.passwordHash };
     }
     case "join": {
       if (!Number.isInteger(v.simVersion)) return null;
-      return { t: "join", simVersion: v.simVersion as number };
+      if (v.passwordHash !== undefined && !isPasswordHash(v.passwordHash)) return null;
+      const base = { t: "join", simVersion: v.simVersion as number } as const;
+      return v.passwordHash === undefined ? base : { ...base, passwordHash: v.passwordHash };
     }
     case "signal":
       return "data" in v ? { t: "signal", data: v.data } : null;
@@ -148,6 +165,7 @@ export class LobbyLogic {
   private name = "";
   private visibility: LobbyVisibility = "private";
   private config: MatchConfig | null = null;
+  private passwordHash: string | null = null;
   private hostConn: string | null = null;
   private joinerConn: string | null = null;
   /** Sockets connected but not yet seated (pre-create/join). */
@@ -210,7 +228,12 @@ export class LobbyLogic {
       const effects = this.deadline(nowMs + LOBBY_OPEN_TTL_MS);
       if (this.visibility === "public" && !this.registered) {
         this.registered = true;
-        effects.push({ kind: "register", lobbyId: this.lobbyId, name: this.name });
+        effects.push({
+          kind: "register",
+          lobbyId: this.lobbyId,
+          name: this.name,
+          hasPassword: this.passwordHash !== null,
+        });
       }
       return { out, effects };
     }
@@ -242,11 +265,17 @@ export class LobbyLogic {
     this.name = msg.name;
     this.visibility = msg.visibility;
     this.config = msg.config;
+    this.passwordHash = msg.passwordHash ?? null;
     const out: LobbyOutgoing[] = [{ connId, msg: { t: "created", lobbyId: this.lobbyId } }];
     const effects = this.deadline(nowMs + LOBBY_OPEN_TTL_MS);
     if (msg.visibility === "public") {
       this.registered = true;
-      effects.push({ kind: "register", lobbyId: this.lobbyId, name: this.name });
+      effects.push({
+        kind: "register",
+        lobbyId: this.lobbyId,
+        name: this.name,
+        hasPassword: this.passwordHash !== null,
+      });
     }
     return { out, effects };
   }
@@ -260,6 +289,12 @@ export class LobbyLogic {
     const config = this.config as MatchConfig;
     if (msg.simVersion !== config.simVersion) {
       return this.errTo(connId, "versionMismatch", true);
+    }
+    // Server-side password gate (hosting.spec.md §3.2): nothing about the host
+    // (config, signaling) leaves this DO until the hash matches. Non-fatal so
+    // a typo can be retried on the same socket.
+    if (this.passwordHash !== null && msg.passwordHash !== this.passwordHash) {
+      return this.errTo(connId, "badPassword");
     }
     this.pending.delete(connId);
     this.joinerConn = connId;

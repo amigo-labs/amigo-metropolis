@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./room": "./src/room.ts",
-    "./lobby": "./src/lobby.ts"
+    "./lobby": "./src/lobby.ts",
+    "./directory": "./src/directory.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

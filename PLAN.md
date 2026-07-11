@@ -191,7 +191,7 @@ before touching any of this.
 - [x] H2 — WebRTC transport in the client: relay-only `RTCPeerConnection`,
       unordered/no-retransmit DataChannel, input redundancy (last k ticks per
       packet, k = D + 2), wired to the sim tick
-- [ ] H3 — Lobby system & directory: optional password (server-side hash
+- [x] H3 — Lobby system & directory: optional password (server-side hash
       check), public list vs. private code, directory register/unregister,
       lobby UI in the menu
 - [ ] H4 — Budget gatekeeper: token bucket + per-UTC-day hard counter,

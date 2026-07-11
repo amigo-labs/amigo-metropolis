@@ -12,12 +12,14 @@
 
 import type { AudioEngine } from "./audio/engine";
 import { MUSIC_OPTIONS, parseMusicSelection } from "./audio/tracks";
+import { hashLobbyPassword, storeP2pBootstrap } from "./net/p2pSession";
 
 export type MenuChoice =
   | { mode: "solo" } // sandbox vs the scripted feeder opponent
   | { mode: "warden"; difficulty: number } // vs the Phase 4 AI
   | { mode: "couch" } // local splitscreen
-  | { mode: "online"; code: string }; // 1v1 lockstep
+  | { mode: "online"; code: string } // 1v1 lockstep via the relay
+  | { mode: "p2p"; code: string }; // 1v1 lockstep, lobby-brokered P2P
 
 /**
  * Pure mapping from a menu choice to the query string main.ts understands.
@@ -37,6 +39,8 @@ export function buildModeQuery(choice: MenuChoice): string {
       // Encode defensively: valid codes are unaffected, but an unexpected value
       // can't smuggle extra query params (& / =) into the URL.
       return `?online=${encodeURIComponent(choice.code.toUpperCase())}`;
+    case "p2p":
+      return `?p2p=${encodeURIComponent(choice.code.toUpperCase())}`;
   }
 }
 
@@ -67,6 +71,13 @@ export interface MenuHandle {
   offerInstall(prompt: () => void): void;
   /** Fades the menu out and removes it from the DOM. */
   dismiss(): void;
+}
+
+/** HTTP(S) base for /api reads: the ?relay ws override translated, else same-origin. */
+function apiBase(): string {
+  const relay = new URLSearchParams(location.search).get("relay");
+  if (!relay) return "";
+  return relay.replace(/\/+$/, "").replace(/^ws(s?):/, "http$1:");
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(
@@ -199,6 +210,127 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         "menu-hint",
         "Host, then share the 5-character code. Both players enter the same code " +
           "to join the same room. Same code = same match seed.",
+      ),
+    );
+    buildP2pSection();
+  }
+
+  // --- P2P lobby browser (hosting.spec.md §3.1) -------------------------------
+  // Lists open public lobbies from /api/lobbies and hosts new ones. Match
+  // traffic runs peer-to-peer over WebRTC; the room-code relay above stays as
+  // the fallback path. Lobby names are other players' text — always assigned
+  // via textContent, never innerHTML.
+  function buildP2pSection(): void {
+    panel.appendChild(el("h2", "menu-h2", "Lobby browser (P2P)"));
+    const list = el("div", "menu-lobbies");
+    const hint = el("div", "menu-hint", "Loading lobbies…");
+    panel.append(list, hint);
+
+    const joinLobby = async (lobbyId: string, password?: string): Promise<void> => {
+      const passwordHash = password ? await hashLobbyPassword(lobbyId, password) : undefined;
+      storeP2pBootstrap(lobbyId, { role: "join", passwordHash });
+      go({ mode: "p2p", code: lobbyId });
+    };
+
+    const lobbyRow = (lobby: {
+      lobbyId: string;
+      name: string;
+      hasPassword: boolean;
+    }): HTMLElement => {
+      const row = el("div", "menu-lobby");
+      const name = el("span", "menu-lobby-name");
+      name.textContent = `${lobby.hasPassword ? "\u{1F512} " : ""}${lobby.name || lobby.lobbyId}`;
+      const join = el("button", "menu-go", "Join") as HTMLButtonElement;
+      join.onclick = () => {
+        if (!lobby.hasPassword) {
+          void joinLobby(lobby.lobbyId);
+          return;
+        }
+        if (row.querySelector("input")) return; // password field already shown
+        const pw = el("input", "menu-code") as HTMLInputElement;
+        pw.type = "password";
+        pw.placeholder = "password";
+        pw.setAttribute("aria-label", `Password for ${lobby.name}`);
+        const submit = (): void => void joinLobby(lobby.lobbyId, pw.value);
+        pw.onkeydown = (e) => {
+          if (e.key === "Enter") submit();
+        };
+        join.textContent = "Go";
+        join.onclick = submit;
+        row.insertBefore(pw, join);
+        pw.focus();
+      };
+      row.append(name, join);
+      return row;
+    };
+
+    const load = async (): Promise<void> => {
+      try {
+        const res = await fetch(`${apiBase()}/api/lobbies`);
+        if (!res.ok) throw new Error(String(res.status));
+        const data = (await res.json()) as {
+          lobbies: { lobbyId: string; name: string; hasPassword: boolean }[];
+        };
+        list.replaceChildren(...data.lobbies.map(lobbyRow));
+        hint.textContent = data.lobbies.length ? "" : "No open lobbies right now — host one below.";
+      } catch {
+        hint.textContent = "Lobby list unavailable (offline or the server is asleep).";
+      }
+    };
+    void load();
+    const refresh = el("button", "menu-go menu-go--ghost", "Refresh list");
+    refresh.onclick = () => void load();
+    panel.appendChild(refresh);
+
+    // Hosting: name + optional password + visibility, then a fresh code.
+    panel.appendChild(el("h2", "menu-h2", "Host a lobby"));
+    const nameRow = el("div", "menu-row");
+    const nameInput = el("input", "menu-code") as HTMLInputElement;
+    nameInput.type = "text";
+    nameInput.maxLength = 40;
+    nameInput.placeholder = "Lobby name";
+    nameInput.style.letterSpacing = "normal";
+    nameInput.style.textTransform = "none";
+    nameInput.style.fontSize = "14px";
+    nameInput.setAttribute("aria-label", "Lobby name");
+    nameRow.appendChild(nameInput);
+    panel.appendChild(nameRow);
+    const pwRow = el("div", "menu-row");
+    const pwInput = el("input", "menu-code") as HTMLInputElement;
+    pwInput.type = "password";
+    pwInput.placeholder = "Password (optional)";
+    pwInput.style.letterSpacing = "normal";
+    pwInput.style.textTransform = "none";
+    pwInput.style.fontSize = "14px";
+    pwInput.setAttribute("aria-label", "Lobby password (optional)");
+    pwRow.appendChild(pwInput);
+    panel.appendChild(pwRow);
+    const pubLabel = el("label", "menu-check");
+    const pubCheck = el("input") as HTMLInputElement;
+    pubCheck.type = "checkbox";
+    pubCheck.checked = true;
+    pubLabel.append(pubCheck, document.createTextNode("List publicly (else share the code)"));
+    panel.appendChild(pubLabel);
+    const create = el("button", "menu-go", "Create lobby");
+    create.onclick = async () => {
+      const code = randomRoomCode();
+      const passwordHash = pwInput.value ? await hashLobbyPassword(code, pwInput.value) : undefined;
+      storeP2pBootstrap(code, {
+        role: "host",
+        name: nameInput.value.trim() || `Lobby ${code}`,
+        visibility: pubCheck.checked ? "public" : "private",
+        passwordHash,
+      });
+      go({ mode: "p2p", code });
+    };
+    panel.appendChild(create);
+    panel.appendChild(
+      el(
+        "p",
+        "menu-hint",
+        "P2P matches connect directly between both browsers. Private lobbies are " +
+          "joined by sharing the code; passwords are checked by the server and " +
+          "never sent in plain text.",
       ),
     );
   }

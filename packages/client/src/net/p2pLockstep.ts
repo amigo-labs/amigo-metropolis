@@ -113,6 +113,10 @@ export class P2pLockstep {
   get simTick(): number {
     return this.sim.tick;
   }
+  /** The live sim this lockstep owns (render/HUD read it via snapshots). */
+  get simState(): SimState {
+    return this.sim;
+  }
   get isWaiting(): boolean {
     return this.waitingForPeer;
   }
