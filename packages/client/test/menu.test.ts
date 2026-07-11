@@ -10,10 +10,6 @@ describe("buildModeQuery", () => {
     expect(buildModeQuery({ mode: "solo" })).toBe("?play=1");
   });
 
-  test("couch uses ?splitscreen", () => {
-    expect(buildModeQuery({ mode: "couch" })).toBe("?splitscreen");
-  });
-
   test("warden clamps difficulty into 1..10", () => {
     expect(buildModeQuery({ mode: "warden", difficulty: 4 })).toBe("?warden=4");
     expect(buildModeQuery({ mode: "warden", difficulty: 0 })).toBe("?warden=1");

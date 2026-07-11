@@ -1,6 +1,6 @@
 // Title screen + menu flow (PLAN Phase 7). This is the "understand the game"
 // half of the phase DoD — a stranger opens the bare URL and sees the title, the
-// objective, and one click per mode. Deep links (?warden=4, ?splitscreen,
+// objective, and one click per mode. Deep links (?warden=4,
 // ?online=CODE, ?play, ?debug) skip the menu entirely, so shareable URLs and the
 // test harnesses are untouched (see main.ts `explicitMode`).
 //
@@ -17,7 +17,6 @@ import { hashLobbyPassword, storeP2pBootstrap } from "./net/p2pSession";
 export type MenuChoice =
   | { mode: "solo" } // sandbox vs the scripted feeder opponent
   | { mode: "warden"; difficulty: number } // vs the Phase 4 AI
-  | { mode: "couch" } // local splitscreen
   | { mode: "online"; code: string } // 1v1 lockstep via the relay
   | { mode: "p2p"; code: string }; // 1v1 lockstep, lobby-brokered P2P
 
@@ -33,8 +32,6 @@ export function buildModeQuery(choice: MenuChoice): string {
       const d = Math.max(1, Math.min(10, Math.trunc(choice.difficulty) || 1));
       return `?warden=${d}`;
     }
-    case "couch":
-      return "?splitscreen";
     case "online":
       // Encode defensively: valid codes are unaffected, but an unexpected value
       // can't smuggle extra query params (& / =) into the URL.
@@ -100,7 +97,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   const card = el("div", "menu-card");
   root.appendChild(card);
 
-  card.appendChild(el("div", "menu-kicker", "arena strategy-action · solo · couch · online"));
+  card.appendChild(el("div", "menu-kicker", "arena strategy-action · solo · online"));
   card.appendChild(el("h1", "menu-title", "METROPOLIS"));
   card.appendChild(
     el(
@@ -114,9 +111,8 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   // --- Mode buttons ---------------------------------------------------------
   const modes = el("div", "menu-modes");
   const soloBtn = el("button", "menu-mode", "<b>Solo</b><span>vs the Warden AI</span>");
-  const couchBtn = el("button", "menu-mode", "<b>Couch</b><span>2 players, splitscreen</span>");
   const onlineBtn = el("button", "menu-mode", "<b>Online</b><span>1v1 over the internet</span>");
-  modes.append(soloBtn, couchBtn, onlineBtn);
+  modes.append(soloBtn, onlineBtn);
   card.appendChild(modes);
 
   // A single sub-panel below the buttons reveals the chosen mode's options.
@@ -356,7 +352,6 @@ export function runMenu(opts: MenuOptions): MenuHandle {
 
   soloBtn.onclick = () => setActive(active === "solo" ? null : "solo");
   onlineBtn.onclick = () => setActive(active === "online" ? null : "online");
-  couchBtn.onclick = () => go({ mode: "couch" });
 
   // --- Footer: how-to, settings, install ------------------------------------
   const footer = el("div", "menu-footer");
@@ -409,8 +404,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         "menu-hint",
         "Earn points from kills, captures, and a steady trickle. Spend them at " +
           "your base consoles to field Runners, Guardians, and heavy units, then " +
-          "escort a push through a lane and breach the enemy gate. Gamepads work " +
-          "too — in Couch, press A to join.",
+          "escort a push through a lane and breach the enemy gate.",
       ),
     );
   }
