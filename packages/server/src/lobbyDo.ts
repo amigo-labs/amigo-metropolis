@@ -15,6 +15,7 @@
 import { GATE_SESSION_TURN_MB } from "./gatekeeper";
 import type { Env } from "./index";
 import { LobbyLogic, type LobbyResult, type LobbyServerMsg } from "./lobby";
+import { issueTurnCredentials, type LobbyIceConfig } from "./turn";
 
 interface Attachment {
   connId: string;
@@ -31,6 +32,8 @@ export class LobbyDO implements DurableObject {
   private requestCount = 0;
   private matched = false;
   private reconciled = false;
+  /** One credential issue per lobby, shared by both peers' messages. */
+  private icePromise: Promise<LobbyIceConfig | null> | null = null;
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -170,13 +173,32 @@ export class LobbyDO implements DurableObject {
     }
   }
 
+  /** Short-lived TURN credentials (hosting.spec.md §6); null without a key. */
+  private turnIce(): Promise<LobbyIceConfig | null> {
+    if (!this.icePromise) {
+      const { TURN_KEY_ID, TURN_KEY_API_TOKEN } = this.env;
+      this.icePromise =
+        TURN_KEY_ID && TURN_KEY_API_TOKEN
+          ? issueTurnCredentials(TURN_KEY_ID, TURN_KEY_API_TOKEN)
+          : Promise.resolve(null);
+    }
+    return this.icePromise;
+  }
+
   private async apply(result: LobbyResult): Promise<void> {
     for (const o of result.out) {
       if (o.msg.t === "closed" && o.msg.reason === "matched") this.matched = true;
       const ws = this.conns.get(o.connId);
       if (!ws) continue;
+      // Peers need relay credentials with their seat assignment: attach them
+      // to created (host) and joined (joiner) so the client can go relay-only.
+      let msg: LobbyServerMsg = o.msg;
+      if (msg.t === "created" || msg.t === "joined") {
+        const ice = await this.turnIce();
+        if (ice) msg = { ...msg, ice };
+      }
       try {
-        ws.send(JSON.stringify(o.msg));
+        ws.send(JSON.stringify(msg));
         if (o.close) ws.close(1000, "lobby closed");
       } catch {
         // socket died mid-send; disconnect handling will follow

@@ -64,6 +64,13 @@ class_name = "GatekeeperDO"
 tag = "v1"
 new_sqlite_classes = ["Room"]
 
+# TURN credentials for the P2P relay path (hosting.spec.md §6) are NOT stored
+# here: set the key id as a plain var and the API token as a secret —
+#   wrangler secret put TURN_KEY_API_TOKEN
+#   [vars] TURN_KEY_ID = "<realtime-turn-key-id>"
+# Without them the lobby omits ICE config and clients fall back to non-relay
+# candidates (dev-only behaviour; production wants relay-only privacy).
+
 # The free tier requires SQLite-backed classes. LobbyDO keeps its state
 # in-memory on purpose (hosting.spec.md §3.2 — no storage billing); Directory
 # and Gatekeeper persist one small record each to survive eviction.

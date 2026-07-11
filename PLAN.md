@@ -196,7 +196,7 @@ before touching any of this.
       lobby UI in the menu
 - [x] H4 — Budget gatekeeper: token bucket + per-UTC-day hard counter,
       reservation/reconciliation, reset 00:00 UTC, "sold out" UI path
-- [ ] H5 — Hardening: short-lived TURN credentials, reconnect/abort logic,
+- [x] H5 — Hardening: short-lived TURN credentials, reconnect/abort logic,
       chaos-tested lifecycle cleanup (no ghost lobbies)
 
 **DoD:** two machines complete a deterministic match over the P2P path with
@@ -205,6 +205,17 @@ one is joinable only with the right password; a simulated budget overrun turns
 new sessions away with "sold out" and recovers at UTC midnight; abort chaos
 leaves no ghost lobbies. Live two-network TURN playtest stays an open pass,
 like the Phase-6 relay playtest.
+(All five in-process gates are proven by tests: `p2pLockstep.test.ts` finishes
+150 ticks bit-identical to the offline sim over a 35 %-loss channel and flags
+an induced desync within 30 ticks; `lobby.test.ts` + `directory.test.ts` cover
+listing and the server-side password gate; `gatekeeper.test.ts` drains a day,
+gets "sold out", and recovers at the UTC reset; `lobbyChaos.test.ts` settles
+300 seeded hostile event sequences with zero ghost lobbies. TURN credentials
+are issued per lobby via the Cloudflare Realtime API once `TURN_KEY_ID` +
+`TURN_KEY_API_TOKEN` are configured — without them clients fall back to
+non-relay dev candidates. The optional GraphQL-analytics drift reconciliation
+from hosting.spec.md §3.4 stays unimplemented by design (out-of-band safety
+net); the gatekeeper's own counters are the source of truth.)
 
 ## Backlog (post-v1, do not start)
 

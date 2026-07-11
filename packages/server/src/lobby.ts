@@ -16,6 +16,7 @@
 // SDP-sized text blobs, not the 30 Hz hot path.
 
 import type { MatchConfig } from "@metropolis/sim";
+import type { LobbyIceConfig } from "./turn";
 
 // --- Lifecycle timeouts (wall-clock ms; server-side, not gameplay) -----------
 
@@ -57,8 +58,9 @@ export type LobbyErrorCode =
   | "soldOut"; // budget gate closed (issued by the DO adapter, not this logic)
 
 export type LobbyServerMsg =
-  | { readonly t: "created"; readonly lobbyId: string }
-  | { readonly t: "joined"; readonly config: MatchConfig }
+  // `ice` is injected by the DO adapter (turn.ts), never by this pure logic.
+  | { readonly t: "created"; readonly lobbyId: string; readonly ice?: LobbyIceConfig }
+  | { readonly t: "joined"; readonly config: MatchConfig; readonly ice?: LobbyIceConfig }
   | { readonly t: "peerJoined" }
   | { readonly t: "signal"; readonly data: unknown }
   | { readonly t: "peerLeft" }
