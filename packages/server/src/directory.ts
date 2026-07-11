@@ -54,6 +54,9 @@ export class DirectoryLogic {
   /** Adds or refreshes a listing. Returns true if the stored set changed. */
   register(entry: Omit<DirectoryEntry, "atMs">, nowMs: number): boolean {
     this.prune(nowMs);
+    // Map.set on an existing key keeps its ORIGINAL insertion slot, and list()
+    // orders by insertion — delete first so a refresh really moves to newest.
+    this.entries.delete(entry.lobbyId);
     this.entries.set(entry.lobbyId, { ...entry, atMs: nowMs });
     // Cap: evict the oldest listings first (they are closest to their TTL).
     while (this.entries.size > DIRECTORY_MAX_ENTRIES) {

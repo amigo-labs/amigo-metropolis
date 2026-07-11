@@ -30,6 +30,8 @@ export class LobbyDO implements DurableObject {
   private sessionId: string | null = null;
   /** Actual DO events handled — the reconciliation's request count. */
   private requestCount = 0;
+  /** Outbound stub.fetch calls (gatekeeper, directory) — billed DO requests too. */
+  private internalRequests = 0;
   private matched = false;
   private reconciled = false;
   /** One credential issue per lobby, shared by both peers' messages. */
@@ -141,6 +143,7 @@ export class LobbyDO implements DurableObject {
     { ok: true; sessionId: string | null } | { ok: false; retryAtMs?: number }
   > {
     const stub = this.env.GATEKEEPER.get(this.env.GATEKEEPER.idFromName("gatekeeper"));
+    this.internalRequests++;
     try {
       const res = await stub.fetch("https://gatekeeper/reserve", { method: "POST" });
       const body = (await res.json()) as
@@ -159,11 +162,14 @@ export class LobbyDO implements DurableObject {
     if (this.sessionId === null || this.reconciled) return;
     this.reconciled = true;
     const stub = this.env.GATEKEEPER.get(this.env.GATEKEEPER.idFromName("gatekeeper"));
+    this.internalRequests++; // the reconcile call below is a billed request too
     const body = JSON.stringify({
       sessionId: this.sessionId,
-      // +1 for the reconcile call itself; TURN egress only accrues if the
-      // peers actually matched (kept at the estimate — we never see the wire).
-      requests: this.requestCount + 1,
+      // Inbound events plus every outbound stub.fetch this lobby made — both
+      // bill against the same daily DO quota, so omitting the internal calls
+      // would over-refund. TURN egress only accrues if the peers actually
+      // matched (kept at the estimate — we never see the wire).
+      requests: this.requestCount + this.internalRequests,
       turnMb: this.matched ? GATE_SESSION_TURN_MB : 0,
     });
     try {
@@ -222,6 +228,7 @@ export class LobbyDO implements DurableObject {
               : { lobbyId: e.lobbyId },
           );
           const stub = this.env.DIRECTORY.get(this.env.DIRECTORY.idFromName("directory"));
+          this.internalRequests++;
           try {
             await stub.fetch(`https://directory/${e.kind}`, { method: "POST", body });
           } catch {

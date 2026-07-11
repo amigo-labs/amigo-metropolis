@@ -36,6 +36,14 @@ describe("DirectoryLogic", () => {
     expect(list[0].name).toBe("Renamed");
   });
 
+  test("re-registering moves a listing back to the front", () => {
+    const dir = new DirectoryLogic();
+    dir.register(entry("AAAAA"), T0);
+    dir.register(entry("BBBBB"), T0 + 1000);
+    dir.register(entry("AAAAA"), T0 + 2000); // refresh — now the newest
+    expect(dir.list(T0 + 3000).map((l) => l.lobbyId)).toEqual(["AAAAA", "BBBBB"]);
+  });
+
   test("unregister removes a listing and reports whether it existed", () => {
     const dir = new DirectoryLogic();
     dir.register(entry("AAAAA"), T0);
