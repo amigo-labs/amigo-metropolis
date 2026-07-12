@@ -3,10 +3,10 @@
 // invariant that keeps wall-free maps hash-identical — pinned here and proven
 // end-to-end by the regenerated goldens.
 import { describe, expect, it } from "bun:test";
-import { crossesWallX, crossesWallY } from "../src/collision";
+import { crossesWallX, crossesWallY, segmentBlocked } from "../src/collision";
 import { BUTTON_TRANSFORM, createTickInputs } from "../src/inputs";
 import { createTestMap, loadMapFromJson, type MapData, type MapJson } from "../src/map";
-import { createSim, step } from "../src/sim";
+import { createSim, hitscan, step } from "../src/sim";
 
 /** Minimal walled map: 4×4 points (3×3 cells), cellSize 1, flat ground. */
 function walledMap(walls: { v?: [number, number][]; h?: [number, number][] }): MapData {
@@ -84,6 +84,60 @@ describe("crossesWallX/Y basics", () => {
     expect(crossesWallX(map, 3.8, 4.1, 3)).toBe(true);
     expect(crossesWallX(map, 3.8, 4.1, 1)).toBe(false); // row 0 in cell units
     expect(crossesWallX(map, 1.8, 2.1, 3)).toBe(false); // world x=2 is inside cell 0
+  });
+});
+
+describe("segmentBlocked (line of sight)", () => {
+  it("returns false on maps with empty wall arrays (no-op invariant)", () => {
+    const map = createTestMap();
+    expect(segmentBlocked(map, 10, 10, 200, 200)).toBe(false);
+  });
+
+  it("blocks a straight horizontal ray through a vertical segment", () => {
+    const map = walledMap({ v: [[2, 1]] }); // line x=2, cell row y∈[1,2)
+    expect(segmentBlocked(map, 0.5, 1.5, 3.5, 1.5)).toBe(true); // west → east
+    expect(segmentBlocked(map, 3.5, 1.5, 0.5, 1.5)).toBe(true); // east → west
+    expect(segmentBlocked(map, 0.5, 0.5, 3.5, 0.5)).toBe(false); // row 0: open
+    expect(segmentBlocked(map, 0.5, 2.5, 3.5, 2.5)).toBe(false); // row 2: open
+  });
+
+  it("blocks a straight vertical ray through a horizontal segment", () => {
+    const map = walledMap({ h: [[1, 2]] }); // line y=2, cell col x∈[1,2)
+    expect(segmentBlocked(map, 1.5, 0.5, 1.5, 3.5)).toBe(true);
+    expect(segmentBlocked(map, 1.5, 3.5, 1.5, 0.5)).toBe(true);
+    expect(segmentBlocked(map, 0.5, 0.5, 0.5, 3.5)).toBe(false); // col 0: open
+  });
+
+  it("tracks the row a diagonal ray is in when it crosses a line", () => {
+    const map = walledMap({ v: [[2, 1]] }); // line x=2 blocked ONLY in row 1
+    // Steep diagonal crosses x=2 at y=2.55, already in row 2 — open.
+    expect(segmentBlocked(map, 0.5, 1.6, 3.5, 3.5)).toBe(false);
+    // Shallow diagonal crosses x=2 at y=1.25, inside row 1 — blocked.
+    expect(segmentBlocked(map, 0.5, 1.0, 3.5, 1.5)).toBe(true);
+  });
+
+  it("does not block segments that stay inside one cell", () => {
+    const map = walledMap({ v: [[2, 1]], h: [[1, 2]] });
+    expect(segmentBlocked(map, 2.1, 1.1, 2.9, 1.9)).toBe(false);
+  });
+
+  it("hitscan through a wall hits nothing, alongside it still hits", () => {
+    const sim = createSim(loadMapFromJson(walledArenaJson()), 1);
+    // Both avatars stand in row y∈[28,32) (cell row 7); the wall on grid line
+    // x=16 spans every row. P0 at (12,30) fires due east at P1 at (50,30).
+    const p0 = sim.avatarId[0];
+    const p1 = sim.avatarId[1];
+    const hpBefore = sim.ent.hp[p1];
+    hitscan(sim, p0, 0, 1, 0, 60, 10);
+    expect(sim.ent.hp[p1]).toBe(hpBefore); // wall ate the ray
+    // Same shot on a wall-free copy of the arena connects.
+    const openJson = walledArenaJson();
+    openJson.wallsV = openJson.wallsV?.map(() => "0".repeat(16));
+    const openSim = createSim(loadMapFromJson(openJson), 1);
+    const q1 = openSim.avatarId[1];
+    const openHp = openSim.ent.hp[q1];
+    hitscan(openSim, openSim.avatarId[0], 0, 1, 0, 60, 10);
+    expect(openSim.ent.hp[q1]).toBe(openHp - 10);
   });
 });
 

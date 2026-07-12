@@ -29,7 +29,7 @@ import {
   UNIT_SEPARATION_RADIUS,
   WAYPOINT_RADIUS,
 } from "./balance";
-import { crossesWallX, crossesWallY } from "./collision";
+import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
 import { sampleHeight, worldExtent } from "./map";
 import { ANIM_MOVING, type SimState } from "./sim";
 import { atan2Poly, cosLUT, sinLUT, TAU } from "./simMath";
@@ -70,6 +70,9 @@ export function nearestEnemyInRange(
     const dy = ent.posY[t] - y;
     const d2 = dx * dx + dy * dy;
     if (d2 < bestD2) {
+      if (segmentBlocked(state.map, x, y, ent.posX[t], ent.posY[t])) {
+        continue; // wall between us — invisible, so neither halt nor shot
+      }
       bestD2 = d2;
       bestId = t;
     }

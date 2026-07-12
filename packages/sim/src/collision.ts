@@ -43,3 +43,58 @@ export function crossesWallY(map: MapData, x: number, y: number, ny: number): bo
   if (col > map.size - 2) col = map.size - 2;
   return map.wallsH[line * map.size + col] !== 0;
 }
+
+/**
+ * Line-of-sight test: does the segment (x0,y0)→(x1,y1) cross any wall?
+ * Amanatides–Woo grid traversal over the wall lattice — every vertical line
+ * crossing is checked against wallsV in the row it happens in, every
+ * horizontal one against wallsH in its column. Only + - * /, floor, min/max
+ * and compares (IEEE-exact); the step count is bounded by the cell distance,
+ * so it terminates regardless of float edge cases.
+ */
+export function segmentBlocked(
+  map: MapData,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): boolean {
+  if (map.wallsV.length === 0 && map.wallsH.length === 0) return false;
+  const s = map.size;
+  const inv = 1 / map.cellSize;
+  const maxCell = s - 2;
+  const clampCell = (v: number): number => (v < 0 ? 0 : v > maxCell ? maxCell : v);
+  let gx = clampCell(Math.floor(x0 * inv));
+  let gy = clampCell(Math.floor(y0 * inv));
+  const tx = clampCell(Math.floor(x1 * inv));
+  const ty = clampCell(Math.floor(y1 * inv));
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const stepX = dx > 0 ? 1 : -1;
+  const stepY = dy > 0 ? 1 : -1;
+  // Parametric t of the next vertical/horizontal line crossing (Infinity when
+  // the segment never advances on that axis — 1/0 is deterministic IEEE).
+  const invDx = dx !== 0 ? 1 / dx : 0;
+  const invDy = dy !== 0 ? 1 / dy : 0;
+  let tMaxX = dx !== 0 ? ((gx + (stepX > 0 ? 1 : 0)) * map.cellSize - x0) * invDx : 2;
+  let tMaxY = dy !== 0 ? ((gy + (stepY > 0 ? 1 : 0)) * map.cellSize - y0) * invDy : 2;
+  const tDeltaX = dx !== 0 ? map.cellSize * invDx * stepX : 0;
+  const tDeltaY = dy !== 0 ? map.cellSize * invDy * stepY : 0;
+  let steps = Math.abs(tx - gx) + Math.abs(ty - gy);
+  while (steps > 0) {
+    steps -= 1;
+    if (tMaxX <= tMaxY) {
+      // Crossing the vertical line between gx and gx+stepX, in row gy.
+      const line = gx + (stepX > 0 ? 1 : 0);
+      if (map.wallsV[clampCell(gy) * s + line] !== 0) return true;
+      gx += stepX;
+      tMaxX += tDeltaX;
+    } else {
+      const line = gy + (stepY > 0 ? 1 : 0);
+      if (map.wallsH[line * s + clampCell(gx)] !== 0) return true;
+      gy += stepY;
+      tMaxY += tDeltaY;
+    }
+  }
+  return false;
+}

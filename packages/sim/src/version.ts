@@ -33,4 +33,10 @@
 //     early-out on empty wall arrays, so goldens 01–04 keep byte-identical
 //     hash arrays (re-recorded only for this header version). Peers on
 //     opposite sides of this bump would diverge on any walled arena.
-export const SIM_VERSION = 8;
+// v9: line of sight (FCOP arenas stage 3) — segmentBlocked (grid DDA over the
+//     same wall lattice) gates hitscan rays, turret/unit target acquisition,
+//     the soft-lock and projectile flight (shells burst on the near side).
+//     Same no-op invariant as v8: empty wall arrays early-out, so goldens
+//     01–04 keep byte-identical hash arrays; golden-05 (urban-jungle, walled)
+//     legitimately re-records — its shots now stop at walls.
+export const SIM_VERSION = 9;
