@@ -34,7 +34,7 @@ command = "bun install --frozen-lockfile && bun run --filter @metropolis/client 
 directory = "packages/client/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/room/*"]
+run_worker_first = ["/room/*", "/lobby/*", "/api/*"]
 
 # One Durable Object class: a room is addressed by env.ROOM.idFromName(<CODE>),
 # so the same 5-char code always maps to the same room instance.
@@ -42,8 +42,38 @@ run_worker_first = ["/room/*"]
 name = "ROOM"
 class_name = "Room"
 
+# Handshake layer for the P2P online path (hosting.spec.md): one LobbyDO per
+# lobby code (signaling broker), plus two singletons — DirectoryDO (public
+# lobby list) and GatekeeperDO (free-tier budget gate). Match traffic itself
+# never touches these; it runs peer-to-peer over Cloudflare TURN.
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "LobbyDO"
+
+[[durable_objects.bindings]]
+name = "DIRECTORY"
+class_name = "DirectoryDO"
+
+[[durable_objects.bindings]]
+name = "GATEKEEPER"
+class_name = "GatekeeperDO"
+
 # SQLite-backed storage (current default for new DOs) — holds the match config
 # and confirmed frame history so reconnect fast-forward survives hibernation.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
+
+# TURN credentials for the P2P relay path (hosting.spec.md §6) are NOT stored
+# here: set the key id as a plain var and the API token as a secret —
+#   wrangler secret put TURN_KEY_API_TOKEN
+#   [vars] TURN_KEY_ID = "<realtime-turn-key-id>"
+# Without them the lobby omits ICE config and clients fall back to non-relay
+# candidates (dev-only behaviour; production wants relay-only privacy).
+
+# The free tier requires SQLite-backed classes. LobbyDO keeps its state
+# in-memory on purpose (hosting.spec.md §3.2 — no storage billing); Directory
+# and Gatekeeper persist one small record each to survive eviction.
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["LobbyDO", "DirectoryDO", "GatekeeperDO"]

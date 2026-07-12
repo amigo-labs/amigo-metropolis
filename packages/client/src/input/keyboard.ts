@@ -91,13 +91,10 @@ export class PlayerOneInput implements LocalInputSource {
     return true;
   }
 
-  /** Haptics are gamepad-only; the keyboard source ignores rumble. */
-  rumble(_strength: number, _durationMs: number): void {}
-
   /**
    * Projects the cursor onto the horizontal plane at the avatar's height and
    * stores the world-space aim direction. NDC is taken relative to the player's
-   * viewport, so mouse aim is correct even in a splitscreen half. Call once per
+   * viewport, so mouse aim stays correct for any viewport rect. Call once per
    * tick before sample(). Allocation-free.
    */
   updateAim(
