@@ -38,6 +38,10 @@ interface TerrainJson {
   tile_size: [number, number];
   cellSize: number;
   walk_height: number[][];
+  /** Tile-edge walls: wallsV[r][c]='1' blocks between tile (r,c) and (r,c+1),
+   *  wallsH[r][c]='1' between tile (r,c) and (r+1,c). Tile grid = cell grid. */
+  wallsV: string[];
+  wallsH: string[];
 }
 
 type P = [number, number];
@@ -161,296 +165,206 @@ const URBAN_JUNGLE: ArenaSpec = {
   ],
 };
 
-// Slim "Proving Ground": bases north/south on the flat 0 m play field inside
-// the 2 m rim plateau; lanes BFS-routed between the -2 m trench cuts.
+// Slim "Proving Ground" / Joke "Bug Hunt": Bug Hunt is a Proving Ground
+// terrain variant — the wall-aware analysis produced IDENTICAL base fits and
+// lane routes on both heightfields, so they share the authored features.
+// Bases sit north/south on the flat 2 m rim plateau (the 0 m inner field is
+// fragmented into walled chambers); three lane corridors ring the field at
+// x≈60 (west), x≈159 (mid) and x≈196 (east). All coordinates are CELL
+// CENTERS (i+0.5) so segments never run exactly on a grid line and the edge
+// blocker's floor() is unambiguous.
+const RIM_SPAWNS = [
+  { x: 126.5, y: 40.5, yaw: Math.PI / 2 }, // north, faces +y (south)
+  { x: 126.5, y: 200.5, yaw: -Math.PI / 2 }, // south, faces -y (north)
+];
+const RIM_BASE_PLOTS: Plot[] = [
+  { x: 126.5, y: 40.5, radius: 20 },
+  { x: 126.5, y: 200.5, radius: 20 },
+];
+const RIM_BASES: [BaseSpec, BaseSpec] = [
+  {
+    gate: { x: 126.5, y: 57.5, radius: 6 },
+    core: [126.5, 33.5],
+    groundConsole: [138.5, 40.5],
+    airConsole: [114.5, 40.5],
+    pad: { x: 126.5, y: 48.5, radius: 4 },
+    turrets: [
+      [140.5, 49.5],
+      [134.5, 55.5],
+      [118.5, 55.5],
+      [112.5, 49.5],
+    ],
+  },
+  {
+    gate: { x: 126.5, y: 183.5, radius: 6 },
+    core: [126.5, 207.5],
+    groundConsole: [114.5, 200.5],
+    airConsole: [138.5, 200.5],
+    pad: { x: 126.5, y: 192.5, radius: 4 },
+    turrets: [
+      [112.5, 191.5],
+      [118.5, 185.5],
+      [134.5, 185.5],
+      [140.5, 191.5],
+    ],
+  },
+];
+const RIM_LANES: P[][] = [
+  // Mid corridor (x≈159), east of the inner field
+  [
+    [126.5, 40.5],
+    [159.5, 64.5],
+    [159.5, 175.5],
+    [156.5, 175.5],
+    [155.5, 176.5],
+    [138.5, 183.5],
+    [126.5, 184.5],
+    [126.5, 200.5],
+  ],
+  // West corridor (x≈60)
+  [
+    [126.5, 40.5],
+    [60.5, 76.5],
+    [60.5, 120.5],
+    [80.5, 167.5],
+    [80.5, 171.5],
+    [81.5, 172.5],
+    [81.5, 175.5],
+    [117.5, 175.5],
+    [117.5, 176.5],
+    [126.5, 200.5],
+  ],
+  // East corridor (x≈196)
+  [
+    [126.5, 40.5],
+    [196.5, 92.5],
+    [196.5, 120.5],
+    [159.5, 142.5],
+    [159.5, 175.5],
+    [156.5, 175.5],
+    [155.5, 176.5],
+    [138.5, 183.5],
+    [126.5, 184.5],
+    [126.5, 200.5],
+  ],
+];
+const RIM_TURRET_SPOTS: P[] = [
+  [60.5, 90.5],
+  [196.5, 100.5],
+  [159.5, 100.5],
+  [159.5, 150.5],
+];
+const RIM_OUTPOST_SPOTS: P[] = [
+  [60.5, 120.5],
+  [196.5, 120.5],
+];
+const RIM_DUMMY_SPOTS: P[] = [
+  [100.5, 40.5],
+  [152.5, 40.5],
+  [100.5, 200.5],
+  [152.5, 200.5],
+];
+
 const PROVING_GROUND: ArenaSpec = {
   id: "proving-ground",
   mission: "Slim",
-  spawns: [
-    { x: 100, y: 74, yaw: Math.PI / 2 }, // north, faces +y (south)
-    { x: 136, y: 168, yaw: -Math.PI / 2 }, // south, faces -y (north)
-  ],
-  basePlots: [
-    { x: 100, y: 74, radius: 20 },
-    { x: 136, y: 168, radius: 20 },
-  ],
-  bases: [
-    {
-      gate: { x: 100, y: 91, radius: 6 },
-      core: [100, 67],
-      groundConsole: [112, 74],
-      airConsole: [88, 74],
-      pad: { x: 100, y: 82, radius: 4 },
-      turrets: [
-        [114, 83],
-        [108, 89],
-        [92, 89],
-        [86, 83],
-      ],
-    },
-    {
-      gate: { x: 136, y: 151, radius: 6 },
-      core: [136, 175],
-      groundConsole: [124, 168],
-      airConsole: [148, 168],
-      pad: { x: 136, y: 160, radius: 4 },
-      turrets: [
-        [122, 159],
-        [128, 153],
-        [144, 153],
-        [150, 159],
-      ],
-    },
-  ],
-  lanes: [
-    // Center — straight through the trench maze
-    [
-      [100, 74],
-      [117, 81],
-      [117, 91],
-      [108, 93],
-      [108, 97],
-      [111, 100],
-      [111, 101],
-      [110, 105],
-      [110, 109],
-      [115, 114],
-      [124, 116],
-      [125, 146],
-      [136, 152],
-      [136, 168],
-    ],
-    // West — along the western field edge
-    [
-      [100, 74],
-      [84, 74],
-      [84, 119],
-      [96, 120],
-      [125, 122],
-      [125, 146],
-      [136, 152],
-      [136, 168],
-    ],
-    // East — through the eastern platform cluster
-    [
-      [100, 74],
-      [119, 82],
-      [119, 84],
-      [137, 88],
-      [137, 97],
-      [131, 99],
-      [131, 102],
-      [144, 110],
-      [142, 114],
-      [133, 116],
-      [133, 119],
-      [141, 121],
-      [141, 124],
-      [134, 137],
-      [134, 150],
-      [136, 168],
-    ],
-  ],
-  turretSpots: [
-    [84, 96],
-    [137, 92],
-    [125, 130],
-    [134, 144],
-  ],
-  outpostSpots: [
-    [110, 105],
-    [125, 140],
-  ],
-  dummySpots: [
-    [92, 80],
-    [108, 80],
-    [120, 158],
-    [140, 158],
-  ],
+  spawns: RIM_SPAWNS,
+  basePlots: RIM_BASE_PLOTS,
+  bases: RIM_BASES,
+  lanes: RIM_LANES,
+  turretSpots: RIM_TURRET_SPOTS,
+  outpostSpots: RIM_OUTPOST_SPOTS,
+  dummySpots: RIM_DUMMY_SPOTS,
 };
 
 // Mp "La Cantina": a walled central building on a flat 0.594 m apron; bases
-// north/south of the building, lanes flanking it west/east. The interior is
-// not traversable without wall data (Stage 2+), so no center lane.
+// north/south of the building, lanes flanking it west/east (wall-verified).
+// The interior is a wall maze — no center lane. Cell-center coordinates.
 const LA_CANTINA: ArenaSpec = {
   id: "la-cantina",
   mission: "Mp",
   spawns: [
-    { x: 114, y: 30, yaw: Math.PI / 2 }, // north, faces +y (south)
-    { x: 114, y: 194, yaw: -Math.PI / 2 }, // south, faces -y (north)
+    { x: 114.5, y: 30.5, yaw: Math.PI / 2 }, // north, faces +y (south)
+    { x: 114.5, y: 194.5, yaw: -Math.PI / 2 }, // south, faces -y (north)
   ],
   basePlots: [
-    { x: 114, y: 30, radius: 20 },
-    { x: 114, y: 194, radius: 20 },
+    { x: 114.5, y: 30.5, radius: 20 },
+    { x: 114.5, y: 194.5, radius: 20 },
   ],
   bases: [
     {
-      gate: { x: 114, y: 47, radius: 6 },
-      core: [114, 23],
-      groundConsole: [126, 30],
-      airConsole: [102, 30],
-      pad: { x: 114, y: 38, radius: 4 },
+      gate: { x: 114.5, y: 47.5, radius: 6 },
+      core: [114.5, 23.5],
+      groundConsole: [126.5, 30.5],
+      airConsole: [102.5, 30.5],
+      pad: { x: 114.5, y: 38.5, radius: 4 },
       turrets: [
-        [128, 39],
-        [122, 45],
-        [106, 45],
-        [100, 39],
+        [128.5, 39.5],
+        [122.5, 45.5],
+        [106.5, 45.5],
+        [100.5, 39.5],
       ],
     },
     {
-      gate: { x: 114, y: 177, radius: 6 },
-      core: [114, 201],
-      groundConsole: [102, 194],
-      airConsole: [126, 194],
-      pad: { x: 114, y: 186, radius: 4 },
+      gate: { x: 114.5, y: 177.5, radius: 6 },
+      core: [114.5, 201.5],
+      groundConsole: [102.5, 194.5],
+      airConsole: [126.5, 194.5],
+      pad: { x: 114.5, y: 186.5, radius: 4 },
       turrets: [
-        [100, 185],
-        [106, 179],
-        [122, 179],
-        [128, 185],
+        [100.5, 185.5],
+        [106.5, 179.5],
+        [122.5, 179.5],
+        [128.5, 185.5],
       ],
     },
   ],
   lanes: [
     // West flank
     [
-      [114, 30],
-      [52, 53],
-      [52, 112],
-      [64, 176],
-      [114, 194],
+      [114.5, 30.5],
+      [52.5, 52.5],
+      [52.5, 112.5],
+      [64.5, 176.5],
+      [114.5, 194.5],
     ],
     // East flank
     [
-      [114, 30],
-      [176, 55],
-      [176, 112],
-      [160, 176],
-      [114, 194],
+      [114.5, 30.5],
+      [176.5, 55.5],
+      [176.5, 112.5],
+      [159.5, 176.5],
+      [114.5, 194.5],
     ],
   ],
   turretSpots: [
-    [52, 80],
-    [176, 80],
-    [58, 144],
-    [168, 144],
+    [52.5, 80.5],
+    [176.5, 80.5],
+    [58.5, 144.5],
+    [170.5, 142.5],
   ],
   outpostSpots: [
-    [56, 112],
-    [172, 112],
+    [56.5, 112.5],
+    [172.5, 112.5],
   ],
   dummySpots: [
-    [96, 44],
-    [132, 44],
-    [96, 180],
-    [132, 180],
+    [96.5, 44.5],
+    [132.5, 44.5],
+    [96.5, 180.5],
+    [132.5, 180.5],
   ],
 };
 
-// Joke "Bug Hunt": a Proving Ground terrain variant (same 225×257 grid, same
-// base zones re-verified on its own heightfield); lanes BFS-routed on Joke's
-// heights, so waypoints differ slightly from proving-ground.
 const BUG_HUNT: ArenaSpec = {
   id: "bug-hunt",
   mission: "Joke",
-  spawns: [
-    { x: 100, y: 74, yaw: Math.PI / 2 }, // north, faces +y (south)
-    { x: 136, y: 168, yaw: -Math.PI / 2 }, // south, faces -y (north)
-  ],
-  basePlots: [
-    { x: 100, y: 74, radius: 20 },
-    { x: 136, y: 168, radius: 20 },
-  ],
-  bases: [
-    {
-      gate: { x: 100, y: 91, radius: 6 },
-      core: [100, 67],
-      groundConsole: [112, 74],
-      airConsole: [88, 74],
-      pad: { x: 100, y: 82, radius: 4 },
-      turrets: [
-        [114, 83],
-        [108, 89],
-        [92, 89],
-        [86, 83],
-      ],
-    },
-    {
-      gate: { x: 136, y: 151, radius: 6 },
-      core: [136, 175],
-      groundConsole: [124, 168],
-      airConsole: [148, 168],
-      pad: { x: 136, y: 160, radius: 4 },
-      turrets: [
-        [122, 159],
-        [128, 153],
-        [144, 153],
-        [150, 159],
-      ],
-    },
-  ],
-  lanes: [
-    // Center
-    [
-      [100, 74],
-      [117, 81],
-      [117, 91],
-      [108, 93],
-      [108, 97],
-      [110, 109],
-      [115, 114],
-      [124, 116],
-      [125, 146],
-      [136, 152],
-      [136, 168],
-    ],
-    // West
-    [
-      [100, 74],
-      [84, 74],
-      [84, 119],
-      [96, 120],
-      [125, 122],
-      [125, 146],
-      [136, 152],
-      [136, 168],
-    ],
-    // East
-    [
-      [100, 74],
-      [119, 82],
-      [119, 84],
-      [137, 88],
-      [137, 97],
-      [131, 99],
-      [131, 102],
-      [144, 110],
-      [142, 114],
-      [133, 116],
-      [133, 119],
-      [141, 121],
-      [141, 124],
-      [134, 137],
-      [134, 150],
-      [136, 168],
-    ],
-  ],
-  turretSpots: [
-    [84, 96],
-    [137, 92],
-    [125, 130],
-    [134, 144],
-  ],
-  outpostSpots: [
-    [110, 109],
-    [125, 140],
-  ],
-  dummySpots: [
-    [92, 80],
-    [108, 80],
-    [120, 158],
-    [140, 158],
-  ],
+  spawns: RIM_SPAWNS,
+  basePlots: RIM_BASE_PLOTS,
+  bases: RIM_BASES,
+  lanes: RIM_LANES,
+  turretSpots: RIM_TURRET_SPOTS,
+  outpostSpots: RIM_OUTPOST_SPOTS,
+  dummySpots: RIM_DUMMY_SPOTS,
 };
 
 const ARENAS: ArenaSpec[] = [URBAN_JUNGLE, PROVING_GROUND, LA_CANTINA, BUG_HUNT];
@@ -498,6 +412,48 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
       if (q > maxQ) maxQ = q;
     }
 
+  // Walls: remap the private per-tile-edge bits onto the sim's per-grid-line
+  // layout (map.ts). Private wallsV[r][c] sits between tile (r,c) and (r,c+1)
+  // → sim line x=c+1 in cell row r; private wallsH[r][c] between (r,c) and
+  // (r+1,c) → sim line y=r+1 in cell column c. Padding stays wall-free.
+  const [TILE_W, TILE_H] = [SRC_W - 1, SRC_H - 1];
+  if (src.wallsV.length !== TILE_H || src.wallsH.length !== TILE_H) {
+    throw new Error(
+      `walls have ${src.wallsV.length}/${src.wallsH.length} rows, expected ${TILE_H}`,
+    );
+  }
+  const wallsVBits = new Uint8Array(SIZE * SIZE);
+  const wallsHBits = new Uint8Array(SIZE * SIZE);
+  let wallVCount = 0;
+  let wallHCount = 0;
+  for (let r = 0; r < TILE_H; r++) {
+    if (src.wallsV[r].length !== TILE_W || src.wallsH[r].length !== TILE_W) {
+      throw new Error(`walls row ${r} has bad length`);
+    }
+    for (let c = 0; c < TILE_W; c++) {
+      if (src.wallsV[r][c] === "1") {
+        wallsVBits[r * SIZE + (c + 1)] = 1;
+        wallVCount++;
+      }
+      if (src.wallsH[r][c] === "1") {
+        wallsHBits[(r + 1) * SIZE + c] = 1;
+        wallHCount++;
+      }
+    }
+  }
+  const wallsV: string[] = [];
+  const wallsH: string[] = [];
+  for (let j = 0; j < SIZE; j++) {
+    let vRow = "";
+    let hRow = "";
+    for (let i = 0; i < SIZE; i++) {
+      vRow += wallsVBits[j * SIZE + i] === 1 ? "1" : "0";
+      hRow += wallsHBits[j * SIZE + i] === 1 ? "1" : "0";
+    }
+    wallsV.push(vRow);
+    wallsH.push(hRow);
+  }
+
   // Stage 1 has no water: all-'0' mask, waterLevel below the terrain floor so
   // isWater() is false everywhere regardless.
   const WATER_LEVEL = -10; // int8 floor is -128 * 1/32 = -4 m
@@ -511,6 +467,8 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
     heights,
     water,
     waterLevel: WATER_LEVEL,
+    wallsV,
+    wallsH,
     spawns: spec.spawns,
     basePlots: spec.basePlots,
     bases: spec.bases,
@@ -585,6 +543,24 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
       }
     }
   }
+  // Mirrors collision.ts crossesWallX/Y so lane checks agree with the sim.
+  const crossesV = (x0: number, x1: number, y: number): boolean => {
+    const g0 = Math.floor(x0 / CELL);
+    const g1 = Math.floor(x1 / CELL);
+    if (g0 === g1) return false;
+    const line = Math.max(g0, g1);
+    const row = clamp(Math.floor(y / CELL), 0, SIZE - 2);
+    return wallsVBits[row * SIZE + line] === 1;
+  };
+  const crossesH = (x: number, y0: number, y1: number): boolean => {
+    const g0 = Math.floor(y0 / CELL);
+    const g1 = Math.floor(y1 / CELL);
+    if (g0 === g1) return false;
+    const line = Math.max(g0, g1);
+    const col = clamp(Math.floor(x / CELL), 0, SIZE - 2);
+    return wallsHBits[line * SIZE + col] === 1;
+  };
+
   for (const lane of spec.lanes) {
     if (lane.length < 2) flag("lane with fewer than 2 waypoints");
     for (const [x, y] of lane)
@@ -593,18 +569,36 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
       const [ax, ay] = lane[k];
       const [bx, by] = lane[k + 1];
       const segLen = Math.hypot(bx - ax, by - ay);
+      // Slope check: 1 m sampling — must match the playability tests exactly.
       const steps = Math.ceil(segLen);
       let prevH = sample(ax, ay);
       for (let s = 1; s <= steps; s++) {
         const t = s / steps;
-        const hh = sample(ax + (bx - ax) * t, ay + (by - ay) * t);
+        const cx = ax + (bx - ax) * t;
+        const cy = ay + (by - ay) * t;
+        const hh = sample(cx, cy);
         const slope = Math.abs(hh - prevH) / (segLen / steps);
         if (slope >= AVATAR_WALKER_MAX_SLOPE) {
           flag(
-            `lane too steep near (${(ax + (bx - ax) * t).toFixed(0)}, ${(ay + (by - ay) * t).toFixed(0)}) slope=${slope.toFixed(3)}`,
+            `lane too steep near (${cx.toFixed(0)}, ${cy.toFixed(0)}) slope=${slope.toFixed(3)}`,
           );
         }
         prevH = hh;
+      }
+      // Wall check: sub-cell sampling (0.25 m ≪ cellSize) so every grid-line
+      // crossing along the segment is seen exactly once per axis.
+      const wallSteps = Math.ceil(segLen * 4);
+      let px = ax;
+      let py = ay;
+      for (let s = 1; s <= wallSteps; s++) {
+        const t = s / wallSteps;
+        const cx = ax + (bx - ax) * t;
+        const cy = ay + (by - ay) * t;
+        if (crossesV(px, cx, py) || crossesH(cx, py, cy)) {
+          flag(`lane crosses a wall near (${cx.toFixed(1)}, ${cy.toFixed(1)})`);
+        }
+        px = cx;
+        py = cy;
       }
     }
   }
@@ -615,6 +609,7 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
   console.log(
     `  height range: int [${minQ}, ${maxQ}] = [${(minQ * HEIGHT_SCALE).toFixed(3)}, ${(maxQ * HEIGHT_SCALE).toFixed(3)}] m`,
   );
+  console.log(`  walls: ${wallVCount} vertical + ${wallHCount} horizontal segments`);
   const s0 = spec.spawns[0];
   const s1 = spec.spawns[1];
   console.log(

@@ -45,6 +45,8 @@ describe("golden replays", () => {
   });
 
   for (const name of goldenNames) {
+    // Re-simulating up to 9000 ticks legitimately takes a few seconds — well
+    // above real time (30 ticks/s), but above bun's 5 s default test timeout.
     it(`${name}: hash sequence matches the committed golden`, () => {
       const { replay, expected } = loadGolden(name);
       expect(expected.simVersion).toBe(SIM_VERSION);
@@ -58,7 +60,7 @@ describe("golden replays", () => {
             "in the same commit.",
         );
       }
-    });
+    }, 30000);
   }
 
   it("golden #1 covers a full 60 s at 30 Hz", () => {

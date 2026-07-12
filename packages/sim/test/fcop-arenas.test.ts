@@ -10,6 +10,7 @@
 // the district-01 mirror + river assertions are deliberately absent.
 import { describe, expect, it } from "bun:test";
 import { AVATAR_WALKER_MAX_SLOPE } from "../src/balance";
+import { crossesWallX, crossesWallY } from "../src/collision";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
   BUG_HUNT_ID,
@@ -29,12 +30,39 @@ interface ArenaExpectation {
   groundHeight: number;
   /** Pinned after generation (tools/fcop/convert.ts); see header contract. */
   heightsPin: number;
+  /** FNV-1a pins over the loaded wall bit arrays — the collision geometry. */
+  wallsVPin: number;
+  wallsHPin: number;
 }
 
 const ARENAS: ArenaExpectation[] = [
-  { id: PROVING_GROUND_ID, size: 257, laneCount: 3, groundHeight: 0, heightsPin: 1261122911 },
-  { id: LA_CANTINA_ID, size: 241, laneCount: 2, groundHeight: 0.594, heightsPin: 1164295261 },
-  { id: BUG_HUNT_ID, size: 257, laneCount: 3, groundHeight: 0, heightsPin: 3837183847 },
+  {
+    id: PROVING_GROUND_ID,
+    size: 257,
+    laneCount: 3,
+    groundHeight: 2, // bases sit on the 2 m rim plateau ringing the field
+    heightsPin: 1261122911,
+    wallsVPin: 420789996,
+    wallsHPin: 3689709048,
+  },
+  {
+    id: LA_CANTINA_ID,
+    size: 241,
+    laneCount: 2,
+    groundHeight: 0.594,
+    heightsPin: 1164295261,
+    wallsVPin: 3671048181,
+    wallsHPin: 626664648,
+  },
+  {
+    id: BUG_HUNT_ID,
+    size: 257,
+    laneCount: 3,
+    groundHeight: 2, // shares the proving-ground layout (terrain variant)
+    heightsPin: 3837183847,
+    wallsVPin: 293805412,
+    wallsHPin: 1740349393,
+  },
 ];
 
 for (const arena of ARENAS) {
@@ -57,6 +85,34 @@ for (const arena of ARENAS) {
     it("pins the exact FNV-1a hash of the loaded heights", () => {
       const bytes = new Uint8Array(map.heights.buffer);
       expect(fnv1aBytes(fnv1aInit(), bytes, 0, bytes.length)).toBe(arena.heightsPin);
+    });
+
+    it("pins the exact FNV-1a hashes of the wall arrays", () => {
+      expect(map.wallsV.length).toBe(arena.size * arena.size);
+      expect(map.wallsH.length).toBe(arena.size * arena.size);
+      expect(fnv1aBytes(fnv1aInit(), map.wallsV, 0, map.wallsV.length)).toBe(arena.wallsVPin);
+      expect(fnv1aBytes(fnv1aInit(), map.wallsH, 0, map.wallsH.length)).toBe(arena.wallsHPin);
+    });
+
+    it("lanes never cross a wall (sub-cell sampling, sim semantics)", () => {
+      for (const lane of map.lanes) {
+        for (let i = 0; i < lane.length - 1; i++) {
+          const a = lane[i];
+          const b = lane[i + 1];
+          const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 4);
+          let px = a.x;
+          let py = a.y;
+          for (let s = 1; s <= steps; s++) {
+            const t = s / steps;
+            const cx = a.x + (b.x - a.x) * t;
+            const cy = a.y + (b.y - a.y) * t;
+            expect(crossesWallX(map, px, cx, py)).toBe(false);
+            expect(crossesWallY(map, cx, py, cy)).toBe(false);
+            px = cx;
+            py = cy;
+          }
+        }
+      }
     });
 
     it("has no water this stage and keeps all authored features dry", () => {

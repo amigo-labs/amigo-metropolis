@@ -10,6 +10,7 @@
 // deliberately absent.
 import { describe, expect, it } from "bun:test";
 import { AVATAR_WALKER_MAX_SLOPE } from "../src/balance";
+import { crossesWallX, crossesWallY } from "../src/collision";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import { getMapById, isWater, sampleHeight, URBAN_JUNGLE_ID, worldExtent } from "../src/map";
 
@@ -33,6 +34,34 @@ describe("urban-jungle schema", () => {
   it("pins the exact FNV-1a hash of the loaded heights", () => {
     const bytes = new Uint8Array(map.heights.buffer);
     expect(fnv1aBytes(fnv1aInit(), bytes, 0, bytes.length)).toBe(HEIGHTS_HASH_PIN);
+  });
+
+  it("pins the exact FNV-1a hashes of the wall arrays", () => {
+    expect(map.wallsV.length).toBe(257 * 257);
+    expect(map.wallsH.length).toBe(257 * 257);
+    expect(fnv1aBytes(fnv1aInit(), map.wallsV, 0, map.wallsV.length)).toBe(WALLS_V_PIN);
+    expect(fnv1aBytes(fnv1aInit(), map.wallsH, 0, map.wallsH.length)).toBe(WALLS_H_PIN);
+  });
+
+  it("lanes never cross a wall (sub-cell sampling, sim semantics)", () => {
+    for (const lane of map.lanes) {
+      for (let i = 0; i < lane.length - 1; i++) {
+        const a = lane[i];
+        const b = lane[i + 1];
+        const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 4);
+        let px = a.x;
+        let py = a.y;
+        for (let s = 1; s <= steps; s++) {
+          const t = s / steps;
+          const cx = a.x + (b.x - a.x) * t;
+          const cy = a.y + (b.y - a.y) * t;
+          expect(crossesWallX(map, px, cx, py)).toBe(false);
+          expect(crossesWallY(map, cx, py, cy)).toBe(false);
+          px = cx;
+          py = cy;
+        }
+      }
+    }
   });
 
   it("has no water this stage and keeps all authored features dry", () => {
@@ -122,3 +151,5 @@ describe("urban-jungle schema", () => {
 // Pinned after generation (tools/fcop/convert.ts); see file header for the
 // regeneration contract.
 const HEIGHTS_HASH_PIN = 264067427;
+const WALLS_V_PIN = 3595907883;
+const WALLS_H_PIN = 3331597098;
