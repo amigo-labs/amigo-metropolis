@@ -63,7 +63,7 @@ import {
   type SplitOrientation,
 } from "./render/playerView";
 import { buildBaseStructures } from "./render/structures";
-import { buildTerrainMesh, buildWaterPlane } from "./render/terrain";
+import { buildTerrainMesh, buildWallMesh, buildWaterPlane } from "./render/terrain";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -221,6 +221,8 @@ function buildArenaGroup(m: typeof map): THREE.Group {
   group.matrixAutoUpdate = false; // identity transform, per renderer rules
   group.add(buildTerrainMesh(m));
   group.add(buildWaterPlane(m));
+  const walls = buildWallMesh(m); // null on wall-free maps
+  if (walls) group.add(walls);
   buildBaseStructures(group, m);
   return group;
 }

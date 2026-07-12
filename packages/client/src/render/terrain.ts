@@ -10,6 +10,10 @@ import { TERRAIN_HEX } from "./palette";
 const LOW_COLOR = new THREE.Color(TERRAIN_HEX.low);
 const HIGH_COLOR = new THREE.Color(TERRAIN_HEX.high);
 const RIVERBED_COLOR = new THREE.Color(TERRAIN_HEX.riverbed);
+// Tier-1 wall slabs: a darkened terrain tone so they read as solid blockers.
+const WALL_COLOR = new THREE.Color(TERRAIN_HEX.high).multiplyScalar(0.55);
+/** Greybox wall slab height above the local terrain (meters). */
+const WALL_RENDER_HEIGHT = 2.5;
 
 /** Translucent plane at the water surface so the river reads as water. */
 export function buildWaterPlane(map: MapData): THREE.Mesh {
@@ -22,6 +26,84 @@ export function buildWaterPlane(map: MapData): THREE.Mesh {
     transparent: true,
     opacity: 0.55,
     flatShading: true,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.matrixAutoUpdate = false;
+  mesh.updateMatrix();
+  return mesh;
+}
+
+/**
+ * Tier-1 wall render: one vertical quad per edge-blocker segment, built from
+ * the SAME wallsV/wallsH arrays the collision reads — render and physics can
+ * never drift apart. Returns null for wall-free maps (district-01, test-128).
+ */
+export function buildWallMesh(map: MapData): THREE.Mesh | null {
+  if (map.wallsV.length === 0 && map.wallsH.length === 0) return null;
+  const s = map.size;
+  const cell = map.cellSize;
+  let count = 0;
+  for (let k = 0; k < map.wallsV.length; k++) if (map.wallsV[k] === 1) count++;
+  for (let k = 0; k < map.wallsH.length; k++) if (map.wallsH[k] === 1) count++;
+  if (count === 0) return null;
+
+  const positions = new Float32Array(count * 4 * 3);
+  const indices = new Uint32Array(count * 6);
+  let v = 0; // vertex cursor
+  let n = 0; // index cursor
+  const hAt = (i: number, j: number): number => map.heights[j * s + i];
+
+  // Emits one vertical quad from (x0,z0) to (x1,z1); the slab bottom sinks
+  // slightly below the lower end so terrain steps never open a gap.
+  const quad = (x0: number, z0: number, x1: number, z1: number, hA: number, hB: number): void => {
+    const bottom = Math.min(hA, hB) - 0.25;
+    const top = Math.max(hA, hB) + WALL_RENDER_HEIGHT;
+    const base = v / 3;
+    positions[v++] = x0;
+    positions[v++] = bottom;
+    positions[v++] = z0;
+    positions[v++] = x1;
+    positions[v++] = bottom;
+    positions[v++] = z1;
+    positions[v++] = x0;
+    positions[v++] = top;
+    positions[v++] = z0;
+    positions[v++] = x1;
+    positions[v++] = top;
+    positions[v++] = z1;
+    indices[n++] = base;
+    indices[n++] = base + 1;
+    indices[n++] = base + 2;
+    indices[n++] = base + 1;
+    indices[n++] = base + 3;
+    indices[n++] = base + 2;
+  };
+
+  for (let j = 0; j < s - 1; j++) {
+    for (let i = 0; i < s; i++) {
+      if (map.wallsV[j * s + i] === 1) {
+        // Vertical segment on line x = i, spanning cell row j (sim y → three z).
+        quad(i * cell, j * cell, i * cell, (j + 1) * cell, hAt(i, j), hAt(i, j + 1));
+      }
+    }
+  }
+  for (let j = 0; j < s; j++) {
+    for (let i = 0; i < s - 1; i++) {
+      if (map.wallsH[j * s + i] === 1) {
+        // Horizontal segment on line y = j, spanning cell column i.
+        quad(i * cell, j * cell, (i + 1) * cell, j * cell, hAt(i, j), hAt(i + 1, j));
+      }
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  const material = new THREE.MeshStandardMaterial({
+    color: WALL_COLOR,
+    flatShading: true,
+    side: THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.matrixAutoUpdate = false;
