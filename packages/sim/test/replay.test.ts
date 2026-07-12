@@ -1,6 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { BUTTON_FIRE1, BUTTON_JUMP, createTickInputs } from "../src/inputs";
 import {
   createReplayData,
@@ -84,17 +82,22 @@ describe("replay format", () => {
     expect(() => decodeReplay(bytes)).toThrow("wardenDifficulty set without");
   });
 
-  it("still decodes format 1 replays (goldens 1–3 predate the Warden)", () => {
-    const bytes = new Uint8Array(
-      readFileSync(join(import.meta.dir, "goldens", "golden-01-drive.mrep")),
-    );
-    expect(bytes[4] | (bytes[5] << 8)).toBe(1); // committed as format 1
-    const decoded = decodeReplay(bytes);
+  it("still decodes format 1 replays (pre-Warden header, no config bytes)", () => {
+    // The goldens were re-recorded as format 2 with the v8 bump, so build the
+    // legacy layout synthetically: encode format 2 without a Warden, strip
+    // the two config bytes (16/17) and stamp format 1.
+    const f2 = encodeReplay(createReplayData("test-128", 0xc0ffee, 3));
+    const f1 = new Uint8Array(f2.length - 2);
+    f1.set(f2.subarray(0, 16), 0); // magic, format, simVersion, seed, tickCount
+    f1.set(f2.subarray(18), 16); // mapId length + mapId + frames
+    f1[4] = 1; // format 1
+    f1[5] = 0;
+    const decoded = decodeReplay(f1);
     expect(decoded.formatVersion).toBe(1);
     expect(decoded.mapId).toBe("test-128");
     expect(decoded.wardenPlayer).toBe(-1);
     expect(decoded.wardenDifficulty).toBe(0);
-    expect(decoded.tickCount).toBe(1800);
+    expect(decoded.tickCount).toBe(3);
   });
 
   it("frames are 5 bytes per player (network format contract)", () => {

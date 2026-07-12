@@ -4,13 +4,11 @@
 // hex literals, so a palette change ripples everywhere at once.
 //
 // Team colors are a swap-able ramp of three shades (dark / base / light) per
-// team, exactly as the spec calls for. Pure data — no Three, no DOM — so both
-// the palette generator (tools/gen/genPalette.ts) and unit tests import it
-// directly. genPalette emits assets/palette/metropolis.pal (JASC-PAL) plus a
-// reference swatch PNG from these same entries.
+// team, exactly as the spec calls for. Pure data — no Three, no DOM — so unit
+// tests import it directly.
 
 export interface PaletteEntry {
-  /** Stable key used by code, the reference swatch sheet, and tests. */
+  /** Stable key used by code and tests. */
   readonly name: string;
   /** 24-bit sRGB, the authoring space (Three converts to linear on load). */
   readonly hex: number;

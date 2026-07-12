@@ -1,7 +1,7 @@
 # amigo-metropolis
 
 Browser-based arena strategy-action game. Spiritual successor to the *Precinct Assault*
-mode of Future Cop: L.A.P.D. (1998) — mechanics homage, zero original IP.
+mode of Future Cop: L.A.P.D. (1998).
 Codename: **Metropolis**. Display title: **Metropolis**.
 
 Solo vs. AI and online 1v1 — all driven by one deterministic lockstep
@@ -59,13 +59,15 @@ Violating any of these causes multiplayer desyncs. They are non-negotiable.
    (`docs/specs/architecture.md#snapshot`). Never reach into sim internals.
 5. Renderer must stay swappable: no sim logic in client, no Three types in sim.
 
-## Assets & licensing (see docs/specs/assets.md)
+## Assets (see docs/specs/assets.md)
 
-- Repo is public: only CC0 or CC-BY (attributed in `CREDITS.md`) assets may be
-  committed. No purchased packs, no ripped or **modified** original Future Cop
-  assets — edited originals are still derivatives and are forbidden.
-- Original game may be used as *reference* (proportions, palette, layout) only.
-- No EA trademarks or recognizable Future Cop designs (incl. X1-Alpha silhouette).
+- No license restriction on committed assets — any source is fine, including
+  purchased packs and CC0/CC-BY assets.
+- The original Future Cop: L.A.P.D. may be used directly: as reference, as an
+  editing base, or rebuilt from scratch. Modified originals are fine.
+- EA / Future Cop names, logos, and designs (incl. the X1-Alpha silhouette) may
+  be used.
+- Note third-party asset sources in `CREDITS.md` for provenance where known.
 
 ## Workflow
 

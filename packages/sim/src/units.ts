@@ -29,6 +29,7 @@ import {
   UNIT_SEPARATION_RADIUS,
   WAYPOINT_RADIUS,
 } from "./balance";
+import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
 import { sampleHeight, worldExtent } from "./map";
 import { ANIM_MOVING, type SimState } from "./sim";
 import { atan2Poly, cosLUT, sinLUT, TAU } from "./simMath";
@@ -69,6 +70,9 @@ export function nearestEnemyInRange(
     const dy = ent.posY[t] - y;
     const d2 = dx * dx + dy * dy;
     if (d2 < bestD2) {
+      if (segmentBlocked(state.map, x, y, ent.posX[t], ent.posY[t])) {
+        continue; // wall between us — invisible, so neither halt nor shot
+      }
       bestD2 = d2;
       bestId = t;
     }
@@ -263,8 +267,14 @@ function stepAndSnap(state: SimState, id: number, air: boolean): void {
   const extent = worldExtent(map);
   const moving = ent.velX[id] !== 0 || ent.velY[id] !== 0;
   if (moving) {
-    ent.posX[id] = Math.min(Math.max(ent.posX[id] + ent.velX[id] * TICK_DT, 0), extent);
-    ent.posY[id] = Math.min(Math.max(ent.posY[id] + ent.velY[id] * TICK_DT, 0), extent);
+    // Axis-separated like the avatar stepper so walls block-and-slide; the y
+    // check uses the already-updated x. Flyers ignore walls like terrain.
+    const x = ent.posX[id];
+    const nx = Math.min(Math.max(x + ent.velX[id] * TICK_DT, 0), extent);
+    if (air || !crossesWallX(map, x, nx, ent.posY[id])) ent.posX[id] = nx;
+    const y = ent.posY[id];
+    const ny = Math.min(Math.max(y + ent.velY[id] * TICK_DT, 0), extent);
+    if (air || !crossesWallY(map, ent.posX[id], y, ny)) ent.posY[id] = ny;
     ent.animState[id] = ANIM_MOVING;
   }
   snapUnitHeight(state, id, air);
@@ -311,10 +321,17 @@ function separateGroundUnits(state: SimState): void {
         px = UNIT_SEPARATION_RADIUS * UNIT_SEPARATION_PUSH * 0.5;
         py = 0;
       }
-      ent.posX[i] = Math.min(Math.max(ent.posX[i] - px, 0), extent);
-      ent.posY[i] = Math.min(Math.max(ent.posY[i] - py, 0), extent);
-      ent.posX[j] = Math.min(Math.max(ent.posX[j] + px, 0), extent);
-      ent.posY[j] = Math.min(Math.max(ent.posY[j] + py, 0), extent);
+      // Same axis-separated wall clamp as stepAndSnap — without it the
+      // separation push would shove ground units through walls.
+      const map = state.map;
+      const nix = Math.min(Math.max(ent.posX[i] - px, 0), extent);
+      if (!crossesWallX(map, ent.posX[i], nix, ent.posY[i])) ent.posX[i] = nix;
+      const niy = Math.min(Math.max(ent.posY[i] - py, 0), extent);
+      if (!crossesWallY(map, ent.posX[i], ent.posY[i], niy)) ent.posY[i] = niy;
+      const njx = Math.min(Math.max(ent.posX[j] + px, 0), extent);
+      if (!crossesWallX(map, ent.posX[j], njx, ent.posY[j])) ent.posX[j] = njx;
+      const njy = Math.min(Math.max(ent.posY[j] + py, 0), extent);
+      if (!crossesWallY(map, ent.posX[j], ent.posY[j], njy)) ent.posY[j] = njy;
       snapUnitHeight(state, i, false);
       snapUnitHeight(state, j, false);
     }

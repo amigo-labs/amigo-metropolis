@@ -14,7 +14,7 @@ function box(w: number, h: number, d: number, x: number, y: number, z: number) {
   return g;
 }
 
-export function buildBaseStructures(scene: THREE.Scene, map: MapData): void {
+export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
   for (let team = 0; team < map.bases.length; team++) {
     const base = map.bases[team];
     const parts: THREE.BufferGeometry[] = [];

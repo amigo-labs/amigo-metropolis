@@ -8,8 +8,11 @@
 // picked mode in-process (no reload — the live menu world morphs into the
 // match) and pushState()s the matching deep-link query. This file stays free of
 // any sim/render coupling: it only builds DOM, emits choices, and tweaks audio
-// settings (which persist to localStorage).
+// settings (which persist to localStorage). The only sim import is
+// MAP_REGISTRY — static arena metadata for the picker; the picked arena rides
+// along on every MenuChoice as `mapId`.
 
+import { DISTRICT_01_ID, MAP_REGISTRY } from "@metropolis/sim";
 import type { AudioEngine } from "./audio/engine";
 import { MUSIC_OPTIONS, parseMusicSelection } from "./audio/tracks";
 import { hashLobbyPassword, storeP2pBootstrap } from "./net/p2pSession";
@@ -22,23 +25,30 @@ export type MenuChoice =
 
 /**
  * Pure mapping from a menu choice to the query string main.ts understands.
- * Kept separate from the DOM so it is unit-testable.
+ * Kept separate from the DOM so it is unit-testable. `mapId` (the picker's
+ * arena) rides along as the ?map= deep-link param main.ts already reads.
  */
-export function buildModeQuery(choice: MenuChoice): string {
+export function buildModeQuery(choice: MenuChoice, mapId?: string): string {
+  let query: string;
   switch (choice.mode) {
     case "solo":
-      return "?play=1";
+      query = "?play=1";
+      break;
     case "warden": {
       const d = Math.max(1, Math.min(10, Math.trunc(choice.difficulty) || 1));
-      return `?warden=${d}`;
+      query = `?warden=${d}`;
+      break;
     }
     case "online":
       // Encode defensively: valid codes are unaffected, but an unexpected value
       // can't smuggle extra query params (& / =) into the URL.
-      return `?online=${encodeURIComponent(choice.code.toUpperCase())}`;
+      query = `?online=${encodeURIComponent(choice.code.toUpperCase())}`;
+      break;
     case "p2p":
-      return `?p2p=${encodeURIComponent(choice.code.toUpperCase())}`;
+      query = `?p2p=${encodeURIComponent(choice.code.toUpperCase())}`;
+      break;
   }
+  return mapId ? `${query}&map=${encodeURIComponent(mapId)}` : query;
 }
 
 /** 5 upper-case alphanumerics, matching main.ts's room-code validation. */
@@ -58,8 +68,9 @@ export function randomRoomCode(rand: () => number = Math.random): string {
 
 export interface MenuOptions {
   audio: AudioEngine;
-  /** Called once when the player picks a mode; main.ts starts it in-process. */
-  onChoice(choice: MenuChoice): void;
+  /** Called once when the player picks a mode; main.ts starts it in-process.
+   *  `mapId` is the arena picked in the menu's persistent arena row. */
+  onChoice(choice: MenuChoice, mapId: string): void;
 }
 
 /** Handle returned by runMenu so a late `beforeinstallprompt` can add Install. */
@@ -115,6 +126,31 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   modes.append(soloBtn, onlineBtn);
   card.appendChild(modes);
 
+  // --- Arena picker (persistent row, applies to every mode) -----------------
+  // Pre-select a ?map= already on the URL so arena deep links keep their pick
+  // through the menu; unknown ids quietly fall back to the default arena.
+  const urlMapId = new URLSearchParams(location.search).get("map");
+  let selectedMapId = MAP_REGISTRY.some((m) => m.id === urlMapId)
+    ? (urlMapId as string)
+    : DISTRICT_01_ID;
+  const arenas = el("div", "menu-arenas");
+  arenas.appendChild(el("span", "menu-arenas-label", "Arena"));
+  const arenaButtons = MAP_REGISTRY.map((info) => {
+    const btn = el("button", "menu-arena", info.displayName);
+    btn.onclick = () => {
+      selectedMapId = info.id;
+      for (let i = 0; i < arenaButtons.length; i++) {
+        arenaButtons[i].classList.toggle("is-active", MAP_REGISTRY[i].id === selectedMapId);
+      }
+    };
+    arenas.appendChild(btn);
+    return btn;
+  });
+  for (let i = 0; i < arenaButtons.length; i++) {
+    arenaButtons[i].classList.toggle("is-active", MAP_REGISTRY[i].id === selectedMapId);
+  }
+  card.appendChild(arenas);
+
   // A single sub-panel below the buttons reveals the chosen mode's options.
   const panel = el("div", "menu-panel");
   panel.style.display = "none";
@@ -158,12 +194,12 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     if (sandbox) {
       sandbox.onclick = (e) => {
         e.preventDefault();
-        go({ mode: "solo" });
+        go({ mode: "solo" }, selectedMapId);
       };
     }
     panel.appendChild(hint);
     const start = el("button", "menu-go", "Start match");
-    start.onclick = () => go({ mode: "warden", difficulty: Number(slider.value) });
+    start.onclick = () => go({ mode: "warden", difficulty: Number(slider.value) }, selectedMapId);
     panel.appendChild(start);
   }
 
@@ -184,7 +220,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         err.textContent = "Enter a 5-character room code.";
         return;
       }
-      go({ mode: "online", code });
+      go({ mode: "online", code }, selectedMapId);
     };
     input.oninput = () => {
       input.value = input.value.toUpperCase();
@@ -198,7 +234,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     panel.appendChild(row);
 
     const host = el("button", "menu-go menu-go--ghost", "Host a new room");
-    host.onclick = () => go({ mode: "online", code: randomRoomCode() });
+    host.onclick = () => go({ mode: "online", code: randomRoomCode() }, selectedMapId);
     panel.appendChild(host);
     panel.appendChild(
       el(
@@ -225,7 +261,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     const joinLobby = async (lobbyId: string, password?: string): Promise<void> => {
       const passwordHash = password ? await hashLobbyPassword(lobbyId, password) : undefined;
       storeP2pBootstrap(lobbyId, { role: "join", passwordHash });
-      go({ mode: "p2p", code: lobbyId });
+      go({ mode: "p2p", code: lobbyId }, selectedMapId);
     };
 
     const lobbyRow = (lobby: {
@@ -334,7 +370,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         visibility: pubCheck.checked ? "public" : "private",
         passwordHash,
       });
-      go({ mode: "p2p", code });
+      go({ mode: "p2p", code }, selectedMapId);
     };
     panel.appendChild(create);
     panel.appendChild(budgetHint);
@@ -486,11 +522,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   }
 
   card.appendChild(
-    el(
-      "div",
-      "menu-credits",
-      "Original mechanics homage · zero original IP · CC0 assets. " + "A working-title prototype.",
-    ),
+    el("div", "menu-credits", "A Future Cop: Precinct Assault homage · a working-title prototype."),
   );
 
   document.body.appendChild(root);

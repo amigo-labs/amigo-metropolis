@@ -263,6 +263,39 @@ export function warden01(tick: number, out: TickInputs): void {
   }
 }
 
+/**
+ * Golden #5 (FCOP stage 2): 90 s on urban-jungle, the first arena with wall
+ * data. Buys runners at the ground console (units follow lanes, exercising
+ * the walled unit stepper + separation), then drives ENE into the vertical
+ * wall band on grid line x=81 (rows ~100-102), pins against it, slides north
+ * along it, and roams back — the golden's hash sequence covers wall-blocked
+ * avatar movement on both axes. Probe-verified: the avatar clamps at x≈80.9.
+ */
+export function fcop01(tick: number, out: TickInputs): void {
+  clearTickInputs(out);
+  const p = out.players[0];
+  const t = tick / TICK_HZ;
+  if (t < 4) {
+    p.moveY = -127; // spawn (38,128) → ground console (38,116)
+  } else if (t < 20) {
+    p.buttons = BUTTON_INTERACT; // hold-to-buy runner waves onto the lanes
+  } else if (t < 40) {
+    p.moveX = 127; // ENE toward the wall band — pins on line x=81 around y≈115
+    p.moveY = -35;
+  } else if (t < 52) {
+    p.moveY = -127; // slide north along the wall, still pinned
+  } else if (t < 64) {
+    p.moveX = 127; // due-east push against the band again, firing
+    p.buttons = BUTTON_FIRE1;
+  } else if (t < 78) {
+    p.moveX = -90; // swing back southwest across open ground
+    p.moveY = 110;
+  } else {
+    p.moveX = 60; // drift southeast until the recording ends
+    p.moveY = 127;
+  }
+}
+
 export const SCRIPTS: Record<
   string,
   { script: InputScript; ticks: number; mapId?: string; warden?: WardenConfig }
@@ -276,4 +309,5 @@ export const SCRIPTS: Record<
     mapId: "district-01",
     warden: { player: 1, difficulty: 8 },
   },
+  "fcop-01": { script: fcop01, ticks: 90 * TICK_HZ, mapId: "urban-jungle" },
 };

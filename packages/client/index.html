@@ -185,6 +185,43 @@
         color: #8ea0ba;
         font-size: 12px;
       }
+      .menu-arenas {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .menu-arenas-label {
+        flex: 0 0 auto;
+        color: #8ea0ba;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .menu-arena {
+        flex: 1;
+        padding: 8px 10px;
+        border: 1px solid #2b3650;
+        border-radius: 999px;
+        background: #131a29;
+        color: #b6c2d4;
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+        transition:
+          border-color 0.12s,
+          background 0.12s,
+          color 0.12s;
+      }
+      .menu-arena:hover {
+        border-color: #3d4d72;
+        background: #172136;
+      }
+      .menu-arena.is-active {
+        border-color: #7ef2ff;
+        background: #16273a;
+        color: #e2e8f0;
+      }
       .menu-panel,
       .menu-drawer {
         margin-top: 12px;

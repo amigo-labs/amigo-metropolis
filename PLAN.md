@@ -134,7 +134,7 @@ playtest on the live deploy.)
 
 ## Phase 7 — Look & sound (Stage B/C of assets.md)
 
-- [ ] CC0 model pass (Quaternius/Kenney) mapped to archetypes, CREDITS.md
+- [ ] Model pass (Quaternius/Kenney or direct rebuilds) mapped to archetypes, CREDITS.md
 - [ ] Pincel texture atlases + shared palette; NearestFilter pipeline
 - [x] jsfxr SFX set wired to event buffer; CC0 music loop; volume settings
 - [x] PWA polish: manifest, icons, offline solo mode, install prompt
@@ -157,16 +157,13 @@ The shared game palette (assets.md §3) is now in place — an in-house, CC0
 ~32-color palette with 3-shade team ramps is the single source of truth for
 every in-game color (`packages/client/src/render/palette.ts`), replacing the
 hex literals scattered across the greybox meshes, base structures and terrain.
-`tools/gen/genPalette.ts` emits the committed `.pal` (JASC-PAL) + reference PNG
-in `assets/palette/`, and a unit test keeps the `.pal` in sync with the data.
 Still open on that line item — the texture atlases themselves and the runtime
 NearestFilter sampling path, which want real per-archetype art to exercise.
 
-Still open — the two asset-import tasks: the Stage B CC0 3D-model pass and the
-Pincel texture-atlas / NearestFilter pipeline. They need external CC0 binaries
-chosen and license-verified against assets.md §2, so they are best done with the
-asset sources in hand rather than committed blind; the game meets the DoD in
-greybox until then. The feel-tuning of the SFX presets stays an open pass like
+Still open — the two asset-import tasks: the Stage B 3D-model pass and the
+Pincel texture-atlas / NearestFilter pipeline. They are best done with the asset
+sources in hand rather than committed blind; the game meets the DoD in greybox
+until then. The feel-tuning of the SFX presets stays an open pass like
 the hover-feel / difficulty-curve passes.)
 
 ## Phase 8 — Netcode transport & hosting (P2P/TURN) — hosting.spec.md

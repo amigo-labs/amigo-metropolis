@@ -2,6 +2,7 @@
 // and tools may touch is re-exported here; nothing else is part of the contract.
 export * from "./archetypes";
 export * from "./balance";
+export * from "./collision";
 export * from "./entities";
 export * from "./events";
 export * from "./hash";

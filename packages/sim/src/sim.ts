@@ -82,6 +82,7 @@ import {
   WARDEN_HP,
   WARDEN_INCOME_PERCENT,
 } from "./balance";
+import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
 import {
   clearEvents,
@@ -529,6 +530,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
       let ok = true;
       if (!hover && isWater(map, nx, y)) ok = false;
+      if (ok && crossesWallX(map, x, nx, y)) ok = false;
       if (ok && !airborne) {
         const rise = rideHeight(map, nx, y, hover) - rideHeight(map, x, y, hover);
         if (rise > GROUND_EPS && rise > Math.abs(nx - x) * maxSlope) ok = false;
@@ -541,6 +543,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       const ny = Math.min(Math.max(y + stepY, 0), extent);
       let ok = true;
       if (!hover && isWater(map, x, ny)) ok = false;
+      if (ok && crossesWallY(map, x, y, ny)) ok = false;
       if (ok && !airborne) {
         const rise = rideHeight(map, x, ny, hover) - rideHeight(map, x, y, hover);
         if (rise > GROUND_EPS && rise > Math.abs(ny - y) * maxSlope) ok = false;
@@ -646,7 +649,9 @@ function isLockValid(
   if (!isLockable(ent.archetype[targetId])) return false;
   const dx = ent.posX[targetId] - x;
   const dy = ent.posY[targetId] - y;
-  return dx * dx + dy * dy <= AVATAR_LOCK_RANGE * AVATAR_LOCK_RANGE;
+  if (dx * dx + dy * dy > AVATAR_LOCK_RANGE * AVATAR_LOCK_RANGE) return false;
+  // A wall breaks (and prevents) the lock — same visibility rule as targeting.
+  return !segmentBlocked(state.map, x, y, ent.posX[targetId], ent.posY[targetId]);
 }
 
 /**
@@ -926,6 +931,9 @@ export function hitscan(
     }
   }
   if (bestId >= 0) {
+    // Walls stop the ray: bestId is the CLOSEST body hit, so a wall on the
+    // way to it means the shot hits the wall and nothing else.
+    if (segmentBlocked(state.map, ox, oy, ox + dx * bestT, oy + dy * bestT)) return;
     applyDamage(state, bestId, damage, player);
   }
 }
@@ -1008,7 +1016,7 @@ function systemTargeting(state: SimState): void {
   }
 }
 
-/** Phase 1 dummy-turret targeting: nearest enemy avatar in range, or -1. */
+/** Phase 1 dummy-turret targeting: nearest VISIBLE enemy avatar in range. */
 function nearestEnemyAvatar(state: SimState, id: number, range: number): number {
   const ent = state.ent;
   let bestD2 = range * range;
@@ -1020,6 +1028,9 @@ function nearestEnemyAvatar(state: SimState, id: number, range: number): number 
     const dy = ent.posY[a] - ent.posY[id];
     const d2 = dx * dx + dy * dy;
     if (d2 < bestD2) {
+      if (segmentBlocked(state.map, ent.posX[id], ent.posY[id], ent.posX[a], ent.posY[a])) {
+        continue; // wall between us — not a valid target
+      }
       bestD2 = d2;
       bestId = a;
     }
@@ -1035,12 +1046,19 @@ function systemProjectiles(state: SimState): void {
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.PROJECTILE) continue;
     ent.timerA[id] -= 1;
-    const x = ent.posX[id] + ent.velX[id] * TICK_DT;
-    const y = ent.posY[id] + ent.velY[id] * TICK_DT;
-    ent.posX[id] = x;
-    ent.posY[id] = y;
-    const ground = sampleHeight(map, x, y);
-    let boom = ent.timerA[id] <= 0;
+    const px = ent.posX[id];
+    const py = ent.posY[id];
+    const x = px + ent.velX[id] * TICK_DT;
+    const y = py + ent.velY[id] * TICK_DT;
+    // A wall stops the shell on the near side: don't advance into it, so the
+    // explosion (and its AOE center) stays on the shooter's side.
+    const walled = segmentBlocked(map, px, py, x, y);
+    if (!walled) {
+      ent.posX[id] = x;
+      ent.posY[id] = y;
+    }
+    const ground = sampleHeight(map, ent.posX[id], ent.posY[id]);
+    let boom = walled || ent.timerA[id] <= 0;
     if (x <= 0 || x >= extent || y <= 0 || y >= extent) boom = true;
     if (!boom && ground >= ent.height[id]) boom = true;
     if (!boom) {

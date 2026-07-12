@@ -3,7 +3,19 @@
 // plus golden regeneration, not a test tweak.
 import { describe, expect, it } from "bun:test";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
-import { createTestMap, sampleHeight, worldExtent } from "../src/map";
+import {
+  BUG_HUNT_ID,
+  createTestMap,
+  DISTRICT_01_ID,
+  getMapById,
+  LA_CANTINA_ID,
+  MAP_REGISTRY,
+  PROVING_GROUND_ID,
+  sampleHeight,
+  TEST_MAP_ID,
+  URBAN_JUNGLE_ID,
+  worldExtent,
+} from "../src/map";
 
 const map = createTestMap();
 
@@ -23,6 +35,35 @@ describe("test map", () => {
   it("pins individual generated heights", () => {
     expect(map.heights[0]).toBe(0);
     expect(map.heights[64 * 128 + 64]).toBe(-0.5274316668510437);
+  });
+});
+
+describe("map registry", () => {
+  it("lists the selectable arenas in menu order with unique ids", () => {
+    expect(MAP_REGISTRY.map((m) => m.id)).toEqual([
+      DISTRICT_01_ID,
+      URBAN_JUNGLE_ID,
+      PROVING_GROUND_ID,
+      LA_CANTINA_ID,
+      BUG_HUNT_ID,
+    ]);
+    expect(new Set(MAP_REGISTRY.map((m) => m.id)).size).toBe(MAP_REGISTRY.length);
+  });
+
+  it("loads every registry entry through getMapById with a display name", () => {
+    for (const info of MAP_REGISTRY) {
+      expect(info.displayName.length).toBeGreaterThan(0);
+      expect(getMapById(info.id).id).toBe(info.id);
+    }
+  });
+
+  it("keeps the debug test map out of the picker but resolvable by id", () => {
+    expect(MAP_REGISTRY.some((m) => m.id === TEST_MAP_ID)).toBe(false);
+    expect(getMapById(TEST_MAP_ID).id).toBe(TEST_MAP_ID);
+  });
+
+  it("throws on unknown map ids", () => {
+    expect(() => getMapById("no-such-map")).toThrow("unknown map id");
   });
 });
 

@@ -18,39 +18,42 @@ Procedural Three geometry with vertex colors, flat shading:
 Greybox archetypes live in `client/src/render/greybox.ts` and stay in the repo
 forever as a debug render mode (`?render=greybox`).
 
-**Stage B — CC0 pass (Phase 6 start).**
+**Stage B — Asset pass (Phase 6 start).**
 - Sources: Quaternius (mech/vehicle packs), Kenney (props, UI, SFX),
-  Kay Lousberg — browse via poly.pizza. CC0 only, or CC-BY with attribution.
-- Every imported asset gets a line in `CREDITS.md`: name, author, source URL,
-  license. No line, no merge.
+  Kay Lousberg via poly.pizza; direct rebuilds of the original Future Cop
+  designs; or anything else. No license restriction.
+- Note imported third-party assets in `CREDITS.md` (name, author, source URL,
+  license) for provenance where the source is known.
 
-**Stage C — Own identity (Phase 6+).**
+**Stage C — Identity pass (Phase 6+).**
 - Low-poly flat-shaded models in Blender, PS1-era proportions.
 - Textures made in **amigo-pincel** (see §3).
-- Unit designs must be original silhouettes. Same *role* as the classic
-  archetypes, different *shape* (explicitly: no transforming police mech that
-  reads as X1-Alpha).
+- Unit designs may recreate the classic archetypes directly, including
+  recognizable silhouettes such as the transforming X1-Alpha-style police mech.
 
-## 2. License rules (repo is public)
+## 2. Asset policy
 
-- Committed assets: **CC0 or CC-BY only.** No purchased packs (their licenses
-  allow use in builds, not redistribution in source).
-- **No original Future Cop assets — including modified ones.** An edited
-  original texture/model/sound is a derivative work and remains EA copyright.
-  Filtering, recoloring, overpainting does not change this.
-- The original game (via own copy + FC:MIT tooling) is **reference only**:
-  proportions, arena dimensions, lane lengths, palette character, pacing.
-  Looking is allowed; opening an original file as an editing base is not.
-- No EA trademarks anywhere (names, logos, "Future Cop", "Precinct Assault"
-  as-is; genre description "inspired by classic 1998 arena modes" is fine).
-- Sounds: new productions only (jsfxr, recorded, or CC0 packs).
+- **No license restriction on committed assets.** Any source is fine, including
+  purchased packs and CC0/CC-BY assets.
+- **Original Future Cop assets may be used directly.** The original game (via
+  own copy + FC:MIT tooling) may serve as reference, as an editing base, or be
+  rebuilt from scratch. Modified originals (recolors, overpaints, re-meshes)
+  are fine.
+- **FCOP-derived map data may be committed.** Functional map data (heightfields,
+  nav/lane data) extracted or rebuilt from the original game may live in the repo
+  (e.g. `packages/sim/maps/*.json`), provided provenance is noted in `CREDITS.md`.
+  mapalyze's stricter no-raw-geometry guardrails scope to that tool's abstracted
+  analysis pipeline only — not to committed map data.
+- **EA / Future Cop names, logos, and designs may be used** ("Future Cop",
+  "Precinct Assault", X1-Alpha, etc.).
+- Note third-party asset sources in `CREDITS.md` for provenance where known.
 
 ## 3. Texture style guide (PS1 era) + Pincel workflow
 
 - Resolutions: 64×64 to 256×256, power of two. One texture atlas per archetype.
 - Palette: one shared game palette (~32 colors), team colors as dedicated
-  swap-able ramp (3 shades per team). Store palette as `.pal` + reference PNG
-  in `assets/palette/`.
+  swap-able ramp (3 shades per team). The single source of truth is
+  `packages/client/src/render/palette.ts`.
 - Character: hard pixels (`NearestFilter`, no mipmaps or `NearestMipmapNearest`),
   visible dithering for gradients, painted highlights instead of normal maps,
   slight grime pass. Affine-texture wobble NOT emulated (readability > nostalgia).
@@ -71,8 +74,8 @@ forever as a debug render mode (`?render=greybox`).
 ## 5. Audio
 
 - SFX: jsfxr presets committed as JSON (regenerable) + rendered .ogg; plus
-  Kenney CC0 where procedural doesn't cut it. Mixed through a tiny WebAudio
-  wrapper (no audio library dependency).
-- Music: CC0/CC-BY tracks for v1. (Long-term candidate: amigo-trommel —
+  packs like Kenney where procedural doesn't cut it. Mixed through a tiny
+  WebAudio wrapper (no audio library dependency).
+- Music: any tracks for v1. (Long-term candidate: amigo-trommel —
   explicitly out of scope until Pincel v1.0 ships.)
 - All audio triggered from the sim event ring buffer, never from render state.
