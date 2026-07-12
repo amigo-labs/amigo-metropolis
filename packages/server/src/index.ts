@@ -33,15 +33,34 @@ import {
 } from "@metropolis/sim";
 import { type Outgoing, RoomLogic } from "./room";
 
+// Durable Object classes must be exported from the Worker entry module.
+export { DirectoryDO } from "./directoryDo";
+export { GatekeeperDO } from "./gatekeeperDo";
+export { LobbyDO } from "./lobbyDo";
+
 export interface Env {
   ROOM: DurableObjectNamespace;
+  // Handshake layer for the P2P online path (hosting.spec.md): per-code lobby
+  // signaling plus the directory and budget-gatekeeper singletons.
+  LOBBY: DurableObjectNamespace;
+  DIRECTORY: DurableObjectNamespace;
+  GATEKEEPER: DurableObjectNamespace;
   // Static client assets (the Vite build). Configured in wrangler.toml so this
   // one Worker serves the game AND the relay from a single origin.
   ASSETS: Fetcher;
+  // Cloudflare Realtime TURN key for issuing short-lived credentials
+  // (hosting.spec.md §6). Optional: absent in dev, set via wrangler vars/secret.
+  TURN_KEY_ID?: string;
+  TURN_KEY_API_TOKEN?: string;
 }
 
 const ROOM_CODE = /^[A-Z0-9]{5}$/;
 const FRAME_KEY = "f:";
+
+/** Both singletons are addressed by a fixed name — one instance per deploy. */
+function singleton(ns: DurableObjectNamespace, name: string): DurableObjectStub {
+  return ns.get(ns.idFromName(name));
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -53,6 +72,20 @@ export default {
       const stub = env.ROOM.get(env.ROOM.idFromName(code));
       return stub.fetch(request);
     }
+    // P2P handshake layer (hosting.spec.md). Lobby codes share the room-code
+    // alphabet; the namespaces stay distinct because the DO classes differ.
+    if (parts[0] === "lobby" && parts[1]) {
+      const code = parts[1].toUpperCase();
+      if (!ROOM_CODE.test(code)) return new Response("bad lobby code", { status: 400 });
+      return env.LOBBY.get(env.LOBBY.idFromName(code)).fetch(request);
+    }
+    if (parts[0] === "api" && parts[1] === "lobbies") {
+      return singleton(env.DIRECTORY, "directory").fetch(request);
+    }
+    if (parts[0] === "api" && parts[1] === "budget") {
+      return singleton(env.GATEKEEPER, "gatekeeper").fetch(request);
+    }
+    if (parts[0] === "api") return new Response("unknown api route", { status: 404 });
     // Anything that isn't a relay route is the client app. run_worker_first pins
     // only "/room/*" to the Worker, so this is just a safety net for a codeless
     // relay path like "/room/": hand it to the asset layer, which SPA-falls-back

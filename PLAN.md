@@ -85,24 +85,17 @@ d3 cannot crack an intact turret ring — no Juggernaut below the aggression
 threshold — while d8 wins in ~4 min. The human calibration pass on the
 difficulty curve stays open, like the hover feel pass; play via `?warden=N`.)
 
-## Phase 5 — Couch splitscreen
+## Phase 5 — Couch splitscreen (REMOVED)
 
-- [x] Gamepad API: enumeration, assignment screen (press A to join), rumble opt.
-- [x] Two-camera setScissor/setViewport rendering, per-player HUD anchors
-- [x] 2-tick local input delay queue for all modes (parity with online feel)
-- [~] Perf pass: 60 fps splitscreen on mid-range laptop + iPad Safari
-
-**DoD:** two humans on one machine play a full match with gamepads.
-(Playable via `?splitscreen` (or `?players=2`): a lobby assigns devices —
-gamepad "A" to join, Start/Enter to begin — then two chase-cam viewports split
-`?split=v|h` with per-player HUDs. Controls are camera-relative (parity with the
-keyboard/mouse scheme): the left stick / WASD drive relative to the chase
-camera, the right stick / mouse aims. Rumble on hit/death
-(`?rumble=0` to mute). A synthetic-gamepad e2e drives both slots and confirms
-each avatar moves in-sim. The 60 fps pass on real mid-range hardware / iPad
-Safari stays open, like the hover-feel and difficulty-curve passes — the frame
-loop is allocation-free and shares one set of instance matrices across both
-viewport renders, so only draw calls double, not sim or scene rebuilds.)
+Shipped and met its DoD (two humans, one machine, gamepads), then removed by
+owner decision during Phase 8: the couch menu entry, `?splitscreen`/`?players`
+deep links, gamepad assignment lobby, `GamepadInput` device and rumble are
+gone (git history has them). What Phase 5 built and the game still uses:
+the 2-tick local input delay queue (online-feel parity in every mode), the
+multi-view `setScissor`/`setViewport` renderer (`render/playerView.ts`, kept
+for post-v1 2v2) and the shared camera-relative movement/aim mapping
+(`input/gamepadMapping.ts` — the keyboard path builds on it). The splitscreen
+perf pass is moot.
 
 ## Phase 6 — Online 1v1 (Durable Objects)
 
@@ -134,9 +127,9 @@ Deploy is wired for a single origin: the root `wrangler.toml` now publishes ONE
 Worker that both serves the built client (`[assets]` over `packages/client/dist`,
 built by a `[build]` step, SPA fallback) and runs the relay (`run_worker_first`
 pins `/room/*` to the Worker + Durable Object). Client and relay share a host,
-so the deployed URL plays Solo/Couch immediately and online 1v1 needs no
+so the deployed URL plays Solo immediately and online 1v1 needs no
 separate relay host (same-origin `wss://<host>/room/<CODE>`). Still open, like
-the hover-feel / difficulty / splitscreen-perf passes: the two-network latency
+the hover-feel / difficulty passes: the two-network latency
 playtest on the live deploy.)
 
 ## Phase 7 — Look & sound (Stage B/C of assets.md)
@@ -145,14 +138,14 @@ playtest on the live deploy.)
 - [ ] Pincel texture atlases + shared palette; NearestFilter pipeline
 - [x] jsfxr SFX set wired to event buffer; CC0 music loop; volume settings
 - [x] PWA polish: manifest, icons, offline solo mode, install prompt
-- [x] Title screen with working title; menu flow (solo / couch / online)
+- [x] Title screen with working title; menu flow (solo / online)
 
 **DoD:** a stranger can open the URL, understand the game, and finish a solo
 match without explanation.
 (Shell + audio landed. A bare URL opens the "Metropolis" title screen over
-an arena backdrop with one click per mode — Solo (Warden difficulty), Couch,
+an arena backdrop with one click per mode — Solo (Warden difficulty),
 Online (host/join room codes) — plus How-to-play and Sound drawers; deep links
-(`?warden`, `?splitscreen`, `?online`, `?play`, `?debug`) still boot straight in.
+(`?warden`, `?online`, `?play`, `?debug`) still boot straight in.
 Audio is real now: a dependency-free clean-room sfxr synth renders committed
 JSON presets (`audio/presets.ts`) for every event cue and a self-authored CC0
 music loop, mixed through a tiny WebAudio wrapper with persisted master/sfx/music
@@ -172,6 +165,47 @@ Pincel texture-atlas / NearestFilter pipeline. They are best done with the asset
 sources in hand rather than committed blind; the game meets the DoD in greybox
 until then. The feel-tuning of the SFX presets stays an open pass like
 the hover-feel / difficulty-curve passes.)
+
+## Phase 8 — Netcode transport & hosting (P2P/TURN) — hosting.spec.md
+
+Zero-cost online path: match traffic goes peer-to-peer over a relay-only WebRTC
+DataChannel through Cloudflare TURN; Durable Objects handle only the handshake
+(lobby/signaling, directory, budget gatekeeper). The Phase-6 WS relay
+(`/room/<CODE>`) stays as the code-based fallback. Read `docs/specs/hosting.spec.md`
+before touching any of this.
+
+- [x] H0 — Setup & Wrangler: DO bindings (`LobbyDO`, `DirectoryDO`,
+      `GatekeeperDO`), routes (`/lobby/*`, `/api/*`), test scaffold
+- [x] H1 — Signaling DO: lobby create/join, SDP/ICE brokering for exactly
+      2 peers, in-memory state, alarm TTL
+- [x] H2 — WebRTC transport in the client: relay-only `RTCPeerConnection`,
+      unordered/no-retransmit DataChannel, input redundancy (last k ticks per
+      packet, k = D + 2), wired to the sim tick
+- [x] H3 — Lobby system & directory: optional password (server-side hash
+      check), public list vs. private code, directory register/unregister,
+      lobby UI in the menu
+- [x] H4 — Budget gatekeeper: token bucket + per-UTC-day hard counter,
+      reservation/reconciliation, reset 00:00 UTC, "sold out" UI path
+- [x] H5 — Hardening: short-lived TURN credentials, reconnect/abort logic,
+      chaos-tested lifecycle cleanup (no ghost lobbies)
+
+**DoD:** two machines complete a deterministic match over the P2P path with
+identical tick hashes; a public lobby is discoverable and a password-protected
+one is joinable only with the right password; a simulated budget overrun turns
+new sessions away with "sold out" and recovers at UTC midnight; abort chaos
+leaves no ghost lobbies. Live two-network TURN playtest stays an open pass,
+like the Phase-6 relay playtest.
+(All five in-process gates are proven by tests: `p2pLockstep.test.ts` finishes
+150 ticks bit-identical to the offline sim over a 35 %-loss channel and flags
+an induced desync within 30 ticks; `lobby.test.ts` + `directory.test.ts` cover
+listing and the server-side password gate; `gatekeeper.test.ts` drains a day,
+gets "sold out", and recovers at the UTC reset; `lobbyChaos.test.ts` settles
+300 seeded hostile event sequences with zero ghost lobbies. TURN credentials
+are issued per lobby via the Cloudflare Realtime API once `TURN_KEY_ID` +
+`TURN_KEY_API_TOKEN` are configured — without them clients fall back to
+non-relay dev candidates. The optional GraphQL-analytics drift reconciliation
+from hosting.spec.md §3.4 stays unimplemented by design (out-of-band safety
+net); the gatekeeper's own counters are the source of truth.)
 
 ## Backlog (post-v1, do not start)
 

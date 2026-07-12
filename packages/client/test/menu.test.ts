@@ -10,10 +10,6 @@ describe("buildModeQuery", () => {
     expect(buildModeQuery({ mode: "solo" })).toBe("?play=1");
   });
 
-  test("couch uses ?splitscreen", () => {
-    expect(buildModeQuery({ mode: "couch" })).toBe("?splitscreen");
-  });
-
   test("warden clamps difficulty into 1..10", () => {
     expect(buildModeQuery({ mode: "warden", difficulty: 4 })).toBe("?warden=4");
     expect(buildModeQuery({ mode: "warden", difficulty: 0 })).toBe("?warden=1");
@@ -22,18 +18,24 @@ describe("buildModeQuery", () => {
     expect(buildModeQuery({ mode: "warden", difficulty: Number.NaN })).toBe("?warden=1");
   });
 
+  test("p2p routes to the lobby-brokered mode", () => {
+    expect(buildModeQuery({ mode: "p2p", code: "abcde" })).toBe("?p2p=ABCDE");
+  });
+
   test("online upper-cases the room code", () => {
     expect(buildModeQuery({ mode: "online", code: "abcde" })).toBe("?online=ABCDE");
   });
 
   test("a picked arena rides along as the ?map deep-link param", () => {
     expect(buildModeQuery({ mode: "solo" }, "urban-jungle")).toBe("?play=1&map=urban-jungle");
-    expect(buildModeQuery({ mode: "couch" }, "district-01")).toBe("?splitscreen&map=district-01");
     expect(buildModeQuery({ mode: "warden", difficulty: 4 }, "urban-jungle")).toBe(
       "?warden=4&map=urban-jungle",
     );
     expect(buildModeQuery({ mode: "online", code: "abcde" }, "urban-jungle")).toBe(
       "?online=ABCDE&map=urban-jungle",
+    );
+    expect(buildModeQuery({ mode: "p2p", code: "abcde" }, "la-cantina")).toBe(
+      "?p2p=ABCDE&map=la-cantina",
     );
   });
 

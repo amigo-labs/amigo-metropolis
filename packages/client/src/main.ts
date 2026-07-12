@@ -1,5 +1,5 @@
 // Sandbox entry: a fixed 30 Hz sim under a variable-rate render loop on the
-// district-01 arena, now driving one-to-two LOCAL players. Frame loop contract
+// district-01 arena, driving the ONE local player. Frame loop contract
 // (CLAUDE.md renderer rules): ZERO allocations — all scratch objects live at
 // module scope, snapshots rotate between two preallocated buffers, and entity
 // rendering reads sim state ONLY via writeSnapshot(). (The 1 Hz debug HUD reads
@@ -7,9 +7,9 @@
 //
 // Modes (architecture.md §4 "inputs differ, sim doesn't"):
 //   solo               ?warden=<1-10> | ?opponent=feeder|idle   (1 view)
-//   couch splitscreen  ?splitscreen | ?players=2                 (2 views)
 //   online 1v1         ?online=<CODE> (+ ?relay=<wsBase>)        (1 view, lockstep)
-// URL params: ?map=test-128 ?cam=orbit ?seed=123 ?split=v|h ?rumble=0
+//   online 1v1 (P2P)   ?p2p=<CODE>                               (1 view, lockstep)
+// URL params: ?map=test-128 ?cam=orbit ?seed=123
 //
 // Online is the same sim driven by network-confirmed inputs instead of a local
 // delay queue (§5): both peers derive the seed from the room code, then step
@@ -20,15 +20,11 @@
 import {
   ANIM_HOVER,
   ARCHETYPE,
-  BUTTON_INTERACT,
   CAPTURE_TICKS,
   CONSOLE_HOLD_TICKS,
   createSim,
   createTickInputs,
   DISTRICT_01_ID,
-  EV_DEATH,
-  EV_HIT,
-  EVENT_STRIDE,
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   MAX_ENTITIES,
@@ -50,18 +46,16 @@ import { AudioEngine } from "./audio/engine";
 import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
 import type { LocalInputSource } from "./input/types";
-import { runLobby } from "./lobby";
-import { runMenu } from "./menu";
+import { buildModeQuery, type MenuChoice, type MenuHandle, runMenu } from "./menu";
+import { createDemoSim, demoFeeder, updateFlyoverCamera, zeroPlayerInput } from "./menuWorld";
 import { NetLockstep } from "./net/lockstep";
+import { P2pLockstep } from "./net/p2pLockstep";
+import { openP2pSession, readP2pBootstrap } from "./net/p2pSession";
 import { WsTransport } from "./net/wsTransport";
 import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
+import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
-import {
-  createPlayerViews,
-  layoutViews,
-  type PlayerView,
-  type SplitOrientation,
-} from "./render/playerView";
+import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
 import { buildBaseStructures } from "./render/structures";
 import { buildTerrainMesh, buildWallMesh, buildWaterPlane } from "./render/terrain";
 
@@ -71,48 +65,49 @@ const params = new URLSearchParams(location.search);
 // `let`: online the server's MSG_WELCOME config is authoritative — a joiner
 // whose URL names a different arena rebuilds map + scene (see rebuildArena).
 let map = getMapById(params.get("map") ?? DISTRICT_01_ID);
-// ?online=<CODE> is 1v1 lockstep; it owns both slots, so warden/splitscreen off.
+// ?online=<CODE> is 1v1 lockstep; it owns both slots, so the Warden stays off.
 const onlineCode = normalizeCode(params.get("online"));
+// ?p2p=<CODE> is 1v1 lockstep too, but lobby-brokered and peer-to-peer over
+// WebRTC (hosting.spec.md) — the relay never sees the match traffic.
+const p2pCode = normalizeCode(params.get("p2p"));
 const online = onlineCode !== null;
-const splitscreen = !online && (params.has("splitscreen") || params.get("players") === "2");
-const splitOrientation: SplitOrientation = params.get("split") === "h" ? "h" : "v";
-const rumbleEnabled = params.get("rumble") !== "0";
-const orbitMode = !online && params.get("cam") === "orbit";
+const p2p = !online && p2pCode !== null;
+const netMode = online || p2p;
+const orbitMode = !netMode && params.get("cam") === "orbit";
 // Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
 aimAssist.mode = parseAimAssistMode(params.get("aim"));
 
-// The room code seeds an online match: both peers derive the same seed from it,
-// so no seed negotiation is needed and the relay stays a dumb input relay (§5).
-const seed = online
-  ? seedFromCode(onlineCode as string)
-  : Number(params.get("seed") ?? "0xc0ffee") >>> 0;
+// Offline match seed. Net matches ignore it — the room/lobby code seeds them
+// (connectOnline / connectP2pMode derive the same seed on both peers, so no
+// seed negotiation is needed and the relay stays a dumb input relay, §5).
+const seed = Number(params.get("seed") ?? "0xc0ffee") >>> 0;
 
 // ?warden=<1-10> puts the Phase 4 AI on player 2's slot (rules.md §7). It is a
-// solo feature — splitscreen fills both slots with humans, so the AI stays off.
-const wardenDifficulty =
-  splitscreen || online ? 0 : Math.trunc(Number(params.get("warden") ?? "0"));
-const warden = wardenDifficulty >= 1;
+// solo feature — a net match owns both slots, so the AI stays off.
+// Mutable (`let`) because a menu choice now re-targets them in-process.
+let wardenDifficulty = netMode ? 0 : Math.trunc(Number(params.get("warden") ?? "0"));
+let warden = wardenDifficulty >= 1;
 
-// A bare URL shows the title/menu (Phase 7). Any explicit mode — a network or
-// splitscreen match, an AI/scripted opponent, ?play=1 from the menu, or ?debug
-// for the harness — boots straight into the match and skips the menu, so every
-// deep link and test entry point behaves exactly as before.
+// A bare URL shows the title/menu (Phase 7). Any explicit mode — a network
+// match, an AI/scripted opponent, ?play=1 from the menu, or ?debug for the
+// harness — boots straight into the match and skips the menu, so every deep
+// link and test entry point behaves exactly as before.
 const explicitMode =
-  online ||
-  splitscreen ||
-  warden ||
-  params.has("opponent") ||
-  params.has("play") ||
-  params.has("debug");
-// Offline builds the sim now; online defers to the server's authoritative
-// config (arrives in MSG_WELCOME) so both peers build a byte-identical sim.
-let sim: SimState = online
+  netMode || warden || params.has("opponent") || params.has("play") || params.has("debug");
+// Offline match modes build the sim now; a net mode defers — to the server's
+// authoritative config (arrives in MSG_WELCOME) or the lobby-brokered P2P
+// session — so both peers build a byte-identical sim. The menu instead shows
+// a local throwaway demo battle (Warden vs feeder) under the flyover camera —
+// the real match sim replaces it via resetForMatch() when play starts.
+let sim: SimState = netMode
   ? (undefined as unknown as SimState)
-  : createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined);
+  : explicitMode
+    ? createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined)
+    : createDemoSim(map);
 
 // ?debug exposes the live sim for the console / e2e harness (host-side only,
 // like the debug HUD — nothing in the sim or renderer reads it back).
-if (params.has("debug") && !online) {
+if (params.has("debug") && !netMode) {
   (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
 }
 
@@ -134,10 +129,19 @@ function seedFromCode(code: string): number {
 
 /** Relay WebSocket URL: ?relay=<wsBase> overrides the same-origin default. */
 function relayUrl(code: string): string {
+  return `${wsBase()}/room/${code}`;
+}
+
+/** Lobby DO WebSocket URL (P2P handshake), same override rules as the relay. */
+function lobbyUrl(code: string): string {
+  return `${wsBase()}/lobby/${code}`;
+}
+
+function wsBase(): string {
   const base = params.get("relay");
-  if (base) return `${base.replace(/\/+$/, "")}/room/${code}`;
+  if (base) return base.replace(/\/+$/, "");
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${location.host}/room/${code}`;
+  return `${proto}://${location.host}`;
 }
 
 const NET_ERROR_TEXT: Record<number, string> = {
@@ -147,13 +151,13 @@ const NET_ERROR_TEXT: Record<number, string> = {
   4: "protocol error",
 };
 
-let net: NetLockstep | undefined;
+let net: NetLockstep | P2pLockstep | undefined;
 /** Sticky connection status shown over the scene; null once playing normally. */
 let netStatus: string | null = null;
 
-// Local-input delay queue (architecture.md §4): even offline, every local
+// Local-input delay queue (architecture.md §4): even offline, the local
 // player's input is delayed LOCAL_INPUT_DELAY_TICKS so online (3 ticks) feels
-// identical. In splitscreen BOTH humans route through it — same parity.
+// identical — same parity in every mode.
 const QUEUE_SIZE = LOCAL_INPUT_DELAY_TICKS + 1;
 const inputQueue: TickInputs[] = [];
 for (let i = 0; i < QUEUE_SIZE; i++) inputQueue.push(createTickInputs());
@@ -177,25 +181,16 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
   });
 }
 
-// Scripted opponent (?opponent=feeder|idle, Phase 3 DoD): player 2 runs a
-// fixed build order — walk to its ground console, then hold-to-buy runner
-// bursts forever. Only used for a slot that is neither a local human nor the
-// Warden (i.e. solo ?opponent play).
+// Scripted opponent (?opponent=feeder|idle, Phase 3 DoD): a slot that is
+// neither a local human nor the Warden runs the feeder build order — walk to
+// its ground console, then hold-to-buy runner bursts forever. Used for solo
+// ?opponent play AND the menu demo battle's slot 0; the (slot-aware) script
+// itself lives in menuWorld.ts, shared by both.
 const opponentMode = warden ? "idle" : (params.get("opponent") ?? "feeder");
 
-function scriptOpponent(tick: number, out: PlayerInput): void {
-  out.moveX = 0;
-  out.moveY = 0;
-  out.aimX = 0;
-  out.aimY = 0;
-  out.buttons = 0;
-  if (opponentMode !== "feeder") return;
-  if (tick < 76) {
-    out.moveX = 40; // spawn → own ground console (matches map authoring)
-    out.moveY = 120;
-    return;
-  }
-  if (tick % 900 < 300) out.buttons = BUTTON_INTERACT; // 10 s burst, 20 s pause
+function scriptOpponent(slot: number, tick: number, out: PlayerInput): void {
+  if (opponentMode === "feeder") demoFeeder(slot, tick, out);
+  else zeroPlayerInput(out);
 }
 
 // --- Scene setup --------------------------------------------------------------
@@ -203,7 +198,7 @@ function scriptOpponent(tick: number, out: PlayerInput): void {
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
-renderer.setScissorTest(true); // splitscreen renders one scissored view per player
+renderer.setScissorTest(true); // each player view renders scissored to its rect
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -252,6 +247,19 @@ function rebuildArena(mapId: string): void {
   arenaGroup = buildArenaGroup(map);
   scene.add(arenaGroup);
 }
+
+// --- App phase ----------------------------------------------------------------
+// One persistent rAF loop drives every phase; the phase only decides which
+// camera renders (flyover vs per-view rigs) and whether match-only side
+// effects (SFX, HUD) run. The sim underneath is the demo battle until
+// resetForMatch() swaps the real match in.
+type Phase = "menu" | "connecting" | "match";
+let phase: Phase = netMode ? "connecting" : explicitMode ? "match" : "menu";
+
+// Flyover camera for the menu/lobby/connecting backdrop world.
+const flyCam = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
+// Menu→match camera blend (solo starts): flyover pose eases into the chase rig.
+const blend = createCameraBlend();
 
 // --- Frame-loop scratch (never allocate inside frame/runTick) ----------------
 
@@ -335,9 +343,6 @@ function downloadReplay(bytes: Uint8Array, name: string): void {
 // world u/s in render space, from the raw per-tick snapshot delta.
 const avatarPoses: Float32Array[] = [];
 for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses.push(new Float32Array(7));
-// Avatar id per player captured BEFORE each step, so we can attribute this
-// tick's hit/death events (which clear avatarId) back to a player for rumble.
-const prevAvatarId = new Int32Array(MAX_PLAYERS);
 
 function wrapAngleDelta(d: number): number {
   return ((((d + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
@@ -399,13 +404,14 @@ function runTick(): void {
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const view = viewBySlot[p];
     if (view) view.input.sample(queued.players[p]);
-    else if (p !== sim.wardenPlayer) scriptOpponent(futureTick, queued.players[p]);
+    else if (p !== sim.wardenPlayer) scriptOpponent(p, futureTick, queued.players[p]);
   }
 
-  for (let p = 0; p < MAX_PLAYERS; p++) prevAvatarId[p] = sim.avatarId[p];
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
-  audio.pump(sim.events); // events are per-tick transients: drain immediately
-  if (rumbleEnabled) pumpRumble();
+  // The demo battle stays sonically calm — music only, no SFX.
+  if (phase === "match") {
+    audio.pump(sim.events); // events are per-tick transients: drain immediately
+  }
   rotateSnapshot();
 }
 
@@ -416,23 +422,6 @@ function rotateSnapshot(): void {
   snapCurr = swap;
   countPrev = countCurr;
   countCurr = writeSnapshot(sim, snapCurr);
-}
-
-/** Turns this tick's hit/death events on a local avatar into a haptic pulse. */
-function pumpRumble(): void {
-  const ev = sim.events;
-  for (let i = 0; i < ev.count; i++) {
-    const o = i * EVENT_STRIDE;
-    const type = ev.data[o];
-    if (type !== EV_HIT && type !== EV_DEATH) continue;
-    const target = ev.data[o + 1];
-    for (let v = 0; v < views.length; v++) {
-      const view = views[v];
-      if (prevAvatarId[view.slot] !== target) continue;
-      if (type === EV_DEATH) view.input.rumble(1, 300);
-      else view.input.rumble(Math.min(ev.data[o + 3] / 60, 1) * 0.4 + 0.1, 120);
-    }
-  }
 }
 
 function renderEntities(alpha: number): void {
@@ -595,13 +584,16 @@ function frame(now: number): void {
   last = now;
   let steps = 0;
   while (accumulator >= TICK_MS && steps < MAX_STEPS_PER_FRAME) {
-    // Online steps only confirmed ticks (net.tryStep); a stall (peer input not
-    // yet in) breaks out and the overlay explains the pause. Offline steps
-    // locally every tick. Both stay paced at 30 Hz by the accumulator.
-    if (net) {
+    // Online matches step only confirmed ticks (net.tryStep); a stall (peer
+    // input not yet in) breaks out and the overlay explains the pause.
+    // Everything else — offline matches AND the menu/lobby/connecting demo
+    // battle — steps locally every tick. All paced at 30 Hz by the accumulator.
+    if (phase === "match" && net) {
       if (!net.tryStep()) break;
-    } else {
+    } else if (sim) {
       runTick();
+    } else {
+      break; // online deep link: no sim at all until MSG_WELCOME
     }
     accumulator -= TICK_MS;
     steps++;
@@ -609,20 +601,40 @@ function frame(now: number): void {
   if (accumulator >= TICK_MS) accumulator = TICK_MS; // shed backlog, stay stable
   if (net) refreshOverlay();
 
+  // The demo battle is throwaway ambience — when a gate falls, roll a fresh
+  // one (rare, seconds-apart event; the allocation is outside the hot path).
+  if (phase !== "match" && sim && sim.winner >= 0) {
+    sim = createDemoSim(map);
+    countPrev = 0;
+    countCurr = writeSnapshot(sim, snapCurr);
+  }
+
   renderEntities(accumulator / TICK_MS);
-  // Drain accumulated wheel into the pointer view's rig (scroll up → zoom in →
-  // toward ACTION). Splitscreen/gamepad views take no zoom for now.
   const dtSec = dtMs / 1000;
-  for (let v = 0; v < views.length; v++) {
-    const view = views[v];
-    view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
-    if (orbitControls && v === 0) orbitControls.update();
-    else updateRigCamera(view, dtSec);
-    const vp = view.viewport;
-    const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
-    renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
-    renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
-    renderer.render(scene, view.camera);
+  if (views.length === 0) {
+    // No views yet: menu / lobby / waiting-for-opponent — flyover over the demo.
+    updateFlyoverCamera(flyCam, now / 1000, extent);
+    renderer.setViewport(0, 0, innerWidth, innerHeight);
+    renderer.setScissor(0, 0, innerWidth, innerHeight);
+    renderer.render(scene, flyCam);
+  } else {
+    // Drain accumulated wheel into the pointer view's rig (scroll up → zoom in
+    // → toward ACTION). Only the pointer view takes zoom.
+    for (let v = 0; v < views.length; v++) {
+      const view = views[v];
+      view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
+      if (orbitControls && v === 0) {
+        orbitControls.update();
+      } else {
+        updateRigCamera(view, dtSec);
+        if (blend.active) applyBlend(blend, view.camera, dtSec);
+      }
+      const vp = view.viewport;
+      const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
+      renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
+      renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
+      renderer.render(scene, view.camera);
+    }
   }
   wheelAccum = 0; // consumed for this frame
 
@@ -635,12 +647,31 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 
-// --- Boot: (optional lobby →) build views → run ------------------------------
+// --- Boot: (optional menu/lobby →) build views → run --------------------------
+
+/**
+ * Swaps the module sim for the real match sim and clears every piece of state
+ * the demo battle may have dirtied: queued (delayed) inputs, the snapshot
+ * double-buffer, and accumulated wheel zoom. Called by every in-process start;
+ * deep links never need it (their sim was built fresh at boot).
+ */
+function resetForMatch(newSim: SimState): void {
+  sim = newSim;
+  for (let i = 0; i < inputQueue.length; i++) {
+    for (let p = 0; p < MAX_PLAYERS; p++) zeroPlayerInput(inputQueue[i].players[p]);
+  }
+  countPrev = 0;
+  countCurr = writeSnapshot(sim, snapCurr);
+  wheelAccum = 0;
+  if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
+}
 
 function startMatch(localPlayers: readonly { slot: number; input: LocalInputSource }[]): void {
+  phase = "match";
   views = createPlayerViews(localPlayers, map.spawns, extent);
+  viewBySlot.fill(undefined);
   for (let v = 0; v < views.length; v++) viewBySlot[views[v].slot] = views[v];
-  layoutViews(views, splitOrientation, innerWidth, innerHeight);
+  layoutViews(views, "v", innerWidth, innerHeight);
 
   if (orbitMode && views.length === 1) {
     orbitControls = new OrbitControls(views[0].camera, renderer.domElement);
@@ -650,14 +681,59 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   }
   // The mouse reticle only makes sense for a single full-window pointer player.
   reticle.style.display = views.length === 1 ? "block" : "none";
+  document.body.style.cursor = ""; // back to the stylesheet crosshair
+}
 
-  addEventListener("resize", () => {
-    renderer.setSize(innerWidth, innerHeight);
-    layoutViews(views, splitOrientation, innerWidth, innerHeight);
-  });
+// Short full-screen fade that covers hard view switches (flyover → net-match
+// view) where a camera blend would look broken. DOM-side, not part
+// of the frame loop, so the transition handling may allocate freely.
+const fadeEl = document.createElement("div");
+fadeEl.id = "fade-cover";
+document.body.appendChild(fadeEl);
 
-  last = performance.now();
-  requestAnimationFrame(frame);
+function fadeCover(action: () => void): void {
+  fadeEl.classList.add("is-on");
+  setTimeout(() => {
+    action();
+    fadeEl.classList.remove("is-on");
+  }, 320); // slightly past the 0.3 s CSS transition so the cover is fully opaque
+}
+
+/** Local-device sampler shared by both net modes (relay and P2P). */
+function makeNetSampler(): () => PlayerInput {
+  // One reusable input object; the lockstep serializes it immediately on send.
+  const localInput = createTickInputs().players[0];
+  return () => {
+    const view = views[0];
+    if (view) {
+      const a = sim.avatarId[view.slot];
+      if (a >= 0) {
+        const ec = aimAssist.mode === "assist" ? fillEnemies(view.slot) : 0;
+        view.input.updateAim(
+          view.camera,
+          sim.ent.posX[a],
+          sim.ent.posY[a],
+          sim.ent.height[a],
+          view.viewport,
+          enemyScratch,
+          ec,
+        );
+      }
+      view.input.sample(localInput);
+    }
+    return localInput;
+  };
+}
+
+/** Net-match parameters: both peers derive the seed from the shared code. */
+function netConfig(matchSeed: number): MatchConfig {
+  return {
+    simVersion: SIM_VERSION,
+    seed: matchSeed,
+    mapId: map.id,
+    wardenPlayer: -1,
+    wardenDifficulty: 0,
+  };
 }
 
 /**
@@ -668,46 +744,25 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
  * chase cam, HUD — is unchanged from solo, since only the input source differs.
  */
 function connectOnline(code: string): void {
-  const config: MatchConfig = {
-    simVersion: SIM_VERSION,
-    seed,
-    mapId: map.id,
-    wardenPlayer: -1,
-    wardenDifficulty: 0,
-  };
-  // One reusable input object; NetLockstep serializes it immediately on send.
-  const localInput = createTickInputs().players[0];
+  const config = netConfig(seedFromCode(code));
 
   net = new NetLockstep(new WsTransport(relayUrl(code)), {
-    sampleInput: () => {
-      const view = views[0];
-      if (view) {
-        const a = sim.avatarId[view.slot];
-        if (a >= 0) {
-          const ec = aimAssist.mode === "assist" ? fillEnemies(view.slot) : 0;
-          view.input.updateAim(
-            view.camera,
-            sim.ent.posX[a],
-            sim.ent.posY[a],
-            sim.ent.height[a],
-            view.viewport,
-            enemyScratch,
-            ec,
-          );
-        }
-        view.input.sample(localInput);
-      }
-      return localInput;
-    },
+    sampleInput: makeNetSampler(),
     onStep: (_tick, stepped) => {
       audio.pump(stepped.events); // per-tick transients, drained immediately
       rotateSnapshot();
     },
     onWelcome: (slotIdx, welcomed, welcomedConfig) => {
-      rebuildArena(welcomedConfig.mapId); // host map wins; joiner ?map is moot
-      sim = welcomed;
-      if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
-      if (views.length === 0) startMatch([{ slot: slotIdx, input: keyboard }]);
+      if (views.length === 0) {
+        fadeCover(() => {
+          rebuildArena(welcomedConfig.mapId); // host map wins; joiner ?map is moot
+          resetForMatch(welcomed);
+          startMatch([{ slot: slotIdx, input: keyboard }]);
+        });
+      } else {
+        rebuildArena(welcomedConfig.mapId);
+        resetForMatch(welcomed);
+      }
     },
     onStart: () => {
       netStatus = null;
@@ -739,34 +794,160 @@ function connectOnline(code: string): void {
   net.start(config);
 }
 
-/** Renders a single static overview frame as a backdrop behind menu/lobby cards. */
-function renderBackdrop(): void {
-  const overview = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
-  overview.position.set(extent / 2, extent * 0.9, extent * 1.4);
-  overview.lookAt(extent / 2, 0, extent / 2);
-  renderer.setViewport(0, 0, innerWidth, innerHeight);
-  renderer.setScissor(0, 0, innerWidth, innerHeight);
-  renderer.render(scene, overview);
+/**
+ * P2P 1v1 (hosting.spec.md §5): open/join the lobby by code, run WebRTC
+ * signaling through it, then hand the open channel pair to P2pLockstep. The
+ * role and lobby options ride sessionStorage from the menu; a bare pasted
+ * ?p2p link joins passwordless. Unlike the relay mode there is no WELCOME —
+ * the sim exists as soon as the session resolves.
+ */
+function connectP2pMode(code: string): void {
+  const boot = readP2pBootstrap(code);
+  netStatus = `Lobby ${code} — connecting…`;
+  setOverlay(netStatus);
+  openP2pSession({
+    url: lobbyUrl(code),
+    role: boot.role,
+    config: netConfig(seedFromCode(code)),
+    hostSetup:
+      boot.role === "host"
+        ? {
+            name: boot.name || `Lobby ${code}`,
+            visibility: boot.visibility ?? "private",
+            passwordHash: boot.passwordHash,
+          }
+        : undefined,
+    joinPasswordHash: boot.role === "join" ? boot.passwordHash : undefined,
+    onStatus: (text) => {
+      netStatus = text;
+      refreshOverlay();
+    },
+  })
+    .then((session) => {
+      const p2pNet = new P2pLockstep(
+        session.slot,
+        session.config,
+        session.channels.control,
+        session.channels.inputs,
+        {
+          sampleInput: makeNetSampler(),
+          onStep: (_tick, stepped) => {
+            audio.pump(stepped.events);
+            rotateSnapshot();
+          },
+          onStart: () => {
+            netStatus = null;
+            refreshOverlay();
+          },
+          onDesync: (tick, replay) => {
+            netStatus = `Desync detected at tick ${tick} — match ended. Replay downloaded.`;
+            refreshOverlay();
+            downloadReplay(replay, `desync-${code}-t${tick}.mrep`);
+          },
+          onError: (errCode) => {
+            netStatus = `Lobby ${code}: ${NET_ERROR_TEXT[errCode] ?? "unknown error"}`;
+            refreshOverlay();
+          },
+          onClose: () => {
+            if (net?.isEnded === "desync") return;
+            netStatus = `Connection to opponent lost — match over. Return to the menu to rematch.`;
+            refreshOverlay();
+          },
+        },
+      );
+      net = p2pNet;
+      // Same swap the relay path does on WELCOME: fade the (demo) world into
+      // the real match sim the lockstep just built — on the host's arena.
+      if (views.length === 0) {
+        fadeCover(() => {
+          rebuildArena(session.config.mapId);
+          resetForMatch(p2pNet.simState);
+          startMatch([{ slot: session.slot, input: keyboard }]);
+        });
+      } else {
+        rebuildArena(session.config.mapId);
+        resetForMatch(p2pNet.simState);
+      }
+    })
+    .catch((err: unknown) => {
+      netStatus = `Lobby ${code}: ${err instanceof Error ? err.message : "connection failed"}`;
+      refreshOverlay();
+    });
+}
+
+let menuHandle: MenuHandle | undefined;
+
+/**
+ * In-process mode start for menu choices — the live demo world morphs into the
+ * match instead of reloading the page. The URL is pushState()d to the matching
+ * deep link (carrying a ?relay override), so it stays shareable and a refresh
+ * re-enters through the deep-link path exactly as before.
+ */
+function handleMenuChoice(choice: MenuChoice, mapId: string): void {
+  const query = buildModeQuery(choice, mapId);
+  const relay = params.get("relay");
+  history.pushState(null, "", relay ? `${query}&relay=${encodeURIComponent(relay)}` : query);
+  menuHandle?.dismiss();
+  // The picked arena becomes the live scene (no-op when unchanged). For net
+  // modes this also feeds netConfig's mapId — the host's pick is authoritative.
+  rebuildArena(mapId);
+  switch (choice.mode) {
+    case "solo":
+    case "warden": {
+      warden = choice.mode === "warden";
+      wardenDifficulty = choice.mode === "warden" ? choice.difficulty : 0;
+      resetForMatch(
+        createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined),
+      );
+      // The flagship transition: one continuous shot from flyover to chase rig.
+      if (!orbitMode) beginBlend(blend, flyCam, 1.2);
+      startMatch([{ slot: 0, input: keyboard }]);
+      break;
+    }
+    case "online":
+      phase = "connecting"; // demo battle keeps running under the net overlay,
+      resetForMatch(createDemoSim(map)); // re-seated on the picked arena
+      connectOnline(choice.code);
+      break;
+    case "p2p":
+      phase = "connecting"; // ditto — the P2P lobby handshake runs on top
+      resetForMatch(createDemoSim(map));
+      connectP2pMode(choice.code);
+      break;
+  }
 }
 
 if (online) {
   connectOnline(onlineCode as string);
-} else if (splitscreen) {
-  renderBackdrop();
-  runLobby({ needed: MAX_PLAYERS, keyboard }).then(startMatch);
+} else if (p2p) {
+  connectP2pMode(p2pCode as string);
 } else if (explicitMode) {
   startMatch([{ slot: 0, input: keyboard }]);
 } else {
-  // Bare URL: title screen over a static arena backdrop; a choice reloads into
-  // the picked mode. The reticle/crosshair only makes sense in a live match.
+  // Bare URL: title screen over the live demo world; a choice starts its mode
+  // in-process. The reticle/crosshair only makes sense in a live match.
   reticle.style.display = "none";
   document.body.style.cursor = "default";
-  renderBackdrop();
-  const menu = runMenu({ audio });
+  menuHandle = runMenu({ audio, onChoice: handleMenuChoice });
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     const evt = e as Event & { prompt(): Promise<void> };
-    menu.offerInstall(() => void evt.prompt());
+    menuHandle?.offerInstall(() => void evt.prompt());
   });
 }
+
+// Menu choices pushState() their deep link; back/forward would silently desync
+// URL ↔ app state, so just re-boot through the (deep-link) param path.
+addEventListener("popstate", () => location.reload());
+
+addEventListener("resize", () => {
+  renderer.setSize(innerWidth, innerHeight);
+  flyCam.aspect = innerWidth / innerHeight;
+  flyCam.updateProjectionMatrix();
+  if (views.length > 0) layoutViews(views, "v", innerWidth, innerHeight);
+});
+
+// The single persistent frame loop — every phase renders through it.
+last = performance.now();
+requestAnimationFrame(frame);

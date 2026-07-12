@@ -1,23 +1,27 @@
 // Title screen + menu flow (PLAN Phase 7). This is the "understand the game"
 // half of the phase DoD — a stranger opens the bare URL and sees the title, the
-// objective, and one click per mode. Deep links (?warden=4, ?splitscreen,
+// objective, and one click per mode. Deep links (?warden=4,
 // ?online=CODE, ?play, ?debug) skip the menu entirely, so shareable URLs and the
 // test harnesses are untouched (see main.ts `explicitMode`).
 //
-// Choosing a mode navigates by rewriting the query string and letting main.ts
-// boot that mode on reload — the same param-driven path every deep link takes.
-// That keeps this file free of any sim/render coupling: it only builds a URL and
-// tweaks audio volumes (which persist to localStorage and survive the reload).
-// The only sim import is MAP_REGISTRY — static arena metadata for the picker.
+// Choosing a mode emits a MenuChoice through opts.onChoice; main.ts starts the
+// picked mode in-process (no reload — the live menu world morphs into the
+// match) and pushState()s the matching deep-link query. This file stays free of
+// any sim/render coupling: it only builds DOM, emits choices, and tweaks audio
+// settings (which persist to localStorage). The only sim import is
+// MAP_REGISTRY — static arena metadata for the picker; the picked arena rides
+// along on every MenuChoice as `mapId`.
 
 import { DISTRICT_01_ID, MAP_REGISTRY } from "@metropolis/sim";
 import type { AudioEngine } from "./audio/engine";
+import { MUSIC_OPTIONS, parseMusicSelection } from "./audio/tracks";
+import { hashLobbyPassword, storeP2pBootstrap } from "./net/p2pSession";
 
 export type MenuChoice =
   | { mode: "solo" } // sandbox vs the scripted feeder opponent
   | { mode: "warden"; difficulty: number } // vs the Phase 4 AI
-  | { mode: "couch" } // local splitscreen
-  | { mode: "online"; code: string }; // 1v1 lockstep
+  | { mode: "online"; code: string } // 1v1 lockstep via the relay
+  | { mode: "p2p"; code: string }; // 1v1 lockstep, lobby-brokered P2P
 
 /**
  * Pure mapping from a menu choice to the query string main.ts understands.
@@ -35,13 +39,13 @@ export function buildModeQuery(choice: MenuChoice, mapId?: string): string {
       query = `?warden=${d}`;
       break;
     }
-    case "couch":
-      query = "?splitscreen";
-      break;
     case "online":
       // Encode defensively: valid codes are unaffected, but an unexpected value
       // can't smuggle extra query params (& / =) into the URL.
       query = `?online=${encodeURIComponent(choice.code.toUpperCase())}`;
+      break;
+    case "p2p":
+      query = `?p2p=${encodeURIComponent(choice.code.toUpperCase())}`;
       break;
   }
   return mapId ? `${query}&map=${encodeURIComponent(mapId)}` : query;
@@ -64,22 +68,24 @@ export function randomRoomCode(rand: () => number = Math.random): string {
 
 export interface MenuOptions {
   audio: AudioEngine;
+  /** Called once when the player picks a mode; main.ts starts it in-process.
+   *  `mapId` is the arena picked in the menu's persistent arena row. */
+  onChoice(choice: MenuChoice, mapId: string): void;
 }
 
 /** Handle returned by runMenu so a late `beforeinstallprompt` can add Install. */
 export interface MenuHandle {
   /** Reveals the Install button and wires it to `prompt`. */
   offerInstall(prompt: () => void): void;
+  /** Fades the menu out and removes it from the DOM. */
+  dismiss(): void;
 }
 
-/**
- * Navigates to `choice` on `mapId`, carrying over the relay override so online
- * play works against a non-default relay set on the current URL (?relay=…).
- */
-function go(choice: MenuChoice, mapId: string): void {
-  const query = buildModeQuery(choice, mapId);
+/** HTTP(S) base for /api reads: the ?relay ws override translated, else same-origin. */
+function apiBase(): string {
   const relay = new URLSearchParams(location.search).get("relay");
-  location.search = relay ? `${query}&relay=${encodeURIComponent(relay)}` : query;
+  if (!relay) return "";
+  return relay.replace(/\/+$/, "").replace(/^ws(s?):/, "http$1:");
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(
@@ -93,15 +99,16 @@ const el = <K extends keyof HTMLElementTagNameMap>(
   return node;
 };
 
-/** Builds and mounts the title/menu overlay. A mode choice navigates the page. */
+/** Builds and mounts the title/menu overlay. A mode choice emits onChoice. */
 export function runMenu(opts: MenuOptions): MenuHandle {
   const { audio } = opts;
+  const go = opts.onChoice;
 
   const root = el("div", "menu");
   const card = el("div", "menu-card");
   root.appendChild(card);
 
-  card.appendChild(el("div", "menu-kicker", "arena strategy-action · solo · couch · online"));
+  card.appendChild(el("div", "menu-kicker", "arena strategy-action · solo · online"));
   card.appendChild(el("h1", "menu-title", "METROPOLIS"));
   card.appendChild(
     el(
@@ -115,9 +122,8 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   // --- Mode buttons ---------------------------------------------------------
   const modes = el("div", "menu-modes");
   const soloBtn = el("button", "menu-mode", "<b>Solo</b><span>vs the Warden AI</span>");
-  const couchBtn = el("button", "menu-mode", "<b>Couch</b><span>2 players, splitscreen</span>");
   const onlineBtn = el("button", "menu-mode", "<b>Online</b><span>1v1 over the internet</span>");
-  modes.append(soloBtn, couchBtn, onlineBtn);
+  modes.append(soloBtn, onlineBtn);
   card.appendChild(modes);
 
   // --- Arena picker (persistent row, applies to every mode) -----------------
@@ -177,14 +183,21 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     };
     row.append(label, slider, value);
     panel.appendChild(row);
-    panel.appendChild(
-      el(
-        "p",
-        "menu-hint",
-        "Low levels play defensively; higher levels push Juggernauts. " +
-          "Prefer a target dummy? <a href='?play=1'>Open the sandbox</a>.",
-      ),
+    const hint = el(
+      "p",
+      "menu-hint",
+      "Low levels play defensively; higher levels push Juggernauts. " +
+        "Prefer a target dummy? <a href='?play=1'>Open the sandbox</a>.",
     );
+    // In-process like every other choice; the href stays for middle-click/copy.
+    const sandbox = hint.querySelector("a");
+    if (sandbox) {
+      sandbox.onclick = (e) => {
+        e.preventDefault();
+        go({ mode: "solo" }, selectedMapId);
+      };
+    }
+    panel.appendChild(hint);
     const start = el("button", "menu-go", "Start match");
     start.onclick = () => go({ mode: "warden", difficulty: Number(slider.value) }, selectedMapId);
     panel.appendChild(start);
@@ -231,11 +244,150 @@ export function runMenu(opts: MenuOptions): MenuHandle {
           "to join the same room. Same code = same match seed.",
       ),
     );
+    buildP2pSection();
+  }
+
+  // --- P2P lobby browser (hosting.spec.md §3.1) -------------------------------
+  // Lists open public lobbies from /api/lobbies and hosts new ones. Match
+  // traffic runs peer-to-peer over WebRTC; the room-code relay above stays as
+  // the fallback path. Lobby names are other players' text — always assigned
+  // via textContent, never innerHTML.
+  function buildP2pSection(): void {
+    panel.appendChild(el("h2", "menu-h2", "Lobby browser (P2P)"));
+    const list = el("div", "menu-lobbies");
+    const hint = el("div", "menu-hint", "Loading lobbies…");
+    panel.append(list, hint);
+
+    const joinLobby = async (lobbyId: string, password?: string): Promise<void> => {
+      const passwordHash = password ? await hashLobbyPassword(lobbyId, password) : undefined;
+      storeP2pBootstrap(lobbyId, { role: "join", passwordHash });
+      go({ mode: "p2p", code: lobbyId }, selectedMapId);
+    };
+
+    const lobbyRow = (lobby: {
+      lobbyId: string;
+      name: string;
+      hasPassword: boolean;
+    }): HTMLElement => {
+      const row = el("div", "menu-lobby");
+      const name = el("span", "menu-lobby-name");
+      name.textContent = `${lobby.hasPassword ? "\u{1F512} " : ""}${lobby.name || lobby.lobbyId}`;
+      const join = el("button", "menu-go", "Join") as HTMLButtonElement;
+      join.onclick = () => {
+        if (!lobby.hasPassword) {
+          void joinLobby(lobby.lobbyId);
+          return;
+        }
+        if (row.querySelector("input")) return; // password field already shown
+        const pw = el("input", "menu-code") as HTMLInputElement;
+        pw.type = "password";
+        pw.placeholder = "password";
+        pw.setAttribute("aria-label", `Password for ${lobby.name}`);
+        const submit = (): void => void joinLobby(lobby.lobbyId, pw.value);
+        pw.onkeydown = (e) => {
+          if (e.key === "Enter") submit();
+        };
+        join.textContent = "Go";
+        join.onclick = submit;
+        row.insertBefore(pw, join);
+        pw.focus();
+      };
+      row.append(name, join);
+      return row;
+    };
+
+    const load = async (): Promise<void> => {
+      try {
+        const res = await fetch(`${apiBase()}/api/lobbies`);
+        if (!res.ok) throw new Error(String(res.status));
+        const data = (await res.json()) as {
+          lobbies: { lobbyId: string; name: string; hasPassword: boolean }[];
+        };
+        list.replaceChildren(...data.lobbies.map(lobbyRow));
+        hint.textContent = data.lobbies.length ? "" : "No open lobbies right now — host one below.";
+      } catch {
+        hint.textContent = "Lobby list unavailable (offline or the server is asleep).";
+      }
+      void loadBudget();
+    };
+
+    // "Sold out" path (hosting.spec.md §6): if the budget gatekeeper has no
+    // capacity left, grey out hosting up front instead of failing the create.
+    const loadBudget = async (): Promise<void> => {
+      try {
+        const res = await fetch(`${apiBase()}/api/budget`);
+        if (!res.ok) return;
+        const budget = (await res.json()) as { available: boolean; retryAtMs: number | null };
+        create.disabled = !budget.available;
+        budgetHint.textContent = budget.available
+          ? ""
+          : "Sold out for today — free capacity resets at midnight UTC.";
+      } catch {
+        // no budget info — leave hosting enabled; the server still enforces it
+      }
+    };
+    const refresh = el("button", "menu-go menu-go--ghost", "Refresh list");
+    refresh.onclick = () => void load();
+    panel.appendChild(refresh);
+
+    // Hosting: name + optional password + visibility, then a fresh code.
+    panel.appendChild(el("h2", "menu-h2", "Host a lobby"));
+    const nameRow = el("div", "menu-row");
+    const nameInput = el("input", "menu-code") as HTMLInputElement;
+    nameInput.type = "text";
+    nameInput.maxLength = 40;
+    nameInput.placeholder = "Lobby name";
+    nameInput.style.letterSpacing = "normal";
+    nameInput.style.textTransform = "none";
+    nameInput.style.fontSize = "14px";
+    nameInput.setAttribute("aria-label", "Lobby name");
+    nameRow.appendChild(nameInput);
+    panel.appendChild(nameRow);
+    const pwRow = el("div", "menu-row");
+    const pwInput = el("input", "menu-code") as HTMLInputElement;
+    pwInput.type = "password";
+    pwInput.placeholder = "Password (optional)";
+    pwInput.style.letterSpacing = "normal";
+    pwInput.style.textTransform = "none";
+    pwInput.style.fontSize = "14px";
+    pwInput.setAttribute("aria-label", "Lobby password (optional)");
+    pwRow.appendChild(pwInput);
+    panel.appendChild(pwRow);
+    const pubLabel = el("label", "menu-check");
+    const pubCheck = el("input") as HTMLInputElement;
+    pubCheck.type = "checkbox";
+    pubCheck.checked = true;
+    pubLabel.append(pubCheck, document.createTextNode("List publicly (else share the code)"));
+    panel.appendChild(pubLabel);
+    const create = el("button", "menu-go", "Create lobby");
+    const budgetHint = el("p", "menu-err");
+    create.onclick = async () => {
+      const code = randomRoomCode();
+      const passwordHash = pwInput.value ? await hashLobbyPassword(code, pwInput.value) : undefined;
+      storeP2pBootstrap(code, {
+        role: "host",
+        name: nameInput.value.trim() || `Lobby ${code}`,
+        visibility: pubCheck.checked ? "public" : "private",
+        passwordHash,
+      });
+      go({ mode: "p2p", code }, selectedMapId);
+    };
+    panel.appendChild(create);
+    panel.appendChild(budgetHint);
+    panel.appendChild(
+      el(
+        "p",
+        "menu-hint",
+        "P2P matches connect directly between both browsers. Private lobbies are " +
+          "joined by sharing the code; passwords are checked by the server and " +
+          "never sent in plain text.",
+      ),
+    );
+    void load();
   }
 
   soloBtn.onclick = () => setActive(active === "solo" ? null : "solo");
   onlineBtn.onclick = () => setActive(active === "online" ? null : "online");
-  couchBtn.onclick = () => go({ mode: "couch" }, selectedMapId);
 
   // --- Footer: how-to, settings, install ------------------------------------
   const footer = el("div", "menu-footer");
@@ -288,14 +440,49 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         "menu-hint",
         "Earn points from kills, captures, and a steady trickle. Spend them at " +
           "your base consoles to field Runners, Guardians, and heavy units, then " +
-          "escort a push through a lane and breach the enemy gate. Gamepads work " +
-          "too — in Couch, press A to join.",
+          "escort a push through a lane and breach the enemy gate.",
       ),
     );
   }
 
   function buildSound(): void {
     const vols = audio.getVolumes();
+
+    // Track picker first — picking a track is the on/off switch; the Music
+    // slider below is only its level (bumped to 60 when a pick would be mute).
+    const trackRow = el("div", "menu-row");
+    const trackLabel = el("label", "menu-label", "Track");
+    const select = el("select", "menu-select") as HTMLSelectElement;
+    select.id = "menu-music-track";
+    trackLabel.htmlFor = select.id;
+    for (const opt of MUSIC_OPTIONS) {
+      const o = el("option", undefined, opt.name) as HTMLOptionElement;
+      o.value = opt.id;
+      select.appendChild(o);
+    }
+    select.value = audio.getMusicTrack();
+    const trackErr = el("div", "menu-err");
+    trackRow.append(trackLabel, select);
+    drawer.append(trackRow, trackErr);
+
+    let musicSlider: HTMLInputElement | undefined;
+    let musicValue: HTMLSpanElement | undefined;
+    select.onchange = () => {
+      trackErr.textContent = "";
+      const sel = parseMusicSelection(select.value);
+      if (sel !== "off" && audio.getVolumes().music === 0) {
+        audio.setVolume("music", 0.6);
+        if (musicSlider) musicSlider.value = "60";
+        if (musicValue) musicValue.textContent = "60";
+      }
+      void audio.setMusicTrack(sel).then((res) => {
+        if (res === "missing") {
+          trackErr.textContent = "Track file not found — drop mp3s into /music/.";
+          select.value = audio.getMusicTrack();
+        }
+      });
+    };
+
     const kinds: [import("./audio/engine").VolumeKind, string][] = [
       ["master", "Master"],
       ["sfx", "Effects"],
@@ -318,11 +505,19 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         audio.setVolume(kind, v);
         if (kind !== "music") audio.preview(kind === "master" ? "capture" : "shot");
       };
+      if (kind === "music") {
+        musicSlider = slider;
+        musicValue = value;
+      }
       row.append(label, slider, value);
       drawer.appendChild(row);
     }
     drawer.appendChild(
-      el("p", "menu-hint", "Music is off by default. Settings are saved on this device."),
+      el(
+        "p",
+        "menu-hint",
+        "Pick a track to turn music on (off by default). Settings are saved on this device.",
+      ),
     );
   }
 
@@ -336,6 +531,19 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     offerInstall(prompt: () => void): void {
       installBtn.onclick = () => prompt();
       installBtn.style.display = "";
+    },
+    dismiss(): void {
+      root.classList.add("is-leaving");
+      let removed = false;
+      const remove = (): void => {
+        if (removed) return;
+        removed = true;
+        root.remove();
+      };
+      // transitionend can be swallowed (display changes, reduced motion) — the
+      // timeout guarantees the DOM never keeps a dead overlay around.
+      root.addEventListener("transitionend", remove, { once: true });
+      setTimeout(remove, 500);
     },
   };
 }

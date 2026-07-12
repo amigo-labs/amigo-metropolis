@@ -1,7 +1,7 @@
-// Local-input abstraction shared by every human control device (keyboard/mouse
-// and gamepads). A source is sampled ONCE per sim tick and quantized at the
-// boundary — raw device state never reaches the sim (architecture.md §2). The
-// splitscreen frame loop drives N of these, one per local player slot.
+// Local-input abstraction for a human control device (keyboard/mouse today).
+// A source is sampled ONCE per sim tick and quantized at the boundary — raw
+// device state never reaches the sim (architecture.md §2). The frame loop
+// drives one of these per local player slot.
 
 import type { PlayerInput } from "@metropolis/sim";
 import type * as THREE from "three";
@@ -42,6 +42,4 @@ export interface LocalInputSource {
   ): void;
   /** Writes the quantized input for this tick into `out`. Allocation-free. */
   sample(out: PlayerInput): void;
-  /** Haptic pulse (no-op for keyboard). `strength` 0..1. */
-  rumble(strength: number, durationMs: number): void;
 }

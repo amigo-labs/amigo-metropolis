@@ -62,18 +62,6 @@
         font-size: 18px;
         letter-spacing: 0.04em;
       }
-      .lobby-slot {
-        padding: 4px 0;
-      }
-      .lobby-go {
-        margin-top: 14px;
-        color: #7ef2ff;
-      }
-      .lobby-hint {
-        margin-top: 14px;
-        color: #94a3b8;
-        font-size: 13px;
-      }
       .lobby-card b {
         color: #fbbf24;
       }
@@ -101,19 +89,30 @@
         align-items: center;
         justify-content: center;
         padding: 24px;
-        /* City backdrop behind the menu. The dark gradient keeps the card
-           legible and, if bg/menu.jpg is absent, still renders a clean dark
-           screen over the base color (graceful fallback). */
-        background-color: #06080d;
-        background-image: linear-gradient(rgba(6, 8, 13, 0.55), rgba(6, 8, 13, 0.86)),
-          url("/bg/menu.jpg");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
+        /* The live demo battle renders on the canvas behind this overlay; a
+           light vignette keeps the opaque card legible without hiding it. */
+        background: linear-gradient(rgba(6, 8, 13, 0.2), rgba(6, 8, 13, 0.55));
         color: #e2e8f0;
         font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
         z-index: 20;
         overflow: auto;
+        transition: opacity 0.4s;
+      }
+      .menu.is-leaving {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #fade-cover {
+        position: fixed;
+        inset: 0;
+        background: #06080d;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+        z-index: 30;
+      }
+      #fade-cover.is-on {
+        opacity: 1;
       }
       .menu-card {
         width: 100%;
@@ -251,6 +250,20 @@
         flex: 1;
         accent-color: #7ef2ff;
       }
+      .menu-select {
+        flex: 1;
+        padding: 8px 10px;
+        border: 1px solid #2b3650;
+        border-radius: 8px;
+        background: #0b0f18;
+        color: #e2e8f0;
+        font: inherit;
+        cursor: pointer;
+      }
+      .menu-select:focus {
+        outline: none;
+        border-color: #7ef2ff;
+      }
       .menu-code {
         flex: 1;
         padding: 10px 12px;
@@ -291,6 +304,42 @@
       .menu-go--ghost:hover {
         border-color: #3d4d72;
         background: #131a29;
+      }
+      .menu-lobby {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 0;
+        border-bottom: 1px solid #1c2436;
+      }
+      .menu-lobby-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: #cdd8e8;
+      }
+      .menu-lobby .menu-go {
+        width: auto;
+        margin-top: 0;
+        padding: 7px 12px;
+      }
+      .menu-lobby .menu-code {
+        letter-spacing: normal;
+        text-transform: none;
+        font-size: 14px;
+        padding: 7px 10px;
+      }
+      .menu-check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 6px 0;
+        color: #b6c2d4;
+        cursor: pointer;
+      }
+      .menu-check input {
+        accent-color: #7ef2ff;
       }
       .menu-hint {
         margin: 8px 0 0;

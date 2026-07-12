@@ -4,8 +4,9 @@ Browser-based arena strategy-action game. Spiritual successor to the *Precinct A
 mode of Future Cop: L.A.P.D. (1998).
 Codename: **Metropolis**. Display title: **Metropolis**.
 
-Solo vs. AI, couch splitscreen, and online 1v1 — all driven by one deterministic
-lockstep simulation.
+Solo vs. AI and online 1v1 — all driven by one deterministic lockstep
+simulation. (Couch splitscreen shipped in Phase 5 and was later removed by
+owner decision; the multi-view renderer infrastructure remains for post-v1 2v2.)
 
 ## Stack
 

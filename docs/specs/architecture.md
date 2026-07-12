@@ -4,8 +4,8 @@ Status: v1
 
 ## 0. One paragraph
 
-One deterministic TypeScript simulation drives every mode. Solo, splitscreen and
-online play differ **only in where inputs come from**. The renderer is a dumb
+One deterministic TypeScript simulation drives every mode. Solo and online
+play differ **only in where inputs come from**. The renderer is a dumb
 consumer of flat snapshots. The server is a dumb relay of inputs. If the sim is
 deterministic, everything else follows; protect that property above all.
 
@@ -82,10 +82,12 @@ Flat `Float32Array`, stride 10 per entity:
   Greybox archetypes until Phase 6 (see assets.md).
 - Frame loop: accumulate real time → run 0..n sim steps → write snapshot →
   interpolate → render. Zero allocations (CLAUDE.md rules).
-- **Input**: Gamepad API (primary, required for splitscreen) + keyboard/mouse
-  (player 1 fallback). Sampled per tick, quantized, pushed into the input queue.
-- **Splitscreen**: same scene, two cameras, `setScissor`/`setViewport` halves.
-  Sim doesn't know rendering exists, so this is render-only work.
+- **Input**: keyboard/mouse, sampled per tick, quantized, pushed into the
+  input queue. (Gamepad input shipped with the removed couch splitscreen mode;
+  its camera-relative mapping helpers remain shared with the keyboard path.)
+- **Multi-view rendering**: same scene, N cameras, `setScissor`/`setViewport`
+  rects (render-only work; kept for post-v1 2v2 even though the couch mode
+  that introduced it was removed).
 - **Local input delay**: even solo runs inputs through a 2-tick delay queue so
   online feels identical to offline (no habit-breaking between modes).
 
