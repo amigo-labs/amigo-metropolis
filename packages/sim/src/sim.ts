@@ -116,6 +116,7 @@ import {
   isGroundUnit,
   isUnit,
   nearestEnemyInRange,
+  resolveWalker,
   snapUnitHeight,
   systemUnitMovement,
   UNIT_MODE_ASSAULT,
@@ -445,7 +446,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
 const AXIS_SCALE = 1 / 127;
 const GROUND_EPS = 0.001;
 /** Height changes up to this snap to the terrain; larger drops become falls. */
-const STEP_SNAP = 0.35;
+export const STEP_SNAP = 0.35;
 const MUZZLE_OFFSET = 2;
 
 /** input + avatar movement: transform, jump/gravity, slope/water rules. */
@@ -472,7 +473,11 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     let x = ent.posX[id];
     let y = ent.posY[id];
     let hover = ent.mode[id] === MODE_HOVER;
-    let ride = rideHeight(map, x, y, hover);
+    // Walkers resolve their deck (base or an upper layer reachable within a
+    // step); hover ignores layers and rides the base/water surface.
+    let ride = hover
+      ? rideHeight(map, x, y, hover)
+      : resolveWalker(map, x, y, ent.height[id]).height;
     // Hover always counts as grounded (it rides its clearance height).
     const grounded = hover || (ent.height[id] <= ride + GROUND_EPS && ent.timerB[id] <= 0);
 
@@ -482,7 +487,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         hover = !hover;
         ent.mode[id] = hover ? MODE_HOVER : MODE_WALKER;
         ent.timerA[id] = TRANSFORM_LOCK_TICKS;
-        ride = rideHeight(map, x, y, hover);
+        ride = hover
+          ? rideHeight(map, x, y, hover)
+          : resolveWalker(map, x, y, ent.height[id]).height;
       }
     }
     const nowLocked = ent.timerA[id] > 0;
@@ -532,7 +539,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       if (!hover && isWater(map, nx, y)) ok = false;
       if (ok && crossesWallX(map, x, nx, y)) ok = false;
       if (ok && !airborne) {
-        const rise = rideHeight(map, nx, y, hover) - rideHeight(map, x, y, hover);
+        const rise = hover
+          ? rideHeight(map, nx, y, hover) - rideHeight(map, x, y, hover)
+          : resolveWalker(map, nx, y, ent.height[id]).height -
+            resolveWalker(map, x, y, ent.height[id]).height;
         if (rise > GROUND_EPS && rise > Math.abs(nx - x) * maxSlope) ok = false;
       }
       if (ok) x = nx;
@@ -545,7 +555,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       if (!hover && isWater(map, x, ny)) ok = false;
       if (ok && crossesWallY(map, x, y, ny)) ok = false;
       if (ok && !airborne) {
-        const rise = rideHeight(map, x, ny, hover) - rideHeight(map, x, y, hover);
+        const rise = hover
+          ? rideHeight(map, x, ny, hover) - rideHeight(map, x, y, hover)
+          : resolveWalker(map, x, ny, ent.height[id]).height -
+            resolveWalker(map, x, y, ent.height[id]).height;
         if (rise > GROUND_EPS && rise > Math.abs(ny - y) * maxSlope) ok = false;
       }
       if (ok) y = ny;
@@ -556,11 +569,14 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
 
     // Vertical: hover snaps to its ride height; walker snaps to terrain for
     // step-sized height changes and integrates gravity for real falls/jumps.
-    ride = rideHeight(map, x, y, hover);
     if (hover) {
+      ride = rideHeight(map, x, y, hover);
       ent.height[id] = ride + HOVER_CLEARANCE;
       ent.timerB[id] = 0;
     } else {
+      const wr = resolveWalker(map, x, y, ent.height[id]);
+      ent.entLayer[id] = wr.layer;
+      ride = wr.height;
       let h = ent.height[id];
       if (ent.timerB[id] > 0 || h > ride + STEP_SNAP) {
         ent.timerB[id] -= GRAVITY * TICK_DT;
@@ -618,7 +634,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     ent.animState[id] =
       (l2 > 0 ? ANIM_MOVING : 0) |
       (hover ? ANIM_HOVER : 0) |
-      (ent.height[id] > rideHeight(map, x, y, hover) + GROUND_EPS ? ANIM_AIRBORNE : 0) |
+      (ent.height[id] > ride + GROUND_EPS ? ANIM_AIRBORNE : 0) |
       (ent.timerA[id] > 0 ? ANIM_TRANSFORMING : 0);
 
     // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub.
@@ -1360,6 +1376,13 @@ export function hash(state: SimState): number {
   h = fnv1aBytes(h, ent.bytes, 0, ent.fieldBytes);
   for (let i = 0; i < ent.freeCount; i++) {
     h = fnv1aU32(h, ent.freeList[i] >>> 0);
+  }
+  // Layer state is hashed ONLY on layered maps — single-story maps keep their
+  // exact pre-v10 hash sequences (No-op invariant, mirrors the Warden flag).
+  if (state.map.layerHeights.length > 0) {
+    for (let id = 0; id < ent.high; id++) {
+      if (ent.alive[id]) h = fnv1aU32(h, ent.entLayer[id]);
+    }
   }
   for (let p = 0; p < MAX_PLAYERS; p++) {
     h = fnv1aU32(h, state.avatarId[p] >>> 0);
