@@ -65,7 +65,15 @@ describe("layered MapData", () => {
 
   it("parses one upper layer: heights (1/32 m ints) + present mask", () => {
     const raw = tiny();
-    raw.layers = [{ heights: [[64, 64], [64, 64]], mask: ["11", "10"] }];
+    raw.layers = [
+      {
+        heights: [
+          [64, 64],
+          [64, 64],
+        ],
+        mask: ["11", "10"],
+      },
+    ];
     const m = loadMapFromJson(raw);
     expect(m.layerHeights.length).toBe(1);
     expect(m.layerHeights[0][0]).toBeCloseTo(64 * HEIGHT_SCALE, 6); // 2.0 m
@@ -81,7 +89,15 @@ describe("layered MapData", () => {
 
   it("rejects a layer mask with a non-0/1 char", () => {
     const raw = tiny();
-    raw.layers = [{ heights: [[64, 64], [64, 64]], mask: ["11", "1x"] }];
+    raw.layers = [
+      {
+        heights: [
+          [64, 64],
+          [64, 64],
+        ],
+        mask: ["11", "1x"],
+      },
+    ];
     expect(() => loadMapFromJson(raw)).toThrow("non-0/1");
   });
 });
@@ -93,14 +109,30 @@ describe("resolveHeight", () => {
       [10, 20],
       [30, 40],
     ];
-    raw.layers = [{ heights: [[100, 100], [100, 100]], mask: ["11", "11"] }];
+    raw.layers = [
+      {
+        heights: [
+          [100, 100],
+          [100, 100],
+        ],
+        mask: ["11", "11"],
+      },
+    ];
     const m = loadMapFromJson(raw);
     expect(resolveHeight(m, 0.5, 0.5, 0)).toBe(sampleHeight(m, 0.5, 0.5));
   });
 
   it("layer 1 samples the upper deck", () => {
     const raw = tiny();
-    raw.layers = [{ heights: [[96, 96], [96, 96]], mask: ["11", "11"] }]; // 3.0 m
+    raw.layers = [
+      {
+        heights: [
+          [96, 96],
+          [96, 96],
+        ],
+        mask: ["11", "11"],
+      },
+    ]; // 3.0 m
     const m = loadMapFromJson(raw);
     expect(resolveHeight(m, 0.5, 0.5, 1)).toBeCloseTo(3.0, 6);
   });
