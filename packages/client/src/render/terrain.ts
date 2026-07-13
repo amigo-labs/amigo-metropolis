@@ -111,6 +111,55 @@ export function buildWallMesh(map: MapData): THREE.Mesh | null {
   return mesh;
 }
 
+/**
+ * Tier-1 upper-deck render (Layered v2): one vertex-colored mesh per extra
+ * layer, built from the SAME layerHeights/layerMask arrays the collision reads
+ * (single source of truth). Only quads whose four corners are all present in
+ * the mask are emitted, so a deck renders exactly where it is walkable. Empty
+ * for single-story maps. Init-time only; nothing here runs in the frame loop.
+ */
+export function buildDeckMeshes(map: MapData): THREE.Mesh[] {
+  const meshes: THREE.Mesh[] = [];
+  const s = map.size;
+  const cell = map.cellSize;
+  // Darker tone per stacked deck so levels read apart from the ground.
+  for (let L = 0; L < map.layerHeights.length; L++) {
+    const heights = map.layerHeights[L];
+    const mask = map.layerMask[L];
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const present = (i: number, j: number): boolean => mask[j * s + i] === 1;
+    for (let j = 0; j < s - 1; j++) {
+      for (let i = 0; i < s - 1; i++) {
+        if (!present(i, j) || !present(i + 1, j) || !present(i, j + 1) || !present(i + 1, j + 1)) {
+          continue;
+        }
+        const base = positions.length / 3;
+        positions.push(i * cell, heights[j * s + i], j * cell);
+        positions.push((i + 1) * cell, heights[j * s + i + 1], j * cell);
+        positions.push(i * cell, heights[(j + 1) * s + i], (j + 1) * cell);
+        positions.push((i + 1) * cell, heights[(j + 1) * s + i + 1], (j + 1) * cell);
+        indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+      }
+    }
+    if (indices.length === 0) continue;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({
+      color: HIGH_COLOR.clone().multiplyScalar(0.8 - 0.15 * L),
+      flatShading: true,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    meshes.push(mesh);
+  }
+  return meshes;
+}
+
 export function buildTerrainMesh(map: MapData): THREE.Mesh {
   const s = map.size;
   const positions = new Float32Array(s * s * 3);

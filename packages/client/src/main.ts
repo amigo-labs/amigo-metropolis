@@ -57,7 +57,12 @@ import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend"
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
 import { buildBaseStructures } from "./render/structures";
-import { buildTerrainMesh, buildWallMesh, buildWaterPlane } from "./render/terrain";
+import {
+  buildDeckMeshes,
+  buildTerrainMesh,
+  buildWallMesh,
+  buildWaterPlane,
+} from "./render/terrain";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -218,6 +223,7 @@ function buildArenaGroup(m: typeof map): THREE.Group {
   group.add(buildWaterPlane(m));
   const walls = buildWallMesh(m); // null on wall-free maps
   if (walls) group.add(walls);
+  for (const deck of buildDeckMeshes(m)) group.add(deck); // upper decks on layered maps
   buildBaseStructures(group, m);
   return group;
 }
