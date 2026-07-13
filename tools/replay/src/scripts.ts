@@ -296,6 +296,27 @@ export function fcop01(tick: number, out: TickInputs): void {
   }
 }
 
+/**
+ * Golden #6 (Layered v2): the avatar on layered-test walks EAST up the layer-1
+ * ramp (cols 2..5 rising 0→3 m) onto the mid deck, crosses it north, then walks
+ * back west and descends to the base layer. Pins the multi-deck movement +
+ * transition + gravity path (the only golden whose hash covers entLayer).
+ */
+export function layered01(tick: number, out: TickInputs): void {
+  clearTickInputs(out);
+  const p = out.players[0];
+  const t = tick / TICK_HZ;
+  if (t < 6) {
+    p.moveX = 127; // spawn (2,2) → east, up the ramp onto the 3 m deck
+  } else if (t < 12) {
+    p.moveY = 127; // cross the deck northward
+  } else if (t < 18) {
+    p.moveX = -127; // back west, descending the ramp to the base layer
+  } else {
+    p.moveY = -60; // drift south on the ground until the recording ends
+  }
+}
+
 export const SCRIPTS: Record<
   string,
   { script: InputScript; ticks: number; mapId?: string; warden?: WardenConfig }
@@ -310,4 +331,5 @@ export const SCRIPTS: Record<
     warden: { player: 1, difficulty: 8 },
   },
   "fcop-01": { script: fcop01, ticks: 90 * TICK_HZ, mapId: "urban-jungle" },
+  "layered-01": { script: layered01, ticks: 20 * TICK_HZ, mapId: "layered-test" },
 };

@@ -39,4 +39,12 @@
 //     Same no-op invariant as v8: empty wall arrays early-out, so goldens
 //     01–04 keep byte-identical hash arrays; golden-05 (urban-jungle, walled)
 //     legitimately re-records — its shots now stop at walls.
-export const SIM_VERSION = 9;
+// v10: layered movement (FCOP arenas stage 5) — N stacked walkable surfaces per
+//     (x,y) via MapData layerHeights/layerMask + a per-entity layer side array,
+//     resolveHeight/resolveWalker, per-deck ground-unit separation. Single-story
+//     maps are a proven No-op: empty layer arrays early-out and entLayer is
+//     hashed only on layered maps, so goldens 01–05 keep BYTE-IDENTICAL hash
+//     arrays (headers re-recorded only — see goldenNoop.test.ts). golden-06 is
+//     new (the synthetic 3-deck layered-test map). Peers across this bump would
+//     diverge on any layered arena, so the DO gate rejects the mismatch.
+export const SIM_VERSION = 10;
