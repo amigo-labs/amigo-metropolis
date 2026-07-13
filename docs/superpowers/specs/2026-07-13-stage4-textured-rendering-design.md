@@ -37,14 +37,16 @@ Greybox-Pfad bleibt als Debug-/Fallback-Modus erhalten.
 
 ## 2. Scope / Nicht-Ziele
 
-**In Scope:** UV+Textur-Extraktion der Terrain-Meshes; ein texturierter Karten-Renderpfad im
-Client mit `?render=`-Umschaltung; Start mit einer Karte, dann Ausrollen auf alle 6.
+**In Scope:** UV+Textur-Extraktion der Terrain-Meshes; opportunistische Mesh-Optimierung beim
+Export (v.a. Indexierung, s. §4a); modern gestaltete Basis-/Spawn-Meshes (§6a); ein texturierter
+Karten-Renderpfad im Client mit `?render=`-Umschaltung und **modernem Look erlaubt** (§5);
+Start mit einer Karte, dann Ausrollen auf alle 6.
 
 **Nicht-Ziele (v1):**
 - Kein Sim-/Determinismus-Impact, kein `SIM_VERSION`-Bump, keine Golden-Regeneration.
-- Keine Mesh-Optimierung (Indexierung, Dezimierung, Draco/meshopt-Kompression) — separates
-  späteres Thema (die `.glb` sind groß, Hk ~17 MB; für „sieht echt aus" zunächst zweitrangig).
-- Keine 3D-Objekte/Units (`Cobj`), keine Basis-/Spawn-Meshes — bleibt Greybox/Strukturen.
+- Keine bewegten 3D-Objekte/Units aus `Cobj` — Einheiten bleiben Greybox-Instanzen. Auch die
+  **echten** FC-Basen aus `Cobj` sind nicht in Scope (Mesh-Format noch nicht dekodiert →
+  Backlog); Basen/Spawns bekommen stattdessen eigene moderne Meshes (§6a).
 - Kein Textur-Atlas (Weg B). Bewusst Weg A (s. §5).
 
 ## 3. Dekomposition (zwei Teile, A zuerst)
@@ -80,6 +82,18 @@ Client mit `?render=`-Umschaltung; Start mit einer Karte, dann Ausrollen auf all
 7. **Verifikation:** `.glb` in einem glTF-Viewer und im Client laden; UV-Korrektheit sichtprüfen
    (Texturen sitzen richtig, keine Verzerrung), Deckung mit dem Greybox-Umriss + Kollision.
 
+## 4a. Mesh-Optimierung beim Export
+
+Die aktuellen `.glb` sind **non-indexed** (jedes Dreieck mit eigenen Vertices; Hk 725k Verts,
+~17 MB). Beim texturierten Export opportunistisch mit-optimieren:
+
+- **Indexierung (Pflicht, größter Gewinn):** Vertices deduplizieren (gleiche Position+Normal+UV
+  innerhalb einer Textur-Gruppe → ein Vertex) + Index-Buffer schreiben. Halbiert die Datei
+  locker, ohne Sichtverlust.
+- **Optional, falls einfach:** exakt degenerierte Dreiecke entfernen; Vertex-Quantisierung.
+  Kein Draco/meshopt in v1 (bräuchte Loader-Extension) — als spätere Option offen.
+- Kein Neu-Meshing/Dezimierung, das die Silhouette verändert (Kollision/Greybox müssen passen).
+
 ## 5. Textur-Strategie — Weg A, externe Texturen
 
 - **Weg A (multi-primitive):** ein Primitiv/Material/Textur je verwendeter Kachel-Textur
@@ -88,8 +102,11 @@ Client mit `?render=`-Umschaltung; Start mit einer Karte, dann Ausrollen auf all
 - **Externe Textur-Dateien** (die `.glb` referenziert PNGs per URI) statt eingebettet:
   ermöglicht, einzelne Kacheln später durch **KI-hochskalierte** Versionen zu ersetzen, ohne
   Geometrie oder eine Atlas-Datei neu zu bauen. Das ist die ausdrückliche Politur-Absicht.
-- **Sampler:** `NearestFilter`, keine Mipmaps, `flatShading: true` (PS1-Look, assets.md §3/§4).
-  Wird beim Laden im Client gesetzt (bzw. im glTF-Sampler vorgegeben).
+- **Look — nicht auf PS1 beschränkt:** moderner Look ist ausdrücklich erlaubt. Statt der harten
+  PS1-Vorgabe (`NearestFilter`/keine Mipmaps/`flatShading` aus assets.md §3/§4) dürfen moderne
+  Sampler (Linear + Mipmaps, anisotrope Filterung) und Smooth-Shading verwendet werden, wo es
+  besser aussieht. Bewusste Abweichung von assets.md §3/§4 (Owner-Entscheidung 2026-07-13);
+  Filter/Beleuchtung beim Rendern iterieren. `NearestFilter` als Debug-Option behalten.
 
 ## 6. Teil B — Repo-Renderpfad (`packages/client`)
 
@@ -102,8 +119,9 @@ Client mit `?render=`-Umschaltung; Start mit einer Karte, dann Ausrollen auf all
 3. **Verzweigung in `buildArenaGroup`** (`main.ts:219`): bei `mesh` statt `buildTerrainMesh`
    einen glTF-Terrain-Ladepfad einhängen. `GLTFLoader.loadAsync` (async → leere Group sofort
    zurückgeben, Meshes per `.then(g.add(...))` nachtragen). Sampler/Material wie §5 setzen.
-   `buildWaterPlane` und `buildBaseStructures` bleiben; `buildTerrainMesh`/`buildWallMesh`/
-   `buildDeckMeshes` entfallen im Mesh-Modus (das glTF enthält die Geometrie inkl. Decks).
+   `buildWaterPlane` bleibt; die Basen/Spawns kommen aus dem aufgewerteten Pfad (§6a) statt
+   `buildBaseStructures`; `buildTerrainMesh`/`buildWallMesh`/`buildDeckMeshes` entfallen im
+   Mesh-Modus (das glTF enthält die Terrain-Geometrie inkl. Decks).
 4. **Alignment:** Achsen wie Greybox (x→x, y→z, Höhe→y). Vorzugsweise gibt der Extractor die
    `.glb` bereits sim-aligned aus (§4.5), sodass hier kein Offset nötig ist. Andernfalls im
    Client um einen bekannten konstanten Vektor verschieben. Ein naives `+extent/2` genügt NICHT
@@ -112,11 +130,28 @@ Client mit `?render=`-Umschaltung; Start mit einer Karte, dann Ausrollen auf all
    Materialien **und Texturen** freigeben.
 6. **Fallback:** `?render=greybox` bleibt voll funktionsfähig; Umschalten erlaubt Alignment-Debug.
 
+## 6a. Basis- und Spawn-Meshes (modern, eigene)
+
+Die spielrelevanten Bauten (pro Team **Core, Gate, Consoles, Pad**) und die **Spawn-/Outpost-
+Marker** sind NICHT im Terrain-`.glb` enthalten (das ist reines Til-Terrain) und würden im
+Mesh-Modus sonst fehlen. Sie bekommen eigene, modern gestaltete Meshes:
+
+- **Quelle:** aufgewertete prozedurale Geometrie im Client (heutiges `structures.ts` als Basis),
+  mit moderneren Formen (Fasen/Details statt nackter Boxen), PBR-Materialien und Team-Emissive
+  (rot/blau). NICHT die FC-`Cobj` (Format nicht dekodiert → Backlog). Falls später handmodellierte
+  glTF-Assets vorliegen, können sie den prozeduralen Pfad ersetzen.
+- **Platzierung:** aus `MapData` (`bases`, `spawns`, `outpostSpots`, `turretSpots`) — dieselben
+  Daten, die die Sim nutzt; identische Positionen wie Greybox, nur schöner.
+- **Statisch** (`matrixAutoUpdate=false`), kein Frame-Loop-Impact. Optional dieselben Meshes im
+  Greybox-Modus verwenden, damit beide Modi konsistent platzieren.
+
 ## 7. Vorgehen / Reihenfolge
 
 Zuerst **eine** Karte end-to-end: **Hollywood Keys** (mehrstöckig → größter sichtbarer Gewinn,
-prüft zugleich Decks-als-Mesh). Erst wenn diese im Client korrekt texturiert und aligned ist,
-die übrigen 5 Karten ausrollen (Extractor läuft ohnehin über alle).
+prüft zugleich Decks-als-Mesh) — inkl. Indexierung (§4a), Basis-/Spawn-Meshes (§6a) und
+Alignment. Erst wenn diese im Client korrekt texturiert und aligned ist, die übrigen 5 Karten
+ausrollen (Extractor läuft ohnehin über alle). Die Basis-/Spawn-Meshes sind karten-unabhängig
+und gelten sofort für alle.
 
 ## 8. Kritische Dateien (Impact-Set)
 
@@ -124,7 +159,8 @@ die übrigen 5 Karten ausrollen (Extractor läuft ohnehin über alle).
   ggf. `tools/gfx/extract_gfx.py` (`do_terrain`-Output-Pfade). Referenz: FC:MIT `TilResource.cpp`.
 - **amigo-metropolis (Teil B):** `packages/client/src/main.ts` (URL-Param `:69`, `buildArenaGroup`
   `:219`, `rebuildArena` `:241`), neue Datei z.B. `packages/client/src/render/meshMap.ts`
-  (glTF-Ladepfad, analog zu `terrain.ts`). `packages/client/public/models/` (neu).
+  (glTF-Ladepfad, analog zu `terrain.ts`), `packages/client/src/render/structures.ts`
+  (aufgewertete Basis-/Spawn-Meshes, §6a). `packages/client/public/models/` (neu).
 - **Assets:** die texturierten `.glb` + PNGs (aus Teil A) nach `public/models/<karte>/`.
 
 ## 9. Offene Punkte / Risiken
