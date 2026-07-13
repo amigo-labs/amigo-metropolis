@@ -56,6 +56,14 @@ export interface EntityStore {
   readonly animState: Uint8Array;
   /** Avatar: 0 walker, 1 hover. Generic subtype byte for other archetypes. */
   readonly mode: Uint8Array;
+
+  /**
+   * Current walkable layer per entity (0 = base surface). Side array OUTSIDE the
+   * hashable byte region (like freeList) — hash() includes it ONLY on layered
+   * maps, so single-story hash sequences stay byte-identical. Zeroed on despawn
+   * so a recycled slot never carries a stale deck.
+   */
+  readonly entLayer: Uint8Array;
 }
 
 const FLOAT_FIELDS = 15;
@@ -104,6 +112,8 @@ export function createEntityStore(cap: number = MAX_ENTITIES): EntityStore {
     team: new Int8Array(buffer, byteStart + 2 * cap, cap),
     animState: new Uint8Array(buffer, byteStart + 3 * cap, cap),
     mode: new Uint8Array(buffer, byteStart + 4 * cap, cap),
+    // Side array, deliberately its own allocation (NOT in the hashable buffer).
+    entLayer: new Uint8Array(cap),
   };
 }
 
@@ -156,6 +166,7 @@ export function despawn(store: EntityStore, id: number): void {
   store.ammoA[id] = 0;
   store.ammoB[id] = 0;
   store.ownerId[id] = 0;
+  store.entLayer[id] = 0;
   store.freeList[store.freeCount] = id;
   store.freeCount += 1;
 }

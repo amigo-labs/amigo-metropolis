@@ -30,8 +30,8 @@ import {
   WAYPOINT_RADIUS,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
-import { sampleHeight, worldExtent } from "./map";
-import { ANIM_MOVING, type SimState } from "./sim";
+import { type MapData, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
+import { ANIM_MOVING, type SimState, STEP_SNAP } from "./sim";
 import { atan2Poly, cosLUT, sinLUT, TAU } from "./simMath";
 
 export const UNIT_MODE_PATROL = 0;
@@ -280,16 +280,56 @@ function stepAndSnap(state: SimState, id: number, air: boolean): void {
   snapUnitHeight(state, id, air);
 }
 
+/**
+ * Walker/ground layer resolution: among the base surface and every extra deck
+ * present at (x, y), pick the HIGHEST whose surface is within STEP_SNAP above
+ * the current height h (steppable). Anything higher is an overhang you walk
+ * under; if only a far-below surface qualifies you are airborne and fall.
+ * On single-story maps this returns { layer: 0, height: sampleHeight } —
+ * bit-identical to the old ground path (No-op invariant). Shared by the avatar
+ * stepper (sim.ts) and the unit snap below.
+ */
+export function resolveWalker(
+  map: MapData,
+  x: number,
+  y: number,
+  h: number,
+): { layer: number; height: number } {
+  const baseH = sampleHeight(map, x, y);
+  if (map.layerHeights.length === 0) return { layer: 0, height: baseH };
+  const s = map.size;
+  const inv = 1 / map.cellSize;
+  let i = Math.floor(x * inv);
+  let j = Math.floor(y * inv);
+  if (i < 0) i = 0;
+  else if (i > s - 1) i = s - 1;
+  if (j < 0) j = 0;
+  else if (j > s - 1) j = s - 1;
+  let bestLayer = 0;
+  let bestH = baseH;
+  for (let L = 0; L < map.layerHeights.length; L++) {
+    if (map.layerMask[L][j * s + i] === 0) continue;
+    const hs = sampleLayerHeight(map, L, x, y);
+    if (hs <= h + STEP_SNAP && hs > bestH) {
+      bestLayer = L + 1;
+      bestH = hs;
+    }
+  }
+  return { layer: bestLayer, height: bestH };
+}
+
 /** Height rule shared by movement, separation and spawning. */
 export function snapUnitHeight(state: SimState, id: number, air: boolean): void {
   const ent = state.ent;
-  const g = sampleHeight(state.map, ent.posX[id], ent.posY[id]);
   if (air) {
+    const g = sampleHeight(state.map, ent.posX[id], ent.posY[id]);
     const floor = g < state.map.waterLevel ? state.map.waterLevel : g;
     ent.height[id] = floor + AIR_ALTITUDE;
-  } else {
-    ent.height[id] = g;
+    return;
   }
+  const wr = resolveWalker(state.map, ent.posX[id], ent.posY[id], ent.height[id]);
+  ent.entLayer[id] = wr.layer;
+  ent.height[id] = wr.height;
 }
 
 /**
@@ -297,7 +337,7 @@ export function snapUnitHeight(state: SimState, id: number, air: boolean): void 
  * symmetric pairwise push in dense id order — deterministic on every peer.
  * Enemies are left to fight, flyers stack freely.
  */
-function separateGroundUnits(state: SimState): void {
+export function separateGroundUnits(state: SimState): void {
   const ent = state.ent;
   const extent = worldExtent(state.map);
   for (let i = 0; i < ent.high; i++) {
@@ -305,6 +345,7 @@ function separateGroundUnits(state: SimState): void {
     for (let j = i + 1; j < ent.high; j++) {
       if (!ent.alive[j] || !isGroundUnit(ent.archetype[j])) continue;
       if (ent.team[j] !== ent.team[i]) continue;
+      if (ent.entLayer[j] !== ent.entLayer[i]) continue; // never push across decks
       const dx = ent.posX[j] - ent.posX[i];
       const dy = ent.posY[j] - ent.posY[i];
       const d2 = dx * dx + dy * dy;
