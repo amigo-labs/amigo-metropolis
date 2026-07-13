@@ -42,6 +42,9 @@ interface TerrainJson {
    *  wallsH[r][c]='1' between tile (r,c) and (r+1,c). Tile grid = cell grid. */
   wallsV: string[];
   wallsH: string[];
+  /** Extra stacked walkable surfaces (rank 1..N), each SRC_H×SRC_W: heights in
+   *  int8 (1/32 m), '0'/'1' present mask. Only consumed for `layered` arenas. */
+  layers?: { heights: number[][]; mask: string[] }[];
 }
 
 type P = [number, number];
@@ -73,6 +76,10 @@ interface ArenaSpec {
   turretSpots: P[];
   outpostSpots: P[];
   dummySpots: P[];
+  /** Emit the extractor's stacked decks into the map JSON (Hk/Ovmp). The four
+   *  single-story v1 arenas leave this unset — their minor ledges are not real
+   *  decks (Stage-0 decision) and they stay byte-identical / single-layer. */
+  layered?: boolean;
 }
 
 // --- Arena specs --------------------------------------------------------------
@@ -367,7 +374,152 @@ const BUG_HUNT: ArenaSpec = {
   dummySpots: RIM_DUMMY_SPOTS,
 };
 
-const ARENAS: ArenaSpec[] = [URBAN_JUNGLE, PROVING_GROUND, LA_CANTINA, BUG_HUNT];
+// Hk "Hollywood Keys": the first LAYERED arena (Stage 5) — 75 % double/triple
+// deck. Bases sit on the flat -2.97 m ground shelves in opposite corners
+// (SW ↔ NE, 180° mirror); a single ground lane rings the interior via the
+// west (x≈62) then south (y≈196) corridors. Upper decks are traversable space
+// (flanking/sniping), not feature-bearing in v1. Base cluster + lane authored
+// from the ground-floor terrain analysis; the sanity report re-verifies.
+const HOLLYWOOD_KEYS: ArenaSpec = {
+  id: "hollywood-keys",
+  mission: "Hk",
+  layered: true,
+  spawns: [
+    { x: 38, y: 68, yaw: 0.622 },
+    { x: 250, y: 220, yaw: 3.764 },
+  ],
+  basePlots: [
+    { x: 38, y: 68, radius: 20 },
+    { x: 250, y: 220, radius: 20 },
+  ],
+  bases: [
+    {
+      gate: { x: 48, y: 78, radius: 6 },
+      core: [32, 62],
+      groundConsole: [31, 75],
+      airConsole: [45, 61],
+      pad: { x: 41, y: 71, radius: 4 },
+      turrets: [
+        [46, 62],
+        [46, 74],
+        [35, 60],
+        [35, 76],
+      ],
+    },
+    {
+      gate: { x: 240, y: 210, radius: 6 },
+      core: [256, 226],
+      groundConsole: [257, 213],
+      airConsole: [243, 227],
+      pad: { x: 247, y: 217, radius: 4 },
+      turrets: [
+        [242, 226],
+        [242, 214],
+        [253, 228],
+        [253, 212],
+      ],
+    },
+  ],
+  lanes: [
+    [
+      [38.5, 68.5],
+      [62.5, 68.5],
+      [62.5, 196.5],
+      [250.5, 196.5],
+      [250.5, 220.5],
+    ],
+  ],
+  turretSpots: [
+    [63, 117],
+    [63, 190],
+    [129, 197],
+    [202, 197],
+  ],
+  outpostSpots: [
+    [63, 172],
+    [147, 197],
+  ],
+  dummySpots: [
+    [63, 74],
+    [245, 197],
+  ],
+};
+
+// Ovmp "Venice Beach" (PA): the second LAYERED arena — 55 % double/triple deck.
+// Bases on the flat -3.97 m ground shelves (NW ↔ SE corners); a single ground
+// lane runs the north edge (y≈32) then the east edge (x≈254). Upper decks are
+// traversable-only in v1. Authored from the ground-floor analysis.
+const VENICE_BEACH: ArenaSpec = {
+  id: "venice-beach",
+  mission: "Ovmp",
+  layered: true,
+  spawns: [
+    { x: 50, y: 32, yaw: 0.866 },
+    { x: 254, y: 272, yaw: 4.008 },
+  ],
+  basePlots: [
+    { x: 50, y: 32, radius: 20 },
+    { x: 254, y: 272, radius: 20 },
+  ],
+  bases: [
+    {
+      gate: { x: 60, y: 42, radius: 6 },
+      core: [44, 26],
+      groundConsole: [43, 39],
+      airConsole: [57, 25],
+      pad: { x: 53, y: 35, radius: 4 },
+      turrets: [
+        [58, 26],
+        [58, 38],
+        [47, 24],
+        [47, 40],
+      ],
+    },
+    {
+      gate: { x: 244, y: 262, radius: 6 },
+      core: [260, 278],
+      groundConsole: [261, 265],
+      airConsole: [247, 279],
+      pad: { x: 251, y: 269, radius: 4 },
+      turrets: [
+        [246, 278],
+        [246, 266],
+        [257, 280],
+        [257, 264],
+      ],
+    },
+  ],
+  lanes: [
+    [
+      [50.5, 32.5],
+      [254.5, 32.5],
+      [254.5, 272.5],
+    ],
+  ],
+  turretSpots: [
+    [139, 33],
+    [228, 33],
+    [255, 95],
+    [255, 184],
+  ],
+  outpostSpots: [
+    [206, 33],
+    [255, 117],
+  ],
+  dummySpots: [
+    [86, 33],
+    [255, 237],
+  ],
+};
+
+const ARENAS: ArenaSpec[] = [
+  URBAN_JUNGLE,
+  PROVING_GROUND,
+  LA_CANTINA,
+  BUG_HUNT,
+  HOLLYWOOD_KEYS,
+  VENICE_BEACH,
+];
 
 // --- Conversion ----------------------------------------------------------------
 
@@ -460,6 +612,31 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
   const water: string[] = [];
   for (let j = 0; j < SIZE; j++) water.push("0".repeat(SIZE));
 
+  // Extra decks (layered arenas only): pad each layer to the square grid like
+  // the base heights — extrude the edge for heights, but the presence mask is
+  // '0' in the padding (no deck) so no phantom decks appear off the real region.
+  const layers: { heights: number[][]; mask: string[] }[] = [];
+  if (spec.layered && src.layers) {
+    for (const L of src.layers) {
+      const lh: number[][] = [];
+      const lm: string[] = [];
+      for (let j = 0; j < SIZE; j++) {
+        const realRow = j < SRC_H;
+        const hSrc = realRow ? L.heights[j] : L.heights[SRC_H - 1];
+        const mSrc = realRow ? L.mask[j] : null;
+        const hRow: number[] = [];
+        let mRow = "";
+        for (let i = 0; i < SIZE; i++) {
+          hRow.push(i < SRC_W ? hSrc[i] : hSrc[SRC_W - 1]);
+          mRow += mSrc && i < SRC_W ? mSrc[i] : "0";
+        }
+        lh.push(hRow);
+        lm.push(mRow);
+      }
+      layers.push({ heights: lh, mask: lm });
+    }
+  }
+
   const mapJson = {
     id: spec.id,
     size: SIZE,
@@ -469,6 +646,7 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
     waterLevel: WATER_LEVEL,
     wallsV,
     wallsH,
+    ...(layers.length > 0 ? { layers } : {}),
     spawns: spec.spawns,
     basePlots: spec.basePlots,
     bases: spec.bases,

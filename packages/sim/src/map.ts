@@ -6,10 +6,12 @@
 
 import bugHuntJson from "../maps/bug-hunt.json";
 import districtJson from "../maps/district-01.json";
+import hollywoodKeysJson from "../maps/hollywood-keys.json";
 import laCantinaJson from "../maps/la-cantina.json";
 import layeredTestJson from "../maps/layered-test.json";
 import provingGroundJson from "../maps/proving-ground.json";
 import urbanJungleJson from "../maps/urban-jungle.json";
+import veniceBeachJson from "../maps/venice-beach.json";
 import { clamp, cosLUT, lerp, sinLUT } from "./simMath";
 
 export interface MapPoint {
@@ -187,6 +189,12 @@ export const LA_CANTINA_ID = "la-cantina";
 /** FCOP "Bug Hunt" arena (mission Joke), heightfield extracted 1:1. */
 export const BUG_HUNT_ID = "bug-hunt";
 
+/** FCOP "Hollywood Keys" arena (mission Hk) — layered (multi-deck, Stage 5). */
+export const HOLLYWOOD_KEYS_ID = "hollywood-keys";
+
+/** FCOP "Venice Beach" PA arena (mission Ovmp) — layered (multi-deck, Stage 5). */
+export const VENICE_BEACH_ID = "venice-beach";
+
 /** Synthetic multi-deck sandbox for layered-movement tests (debug-only, NOT in MAP_REGISTRY). */
 export const LAYERED_TEST_ID = "layered-test";
 
@@ -205,6 +213,8 @@ const REGISTRY: readonly { readonly info: MapInfo; readonly json: MapJson }[] = 
   { info: { id: PROVING_GROUND_ID, displayName: "Proving Ground" }, json: provingGroundJson },
   { info: { id: LA_CANTINA_ID, displayName: "La Cantina" }, json: laCantinaJson },
   { info: { id: BUG_HUNT_ID, displayName: "Bug Hunt" }, json: bugHuntJson },
+  { info: { id: HOLLYWOOD_KEYS_ID, displayName: "Hollywood Keys" }, json: hollywoodKeysJson },
+  { info: { id: VENICE_BEACH_ID, displayName: "Venice Beach" }, json: veniceBeachJson },
 ];
 
 /** Selectable arenas in display order. test-128 stays a debug-only deep link. */
@@ -338,7 +348,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
           if (!Number.isInteger(q)) fail(id, `layer ${L} non-integer height at (${i}, ${j})`);
           lh[j * size + i] = q * HEIGHT_SCALE;
           const c = mRow.charCodeAt(i);
-          if (c !== 0x30 && c !== 0x31) fail(id, `layer ${L} mask row ${j} has non-0/1 char at ${i}`);
+          if (c !== 0x30 && c !== 0x31)
+            fail(id, `layer ${L} mask row ${j} has non-0/1 char at ${i}`);
           lm[j * size + i] = c - 0x30;
         }
       }

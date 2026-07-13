@@ -8,12 +8,14 @@ import {
   createTestMap,
   DISTRICT_01_ID,
   getMapById,
+  HOLLYWOOD_KEYS_ID,
   LA_CANTINA_ID,
   MAP_REGISTRY,
   PROVING_GROUND_ID,
   sampleHeight,
   TEST_MAP_ID,
   URBAN_JUNGLE_ID,
+  VENICE_BEACH_ID,
   worldExtent,
 } from "../src/map";
 
@@ -46,6 +48,8 @@ describe("map registry", () => {
       PROVING_GROUND_ID,
       LA_CANTINA_ID,
       BUG_HUNT_ID,
+      HOLLYWOOD_KEYS_ID,
+      VENICE_BEACH_ID,
     ]);
     expect(new Set(MAP_REGISTRY.map((m) => m.id)).size).toBe(MAP_REGISTRY.length);
   });
