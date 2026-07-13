@@ -7,6 +7,7 @@
 import bugHuntJson from "../maps/bug-hunt.json";
 import districtJson from "../maps/district-01.json";
 import laCantinaJson from "../maps/la-cantina.json";
+import layeredTestJson from "../maps/layered-test.json";
 import provingGroundJson from "../maps/proving-ground.json";
 import urbanJungleJson from "../maps/urban-jungle.json";
 import { clamp, cosLUT, lerp, sinLUT } from "./simMath";
@@ -66,6 +67,15 @@ export interface MapData {
   /** Horizontal twin: wallsH[j*size+i]=1 blocks ±y crossings of the line
    *  y = j*cellSize within cell column i. Empty when the map has no walls. */
   readonly wallsH: Uint8Array;
+  /**
+   * Extra walkable surfaces stacked above layer 0 (= `heights`). Index 0 here
+   * is layer 1. Each is a full size×size heightfield (edge-extended so bilinear
+   * sampling within a present cell is well-defined). EMPTY (length 0) for
+   * single-story maps → resolveHeight early-outs and hashes stay byte-identical.
+   */
+  readonly layerHeights: readonly Float32Array[];
+  /** Presence mask per extra layer, same indexing: 1 = deck present at this vertex. */
+  readonly layerMask: readonly Uint8Array[];
   /** Avatar spawn per team (index = team id). */
   readonly spawns: readonly MapSpawn[];
   /** Base plot per team (index = team id): the flat build area. */
@@ -110,6 +120,41 @@ export function sampleHeight(map: MapData, x: number, y: number): number {
   return lerp(h0, h1, fy);
 }
 
+/**
+ * Bilinear height sample on an EXTRA layer (layerIdx 0-based into layerHeights,
+ * i.e. layerIdx 0 == layer 1). Same math as sampleHeight — bit-exact on every
+ * engine. Out-of-range layerIdx degrades to the base surface.
+ */
+export function sampleLayerHeight(map: MapData, layerIdx: number, x: number, y: number): number {
+  if (layerIdx < 0 || layerIdx >= map.layerHeights.length) return sampleHeight(map, x, y);
+  const heights = map.layerHeights[layerIdx];
+  const max = map.size - 1;
+  const gx = clamp(x / map.cellSize, 0, max);
+  const gy = clamp(y / map.cellSize, 0, max);
+  let i0 = Math.floor(gx);
+  let j0 = Math.floor(gy);
+  if (i0 > max - 1) i0 = max - 1;
+  if (j0 > max - 1) j0 = max - 1;
+  const fx = gx - i0;
+  const fy = gy - j0;
+  const s = map.size;
+  const row0 = j0 * s + i0;
+  const row1 = row0 + s;
+  const h0 = lerp(heights[row0], heights[row0 + 1], fx);
+  const h1 = lerp(heights[row1], heights[row1 + 1], fx);
+  return lerp(h0, h1, fy);
+}
+
+/**
+ * Height of the walkable surface at (x, y) on `layer` (0 = base heights). The
+ * layer===0 / no-extra-layers early-out makes single-story maps bit-identical
+ * to a plain sampleHeight (No-op invariant).
+ */
+export function resolveHeight(map: MapData, x: number, y: number, layer: number): number {
+  if (layer === 0 || map.layerHeights.length === 0) return sampleHeight(map, x, y);
+  return sampleLayerHeight(map, layer - 1, x, y);
+}
+
 /** Water test at world position (x, y): nearest-vertex sample, clamped. */
 export function isWater(map: MapData, x: number, y: number): boolean {
   const max = map.size - 1;
@@ -121,6 +166,7 @@ export function isWater(map: MapData, x: number, y: number): boolean {
 /** Map registry: resolves the mapId stored in replays/net handshakes. */
 export function getMapById(id: string): MapData {
   if (id === TEST_MAP_ID) return createTestMap();
+  if (id === LAYERED_TEST_ID) return loadMapFromJson(layeredTestJson as MapJson);
   for (const entry of REGISTRY) {
     if (entry.info.id === id) return loadMapFromJson(entry.json);
   }
@@ -140,6 +186,9 @@ export const LA_CANTINA_ID = "la-cantina";
 
 /** FCOP "Bug Hunt" arena (mission Joke), heightfield extracted 1:1. */
 export const BUG_HUNT_ID = "bug-hunt";
+
+/** Synthetic multi-deck sandbox for layered-movement tests (debug-only, NOT in MAP_REGISTRY). */
+export const LAYERED_TEST_ID = "layered-test";
 
 /** Metadata for one selectable arena — what a map picker needs to offer it. */
 export interface MapInfo {
@@ -187,6 +236,12 @@ export interface MapJson {
    */
   wallsV?: string[];
   wallsH?: string[];
+  /**
+   * OPTIONAL extra walkable decks above layer 0. Each: `heights` in 1/32 m
+   * ints (size rows × size), `mask` size rows of size '0'/'1' chars. Absent →
+   * single-story (empty layer arrays).
+   */
+  layers?: { heights: number[][]; mask: string[] }[];
   spawns: { x: number; y: number; yaw: number }[];
   basePlots: { x: number; y: number; radius: number }[];
   bases: MapBaseJson[];
@@ -259,6 +314,39 @@ export function loadMapFromJson(raw: MapJson): MapData {
   const wallsV = raw.wallsV ? parseWalls(raw.wallsV, "wallsV") : new Uint8Array(0);
   const wallsH = raw.wallsH ? parseWalls(raw.wallsH, "wallsH") : new Uint8Array(0);
 
+  // Optional extra decks: each a full size×size heightfield (1/32 m ints) +
+  // a present mask. Absent → single-story (empty arrays → resolveHeight no-op).
+  const layerHeights: Float32Array[] = [];
+  const layerMask: Uint8Array[] = [];
+  if (raw.layers) {
+    for (let L = 0; L < raw.layers.length; L++) {
+      const layer = raw.layers[L];
+      if (!layer || !Array.isArray(layer.heights) || !Array.isArray(layer.mask)) {
+        fail(id, `layer ${L} needs heights[] and mask[]`);
+      }
+      if (layer.heights.length !== size) fail(id, `layer ${L} expected ${size} height rows`);
+      if (layer.mask.length !== size) fail(id, `layer ${L} expected ${size} mask rows`);
+      const lh = new Float32Array(size * size);
+      const lm = new Uint8Array(size * size);
+      for (let j = 0; j < size; j++) {
+        const hRow = layer.heights[j];
+        const mRow = layer.mask[j];
+        if (hRow.length !== size) fail(id, `layer ${L} height row ${j} has ${hRow.length} entries`);
+        if (mRow.length !== size) fail(id, `layer ${L} mask row ${j} has ${mRow.length} chars`);
+        for (let i = 0; i < size; i++) {
+          const q = hRow[i];
+          if (!Number.isInteger(q)) fail(id, `layer ${L} non-integer height at (${i}, ${j})`);
+          lh[j * size + i] = q * HEIGHT_SCALE;
+          const c = mRow.charCodeAt(i);
+          if (c !== 0x30 && c !== 0x31) fail(id, `layer ${L} mask row ${j} has non-0/1 char at ${i}`);
+          lm[j * size + i] = c - 0x30;
+        }
+      }
+      layerHeights.push(lh);
+      layerMask.push(lm);
+    }
+  }
+
   const extent = (size - 1) * cellSize;
   const inBounds = (x: number, y: number) => x >= 0 && x <= extent && y >= 0 && y <= extent;
   if (raw.spawns.length !== 2) fail(id, "need exactly 2 spawns");
@@ -313,6 +401,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
     waterLevel: raw.waterLevel,
     wallsV,
     wallsH,
+    layerHeights,
+    layerMask,
     spawns: raw.spawns.map((s) => ({ x: s.x, y: s.y, yaw: s.yaw })),
     basePlots: raw.basePlots.map((p) => ({ x: p.x, y: p.y, radius: p.radius })),
     bases,
@@ -367,6 +457,8 @@ export function createTestMap(): MapData {
     waterLevel: -10, // below every valley: the test map has no water at all
     wallsV: new Uint8Array(0),
     wallsH: new Uint8Array(0),
+    layerHeights: [],
+    layerMask: [],
     spawns: [
       { x: center, y: center, yaw: 0 },
       { x: center, y: center, yaw: 0 },
