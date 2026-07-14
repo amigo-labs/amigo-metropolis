@@ -227,10 +227,21 @@ private RE repo. Spec + plan: `docs/superpowers/{specs,plans}/2026-07-13-stage4-
 
 - [x] Tasks B1–B3: glTF map load path (`render/meshMap.ts`), `?render=mesh`
       branch in `buildArenaGroup`, texture dispose (merged in PR #15)
+- [x] Task B4: upgraded base and spawn meshes — PBR + team emissive on base
+      structures, beveled core cap, `buildSpawnMarkers` (spawn rings +
+      outpost posts)
+- [x] Maps without a local mesh asset fall back to greybox terrain under
+      `?render=mesh` (instead of an empty world), so the asset rollout can
+      happen map by map
+- [ ] Task B5 (owner-local): copy per-map assets from the private RE repo to
+      `packages/client/public/models/<map-id>/` for the remaining 5 arenas
+      (mapping in `public/models/.gitignore`); assets stay uncommitted
 - [ ] Visual verification on a real GPU browser (the headless dev env runs no
-      rAF loop; assets load 200 OK but the render is unverified)
-- [ ] Task B4: upgraded base and spawn meshes (modern, our own)
-- [ ] Task B5: roll out remaining maps + final verification
+      rAF loop). Per map: open `/?map=<id>&render=mesh&debug`, check the mesh
+      loads textured and aligned against `render=greybox` (same base/marker
+      positions), no console errors; on `venice-beach` check the upper decks
+      specifically; screenshot each arena, greybox↔mesh comparison for at
+      least Hollywood Keys
 
 ## Backlog (post-v1, do not start)
 
