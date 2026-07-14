@@ -63,6 +63,7 @@ import {
   buildWallMesh,
   buildWaterPlane,
 } from "./render/terrain";
+import { loadMapMesh } from "./render/meshMap";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -81,6 +82,10 @@ const netMode = online || p2p;
 const orbitMode = !netMode && params.get("cam") === "orbit";
 // Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
 aimAssist.mode = parseAimAssistMode(params.get("aim"));
+
+// Stage 4: ?render=mesh loads the textured map meshes; greybox stays the default
+// (the reliable debug/fallback path per assets.md / HANDOFF).
+const renderMode: "mesh" | "greybox" = params.get("render") === "mesh" ? "mesh" : "greybox";
 
 // Offline match seed. Net matches ignore it — the room/lobby code seeds them
 // (connectOnline / connectP2pMode derive the same seed on both peers, so no
@@ -219,11 +224,15 @@ scene.add(sun);
 function buildArenaGroup(m: typeof map): THREE.Group {
   const group = new THREE.Group();
   group.matrixAutoUpdate = false; // identity transform, per renderer rules
-  group.add(buildTerrainMesh(m));
+  if (renderMode === "mesh") {
+    loadMapMesh(m, group); // async: textured terrain mesh (incl. decks) added when loaded
+  } else {
+    group.add(buildTerrainMesh(m));
+    const walls = buildWallMesh(m); // null on wall-free maps
+    if (walls) group.add(walls);
+    for (const deck of buildDeckMeshes(m)) group.add(deck); // upper decks on layered maps
+  }
   group.add(buildWaterPlane(m));
-  const walls = buildWallMesh(m); // null on wall-free maps
-  if (walls) group.add(walls);
-  for (const deck of buildDeckMeshes(m)) group.add(deck); // upper decks on layered maps
   buildBaseStructures(group, m);
   return group;
 }
@@ -247,7 +256,9 @@ function rebuildArena(mapId: string): void {
     const mesh = obj as THREE.Mesh;
     if (mesh.isMesh) {
       mesh.geometry.dispose();
-      (mesh.material as THREE.Material).dispose();
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      mat.map?.dispose(); // free loaded textures on map swap (mesh render path)
+      mat.dispose();
     }
   });
   arenaGroup = buildArenaGroup(map);
