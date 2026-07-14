@@ -8,12 +8,13 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 const loader = new GLTFLoader();
 
 /**
- * Loads the textured map mesh for `map.id` into `group`. No-op (warns) when no
- * asset exists for the map, so greybox-only maps keep their heightfield terrain.
+ * Loads the textured map mesh for `map.id` into `group`. When no asset exists
+ * for the map (assets live outside this repo), warns and calls `onMissing` so
+ * the caller can build the greybox terrain instead of leaving the world empty.
  * Alignment: the .glb is authored in the extractor's origin-centered frame; the
  * caller positions `group` so the mesh lines up with the greybox/collision.
  */
-export function loadMapMesh(map: MapData, group: THREE.Group): void {
+export function loadMapMesh(map: MapData, group: THREE.Group, onMissing?: () => void): void {
   const url = `/models/${map.id}/${map.id}.glb`;
   loader.loadAsync(url).then(
     (gltf) => {
@@ -36,8 +37,8 @@ export function loadMapMesh(map: MapData, group: THREE.Group): void {
       group.add(gltf.scene);
     },
     () => {
-      // No mesh asset for this map: greybox terrain still renders it.
-      console.warn(`[meshMap] no mesh asset at ${url}, staying greybox for terrain`);
+      console.warn(`[meshMap] no mesh asset at ${url}, falling back to greybox terrain`);
+      onMissing?.();
     },
   );
 }

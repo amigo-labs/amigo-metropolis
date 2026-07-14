@@ -57,7 +57,7 @@ import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend"
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import { loadMapMesh } from "./render/meshMap";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
-import { buildBaseStructures } from "./render/structures";
+import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
   buildDeckMeshes,
   buildTerrainMesh,
@@ -224,16 +224,22 @@ scene.add(sun);
 function buildArenaGroup(m: typeof map): THREE.Group {
   const group = new THREE.Group();
   group.matrixAutoUpdate = false; // identity transform, per renderer rules
-  if (renderMode === "mesh") {
-    loadMapMesh(m, group); // async: textured terrain mesh (incl. decks) added when loaded
-  } else {
+  const buildGreyboxTerrain = () => {
     group.add(buildTerrainMesh(m));
     const walls = buildWallMesh(m); // null on wall-free maps
     if (walls) group.add(walls);
     for (const deck of buildDeckMeshes(m)) group.add(deck); // upper decks on layered maps
+  };
+  if (renderMode === "mesh") {
+    // Async: textured terrain mesh (incl. decks) added when loaded; maps
+    // without a local asset fall back to greybox terrain instead of nothing.
+    loadMapMesh(m, group, buildGreyboxTerrain);
+  } else {
+    buildGreyboxTerrain();
   }
   group.add(buildWaterPlane(m));
   buildBaseStructures(group, m);
+  buildSpawnMarkers(group, m);
   return group;
 }
 let arenaGroup = buildArenaGroup(map);
