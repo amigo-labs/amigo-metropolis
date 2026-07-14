@@ -55,6 +55,7 @@ import { WsTransport } from "./net/wsTransport";
 import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
+import { loadMapMesh } from "./render/meshMap";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
 import { buildBaseStructures } from "./render/structures";
 import {
@@ -63,7 +64,6 @@ import {
   buildWallMesh,
   buildWaterPlane,
 } from "./render/terrain";
-import { loadMapMesh } from "./render/meshMap";
 
 // --- Mode + simulation setup -------------------------------------------------
 

@@ -2,7 +2,7 @@
 // (private RE pipeline) and adds it to the arena group. Init-time only; GLTFLoader
 // is async, so the .then() fills the (initially empty) group once loaded.
 import type { MapData } from "@metropolis/sim";
-import * as THREE from "three";
+import type * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const loader = new GLTFLoader();
