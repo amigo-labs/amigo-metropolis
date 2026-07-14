@@ -1,5 +1,13 @@
 # Stufe 4 — Texturiertes Karten-Rendering — Implementation Plan
 
+> **Status (2026-07-14): TEILWEISE UMGESETZT** — Tasks B1–B3 gelandet via
+> PR #15 (`render/meshMap.ts`, `?render=mesh`, Dispose). Offen: visuelle
+> Verifikation auf echter GPU, Task B4 (Basis-/Spawn-Meshes), Task B5
+> (übrige Karten + Abschlussverifikation). Teil A lebt im privaten RE-Repo;
+> Map-Assets bleiben per Owner-Entscheidung außerhalb dieses public repo
+> (`packages/client/public/models/.gitignore`). Aktueller Status:
+> `PLAN.md` Phase 10. Die Checkboxen unten werden nicht nachgepflegt.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Die FCOP-Arenen als texturierte 3D-Meshes im Client rendern (statt Greybox), erste Karte end-to-end: Hollywood Keys.

@@ -207,7 +207,34 @@ non-relay dev candidates. The optional GraphQL-analytics drift reconciliation
 from hosting.spec.md §3.4 stays unimplemented by design (out-of-band safety
 net); the gatekeeper's own counters are the source of truth.)
 
+## Phase 9 — Layered arenas (PA-style) — DONE
+
+Multi-deck maps in the Precinct Assault mold: `MapData.layers` + `resolveHeight`,
+per-entity `entLayer` with walker deck transitions (`resolveWalker`), hover
+ignores layers. Shipped as SIM_VERSION 10 with golden replay #6 (goldens 01–05
+no-op re-recorded); two layered arenas — Hollywood Keys and Venice Beach — plus
+the synthetic `layered-test` map; client renders upper decks via
+`buildDeckMeshes`. Merged in PR #14. Execution plan (checkboxes historical, all
+work landed): `docs/superpowers/plans/2026-07-12-layered-v2.md`.
+
+## Phase 10 — Textured map rendering (Stage 4) — IN PROGRESS
+
+FCOP-derived textured map meshes as an alternative render path. Part A (the UV
+extraction pipeline, `til_mesh.py`) lives in the private RE repo, not here.
+Map assets are deliberately NOT in this public repo (owner decision 2026-07-14,
+`packages/client/public/models/.gitignore`); they are copied locally from the
+private RE repo. Spec + plan: `docs/superpowers/{specs,plans}/2026-07-13-stage4-*`.
+
+- [x] Tasks B1–B3: glTF map load path (`render/meshMap.ts`), `?render=mesh`
+      branch in `buildArenaGroup`, texture dispose (merged in PR #15)
+- [ ] Visual verification on a real GPU browser (the headless dev env runs no
+      rAF loop; assets load 200 OK but the render is unverified)
+- [ ] Task B4: upgraded base and spawn meshes (modern, our own)
+- [ ] Task B5: roll out remaining maps + final verification
+
 ## Backlog (post-v1, do not start)
 
-More arenas · map editor · rollback netcode upgrade · 2v2 · touch controls ·
-Warden personalities · replay viewer UI · amigo-trommel soundtrack.
+More arenas · map editor · rollback netcode upgrade · 2v2 ·
+touch controls (pulled forward — planned in `docs/plans/touch-controls.md`,
+not started) · Warden personalities · replay viewer UI ·
+amigo-trommel soundtrack.
