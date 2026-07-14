@@ -34,10 +34,12 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
     bar.translate(g.x, gh + 7.05, g.y);
     parts.push(bar);
 
-    // Core: indestructible centerpiece — chunky tower with a cap.
+    // Core: indestructible centerpiece — chunky tower with a beveled cap
+    // (narrower edge box above the cap slab reads as a chamfer).
     const ch = sampleHeight(map, base.core.x, base.core.y);
     parts.push(box(4.4, 7, 4.4, base.core.x, ch + 3.5, base.core.y));
     parts.push(box(5.6, 1.2, 5.6, base.core.x, ch + 7.6, base.core.y));
+    parts.push(box(4.8, 0.5, 4.8, base.core.x, ch + 8.45, base.core.y));
 
     // Consoles: ground = square pedestal, air = pedestal with an antenna,
     // both with a slab pad so the buy spot reads on the ground.
@@ -63,13 +65,42 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
     const mesh = new THREE.Mesh(
       mergeGeometries(parts),
       new THREE.MeshStandardMaterial({
-        flatShading: true,
-        // Structures sit a shade darker than units — the ramp's dark tone.
+        // Structures sit a shade darker than units — the ramp's dark tone,
+        // with a faint team-colored glow so bases read at a distance.
         color: new THREE.Color(teamRamp(team).dark),
+        metalness: 0.3,
+        roughness: 0.55,
+        emissive: new THREE.Color(teamRamp(team).base),
+        emissiveIntensity: 0.25,
       }),
     );
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
     scene.add(mesh);
   }
+}
+
+/** Static markers at avatar spawns + neutral outposts (render-only). */
+export function buildSpawnMarkers(scene: THREE.Object3D, map: MapData): void {
+  const parts: THREE.BufferGeometry[] = [];
+  for (const s of map.spawns) {
+    const h = sampleHeight(map, s.x, s.y);
+    const ring = new THREE.CylinderGeometry(1.6, 1.8, 0.3, 20);
+    ring.translate(s.x, h + 0.15, s.y);
+    parts.push(ring);
+  }
+  for (const o of map.outpostSpots) {
+    const h = sampleHeight(map, o.x, o.y);
+    const post = new THREE.CylinderGeometry(0.6, 0.8, 3.2, 12);
+    post.translate(o.x, h + 1.6, o.y);
+    parts.push(post);
+  }
+  if (parts.length === 0) return;
+  const mesh = new THREE.Mesh(
+    mergeGeometries(parts),
+    new THREE.MeshStandardMaterial({ color: 0x9aa4b2, metalness: 0.2, roughness: 0.6 }),
+  );
+  mesh.matrixAutoUpdate = false;
+  mesh.updateMatrix();
+  scene.add(mesh);
 }
