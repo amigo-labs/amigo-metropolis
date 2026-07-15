@@ -43,7 +43,6 @@ describe("test map", () => {
 describe("map registry", () => {
   it("lists the selectable arenas in menu order with unique ids", () => {
     expect(MAP_REGISTRY.map((m) => m.id)).toEqual([
-      DISTRICT_01_ID,
       URBAN_JUNGLE_ID,
       PROVING_GROUND_ID,
       LA_CANTINA_ID,
@@ -64,6 +63,11 @@ describe("map registry", () => {
   it("keeps the debug test map out of the picker but resolvable by id", () => {
     expect(MAP_REGISTRY.some((m) => m.id === TEST_MAP_ID)).toBe(false);
     expect(getMapById(TEST_MAP_ID).id).toBe(TEST_MAP_ID);
+  });
+
+  it("retires District 01 from the picker but keeps it resolvable by id", () => {
+    expect(MAP_REGISTRY.some((m) => m.id === DISTRICT_01_ID)).toBe(false);
+    expect(getMapById(DISTRICT_01_ID).id).toBe(DISTRICT_01_ID);
   });
 
   it("throws on unknown map ids", () => {

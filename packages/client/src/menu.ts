@@ -1,21 +1,26 @@
-// Title screen + menu flow (PLAN Phase 7). This is the "understand the game"
-// half of the phase DoD — a stranger opens the bare URL and sees the title, the
-// objective, and one click per mode. Deep links (?warden=4,
-// ?online=CODE, ?play, ?debug) skip the menu entirely, so shareable URLs and the
-// test harnesses are untouched (see main.ts `explicitMode`).
+// Title screen + menu flow (PLAN Phase 7; redesigned in the menu-redesign pass).
+// A stranger opens the bare URL and sees the title, the objective, a live 3D
+// arena backdrop, and one click per mode. Deep links (?warden=4, ?online=CODE,
+// ?play, ?debug) skip the menu entirely, so shareable URLs and the test
+// harnesses are untouched (see main.ts `explicitMode`).
+//
+// The layout is immersive: the zoomed arena fills the screen while a slim glass
+// rail docks the controls. The arena picker doubles as a preview — selecting a
+// card swaps the live backdrop to that arena via opts.onSelect, and each card
+// shows a rendered minimap of the map.
 //
 // Choosing a mode emits a MenuChoice through opts.onChoice; main.ts starts the
 // picked mode in-process (no reload — the live menu world morphs into the
 // match) and pushState()s the matching deep-link query. This file stays free of
-// any sim/render coupling: it only builds DOM, emits choices, and tweaks audio
-// settings (which persist to localStorage). The only sim import is
-// MAP_REGISTRY — static arena metadata for the picker; the picked arena rides
-// along on every MenuChoice as `mapId`.
+// any renderer/sim coupling beyond static map metadata: it reads MAP_REGISTRY
+// and loads MapData (via getMapById) only to draw the picker minimaps. The
+// picked arena rides along on every MenuChoice as `mapId`.
 
-import { DISTRICT_01_ID, MAP_REGISTRY } from "@metropolis/sim";
+import { getMapById, MAP_REGISTRY } from "@metropolis/sim";
 import type { AudioEngine } from "./audio/engine";
 import { MUSIC_OPTIONS, parseMusicSelection } from "./audio/tracks";
 import { hashLobbyPassword, storeP2pBootstrap } from "./net/p2pSession";
+import { drawArenaThumbnail } from "./render/arenaThumb";
 
 export type MenuChoice =
   | { mode: "solo" } // sandbox vs the scripted feeder opponent
@@ -69,8 +74,11 @@ export function randomRoomCode(rand: () => number = Math.random): string {
 export interface MenuOptions {
   audio: AudioEngine;
   /** Called once when the player picks a mode; main.ts starts it in-process.
-   *  `mapId` is the arena picked in the menu's persistent arena row. */
+   *  `mapId` is the arena picked in the menu's persistent arena gallery. */
   onChoice(choice: MenuChoice, mapId: string): void;
+  /** Called whenever the arena selection changes so the live 3D backdrop can
+   *  preview the picked arena. `mapId` is the newly selected arena. */
+  onSelect(mapId: string): void;
 }
 
 /** Handle returned by runMenu so a late `beforeinstallprompt` can add Install. */
@@ -105,12 +113,16 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   const go = opts.onChoice;
 
   const root = el("div", "menu");
-  const card = el("div", "menu-card");
-  root.appendChild(card);
+  // A scrim on the left keeps the rail legible over the bright arena backdrop.
+  root.appendChild(el("div", "menu-scrim"));
+  const rail = el("div", "menu-rail");
+  root.appendChild(rail);
 
-  card.appendChild(el("div", "menu-kicker", "arena strategy-action · solo · online"));
-  card.appendChild(el("h1", "menu-title", "METROPOLIS"));
-  card.appendChild(
+  // --- Brand header ---------------------------------------------------------
+  const brand = el("div", "menu-brand");
+  brand.appendChild(el("div", "menu-kicker", "arena strategy-action · solo · online"));
+  brand.appendChild(el("h1", "menu-title", "METROPOLIS"));
+  brand.appendChild(
     el(
       "p",
       "menu-objective",
@@ -118,43 +130,69 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         "capture turrets and outposts, and buy waves of units to push a lane.",
     ),
   );
+  rail.appendChild(brand);
+
+  // --- Arena gallery (persistent; applies to whichever mode is started) ------
+  // Pre-select a ?map= already on the URL so arena deep links keep their pick
+  // through the menu; unknown ids quietly fall back to the first arena (which
+  // is also main.ts's boot backdrop, so no initial preview swap is needed).
+  const urlMapId = new URLSearchParams(location.search).get("map");
+  let selectedMapId = MAP_REGISTRY.some((m) => m.id === urlMapId)
+    ? (urlMapId as string)
+    : MAP_REGISTRY[0].id;
+
+  const arenaSection = el("div", "menu-section");
+  arenaSection.appendChild(el("div", "menu-section-label", "Arena"));
+  const grid = el("div", "menu-arena-grid");
+  const arenaCards: HTMLButtonElement[] = [];
+  for (const info of MAP_REGISTRY) {
+    const card = el("button", "menu-arena-card");
+    card.type = "button";
+    card.setAttribute("aria-label", info.displayName);
+    const thumb = el("canvas", "menu-arena-thumb") as HTMLCanvasElement;
+    thumb.width = 200;
+    thumb.height = 200;
+    try {
+      drawArenaThumbnail(thumb, getMapById(info.id));
+    } catch {
+      // A missing or malformed map JSON must not blank the whole menu — the
+      // card just shows its name over an empty tile.
+    }
+    const name = el("span", "menu-arena-name");
+    name.textContent = info.displayName;
+    card.append(thumb, name);
+    card.onclick = () => selectArena(info.id);
+    grid.appendChild(card);
+    arenaCards.push(card);
+  }
+  arenaSection.appendChild(grid);
+  rail.appendChild(arenaSection);
+
+  function selectArena(id: string): void {
+    selectedMapId = id;
+    for (let i = 0; i < arenaCards.length; i++) {
+      arenaCards[i].classList.toggle("is-active", MAP_REGISTRY[i].id === id);
+    }
+    opts.onSelect(id);
+  }
+  // Initial highlight only — the backdrop already boots on this arena, so we
+  // deliberately don't fire onSelect here (avoids a redundant scene rebuild).
+  for (let i = 0; i < arenaCards.length; i++) {
+    arenaCards[i].classList.toggle("is-active", MAP_REGISTRY[i].id === selectedMapId);
+  }
 
   // --- Mode buttons ---------------------------------------------------------
   const modes = el("div", "menu-modes");
   const soloBtn = el("button", "menu-mode", "<b>Solo</b><span>vs the Warden AI</span>");
   const onlineBtn = el("button", "menu-mode", "<b>Online</b><span>1v1 over the internet</span>");
   modes.append(soloBtn, onlineBtn);
-  card.appendChild(modes);
+  rail.appendChild(modes);
 
-  // --- Arena picker (persistent row, applies to every mode) -----------------
-  // Pre-select a ?map= already on the URL so arena deep links keep their pick
-  // through the menu; unknown ids quietly fall back to the default arena.
-  const urlMapId = new URLSearchParams(location.search).get("map");
-  let selectedMapId = MAP_REGISTRY.some((m) => m.id === urlMapId)
-    ? (urlMapId as string)
-    : DISTRICT_01_ID;
-  const arenas = el("div", "menu-arenas");
-  arenas.appendChild(el("span", "menu-arenas-label", "Arena"));
-  const arenaButtons = MAP_REGISTRY.map((info) => {
-    const btn = el("button", "menu-arena", info.displayName);
-    btn.onclick = () => {
-      selectedMapId = info.id;
-      for (let i = 0; i < arenaButtons.length; i++) {
-        arenaButtons[i].classList.toggle("is-active", MAP_REGISTRY[i].id === selectedMapId);
-      }
-    };
-    arenas.appendChild(btn);
-    return btn;
-  });
-  for (let i = 0; i < arenaButtons.length; i++) {
-    arenaButtons[i].classList.toggle("is-active", MAP_REGISTRY[i].id === selectedMapId);
-  }
-  card.appendChild(arenas);
-
-  // A single sub-panel below the buttons reveals the chosen mode's options.
+  // A single sub-panel below the buttons reveals the chosen mode's options
+  // (solo difficulty, or the online lobby). Hidden until a mode is picked.
   const panel = el("div", "menu-panel");
   panel.style.display = "none";
-  card.appendChild(panel);
+  rail.appendChild(panel);
 
   let active: "solo" | "online" | null = null;
   const setActive = (which: "solo" | "online" | null): void => {
@@ -204,6 +242,9 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   }
 
   function buildOnlinePanel(): void {
+    // Join by code (relay): the lightweight path — both players type the same
+    // 5-char code to meet in a room (same code = same match seed).
+    panel.appendChild(el("h2", "menu-h2", "Join by code"));
     const row = el("div", "menu-row");
     const input = el("input", "menu-code") as HTMLInputElement;
     input.type = "text";
@@ -232,6 +273,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     join.onclick = tryJoin;
     row.append(input, join);
     panel.appendChild(row);
+    panel.appendChild(err);
 
     const host = el("button", "menu-go menu-go--ghost", "Host a new room");
     host.onclick = () => go({ mode: "online", code: randomRoomCode() }, selectedMapId);
@@ -241,7 +283,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         "p",
         "menu-hint",
         "Host, then share the 5-character code. Both players enter the same code " +
-          "to join the same room. Same code = same match seed.",
+          "to join the same room.",
       ),
     );
     buildP2pSection();
@@ -253,7 +295,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   // the fallback path. Lobby names are other players' text — always assigned
   // via textContent, never innerHTML.
   function buildP2pSection(): void {
-    panel.appendChild(el("h2", "menu-h2", "Lobby browser (P2P)"));
+    panel.appendChild(el("h2", "menu-h2", "Public lobbies"));
     const list = el("div", "menu-lobbies");
     const hint = el("div", "menu-hint", "Loading lobbies…");
     panel.append(list, hint);
@@ -333,23 +375,17 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     // Hosting: name + optional password + visibility, then a fresh code.
     panel.appendChild(el("h2", "menu-h2", "Host a lobby"));
     const nameRow = el("div", "menu-row");
-    const nameInput = el("input", "menu-code") as HTMLInputElement;
+    const nameInput = el("input", "menu-code menu-code--text") as HTMLInputElement;
     nameInput.type = "text";
     nameInput.maxLength = 40;
     nameInput.placeholder = "Lobby name";
-    nameInput.style.letterSpacing = "normal";
-    nameInput.style.textTransform = "none";
-    nameInput.style.fontSize = "14px";
     nameInput.setAttribute("aria-label", "Lobby name");
     nameRow.appendChild(nameInput);
     panel.appendChild(nameRow);
     const pwRow = el("div", "menu-row");
-    const pwInput = el("input", "menu-code") as HTMLInputElement;
+    const pwInput = el("input", "menu-code menu-code--text") as HTMLInputElement;
     pwInput.type = "password";
     pwInput.placeholder = "Password (optional)";
-    pwInput.style.letterSpacing = "normal";
-    pwInput.style.textTransform = "none";
-    pwInput.style.fontSize = "14px";
     pwInput.setAttribute("aria-label", "Lobby password (optional)");
     pwRow.appendChild(pwInput);
     panel.appendChild(pwRow);
@@ -398,11 +434,11 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   const installBtn = el("button", "menu-link menu-link--accent", "Install");
   installBtn.style.display = "none";
   footer.append(howBtn, setBtn, installBtn);
-  card.appendChild(footer);
+  rail.appendChild(footer);
 
   const drawer = el("div", "menu-drawer");
   drawer.style.display = "none";
-  card.appendChild(drawer);
+  rail.appendChild(drawer);
   let drawerKind: "how" | "sound" | null = null;
   const toggleDrawer = (kind: "how" | "sound"): void => {
     drawerKind = drawerKind === kind ? null : kind;
@@ -521,7 +557,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     );
   }
 
-  card.appendChild(
+  rail.appendChild(
     el("div", "menu-credits", "A Future Cop: Precinct Assault homage · a working-title prototype."),
   );
 

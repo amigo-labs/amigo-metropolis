@@ -169,6 +169,10 @@ export function isWater(map: MapData, x: number, y: number): boolean {
 export function getMapById(id: string): MapData {
   if (id === TEST_MAP_ID) return createTestMap();
   if (id === LAYERED_TEST_ID) return loadMapFromJson(layeredTestJson as MapJson);
+  // District 01 is retired from the picker but still resolvable by id: goldens,
+  // tools and the historic replay harnesses load it directly (like the debug
+  // maps above), so it stays available without cluttering the menu.
+  if (id === DISTRICT_01_ID) return loadMapFromJson(districtJson as MapJson);
   for (const entry of REGISTRY) {
     if (entry.info.id === id) return loadMapFromJson(entry.json);
   }
@@ -207,8 +211,9 @@ export interface MapInfo {
 }
 
 // Adding an arena = one entry here + its JSON in packages/sim/maps/.
+// (District 01 is intentionally absent — retired from the picker but kept
+// resolvable by id in getMapById above for goldens/tools.)
 const REGISTRY: readonly { readonly info: MapInfo; readonly json: MapJson }[] = [
-  { info: { id: DISTRICT_01_ID, displayName: "District 01" }, json: districtJson },
   { info: { id: URBAN_JUNGLE_ID, displayName: "Urban Jungle" }, json: urbanJungleJson },
   { info: { id: PROVING_GROUND_ID, displayName: "Proving Ground" }, json: provingGroundJson },
   { info: { id: LA_CANTINA_ID, displayName: "La Cantina" }, json: laCantinaJson },
