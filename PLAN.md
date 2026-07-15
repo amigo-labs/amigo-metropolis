@@ -207,7 +207,49 @@ non-relay dev candidates. The optional GraphQL-analytics drift reconciliation
 from hosting.spec.md §3.4 stays unimplemented by design (out-of-band safety
 net); the gatekeeper's own counters are the source of truth.)
 
+## Phase 9 — Layered arenas (PA-style) — DONE
+
+Multi-deck maps in the Precinct Assault mold: `MapData.layers` + `resolveHeight`,
+per-entity `entLayer` with walker deck transitions (`resolveWalker`), hover
+ignores layers. Shipped as SIM_VERSION 10 with golden replay #6 (goldens 01–05
+no-op re-recorded); two layered arenas — Hollywood Keys and Venice Beach — plus
+the synthetic `layered-test` map; client renders upper decks via
+`buildDeckMeshes`. Merged in PR #14. Execution plan (checkboxes historical, all
+work landed): `docs/superpowers/plans/2026-07-12-layered-v2.md`.
+
+## Phase 10 — Textured map rendering (Stage 4) — IN PROGRESS
+
+FCOP-derived textured map meshes as an alternative render path. Part A (the UV
+extraction pipeline, `til_mesh.py`) lives in the private RE repo, not here.
+Map assets ARE committed under `packages/client/public/models/` (owner decision
+2026-07-15, superseding the 2026-07-14 keep-local decision — provenance in
+`CREDITS.md`, regeneration notes in `public/models/README.md`), so the CI-built
+live deploy ships them too. Spec + plan:
+`docs/superpowers/{specs,plans}/2026-07-13-stage4-*`.
+
+- [x] Tasks B1–B3: glTF map load path (`render/meshMap.ts`), `?render=mesh`
+      branch in `buildArenaGroup`, texture dispose (merged in PR #15)
+- [x] Task B4: upgraded base and spawn meshes — PBR + team emissive on base
+      structures, beveled core cap, `buildSpawnMarkers` (spawn rings +
+      outpost posts)
+- [x] Maps without a local mesh asset fall back to greybox terrain under
+      `?render=mesh` (instead of an empty world), so the asset rollout can
+      happen map by map
+- [x] Task B5 asset side: Part A output exists in the RE repo for ALL 6
+      arenas (`extracted/meshes/<Cont>/`, 7–18 MB each). Copied, renamed and
+      COMMITTED under `public/models/<map-id>/`; verified: every `.glb` is
+      valid glTF v2 with all external texture URIs resolving, and Vite
+      serves each `/models/<id>/<id>.glb` with HTTP 200
+- [ ] Visual verification on a real GPU browser (the headless dev env runs no
+      rAF loop). Per map: open `/?map=<id>&render=mesh&debug`, check the mesh
+      loads textured and aligned against `render=greybox` (same base/marker
+      positions), no console errors; on `venice-beach` check the upper decks
+      specifically; screenshot each arena, greybox↔mesh comparison for at
+      least Hollywood Keys
+
 ## Backlog (post-v1, do not start)
 
-More arenas · map editor · rollback netcode upgrade · 2v2 · touch controls ·
-Warden personalities · replay viewer UI · amigo-trommel soundtrack.
+More arenas · map editor · rollback netcode upgrade · 2v2 ·
+touch controls (pulled forward — planned in `docs/plans/touch-controls.md`,
+not started) · Warden personalities · replay viewer UI ·
+amigo-trommel soundtrack.

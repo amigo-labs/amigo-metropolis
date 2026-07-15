@@ -1,8 +1,0 @@
-# FCOP-derived map assets (.glb + textures) are NOT committed to this public repo
-# (owner decision 2026-07-14: licence + size). To run ?render=mesh locally, copy
-# them from the private RE-repo:
-#   fcop-reverse-engineering/extracted/meshes/<Cont>/*  ->  public/models/<map-id>/
-# (Cont->id: Conft=urban-jungle, Slim=proving-ground, Mp=la-cantina,
-#  Joke=bug-hunt, Hk=hollywood-keys, Ovmp=venice-beach)
-*
-!.gitignore

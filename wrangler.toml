@@ -77,3 +77,25 @@ new_sqlite_classes = ["Room"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["LobbyDO", "DirectoryDO", "GatekeeperDO"]
+
+# --- Preview / staging environment (UI validation only) -----------------------
+# `wrangler … --env preview` targets a SECOND Worker, "amigo-metropolis-preview".
+# It binds NO Durable Objects on purpose: Cloudflare generates no preview URLs
+# for Workers that implement a DO, and the preview exists only to validate the
+# client UI. Its entry serves the built client and answers the online paths
+# with 503 (see packages/server/src/preview.ts). Setup:
+#   once:      bunx wrangler deploy --env preview
+#   dashboard: Workers Builds → non-production branch command
+#              `bunx wrangler versions upload --env preview`
+# → PR comments then carry commit + branch preview URLs for the UI.
+[env.preview]
+main = "packages/server/src/preview.ts"
+workers_dev = true
+preview_urls = true
+
+[env.preview.assets]
+directory = "packages/client/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+# No run_worker_first: every path serves assets/SPA; the entry only exists to
+# 503 the online paths if they are ever hit directly.

@@ -1,5 +1,16 @@
 # Stufe 4 — Texturiertes Karten-Rendering — Implementation Plan
 
+> **Status (2026-07-14): TEILWEISE UMGESETZT** — Tasks B1–B3 gelandet via
+> PR #15 (`render/meshMap.ts`, `?render=mesh`, Dispose); Task B4 gelandet via
+> PR #16 (PBR+Team-Emissive-Basen, `buildSpawnMarkers`), dazu ein
+> Greybox-Terrain-Fallback für Karten ohne lokales Asset. Task B5 ist
+> umgesetzt: Die Assets aller 6 Arenen sind aus dem RE-Repo übernommen und
+> committet (Owner-Entscheidung 2026-07-15 hebt die Keep-local-Entscheidung
+> vom 2026-07-14 auf; Provenance in `CREDITS.md`, Mapping in
+> `public/models/README.md`). Offen bleibt allein die visuelle Verifikation
+> auf echter GPU. Aktueller Status: `PLAN.md` Phase 10. Die Checkboxen unten
+> werden nicht nachgepflegt.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Die FCOP-Arenen als texturierte 3D-Meshes im Client rendern (statt Greybox), erste Karte end-to-end: Hollywood Keys.
