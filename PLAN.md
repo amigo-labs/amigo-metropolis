@@ -233,9 +233,13 @@ private RE repo. Spec + plan: `docs/superpowers/{specs,plans}/2026-07-13-stage4-
 - [x] Maps without a local mesh asset fall back to greybox terrain under
       `?render=mesh` (instead of an empty world), so the asset rollout can
       happen map by map
-- [ ] Task B5 (owner-local): copy per-map assets from the private RE repo to
-      `packages/client/public/models/<map-id>/` for the remaining 5 arenas
-      (mapping in `public/models/.gitignore`); assets stay uncommitted
+- [x] Task B5 asset side: Part A output exists in the RE repo for ALL 6
+      arenas (`extracted/meshes/<Cont>/`, 7–18 MB each). Verified after
+      copying per the `.gitignore` mapping: every `.glb` is valid glTF v2
+      with all external texture URIs resolving, and Vite serves each
+      `/models/<id>/<id>.glb` with HTTP 200. Assets stay uncommitted —
+      every checkout (and the CI-built live deploy, which therefore falls
+      back to greybox) needs its own local copy
 - [ ] Visual verification on a real GPU browser (the headless dev env runs no
       rAF loop). Per map: open `/?map=<id>&render=mesh&debug`, check the mesh
       loads textured and aligned against `render=greybox` (same base/marker
