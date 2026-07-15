@@ -221,9 +221,11 @@ work landed): `docs/superpowers/plans/2026-07-12-layered-v2.md`.
 
 FCOP-derived textured map meshes as an alternative render path. Part A (the UV
 extraction pipeline, `til_mesh.py`) lives in the private RE repo, not here.
-Map assets are deliberately NOT in this public repo (owner decision 2026-07-14,
-`packages/client/public/models/.gitignore`); they are copied locally from the
-private RE repo. Spec + plan: `docs/superpowers/{specs,plans}/2026-07-13-stage4-*`.
+Map assets ARE committed under `packages/client/public/models/` (owner decision
+2026-07-15, superseding the 2026-07-14 keep-local decision — provenance in
+`CREDITS.md`, regeneration notes in `public/models/README.md`), so the CI-built
+live deploy ships them too. Spec + plan:
+`docs/superpowers/{specs,plans}/2026-07-13-stage4-*`.
 
 - [x] Tasks B1–B3: glTF map load path (`render/meshMap.ts`), `?render=mesh`
       branch in `buildArenaGroup`, texture dispose (merged in PR #15)
@@ -234,12 +236,10 @@ private RE repo. Spec + plan: `docs/superpowers/{specs,plans}/2026-07-13-stage4-
       `?render=mesh` (instead of an empty world), so the asset rollout can
       happen map by map
 - [x] Task B5 asset side: Part A output exists in the RE repo for ALL 6
-      arenas (`extracted/meshes/<Cont>/`, 7–18 MB each). Verified after
-      copying per the `.gitignore` mapping: every `.glb` is valid glTF v2
-      with all external texture URIs resolving, and Vite serves each
-      `/models/<id>/<id>.glb` with HTTP 200. Assets stay uncommitted —
-      every checkout (and the CI-built live deploy, which therefore falls
-      back to greybox) needs its own local copy
+      arenas (`extracted/meshes/<Cont>/`, 7–18 MB each). Copied, renamed and
+      COMMITTED under `public/models/<map-id>/`; verified: every `.glb` is
+      valid glTF v2 with all external texture URIs resolving, and Vite
+      serves each `/models/<id>/<id>.glb` with HTTP 200
 - [ ] Visual verification on a real GPU browser (the headless dev env runs no
       rAF loop). Per map: open `/?map=<id>&render=mesh&debug`, check the mesh
       loads textured and aligned against `render=greybox` (same base/marker
