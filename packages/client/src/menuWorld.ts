@@ -62,9 +62,12 @@ export function updateFlyoverCamera(
   const cx = extent / 2;
   const cz = extent / 2;
   const yaw = timeSec * 0.03;
-  // Steep-ish vantage so the arena fills the frame instead of the void horizon.
-  const radius = extent * 0.55;
-  const height = extent * 0.52 + Math.sin(timeSec * 0.11) * extent * 0.04;
+  // Close, steep vantage: framing only the central ~half of the arena keeps
+  // terrain filling the frame at every extent, so the map edge / void horizon
+  // never shows. Paired with flyCam's narrow FOV (main.ts). Multipliers are
+  // extent-relative, so one set works for all arenas (extents 240–304 m).
+  const radius = extent * 0.2;
+  const height = extent * 0.44 + Math.sin(timeSec * 0.11) * extent * 0.015;
   cam.position.set(cx + Math.cos(yaw) * radius, height, cz + Math.sin(yaw) * radius);
   cam.lookAt(cx, 0, cz);
 }

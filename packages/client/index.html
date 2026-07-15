@@ -81,102 +81,134 @@
         cursor: crosshair;
       }
 
-      /* --- Title screen / menu (Phase 7) ------------------------------------ */
+      /* --- Title screen / menu (immersive redesign) ------------------------- */
       .menu {
         position: fixed;
         inset: 0;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        /* The live demo battle renders on the canvas behind this overlay; a
-           light vignette keeps the opaque card legible without hiding it. */
-        background: linear-gradient(rgba(6, 8, 13, 0.2), rgba(6, 8, 13, 0.55));
+        align-items: stretch;
+        justify-content: flex-start;
         color: #e2e8f0;
         font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
         z-index: 20;
-        overflow: auto;
-        transition: opacity 0.4s;
+        transition: opacity 0.4s ease;
       }
       .menu.is-leaving {
         opacity: 0;
         pointer-events: none;
       }
-      #fade-cover {
-        position: fixed;
-        inset: 0;
-        background: #06080d;
-        opacity: 0;
+      /* Left-edge scrim: darkens the arena behind the rail so text stays legible
+         while the rest of the map reads bright and immersive. */
+      .menu-scrim {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: min(760px, 85vw);
+        background: linear-gradient(
+          90deg,
+          rgba(5, 7, 12, 0.92) 0%,
+          rgba(5, 7, 12, 0.7) 42%,
+          rgba(5, 7, 12, 0) 100%
+        );
         pointer-events: none;
-        transition: opacity 0.3s;
-        z-index: 30;
       }
-      #fade-cover.is-on {
-        opacity: 1;
+      .menu-rail {
+        position: relative;
+        z-index: 1;
+        width: min(444px, 100vw);
+        height: 100%;
+        box-sizing: border-box;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 34px 30px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        background: linear-gradient(180deg, rgba(10, 13, 20, 0.5), rgba(8, 11, 17, 0.72));
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border-right: 1px solid rgba(126, 242, 255, 0.12);
       }
-      .menu-card {
-        width: 100%;
-        max-width: 420px;
-        background: rgba(11, 14, 20, 0.94);
-        border: 1px solid #26304a;
-        border-radius: 14px;
-        padding: 28px 28px 20px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      .menu-rail::-webkit-scrollbar {
+        width: 8px;
+      }
+      .menu-rail::-webkit-scrollbar-thumb {
+        background: rgba(126, 242, 255, 0.18);
+        border-radius: 8px;
+      }
+      .menu-brand {
+        display: flex;
+        flex-direction: column;
       }
       .menu-kicker {
         color: #7ef2ff;
         font-size: 11px;
-        letter-spacing: 0.18em;
+        letter-spacing: 0.2em;
         text-transform: uppercase;
       }
       .menu-title {
         margin: 6px 0 10px;
-        font-size: 40px;
+        font-size: 46px;
         font-weight: 800;
-        letter-spacing: 0.02em;
-        line-height: 1.05;
+        letter-spacing: 0.03em;
+        line-height: 1.02;
         background: linear-gradient(180deg, #ffffff, #9fb2cc);
         -webkit-background-clip: text;
         background-clip: text;
         color: transparent;
+        text-shadow: 0 2px 30px rgba(126, 242, 255, 0.14);
       }
       .menu-objective {
-        margin: 0 0 18px;
-        color: #b6c2d4;
+        margin: 0;
+        color: #aebacd;
+        font-size: 13.5px;
+      }
+      .menu-section {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .menu-section-label {
+        color: #7f8ea6;
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
       }
       .menu-modes {
         display: grid;
-        gap: 8px;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
       }
       .menu-mode {
         display: flex;
         flex-direction: column;
         align-items: flex-start;
         gap: 2px;
-        width: 100%;
-        padding: 12px 14px;
-        border: 1px solid #2b3650;
-        border-radius: 10px;
-        background: #131a29;
+        padding: 13px 15px;
+        border: 1px solid rgba(126, 160, 200, 0.22);
+        border-radius: 12px;
+        background: rgba(19, 26, 41, 0.55);
         color: #e2e8f0;
         font: inherit;
         text-align: left;
         cursor: pointer;
         transition:
-          border-color 0.12s,
-          background 0.12s,
+          border-color 0.14s,
+          background 0.14s,
           transform 0.06s;
       }
       .menu-mode:hover {
-        border-color: #3d4d72;
-        background: #172136;
+        border-color: rgba(126, 242, 255, 0.5);
+        background: rgba(23, 33, 54, 0.7);
       }
       .menu-mode:active {
         transform: translateY(1px);
       }
       .menu-mode.is-active {
         border-color: #7ef2ff;
-        background: #16273a;
+        background: rgba(22, 39, 58, 0.85);
+        box-shadow:
+          0 0 0 1px rgba(126, 242, 255, 0.35),
+          0 8px 24px rgba(0, 0, 0, 0.35);
       }
       .menu-mode b {
         font-size: 16px;
@@ -185,50 +217,62 @@
         color: #8ea0ba;
         font-size: 12px;
       }
-      .menu-arenas {
+      .menu-arena-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+        gap: 10px;
+      }
+      .menu-arena-card {
         display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-top: 10px;
-      }
-      .menu-arenas-label {
-        flex: 0 0 auto;
-        color: #8ea0ba;
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-      .menu-arena {
-        flex: 1;
-        padding: 8px 10px;
-        border: 1px solid #2b3650;
-        border-radius: 999px;
-        background: #131a29;
+        flex-direction: column;
+        padding: 0;
+        border: 1px solid rgba(126, 160, 200, 0.2);
+        border-radius: 11px;
+        background: rgba(11, 15, 24, 0.6);
         color: #b6c2d4;
         font: inherit;
-        font-size: 13px;
         cursor: pointer;
+        overflow: hidden;
         transition:
-          border-color 0.12s,
-          background 0.12s,
-          color 0.12s;
+          border-color 0.14s,
+          transform 0.08s,
+          box-shadow 0.14s;
       }
-      .menu-arena:hover {
-        border-color: #3d4d72;
-        background: #172136;
+      .menu-arena-card:hover {
+        border-color: rgba(126, 242, 255, 0.45);
+        transform: translateY(-2px);
       }
-      .menu-arena.is-active {
+      .menu-arena-card.is-active {
         border-color: #7ef2ff;
-        background: #16273a;
-        color: #e2e8f0;
+        box-shadow:
+          0 0 0 1px rgba(126, 242, 255, 0.5),
+          0 10px 26px rgba(0, 0, 0, 0.4);
+      }
+      .menu-arena-thumb {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        background: #0b0f18;
+      }
+      .menu-arena-name {
+        padding: 6px 8px;
+        font-size: 11.5px;
+        letter-spacing: 0.01em;
+        color: #aab6c9;
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .menu-arena-card.is-active .menu-arena-name {
+        color: #e6f8ff;
       }
       .menu-panel,
       .menu-drawer {
-        margin-top: 12px;
-        padding: 14px;
-        border: 1px solid #26304a;
-        border-radius: 10px;
-        background: #0e1420;
+        padding: 16px;
+        border: 1px solid rgba(126, 160, 200, 0.18);
+        border-radius: 12px;
+        background: rgba(9, 13, 21, 0.72);
       }
       .menu-row {
         display: flex;
@@ -252,9 +296,9 @@
       }
       .menu-select {
         flex: 1;
-        padding: 8px 10px;
-        border: 1px solid #2b3650;
-        border-radius: 8px;
+        padding: 9px 11px;
+        border: 1px solid rgba(126, 160, 200, 0.25);
+        border-radius: 9px;
         background: #0b0f18;
         color: #e2e8f0;
         font: inherit;
@@ -266,14 +310,20 @@
       }
       .menu-code {
         flex: 1;
-        padding: 10px 12px;
-        border: 1px solid #2b3650;
-        border-radius: 8px;
+        min-width: 0;
+        padding: 11px 13px;
+        border: 1px solid rgba(126, 160, 200, 0.25);
+        border-radius: 9px;
         background: #0b0f18;
         color: #fff;
         font: 600 18px/1 ui-monospace, monospace;
         letter-spacing: 0.3em;
         text-transform: uppercase;
+      }
+      .menu-code--text {
+        font: 500 14px/1.2 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: normal;
+        text-transform: none;
       }
       .menu-code:focus {
         outline: none;
@@ -282,35 +332,59 @@
       .menu-go {
         width: 100%;
         margin-top: 6px;
-        padding: 11px 14px;
+        padding: 12px 14px;
         border: 0;
-        border-radius: 9px;
-        background: #7ef2ff;
-        color: #06222b;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #9af6ff, #5fe6f7);
+        color: #052026;
         font: inherit;
         font-weight: 700;
         cursor: pointer;
+        transition:
+          filter 0.12s,
+          transform 0.06s;
       }
       .menu-go:hover {
-        background: #a6f6ff;
+        filter: brightness(1.08);
+      }
+      .menu-go:active {
+        transform: translateY(1px);
+      }
+      .menu-go:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
       }
       .menu-go--ghost {
         margin-top: 8px;
         background: transparent;
-        border: 1px solid #2b3650;
+        border: 1px solid rgba(126, 160, 200, 0.28);
         color: #cdd8e8;
         font-weight: 600;
       }
       .menu-go--ghost:hover {
-        border-color: #3d4d72;
-        background: #131a29;
+        border-color: rgba(126, 242, 255, 0.5);
+        background: rgba(19, 26, 41, 0.6);
+        filter: none;
+      }
+      /* A button sharing a row with an input (e.g. Join beside the code field)
+         sizes to its label instead of stealing the whole row. */
+      .menu-row .menu-go {
+        width: auto;
+        margin-top: 0;
+        white-space: nowrap;
+      }
+      .menu-lobbies {
+        display: flex;
+        flex-direction: column;
+        max-height: 210px;
+        overflow-y: auto;
       }
       .menu-lobby {
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 7px 0;
-        border-bottom: 1px solid #1c2436;
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(126, 160, 200, 0.12);
       }
       .menu-lobby-name {
         flex: 1;
@@ -322,7 +396,7 @@
       .menu-lobby .menu-go {
         width: auto;
         margin-top: 0;
-        padding: 7px 12px;
+        padding: 7px 13px;
       }
       .menu-lobby .menu-code {
         letter-spacing: normal;
@@ -334,7 +408,7 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        margin: 6px 0;
+        margin: 8px 0;
         color: #b6c2d4;
         cursor: pointer;
       }
@@ -343,7 +417,7 @@
       }
       .menu-hint {
         margin: 8px 0 0;
-        color: #8ea0ba;
+        color: #8093a9;
         font-size: 12.5px;
       }
       .menu-hint a {
@@ -357,13 +431,14 @@
       }
       .menu-footer {
         display: flex;
-        gap: 8px;
-        margin-top: 16px;
+        gap: 6px;
+        margin-top: auto;
+        padding-top: 8px;
       }
       .menu-link {
-        padding: 6px 10px;
+        padding: 7px 11px;
         border: 1px solid transparent;
-        border-radius: 8px;
+        border-radius: 9px;
         background: transparent;
         color: #9fb0c8;
         font: inherit;
@@ -372,10 +447,11 @@
       }
       .menu-link:hover {
         color: #e2e8f0;
+        background: rgba(19, 26, 41, 0.5);
       }
       .menu-link.is-active {
         color: #7ef2ff;
-        border-color: #26304a;
+        border-color: rgba(126, 242, 255, 0.3);
       }
       .menu-link--accent {
         margin-left: auto;
@@ -383,13 +459,13 @@
       }
       .menu-h2 {
         margin: 4px 0 8px;
-        font-size: 13px;
-        letter-spacing: 0.08em;
+        font-size: 12px;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
-        color: #8ea0ba;
+        color: #7f8ea6;
       }
       .menu-h2:not(:first-child) {
-        margin-top: 14px;
+        margin-top: 16px;
       }
       .menu-keys {
         display: grid;
@@ -410,9 +486,32 @@
         font-size: 13px;
       }
       .menu-credits {
-        margin-top: 14px;
         color: #55617a;
         font-size: 11px;
+      }
+      #fade-cover {
+        position: fixed;
+        inset: 0;
+        background: #06080d;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+        z-index: 30;
+      }
+      #fade-cover.is-on {
+        opacity: 1;
+      }
+      @media (max-width: 640px) {
+        .menu-rail {
+          width: 100vw;
+          border-right: 0;
+        }
+        .menu-scrim {
+          width: 100%;
+        }
+        .menu-title {
+          font-size: 38px;
+        }
       }
     </style>
   </head>

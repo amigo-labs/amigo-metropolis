@@ -24,7 +24,6 @@ import {
   CONSOLE_HOLD_TICKS,
   createSim,
   createTickInputs,
-  DISTRICT_01_ID,
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   MAX_ENTITIES,
@@ -37,6 +36,7 @@ import {
   step,
   TICK_HZ,
   type TickInputs,
+  URBAN_JUNGLE_ID,
   worldExtent,
   writeSnapshot,
 } from "@metropolis/sim";
@@ -70,7 +70,7 @@ import {
 const params = new URLSearchParams(location.search);
 // `let`: online the server's MSG_WELCOME config is authoritative — a joiner
 // whose URL names a different arena rebuilds map + scene (see rebuildArena).
-let map = getMapById(params.get("map") ?? DISTRICT_01_ID);
+let map = getMapById(params.get("map") ?? URBAN_JUNGLE_ID);
 // ?online=<CODE> is 1v1 lockstep; it owns both slots, so the Warden stays off.
 const onlineCode = normalizeCode(params.get("online"));
 // ?p2p=<CODE> is 1v1 lockstep too, but lobby-brokered and peer-to-peer over
@@ -279,8 +279,9 @@ function rebuildArena(mapId: string): void {
 type Phase = "menu" | "connecting" | "match";
 let phase: Phase = netMode ? "connecting" : explicitMode ? "match" : "menu";
 
-// Flyover camera for the menu/lobby/connecting backdrop world.
-const flyCam = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
+// Flyover camera for the menu/lobby/connecting backdrop world. A tighter FOV
+// than the in-match rigs keeps the arena filling the frame (no void horizon).
+const flyCam = new THREE.PerspectiveCamera(26, innerWidth / innerHeight, 0.1, 2000);
 // Menu→match camera blend (solo starts): flyover pose eases into the chase rig.
 const blend = createCameraBlend();
 
@@ -901,6 +902,21 @@ function connectP2pMode(code: string): void {
 let menuHandle: MenuHandle | undefined;
 
 /**
+ * Menu arena preview: swap the live backdrop world to the picked arena so the
+ * picker doubles as a full-3D preview. Menu-only — once a match or connection
+ * starts, the arena is pinned by handleMenuChoice/the net handshake. Reuses
+ * rebuildArena (updates map + extent + scene) then reseats the throwaway demo
+ * battle on the new arena, exactly like the frame loop's demo-gate reset.
+ */
+function previewArena(mapId: string): void {
+  if (phase !== "menu" || mapId === map.id) return;
+  rebuildArena(mapId);
+  sim = createDemoSim(map);
+  countPrev = 0;
+  countCurr = writeSnapshot(sim, snapCurr);
+}
+
+/**
  * In-process mode start for menu choices — the live demo world morphs into the
  * match instead of reloading the page. The URL is pushState()d to the matching
  * deep link (carrying a ?relay override), so it stays shareable and a refresh
@@ -951,7 +967,7 @@ if (online) {
   // in-process. The reticle/crosshair only makes sense in a live match.
   reticle.style.display = "none";
   document.body.style.cursor = "default";
-  menuHandle = runMenu({ audio, onChoice: handleMenuChoice });
+  menuHandle = runMenu({ audio, onChoice: handleMenuChoice, onSelect: previewArena });
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
