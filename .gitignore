@@ -12,5 +12,11 @@ tools/mapalyze/_local/
 # throwaways; only the `integrate`d map textures (public/models/) get committed.
 tools/fcop/_local/
 
+# Debug texture variants (atlas_repack.py): committed for la-cantina only (owner
+# decision) so the 0/1/2/3 switcher works in the preview deploy; other maps keep
+# them local — copy from the RE-repo extracted/meshes/<Cont>/atlas/ when needed.
+packages/client/public/models/*/atlas-*.png
+!packages/client/public/models/la-cantina/atlas-*.png
+
 # wrangler dev local state (packages/server bun run dev)
 .wrangler/

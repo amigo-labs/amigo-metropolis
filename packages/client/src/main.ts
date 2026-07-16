@@ -54,6 +54,7 @@ import { openP2pSession, readP2pBootstrap } from "./net/p2pSession";
 import { WsTransport } from "./net/wsTransport";
 import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
+import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import { loadMapMesh } from "./render/meshMap";
 import { ATMOSPHERE_HEX } from "./render/palette";
@@ -65,6 +66,7 @@ import {
   buildWallMesh,
   buildWaterPlane,
 } from "./render/terrain";
+import { createVariantSwitcher, type VariantSwitcher } from "./render/texVariants";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -81,6 +83,9 @@ const online = onlineCode !== null;
 const p2p = !online && p2pCode !== null;
 const netMode = online || p2p;
 const orbitMode = !netMode && params.get("cam") === "orbit";
+// ?cam=fly: free-fly debug camera (render/flyCamera.ts) — noclip navigation for
+// inspecting map meshes / texture variants. Solo-only, like orbit.
+const flyMode = !netMode && params.get("cam") === "fly";
 // Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
 aimAssist.mode = parseAimAssistMode(params.get("aim"));
 
@@ -301,7 +306,11 @@ function buildArenaGroup(m: typeof map): THREE.Group {
   if (renderMode === "mesh") {
     // Async: textured terrain mesh (incl. decks) added when loaded; maps
     // without a local asset fall back to greybox terrain instead of nothing.
-    loadMapMesh(m, group, buildGreyboxTerrain);
+    // The materials callback arms the debug texture-variant switcher (0/1/2/3).
+    loadMapMesh(m, group, buildGreyboxTerrain, (materials) => {
+      texSwitcher = createVariantSwitcher(m.id, materials);
+      refreshDebugLabel();
+    });
   } else {
     buildGreyboxTerrain();
   }
@@ -325,6 +334,11 @@ function rebuildArena(mapId: string): void {
   if (mapId === map.id) return;
   map = getMapById(mapId);
   extent = worldExtent(map);
+  // Debug variant textures are per-map: free them before the arena they
+  // belong to goes away (the switcher is re-armed by buildArenaGroup's
+  // onMaterials callback once the new mesh loads).
+  texSwitcher?.dispose();
+  texSwitcher = null;
   scene.remove(arenaGroup);
   arenaGroup.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
@@ -415,6 +429,48 @@ function refreshOverlay(): void {
   }
   setOverlay(text);
 }
+
+// --- Debug tooling: texture-variant switcher + fly-cam label -------------------
+// Armed by buildArenaGroup's onMaterials callback (mesh render path only).
+// Hotkeys 0/1/2/3 swap the map's atlas texture between the shipped default and
+// the original/esrgan/gemini variants (render/texVariants.ts, 404-tolerant).
+let texSwitcher: VariantSwitcher | null = null;
+const flyState = createFlyState();
+
+// Small fixed DOM label (overlay idiom: only write on change). Shows the fly
+// controls and the active texture variant while debugging.
+const debugLabelEl = document.createElement("div");
+debugLabelEl.style.cssText =
+  "position:fixed;left:8px;bottom:8px;z-index:30;padding:4px 8px;" +
+  "font:12px/1.4 monospace;color:#cfd8e3;background:rgba(10,14,20,.7);" +
+  "border-radius:4px;pointer-events:none;display:none;white-space:pre";
+document.body.appendChild(debugLabelEl);
+let debugLabelText: string | null = null;
+
+function refreshDebugLabel(): void {
+  if (!flyMode && !texSwitcher) return;
+  const parts: string[] = [];
+  if (texSwitcher)
+    parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan [3]=gemini`);
+  if (flyMode) parts.push("fly: WASD+QE move, Shift fast, click=mouse-look (ESC releases)");
+  const text = parts.join("\n");
+  if (text === debugLabelText) return;
+  debugLabelText = text;
+  debugLabelEl.textContent = text;
+  debugLabelEl.style.display = text ? "block" : "none";
+}
+
+// Variant hotkeys: plain digits are unused by gameplay (movement/fire live on
+// WASD/JKL, see input/keyboard.ts BUTTON_KEYS) — safe for debug bindings.
+addEventListener("keydown", (e) => {
+  if (!texSwitcher) return;
+  if (e.code === "Digit0") texSwitcher.setVariant("default");
+  else if (e.code === "Digit1") texSwitcher.setVariant("original");
+  else if (e.code === "Digit2") texSwitcher.setVariant("esrgan");
+  else if (e.code === "Digit3") texSwitcher.setVariant("gemini");
+  else return;
+  refreshDebugLabel();
+});
 
 /** Triggers a browser download of a dumped replay (desync forensics, §6). */
 function downloadReplay(bytes: Uint8Array, name: string): void {
@@ -715,7 +771,11 @@ function frame(now: number): void {
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
       view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
-      if (orbitControls && v === 0) {
+      if (flyMode && v === 0) {
+        // Free-fly debug camera owns view 0's posing (render/flyCamera.ts) —
+        // rig and blend are skipped, exactly like orbit below.
+        updateFlyCamera(flyState, view.camera, dtSec);
+      } else if (orbitControls && v === 0) {
         orbitControls.update();
       } else {
         updateRigCamera(view, dtSec);
@@ -733,6 +793,9 @@ function frame(now: number): void {
   hudFrames++;
   if (now - hudLastUpdate > 1000) {
     refreshHud(hudFrames);
+    // Debug label piggybacks on the 1 Hz cadence so async texture-load status
+    // ("loading..." -> "esrgan"/"missing") surfaces without a keypress.
+    refreshDebugLabel();
     hudFrames = 0;
     hudLastUpdate = now;
   }
@@ -770,6 +833,11 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
     orbitControls.target.set(extent / 2, 0, extent / 2);
     orbitControls.enableDamping = true;
     orbitControls.update();
+  }
+  if (flyMode && views.length === 1) {
+    initFlyInput(flyState, renderer.domElement);
+    poseFlyStart(flyState, views[0].camera, extent);
+    refreshDebugLabel();
   }
   // The mouse reticle only makes sense for a single full-window pointer player.
   reticle.style.display = views.length === 1 ? "block" : "none";
