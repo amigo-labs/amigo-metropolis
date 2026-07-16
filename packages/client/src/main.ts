@@ -118,7 +118,37 @@ let sim: SimState = netMode
 // ?debug exposes the live sim for the console / e2e harness (host-side only,
 // like the debug HUD — nothing in the sim or renderer reads it back).
 if (params.has("debug") && !netMode) {
-  (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
+  const dbg = globalThis as {
+    metropolisSim?: SimState;
+    metropolisSetCamera?: (
+      px: number,
+      py: number,
+      pz: number,
+      tx: number,
+      ty: number,
+      tz: number,
+    ) => boolean;
+  };
+  dbg.metropolisSim = sim;
+  // Host-side debug hook (like metropolisSim above): lets an e2e/screenshot
+  // harness place the single arena-view camera at a fixed pose looking at a
+  // target. Render-only — nothing in the sim or renderer reads it back, so no
+  // determinism impact. Needs ?cam=orbit: the frame loop's OrbitControls.update
+  // keeps a manually set pose (no input deltas), whereas the chase rig would
+  // overwrite the camera every frame. Returns false until the view exists.
+  dbg.metropolisSetCamera = (px, py, pz, tx, ty, tz) => {
+    const view = views[0];
+    if (!view) return false;
+    view.camera.position.set(px, py, pz);
+    if (orbitControls) {
+      orbitControls.target.set(tx, ty, tz);
+      orbitControls.update();
+    } else {
+      view.camera.lookAt(tx, ty, tz);
+      view.camera.updateMatrixWorld();
+    }
+    return true;
+  };
 }
 
 // --- Online helpers (no-ops unless ?online) ----------------------------------

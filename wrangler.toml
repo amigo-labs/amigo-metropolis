@@ -92,6 +92,12 @@ new_sqlite_classes = ["LobbyDO", "DirectoryDO", "GatekeeperDO"]
 main = "packages/server/src/preview.ts"
 workers_dev = true
 preview_urls = true
+# The preview Worker is DO-free (preview.ts exports no DO classes). Override the
+# top-level [[migrations]] with an empty set for this env: otherwise they leak in
+# and `wrangler versions upload --env preview` (the versioned mode that mints
+# preview URLs) fails, because a versioned upload cannot apply a Durable Object
+# migration (error 10211).
+migrations = []
 
 [env.preview.assets]
 directory = "packages/client/dist"

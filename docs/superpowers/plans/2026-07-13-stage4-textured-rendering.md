@@ -7,9 +7,16 @@
 > umgesetzt: Die Assets aller 6 Arenen sind aus dem RE-Repo übernommen und
 > committet (Owner-Entscheidung 2026-07-15 hebt die Keep-local-Entscheidung
 > vom 2026-07-14 auf; Provenance in `CREDITS.md`, Mapping in
-> `public/models/README.md`). Offen bleibt allein die visuelle Verifikation
-> auf echter GPU. Aktueller Status: `PLAN.md` Phase 10. Die Checkboxen unten
-> werden nicht nachgepflegt.
+> `public/models/README.md`).
+>
+> **Status (2026-07-16): ABGESCHLOSSEN.** Die visuelle Verifikation läuft
+> jetzt headless über Chromium + SwiftShader (Software-WebGL) via
+> `bun run verify:arenas` (`tools/replay/src/arenaShots.ts`); Screenshots unter
+> `docs/verification/stage4-arenas/`. Dabei kam ein Alignment-Bug hoch: die
+> origin-zentrierten `.glb` wurden von `buildArenaGroup` nie in den Sim-Frame
+> `[0, extent]` versetzt — jetzt zentriert `loadMapMesh` das Mesh selbst.
+> Aktueller Status: `PLAN.md` Phase 10 (DONE). Die Checkboxen unten werden
+> nicht nachgepflegt.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
