@@ -93,9 +93,14 @@ def cmd_lanczos(a) -> int:
 
 
 def cmd_esrgan(a) -> int:
+    out = variant_dir(a.map, "esrgan")
+    return _esrgan_ncnn(a, out) if a.bin else _esrgan_pip(a, out)
+
+
+def _esrgan_ncnn(a, out) -> int:
+    """Upscale via the portable realesrgan-ncnn-vulkan binary (Vulkan GPU)."""
     if not os.path.isfile(a.bin):
         sys.exit(f"binary not found: {a.bin}")
-    out = variant_dir(a.map, "esrgan")
     ok = True
     for t in textures(a.map):
         src = os.path.join(map_dir(a.map), f"{t}.png")
@@ -113,6 +118,40 @@ def cmd_esrgan(a) -> int:
         print(f"esrgan {t} -> {w}x{h}{warn}")
     print("out:", out)
     return 0 if ok else 1
+
+
+# model name -> (weights url auto-downloaded by RealESRGANer, num RRDB blocks)
+_ESRGAN_WEIGHTS = {
+    "realesrgan-x4plus": (
+        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth", 23),
+    "realesrgan-x4plus-anime": (
+        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth", 6),
+}
+
+
+def _esrgan_pip(a, out) -> int:
+    """Upscale via the pip `realesrgan` API (installed by tools/fcop/upscale-esrgan.sh)."""
+    try:
+        import cv2
+        from basicsr.archs.rrdbnet_arch import RRDBNet
+        from realesrgan import RealESRGANer
+    except ImportError as ex:
+        sys.exit(f"pip realesrgan stack missing ({ex}). Run tools/fcop/upscale-esrgan.sh "
+                 "(it installs the venv + patches basicsr), or pass --bin for the ncnn binary.")
+    url, num_block = _ESRGAN_WEIGHTS.get(a.model, _ESRGAN_WEIGHTS["realesrgan-x4plus"])
+    model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=num_block, num_grow_ch=32, scale=4)
+    up = RealESRGANer(scale=4, model_path=url, model=model, tile=0, tile_pad=10, pre_pad=0, half=False)
+    for t in textures(a.map):
+        src = os.path.join(map_dir(a.map), f"{t}.png")
+        dst = os.path.join(out, f"{t}.png")
+        img = cv2.imdecode(np.fromfile(src, dtype=np.uint8), cv2.IMREAD_COLOR)  # Windows-safe read
+        output, _ = up.enhance(img, outscale=a.scale)
+        cv2.imencode(".png", output)[1].tofile(dst)  # Windows-safe write
+        h, w = output.shape[:2]
+        warn = "" if is_pot(w) and w == h else f"  <-- not square PoT ({w}x{h})!"
+        print(f"esrgan(pip) {t} -> {w}x{h}{warn}")
+    print("out:", out)
+    return 0
 
 
 def cmd_gemini(a) -> int:
@@ -240,7 +279,8 @@ def main() -> int:
 
     q = sub.add_parser("lanczos"); add_map(q); q.add_argument("--size", type=int, default=1024); q.set_defaults(fn=cmd_lanczos)
     q = sub.add_parser("esrgan"); add_map(q)
-    q.add_argument("--bin", required=True); q.add_argument("--model", default="realesrgan-x4plus")
+    q.add_argument("--bin", default=None, help="realesrgan-ncnn-vulkan binary; omit to use the pip realesrgan API")
+    q.add_argument("--model", default="realesrgan-x4plus")
     q.add_argument("--model-dir", default=None); q.add_argument("--scale", type=int, default=4); q.set_defaults(fn=cmd_esrgan)
     q = sub.add_parser("gemini"); add_map(q)
     q.add_argument("--model", default="gemini-2.5-flash-image"); q.add_argument("--size", type=int, default=1024)
