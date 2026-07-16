@@ -136,7 +136,7 @@ def _esrgan_pip(a, out) -> int:
         from basicsr.archs.rrdbnet_arch import RRDBNet
         from realesrgan import RealESRGANer
     except ImportError as ex:
-        sys.exit(f"pip realesrgan stack missing ({ex}). Run tools/fcop/upscale-esrgan.sh "
+        sys.exit(f"pip realesrgan stack missing ({ex}). Run tools/fcop/upscale.sh "
                  "(it installs the venv + patches basicsr), or pass --bin for the ncnn binary.")
     url, num_block = _ESRGAN_WEIGHTS.get(a.model, _ESRGAN_WEIGHTS["realesrgan-x4plus"])
     model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=num_block, num_grow_ch=32, scale=4)

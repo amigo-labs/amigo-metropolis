@@ -23,8 +23,12 @@ venv_py() {
 ensure_venv() {
   PY="$(venv_py)"
   if [ -z "$PY" ]; then
+    # python3 first: Debian/Ubuntu ship no bare `python` by default.
+    local sys_py
+    sys_py="$(command -v python3 || command -v python)" \
+      || { echo "!! no python3/python on PATH"; return 1; }
     echo ">> creating venv at $VENV"
-    python -m venv "$VENV" || { echo "!! venv creation failed"; return 1; }
+    "$sys_py" -m venv "$VENV" || { echo "!! venv creation failed"; return 1; }
     PY="$(venv_py)"
     "$PY" -m pip install --quiet --upgrade pip
   fi
