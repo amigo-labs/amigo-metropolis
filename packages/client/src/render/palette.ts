@@ -126,3 +126,22 @@ export const TERRAIN_HEX = {
   riverbed: paletteHex("riverbed"),
   water: paletteHex("water"),
 } as const;
+
+/**
+ * Scene atmosphere — sky-gradient stops, distance-fog haze and light tints for
+ * the Blade-Runner-ish dusk mood. Deliberately NOT part of the indexed PALETTE:
+ * these are environment/lighting colors, not swappable surface albedos, so they
+ * stay out of the .pal / palette-swap index (which is fixed at PALETTE.length).
+ * The mood lives in the sky + fog; surface lighting stays near-neutral so the
+ * map textures keep their own colors. sRGB hex.
+ */
+export const ATMOSPHERE_HEX = {
+  skyZenith: 0x1a2338, // deep indigo overhead
+  skyHorizon: 0x7a4a2a, // narrow warm amber smog band at the horizon
+  skyHaze: 0x3a3f47, // cool haze just below the horizon
+  skyNadir: 0x232833, // dark cool ground-side of the dome
+  fog: 0x2e3540, // distance-fog haze (fades the far ground / hides the edge)
+  lightAmbient: 0xccd2dc, // bright near-neutral fill so textures stay true
+  lightKey: 0xfff2e6, // gentle warm key
+  lightFill: 0xbcd0ff, // subtle cool fill for the teal/amber split
+} as const;

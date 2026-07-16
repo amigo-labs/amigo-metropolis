@@ -56,6 +56,7 @@ import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/cam
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import { loadMapMesh } from "./render/meshMap";
+import { ATMOSPHERE_HEX } from "./render/palette";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
@@ -241,14 +242,51 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.setScissorTest(true); // each player view renders scissored to its rect
 document.body.appendChild(renderer.domElement);
 
+// Dusk sky gradient (Blade-Runner-ish): deep indigo zenith, a narrow warm amber
+// smog band at the horizon, cool haze/nadir below. Built once as an
+// equirectangular canvas texture so it tracks camera orientation with a true
+// world horizon, costs no geometry, and is never touched by fog.
+function makeSkyTexture(): THREE.Texture {
+  const css = (h: number) => `#${h.toString(16).padStart(6, "0")}`;
+  const canvas = document.createElement("canvas");
+  canvas.width = 4;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2D canvas context unavailable for sky gradient");
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height); // top = zenith
+  grad.addColorStop(0.0, css(ATMOSPHERE_HEX.skyZenith));
+  grad.addColorStop(0.44, css(ATMOSPHERE_HEX.skyZenith)); // hold indigo up high
+  grad.addColorStop(0.5, css(ATMOSPHERE_HEX.skyHorizon)); // thin amber smog band
+  grad.addColorStop(0.56, css(ATMOSPHERE_HEX.skyHaze));
+  grad.addColorStop(1.0, css(ATMOSPHERE_HEX.skyNadir));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0e14);
-scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
-sun.position.set(120, 180, 60);
-sun.matrixAutoUpdate = false;
-sun.updateMatrix();
-scene.add(sun);
+scene.background = makeSkyTexture();
+// Distance fog fades the far ground into the dusk haze before the arena edge /
+// void can be framed (at the ACTION pitch the camera sees ~170u past its focus).
+// near/far are the primary playtest knobs: keep gameplay crisp, hide the edge.
+scene.fog = new THREE.Fog(ATMOSPHERE_HEX.fog, 55, 190);
+// High-key, near-neutral lighting: the map textures keep their own colors, the
+// mood lives in the sky + fog. Warm key + subtle cool fill = a gentle teal/amber
+// split without a surface color cast.
+scene.add(new THREE.AmbientLight(ATMOSPHERE_HEX.lightAmbient, 0.9));
+const keyLight = new THREE.DirectionalLight(ATMOSPHERE_HEX.lightKey, 2.2);
+keyLight.position.set(120, 180, 60);
+keyLight.matrixAutoUpdate = false;
+keyLight.updateMatrix();
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(ATMOSPHERE_HEX.lightFill, 0.7);
+fillLight.position.set(-110, 90, -80);
+fillLight.matrixAutoUpdate = false;
+fillLight.updateMatrix();
+scene.add(fillLight);
 // All static arena visuals live in one group so an online joiner can swap the
 // arena wholesale when the authoritative config names a different map.
 function buildArenaGroup(m: typeof map): THREE.Group {
