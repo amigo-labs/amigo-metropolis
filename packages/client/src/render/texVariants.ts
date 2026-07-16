@@ -58,6 +58,9 @@ export function createVariantSwitcher(
   }
   let active: VariantName = "default";
   let statusLine = "tex: default";
+  // Set by dispose(): the arena (and its materials) is gone, so late loader
+  // callbacks must not touch materials and must free the texture they created.
+  let disposed = false;
 
   const apply = (tex: THREE.Texture | null, name: VariantName) => {
     for (let i = 0; i < materials.length; i++) {
@@ -90,6 +93,12 @@ export function createVariantSwitcher(
     loader.load(
       `/models/${mapId}/${TEX_VARIANTS[name as keyof typeof TEX_VARIANTS]}`,
       (tex) => {
+        if (disposed) {
+          // Map was swapped while this variant loaded: the materials this
+          // switcher was built for are gone — drop the texture, don't apply.
+          tex.dispose();
+          return;
+        }
         // Match the glTF sampler the shipped atlas uses: glTF textures are NOT
         // v-flipped, sRGB base color, repeat wrap, trilinear + anisotropy.
         tex.flipY = false;
@@ -106,6 +115,7 @@ export function createVariantSwitcher(
       },
       undefined,
       () => {
+        if (disposed) return;
         slot.state = "missing";
         statusLine = `tex: ${name} (missing)`;
       },
@@ -117,6 +127,12 @@ export function createVariantSwitcher(
     active: () => active,
     status: () => statusLine,
     dispose: () => {
+      if (disposed) return;
+      // Point the materials back at their shipped textures first, so a variant
+      // never dangles on a material and rebuildArena's mat.map.dispose() frees
+      // the shipped atlas (not an already-disposed variant, leaking the atlas).
+      apply(null, "default");
+      disposed = true;
       for (const slot of slots.values()) {
         slot.tex?.dispose();
         slot.tex = null;

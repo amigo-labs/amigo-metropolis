@@ -339,6 +339,7 @@ function rebuildArena(mapId: string): void {
   // onMaterials callback once the new mesh loads).
   texSwitcher?.dispose();
   texSwitcher = null;
+  refreshDebugLabel(); // hide the variant line immediately, not at the 1 Hz tick
   scene.remove(arenaGroup);
   arenaGroup.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
@@ -448,7 +449,8 @@ document.body.appendChild(debugLabelEl);
 let debugLabelText: string | null = null;
 
 function refreshDebugLabel(): void {
-  if (!flyMode && !texSwitcher) return;
+  // No early return when nothing is active: after rebuildArena drops the
+  // switcher the label must hide (empty text) instead of staying stale.
   const parts: string[] = [];
   if (texSwitcher)
     parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan [3]=gemini`);
