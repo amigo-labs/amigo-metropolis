@@ -217,7 +217,7 @@ the synthetic `layered-test` map; client renders upper decks via
 `buildDeckMeshes`. Merged in PR #14. Execution plan (checkboxes historical, all
 work landed): `docs/superpowers/plans/2026-07-12-layered-v2.md`.
 
-## Phase 10 — Textured map rendering (Stage 4) — IN PROGRESS
+## Phase 10 — Textured map rendering (Stage 4) — DONE
 
 FCOP-derived textured map meshes as an alternative render path. Part A (the UV
 extraction pipeline, `til_mesh.py`) lives in the private RE repo, not here.
@@ -240,12 +240,17 @@ live deploy ships them too. Spec + plan:
       COMMITTED under `public/models/<map-id>/`; verified: every `.glb` is
       valid glTF v2 with all external texture URIs resolving, and Vite
       serves each `/models/<id>/<id>.glb` with HTTP 200
-- [ ] Visual verification on a real GPU browser (the headless dev env runs no
-      rAF loop). Per map: open `/?map=<id>&render=mesh&debug`, check the mesh
-      loads textured and aligned against `render=greybox` (same base/marker
-      positions), no console errors; on `venice-beach` check the upper decks
-      specifically; screenshot each arena, greybox↔mesh comparison for at
-      least Hollywood Keys
+- [x] Visual verification via headless render. The dev env has no GPU, so this
+      runs in Chromium over SwiftShader (software WebGL, with a live rAF loop) —
+      `bun run verify:arenas` (harness: `tools/replay/src/arenaShots.ts`). All 6
+      arenas load textured with no console/page/asset errors and no greybox
+      fallback; venice-beach decks render; greybox↔mesh screenshots for every
+      arena committed under `docs/verification/stage4-arenas/`. This surfaced +
+      fixed a real alignment bug: the `.glb`s are authored origin-centered, but
+      `buildArenaGroup` never applied the offset its own comment described, so
+      the meshes floated off the sim/greybox frame (bases on water). `loadMapMesh`
+      now re-centres the mesh into the sim's `[0, extent]` frame. A final glance
+      on real GPU hardware stays optional (SwiftShader can't show driver quirks).
 
 ## Backlog (post-v1, do not start)
 
