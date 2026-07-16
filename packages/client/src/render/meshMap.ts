@@ -1,8 +1,8 @@
 // Stage 4: textured map render path. Loads the .glb built from the FCOP Til data
 // (private RE pipeline) and adds it to the arena group. Init-time only; GLTFLoader
 // is async, so the .then() fills the (initially empty) group once loaded.
-import type { MapData } from "@metropolis/sim";
-import type * as THREE from "three";
+import { type MapData, worldExtent } from "@metropolis/sim";
+import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const loader = new GLTFLoader();
@@ -11,8 +11,8 @@ const loader = new GLTFLoader();
  * Loads the textured map mesh for `map.id` into `group`. When no asset exists
  * for the map (assets live outside this repo), warns and calls `onMissing` so
  * the caller can build the greybox terrain instead of leaving the world empty.
- * Alignment: the .glb is authored in the extractor's origin-centered frame; the
- * caller positions `group` so the mesh lines up with the greybox/collision.
+ * The .glb is authored origin-centered; this loader re-centres it into the sim's
+ * [0, extent] frame (see below) so it lines up with the greybox/collision.
  */
 export function loadMapMesh(map: MapData, group: THREE.Group, onMissing?: () => void): void {
   const url = `/models/${map.id}/${map.id}.glb`;
@@ -32,6 +32,16 @@ export function loadMapMesh(map: MapData, group: THREE.Group, onMissing?: () => 
         mesh.matrixAutoUpdate = false;
         mesh.updateMatrix();
       });
+      // Alignment: the .glb is authored in the extractor's origin-centered
+      // frame (bbox straddles 0), while the sim/greybox/markers live in
+      // [0, extent]. Translate the mesh so its footprint centre sits at the
+      // arena centre (XZ) and its lowest point rests at y=0, matching the
+      // greybox terrain. Init-time, so the Box3 allocation is fine.
+      gltf.scene.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(gltf.scene);
+      const centre = box.getCenter(new THREE.Vector3());
+      const half = worldExtent(map) / 2;
+      gltf.scene.position.set(half - centre.x, -box.min.y, half - centre.z);
       gltf.scene.matrixAutoUpdate = false;
       gltf.scene.updateMatrix();
       group.add(gltf.scene);
