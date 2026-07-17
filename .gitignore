@@ -4,13 +4,9 @@ dist/
 .vite/
 coverage/
 
-# mapalyze: raw FCMissionReader exports must NEVER be committed (PLAN.md §2).
-# Only the abstracted mapalyze output under docs/specs/maps/_references/ may be.
-tools/mapalyze/_local/
-
 # upscaleTextures.py working dir: upscale variants + comparison sheets are local
 # throwaways; only the `integrate`d map textures (public/models/) get committed.
-tools/fcop/_local/
+tools/textures/_local/
 
 # Texture atlas variants (atlas_repack.py). atlas-original.png ships for EVERY
 # map — it backs the player-facing "Textures: Original / HD" option. The debug

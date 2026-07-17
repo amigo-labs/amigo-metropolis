@@ -42,8 +42,6 @@ forever as a debug render mode (`?render=greybox`).
 - **FCOP-derived map data may be committed.** Functional map data (heightfields,
   nav/lane data) extracted or rebuilt from the original game may live in the repo
   (e.g. `packages/sim/maps/*.json`), provided provenance is noted in `CREDITS.md`.
-  mapalyze's stricter no-raw-geometry guardrails scope to that tool's abstracted
-  analysis pipeline only — not to committed map data.
 - **EA / Future Cop names, logos, and designs may be used** ("Future Cop",
   "Precinct Assault", X1-Alpha, etc.).
 - Note third-party asset sources in `CREDITS.md` for provenance where known.

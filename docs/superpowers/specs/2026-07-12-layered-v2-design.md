@@ -181,7 +181,7 @@ Rang wechselt. Abgefedert dadurch, dass die Sim-Übergangsregel (§7) tolerant i
 höchste *erreichbare* Fläche, keinen exakten Rang-Match. Ein Rang-Sprung an einer Rampe führt
 schlimmstenfalls zu einem Tick verzögertem Wechsel, nicht zu einem Determinismus- oder Durchlauf-Bruch.
 
-## 11. Konverter (`tools/fcop/convert.ts`)
+## 11. Konverter (`tools/generators/convert.ts`)
 
 - `TerrainJson` um optionales `layers` erweitern → 1:1 in das Map-JSON `layers` durchreichen.
 - Feature-Authoring (`ArenaSpec`): optionales `layer` pro Feature (spawns/bases/lanes/spots), Default 0
@@ -202,7 +202,7 @@ nie driften. `?render=greybox` bleibt erhalten. Kein Determinismus-/Snapshot-Imp
   einer Rampe, integer-Höhen, committet in `packages/sim/maps/`. Kein FCOP-Input nötig.
 - **Unit-Tests** (`packages/sim/test/`): `resolveHeight` (Layer 0 vs. oben, No-op-Pfad),
   Übergangsregel (Rampe rauf, Kanten-Fall, kein Wechsel unter hohem Dach), Separation pro Ebene.
-- **`golden-06-layered`** (`tools/replay/src/scripts.ts` + `packages/sim/test/goldens/`): Avatar läuft
+- **`golden-06-layered`** (`tools/determinism/src/scripts.ts` + `packages/sim/test/goldens/`): Avatar läuft
   Rampe → Dach → quert → fällt von der Kante; Einheiten separieren deck-weise. Pin-Test wie
   `district01.test.ts` (Hash von `heights.buffer` + Layer-Buffern + Playability-Asserts).
 - **Regression:** Goldens 01–04 Hash-Arrays byte-identisch (No-op-Beweis). `determinismGuard` grün.
@@ -216,7 +216,7 @@ nie driften. `?render=greybox` bleibt erhalten. Kein Determinismus-/Snapshot-Imp
 - `packages/sim/src/units.ts` — `snapUnitHeight` (Layer), `stepAndSnap`, `separateGroundUnits` (pro Ebene).
 - `packages/sim/src/warden.ts` — Cruise-Höhe (`:353`).
 - `packages/sim/src/version.ts` — `SIM_VERSION` 10.
-- `tools/fcop/convert.ts` — `layers` + Feature-`layer` + Sanity.
+- `tools/generators/convert.ts` — `layers` + Feature-`layer` + Sanity.
 - `packages/client/src/render/` — Deck-Meshes.
 - Tests: `layered-test.json`, neue Unit-Tests, `golden-06-layered`, Regressionscheck 01–04,
   `determinismGuard.test.ts`.

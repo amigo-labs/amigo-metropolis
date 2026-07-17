@@ -9,7 +9,7 @@ Regenerate with:
 bun run verify:arenas
 ```
 
-The harness (`tools/replay/src/arenaShots.ts`) starts the Vite dev server,
+The harness (`tools/determinism/src/arenaShots.ts`) starts the Vite dev server,
 launches Chromium, and for each arena loads `/?map=<id>&render=mesh&debug&cam=orbit`,
 confirming the `.glb` loads (HTTP 200, no greybox fallback) with no console/page
 errors, then shoots the identical camera in both `render=mesh` and `render=greybox`

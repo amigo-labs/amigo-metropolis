@@ -2,7 +2,7 @@
 // urban-jungle (which has its own file): proving-ground (mission Slim),
 // la-cantina (mission Mp) and bug-hunt (mission Joke), each with an exact
 // heights-hash pin. The heightfields are extracted 1:1 from the original
-// missions (int8, 1/32 m units) by tools/fcop/convert.ts; regenerating one
+// missions (int8, 1/32 m units) by tools/generators/convert.ts; regenerating one
 // changes gameplay everywhere it is sampled, so a changed pin means a
 // SIM_VERSION bump + golden regeneration for every golden recorded on it.
 //
@@ -28,7 +28,7 @@ interface ArenaExpectation {
   laneCount: number;
   /** Flat ground height of the base zones (spawn/base structure elevation). */
   groundHeight: number;
-  /** Pinned after generation (tools/fcop/convert.ts); see header contract. */
+  /** Pinned after generation (tools/generators/convert.ts); see header contract. */
   heightsPin: number;
   /** FNV-1a pins over the loaded wall bit arrays — the collision geometry. */
   wallsVPin: number;

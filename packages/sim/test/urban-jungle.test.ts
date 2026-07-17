@@ -1,7 +1,7 @@
 // Schema + playability validation for the committed urban-jungle map (the FCOP
 // "Urban Jungle" arena, mission Conft), plus an exact hash pin. The heightfield
 // is extracted 1:1 from the original mission (int8, 1/32 m units) by
-// tools/fcop/convert.ts; regenerating it changes gameplay everywhere it is
+// tools/generators/convert.ts; regenerating it changes gameplay everywhere it is
 // sampled, so a changed pin means a SIM_VERSION bump + golden regeneration for
 // every golden recorded on this map.
 //
@@ -148,7 +148,7 @@ describe("urban-jungle schema", () => {
   });
 });
 
-// Pinned after generation (tools/fcop/convert.ts); see file header for the
+// Pinned after generation (tools/generators/convert.ts); see file header for the
 // regeneration contract.
 const HEIGHTS_HASH_PIN = 264067427;
 const WALLS_V_PIN = 3595907883;

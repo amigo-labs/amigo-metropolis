@@ -1,5 +1,5 @@
 // GENERATED FILE — do not edit by hand. Regenerate with:
-//   bun tools/gen/genSinTable.ts
+//   bun tools/generators/genSinTable.ts
 // Committed constants so all peers share bit-identical values;
 // see docs/specs/architecture.md §2 and CLAUDE.md determinism rules.
 export const SIN_TABLE_BITS = 12;

@@ -13,7 +13,7 @@ Balance numbers come from `packages/sim/src/balance.ts`, seeded from rules.md.
       unit tests pinning exact output values
 - [x] `sim`: `createSim / step / hash / writeSnapshot` API per architecture.md,
       tick loop with quantized `TickInputs`
-- [x] `sim`: FNV-1a state hash + replay record/verify in `tools/replay`
+- [x] `sim`: FNV-1a state hash + replay record/verify in `tools/determinism`
 - [x] `sim`: test map `MapData` with 128×128 heightfield + bilinear sampling
 - [x] `client`: Three scene — heightfield mesh, orbit debug cam, one greybox
       cube driven by keyboard through the full input→tick→snapshot→interpolate path
@@ -151,7 +151,7 @@ JSON presets (`audio/presets.ts`) for every event cue and a self-authored CC0
 music loop, mixed through a tiny WebAudio wrapper with persisted master/sfx/music
 volumes, triggered only from the sim event ring buffer. PWA: web manifest,
 app/favicon icons (now the CC0 Metropolis shield brand art, cropped by
-`tools/gen/genBrand.py`), a dependency-free service worker for offline solo, and
+`tools/generators/genBrand.py`), a dependency-free service worker for offline solo, and
 an install prompt; `CREDITS.md` created.
 The shared game palette (assets.md §3) is now in place — an in-house, CC0
 ~32-color palette with 3-shade team ramps is the single source of truth for
@@ -242,7 +242,7 @@ live deploy ships them too. Spec + plan:
       serves each `/models/<id>/<id>.glb` with HTTP 200
 - [x] Visual verification via headless render. The dev env has no GPU, so this
       runs in Chromium over SwiftShader (software WebGL, with a live rAF loop) —
-      `bun run verify:arenas` (harness: `tools/replay/src/arenaShots.ts`). All 6
+      `bun run verify:arenas` (harness: `tools/determinism/src/arenaShots.ts`). All 6
       arenas load textured with no console/page/asset errors and no greybox
       fallback; venice-beach decks render; greybox↔mesh screenshots for every
       arena committed under `docs/verification/stage4-arenas/`. This surfaced +
