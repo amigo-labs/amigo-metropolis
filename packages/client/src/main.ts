@@ -66,7 +66,14 @@ import {
   buildWallMesh,
   buildWaterPlane,
 } from "./render/terrain";
-import { createVariantSwitcher, type VariantSwitcher } from "./render/texVariants";
+import {
+  createVariantSwitcher,
+  loadTexPref,
+  parseTexPref,
+  type TexPref,
+  type VariantSwitcher,
+  variantOfPref,
+} from "./render/texVariants";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -92,6 +99,12 @@ aimAssist.mode = parseAimAssistMode(params.get("aim"));
 // Stage 4: ?render=mesh loads the textured map meshes; greybox stays the default
 // (the reliable debug/fallback path per assets.md / HANDOFF).
 const renderMode: "mesh" | "greybox" = params.get("render") === "mesh" ? "mesh" : "greybox";
+// Player texture preference (HD = shipped atlas, Original = 1998 texels).
+// ?tex=hd|original is a session override and is NOT persisted back (like ?aim=);
+// the menu's Graphics drawer writes the stored preference. Mutable: the menu
+// updates it live via onTexPref. Applied whenever a map mesh loads (see
+// buildArenaGroup's onMaterials) — a no-op on the greybox path.
+let texPref: TexPref = parseTexPref(params.get("tex")) ?? loadTexPref();
 
 // Offline match seed. Net matches ignore it — the room/lobby code seeds them
 // (connectOnline / connectP2pMode derive the same seed on both peers, so no
@@ -309,6 +322,9 @@ function buildArenaGroup(m: typeof map): THREE.Group {
     // The materials callback arms the debug texture-variant switcher (0/1/2/3).
     loadMapMesh(m, group, buildGreyboxTerrain, (materials) => {
       texSwitcher = createVariantSwitcher(m.id, materials);
+      // Player preference first (boot AND every map swap); the debug hotkeys
+      // 0-3 can still override it temporarily afterwards.
+      texSwitcher.setVariant(variantOfPref(texPref));
       refreshDebugLabel();
     });
   } else {
@@ -1105,7 +1121,18 @@ if (online) {
   // in-process. The reticle/crosshair only makes sense in a live match.
   reticle.style.display = "none";
   document.body.style.cursor = "default";
-  menuHandle = runMenu({ audio, onChoice: handleMenuChoice, onSelect: previewArena });
+  menuHandle = runMenu({
+    audio,
+    onChoice: handleMenuChoice,
+    onSelect: previewArena,
+    // Graphics drawer: apply a texture-preference change immediately to the
+    // (possibly already loaded) backdrop arena; persisting is menu.ts's job.
+    onTexPref: (pref) => {
+      texPref = pref;
+      texSwitcher?.setVariant(variantOfPref(pref));
+      refreshDebugLabel();
+    },
+  });
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();

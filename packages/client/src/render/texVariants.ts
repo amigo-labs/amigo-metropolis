@@ -25,6 +25,45 @@ export const TEX_VARIANTS = {
 
 export type VariantName = keyof typeof TEX_VARIANTS | "default";
 
+// --- Player preference: "Textures: HD / Original" ---------------------------
+// Persisted client-local like the audio settings (audio/engine.ts,
+// "metropolis.audio.v1"): versioned key, pure parser, try/catch around storage
+// (private mode / quota). "hd" maps to the shipped atlas.png (the ESRGAN
+// atlas), "original" to the nearest-x4 source-texel variant.
+
+export type TexPref = "hd" | "original";
+
+const PREF_KEY = "metropolis.gfx.v1";
+
+/** Pure parser so URL params and stored JSON share one validation path. */
+export function parseTexPref(raw: unknown): TexPref | null {
+  return raw === "hd" || raw === "original" ? raw : null;
+}
+
+/** Stored preference, defaulting to "hd". */
+export function loadTexPref(): TexPref {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(PREF_KEY) ?? "{}");
+    const pref = (parsed as { textures?: unknown }).textures;
+    return parseTexPref(pref) ?? "hd";
+  } catch {
+    return "hd";
+  }
+}
+
+export function saveTexPref(pref: TexPref): void {
+  try {
+    localStorage.setItem(PREF_KEY, JSON.stringify({ textures: pref }));
+  } catch {
+    // Private mode / quota: the choice still applies for this session.
+  }
+}
+
+/** Variant the preference selects ("hd" = the shipped default atlas). */
+export function variantOfPref(pref: TexPref): VariantName {
+  return pref === "original" ? "original" : "default";
+}
+
 interface VariantSlot {
   tex: THREE.Texture | null;
   state: "unloaded" | "loading" | "ready" | "missing";
