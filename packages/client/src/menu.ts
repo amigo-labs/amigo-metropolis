@@ -500,7 +500,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     label.htmlFor = select.id;
     const options: [TexPref, string][] = [
       ["hd", "HD (upscaled)"],
-      ["original", "Original (1998)"],
+      ["original", "Original"],
     ];
     for (const [value, name] of options) {
       const o = el("option", undefined, name) as HTMLOptionElement;
