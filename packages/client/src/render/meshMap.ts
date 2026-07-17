@@ -32,14 +32,21 @@ export function loadMapMesh(
       gltf.scene.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
         if (!mesh.isMesh) return;
-        const mat = mesh.material as THREE.MeshStandardMaterial;
-        materials.push(mat);
-        const tex = mat.map;
-        if (tex) {
-          // Modern look (assets.md §3 deliberately relaxed): anisotropy on top of
-          // the glTF's linear/mipmap sampler. Filters already come from the sampler.
-          tex.anisotropy = 8;
-          tex.needsUpdate = true;
+        // mesh.material may be an array, and materials other than
+        // MeshStandardMaterial have no .map — handle both so the sampler tweak
+        // and the onMaterials contract stay sound for any asset.
+        const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of list) {
+          const mat = m as THREE.MeshStandardMaterial;
+          if (!mat.isMeshStandardMaterial) continue;
+          materials.push(mat);
+          const tex = mat.map;
+          if (tex) {
+            // Modern look (assets.md §3 deliberately relaxed): anisotropy on top of
+            // the glTF's linear/mipmap sampler. Filters already come from the sampler.
+            tex.anisotropy = 8;
+            tex.needsUpdate = true;
+          }
         }
         mesh.matrixAutoUpdate = false;
         mesh.updateMatrix();

@@ -61,6 +61,10 @@ export function createVariantSwitcher(
   // Set by dispose(): the arena (and its materials) is gone, so late loader
   // callbacks must not touch materials and must free the texture they created.
   let disposed = false;
+  // The variant the user selected LAST. An async load only applies itself when
+  // it is still the requested one — otherwise a slow request would override a
+  // newer selection (press 2, press 0, esrgan load finishes -> must not apply).
+  let requested: VariantName = "default";
 
   const apply = (tex: THREE.Texture | null, name: VariantName) => {
     for (let i = 0; i < materials.length; i++) {
@@ -73,6 +77,7 @@ export function createVariantSwitcher(
   };
 
   const setVariant = (name: VariantName) => {
+    requested = name;
     if (name === "default") {
       apply(null, "default");
       return;
@@ -87,7 +92,10 @@ export function createVariantSwitcher(
       statusLine = `tex: ${name} (missing)`;
       return;
     }
-    if (slot.state === "loading") return;
+    if (slot.state === "loading") {
+      statusLine = `tex: ${name} (loading...)`;
+      return;
+    }
     slot.state = "loading";
     statusLine = `tex: ${name} (loading...)`;
     loader.load(
@@ -111,13 +119,15 @@ export function createVariantSwitcher(
         tex.needsUpdate = true;
         slot.tex = tex;
         slot.state = "ready";
-        apply(tex, name);
+        // Only take effect if this is still the variant the user wants — a
+        // newer selection (incl. back to default) must not be overridden.
+        if (requested === name) apply(tex, name);
       },
       undefined,
       () => {
         if (disposed) return;
         slot.state = "missing";
-        statusLine = `tex: ${name} (missing)`;
+        if (requested === name) statusLine = `tex: ${name} (missing)`;
       },
     );
   };

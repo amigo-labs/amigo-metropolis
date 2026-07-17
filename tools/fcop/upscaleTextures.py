@@ -227,7 +227,7 @@ def cmd_compare(a) -> int:
         orig = os.path.join(map_dir(a.map), f"{t}.png")
         present = [(n, os.path.join(d, f"{t}.png")) for n, d in order
                    if os.path.isfile(os.path.join(d, f"{t}.png"))]
-        print(f"\n== {t} == colour-drift vs original (mean-abs-diff /255)")
+        print(f"\n== {t} == colour-drift vs original (mean abs diff, 0..255 scale)")
         for n, p in present:
             if n == "original":
                 continue
