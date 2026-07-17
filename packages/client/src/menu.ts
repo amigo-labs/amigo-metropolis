@@ -21,6 +21,7 @@ import type { AudioEngine } from "./audio/engine";
 import { MUSIC_OPTIONS, parseMusicSelection } from "./audio/tracks";
 import { hashLobbyPassword, storeP2pBootstrap } from "./net/p2pSession";
 import { drawArenaThumbnail } from "./render/arenaThumb";
+import { loadTexPref, parseTexPref, saveTexPref, type TexPref } from "./render/texVariants";
 
 export type MenuChoice =
   | { mode: "solo" } // sandbox vs the scripted feeder opponent
@@ -79,6 +80,9 @@ export interface MenuOptions {
   /** Called whenever the arena selection changes so the live 3D backdrop can
    *  preview the picked arena. `mapId` is the newly selected arena. */
   onSelect(mapId: string): void;
+  /** Called when the Graphics drawer changes the texture preference so main.ts
+   *  can apply it to the live arena immediately (persistence happens here). */
+  onTexPref(pref: TexPref): void;
 }
 
 /** Handle returned by runMenu so a late `beforeinstallprompt` can add Install. */
@@ -429,28 +433,32 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   const footer = el("div", "menu-footer");
   const howBtn = el("button", "menu-link", "How to play");
   const setBtn = el("button", "menu-link", "Sound");
+  const gfxBtn = el("button", "menu-link", "Graphics");
   // Install starts hidden; offerInstall() reveals it if the browser offers PWA
   // install (the beforeinstallprompt event usually fires after this mounts).
   const installBtn = el("button", "menu-link menu-link--accent", "Install");
   installBtn.style.display = "none";
-  footer.append(howBtn, setBtn, installBtn);
+  footer.append(howBtn, setBtn, gfxBtn, installBtn);
   rail.appendChild(footer);
 
   const drawer = el("div", "menu-drawer");
   drawer.style.display = "none";
   rail.appendChild(drawer);
-  let drawerKind: "how" | "sound" | null = null;
-  const toggleDrawer = (kind: "how" | "sound"): void => {
+  let drawerKind: "how" | "sound" | "gfx" | null = null;
+  const toggleDrawer = (kind: "how" | "sound" | "gfx"): void => {
     drawerKind = drawerKind === kind ? null : kind;
     howBtn.classList.toggle("is-active", drawerKind === "how");
     setBtn.classList.toggle("is-active", drawerKind === "sound");
+    gfxBtn.classList.toggle("is-active", drawerKind === "gfx");
     drawer.style.display = drawerKind ? "block" : "none";
     drawer.replaceChildren();
     if (drawerKind === "how") buildHowTo();
     else if (drawerKind === "sound") buildSound();
+    else if (drawerKind === "gfx") buildGraphics();
   };
   howBtn.onclick = () => toggleDrawer("how");
   setBtn.onclick = () => toggleDrawer("sound");
+  gfxBtn.onclick = () => toggleDrawer("gfx");
 
   function buildHowTo(): void {
     drawer.appendChild(el("h2", "menu-h2", "Controls"));
@@ -479,6 +487,34 @@ export function runMenu(opts: MenuOptions): MenuHandle {
           "escort a push through a lane and breach the enemy gate.",
       ),
     );
+  }
+
+  function buildGraphics(): void {
+    // Textures: HD (the shipped ESRGAN atlas) vs Original (1998 source texels).
+    // Persisted here; onTexPref lets main.ts apply it to the live arena at once.
+    // Takes effect on the textured map render path; the greybox path ignores it.
+    const row = el("div", "menu-row");
+    const label = el("label", "menu-label", "Textures");
+    const select = el("select", "menu-select") as HTMLSelectElement;
+    select.id = "menu-gfx-textures";
+    label.htmlFor = select.id;
+    const options: [TexPref, string][] = [
+      ["hd", "HD (upscaled)"],
+      ["original", "Classic"],
+    ];
+    for (const [value, name] of options) {
+      const o = el("option", undefined, name) as HTMLOptionElement;
+      o.value = value;
+      select.appendChild(o);
+    }
+    select.value = loadTexPref();
+    select.onchange = () => {
+      const pref = parseTexPref(select.value) ?? "hd";
+      saveTexPref(pref);
+      opts.onTexPref(pref);
+    };
+    row.append(label, select);
+    drawer.append(row);
   }
 
   function buildSound(): void {

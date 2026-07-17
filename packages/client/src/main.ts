@@ -54,8 +54,10 @@ import { openP2pSession, readP2pBootstrap } from "./net/p2pSession";
 import { WsTransport } from "./net/wsTransport";
 import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
+import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import { loadMapMesh } from "./render/meshMap";
+import { ATMOSPHERE_HEX } from "./render/palette";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
@@ -64,6 +66,14 @@ import {
   buildWallMesh,
   buildWaterPlane,
 } from "./render/terrain";
+import {
+  createVariantSwitcher,
+  loadTexPref,
+  parseTexPref,
+  type TexPref,
+  type VariantSwitcher,
+  variantOfPref,
+} from "./render/texVariants";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -80,12 +90,21 @@ const online = onlineCode !== null;
 const p2p = !online && p2pCode !== null;
 const netMode = online || p2p;
 const orbitMode = !netMode && params.get("cam") === "orbit";
+// ?cam=fly: free-fly debug camera (render/flyCamera.ts) — noclip navigation for
+// inspecting map meshes / texture variants. Solo-only, like orbit.
+const flyMode = !netMode && params.get("cam") === "fly";
 // Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
 aimAssist.mode = parseAimAssistMode(params.get("aim"));
 
 // Stage 4: ?render=mesh loads the textured map meshes; greybox stays the default
 // (the reliable debug/fallback path per assets.md / HANDOFF).
 const renderMode: "mesh" | "greybox" = params.get("render") === "mesh" ? "mesh" : "greybox";
+// Player texture preference (HD = shipped atlas, Original = 1998 texels).
+// ?tex=hd|original is a session override and is NOT persisted back (like ?aim=);
+// the menu's Graphics drawer writes the stored preference. Mutable: the menu
+// updates it live via onTexPref. Applied whenever a map mesh loads (see
+// buildArenaGroup's onMaterials) — a no-op on the greybox path.
+let texPref: TexPref = parseTexPref(params.get("tex")) ?? loadTexPref();
 
 // Offline match seed. Net matches ignore it — the room/lobby code seeds them
 // (connectOnline / connectP2pMode derive the same seed on both peers, so no
@@ -241,14 +260,51 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.setScissorTest(true); // each player view renders scissored to its rect
 document.body.appendChild(renderer.domElement);
 
+// Dusk sky gradient (Blade-Runner-ish): deep indigo zenith, a narrow warm amber
+// smog band at the horizon, cool haze/nadir below. Built once as an
+// equirectangular canvas texture so it tracks camera orientation with a true
+// world horizon, costs no geometry, and is never touched by fog.
+function makeSkyTexture(): THREE.Texture {
+  const css = (h: number) => `#${h.toString(16).padStart(6, "0")}`;
+  const canvas = document.createElement("canvas");
+  canvas.width = 4;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2D canvas context unavailable for sky gradient");
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height); // top = zenith
+  grad.addColorStop(0.0, css(ATMOSPHERE_HEX.skyZenith));
+  grad.addColorStop(0.44, css(ATMOSPHERE_HEX.skyZenith)); // hold indigo up high
+  grad.addColorStop(0.5, css(ATMOSPHERE_HEX.skyHorizon)); // thin amber smog band
+  grad.addColorStop(0.56, css(ATMOSPHERE_HEX.skyHaze));
+  grad.addColorStop(1.0, css(ATMOSPHERE_HEX.skyNadir));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0e14);
-scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
-sun.position.set(120, 180, 60);
-sun.matrixAutoUpdate = false;
-sun.updateMatrix();
-scene.add(sun);
+scene.background = makeSkyTexture();
+// Distance fog fades the far ground into the dusk haze before the arena edge /
+// void can be framed (at the ACTION pitch the camera sees ~170u past its focus).
+// near/far are the primary playtest knobs: keep gameplay crisp, hide the edge.
+scene.fog = new THREE.Fog(ATMOSPHERE_HEX.fog, 55, 190);
+// High-key, near-neutral lighting: the map textures keep their own colors, the
+// mood lives in the sky + fog. Warm key + subtle cool fill = a gentle teal/amber
+// split without a surface color cast.
+scene.add(new THREE.AmbientLight(ATMOSPHERE_HEX.lightAmbient, 0.9));
+const keyLight = new THREE.DirectionalLight(ATMOSPHERE_HEX.lightKey, 2.2);
+keyLight.position.set(120, 180, 60);
+keyLight.matrixAutoUpdate = false;
+keyLight.updateMatrix();
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(ATMOSPHERE_HEX.lightFill, 0.7);
+fillLight.position.set(-110, 90, -80);
+fillLight.matrixAutoUpdate = false;
+fillLight.updateMatrix();
+scene.add(fillLight);
 // All static arena visuals live in one group so an online joiner can swap the
 // arena wholesale when the authoritative config names a different map.
 function buildArenaGroup(m: typeof map): THREE.Group {
@@ -263,7 +319,14 @@ function buildArenaGroup(m: typeof map): THREE.Group {
   if (renderMode === "mesh") {
     // Async: textured terrain mesh (incl. decks) added when loaded; maps
     // without a local asset fall back to greybox terrain instead of nothing.
-    loadMapMesh(m, group, buildGreyboxTerrain);
+    // The materials callback arms the debug texture-variant switcher (0/1/2/3).
+    loadMapMesh(m, group, buildGreyboxTerrain, (materials) => {
+      texSwitcher = createVariantSwitcher(m.id, materials);
+      // Player preference first (boot AND every map swap); the debug hotkeys
+      // 0-3 can still override it temporarily afterwards.
+      texSwitcher.setVariant(variantOfPref(texPref));
+      refreshDebugLabel();
+    });
   } else {
     buildGreyboxTerrain();
   }
@@ -287,6 +350,12 @@ function rebuildArena(mapId: string): void {
   if (mapId === map.id) return;
   map = getMapById(mapId);
   extent = worldExtent(map);
+  // Debug variant textures are per-map: free them before the arena they
+  // belong to goes away (the switcher is re-armed by buildArenaGroup's
+  // onMaterials callback once the new mesh loads).
+  texSwitcher?.dispose();
+  texSwitcher = null;
+  refreshDebugLabel(); // hide the variant line immediately, not at the 1 Hz tick
   scene.remove(arenaGroup);
   arenaGroup.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
@@ -377,6 +446,49 @@ function refreshOverlay(): void {
   }
   setOverlay(text);
 }
+
+// --- Debug tooling: texture-variant switcher + fly-cam label -------------------
+// Armed by buildArenaGroup's onMaterials callback (mesh render path only).
+// Hotkeys 0/1/2/3 swap the map's atlas texture between the shipped default and
+// the original/esrgan/gemini variants (render/texVariants.ts, 404-tolerant).
+let texSwitcher: VariantSwitcher | null = null;
+const flyState = createFlyState();
+
+// Small fixed DOM label (overlay idiom: only write on change). Shows the fly
+// controls and the active texture variant while debugging.
+const debugLabelEl = document.createElement("div");
+debugLabelEl.style.cssText =
+  "position:fixed;left:8px;bottom:8px;z-index:30;padding:4px 8px;" +
+  "font:12px/1.4 monospace;color:#cfd8e3;background:rgba(10,14,20,.7);" +
+  "border-radius:4px;pointer-events:none;display:none;white-space:pre";
+document.body.appendChild(debugLabelEl);
+let debugLabelText: string | null = null;
+
+function refreshDebugLabel(): void {
+  // No early return when nothing is active: after rebuildArena drops the
+  // switcher the label must hide (empty text) instead of staying stale.
+  const parts: string[] = [];
+  if (texSwitcher)
+    parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan [3]=gemini`);
+  if (flyMode) parts.push("fly: WASD+QE move, Shift fast, click=mouse-look (ESC releases)");
+  const text = parts.join("\n");
+  if (text === debugLabelText) return;
+  debugLabelText = text;
+  debugLabelEl.textContent = text;
+  debugLabelEl.style.display = text ? "block" : "none";
+}
+
+// Variant hotkeys: plain digits are unused by gameplay (movement/fire live on
+// WASD/JKL, see input/keyboard.ts BUTTON_KEYS) — safe for debug bindings.
+addEventListener("keydown", (e) => {
+  if (!texSwitcher) return;
+  if (e.code === "Digit0") texSwitcher.setVariant("default");
+  else if (e.code === "Digit1") texSwitcher.setVariant("original");
+  else if (e.code === "Digit2") texSwitcher.setVariant("esrgan");
+  else if (e.code === "Digit3") texSwitcher.setVariant("gemini");
+  else return;
+  refreshDebugLabel();
+});
 
 /** Triggers a browser download of a dumped replay (desync forensics, §6). */
 function downloadReplay(bytes: Uint8Array, name: string): void {
@@ -677,7 +789,11 @@ function frame(now: number): void {
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
       view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
-      if (orbitControls && v === 0) {
+      if (flyMode && v === 0) {
+        // Free-fly debug camera owns view 0's posing (render/flyCamera.ts) —
+        // rig and blend are skipped, exactly like orbit below.
+        updateFlyCamera(flyState, view.camera, dtSec);
+      } else if (orbitControls && v === 0) {
         orbitControls.update();
       } else {
         updateRigCamera(view, dtSec);
@@ -695,6 +811,9 @@ function frame(now: number): void {
   hudFrames++;
   if (now - hudLastUpdate > 1000) {
     refreshHud(hudFrames);
+    // Debug label piggybacks on the 1 Hz cadence so async texture-load status
+    // ("loading..." -> "esrgan"/"missing") surfaces without a keypress.
+    refreshDebugLabel();
     hudFrames = 0;
     hudLastUpdate = now;
   }
@@ -732,6 +851,11 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
     orbitControls.target.set(extent / 2, 0, extent / 2);
     orbitControls.enableDamping = true;
     orbitControls.update();
+  }
+  if (flyMode && views.length === 1) {
+    initFlyInput(flyState, renderer.domElement);
+    poseFlyStart(flyState, views[0].camera, extent);
+    refreshDebugLabel();
   }
   // The mouse reticle only makes sense for a single full-window pointer player.
   reticle.style.display = views.length === 1 ? "block" : "none";
@@ -997,7 +1121,18 @@ if (online) {
   // in-process. The reticle/crosshair only makes sense in a live match.
   reticle.style.display = "none";
   document.body.style.cursor = "default";
-  menuHandle = runMenu({ audio, onChoice: handleMenuChoice, onSelect: previewArena });
+  menuHandle = runMenu({
+    audio,
+    onChoice: handleMenuChoice,
+    onSelect: previewArena,
+    // Graphics drawer: apply a texture-preference change immediately to the
+    // (possibly already loaded) backdrop arena; persisting is menu.ts's job.
+    onTexPref: (pref) => {
+      texPref = pref;
+      texSwitcher?.setVariant(variantOfPref(pref));
+      refreshDebugLabel();
+    },
+  });
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();

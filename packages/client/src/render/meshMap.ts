@@ -13,21 +13,40 @@ const loader = new GLTFLoader();
  * the caller can build the greybox terrain instead of leaving the world empty.
  * The .glb is authored origin-centered; this loader re-centres it into the sim's
  * [0, extent] frame (see below) so it lines up with the greybox/collision.
+ *
+ * `onMaterials` (optional) receives every MeshStandardMaterial of the loaded
+ * mesh once — the debug texture-variant switcher (render/texVariants.ts) uses
+ * it to swap material.map at runtime. Purely additive; existing callers are
+ * unaffected.
  */
-export function loadMapMesh(map: MapData, group: THREE.Group, onMissing?: () => void): void {
+export function loadMapMesh(
+  map: MapData,
+  group: THREE.Group,
+  onMissing?: () => void,
+  onMaterials?: (materials: THREE.MeshStandardMaterial[]) => void,
+): void {
   const url = `/models/${map.id}/${map.id}.glb`;
   loader.loadAsync(url).then(
     (gltf) => {
+      const materials: THREE.MeshStandardMaterial[] = [];
       gltf.scene.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
         if (!mesh.isMesh) return;
-        const mat = mesh.material as THREE.MeshStandardMaterial;
-        const tex = mat.map;
-        if (tex) {
-          // Modern look (assets.md §3 deliberately relaxed): anisotropy on top of
-          // the glTF's linear/mipmap sampler. Filters already come from the sampler.
-          tex.anisotropy = 8;
-          tex.needsUpdate = true;
+        // mesh.material may be an array, and materials other than
+        // MeshStandardMaterial have no .map — handle both so the sampler tweak
+        // and the onMaterials contract stay sound for any asset.
+        const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of list) {
+          const mat = m as THREE.MeshStandardMaterial;
+          if (!mat.isMeshStandardMaterial) continue;
+          materials.push(mat);
+          const tex = mat.map;
+          if (tex) {
+            // Modern look (assets.md §3 deliberately relaxed): anisotropy on top of
+            // the glTF's linear/mipmap sampler. Filters already come from the sampler.
+            tex.anisotropy = 8;
+            tex.needsUpdate = true;
+          }
         }
         mesh.matrixAutoUpdate = false;
         mesh.updateMatrix();
@@ -45,6 +64,7 @@ export function loadMapMesh(map: MapData, group: THREE.Group, onMissing?: () => 
       gltf.scene.matrixAutoUpdate = false;
       gltf.scene.updateMatrix();
       group.add(gltf.scene);
+      if (materials.length > 0) onMaterials?.(materials);
     },
     () => {
       console.warn(`[meshMap] no mesh asset at ${url}, falling back to greybox terrain`);
