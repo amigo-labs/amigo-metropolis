@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Interactive wizard to upscale a map's terrain-texture atlases. Pick a METHOD and
-# a MAP from the numbered menus; "Exit" quits. Real-ESRGAN runs from a local,
-# git-ignored venv (auto-created + installed on first use, so the heavy torch
-# stack never touches the system Python); Gemini asks for its API key at runtime
-# (read silently, never stored). Wraps tools/textures/upscaleTextures.py.
+# a MAP from the numbered menus; "Exit" quits. Real-ESRGAN and SD 1.5 run from a
+# local, git-ignored venv (auto-created + installed on first use, so the heavy
+# torch stack never touches the system Python). Wraps tools/textures/upscaleTextures.py.
 #
 # Usage:  bash tools/textures/run.sh
 set -uo pipefail   # no -e: a failed action should return to the menu, not exit
@@ -34,7 +33,7 @@ ensure_venv() {
   fi
 }
 
-ensure_base() {   # Pillow + numpy (lanczos / compare / gemini)
+ensure_base() {   # Pillow + numpy (lanczos / compare)
   "$PY" -c "import PIL, numpy" 2>/dev/null || "$PY" -m pip install --quiet Pillow numpy
 }
 
@@ -58,10 +57,6 @@ if spec and spec.submodule_search_locations:
             print(">> patched basicsr degradations.py")
 PYEOF
   "$PY" -c "import realesrgan, torch, cv2; print('>> OK: torch', torch.__version__, '| cuda', torch.cuda.is_available())"
-}
-
-ensure_gemini() {
-  "$PY" -c "import google.genai" 2>/dev/null || "$PY" -m pip install --quiet google-genai Pillow numpy
 }
 
 ensure_wd14() {   # WD14 tagger: onnxruntime + huggingface_hub (CPU inference)
@@ -101,10 +96,6 @@ run_method() {   # $1 = method key
     lanczos) ensure_base; pick_map || return; "$PY" "$TOOL" lanczos --map "$MAP" ;;
     esrgan)  ensure_esrgan || { echo "!! ESRGAN install failed"; return; }
              pick_map || return; "$PY" "$TOOL" esrgan --map "$MAP" ;;
-    gemini)  ensure_gemini; pick_map || return
-             read -rsp "Gemini API key: " GEMINI_API_KEY; echo
-             GEMINI_API_KEY="${GEMINI_API_KEY:-}" "$PY" "$TOOL" gemini --map "$MAP"
-             unset GEMINI_API_KEY ;;
     sd)      ensure_wd14 || { echo "!! WD14 install failed"; return; }
              ensure_diffusers || { echo "!! SD install failed"; return; }
              pick_map || return; "$PY" "$TOOL" sd --map "$MAP" ;;
@@ -116,12 +107,11 @@ echo "== FC terrain-texture upscaler =="
 PS3=$'\nMethod # (Exit to quit): '
 while true; do
   select method in "Lanczos (faithful baseline)" "Real-ESRGAN (sharp, pip)" \
-                   "Gemini 2.5 Flash Image" "SD 1.5 img2img (WD14 tag, local CPU)" \
+                   "SD 1.5 img2img (WD14 tag, local CPU)" \
                    "Compare variants" "Exit"; do
     case "${method:-}" in
       Lanczos*)      run_method lanczos ;;
       Real-ESRGAN*)  run_method esrgan ;;
-      Gemini*)       run_method gemini ;;
       SD*)           run_method sd ;;
       Compare*)      run_method compare ;;
       Exit)          echo "bye"; exit 0 ;;

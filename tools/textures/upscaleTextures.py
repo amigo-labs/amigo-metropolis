@@ -17,7 +17,6 @@
 # Subcommands (default map: la-cantina):
 #   lanczos                       faithful, soft baseline (no new detail)
 #   esrgan   --bin PATH           Real-ESRGAN via realesrgan-ncnn-vulkan (Vulkan GPU)
-#   gemini                        Gemini 2.5 Flash Image (generative; needs GEMINI_API_KEY)
 #   tag                           WD14 tagger -> per-texture prompts in sd/tags.json
 #   sd                            Stable Diffusion 1.5 img2img (local, CPU; auto-tags first)
 #   compare                       colour-drift table + zoom contact-sheets per texture
@@ -31,14 +30,13 @@
 # Variants are written under tools/textures/_local/upscale/<variant>/ (git-ignored);
 # `integrate` is the only step that touches the committed assets (with .bak backup).
 #
-# Requires: Pillow, numpy.  gemini also: google-genai.  tag also: onnxruntime,
-# huggingface_hub.  sd also: torch, diffusers, transformers, accelerate, safetensors.
+# Requires: Pillow, numpy.  tag also: onnxruntime, huggingface_hub.
+# sd also: torch, diffusers, transformers, accelerate, safetensors.
 # Usage:    python tools/textures/upscaleTextures.py compare --map la-cantina
 
 import argparse
 import csv
 import glob
-import io
 import json
 import os
 import shutil
@@ -50,14 +48,7 @@ from PIL import Image, ImageDraw
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 MODELS = os.path.join(REPO, "packages", "client", "public", "models")
-WORK = os.path.join(REPO, "tools", "fcop", "_local", "upscale")
-
-GEMINI_PROMPT = (
-    "Upscale this retro game texture atlas to a higher resolution. Preserve the "
-    "EXACT colors, palette, layout and every cell/tile boundary. Sharpen and add "
-    "fine detail only WITHIN each existing tile; do not add, remove, move or "
-    "invent any elements, and keep every edge aligned. Output only the image."
-)
+WORK = os.path.join(REPO, "tools", "textures", "_local", "upscale")
 
 # WD14 tagger + SD img2img (local, ComfyUI-free) --------------------------------
 WD14_MODEL = "SmilingWolf/wd-vit-tagger-v3"  # light, CPU-friendly; -v3 uses 448^2 input
@@ -169,50 +160,6 @@ def _esrgan_pip(a, out) -> int:
         print(f"esrgan(pip) {t} -> {w}x{h}{warn}")
     print("out:", out)
     return 0
-
-
-def cmd_gemini(a) -> int:
-    if not is_pot(a.size):
-        sys.exit(f"--size must be power-of-two, got {a.size}")
-    key = a.api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if not key:
-        sys.exit("set GEMINI_API_KEY (or --api-key): https://aistudio.google.com/apikey")
-    try:
-        from google import genai
-        from google.genai import types
-    except ImportError:
-        sys.exit("pip install google-genai")
-    client = genai.Client(api_key=key)
-    out = variant_dir(a.map, "gemini")
-    ok = True
-    for t in textures(a.map):
-        with open(os.path.join(map_dir(a.map), f"{t}.png"), "rb") as fh:
-            data = fh.read()
-        print(f"gemini {t} ...", flush=True)
-        try:
-            resp = client.models.generate_content(
-                model=a.model,
-                contents=[GEMINI_PROMPT, types.Part.from_bytes(data=data, mime_type="image/png")],
-                config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
-            )
-        except Exception as ex:  # noqa: BLE001
-            print(f"  API error: {ex}", file=sys.stderr)
-            ok = False
-            continue
-        raw = next((bytes(p.inline_data.data) for p in (resp.parts or [])
-                    if getattr(p, "inline_data", None) and isinstance(getattr(p.inline_data, "data", None), (bytes, bytearray))), None)
-        if raw is None:
-            print(f"  no image returned (safety block?). text={getattr(resp, 'text', None)!r}", file=sys.stderr)
-            ok = False
-            continue
-        im = load(io.BytesIO(raw))
-        if im.size != (a.size, a.size):
-            print(f"  note: model returned {im.size}, fitting to {a.size} PoT")
-            im = im.resize((a.size, a.size), Image.LANCZOS)
-        im.save(os.path.join(out, f"{t}.png"))
-        print(f"  ok -> {a.size}x{a.size}")
-    print("out:", out)
-    return 0 if ok else 1
 
 
 # --- WD14 tag / SD img2img -------------------------------------------------
@@ -361,7 +308,6 @@ def cmd_compare(a) -> int:
     order = [("original", map_dir(a.map)),
              ("lanczos", os.path.join(WORK, a.map, "lanczos")),
              ("esrgan", os.path.join(WORK, a.map, "esrgan")),
-             ("gemini", os.path.join(WORK, a.map, "gemini")),
              ("sd", os.path.join(WORK, a.map, "sd"))]
     outdir = variant_dir(a.map, "compare")
     for t in textures(a.map):
@@ -423,9 +369,6 @@ def main() -> int:
     q.add_argument("--bin", default=None, help="realesrgan-ncnn-vulkan binary; omit to use the pip realesrgan API")
     q.add_argument("--model", default="realesrgan-x4plus")
     q.add_argument("--model-dir", default=None); q.add_argument("--scale", type=int, default=4); q.set_defaults(fn=cmd_esrgan)
-    q = sub.add_parser("gemini"); add_map(q)
-    q.add_argument("--model", default="gemini-2.5-flash-image"); q.add_argument("--size", type=int, default=1024)
-    q.add_argument("--api-key", default=None); q.set_defaults(fn=cmd_gemini)
     q = sub.add_parser("tag"); add_map(q)
     q.add_argument("--wd-model", dest="wd_model", default=WD14_MODEL)
     q.add_argument("--threshold", type=float, default=0.35)
@@ -444,7 +387,7 @@ def main() -> int:
     q.set_defaults(fn=cmd_sd)
     q = sub.add_parser("compare"); add_map(q); q.set_defaults(fn=cmd_compare)
     q = sub.add_parser("integrate"); add_map(q)
-    q.add_argument("--from", required=True, help="variant name (lanczos|esrgan|gemini|sd) or a dir")
+    q.add_argument("--from", required=True, help="variant name (lanczos|esrgan|sd) or a dir")
     q.add_argument("--no-backup", dest="backup", action="store_false"); q.set_defaults(fn=cmd_integrate)
 
     a = p.parse_args()

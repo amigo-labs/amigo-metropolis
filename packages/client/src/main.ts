@@ -449,8 +449,8 @@ function refreshOverlay(): void {
 
 // --- Debug tooling: texture-variant switcher + fly-cam label -------------------
 // Armed by buildArenaGroup's onMaterials callback (mesh render path only).
-// Hotkeys 0/1/2/3 swap the map's atlas texture between the shipped default and
-// the original/esrgan/gemini variants (render/texVariants.ts, 404-tolerant).
+// Hotkeys 0/1/2 swap the map's atlas texture between the shipped default and
+// the original/esrgan variants (render/texVariants.ts, 404-tolerant).
 let texSwitcher: VariantSwitcher | null = null;
 const flyState = createFlyState();
 
@@ -469,7 +469,7 @@ function refreshDebugLabel(): void {
   // switcher the label must hide (empty text) instead of staying stale.
   const parts: string[] = [];
   if (texSwitcher)
-    parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan [3]=gemini`);
+    parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan`);
   if (flyMode) parts.push("fly: WASD+QE move, Shift fast, click=mouse-look (ESC releases)");
   const text = parts.join("\n");
   if (text === debugLabelText) return;
@@ -485,7 +485,6 @@ addEventListener("keydown", (e) => {
   if (e.code === "Digit0") texSwitcher.setVariant("default");
   else if (e.code === "Digit1") texSwitcher.setVariant("original");
   else if (e.code === "Digit2") texSwitcher.setVariant("esrgan");
-  else if (e.code === "Digit3") texSwitcher.setVariant("gemini");
   else return;
   refreshDebugLabel();
 });

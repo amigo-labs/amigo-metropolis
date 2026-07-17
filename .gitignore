@@ -10,8 +10,8 @@ tools/textures/_local/
 
 # Texture atlas variants (atlas_repack.py). atlas-original.png ships for EVERY
 # map — it backs the player-facing "Textures: Original / HD" option. The debug
-# variants (esrgan/gemini) are committed for la-cantina only (owner decision);
-# other maps keep them local — copy from extracted/meshes/<Cont>/atlas/.
+# esrgan variant is committed for la-cantina only (owner decision); other maps
+# keep it local — copy from extracted/meshes/<Cont>/atlas/.
 packages/client/public/models/*/atlas-*.png
 !packages/client/public/models/*/atlas-original.png
 !packages/client/public/models/la-cantina/atlas-*.png
