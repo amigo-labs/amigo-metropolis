@@ -24,15 +24,27 @@ The sfxr synth is an original TypeScript write-up of DrPetter's sfxr technique
 
 ## Third-party assets
 
-_None yet._ The Stage B model pass (Quaternius / Kenney / Kay Lousberg via
-poly.pizza, or direct rebuilds of the original) and the Pincel texture-atlas
-pass are still open (see `PLAN.md` Phase 7) — the shared palette they build on
-is now in place (above). Note each imported outside asset in the table below for
-provenance where the source is known.
+Stage B unit models (PLAN.md Phase 7 model pass). The raw downloads are
+committed under `tools/gen/units/raw/`; the shipped per-archetype meshes at
+`packages/client/public/models/units/<key>.glb` are derived from them by
+`bun run gen:units` (`tools/gen/genUnitModels.ts`, driven by
+`tools/gen/units/manifest.ts` — the manifest pins each model's source URL).
+The Pincel texture-atlas pass is still open (see `PLAN.md` Phase 7).
 
 | Asset | Author | Source | License |
 | --- | --- | --- | --- |
-| — | — | — | — |
+| Mech (→ `avatar-walker`) | Quaternius | <https://poly.pizza/m/o3Ps8z8ByP> | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| Craft Speeder (→ `avatar-hover`) | Kenney | <https://poly.pizza/m/WwqxZN5pq6> | CC0 1.0 |
+| Tank (→ `runner`) | Quaternius | <https://poly.pizza/m/FA5daiyZQq> | CC0 1.0 |
+| Spaceship (→ `guardian`) | Quaternius | <https://poly.pizza/m/DbGajMHrvp> | CC0 1.0 |
+| Tank (→ `juggernaut`) | Quaternius | <https://poly.pizza/m/cW3zvvkMOM> | CC0 1.0 |
+| Spaceship (→ `fortress`) | Quaternius | <https://poly.pizza/m/H4OXkd9lWz> | CC0 1.0 |
+| Turret Gun (→ `turret`) | Quaternius | <https://poly.pizza/m/ekTQhbJId7> | CC0 1.0 |
+| Scifi Computer (→ `console`) | Quaternius | <https://poly.pizza/m/U0xmt6tUlL> | CC0 1.0 |
+| Spaceship (→ `warden`) | Quaternius | <https://poly.pizza/m/PQzePrvBCD> | CC0 1.0 |
+
+The projectile keeps its procedural low-poly sphere (greybox, payload-colored)
+by design — no asset needed.
 
 ## Reference / source material
 
