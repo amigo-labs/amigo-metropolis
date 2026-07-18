@@ -134,7 +134,7 @@ playtest on the live deploy.)
 
 ## Phase 7 — Look & sound (Stage B/C of assets.md)
 
-- [ ] Model pass (Quaternius/Kenney or direct rebuilds) mapped to archetypes, CREDITS.md
+- [x] Model pass (Quaternius/Kenney or direct rebuilds) mapped to archetypes, CREDITS.md
 - [ ] Pincel texture atlases + shared palette; NearestFilter pipeline
 - [x] jsfxr SFX set wired to event buffer; CC0 music loop; volume settings
 - [x] PWA polish: manifest, icons, offline solo mode, install prompt
@@ -160,11 +160,19 @@ hex literals scattered across the greybox meshes, base structures and terrain.
 Still open on that line item — the texture atlases themselves and the runtime
 NearestFilter sampling path, which want real per-archetype art to exercise.
 
-Still open — the two asset-import tasks: the Stage B 3D-model pass and the
-Pincel texture-atlas / NearestFilter pipeline. They are best done with the asset
-sources in hand rather than committed blind; the game meets the DoD in greybox
-until then. The feel-tuning of the SFX presets stays an open pass like
-the hover-feel / difficulty-curve passes.)
+The Stage B model pass landed: CC0 models (Quaternius + Kenney via poly.pizza,
+raw downloads committed) are processed by `bun run gen:units`
+(`tools/gen/genUnitModels.ts` + manifest) into one spec-conformant glb per
+archetype under `public/models/units/`, swapped into the live InstancedMesh
+buckets by `render/unitMeshes.ts` with per-archetype greybox fallback. Mesh
+rendering (textured maps + unit models) is now the DEFAULT look (owner
+decision); `?render=greybox` keeps the full Stage A debug view. Verified by
+`tools/gen/test/unitModels.test.ts` (budgets/origin/footprint vs manifest) and
+`bun run verify:units` (SwiftShader lineup screenshots in
+`docs/verification/stage7-units/`). Still open on the look side: the Pincel
+texture-atlas / NearestFilter pipeline (the models ship vertex-colored, so the
+atlas task wants per-archetype art). The feel-tuning of the SFX presets stays
+an open pass like the hover-feel / difficulty-curve passes.)
 
 ## Phase 8 — Netcode transport & hosting (P2P/TURN) — hosting.spec.md
 
