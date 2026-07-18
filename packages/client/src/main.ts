@@ -33,6 +33,7 @@ import {
   SIM_VERSION,
   type SimState,
   SNAPSHOT_STRIDE,
+  spawnUnit,
   step,
   TICK_HZ,
   type TickInputs,
@@ -74,6 +75,7 @@ import {
   type VariantSwitcher,
   variantOfPref,
 } from "./render/texVariants";
+import { loadUnitMeshes } from "./render/unitMeshes";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -96,9 +98,12 @@ const flyMode = !netMode && params.get("cam") === "fly";
 // Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
 aimAssist.mode = parseAimAssistMode(params.get("aim"));
 
-// Stage 4: ?render=mesh loads the textured map meshes; greybox stays the default
-// (the reliable debug/fallback path per assets.md / HANDOFF).
-const renderMode: "mesh" | "greybox" = params.get("render") === "mesh" ? "mesh" : "greybox";
+// Mesh rendering (textured Stage 4 maps + Stage B unit models) is the default
+// look since the Phase 7 model pass; ?render=greybox keeps the full Stage A
+// debug view (assets.md §1 — greybox stays in the repo forever). Every asset
+// falls back to greybox per map/archetype when missing, so mesh is safe as
+// the default.
+const renderMode: "mesh" | "greybox" = params.get("render") === "greybox" ? "greybox" : "mesh";
 // Player texture preference (HD = shipped atlas, Original = 1998 texels).
 // ?tex=hd|original is a session override and is NOT persisted back (like ?aim=);
 // the menu's Graphics drawer writes the stored preference. Mutable: the menu
@@ -136,6 +141,9 @@ let sim: SimState = netMode
 
 // ?debug exposes the live sim for the console / e2e harness (host-side only,
 // like the debug HUD — nothing in the sim or renderer reads it back).
+// Harness freeze flag (metropolisPause): stops the local tick loop only —
+// rendering continues, so a posed scene holds still for screenshots.
+let debugPaused = false;
 if (params.has("debug") && !netMode) {
   const dbg = globalThis as {
     metropolisSim?: SimState;
@@ -147,8 +155,26 @@ if (params.has("debug") && !netMode) {
       ty: number,
       tz: number,
     ) => boolean;
+    metropolisSpawn?: (archetype: number, team: number, x: number, y: number) => number;
+    metropolisPause?: (paused: boolean) => void;
+    metropolisSnap?: () => void;
   };
   dbg.metropolisSim = sim;
+  // Debug-only spawner + freeze + snapshot for the verify:units screenshot
+  // harness (tools/replay/src/unitShots.ts): line up one unit per archetype,
+  // freeze the local tick loop, pose entities directly, then re-snapshot so
+  // the posed scene renders without the sim re-aiming anything. Solo/debug
+  // only — never reachable in a net match, sim untouched otherwise.
+  dbg.metropolisSpawn = (archetype, team, x, y) => spawnUnit(sim, archetype, team, x, y);
+  dbg.metropolisPause = (paused) => {
+    debugPaused = paused;
+  };
+  // Twice: both interpolation buffers get the posed state, so the render is
+  // still at any alpha.
+  dbg.metropolisSnap = () => {
+    rotateSnapshot();
+    rotateSnapshot();
+  };
   // Host-side debug hook (like metropolisSim above): lets an e2e/screenshot
   // harness place the single arena-view camera at a fixed pose looking at a
   // target. Render-only — nothing in the sim or renderer reads it back, so no
@@ -338,6 +364,9 @@ function buildArenaGroup(m: typeof map): THREE.Group {
 let arenaGroup = buildArenaGroup(map);
 scene.add(arenaGroup);
 const greybox = createGreyboxMeshes(scene);
+// Stage B unit models upgrade the greybox buckets in place as they load;
+// missing assets keep their greybox mesh (render/unitMeshes.ts).
+if (renderMode === "mesh") loadUnitMeshes(greybox);
 
 let extent = worldExtent(map);
 
@@ -757,6 +786,7 @@ function frame(now: number): void {
     if (phase === "match" && net) {
       if (!net.tryStep()) break;
     } else if (sim) {
+      if (debugPaused) break; // ?debug harness freeze (metropolisPause)
       runTick();
     } else {
       break; // online deep link: no sim at all until MSG_WELCOME
