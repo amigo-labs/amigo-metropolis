@@ -12,9 +12,11 @@
     "typecheck": "bun run --filter '*' typecheck",
     "build": "bun run --filter '*' build",
     "dev": "bun run --filter @metropolis/client dev",
+    "gen:units": "bun run tools/gen/genUnitModels.ts",
     "replay:verify": "bun run tools/replay/src/cli.ts verify-goldens",
     "replay:verify:browser": "bun run tools/replay/src/browserVerify.ts",
-    "verify:arenas": "bun run tools/replay/src/arenaShots.ts"
+    "verify:arenas": "bun run tools/replay/src/arenaShots.ts",
+    "verify:units": "bun run tools/replay/src/unitShots.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",

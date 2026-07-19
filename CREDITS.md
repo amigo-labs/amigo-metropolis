@@ -24,15 +24,23 @@ The sfxr synth is an original TypeScript write-up of DrPetter's sfxr technique
 
 ## Third-party assets
 
-_None yet._ The Stage B model pass (Quaternius / Kenney / Kay Lousberg via
-poly.pizza, or direct rebuilds of the original) and the Pincel texture-atlas
-pass are still open (see `PLAN.md` Phase 7) — the shared palette they build on
-is now in place (above). Note each imported outside asset in the table below for
-provenance where the source is known.
+Stage B unit models (PLAN.md Phase 7 model pass). The raw files are committed
+under `tools/gen/units/raw/`; the shipped per-archetype meshes at
+`packages/client/public/models/units/<key>.glb` are derived from them by
+`bun run gen:units` (`tools/gen/genUnitModels.ts`, driven by
+`tools/gen/units/manifest.ts` — the manifest pins each model's source).
+Most units are the ORIGINAL Precinct Assault models (see the FCOP-derived
+section below); the only outside asset is the avatar-walker stand-in — the
+original X1-Alpha walker rig does not survive the Cobj extraction cleanly,
+so a CC0 mech fills in until a Stage C pose bake. The Pincel texture-atlas
+pass is still open (see `PLAN.md` Phase 7).
 
 | Asset | Author | Source | License |
 | --- | --- | --- | --- |
-| — | — | — | — |
+| Mech (→ `avatar-walker`) | Quaternius | <https://poly.pizza/m/o3Ps8z8ByP> | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+
+The projectile keeps its procedural low-poly sphere (greybox, payload-colored)
+by design — no asset needed.
 
 ## Reference / source material
 
@@ -50,3 +58,4 @@ assets and Future Cop trademarks may be used (see `docs/specs/assets.md` §2).
 | `packages/sim/maps/la-cantina.json` | *Future Cop: L.A.P.D.* mission **Mp** | same pipeline (padded square 209→241), features authored on the 0.594 m apron around the central building |
 | `packages/sim/maps/bug-hunt.json` | *Future Cop: L.A.P.D.* mission **Joke** | same pipeline (padded square 225→257), a Proving Ground terrain variant with lanes re-routed on its own heights |
 | `packages/client/public/models/<map-id>/` (all 6 arenas) | *Future Cop: L.A.P.D.* missions **Conft / Slim / Mp / Joke / Hk / Ovmp** | textured terrain meshes (`.glb` + extracted `texNN.png` textures) built from the original Til resources by the Stage 4 pipeline (`til_mesh.py` in `amigo-labs/fcop-reverse-engineering`); render-only, loaded under `?render=mesh` — see `packages/client/public/models/README.md` |
+| `packages/client/public/models/units/` (8 of 9 units) + raws in `tools/gen/units/raw/fcop/` | *Future Cop: L.A.P.D.* Precinct Assault container **Mp** | original Cobj unit models (X1-Alpha hover form 16, Hovertank 30, Flyer 41, heavy gunship 36, Sky Captain jet 54 / gunship form 57, neutral turret 32, outpost flag console 29), extracted as glb by `extract_objects.py` in `amigo-labs/fcop-reverse-engineering`, then processed by `bun run gen:units` (footprint/origin/orientation, texture pages packed, team units desaturated for the instanceColor tint) |

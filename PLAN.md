@@ -134,7 +134,7 @@ playtest on the live deploy.)
 
 ## Phase 7 — Look & sound (Stage B/C of assets.md)
 
-- [ ] Model pass (Quaternius/Kenney or direct rebuilds) mapped to archetypes, CREDITS.md
+- [x] Model pass (Quaternius/Kenney or direct rebuilds) mapped to archetypes, CREDITS.md
 - [ ] Pincel texture atlases + shared palette; NearestFilter pipeline
 - [x] jsfxr SFX set wired to event buffer; CC0 music loop; volume settings
 - [x] PWA polish: manifest, icons, offline solo mode, install prompt
@@ -160,11 +160,25 @@ hex literals scattered across the greybox meshes, base structures and terrain.
 Still open on that line item — the texture atlases themselves and the runtime
 NearestFilter sampling path, which want real per-archetype art to exercise.
 
-Still open — the two asset-import tasks: the Stage B 3D-model pass and the
-Pincel texture-atlas / NearestFilter pipeline. They are best done with the asset
-sources in hand rather than committed blind; the game meets the DoD in greybox
-until then. The feel-tuning of the SFX presets stays an open pass like
-the hover-feel / difficulty-curve passes.)
+The Stage B model pass landed — with the ORIGINAL Precinct Assault models:
+8 of 9 units are FCOP Cobj extractions from the `Mp` container (X1-Alpha hover,
+Hovertank, Flyer, heavy gunship, Sky Captain jet + gunship form, neutral
+turret, outpost flag console; raws committed under `tools/gen/units/raw/fcop/`,
+provenance in CREDITS.md). Only the avatar-walker is a CC0 Quaternius stand-in:
+the X1 walker's 45-clip rig does not survive the extraction cleanly (folded
+bind pose) — a Stage C pose bake can replace it. `bun run gen:units`
+(`tools/gen/genUnitModels.ts` + manifest) processes raws into one
+spec-conformant glb per archetype under `public/models/units/` (texture pages
+packed into one atlas, team units desaturated so the whole-unit instanceColor
+tint owns the hue), swapped into the live InstancedMesh buckets by
+`render/unitMeshes.ts` with per-archetype greybox fallback. Mesh rendering
+(textured maps + unit models) is now the DEFAULT look (owner decision);
+`?render=greybox` keeps the full Stage A debug view. Verified by
+`tools/gen/test/unitModels.test.ts` (budgets/origin/footprint vs manifest) and
+`bun run verify:units` (SwiftShader lineup screenshots in
+`docs/verification/stage7-units/`). Still open on the look side: the Pincel
+texture-atlas / NearestFilter pipeline. The feel-tuning of the SFX presets
+stays an open pass like the hover-feel / difficulty-curve passes.)
 
 ## Phase 8 — Netcode transport & hosting (P2P/TURN) — hosting.spec.md
 
