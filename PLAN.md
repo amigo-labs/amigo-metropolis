@@ -266,9 +266,33 @@ live deploy ships them too. Spec + plan:
       now re-centres the mesh into the sim's `[0, extent]` frame. A final glance
       on real GPU hardware stays optional (SwiftShader can't show driver quirks).
 
+## Phase 11 — Touch / mobile controls (pulled forward from backlog)
+
+Client-only (`docs/plans/touch-controls.md`): a new `LocalInputSource` + DOM
+overlay — the deterministic sim is untouched, so no golden regeneration.
+Entry: `?touch=1`/`?touch=0` override, else coarse-pointer auto-detect; the
+Phase 7 menu is the touch entry point (deep links still boot straight in).
+
+- [x] Pure stick/button mapping (`input/touchMapping.ts`) + unit tests
+- [x] `TouchInput` source: dual floating sticks — camera-relative analog move,
+      snap-to-unit hold-last aim with FIRE1 auto-fire while engaged — plus
+      on-screen TRANSFORM/JUMP/USE(hold)/HVY/SPC buttons, pointer-capture
+      bookkeeping; reuses gamepadMapping + movement + aimAssist unchanged
+- [x] Overlay DOM (`touchControls.ts`) + `body.touch` CSS, no-zoom viewport
+      meta, safe-area anchoring; desktop DOM and input stay byte-for-byte
+      unchanged (`?touch=0` forces them even on touch hardware)
+- [x] Touch E2E (`bun run e2e:touch`): emulated touch device, synthetic
+      pointers drive both sticks, in-sim movement + re-facing asserted through
+      the `?debug` hook; no console/page errors
+
+**DoD:** on a phone / emulated coarse-pointer device (or `?touch=1`) the menu
+starts a solo match; the avatar drives + aims via floating on-screen sticks,
+primary auto-fires on aim engage, buttons cover the rest; no page scroll/zoom;
+desktop input and the sim are untouched. (The feel pass on real phone hardware
+stays open, like the hover-feel / difficulty / SFX passes.)
+
 ## Backlog (post-v1, do not start)
 
 More arenas · map editor · rollback netcode upgrade · 2v2 ·
-touch controls (pulled forward — planned in `docs/plans/touch-controls.md`,
-not started) · Warden personalities · replay viewer UI ·
+Warden personalities · replay viewer UI ·
 amigo-trommel soundtrack.
