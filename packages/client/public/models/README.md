@@ -6,13 +6,19 @@ One `.glb` per entity archetype (`avatar-walker`, `avatar-hover`, `runner`,
 `guardian`, `juggernaut`, `fortress`, `turret`, `console`, `warden`), following
 `docs/specs/assets.md` §4: Y-up, meters, +Z forward, origin at the
 ground-contact center, footprint matched to the greybox extents, tri budgets
-1500/5000. Each file is a single texture-free vertex-colored primitive so the
-runtime (`src/render/unitMeshes.ts`) can swap it into the archetype's one
-InstancedMesh; the whole-unit team tint comes from instance colors, exactly as
-in greybox mode. The projectile stays procedural (payload-colored sphere).
+1500/5000. Each file is a single one-material primitive — the FCOP originals
+keep their packed 256px texture pages as one atlas, untextured sources carry
+baked vertex colors — so the runtime (`src/render/unitMeshes.ts`) can swap it
+into the archetype's one InstancedMesh; the whole-unit team tint comes from
+instance colors, exactly as in greybox mode (team units are desaturated by the
+pipeline so the tint owns the hue, like FCOP's own grey team variants). The
+projectile stays procedural (payload-colored sphere).
 
-Derived from committed CC0 raw downloads (provenance in `CREDITS.md`):
-regenerate with `bun run gen:units` (`tools/gen/genUnitModels.ts`, driven by
+8 of 9 units are the ORIGINAL Precinct Assault Cobj models from the `Mp`
+container (extracted in `amigo-labs/fcop-reverse-engineering`); the
+avatar-walker is a CC0 stand-in because the X1-Alpha walker's rig does not
+survive extraction cleanly (Stage C: pose bake). Provenance in `CREDITS.md`.
+Regenerate with `bun run gen:units` (`tools/gen/genUnitModels.ts`, driven by
 `tools/gen/units/manifest.ts`); `tools/gen/test/unitModels.test.ts` asserts
 the committed output matches the manifest. Any archetype whose file is missing
 or fails to load keeps its greybox mesh at runtime, so models can be swapped

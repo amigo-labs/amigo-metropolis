@@ -29,19 +29,29 @@ describe("committed unit models match the manifest contract", () => {
       const document = await io.read(join(OUT_DIR, `${spec.key}.glb`));
       const root = document.getRoot();
 
-      // One texture-free vertex-colored primitive under a "root" node — the
-      // shape render/unitMeshes.ts swaps into the archetype's InstancedMesh.
-      expect(root.listTextures().length).toBe(0);
+      // One single-material primitive under a "root" node — the shape
+      // render/unitMeshes.ts swaps into the archetype's InstancedMesh. Color
+      // comes either from ONE packed atlas texture (FCOP originals) or from
+      // baked vertex colors (untextured packs) — never both, never several.
+      const material = root.listMaterials()[0];
       expect(root.listMaterials().length).toBe(1);
-      expect(root.listMaterials()[0].getMetallicFactor()).toBe(0);
-      expect(root.listMaterials()[0].getRoughnessFactor()).toBe(1);
+      expect(material.getMetallicFactor()).toBe(0);
+      expect(material.getRoughnessFactor()).toBe(1);
       expect(root.listAnimations().length).toBe(0);
       expect(root.listSkins().length).toBe(0);
       const meshes = root.listMeshes();
       expect(meshes.length).toBe(1);
       const prims = meshes[0].listPrimitives();
       expect(prims.length).toBe(1);
-      expect(prims[0].getAttribute("COLOR_0")).not.toBeNull();
+      const texCount = root.listTextures().length;
+      if (texCount > 0) {
+        expect(texCount).toBe(1);
+        expect(material.getBaseColorTexture()).not.toBeNull();
+        expect(prims[0].getAttribute("TEXCOORD_0")).not.toBeNull();
+        expect(prims[0].getAttribute("COLOR_0")).toBeNull();
+      } else {
+        expect(prims[0].getAttribute("COLOR_0")).not.toBeNull();
+      }
       expect(prims[0].getAttribute("NORMAL")).not.toBeNull();
       expect(root.listNodes().some((n) => n.getName() === "root")).toBe(true);
 

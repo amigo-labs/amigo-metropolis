@@ -47,16 +47,22 @@ function swapBucketMesh(bucket: Bucket, key: string): void {
       // Init-time, so allocations and Box3-free traversal are fine here.
       gltf.scene.updateMatrixWorld(true);
       const geometries: THREE.BufferGeometry[] = [];
+      // The pipeline emits ONE material per unit: either a single packed
+      // atlas texture (FCOP originals) or vertex colors (untextured packs).
+      // Keep the atlas, dispose the loader's material shells.
+      let map: THREE.Texture | null = null;
       gltf.scene.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
         if (!mesh.isMesh) return;
         const geometry = mesh.geometry.clone();
         geometry.applyMatrix4(mesh.matrixWorld);
         geometries.push(geometry);
-        // The loader's own materials are never used — the bucket gets one
-        // shared vertex-color material below.
         const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        for (const material of list) material.dispose();
+        for (const material of list) {
+          const std = material as THREE.MeshStandardMaterial;
+          if (std.isMeshStandardMaterial && std.map && !map) map = std.map;
+          material.dispose(); // material only — the kept map texture survives
+        }
       });
       if (geometries.length === 0) {
         console.warn(`[unitMeshes] empty unit asset at ${url}, keeping greybox`);
@@ -73,6 +79,7 @@ function swapBucketMesh(bucket: Bucket, key: string): void {
       const material = new THREE.MeshStandardMaterial({
         flatShading: true,
         vertexColors: merged.hasAttribute("color"),
+        map,
       });
       bucket.mesh.geometry.dispose();
       bucket.mesh.geometry = merged;

@@ -38,16 +38,24 @@ export interface UnitModelSpec {
   readonly maxHeight?: number;
   readonly maxTris: number;
   /**
-   * Desaturate baked vertex colors toward luminance so the whole-unit
-   * instanceColor team tint (render/greybox.ts tintFor) reads cleanly.
-   * Off for models whose own colors should survive the neutral/team tint.
+   * Desaturate the model's colors (baked vertex colors, or the packed atlas
+   * texture) toward luminance so the whole-unit instanceColor team tint
+   * (render/greybox.ts tintFor) reads cleanly — the equivalent of FCOP's own
+   * grey team-variant textures. Off for models whose own colors should
+   * survive the neutral/team tint (turret, console).
    */
   readonly neutralizeColors: boolean;
 }
 
 const CC0 = "CC0 1.0";
+// Original Future Cop: L.A.P.D. (1998) assets are explicitly permitted, incl.
+// modified originals (docs/specs/assets.md §2). The raw glbs come from the
+// Cobj extraction in the private RE repo (extract_objects.py).
+const EA = "Electronic Arts / Visual Sciences (Future Cop: L.A.P.D., 1998)";
+const FCOP_LICENSE = "EA original, permitted per assets.md §2";
+const RE_REPO = "https://github.com/amigo-labs/fcop-reverse-engineering";
+
 const QUATERNIUS = "Quaternius";
-const KENNEY = "Kenney";
 
 export const UNIT_MODELS: readonly UnitModelSpec[] = [
   {
@@ -66,12 +74,12 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
   },
   {
     key: "avatar-hover",
-    raw: "kenney/craft-speeder-WwqxZN5pq6.glb",
+    raw: "fcop/mp-obj016-x1alpha-hover.glb",
     source: {
-      title: "Craft Speeder",
-      author: KENNEY,
-      url: "https://poly.pizza/m/WwqxZN5pq6",
-      license: CC0,
+      title: "X1-Alpha hover form (Mp Cobj 16)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
     footprint: 3.3,
@@ -80,12 +88,12 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
   },
   {
     key: "runner",
-    raw: "quaternius/tank-FA5daiyZQq.glb",
+    raw: "fcop/mp-obj030-hovertank.glb",
     source: {
-      title: "Tank",
-      author: QUATERNIUS,
-      url: "https://poly.pizza/m/FA5daiyZQq",
-      license: CC0,
+      title: "Hovertank (Mp Cobj 30)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
     },
     rotateQuarterY: 2,
     footprint: 2.0,
@@ -94,68 +102,69 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
   },
   {
     key: "guardian",
-    raw: "quaternius/spaceship-DbGajMHrvp.glb",
+    raw: "fcop/mp-obj041-flyer.glb",
     source: {
-      title: "Spaceship",
-      author: QUATERNIUS,
-      url: "https://poly.pizza/m/DbGajMHrvp",
-      license: CC0,
+      title: "Flyer (Mp Cobj 41)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
     },
-    rotateQuarterY: 2,
+    rotateQuarterY: 0,
     footprint: 3.2,
     maxTris: 1500,
     neutralizeColors: true,
   },
   {
     key: "juggernaut",
-    raw: "quaternius/tank-cW3zvvkMOM.glb",
+    raw: "fcop/mp-obj036-heavy-gunship.glb",
     source: {
-      title: "Tank",
-      author: QUATERNIUS,
-      url: "https://poly.pizza/m/cW3zvvkMOM",
-      license: CC0,
+      title: "Heavy gunship (Mp Cobj 36)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
     },
-    rotateQuarterY: 1,
+    rotateQuarterY: 0,
     footprint: 4.1,
     maxTris: 5000,
     neutralizeColors: true,
   },
   {
     key: "fortress",
-    raw: "quaternius/spaceship-H4OXkd9lWz.glb",
+    raw: "fcop/mp-obj057-skycaptain-gunship.glb",
     source: {
-      title: "Spaceship",
-      author: QUATERNIUS,
-      url: "https://poly.pizza/m/H4OXkd9lWz",
-      license: CC0,
+      title: "Sky Captain gunship form (Mp Cobj 57)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
     },
-    rotateQuarterY: 2,
+    rotateQuarterY: 0,
     footprint: 5.0,
     maxTris: 5000,
     neutralizeColors: true,
   },
   {
     key: "turret",
-    raw: "quaternius/turret-gun-ekTQhbJId7.glb",
+    raw: "fcop/mp-obj032-neutral-turret.glb",
     source: {
-      title: "Turret Gun",
-      author: QUATERNIUS,
-      url: "https://poly.pizza/m/ekTQhbJId7",
-      license: CC0,
+      title: "Neutral turret (Mp Cobj 32)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
     },
     rotateQuarterY: 2,
     footprint: 3.2,
+    maxHeight: 2.6,
     maxTris: 1500,
     neutralizeColors: false,
   },
   {
     key: "console",
-    raw: "quaternius/scifi-computer-U0xmt6tUlL.glb",
+    raw: "fcop/mp-obj029-outpost-console.glb",
     source: {
-      title: "Scifi Computer",
-      author: QUATERNIUS,
-      url: "https://poly.pizza/m/U0xmt6tUlL",
-      license: CC0,
+      title: "Outpost flag console (Mp Cobj 29)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
     },
     rotateQuarterY: 2,
     footprint: 3.4,
@@ -165,12 +174,12 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
   },
   {
     key: "warden",
-    raw: "quaternius/spaceship-PQzePrvBCD.glb",
+    raw: "fcop/mp-obj054-skycaptain-jet.glb",
     source: {
-      title: "Spaceship",
-      author: QUATERNIUS,
-      url: "https://poly.pizza/m/PQzePrvBCD",
-      license: CC0,
+      title: "Sky Captain jet (Mp Cobj 54)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
     },
     rotateQuarterY: 2,
     footprint: 4.8,

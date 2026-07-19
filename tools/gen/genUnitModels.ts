@@ -1,18 +1,21 @@
 // Stage B unit-model pipeline (assets.md §1 Stage B, §4 glTF conventions).
 //
-// Turns the committed raw CC0 downloads in tools/gen/units/raw/ into
+// Turns the committed raw downloads/extractions in tools/gen/units/raw/ into
 // spec-conformant per-archetype meshes at
 // packages/client/public/models/units/<key>.glb, driven by units/manifest.ts:
 //
-//   raw glb -> strip animations/skins -> bake node transforms & material
-//   colors (baseColorFactor, and flat-color palette atlases sampled per
-//   vertex) into one vertex-colored primitive -> orient +Z forward -> scale
-//   to the greybox footprint -> ground-contact origin -> tri-budget check
-//   (meshopt simplify as rescue) -> optional color neutralization for the
-//   whole-unit instanceColor team tint.
+//   raw glb -> strip animations/skins -> bake node transforms into one
+//   primitive -> orient +Z forward -> scale to the greybox footprint ->
+//   ground-contact origin -> tri-budget check (meshopt simplify as rescue)
+//   -> optional color neutralization for the whole-unit instanceColor tint.
 //
-// Every output is texture-free by design: one material, COLOR_0 only. The
-// Pincel texture-atlas / NearestFilter pipeline is the separate Phase 7 task.
+// Every output is ONE mesh with ONE material, colored one of two ways:
+// - textured sources (the FCOP originals): all referenced 256x256 pages are
+//   packed side by side into a single atlas with remapped UVs;
+// - untextured sources: material colors (baseColorFactor, and flat-color
+//   palette atlases sampled per vertex) are baked into COLOR_0.
+// The Pincel texture-atlas / NearestFilter pipeline stays a separate Phase 7
+// task (it wants stylized re-texturing, not this 1:1 packing).
 //
 // Authoring-time tooling like genBrand.py / genDistrict01.ts: never imported
 // by the game; only its committed output ships.
@@ -21,7 +24,7 @@
 
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { inflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 import { type Document, getBounds, type Mesh, NodeIO, type Primitive } from "@gltf-transform/core";
 import {
   dedup,
@@ -184,8 +187,57 @@ function decodePng(bytes: Uint8Array): DecodedImage {
   return { width, height, pixels };
 }
 
+/** Minimal PNG encode (8-bit RGBA, filter 0) for the packed unit atlases. */
+function encodePng(image: DecodedImage): Uint8Array {
+  const crcTable = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    crcTable[n] = c >>> 0;
+  }
+  const crc32 = (bytes: Uint8Array): number => {
+    let c = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) c = crcTable[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, data: Uint8Array): Uint8Array => {
+    const out = new Uint8Array(12 + data.length);
+    const view = new DataView(out.buffer);
+    view.setUint32(0, data.length);
+    for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+    out.set(data, 8);
+    view.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+    return out;
+  };
+  const { width, height, pixels } = image;
+  const ihdr = new Uint8Array(13);
+  const iv = new DataView(ihdr.buffer);
+  iv.setUint32(0, width);
+  iv.setUint32(4, height);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // RGBA
+  const raw = new Uint8Array(height * (width * 4 + 1));
+  for (let y = 0; y < height; y++) {
+    raw.set(pixels.subarray(y * width * 4, (y + 1) * width * 4), y * (width * 4 + 1) + 1);
+  }
+  const idat = new Uint8Array(deflateSync(raw));
+  const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  const parts = [sig, chunk("IHDR", ihdr), chunk("IDAT", idat), chunk("IEND", new Uint8Array(0))];
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}
+
 function srgbToLinear(v: number): number {
   return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
+
+function linearToSrgb(v: number): number {
+  return v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055;
 }
 
 /** Nearest-texel sample with repeat wrapping, returning linear RGB. */
@@ -300,14 +352,102 @@ async function processModel(spec: UnitModelSpec): Promise<Report> {
   await document.transform(dedup(), prune(), flatten());
 
   const prims = root.listMeshes().flatMap((m) => m.listPrimitives());
-  for (const prim of prims) bakeVertexColors(document, prim);
   const unitMat = document.createMaterial("unit").setBaseColorFactor([1, 1, 1, 1]);
   unitMat.setMetallicFactor(0).setRoughnessFactor(1);
-  for (const prim of prims) {
-    prim.setMaterial(unitMat);
-    prim.getAttribute("TEXCOORD_0")?.dispose();
+  const textured =
+    root.listTextures().length > 0 && prims.every((p) => p.getAttribute("TEXCOORD_0"));
+  if (textured) {
+    // Textured path (the FCOP originals): pack all referenced 256x256 pages
+    // side by side into ONE atlas, remap each primitive's U into its page's
+    // column, and drop COLOR_0 — the original look lives in the texture.
+    // Optional desaturation keeps the panel detail while letting the
+    // whole-unit instanceColor team tint own the hue (like FCOP's own grey
+    // unit variants).
+    const pages: DecodedImage[] = [];
+    const pageIndex = new Map<unknown, number>();
+    for (const prim of prims) {
+      const texture = prim.getMaterial()?.getBaseColorTexture();
+      if (!texture) throw new Error(`${spec.key}: textured model with untextured primitive`);
+      if (!pageIndex.has(texture)) {
+        const image = texture.getImage();
+        if (!image) throw new Error(`${spec.key}: texture without image`);
+        pageIndex.set(texture, pages.length);
+        pages.push(decodePng(new Uint8Array(image)));
+      }
+    }
+    const height = pages[0].height;
+    if (pages.some((p) => p.height !== height)) {
+      throw new Error(`${spec.key}: texture pages differ in height`);
+    }
+    const width = pages.reduce((n, p) => n + p.width, 0);
+    const packed = new Uint8Array(width * height * 4);
+    let xOff = 0;
+    for (const page of pages) {
+      for (let y = 0; y < height; y++) {
+        packed.set(
+          page.pixels.subarray(y * page.width * 4, (y + 1) * page.width * 4),
+          (y * width + xOff) * 4,
+        );
+      }
+      xOff += page.width;
+    }
+    if (spec.neutralizeColors) {
+      // Linear-space luminance, normalized to a MID-GRAY MEAN (0.55 linear),
+      // then re-encoded to sRGB. The FCOP night-city palettes are dark across
+      // the board, so a max-based normalization (like the vertex path's)
+      // leaves tinted units nearly black — anchoring the mean instead puts
+      // team tint x texture at greybox-comparable brightness while keeping
+      // the panel shading.
+      let sumLum = 0;
+      const lums = new Float32Array(width * height);
+      for (let i = 0; i < width * height; i++) {
+        const lum =
+          0.2126 * srgbToLinear(packed[i * 4] / 255) +
+          0.7152 * srgbToLinear(packed[i * 4 + 1] / 255) +
+          0.0722 * srgbToLinear(packed[i * 4 + 2] / 255);
+        lums[i] = lum;
+        sumLum += lum;
+      }
+      const mean = sumLum / (width * height);
+      const scale = mean > 0 ? 0.55 / mean : 1;
+      for (let i = 0; i < width * height; i++) {
+        const v = Math.round(linearToSrgb(Math.min(1, lums[i] * scale)) * 255);
+        packed[i * 4] = v;
+        packed[i * 4 + 1] = v;
+        packed[i * 4 + 2] = v;
+      }
+    }
+    const atlas = document
+      .createTexture("atlas")
+      .setImage(encodePng({ width, height, pixels: packed }))
+      .setMimeType("image/png");
+    unitMat.setBaseColorTexture(atlas);
+    const n = pages.length;
+    for (const prim of prims) {
+      const idx = pageIndex.get(prim.getMaterial()?.getBaseColorTexture()) ?? 0;
+      const uv = prim.getAttribute("TEXCOORD_0");
+      if (uv && n > 1) {
+        const el: number[] = [0, 0];
+        for (let i = 0; i < uv.getCount(); i++) {
+          uv.getElement(i, el);
+          uv.setElement(i, [(el[0] + idx) / n, el[1]]);
+        }
+      }
+      prim.getAttribute("COLOR_0")?.dispose();
+      prim.setMaterial(unitMat);
+    }
+    for (const texture of root.listTextures()) {
+      if (texture !== atlas) texture.dispose();
+    }
+  } else {
+    // Vertex-color path (untextured packs): bake material colors into COLOR_0.
+    for (const prim of prims) bakeVertexColors(document, prim);
+    for (const prim of prims) {
+      prim.setMaterial(unitMat);
+      prim.getAttribute("TEXCOORD_0")?.dispose();
+    }
+    for (const texture of root.listTextures()) texture.dispose();
   }
-  for (const texture of root.listTextures()) texture.dispose();
 
   // One node, one mesh, one primitive: the runtime swaps this into a single
   // InstancedMesh per archetype (renderer hard rule #3).
