@@ -49,7 +49,9 @@ const ARENAS: ArenaExpectation[] = [
     id: LA_CANTINA_ID,
     size: 241,
     laneCount: 2,
-    groundHeight: 0.594,
+    // X1Alpha spawns sit on height-0 shelves inside the central building
+    // (not the outer 0.594 m apron).
+    groundHeight: 0,
     heightsPin: 1164295261,
     wallsVPin: 3671048181,
     wallsHPin: 626664648,

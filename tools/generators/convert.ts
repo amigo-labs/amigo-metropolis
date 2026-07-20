@@ -284,81 +284,111 @@ const PROVING_GROUND: ArenaSpec = {
   dummySpots: RIM_DUMMY_SPOTS,
 };
 
-// Mp "La Cantina": a walled central building on a flat 0.594 m apron; bases
-// north/south of the building, lanes flanking it west/east (wall-verified).
-// The interior is a wall maze — no center lane. Cell-center coordinates.
+// Mp "La Cantina": playable area is the walled central building (NOT the outer
+// 0.594 m apron). Features derived from original mission Cact/Csac:
+//   - Spawns = X1Alpha (ACT type 1) at ~(96, 69) / ~(96, 155)
+//   - Base structures packed onto height-0 shelves around those spawns
+//   - Lanes = wall/slope-safe BFS through the interior maze (east corridors;
+//     the west maze is fragmented by walls/slopes at walker limits)
+//   - Spots from NeutralTurret / ItemPickup clusters inside the building
+// Cell-center coordinates; SRC 209×241 pads +X to 241 (no feature offset).
 const LA_CANTINA: ArenaSpec = {
   id: "la-cantina",
   mission: "Mp",
   spawns: [
-    { x: 114.5, y: 30.5, yaw: Math.PI / 2 }, // north, faces +y (south)
-    { x: 114.5, y: 194.5, yaw: -Math.PI / 2 }, // south, faces -y (north)
+    { x: 96.5, y: 69.5, yaw: Math.PI / 2 }, // north X1Alpha, faces +y (south)
+    { x: 96.5, y: 155.5, yaw: -Math.PI / 2 }, // south X1Alpha, faces -y (north)
   ],
   basePlots: [
-    { x: 114.5, y: 30.5, radius: 20 },
-    { x: 114.5, y: 194.5, radius: 20 },
+    { x: 96.5, y: 69.5, radius: 6.5 },
+    { x: 96.5, y: 155.5, radius: 6.5 },
   ],
   bases: [
     {
-      gate: { x: 114.5, y: 47.5, radius: 6 },
-      core: [114.5, 23.5],
-      groundConsole: [126.5, 30.5],
-      airConsole: [102.5, 30.5],
-      pad: { x: 114.5, y: 38.5, radius: 4 },
+      gate: { x: 98.5, y: 71.5, radius: 4 },
+      core: [95.5, 67.5],
+      groundConsole: [98.5, 67.5],
+      airConsole: [94.5, 67.5],
+      pad: { x: 99.5, y: 71.5, radius: 3 },
       turrets: [
-        [128.5, 39.5],
-        [122.5, 45.5],
-        [106.5, 45.5],
-        [100.5, 39.5],
+        [93.5, 66.5],
+        [101.5, 73.5],
+        [100.5, 66.5],
+        [98.5, 70.5],
       ],
     },
     {
-      gate: { x: 114.5, y: 177.5, radius: 6 },
-      core: [114.5, 201.5],
-      groundConsole: [102.5, 194.5],
-      airConsole: [126.5, 194.5],
-      pad: { x: 114.5, y: 186.5, radius: 4 },
+      gate: { x: 98.5, y: 153.5, radius: 4 },
+      core: [95.5, 157.5],
+      groundConsole: [99.5, 156.5],
+      airConsole: [93.5, 156.5],
+      pad: { x: 96.5, y: 153.5, radius: 3 },
       turrets: [
-        [100.5, 185.5],
-        [106.5, 179.5],
-        [122.5, 179.5],
-        [128.5, 185.5],
+        [98.5, 151.5],
+        [90.5, 157.5],
+        [102.5, 157.5],
+        [96.5, 157.5],
       ],
     },
   ],
   lanes: [
-    // West flank
+    // Interior west-biased corridor (BFS on sim walls/slope, thinned)
     [
-      [114.5, 30.5],
-      [52.5, 52.5],
-      [52.5, 112.5],
-      [64.5, 176.5],
-      [114.5, 194.5],
+      [96.5, 69.5],
+      [97.5, 70.5],
+      [99.5, 73.5],
+      [99.5, 77.5],
+      [97.5, 80.5],
+      [91.5, 80.5],
+      [91.5, 109.5],
+      [96.5, 109.5],
+      [96.5, 115.5],
+      [91.5, 122.5],
+      [91.5, 144.5],
+      [98.5, 144.5],
+      [99.5, 149.5],
+      [99.5, 151.5],
+      [98.5, 152.5],
+      [96.5, 155.5],
     ],
-    // East flank
+    // Interior east-biased corridor
     [
-      [114.5, 30.5],
-      [176.5, 55.5],
-      [176.5, 112.5],
-      [159.5, 176.5],
-      [114.5, 194.5],
+      [96.5, 69.5],
+      [102.5, 69.5],
+      [102.5, 78.5],
+      [104.5, 79.5],
+      [108.5, 79.5],
+      [108.5, 81.5],
+      [112.5, 82.5],
+      [113.5, 102.5],
+      [120.5, 107.5],
+      [120.5, 118.5],
+      [119.5, 118.5],
+      [113.5, 121.5],
+      [111.5, 142.5],
+      [108.5, 142.5],
+      [108.5, 145.5],
+      [102.5, 145.5],
+      [101.5, 155.5],
+      [96.5, 155.5],
     ],
   ],
+  // NeutralTurret (ACT 36) / ItemPickup clusters inside the building
   turretSpots: [
-    [52.5, 80.5],
-    [176.5, 80.5],
-    [58.5, 144.5],
-    [170.5, 142.5],
+    [78.5, 100.5],
+    [113.5, 100.5],
+    [78.5, 123.5],
+    [113.5, 123.5],
   ],
   outpostSpots: [
-    [56.5, 112.5],
-    [172.5, 112.5],
+    [66.5, 112.5],
+    [125.5, 112.5],
   ],
   dummySpots: [
-    [96.5, 44.5],
-    [132.5, 44.5],
-    [96.5, 180.5],
-    [132.5, 180.5],
+    [78.5, 106.5],
+    [114.5, 106.5],
+    [78.5, 118.5],
+    [114.5, 118.5],
   ],
 };
 
