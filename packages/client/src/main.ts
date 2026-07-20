@@ -46,6 +46,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AudioEngine } from "./audio/engine";
 import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
+import { TouchInput, wantsTouch } from "./input/touch";
+import { TOUCH_BUTTONS } from "./input/touchMapping";
 import type { LocalInputSource } from "./input/types";
 import { buildModeQuery, type MenuChoice, type MenuHandle, runMenu } from "./menu";
 import { createDemoSim, demoFeeder, updateFlyoverCamera, zeroPlayerInput } from "./menuWorld";
@@ -76,6 +78,7 @@ import {
   variantOfPref,
 } from "./render/texVariants";
 import { loadUnitMeshes } from "./render/unitMeshes";
+import { createTouchControls } from "./touchControls";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -91,7 +94,12 @@ const p2pCode = normalizeCode(params.get("p2p"));
 const online = onlineCode !== null;
 const p2p = !online && p2pCode !== null;
 const netMode = online || p2p;
-const orbitMode = !netMode && params.get("cam") === "orbit";
+// Touch controls (?touch=1/0 override, else coarse-pointer auto-detect): the
+// local player drives via on-screen sticks instead of keyboard/mouse. Touch
+// suppresses the orbit debug cam — OrbitControls would fight the sticks for
+// the same canvas pointers.
+const touchMode = wantsTouch(params);
+const orbitMode = !netMode && !touchMode && params.get("cam") === "orbit";
 // ?cam=fly: free-fly debug camera (render/flyCamera.ts) — noclip navigation for
 // inspecting map meshes / texture variants. Solo-only, like orbit.
 const flyMode = !netMode && params.get("cam") === "fly";
@@ -253,6 +261,12 @@ let countPrev = 0;
 let countCurr = 0;
 
 const keyboard = new PlayerOneInput(window);
+// In touch mode the local player's device is the on-screen overlay instead;
+// the keyboard source stays constructed (harmless) so an attached keyboard on
+// a touch device still gets its window-level contextmenu/blur handling.
+const touchControls = touchMode ? createTouchControls(TOUCH_BUTTONS) : null;
+const localInput: LocalInputSource = touchControls ? new TouchInput(touchControls) : keyboard;
+if (touchMode) document.body.classList.add("touch");
 const audio = new AudioEngine();
 // Browsers gate audio behind a gesture; the first pointer/key/touch unlocks it.
 audio.armUnlock();
@@ -887,9 +901,11 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
     poseFlyStart(flyState, views[0].camera, extent);
     refreshDebugLabel();
   }
-  // The mouse reticle only makes sense for a single full-window pointer player.
-  reticle.style.display = views.length === 1 ? "block" : "none";
-  document.body.style.cursor = ""; // back to the stylesheet crosshair
+  // The mouse reticle only makes sense for a single full-window pointer player
+  // — and not at all under touch, where the aim stick owns facing.
+  reticle.style.display = views.length === 1 && !touchMode ? "block" : "none";
+  document.body.style.cursor = ""; // back to the stylesheet crosshair (touch: none)
+  touchControls?.show();
 }
 
 // Short full-screen fade that covers hard view switches (flyover → net-match
@@ -965,7 +981,7 @@ function connectOnline(code: string): void {
         fadeCover(() => {
           rebuildArena(welcomedConfig.mapId); // host map wins; joiner ?map is moot
           resetForMatch(welcomed);
-          startMatch([{ slot: slotIdx, input: keyboard }]);
+          startMatch([{ slot: slotIdx, input: localInput }]);
         });
       } else {
         rebuildArena(welcomedConfig.mapId);
@@ -1070,7 +1086,7 @@ function connectP2pMode(code: string): void {
         fadeCover(() => {
           rebuildArena(session.config.mapId);
           resetForMatch(p2pNet.simState);
-          startMatch([{ slot: session.slot, input: keyboard }]);
+          startMatch([{ slot: session.slot, input: localInput }]);
         });
       } else {
         rebuildArena(session.config.mapId);
@@ -1124,7 +1140,7 @@ function handleMenuChoice(choice: MenuChoice, mapId: string): void {
       );
       // The flagship transition: one continuous shot from flyover to chase rig.
       if (!orbitMode) beginBlend(blend, flyCam, 1.2);
-      startMatch([{ slot: 0, input: keyboard }]);
+      startMatch([{ slot: 0, input: localInput }]);
       break;
     }
     case "online":
@@ -1145,7 +1161,7 @@ if (online) {
 } else if (p2p) {
   connectP2pMode(p2pCode as string);
 } else if (explicitMode) {
-  startMatch([{ slot: 0, input: keyboard }]);
+  startMatch([{ slot: 0, input: localInput }]);
 } else {
   // Bare URL: title screen over the live demo world; a choice starts its mode
   // in-process. The reticle/crosshair only makes sense in a live match.

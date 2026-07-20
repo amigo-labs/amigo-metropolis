@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png" />
     <link rel="apple-touch-icon" href="/icons/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -12,7 +15,7 @@
     <meta name="apple-mobile-web-app-title" content="Metropolis" />
     <meta
       name="description"
-      content="Metropolis — a browser arena strategy-action game. Break the enemy base's gate. Solo vs AI, couch splitscreen, or online 1v1."
+      content="Metropolis — a browser arena strategy-action game. Break the enemy base's gate. Solo vs AI or online 1v1."
     />
     <meta name="theme-color" content="#0b0e14" />
     <title>Metropolis</title>
@@ -79,6 +82,79 @@
       }
       body {
         cursor: crosshair;
+      }
+
+      /* --- Touch controls (?touch / coarse-pointer auto-detect) ------------- */
+      body.touch {
+        cursor: none;
+      }
+      .touch-root {
+        position: fixed;
+        inset: 0;
+        z-index: 15; /* over canvas + HUD, under the menu (20) and overlays */
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .touch-stick {
+        position: fixed;
+        top: -64px; /* transform: translate() puts the CENTER on the finger */
+        left: -64px;
+        width: 128px;
+        height: 128px;
+        border: 2px solid rgba(226, 232, 240, 0.35);
+        border-radius: 50%;
+        background: rgba(15, 23, 42, 0.25);
+        pointer-events: none; /* visuals only — the root owns the pointers */
+        will-change: transform;
+      }
+      .touch-knob {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 52px;
+        height: 52px;
+        margin: -26px 0 0 -26px;
+        border-radius: 50%;
+        background: rgba(226, 232, 240, 0.55);
+        box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+        will-change: transform;
+      }
+      .touch-buttons {
+        position: fixed;
+        right: calc(14px + env(safe-area-inset-right));
+        bottom: calc(150px + env(safe-area-inset-bottom));
+        display: grid;
+        grid-template-columns: repeat(2, auto);
+        gap: 10px;
+        justify-items: end;
+      }
+      .touch-btn {
+        width: 58px;
+        height: 58px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid rgba(226, 232, 240, 0.35);
+        border-radius: 50%;
+        background: rgba(15, 23, 42, 0.45);
+        color: #e2e8f0;
+        font: 700 12px/1 ui-monospace, monospace;
+        letter-spacing: 0.04em;
+        text-shadow: 0 1px 2px #000;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      .touch-btn.is-down {
+        background: rgba(226, 232, 240, 0.35);
+      }
+      body.touch .hud {
+        font-size: 10px;
+        max-width: 60vw;
+        top: calc(6px + env(safe-area-inset-top));
+        left: calc(6px + env(safe-area-inset-left));
       }
 
       /* --- Title screen / menu (immersive redesign) ------------------------- */

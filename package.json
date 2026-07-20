@@ -15,6 +15,7 @@
     "gen:units": "bun run tools/gen/genUnitModels.ts",
     "replay:verify": "bun run tools/replay/src/cli.ts verify-goldens",
     "replay:verify:browser": "bun run tools/replay/src/browserVerify.ts",
+    "e2e:touch": "bun run tools/replay/src/touchInput.ts",
     "verify:arenas": "bun run tools/replay/src/arenaShots.ts",
     "verify:units": "bun run tools/replay/src/unitShots.ts"
   },
