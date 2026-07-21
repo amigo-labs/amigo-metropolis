@@ -47,4 +47,8 @@
 //     arrays (headers re-recorded only — see goldenNoop.test.ts). golden-06 is
 //     new (the synthetic 3-deck layered-test map). Peers across this bump would
 //     diverge on any layered arena, so the DO gate rejects the mismatch.
-export const SIM_VERSION = 10;
+// v11: FCOP arena features re-authored from original Cact X1Alpha spawns
+//     (interior playable shelves, not outer apron/rim). Heightfields/walls
+//     unchanged; spawn/base/lane spots move. golden-05 (urban-jungle) re-records
+//     for real hash change; goldens 01–04/06 only re-header for SIM_VERSION.
+export const SIM_VERSION = 11;

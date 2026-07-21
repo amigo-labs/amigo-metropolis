@@ -10,7 +10,12 @@ tools/mapalyze/_local/
 
 # upscaleTextures.py working dir: upscale variants + comparison sheets are local
 # throwaways; only the `integrate`d map textures (public/models/) get committed.
+# (was tools/fcop/_local/ before the tools/ rename)
+tools/textures/_local/
 tools/fcop/_local/
+
+# integrate --from creates .bak next to texNN.png (local rollback only)
+packages/client/public/models/**/*.bak
 
 # Texture atlas variants (atlas_repack.py). atlas-original.png ships for EVERY
 # map — it backs the player-facing "Textures: Original / HD" option. The debug

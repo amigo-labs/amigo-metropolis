@@ -15,7 +15,7 @@ required, but listed for provenance.
 | --- | --- | --- |
 | Sound effects | `packages/client/src/audio/presets.ts` | sfxr parameter presets rendered at runtime by a clean-room synth (`audio/sfxr.ts`); no binary committed |
 | Music loop | `packages/client/src/audio/music.ts` | procedural minor-key pad + arpeggio, rendered to a seamless loop at runtime |
-| Brand art — logo + city backdrop | `assets/brand/`, `packages/client/public/icons/` | AI-generated (Google Gemini) source art, provided by the project owner and released as CC0. `tools/gen/genBrand.py` crops the shield emblem into the app/favicon icons; the "FUTURE COP" sign on the source backdrop is blurred out (a holdover from the earlier no-trademark policy — no longer required, see `docs/specs/assets.md` §2). The compressed menu backdrop is no longer shipped — the menu renders the live 3D arena instead |
+| Brand art — logo + city backdrop | `assets/brand/`, `packages/client/public/icons/` | AI-generated (Google Gemini) source art, provided by the project owner and released as CC0. `tools/generators/genBrand.py` crops the shield emblem into the app/favicon icons; the "FUTURE COP" sign on the source backdrop is blurred out (a holdover from the earlier no-trademark policy — no longer required, see `docs/specs/assets.md` §2). The compressed menu backdrop is no longer shipped — the menu renders the live 3D arena instead |
 | Shared color palette | `packages/client/src/render/palette.ts` | original ~32-color game palette (assets.md §3), the single source of truth for every in-game color |
 | Greybox unit/structure meshes | `packages/client/src/render/` | procedural Three.js geometry (Stage A, `?render=greybox`) |
 
@@ -25,10 +25,10 @@ The sfxr synth is an original TypeScript write-up of DrPetter's sfxr technique
 ## Third-party assets
 
 Stage B unit models (PLAN.md Phase 7 model pass). The raw files are committed
-under `tools/gen/units/raw/`; the shipped per-archetype meshes at
+under `tools/generators/units/raw/`; the shipped per-archetype meshes at
 `packages/client/public/models/units/<key>.glb` are derived from them by
-`bun run gen:units` (`tools/gen/genUnitModels.ts`, driven by
-`tools/gen/units/manifest.ts` — the manifest pins each model's source).
+`bun run gen:units` (`tools/generators/genUnitModels.ts`, driven by
+`tools/generators/units/manifest.ts` — the manifest pins each model's source).
 Most units are the ORIGINAL Precinct Assault models (see the FCOP-derived
 section below); the only outside asset is the avatar-walker stand-in — the
 original X1-Alpha walker rig does not survive the Cobj extraction cleanly,
@@ -53,9 +53,11 @@ assets and Future Cop trademarks may be used (see `docs/specs/assets.md` §2).
 
 | Map | Source | How it's made |
 | --- | --- | --- |
-| `packages/sim/maps/urban-jungle.json` | *Future Cop: L.A.P.D.* mission **Conft** | walkable-floor heightfield extracted from the original mission (int8, 1/32 m units), padded square (225→257) and authored with amigo-metropolis features (bases/spawns/lanes); no original art, textures, or geometry meshes committed |
-| `packages/sim/maps/proving-ground.json` | *Future Cop: L.A.P.D.* mission **Slim** | same pipeline (padded square 225→257), features authored on the flat 0 m play field |
-| `packages/sim/maps/la-cantina.json` | *Future Cop: L.A.P.D.* mission **Mp** | same pipeline (padded square 209→241), features authored on the 0.594 m apron around the central building |
-| `packages/sim/maps/bug-hunt.json` | *Future Cop: L.A.P.D.* mission **Joke** | same pipeline (padded square 225→257), a Proving Ground terrain variant with lanes re-routed on its own heights |
+| `packages/sim/maps/urban-jungle.json` | *Future Cop: L.A.P.D.* mission **Conft** | walkable-floor heightfield extracted from the original mission (int8, 1/32 m units), padded square (225→257); spawns/bases/lanes from original `Cact` X1Alpha positions inside the walkable interior |
+| `packages/sim/maps/proving-ground.json` | *Future Cop: L.A.P.D.* mission **Slim** | same pipeline (padded square 225→257); features from X1Alpha shelves (not outer rim apron) |
+| `packages/sim/maps/la-cantina.json` | *Future Cop: L.A.P.D.* mission **Mp** | same pipeline (padded square 209→241); spawns/bases/lanes from original `Cact` X1Alpha positions inside the central building (apron is not playable) |
+| `packages/sim/maps/bug-hunt.json` | *Future Cop: L.A.P.D.* mission **Joke** | same pipeline (padded square 225→257); shares Proving Ground X1Alpha feature layout, heights from Joke |
+| `packages/sim/maps/hollywood-keys.json` | *Future Cop: L.A.P.D.* mission **Hk** | layered; spawns on main walkable ground nearest original X1Alpha (decks disconnected for walker) |
+| `packages/sim/maps/venice-beach.json` | *Future Cop: L.A.P.D.* mission **Ovmp** | layered; spawns on -2 m ground shelves under original X1Alpha deck positions |
 | `packages/client/public/models/<map-id>/` (all 6 arenas) | *Future Cop: L.A.P.D.* missions **Conft / Slim / Mp / Joke / Hk / Ovmp** | textured terrain meshes (`.glb` + extracted `texNN.png` textures) built from the original Til resources by the Stage 4 pipeline (`til_mesh.py` in `amigo-labs/fcop-reverse-engineering`); render-only, loaded under `?render=mesh` — see `packages/client/public/models/README.md` |
-| `packages/client/public/models/units/` (8 of 9 units) + raws in `tools/gen/units/raw/fcop/` | *Future Cop: L.A.P.D.* Precinct Assault container **Mp** | original Cobj unit models (X1-Alpha hover form 16, Hovertank 30, Flyer 41, heavy gunship 36, Sky Captain jet 54 / gunship form 57, neutral turret 32, outpost flag console 29), extracted as glb by `extract_objects.py` in `amigo-labs/fcop-reverse-engineering`, then processed by `bun run gen:units` (footprint/origin/orientation, texture pages packed, team units desaturated for the instanceColor tint) |
+| `packages/client/public/models/units/` (8 of 9 units) + raws in `tools/generators/units/raw/fcop/` | *Future Cop: L.A.P.D.* Precinct Assault container **Mp** | original Cobj unit models (X1-Alpha hover form 16, Hovertank 30, Flyer 41, heavy gunship 36, Sky Captain jet 54 / gunship form 57, neutral turret 32, outpost flag console 29), extracted as glb by `extract_objects.py` in `amigo-labs/fcop-reverse-engineering`, then processed by `bun run gen:units` (footprint/origin/orientation, texture pages packed, team units desaturated for the instanceColor tint) |

@@ -1,7 +1,7 @@
 // Golden replay safety net (architecture.md §6): every .mrep in test/goldens/
 // is re-simulated and its full hash sequence compared against the committed
 // .hashes.json. Any sim change that alters these hashes must regenerate the
-// goldens in the same commit (bun tools/replay/src/cli.ts record ...) and
+// goldens in the same commit (bun tools/determinism/src/cli.ts record ...) and
 // justify it in the commit message — see CLAUDE.md hard rule 6.
 
 import { describe, expect, it } from "bun:test";

@@ -32,8 +32,8 @@ sequences bit-exactly (needs a Chromium binary; set `CHROMIUM_PATH`).
 - `packages/sim` — pure deterministic simulation (zero deps, no DOM/Three/I/O)
 - `packages/client` — Three.js renderer, input, interpolation, PWA shell
 - `packages/server` — Cloudflare Worker + Durable Object relay (Phase 6)
-- `tools/replay` — replay record/verify CLI + cross-engine harness
-- `tools/gen` — authoring-time generators (committed sin LUT, map JSON, and
+- `tools/determinism` — replay record/verify CLI + cross-engine harness
+- `tools/generators` — authoring-time generators (committed sin LUT, map JSON, and
   brand icons/backdrop from `assets/brand/` via `genBrand.py`)
 
 ## Online 1v1 (Phase 6)
@@ -91,5 +91,5 @@ browser or Workers runtime.
 `packages/sim/test/goldens/` holds scripted replays plus their expected
 per-tick FNV-1a hash sequences; `bun test` re-simulates them. Any sim change
 that alters hashes must bump `SIM_VERSION` and regenerate goldens in the same
-commit (`bun tools/replay/src/cli.ts record drive-01 packages/sim/test/goldens/golden-01-drive.mrep`)
+commit (`bun tools/determinism/src/cli.ts record drive-01 packages/sim/test/goldens/golden-01-drive.mrep`)
 with justification in the commit message.

@@ -12,12 +12,12 @@
     "typecheck": "bun run --filter '*' typecheck",
     "build": "bun run --filter '*' build",
     "dev": "bun run --filter @metropolis/client dev",
-    "gen:units": "bun run tools/gen/genUnitModels.ts",
-    "replay:verify": "bun run tools/replay/src/cli.ts verify-goldens",
-    "replay:verify:browser": "bun run tools/replay/src/browserVerify.ts",
-    "e2e:touch": "bun run tools/replay/src/touchInput.ts",
-    "verify:arenas": "bun run tools/replay/src/arenaShots.ts",
-    "verify:units": "bun run tools/replay/src/unitShots.ts"
+    "gen:units": "bun run tools/generators/genUnitModels.ts",
+    "replay:verify": "bun run tools/determinism/src/cli.ts verify-goldens",
+    "replay:verify:browser": "bun run tools/determinism/src/browserVerify.ts",
+    "e2e:touch": "bun run tools/determinism/src/touchInput.ts",
+    "verify:arenas": "bun run tools/determinism/src/arenaShots.ts",
+    "verify:units": "bun run tools/determinism/src/unitShots.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",

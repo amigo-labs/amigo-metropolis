@@ -115,7 +115,7 @@ Flat `Float32Array`, stride 10 per entity:
   format = network format. Recorded in every mode automatically (dev builds).
   Format 2 added the Warden config (the AI runs inside the sim, so AI matches
   replay from the header alone); format-1 files still decode as warden-less.
-- `tools/replay`: `record`, `verify` (re-simulate, compare hash sequence),
+- `tools/determinism`: `record`, `verify` (re-simulate, compare hash sequence),
   `bisect` (find first diverging tick between two runs).
 - **Golden replays** live in `packages/sim/test/goldens/` and run in CI/`bun test`.
   This is the safety net that makes "determinism by discipline" real.

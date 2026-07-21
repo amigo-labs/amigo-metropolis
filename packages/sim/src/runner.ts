@@ -1,5 +1,5 @@
 // Replay runner: re-simulates a replay and produces its per-tick hash
-// sequence. Shared by golden tests, the tools/replay CLI and the browser
+// sequence. Shared by golden tests, the tools/determinism CLI and the browser
 // cross-engine harness so "verify" means the same thing everywhere.
 
 import { createTickInputs } from "./inputs";

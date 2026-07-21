@@ -1,5 +1,5 @@
 // Schema + playability validation for the committed district-01 map, plus an
-// exact hash pin: regenerating the map (tools/gen/genDistrict01.ts) changes
+// exact hash pin: regenerating the map (tools/generators/genDistrict01.ts) changes
 // gameplay everywhere it is sampled, so a changed pin means SIM_VERSION bump
 // + golden regeneration for every golden recorded on this map.
 import { describe, expect, it } from "bun:test";

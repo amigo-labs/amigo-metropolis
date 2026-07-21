@@ -1,0 +1,15 @@
+{
+  "name": "@metropolis/tools-determinism",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@metropolis/sim": "workspace:*"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.61.1"
+  }
+}

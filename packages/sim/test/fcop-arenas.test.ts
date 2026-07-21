@@ -2,7 +2,7 @@
 // urban-jungle (which has its own file): proving-ground (mission Slim),
 // la-cantina (mission Mp) and bug-hunt (mission Joke), each with an exact
 // heights-hash pin. The heightfields are extracted 1:1 from the original
-// missions (int8, 1/32 m units) by tools/fcop/convert.ts; regenerating one
+// missions (int8, 1/32 m units) by tools/generators/convert.ts; regenerating one
 // changes gameplay everywhere it is sampled, so a changed pin means a
 // SIM_VERSION bump + golden regeneration for every golden recorded on it.
 //
@@ -28,7 +28,7 @@ interface ArenaExpectation {
   laneCount: number;
   /** Flat ground height of the base zones (spawn/base structure elevation). */
   groundHeight: number;
-  /** Pinned after generation (tools/fcop/convert.ts); see header contract. */
+  /** Pinned after generation (tools/generators/convert.ts); see header contract. */
   heightsPin: number;
   /** FNV-1a pins over the loaded wall bit arrays — the collision geometry. */
   wallsVPin: number;
@@ -40,7 +40,7 @@ const ARENAS: ArenaExpectation[] = [
     id: PROVING_GROUND_ID,
     size: 257,
     laneCount: 3,
-    groundHeight: 2, // bases sit on the 2 m rim plateau ringing the field
+    groundHeight: 1, // X1Alpha shelves at 1 m (not outer rim apron)
     heightsPin: 1261122911,
     wallsVPin: 420789996,
     wallsHPin: 3689709048,
@@ -49,7 +49,9 @@ const ARENAS: ArenaExpectation[] = [
     id: LA_CANTINA_ID,
     size: 241,
     laneCount: 2,
-    groundHeight: 0.594,
+    // X1Alpha spawns sit on height-0 shelves inside the central building
+    // (not the outer 0.594 m apron).
+    groundHeight: 0,
     heightsPin: 1164295261,
     wallsVPin: 3671048181,
     wallsHPin: 626664648,
@@ -58,7 +60,7 @@ const ARENAS: ArenaExpectation[] = [
     id: BUG_HUNT_ID,
     size: 257,
     laneCount: 3,
-    groundHeight: 2, // shares the proving-ground layout (terrain variant)
+    groundHeight: 1, // shares proving-ground X1Alpha shelf layout
     heightsPin: 3837183847,
     wallsVPin: 293805412,
     wallsHPin: 1740349393,

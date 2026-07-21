@@ -1,6 +1,6 @@
 // Schema + playability + exact-hash pins for the two LAYERED FCOP arenas
 // (Hollywood Keys, Venice Beach). A changed pin means the extractor/converter
-// output changed → regenerate the map JSON (tools/fcop/convert.ts) and, if any
+// output changed → regenerate the map JSON (tools/generators/convert.ts) and, if any
 // golden runs on it, bump SIM_VERSION + re-record in the same commit.
 import { describe, expect, it } from "bun:test";
 import { AVATAR_WALKER_MAX_SLOPE } from "../src/balance";

@@ -17,7 +17,7 @@
 >   `src/ui/` directory exists) and the section landed as **Phase 11**, not
 >   "Phase 8" (Phases 8–10 shipped in the meantime).
 > - Verified by `packages/client/test/touchMapping.test.ts` and
->   `bun run e2e:touch` (`tools/replay/src/touchInput.ts`).
+>   `bun run e2e:touch` (`tools/determinism/src/touchInput.ts`).
 >
 > Original plan (pre-execution) below, kept for context.
 
@@ -103,9 +103,9 @@ existing single-player boot path.
   unit vector (default `(1,0)`), pressed-button bitset; updates knob visuals via
   the handles. Aim/move mapping copied from `gamepad.ts:59-70` (Y-inversion +
   snap-to-unit + hold-last).
-- `tools/replay/src/touchInput.ts` — Playwright touch E2E. **Reuses the existing
+- `tools/determinism/src/touchInput.ts` — Playwright touch E2E. **Reuses the existing
   `playwright-core` devDep** and the launch pattern from
-  `tools/replay/src/browserVerify.ts` (`chromium.launch({ executablePath:
+  `tools/determinism/src/browserVerify.ts` (`chromium.launch({ executablePath:
   CHROMIUM_PATH ?? "/opt/pw-browsers/chromium" })`). Builds the client, serves
   `dist/` via a dependency-free `Bun.serve` static server, opens a
   `hasTouch:true,isMobile:true` context at `?touch&debug&seed=1`, taps start,
@@ -130,7 +130,7 @@ existing single-player boot path.
   **"Phase 8 — Touch / mobile controls (pulled forward from backlog at user
   request)"** with a checklist mirroring the above and the DoD (below). Note it
   lands after Phase 5 and is independent of Phases 6–7.
-- root `package.json` — add `"e2e:touch": "bun run tools/replay/src/touchInput.ts"`
+- root `package.json` — add `"e2e:touch": "bun run tools/determinism/src/touchInput.ts"`
   (documented, like `replay:verify:browser`, as needing a Chromium binary).
 
 ### Reuse (paths)
@@ -141,8 +141,8 @@ existing single-player boot path.
 - Aim snap-to-unit + hold-last + Y-inversion — `input/gamepad.ts:59-70`.
 - DOM-element-per-view creation — `render/playerView.ts:35-37`.
 - Overlay card styling — `.lobby-card` in `index.html`.
-- E2E scaffold + `playwright-core` dep — `tools/replay/src/browserVerify.ts`,
-  `tools/replay/package.json`.
+- E2E scaffold + `playwright-core` dep — `tools/determinism/src/browserVerify.ts`,
+  `tools/determinism/package.json`.
 
 ### Risks / edge cases
 - Multi-touch: first pointer into a zone owns that stick until its up/cancel;
@@ -158,7 +158,7 @@ existing single-player boot path.
 
 ## Verification
 1. `bun run lint` (Biome) — clean.
-2. `bun run typecheck` — new client files + `tools/replay` compile.
+2. `bun run typecheck` — new client files + `tools/determinism` compile.
 3. `bun test` — includes new `touchMapping.test.ts`; all 4 goldens still pass.
 4. `bun run replay:verify` — goldens re-simulate identically (**no golden regen**;
    sim untouched).
@@ -181,5 +181,5 @@ splitscreen unchanged; sim untouched (no golden regen).
   in `playerView.ts`) have since been **applied** on the Phase 5 branch — they are
   no longer part of this work.
 - A follow-up option while adding the touch E2E: also commit a sibling
-  gamepad/splitscreen E2E in `tools/replay/src/`, since the current Phase 5 note
+  gamepad/splitscreen E2E in `tools/determinism/src/`, since the current Phase 5 note
   references a synthetic-gamepad smoke test that was run ad hoc but not committed.

@@ -2,11 +2,10 @@
 //
 // The atlas pipeline (RE-repo tools/gfx/atlas_repack.py) emits several atlas
 // PNGs per map that share ONE pack layout — identical UVs, interchangeable
-// pixels: atlas-original.png (source texels nearest-x4, the 1998 look),
-// atlas-esrgan.png (Real-ESRGAN x4) and atlas-gemini.png (ESRGAN + Gemini
-// refine). This module swaps material.map between them at runtime so texture
-// quality can be judged in-game (hotkeys wired in main.ts; typically together
-// with ?cam=fly).
+// pixels: atlas-original.png (source texels nearest-x4, the 1998 look) and
+// atlas-esrgan.png (Real-ESRGAN x4). This module swaps material.map between
+// them at runtime so texture quality can be judged in-game (hotkeys wired in
+// main.ts; typically together with ?cam=fly).
 //
 // Variants load LAZILY on first request and missing files are tolerated: only
 // la-cantina commits its variant PNGs (owner decision) — for other maps the
@@ -20,7 +19,6 @@ import * as THREE from "three";
 export const TEX_VARIANTS = {
   original: "atlas-original.png",
   esrgan: "atlas-esrgan.png",
-  gemini: "atlas-gemini.png",
 } as const;
 
 export type VariantName = keyof typeof TEX_VARIANTS | "default";
@@ -75,7 +73,7 @@ const loader = new THREE.TextureLoader();
 export interface VariantSwitcher {
   readonly setVariant: (name: VariantName) => void;
   readonly active: () => VariantName;
-  /** Last user-facing status line ("tex: esrgan", "tex: gemini (missing)"). */
+  /** Last user-facing status line ("tex: esrgan", "tex: original (missing)"). */
   readonly status: () => string;
   readonly dispose: () => void;
 }
