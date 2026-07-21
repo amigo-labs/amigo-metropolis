@@ -40,7 +40,7 @@ const ARENAS: ArenaExpectation[] = [
     id: PROVING_GROUND_ID,
     size: 257,
     laneCount: 3,
-    groundHeight: 2, // bases sit on the 2 m rim plateau ringing the field
+    groundHeight: 1, // X1Alpha shelves at 1 m (not outer rim apron)
     heightsPin: 1261122911,
     wallsVPin: 420789996,
     wallsHPin: 3689709048,
@@ -60,7 +60,7 @@ const ARENAS: ArenaExpectation[] = [
     id: BUG_HUNT_ID,
     size: 257,
     laneCount: 3,
-    groundHeight: 2, // shares the proving-ground layout (terrain variant)
+    groundHeight: 1, // shares proving-ground X1Alpha shelf layout
     heightsPin: 3837183847,
     wallsVPin: 293805412,
     wallsHPin: 1740349393,

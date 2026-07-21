@@ -1,5 +1,26 @@
 # Touch / mobile controls — implementation plan
 
+> Status: **LANDED** as PLAN.md Phase 11 (2026-07-19). The approach below was
+> executed as written, with these deltas against the code that had landed since
+> this plan was drafted:
+>
+> - **No tap-to-start card / lobby skip** — the Phase 7 title menu is the touch
+>   entry point (its taps provide the audio gesture); deep links boot straight
+>   in as before.
+> - **No `rumble`** — the method left `LocalInputSource` with the splitscreen
+>   removal; `input/gamepad.ts` is gone too, so the stick aim math lives in the
+>   new pure `touchMapping.ts` instead of being copied from the gamepad device.
+> - **Both sticks are camera-relative** via `movement.ts` (`cameraGroundForward`
+>   basis refreshed in `updateAim`), matching the keyboard path; aim reuses the
+>   `aimAssist.ts` "assist" magnetism exactly like `PlayerOneInput`.
+> - The overlay module is `src/touchControls.ts` (flat beside `menu.ts` — no
+>   `src/ui/` directory exists) and the section landed as **Phase 11**, not
+>   "Phase 8" (Phases 8–10 shipped in the meantime).
+> - Verified by `packages/client/test/touchMapping.test.ts` and
+>   `bun run e2e:touch` (`tools/determinism/src/touchInput.ts`).
+>
+> Original plan (pre-execution) below, kept for context.
+
 > Status: planned, not started. Pulled forward from the `PLAN.md` backlog at the
 > user's request. Independent of Phases 6 (online) and 7 (PWA). Client-only; the
 > deterministic sim is untouched.

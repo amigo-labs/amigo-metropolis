@@ -84,192 +84,239 @@ interface ArenaSpec {
 
 // --- Arena specs --------------------------------------------------------------
 
-// Conft "Urban Jungle": all features on the naturally flat perimeter ring at
-// int 19 = 0.594 m, routed AROUND the sunken central plaza whose banks exceed
-// the walker slope limit. Coords are world meters == point indices (CELL = 1).
+// Conft "Urban Jungle": spawns from original X1Alpha Cact positions inside the
+// walkable interior (NOT the outer perimeter apron). Lanes BFS-routed on the
+// wall/slope graph between those spawns. Cell-center coordinates.
 const URBAN_JUNGLE: ArenaSpec = {
   id: "urban-jungle",
   mission: "Conft",
   spawns: [
-    { x: 38, y: 128, yaw: 0 }, // west, faces +x
-    { x: 186, y: 128, yaw: Math.PI }, // east, faces -x
+    { x: 90.5, y: 71.5, yaw: 1.302 }, // X1Alpha N
+    { x: 117.5, y: 169.5, yaw: -1.84 }, // X1Alpha S
   ],
   basePlots: [
-    { x: 38, y: 128, radius: 20 },
-    { x: 186, y: 128, radius: 20 },
+    { x: 90.5, y: 71.5, radius: 8 },
+    { x: 117.5, y: 169.5, radius: 6 },
   ],
   bases: [
     {
-      gate: { x: 55, y: 128, radius: 6 },
-      core: [31, 128],
-      groundConsole: [38, 116],
-      airConsole: [38, 140],
-      pad: { x: 46, y: 128, radius: 4 },
+      gate: { x: 94.5, y: 76.5, radius: 4 },
+      core: [86.5, 66.5],
+      groundConsole: [83.5, 71.5],
+      airConsole: [97.5, 71.5],
+      pad: { x: 90.5, y: 73.5, radius: 3 },
       turrets: [
-        [47, 114],
-        [53, 120],
-        [53, 136],
-        [47, 142],
+        [87.5, 66.5],
+        [96.5, 74.5],
+        [86.5, 76.5],
+        [94.5, 67.5],
       ],
     },
     {
-      gate: { x: 169, y: 128, radius: 6 },
-      core: [193, 128],
-      groundConsole: [186, 116],
-      airConsole: [186, 140],
-      pad: { x: 178, y: 128, radius: 4 },
+      gate: { x: 117.5, y: 167.5, radius: 4 },
+      core: [118.5, 171.5],
+      groundConsole: [119.5, 169.5],
+      airConsole: [115.5, 169.5],
+      pad: { x: 117.5, y: 168.5, radius: 3 },
       turrets: [
-        [177, 114],
-        [171, 120],
-        [171, 136],
-        [177, 142],
+        [119.5, 167.5],
+        [115.5, 171.5],
+        [119.5, 171.5],
+        [115.5, 167.5],
       ],
     },
   ],
   lanes: [
-    // North arc — base0 → base1 around the north rim of the plaza
     [
-      [38, 128],
-      [46, 66],
-      [80, 34],
-      [144, 34],
-      [178, 66],
-      [186, 128],
+      [90.5, 71.5],
+      [94.5, 76.5],
+      [118.5, 77.5],
+      [118.5, 78.5],
+      [97.5, 82.5],
+      [97.5, 87.5],
+      [89.5, 88.5],
+      [89.5, 152.5],
+      [97.5, 152.5],
+      [98.5, 161.5],
+      [118.5, 161.5],
+      [119.5, 168.5],
+      [117.5, 169.5],
     ],
-    // South arc
     [
-      [38, 128],
-      [46, 190],
-      [80, 222],
-      [144, 222],
-      [178, 190],
-      [186, 128],
+      [90.5, 71.5],
+      [91.5, 73.5],
+      [106.5, 75.5],
+      [118.5, 76.5],
+      [118.5, 84.5],
+      [117.5, 84.5],
+      [113.5, 92.5],
+      [112.5, 95.5],
+      [112.5, 96.5],
+      [119.5, 96.5],
+      [119.5, 101.5],
+      [117.5, 107.5],
+      [117.5, 113.5],
+      [113.5, 113.5],
+      [112.5, 122.5],
+      [112.5, 123.5],
+      [113.5, 126.5],
+      [118.5, 131.5],
+      [118.5, 135.5],
+      [122.5, 135.5],
+      [120.5, 141.5],
+      [120.5, 143.5],
+      [112.5, 144.5],
+      [112.5, 147.5],
+      [113.5, 149.5],
+      [115.5, 152.5],
+      [117.5, 155.5],
+      [119.5, 155.5],
+      [119.5, 168.5],
+      [117.5, 169.5],
     ],
-    // Top edge (far north, along the flat perimeter)
     [
-      [38, 128],
-      [38, 40],
-      [112, 20],
-      [186, 40],
-      [186, 128],
+      [90.5, 71.5],
+      [91.5, 73.5],
+      [106.5, 75.5],
+      [121.5, 77.5],
+      [121.5, 78.5],
+      [127.5, 79.5],
+      [127.5, 96.5],
+      [122.5, 96.5],
+      [119.5, 97.5],
+      [119.5, 100.5],
+      [121.5, 100.5],
+      [121.5, 101.5],
+      [130.5, 106.5],
+      [125.5, 138.5],
+      [122.5, 138.5],
+      [120.5, 139.5],
+      [120.5, 142.5],
+      [122.5, 143.5],
+      [127.5, 144.5],
+      [126.5, 161.5],
+      [121.5, 161.5],
+      [120.5, 168.5],
+      [117.5, 169.5],
     ],
   ],
   turretSpots: [
-    [64, 66],
-    [160, 66],
-    [64, 190],
-    [160, 190],
+    [88.5, 93.5],
+    [108.5, 108.5],
+    [99.5, 132.5],
+    [119.5, 147.5],
   ],
   outpostSpots: [
-    [112, 40],
-    [112, 216],
+    [85.5, 108.5],
+    [123.5, 132.5],
   ],
   dummySpots: [
-    [50, 100],
-    [50, 156],
-    [174, 100],
-    [174, 156],
+    [94.5, 86.5],
+    [97.5, 96.5],
+    [111.5, 145.5],
+    [113.5, 155.5],
   ],
 };
 
-// Slim "Proving Ground" / Joke "Bug Hunt": Bug Hunt is a Proving Ground
-// terrain variant — the wall-aware analysis produced IDENTICAL base fits and
-// lane routes on both heightfields, so they share the authored features.
-// Bases sit north/south on the flat 2 m rim plateau (the 0 m inner field is
-// fragmented into walled chambers); three lane corridors ring the field at
-// x≈60 (west), x≈159 (mid) and x≈196 (east). All coordinates are CELL
-// CENTERS (i+0.5) so segments never run exactly on a grid line and the edge
-// blocker's floor() is unambiguous.
+// Slim "Proving Ground" / Joke "Bug Hunt": share features. Spawns from original
+// X1Alpha Cact (~88,65 / ~120,175) on the 1 m interior shelves — not the outer
+// rim apron. Three BFS corridors (west / mid / east) on the wall graph.
 const RIM_SPAWNS = [
-  { x: 126.5, y: 40.5, yaw: Math.PI / 2 }, // north, faces +y (south)
-  { x: 126.5, y: 200.5, yaw: -Math.PI / 2 }, // south, faces -y (north)
+  { x: 87.5, y: 64.5, yaw: 1.282 },
+  { x: 120.5, y: 175.5, yaw: -1.86 },
 ];
 const RIM_BASE_PLOTS: Plot[] = [
-  { x: 126.5, y: 40.5, radius: 20 },
-  { x: 126.5, y: 200.5, radius: 20 },
+  { x: 87.5, y: 64.5, radius: 9 },
+  { x: 120.5, y: 175.5, radius: 9 },
 ];
 const RIM_BASES: [BaseSpec, BaseSpec] = [
   {
-    gate: { x: 126.5, y: 57.5, radius: 6 },
-    core: [126.5, 33.5],
-    groundConsole: [138.5, 40.5],
-    airConsole: [114.5, 40.5],
-    pad: { x: 126.5, y: 48.5, radius: 4 },
+    gate: { x: 89.5, y: 70.5, radius: 4 },
+    core: [81.5, 66.5],
+    groundConsole: [94.5, 64.5],
+    airConsole: [82.5, 66.5],
+    pad: { x: 89.5, y: 64.5, radius: 3 },
     turrets: [
-      [140.5, 49.5],
-      [134.5, 55.5],
-      [118.5, 55.5],
-      [112.5, 49.5],
+      [90.5, 64.5],
+      [86.5, 69.5],
+      [87.5, 70.5],
+      [92.5, 64.5],
     ],
   },
   {
-    gate: { x: 126.5, y: 183.5, radius: 6 },
-    core: [126.5, 207.5],
-    groundConsole: [114.5, 200.5],
-    airConsole: [138.5, 200.5],
-    pad: { x: 126.5, y: 192.5, radius: 4 },
+    gate: { x: 120.5, y: 172.5, radius: 4 },
+    core: [126.5, 175.5],
+    groundConsole: [113.5, 175.5],
+    airConsole: [127.5, 175.5],
+    pad: { x: 118.5, y: 175.5, radius: 3 },
     turrets: [
-      [112.5, 191.5],
-      [118.5, 185.5],
-      [134.5, 185.5],
-      [140.5, 191.5],
+      [118.5, 169.5],
+      [121.5, 169.5],
+      [114.5, 174.5],
+      [122.5, 175.5],
     ],
   },
 ];
 const RIM_LANES: P[][] = [
-  // Mid corridor (x≈159), east of the inner field
+  // West corridor
   [
-    [126.5, 40.5],
-    [159.5, 64.5],
+    [87.5, 64.5],
+    [74.5, 64.5],
+    [80.5, 175.5],
+    [120.5, 175.5],
+  ],
+  // Mid / east field route
+  [
+    [87.5, 64.5],
+    [85.5, 64.5],
+    [85.5, 63.5],
+    [101.5, 56.5],
+    [144.5, 56.5],
+    [152.5, 64.5],
+    [152.5, 68.5],
+    [159.5, 68.5],
     [159.5, 175.5],
     [156.5, 175.5],
     [155.5, 176.5],
     [138.5, 183.5],
-    [126.5, 184.5],
-    [126.5, 200.5],
-  ],
-  // West corridor (x≈60)
-  [
-    [126.5, 40.5],
-    [60.5, 76.5],
-    [60.5, 120.5],
-    [80.5, 167.5],
-    [80.5, 171.5],
-    [81.5, 172.5],
-    [81.5, 175.5],
-    [117.5, 175.5],
+    [132.5, 183.5],
+    [127.5, 177.5],
+    [125.5, 177.5],
     [117.5, 176.5],
-    [126.5, 200.5],
+    [117.5, 175.5],
+    [120.5, 175.5],
   ],
-  // East corridor (x≈196)
+  // Far-east ring
   [
-    [126.5, 40.5],
-    [196.5, 92.5],
-    [196.5, 120.5],
-    [159.5, 142.5],
-    [159.5, 175.5],
-    [156.5, 175.5],
-    [155.5, 176.5],
-    [138.5, 183.5],
-    [126.5, 184.5],
-    [126.5, 200.5],
+    [87.5, 64.5],
+    [85.5, 64.5],
+    [85.5, 63.5],
+    [101.5, 56.5],
+    [160.5, 56.5],
+    [160.5, 183.5],
+    [132.5, 183.5],
+    [127.5, 177.5],
+    [125.5, 177.5],
+    [117.5, 176.5],
+    [117.5, 175.5],
+    [120.5, 175.5],
   ],
 ];
 const RIM_TURRET_SPOTS: P[] = [
-  [60.5, 90.5],
-  [196.5, 100.5],
-  [159.5, 100.5],
-  [159.5, 150.5],
+  [87.5, 88.5],
+  [107.5, 106.5],
+  [100.5, 133.5],
+  [120.5, 151.5],
 ];
 const RIM_OUTPOST_SPOTS: P[] = [
-  [60.5, 120.5],
-  [196.5, 120.5],
+  [84.5, 106.5],
+  [124.5, 134.5],
 ];
 const RIM_DUMMY_SPOTS: P[] = [
-  [100.5, 40.5],
-  [152.5, 40.5],
-  [100.5, 200.5],
-  [152.5, 200.5],
+  [92.5, 81.5],
+  [96.5, 92.5],
+  [112.5, 148.5],
+  [115.5, 159.5],
 ];
 
 const PROVING_GROUND: ArenaSpec = {
@@ -404,141 +451,143 @@ const BUG_HUNT: ArenaSpec = {
   dummySpots: RIM_DUMMY_SPOTS,
 };
 
-// Hk "Hollywood Keys": the first LAYERED arena (Stage 5) — 75 % double/triple
-// deck. Bases sit on the flat -2.97 m ground shelves in opposite corners
-// (SW ↔ NE, 180° mirror); a single ground lane rings the interior via the
-// west (x≈62) then south (y≈196) corridors. Upper decks are traversable space
-// (flanking/sniping), not feature-bearing in v1. Base cluster + lane authored
-// from the ground-floor terrain analysis; the sanity report re-verifies.
+// Hk "Hollywood Keys": LAYERED. Original X1Alpha sits on disconnected decks;
+// spawns project to the main walkable ground component nearest those actors
+// (W ~63.5,127.5 / E ~240.5,112.5) at -2.97 m. One ground lane along the
+// north shelf then east. Upper decks remain traversable-only for v1.
 const HOLLYWOOD_KEYS: ArenaSpec = {
   id: "hollywood-keys",
   mission: "Hk",
   layered: true,
   spawns: [
-    { x: 38, y: 68, yaw: 0.622 },
-    { x: 250, y: 220, yaw: 3.764 },
+    { x: 63.5, y: 127.5, yaw: -0.085 },
+    { x: 240.5, y: 112.5, yaw: 3.057 },
   ],
   basePlots: [
-    { x: 38, y: 68, radius: 20 },
-    { x: 250, y: 220, radius: 20 },
+    { x: 63.5, y: 127.5, radius: 8 },
+    { x: 240.5, y: 112.5, radius: 8 },
   ],
   bases: [
     {
-      gate: { x: 48, y: 78, radius: 6 },
-      core: [32, 62],
-      groundConsole: [31, 75],
-      airConsole: [45, 61],
-      pad: { x: 41, y: 71, radius: 4 },
+      gate: { x: 63.5, y: 120.5, radius: 4 },
+      core: [56.5, 127.5],
+      groundConsole: [63.5, 134.5],
+      airConsole: [57.5, 127.5],
+      pad: { x: 63.5, y: 121.5, radius: 3 },
       turrets: [
-        [46, 62],
-        [46, 74],
-        [35, 60],
-        [35, 76],
+        [60.5, 121.5],
+        [63.5, 133.5],
+        [57.5, 128.5],
+        [63.5, 125.5],
       ],
     },
     {
-      gate: { x: 240, y: 210, radius: 6 },
-      core: [256, 226],
-      groundConsole: [257, 213],
-      airConsole: [243, 227],
-      pad: { x: 247, y: 217, radius: 4 },
+      gate: { x: 240.5, y: 119.5, radius: 4 },
+      core: [247.5, 112.5],
+      groundConsole: [240.5, 105.5],
+      airConsole: [246.5, 112.5],
+      pad: { x: 240.5, y: 118.5, radius: 3 },
       turrets: [
-        [242, 226],
-        [242, 214],
-        [253, 228],
-        [253, 212],
+        [240.5, 106.5],
+        [243.5, 118.5],
+        [246.5, 111.5],
+        [240.5, 114.5],
       ],
     },
   ],
   lanes: [
     [
-      [38.5, 68.5],
-      [62.5, 68.5],
-      [62.5, 196.5],
-      [250.5, 196.5],
-      [250.5, 220.5],
+      [63.5, 127.5],
+      [62.5, 106.5],
+      [62.5, 47.5],
+      [240.5, 47.5],
+      [240.5, 112.5],
     ],
   ],
   turretSpots: [
-    [63, 117],
-    [63, 190],
-    [129, 197],
-    [202, 197],
+    [99.5, 132.5],
+    [134.5, 114.5],
+    [170.5, 126.5],
+    [205.5, 108.5],
   ],
   outpostSpots: [
-    [63, 172],
-    [147, 197],
+    [124.5, 137.5],
+    [180.5, 102.5],
   ],
   dummySpots: [
-    [63, 74],
-    [245, 197],
+    [90.5, 125.5],
+    [108.5, 124.5],
+    [196.5, 116.5],
+    [214.5, 115.5],
   ],
 };
 
-// Ovmp "Venice Beach" (PA): the second LAYERED arena — 55 % double/triple deck.
-// Bases on the flat -3.97 m ground shelves (NW ↔ SE corners); a single ground
-// lane runs the north edge (y≈32) then the east edge (x≈254). Upper decks are
-// traversable-only in v1. Authored from the ground-floor analysis.
+// Ovmp "Venice Beach": LAYERED. X1Alpha sits on raised decks; spawns sit on
+// the main -2 m ground shelves under those decks (N/S at x≈128). One ground
+// lane runs the west edge of the shelf corridor.
 const VENICE_BEACH: ArenaSpec = {
   id: "venice-beach",
   mission: "Ovmp",
   layered: true,
   spawns: [
-    { x: 50, y: 32, yaw: 0.866 },
-    { x: 254, y: 272, yaw: 4.008 },
+    { x: 128.5, y: 42.5, yaw: Math.PI / 2 },
+    { x: 128.5, y: 245.5, yaw: -Math.PI / 2 },
   ],
   basePlots: [
-    { x: 50, y: 32, radius: 20 },
-    { x: 254, y: 272, radius: 20 },
+    { x: 128.5, y: 42.5, radius: 5 },
+    { x: 128.5, y: 245.5, radius: 5 },
   ],
   bases: [
     {
-      gate: { x: 60, y: 42, radius: 6 },
-      core: [44, 26],
-      groundConsole: [43, 39],
-      airConsole: [57, 25],
-      pad: { x: 53, y: 35, radius: 4 },
+      gate: { x: 128.5, y: 44.5, radius: 3 },
+      core: [128.5, 40.5],
+      groundConsole: [130.5, 42.5],
+      airConsole: [126.5, 42.5],
+      pad: { x: 128.5, y: 43.5, radius: 2 },
       turrets: [
-        [58, 26],
-        [58, 38],
-        [47, 24],
-        [47, 40],
+        [130.5, 41.5],
+        [126.5, 41.5],
+        [130.5, 43.5],
+        [126.5, 43.5],
       ],
     },
     {
-      gate: { x: 244, y: 262, radius: 6 },
-      core: [260, 278],
-      groundConsole: [261, 265],
-      airConsole: [247, 279],
-      pad: { x: 251, y: 269, radius: 4 },
+      gate: { x: 128.5, y: 243.5, radius: 3 },
+      core: [128.5, 247.5],
+      groundConsole: [130.5, 245.5],
+      airConsole: [126.5, 245.5],
+      pad: { x: 128.5, y: 244.5, radius: 2 },
       turrets: [
-        [246, 278],
-        [246, 266],
-        [257, 280],
-        [257, 264],
+        [130.5, 246.5],
+        [126.5, 246.5],
+        [130.5, 244.5],
+        [126.5, 244.5],
       ],
     },
   ],
   lanes: [
     [
-      [50.5, 32.5],
-      [254.5, 32.5],
-      [254.5, 272.5],
+      [128.5, 42.5],
+      [79.5, 47.5],
+      [79.5, 240.5],
+      [128.5, 245.5],
     ],
   ],
   turretSpots: [
-    [139, 33],
-    [228, 33],
-    [255, 95],
-    [255, 184],
+    [100.5, 80.5],
+    [100.5, 140.5],
+    [100.5, 180.5],
+    [100.5, 210.5],
   ],
   outpostSpots: [
-    [206, 33],
-    [255, 117],
+    [90.5, 100.5],
+    [110.5, 190.5],
   ],
   dummySpots: [
-    [86, 33],
-    [255, 237],
+    [120.5, 60.5],
+    [110.5, 90.5],
+    [110.5, 200.5],
+    [120.5, 230.5],
   ],
 };
 

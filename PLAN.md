@@ -134,7 +134,7 @@ playtest on the live deploy.)
 
 ## Phase 7 — Look & sound (Stage B/C of assets.md)
 
-- [ ] Model pass (Quaternius/Kenney or direct rebuilds) mapped to archetypes, CREDITS.md
+- [x] Model pass (Quaternius/Kenney or direct rebuilds) mapped to archetypes, CREDITS.md
 - [ ] Pincel texture atlases + shared palette; NearestFilter pipeline
 - [x] jsfxr SFX set wired to event buffer; CC0 music loop; volume settings
 - [x] PWA polish: manifest, icons, offline solo mode, install prompt
@@ -160,11 +160,25 @@ hex literals scattered across the greybox meshes, base structures and terrain.
 Still open on that line item — the texture atlases themselves and the runtime
 NearestFilter sampling path, which want real per-archetype art to exercise.
 
-Still open — the two asset-import tasks: the Stage B 3D-model pass and the
-Pincel texture-atlas / NearestFilter pipeline. They are best done with the asset
-sources in hand rather than committed blind; the game meets the DoD in greybox
-until then. The feel-tuning of the SFX presets stays an open pass like
-the hover-feel / difficulty-curve passes.)
+The Stage B model pass landed — with the ORIGINAL Precinct Assault models:
+8 of 9 units are FCOP Cobj extractions from the `Mp` container (X1-Alpha hover,
+Hovertank, Flyer, heavy gunship, Sky Captain jet + gunship form, neutral
+turret, outpost flag console; raws committed under `tools/generators/units/raw/fcop/`,
+provenance in CREDITS.md). Only the avatar-walker is a CC0 Quaternius stand-in:
+the X1 walker's 45-clip rig does not survive the extraction cleanly (folded
+bind pose) — a Stage C pose bake can replace it. `bun run gen:units`
+(`tools/generators/genUnitModels.ts` + manifest) processes raws into one
+spec-conformant glb per archetype under `public/models/units/` (texture pages
+packed into one atlas, team units desaturated so the whole-unit instanceColor
+tint owns the hue), swapped into the live InstancedMesh buckets by
+`render/unitMeshes.ts` with per-archetype greybox fallback. Mesh rendering
+(textured maps + unit models) is now the DEFAULT look (owner decision);
+`?render=greybox` keeps the full Stage A debug view. Verified by
+`tools/generators/test/unitModels.test.ts` (budgets/origin/footprint vs manifest) and
+`bun run verify:units` (SwiftShader lineup screenshots in
+`docs/verification/stage7-units/`). Still open on the look side: the Pincel
+texture-atlas / NearestFilter pipeline. The feel-tuning of the SFX presets
+stays an open pass like the hover-feel / difficulty-curve passes.)
 
 ## Phase 8 — Netcode transport & hosting (P2P/TURN) — hosting.spec.md
 
@@ -252,9 +266,33 @@ live deploy ships them too. Spec + plan:
       now re-centres the mesh into the sim's `[0, extent]` frame. A final glance
       on real GPU hardware stays optional (SwiftShader can't show driver quirks).
 
+## Phase 11 — Touch / mobile controls (pulled forward from backlog)
+
+Client-only (`docs/plans/touch-controls.md`): a new `LocalInputSource` + DOM
+overlay — the deterministic sim is untouched, so no golden regeneration.
+Entry: `?touch=1`/`?touch=0` override, else coarse-pointer auto-detect; the
+Phase 7 menu is the touch entry point (deep links still boot straight in).
+
+- [x] Pure stick/button mapping (`input/touchMapping.ts`) + unit tests
+- [x] `TouchInput` source: dual floating sticks — camera-relative analog move,
+      snap-to-unit hold-last aim with FIRE1 auto-fire while engaged — plus
+      on-screen TRANSFORM/JUMP/USE(hold)/HVY/SPC buttons, pointer-capture
+      bookkeeping; reuses gamepadMapping + movement + aimAssist unchanged
+- [x] Overlay DOM (`touchControls.ts`) + `body.touch` CSS, no-zoom viewport
+      meta, safe-area anchoring; desktop DOM and input stay byte-for-byte
+      unchanged (`?touch=0` forces them even on touch hardware)
+- [x] Touch E2E (`bun run e2e:touch`): emulated touch device, synthetic
+      pointers drive both sticks, in-sim movement + re-facing asserted through
+      the `?debug` hook; no console/page errors
+
+**DoD:** on a phone / emulated coarse-pointer device (or `?touch=1`) the menu
+starts a solo match; the avatar drives + aims via floating on-screen sticks,
+primary auto-fires on aim engage, buttons cover the rest; no page scroll/zoom;
+desktop input and the sim are untouched. (The feel pass on real phone hardware
+stays open, like the hover-feel / difficulty / SFX passes.)
+
 ## Backlog (post-v1, do not start)
 
 More arenas · map editor · rollback netcode upgrade · 2v2 ·
-touch controls (pulled forward — planned in `docs/plans/touch-controls.md`,
-not started) · Warden personalities · replay viewer UI ·
+Warden personalities · replay viewer UI ·
 amigo-trommel soundtrack.

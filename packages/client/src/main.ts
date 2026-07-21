@@ -33,6 +33,7 @@ import {
   SIM_VERSION,
   type SimState,
   SNAPSHOT_STRIDE,
+  spawnUnit,
   step,
   TICK_HZ,
   type TickInputs,
@@ -45,6 +46,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AudioEngine } from "./audio/engine";
 import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
+import { TouchInput, wantsTouch } from "./input/touch";
+import { TOUCH_BUTTONS } from "./input/touchMapping";
 import type { LocalInputSource } from "./input/types";
 import { buildModeQuery, type MenuChoice, type MenuHandle, runMenu } from "./menu";
 import { createDemoSim, demoFeeder, updateFlyoverCamera, zeroPlayerInput } from "./menuWorld";
@@ -74,6 +77,8 @@ import {
   type VariantSwitcher,
   variantOfPref,
 } from "./render/texVariants";
+import { loadUnitMeshes } from "./render/unitMeshes";
+import { createTouchControls } from "./touchControls";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -89,16 +94,24 @@ const p2pCode = normalizeCode(params.get("p2p"));
 const online = onlineCode !== null;
 const p2p = !online && p2pCode !== null;
 const netMode = online || p2p;
-const orbitMode = !netMode && params.get("cam") === "orbit";
+// Touch controls (?touch=1/0 override, else coarse-pointer auto-detect): the
+// local player drives via on-screen sticks instead of keyboard/mouse. Touch
+// suppresses the orbit debug cam — OrbitControls would fight the sticks for
+// the same canvas pointers.
+const touchMode = wantsTouch(params);
+const orbitMode = !netMode && !touchMode && params.get("cam") === "orbit";
 // ?cam=fly: free-fly debug camera (render/flyCamera.ts) — noclip navigation for
 // inspecting map meshes / texture variants. Solo-only, like orbit.
 const flyMode = !netMode && params.get("cam") === "fly";
 // Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
 aimAssist.mode = parseAimAssistMode(params.get("aim"));
 
-// Stage 4: ?render=mesh loads the textured map meshes; greybox stays the default
-// (the reliable debug/fallback path per assets.md / HANDOFF).
-const renderMode: "mesh" | "greybox" = params.get("render") === "mesh" ? "mesh" : "greybox";
+// Mesh rendering (textured Stage 4 maps + Stage B unit models) is the default
+// look since the Phase 7 model pass; ?render=greybox keeps the full Stage A
+// debug view (assets.md §1 — greybox stays in the repo forever). Every asset
+// falls back to greybox per map/archetype when missing, so mesh is safe as
+// the default.
+const renderMode: "mesh" | "greybox" = params.get("render") === "greybox" ? "greybox" : "mesh";
 // Player texture preference (HD = shipped atlas, Original = 1998 texels).
 // ?tex=hd|original is a session override and is NOT persisted back (like ?aim=);
 // the menu's Graphics drawer writes the stored preference. Mutable: the menu
@@ -136,6 +149,9 @@ let sim: SimState = netMode
 
 // ?debug exposes the live sim for the console / e2e harness (host-side only,
 // like the debug HUD — nothing in the sim or renderer reads it back).
+// Harness freeze flag (metropolisPause): stops the local tick loop only —
+// rendering continues, so a posed scene holds still for screenshots.
+let debugPaused = false;
 if (params.has("debug") && !netMode) {
   const dbg = globalThis as {
     metropolisSim?: SimState;
@@ -147,8 +163,26 @@ if (params.has("debug") && !netMode) {
       ty: number,
       tz: number,
     ) => boolean;
+    metropolisSpawn?: (archetype: number, team: number, x: number, y: number) => number;
+    metropolisPause?: (paused: boolean) => void;
+    metropolisSnap?: () => void;
   };
   dbg.metropolisSim = sim;
+  // Debug-only spawner + freeze + snapshot for the verify:units screenshot
+  // harness (tools/determinism/src/unitShots.ts): line up one unit per archetype,
+  // freeze the local tick loop, pose entities directly, then re-snapshot so
+  // the posed scene renders without the sim re-aiming anything. Solo/debug
+  // only — never reachable in a net match, sim untouched otherwise.
+  dbg.metropolisSpawn = (archetype, team, x, y) => spawnUnit(sim, archetype, team, x, y);
+  dbg.metropolisPause = (paused) => {
+    debugPaused = paused;
+  };
+  // Twice: both interpolation buffers get the posed state, so the render is
+  // still at any alpha.
+  dbg.metropolisSnap = () => {
+    rotateSnapshot();
+    rotateSnapshot();
+  };
   // Host-side debug hook (like metropolisSim above): lets an e2e/screenshot
   // harness place the single arena-view camera at a fixed pose looking at a
   // target. Render-only — nothing in the sim or renderer reads it back, so no
@@ -227,6 +261,12 @@ let countPrev = 0;
 let countCurr = 0;
 
 const keyboard = new PlayerOneInput(window);
+// In touch mode the local player's device is the on-screen overlay instead;
+// the keyboard source stays constructed (harmless) so an attached keyboard on
+// a touch device still gets its window-level contextmenu/blur handling.
+const touchControls = touchMode ? createTouchControls(TOUCH_BUTTONS) : null;
+const localInput: LocalInputSource = touchControls ? new TouchInput(touchControls) : keyboard;
+if (touchMode) document.body.classList.add("touch");
 const audio = new AudioEngine();
 // Browsers gate audio behind a gesture; the first pointer/key/touch unlocks it.
 audio.armUnlock();
@@ -338,6 +378,9 @@ function buildArenaGroup(m: typeof map): THREE.Group {
 let arenaGroup = buildArenaGroup(map);
 scene.add(arenaGroup);
 const greybox = createGreyboxMeshes(scene);
+// Stage B unit models upgrade the greybox buckets in place as they load;
+// missing assets keep their greybox mesh (render/unitMeshes.ts).
+if (renderMode === "mesh") loadUnitMeshes(greybox);
 
 let extent = worldExtent(map);
 
@@ -756,6 +799,7 @@ function frame(now: number): void {
     if (phase === "match" && net) {
       if (!net.tryStep()) break;
     } else if (sim) {
+      if (debugPaused) break; // ?debug harness freeze (metropolisPause)
       runTick();
     } else {
       break; // online deep link: no sim at all until MSG_WELCOME
@@ -856,9 +900,11 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
     poseFlyStart(flyState, views[0].camera, extent);
     refreshDebugLabel();
   }
-  // The mouse reticle only makes sense for a single full-window pointer player.
-  reticle.style.display = views.length === 1 ? "block" : "none";
-  document.body.style.cursor = ""; // back to the stylesheet crosshair
+  // The mouse reticle only makes sense for a single full-window pointer player
+  // — and not at all under touch, where the aim stick owns facing.
+  reticle.style.display = views.length === 1 && !touchMode ? "block" : "none";
+  document.body.style.cursor = ""; // back to the stylesheet crosshair (touch: none)
+  touchControls?.show();
 }
 
 // Short full-screen fade that covers hard view switches (flyover → net-match
@@ -934,7 +980,7 @@ function connectOnline(code: string): void {
         fadeCover(() => {
           rebuildArena(welcomedConfig.mapId); // host map wins; joiner ?map is moot
           resetForMatch(welcomed);
-          startMatch([{ slot: slotIdx, input: keyboard }]);
+          startMatch([{ slot: slotIdx, input: localInput }]);
         });
       } else {
         rebuildArena(welcomedConfig.mapId);
@@ -1039,7 +1085,7 @@ function connectP2pMode(code: string): void {
         fadeCover(() => {
           rebuildArena(session.config.mapId);
           resetForMatch(p2pNet.simState);
-          startMatch([{ slot: session.slot, input: keyboard }]);
+          startMatch([{ slot: session.slot, input: localInput }]);
         });
       } else {
         rebuildArena(session.config.mapId);
@@ -1093,7 +1139,7 @@ function handleMenuChoice(choice: MenuChoice, mapId: string): void {
       );
       // The flagship transition: one continuous shot from flyover to chase rig.
       if (!orbitMode) beginBlend(blend, flyCam, 1.2);
-      startMatch([{ slot: 0, input: keyboard }]);
+      startMatch([{ slot: 0, input: localInput }]);
       break;
     }
     case "online":
@@ -1114,7 +1160,7 @@ if (online) {
 } else if (p2p) {
   connectP2pMode(p2pCode as string);
 } else if (explicitMode) {
-  startMatch([{ slot: 0, input: keyboard }]);
+  startMatch([{ slot: 0, input: localInput }]);
 } else {
   // Bare URL: title screen over the live demo world; a choice starts its mode
   // in-process. The reticle/crosshair only makes sense in a live match.

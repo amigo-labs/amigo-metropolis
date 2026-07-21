@@ -4,14 +4,23 @@ dist/
 .vite/
 coverage/
 
+# mapalyze: raw FCMissionReader exports must NEVER be committed (PLAN.md §2).
+# Only the abstracted mapalyze output under docs/specs/maps/_references/ may be.
+tools/mapalyze/_local/
+
 # upscaleTextures.py working dir: upscale variants + comparison sheets are local
 # throwaways; only the `integrate`d map textures (public/models/) get committed.
+# (was tools/fcop/_local/ before the tools/ rename)
 tools/textures/_local/
+tools/fcop/_local/
+
+# integrate --from creates .bak next to texNN.png (local rollback only)
+packages/client/public/models/**/*.bak
 
 # Texture atlas variants (atlas_repack.py). atlas-original.png ships for EVERY
 # map — it backs the player-facing "Textures: Original / HD" option. The debug
-# esrgan variant is committed for la-cantina only (owner decision); other maps
-# keep it local — copy from extracted/meshes/<Cont>/atlas/.
+# variants (esrgan/gemini) are committed for la-cantina only (owner decision);
+# other maps keep them local — copy from extracted/meshes/<Cont>/atlas/.
 packages/client/public/models/*/atlas-*.png
 !packages/client/public/models/*/atlas-original.png
 !packages/client/public/models/la-cantina/atlas-*.png

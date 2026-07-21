@@ -15,7 +15,7 @@ import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import { getMapById, isWater, sampleHeight, URBAN_JUNGLE_ID, worldExtent } from "../src/map";
 
 const map = getMapById(URBAN_JUNGLE_ID);
-const GROUND_HEIGHT = 0.594; // int 19 * 1/32 m — the flat perimeter ring
+const GROUND_HEIGHT = 0; // X1Alpha interior shelves (not the outer perimeter apron)
 
 describe("urban-jungle schema", () => {
   it("loads with the authored dimensions and feature counts", () => {
