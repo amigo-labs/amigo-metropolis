@@ -98,15 +98,16 @@ const URBAN_JUNGLE: ArenaSpec = {
     { x: 90.5, y: 71.5, radius: 8 },
     { x: 117.5, y: 169.5, radius: 6 },
   ],
+  // Base structures snapped onto the spawn wall-component (not behind walls).
   bases: [
     {
       gate: { x: 94.5, y: 76.5, radius: 4 },
-      core: [86.5, 66.5],
+      core: [86.5, 67.5],
       groundConsole: [83.5, 71.5],
       airConsole: [97.5, 71.5],
       pad: { x: 90.5, y: 73.5, radius: 3 },
       turrets: [
-        [87.5, 66.5],
+        [87.5, 67.5],
         [96.5, 74.5],
         [86.5, 76.5],
         [94.5, 67.5],
@@ -120,7 +121,7 @@ const URBAN_JUNGLE: ArenaSpec = {
       pad: { x: 117.5, y: 168.5, radius: 3 },
       turrets: [
         [119.5, 167.5],
-        [115.5, 171.5],
+        [115.5, 170.5],
         [119.5, 171.5],
         [115.5, 167.5],
       ],
@@ -200,15 +201,16 @@ const URBAN_JUNGLE: ArenaSpec = {
       [117.5, 169.5],
     ],
   ],
+  // Neutrals on the shared walkable component (was: pocket/outpost size-1 cells).
   turretSpots: [
     [88.5, 93.5],
     [108.5, 108.5],
     [99.5, 132.5],
-    [119.5, 147.5],
+    [119.5, 144.5],
   ],
   outpostSpots: [
     [85.5, 108.5],
-    [123.5, 132.5],
+    [122.5, 132.5],
   ],
   dummySpots: [
     [94.5, 86.5],
@@ -229,31 +231,34 @@ const RIM_BASE_PLOTS: Plot[] = [
   { x: 87.5, y: 64.5, radius: 9 },
   { x: 120.5, y: 175.5, radius: 9 },
 ];
+// Base structures + consoles are wall-reachable from their X1Alpha spawn.
+// Previous authoring packed points onto height shelves that sat behind FCOP
+// wall cells, isolating unit buy consoles (ground/air) from the walk graph.
 const RIM_BASES: [BaseSpec, BaseSpec] = [
   {
-    gate: { x: 89.5, y: 70.5, radius: 4 },
+    gate: { x: 89.5, y: 64.5, radius: 4 },
     core: [81.5, 66.5],
-    groundConsole: [94.5, 64.5],
+    groundConsole: [95.5, 64.5],
     airConsole: [82.5, 66.5],
-    pad: { x: 89.5, y: 64.5, radius: 3 },
+    pad: { x: 88.5, y: 64.5, radius: 3 },
     turrets: [
       [90.5, 64.5],
-      [86.5, 69.5],
-      [87.5, 70.5],
+      [84.5, 66.5],
+      [85.5, 65.5],
       [92.5, 64.5],
     ],
   },
   {
-    gate: { x: 120.5, y: 172.5, radius: 4 },
-    core: [126.5, 175.5],
+    gate: { x: 121.5, y: 175.5, radius: 4 },
+    core: [125.5, 175.5],
     groundConsole: [113.5, 175.5],
-    airConsole: [127.5, 175.5],
+    airConsole: [124.5, 175.5],
     pad: { x: 118.5, y: 175.5, radius: 3 },
     turrets: [
-      [118.5, 169.5],
-      [121.5, 169.5],
-      [114.5, 174.5],
+      [117.5, 174.5],
       [122.5, 175.5],
+      [114.5, 174.5],
+      [123.5, 175.5],
     ],
   },
 ];
@@ -304,13 +309,13 @@ const RIM_LANES: P[][] = [
 ];
 const RIM_TURRET_SPOTS: P[] = [
   [87.5, 88.5],
-  [107.5, 106.5],
+  [108.5, 106.5],
   [100.5, 133.5],
   [120.5, 151.5],
 ];
 const RIM_OUTPOST_SPOTS: P[] = [
   [84.5, 106.5],
-  [124.5, 134.5],
+  [126.5, 134.5],
 ];
 const RIM_DUMMY_SPOTS: P[] = [
   [92.5, 81.5],
@@ -420,15 +425,16 @@ const LA_CANTINA: ArenaSpec = {
       [96.5, 155.5],
     ],
   ],
-  // NeutralTurret (ACT 36) / ItemPickup clusters inside the building
+  // Neutrals on the interior walkable component (west apron cluster was
+  // wall-disconnected from the X1Alpha spawns inside the building).
   turretSpots: [
-    [78.5, 100.5],
+    [82.5, 100.5],
     [113.5, 100.5],
-    [78.5, 123.5],
+    [82.5, 123.5],
     [113.5, 123.5],
   ],
   outpostSpots: [
-    [66.5, 112.5],
+    [82.5, 112.5],
     [125.5, 112.5],
   ],
   dummySpots: [
@@ -507,7 +513,7 @@ const HOLLYWOOD_KEYS: ArenaSpec = {
   turretSpots: [
     [99.5, 132.5],
     [134.5, 114.5],
-    [170.5, 126.5],
+    [170.5, 124.5],
     [205.5, 108.5],
   ],
   outpostSpots: [
@@ -573,15 +579,16 @@ const VENICE_BEACH: ArenaSpec = {
       [128.5, 245.5],
     ],
   ],
+  // West-corridor neutrals snapped onto the main spawn-reachable shelf.
   turretSpots: [
     [100.5, 80.5],
-    [100.5, 140.5],
-    [100.5, 180.5],
+    [92.5, 140.5],
+    [92.5, 180.5],
     [100.5, 210.5],
   ],
   outpostSpots: [
     [90.5, 100.5],
-    [110.5, 190.5],
+    [110.5, 198.5],
   ],
   dummySpots: [
     [120.5, 60.5],
