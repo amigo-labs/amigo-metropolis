@@ -2,37 +2,61 @@
 // plots/heights/bounds; this catches features placed behind FCOP walls so the
 // avatar cannot reach a buy console or a neutral spot (and units cannot leave).
 //
-// Flood is 4-connected on .5 cell centres (matching FCOP authoring) using the
-// same crossesWall* helpers the walker/hover movement uses.
+// Flood is 4-connected on cell centres (cellSize-aware: FCOP cellSize=1 and
+// district-01 cellSize=2) using the same crossesWall* helpers walker/hover use.
 import { describe, expect, it } from "bun:test";
 import { crossesWallX, crossesWallY } from "../src/collision";
 import { getMapById, isWater, MAP_REGISTRY, type MapData, worldExtent } from "../src/map";
+
+/**
+ * Snap a world coordinate to the centre of the cell that contains it.
+ * Matches collision.ts indexing: cell column i holds [i*cell, (i+1)*cell).
+ */
+function cellCenter(map: MapData, v: number): number {
+  const cell = map.cellSize;
+  const i = Math.floor(v / cell);
+  return (i + 0.5) * cell;
+}
+
+/** Grid index of the cell that contains world coordinate `v` (clamped). */
+function cellIndex(map: MapData, v: number): number {
+  const i = Math.floor(v / map.cellSize);
+  if (i < 0) return 0;
+  if (i > map.size - 1) return map.size - 1;
+  return i;
+}
 
 function floodHas(
   map: MapData,
   ax: number,
   ay: number,
 ): { size: number; has: (x: number, y: number) => boolean } {
-  const sx = Math.floor(ax) + 0.5;
-  const sy = Math.floor(ay) + 0.5;
-  const key = (x: number, y: number): number => ((x * 2) | 0) * 200_000 + ((y * 2) | 0);
-  const q: number[][] = [[sx, sy]];
-  const seen = new Set<number>([key(sx, sy)]);
-  const dirs = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ] as const;
+  const cell = map.cellSize;
+  const half = cell * 0.5;
   const ext = worldExtent(map);
+  // Dense key over the size×size vertex lattice — no fixed world-space stride.
+  const key = (i: number, j: number): number => i * map.size + j;
+  const sx = cellCenter(map, ax);
+  const sy = cellCenter(map, ay);
+  const q: number[][] = [[sx, sy]];
+  const seen = new Set<number>([key(cellIndex(map, sx), cellIndex(map, sy))]);
+  const dirs = [
+    [cell, 0],
+    [-cell, 0],
+    [0, cell],
+    [0, -cell],
+  ] as const;
   let qi = 0;
   while (qi < q.length) {
     const [x, y] = q[qi++];
     for (const [dx, dy] of dirs) {
       const nx = x + dx;
       const ny = y + dy;
-      if (nx < 0.5 || ny < 0.5 || nx > ext - 0.5 || ny > ext - 0.5) continue;
-      const k = key(nx, ny);
+      // Stay on cell centres inside the playable extent.
+      if (nx < half || ny < half || nx > ext - half || ny > ext - half) continue;
+      const ni = cellIndex(map, nx);
+      const nj = cellIndex(map, ny);
+      const k = key(ni, nj);
       if (seen.has(k)) continue;
       if (isWater(map, nx, ny)) continue;
       if (crossesWallX(map, x, nx, y) || crossesWallY(map, nx, y, ny)) continue;
@@ -42,7 +66,7 @@ function floodHas(
   }
   return {
     size: seen.size,
-    has: (x, y) => seen.has(key(Math.floor(x) + 0.5, Math.floor(y) + 0.5)),
+    has: (x, y) => seen.has(key(cellIndex(map, x), cellIndex(map, y))),
   };
 }
 
