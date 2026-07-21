@@ -510,8 +510,7 @@ function refreshDebugLabel(): void {
   // No early return when nothing is active: after rebuildArena drops the
   // switcher the label must hide (empty text) instead of staying stale.
   const parts: string[] = [];
-  if (texSwitcher)
-    parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan`);
+  if (texSwitcher) parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan`);
   if (flyMode) parts.push("fly: WASD+QE move, Shift fast, click=mouse-look (ESC releases)");
   const text = parts.join("\n");
   if (text === debugLabelText) return;

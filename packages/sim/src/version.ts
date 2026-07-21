@@ -51,4 +51,9 @@
 //     (interior playable shelves, not outer apron/rim). Heightfields/walls
 //     unchanged; spawn/base/lane spots move. golden-05 (urban-jungle) re-records
 //     for real hash change; goldens 01–04/06 only re-header for SIM_VERSION.
-export const SIM_VERSION = 11;
+// v12: FCOP feature connectivity pass — base consoles/rings and midfield
+//     turret/outpost spots snapped onto the spawn wall-component so unit buy
+//     and neutral capture are reachable (hover/walker share crossesWall*).
+//     Heightfields/walls unchanged. golden-05 re-records for real hash change;
+//     goldens 01–04/06 only re-header for SIM_VERSION (district-01/test maps).
+export const SIM_VERSION = 12;
