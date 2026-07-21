@@ -169,8 +169,7 @@ if (params.has("debug") && !netMode) {
   };
   dbg.metropolisSim = sim;
   // Debug-only spawner + freeze + snapshot for the verify:units screenshot
-  // harness (tools/determinism/src/unitShots.ts): line up one unit per archetype,
-  // freeze the local tick loop, pose entities directly, then re-snapshot so
+  // harness (tools/determinism/src/unitShots.ts): line up one unit per archetype,  // freeze the local tick loop, pose entities directly, then re-snapshot so
   // the posed scene renders without the sim re-aiming anything. Solo/debug
   // only — never reachable in a net match, sim untouched otherwise.
   dbg.metropolisSpawn = (archetype, team, x, y) => spawnUnit(sim, archetype, team, x, y);
