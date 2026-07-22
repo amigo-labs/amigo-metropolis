@@ -153,15 +153,26 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     const card = el("button", "menu-arena-card");
     card.type = "button";
     card.setAttribute("aria-label", info.displayName);
-    const thumb = el("canvas", "menu-arena-thumb") as HTMLCanvasElement;
-    thumb.width = 200;
-    thumb.height = 200;
-    try {
-      drawArenaThumbnail(thumb, getMapById(info.id));
-    } catch {
-      // A missing or malformed map JSON must not blank the whole menu — the
-      // card just shows its name over an empty tile.
-    }
+    // Prefer the rendered combat-zone preview (public/models/<id>/preview.png,
+    // an isometric shot of the arena core). If it's missing, fall back to the
+    // procedural top-down minimap drawn straight from MapData.
+    const thumb = el("img", "menu-arena-thumb");
+    thumb.alt = "";
+    thumb.loading = "lazy";
+    thumb.decoding = "async";
+    thumb.src = `/models/${encodeURIComponent(info.id)}/preview.png`;
+    thumb.onerror = () => {
+      const canvas = el("canvas", "menu-arena-thumb") as HTMLCanvasElement;
+      canvas.width = 200;
+      canvas.height = 200;
+      try {
+        drawArenaThumbnail(canvas, getMapById(info.id));
+      } catch {
+        // A missing or malformed map JSON must not blank the whole menu — the
+        // card just shows its name over an empty tile.
+      }
+      thumb.replaceWith(canvas);
+    };
     const name = el("span", "menu-arena-name");
     name.textContent = info.displayName;
     card.append(thumb, name);
