@@ -8,6 +8,15 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 const loader = new GLTFLoader();
 
 /**
+ * Stable logic centres from docs/renders/fcop-viz/viz_data_*.json (prep_viz
+ * actor/Cnet bbox). Used instead of recomputing from map features so moving
+ * turret spots cannot shift the mesh under already-snapped pads.
+ */
+const STABLE_LOGIC_CENTRE: Readonly<Record<string, { x: number; z: number }>> = {
+  "la-cantina": { x: 96.15695, z: 112.03125 },
+};
+
+/**
  * Gameplay/logic content centre in sim XZ (same 0-based grid as FCOP actors /
  * Cnet and docs/renders/fcop-viz). Matches prep_viz logic-bbox centre so the
  * textured mesh lines up with spawns/lanes/turrets like la-cantina-top.png.
@@ -92,7 +101,9 @@ export function loadMapMesh(
       gltf.scene.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(gltf.scene);
       const glbCentre = box.getCenter(new THREE.Vector3());
-      const logic = logicCentre(map);
+      // Prefer stable fcop-viz prep centre when known so mesh/pad snap/Blender
+      // verify stay bit-aligned (feature-bbox centre drifts when spots move).
+      const logic = STABLE_LOGIC_CENTRE[map.id] ?? logicCentre(map);
       // Same transform as fcop-viz build_map.py (three.js Z = sim y, no Blender flip).
       gltf.scene.position.set(logic.x - glbCentre.x, 0, logic.z - glbCentre.z);
       gltf.scene.matrixAutoUpdate = false;

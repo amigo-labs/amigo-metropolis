@@ -63,7 +63,7 @@ const ARENAS: ArenaExpectation[] = [
     // Spawns + base ring sit on 1 m mesh pad shelves (stamped over walk_height
     // so sampleHeight matches the textured .glb pad tops).
     groundHeight: 1,
-    heightsPin: 4118168582,
+    heightsPin: 253375191,
     wallsVPin: 1798988054,
     wallsHPin: 1210735636,
     // Full FCOP Mp layout: 8 team-unique type-8 per base + all NeutralTurret pads.
