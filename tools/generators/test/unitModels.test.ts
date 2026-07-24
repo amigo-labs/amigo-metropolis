@@ -62,7 +62,7 @@ describe("committed unit models match the manifest contract", () => {
       expect(tris).toBeGreaterThan(0);
       expect(tris).toBeLessThanOrEqual(spec.maxTris);
 
-      // Ground-contact center origin and the greybox-matched footprint.
+      // Ground-contact center origin and size contract.
       const scene = root.getDefaultScene() ?? root.listScenes()[0];
       const { min, max } = getBounds(scene);
       expect(Math.abs(min[1])).toBeLessThanOrEqual(0.02);
@@ -72,10 +72,18 @@ describe("committed unit models match the manifest contract", () => {
       const sizeY = max[1] - min[1];
       const sizeZ = max[2] - min[2];
       const footprint = Math.max(sizeX, sizeZ);
-      expect(footprint).toBeLessThanOrEqual(spec.footprint * 1.02);
-      if (spec.maxHeight === undefined) {
-        expect(footprint).toBeGreaterThanOrEqual(spec.footprint * 0.98);
+      if (spec.nativeScale) {
+        // Authored FCOP size kept; footprint/maxHeight are soft upper bounds only.
+        expect(footprint).toBeLessThanOrEqual(spec.footprint * 1.05);
+        if (spec.maxHeight !== undefined) {
+          expect(sizeY).toBeLessThanOrEqual(spec.maxHeight * 1.05);
+        }
       } else {
+        expect(footprint).toBeLessThanOrEqual(spec.footprint * 1.02);
+      }
+      if (!spec.nativeScale && spec.maxHeight === undefined) {
+        expect(footprint).toBeGreaterThanOrEqual(spec.footprint * 0.98);
+      } else if (!spec.nativeScale && spec.maxHeight !== undefined) {
         // Height-capped models trade footprint for the cap.
         expect(sizeY).toBeLessThanOrEqual(spec.maxHeight * 1.02);
         const capped = sizeY >= spec.maxHeight * 0.98;

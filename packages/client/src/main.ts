@@ -101,8 +101,9 @@ const netMode = online || p2p;
 const touchMode = wantsTouch(params);
 const orbitMode = !netMode && !touchMode && params.get("cam") === "orbit";
 // ?cam=fly: free-fly debug camera (render/flyCamera.ts) — noclip navigation for
-// inspecting map meshes / texture variants. Solo-only, like orbit.
-const flyMode = !netMode && params.get("cam") === "fly";
+// inspecting map meshes / unit+turret models. Solo-only, like orbit.
+// Mutable: the menu Fly button enables it in-process without a full reload.
+let flyMode = !netMode && params.get("cam") === "fly";
 // Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
 aimAssist.mode = parseAimAssistMode(params.get("aim"));
 
@@ -370,8 +371,13 @@ function buildArenaGroup(m: typeof map): THREE.Group {
     buildGreyboxTerrain();
   }
   group.add(buildWaterPlane(m));
-  buildBaseStructures(group, m);
-  buildSpawnMarkers(group, m);
+  // Textured map meshes already include base buildings / pads. Greybox
+  // structures and spawn rings only belong on the Stage A terrain path —
+  // otherwise they float at heightfield Y next to the mesh art (wrong XZ/Y).
+  if (renderMode !== "mesh") {
+    buildBaseStructures(group, m);
+    buildSpawnMarkers(group, m);
+  }
   return group;
 }
 let arenaGroup = buildArenaGroup(map);
@@ -646,7 +652,8 @@ function renderEntities(alpha: number): void {
 
     const archetype = snapCurr[o + 1];
     const animState = snapCurr[o + 7];
-    const bucket = bucketFor(greybox, archetype, animState);
+    const aux = snapCurr[o + 9];
+    const bucket = bucketFor(greybox, archetype, animState, aux);
     if (!bucket) continue;
     const slot = bucket.count;
     if (slot >= bucket.tintCache.length) continue;
@@ -689,7 +696,6 @@ function renderEntities(alpha: number): void {
     scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
     bucket.mesh.setMatrixAt(slot, scratchMatrix);
 
-    const aux = snapCurr[o + 9];
     const key = tintKey(archetype, team, aux);
     if (bucket.tintCache[slot] !== key) {
       bucket.tintCache[slot] = key;
@@ -1130,6 +1136,7 @@ function handleMenuChoice(choice: MenuChoice, mapId: string): void {
   switch (choice.mode) {
     case "solo":
     case "warden": {
+      flyMode = false;
       warden = choice.mode === "warden";
       wardenDifficulty = choice.mode === "warden" ? choice.difficulty : 0;
       resetForMatch(
@@ -1140,12 +1147,26 @@ function handleMenuChoice(choice: MenuChoice, mapId: string): void {
       startMatch([{ slot: 0, input: localInput }]);
       break;
     }
+    case "fly": {
+      // Localhost debug: sandbox sim (base + capturable turrets on the map) +
+      // free-fly cam. Unit GLBs (incl. turret-standard / turret-defense) already
+      // load via loadUnitMeshes when renderMode is mesh (the default).
+      flyMode = true;
+      warden = false;
+      wardenDifficulty = 0;
+      resetForMatch(createSim(map, seed, undefined));
+      // No flyover→chase blend — fly cam owns posing from the first frame.
+      startMatch([{ slot: 0, input: localInput }]);
+      break;
+    }
     case "online":
+      flyMode = false;
       phase = "connecting"; // demo battle keeps running under the net overlay,
       resetForMatch(createDemoSim(map)); // re-seated on the picked arena
       connectOnline(choice.code);
       break;
     case "p2p":
+      flyMode = false;
       phase = "connecting"; // ditto — the P2P lobby handshake runs on top
       resetForMatch(createDemoSim(map));
       connectP2pMode(choice.code);

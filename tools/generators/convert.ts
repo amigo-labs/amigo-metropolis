@@ -80,6 +80,13 @@ interface ArenaSpec {
    *  single-story v1 arenas leave this unset — their minor ledges are not real
    *  decks (Stage-0 decision) and they stay byte-identical / single-layer. */
   layered?: boolean;
+  /**
+   * Optional height stamps `[x, y, meters]` applied after walk_height emit.
+   * Walk_height is the collision floor; many FCOP turret pads are raised mesh
+   * plates above a channel. Stamping the 2×2 bilinear neighborhood makes
+   * `sampleHeight` match the textured pad top so entities sit on the art.
+   */
+  padHeights?: [number, number, number][];
 }
 
 // --- Arena specs --------------------------------------------------------------
@@ -337,23 +344,26 @@ const PROVING_GROUND: ArenaSpec = {
 };
 
 // Mp "La Cantina": playable area is the walled central building (NOT the outer
-// 0.594 m apron). Features derived from original mission Cact/Csac:
-//   - Spawns = X1Alpha (ACT type 1) at ~(96, 69) / ~(96, 155)
-//   - Base structures packed onto height-0 shelves around those spawns
-//   - Lanes = wall/slope-safe BFS through the interior maze (east corridors;
-//     the west maze is fragmented by walls/slopes at walker limits)
-//   - Spots from NeutralTurret / ItemPickup clusters inside the building
+// 0.594 m apron). Features from original mission Cact (Mp/actors.json):
+//   - Spawns = X1Alpha (ACT 1) at ~(96.1, 69.1) / ~(96.0, 155.0)
+//   - Base ring turrets = ACT 8 Turret pads nearest each spawn (4 per base)
+//   - Capturable = ACT 36 NeutralTurret on the four mid-compound octagon pads
+//   - Dummies = ACT 8/36 pads on the next ring out (target practice)
+//   - Outposts = outer NeutralTurret midpoints (east/west)
 // Cell-center coordinates; SRC 209×241 pads +X to 241 (no feature offset).
+// After emit, heightfield cells under these spots are raised to mesh pad tops
+// (see patchLaCantinaPadHeights) so sampleHeight matches the textured .glb.
 const LA_CANTINA: ArenaSpec = {
   id: "la-cantina",
   mission: "Mp",
   spawns: [
-    { x: 96.5, y: 69.5, yaw: Math.PI / 2 }, // north X1Alpha, faces +y (south)
-    { x: 96.5, y: 155.5, yaw: -Math.PI / 2 }, // south X1Alpha, faces -y (north)
+    { x: 96.5, y: 69.5, yaw: Math.PI / 2 }, // X1Alpha S base, faces +y
+    { x: 96.5, y: 155.5, yaw: -Math.PI / 2 }, // X1Alpha N base, faces -y
   ],
   basePlots: [
-    { x: 96.5, y: 69.5, radius: 6.5 },
-    { x: 96.5, y: 155.5, radius: 6.5 },
+    // Ring turrets sit ~12–17 m from the spawn — plot covers the full ring.
+    { x: 96.5, y: 69.5, radius: 18 },
+    { x: 96.5, y: 155.5, radius: 18 },
   ],
   bases: [
     {
@@ -362,11 +372,13 @@ const LA_CANTINA: ArenaSpec = {
       groundConsole: [98.5, 67.5],
       airConsole: [94.5, 67.5],
       pad: { x: 99.5, y: 71.5, radius: 3 },
+      // ACT 8 Turret pads (mesh top ≈ 1.0 m). 107.5/69.5 is wall-blocked;
+      // nudged to 107.5/70 so flood connectivity from the spawn still holds.
       turrets: [
-        [93.5, 66.5],
-        [101.5, 73.5],
-        [100.5, 66.5],
-        [98.5, 70.5],
+        [84.5, 69.5],
+        [107.5, 70.0],
+        [88.0, 83.0],
+        [104.0, 83.0],
       ],
     },
     {
@@ -376,72 +388,127 @@ const LA_CANTINA: ArenaSpec = {
       airConsole: [93.5, 156.5],
       pad: { x: 96.5, y: 153.5, radius: 3 },
       turrets: [
-        [98.5, 151.5],
-        [90.5, 157.5],
-        [102.5, 157.5],
-        [96.5, 157.5],
+        [84.5, 154.5],
+        [107.5, 154.5],
+        [88.0, 141.0],
+        [104.0, 141.0],
       ],
     },
   ],
+  // FCOP Mp Cnet[0] dual-ring polylines (same grid frame as fcop-viz / prep_viz).
+  // West meanX≈89, east≈104 — symmetric about spawn X 96.5. Regenerating the
+  // map JSON also clears wall bits + softens heights along these corridors so
+  // sim collision matches the road art (see patchLaCantinaLanes / committed JSON).
   lanes: [
-    // Interior west-biased corridor (BFS on sim walls/slope, thinned)
     [
       [96.5, 69.5],
-      [97.5, 70.5],
-      [99.5, 73.5],
-      [99.5, 77.5],
-      [97.5, 80.5],
-      [91.5, 80.5],
-      [91.5, 109.5],
-      [96.5, 109.5],
-      [96.5, 115.5],
-      [91.5, 122.5],
-      [91.5, 144.5],
-      [98.5, 144.5],
-      [99.5, 149.5],
-      [99.5, 151.5],
-      [98.5, 152.5],
+      [97, 75.5],
+      [96, 76],
+      [96, 82.5],
+      [96.5, 84],
+      [96.5, 91],
+      [92.5, 91],
+      [90.5, 89],
+      [86.5, 89],
+      [82, 84.5],
+      [82, 80.5],
+      [84, 76.5],
+      [84, 74],
+      [80.5, 70.5],
+      [73.5, 70.5],
+      [69.5, 74.5],
+      [69.5, 111.5],
+      [72, 111.5],
+      [80, 111.5],
+      [82, 112.5],
+      [88, 118],
+      [94, 120],
+      [96.5, 120],
+      [96.5, 120.5],
+      [96.5, 125],
+      [97, 129],
+      [96.5, 132],
+      [97, 133],
+      [97, 139.5],
+      [96, 140.5],
       [96.5, 155.5],
     ],
-    // Interior east-biased corridor
     [
       [96.5, 69.5],
-      [102.5, 69.5],
-      [102.5, 78.5],
-      [104.5, 79.5],
-      [108.5, 79.5],
-      [108.5, 81.5],
-      [112.5, 82.5],
-      [113.5, 102.5],
-      [120.5, 107.5],
-      [120.5, 118.5],
-      [119.5, 118.5],
-      [113.5, 121.5],
-      [111.5, 142.5],
-      [108.5, 142.5],
-      [108.5, 145.5],
-      [102.5, 145.5],
-      [101.5, 155.5],
+      [97, 75.5],
+      [96, 76],
+      [96, 82.5],
+      [96.5, 84],
+      [96.5, 91],
+      [99.5, 91],
+      [101.5, 89],
+      [105.5, 89],
+      [110, 84.5],
+      [110, 79.5],
+      [107, 76.5],
+      [107, 73.5],
+      [111, 69.5],
+      [118.5, 69.5],
+      [123.5, 74.5],
+      [123.5, 111],
+      [122.5, 112.5],
+      [120, 112.5],
+      [112, 112.5],
+      [111, 112.5],
+      [104, 118],
+      [100, 120],
+      [96.5, 120],
+      [96.5, 120.5],
+      [96.5, 125],
+      [97, 129],
+      [96.5, 132],
+      [97, 133],
+      [97, 139.5],
+      [96, 140.5],
       [96.5, 155.5],
     ],
   ],
-  // Neutrals on the interior walkable component (west apron cluster was
-  // wall-disconnected from the X1Alpha spawns inside the building).
+  // Walkable ACT 36 / ACT 8 pads off the lane graph (west apron pads are
+  // wall-disconnected from the X1Alpha spawns).
   turretSpots: [
-    [82.5, 100.5],
+    [86.5, 103.5],
     [113.5, 100.5],
-    [82.5, 123.5],
+    [86.5, 120.5],
     [113.5, 123.5],
   ],
   outpostSpots: [
-    [82.5, 112.5],
-    [125.5, 112.5],
+    [91.5, 112.0],
+    [125.5, 112.0],
   ],
   dummySpots: [
-    [78.5, 106.5],
-    [114.5, 106.5],
-    [78.5, 118.5],
-    [114.5, 118.5],
+    [105.5, 103.5],
+    [105.5, 120.5],
+    [100.5, 94.5],
+    [91.5, 94.5],
+  ],
+  // Mesh-raycast pad tops + small base shelves (see packages/sim/maps/la-cantina.json).
+  // Full shelf/ramp baking lives in the committed JSON; convert re-stamps pads only.
+  padHeights: [
+    [84.5, 69.5, 1.0],
+    [107.5, 70.0, 1.0],
+    [88.0, 83.0, 1.0],
+    [104.0, 83.0, 1.0],
+    [84.5, 154.5, 1.0],
+    [107.5, 154.5, 1.0],
+    [88.0, 141.0, 1.0],
+    [104.0, 141.0, 1.0],
+    [96.5, 69.5, 1.0],
+    [96.5, 155.5, 1.0],
+    [86.5, 103.5, 0.0],
+    [113.5, 100.5, -1.5],
+    [86.5, 120.5, 0.0],
+    [113.5, 123.5, -1.5],
+    [105.5, 103.5, 0.0],
+    [105.5, 120.5, 0.0],
+    [100.5, 94.5, -1.5],
+    [91.5, 94.5, -1.5],
+    [91.5, 112.0, -2.5],
+    [125.5, 112.0, 0.0],
   ],
 };
 
@@ -640,6 +707,23 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
       row.push(i < SRC_W ? srcRow[i] : srcRow[SRC_W - 1]);
     }
     heights.push(row);
+  }
+
+  // Raise walk_height under authored pads so sampleHeight matches mesh tops.
+  if (spec.padHeights) {
+    for (const [x, y, meters] of spec.padHeights) {
+      const q = Math.round(meters / HEIGHT_SCALE);
+      const i0 = Math.floor(x);
+      const j0 = Math.floor(y);
+      for (let dj = 0; dj <= 1; dj++) {
+        for (let di = 0; di <= 1; di++) {
+          const i = i0 + di;
+          const j = j0 + dj;
+          if (j < 0 || j >= SIZE || i < 0 || i >= SIZE) continue;
+          heights[j][i] = q;
+        }
+      }
+    }
   }
 
   let minQ = Number.POSITIVE_INFINITY;

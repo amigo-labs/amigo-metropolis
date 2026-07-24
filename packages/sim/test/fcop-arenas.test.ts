@@ -33,6 +33,13 @@ interface ArenaExpectation {
   /** FNV-1a pins over the loaded wall bit arrays — the collision geometry. */
   wallsVPin: number;
   wallsHPin: number;
+  /** Ring turrets per base (FCOP Mp = 8 team-unique; other maps still 4). */
+  ringTurrets: number;
+  /** Capturable NeutralTurret pads (la-cantina imports full FCOP set). */
+  capturable: number;
+  /** Phase-1 sandbox dummies (0 when all pads are real FCOP neutrals). */
+  dummies: number;
+  outposts: number;
 }
 
 const ARENAS: ArenaExpectation[] = [
@@ -44,17 +51,26 @@ const ARENAS: ArenaExpectation[] = [
     heightsPin: 1261122911,
     wallsVPin: 420789996,
     wallsHPin: 3689709048,
+    ringTurrets: 4,
+    capturable: 4,
+    dummies: 4,
+    outposts: 2,
   },
   {
     id: LA_CANTINA_ID,
     size: 241,
     laneCount: 2,
-    // X1Alpha spawns sit on height-0 shelves inside the central building
-    // (not the outer 0.594 m apron).
-    groundHeight: 0,
-    heightsPin: 1164295261,
-    wallsVPin: 3671048181,
-    wallsHPin: 626664648,
+    // Spawns + base ring sit on 1 m mesh pad shelves (stamped over walk_height
+    // so sampleHeight matches the textured .glb pad tops).
+    groundHeight: 1,
+    heightsPin: 4111923175,
+    wallsVPin: 1798988054,
+    wallsHPin: 1210735636,
+    // Full FCOP Mp layout: 8 team-unique type-8 per base + all NeutralTurret pads.
+    ringTurrets: 8,
+    capturable: 32,
+    dummies: 0,
+    outposts: 2,
   },
   {
     id: BUG_HUNT_ID,
@@ -64,6 +80,10 @@ const ARENAS: ArenaExpectation[] = [
     heightsPin: 3837183847,
     wallsVPin: 293805412,
     wallsHPin: 1740349393,
+    ringTurrets: 4,
+    capturable: 4,
+    dummies: 4,
+    outposts: 2,
   },
 ];
 
@@ -79,9 +99,9 @@ for (const arena of ARENAS) {
       expect(map.basePlots.length).toBe(2);
       expect(map.bases.length).toBe(2);
       expect(map.lanes.length).toBe(arena.laneCount);
-      expect(map.turretSpots.length).toBe(4);
-      expect(map.outpostSpots.length).toBe(2);
-      expect(map.dummySpots.length).toBe(4);
+      expect(map.turretSpots.length).toBe(arena.capturable);
+      expect(map.outpostSpots.length).toBe(arena.outposts);
+      expect(map.dummySpots.length).toBe(arena.dummies);
     });
 
     it("pins the exact FNV-1a hash of the loaded heights", () => {
@@ -141,19 +161,24 @@ for (const arena of ARENAS) {
       for (let team = 0; team < 2; team++) {
         const base = map.bases[team];
         const plotC = map.basePlots[team];
-        expect(base.turrets.length).toBe(4);
-        const pts = [
+        expect(base.turrets.length).toBe(arena.ringTurrets);
+        // Gate / core / consoles / pad must sit on the base shelf.
+        const shelfPts = [
           { x: base.gate.x, y: base.gate.y },
           base.core,
           base.groundConsole,
           base.airConsole,
           { x: base.pad.x, y: base.pad.y },
-          ...base.turrets,
         ];
-        for (const p of pts) {
+        for (const p of shelfPts) {
           expect(Math.hypot(p.x - plotC.x, p.y - plotC.y)).toBeLessThanOrEqual(plotC.radius);
           expect(isWater(map, p.x, p.y)).toBe(false);
           expect(sampleHeight(map, p.x, p.y)).toBeCloseTo(arena.groundHeight, 1);
+        }
+        // Ring turrets: on-plot, dry; height matches mesh pad (may be groundHeight).
+        for (const p of base.turrets) {
+          expect(Math.hypot(p.x - plotC.x, p.y - plotC.y)).toBeLessThanOrEqual(plotC.radius);
+          expect(isWater(map, p.x, p.y)).toBe(false);
         }
       }
     });
