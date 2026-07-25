@@ -152,6 +152,33 @@ pathfinding in v1". The original data opens these options; none is adopted yet:
 Any adoption is a **deliberate** deviation from the v1 "dumb units" rule and must
 be raised as such, per `CLAUDE.md` (spec is source of truth).
 
+### 6.1 Adoption status (2026-07-25)
+
+Adopted for `la-cantina` only, on the owner's call, and written up as
+`docs/specs/rules.md` §9:
+
+| Item | Status |
+|---|---|
+| `Cnet` as lanes (option 1) | **adopted**, flattened to committed next-hop tables so no runtime search is needed |
+| Turret parameters (option 2) | **adopted as data**, not as balance reference: range/cadence/slew/FOV are per-arena weapon profiles |
+| Aircraft orbit shape (option 3) | not adopted; `moveAirUnit` keeps its own model |
+| `TeamBase` production + HP (§8.1) | **adopted** — 5 s cadence, 3000 HP core, base-destruction win |
+| `ItemPickup` (§8.2) | **adopted** |
+| `Trigger` intrusion volumes (§8.6) | **adopted** as detection; the alert cue is authored, since `Cfun` is undecoded |
+| Types 14 / 89 (§8.5) | not adopted; extracted for provenance only |
+
+The extraction is committed at `tools/generators/fcop/mp-logic.json`; the raw→sim
+unit conversions live in `tools/generators/fcopLogic.ts`. Note the distance scale
+(`engage_range`, `orbit_area`, `target_detection_range`) is **inferred** as 1/1024
+from the Mp geometry — the extractor reads those fields as bare u16 — so it is
+pinned by a test rather than assumed.
+
+One correction to §5's validation note while here: the decoded X1Alpha positions
+match `convert.ts`'s **old** hand-placed values because both sat in the actor
+frame, and the sim heightfield is that frame shifted one Til (+16 cells) on X.
+The authored spawns were therefore 16 cells west of the real base platforms; see
+`tools/generators/enrichArena.ts` for the three independent measurements.
+
 ## 7. Tooling
 
 - `tools/gfx/extract_logic.py` (RE repo) — decodes `Cact`/`Csac`/`Cnet` → JSON.

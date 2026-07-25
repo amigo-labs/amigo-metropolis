@@ -291,6 +291,39 @@ primary auto-fires on aim engage, buttons cover the rest; no page scroll/zoom;
 desktop input and the sim are untouched. (The feel pass on real phone hardware
 stays open, like the hover-feel / difficulty / SFX passes.)
 
+## Phase 12 — La Cantina: the original Precinct Assault arena
+
+Rebuild `la-cantina` (mission Mp) from the reverse-engineered original logic
+instead of a hand-authored approximation, and adopt the original rule set for it
+(`docs/specs/rules.md` §9 — a deliberate, documented spec deviation).
+
+- [x] Fix the terrain→sim alignment for all six arenas: measured per-map offsets
+      (`tools/generators/genMapAlign.ts` → `render/mapAlign.generated.ts`), with a
+      test that re-derives them from the committed `.glb` + heightfield
+- [x] Commit the extracted Mp actor/`Cnet` logic in-tree
+      (`tools/generators/fcop/mp-logic.json`) so the arena is regenerable without
+      the private RE repo, and pin the inferred unit scales
+- [x] Map schema for the PA features, every field optional so the other arenas
+      and the goldens are untouched
+- [x] Regenerate the arena (`tools/generators/enrichArena.ts`): authentic spawns,
+      bases, 32 capture pads, 16+16 ring turrets, built-in base defence, pickups,
+      intrusion volumes, props and both lane graphs — one Til east of where the
+      old features sat
+- [ ] PA mechanics in the sim: per-turret weapon profiles, `Cnet` graph
+      traversal, base production, base-destruction win, pickups, intrusion alerts
+- [ ] Original props/models in place of the greybox base blocks, and audio
+      (original SFX where available, new cues for the new events, positional sound)
+- [ ] `golden-07-pa`: a full PA match on la-cantina
+
+**Definition of Done:** la-cantina plays end to end under §9 — production runs,
+the enemy base can be destroyed, pads capture, pickups and alarms fire — with
+`bun test`, `bun run replay:verify` and `bun run verify:arenas` green, and the
+fidelity screenshots showing turrets on their original pads.
+
+Deliberately NOT in this phase: the other five arenas share the same +16 frame
+error in their authored features. The terrain fix improves all of them; importing
+their layouts is one arena at a time.
+
 ## Backlog (post-v1, do not start)
 
 More arenas · map editor · rollback netcode upgrade · 2v2 ·
