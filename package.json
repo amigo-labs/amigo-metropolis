@@ -15,6 +15,7 @@
     "gen:units": "bun run tools/generators/genUnitModels.ts",
     "gen:mapalign": "bun run tools/generators/genMapAlign.ts",
     "gen:palogic": "bun run tools/generators/fcopLogic.ts",
+    "gen:arena": "bun run tools/generators/enrichArena.ts",
     "replay:verify": "bun run tools/determinism/src/cli.ts verify-goldens",
     "replay:verify:browser": "bun run tools/determinism/src/browserVerify.ts",
     "e2e:touch": "bun run tools/determinism/src/touchInput.ts",

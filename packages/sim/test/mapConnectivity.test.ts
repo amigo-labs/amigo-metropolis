@@ -91,10 +91,24 @@ for (const id of PLAYABLE_IDS) {
           { name: "groundConsole", x: base.groundConsole.x, y: base.groundConsole.y },
           { name: "airConsole", x: base.airConsole.x, y: base.airConsole.y },
           { name: "pad", x: base.pad.x, y: base.pad.y },
-          ...base.turrets.map((p, i) => ({ name: `ring${i}`, x: p.x, y: p.y })),
         ];
         for (const p of pts) {
           expect(f.has(p.x, p.y)).toBe(true);
+        }
+        // Ring turrets are shot at, not stood on, so requiring their own cell to
+        // be walkable would forbid the plinths and parapets the original mounts
+        // them on. What must hold is that they are not sealed inside solid
+        // geometry: some neighbouring cell has to be reachable, or nobody can
+        // ever engage them and they are invulnerable scenery.
+        const cell = map.cellSize;
+        for (const [i, t] of base.turrets.entries()) {
+          const touching =
+            f.has(t.x, t.y) ||
+            f.has(t.x + cell, t.y) ||
+            f.has(t.x - cell, t.y) ||
+            f.has(t.x, t.y + cell) ||
+            f.has(t.x, t.y - cell);
+          if (!touching) throw new Error(`base ${team} ring turret ${i} is sealed off`);
         }
       }
     });
