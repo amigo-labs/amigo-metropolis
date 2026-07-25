@@ -63,6 +63,8 @@
 //     per-arena map data, and hash() appends its new blocks behind the same
 //     guards, so on a map without PA features the byte stream is bit-identical to
 //     v12 — goldens 01-06 re-header only, none of their hash sequences move
-//     (goldenNoop.test.ts is the proof). la-cantina is the only arena that
-//     carries the data, and no golden runs on it.
+//     (goldenNoop.test.ts is the proof). la-cantina is the only arena carrying
+//     the data, and golden-07-pa — added in this same version — is the first
+//     golden recorded on it, so it has no earlier sequence to preserve. Any
+//     later change to a PA mechanic moves golden-07 and only golden-07.
 export const SIM_VERSION = 13;

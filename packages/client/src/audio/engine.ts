@@ -60,6 +60,20 @@ const AUDIO_REF_DISTANCE = 18;
 const MAX_PAN = 0.9;
 
 /**
+ * Index of a pan/gain slot no live source is using, or -1 if all are taken.
+ *
+ * Exported for test: a slot handed out while its previous source is still playing
+ * retargets that sound's pan and volume mid-playback, and the engine itself needs
+ * a real AudioContext to construct, so this is the piece worth pinning.
+ */
+export function claimVoiceSlot(owners: readonly (unknown | null)[]): number {
+  for (let i = 0; i < owners.length; i++) {
+    if (owners[i] === null) return i;
+  }
+  return -1;
+}
+
+/**
  * Fills `out` with the world position of an event, or returns false for "no
  * position, play it centred". Supplied by the host (main.ts), which is the only
  * place that holds a snapshot to resolve entity ids against.
@@ -139,8 +153,17 @@ export class AudioEngine {
   private musicLoadGen = 0;
   private settings: AudioSettings = loadSettings();
   private activeVoices = 0;
-  private readonly onVoiceEnded = (): void => {
+  private readonly onVoiceEnded = (ev: Event): void => {
     if (this.activeVoices > 0) this.activeVoices--;
+    // Release this voice's pan/gain slot. Found by scanning rather than stored on
+    // the source, so ending a voice allocates nothing; 24 comparisons is free.
+    const src = ev.target;
+    for (let i = 0; i < this.slotSource.length; i++) {
+      if (this.slotSource[i] === src) {
+        this.slotSource[i] = null;
+        return;
+      }
+    }
   };
   private unlocked = false;
   private readonly tryUnlock = (): void => this.unlock();
@@ -148,7 +171,17 @@ export class AudioEngine {
   // Positional playback (preallocated at unlock, never per voice).
   private readonly pan: StereoPannerNode[] = [];
   private readonly voiceGain: GainNode[] = [];
-  private panCursor = 0;
+  /**
+   * The source currently owning each pan/gain slot, or null if free.
+   *
+   * A slot's parameters must not be touched while a source is still playing
+   * through it, or that sound's pan and volume jump to wherever the newer event
+   * happened to be. A round-robin cursor cannot guarantee that — it advances per
+   * event, not per voice lifetime — so ownership is tracked explicitly. The cue
+   * most exposed was the alarm: about a second long, and the one that must never
+   * wander mid-playback.
+   */
+  private readonly slotSource: (AudioBufferSourceNode | null)[] = [];
   /** Listener position + right vector, written once per frame from the camera. */
   private lx = 0;
   private ly = 0;
@@ -243,6 +276,7 @@ export class AudioEngine {
       gain.connect(this.sfxGain);
       this.pan.push(pan);
       this.voiceGain.push(gain);
+      this.slotSource.push(null);
     }
 
     const rate = this.ctx.sampleRate;
@@ -321,11 +355,15 @@ export class AudioEngine {
     // and the AudioListener.positionX-vs-setPosition split is still an iOS
     // hazard. In a top-down arena azimuth plus distance is all the player can
     // actually use, and swapping in true 3D later is contained to this method.
-    const slot = this.panCursor;
-    this.panCursor = (slot + 1) % MAX_VOICES;
-    const pan = this.pan[slot];
-    const gain = this.voiceGain[slot];
+    // Claim a slot no live source is using. The voice cap means one is always
+    // available (a voice owns at most one slot, and there are MAX_VOICES of
+    // each), but fall back to the unpanned bus rather than ever stealing one:
+    // a centred cue beats a playing cue lurching sideways.
+    const slot = claimVoiceSlot(this.slotSource);
+    const pan = slot >= 0 ? this.pan[slot] : undefined;
+    const gain = slot >= 0 ? this.voiceGain[slot] : undefined;
     if (pan && gain) {
+      this.slotSource[slot] = src;
       if (positional) {
         const dx = px - this.lx;
         const dy = py - this.ly;
