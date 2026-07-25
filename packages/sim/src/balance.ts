@@ -273,3 +273,42 @@ export const ARCHETYPE_MAX_HP: readonly number[] = [
   150, // CONSOLE
   WARDEN_HP, // WARDEN
 ];
+
+// --- Precinct Assault mode (rules.md §9) ------------------------------------
+// Everything here is inert on arenas whose map data carries no PA features.
+
+/**
+ * Hard ceiling on units a base may have alive from free production, whatever the
+ * map asks for. This is a CORRECTNESS guard, not balance: two bases producing
+ * every 5 s would add ~24 units/minute and fill the entity store in minutes.
+ */
+export const PA_PRODUCTION_ALIVE_LIMIT = 8;
+
+/** Power-up kinds; must match the mapping in tools/generators/enrichArena.ts. */
+export const PICKUP_HEAVY_AMMO = 0;
+export const PICKUP_SPECIAL_AMMO = 1;
+export const PICKUP_HEALTH = 2;
+export const PICKUP_INVULN = 3;
+export const PICKUP_INVIS = 4;
+export const PICKUP_POWER = 5;
+export const PICKUP_KIND_COUNT = 6;
+/** Avatar must be within this of a pickup spot to take it. */
+export const PICKUP_RADIUS = 2.5;
+export const PICKUP_HEALTH_AMOUNT = 100;
+export const PICKUP_INVULN_TICKS = 300; // 10 s
+export const PICKUP_INVIS_TICKS = 300;
+export const PICKUP_POWER_TICKS = 450; // 15 s
+/** Damage multiplier while a POWER pickup is active. Integer: exact in binary. */
+export const PICKUP_POWER_MULTIPLIER = 2;
+
+/** Base-intrusion trigger watch bits (fcop-logic.md §8.6). */
+export const TRIGGER_WATCH_ENEMY_AVATAR = 1 << 0;
+export const TRIGGER_WATCH_ENEMY_UNITS = 1 << 1;
+export const TRIGGER_WATCH_OWN_AVATAR = 1 << 2;
+/** Re-arm delay, so one intruder loitering does not fire the alarm every tick. */
+export const TRIGGER_REARM_TICKS = 90; // 3 s
+
+/** Damage a ground unit deals to an enemy base core, per its own cooldown. */
+export const CORE_DAMAGE_PER_SHOT = 10;
+/** How close a ground unit must be to the enemy core to damage it. */
+export const CORE_ATTACK_RADIUS = 6;

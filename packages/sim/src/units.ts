@@ -32,7 +32,7 @@ import {
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
 import { type MapData, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
 import { ANIM_MOVING, type SimState, STEP_SNAP } from "./sim";
-import { atan2Poly, cosLUT, sinLUT, TAU } from "./simMath";
+import { atan2Poly, cosLUT, rand01, sinLUT, TAU } from "./simMath";
 
 export const UNIT_MODE_PATROL = 0;
 export const UNIT_MODE_ASSAULT = 1;
@@ -52,6 +52,15 @@ export function nearestEnemyInRange(
   skipStructures = false,
 ): number {
   const ent = state.ent;
+  // Invisible avatars are unacquirable (rules.md §9). Resolved to entity ids up
+  // front so the hot loop stays a plain comparison; -1 when the arena has no
+  // pickups, which never matches a live id.
+  let hidden0 = -1;
+  let hidden1 = -1;
+  if (state.buffInvis.length > 0) {
+    if (state.buffInvis[0] > 0) hidden0 = state.avatarId[0];
+    if (state.buffInvis[1] > 0) hidden1 = state.avatarId[1];
+  }
   const x = ent.posX[id];
   const y = ent.posY[id];
   const team = ent.team[id];
@@ -59,6 +68,7 @@ export function nearestEnemyInRange(
   let bestId = -1;
   for (let t = 0; t < ent.high; t++) {
     if (!ent.alive[t] || t === id) continue;
+    if (t === hidden0 || t === hidden1) continue;
     const tt = ent.team[t];
     if (tt === team || tt === TEAM_NEUTRAL) continue;
     const archetype = ent.archetype[t];
@@ -106,9 +116,63 @@ export function systemUnitMovement(state: SimState): void {
 }
 
 /**
+ * Marks a ground unit as traversing the lane GRAPH rather than a polyline
+ * (`timerB` sentinel). Field reuse follows the convention at the top of this file.
+ */
+export const GRAPH_MODE = -2;
+
+/**
+ * Advances a unit along the committed lane graph and returns its current target
+ * node, or -1 once it has arrived (caller then beelines the gate).
+ *
+ * There is no search here. `nextHopA`/`nextHopB` were computed at authoring time
+ * and validated at load (every signpost points along a real edge, and following
+ * the primary chain terminates), so this reads one array entry and, only where
+ * the original road forks, spends one draw of the seeded PRNG. That is what keeps
+ * rules.md §6 true — see its §9 amendment.
+ */
+function advanceOnGraph(state: SimState, id: number, team: number): number {
+  const ent = state.ent;
+  const g = state.map.laneGraph;
+  if (g === undefined) return -1;
+  const n = g.nodes.length;
+  const node = ent.timerA[id];
+  if (node < 0 || node >= n) return -1;
+
+  const target = g.nodes[node];
+  const dx = target.x - ent.posX[id];
+  const dy = target.y - ent.posY[id];
+  if (dx * dx + dy * dy > WAYPOINT_RADIUS * WAYPOINT_RADIUS) return node;
+
+  // Arrived at this node: read the signpost.
+  const a = g.nextHopA[team * n + node];
+  if (a < 0) {
+    ent.timerA[id] = -1; // arrived at the enemy base end of the road
+    return -1;
+  }
+  const b = g.nextHopB[team * n + node];
+  let next = a;
+  if (b >= 0) {
+    // A genuine fork in the original road: pick with the sim PRNG, never
+    // Math.random (CLAUDE.md rule 3).
+    next = rand01(state) < 0.5 ? a : b;
+    // Prefer not to double back the way we came, but never refuse to move: a
+    // dead end has to stay escapable.
+    if (next === ent.cooldownB[id]) next = next === a ? b : a;
+  }
+  ent.cooldownB[id] = node;
+  ent.timerA[id] = next;
+  return next;
+}
+
+/**
  * Lane-follower: seek the current waypoint, advance on proximity; past the
  * lane's far end (either direction), beeline the enemy gate. Lanes are
  * authored base 0 → base 1, so team 0 walks indices up and team 1 down.
+ *
+ * On an arena that carries the original waypoint graph (rules.md §9) the unit
+ * follows that instead; the polyline path below is untouched and still runs
+ * verbatim everywhere else.
  */
 function moveGroundUnit(state: SimState, id: number, speed: number, range: number): void {
   const ent = state.ent;
@@ -125,19 +189,30 @@ function moveGroundUnit(state: SimState, id: number, speed: number, range: numbe
   const team = ent.team[id];
   const x = ent.posX[id];
   const y = ent.posY[id];
-  const laneIdx = ent.timerA[id];
-  const lane = laneIdx < map.lanes.length ? map.lanes[laneIdx] : undefined;
-  const wp = ent.timerB[id];
-  const past = lane === undefined || wp < 0 || wp >= lane.length;
   const gate = map.bases[team ^ 1].gate;
-  const tx = past || lane === undefined ? gate.x : lane[wp].x;
-  const ty = past || lane === undefined ? gate.y : lane[wp].y;
+  let tx: number;
+  let ty: number;
+  let past: boolean;
+  if (map.laneGraph !== undefined && ent.timerB[id] === GRAPH_MODE) {
+    const node = advanceOnGraph(state, id, team);
+    past = node < 0;
+    tx = past ? gate.x : map.laneGraph.nodes[node].x;
+    ty = past ? gate.y : map.laneGraph.nodes[node].y;
+  } else {
+    const laneIdx = ent.timerA[id];
+    const lane = laneIdx < map.lanes.length ? map.lanes[laneIdx] : undefined;
+    const wp = ent.timerB[id];
+    past = lane === undefined || wp < 0 || wp >= lane.length;
+    tx = past || lane === undefined ? gate.x : lane[wp].x;
+    ty = past || lane === undefined ? gate.y : lane[wp].y;
+  }
 
   const dx = tx - x;
   const dy = ty - y;
   const d2 = dx * dx + dy * dy;
-  if (!past && d2 <= WAYPOINT_RADIUS * WAYPOINT_RADIUS) {
-    ent.timerB[id] = wp + (team === 0 ? 1 : -1);
+  // Polyline advance only: graph units advance inside advanceOnGraph above.
+  if (!past && ent.timerB[id] !== GRAPH_MODE && d2 <= WAYPOINT_RADIUS * WAYPOINT_RADIUS) {
+    ent.timerB[id] += team === 0 ? 1 : -1;
   }
   if (d2 > 0.0001) {
     const inv = 1 / Math.sqrt(d2);

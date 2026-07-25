@@ -56,4 +56,13 @@
 //     and neutral capture are reachable (hover/walker share crossesWall*).
 //     Heightfields/walls unchanged. golden-05 re-records for real hash change;
 //     goldens 01–04/06 only re-header for SIM_VERSION (district-01/test maps).
-export const SIM_VERSION = 12;
+// v13: Precinct Assault mode (rules.md §9) — per-turret weapon profiles with gun
+//     slew and FOV, the original Cnet lane graph traversed via committed next-hop
+//     signposts, free base production, destructible base cores as the win
+//     condition, power-ups and base-intrusion alerts. Every mechanic is gated on
+//     per-arena map data, and hash() appends its new blocks behind the same
+//     guards, so on a map without PA features the byte stream is bit-identical to
+//     v12 — goldens 01-06 re-header only, none of their hash sequences move
+//     (goldenNoop.test.ts is the proof). la-cantina is the only arena that
+//     carries the data, and no golden runs on it.
+export const SIM_VERSION = 13;

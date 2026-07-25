@@ -64,6 +64,17 @@ export interface EntityStore {
    * so a recycled slot never carries a stale deck.
    */
   readonly entLayer: Uint8Array;
+
+  /**
+   * Weapon-profile index per entity, or -1 for "use the global TURRET_*
+   * constants". Side array OUTSIDE the hashable byte region, exactly like
+   * entLayer — hash() includes it ONLY on maps that carry weapon profiles, so
+   * every pre-PA hash sequence stays byte-identical.
+   *
+   * Note the reset value is -1, not 0: 0 is a VALID profile index, so a recycled
+   * slot cleared to zero would silently inherit the first profile.
+   */
+  readonly weaponProfile: Int16Array;
 }
 
 const FLOAT_FIELDS = 15;
@@ -112,8 +123,10 @@ export function createEntityStore(cap: number = MAX_ENTITIES): EntityStore {
     team: new Int8Array(buffer, byteStart + 2 * cap, cap),
     animState: new Uint8Array(buffer, byteStart + 3 * cap, cap),
     mode: new Uint8Array(buffer, byteStart + 4 * cap, cap),
-    // Side array, deliberately its own allocation (NOT in the hashable buffer).
+    // Side arrays, deliberately their own allocations (NOT in the hashable
+    // buffer). weaponProfile starts at -1 = "no profile" everywhere.
     entLayer: new Uint8Array(cap),
+    weaponProfile: new Int16Array(cap).fill(-1),
   };
 }
 
@@ -167,6 +180,7 @@ export function despawn(store: EntityStore, id: number): void {
   store.ammoB[id] = 0;
   store.ownerId[id] = 0;
   store.entLayer[id] = 0;
+  store.weaponProfile[id] = -1; // -1, not 0: see the field comment
   store.freeList[store.freeCount] = id;
   store.freeCount += 1;
 }
