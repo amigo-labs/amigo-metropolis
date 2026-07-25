@@ -509,9 +509,15 @@ function carveLaneWalls(
     }
   };
 
+  // EVERY directed edge, with no `nb <= k` dedup. The Cnet is one-way
+  // (fcop-logic.md §3.1) and measurably so: not one of Mp's 315 edges, or
+  // Conft's 518, has a reverse twin. Deduping as if it were undirected skipped
+  // every edge pointing at a lower node index — 69 of Mp's, 186 of Conft's — and
+  // left the roads they run down half-walled, which is how team 0's committed
+  // route on Conft ended up crossing a wall a produced unit cannot pass.
   for (let k = 0; k < graph.nodes.length; k++) {
     for (const nb of graph.edges[k]) {
-      if (nb < 0 || nb <= k) continue;
+      if (nb < 0) continue;
       const a = graph.nodes[k];
       const b = graph.nodes[nb];
       clearAlong(a.x, a.z, b.x, b.z);
@@ -897,6 +903,19 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         ...turretSpots.map(([x, y]) => ({ x, y })),
         ...outpostSpots.map(([x, y]) => ({ x, y })),
         ...pickups.map((p) => ({ x: p.x, y: p.y })),
+        // The base's own structures, or the player cannot walk from their spawn
+        // to a buy console and back out onto the road. Mp's happened to land in
+        // the spawn component already; Conft's, Slim's and Joke's do not, and
+        // without these the arena generates clean and plays unbuyable.
+        ...bases.flatMap((b) => [
+          { x: b.core[0], y: b.core[1] },
+          { x: b.groundConsole[0], y: b.groundConsole[1] },
+          { x: b.airConsole[0], y: b.airConsole[1] },
+          // Ring turrets too: one the player can neither reach nor shoot past is
+          // dead content, and mapConnectivity.test.ts treats it as an error.
+          ...b.turrets.map(([x, y]) => ({ x, y })),
+        ]),
+        ...out0Spawns(teamSpawns, field).map((s) => ({ x: s.x, y: s.y })),
       ],
       arena.repairLimit,
     );
@@ -973,6 +992,13 @@ function writeArena(arena: FcopArena): number {
  * assertable without touching the tree.
  */
 function checkArena(arena: FcopArena): boolean {
+  // An arena stage 2 has never run on has nothing to compare against: its map is
+  // still stage 1's hand-authored layout. Say so rather than calling it drift.
+  const onDisk = JSON.parse(readFileSync(mapPathOf(arena), "utf8")) as MapJson;
+  if (onDisk.laneGraph === undefined) {
+    console.log(`${arena.mapId}: not imported yet — no committed stage-2 output to check`);
+    return true;
+  }
   const { json } = buildArena(arena);
   const want = readFileSync(mapPathOf(arena), "utf8");
   const got = serialize(json);
@@ -1011,12 +1037,12 @@ function probeOffsets(arena: FcopArena): boolean {
   // Every directed Cnet edge, in the raw actor frame.
   const edges: number[][] = [];
   for (const net of nets) {
-    net.nodes.forEach((n, k) => {
+    for (const n of net.nodes) {
       for (const nb of n.neighbours) {
-        if (nb < 0 || nb <= k) continue;
+        if (nb < 0) continue;
         edges.push([n.x, n.z, net.nodes[nb].x, net.nodes[nb].z]);
       }
-    });
+    }
   }
 
   const blockedAt = (dx: number): number => {
@@ -1142,7 +1168,7 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   let blocked = 0;
   for (let k = 0; k < graph.nodes.length; k++) {
     for (const nb of graph.edges[k]) {
-      if (nb < 0 || nb <= k) continue;
+      if (nb < 0) continue;
       const a = graph.nodes[k];
       const b = graph.nodes[nb];
       const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) * 4);
@@ -1170,7 +1196,7 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   let total = 0;
   for (let k = 0; k < graph.nodes.length; k++) {
     for (const nb of graph.edges[k]) {
-      if (nb < 0 || nb <= k) continue;
+      if (nb < 0) continue;
       total++;
       const a = graph.nodes[k];
       const b = graph.nodes[nb];

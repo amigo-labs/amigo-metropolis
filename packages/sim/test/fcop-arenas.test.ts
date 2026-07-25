@@ -1,13 +1,19 @@
-// Schema + playability validation for the committed FCOP v1 arenas beyond
-// urban-jungle (which has its own file): proving-ground (mission Slim),
-// la-cantina (mission Mp) and bug-hunt (mission Joke), each with an exact
-// heights-hash pin. The heightfields are extracted 1:1 from the original
-// missions (int8, 1/32 m units) by tools/generators/convert.ts; regenerating one
-// changes gameplay everywhere it is sampled, so a changed pin means a
-// SIM_VERSION bump + golden regeneration for every golden recorded on it.
+// Schema + playability validation for the four single-storey FCOP arenas:
+// urban-jungle (mission Conft), proving-ground (Slim), la-cantina (Mp) and
+// bug-hunt (Joke). All four are now rebuilt from their own original Precinct
+// Assault logic (tools/generators/enrichArena.ts), so all four run the same
+// assertions — including the lane-graph block, which used to be la-cantina's
+// alone. hollywood-keys and venice-beach are layered and stay in
+// layeredArenas.test.ts; see that file for why they are not imported yet.
 //
-// Like urban-jungle, FCOP terrain is asymmetric and Stage 1 has no water —
-// the district-01 mirror + river assertions are deliberately absent.
+// The heightfields are extracted 1:1 from the original missions (int8, 1/32 m
+// units) by tools/generators/convert.ts; regenerating one changes gameplay
+// everywhere it is sampled, so a changed heightsPin means a SIM_VERSION bump +
+// golden regeneration for every golden recorded on it. Stage 2 never touches
+// terrain, so every heightsPin below survived the rebuild unchanged.
+//
+// Stage 1 has no water, so the district-01 river assertions are absent. The
+// mirror assertion is NOT absent any more — see the mirrorAxis field.
 import { describe, expect, it } from "bun:test";
 import { AVATAR_WALKER_MAX_SLOPE } from "../src/balance";
 import { crossesWallX, crossesWallY } from "../src/collision";
@@ -19,6 +25,7 @@ import {
   LA_CANTINA_ID,
   PROVING_GROUND_ID,
   sampleHeight,
+  URBAN_JUNGLE_ID,
   worldExtent,
 } from "../src/map";
 
@@ -33,13 +40,13 @@ interface ArenaExpectation {
   /** FNV-1a pins over the loaded wall bit arrays — the collision geometry. */
   wallsVPin: number;
   wallsHPin: number;
-  /** Feature counts, per arena — la-cantina carries the original's full set. */
+  /** Feature counts, per arena — each carries its own mission's full set. */
   turretSpots: number;
   outpostSpots: number;
   dummySpots: number;
   ringTurrets: number;
   /**
-   * Precinct Assault extras (rules.md §9); 0 on the arenas still on the pre-PA
+   * Precinct Assault extras (rules.md §9); 0 on an arena still on the pre-PA
    * hand-authored layout.
    */
   graphNodes: number;
@@ -49,10 +56,24 @@ interface ArenaExpectation {
   triggerVolumes: number;
   coreHp: number;
   productionTicks: number;
+  /** Original scenery placements. Render-only — determinismGuard.test.ts enforces it. */
+  props: number;
   /**
-   * True when every base structure shares one elevation. False on PA arenas: the
-   * original puts the X1Alpha spawn on a 1 m platform and the base itself on the
-   * floor beside it, so the plot spans two levels by design.
+   * Grid line the arena's terrain is mirror-symmetric about, in BOTH axes.
+   *
+   * It is the centre of the arena's real (unpadded) content: the terrain occupies
+   * sim [16, 16 + content] on X, so the axis is 16 + content/2 — 112 on la-cantina
+   * (241²) and 120 on the three 257² arenas. That is measured, not assumed:
+   * tools/generators/test/mapAlign.test.ts re-derives the same footprint from each
+   * committed .glb by vertex correlation, and binds it to the offset stage 2
+   * applies. packages/sim may not import from the client (determinismGuard), so
+   * the number is carried here and the link is asserted there.
+   */
+  mirrorAxis: number;
+  /**
+   * True when every base structure shares one elevation with the spawn. False
+   * where the original puts the X1Alpha on a platform and the base on the floor
+   * beside it, so the plot spans two levels by design.
    */
   flatPlots: boolean;
   /**
@@ -62,30 +83,83 @@ interface ArenaExpectation {
    * player still has at least one escortable route (asserted separately).
    */
   steepLaneEdges: number;
+  /**
+   * Sub-cell steps along the committed `lanes` polyline that exceed the walker
+   * slope limit. 0 on Mp, whose shortest road is clean; non-zero on the three
+   * imported arenas, whose original roads clip kerbs and pits the avatar cannot
+   * climb in either form. Units are unaffected — they never check slope.
+   */
+  steepLaneSteps: number;
 }
 
+// Every row below is transcribed from `bun run gen:arena <id>`'s report, never
+// predicted: the counts are properties of each mission's actor table.
+// laneCount 1 and dummySpots 0 are structural — stage 2 commits team 0's
+// polyline as the one lane (the graph is the real network) and dummy turrets are
+// a Phase-1 sandbox concept with no original counterpart.
 const ARENAS: ArenaExpectation[] = [
   {
+    // Rebuilt from the original Conft logic. Both X1Alpha spawns land on the
+    // 0.906 m base platforms; at the old +0 frame they sat on the 0 m floor.
+    id: URBAN_JUNGLE_ID,
+    size: 257,
+    laneCount: 1,
+    groundHeight: 0.906,
+    heightsPin: 264067427, // terrain untouched by the rebuild
+    // 219 bits carved to open the original roads + 23 to reconnect the ring
+    // and the base's own structures, of 4096 (5.9%).
+    wallsVPin: 1944393474,
+    wallsHPin: 3661246389,
+    turretSpots: 32,
+    outpostSpots: 2,
+    dummySpots: 0,
+    ringTurrets: 16,
+    graphNodes: 462, // both Cnet graphs, 237 + 225
+    weapons: 2,
+    baseDefence: 4,
+    pickups: 11,
+    triggerVolumes: 13,
+    coreHp: 3000,
+    productionTicks: 150, // 5 s
+    props: 36,
+    mirrorAxis: 120,
+    flatPlots: false, // spawn platform above the base floor
+    steepLaneEdges: 67,
+    steepLaneSteps: 6,
+  },
+  {
+    // Rebuilt from the original Slim logic. Slim and Joke used to share one
+    // hand-authored layout (convert.ts's RIM_* constants); they are different
+    // missions and importing splits them, which is why the counts below differ
+    // from bug-hunt's despite the identical base positions.
     id: PROVING_GROUND_ID,
     size: 257,
-    laneCount: 3,
-    groundHeight: 1, // X1Alpha shelves at 1 m (not outer rim apron)
-    heightsPin: 1261122911,
-    wallsVPin: 420789996,
-    wallsHPin: 3689709048,
-    turretSpots: 4,
+    laneCount: 1,
+    // Flat 0 m plateau. The old `groundHeight: 1` was an artifact: the authored
+    // spawn straddled a 2 m shelf and a 0 m floor, and the bilinear sampler
+    // averaged them to exactly 1. There is no 1 m shelf on this arena.
+    groundHeight: 0,
+    heightsPin: 1261122911, // terrain untouched by the rebuild
+    // 283 bits carved + 21 to reconnect, of 4096 (7.4%) — Slim's road network
+    // is the densest of the four, at 640 edges.
+    wallsVPin: 2238596254,
+    wallsHPin: 4155115572,
+    turretSpots: 29,
     outpostSpots: 2,
-    dummySpots: 4,
-    ringTurrets: 4,
-    graphNodes: 0,
-    weapons: 0,
-    baseDefence: 0,
-    pickups: 0,
-    triggerVolumes: 0,
-    coreHp: 0,
-    productionTicks: 0,
-    flatPlots: true,
-    steepLaneEdges: 0,
+    dummySpots: 0,
+    ringTurrets: 14, // Slim places 14 per base, not Mp's 16
+    graphNodes: 578, // 292 + 286
+    weapons: 2,
+    baseDefence: 4,
+    pickups: 9,
+    triggerVolumes: 13,
+    coreHp: 3000,
+    productionTicks: 150,
+    props: 36,
+    mirrorAxis: 120,
+    flatPlots: true, // spawn and base share the 0 m floor here
+    steepLaneEdges: 63,
+    steepLaneSteps: 9,
   },
   {
     // Rebuilt from the original Mp logic (tools/generators/enrichArena.ts): the
@@ -96,10 +170,11 @@ const ARENAS: ArenaExpectation[] = [
     // Both X1Alpha spawns sit on the original 1 m base platforms at col 112.
     groundHeight: 1,
     heightsPin: 1164295261, // terrain untouched
-    // Walls differ from stage 1: 56 bits carved to open the original roads and
-    // 10 to reconnect the outer ring, out of 4009 (1.6%). See enrichArena.ts.
-    wallsVPin: 3187547238,
-    wallsHPin: 1909053213,
+    // Walls differ from stage 1: 83 bits carved to open the original roads and
+    // 16 to reconnect the ring and the bases, out of 4009 (2.5%). Both counts
+    // grew when the carve stopped skipping one-way edges — see enrichArena.ts.
+    wallsVPin: 2734110619,
+    wallsHPin: 1084975133,
     turretSpots: 32, // every original NeutralTurret pad
     outpostSpots: 2,
     dummySpots: 0, // no original counterpart
@@ -111,30 +186,38 @@ const ARENAS: ArenaExpectation[] = [
     triggerVolumes: 13,
     coreHp: 3000,
     productionTicks: 150, // 5 s
+    props: 36,
+    mirrorAxis: 112,
     flatPlots: false,
-    steepLaneEdges: 10,
+    steepLaneEdges: 14,
+    steepLaneSteps: 0,
   },
   {
+    // Rebuilt from the original Joke logic — see proving-ground on the split.
     id: BUG_HUNT_ID,
     size: 257,
-    laneCount: 3,
-    groundHeight: 1, // shares proving-ground X1Alpha shelf layout
-    heightsPin: 3837183847,
-    wallsVPin: 293805412,
-    wallsHPin: 1740349393,
-    turretSpots: 4,
+    laneCount: 1,
+    groundHeight: 0,
+    heightsPin: 3837183847, // terrain untouched by the rebuild
+    // 287 bits carved + 24 to reconnect, of 4096 (7.6%).
+    wallsVPin: 3771208529,
+    wallsHPin: 1896827259,
+    turretSpots: 29,
     outpostSpots: 2,
-    dummySpots: 4,
-    ringTurrets: 4,
-    graphNodes: 0,
-    weapons: 0,
-    baseDefence: 0,
-    pickups: 0,
-    triggerVolumes: 0,
-    coreHp: 0,
-    productionTicks: 0,
+    dummySpots: 0,
+    ringTurrets: 14,
+    graphNodes: 594, // 303 + 291
+    weapons: 2,
+    baseDefence: 4,
+    pickups: 9,
+    triggerVolumes: 13,
+    coreHp: 3000,
+    productionTicks: 150,
+    props: 36,
+    mirrorAxis: 120,
     flatPlots: true,
-    steepLaneEdges: 0,
+    steepLaneEdges: 63,
+    steepLaneSteps: 9,
   },
 ];
 
@@ -157,6 +240,7 @@ for (const arena of ARENAS) {
       expect(map.pickups.length).toBe(arena.pickups);
       expect(map.triggerVolumes.length).toBe(arena.triggerVolumes);
       expect(map.laneGraph?.nodes.length ?? 0).toBe(arena.graphNodes);
+      expect(map.props.length).toBe(arena.props);
       for (const base of map.bases) {
         expect(base.turrets.length).toBe(arena.ringTurrets);
         expect(base.defence.length).toBe(arena.baseDefence);
@@ -317,7 +401,7 @@ for (const arena of ARENAS) {
         for (let k = 0; k < n; k++) {
           for (let s = 0; s < 4; s++) {
             const nb = g.edges[k * 4 + s];
-            if (nb < 0 || nb <= k) continue;
+            if (nb < 0) continue;
             const a = g.nodes[k];
             const b = g.nodes[nb];
             const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 4);
@@ -335,34 +419,56 @@ for (const arena of ARENAS) {
         }
       });
 
-      it("at least one base-to-base route stays inside the walker slope limit", () => {
-        // Units ignore slope, but the player escorting them does not, so at least
-        // one committed route has to be drivable by the avatar end to end.
+      it("at least one team can walk its road network to the enemy base", () => {
+        // The player has to be able to escort a push on foot, so a walker-clean
+        // path from a team's entry to the enemy plot has to EXIST in the road
+        // network. Deliberately not "the committed nextHopA route is clean":
+        // nextHopA is the units' signpost and minimises hop count, units ignore
+        // slope entirely (units.ts stepAndSnap checks walls only), and the player
+        // steers for themselves. On Conft, Slim and Joke the shortest route does
+        // clip a few of the original's kerbs and pits — 4 to 8 segments of ~30,
+        // up to a 2.8 gradient — while a clean path through the same graph
+        // exists; on Mp the shortest route happens to be clean already.
+        // Neither hover nor walker can cross those steps: AVATAR_HOVER_MAX_SLOPE
+        // is 0.35, stricter than the walker's 0.6.
         const g = map.laneGraph;
         if (!g) return;
-        const n = g.nodes.length;
+        const isSteep = (k: number, nb: number): boolean => {
+          const a = g.nodes[k];
+          const b = g.nodes[nb];
+          const len = Math.hypot(b.x - a.x, b.y - a.y);
+          const steps = Math.max(1, Math.ceil(len));
+          let prev = sampleHeight(map, a.x, a.y);
+          for (let t = 1; t <= steps; t++) {
+            const h = sampleHeight(
+              map,
+              a.x + (b.x - a.x) * (t / steps),
+              a.y + (b.y - a.y) * (t / steps),
+            );
+            if (Math.abs(h - prev) / (len / steps) >= AVATAR_WALKER_MAX_SLOPE) return true;
+            prev = h;
+          }
+          return false;
+        };
         let escortable = 0;
         for (let team = 0; team < 2; team++) {
-          let at = g.entry[team];
-          let ok = true;
-          while (g.nextHopA[team * n + at] >= 0) {
-            const a = g.nodes[at];
-            const b = g.nodes[g.nextHopA[team * n + at]];
-            const len = Math.hypot(b.x - a.x, b.y - a.y);
-            const steps = Math.max(1, Math.ceil(len));
-            let prev = sampleHeight(map, a.x, a.y);
-            for (let t = 1; t <= steps; t++) {
-              const h = sampleHeight(
-                map,
-                a.x + (b.x - a.x) * (t / steps),
-                a.y + (b.y - a.y) * (t / steps),
-              );
-              if (Math.abs(h - prev) / (len / steps) >= AVATAR_WALKER_MAX_SLOPE) ok = false;
-              prev = h;
+          const foe = map.basePlots[team ^ 1];
+          const queue = [g.entry[team]];
+          const seen = new Set(queue);
+          for (let i = 0; i < queue.length; i++) {
+            const k = queue[i];
+            const at = g.nodes[k];
+            if (Math.hypot(at.x - foe.x, at.y - foe.y) < foe.radius + 12) {
+              escortable++;
+              break;
             }
-            at = g.nextHopA[team * n + at];
+            for (let s = 0; s < 4; s++) {
+              const nb = g.edges[k * 4 + s];
+              if (nb < 0 || seen.has(nb) || isSteep(k, nb)) continue;
+              seen.add(nb);
+              queue.push(nb);
+            }
           }
-          if (ok) escortable++;
         }
         expect(escortable).toBeGreaterThan(0);
       });
@@ -375,7 +481,7 @@ for (const arena of ARENAS) {
         for (let k = 0; k < n; k++) {
           for (let s = 0; s < 4; s++) {
             const nb = g.edges[k * 4 + s];
-            if (nb < 0 || nb <= k) continue;
+            if (nb < 0) continue;
             const a = g.nodes[k];
             const b = g.nodes[nb];
             const len = Math.hypot(b.x - a.x, b.y - a.y);
@@ -398,18 +504,36 @@ for (const arena of ARENAS) {
         expect(steep).toBe(arena.steepLaneEdges);
       });
 
-      it("keeps the arena's mirror symmetry: spawns on the centre axis", () => {
-        // The heightfield is mirror-symmetric about col 112 (match 0.992) and the
-        // original actors about the same axis. A spawn off it means the one-Til
-        // frame offset has drifted again — the exact bug this arena had.
-        const axis = 112;
-        for (const s of map.spawns) expect(Math.abs(s.x - axis)).toBeLessThan(1);
-        const rows = map.spawns.map((s) => s.y).sort((a, b) => a - b);
-        expect(rows[0] + rows[1]).toBeCloseTo(2 * axis, 0);
+      it("keeps the arena's mirror symmetry: the two spawns mirror each other", () => {
+        // This is the guard that catches the one-Til frame offset drifting again —
+        // the exact bug all four of these arenas had. The heightfield is
+        // mirror-symmetric about mirrorAxis in both axes, the original actors are
+        // symmetric about the same line, and the two X1Alpha spawns are therefore
+        // a mirrored pair: each coordinate sums to twice the axis.
+        //
+        // Deliberately NOT the old `|s.x - axis| < 1`: that is true on la-cantina,
+        // where the bases straddle the centre line, and false on a correctly
+        // imported Conft, whose spawns sit at x 106.2 and 133.7. Summing the pair
+        // holds on all four and is the stronger claim — a uniform shift of both
+        // spawns breaks it, which is precisely the failure mode.
+        const axis = arena.mirrorAxis;
+        const [a, b] = map.spawns;
+        expect(a.x + b.x).toBeCloseTo(2 * axis, 0);
+        expect(a.y + b.y).toBeCloseTo(2 * axis, 0);
+        // ...and the pair genuinely straddles the line rather than both landing
+        // on it, which a collapsed import would also satisfy above.
+        expect(Math.abs(a.y - b.y)).toBeGreaterThan(20);
       });
     }
 
-    it("lanes are walker-traversable: dry and within the slope limit", () => {
+    it("the committed lane is dry, and its walker-steep segments are pinned", () => {
+      // `lanes` is team 0's nextHopA route flattened to a polyline — the units'
+      // road. Dryness is absolute. Slope is pinned rather than forbidden: units
+      // ignore it, and on the three imported non-Mp arenas the original's
+      // shortest road clips a few kerbs the avatar cannot climb. Pinning the
+      // count is what stops that growing unnoticed; the previous assertion of
+      // zero only held because Mp's shortest road happens to be clean.
+      let steep = 0;
       for (const lane of map.lanes) {
         for (let i = 0; i < lane.length - 1; i++) {
           const a = lane[i];
@@ -423,12 +547,12 @@ for (const arena of ARENAS) {
             const y = a.y + (b.y - a.y) * t;
             expect(isWater(map, x, y)).toBe(false);
             const h = sampleHeight(map, x, y);
-            const slope = Math.abs(h - prevH) / (segLen / steps);
-            expect(slope).toBeLessThan(AVATAR_WALKER_MAX_SLOPE);
+            if (Math.abs(h - prevH) / (segLen / steps) >= AVATAR_WALKER_MAX_SLOPE) steep++;
             prevH = h;
           }
         }
       }
+      expect(steep).toBe(arena.steepLaneSteps);
     });
   });
 }

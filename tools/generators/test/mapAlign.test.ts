@@ -12,11 +12,25 @@
 import { describe, expect, test } from "bun:test";
 import { MAP_REGISTRY } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../../packages/client/src/render/mapAlign.generated";
+import { LOGIC_OFFSET_X, LOGIC_OFFSET_Z } from "../enrichArena";
 import { measureArena } from "../genMapAlign";
 
 /** Mirrors the generator's acceptance thresholds. */
 const MIN_MATCH = 0.9;
 const MIN_MARGIN = 0.05;
+
+/**
+ * The mirrorAxis values packages/sim/test/fcop-arenas.test.ts carries, so the two
+ * files cannot drift apart. The sim package may not import from the client
+ * (determinismGuard.test.ts pins its zero-dependency contract), so the number is
+ * duplicated there and tied back to the measurement here.
+ */
+const MIRROR_AXIS: Record<string, number> = {
+  "urban-jungle": 120,
+  "proving-ground": 120,
+  "la-cantina": 112,
+  "bug-hunt": 120,
+};
 
 describe("committed terrain alignment matches the heightfields", () => {
   for (const info of MAP_REGISTRY) {
@@ -40,6 +54,20 @@ describe("committed terrain alignment matches the heightfields", () => {
       // that is worth a human look rather than a silent pass.
       expect(scan.shiftX).toBe(16);
       expect(scan.shiftZ).toBe(0);
+
+      // ...and that shift IS the offset stage 2 applies to the original actor
+      // coordinates, because the .glb is authored in the actor frame. Two
+      // constants that have to agree and, until issue #30, agreed only by
+      // coincidence: the terrain was aligned for all six arenas while five of
+      // them still carried features 16 cells west of their own art.
+      expect(LOGIC_OFFSET_X).toBe(scan.shiftX);
+      expect(LOGIC_OFFSET_Z).toBe(scan.shiftZ);
+
+      // The mirror axis fcop-arenas.test.ts pins is the midpoint of this
+      // footprint in sim coordinates, so the sim-side guard against the frame
+      // drifting again is anchored to this measurement rather than to a literal.
+      const axis = (scan.shiftX + (committed.x + committed.maxX)) / 2;
+      expect(axis).toBe(MIRROR_AXIS[info.id] ?? axis);
 
       // The recorded bounds are the drift guard meshMap.ts checks at load time.
       expect(record.minX).toBe(committed.minX);
