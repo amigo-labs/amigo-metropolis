@@ -3,7 +3,7 @@
   "mapId": "la-cantina",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "5cefb21213fa5020905f04f4e169e4874654c0b8",
+    "commit": "f6aad03a83b03a4976587b901ec5b47e7617aa8f",
     "extractor": "tools/gfx/extract_logic.py"
   },
   "frame": {

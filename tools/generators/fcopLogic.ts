@@ -11,9 +11,10 @@
 // copy is the source of truth for the arena generator, and this file is the only
 // place raw original units are interpreted.
 //
-//   bun run gen:palogic [--re-repo <path>] [--mission Mp]
+//   bun run gen:palogic [--re-repo <path>] [--map <mapId> | --mission <Mission>]
 //
-// Default RE repo path: $FCOP_RE_REPO, else /workspace/fcop-reverse-engineering.
+// Either spelling names the arena; tools/generators/fcopArenas.ts supplies the
+// other. Default RE repo path: $FCOP_RE_REPO, else /workspace/fcop-reverse-engineering.
 //
 // Authoring-time only, like convert.ts — the committed JSON is the artifact, so
 // any Math.* is fine here. The determinism guard only scans packages/sim/src.
@@ -29,6 +30,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { logicFile, selectArenas } from "./fcopArenas";
 
 // ---------------------------------------------------------------------------
 // Unit conversion
@@ -428,8 +430,8 @@ export function buildPaLogic(
       netScale: 32,
       note:
         "x/z are 0-based grid cells (raw/8192 for actors, raw/32 for Cnet nodes). " +
-        "The sim heightfield frame is this frame shifted by logicOffset in " +
-        "tools/generators/convert.ts — see docs/specs/fcop-viz-handoff.md.",
+        "The sim heightfield frame is this frame shifted by LOGIC_OFFSET_X/Z in " +
+        "tools/generators/enrichArena.ts — see docs/specs/fcop-viz-handoff.md.",
     },
     scales: {
       range: RANGE_SCALE,
@@ -563,7 +565,8 @@ export function buildPaLogic(
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 
-function argOf(name: string, fallback: string): string {
+/** Shared by every generator CLI in this directory. */
+export function argOf(name: string, fallback: string): string {
   const at = process.argv.indexOf(`--${name}`);
   return at >= 0 && process.argv[at + 1] ? process.argv[at + 1] : fallback;
 }
@@ -573,8 +576,11 @@ function main(): void {
     "re-repo",
     process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
   );
-  const mission = argOf("mission", "Mp");
-  const mapId = argOf("map", "la-cantina");
+  // Either spelling identifies the arena, and the table supplies the other, so
+  // `--map hollywood-keys` and `--mission Hk` are interchangeable.
+  const named = argOf("map", argOf("mission", "la-cantina"));
+  const arena = selectArenas(named)[0];
+  const { mission, mapId } = arena;
   const src = join(reRepo, "extracted", "logic", mission);
 
   let commit = "unknown";
@@ -595,7 +601,7 @@ function main(): void {
     extractor: "tools/gfx/extract_logic.py",
   });
 
-  const out = join(REPO_ROOT, "tools", "generators", "fcop", `${mission.toLowerCase()}-logic.json`);
+  const out = join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena));
   mkdirSync(dirname(out), { recursive: true });
   // Two-space indent so the artifact satisfies the repo formatter as-is and
   // needs no biome.json override (unlike the minified map JSONs).
