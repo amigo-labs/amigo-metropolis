@@ -317,6 +317,57 @@ export function layered01(tick: number, out: TickInputs): void {
   }
 }
 
+/**
+ * Golden #7 (Precinct Assault): 120 s on la-cantina, the arena rebuilt from the
+ * original Mp logic (rules.md §9). Covers what no other golden touches — free
+ * base production onto the original Cnet graph, per-turret weapon profiles with
+ * gun slew, capture on an authentic pad, a power-up pickup and a base-intrusion
+ * alarm.
+ *
+ * Played against the Warden, because that is what a solo match on this arena
+ * actually is: two idle players stalemate by design (the production streams
+ * annihilate at the centre line and the player is the tiebreaker), so an
+ * unattended recording would exercise production and nothing else.
+ *
+ * Route: spawn (112.1, 69.1) on the north base platform, hold INTERACT at the
+ * ground console for a bought wave alongside the free production, then run east
+ * to the pad at (137.6, 68.6) — same row as the spawn, so inside its own half
+ * rather than under the enemy's 20 forward turrets — and hold there for the 3 s
+ * uncontested capture. Then push south down the central spine, firing, as far as
+ * the enemy line allows.
+ */
+export function pa01(tick: number, out: TickInputs): void {
+  clearTickInputs(out);
+  const p = out.players[0];
+  const t = tick / TICK_HZ;
+  if (t < 3) {
+    p.moveX = 90; // spawn -> ground console at (114.1, 74.6)
+    p.moveY = 110;
+  } else if (t < 12) {
+    p.buttons = BUTTON_INTERACT; // hold-to-buy runners onto the graph
+  } else if (t < 34) {
+    p.moveX = 127; // east along row 69 toward the pad at (137.6, 68.6)
+    p.moveY = -20;
+  } else if (t < 46) {
+    p.moveX = 15; // settle inside the capture radius and hold it
+  } else if (t < 62) {
+    p.moveX = -127; // back west across the base platform
+    p.moveY = 30;
+  } else if (t < 84) {
+    p.moveY = 127; // push south down the spine, firing into the enemy line
+    p.buttons = BUTTON_FIRE1;
+    p.aimY = 110;
+  } else if (t < 100) {
+    p.moveX = -60;
+    p.moveY = 100;
+    p.buttons = BUTTON_FIRE1;
+    p.aimX = -50;
+    p.aimY = 100;
+  } else {
+    p.moveY = -110; // withdraw north up the spine until the recording ends
+  }
+}
+
 export const SCRIPTS: Record<
   string,
   { script: InputScript; ticks: number; mapId?: string; warden?: WardenConfig }
@@ -332,4 +383,10 @@ export const SCRIPTS: Record<
   },
   "fcop-01": { script: fcop01, ticks: 90 * TICK_HZ, mapId: "urban-jungle" },
   "layered-01": { script: layered01, ticks: 20 * TICK_HZ, mapId: "layered-test" },
+  "pa-01": {
+    script: pa01,
+    ticks: 120 * TICK_HZ,
+    mapId: "la-cantina",
+    warden: { player: 1, difficulty: 8 },
+  },
 };

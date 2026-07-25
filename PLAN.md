@@ -309,11 +309,24 @@ instead of a hand-authored approximation, and adopt the original rule set for it
       bases, 32 capture pads, 16+16 ring turrets, built-in base defence, pickups,
       intrusion volumes, props and both lane graphs — one Til east of where the
       old features sat
-- [ ] PA mechanics in the sim: per-turret weapon profiles, `Cnet` graph
-      traversal, base production, base-destruction win, pickups, intrusion alerts
-- [ ] Original props/models in place of the greybox base blocks, and audio
-      (original SFX where available, new cues for the new events, positional sound)
-- [ ] `golden-07-pa`: a full PA match on la-cantina
+- [x] PA mechanics in the sim (SIM_VERSION 13): per-turret weapon profiles with
+      slew + FOV, `Cnet` graph traversal via committed next-hop signposts, base
+      production, base-destruction win, pickups, intrusion alerts. Gated on map
+      data, so all six existing goldens re-header only — no hash sequence moved
+- [x] Greybox base blocks no longer drawn over the baked art (`?structures=greybox`
+      keeps them for volume checks); render bucket capacities derived from the
+      registry after la-cantina's 72 turrets overflowed the literal 64
+- [x] Audio: sfxr cues for alarm / pickup / production / core hit, positional
+      stereo panning with distance rolloff, and the three orphaned music tracks
+      wired up
+- [x] `golden-07-pa`: a 120 s Warden match on la-cantina, with beats asserting
+      production cadence and capture, plus tests proving the core CAN be razed
+      once its defenders are gone and that an unattended match correctly stalemates
+- [ ] Original `Cwav` sound effects: 409 extracted WAVs are available in the RE
+      repo but carry no semantic labels, so picking which is "shot"/"explosion"/
+      "alarm" needs someone who knows the game by ear (owner pass)
+- [ ] `DynamicProp` scenery meshes: the 36 placements are carried in the map as
+      render-only data; the Cobj models still need extracting
 
 **Definition of Done:** la-cantina plays end to end under §9 — production runs,
 the enemy base can be destroyed, pads capture, pickups and alarms fire — with

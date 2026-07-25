@@ -30,6 +30,7 @@ const GOLDEN_OF: Record<string, string> = {
   "warden-01": "golden-04-warden",
   "fcop-01": "golden-05-fcop",
   "layered-01": "golden-06-layered",
+  "pa-01": "golden-07-pa",
 };
 
 function hashesOf(stem: string): string {
