@@ -15,6 +15,8 @@ required, but listed for provenance.
 | --- | --- | --- |
 | Sound effects | `packages/client/src/audio/presets.ts` | sfxr parameter presets rendered at runtime by a clean-room synth (`audio/sfxr.ts`); no binary committed |
 | Music loop | `packages/client/src/audio/music.ts` | procedural minor-key pad + arpeggio, rendered to a seamless loop at runtime |
+| Music tracks — "Neon Coil", "Rust Circuit", "Slim Cover" | `packages/client/public/music/track{1,2,3}.mp3` | provided by the project owner; the source files live in `assets/audio/`. Selectable in the menu's Sound drawer (`audio/tracks.ts`) |
+| Sound effects — Precinct Assault cues | `packages/client/src/audio/presets.ts` | sfxr presets for the alarm / pickup / production / core-hit events (rules.md §9); the original's alert cue lived in the undecoded `Cfun` script, so these are authored, not extracted |
 | Brand art — logo + city backdrop | `assets/brand/`, `packages/client/public/icons/` | AI-generated (Google Gemini) source art, provided by the project owner and released as CC0. `tools/generators/genBrand.py` crops the shield emblem into the app/favicon icons; the "FUTURE COP" sign on the source backdrop is blurred out (a holdover from the earlier no-trademark policy — no longer required, see `docs/specs/assets.md` §2). The compressed menu backdrop is no longer shipped — the menu renders the live 3D arena instead |
 | Shared color palette | `packages/client/src/render/palette.ts` | original ~32-color game palette (assets.md §3), the single source of truth for every in-game color |
 | Greybox unit/structure meshes | `packages/client/src/render/` | procedural Three.js geometry (Stage A, `?render=greybox`) |
