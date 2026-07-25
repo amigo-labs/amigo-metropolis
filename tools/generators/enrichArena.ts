@@ -1,7 +1,12 @@
 // STAGE 2 of the arena pipeline: rewrites a committed map JSON's gameplay
 // features from the original Precinct Assault logic, leaving its terrain alone.
 //
-//   bun run gen:arena [la-cantina]
+//   bun run gen:arena [all | <mapId> | <Mission>] [--check] [--probe]
+//
+// --check rebuilds in memory and diffs against the committed map, writing
+// nothing; --probe scores candidate frame offsets against the pristine wall
+// lattice instead of authoring anything. Arena names come from
+// tools/generators/fcopArenas.ts.
 //
 // WHY A SECOND STAGE
 // Stage 1 (convert.ts) turns the private extracted terrain into
@@ -13,13 +18,17 @@
 //
 // THE FRAME (the thing that was wrong before)
 // Actor coordinates and the sim heightfield are the same 0-based grid, offset by
-// exactly one Til on X and nothing on Z. Three independent measurements agree:
-//   - the 106 gameplay actors are perfectly mirror-symmetric about actor x 96.0
-//     (score 1.00) and the heightfield about col 112.0 (score 0.992) -> +16;
-//   - the terrain .glb's min corner lands on sim x 16 (render/mapAlign.generated.ts);
-//   - at +16 the X1Alpha spawns land on heights 32 (the two 1 m base platforms)
-//     and the capturable turrets on three flat tiers, where at +0 they scatter
-//     across pits and wall tops.
+// exactly one Til on X and nothing on Z, on EVERY arena. The offset is a property
+// of the private extractor's grid padding, not of any one mission. Three
+// independent measurements agree, and none of them is taken on trust here:
+//   - the terrain .glb's min corner lands on sim x 16 for all six arenas
+//     (render/mapAlign.generated.ts, measured by vertex correlation) — checked at
+//     authoring time by assertFrameOffset() below;
+//   - mirror symmetry: on Mp the 106 gameplay actors are symmetric about actor
+//     x 96.0 (score 1.00) and the heightfield about col 112.0 (0.992) -> +16;
+//   - the original road network fits the wall lattice at +16 and nowhere else —
+//     `--probe` re-measures this per arena, which is the check to run when an
+//     arena blows its wall budget.
 // The previously authored features carried no offset, which is why they needed
 // hand-snapping onto walkable ground (git 7966c99) and why lanes had to detour
 // around a "fragmented west maze" that was really the edge-repeat apron.
@@ -38,14 +47,22 @@ import {
   type MapJson,
   sampleHeight,
 } from "@metropolis/sim";
+import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
+import { type FcopArena, logicFile, selectArenas, wallsFile } from "./fcopArenas";
 import { fovToCos, rangeToCells, rotToYaw, toSimTicks, turnSpeedToRadPerTick } from "./fcopLogic";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const TICK_HZ = 30; // packages/sim/src/balance.ts
 
-/** Grid offset from the original actor frame to the sim heightfield frame. */
-const LOGIC_OFFSET_X = 16;
-const LOGIC_OFFSET_Z = 0;
+/**
+ * Grid offset from the original actor frame to the sim heightfield frame.
+ *
+ * Exported so tools/generators/test/mapAlign.test.ts can assert it IS the shift
+ * that test measures from the committed terrain. Two constants that have to agree
+ * and previously agreed only by coincidence — them disagreeing was issue #30.
+ */
+export const LOGIC_OFFSET_X = 16;
+export const LOGIC_OFFSET_Z = 0;
 
 /**
  * Damage per shot for the imported weapon profiles.
@@ -141,14 +158,96 @@ const sx = (x: number): number => x + LOGIC_OFFSET_X;
 const sz = (z: number): number => z + LOGIC_OFFSET_Z;
 const round4 = (v: number): number => Math.round(v * 10000) / 10000;
 
-/** Spawn list in sim coordinates, north first — the reachability flood's origin. */
+/**
+ * The offset is a measurement, so check it against the measurement rather than
+ * trusting a constant six arenas deep.
+ *
+ * `MAP_ALIGN` records the translation that lands each arena's terrain .glb on the
+ * sim grid, correlated vertex-by-vertex against the heightfield and re-derived by
+ * tools/generators/test/mapAlign.test.ts. `x + minX` is therefore the cell shift
+ * between the mesh's own frame — which is the actor frame — and the sim's. If a
+ * regenerated asset ever moves that, this throws instead of quietly authoring an
+ * arena 16 cells from its art.
+ */
+function assertFrameOffset(mapId: string): void {
+  const align = MAP_ALIGN[mapId];
+  if (!align) throw new Error(`no measured alignment for ${mapId} in mapAlign.generated.ts`);
+  const shiftX = align.x + align.minX;
+  const shiftZ = align.z + align.minZ;
+  if (shiftX !== LOGIC_OFFSET_X || shiftZ !== LOGIC_OFFSET_Z) {
+    throw new Error(
+      `${mapId}: measured frame shift [${shiftX}, ${shiftZ}] but stage 2 applies ` +
+        `[${LOGIC_OFFSET_X}, ${LOGIC_OFFSET_Z}] — re-run gen:mapalign and reconcile before authoring`,
+    );
+  }
+}
+
+/**
+ * Which grid axis the two bases face each other across, and where the halfway
+ * line sits on it.
+ *
+ * Mp, Conft, Slim, Joke and Ovmp are all north-south arenas, which is why this
+ * used to be the literal `z` and the literal mid-line 112. Hk is not: its bases
+ * sit at x 71 and x 201.4 with only 5.9 cells of z between them, so sorting the
+ * teams by z there pairs each base with the ENEMY's X1Alpha. Derive it.
+ */
+interface Field {
+  readonly axis: "x" | "z";
+  readonly mid: number;
+  readonly separation: number;
+}
+
+function fieldOf(bases: readonly { x: number; z: number }[]): Field {
+  const dx = Math.abs(bases[0].x - bases[1].x);
+  const dz = Math.abs(bases[0].z - bases[1].z);
+  // Tie goes to z: the five north-south arenas keep their historical ordering
+  // even if a future mission happens to be exactly diagonal.
+  const axis = dx > dz ? "x" : "z";
+  const a = bases[0][axis];
+  const b = bases[1][axis];
+  return { axis, mid: (a + b) / 2, separation: Math.abs(a - b) };
+}
+
+/**
+ * Pairs each base with its OWN X1Alpha — the nearest one — then orders the pairs
+ * along the field axis so team 0 is the low end.
+ *
+ * The two lists used to be sorted independently and paired by index, which is
+ * only correct while both happen to order the same way.
+ */
+function teamsOf<
+  B extends { x: number; z: number },
+  S extends { id: number; x: number; z: number },
+>(bases: readonly B[], spawns: readonly S[], field: Field): { base: B; spawn: S }[] {
+  const d = (p: { x: number; z: number }, q: { x: number; z: number }): number =>
+    Math.hypot(p.x - q.x, p.z - q.z);
+  const pairs = bases.map((base) => {
+    const spawn = [...spawns].sort((p, q) => d(base, p) - d(base, q) || p.id - q.id)[0];
+    return { base, spawn };
+  });
+  if (new Set(pairs.map((p) => p.spawn.id)).size !== pairs.length) {
+    throw new Error("two bases claim the same X1Alpha — the spawn/base pairing is ambiguous");
+  }
+  return pairs.sort((p, q) => p.base[field.axis] - q.base[field.axis]);
+}
+
+/**
+ * Spawn list in sim coordinates, team 0 first — the reachability flood's origin.
+ *
+ * Facing is the cardinal direction of the field axis toward the enemy base rather
+ * than the true bearing: "look down your own lane" is the symmetric answer, and
+ * the original's stored X1Alpha rotation is not it.
+ */
 function out0Spawns(
-  spawnsByZ: { x: number; z: number }[],
+  spawns: readonly { x: number; z: number }[],
+  field: Field,
 ): { x: number; y: number; yaw: number }[] {
-  return spawnsByZ.map((s, team) => ({
+  // yaw is atan2(dy, dx) in sim convention, so +z is +pi/2 and +x is 0.
+  const toward = field.axis === "z" ? [Math.PI / 2, -Math.PI / 2] : [0, Math.PI];
+  return spawns.map((s, team) => ({
     x: round4(sx(s.x)),
     y: round4(sz(s.z)),
-    yaw: team === 0 ? Math.PI / 2 : -Math.PI / 2,
+    yaw: toward[team],
   }));
 }
 
@@ -194,12 +293,57 @@ interface Graph {
  * rules.md §6's "no runtime pathfinding" true in substance: the sim reads one
  * array entry per waypoint and, at a fork, flips one seeded coin.
  */
+/** Half-width of the band around the mid-line that counts as mid-field. */
+const MIDFIELD_BAND_CELLS = 12;
+
+/**
+ * The two capturable pads furthest out on either flank of the mid-line.
+ *
+ * Metropolis-only concept (rules.md §5): the original has no outposts. Putting
+ * them on real turret pads means they sit on authored geometry rather than
+ * invented ground. The band used to be `|z - 112| < 12`, which is Mp's mid-line
+ * on Mp's axis; both come from `field` now. Widen rather than fail if a mission
+ * puts nothing within the band, and say so — an arena with no mid-field pads at
+ * all is a data problem worth reading, not a silent zero.
+ */
+function midfieldOutposts(neutrals: readonly Turret[], field: Field): number[][] {
+  const cross = field.axis === "x" ? "z" : "x";
+  const pads = neutrals.map((t) => ({ x: sx(t.x), z: sz(t.z) }));
+  const limit = Math.max(MIDFIELD_BAND_CELLS, field.separation / 2);
+  for (let band = MIDFIELD_BAND_CELLS; band <= limit; band *= 1.5) {
+    const inBand = pads
+      .filter((p) => Math.abs(p[field.axis] - field.mid) < band)
+      .sort((a, b) => a[cross] - b[cross]);
+    if (inBand.length >= 2) {
+      return [inBand[0], inBand[inBand.length - 1]].map((p) => [round4(p.x), round4(p.z)]);
+    }
+  }
+  const spread = pads.map((p) => round4(p[field.axis])).sort((a, b) => a - b);
+  throw new Error(
+    `no mid-field pads to host the outposts: mid-line ${field.axis}=${field.mid}, ` +
+      `widened to ${round4(limit)} cells, pads at ${field.axis} ${spread.join(",")}`,
+  );
+}
+
+/**
+ * The Cnets the two bases actually drive, in netId order.
+ *
+ * Mp, Conft, Slim, Joke and Ovmp carry exactly two nets and both are owned, so
+ * this is the identity there. Hk carries a THIRD net of 41 nodes that no base
+ * produces onto — a campaign leftover. Importing it would put nodes no unit ever
+ * walks into the lane carve and into the reachability targets, so an arena would
+ * fail its wall budget for a reason that has nothing to do with the frame.
+ */
+function ownedNets(logic: Logic, teamNet: readonly number[]): Logic["nets"] {
+  return logic.nets.filter((n) => teamNet.includes(n.netId));
+}
+
 function buildGraph(logic: Logic, teamNet: number[], enemyBase: { x: number; z: number }[]): Graph {
   const nodes: { x: number; z: number }[] = [];
   const edges: number[][] = [];
   const offsetOf = new Map<number, number>();
 
-  for (const net of logic.nets) {
+  for (const net of ownedNets(logic, teamNet)) {
     offsetOf.set(net.netId, nodes.length);
     const base = nodes.length;
     for (const n of net.nodes) nodes.push({ x: round4(sx(n.x)), z: round4(sz(n.z)) });
@@ -214,7 +358,7 @@ function buildGraph(logic: Logic, teamNet: number[], enemyBase: { x: number; z: 
   const entry: number[] = [];
 
   for (let team = 0; team < 2; team++) {
-    const net = logic.nets.find((x) => x.netId === teamNet[team]);
+    const net = ownedNets(logic, teamNet).find((x) => x.netId === teamNet[team]);
     if (!net) throw new Error(`no net ${teamNet[team]} for team ${team}`);
     const base = offsetOf.get(net.netId) as number;
     const ids: number[] = [];
@@ -542,21 +686,25 @@ function repairReachability(
 // Build
 // ---------------------------------------------------------------------------
 
-function enrich(mapId: string, mission: string): void {
+function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; graph: Graph } {
+  const { mapId } = arena;
+  assertFrameOffset(mapId);
   const mapPath = join(REPO_ROOT, "packages", "sim", "maps", `${mapId}.json`);
   const raw = JSON.parse(readFileSync(mapPath, "utf8")) as MapJson;
   const logic = JSON.parse(
-    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", `${mission}-logic.json`), "utf8"),
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
   ) as Logic;
 
-  // Metropolis team 0 is the north spawn; the original's north base carries team
-  // byte 2, and each base drives its own Cnet (fcop-logic.md §8.1).
-  const spawnsByZ = [...logic.spawns].sort((a, b) => a.z - b.z);
-  const basesByZ = [...logic.bases].sort((a, b) => a.z - b.z);
-  const teamNet = [basesByZ[0].netId, basesByZ[1].netId];
+  // Team 0 is the low end of the field axis; each base drives its own Cnet
+  // (fcop-logic.md §8.1) and owns the nearer X1Alpha.
+  const field = fieldOf(logic.bases);
+  const teams = teamsOf(logic.bases, logic.spawns, field);
+  const teamBases = teams.map((t) => t.base);
+  const teamSpawns = teams.map((t) => t.spawn);
+  const teamNet = [teamBases[0].netId, teamBases[1].netId];
   const enemyBase = [
-    { x: sx(basesByZ[1].x), z: sz(basesByZ[1].z) },
-    { x: sx(basesByZ[0].x), z: sz(basesByZ[0].z) },
+    { x: sx(teamBases[1].x), z: sz(teamBases[1].z) },
+    { x: sx(teamBases[0].x), z: sz(teamBases[0].z) },
   ];
 
   const table = new WeaponTable();
@@ -567,8 +715,9 @@ function enrich(mapId: string, mission: string): void {
   // the build consoles. The original does not label which is which; their
   // footprints differ consistently across both bases, so the wider one is the
   // ground console. Deterministic, symmetric, and derived rather than invented.
-  const bases = basesByZ.map((base, team) => {
-    const own = spawnsByZ[team];
+  let ringDropped = 0;
+  const bases = teamBases.map((base, team) => {
+    const own = teamSpawns[team];
     const buttons = logic.triggers
       .filter((t) => t.flags.includes("action_button") && t.watchesActor === own.id)
       .sort((a, b) => b.widthRaw - a.widthRaw || a.id - b.id);
@@ -576,11 +725,14 @@ function enrich(mapId: string, mission: string): void {
       throw new Error(`base ${team} has ${buttons.length} action-button triggers, need 2`);
     }
     const core = [round4(sx(base.x)), round4(sz(base.z))];
-    const ring = logic.turrets
+    const ownTurrets = logic.turrets
       .filter((t) => t.team === base.team)
-      .sort((a, b) => a.id - b.id)
-      // MapBase.turrets caps at 16 and the original places exactly 16 per base.
-      .slice(0, 16);
+      .sort((a, b) => a.id - b.id);
+    // MapBase.turrets caps at 16. Mp, Conft and Ovmp place exactly 16 per base;
+    // Slim, Joke and Hk place 14. Count anything the cap would drop rather than
+    // truncating silently.
+    const ring = ownTurrets.slice(0, 16);
+    ringDropped += ownTurrets.length - ring.length;
 
     return {
       // The base structure IS the objective under the original rules, so the
@@ -624,7 +776,7 @@ function enrich(mapId: string, mission: string): void {
       b.core,
       b.groundConsole,
       b.airConsole,
-      [round4(sx(spawnsByZ[team].x)), round4(sz(spawnsByZ[team].z))],
+      [round4(sx(teamSpawns[team].x)), round4(sz(teamSpawns[team].z))],
     ];
     const cx = (Math.min(...pts.map((p) => p[0])) + Math.max(...pts.map((p) => p[0]))) / 2;
     const cy = (Math.min(...pts.map((p) => p[1])) + Math.max(...pts.map((p) => p[1]))) / 2;
@@ -640,19 +792,7 @@ function enrich(mapId: string, mission: string): void {
   const turretYaw = neutrals.map((t) => round4(rotToYaw(t.gunRotationRaw, true)));
 
   // --- outposts ----------------------------------------------------------
-  // Metropolis-only concept (rules.md §5): the original has no outposts. Placed
-  // on the two mid-field capturable pads furthest out on either flank — the
-  // arena's natural forward strongpoints, and real turret pads, so they sit on
-  // authored geometry rather than invented ground.
-  const midfield = neutrals
-    .map((t, k) => ({ k, x: sx(t.x), z: sz(t.z) }))
-    .filter((p) => Math.abs(p.z - 112) < 12)
-    .sort((a, b) => a.x - b.x);
-  if (midfield.length < 2) throw new Error("no mid-field pads to host the outposts");
-  const outpostSpots = [midfield[0], midfield[midfield.length - 1]].map((p) => [
-    round4(p.x),
-    round4(p.z),
-  ]);
+  const outpostSpots = midfieldOutposts(neutrals, field);
 
   // --- lane graph + polyline ---------------------------------------------
   const graph = buildGraph(logic, teamNet, enemyBase);
@@ -728,10 +868,10 @@ function enrich(mapId: string, mission: string): void {
   // generator has been run — the output has to be a function of committed
   // inputs alone.
   const pristine = JSON.parse(
-    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", `${mission}-walls.json`), "utf8"),
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", wallsFile(arena)), "utf8"),
   ) as { size: number; wallsV: string[]; wallsH: string[] };
   if (pristine.size !== raw.size) {
-    throw new Error(`${mission}-walls.json is size ${pristine.size}, map is ${raw.size}`);
+    throw new Error(`${wallsFile(arena)} is size ${pristine.size}, map is ${raw.size}`);
   }
   const wallsV = [...pristine.wallsV];
   const wallsH = [...pristine.wallsH];
@@ -744,12 +884,12 @@ function enrich(mapId: string, mission: string): void {
       wallsV: pristine.wallsV,
       wallsH: pristine.wallsH,
     });
-    carved = carveLaneWalls(pristineMap, wallsV, wallsH, graph, 400);
+    carved = carveLaneWalls(pristineMap, wallsV, wallsH, graph, arena.carveLimit);
     // Opening the lane edges is not enough on its own: a corridor can be
     // drivable end to end and still be sealed off from the rest of the arena,
     // which is what leaves the outer ring's capture pads unreachable.
     repaired = repairReachability(
-      { ...raw, spawns: out0Spawns(spawnsByZ), wallsV, wallsH },
+      { ...raw, spawns: out0Spawns(teamSpawns, field), wallsV, wallsH },
       wallsV,
       wallsH,
       [
@@ -758,7 +898,7 @@ function enrich(mapId: string, mission: string): void {
         ...outpostSpots.map(([x, y]) => ({ x, y })),
         ...pickups.map((p) => ({ x: p.x, y: p.y })),
       ],
-      400,
+      arena.repairLimit,
     );
   }
 
@@ -769,7 +909,7 @@ function enrich(mapId: string, mission: string): void {
     wallsH,
     // Face the enemy base: the original stores an X1Alpha rotation, but the
     // useful, symmetric answer is "look down your own lane".
-    spawns: out0Spawns(spawnsByZ),
+    spawns: out0Spawns(teamSpawns, field),
     basePlots,
     bases,
     lanes,
@@ -792,17 +932,159 @@ function enrich(mapId: string, mission: string): void {
     props,
   };
 
-  // Load it back through the real validator before writing: an arena that only
+  // Load it back through the real validator before returning: an arena that only
   // the generator can read is worse than no arena.
   const loaded = loadMapFromJson(out);
-  writeFileSync(mapPath, `${JSON.stringify(out)}\n`);
 
-  report(mapId, loaded, carved, repaired, graph);
+  return {
+    json: out,
+    graph,
+    stats: {
+      carved,
+      repaired,
+      ringDropped,
+      unownedNets: logic.nets.length - ownedNets(logic, teamNet).length,
+      field,
+      map: loaded,
+    },
+  };
+}
+
+/** Where a built arena belongs on disk. */
+function mapPathOf(arena: FcopArena): string {
+  return join(REPO_ROOT, "packages", "sim", "maps", `${arena.mapId}.json`);
+}
+
+function serialize(json: MapJson): string {
+  return `${JSON.stringify(json)}\n`;
+}
+
+function writeArena(arena: FcopArena): number {
+  const { json, stats, graph } = buildArena(arena);
+  writeFileSync(mapPathOf(arena), serialize(json));
+  return report(arena, stats, graph);
+}
+
+/**
+ * Rebuilds the arena in memory and diffs it against the committed map.
+ *
+ * This is the claim every refactor of this file has to make — "the committed maps
+ * are still exactly what the committed inputs produce" — and `--check` makes it
+ * assertable without touching the tree.
+ */
+function checkArena(arena: FcopArena): boolean {
+  const { json } = buildArena(arena);
+  const want = readFileSync(mapPathOf(arena), "utf8");
+  const got = serialize(json);
+  if (want === got) {
+    console.log(`${arena.mapId}: reproduces the committed map byte-for-byte`);
+    return true;
+  }
+  console.log(`${arena.mapId}: DRIFT — the committed map is not what the inputs produce now`);
+  return false;
+}
+
+/**
+ * Scores candidate frame offsets by how much of the original road network the
+ * PRISTINE wall lattice blocks, and reports whether the offset in use wins.
+ *
+ * The +16 offset was originally established for Mp by measuring exactly this —
+ * 22 of 246 lane edges blocked at +16, every other shift at least twice as bad.
+ * `--probe` makes that repeatable per arena, which matters because it is the
+ * right instrument when an arena blows its wall budget: if +16 is not clearly the
+ * best shift, the frame is wrong and no budget increase will fix it.
+ */
+function probeOffsets(arena: FcopArena): boolean {
+  const raw = JSON.parse(readFileSync(mapPathOf(arena), "utf8")) as MapJson;
+  const logic = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
+  ) as Logic;
+  const pristine = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", wallsFile(arena)), "utf8"),
+  ) as { wallsV: string[]; wallsH: string[] };
+  const map = loadMapFromJson({ ...raw, wallsV: pristine.wallsV, wallsH: pristine.wallsH });
+
+  const field = fieldOf(logic.bases);
+  const teamNet = teamsOf(logic.bases, logic.spawns, field).map((t) => t.base.netId);
+  const nets = ownedNets(logic, teamNet);
+
+  // Every directed Cnet edge, in the raw actor frame.
+  const edges: number[][] = [];
+  for (const net of nets) {
+    net.nodes.forEach((n, k) => {
+      for (const nb of n.neighbours) {
+        if (nb < 0 || nb <= k) continue;
+        edges.push([n.x, n.z, net.nodes[nb].x, net.nodes[nb].z]);
+      }
+    });
+  }
+
+  const blockedAt = (dx: number): number => {
+    let blocked = 0;
+    for (const [ax, az, bx, bz] of edges) {
+      const x0 = ax + dx;
+      const x1 = bx + dx;
+      const steps = Math.ceil(Math.hypot(x1 - x0, bz - az) * 4);
+      let px = x0;
+      let py = az;
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        const cx = x0 + (x1 - x0) * t;
+        const cy = az + (bz - az) * t;
+        if (crossesWallX(map, px, cx, py) || crossesWallY(map, cx, py, cy)) {
+          blocked++;
+          break;
+        }
+        px = cx;
+        py = cy;
+      }
+    }
+    return blocked;
+  };
+
+  const scores: { dx: number; blocked: number }[] = [];
+  for (let dx = -16; dx <= 32; dx += 4) scores.push({ dx, blocked: blockedAt(dx) });
+  const best = scores.reduce((a, b) => (b.blocked < a.blocked ? b : a));
+  const here = scores.find((s) => s.dx === LOGIC_OFFSET_X) as { dx: number; blocked: number };
+  const runnerUp = scores
+    .filter((s) => s.dx !== LOGIC_OFFSET_X)
+    .reduce((a, b) => (b.blocked < a.blocked ? b : a));
+
+  console.log(`\n${arena.mapId} (${arena.mission}): ${edges.length} original lane edges`);
+  for (const s of scores) {
+    const mark = s.dx === LOGIC_OFFSET_X ? " <- in use" : s.dx === best.dx ? " <- best" : "";
+    console.log(`  x+${String(s.dx).padStart(3)}: ${String(s.blocked).padStart(4)} blocked${mark}`);
+  }
+  const wins = here.blocked <= best.blocked;
+  console.log(
+    wins
+      ? `  OK — +${LOGIC_OFFSET_X} is the best shift; next best (+${runnerUp.dx}) blocks ` +
+          `${runnerUp.blocked}, ${round4(runnerUp.blocked / Math.max(1, here.blocked))}x as many`
+      : `  PROBLEM +${LOGIC_OFFSET_X} blocks ${here.blocked} but +${best.dx} blocks only ${best.blocked}`,
+  );
+  return wins;
+}
+
+/** Everything the report prints, so buildArena stays free of console output. */
+interface EnrichStats {
+  carved: number;
+  repaired: number;
+  /** Ring turrets the MapBase cap of 16 dropped, across both bases. */
+  ringDropped: number;
+  /** Cnets in the extraction that no base drives, and were therefore not imported. */
+  unownedNets: number;
+  field: Field;
+  map: MapData;
 }
 
 /** Authoring sanity report — the same checks the arena tests will assert. */
-function report(mapId: string, map: MapData, carved: number, repaired: number, graph: Graph): void {
-  console.log(`\n${mapId}: rewritten from the original Mp logic`);
+function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
+  const { map, carved, repaired } = stats;
+  console.log(`\n${arena.mapId}: rewritten from the original ${arena.mission} logic`);
+  console.log(
+    `  field axis ${stats.field.axis}, mid-line ${round4(stats.field.mid)},` +
+      ` bases ${round4(stats.field.separation)} cells apart`,
+  );
   console.log(
     `  spawns 2  bases 2 (${map.bases[0].turrets.length}+${map.bases[1].turrets.length} ring,` +
       ` ${map.bases[0].defence.length}+${map.bases[1].defence.length} built-in defence)` +
@@ -818,10 +1100,22 @@ function report(mapId: string, map: MapData, carved: number, repaired: number, g
   console.log(
     `  core HP ${map.bases[0].coreHp}  production every ${map.bases[0].productionTicks} ticks`,
   );
-  console.log(`  wall bits carved to open the original roads: ${carved}`);
-  console.log(`  wall bits opened to reconnect the outer ring: ${repaired}`);
+  console.log(
+    `  wall bits carved to open the original roads: ${carved}/${arena.carveLimit} allowed`,
+  );
+  console.log(
+    `  wall bits opened to reconnect the outer ring: ${repaired}/${arena.repairLimit} allowed`,
+  );
+  if (stats.unownedNets > 0) {
+    console.log(
+      `  ${arena.mission} carries ${stats.unownedNets} Cnet(s) no base drives; not imported`,
+    );
+  }
+  if (stats.ringDropped > 0) {
+    console.log(`  PROBLEM ${stats.ringDropped} ring turret(s) dropped by the MapBase cap of 16`);
+  }
 
-  let problems = 0;
+  let problems = stats.ringDropped > 0 ? 1 : 0;
   const flag = (msg: string): void => {
     problems++;
     console.log(`  PROBLEM ${msg}`);
@@ -902,12 +1196,23 @@ function report(mapId: string, map: MapData, carved: number, repaired: number, g
   }
 
   console.log(problems === 0 ? "  OK — no problems\n" : `  ${problems} PROBLEM(S)\n`);
+  return problems;
 }
 
 function main(): void {
-  const mapId = process.argv[2] ?? "la-cantina";
-  const mission = mapId === "la-cantina" ? "mp" : mapId;
-  enrich(mapId, mission);
+  const which =
+    process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "la-cantina";
+  const check = process.argv.includes("--check");
+  const probe = process.argv.includes("--probe");
+  const arenas = selectArenas(which);
+
+  let bad = 0;
+  for (const arena of arenas) {
+    if (probe) bad += probeOffsets(arena) ? 0 : 1;
+    else if (check) bad += checkArena(arena) ? 0 : 1;
+    else bad += writeArena(arena);
+  }
+  if (bad > 0) process.exit(1);
 }
 
 if (import.meta.main) main();
