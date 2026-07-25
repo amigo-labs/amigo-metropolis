@@ -24,6 +24,14 @@ import {
   CONSOLE_HOLD_TICKS,
   createSim,
   createTickInputs,
+  EV_CAPTURE,
+  EV_CORE_HIT,
+  EV_DEATH,
+  EV_EXPLOSION,
+  EV_HIT,
+  EV_PICKUP,
+  EV_RESPAWN,
+  EV_SHOT,
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   MAX_ENTITIES,
@@ -112,6 +120,11 @@ aimAssist.mode = parseAimAssistMode(params.get("aim"));
 // falls back to greybox per map/archetype when missing, so mesh is safe as
 // the default.
 const renderMode: "mesh" | "greybox" = params.get("render") === "greybox" ? "greybox" : "mesh";
+// ?structures=greybox draws the greybox gate/core/console/pad blocks on TOP of a
+// textured arena. Off by default because the original art already contains those
+// structures; on, it is the only way to see where the gate and pad VOLUMES
+// actually are, which matters when checking an imported layout.
+const showGreyboxStructures = params.get("structures") === "greybox";
 // Player texture preference (HD = shipped atlas, Original = 1998 texels).
 // ?tex=hd|original is a session override and is NOT persisted back (like ?aim=);
 // the menu's Graphics drawer writes the stored preference. Mutable: the menu
@@ -329,7 +342,13 @@ scene.background = makeSkyTexture();
 // Distance fog fades the far ground into the dusk haze before the arena edge /
 // void can be framed (at the ACTION pitch the camera sees ~170u past its focus).
 // near/far are the primary playtest knobs: keep gameplay crisp, hide the edge.
-scene.fog = new THREE.Fog(ATMOSPHERE_HEX.fog, 55, 190);
+// `?fog=off` disables it for whole-arena verification shots: an overview pose
+// sits far beyond the far plane, so the haze that reads as atmosphere in play
+// erases the very geometry those shots exist to prove (terrain↔collision
+// alignment). Debug-only, alongside ?render= and ?tex=.
+if (params.get("fog") !== "off") {
+  scene.fog = new THREE.Fog(ATMOSPHERE_HEX.fog, 55, 190);
+}
 // High-key, near-neutral lighting: the map textures keep their own colors, the
 // mood lives in the sky + fog. Warm key + subtle cool fill = a gentle teal/amber
 // split without a surface color cast.
@@ -355,23 +374,40 @@ function buildArenaGroup(m: typeof map): THREE.Group {
     if (walls) group.add(walls);
     for (const deck of buildDeckMeshes(m)) group.add(deck); // upper decks on layered maps
   };
+  // Greybox structure blocks stand in for base geometry the textured arena
+  // already has baked in. Drawing both puts blue boxes on top of the original
+  // base building, so in mesh mode they are only added on the fallback path —
+  // where there is no art to cover them — unless ?structures=greybox asks for
+  // them, which is the only way to see the gate/pad VOLUMES while tuning.
+  const buildGreyboxStructures = () => {
+    buildBaseStructures(group, m);
+    buildSpawnMarkers(group, m);
+  };
   if (renderMode === "mesh") {
     // Async: textured terrain mesh (incl. decks) added when loaded; maps
     // without a local asset fall back to greybox terrain instead of nothing.
     // The materials callback arms the debug texture-variant switcher (0/1/2/3).
-    loadMapMesh(m, group, buildGreyboxTerrain, (materials) => {
-      texSwitcher = createVariantSwitcher(m.id, materials);
-      // Player preference first (boot AND every map swap); the debug hotkeys
-      // 0-3 can still override it temporarily afterwards.
-      texSwitcher.setVariant(variantOfPref(texPref));
-      refreshDebugLabel();
-    });
+    loadMapMesh(
+      m,
+      group,
+      () => {
+        buildGreyboxTerrain();
+        buildGreyboxStructures();
+      },
+      (materials) => {
+        texSwitcher = createVariantSwitcher(m.id, materials);
+        // Player preference first (boot AND every map swap); the debug hotkeys
+        // 0-3 can still override it temporarily afterwards.
+        texSwitcher.setVariant(variantOfPref(texPref));
+        refreshDebugLabel();
+      },
+    );
+    if (showGreyboxStructures) buildGreyboxStructures();
   } else {
     buildGreyboxTerrain();
+    buildGreyboxStructures();
   }
   group.add(buildWaterPlane(m));
-  buildBaseStructures(group, m);
-  buildSpawnMarkers(group, m);
   return group;
 }
 let arenaGroup = buildArenaGroup(map);
@@ -616,12 +652,87 @@ function runTick(): void {
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
   // The demo battle stays sonically calm — music only, no SFX.
   if (phase === "match") {
-    audio.pump(sim.events); // events are per-tick transients: drain immediately
+    buildAudioIndex();
+    audio.pump(sim.events, resolveEventPosition); // per-tick transients: drain now
   }
   rotateSnapshot();
 }
 
 /** Rotates the double-buffered snapshots and writes the current sim state. */
+
+// --- Positional audio ---------------------------------------------------------
+// Events carry no coordinates for their own sake — only the ones that already
+// quantize a position do (EV_EXPLOSION and the Precinct Assault events pack
+// x*16/y*16), capture/claim carry a spot index, and the rest name an entity. So
+// resolution happens here, the one place that holds both the map and a snapshot.
+//
+// The snapshot in hand when audio.pump runs is up to one tick old (pump drains
+// before rotateSnapshot). That is deliberate: 33 ms of staleness is inaudible,
+// and it avoids reordering the tick loop on the two online paths, where a
+// mistake would silently drop cues on one path only.
+/** id -> snapshot slot, rebuilt per pump. -1 = not in this snapshot. */
+const audioIndex = new Int32Array(MAX_ENTITIES).fill(-1);
+
+function buildAudioIndex(): void {
+  audioIndex.fill(-1);
+  for (let c = 0; c < countCurr; c++) {
+    const id = snapCurr[c * SNAPSHOT_STRIDE];
+    if (id >= 0 && id < MAX_ENTITIES) audioIndex[id] = c;
+  }
+}
+
+/** Writes an entity's snapshot position into `out`; false if it is not there. */
+function entityPosition(id: number, out: Float32Array): boolean {
+  if (id < 0 || id >= MAX_ENTITIES) return false;
+  const slot = audioIndex[id];
+  if (slot < 0) return false;
+  const o = slot * SNAPSHOT_STRIDE;
+  out[0] = snapCurr[o + 3];
+  out[1] = snapCurr[o + 5];
+  out[2] = snapCurr[o + 4];
+  return true;
+}
+
+/**
+ * Module-scope, passed by reference to every pump call site: a fresh closure per
+ * tick would allocate in the frame loop (CLAUDE.md renderer rule 1).
+ */
+function resolveEventPosition(
+  type: number,
+  a: number,
+  b: number,
+  c: number,
+  out: Float32Array,
+): boolean {
+  switch (type) {
+    // Already quantized to x*16 / y*16 by the sim.
+    case EV_EXPLOSION:
+    case EV_PICKUP:
+    case EV_CORE_HIT: {
+      out[0] = a / 16;
+      out[2] = b / 16;
+      out[1] = 1.5;
+      return true;
+    }
+    // Spot index into the map's own lists — always resolvable, no lookup risk.
+    case EV_CAPTURE: {
+      const spot = map.turretSpots[c];
+      if (!spot) return false;
+      out[0] = spot.x;
+      out[2] = spot.y;
+      out[1] = 1.5;
+      return true;
+    }
+    case EV_SHOT:
+    case EV_HIT:
+    case EV_DEATH:
+    case EV_RESPAWN:
+      return entityPosition(a, out);
+    default:
+      return false;
+  }
+}
+
 function rotateSnapshot(): void {
   const swap = snapPrev;
   snapPrev = snapCurr;
@@ -649,7 +760,18 @@ function renderEntities(alpha: number): void {
     const bucket = bucketFor(greybox, archetype, animState);
     if (!bucket) continue;
     const slot = bucket.count;
-    if (slot >= bucket.tintCache.length) continue;
+    if (slot >= bucket.tintCache.length) {
+      // A dropped instance is an entity that shoots at you and is not drawn.
+      // Shout once per bucket rather than per frame: verify:arenas fails the run
+      // on any console error, so this cannot ship unnoticed again.
+      if (!bucket.overflowed) {
+        bucket.overflowed = true;
+        console.error(
+          `[render] instance bucket full at ${bucket.tintCache.length} — entities are not being drawn; raise the capacity in render/greybox.ts`,
+        );
+      }
+      continue;
+    }
     bucket.count = slot + 1;
 
     let x = snapCurr[o + 3];
@@ -845,6 +967,13 @@ function frame(now: number): void {
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
       renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
       renderer.render(scene, view.camera);
+      // Audio listener follows the local view's camera: translation plus the
+      // first basis column (its right vector) is all a stereo pan needs. Raw
+      // matrix element reads, so no allocation in the frame loop.
+      if (v === 0) {
+        const e = view.camera.matrixWorld.elements;
+        audio.setListener(e[12], e[13], e[14], e[0], e[1], e[2]);
+      }
     }
   }
   wheelAccum = 0; // consumed for this frame
@@ -970,7 +1099,8 @@ function connectOnline(code: string): void {
   net = new NetLockstep(new WsTransport(relayUrl(code)), {
     sampleInput: makeNetSampler(),
     onStep: (_tick, stepped) => {
-      audio.pump(stepped.events); // per-tick transients, drained immediately
+      buildAudioIndex();
+      audio.pump(stepped.events, resolveEventPosition); // per-tick transients
       rotateSnapshot();
     },
     onWelcome: (slotIdx, welcomed, welcomedConfig) => {
@@ -1053,7 +1183,8 @@ function connectP2pMode(code: string): void {
         {
           sampleInput: makeNetSampler(),
           onStep: (_tick, stepped) => {
-            audio.pump(stepped.events);
+            buildAudioIndex();
+            audio.pump(stepped.events, resolveEventPosition);
             rotateSnapshot();
           },
           onStart: () => {

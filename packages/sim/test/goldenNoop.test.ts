@@ -14,6 +14,11 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   "golden-04-warden": { last: 2257654512, count: 9000 },
   // Re-frozen at SIM_VERSION 12 after wall-connectivity feature snap on FCOP maps.
   "golden-05-fcop": { last: 3580807478, count: 2700 },
+  // Frozen at SIM_VERSION 13, the Precinct Assault mode. This one is NOT a no-op
+  // pin like the others: it is the first golden recorded on a PA arena, so any
+  // change to production, graph traversal, turret profiles, pickups, alerts or
+  // the core objective moves it — deliberately, and it must be justified.
+  "golden-07-pa": { last: 2273753231, count: 3600 },
 };
 
 describe("single-story golden last-hash pins", () => {

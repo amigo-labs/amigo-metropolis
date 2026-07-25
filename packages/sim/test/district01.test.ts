@@ -210,8 +210,10 @@ describe("loadMapFromJson validation", () => {
     badGate.bases[0].gate = { x: 9, y: 0, radius: 1 };
     expect(() => loadMapFromJson(badGate)).toThrow("gate out of bounds");
     const badRing = tiny();
-    badRing.bases[1].turrets = new Array(9).fill([1, 1]);
-    expect(() => loadMapFromJson(badRing)).toThrow("max 8");
+    // 16 is the cap since the original Mp places 16 base-defence turrets per
+    // base (fcop-logic.md §8.2); the guard only catches authoring runaway now.
+    badRing.bases[1].turrets = new Array(17).fill([1, 1]);
+    expect(() => loadMapFromJson(badRing)).toThrow("max 16");
     // Malformed base shapes must fail with actionable messages, not TypeErrors.
     const nullBase = tiny();
     (nullBase.bases as unknown[])[0] = null;
@@ -222,6 +224,152 @@ describe("loadMapFromJson validation", () => {
     const badCore = tiny();
     (badCore.bases[0] as { core: unknown }).core = undefined;
     expect(() => loadMapFromJson(badCore)).toThrow("core is not an [x, y] pair");
+  });
+
+  // Precinct Assault fields (rules.md §9). They are optional, so the first
+  // assertion here is the load-bearing one: a map without them stays valid and
+  // comes back with every PA list empty, which is what makes the PA systems a
+  // provable no-op on the other arenas.
+  it("treats the PA feature fields as optional and rejects malformed ones", () => {
+    const plain = loadMapFromJson(tiny());
+    expect(plain.weapons).toEqual([]);
+    expect(plain.turretParams).toEqual([]);
+    expect(plain.turretYaw).toEqual([]);
+    expect(plain.laneGraph).toBeUndefined();
+    expect(plain.pickups).toEqual([]);
+    expect(plain.triggerVolumes).toEqual([]);
+    expect(plain.props).toEqual([]);
+    for (const base of plain.bases) {
+      expect(base.defence).toEqual([]);
+      expect(base.coreHp).toBe(0);
+      expect(base.productionTicks).toBe(0);
+      expect(base.productionLimit).toBe(0);
+    }
+
+    const weapon = { range: 6, delay: 16, damage: 8, turnSpeed: 0.1, fovCos: -1 };
+    expect(() => loadMapFromJson({ ...tiny(), weapons: [{ ...weapon, range: 0 }] })).toThrow(
+      "weapon 0 bad range",
+    );
+    expect(() => loadMapFromJson({ ...tiny(), weapons: [{ ...weapon, delay: 0 }] })).toThrow(
+      "weapon 0 bad delay",
+    );
+    expect(() => loadMapFromJson({ ...tiny(), weapons: [{ ...weapon, fovCos: 2 }] })).toThrow(
+      "weapon 0 bad fovCos",
+    );
+
+    // Per-spot lists must line up with turretSpots or the indexing silently
+    // shifts and turrets get someone else's gun.
+    expect(() => loadMapFromJson({ ...tiny(), weapons: [weapon], turretParams: [0, 0] })).toThrow(
+      "turretParams has 2 entries",
+    );
+    expect(() => loadMapFromJson({ ...tiny(), turretYaw: [0, 0] })).toThrow("turretYaw has 2");
+    expect(() =>
+      loadMapFromJson({
+        ...tiny(),
+        weapons: [weapon],
+        turretSpots: [[1, 1]],
+        turretParams: [1],
+      }),
+    ).toThrow("weapon index 1 out of range");
+
+    // A 3-node chain 0-1-2, so a hop can be made to point at a non-neighbour.
+    const graph = (over: Record<string, unknown>) => ({
+      ...tiny(),
+      laneGraph: {
+        nodes: [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+        ],
+        edges: [
+          [1, -1, -1, -1],
+          [0, 2, -1, -1],
+          [1, -1, -1, -1],
+        ],
+        // team 0 walks 0 -> 1 -> 2 (arrived), team 1 walks 2 -> 1 -> 0.
+        nextHopA: [
+          [1, 2, -1],
+          [-1, 0, 1],
+        ],
+        nextHopB: [
+          [-1, -1, -1],
+          [-1, -1, -1],
+        ],
+        entry: [0, 2],
+        ...over,
+      },
+    });
+    expect(() => loadMapFromJson(graph({}))).not.toThrow();
+    expect(() => loadMapFromJson(graph({ nodes: [[0, 0]] }))).toThrow("laneGraph needs >= 2 nodes");
+    expect(() => loadMapFromJson(graph({ edges: [[1, -1, -1, -1]] }))).toThrow(
+      "laneGraph edges has 1 rows",
+    );
+    expect(() =>
+      loadMapFromJson(
+        graph({
+          edges: [
+            [9, -1, -1, -1],
+            [0, 2, -1, -1],
+            [1, -1, -1, -1],
+          ],
+        }),
+      ),
+    ).toThrow("edge 0.0 target 9 out of range");
+    expect(() =>
+      loadMapFromJson(
+        graph({
+          edges: [
+            [0, -1, -1, -1],
+            [0, 2, -1, -1],
+            [1, -1, -1, -1],
+          ],
+        }),
+      ),
+    ).toThrow("node 0 links to itself");
+    // A signpost may only point along an existing edge — the invariant the
+    // runtime traversal relies on instead of searching.
+    expect(() =>
+      loadMapFromJson(
+        graph({
+          nextHopA: [
+            [2, 2, -1],
+            [-1, 0, 1],
+          ],
+        }),
+      ),
+    ).toThrow("nextHopA[0][0] -> 2 is not a neighbour");
+    // ...and following it must terminate, or a unit would circle forever.
+    expect(() =>
+      loadMapFromJson(
+        graph({
+          nextHopA: [
+            [1, 0, -1],
+            [-1, 0, 1],
+          ],
+        }),
+      ),
+    ).toThrow("nextHopA loops for team 0");
+
+    expect(() =>
+      loadMapFromJson({ ...tiny(), pickups: [{ x: 9, y: 0, kind: 0, respawnTicks: 1 }] }),
+    ).toThrow("pickup 0 out of bounds");
+    expect(() =>
+      loadMapFromJson({
+        ...tiny(),
+        triggerVolumes: [{ x: 1, y: 1, halfW: 0, halfL: 1, team: 0, watch: 1 }],
+      }),
+    ).toThrow("trigger 0 needs positive half extents");
+    expect(() =>
+      loadMapFromJson({
+        ...tiny(),
+        triggerVolumes: [{ x: 1, y: 1, halfW: 1, halfL: 1, team: 3, watch: 1 }],
+      }),
+    ).toThrow("trigger 0 bad team");
+
+    // Production without a ceiling would fill the entity store.
+    const runaway = tiny();
+    runaway.bases[0].productionTicks = 150;
+    expect(() => loadMapFromJson(runaway)).toThrow("no productionLimit");
   });
 });
 

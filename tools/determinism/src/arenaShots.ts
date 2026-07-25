@@ -38,6 +38,8 @@ const ARENAS = [
   "venice-beach",
 ] as const;
 const LAYERED = "venice-beach";
+/** The arena rebuilt from the original PA logic; gets extra placement views. */
+const FIDELITY = "la-cantina";
 // ARENA_SHOTS_ONLY=urban-jungle,hollywood-keys narrows the run for fast iteration.
 const ONLY = (process.env.ARENA_SHOTS_ONLY ?? "")
   .split(",")
@@ -50,6 +52,21 @@ type Pose = [number, number, number, number, number, number];
 function overviewPose(extent: number): Pose {
   const c = extent / 2;
   return [c + extent * 0.62, extent * 0.85, c + extent * 0.62, c, extent * 0.04, c];
+}
+
+/**
+ * Orthographic-ish top-down on the arena's gameplay content, for judging
+ * FIDELITY rather than "did it load": whether the original turret pads, base
+ * structures and lanes line up with the baked art. The overview pose frames the
+ * whole padded grid, which is too far out to read any of that.
+ */
+function topDownPose(cx: number, cz: number, height: number): Pose {
+  return [cx, height, cz + 0.01, cx, 0, cz];
+}
+
+/** Close pass over one base, so console/gate placement can be eyeballed. */
+function basePose(cx: number, cz: number, from: number): Pose {
+  return [cx, 26, cz + from, cx, 1, cz];
 }
 
 /** Lower, angled view that shows vertical structure (upper decks) side-on. */
@@ -139,7 +156,10 @@ async function main(): Promise<void> {
       }
     });
 
-    const url = `${BASE}/?map=${id}&render=${mode}&debug&cam=orbit`;
+    // fog=off: the overview pose sits ~290u from its focus, well beyond the
+    // scene's 190u fog far plane, so with atmosphere on these shots are a flat
+    // wash — useless for the alignment eyeballing they exist for.
+    const url = `${BASE}/?map=${id}&render=${mode}&debug&cam=orbit&fog=off`;
     await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
     await page.waitForFunction(
       () => {
@@ -194,6 +214,13 @@ async function main(): Promise<void> {
     const mesh = await shoot(id, "mesh", over, `${id}-mesh.png`);
     await shoot(id, "greybox", over, `${id}-greybox.png`);
     if (id === LAYERED) await shoot(id, "mesh", deckPose(extent), `${id}-mesh-decks.png`);
+    // la-cantina carries the imported original layout (rules.md §9), so it gets
+    // the extra views that prove placement rather than mere loading.
+    if (id === FIDELITY) {
+      await shoot(id, "mesh", topDownPose(112, 112, 170), `${id}-fidelity-top.png`);
+      await shoot(id, "mesh", basePose(112, 72, 34), `${id}-fidelity-base-north.png`);
+      await shoot(id, "mesh", basePose(112, 152, -34), `${id}-fidelity-base-south.png`);
+    }
 
     rendererSeen ??= mesh.renderer;
     const problems: string[] = [];
