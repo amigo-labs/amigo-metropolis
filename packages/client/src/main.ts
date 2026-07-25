@@ -329,7 +329,13 @@ scene.background = makeSkyTexture();
 // Distance fog fades the far ground into the dusk haze before the arena edge /
 // void can be framed (at the ACTION pitch the camera sees ~170u past its focus).
 // near/far are the primary playtest knobs: keep gameplay crisp, hide the edge.
-scene.fog = new THREE.Fog(ATMOSPHERE_HEX.fog, 55, 190);
+// `?fog=off` disables it for whole-arena verification shots: an overview pose
+// sits far beyond the far plane, so the haze that reads as atmosphere in play
+// erases the very geometry those shots exist to prove (terrain↔collision
+// alignment). Debug-only, alongside ?render= and ?tex=.
+if (params.get("fog") !== "off") {
+  scene.fog = new THREE.Fog(ATMOSPHERE_HEX.fog, 55, 190);
+}
 // High-key, near-neutral lighting: the map textures keep their own colors, the
 // mood lives in the sky + fog. Warm key + subtle cool fill = a gentle teal/amber
 // split without a surface color cast.

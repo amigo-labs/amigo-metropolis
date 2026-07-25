@@ -139,7 +139,10 @@ async function main(): Promise<void> {
       }
     });
 
-    const url = `${BASE}/?map=${id}&render=${mode}&debug&cam=orbit`;
+    // fog=off: the overview pose sits ~290u from its focus, well beyond the
+    // scene's 190u fog far plane, so with atmosphere on these shots are a flat
+    // wash — useless for the alignment eyeballing they exist for.
+    const url = `${BASE}/?map=${id}&render=${mode}&debug&cam=orbit&fog=off`;
     await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
     await page.waitForFunction(
       () => {
