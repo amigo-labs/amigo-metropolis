@@ -57,4 +57,16 @@ describe("determinism guard", () => {
     const pkg = JSON.parse(readFileSync(join(SRC, "..", "package.json"), "utf8"));
     expect(pkg.dependencies).toBeUndefined();
   });
+
+  // MapData.props carries original scenery placements purely so the client can
+  // render them; it is NOT part of the simulated world. If a system ever reads
+  // it, scenery becomes gameplay and the render/sim split in CLAUDE.md is gone.
+  // map.ts itself is allowed to mention it — it parses the field.
+  it("no sim system reads the render-only map props", () => {
+    for (const file of files) {
+      if (file.endsWith("map.ts")) continue;
+      const text = stripComments(readFileSync(file, "utf8"));
+      expect(text).not.toMatch(/\.props\b/);
+    }
+  });
 });
