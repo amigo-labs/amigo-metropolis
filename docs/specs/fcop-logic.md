@@ -167,7 +167,9 @@ Adopted for `la-cantina` only, on the owner's call, and written up as
 | `Trigger` intrusion volumes (§8.6) | **adopted** as detection; the alert cue is authored, since `Cfun` is undecoded |
 | Types 14 / 89 (§8.5) | not adopted; extracted for provenance only |
 
-The extraction is committed at `tools/generators/fcop/mp-logic.json`; the raw→sim
+The extractions are committed at `tools/generators/fcop/<mission>-logic.json` —
+all six MP missions (Mp, Conft, Slim, Joke, Hk, Ovmp) — alongside each arena's
+pristine stage-1 wall lattice in `<mission>-walls.json`; the raw→sim
 unit conversions live in `tools/generators/fcopLogic.ts`. Note the distance scale
 (`engage_range`, `orbit_area`, `target_detection_range`) is **inferred** as 1/1024
 from the Mp geometry — the extractor reads those fields as bare u16 — so it is
@@ -177,7 +179,10 @@ One correction to §5's validation note while here: the decoded X1Alpha position
 match `convert.ts`'s **old** hand-placed values because both sat in the actor
 frame, and the sim heightfield is that frame shifted one Til (+16 cells) on X.
 The authored spawns were therefore 16 cells west of the real base platforms; see
-`tools/generators/enrichArena.ts` for the three independent measurements.
+`tools/generators/enrichArena.ts` for the three independent measurements. The
+frame was corrected for `la-cantina` in #26 and for `urban-jungle`,
+`proving-ground` and `bug-hunt` in issue #30; the two layered arenas are excluded
+for a reason that is not the frame (`packages/sim/test/layeredArenas.test.ts`).
 
 ## 7. Tooling
 

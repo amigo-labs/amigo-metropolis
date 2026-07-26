@@ -2,6 +2,13 @@
 // (Hollywood Keys, Venice Beach). A changed pin means the extractor/converter
 // output changed → regenerate the map JSON (tools/generators/convert.ts) and, if any
 // golden runs on it, bump SIM_VERSION + re-record in the same commit.
+//
+// WHY THESE TWO STILL CARRY HAND-AUTHORED FEATURES
+// Issue #30 rebuilt the four single-storey arenas from their original Precinct
+// Assault logic. These two are excluded, and not for want of data — hk-logic.json
+// and ovmp-logic.json are committed. The blocker is measured, and the wall pins
+// plus the deck-reachability test below are what stop stage 2 being pointed at
+// them by accident. See the "deferred" describe block for the numbers.
 import { describe, expect, it } from "bun:test";
 import { AVATAR_WALKER_MAX_SLOPE } from "../src/balance";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
@@ -15,6 +22,7 @@ import {
   sampleHeight,
   VENICE_BEACH_ID,
 } from "../src/map";
+import { STEP_SNAP } from "../src/sim";
 
 const bufHash = (a: Float32Array | Uint8Array): number =>
   fnv1aBytes(fnv1aInit(), new Uint8Array(a.buffer), 0, a.buffer.byteLength) >>> 0;
@@ -24,6 +32,14 @@ interface Pins {
   heights: number;
   layerHeights: number[];
   layerMasks: number[];
+  /**
+   * Collision geometry. These two had no wall pin, which meant stage 2 could be
+   * pointed at them and carve their lattice with nothing failing — see the
+   * deferral block at the bottom of this file for why that must not happen
+   * silently.
+   */
+  wallsV: number;
+  wallsH: number;
 }
 
 const PINS: Record<string, Pins> = {
@@ -32,12 +48,16 @@ const PINS: Record<string, Pins> = {
     heights: 3740312999,
     layerHeights: [2172217779, 623664885],
     layerMasks: [1005174504, 265879142],
+    wallsV: 1087146293,
+    wallsH: 2860731642,
   },
   [VENICE_BEACH_ID]: {
     size: 305,
     heights: 2525341779,
     layerHeights: [3981683061, 2671519192],
     layerMasks: [3788166252, 1780779980],
+    wallsV: 817673982,
+    wallsH: 2870618577,
   },
 };
 
@@ -64,6 +84,11 @@ function checkArena(id: string, displayName: string): void {
       expect(bufHash(map.layerHeights[L])).toBe(pin.layerHeights[L]);
       expect(bufHash(map.layerMask[L])).toBe(pin.layerMasks[L]);
     }
+  });
+
+  it("pins the exact hash of the wall arrays", () => {
+    expect(bufHash(map.wallsV)).toBe(pin.wallsV);
+    expect(bufHash(map.wallsH)).toBe(pin.wallsH);
   });
 
   it("each deck is present at a real number of cells above the base surface", () => {
@@ -131,3 +156,70 @@ function checkArena(id: string, displayName: string): void {
 
 describe("hollywood-keys (layered)", () => checkArena(HOLLYWOOD_KEYS_ID, "Hollywood Keys"));
 describe("venice-beach (layered)", () => checkArena(VENICE_BEACH_ID, "Venice Beach"));
+
+/**
+ * Why the original layouts are not imported here (issue #30 deferral).
+ *
+ * The extracted logic exists in-tree — hk-logic.json, ovmp-logic.json — and
+ * `bun run gen:arena hollywood-keys` reports "OK — no problems". It is wrong
+ * anyway, and these tests are the record of why, so the deferral is a measurement
+ * rather than a note someone has to trust.
+ *
+ * Every extra deck on both arenas sits at least 0.594 m above the base surface,
+ * while resolveWalker only steps up STEP_SNAP = 0.35 m — so there is not one cell
+ * on either map where a walker can reach a deck. And the decks are not detail:
+ * they are 62% of hollywood-keys' grid and 44% of venice-beach's. On Hollywood
+ * Keys the base surface is the canal floor and the city is layer 1, which is why
+ * convert.ts hand-projected those spawns down in the first place.
+ *
+ * Import them anyway and the result looks clean and is not: all 140 of Hk's lane
+ * graph nodes, both its spawns and 22 of its 34 base structures land under an
+ * unreachable deck, and the lane carve edits 0 wall bits across 160 edges because
+ * nothing blocks an empty canal floor. Venice Beach is better but still 119 of
+ * 520 graph nodes and 15 of 38 base structures under a deck. Nothing catches it:
+ * enrichArena's reachability flood and mapConnectivity's are both layer-blind,
+ * MapJson has no per-feature layer field, and render/structures.ts draws every
+ * structure at sampleHeight.
+ *
+ * Doing this properly needs per-layer wall lattices, a layer on each feature, a
+ * flood that understands decks, and an actor Y from the extractor (actors.json
+ * carries a `height` field but it is 0 on both arenas' X1Alpha, so which deck an
+ * actor belongs to is currently unknowable). That is a design change, not a bug
+ * fix, and it is a sibling of issue #29.
+ *
+ * When the first of these tests starts failing, that model has landed: update
+ * them, do not delete them.
+ */
+describe("the layered arenas' decks are unreachable (issue #30 deferral)", () => {
+  for (const id of [HOLLYWOOD_KEYS_ID, VENICE_BEACH_ID]) {
+    const map = getMapById(id);
+    const s = map.size;
+
+    it(`${id}: no walker can step onto a deck from the base surface`, () => {
+      let present = 0;
+      let steppable = 0;
+      let minGap = Number.POSITIVE_INFINITY;
+      for (let L = 0; L < map.layerHeights.length; L++) {
+        for (let k = 0; k < s * s; k++) {
+          if (map.layerMask[L][k] !== 1) continue;
+          present++;
+          const gap = map.layerHeights[L][k] - map.heights[k];
+          if (gap < minGap) minGap = gap;
+          if (gap <= STEP_SNAP) steppable++;
+        }
+      }
+      expect(present).toBeGreaterThan(s * s * 0.4); // decks are most of the arena
+      expect(minGap).toBeGreaterThan(STEP_SNAP);
+      expect(steppable).toBe(0);
+    });
+
+    it(`${id}: still carries its hand-authored features, not the original layout`, () => {
+      // laneGraph is stage 2's marker. Its absence is the deferral; its presence
+      // means someone ran gen:arena here, and the test above is why they should
+      // not have.
+      expect(map.laneGraph).toBeUndefined();
+      expect(map.weapons.length).toBe(0);
+      expect(map.turretSpots.length).toBe(4);
+    });
+  }
+});
