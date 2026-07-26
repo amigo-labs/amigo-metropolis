@@ -1081,14 +1081,34 @@ function probeOffsets(arena: FcopArena): boolean {
     const mark = s.dx === LOGIC_OFFSET_X ? " <- in use" : s.dx === best.dx ? " <- best" : "";
     console.log(`  x+${String(s.dx).padStart(3)}: ${String(s.blocked).padStart(4)} blocked${mark}`);
   }
-  const wins = here.blocked <= best.blocked;
-  console.log(
-    wins
-      ? `  OK — +${LOGIC_OFFSET_X} is the best shift; next best (+${runnerUp.dx}) blocks ` +
-          `${runnerUp.blocked}, ${round4(runnerUp.blocked / Math.max(1, here.blocked))}x as many`
-      : `  PROBLEM +${LOGIC_OFFSET_X} blocks ${here.blocked} but +${best.dx} blocks only ${best.blocked}`,
-  );
-  return wins;
+  // The offset in use has to be the UNIQUE minimum. A tie is not a pass: it means
+  // the lattice cannot tell +16 from some other shift, so the probe is not
+  // measuring anything and would print OK straight through a real regression.
+  // Ties are the realistic failure here, not last place — Hk blocks 0 of its 160
+  // edges because its road network lies on an empty canal floor, so on an arena
+  // like that a second shift scoring 0 too is exactly what "uninformative" looks
+  // like.
+  const tied = scores.filter((s) => s.blocked === best.blocked);
+  const unique = tied.length === 1 && tied[0].dx === LOGIC_OFFSET_X;
+  if (unique) {
+    console.log(
+      `  OK — +${LOGIC_OFFSET_X} is the unique best shift; next best (+${runnerUp.dx}) blocks ` +
+        `${runnerUp.blocked}, ${round4(runnerUp.blocked / Math.max(1, here.blocked))}x as many`,
+    );
+  } else if (here.blocked === best.blocked) {
+    console.log(
+      `  PROBLEM +${LOGIC_OFFSET_X} blocks ${here.blocked} but so does ` +
+        `${tied
+          .filter((s) => s.dx !== LOGIC_OFFSET_X)
+          .map((s) => `+${s.dx}`)
+          .join(", ")} — the lattice does not discriminate, so this proves nothing`,
+    );
+  } else {
+    console.log(
+      `  PROBLEM +${LOGIC_OFFSET_X} blocks ${here.blocked} but +${best.dx} blocks only ${best.blocked}`,
+    );
+  }
+  return unique;
 }
 
 /** Everything the report prints, so buildArena stays free of console output. */

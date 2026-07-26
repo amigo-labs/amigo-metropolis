@@ -11,10 +11,11 @@
 // copy is the source of truth for the arena generator, and this file is the only
 // place raw original units are interpreted.
 //
-//   bun run gen:palogic [--re-repo <path>] [--map <mapId> | --mission <Mission>]
+//   bun run gen:palogic [all | <mapId> | <Mission>] [--re-repo <path>]
 //
-// Either spelling names the arena; tools/generators/fcopArenas.ts supplies the
-// other. Default RE repo path: $FCOP_RE_REPO, else /workspace/fcop-reverse-engineering.
+// Any spelling names the arena and tools/generators/fcopArenas.ts supplies the
+// rest; --map/--mission are accepted too. Default RE repo path: $FCOP_RE_REPO,
+// else /workspace/fcop-reverse-engineering.
 //
 // Authoring-time only, like convert.ts — the committed JSON is the artifact, so
 // any Math.* is fine here. The determinism guard only scans packages/sim/src.
@@ -30,7 +31,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { logicFile, selectArenas } from "./fcopArenas";
+import { type FcopArena, logicFile, selectArenas } from "./fcopArenas";
 
 // ---------------------------------------------------------------------------
 // Unit conversion
@@ -576,12 +577,16 @@ function main(): void {
     "re-repo",
     process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
   );
-  // Either spelling identifies the arena, and the table supplies the other, so
-  // `--map hollywood-keys` and `--mission Hk` are interchangeable.
-  const named = argOf("map", argOf("mission", "la-cantina"));
-  const arena = selectArenas(named)[0];
-  const { mission, mapId } = arena;
-  const src = join(reRepo, "extracted", "logic", mission);
+  // Any spelling identifies the arena and the table supplies the rest: a bare
+  // positional (matching gen:walls and gen:arena), --map, or --mission. `all`
+  // extracts every mission.
+  //
+  // This used to be `--map`/`--mission` only, fed to selectArenas(...)[0]. Both
+  // halves of that were traps: a bare `gen:palogic all` silently extracted
+  // la-cantina because it fell through to the default, and `--map all` silently
+  // extracted urban-jungle because it took the first of six.
+  const positional = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "";
+  const named = positional || argOf("map", argOf("mission", "la-cantina"));
 
   let commit = "unknown";
   try {
@@ -591,6 +596,13 @@ function main(): void {
   } catch {
     console.warn(`[genPaLogic] could not read the RE repo commit at ${reRepo}`);
   }
+
+  for (const arena of selectArenas(named)) extract(arena, reRepo, commit);
+}
+
+function extract(arena: FcopArena, reRepo: string, commit: string): void {
+  const { mission, mapId } = arena;
+  const src = join(reRepo, "extracted", "logic", mission);
 
   const actors = JSON.parse(readFileSync(join(src, "actors.json"), "utf8")) as RawActor[];
   const nets = JSON.parse(readFileSync(join(src, "nets.json"), "utf8")) as RawNet[];
