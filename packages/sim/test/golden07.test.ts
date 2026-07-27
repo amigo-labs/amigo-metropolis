@@ -21,6 +21,7 @@ import { createTickInputs } from "../src/inputs";
 import { getMapById, LA_CANTINA_ID } from "../src/map";
 import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, type SimState, step } from "../src/sim";
+import { isGroundUnit } from "../src/units";
 
 const GOLDEN = join(import.meta.dir, "goldens", "golden-07-pa.mrep");
 
@@ -60,15 +61,16 @@ describe("golden-07 exercises the Precinct Assault mechanics", () => {
     expect(counts.get(EV_CAPTURE) ?? 0).toBeGreaterThan(0);
   });
 
-  it("does NOT trip a base-intrusion alarm, because nothing breaks through", () => {
-    // Worth pinning rather than leaving unsaid. The imported volumes are the
-    // original's: small (1x1 to 2.5x1.5 cells) and sitting at the bases, so
-    // "enemy in your base" fires only when an intruder actually reaches one. In
-    // a 120 s match neither side's units get past the other's turret line, so
-    // silence is the correct outcome — an alarm here would mean a volume had
-    // grown or drifted. The mechanic itself is covered directly in
-    // paRules.test.ts.
-    expect(counts.get(EV_ALARM) ?? 0).toBe(0);
+  it("trips a base-intrusion alarm, because a push now reaches a base", () => {
+    // This asserted ZERO alarms until v15, and the zero was a symptom. The ring
+    // turrets were firing at the global 28 m instead of their imported 6 m, so
+    // the two turret rings between them covered the whole midfield and nothing
+    // ever got close enough to an intrusion volume to trip it. With the reach
+    // corrected, a Warden-escorted push gets into the enemy base inside 120 s and
+    // the volumes fire — which is what these small (1x1 to 2.5x1.5 cell) boxes
+    // sitting on the bases are for. The mechanic itself is covered directly in
+    // paRules.test.ts; what this pins is that the arena is penetrable at all.
+    expect(counts.get(EV_ALARM) ?? 0).toBeGreaterThan(0);
   });
 });
 
@@ -86,7 +88,14 @@ describe("the win condition is reachable on la-cantina", () => {
   it("razes a core once its defenders are gone, and awards the match", () => {
     const state = createSim(map, 0xc0ffee);
     // Stand in for what a player achieves by escorting a push: clear team 1's
-    // turret line. Everything after this is the sim's own doing.
+    // turret line AND keep its production off the field. Both halves are needed,
+    // and until v15 only the first was — with the ring firing at 28 m instead of
+    // its imported 6 m, team 0's OWN turrets shredded the incoming enemy stream
+    // from behind, so clearing one side's turrets was enough on its own. At the
+    // correct reach the enemy's units survive to the mid-line and annihilate the
+    // push there, which is the same stalemate the next test asserts. Beating that
+    // stream is the player's job (design pillar 1), so the stand-in has to cover
+    // it. Everything after this is the sim's own doing.
     let cleared = 0;
     for (let id = 0; id < state.ent.high; id++) {
       if (state.ent.alive[id] && state.ent.archetype[id] === ARCHETYPE.TURRET) {
@@ -98,9 +107,19 @@ describe("the win condition is reachable on la-cantina", () => {
     }
     expect(cleared).toBe(20); // 16 ring + 4 built-in
 
-    run(state, 15 * 60 * 30); // up to 15 minutes
+    for (let i = 0; i < 15 * 60 * 30; i++) {
+      step(state, idle);
+      for (let id = 0; id < state.ent.high; id++) {
+        if (!state.ent.alive[id] || state.ent.team[id] !== 1) continue;
+        if (isGroundUnit(state.ent.archetype[id])) state.ent.alive[id] = 0;
+      }
+      if (state.winner >= 0) break;
+    }
     expect(state.coreHp[1]).toBe(0);
     expect(state.winner).toBe(0);
+    // Fast enough to be a siege rather than a war of attrition: 300 unit-shots at
+    // CORE_DAMAGE_PER_SHOT against 3000 HP, with the arena crossing on top.
+    expect(state.tick).toBeLessThan(3 * 60 * 30);
   });
 
   it("stalemates between two idle players, which is the intended behaviour", () => {

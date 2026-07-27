@@ -371,12 +371,27 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       lane nodes and both spawns on the canal floor under the city. Needs per-layer
       walls, a layer on each feature, a deck-aware flood and an actor Y from the
       extractor. Pinned as a failing-when-fixed test in `layeredArenas.test.ts`
+- [x] Base ring turrets use their imported weapon profile, gun rotation and health
+      (SIM_VERSION 15, issue #31). v13 wired profiles into the capturable pads and
+      the built-in base guns but not the ring, so 32 of la-cantina's 72 turrets ran
+      at the global 28 m against an imported 6 m `engage_range` — measured as 100%
+      of the damage that killed produced units, all of it from outside the 14 m a
+      Runner can answer from. la-cantina goes from "no result in 10 minutes" to a
+      difficulty-8 Warden winning in 187 s. golden-05 and golden-07 re-recorded
+- [ ] `urban-jungle`, `proving-ground` and `bug-hunt` do not yet meet the DoD
+      below: a Warden's units get 76-90% of the way to the defended core and stop —
+      zero core hits, zero intrusion alarms, on proving-ground even after capturing
+      all 29 pads. Not the road (every Cnet graph reaches its cores to 0.0 m and no
+      lane edge crosses a wall) and not ring density (la-cantina's ring is tighter
+      around its core and works). The last ~11 m of those three bases needs its own
+      diagnosis. Pinned as a failing-when-fixed test in `paAttribution.test.ts`
 
 **Definition of Done:** all four single-storey arenas play under §9 — production
 runs, pads capture, the enemy core can be razed — with `bun test`,
 `bun run replay:verify` and `bun run verify:arenas` green, `gen:arena all --check`
 reporting byte-identical output, and the per-arena fidelity screenshots showing
-turrets on their original pads.
+turrets on their original pads. **Met on la-cantina only**; see the open item
+above for the other three.
 
 ## Backlog (post-v1, do not start)
 

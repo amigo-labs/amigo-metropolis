@@ -3,7 +3,6 @@
 // gameplay everywhere it is sampled, so a changed pin means SIM_VERSION bump
 // + golden regeneration for every golden recorded on this map.
 import { describe, expect, it } from "bun:test";
-import { AVATAR_WALKER_MAX_SLOPE } from "../src/balance";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
   DISTRICT_01_ID,
@@ -14,6 +13,7 @@ import {
   sampleHeight,
   worldExtent,
 } from "../src/map";
+import { worstUphillRise } from "../src/units";
 
 const map = getMapById(DISTRICT_01_ID);
 
@@ -117,16 +117,17 @@ describe("district-01 schema", () => {
         const b = lane[i + 1];
         const segLen = Math.hypot(b.x - a.x, b.y - a.y);
         const steps = Math.ceil(segLen);
-        let prevH = sampleHeight(map, a.x, a.y);
-        for (let s = 1; s <= steps; s++) {
-          const t = s / steps;
-          const x = a.x + (b.x - a.x) * t;
-          const y = a.y + (b.y - a.y) * t;
-          expect(isWater(map, x, y)).toBe(false);
-          const h = sampleHeight(map, x, y);
-          const slope = Math.abs(h - prevH) / (segLen / steps);
-          expect(slope).toBeLessThan(AVATAR_WALKER_MAX_SLOPE);
-          prevH = h;
+        // Slope via the shared `worstUphillRise` — the stepper's own rule, so this
+        // hand-authored arena is held to the same standard as the imported ones.
+        for (let s = 0; s < steps; s++) {
+          const t0 = s / steps;
+          const t1 = (s + 1) / steps;
+          const x0 = a.x + (b.x - a.x) * t0;
+          const y0 = a.y + (b.y - a.y) * t0;
+          const x1 = a.x + (b.x - a.x) * t1;
+          const y1 = a.y + (b.y - a.y) * t1;
+          expect(isWater(map, x1, y1)).toBe(false);
+          expect(worstUphillRise(map, x0, y0, x1, y1)).toBe(0);
         }
       }
     }
@@ -271,6 +272,46 @@ describe("loadMapFromJson validation", () => {
         turretParams: [1],
       }),
     ).toThrow("weapon index 1 out of range");
+
+    // Numeric-looking STRINGS must be rejected, not coerced. Every check in this
+    // parser used to be a bare comparison — `inBounds(v.x, v.y)`, `d.hp > 0`,
+    // `w.range > 0` — and JS coercion let all of these through into MapData, where
+    // the sim then does arithmetic on them. `point`/`plot` always rejected them;
+    // the §9 parsers did not.
+    const ringBase = (turret: unknown) => {
+      const t = tiny();
+      return {
+        ...t,
+        weapons: [weapon],
+        bases: [{ ...t.bases[0], turrets: [turret] }, t.bases[1]],
+      } as MapJson;
+    };
+    expect(() => loadMapFromJson(ringBase({ x: "1", y: 1, weapon: 0, hp: 500, yaw: 0 }))).toThrow(
+      "ring turret 0 x is not a finite number",
+    );
+    expect(() => loadMapFromJson(ringBase({ x: 1, y: 1, weapon: 0, hp: "500", yaw: 0 }))).toThrow(
+      "ring turret 0 hp is not a finite number",
+    );
+    expect(() => loadMapFromJson(ringBase({ x: 1, y: 1, weapon: 0, hp: 500, yaw: NaN }))).toThrow(
+      "ring turret 0 yaw is not a finite number",
+    );
+    expect(() =>
+      loadMapFromJson({ ...tiny(), weapons: [{ ...weapon, range: "6" as unknown as number }] }),
+    ).toThrow("weapon 0 range is not a finite number");
+    expect(() =>
+      loadMapFromJson({
+        ...tiny(),
+        pickups: [{ x: "1" as unknown as number, y: 1, kind: 0, respawnTicks: 0 }],
+      }),
+    ).toThrow("pickup 0 x is not a finite number");
+    expect(() =>
+      loadMapFromJson({
+        ...tiny(),
+        triggerVolumes: [
+          { x: 1, y: 1, halfW: "1" as unknown as number, halfL: 1, team: 0, watch: 1 },
+        ],
+      }),
+    ).toThrow("trigger 0 halfW is not a finite number");
 
     // A 3-node chain 0-1-2, so a hop can be made to point at a non-neighbour.
     const graph = (over: Record<string, unknown>) => ({

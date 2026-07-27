@@ -12,6 +12,7 @@
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
   AIR_ALTITUDE,
+  AVATAR_WALKER_MAX_SLOPE,
   FORTRESS_PATROL_RADIUS,
   FORTRESS_RANGE,
   FORTRESS_SPEED,
@@ -392,6 +393,67 @@ export function resolveWalker(
   }
   return { layer: bestLayer, height: bestH };
 }
+
+/**
+ * Worst uphill rise, in metres, among the sub-cell steps of one straight ground
+ * segment that a walker could not climb. 0 means the whole segment is walkable.
+ *
+ * NOT part of the tick — nothing in `step()` calls this. It exists so that map
+ * authoring, the stage-2 generator's report and the arena tests all answer "can
+ * the player walk this?" with the SAME rule the avatar stepper uses, instead of
+ * each carrying its own approximation. There were three different ones before it.
+ *
+ * It mirrors `sim.ts`'s horizontal gate exactly, and the two details that every
+ * earlier copy got wrong are both load-bearing:
+ *
+ * - **Only uphill counts.** The stepper rejects a step on
+ *   `rise > GROUND_EPS && rise > run * maxSlope`. A downhill drop is a fall the
+ *   walker survives — gravity is integrated — not a wall. Taking `Math.abs`
+ *   counted every descent as impassable, ~40% of the hits on the FCOP arenas.
+ * - **Heights come from `resolveWalker`**, the function the stepper calls, with
+ *   the resolved height carried forward as the walker's own. On a single-storey
+ *   arena that is bit-identical to `sampleHeight`; on a layered one it stops a
+ *   deck within STEP_SNAP reading as a cliff.
+ *
+ * The caller decides what an impassable rise means: a rise the JUMP clears
+ * (`AVATAR_JUMP_SPEED`/`GRAVITY`, ~1.4 m) is still passable, because the gate is
+ * skipped while airborne.
+ */
+export function worstUphillRise(
+  map: MapData,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  // Math.sqrt, not Math.hypot: hypot is engine-dependent and banned in sim source
+  // (determinismGuard.test.ts). Nothing in the tick calls this, so a desync was
+  // never on the table — but living in packages/sim means living by its rules, and
+  // sqrt-of-sum-of-squares is what the sim's own distance code uses.
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  const steps = Math.max(1, Math.ceil(len));
+  const run = len / steps;
+  let h = sampleHeight(map, ax, ay);
+  let worst = 0;
+  for (let t = 1; t <= steps; t++) {
+    const f = t / steps;
+    const next = resolveWalker(map, ax + dx * f, ay + dy * f, h).height;
+    const rise = next - h;
+    if (rise > 0 && rise / run >= AVATAR_WALKER_MAX_SLOPE && rise > worst) worst = rise;
+    h = next;
+  }
+  return worst;
+}
+
+/**
+ * Rise a walker clears by jumping: an 8 m/s launch against 20 m/s² gravity is a
+ * 1.6 m apex, and balance.ts pins the usable clearance at 1.4 m. Paired with
+ * `worstUphillRise` — a blocking rise above this is genuinely impassable, one
+ * below it is a jump.
+ */
+export const JUMPABLE_RISE = 1.4;
 
 /** Height rule shared by movement, separation and spawning. */
 export function snapUnitHeight(state: SimState, id: number, air: boolean): void {
