@@ -99,4 +99,36 @@
 //     layered-test) re-header only, byte-identical hash arrays.
 //     hollywood-keys and venice-beach are deliberately NOT in this version — see
 //     layeredArenas.test.ts for the measurement that blocks them.
-export const SIM_VERSION = 14;
+// v15: base ring turrets get the original Turret actor's own weapon profile and
+//     gun rotation, which v13 imported for the capturable pads and the built-in
+//     base guns but not for the ring. spawnBaseTurret left weaponProfile at -1, so
+//     32 of la-cantina's 72 turrets fell through to the global TURRET_RANGE of
+//     28 m against an imported engage_range of 6 m — 4.7x their reach, with no
+//     slew and a 20-tick delay instead of 16. Measured consequence (see
+//     paAttribution.test.ts): on an idle match the ring did 100% of the damage
+//     that killed produced units, from 16-28 m, entirely outside the 14 m a Runner
+//     can shoot back from. The two production streams never even engaged each
+//     other. Reach, delay, slew and FOV all come from the extracted data and are
+//     identical to the pads' — they intern to the same profile, so `weapons` stays
+//     at 2 entries per arena.
+//     Turret HP comes from the same data in the same pass, for the ring AND the
+//     capturable pads: the original gives both `health` 500, where the sim used
+//     ARCHETYPE_MAX_HP[TURRET] — a value its own comment calls a Phase-1 dummy.
+//     Together with the 6 m reach that turns a turret from a long-range sniper
+//     that dies in 12 s into a short-range emplacement worth 10 s of avatar
+//     primary fire (48 dps) from outside its own range, which is the shape the
+//     original has. district-01's sandbox dummies keep the placeholder, so no
+//     pre-PA arena moves.
+//     This is a fidelity fix, not a balance change: no constant in balance.ts
+//     moved, and TURRET_DAMAGE stays the one invented number (issue #31).
+//     Two golden-07 assertions moved WITH the behaviour rather than against it:
+//     pushes now reach an enemy base and trip its intrusion volumes (0 alarms in
+//     120 s before, 16 after), and "clear the enemy turret line and the core can
+//     be razed" needed its stand-in widened — at 28 m a team's OWN ring shredded
+//     the incoming enemy stream for it, so clearing one side's turrets used to be
+//     sufficient. At 6 m the enemy's units survive to the mid-line, so the
+//     stand-in now also holds that stream back, which is what escorting means.
+//     golden-05-fcop (urban-jungle) and golden-07-pa (la-cantina) re-record for
+//     real hash change; goldens 01-04 (test-128 / district-01) and golden-06
+//     (layered-test) re-header only — none of those arenas has a ring profile.
+export const SIM_VERSION = 15;

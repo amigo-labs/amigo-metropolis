@@ -65,6 +65,28 @@ export interface MapBaseDefence {
   readonly hp: number;
 }
 
+/**
+ * One base ring turret. Carries the original Turret actor's own parameters
+ * rather than only its position, because it is the same kind of shooter as a
+ * capturable pad and the original gives it the same block: `engage_range`,
+ * `targeting_delay`, `fov`, `turn_speed`, `gun_rotation` and `health`.
+ *
+ * `weapon` -1 and `hp` 0 mean "no imported parameters" — the pre-PA arenas
+ * (district-01, hollywood-keys, venice-beach) authored bare positions, and those
+ * fall back to the global TURRET_* constants and ARCHETYPE_MAX_HP exactly as
+ * before.
+ */
+export interface MapBaseTurret {
+  readonly x: number;
+  readonly y: number;
+  /** Index into MapData.weapons, or -1 for the global defaults. */
+  readonly weapon: number;
+  /** Max HP, or 0 for ARCHETYPE_MAX_HP[TURRET]. */
+  readonly hp: number;
+  /** Rest yaw (original gun_rotation). */
+  readonly yaw: number;
+}
+
 /** One team's base structures (rules.md §5). Index = team id. */
 export interface MapBase {
   /** Win trigger volume: enemy Runner/Juggernaut inside = breach. */
@@ -77,8 +99,8 @@ export interface MapBase {
   readonly airConsole: MapPoint;
   /** Ammo/repair pad. */
   readonly pad: MapPlot;
-  /** Ring turret positions; each respawns 60 s after destruction. */
-  readonly turrets: readonly MapPoint[];
+  /** Ring turrets; each respawns 60 s after destruction. */
+  readonly turrets: readonly MapBaseTurret[];
   /**
    * Built-in defence weapons bolted to the base structure itself
    * (fcop-logic.md §8.1). Kept separate from `turrets` so the ring concept —
@@ -222,6 +244,11 @@ export interface MapData {
   readonly turretParams: readonly number[];
   /** Rest yaw per `turretSpots` entry (original gun_rotation). EMPTY = 0. */
   readonly turretYaw: readonly number[];
+  /**
+   * Max HP per `turretSpots` entry (original Turret `health`). EMPTY means
+   * ARCHETYPE_MAX_HP[TURRET], the Phase-1 sandbox placeholder.
+   */
+  readonly turretHp: readonly number[];
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
   readonly laneGraph: MapLaneGraph | undefined;
   /** Power-up spots. EMPTY → no pickups on this arena. */
@@ -414,6 +441,8 @@ export interface MapJson {
   turretParams?: number[];
   /** Rest yaw per turretSpots entry; length must equal turretSpots.length. */
   turretYaw?: number[];
+  /** Max HP per turretSpots entry; length must equal turretSpots.length. */
+  turretHp?: number[];
   /** Original Cnet graph. `edges` is one 4-tuple per node, -1 = no edge. */
   laneGraph?: {
     nodes: number[][];
@@ -442,7 +471,12 @@ export interface MapBaseJson {
   groundConsole: number[];
   airConsole: number[];
   pad: { x: number; y: number; radius: number };
-  turrets: number[][];
+  /**
+   * Ring turrets. Either a bare `[x, y]` pair (pre-PA arenas: global weapon
+   * defaults) or an object carrying the original Turret actor's parameters. Both
+   * forms are accepted so the arenas that never had the data stay byte-identical.
+   */
+  turrets: (number[] | { x: number; y: number; weapon: number; hp: number; yaw: number })[];
   /** OPTIONAL PA extras; absent → empty / 0, i.e. pre-PA behavior. */
   defence?: { x: number; y: number; weapon: number; hp: number }[];
   coreHp?: number;
@@ -619,7 +653,26 @@ export function loadMapFromJson(raw: MapJson): MapData {
       groundConsole: point(b.groundConsole, `base ${team} ground console`),
       airConsole: point(b.airConsole, `base ${team} air console`),
       pad: plot(b.pad, `base ${team} pad`),
-      turrets: points(b.turrets, `base ${team} ring turret`),
+      turrets: b.turrets.map((t, k) => {
+        const what = `base ${team} ring turret ${k}`;
+        // Bare pair: the pre-PA authoring form. Sentinels say "use the globals",
+        // which is what those arenas did before this field existed.
+        if (Array.isArray(t)) {
+          const p = point(t, what);
+          return { x: p.x, y: p.y, weapon: -1, hp: 0, yaw: 0 };
+        }
+        if (!t || typeof t !== "object") fail(id, `${what} is neither a pair nor an object`);
+        if (!inBounds(t.x, t.y)) fail(id, `${what} out of bounds (${t.x}, ${t.y})`);
+        if (!(t.hp > 0)) fail(id, `${what} bad hp ${t.hp}`);
+        if (!Number.isFinite(t.yaw)) fail(id, `${what} bad yaw ${t.yaw}`);
+        return {
+          x: t.x,
+          y: t.y,
+          weapon: weaponIndex(t.weapon, what),
+          hp: t.hp,
+          yaw: t.yaw,
+        };
+      }),
       defence: (b.defence ?? []).map((d, k) => {
         if (!d || typeof d !== "object") fail(id, `base ${team} defence ${k} is not an object`);
         if (!inBounds(d.x, d.y)) {
@@ -652,6 +705,10 @@ export function loadMapFromJson(raw: MapJson): MapData {
   );
   const turretYaw = perSpot(raw.turretYaw, "turretYaw").map((v, k) => {
     if (typeof v !== "number" || !Number.isFinite(v)) fail(id, `turret spot ${k} bad yaw ${v}`);
+    return v;
+  });
+  const turretHp = perSpot(raw.turretHp, "turretHp").map((v, k) => {
+    if (!Number.isInteger(v) || v < 1) fail(id, `turret spot ${k} bad hp ${v}`);
     return v;
   });
 
@@ -764,6 +821,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     weapons,
     turretParams,
     turretYaw,
+    turretHp,
     laneGraph,
     pickups,
     triggerVolumes,
@@ -848,6 +906,7 @@ export function createTestMap(): MapData {
     weapons: [],
     turretParams: [],
     turretYaw: [],
+    turretHp: [],
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],

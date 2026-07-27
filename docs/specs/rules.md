@@ -159,10 +159,15 @@ only what Metropolis adopts from it.
   spending are unchanged. The alive limit is ours, not the original's — the
   original stores a per-cycle spawn count, and two bases at 12 units/min would
   otherwise fill the entity store.
-- **Turrets carry their own parameters.** Range, fire cadence, gun slew and field
-  of view come from the arena's weapon profiles instead of the global constants.
-  The original's reach is short: `engage_range` 6144 is 6 m, against the pre-PA
-  global 28 m, and turrets are placed within a few metres of the road they guard.
+- **Turrets carry their own parameters.** Range, fire cadence, gun slew, field of
+  view, rest rotation and health come from the arena's imported data instead of the
+  global constants — for **all three** kinds: capturable pads, base ring turrets
+  and the built-in base guns. The original's reach is short: `engage_range` 6144 is
+  6 m, against the pre-PA global 28 m, and turrets are placed within a few metres
+  of the road they guard. That short reach is load-bearing, not decoration — it is
+  what keeps a turret inside the 14 m a Runner can shoot back from, so a push can
+  answer a turret instead of dying to one it cannot reach (`paAttribution.test.ts`
+  asserts the relation for every profile an arena carries).
   Damage stays on the global value — the original's weapon table was not decoded.
 - **Capture points are the original pads.** Every original `NeutralTurret`
   becomes a capture spot — 32 on Mp and Conft, 29 on Slim and Joke, against the

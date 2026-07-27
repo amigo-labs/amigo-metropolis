@@ -133,7 +133,14 @@ import {
   BUTTON_TRANSFORM,
   type TickInputs,
 } from "./inputs";
-import { isWater, type MapData, type MapTriggerVolume, sampleHeight, worldExtent } from "./map";
+import {
+  isWater,
+  type MapBaseTurret,
+  type MapData,
+  type MapTriggerVolume,
+  sampleHeight,
+  worldExtent,
+} from "./map";
 import { atan2Poly, cosLUT, sinLUT } from "./simMath";
 import {
   GRAPH_MODE,
@@ -311,7 +318,8 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   ent.posX[id] = spot.x;
   ent.posY[id] = spot.y;
   ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
-  ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
+  ent.hp[id] =
+    state.map.turretHp.length > 0 ? state.map.turretHp[k] : ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
   ent.ownerId[id] = -1;
   ent.mode[id] = TURRET_CAPTURABLE;
   // Per-spot original parameters (rules.md §9); empty lists leave the profile at
@@ -343,25 +351,41 @@ function spawnOutpostConsole(state: SimState, k: number): number {
   return id;
 }
 
-/** Resolves flattened ring slot `k` to its map spot (base 0 slots first). */
-function baseTurretSpot(map: MapData, k: number): { team: number; x: number; y: number } {
+/** Resolves flattened ring slot `k` to its map entry (base 0 slots first). */
+function baseTurretSpot(map: MapData, k: number): { team: number; spot: MapBaseTurret } {
   const n0 = map.bases[0].turrets.length;
   const team = k < n0 ? 0 : 1;
-  const spot = map.bases[team].turrets[k < n0 ? k : k - n0];
-  return { team, x: spot.x, y: spot.y };
+  return { team, spot: map.bases[team].turrets[k < n0 ? k : k - n0] };
 }
 
-/** Spawns the base ring turret for slot `k`; owned, so it defends its base. */
+/**
+ * Spawns the base ring turret for slot `k`; owned, so it defends its base.
+ *
+ * The ring gets the original Turret actor's own weapon profile, gun rotation and
+ * health when the arena carries them, exactly like the capturable pads
+ * (spawnNeutralTurret) and the built-in base guns (spawnBaseDefence). It did not,
+ * for one release, and the effect was not subtle: with weaponProfile at -1 the
+ * ring fell through to the global TURRET_RANGE of 28 m against an imported
+ * engage_range of 6 m, so 32 turrets covered the whole midfield and shot every
+ * produced unit dead from outside the units' own reach. Sentinels keep the pre-PA
+ * arenas on the globals.
+ */
 function spawnBaseTurret(state: SimState, k: number): number {
   const ent = state.ent;
-  const { team, x, y } = baseTurretSpot(state.map, k);
+  const { team, spot } = baseTurretSpot(state.map, k);
   const id = spawn(ent, ARCHETYPE.TURRET, team);
   if (id < 0) return -1;
-  ent.posX[id] = x;
-  ent.posY[id] = y;
-  ent.height[id] = sampleHeight(state.map, x, y);
-  ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
+  ent.posX[id] = spot.x;
+  ent.posY[id] = spot.y;
+  ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
+  ent.hp[id] = spot.hp > 0 ? spot.hp : ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
   ent.ownerId[id] = team;
+  ent.weaponProfile[id] = spot.weapon;
+  if (spot.yaw !== 0) {
+    ent.yaw[id] = spot.yaw;
+    ent.aimX[id] = cosLUT(spot.yaw);
+    ent.aimY[id] = sinLUT(spot.yaw);
+  }
   state.baseTurretEntity[k] = id;
   return id;
 }
