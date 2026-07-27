@@ -15,7 +15,7 @@
 // Stage 1 has no water, so the district-01 river assertions are absent. The
 // mirror assertion is NOT absent any more — see the mirrorAxis field.
 import { describe, expect, it } from "bun:test";
-import { AVATAR_WALKER_MAX_SLOPE } from "../src/balance";
+import { AVATAR_JUMP_SPEED, AVATAR_WALKER_MAX_SLOPE, GRAVITY } from "../src/balance";
 import { crossesWallX, crossesWallY } from "../src/collision";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
@@ -23,11 +23,58 @@ import {
   getMapById,
   isWater,
   LA_CANTINA_ID,
+  type MapData,
   PROVING_GROUND_ID,
   sampleHeight,
   URBAN_JUNGLE_ID,
   worldExtent,
 } from "../src/map";
+import { resolveWalker } from "../src/units";
+
+/**
+ * Rise a walker can clear by jumping. `sim.ts` skips the slope gate entirely
+ * while airborne ("a jump can carry them onto a ledge", sim.ts:663), so a step
+ * the horizontal test rejects is still passable if the jump reaches it.
+ * balance.ts pins the clearance at 1.4 m against a 1.6 m apex; the assertion
+ * below stops the two drifting apart.
+ */
+const JUMPABLE_RISE = 1.4;
+const JUMP_APEX = (AVATAR_JUMP_SPEED * AVATAR_JUMP_SPEED) / (2 * GRAVITY);
+
+/**
+ * Worst uphill rise, in metres, among the sub-cell steps of one straight ground
+ * segment that exceed the walker slope limit. 0 means the whole segment is
+ * walkable.
+ *
+ * This mirrors the avatar stepper (sim.ts:670-698) rather than approximating it,
+ * and the two details that matter were both wrong in the earlier version of this
+ * measurement:
+ *
+ * - **Only uphill counts.** The stepper rejects a step on
+ *   `rise > GROUND_EPS && rise > run * maxSlope`. A downhill drop is a fall the
+ *   walker survives — gravity is integrated — not a wall. Taking `Math.abs`
+ *   counted every descent as impassable, which is ~40% of the hits on these four
+ *   arenas.
+ * - **Heights come from `resolveWalker`**, the function the stepper calls, with
+ *   the resolved height carried forward as the walker's own height. On a
+ *   single-storey arena that is bit-identical to `sampleHeight`; on a layered one
+ *   it stops a deck within STEP_SNAP reading as a cliff.
+ */
+function worstUphillRise(map: MapData, ax: number, ay: number, bx: number, by: number): number {
+  const len = Math.hypot(bx - ax, by - ay);
+  const steps = Math.max(1, Math.ceil(len));
+  const run = len / steps;
+  let h = sampleHeight(map, ax, ay);
+  let worst = 0;
+  for (let t = 1; t <= steps; t++) {
+    const f = t / steps;
+    const next = resolveWalker(map, ax + (bx - ax) * f, ay + (by - ay) * f, h).height;
+    const rise = next - h;
+    if (rise > 0 && rise / run >= AVATAR_WALKER_MAX_SLOPE && rise > worst) worst = rise;
+    h = next;
+  }
+  return worst;
+}
 
 interface ArenaExpectation {
   id: string;
@@ -77,19 +124,33 @@ interface ArenaExpectation {
    */
   flatPlots: boolean;
   /**
-   * Lane edges allowed to exceed AVATAR_WALKER_MAX_SLOPE. Ground units check
-   * walls only and never slope (units.ts stepAndSnap), so a steep ramp is
-   * drivable; the pin keeps the count from growing unnoticed and guarantees the
-   * player still has at least one escortable route (asserted separately).
+   * Lane edges whose uphill gradient exceeds AVATAR_WALKER_MAX_SLOPE. Ground
+   * units check walls only and never slope (units.ts stepAndSnap), so a steep
+   * ramp is drivable; the pin keeps the count from growing unnoticed and
+   * guarantees the player still has at least one escortable route (asserted
+   * separately).
    */
   steepLaneEdges: number;
   /**
-   * Sub-cell steps along the committed `lanes` polyline that exceed the walker
-   * slope limit. 0 on Mp, whose shortest road is clean; non-zero on the three
-   * imported arenas, whose original roads clip kerbs and pits the avatar cannot
-   * climb in either form. Units are unaffected — they never check slope.
+   * The subset of `steepLaneEdges` the walker cannot jump either — a rise above
+   * JUMPABLE_RISE. This is the number that means "impassable"; `steepLaneEdges`
+   * on its own is a regression anchor, not a playability claim.
+   *
+   * These are 1.4-2.5 m terrain steps, not kerbs: no blocking rise on any of the
+   * four arenas is small enough for a step-up tolerance to help. See the pinning
+   * test for the distribution.
+   */
+  hardWallLaneEdges: number;
+  /**
+   * Sub-cell steps along the committed `lanes` polyline whose uphill gradient
+   * exceeds the walker slope limit. 0 on Mp, whose shortest road is clean;
+   * non-zero on the three imported arenas, whose original roads climb steps the
+   * avatar has to jump or route around. Units are unaffected — they never check
+   * slope.
    */
   steepLaneSteps: number;
+  /** The subset of `steepLaneSteps` above JUMPABLE_RISE. */
+  hardWallLaneSteps: number;
 }
 
 // Every row below is transcribed from `bun run gen:arena <id>`'s report, never
@@ -124,8 +185,10 @@ const ARENAS: ArenaExpectation[] = [
     props: 36,
     mirrorAxis: 120,
     flatPlots: false, // spawn platform above the base floor
-    steepLaneEdges: 67,
-    steepLaneSteps: 6,
+    steepLaneEdges: 40,
+    hardWallLaneEdges: 8, // of 518 edges; smallest blocking rise 0.50 m
+    steepLaneSteps: 1,
+    hardWallLaneSteps: 1,
   },
   {
     // Rebuilt from the original Slim logic. Slim and Joke used to share one
@@ -158,8 +221,10 @@ const ARENAS: ArenaExpectation[] = [
     props: 36,
     mirrorAxis: 120,
     flatPlots: true, // spawn and base share the 0 m floor here
-    steepLaneEdges: 63,
-    steepLaneSteps: 9,
+    steepLaneEdges: 43,
+    hardWallLaneEdges: 13, // of 640 edges; smallest blocking rise 0.55 m
+    steepLaneSteps: 4,
+    hardWallLaneSteps: 1,
   },
   {
     // Rebuilt from the original Mp logic (tools/generators/enrichArena.ts): the
@@ -189,8 +254,12 @@ const ARENAS: ArenaExpectation[] = [
     props: 36,
     mirrorAxis: 112,
     flatPlots: false,
-    steepLaneEdges: 14,
+    steepLaneEdges: 10,
+    // Mp is the clean one: every steep edge is jumpable and the committed road
+    // has no blocking step at all. It is why the other three went unnoticed.
+    hardWallLaneEdges: 0,
     steepLaneSteps: 0,
+    hardWallLaneSteps: 0,
   },
   {
     // Rebuilt from the original Joke logic — see proving-ground on the split.
@@ -216,8 +285,10 @@ const ARENAS: ArenaExpectation[] = [
     props: 36,
     mirrorAxis: 120,
     flatPlots: true,
-    steepLaneEdges: 63,
-    steepLaneSteps: 9,
+    steepLaneEdges: 43,
+    hardWallLaneEdges: 13, // of 661 edges; smallest blocking rise 0.55 m
+    steepLaneSteps: 4,
+    hardWallLaneSteps: 1,
   },
 ];
 
@@ -426,30 +497,13 @@ for (const arena of ARENAS) {
         // nextHopA is the units' signpost and minimises hop count, units ignore
         // slope entirely (units.ts stepAndSnap checks walls only), and the player
         // steers for themselves. On Conft, Slim and Joke the shortest route does
-        // clip a few of the original's kerbs and pits — 4 to 8 segments of ~30,
-        // up to a 2.8 gradient — while a clean path through the same graph
-        // exists; on Mp the shortest route happens to be clean already.
-        // Neither hover nor walker can cross those steps: AVATAR_HOVER_MAX_SLOPE
-        // is 0.35, stricter than the walker's 0.6.
+        // climb a few of the original's terrain steps while a clean path through
+        // the same graph exists; on Mp the shortest route is clean already.
+        //
+        // The flood below deliberately allows NO jumping and NO descent-as-block:
+        // it is the strongest form of the claim, a route the walker simply walks.
         const g = map.laneGraph;
         if (!g) return;
-        const isSteep = (k: number, nb: number): boolean => {
-          const a = g.nodes[k];
-          const b = g.nodes[nb];
-          const len = Math.hypot(b.x - a.x, b.y - a.y);
-          const steps = Math.max(1, Math.ceil(len));
-          let prev = sampleHeight(map, a.x, a.y);
-          for (let t = 1; t <= steps; t++) {
-            const h = sampleHeight(
-              map,
-              a.x + (b.x - a.x) * (t / steps),
-              a.y + (b.y - a.y) * (t / steps),
-            );
-            if (Math.abs(h - prev) / (len / steps) >= AVATAR_WALKER_MAX_SLOPE) return true;
-            prev = h;
-          }
-          return false;
-        };
         let escortable = 0;
         for (let team = 0; team < 2; team++) {
           const foe = map.basePlots[team ^ 1];
@@ -464,7 +518,10 @@ for (const arena of ARENAS) {
             }
             for (let s = 0; s < 4; s++) {
               const nb = g.edges[k * 4 + s];
-              if (nb < 0 || seen.has(nb) || isSteep(k, nb)) continue;
+              if (nb < 0 || seen.has(nb)) continue;
+              const a = g.nodes[k];
+              const b = g.nodes[nb];
+              if (worstUphillRise(map, a.x, a.y, b.x, b.y) > 0) continue;
               seen.add(nb);
               queue.push(nb);
             }
@@ -473,35 +530,40 @@ for (const arena of ARENAS) {
         expect(escortable).toBeGreaterThan(0);
       });
 
-      it("pins how many lane-graph edges exceed the walker slope limit", () => {
+      it("pins how many lane-graph edges the walker cannot climb, and cannot jump", () => {
+        // The jump clearance and the apex have to stay consistent, or the
+        // hardWall split below silently changes meaning.
+        expect(JUMP_APEX).toBeGreaterThan(JUMPABLE_RISE);
+
         const g = map.laneGraph;
         if (!g) return;
         const n = g.nodes.length;
         let steep = 0;
+        let hardWall = 0;
+        let smallestBlockingRise = Number.POSITIVE_INFINITY;
         for (let k = 0; k < n; k++) {
           for (let s = 0; s < 4; s++) {
             const nb = g.edges[k * 4 + s];
             if (nb < 0) continue;
             const a = g.nodes[k];
             const b = g.nodes[nb];
-            const len = Math.hypot(b.x - a.x, b.y - a.y);
-            const steps = Math.max(1, Math.ceil(len));
-            let prev = sampleHeight(map, a.x, a.y);
-            for (let t = 1; t <= steps; t++) {
-              const h = sampleHeight(
-                map,
-                a.x + (b.x - a.x) * (t / steps),
-                a.y + (b.y - a.y) * (t / steps),
-              );
-              if (Math.abs(h - prev) / (len / steps) >= AVATAR_WALKER_MAX_SLOPE) {
-                steep++;
-                break;
-              }
-              prev = h;
-            }
+            const rise = worstUphillRise(map, a.x, a.y, b.x, b.y);
+            if (rise === 0) continue;
+            steep++;
+            if (rise < smallestBlockingRise) smallestBlockingRise = rise;
+            if (rise > JUMPABLE_RISE) hardWall++;
           }
         }
         expect(steep).toBe(arena.steepLaneEdges);
+        expect(hardWall).toBe(arena.hardWallLaneEdges);
+
+        // The finding that settles what these obstacles ARE: not one blocking
+        // rise anywhere is small enough for a kerb-sized step-up tolerance to
+        // clear (STEP_SNAP is 0.35 m). They are 0.6 m-plus terrain steps, so no
+        // tolerance and no value of AVATAR_WALKER_MAX_SLOPE short of "climbs
+        // walls" makes the original roads uniformly walkable. Jump or route
+        // around is the answer, and both exist.
+        if (steep > 0) expect(smallestBlockingRise).toBeGreaterThan(0.35);
       });
 
       it("keeps the arena's mirror symmetry: the two spawns mirror each other", () => {
@@ -530,29 +592,42 @@ for (const arena of ARENAS) {
       // `lanes` is team 0's nextHopA route flattened to a polyline — the units'
       // road. Dryness is absolute. Slope is pinned rather than forbidden: units
       // ignore it, and on the three imported non-Mp arenas the original's
-      // shortest road clips a few kerbs the avatar cannot climb. Pinning the
-      // count is what stops that growing unnoticed; the previous assertion of
-      // zero only held because Mp's shortest road happens to be clean.
+      // shortest road climbs steps the avatar has to jump. Pinning the count is
+      // what stops that growing unnoticed; the previous assertion of zero only
+      // held because Mp's shortest road happens to be clean.
       let steep = 0;
+      let hardWall = 0;
       for (const lane of map.lanes) {
         for (let i = 0; i < lane.length - 1; i++) {
           const a = lane[i];
           const b = lane[i + 1];
           const segLen = Math.hypot(b.x - a.x, b.y - a.y);
           const steps = Math.ceil(segLen);
-          let prevH = sampleHeight(map, a.x, a.y);
+          // Dryness is checked per sub-step; slope is measured by the shared
+          // helper so the lane and the graph cannot disagree about what "steep"
+          // means.
           for (let s = 1; s <= steps; s++) {
             const t = s / steps;
-            const x = a.x + (b.x - a.x) * t;
-            const y = a.y + (b.y - a.y) * t;
-            expect(isWater(map, x, y)).toBe(false);
-            const h = sampleHeight(map, x, y);
-            if (Math.abs(h - prevH) / (segLen / steps) >= AVATAR_WALKER_MAX_SLOPE) steep++;
-            prevH = h;
+            expect(isWater(map, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)).toBe(false);
+          }
+          for (let s = 0; s < steps; s++) {
+            const t0 = s / steps;
+            const t1 = (s + 1) / steps;
+            const rise = worstUphillRise(
+              map,
+              a.x + (b.x - a.x) * t0,
+              a.y + (b.y - a.y) * t0,
+              a.x + (b.x - a.x) * t1,
+              a.y + (b.y - a.y) * t1,
+            );
+            if (rise === 0) continue;
+            steep++;
+            if (rise > JUMPABLE_RISE) hardWall++;
           }
         }
       }
       expect(steep).toBe(arena.steepLaneSteps);
+      expect(hardWall).toBe(arena.hardWallLaneSteps);
     });
   });
 }

@@ -26,6 +26,16 @@ Design pillars, in priority order:
   - **Walker**: slower, can jump, precise handling, better on slopes.
   - **Hover**: fast, drifty (low traction), can cross water, cannot jump,
     steep slopes impassable.
+- The slope asymmetry is **deliberate**: `AVATAR_HOVER_MAX_SLOPE` (0.35) is
+  stricter than `AVATAR_WALKER_MAX_SLOPE` (0.6), because hover rides clearance
+  and trades terrain for speed and water. Each form has ground the other cannot
+  take, and neither is meant to go everywhere.
+- The **jump** is the walker's answer to a step it cannot climb: the slope gate
+  is skipped while airborne, so an 8 m/s launch against 20 m/s² gravity clears a
+  ledge up to ~1.4 m. On the imported FCOP arenas that covers 70-100% of the
+  original terrain's blocking steps; the rest are 1.4-2.5 m walls to route
+  around, and a walk-only path to the enemy base exists on every arena.
+  `fcop-arenas.test.ts` pins both counts per arena.
 - Same three weapon slots in both modes: primary (hitscan-ish rapid),
   heavy (projectile, AoE), special (slow, high damage).
 - Ammo: primary infinite; heavy/special finite, refilled at own Base/Outpost pads.
