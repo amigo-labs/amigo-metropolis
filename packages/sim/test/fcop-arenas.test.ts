@@ -15,7 +15,7 @@
 // Stage 1 has no water, so the district-01 river assertions are absent. The
 // mirror assertion is NOT absent any more — see the mirrorAxis field.
 import { describe, expect, it } from "bun:test";
-import { AVATAR_JUMP_SPEED, AVATAR_WALKER_MAX_SLOPE, GRAVITY } from "../src/balance";
+import { AVATAR_JUMP_SPEED, GRAVITY } from "../src/balance";
 import { crossesWallX, crossesWallY } from "../src/collision";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
@@ -23,58 +23,15 @@ import {
   getMapById,
   isWater,
   LA_CANTINA_ID,
-  type MapData,
   PROVING_GROUND_ID,
   sampleHeight,
   URBAN_JUNGLE_ID,
   worldExtent,
 } from "../src/map";
-import { resolveWalker } from "../src/units";
+import { JUMPABLE_RISE, worstUphillRise } from "../src/units";
 
-/**
- * Rise a walker can clear by jumping. `sim.ts` skips the slope gate entirely
- * while airborne ("a jump can carry them onto a ledge", sim.ts:663), so a step
- * the horizontal test rejects is still passable if the jump reaches it.
- * balance.ts pins the clearance at 1.4 m against a 1.6 m apex; the assertion
- * below stops the two drifting apart.
- */
-const JUMPABLE_RISE = 1.4;
+/** The apex JUMPABLE_RISE is derived from; asserted below so they cannot drift. */
 const JUMP_APEX = (AVATAR_JUMP_SPEED * AVATAR_JUMP_SPEED) / (2 * GRAVITY);
-
-/**
- * Worst uphill rise, in metres, among the sub-cell steps of one straight ground
- * segment that exceed the walker slope limit. 0 means the whole segment is
- * walkable.
- *
- * This mirrors the avatar stepper (sim.ts:670-698) rather than approximating it,
- * and the two details that matter were both wrong in the earlier version of this
- * measurement:
- *
- * - **Only uphill counts.** The stepper rejects a step on
- *   `rise > GROUND_EPS && rise > run * maxSlope`. A downhill drop is a fall the
- *   walker survives — gravity is integrated — not a wall. Taking `Math.abs`
- *   counted every descent as impassable, which is ~40% of the hits on these four
- *   arenas.
- * - **Heights come from `resolveWalker`**, the function the stepper calls, with
- *   the resolved height carried forward as the walker's own height. On a
- *   single-storey arena that is bit-identical to `sampleHeight`; on a layered one
- *   it stops a deck within STEP_SNAP reading as a cliff.
- */
-function worstUphillRise(map: MapData, ax: number, ay: number, bx: number, by: number): number {
-  const len = Math.hypot(bx - ax, by - ay);
-  const steps = Math.max(1, Math.ceil(len));
-  const run = len / steps;
-  let h = sampleHeight(map, ax, ay);
-  let worst = 0;
-  for (let t = 1; t <= steps; t++) {
-    const f = t / steps;
-    const next = resolveWalker(map, ax + (bx - ax) * f, ay + (by - ay) * f, h).height;
-    const rise = next - h;
-    if (rise > 0 && rise / run >= AVATAR_WALKER_MAX_SLOPE && rise > worst) worst = rise;
-    h = next;
-  }
-  return worst;
-}
 
 interface ArenaExpectation {
   id: string;

@@ -10,7 +10,6 @@
 // plus the deck-reachability test below are what stop stage 2 being pointed at
 // them by accident. See the "deferred" describe block for the numbers.
 import { describe, expect, it } from "bun:test";
-import { AVATAR_WALKER_MAX_SLOPE } from "../src/balance";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
   getMapById,
@@ -19,10 +18,10 @@ import {
   MAP_REGISTRY,
   type MapData,
   resolveHeight,
-  sampleHeight,
   VENICE_BEACH_ID,
 } from "../src/map";
 import { STEP_SNAP } from "../src/sim";
+import { worstUphillRise } from "../src/units";
 
 const bufHash = (a: Float32Array | Uint8Array): number =>
   fnv1aBytes(fnv1aInit(), new Uint8Array(a.buffer), 0, a.buffer.byteLength) >>> 0;
@@ -115,21 +114,30 @@ function checkArena(id: string, displayName: string): void {
   });
 
   it("lanes are dry and walker-traversable in slope (base floor)", () => {
+    // Slope goes through the shared `worstUphillRise`, which is the stepper's own
+    // rule: uphill only, and heights from `resolveWalker`. Both details matter
+    // MORE here than anywhere else — these are the only two arenas with decks, so
+    // they are the only ones where resolveWalker can differ from a bare
+    // sampleHeight. This block used to take `Math.abs` of a bare sample, i.e. it
+    // asserted a rule the sim does not implement, on the maps most likely to
+    // expose the difference. Measured: 0 blocking steps under either rule, so
+    // nothing about these two arenas changes — but the assertion now means what
+    // it says.
     for (const lane of map.lanes) {
       for (let i = 0; i < lane.length - 1; i++) {
         const a = lane[i];
         const b = lane[i + 1];
         const segLen = Math.hypot(b.x - a.x, b.y - a.y);
         const steps = Math.ceil(segLen);
-        let prevH = sampleHeight(map, a.x, a.y);
-        for (let s = 1; s <= steps; s++) {
-          const t = s / steps;
-          const x = a.x + (b.x - a.x) * t;
-          const y = a.y + (b.y - a.y) * t;
-          expect(isWater(map, x, y)).toBe(false);
-          const h = sampleHeight(map, x, y);
-          expect(Math.abs(h - prevH) / (segLen / steps)).toBeLessThan(AVATAR_WALKER_MAX_SLOPE);
-          prevH = h;
+        for (let s = 0; s < steps; s++) {
+          const t0 = s / steps;
+          const t1 = (s + 1) / steps;
+          const x0 = a.x + (b.x - a.x) * t0;
+          const y0 = a.y + (b.y - a.y) * t0;
+          const x1 = a.x + (b.x - a.x) * t1;
+          const y1 = a.y + (b.y - a.y) * t1;
+          expect(isWater(map, x1, y1)).toBe(false);
+          expect(worstUphillRise(map, x0, y0, x1, y1)).toBe(0);
         }
       }
     }

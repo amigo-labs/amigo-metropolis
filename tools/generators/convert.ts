@@ -30,7 +30,13 @@
 
 const DEFAULT_SRC_DIR = "C:/MagiPacks/_fcop_audio_privat/heightmaps";
 const HEIGHT_SCALE = 0.03125; // 1/32 m — keep in sync with packages/sim/src/map.ts
-const AVATAR_WALKER_MAX_SLOPE = 0.6; // packages/sim/src/balance.ts:37
+// Mirrors AVATAR_WALKER_MAX_SLOPE in packages/sim/src/balance.ts. Redeclared, not
+// imported, because this file has NO imports on purpose: stage 1 runs against the
+// private heightmap dump without the workspace built. For the same reason it
+// cannot use the sim's shared `worstUphillRise` — there is no MapData yet at this
+// point, only the raw walk_height grid and the local `sample()` closure. What it
+// CAN do is apply the same rule, which the uphill-only check below now does.
+const AVATAR_WALKER_MAX_SLOPE = 0.6;
 
 interface TerrainJson {
   container: string;
@@ -834,6 +840,10 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
       const [bx, by] = lane[k + 1];
       const segLen = Math.hypot(bx - ax, by - ay);
       // Slope check: 1 m sampling — must match the playability tests exactly.
+      // UPHILL only, like the avatar stepper and like the sim's worstUphillRise:
+      // a descent is a fall the walker survives, not a wall. This used to take
+      // Math.abs and so flagged every drop as "too steep", disagreeing with the
+      // stage-2 report and the arena tests about what the word means.
       const steps = Math.ceil(segLen);
       let prevH = sample(ax, ay);
       for (let s = 1; s <= steps; s++) {
@@ -841,7 +851,7 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
         const cx = ax + (bx - ax) * t;
         const cy = ay + (by - ay) * t;
         const hh = sample(cx, cy);
-        const slope = Math.abs(hh - prevH) / (segLen / steps);
+        const slope = (hh - prevH) / (segLen / steps);
         if (slope >= AVATAR_WALKER_MAX_SLOPE) {
           flag(
             `lane too steep near (${cx.toFixed(0)}, ${cy.toFixed(0)}) slope=${slope.toFixed(3)}`,

@@ -39,13 +39,14 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  AVATAR_WALKER_MAX_SLOPE,
   crossesWallX,
   crossesWallY,
+  JUMPABLE_RISE,
   loadMapFromJson,
   type MapData,
   type MapJson,
   sampleHeight,
+  worstUphillRise,
 } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
 import { type FcopArena, logicFile, selectArenas, wallsFile } from "./fcopArenas";
@@ -73,13 +74,6 @@ export const LOGIC_OFFSET_Z = 0;
  * silently inventing a damage curve. Tuning lives in balance.ts.
  */
 const TURRET_DAMAGE = 15;
-
-/**
- * Rise a walker clears by jumping (balance.ts: 8 m/s against 20 m/s² gravity is a
- * 1.6 m apex, pinned at 1.4 m of clearance). The slope gate is skipped while
- * airborne, so a step below this is passable even though the gradient rejects it.
- */
-const JUMPABLE_RISE = 1.4;
 
 /**
  * Pickup kinds (must match balance.ts PICKUP_*).
@@ -1235,10 +1229,13 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   // (units.ts stepAndSnap checks walls only), but the player escorting them does
   // not, so this is reported rather than enforced.
   //
-  // Uphill only, matching the avatar stepper (sim.ts: `rise > GROUND_EPS && rise
-  // > run * maxSlope`) — a descent is a fall the walker survives, not a wall. The
-  // second figure is the subset the jump cannot clear either, which is the count
-  // that actually means "impassable"; fcop-arenas.test.ts pins both.
+  // `worstUphillRise` is the sim's own rule, imported rather than reimplemented —
+  // uphill only, heights from `resolveWalker`. That second part is why it is
+  // shared: an open-coded `sampleHeight` version agrees with the sim on today's
+  // single-storey arenas and would quietly stop agreeing the moment stage 2 is
+  // pointed at hollywood-keys or venice-beach (issue #33), which is exactly when
+  // a generator report needs to be trustworthy. The second figure is the subset
+  // the jump cannot clear, i.e. the count that means "impassable".
   let steep = 0;
   let hardWall = 0;
   let total = 0;
@@ -1248,18 +1245,7 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
       total++;
       const a = graph.nodes[k];
       const b = graph.nodes[nb];
-      const len = Math.hypot(b.x - a.x, b.z - a.z);
-      const steps = Math.max(1, Math.ceil(len));
-      const run = len / steps;
-      let prev = sampleHeight(map, a.x, a.z);
-      let worst = 0;
-      for (let s = 1; s <= steps; s++) {
-        const t = s / steps;
-        const h = sampleHeight(map, a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t);
-        const rise = h - prev;
-        if (rise > 0 && rise / run >= AVATAR_WALKER_MAX_SLOPE && rise > worst) worst = rise;
-        prev = h;
-      }
+      const worst = worstUphillRise(map, a.x, a.z, b.x, b.z);
       if (worst > 0) steep++;
       if (worst > JUMPABLE_RISE) hardWall++;
     }

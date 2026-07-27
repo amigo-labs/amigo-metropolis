@@ -598,23 +598,37 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (!inBounds(p.x, p.y)) fail(id, `${what} out of bounds (${p.x}, ${p.y})`);
     return { x: p.x, y: p.y, radius: p.radius };
   };
+  /**
+   * Asserts a field really is a finite number before it reaches MapData.
+   *
+   * `point` and `plot` have always checked `typeof === "number"`, but the §9
+   * parsers below grew up comparing raw fields directly — `inBounds(v.x, v.y)`,
+   * `d.hp > 0`, `w.range > 0` — and JS coercion lets `{ x: "10", hp: "500" }`
+   * through every one of those, storing strings in a struct the sim then does
+   * arithmetic on. Routing the loose fields through here makes the whole loader
+   * uniformly strict, which is the job it advertises in its own doc comment.
+   */
+  const num = (v: unknown, what: string): number => {
+    if (typeof v !== "number" || !Number.isFinite(v)) {
+      fail(id, `${what} is not a finite number (got ${typeof v} ${String(v)})`);
+    }
+    return v;
+  };
   // --- Precinct Assault features (rules.md §9) ----------------------------
   // All optional. Absent → empty arrays / undefined / 0, which every consumer
   // treats as "feature not present on this arena".
   const weapons: MapWeapon[] = (raw.weapons ?? []).map((w, k) => {
     if (!w || typeof w !== "object") fail(id, `weapon ${k} is not an object`);
-    if (!(w.range > 0)) fail(id, `weapon ${k} bad range ${w.range}`);
+    const range = num(w.range, `weapon ${k} range`);
+    const damage = num(w.damage, `weapon ${k} damage`);
+    const turnSpeed = num(w.turnSpeed, `weapon ${k} turnSpeed`);
+    const fovCos = num(w.fovCos, `weapon ${k} fovCos`);
+    if (!(range > 0)) fail(id, `weapon ${k} bad range ${range}`);
     if (!Number.isInteger(w.delay) || w.delay < 1) fail(id, `weapon ${k} bad delay ${w.delay}`);
-    if (!(w.damage >= 0)) fail(id, `weapon ${k} bad damage ${w.damage}`);
-    if (!(w.turnSpeed >= 0)) fail(id, `weapon ${k} bad turnSpeed ${w.turnSpeed}`);
-    if (!(w.fovCos >= -1 && w.fovCos <= 1)) fail(id, `weapon ${k} bad fovCos ${w.fovCos}`);
-    return {
-      range: w.range,
-      delay: w.delay,
-      damage: w.damage,
-      turnSpeed: w.turnSpeed,
-      fovCos: w.fovCos,
-    };
+    if (!(damage >= 0)) fail(id, `weapon ${k} bad damage ${damage}`);
+    if (!(turnSpeed >= 0)) fail(id, `weapon ${k} bad turnSpeed ${turnSpeed}`);
+    if (!(fovCos >= -1 && fovCos <= 1)) fail(id, `weapon ${k} bad fovCos ${fovCos}`);
+    return { range, delay: w.delay, damage, turnSpeed, fovCos };
   });
   const weaponIndex = (v: number, what: string): number => {
     if (!Number.isInteger(v) || v < 0 || v >= weapons.length) {
@@ -662,28 +676,28 @@ export function loadMapFromJson(raw: MapJson): MapData {
           return { x: p.x, y: p.y, weapon: -1, hp: 0, yaw: 0 };
         }
         if (!t || typeof t !== "object") fail(id, `${what} is neither a pair nor an object`);
-        if (!inBounds(t.x, t.y)) fail(id, `${what} out of bounds (${t.x}, ${t.y})`);
-        if (!(t.hp > 0)) fail(id, `${what} bad hp ${t.hp}`);
-        if (!Number.isFinite(t.yaw)) fail(id, `${what} bad yaw ${t.yaw}`);
-        return {
-          x: t.x,
-          y: t.y,
-          weapon: weaponIndex(t.weapon, what),
-          hp: t.hp,
-          yaw: t.yaw,
-        };
+        const x = num(t.x, `${what} x`);
+        const y = num(t.y, `${what} y`);
+        const hp = num(t.hp, `${what} hp`);
+        const yaw = num(t.yaw, `${what} yaw`);
+        if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
+        if (!(hp > 0)) fail(id, `${what} bad hp ${hp}`);
+        return { x, y, weapon: weaponIndex(t.weapon, what), hp, yaw };
       }),
       defence: (b.defence ?? []).map((d, k) => {
         if (!d || typeof d !== "object") fail(id, `base ${team} defence ${k} is not an object`);
-        if (!inBounds(d.x, d.y)) {
-          fail(id, `base ${team} defence ${k} out of bounds (${d.x}, ${d.y})`);
+        const dx = num(d.x, `base ${team} defence ${k} x`);
+        const dy = num(d.y, `base ${team} defence ${k} y`);
+        const dhp = num(d.hp, `base ${team} defence ${k} hp`);
+        if (!inBounds(dx, dy)) {
+          fail(id, `base ${team} defence ${k} out of bounds (${dx}, ${dy})`);
         }
-        if (!(d.hp > 0)) fail(id, `base ${team} defence ${k} bad hp ${d.hp}`);
+        if (!(dhp > 0)) fail(id, `base ${team} defence ${k} bad hp ${dhp}`);
         return {
-          x: d.x,
-          y: d.y,
+          x: dx,
+          y: dy,
           weapon: weaponIndex(d.weapon, `base ${team} defence ${k}`),
-          hp: d.hp,
+          hp: dhp,
         };
       }),
       coreHp,
@@ -783,21 +797,27 @@ export function loadMapFromJson(raw: MapJson): MapData {
 
   const pickups: MapPickup[] = (raw.pickups ?? []).map((p, k) => {
     if (!p || typeof p !== "object") fail(id, `pickup ${k} is not an object`);
-    if (!inBounds(p.x, p.y)) fail(id, `pickup ${k} out of bounds (${p.x}, ${p.y})`);
+    const x = num(p.x, `pickup ${k} x`);
+    const y = num(p.y, `pickup ${k} y`);
+    if (!inBounds(x, y)) fail(id, `pickup ${k} out of bounds (${x}, ${y})`);
     if (!Number.isInteger(p.kind) || p.kind < 0) fail(id, `pickup ${k} bad kind ${p.kind}`);
     if (!Number.isInteger(p.respawnTicks) || p.respawnTicks < 0) {
       fail(id, `pickup ${k} bad respawnTicks ${p.respawnTicks}`);
     }
-    return { x: p.x, y: p.y, kind: p.kind, respawnTicks: p.respawnTicks };
+    return { x, y, kind: p.kind, respawnTicks: p.respawnTicks };
   });
 
   const triggerVolumes: MapTriggerVolume[] = (raw.triggerVolumes ?? []).map((v, k) => {
     if (!v || typeof v !== "object") fail(id, `trigger ${k} is not an object`);
-    if (!inBounds(v.x, v.y)) fail(id, `trigger ${k} out of bounds (${v.x}, ${v.y})`);
-    if (!(v.halfW > 0) || !(v.halfL > 0)) fail(id, `trigger ${k} needs positive half extents`);
+    const x = num(v.x, `trigger ${k} x`);
+    const y = num(v.y, `trigger ${k} y`);
+    const halfW = num(v.halfW, `trigger ${k} halfW`);
+    const halfL = num(v.halfL, `trigger ${k} halfL`);
+    if (!inBounds(x, y)) fail(id, `trigger ${k} out of bounds (${x}, ${y})`);
+    if (!(halfW > 0) || !(halfL > 0)) fail(id, `trigger ${k} needs positive half extents`);
     if (v.team !== 0 && v.team !== 1) fail(id, `trigger ${k} bad team ${v.team}`);
     if (!Number.isInteger(v.watch) || v.watch < 0) fail(id, `trigger ${k} bad watch ${v.watch}`);
-    return { x: v.x, y: v.y, halfW: v.halfW, halfL: v.halfL, team: v.team, watch: v.watch };
+    return { x, y, halfW, halfL, team: v.team, watch: v.watch };
   });
 
   return {
