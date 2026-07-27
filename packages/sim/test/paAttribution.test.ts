@@ -23,10 +23,22 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { CORE_ATTACK_RADIUS, PA_PRODUCTION_ALIVE_LIMIT, UNIT_RANGE } from "../src/balance";
-import { EV_HIT, EV_SHOT, EVENT_STRIDE } from "../src/events";
+import {
+  CORE_ATTACK_RADIUS,
+  COST_JUGGERNAUT,
+  PA_PRODUCTION_ALIVE_LIMIT,
+  POINTS_CAPTURE_TURRET,
+  UNIT_RANGE,
+} from "../src/balance";
+import { EV_CAPTURE, EV_CORE_HIT, EV_HIT, EV_SHOT, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
-import { getMapById, LA_CANTINA_ID } from "../src/map";
+import {
+  BUG_HUNT_ID,
+  getMapById,
+  LA_CANTINA_ID,
+  PROVING_GROUND_ID,
+  URBAN_JUNGLE_ID,
+} from "../src/map";
 import { createSim, step } from "../src/sim";
 
 const MAP = getMapById(LA_CANTINA_ID);
@@ -200,4 +212,96 @@ describe("what kills a Precinct Assault push on la-cantina", () => {
     expect(m.meanAlive).toBeLessThan(PA_PRODUCTION_ALIVE_LIMIT);
     expect(m.meanAlive).toBeGreaterThan(1); // ...but the loop IS running
   });
+});
+
+describe("the arena is decidable: a Warden beats an idle player", () => {
+  // The counterpart to the stalemate test in golden07. A stalemate between two
+  // idle players is the design (pillar 1 makes the player the tiebreaker); a
+  // stalemate between a difficulty-8 Warden and an idle player is not — it means
+  // nobody can win, and #31 recorded exactly that: 28 of 32 pads captured in ten
+  // minutes and no result.
+  //
+  // With the ring turrets on their imported 6 m reach the Warden's pushes get
+  // through and it razes the core in about three minutes. This is the single
+  // strongest statement that the arena plays: the objective is achievable by a
+  // party that is actually trying.
+  const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
+  const idle = createTickInputs();
+  let captures = 0;
+  const limit = 10 * 60 * 30;
+  while (state.tick < limit && state.winner < 0) {
+    step(state, idle);
+    for (let i = 0; i < state.events.count; i++) {
+      if (state.events.data[i * EVENT_STRIDE] === EV_CAPTURE) captures += 1;
+    }
+  }
+
+  it("wins on the base-destruction objective, inside ten minutes", () => {
+    expect(state.winner).toBe(1);
+    expect(state.coreHp[0]).toBe(0);
+    expect(state.tick).toBeLessThan(5 * 60 * 30);
+  });
+
+  it("funds that push from capture income that is not absurd", () => {
+    // #31's open question: 32 pads at POINTS_CAPTURE_TURRET = 3 is 96 points on a
+    // map where a Juggernaut costs 50 and trickle is 1 per 10 s. Measured rather
+    // than argued: the whole board is worth about two heavy units, and the Warden
+    // reaches the objective on a fraction of it. That is a defensible economy, so
+    // the reward per pad and the trickle are LEFT ALONE — this test records the
+    // relation so a future change to either is a deliberate one.
+    const boardValue = MAP.turretSpots.length * POINTS_CAPTURE_TURRET;
+    expect(boardValue / COST_JUGGERNAUT).toBeGreaterThan(1);
+    expect(boardValue / COST_JUGGERNAUT).toBeLessThan(3);
+    // It captures a real share of the board on the way, rather than winning off
+    // trickle alone or needing every pad.
+    expect(captures).toBeGreaterThan(MAP.turretSpots.length / 2);
+    expect(state.points[1]).toBeLessThan(boardValue + 60);
+  });
+});
+
+describe("which PA arenas a Warden can actually finish", () => {
+  // Pinned because the answer is currently "one of four", and that is a gap
+  // against Phase 13's Definition of Done ("all four single-storey arenas play
+  // under §9 — production runs, pads capture, the enemy core can be razed").
+  //
+  // Measured over three minutes against an idle player, difficulty 8. On the
+  // three v14-imported arenas the Warden's units get 76-90% of the way to the
+  // defended core and then stop dead: zero core hits, zero intrusion alarms, in
+  // one case (proving-ground) after capturing all 29 pads. It is not the road —
+  // every arena's Cnet graph reaches its cores to within 0.0 m and no lane edge
+  // crosses a wall — and it is not ring density, since la-cantina's ring sits
+  // TIGHTER around its core (median 20.1 m) than urban-jungle's (24.9 m) and
+  // la-cantina is the one that works. Something about the last ~11 m of those
+  // three bases is impassable to a produced unit, and it is a separate defect
+  // from the reach bug this file was written for.
+  //
+  // WHEN THESE START FAILING, THAT IS THE FIX LANDING: move the arena into the
+  // decidable list, do not delete the assertion.
+  const DECIDABLE = [LA_CANTINA_ID];
+  const NOT_YET = [URBAN_JUNGLE_ID, PROVING_GROUND_ID, BUG_HUNT_ID];
+
+  function coreHits(id: string): number {
+    const state = createSim(getMapById(id), 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
+    const idle = createTickInputs();
+    let hits = 0;
+    for (let t = 0; t < 3 * 60 * 30 && state.winner < 0; t++) {
+      step(state, idle);
+      for (let i = 0; i < state.events.count; i++) {
+        if (state.events.data[i * EVENT_STRIDE] === EV_CORE_HIT) hits += 1;
+      }
+    }
+    return hits;
+  }
+
+  for (const id of DECIDABLE) {
+    it(`${id}: the Warden reaches and damages the core`, () => {
+      expect(coreHits(id)).toBeGreaterThan(0);
+    });
+  }
+
+  for (const id of NOT_YET) {
+    it(`${id}: the Warden still cannot reach the core (known gap)`, () => {
+      expect(coreHits(id)).toBe(0);
+    });
+  }
 });
