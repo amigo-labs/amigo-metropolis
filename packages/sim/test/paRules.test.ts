@@ -20,7 +20,7 @@ import {
 } from "../src/balance";
 import { EV_ALARM, EV_PICKUP, EV_PRODUCE, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
-import { getMapById, LA_CANTINA_ID, PROVING_GROUND_ID } from "../src/map";
+import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID } from "../src/map";
 import { createSim, type SimState, step } from "../src/sim";
 
 const idle = createTickInputs();
@@ -191,7 +191,8 @@ describe("base destruction is the win condition", () => {
   });
 
   it("keeps the gate breach as the only win on arenas without a core", () => {
-    const legacy = getMapById(PROVING_GROUND_ID);
+    // district-01, now that all four FCOP single-storey arenas carry PA data.
+    const legacy = getMapById(DISTRICT_01_ID);
     const state = createSim(legacy, 1);
     expect(state.coreHp.length).toBe(0);
     const gate = legacy.bases[1].gate;
@@ -264,9 +265,15 @@ describe("base intrusion alerts", () => {
 
 describe("the no-op invariant", () => {
   it("leaves an arena without PA data on exactly the pre-PA numbers", () => {
-    // proving-ground carries no weapons, pickups, triggers, cores or production,
-    // so every PA array must be empty and every PA-gated branch unreachable.
-    const legacy = getMapById(PROVING_GROUND_ID);
+    // district-01 carries no weapons, pickups, triggers, cores or production, so
+    // every PA array must be empty and every PA-gated branch unreachable. It
+    // replaced proving-ground here when that arena was rebuilt from the original
+    // Slim logic and gained the full §9 data set. district-01 is the better
+    // fixture anyway: it is the map goldens 02-04 actually run on, so this test
+    // now asserts the byte-stream invariant those goldens depend on rather than a
+    // proxy for it. It has 8 ring turrets, which the cadence check below needs —
+    // test-128 has none and would silently no-op it.
+    const legacy = getMapById(DISTRICT_01_ID);
     const state = createSim(legacy, 0xc0ffee);
     expect(state.baseDefenceEntity.length).toBe(0);
     expect(state.coreHp.length).toBe(0);

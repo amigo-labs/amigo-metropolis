@@ -9,7 +9,9 @@
     "test",
     "genUnitModels.ts",
     "genMapAlign.ts",
+    "fcopArenas.ts",
     "fcopLogic.ts",
+    "fcopWalls.ts",
     "enrichArena.ts"
   ]
 }

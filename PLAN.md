@@ -335,7 +335,48 @@ fidelity screenshots showing turrets on their original pads.
 
 Deliberately NOT in this phase: the other five arenas share the same +16 frame
 error in their authored features. The terrain fix improves all of them; importing
-their layouts is one arena at a time.
+their layouts is one arena at a time. → Phase 13.
+
+## Phase 13 — The other FCOP arenas in the original frame
+
+Issue #30: every arena's authored features sat one Til (16 cells) west of where
+the original put them, because `convert.ts` authored them in the actor frame.
+Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the rest.
+
+- [x] `tools/generators/fcopArenas.ts`: the mapId ↔ mission ↔ wall-budget table
+      the in-tree pipeline reads, so `gen:arena urban-jungle` stops looking for a
+      logic file that can never exist. `gen:palogic` takes `--map` or `--mission`
+- [x] `gen:walls`: commit each arena's pristine stage-1 wall lattice before it is
+      first enriched (a one-way ratchet — after stage 2 runs, the pristine lattice
+      exists nowhere in-tree). Verifies `mp-walls.json` rather than regenerating
+      it, since la-cantina was already enriched
+- [x] Commit the extracted `Cact`/`Cnet` logic for all five remaining missions, so
+      every arena is regenerable without the private RE repo
+- [x] Generalise stage 2: field axis and mid-line derived from the bases (Hk is
+      X-separated, which mis-paired teams), bases paired with their nearest
+      X1Alpha, spawn facing derived, only team-owned `Cnet`s imported (Hk carries a
+      third), per-arena wall budgets, `assertFrameOffset` against the measured
+      terrain alignment, plus `--check` and `--probe`
+- [x] Rebuild `urban-jungle` (Conft), `proving-ground` (Slim) and `bug-hunt` (Joke).
+      SIM_VERSION 14; golden-05 re-recorded. Two generator bugs surfaced and fixed:
+      the lane carve deduped one-way `Cnet` edges as if undirected, and the
+      reachability repair ignored the bases' own consoles and ring turrets
+- [x] `urban-jungle.test.ts` folded into `fcop-arenas.test.ts`, so all four arenas
+      run the lane-graph block; the mirror guard is per-arena and tied back to the
+      vertex-correlated terrain footprint
+- [ ] `hollywood-keys` and `venice-beach`: **blocked, not skipped.** Their logic is
+      committed and stage 2 reports "OK — no problems" on them, and it is wrong
+      anyway: every deck sits ≥0.594 m above the base surface against a 0.35 m
+      step, decks are 62% / 44% of those grids, and importing puts all 140 of Hk's
+      lane nodes and both spawns on the canal floor under the city. Needs per-layer
+      walls, a layer on each feature, a deck-aware flood and an actor Y from the
+      extractor. Pinned as a failing-when-fixed test in `layeredArenas.test.ts`
+
+**Definition of Done:** all four single-storey arenas play under §9 — production
+runs, pads capture, the enemy core can be razed — with `bun test`,
+`bun run replay:verify` and `bun run verify:arenas` green, `gen:arena all --check`
+reporting byte-identical output, and the per-arena fidelity screenshots showing
+turrets on their original pads.
 
 ## Backlog (post-v1, do not start)
 

@@ -3,13 +3,13 @@
   "mapId": "la-cantina",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "5cefb21213fa5020905f04f4e169e4874654c0b8",
+    "commit": "f6aad03a83b03a4976587b901ec5b47e7617aa8f",
     "extractor": "tools/gfx/extract_logic.py"
   },
   "frame": {
     "actorScale": 8192,
     "netScale": 32,
-    "note": "x/z are 0-based grid cells (raw/8192 for actors, raw/32 for Cnet nodes). The sim heightfield frame is this frame shifted by logicOffset in tools/generators/convert.ts — see docs/specs/fcop-viz-handoff.md."
+    "note": "x/z are 0-based grid cells (raw/8192 for actors, raw/32 for Cnet nodes). The sim heightfield frame is this frame shifted by LOGIC_OFFSET_X/Z in tools/generators/enrichArena.ts — see docs/specs/fcop-viz-handoff.md."
   },
   "scales": {
     "range": 1024,

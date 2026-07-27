@@ -276,7 +276,11 @@ export function fcop01(tick: number, out: TickInputs): void {
   const p = out.players[0];
   const t = tick / TICK_HZ;
   if (t < 4) {
-    p.moveY = -127; // spawn (38,128) → ground console (38,116)
+    // The script is unchanged across the issue-#30 rebuild on purpose, so the
+    // re-record is purely the map moving. Its bearings are no longer literal:
+    // urban-jungle's spawn 0 is at (106.2, 71) since the arena was rebuilt from
+    // the original Conft logic, not the (38,128) this comment was written for.
+    p.moveY = -127; // north, off the base platform toward the consoles
   } else if (t < 20) {
     p.buttons = BUTTON_INTERACT; // hold-to-buy runner waves onto the lanes
   } else if (t < 40) {

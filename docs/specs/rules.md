@@ -122,8 +122,13 @@ replays-as-feature (replays exist as a test artifact from day one).
 
 ## 9. Precinct Assault mode (FCOP arenas)
 
-Status: adopted for `la-cantina` (mission Mp); the other five arenas stay on
-§1–§7 until their own layouts are imported.
+Status: adopted for the four single-storey FCOP arenas — `la-cantina` (mission
+Mp), `urban-jungle` (Conft), `proving-ground` (Slim) and `bug-hunt` (Joke).
+`hollywood-keys` and `venice-beach` stay on §1–§7. That is not for want of data:
+their logic is extracted and committed, but they are multi-deck and every deck
+sits at least 0.594 m above the base surface while the walker only steps up
+0.35 m, so the original layouts would land on decks nothing can reach. See
+`packages/sim/test/layeredArenas.test.ts` for the measurement.
 
 A deliberate deviation from §1–§6, taken on the owner's call: where the original
 *Precinct Assault* mission data says how the arena works, the data wins. Every
@@ -150,7 +155,8 @@ only what Metropolis adopts from it.
   global 28 m, and turrets are placed within a few metres of the road they guard.
   Damage stays on the global value — the original's weapon table was not decoded.
 - **Capture points are the original pads.** Every original `NeutralTurret`
-  becomes a capture spot (32 on Mp, against the 4–6 of §5). Capture rules
+  becomes a capture spot — 32 on Mp and Conft, 29 on Slim and Joke, against the
+  4–6 of §5. Capture rules
   themselves are unchanged; the density is a balance question, tuned in
   `balance.ts`, never by dropping content.
 - **Power-ups.** `ItemPickup` spots grant ammo, health, invisibility or a
