@@ -1,0 +1,1 @@
+turret-standard RAW hull=green gun=magenta  size 1.59m  h=1.59  xz=1.41

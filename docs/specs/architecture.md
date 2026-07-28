@@ -68,6 +68,9 @@ Flat `Float32Array`, stride 10 per entity:
 [id, archetype, teamId, x, y, height, yaw, animState, hpFrac, aux]
 ```
 
+- `aux`: projectile kind for `PROJECTILE`; turret mode (`TURRET_DEFENSE` /
+  `TURRET_DUMMY` / `TURRET_CAPTURABLE` → mesh modes Defense / Standard) for
+  `TURRET`; otherwise entity aux.
 - Written once per tick into one of two rotating buffers (current/previous).
 - Renderer interpolates previous→current by render-frame alpha. Never
   extrapolate; never read sim internals.

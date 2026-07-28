@@ -272,6 +272,19 @@
           background 0.14s,
           transform 0.06s;
       }
+      /* Localhost-only Fly debug — full-width under Solo/Online. */
+      .menu-mode--debug {
+        grid-column: 1 / -1;
+        border-color: rgba(251, 191, 36, 0.35);
+        background: rgba(40, 32, 14, 0.55);
+      }
+      .menu-mode--debug:hover {
+        border-color: rgba(251, 191, 36, 0.65);
+        background: rgba(55, 42, 16, 0.7);
+      }
+      .menu-mode--debug span {
+        color: #c4a574;
+      }
       .menu-mode:hover {
         border-color: rgba(126, 242, 255, 0.5);
         background: rgba(23, 33, 54, 0.7);

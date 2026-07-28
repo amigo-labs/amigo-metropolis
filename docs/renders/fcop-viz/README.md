@@ -58,9 +58,34 @@ bz = raycast onto terrain
 data. `FLIP_Y = -1` (the glTF→Blender import flip) is uniform across all six maps
 (confirmed on the non-symmetric arenas, where a wrong flip would be visible).
 
-This is NOT the same as `meshMap.ts`'s in-game bbox-centering, which centres the glb
-on `worldExtent/2` (the sim GRID centre) instead of the gameplay content centre —
-that mismatch is the known runtime terrain-vs-entities offset.
+### Runtime mesh load (must match this)
+
+`packages/client/src/render/meshMap.ts` uses the **same** rule in three.js space
+(`sim y` = three `z`, no Blender flip):
+
+```
+position.x = logicCentre.x - glbBBoxCentre.x
+position.z = logicCentre.z - glbBBoxCentre.z
+position.y = 0   // authored mesh Y = heightfield frame
+```
+
+`logicCentre` = axis-aligned bbox centre of map features (spawns, bases, turrets,
+lanes, …) — equivalent to the prep_viz logic bbox centre. **Never** centre on
+`worldExtent/2` (padded grid centre).
+
+### Source-of-truth hierarchy (do not invert)
+
+| Priority | Artifact | Role |
+|----------|----------|------|
+| 1 | `<map>-top.png` + `viz_data_<map>.json` | **Layout truth** — where things sit on the art |
+| 2 | `packages/sim/maps/<map>.json` | **Gameplay truth** — what the lockstep sim runs |
+| 3 | `public/models/<map>/<map>.glb` | **Art only** — terrain/props; align to (1)/(2) |
+
+- If JSON features and the top-down disagree → **fix the JSON** (import from
+  FCOP/`prep_viz`), do not invent wall-safe detours that leave the road channel.
+- **Do not bake** spawns / lanes / turret spots into the terrain GLB as the sim
+  authority. Empties for artists optional; dual sources desync. Pad silhouettes
+  in the mesh are decoration; live entities come from JSON + unit GLBs.
 
 ## Reproduce
 

@@ -41,6 +41,12 @@ export interface UnitModelSpec {
   readonly footprint: number;
   /** Optional height cap (world units) for tall props like the console. */
   readonly maxHeight?: number;
+  /**
+   * Keep the raw glb's authored size (orient + ground only). For FCOP Cobj
+   * assemblies already in map meters — do not stretch to `footprint`.
+   * `footprint` / `maxHeight` then act as loose upper bounds for the test.
+   */
+  readonly nativeScale?: boolean;
   readonly maxTris: number;
   /**
    * Desaturate the model's colors (baked vertex colors, or the packed atlas
@@ -148,19 +154,40 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     neutralizeColors: true,
   },
   {
-    key: "turret",
-    raw: "fcop/mp-obj032-neutral-turret.glb",
+    // Mode "Standard": capturable/dummy. FCOP Mp base 32 + gun 31 (assembly C).
+    // nativeScale: raw assembly is already in map meters (~1.4×1.6).
+    key: "turret-standard",
+    raw: "custom/turret-standard.glb",
     source: {
-      title: "Neutral turret (Mp Cobj 32)",
+      title: "Turret Standard (Mp Cobj 32 base + 31 gun)",
       author: EA,
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 2,
-    footprint: 3.2,
-    maxHeight: 2.6,
+    footprint: 1.5,
+    maxHeight: 1.7,
+    nativeScale: true,
     maxTris: 1500,
-    neutralizeColors: false,
+    neutralizeColors: true,
+  },
+  {
+    // Mode "Defense": base-ring. FCOP Mp base 21 + gun 20 (assembly E).
+    // nativeScale: raw is smaller (~0.95 m) — keep FCOP relative size.
+    key: "turret-defense",
+    raw: "custom/turret-defense.glb",
+    source: {
+      title: "Turret Defense (Mp Cobj 21 base + 20 gun)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    rotateQuarterY: 2,
+    footprint: 1.0,
+    maxHeight: 1.0,
+    nativeScale: true,
+    maxTris: 1500,
+    neutralizeColors: true,
   },
   {
     key: "console",

@@ -165,9 +165,12 @@ export const PROJ_SPECIAL = 2;
 export const PROJ_WARDEN = 3; // the Warden's bomb (own damage/AoE numbers)
 
 // Turret kinds (EntityStore.mode on TURRET entities).
-export const TURRET_BASE = 0; //        base ring: full targeting
-export const TURRET_DUMMY = 1; //       Phase 1 sandbox: engages avatars only
-export const TURRET_CAPTURABLE = 2; //  neutral spot: dormant until captured
+// Visual mesh modes: DEFENSE → turret-defense.glb, DUMMY/CAPTURABLE → turret-standard.glb.
+export const TURRET_DEFENSE = 0; //     base ring: full targeting (mesh mode "Defense")
+/** @deprecated Use TURRET_DEFENSE — same value (0). */
+export const TURRET_BASE = TURRET_DEFENSE;
+export const TURRET_DUMMY = 1; //       Phase 1 sandbox: engages avatars only (mesh mode "Standard")
+export const TURRET_CAPTURABLE = 2; //  neutral spot: dormant until captured (mesh mode "Standard")
 
 // animState bits (renderer-facing; snapshot field 7).
 export const ANIM_MOVING = 1 << 0;
@@ -1908,7 +1911,12 @@ export function writeSnapshot(state: SimState, out: Float32Array): number {
     out[o + 6] = ent.yaw[id];
     out[o + 7] = ent.animState[id];
     out[o + 8] = ent.hp[id] / ARCHETYPE_MAX_HP[ent.archetype[id]];
-    out[o + 9] = ent.archetype[id] === ARCHETYPE.PROJECTILE ? ent.mode[id] : ent.aux[id];
+    // PROJECTILE: payload kind. TURRET: DEFENSE / DUMMY / CAPTURABLE so the
+    // renderer can pick Defense vs Standard meshes. Everything else: aux.
+    out[o + 9] =
+      ent.archetype[id] === ARCHETYPE.PROJECTILE || ent.archetype[id] === ARCHETYPE.TURRET
+        ? ent.mode[id]
+        : ent.aux[id];
     n += 1;
   }
   return n;
