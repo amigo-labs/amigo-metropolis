@@ -27,7 +27,8 @@ export type MenuChoice =
   | { mode: "solo" } // sandbox vs the scripted feeder opponent
   | { mode: "warden"; difficulty: number } // vs the Phase 4 AI
   | { mode: "online"; code: string } // 1v1 lockstep via the relay
-  | { mode: "p2p"; code: string }; // 1v1 lockstep, lobby-brokered P2P
+  | { mode: "p2p"; code: string } // 1v1 lockstep, lobby-brokered P2P
+  | { mode: "fly" }; // localhost debug: free-fly cam + mesh units (incl. turrets)
 
 /**
  * Pure mapping from a menu choice to the query string main.ts understands.
@@ -39,6 +40,10 @@ export function buildModeQuery(choice: MenuChoice, mapId?: string): string {
   switch (choice.mode) {
     case "solo":
       query = "?play=1";
+      break;
+    case "fly":
+      // Sandbox match + free-fly debug cam; mesh render so unit/turret GLBs show.
+      query = "?play=1&cam=fly";
       break;
     case "warden": {
       const d = Math.max(1, Math.min(10, Math.trunc(choice.difficulty) || 1));
@@ -55,6 +60,11 @@ export function buildModeQuery(choice: MenuChoice, mapId?: string): string {
       break;
   }
   return mapId ? `${query}&map=${encodeURIComponent(mapId)}` : query;
+}
+
+/** Gates localhost-only debug UI (Fly cam button). */
+export function isLocalhost(hostname: string = location.hostname): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
 /** 5 upper-case alphanumerics, matching main.ts's room-code validation. */
@@ -201,6 +211,16 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   const soloBtn = el("button", "menu-mode", "<b>Solo</b><span>vs the Warden AI</span>");
   const onlineBtn = el("button", "menu-mode", "<b>Online</b><span>1v1 over the internet</span>");
   modes.append(soloBtn, onlineBtn);
+  // Localhost-only: free-fly debug over the sandbox (map turrets + unit GLBs).
+  if (isLocalhost()) {
+    const flyBtn = el(
+      "button",
+      "menu-mode menu-mode--debug",
+      "<b>Fly</b><span>debug cam · mesh units · turrets</span>",
+    );
+    flyBtn.onclick = () => go({ mode: "fly" }, selectedMapId);
+    modes.appendChild(flyBtn);
+  }
   rail.appendChild(modes);
 
   // A single sub-panel below the buttons reveals the chosen mode's options

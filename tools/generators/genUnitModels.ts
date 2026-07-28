@@ -48,9 +48,10 @@ const OUT_PROPS = join(MODELS_DIR, "props");
 
 /**
  * One model to build. Flattened from the manifest's two arrays so the pipeline
- * below stays a single function: the only behavioural difference is that a pass
- * without a `footprint` keeps the source's own scale (arena scenery), while one
- * with a footprint is fitted to its greybox silhouette (gameplay archetypes).
+ * below stays a single function: the only behavioural difference is whether the
+ * mesh is fitted to its greybox silhouette (gameplay archetypes) or keeps the
+ * source's own scale — arena scenery carries no `footprint` at all, and FCOP
+ * Cobj assemblies already authored in map meters opt out via `nativeScale`.
  */
 interface ModelPass {
   readonly key: string;
@@ -61,6 +62,11 @@ interface ModelPass {
   /** Target max horizontal extent; absent = do not rescale at all. */
   readonly footprint?: number;
   readonly maxHeight?: number;
+  /**
+   * Keep the raw's authored size (orient + ground only) despite a `footprint`:
+   * `footprint` / `maxHeight` then act as loose upper bounds for the test.
+   */
+  readonly nativeScale?: boolean;
   readonly neutralizeColors: boolean;
   /** Move the origin to the bbox centre in XZ (see the grounding step below). */
   readonly centreXZ: boolean;
@@ -75,6 +81,7 @@ const PASSES: readonly ModelPass[] = [
     maxTris: spec.maxTris,
     footprint: spec.footprint,
     maxHeight: spec.maxHeight,
+    nativeScale: spec.nativeScale,
     neutralizeColors: spec.neutralizeColors,
     centreXZ: true,
   })),
@@ -340,25 +347,34 @@ function bakeVertexColors(document: Document, prim: Primitive): void {
 }
 
 /**
- * Desaturates COLOR_0 to luminance and normalizes brightness so the
- * multiplicative instanceColor team tint dominates the read (palette.ts).
+ * Desaturates COLOR_0 to a high-contrast greyscale ramp so multiplicative
+ * instanceColor team tint (red / blue / neutral) stays sharp.
  */
 function neutralizeColors(prim: Primitive): void {
   const color = prim.getAttribute("COLOR_0");
   if (!color) return;
   const count = color.getCount();
   const lums = new Float32Array(count);
-  let maxLum = 0;
   const el: number[] = [1, 1, 1, 1];
+  let lo = 1;
+  let hi = 0;
   for (let i = 0; i < count; i++) {
     color.getElement(i, el);
     const lum = 0.2126 * el[0] + 0.7152 * el[1] + 0.0722 * el[2];
     lums[i] = lum;
-    if (lum > maxLum) maxLum = lum;
+    if (lum < lo) lo = lum;
+    if (lum > hi) hi = lum;
   }
-  const scale = maxLum > 0 ? 0.9 / maxLum : 1;
+  if (hi <= lo) {
+    lo = 0;
+    hi = 1;
+  }
+  const outLo = 0.1;
+  const outHi = 0.95;
+  const span = hi - lo;
   for (let i = 0; i < count; i++) {
-    const v = Math.min(1, lums[i] * scale);
+    const t = outLo + ((lums[i] - lo) / span) * (outHi - outLo);
+    const v = Math.min(1, Math.max(0, t));
     color.setElement(i, [v, v, v, 1]);
   }
 }
@@ -441,26 +457,36 @@ async function processModel(spec: ModelPass): Promise<Report> {
       xOff += page.width;
     }
     if (spec.neutralizeColors) {
-      // Linear-space luminance, normalized to a MID-GRAY MEAN (0.55 linear),
-      // then re-encoded to sRGB. The FCOP night-city palettes are dark across
-      // the board, so a max-based normalization (like the vertex path's)
-      // leaves tinted units nearly black — anchoring the mean instead puts
-      // team tint x texture at greybox-comparable brightness while keeping
-      // the panel shading.
-      let sumLum = 0;
+      // Desaturate to greyscale albedo so instanceColor owns hue (3 colors:
+      // team0 / team1 / neutral). Preserve panel contrast: mean-push on the
+      // whole FCOP sheet (dark padding + tiny UV islands) washed details out.
+      // Stretch only the used (non-near-black) luminance into a sharp ramp.
       const lums = new Float32Array(width * height);
       for (let i = 0; i < width * height; i++) {
-        const lum =
+        lums[i] =
           0.2126 * srgbToLinear(packed[i * 4] / 255) +
           0.7152 * srgbToLinear(packed[i * 4 + 1] / 255) +
           0.0722 * srgbToLinear(packed[i * 4 + 2] / 255);
-        lums[i] = lum;
-        sumLum += lum;
       }
-      const mean = sumLum / (width * height);
-      const scale = mean > 0 ? 0.55 / mean : 1;
+      const bg = 0.035; // ignore atlas padding / unused sheet
+      let lo = 1;
+      let hi = 0;
+      for (let i = 0; i < lums.length; i++) {
+        if (lums[i] < bg) continue;
+        if (lums[i] < lo) lo = lums[i];
+        if (lums[i] > hi) hi = lums[i];
+      }
+      if (hi <= lo) {
+        lo = 0;
+        hi = 1;
+      }
+      const outLo = 0.1;
+      const outHi = 0.95;
+      const span = hi - lo;
       for (let i = 0; i < width * height; i++) {
-        const v = Math.round(linearToSrgb(Math.min(1, lums[i] * scale)) * 255);
+        const t =
+          lums[i] < bg ? 0.05 : outLo + ((lums[i] - lo) / span) * (outHi - outLo);
+        const v = Math.round(linearToSrgb(Math.min(1, Math.max(0, t))) * 255);
         packed[i * 4] = v;
         packed[i * 4 + 1] = v;
         packed[i * 4 + 2] = v;
@@ -498,6 +524,22 @@ async function processModel(spec: ModelPass): Promise<Report> {
     for (const texture of root.listTextures()) texture.dispose();
   }
 
+  // Bake every mesh-node's local transform into its vertex data BEFORE join.
+  // Multi-part assets (turret hull + gun) store placement in node matrices;
+  // joinMeshes merges geometry in local space and would drop those offsets,
+  // which shreds the silhouette and UV alignment of assembled FCOP parts.
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  for (const n of root.listNodes()) {
+    const nodeMesh = n.getMesh();
+    if (!nodeMesh) continue;
+    const m = n.getMatrix();
+    const isIdentity = m.every((v, i) => Math.abs(v - identity[i]) < 1e-6);
+    if (!isIdentity) {
+      transformMesh(nodeMesh, m as unknown as Parameters<typeof transformMesh>[1]);
+      n.setMatrix(identity as unknown as Parameters<typeof n.setMatrix>[0]);
+    }
+  }
+
   // One node, one mesh, one primitive: the runtime swaps this into a single
   // InstancedMesh per archetype (renderer hard rule #3).
   await document.transform(joinMeshes({ keepNamed: false }), dedup(), prune());
@@ -526,14 +568,16 @@ async function processModel(spec: ModelPass): Promise<Report> {
 
   // Bake any remaining node transform, then orient / scale / ground the mesh.
   transformMesh(mesh, node.getMatrix() as unknown as Parameters<typeof transformMesh>[1]);
-  node.setMatrix([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  node.setMatrix(identity as unknown as Parameters<typeof node.setMatrix>[0]);
 
   const apply = (m: number[]) =>
     transformMesh(mesh, m as unknown as Parameters<typeof transformMesh>[1]);
   apply(quarterYMatrix(spec.rotateQuarterY));
 
   let bounds = getBounds(scene);
-  if (spec.footprint !== undefined) {
+  // FCOP Cobj assemblies are already in map meters — only orient + ground.
+  // Everything else stretches to the greybox footprint / height cap.
+  if (spec.footprint !== undefined && !spec.nativeScale) {
     const sizeX = bounds.max[0] - bounds.min[0];
     const sizeY = bounds.max[1] - bounds.min[1];
     const sizeZ = bounds.max[2] - bounds.min[2];
@@ -547,6 +591,8 @@ async function processModel(spec: ModelPass): Promise<Report> {
   // Flat-shaded sources split nearly every vertex on normal seams, which the
   // simplifier treats as locked borders — so drop normals first, weld by
   // position+color, simplify, then rebuild flat normals from the faces.
+  // Prefer authored density under maxTris for textured units: aggressive
+  // simplify on subdivided UVs shreds atlas mapping (see turret assemblies).
   let tris = triangleCount(mesh);
   let simplified = false;
   if (tris > spec.maxTris) {
@@ -589,7 +635,13 @@ async function processModel(spec: ModelPass): Promise<Report> {
 
   // Exact weld: identical position/normal/color tuples share one index —
   // pure size/VRAM win, flat shading is untouched.
-  await document.transform(weld(), prune());
+  // Skip weld on textured meshes: gltf-transform weld can collapse UV-seamed
+  // flat-shaded verts and shred atlas mapping on multi-part FCOP assemblies.
+  if (!textured) {
+    await document.transform(weld(), prune());
+  } else {
+    await document.transform(prune());
+  }
   root.getAsset().generator = "amigo-metropolis gen:units";
 
   const glb = await io.writeBinary(document);

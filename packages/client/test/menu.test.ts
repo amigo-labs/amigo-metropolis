@@ -3,11 +3,18 @@
 // already understands, and room codes must round-trip through validation.
 
 import { describe, expect, test } from "bun:test";
-import { buildModeQuery, normalizeRoomCode, randomRoomCode } from "../src/menu";
+import { buildModeQuery, isLocalhost, normalizeRoomCode, randomRoomCode } from "../src/menu";
 
 describe("buildModeQuery", () => {
   test("solo sandbox uses the ?play marker", () => {
     expect(buildModeQuery({ mode: "solo" })).toBe("?play=1");
+  });
+
+  test("fly debug uses sandbox + free-fly cam", () => {
+    expect(buildModeQuery({ mode: "fly" })).toBe("?play=1&cam=fly");
+    expect(buildModeQuery({ mode: "fly" }, "urban-jungle")).toBe(
+      "?play=1&cam=fly&map=urban-jungle",
+    );
   });
 
   test("warden clamps difficulty into 1..10", () => {
@@ -41,6 +48,16 @@ describe("buildModeQuery", () => {
 
   test("without a map id the query stays bare", () => {
     expect(buildModeQuery({ mode: "solo" })).toBe("?play=1");
+  });
+});
+
+describe("isLocalhost", () => {
+  test("recognizes common local hosts", () => {
+    expect(isLocalhost("localhost")).toBe(true);
+    expect(isLocalhost("127.0.0.1")).toBe(true);
+    expect(isLocalhost("[::1]")).toBe(true);
+    expect(isLocalhost("example.com")).toBe(false);
+    expect(isLocalhost("192.168.1.10")).toBe(false);
   });
 });
 

@@ -69,6 +69,36 @@ Violating any of these causes multiplayer desyncs. They are non-negotiable.
   be used.
 - Note third-party asset sources in `CREDITS.md` for provenance where known.
 
+## Hard rules — FCOP maps (placement & alignment)
+
+FCOP-derived arenas (la-cantina, urban-jungle, …) have a fixed source hierarchy.
+Violating it reintroduces “left-shifted” lanes/turrets and empty pads.
+
+1. **Visual truth (layout):** `docs/renders/fcop-viz/<map>/<map>-top.png` and the
+   data behind it (`prep_viz.py` → `viz_data_<map>.json` from RE
+   `actors.json` + `nets.json`). Same **0-based grid** as the sim map JSON
+   (`x` = col, `y` = row/z). If sim features and that top-down disagree, the
+   **viz/FCOP extract wins** — do not invent hand-BFS or A* lanes to green tests.
+2. **Gameplay truth (runtime):** `packages/sim/maps/<map>.json` — heightfield,
+   walls, spawns, bases, lanes, turret/outpost spots. Deterministic; lockstep
+   reads only this. Derive it *from* FCOP/viz data; never freehand over the art.
+3. **Mesh alignment (`meshMap.ts`):** place the `.glb` with
+   `position.xz = logicCentre − glbBBoxCentre` (logic = bbox of map features /
+   FCOP content). **Forbidden:** centre on `worldExtent/2` (grid centre) — the
+   apron is asymmetric (~16 cells off on Mp). **Y:** keep authored heights
+   (match heightfield; never force min-Y → 0). Same rule as
+   `docs/renders/fcop-viz/build_map.py` (three.js: no Blender Y-flip).
+4. **Do not bake spawns/lanes/turrets into the terrain `.glb` as sim authority.**
+   Optional empties/helpers for art are fine; sim must keep JSON. Dual truth
+   (GLB nodes + JSON) desyncs. Pads/buildings *in* the mesh are art only.
+5. **Collision follows roads:** if FCOP Cnet / viz roads are correct and walls
+   block them, open wall bits / soften heights along the road — do not bend the
+   lane polyline away from the art to satisfy wall tests.
+6. **Debug overlays:** frame on the **logic centre**, not the padded square
+   grid (padding on +X makes content look “shifted left”).
+7. **Import helpers:** `docs/renders/fcop-viz/prep_viz.py`,
+   `tools/generators/importLaCantinaFromFcopViz.ts` (pattern for other maps).
+
 ## Workflow
 
 - Follow `PLAN.md` phase by phase. Check off tasks as completed.

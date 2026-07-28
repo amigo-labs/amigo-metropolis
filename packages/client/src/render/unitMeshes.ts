@@ -25,7 +25,8 @@ const UNIT_MODEL_KEYS = [
   ["guardian", "guardian"],
   ["juggernaut", "juggernaut"],
   ["fortress", "fortress"],
-  ["turret", "turret"],
+  ["turretStandard", "turret-standard"],
+  ["turretDefense", "turret-defense"],
   ["console", "console"],
   ["warden", "warden"],
 ] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
@@ -76,6 +77,14 @@ function swapBucketMesh(bucket: Bucket, key: string): void {
       // Models are authored +Z forward (assets.md §4); the sim/greybox frame
       // is +X forward, so bake the quarter turn into the geometry once.
       merged.rotateY(Math.PI / 2);
+      // PS1-era atlas sampling (assets.md §3): hard pixels, no mips.
+      if (map) {
+        map.magFilter = THREE.NearestFilter;
+        map.minFilter = THREE.NearestFilter;
+        map.generateMipmaps = false;
+        map.colorSpace = THREE.SRGBColorSpace;
+        map.needsUpdate = true;
+      }
       const material = new THREE.MeshStandardMaterial({
         flatShading: true,
         vertexColors: merged.hasAttribute("color"),

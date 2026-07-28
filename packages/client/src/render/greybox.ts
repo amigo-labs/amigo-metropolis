@@ -5,7 +5,7 @@
 // The avatar gets TWO buckets (walker body / hover wedge); the frame loop
 // routes each snapshot entity into a bucket via bucketFor().
 
-import { ANIM_HOVER, ARCHETYPE, getMapById, MAP_REGISTRY } from "@metropolis/sim";
+import { ANIM_HOVER, ARCHETYPE, TURRET_DEFENSE, getMapById, MAP_REGISTRY } from "@metropolis/sim";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { NEUTRAL_RAMP, PROJECTILE_HEX, TEAM_RAMPS } from "./palette";
@@ -34,7 +34,10 @@ export interface GreyboxMeshes {
   readonly guardian: Bucket;
   readonly juggernaut: Bucket;
   readonly fortress: Bucket;
-  readonly turret: Bucket;
+  /** Mode "Standard": capturable / dummy turrets. */
+  readonly turretStandard: Bucket;
+  /** Mode "Defense": base-ring turrets (TURRET_DEFENSE). */
+  readonly turretDefense: Bucket;
   readonly projectile: Bucket;
   readonly console: Bucket;
   readonly warden: Bucket;
@@ -138,13 +141,17 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     box(1.3, 0.25, 5.0, -0.3, 0.15, 0), // wing
     box(1.0, 0.5, 0.8, 1.6, -0.1, 0), // nose
   ]);
-  // Turret: base cylinder + barrel toward +X.
-  const turretBase = new THREE.CylinderGeometry(1.2, 1.4, 1.6, 8);
-  turretBase.translate(0, 0.8, 0);
-  const barrel = new THREE.CylinderGeometry(0.18, 0.22, 1.6, 6);
+  // Turret Standard ≈ FCOP Cobj assembly (~1.4 m footprint, ~1.6 m tall).
+  const turretBase = new THREE.CylinderGeometry(0.55, 0.65, 0.95, 8);
+  turretBase.translate(0, 0.48, 0);
+  const barrel = new THREE.CylinderGeometry(0.1, 0.12, 0.9, 6);
   barrel.rotateZ(-Math.PI / 2);
-  barrel.translate(1.2, 1.35, 0);
+  barrel.translate(0.7, 0.85, 0);
   const turretGeometry = mergeGeometries([turretBase, barrel]);
+  // Defense ≈ smaller FCOP ring gun (~0.95 m).
+  const defenseScale = 0.65;
+  const turretDefenseGeometry = turretGeometry.clone();
+  turretDefenseGeometry.scale(defenseScale, defenseScale, defenseScale);
   // Projectile: small low-poly ball.
   const projectileGeometry = new THREE.SphereGeometry(0.35, 6, 4);
   projectileGeometry.translate(0, 0.35, 0);
@@ -173,7 +180,12 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const guardian = bucket(scene, guardianGeometry, 64);
   const juggernaut = bucket(scene, juggernautGeometry, 4);
   const fortress = bucket(scene, fortressGeometry, 4);
-  const turret = bucket(scene, turretGeometry, turretCapacity());
+// Separate InstancedMesh + smaller greybox so Defense stays compact even
+  // before / without the Stage B .glb swap. Capacity is registry-sized so PA
+  // layouts (72+ turrets) never overflow a single mode bucket.
+  const turretCap = turretCapacity();
+  const turretStandard = bucket(scene, turretGeometry, turretCap);
+  const turretDefense = bucket(scene, turretDefenseGeometry, turretCap);
   const projectile = bucket(scene, projectileGeometry, 128);
   const consoleBucket = bucket(scene, consoleGeometry, consoleCapacity());
   const warden = bucket(scene, wardenGeometry, 2);
@@ -184,7 +196,8 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     guardian,
     juggernaut,
     fortress,
-    turret,
+    turretStandard,
+    turretDefense,
     projectile,
     console: consoleBucket,
     warden,
@@ -195,7 +208,8 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
       guardian,
       juggernaut,
       fortress,
-      turret,
+      turretStandard,
+      turretDefense,
       projectile,
       consoleBucket,
       warden,
@@ -208,6 +222,8 @@ export function bucketFor(
   greybox: GreyboxMeshes,
   archetype: number,
   animState: number,
+  /** Snapshot aux: projectile kind, or turret mode (DEFENSE / DUMMY / CAPTURABLE→Standard). */
+  aux = 0,
 ): Bucket | undefined {
   if (archetype === ARCHETYPE.AVATAR) {
     return (animState & ANIM_HOVER) !== 0 ? greybox.avatarHover : greybox.avatarWalker;
@@ -216,7 +232,9 @@ export function bucketFor(
   if (archetype === ARCHETYPE.GUARDIAN) return greybox.guardian;
   if (archetype === ARCHETYPE.JUGGERNAUT) return greybox.juggernaut;
   if (archetype === ARCHETYPE.FORTRESS) return greybox.fortress;
-  if (archetype === ARCHETYPE.TURRET) return greybox.turret;
+  if (archetype === ARCHETYPE.TURRET) {
+    return aux === TURRET_DEFENSE ? greybox.turretDefense : greybox.turretStandard;
+  }
   if (archetype === ARCHETYPE.PROJECTILE) return greybox.projectile;
   if (archetype === ARCHETYPE.CONSOLE) return greybox.console;
   if (archetype === ARCHETYPE.WARDEN) return greybox.warden;
