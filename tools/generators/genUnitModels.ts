@@ -25,7 +25,14 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { deflateSync, inflateSync } from "node:zlib";
-import { type Document, getBounds, type Mesh, NodeIO, type Primitive } from "@gltf-transform/core";
+import {
+  type Document,
+  getBounds,
+  type Mesh,
+  NodeIO,
+  type Primitive,
+  PropertyType,
+} from "@gltf-transform/core";
 import {
   dedup,
   flatten,
@@ -100,6 +107,8 @@ const PASSES: readonly ModelPass[] = [
 
 const io = new NodeIO();
 
+const IDENTITY_MATRIX: readonly number[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
 /** Column-major rotation matrix for q exact quarter-turns around +Y. */
 function quarterYMatrix(q: 0 | 1 | 2 | 3): number[] {
   const c = [1, 0, -1, 0][q];
@@ -113,6 +122,140 @@ function scaleMatrix(s: number): number[] {
 
 function translateMatrix(x: number, y: number, z: number): number[] {
   return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
+}
+
+/** Column-major 4x4 product a*b, matching the helpers above. */
+function multiply4(a: readonly number[], b: readonly number[]): number[] {
+  const out = new Array<number>(16).fill(0);
+  for (let col = 0; col < 4; col++) {
+    for (let row = 0; row < 4; row++) {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) sum += a[k * 4 + row] * b[col * 4 + k];
+      out[col * 4 + row] = sum;
+    }
+  }
+  return out;
+}
+
+function transformPoint(m: readonly number[], p: readonly number[]): number[] {
+  return [
+    m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+    m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+    m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+  ];
+}
+
+/** Rotates a direction by m's 3x3 part and renormalizes. */
+function transformDirection(m: readonly number[], v: readonly number[]): number[] {
+  const x = m[0] * v[0] + m[4] * v[1] + m[8] * v[2];
+  const y = m[1] * v[0] + m[5] * v[1] + m[9] * v[2];
+  const z = m[2] * v[0] + m[6] * v[1] + m[10] * v[2];
+  const len = Math.sqrt(x * x + y * y + z * z);
+  return len > 0 ? [x / len, y / len, z / len] : [0, 1, 0];
+}
+
+/**
+ * Bakes the skin's rest pose into POSITION/NORMAL, so dropping the skin keeps
+ * the pose the source was authored in.
+ *
+ * The X1-Alpha assemblies (extract_x1.py) carry their pose in the joints, not in
+ * the vertex data: their bind pose has the legs folded flat around the origin
+ * with the cockpit inside them, while the rigid unskinned parts (guns, beacon)
+ * already sit at their posed height. Discarding the skins without evaluating
+ * them therefore ships that bind pose — a collapsed body with parts hovering
+ * above it. Blending skinMatrix = jointWorld * inverseBind by vertex weight is
+ * what a viewer does for the rest pose, so this reproduces the authored figure.
+ *
+ * Normals use the same matrix's rotation part: these poses are rigid
+ * (rotation + translation per joint), so no inverse-transpose is needed.
+ */
+function bakeSkinRestPose(document: Document): void {
+  for (const node of document.getRoot().listNodes()) {
+    const skin = node.getSkin();
+    const mesh = node.getMesh();
+    if (!skin || !mesh) continue;
+    if (node.getParentNode() !== null) {
+      // Joint world matrices are absolute, so the baked vertices are too — a
+      // parent transform would be applied a second time further down.
+      throw new Error(`skinned mesh node "${node.getName()}" is not a scene child`);
+    }
+    const inverseBind = skin.getInverseBindMatrices();
+    const jointMatrices = skin.listJoints().map((joint, index) => {
+      const world = Array.from(joint.getWorldMatrix());
+      if (!inverseBind) return world;
+      return multiply4(world, inverseBind.getElement(index, new Array<number>(16)));
+    });
+    for (const prim of mesh.listPrimitives()) {
+      const position = prim.getAttribute("POSITION");
+      const jointIds = prim.getAttribute("JOINTS_0");
+      const weights = prim.getAttribute("WEIGHTS_0");
+      if (!position || !jointIds || !weights) continue;
+      const normal = prim.getAttribute("NORMAL");
+      const p = [0, 0, 0];
+      const n = [0, 0, 0];
+      const ids = [0, 0, 0, 0];
+      const w = [0, 0, 0, 0];
+      const skinMatrix = new Array<number>(16);
+      for (let i = 0; i < position.getCount(); i++) {
+        jointIds.getElement(i, ids);
+        weights.getElement(i, w);
+        skinMatrix.fill(0);
+        let total = 0;
+        for (let k = 0; k < 4; k++) {
+          if (w[k] === 0) continue;
+          const jointMatrix = jointMatrices[ids[k]];
+          if (!jointMatrix) throw new Error(`vertex references joint ${ids[k]} outside the skin`);
+          for (let e = 0; e < 16; e++) skinMatrix[e] += jointMatrix[e] * w[k];
+          total += w[k];
+        }
+        // An unweighted vertex is not driven by the rig; leave it as authored.
+        if (total === 0) continue;
+        // Exporters do not always normalize the four weights.
+        for (let e = 0; e < 16; e++) skinMatrix[e] /= total;
+        position.getElement(i, p);
+        position.setElement(i, transformPoint(skinMatrix, p));
+        if (normal) {
+          normal.getElement(i, n);
+          normal.setElement(i, transformDirection(skinMatrix, n));
+        }
+      }
+    }
+    // glTF ignores a skinned mesh node's own transform; the bake made the
+    // vertices absolute, so clear it rather than let the node bake re-apply it.
+    node.setMatrix(IDENTITY_MATRIX as unknown as Parameters<typeof node.setMatrix>[0]);
+  }
+}
+
+/**
+ * Fails the build if any mesh or vertex attribute has more than one owner.
+ *
+ * The stages that follow edit vertex data in place, once per primitive (atlas UV
+ * remap) and once per node (transform bake), so shared data would silently take
+ * those edits twice. Loud failure beats a model that quietly moves.
+ */
+function assertUnsharedVertexData(document: Document, key: string): void {
+  const meshUsers = new Map<Mesh, number>();
+  for (const node of document.getRoot().listNodes()) {
+    const mesh = node.getMesh();
+    if (mesh) meshUsers.set(mesh, (meshUsers.get(mesh) ?? 0) + 1);
+  }
+  for (const [mesh, count] of meshUsers) {
+    if (count > 1) {
+      throw new Error(`${key}: mesh "${mesh.getName()}" is shared by ${count} nodes`);
+    }
+  }
+  const attributeUsers = new Map<unknown, number>();
+  for (const mesh of document.getRoot().listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      for (const semantic of prim.listSemantics()) {
+        const attribute = prim.getAttribute(semantic);
+        if (attribute) attributeUsers.set(attribute, (attributeUsers.get(attribute) ?? 0) + 1);
+      }
+    }
+  }
+  for (const count of attributeUsers.values()) {
+    if (count > 1) throw new Error(`${key}: a vertex attribute is shared by ${count} primitives`);
+  }
 }
 
 function triangleCount(mesh: Mesh): number {
@@ -392,7 +535,11 @@ async function processModel(spec: ModelPass): Promise<Report> {
   const root = document.getRoot();
 
   // Rest pose only: Stage B ships rigid merged meshes; rigs return in Stage C.
+  // The pose has to be baked into the vertices first — a skinned source keeps it
+  // in its joints, and the bind pose it would otherwise ship is not a pose the
+  // parts were ever meant to be seen in.
   for (const anim of root.listAnimations()) anim.dispose();
+  bakeSkinRestPose(document);
   for (const skin of root.listSkins()) skin.dispose();
   for (const mesh of root.listMeshes()) {
     // Morph targets outlive their animation (the FCOP scenery barrier is a
@@ -414,7 +561,21 @@ async function processModel(spec: ModelPass): Promise<Report> {
     }
   }
 
-  await document.transform(dedup(), prune(), flatten());
+  // Textures and materials only. Everything below rewrites vertex data IN PLACE
+  // — the atlas UV remap once per primitive, the node-transform bake once per
+  // node — so two owners of one accessor take every rewrite twice and land where
+  // nothing was ever authored. Deduplicating meshes and accessors here is what
+  // created exactly that: the X1's twin guns are mirror images, so their vertex
+  // data merged, and the bake then applied both node offsets to it — one gun at
+  // double the offset, hovering clear of the hull. A source with genuinely
+  // instanced meshes would have to be un-shared (clone mesh + attributes per
+  // node) before this point; assertUnsharedVertexData below refuses to guess.
+  await document.transform(
+    dedup({ propertyTypes: [PropertyType.TEXTURE, PropertyType.MATERIAL] }),
+    prune(),
+    flatten(),
+  );
+  assertUnsharedVertexData(document, spec.key);
 
   const prims = root.listMeshes().flatMap((m) => m.listPrimitives());
   const unitMat = document.createMaterial("unit").setBaseColorFactor([1, 1, 1, 1]);
@@ -527,15 +688,14 @@ async function processModel(spec: ModelPass): Promise<Report> {
   // Multi-part assets (turret hull + gun) store placement in node matrices;
   // joinMeshes merges geometry in local space and would drop those offsets,
   // which shreds the silhouette and UV alignment of assembled FCOP parts.
-  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   for (const n of root.listNodes()) {
     const nodeMesh = n.getMesh();
     if (!nodeMesh) continue;
     const m = n.getMatrix();
-    const isIdentity = m.every((v, i) => Math.abs(v - identity[i]) < 1e-6);
+    const isIdentity = m.every((v, i) => Math.abs(v - IDENTITY_MATRIX[i]) < 1e-6);
     if (!isIdentity) {
       transformMesh(nodeMesh, m as unknown as Parameters<typeof transformMesh>[1]);
-      n.setMatrix(identity as unknown as Parameters<typeof n.setMatrix>[0]);
+      n.setMatrix(IDENTITY_MATRIX as unknown as Parameters<typeof n.setMatrix>[0]);
     }
   }
 
@@ -567,7 +727,7 @@ async function processModel(spec: ModelPass): Promise<Report> {
 
   // Bake any remaining node transform, then orient / scale / ground the mesh.
   transformMesh(mesh, node.getMatrix() as unknown as Parameters<typeof transformMesh>[1]);
-  node.setMatrix(identity as unknown as Parameters<typeof node.setMatrix>[0]);
+  node.setMatrix(IDENTITY_MATRIX as unknown as Parameters<typeof node.setMatrix>[0]);
 
   const apply = (m: number[]) =>
     transformMesh(mesh, m as unknown as Parameters<typeof transformMesh>[1]);

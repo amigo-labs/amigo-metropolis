@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { getBounds, NodeIO } from "@gltf-transform/core";
+import { getBounds, NodeIO, type Primitive } from "@gltf-transform/core";
 import { UNIT_MODELS } from "../units/manifest";
 
 const OUT_DIR = join(
@@ -22,6 +22,38 @@ const OUT_DIR = join(
 );
 
 const io = new NodeIO();
+
+/**
+ * Largest empty horizontal slab inside the mesh, in world units: sorts the
+ * triangles by their vertical span and measures how far the covered range ever
+ * jumps. Triangle spans rather than vertex heights, so a tall flat wall with
+ * vertices only at its ends still counts as covered.
+ */
+function largestVerticalGap(prim: Primitive): number {
+  const pos = prim.getAttribute("POSITION");
+  if (!pos) return 0;
+  const indices = prim.getIndices();
+  const count = indices ? indices.getCount() : pos.getCount();
+  const a = [0, 0, 0];
+  const b = [0, 0, 0];
+  const c = [0, 0, 0];
+  const spans: number[][] = [];
+  for (let i = 0; i + 2 < count; i += 3) {
+    pos.getElement(indices ? indices.getScalar(i) : i, a);
+    pos.getElement(indices ? indices.getScalar(i + 1) : i + 1, b);
+    pos.getElement(indices ? indices.getScalar(i + 2) : i + 2, c);
+    spans.push([Math.min(a[1], b[1], c[1]), Math.max(a[1], b[1], c[1])]);
+  }
+  if (spans.length === 0) return 0;
+  spans.sort((p, q) => p[0] - q[0]);
+  let reach = spans[0][1];
+  let gap = 0;
+  for (const [lo, hi] of spans) {
+    if (lo > reach) gap = Math.max(gap, lo - reach);
+    if (hi > reach) reach = hi;
+  }
+  return gap;
+}
 
 describe("committed unit models match the manifest contract", () => {
   for (const spec of UNIT_MODELS) {
@@ -81,6 +113,13 @@ describe("committed unit models match the manifest contract", () => {
       } else {
         expect(footprint).toBeLessThanOrEqual(spec.footprint * 1.02);
       }
+      // No floating parts: a unit is one solid silhouette, so its triangles
+      // must cover the full height without an empty slab. Catches assemblies
+      // that ship a pose the parts were never posed in — the skinned X1 rest
+      // poses came out with the cockpit sunk into the legs and the guns and
+      // beacon hovering above them (genUnitModels.ts bakeSkinRestPose).
+      expect(largestVerticalGap(prims[0])).toBeLessThanOrEqual(sizeY * 0.02);
+
       if (!spec.nativeScale && spec.maxHeight === undefined) {
         expect(footprint).toBeGreaterThanOrEqual(spec.footprint * 0.98);
       } else if (!spec.nativeScale && spec.maxHeight !== undefined) {

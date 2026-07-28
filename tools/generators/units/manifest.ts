@@ -35,7 +35,16 @@ export interface UnitModelSpec {
   /** Raw download, relative to tools/generators/units/raw/. */
   readonly raw: string;
   readonly source: UnitModelSource;
-  /** Quarter-turns around +Y to bring the source's forward axis onto +Z. */
+  /**
+   * Quarter-turns around +Y to bring the source's forward axis onto +Z.
+   *
+   * The FCOP Cobj extraction already lands nose-on-+Z, so every Cobj-derived
+   * model here is 0 — measure before deviating. `2` looks harmless on a
+   * silhouette that is roughly symmetric front-to-back, and it is how the
+   * hovertank and the Sky Captain jet ended up driving backwards: their tapered
+   * ends pointed at -Z, i.e. away from travel. A per-Z-slice width profile of
+   * the raw shows which end is the nose (narrow) and which is the body (wide).
+   */
   readonly rotateQuarterY: 0 | 1 | 2 | 3;
   /** Target max horizontal extent (world units), from the greybox extents. */
   readonly footprint: number;
@@ -114,7 +123,8 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
-    rotateQuarterY: 2,
+    // 0 like every other Cobj: the extraction already puts the nose on +Z.
+    rotateQuarterY: 0,
     footprint: 2.0,
     maxTris: 1500,
     neutralizeColors: true,
@@ -221,7 +231,8 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
-    rotateQuarterY: 2,
+    // 0 like every other Cobj: the extraction already puts the nose on +Z.
+    rotateQuarterY: 0,
     footprint: 4.8,
     maxTris: 1500,
     neutralizeColors: true,
