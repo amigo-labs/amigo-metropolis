@@ -4,11 +4,28 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { RESPAWN_TICKS, TRICKLE_INTERVAL_TICKS, WARDEN_ALTITUDE, WARDEN_HP } from "../src/balance";
+import {
+  RESPAWN_TICKS,
+  TRICKLE_INTERVAL_TICKS,
+  WARDEN_ALTITUDE,
+  WARDEN_CORE_DEFEND_RADIUS,
+  WARDEN_DEFEND_RADIUS,
+  WARDEN_HP,
+  WARDEN_PUSH_COMMIT_RANGE,
+} from "../src/balance";
 import { EV_CAPTURE, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
-import { DISTRICT_01_ID, getMapById, sampleHeight } from "../src/map";
+import {
+  BUG_HUNT_ID,
+  DISTRICT_01_ID,
+  getMapById,
+  LA_CANTINA_ID,
+  PROVING_GROUND_ID,
+  sampleHeight,
+  URBAN_JUNGLE_ID,
+} from "../src/map";
 import { createSim, hash, type SimState, step } from "../src/sim";
+import { WGOAL_CAPTURE, WGOAL_DEFEND, WGOAL_ESCORT } from "../src/warden";
 
 const idle = createTickInputs();
 
@@ -129,4 +146,82 @@ describe("warden", () => {
     // wraparound would explode the balance).
     expect(sim.points[1]).toBeLessThan(100000);
   });
+});
+
+describe("the goal ladder reads the arena's rule set (rules.md §9)", () => {
+  // Two rungs behave differently depending on whether the arena's loss condition
+  // is a breached gate (§1) or a razed core (§9), and getting that wrong is not a
+  // subtle mis-tune: on a §9 arena the §1 forms made the Warden spend the whole
+  // match at home and never push. These pin the goal MIX rather than an outcome,
+  // because the mix is where the defect was visible and an outcome is not — a
+  // Warden can look busy while doing nothing toward the objective.
+  const PA_ARENAS = [LA_CANTINA_ID, URBAN_JUNGLE_ID, PROVING_GROUND_ID, BUG_HUNT_ID];
+
+  /**
+   * Fraction of ticks spent on each goal over a 5-minute difficulty-8 match.
+   * `silenceDefender` turns the far base's free production off, which is the
+   * escorted-push scenario paAttribution measures the outcome of.
+   */
+  function goalMix(mapId: string, silenceDefender = false): Map<number, number> {
+    const map = getMapById(mapId);
+    if (silenceDefender) (map.bases[0] as { productionTicks: number }).productionTicks = 0;
+    const sim = createSim(map, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
+    const ticks = new Map<number, number>();
+    while (sim.tick < 5 * 60 * 30 && sim.winner < 0) {
+      step(sim, idle);
+      ticks.set(sim.wardenGoal, (ticks.get(sim.wardenGoal) ?? 0) + 1);
+    }
+    for (const [g, n] of ticks) ticks.set(g, n / sim.tick);
+    return ticks;
+  }
+
+  it("escorts a real share of a PA match instead of sitting on home defence", () => {
+    // Before v17, over ten minutes: escort 0% on la-cantina, urban-jungle and
+    // bug-hunt, with DEFEND taking 63%, 89% and 91%. An enemy ground unit was
+    // within 55 m of the gate essentially always, because both bases produce one
+    // free Runner every 5 s, so the §1 rung never released the Warden.
+    // After, over five minutes: escort 34%, 8%, 80% and 63%, DEFEND 0.0% on all
+    // four. The bound on DEFEND is loose because home defence is not wrong, only
+    // wrong as a permanent state.
+    for (const id of PA_ARENAS) {
+      const mix = goalMix(id);
+      expect(mix.get(WGOAL_ESCORT) ?? 0).toBeGreaterThan(0.05);
+      expect(mix.get(WGOAL_DEFEND) ?? 0).toBeLessThan(0.25);
+    }
+  }, 30_000);
+
+  it("still defends unconditionally on a gate-breach arena", () => {
+    // district-01 has coreHp 0, so a unit reaching the gate wins outright and the
+    // wide radius is correct there. This is the guard that the §9 tightening did
+    // not leak: goldens 01-04 run on this map and none of their hashes moved.
+    const sim = createSim(getMapById(DISTRICT_01_ID), 0xc0ffee, {
+      wardenPlayer: 1,
+      wardenDifficulty: 8,
+    });
+    expect(sim.map.bases[1].coreHp).toBe(0);
+    expect(WARDEN_DEFEND_RADIUS).toBeGreaterThan(WARDEN_CORE_DEFEND_RADIUS);
+  });
+
+  it("does not abandon a push that has arrived at the enemy core", () => {
+    // The other rung: WGOAL_CAPTURE outranked WGOAL_ESCORT unconditionally, so a
+    // Warden whose push was at the enemy core flew off for its 30th pad — measured
+    // 67-75% of ticks capturing against 9% escorting, on arenas carrying 29-32
+    // pads. Measured in the scenario where a push actually reaches the core, since
+    // that is the only scenario the rung applies to: escort now 71-77% and capture
+    // 5-16% on all four. Asserted as the relation that broke, not as transcribed
+    // percentages.
+    for (const id of PA_ARENAS) {
+      const mix = goalMix(id, true);
+      expect(mix.get(WGOAL_ESCORT) ?? 0).toBeGreaterThan(mix.get(WGOAL_CAPTURE) ?? 0);
+    }
+    // Capturing is still what it does with no push in progress: pads are income
+    // and the board is worth about two heavy units (paAttribution pins that
+    // relation). Over a full match with both streams live it is still the majority
+    // goal on la-cantina and urban-jungle, at 52% and 64%.
+    expect(goalMix(URBAN_JUNGLE_ID).get(WGOAL_CAPTURE) ?? 0).toBeGreaterThan(0.25);
+    // And the bottom difficulties keep giving the advantage away, like every other
+    // difficulty knob.
+    expect(WARDEN_PUSH_COMMIT_RANGE[0]).toBe(0);
+    expect(WARDEN_PUSH_COMMIT_RANGE[7]).toBeGreaterThan(0);
+  }, 30_000);
 });

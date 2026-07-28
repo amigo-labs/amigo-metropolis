@@ -250,12 +250,24 @@ describe("a Warden vs an idle player: plays the board, does not break the line",
 
   it("does not resolve the match in ten minutes (known gap — issue #31)", () => {
     // WHEN THIS STARTS FAILING, THAT IS THE BALANCE PASS LANDING: move it back to
-    // asserting the win, do not delete it. The lever is NOT turret damage — 15
-    // down to 5 changes nothing measurable here, and neither does the built-in
-    // base guns' 3000 HP — it is that a ring turret regenerates as fast as a
-    // Runner trickle can kill it (500 imported HP at 8 dps is ~62 s against a
-    // 60 s respawn), and that nothing in the Warden's play is aimed at the
-    // objective rather than at the board.
+    // asserting the win, do not delete it.
+    //
+    // Two of the three causes this used to name are fixed in v17, and the assertion
+    // survives them, so it is worth being exact about what is left. "Nothing in the
+    // Warden's play is aimed at the objective" was true and is not any more — it now
+    // escorts for 51% of this match instead of 0% — and the built-in guns no longer
+    // carry the base's 3000 HP. With the enemy stream off the field that is worth a
+    // great deal: core damage over ten minutes went from 90 to 320 on this arena, 4
+    // to 1073 on urban-jungle and 20 to 40 on proving-ground.
+    //
+    // What is left is this scenario specifically: BOTH bases produce a free Runner
+    // every 5 s, and two equal free streams make the mid-line a stable front. The
+    // Warden escorts whatever unit is deepest, which after each exchange is a fresh
+    // unit near its own base, so it fights an attrition war in the middle and its
+    // push never reaches the range where WARDEN_PUSH_COMMIT_RANGE applies. Whether
+    // an AI is supposed to break a symmetric free stream unaided is a design
+    // question for pillar 1, not only a number to turn — an idle player is not a
+    // party that is trying, but it is not a party contributing nothing either.
     expect(state.winner).toBe(-1);
     expect(state.coreHp[0]).toBe(3000);
     expect(state.coreHp[1]).toBe(3000);
@@ -279,7 +291,7 @@ describe("a Warden vs an idle player: plays the board, does not break the line",
   });
 });
 
-describe("how far an escorted push gets, per arena", () => {
+describe("how far an unescorted push gets, per arena", () => {
   // The old version of this block asked "which arenas can a Warden finish" and
   // recorded one of four, with the note that "the last ~11 m of those three bases
   // is impassable" and the explicit ruling-out: "It is not the road — every
@@ -292,25 +304,31 @@ describe("how far an escorted push gets, per arena", () => {
   // paRoads.test.ts — one unopposed unit now drives console to core on all four
   // arenas at both ground step lengths.
   //
-  // What this block measures instead is the thing the road fix does NOT settle:
-  // how close a push gets when the defending stream is off the field, which is
-  // what escorting achieves and therefore the closest thing to "the objective is
-  // achievable". Production is silenced on team 0 and nothing else is touched —
-  // the ring, the base guns and the pads all still defend.
+  // What this block measures instead is how close a push gets when the defending
+  // stream is off the field. Production is silenced on team 0 and nothing else is
+  // touched — the ring, the base guns and the pads all still defend.
+  //
+  // Note what that is and is not. It removes the opposing stream but adds no
+  // firepower of its own, so it measures a FREE-PRODUCTION TRICKLE against an
+  // intact defence — not an escort. Reading it as an escort is what let #31 look
+  // like a damage-number problem: a trickle at 8 dps was never going to chew
+  // through 500 HP emplacements that come back every 60 s, and no value of
+  // TURRET_DAMAGE changes that. The escorted case is the block below, and the
+  // two differ qualitatively on two of the four arenas.
   interface Reach {
     /** Closest a team-1 ground unit came to the defended core, metres. */
     readonly closest: number;
     readonly coreHits: number;
   }
 
-  function escortedPush(id: string): Reach {
+  function escortedPush(id: string, escort = false): Reach {
     // `getMapById` builds a fresh MapData — and fresh MapBase objects — on every
     // call (map.ts, `loadMapFromJson(entry.json)` with no cache), so silencing
     // this base's production is local to this measurement and needs no restore.
     // MAP at the top of this file is a different instance and is unaffected.
     const map = getMapById(id);
     (map.bases[0] as { productionTicks: number }).productionTicks = 0;
-    const state = createSim(map, 0xc0ffee, {});
+    const state = createSim(map, 0xc0ffee, escort ? { wardenPlayer: 1, wardenDifficulty: 8 } : {});
     const idle = createTickInputs();
     let coreHits = 0;
     let closest = Number.POSITIVE_INFINITY;
@@ -338,31 +356,150 @@ describe("how far an escorted push gets, per arena", () => {
     expect(r.closest).toBeLessThanOrEqual(CORE_ATTACK_RADIUS);
   });
 
-  it("urban-jungle: arrives at the core but is held on the doorstep", () => {
-    // 6.7 m measured, against a 6 m attack radius — the push gets all the way in
-    // and is then held by the base's own built-in gun, which sits ON the core with
-    // the base's 3000 HP and halts a Runner from 14 m out. That gun's HP is ours,
-    // not extracted (the original stores no per-gun health), so it is a balance
-    // question and #31's, not a road one.
+  it("urban-jungle: arrives at the core but a trickle cannot open it", () => {
+    // 6.7 m measured, against a 6 m attack radius — the trickle gets all the way
+    // in and is then held on the doorstep by the base's own built-in guns, which
+    // sit ON the core and halt a Runner from its own 14 m out. Their HP used to be
+    // the base structure's 3000 (see BASE_DEFENCE_HP in enrichArena.ts); at 500 a
+    // trickle still cannot clear four of them faster than they respawn, but an
+    // escort can — see the block below, where this arena razes.
     const r = escortedPush(URBAN_JUNGLE_ID);
     expect(r.closest).toBeLessThan(CORE_ATTACK_RADIUS + 2);
-    expect(r.coreHits).toBe(0); // when this flips, move it up to la-cantina's form
+    expect(r.coreHits).toBe(0);
   });
 
   for (const id of [PROVING_GROUND_ID, BUG_HUNT_ID]) {
-    it(`${id}: stops ~11 m out on one ring turret (known gap — issue #31)`, () => {
+    it(`${id}: a trickle stops ~11 m out on one ring turret`, () => {
       // 11.5 m and 11.4 m measured. Both arenas place a ring turret 9-10 m from
       // the core, inside the last stretch of road: a Runner halts 14 m from it,
       // chips 500 imported HP at 8 dps (~62 s) and the ring respawns in 60 s, so
       // the emplacement regenerates as fast as a trickle can kill it. Nothing
-      // about the road: paRoads drives this exact route unopposed.
+      // about the road: paRoads drives this exact route unopposed, and with the
+      // defenders removed outright both arenas raze the core (see below).
       //
-      // WHEN THIS STARTS FAILING, THAT IS THE BALANCE PASS LANDING — move the
-      // arena to la-cantina's form above, do not delete the assertion.
+      // This is the free stream failing on its own, which design pillar 1 says it
+      // should: the player is the tiebreaker. What has to be true is that a party
+      // WHICH IS TRYING gets through, and that is the next block.
       const r = escortedPush(id);
       expect(r.coreHits).toBe(0);
       expect(r.closest).toBeGreaterThan(CORE_ATTACK_RADIUS);
       expect(r.closest).toBeLessThan(15);
     });
   }
+});
+
+describe("what an escort changes, per arena", () => {
+  // The same measurement with a difficulty-8 Warden on the pushing side, which is
+  // the closest the sim gets to "a party that is trying": 60 dps at 42 m against
+  // 500 HP emplacements whose own reach is 6 m, i.e. firepower the defence cannot
+  // answer. Everything else is identical to the block above.
+  //
+  // Until v17 this measurement was pointless, because the Warden never escorted on
+  // a §9 arena. Two rungs of its goal ladder were written for §1 and mis-fire when
+  // the loss condition is a core:
+  //   - WGOAL_DEFEND fired on any enemy ground unit within 55 m of its own gate.
+  //     With both bases producing a free Runner every 5 s that is the steady state,
+  //     not an emergency: measured 63%, 89% and 91% of a ten-minute match spent on
+  //     home defence on la-cantina, urban-jungle and bug-hunt, and no push at all.
+  //   - WGOAL_CAPTURE outranked WGOAL_ESCORT unconditionally, so a Warden whose
+  //     push had reached the enemy core would leave it there and fly across the
+  //     arena for its 30th pad: 67-75% of ticks capturing against 9% escorting.
+  // Escort went from 0% of ticks to 51-77%. See WARDEN_CORE_DEFEND_RADIUS and
+  // WARDEN_PUSH_COMMIT_RANGE.
+  interface Reach {
+    readonly closest: number;
+    readonly coreHits: number;
+  }
+
+  function escorted(id: string): Reach {
+    const map = getMapById(id);
+    (map.bases[0] as { productionTicks: number }).productionTicks = 0;
+    const state = createSim(map, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
+    const idle = createTickInputs();
+    let coreHits = 0;
+    let closest = Number.POSITIVE_INFINITY;
+    const core = map.bases[0].core;
+    for (let t = 0; t < 5 * 60 * 30 && state.winner < 0; t++) {
+      step(state, idle);
+      for (let i = 0; i < state.events.count; i++) {
+        if (state.events.data[i * EVENT_STRIDE] === EV_CORE_HIT) coreHits += 1;
+      }
+      const ent = state.ent;
+      for (let id2 = 0; id2 < ent.high; id2++) {
+        if (!ent.alive[id2] || ent.team[id2] !== 1) continue;
+        if (!GROUND_UNITS.includes(ent.archetype[id2] as (typeof GROUND_UNITS)[number])) continue;
+        const d = Math.hypot(ent.posX[id2] - core.x, ent.posY[id2] - core.y);
+        if (d < closest) closest = d;
+      }
+    }
+    return { closest, coreHits };
+  }
+
+  for (const [id, hits] of [
+    [LA_CANTINA_ID, 32],
+    [URBAN_JUNGLE_ID, 51],
+    [PROVING_GROUND_ID, 2],
+  ] as const) {
+    it(`${id}: an escorted push reaches the core and damages it`, () => {
+      // Measured core hits in 5 minutes: la-cantina 32 (17 unescorted), urban-jungle
+      // 51 (0 unescorted, so the escort is the whole difference), proving-ground 2
+      // (0 unescorted). Bounded loosely below the measured value, because these are
+      // balance numbers a later pass is expected to raise — what must not regress is
+      // that the push arrives and the core takes damage.
+      const r = escorted(id);
+      expect(r.closest).toBeLessThanOrEqual(CORE_ATTACK_RADIUS);
+      expect(r.coreHits).toBeGreaterThan(0);
+      expect(r.coreHits).toBeGreaterThanOrEqual(Math.floor(hits / 2));
+    });
+  }
+
+  it("bug-hunt: even an escorted push does not get in (known gap — issue #31)", () => {
+    // The one arena of the four where the escort changes nothing: 18.6 m and 0 core
+    // hits, against 11.4 m unescorted. It is not the road and not the geometry —
+    // remove team 0's turrets outright and bug-hunt razes its core like the rest
+    // ("razes once the defenders are gone", below) — and it is not the ring layout
+    // either: bug-hunt and proving-ground place their emplacements at the same
+    // distances from the core (0/0/0/0, 9.1, 9.1, 10.1, 11.0, 12.9, 17.0, 24.2 m)
+    // and proving-ground gets in. What differs is throughput: the same escort
+    // destroys 70 defending turrets in ten minutes on urban-jungle, 48 on
+    // proving-ground and 24 here, because bug-hunt's walls give more of its ring
+    // line of sight onto the last stretch of road.
+    //
+    // Measured and NOT the lever, so a later pass does not spend budget there:
+    // BASE_TURRET_RESPAWN_TICKS (60 s -> 120/180/240 s) leaves this at 0 core hits
+    // and is not even monotone elsewhere — 120 s wins urban-jungle outright but
+    // drops la-cantina from 320 to 130 mean core damage; and CORE_DAMAGE_PER_SHOT
+    // (10 -> 20/30/50) scales an arriving siege linearly but changes arrival not at
+    // all, so it stays 0 here at every value.
+    //
+    // WHEN THIS STARTS FAILING, THAT IS THE REST OF THE BALANCE PASS LANDING —
+    // move it to the form above, do not delete the assertion.
+    const r = escorted(BUG_HUNT_ID);
+    expect(r.coreHits).toBe(0);
+    expect(r.closest).toBeGreaterThan(CORE_ATTACK_RADIUS);
+  });
+
+  it("razes once the defenders are gone, on all four arenas", () => {
+    // golden07 proves this for la-cantina; the same has to hold for the three
+    // arenas Phase 13 added, or "the objective is reachable" is only true on one of
+    // them. Team 0's turrets are removed as they respawn — the stand-in for a
+    // defence that has actually been beaten — and nothing else is touched.
+    for (const id of [LA_CANTINA_ID, URBAN_JUNGLE_ID, PROVING_GROUND_ID, BUG_HUNT_ID]) {
+      const map = getMapById(id);
+      (map.bases[0] as { productionTicks: number }).productionTicks = 0;
+      const state = createSim(map, 0xc0ffee, {});
+      const idle = createTickInputs();
+      for (let t = 0; t < 5 * 60 * 30 && state.winner < 0; t++) {
+        step(state, idle);
+        for (let e = 0; e < state.ent.high; e++) {
+          if (!state.ent.alive[e]) continue;
+          if (state.ent.team[e] === 0 && state.ent.archetype[e] === ARCHETYPE.TURRET) {
+            state.ent.alive[e] = 0;
+          }
+        }
+      }
+      expect(state.coreHp[0]).toBe(0);
+      expect(state.winner).toBe(1);
+    }
+  });
 });
