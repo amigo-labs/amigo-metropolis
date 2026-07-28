@@ -63,10 +63,15 @@ export const ROAD_HALF_WIDTH = 0.05;
 const STUCK_TICKS = 30;
 
 /**
- * Segment length. `Math.hypot` is banned in this package (CLAUDE.md rule 1 — it
- * is engine-dependent) and this file has to give the same answer on every engine
- * for the same reason the sim does: what it measures decides which wall bits the
- * committed maps carry. `Math.sqrt` is IEEE-exact, so this is.
+ * Segment length, built from the allowed arithmetic only: `+ - * /` and
+ * `Math.sqrt` (CLAUDE.md determinism rule 2, which is what makes `Math.sqrt`
+ * usable — it is IEEE-exact). `Math.hypot` would be the obvious spelling and
+ * determinismGuard.test.ts rejects it for every file in this package, along with
+ * the rest of the engine-dependent `Math.*` surface.
+ *
+ * That guard covers this file even though nothing here runs inside a tick, and
+ * the coverage is worth having: what this measures decides which wall bits the
+ * committed maps carry, so it has to give the same answer on every engine.
  */
 function length(dx: number, dy: number): number {
   return Math.sqrt(dx * dx + dy * dy);

@@ -304,34 +304,31 @@ describe("how far an escorted push gets, per arena", () => {
   }
 
   function escortedPush(id: string): Reach {
+    // `getMapById` builds a fresh MapData — and fresh MapBase objects — on every
+    // call (map.ts, `loadMapFromJson(entry.json)` with no cache), so silencing
+    // this base's production is local to this measurement and needs no restore.
+    // MAP at the top of this file is a different instance and is unaffected.
     const map = getMapById(id);
-    // The map registry hands out one shared instance, so restore this after.
-    const base = map.bases[0] as { productionTicks: number };
-    const restore = base.productionTicks;
-    base.productionTicks = 0;
-    try {
-      const state = createSim(map, 0xc0ffee, {});
-      const idle = createTickInputs();
-      let coreHits = 0;
-      let closest = Number.POSITIVE_INFINITY;
-      const core = map.bases[0].core;
-      for (let t = 0; t < 5 * 60 * 30 && state.winner < 0; t++) {
-        step(state, idle);
-        for (let i = 0; i < state.events.count; i++) {
-          if (state.events.data[i * EVENT_STRIDE] === EV_CORE_HIT) coreHits += 1;
-        }
-        const ent = state.ent;
-        for (let id2 = 0; id2 < ent.high; id2++) {
-          if (!ent.alive[id2] || ent.team[id2] !== 1) continue;
-          if (!GROUND_UNITS.includes(ent.archetype[id2] as (typeof GROUND_UNITS)[number])) continue;
-          const d = Math.hypot(ent.posX[id2] - core.x, ent.posY[id2] - core.y);
-          if (d < closest) closest = d;
-        }
+    (map.bases[0] as { productionTicks: number }).productionTicks = 0;
+    const state = createSim(map, 0xc0ffee, {});
+    const idle = createTickInputs();
+    let coreHits = 0;
+    let closest = Number.POSITIVE_INFINITY;
+    const core = map.bases[0].core;
+    for (let t = 0; t < 5 * 60 * 30 && state.winner < 0; t++) {
+      step(state, idle);
+      for (let i = 0; i < state.events.count; i++) {
+        if (state.events.data[i * EVENT_STRIDE] === EV_CORE_HIT) coreHits += 1;
       }
-      return { closest, coreHits };
-    } finally {
-      base.productionTicks = restore;
+      const ent = state.ent;
+      for (let id2 = 0; id2 < ent.high; id2++) {
+        if (!ent.alive[id2] || ent.team[id2] !== 1) continue;
+        if (!GROUND_UNITS.includes(ent.archetype[id2] as (typeof GROUND_UNITS)[number])) continue;
+        const d = Math.hypot(ent.posX[id2] - core.x, ent.posY[id2] - core.y);
+        if (d < closest) closest = d;
+      }
     }
+    return { closest, coreHits };
   }
 
   it("la-cantina: razes into the core", () => {
