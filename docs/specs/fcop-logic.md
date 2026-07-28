@@ -60,6 +60,54 @@ from `0x10`. Per node:
 Node raw coord = actor raw position `>> 8` (both resolve to the same world
 scale). Node Y (up) is not stored — the engine raycasts it against terrain.
 
+#### `ground_cast` is the node's elevation
+
+The height field at `0x0A` decodes cleanly and is `0.0` on all 174 graphs across
+all 15 missions, exactly as actor `height` is `0.0` on all 7506 actors. Nothing is
+missing: Y is not a number in this format, it is a **raycast against terrain**, and
+`ground_cast` is that raycast's mode. On a cell carrying stacked surfaces:
+
+| `v&3` | mode | resolves to |
+|---|---|---|
+| 0 | `HIGH` | the topmost surface at the node's cell |
+| 1 | `LOW` | the bottommost — i.e. the base heightfield (`walk_height`) |
+| 2 | `NONE` | unused; no arena sets it |
+| 3 | `MIDDLE` | the surface between; only Hk uses it |
+
+Measured by `bun run tools/generators/analyzeGroundCast.ts`, which re-derives all
+of the following from the RE dumps:
+
+- **`walk_height` is the bottom of the stack** on 100% of the 101 334 deck cells
+  across all six arenas — no exceptions, no ties. So "LOW" and "the heightfield the
+  sim flattens an arena to" are the same surface.
+- **LOW/MIDDLE land on cells that carry a deck** 83–100% of the time, against
+  10–25% for HIGH. The marginal distribution hides this and reads like a render
+  flag — a consistent 10–13 LOW per arena, on single-storey arenas too. It is not
+  noise: where a cell has one surface, LOW and HIGH resolve to the same height, so
+  LOW costs nothing there, and the nodes that carry it are the ones under a bridge.
+- **The correlation holds at the `+16` frame and nowhere else** (§7's
+  `LOGIC_OFFSET_X`). A shift that scrambles the cell mapping cannot preserve it, so
+  this is independent confirmation of the offset — from the Cnet/terrain channel
+  rather than the wall-blocking measurement that first established it.
+- **Hk is the arena built on a deck.** Its base surface is the canal floor and its
+  city is a layer above; its 140 owned nodes are 130 HIGH + 10 MIDDLE and not one
+  LOW. Its 41 LOW nodes are entirely net 3, the campaign leftover `ownedNets()`
+  drops — reading them as part of the arena is what made this field look arbitrary.
+
+**Consequence for the import.** The sim frame flattens every arena to
+`walk_height`, then places every lane node on it regardless of cast. That puts each
+HIGH-on-a-deck node *underneath* the deck it belongs on top of, inside the deck's
+own wall footprint — which is where the blocked original lane edges come from:
+45–93% of them touch a node the flattening drops off its deck (93% on Ovmp,
+55% of la-cantina's 29). The walls are right; the elevation is wrong. Hk shows the
+same fault with none of the symptom — 0 of 160 edges blocked, because its whole
+network is uniformly 2 m too low rather than partly walled in.
+
+This also settles the standing question about the decks having no steppable route
+on (0 of 101 334 deck cells within `STEP_SNAP` of an adjacent walk floor, a uniform
++0.594 m = 19/32 m clearance): the original needs neither ramps nor a hovering
+X1Alpha, because **the road network is authored on the decks**. Nothing climbs.
+
 ### 3.2 Cact / Csac — actor record (`ACTResource` + `ACT/*`)
 
 The resource payload is a sub-chunk container: **`tACT` → `aRSL` → `tSAC`**.
@@ -187,6 +235,11 @@ for a reason that is not the frame (`packages/sim/test/layeredArenas.test.ts`).
 ## 7. Tooling
 
 - `tools/gfx/extract_logic.py` (RE repo) — decodes `Cact`/`Csac`/`Cnet` → JSON.
+- `tools/generators/fcopLogic.ts` (`bun run gen:palogic`) — RE dump → the committed
+  `tools/generators/fcop/*-logic.json` this spec describes.
+- `tools/generators/analyzeGroundCast.ts` — re-derives §3.1's measurements from the
+  RE dumps (needs `--re-repo`, so it is a report and not CI). What CI pins is the
+  distribution it measures, in `tools/generators/test/fcopLogic.test.ts`.
 - Raw inspection: `tools/audio/{dump_chunks,body,hexat,rawgrep}.mjs`.
 - `Cfun` (mission scripting bytecode) is **not** decoded — 7-bit var-length
   encoding, deferred. **Single-player only; out of scope for Metropolis MP.**

@@ -374,8 +374,16 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       anyway: every deck sits ≥0.594 m above the base surface against a 0.35 m
       step, decks are 62% / 44% of those grids, and importing puts all 140 of Hk's
       lane nodes and both spawns on the canal floor under the city. Needs per-layer
-      walls, a layer on each feature, a deck-aware flood and an actor Y from the
-      extractor. Pinned as a failing-when-fixed test in `layeredArenas.test.ts`
+      walls, a layer on each feature and a deck-aware flood. Pinned as a
+      failing-when-fixed test in `layeredArenas.test.ts`
+- [x] The lane nodes' missing Y was never missing: each `Cnet` node carries a
+      `ground_cast` selecting which stacked surface it sits on (HIGH/LOW/MIDDLE),
+      and the extract dropped it. Carried now, measured in `fcop-logic.md` §3.1 and
+      re-derivable via `analyzeGroundCast.ts`. That is why the decks have no
+      steppable route on and never needed one — the roads are authored *on* them —
+      and why 45–93% of the blocked original lane edges touch a node the
+      flattening drops off its deck. Removes "an actor Y from the extractor" from
+      the blocker above; per-layer walls (RE-side `til_mesh.py`) still stand
 - [x] Base ring turrets use their imported weapon profile, gun rotation and health
       (SIM_VERSION 15, issue #31). v13 wired profiles into the capturable pads and
       the built-in base guns but not the ring, so 32 of la-cantina's 72 turrets ran
