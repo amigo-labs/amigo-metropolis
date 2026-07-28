@@ -50,6 +50,55 @@ const GROUND_UNITS = [
   ARCHETYPE.FORTRESS,
 ] as const;
 
+interface Reach {
+  /** Closest a team-1 ground unit came to the defended core, metres. */
+  readonly closest: number;
+  readonly coreHits: number;
+}
+
+/**
+ * Five minutes of team 1 pushing team 0's base with team 0's free production
+ * silenced, measuring how close the push gets and what the core takes.
+ *
+ * `withEscort` additionally puts a difficulty-8 Warden on the pushing side. That
+ * flag is the distinction issue #31 turned on: without it this measures a FREE
+ * PRODUCTION TRICKLE against an intact defence, which is not the same thing as an
+ * escort and fails for reasons no damage number fixes. Both describe blocks below
+ * use this one helper so the two cases cannot drift apart.
+ *
+ * `getMapById` builds a fresh MapData — and fresh MapBase objects — on every call
+ * (map.ts, `loadMapFromJson(entry.json)` with no cache), so silencing this base's
+ * production is local to one measurement and needs no restore. MAP at the top of
+ * this file is a different instance and is unaffected.
+ */
+function push(mapId: string, withEscort = false): Reach {
+  const map = getMapById(mapId);
+  (map.bases[0] as { productionTicks: number }).productionTicks = 0;
+  const state = createSim(
+    map,
+    0xc0ffee,
+    withEscort ? { wardenPlayer: 1, wardenDifficulty: 8 } : {},
+  );
+  const idle = createTickInputs();
+  let coreHits = 0;
+  let closest = Number.POSITIVE_INFINITY;
+  const core = map.bases[0].core;
+  for (let t = 0; t < 5 * 60 * 30 && state.winner < 0; t++) {
+    step(state, idle);
+    for (let i = 0; i < state.events.count; i++) {
+      if (state.events.data[i * EVENT_STRIDE] === EV_CORE_HIT) coreHits += 1;
+    }
+    const ent = state.ent;
+    for (let id = 0; id < ent.high; id++) {
+      if (!ent.alive[id] || ent.team[id] !== 1) continue;
+      if (!GROUND_UNITS.includes(ent.archetype[id] as (typeof GROUND_UNITS)[number])) continue;
+      const d = Math.hypot(ent.posX[id] - core.x, ent.posY[id] - core.y);
+      if (d < closest) closest = d;
+    }
+  }
+  return { closest, coreHits };
+}
+
 /**
  * Damage source, resolved from the sim's stable id registries rather than from
  * `ent.archetype[shooter]`.
@@ -315,43 +364,10 @@ describe("how far an unescorted push gets, per arena", () => {
   // through 500 HP emplacements that come back every 60 s, and no value of
   // TURRET_DAMAGE changes that. The escorted case is the block below, and the
   // two differ qualitatively on two of the four arenas.
-  interface Reach {
-    /** Closest a team-1 ground unit came to the defended core, metres. */
-    readonly closest: number;
-    readonly coreHits: number;
-  }
-
-  function escortedPush(id: string, escort = false): Reach {
-    // `getMapById` builds a fresh MapData — and fresh MapBase objects — on every
-    // call (map.ts, `loadMapFromJson(entry.json)` with no cache), so silencing
-    // this base's production is local to this measurement and needs no restore.
-    // MAP at the top of this file is a different instance and is unaffected.
-    const map = getMapById(id);
-    (map.bases[0] as { productionTicks: number }).productionTicks = 0;
-    const state = createSim(map, 0xc0ffee, escort ? { wardenPlayer: 1, wardenDifficulty: 8 } : {});
-    const idle = createTickInputs();
-    let coreHits = 0;
-    let closest = Number.POSITIVE_INFINITY;
-    const core = map.bases[0].core;
-    for (let t = 0; t < 5 * 60 * 30 && state.winner < 0; t++) {
-      step(state, idle);
-      for (let i = 0; i < state.events.count; i++) {
-        if (state.events.data[i * EVENT_STRIDE] === EV_CORE_HIT) coreHits += 1;
-      }
-      const ent = state.ent;
-      for (let id2 = 0; id2 < ent.high; id2++) {
-        if (!ent.alive[id2] || ent.team[id2] !== 1) continue;
-        if (!GROUND_UNITS.includes(ent.archetype[id2] as (typeof GROUND_UNITS)[number])) continue;
-        const d = Math.hypot(ent.posX[id2] - core.x, ent.posY[id2] - core.y);
-        if (d < closest) closest = d;
-      }
-    }
-    return { closest, coreHits };
-  }
 
   it("la-cantina: razes into the core", () => {
     // 20 core hits, closest approach 5.4 m. The full objective loop runs.
-    const r = escortedPush(LA_CANTINA_ID);
+    const r = push(LA_CANTINA_ID);
     expect(r.coreHits).toBeGreaterThan(0);
     expect(r.closest).toBeLessThanOrEqual(CORE_ATTACK_RADIUS);
   });
@@ -363,7 +379,7 @@ describe("how far an unescorted push gets, per arena", () => {
     // the base structure's 3000 (see BASE_DEFENCE_HP in enrichArena.ts); at 500 a
     // trickle still cannot clear four of them faster than they respawn, but an
     // escort can — see the block below, where this arena razes.
-    const r = escortedPush(URBAN_JUNGLE_ID);
+    const r = push(URBAN_JUNGLE_ID);
     expect(r.closest).toBeLessThan(CORE_ATTACK_RADIUS + 2);
     expect(r.coreHits).toBe(0);
   });
@@ -380,7 +396,7 @@ describe("how far an unescorted push gets, per arena", () => {
       // This is the free stream failing on its own, which design pillar 1 says it
       // should: the player is the tiebreaker. What has to be true is that a party
       // WHICH IS TRYING gets through, and that is the next block.
-      const r = escortedPush(id);
+      const r = push(id);
       expect(r.coreHits).toBe(0);
       expect(r.closest).toBeGreaterThan(CORE_ATTACK_RADIUS);
       expect(r.closest).toBeLessThan(15);
@@ -406,34 +422,6 @@ describe("what an escort changes, per arena", () => {
   //     arena for its 30th pad: 67-75% of ticks capturing against 9% escorting.
   // Escort went from 0% of ticks to 51-77%. See WARDEN_CORE_DEFEND_RADIUS and
   // WARDEN_PUSH_COMMIT_RANGE.
-  interface Reach {
-    readonly closest: number;
-    readonly coreHits: number;
-  }
-
-  function escorted(id: string): Reach {
-    const map = getMapById(id);
-    (map.bases[0] as { productionTicks: number }).productionTicks = 0;
-    const state = createSim(map, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
-    const idle = createTickInputs();
-    let coreHits = 0;
-    let closest = Number.POSITIVE_INFINITY;
-    const core = map.bases[0].core;
-    for (let t = 0; t < 5 * 60 * 30 && state.winner < 0; t++) {
-      step(state, idle);
-      for (let i = 0; i < state.events.count; i++) {
-        if (state.events.data[i * EVENT_STRIDE] === EV_CORE_HIT) coreHits += 1;
-      }
-      const ent = state.ent;
-      for (let id2 = 0; id2 < ent.high; id2++) {
-        if (!ent.alive[id2] || ent.team[id2] !== 1) continue;
-        if (!GROUND_UNITS.includes(ent.archetype[id2] as (typeof GROUND_UNITS)[number])) continue;
-        const d = Math.hypot(ent.posX[id2] - core.x, ent.posY[id2] - core.y);
-        if (d < closest) closest = d;
-      }
-    }
-    return { closest, coreHits };
-  }
 
   for (const [id, hits] of [
     [LA_CANTINA_ID, 32],
@@ -446,7 +434,7 @@ describe("what an escort changes, per arena", () => {
       // (0 unescorted). Bounded loosely below the measured value, because these are
       // balance numbers a later pass is expected to raise — what must not regress is
       // that the push arrives and the core takes damage.
-      const r = escorted(id);
+      const r = push(id, true);
       expect(r.closest).toBeLessThanOrEqual(CORE_ATTACK_RADIUS);
       expect(r.coreHits).toBeGreaterThan(0);
       expect(r.coreHits).toBeGreaterThanOrEqual(Math.floor(hits / 2));
@@ -474,7 +462,7 @@ describe("what an escort changes, per arena", () => {
     //
     // WHEN THIS STARTS FAILING, THAT IS THE REST OF THE BALANCE PASS LANDING —
     // move it to the form above, do not delete the assertion.
-    const r = escorted(BUG_HUNT_ID);
+    const r = push(BUG_HUNT_ID, true);
     expect(r.coreHits).toBe(0);
     expect(r.closest).toBeGreaterThan(CORE_ATTACK_RADIUS);
   });
