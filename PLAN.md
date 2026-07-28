@@ -325,8 +325,10 @@ instead of a hand-authored approximation, and adopt the original rule set for it
 - [ ] Original `Cwav` sound effects: 409 extracted WAVs are available in the RE
       repo but carry no semantic labels, so picking which is "shot"/"explosion"/
       "alarm" needs someone who knows the game by ear (owner pass)
-- [ ] `DynamicProp` scenery meshes: the 36 placements are carried in the map as
-      render-only data; the Cobj models still need extracting
+- [x] `DynamicProp` scenery meshes: all 8 referenced Cobj models come from the
+      RE repo's handoff pack and render as one InstancedMesh each
+      (`render/props.ts`), unfitted and unrotated so they keep the original's
+      own scale and placement
 
 **Definition of Done:** la-cantina plays end to end under §9 — production runs,
 the enemy base can be destroyed, pads capture, pickups and alarms fire — with
