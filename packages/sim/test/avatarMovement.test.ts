@@ -2,15 +2,20 @@
 // wall, a jumpable ledge, and a water strip. Exercises walker/hover slope
 // limits, water rules, jump/gravity, transform lock, and hover drift.
 import { describe, expect, it } from "bun:test";
+import { ARCHETYPE } from "../src/archetypes";
 import {
+  ARCHETYPE_RADIUS,
+  AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HOVER_SPEED,
   AVATAR_WALKER_SPEED,
   HOVER_CLEARANCE,
+  HOVER_CUSHION_SPAN,
   TRANSFORM_LOCK_TICKS,
 } from "../src/balance";
 import { BUTTON_JUMP, BUTTON_TRANSFORM, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson, sampleHeight } from "../src/map";
 import { createSim, MODE_HOVER, MODE_WALKER, type SimState, step } from "../src/sim";
+import { JUMPABLE_RISE } from "../src/units";
 
 // 16×16 grid, 4 m cells → 60 m square. Column layout (x in cells):
 //   0-6: flat plain (h 0)   7: steep wall top (h 96 = 3 m, slope 0.75)
@@ -262,6 +267,151 @@ describe("hover drift", () => {
     p0.moveX = 127;
     for (let i = 0; i < 200; i++) step(sim, inputs);
     expect(sim.ent.posX[0]).toBeLessThan(26); // blocked like the walker
+  });
+});
+
+// What the hover measures a climb over (issue #34). The gate takes two readings,
+// the step and the ground HOVER_CUSHION_SPAN further on, and blocks only when
+// both are over the limit — so a step the hull spans is ridden over and ground
+// that keeps climbing still stops the vehicle. The three features below are the
+// three answers, on their own map: 1 m cells, so a one-cell step is a one-metre
+// ramp in the bilinear field and every gradient below is exact.
+//
+//   x 0-7    flat 0                       — the run-up (spawn 0 at x=4)
+//   x 8      +0.75 m step, flat beyond    — RIDDEN OVER: 0.75 gradient in the
+//                                           step, 0.31 over the span. The walker
+//                                           has to JUMP this one (> 0.6).
+//   x 9-13   flat 0.75
+//   x 14     +1.3125 m step, flat beyond  — BLOCKED: over the span the hover
+//                                           climbs at most span × limit = 1.2 m.
+//                                           The walker jumps it (< 1.4 m).
+//   x 15-19  flat 2.0625                  — spawn 1 at x=17, for the ramp
+//   x 20-23  +0.5625 m per cell           — BLOCKED: 0.5625 sustained, over the
+//                                           0.5 limit. The walker WALKS it.
+//   x 24-31  flat 3.75
+function kerbJson(): MapJson {
+  const size = 32;
+  const colHeights = [
+    0, 0, 0, 0, 0, 0, 0, 0, 24, 24, 24, 24, 24, 24, 66, 66, 66, 66, 66, 66, 84, 102, 120, 120, 120,
+    120, 120, 120, 120, 120, 120, 120,
+  ];
+  const heights: number[][] = [];
+  const water: string[] = [];
+  for (let j = 0; j < size; j++) {
+    heights.push([...colHeights]);
+    water.push("0".repeat(size));
+  }
+  return {
+    id: "kerb-test",
+    size,
+    cellSize: 1,
+    waterLevel: -100, // dry map: nothing here tests water
+    heights,
+    water,
+    spawns: [
+      { x: 4, y: 16, yaw: 0 },
+      { x: 17, y: 16, yaw: 0 },
+    ],
+    basePlots: [
+      { x: 4, y: 16, radius: 4 },
+      { x: 17, y: 16, radius: 4 },
+    ],
+    bases: [
+      {
+        gate: { x: 1, y: 1, radius: 1 },
+        core: [2, 16],
+        groundConsole: [4, 12],
+        airConsole: [4, 20],
+        pad: { x: 4, y: 16, radius: 4 },
+        turrets: [],
+      },
+      {
+        gate: { x: 30, y: 30, radius: 1 },
+        core: [30, 16],
+        groundConsole: [17, 12],
+        airConsole: [17, 20],
+        pad: { x: 17, y: 16, radius: 4 },
+        turrets: [],
+      },
+    ],
+    lanes: [],
+    turretSpots: [],
+    outpostSpots: [],
+    dummySpots: [],
+  };
+}
+
+function kerbSim(): SimState {
+  return createSim(loadMapFromJson(kerbJson()), 1);
+}
+
+/** Drives one player east for `ticks`, in hover if asked, and returns its x. */
+function driveEast(sim: SimState, player: number, hover: boolean, ticks: number): number {
+  const p = inputs.players[player];
+  if (hover) {
+    p.buttons = BUTTON_TRANSFORM;
+    step(sim, inputs);
+    p.buttons = 0;
+    for (let i = 0; i < TRANSFORM_LOCK_TICKS; i++) step(sim, inputs);
+    expect(sim.ent.mode[player]).toBe(MODE_HOVER);
+  }
+  p.moveX = 127;
+  for (let i = 0; i < ticks; i++) step(sim, inputs);
+  return sim.ent.posX[player];
+}
+
+describe("hover slope gate", () => {
+  it("pins the span to the avatar's own footprint", () => {
+    // The span is the vehicle's footprint diameter, not a tuned number. If the
+    // avatar's radius moves, this is the reminder that the span moves with it.
+    expect(HOVER_CUSHION_SPAN).toBe(2 * ARCHETYPE_RADIUS[ARCHETYPE.AVATAR]);
+    // And the ceiling it implies has to stay under the walker's jump, or the
+    // hover would out-climb the form whose job is climbing.
+    expect(HOVER_CUSHION_SPAN * AVATAR_HOVER_MAX_SLOPE).toBeLessThan(JUMPABLE_RISE);
+  });
+
+  it("rides over a step its hull spans, and stops at one it does not", () => {
+    reset();
+    const sim = kerbSim();
+    // 8 s east from x=4: over the 0.75 m step at x=8, then into the 1.31 m one
+    // at x=14 — above the 1.2 m the span allows.
+    const x = driveEast(sim, 0, true, 240);
+    expect(x).toBeGreaterThan(9); // crossed the kerb...
+    expect(x).toBeLessThan(14); // ...and parked at the tall step
+    // Up on the kerb, having nosed a little way into the step it cannot take.
+    const onKerb = sampleHeight(sim.map, x, 16);
+    expect(onKerb).toBeGreaterThanOrEqual(0.75);
+    expect(onKerb).toBeLessThan(1);
+  });
+
+  it("stops at ground that keeps climbing past the span", () => {
+    reset();
+    const sim = kerbSim();
+    // Spawn 1 sits on the flat shelf at x=17; the ramp east of x=19 climbs
+    // 0.5625 per metre, just over the limit, and never flattens out.
+    const x = driveEast(sim, 1, true, 240);
+    expect(x).toBeLessThan(20.5);
+    // Still on the shelf, or barely onto the foot of the ramp.
+    const onShelf = sampleHeight(sim.map, x, 16);
+    expect(onShelf).toBeGreaterThanOrEqual(2.0625);
+    expect(onShelf).toBeLessThan(2.35);
+  });
+
+  it("splits the ground the two forms own, in both directions", () => {
+    // The asymmetry rules.md §2 claims, measured on the same three features:
+    // the walker climbs the sustained ramp the hover cannot, and the hover rides
+    // over the 0.75 m step the walker has to jump.
+    reset();
+    const walkerRamp = driveEast(kerbSim(), 1, false, 240);
+    expect(walkerRamp).toBeGreaterThan(21); // walked up the 0.5625 ramp
+
+    reset();
+    const sim = kerbSim();
+    const walkerKerb = driveEast(sim, 0, false, 120);
+    expect(walkerKerb).toBeLessThan(8); // stopped dead at the 0.75 m step
+    inputs.players[0].buttons = BUTTON_JUMP; // ...which it clears by jumping
+    for (let i = 0; i < 120; i++) step(sim, inputs);
+    expect(sim.ent.posX[0]).toBeGreaterThan(9);
   });
 });
 

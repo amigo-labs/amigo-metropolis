@@ -39,11 +39,41 @@ export const AVATAR_WALKER_SPEED = 5;
 export const AVATAR_HOVER_SPEED = 9;
 
 // Slope limits as rise/run. Walker handles everything except deliberate
-// jump-only ledges (rise ≈ 0.7); hover is blocked by anything steeper than a
-// river bank. Map authoring relies on these — the district-01 schema test
-// checks lane traversability against the walker limit.
+// jump-only ledges (rise ≈ 0.7); hover stays stricter, because it rides
+// clearance and trades terrain for speed and water. Map authoring relies on
+// these — the district-01 schema test checks lane traversability against the
+// walker limit.
+//
+// The hover limit was 0.35 until issue #34 measured it against the geometry it
+// has to drive. Over the span below, the steepest sustained climb anywhere in
+// la-cantina's road network — the one arena whose roads the walker finds clean —
+// is 0.40. On the other three the sustained climbs run from 0.35 to 1.5 with
+// their mass at 0.50 and up, which is the arenas' 1.3-3 m terrain steps rather
+// than their roads. So 0.35 sat below the roads themselves, and 0.50 admits the
+// roads' own ramps while still rejecting the terrain — with the walker's 0.6
+// clear above it.
 export const AVATAR_WALKER_MAX_SLOPE = 0.6;
-export const AVATAR_HOVER_MAX_SLOPE = 0.35;
+export const AVATAR_HOVER_MAX_SLOPE = 0.5;
+
+/**
+ * Distance, in metres, the hover judges a climb over: its own footprint, not the
+ * 0.3 m it covers in one tick.
+ *
+ * A cushion riding HOVER_CLEARANCE off the ground rides over a step its hull
+ * spans; what stops it is ground that keeps climbing. Sampled per tick those are
+ * one reading, and a pessimistic one: 0.3 m into a 0.17 m kerb the gradient is
+ * 0.58, and a diagonal crossing of a bilinear cell is quadratic, so it reads
+ * worse still. So the gate consults both — a step steeper than the limit blocks
+ * only if the ground a span ahead is over the limit too (sim.ts `slopeBlocks`).
+ * That is what stopped the hover dead against 17 cm kerbs on the original's
+ * streets, which the walker does not even measure (issue #34).
+ *
+ * 2.4 m is the avatar's own footprint diameter, 2 × ARCHETYPE_RADIUS[AVATAR];
+ * avatarMovement.test.ts pins the relationship. It caps what the hover climbs in
+ * one step at span × limit = 1.2 m, below the walker's 1.4 m jump, so the walker
+ * keeps more ground on both axes of the asymmetry.
+ */
+export const HOVER_CUSHION_SPAN = 2.4;
 
 // Transform & jump (rules.md §2).
 export const TRANSFORM_LOCK_TICKS = 15; // ~0.5 s: no move/jump/weapons

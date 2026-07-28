@@ -9,7 +9,13 @@ import { join } from "node:path";
 
 const FROZEN: Record<string, { last: number; count: number }> = {
   "golden-01-drive": { last: 1396534480, count: 1800 },
-  "golden-02-combat": { last: 647416902, count: 2700 },
+  // Re-frozen at SIM_VERSION 18, and it is the ONLY golden that moved: this is
+  // the one replay that drives in hover (transform at t=20 s, then north and east
+  // across district-01's river), and the hover now judges a climb over its own
+  // 2.4 m footprint at a 0.5 limit instead of over a tick's 0.3 m at 0.35
+  // (issue #34). 01, 03 and 04 stay byte-identical on the same maps, which is the
+  // proof that the walker's half of `slopeBlocks` is unchanged arithmetic.
+  "golden-02-combat": { last: 1398668665, count: 2700 },
   "golden-03-match": { last: 3539373696, count: 4500 },
   "golden-04-warden": { last: 2257654512, count: 9000 },
   // Re-frozen at SIM_VERSION 16: produced units follow the Cnet road at a 0.5 m

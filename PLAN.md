@@ -433,6 +433,37 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       inside its own reach was tried and reverted: it fixed arrival on the two stuck
       arenas and cost more elsewhere (la-cantina 320 → 10), because a unit that
       walks is a unit that is not shooting. goldens 05 and 07 re-recorded
+- [x] The hover can drive the original's streets (SIM_VERSION 18, issue #34). The
+      issue asked which side was wrong about the roads' kerbs — the movement model,
+      the heightfield resolution, or nothing — and left the movement model open
+      after the RE side struck the resolution hypothesis (`Ctil` stores one height
+      point per cell corner, so there is no sub-cell ramp the import could drop).
+      It was the model, on the form nobody had measured: the walker has a jump for
+      a step it cannot climb and the hover has nothing, and the hover judged a
+      climb over the 0.3 m it covers in a tick. On a bilinear heightfield that
+      reads a 0.17 m kerb as a 0.58-gradient wall — and a diagonal crossing of one
+      cell is quadratic, so it reads worse — which locked the fast form out of
+      10-13% of every arena's `Cnet`: 68/518, 72/640, **32/315** and 75/661. That
+      middle number is la-cantina, the arena whose roads the walker finds clean,
+      and 67 of its 70 blocking sub-steps were flat again within 2.4 m. Two
+      halves, both in `slopeBlocks`: `HOVER_CUSHION_SPAN` (2.4 m, the avatar's own
+      footprint diameter) takes a second reading a span on and blocks only if the
+      ground is still climbing there, and `AVATAR_HOVER_MAX_SLOPE` goes 0.35 → 0.5,
+      which sits between what the roads climb (la-cantina's steepest sustained
+      climb is 0.40) and the arenas' 1.3-3 m terrain steps, where the sustained
+      climbs on the other three have their mass.
+      Hover-impassable edges 68→20, 72→45, 32→**0**, 75→46; teams that can drive
+      their own road network end to end in hover 2 → 7 of 8 (it was la-cantina's
+      two, and neither team on any other arena); blocking steps on the
+      committed shortest road 19→1, 7→5, 0→0, 7→5. The asymmetry is now two-sided
+      in the original's own terrain rather than only in rules.md: 2 lane edges each
+      on Slim and Joke are past a walker's jump and the cushion rides over them,
+      and the hover's step ceiling (span × limit = 1.2 m) stays under that jump's
+      1.4 m. What did NOT change: the 1.3-3 m terrain steps are still walls for a
+      form with no jump, so "transform or route around" survives as an arena
+      feature and stays pinned — it just stops applying to kerbs. No map data and
+      no walker rule moved, and the goldens prove the second half: golden-02 is the
+      only replay that drives in hover and the only one whose hashes moved
 - [ ] Two gaps remain, both #31's and both now characterised rather than guessed:
       **bug-hunt** is the one arena where an escort changes nothing (18.6 m, 0 core
       hits). Not the road (paRoads drives it unopposed), not the geometry (remove its

@@ -29,7 +29,7 @@ import {
   worldExtent,
 } from "../src/map";
 import { segmentWalkable } from "../src/roads";
-import { JUMPABLE_RISE, worstUphillRise } from "../src/units";
+import { JUMPABLE_RISE, worstHoverRise, worstUphillRise } from "../src/units";
 
 /** The apex JUMPABLE_RISE is derived from; asserted below so they cannot drift. */
 const JUMP_APEX = (AVATAR_JUMP_SPEED * AVATAR_JUMP_SPEED) / (2 * GRAVITY);
@@ -109,6 +109,30 @@ interface ArenaExpectation {
   steepLaneSteps: number;
   /** The subset of `steepLaneSteps` above JUMPABLE_RISE. */
   hardWallLaneSteps: number;
+  /**
+   * Lane-graph edges the HOVER cannot cross (`worstHoverRise`), and how that
+   * splits against the walker. There is no jump to fall back on in hover, so
+   * every one of these is transform-or-route-around.
+   *
+   * `walkerOnlyEdges` is the ground the walker owns — steep for the hover, walked
+   * by the walker; `hoverOnlyEdges` is the ground the HOVER owns, where the rise
+   * is past even a walker's jump but the cushion rides over it. Both non-zero on
+   * the same arena is rules.md §2's asymmetry showing up in the original's own
+   * terrain rather than in a design note (issue #34).
+   */
+  hoverBlockedEdges: number;
+  walkerOnlyEdges: number;
+  hoverOnlyEdges: number;
+  /** Sub-cell steps along the committed `lanes` polyline impassable in hover. */
+  hoverBlockedLaneSteps: number;
+  /**
+   * How many of the two teams can drive their road network from their own entry
+   * to the enemy plot in HOVER, start to finish. Measured, not designed: 7 of the
+   * 8 across the four arenas, where before issue #34 it was la-cantina's two and
+   * neither team on any other arena — the fast form could not use the original's
+   * streets at all on three of the four.
+   */
+  hoverDrivableTeams: number;
 }
 
 // Every row below is transcribed from `bun run gen:arena <id>`'s report, never
@@ -149,6 +173,11 @@ const ARENAS: ArenaExpectation[] = [
     hardWallLaneEdges: 8, // of 518 edges; smallest blocking rise 0.50 m
     steepLaneSteps: 1,
     hardWallLaneSteps: 1,
+    hoverBlockedEdges: 20,
+    walkerOnlyEdges: 2,
+    hoverOnlyEdges: 0,
+    hoverBlockedLaneSteps: 1,
+    hoverDrivableTeams: 2,
   },
   {
     // Rebuilt from the original Slim logic. Slim and Joke used to share one
@@ -186,6 +215,11 @@ const ARENAS: ArenaExpectation[] = [
     hardWallLaneEdges: 13, // of 640 edges; smallest blocking rise 0.55 m
     steepLaneSteps: 4,
     hardWallLaneSteps: 1,
+    hoverBlockedEdges: 45,
+    walkerOnlyEdges: 12,
+    hoverOnlyEdges: 2,
+    hoverBlockedLaneSteps: 5,
+    hoverDrivableTeams: 1,
   },
   {
     // Rebuilt from the original Mp logic (tools/generators/enrichArena.ts): the
@@ -223,6 +257,11 @@ const ARENAS: ArenaExpectation[] = [
     hardWallLaneEdges: 0,
     steepLaneSteps: 0,
     hardWallLaneSteps: 0,
+    hoverBlockedEdges: 0,
+    walkerOnlyEdges: 0,
+    hoverOnlyEdges: 0,
+    hoverBlockedLaneSteps: 0,
+    hoverDrivableTeams: 2,
   },
   {
     // Rebuilt from the original Joke logic — see proving-ground on the split.
@@ -252,6 +291,11 @@ const ARENAS: ArenaExpectation[] = [
     hardWallLaneEdges: 13, // of 661 edges; smallest blocking rise 0.55 m
     steepLaneSteps: 4,
     hardWallLaneSteps: 1,
+    hoverBlockedEdges: 46,
+    walkerOnlyEdges: 13,
+    hoverOnlyEdges: 2,
+    hoverBlockedLaneSteps: 5,
+    hoverDrivableTeams: 2,
   },
 ];
 
@@ -528,6 +572,74 @@ for (const arena of ARENAS) {
         if (steep > 0) expect(smallestBlockingRise).toBeGreaterThan(0.35);
       });
 
+      it("pins what the original's roads cost a HOVER, and who owns what ground", () => {
+        // The other half of issue #34, and the half nobody had measured: the
+        // hover has no jump, so a rise it cannot take is impassable outright.
+        //
+        // It used to judge a climb over the 0.3 m it covers in a tick, which on a
+        // bilinear heightfield reads a 0.17 m kerb as a 0.58-gradient wall. That
+        // blocked 10-13% of every arena's edges — 32 of Mp's 315, on the one arena
+        // the walker finds clean, where 67 of the 70 blocking sub-steps were flat
+        // again within a span. It now takes that second reading a
+        // HOVER_CUSHION_SPAN on and blocks only if the ground is still climbing.
+        const g = map.laneGraph;
+        if (!g) return;
+        const n = g.nodes.length;
+        let blocked = 0;
+        let walkerOnly = 0;
+        let hoverOnly = 0;
+        for (let k = 0; k < n; k++) {
+          for (let s = 0; s < 4; s++) {
+            const nb = g.edges[k * 4 + s];
+            if (nb < 0) continue;
+            const a = g.nodes[k];
+            const b = g.nodes[nb];
+            const hover = worstHoverRise(map, a.x, a.y, b.x, b.y);
+            const walker = worstUphillRise(map, a.x, a.y, b.x, b.y);
+            if (hover > 0) {
+              blocked++;
+              if (walker === 0) walkerOnly++;
+            } else if (walker > JUMPABLE_RISE) {
+              hoverOnly++;
+            }
+          }
+        }
+        expect(blocked).toBe(arena.hoverBlockedEdges);
+        expect(walkerOnly).toBe(arena.walkerOnlyEdges);
+        expect(hoverOnly).toBe(arena.hoverOnlyEdges);
+      });
+
+      it("pins how many teams can drive their road network in hover", () => {
+        // Same flood as the walker's escort claim above, with the hover's rule.
+        // This is the number that says whether the fast form can use the streets.
+        const g = map.laneGraph;
+        if (!g) return;
+        let drivable = 0;
+        for (let team = 0; team < 2; team++) {
+          const foe = map.basePlots[team ^ 1];
+          const queue = [g.entry[team]];
+          const seen = new Set(queue);
+          for (let i = 0; i < queue.length; i++) {
+            const k = queue[i];
+            const at = g.nodes[k];
+            if (Math.hypot(at.x - foe.x, at.y - foe.y) < foe.radius + 12) {
+              drivable++;
+              break;
+            }
+            for (let s = 0; s < 4; s++) {
+              const nb = g.edges[k * 4 + s];
+              if (nb < 0 || seen.has(nb)) continue;
+              const a = g.nodes[k];
+              const b = g.nodes[nb];
+              if (worstHoverRise(map, a.x, a.y, b.x, b.y) > 0) continue;
+              seen.add(nb);
+              queue.push(nb);
+            }
+          }
+        }
+        expect(drivable).toBe(arena.hoverDrivableTeams);
+      });
+
       it("keeps the arena's mirror symmetry: the two spawns mirror each other", () => {
         // This is the guard that catches the one-Til frame offset drifting again —
         // the exact bug all four of these arenas had. The heightfield is
@@ -559,6 +671,7 @@ for (const arena of ARENAS) {
       // held because Mp's shortest road happens to be clean.
       let steep = 0;
       let hardWall = 0;
+      let hoverBlocked = 0;
       for (const lane of map.lanes) {
         for (let i = 0; i < lane.length - 1; i++) {
           const a = lane[i];
@@ -575,13 +688,12 @@ for (const arena of ARENAS) {
           for (let s = 0; s < steps; s++) {
             const t0 = s / steps;
             const t1 = (s + 1) / steps;
-            const rise = worstUphillRise(
-              map,
-              a.x + (b.x - a.x) * t0,
-              a.y + (b.y - a.y) * t0,
-              a.x + (b.x - a.x) * t1,
-              a.y + (b.y - a.y) * t1,
-            );
+            const x0 = a.x + (b.x - a.x) * t0;
+            const y0 = a.y + (b.y - a.y) * t0;
+            const x1 = a.x + (b.x - a.x) * t1;
+            const y1 = a.y + (b.y - a.y) * t1;
+            if (worstHoverRise(map, x0, y0, x1, y1) > 0) hoverBlocked++;
+            const rise = worstUphillRise(map, x0, y0, x1, y1);
             if (rise === 0) continue;
             steep++;
             if (rise > JUMPABLE_RISE) hardWall++;
@@ -590,6 +702,10 @@ for (const arena of ARENAS) {
       }
       expect(steep).toBe(arena.steepLaneSteps);
       expect(hardWall).toBe(arena.hardWallLaneSteps);
+      // The same road in the other form. On Mp it is clean for both, which is
+      // what "the clean one" should have meant all along; on the other three the
+      // hover has to leave the shortest road at 5 steps (19 before issue #34).
+      expect(hoverBlocked).toBe(arena.hoverBlockedLaneSteps);
     });
   });
 }

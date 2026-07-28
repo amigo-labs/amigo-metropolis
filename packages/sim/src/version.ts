@@ -215,4 +215,45 @@
 //     goals move golden-07's whole trajectory. Goldens 01-04 (test-128 / district-01)
 //     and golden-06 (layered-test) re-header only: no core, so neither rung fires and
 //     no base carries a `defence` list.
-export const SIM_VERSION = 17;
+// v18: the hover judges a climb over its own footprint instead of over the 0.3 m
+//     it covers in a tick, and its slope limit is validated against the geometry
+//     it has to drive (issue #34). Two halves, both in `slopeBlocks`:
+//       - HOVER_CUSHION_SPAN, 2.4 m — the avatar's footprint diameter. A step
+//         steeper than the limit now blocks only if the ground a span further on
+//         is over the limit too. Per tick the two readings are the same thing: on
+//         a bilinear heightfield a 0.17 m kerb IS a 0.58-gradient wall while you
+//         are on it, and a diagonal crossing of one cell is quadratic, so the
+//         original's streets read as walls at 30 cm resolution. Measured on the
+//         four arenas' Cnet edges, that blocked 68/518, 72/640, 32/315 and 75/661
+//         — including 32 on la-cantina, the one arena whose roads the WALKER finds
+//         clean, where 67 of the 70 blocking sub-steps were flat again within
+//         2.4 m.
+//       - AVATAR_HOVER_MAX_SLOPE, 0.35 -> 0.5. Never validated against the
+//         original's terrain, per the issue. Over the span, la-cantina's road
+//         network contains no sustained climb above 0.40, while on the other three
+//         the sustained climbs run 0.35-1.5 with their mass at 0.50 and up — the
+//         arenas' 1.3-3 m terrain steps, not their roads. So the old value sat
+//         below the roads themselves and the new one admits the roads' own ramps
+//         while still rejecting the terrain. The walker's 0.6 is clear above it.
+//     Outcome, measured after the fact rather than tuned for (fcop-arenas.test.ts
+//     pins all of it): hover-impassable edges 68->20 on urban-jungle, 72->45 on
+//     proving-ground, 32->0 on la-cantina, 75->46 on bug-hunt; teams that can
+//     drive their own road network end to end in hover 2 -> 7 of 8 (it was
+//     la-cantina's two and neither team on any other arena); blocking steps
+//     on the committed shortest road 19->1, 7->5, 0->0, 7->5. Ground the hover now
+//     owns and the walker cannot take even with a jump: 2 edges each on
+//     proving-ground and bug-hunt, which is rules.md §2's asymmetry appearing in
+//     the original's terrain instead of only in a design note. The hover's step
+//     ceiling is span × limit = 1.2 m, deliberately under the walker's 1.4 m jump.
+//     What this does NOT do is make the original's roads uniformly drivable: the
+//     1.3-3 m terrain steps issue #34 found are still there, still walls for a
+//     form with no jump, and still pinned. "Transform or route around" survives as
+//     an arena feature; it just stops applying to kerbs.
+//     Nothing else moved: no map data, no walker rule. `slopeBlocks` computes the
+//     walker's branch with the same operations in the same order as the inline
+//     gate it replaces, and the goldens prove it — golden-02-combat is the ONLY
+//     replay whose hash sequence changes, because it is the only one that drives
+//     in hover (district-01, transform at t=20 s). Goldens 01, 03, 04 (walker on
+//     test-128/district-01), 05 (urban-jungle), 06 (layered-test) and 07
+//     (la-cantina) re-header only, byte-identical hash arrays.
+export const SIM_VERSION = 18;
