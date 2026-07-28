@@ -850,9 +850,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // importLaCantinaFromFcopViz.ts uses the same teamOnlyTurrets rule.
     const otherTeam = teamBases[1 - team].team;
     const otherPadKeys = new Set(
-      logic.turrets
-        .filter((t) => t.team === otherTeam)
-        .map((t) => padKey(sx(t.x), sz(t.z))),
+      logic.turrets.filter((t) => t.team === otherTeam).map((t) => padKey(sx(t.x), sz(t.z))),
     );
     const neutralPadKeys = new Set(logic.neutrals.map((t) => padKey(sx(t.x), sz(t.z))));
     const ownTurrets = logic.turrets
