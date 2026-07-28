@@ -16,7 +16,12 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   "golden-04-warden": { last: 2692203283, count: 9000 },
   "golden-05-fcop": { last: 2751040396, count: 2700 },
   "golden-06-layered": { last: 3787894536, count: 600 },
-  "golden-07-pa": { last: 201824983, count: 3600 },
+  // Re-frozen alone at SIM_VERSION 20 (the Warden's suppress rung): the only golden
+  // that runs a Warden on an arena carrying a core, so the only one whose hashes
+  // moved. 01-06 above are UNTOUCHED across that bump, which is the no-op proof —
+  // golden-04-warden runs a difficulty-8 Warden on district-01 and the rung is
+  // gated on `hasCore(enemy)`, so it never fires there.
+  "golden-07-pa": { last: 1050563335, count: 3600 },
 };
 
 describe("single-story golden last-hash pins", () => {

@@ -286,6 +286,30 @@ export const WARDEN_WAVE_SIZE: readonly number[] = [1, 1, 2, 2, 3, 3, 4, 4, 5, 6
  * upper difficulties commit early enough to arrive with it.
  */
 export const WARDEN_PUSH_COMMIT_RANGE: readonly number[] = [0, 0, 30, 30, 36, 36, 42, 45, 45, 50];
+/**
+ * How far from the tip of its own push the Warden looks for the emplacement that
+ * is stopping it. Precinct Assault arenas only (rules.md §9).
+ *
+ * A ground unit halts at its own 14-16 m reach from the first hostile it can see,
+ * so whatever is holding the tip is within roughly that distance of it; 24 m
+ * covers the halt plus the spread of a base's ring without reaching across the
+ * arena for a target that is not in the way.
+ */
+export const WARDEN_SUPPRESS_RADIUS = 24;
+/**
+ * How close the Warden gets to an emplacement it is suppressing.
+ *
+ * This is not a standoff, and that is the point. Measured over ten-minute
+ * difficulty-8 matches on the four §9 arenas, a base emplacement is inside the
+ * Warden's 42 m cannon range for 60-89% of the match and VISIBLE to it for 0-7%:
+ * the arenas' wall lattice is dense city geometry, and a defending turret is
+ * shootable from 8-17% of the directions around it at 8 m and from essentially
+ * none at 20 m and beyond. Sniping one from cannon range is not a thing the map
+ * allows anybody to do — a player kills these by coming down the street they
+ * guard. So the Warden does the same: it closes until the wall lattice stops
+ * mattering, inside the 6 m the emplacement itself reaches, and trades.
+ */
+export const WARDEN_SUPPRESS_DISTANCE = 3;
 /** Guardians kept alive for base defense. */
 export const WARDEN_GUARDIAN_TARGET: readonly number[] = [0, 0, 1, 1, 1, 2, 2, 2, 3, 3];
 /** Aggression at or above this saves 50 points for a Juggernaut push. */

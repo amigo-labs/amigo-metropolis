@@ -12,6 +12,7 @@ import {
   WARDEN_DEFEND_RADIUS,
   WARDEN_HP,
   WARDEN_PUSH_COMMIT_RANGE,
+  WARDEN_SUPPRESS_DISTANCE,
 } from "../src/balance";
 import { EV_CAPTURE, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
@@ -25,7 +26,7 @@ import {
   URBAN_JUNGLE_ID,
 } from "../src/map";
 import { createSim, hash, type SimState, step } from "../src/sim";
-import { WGOAL_CAPTURE, WGOAL_DEFEND, WGOAL_ESCORT } from "../src/warden";
+import { WGOAL_CAPTURE, WGOAL_DEFEND, WGOAL_ESCORT, WGOAL_SUPPRESS } from "../src/warden";
 
 const idle = createTickInputs();
 
@@ -175,17 +176,31 @@ describe("the goal ladder reads the arena's rule set (rules.md §9)", () => {
     return ticks;
   }
 
-  it("escorts a real share of a PA match instead of sitting on home defence", () => {
+  /**
+   * Share of the match spent on the committed-push rung, in either of its forms.
+   *
+   * Asserted as the sum from v20 on, because that rung now answers "what is
+   * stopping this push" before "who do I fly alongside" and the split between the
+   * two forms is arena geometry, not the behaviour under test: over five minutes
+   * at difficulty 8 it is SUPPRESS 68/22/60/62% against ESCORT 3/24/6/5% on
+   * la-cantina, urban-jungle, proving-ground and bug-hunt. Pinning ESCORT alone
+   * would read urban-jungle's 24% and la-cantina's 3% as a regression when what
+   * changed is that la-cantina's last stretch has something in the way.
+   */
+  const committed = (mix: Map<number, number>): number =>
+    (mix.get(WGOAL_ESCORT) ?? 0) + (mix.get(WGOAL_SUPPRESS) ?? 0);
+
+  it("commits to a PA push instead of sitting on home defence", () => {
     // Before v17, over ten minutes: escort 0% on la-cantina, urban-jungle and
     // bug-hunt, with DEFEND taking 63%, 89% and 91%. An enemy ground unit was
     // within 55 m of the gate essentially always, because both bases produce one
     // free Runner every 5 s, so the §1 rung never released the Warden.
-    // After, over five minutes: escort 34%, 8%, 80% and 63%, DEFEND 0.0% on all
-    // four. The bound on DEFEND is loose because home defence is not wrong, only
-    // wrong as a permanent state.
+    // After, over five minutes: the committed rung takes 71%, 46%, 66% and 67%,
+    // DEFEND 0.0% on all four. The bound on DEFEND is loose because home defence
+    // is not wrong, only wrong as a permanent state.
     for (const id of PA_ARENAS) {
       const mix = goalMix(id);
-      expect(mix.get(WGOAL_ESCORT) ?? 0).toBeGreaterThan(0.05);
+      expect(committed(mix)).toBeGreaterThan(0.05);
       expect(mix.get(WGOAL_DEFEND) ?? 0).toBeLessThan(0.25);
     }
   }, 30_000);
@@ -207,12 +222,12 @@ describe("the goal ladder reads the arena's rule set (rules.md §9)", () => {
     // Warden whose push was at the enemy core flew off for its 30th pad — measured
     // 67-75% of ticks capturing against 9% escorting, on arenas carrying 29-32
     // pads. Measured in the scenario where a push actually reaches the core, since
-    // that is the only scenario the rung applies to: escort now 71-77% and capture
-    // 5-16% on all four. Asserted as the relation that broke, not as transcribed
-    // percentages.
+    // that is the only scenario the rung applies to: the committed rung now takes
+    // 83%, 71%, 71% and 73% against capture's 5%, 8%, 8% and 7%. Asserted as the
+    // relation that broke, not as transcribed percentages.
     for (const id of PA_ARENAS) {
       const mix = goalMix(id, true);
-      expect(mix.get(WGOAL_ESCORT) ?? 0).toBeGreaterThan(mix.get(WGOAL_CAPTURE) ?? 0);
+      expect(committed(mix)).toBeGreaterThan(mix.get(WGOAL_CAPTURE) ?? 0);
     }
     // Capturing is still what it does with no push in progress: pads are income
     // and the board is worth about two heavy units (paAttribution pins that
@@ -223,5 +238,55 @@ describe("the goal ladder reads the arena's rule set (rules.md §9)", () => {
     // difficulty knob.
     expect(WARDEN_PUSH_COMMIT_RANGE[0]).toBe(0);
     expect(WARDEN_PUSH_COMMIT_RANGE[7]).toBeGreaterThan(0);
+  }, 30_000);
+
+  it("closes on what is stopping the push instead of hovering at cannon range", () => {
+    // v20's rung, asserted as the thing that was missing: contact. The Warden used
+    // to sit at WARDEN_ESCORT_DISTANCE behind a unit that had halted at its own
+    // 14-16 m reach, i.e. ~20 m off the emplacement holding it, which is a distance
+    // the arenas' walls make useless (paAttribution pins that no standoff position
+    // exists). What must not regress is that it comes within contact distance of a
+    // defending emplacement at all — measured closest approach 0.4-2.8 m on the four
+    // arenas against 5.7-23.0 m before.
+    for (const id of PA_ARENAS) {
+      const map = getMapById(id);
+      const sim = createSim(map, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
+      let closest = Number.POSITIVE_INFINITY;
+      let suppressTicks = 0;
+      while (sim.tick < 5 * 60 * 30 && sim.winner < 0) {
+        step(sim, idle);
+        if (sim.wardenGoal === WGOAL_SUPPRESS) suppressTicks += 1;
+        const w = sim.avatarId[1];
+        if (w < 0 || !sim.ent.alive[w]) continue;
+        for (let e = 0; e < sim.ent.high; e++) {
+          if (!sim.ent.alive[e] || sim.ent.team[e] !== 0) continue;
+          if (sim.ent.archetype[e] !== ARCHETYPE.TURRET) continue;
+          const d = Math.hypot(
+            sim.ent.posX[e] - sim.ent.posX[w],
+            sim.ent.posY[e] - sim.ent.posY[w],
+          );
+          if (d < closest) closest = d;
+        }
+      }
+      expect(suppressTicks).toBeGreaterThan(0);
+      // Inside the emplacement's own 6 m reach — the trade is the point, not a
+      // side effect. Loose enough to survive a balance pass on the arrive radius.
+      expect(closest).toBeLessThan(WARDEN_SUPPRESS_DISTANCE + 3);
+    }
+  }, 60_000);
+
+  it("never takes the suppress rung on a gate-breach arena", () => {
+    // Same containment as WARDEN_CORE_DEFEND_RADIUS: the rung sits inside
+    // `hasCore(enemy)`, so district-01 — where a unit at the gate wins outright and
+    // there is nothing to siege — must never reach it. This is what keeps goldens
+    // 01-04 re-headers rather than re-records.
+    const sim = wardenSim(8);
+    expect(sim.map.bases[0].coreHp).toBe(0);
+    let suppressTicks = 0;
+    while (sim.tick < 3 * 60 * 30 && sim.winner < 0) {
+      step(sim, idle);
+      if (sim.wardenGoal === WGOAL_SUPPRESS) suppressTicks += 1;
+    }
+    expect(suppressTicks).toBe(0);
   }, 30_000);
 });

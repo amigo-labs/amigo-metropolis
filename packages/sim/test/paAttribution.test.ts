@@ -30,6 +30,7 @@ import {
   POINTS_CAPTURE_TURRET,
   UNIT_RANGE,
 } from "../src/balance";
+import { segmentBlocked } from "../src/collision";
 import { EV_CAPTURE, EV_CORE_HIT, EV_HIT, EV_SHOT, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
 import {
@@ -263,7 +264,7 @@ describe("what kills a Precinct Assault push on la-cantina", () => {
   });
 });
 
-describe("a Warden vs an idle player: plays the board, does not break the line", () => {
+describe("a Warden vs an idle player: breaks the line on la-cantina", () => {
   // This describe used to assert the opposite — "wins on the base-destruction
   // objective inside ten minutes" — and that win did not survive the road fix
   // (issue #30). What it was resting on is worth stating exactly, because it is
@@ -297,33 +298,33 @@ describe("a Warden vs an idle player: plays the board, does not break the line",
     }
   }
 
-  it("does not resolve the match in ten minutes (known gap — issue #31)", () => {
-    // WHEN THIS STARTS FAILING, THAT IS THE BALANCE PASS LANDING: move it back to
-    // asserting the win, do not delete it.
+  it("resolves the match: razes the idle player's core inside ten minutes", () => {
+    // This assertion used to read `winner === -1` with the note "WHEN THIS STARTS
+    // FAILING, THAT IS THE BALANCE PASS LANDING: move it back to asserting the win,
+    // do not delete it." v20 is that landing, and the mechanism it names is worth
+    // correcting rather than deleting, because it was wrong:
     //
-    // Two of the three causes this used to name are fixed in v17, and the assertion
-    // survives them, so it is worth being exact about what is left. "Nothing in the
-    // Warden's play is aimed at the objective" was true and is not any more — it now
-    // escorts for 51% of this match instead of 0% — and the built-in guns no longer
-    // carry the base's 3000 HP. With the enemy stream off the field that is worth a
-    // great deal: core damage over ten minutes went from 90 to 320 on this arena, 4
-    // to 1073 on urban-jungle and 20 to 40 on proving-ground.
+    //   "The Warden escorts whatever unit is deepest, which after each exchange is
+    //   a fresh unit near its own base, so it fights an attrition war in the middle
+    //   and its push never reaches the range where WARDEN_PUSH_COMMIT_RANGE
+    //   applies."
     //
-    // What is left is this scenario specifically: BOTH bases produce a free Runner
-    // every 5 s, and two equal free streams make the mid-line a stable front. The
-    // Warden escorts whatever unit is deepest, which after each exchange is a fresh
-    // unit near its own base, so it fights an attrition war in the middle and its
-    // push never reaches the range where WARDEN_PUSH_COMMIT_RANGE applies. Whether
-    // an AI is supposed to break a symmetric free stream unaided is a design
-    // question for pillar 1, not only a number to turn — an idle player is not a
-    // party that is trying, but it is not a party contributing nothing either.
-    // Match still does not resolve. Removing dual-team mid ring stacks (v18) lets
-    // a Warden-escorted free stream chip the idle player's core (~240 HP over ten
-    // minutes on this seed) but not raze it — the mid-line front still holds.
-    expect(state.winner).toBe(-1);
-    expect(state.coreHp[0]).toBeGreaterThan(0);
+    // Measured, it reached that range and stayed there. Over ten minutes at
+    // difficulty 8 it spent 64-86% of its ticks on ESCORT at a mean 34-43 m from
+    // the enemy core with its push tip at 75-82% of the lane. It was not fighting
+    // in the middle and it was not mistargeting. It held a target for 1-18% of the
+    // match and landed 1.6-9.3k damage where its cooldowns allow ~66k, because a
+    // base emplacement was inside its 42 m cannon range 60-89% of the time and
+    // VISIBLE 0-7% of it — see "no standoff position exists" below. The mid-line
+    // front was not what held; the wall lattice was.
+    //
+    // With WGOAL_SUPPRESS the match ends at 268 s on this seed, and on 5/5 seeds it
+    // ends: 300 core hits against 24 before. Bounded as "resolves, and the Warden's
+    // own core is untouched by an idle opponent" rather than on the exact tick.
+    expect(state.winner).toBe(1);
+    expect(state.coreHp[0]).toBe(0);
     expect(state.coreHp[1]).toBe(3000);
-    expect(state.tick).toBe(limit);
+    expect(state.tick).toBeLessThan(limit);
   });
 
   it("funds that push from capture income that is not absurd", () => {
@@ -335,10 +336,14 @@ describe("a Warden vs an idle player: plays the board, does not break the line",
     const boardValue = MAP.turretSpots.length * POINTS_CAPTURE_TURRET;
     expect(boardValue / COST_JUGGERNAUT).toBeGreaterThan(1);
     expect(boardValue / COST_JUGGERNAUT).toBeLessThan(3);
-    // It captures a real share of the board rather than sitting on trickle: 25 of
-    // 32 pads measured. The points bound is loose and now covers a full ten
-    // minutes of trickle on top of the board — the match no longer ends early.
-    expect(captures).toBeGreaterThan(MAP.turretSpots.length / 2);
+    // What the board is NOT is the thing that wins the match. This used to assert
+    // "captures more than half the 32 pads", which was true of a Warden that had
+    // ten minutes and nothing better to do; now it wins at 268 s having taken 5,
+    // and capture is 6% of its ticks against the committed rung's 71%. So the pin
+    // is that the economy funded the push at all and did not need the whole board
+    // to do it — the same relation, from the other side.
+    expect(captures).toBeGreaterThan(0);
+    expect(captures).toBeLessThan(MAP.turretSpots.length);
     expect(state.points[1]).toBeLessThan(boardValue * 4);
   });
 });
@@ -426,15 +431,23 @@ describe("what an escort changes, per arena", () => {
   // Escort went from 0% of ticks to 51-77%. See WARDEN_CORE_DEFEND_RADIUS and
   // WARDEN_PUSH_COMMIT_RANGE.
 
-  // Measured core hits in 5 minutes after v18 (team-unique ring only, dual mid
-  // plates capturable): la-cantina 22, urban-jungle 8, proving-ground 8, bug-hunt 2.
+  // Measured core hits in 5 minutes on this seed, v18 → v20 (the suppress rung):
+  // la-cantina 22 → 23, urban-jungle 8 → 1, proving-ground 8 → 114, bug-hunt 2 → 32.
   // Bounded loosely below the measured value — what must not regress is that the
   // push arrives and the core takes damage.
+  //
+  // urban-jungle's 8 → 1 is NOT a regression and is the reason the bound for it is
+  // the bare "damages it": that arena's outcome is the seed-sensitive one. Over the
+  // five seeds the version note uses, it scores [1, 2, 300, 56, 0] against
+  // [8, 8, 0, 2, 2] before — mean 4 → 72, and the 300 is the core razed outright.
+  // The other three are seed-invariant here (both avatars idle, so the only PRNG
+  // draw in play is the harass coin flip). One seed is not a measurement on
+  // urban-jungle; it is on the rest.
   for (const [id, hits] of [
-    [LA_CANTINA_ID, 22],
-    [URBAN_JUNGLE_ID, 8],
-    [PROVING_GROUND_ID, 8],
-    [BUG_HUNT_ID, 2],
+    [LA_CANTINA_ID, 23],
+    [URBAN_JUNGLE_ID, 1],
+    [PROVING_GROUND_ID, 114],
+    [BUG_HUNT_ID, 32],
   ] as const) {
     it(`${id}: an escorted push reaches the core and damages it`, () => {
       const r = push(id, true);
@@ -443,6 +456,58 @@ describe("what an escort changes, per arena", () => {
       expect(r.coreHits).toBeGreaterThanOrEqual(Math.floor(hits / 2));
     });
   }
+
+  it("no standoff position exists against a base emplacement, on any arena", () => {
+    // The finding v20's WGOAL_SUPPRESS is built on, and the reason it closes to 3 m
+    // instead of picking a firing position: the arenas' wall lattice is dense city
+    // geometry, so a defending emplacement is not shootable from range by ANYBODY.
+    //
+    // This is what ruled out the two cheaper readings of "the Warden holds a target
+    // for 1-18% of the match". It is not out of position — there is nowhere to
+    // stand. And it is not that a flying entity ought to see over walls: that would
+    // delete the arenas' cover model for everything that flies, and since an
+    // emplacement's own reach is 6 m it would make the Warden unanswerable.
+    //
+    // Sampled as a ring of directions per emplacement rather than as a single
+    // segment, so the claim is "from no direction" and not "not from here".
+    for (const id of [LA_CANTINA_ID, URBAN_JUNGLE_ID, PROVING_GROUND_ID, BUG_HUNT_ID]) {
+      const map = getMapById(id);
+      const state = createSim(map, 1, {});
+      const idle = createTickInputs();
+      for (let t = 0; t < 30; t++) step(state, idle); // let every emplacement spawn
+      const ent = state.ent;
+      let emplacements = 0;
+      let openNear = 0;
+      let openFar = 0;
+      const SAMPLES = 64;
+      for (let e = 0; e < ent.high; e++) {
+        if (!ent.alive[e] || ent.team[e] !== 0 || ent.archetype[e] !== ARCHETYPE.TURRET) continue;
+        emplacements += 1;
+        for (let s = 0; s < SAMPLES; s++) {
+          // Directions off the unit circle. Test-side only — Math.cos/sin never
+          // enter the sim (CLAUDE.md determinism rule 1).
+          const a = (s / SAMPLES) * Math.PI * 2;
+          for (const [r, bucket] of [
+            [8, 0],
+            [28, 1],
+          ] as const) {
+            const px = ent.posX[e] + Math.cos(a) * r;
+            const py = ent.posY[e] + Math.sin(a) * r;
+            if (segmentBlocked(map, px, py, ent.posX[e], ent.posY[e])) continue;
+            if (bucket === 0) openNear += 1;
+            else openFar += 1;
+          }
+        }
+      }
+      expect(emplacements).toBeGreaterThan(0);
+      const total = emplacements * SAMPLES;
+      // Point-blank is where the lattice stops mattering; standoff is where it is
+      // absolute. Measured: 8-17% open at 8 m and 0-4% at 28 m, on all four.
+      expect(openNear / total).toBeGreaterThan(0.02);
+      expect(openFar / total).toBeLessThan(0.1);
+      expect(openFar).toBeLessThan(openNear);
+    }
+  });
 
   it("razes once the defenders are gone, on all four arenas", () => {
     // golden07 proves this for la-cantina; the same has to hold for the three

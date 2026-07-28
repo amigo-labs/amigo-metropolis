@@ -260,4 +260,51 @@
 //     spots (no triple stacks); BaseShooter guns are TURRET_BUILTIN; consoles face
 //     pad/arena centre; real X1-Alpha walker/hover assemblies replace the
 //     Quaternius stand-in; avatar drive is facing-aligned only (no strafe).
-export const SIM_VERSION = 19;
+// v20: the Warden suppresses what is stopping its push instead of only escorting
+//     it (issue #31, item 5 — "the Warden has never been tuned against a
+//     base-destruction objective"). WGOAL_SUPPRESS, one rung inside the existing
+//     commit gate: when a push has arrived, the Warden first asks what is in the
+//     way (`emplacementBlocking`, the live enemy turret nearest the push tip within
+//     WARDEN_SUPPRESS_RADIUS) and closes to WARDEN_SUPPRESS_DISTANCE on it; escort
+//     stays the goal when the way is clear.
+//     What the measurement found, which is not what PLAN.md and paAttribution
+//     recorded: the Warden was NOT stuck fighting an attrition war near its own
+//     base. Over ten-minute difficulty-8 matches against an idle player it already
+//     arrived — 64-86% of its ticks on ESCORT, a mean 34-43 m from the enemy core,
+//     its push tip at 75-82% of the lane, i.e. inside WARDEN_PUSH_COMMIT_RANGE the
+//     whole time. It simply could not shoot: it held a target for 1-18% of the
+//     match and landed 1.6-9.3k damage where its own cooldowns allow ~66k.
+//     The reason is geometry, and it rules out both cheaper fixes. A base
+//     emplacement sat inside its 42 m cannon range for 60-89% of the match and was
+//     VISIBLE for 0-7% of it (bug-hunt: 0% of 18000 ticks). Sampling 64 directions
+//     around every defending emplacement on all four arenas, one is shootable from
+//     8-17% of them at 8 m and from ~0% at 20 m and beyond — the arenas' wall
+//     lattice is dense city geometry, so no standoff position exists for ANY
+//     shooter. That kills "move the Warden somewhere with line of sight" (there is
+//     nowhere) and it kills "let a flying entity see over walls" (that deletes the
+//     arenas' cover model for everything that flies, and since an emplacement's own
+//     reach is 6 m it would make the Warden unanswerable). What is left is what a
+//     player does: come down the street the turret guards and trade inside its
+//     reach.
+//     Outcome over five seeds x ten minutes, difficulty 8 vs an idle player, core
+//     hits and defending emplacements destroyed: la-cantina 24 -> 300 hits and the
+//     core razed on 5/5 seeds (it resolved on none before), bug-hunt 0 -> 9 hits
+//     with 5 -> 40 defenders, proving-ground 5 -> 37 defenders, urban-jungle
+//     unchanged within noise (0 -> 2 hits, 17 -> 16 defenders). So issue #31's
+//     bug-hunt throughput gap moves by 8x and its "resolves nothing in ten minutes
+//     on any of the four" becomes "on three of the four" — both gaps still open on
+//     proving-ground and urban-jungle, where the Warden now clears defenders faster
+//     than before and the ring's 60 s respawn still replaces them faster than that.
+//     The cost is real and shows up as RETREAT going 0-18% -> 2-19%: point-blank
+//     means inside the emplacement's own reach, so the Warden trades hp for the
+//     kill and cycles home to repair, and it stops body-blocking the enemy stream
+//     at the mid-line (enemy ground deaths 99-117 -> 33-119). That trade is why
+//     urban-jungle is a wash rather than a gain.
+//     No balance constant was turned and no map data moved; the two new constants
+//     are the goal's own geometry. golden-07-pa (la-cantina, difficulty-8 Warden)
+//     is the ONLY replay whose hash sequence moves, and it is the only one that
+//     runs a Warden on an arena carrying a core: golden-04-warden is district-01,
+//     where the rung sits inside `hasCore(enemy)` and is unreachable, and
+//     golden-05-fcop is urban-jungle with no Warden at all. Goldens 01-06 re-header
+//     only, byte-identical hash arrays.
+export const SIM_VERSION = 20;
