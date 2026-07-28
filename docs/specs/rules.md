@@ -134,6 +134,19 @@ stronger than the player Avatar). Same rules and economy as a player — it earn
 and spends points; it does not cheat resources. Difficulty 1–10 scales its
 income multiplier, aggression thresholds, and reaction delay (see PLAN Phase 4).
 
+Its goal ladder reads the arena's rule set where the two differ, because two of
+its rungs are about the loss condition and §9 changes what that is. Under §1 an
+enemy ground unit near the Warden's own gate *is* the loss condition, so it
+outranks every other goal, and a unit of its own that reaches the enemy gate has
+already won, so there is nothing to escort. Under §9 neither holds: both bases
+emit a free Runner every 5 s, which makes "an enemy unit near my gate" the steady
+state rather than an emergency, and arriving at the enemy core is where the work
+starts rather than where it ends. So on an arena carrying a core the Warden
+defends a tight radius around it and leaves the approaches to its 20 emplacements,
+and it escorts a push that has arrived instead of leaving it there to capture
+another pad (`WARDEN_CORE_DEFEND_RADIUS`, `WARDEN_PUSH_COMMIT_RANGE`). Both are
+gated on map data like every other §9 mechanic, so a §1 arena behaves as before.
+
 ## 8. Out of scope for v1
 
 More arenas, 2v2, ranked/matchmaking, mobile touch controls, cosmetics,
@@ -171,7 +184,12 @@ only what Metropolis adopts from it.
 - **Turrets carry their own parameters.** Range, fire cadence, gun slew, field of
   view, rest rotation and health come from the arena's imported data instead of the
   global constants — for **all three** kinds: capturable pads, base ring turrets
-  and the built-in base guns. The original's reach is short: `engage_range` 6144 is
+  and the built-in base guns. Health too, with one exception: `BaseShooter` carries
+  no health field, so the built-in guns take the 500 every original `Turret` actor
+  has rather than the base structure's own 3000. That number is ours, like their
+  position — they sit on the core because the original stores no coordinates for
+  them — and four 3000 HP guns standing on the objective gated it at a unit's own
+  reach (issue #31). The original's reach is short: `engage_range` 6144 is
   6 m, against the pre-PA global 28 m, and turrets are placed within a few metres
   of the road they guard. That short reach is load-bearing, not decoration — it is
   what keeps a turret inside the 14 m a Runner can shoot back from, so a push can

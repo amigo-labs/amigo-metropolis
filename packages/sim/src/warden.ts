@@ -5,7 +5,8 @@
 // every replay (architecture.md §5).
 //
 // Decision layer: a priority state machine over
-//   {retreat, defend, buy logic, capture, escort push, harass avatar}
+//   {retreat, defend, buy logic, commit to an arrived push, capture, escort,
+//    harass avatar}
 // re-planned every WARDEN_REACTION_TICKS (the difficulty's reaction delay) or
 // immediately when the current goal dies under it. Aggression thresholds and
 // the income multiplier are the other difficulty knobs (balance.ts).
@@ -26,6 +27,7 @@ import {
   TICK_DT,
   WARDEN_AGGRESSION_PERCENT,
   WARDEN_ALTITUDE,
+  WARDEN_CORE_DEFEND_RADIUS,
   WARDEN_DEFEND_RADIUS,
   WARDEN_ESCORT_DISTANCE,
   WARDEN_GUARDIAN_TARGET,
@@ -38,6 +40,7 @@ import {
   WARDEN_PRIMARY_COOLDOWN_TICKS,
   WARDEN_PRIMARY_DAMAGE,
   WARDEN_PRIMARY_RANGE,
+  WARDEN_PUSH_COMMIT_RANGE,
   WARDEN_REACTION_TICKS,
   WARDEN_RETREAT_DONE_HP_PERCENT,
   WARDEN_RETREAT_HP_PERCENT,
@@ -113,14 +116,27 @@ function goalValid(state: SimState, id: number): boolean {
   switch (state.wardenGoal) {
     case WGOAL_RETREAT:
       return ent.hp[id] * 100 < WARDEN_RETREAT_DONE_HP_PERCENT * WARDEN_HP;
-    case WGOAL_DEFEND:
-      return (
-        slot >= 0 &&
-        slot < ent.high &&
-        ent.alive[slot] === 1 &&
-        ent.team[slot] === (me ^ 1) &&
-        isGroundUnit(ent.archetype[slot])
-      );
+    case WGOAL_DEFEND: {
+      if (
+        slot < 0 ||
+        slot >= ent.high ||
+        ent.alive[slot] !== 1 ||
+        ent.team[slot] !== (me ^ 1) ||
+        !isGroundUnit(ent.archetype[slot])
+      ) {
+        return false;
+      }
+      // On a §9 arena the interception has to stay an interception: without this,
+      // a Warden that latches onto a unit at the edge of the radius follows it
+      // back across the arena, and the tighter radius buys nothing. Unbounded on
+      // a §1 arena, where chasing the unit that would win the match IS the goal.
+      if (!hasCore(state, me)) return true;
+      const gate = state.map.bases[me].gate;
+      const reach = defendRadius(state, me);
+      const dx = ent.posX[slot] - gate.x;
+      const dy = ent.posY[slot] - gate.y;
+      return dx * dx + dy * dy <= reach * reach;
+    }
     case WGOAL_HARASS:
       return state.avatarId[me ^ 1] >= 0;
     case WGOAL_CAPTURE: {
@@ -159,8 +175,14 @@ function goalValid(state: SimState, id: number): boolean {
 
 /**
  * The priority ladder. Highest first: survival, base defense, then spending
- * (Juggernaut savings gate the cheaper buys), then map control (capture),
- * then the push (escort), then optional avatar harassment, else idle.
+ * (Juggernaut savings gate the cheaper buys), then — on a rules.md §9 arena — a
+ * push that has reached the enemy core, then map control (capture), then the push
+ * wherever it is (escort), then optional avatar harassment, else idle.
+ *
+ * Two of those rungs read the arena's rule set rather than being unconditional,
+ * because the loss condition differs: under §1 a unit at the gate wins on arrival,
+ * under §9 it has to raze a 3000 HP core while the base shoots back. See step 2
+ * and step 4.
  */
 function decide(state: SimState, id: number, d: number): void {
   const ent = state.ent;
@@ -176,10 +198,15 @@ function decide(state: SimState, id: number, d: number): void {
   }
 
   // 2. Defense: an enemy ground unit near our gate is the only real loss
-  // condition (rules.md §1) — intercept the one closest to the gate.
+  // condition (rules.md §1) — intercept the one closest to the gate. On a §9
+  // arena the radius tightens, because there the loss condition is a razed core
+  // rather than a breached gate and the free production stream would otherwise
+  // pin the Warden on home defence for the whole match (see
+  // WARDEN_CORE_DEFEND_RADIUS).
   const gate = state.map.bases[me].gate;
+  const reach = defendRadius(state, me);
   let bestId = -1;
-  let bestD2 = WARDEN_DEFEND_RADIUS * WARDEN_DEFEND_RADIUS;
+  let bestD2 = reach * reach;
   for (let t = 0; t < ent.high; t++) {
     if (!ent.alive[t] || ent.team[t] !== enemy || !isGroundUnit(ent.archetype[t])) continue;
     const dx = ent.posX[t] - gate.x;
@@ -225,7 +252,31 @@ function decide(state: SimState, id: number, d: number): void {
     }
   }
 
-  // 4. Map control: hover a neutral turret into ownership (presence is
+  // 4. Commit to a push that has arrived. Under §9, reaching the enemy core is
+  // where the work starts rather than where it ends: 300 unit-shots into 3000 HP
+  // with the ring and the base's own guns answering. A Warden that flies off to
+  // capture its 30th pad at that moment throws the match away — measured during
+  // an escorted push, capture took 67-75% of its ticks on urban-jungle and
+  // la-cantina against 9% escorting. Under §1 there is nothing to escort: a unit
+  // that arrives at the gate has already won.
+  //
+  // Below the buy goals on purpose. Buying feeds the push and is a short errand
+  // (8-17% of ticks measured); capturing is the errand that loses matches.
+  if (hasCore(state, enemy)) {
+    const commit = WARDEN_PUSH_COMMIT_RANGE[d];
+    const tip = foremostGroundUnit(state, me);
+    if (commit > 0 && tip >= 0) {
+      const core = state.map.bases[enemy].core;
+      const tdx = ent.posX[tip] - core.x;
+      const tdy = ent.posY[tip] - core.y;
+      if (tdx * tdx + tdy * tdy <= commit * commit) {
+        setGoal(state, WGOAL_ESCORT, tip);
+        return;
+      }
+    }
+  }
+
+  // 5. Map control: hover a neutral turret into ownership (presence is
   // currency — the superplane captures like any avatar).
   const spot = nearestNeutralTurretSpot(state, id);
   if (spot >= 0) {
@@ -233,14 +284,14 @@ function decide(state: SimState, id: number, d: number): void {
     return;
   }
 
-  // 5. Escort the push: fly cover for our ground unit closest to their gate.
+  // 6. Escort the push: fly cover for our ground unit closest to their gate.
   const front = foremostGroundUnit(state, me);
   if (front >= 0) {
     setGoal(state, WGOAL_ESCORT, front);
     return;
   }
 
-  // 6. Harass the enemy avatar — an aggression-gated coin flip (sim PRNG).
+  // 7. Harass the enemy avatar — an aggression-gated coin flip (sim PRNG).
   if (state.avatarId[enemy] >= 0 && rand01(state) * 100 < aggro) {
     setGoal(state, WGOAL_HARASS, enemy);
     return;
@@ -251,6 +302,19 @@ function decide(state: SimState, id: number, d: number): void {
 function setGoal(state: SimState, goal: number, slot: number): void {
   state.wardenGoal = goal;
   state.wardenSlot = slot;
+}
+
+/**
+ * True when this arena gives `player` a destructible core, i.e. when it plays by
+ * rules.md §9 rather than §1. Same test systemWinCheck uses (sim.ts).
+ */
+function hasCore(state: SimState, player: number): boolean {
+  return state.coreHp.length > 0 && state.map.bases[player].coreHp > 0;
+}
+
+/** Interception radius around own gate — tight on a §9 arena (see balance.ts). */
+function defendRadius(state: SimState, player: number): number {
+  return hasCore(state, player) ? WARDEN_CORE_DEFEND_RADIUS : WARDEN_DEFEND_RADIUS;
 }
 
 /** Superplane movement toward the goal, weapons free, console interaction. */

@@ -82,6 +82,22 @@ export const LOGIC_OFFSET_Z = 0;
 const TURRET_DAMAGE = 15;
 
 /**
+ * Health for a base's built-in defence weapons (fcop-logic.md §8.1).
+ *
+ * Also NOT in the extracted data: `BaseShooter` carries reach, cadence and FOV but
+ * no health, and the base structure's own `health` is the core's 3000. Reusing it
+ * put a 3000 HP gun on the core on all four arenas, and it is what held an
+ * escorted push on the doorstep — a Runner stops at its own 14 m reach and chips
+ * 3000 HP at 8 dps, which is 375 s per gun against four of them.
+ *
+ * The originals' Turret actors all carry 500, and a built-in gun is the same kind
+ * of thing — a structure you can shoot off a base that comes back on the ring
+ * timer (see spawnBaseDefence in sim.ts). So it takes the same number, and the
+ * core keeps the 3000 that IS extracted.
+ */
+const BASE_DEFENCE_HP = 500;
+
+/**
  * Pickup kinds (must match balance.ts PICKUP_*).
  *
  * The original's 8 grant kinds do not map one-to-one, because Metropolis'
@@ -858,7 +874,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
           turnSpeed: 0,
           fovCos: fovToCos(base.defenceWeapon.fovRaw),
         }),
-        hp: base.health,
+        hp: BASE_DEFENCE_HP,
       })),
       coreHp: base.health,
       productionTicks: toSimTicks(base.spawnTicks, TICK_HZ),

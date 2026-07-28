@@ -398,27 +398,65 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       slices, which is how a road running exactly along a lattice line read as
       walled. Pinned deterministically in `paRoads.test.ts`; wall edits 99→117 (Mp),
       242→283 (Conft), 304→328 (Slim), 311→335 (Joke); goldens 05 and 07 re-recorded
-- [ ] The last mile is now a combat problem, not a road one, and it is #31's:
-      with the enemy stream off the field an escorted push razes into the core on
-      la-cantina and stops 0.7 m short on Conft (held by the base's own 3000 HP
-      built-in gun, a number of ours), but 11 m short on Slim and Joke, where one
-      ring turret sits inside the last stretch and regenerates as fast as a Runner
-      trickle kills it (500 imported HP at 8 dps ≈ 62 s against a 60 s respawn).
-      Measured per arena in `paAttribution.test.ts`. Also measured and NOT the
-      lever: turret damage (15 → 5 changes nothing) and the base guns' HP
-      (3000 → 500 changes nothing). A difficulty-8 Warden vs an idle player
-      therefore resolves nothing in 10 minutes on any of the four — its old
-      la-cantina win was waypoint skipping, not a siege (same walls: radius 3 scores
-      128 core hits in three minutes, radius 0.5 scores none)
+- [x] The Warden plays the §9 objective, and a base's built-in guns stop carrying
+      the core's health (SIM_VERSION 17, issue #31). The last mile turned out to be
+      two behaviour defects and one modelling artifact before it was any kind of
+      number. Two rungs of the goal ladder were written for the §1 loss condition:
+      `WGOAL_DEFEND` fired on any enemy ground unit within 55 m of its own gate,
+      which under free production every 5 s is the steady state and not an
+      emergency — 63%, 89% and 91% of a ten-minute match spent on home defence on
+      la-cantina, urban-jungle and bug-hunt, never pushing — and `WGOAL_CAPTURE`
+      outranked `WGOAL_ESCORT` unconditionally, so a Warden whose push had reached
+      the enemy core flew off for its 30th pad (67-75% capturing against 9%
+      escorting). Escort went from 0% of ticks to 34-80%. The artifact: the built-in
+      base guns had `hp: base.health`, i.e. the core's 3000, because `BaseShooter`
+      stores no health — four of those standing ON the core gate it at a unit's own
+      14 m reach. They now take the originals' 500; `coreHp` keeps the extracted
+      3000, and only `bases[].defence[].hp` moved (8 fields per arena, verified
+      structurally; no heights or walls pin moved). Together, core damage over ten
+      minutes with the enemy stream off the field: 90 → 320 on la-cantina, 4 → 1073
+      on urban-jungle, 20 → 40 on proving-ground. An escorted push now reaches AND
+      damages the core on three of the four arenas, where before only la-cantina
+      did. **No balance constant was turned**, and two were measured and rejected so
+      a later pass does not spend budget there: `BASE_TURRET_RESPAWN_TICKS` is not
+      even monotone (120 s wins urban-jungle outright and drops la-cantina from 320
+      to 130), and `CORE_DAMAGE_PER_SHOT` scales an arriving siege linearly while
+      changing arrival not at all. A movement rule letting a unit close on a core
+      inside its own reach was tried and reverted: it fixed arrival on the two stuck
+      arenas and cost more elsewhere (la-cantina 320 → 10), because a unit that
+      walks is a unit that is not shooting. goldens 05 and 07 re-recorded
+- [ ] Two gaps remain, both #31's and both now characterised rather than guessed:
+      **bug-hunt** is the one arena where an escort changes nothing (18.6 m, 0 core
+      hits). Not the road (paRoads drives it unopposed), not the geometry (remove its
+      defenders and it razes like the rest — now asserted for all four in
+      `paAttribution.test.ts`), and not the ring layout (bug-hunt and proving-ground
+      place their emplacements at identical distances from the core and
+      proving-ground gets in). It is throughput: the same escort destroys 70
+      defending turrets in ten minutes on urban-jungle, 48 on proving-ground and 24
+      here, because bug-hunt's walls give more of its ring line of sight onto the
+      last stretch. **And a Warden vs an idle player still resolves nothing in ten
+      minutes on any of the four** — but for a reason that is no longer about the
+      Warden's play: both bases produce free Runners at the same rate, two equal
+      streams make the mid-line a stable front, and the Warden escorts whatever unit
+      is deepest, which after each exchange is a fresh one near its own base. So its
+      push never reaches the range where committing applies. Whether an AI should
+      break a symmetric free stream unaided is a pillar-1 design question, not only
+      a number
+      One earlier measurement in this phase was wrong and is worth correcting rather
+      than quietly dropping: "the base guns' HP (3000 → 500) changes nothing". It
+      changes nothing in an idle-vs-idle match, which is where it was measured — the
+      streams annihilate at the mid-line and no gun is ever shot at. In the escorted
+      case, the only one where the last mile exists, it is most of the fix
 
 **Definition of Done:** all four single-storey arenas play under §9 — production
 runs, pads capture, the enemy core can be razed — with `bun test`,
 `bun run replay:verify` and `bun run verify:arenas` green, `gen:arena all --check`
 reporting byte-identical output, and the per-arena fidelity screenshots showing
 turrets on their original pads. **Structurally met on all four**: production runs
-and reaches, pads capture, and razing works once the defence is beaten
-(`golden07.test.ts`). What is not met on any of them is a party that can beat that
-defence unaided — see the open item above, which is a balance pass (#31).
+and reaches, pads capture, and razing works once the defence is beaten — now
+asserted for all four arenas, not just la-cantina (`paAttribution.test.ts`). A
+party that is trying reaches AND damages the core on three of the four; bug-hunt
+and the symmetric-free-stream stalemate are the remaining open items above (#31).
 
 ## Backlog (post-v1, do not start)
 

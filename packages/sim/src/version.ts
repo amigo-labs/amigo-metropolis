@@ -167,4 +167,52 @@
 //     real hash change — new walls AND new movement. Goldens 01-04 (test-128 /
 //     district-01) and golden-06 (layered-test) re-header only: no lane graph, so
 //     GRAPH_WAYPOINT_RADIUS is never read on them.
-export const SIM_VERSION = 16;
+// v17: the Warden plays the §9 objective, and a base's built-in guns stop carrying
+//     the core's health (issue #31). Two rungs of the goal ladder were written for
+//     the §1 loss condition and mis-fire when the loss condition is a core:
+//       - WGOAL_DEFEND fired on any enemy ground unit within 55 m of its own gate.
+//         Under §1 that unit IS the loss condition, so it outranks everything; under
+//         §9 both bases emit a free Runner every 5 s, so it is the steady state and
+//         not an emergency. Measured over ten-minute difficulty-8 matches, the
+//         Warden spent 63%, 89% and 91% of its ticks on home defence on la-cantina,
+//         urban-jungle and bug-hunt and never pushed at all. WARDEN_CORE_DEFEND_
+//         RADIUS tightens it to 16 m — a ground unit's own reach, inside which
+//         something is already shooting the base — and leaves the rest to the 20
+//         emplacements that exist for it.
+//       - WGOAL_CAPTURE outranked WGOAL_ESCORT unconditionally, so a Warden whose
+//         push had arrived at the enemy core would leave it there and fly off for
+//         its 30th pad: 67-75% of ticks capturing against 9% escorting. Under §9
+//         arrival is where the work starts (300 unit-shots into 3000 HP with the
+//         base answering), so WARDEN_PUSH_COMMIT_RANGE adds a rung above capture for
+//         a push already inside the enemy base's envelope. Under §1 there is nothing
+//         to escort — a unit that reaches the gate has already won — so both rungs
+//         are gated on the arena carrying a core, exactly like every other §9
+//         mechanic, and district-01 behaves as before.
+//     Escort went from 0% of ticks to 34-80%, and home defence to 0.0%.
+//     The map data moved in one field: BASE_DEFENCE_HP. A base's built-in guns had
+//     `hp: base.health`, i.e. the core's 3000, because BaseShooter carries no health
+//     of its own — a modelling choice of ours, like their position. Four 3000 HP guns
+//     standing ON the core gate it at a unit's own 14 m reach: the unit halts, chips
+//     at 8 dps and can never close to CORE_ATTACK_RADIUS while one lives. They now
+//     take the 500 every Turret actor in the originals carries; coreHp keeps the
+//     3000, which IS extracted. Only `bases[].defence[].hp` changed — 8 fields per
+//     arena, verified structurally; every heights and walls pin is untouched.
+//     Measured together, over ten minutes with the enemy stream off the field, core
+//     damage went from 90 to 320 on la-cantina, 4 to 1073 on urban-jungle and 20 to
+//     40 on proving-ground; an escorted push now reaches and damages the core on
+//     three of the four arenas where before only la-cantina did.
+//     No balance constant was turned. Two were measured and rejected, so a later
+//     pass does not spend budget on them: BASE_TURRET_RESPAWN_TICKS is not monotone
+//     (120 s wins urban-jungle outright but drops la-cantina from 320 to 130 mean
+//     core damage) and CORE_DAMAGE_PER_SHOT scales an arriving siege linearly while
+//     changing arrival not at all. A movement rule that let a unit close on a core
+//     inside its own reach instead of halting was tried and reverted: it fixed
+//     arrival on the two stuck arenas and cost more than it bought elsewhere
+//     (la-cantina 320 to 10, urban-jungle 1073 to 5), because a unit that walks is a
+//     unit that is not shooting.
+//     golden-05-fcop (urban-jungle) and golden-07-pa (la-cantina) re-record for real
+//     hash change — the guns' hp is in the tick hash from tick 0, and the Warden's
+//     goals move golden-07's whole trajectory. Goldens 01-04 (test-128 / district-01)
+//     and golden-06 (layered-test) re-header only: no core, so neither rung fires and
+//     no base carries a `defence` list.
+export const SIM_VERSION = 17;
