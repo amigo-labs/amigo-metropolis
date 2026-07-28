@@ -200,6 +200,25 @@ export const WARDEN_HEAVY_RANGE = 30; // only bombs targets closer than this
 
 // Decision-layer geometry (difficulty-independent).
 export const WARDEN_DEFEND_RADIUS = 55; // enemy ground unit this close to own gate → intercept
+/**
+ * The same radius on a Precinct Assault arena (rules.md §9), where it has to mean
+ * something different because the loss condition does.
+ *
+ * Under §1 a ground unit that reaches the gate wins the match on the spot, so an
+ * enemy unit anywhere near it is the loss condition itself and outranks every
+ * other goal — which is what the 55 m above is for. Under §9 the same unit has to
+ * chip a 3000 HP core at CORE_DAMAGE_PER_SHOT, and both bases produce a free
+ * Runner every 5 s, so "an enemy ground unit within 55 m of the gate" is not an
+ * emergency, it is the steady state. Measured over ten-minute difficulty-8
+ * matches: the Warden spent 63%, 89% and 91% of its ticks on WGOAL_DEFEND on
+ * la-cantina, urban-jungle and bug-hunt, never pushed, and resolved nothing.
+ *
+ * At 16 m the goal keeps its meaning — a ground unit's own reach is 14-16 m, so
+ * inside it something is already shooting the base's own guns and is one step
+ * from CORE_ATTACK_RADIUS — and everything further out is left to the 16 ring
+ * turrets and 4 built-in guns that exist for exactly that.
+ */
+export const WARDEN_CORE_DEFEND_RADIUS = 16;
 export const WARDEN_STANDOFF = 24; // approach distance for attack goals
 export const WARDEN_ESCORT_DISTANCE = 6; // hover distance from the escorted unit
 export const WARDEN_RETREAT_DONE_HP_PERCENT = 80; // leave the pad at this hp
@@ -223,6 +242,20 @@ export const WARDEN_RETREAT_HP_PERCENT: readonly number[] = [
 ];
 /** Runners bought per console trip. */
 export const WARDEN_WAVE_SIZE: readonly number[] = [1, 1, 2, 2, 3, 3, 4, 4, 5, 6];
+/**
+ * Distance from the enemy core at which the Warden treats its own push as
+ * committed and escorts it in instead of capturing another pad. Precinct Assault
+ * arenas only (rules.md §9) — see the goal ladder in warden.ts. 0 means "never
+ * commits", which is how the bottom difficulties keep giving their advantages
+ * away, like WARDEN_WAVE_SIZE and WARDEN_GUARDIAN_TARGET.
+ *
+ * The floor that makes it useful is measured, not picked: everything defending a
+ * base — 16 ring turrets and 4 built-in guns — sits within 16 m of its core, and
+ * a ground unit halts at its own 14-16 m reach from the first thing it can see.
+ * So below ~30 m the Warden only arrives after its push has already stalled; the
+ * upper difficulties commit early enough to arrive with it.
+ */
+export const WARDEN_PUSH_COMMIT_RANGE: readonly number[] = [0, 0, 30, 30, 36, 36, 42, 45, 45, 50];
 /** Guardians kept alive for base defense. */
 export const WARDEN_GUARDIAN_TARGET: readonly number[] = [0, 0, 1, 1, 1, 2, 2, 2, 3, 3];
 /** Aggression at or above this saves 50 points for a Juggernaut push. */

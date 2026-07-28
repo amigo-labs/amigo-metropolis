@@ -18,7 +18,11 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // console leg, which was walled off from the road entirely (issue #30).
   // (Previously re-frozen at v15 for the ring turrets' imported 6 m reach, and at
   // v14 for the Conft rebuild.) This one is EXPECTED to move; 01-04 are not.
-  "golden-05-fcop": { last: 2708420958, count: 2700 },
+  // Re-frozen at SIM_VERSION 17: urban-jungle's four built-in base guns carry 500 HP
+  // instead of the base structure's 3000 (BASE_DEFENCE_HP, issue #31), which is in
+  // the tick hash from tick 0. The Warden rungs also changed, but this replay's
+  // Warden is not what moves it — the map field alone does.
+  "golden-05-fcop": { last: 2668007662, count: 2700 },
   // Frozen at SIM_VERSION 14. layered-test is synthetic and untouched by the FCOP
   // work, so this is a pure no-op pin like 01-04 — it just never had one.
   "golden-06-layered": { last: 873045128, count: 600 },
@@ -39,7 +43,15 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // along a lattice line. golden-07's own beats still hold: production, capture and
   // the intrusion alarm are all asserted in golden07.test.ts and none of them
   // needed a new expectation.
-  "golden-07-pa": { last: 4106543996, count: 3600 },
+  // Re-frozen again at SIM_VERSION 17, for both halves of issue #31's first pass:
+  // la-cantina's built-in base guns drop from the core's 3000 HP to the originals'
+  // 500 (in the hash from tick 0), and the Warden's goal ladder now reads the
+  // arena's rule set — it stops treating the free production stream as a permanent
+  // home-defence emergency (63% of ticks on this arena) and stops abandoning a push
+  // that has reached the enemy core. That moves this replay's whole trajectory, not
+  // just its opening hash. golden07.test.ts's own beats still hold unchanged:
+  // production cadence, capture, and the intrusion alarm.
+  "golden-07-pa": { last: 2351535758, count: 3600 },
 };
 
 describe("single-story golden last-hash pins", () => {
