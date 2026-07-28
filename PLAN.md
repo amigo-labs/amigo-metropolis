@@ -463,23 +463,58 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       feature and stays pinned — it just stops applying to kerbs. No map data and
       no walker rule moved, and the goldens prove the second half: golden-02 is the
       only replay that drives in hover and the only one whose hashes moved
-- [ ] Two gaps remain, both #31's and both now characterised rather than guessed:
-      **bug-hunt** is the one arena where an escort changes nothing (18.6 m, 0 core
-      hits). Not the road (paRoads drives it unopposed), not the geometry (remove its
-      defenders and it razes like the rest — now asserted for all four in
-      `paAttribution.test.ts`), and not the ring layout (bug-hunt and proving-ground
-      place their emplacements at identical distances from the core and
-      proving-ground gets in). It is throughput: the same escort destroys 70
-      defending turrets in ten minutes on urban-jungle, 48 on proving-ground and 24
-      here, because bug-hunt's walls give more of its ring line of sight onto the
-      last stretch. **And a Warden vs an idle player still resolves nothing in ten
-      minutes on any of the four** — but for a reason that is no longer about the
-      Warden's play: both bases produce free Runners at the same rate, two equal
-      streams make the mid-line a stable front, and the Warden escorts whatever unit
-      is deepest, which after each exchange is a fresh one near its own base. So its
-      push never reaches the range where committing applies. Whether an AI should
-      break a symmetric free stream unaided is a pillar-1 design question, not only
-      a number
+- [x] The Warden suppresses what is stopping its push (SIM_VERSION 20, issue #31
+      item 5). Both gaps this phase had open were one defect, and the mechanism the
+      previous entry recorded for the second one was wrong — worth correcting rather
+      than quietly dropping. It said the Warden "escorts whatever unit is deepest,
+      which after each exchange is a fresh one near its own base. So its push never
+      reaches the range where committing applies." Measured over ten-minute
+      difficulty-8 matches against an idle player, it reached that range and stayed
+      there: 64-86% of its ticks on `WGOAL_ESCORT`, a mean 34-43 m from the enemy
+      core, its push tip at 75-82% of the lane. It arrived. **It could not shoot** —
+      a target in cannon range for 1-18% of the match and 1.6-9.3k damage landed
+      where its own cooldowns allow ~66k.
+      The reason is arena geometry, and measuring it is what ruled out the two
+      cheaper fixes. A base emplacement sat inside the Warden's 42 m range 60-89% of
+      the match and was VISIBLE for 0-7% of it (bug-hunt: 0% of 18000 ticks). Sample
+      64 directions around every defending emplacement on all four arenas and one is
+      shootable from 8-17% of them at 8 m and from ~0% at 20 m and out — the lattice
+      is dense city geometry, so **no standoff position exists for any shooter**.
+      That kills "move it somewhere with line of sight" (nowhere) and it kills "let a
+      flying entity see over walls" (deletes the arenas' cover model for everything
+      that flies, and an emplacement's own reach is 6 m, so the Warden would be
+      unanswerable). What is left is what a player does: come down the street the
+      turret guards. `WGOAL_SUPPRESS` takes the enemy emplacement nearest the push
+      tip within `WARDEN_SUPPRESS_RADIUS` and closes to `WARDEN_SUPPRESS_DISTANCE`;
+      escort stays the goal while the way is clear.
+      Five seeds x ten minutes vs an idle player, core hits and defending
+      emplacements destroyed: la-cantina 24 → **300** with the core razed on **5/5**
+      seeds (it resolved on none before), bug-hunt 0 → 9 hits and 5 → **40**
+      defenders, proving-ground 5 → **37** defenders, urban-jungle unchanged within
+      noise. In the escorted-push scenario (defending stream silenced, five minutes,
+      mean over the same seeds): la-cantina 22 → 23, proving-ground 8 → **114**,
+      bug-hunt 2 → **32**, urban-jungle 4 → **72** — that last one is the
+      seed-sensitive arena, [8,8,0,2,2] before against [1,2,300,56,0] after, so its
+      single-seed 8 → 1 in `paAttribution.test.ts` is noise and not a regression.
+      The cost is real and deliberate: point-blank is inside the emplacement's own
+      reach, so `WGOAL_RETREAT` goes 0-18% → 2-19% as the Warden trades hp and cycles
+      home to repair, and it stops body-blocking the enemy stream at the mid-line
+      (enemy ground deaths 99-117 → 33-119). No balance constant was turned and no
+      map data moved (`gen:arena all --check` byte-identical). golden-07-pa is the
+      only replay whose hashes move and the only one running a Warden on an arena
+      with a core; golden-04-warden runs one on district-01, where the rung is gated
+      out, and 01-06 stay byte-identical
+- [ ] What #31 still has open, now down to one question on two arenas:
+      **proving-ground and urban-jungle do not resolve in ten minutes.** No longer a
+      Warden-behaviour gap — it clears 37 and 16 defenders where it cleared 5 and 17,
+      and in the escorted case both convert (114 and 72 mean core hits). It is the
+      race the earlier `TURRET_RESPAWN` note predicted: `BASE_TURRET_RESPAWN_TICKS` is
+      60 s and a 500 HP emplacement takes the Warden ~8 s at 60 dps, but there are 20
+      per base and it has to break contact to repair, so the ring replaces itself
+      about as fast as one superplane can strip it. The candidates are that constant
+      and unit dps, both ours; the 500 HP and the 6 m reach are extracted and stay.
+      Not turned here on purpose — this change is a behaviour fix with a clean
+      before/after, and turning a respawn knob in the same commit would confound it.
       One earlier measurement in this phase was wrong and is worth correcting rather
       than quietly dropping: "the base guns' HP (3000 → 500) changes nothing". It
       changes nothing in an idle-vs-idle match, which is where it was measured — the
@@ -493,8 +528,11 @@ reporting byte-identical output, and the per-arena fidelity screenshots showing
 turrets on their original pads. **Structurally met on all four**: production runs
 and reaches, pads capture, and razing works once the defence is beaten — now
 asserted for all four arenas, not just la-cantina (`paAttribution.test.ts`). A
-party that is trying reaches AND damages the core on three of the four; bug-hunt
-and the symmetric-free-stream stalemate are the remaining open items above (#31).
+party that is trying now reaches AND damages the core on **all four** — bug-hunt
+was the last holdout and converts 32 core hits where it managed 2 — and la-cantina
+resolves outright against an idle player. What remains open is the ten-minute
+resolution on proving-ground and urban-jungle, one respawn-versus-clearance
+question rather than four arena-shaped ones (#31, item above).
 
 ## Backlog (post-v1, do not start)
 

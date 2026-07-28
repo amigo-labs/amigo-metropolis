@@ -5,8 +5,8 @@
 // every replay (architecture.md §5).
 //
 // Decision layer: a priority state machine over
-//   {retreat, defend, buy logic, commit to an arrived push, capture, escort,
-//    harass avatar}
+//   {retreat, defend, buy logic, commit to an arrived push — suppressing whatever
+//    is stopping it or else escorting it, capture, escort, harass avatar}
 // re-planned every WARDEN_REACTION_TICKS (the difficulty's reaction delay) or
 // immediately when the current goal dies under it. Aggression thresholds and
 // the income multiplier are the other difficulty knobs (balance.ts).
@@ -45,6 +45,8 @@ import {
   WARDEN_RETREAT_DONE_HP_PERCENT,
   WARDEN_RETREAT_HP_PERCENT,
   WARDEN_SPEED,
+  WARDEN_SUPPRESS_DISTANCE,
+  WARDEN_SUPPRESS_RADIUS,
   WARDEN_WAVE_SIZE,
 } from "./balance";
 import { EV_SHOT, pushEvent } from "./events";
@@ -72,6 +74,7 @@ export const WGOAL_BUY_GROUND = 6; //      slot = runners left to buy
 export const WGOAL_BUY_JUGGERNAUT = 7; //  slot = 1
 export const WGOAL_BUY_AIR = 8; //         slot = guardians left to buy
 export const WGOAL_CLAIM = 9; //           slot = outpost spot index
+export const WGOAL_SUPPRESS = 10; //       slot = enemy turret entity id
 
 /** Warden system: decide (rate-limited) → move → shoot → buy. */
 export function systemWarden(state: SimState): void {
@@ -151,6 +154,19 @@ function goalValid(state: SimState, id: number): boolean {
         ent.alive[slot] === 1 &&
         ent.team[slot] === me &&
         isGroundUnit(ent.archetype[slot])
+      );
+    case WGOAL_SUPPRESS:
+      // Holds until the emplacement is dead — deliberately not re-checked against
+      // the push that motivated it. The tip that halted on this turret is usually
+      // dead long before the turret is, and a Warden that abandoned the kill each
+      // time its escortee died would never finish one: 500 HP at its 60 dps is
+      // 8 s, and a free Runner lives about that long.
+      return (
+        slot >= 0 &&
+        slot < ent.high &&
+        ent.alive[slot] === 1 &&
+        ent.team[slot] === (me ^ 1) &&
+        ent.archetype[slot] === ARCHETYPE.TURRET
       );
     case WGOAL_BUY_GROUND:
       return slot > 0 && state.points[me] >= COST_RUNNER;
@@ -262,6 +278,21 @@ function decide(state: SimState, id: number, d: number): void {
   //
   // Below the buy goals on purpose. Buying feeds the push and is a short errand
   // (8-17% of ticks measured); capturing is the errand that loses matches.
+  //
+  // Escorting an arrived push is necessary but not sufficient, and the gap between
+  // the two is what a §9 arena's geometry does to a superplane. Measured over
+  // ten-minute difficulty-8 matches against an idle player, the Warden already
+  // arrives — 64-86% of its ticks on ESCORT, a mean 34-43 m from the enemy core,
+  // its push tip at 75-82% of the lane — and then holds a target for 1-18% of the
+  // match and lands 1.6-9.3k damage where its own cooldowns allow ~66k. A base
+  // emplacement is inside its cannon range 60-89% of the time and visible 0-7% of
+  // it. It is not out of position and it is not mistargeting; there is a wall in
+  // the way, and no standoff position exists (see WARDEN_SUPPRESS_DISTANCE).
+  //
+  // So on arrival the first question is what is STOPPING the push, not who to fly
+  // alongside. Escort remains the fallback, and stays the goal whenever nothing is
+  // in the way — which is also what keeps the rung honest on an arena whose last
+  // stretch is open.
   if (hasCore(state, enemy)) {
     const commit = WARDEN_PUSH_COMMIT_RANGE[d];
     const tip = foremostGroundUnit(state, me);
@@ -270,6 +301,11 @@ function decide(state: SimState, id: number, d: number): void {
       const tdx = ent.posX[tip] - core.x;
       const tdy = ent.posY[tip] - core.y;
       if (tdx * tdx + tdy * tdy <= commit * commit) {
+        const blocker = emplacementBlocking(state, tip, enemy);
+        if (blocker >= 0) {
+          setGoal(state, WGOAL_SUPPRESS, blocker);
+          return;
+        }
         setGoal(state, WGOAL_ESCORT, tip);
         return;
       }
@@ -359,6 +395,11 @@ function moveAndAct(state: SimState, id: number, me: number): void {
       tx = ent.posX[state.wardenSlot];
       ty = ent.posY[state.wardenSlot];
       arrive = WARDEN_ESCORT_DISTANCE;
+      break;
+    case WGOAL_SUPPRESS:
+      tx = ent.posX[state.wardenSlot];
+      ty = ent.posY[state.wardenSlot];
+      arrive = WARDEN_SUPPRESS_DISTANCE;
       break;
     case WGOAL_BUY_GROUND:
       tx = base.groundConsole.x;
@@ -525,6 +566,41 @@ function nearestNeutralOutpost(state: SimState, id: number): number {
     if (d2 < bestD2) {
       bestD2 = d2;
       best = k;
+    }
+  }
+  return best;
+}
+
+/**
+ * The enemy emplacement standing in front of the push: the live enemy turret
+ * closest to `tip`, within WARDEN_SUPPRESS_RADIUS of it. -1 when the way is clear.
+ *
+ * Distance is measured from the TIP, not from the Warden, and not from the enemy
+ * core. From the tip it answers the question the goal is asking — what is this
+ * push halted on — and it picks the same target from wherever the Warden happens
+ * to be hovering, so the choice does not oscillate as it flies in. Capturable pad
+ * turrets the enemy owns count: on the last stretch they are in the way exactly
+ * like a ring turret, and the capture rung cannot take a pad an enemy holds.
+ *
+ * No line-of-sight test, deliberately: the Warden cannot see these from standoff
+ * (that is the whole finding behind this goal) and gating acquisition on the
+ * visibility it is flying in to obtain would never fire. It flies straight at
+ * things by design — moveAndAct has always ignored the lattice.
+ */
+function emplacementBlocking(state: SimState, tip: number, enemy: number): number {
+  const ent = state.ent;
+  const tx = ent.posX[tip];
+  const ty = ent.posY[tip];
+  let best = -1;
+  let bestD2 = WARDEN_SUPPRESS_RADIUS * WARDEN_SUPPRESS_RADIUS;
+  for (let t = 0; t < ent.high; t++) {
+    if (!ent.alive[t] || ent.team[t] !== enemy || ent.archetype[t] !== ARCHETYPE.TURRET) continue;
+    const dx = ent.posX[t] - tx;
+    const dy = ent.posY[t] - ty;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = t;
     }
   }
   return best;

@@ -162,9 +162,23 @@ emit a free Runner every 5 s, which makes "an enemy unit near my gate" the stead
 state rather than an emergency, and arriving at the enemy core is where the work
 starts rather than where it ends. So on an arena carrying a core the Warden
 defends a tight radius around it and leaves the approaches to its 20 emplacements,
-and it escorts a push that has arrived instead of leaving it there to capture
+and it commits to a push that has arrived instead of leaving it there to capture
 another pad (`WARDEN_CORE_DEFEND_RADIUS`, `WARDEN_PUSH_COMMIT_RANGE`). Both are
 gated on map data like every other §9 mechanic, so a §1 arena behaves as before.
+
+Committing means asking what is *stopping* the push before asking who to fly
+alongside: the Warden takes the enemy emplacement nearest the push's tip and
+closes to contact on it (`WARDEN_SUPPRESS_RADIUS`, `WARDEN_SUPPRESS_DISTANCE`),
+escorting only while the way is clear. Contact, not standoff, and that is a
+property of the arenas rather than a choice about the Warden: on the imported FCOP
+arenas a defending emplacement is shootable from 8–17% of the directions around it
+at 8 m and from essentially none at 20 m and beyond, because the wall lattice is
+dense city geometry. There is no firing position, for anybody — a player kills
+these by coming down the street they guard, and so does the Warden, inside the 6 m
+the emplacement itself reaches. Flight does not change that: the Warden ignores
+*terrain*, not walls, and its line of sight is the same lattice test as everyone
+else's. Exempting flight from it would delete the arenas' cover model and, since
+an emplacement's reach is 6 m, would make the Warden unanswerable.
 
 ## 8. Out of scope for v1
 
