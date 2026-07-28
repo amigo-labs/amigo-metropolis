@@ -215,8 +215,8 @@ const ARENAS: ArenaExpectation[] = [
     hardWallLaneEdges: 13, // of 640 edges; smallest blocking rise 0.55 m
     steepLaneSteps: 4,
     hardWallLaneSteps: 1,
-    hoverBlockedEdges: 45,
-    walkerOnlyEdges: 12,
+    hoverBlockedEdges: 44,
+    walkerOnlyEdges: 11,
     hoverOnlyEdges: 2,
     hoverBlockedLaneSteps: 5,
     hoverDrivableTeams: 1,
@@ -291,8 +291,8 @@ const ARENAS: ArenaExpectation[] = [
     hardWallLaneEdges: 13, // of 661 edges; smallest blocking rise 0.55 m
     steepLaneSteps: 4,
     hardWallLaneSteps: 1,
-    hoverBlockedEdges: 46,
-    walkerOnlyEdges: 13,
+    hoverBlockedEdges: 45,
+    walkerOnlyEdges: 12,
     hoverOnlyEdges: 2,
     hoverBlockedLaneSteps: 5,
     hoverDrivableTeams: 2,

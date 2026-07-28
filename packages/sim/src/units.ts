@@ -482,6 +482,12 @@ const HOVER_STEP = AVATAR_HOVER_SPEED * TICK_DT;
  * come from `rideHeight` — the same import the stepper calls — so a dip below
  * the water surface reads as the surface the hover floats on.
  *
+ * Both comparisons are STRICT, like the gate's: a rise of exactly `run × limit`
+ * is one the sim takes, so reporting it as blocked would be an authoring tool
+ * disagreeing with the sim about the boundary. (Its walker sibling above uses
+ * `>=`, which over-reports there; that is pre-existing, and its counts are
+ * pinned per arena, so it is left to a change that measures the difference.)
+ *
  * Unlike the walker's, this measure has no jump to fall back on: a rise it
  * reports is impassable in hover, full stop. Transform or route around.
  */
@@ -507,7 +513,9 @@ export function worstHoverRise(
     const f = t / steps;
     const next = rideHeight(map, ax + dx * f, ay + dy * f, true);
     const rise = next - h;
-    if (rise > 0 && rise >= run * AVATAR_HOVER_MAX_SLOPE && rise > worst) {
+    // `rise > run * limit` already implies `rise > 0`, and at this run length it
+    // implies the gate's GROUND_EPS too, so this IS the gate's step condition.
+    if (rise > run * AVATAR_HOVER_MAX_SLOPE && rise > worst) {
       // Steep in the step; consult the span, from where the step began.
       const g = (t - 1) / steps;
       const px = Math.min(Math.max(ax + dx * g + ux * HOVER_CUSHION_SPAN, 0), extent);

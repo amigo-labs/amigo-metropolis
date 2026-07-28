@@ -236,8 +236,8 @@
 //         below the roads themselves and the new one admits the roads' own ramps
 //         while still rejecting the terrain. The walker's 0.6 is clear above it.
 //     Outcome, measured after the fact rather than tuned for (fcop-arenas.test.ts
-//     pins all of it): hover-impassable edges 68->20 on urban-jungle, 72->45 on
-//     proving-ground, 32->0 on la-cantina, 75->46 on bug-hunt; teams that can
+//     pins all of it): hover-impassable edges 68->20 on urban-jungle, 72->44 on
+//     proving-ground, 32->0 on la-cantina, 75->45 on bug-hunt; teams that can
 //     drive their own road network end to end in hover 2 -> 7 of 8 (it was
 //     la-cantina's two and neither team on any other arena); blocking steps
 //     on the committed shortest road 19->1, 7->5, 0->0, 7->5. Ground the hover now

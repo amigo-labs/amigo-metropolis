@@ -452,7 +452,7 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       which sits between what the roads climb (la-cantina's steepest sustained
       climb is 0.40) and the arenas' 1.3-3 m terrain steps, where the sustained
       climbs on the other three have their mass.
-      Hover-impassable edges 68→20, 72→45, 32→**0**, 75→46; teams that can drive
+      Hover-impassable edges 68→20, 72→44, 32→**0**, 75→45; teams that can drive
       their own road network end to end in hover 2 → 7 of 8 (it was la-cantina's
       two, and neither team on any other arena); blocking steps on the
       committed shortest road 19→1, 7→5, 0→0, 7→5. The asymmetry is now two-sided
