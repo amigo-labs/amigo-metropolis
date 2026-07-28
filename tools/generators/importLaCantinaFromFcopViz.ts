@@ -64,9 +64,7 @@ function dedupePts(pts: [number, number][]): [number, number][] {
  */
 function teamOnlyTurrets(team: number, other: number): [number, number][] {
   const otherKeys = new Set(
-    viz.turrets
-      .filter((t) => t.team === other)
-      .map((t) => `${half(t.x)},${half(t.z)}`),
+    viz.turrets.filter((t) => t.team === other).map((t) => `${half(t.x)},${half(t.z)}`),
   );
   return dedupePts(
     viz.turrets
@@ -111,9 +109,7 @@ map.bases = [
 
 // --- Capturable: ALL NeutralTurret (36) pads — FCOP Mp has 32 ---
 // Mid dual-team type-8 pads overlap some neutrals; capturable owns those pads.
-const defKeys = new Set(
-  [...defS, ...defN].map(([x, y]) => `${x},${y}`),
-);
+const defKeys = new Set([...defS, ...defN].map(([x, y]) => `${x},${y}`));
 map.turretSpots = dedupePts(
   viz.neutrals.map((n) => [half(n.x), half(n.z)] as [number, number]),
 ).filter(([x, y]) => !defKeys.has(`${x},${y}`));
@@ -334,11 +330,14 @@ const vPin = fnv1aBytes(fnv1aInit(), wV, 0, wV.length) >>> 0;
 const hWPin = fnv1aBytes(fnv1aInit(), wH, 0, wH.length) >>> 0;
 console.log("wrote", MAP);
 console.log("spawns", map.spawns);
-console.log("cores", map.bases.map((b: { core: number[] }) => b.core));
+console.log(
+  "cores",
+  map.bases.map((b: { core: number[] }) => b.core),
+);
 console.log(
   "lanes meanX",
-  map.lanes.map(
-    (l: number[][]) => (l.reduce((s: number, p: number[]) => s + p[0], 0) / l.length).toFixed(1),
+  map.lanes.map((l: number[][]) =>
+    (l.reduce((s: number, p: number[]) => s + p[0], 0) / l.length).toFixed(1),
   ),
 );
 console.log("pins", { hPin, vPin, hWPin });

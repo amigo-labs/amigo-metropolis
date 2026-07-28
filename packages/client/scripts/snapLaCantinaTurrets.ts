@@ -158,8 +158,7 @@ function snapToPad(
     const elev = h - floorY;
     // Density is a weak tie-breaker only — ground plates have n~500 and must
     // NEVER beat a real elevated pad (Vorsprung / shelf / roof pad).
-    let score =
-      elev * 220 + Math.min(conn.length, 100) * 0.4 - d * 8 + (h >= h0 - 0.05 ? 3 : 0);
+    let score = elev * 220 + Math.min(conn.length, 100) * 0.4 - d * 8 + (h >= h0 - 0.05 ? 3 : 0);
     if (elev >= 0.4) score += 80;
     if (elev >= 1.2) score += 60;
     if (elev >= 2.0) score += 40;

@@ -256,8 +256,7 @@ for (let j = y0; j < y1; j++) {
     const r = Math.round(90 + t * 100);
     const g = Math.round(85 + t * 90);
     const b = Math.round(70 + t * 50);
-    const fill =
-      map.waterMask[j * size + i] === 1 ? "#1a4a55" : `rgb(${r},${g},${b})`;
+    const fill = map.waterMask[j * size + i] === 1 ? "#1a4a55" : `rgb(${r},${g},${b})`;
     lines.push(`<rect x="${i}" y="${j}" width="1" height="1" fill="${fill}"/>`);
   }
 }

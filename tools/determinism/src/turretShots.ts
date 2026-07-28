@@ -118,7 +118,10 @@ async function main(): Promise<void> {
 
     if (mode === "mesh") {
       const deadline = Date.now() + 15000;
-      while (Date.now() < deadline && !(glbs.includes("turret-standard") && glbs.includes("turret-defense"))) {
+      while (
+        Date.now() < deadline &&
+        !(glbs.includes("turret-standard") && glbs.includes("turret-defense"))
+      ) {
         await page.waitForTimeout(200);
       }
     }
@@ -223,27 +226,30 @@ async function main(): Promise<void> {
     }
 
     // Report which modes the sim thinks the two entities have.
-    const modes = await page.evaluate(({ arch }) => {
-      const w = globalThis as unknown as {
-        metropolisSim: {
-          ent: {
-            high: number;
-            alive: Uint8Array;
-            archetype: Uint8Array;
-            mode: Uint8Array | Int8Array;
-            posX: Float32Array;
+    const modes = await page.evaluate(
+      ({ arch }) => {
+        const w = globalThis as unknown as {
+          metropolisSim: {
+            ent: {
+              high: number;
+              alive: Uint8Array;
+              archetype: Uint8Array;
+              mode: Uint8Array | Int8Array;
+              posX: Float32Array;
+            };
           };
         };
-      };
-      const out: { id: number; mode: number; x: number }[] = [];
-      const ent = w.metropolisSim.ent;
-      for (let id = 0; id < ent.high; id++) {
-        if (ent.alive[id] && ent.archetype[id] === arch.TURRET) {
-          out.push({ id, mode: ent.mode[id], x: ent.posX[id] });
+        const out: { id: number; mode: number; x: number }[] = [];
+        const ent = w.metropolisSim.ent;
+        for (let id = 0; id < ent.high; id++) {
+          if (ent.alive[id] && ent.archetype[id] === arch.TURRET) {
+            out.push({ id, mode: ent.mode[id], x: ent.posX[id] });
+          }
         }
-      }
-      return out;
-    }, { arch: ARCHETYPE });
+        return out;
+      },
+      { arch: ARCHETYPE },
+    );
     console.log(`[${mode}] live turrets:`, modes, "glbs:", glbs);
     if (errors.length) console.warn(`[${mode}] errors:`, errors);
 
@@ -257,8 +263,7 @@ async function main(): Promise<void> {
   await browser.close();
   dev.kill();
 
-  const ok =
-    meshGlbs.includes("turret-standard") && meshGlbs.includes("turret-defense");
+  const ok = meshGlbs.includes("turret-standard") && meshGlbs.includes("turret-defense");
   console.log(ok ? "OK: both turret GLBs loaded" : "FAIL: missing turret GLB load");
   console.log(`screenshots → ${OUT}`);
   process.exit(ok ? 0 : 1);
