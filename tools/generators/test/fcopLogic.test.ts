@@ -14,7 +14,12 @@
 //      the reasoning attached rather than living only in a comment.
 
 import { describe, expect, test } from "bun:test";
+import conftLogic from "../fcop/conft-logic.json";
+import hkLogic from "../fcop/hk-logic.json";
+import jokeLogic from "../fcop/joke-logic.json";
 import logic from "../fcop/mp-logic.json";
+import ovmpLogic from "../fcop/ovmp-logic.json";
+import slimLogic from "../fcop/slim-logic.json";
 import {
   fovToCos,
   ROTATION_TURN,
@@ -98,6 +103,32 @@ describe("committed Mp logic artifact", () => {
       expect(Math.abs((node?.x ?? 0) - base.x)).toBeLessThan(0.5);
       expect(Math.abs((node?.z ?? 0) - base.z)).toBeLessThan(0.5);
     }
+  });
+
+  test("every net node carries its ground_cast surface selector", () => {
+    // This field IS the node's elevation (fcop-logic.md §3.1) — actor `height` and
+    // Cnet `height_offset` are 0.0 everywhere because Y is not stored as a number,
+    // it is raycast against terrain, and this is the raycast's mode. It was decoded
+    // by the extractor but dropped on the way into this artifact, which is what
+    // made the elevation look absent from the data.
+    for (const net of logic.nets) {
+      for (const node of net.nodes) {
+        expect(node.groundCast).toBeGreaterThanOrEqual(0);
+        expect(node.groundCast).toBeLessThanOrEqual(3);
+      }
+    }
+    // Mp: 10 LOW (5 per net, the four under-bridge road nodes plus one), rest HIGH.
+    // Pinned because a regeneration that silently dropped the field again would
+    // otherwise read as "all HIGH", which is a valid-looking arena on the flat.
+    const tally = new Map<number, number>();
+    for (const net of logic.nets) {
+      for (const node of net.nodes) {
+        tally.set(node.groundCast, (tally.get(node.groundCast) ?? 0) + 1);
+      }
+    }
+    expect(tally.get(1)).toBe(10); // LOW
+    expect(tally.get(0)).toBe(273); // HIGH
+    expect(tally.get(3)).toBeUndefined(); // no MIDDLE on Mp
   });
 
   test("net adjacency is a fixed stride of 4 with -1 for absent edges", () => {
@@ -194,5 +225,80 @@ describe("inferred raw-unit conversions", () => {
     expect(slew).toBeGreaterThan(0);
     // ~216 deg/s: a 90-degree turn in about half a second.
     expect(slew * TICK_HZ).toBeCloseTo(3.769, 2);
+  });
+});
+
+/**
+ * The cross-arena shape of `ground_cast`, because the reading that makes it an
+ * elevation depends on comparing arenas, not on any one of them.
+ *
+ * `bun run tools/generators/analyzeGroundCast.ts` measures the rest against the
+ * private RE dumps: LOW lands on a cell that carries a deck 83-100% of the time
+ * against 10-25% for HIGH, and only at the +16 frame. That part cannot run in CI,
+ * so what CI pins is the distribution those measurements were taken from — if
+ * these counts move, the numbers in fcop-logic.md §3.1 are stale.
+ */
+describe("ground_cast across the six arenas", () => {
+  const ARENA = {
+    conft: conftLogic,
+    slim: slimLogic,
+    mp: logic,
+    joke: jokeLogic,
+    hk: hkLogic,
+    ovmp: ovmpLogic,
+  } as const;
+
+  const tallyOf = (mission: keyof typeof ARENA): Map<number, number> => {
+    const t = new Map<number, number>();
+    for (const net of ARENA[mission].nets) {
+      for (const n of net.nodes) t.set(n.groundCast, (t.get(n.groundCast) ?? 0) + 1);
+    }
+    return t;
+  };
+
+  test("LOW is a small, consistent minority on the single-storey arenas", () => {
+    // 10-13 LOW per arena. This is the distribution that made the field look like
+    // a render flag rather than an elevation: LOW appears even where there is only
+    // one surface to select. It is not noise — on a single-storey CELL, LOW and
+    // HIGH resolve to the same height, so LOW there costs nothing, and the nodes
+    // carrying it are the ones sitting under a bridge.
+    expect(tallyOf("conft").get(1)).toBe(12);
+    expect(tallyOf("slim").get(1)).toBe(13);
+    expect(tallyOf("mp").get(1)).toBe(10);
+    expect(tallyOf("joke").get(1)).toBe(13);
+    expect(tallyOf("ovmp").get(1)).toBe(11);
+  });
+
+  test("Hk is the arena built on a deck, and says so", () => {
+    const t = tallyOf("hk");
+    // Hk's base surface is the canal floor and its city is a layer above it. Its
+    // owned road network is 130 HIGH nodes plus 10 MIDDLE and NOT ONE LOW — the
+    // whole network is up on the city deck, which the flattening drops 2 m onto
+    // the canal floor.
+    expect(t.get(0)).toBe(130); // HIGH
+    expect(t.get(3)).toBe(10); // MIDDLE — the only arena that uses it
+    // The 41 LOW are entirely net 3, the campaign leftover enrichArena's
+    // ownedNets() drops. Reading them as part of the arena is what made Hk look
+    // like a counter-example to the whole reading.
+    const leftover = hkLogic.nets.find((n) => n.netId === 3);
+    expect(leftover?.nodes.length).toBe(41);
+    expect(leftover?.nodes.every((n) => n.groundCast === 1)).toBe(true);
+    expect(t.get(1)).toBe(41);
+  });
+
+  test("MIDDLE appears only where there is a middle surface to select", () => {
+    // Semantics worth a test rather than a comment: of the six arenas only Hk
+    // stacks three surfaces under its road, and only Hk uses MIDDLE.
+    for (const m of ["conft", "slim", "mp", "joke", "ovmp"] as const) {
+      expect(tallyOf(m).get(3)).toBeUndefined();
+    }
+    expect(tallyOf("hk").get(3)).toBe(10);
+  });
+
+  test("NONE is never used", () => {
+    // So the sim only ever has to implement three modes.
+    for (const m of ["conft", "slim", "mp", "joke", "hk", "ovmp"] as const) {
+      expect(tallyOf(m).get(2)).toBeUndefined();
+    }
   });
 });

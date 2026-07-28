@@ -330,6 +330,21 @@ export interface PaNetNode {
   /** Up to 4 neighbour node indices; -1 = no edge (0x3FF sentinel resolved). */
   readonly neighbours: readonly number[];
   readonly state: number;
+  /**
+   * Which surface this node's Y resolves to: 0=HIGH 1=LOW 2=NONE 3=MIDDLE.
+   *
+   * This is the node's elevation. `height_offset` is 0.0 on all 174 graphs and
+   * actor `height` is 0.0 on all 7506 actors because Y is not stored as a number
+   * at all — §3 has always said "node Y is not stored, the engine raycasts it
+   * against terrain", and this field is that raycast's mode. On a cell carrying
+   * stacked surfaces HIGH takes the topmost, LOW the bottommost (`walk_height`),
+   * MIDDLE the one between. See §3.1 for the measurement.
+   *
+   * Carried because the sim frame flattens each arena to `walk_height`, which is
+   * the BOTTOM surface on 100% of deck cells — so importing every node at the
+   * heightfield puts the HIGH ones under the deck they belong on top of.
+   */
+  readonly groundCast: number;
 }
 
 export interface PaNet {
@@ -551,6 +566,7 @@ export function buildPaLogic(
           // stride without a length lookup.
           neighbours: [0, 1, 2, 3].map((k) => n.neighbours[k] ?? -1),
           state: n.state,
+          groundCast: n.ground_cast,
         })),
       })),
     markers: {
