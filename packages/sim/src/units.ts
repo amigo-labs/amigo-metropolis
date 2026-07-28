@@ -16,6 +16,7 @@ import {
   FORTRESS_PATROL_RADIUS,
   FORTRESS_RANGE,
   FORTRESS_SPEED,
+  GRAPH_WAYPOINT_RADIUS,
   GUARDIAN_ASSAULT_STANDOFF,
   GUARDIAN_PATROL_RADIUS,
   GUARDIAN_RANGE,
@@ -143,7 +144,7 @@ function advanceOnGraph(state: SimState, id: number, team: number): number {
   const target = g.nodes[node];
   const dx = target.x - ent.posX[id];
   const dy = target.y - ent.posY[id];
-  if (dx * dx + dy * dy > WAYPOINT_RADIUS * WAYPOINT_RADIUS) return node;
+  if (dx * dx + dy * dy > GRAPH_WAYPOINT_RADIUS * GRAPH_WAYPOINT_RADIUS) return node;
 
   // Arrived at this node: read the signpost.
   const a = g.nextHopA[team * n + node];

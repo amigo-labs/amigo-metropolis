@@ -9,8 +9,7 @@ import { crossesWallX, crossesWallY } from "../../packages/sim/src/collision";
 import { getMapById, sampleHeight } from "../../packages/sim/src/map";
 
 const MAP_JSON = join(import.meta.dir, "../../packages/sim/maps/la-cantina.json");
-const NETS_JSON =
-  "D:/github/amigo-labs/fcop-reverse-engineering/extracted/logic/Mp/nets.json";
+const NETS_JSON = "D:/github/amigo-labs/fcop-reverse-engineering/extracted/logic/Mp/nets.json";
 
 const AV = AVATAR_WALKER_MAX_SLOPE;
 const SPAWN_S = { x: 96.5, y: 69.5 };
@@ -73,9 +72,7 @@ function segmentOk(ax: number, ay: number, bx: number, by: number): boolean {
   return true;
 }
 
-function undirectedAdj(
-  nodes: { i: number; neighbours?: number[] }[],
-): Map<number, Set<number>> {
+function undirectedAdj(nodes: { i: number; neighbours?: number[] }[]): Map<number, Set<number>> {
   const adj = new Map<number, Set<number>>();
   for (const n of nodes) {
     if (!adj.has(n.i)) adj.set(n.i, new Set());

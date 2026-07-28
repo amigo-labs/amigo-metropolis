@@ -39,7 +39,8 @@
       "includes": [
         "packages/sim/src/sinTable.ts",
         "packages/sim/maps/*.json",
-        "packages/sim/test/goldens/*.hashes.json"
+        "packages/sim/test/goldens/*.hashes.json",
+        "docs/renders/fcop-viz/*.json"
       ],
       "formatter": {
         "enabled": false

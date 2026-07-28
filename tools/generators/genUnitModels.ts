@@ -484,8 +484,7 @@ async function processModel(spec: ModelPass): Promise<Report> {
       const outHi = 0.95;
       const span = hi - lo;
       for (let i = 0; i < width * height; i++) {
-        const t =
-          lums[i] < bg ? 0.05 : outLo + ((lums[i] - lo) / span) * (outHi - outLo);
+        const t = lums[i] < bg ? 0.05 : outLo + ((lums[i] - lo) / span) * (outHi - outLo);
         const v = Math.round(linearToSrgb(Math.min(1, Math.max(0, t))) * 255);
         packed[i * 4] = v;
         packed[i * 4 + 1] = v;

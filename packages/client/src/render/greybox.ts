@@ -5,7 +5,7 @@
 // The avatar gets TWO buckets (walker body / hover wedge); the frame loop
 // routes each snapshot entity into a bucket via bucketFor().
 
-import { ANIM_HOVER, ARCHETYPE, TURRET_DEFENSE, getMapById, MAP_REGISTRY } from "@metropolis/sim";
+import { ANIM_HOVER, ARCHETYPE, getMapById, MAP_REGISTRY, TURRET_DEFENSE } from "@metropolis/sim";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { NEUTRAL_RAMP, PROJECTILE_HEX, TEAM_RAMPS } from "./palette";
@@ -180,7 +180,7 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const guardian = bucket(scene, guardianGeometry, 64);
   const juggernaut = bucket(scene, juggernautGeometry, 4);
   const fortress = bucket(scene, fortressGeometry, 4);
-// Separate InstancedMesh + smaller greybox so Defense stays compact even
+  // Separate InstancedMesh + smaller greybox so Defense stays compact even
   // before / without the Stage B .glb swap. Capacity is registry-sized so PA
   // layouts (72+ turrets) never overflow a single mode bucket.
   const turretCap = turretCapacity();

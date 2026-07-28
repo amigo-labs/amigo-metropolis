@@ -148,6 +148,28 @@ export const FORTRESS_PATROL_RADIUS = 45;
 // Unit movement shared knobs.
 export const AIR_ALTITUDE = 6; // flyers ride this high above ground/water
 export const WAYPOINT_RADIUS = 3; // lane waypoint advance distance
+/**
+ * Waypoint advance distance on the original Cnet graph (rules.md §9), separate
+ * from the hand-authored polylines' 3 m because the two roads are not the same
+ * kind of thing. A polyline lane is a wide hand-placed suggestion; a Cnet edge is
+ * a metre-wide street in a wall lattice imported at 1 m resolution, and the only
+ * path stage 2 validates as walkable is the edge itself. Advancing 3 m early
+ * makes a unit leave that edge and cut the corner across whatever is there —
+ * measured as 32% and 35% of all ground-unit ticks jammed against a wall on
+ * proving-ground and bug-hunt, and produced units that cannot leave their own
+ * base at all (issue #30).
+ *
+ * Bounded from both sides, which is what picks the number:
+ *  - it has to exceed a tick's travel, or a unit steps over the node without
+ *    ever sampling inside the radius and orbits it. The fastest ground unit
+ *    covers 0.1333 m per tick, so 0.5 leaves 3.75x headroom — enough that a
+ *    separation nudge cannot make a unit miss its waypoint either;
+ *  - it has to stay small enough that the path travelled IS the path validated.
+ * Measured over 3-minute Warden matches on all four PA arenas, 0.5 traverses
+ * every road end to end at both ground step lengths and jams 0.0-3.1% of
+ * unit-ticks, against 6.7-34.6% at 3.
+ */
+export const GRAPH_WAYPOINT_RADIUS = 0.5;
 export const ORBIT_ANGULAR_SPEED = 0.6; // rad/s patrol orbit
 export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart
 export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tick

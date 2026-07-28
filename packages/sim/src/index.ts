@@ -10,6 +10,7 @@ export * from "./inputs";
 export * from "./map";
 export * from "./protocol";
 export * from "./replay";
+export * from "./roads";
 export * from "./runner";
 export * from "./sim";
 export * from "./simMath";

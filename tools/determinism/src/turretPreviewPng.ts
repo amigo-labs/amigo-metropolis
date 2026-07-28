@@ -4,9 +4,9 @@
 //
 //   bun run tools/determinism/src/turretPreviewPng.ts
 
-import { deflateSync } from "node:zlib";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { deflateSync } from "node:zlib";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const OUT = join(ROOT, "docs", "verification", "stage7-units");
@@ -19,7 +19,12 @@ interface MeshPart {
 function parseGlbMeshes(path: string): MeshPart[] {
   const buf = readFileSync(path);
   const jsonLen = buf.readUInt32LE(12);
-  const json = JSON.parse(buf.subarray(20, 20 + jsonLen).toString("utf8").replace(/\0+$/, ""));
+  const json = JSON.parse(
+    buf
+      .subarray(20, 20 + jsonLen)
+      .toString("utf8")
+      .replace(/\0+$/, ""),
+  );
   let off = 20 + jsonLen;
   while (off % 4) off++;
   const binLen = buf.readUInt32LE(off);
@@ -51,7 +56,7 @@ function crc32(data: Uint8Array): number {
   let c = ~0;
   for (let i = 0; i < data.length; i++) {
     c ^= data[i];
-    for (let k = 0; k < 8; k++) c = c & 1 ? (0xedb88320 ^ (c >>> 1)) : c >>> 1;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
   }
   return ~c >>> 0;
 }
@@ -85,7 +90,12 @@ function writePng(path: string, w: number, h: number, rgba: Uint8Array): void {
   v.setUint32(4, h);
   ihdr[8] = 8;
   ihdr[9] = 6; // RGBA
-  const parts = [sig, chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", new Uint8Array(0))];
+  const parts = [
+    sig,
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", new Uint8Array(0)),
+  ];
   let len = 0;
   for (const p of parts) len += p.length;
   const out = new Uint8Array(len);
@@ -233,5 +243,13 @@ for (const key of ["turret-standard", "turret-defense"] as const) {
   // verts
   const rawV = raw.reduce((s, p) => s + p.positions.length / 3, 0);
   const outV = out.reduce((s, p) => s + p.positions.length / 3, 0);
-  console.log(key, "raw parts", raw.map((p) => `${p.name}:${p.positions.length / 3}`).join(", "), "→ out verts", outV, "raw total", rawV);
+  console.log(
+    key,
+    "raw parts",
+    raw.map((p) => `${p.name}:${p.positions.length / 3}`).join(", "),
+    "→ out verts",
+    outV,
+    "raw total",
+    rawV,
+  );
 }

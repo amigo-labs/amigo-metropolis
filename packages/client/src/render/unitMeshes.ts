@@ -51,7 +51,11 @@ function swapBucketMesh(bucket: Bucket, key: string): void {
       // The pipeline emits ONE material per unit: either a single packed
       // atlas texture (FCOP originals) or vertex colors (untextured packs).
       // Keep the atlas, dispose the loader's material shells.
-      let map: THREE.Texture | null = null;
+      // Boxed rather than a plain `let`: the assignment happens inside the
+      // traverse callback, which control-flow analysis does not follow, so a
+      // `let` reads as still-null afterwards and narrows to `never` inside
+      // `if (map)`. The box has nothing to narrow.
+      const atlas: { texture: THREE.Texture | null } = { texture: null };
       gltf.scene.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
         if (!mesh.isMesh) return;
@@ -61,7 +65,7 @@ function swapBucketMesh(bucket: Bucket, key: string): void {
         const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         for (const material of list) {
           const std = material as THREE.MeshStandardMaterial;
-          if (std.isMeshStandardMaterial && std.map && !map) map = std.map;
+          if (std.isMeshStandardMaterial && std.map && !atlas.texture) atlas.texture = std.map;
           material.dispose(); // material only — the kept map texture survives
         }
       });
@@ -78,6 +82,7 @@ function swapBucketMesh(bucket: Bucket, key: string): void {
       // is +X forward, so bake the quarter turn into the geometry once.
       merged.rotateY(Math.PI / 2);
       // PS1-era atlas sampling (assets.md §3): hard pixels, no mips.
+      const map = atlas.texture;
       if (map) {
         map.magFilter = THREE.NearestFilter;
         map.minFilter = THREE.NearestFilter;

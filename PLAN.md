@@ -383,20 +383,42 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       of the damage that killed produced units, all of it from outside the 14 m a
       Runner can answer from. la-cantina goes from "no result in 10 minutes" to a
       difficulty-8 Warden winning in 187 s. golden-05 and golden-07 re-recorded
-- [ ] `urban-jungle`, `proving-ground` and `bug-hunt` do not yet meet the DoD
-      below: a Warden's units get 76-90% of the way to the defended core and stop —
-      zero core hits, zero intrusion alarms, on proving-ground even after capturing
-      all 29 pads. Not the road (every Cnet graph reaches its cores to 0.0 m and no
-      lane edge crosses a wall) and not ring density (la-cantina's ring is tighter
-      around its core and works). The last ~11 m of those three bases needs its own
-      diagnosis. Pinned as a failing-when-fixed test in `paAttribution.test.ts`
+- [x] Produced units can drive their roads on all four arenas (SIM_VERSION 16). It
+      WAS the road: a unit travels three kinds of segment and stage 2 validated
+      one. The Cnet edges were checked; the two beelines the sim generates around
+      them — production console → graph entry node, road's far end → enemy gate —
+      were not, and 5 of those 12 legs were walled. On Slim and Joke **neither team
+      could leave its own base**; on Conft team 0 could neither leave its own nor
+      enter the enemy's. la-cantina was clean on all four legs, which is why it was
+      the one arena that played. Two fixes: `GRAPH_WAYPOINT_RADIUS` 0.5 m so a unit
+      travels the edge instead of cutting the corner 3 m early (32% and 35% of
+      ground-unit ticks were spent jammed against a wall on Slim and Joke), and a
+      carve that walks every segment the way a unit steps — both ground step
+      lengths, 5 cm either side of the centre line — instead of in fixed 0.25 m
+      slices, which is how a road running exactly along a lattice line read as
+      walled. Pinned deterministically in `paRoads.test.ts`; wall edits 99→117 (Mp),
+      242→283 (Conft), 304→328 (Slim), 311→335 (Joke); goldens 05 and 07 re-recorded
+- [ ] The last mile is now a combat problem, not a road one, and it is #31's:
+      with the enemy stream off the field an escorted push razes into the core on
+      la-cantina and stops 0.7 m short on Conft (held by the base's own 3000 HP
+      built-in gun, a number of ours), but 11 m short on Slim and Joke, where one
+      ring turret sits inside the last stretch and regenerates as fast as a Runner
+      trickle kills it (500 imported HP at 8 dps ≈ 62 s against a 60 s respawn).
+      Measured per arena in `paAttribution.test.ts`. Also measured and NOT the
+      lever: turret damage (15 → 5 changes nothing) and the base guns' HP
+      (3000 → 500 changes nothing). A difficulty-8 Warden vs an idle player
+      therefore resolves nothing in 10 minutes on any of the four — its old
+      la-cantina win was waypoint skipping, not a siege (same walls: radius 3 scores
+      128 core hits in three minutes, radius 0.5 scores none)
 
 **Definition of Done:** all four single-storey arenas play under §9 — production
 runs, pads capture, the enemy core can be razed — with `bun test`,
 `bun run replay:verify` and `bun run verify:arenas` green, `gen:arena all --check`
 reporting byte-identical output, and the per-arena fidelity screenshots showing
-turrets on their original pads. **Met on la-cantina only**; see the open item
-above for the other three.
+turrets on their original pads. **Structurally met on all four**: production runs
+and reaches, pads capture, and razing works once the defence is beaten
+(`golden07.test.ts`). What is not met on any of them is a party that can beat that
+defence unaided — see the open item above, which is a balance pass (#31).
 
 ## Backlog (post-v1, do not start)
 
