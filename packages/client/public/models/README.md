@@ -18,12 +18,36 @@ projectile stays procedural (payload-colored sphere).
 container (extracted in `amigo-labs/fcop-reverse-engineering`); the
 avatar-walker is a CC0 stand-in because the X1-Alpha walker's rig does not
 survive extraction cleanly (Stage C: pose bake). Provenance in `CREDITS.md`.
-Regenerate with `bun run gen:units` (`tools/gen/genUnitModels.ts`, driven by
-`tools/gen/units/manifest.ts`); `tools/gen/test/unitModels.test.ts` asserts
-the committed output matches the manifest. Any archetype whose file is missing
-or fails to load keeps its greybox mesh at runtime, so models can be swapped
-one at a time. `bun run verify:units` shoots a lineup of all archetypes
-(mesh + greybox pairs) into `docs/verification/stage7-units/`.
+Regenerate with `bun run gen:units` (`tools/generators/genUnitModels.ts`, driven
+by `tools/generators/units/manifest.ts`);
+`tools/generators/test/unitModels.test.ts` asserts the committed output matches
+the manifest. Any archetype whose file is missing or fails to load keeps its
+greybox mesh at runtime, so models can be swapped one at a time.
+`bun run verify:units` shoots a lineup of all archetypes (mesh + greybox pairs)
+into `docs/verification/stage7-units/`.
+
+## Arena scenery — `props/`
+
+One `.glb` per original `DynamicProp` model, named `prop-<cobj>` after the Cobj
+resource id the map's `props` entries carry, so `src/render/props.ts` maps a
+placement onto a URL with no second lookup table. la-cantina has 36 placements
+across 8 models: a hazard-striped barrier (Cobj 28, 16×) and seven small kiosks
+showing the unit-icon/digit strip (27, 29, 33, 34, 35, 39, 40).
+
+These come out of the same generator and manifest as the units
+(`PROP_MODELS`), but with **two contracts inverted**: they keep their source
+scale, and they keep their source origin in XZ. Scenery is placed in the
+original's own frame at the original's own coordinates, so fitting it to a
+footprint or re-centring it would move it off the spot it was authored on —
+Cobj 28's bbox centre alone is 0.32 m off in Z. For the same reason nothing
+here is re-oriented; there is no +Z-forward convention to correct for.
+
+Render-only: the sim never reads `props`
+(`packages/sim/test/determinismGuard.test.ts` enforces it). Drawn on the
+`?render=mesh` path only, since these are the arena's own art and belong with
+the textured terrain rather than on top of greybox blocks. A missing file costs
+that model's scenery and nothing else — there is deliberately no greybox
+stand-in. Contract test: `tools/generators/test/propModels.test.ts`.
 
 ## Textured map meshes (Stage 4)
 

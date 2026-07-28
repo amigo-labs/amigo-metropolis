@@ -32,6 +32,7 @@ import {
 } from "@metropolis/sim";
 import { renderMusicLoop } from "./music";
 import { DETUNE_CUES, GLOBAL_CUES, PRESETS } from "./presets";
+import { SFX_FILES } from "./sfxFiles.generated";
 import { renderSfxr } from "./sfxr";
 import { MUSIC_OPTIONS, type MusicSelection, parseMusicSelection } from "./tracks";
 
@@ -286,9 +287,40 @@ export class AudioEngine {
       audioBuf.copyToChannel(pcm, 0);
       this.buffers.set(name, audioBuf);
     }
+    // Then upgrade whichever cues have a real original sound committed. Additive
+    // and unawaited on purpose: the synth above is already playable, play() reads
+    // this.buffers per voice, so a cue simply starts sounding like the original
+    // the moment its file lands. A missing or undecodable file keeps the synth.
+    void this.loadSfxFiles();
     // Music is loaded on demand (per selected track), not at unlock — see
     // startSelectedMusic(); the synth loop renders lazily through the same path.
     this.startSelectedMusic();
+  }
+
+  /**
+   * Replaces cue buffers with the committed original sounds
+   * (audio/sfxFiles.generated.ts). Loudness is already baked in by gen:sfx, so
+   * there is nothing to correct here — which is what keeps this a buffer swap
+   * and leaves play() and the voice-slot logic untouched.
+   */
+  private async loadSfxFiles(): Promise<void> {
+    for (const [cue, url] of Object.entries(SFX_FILES)) {
+      const buf = await this.fetchDecode(url);
+      // Re-check the context: unlock() could have been torn down while fetching.
+      if (buf && this.ctx) this.buffers.set(cue, buf);
+    }
+  }
+
+  /** Fetches and decodes one audio file. Null on 404, network error or bad data. */
+  private async fetchDecode(url: string): Promise<AudioBuffer | null> {
+    if (!this.ctx) return null;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      return await this.ctx.decodeAudioData(await res.arrayBuffer());
+    } catch {
+      return null; // network error or undecodable file
+    }
   }
 
   pump(events: EventBuffer, resolvePosition?: EventPositionResolver): void {
@@ -415,13 +447,8 @@ export class AudioEngine {
     } else {
       const url = MUSIC_OPTIONS.find((o) => o.id === sel)?.url;
       if (!url) return null;
-      try {
-        const res = await fetch(url);
-        if (!res.ok) return null;
-        buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
-      } catch {
-        return null; // network error or undecodable file
-      }
+      buf = await this.fetchDecode(url);
+      if (!buf) return null;
     }
     this.musicBuffers.set(sel, buf);
     return buf;
