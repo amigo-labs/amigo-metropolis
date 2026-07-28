@@ -73,37 +73,126 @@ describe("wav codec", () => {
   });
 
   test("averages channels down to mono", () => {
-    // Hand-built stereo s16 WAV: left +1, right -1 => mono 0.
-    const frames = 4;
-    const bytes = new Uint8Array(44 + frames * 4);
-    const view = new DataView(bytes.buffer);
-    const ascii = (at: number, s: string) => {
-      for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i));
-    };
-    ascii(0, "RIFF");
-    view.setUint32(4, 36 + frames * 4, true);
-    ascii(8, "WAVE");
-    ascii(12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 2, true); // stereo
-    view.setUint32(24, 22050, true);
-    view.setUint32(28, 22050 * 4, true);
-    view.setUint16(32, 4, true);
-    view.setUint16(34, 16, true);
-    ascii(36, "data");
-    view.setUint32(40, frames * 4, true);
-    for (let f = 0; f < frames; f++) {
-      view.setInt16(44 + f * 4, 32767, true);
-      view.setInt16(44 + f * 4 + 2, -32767, true);
-    }
+    // Stereo s16: left +1, right -1 => mono 0.
+    const bytes = buildWav({ channels: 2, bits: 16, frames: 4 }, (view, at, f) => {
+      view.setInt16(at + f * 4, 32767, true);
+      view.setInt16(at + f * 4 + 2, -32767, true);
+    });
     const { rate, samples } = decodeWav(bytes);
     expect(rate).toBe(22050);
-    expect(samples.length).toBe(frames);
+    expect(samples.length).toBe(4);
     for (const v of samples) expect(Math.abs(v)).toBeLessThan(1e-4);
   });
 
   test("rejects a non-RIFF file", () => {
-    expect(() => decodeWav(new Uint8Array(64))).toThrow();
+    expect(() => decodeWav(new Uint8Array(64))).toThrow(/RIFF/);
   });
 });
+
+// Malformed input, per the review on #36. The point of each is not that it fails
+// but that it fails *diagnosably*: without these guards a truncated or oddly
+// encoded source either surfaces as a bare DataView RangeError or, for a float
+// depth the loop cannot address, returns misaligned garbage silently.
+describe("wav codec rejects malformed input", () => {
+  test("a data chunk longer than the file", () => {
+    const bytes = buildWav({ frames: 8 });
+    // Claim twice the samples that are actually there.
+    new DataView(bytes.buffer).setUint32(40, 8 * 2 * 2, true);
+    expect(() => decodeWav(bytes)).toThrow(/declares .* the file ends at/);
+  });
+
+  test("but tolerates junk AFTER a complete fmt+data pair", () => {
+    // Not a malformed-input case so much as the counterpart to it, and the reason
+    // the overflow check stops rather than throws once both chunks are in hand.
+    // 197 of the 801 WAVs in the RE repo's legacy sfx/ dump look like this.
+    const good = buildWav({ frames: 4 }, (view, at, f) => {
+      view.setInt16(at + f * 2, 1000, true);
+    });
+    const bytes = new Uint8Array(good.length + 8);
+    bytes.set(good, 0);
+    const view = new DataView(bytes.buffer);
+    for (const [i, ch] of [..."JUNK"].entries()) view.setUint8(good.length + i, ch.charCodeAt(0));
+    view.setUint32(good.length + 4, 0xffffffff, true); // absurd declared length
+    const { samples } = decodeWav(bytes);
+    expect(samples.length).toBe(4);
+    expect(samples[0]).toBeCloseTo(1000 / 32768, 5);
+  });
+
+  test("a short fmt chunk", () => {
+    const bytes = buildWav({ frames: 4, fmtLength: 12 });
+    expect(() => decodeWav(bytes)).toThrow(/fmt chunk is 12 bytes, need 16/);
+  });
+
+  test("WAVE_FORMAT_EXTENSIBLE without its subformat GUID", () => {
+    const bytes = buildWav({ frames: 4, format: 0xfffe });
+    expect(() => decodeWav(bytes)).toThrow(/extensible fmt chunk is 16 bytes, need 40/);
+  });
+
+  test("a float depth the sample loop cannot address", () => {
+    // The silent one: 16-bit float would be read as Float32, four bytes per
+    // sample against a two-byte stride.
+    const bytes = buildWav({ frames: 4, format: 3, bits: 16 });
+    expect(() => decodeWav(bytes)).toThrow(/float WAV bit depth 16, expected 32 or 64/);
+  });
+
+  test("a bit depth that is not a whole byte", () => {
+    const bytes = buildWav({ frames: 4, bits: 12 });
+    expect(() => decodeWav(bytes)).toThrow(/PCM WAV bit depth 12/);
+  });
+
+  test("64-bit integer PCM, which the loop has no branch for", () => {
+    const bytes = buildWav({ frames: 4, bits: 64 });
+    expect(() => decodeWav(bytes)).toThrow(/PCM WAV bit depth 64/);
+  });
+
+  test("a data chunk under one frame", () => {
+    const bytes = buildWav({ frames: 0 });
+    expect(() => decodeWav(bytes)).toThrow(/under one frame/);
+  });
+});
+
+interface WavShape {
+  format?: number;
+  channels?: number;
+  bits?: number;
+  rate?: number;
+  frames?: number;
+  /** Declared fmt chunk size, for testing a truncated header. */
+  fmtLength?: number;
+}
+
+/** Builds a canonical 44-byte-header WAV, with each field overridable. */
+function buildWav(
+  shape: WavShape,
+  fill?: (view: DataView, dataAt: number, frame: number) => void,
+): Uint8Array {
+  const format = shape.format ?? 1;
+  const channels = shape.channels ?? 1;
+  const bits = shape.bits ?? 16;
+  const rate = shape.rate ?? 22050;
+  const frames = shape.frames ?? 4;
+  const fmtLength = shape.fmtLength ?? 16;
+  const frameBytes = Math.ceil(bits / 8) * channels;
+  const dataBytes = frames * frameBytes;
+  const bytes = new Uint8Array(20 + fmtLength + 8 + dataBytes);
+  const view = new DataView(bytes.buffer);
+  const ascii = (at: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i));
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, bytes.length - 8, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  view.setUint32(16, fmtLength, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, (rate * frameBytes) | 0, true);
+  view.setUint16(32, frameBytes, true);
+  if (fmtLength >= 16) view.setUint16(34, bits, true);
+  const dataAt = 20 + fmtLength + 8;
+  ascii(dataAt - 8, "data");
+  view.setUint32(dataAt - 4, dataBytes, true);
+  if (fill) for (let f = 0; f < frames; f++) fill(view, dataAt, f);
+  return bytes;
+}

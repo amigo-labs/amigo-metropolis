@@ -25,8 +25,26 @@ function readChunks(view: DataView): Map<string, { offset: number; length: numbe
   const chunks = new Map<string, { offset: number; length: number }>();
   let o = 12;
   while (o + 8 <= view.byteLength) {
+    const id = tag(o);
     const length = view.getUint32(o + 4, true);
-    chunks.set(tag(o), { offset: o + 8, length });
+    // A declared body running past the end means a truncated file or a garbage
+    // header, and it must not be registered: a later read would walk off the
+    // buffer and surface as a bare DataView RangeError.
+    //
+    // Whether that is fatal depends on WHERE it happens. Trailing junk after a
+    // complete fmt+data pair is common and harmless — 197 of the 801 WAVs in the
+    // RE repo's legacy `extracted/sfx/` dump have exactly that, a byproduct of the
+    // old byte-scan extraction, and they decode perfectly up to the real end of
+    // their data. So stop scanning there. But if the overflow hits before we have
+    // both chunks we need, the file is broken in a way that matters, and the
+    // diagnostic is worth more than a downstream "missing chunk".
+    if (o + 8 + length > view.byteLength) {
+      if (chunks.has("fmt ") && chunks.has("data")) break;
+      throw new Error(
+        `WAV chunk "${id}" declares ${length} bytes at ${o + 8} but the file ends at ${view.byteLength}`,
+      );
+    }
+    chunks.set(id, { offset: o + 8, length });
     o += 8 + length + (length % 2); // chunk bodies are word-aligned
   }
   return chunks;
@@ -44,19 +62,40 @@ export function decodeWav(bytes: Uint8Array): Pcm {
   const data = chunks.get("data");
   if (!fmt || !data) throw new Error("WAV missing fmt or data chunk");
 
+  // Field reads are bounds-checked against the declared chunk length rather than
+  // trusted: a short fmt chunk would otherwise fail as a bare RangeError.
+  if (fmt.length < 16) throw new Error(`WAV fmt chunk is ${fmt.length} bytes, need 16`);
   const format = view.getUint16(fmt.offset, true);
   const channels = view.getUint16(fmt.offset + 2, true);
   const rate = view.getUint32(fmt.offset + 4, true);
   const bits = view.getUint16(fmt.offset + 14, true);
   // 0xFFFE is WAVE_FORMAT_EXTENSIBLE; its real format lives in the subformat
-  // GUID, whose first two bytes repeat the tag above.
+  // GUID, whose first two bytes repeat the tag above. That GUID starts at +24,
+  // so the chunk has to be the full 40 bytes for the read to mean anything.
+  if (format === 0xfffe && fmt.length < 40) {
+    throw new Error(`WAV extensible fmt chunk is ${fmt.length} bytes, need 40`);
+  }
   const tag = format === 0xfffe ? view.getUint16(fmt.offset + 24, true) : format;
   const float = tag === 3;
   if (tag !== 1 && !float) throw new Error(`unsupported WAV format ${tag}`);
   if (channels < 1) throw new Error("WAV with no channels");
+  // Depths are whitelisted per format, and the two lists differ. IEEE float is
+  // only defined at 32 and 64 bits; without that check the sample loop would read
+  // any other float depth as Float32 — four bytes per sample against a stride of
+  // `bits / 8` — and return misaligned garbage without ever failing, unlike the
+  // integer path which has always thrown on an unknown depth.
+  const allowed = float ? [32, 64] : [8, 16, 24, 32];
+  if (!allowed.includes(bits)) {
+    throw new Error(
+      `unsupported ${float ? "float" : "PCM"} WAV bit depth ${bits}, expected ${allowed.join(" or ")}`,
+    );
+  }
 
   const bytesPerSample = bits / 8;
   const frames = Math.floor(data.length / (bytesPerSample * channels));
+  if (frames < 1) {
+    throw new Error(`WAV data chunk holds ${data.length} bytes, under one frame`);
+  }
   const out = new Float32Array(frames);
   for (let f = 0; f < frames; f++) {
     let sum = 0;
