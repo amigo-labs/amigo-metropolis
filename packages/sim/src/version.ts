@@ -131,4 +131,40 @@
 //     golden-05-fcop (urban-jungle) and golden-07-pa (la-cantina) re-record for
 //     real hash change; goldens 01-04 (test-128 / district-01) and golden-06
 //     (layered-test) re-header only — none of those arenas has a ring profile.
-export const SIM_VERSION = 15;
+// v16: produced units follow the original Cnet road instead of cutting across it
+//     — GRAPH_WAYPOINT_RADIUS, 0.5 m, split off from the hand-authored polylines'
+//     WAYPOINT_RADIUS of 3 (issue #30). On a 1 m wall lattice a 3 m arrival radius
+//     makes a unit leave the one path stage 2 validates, and the corner it cuts is
+//     whatever the original built there: 32% and 35% of all ground-unit ticks on
+//     proving-ground and bug-hunt were spent jammed against a wall, and units that
+//     could not clear their own base apron never left it.
+//     The map data moved with it, on all four single-storey arenas: stage 2 now
+//     validates and opens the two legs it always generated but never checked — the
+//     production console to the graph entry node, and the road's far end to the
+//     enemy gate — and walks every segment the way a unit steps (0.1333 m for a
+//     Runner, 0.0833 m for a Juggernaut, 5 cm either side of the centre line)
+//     instead of in fixed 0.25 m slices. That ruler matters: `crossesWallX/Y` judge
+//     a diagonal from the position at the START of the axis move, so sample spacing
+//     decides which cell row the test lands in, and a road running exactly along a
+//     lattice line — which the Cnet does constantly — comes out walled by the bit
+//     one column over. Wall edits go from 99 to 117 bits on Mp, 242 to 283 on
+//     Conft, 304 to 328 on Slim, 311 to 335 on Joke; every heightsPin is unchanged.
+//     Slim's and Joke's team 1 also joins the road at a different node (#294/#305
+//     instead of #292/#303): the Cnet's own base node is inside the base
+//     structure's walls, and where a unit cannot walk to it, stage 2 picks the
+//     nearest node on the same chain rather than deleting an extracted wall.
+//     One consequence has to be said out loud, because a pinned test moved with
+//     it: a difficulty-8 Warden no longer razes la-cantina's core against an idle
+//     player. That win was waypoint skipping — at 3 m a unit at Mp's node #46
+//     chained through #47 and #48 in one tick and beelined the core from 10 m out,
+//     past the emplacements the road runs between. Same committed walls, radius 3
+//     scores 128 core hits in three minutes and radius 0.5 scores none. The
+//     objective itself is unchanged and still reachable: golden-07 still razes a
+//     core once the defence is beaten, and paAttribution.test.ts now measures how
+//     close an escorted push gets on each arena. What stops it is combat, and it is
+//     quantified for issue #31 rather than papered over.
+//     golden-05-fcop (urban-jungle) and golden-07-pa (la-cantina) re-record for
+//     real hash change — new walls AND new movement. Goldens 01-04 (test-128 /
+//     district-01) and golden-06 (layered-test) re-header only: no lane graph, so
+//     GRAPH_WAYPOINT_RADIUS is never read on them.
+export const SIM_VERSION = 16;

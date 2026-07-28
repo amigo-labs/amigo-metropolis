@@ -115,6 +115,15 @@ Avatar 300 HP; walker speed 5, hover speed 9.
   pathfinding — the routes are searched once at authoring time and committed as
   a next-hop signpost per (team, node), so a unit reads one array entry per
   waypoint and, at a fork, flips one seeded coin. It never searches.
+  A unit on that graph advances at `GRAPH_WAYPOINT_RADIUS` (0.5 m), not the
+  polylines' 3 m, and the difference is load-bearing rather than cosmetic: an
+  original road is a metre-wide street in a wall lattice imported at 1 m
+  resolution, and the only path the arena pipeline validates as walkable is the
+  edge itself. A unit that advances 3 m early leaves that edge and cuts the
+  corner through whatever the original built there. The pipeline validates the
+  two beelines the sim generates around the graph as well — production console to
+  entry node, road's far end to enemy gate — because those are equally part of
+  the route a produced unit drives (issue #30).
 - v1 ships **one arena** ("District 01"), sized so Hover crosses it in ~25 s.
   Use FC:MIT viewer on original maps as *reference* for proportions only.
 

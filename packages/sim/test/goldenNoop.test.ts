@@ -12,13 +12,13 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   "golden-02-combat": { last: 647416902, count: 2700 },
   "golden-03-match": { last: 3539373696, count: 4500 },
   "golden-04-warden": { last: 2257654512, count: 9000 },
-  // Re-frozen at SIM_VERSION 15: urban-jungle's 32 ring turrets now carry the
-  // original Turret actor's weapon profile, gun rotation and 500 HP instead of
-  // falling through to the 28 m global TURRET_RANGE — a 4.7x reach correction, so
-  // every engagement on the map changes. (Previously re-frozen at v14 for the
-  // Conft rebuild: features one Til east, the one-way lane carve, the full §9
-  // data set.) This one is EXPECTED to move; 01-04 are not.
-  "golden-05-fcop": { last: 1786629611, count: 2700 },
+  // Re-frozen at SIM_VERSION 16: produced units follow the Cnet road at a 0.5 m
+  // arrival radius instead of cutting corners at 3 m, and urban-jungle's walls
+  // moved with it — 283 edited bits instead of 242, including team 0's production
+  // console leg, which was walled off from the road entirely (issue #30).
+  // (Previously re-frozen at v15 for the ring turrets' imported 6 m reach, and at
+  // v14 for the Conft rebuild.) This one is EXPECTED to move; 01-04 are not.
+  "golden-05-fcop": { last: 2708420958, count: 2700 },
   // Frozen at SIM_VERSION 14. layered-test is synthetic and untouched by the FCOP
   // work, so this is a pure no-op pin like 01-04 — it just never had one.
   "golden-06-layered": { last: 873045128, count: 600 },
@@ -33,7 +33,13 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 500 HP. Visible in the replay's own beats — the Warden-escorted push now
   // reaches an enemy base and trips 16 intrusion alarms where it previously
   // tripped none.
-  "golden-07-pa": { last: 1366788560, count: 3600 },
+  // Re-frozen again at SIM_VERSION 16: units walk the road rather than cutting
+  // across it (0.5 m arrival radius instead of 3), and Mp's walls moved from 99 to
+  // 117 edited bits — the corridor the carve opens either side of a road that runs
+  // along a lattice line. golden-07's own beats still hold: production, capture and
+  // the intrusion alarm are all asserted in golden07.test.ts and none of them
+  // needed a new expectation.
+  "golden-07-pa": { last: 4106543996, count: 3600 },
 };
 
 describe("single-story golden last-hash pins", () => {

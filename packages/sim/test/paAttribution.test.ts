@@ -214,17 +214,29 @@ describe("what kills a Precinct Assault push on la-cantina", () => {
   });
 });
 
-describe("the arena is decidable: a Warden beats an idle player", () => {
-  // The counterpart to the stalemate test in golden07. A stalemate between two
-  // idle players is the design (pillar 1 makes the player the tiebreaker); a
-  // stalemate between a difficulty-8 Warden and an idle player is not — it means
-  // nobody can win, and #31 recorded exactly that: 28 of 32 pads captured in ten
-  // minutes and no result.
+describe("a Warden vs an idle player: plays the board, does not break the line", () => {
+  // This describe used to assert the opposite — "wins on the base-destruction
+  // objective inside ten minutes" — and that win did not survive the road fix
+  // (issue #30). What it was resting on is worth stating exactly, because it is
+  // the reason the assertion flipped rather than a balance drift:
   //
-  // With the ring turrets on their imported 6 m reach the Warden's pushes get
-  // through and it razes the core in about three minutes. This is the single
-  // strongest statement that the arena plays: the objective is achievable by a
-  // party that is actually trying.
+  //   the old graph arrival radius was WAYPOINT_RADIUS, 3 m. A unit 3 m from a
+  //   node counted as arrived, read the signpost, and if the NEXT node was also
+  //   within 3 m it chained straight through it. On Mp's last stretch — nodes at
+  //   12, 10, 9, 6 and 5 m from the core — a single unhalted tick at node #46
+  //   carried a unit through #47 and #48 to "past the road", and it then beelined
+  //   the core from 10 m out, skipping the ring emplacements the road runs past.
+  //   That is what got units to the core, and it was waypoint skipping, not a
+  //   siege: on the SAME committed walls, a 3 m radius scores 128 core hits in
+  //   three minutes and 0.5 m scores 0.
+  //
+  // Now every unit walks the whole road, both streams arrive intact, and they
+  // annihilate at the mid-line — which is the design (pillar 1 makes the player
+  // the tiebreaker) and exactly what the idle-vs-idle stalemate in golden07 pins.
+  // The objective is still reachable: golden07 razes a core once the defence is
+  // beaten, and the describe below measures how close a push gets when the enemy
+  // stream is off the field. What is NOT yet true is that a Warden can beat that
+  // stream on its own, and that is #31's balance pass, quantified there.
   const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
   const idle = createTickInputs();
   let captures = 0;
@@ -236,72 +248,124 @@ describe("the arena is decidable: a Warden beats an idle player", () => {
     }
   }
 
-  it("wins on the base-destruction objective, inside ten minutes", () => {
-    expect(state.winner).toBe(1);
-    expect(state.coreHp[0]).toBe(0);
-    expect(state.tick).toBeLessThan(5 * 60 * 30);
+  it("does not resolve the match in ten minutes (known gap — issue #31)", () => {
+    // WHEN THIS STARTS FAILING, THAT IS THE BALANCE PASS LANDING: move it back to
+    // asserting the win, do not delete it. The lever is NOT turret damage — 15
+    // down to 5 changes nothing measurable here, and neither does the built-in
+    // base guns' 3000 HP — it is that a ring turret regenerates as fast as a
+    // Runner trickle can kill it (500 imported HP at 8 dps is ~62 s against a
+    // 60 s respawn), and that nothing in the Warden's play is aimed at the
+    // objective rather than at the board.
+    expect(state.winner).toBe(-1);
+    expect(state.coreHp[0]).toBe(3000);
+    expect(state.coreHp[1]).toBe(3000);
+    expect(state.tick).toBe(limit);
   });
 
   it("funds that push from capture income that is not absurd", () => {
     // #31's open question: 32 pads at POINTS_CAPTURE_TURRET = 3 is 96 points on a
     // map where a Juggernaut costs 50 and trickle is 1 per 10 s. Measured rather
-    // than argued: the whole board is worth about two heavy units, and the Warden
-    // reaches the objective on a fraction of it. That is a defensible economy, so
-    // the reward per pad and the trickle are LEFT ALONE — this test records the
-    // relation so a future change to either is a deliberate one.
+    // than argued: the whole board is worth about two heavy units. That is a
+    // defensible economy, so the reward per pad and the trickle are LEFT ALONE —
+    // this test records the relation so a future change to either is deliberate.
     const boardValue = MAP.turretSpots.length * POINTS_CAPTURE_TURRET;
     expect(boardValue / COST_JUGGERNAUT).toBeGreaterThan(1);
     expect(boardValue / COST_JUGGERNAUT).toBeLessThan(3);
-    // It captures a real share of the board on the way, rather than winning off
-    // trickle alone or needing every pad.
+    // It captures a real share of the board rather than sitting on trickle: 25 of
+    // 32 pads measured. The points bound is loose and now covers a full ten
+    // minutes of trickle on top of the board — the match no longer ends early.
     expect(captures).toBeGreaterThan(MAP.turretSpots.length / 2);
-    expect(state.points[1]).toBeLessThan(boardValue + 60);
+    expect(state.points[1]).toBeLessThan(boardValue * 4);
   });
 });
 
-describe("which PA arenas a Warden can actually finish", () => {
-  // Pinned because the answer is currently "one of four", and that is a gap
-  // against Phase 13's Definition of Done ("all four single-storey arenas play
-  // under §9 — production runs, pads capture, the enemy core can be razed").
+describe("how far an escorted push gets, per arena", () => {
+  // The old version of this block asked "which arenas can a Warden finish" and
+  // recorded one of four, with the note that "the last ~11 m of those three bases
+  // is impassable" and the explicit ruling-out: "It is not the road — every
+  // arena's Cnet graph reaches its cores and no lane edge crosses a wall."
   //
-  // Measured over three minutes against an idle player, difficulty 8. On the
-  // three v14-imported arenas the Warden's units get 76-90% of the way to the
-  // defended core and then stop dead: zero core hits, zero intrusion alarms, in
-  // one case (proving-ground) after capturing all 29 pads. It is not the road —
-  // every arena's Cnet graph reaches its cores to within 0.0 m and no lane edge
-  // crosses a wall — and it is not ring density, since la-cantina's ring sits
-  // TIGHTER around its core (median 20.1 m) than urban-jungle's (24.9 m) and
-  // la-cantina is the one that works. Something about the last ~11 m of those
-  // three bases is impassable to a produced unit, and it is a separate defect
-  // from the reach bug this file was written for.
+  // It WAS the road, and that ruling-out is what hid it: the Cnet was checked, the
+  // two legs the sim invents around it were not. Produced units on Slim and Joke
+  // could not leave their own base, and on Conft team 0 could neither leave its
+  // own nor enter the enemy's. That is fixed and pinned deterministically in
+  // paRoads.test.ts — one unopposed unit now drives console to core on all four
+  // arenas at both ground step lengths.
   //
-  // WHEN THESE START FAILING, THAT IS THE FIX LANDING: move the arena into the
-  // decidable list, do not delete the assertion.
-  const DECIDABLE = [LA_CANTINA_ID];
-  const NOT_YET = [URBAN_JUNGLE_ID, PROVING_GROUND_ID, BUG_HUNT_ID];
+  // What this block measures instead is the thing the road fix does NOT settle:
+  // how close a push gets when the defending stream is off the field, which is
+  // what escorting achieves and therefore the closest thing to "the objective is
+  // achievable". Production is silenced on team 0 and nothing else is touched —
+  // the ring, the base guns and the pads all still defend.
+  interface Reach {
+    /** Closest a team-1 ground unit came to the defended core, metres. */
+    readonly closest: number;
+    readonly coreHits: number;
+  }
 
-  function coreHits(id: string): number {
-    const state = createSim(getMapById(id), 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
-    const idle = createTickInputs();
-    let hits = 0;
-    for (let t = 0; t < 3 * 60 * 30 && state.winner < 0; t++) {
-      step(state, idle);
-      for (let i = 0; i < state.events.count; i++) {
-        if (state.events.data[i * EVENT_STRIDE] === EV_CORE_HIT) hits += 1;
+  function escortedPush(id: string): Reach {
+    const map = getMapById(id);
+    // The map registry hands out one shared instance, so restore this after.
+    const base = map.bases[0] as { productionTicks: number };
+    const restore = base.productionTicks;
+    base.productionTicks = 0;
+    try {
+      const state = createSim(map, 0xc0ffee, {});
+      const idle = createTickInputs();
+      let coreHits = 0;
+      let closest = Number.POSITIVE_INFINITY;
+      const core = map.bases[0].core;
+      for (let t = 0; t < 5 * 60 * 30 && state.winner < 0; t++) {
+        step(state, idle);
+        for (let i = 0; i < state.events.count; i++) {
+          if (state.events.data[i * EVENT_STRIDE] === EV_CORE_HIT) coreHits += 1;
+        }
+        const ent = state.ent;
+        for (let id2 = 0; id2 < ent.high; id2++) {
+          if (!ent.alive[id2] || ent.team[id2] !== 1) continue;
+          if (!GROUND_UNITS.includes(ent.archetype[id2] as (typeof GROUND_UNITS)[number])) continue;
+          const d = Math.hypot(ent.posX[id2] - core.x, ent.posY[id2] - core.y);
+          if (d < closest) closest = d;
+        }
       }
+      return { closest, coreHits };
+    } finally {
+      base.productionTicks = restore;
     }
-    return hits;
   }
 
-  for (const id of DECIDABLE) {
-    it(`${id}: the Warden reaches and damages the core`, () => {
-      expect(coreHits(id)).toBeGreaterThan(0);
-    });
-  }
+  it("la-cantina: razes into the core", () => {
+    // 20 core hits, closest approach 5.4 m. The full objective loop runs.
+    const r = escortedPush(LA_CANTINA_ID);
+    expect(r.coreHits).toBeGreaterThan(0);
+    expect(r.closest).toBeLessThanOrEqual(CORE_ATTACK_RADIUS);
+  });
 
-  for (const id of NOT_YET) {
-    it(`${id}: the Warden still cannot reach the core (known gap)`, () => {
-      expect(coreHits(id)).toBe(0);
+  it("urban-jungle: arrives at the core but is held on the doorstep", () => {
+    // 6.7 m measured, against a 6 m attack radius — the push gets all the way in
+    // and is then held by the base's own built-in gun, which sits ON the core with
+    // the base's 3000 HP and halts a Runner from 14 m out. That gun's HP is ours,
+    // not extracted (the original stores no per-gun health), so it is a balance
+    // question and #31's, not a road one.
+    const r = escortedPush(URBAN_JUNGLE_ID);
+    expect(r.closest).toBeLessThan(CORE_ATTACK_RADIUS + 2);
+    expect(r.coreHits).toBe(0); // when this flips, move it up to la-cantina's form
+  });
+
+  for (const id of [PROVING_GROUND_ID, BUG_HUNT_ID]) {
+    it(`${id}: stops ~11 m out on one ring turret (known gap — issue #31)`, () => {
+      // 11.5 m and 11.4 m measured. Both arenas place a ring turret 9-10 m from
+      // the core, inside the last stretch of road: a Runner halts 14 m from it,
+      // chips 500 imported HP at 8 dps (~62 s) and the ring respawns in 60 s, so
+      // the emplacement regenerates as fast as a trickle can kill it. Nothing
+      // about the road: paRoads drives this exact route unopposed.
+      //
+      // WHEN THIS STARTS FAILING, THAT IS THE BALANCE PASS LANDING — move the
+      // arena to la-cantina's form above, do not delete the assertion.
+      const r = escortedPush(id);
+      expect(r.coreHits).toBe(0);
+      expect(r.closest).toBeGreaterThan(CORE_ATTACK_RADIUS);
+      expect(r.closest).toBeLessThan(15);
     });
   }
 });

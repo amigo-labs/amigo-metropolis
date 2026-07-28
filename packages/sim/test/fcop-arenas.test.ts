@@ -28,6 +28,7 @@ import {
   URBAN_JUNGLE_ID,
   worldExtent,
 } from "../src/map";
+import { segmentWalkable } from "../src/roads";
 import { JUMPABLE_RISE, worstUphillRise } from "../src/units";
 
 /** The apex JUMPABLE_RISE is derived from; asserted below so they cannot drift. */
@@ -124,10 +125,12 @@ const ARENAS: ArenaExpectation[] = [
     laneCount: 1,
     groundHeight: 0.906,
     heightsPin: 264067427, // terrain untouched by the rebuild
-    // 219 bits carved to open the original roads + 23 to reconnect the ring
-    // and the base's own structures, of 4096 (5.9%).
-    wallsVPin: 1944393474,
-    wallsHPin: 3661246389,
+    // 262 bits carved to open the original roads + 21 to reconnect the ring
+    // and the base's own structures, of 4327 (6.5%). Up from 242: the carve now
+    // walks each road the way a unit steps rather than in fixed 0.25 m slices,
+    // and opens team 0's console leg, which was walled off entirely (issue #30).
+    wallsVPin: 1021236662,
+    wallsHPin: 3383256014,
     turretSpots: 32,
     outpostSpots: 2,
     dummySpots: 0,
@@ -160,10 +163,11 @@ const ARENAS: ArenaExpectation[] = [
     // averaged them to exactly 1. There is no 1 m shelf on this arena.
     groundHeight: 0,
     heightsPin: 1261122911, // terrain untouched by the rebuild
-    // 283 bits carved + 21 to reconnect, of 4096 (7.4%) — Slim's road network
-    // is the densest of the four, at 640 edges.
-    wallsVPin: 2238596254,
-    wallsHPin: 4155115572,
+    // 308 bits carved + 20 to reconnect, of 6330 (5.2%) — Slim's road network
+    // is the densest of the four, at 640 edges. Neither team could leave its own
+    // base before the road carve learned about the console leg (issue #30).
+    wallsVPin: 2680440707,
+    wallsHPin: 466939193,
     turretSpots: 29,
     outpostSpots: 2,
     dummySpots: 0,
@@ -192,11 +196,13 @@ const ARENAS: ArenaExpectation[] = [
     // Both X1Alpha spawns sit on the original 1 m base platforms at col 112.
     groundHeight: 1,
     heightsPin: 1164295261, // terrain untouched
-    // Walls differ from stage 1: 83 bits carved to open the original roads and
-    // 16 to reconnect the ring and the bases, out of 4009 (2.5%). Both counts
-    // grew when the carve stopped skipping one-way edges — see enrichArena.ts.
-    wallsVPin: 2734110619,
-    wallsHPin: 1084975133,
+    // Walls differ from stage 1: 101 bits carved to open the original roads and
+    // 16 to reconnect the ring and the bases, out of 4009 (2.9%). Mp's roads were
+    // already drivable end to end; the extra 18 bits are the corridor the carve
+    // now opens either side of a road that runs along a lattice line, where which
+    // cell a walker is judged to be in comes down to a rounding error.
+    wallsVPin: 878096970,
+    wallsHPin: 2382302978,
     turretSpots: 32, // every original NeutralTurret pad
     outpostSpots: 2,
     dummySpots: 0, // no original counterpart
@@ -225,9 +231,9 @@ const ARENAS: ArenaExpectation[] = [
     laneCount: 1,
     groundHeight: 0,
     heightsPin: 3837183847, // terrain untouched by the rebuild
-    // 287 bits carved + 24 to reconnect, of 4096 (7.6%).
-    wallsVPin: 3771208529,
-    wallsHPin: 1896827259,
+    // 312 bits carved + 23 to reconnect, of 6225 (5.4%).
+    wallsVPin: 3251669576,
+    wallsHPin: 2892005750,
     turretSpots: 29,
     outpostSpots: 2,
     dummySpots: 0,
@@ -422,29 +428,28 @@ for (const arena of ARENAS) {
         }
       });
 
-      it("no lane-graph edge crosses a wall", () => {
+      it("a produced unit can walk every lane-graph edge", () => {
+        // Was "no edge crosses a wall", sampled every 0.25 m. That ruler asks a
+        // question no unit asks: `crossesWallX/Y` judge a diagonal from the
+        // position at the START of the axis move, so the sample spacing decides
+        // which cell row the test lands in, and edges that passed at 0.25 m were
+        // blocked at a Runner's 0.1333 m (issue #30). `segmentWalkable` walks each
+        // edge at both ground step lengths and either side of the centre line,
+        // which is the movement the sim actually performs.
         const g = map.laneGraph;
         if (!g) return;
         const n = g.nodes.length;
+        const blocked: string[] = [];
         for (let k = 0; k < n; k++) {
           for (let s = 0; s < 4; s++) {
             const nb = g.edges[k * 4 + s];
             if (nb < 0) continue;
             const a = g.nodes[k];
             const b = g.nodes[nb];
-            const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 4);
-            let px = a.x;
-            let py = a.y;
-            for (let t = 1; t <= steps; t++) {
-              const cx = a.x + (b.x - a.x) * (t / steps);
-              const cy = a.y + (b.y - a.y) * (t / steps);
-              expect(crossesWallX(map, px, cx, py)).toBe(false);
-              expect(crossesWallY(map, cx, py, cy)).toBe(false);
-              px = cx;
-              py = cy;
-            }
+            if (!segmentWalkable(map, a.x, a.y, b.x, b.y)) blocked.push(`#${k}->#${nb}`);
           }
         }
+        expect(blocked).toEqual([]);
       });
 
       it("at least one team can walk its road network to the enemy base", () => {
