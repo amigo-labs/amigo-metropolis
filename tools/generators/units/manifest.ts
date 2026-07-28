@@ -6,6 +6,11 @@
 // output still matches it. Swapping a model = changing one entry here, dropping
 // the raw file next to it, and re-running `bun run gen:units`.
 //
+// Two arrays, two contracts. UNIT_MODELS are gameplay archetypes, fitted to the
+// greybox silhouettes. PROP_MODELS are the original arena scenery placements
+// (see PROP_MODELS below) and are deliberately NOT fitted — their original
+// proportions are the whole point.
+//
 // Conventions for the OUTPUT files (checked by the client test):
 // - Y-up, meters, origin at the ground-contact center (bbox minY=0, XZ-centered)
 // - +Z is forward (assets.md §4); the runtime loader rotates +Z onto the sim's
@@ -212,5 +217,141 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     footprint: 4.8,
     maxTris: 1500,
     neutralizeColors: true,
+  },
+];
+
+export interface PropModelSpec {
+  /**
+   * Output name: packages/client/public/models/props/<key>.glb.
+   * Always `prop-<cobj>` so render/props.ts can map a MapProp.model straight
+   * onto a URL without a second lookup table.
+   */
+  readonly key: string;
+  /** Original Cobj resource id, as carried by MapProp.model. */
+  readonly cobj: number;
+  /** Raw extraction, relative to tools/generators/units/raw/. */
+  readonly raw: string;
+  readonly source: UnitModelSource;
+  readonly maxTris: number;
+}
+
+// Original la-cantina (Mp) scenery: the DynamicProp (act_type 11) placements
+// carried in packages/sim/maps/la-cantina.json `props`. Render-only — the sim
+// never reads them (determinismGuard.test.ts enforces that).
+//
+// Unlike UNIT_MODELS these keep their source scale and orientation: they are
+// placed in the original's own frame at the original's own positions, so any
+// fitting or re-orientation here would be a lie about the arena. There is no
+// `footprint`, no `maxHeight` and no `rotateQuarterY` for that reason, and no
+// `neutralizeColors` either — nothing tints scenery.
+//
+// What the eight are, from their geometry and the texture region each samples
+// (page tex05 for the consoles, tex01/tex03 for the barrier):
+// - Cobj 28 (16 placements): thin (5 cm), 1.5 m tall, yellow/black hazard
+//   diagonals — a striped barrier. The only animated one; the pipeline keeps
+//   frame 0.
+// - Cobj 27/33/34/35/39/40 (2-4 each): small kiosks sampling the same atlas
+//   strip as Cobj 29 — yellow unit-type icons (jet, tank, turret) and the
+//   0-9 digit row. Siblings of the outpost console, differing in which part of
+//   that strip they show.
+// - Cobj 29 (4 placements): the outpost flag console. Its raw is already
+//   committed for the `console` unit model above and is reused here rather
+//   than duplicated — same bytes, different treatment (unfitted).
+export const PROP_MODELS: readonly PropModelSpec[] = [
+  {
+    key: "prop-027",
+    cobj: 27,
+    raw: "fcop/mp-obj027-icon-console.glb",
+    source: {
+      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 27)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    maxTris: 1500,
+  },
+  {
+    key: "prop-028",
+    cobj: 28,
+    raw: "fcop/mp-obj028-hazard-barrier.glb",
+    source: {
+      title: "Hazard-striped barrier (Mp Cobj 28)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    maxTris: 1500,
+  },
+  {
+    key: "prop-029",
+    cobj: 29,
+    raw: "fcop/mp-obj029-outpost-console.glb",
+    source: {
+      title: "Outpost flag console (Mp Cobj 29)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    maxTris: 1500,
+  },
+  {
+    key: "prop-033",
+    cobj: 33,
+    raw: "fcop/mp-obj033-icon-console.glb",
+    source: {
+      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 33)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    maxTris: 1500,
+  },
+  {
+    key: "prop-034",
+    cobj: 34,
+    raw: "fcop/mp-obj034-icon-console.glb",
+    source: {
+      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 34)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    maxTris: 1500,
+  },
+  {
+    key: "prop-035",
+    cobj: 35,
+    raw: "fcop/mp-obj035-icon-console.glb",
+    source: {
+      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 35)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    maxTris: 1500,
+  },
+  {
+    key: "prop-039",
+    cobj: 39,
+    raw: "fcop/mp-obj039-icon-console.glb",
+    source: {
+      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 39)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    maxTris: 1500,
+  },
+  {
+    key: "prop-040",
+    cobj: 40,
+    raw: "fcop/mp-obj040-icon-console.glb",
+    source: {
+      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 40)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    maxTris: 1500,
   },
 ];

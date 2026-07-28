@@ -322,11 +322,16 @@ instead of a hand-authored approximation, and adopt the original rule set for it
 - [x] `golden-07-pa`: a 120 s Warden match on la-cantina, with beats asserting
       production cadence and capture, plus tests proving the core CAN be razed
       once its defenders are gone and that an unattended match correctly stalemates
-- [ ] Original `Cwav` sound effects: 409 extracted WAVs are available in the RE
-      repo but carry no semantic labels, so picking which is "shot"/"explosion"/
-      "alarm" needs someone who knows the game by ear (owner pass)
-- [ ] `DynamicProp` scenery meshes: the 36 placements are carried in the map as
-      render-only data; the Cobj models still need extracting
+- [ ] Original `Cwav` sound effects: the pipeline is in place — `bun run gen:sfx`
+      plus an additive per-cue upgrade in `audio/engine.ts`, with the sfxr synth
+      as the permanent fallback — but `tools/generators/sfx/manifest.ts` is empty
+      because the 348 unique extracted sounds carry no semantic labels. The RE
+      repo narrows them to 46 PA-only candidates with classifier tags; picking one
+      per cue still needs someone who knows the game by ear (owner pass)
+- [x] `DynamicProp` scenery meshes: all 8 referenced Cobj models come from the
+      RE repo's handoff pack and render as one InstancedMesh each
+      (`render/props.ts`), unfitted and unrotated so they keep the original's
+      own scale and placement
 
 **Definition of Done:** la-cantina plays end to end under §9 — production runs,
 the enemy base can be destroyed, pads capture, pickups and alarms fire — with
@@ -371,12 +376,27 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       lane nodes and both spawns on the canal floor under the city. Needs per-layer
       walls, a layer on each feature, a deck-aware flood and an actor Y from the
       extractor. Pinned as a failing-when-fixed test in `layeredArenas.test.ts`
+- [x] Base ring turrets use their imported weapon profile, gun rotation and health
+      (SIM_VERSION 15, issue #31). v13 wired profiles into the capturable pads and
+      the built-in base guns but not the ring, so 32 of la-cantina's 72 turrets ran
+      at the global 28 m against an imported 6 m `engage_range` — measured as 100%
+      of the damage that killed produced units, all of it from outside the 14 m a
+      Runner can answer from. la-cantina goes from "no result in 10 minutes" to a
+      difficulty-8 Warden winning in 187 s. golden-05 and golden-07 re-recorded
+- [ ] `urban-jungle`, `proving-ground` and `bug-hunt` do not yet meet the DoD
+      below: a Warden's units get 76-90% of the way to the defended core and stop —
+      zero core hits, zero intrusion alarms, on proving-ground even after capturing
+      all 29 pads. Not the road (every Cnet graph reaches its cores to 0.0 m and no
+      lane edge crosses a wall) and not ring density (la-cantina's ring is tighter
+      around its core and works). The last ~11 m of those three bases needs its own
+      diagnosis. Pinned as a failing-when-fixed test in `paAttribution.test.ts`
 
 **Definition of Done:** all four single-storey arenas play under §9 — production
 runs, pads capture, the enemy core can be razed — with `bun test`,
 `bun run replay:verify` and `bun run verify:arenas` green, `gen:arena all --check`
 reporting byte-identical output, and the per-arena fidelity screenshots showing
-turrets on their original pads.
+turrets on their original pads. **Met on la-cantina only**; see the open item
+above for the other three.
 
 ## Backlog (post-v1, do not start)
 

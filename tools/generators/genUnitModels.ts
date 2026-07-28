@@ -30,6 +30,7 @@ import {
   dedup,
   flatten,
   join as joinMeshes,
+  joinPrimitives,
   normals,
   prune,
   simplify,
@@ -38,19 +39,64 @@ import {
   weld,
 } from "@gltf-transform/functions";
 import { MeshoptSimplifier } from "meshoptimizer";
-import { UNIT_MODELS, type UnitModelSpec } from "./units/manifest";
+import { PROP_MODELS, UNIT_MODELS } from "./units/manifest";
 
 const RAW_DIR = join(import.meta.dir, "units", "raw");
-const OUT_DIR = join(
-  import.meta.dir,
-  "..",
-  "..",
-  "packages",
-  "client",
-  "public",
-  "models",
-  "units",
-);
+const MODELS_DIR = join(import.meta.dir, "..", "..", "packages", "client", "public", "models");
+const OUT_UNITS = join(MODELS_DIR, "units");
+const OUT_PROPS = join(MODELS_DIR, "props");
+
+/**
+ * One model to build. Flattened from the manifest's two arrays so the pipeline
+ * below stays a single function: the only behavioural difference is whether the
+ * mesh is fitted to its greybox silhouette (gameplay archetypes) or keeps the
+ * source's own scale — arena scenery carries no `footprint` at all, and FCOP
+ * Cobj assemblies already authored in map meters opt out via `nativeScale`.
+ */
+interface ModelPass {
+  readonly key: string;
+  readonly raw: string;
+  readonly outDir: string;
+  readonly rotateQuarterY: 0 | 1 | 2 | 3;
+  readonly maxTris: number;
+  /** Target max horizontal extent; absent = do not rescale at all. */
+  readonly footprint?: number;
+  readonly maxHeight?: number;
+  /**
+   * Keep the raw's authored size (orient + ground only) despite a `footprint`:
+   * `footprint` / `maxHeight` then act as loose upper bounds for the test.
+   */
+  readonly nativeScale?: boolean;
+  readonly neutralizeColors: boolean;
+  /** Move the origin to the bbox centre in XZ (see the grounding step below). */
+  readonly centreXZ: boolean;
+}
+
+const PASSES: readonly ModelPass[] = [
+  ...UNIT_MODELS.map((spec) => ({
+    key: spec.key,
+    raw: spec.raw,
+    outDir: OUT_UNITS,
+    rotateQuarterY: spec.rotateQuarterY,
+    maxTris: spec.maxTris,
+    footprint: spec.footprint,
+    maxHeight: spec.maxHeight,
+    nativeScale: spec.nativeScale,
+    neutralizeColors: spec.neutralizeColors,
+    centreXZ: true,
+  })),
+  ...PROP_MODELS.map((spec) => ({
+    key: spec.key,
+    raw: spec.raw,
+    outDir: OUT_PROPS,
+    // Scenery is placed in the original's own frame at the original's own
+    // positions — re-orienting or rescaling it would misplace the arena.
+    rotateQuarterY: 0 as const,
+    maxTris: spec.maxTris,
+    neutralizeColors: false,
+    centreXZ: false,
+  })),
+];
 
 const io = new NodeIO();
 
@@ -341,7 +387,7 @@ interface Report {
   bytes: number;
 }
 
-async function processModel(spec: UnitModelSpec): Promise<Report> {
+async function processModel(spec: ModelPass): Promise<Report> {
   const document = await io.read(join(RAW_DIR, spec.raw));
   const root = document.getRoot();
 
@@ -349,7 +395,17 @@ async function processModel(spec: UnitModelSpec): Promise<Report> {
   for (const anim of root.listAnimations()) anim.dispose();
   for (const skin of root.listSkins()) skin.dispose();
   for (const mesh of root.listMeshes()) {
+    // Morph targets outlive their animation (the FCOP scenery barrier is a
+    // morph-animated Cobj). Frame 0 is the base geometry, so dropping the
+    // targets keeps the pose and leaves one attribute set for the merge the
+    // runtime does — otherwise the InstancedMesh geometry carries deltas it
+    // will never drive.
+    mesh.setWeights([]);
     for (const prim of mesh.listPrimitives()) {
+      for (const target of prim.listTargets()) {
+        prim.removeTarget(target);
+        target.dispose();
+      }
       for (const semantic of prim.listSemantics()) {
         if (/^(JOINTS|WEIGHTS)_/.test(semantic) || semantic === "TEXCOORD_1") {
           prim.getAttribute(semantic)?.dispose();
@@ -499,6 +555,17 @@ async function processModel(spec: UnitModelSpec): Promise<Report> {
   node.setName("root");
   mesh.setName("hull");
 
+  // ONE primitive too. joinMeshes() merges meshes, but a mesh that already
+  // arrived split across primitives stays split — the scenery barrier (Cobj 28)
+  // samples two atlas pages and so comes in as two. They share the packed
+  // material and attribute set by now, which is exactly joinPrimitives' domain.
+  const splitPrims = mesh.listPrimitives();
+  if (splitPrims.length > 1) {
+    const joined = joinPrimitives(splitPrims);
+    for (const prim of splitPrims) prim.dispose();
+    mesh.addPrimitive(joined);
+  }
+
   // Bake any remaining node transform, then orient / scale / ground the mesh.
   transformMesh(mesh, node.getMatrix() as unknown as Parameters<typeof transformMesh>[1]);
   node.setMatrix(identity as unknown as Parameters<typeof node.setMatrix>[0]);
@@ -508,12 +575,12 @@ async function processModel(spec: UnitModelSpec): Promise<Report> {
   apply(quarterYMatrix(spec.rotateQuarterY));
 
   let bounds = getBounds(scene);
-  const sizeX = bounds.max[0] - bounds.min[0];
-  const sizeY = bounds.max[1] - bounds.min[1];
-  const sizeZ = bounds.max[2] - bounds.min[2];
   // FCOP Cobj assemblies are already in map meters — only orient + ground.
   // Everything else stretches to the greybox footprint / height cap.
-  if (!spec.nativeScale) {
+  if (spec.footprint !== undefined && !spec.nativeScale) {
+    const sizeX = bounds.max[0] - bounds.min[0];
+    const sizeY = bounds.max[1] - bounds.min[1];
+    const sizeZ = bounds.max[2] - bounds.min[2];
     const footprintScale = spec.footprint / Math.max(sizeX, sizeZ);
     const heightScale =
       spec.maxHeight !== undefined ? spec.maxHeight / sizeY : Number.POSITIVE_INFINITY;
@@ -547,12 +614,18 @@ async function processModel(spec: UnitModelSpec): Promise<Report> {
     }
   }
 
+  // Ground-contact origin. Units are also XZ-centered, because their origin is
+  // the entity position and a lopsided hull would sit off its own collision
+  // circle. Scenery is NOT: the original placed each actor at its Cobj's own
+  // origin, so re-centering would slide it off the spot it was authored on —
+  // Cobj 28's bbox centre alone is 0.32 m off in Z. Their minY is already 0, so
+  // the Y term is a no-op there and only states the invariant.
   bounds = getBounds(scene);
   apply(
     translateMatrix(
-      -(bounds.min[0] + bounds.max[0]) / 2,
+      spec.centreXZ ? -(bounds.min[0] + bounds.max[0]) / 2 : 0,
       -bounds.min[1],
-      -(bounds.min[2] + bounds.max[2]) / 2,
+      spec.centreXZ ? -(bounds.min[2] + bounds.max[2]) / 2 : 0,
     ),
   );
 
@@ -572,7 +645,7 @@ async function processModel(spec: UnitModelSpec): Promise<Report> {
   root.getAsset().generator = "amigo-metropolis gen:units";
 
   const glb = await io.writeBinary(document);
-  const outPath = join(OUT_DIR, `${spec.key}.glb`);
+  const outPath = join(spec.outDir, `${spec.key}.glb`);
   await mkdir(dirname(outPath), { recursive: true });
   await Bun.write(outPath, glb);
 
@@ -582,7 +655,7 @@ async function processModel(spec: UnitModelSpec): Promise<Report> {
 }
 
 const reports: Report[] = [];
-for (const spec of UNIT_MODELS) {
+for (const spec of PASSES) {
   reports.push(await processModel(spec));
 }
 console.log("key            tris   simplified  dims (x y z)          KB");

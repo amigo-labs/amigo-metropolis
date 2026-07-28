@@ -39,13 +39,14 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  AVATAR_WALKER_MAX_SLOPE,
   crossesWallX,
   crossesWallY,
+  JUMPABLE_RISE,
   loadMapFromJson,
   type MapData,
   type MapJson,
   sampleHeight,
+  worstUphillRise,
 } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
 import { type FcopArena, logicFile, selectArenas, wallsFile } from "./fcopArenas";
@@ -749,7 +750,18 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       groundConsole: [round4(sx(buttons[0].x)), round4(sz(buttons[0].z))],
       airConsole: [round4(sx(buttons[1].x)), round4(sz(buttons[1].z))],
       pad: { x: core[0], y: core[1], radius: 3 },
-      turrets: ring.map((t) => [round4(sx(t.x)), round4(sz(t.z))]),
+      // The ring carries each Turret actor's OWN shooter block, not just its
+      // position. Dropping it left the ring on the global 28 m TURRET_RANGE
+      // against an imported engage_range of 6 m — see spawnBaseTurret in sim.ts.
+      // Every mission's ring shares the neutrals' parameters exactly, so these
+      // intern to the same profile the capturable pads already use.
+      turrets: ring.map((t) => ({
+        x: round4(sx(t.x)),
+        y: round4(sz(t.z)),
+        weapon: turretWeapon(t, table),
+        hp: t.health,
+        yaw: round4(rotToYaw(t.gunRotationRaw, true)),
+      })),
       defence: new Array(base.defenceWeaponCount).fill(0).map(() => ({
         x: core[0],
         y: core[1],
@@ -796,6 +808,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const turretSpots = neutrals.map((t) => [round4(sx(t.x)), round4(sz(t.z))]);
   const turretParams = neutrals.map((t) => turretWeapon(t, table));
   const turretYaw = neutrals.map((t) => round4(rotToYaw(t.gunRotationRaw, true)));
+  // The original's Turret health, rather than the Phase-1 ARCHETYPE_MAX_HP
+  // placeholder. Same value the ring turrets carry — they are the same actor kind.
+  const turretHp = neutrals.map((t) => t.health);
 
   // --- outposts ----------------------------------------------------------
   const outpostSpots = midfieldOutposts(neutrals, field);
@@ -913,7 +928,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
           { x: b.airConsole[0], y: b.airConsole[1] },
           // Ring turrets too: one the player can neither reach nor shoot past is
           // dead content, and mapConnectivity.test.ts treats it as an error.
-          ...b.turrets.map(([x, y]) => ({ x, y })),
+          ...b.turrets.map((t) => ({ x: t.x, y: t.y })),
         ]),
         ...out0Spawns(teamSpawns, field).map((s) => ({ x: s.x, y: s.y })),
       ],
@@ -939,6 +954,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     weapons: table.list,
     turretParams,
     turretYaw,
+    turretHp,
     laneGraph: {
       nodes: graph.nodes.map((n) => [n.x, n.z]),
       edges: graph.edges,
@@ -1212,7 +1228,16 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   // How much of the graph exceeds the walker slope limit: units ignore slope
   // (units.ts stepAndSnap checks walls only), but the player escorting them does
   // not, so this is reported rather than enforced.
+  //
+  // `worstUphillRise` is the sim's own rule, imported rather than reimplemented —
+  // uphill only, heights from `resolveWalker`. That second part is why it is
+  // shared: an open-coded `sampleHeight` version agrees with the sim on today's
+  // single-storey arenas and would quietly stop agreeing the moment stage 2 is
+  // pointed at hollywood-keys or venice-beach (issue #33), which is exactly when
+  // a generator report needs to be trustworthy. The second figure is the subset
+  // the jump cannot clear, i.e. the count that means "impassable".
   let steep = 0;
+  let hardWall = 0;
   let total = 0;
   for (let k = 0; k < graph.nodes.length; k++) {
     for (const nb of graph.edges[k]) {
@@ -1220,21 +1245,15 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
       total++;
       const a = graph.nodes[k];
       const b = graph.nodes[nb];
-      const len = Math.hypot(b.x - a.x, b.z - a.z);
-      const steps = Math.max(1, Math.ceil(len));
-      let prev = sampleHeight(map, a.x, a.z);
-      for (let s = 1; s <= steps; s++) {
-        const t = s / steps;
-        const h = sampleHeight(map, a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t);
-        if (Math.abs(h - prev) / (len / steps) >= AVATAR_WALKER_MAX_SLOPE) {
-          steep++;
-          break;
-        }
-        prev = h;
-      }
+      const worst = worstUphillRise(map, a.x, a.z, b.x, b.z);
+      if (worst > 0) steep++;
+      if (worst > JUMPABLE_RISE) hardWall++;
     }
   }
-  console.log(`  lane edges over the walker slope limit: ${steep}/${total} (units ignore slope)`);
+  console.log(
+    `  lane edges the walker cannot climb: ${steep}/${total}` +
+      ` (${hardWall} of them beyond jump range; units ignore slope)`,
+  );
 
   for (const p of map.pickups) {
     if (Math.abs(sampleHeight(map, p.x, p.y)) > 100)

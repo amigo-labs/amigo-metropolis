@@ -70,6 +70,7 @@ import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greyb
 import { loadMapMesh } from "./render/meshMap";
 import { ATMOSPHERE_HEX } from "./render/palette";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
+import { loadProps } from "./render/props";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
   buildDeckMeshes,
@@ -403,6 +404,10 @@ function buildArenaGroup(m: typeof map): THREE.Group {
         refreshDebugLabel();
       },
     );
+    // Original scenery actors, on the mesh path only: they are the arena's own
+    // art, so they belong with the textured terrain and not on top of greybox
+    // blocks (render/props.ts). No-op on arenas that carry no `props`.
+    loadProps(m, group);
     if (showGreyboxStructures) buildGreyboxStructures();
   } else {
     buildGreyboxTerrain();

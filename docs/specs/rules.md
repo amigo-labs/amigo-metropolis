@@ -26,6 +26,16 @@ Design pillars, in priority order:
   - **Walker**: slower, can jump, precise handling, better on slopes.
   - **Hover**: fast, drifty (low traction), can cross water, cannot jump,
     steep slopes impassable.
+- The slope asymmetry is **deliberate**: `AVATAR_HOVER_MAX_SLOPE` (0.35) is
+  stricter than `AVATAR_WALKER_MAX_SLOPE` (0.6), because hover rides clearance
+  and trades terrain for speed and water. Each form has ground the other cannot
+  take, and neither is meant to go everywhere.
+- The **jump** is the walker's answer to a step it cannot climb: the slope gate
+  is skipped while airborne, so an 8 m/s launch against 20 m/s² gravity clears a
+  ledge up to ~1.4 m. On the imported FCOP arenas that covers 70-100% of the
+  original terrain's blocking steps; the rest are 1.4-2.5 m walls to route
+  around, and a walk-only path to the enemy base exists on every arena.
+  `fcop-arenas.test.ts` pins both counts per arena.
 - Same three weapon slots in both modes: primary (hitscan-ish rapid),
   heavy (projectile, AoE), special (slow, high damage).
 - Ammo: primary infinite; heavy/special finite, refilled at own Base/Outpost pads.
@@ -149,10 +159,15 @@ only what Metropolis adopts from it.
   spending are unchanged. The alive limit is ours, not the original's — the
   original stores a per-cycle spawn count, and two bases at 12 units/min would
   otherwise fill the entity store.
-- **Turrets carry their own parameters.** Range, fire cadence, gun slew and field
-  of view come from the arena's weapon profiles instead of the global constants.
-  The original's reach is short: `engage_range` 6144 is 6 m, against the pre-PA
-  global 28 m, and turrets are placed within a few metres of the road they guard.
+- **Turrets carry their own parameters.** Range, fire cadence, gun slew, field of
+  view, rest rotation and health come from the arena's imported data instead of the
+  global constants — for **all three** kinds: capturable pads, base ring turrets
+  and the built-in base guns. The original's reach is short: `engage_range` 6144 is
+  6 m, against the pre-PA global 28 m, and turrets are placed within a few metres
+  of the road they guard. That short reach is load-bearing, not decoration — it is
+  what keeps a turret inside the 14 m a Runner can shoot back from, so a push can
+  answer a turret instead of dying to one it cannot reach (`paAttribution.test.ts`
+  asserts the relation for every profile an arena carries).
   Damage stays on the global value — the original's weapon table was not decoded.
 - **Capture points are the original pads.** Every original `NeutralTurret`
   becomes a capture spot — 32 on Mp and Conft, 29 on Slim and Joke, against the

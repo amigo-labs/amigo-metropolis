@@ -13,6 +13,7 @@
     "build": "bun run --filter '*' build",
     "dev": "bun run --filter @metropolis/client dev",
     "gen:units": "bun run tools/generators/genUnitModels.ts",
+    "gen:sfx": "bun run tools/generators/genSfx.ts",
     "gen:mapalign": "bun run tools/generators/genMapAlign.ts",
     "gen:palogic": "bun run tools/generators/fcopLogic.ts",
     "gen:walls": "bun run tools/generators/fcopWalls.ts",
