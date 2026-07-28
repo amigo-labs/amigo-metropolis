@@ -322,9 +322,12 @@ instead of a hand-authored approximation, and adopt the original rule set for it
 - [x] `golden-07-pa`: a 120 s Warden match on la-cantina, with beats asserting
       production cadence and capture, plus tests proving the core CAN be razed
       once its defenders are gone and that an unattended match correctly stalemates
-- [ ] Original `Cwav` sound effects: 409 extracted WAVs are available in the RE
-      repo but carry no semantic labels, so picking which is "shot"/"explosion"/
-      "alarm" needs someone who knows the game by ear (owner pass)
+- [ ] Original `Cwav` sound effects: the pipeline is in place — `bun run gen:sfx`
+      plus an additive per-cue upgrade in `audio/engine.ts`, with the sfxr synth
+      as the permanent fallback — but `tools/generators/sfx/manifest.ts` is empty
+      because the 348 unique extracted sounds carry no semantic labels. The RE
+      repo narrows them to 46 PA-only candidates with classifier tags; picking one
+      per cue still needs someone who knows the game by ear (owner pass)
 - [x] `DynamicProp` scenery meshes: all 8 referenced Cobj models come from the
       RE repo's handoff pack and render as one InstancedMesh each
       (`render/props.ts`), unfitted and unrotated so they keep the original's
