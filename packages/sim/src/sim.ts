@@ -44,6 +44,7 @@ import {
   HEAVY_SPEED,
   HEAVY_TTL_TICKS,
   HOVER_CLEARANCE,
+  HOVER_CUSHION_SPAN,
   HOVER_TRACTION_ACCEL,
   HOVER_TRACTION_BRAKE,
   HOVER_TRACTION_COAST,
@@ -607,6 +608,55 @@ const GROUND_EPS = 0.001;
 export const STEP_SNAP = 0.35;
 const MUZZLE_OFFSET = 2;
 
+/**
+ * The horizontal slope gate, shared by both axis moves: is the step from (x,y)
+ * to (nx,ny) too steep for this form to take? Compares ride heights — ground to
+ * ground, never `ent.height`, which carries the hover's clearance.
+ *
+ * Only one axis moves per call, so the run is `|dx| + |dy|` with one term zero.
+ * A step clamped away at the map edge leaves both heights equal and falls out on
+ * the rise test before anything divides by it.
+ *
+ * The forms differ in WHAT they measure the climb over, not just in how steep a
+ * climb they accept:
+ *
+ * - **Walker**: the step itself, at `resolveWalker` heights (the deck it would
+ *   stand on). A drop is not a rise; gravity handles it.
+ * - **Hover**: the step AND the ground `HOVER_CUSHION_SPAN` further along it.
+ *   Both have to be over the limit to block. A hover rides over a step its hull
+ *   spans and is stopped by ground that keeps climbing, and per-tick sampling
+ *   cannot tell those apart: 0.3 m into a 0.17 m kerb the reading is a
+ *   0.58-gradient wall (issue #34). The span probe is the second reading. It
+ *   uses `rideHeight`, so a dip below the water surface reads as the surface
+ *   the hover floats on rather than as a hole it has to climb out of.
+ */
+function slopeBlocks(
+  map: MapData,
+  x: number,
+  y: number,
+  nx: number,
+  ny: number,
+  hover: boolean,
+  height: number,
+): boolean {
+  const here = hover ? rideHeight(map, x, y, hover) : resolveWalker(map, x, y, height).height;
+  const there = hover ? rideHeight(map, nx, ny, hover) : resolveWalker(map, nx, ny, height).height;
+  const rise = there - here;
+  if (rise <= GROUND_EPS) return false;
+  const run = Math.abs(nx - x) + Math.abs(ny - y);
+  const maxSlope = hover ? AVATAR_HOVER_MAX_SLOPE : AVATAR_WALKER_MAX_SLOPE;
+  if (rise <= run * maxSlope) return false;
+  if (!hover) return true;
+  // Steep under the nose. Blocked only if it is still climbing a span on, in
+  // the direction of the step. `(nx - x) / run` is ±1 on the moving axis and 0
+  // on the other; the probe clamps to the arena like the move does, which can
+  // only shorten the reach out on the apron.
+  const extent = worldExtent(map);
+  const px = Math.min(Math.max(x + ((nx - x) / run) * HOVER_CUSHION_SPAN, 0), extent);
+  const py = Math.min(Math.max(y + ((ny - y) / run) * HOVER_CUSHION_SPAN, 0), extent);
+  return rideHeight(map, px, py, hover) - here > HOVER_CUSHION_SPAN * maxSlope;
+}
+
 /** input + avatar movement: transform, jump/gravity, slope/water rules. */
 function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
   const ent = state.ent;
@@ -685,24 +735,16 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     const airborne = !hover && (ent.height[id] > ride + GROUND_EPS || ent.timerB[id] > 0);
 
     // Horizontal movement, axis-separated for wall sliding. Uphill steps
-    // beyond the slope limit are blocked; walkers never enter water. The
-    // slope compares ride heights (ground to ground) — never ent.height,
-    // which includes hover clearance. Airborne walkers skip the check so a
-    // jump can carry them onto a ledge.
-    const maxSlope = hover ? AVATAR_HOVER_MAX_SLOPE : AVATAR_WALKER_MAX_SLOPE;
+    // beyond the slope limit are blocked (slopeBlocks); walkers never enter
+    // water. Airborne walkers skip the slope check so a jump can carry them
+    // onto a ledge.
     const stepX = ent.velX[id] * TICK_DT;
     if (stepX !== 0) {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
       let ok = true;
       if (!hover && isWater(map, nx, y)) ok = false;
       if (ok && crossesWallX(map, x, nx, y)) ok = false;
-      if (ok && !airborne) {
-        const rise = hover
-          ? rideHeight(map, nx, y, hover) - rideHeight(map, x, y, hover)
-          : resolveWalker(map, nx, y, ent.height[id]).height -
-            resolveWalker(map, x, y, ent.height[id]).height;
-        if (rise > GROUND_EPS && rise > Math.abs(nx - x) * maxSlope) ok = false;
-      }
+      if (ok && !airborne && slopeBlocks(map, x, y, nx, y, hover, ent.height[id])) ok = false;
       if (ok) x = nx;
       else ent.velX[id] = 0;
     }
@@ -712,13 +754,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       let ok = true;
       if (!hover && isWater(map, x, ny)) ok = false;
       if (ok && crossesWallY(map, x, y, ny)) ok = false;
-      if (ok && !airborne) {
-        const rise = hover
-          ? rideHeight(map, x, ny, hover) - rideHeight(map, x, y, hover)
-          : resolveWalker(map, x, ny, ent.height[id]).height -
-            resolveWalker(map, x, y, ent.height[id]).height;
-        if (rise > GROUND_EPS && rise > Math.abs(ny - y) * maxSlope) ok = false;
-      }
+      if (ok && !airborne && slopeBlocks(map, x, y, x, ny, hover, ent.height[id])) ok = false;
       if (ok) y = ny;
       else ent.velY[id] = 0;
     }
@@ -1005,8 +1041,11 @@ function countAliveOfArchetype(state: SimState, archetype: number, team: number)
  * terrain dips below it (not just on masked cells — the mask is per-vertex
  * while terrain is bilinear, so banks dip below the surface slightly before
  * the mask starts; without this the hover would be slope-blocked at banks).
+ *
+ * Exported for `units.ts`'s `worstHoverRise`, which mirrors the hover half of
+ * `slopeBlocks` for map authoring and has to read the same surface.
  */
-function rideHeight(map: MapData, x: number, y: number, hover: boolean): number {
+export function rideHeight(map: MapData, x: number, y: number, hover: boolean): number {
   const g = sampleHeight(map, x, y);
   if (hover && g < map.waterLevel) return map.waterLevel;
   return g;

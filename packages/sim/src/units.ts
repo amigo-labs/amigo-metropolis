@@ -12,6 +12,8 @@
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
   AIR_ALTITUDE,
+  AVATAR_HOVER_MAX_SLOPE,
+  AVATAR_HOVER_SPEED,
   AVATAR_WALKER_MAX_SLOPE,
   FORTRESS_PATROL_RADIUS,
   FORTRESS_RANGE,
@@ -21,6 +23,7 @@ import {
   GUARDIAN_PATROL_RADIUS,
   GUARDIAN_RANGE,
   GUARDIAN_SPEED,
+  HOVER_CUSHION_SPAN,
   JUGGERNAUT_RANGE,
   JUGGERNAUT_SPEED,
   ORBIT_ANGULAR_SPEED,
@@ -33,7 +36,7 @@ import {
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
 import { type MapData, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
-import { ANIM_MOVING, type SimState, STEP_SNAP } from "./sim";
+import { ANIM_MOVING, rideHeight, type SimState, STEP_SNAP } from "./sim";
 import { atan2Poly, cosLUT, rand01, sinLUT, TAU } from "./simMath";
 
 export const UNIT_MODE_PATROL = 0;
@@ -455,6 +458,75 @@ export function worstUphillRise(
  * below it is a jump.
  */
 export const JUMPABLE_RISE = 1.4;
+
+/**
+ * Per-tick travel of the hover, and therefore the resolution its slope gate is
+ * evaluated at. `worstHoverRise` samples at this rather than at the metre
+ * `worstUphillRise` uses, because the hover's rule reads two DIFFERENT distances:
+ * measuring the step over a metre as well would smooth it into the span probe and
+ * report a road the sim refuses to drive as clear.
+ */
+const HOVER_STEP = AVATAR_HOVER_SPEED * TICK_DT;
+
+/**
+ * Worst rise, in metres, among the sub-steps of one straight segment that the
+ * HOVER could not cross. 0 means the whole segment is drivable in hover. The
+ * sibling of `worstUphillRise`, for the other form, with the same contract: not
+ * part of the tick, and it exists so that authoring, the stage-2 generator's
+ * report and the arena tests all ask "can the player drive this?" with the rule
+ * the avatar stepper uses.
+ *
+ * It mirrors the hover half of `sim.ts`'s `slopeBlocks`, which is two readings,
+ * not one (issue #34): a step steeper than `AVATAR_HOVER_MAX_SLOPE` blocks only
+ * if the ground `HOVER_CUSHION_SPAN` further on is over the limit too. Heights
+ * come from `rideHeight` — the same import the stepper calls — so a dip below
+ * the water surface reads as the surface the hover floats on.
+ *
+ * Both comparisons are STRICT, like the gate's: a rise of exactly `run × limit`
+ * is one the sim takes, so reporting it as blocked would be an authoring tool
+ * disagreeing with the sim about the boundary. (Its walker sibling above uses
+ * `>=`, which over-reports there; that is pre-existing, and its counts are
+ * pinned per arena, so it is left to a change that measures the difference.)
+ *
+ * Unlike the walker's, this measure has no jump to fall back on: a rise it
+ * reports is impassable in hover, full stop. Transform or route around.
+ */
+export function worstHoverRise(
+  map: MapData,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len === 0) return 0;
+  const steps = Math.max(1, Math.ceil(len / HOVER_STEP));
+  const run = len / steps;
+  const ux = dx / len;
+  const uy = dy / len;
+  const extent = worldExtent(map);
+  let h = rideHeight(map, ax, ay, true);
+  let worst = 0;
+  for (let t = 1; t <= steps; t++) {
+    const f = t / steps;
+    const next = rideHeight(map, ax + dx * f, ay + dy * f, true);
+    const rise = next - h;
+    // `rise > run * limit` already implies `rise > 0`, and at this run length it
+    // implies the gate's GROUND_EPS too, so this IS the gate's step condition.
+    if (rise > run * AVATAR_HOVER_MAX_SLOPE && rise > worst) {
+      // Steep in the step; consult the span, from where the step began.
+      const g = (t - 1) / steps;
+      const px = Math.min(Math.max(ax + dx * g + ux * HOVER_CUSHION_SPAN, 0), extent);
+      const py = Math.min(Math.max(ay + dy * g + uy * HOVER_CUSHION_SPAN, 0), extent);
+      const span = rideHeight(map, px, py, true) - h;
+      if (span > HOVER_CUSHION_SPAN * AVATAR_HOVER_MAX_SLOPE) worst = rise;
+    }
+    h = next;
+  }
+  return worst;
+}
 
 /** Height rule shared by movement, separation and spawning. */
 export function snapUnitHeight(state: SimState, id: number, air: boolean): void {

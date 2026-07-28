@@ -52,6 +52,7 @@ import {
   segmentWalkable,
   type WallHit,
   walkRoad,
+  worstHoverRise,
   worstUphillRise,
 } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
@@ -1365,8 +1366,16 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   // pointed at hollywood-keys or venice-beach (issue #33), which is exactly when
   // a generator report needs to be trustworthy. The second figure is the subset
   // the jump cannot clear, i.e. the count that means "impassable".
+  //
+  // Both forms are reported, because they own different ground (issue #34): the
+  // hover has no jump, so a rise `worstHoverRise` returns is impassable outright,
+  // and it reads a climb over its own footprint rather than over one tick, so it
+  // rides over steps the walker has to jump.
   let steep = 0;
   let hardWall = 0;
+  let hoverBlocked = 0;
+  let walkerOnly = 0;
+  let hoverOnly = 0;
   let total = 0;
   for (let k = 0; k < graph.nodes.length; k++) {
     for (const nb of graph.edges[k]) {
@@ -1377,11 +1386,20 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
       const worst = worstUphillRise(map, a.x, a.z, b.x, b.z);
       if (worst > 0) steep++;
       if (worst > JUMPABLE_RISE) hardWall++;
+      const hover = worstHoverRise(map, a.x, a.z, b.x, b.z);
+      if (hover > 0) {
+        hoverBlocked++;
+        if (worst === 0) walkerOnly++;
+      } else if (worst > JUMPABLE_RISE) hoverOnly++;
     }
   }
   console.log(
     `  lane edges the walker cannot climb: ${steep}/${total}` +
       ` (${hardWall} of them beyond jump range; units ignore slope)`,
+  );
+  console.log(
+    `  lane edges the hover cannot climb: ${hoverBlocked}/${total}` +
+      ` (${walkerOnly} walker-only, ${hoverOnly} hover-only ground)`,
   );
 
   for (const p of map.pickups) {

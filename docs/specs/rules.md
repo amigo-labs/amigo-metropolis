@@ -26,10 +26,27 @@ Design pillars, in priority order:
   - **Walker**: slower, can jump, precise handling, better on slopes.
   - **Hover**: fast, drifty (low traction), can cross water, cannot jump,
     steep slopes impassable.
-- The slope asymmetry is **deliberate**: `AVATAR_HOVER_MAX_SLOPE` (0.35) is
+- The slope asymmetry is **deliberate**: `AVATAR_HOVER_MAX_SLOPE` (0.5) is
   stricter than `AVATAR_WALKER_MAX_SLOPE` (0.6), because hover rides clearance
   and trades terrain for speed and water. Each form has ground the other cannot
   take, and neither is meant to go everywhere.
+- What each form measures a climb **over** is part of the asymmetry, not an
+  implementation detail (issue #34). The walker judges the step it is taking. The
+  hover judges the step AND the ground `HOVER_CUSHION_SPAN` (2.4 m, its own
+  footprint) further on, and is stopped only when both are too steep — a cushion
+  rides over a step its hull spans and is beaten by ground that keeps climbing.
+  Judged per tick instead, the two are one reading: on a bilinear heightfield a
+  0.17 m kerb is a 0.58-gradient wall while you are on it, which is how the hover
+  used to be locked out of 10-13% of every FCOP arena's road network, la-cantina
+  included. The step it clears this way tops out at span × limit = **1.2 m**,
+  under the walker's 1.4 m jump, so the walker still owns more ground on both
+  axes — and the hover owns some the walker cannot jump at all, 2 lane edges each
+  on proving-ground and bug-hunt.
+- Neither of those makes the originals' terrain uniformly drivable, and it should
+  not: their roads also carry 1.3-3 m steps. Those stay walls for the hover, which
+  has no jump — transform or route around. `fcop-arenas.test.ts` pins per arena
+  what each form cannot pass, and how many teams can drive their whole road
+  network in hover (7 of 8, and la-cantina is clean in both forms).
 - The **jump** is the walker's answer to a step it cannot climb: the slope gate
   is skipped while airborne, so an 8 m/s launch against 20 m/s² gravity clears a
   ledge up to ~1.4 m. On the imported FCOP arenas that covers 70-100% of the
