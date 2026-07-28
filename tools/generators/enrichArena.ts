@@ -287,6 +287,15 @@ class WeaponTable {
   }
 }
 
+/**
+ * Half-cell pad key in sim frame. Dual-team mid turrets and NeutralTurret pads
+ * that share a plate land on the same key after LOGIC_OFFSET, even when the
+ * raw actor coords differ by a few centimetres.
+ */
+function padKey(x: number, z: number): string {
+  return `${Math.round(x * 2) / 2},${Math.round(z * 2) / 2}`;
+}
+
 function turretWeapon(t: Turret, table: WeaponTable): number {
   return table.intern({
     range: rangeToCells(t.shooter.engageRangeRaw),
@@ -833,12 +842,26 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       throw new Error(`base ${team} has ${buttons.length} action-button triggers, need 2`);
     }
     const core = [round4(sx(base.x)), round4(sz(base.z))];
+    // Permanent base ring = team-unique type-8 pads only. The original also
+    // lists dual-team type-8 actors on mid plates that are NeutralTurrets —
+    // those pads are capturable, not permanent guns for both teams. Putting
+    // them in both rings AND turretSpots stacked three meshes (and three
+    // shooters) on one plate: team0 ring + team1 ring + capturable.
+    // importLaCantinaFromFcopViz.ts uses the same teamOnlyTurrets rule.
+    const otherTeam = teamBases[1 - team].team;
+    const otherPadKeys = new Set(
+      logic.turrets.filter((t) => t.team === otherTeam).map((t) => padKey(sx(t.x), sz(t.z))),
+    );
+    const neutralPadKeys = new Set(logic.neutrals.map((t) => padKey(sx(t.x), sz(t.z))));
     const ownTurrets = logic.turrets
       .filter((t) => t.team === base.team)
+      .filter((t) => {
+        const k = padKey(sx(t.x), sz(t.z));
+        return !otherPadKeys.has(k) && !neutralPadKeys.has(k);
+      })
       .sort((a, b) => a.id - b.id);
-    // MapBase.turrets caps at 16. Mp, Conft and Ovmp place exactly 16 per base;
-    // Slim, Joke and Hk place 14. Count anything the cap would drop rather than
-    // truncating silently.
+    // MapBase.turrets caps at 16. After dual/neutral filtering Mp/Ovmp keep 8
+    // unique per base; Slim/Joke keep 6–7. Count anything the cap would drop.
     const ring = ownTurrets.slice(0, 16);
     ringDropped += ownTurrets.length - ring.length;
 
@@ -973,15 +996,29 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     });
   }
 
+  // Icon consoles and outpost kiosks: face the nearer base core so their
+  // unit-type screens read toward the pad (player stands on the apron and
+  // looks at the console). Hazard barriers (Cobj 28) share the same rule —
+  // striping still reads; yaw 0 left every kiosk facing world +X.
   const props = [...logic.props]
     .sort((a, b) => a.id - b.id)
-    .map((p) => ({
-      x: round4(sx(p.x)),
-      y: round4(sz(p.z)),
-      height: round4(p.height),
-      yaw: 0,
-      model: p.objId,
-    }));
+    .map((p) => {
+      const x = round4(sx(p.x));
+      const y = round4(sz(p.z));
+      const c0 = bases[0].core;
+      const c1 = bases[1].core;
+      const d0 = (x - c0[0]) * (x - c0[0]) + (y - c0[1]) * (y - c0[1]);
+      const d1 = (x - c1[0]) * (x - c1[0]) + (y - c1[1]) * (y - c1[1]);
+      const cx = d0 <= d1 ? c0[0] : c1[0];
+      const cy = d0 <= d1 ? c0[1] : c1[1];
+      return {
+        x,
+        y,
+        height: round4(p.height),
+        yaw: round4(Math.atan2(cy - y, cx - x)),
+        model: p.objId,
+      };
+    });
 
   // --- walls -------------------------------------------------------------
   // Start from the PRISTINE stage-1 lattice, never from the map on disk. This

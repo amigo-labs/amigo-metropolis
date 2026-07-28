@@ -52,7 +52,8 @@ describe("la-cantina loads the original parameters into the sim", () => {
   it("spawns every capturable pad, ring turret and built-in base weapon", () => {
     const state = createSim(map, 1);
     expect(state.neutralTurretEntity.length).toBe(32);
-    expect(state.baseTurretEntity.length).toBe(32); // 16 per base
+    // Team-unique ring only (8/base); dual mid plates are capturable, not ring.
+    expect(state.baseTurretEntity.length).toBe(16);
     expect(state.baseDefenceEntity.length).toBe(8); // 4 per base
     for (const id of state.baseDefenceEntity) expect(id).toBeGreaterThanOrEqual(0);
     for (const id of state.neutralTurretEntity) expect(id).toBeGreaterThanOrEqual(0);

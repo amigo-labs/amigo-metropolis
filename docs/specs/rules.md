@@ -26,6 +26,8 @@ Design pillars, in priority order:
   - **Walker**: slower, can jump, precise handling, better on slopes.
   - **Hover**: fast, drifty (low traction), can cross water, cannot jump,
     steep slopes impassable.
+- **Drive only in facing direction** (no holonomic strafe): throttle is the
+  stick component along aim/lock heading; reverse is allowed. Turn by aiming.
 - The slope asymmetry is **deliberate**: `AVATAR_HOVER_MAX_SLOPE` (0.5) is
   stricter than `AVATAR_WALKER_MAX_SLOPE` (0.6), because hover rides clearance
   and trades terrain for speed and water. Each form has ground the other cannot

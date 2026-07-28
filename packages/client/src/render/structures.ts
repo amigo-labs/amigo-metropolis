@@ -42,15 +42,20 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
     parts.push(box(4.8, 0.5, 4.8, base.core.x, ch + 8.45, base.core.y));
 
     // Consoles: ground = square pedestal, air = pedestal with an antenna,
-    // both with a slab pad so the buy spot reads on the ground.
+    // both with a slab pad so the buy spot reads on the ground. Screen slab
+    // faces the core so the buy station reads toward the apron centre.
     for (const [c, antenna] of [
       [base.groundConsole, false],
       [base.airConsole, true],
     ] as const) {
       const h = sampleHeight(map, c.x, c.y);
+      const faceYaw = Math.atan2(base.core.y - c.y, base.core.x - c.x);
       parts.push(box(3.4, 0.25, 3.4, c.x, h + 0.125, c.y));
       parts.push(box(1.0, 1.3, 1.0, c.x, h + 0.9, c.y));
-      parts.push(box(1.4, 0.35, 1.0, c.x, h + 1.7, c.y));
+      const screen = new THREE.BoxGeometry(1.4, 0.35, 1.0);
+      screen.rotateY(-faceYaw);
+      screen.translate(c.x, h + 1.7, c.y);
+      parts.push(screen);
       if (antenna) {
         parts.push(box(0.15, 2.4, 0.15, c.x, h + 3.0, c.y));
       }

@@ -85,8 +85,10 @@ shipped model is simpler and already correct:
 - Aim = the unit→target direction on the ground plane, quantized to the int8
   `aimX/aimY` vector. For a top-down-leaning shooter the ground-plane heading
   suffices as the core.
-- The unit orients to the aim vector — **independent of movement direction**
-  (this is the FC modernization). Shipped (`systemAvatarMovement`).
+- The unit orients to the aim vector. **Drive is facing-aligned only** (no
+  strafe): the move stick is a throttle projected onto the aim/lock heading,
+  reverse allowed; pure sideways stick does not translate. Shipped
+  (`systemAvatarMovement`, SIM_VERSION 19).
 
 ### 4.2 Gamepad
 - **Right stick = aim direction directly** (twin-stick). Stick vector →

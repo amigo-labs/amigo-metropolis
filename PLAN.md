@@ -161,12 +161,11 @@ Still open on that line item — the texture atlases themselves and the runtime
 NearestFilter sampling path, which want real per-archetype art to exercise.
 
 The Stage B model pass landed — with the ORIGINAL Precinct Assault models:
-8 of 9 units are FCOP Cobj extractions from the `Mp` container (X1-Alpha hover,
-Hovertank, Flyer, heavy gunship, Sky Captain jet + gunship form, neutral
-turret, outpost flag console; raws committed under `tools/generators/units/raw/fcop/`,
-provenance in CREDITS.md). Only the avatar-walker is a CC0 Quaternius stand-in:
-the X1 walker's 45-clip rig does not survive the extraction cleanly (folded
-bind pose) — a Stage C pose bake can replace it. `bun run gen:units`
+all units are FCOP extractions from the `Mp` container (X1-Alpha walker + hover
+assemblies from `extract_x1.py`, Hovertank, Flyer, heavy gunship, Sky Captain
+jet + gunship form, neutral turret, outpost flag console; raws under
+`tools/generators/units/raw/fcop/`, provenance in CREDITS.md). Stage B ships
+rigid rest poses; Stage C can reintroduce the X1's animation clips. `bun run gen:units`
 (`tools/generators/genUnitModels.ts` + manifest) processes raws into one
 spec-conformant glb per archetype under `public/models/units/` (texture pages
 packed into one atlas, team units desaturated so the whole-unit instanceColor

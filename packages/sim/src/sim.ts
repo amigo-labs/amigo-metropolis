@@ -172,6 +172,8 @@ export const TURRET_DEFENSE = 0; //     base ring: full targeting (mesh mode "De
 export const TURRET_BASE = TURRET_DEFENSE;
 export const TURRET_DUMMY = 1; //       Phase 1 sandbox: engages avatars only (mesh mode "Standard")
 export const TURRET_CAPTURABLE = 2; //  neutral spot: dormant until captured (mesh mode "Standard")
+/** Built-in BaseShooter guns bolted into the base structure (fcop-logic.md §8.1). Combat-only — no freestanding mesh. */
+export const TURRET_BUILTIN = 3;
 
 // animState bits (renderer-facing; snapshot field 7).
 export const ANIM_MOVING = 1 << 0;
@@ -351,6 +353,9 @@ function spawnOutpostConsole(state: SimState, k: number): number {
   ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
   ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.CONSOLE];
   ent.ownerId[id] = team;
+  // Face the arena centre so the screen reads toward the midfield approach.
+  const mid = worldExtent(state.map) * 0.5;
+  ent.yaw[id] = atan2Poly(mid - spot.y, mid - spot.x);
   state.outpostConsole[k] = id;
   return id;
 }
@@ -384,6 +389,7 @@ function spawnBaseTurret(state: SimState, k: number): number {
   ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
   ent.hp[id] = spot.hp > 0 ? spot.hp : ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
   ent.ownerId[id] = team;
+  ent.mode[id] = TURRET_DEFENSE;
   ent.weaponProfile[id] = spot.weapon;
   if (spot.yaw !== 0) {
     ent.yaw[id] = spot.yaw;
@@ -423,6 +429,10 @@ function spawnBaseDefence(state: SimState, k: number): number {
   ent.height[id] = sampleHeight(state.map, x, y);
   ent.hp[id] = hp;
   ent.ownerId[id] = team;
+  // Bolted into the base structure (fcop-logic.md §8.1) — no freestanding mesh.
+  // All four sit at the core centre (original stores no coordinates); rendering
+  // them as turret-defense would stack four guns on the objective pad.
+  ent.mode[id] = TURRET_BUILTIN;
   ent.weaponProfile[id] = weapon;
   state.baseDefenceEntity[k] = id;
   return id;
@@ -702,7 +712,18 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     }
     const nowLocked = ent.timerA[id] > 0;
 
-    // Desired move direction (unit-clamped); zero while transform-locked.
+    // Soft-lock (input.spec §4.4 "lock"): resolve before facing/drive so the
+    // throttle projects onto the locked heading this tick.
+    if ((pressed & BUTTON_TARGET_CYCLE) !== 0) cycleLockTarget(state, p, id, x, y);
+    let lockId = state.lockTarget[p];
+    if (lockId >= 0 && !isLockValid(state, p, id, lockId, x, y)) {
+      lockId = -1;
+      state.lockTarget[p] = -1;
+    }
+
+    // Desired move intent (unit-clamped); zero while transform-locked.
+    // Vehicles only drive along their facing (no strafe): the stick is a
+    // throttle projected onto aim/lock heading — reverse is allowed.
     let mx = nowLocked ? 0 : input.moveX * AXIS_SCALE;
     let my = nowLocked ? 0 : input.moveY * AXIS_SCALE;
     const l2 = mx * mx + my * my;
@@ -712,20 +733,54 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       my *= inv;
     }
 
+    // Facing: lock > aim > move intent > previous facing (when coasting).
+    if (lockId >= 0) {
+      const dx = ent.posX[lockId] - x;
+      const dy = ent.posY[lockId] - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > 1e-6) {
+        const inv = 1 / Math.sqrt(d2);
+        ent.aimX[id] = dx * inv;
+        ent.aimY[id] = dy * inv;
+        ent.yaw[id] = atan2Poly(dy, dx);
+      }
+    } else {
+      const ax = input.aimX * AXIS_SCALE;
+      const ay = input.aimY * AXIS_SCALE;
+      if (ax * ax + ay * ay > 0.04) {
+        const inv = 1 / Math.sqrt(ax * ax + ay * ay);
+        ent.aimX[id] = ax * inv;
+        ent.aimY[id] = ay * inv;
+        ent.yaw[id] = atan2Poly(ay, ax);
+      } else if (l2 > 0) {
+        const inv = 1 / Math.sqrt(l2);
+        ent.aimX[id] = mx * inv;
+        ent.aimY[id] = my * inv;
+        ent.yaw[id] = atan2Poly(my, mx);
+      }
+    }
+    const fx = ent.aimX[id];
+    const fy = ent.aimY[id];
+    // Throttle = stick component along facing. Sideways stick alone = no drive.
+    const throttle = l2 > 0 ? mx * fx + my * fy : 0;
+    const driveX = fx * throttle;
+    const driveY = fy * throttle;
+    const drive2 = throttle * throttle;
+
     // Traction model: walker is exact; hover drifts toward the target with
-    // stick-dependent grip — throttle accelerates, counter-steer brakes hard,
+    // stick-dependent grip — throttle accelerates, reverse brakes hard,
     // a released stick coasts (rules.md §2 "fast, drifty").
     if (hover) {
       let traction = HOVER_TRACTION_COAST;
-      if (l2 > 0) {
-        const along = mx * ent.velX[id] + my * ent.velY[id];
+      if (drive2 > 0) {
+        const along = driveX * ent.velX[id] + driveY * ent.velY[id];
         traction = along < 0 ? HOVER_TRACTION_BRAKE : HOVER_TRACTION_ACCEL;
       }
-      ent.velX[id] += (mx * AVATAR_HOVER_SPEED - ent.velX[id]) * traction;
-      ent.velY[id] += (my * AVATAR_HOVER_SPEED - ent.velY[id]) * traction;
+      ent.velX[id] += (driveX * AVATAR_HOVER_SPEED - ent.velX[id]) * traction;
+      ent.velY[id] += (driveY * AVATAR_HOVER_SPEED - ent.velY[id]) * traction;
     } else {
-      ent.velX[id] = mx * AVATAR_WALKER_SPEED;
-      ent.velY[id] = my * AVATAR_WALKER_SPEED;
+      ent.velX[id] = driveX * AVATAR_WALKER_SPEED;
+      ent.velY[id] = driveY * AVATAR_WALKER_SPEED;
     }
 
     // Jump (walker only, grounded, edge-triggered).
@@ -786,18 +841,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       ent.height[id] = h;
     }
 
-    // Soft-lock (input.spec §4.4 "lock"): the Target-Cycle button acquires or
-    // cycles an enemy; the lock lives in the sim so it tracks deterministically
-    // on every peer. A lock that dies or drifts out of range releases to free
-    // aim (re-lock via the key). The transmitted aim is the fallback.
-    if ((pressed & BUTTON_TARGET_CYCLE) !== 0) cycleLockTarget(state, p, id, x, y);
-    let lockId = state.lockTarget[p];
-    if (lockId >= 0 && !isLockValid(state, p, id, lockId, x, y)) {
-      lockId = -1;
-      state.lockTarget[p] = -1;
-    }
-
-    // Facing: a valid lock tracks its target; else aim wins over movement.
+    // Soft-lock tracks the target after the move so facing stays on it if the
+    // target slid; free aim is already set above from this tick's input.
     if (lockId >= 0) {
       const dx = ent.posX[lockId] - x;
       const dy = ent.posY[lockId] - y;
@@ -808,25 +853,12 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         ent.aimY[id] = dy * inv;
         ent.yaw[id] = atan2Poly(dy, dx);
       }
-    } else {
-      // aim wins over movement; both quantized already.
-      const ax = input.aimX * AXIS_SCALE;
-      const ay = input.aimY * AXIS_SCALE;
-      if (ax * ax + ay * ay > 0.04) {
-        const inv = 1 / Math.sqrt(ax * ax + ay * ay);
-        ent.aimX[id] = ax * inv;
-        ent.aimY[id] = ay * inv;
-        ent.yaw[id] = atan2Poly(ay, ax);
-      } else if (l2 > 0) {
-        const inv = 1 / Math.sqrt(l2);
-        ent.aimX[id] = mx * inv;
-        ent.aimY[id] = my * inv;
-        ent.yaw[id] = atan2Poly(my, mx);
-      }
     }
 
     ent.animState[id] =
-      (l2 > 0 ? ANIM_MOVING : 0) |
+      (drive2 > 1e-6 || ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id] > 1e-6
+        ? ANIM_MOVING
+        : 0) |
       (hover ? ANIM_HOVER : 0) |
       (ent.height[id] > ride + GROUND_EPS ? ANIM_AIRBORNE : 0) |
       (ent.timerA[id] > 0 ? ANIM_TRANSFORMING : 0);

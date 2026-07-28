@@ -5,7 +5,14 @@
 // The avatar gets TWO buckets (walker body / hover wedge); the frame loop
 // routes each snapshot entity into a bucket via bucketFor().
 
-import { ANIM_HOVER, ARCHETYPE, getMapById, MAP_REGISTRY, TURRET_DEFENSE } from "@metropolis/sim";
+import {
+  ANIM_HOVER,
+  ARCHETYPE,
+  getMapById,
+  MAP_REGISTRY,
+  TURRET_BUILTIN,
+  TURRET_DEFENSE,
+} from "@metropolis/sim";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { NEUTRAL_RAMP, PROJECTILE_HEX, TEAM_RAMPS } from "./palette";
@@ -233,6 +240,8 @@ export function bucketFor(
   if (archetype === ARCHETYPE.JUGGERNAUT) return greybox.juggernaut;
   if (archetype === ARCHETYPE.FORTRESS) return greybox.fortress;
   if (archetype === ARCHETYPE.TURRET) {
+    // Built-in BaseShooter guns are combat-only (bolted into the base mesh).
+    if (aux === TURRET_BUILTIN) return undefined;
     return aux === TURRET_DEFENSE ? greybox.turretDefense : greybox.turretStandard;
   }
   if (archetype === ARCHETYPE.PROJECTILE) return greybox.projectile;

@@ -58,43 +58,51 @@ export interface UnitModelSpec {
   readonly neutralizeColors: boolean;
 }
 
-const CC0 = "CC0 1.0";
 // Original Future Cop: L.A.P.D. (1998) assets are explicitly permitted, incl.
 // modified originals (docs/specs/assets.md §2). The raw glbs come from the
-// Cobj extraction in the private RE repo (extract_objects.py).
+// Cobj extraction / X1 assembly in the private RE repo
+// (extract_objects.py, extract_x1.py).
 const EA = "Electronic Arts / Visual Sciences (Future Cop: L.A.P.D., 1998)";
 const FCOP_LICENSE = "EA original, permitted per assets.md §2";
 const RE_REPO = "https://github.com/amigo-labs/fcop-reverse-engineering";
 
-const QUATERNIUS = "Quaternius";
-
 export const UNIT_MODELS: readonly UnitModelSpec[] = [
   {
+    // Assembled walker pose from extract_x1.py (legs + cockpit + twin guns +
+    // beacon). Not a single Cobj: the X1 is five Cobj parts mounted via aRSL
+    // slots; the RE pipeline bakes rest-pose Walker frames into x1_alpha.glb.
     key: "avatar-walker",
-    raw: "quaternius/mech-o3Ps8z8ByP.glb",
+    raw: "fcop/x1-alpha-walker.glb",
     source: {
-      title: "Mech",
-      author: QUATERNIUS,
-      url: "https://poly.pizza/m/o3Ps8z8ByP",
-      license: CC0,
+      title: "X1-Alpha walker form (assembled, Walker rest pose)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
+    // Scale is height-led: the assembled walker is taller than it is wide, so a
+    // pure footprint stretch ballooned past 6 m. ~2.8 m tall keeps presence next
+    // to 1.6 m turrets without looking like a building.
     footprint: 2.6,
+    maxHeight: 2.8,
     maxTris: 5000,
     neutralizeColors: true,
   },
   {
+    // Full hover assembly (same parts, hover rest pose) — not only the cockpit
+    // Cobj, so transform walker↔hover keeps one silhouette family.
     key: "avatar-hover",
-    raw: "fcop/mp-obj016-x1alpha-hover.glb",
+    raw: "fcop/x1-alpha-hover.glb",
     source: {
-      title: "X1-Alpha hover form (Mp Cobj 16)",
+      title: "X1-Alpha hover form (assembled, Hover rest pose)",
       author: EA,
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
     footprint: 3.3,
-    maxTris: 1500,
+    maxHeight: 2.4,
+    maxTris: 5000,
     neutralizeColors: true,
   },
   {

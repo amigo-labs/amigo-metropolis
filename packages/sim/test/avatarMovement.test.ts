@@ -100,6 +100,26 @@ describe("walker movement", () => {
     expect(sim.ent.posX[0]).toBeCloseTo(12 + AVATAR_WALKER_SPEED, 3);
   });
 
+  it("drives only along facing — pure strafe does not translate", () => {
+    reset();
+    const sim = freshSim();
+    // Face +X (spawn default) while only requesting +Y move (strafe).
+    p0.aimX = 127;
+    p0.aimY = 0;
+    p0.moveX = 0;
+    p0.moveY = 127;
+    const x0 = sim.ent.posX[0];
+    const y0 = sim.ent.posY[0];
+    for (let i = 0; i < 30; i++) step(sim, inputs);
+    expect(sim.ent.posX[0]).toBeCloseTo(x0, 3);
+    expect(sim.ent.posY[0]).toBeCloseTo(y0, 3);
+    // Throttle along facing still works.
+    p0.moveX = 127;
+    p0.moveY = 0;
+    for (let i = 0; i < 30; i++) step(sim, inputs);
+    expect(sim.ent.posX[0]).toBeGreaterThan(x0 + 1);
+  });
+
   it("is blocked by the steep wall but jumps onto the ledge", () => {
     reset();
     const sim = freshSim();
