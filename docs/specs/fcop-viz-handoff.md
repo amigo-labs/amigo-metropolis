@@ -1,7 +1,23 @@
 # Handoff — FCOP logic decode + arena-viz / terrain alignment
 
-Status: working note (not committed elsewhere). Written mid-task to resume cleanly.
-Nothing in this whole effort has been committed to git.
+Status: historical working note. Superseded in part — read the ⚠️ below first.
+
+⚠️ **2026-07-25.** Two claims here are wrong as stated, and both were load-bearing:
+
+1. §2's ⛔CORRECTION (`off_X ≈ 96.5, NOT 112.5`) is right only for overlaying
+   *actor-frame* data onto the *glb*. As a **terrain→sim** offset the nominal
+   112.5 was correct all along: there are THREE frames, not two, and the sim
+   heightfield sits one Til (+16 cells on X) east of the actor/glb frame. Measured
+   offsets for all six arenas now live in
+   `packages/client/src/render/mapAlign.generated.ts`, derived by correlating each
+   mesh against its heightfield (`tools/generators/genMapAlign.ts`).
+2. §3's "latent game bug" is **fixed** — and it was worse than described: as well
+   as being ~8 cells off, the loader translated the mesh in Y, floating the art
+   2.5 m above the collision surface.
+
+Also stale: §4-§5's file lists, §6's `.bak` note, and the line below claiming
+nothing was committed (the renders, `prep_viz.py` and `build_map.py` are in git).
+Kept for the reasoning, not as instructions.
 
 ## 1. What is DONE and solid
 

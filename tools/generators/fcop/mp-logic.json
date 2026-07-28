@@ -1,0 +1,4334 @@
+{
+  "mission": "Mp",
+  "mapId": "la-cantina",
+  "source": {
+    "repo": "amigo-labs/fcop-reverse-engineering",
+    "commit": "f6aad03a83b03a4976587b901ec5b47e7617aa8f",
+    "extractor": "tools/gfx/extract_logic.py"
+  },
+  "frame": {
+    "actorScale": 8192,
+    "netScale": 32,
+    "note": "x/z are 0-based grid cells (raw/8192 for actors, raw/32 for Cnet nodes). The sim heightfield frame is this frame shifted by LOGIC_OFFSET_X/Z in tools/generators/enrichArena.ts — see docs/specs/fcop-viz-handoff.md."
+  },
+  "scales": {
+    "range": 1024,
+    "trigger": 8192,
+    "rotationTurn": 4096,
+    "originalTickHz": 60,
+    "note": "Positions/rotations are documented (fcop-logic.md §3). Distance and timing scales are inferred in tools/generators/fcopLogic.ts; raw values are preserved here so a correction touches only the converter."
+  },
+  "spawns": [
+    {
+      "id": 12,
+      "x": 95.968,
+      "z": 155
+    },
+    {
+      "id": 16,
+      "x": 96.0625,
+      "z": 69.0625
+    }
+  ],
+  "bases": [
+    {
+      "id": 7,
+      "x": 90,
+      "z": 148.9375,
+      "team": 1,
+      "health": 3000,
+      "netId": 1,
+      "spawnTicks": 300,
+      "spawnLimit": 1,
+      "defenceWeaponCount": 4,
+      "defenceWeapon": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 16
+      },
+      "unitMoveSpeed": 1024,
+      "unitAcceleration": 1228
+    },
+    {
+      "id": 57,
+      "x": 89.8125,
+      "z": 74.8125,
+      "team": 2,
+      "health": 3000,
+      "netId": 2,
+      "spawnTicks": 300,
+      "spawnLimit": 1,
+      "defenceWeaponCount": 4,
+      "defenceWeapon": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 16
+      },
+      "unitMoveSpeed": 1024,
+      "unitAcceleration": 1228
+    }
+  ],
+  "turrets": [
+    {
+      "id": 14,
+      "x": 104.125,
+      "z": 141,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 18,
+      "x": 99.5305,
+      "z": 88.5,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 19,
+      "x": 107.5303,
+      "z": 69.5,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 20,
+      "x": 104.0007,
+      "z": 83.0312,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 21,
+      "x": 99.5312,
+      "z": 84.5,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 22,
+      "x": 84.4688,
+      "z": 69.5625,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 23,
+      "x": 88.0015,
+      "z": 141,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 25,
+      "x": 88.0303,
+      "z": 83.0312,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 26,
+      "x": 92.592,
+      "z": 135.4688,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 27,
+      "x": 107.5625,
+      "z": 154.4375,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 28,
+      "x": 99.4688,
+      "z": 135.5,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 29,
+      "x": 84.5,
+      "z": 154.5312,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 30,
+      "x": 92.5312,
+      "z": 139.5,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 31,
+      "x": 99.5295,
+      "z": 139.5312,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 36,
+      "x": 92.5312,
+      "z": 88.4688,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 38,
+      "x": 92.624,
+      "z": 84.5312,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -2250,
+      "spawnLimit": 1
+    },
+    {
+      "id": 45,
+      "x": 113.5632,
+      "z": 132.625,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 85,
+      "x": 113.499,
+      "z": 91.5,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 157,
+      "x": 113.499,
+      "z": 91.5625,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 158,
+      "x": 113.4385,
+      "z": 100.5625,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 162,
+      "x": 113.5615,
+      "z": 100.5,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 176,
+      "x": 78.749,
+      "z": 91.625,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 180,
+      "x": 78.749,
+      "z": 91.5625,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 182,
+      "x": 78.6865,
+      "z": 100.5625,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 184,
+      "x": 78.6865,
+      "z": 100.5625,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 198,
+      "x": 78.624,
+      "z": 123.5625,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 199,
+      "x": 78.5632,
+      "z": 123.5625,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 202,
+      "x": 78.6257,
+      "z": 132.5625,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 203,
+      "x": 78.6865,
+      "z": 132.5625,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 217,
+      "x": 113.6255,
+      "z": 123.5625,
+      "team": 1,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 220,
+      "x": 113.5005,
+      "z": 123.5,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 224,
+      "x": 113.5632,
+      "z": 132.5625,
+      "team": 2,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    }
+  ],
+  "neutrals": [
+    {
+      "id": 13,
+      "x": 125.562,
+      "z": 116,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 40,
+      "x": 91.938,
+      "z": 114.875,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 3584,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 41,
+      "x": 66.7507,
+      "z": 108,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 42,
+      "x": 91.938,
+      "z": 109.0625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 512,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 44,
+      "x": 99.9385,
+      "z": 109.0625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 1536,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 46,
+      "x": 105.5005,
+      "z": 120.625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 61,
+      "x": 66.8125,
+      "z": 116.125,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 112,
+      "x": 121.5623,
+      "z": 68.625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 113,
+      "x": 113.4382,
+      "z": 91.625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 118,
+      "x": 70.5625,
+      "z": 68.4375,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 119,
+      "x": 113.5007,
+      "z": 100.5,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 148,
+      "x": 100.5625,
+      "z": 94.5625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 165,
+      "x": 125.5632,
+      "z": 84,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 181,
+      "x": 125.563,
+      "z": 108.0312,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 209,
+      "x": 86.564,
+      "z": 103.5,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 216,
+      "x": 99.876,
+      "z": 114.8125,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 2560,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 265,
+      "x": 78.7507,
+      "z": 91.6875,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 266,
+      "x": 105.6255,
+      "z": 103.5625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 267,
+      "x": 78.6257,
+      "z": 100.625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 268,
+      "x": 66.8428,
+      "z": 84.0938,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 269,
+      "x": 66.7517,
+      "z": 140,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 270,
+      "x": 121.6248,
+      "z": 155.5625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 271,
+      "x": 78.5632,
+      "z": 123.625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 272,
+      "x": 70.564,
+      "z": 155.625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 273,
+      "x": 86.5615,
+      "z": 120.375,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 274,
+      "x": 78.5635,
+      "z": 132.5625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 0,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 275,
+      "x": 91.5,
+      "z": 129.5625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 276,
+      "x": 100.5623,
+      "z": 129.5625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 3072,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 277,
+      "x": 113.5632,
+      "z": 132.625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 278,
+      "x": 125.5005,
+      "z": 140.0625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 279,
+      "x": 113.5005,
+      "z": 123.5,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 2048,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    },
+    {
+      "id": 280,
+      "x": 91.5625,
+      "z": 94.625,
+      "team": 0,
+      "health": 500,
+      "gunRotationRaw": 1024,
+      "turnSpeedRaw": 2457,
+      "shooter": {
+        "weaponId": 3,
+        "targetType": 4,
+        "targeting": 10,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": -1500,
+      "spawnLimit": 1
+    }
+  ],
+  "pickups": [
+    {
+      "id": 100,
+      "x": 102.4375,
+      "z": 111.9375,
+      "grants": ["reload_gun", "is_set", "pickup_consume"],
+      "spawnTicks": -3000,
+      "rotationalSpeed": 1228
+    },
+    {
+      "id": 101,
+      "x": 89.6248,
+      "z": 112.125,
+      "grants": ["reload_heavy", "is_set", "pickup_consume"],
+      "spawnTicks": -3000,
+      "rotationalSpeed": 1228
+    },
+    {
+      "id": 102,
+      "x": 98.1248,
+      "z": 112.0625,
+      "grants": ["reload_special", "is_set", "pickup_consume"],
+      "spawnTicks": -3000,
+      "rotationalSpeed": 1228
+    },
+    {
+      "id": 103,
+      "x": 93.9998,
+      "z": 112.0625,
+      "grants": ["restore_health", "is_set", "pickup_consume"],
+      "spawnTicks": -3000,
+      "rotationalSpeed": 1228
+    },
+    {
+      "id": 284,
+      "x": 78.064,
+      "z": 106.125,
+      "grants": ["power_up_heavy", "is_set", "pickup_consume"],
+      "spawnTicks": -6000,
+      "rotationalSpeed": -4916
+    },
+    {
+      "id": 286,
+      "x": 114.063,
+      "z": 106.125,
+      "grants": ["power_up_special", "is_set", "pickup_consume"],
+      "spawnTicks": -6000,
+      "rotationalSpeed": -4916
+    },
+    {
+      "id": 291,
+      "x": 114.062,
+      "z": 118.0625,
+      "grants": ["invisibility", "is_set", "pickup_consume"],
+      "spawnTicks": -6000,
+      "rotationalSpeed": -4916
+    },
+    {
+      "id": 293,
+      "x": 78.1257,
+      "z": 118.125,
+      "grants": ["power_up_gun", "is_set", "pickup_consume"],
+      "spawnTicks": -6000,
+      "rotationalSpeed": -4916
+    }
+  ],
+  "triggers": [
+    {
+      "id": 5,
+      "x": 96.0474,
+      "z": 144.625,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 57
+    },
+    {
+      "id": 9,
+      "x": 95.9993,
+      "z": 79.5312,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 7
+    },
+    {
+      "id": 35,
+      "x": 96,
+      "z": 86.6875,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 7
+    },
+    {
+      "id": 58,
+      "x": 95.9995,
+      "z": 137.5625,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 57
+    },
+    {
+      "id": 81,
+      "x": 95.9377,
+      "z": 137.5625,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 77
+    },
+    {
+      "id": 104,
+      "x": 96,
+      "z": 137.625,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 172
+    },
+    {
+      "id": 106,
+      "x": 98.1265,
+      "z": 149.3438,
+      "widthRaw": 819,
+      "lengthRaw": 614,
+      "heightRaw": 2048,
+      "flags": ["retrigger", "action_button"],
+      "watchesActor": 12
+    },
+    {
+      "id": 107,
+      "x": 92.968,
+      "z": 149.9375,
+      "widthRaw": 614,
+      "lengthRaw": 614,
+      "heightRaw": 2048,
+      "flags": ["retrigger", "action_button"],
+      "watchesActor": 12
+    },
+    {
+      "id": 108,
+      "x": 98.0784,
+      "z": 74.6094,
+      "widthRaw": 819,
+      "lengthRaw": 819,
+      "heightRaw": 2048,
+      "flags": ["retrigger", "action_button"],
+      "watchesActor": 16
+    },
+    {
+      "id": 109,
+      "x": 93,
+      "z": 74.0938,
+      "widthRaw": 614,
+      "lengthRaw": 614,
+      "heightRaw": 2048,
+      "flags": ["retrigger", "action_button"],
+      "watchesActor": 16
+    },
+    {
+      "id": 115,
+      "x": 95.9377,
+      "z": 137.5625,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 185
+    },
+    {
+      "id": 226,
+      "x": 95.9377,
+      "z": 137.5625,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 204
+    },
+    {
+      "id": 227,
+      "x": 95.9377,
+      "z": 137.5625,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 154
+    },
+    {
+      "id": 228,
+      "x": 95.9377,
+      "z": 137.5,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 16
+    },
+    {
+      "id": 229,
+      "x": 96.0623,
+      "z": 86.75,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 75
+    },
+    {
+      "id": 230,
+      "x": 96,
+      "z": 86.6875,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 87
+    },
+    {
+      "id": 231,
+      "x": 96,
+      "z": 86.6875,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 173
+    },
+    {
+      "id": 232,
+      "x": 96,
+      "z": 86.6875,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 144
+    },
+    {
+      "id": 233,
+      "x": 96,
+      "z": 86.6875,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 205
+    },
+    {
+      "id": 234,
+      "x": 96,
+      "z": 86.625,
+      "widthRaw": 20480,
+      "lengthRaw": 12288,
+      "heightRaw": 2048,
+      "flags": ["retrigger"],
+      "watchesActor": 12
+    },
+    {
+      "id": 235,
+      "x": 96.0474,
+      "z": 144.625,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 172
+    },
+    {
+      "id": 236,
+      "x": 96.032,
+      "z": 144.6094,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 77
+    },
+    {
+      "id": 237,
+      "x": 96.032,
+      "z": 144.6094,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 185
+    },
+    {
+      "id": 238,
+      "x": 96.032,
+      "z": 144.6094,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 204
+    },
+    {
+      "id": 239,
+      "x": 96.032,
+      "z": 144.6094,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 154
+    },
+    {
+      "id": 240,
+      "x": 95.9851,
+      "z": 79.5312,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 75
+    },
+    {
+      "id": 241,
+      "x": 95.9851,
+      "z": 79.5156,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 87
+    },
+    {
+      "id": 242,
+      "x": 95.9695,
+      "z": 79.5156,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 173
+    },
+    {
+      "id": 243,
+      "x": 95.9695,
+      "z": 79.5156,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 144
+    },
+    {
+      "id": 244,
+      "x": 95.9695,
+      "z": 79.5156,
+      "widthRaw": 2457,
+      "lengthRaw": 1843,
+      "heightRaw": 2048,
+      "flags": [],
+      "watchesActor": 205
+    }
+  ],
+  "units": [
+    {
+      "id": 75,
+      "x": 90,
+      "z": 148.9375,
+      "team": 1,
+      "health": 150,
+      "netId": 1,
+      "moveSpeed": 1024,
+      "acceleration": 1228,
+      "shooter": {
+        "weaponId": 1,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300,
+      "spawnLimit": 20
+    },
+    {
+      "id": 77,
+      "x": 89.8125,
+      "z": 74.8125,
+      "team": 2,
+      "health": 150,
+      "netId": 2,
+      "moveSpeed": 1024,
+      "acceleration": 1228,
+      "shooter": {
+        "weaponId": 6,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300,
+      "spawnLimit": 20
+    },
+    {
+      "id": 87,
+      "x": 72.9375,
+      "z": 132.5938,
+      "team": 1,
+      "health": 150,
+      "netId": 1,
+      "moveSpeed": 1024,
+      "acceleration": 1228,
+      "shooter": {
+        "weaponId": 1,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300,
+      "spawnLimit": 20
+    },
+    {
+      "id": 144,
+      "x": 118.9688,
+      "z": 91.875,
+      "team": 1,
+      "health": 150,
+      "netId": 1,
+      "moveSpeed": 1024,
+      "acceleration": 1228,
+      "shooter": {
+        "weaponId": 1,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300,
+      "spawnLimit": 20
+    },
+    {
+      "id": 154,
+      "x": 118.9688,
+      "z": 91.875,
+      "team": 2,
+      "health": 150,
+      "netId": 2,
+      "moveSpeed": 1024,
+      "acceleration": 1228,
+      "shooter": {
+        "weaponId": 6,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300,
+      "spawnLimit": 20
+    },
+    {
+      "id": 172,
+      "x": 72.9688,
+      "z": 91.8125,
+      "team": 2,
+      "health": 150,
+      "netId": 2,
+      "moveSpeed": 1024,
+      "acceleration": 1228,
+      "shooter": {
+        "weaponId": 6,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300,
+      "spawnLimit": 20
+    },
+    {
+      "id": 173,
+      "x": 72.9688,
+      "z": 91.8125,
+      "team": 1,
+      "health": 150,
+      "netId": 1,
+      "moveSpeed": 1024,
+      "acceleration": 1228,
+      "shooter": {
+        "weaponId": 1,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300,
+      "spawnLimit": 20
+    },
+    {
+      "id": 185,
+      "x": 72.9375,
+      "z": 132.5938,
+      "team": 2,
+      "health": 150,
+      "netId": 2,
+      "moveSpeed": 1024,
+      "acceleration": 1228,
+      "shooter": {
+        "weaponId": 6,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300,
+      "spawnLimit": 20
+    },
+    {
+      "id": 204,
+      "x": 118.9375,
+      "z": 132.4375,
+      "team": 2,
+      "health": 150,
+      "netId": 2,
+      "moveSpeed": 1024,
+      "acceleration": 1228,
+      "shooter": {
+        "weaponId": 6,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300,
+      "spawnLimit": 20
+    },
+    {
+      "id": 205,
+      "x": 118.9375,
+      "z": 132.4688,
+      "team": 1,
+      "health": 150,
+      "netId": 1,
+      "moveSpeed": 1024,
+      "acceleration": 1228,
+      "shooter": {
+        "weaponId": 1,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300,
+      "spawnLimit": 20
+    }
+  ],
+  "aircraft": [
+    {
+      "id": 6,
+      "x": 96.0623,
+      "z": 84.5,
+      "team": 2,
+      "health": 2000,
+      "moveSpeed": 2457,
+      "turnRate": 5120,
+      "orbitAreaX": 30720,
+      "orbitAreaY": 28672,
+      "targetDetectionRange": 32358,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 4,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 16
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 8,
+      "x": 95.9998,
+      "z": 139.875,
+      "team": 1,
+      "health": 2000,
+      "moveSpeed": 2457,
+      "turnRate": 5120,
+      "orbitAreaX": 30720,
+      "orbitAreaY": 28672,
+      "targetDetectionRange": 32358,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 4,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 16
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 33,
+      "x": 96.0007,
+      "z": 85.5632,
+      "team": 2,
+      "health": 150,
+      "moveSpeed": 2048,
+      "turnRate": 5120,
+      "orbitAreaX": 24576,
+      "orbitAreaY": 20480,
+      "targetDetectionRange": 28672,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 6,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 34,
+      "x": 95.9695,
+      "z": 138.75,
+      "team": 1,
+      "health": 150,
+      "moveSpeed": 2048,
+      "turnRate": 5120,
+      "orbitAreaX": 24576,
+      "orbitAreaY": 20480,
+      "targetDetectionRange": 28672,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 1,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 91,
+      "x": 73.0012,
+      "z": 124.0312,
+      "team": 1,
+      "health": 150,
+      "moveSpeed": 2048,
+      "turnRate": 5120,
+      "orbitAreaX": 24576,
+      "orbitAreaY": 20480,
+      "targetDetectionRange": 28672,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 1,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 99,
+      "x": 73.0012,
+      "z": 124.0312,
+      "team": 2,
+      "health": 150,
+      "moveSpeed": 2048,
+      "turnRate": 5120,
+      "orbitAreaX": 24576,
+      "orbitAreaY": 20480,
+      "targetDetectionRange": 28672,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 6,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 145,
+      "x": 114.5015,
+      "z": 96,
+      "team": 1,
+      "health": 150,
+      "moveSpeed": 2048,
+      "turnRate": 5120,
+      "orbitAreaX": 24576,
+      "orbitAreaY": 20480,
+      "targetDetectionRange": 28672,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 1,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 155,
+      "x": 114.5015,
+      "z": 96,
+      "team": 2,
+      "health": 150,
+      "moveSpeed": 2048,
+      "turnRate": 5120,
+      "orbitAreaX": 24576,
+      "orbitAreaY": 20480,
+      "targetDetectionRange": 28672,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 6,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 174,
+      "x": 77.5312,
+      "z": 96.0312,
+      "team": 1,
+      "health": 150,
+      "moveSpeed": 2048,
+      "turnRate": 5120,
+      "orbitAreaX": 24576,
+      "orbitAreaY": 20480,
+      "targetDetectionRange": 28672,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 1,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 175,
+      "x": 77.5312,
+      "z": 96.0312,
+      "team": 2,
+      "health": 150,
+      "moveSpeed": 2048,
+      "turnRate": 5120,
+      "orbitAreaX": 24576,
+      "orbitAreaY": 20480,
+      "targetDetectionRange": 28672,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 6,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 206,
+      "x": 114.5007,
+      "z": 128.0618,
+      "team": 1,
+      "health": 150,
+      "moveSpeed": 2048,
+      "turnRate": 5120,
+      "orbitAreaX": 24576,
+      "orbitAreaY": 20480,
+      "targetDetectionRange": 28672,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 1,
+        "targetType": 4,
+        "targeting": 2,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300
+    },
+    {
+      "id": 207,
+      "x": 114.5327,
+      "z": 128,
+      "team": 2,
+      "health": 150,
+      "moveSpeed": 2048,
+      "turnRate": 5120,
+      "orbitAreaX": 24576,
+      "orbitAreaY": 20480,
+      "targetDetectionRange": 28672,
+      "timeToDescend": 1024,
+      "shooter": {
+        "weaponId": 6,
+        "targetType": 4,
+        "targeting": 1,
+        "fovRaw": 4096,
+        "engageRangeRaw": 6144,
+        "targetingDelayRaw": 32
+      },
+      "spawnTicks": 300
+    }
+  ],
+  "props": [
+    {
+      "id": 10,
+      "x": 98.5312,
+      "z": 149.3906,
+      "height": 0,
+      "actType": 11,
+      "objId": 39
+    },
+    {
+      "id": 11,
+      "x": 92.7185,
+      "z": 150.2812,
+      "height": 0,
+      "actType": 11,
+      "objId": 40
+    },
+    {
+      "id": 17,
+      "x": 92.688,
+      "z": 73.8281,
+      "height": 0,
+      "actType": 11,
+      "objId": 40
+    },
+    {
+      "id": 32,
+      "x": 98.4224,
+      "z": 74.6094,
+      "height": 0,
+      "actType": 11,
+      "objId": 39
+    },
+    {
+      "id": 43,
+      "x": 75.407,
+      "z": 98.3594,
+      "height": 0,
+      "actType": 11,
+      "objId": 33
+    },
+    {
+      "id": 48,
+      "x": 75.4543,
+      "z": 125.6719,
+      "height": 0,
+      "actType": 11,
+      "objId": 33
+    },
+    {
+      "id": 49,
+      "x": 116.2815,
+      "z": 98.375,
+      "height": 0,
+      "actType": 11,
+      "objId": 33
+    },
+    {
+      "id": 50,
+      "x": 93.9851,
+      "z": 151.5156,
+      "height": 0,
+      "actType": 11,
+      "objId": 34
+    },
+    {
+      "id": 52,
+      "x": 98.0786,
+      "z": 151.4688,
+      "height": 0,
+      "actType": 11,
+      "objId": 35
+    },
+    {
+      "id": 54,
+      "x": 93.9983,
+      "z": 72.3594,
+      "height": 0,
+      "actType": 11,
+      "objId": 34
+    },
+    {
+      "id": 56,
+      "x": 97.9382,
+      "z": 72.375,
+      "height": 0,
+      "actType": 11,
+      "objId": 35
+    },
+    {
+      "id": 60,
+      "x": 116.1252,
+      "z": 125.9844,
+      "height": 0,
+      "actType": 11,
+      "objId": 33
+    },
+    {
+      "id": 74,
+      "x": 75.4841,
+      "z": 93.6562,
+      "height": 0,
+      "actType": 11,
+      "objId": 27
+    },
+    {
+      "id": 146,
+      "x": 116.4673,
+      "z": 93.9219,
+      "height": 0,
+      "actType": 11,
+      "objId": 27
+    },
+    {
+      "id": 147,
+      "x": 116.6877,
+      "z": 96.0625,
+      "height": 0,
+      "actType": 11,
+      "objId": 29
+    },
+    {
+      "id": 168,
+      "x": 75.3745,
+      "z": 96,
+      "height": 0,
+      "actType": 11,
+      "objId": 29
+    },
+    {
+      "id": 186,
+      "x": 75.344,
+      "z": 130.3594,
+      "height": 0,
+      "actType": 11,
+      "objId": 27
+    },
+    {
+      "id": 190,
+      "x": 75.3748,
+      "z": 128.0625,
+      "height": 0,
+      "actType": 11,
+      "objId": 29
+    },
+    {
+      "id": 208,
+      "x": 116.2351,
+      "z": 130.4062,
+      "height": 0,
+      "actType": 11,
+      "objId": 27
+    },
+    {
+      "id": 212,
+      "x": 116.75,
+      "z": 128.0625,
+      "height": 0,
+      "actType": 11,
+      "objId": 29
+    },
+    {
+      "id": 245,
+      "x": 120.5,
+      "z": 101.1562,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 246,
+      "x": 71.5625,
+      "z": 90.9062,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 247,
+      "x": 71.5623,
+      "z": 122.9375,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 248,
+      "x": 117.9382,
+      "z": 122.9375,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 250,
+      "x": 74.125,
+      "z": 90.9375,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 251,
+      "x": 74.125,
+      "z": 101.125,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 252,
+      "x": 71.5312,
+      "z": 101.1562,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 253,
+      "x": 117.9375,
+      "z": 101.1562,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 254,
+      "x": 117.9375,
+      "z": 90.9375,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 255,
+      "x": 120.5,
+      "z": 90.9375,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 256,
+      "x": 117.9702,
+      "z": 133.125,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 257,
+      "x": 120.564,
+      "z": 133.125,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 258,
+      "x": 120.4702,
+      "z": 122.9375,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 259,
+      "x": 71.5623,
+      "z": 133.1875,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 260,
+      "x": 74.1873,
+      "z": 122.9375,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    },
+    {
+      "id": 261,
+      "x": 74.1873,
+      "z": 133.1875,
+      "height": 0,
+      "actType": 11,
+      "objId": 28
+    }
+  ],
+  "nets": [
+    {
+      "netId": 1,
+      "nodes": [
+        {
+          "x": 90,
+          "z": 148.9375,
+          "neighbours": [6, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 118.9688,
+          "z": 91.875,
+          "neighbours": [140, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 72.9688,
+          "z": 91.8125,
+          "neighbours": [141, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 72.9375,
+          "z": 132.5938,
+          "neighbours": [142, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 118.9375,
+          "z": 132.4688,
+          "neighbours": [139, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 82.0625,
+          "z": 95.5,
+          "neighbours": [130, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.9375,
+          "z": 149,
+          "neighbours": [11, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.75,
+          "z": 133.125,
+          "neighbours": [85, 64, 13, -1],
+          "state": 0
+        },
+        {
+          "x": 111.2188,
+          "z": 95.9062,
+          "neighbours": [56, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.1875,
+          "z": 127.9062,
+          "neighbours": [72, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 82,
+          "z": 127.9375,
+          "neighbours": [115, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.9375,
+          "z": 140.625,
+          "neighbours": [12, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.75,
+          "z": 139.5625,
+          "neighbours": [7, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 99.6875,
+          "z": 133.125,
+          "neighbours": [14, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 101.4375,
+          "z": 134.9375,
+          "neighbours": [15, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 105.625,
+          "z": 134.9375,
+          "neighbours": [16, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 109.9375,
+          "z": 139.5,
+          "neighbours": [19, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 109.9375,
+          "z": 144.4375,
+          "neighbours": [25, 20, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 116.375,
+          "z": 144.4375,
+          "neighbours": [21, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 109.875,
+          "z": 143.0625,
+          "neighbours": [17, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.9375,
+          "z": 144.375,
+          "neighbours": [18, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 117.375,
+          "z": 143.5625,
+          "neighbours": [62, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 117.375,
+          "z": 136.5,
+          "neighbours": [23, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 116.125,
+          "z": 135.4375,
+          "neighbours": [137, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.25,
+          "z": 133.6875,
+          "neighbours": [9, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 107,
+          "z": 147.9375,
+          "neighbours": [26, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 107,
+          "z": 150.5625,
+          "neighbours": [27, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.75,
+          "z": 154.625,
+          "neighbours": [28, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 118.5625,
+          "z": 154.625,
+          "neighbours": [29, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 123.5,
+          "z": 149.625,
+          "neighbours": [30, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 123.4375,
+          "z": 111.625,
+          "neighbours": [55, 31, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 120.0625,
+          "z": 111.625,
+          "neighbours": [32, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 112.125,
+          "z": 111.625,
+          "neighbours": [50, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 123.4375,
+          "z": 74.5,
+          "neighbours": [34, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 118.4375,
+          "z": 69.625,
+          "neighbours": [35, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.1875,
+          "z": 69.625,
+          "neighbours": [36, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 107.125,
+          "z": 73.375,
+          "neighbours": [37, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 107.0625,
+          "z": 76.6875,
+          "neighbours": [38, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.0625,
+          "z": 79.5,
+          "neighbours": [39, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.0625,
+          "z": 84.4375,
+          "neighbours": [40, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 105.5,
+          "z": 89.0625,
+          "neighbours": [41, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 101.3125,
+          "z": 89.0625,
+          "neighbours": [42, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 99.4375,
+          "z": 91.0625,
+          "neighbours": [43, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.625,
+          "z": 91.0625,
+          "neighbours": [44, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.625,
+          "z": 84,
+          "neighbours": [45, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.0625,
+          "z": 82.5625,
+          "neighbours": [46, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.125,
+          "z": 75.75,
+          "neighbours": [47, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.75,
+          "z": 75.25,
+          "neighbours": [48, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96,
+          "z": 74.375,
+          "neighbours": [49, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.25,
+          "z": 75.1875,
+          "neighbours": [46, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.1875,
+          "z": 111.625,
+          "neighbours": [79, 8, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.1875,
+          "z": 112.625,
+          "neighbours": [52, 50, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 112,
+          "z": 112.625,
+          "neighbours": [53, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 120,
+          "z": 112.625,
+          "neighbours": [54, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 122.625,
+          "z": 112.625,
+          "neighbours": [55, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 123.4375,
+          "z": 110.75,
+          "neighbours": [33, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.25,
+          "z": 90.25,
+          "neighbours": [57, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 112.75,
+          "z": 88.8125,
+          "neighbours": [58, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 116.1875,
+          "z": 88.8125,
+          "neighbours": [59, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 117.4375,
+          "z": 87.4375,
+          "neighbours": [60, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 117.4375,
+          "z": 82,
+          "neighbours": [61, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 117.375,
+          "z": 80.4375,
+          "neighbours": [63, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 117.3125,
+          "z": 141.9375,
+          "neighbours": [22, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 116.5625,
+          "z": 79.5,
+          "neighbours": [38, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.6875,
+          "z": 131.875,
+          "neighbours": [66, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.6875,
+          "z": 120.6875,
+          "neighbours": [76, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.75,
+          "z": 129.125,
+          "neighbours": [67, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.6875,
+          "z": 124.875,
+          "neighbours": [65, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.6875,
+          "z": 103.25,
+          "neighbours": [70, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.6875,
+          "z": 91.9375,
+          "neighbours": [43, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.6875,
+          "z": 99.4375,
+          "neighbours": [71, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.625,
+          "z": 95.5,
+          "neighbours": [69, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.1875,
+          "z": 124.0625,
+          "neighbours": [73, 51, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 103,
+          "z": 124.0625,
+          "neighbours": [74, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 100.0625,
+          "z": 118.125,
+          "neighbours": [75, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.625,
+          "z": 118.125,
+          "neighbours": [126, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.625,
+          "z": 120,
+          "neighbours": [118, 77, 75, -1],
+          "state": 0
+        },
+        {
+          "x": 100,
+          "z": 120,
+          "neighbours": [78, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 103.9375,
+          "z": 118.0625,
+          "neighbours": [51, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 104.0625,
+          "z": 106,
+          "neighbours": [80, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 100,
+          "z": 104.0625,
+          "neighbours": [81, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.6875,
+          "z": 104.0625,
+          "neighbours": [68, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 112.0938,
+          "z": 95.9062,
+          "neighbours": [83, 8, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 107.0625,
+          "z": 98.9375,
+          "neighbours": [84, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 104,
+          "z": 98.9375,
+          "neighbours": [80, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 92.375,
+          "z": 133.125,
+          "neighbours": [86, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 90.375,
+          "z": 135.1875,
+          "neighbours": [87, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 86.1875,
+          "z": 135.1875,
+          "neighbours": [88, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 82,
+          "z": 139.4375,
+          "neighbours": [90, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 76.4375,
+          "z": 135.625,
+          "neighbours": [138, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 82,
+          "z": 143.375,
+          "neighbours": [95, 91, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 76.8125,
+          "z": 143.375,
+          "neighbours": [92, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 75.625,
+          "z": 142.4375,
+          "neighbours": [93, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 75.625,
+          "z": 136.5625,
+          "neighbours": [89, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 82,
+          "z": 133.9375,
+          "neighbours": [10, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 82,
+          "z": 144.5625,
+          "neighbours": [96, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 83.8125,
+          "z": 147.9375,
+          "neighbours": [97, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 83.8125,
+          "z": 150.5,
+          "neighbours": [98, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.3125,
+          "z": 153.5,
+          "neighbours": [99, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 73.625,
+          "z": 153.5,
+          "neighbours": [100, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 69.5,
+          "z": 149.4375,
+          "neighbours": [101, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 69.5625,
+          "z": 112.5,
+          "neighbours": [123, 102, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 71.9375,
+          "z": 112.5,
+          "neighbours": [104, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 82.0625,
+          "z": 112.5,
+          "neighbours": [121, 120, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 79.9375,
+          "z": 112.4375,
+          "neighbours": [120, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 69.5,
+          "z": 74.5,
+          "neighbours": [106, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 73.5,
+          "z": 70.5625,
+          "neighbours": [107, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.5625,
+          "z": 70.5625,
+          "neighbours": [108, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 83.875,
+          "z": 73.9375,
+          "neighbours": [109, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 83.875,
+          "z": 76.5625,
+          "neighbours": [110, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 81.875,
+          "z": 80.4375,
+          "neighbours": [111, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 81.875,
+          "z": 84.4375,
+          "neighbours": [112, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 86.625,
+          "z": 89.125,
+          "neighbours": [113, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 90.6875,
+          "z": 89.125,
+          "neighbours": [114, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 92.625,
+          "z": 91,
+          "neighbours": [43, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 81.9375,
+          "z": 125.0625,
+          "neighbours": [116, 103, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 88.875,
+          "z": 125.0625,
+          "neighbours": [117, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 93,
+          "z": 120.0625,
+          "neighbours": [75, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 93.75,
+          "z": 120,
+          "neighbours": [119, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 88,
+          "z": 118,
+          "neighbours": [103, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 82.0625,
+          "z": 111.5,
+          "neighbours": [124, 5, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 79.9375,
+          "z": 111.5,
+          "neighbours": [122, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 71.9375,
+          "z": 111.5,
+          "neighbours": [123, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 69.5,
+          "z": 111.5,
+          "neighbours": [105, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 87.9375,
+          "z": 106,
+          "neighbours": [125, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 91.9375,
+          "z": 105,
+          "neighbours": [126, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.625,
+          "z": 105,
+          "neighbours": [81, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80,
+          "z": 95.9688,
+          "neighbours": [128, 5, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 85.0625,
+          "z": 99.875,
+          "neighbours": [129, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 87.9375,
+          "z": 99.875,
+          "neighbours": [125, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 82.0625,
+          "z": 90.0625,
+          "neighbours": [131, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 79.9375,
+          "z": 88,
+          "neighbours": [132, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 76.25,
+          "z": 88,
+          "neighbours": [133, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 75.625,
+          "z": 87.1875,
+          "neighbours": [134, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 75.625,
+          "z": 82.125,
+          "neighbours": [135, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 75.625,
+          "z": 81.25,
+          "neighbours": [136, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 76.5,
+          "z": 80.375,
+          "neighbours": [110, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 112.875,
+          "z": 135.4375,
+          "neighbours": [24, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.375,
+          "z": 135.625,
+          "neighbours": [94, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 118.9375,
+          "z": 127.875,
+          "neighbours": [9, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 118.9688,
+          "z": 95.9375,
+          "neighbours": [82, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 72.9688,
+          "z": 95.9688,
+          "neighbours": [127, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 72.9375,
+          "z": 127.9062,
+          "neighbours": [10, -1, -1, -1],
+          "state": 0
+        }
+      ]
+    },
+    {
+      "netId": 2,
+      "nodes": [
+        {
+          "x": 89.8125,
+          "z": 74.8125,
+          "neighbours": [7, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.9375,
+          "z": 96.0312,
+          "neighbours": [103, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 118.9688,
+          "z": 91.875,
+          "neighbours": [137, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 72.9688,
+          "z": 91.8125,
+          "neighbours": [138, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 72.9375,
+          "z": 132.5938,
+          "neighbours": [139, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 118.9375,
+          "z": 132.4375,
+          "neighbours": [136, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.875,
+          "z": 128.375,
+          "neighbours": [124, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96,
+          "z": 74.8125,
+          "neighbours": [12, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110,
+          "z": 95.875,
+          "neighbours": [32, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.0625,
+          "z": 128.375,
+          "neighbours": [59, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.4375,
+          "z": 90.875,
+          "neighbours": [83, 35, 14, -1],
+          "state": 0
+        },
+        {
+          "x": 110.0625,
+          "z": 111.5625,
+          "neighbours": [39, 38, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.9375,
+          "z": 83,
+          "neighbours": [13, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.4375,
+          "z": 84.1875,
+          "neighbours": [10, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 99.5,
+          "z": 90.875,
+          "neighbours": [15, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 101.375,
+          "z": 88.9375,
+          "neighbours": [16, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 105.5625,
+          "z": 88.9375,
+          "neighbours": [17, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110,
+          "z": 84.4375,
+          "neighbours": [19, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 115.5625,
+          "z": 87.9375,
+          "neighbours": [23, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.0625,
+          "z": 80.5,
+          "neighbours": [25, 20, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 115.6875,
+          "z": 80.5,
+          "neighbours": [21, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 116.5,
+          "z": 81.875,
+          "neighbours": [22, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 116.4375,
+          "z": 86.9375,
+          "neighbours": [18, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 112,
+          "z": 87.9375,
+          "neighbours": [24, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110,
+          "z": 90.0625,
+          "neighbours": [8, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.0625,
+          "z": 78.5625,
+          "neighbours": [26, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 107.875,
+          "z": 76.5625,
+          "neighbours": [27, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 107.875,
+          "z": 73.75,
+          "neighbours": [28, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.0625,
+          "z": 70.625,
+          "neighbours": [29, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 117.9375,
+          "z": 70.625,
+          "neighbours": [30, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 122.5625,
+          "z": 75,
+          "neighbours": [31, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 122.5,
+          "z": 111.4375,
+          "neighbours": [41, 36, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110,
+          "z": 99.0625,
+          "neighbours": [76, 11, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.4375,
+          "z": 103.0625,
+          "neighbours": [71, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.375,
+          "z": 99.375,
+          "neighbours": [33, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.3125,
+          "z": 95.375,
+          "neighbours": [34, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 120.1875,
+          "z": 111.4375,
+          "neighbours": [37, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 112,
+          "z": 111.4375,
+          "neighbours": [38, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.0625,
+          "z": 112.8125,
+          "neighbours": [68, 9, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 112,
+          "z": 112.5625,
+          "neighbours": [40, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 120.125,
+          "z": 112.5625,
+          "neighbours": [41, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 122.5,
+          "z": 112.625,
+          "neighbours": [42, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 122.5,
+          "z": 149.25,
+          "neighbours": [43, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 118.3125,
+          "z": 153.5625,
+          "neighbours": [44, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.8125,
+          "z": 153.5625,
+          "neighbours": [45, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 107.75,
+          "z": 150.5,
+          "neighbours": [46, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 107.8125,
+          "z": 148,
+          "neighbours": [47, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.125,
+          "z": 143.625,
+          "neighbours": [48, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.125,
+          "z": 139.6875,
+          "neighbours": [49, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 105.5625,
+          "z": 135.0625,
+          "neighbours": [50, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 101.375,
+          "z": 135.0625,
+          "neighbours": [51, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 99.625,
+          "z": 133,
+          "neighbours": [52, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.5625,
+          "z": 133,
+          "neighbours": [53, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.5,
+          "z": 140.8125,
+          "neighbours": [54, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96,
+          "z": 141.9375,
+          "neighbours": [55, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96,
+          "z": 147.6875,
+          "neighbours": [56, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.125,
+          "z": 148.6875,
+          "neighbours": [57, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96,
+          "z": 149.4375,
+          "neighbours": [58, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.75,
+          "z": 148.625,
+          "neighbours": [55, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.0625,
+          "z": 133.8125,
+          "neighbours": [125, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 115.8125,
+          "z": 136.125,
+          "neighbours": [61, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 116.4375,
+          "z": 136.625,
+          "neighbours": [62, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 116.4375,
+          "z": 141.9375,
+          "neighbours": [63, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 116.4375,
+          "z": 142.75,
+          "neighbours": [64, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 115.625,
+          "z": 143.5625,
+          "neighbours": [47, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.375,
+          "z": 120.6875,
+          "neighbours": [67, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.5,
+          "z": 129.125,
+          "neighbours": [52, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.4375,
+          "z": 124.875,
+          "neighbours": [66, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 103.875,
+          "z": 117.625,
+          "neighbours": [69, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 99.9375,
+          "z": 119.0625,
+          "neighbours": [70, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.3125,
+          "z": 119.0625,
+          "neighbours": [65, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.375,
+          "z": 104.0625,
+          "neighbours": [73, 72, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 92,
+          "z": 104.0625,
+          "neighbours": [102, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.3125,
+          "z": 104.8125,
+          "neighbours": [79, 74, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 100,
+          "z": 104.8125,
+          "neighbours": [75, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 103.875,
+          "z": 106.25,
+          "neighbours": [11, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 104.0625,
+          "z": 99.0625,
+          "neighbours": [77, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 99,
+          "z": 104,
+          "neighbours": [78, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 96.6875,
+          "z": 104,
+          "neighbours": [79, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 95.25,
+          "z": 105.9375,
+          "neighbours": [70, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 110.75,
+          "z": 128.3125,
+          "neighbours": [81, 9, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 107,
+          "z": 124,
+          "neighbours": [82, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 103.0625,
+          "z": 124,
+          "neighbours": [69, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 92.4375,
+          "z": 90.875,
+          "neighbours": [84, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 90.5625,
+          "z": 89,
+          "neighbours": [86, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 74.5625,
+          "z": 88,
+          "neighbours": [92, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 86.5,
+          "z": 89,
+          "neighbours": [87, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 81.9375,
+          "z": 84.4375,
+          "neighbours": [88, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 81.9375,
+          "z": 79.625,
+          "neighbours": [95, 89, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 75.5,
+          "z": 79.625,
+          "neighbours": [90, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 74.5625,
+          "z": 80.4375,
+          "neighbours": [91, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 74.5625,
+          "z": 81.9375,
+          "neighbours": [85, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 76.1875,
+          "z": 88.875,
+          "neighbours": [93, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 79.625,
+          "z": 88.875,
+          "neighbours": [94, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.9375,
+          "z": 90.1875,
+          "neighbours": [1, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 84.5,
+          "z": 76.5625,
+          "neighbours": [96, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 84.5,
+          "z": 73.375,
+          "neighbours": [97, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.5,
+          "z": 69.4375,
+          "neighbours": [98, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 73.25,
+          "z": 69.4375,
+          "neighbours": [99, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 68.5,
+          "z": 74.4375,
+          "neighbours": [100, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 68.5,
+          "z": 112.4375,
+          "neighbours": [113, 109, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.875,
+          "z": 111.5,
+          "neighbours": [111, 106, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 87.625,
+          "z": 105.875,
+          "neighbours": [101, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.875,
+          "z": 99.8125,
+          "neighbours": [104, 101, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 87.9375,
+          "z": 99.875,
+          "neighbours": [105, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 92,
+          "z": 104.875,
+          "neighbours": [79, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 79.9375,
+          "z": 111.5,
+          "neighbours": [107, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 72.0625,
+          "z": 111.5,
+          "neighbours": [108, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 69.6875,
+          "z": 111.5625,
+          "neighbours": [113, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 72,
+          "z": 112.4375,
+          "neighbours": [110, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 79.875,
+          "z": 112.375,
+          "neighbours": [111, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.8125,
+          "z": 112.375,
+          "neighbours": [114, 6, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 68.5,
+          "z": 149.5625,
+          "neighbours": [115, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 68.5,
+          "z": 113,
+          "neighbours": [112, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 87.9375,
+          "z": 118.0625,
+          "neighbours": [135, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 73.5625,
+          "z": 154.4375,
+          "neighbours": [116, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 81.0625,
+          "z": 154.4375,
+          "neighbours": [117, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 84.6875,
+          "z": 150.8125,
+          "neighbours": [118, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 84.6875,
+          "z": 147.3125,
+          "neighbours": [119, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 82,
+          "z": 144.4375,
+          "neighbours": [120, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 81.9375,
+          "z": 139.5,
+          "neighbours": [121, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 86.375,
+          "z": 135.125,
+          "neighbours": [122, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 90.5,
+          "z": 135.125,
+          "neighbours": [123, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 92.5625,
+          "z": 132.9375,
+          "neighbours": [52, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 80.875,
+          "z": 133.5625,
+          "neighbours": [126, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 111.75,
+          "z": 136.125,
+          "neighbours": [60, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 79.625,
+          "z": 134.8125,
+          "neighbours": [127, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 75.9375,
+          "z": 134.8125,
+          "neighbours": [128, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 74.4375,
+          "z": 136.5625,
+          "neighbours": [129, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 74.4375,
+          "z": 141.9375,
+          "neighbours": [130, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 74.4375,
+          "z": 143.25,
+          "neighbours": [131, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 75.9375,
+          "z": 144.4375,
+          "neighbours": [119, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 79.9688,
+          "z": 128.0625,
+          "neighbours": [133, 6, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 84.1875,
+          "z": 124.75,
+          "neighbours": [134, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 88.75,
+          "z": 124.75,
+          "neighbours": [135, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 93.3125,
+          "z": 120.6875,
+          "neighbours": [65, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 119,
+          "z": 128.3438,
+          "neighbours": [80, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 118.9688,
+          "z": 95.9062,
+          "neighbours": [8, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 72.9688,
+          "z": 96.0625,
+          "neighbours": [1, -1, -1, -1],
+          "state": 0
+        },
+        {
+          "x": 72.9062,
+          "z": 127.9688,
+          "neighbours": [132, -1, -1, -1],
+          "state": 0
+        }
+      ]
+    }
+  ],
+  "markers": {
+    "type14": [
+      {
+        "id": 47,
+        "x": 94.3132,
+        "z": 151.2812
+      },
+      {
+        "id": 51,
+        "x": 97.8445,
+        "z": 151.2812
+      },
+      {
+        "id": 53,
+        "x": 94.2178,
+        "z": 72.5312
+      },
+      {
+        "id": 55,
+        "x": 97.782,
+        "z": 72.5312
+      },
+      {
+        "id": 149,
+        "x": 115.9062,
+        "z": 93.875
+      },
+      {
+        "id": 150,
+        "x": 115.9062,
+        "z": 93.875
+      },
+      {
+        "id": 151,
+        "x": 115.78,
+        "z": 98.3438
+      },
+      {
+        "id": 152,
+        "x": 116.4998,
+        "z": 96.125
+      },
+      {
+        "id": 153,
+        "x": 115.78,
+        "z": 98.3438
+      },
+      {
+        "id": 166,
+        "x": 76.0012,
+        "z": 93.6562
+      },
+      {
+        "id": 167,
+        "x": 75.9683,
+        "z": 98.3438
+      },
+      {
+        "id": 169,
+        "x": 75.6892,
+        "z": 96
+      },
+      {
+        "id": 170,
+        "x": 76.0012,
+        "z": 93.6562
+      },
+      {
+        "id": 171,
+        "x": 75.9683,
+        "z": 98.3438
+      },
+      {
+        "id": 188,
+        "x": 75.9075,
+        "z": 130.3438
+      },
+      {
+        "id": 189,
+        "x": 75.9998,
+        "z": 125.7188
+      },
+      {
+        "id": 191,
+        "x": 75.6267,
+        "z": 128.0625
+      },
+      {
+        "id": 192,
+        "x": 75.9075,
+        "z": 130.3438
+      },
+      {
+        "id": 193,
+        "x": 75.9998,
+        "z": 125.7188
+      },
+      {
+        "id": 210,
+        "x": 115.6577,
+        "z": 130.375
+      },
+      {
+        "id": 211,
+        "x": 115.592,
+        "z": 125.9688
+      },
+      {
+        "id": 213,
+        "x": 116.4375,
+        "z": 128.125
+      },
+      {
+        "id": 214,
+        "x": 115.6577,
+        "z": 130.375
+      },
+      {
+        "id": 215,
+        "x": 115.592,
+        "z": 125.9688
+      }
+    ],
+    "type89": [
+      {
+        "id": 300,
+        "x": 45.3125,
+        "z": 115.4375
+      },
+      {
+        "id": 301,
+        "x": 45.375,
+        "z": 117.0625
+      },
+      {
+        "id": 304,
+        "x": 45.3125,
+        "z": 122.1875
+      },
+      {
+        "id": 306,
+        "x": 45.625,
+        "z": 125.5625
+      },
+      {
+        "id": 307,
+        "x": 45.5625,
+        "z": 127.375
+      },
+      {
+        "id": 313,
+        "x": 40.875,
+        "z": 120.125
+      },
+      {
+        "id": 315,
+        "x": 40.8125,
+        "z": 123.5625
+      },
+      {
+        "id": 318,
+        "x": 40.75,
+        "z": 128.75
+      },
+      {
+        "id": 319,
+        "x": 40.75,
+        "z": 130.625
+      },
+      {
+        "id": 321,
+        "x": 40.6875,
+        "z": 134.0625
+      },
+      {
+        "id": 326,
+        "x": 40.875,
+        "z": 142.5
+      },
+      {
+        "id": 327,
+        "x": 40.6875,
+        "z": 144.5
+      },
+      {
+        "id": 328,
+        "x": 40.75,
+        "z": 146.375
+      },
+      {
+        "id": 329,
+        "x": 40.75,
+        "z": 148.1875
+      },
+      {
+        "id": 330,
+        "x": 40.75,
+        "z": 150
+      }
+    ]
+  }
+}

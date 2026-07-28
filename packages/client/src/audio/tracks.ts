@@ -1,8 +1,7 @@
-// Music track manifest (assets.md §5: "CC0/CC-BY tracks for v1"). The file
-// slots are placeholders — drop real mp3s into packages/client/public/music/
-// (they are fetched at runtime, no rebuild needed). The repo is public: any
-// committed track MUST be CC0 or CC-BY, with a CREDITS.md row naming source,
-// author, and license, and the display name here updated to the track title.
+// Music track manifest (assets.md §5). Files live in
+// packages/client/public/music/ and are fetched at runtime, so adding one needs
+// no rebuild. Licensing follows assets.md §2 — there is no license restriction on
+// committed assets — with provenance recorded in CREDITS.md.
 
 export type MusicSelection = "off" | "synth" | "track1" | "track2" | "track3";
 
@@ -17,9 +16,9 @@ export interface MusicOption {
 export const MUSIC_OPTIONS: readonly MusicOption[] = [
   { id: "off", name: "Off" },
   { id: "synth", name: "Ambient Synth" },
-  { id: "track1", name: "Track 1", url: "/music/track1.mp3" },
-  { id: "track2", name: "Track 2", url: "/music/track2.mp3" },
-  { id: "track3", name: "Track 3", url: "/music/track3.mp3" },
+  { id: "track1", name: "Neon Coil", url: "/music/track1.mp3" },
+  { id: "track2", name: "Rust Circuit", url: "/music/track2.mp3" },
+  { id: "track3", name: "Slim Cover", url: "/music/track3.mp3" },
 ];
 
 /** Coerces a persisted/unknown value to a valid selection ("off" fallback). */

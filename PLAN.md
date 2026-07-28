@@ -291,6 +291,93 @@ primary auto-fires on aim engage, buttons cover the rest; no page scroll/zoom;
 desktop input and the sim are untouched. (The feel pass on real phone hardware
 stays open, like the hover-feel / difficulty / SFX passes.)
 
+## Phase 12 — La Cantina: the original Precinct Assault arena
+
+Rebuild `la-cantina` (mission Mp) from the reverse-engineered original logic
+instead of a hand-authored approximation, and adopt the original rule set for it
+(`docs/specs/rules.md` §9 — a deliberate, documented spec deviation).
+
+- [x] Fix the terrain→sim alignment for all six arenas: measured per-map offsets
+      (`tools/generators/genMapAlign.ts` → `render/mapAlign.generated.ts`), with a
+      test that re-derives them from the committed `.glb` + heightfield
+- [x] Commit the extracted Mp actor/`Cnet` logic in-tree
+      (`tools/generators/fcop/mp-logic.json`) so the arena is regenerable without
+      the private RE repo, and pin the inferred unit scales
+- [x] Map schema for the PA features, every field optional so the other arenas
+      and the goldens are untouched
+- [x] Regenerate the arena (`tools/generators/enrichArena.ts`): authentic spawns,
+      bases, 32 capture pads, 16+16 ring turrets, built-in base defence, pickups,
+      intrusion volumes, props and both lane graphs — one Til east of where the
+      old features sat
+- [x] PA mechanics in the sim (SIM_VERSION 13): per-turret weapon profiles with
+      slew + FOV, `Cnet` graph traversal via committed next-hop signposts, base
+      production, base-destruction win, pickups, intrusion alerts. Gated on map
+      data, so all six existing goldens re-header only — no hash sequence moved
+- [x] Greybox base blocks no longer drawn over the baked art (`?structures=greybox`
+      keeps them for volume checks); render bucket capacities derived from the
+      registry after la-cantina's 72 turrets overflowed the literal 64
+- [x] Audio: sfxr cues for alarm / pickup / production / core hit, positional
+      stereo panning with distance rolloff, and the three orphaned music tracks
+      wired up
+- [x] `golden-07-pa`: a 120 s Warden match on la-cantina, with beats asserting
+      production cadence and capture, plus tests proving the core CAN be razed
+      once its defenders are gone and that an unattended match correctly stalemates
+- [ ] Original `Cwav` sound effects: 409 extracted WAVs are available in the RE
+      repo but carry no semantic labels, so picking which is "shot"/"explosion"/
+      "alarm" needs someone who knows the game by ear (owner pass)
+- [ ] `DynamicProp` scenery meshes: the 36 placements are carried in the map as
+      render-only data; the Cobj models still need extracting
+
+**Definition of Done:** la-cantina plays end to end under §9 — production runs,
+the enemy base can be destroyed, pads capture, pickups and alarms fire — with
+`bun test`, `bun run replay:verify` and `bun run verify:arenas` green, and the
+fidelity screenshots showing turrets on their original pads.
+
+Deliberately NOT in this phase: the other five arenas share the same +16 frame
+error in their authored features. The terrain fix improves all of them; importing
+their layouts is one arena at a time. → Phase 13.
+
+## Phase 13 — The other FCOP arenas in the original frame
+
+Issue #30: every arena's authored features sat one Til (16 cells) west of where
+the original put them, because `convert.ts` authored them in the actor frame.
+Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the rest.
+
+- [x] `tools/generators/fcopArenas.ts`: the mapId ↔ mission ↔ wall-budget table
+      the in-tree pipeline reads, so `gen:arena urban-jungle` stops looking for a
+      logic file that can never exist. `gen:palogic` takes `--map` or `--mission`
+- [x] `gen:walls`: commit each arena's pristine stage-1 wall lattice before it is
+      first enriched (a one-way ratchet — after stage 2 runs, the pristine lattice
+      exists nowhere in-tree). Verifies `mp-walls.json` rather than regenerating
+      it, since la-cantina was already enriched
+- [x] Commit the extracted `Cact`/`Cnet` logic for all five remaining missions, so
+      every arena is regenerable without the private RE repo
+- [x] Generalise stage 2: field axis and mid-line derived from the bases (Hk is
+      X-separated, which mis-paired teams), bases paired with their nearest
+      X1Alpha, spawn facing derived, only team-owned `Cnet`s imported (Hk carries a
+      third), per-arena wall budgets, `assertFrameOffset` against the measured
+      terrain alignment, plus `--check` and `--probe`
+- [x] Rebuild `urban-jungle` (Conft), `proving-ground` (Slim) and `bug-hunt` (Joke).
+      SIM_VERSION 14; golden-05 re-recorded. Two generator bugs surfaced and fixed:
+      the lane carve deduped one-way `Cnet` edges as if undirected, and the
+      reachability repair ignored the bases' own consoles and ring turrets
+- [x] `urban-jungle.test.ts` folded into `fcop-arenas.test.ts`, so all four arenas
+      run the lane-graph block; the mirror guard is per-arena and tied back to the
+      vertex-correlated terrain footprint
+- [ ] `hollywood-keys` and `venice-beach`: **blocked, not skipped.** Their logic is
+      committed and stage 2 reports "OK — no problems" on them, and it is wrong
+      anyway: every deck sits ≥0.594 m above the base surface against a 0.35 m
+      step, decks are 62% / 44% of those grids, and importing puts all 140 of Hk's
+      lane nodes and both spawns on the canal floor under the city. Needs per-layer
+      walls, a layer on each feature, a deck-aware flood and an actor Y from the
+      extractor. Pinned as a failing-when-fixed test in `layeredArenas.test.ts`
+
+**Definition of Done:** all four single-storey arenas play under §9 — production
+runs, pads capture, the enemy core can be razed — with `bun test`,
+`bun run replay:verify` and `bun run verify:arenas` green, `gen:arena all --check`
+reporting byte-identical output, and the per-arena fidelity screenshots showing
+turrets on their original pads.
+
 ## Backlog (post-v1, do not start)
 
 More arenas · map editor · rollback netcode upgrade · 2v2 ·

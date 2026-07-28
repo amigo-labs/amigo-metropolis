@@ -110,7 +110,68 @@ export const PRESETS: Record<string, SfxrPreset> = {
     arpSpeed: 0.5,
     soundVol: 0.42,
   },
+  // --- Precinct Assault cues (rules.md §9) ---------------------------------
+  // Enemy in your base: a slow two-tone klaxon. Long and low so it reads over a
+  // firefight — this is the one cue the player must never miss, and the original
+  // wired it in the Cfun script we cannot decode, so the sound is ours.
+  alarm: {
+    waveType: 1,
+    baseFreq: 0.24,
+    envAttack: 0.02,
+    envSustain: 0.5,
+    envDecay: 0.45,
+    arpMod: -0.35,
+    arpSpeed: 0.35,
+    repeatSpeed: 0.55,
+    vibStrength: 0.12,
+    vibSpeed: 0.22,
+    lpfFreq: 0.6,
+    soundVol: 0.55,
+  },
+  // Power-up collected: bright rising triad, clearly a reward.
+  pickup: {
+    waveType: 2,
+    baseFreq: 0.46,
+    freqRamp: 0.18,
+    envSustain: 0.06,
+    envDecay: 0.24,
+    arpMod: 0.5,
+    arpSpeed: 0.62,
+    soundVol: 0.34,
+  },
+  // A base produced a unit: soft mechanical thunk. Deliberately quiet — it fires
+  // every 5 s per base for the whole match.
+  produce: {
+    waveType: 0,
+    baseFreq: 0.2,
+    freqRamp: 0.08,
+    envSustain: 0.07,
+    envPunch: 0.3,
+    envDecay: 0.2,
+    duty: 0.55,
+    lpfFreq: 0.5,
+    soundVol: 0.22,
+  },
+  // A unit is chewing on a base core: dull structural thud.
+  coreHit: {
+    waveType: 3,
+    baseFreq: 0.16,
+    envSustain: 0.05,
+    envPunch: 0.4,
+    envDecay: 0.22,
+    lpfFreq: 0.35,
+    soundVol: 0.3,
+  },
 };
 
 /** Cues that repeat rapidly get a little random detune so they don't machine-gun. */
 export const DETUNE_CUES: ReadonlySet<string> = new Set(["shot", "hit"]);
+
+/**
+ * Cues that always play centred, whatever the event's position.
+ *
+ * These are messages to the player rather than sounds in the world: a base alarm
+ * that pans quietly to one side is exactly the wrong behaviour, and purchases /
+ * claims / breach are UI feedback for an action the player just took.
+ */
+export const GLOBAL_CUES: ReadonlySet<string> = new Set(["alarm", "purchase", "claim", "breach"]);

@@ -14,12 +14,16 @@
 // voice cap plus per-tick coalescing of the spammy cues keep it bounded.
 
 import {
+  EV_ALARM,
   EV_BREACH,
   EV_CAPTURE,
   EV_CLAIM,
+  EV_CORE_HIT,
   EV_DEATH,
   EV_EXPLOSION,
   EV_HIT,
+  EV_PICKUP,
+  EV_PRODUCE,
   EV_PURCHASE,
   EV_RESPAWN,
   EV_SHOT,
@@ -27,7 +31,7 @@ import {
   type EventBuffer,
 } from "@metropolis/sim";
 import { renderMusicLoop } from "./music";
-import { DETUNE_CUES, PRESETS } from "./presets";
+import { DETUNE_CUES, GLOBAL_CUES, PRESETS } from "./presets";
 import { renderSfxr } from "./sfxr";
 import { MUSIC_OPTIONS, type MusicSelection, parseMusicSelection } from "./tracks";
 
@@ -41,6 +45,46 @@ cueByType[EV_PURCHASE] = "purchase";
 cueByType[EV_BREACH] = "breach";
 cueByType[EV_CAPTURE] = "capture";
 cueByType[EV_CLAIM] = "claim";
+cueByType[EV_ALARM] = "alarm";
+cueByType[EV_PICKUP] = "pickup";
+cueByType[EV_PRODUCE] = "produce";
+cueByType[EV_CORE_HIT] = "coreHit";
+
+/**
+ * Distance at which a world sound is still at full volume; past it the gain rolls
+ * off inversely. Roughly the radius the camera frames at the action pitch, so
+ * anything the player can see stays clearly audible.
+ */
+const AUDIO_REF_DISTANCE = 18;
+/** Never hard-pan: a sound fully in one ear reads as broken, not as direction. */
+const MAX_PAN = 0.9;
+
+/**
+ * Index of a pan/gain slot no live source is using, or -1 if all are taken.
+ *
+ * Exported for test: a slot handed out while its previous source is still playing
+ * retargets that sound's pan and volume mid-playback, and the engine itself needs
+ * a real AudioContext to construct, so this is the piece worth pinning.
+ */
+export function claimVoiceSlot(owners: readonly (unknown | null)[]): number {
+  for (let i = 0; i < owners.length; i++) {
+    if (owners[i] === null) return i;
+  }
+  return -1;
+}
+
+/**
+ * Fills `out` with the world position of an event, or returns false for "no
+ * position, play it centred". Supplied by the host (main.ts), which is the only
+ * place that holds a snapshot to resolve entity ids against.
+ */
+export type EventPositionResolver = (
+  type: number,
+  a: number,
+  b: number,
+  c: number,
+  out: Float32Array,
+) => boolean;
 
 export type VolumeKind = "master" | "sfx" | "music";
 export interface Volumes {
@@ -109,11 +153,44 @@ export class AudioEngine {
   private musicLoadGen = 0;
   private settings: AudioSettings = loadSettings();
   private activeVoices = 0;
-  private readonly onVoiceEnded = (): void => {
+  private readonly onVoiceEnded = (ev: Event): void => {
     if (this.activeVoices > 0) this.activeVoices--;
+    // Release this voice's pan/gain slot. Found by scanning rather than stored on
+    // the source, so ending a voice allocates nothing; 24 comparisons is free.
+    const src = ev.target;
+    for (let i = 0; i < this.slotSource.length; i++) {
+      if (this.slotSource[i] === src) {
+        this.slotSource[i] = null;
+        return;
+      }
+    }
   };
   private unlocked = false;
   private readonly tryUnlock = (): void => this.unlock();
+
+  // Positional playback (preallocated at unlock, never per voice).
+  private readonly pan: StereoPannerNode[] = [];
+  private readonly voiceGain: GainNode[] = [];
+  /**
+   * The source currently owning each pan/gain slot, or null if free.
+   *
+   * A slot's parameters must not be touched while a source is still playing
+   * through it, or that sound's pan and volume jump to wherever the newer event
+   * happened to be. A round-robin cursor cannot guarantee that — it advances per
+   * event, not per voice lifetime — so ownership is tracked explicitly. The cue
+   * most exposed was the alarm: about a second long, and the one that must never
+   * wander mid-playback.
+   */
+  private readonly slotSource: (AudioBufferSourceNode | null)[] = [];
+  /** Listener position + right vector, written once per frame from the camera. */
+  private lx = 0;
+  private ly = 0;
+  private lz = 0;
+  private rx = 1;
+  private ry = 0;
+  private rz = 0;
+  /** Scratch for the position resolver — module-level discipline, no per-event alloc. */
+  private readonly posScratch = new Float32Array(3);
 
   /** Adds one-shot gesture listeners; the first user interaction unlocks audio. */
   armUnlock(): void {
@@ -190,6 +267,18 @@ export class AudioEngine {
     this.musicGain.connect(this.masterGain);
     this.applyGains();
 
+    // One pan+gain pair per voice slot, wired once. play() round-robins through
+    // them, so a one-shot only ever allocates its BufferSource.
+    for (let i = 0; i < MAX_VOICES; i++) {
+      const pan = this.ctx.createStereoPanner();
+      const gain = this.ctx.createGain();
+      pan.connect(gain);
+      gain.connect(this.sfxGain);
+      this.pan.push(pan);
+      this.voiceGain.push(gain);
+      this.slotSource.push(null);
+    }
+
     const rate = this.ctx.sampleRate;
     for (const name of Object.keys(PRESETS)) {
       const pcm = renderSfxr(PRESETS[name], rate);
@@ -202,11 +291,12 @@ export class AudioEngine {
     this.startSelectedMusic();
   }
 
-  pump(events: EventBuffer): void {
+  pump(events: EventBuffer, resolvePosition?: EventPositionResolver): void {
     // Track which coalesced cues already fired this tick (bitset over EV type).
     let coalescedMask = 0;
     for (let i = 0; i < events.count; i++) {
-      const type = events.data[i * EVENT_STRIDE];
+      const o = i * EVENT_STRIDE;
+      const type = events.data[o];
       if (type <= 0 || type >= this.counts.length) continue;
       this.counts[type] += 1;
       const cue = cueByType[type];
@@ -218,7 +308,17 @@ export class AudioEngine {
         if (coalescedMask & bit) continue;
         coalescedMask |= bit;
       }
-      this.play(cue);
+      let positional = false;
+      if (resolvePosition !== undefined && !GLOBAL_CUES.has(cue)) {
+        positional = resolvePosition(
+          type,
+          events.data[o + 1],
+          events.data[o + 2],
+          events.data[o + 3],
+          this.posScratch,
+        );
+      }
+      this.play(cue, this.posScratch[0], this.posScratch[1], this.posScratch[2], positional);
     }
   }
 
@@ -228,7 +328,21 @@ export class AudioEngine {
     this.play(cue);
   }
 
-  private play(cue: string): void {
+  /**
+   * Positions the listener. Called once per frame from the camera's world matrix:
+   * `pos` is its translation and `right` its first basis column, which is all the
+   * information a stereo pan needs.
+   */
+  setListener(x: number, y: number, z: number, rx: number, ry: number, rz: number): void {
+    this.lx = x;
+    this.ly = y;
+    this.lz = z;
+    this.rx = rx;
+    this.ry = ry;
+    this.rz = rz;
+  }
+
+  private play(cue: string, px = 0, py = 0, pz = 0, positional = false): void {
     if (!this.ctx || !this.sfxGain || this.activeVoices >= MAX_VOICES) return;
     const buffer = this.buffers.get(cue);
     if (!buffer) return;
@@ -236,7 +350,38 @@ export class AudioEngine {
     src.buffer = buffer;
     if (DETUNE_CUES.has(cue)) src.playbackRate.value = 0.94 + Math.random() * 0.12;
     src.onended = this.onVoiceEnded;
-    src.connect(this.sfxGain);
+    // A StereoPannerNode pool rather than PannerNode/AudioListener: one-shots are
+    // created and destroyed constantly, HRTF panning costs real CPU on mobile,
+    // and the AudioListener.positionX-vs-setPosition split is still an iOS
+    // hazard. In a top-down arena azimuth plus distance is all the player can
+    // actually use, and swapping in true 3D later is contained to this method.
+    // Claim a slot no live source is using. The voice cap means one is always
+    // available (a voice owns at most one slot, and there are MAX_VOICES of
+    // each), but fall back to the unpanned bus rather than ever stealing one:
+    // a centred cue beats a playing cue lurching sideways.
+    const slot = claimVoiceSlot(this.slotSource);
+    const pan = slot >= 0 ? this.pan[slot] : undefined;
+    const gain = slot >= 0 ? this.voiceGain[slot] : undefined;
+    if (pan && gain) {
+      this.slotSource[slot] = src;
+      if (positional) {
+        const dx = px - this.lx;
+        const dy = py - this.ly;
+        const dz = pz - this.lz;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        gain.gain.value =
+          AUDIO_REF_DISTANCE / (AUDIO_REF_DISTANCE + Math.max(0, d - AUDIO_REF_DISTANCE));
+        const inv = d > 0.001 ? 1 / d : 0;
+        const along = (dx * this.rx + dy * this.ry + dz * this.rz) * inv;
+        pan.pan.value = along < -MAX_PAN ? -MAX_PAN : along > MAX_PAN ? MAX_PAN : along;
+      } else {
+        gain.gain.value = 1;
+        pan.pan.value = 0;
+      }
+      src.connect(pan);
+    } else {
+      src.connect(this.sfxGain);
+    }
     src.start();
     this.activeVoices++;
   }

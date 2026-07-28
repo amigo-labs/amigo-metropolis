@@ -4,5 +4,14 @@
     "lib": ["ES2022"],
     "types": ["bun"]
   },
-  "include": ["units", "test", "genUnitModels.ts"]
+  "include": [
+    "units",
+    "test",
+    "genUnitModels.ts",
+    "genMapAlign.ts",
+    "fcopArenas.ts",
+    "fcopLogic.ts",
+    "fcopWalls.ts",
+    "enrichArena.ts"
+  ]
 }

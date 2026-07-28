@@ -11,13 +11,15 @@ They are fetched at runtime (`packages/client/src/audio/tracks.ts` is the
 manifest), so adding a file needs no rebuild. Until a file exists, picking its
 slot shows a "not found" hint and the selection falls back to Off.
 
-## Licensing — required before committing any file
+## Licensing
 
-This repository is public. Per `docs/specs/assets.md` §5, committed tracks must
-be **CC0 or CC-BY** only:
+Per `docs/specs/assets.md` §2 there is no license restriction on committed
+assets. Still record provenance:
 
-1. Add a row to `CREDITS.md` naming the track, author, source URL, and license.
+1. Add a row to `CREDITS.md` naming the track, author, source and license.
 2. Update the display name in `packages/client/src/audio/tracks.ts` to the
-   track's real title.
+   track's real title, so the Sound drawer shows something meaningful.
 
-No purchased packs, no ripped material, no modified Future Cop assets.
+The three shipped slots are the tracks that had been sitting unreferenced in
+`assets/audio/` — the manifest pointed at files that did not exist, so every
+file-music option silently fell back to Off.

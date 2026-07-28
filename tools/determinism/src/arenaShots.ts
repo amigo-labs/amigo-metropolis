@@ -38,6 +38,13 @@ const ARENAS = [
   "venice-beach",
 ] as const;
 const LAYERED = "venice-beach";
+/**
+ * Arenas rebuilt from the original PA logic get extra placement views. Detected
+ * from the map rather than listed, so the next arena imported joins automatically
+ * and one that loses its imported layout drops out — `laneGraph` is stage 2's
+ * marker and nothing else in the pipeline emits it.
+ */
+const isFidelity = (id: string): boolean => getMapById(id).laneGraph !== undefined;
 // ARENA_SHOTS_ONLY=urban-jungle,hollywood-keys narrows the run for fast iteration.
 const ONLY = (process.env.ARENA_SHOTS_ONLY ?? "")
   .split(",")
@@ -50,6 +57,21 @@ type Pose = [number, number, number, number, number, number];
 function overviewPose(extent: number): Pose {
   const c = extent / 2;
   return [c + extent * 0.62, extent * 0.85, c + extent * 0.62, c, extent * 0.04, c];
+}
+
+/**
+ * Orthographic-ish top-down on the arena's gameplay content, for judging
+ * FIDELITY rather than "did it load": whether the original turret pads, base
+ * structures and lanes line up with the baked art. The overview pose frames the
+ * whole padded grid, which is too far out to read any of that.
+ */
+function topDownPose(cx: number, cz: number, height: number): Pose {
+  return [cx, height, cz + 0.01, cx, 0, cz];
+}
+
+/** Close pass over one base, so console/gate placement can be eyeballed. */
+function basePose(cx: number, cz: number, from: number): Pose {
+  return [cx, 26, cz + from, cx, 1, cz];
 }
 
 /** Lower, angled view that shows vertical structure (upper decks) side-on. */
@@ -139,7 +161,10 @@ async function main(): Promise<void> {
       }
     });
 
-    const url = `${BASE}/?map=${id}&render=${mode}&debug&cam=orbit`;
+    // fog=off: the overview pose sits ~290u from its focus, well beyond the
+    // scene's 190u fog far plane, so with atmosphere on these shots are a flat
+    // wash — useless for the alignment eyeballing they exist for.
+    const url = `${BASE}/?map=${id}&render=${mode}&debug&cam=orbit&fog=off`;
     await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
     await page.waitForFunction(
       () => {
@@ -194,6 +219,35 @@ async function main(): Promise<void> {
     const mesh = await shoot(id, "mesh", over, `${id}-mesh.png`);
     await shoot(id, "greybox", over, `${id}-greybox.png`);
     if (id === LAYERED) await shoot(id, "mesh", deckPose(extent), `${id}-mesh-decks.png`);
+    // An arena carrying the imported original layout (rules.md §9) gets the extra
+    // views that prove placement rather than mere loading. The poses are derived
+    // from the arena's own bases so they frame the gameplay centre and look up the
+    // lane on any orientation — the old literals were la-cantina's centre row and
+    // would point at empty apron elsewhere.
+    if (isFidelity(id)) {
+      const map = getMapById(id);
+      const [b0, b1] = map.basePlots;
+      // Frame the gameplay content, not the padded grid: the bounding box of the
+      // capture pads and both base plots. The old literals were la-cantina's
+      // centre and height, and la-cantina's gameplay happens to be concentrated
+      // in one central building — an arena whose pads spread over the full grid
+      // needs a higher camera to show the same detail.
+      const pts = [...map.turretSpots, ...map.basePlots.map((b) => ({ x: b.x, y: b.y }))];
+      const cx = (Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2;
+      const cy = (Math.min(...pts.map((p) => p.y)) + Math.max(...pts.map((p) => p.y))) / 2;
+      const span = Math.max(
+        Math.max(...pts.map((p) => p.x)) - Math.min(...pts.map((p) => p.x)),
+        Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y)),
+      );
+      const height = span * 1.35;
+      const from = Math.hypot(b1.x - b0.x, b1.y - b0.y) * 0.35;
+      await shoot(id, "mesh", topDownPose(cx, cy, height), `${id}-fidelity-top.png`);
+      // Greybox from the identical camera: authored features over the baked art
+      // is the one comparison a human can judge at a glance.
+      await shoot(id, "greybox", topDownPose(cx, cy, height), `${id}-fidelity-greybox.png`);
+      await shoot(id, "mesh", basePose(b0.x, b0.y, from), `${id}-fidelity-base-north.png`);
+      await shoot(id, "mesh", basePose(b1.x, b1.y, -from), `${id}-fidelity-base-south.png`);
+    }
 
     rendererSeen ??= mesh.renderer;
     const problems: string[] = [];

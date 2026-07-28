@@ -51,6 +51,9 @@
     "tools/generators": {
       "name": "@metropolis/tools-generators",
       "version": "0.0.1",
+      "dependencies": {
+        "@metropolis/sim": "workspace:*",
+      },
       "devDependencies": {
         "@gltf-transform/core": "^4.2.1",
         "@gltf-transform/functions": "^4.2.1",

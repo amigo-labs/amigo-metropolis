@@ -28,6 +28,8 @@ import {
   CAPTURE_TICKS,
   CONSOLE_HOLD_TICKS,
   CONSOLE_RADIUS,
+  CORE_ATTACK_RADIUS,
+  CORE_DAMAGE_PER_SHOT,
   COST_FORTRESS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -51,7 +53,20 @@ import {
   OUTPOST_CONSOLE_RESPAWN_TICKS,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_PAD_RADIUS,
+  PA_PRODUCTION_ALIVE_LIMIT,
   PAD_REPAIR_HP_PER_TICK,
+  PICKUP_HEALTH,
+  PICKUP_HEALTH_AMOUNT,
+  PICKUP_HEAVY_AMMO,
+  PICKUP_INVIS,
+  PICKUP_INVIS_TICKS,
+  PICKUP_INVULN,
+  PICKUP_INVULN_TICKS,
+  PICKUP_POWER,
+  PICKUP_POWER_MULTIPLIER,
+  PICKUP_POWER_TICKS,
+  PICKUP_RADIUS,
+  PICKUP_SPECIAL_AMMO,
   POINTS_CAPTURE_TURRET,
   POINTS_KILL_AVATAR,
   POINTS_KILL_TURRET,
@@ -70,6 +85,10 @@ import {
   TRANSFORM_LOCK_TICKS,
   TRICKLE_INTERVAL_TICKS,
   TRICKLE_POINTS,
+  TRIGGER_REARM_TICKS,
+  TRIGGER_WATCH_ENEMY_AVATAR,
+  TRIGGER_WATCH_ENEMY_UNITS,
+  TRIGGER_WATCH_OWN_AVATAR,
   TURRET_COOLDOWN_TICKS,
   TURRET_DAMAGE,
   TURRET_RANGE,
@@ -87,12 +106,16 @@ import { createEntityStore, despawn, type EntityStore, spawn } from "./entities"
 import {
   clearEvents,
   createEventBuffer,
+  EV_ALARM,
   EV_BREACH,
   EV_CAPTURE,
   EV_CLAIM,
+  EV_CORE_HIT,
   EV_DEATH,
   EV_EXPLOSION,
   EV_HIT,
+  EV_PICKUP,
+  EV_PRODUCE,
   EV_PURCHASE,
   EV_RESPAWN,
   EV_SHOT,
@@ -110,9 +133,10 @@ import {
   BUTTON_TRANSFORM,
   type TickInputs,
 } from "./inputs";
-import { isWater, type MapData, sampleHeight, worldExtent } from "./map";
+import { isWater, type MapData, type MapTriggerVolume, sampleHeight, worldExtent } from "./map";
 import { atan2Poly, cosLUT, sinLUT } from "./simMath";
 import {
+  GRAPH_MODE,
   isGroundUnit,
   isUnit,
   nearestEnemyInRange,
@@ -210,6 +234,26 @@ export interface SimState {
   wardenThink: number;
   /** Fixed-point (percent) remainder of the Warden's trickle multiplier. */
   wardenIncomeAcc: number;
+
+  // --- Precinct Assault state (rules.md §9) --------------------------------
+  // Every array here is sized from the map's own feature lists, so on an arena
+  // without PA data they are zero-length and every PA system iterates nothing.
+  /** Built-in base defence weapons, flattened base 0 then base 1 (§8.1). */
+  readonly baseDefenceEntity: Int32Array;
+  readonly baseDefenceRespawn: Int32Array;
+  /** Remaining core HP per team. Length 0 when no base carries a core. */
+  readonly coreHp: Int32Array;
+  /** Ticks until each base produces its next free unit. Length 0 = no production. */
+  readonly productionTimer: Int32Array;
+  /** Ticks until each pickup spot re-arms (0 = available). */
+  readonly pickupCooldown: Int32Array;
+  /** Power-up timers per player; length 0 when the arena has no pickups. */
+  readonly buffInvuln: Int32Array;
+  readonly buffInvis: Int32Array;
+  readonly buffPower: Int32Array;
+  /** Ticks until each intrusion volume can fire again. */
+  readonly triggerArm: Int32Array;
+
   /** Per-tick transient events (NOT hashed). */
   readonly events: EventBuffer;
 }
@@ -273,6 +317,15 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
   ent.ownerId[id] = -1;
   ent.mode[id] = TURRET_CAPTURABLE;
+  // Per-spot original parameters (rules.md §9); empty lists leave the profile at
+  // -1 and the yaw at 0, i.e. the pre-PA behavior.
+  if (state.map.turretParams.length > 0) ent.weaponProfile[id] = state.map.turretParams[k];
+  if (state.map.turretYaw.length > 0) {
+    const yaw = state.map.turretYaw[k];
+    ent.yaw[id] = yaw;
+    ent.aimX[id] = cosLUT(yaw);
+    ent.aimY[id] = sinLUT(yaw);
+  }
   state.neutralTurretEntity[k] = id;
   return id;
 }
@@ -316,6 +369,40 @@ function spawnBaseTurret(state: SimState, k: number): number {
   return id;
 }
 
+/** Resolves flattened defence slot `k` to its base and map entry. */
+function baseDefenceSpot(
+  map: MapData,
+  k: number,
+): { team: number; x: number; y: number; weapon: number; hp: number } {
+  const n0 = map.bases[0].defence.length;
+  const team = k < n0 ? 0 : 1;
+  const d = map.bases[team].defence[k < n0 ? k : k - n0];
+  return { team, x: d.x, y: d.y, weapon: d.weapon, hp: d.hp };
+}
+
+/**
+ * Spawns one of a base's built-in defence weapons (fcop-logic.md §8.1).
+ *
+ * Modelled as a team-owned turret entity, because that is what it behaves like:
+ * it sits on the base, engages the enemy and can be shot. It is kept as its own
+ * slot list rather than folded into the ring so the ring's max-8 concept — and
+ * the "destroy an enemy base turret" scoring — keep their meaning.
+ */
+function spawnBaseDefence(state: SimState, k: number): number {
+  const ent = state.ent;
+  const { team, x, y, weapon, hp } = baseDefenceSpot(state.map, k);
+  const id = spawn(ent, ARCHETYPE.TURRET, team);
+  if (id < 0) return -1;
+  ent.posX[id] = x;
+  ent.posY[id] = y;
+  ent.height[id] = sampleHeight(state.map, x, y);
+  ent.hp[id] = hp;
+  ent.ownerId[id] = team;
+  ent.weaponProfile[id] = weapon;
+  state.baseDefenceEntity[k] = id;
+  return id;
+}
+
 /**
  * Spawns a combat unit for `team` at (x, y). Ground units pick their lane via
  * the per-player round-robin counter — or, when `forward` (outpost spawn),
@@ -343,8 +430,29 @@ export function spawnUnit(
   const gate = state.map.bases[team ^ 1].gate;
   ent.yaw[id] = atan2Poly(gate.y - y, gate.x - x);
   if (isGroundUnit(archetype)) {
+    const graph = state.map.laneGraph;
     const lanes = state.map.lanes;
-    if (lanes.length > 0) {
+    if (graph !== undefined) {
+      // Original waypoint graph (rules.md §9). A base-built unit starts at its
+      // team's entry node; a forward (outpost) spawn joins at the nearest node,
+      // scanned in index order so ties break identically on every peer.
+      let node = graph.entry[team];
+      if (forward) {
+        let best = Infinity;
+        for (let k = 0; k < graph.nodes.length; k++) {
+          const dx = graph.nodes[k].x - x;
+          const dy = graph.nodes[k].y - y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < best) {
+            best = d2;
+            node = k;
+          }
+        }
+      }
+      ent.timerA[id] = node;
+      ent.timerB[id] = GRAPH_MODE;
+      ent.cooldownB[id] = -1; // no previous node yet
+    } else if (lanes.length > 0) {
       let lane: number;
       let wp: number;
       if (forward) {
@@ -385,6 +493,11 @@ export function spawnUnit(
 
 export function createSim(map: MapData, seed: number, options?: SimOptions): SimState {
   const ringSlots = map.bases[0].turrets.length + map.bases[1].turrets.length;
+  // Precinct Assault feature sizes (rules.md §9). Each stays 0 on arenas without
+  // the corresponding map data, which is what makes the PA systems no-ops there.
+  const defenceSlots = map.bases[0].defence.length + map.bases[1].defence.length;
+  const hasCore = map.bases[0].coreHp > 0 || map.bases[1].coreHp > 0;
+  const produces = map.bases[0].productionTicks > 0 || map.bases[1].productionTicks > 0;
   // Both config values end up as array indices (avatarId[player], the
   // difficulty knob tables), so coerce to integers — a fractional or NaN
   // input must degrade to a sane config, never poison the sim.
@@ -426,6 +539,21 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     wardenSlot: -1,
     wardenThink: 0,
     wardenIncomeAcc: 0,
+    baseDefenceEntity: new Int32Array(defenceSlots).fill(-1),
+    baseDefenceRespawn: new Int32Array(defenceSlots),
+    coreHp: hasCore
+      ? Int32Array.from([map.bases[0].coreHp, map.bases[1].coreHp])
+      : new Int32Array(0),
+    // Seeded to the full cadence so the first free unit appears one interval in,
+    // not on tick 0 — otherwise both bases open with a free wave.
+    productionTimer: produces
+      ? Int32Array.from([map.bases[0].productionTicks, map.bases[1].productionTicks])
+      : new Int32Array(0),
+    pickupCooldown: new Int32Array(map.pickups.length),
+    buffInvuln: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
+    buffInvis: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
+    buffPower: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
+    triggerArm: new Int32Array(map.triggerVolumes.length),
     events: createEventBuffer(),
   };
   for (let p = 0; p < MAX_PLAYERS; p++) {
@@ -433,6 +561,9 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
   }
   for (let k = 0; k < ringSlots; k++) {
     spawnBaseTurret(state, k);
+  }
+  for (let k = 0; k < defenceSlots; k++) {
+    spawnBaseDefence(state, k);
   }
   for (let k = 0; k < map.dummySpots.length; k++) {
     spawnDummy(state, k);
@@ -985,6 +1116,18 @@ export function spawnProjectile(
 /** Damage bookkeeping; deaths are collected by systemDamageDeath afterwards. */
 function applyDamage(state: SimState, target: number, damage: number, attacker: number): void {
   const ent = state.ent;
+  // Power-up effects (rules.md §9). Both are gated on a non-empty buff array, so
+  // an arena without pickups reaches the arithmetic below unchanged.
+  if (state.buffInvuln.length > 0) {
+    // An invulnerable avatar takes nothing — but the hit still registers as an
+    // attribution, so a shielded player can still be credited a kill assist.
+    for (let p = 0; p < MAX_PLAYERS; p++) {
+      if (state.avatarId[p] === target && state.buffInvuln[p] > 0) return;
+    }
+    if (attacker >= 0 && attacker < MAX_PLAYERS && state.buffPower[attacker] > 0) {
+      damage *= PICKUP_POWER_MULTIPLIER;
+    }
+  }
   ent.hp[target] -= damage;
   // aux stores 1 + last attacking player for kill attribution (0 = none).
   ent.aux[target] = attacker + 1;
@@ -998,8 +1141,20 @@ function applyDamage(state: SimState, target: number, damage: number, attacker: 
  * against avatars AND units; neutral dummies keep their Phase 1 behavior and
  * only ever engage avatars. Turrets never target turrets.
  */
+/**
+ * Shortest signed angular difference from `from` to `to`, in (-PI, PI].
+ * Plain arithmetic only — no trig, no Math.atan2 (CLAUDE.md rule 1).
+ */
+function angleDelta(from: number, to: number): number {
+  let d = to - from;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  return d;
+}
+
 function systemTargeting(state: SimState): void {
   const ent = state.ent;
+  const weapons = state.map.weapons;
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id]) continue;
     const archetype = ent.archetype[id];
@@ -1008,18 +1163,52 @@ function systemTargeting(state: SimState): void {
       // (rules.md §5 "fires at enemies of its owner").
       if (ent.mode[id] === TURRET_CAPTURABLE && ent.ownerId[id] < 0) continue;
       if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
+      // Per-turret original parameters when the arena carries them (rules.md §9);
+      // otherwise the globals, producing bit-identical arithmetic to before.
+      const profile = ent.weaponProfile[id];
+      const w = profile >= 0 ? weapons[profile] : undefined;
+      const range = w ? w.range : TURRET_RANGE;
       const target =
         ent.ownerId[id] < 0
-          ? nearestEnemyAvatar(state, id, TURRET_RANGE)
-          : nearestEnemyInRange(state, id, TURRET_RANGE, true); // mobile targets only
+          ? nearestEnemyAvatar(state, id, range)
+          : nearestEnemyInRange(state, id, range, true); // mobile targets only
       if (target < 0) continue;
-      ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
-      if (ent.cooldownA[id] <= 0) {
-        ent.cooldownA[id] = TURRET_COOLDOWN_TICKS;
+      const bearing = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
+      let onTarget = true;
+      if (w !== undefined && w.turnSpeed > 0) {
+        // Slew toward the bearing at the original's turn speed, and only fire
+        // once the gun is actually pointing there.
+        const d = angleDelta(ent.yaw[id], bearing);
+        if (d > w.turnSpeed) {
+          ent.yaw[id] += w.turnSpeed;
+          onTarget = false;
+        } else if (d < -w.turnSpeed) {
+          ent.yaw[id] -= w.turnSpeed;
+          onTarget = false;
+        } else {
+          ent.yaw[id] = bearing;
+        }
+      } else {
+        ent.yaw[id] = bearing;
+      }
+      if (w !== undefined && w.fovCos > -1 && onTarget) {
+        // Field of view against the gun's facing. Dot product versus the
+        // precomputed cos(fov/2) — no trig at runtime.
+        const dx = ent.posX[target] - ent.posX[id];
+        const dy = ent.posY[target] - ent.posY[id];
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 0) {
+          const fx = cosLUT(ent.yaw[id]);
+          const fy = sinLUT(ent.yaw[id]);
+          if ((dx * fx + dy * fy) / len < w.fovCos) onTarget = false;
+        }
+      }
+      if (onTarget && ent.cooldownA[id] <= 0) {
+        ent.cooldownA[id] = w ? w.delay : TURRET_COOLDOWN_TICKS;
         pushEvent(state.events, EV_SHOT, id, 0, 0);
         // ownerId is the owning player for base turrets (kill credit) and
         // -1 for dummies (no credit) — exactly the Phase 1 rule.
-        applyDamage(state, target, TURRET_DAMAGE, ent.ownerId[id]);
+        applyDamage(state, target, w ? w.damage : TURRET_DAMAGE, ent.ownerId[id]);
       }
     } else if (isUnit(archetype)) {
       if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
@@ -1043,6 +1232,9 @@ function nearestEnemyAvatar(state: SimState, id: number, range: number): number 
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const a = state.avatarId[p];
     if (a < 0 || ent.team[a] === ent.team[id]) continue;
+    // An invisible avatar cannot be acquired (rules.md §9). Gated on the buff
+    // array so arenas without pickups skip the check entirely.
+    if (state.buffInvis.length > 0 && state.buffInvis[p] > 0) continue;
     const dx = ent.posX[a] - ent.posX[id];
     const dy = ent.posY[a] - ent.posY[id];
     const d2 = dx * dx + dy * dy;
@@ -1182,6 +1374,16 @@ function systemDamageDeath(state: SimState): void {
         }
       }
       if (!slotted) {
+        for (let k = 0; k < state.baseDefenceEntity.length; k++) {
+          if (state.baseDefenceEntity[k] === id) {
+            state.baseDefenceEntity[k] = -1;
+            state.baseDefenceRespawn[k] = BASE_TURRET_RESPAWN_TICKS;
+            slotted = true;
+            break;
+          }
+        }
+      }
+      if (!slotted) {
         // Capturable turret: husk now, back as NEUTRAL in 45 s (rules.md §5)
         // regardless of who owned it when it died.
         for (let k = 0; k < state.neutralTurretEntity.length; k++) {
@@ -1232,6 +1434,17 @@ function systemSpawning(state: SimState): void {
       state.baseTurretRespawn[k] -= 1;
       if (state.baseTurretRespawn[k] === 0) {
         const id = spawnBaseTurret(state, k);
+        if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, -1, 0);
+      }
+    }
+  }
+  // Built-in base defence weapons respawn on the ring turret timer: they are the
+  // same kind of thing, a structure you can shoot off a base that comes back.
+  for (let k = 0; k < state.baseDefenceRespawn.length; k++) {
+    if (state.baseDefenceRespawn[k] > 0) {
+      state.baseDefenceRespawn[k] -= 1;
+      if (state.baseDefenceRespawn[k] === 0) {
+        const id = spawnBaseDefence(state, k);
         if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, -1, 0);
       }
     }
@@ -1324,6 +1537,19 @@ function systemEconomy(state: SimState): void {
  */
 function systemWinCheck(state: SimState): void {
   const ent = state.ent;
+  // Precinct Assault objective (rules.md §9): a razed base ends the match, and
+  // it REPLACES the gate breach on arenas that carry a core. Arenas with
+  // coreHp 0 fall straight through to the original gate rule below.
+  if (state.coreHp.length > 0) {
+    for (let team = 0; team < 2; team++) {
+      if (state.map.bases[team].coreHp === 0) continue;
+      if (state.coreHp[team] > 0) continue;
+      state.winner = team ^ 1;
+      pushEvent(state.events, EV_BREACH, -1, team ^ 1, 0);
+      return;
+    }
+    return;
+  }
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id] || !isGroundUnit(ent.archetype[id])) continue;
     const team = ent.team[id];
@@ -1336,6 +1562,172 @@ function systemWinCheck(state: SimState): void {
       pushEvent(state.events, EV_BREACH, id, team, 0);
       return;
     }
+  }
+}
+
+/**
+ * Free base production (rules.md §9): each base puts one Runner on its own lane
+ * every `productionTicks`.
+ *
+ * Additive to the points economy — consoles and costs are untouched — so a base
+ * is a slow, free trickle of pressure the player must escort or intercept, the
+ * way it works in the original.
+ */
+function systemProduction(state: SimState): void {
+  if (state.productionTimer.length === 0) return; // arena has no production
+  for (let team = 0; team < 2; team++) {
+    const base = state.map.bases[team];
+    if (base.productionTicks === 0) continue;
+    state.productionTimer[team] -= 1;
+    if (state.productionTimer[team] > 0) continue;
+    state.productionTimer[team] = base.productionTicks;
+    // The map's ceiling, hard-capped by ours: the entity store is finite and a
+    // free 12 units/minute per base would eventually exhaust it.
+    const limit = Math.min(base.productionLimit, PA_PRODUCTION_ALIVE_LIMIT);
+    let alive = 0;
+    const ent = state.ent;
+    for (let id = 0; id < ent.high; id++) {
+      if (ent.alive[id] && ent.team[id] === team && ent.archetype[id] === ARCHETYPE.RUNNER) {
+        alive += 1;
+      }
+    }
+    if (alive >= limit) continue;
+    const uid = spawnUnit(
+      state,
+      ARCHETYPE.RUNNER,
+      team,
+      base.groundConsole.x,
+      base.groundConsole.y,
+    );
+    if (uid >= 0) pushEvent(state.events, EV_PRODUCE, uid, team, ARCHETYPE.RUNNER);
+  }
+}
+
+/**
+ * Power-ups (rules.md §9). Runs AFTER damage/death so a pickup can never heal an
+ * avatar that died on this tick, and before the triggers so intrusion detection
+ * sees final positions.
+ */
+function systemPickups(state: SimState): void {
+  const spots = state.map.pickups;
+  if (spots.length === 0) return;
+  const ent = state.ent;
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    if (state.buffInvuln[p] > 0) state.buffInvuln[p] -= 1;
+    if (state.buffInvis[p] > 0) state.buffInvis[p] -= 1;
+    if (state.buffPower[p] > 0) state.buffPower[p] -= 1;
+  }
+  const r2 = PICKUP_RADIUS * PICKUP_RADIUS;
+  for (let k = 0; k < spots.length; k++) {
+    if (state.pickupCooldown[k] > 0) {
+      state.pickupCooldown[k] -= 1;
+      continue;
+    }
+    // Player slot order is the tie-break when both stand on a spot: arbitrary,
+    // but identical on every peer, which is what matters.
+    for (let p = 0; p < MAX_PLAYERS; p++) {
+      const a = state.avatarId[p];
+      if (a < 0) continue;
+      const dx = ent.posX[a] - spots[k].x;
+      const dy = ent.posY[a] - spots[k].y;
+      if (dx * dx + dy * dy > r2) continue;
+      const kind = spots[k].kind;
+      if (kind === PICKUP_HEAVY_AMMO) ent.ammoA[a] = AVATAR_AMMO_HEAVY;
+      else if (kind === PICKUP_SPECIAL_AMMO) ent.ammoB[a] = AVATAR_AMMO_SPECIAL;
+      else if (kind === PICKUP_HEALTH) {
+        ent.hp[a] = Math.min(AVATAR_HP, ent.hp[a] + PICKUP_HEALTH_AMOUNT);
+      } else if (kind === PICKUP_INVULN) state.buffInvuln[p] = PICKUP_INVULN_TICKS;
+      else if (kind === PICKUP_INVIS) state.buffInvis[p] = PICKUP_INVIS_TICKS;
+      else if (kind === PICKUP_POWER) state.buffPower[p] = PICKUP_POWER_TICKS;
+      state.pickupCooldown[k] = spots[k].respawnTicks;
+      pushEvent(
+        state.events,
+        EV_PICKUP,
+        Math.round(spots[k].x * 16),
+        Math.round(spots[k].y * 16),
+        kind,
+      );
+      break;
+    }
+  }
+}
+
+/**
+ * Base-intrusion detection (rules.md §9, fcop-logic.md §8.6): fires an alarm when
+ * a watched actor enters a base's volume.
+ *
+ * Detection only, exactly as the original data is — the alert SOUND lived in the
+ * undecoded Cfun script. Re-arming is gated here rather than in the client so
+ * every peer (and every replay) agrees on when the alarm sounded.
+ */
+function systemTriggers(state: SimState): void {
+  const volumes = state.map.triggerVolumes;
+  if (volumes.length === 0) return;
+  const ent = state.ent;
+  for (let v = 0; v < volumes.length; v++) {
+    if (state.triggerArm[v] > 0) {
+      state.triggerArm[v] -= 1;
+      continue;
+    }
+    const vol = volumes[v];
+    const foe = vol.team ^ 1;
+    let intruder = -1;
+    if ((vol.watch & TRIGGER_WATCH_ENEMY_AVATAR) !== 0) {
+      const a = state.avatarId[foe];
+      if (a >= 0 && insideVolume(ent, a, vol)) intruder = a;
+    }
+    if (intruder < 0 && (vol.watch & TRIGGER_WATCH_ENEMY_UNITS) !== 0) {
+      for (let id = 0; id < ent.high; id++) {
+        if (!ent.alive[id] || ent.team[id] !== foe || !isUnit(ent.archetype[id])) continue;
+        if (insideVolume(ent, id, vol)) {
+          intruder = id;
+          break;
+        }
+      }
+    }
+    if (intruder < 0 && (vol.watch & TRIGGER_WATCH_OWN_AVATAR) !== 0) {
+      const a = state.avatarId[vol.team];
+      if (a >= 0 && insideVolume(ent, a, vol)) intruder = a;
+    }
+    if (intruder < 0) continue;
+    state.triggerArm[v] = TRIGGER_REARM_TICKS;
+    pushEvent(state.events, EV_ALARM, Math.round(vol.x * 16), Math.round(vol.y * 16), vol.team);
+  }
+}
+
+/** Axis-aligned containment test for an intrusion volume. */
+function insideVolume(ent: EntityStore, id: number, vol: MapTriggerVolume): boolean {
+  const dx = ent.posX[id] - vol.x;
+  const dy = ent.posY[id] - vol.y;
+  return dx <= vol.halfW && dx >= -vol.halfW && dy <= vol.halfL && dy >= -vol.halfL;
+}
+
+/**
+ * Ground units chew through the enemy base core (rules.md §9).
+ *
+ * Only units, never the Avatar or the Warden — pillar 1 says the player is escort
+ * and disruptor, never the win condition, and that survives the change of
+ * objective. Reuses the unit's own fire cooldown so a unit either shoots a target
+ * or the core, not both in one tick.
+ */
+function systemCoreAttack(state: SimState): void {
+  if (state.coreHp.length === 0) return;
+  const ent = state.ent;
+  const r2 = CORE_ATTACK_RADIUS * CORE_ATTACK_RADIUS;
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id] || !isGroundUnit(ent.archetype[id])) continue;
+    const team = ent.team[id];
+    if (team !== 0 && team !== 1) continue;
+    const foe = team ^ 1;
+    if (state.map.bases[foe].coreHp === 0 || state.coreHp[foe] <= 0) continue;
+    const core = state.map.bases[foe].core;
+    const dx = ent.posX[id] - core.x;
+    const dy = ent.posY[id] - core.y;
+    if (dx * dx + dy * dy > r2) continue;
+    if (ent.cooldownA[id] > 0) continue;
+    ent.cooldownA[id] = UNIT_FIRE_COOLDOWN_TICKS[ent.archetype[id]];
+    state.coreHp[foe] -= CORE_DAMAGE_PER_SHOT;
+    pushEvent(state.events, EV_CORE_HIT, Math.round(core.x * 16), Math.round(core.y * 16), foe);
   }
 }
 
@@ -1355,7 +1747,16 @@ export function step(state: SimState, inputs: TickInputs): void {
     systemProjectiles(state);
     systemDamageDeath(state);
     systemCapture(state);
+    // Precinct Assault systems (rules.md §9), inert on arenas without PA data.
+    // Order is behavior and is deliberate: pickups after death so a dying avatar
+    // cannot be healed; triggers after pickups so detection reads final
+    // positions; core damage before the win check; production just before
+    // spawning, so every new entity of a tick appears at the same boundary.
+    systemPickups(state);
+    systemTriggers(state);
+    systemCoreAttack(state);
     systemEconomy(state);
+    systemProduction(state);
     systemSpawning(state);
     systemWinCheck(state);
   }
@@ -1415,6 +1816,38 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.outpostOwner[k] >>> 0);
     h = fnv1aU32(h, state.outpostConsole[k] >>> 0);
     h = fnv1aU32(h, state.outpostRespawn[k] >>> 0);
+  }
+  // Precinct Assault state, APPENDED after everything above and each block
+  // guarded by its own feature list. On an arena without PA data every loop here
+  // runs zero times and every `if` is false, so the byte stream — and therefore
+  // the hash — is bit-identical to before v13. That is the whole argument for
+  // why the existing goldens keep their hash sequences.
+  for (let k = 0; k < state.baseDefenceEntity.length; k++) {
+    h = fnv1aU32(h, state.baseDefenceEntity[k] >>> 0);
+    h = fnv1aU32(h, state.baseDefenceRespawn[k] >>> 0);
+  }
+  for (let k = 0; k < state.coreHp.length; k++) {
+    h = fnv1aU32(h, state.coreHp[k] >>> 0);
+  }
+  for (let k = 0; k < state.productionTimer.length; k++) {
+    h = fnv1aU32(h, state.productionTimer[k] >>> 0);
+  }
+  for (let k = 0; k < state.pickupCooldown.length; k++) {
+    h = fnv1aU32(h, state.pickupCooldown[k] >>> 0);
+  }
+  for (let p = 0; p < state.buffInvuln.length; p++) {
+    h = fnv1aU32(h, state.buffInvuln[p] >>> 0);
+    h = fnv1aU32(h, state.buffInvis[p] >>> 0);
+    h = fnv1aU32(h, state.buffPower[p] >>> 0);
+  }
+  for (let k = 0; k < state.triggerArm.length; k++) {
+    h = fnv1aU32(h, state.triggerArm[k] >>> 0);
+  }
+  // Weapon profiles are a side array like entLayer: hashed only where they exist.
+  if (state.map.weapons.length > 0) {
+    for (let id = 0; id < ent.high; id++) {
+      if (ent.alive[id]) h = fnv1aU32(h, ent.weaponProfile[id] >>> 0);
+    }
   }
   // Warden decision state is hashed only when a Warden exists: matches
   // without one keep their exact pre-Phase-4 hash sequences (goldens 1–3

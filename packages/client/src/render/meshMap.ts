@@ -4,62 +4,17 @@
 import type { MapData } from "@metropolis/sim";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MAP_ALIGN } from "./mapAlign.generated";
 
 const loader = new GLTFLoader();
-
-/**
- * Stable logic centres from docs/renders/fcop-viz/viz_data_*.json (prep_viz
- * actor/Cnet bbox). Used instead of recomputing from map features so moving
- * turret spots cannot shift the mesh under already-snapped pads.
- */
-const STABLE_LOGIC_CENTRE: Readonly<Record<string, { x: number; z: number }>> = {
-  "la-cantina": { x: 96.15695, z: 112.03125 },
-};
-
-/**
- * Gameplay/logic content centre in sim XZ (same 0-based grid as FCOP actors /
- * Cnet and docs/renders/fcop-viz). Matches prep_viz logic-bbox centre so the
- * textured mesh lines up with spawns/lanes/turrets like la-cantina-top.png.
- */
-function logicCentre(map: MapData): { x: number; z: number } {
-  const xs: number[] = [];
-  const zs: number[] = [];
-  const add = (x: number, z: number) => {
-    xs.push(x);
-    zs.push(z);
-  };
-  for (const s of map.spawns) add(s.x, s.y);
-  for (const b of map.bases) {
-    add(b.core.x, b.core.y);
-    for (const t of b.turrets) add(t.x, t.y);
-  }
-  for (const t of map.turretSpots) add(t.x, t.y);
-  for (const t of map.dummySpots) add(t.x, t.y);
-  for (const o of map.outpostSpots) add(o.x, o.y);
-  for (const lane of map.lanes) {
-    for (const p of lane) add(p.x, p.y);
-  }
-  if (xs.length === 0) {
-    // Fallback: half extent (only empty/synthetic maps).
-    const half = ((map.size - 1) * map.cellSize) / 2;
-    return { x: half, z: half };
-  }
-  return {
-    x: (Math.min(...xs) + Math.max(...xs)) / 2,
-    z: (Math.min(...zs) + Math.max(...zs)) / 2,
-  };
-}
 
 /**
  * Loads the textured map mesh for `map.id` into `group`. When no asset exists
  * for the map (assets live outside this repo), warns and calls `onMissing` so
  * the caller can build the greybox terrain instead of leaving the world empty.
- *
- * Alignment (docs/renders/fcop-viz/README.md — same as Blender overlays):
- *   position.xz = logicCentre − glbBBoxCentre
- * Do NOT centre on worldExtent/2 (grid centre); the apron is asymmetric and
- * that shifts the mesh ~16 cells off the FCOP logic frame. Y is left authored
- * (matches the heightfield, incl. negative riverbeds).
+ * The .glb is authored origin-centered; this loader translates it by the
+ * committed per-map offset (render/mapAlign.generated.ts) so it lines up with
+ * the greybox/collision frame.
  *
  * `onMaterials` (optional) receives every MeshStandardMaterial of the loaded
  * mesh once — the debug texture-variant switcher (render/texVariants.ts) uses
@@ -98,14 +53,44 @@ export function loadMapMesh(
         mesh.matrixAutoUpdate = false;
         mesh.updateMatrix();
       });
+      // Alignment: the .glb is authored in the extractor's origin-centered
+      // frame (bbox straddles 0), while the sim/greybox/markers live in
+      // [0, extent]. The offset is NOT derivable from the bounds at runtime:
+      // the FCOP grid is padded on its short axis, so the apron is asymmetric
+      // (bbox-centering lands ~8 cells off), and the mesh covers only the real
+      // region, so its min corner is one Til east of grid cell 0. glb Y is
+      // already in the sim's height frame, so Y must stay untranslated — the
+      // old `-box.min.y` floated the art metres above the collision surface.
+      // tools/generators/genMapAlign.ts measures the truth per map by
+      // correlating mesh vertices against MapData.heights; we just apply it.
       gltf.scene.updateMatrixWorld(true);
+      const align = MAP_ALIGN[map.id];
+      // Init-time, so the Box3 allocation is fine. It is the drift guard: a
+      // regenerated .glb with different bounds must never be placed silently.
       const box = new THREE.Box3().setFromObject(gltf.scene);
-      const glbCentre = box.getCenter(new THREE.Vector3());
-      // Prefer stable fcop-viz prep centre when known so mesh/pad snap/Blender
-      // verify stay bit-aligned (feature-bbox centre drifts when spots move).
-      const logic = STABLE_LOGIC_CENTRE[map.id] ?? logicCentre(map);
-      // Same transform as fcop-viz build_map.py (three.js Z = sim y, no Blender flip).
-      gltf.scene.position.set(logic.x - glbCentre.x, 0, logic.z - glbCentre.z);
+      if (align === undefined) {
+        console.warn(
+          `[meshMap] no alignment record for "${map.id}" — falling back to the ` +
+            "min-corner + one-Til rule; run `bun run gen:mapalign` to measure it",
+        );
+        gltf.scene.position.set(-box.min.x + 16 * map.cellSize, 0, -box.min.z);
+      } else {
+        const drift = Math.max(
+          Math.abs(box.min.x - align.minX),
+          Math.abs(box.min.y - align.minY),
+          Math.abs(box.min.z - align.minZ),
+          Math.abs(box.max.x - align.maxX),
+          Math.abs(box.max.y - align.maxY),
+          Math.abs(box.max.z - align.maxZ),
+        );
+        if (drift > 1e-3) {
+          console.error(
+            `[meshMap] ${map.id}.glb bounds drifted ${drift.toFixed(3)} from the ` +
+              "measured alignment — re-run `bun run gen:mapalign`",
+          );
+        }
+        gltf.scene.position.set(align.x, align.y, align.z);
+      }
       gltf.scene.matrixAutoUpdate = false;
       gltf.scene.updateMatrix();
       group.add(gltf.scene);

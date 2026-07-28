@@ -100,7 +100,11 @@ Avatar 300 HP; walker speed 5, hover speed 9.
 - Logical playfield: 2D plane + heightfield (see architecture.md). Water areas:
   hover-only. Jump-only ledges: walker shortcuts.
 - 2–3 ground lanes between the bases; lane graph is authored per map
-  (waypoint polylines, no runtime pathfinding in v1).
+  (waypoint polylines, no runtime pathfinding in v1). **Amended (§9):** an arena
+  may instead carry the original's waypoint *graph*. That is still not runtime
+  pathfinding — the routes are searched once at authoring time and committed as
+  a next-hop signpost per (team, node), so a unit reads one array entry per
+  waypoint and, at a fork, flips one seeded coin. It never searches.
 - v1 ships **one arena** ("District 01"), sized so Hover crosses it in ~25 s.
   Use FC:MIT viewer on original maps as *reference* for proportions only.
 
@@ -115,3 +119,55 @@ income multiplier, aggression thresholds, and reaction delay (see PLAN Phase 4).
 
 More arenas, 2v2, ranked/matchmaking, mobile touch controls, cosmetics,
 replays-as-feature (replays exist as a test artifact from day one).
+
+## 9. Precinct Assault mode (FCOP arenas)
+
+Status: adopted for the four single-storey FCOP arenas — `la-cantina` (mission
+Mp), `urban-jungle` (Conft), `proving-ground` (Slim) and `bug-hunt` (Joke).
+`hollywood-keys` and `venice-beach` stay on §1–§7. That is not for want of data:
+their logic is extracted and committed, but they are multi-deck and every deck
+sits at least 0.594 m above the base surface while the walker only steps up
+0.35 m, so the original layouts would land on decks nothing can reach. See
+`packages/sim/test/layeredArenas.test.ts` for the measurement.
+
+A deliberate deviation from §1–§6, taken on the owner's call: where the original
+*Precinct Assault* mission data says how the arena works, the data wins. Every
+rule below is **per-arena map data**, so an arena that carries none of it behaves
+exactly as §1–§7 describe — that is what keeps the existing goldens valid.
+
+The original's decoded model is `docs/specs/fcop-logic.md` §8; this section is
+only what Metropolis adopts from it.
+
+- **Win condition — destroy the enemy base.** A base carries `coreHp` (the
+  original stores 3000). Only *units* damage it; the Avatar and the Warden never
+  can, so pillar 1 survives — you still cannot win by attacking the base
+  yourself. On an arena with `coreHp > 0` this **replaces** the gate breach of
+  §1; gate-breach remains the only win condition where `coreHp` is 0.
+- **Base production.** Each base produces one Runner onto its own lane every
+  `productionTicks` (the original: 5 s), free, up to `productionLimit` alive.
+  This is **additive** to the §3 points economy: consoles, costs and the Warden's
+  spending are unchanged. The alive limit is ours, not the original's — the
+  original stores a per-cycle spawn count, and two bases at 12 units/min would
+  otherwise fill the entity store.
+- **Turrets carry their own parameters.** Range, fire cadence, gun slew and field
+  of view come from the arena's weapon profiles instead of the global constants.
+  The original's reach is short: `engage_range` 6144 is 6 m, against the pre-PA
+  global 28 m, and turrets are placed within a few metres of the road they guard.
+  Damage stays on the global value — the original's weapon table was not decoded.
+- **Capture points are the original pads.** Every original `NeutralTurret`
+  becomes a capture spot — 32 on Mp and Conft, 29 on Slim and Joke, against the
+  4–6 of §5. Capture rules
+  themselves are unchanged; the density is a balance question, tuned in
+  `balance.ts`, never by dropping content.
+- **Power-ups.** `ItemPickup` spots grant ammo, health, invisibility or a
+  temporary damage boost, and re-arm on the original's timer. The original's
+  eight grant kinds do not map one-to-one — Metropolis' primary weapon has
+  infinite ammo (§2) — so the mapping is recorded in
+  `tools/generators/enrichArena.ts`.
+- **Base intrusion alert.** Each base is wrapped in trigger volumes that fire
+  when an enemy Avatar or unit enters. Detection only: the original's alert sound
+  lived in the undecoded `Cfun` script, so the cue is ours to author.
+- **Lanes** may be the original waypoint graph — see the §6 amendment.
+
+Not adopted: the original's `Aircraft` orbit parameters (air units keep §4's
+model), the `Cfun` mission VM, and the `act_type` 14/89 marker classes.

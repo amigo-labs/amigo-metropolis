@@ -56,4 +56,47 @@
 //     and neutral capture are reachable (hover/walker share crossesWall*).
 //     Heightfields/walls unchanged. golden-05 re-records for real hash change;
 //     goldens 01–04/06 only re-header for SIM_VERSION (district-01/test maps).
-export const SIM_VERSION = 12;
+// v13: Precinct Assault mode (rules.md §9) — per-turret weapon profiles with gun
+//     slew and FOV, the original Cnet lane graph traversed via committed next-hop
+//     signposts, free base production, destructible base cores as the win
+//     condition, power-ups and base-intrusion alerts. Every mechanic is gated on
+//     per-arena map data, and hash() appends its new blocks behind the same
+//     guards, so on a map without PA features the byte stream is bit-identical to
+//     v12 — goldens 01-06 re-header only, none of their hash sequences move
+//     (goldenNoop.test.ts is the proof). la-cantina is the only arena carrying
+//     the data, and golden-07-pa — added in this same version — is the first
+//     golden recorded on it, so it has no earlier sequence to preserve. Any
+//     later change to a PA mechanic moves golden-07 and only golden-07.
+// v14: the other three single-storey FCOP arenas rebuilt from their own original
+//     logic (issue #30 — the same one-Til frame error #26 fixed on la-cantina).
+//     urban-jungle (Conft), proving-ground (Slim) and bug-hunt (Joke) now carry
+//     the full Precinct Assault data set — capture pads, ring turrets, built-in
+//     base defence, weapon profiles, pickups, intrusion volumes, props, both Cnet
+//     lane graphs, cores and production — so each adopts rules.md §9 for itself
+//     and the picker is deliberately mixed-mode. proving-ground and bug-hunt also
+//     stop sharing one hand-authored layout (convert.ts's RIM_* constants): they
+//     are different missions with different logic, and importing splits them.
+//     NO sim mechanic changed. Terrain did not change either: every heightsPin is
+//     byte-identical, and fcop-arenas.test.ts asserts it rather than assuming it.
+//     Walls DID change, on all FOUR single-storey arenas, and la-cantina moving is
+//     the part that needs saying out loud: stage 2's lane carve deduped its edges
+//     as if the Cnet were undirected, and the Cnet is entirely one-way — not one
+//     of Mp's 315 edges or Conft's 518 has a reverse twin — so every edge pointing
+//     at a lower node index was silently skipped, 69 of Mp's and 186 of Conft's.
+//     The roads they run down stayed half-walled, which is how Conft's committed
+//     route ended up crossing a wall no produced unit can pass. Carving all
+//     directed edges, and adding the bases' own consoles and ring turrets to the
+//     reachability repair (without them Conft, Slim and Joke generate clean and
+//     play unbuyable), takes Mp from 66 edited bits of 4009 to 99 — 2.5%, and
+//     moves la-cantina's wallsVPin/wallsHPin.
+//     Only golden-05-fcop (urban-jungle) re-records for real hash change, and
+//     goldenNoop.test.ts re-freezes it with that justification. golden-07-pa
+//     re-headers only DESPITE la-cantina's walls moving: its recorded 120 s
+//     trajectory never touches one of the 33 newly-cleared bits, so its hash
+//     array is byte-identical. That is a measured outcome, not a claim that the
+//     arena is unchanged — the wall pins in fcop-arenas.test.ts moved.
+//     Goldens 01-04 (test-128 / district-01) and golden-06 (the synthetic
+//     layered-test) re-header only, byte-identical hash arrays.
+//     hollywood-keys and venice-beach are deliberately NOT in this version — see
+//     layeredArenas.test.ts for the measurement that blocks them.
+export const SIM_VERSION = 14;

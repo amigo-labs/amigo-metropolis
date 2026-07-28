@@ -5,7 +5,7 @@
 // The avatar gets TWO buckets (walker body / hover wedge); the frame loop
 // routes each snapshot entity into a bucket via bucketFor().
 
-import { ANIM_HOVER, ARCHETYPE, TURRET_DEFENSE } from "@metropolis/sim";
+import { ANIM_HOVER, ARCHETYPE, TURRET_DEFENSE, getMapById, MAP_REGISTRY } from "@metropolis/sim";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { NEUTRAL_RAMP, PROJECTILE_HEX, TEAM_RAMPS } from "./palette";
@@ -23,6 +23,8 @@ export interface Bucket {
   /** Cached tint key per slot (team or projectile kind) to avoid re-uploads. */
   readonly tintCache: Int8Array;
   count: number;
+  /** Set once if an instance was ever dropped for lack of capacity (see main.ts). */
+  overflowed?: boolean;
 }
 
 export interface GreyboxMeshes {
@@ -57,6 +59,47 @@ function box(w: number, h: number, d: number, x: number, y: number, z: number) {
   const g = new THREE.BoxGeometry(w, h, d);
   g.translate(x, y, z);
   return g;
+}
+
+/**
+ * Instance capacity per bucket, sized so the WHOLE registry fits.
+ *
+ * These used to be literals, and la-cantina broke them: importing the original
+ * Precinct Assault layout puts 32 capturable + 32 ring + 8 built-in base turrets
+ * on the map, i.e. 72 turret entities against a cap of 64. renderEntities drops
+ * instances past capacity silently (main.ts), so the result was eight turrets
+ * that shoot at you and are simply not drawn.
+ *
+ * Sized from the map registry rather than per-map because createGreyboxMeshes is
+ * called once at boot while the arena can be swapped afterwards — a per-map cap
+ * would under-allocate on the next, larger arena.
+ */
+function turretCapacity(): number {
+  let worst = 0;
+  for (const info of MAP_REGISTRY) {
+    const map = getMapById(info.id);
+    const n =
+      map.bases[0].turrets.length +
+      map.bases[1].turrets.length +
+      map.bases[0].defence.length +
+      map.bases[1].defence.length +
+      map.turretSpots.length +
+      map.dummySpots.length;
+    if (n > worst) worst = n;
+  }
+  // Headroom for a future arena, and never below the historic 64 so the small
+  // maps keep their previous allocation exactly.
+  return Math.max(64, Math.ceil(worst * 1.25));
+}
+
+/** Outpost consoles are one entity per spot; same reasoning as turrets. */
+function consoleCapacity(): number {
+  let worst = 0;
+  for (const info of MAP_REGISTRY) {
+    const n = getMapById(info.id).outpostSpots.length;
+    if (n > worst) worst = n;
+  }
+  return Math.max(8, worst * 2);
 }
 
 export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
@@ -137,12 +180,14 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const guardian = bucket(scene, guardianGeometry, 64);
   const juggernaut = bucket(scene, juggernautGeometry, 4);
   const fortress = bucket(scene, fortressGeometry, 4);
-  const turretStandard = bucket(scene, turretGeometry, 64);
-  // Separate InstancedMesh + smaller greybox so Defense stays compact even
-  // before / without the Stage B .glb swap.
-  const turretDefense = bucket(scene, turretDefenseGeometry, 64);
+// Separate InstancedMesh + smaller greybox so Defense stays compact even
+  // before / without the Stage B .glb swap. Capacity is registry-sized so PA
+  // layouts (72+ turrets) never overflow a single mode bucket.
+  const turretCap = turretCapacity();
+  const turretStandard = bucket(scene, turretGeometry, turretCap);
+  const turretDefense = bucket(scene, turretDefenseGeometry, turretCap);
   const projectile = bucket(scene, projectileGeometry, 128);
-  const consoleBucket = bucket(scene, consoleGeometry, 8);
+  const consoleBucket = bucket(scene, consoleGeometry, consoleCapacity());
   const warden = bucket(scene, wardenGeometry, 2);
   return {
     avatarWalker,
