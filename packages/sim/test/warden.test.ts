@@ -216,9 +216,9 @@ describe("the goal ladder reads the arena's rule set (rules.md §9)", () => {
     }
     // Capturing is still what it does with no push in progress: pads are income
     // and the board is worth about two heavy units (paAttribution pins that
-    // relation). Over a full match with both streams live it is still the majority
-    // goal on la-cantina and urban-jungle, at 52% and 64%.
-    expect(goalMix(URBAN_JUNGLE_ID).get(WGOAL_CAPTURE) ?? 0).toBeGreaterThan(0.25);
+    // relation). After v18 (team-unique ring, open midfield) escort claims more of
+    // the match, so capture is no longer the majority — but it still runs.
+    expect(goalMix(URBAN_JUNGLE_ID).get(WGOAL_CAPTURE) ?? 0).toBeGreaterThan(0.05);
     // And the bottom difficulties keep giving the advantage away, like every other
     // difficulty knob.
     expect(WARDEN_PUSH_COMMIT_RANGE[0]).toBe(0);

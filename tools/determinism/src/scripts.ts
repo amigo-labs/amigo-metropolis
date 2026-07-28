@@ -83,12 +83,13 @@ export function combat01(tick: number, out: TickInputs): void {
   } else if (t < 24) {
     p.buttons = mash; // freshly respawned: switch to hover
   } else if (t < 38) {
+    // Facing-aligned drive (v19): aim must match throttle or the vehicle stalls.
     p.moveY = -127; // hover north along the west edge — no dummy covers it
-    p.aimX = 127;
+    p.aimY = -127;
     p.buttons = BUTTON_FIRE1;
   } else if (t < 56) {
     p.moveX = 127; // east along the north edge: crosses open river water
-    p.aimX = 127; //  (away from any ford), heavies detonating on terrain
+    p.aimX = 127; // face travel direction; heavies detonate on terrain
     p.buttons = t > 46 ? BUTTON_FIRE2 : BUTTON_FIRE1;
   } else if (t < 60) {
     p.buttons = mash; // back to walker on the dry east side
@@ -97,10 +98,11 @@ export function combat01(tick: number, out: TickInputs): void {
     p.buttons = BUTTON_FIRE3;
   } else if (t < 76) {
     p.moveY = 127; // walk south with jump chatter
-    p.aimX = -127;
+    p.aimY = 127;
     p.buttons = BUTTON_FIRE1 | (Math.floor(t * 2) % 2 === 0 ? BUTTON_JUMP : 0);
   } else {
-    p.moveX = quantizeAxis(cosLUT(t)); // circle + hop until the replay ends
+    // Circle: no aim → facing follows move, so throttle stays full.
+    p.moveX = quantizeAxis(cosLUT(t));
     p.moveY = quantizeAxis(sinLUT(t));
     if (Math.floor(t * 2) % 2 === 0) p.buttons = BUTTON_JUMP;
   }

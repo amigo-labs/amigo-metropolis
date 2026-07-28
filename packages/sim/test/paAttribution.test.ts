@@ -317,8 +317,11 @@ describe("a Warden vs an idle player: plays the board, does not break the line",
     // an AI is supposed to break a symmetric free stream unaided is a design
     // question for pillar 1, not only a number to turn — an idle player is not a
     // party that is trying, but it is not a party contributing nothing either.
+    // Match still does not resolve. Removing dual-team mid ring stacks (v18) lets
+    // a Warden-escorted free stream chip the idle player's core (~240 HP over ten
+    // minutes on this seed) but not raze it — the mid-line front still holds.
     expect(state.winner).toBe(-1);
-    expect(state.coreHp[0]).toBe(3000);
+    expect(state.coreHp[0]).toBeGreaterThan(0);
     expect(state.coreHp[1]).toBe(3000);
     expect(state.tick).toBe(limit);
   });
@@ -423,49 +426,23 @@ describe("what an escort changes, per arena", () => {
   // Escort went from 0% of ticks to 51-77%. See WARDEN_CORE_DEFEND_RADIUS and
   // WARDEN_PUSH_COMMIT_RANGE.
 
+  // Measured core hits in 5 minutes after v18 (team-unique ring only, dual mid
+  // plates capturable): la-cantina 22, urban-jungle 8, proving-ground 8, bug-hunt 2.
+  // Bounded loosely below the measured value — what must not regress is that the
+  // push arrives and the core takes damage.
   for (const [id, hits] of [
-    [LA_CANTINA_ID, 32],
-    [URBAN_JUNGLE_ID, 51],
-    [PROVING_GROUND_ID, 2],
+    [LA_CANTINA_ID, 22],
+    [URBAN_JUNGLE_ID, 8],
+    [PROVING_GROUND_ID, 8],
+    [BUG_HUNT_ID, 2],
   ] as const) {
     it(`${id}: an escorted push reaches the core and damages it`, () => {
-      // Measured core hits in 5 minutes: la-cantina 32 (17 unescorted), urban-jungle
-      // 51 (0 unescorted, so the escort is the whole difference), proving-ground 2
-      // (0 unescorted). Bounded loosely below the measured value, because these are
-      // balance numbers a later pass is expected to raise — what must not regress is
-      // that the push arrives and the core takes damage.
       const r = push(id, true);
       expect(r.closest).toBeLessThanOrEqual(CORE_ATTACK_RADIUS);
       expect(r.coreHits).toBeGreaterThan(0);
       expect(r.coreHits).toBeGreaterThanOrEqual(Math.floor(hits / 2));
     });
   }
-
-  it("bug-hunt: even an escorted push does not get in (known gap — issue #31)", () => {
-    // The one arena of the four where the escort changes nothing: 18.6 m and 0 core
-    // hits, against 11.4 m unescorted. It is not the road and not the geometry —
-    // remove team 0's turrets outright and bug-hunt razes its core like the rest
-    // ("razes once the defenders are gone", below) — and it is not the ring layout
-    // either: bug-hunt and proving-ground place their emplacements at the same
-    // distances from the core (0/0/0/0, 9.1, 9.1, 10.1, 11.0, 12.9, 17.0, 24.2 m)
-    // and proving-ground gets in. What differs is throughput: the same escort
-    // destroys 70 defending turrets in ten minutes on urban-jungle, 48 on
-    // proving-ground and 24 here, because bug-hunt's walls give more of its ring
-    // line of sight onto the last stretch of road.
-    //
-    // Measured and NOT the lever, so a later pass does not spend budget there:
-    // BASE_TURRET_RESPAWN_TICKS (60 s -> 120/180/240 s) leaves this at 0 core hits
-    // and is not even monotone elsewhere — 120 s wins urban-jungle outright but
-    // drops la-cantina from 320 to 130 mean core damage; and CORE_DAMAGE_PER_SHOT
-    // (10 -> 20/30/50) scales an arriving siege linearly but changes arrival not at
-    // all, so it stays 0 here at every value.
-    //
-    // WHEN THIS STARTS FAILING, THAT IS THE REST OF THE BALANCE PASS LANDING —
-    // move it to the form above, do not delete the assertion.
-    const r = push(BUG_HUNT_ID, true);
-    expect(r.coreHits).toBe(0);
-    expect(r.closest).toBeGreaterThan(CORE_ATTACK_RADIUS);
-  });
 
   it("razes once the defenders are gone, on all four arenas", () => {
     // golden07 proves this for la-cantina; the same has to hold for the three

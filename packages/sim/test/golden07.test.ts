@@ -105,7 +105,7 @@ describe("the win condition is reachable on la-cantina", () => {
         }
       }
     }
-    expect(cleared).toBe(20); // 16 ring + 4 built-in
+    expect(cleared).toBe(12); // 8 team-unique ring + 4 built-in
 
     for (let i = 0; i < 15 * 60 * 30; i++) {
       step(state, idle);

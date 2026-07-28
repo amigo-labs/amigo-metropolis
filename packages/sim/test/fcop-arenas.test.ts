@@ -49,7 +49,8 @@ interface ArenaExpectation {
   turretSpots: number;
   outpostSpots: number;
   dummySpots: number;
-  ringTurrets: number;
+  /** Ring turrets per base: one count if symmetric, or [team0, team1]. */
+  ringTurrets: number | readonly [number, number];
   /**
    * Precinct Assault extras (rules.md §9); 0 on an arena still on the pre-PA
    * hand-authored layout.
@@ -158,7 +159,8 @@ const ARENAS: ArenaExpectation[] = [
     turretSpots: 32,
     outpostSpots: 2,
     dummySpots: 0,
-    ringTurrets: 16,
+    // Team-unique type-8 pads only; dual-team mid plates are capturable (not ring).
+    ringTurrets: [9, 8],
     graphNodes: 462, // both Cnet graphs, 237 + 225
     weapons: 2,
     baseDefence: 4,
@@ -200,7 +202,8 @@ const ARENAS: ArenaExpectation[] = [
     turretSpots: 29,
     outpostSpots: 2,
     dummySpots: 0,
-    ringTurrets: 14, // Slim places 14 per base, not Mp's 16
+    // Team-unique pads after dual/neutral filter (Slim raw lists 14).
+    ringTurrets: [6, 7],
     graphNodes: 578, // 292 + 286
     weapons: 2,
     baseDefence: 4,
@@ -240,7 +243,8 @@ const ARENAS: ArenaExpectation[] = [
     turretSpots: 32, // every original NeutralTurret pad
     outpostSpots: 2,
     dummySpots: 0, // no original counterpart
-    ringTurrets: 16, // original base-defence Turret actors per base
+    // Team-unique type-8 only (8/base); dual mid plates stay capturable.
+    ringTurrets: 8,
     graphNodes: 283, // both Cnet graphs, 143 + 140
     weapons: 2,
     baseDefence: 4,
@@ -276,7 +280,8 @@ const ARENAS: ArenaExpectation[] = [
     turretSpots: 29,
     outpostSpots: 2,
     dummySpots: 0,
-    ringTurrets: 14,
+    // Team-unique pads after dual/neutral filter (Joke raw lists 14).
+    ringTurrets: [6, 7],
     graphNodes: 594, // 303 + 291
     weapons: 2,
     baseDefence: 4,
@@ -319,8 +324,12 @@ for (const arena of ARENAS) {
       expect(map.triggerVolumes.length).toBe(arena.triggerVolumes);
       expect(map.laneGraph?.nodes.length ?? 0).toBe(arena.graphNodes);
       expect(map.props.length).toBe(arena.props);
-      for (const base of map.bases) {
-        expect(base.turrets.length).toBe(arena.ringTurrets);
+      for (let team = 0; team < map.bases.length; team++) {
+        const base = map.bases[team];
+        const ringWant = Array.isArray(arena.ringTurrets)
+          ? arena.ringTurrets[team]
+          : arena.ringTurrets;
+        expect(base.turrets.length).toBe(ringWant);
         expect(base.defence.length).toBe(arena.baseDefence);
         expect(base.coreHp).toBe(arena.coreHp);
         expect(base.productionTicks).toBe(arena.productionTicks);

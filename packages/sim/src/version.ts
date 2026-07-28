@@ -256,4 +256,8 @@
 //     in hover (district-01, transform at t=20 s). Goldens 01, 03, 04 (walker on
 //     test-128/district-01), 05 (urban-jungle), 06 (layered-test) and 07
 //     (la-cantina) re-header only, byte-identical hash arrays.
-export const SIM_VERSION = 18;
+// v19: Mid dual-team mid type-8 pads no longer join both rings AND capturable
+//     spots (no triple stacks); BaseShooter guns are TURRET_BUILTIN; consoles face
+//     pad/arena centre; real X1-Alpha walker/hover assemblies replace the
+//     Quaternius stand-in; avatar drive is facing-aligned only (no strafe).
+export const SIM_VERSION = 19;
