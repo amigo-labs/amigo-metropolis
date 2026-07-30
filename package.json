@@ -23,7 +23,8 @@
     "replay:verify:browser": "bun run tools/determinism/src/browserVerify.ts",
     "e2e:touch": "bun run tools/determinism/src/touchInput.ts",
     "verify:arenas": "bun run tools/determinism/src/arenaShots.ts",
-    "verify:units": "bun run tools/determinism/src/unitShots.ts"
+    "verify:units": "bun run tools/determinism/src/unitShots.ts",
+    "pin:serve": "bun run tools/determinism/src/pinServer.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",

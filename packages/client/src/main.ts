@@ -52,6 +52,15 @@ import {
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AudioEngine } from "./audio/engine";
+import {
+  buildPin,
+  buildPinPrompt,
+  findNearby,
+  pinIdFromCreatedAt,
+  rayHitHeightfield,
+} from "./debug/pinCapture";
+import { captureCanvasPng, exportPin } from "./debug/pinExport";
+import { createPinModal, showPinToast } from "./debug/pinModal";
 import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
 import { TouchInput, wantsTouch } from "./input/touch";
@@ -308,7 +317,9 @@ function scriptOpponent(slot: number, tick: number, out: PlayerInput): void {
 
 // --- Scene setup --------------------------------------------------------------
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// preserveDrawingBuffer: fly-mode verification pins read the canvas after a
+// forced re-render; without this some GPUs return a blank frame on toBlob.
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setScissorTest(true); // each player view renders scissored to its rect
@@ -553,13 +564,154 @@ function refreshDebugLabel(): void {
   // switcher the label must hide (empty text) instead of staying stale.
   const parts: string[] = [];
   if (texSwitcher) parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan`);
-  if (flyMode) parts.push("fly: WASD+QE move, Shift fast, click=mouse-look (ESC releases)");
+  if (flyMode) {
+    parts.push("fly: WASD+QE move, Shift fast, click=mouse-look (ESC releases)");
+    parts.push("pin: P = capture + problem note (Shift+P pauses sim)");
+  }
   const text = parts.join("\n");
   if (text === debugLabelText) return;
   debugLabelText = text;
   debugLabelEl.textContent = text;
   debugLabelEl.style.display = text ? "block" : "none";
 }
+
+// --- Verification pin (fly mode): center-ray capture + problem modal ----------
+const pinModal = createPinModal();
+const flyCrosshair = document.createElement("div");
+flyCrosshair.style.cssText =
+  "position:fixed;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;" +
+  "z-index:25;pointer-events:none;display:none;" +
+  "border:1px solid rgba(220,235,255,.85);border-radius:50%;" +
+  "box-shadow:0 0 0 1px rgba(0,0,0,.35)";
+// Inner cross ticks via two thin bars.
+const chH = document.createElement("div");
+chH.style.cssText =
+  "position:absolute;left:3px;right:3px;top:50%;height:1px;margin-top:-0.5px;background:rgba(220,235,255,.9)";
+const chV = document.createElement("div");
+chV.style.cssText =
+  "position:absolute;top:3px;bottom:3px;left:50%;width:1px;margin-left:-0.5px;background:rgba(220,235,255,.9)";
+flyCrosshair.append(chH, chV);
+document.body.appendChild(flyCrosshair);
+
+function setFlyCrosshairVisible(on: boolean): void {
+  flyCrosshair.style.display = on ? "block" : "none";
+}
+
+let pinBusy = false;
+
+function flyLookDirection(): { x: number; y: number; z: number } {
+  // Same basis as updateFlyCamera (view-forward including pitch).
+  const cosPitch = Math.cos(flyState.pitch);
+  return {
+    x: -Math.sin(flyState.yaw) * cosPitch,
+    y: Math.sin(flyState.pitch),
+    z: -Math.cos(flyState.yaw) * cosPitch,
+  };
+}
+
+function renderFlyViewForPin(): void {
+  const view = views[0];
+  if (!view) return;
+  const vp = view.viewport;
+  const yBottom = innerHeight - (vp.top + vp.height);
+  renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
+  renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
+  renderer.render(scene, view.camera);
+}
+
+async function beginVerificationPin(pauseSim: boolean): Promise<void> {
+  if (!flyMode || pinBusy || pinModal.isOpen() || views.length === 0) return;
+  pinBusy = true;
+  const wasPaused = debugPaused;
+  // Freeze while the modal is open so the pinned frame stays valid.
+  // Shift+P (pauseSim): keep paused after save for inspection.
+  debugPaused = true;
+  if (document.pointerLockElement) document.exitPointerLock();
+  flyState.keys.clear();
+  flyState.lookX = 0;
+  flyState.lookY = 0;
+
+  const restorePause = (afterSave: boolean): void => {
+    debugPaused = afterSave && pauseSim ? true : wasPaused;
+  };
+
+  try {
+    renderFlyViewForPin();
+    const png = await captureCanvasPng(renderer.domElement);
+    const view = views[0];
+    const cam = view.camera;
+    const dir = flyLookDirection();
+    const hit = rayHitHeightfield(
+      map,
+      cam.position.x,
+      cam.position.y,
+      cam.position.z,
+      dir.x,
+      dir.y,
+      dir.z,
+    );
+    const nearby = findNearby(map, hit.x, hit.z);
+    const camera = {
+      x: cam.position.x,
+      y: cam.position.y,
+      z: cam.position.z,
+      yaw: flyState.yaw,
+      pitch: flyState.pitch,
+    };
+    const seedVal = Number.isFinite(seed) ? seed : null;
+    const tickVal = sim ? sim.tick : null;
+    const partial = {
+      mapId: map.id,
+      url: location.href,
+      render: renderMode,
+      seed: seedVal,
+      tick: tickVal,
+      camera,
+      hit,
+      nearby,
+    };
+
+    pinModal.open({
+      onCancel: () => {
+        restorePause(false);
+        pinBusy = false;
+      },
+      onSubmit: (notes) => {
+        void (async () => {
+          try {
+            const pin = buildPin({ ...partial, notes });
+            const id = pinIdFromCreatedAt(pin.createdAt);
+            const prompt = buildPinPrompt(pin);
+            const result = await exportPin(pin, png, prompt, id);
+            showPinToast(result.message);
+          } catch (e) {
+            showPinToast(`Pin failed: ${e instanceof Error ? e.message : String(e)}`);
+          } finally {
+            restorePause(true);
+            pinBusy = false;
+          }
+        })();
+      },
+    });
+  } catch (e) {
+    restorePause(false);
+    pinBusy = false;
+    showPinToast(`Pin failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+addEventListener("keydown", (e) => {
+  if (!flyMode || pinModal.isOpen() || pinBusy) return;
+  if (e.code !== "KeyP" || e.repeat) return;
+  // Ignore when typing in unrelated UI (menu drawers, etc.).
+  const t = e.target;
+  if (t instanceof HTMLElement) {
+    const tag = t.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || t.isContentEditable) return;
+  }
+  e.preventDefault();
+  void beginVerificationPin(e.shiftKey);
+});
 
 // Variant hotkeys: plain digits are unused by gameplay (movement/fire live on
 // WASD/JKL, see input/keyboard.ts BUTTON_KEYS) — safe for debug bindings.
@@ -960,8 +1112,9 @@ function frame(now: number): void {
       view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
       if (flyMode && v === 0) {
         // Free-fly debug camera owns view 0's posing (render/flyCamera.ts) —
-        // rig and blend are skipped, exactly like orbit below.
-        updateFlyCamera(flyState, view.camera, dtSec);
+        // rig and blend are skipped, exactly like orbit below. Skip while the
+        // pin modal is open so WASD does not drift under the dialog.
+        if (!pinModal.isOpen()) updateFlyCamera(flyState, view.camera, dtSec);
       } else if (orbitControls && v === 0) {
         orbitControls.update();
       } else {
@@ -1033,9 +1186,10 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
     poseFlyStart(flyState, views[0].camera, extent);
     refreshDebugLabel();
   }
+  setFlyCrosshairVisible(flyMode && views.length === 1);
   // The mouse reticle only makes sense for a single full-window pointer player
-  // — and not at all under touch, where the aim stick owns facing.
-  reticle.style.display = views.length === 1 && !touchMode ? "block" : "none";
+  // — and not at all under touch or fly (fly uses a fixed center crosshair).
+  reticle.style.display = views.length === 1 && !touchMode && !flyMode ? "block" : "none";
   document.body.style.cursor = ""; // back to the stylesheet crosshair (touch: none)
   touchControls?.show();
 }

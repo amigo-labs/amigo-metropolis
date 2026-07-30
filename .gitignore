@@ -27,3 +27,7 @@ packages/client/public/models/*/atlas-*.png
 
 # wrangler dev local state (packages/server bun run dev)
 .wrangler/
+
+# Fly-mode verification pins (local co-debug captures). Keep README only.
+docs/verification/pins/*
+!docs/verification/pins/README.md
