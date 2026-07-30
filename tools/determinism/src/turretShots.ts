@@ -15,21 +15,13 @@ import {
   TURRET_DEFENSE,
   worldExtent,
 } from "@metropolis/sim";
-import { chromium, type Page } from "playwright-core";
+import type { Page } from "playwright-core";
+// Chromium comes from the shared harness boot (/opt/pw-browsers/chromium, with
+// CHROMIUM_PATH as the override) — this file used to hardcode a Windows path.
+import { launchBrowser, newHarnessContext, ROOT, startDevServer } from "./browserLaunch";
 
-const CHROMIUM =
-  process.env.CHROMIUM_PATH ??
-  join(
-    process.env.LOCALAPPDATA ?? "",
-    "ms-playwright",
-    "chromium-1208",
-    "chrome-win64",
-    "chrome.exe",
-  );
 const PORT = Number(process.env.TURRET_SHOTS_PORT ?? "5181");
 const BASE = `http://127.0.0.1:${PORT}`;
-const ROOT = join(import.meta.dir, "..", "..", "..");
-const CLIENT_DIR = join(ROOT, "packages", "client");
 const OUT = process.env.TURRET_SHOTS_OUT ?? join(ROOT, "docs", "verification", "stage7-units");
 
 // Open heightfield so the models read cleanly; no textured terrain needed.
@@ -44,36 +36,9 @@ function setPaused(page: Page, paused: boolean): Promise<void> {
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
 
-  console.log(`starting vite on ${BASE} …`);
-  const dev = Bun.spawn(
-    ["bun", "x", "vite", "--port", String(PORT), "--strictPort", "--host", "127.0.0.1"],
-    { cwd: CLIENT_DIR, stdout: "ignore", stderr: "inherit", env: { ...process.env } },
-  );
-  let ready = false;
-  for (let i = 0; i < 120 && !ready; i++) {
-    ready = await fetch(BASE)
-      .then((r) => r.ok)
-      .catch(() => false);
-    if (!ready) await Bun.sleep(500);
-  }
-  if (!ready) {
-    dev.kill();
-    console.error("dev server did not become ready");
-    process.exit(1);
-  }
-
-  const browser = await chromium.launch({
-    executablePath: CHROMIUM,
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--use-gl=angle",
-      "--use-angle=swiftshader",
-      "--enable-unsafe-swiftshader",
-      "--ignore-gpu-blocklist",
-    ],
-  });
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const dev = await startDevServer(PORT);
+  const browser = await launchBrowser();
+  const context = await newHarnessContext(browser);
   const extent = worldExtent(getMapById(MAP_ID));
   const cx = extent / 2;
   // Standard left, Defense right — clear gap, both facing +X (yaw 0).
@@ -261,7 +226,7 @@ async function main(): Promise<void> {
   await shoot("greybox", "turret-close-greybox.png");
 
   await browser.close();
-  dev.kill();
+  await dev.stop();
 
   const ok = meshGlbs.includes("turret-standard") && meshGlbs.includes("turret-defense");
   console.log(ok ? "OK: both turret GLBs loaded" : "FAIL: missing turret GLB load");

@@ -17,13 +17,19 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getMapById, worldExtent } from "@metropolis/sim";
-import { chromium } from "playwright-core";
+import {
+  collectDiagnostics,
+  launchBrowser,
+  newHarnessContext,
+  ROOT,
+  startDevServer,
+  waitFor,
+  waitForHooks,
+  webglRenderer,
+} from "./browserLaunch";
 
-const CHROMIUM = process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium";
 const PORT = Number(process.env.ARENA_SHOTS_PORT ?? "5178");
 const BASE = `http://127.0.0.1:${PORT}`;
-const ROOT = join(import.meta.dir, "..", "..", "..");
-const CLIENT_DIR = join(ROOT, "packages", "client");
 const OUT = process.env.ARENA_SHOTS_OUT ?? join(ROOT, "docs", "verification", "stage4-arenas");
 
 // The six arenas in the picker, each with a committed .glb under
@@ -88,53 +94,12 @@ interface ShotResult {
   renderer: string | null;
 }
 
-async function waitFor(pred: () => boolean, timeoutMs: number, stepMs = 100): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (pred()) return true;
-    await Bun.sleep(stepMs);
-  }
-  return pred();
-}
-
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
 
-  // --- dev server -----------------------------------------------------------
-  console.log(`starting vite dev server on ${BASE} …`);
-  const dev = Bun.spawn(
-    ["bun", "x", "vite", "--port", String(PORT), "--strictPort", "--host", "127.0.0.1"],
-    { cwd: CLIENT_DIR, stdout: "ignore", stderr: "inherit", env: { ...process.env } },
-  );
-  // Poll readiness explicitly (fetch is async, so a sync predicate can't await
-  // it): up to ~60s of 500ms probes against the dev server root.
-  let ready = false;
-  for (let i = 0; i < 120 && !ready; i++) {
-    ready = await fetch(BASE)
-      .then((r) => r.ok)
-      .catch(() => false);
-    if (!ready) await Bun.sleep(500);
-  }
-  if (!ready) {
-    dev.kill();
-    console.error("dev server did not become ready");
-    process.exit(1);
-  }
-  console.log("dev server ready");
-
-  // --- browser --------------------------------------------------------------
-  const browser = await chromium.launch({
-    executablePath: CHROMIUM,
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--use-gl=angle",
-      "--use-angle=swiftshader",
-      "--enable-unsafe-swiftshader",
-      "--ignore-gpu-blocklist",
-    ],
-  });
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const dev = await startDevServer(PORT);
+  const browser = await launchBrowser();
+  const context = await newHarnessContext(browser);
 
   async function shoot(
     id: string,
@@ -143,69 +108,34 @@ async function main(): Promise<void> {
     file: string,
   ): Promise<ShotResult> {
     const page = await context.newPage();
-    const errors: string[] = [];
-    const badAssets: string[] = [];
-    let fallback = false;
-    let glbLoaded = false;
-    page.on("console", (m) => {
-      const t = m.text();
-      if (m.type() === "error") errors.push(t);
-      if (t.includes("[meshMap] no mesh asset")) fallback = true;
-    });
-    page.on("pageerror", (e) => errors.push(String(e)));
-    page.on("response", (r) => {
-      const u = r.url();
-      if (u.includes("/models/")) {
-        if (r.status() >= 400) badAssets.push(`${r.status()} ${u}`);
-        if (u.endsWith(`/models/${id}/${id}.glb`) && r.ok()) glbLoaded = true;
-      }
-    });
+    const diag = collectDiagnostics(page, { glbFor: id });
 
     // fog=off: the overview pose sits ~290u from its focus, well beyond the
     // scene's 190u fog far plane, so with atmosphere on these shots are a flat
     // wash — useless for the alignment eyeballing they exist for.
     const url = `${BASE}/?map=${id}&render=${mode}&debug&cam=orbit&fog=off`;
     await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
-    await page.waitForFunction(
-      () => {
-        const w = globalThis as { metropolisSim?: unknown; metropolisSetCamera?: unknown };
-        return !!w.metropolisSim && typeof w.metropolisSetCamera === "function";
-      },
-      { timeout: 15000 },
-    );
-    if (mode === "mesh") await waitFor(() => glbLoaded || fallback, 15000);
+    await waitForHooks(page, ["metropolisSim", "metropolisSetCamera"]);
+    if (mode === "mesh") await waitFor(() => diag.glbLoaded() || diag.fallback(), 15000);
 
     const placed = await page.evaluate((p) => {
       const w = globalThis as { metropolisSetCamera?: (...a: number[]) => boolean };
       return w.metropolisSetCamera?.(...p) ?? false;
     }, pose);
-    if (!placed) errors.push("metropolisSetCamera returned false (no view)");
+    if (!placed) diag.errors.push("metropolisSetCamera returned false (no view)");
     await page.waitForTimeout(500);
 
-    // Confirms SwiftShader/ANGLE actually gave the page a WebGL2 context (null
-    // ⇒ software GL missing ⇒ nothing rendered). DOM types aren't in this
-    // package's lib, so the browser globals are typed locally.
-    const renderer = await page.evaluate(() => {
-      interface Gl {
-        getExtension(name: string): { readonly UNMASKED_RENDERER_WEBGL: number } | null;
-        getParameter(pname: number): unknown;
-        readonly RENDERER: number;
-      }
-      interface Canvas {
-        getContext(type: string): Gl | null;
-      }
-      const doc = globalThis as unknown as { document: { createElement(t: string): Canvas } };
-      const gl = doc.document.createElement("canvas").getContext("webgl2");
-      if (!gl) return null;
-      const ext = gl.getExtension("WEBGL_debug_renderer_info");
-      return String(
-        ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
-      );
-    });
+    const renderer = await webglRenderer(page);
 
     await page.screenshot({ path: join(OUT, file) });
     await page.close();
-    return { errors, fallback, badAssets, glbLoaded, renderer };
+    return {
+      errors: diag.errors,
+      fallback: diag.fallback(),
+      badAssets: diag.badAssets,
+      glbLoaded: diag.glbLoaded(),
+      renderer,
+    };
   }
 
   // --- run --------------------------------------------------------------------
@@ -269,8 +199,7 @@ async function main(): Promise<void> {
   console.log(`screenshots: ${OUT}`);
 
   await browser.close();
-  dev.kill();
-  await dev.exited;
+  await dev.stop();
   process.exit(ok ? 0 : 1);
 }
 

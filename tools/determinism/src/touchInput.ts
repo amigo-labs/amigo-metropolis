@@ -11,12 +11,15 @@
 // CHROMIUM_PATH) and vite (client dev server, spawned here on TOUCH_E2E_PORT).
 // Renders through SwiftShader — no GPU needed (same setup as verify:arenas).
 
-import { chromium } from "playwright-core";
+import {
+  collectDiagnostics,
+  launchBrowser,
+  newHarnessContext,
+  startDevServer,
+} from "./browserLaunch";
 
-const CHROMIUM = process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium";
 const PORT = Number(process.env.TOUCH_E2E_PORT ?? "5179");
 const BASE = `http://127.0.0.1:${PORT}`;
-const CLIENT_DIR = new URL("../../../packages/client", import.meta.url).pathname;
 
 // Greybox render path: the harness asserts input→sim behavior, not assets, and
 // skipping the map/unit glTFs keeps the SwiftShader boot fast and hermetic.
@@ -31,50 +34,16 @@ interface Probe {
 }
 
 async function main(): Promise<void> {
-  console.log(`starting vite dev server on ${BASE} …`);
-  const dev = Bun.spawn(
-    ["bun", "x", "vite", "--port", String(PORT), "--strictPort", "--host", "127.0.0.1"],
-    { cwd: CLIENT_DIR, stdout: "ignore", stderr: "inherit", env: { ...process.env } },
-  );
-  let ready = false;
-  for (let i = 0; i < 120 && !ready; i++) {
-    ready = await fetch(BASE)
-      .then((r) => r.ok)
-      .catch(() => false);
-    if (!ready) await Bun.sleep(500);
-  }
-  if (!ready) {
-    dev.kill();
-    console.error("dev server did not become ready");
-    process.exit(1);
-  }
-  console.log("dev server ready");
-
-  const browser = await chromium.launch({
-    executablePath: CHROMIUM,
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--use-gl=angle",
-      "--use-angle=swiftshader",
-      "--enable-unsafe-swiftshader",
-      "--ignore-gpu-blocklist",
-    ],
-  });
+  const dev = await startDevServer(PORT);
+  const browser = await launchBrowser();
   // Phone-shaped touch context (landscape) — hasTouch also makes the client's
   // coarse-pointer auto-detect real, though the URL forces ?touch=1 anyway.
-  const context = await browser.newContext({
-    viewport: { width: 812, height: 375 },
-    hasTouch: true,
-    isMobile: true,
-  });
+  const context = await newHarnessContext(browser, { width: 812, height: 375, touch: true });
   const page = await context.newPage();
 
-  const errors: string[] = [];
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push(m.text());
-  });
-  page.on("pageerror", (e) => errors.push(String(e)));
+  // Same set as the hand-rolled collectors this replaced: console errors plus
+  // uncaught page errors. The diagnostics' asset/fallback signals go unused here.
+  const { errors } = collectDiagnostics(page);
 
   console.log(`opening ${URL_UNDER_TEST}`);
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle", timeout: 45000 });
@@ -198,8 +167,7 @@ async function main(): Promise<void> {
   }
 
   await browser.close();
-  dev.kill();
-  await dev.exited;
+  await dev.stop();
   process.exit(problems.length ? 1 : 0);
 }
 
