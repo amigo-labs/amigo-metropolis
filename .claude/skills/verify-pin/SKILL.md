@@ -112,4 +112,4 @@ human one.
 - Handle v1 pins too: they have no `entities`, `shots`, `console` or
   `reproduction`. Fall back to `view.png` + `nearby` and say what you could not
   check.
-- Keep this file and `.claude/skills/verify-pin/SKILL.md` in sync.
+- Keep this file and `.grok/skills/verify-pin/SKILL.md` in sync.

@@ -111,7 +111,17 @@ Violating it reintroduces “left-shifted” lanes/turrets and empty pads.
 For placement/mesh/texture issues in a running client:
 
 1. `bun run dev` + `bun run pin:serve`
-2. Menu **Fly** (or `?play=1&cam=fly`) → aim center crosshair → **P** → type the problem → Enter
-3. Agent: `/verify-pin` reads `docs/verification/pins/latest/` (`view.png` + `pin.json` notes)
+2. Menu **Fly** (or `?play=1&cam=fly`) → aim center crosshair → **P** → type the
+   problem → Enter (`Shift+P` also leaves the sim paused)
+3. Agent: `/verify-pin` reads `docs/verification/pins/latest/` — `view.png`,
+   `top.png` and `pin.json` (notes, nearby features, live entities, console tail)
+
+The agent verifies its own fix rather than asking you to fly back:
+`bun run pin:drive reshoot <id|latest>` restores arena/seed/tick and the recorded
+camera pose, then writes a linked pin to compare against. `bun run pin:drive`
+plus `bun run pin:cmd <verb>` lets it fly, spawn and pin unattended.
+
+Pins are debug-only and must never reach the sim tick path. If a pin change moves
+a golden hash, something leaked into the sim — that commit is wrong (hard rule 6).
 
 See `docs/verification/pins/README.md`.
