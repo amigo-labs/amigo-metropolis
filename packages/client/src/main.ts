@@ -53,17 +53,18 @@ import {
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AudioEngine } from "./audio/engine";
-import {
-  buildPin,
-  buildPinPrompt,
-  findNearby,
-  pinIdFromCreatedAt,
-  rayHitHeightfield,
-} from "./debug/pinCapture";
-import { captureCanvasPng, exportPin } from "./debug/pinExport";
+import { findEntities } from "./debug/pinCapture";
 import { createPinModal, showPinToast } from "./debug/pinModal";
+import {
+  createPinSession,
+  installConsoleCapture,
+  type PinFrame,
+  pinConsoleRing,
+} from "./debug/pinSession";
+import type { PinEntity } from "./debug/pinTypes";
 import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
+import { isTextEntryTarget } from "./input/textEntry";
 import { TouchInput, wantsTouch } from "./input/touch";
 import { TOUCH_BUTTONS } from "./input/touchMapping";
 import type { LocalInputSource } from "./input/types";
@@ -184,6 +185,15 @@ let sim: SimState = netMode
       })
     : createDemoSim(map);
 
+// Arm the pin console tail before any asset loads. A texture that silently fell
+// back to greybox says so on the console and nowhere else — no screenshot shows
+// it — so a pin has to be able to carry those lines. Solo only, which is
+// exactly where pins are reachable (fly mode is off in a net match), so a real
+// match never has its console wrapped.
+if (!netMode) {
+  installConsoleCapture(pinConsoleRing, () => (sim ? sim.tick : null));
+}
+
 // ?debug exposes the live sim for the console / e2e harness (host-side only,
 // like the debug HUD — nothing in the sim or renderer reads it back).
 // Harness freeze flag (metropolisPause): stops the local tick loop only —
@@ -203,6 +213,14 @@ if (params.has("debug") && !netMode) {
     metropolisSpawn?: (archetype: number, team: number, x: number, y: number) => number;
     metropolisPause?: (paused: boolean) => void;
     metropolisSnap?: () => void;
+    metropolisFly?: (x: number, y: number, z: number, yaw: number, pitch: number) => boolean;
+    metropolisStep?: (ticks: number) => number;
+    metropolisState?: (cx: number, cz: number, radius?: number) => PinEntity[];
+    metropolisHud?: () => string[];
+    metropolisPin?: (opts?: {
+      notes?: string;
+      parentId?: string | null;
+    }) => Promise<{ id: string; message: string }>;
   };
   dbg.metropolisSim = sim;
   // Debug-only spawner + freeze + snapshot for the verify:units screenshot
@@ -238,6 +256,49 @@ if (params.has("debug") && !netMode) {
     }
     return true;
   };
+
+  // --- Agent-driven verification (tools/determinism/src/pinDrive.ts) ----------
+  // Same contract as every hook above: host-side, ?debug-only, solo-only, and
+  // nothing in the sim or renderer reads any of it back. Together these let an
+  // agent do unattended what a human does with the fly cam and P — so a
+  // proposed fix gets re-shot at the original camera pose instead of the human
+  // having to fly back and pin again.
+
+  // Fly-cam pose by yaw/pitch. Distinct from metropolisSetCamera above: that
+  // one wants ?cam=orbit and a look-at target, whereas a pin records yaw/pitch
+  // and the fly rig would overwrite a look-at on the next frame anyway.
+  dbg.metropolisFly = (x, y, z, yaw, pitch) => {
+    const view = views[0];
+    if (!view || !flyMode) return false;
+    view.camera.position.set(x, y, z);
+    flyState.yaw = yaw;
+    flyState.pitch = pitch;
+    // dt = 0: apply yaw/pitch to the camera basis without integrating movement,
+    // so the pose is exactly what a human at these angles would see.
+    updateFlyCamera(flyState, view.camera, 0);
+    return true;
+  };
+
+  // Deterministic fast-forward. Calls the SAME runTick as the frame loop, so a
+  // stepped sim is indistinguishable from a played one at equal input — no
+  // second tick path to drift. Pair it with metropolisPause(true), or the frame
+  // loop races these ticks.
+  dbg.metropolisStep = (ticks) => {
+    const n = Math.max(0, Math.trunc(ticks));
+    for (let i = 0; i < n && sim && sim.winner < 0; i++) runTick();
+    return sim ? sim.tick : -1;
+  };
+
+  // Snapshot dump around a point, decoded exactly like a pin's `entities`.
+  dbg.metropolisState = (cx, cz, radius) => {
+    const all = findEntities(snapCurr, countCurr, cx, cz);
+    return radius === undefined ? all : all.filter((e) => e.dist <= radius);
+  };
+
+  dbg.metropolisHud = () => views.map((v) => v.hud.textContent ?? "");
+
+  // The agent's equivalent of pressing P.
+  dbg.metropolisPin = (opts) => capturePinNow(opts?.notes ?? "", opts?.parentId ?? null);
 }
 
 // --- Online helpers (no-ops unless ?online) ----------------------------------
@@ -615,104 +676,104 @@ function setFlyCrosshairVisible(on: boolean): void {
 
 let pinBusy = false;
 
-function flyLookDirection(): { x: number; y: number; z: number } {
-  // Same basis as updateFlyCamera (view-forward including pitch).
-  const cosPitch = Math.cos(flyState.pitch);
-  return {
-    x: -Math.sin(flyState.yaw) * cosPitch,
-    y: Math.sin(flyState.pitch),
-    z: -Math.cos(flyState.yaw) * cosPitch,
-  };
-}
+// The single capture path: the P hotkey below and metropolisPin (the agent hook)
+// both go through this, so a reshoot is field-for-field comparable with the pin
+// that prompted it.
+const pinSession = createPinSession({
+  renderer,
+  scene,
+  getView0: () => views[0] ?? null,
+  getMap: () => map,
+  getSim: () => sim ?? null,
+  getSnapshot: () => ({ snap: snapCurr, count: countCurr }),
+  flyState,
+  renderMode,
+  seed,
+  getTexVariant: () => texSwitcher?.status() ?? null,
+  greyboxStructures: showGreyboxStructures,
+  // pin:drive runs its own receiver and names it here; a human's browser uses
+  // the default port and falls back to downloads when nothing is listening.
+  ...(params.get("pinServer") ? { pinServerUrl: params.get("pinServer") as string } : {}),
+  setPaused: (p) => {
+    debugPaused = p;
+  },
+  getPaused: () => debugPaused,
+});
 
-function renderFlyViewForPin(): void {
-  const view = views[0];
-  if (!view) return;
-  const vp = view.viewport;
-  const yBottom = innerHeight - (vp.top + vp.height);
-  renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
-  renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
-  renderer.render(scene, view.camera);
-}
-
-async function beginVerificationPin(pauseSim: boolean): Promise<void> {
-  if (!flyMode || pinBusy || pinModal.isOpen() || views.length === 0) return;
-  pinBusy = true;
+/**
+ * Freezes the sim and neutralises fly input so the pinned frame stays valid,
+ * and returns the restore. Only a *saved* pin may leave the sim paused
+ * (Shift+P); cancelling and failing both put the pre-pin state back.
+ */
+function freezeForPin(pauseAfter: boolean): (saved: boolean) => void {
   const wasPaused = debugPaused;
-  // Freeze while the modal is open so the pinned frame stays valid.
-  // Shift+P (pauseSim): keep paused after save for inspection.
   debugPaused = true;
   if (document.pointerLockElement) document.exitPointerLock();
   flyState.keys.clear();
   flyState.lookX = 0;
   flyState.lookY = 0;
-
-  const restorePause = (afterSave: boolean): void => {
-    debugPaused = afterSave && pauseSim ? true : wasPaused;
-  };
-
-  try {
-    renderFlyViewForPin();
-    const png = await captureCanvasPng(renderer.domElement);
-    const view = views[0];
-    const cam = view.camera;
-    const dir = flyLookDirection();
-    const hit = rayHitHeightfield(
-      map,
-      cam.position.x,
-      cam.position.y,
-      cam.position.z,
-      dir.x,
-      dir.y,
-      dir.z,
-    );
-    const nearby = findNearby(map, hit.x, hit.z);
-    const camera = {
-      x: cam.position.x,
-      y: cam.position.y,
-      z: cam.position.z,
-      yaw: flyState.yaw,
-      pitch: flyState.pitch,
-    };
-    const seedVal = Number.isFinite(seed) ? seed : null;
-    const tickVal = sim ? sim.tick : null;
-    const partial = {
-      mapId: map.id,
-      url: location.href,
-      render: renderMode,
-      seed: seedVal,
-      tick: tickVal,
-      camera,
-      hit,
-      nearby,
-    };
-
-    pinModal.open({
-      onCancel: () => {
-        restorePause(false);
-        pinBusy = false;
-      },
-      onSubmit: (notes) => {
-        void (async () => {
-          try {
-            const pin = buildPin({ ...partial, notes });
-            const id = pinIdFromCreatedAt(pin.createdAt);
-            const prompt = buildPinPrompt(pin);
-            const result = await exportPin(pin, png, prompt, id);
-            showPinToast(result.message);
-          } catch (e) {
-            showPinToast(`Pin failed: ${e instanceof Error ? e.message : String(e)}`);
-          } finally {
-            restorePause(true);
-            pinBusy = false;
-          }
-        })();
-      },
-    });
-  } catch (e) {
-    restorePause(false);
+  return (saved: boolean): void => {
+    debugPaused = saved && pauseAfter ? true : wasPaused;
     pinBusy = false;
+  };
+}
+
+/** Hotkey path: capture first, then ask what the problem is. */
+async function beginVerificationPin(pauseSim: boolean): Promise<void> {
+  if (!flyMode || pinBusy || pinModal.isOpen() || views.length === 0) return;
+  pinBusy = true;
+  const finish = freezeForPin(pauseSim);
+  let frame: PinFrame;
+  try {
+    frame = await pinSession.captureFrame();
+  } catch (e) {
+    finish(false);
     showPinToast(`Pin failed: ${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  pinModal.open({
+    onCancel: () => finish(false),
+    onSubmit: (notes) => {
+      void (async () => {
+        let saved = false;
+        try {
+          const result = await pinSession.savePin(frame, notes, { origin: "hotkey" });
+          showPinToast(result.message);
+          saved = true;
+        } catch (e) {
+          showPinToast(`Pin failed: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          finish(saved);
+        }
+      })();
+    },
+  });
+}
+
+/**
+ * Agent path (metropolisPin): the notes are known up front, so this is one
+ * straight line — no modal, same capture, same payload, same on-disk format.
+ * That sameness is the whole point: it makes a reshoot comparable to the pin
+ * that prompted it.
+ */
+async function capturePinNow(
+  notes: string,
+  parentId: string | null,
+): Promise<{ id: string; message: string }> {
+  if (pinBusy) throw new Error("a pin capture is already in progress");
+  if (views.length === 0) throw new Error("no view to capture (views not built yet)");
+  pinBusy = true;
+  // Stay paused afterwards: an agent that just captured usually wants to look
+  // at the same frame again (reshoot, second angle).
+  const finish = freezeForPin(true);
+  try {
+    const frame = await pinSession.captureFrame();
+    const result = await pinSession.savePin(frame, notes, { origin: "agent", parentId });
+    finish(true);
+    return { id: result.id, message: result.message };
+  } catch (e) {
+    finish(false);
+    throw e;
   }
 }
 
@@ -720,11 +781,7 @@ addEventListener("keydown", (e) => {
   if (!flyMode || pinModal.isOpen() || pinBusy) return;
   if (e.code !== "KeyP" || e.repeat) return;
   // Ignore when typing in unrelated UI (menu drawers, etc.).
-  const t = e.target;
-  if (t instanceof HTMLElement) {
-    const tag = t.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || t.isContentEditable) return;
-  }
+  if (isTextEntryTarget(e.target)) return;
   e.preventDefault();
   void beginVerificationPin(e.shiftKey);
 });
