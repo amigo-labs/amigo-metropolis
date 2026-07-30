@@ -14,6 +14,11 @@ const SHOT_FIELDS: readonly (readonly [string, string])[] = [
   ["top", "top.png"],
 ];
 
+/**
+ * CORS is required here, unlike on the pin:drive control server: the client
+ * posting a pin is a page served from the vite dev server on another port, so
+ * the POST is cross-origin. Removing this silently breaks pin saving.
+ */
 export function cors(res: Response): Response {
   const headers = new Headers(res.headers);
   headers.set("Access-Control-Allow-Origin", "*");

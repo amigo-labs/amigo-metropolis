@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPinStore, PIN_KEEP, safeId } from "../src/pinStore";
+import { createPinStore, PIN_KEEP, safeId, safeShotFile } from "../src/pinStore";
 
 const dirs: string[] = [];
 
@@ -52,7 +52,73 @@ describe("safeId", () => {
   });
 });
 
+describe("safeShotFile", () => {
+  test("passes a normal shot name", () => {
+    expect(safeShotFile("view.png")).toBe("view.png");
+    expect(safeShotFile("top.png")).toBe("top.png");
+  });
+
+  test("rejects the store's own metadata names", () => {
+    // safeId keeps dots, so these survive it intact and would clobber the pin.
+    for (const name of ["pin.json", "prompt.txt", "index.json"]) {
+      expect(() => safeShotFile(name)).toThrow(/reserved/);
+    }
+  });
+
+  test("rejects anything that is not a .png", () => {
+    expect(() => safeShotFile("notes.txt")).toThrow(/\.png/);
+    expect(() => safeShotFile("view")).toThrow(/\.png/);
+  });
+
+  test("rejects a name that sanitises away to nothing", () => {
+    expect(() => safeShotFile("///")).toThrow(/empty/);
+  });
+
+  test("strips traversal before the checks", () => {
+    expect(safeShotFile("../../view.png")).toBe("....view.png");
+  });
+});
+
 describe("write", () => {
+  test("refuses a shot that would overwrite the metadata, writing nothing", () => {
+    const store = tempStore();
+    expect(() =>
+      store.write({
+        id: "clobber",
+        pinText: pinText(),
+        promptText: "",
+        shots: [
+          { file: "view.png", bytes: png(1) },
+          { file: "pin.json", bytes: png(2) },
+        ],
+      }),
+    ).toThrow(/reserved/);
+    // Validated up front, so nothing was written and the index stays empty.
+    expect(existsSync(join(store.root, "clobber"))).toBe(false);
+    expect(store.readIndex()).toEqual([]);
+  });
+
+  test("a rejected write leaves an earlier pin's latest/ intact", () => {
+    const store = tempStore();
+    store.write({
+      id: "good",
+      pinText: pinText(),
+      promptText: "",
+      shots: [{ file: "view.png", bytes: png(1) }],
+    });
+    expect(() =>
+      store.write({
+        id: "bad",
+        pinText: pinText(),
+        promptText: "",
+        shots: [{ file: "prompt.txt", bytes: png(2) }],
+      }),
+    ).toThrow();
+    // The pre-write validation must not have cleared latest/ first.
+    expect(existsSync(join(store.root, "latest", "view.png"))).toBe(true);
+    expect(store.readIndex().map((e) => e.id)).toEqual(["good"]);
+  });
+
   test("writes the pin, its shots and prompt, and mirrors them into latest/", () => {
     const store = tempStore();
     const entry = store.write({

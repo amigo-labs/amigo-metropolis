@@ -335,10 +335,15 @@ async function reshoot(session: Session, idOrLatest: string): Promise<unknown> {
 
 // --- control server ----------------------------------------------------------
 
+// Deliberately NO CORS header. This endpoint spawns pages, steps the sim and
+// writes files; with Access-Control-Allow-Origin: * any site open in the user's
+// browser could read its responses while pin:drive is running. The only client
+// is pinCmd.ts, a Bun script, which is not subject to CORS at all.
+// (pinReceiver.ts is the opposite case and does need it — see the note there.)
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+    headers: { "Content-Type": "application/json" },
   });
 }
 

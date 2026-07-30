@@ -54,6 +54,26 @@ export function safeId(raw: string | null | undefined): string {
   return s.length > 0 ? s : "";
 }
 
+/** Names the store owns; a shot may not claim one. */
+const RESERVED_FILES: readonly string[] = ["pin.json", "prompt.txt", "index.json"];
+
+/**
+ * Shot file names must be sanitised *and* not collide with the metadata files —
+ * `safeId` keeps dots, so "pin.json" survives it intact and would overwrite the
+ * pin it belongs to, in both the pin directory and the latest/ mirror. Throws
+ * rather than skipping: no HTTP path can produce this (pinReceiver maps fixed
+ * field names), so reaching it means a caller bug worth surfacing.
+ */
+export function safeShotFile(raw: string): string {
+  const name = safeId(raw);
+  if (name.length === 0) throw new Error(`shot file name is empty after sanitising: ${raw}`);
+  if (RESERVED_FILES.includes(name)) {
+    throw new Error(`shot file name "${name}" is reserved by the pin store`);
+  }
+  if (!name.endsWith(".png")) throw new Error(`shot file must be a .png, got "${name}"`);
+  return name;
+}
+
 /**
  * Reads the fields the index needs out of a pin.json. Tolerant on purpose: a v1
  * pin has no origin/reproduction, and a hand-edited pin should not break `ls`.
@@ -96,6 +116,10 @@ export function createPinStore(pinsRoot: string): PinStore {
 
   const write = (input: WritePinInput): PinIndexEntry => {
     const id = safeId(input.id) || `pin-${Date.now()}`;
+    // Validate every shot name before touching the disk: a throw halfway
+    // through would leave a pin.json with no images and an emptied latest/.
+    const shots = input.shots.map((s) => ({ file: safeShotFile(s.file), bytes: s.bytes }));
+
     const dir = join(pinsRoot, id);
     mkdirSync(dir, { recursive: true });
     mkdirSync(LATEST, { recursive: true });
@@ -111,12 +135,10 @@ export function createPinStore(pinsRoot: string): PinStore {
       if (name.endsWith(".png")) rmSync(join(LATEST, name), { force: true });
     }
     const files: string[] = ["pin.json", "prompt.txt"];
-    for (const shot of input.shots) {
-      const name = safeId(shot.file);
-      if (name.length === 0) continue;
-      writeFileSync(join(dir, name), shot.bytes);
-      writeFileSync(join(LATEST, name), shot.bytes);
-      files.push(name);
+    for (const shot of shots) {
+      writeFileSync(join(dir, shot.file), shot.bytes);
+      writeFileSync(join(LATEST, shot.file), shot.bytes);
+      files.push(shot.file);
     }
 
     const entry = summarise(id, input.pinText, files);
