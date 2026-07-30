@@ -34,6 +34,7 @@ import {
   EV_SHOT,
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
+  type Loadout,
   MAX_ENTITIES,
   MAX_PLAYERS,
   type MatchConfig,
@@ -52,12 +53,27 @@ import {
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AudioEngine } from "./audio/engine";
+import {
+  buildPin,
+  buildPinPrompt,
+  findNearby,
+  pinIdFromCreatedAt,
+  rayHitHeightfield,
+} from "./debug/pinCapture";
+import { captureCanvasPng, exportPin } from "./debug/pinExport";
+import { createPinModal, showPinToast } from "./debug/pinModal";
 import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
 import { TouchInput, wantsTouch } from "./input/touch";
 import { TOUCH_BUTTONS } from "./input/touchMapping";
 import type { LocalInputSource } from "./input/types";
-import { buildModeQuery, type MenuChoice, type MenuHandle, runMenu } from "./menu";
+import {
+  buildModeQuery,
+  loadoutFromParams,
+  type MenuChoice,
+  type MenuHandle,
+  runMenu,
+} from "./menu";
 import { createDemoSim, demoFeeder, updateFlyoverCamera, zeroPlayerInput } from "./menuWorld";
 import { NetLockstep } from "./net/lockstep";
 import { P2pLockstep } from "./net/p2pLockstep";
@@ -66,6 +82,7 @@ import { WsTransport } from "./net/wsTransport";
 import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
+import { createFx } from "./render/fx";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import { loadMapMesh } from "./render/meshMap";
 import { ATMOSPHERE_HEX } from "./render/palette";
@@ -151,6 +168,8 @@ let warden = wardenDifficulty >= 1;
 // link and test entry point behaves exactly as before.
 const explicitMode =
   netMode || warden || params.has("opponent") || params.has("play") || params.has("debug");
+/** Loadout for the local human (menu pick or ?gun=&heavy=&special= deep link). */
+let playerLoadout: Loadout = loadoutFromParams(params);
 // Offline match modes build the sim now; a net mode defers — to the server's
 // authoritative config (arrives in MSG_WELCOME) or the lobby-brokered P2P
 // session — so both peers build a byte-identical sim. The menu instead shows
@@ -159,7 +178,10 @@ const explicitMode =
 let sim: SimState = netMode
   ? (undefined as unknown as SimState)
   : explicitMode
-    ? createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined)
+    ? createSim(map, seed, {
+        ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
+        loadouts: [playerLoadout],
+      })
     : createDemoSim(map);
 
 // ?debug exposes the live sim for the console / e2e harness (host-side only,
@@ -308,7 +330,9 @@ function scriptOpponent(slot: number, tick: number, out: PlayerInput): void {
 
 // --- Scene setup --------------------------------------------------------------
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// preserveDrawingBuffer: fly-mode verification pins read the canvas after a
+// forced re-render; without this some GPUs return a blank frame on toBlob.
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setScissorTest(true); // each player view renders scissored to its rect
@@ -419,6 +443,9 @@ function buildArenaGroup(m: typeof map): THREE.Group {
 let arenaGroup = buildArenaGroup(map);
 scene.add(arenaGroup);
 const greybox = createGreyboxMeshes(scene);
+// Client-only shot VFX (tracers, muzzle flashes, explosions) — same event
+// buffer as audio, independent of sim hash.
+const fx = createFx(scene);
 // Stage B unit models upgrade the greybox buckets in place as they load;
 // missing assets keep their greybox mesh (render/unitMeshes.ts).
 if (renderMode === "mesh") loadUnitMeshes(greybox);
@@ -553,13 +580,154 @@ function refreshDebugLabel(): void {
   // switcher the label must hide (empty text) instead of staying stale.
   const parts: string[] = [];
   if (texSwitcher) parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan`);
-  if (flyMode) parts.push("fly: WASD+QE move, Shift fast, click=mouse-look (ESC releases)");
+  if (flyMode) {
+    parts.push("fly: WASD+QE move, Shift fast, click=mouse-look (ESC releases)");
+    parts.push("pin: P = capture + problem note (Shift+P pauses sim)");
+  }
   const text = parts.join("\n");
   if (text === debugLabelText) return;
   debugLabelText = text;
   debugLabelEl.textContent = text;
   debugLabelEl.style.display = text ? "block" : "none";
 }
+
+// --- Verification pin (fly mode): center-ray capture + problem modal ----------
+const pinModal = createPinModal();
+const flyCrosshair = document.createElement("div");
+flyCrosshair.style.cssText =
+  "position:fixed;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;" +
+  "z-index:25;pointer-events:none;display:none;" +
+  "border:1px solid rgba(220,235,255,.85);border-radius:50%;" +
+  "box-shadow:0 0 0 1px rgba(0,0,0,.35)";
+// Inner cross ticks via two thin bars.
+const chH = document.createElement("div");
+chH.style.cssText =
+  "position:absolute;left:3px;right:3px;top:50%;height:1px;margin-top:-0.5px;background:rgba(220,235,255,.9)";
+const chV = document.createElement("div");
+chV.style.cssText =
+  "position:absolute;top:3px;bottom:3px;left:50%;width:1px;margin-left:-0.5px;background:rgba(220,235,255,.9)";
+flyCrosshair.append(chH, chV);
+document.body.appendChild(flyCrosshair);
+
+function setFlyCrosshairVisible(on: boolean): void {
+  flyCrosshair.style.display = on ? "block" : "none";
+}
+
+let pinBusy = false;
+
+function flyLookDirection(): { x: number; y: number; z: number } {
+  // Same basis as updateFlyCamera (view-forward including pitch).
+  const cosPitch = Math.cos(flyState.pitch);
+  return {
+    x: -Math.sin(flyState.yaw) * cosPitch,
+    y: Math.sin(flyState.pitch),
+    z: -Math.cos(flyState.yaw) * cosPitch,
+  };
+}
+
+function renderFlyViewForPin(): void {
+  const view = views[0];
+  if (!view) return;
+  const vp = view.viewport;
+  const yBottom = innerHeight - (vp.top + vp.height);
+  renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
+  renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
+  renderer.render(scene, view.camera);
+}
+
+async function beginVerificationPin(pauseSim: boolean): Promise<void> {
+  if (!flyMode || pinBusy || pinModal.isOpen() || views.length === 0) return;
+  pinBusy = true;
+  const wasPaused = debugPaused;
+  // Freeze while the modal is open so the pinned frame stays valid.
+  // Shift+P (pauseSim): keep paused after save for inspection.
+  debugPaused = true;
+  if (document.pointerLockElement) document.exitPointerLock();
+  flyState.keys.clear();
+  flyState.lookX = 0;
+  flyState.lookY = 0;
+
+  const restorePause = (afterSave: boolean): void => {
+    debugPaused = afterSave && pauseSim ? true : wasPaused;
+  };
+
+  try {
+    renderFlyViewForPin();
+    const png = await captureCanvasPng(renderer.domElement);
+    const view = views[0];
+    const cam = view.camera;
+    const dir = flyLookDirection();
+    const hit = rayHitHeightfield(
+      map,
+      cam.position.x,
+      cam.position.y,
+      cam.position.z,
+      dir.x,
+      dir.y,
+      dir.z,
+    );
+    const nearby = findNearby(map, hit.x, hit.z);
+    const camera = {
+      x: cam.position.x,
+      y: cam.position.y,
+      z: cam.position.z,
+      yaw: flyState.yaw,
+      pitch: flyState.pitch,
+    };
+    const seedVal = Number.isFinite(seed) ? seed : null;
+    const tickVal = sim ? sim.tick : null;
+    const partial = {
+      mapId: map.id,
+      url: location.href,
+      render: renderMode,
+      seed: seedVal,
+      tick: tickVal,
+      camera,
+      hit,
+      nearby,
+    };
+
+    pinModal.open({
+      onCancel: () => {
+        restorePause(false);
+        pinBusy = false;
+      },
+      onSubmit: (notes) => {
+        void (async () => {
+          try {
+            const pin = buildPin({ ...partial, notes });
+            const id = pinIdFromCreatedAt(pin.createdAt);
+            const prompt = buildPinPrompt(pin);
+            const result = await exportPin(pin, png, prompt, id);
+            showPinToast(result.message);
+          } catch (e) {
+            showPinToast(`Pin failed: ${e instanceof Error ? e.message : String(e)}`);
+          } finally {
+            restorePause(true);
+            pinBusy = false;
+          }
+        })();
+      },
+    });
+  } catch (e) {
+    restorePause(false);
+    pinBusy = false;
+    showPinToast(`Pin failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+addEventListener("keydown", (e) => {
+  if (!flyMode || pinModal.isOpen() || pinBusy) return;
+  if (e.code !== "KeyP" || e.repeat) return;
+  // Ignore when typing in unrelated UI (menu drawers, etc.).
+  const t = e.target;
+  if (t instanceof HTMLElement) {
+    const tag = t.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || t.isContentEditable) return;
+  }
+  e.preventDefault();
+  void beginVerificationPin(e.shiftKey);
+});
 
 // Variant hotkeys: plain digits are unused by gameplay (movement/fire live on
 // WASD/JKL, see input/keyboard.ts BUTTON_KEYS) — safe for debug bindings.
@@ -656,26 +824,23 @@ function runTick(): void {
   }
 
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
-  // The demo battle stays sonically calm — music only, no SFX.
-  if (phase === "match") {
-    buildAudioIndex();
-    audio.pump(sim.events, resolveEventPosition); // per-tick transients: drain now
-  }
+  // The demo battle stays calm — music only, no SFX/VFX.
+  if (phase === "match") pumpCosmetics(sim.events);
   rotateSnapshot();
 }
 
 /** Rotates the double-buffered snapshots and writes the current sim state. */
 
-// --- Positional audio ---------------------------------------------------------
+// --- Positional audio + shot VFX ---------------------------------------------
 // Events carry no coordinates for their own sake — only the ones that already
 // quantize a position do (EV_EXPLOSION and the Precinct Assault events pack
 // x*16/y*16), capture/claim carry a spot index, and the rest name an entity. So
 // resolution happens here, the one place that holds both the map and a snapshot.
 //
-// The snapshot in hand when audio.pump runs is up to one tick old (pump drains
-// before rotateSnapshot). That is deliberate: 33 ms of staleness is inaudible,
-// and it avoids reordering the tick loop on the two online paths, where a
-// mistake would silently drop cues on one path only.
+// The snapshot in hand when cosmetics pump runs is up to one tick old (pump
+// drains before rotateSnapshot). That is deliberate: 33 ms of staleness is
+// inaudible/invisible, and it avoids reordering the tick loop on the two online
+// paths, where a mistake would silently drop cues on one path only.
 /** id -> snapshot slot, rebuilt per pump. -1 = not in this snapshot. */
 const audioIndex = new Int32Array(MAX_ENTITIES).fill(-1);
 
@@ -687,8 +852,11 @@ function buildAudioIndex(): void {
   }
 }
 
-/** Writes an entity's snapshot position into `out`; false if it is not there. */
-function entityPosition(id: number, out: Float32Array): boolean {
+/**
+ * Entity world pose from the current snapshot: `[x, height, z]` always, and
+ * `out[3] = yaw` when the buffer is long enough (FX tracers need facing).
+ */
+function entityPose(id: number, out: Float32Array): boolean {
   if (id < 0 || id >= MAX_ENTITIES) return false;
   const slot = audioIndex[id];
   if (slot < 0) return false;
@@ -696,6 +864,7 @@ function entityPosition(id: number, out: Float32Array): boolean {
   out[0] = snapCurr[o + 3];
   out[1] = snapCurr[o + 5];
   out[2] = snapCurr[o + 4];
+  if (out.length > 3) out[3] = snapCurr[o + 6];
   return true;
 }
 
@@ -718,6 +887,7 @@ function resolveEventPosition(
       out[0] = a / 16;
       out[2] = b / 16;
       out[1] = 1.5;
+      if (out.length > 3) out[3] = 0;
       return true;
     }
     // Spot index into the map's own lists — always resolvable, no lookup risk.
@@ -727,16 +897,24 @@ function resolveEventPosition(
       out[0] = spot.x;
       out[2] = spot.y;
       out[1] = 1.5;
+      if (out.length > 3) out[3] = 0;
       return true;
     }
     case EV_SHOT:
     case EV_HIT:
     case EV_DEATH:
     case EV_RESPAWN:
-      return entityPosition(a, out);
+      return entityPose(a, out);
     default:
       return false;
   }
+}
+
+/** Audio + VFX share the event buffer and the same position resolver. */
+function pumpCosmetics(events: typeof sim.events): void {
+  buildAudioIndex();
+  audio.pump(events, resolveEventPosition);
+  fx.pump(events, resolveEventPosition);
 }
 
 function rotateSnapshot(): void {
@@ -949,6 +1127,7 @@ function frame(now: number): void {
   if (views.length === 0) {
     // No views yet: menu / lobby / waiting-for-opponent — flyover over the demo.
     updateFlyoverCamera(flyCam, now / 1000, extent);
+    if (phase === "match") fx.update(dtSec, flyCam);
     renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.setScissor(0, 0, innerWidth, innerHeight);
     renderer.render(scene, flyCam);
@@ -960,14 +1139,18 @@ function frame(now: number): void {
       view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
       if (flyMode && v === 0) {
         // Free-fly debug camera owns view 0's posing (render/flyCamera.ts) —
-        // rig and blend are skipped, exactly like orbit below.
-        updateFlyCamera(flyState, view.camera, dtSec);
+        // rig and blend are skipped, exactly like orbit below. Skip while the
+        // pin modal is open so WASD does not drift under the dialog.
+        if (!pinModal.isOpen()) updateFlyCamera(flyState, view.camera, dtSec);
       } else if (orbitControls && v === 0) {
         orbitControls.update();
       } else {
         updateRigCamera(view, dtSec);
         if (blend.active) applyBlend(blend, view.camera, dtSec);
       }
+      // Billboards face the local view's camera (view 0); update once after
+      // that camera is posed, before any scissored draw.
+      if (v === 0 && phase === "match") fx.update(dtSec, view.camera);
       const vp = view.viewport;
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
@@ -1033,9 +1216,10 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
     poseFlyStart(flyState, views[0].camera, extent);
     refreshDebugLabel();
   }
+  setFlyCrosshairVisible(flyMode && views.length === 1);
   // The mouse reticle only makes sense for a single full-window pointer player
-  // — and not at all under touch, where the aim stick owns facing.
-  reticle.style.display = views.length === 1 && !touchMode ? "block" : "none";
+  // — and not at all under touch or fly (fly uses a fixed center crosshair).
+  reticle.style.display = views.length === 1 && !touchMode && !flyMode ? "block" : "none";
   document.body.style.cursor = ""; // back to the stylesheet crosshair (touch: none)
   touchControls?.show();
 }
@@ -1105,8 +1289,7 @@ function connectOnline(code: string): void {
   net = new NetLockstep(new WsTransport(relayUrl(code)), {
     sampleInput: makeNetSampler(),
     onStep: (_tick, stepped) => {
-      buildAudioIndex();
-      audio.pump(stepped.events, resolveEventPosition); // per-tick transients
+      pumpCosmetics(stepped.events);
       rotateSnapshot();
     },
     onWelcome: (slotIdx, welcomed, welcomedConfig) => {
@@ -1189,8 +1372,7 @@ function connectP2pMode(code: string): void {
         {
           sampleInput: makeNetSampler(),
           onStep: (_tick, stepped) => {
-            buildAudioIndex();
-            audio.pump(stepped.events, resolveEventPosition);
+            pumpCosmetics(stepped.events);
             rotateSnapshot();
           },
           onStart: () => {
@@ -1256,8 +1438,9 @@ function previewArena(mapId: string): void {
  * deep link (carrying a ?relay override), so it stays shareable and a refresh
  * re-enters through the deep-link path exactly as before.
  */
-function handleMenuChoice(choice: MenuChoice, mapId: string): void {
-  const query = buildModeQuery(choice, mapId);
+function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): void {
+  playerLoadout = loadout;
+  const query = buildModeQuery(choice, mapId, loadout);
   const relay = params.get("relay");
   history.pushState(null, "", relay ? `${query}&relay=${encodeURIComponent(relay)}` : query);
   menuHandle?.dismiss();
@@ -1271,7 +1454,10 @@ function handleMenuChoice(choice: MenuChoice, mapId: string): void {
       warden = choice.mode === "warden";
       wardenDifficulty = choice.mode === "warden" ? choice.difficulty : 0;
       resetForMatch(
-        createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined),
+        createSim(map, seed, {
+          ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
+          loadouts: [playerLoadout],
+        }),
       );
       // The flagship transition: one continuous shot from flyover to chase rig.
       if (!orbitMode) beginBlend(blend, flyCam, 1.2);
@@ -1285,7 +1471,7 @@ function handleMenuChoice(choice: MenuChoice, mapId: string): void {
       flyMode = true;
       warden = false;
       wardenDifficulty = 0;
-      resetForMatch(createSim(map, seed, undefined));
+      resetForMatch(createSim(map, seed, { loadouts: [playerLoadout] }));
       // No flyover→chase blend — fly cam owns posing from the first frame.
       startMatch([{ slot: 0, input: localInput }]);
       break;
@@ -1320,6 +1506,7 @@ if (online) {
     audio,
     onChoice: handleMenuChoice,
     onSelect: previewArena,
+    initialLoadout: playerLoadout,
     // Graphics drawer: apply a texture-preference change immediately to the
     // (possibly already loaded) backdrop arena; persisting is menu.ts's job.
     onTexPref: (pref) => {

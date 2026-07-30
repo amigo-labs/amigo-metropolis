@@ -67,8 +67,8 @@ describe("team ramps", () => {
 });
 
 describe("projectile tints", () => {
-  test("four kinds, primary tracer is white", () => {
-    expect(PROJECTILE_HEX.length).toBe(4);
+  test("seven kinds, primary tracer is white", () => {
+    expect(PROJECTILE_HEX.length).toBe(7);
     expect(PROJECTILE_HEX[0]).toBe(paletteHex("muzzle"));
     expect(PROJECTILE_HEX[0]).toBe(0xffffff);
     expect(PROJECTILE_HEX[3]).toBe(paletteHex("warden_bomb"));

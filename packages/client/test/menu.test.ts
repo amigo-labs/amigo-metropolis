@@ -3,7 +3,13 @@
 // already understands, and room codes must round-trip through validation.
 
 import { describe, expect, test } from "bun:test";
-import { buildModeQuery, isLocalhost, normalizeRoomCode, randomRoomCode } from "../src/menu";
+import {
+  buildModeQuery,
+  isLocalhost,
+  loadoutFromParams,
+  normalizeRoomCode,
+  randomRoomCode,
+} from "../src/menu";
 
 describe("buildModeQuery", () => {
   test("solo sandbox uses the ?play marker", () => {
@@ -48,6 +54,31 @@ describe("buildModeQuery", () => {
 
   test("without a map id the query stays bare", () => {
     expect(buildModeQuery({ mode: "solo" })).toBe("?play=1");
+  });
+
+  test("non-default loadout rides as gun/heavy/special params", () => {
+    expect(buildModeQuery({ mode: "solo" }, "urban-jungle", { gun: 1, heavy: 2, special: 0 })).toBe(
+      "?play=1&map=urban-jungle&gun=1&heavy=2&special=0",
+    );
+    // Default kit is omitted so historic deep links stay short.
+    expect(buildModeQuery({ mode: "solo" }, undefined, { gun: 0, heavy: 0, special: 0 })).toBe(
+      "?play=1",
+    );
+  });
+});
+
+describe("loadoutFromParams", () => {
+  test("parses and clamps weapon indices", () => {
+    expect(loadoutFromParams(new URLSearchParams("gun=1&heavy=2&special=1"))).toEqual({
+      gun: 1,
+      heavy: 2,
+      special: 1,
+    });
+    expect(loadoutFromParams(new URLSearchParams("gun=99&heavy=-1"))).toEqual({
+      gun: 2,
+      heavy: 0,
+      special: 0,
+    });
   });
 });
 

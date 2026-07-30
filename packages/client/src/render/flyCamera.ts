@@ -46,6 +46,12 @@ export function createFlyState(): FlyState {
  * the input path. Returns a cleanup function (unused today; fly mode lives for
  * the whole page, but the symmetry keeps listener ownership explicit).
  */
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
+}
+
 export function initFlyInput(state: FlyState, canvas: HTMLCanvasElement): () => void {
   const onMouseMove = (e: MouseEvent) => {
     if (document.pointerLockElement === canvas) {
@@ -57,9 +63,12 @@ export function initFlyInput(state: FlyState, canvas: HTMLCanvasElement): () => 
     if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
   };
   const onKeyDown = (e: KeyboardEvent) => {
+    // Pin modal / other text fields must receive keys (incl. Space) unmolested.
+    if (isTextEntryTarget(e.target)) return;
     state.keys.add(e.code);
   };
   const onKeyUp = (e: KeyboardEvent) => {
+    if (isTextEntryTarget(e.target)) return;
     state.keys.delete(e.code);
   };
   const onBlur = () => state.keys.clear();

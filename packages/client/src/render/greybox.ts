@@ -51,8 +51,16 @@ export interface GreyboxMeshes {
   readonly all: Bucket[];
 }
 
-function bucket(scene: THREE.Scene, geometry: THREE.BufferGeometry, capacity: number): Bucket {
-  const material = new THREE.MeshStandardMaterial({ flatShading: true });
+function bucket(
+  scene: THREE.Scene,
+  geometry: THREE.BufferGeometry,
+  capacity: number,
+  /** Unlit bright material for projectiles (FCOP-style energy bolts). */
+  unlit = false,
+): Bucket {
+  const material = unlit
+    ? new THREE.MeshBasicMaterial({ toneMapped: false })
+    : new THREE.MeshStandardMaterial({ flatShading: true });
   const mesh = new THREE.InstancedMesh(geometry, material, capacity);
   mesh.count = 0;
   mesh.frustumCulled = false;
@@ -159,9 +167,11 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const defenseScale = 0.65;
   const turretDefenseGeometry = turretGeometry.clone();
   turretDefenseGeometry.scale(defenseScale, defenseScale, defenseScale);
-  // Projectile: small low-poly ball.
-  const projectileGeometry = new THREE.SphereGeometry(0.35, 6, 4);
-  projectileGeometry.translate(0, 0.35, 0);
+  // Projectile: elongated energy bolt along +X (sim forward). Unlit + instance
+  // color reads as a glowing shell; the old 0.35 m ball vanished against terrain.
+  const projectileGeometry = new THREE.CylinderGeometry(0.2, 0.12, 1.5, 6);
+  projectileGeometry.rotateZ(-Math.PI / 2);
+  projectileGeometry.translate(0, 0.25, 0);
   // Outpost console: slab + pedestal + tilted screen (a live entity — it
   // changes team on claim and respawns — unlike the static base consoles).
   const consoleGeometry = mergeGeometries([
@@ -193,7 +203,7 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const turretCap = turretCapacity();
   const turretStandard = bucket(scene, turretGeometry, turretCap);
   const turretDefense = bucket(scene, turretDefenseGeometry, turretCap);
-  const projectile = bucket(scene, projectileGeometry, 128);
+  const projectile = bucket(scene, projectileGeometry, 128, true);
   const consoleBucket = bucket(scene, consoleGeometry, consoleCapacity());
   const warden = bucket(scene, wardenGeometry, 2);
   return {

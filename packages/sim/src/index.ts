@@ -17,3 +17,4 @@ export * from "./simMath";
 export * from "./units";
 export * from "./version";
 export * from "./warden";
+export * from "./weapons";

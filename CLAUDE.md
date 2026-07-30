@@ -105,3 +105,13 @@ Violating it reintroduces “left-shifted” lanes/turrets and empty pads.
 - Atomic commits, imperative mood, one logical change each.
 - Each phase has a Definition of Done; do not start the next phase before it's met.
 - New gameplay constants go in `packages/sim/src/balance.ts` — never inline.
+
+### Visual co-debug (verification pins)
+
+For placement/mesh/texture issues in a running client:
+
+1. `bun run dev` + `bun run pin:serve`
+2. Menu **Fly** (or `?play=1&cam=fly`) → aim center crosshair → **P** → type the problem → Enter
+3. Agent: `/verify-pin` reads `docs/verification/pins/latest/` (`view.png` + `pin.json` notes)
+
+See `docs/verification/pins/README.md`.

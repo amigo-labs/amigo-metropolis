@@ -1,0 +1,559 @@
+// Client-only shot cosmetics (architecture.md §3 event buffer). Driven like
+// audio: pump per tick, update per frame. Never touches sim state; zero
+// allocations in the hot path (pools preallocated at createFx).
+//
+// Hybrid visual language (as much original FCOP as the assets allow):
+//   Cpyr particle sprites (public/fx/particles.png) → muzzle, explosion, hit
+//   Procedural geometry                               → MG/laser tracers,
+//                                                       shockwave rings
+// The particle atlas is only fireballs/puffs — no laser or ring frames exist
+// in the extract. Semantic particle-id mapping is by-eye (PYDT has no labels).
+
+import {
+  EV_EXPLOSION,
+  EV_HIT,
+  EV_SHOT,
+  EVENT_STRIDE,
+  type EventBuffer,
+  PRIMARY_RANGE,
+  PROJ_CLUSTER,
+  PROJ_MORTAR,
+  PROJ_RAIL,
+  PROJ_SPECIAL,
+  PROJ_WARDEN,
+  weaponById,
+} from "@metropolis/sim";
+import * as THREE from "three";
+import { PROJECTILE_HEX, paletteHex } from "./palette";
+
+/** Must match sim.ts MUZZLE_OFFSET (not exported; keep in lockstep by hand). */
+const MUZZLE_OFFSET = 2;
+
+const TRACER_CAP = 128;
+const MUZZLE_CAP = 64;
+const EXPLOSION_CAP = 48;
+const SPARK_CAP = 64;
+const SHOCKWAVE_CAP = 48;
+
+const TRACER_LIFE = 0.09;
+const MUZZLE_LIFE = 0.06;
+const EXPLOSION_LIFE = 0.32;
+const SPARK_LIFE = 0.1;
+const SHOCKWAVE_LIFE = 0.28;
+
+const TRACER_CORE_THICK = 0.1;
+const TRACER_HALO_THICK = 0.28;
+const MUZZLE_SCALE = 1.4;
+const SPARK_SCALE = 0.9;
+const EXPLOSION_START = 1.2;
+const EXPLOSION_END = 6.5;
+const SHOCKWAVE_END = 8;
+
+/**
+ * Cpyr particle ids used for each role (palette-0 atlas, by-eye mapping).
+ * ids: 8+5 large fireballs, 11/1/10/3 medium, 6 small, 7 tiny.
+ */
+export const PARTICLE_ID = {
+  explosion: 8,
+  explosionAlt: 5,
+  muzzle: 6,
+  spark: 7,
+} as const;
+
+const ATLAS_URL = "/fx/particles.png";
+const ATLAS_META_URL = "/fx/particles.json";
+
+interface ParticleSpriteRect {
+  atlas_x: number;
+  atlas_y: number;
+  w: number;
+  h: number;
+}
+
+interface ParticleMeta {
+  size: [number, number];
+  particles: Array<{ id: number; sprites: ParticleSpriteRect[] }>;
+}
+
+/**
+ * Fills `out` with world pose `[x, height, z, yaw]` for the event, or returns
+ * false when the event has no resolvable position (skip the effect).
+ * Supplied by the host (main.ts) — same role as the audio position resolver.
+ */
+export type FxPoseResolver = (
+  type: number,
+  a: number,
+  b: number,
+  c: number,
+  out: Float32Array,
+) => boolean;
+
+export interface ShotFx {
+  /** Drain this tick's events into the pools (call once per sim step). */
+  pump(events: EventBuffer, resolve: FxPoseResolver): void;
+  /**
+   * Age live effects and rewrite instance matrices (call once per frame).
+   * Pass the active camera so Cpyr billboards face the viewer.
+   */
+  update(dtSec: number, camera?: THREE.Camera): void;
+  /** Test/debug: live slot counts per pool. */
+  debugCounts(): {
+    tracers: number;
+    muzzles: number;
+    explosions: number;
+    sparks: number;
+    shockwaves: number;
+  };
+  /** True once the original Cpyr atlas has been applied to the sprite pools. */
+  readonly atlasReady: boolean;
+}
+
+interface Pool {
+  readonly mesh: THREE.InstancedMesh;
+  readonly life: Float32Array;
+  readonly maxLife: Float32Array;
+  readonly x: Float32Array;
+  readonly y: Float32Array;
+  readonly z: Float32Array;
+  readonly yaw: Float32Array;
+  /** Extra param: tracer length, explosion end-scale, etc. */
+  readonly param: Float32Array;
+  count: number;
+}
+
+// Module-scope scratch — never allocate inside pump/update.
+const scratchMatrix = new THREE.Matrix4();
+const scratchQuat = new THREE.Quaternion();
+const scratchPos = new THREE.Vector3();
+const scratchScale = new THREE.Vector3(1, 1, 1);
+const scratchColor = new THREE.Color();
+const camQuat = new THREE.Quaternion();
+const UP = new THREE.Vector3(0, 1, 0);
+const poseScratch = new Float32Array(4);
+let hasCamera = false;
+
+function makeAdditiveMaterial(hex: number, opacity = 0.95): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
+    color: hex,
+    transparent: true,
+    opacity,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+}
+
+function makePool(
+  scene: THREE.Scene,
+  geometry: THREE.BufferGeometry,
+  material: THREE.Material,
+  capacity: number,
+  withInstanceColor = false,
+): Pool {
+  const mesh = new THREE.InstancedMesh(geometry, material, capacity);
+  mesh.count = 0;
+  mesh.frustumCulled = false;
+  mesh.matrixAutoUpdate = false;
+  mesh.renderOrder = 10; // draw on top of solid units
+  mesh.updateMatrix();
+  if (withInstanceColor) {
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
+  }
+  scene.add(mesh);
+  return {
+    mesh,
+    life: new Float32Array(capacity),
+    maxLife: new Float32Array(capacity),
+    x: new Float32Array(capacity),
+    y: new Float32Array(capacity),
+    z: new Float32Array(capacity),
+    yaw: new Float32Array(capacity),
+    param: new Float32Array(capacity),
+    count: 0,
+  };
+}
+
+function spawn(
+  pool: Pool,
+  life: number,
+  x: number,
+  y: number,
+  z: number,
+  yaw: number,
+  param: number,
+): boolean {
+  const i = pool.count;
+  if (i >= pool.life.length) return false;
+  pool.life[i] = life;
+  pool.maxLife[i] = life;
+  pool.x[i] = x;
+  pool.y[i] = y;
+  pool.z[i] = z;
+  pool.yaw[i] = yaw;
+  pool.param[i] = param;
+  pool.count = i + 1;
+  return true;
+}
+
+function kill(pool: Pool, i: number): void {
+  const last = pool.count - 1;
+  if (i !== last) {
+    pool.life[i] = pool.life[last];
+    pool.maxLife[i] = pool.maxLife[last];
+    pool.x[i] = pool.x[last];
+    pool.y[i] = pool.y[last];
+    pool.z[i] = pool.z[last];
+    pool.yaw[i] = pool.yaw[last];
+    pool.param[i] = pool.param[last];
+    if (pool.mesh.instanceColor) {
+      scratchColor.fromArray(pool.mesh.instanceColor.array as Float32Array, last * 3);
+      pool.mesh.setColorAt(i, scratchColor);
+    }
+  }
+  pool.count = last;
+}
+
+function age(pool: Pool, dt: number): void {
+  let i = 0;
+  while (i < pool.count) {
+    pool.life[i] -= dt;
+    if (pool.life[i] <= 0) {
+      kill(pool, i);
+      continue;
+    }
+    i += 1;
+  }
+}
+
+function explosionTint(kind: number): number {
+  if (kind === PROJ_SPECIAL) return PROJECTILE_HEX[2] ?? paletteHex("special");
+  if (kind === PROJ_WARDEN) return PROJECTILE_HEX[3] ?? paletteHex("warden_bomb");
+  if (kind === PROJ_CLUSTER) return PROJECTILE_HEX[4] ?? 0xff7020;
+  if (kind === PROJ_RAIL) return PROJECTILE_HEX[5] ?? 0xc0e8ff;
+  if (kind === PROJ_MORTAR) return PROJECTILE_HEX[6] ?? 0xffa060;
+  return 0xffffff; // original fireball colors when atlas is bound
+}
+
+/** Tracer length + colors for hitscan weapons (by catalog id). */
+function hitscanLook(weaponId: number): {
+  length: number;
+  core: number;
+  halo: number;
+  thick: number;
+} {
+  const w = weaponById(weaponId);
+  const vfx = w?.vfx ?? "minigun";
+  const length = w?.delivery === "hitscan" ? w.range || PRIMARY_RANGE : PRIMARY_RANGE;
+  if (vfx === "laser") return { length, core: 0xffffff, halo: 0x7ef2ff, thick: 1.1 };
+  if (vfx === "flame") return { length, core: 0xffe080, halo: 0xff6020, thick: 1.8 };
+  if (vfx === "beam") return { length, core: 0xffffff, halo: 0xd080ff, thick: 1.4 };
+  // minigun default
+  return { length, core: 0xffffff, halo: 0xffe08a, thick: 1 };
+}
+
+function findSprite(meta: ParticleMeta, id: number): ParticleSpriteRect | null {
+  for (let i = 0; i < meta.particles.length; i++) {
+    if (meta.particles[i].id === id && meta.particles[i].sprites.length > 0) {
+      return meta.particles[i].sprites[0];
+    }
+  }
+  return null;
+}
+
+/** Crops one particle rect from the shared atlas image (NearestFilter, PS1). */
+function cropAtlasMap(
+  atlas: THREE.Texture,
+  rect: ParticleSpriteRect,
+  atlasW: number,
+  atlasH: number,
+): THREE.Texture {
+  const map = atlas.clone();
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.magFilter = THREE.NearestFilter;
+  map.minFilter = THREE.NearestFilter;
+  map.generateMipmaps = false;
+  map.wrapS = THREE.ClampToEdgeWrapping;
+  map.wrapT = THREE.ClampToEdgeWrapping;
+  // Three UV origin is bottom-left; PYDT y is top-left.
+  map.offset.set(rect.atlas_x / atlasW, 1 - (rect.atlas_y + rect.h) / atlasH);
+  map.repeat.set(rect.w / atlasW, rect.h / atlasH);
+  map.needsUpdate = true;
+  return map;
+}
+
+function bindSpriteMap(material: THREE.MeshBasicMaterial, map: THREE.Texture): void {
+  material.map = map;
+  material.color.setHex(0xffffff);
+  material.opacity = 1;
+  material.needsUpdate = true;
+}
+
+export function createFx(scene: THREE.Scene): ShotFx {
+  // --- Procedural: laser/MG tracers (core + soft halo) -----------------------
+  const tracerGeom = new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
+  tracerGeom.rotateZ(-Math.PI / 2);
+  const tracerCore = makePool(
+    scene,
+    tracerGeom,
+    makeAdditiveMaterial(0xffffff, 0.95),
+    TRACER_CAP,
+    true,
+  );
+  const tracerHalo = makePool(
+    scene,
+    tracerGeom,
+    makeAdditiveMaterial(0xffffff, 0.45),
+    TRACER_CAP,
+    true,
+  );
+
+  // --- Procedural: ground shockwave ring (no original ring sprite exists) ----
+  const ringGeom = new THREE.RingGeometry(0.42, 0.55, 40);
+  ringGeom.rotateX(-Math.PI / 2);
+  const shockwaves = makePool(
+    scene,
+    ringGeom,
+    makeAdditiveMaterial(paletteHex("explosion"), 0.75),
+    SHOCKWAVE_CAP,
+    true,
+  );
+
+  // --- Cpyr billboards (planes); solid fallback until atlas loads ------------
+  const quadGeom = new THREE.PlaneGeometry(1, 1);
+  const muzzleMat = makeAdditiveMaterial(0xfff2a8, 1);
+  const explosionMat = makeAdditiveMaterial(0xffffff, 0.9);
+  const sparkMat = makeAdditiveMaterial(paletteHex("muzzle"), 1);
+  const muzzles = makePool(scene, quadGeom, muzzleMat, MUZZLE_CAP);
+  const explosions = makePool(scene, quadGeom, explosionMat, EXPLOSION_CAP, true);
+  const sparks = makePool(scene, quadGeom, sparkMat, SPARK_CAP);
+
+  let atlasReady = false;
+
+  // Fire-and-forget atlas load. Missing file keeps the solid additive fallback
+  // so greybox / tests / offline still show shot feedback.
+  void loadCpyrAtlas().then((loaded) => {
+    if (!loaded) return;
+    bindSpriteMap(muzzleMat, loaded.maps.muzzle);
+    bindSpriteMap(explosionMat, loaded.maps.explosion);
+    bindSpriteMap(sparkMat, loaded.maps.spark);
+    atlasReady = true;
+  });
+
+  function pump(events: EventBuffer, resolve: FxPoseResolver): void {
+    const data = events.data;
+    const n = events.count;
+    for (let i = 0; i < n; i++) {
+      const o = i * EVENT_STRIDE;
+      const type = data[o];
+      const a = data[o + 1];
+      const b = data[o + 2];
+      const c = data[o + 3];
+      if (!resolve(type, a, b, c, poseScratch)) continue;
+      const px = poseScratch[0];
+      const py = poseScratch[1];
+      const pz = poseScratch[2];
+      const yaw = poseScratch[3];
+
+      if (type === EV_SHOT) {
+        const cos = Math.cos(yaw);
+        const sin = Math.sin(yaw);
+        const mx = px + cos * MUZZLE_OFFSET;
+        const mz = pz + sin * MUZZLE_OFFSET;
+        const my = py + 0.9;
+        // c = weapon catalog id (all slots). Muzzle for every shot.
+        const w = weaponById(c);
+        const muzzleScale = w?.vfx === "flame" ? MUZZLE_SCALE * 1.5 : MUZZLE_SCALE;
+        spawn(muzzles, MUZZLE_LIFE, mx, my, mz, yaw, muzzleScale);
+        // Hitscan weapons get a tracer bolt (gun minigun/laser/flame, special beam).
+        // Projectiles already render as entities.
+        if (w?.delivery === "hitscan" || (b === 0 && !w)) {
+          const look = hitscanLook(c);
+          const half = look.length * 0.5;
+          const cx = mx + cos * half;
+          const cz = mz + sin * half;
+          const coreSlot = tracerCore.count;
+          if (spawn(tracerCore, TRACER_LIFE, cx, my, cz, yaw, look.length)) {
+            scratchColor.setHex(look.core);
+            tracerCore.mesh.setColorAt(coreSlot, scratchColor);
+            if (tracerCore.mesh.instanceColor) tracerCore.mesh.instanceColor.needsUpdate = true;
+          }
+          const haloSlot = tracerHalo.count;
+          if (spawn(tracerHalo, TRACER_LIFE, cx, my, cz, yaw, look.length * look.thick)) {
+            scratchColor.setHex(look.halo);
+            tracerHalo.mesh.setColorAt(haloSlot, scratchColor);
+            if (tracerHalo.mesh.instanceColor) tracerHalo.mesh.instanceColor.needsUpdate = true;
+          }
+        }
+      } else if (type === EV_EXPLOSION) {
+        // c = projectile kind (mode).
+        const endScale =
+          c === PROJ_SPECIAL || c === PROJ_MORTAR
+            ? 5.5
+            : c === PROJ_WARDEN || c === PROJ_CLUSTER
+              ? 7.0
+              : c === PROJ_RAIL
+                ? 3.2
+                : EXPLOSION_END;
+        const slot = explosions.count;
+        if (spawn(explosions, EXPLOSION_LIFE, px, py + 0.6, pz, 0, endScale)) {
+          scratchColor.setHex(explosionTint(c));
+          explosions.mesh.setColorAt(slot, scratchColor);
+          if (explosions.mesh.instanceColor) explosions.mesh.instanceColor.needsUpdate = true;
+        }
+        // Shockwave rides the ground under the fireball (procedural — no ring sprite).
+        const waveEnd =
+          c === PROJ_WARDEN || c === PROJ_CLUSTER
+            ? 10
+            : c === PROJ_SPECIAL || c === PROJ_MORTAR
+              ? 7
+              : c === PROJ_RAIL
+                ? 3
+                : SHOCKWAVE_END;
+        const wslot = shockwaves.count;
+        if (spawn(shockwaves, SHOCKWAVE_LIFE, px, py + 0.15, pz, 0, waveEnd)) {
+          const tint = explosionTint(c);
+          scratchColor.setHex(tint === 0xffffff ? paletteHex("explosion") : tint);
+          shockwaves.mesh.setColorAt(wslot, scratchColor);
+          if (shockwaves.mesh.instanceColor) shockwaves.mesh.instanceColor.needsUpdate = true;
+        }
+      } else if (type === EV_HIT) {
+        spawn(sparks, SPARK_LIFE, px, py + 1.0, pz, 0, SPARK_SCALE);
+      }
+    }
+  }
+
+  function writeOriented(
+    pool: Pool,
+    billboard: boolean,
+    scaleFor: (i: number, t: number) => void,
+  ): void {
+    const n = pool.count;
+    for (let i = 0; i < n; i++) {
+      const t = 1 - pool.life[i] / pool.maxLife[i];
+      scaleFor(i, t);
+      scratchPos.set(pool.x[i], pool.y[i], pool.z[i]);
+      if (billboard && hasCamera) {
+        // True camera-facing sprite (Cpyr frames).
+        scratchQuat.copy(camQuat);
+      } else {
+        scratchQuat.setFromAxisAngle(UP, -pool.yaw[i]);
+      }
+      scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
+      pool.mesh.setMatrixAt(i, scratchMatrix);
+    }
+    pool.mesh.count = n;
+    pool.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  function update(dtSec: number, camera?: THREE.Camera): void {
+    hasCamera = camera !== undefined;
+    if (camera) camera.getWorldQuaternion(camQuat);
+
+    if (dtSec > 0) {
+      age(tracerCore, dtSec);
+      age(tracerHalo, dtSec);
+      age(muzzles, dtSec);
+      age(explosions, dtSec);
+      age(sparks, dtSec);
+      age(shockwaves, dtSec);
+    }
+
+    writeOriented(tracerCore, false, (i, t) => {
+      const fade = 1 - t;
+      scratchScale.set(tracerCore.param[i], TRACER_CORE_THICK * fade, TRACER_CORE_THICK * fade);
+    });
+    writeOriented(tracerHalo, false, (i, t) => {
+      const fade = (1 - t) * 0.85;
+      scratchScale.set(tracerHalo.param[i], TRACER_HALO_THICK * fade, TRACER_HALO_THICK * fade);
+    });
+    writeOriented(muzzles, true, (i, t) => {
+      const s = muzzles.param[i] * (1 + t * 0.6);
+      const fade = 1 - t;
+      scratchScale.set(s * fade, s * fade, s * fade);
+    });
+    writeOriented(explosions, true, (i, t) => {
+      const s = EXPLOSION_START + (explosions.param[i] - EXPLOSION_START) * t;
+      const envelope = t < 0.25 ? t / 0.25 : 1 - (t - 0.25) / 0.75;
+      const f = Math.max(0.08, envelope);
+      scratchScale.set(s * f, s * f, s * f);
+    });
+    writeOriented(sparks, true, (i, t) => {
+      const s = sparks.param[i] * (1 + t * 0.8);
+      const fade = 1 - t;
+      scratchScale.set(s * fade, s * fade, s * fade);
+    });
+    writeOriented(shockwaves, false, (i, t) => {
+      // Expanding ground disk; RingGeometry already has thickness in UV space.
+      const s = 0.8 + shockwaves.param[i] * t;
+      scratchScale.set(s, 1, s);
+    });
+  }
+
+  return {
+    pump,
+    update,
+    get atlasReady() {
+      return atlasReady;
+    },
+    debugCounts: () => ({
+      tracers: tracerCore.count,
+      muzzles: muzzles.count,
+      explosions: explosions.count,
+      sparks: sparks.count,
+      shockwaves: shockwaves.count,
+    }),
+  };
+}
+
+interface LoadedAtlas {
+  maps: {
+    explosion: THREE.Texture;
+    muzzle: THREE.Texture;
+    spark: THREE.Texture;
+  };
+}
+
+async function loadCpyrAtlas(): Promise<LoadedAtlas | null> {
+  try {
+    const metaRes = await fetch(ATLAS_META_URL);
+    if (!metaRes.ok) return null;
+    const meta = (await metaRes.json()) as ParticleMeta;
+    const [atlasW, atlasH] = meta.size;
+
+    const expRect = findSprite(meta, PARTICLE_ID.explosion);
+    const muzRect = findSprite(meta, PARTICLE_ID.muzzle);
+    const spkRect = findSprite(meta, PARTICLE_ID.spark);
+    if (!expRect || !muzRect || !spkRect) return null;
+
+    const atlas = await loadTexture(ATLAS_URL);
+    if (!atlas) return null;
+    atlas.colorSpace = THREE.SRGBColorSpace;
+    atlas.magFilter = THREE.NearestFilter;
+    atlas.minFilter = THREE.NearestFilter;
+    atlas.generateMipmaps = false;
+    atlas.needsUpdate = true;
+
+    return {
+      maps: {
+        explosion: cropAtlasMap(atlas, expRect, atlasW, atlasH),
+        muzzle: cropAtlasMap(atlas, muzRect, atlasW, atlasH),
+        spark: cropAtlasMap(atlas, spkRect, atlasW, atlasH),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function loadTexture(url: string): Promise<THREE.Texture | null> {
+  return new Promise((resolve) => {
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      url,
+      (tex) => resolve(tex),
+      undefined,
+      () => resolve(null),
+    );
+  });
+}

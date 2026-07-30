@@ -1,0 +1,119 @@
+{
+  "atlas": "particles.png",
+  "size": [256, 512],
+  "note": "PS1/PC particle sprites; multiple PYPL palettes exist, atlas rendered with palette 0",
+  "particles": [
+    {
+      "id": 8,
+      "size_pow2": 128,
+      "sprites": [
+        {
+          "atlas_x": 0,
+          "atlas_y": 0,
+          "off_x": 1,
+          "off_y": 0,
+          "w": 126,
+          "h": 128
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "size_pow2": 128,
+      "sprites": [
+        {
+          "atlas_x": 126,
+          "atlas_y": 0,
+          "off_x": 1,
+          "off_y": 1,
+          "w": 125,
+          "h": 126
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "size_pow2": 64,
+      "sprites": [
+        {
+          "atlas_x": 63,
+          "atlas_y": 128,
+          "off_x": 1,
+          "off_y": 0,
+          "w": 62,
+          "h": 64
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "size_pow2": 32,
+      "sprites": [
+        {
+          "atlas_x": 125,
+          "atlas_y": 190,
+          "off_x": 0,
+          "off_y": 0,
+          "w": 32,
+          "h": 32
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "size_pow2": 16,
+      "sprites": [
+        {
+          "atlas_x": 157,
+          "atlas_y": 190,
+          "off_x": 0,
+          "off_y": 0,
+          "w": 16,
+          "h": 16
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "size_pow2": 64,
+      "sprites": [
+        {
+          "atlas_x": 0,
+          "atlas_y": 128,
+          "off_x": 0,
+          "off_y": 0,
+          "w": 63,
+          "h": 64
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "size_pow2": 64,
+      "sprites": [
+        {
+          "atlas_x": 189,
+          "atlas_y": 126,
+          "off_x": 0,
+          "off_y": 0,
+          "w": 63,
+          "h": 64
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "size_pow2": 64,
+      "sprites": [
+        {
+          "atlas_x": 126,
+          "atlas_y": 126,
+          "off_x": 0,
+          "off_y": 0,
+          "w": 63,
+          "h": 64
+        }
+      ]
+    }
+  ]
+}

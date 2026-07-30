@@ -14,8 +14,6 @@ import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
   ARCHETYPE_MAX_HP,
   ARCHETYPE_RADIUS,
-  AVATAR_AMMO_HEAVY,
-  AVATAR_AMMO_SPECIAL,
   AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HOVER_SPEED,
   AVATAR_HP,
@@ -38,11 +36,6 @@ import {
   DUMMY_RESPAWN_TICKS,
   FORTRESS_ALIVE_LIMIT,
   GRAVITY,
-  HEAVY_AOE_RADIUS,
-  HEAVY_COOLDOWN_TICKS,
-  HEAVY_DAMAGE,
-  HEAVY_SPEED,
-  HEAVY_TTL_TICKS,
   HOVER_CLEARANCE,
   HOVER_CUSHION_SPAN,
   HOVER_TRACTION_ACCEL,
@@ -72,15 +65,7 @@ import {
   POINTS_KILL_AVATAR,
   POINTS_KILL_TURRET,
   POINTS_KILL_UNIT,
-  PRIMARY_COOLDOWN_TICKS,
-  PRIMARY_DAMAGE,
-  PRIMARY_RANGE,
   RESPAWN_TICKS,
-  SPECIAL_AOE_RADIUS,
-  SPECIAL_COOLDOWN_TICKS,
-  SPECIAL_DAMAGE,
-  SPECIAL_SPEED,
-  SPECIAL_TTL_TICKS,
   STARTING_POINTS,
   TICK_DT,
   TRANSFORM_LOCK_TICKS,
@@ -97,8 +82,6 @@ import {
   UNIT_FIRE_COOLDOWN_TICKS,
   UNIT_RANGE,
   WARDEN_ALTITUDE,
-  WARDEN_HEAVY_AOE_RADIUS,
-  WARDEN_HEAVY_DAMAGE,
   WARDEN_HP,
   WARDEN_INCOME_PERCENT,
 } from "./balance";
@@ -155,15 +138,18 @@ import {
   UNIT_MODE_PATROL,
 } from "./units";
 import { systemWarden, WGOAL_IDLE } from "./warden";
+import {
+  DEFAULT_LOADOUT,
+  type Loadout,
+  normalizeLoadout,
+  projectileBlast,
+  resolveLoadout,
+  weaponInSlot,
+} from "./weapons";
 
 // Avatar modes (EntityStore.mode).
 export const MODE_WALKER = 0;
 export const MODE_HOVER = 1;
-
-// Projectile kinds (EntityStore.mode on PROJECTILE entities).
-export const PROJ_HEAVY = 1;
-export const PROJ_SPECIAL = 2;
-export const PROJ_WARDEN = 3; // the Warden's bomb (own damage/AoE numbers)
 
 // Turret kinds (EntityStore.mode on TURRET entities).
 // Visual mesh modes: DEFENSE → turret-defense.glb, DUMMY/CAPTURABLE → turret-standard.glb.
@@ -190,6 +176,11 @@ export interface SimOptions {
   wardenPlayer?: number;
   /** Warden difficulty 1–10 (clamped). */
   wardenDifficulty?: number;
+  /**
+   * Per-player weapon loadout (gun/heavy/special indices). Length 1 or
+   * MAX_PLAYERS; missing slots use the default historic kit.
+   */
+  loadouts?: readonly (Partial<Loadout> | undefined)[];
 }
 
 export interface SimState {
@@ -232,6 +223,14 @@ export interface SimState {
   readonly buyProgress: Int32Array;
   /** Soft-lock target entity per player (-1 none); acquired/cycled in-sim. */
   readonly lockTarget: Int32Array;
+  /**
+   * Avatar loadout indices per player (Future Cop style gun/heavy/special).
+   * Config-only — not hashed (peers agree via MatchConfig / createSim options).
+   * Default 0/0/0 is the historic Mini-Gun + Hellfire + Plasma kit.
+   */
+  readonly loadoutGun: Uint8Array;
+  readonly loadoutHeavy: Uint8Array;
+  readonly loadoutSpecial: Uint8Array;
   /** Player slot the Warden AI drives, -1 for a match without one (config). */
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
@@ -288,8 +287,18 @@ export function spawnAvatar(state: SimState, player: number): number {
   ent.aimY[id] = sinLUT(s.yaw);
   ent.hp[id] = warden ? WARDEN_HP : AVATAR_HP;
   ent.mode[id] = MODE_WALKER;
-  ent.ammoA[id] = warden ? 0 : AVATAR_AMMO_HEAVY;
-  ent.ammoB[id] = warden ? 0 : AVATAR_AMMO_SPECIAL;
+  if (warden) {
+    ent.ammoA[id] = 0;
+    ent.ammoB[id] = 0;
+  } else {
+    const kit = resolveLoadout({
+      gun: state.loadoutGun[player],
+      heavy: state.loadoutHeavy[player],
+      special: state.loadoutSpecial[player],
+    });
+    ent.ammoA[id] = kit.heavy.ammo;
+    ent.ammoB[id] = kit.special.ammo;
+  }
   ent.ownerId[id] = player;
   state.avatarId[player] = id;
   return id;
@@ -543,6 +552,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     wardenPlayer >= 0
       ? Math.min(Math.max(rawDifficulty >= 1 ? Math.floor(rawDifficulty) : 1, 1), 10)
       : 0;
+  const loadouts = options?.loadouts;
   const state: SimState = {
     tick: 0,
     prng: seed | 0,
@@ -568,6 +578,9 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     buyTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     lockTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     buyProgress: new Int32Array(MAX_PLAYERS),
+    loadoutGun: new Uint8Array(MAX_PLAYERS),
+    loadoutHeavy: new Uint8Array(MAX_PLAYERS),
+    loadoutSpecial: new Uint8Array(MAX_PLAYERS),
     wardenPlayer,
     wardenDifficulty,
     wardenGoal: WGOAL_IDLE,
@@ -591,6 +604,14 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     triggerArm: new Int32Array(map.triggerVolumes.length),
     events: createEventBuffer(),
   };
+  // Apply loadouts before avatars spawn so ammo capacities match the kit.
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const raw = loadouts?.[p] ?? (p === 0 ? loadouts?.[0] : undefined);
+    const kit = normalizeLoadout(raw ?? DEFAULT_LOADOUT);
+    state.loadoutGun[p] = kit.gun;
+    state.loadoutHeavy[p] = kit.heavy;
+    state.loadoutSpecial[p] = kit.special;
+  }
   for (let p = 0; p < MAX_PLAYERS; p++) {
     spawnAvatar(state, p);
   }
@@ -1099,9 +1120,14 @@ function avatarWeapons(
   const pad = state.map.bases[player].pad;
   const pdx = ent.posX[id] - pad.x;
   const pdy = ent.posY[id] - pad.y;
+  const kit = resolveLoadout({
+    gun: state.loadoutGun[player],
+    heavy: state.loadoutHeavy[player],
+    special: state.loadoutSpecial[player],
+  });
   if (pdx * pdx + pdy * pdy <= pad.radius * pad.radius) {
-    ent.ammoA[id] = AVATAR_AMMO_HEAVY;
-    ent.ammoB[id] = AVATAR_AMMO_SPECIAL;
+    ent.ammoA[id] = kit.heavy.ammo;
+    ent.ammoB[id] = kit.special.ammo;
     if (ent.hp[id] < AVATAR_HP) {
       ent.hp[id] += PAD_REPAIR_HP_PER_TICK;
       if (ent.hp[id] > AVATAR_HP) ent.hp[id] = AVATAR_HP;
@@ -1114,8 +1140,8 @@ function avatarWeapons(
     const odx = ent.posX[id] - s.x;
     const ody = ent.posY[id] - s.y;
     if (odx * odx + ody * ody <= OUTPOST_PAD_RADIUS * OUTPOST_PAD_RADIUS) {
-      ent.ammoA[id] = AVATAR_AMMO_HEAVY;
-      ent.ammoB[id] = AVATAR_AMMO_SPECIAL;
+      ent.ammoA[id] = kit.heavy.ammo;
+      ent.ammoB[id] = kit.special.ammo;
     }
   }
 
@@ -1124,23 +1150,44 @@ function avatarWeapons(
   const dirY = ent.aimY[id];
   if (dirX === 0 && dirY === 0) return;
 
+  // Gun (slot 0) — always infinite ammo; delivery from the loadout profile.
   if ((buttons & BUTTON_FIRE1) !== 0 && ent.cooldownA[id] <= 0) {
-    ent.cooldownA[id] = PRIMARY_COOLDOWN_TICKS;
-    pushEvent(state.events, EV_SHOT, id, 0, 0);
-    hitscan(state, id, player, dirX, dirY, PRIMARY_RANGE, PRIMARY_DAMAGE);
+    const w = kit.gun;
+    ent.cooldownA[id] = w.cooldownTicks;
+    pushEvent(state.events, EV_SHOT, id, 0, w.id);
+    fireWeapon(state, id, player, w, dirX, dirY);
   }
+  // Heavy (slot 1).
   if ((buttons & BUTTON_FIRE2) !== 0 && ent.cooldownB[id] <= 0 && ent.ammoA[id] > 0) {
-    ent.cooldownB[id] = HEAVY_COOLDOWN_TICKS;
+    const w = kit.heavy;
+    ent.cooldownB[id] = w.cooldownTicks;
     ent.ammoA[id] -= 1;
-    pushEvent(state.events, EV_SHOT, id, 1, 0);
-    spawnProjectile(state, id, player, PROJ_HEAVY, dirX, dirY, HEAVY_SPEED, HEAVY_TTL_TICKS);
+    pushEvent(state.events, EV_SHOT, id, 1, w.id);
+    fireWeapon(state, id, player, w, dirX, dirY);
   }
+  // Special (slot 2).
   if ((buttons & BUTTON_FIRE3) !== 0 && ent.cooldownC[id] <= 0 && ent.ammoB[id] > 0) {
-    ent.cooldownC[id] = SPECIAL_COOLDOWN_TICKS;
+    const w = kit.special;
+    ent.cooldownC[id] = w.cooldownTicks;
     ent.ammoB[id] -= 1;
-    pushEvent(state.events, EV_SHOT, id, 2, 0);
-    spawnProjectile(state, id, player, PROJ_SPECIAL, dirX, dirY, SPECIAL_SPEED, SPECIAL_TTL_TICKS);
+    pushEvent(state.events, EV_SHOT, id, 2, w.id);
+    fireWeapon(state, id, player, w, dirX, dirY);
   }
+}
+
+function fireWeapon(
+  state: SimState,
+  shooter: number,
+  player: number,
+  w: ReturnType<typeof weaponInSlot>,
+  dirX: number,
+  dirY: number,
+): void {
+  if (w.delivery === "hitscan") {
+    hitscan(state, shooter, player, dirX, dirY, w.range, w.damage);
+    return;
+  }
+  spawnProjectile(state, shooter, player, w.projKind, dirX, dirY, w.speed, w.ttlTicks);
 }
 
 /** First enemy hit along the 2D ray within `range`, if any (shared w/ Warden). */
@@ -1391,18 +1438,9 @@ function systemProjectiles(state: SimState): void {
 function explode(state: SimState, id: number): void {
   const ent = state.ent;
   const kind = ent.mode[id];
-  const radius =
-    kind === PROJ_SPECIAL
-      ? SPECIAL_AOE_RADIUS
-      : kind === PROJ_WARDEN
-        ? WARDEN_HEAVY_AOE_RADIUS
-        : HEAVY_AOE_RADIUS;
-  const damage =
-    kind === PROJ_SPECIAL
-      ? SPECIAL_DAMAGE
-      : kind === PROJ_WARDEN
-        ? WARDEN_HEAVY_DAMAGE
-        : HEAVY_DAMAGE;
+  const blast = projectileBlast(kind);
+  const radius = blast.radius;
+  const damage = blast.damage;
   const x = ent.posX[id];
   const y = ent.posY[id];
   const team = ent.team[id];
@@ -1727,9 +1765,11 @@ function systemPickups(state: SimState): void {
       const dy = ent.posY[a] - spots[k].y;
       if (dx * dx + dy * dy > r2) continue;
       const kind = spots[k].kind;
-      if (kind === PICKUP_HEAVY_AMMO) ent.ammoA[a] = AVATAR_AMMO_HEAVY;
-      else if (kind === PICKUP_SPECIAL_AMMO) ent.ammoB[a] = AVATAR_AMMO_SPECIAL;
-      else if (kind === PICKUP_HEALTH) {
+      if (kind === PICKUP_HEAVY_AMMO) {
+        ent.ammoA[a] = weaponInSlot(1, state.loadoutHeavy[p]).ammo;
+      } else if (kind === PICKUP_SPECIAL_AMMO) {
+        ent.ammoB[a] = weaponInSlot(2, state.loadoutSpecial[p]).ammo;
+      } else if (kind === PICKUP_HEALTH) {
         ent.hp[a] = Math.min(AVATAR_HP, ent.hp[a] + PICKUP_HEALTH_AMOUNT);
       } else if (kind === PICKUP_INVULN) state.buffInvuln[p] = PICKUP_INVULN_TICKS;
       else if (kind === PICKUP_INVIS) state.buffInvis[p] = PICKUP_INVIS_TICKS;

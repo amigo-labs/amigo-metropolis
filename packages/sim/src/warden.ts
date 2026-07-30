@@ -52,16 +52,10 @@ import {
 import { EV_SHOT, pushEvent } from "./events";
 import { BUTTON_FIRE2, BUTTON_INTERACT } from "./inputs";
 import { sampleHeight, worldExtent } from "./map";
-import {
-  ANIM_MOVING,
-  hitscan,
-  PROJ_WARDEN,
-  type SimState,
-  spawnProjectile,
-  systemBuy,
-} from "./sim";
+import { ANIM_MOVING, hitscan, type SimState, spawnProjectile, systemBuy } from "./sim";
 import { atan2Poly, rand01 } from "./simMath";
 import { isGroundUnit, nearestEnemyInRange } from "./units";
+import { PROJ_WARDEN } from "./weapons";
 
 // Goals (SimState.wardenGoal). wardenSlot is the goal's operand.
 export const WGOAL_IDLE = 0; //            hold near own core

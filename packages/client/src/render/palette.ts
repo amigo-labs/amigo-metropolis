@@ -109,14 +109,17 @@ export function teamRamp(team: number): Ramp {
 }
 
 /**
- * Projectile tint by payload kind, matching the sim's aux ordering:
- * 0 = primary hitscan tracer, 1 = heavy, 2 = special, 3 = warden bomb.
+ * Projectile tint by payload kind (entity.mode / snapshot aux):
+ * 0 unused, 1 heavy/hellfire, 2 plasma, 3 warden bomb, 4 cluster, 5 rail, 6 mortar.
  */
 export const PROJECTILE_HEX: readonly number[] = [
   paletteHex("muzzle"),
   paletteHex("heavy"),
   paletteHex("special"),
   paletteHex("warden_bomb"),
+  0xff7020, // cluster — deeper orange
+  0xc0e8ff, // rail — icy white-blue
+  0xffa060, // mortar — warm shell
 ];
 
 /** Terrain / water colors consumed by the heightfield mesh builder. */

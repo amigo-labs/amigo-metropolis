@@ -13,8 +13,8 @@
 export const EVENT_CAPACITY = 512;
 export const EVENT_STRIDE = 4; // [type, a, b, c]
 
-export const EV_SHOT = 1; //      a=shooter id, b=weapon slot (0/1/2)
-export const EV_EXPLOSION = 2; // a=x*16, b=y*16 (quantized), c=weapon slot
+export const EV_SHOT = 1; //      a=shooter id, b=weapon slot (0/1/2), c=weapon id
+export const EV_EXPLOSION = 2; // a=x*16, b=y*16 (quantized), c=projectile kind
 export const EV_HIT = 3; //       a=target id, b=attacker player, c=damage
 export const EV_DEATH = 4; //     a=victim id, b=killer player (-1 none), c=archetype
 export const EV_RESPAWN = 5; //   a=entity id, b=player

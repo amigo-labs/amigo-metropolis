@@ -16,7 +16,15 @@
 // and loads MapData (via getMapById) only to draw the picker minimaps. The
 // picked arena rides along on every MenuChoice as `mapId`.
 
-import { getMapById, MAP_REGISTRY } from "@metropolis/sim";
+import {
+  GUNS,
+  getMapById,
+  HEAVIES,
+  type Loadout,
+  MAP_REGISTRY,
+  normalizeLoadout,
+  SPECIALS,
+} from "@metropolis/sim";
 import type { AudioEngine } from "./audio/engine";
 import { MUSIC_OPTIONS, parseMusicSelection } from "./audio/tracks";
 import { hashLobbyPassword, storeP2pBootstrap } from "./net/p2pSession";
@@ -34,8 +42,9 @@ export type MenuChoice =
  * Pure mapping from a menu choice to the query string main.ts understands.
  * Kept separate from the DOM so it is unit-testable. `mapId` (the picker's
  * arena) rides along as the ?map= deep-link param main.ts already reads.
+ * Loadout rides as ?gun=&heavy=&special= (omitted when all default 0).
  */
-export function buildModeQuery(choice: MenuChoice, mapId?: string): string {
+export function buildModeQuery(choice: MenuChoice, mapId?: string, loadout?: Loadout): string {
   let query: string;
   switch (choice.mode) {
     case "solo":
@@ -59,7 +68,21 @@ export function buildModeQuery(choice: MenuChoice, mapId?: string): string {
       query = `?p2p=${encodeURIComponent(choice.code.toUpperCase())}`;
       break;
   }
-  return mapId ? `${query}&map=${encodeURIComponent(mapId)}` : query;
+  if (mapId) query += `&map=${encodeURIComponent(mapId)}`;
+  const kit = normalizeLoadout(loadout);
+  if (kit.gun !== 0 || kit.heavy !== 0 || kit.special !== 0) {
+    query += `&gun=${kit.gun}&heavy=${kit.heavy}&special=${kit.special}`;
+  }
+  return query;
+}
+
+/** Parse ?gun=&heavy=&special= from a URLSearchParams (defaults on garbage). */
+export function loadoutFromParams(params: URLSearchParams): Loadout {
+  return normalizeLoadout({
+    gun: Number(params.get("gun") ?? 0),
+    heavy: Number(params.get("heavy") ?? 0),
+    special: Number(params.get("special") ?? 0),
+  });
 }
 
 /** Gates localhost-only debug UI (Fly cam button). */
@@ -85,14 +108,17 @@ export function randomRoomCode(rand: () => number = Math.random): string {
 export interface MenuOptions {
   audio: AudioEngine;
   /** Called once when the player picks a mode; main.ts starts it in-process.
-   *  `mapId` is the arena picked in the menu's persistent arena gallery. */
-  onChoice(choice: MenuChoice, mapId: string): void;
+   *  `mapId` is the arena picked in the menu's persistent arena gallery.
+   *  `loadout` is the gun/heavy/special kit (Future Cop weapons screen). */
+  onChoice(choice: MenuChoice, mapId: string, loadout: Loadout): void;
   /** Called whenever the arena selection changes so the live 3D backdrop can
    *  preview the picked arena. `mapId` is the newly selected arena. */
   onSelect(mapId: string): void;
   /** Called when the Graphics drawer changes the texture preference so main.ts
    *  can apply it to the live arena immediately (persistence happens here). */
   onTexPref(pref: TexPref): void;
+  /** Optional initial loadout (e.g. from ?gun= URL). */
+  initialLoadout?: Loadout;
 }
 
 /** Handle returned by runMenu so a late `beforeinstallprompt` can add Install. */
@@ -124,13 +150,19 @@ const el = <K extends keyof HTMLElementTagNameMap>(
 /** Builds and mounts the title/menu overlay. A mode choice emits onChoice. */
 export function runMenu(opts: MenuOptions): MenuHandle {
   const { audio } = opts;
-  const go = opts.onChoice;
+  const go = (choice: MenuChoice): void => {
+    opts.onChoice(choice, selectedMapId, { ...selectedLoadout });
+  };
 
   const root = el("div", "menu");
   // A scrim on the left keeps the rail legible over the bright arena backdrop.
   root.appendChild(el("div", "menu-scrim"));
   const rail = el("div", "menu-rail");
   root.appendChild(rail);
+
+  // Loadout lives above modes so every start path (solo/online/fly) shares it —
+  // same idea as the original pre-mission weapons screen.
+  let selectedLoadout: Loadout = normalizeLoadout(opts.initialLoadout);
 
   // --- Brand header ---------------------------------------------------------
   const brand = el("div", "menu-brand");
@@ -206,6 +238,68 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     arenaCards[i].classList.toggle("is-active", MAP_REGISTRY[i].id === selectedMapId);
   }
 
+  // --- Weapons screen (Future Cop: 1 Gun + 1 Heavy + 1 Special) --------------
+  const weaponsSection = el("div", "menu-section");
+  weaponsSection.appendChild(el("div", "menu-section-label", "Weapons"));
+  weaponsSection.appendChild(
+    el("p", "menu-hint", "Arm the X1-Alpha before the match — one Gun, one Heavy, one Special."),
+  );
+  const loadoutSummary = el("div", "menu-loadout-summary");
+  weaponsSection.appendChild(loadoutSummary);
+
+  type SlotKey = "gun" | "heavy" | "special";
+  const slotLists = {
+    gun: GUNS,
+    heavy: HEAVIES,
+    special: SPECIALS,
+  } as const;
+  const slotLabels: Record<SlotKey, string> = {
+    gun: "Gun",
+    heavy: "Heavy",
+    special: "Special",
+  };
+  const slotCards: Record<SlotKey, HTMLButtonElement[]> = { gun: [], heavy: [], special: [] };
+
+  function refreshLoadoutUi(): void {
+    for (const key of ["gun", "heavy", "special"] as const) {
+      const idx = selectedLoadout[key];
+      const cards = slotCards[key];
+      for (let i = 0; i < cards.length; i++) {
+        cards[i].classList.toggle("is-active", i === idx);
+      }
+    }
+    const g = GUNS[selectedLoadout.gun];
+    const h = HEAVIES[selectedLoadout.heavy];
+    const s = SPECIALS[selectedLoadout.special];
+    loadoutSummary.textContent = `${g.name} · ${h.name} · ${s.name}`;
+  }
+
+  for (const key of ["gun", "heavy", "special"] as const) {
+    const row = el("div", "menu-weapon-row");
+    row.appendChild(el("div", "menu-weapon-slot", slotLabels[key]));
+    const picks = el("div", "menu-weapon-picks");
+    const list = slotLists[key];
+    for (let i = 0; i < list.length; i++) {
+      const w = list[i];
+      const card = el("button", "menu-weapon-card");
+      card.type = "button";
+      card.setAttribute("aria-label", w.name);
+      card.title = w.blurb;
+      card.appendChild(el("b", undefined, w.name));
+      card.appendChild(el("span", undefined, w.blurb));
+      card.onclick = () => {
+        selectedLoadout = normalizeLoadout({ ...selectedLoadout, [key]: i });
+        refreshLoadoutUi();
+      };
+      picks.appendChild(card);
+      slotCards[key].push(card);
+    }
+    row.appendChild(picks);
+    weaponsSection.appendChild(row);
+  }
+  rail.appendChild(weaponsSection);
+  refreshLoadoutUi();
+
   // --- Mode buttons ---------------------------------------------------------
   const modes = el("div", "menu-modes");
   const soloBtn = el("button", "menu-mode", "<b>Solo</b><span>vs the Warden AI</span>");
@@ -218,7 +312,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
       "menu-mode menu-mode--debug",
       "<b>Fly</b><span>debug cam · mesh units · turrets</span>",
     );
-    flyBtn.onclick = () => go({ mode: "fly" }, selectedMapId);
+    flyBtn.onclick = () => go({ mode: "fly" });
     modes.appendChild(flyBtn);
   }
   rail.appendChild(modes);
@@ -267,12 +361,12 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     if (sandbox) {
       sandbox.onclick = (e) => {
         e.preventDefault();
-        go({ mode: "solo" }, selectedMapId);
+        go({ mode: "solo" });
       };
     }
     panel.appendChild(hint);
     const start = el("button", "menu-go", "Start match");
-    start.onclick = () => go({ mode: "warden", difficulty: Number(slider.value) }, selectedMapId);
+    start.onclick = () => go({ mode: "warden", difficulty: Number(slider.value) });
     panel.appendChild(start);
   }
 
@@ -296,7 +390,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         err.textContent = "Enter a 5-character room code.";
         return;
       }
-      go({ mode: "online", code }, selectedMapId);
+      go({ mode: "online", code });
     };
     input.oninput = () => {
       input.value = input.value.toUpperCase();
@@ -311,7 +405,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     panel.appendChild(err);
 
     const host = el("button", "menu-go menu-go--ghost", "Host a new room");
-    host.onclick = () => go({ mode: "online", code: randomRoomCode() }, selectedMapId);
+    host.onclick = () => go({ mode: "online", code: randomRoomCode() });
     panel.appendChild(host);
     panel.appendChild(
       el(
@@ -338,7 +432,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     const joinLobby = async (lobbyId: string, password?: string): Promise<void> => {
       const passwordHash = password ? await hashLobbyPassword(lobbyId, password) : undefined;
       storeP2pBootstrap(lobbyId, { role: "join", passwordHash });
-      go({ mode: "p2p", code: lobbyId }, selectedMapId);
+      go({ mode: "p2p", code: lobbyId });
     };
 
     const lobbyRow = (lobby: {
@@ -441,7 +535,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         visibility: pubCheck.checked ? "public" : "private",
         passwordHash,
       });
-      go({ mode: "p2p", code }, selectedMapId);
+      go({ mode: "p2p", code });
     };
     panel.appendChild(create);
     panel.appendChild(budgetHint);

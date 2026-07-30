@@ -76,7 +76,9 @@ Flat `Float32Array`, stride 10 per entity:
   extrapolate; never read sim internals.
 - Events that don't interpolate (shots fired, deaths, captures, purchases, UI
   pings) go through a per-tick **event ring buffer** `(tick, type, a, b, c)`
-  consumed by renderer/audio/UI.
+  consumed by renderer/audio/UI. Client cosmetics (SFX + shot VFX tracers /
+  muzzle flashes / explosions) drain this buffer each tick; they never feed
+  back into sim state or the hash.
 
 ## 4. Client (`packages/client`)
 
