@@ -20,6 +20,7 @@ import { Raycaster, Vector2, Vector3 } from "three";
 import { ASSIST_CONE_COS, ASSIST_STRENGTH, aimAssist, applyAimAssist } from "./aimAssist";
 import type { Vec2 } from "./gamepadMapping";
 import { cameraGroundForward, cameraRelativeMove } from "./movement";
+import { isTextEntryTarget } from "./textEntry";
 import type { LocalInputSource, Viewport } from "./types";
 
 const BUTTON_KEYS: readonly [string, number][] = [
@@ -32,13 +33,6 @@ const BUTTON_KEYS: readonly [string, number][] = [
 ];
 
 const MOUSE_BUTTON_BITS: readonly number[] = [BUTTON_FIRE1, BUTTON_FIRE3, BUTTON_FIRE2];
-
-/** True when the event target is a text field (pin modal, menu inputs, …). */
-function isTextEntryTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
-}
 
 // Module-scope scratch (sample runs inside the tick loop — no allocations).
 const ndc = new Vector2();
