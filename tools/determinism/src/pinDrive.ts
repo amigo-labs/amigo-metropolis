@@ -377,6 +377,11 @@ function serveControl(session: Session): { port: number; stop: () => void } {
         }
         return json({ ok: true, result: await fn(session, args) });
       } catch (e) {
+        // The reason is kept in the response on purpose, unlike pinReceiver's:
+        // it is the agent's only feedback on a failed verb ("no page — run
+        // `goto` first"), this endpoint sends no CORS header so no page can
+        // read it, and its one client is a local script that already has
+        // filesystem access anyway.
         return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
       }
     },

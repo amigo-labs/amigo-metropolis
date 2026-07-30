@@ -93,8 +93,12 @@ export function servePinReceiver(store: PinStore, port: number) {
         try {
           return await receivePin(store, req);
         } catch (e) {
+          // Detail goes to the terminal the user is already watching, not over
+          // the wire: this endpoint answers Access-Control-Allow-Origin: *, so
+          // any page open in their browser can POST here and read the reply,
+          // and node's fs errors embed absolute paths.
           console.error("[pin] error", e);
-          return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+          return json({ error: "pin could not be written — see the pin:serve log" }, 500);
         }
       }
       return cors(new Response("not found", { status: 404 }));
