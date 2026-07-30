@@ -34,6 +34,7 @@ import {
   EV_SHOT,
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
+  type Loadout,
   MAX_ENTITIES,
   MAX_PLAYERS,
   type MatchConfig,
@@ -66,7 +67,13 @@ import { PlayerOneInput } from "./input/keyboard";
 import { TouchInput, wantsTouch } from "./input/touch";
 import { TOUCH_BUTTONS } from "./input/touchMapping";
 import type { LocalInputSource } from "./input/types";
-import { buildModeQuery, type MenuChoice, type MenuHandle, runMenu } from "./menu";
+import {
+  buildModeQuery,
+  loadoutFromParams,
+  type MenuChoice,
+  type MenuHandle,
+  runMenu,
+} from "./menu";
 import { createDemoSim, demoFeeder, updateFlyoverCamera, zeroPlayerInput } from "./menuWorld";
 import { NetLockstep } from "./net/lockstep";
 import { P2pLockstep } from "./net/p2pLockstep";
@@ -75,6 +82,7 @@ import { WsTransport } from "./net/wsTransport";
 import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
+import { createFx } from "./render/fx";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import { loadMapMesh } from "./render/meshMap";
 import { ATMOSPHERE_HEX } from "./render/palette";
@@ -160,6 +168,8 @@ let warden = wardenDifficulty >= 1;
 // link and test entry point behaves exactly as before.
 const explicitMode =
   netMode || warden || params.has("opponent") || params.has("play") || params.has("debug");
+/** Loadout for the local human (menu pick or ?gun=&heavy=&special= deep link). */
+let playerLoadout: Loadout = loadoutFromParams(params);
 // Offline match modes build the sim now; a net mode defers — to the server's
 // authoritative config (arrives in MSG_WELCOME) or the lobby-brokered P2P
 // session — so both peers build a byte-identical sim. The menu instead shows
@@ -168,7 +178,10 @@ const explicitMode =
 let sim: SimState = netMode
   ? (undefined as unknown as SimState)
   : explicitMode
-    ? createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined)
+    ? createSim(map, seed, {
+        ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
+        loadouts: [playerLoadout],
+      })
     : createDemoSim(map);
 
 // ?debug exposes the live sim for the console / e2e harness (host-side only,
@@ -430,6 +443,9 @@ function buildArenaGroup(m: typeof map): THREE.Group {
 let arenaGroup = buildArenaGroup(map);
 scene.add(arenaGroup);
 const greybox = createGreyboxMeshes(scene);
+// Client-only shot VFX (tracers, muzzle flashes, explosions) — same event
+// buffer as audio, independent of sim hash.
+const fx = createFx(scene);
 // Stage B unit models upgrade the greybox buckets in place as they load;
 // missing assets keep their greybox mesh (render/unitMeshes.ts).
 if (renderMode === "mesh") loadUnitMeshes(greybox);
@@ -808,26 +824,23 @@ function runTick(): void {
   }
 
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
-  // The demo battle stays sonically calm — music only, no SFX.
-  if (phase === "match") {
-    buildAudioIndex();
-    audio.pump(sim.events, resolveEventPosition); // per-tick transients: drain now
-  }
+  // The demo battle stays calm — music only, no SFX/VFX.
+  if (phase === "match") pumpCosmetics(sim.events);
   rotateSnapshot();
 }
 
 /** Rotates the double-buffered snapshots and writes the current sim state. */
 
-// --- Positional audio ---------------------------------------------------------
+// --- Positional audio + shot VFX ---------------------------------------------
 // Events carry no coordinates for their own sake — only the ones that already
 // quantize a position do (EV_EXPLOSION and the Precinct Assault events pack
 // x*16/y*16), capture/claim carry a spot index, and the rest name an entity. So
 // resolution happens here, the one place that holds both the map and a snapshot.
 //
-// The snapshot in hand when audio.pump runs is up to one tick old (pump drains
-// before rotateSnapshot). That is deliberate: 33 ms of staleness is inaudible,
-// and it avoids reordering the tick loop on the two online paths, where a
-// mistake would silently drop cues on one path only.
+// The snapshot in hand when cosmetics pump runs is up to one tick old (pump
+// drains before rotateSnapshot). That is deliberate: 33 ms of staleness is
+// inaudible/invisible, and it avoids reordering the tick loop on the two online
+// paths, where a mistake would silently drop cues on one path only.
 /** id -> snapshot slot, rebuilt per pump. -1 = not in this snapshot. */
 const audioIndex = new Int32Array(MAX_ENTITIES).fill(-1);
 
@@ -839,8 +852,11 @@ function buildAudioIndex(): void {
   }
 }
 
-/** Writes an entity's snapshot position into `out`; false if it is not there. */
-function entityPosition(id: number, out: Float32Array): boolean {
+/**
+ * Entity world pose from the current snapshot: `[x, height, z]` always, and
+ * `out[3] = yaw` when the buffer is long enough (FX tracers need facing).
+ */
+function entityPose(id: number, out: Float32Array): boolean {
   if (id < 0 || id >= MAX_ENTITIES) return false;
   const slot = audioIndex[id];
   if (slot < 0) return false;
@@ -848,6 +864,7 @@ function entityPosition(id: number, out: Float32Array): boolean {
   out[0] = snapCurr[o + 3];
   out[1] = snapCurr[o + 5];
   out[2] = snapCurr[o + 4];
+  if (out.length > 3) out[3] = snapCurr[o + 6];
   return true;
 }
 
@@ -870,6 +887,7 @@ function resolveEventPosition(
       out[0] = a / 16;
       out[2] = b / 16;
       out[1] = 1.5;
+      if (out.length > 3) out[3] = 0;
       return true;
     }
     // Spot index into the map's own lists — always resolvable, no lookup risk.
@@ -879,16 +897,24 @@ function resolveEventPosition(
       out[0] = spot.x;
       out[2] = spot.y;
       out[1] = 1.5;
+      if (out.length > 3) out[3] = 0;
       return true;
     }
     case EV_SHOT:
     case EV_HIT:
     case EV_DEATH:
     case EV_RESPAWN:
-      return entityPosition(a, out);
+      return entityPose(a, out);
     default:
       return false;
   }
+}
+
+/** Audio + VFX share the event buffer and the same position resolver. */
+function pumpCosmetics(events: typeof sim.events): void {
+  buildAudioIndex();
+  audio.pump(events, resolveEventPosition);
+  fx.pump(events, resolveEventPosition);
 }
 
 function rotateSnapshot(): void {
@@ -1101,6 +1127,7 @@ function frame(now: number): void {
   if (views.length === 0) {
     // No views yet: menu / lobby / waiting-for-opponent — flyover over the demo.
     updateFlyoverCamera(flyCam, now / 1000, extent);
+    if (phase === "match") fx.update(dtSec, flyCam);
     renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.setScissor(0, 0, innerWidth, innerHeight);
     renderer.render(scene, flyCam);
@@ -1121,6 +1148,9 @@ function frame(now: number): void {
         updateRigCamera(view, dtSec);
         if (blend.active) applyBlend(blend, view.camera, dtSec);
       }
+      // Billboards face the local view's camera (view 0); update once after
+      // that camera is posed, before any scissored draw.
+      if (v === 0 && phase === "match") fx.update(dtSec, view.camera);
       const vp = view.viewport;
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
@@ -1259,8 +1289,7 @@ function connectOnline(code: string): void {
   net = new NetLockstep(new WsTransport(relayUrl(code)), {
     sampleInput: makeNetSampler(),
     onStep: (_tick, stepped) => {
-      buildAudioIndex();
-      audio.pump(stepped.events, resolveEventPosition); // per-tick transients
+      pumpCosmetics(stepped.events);
       rotateSnapshot();
     },
     onWelcome: (slotIdx, welcomed, welcomedConfig) => {
@@ -1343,8 +1372,7 @@ function connectP2pMode(code: string): void {
         {
           sampleInput: makeNetSampler(),
           onStep: (_tick, stepped) => {
-            buildAudioIndex();
-            audio.pump(stepped.events, resolveEventPosition);
+            pumpCosmetics(stepped.events);
             rotateSnapshot();
           },
           onStart: () => {
@@ -1410,8 +1438,9 @@ function previewArena(mapId: string): void {
  * deep link (carrying a ?relay override), so it stays shareable and a refresh
  * re-enters through the deep-link path exactly as before.
  */
-function handleMenuChoice(choice: MenuChoice, mapId: string): void {
-  const query = buildModeQuery(choice, mapId);
+function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): void {
+  playerLoadout = loadout;
+  const query = buildModeQuery(choice, mapId, loadout);
   const relay = params.get("relay");
   history.pushState(null, "", relay ? `${query}&relay=${encodeURIComponent(relay)}` : query);
   menuHandle?.dismiss();
@@ -1425,7 +1454,10 @@ function handleMenuChoice(choice: MenuChoice, mapId: string): void {
       warden = choice.mode === "warden";
       wardenDifficulty = choice.mode === "warden" ? choice.difficulty : 0;
       resetForMatch(
-        createSim(map, seed, warden ? { wardenPlayer: 1, wardenDifficulty } : undefined),
+        createSim(map, seed, {
+          ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
+          loadouts: [playerLoadout],
+        }),
       );
       // The flagship transition: one continuous shot from flyover to chase rig.
       if (!orbitMode) beginBlend(blend, flyCam, 1.2);
@@ -1439,7 +1471,7 @@ function handleMenuChoice(choice: MenuChoice, mapId: string): void {
       flyMode = true;
       warden = false;
       wardenDifficulty = 0;
-      resetForMatch(createSim(map, seed, undefined));
+      resetForMatch(createSim(map, seed, { loadouts: [playerLoadout] }));
       // No flyover→chase blend — fly cam owns posing from the first frame.
       startMatch([{ slot: 0, input: localInput }]);
       break;
@@ -1474,6 +1506,7 @@ if (online) {
     audio,
     onChoice: handleMenuChoice,
     onSelect: previewArena,
+    initialLoadout: playerLoadout,
     // Graphics drawer: apply a texture-preference change immediately to the
     // (possibly already loaded) backdrop arena; persisting is menu.ts's job.
     onTexPref: (pref) => {

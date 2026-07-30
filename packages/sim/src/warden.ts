@@ -55,11 +55,11 @@ import { sampleHeight, worldExtent } from "./map";
 import {
   ANIM_MOVING,
   hitscan,
-  PROJ_WARDEN,
   type SimState,
   spawnProjectile,
   systemBuy,
 } from "./sim";
+import { PROJ_WARDEN } from "./weapons";
 import { atan2Poly, rand01 } from "./simMath";
 import { isGroundUnit, nearestEnemyInRange } from "./units";
 

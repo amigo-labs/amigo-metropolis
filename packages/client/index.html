@@ -357,6 +357,63 @@
       .menu-arena-card.is-active .menu-arena-name {
         color: #e6f8ff;
       }
+      .menu-loadout-summary {
+        color: #7ef2ff;
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        line-height: 1.35;
+      }
+      .menu-weapon-row {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .menu-weapon-slot {
+        color: #7f8ea6;
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      .menu-weapon-picks {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .menu-weapon-card {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        padding: 8px 10px;
+        border: 1px solid rgba(126, 160, 200, 0.18);
+        border-radius: 9px;
+        background: rgba(12, 16, 26, 0.55);
+        color: #d5deeb;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition:
+          border-color 0.12s,
+          background 0.12s;
+      }
+      .menu-weapon-card:hover {
+        border-color: rgba(126, 242, 255, 0.4);
+        background: rgba(20, 30, 48, 0.7);
+      }
+      .menu-weapon-card.is-active {
+        border-color: #7ef2ff;
+        background: rgba(22, 39, 58, 0.9);
+        box-shadow: 0 0 0 1px rgba(126, 242, 255, 0.28);
+      }
+      .menu-weapon-card b {
+        font-size: 13px;
+        font-weight: 650;
+      }
+      .menu-weapon-card span {
+        color: #8ea0ba;
+        font-size: 11px;
+        line-height: 1.3;
+      }
       .menu-panel,
       .menu-drawer {
         padding: 16px;
