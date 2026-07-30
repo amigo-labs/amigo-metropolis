@@ -33,6 +33,13 @@ const BUTTON_KEYS: readonly [string, number][] = [
 
 const MOUSE_BUTTON_BITS: readonly number[] = [BUTTON_FIRE1, BUTTON_FIRE3, BUTTON_FIRE2];
 
+/** True when the event target is a text field (pin modal, menu inputs, …). */
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
+}
+
 // Module-scope scratch (sample runs inside the tick loop — no allocations).
 const ndc = new Vector2();
 const raycaster = new Raycaster();
@@ -63,10 +70,14 @@ export class PlayerOneInput implements LocalInputSource {
 
   constructor(target: Window) {
     target.addEventListener("keydown", (e) => {
+      // Don't steal Space (or any key) from pin-modal / menu text fields.
+      if (isTextEntryTarget(e.target)) return;
       this.down.add(e.code);
+      // Prevent page scroll on Space while driving — not while typing.
       if (e.code === "Space") e.preventDefault();
     });
     target.addEventListener("keyup", (e) => {
+      if (isTextEntryTarget(e.target)) return;
       this.down.delete(e.code);
     });
     target.addEventListener("blur", () => {
