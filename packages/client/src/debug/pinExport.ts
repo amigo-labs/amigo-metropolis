@@ -1,6 +1,6 @@
 // Ship a verification pin to the local pin server, or fall back to downloads.
 
-import type { VerificationPin } from "./pinTypes";
+import type { PinShot, VerificationPin } from "./pinTypes";
 
 export const DEFAULT_PIN_SERVER = "http://127.0.0.1:8787";
 
@@ -9,6 +9,12 @@ export interface PinExportResult {
   readonly via: "server" | "download";
   readonly message: string;
   readonly id?: string;
+}
+
+/** One rendered shot: the metadata that goes into pin.json plus its bytes. */
+export interface ExportShot {
+  readonly meta: PinShot;
+  readonly blob: Blob;
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -23,18 +29,24 @@ function downloadBlob(blob: Blob, filename: string): void {
 async function postPin(
   baseUrl: string,
   pin: VerificationPin,
-  png: Blob,
+  shots: readonly ExportShot[],
   prompt: string,
   id: string,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const form = new FormData();
   form.set("id", id);
+  if (pin.parentId) form.set("parentId", pin.parentId);
   form.set(
     "pin",
     new Blob([JSON.stringify(pin, null, 2)], { type: "application/json" }),
     "pin.json",
   );
-  form.set("view", png, "view.png");
+  // "view" stays the primary shot's field name so a v1-era receiver still works;
+  // any further shots ride along under their own file names.
+  for (const shot of shots) {
+    const field = shot.meta.file === "view.png" ? "view" : shot.meta.file.replace(/\.png$/, "");
+    form.set(field, shot.blob, shot.meta.file);
+  }
   form.set("prompt", new Blob([prompt], { type: "text/plain" }), "prompt.txt");
   try {
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/pin`, {
@@ -54,16 +66,20 @@ async function postPin(
 
 /**
  * Prefer the local pin server (writes docs/verification/pins/…). On failure,
- * download pin.json + view.png + prompt.txt so the user can still hand them off.
+ * download the shots + pin.json + prompt.txt so the user can still hand them off.
+ *
+ * Downloads are prefixed `pin-`: the browser drops them wherever the user's
+ * download dir points, which has been the repo root before now, and
+ * `.gitignore` only excuses that under a name it can match.
  */
 export async function exportPin(
   pin: VerificationPin,
-  png: Blob,
+  shots: readonly ExportShot[],
   prompt: string,
   id: string,
   serverUrl: string = DEFAULT_PIN_SERVER,
 ): Promise<PinExportResult> {
-  const posted = await postPin(serverUrl, pin, png, prompt, id);
+  const posted = await postPin(serverUrl, pin, shots, prompt, id);
   if (posted.ok) {
     return {
       ok: true,
@@ -72,12 +88,14 @@ export async function exportPin(
       message: `Pin gespeichert → docs/verification/pins/latest/ (${posted.id})`,
     };
   }
-  downloadBlob(png, `${id}-view.png`);
+  for (const shot of shots) {
+    downloadBlob(shot.blob, `pin-${id}-${shot.meta.file}`);
+  }
   downloadBlob(
     new Blob([JSON.stringify(pin, null, 2)], { type: "application/json" }),
-    `${id}-pin.json`,
+    `pin-${id}-pin.json`,
   );
-  downloadBlob(new Blob([prompt], { type: "text/plain" }), `${id}-prompt.txt`);
+  downloadBlob(new Blob([prompt], { type: "text/plain" }), `pin-${id}-prompt.txt`);
   return {
     ok: true,
     via: "download",

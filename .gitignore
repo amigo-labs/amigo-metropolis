@@ -31,3 +31,10 @@ packages/client/public/models/*/atlas-*.png
 # Fly-mode verification pins (local co-debug captures). Keep README only.
 docs/verification/pins/*
 !docs/verification/pins/README.md
+# Download fallback when pin:serve is not running: the browser drops the files
+# wherever its download dir points, which has been the repo root before now.
+# pinExport.ts names them pin-<id>-* so this can actually match them.
+pin-*-view.png
+pin-*-top.png
+pin-*-pin.json
+pin-*-prompt.txt

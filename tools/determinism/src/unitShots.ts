@@ -13,13 +13,17 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { ANIM_HOVER, ARCHETYPE, getMapById, worldExtent } from "@metropolis/sim";
-import { chromium, type Page } from "playwright-core";
+import type { Page } from "playwright-core";
+import {
+  launchBrowser,
+  newHarnessContext,
+  ROOT,
+  startDevServer,
+  webglRenderer,
+} from "./browserLaunch";
 
-const CHROMIUM = process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium";
 const PORT = Number(process.env.UNIT_SHOTS_PORT ?? "5179");
 const BASE = `http://127.0.0.1:${PORT}`;
-const ROOT = join(import.meta.dir, "..", "..", "..");
-const CLIENT_DIR = join(ROOT, "packages", "client");
 const OUT = process.env.UNIT_SHOTS_OUT ?? join(ROOT, "docs", "verification", "stage7-units");
 
 // Open heightfield arena (no city blocks) so the lineup is legible; the map
@@ -56,37 +60,9 @@ function setPaused(page: Page, paused: boolean): Promise<void> {
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
 
-  console.log(`starting vite dev server on ${BASE} …`);
-  const dev = Bun.spawn(
-    ["bun", "x", "vite", "--port", String(PORT), "--strictPort", "--host", "127.0.0.1"],
-    { cwd: CLIENT_DIR, stdout: "ignore", stderr: "inherit", env: { ...process.env } },
-  );
-  let ready = false;
-  for (let i = 0; i < 120 && !ready; i++) {
-    ready = await fetch(BASE)
-      .then((r) => r.ok)
-      .catch(() => false);
-    if (!ready) await Bun.sleep(500);
-  }
-  if (!ready) {
-    dev.kill();
-    console.error("dev server did not become ready");
-    process.exit(1);
-  }
-  console.log("dev server ready");
-
-  const browser = await chromium.launch({
-    executablePath: CHROMIUM,
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--use-gl=angle",
-      "--use-angle=swiftshader",
-      "--enable-unsafe-swiftshader",
-      "--ignore-gpu-blocklist",
-    ],
-  });
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const dev = await startDevServer(PORT);
+  const browser = await launchBrowser();
+  const context = await newHarnessContext(browser);
 
   const extent = worldExtent(getMapById(MAP_ID));
   const cx = extent / 2;
@@ -233,23 +209,7 @@ async function main(): Promise<void> {
     if (!placed) errors.push("metropolisSetCamera returned false (no view)");
     await page.waitForTimeout(500);
 
-    const renderer = await page.evaluate(() => {
-      interface Gl {
-        getExtension(name: string): { readonly UNMASKED_RENDERER_WEBGL: number } | null;
-        getParameter(pname: number): unknown;
-        readonly RENDERER: number;
-      }
-      interface Canvas {
-        getContext(type: string): Gl | null;
-      }
-      const doc = globalThis as unknown as { document: { createElement(t: string): Canvas } };
-      const gl = doc.document.createElement("canvas").getContext("webgl2");
-      if (!gl) return null;
-      const ext = gl.getExtension("WEBGL_debug_renderer_info");
-      return String(
-        ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
-      );
-    });
+    const renderer = await webglRenderer(page);
 
     await page.screenshot({ path: join(OUT, file) });
 
@@ -319,8 +279,7 @@ async function main(): Promise<void> {
   console.log(`screenshots: ${OUT}`);
 
   await browser.close();
-  dev.kill();
-  await dev.exited;
+  await dev.stop();
   process.exit(problems.length ? 1 : 0);
 }
 

@@ -24,7 +24,9 @@
     "e2e:touch": "bun run tools/determinism/src/touchInput.ts",
     "verify:arenas": "bun run tools/determinism/src/arenaShots.ts",
     "verify:units": "bun run tools/determinism/src/unitShots.ts",
-    "pin:serve": "bun run tools/determinism/src/pinServer.ts"
+    "pin:serve": "bun run tools/determinism/src/pinServer.ts",
+    "pin:drive": "bun run tools/determinism/src/pinDrive.ts",
+    "pin:cmd": "bun run tools/determinism/src/pinCmd.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",
