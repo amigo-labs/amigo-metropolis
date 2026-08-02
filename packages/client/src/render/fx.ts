@@ -7,7 +7,9 @@
 //   Procedural geometry                               → MG/laser tracers,
 //                                                       shockwave rings
 // The particle atlas is only fireballs/puffs — no laser or ring frames exist
-// in the extract. Semantic particle-id mapping is by-eye (PYDT has no labels).
+// in the extract. PYDT carries no labels, so the id->role mapping is read off
+// the contact sheet (`bun run gen:fxsheet` -> docs/renders/fx/particles-contact.png)
+// rather than guessed; fx.test.ts records what each sprite actually looks like.
 
 import {
   EV_EXPLOSION,
@@ -21,6 +23,9 @@ import {
   PROJ_RAIL,
   PROJ_SPECIAL,
   PROJ_WARDEN,
+  SHOT_SLOT_HITSCAN,
+  SHOT_SLOT_SPECIAL,
+  shotPayloadToReach,
   weaponById,
 } from "@metropolis/sim";
 import * as THREE from "three";
@@ -38,6 +43,7 @@ const SHOCKWAVE_CAP = 48;
 const TRACER_LIFE = 0.09;
 const MUZZLE_LIFE = 0.06;
 const EXPLOSION_LIFE = 0.32;
+const EXPLOSION_LATE_LIFE = 0.5;
 const SPARK_LIFE = 0.1;
 const SHOCKWAVE_LIFE = 0.28;
 
@@ -50,8 +56,12 @@ const EXPLOSION_END = 6.5;
 const SHOCKWAVE_END = 8;
 
 /**
- * Cpyr particle ids used for each role (palette-0 atlas, by-eye mapping).
- * ids: 8+5 large fireballs, 11/1/10/3 medium, 6 small, 7 tiny.
+ * Cpyr particle ids per role, read off the contact sheet (gen:fxsheet).
+ *
+ * Sizes and paint coverage from that run: 8 is 126x128 at 24% paint and the
+ * densest of the set; 5 is 125x126 at 18%, the same ball burnt hollow with a
+ * bright yellow rim; 6 is 32x32 at 27% with a strong red; 7 is 16x16 at 31%,
+ * the densest per area. 3/11/1/10 are the medium puffs and stay unused.
  */
 export const PARTICLE_ID = {
   explosion: 8,
@@ -104,6 +114,8 @@ export interface ShotFx {
     sparks: number;
     shockwaves: number;
   };
+  /** Test/debug: world length of the newest live tracer, or 0 when there is none. */
+  debugTracerLength(): number;
   /** True once the original Cpyr atlas has been applied to the sprite pools. */
   readonly atlasReady: boolean;
 }
@@ -235,13 +247,15 @@ function explosionTint(kind: number): number {
   return 0xffffff; // original fireball colors when atlas is bound
 }
 
-/** Tracer length + colors for hitscan weapons (by catalog id). */
-function hitscanLook(weaponId: number): {
+interface HitscanLook {
   length: number;
   core: number;
   halo: number;
   thick: number;
-} {
+}
+
+/** Tracer length + colors for an avatar weapon (by catalog id). */
+function hitscanLook(weaponId: number): HitscanLook {
   const w = weaponById(weaponId);
   const vfx = w?.vfx ?? "minigun";
   const length = w?.delivery === "hitscan" ? w.range || PRIMARY_RANGE : PRIMARY_RANGE;
@@ -250,6 +264,20 @@ function hitscanLook(weaponId: number): {
   if (vfx === "beam") return { length, core: 0xffffff, halo: 0xd080ff, thick: 1.4 };
   // minigun default
   return { length, core: 0xffffff, halo: 0xffe08a, thick: 1 };
+}
+
+/**
+ * Tracer for an emplacement or a ground unit, whose reach travels in the event
+ * (events.ts SHOT_SLOT_HITSCAN) because it has no weapons.ts entry.
+ *
+ * These used to resolve to weaponById(0) and draw the Mini-Gun's 40 m bolt. On
+ * la-cantina every turret's imported engage_range is 6 m, so 72 emplacements
+ * were each firing a tracer seven times longer than the shot behind it. Thinner
+ * than the avatar's too — a turret burst should not read as heavier than the
+ * player's own gun.
+ */
+function emplacementLook(reach: number): HitscanLook {
+  return { length: reach, core: 0xffffff, halo: 0xffc86a, thick: 0.75 };
 }
 
 function findSprite(meta: ParticleMeta, id: number): ParticleSpriteRect | null {
@@ -325,7 +353,9 @@ export function createFx(scene: THREE.Scene): ShotFx {
   const explosionMat = makeAdditiveMaterial(0xffffff, 0.9);
   const sparkMat = makeAdditiveMaterial(paletteHex("muzzle"), 1);
   const muzzles = makePool(scene, quadGeom, muzzleMat, MUZZLE_CAP);
+  const explosionLateMat = makeAdditiveMaterial(0xffffff, 0.75);
   const explosions = makePool(scene, quadGeom, explosionMat, EXPLOSION_CAP, true);
+  const explosionsLate = makePool(scene, quadGeom, explosionLateMat, EXPLOSION_CAP, true);
   const sparks = makePool(scene, quadGeom, sparkMat, SPARK_CAP);
 
   let atlasReady = false;
@@ -336,6 +366,7 @@ export function createFx(scene: THREE.Scene): ShotFx {
     if (!loaded) return;
     bindSpriteMap(muzzleMat, loaded.maps.muzzle);
     bindSpriteMap(explosionMat, loaded.maps.explosion);
+    bindSpriteMap(explosionLateMat, loaded.maps.explosionLate);
     bindSpriteMap(sparkMat, loaded.maps.spark);
     atlasReady = true;
   });
@@ -361,14 +392,21 @@ export function createFx(scene: THREE.Scene): ShotFx {
         const mx = px + cos * MUZZLE_OFFSET;
         const mz = pz + sin * MUZZLE_OFFSET;
         const my = py + 0.9;
-        // c = weapon catalog id (all slots). Muzzle for every shot.
-        const w = weaponById(c);
+        // What `c` means depends on `b` — see events.ts. Slots 0/1/2 are the
+        // avatar's and carry a catalog id; SHOT_SLOT_HITSCAN carries a reach in
+        // decimetres; SHOT_SLOT_LAUNCH carries nothing and is a muzzle flash for
+        // a shell that renders as its own entity.
+        const emplacement = b === SHOT_SLOT_HITSCAN;
+        // Only the avatar's three slots index the catalog. Resolving any other
+        // slot through weaponById lands on id 0, the Mini-Gun, which is how a
+        // bomb launch came to draw a 40 m hitscan streak next to its own shell.
+        const w = b <= SHOT_SLOT_SPECIAL ? weaponById(c) : undefined;
         const muzzleScale = w?.vfx === "flame" ? MUZZLE_SCALE * 1.5 : MUZZLE_SCALE;
         spawn(muzzles, MUZZLE_LIFE, mx, my, mz, yaw, muzzleScale);
         // Hitscan weapons get a tracer bolt (gun minigun/laser/flame, special beam).
         // Projectiles already render as entities.
-        if (w?.delivery === "hitscan" || (b === 0 && !w)) {
-          const look = hitscanLook(c);
+        if (emplacement || w?.delivery === "hitscan") {
+          const look = emplacement ? emplacementLook(shotPayloadToReach(c)) : hitscanLook(c);
           const half = look.length * 0.5;
           const cx = mx + cos * half;
           const cz = mz + sin * half;
@@ -400,6 +438,17 @@ export function createFx(scene: THREE.Scene): ShotFx {
           scratchColor.setHex(explosionTint(c));
           explosions.mesh.setColorAt(slot, scratchColor);
           if (explosions.mesh.instanceColor) explosions.mesh.instanceColor.needsUpdate = true;
+        }
+        // Second phase on Cpyr id 5. The contact sheet (gen:fxsheet) settles what
+        // the two large sprites are: id 8 is a dense hot ball, id 5 is the same
+        // ball burnt hollow with a bright yellow rim. That is a sequence, so it
+        // is drawn as one — 8 first, 5 outliving it and expanding past it.
+        const lslot = explosionsLate.count;
+        if (spawn(explosionsLate, EXPLOSION_LATE_LIFE, px, py + 0.6, pz, 0, endScale * 1.35)) {
+          scratchColor.setHex(explosionTint(c));
+          explosionsLate.mesh.setColorAt(lslot, scratchColor);
+          if (explosionsLate.mesh.instanceColor)
+            explosionsLate.mesh.instanceColor.needsUpdate = true;
         }
         // Shockwave rides the ground under the fireball (procedural — no ring sprite).
         const waveEnd =
@@ -455,6 +504,7 @@ export function createFx(scene: THREE.Scene): ShotFx {
       age(tracerHalo, dtSec);
       age(muzzles, dtSec);
       age(explosions, dtSec);
+      age(explosionsLate, dtSec);
       age(sparks, dtSec);
       age(shockwaves, dtSec);
     }
@@ -478,6 +528,14 @@ export function createFx(scene: THREE.Scene): ShotFx {
       const f = Math.max(0.08, envelope);
       scratchScale.set(s * f, s * f, s * f);
     });
+    // Phase two grows past the first ball and fades from a hot rim to nothing.
+    // No initial punch-in: by the time this is visible the id-8 ball already
+    // did that, and re-doing it reads as two explosions rather than one.
+    writeOriented(explosionsLate, true, (i, t) => {
+      const s = EXPLOSION_START + (explosionsLate.param[i] - EXPLOSION_START) * Math.sqrt(t);
+      const f = Math.max(0.05, 1 - t * t);
+      scratchScale.set(s * f, s * f, s * f);
+    });
     writeOriented(sparks, true, (i, t) => {
       const s = sparks.param[i] * (1 + t * 0.8);
       const fade = 1 - t;
@@ -496,6 +554,7 @@ export function createFx(scene: THREE.Scene): ShotFx {
     get atlasReady() {
       return atlasReady;
     },
+    debugTracerLength: () => (tracerCore.count > 0 ? tracerCore.param[tracerCore.count - 1] : 0),
     debugCounts: () => ({
       tracers: tracerCore.count,
       muzzles: muzzles.count,
@@ -509,6 +568,7 @@ export function createFx(scene: THREE.Scene): ShotFx {
 interface LoadedAtlas {
   maps: {
     explosion: THREE.Texture;
+    explosionLate: THREE.Texture;
     muzzle: THREE.Texture;
     spark: THREE.Texture;
   };
@@ -522,9 +582,10 @@ async function loadCpyrAtlas(): Promise<LoadedAtlas | null> {
     const [atlasW, atlasH] = meta.size;
 
     const expRect = findSprite(meta, PARTICLE_ID.explosion);
+    const expLateRect = findSprite(meta, PARTICLE_ID.explosionAlt);
     const muzRect = findSprite(meta, PARTICLE_ID.muzzle);
     const spkRect = findSprite(meta, PARTICLE_ID.spark);
-    if (!expRect || !muzRect || !spkRect) return null;
+    if (!expRect || !expLateRect || !muzRect || !spkRect) return null;
 
     const atlas = await loadTexture(ATLAS_URL);
     if (!atlas) return null;
@@ -537,6 +598,7 @@ async function loadCpyrAtlas(): Promise<LoadedAtlas | null> {
     return {
       maps: {
         explosion: cropAtlasMap(atlas, expRect, atlasW, atlasH),
+        explosionLate: cropAtlasMap(atlas, expLateRect, atlasW, atlasH),
         muzzle: cropAtlasMap(atlas, muzRect, atlasW, atlasH),
         spark: cropAtlasMap(atlas, spkRect, atlasW, atlasH),
       },

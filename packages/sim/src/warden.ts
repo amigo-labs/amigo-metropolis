@@ -49,7 +49,13 @@ import {
   WARDEN_SUPPRESS_RADIUS,
   WARDEN_WAVE_SIZE,
 } from "./balance";
-import { EV_SHOT, pushEvent } from "./events";
+import {
+  EV_SHOT,
+  pushEvent,
+  reachToShotPayload,
+  SHOT_SLOT_HITSCAN,
+  SHOT_SLOT_LAUNCH,
+} from "./events";
 import { BUTTON_FIRE2, BUTTON_INTERACT } from "./inputs";
 import { sampleHeight, worldExtent } from "./map";
 import { ANIM_MOVING, hitscan, type SimState, spawnProjectile, systemBuy } from "./sim";
@@ -464,7 +470,13 @@ function moveAndAct(state: SimState, id: number, me: number): void {
     ent.yaw[id] = atan2Poly(ay, ax);
     if (ent.cooldownA[id] <= 0) {
       ent.cooldownA[id] = WARDEN_PRIMARY_COOLDOWN_TICKS;
-      pushEvent(state.events, EV_SHOT, id, 0, 0);
+      pushEvent(
+        state.events,
+        EV_SHOT,
+        id,
+        SHOT_SLOT_HITSCAN,
+        reachToShotPayload(WARDEN_PRIMARY_RANGE),
+      );
       hitscan(
         state,
         id,
@@ -477,7 +489,10 @@ function moveAndAct(state: SimState, id: number, me: number): void {
     }
     if (ent.cooldownB[id] <= 0 && ax * ax + ay * ay <= WARDEN_HEAVY_RANGE * WARDEN_HEAVY_RANGE) {
       ent.cooldownB[id] = WARDEN_HEAVY_COOLDOWN_TICKS;
-      pushEvent(state.events, EV_SHOT, id, 1, 0);
+      // SHOT_SLOT_LAUNCH: the bomb is an entity of its own, so this is a muzzle
+      // flash and nothing else. As slot 1 with c=0 it resolved to the Mini-Gun and
+      // drew a 40 m hitscan tracer alongside the shell it had just spawned.
+      pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, 0);
       spawnProjectile(
         state,
         id,
