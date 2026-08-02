@@ -848,6 +848,13 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // them in both rings AND turretSpots stacked three meshes (and three
     // shooters) on one plate: team0 ring + team1 ring + capturable.
     // importLaCantinaFromFcopViz.ts uses the same teamOnlyTurrets rule.
+    //
+    // The two filters below are near-identical on Mp by construction, not by
+    // accident: every plate a team shares with a NeutralTurret is also one the
+    // other team lists (the mid-field row at x 94.5 and x 129.5). So 8 of each
+    // team's 16 Turret actors drop out and 8+8 is the ring the original's data
+    // supports. Re-measured; the filters are not over-eager. PLAN.md phase 12
+    // claimed 16+16 and has been corrected.
     const otherTeam = teamBases[1 - team].team;
     const otherPadKeys = new Set(
       logic.turrets.filter((t) => t.team === otherTeam).map((t) => padKey(sx(t.x), sz(t.z))),
