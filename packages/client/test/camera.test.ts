@@ -8,6 +8,7 @@ import {
   smoothstep,
   updateCamera,
   type Vec3,
+  wrapAngle,
 } from "../src/render/camera";
 
 const cfg = DEFAULT_RIG_CONFIG;
@@ -15,6 +16,7 @@ const cfg = DEFAULT_RIG_CONFIG;
 function neutralInput(over: Partial<CameraInput> = {}): CameraInput {
   return {
     zoomDelta: 0,
+    yawAbsolute: null,
     yawDelta: 0,
     panDelta: { x: 0, y: 0, z: 0 },
     recenter: false,
@@ -132,22 +134,62 @@ describe("updateCamera — view continuum", () => {
 });
 
 describe("updateCamera — yaw policy (§3)", () => {
-  test("yawDelta is ignored while world-fixed (locked)", () => {
+  test("nothing steers the yaw while locked", () => {
+    const locked = { ...cfg, yawLocked: true };
     const s = createCameraState(ORIGIN, 0);
-    run(s, neutralInput({ yawDelta: 0.2 }), ORIGIN, 60, 2);
+    const dt = 1 / 60;
+    for (let i = 0; i < 120; i++) {
+      updateCamera(
+        s,
+        neutralInput({ yawDelta: 0.2, yawAbsolute: 1 }),
+        ORIGIN,
+        STILL,
+        true,
+        locked,
+        dt,
+      );
+    }
     expect(s.yaw).toBe(0);
     expect(s.yawTarget).toBe(0);
   });
 
-  test("yawDelta rotates when unlocked", () => {
-    const unlocked = { ...cfg, yawLocked: false };
+  test("an absolute heading is taken as the target, not accumulated", () => {
+    // The chase rig's contract: the mouse owns the heading outright. Feeding the
+    // same value every frame has to settle there rather than integrate away.
+    const s = createCameraState(ORIGIN, 0);
+    const dt = 1 / 60;
+    for (let i = 0; i < 240; i++) {
+      updateCamera(s, neutralInput({ yawAbsolute: 1.2 }), ORIGIN, STILL, true, cfg, dt);
+    }
+    expect(s.yawTarget).toBeCloseTo(1.2, 6);
+    expect(s.yaw).toBeCloseTo(1.2, 3);
+  });
+
+  test("yawDelta still integrates when no absolute heading is given", () => {
     const s = createCameraState(ORIGIN, 0);
     const dt = 1 / 60;
     for (let i = 0; i < 120; i++) {
-      updateCamera(s, neutralInput({ yawDelta: 0.01 }), ORIGIN, STILL, true, unlocked, dt);
+      updateCamera(s, neutralInput({ yawDelta: 0.01 }), ORIGIN, STILL, true, cfg, dt);
     }
     expect(s.yawTarget).toBeCloseTo(1.2, 6);
     expect(s.yaw).toBeGreaterThan(1.0);
+  });
+
+  test("crossing the ±PI seam takes the short way round", () => {
+    // Raw lerping between +3.1 and -3.1 sweeps almost a full turn the wrong way,
+    // which is a whole camera spin every time the player drives north.
+    const s = createCameraState(ORIGIN, 3.1);
+    const dt = 1 / 60;
+    let maxStep = 0;
+    let prev = s.yaw;
+    for (let i = 0; i < 120; i++) {
+      updateCamera(s, neutralInput({ yawAbsolute: -3.1 }), ORIGIN, STILL, true, cfg, dt);
+      maxStep = Math.max(maxStep, Math.abs(wrapAngle(s.yaw - prev)));
+      prev = s.yaw;
+    }
+    // Total travel is the short arc (~0.083 rad), so no single frame can exceed it.
+    expect(maxStep).toBeLessThan(0.09);
+    expect(Math.abs(wrapAngle(s.yaw - -3.1))).toBeLessThan(0.01);
   });
 });
 
@@ -203,17 +245,36 @@ describe("deriveCameraPose", () => {
     expect(eye.z).toBeCloseTo(target.z, 6);
   });
 
-  test("higher t frames higher and farther (tactical)", () => {
+  test("t no longer moves the framing — pitch, dolly and fov are fixed", () => {
+    // This used to assert the opposite ("higher t frames higher and farther").
+    // The chase rig collapses both anchors onto one, so the whole t continuum is
+    // inert by construction: that is the original's single fixed camera, and it
+    // is what makes a walk cycle judgeable frame to frame.
     const s = createCameraState(ORIGIN, 0);
     s.t = 0;
-    deriveCameraPose(s, cfg, eye, target);
+    const fovLow = deriveCameraPose(s, cfg, eye, target);
     const lowRise = eye.y;
     const lowRun = Math.abs(eye.x);
     s.t = 1;
     const fovHigh = deriveCameraPose(s, cfg, eye, target);
-    expect(eye.y).toBeGreaterThan(lowRise); // steeper → higher
-    expect(Math.abs(eye.x)).toBeGreaterThan(lowRun); // farther dolly
-    expect(fovHigh).toBeCloseTo(cfg.tactical.fovDeg, 6);
+    expect(eye.y).toBeCloseTo(lowRise, 10);
+    expect(Math.abs(eye.x)).toBeCloseTo(lowRun, 10);
+    expect(fovHigh).toBeCloseTo(fovLow, 10);
+    expect(fovHigh).toBeCloseTo(cfg.action.fovDeg, 6);
+  });
+
+  test("the fixed pitch is a real downward tilt, not top-down and not flat", () => {
+    // Two things depend on the number itself: a near-zero pitch puts the eye in
+    // the road, and a near-90 one makes cameraGroundForward degenerate, which is
+    // the basis WASD is rotated by.
+    const s = createCameraState(ORIGIN, 0);
+    deriveCameraPose(s, cfg, eye, target);
+    const rise = eye.y - target.y;
+    const run = Math.hypot(eye.x - target.x, eye.z - target.z);
+    const pitchDeg = (Math.atan2(rise, run) * 180) / Math.PI;
+    expect(pitchDeg).toBeGreaterThan(15);
+    expect(pitchDeg).toBeLessThan(45);
+    expect(run).toBeGreaterThan(5);
   });
 
   test("yaw orients the pull-back direction in the ground plane", () => {

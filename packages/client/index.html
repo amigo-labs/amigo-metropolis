@@ -68,20 +68,23 @@
       .lobby-card b {
         color: #fbbf24;
       }
+      /* Fixed centre crosshair: the mouse steers the hull and the gun points
+         where the hull points, so the reticle is where the view centre is.
+         Under pointer lock there is no cursor to follow anyway. */
       #reticle {
         position: fixed;
-        top: 0;
-        left: 0;
+        top: 50%;
+        left: 50%;
         width: 20px;
         height: 20px;
+        margin: -10px 0 0 -10px;
         border: 2px solid rgba(255, 255, 255, 0.85);
         border-radius: 50%;
         box-shadow: 0 0 4px #000;
         pointer-events: none;
-        will-change: transform;
       }
       body {
-        cursor: crosshair;
+        cursor: none;
       }
 
       /* --- Touch controls (?touch / coarse-pointer auto-detect) ------------- */

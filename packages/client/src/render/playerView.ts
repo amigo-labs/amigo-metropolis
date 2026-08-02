@@ -71,6 +71,7 @@ export function createPlayerViews(
       cam,
       camInput: {
         zoomDelta: 0,
+        yawAbsolute: null,
         yawDelta: 0,
         panDelta: { x: 0, y: 0, z: 0 },
         recenter: false,

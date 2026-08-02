@@ -24,19 +24,17 @@ export interface LocalInputSource {
   isConnected(): boolean;
   /**
    * Refresh per-tick input context before sample(): the camera-relative move
-   * basis, pointer aim (projects the cursor onto the avatar's ground plane
-   * within this player's viewport — no-op for stick aim), and the enemy
-   * positions used by "assist" aim magnetism. `enemies` is packed
-   * `[x0,y0,x1,y1,…]` in sim coords with `enemyCount` pairs (a shared scratch
-   * the source must copy, not retain). Call once per tick before sample().
-   * Allocation-free.
+   * basis, the steered heading (`lookYaw`, sim radians — mouse/keyboard aim
+   * follows it; stick aim ignores it), and the enemy positions used by "assist"
+   * aim magnetism. `enemies` is packed `[x0,y0,x1,y1,…]` in sim coords with
+   * `enemyCount` pairs (a shared scratch the source must copy, not retain).
+   * Call once per tick before sample(). Allocation-free.
    */
   updateAim(
     camera: THREE.Camera,
     avatarX: number,
     avatarY: number,
-    avatarHeight: number,
-    viewport: Viewport,
+    lookYaw: number,
     enemies: Float32Array,
     enemyCount: number,
   ): void;

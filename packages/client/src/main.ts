@@ -64,6 +64,7 @@ import {
 import type { PinEntity } from "./debug/pinTypes";
 import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
+import { createMouseLook, type MouseLook } from "./input/mouseLook";
 import { isTextEntryTarget } from "./input/textEntry";
 import { TouchInput, wantsTouch } from "./input/touch";
 import { TOUCH_BUTTONS } from "./input/touchMapping";
@@ -571,21 +572,10 @@ const rigVel = { x: 0, y: 0, z: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 const TAU = Math.PI * 2;
 
-// Mouse-wheel zoom for the pointer view: accumulated between frames, drained
-// into that view's rig input once per frame (kept out of the sim entirely).
-let wheelAccum = 0;
-addEventListener(
-  "wheel",
-  (e) => {
-    wheelAccum += e.deltaY;
-  },
-  { passive: true },
-);
-
+// The chase rig has no zoom to give the wheel (camera.spec §3), and under
+// pointer lock there is no cursor for the reticle to follow — it sits in the
+// middle of the view, where the gun points, and CSS keeps it there.
 const reticle = document.getElementById("reticle") as HTMLDivElement;
-addEventListener("mousemove", (e) => {
-  reticle.style.transform = `translate(${e.clientX - 10}px, ${e.clientY - 10}px)`;
-});
 const unitCounts = new Int32Array(2);
 
 // Full-screen status overlay for online mode (connecting / waiting / desync).
@@ -625,6 +615,11 @@ function refreshOverlay(): void {
 // the original/esrgan variants (render/texVariants.ts, 404-tolerant).
 let texSwitcher: VariantSwitcher | null = null;
 const flyState = createFlyState();
+
+// Yaw-only mouse steering (input.spec §4.1). Pointer-locks on click; fly mode
+// installs its own listeners on the same canvas and keeps free pitch, which is
+// why this is a separate object rather than a mode of flyCamera.
+let mouseLook: MouseLook = createMouseLook(renderer.domElement);
 
 // Small fixed DOM label (overlay idiom: only write on change). Shows the fly
 // controls and the active texture variant while debugging.
@@ -853,7 +848,10 @@ const viewBySlot: (PlayerView | undefined)[] = new Array(MAX_PLAYERS).fill(undef
 let orbitControls: OrbitControls | undefined;
 
 function runTick(): void {
-  // Refresh pointer aim for each local view (uses last frame's chase camera).
+  // Drain this tick's mouse travel into the heading before anything reads it,
+  // so aim and the camera agree within the tick.
+  mouseLook.update();
+  // Refresh aim for each local view (uses last frame's chase camera basis).
   for (let v = 0; v < views.length; v++) {
     const view = views[v];
     const a = sim.avatarId[view.slot];
@@ -863,8 +861,7 @@ function runTick(): void {
         view.camera,
         sim.ent.posX[a],
         sim.ent.posY[a],
-        sim.ent.height[a],
-        view.viewport,
+        mouseLook.yaw,
         enemyScratch,
         ec,
       );
@@ -1193,7 +1190,10 @@ function frame(now: number): void {
     // → toward ACTION). Only the pointer view takes zoom.
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
-      view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
+      // Chase rig: the mouse heading drives the camera as well as the avatar,
+      // and there is nothing left for the wheel to change (camera.spec §3).
+      view.camInput.yawAbsolute = mouseLook.yaw;
+      view.camInput.zoomDelta = 0;
       if (flyMode && v === 0) {
         // Free-fly debug camera owns view 0's posing (render/flyCamera.ts) —
         // rig and blend are skipped, exactly like orbit below. Skip while the
@@ -1222,7 +1222,6 @@ function frame(now: number): void {
       }
     }
   }
-  wheelAccum = 0; // consumed for this frame
 
   hudFrames++;
   if (now - hudLastUpdate > 1000) {
@@ -1251,13 +1250,16 @@ function resetForMatch(newSim: SimState): void {
   }
   countPrev = 0;
   countCurr = writeSnapshot(sim, snapCurr);
-  wheelAccum = 0;
   if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
 }
 
 function startMatch(localPlayers: readonly { slot: number; input: LocalInputSource }[]): void {
   phase = "match";
   views = createPlayerViews(localPlayers, map.spawns, extent);
+  // Start facing the way the rig starts: spawn -> arena centre. Otherwise the
+  // first tick snaps the avatar to yaw 0 before the player has touched anything.
+  mouseLook.dispose();
+  mouseLook = createMouseLook(renderer.domElement, { initialYaw: views[0]?.cam.yaw ?? 0 });
   viewBySlot.fill(undefined);
   for (let v = 0; v < views.length; v++) viewBySlot[views[v].slot] = views[v];
   layoutViews(views, "v", innerWidth, innerHeight);
@@ -1310,8 +1312,7 @@ function makeNetSampler(): () => PlayerInput {
           view.camera,
           sim.ent.posX[a],
           sim.ent.posY[a],
-          sim.ent.height[a],
-          view.viewport,
+          mouseLook.yaw,
           enemyScratch,
           ec,
         );
