@@ -316,10 +316,7 @@ const CONSOLE_ICON_GROUND = new Set([27, 40]);
 
 type ConsoleTrigger = Logic["triggers"][number];
 
-function consoleRole(
-  trigger: ConsoleTrigger,
-  props: Logic["props"],
-): "ground" | "air" | "unknown" {
+function consoleRole(trigger: ConsoleTrigger, props: Logic["props"]): "ground" | "air" | "unknown" {
   let best: Logic["props"][number] | null = null;
   let bestD = Infinity;
   for (const p of props) {
@@ -907,9 +904,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const bases = teamBases.map((base, team) => {
     const own = teamSpawns[team];
     const buttons = assignConsoles(
-      logic.triggers.filter(
-        (t) => t.flags.includes("action_button") && t.watchesActor === own.id,
-      ),
+      logic.triggers.filter((t) => t.flags.includes("action_button") && t.watchesActor === own.id),
       logic.props,
       team,
     );
