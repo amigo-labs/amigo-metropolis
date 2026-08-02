@@ -274,9 +274,11 @@ const ARENAS: ArenaExpectation[] = [
     laneCount: 1,
     groundHeight: 0,
     heightsPin: 3837183847, // terrain untouched by the rebuild
-    // 312 bits carved + 23 to reconnect, of 6225 (5.4%).
-    wallsVPin: 3251669576,
-    wallsHPin: 2892005750,
+    // 312 bits carved + 23 to reconnect, of 6225 (5.4%). Moved when the ground
+    // and air consoles were un-swapped: the carve opens the ground console's leg
+    // to the road, and that leg now starts at the other console.
+    wallsVPin: 3664435848,
+    wallsHPin: 840504655,
     turretSpots: 29,
     outpostSpots: 2,
     dummySpots: 0,

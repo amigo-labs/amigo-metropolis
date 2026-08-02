@@ -21,7 +21,14 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // moved. 01-06 above are UNTOUCHED across that bump, which is the no-op proof —
   // golden-04-warden runs a difficulty-8 Warden on district-01 and the rung is
   // gated on `hasCore(enemy)`, so it never fires there.
-  "golden-07-pa": { last: 1050563335, count: 3600 },
+  //
+  // Re-frozen alone AGAIN when la-cantina's ground and air build consoles were
+  // un-swapped (enrichArena's consoleRole). No sim code changed, so this is map
+  // data moving under an unchanged SIM_VERSION: the Warden buys at the ground
+  // console, that coordinate moved ~5 m, and every tick after the first purchase
+  // differs. 01-06 untouched again — 05 runs urban-jungle, whose consoles were
+  // already the right way round.
+  "golden-07-pa": { last: 1802386461, count: 3600 },
 };
 
 describe("single-story golden last-hash pins", () => {

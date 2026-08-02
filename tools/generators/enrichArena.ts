@@ -292,6 +292,76 @@ class WeaponTable {
  * that share a plate land on the same key after LOGIC_OFFSET, even when the
  * raw actor coords differ by a few centimetres.
  */
+/**
+ * Which unit a build console sells, read off the Cobj parked on it.
+ *
+ * The original labels its consoles with an icon rather than a field, and the
+ * icon is a UV window into the shared 256x256 base atlas. Measured on the raw
+ * assemblies in tools/generators/units/raw/fcop/, the icon face of each
+ * console model samples one of two windows:
+ *
+ *   y 0..28  -> a yellow jet silhouette   -> AIR   (obj 33, obj 39)
+ *   y 28..56 -> a yellow tank silhouette  -> GROUND (obj 27, obj 40)
+ *
+ * Conft and Slim mark the air console with obj 41 — the flyer model itself —
+ * instead of an icon pillar. Same meaning.
+ *
+ * This replaces a footprint-width heuristic. On Mp the wider trigger (819) is
+ * the one wearing the JET, so calling the wider one "ground" sold Runners at
+ * the aircraft console and Guardians at the tank console. Joke, Hk and Ovmp
+ * were wrong the same way; Conft and Slim happened to come out right.
+ */
+const CONSOLE_ICON_AIR = new Set([33, 39, 41]);
+const CONSOLE_ICON_GROUND = new Set([27, 40]);
+
+type ConsoleTrigger = Logic["triggers"][number];
+
+function consoleRole(
+  trigger: ConsoleTrigger,
+  props: Logic["props"],
+): "ground" | "air" | "unknown" {
+  let best: Logic["props"][number] | null = null;
+  let bestD = Infinity;
+  for (const p of props) {
+    const d = Math.hypot(p.x - trigger.x, p.z - trigger.z);
+    if (d < bestD) {
+      bestD = d;
+      best = p;
+    }
+  }
+  // The console Cobj sits ON the trigger: measured 0.07-0.42 cells on all six
+  // missions. Anything further away is some other piece of scenery.
+  if (!best || bestD > 1.5) return "unknown";
+  if (CONSOLE_ICON_AIR.has(best.objId)) return "air";
+  if (CONSOLE_ICON_GROUND.has(best.objId)) return "ground";
+  return "unknown";
+}
+
+/** [ground, air] triggers for one base, keyed off their console icons. */
+function assignConsoles(
+  triggers: readonly ConsoleTrigger[],
+  props: Logic["props"],
+  team: number,
+): [ConsoleTrigger, ConsoleTrigger] {
+  if (triggers.length < 2) {
+    throw new Error(`base ${team} has ${triggers.length} action-button triggers, need 2`);
+  }
+  const byId = [...triggers].sort((a, b) => a.id - b.id);
+  const ground = byId.filter((t) => consoleRole(t, props) === "ground");
+  const air = byId.filter((t) => consoleRole(t, props) === "air");
+  if (ground.length !== 1 || air.length !== 1) {
+    // Refuse to guess. A mission whose consoles carry an icon this table does
+    // not know is a data question, and getting it backwards is invisible in
+    // every screenshot — you only notice when the wrong unit rolls out.
+    const seen = byId.map((t) => `${t.id}:${consoleRole(t, props)}`).join(" ");
+    throw new Error(
+      `base ${team}: cannot tell the build consoles apart from their icons (${seen}). ` +
+        `Add the console Cobj id to CONSOLE_ICON_AIR / CONSOLE_ICON_GROUND.`,
+    );
+  }
+  return [ground[0], air[0]];
+}
+
 function padKey(x: number, z: number): string {
   return `${Math.round(x * 2) / 2},${Math.round(z * 2) / 2}`;
 }
@@ -829,18 +899,20 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // --- bases -------------------------------------------------------------
   // The two `action_button` triggers per base are the base's own interaction
   // points (fcop-logic.md §8.6: they watch that base's own X1Alpha), so they are
-  // the build consoles. The original does not label which is which; their
-  // footprints differ consistently across both bases, so the wider one is the
-  // ground console. Deterministic, symmetric, and derived rather than invented.
+  // the build consoles. Which is which comes from the Cobj standing on each one
+  // — see consoleRole(). This used to be "the wider footprint is the ground
+  // console", which was a guess, and on four of six missions it was the wrong
+  // way round.
   let ringDropped = 0;
   const bases = teamBases.map((base, team) => {
     const own = teamSpawns[team];
-    const buttons = logic.triggers
-      .filter((t) => t.flags.includes("action_button") && t.watchesActor === own.id)
-      .sort((a, b) => b.widthRaw - a.widthRaw || a.id - b.id);
-    if (buttons.length < 2) {
-      throw new Error(`base ${team} has ${buttons.length} action-button triggers, need 2`);
-    }
+    const buttons = assignConsoles(
+      logic.triggers.filter(
+        (t) => t.flags.includes("action_button") && t.watchesActor === own.id,
+      ),
+      logic.props,
+      team,
+    );
     const core = [round4(sx(base.x)), round4(sz(base.z))];
     // Permanent base ring = team-unique type-8 pads only. The original also
     // lists dual-team type-8 actors on mid plates that are NeutralTurrets —
