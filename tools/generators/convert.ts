@@ -9,6 +9,7 @@
 //
 // Source model (Stage 0 extraction, private input, NOT committed):
 //   { size:[W,H], tile_size, cellSize, walk_height:int8[H][W], wallsV/wallsH,
+//     rank0_wallsV/H, layers[{heights, mask, wallsV, wallsH}],
 //     multi_level_points, uses_bridges }
 //   walk_height is the walkable-floor height per point in int8 (1/32 m) units,
 //     row-major walk_height[y][x] — 1:1 onto the sim's heights[j*size + i].
@@ -45,12 +46,19 @@ interface TerrainJson {
   cellSize: number;
   walk_height: number[][];
   /** Tile-edge walls: wallsV[r][c]='1' blocks between tile (r,c) and (r,c+1),
-   *  wallsH[r][c]='1' between tile (r,c) and (r+1,c). Tile grid = cell grid. */
+   *  wallsH[r][c]='1' between tile (r,c) and (r+1,c). Tile grid = cell grid.
+   *  This pair is the UNION over every deck — see `rank0_walls*` below. */
   wallsV: string[];
   wallsH: string[];
+  /** The subset of the above that stands on the GROUND deck. Same layout. Newer
+   *  extractor field; absent on an older dump, in which case a layered arena
+   *  falls back to the union and the carve stays as large as it was. */
+  rank0_wallsV?: string[];
+  rank0_wallsH?: string[];
   /** Extra stacked walkable surfaces (rank 1..N), each SRC_H×SRC_W: heights in
-   *  int8 (1/32 m), '0'/'1' present mask. Only consumed for `layered` arenas. */
-  layers?: { heights: number[][]; mask: string[] }[];
+   *  int8 (1/32 m), '0'/'1' present mask, plus that deck's own wall lattice.
+   *  Only consumed for `layered` arenas. */
+  layers?: { heights: number[][]; mask: string[]; wallsV?: string[]; wallsH?: string[] }[];
 }
 
 type P = [number, number];
@@ -82,17 +90,33 @@ interface ArenaSpec {
   turretSpots: P[];
   outpostSpots: P[];
   dummySpots: P[];
-  /** Emit the extractor's stacked decks into the map JSON (Hk/Ovmp). The four
-   *  single-story v1 arenas leave this unset — their minor ledges are not real
-   *  decks (Stage-0 decision) and they stay byte-identical / single-layer. */
+  /** Emit the extractor's stacked decks into the map JSON, and take the GROUND
+   *  deck's wall lattice instead of the union over all decks (Hk/Ovmp/Mp). The
+   *  three remaining single-story arenas leave this unset — their minor ledges
+   *  are not real decks (Stage-0 decision) and they stay byte-identical. */
   layered?: boolean;
   /**
-   * Optional height stamps `[x, y, meters]` applied after walk_height emit.
-   * Walk_height is the collision floor; many FCOP turret pads are raised mesh
-   * plates above a channel. Stamping the 2×2 bilinear neighborhood makes
-   * `sampleHeight` match the textured pad top so entities sit on the art.
+   * Optional height stamps `[x, y, meters]`. Walk_height is the collision floor;
+   * many FCOP turret pads are raised mesh plates above a channel, and stamping
+   * the 2×2 bilinear neighborhood would make `sampleHeight` match the textured
+   * pad top so entities sit on the art.
+   *
+   * NOT APPLIED unless `stampPadHeights` is set, and nothing sets it. The
+   * committed la-cantina.json — the artifact `heightsPin` pins — is the raw
+   * padded `walk_height` with these stamps ABSENT: I diffed all 241×241 cells,
+   * and the only differences a stamping run produces are the 63 cells these 18
+   * entries cover. So the list was authored but never landed, and the dangling
+   * `patchLaCantinaPadHeights` reference below is the other half of that story.
+   *
+   * Left switched off deliberately. Turning it on lowers four pads onto the
+   * channel floor and raises others (e.g. (108,70) 70 → 32 quanta), which is a
+   * terrain change owing its own measurement and pin bump — not something to
+   * smuggle in behind a change about decks. The data stays so that work has a
+   * starting point.
    */
   padHeights?: [number, number, number][];
+  /** Opt in to stamping `padHeights`. See the warning above before setting it. */
+  stampPadHeights?: boolean;
 }
 
 // --- Arena specs --------------------------------------------------------------
@@ -357,11 +381,18 @@ const PROVING_GROUND: ArenaSpec = {
 //   - Dummies = ACT 8/36 pads on the next ring out (target practice)
 //   - Outposts = outer NeutralTurret midpoints (east/west)
 // Cell-center coordinates; SRC 209×241 pads +X to 241 (no feature offset).
-// After emit, heightfield cells under these spots are raised to mesh pad tops
-// (see patchLaCantinaPadHeights) so sampleHeight matches the textured .glb.
+// The terrain is the raw walk_height: the `padHeights` stamps below are NOT
+// applied (see ArenaSpec.padHeights), and `patchLaCantinaPadHeights` never
+// existed.
+// LAYERED (issue #29): Mp is bridged — uses_bridges, 1566 multi-level points, a
+// 2398-cell deck over the road and a 108-cell deck above that. Converting it as
+// single-storey charged the bridges' walls to the road running underneath, which
+// is what stage 2 then had to carve back open. With the decks emitted and walls
+// attributed per deck, the roads are the original's again.
 const LA_CANTINA: ArenaSpec = {
   id: "la-cantina",
   mission: "Mp",
+  layered: true,
   spawns: [
     { x: 96.5, y: 69.5, yaw: Math.PI / 2 }, // X1Alpha S base, faces +y
     { x: 96.5, y: 155.5, yaw: -Math.PI / 2 }, // X1Alpha N base, faces -y
@@ -716,7 +747,8 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
   }
 
   // Raise walk_height under authored pads so sampleHeight matches mesh tops.
-  if (spec.padHeights) {
+  // Off by default — see the ArenaSpec.padHeights warning.
+  if (spec.padHeights && spec.stampPadHeights === true) {
     for (const [x, y, meters] of spec.padHeights) {
       const q = Math.round(meters / HEIGHT_SCALE);
       const i0 = Math.floor(x);
@@ -745,42 +777,82 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
   // → sim line x=c+1 in cell row r; private wallsH[r][c] between (r,c) and
   // (r+1,c) → sim line y=r+1 in cell column c. Padding stays wall-free.
   const [TILE_W, TILE_H] = [SRC_W - 1, SRC_H - 1];
-  if (src.wallsV.length !== TILE_H || src.wallsH.length !== TILE_H) {
-    throw new Error(
-      `walls have ${src.wallsV.length}/${src.wallsH.length} rows, expected ${TILE_H}`,
-    );
-  }
-  const wallsVBits = new Uint8Array(SIZE * SIZE);
-  const wallsHBits = new Uint8Array(SIZE * SIZE);
-  let wallVCount = 0;
-  let wallHCount = 0;
-  for (let r = 0; r < TILE_H; r++) {
-    if (src.wallsV[r].length !== TILE_W || src.wallsH[r].length !== TILE_W) {
-      throw new Error(`walls row ${r} has bad length`);
+  const remapWalls = (
+    srcV: string[],
+    srcH: string[],
+    what: string,
+  ): {
+    wallsV: string[];
+    wallsH: string[];
+    vBits: Uint8Array;
+    hBits: Uint8Array;
+    vCount: number;
+    hCount: number;
+  } => {
+    if (srcV.length !== TILE_H || srcH.length !== TILE_H) {
+      throw new Error(`${what} have ${srcV.length}/${srcH.length} rows, expected ${TILE_H}`);
     }
-    for (let c = 0; c < TILE_W; c++) {
-      if (src.wallsV[r][c] === "1") {
-        wallsVBits[r * SIZE + (c + 1)] = 1;
-        wallVCount++;
+    const vBits = new Uint8Array(SIZE * SIZE);
+    const hBits = new Uint8Array(SIZE * SIZE);
+    let vCount = 0;
+    let hCount = 0;
+    for (let r = 0; r < TILE_H; r++) {
+      if (srcV[r].length !== TILE_W || srcH[r].length !== TILE_W) {
+        throw new Error(`${what} row ${r} has bad length`);
       }
-      if (src.wallsH[r][c] === "1") {
-        wallsHBits[(r + 1) * SIZE + c] = 1;
-        wallHCount++;
+      for (let c = 0; c < TILE_W; c++) {
+        if (srcV[r][c] === "1") {
+          vBits[r * SIZE + (c + 1)] = 1;
+          vCount++;
+        }
+        if (srcH[r][c] === "1") {
+          hBits[(r + 1) * SIZE + c] = 1;
+          hCount++;
+        }
       }
     }
-  }
-  const wallsV: string[] = [];
-  const wallsH: string[] = [];
-  for (let j = 0; j < SIZE; j++) {
-    let vRow = "";
-    let hRow = "";
-    for (let i = 0; i < SIZE; i++) {
-      vRow += wallsVBits[j * SIZE + i] === 1 ? "1" : "0";
-      hRow += wallsHBits[j * SIZE + i] === 1 ? "1" : "0";
+    const outV: string[] = [];
+    const outH: string[] = [];
+    for (let j = 0; j < SIZE; j++) {
+      let vRow = "";
+      let hRow = "";
+      for (let i = 0; i < SIZE; i++) {
+        vRow += vBits[j * SIZE + i] === 1 ? "1" : "0";
+        hRow += hBits[j * SIZE + i] === 1 ? "1" : "0";
+      }
+      outV.push(vRow);
+      outH.push(hRow);
     }
-    wallsV.push(vRow);
-    wallsH.push(hRow);
-  }
+    return { wallsV: outV, wallsH: outH, vBits, hBits, vCount, hCount };
+  };
+
+  // WHICH LATTICE BECOMES THE GROUND LATTICE
+  // The extractor's top-level wallsV/H is the UNION over every deck, which is
+  // what a single-storey arena wants: it has no decks to attribute walls to, and
+  // emitting anything else would move four committed arenas' wall pins.
+  //
+  // A `layered` arena takes `rank0_walls*` instead — the walls that stand on the
+  // ground deck — and carries each deck's own lattice alongside its heights. That
+  // is the whole point of #29: on la-cantina 632 of the union's bits belong to an
+  // upper deck, and charging them to the road underneath is what turned the
+  // original's bridges into walls across the road.
+  //
+  // Union(ranks) == top-level holds exactly on all 15 missions, so nothing is
+  // lost in the split — a wall that separates two decks belongs to both, and the
+  // extractor's 16 orphan edges are attributed to rank 0 (see the RE repo's
+  // docs/findings/README.md).
+  const useRank0 = spec.layered === true && src.rank0_wallsV !== undefined;
+  const ground = useRank0
+    ? remapWalls(src.rank0_wallsV as string[], src.rank0_wallsH as string[], "rank0 walls")
+    : remapWalls(src.wallsV, src.wallsH, "walls");
+  const {
+    wallsV,
+    wallsH,
+    vBits: wallsVBits,
+    hBits: wallsHBits,
+    vCount: wallVCount,
+    hCount: wallHCount,
+  } = ground;
 
   // Stage 1 has no water: all-'0' mask, waterLevel below the terrain floor so
   // isWater() is false everywhere regardless.
@@ -791,15 +863,23 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
   // Extra decks (layered arenas only): pad each layer to the square grid like
   // the base heights — extrude the edge for heights, but the presence mask is
   // '0' in the padding (no deck) so no phantom decks appear off the real region.
-  const layers: { heights: number[][]; mask: string[] }[] = [];
+  // Each deck also carries its OWN wall lattice, so collision on a bridge uses
+  // the bridge's parapets and collision on the road beneath does not.
+  const layers: {
+    heights: number[][];
+    mask: string[];
+    wallsV?: string[];
+    wallsH?: string[];
+  }[] = [];
   if (spec.layered && src.layers) {
-    for (const L of src.layers) {
+    for (let L = 0; L < src.layers.length; L++) {
+      const src_L = src.layers[L];
       const lh: number[][] = [];
       const lm: string[] = [];
       for (let j = 0; j < SIZE; j++) {
         const realRow = j < SRC_H;
-        const hSrc = realRow ? L.heights[j] : L.heights[SRC_H - 1];
-        const mSrc = realRow ? L.mask[j] : null;
+        const hSrc = realRow ? src_L.heights[j] : src_L.heights[SRC_H - 1];
+        const mSrc = realRow ? src_L.mask[j] : null;
         const hRow: number[] = [];
         let mRow = "";
         for (let i = 0; i < SIZE; i++) {
@@ -809,7 +889,15 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
         lh.push(hRow);
         lm.push(mRow);
       }
-      layers.push({ heights: lh, mask: lm });
+      const lw =
+        src_L.wallsV !== undefined && src_L.wallsH !== undefined
+          ? remapWalls(src_L.wallsV, src_L.wallsH, `layer ${L + 1} walls`)
+          : undefined;
+      layers.push({
+        heights: lh,
+        mask: lm,
+        ...(lw ? { wallsV: lw.wallsV, wallsH: lw.wallsH } : {}),
+      });
     }
   }
 

@@ -338,4 +338,34 @@
 //     (Separate finding, not fixed here: loadouts are client-local URL params and
 //     travel in neither the replay header nor the online handshake, so two peers
 //     with DIFFERENT kits desync within one version too. That is its own issue.)
-export const SIM_VERSION = 21;
+// v22: la-cantina becomes the multi-deck arena its source terrain always
+//     described, and walls are attributed to the deck they stand on (issue #29).
+//     Two changes, one of which turns out to be inert:
+//     (a) PER-LAYER WALL LATTICES. MapJson's `layers[]` may now carry their own
+//         wallsV/H, MapData exposes layerWallsV/H, and crossesWallX/Y +
+//         segmentBlocked take a trailing `layer` that defaults to 0. The
+//         `layer === 0 || layerWallsV.length === 0` early-out is the no-op
+//         invariant, same shape as resolveHeight's since v10: every map without
+//         per-deck lattices runs the pre-existing code path untouched.
+//     (b) la-cantina emits its decks (2398 cells over the roads, 108 above
+//         those) and its GROUND lattice instead of the union over all decks. 632
+//         of its 4009 wall bits stand on a bridge or a plinth; charging them to
+//         the road underneath is what stage 2 then had to carve back open, so the
+//         carve drops from 56 bits to 37 and the ring repair from 10 to 2.
+//     Only ONE golden runs on la-cantina and only its hash sequence moves:
+//     golden-07-pa. Goldens 01-06 re-header only, byte-identical hash arrays.
+//     WHAT ACTUALLY MOVES THE HASH is narrower than the change: measured against
+//     the escort scenario, the thinner ground lattice changes nothing to the tick,
+//     and the per-deck lattices change nothing either, because barely anything
+//     ever stands on a deck here. Zeroing the deck masks reproduces the old arena
+//     exactly. The delta is resolveWalker selecting a deck at all — one produced
+//     unit spends 30 ticks on a bridge and comes back down, which cascades. That
+//     is the movement change #29 called for, and it is why this is a version bump
+//     rather than a data-only commit.
+//     Nothing was lost in the split: union(ground, decks) is bit-for-bit the
+//     lattice mp-walls.json carried before it, pinned in
+//     tools/generators/test/fcopWalls.test.ts. la-cantina's heightsPin does NOT
+//     move — no height changed — and the terrain .glb's independent correlation
+//     against the heightfield IMPROVED, 0.939 to 0.982, because the art has
+//     always had geometry at those deck heights and now has somewhere to match.
+export const SIM_VERSION = 22;

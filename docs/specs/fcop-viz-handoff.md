@@ -144,6 +144,63 @@ Open (lower priority): the meshMap fix (§3) — now with a concrete target (cen
 glb on the gameplay/logic content centre, not `worldExtent/2`); other 5 arenas need
 their own logic-bbox-centre computed the same way; `Cfun` scripting still undecoded.
 
-## 6. Note
+## 6. Terrain decks and per-deck walls (added 2026-08-03, issue #29)
+
+The heightmap dump `extracted/heightmaps/<Map>_terrain.json` has since grown the
+fields that let a bridged arena be converted as one:
+
+| field | meaning |
+|---|---|
+| `walk_height` | the walkable FLOOR per point, int8 in 1/32 m — this is rank 0 |
+| `layers[]` | the EXTRA stacked surfaces, rank 1..N: `heights`, `mask`, and now `wallsV`/`wallsH` |
+| `wallsV`/`wallsH` (top level) | the UNION of the wall lattice over every deck |
+| `rank0_wallsV`/`rank0_wallsH` | the subset standing on the GROUND deck |
+| `tile_effects` | `Ctil` SLFX/ScTA animated tile surfaces (not consumed yet) |
+
+`union(rank0, layers[])` equals the top-level pair **exactly on all 15 missions**;
+a wall separating two decks belongs to both, and the extractor's 16 orphan edges
+are attributed to rank 0. That identity is re-checked in-tree for Mp by
+`tools/generators/test/fcopWalls.test.ts`, so the split can never quietly lose a
+wall.
+
+Stage 1 takes `rank0_walls*` as the map's own `wallsV/H` for a `layered` arena and
+carries each deck's lattice in `layers[]`; a single-storey arena still takes the
+union, so their committed lattices are untouched. Charging a bridge's parapets to
+the road running underneath is what used to make the original's roads look walled
+off, and it cost la-cantina 56 carved wall bits plus 10 more to reconnect its ring
+— now 37 and 2.
+
+### `MULTI_THRESH`, and one circular argument it caused
+
+`til_mesh.py` splits a point's stacked surfaces into ranks only where they are more
+than `MULTI_THRESH = 16` quanta (0.5 m) apart, and **deliberately keeps a ramp's
+continuous run inside one rank**. Two consequences worth knowing before measuring
+anything about decks:
+
+1. No deck can ever be within `STEP_SNAP` (0.35 m) of the floor beneath it. That
+   is the extractor's constant, not a property of any arena — `layeredArenas.test.ts`
+   once used it as proof that decks were unreachable, which could not have come out
+   any other way.
+2. Because ramps stay in rank 0, a deck is entered **sideways** at its edge, where
+   the ground has risen to meet it. Measured entry cells: la-cantina 1180, Hk
+   616 + 1374, Ovmp 998 + 130. `resolveWalker` already makes that transition; what
+   could not see it was the reachability flood, now `packages/sim/src/reach.ts`.
+
+### Actor deck membership
+
+ACT `pos_h` (exported as `height`) is **0.0 on every actor of every PC mission**, so
+which storey an actor belongs to cannot be read from the container at all. It is
+inferred from the terrain instead: `annotate_actor_layers.py` →
+`extracted/logic/<Map>/actors.layered.json` (`layer` = lowest surface at the cell,
+`layer_top` = highest) plus `extracted/logic/layer_report.md`. Sampling carries the
+`+16`-cell X offset between the actor frame and the heightfield grid.
+
+Counts that matter for the remaining import work: on Mp only 15 of 254 actors sit
+on a cell with a deck overhead and **all 15 are scenery** (9 `DynamicProp`, 6
+`PathedActor`), which is why la-cantina needed no per-feature layer field. Hk has
+69 of 592 — including 8 `Turret`, 3 `NeutralTurret` and 2 `TeamBase?` — and Ovmp 5
+of 265. Those are issue #33's.
+
+## 7. Note
 `public/models/la-cantina/` has stray `tex0X.png.bak` backups committed alongside
 the active textures — probably unintended.

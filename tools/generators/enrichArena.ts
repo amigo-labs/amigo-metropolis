@@ -39,6 +39,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  CAPTURE_RADIUS,
   crossesWallX,
   crossesWallY,
   GROUND_STEPS,
@@ -47,6 +48,7 @@ import {
   type MapData,
   type MapJson,
   openLine,
+  reachableFrom,
   roadProbes,
   sampleHeight,
   segmentWalkable,
@@ -722,64 +724,57 @@ function carveRoads(
   return { cleared, entries };
 }
 
-/** 4-connected cell flood over the wall graph, matching mapConnectivity.test.ts. */
-function floodFrom(map: MapData, ax: number, ay: number): Set<number> {
-  const cell = map.cellSize;
-  const half = cell * 0.5;
-  const ext = (map.size - 1) * cell;
-  const ci = (v: number): number => Math.min(map.size - 1, Math.max(0, Math.floor(v / cell)));
-  const cc = (v: number): number => (Math.floor(v / cell) + 0.5) * cell;
-  const key = (i: number, j: number): number => i * map.size + j;
-  const q: number[][] = [[cc(ax), cc(ay)]];
-  const seen = new Set<number>([key(ci(cc(ax)), ci(cc(ay)))]);
-  const dirs = [
-    [cell, 0],
-    [-cell, 0],
-    [0, cell],
-    [0, -cell],
-  ] as const;
-  for (let qi = 0; qi < q.length; qi++) {
-    const [x, y] = q[qi];
-    for (const [dx, dy] of dirs) {
-      const nx = x + dx;
-      const ny = y + dy;
-      if (nx < half || ny < half || nx > ext - half || ny > ext - half) continue;
-      const k = key(ci(nx), ci(ny));
-      if (seen.has(k)) continue;
-      if (dx !== 0 && crossesWallX(map, x, nx, y)) continue;
-      if (dy !== 0 && crossesWallY(map, x, y, ny)) continue;
-      seen.add(k);
-      q.push([nx, ny]);
-    }
-  }
-  return seen;
-}
-
 /**
  * Opens the minimum number of extra wall bits needed to make every lane node and
  * capture spot reachable from a spawn.
  *
- * Same root cause as the lane carve: Mp is a bridged, multi-storey arena in the
- * source terrain (uses_bridges, 2 layer masks, 1566 multi-level points), and
- * flattening it to one storey walls off the outer ring corridor that the original
- * reaches over and under bridges. Without this, 8 of the 32 capturable pads and
- * 8 lane nodes are permanently unreachable — dead content, and unwinnable lanes.
+ * This used to carry a private layer-blind flood and 10 breaches on la-cantina,
+ * because flattening a bridged arena to one storey walls off the outer ring
+ * corridor the original reaches over and under bridges. Issue #29 removed the
+ * cause: the arena carries its decks, walls are attributed per deck, and the
+ * flood is `reachableFrom` — which enters a deck sideways where the ground rises
+ * to its edge, the way the original's ramps do.
  *
- * Modelling the decks properly is the deeper fix and stays on the list; this is
- * the honest single-storey approximation, and it is counted so the size of the
- * approximation is visible rather than buried.
+ * The breach machinery stays, because "no breaches needed" is a measurement, not
+ * an assumption: whatever it opens is counted and reported, so a future arena
+ * that does need help says so out loud instead of shipping dead content.
  */
+
+/**
+ * A thing that has to be reachable, and how close is close enough.
+ *
+ * `reach` is in cells. 0 means the target's OWN cell must be in the flood, which
+ * is right for anything walked on — a lane node, a buy console, a spawn.
+ *
+ * It is wrong for a capture pad. Capturing is proximity (`CAPTURE_RADIUS`, and
+ * the Warden parks at `CAPTURE_RADIUS - 1`), and the original mounts these pads
+ * on raised plinths with parapets around them, so demanding the pad cell itself
+ * be walkable asks for something the game never asks for — and the only way to
+ * grant it is to knock the parapets down. All 8 of la-cantina's outer-ring pads
+ * have a walkable cell ONE cell away; they were never unreachable, the test for
+ * "reachable" was.
+ */
+interface RepairTarget {
+  x: number;
+  y: number;
+  /** Reachable cells within this many cells satisfy the target. Default 0. */
+  reach?: number;
+  /** What this is, for the report — so a residual breach says what it bought. */
+  kind: string;
+}
 function repairReachability(
   raw: MapJson,
   wallsV: string[],
   wallsH: string[],
-  targets: { x: number; y: number }[],
+  targets: RepairTarget[],
   limit: number,
-): number {
+): { opened: number; forKind: Map<string, number> } {
   const size = raw.size;
   const v = wallsV.map((row) => row.split(""));
   const h = wallsH.map((row) => row.split(""));
   let opened = 0;
+  /** Bits opened per target kind, so the residual is attributable. */
+  const forKind = new Map<string, number>();
 
   const rebuild = (): MapData =>
     loadMapFromJson({
@@ -799,12 +794,32 @@ function repairReachability(
   // flood and make most of the remaining targets reachable for free.
   for (let pass = 0; pass < 200; pass++) {
     const map = rebuild();
-    const reached = floodFrom(map, raw.spawns[0].x, raw.spawns[0].y);
+    const reached = reachableFrom(map, raw.spawns[0].x, raw.spawns[0].y).cellKeys;
     const ci = (val: number): number => Math.min(size - 1, Math.max(0, Math.floor(val)));
-    const missing = targets.filter((t) => !reached.has(ci(t.x) * size + ci(t.y)));
+    // Euclidean, on cell centres, so `reach` means the same thing the sim's
+    // radius checks mean rather than a Manhattan approximation of it.
+    const satisfied = (t: RepairTarget): boolean => {
+      const r = t.reach ?? 0;
+      if (reached.has(ci(t.x) * size + ci(t.y))) return true;
+      if (r <= 0) return false;
+      const i0 = ci(t.x - r);
+      const i1 = ci(t.x + r);
+      const j0 = ci(t.y - r);
+      const j1 = ci(t.y + r);
+      for (let i = i0; i <= i1; i++) {
+        for (let j = j0; j <= j1; j++) {
+          if (!reached.has(i * size + j)) continue;
+          const dx = i + 0.5 - t.x;
+          const dy = j + 0.5 - t.y;
+          if (dx * dx + dy * dy <= r * r) return true;
+        }
+      }
+      return false;
+    };
+    const missing = targets.filter((t) => !satisfied(t));
     if (missing.length === 0) {
       writeBack();
-      return opened;
+      return { opened, forKind };
     }
 
     // Cell BFS that ignores walls, from the whole reached set outward, so each
@@ -838,6 +853,7 @@ function repairReachability(
 
     // Walk one target back to the reached set and clear the bits in the way.
     const target = missing[0];
+    const before = opened;
     let at = ci(target.x) * size + ci(target.y);
     let guard = 0;
     while (!reached.has(at) && guard++ < size * 4) {
@@ -862,6 +878,9 @@ function repairReachability(
         }
       }
       at = prev;
+    }
+    if (opened > before) {
+      forKind.set(target.kind, (forKind.get(target.kind) ?? 0) + (opened - before));
     }
     if (opened > limit) {
       throw new Error(
@@ -1117,6 +1136,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const wallsH = [...pristine.wallsH];
   let carved = 0;
   let repaired = 0;
+  let repairedFor = new Map<string, number>();
   let entries: string[] = [];
   if (wallsV.length > 0) {
     // Wall queries must see the PRISTINE lattice, not whatever is on disk.
@@ -1131,31 +1151,38 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // Opening the lane edges is not enough on its own: a corridor can be
     // drivable end to end and still be sealed off from the rest of the arena,
     // which is what leaves the outer ring's capture pads unreachable.
-    repaired = repairReachability(
+    const repair = repairReachability(
       { ...raw, spawns: out0Spawns(teamSpawns, field), wallsV, wallsH },
       wallsV,
       wallsH,
       [
-        ...graph.nodes.map((n) => ({ x: n.x, y: n.z })),
-        ...turretSpots.map(([x, y]) => ({ x, y })),
-        ...outpostSpots.map(([x, y]) => ({ x, y })),
-        ...pickups.map((p) => ({ x: p.x, y: p.y })),
+        ...graph.nodes.map((n) => ({ x: n.x, y: n.z, kind: "lane node" })),
+        // Capture pads and outposts are taken by standing NEAR them, not on
+        // them — see RepairTarget. The Warden's arrival radius is the stricter of
+        // the two rules the sim applies, so it is the one to hold the map to.
+        ...turretSpots.map(([x, y]) => ({ x, y, reach: CAPTURE_RADIUS - 1, kind: "capture pad" })),
+        ...outpostSpots.map(([x, y]) => ({ x, y, reach: CAPTURE_RADIUS - 1, kind: "outpost" })),
+        ...pickups.map((p) => ({ x: p.x, y: p.y, kind: "pickup" })),
         // The base's own structures, or the player cannot walk from their spawn
         // to a buy console and back out onto the road. Mp's happened to land in
         // the spawn component already; Conft's, Slim's and Joke's do not, and
         // without these the arena generates clean and plays unbuyable.
         ...bases.flatMap((b) => [
-          { x: b.core[0], y: b.core[1] },
-          { x: b.groundConsole[0], y: b.groundConsole[1] },
-          { x: b.airConsole[0], y: b.airConsole[1] },
+          { x: b.core[0], y: b.core[1], kind: "core" },
+          { x: b.groundConsole[0], y: b.groundConsole[1], kind: "console" },
+          { x: b.airConsole[0], y: b.airConsole[1], kind: "console" },
           // Ring turrets too: one the player can neither reach nor shoot past is
-          // dead content, and mapConnectivity.test.ts treats it as an error.
-          ...b.turrets.map((t) => ({ x: t.x, y: t.y })),
+          // dead content, and mapConnectivity.test.ts treats it as an error. Its
+          // own cell need not be walkable — that test asks only that a
+          // NEIGHBOURING cell is, for the same plinth reason capture pads have.
+          ...b.turrets.map((t) => ({ x: t.x, y: t.y, reach: 1, kind: "ring turret" })),
         ]),
-        ...out0Spawns(teamSpawns, field).map((s) => ({ x: s.x, y: s.y })),
+        ...out0Spawns(teamSpawns, field).map((s) => ({ x: s.x, y: s.y, kind: "spawn" })),
       ],
       arena.repairLimit,
     );
+    repaired = repair.opened;
+    repairedFor = repair.forKind;
   }
 
   // --- emit --------------------------------------------------------------
@@ -1199,6 +1226,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     stats: {
       carved,
       repaired,
+      repairedFor,
       entries,
       ringDropped,
       unownedNets: logic.nets.length - ownedNets(logic, teamNet).length,
@@ -1365,6 +1393,8 @@ function probeOffsets(arena: FcopArena): boolean {
 interface EnrichStats {
   carved: number;
   repaired: number;
+  /** Bits the repair opened, per target kind — so a residual says what it bought. */
+  repairedFor: Map<string, number>;
   /** Where each team's produced units join the road, and why (carveRoads). */
   entries: string[];
   /** Ring turrets the MapBase cap of 16 dropped, across both bases. */
@@ -1401,8 +1431,13 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   console.log(
     `  wall bits carved to open the original roads: ${carved}/${arena.carveLimit} allowed`,
   );
+  const repairDetail =
+    repaired > 0
+      ? ` (${[...stats.repairedFor].map(([k, n]) => `${n} for a ${k}`).join(", ")})`
+      : "";
   console.log(
-    `  wall bits opened to reconnect the outer ring: ${repaired}/${arena.repairLimit} allowed`,
+    `  wall bits opened to reconnect the outer ring: ${repaired}/${arena.repairLimit} ` +
+      `allowed${repairDetail}`,
   );
   if (stats.unownedNets > 0) {
     console.log(

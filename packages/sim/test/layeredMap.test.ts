@@ -100,6 +100,66 @@ describe("layered MapData", () => {
     ];
     expect(() => loadMapFromJson(raw)).toThrow("non-0/1");
   });
+
+  // Per-deck wall lattices (issue #29). A deck's parapet must block ON the deck
+  // and not on the ground beneath it, which is the conflation that used to turn
+  // la-cantina's bridges into walls across the road they span.
+  it("parses a per-deck wall lattice, keeping it distinct from layer 0's", () => {
+    const raw = tiny();
+    raw.wallsV = ["00", "00"];
+    raw.wallsH = ["00", "00"];
+    raw.layers = [
+      {
+        heights: [
+          [64, 64],
+          [64, 64],
+        ],
+        mask: ["11", "11"],
+        wallsV: ["01", "01"],
+        wallsH: ["00", "00"],
+      },
+    ];
+    const map = loadMapFromJson(raw);
+    expect(map.layerWallsV.length).toBe(1);
+    expect(map.layerWallsH.length).toBe(1);
+    // Deck blocks the x = 1 line; the ground does not.
+    expect(map.layerWallsV[0][0 * 2 + 1]).toBe(1);
+    expect(map.wallsV[0 * 2 + 1]).toBe(0);
+  });
+
+  it("a deck without its own walls shares layer 0's, and stays a no-op", () => {
+    const raw = tiny();
+    raw.wallsV = ["01", "01"];
+    raw.wallsH = ["00", "00"];
+    raw.layers = [
+      {
+        heights: [
+          [64, 64],
+          [64, 64],
+        ],
+        mask: ["11", "11"],
+      },
+    ];
+    const map = loadMapFromJson(raw);
+    // Empty arrays are THE no-op path: collision takes its pre-#29 branch.
+    expect(map.layerWallsV.length).toBe(0);
+    expect(map.layerWallsH.length).toBe(0);
+  });
+
+  it("rejects a deck that brings only one of the two wall arrays", () => {
+    const raw = tiny();
+    raw.layers = [
+      {
+        heights: [
+          [64, 64],
+          [64, 64],
+        ],
+        mask: ["11", "11"],
+        wallsV: ["01", "01"],
+      },
+    ];
+    expect(() => loadMapFromJson(raw)).toThrow("both be present or both be absent");
+  });
 });
 
 describe("resolveHeight", () => {

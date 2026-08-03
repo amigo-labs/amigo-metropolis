@@ -23,6 +23,15 @@
 // tool cannot regenerate it. It verifies it instead, re-emitting the committed
 // file through the same writer the new snapshots use. That is the self-check — if
 // the emitter ever drifts, Mp fails first and loudly.
+//
+// #29 UPDATE. Mp's snapshot was regenerated once, from a stage-1 run against the
+// RE heightmap dump, to gain its per-deck lattices — the one route the header
+// above allows. Its `wallsV`/`wallsH` are now the GROUND deck rather than the
+// union over all decks. The byte-for-byte check could not survive a change of
+// meaning, so the invariant that replaces it is stronger about the thing that
+// actually matters: `MP_UNION_PIN` asserts the union of ground + decks is the
+// same lattice, bit for bit, that the file carried before the split. Walls were
+// re-attributed, not invented or dropped.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -39,6 +48,44 @@ export interface WallsSnapshot {
   note: string;
   wallsV: string[];
   wallsH: string[];
+  /**
+   * Per-deck lattices on a LAYERED arena (issue #29), index 0 == layer 1. Absent
+   * on the single-storey arenas, whose snapshots stay byte-identical.
+   *
+   * On a layered arena `wallsV`/`wallsH` above are the GROUND deck's walls, not
+   * the union over all decks the extractor's top-level fields carry. The union is
+   * not lost — it is exactly `wallsV | layers[].wallsV`, which
+   * `unionMatches` re-checks against the pre-split lattice.
+   */
+  layers?: { wallsV: string[]; wallsH: string[] }[];
+}
+
+/**
+ * FNV-1a over the union of a snapshot's ground and deck lattices.
+ *
+ * WHY A HASH OF THE UNION
+ * Splitting Mp's lattice per deck changed what `wallsV`/`wallsH` mean for that
+ * one arena (union → ground), so "the committed file must re-emit byte-for-byte"
+ * could not survive the split as the drift canary. What DOES survive is the
+ * property that makes the split safe: re-attributing a wall to the deck it stands
+ * on must not create or destroy one. These are the union hashes of Mp's lattice
+ * as committed BEFORE #29 — verified equal, bit for bit, when the split landed
+ * (2002 vertical + 2007 horizontal segments, zero either way).
+ */
+export const MP_UNION_PIN = { wallsV: 3671048181, wallsH: 626664648 } as const;
+
+/** Union of ground + deck lattices, as '0'/'1' rows. */
+export function unionWalls(s: WallsSnapshot, axis: "wallsV" | "wallsH"): string[] {
+  const rows = s[axis].map((r) => r.split(""));
+  for (const layer of s.layers ?? []) {
+    const lr = layer[axis];
+    for (let j = 0; j < rows.length; j++) {
+      for (let i = 0; i < rows[j].length; i++) {
+        if (lr[j][i] === "1") rows[j][i] = "1";
+      }
+    }
+  }
+  return rows.map((r) => r.join(""));
 }
 
 /**
@@ -86,10 +133,7 @@ export function snapshotFromMapJson(arena: FcopArena, raw: MapJson): WallsSnapsh
   if (!wallsV || !wallsH) {
     throw new Error(`${arena.mapId} carries no wall arrays — nothing to snapshot`);
   }
-  for (const [name, rows] of [
-    ["wallsV", wallsV],
-    ["wallsH", wallsH],
-  ] as const) {
+  const checkRows = (name: string, rows: string[]): void => {
     if (rows.length !== raw.size) {
       throw new Error(`${arena.mapId} ${name} has ${rows.length} rows, size is ${raw.size}`);
     }
@@ -103,7 +147,20 @@ export function snapshotFromMapJson(arena: FcopArena, raw: MapJson): WallsSnapsh
         throw new Error(`${arena.mapId} ${name}[${j}] has characters outside {0,1}`);
       }
     }
+  };
+  checkRows("wallsV", wallsV);
+  checkRows("wallsH", wallsH);
+
+  // A layered arena's decks each carry their own lattice; snapshot them too, or
+  // stage 2 would load the arena with deck collision missing.
+  const layers: { wallsV: string[]; wallsH: string[] }[] = [];
+  for (const [L, layer] of (raw.layers ?? []).entries()) {
+    if (!layer.wallsV || !layer.wallsH) continue;
+    checkRows(`layer ${L + 1} wallsV`, layer.wallsV);
+    checkRows(`layer ${L + 1} wallsH`, layer.wallsH);
+    layers.push({ wallsV: [...layer.wallsV], wallsH: [...layer.wallsH] });
   }
+
   return {
     mission: arena.mission,
     mapId: arena.mapId,
@@ -111,6 +168,7 @@ export function snapshotFromMapJson(arena: FcopArena, raw: MapJson): WallsSnapsh
     note: wallsNote(arena.mission),
     wallsV: [...wallsV],
     wallsH: [...wallsH],
+    ...(layers.length > 0 ? { layers } : {}),
   };
 }
 
@@ -132,6 +190,7 @@ export function verifySnapshotBytes(arena: FcopArena): boolean {
     note: wallsNote(arena.mission),
     wallsV: parsed.wallsV,
     wallsH: parsed.wallsH,
+    ...(parsed.layers ? { layers: parsed.layers } : {}),
   });
   if (want === got) {
     console.log(`${arena.mapId} (${arena.mission}): committed snapshot verified, ${parsed.size}²`);

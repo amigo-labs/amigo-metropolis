@@ -816,12 +816,16 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // beyond the slope limit are blocked (slopeBlocks); walkers never enter
     // water. Airborne walkers skip the slope check so a jump can carry them
     // onto a ledge.
+    // Walls come from the deck the avatar is standing on (entLayer, set by the
+    // resolveWalker snap below on the previous tick). A hovering avatar is not on
+    // a deck, so it keeps reading layer 0's lattice.
+    const wallLayer = hover ? 0 : ent.entLayer[id];
     const stepX = ent.velX[id] * TICK_DT;
     if (stepX !== 0) {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
       let ok = true;
       if (!hover && isWater(map, nx, y)) ok = false;
-      if (ok && crossesWallX(map, x, nx, y)) ok = false;
+      if (ok && crossesWallX(map, x, nx, y, wallLayer)) ok = false;
       if (ok && !airborne && slopeBlocks(map, x, y, nx, y, hover, ent.height[id])) ok = false;
       if (ok) x = nx;
       else ent.velX[id] = 0;
@@ -831,7 +835,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       const ny = Math.min(Math.max(y + stepY, 0), extent);
       let ok = true;
       if (!hover && isWater(map, x, ny)) ok = false;
-      if (ok && crossesWallY(map, x, y, ny)) ok = false;
+      if (ok && crossesWallY(map, x, y, ny, wallLayer)) ok = false;
       if (ok && !airborne && slopeBlocks(map, x, y, x, ny, hover, ent.height[id])) ok = false;
       if (ok) y = ny;
       else ent.velY[id] = 0;

@@ -4,70 +4,18 @@
 //
 // Flood is 4-connected on cell centres (cellSize-aware: FCOP cellSize=1 and
 // district-01 cellSize=2) using the same crossesWall* helpers walker/hover use.
+//
+// The flood itself now lives in src/reach.ts and is shared with the arena
+// generator, because a private copy here is exactly how this test came to pass on
+// a bridged arena whose roads were walled off: it walked cells only, on layer 0's
+// walls, so it could not see either a deck or a road under one. See that file.
 import { describe, expect, it } from "bun:test";
-import { crossesWallX, crossesWallY } from "../src/collision";
-import { getMapById, isWater, MAP_REGISTRY, type MapData, worldExtent } from "../src/map";
+import { CAPTURE_RADIUS } from "../src/balance";
+import { getMapById, MAP_REGISTRY, type MapData } from "../src/map";
+import { type ReachSet, reachableFrom } from "../src/reach";
 
-/**
- * Snap a world coordinate to the centre of the cell that contains it.
- * Matches collision.ts indexing: cell column i holds [i*cell, (i+1)*cell).
- */
-function cellCenter(map: MapData, v: number): number {
-  const cell = map.cellSize;
-  const i = Math.floor(v / cell);
-  return (i + 0.5) * cell;
-}
-
-/** Grid index of the cell that contains world coordinate `v` (clamped). */
-function cellIndex(map: MapData, v: number): number {
-  const i = Math.floor(v / map.cellSize);
-  if (i < 0) return 0;
-  if (i > map.size - 1) return map.size - 1;
-  return i;
-}
-
-function floodHas(
-  map: MapData,
-  ax: number,
-  ay: number,
-): { size: number; has: (x: number, y: number) => boolean } {
-  const cell = map.cellSize;
-  const half = cell * 0.5;
-  const ext = worldExtent(map);
-  // Dense key over the size×size vertex lattice — no fixed world-space stride.
-  const key = (i: number, j: number): number => i * map.size + j;
-  const sx = cellCenter(map, ax);
-  const sy = cellCenter(map, ay);
-  const q: number[][] = [[sx, sy]];
-  const seen = new Set<number>([key(cellIndex(map, sx), cellIndex(map, sy))]);
-  const dirs = [
-    [cell, 0],
-    [-cell, 0],
-    [0, cell],
-    [0, -cell],
-  ] as const;
-  let qi = 0;
-  while (qi < q.length) {
-    const [x, y] = q[qi++];
-    for (const [dx, dy] of dirs) {
-      const nx = x + dx;
-      const ny = y + dy;
-      // Stay on cell centres inside the playable extent.
-      if (nx < half || ny < half || nx > ext - half || ny > ext - half) continue;
-      const ni = cellIndex(map, nx);
-      const nj = cellIndex(map, ny);
-      const k = key(ni, nj);
-      if (seen.has(k)) continue;
-      if (isWater(map, nx, ny)) continue;
-      if (crossesWallX(map, x, nx, y) || crossesWallY(map, nx, y, ny)) continue;
-      seen.add(k);
-      q.push([nx, ny]);
-    }
-  }
-  return {
-    size: seen.size,
-    has: (x, y) => seen.has(key(cellIndex(map, x), cellIndex(map, y))),
-  };
+function floodHas(map: MapData, ax: number, ay: number): ReachSet {
+  return reachableFrom(map, ax, ay, { blockWater: true });
 }
 
 const PLAYABLE_IDS = [
@@ -135,14 +83,34 @@ for (const id of PLAYABLE_IDS) {
       }
     });
 
-    it("neutral turrets and outposts are reachable from spawn 0", () => {
+    it("neutral turrets and outposts are capturable from spawn 0", () => {
       // On FCOP maps both teams share one ground component; spawn 0 is enough.
       const f = floodHas(map, map.spawns[0].x, map.spawns[0].y);
+      // Capturing is PROXIMITY, not occupancy: sim.ts holds a pad for whoever is
+      // within CAPTURE_RADIUS of it, and the Warden parks at CAPTURE_RADIUS - 1.
+      // The original mounts these pads on raised plinths with parapets around
+      // them — all 8 of la-cantina's outer-ring pads have a walkable cell one
+      // cell away and none at all on the pad itself. Demanding the pad's own cell
+      // be walkable therefore asks for something the game never asks for, and the
+      // only way to grant it is to knock the original's parapets down, which is
+      // what the generator used to do. Same reasoning the ring-turret check above
+      // already applies, and the stricter of the sim's two radii is the bound.
+      const reach = CAPTURE_RADIUS - 1;
+      const capturable = (p: { x: number; y: number }): boolean => {
+        const cell = map.cellSize;
+        for (let dx = -reach; dx <= reach; dx += cell) {
+          for (let dy = -reach; dy <= reach; dy += cell) {
+            if (dx * dx + dy * dy > reach * reach) continue;
+            if (f.has(p.x + dx, p.y + dy)) return true;
+          }
+        }
+        return false;
+      };
       for (const p of map.turretSpots) {
-        expect(f.has(p.x, p.y)).toBe(true);
+        if (!capturable(p)) throw new Error(`capture pad (${p.x}, ${p.y}) has no approach`);
       }
       for (const p of map.outpostSpots) {
-        expect(f.has(p.x, p.y)).toBe(true);
+        if (!capturable(p)) throw new Error(`outpost (${p.x}, ${p.y}) has no approach`);
       }
     });
 

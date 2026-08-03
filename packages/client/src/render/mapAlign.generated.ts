@@ -60,7 +60,7 @@ export const MAP_ALIGN: Readonly<Record<string, MapAlign>> = {
     maxX: 95.5,
     maxY: 3.90625,
     maxZ: 95.5,
-    match: 0.939,
+    match: 0.982,
   },
   "bug-hunt": {
     x: 120.5,

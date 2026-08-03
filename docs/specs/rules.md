@@ -221,13 +221,22 @@ replays-as-feature (replays exist as a test artifact from day one).
 
 ## 9. Precinct Assault mode (FCOP arenas)
 
-Status: adopted for the four single-storey FCOP arenas — `la-cantina` (mission
-Mp), `urban-jungle` (Conft), `proving-ground` (Slim) and `bug-hunt` (Joke).
-`hollywood-keys` and `venice-beach` stay on §1–§7. That is not for want of data:
-their logic is extracted and committed, but they are multi-deck and every deck
-sits at least 0.594 m above the base surface while the walker only steps up
-0.35 m, so the original layouts would land on decks nothing can reach. See
-`packages/sim/test/layeredArenas.test.ts` for the measurement.
+Status: adopted for four FCOP arenas — `la-cantina` (mission Mp), `urban-jungle`
+(Conft), `proving-ground` (Slim) and `bug-hunt` (Joke). `la-cantina` is
+**multi-deck** since issue #29: it carries the two bridge decks its source terrain
+describes, and its walls are attributed to the deck they stand on rather than
+flattened into one lattice.
+
+`hollywood-keys` and `venice-beach` stay on §1–§7. That is not for want of data —
+their logic is extracted and committed. It is also NOT because their decks are
+unreachable: that argument was retired as circular, because the extractor only
+separates surfaces more than 0.5 m apart and keeps ramps inside the ground rank, so
+"every deck is above the step height" is a restatement of its clustering constant.
+Decks are entered sideways at their edges, and both arenas have thousands of such
+entry cells. What is genuinely missing is per-FEATURE layer information: Hk puts 8
+`Turret`, 3 `NeutralTurret` and 2 `TeamBase?` on cells with a deck overhead and
+nothing in `MapJson` can say which storey they belong to. See
+`packages/sim/test/layeredArenas.test.ts` for the measurements and issue #33.
 
 A deliberate deviation from §1–§6, taken on the owner's call: where the original
 *Precinct Assault* mission data says how the arena works, the data wins. Every

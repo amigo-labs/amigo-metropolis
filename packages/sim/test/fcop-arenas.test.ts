@@ -42,9 +42,20 @@ interface ArenaExpectation {
   groundHeight: number;
   /** Pinned after generation (tools/generators/convert.ts); see header contract. */
   heightsPin: number;
-  /** FNV-1a pins over the loaded wall bit arrays — the collision geometry. */
+  /**
+   * FNV-1a pins over the loaded wall bit arrays — the collision geometry.
+   *
+   * On a LAYERED arena these are the GROUND deck's walls; each deck carries its
+   * own lattice, pinned by `layerCells` plus the union check in
+   * tools/generators/test/fcopWalls.test.ts.
+   */
   wallsVPin: number;
   wallsHPin: number;
+  /**
+   * Present cells per extra deck, low rank first. Absent on a single-storey
+   * arena, whose minor ledges are not decks (Stage-0 decision).
+   */
+  layerCells?: readonly number[];
   /** Feature counts, per arena — each carries its own mission's full set. */
   turretSpots: number;
   outpostSpots: number;
@@ -232,14 +243,21 @@ const ARENAS: ArenaExpectation[] = [
     laneCount: 1, // one committed polyline route; the graph is the real network
     // Both X1Alpha spawns sit on the original 1 m base platforms at col 112.
     groundHeight: 1,
-    heightsPin: 1164295261, // terrain untouched
-    // Walls differ from stage 1: 101 bits carved to open the original roads and
-    // 16 to reconnect the ring and the bases, out of 4009 (2.9%). Mp's roads were
-    // already drivable end to end; the extra 18 bits are the corridor the carve
-    // now opens either side of a road that runs along a lattice line, where which
-    // cell a walker is judged to be in comes down to a rounding error.
-    wallsVPin: 878096970,
-    wallsHPin: 2382302978,
+    heightsPin: 1164295261, // terrain untouched, still (issue #29 changed no height)
+    // GROUND-DECK walls, since issue #29. This is the arena's own storey, not the
+    // union over all of them the extractor also publishes: 632 of Mp's 4009 bits
+    // stand on a bridge or a plinth, and charging them to the road underneath is
+    // what used to wall off roads the original drives. Nothing was discarded in
+    // the split — tools/generators/test/fcopWalls.test.ts pins the union of ground
+    // and decks against the exact lattice mp-walls.json carried before it.
+    //
+    // On top of that ground lattice, stage 2 carves 37 bits to open the original
+    // roads (was 56) and opens 2 more for a ring turret (was 10). 39 of 4009,
+    // 1.0%, down from 66.
+    wallsVPin: 1495349930,
+    wallsHPin: 1064616740,
+    // Mp's two bridge decks: 2398 cells over the roads, and 108 above those.
+    layerCells: [2398, 108],
     turretSpots: 32, // every original NeutralTurret pad
     outpostSpots: 2,
     dummySpots: 0, // no original counterpart
@@ -353,6 +371,29 @@ for (const arena of ARENAS) {
       expect(map.wallsH.length).toBe(arena.size * arena.size);
       expect(fnv1aBytes(fnv1aInit(), map.wallsV, 0, map.wallsV.length)).toBe(arena.wallsVPin);
       expect(fnv1aBytes(fnv1aInit(), map.wallsH, 0, map.wallsH.length)).toBe(arena.wallsHPin);
+    });
+
+    it("carries its decks, each with its own wall lattice", () => {
+      const want = arena.layerCells ?? [];
+      expect(map.layerHeights.length).toBe(want.length);
+      expect(map.layerMask.length).toBe(want.length);
+      for (const [L, cells] of want.entries()) {
+        let present = 0;
+        for (let k = 0; k < map.layerMask[L].length; k++) {
+          if (map.layerMask[L][k] === 1) present++;
+        }
+        expect(present).toBe(cells);
+      }
+      // A deck without its own walls would collide against the ground lattice and
+      // silently put a bridge's parapets across the road beneath it — the exact
+      // conflation issue #29 removed, so it is worth an assertion rather than a
+      // comment. Empty on a single-storey arena, which is the no-op path.
+      expect(map.layerWallsV.length).toBe(want.length);
+      expect(map.layerWallsH.length).toBe(want.length);
+      for (let L = 0; L < want.length; L++) {
+        expect(map.layerWallsV[L].length).toBe(arena.size * arena.size);
+        expect(map.layerWallsV[L]).not.toBe(map.wallsV);
+      }
     });
 
     it("lanes never cross a wall (sub-cell sampling, sim semantics)", () => {
