@@ -16,7 +16,9 @@ bun run dev            # opens the "Metropolis" title menu (solo / couch /
                        #   online). Deep links skip it: ?warden=1-10 vs the AI;
                        #   ?splitscreen (two gamepads, press A to join) for couch;
                        #   ?online=<CODE> for 1v1 lockstep (see below); ?play or
-                       #   ?debug boot the solo sandbox directly
+                       #   ?debug boot the solo sandbox directly;
+                       #   ?sandbox=1 adds the test bench (F2) — spawn any unit,
+                       #   turret or console and swap weapons live, on any arena
 bun run build          # production bundle (installable PWA, offline solo)
 bun run lint           # Biome
 bun run typecheck      # tsc per package
