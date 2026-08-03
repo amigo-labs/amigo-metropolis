@@ -36,7 +36,8 @@ export type MenuChoice =
   | { mode: "warden"; difficulty: number } // vs the Phase 4 AI
   | { mode: "online"; code: string } // 1v1 lockstep via the relay
   | { mode: "p2p"; code: string } // 1v1 lockstep, lobby-brokered P2P
-  | { mode: "fly" }; // localhost debug: free-fly cam + mesh units (incl. turrets)
+  | { mode: "fly" } // localhost debug: free-fly cam + mesh units (incl. turrets)
+  | { mode: "sandbox" }; // debug test bench: spawn panel + live weapon swap
 
 /**
  * Pure mapping from a menu choice to the query string main.ts understands.
@@ -53,6 +54,11 @@ export function buildModeQuery(choice: MenuChoice, mapId?: string, loadout?: Loa
     case "fly":
       // Sandbox match + free-fly debug cam; mesh render so unit/turret GLBs show.
       query = "?play=1&cam=fly";
+      break;
+    case "sandbox":
+      // Test bench: fly cam to get an angle on what you spawned, and the idle
+      // opponent so a feeder's runners do not walk through the shot.
+      query = "?play=1&sandbox=1&cam=fly&opponent=idle";
       break;
     case "warden": {
       const d = Math.max(1, Math.min(10, Math.trunc(choice.difficulty) || 1));
@@ -314,6 +320,13 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     );
     flyBtn.onclick = () => go({ mode: "fly" });
     modes.appendChild(flyBtn);
+    const sandboxBtn = el(
+      "button",
+      "menu-mode menu-mode--debug",
+      "<b>Sandbox</b><span>spawn units + turrets · all weapons</span>",
+    );
+    sandboxBtn.onclick = () => go({ mode: "sandbox" });
+    modes.appendChild(sandboxBtn);
   }
   rail.appendChild(modes);
 
