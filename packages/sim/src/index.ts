@@ -13,6 +13,7 @@ export * from "./reach";
 export * from "./replay";
 export * from "./roads";
 export * from "./runner";
+export * from "./sandbox";
 export * from "./sim";
 export * from "./simMath";
 export * from "./units";
