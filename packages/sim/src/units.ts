@@ -349,12 +349,16 @@ function stepAndSnap(state: SimState, id: number, air: boolean): void {
   if (moving) {
     // Axis-separated like the avatar stepper so walls block-and-slide; the y
     // check uses the already-updated x. Flyers ignore walls like terrain.
+    // Walls are read on the deck the unit is standing on — entLayer from the
+    // previous snap, which is also what pushApart already keys on. On a map
+    // without per-deck lattices this is the same lattice either way.
+    const layer = ent.entLayer[id];
     const x = ent.posX[id];
     const nx = Math.min(Math.max(x + ent.velX[id] * TICK_DT, 0), extent);
-    if (air || !crossesWallX(map, x, nx, ent.posY[id])) ent.posX[id] = nx;
+    if (air || !crossesWallX(map, x, nx, ent.posY[id], layer)) ent.posX[id] = nx;
     const y = ent.posY[id];
     const ny = Math.min(Math.max(y + ent.velY[id] * TICK_DT, 0), extent);
-    if (air || !crossesWallY(map, ent.posX[id], y, ny)) ent.posY[id] = ny;
+    if (air || !crossesWallY(map, ent.posX[id], y, ny, layer)) ent.posY[id] = ny;
     ent.animState[id] = ANIM_MOVING;
   }
   snapUnitHeight(state, id, air);

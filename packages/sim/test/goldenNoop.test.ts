@@ -28,7 +28,14 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // console, that coordinate moved ~5 m, and every tick after the first purchase
   // differs. 01-06 untouched again — 05 runs urban-jungle, whose consoles were
   // already the right way round.
-  "golden-07-pa": { last: 1802386461, count: 3600 },
+  //
+  // Re-frozen alone a THIRD time at SIM_VERSION 22 (issue #29): la-cantina now
+  // carries its bridge decks, so resolveWalker is live on it. 01-06 untouched
+  // once more, including 06 on the synthetic layered-test map — per-deck wall
+  // lattices reach nothing that has none, which is the no-op proof for the
+  // collision change. The one moved sequence traces to a single produced unit
+  // spending 30 ticks on a bridge; see the v22 note in version.ts.
+  "golden-07-pa": { last: 3780981965, count: 3600 },
 };
 
 describe("single-story golden last-hash pins", () => {

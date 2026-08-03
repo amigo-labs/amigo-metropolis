@@ -13,12 +13,32 @@
 // The `length === 0` early-out is THE no-op invariant: wall-free maps
 // (test-128, district-01) keep byte-identical hash sequences, proven by the
 // golden replays regenerated with the SIM_VERSION 8 bump.
+//
+// LAYERS (issue #29). Every helper takes an optional trailing `layer`, and
+// `layer === 0` (the default) runs the pre-existing code against map.wallsV/H
+// with no extra work — a second no-op invariant, on the same shape resolveHeight
+// already uses for heights. Only a map that ships per-deck lattices can reach the
+// other branch, which today is la-cantina alone.
 
 import type { MapData } from "./map";
 
+/** The lattice a given layer collides against: layer 0 is the map's own pair. */
+function latticeV(map: MapData, layer: number): Uint8Array {
+  if (layer === 0 || map.layerWallsV.length === 0) return map.wallsV;
+  const idx = layer - 1;
+  return idx < map.layerWallsV.length ? map.layerWallsV[idx] : map.wallsV;
+}
+
+function latticeH(map: MapData, layer: number): Uint8Array {
+  if (layer === 0 || map.layerWallsH.length === 0) return map.wallsH;
+  const idx = layer - 1;
+  return idx < map.layerWallsH.length ? map.layerWallsH[idx] : map.wallsH;
+}
+
 /** Does the axis move x→nx (y held) cross a blocking vertical wall segment? */
-export function crossesWallX(map: MapData, x: number, nx: number, y: number): boolean {
-  if (map.wallsV.length === 0) return false;
+export function crossesWallX(map: MapData, x: number, nx: number, y: number, layer = 0): boolean {
+  const walls = latticeV(map, layer);
+  if (walls.length === 0) return false;
   const inv = 1 / map.cellSize;
   const gi0 = Math.floor(x * inv);
   const gi1 = Math.floor(nx * inv);
@@ -27,12 +47,13 @@ export function crossesWallX(map: MapData, x: number, nx: number, y: number): bo
   let row = Math.floor(y * inv);
   if (row < 0) row = 0;
   if (row > map.size - 2) row = map.size - 2;
-  return map.wallsV[row * map.size + line] !== 0;
+  return walls[row * map.size + line] !== 0;
 }
 
 /** Does the axis move y→ny (x held) cross a blocking horizontal wall segment? */
-export function crossesWallY(map: MapData, x: number, y: number, ny: number): boolean {
-  if (map.wallsH.length === 0) return false;
+export function crossesWallY(map: MapData, x: number, y: number, ny: number, layer = 0): boolean {
+  const walls = latticeH(map, layer);
+  if (walls.length === 0) return false;
   const inv = 1 / map.cellSize;
   const gj0 = Math.floor(y * inv);
   const gj1 = Math.floor(ny * inv);
@@ -41,7 +62,7 @@ export function crossesWallY(map: MapData, x: number, y: number, ny: number): bo
   let col = Math.floor(x * inv);
   if (col < 0) col = 0;
   if (col > map.size - 2) col = map.size - 2;
-  return map.wallsH[line * map.size + col] !== 0;
+  return walls[line * map.size + col] !== 0;
 }
 
 /**
@@ -58,8 +79,11 @@ export function segmentBlocked(
   y0: number,
   x1: number,
   y1: number,
+  layer = 0,
 ): boolean {
-  if (map.wallsV.length === 0 && map.wallsH.length === 0) return false;
+  const wallsV = latticeV(map, layer);
+  const wallsH = latticeH(map, layer);
+  if (wallsV.length === 0 && wallsH.length === 0) return false;
   const s = map.size;
   const inv = 1 / map.cellSize;
   const maxCell = s - 2;
@@ -86,12 +110,12 @@ export function segmentBlocked(
     if (tMaxX <= tMaxY) {
       // Crossing the vertical line between gx and gx+stepX, in row gy.
       const line = gx + (stepX > 0 ? 1 : 0);
-      if (map.wallsV[clampCell(gy) * s + line] !== 0) return true;
+      if (wallsV[clampCell(gy) * s + line] !== 0) return true;
       gx += stepX;
       tMaxX += tDeltaX;
     } else {
       const line = gy + (stepY > 0 ? 1 : 0);
-      if (map.wallsH[line * s + clampCell(gx)] !== 0) return true;
+      if (wallsH[line * s + clampCell(gx)] !== 0) return true;
       gy += stepY;
       tMaxY += tDeltaY;
     }

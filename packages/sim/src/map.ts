@@ -217,6 +217,19 @@ export interface MapData {
   readonly layerHeights: readonly Float32Array[];
   /** Presence mask per extra layer, same indexing: 1 = deck present at this vertex. */
   readonly layerMask: readonly Uint8Array[];
+  /**
+   * Wall lattice PER extra layer, same indexing as layerHeights (index 0 is
+   * layer 1). `wallsV`/`wallsH` above are layer 0's. EMPTY (length 0) when no
+   * deck carries its own walls — every layer then shares the layer-0 lattice,
+   * which is exactly the pre-#29 behaviour and what keeps every other map's
+   * hashes byte-identical.
+   *
+   * A bridge's parapet blocks on the bridge, not on the road underneath, so a
+   * lattice per deck is what stops the two from being charged to each other.
+   */
+  readonly layerWallsV: readonly Uint8Array[];
+  /** Horizontal twin, same indexing. */
+  readonly layerWallsH: readonly Uint8Array[];
   /** Avatar spawn per team (index = team id). */
   readonly spawns: readonly MapSpawn[];
   /** Base plot per team (index = team id): the flat build area. */
@@ -418,10 +431,12 @@ export interface MapJson {
   wallsH?: string[];
   /**
    * OPTIONAL extra walkable decks above layer 0. Each: `heights` in 1/32 m
-   * ints (size rows × size), `mask` size rows of size '0'/'1' chars. Absent →
-   * single-story (empty layer arrays).
+   * ints (size rows × size), `mask` size rows of size '0'/'1' chars, plus that
+   * deck's OWN optional wall lattice (both present or both absent, same shape as
+   * the top-level pair). Absent → single-story (empty layer arrays); layer walls
+   * absent → every deck shares the layer-0 lattice.
    */
-  layers?: { heights: number[][]; mask: string[] }[];
+  layers?: { heights: number[][]; mask: string[]; wallsV?: string[]; wallsH?: string[] }[];
   spawns: { x: number; y: number; yaw: number }[];
   basePlots: { x: number; y: number; radius: number }[];
   bases: MapBaseJson[];
@@ -540,6 +555,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
   // a present mask. Absent → single-story (empty arrays → resolveHeight no-op).
   const layerHeights: Float32Array[] = [];
   const layerMask: Uint8Array[] = [];
+  const layerWallsV: Uint8Array[] = [];
+  const layerWallsH: Uint8Array[] = [];
+  let anyLayerWalls = false;
   if (raw.layers) {
     for (let L = 0; L < raw.layers.length; L++) {
       const layer = raw.layers[L];
@@ -567,7 +585,29 @@ export function loadMapFromJson(raw: MapJson): MapData {
       }
       layerHeights.push(lh);
       layerMask.push(lm);
+
+      // Per-deck walls, on the same both-or-neither rule as the top-level pair.
+      // A deck without its own lattice inherits layer 0's, so a partially
+      // annotated map degrades to the old shared-lattice behaviour instead of
+      // silently losing a deck's collision.
+      if ((layer.wallsV === undefined) !== (layer.wallsH === undefined)) {
+        fail(id, `layer ${L} wallsV and wallsH must both be present or both be absent`);
+      }
+      if (layer.wallsV && layer.wallsH) {
+        layerWallsV.push(parseWalls(layer.wallsV, `layer ${L} wallsV`));
+        layerWallsH.push(parseWalls(layer.wallsH, `layer ${L} wallsH`));
+        anyLayerWalls = true;
+      } else {
+        layerWallsV.push(wallsV);
+        layerWallsH.push(wallsH);
+      }
     }
+  }
+  // No deck brought its own walls → drop the arrays entirely so the collision
+  // helpers take their length-0 fast path and stay bit-identical.
+  if (!anyLayerWalls) {
+    layerWallsV.length = 0;
+    layerWallsH.length = 0;
   }
 
   const extent = (size - 1) * cellSize;
@@ -831,6 +871,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
     wallsH,
     layerHeights,
     layerMask,
+    layerWallsV,
+    layerWallsH,
     spawns: raw.spawns.map((s) => ({ x: s.x, y: s.y, yaw: s.yaw })),
     basePlots: raw.basePlots.map((p) => ({ x: p.x, y: p.y, radius: p.radius })),
     bases,
@@ -910,6 +952,8 @@ export function createTestMap(): MapData {
     wallsH: new Uint8Array(0),
     layerHeights: [],
     layerMask: [],
+    layerWallsV: [],
+    layerWallsH: [],
     spawns: [
       { x: center, y: center, yaw: 0 },
       { x: center, y: center, yaw: 0 },

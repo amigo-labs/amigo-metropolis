@@ -532,7 +532,7 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       streams annihilate at the mid-line and no gun is ever shot at. In the escorted
       case, the only one where the last mile exists, it is most of the fix
 
-**Definition of Done:** all four single-storey arenas play under §9 — production
+**Definition of Done:** all four PA arenas play under §9 — production
 runs, pads capture, the enemy core can be razed — with `bun test`,
 `bun run replay:verify` and `bun run verify:arenas` green, `gen:arena all --check`
 reporting byte-identical output, and the per-arena fidelity screenshots showing
@@ -544,6 +544,23 @@ was the last holdout and converts 32 core hits where it managed 2 — and la-can
 resolves outright against an idle player. What remains open is the ten-minute
 resolution on proving-ground and urban-jungle, one respawn-versus-clearance
 question rather than four arena-shaped ones (#31, item above).
+
+**Issue #29 landed (2026-08-03):** `la-cantina` is converted as the multi-deck
+arena its source terrain describes — two bridge decks, and walls attributed to the
+deck they stand on instead of unioned into one lattice. The lane carve drops from
+56 wall bits to 37 and the ring repair from 10 to 2, out of 4009; the 8 outer-ring
+capture pads were never unreachable, since capturing is proximity and the original
+mounts those pads on plinths, so the generator no longer knocks its parapets down
+to satisfy a rule the sim does not have. Nothing was lost in the split — the union
+of ground and decks is bit-for-bit the pre-#29 lattice. `SIM_VERSION` 22;
+`golden-07-pa` re-recorded, the other six header-only.
+
+la-cantina no longer resolves outright against an idle player: the Warden takes the
+core to 910/3000 in fifteen minutes on 5/5 seeds instead of razing it at 699 s. The
+whole delta traces to one produced unit spending 30 ticks on a bridge — the thinner
+ground lattice and the per-deck lattices are each measurably inert — so it is the
+deck movement #29 asked for, and restoring the finish is #31's balance pass. That
+moves the "ten-minute resolution" item above from two arenas to three.
 
 ## Backlog (post-v1, do not start)
 

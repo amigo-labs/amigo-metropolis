@@ -1,9 +1,10 @@
 // Layered movement: entLayer state, avatar transitions, per-deck unit rules.
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
+import { crossesWallX, segmentBlocked } from "../src/collision";
 import { spawn } from "../src/entities";
 import { createSim, createTickInputs, getMapById, hash, step } from "../src/index";
-import { DISTRICT_01_ID, LAYERED_TEST_ID } from "../src/map";
+import { DISTRICT_01_ID, LAYERED_TEST_ID, loadMapFromJson, type MapJson } from "../src/map";
 import { separateGroundUnits, snapUnitHeight } from "../src/units";
 
 function drive(
@@ -108,5 +109,100 @@ describe("units are layer-aware and separate per deck", () => {
     separateGroundUnits(sim);
     // exactly stacked on one deck → split along +x by id order
     expect(sim.ent.posX[b]).toBeGreaterThan(sim.ent.posX[a]);
+  });
+});
+
+describe("per-deck wall collision (issue #29)", () => {
+  // The point of a lattice per deck: a bridge's parapet stops you ON the bridge
+  // and not on the road it spans. Built on `tiny()`-style raw JSON rather than the
+  // committed arenas so the geometry is unambiguous — one deck, one wall bit.
+  function twoStorey(deckWall: boolean): MapJson {
+    const size = 4;
+    return {
+      id: "t",
+      size,
+      cellSize: 1,
+      waterLevel: -10,
+      // Ground flat at 0, deck flat at 2 m (64 quanta) over the whole grid.
+      heights: Array.from({ length: size }, () => Array.from({ length: size }, () => 0)),
+      water: Array.from({ length: size }, () => "0".repeat(size)),
+      wallsV: Array.from({ length: size }, () => "0".repeat(size)),
+      wallsH: Array.from({ length: size }, () => "0".repeat(size)),
+      layers: [
+        {
+          heights: Array.from({ length: size }, () => Array.from({ length: size }, () => 64)),
+          mask: Array.from({ length: size }, () => "1".repeat(size)),
+          // Block the x = 2 line in every row, on the DECK only.
+          wallsV: deckWall
+            ? Array.from({ length: size }, () => "0010")
+            : Array.from({ length: size }, () => "0".repeat(size)),
+          wallsH: Array.from({ length: size }, () => "0".repeat(size)),
+        },
+      ],
+      spawns: [
+        { x: 0, y: 0, yaw: 0 },
+        { x: 3, y: 3, yaw: 0 },
+      ],
+      basePlots: [
+        { x: 0, y: 0, radius: 1 },
+        { x: 3, y: 3, radius: 1 },
+      ],
+      bases: [
+        {
+          gate: { x: 0, y: 1, radius: 1 },
+          core: [0, 0],
+          groundConsole: [0, 0],
+          airConsole: [0, 0],
+          pad: { x: 0, y: 0, radius: 1 },
+          turrets: [],
+        },
+        {
+          gate: { x: 3, y: 2, radius: 1 },
+          core: [3, 3],
+          groundConsole: [3, 3],
+          airConsole: [3, 3],
+          pad: { x: 3, y: 3, radius: 1 },
+          turrets: [],
+        },
+      ],
+      lanes: [],
+      turretSpots: [],
+      outpostSpots: [],
+      dummySpots: [],
+    };
+  }
+
+  it("a deck wall blocks a mover ON the deck", () => {
+    const map = loadMapFromJson(twoStorey(true));
+    // Crossing the x = 2 line, in row 1.
+    expect(crossesWallX(map, 1.5, 2.5, 1.5, 1)).toBe(true);
+  });
+
+  it("...and does NOT block the ground beneath it", () => {
+    const map = loadMapFromJson(twoStorey(true));
+    expect(crossesWallX(map, 1.5, 2.5, 1.5, 0)).toBe(false);
+  });
+
+  it("layer 0 reads the map's own lattice, deck or no deck", () => {
+    const withDeckWall = loadMapFromJson(twoStorey(true));
+    const without = loadMapFromJson(twoStorey(false));
+    // Identical on the ground: the deck's lattice is not consulted for layer 0.
+    expect(crossesWallX(withDeckWall, 1.5, 2.5, 1.5, 0)).toBe(
+      crossesWallX(without, 1.5, 2.5, 1.5, 0),
+    );
+  });
+
+  it("segmentBlocked takes the same layer argument", () => {
+    const map = loadMapFromJson(twoStorey(true));
+    expect(segmentBlocked(map, 1.5, 1.5, 3.5, 1.5, 1)).toBe(true);
+    expect(segmentBlocked(map, 1.5, 1.5, 3.5, 1.5, 0)).toBe(false);
+    // Default argument is layer 0 — the pre-#29 signature and behaviour.
+    expect(segmentBlocked(map, 1.5, 1.5, 3.5, 1.5)).toBe(false);
+  });
+
+  it("a deck beyond the lattice list falls back to layer 0's walls", () => {
+    const map = loadMapFromJson(twoStorey(true));
+    // Only one deck exists; asking about layer 5 must not read out of bounds.
+    expect(crossesWallX(map, 1.5, 2.5, 1.5, 5)).toBe(false);
   });
 });
