@@ -66,6 +66,18 @@ forever as a debug render mode (`?render=greybox`).
 - Y-up, meters, origin at ground contact center, +Z facing forward.
 - Named nodes for code-driven animation (rigid transforms, no skinning):
   `root, hull, turret_yaw, barrel_pitch, leg_l, leg_r, fx_muzzle, fx_thruster`.
+- **Reality check, avatar walk (v20):** the pipeline emits ONE node per unit —
+  `joinMeshes` merges everything and `bakeSkinRestPose` folds the original's two
+  skins into the vertices — so no unit ships with named part nodes today. The
+  walk animation gets its parts by labelling connected components at load time
+  instead (`packages/client/src/render/avatarRig.ts`): position-welded, the
+  walker falls into nine islands and the largest one is exactly the original's
+  legs mesh. That yields hip swing only; knee bend needs the generator to emit
+  the joints, which waits on `gen:units` becoming byte-reproducible.
+- The avatar therefore draws as **three** `InstancedMesh`es (body, `leg_l`,
+  `leg_r`) rather than one — a deliberate, bounded exception to the
+  one-mesh-per-archetype rule in `CLAUDE.md`, capped at four instances. Still no
+  `Object3D` tree and no per-limb matrix update.
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
 - Materials: single atlas texture, `flatShading: true`, no PBR maps.
 

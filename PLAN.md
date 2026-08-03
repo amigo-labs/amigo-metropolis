@@ -165,7 +165,12 @@ all units are FCOP extractions from the `Mp` container (X1-Alpha walker + hover
 assemblies from `extract_x1.py`, Hovertank, Flyer, heavy gunship, Sky Captain
 jet + gunship form, neutral turret, outpost flag console; raws under
 `tools/generators/units/raw/fcop/`, provenance in CREDITS.md). Stage B ships
-rigid rest poses; Stage C can reintroduce the X1's animation clips. `bun run gen:units`
+rigid rest poses; Stage C can reintroduce the X1's animation clips. The walking
+avatar is the one exception: `render/avatarRig.ts` recovers its parts by
+labelling connected components in the shipped glb (the largest island is exactly
+the original's 648-vertex legs mesh) and swings the hips from distance
+travelled — client-only, no asset change. Knee bend still wants the generator to
+emit joints, which waits on `gen:units` becoming byte-reproducible. `bun run gen:units`
 (`tools/generators/genUnitModels.ts` + manifest) processes raws into one
 spec-conformant glb per archetype under `public/models/units/` (texture pages
 packed into one atlas, team units desaturated so the whole-unit instanceColor

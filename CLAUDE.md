@@ -55,6 +55,9 @@ Violating any of these causes multiplayer desyncs. They are non-negotiable.
    no closures created per frame. Preallocate scratch objects at module scope.
 2. `matrixAutoUpdate = false` for everything; write instance matrices directly.
 3. One `InstancedMesh` per entity archetype (tank, plane, projectile, turret…).
+   Sole exception: the walking avatar draws as three (body + two legs) so the
+   hips can swing — `render/avatarRig.ts`, capacity 4, no `Object3D` tree. Any
+   further split needs the same justification in writing (`assets.md` §4).
 4. The renderer reads sim state ONLY via the snapshot interface
    (`docs/specs/architecture.md#snapshot`). Never reach into sim internals.
 5. Renderer must stay swappable: no sim logic in client, no Three types in sim.

@@ -81,6 +81,7 @@ import { NetLockstep } from "./net/lockstep";
 import { P2pLockstep } from "./net/p2pLockstep";
 import { openP2pSession, readP2pBootstrap } from "./net/p2pSession";
 import { WsTransport } from "./net/wsTransport";
+import { type AvatarRig, createAvatarRig } from "./render/avatarRig";
 import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
@@ -222,6 +223,14 @@ if (params.has("debug") && !netMode) {
       notes?: string;
       parentId?: string | null;
     }) => Promise<{ id: string; message: string }>;
+    metropolisRig?: () => {
+      ready: boolean;
+      legL: number;
+      legR: number;
+      stride: number;
+      components: number;
+      legVertices: number;
+    } | null;
   };
   dbg.metropolisSim = sim;
   // Debug-only spawner + freeze + snapshot for the verify:units screenshot
@@ -300,6 +309,20 @@ if (params.has("debug") && !netMode) {
 
   // The agent's equivalent of pressing P.
   dbg.metropolisPin = (opts) => capturePinNow(opts?.notes ?? "", opts?.parentId ?? null);
+
+  // Walk-rig readout. A screenshot shows legs; only this shows them SWINGING,
+  // so the harness checks the angles rather than the pixels.
+  dbg.metropolisRig = () =>
+    avatarRig === null
+      ? null
+      : {
+          ready: avatarRig.ready,
+          legL: avatarRig.angleAt(0, 0),
+          legR: avatarRig.angleAt(0, 1),
+          stride: avatarRig.stride,
+          components: avatarRig.split?.componentCount ?? 0,
+          legVertices: avatarRig.split?.legVertexCount ?? 0,
+        };
 }
 
 // --- Online helpers (no-ops unless ?online) ----------------------------------
@@ -511,6 +534,10 @@ const fx = createFx(scene);
 // Stage B unit models upgrade the greybox buckets in place as they load;
 // missing assets keep their greybox mesh (render/unitMeshes.ts).
 if (renderMode === "mesh") loadUnitMeshes(greybox);
+// Walking avatars come off the greybox bucket and onto the three-part rig once
+// avatar-walker.glb has loaded and split (render/avatarRig.ts). Until then — and
+// forever in ?render=greybox — the bucket keeps drawing them.
+const avatarRig: AvatarRig | null = renderMode === "mesh" ? createAvatarRig(scene) : null;
 
 let extent = worldExtent(map);
 
@@ -979,10 +1006,13 @@ function rotateSnapshot(): void {
   countCurr = writeSnapshot(sim, snapCurr);
 }
 
-function renderEntities(alpha: number): void {
+function renderEntities(alpha: number, dtSec: number): void {
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }
+  if (avatarRig) avatarRig.begin();
+  // Readiness cannot change mid-frame, so resolve it once instead of per entity.
+  const readyRig = avatarRig?.ready ? avatarRig : null;
   for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses[p][3] = 0;
   let p = 0;
   for (let c = 0; c < countCurr; c++) {
@@ -996,22 +1026,12 @@ function renderEntities(alpha: number): void {
     const archetype = snapCurr[o + 1];
     const animState = snapCurr[o + 7];
     const aux = snapCurr[o + 9];
-    const bucket = bucketFor(greybox, archetype, animState, aux);
-    if (!bucket) continue;
-    const slot = bucket.count;
-    if (slot >= bucket.tintCache.length) {
-      // A dropped instance is an entity that shoots at you and is not drawn.
-      // Shout once per bucket rather than per frame: verify:arenas fails the run
-      // on any console error, so this cannot ship unnoticed again.
-      if (!bucket.overflowed) {
-        bucket.overflowed = true;
-        console.error(
-          `[render] instance bucket full at ${bucket.tintCache.length} — entities are not being drawn; raise the capacity in render/greybox.ts`,
-        );
-      }
-      continue;
-    }
-    bucket.count = slot + 1;
+    // Walking avatars go to the three-part walk rig instead of a single bucket
+    // instance (render/avatarRig.ts). Hovering ones, and every avatar before the
+    // rig's asset lands, keep their bucket.
+    const rig = archetype === ARCHETYPE.AVATAR && (animState & ANIM_HOVER) === 0 ? readyRig : null;
+    const bucket = rig ? undefined : bucketFor(greybox, archetype, animState, aux);
+    if (!rig && !bucket) continue;
 
     let x = snapCurr[o + 3];
     let y = snapCurr[o + 4];
@@ -1044,17 +1064,38 @@ function renderEntities(alpha: number): void {
       }
     }
 
-    // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
-    scratchPos.set(x, height, y);
-    scratchQuat.setFromAxisAngle(UP, -yaw);
-    scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
-    bucket.mesh.setMatrixAt(slot, scratchMatrix);
+    if (rig) {
+      // The rig poses all three of its parts and keeps its own gait state; a
+      // false return means it is out of capacity and has already said so.
+      rig.place(id, x, height, y, yaw, animState, team, dtSec);
+    } else if (bucket) {
+      const slot = bucket.count;
+      if (slot >= bucket.tintCache.length) {
+        // A dropped instance is an entity that shoots at you and is not drawn.
+        // Shout once per bucket rather than per frame: verify:arenas fails the run
+        // on any console error, so this cannot ship unnoticed again.
+        if (!bucket.overflowed) {
+          bucket.overflowed = true;
+          console.error(
+            `[render] instance bucket full at ${bucket.tintCache.length} — entities are not being drawn; raise the capacity in render/greybox.ts`,
+          );
+        }
+        continue;
+      }
+      bucket.count = slot + 1;
 
-    const key = tintKey(archetype, team, aux);
-    if (bucket.tintCache[slot] !== key) {
-      bucket.tintCache[slot] = key;
-      bucket.mesh.setColorAt(slot, tintFor(archetype, team, aux));
-      if (bucket.mesh.instanceColor) bucket.mesh.instanceColor.needsUpdate = true;
+      // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
+      scratchPos.set(x, height, y);
+      scratchQuat.setFromAxisAngle(UP, -yaw);
+      scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
+      bucket.mesh.setMatrixAt(slot, scratchMatrix);
+
+      const key = tintKey(archetype, team, aux);
+      if (bucket.tintCache[slot] !== key) {
+        bucket.tintCache[slot] = key;
+        bucket.mesh.setColorAt(slot, tintFor(archetype, team, aux));
+        if (bucket.mesh.instanceColor) bucket.mesh.instanceColor.needsUpdate = true;
+      }
     }
   }
   for (let i = 0; i < greybox.all.length; i++) {
@@ -1062,6 +1103,7 @@ function renderEntities(alpha: number): void {
     b.mesh.count = b.count;
     b.mesh.instanceMatrix.needsUpdate = true;
   }
+  if (avatarRig) avatarRig.end();
 }
 
 /**
@@ -1176,8 +1218,10 @@ function frame(now: number): void {
     countCurr = writeSnapshot(sim, snapCurr);
   }
 
-  renderEntities(accumulator / TICK_MS);
+  // dtSec before renderEntities: the walk rig fades its swing in and out in real
+  // seconds (the stride itself is distance-driven — render/avatarRig.ts).
   const dtSec = dtMs / 1000;
+  renderEntities(accumulator / TICK_MS, dtSec);
   if (views.length === 0) {
     // No views yet: menu / lobby / waiting-for-opponent — flyover over the demo.
     updateFlyoverCamera(flyCam, now / 1000, extent);
