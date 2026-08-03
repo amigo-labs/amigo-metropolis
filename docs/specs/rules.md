@@ -228,7 +228,13 @@ only what Metropolis adopts from it.
   what keeps a turret inside the 14 m a Runner can shoot back from, so a push can
   answer a turret instead of dying to one it cannot reach (`paAttribution.test.ts`
   asserts the relation for every profile an arena carries).
-  Damage stays on the global value — the original's weapon table was not decoded.
+  Damage stays on the global value. This used to say "the original's weapon
+  table was not decoded"; it is decoded now — 15 records in the game executable
+  plus the front-end panels in `febmp.bin`, with firing rate and damage read off
+  the game's own bars. It still does not apply here: those ids are a **different
+  id space** from the `weapon_id` on `BaseShooter` actors, so the figures are the
+  player's loadout and say nothing about a turret. Adopting them for the avatar's
+  weapons is its own piece of work.
 - **Capture points are the original pads.** Every original `NeutralTurret`
   becomes a capture spot — 32 on Mp and Conft, 29 on Slim and Joke, against the
   4–6 of §5. Capture rules

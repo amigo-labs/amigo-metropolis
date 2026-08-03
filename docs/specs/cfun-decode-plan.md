@@ -1,4 +1,4 @@
-# Decoding `Cfun` — the plan
+# Decoding `Cfun` — the plan (EXECUTED; three claims retracted)
 
 Goal: recover the **Precinct Assault rule set** from the original's mission
 bytecode, so rules like "how does a pad get captured" come from the game instead
@@ -11,6 +11,58 @@ plan; the findings belong in that repo's `README.md` table and its
 House rule, taken from that repo's own probe tooling: *nothing here is proven —
 every claim ships with its method and its counter-argument.* A statistical lead
 is a lead, not a fact.
+
+---
+
+## Outcome — read this before the plan below
+
+The plan ran. Findings: `extracted/handoff/cfun_decode.md` in the RE repo
+(313 lines, method and counter-argument per claim), tooling
+`tools/gfx/cfun_disasm.py` + `probe_cfun_rules.py`.
+
+**The headline answer is negative, and it is the useful part: the capture rule
+is not in `Cfun`.** The one `MapObjectiveNodeGroup` id per arena (263/264) does
+not appear as an operand **anywhere in all six arenas' bytecode**. Whatever
+governs a pad changing hands, it is not a reference to that actor. So
+`rules.md` §9's "Capture rules themselves are unchanged" stays *our* rule, and
+now says so with a citation instead of an open question.
+
+The same house rule that demands a counter-argument demands retractions. Three
+claims below did not survive:
+
+1. **§1's "the reader works; the dictionary is missing" was wrong.** The reader
+   did not work. The FC:MIT reading `<varlen><3 opcode bytes>` closes only
+   **210 of 439** code blocks; it is not a general decoder, it is the one case
+   FC:MIT needed. The correct reading — `<number> ( <variable-length opcode>
+   <number> )*`, numbers 7 bits per byte MSB-first, terminated by a high-bit
+   byte *or* by `0x00` which contributes 0 and is consumed — closes **431**.
+   Getting that `0x00` case wrong is exactly where FC:MIT's version fails.
+2. **§2's hypothesis is falsified.** The scripts do *not* differ only in base
+   actor ids: Mp against Slim differs in **52 of 57** functions — shifted
+   periods, different operand quartets, an extra token pair in five parameter
+   blocks. They are parameterised copies of one rule set, not one file with ids
+   swapped. What the hunch got right: **`fn05` carries the base actor id** in
+   all six arenas (57 on Mp/Conft/Hk/Ovmp, 23 on Slim/Joke).
+3. **§3's timing bands are withdrawn, not reworded.** "Band E ≈ 5 s is the
+   production cadence" does not hold. Mp's `fn30`/`fn31` sit at 300/305
+   (4.93 s), but the *same two functions* in the Slim/Joke script carry
+   **150/153** (2.46 s) at otherwise equal structure. A cadence that doubles
+   between arenas is not a global production rule — and those functions'
+   operands are `type_14`/`DynamicProp` pairs, not `TeamBase` ids. The 5-second
+   agreement with `spawnTicks: 300` was a coincidence I read as a cross-check.
+
+What held: `Cfun` is overwhelmingly a multiplayer structure (§0's table), six
+arenas share four byte-identical scripts (§2's table), and the disassembler's
+self-test passes — Mp/Conft and Slim/Joke come out token-identical function for
+function, which is the check §2 asked for.
+
+Also found along the way, outside `Cfun` and outside this plan's scope: **the
+weapon table** (EXE + `febmp.bin` front-end panels), which closes #31's
+"not found". Its ids are a **different id space** from `BaseShooter.weapon_id`,
+so it applies to the player's loadout and not to turrets.
+
+The plan as written follows, unedited apart from this section, because the
+retractions only make sense next to what they retract.
 
 ---
 

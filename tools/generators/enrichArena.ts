@@ -75,10 +75,17 @@ export const LOGIC_OFFSET_Z = 0;
 /**
  * Damage per shot for the imported weapon profiles.
  *
- * NOT in the extracted data: the original stores weapon_id 3, and the weapon
- * table it indexes was not decoded. Kept at the pre-PA global TURRET_DAMAGE so
- * importing the originals changes reach and cadence — which ARE data — without
- * silently inventing a damage curve. Tuning lives in balance.ts.
+ * The original stores weapon_id 3 on these actors. The weapon table it indexes
+ * WAS decoded since (15 records in the game executable, values off the
+ * front-end panels in febmp.bin) — but not into this id space: the executable's
+ * weapon ids and BaseShooter's weapon_id are two different spaces, and the
+ * decode says so explicitly. So there is still no authentic number for a turret
+ * here, and the reason is now "the binding is unproven" rather than "the table
+ * is unknown".
+ *
+ * Kept at the pre-PA global TURRET_DAMAGE so importing the originals changes
+ * reach and cadence — which ARE data — without silently inventing a damage
+ * curve. Tuning lives in balance.ts.
  */
 const TURRET_DAMAGE = 15;
 
