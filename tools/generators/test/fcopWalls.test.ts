@@ -15,14 +15,21 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fnv1aBytes, fnv1aInit } from "@metropolis/sim";
-import { selectArenas, wallsFile } from "../fcopArenas";
+import { type FcopArena, selectArenas, wallsFile } from "../fcopArenas";
 import { MP_UNION_PIN, unionWalls, type WallsSnapshot, wallsNote } from "../fcopWalls";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 
-function readSnapshot(mission: string, mapId: string): WallsSnapshot {
-  const path = join(REPO_ROOT, "tools", "generators", "fcop", wallsFile({ mission, mapId }));
+function readSnapshot(arena: FcopArena): WallsSnapshot {
+  const path = join(REPO_ROOT, "tools", "generators", "fcop", wallsFile(arena));
   return JSON.parse(readFileSync(path, "utf8")) as WallsSnapshot;
+}
+
+/** The registry entry for a map id — the arena list is the single source. */
+function arenaOf(mapId: string): FcopArena {
+  const arena = selectArenas("all").find((a) => a.mapId === mapId);
+  if (!arena) throw new Error(`no FCOP arena registered for ${mapId}`);
+  return arena;
 }
 
 /** Hash '0'/'1' rows the way fcop-arenas.test.ts hashes a loaded lattice. */
@@ -37,7 +44,7 @@ function hashRows(rows: string[]): number {
 
 describe("committed wall snapshots", () => {
   for (const arena of selectArenas("all")) {
-    const snap = readSnapshot(arena.mission, arena.mapId);
+    const snap = readSnapshot(arena);
 
     it(`${arena.mapId}: is square, binary and carries the canonical note`, () => {
       expect(snap.mission).toBe(arena.mission);
@@ -64,14 +71,14 @@ describe("committed wall snapshots", () => {
 
   it("la-cantina is the only layered snapshot, with both of Mp's decks", () => {
     for (const arena of selectArenas("all")) {
-      const snap = readSnapshot(arena.mission, arena.mapId);
+      const snap = readSnapshot(arena);
       const want = arena.mapId === "la-cantina" ? 2 : 0;
       expect(snap.layers?.length ?? 0).toBe(want);
     }
   });
 
   it("re-attributing Mp's walls per deck lost none of them", () => {
-    const snap = readSnapshot("Mp", "la-cantina");
+    const snap = readSnapshot(arenaOf("la-cantina"));
     // The union is the lattice mp-walls.json carried before #29 split it.
     expect(hashRows(unionWalls(snap, "wallsV"))).toBe(MP_UNION_PIN.wallsV);
     expect(hashRows(unionWalls(snap, "wallsH"))).toBe(MP_UNION_PIN.wallsH);
