@@ -69,8 +69,12 @@ interface RoadExpectation {
 const ROADS: RoadExpectation[] = [
   {
     id: LA_CANTINA_ID,
-    entry: [143, 0],
-    entryDistance: [8.3, 8.1],
+    // Both legs shortened from 8.3/8.1 m when the ground console stopped being
+    // the aircraft one: the tank console is the one the original parks on the
+    // road, which is what you would expect of the pad that rolls ground units
+    // out. Corroborates the icon reading in enrichArena's consoleRole().
+    entry: [143, 6],
+    entryDistance: [3.3, 3.1],
     driveLimit: 40, // 21.5 s / 34.4 s measured (Runner / Juggernaut step)
   },
   {
@@ -92,8 +96,10 @@ const ROADS: RoadExpectation[] = [
   },
   {
     id: BUG_HUNT_ID,
-    entry: [0, 305],
-    entryDistance: [7.6, 5.5],
+    // Same shortening as la-cantina, same cause (7.6/5.5 m before the console
+    // icons were read rather than guessed at from trigger footprints).
+    entry: [1, 304],
+    entryDistance: [3.2, 3.0],
     driveLimit: 70, // 39.2 s / 62.7 s measured
   },
 ];

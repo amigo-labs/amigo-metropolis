@@ -64,6 +64,7 @@ import {
 import type { PinEntity } from "./debug/pinTypes";
 import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
+import { createMouseLook, type MouseLook } from "./input/mouseLook";
 import { isTextEntryTarget } from "./input/textEntry";
 import { TouchInput, wantsTouch } from "./input/touch";
 import { TOUCH_BUTTONS } from "./input/touchMapping";
@@ -80,6 +81,7 @@ import { NetLockstep } from "./net/lockstep";
 import { P2pLockstep } from "./net/p2pLockstep";
 import { openP2pSession, readP2pBootstrap } from "./net/p2pSession";
 import { WsTransport } from "./net/wsTransport";
+import { type AvatarRig, createAvatarRig } from "./render/avatarRig";
 import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
@@ -221,6 +223,14 @@ if (params.has("debug") && !netMode) {
       notes?: string;
       parentId?: string | null;
     }) => Promise<{ id: string; message: string }>;
+    metropolisRig?: () => {
+      ready: boolean;
+      legL: number;
+      legR: number;
+      stride: number;
+      components: number;
+      legVertices: number;
+    } | null;
   };
   dbg.metropolisSim = sim;
   // Debug-only spawner + freeze + snapshot for the verify:units screenshot
@@ -299,6 +309,20 @@ if (params.has("debug") && !netMode) {
 
   // The agent's equivalent of pressing P.
   dbg.metropolisPin = (opts) => capturePinNow(opts?.notes ?? "", opts?.parentId ?? null);
+
+  // Walk-rig readout. A screenshot shows legs; only this shows them SWINGING,
+  // so the harness checks the angles rather than the pixels.
+  dbg.metropolisRig = () =>
+    avatarRig === null
+      ? null
+      : {
+          ready: avatarRig.ready,
+          legL: avatarRig.angleAt(0, 0),
+          legR: avatarRig.angleAt(0, 1),
+          stride: avatarRig.stride,
+          components: avatarRig.split?.componentCount ?? 0,
+          legVertices: avatarRig.split?.legVertexCount ?? 0,
+        };
 }
 
 // --- Online helpers (no-ops unless ?online) ----------------------------------
@@ -510,6 +534,10 @@ const fx = createFx(scene);
 // Stage B unit models upgrade the greybox buckets in place as they load;
 // missing assets keep their greybox mesh (render/unitMeshes.ts).
 if (renderMode === "mesh") loadUnitMeshes(greybox);
+// Walking avatars come off the greybox bucket and onto the three-part rig once
+// avatar-walker.glb has loaded and split (render/avatarRig.ts). Until then — and
+// forever in ?render=greybox — the bucket keeps drawing them.
+const avatarRig: AvatarRig | null = renderMode === "mesh" ? createAvatarRig(scene) : null;
 
 let extent = worldExtent(map);
 
@@ -571,21 +599,10 @@ const rigVel = { x: 0, y: 0, z: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 const TAU = Math.PI * 2;
 
-// Mouse-wheel zoom for the pointer view: accumulated between frames, drained
-// into that view's rig input once per frame (kept out of the sim entirely).
-let wheelAccum = 0;
-addEventListener(
-  "wheel",
-  (e) => {
-    wheelAccum += e.deltaY;
-  },
-  { passive: true },
-);
-
+// The chase rig has no zoom to give the wheel (camera.spec §3), and under
+// pointer lock there is no cursor for the reticle to follow — it sits in the
+// middle of the view, where the gun points, and CSS keeps it there.
 const reticle = document.getElementById("reticle") as HTMLDivElement;
-addEventListener("mousemove", (e) => {
-  reticle.style.transform = `translate(${e.clientX - 10}px, ${e.clientY - 10}px)`;
-});
 const unitCounts = new Int32Array(2);
 
 // Full-screen status overlay for online mode (connecting / waiting / desync).
@@ -625,6 +642,11 @@ function refreshOverlay(): void {
 // the original/esrgan variants (render/texVariants.ts, 404-tolerant).
 let texSwitcher: VariantSwitcher | null = null;
 const flyState = createFlyState();
+
+// Yaw-only mouse steering (input.spec §4.1). Pointer-locks on click; fly mode
+// installs its own listeners on the same canvas and keeps free pitch, which is
+// why this is a separate object rather than a mode of flyCamera.
+let mouseLook: MouseLook = createMouseLook(renderer.domElement);
 
 // Small fixed DOM label (overlay idiom: only write on change). Shows the fly
 // controls and the active texture variant while debugging.
@@ -853,7 +875,10 @@ const viewBySlot: (PlayerView | undefined)[] = new Array(MAX_PLAYERS).fill(undef
 let orbitControls: OrbitControls | undefined;
 
 function runTick(): void {
-  // Refresh pointer aim for each local view (uses last frame's chase camera).
+  // Drain this tick's mouse travel into the heading before anything reads it,
+  // so aim and the camera agree within the tick.
+  mouseLook.update();
+  // Refresh aim for each local view (uses last frame's chase camera basis).
   for (let v = 0; v < views.length; v++) {
     const view = views[v];
     const a = sim.avatarId[view.slot];
@@ -863,8 +888,7 @@ function runTick(): void {
         view.camera,
         sim.ent.posX[a],
         sim.ent.posY[a],
-        sim.ent.height[a],
-        view.viewport,
+        mouseLook.yaw,
         enemyScratch,
         ec,
       );
@@ -982,10 +1006,13 @@ function rotateSnapshot(): void {
   countCurr = writeSnapshot(sim, snapCurr);
 }
 
-function renderEntities(alpha: number): void {
+function renderEntities(alpha: number, dtSec: number): void {
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }
+  if (avatarRig) avatarRig.begin();
+  // Readiness cannot change mid-frame, so resolve it once instead of per entity.
+  const readyRig = avatarRig?.ready ? avatarRig : null;
   for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses[p][3] = 0;
   let p = 0;
   for (let c = 0; c < countCurr; c++) {
@@ -999,22 +1026,12 @@ function renderEntities(alpha: number): void {
     const archetype = snapCurr[o + 1];
     const animState = snapCurr[o + 7];
     const aux = snapCurr[o + 9];
-    const bucket = bucketFor(greybox, archetype, animState, aux);
-    if (!bucket) continue;
-    const slot = bucket.count;
-    if (slot >= bucket.tintCache.length) {
-      // A dropped instance is an entity that shoots at you and is not drawn.
-      // Shout once per bucket rather than per frame: verify:arenas fails the run
-      // on any console error, so this cannot ship unnoticed again.
-      if (!bucket.overflowed) {
-        bucket.overflowed = true;
-        console.error(
-          `[render] instance bucket full at ${bucket.tintCache.length} — entities are not being drawn; raise the capacity in render/greybox.ts`,
-        );
-      }
-      continue;
-    }
-    bucket.count = slot + 1;
+    // Walking avatars go to the three-part walk rig instead of a single bucket
+    // instance (render/avatarRig.ts). Hovering ones, and every avatar before the
+    // rig's asset lands, keep their bucket.
+    const rig = archetype === ARCHETYPE.AVATAR && (animState & ANIM_HOVER) === 0 ? readyRig : null;
+    const bucket = rig ? undefined : bucketFor(greybox, archetype, animState, aux);
+    if (!rig && !bucket) continue;
 
     let x = snapCurr[o + 3];
     let y = snapCurr[o + 4];
@@ -1047,17 +1064,38 @@ function renderEntities(alpha: number): void {
       }
     }
 
-    // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
-    scratchPos.set(x, height, y);
-    scratchQuat.setFromAxisAngle(UP, -yaw);
-    scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
-    bucket.mesh.setMatrixAt(slot, scratchMatrix);
+    if (rig) {
+      // The rig poses all three of its parts and keeps its own gait state; a
+      // false return means it is out of capacity and has already said so.
+      rig.place(id, x, height, y, yaw, animState, team, dtSec);
+    } else if (bucket) {
+      const slot = bucket.count;
+      if (slot >= bucket.tintCache.length) {
+        // A dropped instance is an entity that shoots at you and is not drawn.
+        // Shout once per bucket rather than per frame: verify:arenas fails the run
+        // on any console error, so this cannot ship unnoticed again.
+        if (!bucket.overflowed) {
+          bucket.overflowed = true;
+          console.error(
+            `[render] instance bucket full at ${bucket.tintCache.length} — entities are not being drawn; raise the capacity in render/greybox.ts`,
+          );
+        }
+        continue;
+      }
+      bucket.count = slot + 1;
 
-    const key = tintKey(archetype, team, aux);
-    if (bucket.tintCache[slot] !== key) {
-      bucket.tintCache[slot] = key;
-      bucket.mesh.setColorAt(slot, tintFor(archetype, team, aux));
-      if (bucket.mesh.instanceColor) bucket.mesh.instanceColor.needsUpdate = true;
+      // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
+      scratchPos.set(x, height, y);
+      scratchQuat.setFromAxisAngle(UP, -yaw);
+      scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
+      bucket.mesh.setMatrixAt(slot, scratchMatrix);
+
+      const key = tintKey(archetype, team, aux);
+      if (bucket.tintCache[slot] !== key) {
+        bucket.tintCache[slot] = key;
+        bucket.mesh.setColorAt(slot, tintFor(archetype, team, aux));
+        if (bucket.mesh.instanceColor) bucket.mesh.instanceColor.needsUpdate = true;
+      }
     }
   }
   for (let i = 0; i < greybox.all.length; i++) {
@@ -1065,6 +1103,7 @@ function renderEntities(alpha: number): void {
     b.mesh.count = b.count;
     b.mesh.instanceMatrix.needsUpdate = true;
   }
+  if (avatarRig) avatarRig.end();
 }
 
 /**
@@ -1179,8 +1218,10 @@ function frame(now: number): void {
     countCurr = writeSnapshot(sim, snapCurr);
   }
 
-  renderEntities(accumulator / TICK_MS);
+  // dtSec before renderEntities: the walk rig fades its swing in and out in real
+  // seconds (the stride itself is distance-driven — render/avatarRig.ts).
   const dtSec = dtMs / 1000;
+  renderEntities(accumulator / TICK_MS, dtSec);
   if (views.length === 0) {
     // No views yet: menu / lobby / waiting-for-opponent — flyover over the demo.
     updateFlyoverCamera(flyCam, now / 1000, extent);
@@ -1193,7 +1234,10 @@ function frame(now: number): void {
     // → toward ACTION). Only the pointer view takes zoom.
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
-      view.camInput.zoomDelta = v === 0 ? wheelAccum * 0.0005 : 0;
+      // Chase rig: the mouse heading drives the camera as well as the avatar,
+      // and there is nothing left for the wheel to change (camera.spec §3).
+      view.camInput.yawAbsolute = mouseLook.yaw;
+      view.camInput.zoomDelta = 0;
       if (flyMode && v === 0) {
         // Free-fly debug camera owns view 0's posing (render/flyCamera.ts) —
         // rig and blend are skipped, exactly like orbit below. Skip while the
@@ -1222,7 +1266,6 @@ function frame(now: number): void {
       }
     }
   }
-  wheelAccum = 0; // consumed for this frame
 
   hudFrames++;
   if (now - hudLastUpdate > 1000) {
@@ -1251,13 +1294,16 @@ function resetForMatch(newSim: SimState): void {
   }
   countPrev = 0;
   countCurr = writeSnapshot(sim, snapCurr);
-  wheelAccum = 0;
   if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
 }
 
 function startMatch(localPlayers: readonly { slot: number; input: LocalInputSource }[]): void {
   phase = "match";
   views = createPlayerViews(localPlayers, map.spawns, extent);
+  // Start facing the way the rig starts: spawn -> arena centre. Otherwise the
+  // first tick snaps the avatar to yaw 0 before the player has touched anything.
+  mouseLook.dispose();
+  mouseLook = createMouseLook(renderer.domElement, { initialYaw: views[0]?.cam.yaw ?? 0 });
   viewBySlot.fill(undefined);
   for (let v = 0; v < views.length; v++) viewBySlot[views[v].slot] = views[v];
   layoutViews(views, "v", innerWidth, innerHeight);
@@ -1310,8 +1356,7 @@ function makeNetSampler(): () => PlayerInput {
           view.camera,
           sim.ent.posX[a],
           sim.ent.posY[a],
-          sim.ent.height[a],
-          view.viewport,
+          mouseLook.yaw,
           enemyScratch,
           ec,
         );

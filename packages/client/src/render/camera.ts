@@ -64,19 +64,39 @@ export interface CameraState {
 
 /** Per-frame render input. Reused/mutated by the caller — not reallocated. */
 export interface CameraInput {
-  zoomDelta: number; // wheel/pinch → shifts tTarget
+  zoomDelta: number; // wheel/pinch → shifts tTarget (no-op on the fixed rig)
+  /** Absolute heading (rad) from mouse steering; null falls back to yawDelta. */
+  yawAbsolute: number | null;
   yawDelta: number; // manual rotation, honoured only when !yawLocked
   panDelta: Vec3; // edge/drag pan (tactical only)
   recenter: boolean; // snaps panOffset → 0
   snapTarget: number | null; // optional tTarget snap [0,1]
 }
 
+/**
+ * Fixed chase framing (camera.spec §3/§7).
+ *
+ * Both anchors carry the SAME numbers on purpose: the rig keeps its `t` plumbing
+ * — the damping, the transform bias, the free-look gate all still run — but every
+ * value it interpolates is constant, so pitch, dolly and FOV cannot move. That
+ * is the original's camera: one angle behind the X1, no zoom, no elevation
+ * control. Collapsing the anchors rather than deleting `t` keeps the change to
+ * data, and keeps `?cam=orbit` and the menu flyover on the paths they already use.
+ *
+ * 26° is a little under the old ACTION anchor's 30°, which was the low end of a
+ * range that reached 62°. With nothing to zoom out to, the framing has to read
+ * on its own: low enough to feel behind the machine, high enough to see the road.
+ */
+const CHASE: ViewAnchor = { pitchDeg: 26, distance: 15, fovDeg: 58 };
+
 // Default rig parameters (spec §7). Starting values, tuned in playtest.
 export const DEFAULT_RIG_CONFIG: CameraRigConfig = {
-  action: { pitchDeg: 30, distance: 14, fovDeg: 55 },
-  tactical: { pitchDeg: 62, distance: 34, fovDeg: 50 },
+  action: CHASE,
+  tactical: CHASE,
   focusHeight: 1.0,
-  yawLocked: true,
+  // The mouse steers both the avatar and the camera as one (input.spec §4.1),
+  // so the rig takes an absolute heading rather than integrating a delta.
+  yawLocked: false,
   followSmoothTime: 0.12,
   paramSmoothTime: 0.18,
   yawSmoothTime: 0.15,
@@ -116,6 +136,14 @@ function damp(current: number, target: number, tau: number, dt: number): number 
   return current + (target - current) * smoothFactor(tau, dt);
 }
 
+/** Signed shortest angular difference, wrapped to [-PI, PI). */
+export function wrapAngle(a: number): number {
+  const TAU = Math.PI * 2;
+  let v = (a + Math.PI) % TAU;
+  if (v < 0) v += TAU;
+  return v - Math.PI;
+}
+
 /**
  * Advances the rig one render frame. Mutates and returns `state` (zero-alloc).
  *
@@ -146,10 +174,18 @@ export function updateCamera(
   state.t = damp(state.t, tEff, cfg.paramSmoothTime, dt);
 
   // --- Yaw -------------------------------------------------------------------
-  // World-fixed by default (spec §3): manual rotation is honoured only when the
-  // rig is explicitly unlocked, and is NEVER coupled to movement.
-  if (!cfg.yawLocked) state.yawTarget += input.yawDelta;
-  state.yaw = damp(state.yaw, state.yawTarget, cfg.yawSmoothTime, dt);
+  // Chase: the heading the player steered to, taken absolutely. `yawDelta` is
+  // still integrated when no absolute heading is supplied, which is what a
+  // rotate key would use.
+  if (!cfg.yawLocked) {
+    if (input.yawAbsolute !== null) state.yawTarget = input.yawAbsolute;
+    else state.yawTarget += input.yawDelta;
+  }
+  // Damp through the SHORTEST arc: yaw wraps at ±PI, and lerping the raw
+  // numbers spins the camera the long way round every time the player crosses
+  // the seam.
+  state.yaw =
+    state.yaw + wrapAngle(state.yawTarget - state.yaw) * smoothFactor(cfg.yawSmoothTime, dt);
 
   // --- Free-look pan (tactical only, spec §4.4) ------------------------------
   // Above the threshold the focus may decouple from the unit (edge-pan/drag);

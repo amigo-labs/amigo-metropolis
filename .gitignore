@@ -38,3 +38,6 @@ pin-*-view.png
 pin-*-top.png
 pin-*-pin.json
 pin-*-prompt.txt
+
+# Blender pad-verify run artifact (tools/generators/verifyLaCantinaPadsInBlender.py)
+docs/renders/fcop-viz/*-pad-verify.json

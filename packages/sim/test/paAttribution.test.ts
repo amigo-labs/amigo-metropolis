@@ -290,7 +290,7 @@ describe("a Warden vs an idle player: breaks the line on la-cantina", () => {
   const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
   const idle = createTickInputs();
   let captures = 0;
-  const limit = 10 * 60 * 30;
+  const limit = 15 * 60 * 30;
   while (state.tick < limit && state.winner < 0) {
     step(state, idle);
     for (let i = 0; i < state.events.count; i++) {
@@ -298,7 +298,7 @@ describe("a Warden vs an idle player: breaks the line on la-cantina", () => {
     }
   }
 
-  it("resolves the match: razes the idle player's core inside ten minutes", () => {
+  it("resolves the match: razes the idle player's core inside fifteen minutes", () => {
     // This assertion used to read `winner === -1` with the note "WHEN THIS STARTS
     // FAILING, THAT IS THE BALANCE PASS LANDING: move it back to asserting the win,
     // do not delete it." v20 is that landing, and the mechanism it names is worth
@@ -321,6 +321,17 @@ describe("a Warden vs an idle player: breaks the line on la-cantina", () => {
     // With WGOAL_SUPPRESS the match ends at 268 s on this seed, and on 5/5 seeds it
     // ends: 300 core hits against 24 before. Bounded as "resolves, and the Warden's
     // own core is untouched by an idle opponent" rather than on the exact tick.
+    //
+    // The window was ten minutes until la-cantina's build consoles were
+    // un-swapped: the Warden buys at the ground console, so its spawn point and
+    // road leg moved ~5 m and it now finishes at 699 s on 5/5 seeds instead of
+    // 268 s. Slower, same outcome.
+    //
+    // Worth knowing how narrow this is. Measured on the same scenario while the
+    // outpost placement was being investigated: with the two outposts deleted the
+    // Warden stalls outright (core 2950/3000 after ten minutes), and moving them
+    // six cells off their pads stalls it just as hard (2920/3000). This test
+    // passes because of where things sit, not only because of the suppress rung.
     expect(state.winner).toBe(1);
     expect(state.coreHp[0]).toBe(0);
     expect(state.coreHp[1]).toBe(3000);
@@ -443,11 +454,20 @@ describe("what an escort changes, per arena", () => {
   // The other three are seed-invariant here (both avatars idle, so the only PRNG
   // draw in play is the harass coin flip). One seed is not a measurement on
   // urban-jungle; it is on the rest.
+  // Re-measured after the build consoles were un-swapped on la-cantina and
+  // bug-hunt (enrichArena's consoleRole reads the console's icon instead of
+  // guessing from trigger footprints). The ground console — and with it the
+  // spawn point and the road leg produced units take — moved ~5 m on both:
+  // la-cantina 23 → 123, bug-hunt 32 → 6. urban-jungle and proving-ground are
+  // untouched by that fix and hold their numbers exactly, which is the control.
+  // bug-hunt going down is real and is not papered over; what the assertions
+  // below still pin is the invariant — the push arrives and the core takes
+  // damage — not the magnitude.
   for (const [id, hits] of [
-    [LA_CANTINA_ID, 23],
+    [LA_CANTINA_ID, 123],
     [URBAN_JUNGLE_ID, 1],
     [PROVING_GROUND_ID, 114],
-    [BUG_HUNT_ID, 32],
+    [BUG_HUNT_ID, 6],
   ] as const) {
     it(`${id}: an escorted push reaches the core and damages it`, () => {
       const r = push(id, true);

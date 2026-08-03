@@ -9,6 +9,12 @@ Pad detection:
     courtyard flat — that was leaving sockels off-centre on large -1.5 plates
   - Discrete inradius centre of that island
 
+OUT_JSON is a run artifact and is deliberately NOT committed. The copy that used
+to sit in the tree predated the phase-12 frame fix: every coordinate in it was
+one Til (16 cells) west of the map it claimed to verify, and every entry still
+read "note: ok". A stale pass is worse than no file — re-run this to get a
+current one.
+
 Run:
   blender --background --factory-startup --python tools/generators/verifyLaCantinaPadsInBlender.py
   APPLY=1 blender --background --factory-startup --python tools/generators/verifyLaCantinaPadsInBlender.py

@@ -12,14 +12,26 @@ A modern, readable camera for a Precinct-Assault successor. The reference is the
 **vertical view change** of *Future Cop: L.A.P.D.* (there a `SELECT` cycle over
 fixed presets: standard → close-up → side → sky).
 
-Design translation:
-- **Keep:** the *idea* of a continuum from "tactically high up" (Precinct-Assault
-  overview) to "up close" (action). That is the actual DNA.
-- **Discard:** discrete preset steps and the movement-coupled "drunken camera"
-  that automatically swings behind the player. That was the PS1 compromise and
-  the main weakness.
-- **New:** a **stepless pitch-and-zoom rig** with a single control parameter,
-  damping-smoothed, with a fixed world orientation as the default.
+Design translation (**revised** — see the note below):
+- **Keep:** one fixed chase framing behind the X1, at a constant elevation. That
+  IS the Precinct Assault camera, and it is what makes the arena legible at a
+  glance: the same angle every time you look up.
+- **Keep:** the camera sitting behind the machine and turning with it. Steering
+  and looking are the same act in the original, and separating them turned out
+  to cost more than it bought.
+- **Discard:** the `SELECT` cycle over discrete presets. One angle, not four.
+- **Discard:** player-controlled zoom and elevation. There is nothing to tune
+  per moment; the framing is authored once.
+
+> **Revision note.** Until this rewrite the section above said the opposite: it
+> called the movement-coupled camera "the PS1 compromise and the main weakness"
+> and specified a *stepless pitch-and-zoom rig* with world-fixed yaw. That rig
+> shipped and worked. It was reversed by an explicit owner decision in favour of
+> the original's feel, not because it failed. The rig's plumbing is still in
+> `render/camera.ts` — the `t` continuum, the damping, the free-look gate — with
+> both view anchors collapsed onto one, so restoring the old behaviour is a data
+> change rather than a rewrite. Kept as history because "why is `t` still here"
+> is otherwise a fair question.
 
 ---
 
@@ -60,11 +72,11 @@ Derivable parameters:
 | Parameter | Meaning |
 | --- | --- |
 | `focus: Vec3` | Target point on the ground (interpolated unit position + `focusHeight`) |
-| `t: number ∈ [0,1]` | **View continuum**: `0` = ACTION (low, near), `1` = TACTICAL (high, far) |
-| `pitch` | interpolated from `t` (elevation above horizon) |
-| `distance` | interpolated from `t` (dolly) |
-| `fov` | interpolated from `t` |
-| `yaw` | azimuth; **default world-fixed (north-up)**, optionally manual |
+| `t: number ∈ [0,1]` | View continuum. **Inert**: both anchors carry the same values, so nothing it feeds can move |
+| `pitch` | **fixed** (26° above the horizon) |
+| `distance` | **fixed** (15 m dolly) |
+| `fov` | **fixed** (58°) |
+| `yaw` | azimuth; **follows the steered heading** (`CameraInput.yawAbsolute`) |
 | `lookAhead: Vec3` | focus offset toward movement/aim |
 
 `t` is the player's only "view" control — the stepless replacement for the
@@ -72,11 +84,15 @@ Derivable parameters:
 easing (one control, coherent framing).
 
 ### Yaw policy
-- **Default: world-fixed** (map always oriented the same way, MOBA-typical).
-  Solves the FC aim/facing problem: the camera does **not** automatically rotate
-  behind the movement.
-- **Optional: manual rotation** (key press/drag). Never automatically coupled to
-  movement.
+- **Default: locked behind the avatar.** The mouse's X axis steers the hull and
+  the camera as one thing (`input.spec` §4.1); the rig takes that heading
+  absolutely via `CameraInput.yawAbsolute` rather than integrating a delta, so
+  the two cannot drift apart.
+- Damping runs through the **shortest arc**. Yaw wraps at ±π and lerping the raw
+  numbers spins the camera the long way round every time the player crosses the
+  seam.
+- `yawDelta` still integrates when no absolute heading is supplied. That is the
+  path a rotate key would use; nothing binds one today.
 
 ---
 
@@ -118,9 +134,12 @@ frame). It does not drive any unit movement itself.
 
 - **Movement = camera-relative:** movement input is translated against the camera
   `yaw` into a world direction (screen-relative "up = away from the camera").
-- **Aim = independent:** targeting via mouse raycast onto the ground plane (or the
-  right stick). **Aim is decoupled from facing/camera** — the central
-  modernization vs. FC.
+- **Aim = facing.** The gun points where the hull points, and the mouse's X axis
+  turns both. This is the original's model and it replaces the ground-plane
+  raycast (`input.spec` §4.1). Mouse Y is read and discarded — there is no pitch
+  channel for it in the camera or in the sim.
+- The gamepad keeps its right stick (`input.spec` §4.2): two sticks are not the
+  thing that was reverted here, free *pitch* is.
 - Boundary: camera → provides `yaw`/basis. Aim & movement → belong to input+sim,
   not to this spec.
 
@@ -192,7 +211,10 @@ The rig output (camera position/rotation) is computed deterministically from
 
 | Field | Value | Note |
 | --- | --- | --- |
-| `action.pitchDeg` | 30 | low action angle |
+| `CHASE.pitchDeg` | 26 | the one angle; low enough to sit behind the machine, high enough to read the road |
+| `CHASE.distance` | 15 | dolly |
+| `CHASE.fovDeg` | 58 | |
+| `action.pitchDeg` | 30 | *superseded — both anchors are now `CHASE`* |
 | `action.distance` | 14 | near |
 | `action.fovDeg` | 55 | |
 | `tactical.pitchDeg` | 62 | high overview, not quite top-down (readability) |
@@ -226,7 +248,10 @@ geometry can occlude the unit:
 
 - No scripted/cinematic camera.
 - No first-person/cockpit view.
-- **No** automatic yaw swing behind the movement (deliberately against FC).
+- ~~**No** automatic yaw swing behind the movement (deliberately against FC).~~
+  **Reversed:** the camera now follows the steered heading. See §1's revision note.
+- No player-controlled zoom or elevation.
+- No vertical mouse look.
 - No split-screen (net title over the DO relay → one camera per client).
 
 ---

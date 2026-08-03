@@ -241,13 +241,29 @@ for a reason that is not the frame (`packages/sim/test/layeredArenas.test.ts`).
   RE dumps (needs `--re-repo`, so it is a report and not CI). What CI pins is the
   distribution it measures, in `tools/generators/test/fcopLogic.test.ts`.
 - Raw inspection: `tools/audio/{dump_chunks,body,hexat,rawgrep}.mjs`.
-- `Cfun` (mission scripting bytecode) is **not** decoded — 7-bit var-length
-  encoding, deferred. **Single-player only; out of scope for Metropolis MP.**
+- `Cfun` (mission scripting bytecode) — the instruction stream now **reads**
+  (`tools/gfx/cfun_disasm.py`, 431 of 439 code blocks close cleanly), the opcode
+  vocabulary does not. Two opcodes have a meaning, one of them from FC:MIT.
+  This line used to read "**Single-player only; out of scope for Metropolis
+  MP**", which was **wrong in both halves and is why nobody looked**: every PA
+  arena carries 57–59 script functions against 1–19 per campaign mission, and
+  six arenas share four byte-identical scripts. It is overwhelmingly an MP
+  structure. Findings, each with method and counter-argument:
+  `extracted/handoff/cfun_decode.md` in the RE repo; the plan that produced them
+  and its own retractions: `cfun-decode-plan.md`.
+- **Where the capture rule is not.** The one `MapObjectiveNodeGroup` (35) id per
+  arena (263/264) never appears as an operand anywhere in the six arenas'
+  bytecode. So whatever governs a pad changing hands is not a reference to that
+  actor, and `rules.md` §9's capture rule stays ours by necessity, not by
+  choice.
 
 ## 8. Multiplayer focus (Precinct Assault)
 
 Metropolis ships the 6 MP arenas **Conft, Slim, Mp, Joke, Hk, Ovmp**. Everything
-below is scoped to those; campaign missions and the `Cfun` mission VM are ignored.
+below is scoped to those; campaign missions are ignored. The `Cfun` mission VM
+is **not** ignored any more — see §7's entry: it turned out to be an MP
+structure, and reading it is what established that the capture rule is not in
+there.
 
 ### 8.1 The team production base (`act_type = 28`, "TeamBase?")
 

@@ -105,6 +105,8 @@ import {
   EV_SHOT,
   type EventBuffer,
   pushEvent,
+  reachToShotPayload,
+  SHOT_SLOT_HITSCAN,
 } from "./events";
 import { fnv1aBytes, fnv1aInit, fnv1aU32 } from "./hash";
 import {
@@ -1347,7 +1349,13 @@ function systemTargeting(state: SimState): void {
       }
       if (onTarget && ent.cooldownA[id] <= 0) {
         ent.cooldownA[id] = w ? w.delay : TURRET_COOLDOWN_TICKS;
-        pushEvent(state.events, EV_SHOT, id, 0, 0);
+        pushEvent(
+          state.events,
+          EV_SHOT,
+          id,
+          SHOT_SLOT_HITSCAN,
+          reachToShotPayload(w ? w.range : TURRET_RANGE),
+        );
         // ownerId is the owning player for base turrets (kill credit) and
         // -1 for dummies (no credit) — exactly the Phase 1 rule.
         applyDamage(state, target, w ? w.damage : TURRET_DAMAGE, ent.ownerId[id]);
@@ -1359,7 +1367,13 @@ function systemTargeting(state: SimState): void {
       ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
       if (ent.cooldownA[id] <= 0) {
         ent.cooldownA[id] = UNIT_FIRE_COOLDOWN_TICKS[archetype];
-        pushEvent(state.events, EV_SHOT, id, 0, 0);
+        pushEvent(
+          state.events,
+          EV_SHOT,
+          id,
+          SHOT_SLOT_HITSCAN,
+          reachToShotPayload(UNIT_RANGE[archetype]),
+        );
         applyDamage(state, target, UNIT_DAMAGE[archetype], ent.ownerId[id]);
       }
     }

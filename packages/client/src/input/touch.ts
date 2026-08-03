@@ -27,7 +27,7 @@ import {
   TOUCH_BUTTONS,
   TOUCH_STICK_RADIUS_PX,
 } from "./touchMapping";
-import type { LocalInputSource, Viewport } from "./types";
+import type { LocalInputSource } from "./types";
 
 /**
  * ?touch=1 forces touch controls on, ?touch=0 forces them off; otherwise
@@ -188,8 +188,7 @@ export class TouchInput implements LocalInputSource {
     camera: THREE.Camera,
     avatarX: number,
     avatarY: number,
-    _avatarHeight: number,
-    _viewport: Viewport,
+    _lookYaw: number,
     enemies: Float32Array,
     enemyCount: number,
   ): void {

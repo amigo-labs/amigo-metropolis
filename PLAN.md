@@ -165,7 +165,12 @@ all units are FCOP extractions from the `Mp` container (X1-Alpha walker + hover
 assemblies from `extract_x1.py`, Hovertank, Flyer, heavy gunship, Sky Captain
 jet + gunship form, neutral turret, outpost flag console; raws under
 `tools/generators/units/raw/fcop/`, provenance in CREDITS.md). Stage B ships
-rigid rest poses; Stage C can reintroduce the X1's animation clips. `bun run gen:units`
+rigid rest poses; Stage C can reintroduce the X1's animation clips. The walking
+avatar is the one exception: `render/avatarRig.ts` recovers its parts by
+labelling connected components in the shipped glb (the largest island is exactly
+the original's 648-vertex legs mesh) and swings the hips from distance
+travelled — client-only, no asset change. Knee bend still wants the generator to
+emit joints, which waits on `gen:units` becoming byte-reproducible. `bun run gen:units`
 (`tools/generators/genUnitModels.ts` + manifest) processes raws into one
 spec-conformant glb per archetype under `public/models/units/` (texture pages
 packed into one atlas, team units desaturated so the whole-unit instanceColor
@@ -305,9 +310,15 @@ instead of a hand-authored approximation, and adopt the original rule set for it
 - [x] Map schema for the PA features, every field optional so the other arenas
       and the goldens are untouched
 - [x] Regenerate the arena (`tools/generators/enrichArena.ts`): authentic spawns,
-      bases, 32 capture pads, 16+16 ring turrets, built-in base defence, pickups,
+      bases, 32 capture pads, 8+8 ring turrets, built-in base defence, pickups,
       intrusion volumes, props and both lane graphs — one Til east of where the
-      old features sat
+      old features sat.
+      (This line read "16+16 ring turrets" until it was re-measured against the
+      committed logic. Mp carries 16 `Turret` actors per team, but 8 of each
+      team's stand on the shared mid-field plates at x 94.5 and x 129.5 — the
+      plates the other team also lists and that carry the `NeutralTurret`s. Those
+      are the capturable pads, not permanent guns, so 8+8 is what the original's
+      data supports. The number was wrong here, not in the importer.)
 - [x] PA mechanics in the sim (SIM_VERSION 13): per-turret weapon profiles with
       slew + FOV, `Cnet` graph traversal via committed next-hop signposts, base
       production, base-destruction win, pickups, intrusion alerts. Gated on map

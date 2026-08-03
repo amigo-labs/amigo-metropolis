@@ -114,6 +114,71 @@ export const SPECIAL_SPEED = 12;
 export const SPECIAL_TTL_TICKS = 90;
 export const SPECIAL_AOE_RADIUS = 4;
 
+// --- Non-default catalog weapons (weapons.ts) --------------------------------
+//
+// The three constants blocks above are the DEFAULT kit, index 0 in each slot.
+// These are the alternative picks. They used to be inlined in weapons.ts, which
+// the repo's own rule forbids; they moved here when their values were re-derived
+// from the original.
+//
+// Seven of the nine weapons Metropolis carries also exist in Future Cop, and
+// those seven now take the original's damage and cadence. The source is the
+// game's own front-end panels (`febmp.bin` → one 134x40 panel per weapon, two
+// bars, 55 px trough, bar length = value) plus the 15 `{weapon_id, name}` records
+// in the executable. Measured independently of the RE handoff by counting the
+// green (firing rate) and red (damage) pixel runs; all 15 panels reproduce it.
+//
+// The bars are RATIOS, not absolutes, so each slot's default weapon is the
+// anchor and the others scale against it WITHIN that slot:
+//
+//   damage   = anchorDamage   * bar_dmg  / anchorBar_dmg
+//   cooldown = anchorCooldown * anchorBar_rate / bar_rate      (rate is 1/cooldown)
+//
+// Anchoring across slots does not work and was tried: on a global Mini-Gun
+// anchor, Hell Fire's cooldown comes out at 7 ticks instead of 24. Within a slot
+// the ratios land almost exactly on the numbers this game already had, which is
+// the reassuring part — only the gun slot really moves.
+//
+//   Gatling Laser   55/55 rate, 3/55 dmg  → 8 dmg, 5 tick   (was 12, 6)
+//   Flamethrower    55/55 rate, 9/55 dmg  → 24 dmg, 5 tick  (was 14, 3)
+//   Concussion Beam 21/55 rate, 19/55 dmg → 127 dmg, 48 tick (was 110, 48)
+//   Mortar Launcher 28/55 rate, 19/55 dmg → 119 dmg, 60 tick (was 120, 72)
+//
+// Declared deviation: the original's bars do NOT distinguish Mini-Gun from
+// Laser — both read 55/55 and 3/55. Taken literally that makes two of the five
+// gun picks identical, which is worse play, so the range difference (40 vs 44)
+// stays as ours. See rules.md §2.
+export const GUN_LASER_DAMAGE = 8;
+export const GUN_LASER_COOLDOWN_TICKS = 5;
+export const GUN_LASER_RANGE = 44; // ours — the bars cannot tell it from the Mini-Gun
+export const GUN_FLAME_DAMAGE = 24;
+export const GUN_FLAME_COOLDOWN_TICKS = 5;
+export const GUN_FLAME_RANGE = 14; // ours — no range on either bar
+export const HEAVY_BEAM_DAMAGE = 127;
+export const HEAVY_BEAM_COOLDOWN_TICKS = 48;
+export const HEAVY_BEAM_RANGE = 50; // ours
+export const HEAVY_BEAM_AMMO = 6;
+export const SPECIAL_MORTAR_DAMAGE = 119;
+export const SPECIAL_MORTAR_COOLDOWN_TICKS = 60;
+export const SPECIAL_MORTAR_SPEED = 10;
+export const SPECIAL_MORTAR_TTL_TICKS = 110;
+export const SPECIAL_MORTAR_AOE_RADIUS = 8;
+export const SPECIAL_MORTAR_AMMO = 4;
+// Metropolis inventions — no counterpart in the original's 15, so nothing to
+// adopt. Kept, and declared as ours (rules.md §2).
+export const HEAVY_CLUSTER_DAMAGE = 45;
+export const HEAVY_CLUSTER_COOLDOWN_TICKS = 30;
+export const HEAVY_CLUSTER_SPEED = 18;
+export const HEAVY_CLUSTER_TTL_TICKS = 90;
+export const HEAVY_CLUSTER_AOE_RADIUS = 9;
+export const HEAVY_CLUSTER_AMMO = 14;
+export const HEAVY_RAIL_DAMAGE = 90;
+export const HEAVY_RAIL_COOLDOWN_TICKS = 28;
+export const HEAVY_RAIL_SPEED = 55;
+export const HEAVY_RAIL_TTL_TICKS = 40;
+export const HEAVY_RAIL_AOE_RADIUS = 1.5;
+export const HEAVY_RAIL_AMMO = 16;
+
 // Turrets (sandbox dummies AND base ring turrets share combat stats for now).
 export const TURRET_RANGE = 28;
 export const TURRET_DAMAGE = 15;

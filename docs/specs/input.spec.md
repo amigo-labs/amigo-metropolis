@@ -9,9 +9,16 @@
 
 ## 1. Goal
 
-An input model that (a) fixes the FC weaknesses — **aim decoupled from
-facing/camera**, real twin-stick instead of forced lock-on — and (b) fits cleanly
+An input model that follows the original's feel on mouse and keyboard —
+**mouse X steers the hull, the gun points where the hull points, there is no
+vertical look** — while keeping real twin-stick on a gamepad, and fits cleanly
 into the deterministic 30 Hz lockstep.
+
+> **Revision note.** This read "fixes the FC weaknesses — aim decoupled from
+> facing/camera" until an explicit owner decision reversed it. The decoupled
+> cursor-raycast aim shipped and worked; it was traded for the original's
+> coupling on purpose. The gamepad's twin-stick (§4.2) is unchanged — what was
+> reverted is free aim on the mouse, not two sticks.
 
 **Core principle:** raw input (mouse/keys/gamepad) is condensed **once per sim
 tick** into a **deterministic, quantized `PlayerInput`**. Only this frame is
@@ -80,15 +87,26 @@ shipped model is simpler and already correct:
 ## 4. Aim model
 
 ### 4.1 Mouse + keyboard (primary)
-- Ray from camera through cursor → intersection with the ground plane
-  (`y = groundHeight`) → world target point.
-- Aim = the unit→target direction on the ground plane, quantized to the int8
-  `aimX/aimY` vector. For a top-down-leaning shooter the ground-plane heading
-  suffices as the core.
+- **Mouse X steers.** Pointer-locked `movementX` accumulates into a heading
+  (`input/mouseLook.ts`), wrapped to `[-PI, PI)`. Sensitivity is a local
+  preference (§8) and is never synchronized.
+- **Mouse Y does nothing.** It is read off the event and discarded rather than
+  simply unused, so no later change can quietly route it into a pitch that
+  neither the camera nor the sim has.
+- Aim = that heading, `(cos yaw, sin yaw)`, quantized to the int8 `aimX/aimY`
+  vector. Same wire format as before; only where the vector comes from changed.
+- The camera is locked behind the same heading (`camera.spec` §3), so steering,
+  looking and aiming are one act.
 - The unit orients to the aim vector. **Drive is facing-aligned only** (no
   strafe): the move stick is a throttle projected onto the aim/lock heading,
   reverse allowed; pure sideways stick does not translate. Shipped
   (`systemAvatarMovement`, SIM_VERSION 19).
+
+**What the cursor raycast did, for the record.** It projected the cursor onto a
+horizontal plane at the avatar's height. When the ray ran near-parallel to that
+plane it bailed and kept the *previous* aim — at a shallow camera pitch that is
+most of the upper screen, so aim silently froze instead of reporting anything.
+The heading model has no such case.
 
 ### 4.2 Gamepad
 - **Right stick = aim direction directly** (twin-stick). Stick vector →

@@ -16,12 +16,11 @@ import {
   quantizeAxis,
 } from "@metropolis/sim";
 import type * as THREE from "three";
-import { Raycaster, Vector2, Vector3 } from "three";
 import { ASSIST_CONE_COS, ASSIST_STRENGTH, aimAssist, applyAimAssist } from "./aimAssist";
 import type { Vec2 } from "./gamepadMapping";
 import { cameraGroundForward, cameraRelativeMove } from "./movement";
 import { isTextEntryTarget } from "./textEntry";
-import type { LocalInputSource, Viewport } from "./types";
+import type { LocalInputSource } from "./types";
 
 const BUTTON_KEYS: readonly [string, number][] = [
   ["KeyQ", BUTTON_TRANSFORM],
@@ -35,20 +34,14 @@ const BUTTON_KEYS: readonly [string, number][] = [
 const MOUSE_BUTTON_BITS: readonly number[] = [BUTTON_FIRE1, BUTTON_FIRE3, BUTTON_FIRE2];
 
 // Module-scope scratch (sample runs inside the tick loop — no allocations).
-const ndc = new Vector2();
-const raycaster = new Raycaster();
-const planeNormal = new Vector3(0, 1, 0);
-const hit = new Vector3();
 const moveScratch: Vec2 = { x: 0, y: 0 };
 
 export class PlayerOneInput implements LocalInputSource {
   readonly label = "Keyboard / Mouse";
   readonly hint =
-    "WASD drive · mouse aim · LMB/RMB/MMB fire · Q transform · Space jump · hold E to buy/claim/capture";
+    "WASD drive · mouse steers left/right · LMB/RMB/MMB fire · Q transform · Space jump · hold E to buy/claim/capture";
   private readonly down = new Set<string>();
   private mouseButtons = 0;
-  private mouseX = 0;
-  private mouseY = 0;
   private aimX = 0;
   private aimY = 0;
   // Camera ground-forward (sim coords) used as the camera-relative move basis;
@@ -78,10 +71,6 @@ export class PlayerOneInput implements LocalInputSource {
       this.down.clear();
       this.mouseButtons = 0;
     });
-    target.addEventListener("mousemove", (e) => {
-      this.mouseX = e.clientX;
-      this.mouseY = e.clientY;
-    });
     target.addEventListener("mousedown", (e) => {
       this.mouseButtons |= 1 << e.button;
     });
@@ -97,22 +86,29 @@ export class PlayerOneInput implements LocalInputSource {
   }
 
   /**
-   * Projects the cursor onto the horizontal plane at the avatar's height and
-   * stores the world-space aim direction. NDC is taken relative to the player's
-   * viewport, so mouse aim stays correct for any viewport rect. Call once per
-   * tick before sample(). Allocation-free.
+   * Stores the world-space aim direction for this tick. Call once per tick
+   * before sample(). Allocation-free.
+   *
+   * Aim is the heading the mouse has steered to (input/mouseLook.ts), not a
+   * cursor projection — the original couples the gun to the hull and this
+   * follows it (input.spec §4.1). The cursor raycast this used to do had a
+   * failure mode worth remembering: it intersected a plane at the avatar's
+   * height, bailed when the ray was near-parallel to it, and then silently kept
+   * the previous aim. At a shallow camera pitch that is most of the upper
+   * screen, so aim froze rather than reporting anything.
    */
   updateAim(
     camera: THREE.Camera,
     avatarX: number,
     avatarY: number,
-    avatarHeight: number,
-    viewport: Viewport,
+    lookYaw: number,
     enemies: Float32Array,
     enemyCount: number,
   ): void {
-    // Movement basis = the camera's world-fixed ground-forward (camera.spec §5),
-    // independent of where the mouse aims below.
+    // Movement basis = the camera's ground-forward (camera.spec §5). With the
+    // chase camera locked behind the avatar this is the heading too, but it is
+    // still read from the camera so that whatever is on screen is what "forward"
+    // means — including during the menu→match blend, when the two differ.
     cameraGroundForward(camera, this.moveBasis);
     // Stash aim-assist context (own position + a copy of the enemy list) for
     // sample(); the caller's `enemies` scratch is reused across views.
@@ -120,25 +116,8 @@ export class PlayerOneInput implements LocalInputSource {
     this.selfY = avatarY;
     this.enemyCount = Math.min(enemyCount, MAX_ENTITIES);
     this.enemies.set(enemies.subarray(0, this.enemyCount * 2));
-    const vx = ((this.mouseX - viewport.left) / viewport.width) * 2 - 1;
-    const vy = -((this.mouseY - viewport.top) / viewport.height) * 2 + 1;
-    ndc.set(vx, vy);
-    raycaster.setFromCamera(ndc, camera);
-    // Intersect ray with plane y = avatarHeight (sim height axis = three y).
-    const dir = raycaster.ray.direction;
-    const denom = dir.dot(planeNormal);
-    if (Math.abs(denom) < 1e-6) return;
-    const t = (avatarHeight - raycaster.ray.origin.y) / dir.y;
-    if (t <= 0) return;
-    hit.copy(dir).multiplyScalar(t).add(raycaster.ray.origin);
-    // three (x, z) → sim (x, y)
-    const dx = hit.x - avatarX;
-    const dy = hit.z - avatarY;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len > 0.5) {
-      this.aimX = dx / len;
-      this.aimY = dy / len;
-    }
+    this.aimX = Math.cos(lookYaw);
+    this.aimY = Math.sin(lookYaw);
   }
 
   /** Writes the current input state, quantized, into `out`. Allocation-free. */
