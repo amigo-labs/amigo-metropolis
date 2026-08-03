@@ -2,13 +2,45 @@
 // Defaults (index 0 in each slot) reproduce the historic balance.ts numbers so
 // goldens and empty configs stay bit-identical. Non-default picks change combat
 // and therefore hashes — they only apply when the player selects them.
+//
+// The seven weapons this catalog shares with the original carry the original's
+// damage, cadence and display names, derived per slot from the front-end bars —
+// the arithmetic and the two declared deviations are documented at the
+// "Non-default catalog weapons" block in balance.ts, and every number here is a
+// named constant from there (no inline gameplay values).
+//
+// The original has 15 (five per slot) and this has 9. The eight it does not have
+// are not table entries but new mechanics — a deployable shield, a drone, mines,
+// a shockwave — and are tracked as issues rather than guessed at here.
 
 import {
   AVATAR_AMMO_HEAVY,
   AVATAR_AMMO_SPECIAL,
+  GUN_FLAME_COOLDOWN_TICKS,
+  GUN_FLAME_DAMAGE,
+  GUN_FLAME_RANGE,
+  GUN_LASER_COOLDOWN_TICKS,
+  GUN_LASER_DAMAGE,
+  GUN_LASER_RANGE,
   HEAVY_AOE_RADIUS,
+  HEAVY_BEAM_AMMO,
+  HEAVY_BEAM_COOLDOWN_TICKS,
+  HEAVY_BEAM_DAMAGE,
+  HEAVY_BEAM_RANGE,
+  HEAVY_CLUSTER_AMMO,
+  HEAVY_CLUSTER_AOE_RADIUS,
+  HEAVY_CLUSTER_COOLDOWN_TICKS,
+  HEAVY_CLUSTER_DAMAGE,
+  HEAVY_CLUSTER_SPEED,
+  HEAVY_CLUSTER_TTL_TICKS,
   HEAVY_COOLDOWN_TICKS,
   HEAVY_DAMAGE,
+  HEAVY_RAIL_AMMO,
+  HEAVY_RAIL_AOE_RADIUS,
+  HEAVY_RAIL_COOLDOWN_TICKS,
+  HEAVY_RAIL_DAMAGE,
+  HEAVY_RAIL_SPEED,
+  HEAVY_RAIL_TTL_TICKS,
   HEAVY_SPEED,
   HEAVY_TTL_TICKS,
   PRIMARY_COOLDOWN_TICKS,
@@ -17,6 +49,12 @@ import {
   SPECIAL_AOE_RADIUS,
   SPECIAL_COOLDOWN_TICKS,
   SPECIAL_DAMAGE,
+  SPECIAL_MORTAR_AMMO,
+  SPECIAL_MORTAR_AOE_RADIUS,
+  SPECIAL_MORTAR_COOLDOWN_TICKS,
+  SPECIAL_MORTAR_DAMAGE,
+  SPECIAL_MORTAR_SPEED,
+  SPECIAL_MORTAR_TTL_TICKS,
   SPECIAL_SPEED,
   SPECIAL_TTL_TICKS,
   WARDEN_HEAVY_AOE_RADIUS,
@@ -108,11 +146,13 @@ export const GUNS: readonly WeaponDef[] = [
     slot: 0,
     index: 1,
     name: "Gatling Laser",
-    blurb: "Coherent energy bolts. Harder hits, cyan tracers.",
+    // The original's bars put it level with the Mini-Gun on both axes, so what
+    // separates the two here is reach — a declared deviation (balance.ts).
+    blurb: "Coherent energy bolts. Same punch as the Mini-Gun, longer reach.",
     delivery: "hitscan",
-    damage: 12,
-    cooldownTicks: 6,
-    range: 44,
+    damage: GUN_LASER_DAMAGE,
+    cooldownTicks: GUN_LASER_COOLDOWN_TICKS,
+    range: GUN_LASER_RANGE,
     speed: 0,
     ttlTicks: 0,
     aoeRadius: 0,
@@ -124,12 +164,12 @@ export const GUNS: readonly WeaponDef[] = [
     id: 2,
     slot: 0,
     index: 2,
-    name: "Flame-Thrower",
+    name: "Flamethrower", // the original's front-end spelling
     blurb: "Short-range napalm stream. Melts close targets.",
     delivery: "hitscan",
-    damage: 14,
-    cooldownTicks: 3,
-    range: 14,
+    damage: GUN_FLAME_DAMAGE,
+    cooldownTicks: GUN_FLAME_COOLDOWN_TICKS,
+    range: GUN_FLAME_RANGE,
     speed: 0,
     ttlTicks: 0,
     aoeRadius: 0,
@@ -144,7 +184,7 @@ export const HEAVIES: readonly WeaponDef[] = [
     id: 3,
     slot: 1,
     index: 0,
-    name: "Hellfire Rockets",
+    name: "Hell Fire 2000", // the original's front-end name
     blurb: "Guided-feel rockets with a solid blast radius.",
     delivery: "projectile",
     damage: HEAVY_DAMAGE,
@@ -162,15 +202,15 @@ export const HEAVIES: readonly WeaponDef[] = [
     slot: 1,
     index: 1,
     name: "Cluster Bomb",
-    blurb: "Slow shell, wide fireball. Clears clusters of units.",
+    blurb: "Slow shell, wide fireball. Clears clusters of units. (Metropolis)",
     delivery: "projectile",
-    damage: 45,
-    cooldownTicks: 30,
+    damage: HEAVY_CLUSTER_DAMAGE,
+    cooldownTicks: HEAVY_CLUSTER_COOLDOWN_TICKS,
     range: 0,
-    speed: 18,
-    ttlTicks: 90,
-    aoeRadius: 9,
-    ammo: 14,
+    speed: HEAVY_CLUSTER_SPEED,
+    ttlTicks: HEAVY_CLUSTER_TTL_TICKS,
+    aoeRadius: HEAVY_CLUSTER_AOE_RADIUS,
+    ammo: HEAVY_CLUSTER_AMMO,
     projKind: PROJ_CLUSTER,
     vfx: "cluster",
   },
@@ -179,17 +219,43 @@ export const HEAVIES: readonly WeaponDef[] = [
     slot: 1,
     index: 2,
     name: "Rail Cannon",
-    blurb: "Hyper-velocity slug. Pinpoint, almost no splash.",
+    blurb: "Hyper-velocity slug. Pinpoint, almost no splash. (Metropolis)",
     delivery: "projectile",
-    damage: 90,
-    cooldownTicks: 28,
+    damage: HEAVY_RAIL_DAMAGE,
+    cooldownTicks: HEAVY_RAIL_COOLDOWN_TICKS,
     range: 0,
-    speed: 55,
-    ttlTicks: 40,
-    aoeRadius: 1.5,
-    ammo: 16,
+    speed: HEAVY_RAIL_SPEED,
+    ttlTicks: HEAVY_RAIL_TTL_TICKS,
+    aoeRadius: HEAVY_RAIL_AOE_RADIUS,
+    ammo: HEAVY_RAIL_AMMO,
     projKind: PROJ_RAIL,
     vfx: "rail",
+  },
+  {
+    // Moved here from the Special slot for fidelity: the original files it as a
+    // Heavy (`Beam Cannon`, id 0x12 — high nibble = slot). The id-to-name pairing
+    // inside the Heavy group was made by elimination, so WHICH heavy id it is is
+    // not certain; that it IS a heavy does not depend on the elimination, because
+    // both leftover ids were heavies. Appended rather than inserted so existing
+    // heavy loadout indices keep meaning.
+    //
+    // `id` stays 8 — catalog ids are stable and never renumbered, only the slot
+    // and index move.
+    id: 8,
+    slot: 1,
+    index: 3,
+    name: "Concussion Beam",
+    blurb: "Instant long-range beam. No projectile travel time.",
+    delivery: "hitscan",
+    damage: HEAVY_BEAM_DAMAGE,
+    cooldownTicks: HEAVY_BEAM_COOLDOWN_TICKS,
+    range: HEAVY_BEAM_RANGE,
+    speed: 0,
+    ttlTicks: 0,
+    aoeRadius: 0,
+    ammo: HEAVY_BEAM_AMMO,
+    projKind: 0,
+    vfx: "beam",
   },
 ];
 
@@ -215,36 +281,23 @@ export const SPECIALS: readonly WeaponDef[] = [
     id: 7,
     slot: 2,
     index: 1,
-    name: "Mortar",
+    name: "Mortar Launcher", // the original's front-end name
     blurb: "Arcing shell with a wide crater. Softens bases.",
     delivery: "projectile",
-    damage: 120,
-    cooldownTicks: 72,
+    damage: SPECIAL_MORTAR_DAMAGE,
+    cooldownTicks: SPECIAL_MORTAR_COOLDOWN_TICKS,
     range: 0,
-    speed: 10,
-    ttlTicks: 110,
-    aoeRadius: 8,
-    ammo: 4,
+    speed: SPECIAL_MORTAR_SPEED,
+    ttlTicks: SPECIAL_MORTAR_TTL_TICKS,
+    aoeRadius: SPECIAL_MORTAR_AOE_RADIUS,
+    ammo: SPECIAL_MORTAR_AMMO,
     projKind: PROJ_MORTAR,
     vfx: "mortar",
   },
-  {
-    id: 8,
-    slot: 2,
-    index: 2,
-    name: "Concussion Beam",
-    blurb: "Instant long-range beam. No projectile travel time.",
-    delivery: "hitscan",
-    damage: 110,
-    cooldownTicks: 48,
-    range: 50,
-    speed: 0,
-    ttlTicks: 0,
-    aoeRadius: 0,
-    ammo: 6,
-    projKind: 0,
-    vfx: "beam",
-  },
+  // Two entries, not three: the Concussion Beam moved to HEAVIES, where the
+  // original files it. The original's own Special slot has five (Mortar
+  // Launcher, Plasma Flare, Pop-Up Mines, Shockwave Generator, Grenade
+  // Launcher) — the three missing ones are new mechanics, tracked as issues.
 ];
 
 const BY_SLOT: readonly (readonly WeaponDef[])[] = [GUNS, HEAVIES, SPECIALS];
@@ -305,11 +358,11 @@ export function projectileBlast(kind: number): { damage: number; radius: number 
     case PROJ_WARDEN:
       return { damage: WARDEN_HEAVY_DAMAGE, radius: WARDEN_HEAVY_AOE_RADIUS };
     case PROJ_CLUSTER:
-      return { damage: 45, radius: 9 };
+      return { damage: HEAVY_CLUSTER_DAMAGE, radius: HEAVY_CLUSTER_AOE_RADIUS };
     case PROJ_RAIL:
-      return { damage: 90, radius: 1.5 };
+      return { damage: HEAVY_RAIL_DAMAGE, radius: HEAVY_RAIL_AOE_RADIUS };
     case PROJ_MORTAR:
-      return { damage: 120, radius: 8 };
+      return { damage: SPECIAL_MORTAR_DAMAGE, radius: SPECIAL_MORTAR_AOE_RADIUS };
     default:
       return { damage: HEAVY_DAMAGE, radius: HEAVY_AOE_RADIUS };
   }

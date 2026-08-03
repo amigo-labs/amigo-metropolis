@@ -2,11 +2,14 @@ import { describe, expect, test } from "bun:test";
 import {
   AVATAR_AMMO_HEAVY,
   AVATAR_AMMO_SPECIAL,
+  HEAVY_COOLDOWN_TICKS,
   HEAVY_DAMAGE,
+  PRIMARY_COOLDOWN_TICKS,
   PRIMARY_DAMAGE,
+  SPECIAL_COOLDOWN_TICKS,
   SPECIAL_DAMAGE,
 } from "../src/balance";
-import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_FIRE3, createTickInputs } from "../src/inputs";
+import { BUTTON_FIRE1, BUTTON_FIRE2, createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
 import { createSim, step } from "../src/sim";
 import {
@@ -45,6 +48,85 @@ describe("weapon catalog", () => {
       expect(weaponById(w.id)?.name).toBe(w.name);
     }
   });
+
+  test("slot and index fields agree with each list's position", () => {
+    // The Concussion Beam moved slot; a stale `slot`/`index` field would make
+    // weaponInSlot and the menu disagree about what the player picked.
+    for (const [slot, list] of [GUNS, HEAVIES, SPECIALS].entries()) {
+      for (const [index, w] of list.entries()) {
+        expect(w.slot as number).toBe(slot);
+        expect(w.index).toBe(index);
+      }
+    }
+  });
+});
+
+/**
+ * The seven weapons Metropolis shares with Future Cop, pinned against the
+ * original's own front-end bars.
+ *
+ * Bars are 1/55, so they give ratios: each slot's index-0 weapon is the anchor,
+ * `damage = anchorDamage * bar / anchorBar` and
+ * `cooldown = anchorCooldown * anchorRate / rate`. Recomputed here from the raw
+ * bar readings rather than restating balance.ts's results, so a hand-edit to
+ * either side has to be justified.
+ */
+describe("original weapon table (rules.md §2)", () => {
+  // panel, firing-rate bar, damage bar — measured off extracted/frontend/*.png.
+  const BARS = {
+    "Powered Mini-Gun": { rate: 55, dmg: 3 },
+    "Gatling Laser": { rate: 55, dmg: 3 },
+    Flamethrower: { rate: 55, dmg: 9 },
+    "Hell Fire 2000": { rate: 42, dmg: 9 },
+    "Concussion Beam": { rate: 21, dmg: 19 },
+    "Mortar Launcher": { rate: 28, dmg: 19 },
+    "Plasma Flare": { rate: 28, dmg: 24 },
+  } as const;
+
+  const ANCHOR = ["Powered Mini-Gun", "Hell Fire 2000", "Plasma Flare"] as const;
+
+  test("each slot's anchor is the default pick, unchanged", () => {
+    // This is why no golden moved: the anchors ARE the historic numbers, so the
+    // default loadout comes out bit-identical.
+    for (const [slot, list] of [GUNS, HEAVIES, SPECIALS].entries()) {
+      expect(list[0].name).toBe(ANCHOR[slot]);
+    }
+    expect(GUNS[0].damage).toBe(PRIMARY_DAMAGE);
+    expect(GUNS[0].cooldownTicks).toBe(PRIMARY_COOLDOWN_TICKS);
+    expect(HEAVIES[0].damage).toBe(HEAVY_DAMAGE);
+    expect(HEAVIES[0].cooldownTicks).toBe(HEAVY_COOLDOWN_TICKS);
+    expect(SPECIALS[0].damage).toBe(SPECIAL_DAMAGE);
+    expect(SPECIALS[0].cooldownTicks).toBe(SPECIAL_COOLDOWN_TICKS);
+  });
+
+  test("every shared weapon sits at its slot-anchored ratio", () => {
+    for (const [slot, list] of [GUNS, HEAVIES, SPECIALS].entries()) {
+      const anchorBars = BARS[ANCHOR[slot]];
+      for (const w of list) {
+        const bars = BARS[w.name as keyof typeof BARS];
+        if (!bars) continue; // Cluster Bomb / Rail Cannon — ours, nothing to match
+        expect(w.damage).toBe(Math.round((list[0].damage * bars.dmg) / anchorBars.dmg));
+        expect(w.cooldownTicks).toBe(
+          Math.round((list[0].cooldownTicks * anchorBars.rate) / bars.rate),
+        );
+      }
+    }
+  });
+
+  test("the Concussion Beam is a Heavy, as in the original", () => {
+    expect(HEAVIES.some((w) => w.name === "Concussion Beam")).toBe(true);
+    expect(SPECIALS.some((w) => w.name === "Concussion Beam")).toBe(false);
+  });
+
+  test("the declared deviation is the Mini-Gun/Laser range, and only that", () => {
+    // The bars cannot tell the two apart (both 55/55 and 3/55). Adopting that
+    // literally would ship two identical picks, so reach separates them —
+    // deliberately, and nothing else about them differs.
+    const [mini, laser] = GUNS;
+    expect(laser.damage).toBe(mini.damage);
+    expect(laser.cooldownTicks).toBe(mini.cooldownTicks);
+    expect(laser.range).toBeGreaterThan(mini.range);
+  });
 });
 
 describe("loadout combat", () => {
@@ -81,17 +163,21 @@ describe("loadout combat", () => {
     expect(found).toBe(true);
   });
 
-  test("concussion beam (special hitscan) spends special ammo", () => {
+  test("concussion beam (heavy hitscan) spends heavy ammo", () => {
+    // It sat in the Special slot until the original's table said otherwise
+    // (`Beam Cannon`, id 0x12 — a Heavy). Moving it changes which button fires it
+    // and which ammo pool it draws from, which is what this pins.
     const map = getMapById("test-128");
-    const sim = createSim(map, 3, { loadouts: [{ gun: 0, heavy: 0, special: 2 }] });
+    const sim = createSim(map, 3, { loadouts: [{ gun: 0, heavy: 3, special: 0 }] });
     const id = sim.avatarId[0];
-    const before = sim.ent.ammoB[id];
-    expect(before).toBe(SPECIALS[2].ammo);
+    const before = sim.ent.ammoA[id];
+    expect(HEAVIES[3].name).toBe("Concussion Beam");
+    expect(before).toBe(HEAVIES[3].ammo);
     const inputs = createTickInputs();
     inputs.players[0].aimX = 127;
-    inputs.players[0].buttons = BUTTON_FIRE3;
+    inputs.players[0].buttons = BUTTON_FIRE2;
     step(sim, inputs);
-    expect(sim.ent.ammoB[id]).toBe(before - 1);
+    expect(sim.ent.ammoA[id]).toBe(before - 1);
   });
 
   test("rail cannon heavy spends heavy ammo", () => {

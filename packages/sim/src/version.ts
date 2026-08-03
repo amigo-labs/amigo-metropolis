@@ -307,4 +307,35 @@
 //     where the rung sits inside `hasCore(enemy)` and is unreachable, and
 //     golden-05-fcop is urban-jungle with no Warden at all. Goldens 01-06 re-header
 //     only, byte-identical hash arrays.
-export const SIM_VERSION = 20;
+// v21: the avatar's weapon catalog adopts the original's numbers (rules.md §2).
+//     Seven of the nine weapons exist in Future Cop, and their damage and cadence
+//     now come from the game's own front-end panels — one 134x40 bitmap per
+//     weapon in `febmp.bin`, a firing-rate bar and a damage bar in a 55 px
+//     trough, bar length = value. Read independently of the RE handoff by
+//     counting green and red pixel runs; all 15 panels reproduce its table, and
+//     the five Special-slot panels are 134x39, which is why a naive size filter
+//     finds only ten.
+//     Anchored PER SLOT, because the bars are ratios: each slot's index-0 weapon
+//     keeps its existing numbers and the rest scale against it inside that slot.
+//     A global anchor was tried and rejected — it puts Hell Fire's cooldown at 7
+//     ticks instead of 24. Within a slot the ratios land on what this game
+//     already had, so only the gun slot really moves: Gatling Laser 12/6 -> 8/5,
+//     Flamethrower 14/3 -> 24/5, Concussion Beam 110 -> 127 damage, Mortar
+//     Launcher 72 -> 60 tick cooldown and 120 -> 119 damage.
+//     NO GOLDEN'S HASH SEQUENCE MOVES, and that is a consequence of the anchors
+//     rather than luck: the anchors are the historic PRIMARY_/HEAVY_/SPECIAL_
+//     constants, loadouts never enter a replay file or the wire, and every golden
+//     runs the default kit. All seven re-header only — byte-identical hash arrays,
+//     goldenNoop.test.ts unchanged.
+//     What DOES force the bump is the Concussion Beam moving from the Special
+//     slot to the Heavy slot, where the original files it (`Beam Cannon`, id
+//     0x12; the high nibble is the slot). Loadout indices are positional, so the
+//     same index means a different weapon across this bump — `special: 2` used to
+//     be the beam and now clamps to the Mortar Launcher, `heavy: 3` used to clamp
+//     to the Rail Cannon and is now the beam. Two peers on opposite sides of the
+//     bump, given a non-default kit, would run different weapons off identical
+//     inputs. That is exactly the desync the DO's version gate exists to refuse.
+//     (Separate finding, not fixed here: loadouts are client-local URL params and
+//     travel in neither the replay header nor the online handshake, so two peers
+//     with DIFFERENT kits desync within one version too. That is its own issue.)
+export const SIM_VERSION = 21;
