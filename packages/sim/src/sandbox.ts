@@ -54,8 +54,23 @@ export interface SandboxSpawnable {
   readonly archetype: number;
   /** EntityStore.mode for the spawned entity (turret kind / avatar mode). */
   readonly mode: number;
-  /** False for entities that are always neutral (dummy turret). */
+  /** False for entities that are always neutral (dummy turret, capturable pad). */
   readonly teamable: boolean;
+  /**
+   * True when the entity only behaves as advertised with a real owner, so a
+   * neutral request is pulled onto team 0 rather than honoured.
+   *
+   * This exists because systemTargeting picks a turret's target from its OWNER,
+   * not its mode (sim.ts): `ownerId < 0` takes the nearestEnemyAvatar branch, so
+   * a neutral TURRET_DEFENSE quietly engages avatars only — a dummy wearing a
+   * defense turret's label. Units need an owner for the same class of reason:
+   * the targeting system cannot classify a team-less unit.
+   *
+   * False where neutral is a meaningful state in its own right: an unclaimed
+   * outpost console IS neutral, and a team-less avatar or Warden is a legitimate
+   * inert target for an animation test.
+   */
+  readonly requiresOwner: boolean;
   /** True for RUNNER..FORTRESS, which route through spawnUnit and take a unit mode. */
   readonly isUnit: boolean;
   /** Short note shown in the panel; documents the caveats above where they bite. */
@@ -73,6 +88,7 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.RUNNER,
     mode: UNIT_MODE_PATROL,
     teamable: true,
+    requiresOwner: true,
     isUnit: true,
     note: "Ground unit. Joins the nearest lane node and walks it.",
   },
@@ -82,6 +98,7 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.GUARDIAN,
     mode: UNIT_MODE_PATROL,
     teamable: true,
+    requiresOwner: true,
     isUnit: true,
     note: "Air unit. Orbits, then assaults in ASSAULT mode.",
   },
@@ -91,6 +108,7 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.JUGGERNAUT,
     mode: UNIT_MODE_PATROL,
     teamable: true,
+    requiresOwner: true,
     isUnit: true,
     note: "Heavy ground unit — the slowest walk cycle.",
   },
@@ -100,6 +118,7 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.FORTRESS,
     mode: UNIT_MODE_PATROL,
     teamable: true,
+    requiresOwner: true,
     isUnit: true,
     note: "Heavy air unit.",
   },
@@ -109,8 +128,9 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.TURRET,
     mode: TURRET_DEFENSE,
     teamable: true,
+    requiresOwner: true,
     isUnit: false,
-    note: "Team-owned, full targeting. Best for watching gun slew and firing.",
+    note: "Full targeting — needs an owner, so a neutral pick lands on team 0.",
   },
   {
     key: "turret-dummy",
@@ -118,6 +138,7 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.TURRET,
     mode: TURRET_DUMMY,
     teamable: false,
+    requiresOwner: false,
     isUnit: false,
     note: "Neutral target practice — engages avatars only, never units.",
   },
@@ -127,6 +148,7 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.TURRET,
     mode: TURRET_CAPTURABLE,
     teamable: false,
+    requiresOwner: false,
     isUnit: false,
     note: "Dormant mesh only: capture runs off map turret spots, not entities.",
   },
@@ -136,8 +158,9 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.CONSOLE,
     mode: 0,
     teamable: true,
+    requiresOwner: false,
     isUnit: false,
-    note: "Mesh + hitbox. Claiming runs off map outpost spots, not entities.",
+    note: "Mesh + hitbox; neutral is fine. Claiming runs off map outpost spots.",
   },
   {
     key: "warden",
@@ -145,6 +168,7 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.WARDEN,
     mode: MODE_WALKER,
     teamable: true,
+    requiresOwner: false,
     isUnit: false,
     note: "Placed at cruise altitude. Only the AI-driven slot gets a brain.",
   },
@@ -154,6 +178,7 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.AVATAR,
     mode: MODE_WALKER,
     teamable: true,
+    requiresOwner: false,
     isUnit: false,
     note: "A second mech as a target. Inert unless it is a player's own avatar.",
   },
@@ -163,6 +188,7 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     archetype: ARCHETYPE.AVATAR,
     mode: MODE_HOVER,
     teamable: true,
+    requiresOwner: false,
     isUnit: false,
     note: "Same, in hover form.",
   },
@@ -200,12 +226,15 @@ export function spawnSandbox(
 ): number {
   const def = BY_KEY.get(key);
   if (def === undefined) return -1;
-  const t = def.teamable ? clampTeam(team) : TEAM_NEUTRAL;
+  // Three cases, one expression: always-neutral entries ignore the request, the
+  // ones that need an owner pull a neutral request onto team 0, and the rest get
+  // what was asked for. `requiresOwner` covers the units AND the defense turret
+  // — see its doc comment for why a neutral one is a dummy in disguise.
+  const requested = def.teamable ? clampTeam(team) : TEAM_NEUTRAL;
+  const t = def.requiresOwner && requested < 0 ? 0 : requested;
 
   if (def.isUnit) {
-    // Units are always owned; a neutral request degrades to team 0 rather than
-    // producing an entity the targeting system cannot classify.
-    return spawnUnit(state, def.archetype, t < 0 ? 0 : t, x, y, unitMode, true);
+    return spawnUnit(state, def.archetype, t, x, y, unitMode, true);
   }
 
   const ent = state.ent;
@@ -362,14 +391,20 @@ function maxHpFor(archetype: number): number {
   return ARCHETYPE_MAX_HP[archetype];
 }
 
+// floor, not trunc. Not a determinism point — Math.trunc is IEEE-exact and
+// spec-pinned like floor — but trunc(-0.5) is -0, and `-0 < 0` is false, so a
+// fractional negative team slid past the neutral check below and became team 0.
+// floor(-0.5) is -1, which is what "negative means neutral" is supposed to do.
+// It also keeps this file on the same helper as the other 37 floor sites in the
+// sim, and inside CLAUDE.md rule 2's written allowlist.
 function clampTeam(team: number): number {
   if (!Number.isFinite(team)) return 0;
-  const t = Math.trunc(team);
+  const t = Math.floor(team);
   if (t < 0) return TEAM_NEUTRAL;
   return Math.min(t, MAX_PLAYERS - 1);
 }
 
 function clampPlayer(player: number): number {
   if (!Number.isFinite(player)) return 0;
-  return Math.min(Math.max(Math.trunc(player), 0), MAX_PLAYERS - 1);
+  return Math.min(Math.max(Math.floor(player), 0), MAX_PLAYERS - 1);
 }

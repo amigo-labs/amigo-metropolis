@@ -131,6 +131,9 @@ export function createSandboxPanel(deps: SandboxPanelDeps): SandboxPanel {
 
   const teamRow = el("div", "sbx-row");
   const teamSelect = el("select", "sbx-select");
+  // Kept as a handle: for entries that need an owner only THIS option is
+  // disabled, so team 0/1 stay pickable (see refresh()).
+  let neutralOption: HTMLOptionElement | null = null;
   for (const [label, value] of [
     ["Team 0 (blue)", "0"],
     ["Team 1 (red)", "1"],
@@ -138,6 +141,7 @@ export function createSandboxPanel(deps: SandboxPanelDeps): SandboxPanel {
   ] as const) {
     const opt = el("option", undefined, label);
     opt.value = value;
+    if (value === "-1") neutralOption = opt;
     teamSelect.appendChild(opt);
   }
   const modeSelect = el("select", "sbx-select");
@@ -388,10 +392,18 @@ export function createSandboxPanel(deps: SandboxPanelDeps): SandboxPanel {
     const sim = deps.getSim();
     const def = SANDBOX_SPAWNABLE.find((s) => s.key === kindSelect.value);
     kindNote.textContent = def ? def.note : "";
-    // Unit mode only means something for RUNNER..FORTRESS; team is fixed for
-    // the always-neutral entries.
+    // Unit mode only means something for RUNNER..FORTRESS; the whole team select
+    // is fixed for the always-neutral entries.
     modeSelect.disabled = !def?.isUnit;
     teamSelect.disabled = def !== undefined && !def.teamable;
+    // Entries that need an owner lose only the Neutral option, not team 0/1.
+    // spawnSandbox would pull a neutral request onto team 0 anyway; snapping the
+    // select too keeps the UI from claiming something the spawn will not honour.
+    if (neutralOption) {
+      const blocked = Boolean(def?.teamable && def.requiresOwner);
+      neutralOption.disabled = blocked;
+      if (blocked && teamSelect.value === "-1") teamSelect.value = "0";
+    }
 
     if (sim) {
       const kit = currentKit(sim);

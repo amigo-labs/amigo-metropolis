@@ -184,6 +184,51 @@ describe("spawnSandbox", () => {
     expect(sim.ent.team[id]).toBe(0);
   });
 
+  // The review finding this pins: systemTargeting reads a turret's target from
+  // its OWNER, not its mode (sim.ts) — `ownerId < 0` takes the
+  // nearestEnemyAvatar branch. So every requiresOwner entry must come out with a
+  // real owner no matter what the panel asked for, or a "Defense" turret is a
+  // dummy wearing the wrong label.
+  it("gives every requiresOwner entry a real owner when neutral is requested", () => {
+    const owned = SANDBOX_SPAWNABLE.filter((s) => s.requiresOwner);
+    expect(owned.length).toBeGreaterThan(0);
+    for (const def of owned) {
+      const sim = rangeSim();
+      const id = spawnSandbox(sim, def.key, TEAM_NEUTRAL, 30, 6);
+      expect(id).toBeGreaterThanOrEqual(0);
+      expect(sim.ent.team[id]).toBe(0);
+      expect(sim.ent.ownerId[id]).toBe(0);
+    }
+  });
+
+  it("never leaves a defense turret on the avatars-only targeting branch", () => {
+    for (const team of [0, 1, TEAM_NEUTRAL, -5, Number.NaN]) {
+      const sim = rangeSim();
+      const id = spawnSandbox(sim, "turret-defense", team, 30, 30);
+      expect(sim.ent.mode[id]).toBe(TURRET_DEFENSE);
+      // ownerId >= 0 is exactly the condition sim.ts:1322 branches on.
+      expect(sim.ent.ownerId[id]).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("honours neutral for the entries where neutral is meaningful", () => {
+    // An unclaimed outpost console IS neutral, and a team-less avatar/Warden is
+    // a legitimate inert target — these must not be dragged onto a team.
+    for (const def of SANDBOX_SPAWNABLE.filter((s) => s.teamable && !s.requiresOwner)) {
+      const sim = rangeSim();
+      const id = spawnSandbox(sim, def.key, TEAM_NEUTRAL, 30, 30);
+      expect(sim.ent.team[id]).toBe(TEAM_NEUTRAL);
+    }
+  });
+
+  it("reads a fractional negative team as neutral, not team 0", () => {
+    // floor(-0.5) = -1 -> neutral. With Math.trunc this was -0, which fails
+    // `t < 0` and silently became team 0.
+    const sim = rangeSim();
+    const id = spawnSandbox(sim, "console", -0.5, 30, 30);
+    expect(sim.ent.team[id]).toBe(TEAM_NEUTRAL);
+  });
+
   it("keeps the dummy turret neutral whatever team is asked for", () => {
     const sim = rangeSim();
     const id = spawnSandbox(sim, "turret-dummy", 1, 30, 30);
