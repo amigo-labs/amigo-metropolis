@@ -62,6 +62,7 @@ import {
   pinConsoleRing,
 } from "./debug/pinSession";
 import type { PinEntity } from "./debug/pinTypes";
+import { createSandboxPanel, type SandboxPanel } from "./debug/sandboxPanel";
 import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
 import { createMouseLook, type MouseLook } from "./input/mouseLook";
@@ -133,6 +134,11 @@ const orbitMode = !netMode && !touchMode && params.get("cam") === "orbit";
 // inspecting map meshes / unit+turret models. Solo-only, like orbit.
 // Mutable: the menu Fly button enables it in-process without a full reload.
 let flyMode = !netMode && params.get("cam") === "fly";
+// ?sandbox=1: the spawn/weapon test bench (debug/sandboxPanel.ts). Works on any
+// arena — it is a mode, not a map. Solo-only for the same reason the ?debug
+// hooks are: it mutates sim state between ticks, which would desync the peer
+// that did not click. Mutable: the menu Sandbox button enables it in-process.
+let sandboxMode = !netMode && params.get("sandbox") === "1";
 // Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
 aimAssist.mode = parseAimAssistMode(params.get("aim"));
 
@@ -170,7 +176,12 @@ let warden = wardenDifficulty >= 1;
 // harness — boots straight into the match and skips the menu, so every deep
 // link and test entry point behaves exactly as before.
 const explicitMode =
-  netMode || warden || params.has("opponent") || params.has("play") || params.has("debug");
+  netMode ||
+  warden ||
+  sandboxMode ||
+  params.has("opponent") ||
+  params.has("play") ||
+  params.has("debug");
 /** Loadout for the local human (menu pick or ?gun=&heavy=&special= deep link). */
 let playerLoadout: Loadout = loadoutFromParams(params);
 // Offline match modes build the sim now; a net mode defers — to the server's
@@ -406,7 +417,12 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
 // its ground console, then hold-to-buy runner bursts forever. Used for solo
 // ?opponent play AND the menu demo battle's slot 0; the (slot-aware) script
 // itself lives in menuWorld.ts, shared by both.
-const opponentMode = warden ? "idle" : (params.get("opponent") ?? "feeder");
+//
+// Sandbox defaults to "idle": a feeder streaming runners across the arena is
+// exactly the noise you do not want while watching one unit's walk cycle. An
+// explicit ?opponent= still wins, so the feeder is one URL away.
+// `let`: the menu's Sandbox button switches modes in-process.
+let opponentMode = warden ? "idle" : (params.get("opponent") ?? (sandboxMode ? "idle" : "feeder"));
 
 function scriptOpponent(slot: number, tick: number, out: PlayerInput): void {
   if (opponentMode === "feeder") demoFeeder(slot, tick, out);
@@ -588,6 +604,10 @@ const blend = createCameraBlend();
 
 const TICK_MS = 1000 / TICK_HZ;
 const MAX_STEPS_PER_FRAME = 5;
+// Sandbox slow-motion: the accumulator drains this much slower, so the sim runs
+// fewer ticks per real second. The tick itself is untouched (it knows only its
+// counter), so slow motion cannot change what the sim computes — only when.
+let timeScale = 1;
 
 const scratchMatrix = new THREE.Matrix4();
 const scratchQuat = new THREE.Quaternion();
@@ -667,6 +687,7 @@ function refreshDebugLabel(): void {
     parts.push("fly: WASD+QE move, Shift fast, click=mouse-look (ESC releases)");
     parts.push("pin: P = capture + problem note (Shift+P pauses sim)");
   }
+  if (sandboxMode) parts.push("sandbox: F2 = spawn + weapon panel");
   const text = parts.join("\n");
   if (text === debugLabelText) return;
   debugLabelText = text;
@@ -799,6 +820,49 @@ async function capturePinNow(
   }
 }
 
+// --- Sandbox test bench (?sandbox=1) -----------------------------------------
+// Built on first use rather than at boot: the deps close over `sim`, `views` and
+// `avatarRig`, which are seated by startMatch. Same host-side contract as the
+// ?debug hooks above — solo only, and nothing in the sim or renderer reads it
+// back. `debugPaused` and metropolisStep are SHARED with the harness freeze on
+// purpose, so the panel's Pause and metropolisPause can never disagree.
+let sandboxPanel: SandboxPanel | null = null;
+
+function ensureSandboxPanel(): void {
+  if (sandboxPanel || netMode) return;
+  sandboxPanel = createSandboxPanel({
+    getSim: () => sim ?? null,
+    getMap: () => map,
+    getCamera: () => views[0]?.camera ?? null,
+    getPlayer: () => views[0]?.slot ?? 0,
+    setPaused: (p) => {
+      debugPaused = p;
+    },
+    getPaused: () => debugPaused,
+    step: (ticks) => {
+      for (let i = 0; i < ticks && sim && sim.winner < 0; i++) runTick();
+    },
+    resnap: () => {
+      // Twice, like metropolisSnap: both interpolation buffers get the new
+      // state, so a paused scene renders the spawn at any alpha.
+      rotateSnapshot();
+      rotateSnapshot();
+    },
+    setTimeScale: (s) => {
+      timeScale = s;
+    },
+    getTimeScale: () => timeScale,
+    rigInfo: () =>
+      avatarRig === null || !avatarRig.ready
+        ? null
+        : {
+            legL: avatarRig.angleAt(0, 0),
+            legR: avatarRig.angleAt(0, 1),
+            stride: avatarRig.stride,
+          },
+  });
+}
+
 addEventListener("keydown", (e) => {
   if (!flyMode || pinModal.isOpen() || pinBusy) return;
   if (e.code !== "KeyP" || e.repeat) return;
@@ -905,6 +969,10 @@ function runTick(): void {
   }
 
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
+  // Sandbox cheat toggles (infinite ammo / invulnerable), applied AFTER the tick
+  // so the tick itself never sees them — same host-side contract as
+  // metropolisSpawn. Null unless ?sandbox=1, so a normal match pays nothing.
+  sandboxPanel?.afterTick();
   // The demo battle stays calm — music only, no SFX/VFX.
   if (phase === "match") pumpCosmetics(sim.events);
   rotateSnapshot();
@@ -1188,7 +1256,9 @@ let accumulator = 0;
 
 function frame(now: number): void {
   const dtMs = Math.min(now - last, 250);
-  accumulator += dtMs; // cap catch-up after tab switch
+  // timeScale is 1 everywhere except sandbox slow motion; net matches never see
+  // it (the panel is solo-only), so lockstep pacing is unchanged.
+  accumulator += dtMs * timeScale; // cap catch-up after tab switch
   last = now;
   let steps = 0;
   while (accumulator >= TICK_MS && steps < MAX_STEPS_PER_FRAME) {
@@ -1273,6 +1343,9 @@ function frame(now: number): void {
     // Debug label piggybacks on the 1 Hz cadence so async texture-load status
     // ("loading..." -> "esrgan"/"missing") surfaces without a keypress.
     refreshDebugLabel();
+    // Same cadence for the sandbox readout — it is DOM, not frame-loop work,
+    // and it writes only when its text actually moved.
+    sandboxPanel?.refresh();
     hudFrames = 0;
     hudLastUpdate = now;
   }
@@ -1319,6 +1392,7 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
     poseFlyStart(flyState, views[0].camera, extent);
     refreshDebugLabel();
   }
+  if (sandboxMode) ensureSandboxPanel();
   setFlyCrosshairVisible(flyMode && views.length === 1);
   // The mouse reticle only makes sense for a single full-window pointer player
   // — and not at all under touch or fly (fly uses a fixed center crosshair).
@@ -1575,6 +1649,19 @@ function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): 
       wardenDifficulty = 0;
       resetForMatch(createSim(map, seed, { loadouts: [playerLoadout] }));
       // No flyover→chase blend — fly cam owns posing from the first frame.
+      startMatch([{ slot: 0, input: localInput }]);
+      break;
+    }
+    case "sandbox": {
+      // The test bench (debug/sandboxPanel.ts): fly cam so you can get an angle
+      // on what you spawned, and the idle opponent so nothing walks through the
+      // shot. startMatch builds the panel.
+      flyMode = true;
+      sandboxMode = true;
+      opponentMode = "idle";
+      warden = false;
+      wardenDifficulty = 0;
+      resetForMatch(createSim(map, seed, { loadouts: [playerLoadout] }));
       startMatch([{ slot: 0, input: localInput }]);
       break;
     }

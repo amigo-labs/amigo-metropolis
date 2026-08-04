@@ -417,6 +417,125 @@
         font-size: 11px;
         line-height: 1.3;
       }
+      /* --- Sandbox test bench (?sandbox=1, debug/sandboxPanel.ts) ----------
+         Debug-only overlay. The weapon cards deliberately reuse the
+         .menu-weapon-* classes above so the bench and the pre-match weapons
+         screen stay one visual language with one set of rules. */
+      .sbx {
+        position: fixed;
+        top: 8px;
+        right: 8px;
+        z-index: 40;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 6px;
+        font: 12px/1.4 system-ui, sans-serif;
+      }
+      .sbx-tab {
+        padding: 4px 10px;
+        border: 1px solid rgba(126, 160, 200, 0.3);
+        border-radius: 6px;
+        background: rgba(10, 14, 20, 0.82);
+        color: #7ef2ff;
+        font: 11px/1.4 monospace;
+        letter-spacing: 0.12em;
+        cursor: pointer;
+      }
+      .sbx-tab:hover {
+        border-color: rgba(126, 242, 255, 0.55);
+      }
+      .sbx-body {
+        display: none;
+        width: 250px;
+        max-height: calc(100vh - 48px);
+        overflow-y: auto;
+        padding: 12px;
+        border: 1px solid rgba(126, 160, 200, 0.2);
+        border-radius: 10px;
+        background: rgba(9, 13, 21, 0.92);
+        color: #d5deeb;
+      }
+      .sbx.is-open .sbx-body {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .sbx-section {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .sbx-label {
+        color: #7f8ea6;
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      .sbx-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .sbx-mini {
+        color: #8ea0ba;
+        font-size: 10px;
+        white-space: nowrap;
+      }
+      .sbx-note {
+        color: #8ea0ba;
+        font-size: 10px;
+        line-height: 1.35;
+        min-height: 1.35em;
+      }
+      .sbx-select {
+        flex: 1;
+        min-width: 0;
+        padding: 4px 6px;
+        border: 1px solid rgba(126, 160, 200, 0.22);
+        border-radius: 6px;
+        background: rgba(12, 16, 26, 0.85);
+        color: #d5deeb;
+        font: inherit;
+      }
+      .sbx-select:disabled {
+        opacity: 0.4;
+      }
+      .sbx-range {
+        flex: 1;
+        min-width: 0;
+      }
+      .sbx-btn {
+        flex: 1;
+        padding: 5px 8px;
+        border: 1px solid rgba(126, 160, 200, 0.22);
+        border-radius: 6px;
+        background: rgba(12, 16, 26, 0.7);
+        color: #d5deeb;
+        font: inherit;
+        cursor: pointer;
+        transition:
+          border-color 0.12s,
+          background 0.12s;
+      }
+      .sbx-btn:hover {
+        border-color: rgba(126, 242, 255, 0.4);
+        background: rgba(20, 30, 48, 0.75);
+      }
+      .sbx-btn.is-active {
+        border-color: #7ef2ff;
+        color: #e6f8ff;
+        background: rgba(22, 39, 58, 0.9);
+      }
+      .sbx-btn--go {
+        border-color: rgba(126, 242, 255, 0.45);
+        color: #7ef2ff;
+      }
+      .sbx-readout {
+        color: #8ea0ba;
+        font: 11px/1.45 monospace;
+        white-space: pre;
+      }
       .menu-panel,
       .menu-drawer {
         padding: 16px;

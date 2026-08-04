@@ -23,6 +23,21 @@ describe("buildModeQuery", () => {
     );
   });
 
+  test("sandbox carries the bench flag, the fly cam and an idle opponent", () => {
+    // The idle opponent is load-bearing, not decoration: the feeder's runner
+    // stream walks straight through an animation test.
+    expect(buildModeQuery({ mode: "sandbox" })).toBe("?play=1&sandbox=1&cam=fly&opponent=idle");
+    expect(buildModeQuery({ mode: "sandbox" }, "la-cantina")).toBe(
+      "?play=1&sandbox=1&cam=fly&opponent=idle&map=la-cantina",
+    );
+  });
+
+  test("sandbox keeps the picked loadout in the deep link", () => {
+    expect(
+      buildModeQuery({ mode: "sandbox" }, "urban-jungle", { gun: 2, heavy: 3, special: 1 }),
+    ).toBe("?play=1&sandbox=1&cam=fly&opponent=idle&map=urban-jungle&gun=2&heavy=3&special=1");
+  });
+
   test("warden clamps difficulty into 1..10", () => {
     expect(buildModeQuery({ mode: "warden", difficulty: 4 })).toBe("?warden=4");
     expect(buildModeQuery({ mode: "warden", difficulty: 0 })).toBe("?warden=1");
