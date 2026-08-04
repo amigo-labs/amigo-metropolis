@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import preact from "@preact/preset-vite";
 import { defineConfig } from "vite";
 
 /**
@@ -19,6 +20,9 @@ function commitSha(): string {
 }
 
 export default defineConfig({
+  // Preact transforms the menu's .tsx only (docs/specs/ui.md §1). It never
+  // reaches the renderer: nothing drawn while a match runs uses JSX.
+  plugins: [preact()],
   define: {
     __COMMIT__: JSON.stringify(commitSha()),
   },
