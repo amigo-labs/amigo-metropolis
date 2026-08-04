@@ -1,0 +1,137 @@
+/* Cockpit visual language (docs/specs/ui.md §3).
+ *
+ * The tokens here are the ONLY thing the two UI worlds share. The Preact menu
+ * and the raw-DOM HUD both pull from this file so they read as one machine;
+ * neither imports anything else from the other.
+ *
+ * Derived from docs/renders/fcop-ui/: a heavy metal bezel framing a dark screen
+ * with a faint green grid, thin cyan panel borders, cyan text, and lavender
+ * reserved for the confirming action. Red and blue are team colours and are
+ * never used for chrome — if they show up, they mean a player.
+ */
+
+:root {
+  /* --- Screen ------------------------------------------------------------ */
+  --ck-screen: #050a08;
+  --ck-screen-edge: #0a1310;
+  --ck-grid-line: rgba(74, 138, 96, 0.16);
+  --ck-grid-step: 34px;
+
+  /* --- Structure --------------------------------------------------------- */
+  --ck-line: #4c9dc0;
+  --ck-line-dim: rgba(76, 157, 192, 0.34);
+  --ck-line-bright: #7ef2ff;
+  --ck-fill: rgba(10, 26, 32, 0.55);
+  --ck-fill-active: rgba(20, 52, 64, 0.8);
+  /* The original's panels are near-square. Keep the radius small enough that
+     it reads as a bevel rather than a rounded card. */
+  --ck-radius: 3px;
+
+  /* --- Type -------------------------------------------------------------- */
+  /* One token so a self-hosted face is a one-line swap. The original uses a
+     chunky rounded techno face; no system font is a close match, so this stack
+     picks the widest, most mechanical thing likely to be installed and falls
+     back gracefully. Substituting the real face is tracked separately — it
+     must be self-hosted, because the PWA has to work offline. */
+  --ck-font: "Bahnschrift", "DIN Alternate", "Eurostile", ui-sans-serif, system-ui, sans-serif;
+  --ck-text: #a9d8ee;
+  --ck-text-bright: #dcf2ff;
+  --ck-text-dim: #6d93a8;
+  --ck-tracking: 0.06em;
+
+  /* --- Meaning ----------------------------------------------------------- */
+  /* Lavender is the confirming action and nothing else. One accent, one
+     meaning — the moment it also decorates a heading it stops reading as
+     "this is the button that starts the thing". */
+  --ck-accent: #b9a6ec;
+  --ck-accent-bright: #d6c9ff;
+  --ck-warn: #f0b849;
+  --ck-danger: #f0736b;
+  --ck-team-blue: #5b8dd9;
+  --ck-team-red: #d95b5b;
+
+  /* --- Bezel ------------------------------------------------------------- */
+  --ck-bezel-hi: #6b6f72;
+  --ck-bezel-mid: #3a3f45;
+  --ck-bezel-lo: #1b1f24;
+}
+
+/* Faint grid on the screen glass. A gradient, never an image: it costs nothing
+   to ship, stays crisp at any zoom, and needs no cache entry offline. */
+.ck-screen {
+  background-color: var(--ck-screen);
+  background-image:
+    repeating-linear-gradient(0deg, var(--ck-grid-line) 0 1px, transparent 1px var(--ck-grid-step)),
+    repeating-linear-gradient(90deg, var(--ck-grid-line) 0 1px, transparent 1px var(--ck-grid-step));
+}
+
+/* The heavy console frame. Two inset rings over a brushed-metal gradient: the
+   outer ring catches the light, the inner one is the screen's own bevel. */
+.ck-bezel {
+  border: 1px solid var(--ck-bezel-lo);
+  border-radius: var(--ck-radius);
+  background: linear-gradient(
+    170deg,
+    var(--ck-bezel-hi) 0%,
+    var(--ck-bezel-mid) 18%,
+    var(--ck-bezel-lo) 62%,
+    var(--ck-bezel-mid) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.6),
+    0 10px 34px rgba(0, 0, 0, 0.55);
+}
+
+/* Thin cyan box — the unit the original builds every readout out of. */
+.ck-panel {
+  border: 1px solid var(--ck-line-dim);
+  border-radius: var(--ck-radius);
+  background: var(--ck-fill);
+}
+
+.ck-panel.is-active {
+  border-color: var(--ck-line-bright);
+  background: var(--ck-fill-active);
+}
+
+/* --- Type scale ---------------------------------------------------------- */
+
+.ck-title {
+  color: var(--ck-text-bright);
+  font-family: var(--ck-font);
+  letter-spacing: var(--ck-tracking);
+  text-transform: uppercase;
+}
+
+.ck-label {
+  color: var(--ck-text-dim);
+  font-family: var(--ck-font);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.ck-value {
+  color: var(--ck-text);
+  font-family: var(--ck-font);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Focus --------------------------------------------------------------- */
+
+/* Functional, not decorative: without a visible ring, gamepad navigation is
+   unusable, because the pad gives no other clue where you are
+   (docs/specs/ui.md §4). Applies to both UI worlds by design. */
+:where(button, input, select, a[href], [tabindex]):focus-visible {
+  outline: 2px solid var(--ck-line-bright);
+  outline-offset: 2px;
+}
+
+/* The rail scrolls, so a focus move near its edge has to bring the target into
+   view or the pad appears to stop responding at the fold. */
+@media (prefers-reduced-motion: no-preference) {
+  .ck-scroll {
+    scroll-behavior: smooth;
+  }
+}
