@@ -95,6 +95,8 @@ Flat `Float32Array`, stride 10 per entity:
   that introduced it was removed).
 - **Local input delay**: even solo runs inputs through a 2-tick delay queue so
   online feels identical to offline (no habit-breaking between modes).
+- **UI**: two worlds that never mix — a Preact menu, and raw-DOM overlays that
+  live inside the frame loop's zero-allocation budget. See `ui.md`.
 
 ## 5. Netcode (`packages/server` + client net module)
 

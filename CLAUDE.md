@@ -61,6 +61,10 @@ Violating any of these causes multiplayer desyncs. They are non-negotiable.
 4. The renderer reads sim state ONLY via the snapshot interface
    (`docs/specs/architecture.md#snapshot`). Never reach into sim internals.
 5. Renderer must stay swappable: no sim logic in client, no Three types in sim.
+6. **Two UI worlds, never mixed** (`docs/specs/ui.md`): the menu renders with
+   Preact and may allocate; the HUD and in-match overlays are raw DOM,
+   write-on-change, and bound by rule 1. No Preact, no react-three-fiber and no
+   canvas-owning UI framework anywhere in the frame loop.
 
 ## Assets (see docs/specs/assets.md)
 
