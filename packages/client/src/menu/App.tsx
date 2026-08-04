@@ -5,7 +5,7 @@
 import type { AudioEngine } from "../audio/engine";
 import type { TexPref } from "../render/texVariants";
 import { loadoutSummary } from "./hardpoints";
-import { isLocalhost, type MenuChoice } from "./routing";
+import type { MenuChoice } from "./routing";
 import { ArenaPicker } from "./screens/ArenaPicker";
 import { Drawer } from "./screens/Drawer";
 import { OnlinePanel } from "./screens/OnlinePanel";
@@ -17,6 +17,9 @@ export interface AppProps {
   audio: AudioEngine;
   /** Reveals the Install button once beforeinstallprompt has fired. */
   installPrompt?: () => void;
+  /** Localhost-only Fly/Sandbox entries. Passed in rather than read from
+   *  `location` here, so this stays a pure function of its props. */
+  showDebugModes?: boolean;
   update(patch: Partial<MenuState>): void;
   go(choice: MenuChoice): void;
   onSelect(mapId: string): void;
@@ -70,7 +73,7 @@ function SoloPanel({ state, update, go }: Pick<AppProps, "state" | "update" | "g
 }
 
 export function App(props: AppProps) {
-  const { state, audio, installPrompt, update, go, onSelect, onTexPref } = props;
+  const { state, audio, installPrompt, showDebugModes, update, go, onSelect, onTexPref } = props;
 
   if (state.stage === "weapons") {
     return (
@@ -135,7 +138,7 @@ export function App(props: AppProps) {
             <span>1v1 over the internet</span>
           </button>
           {/* Localhost-only: free-fly debug over the sandbox. */}
-          {isLocalhost() ? (
+          {showDebugModes ? (
             <>
               <button
                 type="button"

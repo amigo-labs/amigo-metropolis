@@ -2016,6 +2016,87 @@ export function hash(state: SimState): number {
   return h;
 }
 
+/**
+ * Match-state snapshot (architecture.md §3).
+ *
+ * The entity snapshot below is per-entity, so the scalars a player-facing HUD
+ * needs — score, who owns what, how long until I respawn — have no home in it.
+ * This is that home, and it exists so the HUD can obey renderer rule 4 instead
+ * of reaching into sim internals the way the old debug HUD did.
+ *
+ * Like writeSnapshot it is a pure read into a caller-owned buffer: it never
+ * mutates state and is invisible to hashState, so adding a field here cannot
+ * move a golden hash. Adding a field to SimState still can.
+ */
+export const MATCH_SNAPSHOT_HEADER = 4;
+/** Per-slot block length; MAX_PLAYERS blocks follow the header. */
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 8;
+export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
+
+/** Header fields. */
+export const MATCH_TICK = 0;
+export const MATCH_WINNER = 1;
+export const MATCH_ENTITY_COUNT = 2;
+export const MATCH_WARDEN_DIFFICULTY = 3;
+
+/** Offsets within a slot block. */
+export const MATCH_SLOT_POINTS = 0;
+export const MATCH_SLOT_AVATAR_ID = 1;
+export const MATCH_SLOT_HP_FRAC = 2;
+export const MATCH_SLOT_AMMO_HEAVY = 3;
+export const MATCH_SLOT_AMMO_SPECIAL = 4;
+export const MATCH_SLOT_RESPAWN_TICKS = 5;
+export const MATCH_SLOT_OUTPOSTS = 6;
+/** Units alive for this slot (RUNNER..FORTRESS), for the readout column. */
+export const MATCH_SLOT_UNITS = 7;
+
+/** Byte offset of slot `s`'s block. */
+export function matchSlotOffset(slot: number): number {
+  return MATCH_SNAPSHOT_HEADER + slot * MATCH_SNAPSHOT_SLOT_STRIDE;
+}
+
+/**
+ * Writes per-match scalars into `out` (length MATCH_SNAPSHOT_LEN).
+ * Pure read; the renderer consumes ONLY this and writeSnapshot.
+ */
+export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
+  const ent = state.ent;
+  out[MATCH_TICK] = state.tick;
+  out[MATCH_WINNER] = state.winner;
+  out[MATCH_WARDEN_DIFFICULTY] = state.wardenDifficulty;
+
+  let live = 0;
+  for (let slot = 0; slot < MAX_PLAYERS; slot++) {
+    const o = matchSlotOffset(slot);
+    const a = state.avatarId[slot];
+    out[o + MATCH_SLOT_POINTS] = state.points[slot];
+    out[o + MATCH_SLOT_AVATAR_ID] = a;
+    out[o + MATCH_SLOT_HP_FRAC] = a >= 0 ? ent.hp[a] / ARCHETYPE_MAX_HP[ent.archetype[a]] : 0;
+    out[o + MATCH_SLOT_AMMO_HEAVY] = a >= 0 ? ent.ammoA[a] : 0;
+    out[o + MATCH_SLOT_AMMO_SPECIAL] = a >= 0 ? ent.ammoB[a] : 0;
+    out[o + MATCH_SLOT_RESPAWN_TICKS] = a >= 0 ? 0 : state.respawnTimer[slot];
+    out[o + MATCH_SLOT_OUTPOSTS] = 0;
+    out[o + MATCH_SLOT_UNITS] = 0;
+  }
+  for (let k = 0; k < state.outpostOwner.length; k++) {
+    const owner = state.outpostOwner[k];
+    if (owner >= 0 && owner < MAX_PLAYERS) {
+      out[matchSlotOffset(owner) + MATCH_SLOT_OUTPOSTS] += 1;
+    }
+  }
+  // Dense id order, like every other sim iteration (CLAUDE.md hard rule 5).
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id]) continue;
+    live += 1;
+    const arch = ent.archetype[id];
+    const team = ent.team[id];
+    if (arch >= ARCHETYPE.RUNNER && arch <= ARCHETYPE.FORTRESS && team >= 0 && team < MAX_PLAYERS) {
+      out[matchSlotOffset(team) + MATCH_SLOT_UNITS] += 1;
+    }
+  }
+  out[MATCH_ENTITY_COUNT] = live;
+}
+
 /** Snapshot record layout (architecture.md §3). */
 export const SNAPSHOT_STRIDE = 10;
 

@@ -36,17 +36,23 @@ export interface MenuState {
   lobbyPublic: boolean;
 }
 
-export function initialMenuState(initialLoadout?: Loadout): MenuState {
-  // Pre-select a ?map= already on the URL so arena deep links keep their pick
-  // through the menu; unknown ids quietly fall back to the first arena (which
-  // is also main.ts's boot backdrop, so no initial preview swap is needed).
-  const urlMapId = new URLSearchParams(location.search).get("map");
-  const mapId = MAP_REGISTRY.some((m) => m.id === urlMapId)
-    ? (urlMapId as string)
-    : MAP_REGISTRY[0].id;
+/**
+ * Resolves the arena a deep link asked for, so ?map= keeps its pick through the
+ * menu. Unknown ids quietly fall back to the first arena — which is also
+ * main.ts's boot backdrop, so no initial preview swap is needed.
+ *
+ * Separate from initialMenuState because reading the URL is the one thing that
+ * would stop the state from being constructible in a test.
+ */
+export function mapIdFromParams(params: URLSearchParams): string {
+  const id = params.get("map");
+  return MAP_REGISTRY.some((m) => m.id === id) ? (id as string) : MAP_REGISTRY[0].id;
+}
+
+export function initialMenuState(initialLoadout?: Loadout, mapId?: string): MenuState {
   return {
     stage: "rail",
-    mapId,
+    mapId: mapId ?? MAP_REGISTRY[0].id,
     loadout: normalizeLoadout(initialLoadout),
     hardpoint: 0,
     mode: null,

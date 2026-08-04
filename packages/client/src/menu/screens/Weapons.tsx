@@ -11,7 +11,6 @@
 
 import type { WeaponDef } from "@metropolis/sim";
 import { TICK_HZ } from "@metropolis/sim";
-import { useState } from "preact/hooks";
 import { cycleHardpoint, HARDPOINTS } from "../hardpoints";
 import type { Hardpoint, MenuState } from "../state";
 
@@ -48,12 +47,6 @@ function statLine(w: WeaponDef): string {
 }
 
 export function Weapons({ state, update, onDone }: Props) {
-  // The X1 still shot is produced by tools/render/render_assets.py, which needs
-  // Blender. Until it is generated, drop the column entirely rather than
-  // reserve half the screen for a blank — the rack then centres on its own, and
-  // the image reappears with no code change the moment the file exists.
-  const [hasMech, setHasMech] = useState(true);
-
   const select = (hardpoint: Hardpoint) => update({ hardpoint });
   const cycle = (hardpoint: Hardpoint, delta: number) =>
     update({ hardpoint, loadout: cycleHardpoint(state.loadout, hardpoint, delta) });
@@ -65,18 +58,25 @@ export function Weapons({ state, update, onDone }: Props) {
         <h2 class="ck-title wpn-title">Weapons</h2>
       </div>
 
-      <div class={`wpn-body${hasMech ? "" : " wpn-body--no-mech"}`}>
-        {hasMech ? (
-          <div class="wpn-mech">
-            <img
-              class="wpn-mech-img"
-              src="/models/units/avatar-walker.png"
-              alt=""
-              decoding="async"
-              onError={() => setHasMech(false)}
-            />
-          </div>
-        ) : null}
+      <div class="wpn-body">
+        {/* The X1 still shot comes from tools/render/render_assets.py, which
+            needs Blender. Until the file exists, the frame hides itself and its
+            grid track — sized `auto` — collapses to nothing, so the rack centres
+            instead of sitting beside a blank half-screen. Done by hiding the
+            element rather than by component state so this screen stays a pure
+            function of its props. */}
+        <div class="wpn-mech">
+          <img
+            class="wpn-mech-img"
+            src="/models/units/avatar-walker.png"
+            alt=""
+            decoding="async"
+            onError={(e) => {
+              const frame = (e.currentTarget as HTMLElement).parentElement;
+              if (frame) frame.style.display = "none";
+            }}
+          />
+        </div>
 
         <ul class="wpn-rack">
           {HARDPOINTS.map((spec, i) => {

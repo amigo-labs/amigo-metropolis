@@ -1,0 +1,202 @@
+/* In-match HUD (docs/specs/ui.md §3), after the original's cockpit readouts.
+ *
+ * Imported by hud.ts, which also pulls in cockpit.css — a deep link straight
+ * into a match never mounts the menu, so the HUD cannot rely on the menu having
+ * loaded the tokens. Nothing here may assume menu markup for the same reason.
+ *
+ * Everything is pointer-events: none. The HUD sits over a match; nothing in it
+ * is clickable, and a stray hit test on it would eat a shot.
+ */
+
+.mhud {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  font-family: var(--ck-font);
+  color: var(--ck-text);
+}
+
+/* --- Radar ---------------------------------------------------------------- */
+
+.mhud-radar {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  left: calc(14px + env(safe-area-inset-left));
+  width: 132px;
+}
+
+.mhud-radar-canvas {
+  display: block;
+  width: 132px;
+  height: 132px;
+  border: 1px solid var(--ck-line-dim);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(20, 60, 48, 0.5), rgba(4, 12, 10, 0.75));
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.7);
+}
+
+.mhud-radar-label {
+  margin-top: 4px;
+  color: var(--ck-text-dim);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px #000;
+}
+
+/* --- Score readouts ------------------------------------------------------- */
+
+.mhud-scores {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  right: calc(16px + env(safe-area-inset-right));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: right;
+}
+
+/* Base first, then the team overrides: a lower-specificity rule after a higher
+   one is a trap for whoever edits this next. */
+.mhud-points {
+  font-size: 30px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 6px #000;
+}
+
+/* Team colour is meaning, not decoration (docs/specs/ui.md §3): these two are
+   the only places blue and red appear in the chrome. */
+.mhud-score--own .mhud-points {
+  color: var(--ck-team-blue);
+}
+
+.mhud-score--foe .mhud-points {
+  color: var(--ck-team-red);
+}
+
+.mhud-units {
+  color: var(--ck-text-dim);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px #000;
+}
+
+/* --- Bottom bar ----------------------------------------------------------- */
+
+.mhud-bottom {
+  position: absolute;
+  left: calc(16px + env(safe-area-inset-left));
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+/* Vertical bar at the left edge, like the original's. */
+.mhud-health {
+  position: relative;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 148px;
+  border: 1px solid var(--ck-line-dim);
+  border-radius: 2px;
+  background: rgba(4, 12, 10, 0.7);
+  overflow: hidden;
+}
+
+.mhud-health-fill {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 100%;
+  background: linear-gradient(180deg, #7fe07f, #3f9a55);
+  transition: height 0.18s linear;
+}
+
+/* Down: keep the frame visible so the bar reads as empty rather than missing. */
+.mhud-health.is-down {
+  border-color: rgba(217, 91, 91, 0.55);
+}
+
+.mhud-ammo {
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+  padding-bottom: 2px;
+}
+
+.mhud-ammo-cell {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 6px #000;
+}
+
+.mhud-ammo-cell:empty {
+  display: none;
+}
+
+/* One tint per hardpoint so the three numbers are distinguishable at a glance
+   without labels, matching the original's coloured weapon icons. */
+.mhud-ammo-cell--gun {
+  color: var(--ck-text-dim);
+}
+
+.mhud-ammo-cell--heavy {
+  color: #e8926b;
+}
+
+.mhud-ammo-cell--special {
+  color: #7fa8e8;
+}
+
+/* --- Banner --------------------------------------------------------------- */
+
+.mhud-banner {
+  position: absolute;
+  top: 22%;
+  left: 0;
+  right: 0;
+  color: var(--ck-accent-bright);
+  font-size: clamp(18px, 3vw, 34px);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-shadow: 0 3px 14px #000;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.mhud-banner.is-on {
+  opacity: 1;
+}
+
+@media (max-width: 640px) {
+  .mhud-radar {
+    width: 92px;
+  }
+
+  .mhud-radar-canvas {
+    width: 92px;
+    height: 92px;
+  }
+
+  .mhud-points {
+    font-size: 22px;
+  }
+
+  .mhud-health {
+    height: 104px;
+  }
+
+  .mhud-ammo-cell {
+    font-size: 17px;
+  }
+}

@@ -536,19 +536,16 @@
   font-weight: 800;
 }
 
+/* Track 1 is `auto`, not a fraction: when the X1 frame hides itself because the
+   still has not been rendered yet, an auto track collapses to zero and the rack
+   takes the row. A fr track would hold a blank half-screen open. */
 .wpn-body {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.4fr);
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: clamp(16px, 4vw, 56px);
-}
-
-/* No X1 still yet (see Weapons.tsx): one centred column instead of a blank
-   half-screen. */
-.wpn-body--no-mech {
-  grid-template-columns: minmax(0, min(760px, 100%));
   justify-content: center;
+  gap: clamp(16px, 4vw, 56px);
 }
 
 .wpn-mech {
@@ -571,6 +568,7 @@
   gap: clamp(8px, 2vh, 18px);
   margin: 0;
   padding: 0;
+  max-width: 760px;
   list-style: none;
 }
 

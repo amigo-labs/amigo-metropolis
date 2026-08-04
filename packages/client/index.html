@@ -41,6 +41,13 @@
         pointer-events: none;
         text-shadow: 0 1px 2px #000;
       }
+      /* The graphical HUD replaces this on screen, but the text keeps being
+         written: globalThis.metropolisHud() reads textContent, which visibility
+         does not touch, and the harnesses depend on it (docs/specs/ui.md §2).
+         ?debug brings it back. */
+      body.hud-text-hidden .hud {
+        visibility: hidden;
+      }
       #lobby {
         position: fixed;
         inset: 0;

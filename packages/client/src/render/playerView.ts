@@ -86,12 +86,18 @@ export function createPlayerViews(
  * Recomputes each view's viewport, camera aspect and HUD anchor for the current
  * window size. One view → full window; two → an even split. HUD sits in the
  * top-left of its own viewport.
+ *
+ * `hudInset` shifts the text HUD in from that corner. It exists because the
+ * graphical HUD's radar occupies the same corner, and under ?debug both are on
+ * screen: the text is scaffolding, so the text is what moves. Set in px; the
+ * default keeps the original 8px anchor for every other mode.
  */
 export function layoutViews(
   views: readonly PlayerView[],
   orientation: SplitOrientation,
   width: number,
   height: number,
+  hudInset = 8,
 ): void {
   for (let i = 0; i < views.length; i++) {
     const vp = views[i].viewport;
@@ -121,7 +127,7 @@ export function layoutViews(
     cam.aspect = vp.width / Math.max(vp.height, 1);
     cam.updateProjectionMatrix();
     const hud = views[i].hud.style;
-    hud.left = `${vp.left + 8}px`;
+    hud.left = `${vp.left + hudInset}px`;
     hud.top = `${vp.top + 8}px`;
   }
 }

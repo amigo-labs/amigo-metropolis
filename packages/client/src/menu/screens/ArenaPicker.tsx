@@ -2,7 +2,6 @@
 // opts.onSelect, so the picker doubles as the preview.
 
 import { getMapById, MAP_REGISTRY } from "@metropolis/sim";
-import { useRef } from "preact/hooks";
 import { drawArenaThumbnail } from "../../render/arenaThumb";
 
 interface Props {
@@ -16,8 +15,6 @@ interface Props {
  * minimap drawn straight from MapData.
  */
 function ArenaThumb({ id }: { id: string }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-
   return (
     <>
       <img
@@ -26,9 +23,13 @@ function ArenaThumb({ id }: { id: string }) {
         alt=""
         loading="lazy"
         decoding="async"
+        // The canvas is this image's next sibling, so the handler can reach it
+        // without a ref — which keeps this component hook-free and renderable
+        // to a string in `bun test`.
         onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = "none";
-          const el = canvas.current;
+          const img = e.currentTarget as HTMLImageElement;
+          img.style.display = "none";
+          const el = img.nextElementSibling as HTMLCanvasElement | null;
           if (!el || el.dataset.drawn) return;
           el.style.display = "";
           try {
@@ -40,7 +41,7 @@ function ArenaThumb({ id }: { id: string }) {
           }
         }}
       />
-      <canvas class="menu-arena-thumb" ref={canvas} width={200} height={200} style="display:none" />
+      <canvas class="menu-arena-thumb" width={200} height={200} style="display:none" />
     </>
   );
 }

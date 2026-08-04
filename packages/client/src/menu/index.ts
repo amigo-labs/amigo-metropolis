@@ -25,8 +25,8 @@ import "../ui/cockpit.css";
 import "./menu.css";
 import { App } from "./App";
 import { cycleHardpoint, stepHardpoint } from "./hardpoints";
-import type { MenuChoice } from "./routing";
-import { initialMenuState, type MenuState } from "./state";
+import { isLocalhost, type MenuChoice } from "./routing";
+import { initialMenuState, type MenuState, mapIdFromParams } from "./state";
 
 // Re-exported so `import { buildModeQuery } from "./menu"` keeps working for
 // main.ts and the routing tests. The implementations are pure and live apart
@@ -71,7 +71,10 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   root.className = "menu-root";
   document.body.appendChild(root);
 
-  let state: MenuState = initialMenuState(opts.initialLoadout);
+  let state: MenuState = initialMenuState(
+    opts.initialLoadout,
+    mapIdFromParams(new URLSearchParams(location.search)),
+  );
   let installPrompt: (() => void) | undefined;
   let nav: NavFocusHandle | undefined;
 
@@ -125,6 +128,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         state,
         audio: opts.audio,
         installPrompt,
+        showDebugModes: isLocalhost(),
         update,
         go,
         onSelect: selectArena,
