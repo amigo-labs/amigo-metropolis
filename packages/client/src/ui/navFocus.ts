@@ -33,6 +33,16 @@ const DPAD_RIGHT = 15;
 export interface NavFocusOptions {
   /** B / Escape. Backing out of a panel is the menu's business, not ours. */
   onCancel?: () => void;
+  /**
+   * Offered every direction before it moves focus; return true to claim it.
+   *
+   * The weapons screen needs this: left/right there changes the weapon fitted
+   * to the focused hardpoint rather than moving between controls. A DOM
+   * keydown handler could not do the job alone — gamepad directions never
+   * become events, they come out of the poll below, so both paths have to meet
+   * at the same hook.
+   */
+  onDirection?(dir: NavDir): boolean;
 }
 
 export interface NavFocusHandle {
@@ -104,9 +114,12 @@ export function attachNavFocus(scope: HTMLElement, opts: NavFocusOptions = {}): 
     }
     const dir = KEY_DIRS[e.key];
     if (!dir) return;
+    // A focused slider/text field owns the horizontal axis; nothing overrides
+    // that, or typing breaks.
     if ((dir === "left" || dir === "right") && consumesHorizontal(document.activeElement)) return;
     // Vertical arrows would otherwise scroll the rail out from under the focus.
     e.preventDefault();
+    if (opts.onDirection?.(dir)) return;
     move(dir);
   };
 
@@ -156,17 +169,18 @@ export function attachNavFocus(scope: HTMLElement, opts: NavFocusOptions = {}): 
     if ((dir === "left" || dir === "right") && consumesHorizontal(document.activeElement)) return;
 
     const now = performance.now();
-    if (dir !== heldDir) {
-      heldDir = dir;
-      nextRepeatAt = now + REPEAT_DELAY_MS;
-      move(dir);
-    } else if (now >= nextRepeatAt) {
-      nextRepeatAt = now + REPEAT_MS;
-      move(dir);
-    }
+    if (dir === heldDir && now < nextRepeatAt) return;
+    nextRepeatAt = now + (dir === heldDir ? REPEAT_MS : REPEAT_DELAY_MS);
+    heldDir = dir;
+    if (opts.onDirection?.(dir)) return;
+    move(dir);
   };
 
-  scope.addEventListener("keydown", onKeyDown);
+  // On document, not on `scope`: a re-render that removes the focused node
+  // drops focus to <body>, and a listener on the menu container would never
+  // see the next key press because body is its parent, not its child. detach()
+  // removes this again, so nothing listens once a match is running.
+  document.addEventListener("keydown", onKeyDown);
   const timer = setInterval(poll, POLL_MS);
 
   return {
@@ -178,7 +192,7 @@ export function attachNavFocus(scope: HTMLElement, opts: NavFocusOptions = {}): 
       if (first >= 0) els[first].focus();
     },
     detach(): void {
-      scope.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onKeyDown);
       clearInterval(timer);
     },
   };

@@ -160,229 +160,37 @@
         left: calc(6px + env(safe-area-inset-left));
       }
 
-      /* --- Title screen / menu (immersive redesign) ------------------------- */
-      .menu {
-        position: fixed;
-        inset: 0;
-        display: flex;
-        align-items: stretch;
-        justify-content: flex-start;
-        color: #e2e8f0;
-        font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
-        z-index: 20;
-        transition: opacity 0.4s ease;
-      }
-      .menu.is-leaving {
-        opacity: 0;
-        pointer-events: none;
-      }
-      /* Left-edge scrim: darkens the arena behind the rail so text stays legible
-         while the rest of the map reads bright and immersive. */
-      .menu-scrim {
-        position: absolute;
-        inset: 0 auto 0 0;
-        width: min(760px, 85vw);
-        background: linear-gradient(
-          90deg,
-          rgba(5, 7, 12, 0.92) 0%,
-          rgba(5, 7, 12, 0.7) 42%,
-          rgba(5, 7, 12, 0) 100%
-        );
-        pointer-events: none;
-      }
-      .menu-rail {
-        position: relative;
-        z-index: 1;
-        width: min(444px, 100vw);
-        height: 100%;
-        box-sizing: border-box;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        padding: 34px 30px 24px;
-        display: flex;
-        flex-direction: column;
-        gap: 18px;
-        background: linear-gradient(180deg, rgba(10, 13, 20, 0.5), rgba(8, 11, 17, 0.72));
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border-right: 1px solid rgba(126, 242, 255, 0.12);
-      }
-      .menu-rail::-webkit-scrollbar {
-        width: 8px;
-      }
-      .menu-rail::-webkit-scrollbar-thumb {
-        background: rgba(126, 242, 255, 0.18);
-        border-radius: 8px;
-      }
-      .menu-brand {
-        display: flex;
-        flex-direction: column;
-      }
-      .menu-kicker {
-        color: #7ef2ff;
-        font-size: 11px;
-        letter-spacing: 0.2em;
-        text-transform: uppercase;
-      }
-      .menu-title {
-        margin: 6px 0 10px;
-        font-size: 46px;
-        font-weight: 800;
-        letter-spacing: 0.03em;
-        line-height: 1.02;
-        background: linear-gradient(180deg, #ffffff, #9fb2cc);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        text-shadow: 0 2px 30px rgba(126, 242, 255, 0.14);
-      }
-      .menu-objective {
-        margin: 0;
-        color: #aebacd;
-        font-size: 13.5px;
-      }
-      .menu-section {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .menu-section-label {
-        color: #7f8ea6;
-        font-size: 11px;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-      }
-      .menu-modes {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-      }
-      .menu-mode {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 2px;
-        padding: 13px 15px;
-        border: 1px solid rgba(126, 160, 200, 0.22);
-        border-radius: 12px;
-        background: rgba(19, 26, 41, 0.55);
-        color: #e2e8f0;
-        font: inherit;
-        text-align: left;
-        cursor: pointer;
-        transition:
-          border-color 0.14s,
-          background 0.14s,
-          transform 0.06s;
-      }
-      /* Localhost-only Fly debug — full-width under Solo/Online. */
-      .menu-mode--debug {
-        grid-column: 1 / -1;
-        border-color: rgba(251, 191, 36, 0.35);
-        background: rgba(40, 32, 14, 0.55);
-      }
-      .menu-mode--debug:hover {
-        border-color: rgba(251, 191, 36, 0.65);
-        background: rgba(55, 42, 16, 0.7);
-      }
-      .menu-mode--debug span {
-        color: #c4a574;
-      }
-      .menu-mode:hover {
-        border-color: rgba(126, 242, 255, 0.5);
-        background: rgba(23, 33, 54, 0.7);
-      }
-      .menu-mode:active {
-        transform: translateY(1px);
-      }
-      .menu-mode.is-active {
-        border-color: #7ef2ff;
-        background: rgba(22, 39, 58, 0.85);
-        box-shadow:
-          0 0 0 1px rgba(126, 242, 255, 0.35),
-          0 8px 24px rgba(0, 0, 0, 0.35);
-      }
-      .menu-mode b {
-        font-size: 16px;
-      }
-      .menu-mode span {
-        color: #8ea0ba;
-        font-size: 12px;
-      }
-      .menu-arena-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-        gap: 10px;
-      }
-      .menu-arena-card {
-        display: flex;
-        flex-direction: column;
-        padding: 0;
-        border: 1px solid rgba(126, 160, 200, 0.2);
-        border-radius: 11px;
-        background: rgba(11, 15, 24, 0.6);
-        color: #b6c2d4;
-        font: inherit;
-        cursor: pointer;
-        overflow: hidden;
-        transition:
-          border-color 0.14s,
-          transform 0.08s,
-          box-shadow 0.14s;
-      }
-      .menu-arena-card:hover {
-        border-color: rgba(126, 242, 255, 0.45);
-        transform: translateY(-2px);
-      }
-      .menu-arena-card.is-active {
-        border-color: #7ef2ff;
-        box-shadow:
-          0 0 0 1px rgba(126, 242, 255, 0.5),
-          0 10px 26px rgba(0, 0, 0, 0.4);
-      }
-      .menu-arena-thumb {
-        display: block;
-        width: 100%;
-        aspect-ratio: 1 / 1;
-        background: #0b0f18;
-        object-fit: cover;
-      }
-      .menu-arena-name {
-        padding: 6px 8px;
-        font-size: 11.5px;
-        letter-spacing: 0.01em;
-        color: #aab6c9;
-        text-align: left;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .menu-arena-card.is-active .menu-arena-name {
-        color: #e6f8ff;
-      }
-      .menu-loadout-summary {
+      /* --- Sandbox test bench (?sandbox=1, debug/sandboxPanel.ts) ----------
+         Debug-only overlay, raw DOM, so its rules live here rather than in the
+         menu bundle (docs/specs/ui.md §1).
+
+         The weapon cards below used to be the menu's .menu-weapon-* rules,
+         shared because both screens listed the same cards. The menu's weapons
+         screen is now the original's hardpoint layout, so there is nothing left
+         to share and the bench owns these outright. */
+      .sbx-kit-summary {
         color: #7ef2ff;
         font-size: 12px;
         letter-spacing: 0.02em;
         line-height: 1.35;
       }
-      .menu-weapon-row {
+      .sbx-weapon-row {
         display: flex;
         flex-direction: column;
         gap: 6px;
       }
-      .menu-weapon-slot {
+      .sbx-weapon-slot {
         color: #7f8ea6;
         font-size: 10px;
         letter-spacing: 0.14em;
         text-transform: uppercase;
       }
-      .menu-weapon-picks {
+      .sbx-weapon-picks {
         display: flex;
         flex-direction: column;
         gap: 6px;
       }
-      .menu-weapon-card {
+      .sbx-weapon-card {
         display: flex;
         flex-direction: column;
         align-items: flex-start;
@@ -399,28 +207,24 @@
           border-color 0.12s,
           background 0.12s;
       }
-      .menu-weapon-card:hover {
+      .sbx-weapon-card:hover {
         border-color: rgba(126, 242, 255, 0.4);
         background: rgba(20, 30, 48, 0.7);
       }
-      .menu-weapon-card.is-active {
+      .sbx-weapon-card.is-active {
         border-color: #7ef2ff;
         background: rgba(22, 39, 58, 0.9);
         box-shadow: 0 0 0 1px rgba(126, 242, 255, 0.28);
       }
-      .menu-weapon-card b {
+      .sbx-weapon-card b {
         font-size: 13px;
         font-weight: 650;
       }
-      .menu-weapon-card span {
+      .sbx-weapon-card span {
         color: #8ea0ba;
         font-size: 11px;
         line-height: 1.3;
       }
-      /* --- Sandbox test bench (?sandbox=1, debug/sandboxPanel.ts) ----------
-         Debug-only overlay. The weapon cards deliberately reuse the
-         .menu-weapon-* classes above so the bench and the pre-match weapons
-         screen stay one visual language with one set of rules. */
       .sbx {
         position: fixed;
         top: 8px;
@@ -536,228 +340,6 @@
         font: 11px/1.45 monospace;
         white-space: pre;
       }
-      .menu-panel,
-      .menu-drawer {
-        padding: 16px;
-        border: 1px solid rgba(126, 160, 200, 0.18);
-        border-radius: 12px;
-        background: rgba(9, 13, 21, 0.72);
-      }
-      .menu-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 8px;
-      }
-      .menu-label {
-        flex: 0 0 78px;
-        color: #b6c2d4;
-      }
-      .menu-value {
-        flex: 0 0 34px;
-        text-align: right;
-        color: #7ef2ff;
-        font-variant-numeric: tabular-nums;
-      }
-      .menu-slider {
-        flex: 1;
-        accent-color: #7ef2ff;
-      }
-      .menu-select {
-        flex: 1;
-        padding: 9px 11px;
-        border: 1px solid rgba(126, 160, 200, 0.25);
-        border-radius: 9px;
-        background: #0b0f18;
-        color: #e2e8f0;
-        font: inherit;
-        cursor: pointer;
-      }
-      .menu-select:focus {
-        outline: none;
-        border-color: #7ef2ff;
-      }
-      .menu-code {
-        flex: 1;
-        min-width: 0;
-        padding: 11px 13px;
-        border: 1px solid rgba(126, 160, 200, 0.25);
-        border-radius: 9px;
-        background: #0b0f18;
-        color: #fff;
-        font: 600 18px/1 ui-monospace, monospace;
-        letter-spacing: 0.3em;
-        text-transform: uppercase;
-      }
-      .menu-code--text {
-        font: 500 14px/1.2 ui-sans-serif, system-ui, sans-serif;
-        letter-spacing: normal;
-        text-transform: none;
-      }
-      .menu-code:focus {
-        outline: none;
-        border-color: #7ef2ff;
-      }
-      .menu-go {
-        width: 100%;
-        margin-top: 6px;
-        padding: 12px 14px;
-        border: 0;
-        border-radius: 10px;
-        background: linear-gradient(180deg, #9af6ff, #5fe6f7);
-        color: #052026;
-        font: inherit;
-        font-weight: 700;
-        cursor: pointer;
-        transition:
-          filter 0.12s,
-          transform 0.06s;
-      }
-      .menu-go:hover {
-        filter: brightness(1.08);
-      }
-      .menu-go:active {
-        transform: translateY(1px);
-      }
-      .menu-go:disabled {
-        opacity: 0.45;
-        cursor: not-allowed;
-      }
-      .menu-go--ghost {
-        margin-top: 8px;
-        background: transparent;
-        border: 1px solid rgba(126, 160, 200, 0.28);
-        color: #cdd8e8;
-        font-weight: 600;
-      }
-      .menu-go--ghost:hover {
-        border-color: rgba(126, 242, 255, 0.5);
-        background: rgba(19, 26, 41, 0.6);
-        filter: none;
-      }
-      /* A button sharing a row with an input (e.g. Join beside the code field)
-         sizes to its label instead of stealing the whole row. */
-      .menu-row .menu-go {
-        width: auto;
-        margin-top: 0;
-        white-space: nowrap;
-      }
-      .menu-lobbies {
-        display: flex;
-        flex-direction: column;
-        max-height: 210px;
-        overflow-y: auto;
-      }
-      .menu-lobby {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 0;
-        border-bottom: 1px solid rgba(126, 160, 200, 0.12);
-      }
-      .menu-lobby-name {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: #cdd8e8;
-      }
-      .menu-lobby .menu-go {
-        width: auto;
-        margin-top: 0;
-        padding: 7px 13px;
-      }
-      .menu-lobby .menu-code {
-        letter-spacing: normal;
-        text-transform: none;
-        font-size: 14px;
-        padding: 7px 10px;
-      }
-      .menu-check {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin: 8px 0;
-        color: #b6c2d4;
-        cursor: pointer;
-      }
-      .menu-check input {
-        accent-color: #7ef2ff;
-      }
-      .menu-hint {
-        margin: 8px 0 0;
-        color: #8093a9;
-        font-size: 12.5px;
-      }
-      .menu-hint a {
-        color: #7ef2ff;
-      }
-      .menu-err {
-        margin-top: 8px;
-        color: #fca5a5;
-        font-size: 12.5px;
-        min-height: 1em;
-      }
-      .menu-footer {
-        display: flex;
-        gap: 6px;
-        margin-top: auto;
-        padding-top: 8px;
-      }
-      .menu-link {
-        padding: 7px 11px;
-        border: 1px solid transparent;
-        border-radius: 9px;
-        background: transparent;
-        color: #9fb0c8;
-        font: inherit;
-        font-size: 13px;
-        cursor: pointer;
-      }
-      .menu-link:hover {
-        color: #e2e8f0;
-        background: rgba(19, 26, 41, 0.5);
-      }
-      .menu-link.is-active {
-        color: #7ef2ff;
-        border-color: rgba(126, 242, 255, 0.3);
-      }
-      .menu-link--accent {
-        margin-left: auto;
-        color: #fbbf24;
-      }
-      .menu-h2 {
-        margin: 4px 0 8px;
-        font-size: 12px;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: #7f8ea6;
-      }
-      .menu-h2:not(:first-child) {
-        margin-top: 16px;
-      }
-      .menu-keys {
-        display: grid;
-        gap: 4px;
-      }
-      .menu-key-row {
-        display: flex;
-        align-items: baseline;
-        gap: 10px;
-      }
-      .menu-key-row kbd {
-        flex: 0 0 140px;
-        color: #dbe4f0;
-        font: 12px/1.6 ui-monospace, monospace;
-      }
-      .menu-key-row span {
-        color: #8ea0ba;
-        font-size: 13px;
-      }
-      .menu-credits {
-        color: #55617a;
-        font-size: 11px;
-      }
       #fade-cover {
         position: fixed;
         inset: 0;
@@ -769,18 +351,6 @@
       }
       #fade-cover.is-on {
         opacity: 1;
-      }
-      @media (max-width: 640px) {
-        .menu-rail {
-          width: 100vw;
-          border-right: 0;
-        }
-        .menu-scrim {
-          width: 100%;
-        }
-        .menu-title {
-          font-size: 38px;
-        }
       }
     </style>
   </head>
