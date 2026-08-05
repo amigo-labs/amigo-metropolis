@@ -35,6 +35,7 @@ import {
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
+  MATCH_SNAPSHOT_LEN,
   MAX_ENTITIES,
   MAX_PLAYERS,
   type MatchConfig,
@@ -48,6 +49,7 @@ import {
   type TickInputs,
   URBAN_JUNGLE_ID,
   worldExtent,
+  writeMatchSnapshot,
   writeSnapshot,
 } from "@metropolis/sim";
 import * as THREE from "three";
@@ -88,6 +90,7 @@ import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend"
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx } from "./render/fx";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
+import { createMatchHud, type MatchHud } from "./render/hud/hud";
 import { loadMapMesh } from "./render/meshMap";
 import { ATMOSPHERE_HEX } from "./render/palette";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
@@ -391,6 +394,9 @@ let snapPrev = new Float32Array(MAX_ENTITIES * SNAPSHOT_STRIDE);
 let snapCurr = new Float32Array(MAX_ENTITIES * SNAPSHOT_STRIDE);
 let countPrev = 0;
 let countCurr = 0;
+// Match scalars (points, ammo, respawn, unit counts). Preallocated like the
+// entity snapshots — rotateSnapshot() refills it every tick, never reallocates.
+const matchSnap = new Float32Array(MATCH_SNAPSHOT_LEN);
 
 const keyboard = new PlayerOneInput(window);
 // In touch mode the local player's device is the on-screen overlay instead;
@@ -670,9 +676,11 @@ let mouseLook: MouseLook = createMouseLook(renderer.domElement);
 
 // Small fixed DOM label (overlay idiom: only write on change). Shows the fly
 // controls and the active texture variant while debugging.
+// Sits above the HUD's ammo row rather than on it: the ammo numbers are the
+// game, this is scaffolding, so the scaffolding is what moves.
 const debugLabelEl = document.createElement("div");
 debugLabelEl.style.cssText =
-  "position:fixed;left:8px;bottom:8px;z-index:30;padding:4px 8px;" +
+  "position:fixed;left:8px;bottom:56px;z-index:30;padding:4px 8px;" +
   "font:12px/1.4 monospace;color:#cfd8e3;background:rgba(10,14,20,.7);" +
   "border-radius:4px;pointer-events:none;display:none;white-space:pre";
 document.body.appendChild(debugLabelEl);
@@ -935,6 +943,7 @@ function fillEnemies(slot: number): number {
 
 // Set once the match starts (after the lobby, if any).
 let views: PlayerView[] = [];
+let matchHud: MatchHud | undefined;
 const viewBySlot: (PlayerView | undefined)[] = new Array(MAX_PLAYERS).fill(undefined);
 let orbitControls: OrbitControls | undefined;
 
@@ -1072,6 +1081,10 @@ function rotateSnapshot(): void {
   snapCurr = swap;
   countPrev = countCurr;
   countCurr = writeSnapshot(sim, snapCurr);
+  // Per-match scalars for the graphical HUD. Written into a preallocated buffer
+  // right beside the entity snapshot so the HUD reads only the snapshot
+  // interface (renderer rule 4), never sim internals.
+  writeMatchSnapshot(sim, matchSnap);
 }
 
 function renderEntities(alpha: number, dtSec: number): void {
@@ -1203,6 +1216,16 @@ function updateRigCamera(view: PlayerView, dtSec: number): void {
 
 let hudFrames = 0;
 let hudLastUpdate = 0;
+let matchHudLastUpdate = 0;
+
+/**
+ * Left inset for the text HUD. Under ?debug both HUDs are on screen and the
+ * graphical one's radar owns the top-left corner, so the text clears it —
+ * scaffolding moves, the game does not. 160 = radar (132) + its margin.
+ */
+function textHudInset(): number {
+  return matchHud && params.has("debug") ? 160 : 8;
+}
 
 function refreshHud(fps: number): void {
   unitCounts[0] = 0;
@@ -1337,6 +1360,15 @@ function frame(now: number): void {
     }
   }
 
+  // Graphical HUD at 10 Hz. It writes only on change and allocates nothing, but
+  // the radar still clears and redraws a canvas, so it gets its own cadence
+  // rather than riding the frame. 100 ms is under the health bar's 0.18 s
+  // transition, so damage still reads as a smooth drain.
+  if (matchHud && now - matchHudLastUpdate > 100) {
+    matchHudLastUpdate = now;
+    matchHud.refresh(matchSnap, snapCurr, countCurr, extent);
+  }
+
   hudFrames++;
   if (now - hudLastUpdate > 1000) {
     refreshHud(hudFrames);
@@ -1379,7 +1411,23 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   mouseLook = createMouseLook(renderer.domElement, { initialYaw: views[0]?.cam.yaw ?? 0 });
   viewBySlot.fill(undefined);
   for (let v = 0; v < views.length; v++) viewBySlot[views[v].slot] = views[v];
-  layoutViews(views, "v", innerWidth, innerHeight);
+
+  // Graphical HUD for the local player. Skipped in the debug camera modes: they
+  // exist to look at the world, and a score readout over a free-fly shot is
+  // just in the way. The text HUD stays in all modes for the harnesses.
+  //
+  // Before layoutViews, not after: the text HUD's inset depends on whether this
+  // one exists.
+  matchHud?.destroy();
+  matchHud = flyMode || orbitMode ? undefined : createMatchHud(views[0]?.slot ?? 0);
+  layoutViews(views, "v", innerWidth, innerHeight, textHudInset());
+
+  // The text HUD keeps being written in every mode — globalThis.metropolisHud()
+  // is what the e2e and verification-pin harnesses assert against, so its
+  // content is a contract (docs/specs/ui.md §2). Once the graphical HUD is up it
+  // is just noise on screen, so hide it unless ?debug. textContent is unaffected
+  // by the class, so the harnesses read exactly what they always did.
+  document.body.classList.toggle("hud-text-hidden", matchHud !== undefined && !params.has("debug"));
 
   if (orbitMode && views.length === 1) {
     orbitControls = new OrbitControls(views[0].camera, renderer.domElement);
@@ -1720,7 +1768,7 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
   flyCam.aspect = innerWidth / innerHeight;
   flyCam.updateProjectionMatrix();
-  if (views.length > 0) layoutViews(views, "v", innerWidth, innerHeight);
+  if (views.length > 0) layoutViews(views, "v", innerWidth, innerHeight, textHudInset());
 });
 
 // The single persistent frame loop — every phase renders through it.

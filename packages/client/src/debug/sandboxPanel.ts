@@ -174,11 +174,16 @@ export function createSandboxPanel(deps: SandboxPanelDeps): SandboxPanel {
   spawnSection.appendChild(spawnStatus);
 
   // --- Weapons ----------------------------------------------------------------
-  // Same three-slot shape and the same CSS classes as the menu's weapons screen
-  // (menu.ts) — one visual language, and no second stylesheet to keep in sync.
+  // Same three-slot shape as the menu, but its own .sbx-weapon-* classes. These
+  // used to be the menu's: both screens listed the same cards, so sharing the
+  // rules was free. The menu's weapons screen is now the original's hardpoint
+  // layout — one box per slot showing only what is fitted — so there is nothing
+  // left to share, and a debug overlay must not depend on the menu bundle's
+  // stylesheet being loaded (docs/specs/ui.md §1). The rules moved to
+  // index.html beside the rest of this panel's.
   const weaponSection = el("div", "sbx-section");
   weaponSection.appendChild(el("div", "sbx-label", "Weapons"));
-  const kitSummary = el("div", "menu-loadout-summary");
+  const kitSummary = el("div", "sbx-kit-summary");
   weaponSection.appendChild(kitSummary);
 
   const slotLists: Record<keyof Loadout, readonly WeaponDef[]> = {
@@ -194,11 +199,11 @@ export function createSandboxPanel(deps: SandboxPanelDeps): SandboxPanel {
   const cards: Record<keyof Loadout, HTMLButtonElement[]> = { gun: [], heavy: [], special: [] };
 
   for (const key of ["gun", "heavy", "special"] as const) {
-    const row = el("div", "menu-weapon-row");
-    row.appendChild(el("div", "menu-weapon-slot", slotLabels[key]));
-    const picks = el("div", "menu-weapon-picks");
+    const row = el("div", "sbx-weapon-row");
+    row.appendChild(el("div", "sbx-weapon-slot", slotLabels[key]));
+    const picks = el("div", "sbx-weapon-picks");
     slotLists[key].forEach((w, i) => {
-      const card = el("button", "menu-weapon-card");
+      const card = el("button", "sbx-weapon-card");
       card.appendChild(el("b", undefined, w.name));
       card.appendChild(el("span", undefined, weaponLabel(w)));
       card.addEventListener("click", () => {

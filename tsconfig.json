@@ -1,0 +1,16 @@
+{
+  // Solution-style root config. It deliberately compiles NOTHING ("files": [])
+  // — each package's own tsconfig is authoritative and `bun run typecheck`
+  // fans out to them.
+  //
+  // It exists so tools that resolve a tsconfig from the repo root pick up the
+  // JSX dialect. `bun test` is the one that matters: it runs with cwd = root,
+  // and without this it transpiles .tsx against its default (React) and fails
+  // to resolve react/jsx-runtime. Menu screens are Preact (docs/specs/ui.md §1).
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
+  },
+  "files": []
+}

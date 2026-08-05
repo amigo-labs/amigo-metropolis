@@ -1,0 +1,705 @@
+/* Menu styles. Moved out of index.html's <style> block and restyled onto the
+ * cockpit tokens in ui/cockpit.css (docs/specs/ui.md §3).
+ *
+ * The frame-loop UI's rules stayed behind in index.html on purpose: its
+ * consumers are raw DOM and must not depend on this bundle being loaded.
+ *
+ * Layout is unchanged from the pre-port menu — a slim rail over the live arena,
+ * which is what makes the picker double as a preview. Only the weapons screen
+ * takes the full viewport, because it is its own screen in the original and the
+ * hardpoint column does not fit in a 444px rail.
+ */
+
+.menu-root {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  color: var(--ck-text);
+  font: 14px / 1.6 var(--ck-font);
+  transition: opacity 0.4s ease;
+}
+
+.menu-root.is-leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.menu {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+/* Left-edge scrim: darkens the arena behind the rail so text stays legible
+   while the rest of the map reads bright and immersive. */
+.menu-scrim {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: min(760px, 85vw);
+  background: linear-gradient(
+    90deg,
+    rgba(3, 8, 6, 0.93) 0%,
+    rgba(3, 8, 6, 0.72) 42%,
+    rgba(3, 8, 6, 0) 100%
+  );
+  pointer-events: none;
+}
+
+.menu-rail {
+  position: relative;
+  z-index: 1;
+  width: min(444px, 100vw);
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 34px 30px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: linear-gradient(180deg, rgba(5, 14, 12, 0.62), rgba(4, 10, 8, 0.8));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-right: 1px solid var(--ck-line-dim);
+}
+
+.menu-rail::-webkit-scrollbar {
+  width: 8px;
+}
+
+.menu-rail::-webkit-scrollbar-thumb {
+  background: rgba(126, 242, 255, 0.18);
+  border-radius: 8px;
+}
+
+/* --- Brand ---------------------------------------------------------------- */
+
+.menu-brand {
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-title {
+  margin: 6px 0 10px;
+  font-size: 46px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.02;
+  color: var(--ck-text-bright);
+  text-shadow: 0 2px 30px rgba(126, 242, 255, 0.18);
+}
+
+.menu-objective {
+  margin: 0;
+  color: var(--ck-text-dim);
+  font-size: 13.5px;
+}
+
+.menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* --- Arena picker --------------------------------------------------------- */
+
+.menu-arena-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+
+.menu-arena-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  color: var(--ck-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.14s,
+    background 0.14s;
+}
+
+.menu-arena-card:hover {
+  border-color: var(--ck-line);
+}
+
+.menu-arena-thumb {
+  width: 100%;
+  aspect-ratio: 1;
+  display: block;
+  object-fit: cover;
+  background: var(--ck-screen);
+}
+
+.menu-arena-name {
+  padding: 6px 8px;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+
+.menu-arena-card.is-active .menu-arena-name {
+  color: var(--ck-text-bright);
+}
+
+/* --- Loadout summary (opens the weapons stage) ---------------------------- */
+
+.menu-loadout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  color: var(--ck-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-loadout:hover {
+  border-color: var(--ck-line);
+}
+
+.menu-loadout-kit {
+  font-size: 13px;
+}
+
+.menu-loadout-cta {
+  color: var(--ck-text-dim);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* --- Modes ---------------------------------------------------------------- */
+
+.menu-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.menu-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 13px 15px;
+  color: var(--ck-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.14s,
+    background 0.14s,
+    transform 0.06s;
+}
+
+.menu-mode:hover {
+  border-color: var(--ck-line);
+}
+
+.menu-mode:active {
+  transform: translateY(1px);
+}
+
+.menu-mode b {
+  color: var(--ck-text-bright);
+}
+
+.menu-mode span {
+  color: var(--ck-text-dim);
+  font-size: 12px;
+}
+
+/* Localhost-only Fly/Sandbox debug — full-width under Solo/Online, and amber so
+   it never reads as a mode a player is meant to pick. */
+.menu-mode--debug {
+  grid-column: 1 / -1;
+  border: 1px solid rgba(240, 184, 73, 0.35);
+  border-radius: var(--ck-radius);
+  background: rgba(40, 32, 14, 0.55);
+}
+
+.menu-mode--debug:hover {
+  border-color: rgba(240, 184, 73, 0.65);
+  background: rgba(55, 42, 16, 0.7);
+}
+
+.menu-mode--debug span {
+  color: #c4a574;
+}
+
+/* --- Panels and controls -------------------------------------------------- */
+
+.menu-panel,
+.menu-drawer {
+  padding: 16px;
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.menu-label {
+  flex: 0 0 78px;
+  color: var(--ck-text);
+}
+
+.menu-value {
+  flex: 0 0 34px;
+  text-align: right;
+  color: var(--ck-line-bright);
+}
+
+.menu-slider {
+  flex: 1;
+  accent-color: var(--ck-line-bright);
+}
+
+.menu-select {
+  flex: 1;
+  padding: 9px 11px;
+  border: 1px solid var(--ck-line-dim);
+  border-radius: var(--ck-radius);
+  background: var(--ck-screen);
+  color: var(--ck-text-bright);
+  font: inherit;
+  cursor: pointer;
+}
+
+.menu-code {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 13px;
+  border: 1px solid var(--ck-line-dim);
+  border-radius: var(--ck-radius);
+  background: var(--ck-screen);
+  color: var(--ck-text-bright);
+  font:
+    600 18px / 1 ui-monospace,
+    monospace;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+.menu-code--text {
+  font: 500 14px / 1.2 var(--ck-font);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.menu-go {
+  width: 100%;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--ck-radius);
+  background: linear-gradient(180deg, #9af6ff, #5fe6f7);
+  color: #052026;
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: var(--ck-tracking);
+  cursor: pointer;
+  transition:
+    filter 0.12s,
+    transform 0.06s;
+}
+
+.menu-go:hover {
+  filter: brightness(1.08);
+}
+
+.menu-go:active {
+  transform: translateY(1px);
+}
+
+.menu-go:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.menu-go--ghost {
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid var(--ck-line-dim);
+  color: var(--ck-text);
+  font-weight: 600;
+}
+
+.menu-go--ghost:hover {
+  border-color: var(--ck-line);
+  background: var(--ck-fill);
+  filter: none;
+}
+
+/* A button sharing a row with an input (e.g. Join beside the code field) sizes
+   to its label instead of stealing the whole row. */
+.menu-row .menu-go {
+  width: auto;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+/* --- Lobbies -------------------------------------------------------------- */
+
+.menu-lobbies {
+  display: flex;
+  flex-direction: column;
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.menu-lobby {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ck-line-dim);
+}
+
+.menu-lobby-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ck-text);
+}
+
+.menu-lobby .menu-go {
+  width: auto;
+  margin-top: 0;
+  padding: 7px 13px;
+}
+
+.menu-lobby .menu-code {
+  letter-spacing: normal;
+  text-transform: none;
+  font-size: 14px;
+  padding: 7px 10px;
+}
+
+.menu-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  color: var(--ck-text);
+  cursor: pointer;
+}
+
+.menu-check input {
+  accent-color: var(--ck-line-bright);
+}
+
+/* --- Text ----------------------------------------------------------------- */
+
+.menu-hint {
+  margin: 8px 0 0;
+  color: var(--ck-text-dim);
+  font-size: 12.5px;
+}
+
+.menu-hint a {
+  color: var(--ck-line-bright);
+}
+
+.menu-err {
+  margin-top: 8px;
+  color: var(--ck-danger);
+  font-size: 12.5px;
+  min-height: 1em;
+}
+
+.menu-h2 {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ck-text-dim);
+}
+
+.menu-h2:not(:first-child) {
+  margin-top: 16px;
+}
+
+.menu-keys {
+  display: grid;
+  gap: 4px;
+}
+
+.menu-key-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.menu-key-row kbd {
+  flex: 0 0 140px;
+  color: var(--ck-text-bright);
+  font:
+    12px / 1.6 ui-monospace,
+    monospace;
+}
+
+.menu-key-row span {
+  color: var(--ck-text-dim);
+  font-size: 13px;
+}
+
+.menu-credits {
+  color: #45566a;
+  font-size: 11px;
+}
+
+/* --- Footer --------------------------------------------------------------- */
+
+.menu-footer {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.menu-link {
+  padding: 7px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--ck-radius);
+  background: transparent;
+  color: var(--ck-text-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.menu-link:hover {
+  color: var(--ck-text-bright);
+  background: var(--ck-fill);
+}
+
+.menu-link.is-active {
+  color: var(--ck-line-bright);
+  border-color: var(--ck-line-dim);
+}
+
+.menu-link--accent {
+  margin-left: auto;
+  color: var(--ck-warn);
+}
+
+/* --- Weapons stage -------------------------------------------------------- */
+
+/* Full-viewport console. The original's weapons screen is its own screen, and
+   the hardpoint column plus the X1 render needs more than the rail's 444px. */
+.menu-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  padding: clamp(12px, 3vh, 40px);
+  box-sizing: border-box;
+}
+
+.menu-screen {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--ck-line-dim);
+  border-radius: var(--ck-radius);
+  box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.8);
+  overflow-y: auto;
+}
+
+.wpn {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: clamp(16px, 4vh, 44px) clamp(16px, 4vw, 56px);
+  gap: clamp(12px, 3vh, 28px);
+}
+
+.wpn-head {
+  display: flex;
+  flex-direction: column;
+}
+
+.wpn-title {
+  margin: 2px 0 0;
+  font-size: clamp(26px, 4vw, 44px);
+  font-weight: 800;
+}
+
+/* Track 1 is `auto`, not a fraction: when the X1 frame hides itself because the
+   still has not been rendered yet, an auto track collapses to zero and the rack
+   takes the row. A fr track would hold a blank half-screen open. */
+.wpn-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  justify-content: center;
+  gap: clamp(16px, 4vw, 56px);
+}
+
+.wpn-mech {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.wpn-mech-img {
+  max-width: 100%;
+  max-height: min(52vh, 420px);
+  object-fit: contain;
+  filter: drop-shadow(0 12px 30px rgba(0, 0, 0, 0.7));
+}
+
+.wpn-rack {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 2vh, 18px);
+  margin: 0;
+  padding: 0;
+  max-width: 760px;
+  list-style: none;
+}
+
+.wpn-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 2vw, 22px);
+}
+
+/* The hardpoint itself: a bordered box showing only what is fitted, exactly as
+   the original presents it. Clicking cycles to the next weapon in the slot. */
+.wpn-box {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(84px, 12vw, 132px);
+  aspect-ratio: 17 / 12;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    border-color 0.14s,
+    background 0.14s;
+}
+
+.wpn-box:hover {
+  border-color: var(--ck-line);
+}
+
+.wpn-glyph {
+  width: 68%;
+  height: 68%;
+  fill: var(--ck-text);
+}
+
+.wpn-box.is-active .wpn-glyph {
+  fill: var(--ck-text-bright);
+}
+
+.wpn-info {
+  min-width: 0;
+}
+
+.wpn-slot {
+  font-size: 12px;
+}
+
+.wpn-name {
+  color: var(--ck-text-bright);
+  font-size: clamp(17px, 2.4vw, 27px);
+  font-weight: 700;
+  letter-spacing: var(--ck-tracking);
+  line-height: 1.15;
+}
+
+.wpn-blurb {
+  margin-top: 2px;
+  color: var(--ck-text-dim);
+  font-size: 12.5px;
+}
+
+.wpn-stats {
+  margin-top: 4px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.wpn-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Lavender, and the only lavender on the screen: this is the confirming action
+   (docs/specs/ui.md §3). */
+.wpn-ready {
+  padding: 10px 44px;
+  border: 1px solid var(--ck-accent);
+  border-radius: var(--ck-radius);
+  background: transparent;
+  color: var(--ck-accent-bright);
+  font: inherit;
+  font-size: clamp(18px, 2.6vw, 28px);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background 0.14s,
+    color 0.14s;
+}
+
+.wpn-ready:hover {
+  background: rgba(185, 166, 236, 0.16);
+}
+
+.wpn-hint {
+  margin: 0;
+  color: var(--ck-text-dim);
+  font-size: 12px;
+}
+
+.wpn-hint b {
+  color: var(--ck-text);
+  font-weight: 700;
+}
+
+/* --- Narrow ---------------------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .menu-rail {
+    width: 100vw;
+    border-right: 0;
+  }
+
+  .menu-scrim {
+    width: 100%;
+  }
+
+  .menu-title {
+    font-size: 38px;
+  }
+
+  /* Stack the X1 above the rack rather than squeezing both. */
+  .wpn-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .wpn-mech {
+    display: none;
+  }
+}
