@@ -1259,10 +1259,7 @@ export function hitscan(
       ent.archetype[shooter] === ARCHETYPE.WARDEN &&
       ent.archetype[bestId] >= ARCHETYPE.RUNNER &&
       ent.archetype[bestId] <= ARCHETYPE.FORTRESS;
-    if (
-      !flyerSoft &&
-      segmentBlocked(state.map, ox, oy, ox + dx * bestT, oy + dy * bestT)
-    ) {
+    if (!flyerSoft && segmentBlocked(state.map, ox, oy, ox + dx * bestT, oy + dy * bestT)) {
       return;
     }
     applyDamage(state, bestId, damage, player);

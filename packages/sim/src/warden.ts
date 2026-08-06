@@ -637,5 +637,3 @@ function foremostGroundUnit(state: SimState, team: number): number {
   }
   return best;
 }
-
-

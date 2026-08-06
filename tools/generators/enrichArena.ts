@@ -48,8 +48,8 @@ import {
   type MapData,
   type MapJson,
   openLine,
-  resolveHeight,
   reachableFrom,
+  resolveHeight,
   roadProbes,
   sampleHeight,
   segmentWalkable,
@@ -217,9 +217,7 @@ function surfacesAt(map: MapData, x: number, y: number): { layer: number; h: num
   const s = map.size;
   const i = Math.min(s - 1, Math.max(0, Math.floor(x / map.cellSize)));
   const j = Math.min(s - 1, Math.max(0, Math.floor(y / map.cellSize)));
-  const out: { layer: number; h: number }[] = [
-    { layer: 0, h: resolveHeight(map, x, y, 0) },
-  ];
+  const out: { layer: number; h: number }[] = [{ layer: 0, h: resolveHeight(map, x, y, 0) }];
   for (let L = 0; L < map.layerHeights.length; L++) {
     if (map.layerMask[L][j * s + i] !== 1) continue;
     out.push({ layer: L + 1, h: resolveHeight(map, x, y, L + 1) });
@@ -1173,8 +1171,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     const halfL = Math.max(0.5, round4(t.lengthRaw / 8192 / 2));
     const c0 = bases[0].core as number[];
     const c1 = bases[1].core as number[];
-    const team =
-      Math.hypot(x - c0[0], y - c0[1]) < Math.hypot(x - c1[0], y - c1[1]) ? 0 : 1;
+    const team = Math.hypot(x - c0[0], y - c0[1]) < Math.hypot(x - c1[0], y - c1[1]) ? 0 : 1;
     const key = `${x}|${y}|${halfW}|${halfL}|${team}`;
     if (seenVolume.has(key)) continue;
     seenVolume.add(key);

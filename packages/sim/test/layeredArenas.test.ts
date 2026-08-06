@@ -275,12 +275,13 @@ describe("the layered arenas' decks are enterable but their layouts are not impo
       // uses the authored cast, which is what made Hk's streets unusable when
       // flattened to the canal floor.
       expect(map.laneGraph).toBeDefined();
-      expect(map.laneGraph!.nodes.length).toBeGreaterThan(50);
+      expect(map.laneGraph?.nodes.length).toBeGreaterThan(50);
       expect(map.weapons.length).toBeGreaterThan(0);
       expect(map.turretSpots.length).toBeGreaterThan(4);
       // At least some lane nodes sit on a deck (Hk: all of them; Ovmp: ~20%).
       let onDeck = 0;
-      for (const n of map.laneGraph!.nodes) {
+      const nodes = map.laneGraph!.nodes;
+      for (const n of nodes) {
         if (n.layer > 0) onDeck += 1;
       }
       expect(onDeck).toBeGreaterThan(0);

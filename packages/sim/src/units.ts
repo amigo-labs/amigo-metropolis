@@ -90,8 +90,7 @@ export function nearestEnemyInRange(
       // dense city lattice the flyer sits above. Soft targets (ground units)
       // remain acquirable so the AI can clear a lane without sniping turrets
       // from standoff. Avatars still respect walls via the same path.
-      const flyerSoft =
-        ent.archetype[id] === ARCHETYPE.WARDEN && isGroundUnit(archetype);
+      const flyerSoft = ent.archetype[id] === ARCHETYPE.WARDEN && isGroundUnit(archetype);
       if (!flyerSoft && segmentBlocked(state.map, x, y, ent.posX[t], ent.posY[t])) {
         continue; // wall between us — invisible, so neither halt nor shot
       }
