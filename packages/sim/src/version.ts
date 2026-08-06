@@ -368,4 +368,9 @@
 //     move — no height changed — and the terrain .glb's independent correlation
 //     against the heightfield IMPROVED, 0.939 to 0.982, because the art has
 //     always had geometry at those deck heights and now has somewhere to match.
-export const SIM_VERSION = 22;
+// v23: feature `layer` on map features (issue #33) + Cnet ground_cast on lane
+//     nodes, with units snapping onto a node's surface when close. hollywood-
+//     keys and venice-beach adopt stage 2. Single-storey wall lattices rebuild
+//     with a few bits moved (road carve); la-cantina's 26 bridge nodes carry
+//     layer 1. Default layer 0 is a no-op on district-01 / test maps.
+export const SIM_VERSION = 23;

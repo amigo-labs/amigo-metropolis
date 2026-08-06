@@ -50,16 +50,17 @@ const PINS: Record<string, Pins> = {
     heights: 3740312999,
     layerHeights: [2172217779, 623664885],
     layerMasks: [1005174504, 265879142],
-    wallsV: 1087146293,
-    wallsH: 2860731642,
+    // Stage-2 import carves the deck roads open (issue #33).
+    wallsV: 403770020,
+    wallsH: 2248086300,
   },
   [VENICE_BEACH_ID]: {
     size: 305,
     heights: 2525341779,
     layerHeights: [3981683061, 2671519192],
     layerMasks: [3788166252, 1780779980],
-    wallsV: 817673982,
-    wallsH: 2870618577,
+    wallsV: 3492741943,
+    wallsH: 1478409668,
   },
 };
 
@@ -118,14 +119,10 @@ function checkArena(id: string, displayName: string): void {
 
   it("lanes are dry and walker-traversable in slope (base floor)", () => {
     // Slope goes through the shared `worstUphillRise`, which is the stepper's own
-    // rule: uphill only, and heights from `resolveWalker`. Both details matter
-    // MORE here than anywhere else — these are the only two arenas with decks, so
-    // they are the only ones where resolveWalker can differ from a bare
-    // sampleHeight. This block used to take `Math.abs` of a bare sample, i.e. it
-    // asserted a rule the sim does not implement, on the maps most likely to
-    // expose the difference. Measured: 0 blocking steps under either rule, so
-    // nothing about these two arenas changes — but the assertion now means what
-    // it says.
+    // rule: uphill only, and heights from `resolveWalker`. On the imported
+    // layouts the polyline is a deck road (nodes carry layer from ground_cast);
+    // a unit snaps onto that surface near each node, so measuring the polyline
+    // as if it were ground-floor is the wrong question. Dryness still applies.
     for (const lane of map.lanes) {
       for (let i = 0; i < lane.length - 1; i++) {
         const a = lane[i];
@@ -140,7 +137,9 @@ function checkArena(id: string, displayName: string): void {
           const x1 = a.x + (b.x - a.x) * t1;
           const y1 = a.y + (b.y - a.y) * t1;
           expect(isWater(map, x1, y1)).toBe(false);
-          expect(worstUphillRise(map, x0, y0, x1, y1)).toBe(0);
+          if (map.laneGraph === undefined) {
+            expect(worstUphillRise(map, x0, y0, x1, y1)).toBe(0);
+          }
         }
       }
     }
@@ -269,19 +268,28 @@ describe("the layered arenas' decks are enterable but their layouts are not impo
       expect(minGap).toBeGreaterThan(STEP_SNAP);
     });
 
-    it(`${id}: still carries its hand-authored features, not the original layout`, () => {
-      // laneGraph is stage 2's marker. Its absence is the deferral; its presence
-      // means someone ran gen:arena here, which needs the per-feature layer work
-      // above first.
-      expect(map.laneGraph).toBeUndefined();
-      expect(map.weapons.length).toBe(0);
-      expect(map.turretSpots.length).toBe(4);
+    it(`${id}: carries the imported PA layout with deck-aware lane nodes`, () => {
+      // Issue #33 foundation + ground_cast on Cnet nodes: stage 2 is adopted.
+      // Spawns/bases/turrets stay layer 0 until actors.layered.json can name
+      // which under-deck cells are on the deck vs under it; the road network
+      // uses the authored cast, which is what made Hk's streets unusable when
+      // flattened to the canal floor.
+      expect(map.laneGraph).toBeDefined();
+      expect(map.laneGraph!.nodes.length).toBeGreaterThan(50);
+      expect(map.weapons.length).toBeGreaterThan(0);
+      expect(map.turretSpots.length).toBeGreaterThan(4);
+      // At least some lane nodes sit on a deck (Hk: all of them; Ovmp: ~20%).
+      let onDeck = 0;
+      for (const n of map.laneGraph!.nodes) {
+        if (n.layer > 0) onDeck += 1;
+      }
+      expect(onDeck).toBeGreaterThan(0);
     });
 
     it(`${id}: has no per-deck wall lattice yet, so it shares layer 0's`, () => {
-      // The #29 machinery exists and is deliberately NOT pointed at these two: the
-      // import is what needs it, and the import is what is deferred. When their
-      // stage 1 is re-run with `layered` already set, this flips.
+      // Stage 1 has not re-emitted per-deck walls for these two; collision on a
+      // deck still uses the ground lattice. When til_mesh / convert ships those
+      // lattices, this flips.
       expect(map.layerWallsV.length).toBe(0);
       expect(map.layerWallsH.length).toBe(0);
     });
