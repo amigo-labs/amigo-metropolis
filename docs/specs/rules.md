@@ -57,15 +57,17 @@ Design pillars, in priority order:
   `fcop-arenas.test.ts` pins both counts per arena.
 - Same three weapon slots in both modes: primary (hitscan-ish rapid),
   heavy (projectile, AoE), special (slow, high damage).
-- **The weapon catalog carries the original's numbers** (SIM_VERSION 21).
-  Future Cop has 15 weapons, five per slot, with the slot in the high nibble of
-  the weapon id (`0x0x` Gun, `0x1x` Heavy, `0x2x` Special). Damage and firing
-  rate are published in the game's own front-end: one 134x40 panel per weapon in
-  `febmp.bin`, a green rate bar and a red damage bar in a 55 px trough, bar
-  length = value. There is no finer numeric table in the executable or the data.
-  Seven of Metropolis' nine weapons exist there and take those values:
-  Powered Mini-Gun, Gatling Laser, Flamethrower, Hell Fire 2000, Concussion Beam,
-  Mortar Launcher, Plasma Flare — display names included.
+- **The weapon catalog carries the original's numbers** (SIM_VERSION 21, four
+  more table rows in SIM_VERSION 23 — issue #48). Future Cop has 15 weapons,
+  five per slot, with the slot in the high nibble of the weapon id (`0x0x` Gun,
+  `0x1x` Heavy, `0x2x` Special). Damage and firing rate are published in the
+  game's own front-end: one 134x40 panel per weapon in `febmp.bin`, a green rate
+  bar and a red damage bar in a 55 px trough, bar length = value. There is no
+  finer numeric table in the executable or the data. Eleven of Metropolis'
+  thirteen weapons exist there and take those values: Powered Mini-Gun, Gatling
+  Laser, Flamethrower, Electric Gun, Hell Fire 2000, Hyper Velocity Rocket,
+  Fusion Torpedo, Concussion Beam, Mortar Launcher, Grenade Launcher, Plasma
+  Flare — display names included.
 - The bars are **ratios**, so they are anchored **per slot**: each slot's index-0
   weapon keeps this game's existing numbers and the rest scale against it inside
   that slot. Anchoring across slots was tried and does not work — it puts Hell
@@ -80,17 +82,19 @@ Design pillars, in priority order:
      beam, and that is on neither bar.
   2. Ranges, projectile speeds, TTLs, AoE radii and magazine sizes are **ours
      throughout** — the panels carry rate and damage only.
-- Two of the nine are Metropolis' own and are marked as such in the catalog:
-  Cluster Bomb and Rail Cannon. The eight original weapons Metropolis does not
-  have (Electric Gun, Riot Shield, Hyper Velocity Rocket, Fusion Torpedo, K-9
-  Drone, Pop-Up Mines, Shockwave Generator, Grenade Launcher) are tracked as
-  issues, not approximated: a deployable shield, a drone and mines are new
-  mechanics, not table rows.
+- Two of the thirteen are Metropolis' own and are marked as such in the catalog:
+  Cluster Bomb and Rail Cannon. They stay even though Heavy now has six entries
+  (original five, plus our two, minus nothing) — retiring them would throw away
+  shipped identity for a count the original already no longer matches.
+- Four original weapons are still missing and are **not** table rows: Riot Shield
+  (deployable shield), K-9 Drone (autonomous ally), Pop-Up Mines (persistent
+  placed entities), Shockwave Generator (self-centred expanding AoE). Tracked
+  under issue #48.
 - Slot membership follows the original too: the **Concussion Beam is a Heavy**
-  (`Beam Cannon`, `0x12`), not a Special, so Heavy has four entries and Special
-  two. Its id-to-name pairing was made by elimination, so which heavy id it is
-  is not certain — that it is a heavy does not rest on the elimination, since
-  both leftover ids were heavies.
+  (`Beam Cannon`, `0x12`), not a Special. Gun has four entries, Heavy six,
+  Special three. Its id-to-name pairing was made by elimination, so which heavy
+  id it is is not certain — that it is a heavy does not rest on the elimination,
+  since both leftover ids were heavies.
 - Ammo: primary infinite; heavy/special finite, refilled at own Base/Outpost pads.
 - Death: respawn at own Base after `RESPAWN_TICKS` (placeholder: 8 s).
   Killer's owner earns **10 pts**.

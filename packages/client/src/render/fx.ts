@@ -19,6 +19,9 @@ import {
   type EventBuffer,
   PRIMARY_RANGE,
   PROJ_CLUSTER,
+  PROJ_FUSION,
+  PROJ_GRENADE,
+  PROJ_HYPER,
   PROJ_MORTAR,
   PROJ_RAIL,
   PROJ_SPECIAL,
@@ -244,6 +247,9 @@ function explosionTint(kind: number): number {
   if (kind === PROJ_CLUSTER) return PROJECTILE_HEX[4] ?? 0xff7020;
   if (kind === PROJ_RAIL) return PROJECTILE_HEX[5] ?? 0xc0e8ff;
   if (kind === PROJ_MORTAR) return PROJECTILE_HEX[6] ?? 0xffa060;
+  if (kind === PROJ_HYPER) return PROJECTILE_HEX[7] ?? 0xffe8a0;
+  if (kind === PROJ_FUSION) return PROJECTILE_HEX[8] ?? 0x60e0ff;
+  if (kind === PROJ_GRENADE) return PROJECTILE_HEX[9] ?? 0xc8f060;
   return 0xffffff; // original fireball colors when atlas is bound
 }
 
@@ -262,6 +268,7 @@ function hitscanLook(weaponId: number): HitscanLook {
   if (vfx === "laser") return { length, core: 0xffffff, halo: 0x7ef2ff, thick: 1.1 };
   if (vfx === "flame") return { length, core: 0xffe080, halo: 0xff6020, thick: 1.8 };
   if (vfx === "beam") return { length, core: 0xffffff, halo: 0xd080ff, thick: 1.4 };
+  if (vfx === "electric") return { length, core: 0xe8ffff, halo: 0x40c0ff, thick: 1.25 };
   // minigun default
   return { length, core: 0xffffff, halo: 0xffe08a, thick: 1 };
 }
@@ -426,11 +433,11 @@ export function createFx(scene: THREE.Scene): ShotFx {
       } else if (type === EV_EXPLOSION) {
         // c = projectile kind (mode).
         const endScale =
-          c === PROJ_SPECIAL || c === PROJ_MORTAR
+          c === PROJ_SPECIAL || c === PROJ_MORTAR || c === PROJ_GRENADE
             ? 5.5
-            : c === PROJ_WARDEN || c === PROJ_CLUSTER
+            : c === PROJ_WARDEN || c === PROJ_CLUSTER || c === PROJ_FUSION
               ? 7.0
-              : c === PROJ_RAIL
+              : c === PROJ_RAIL || c === PROJ_HYPER
                 ? 3.2
                 : EXPLOSION_END;
         const slot = explosions.count;
@@ -452,11 +459,11 @@ export function createFx(scene: THREE.Scene): ShotFx {
         }
         // Shockwave rides the ground under the fireball (procedural — no ring sprite).
         const waveEnd =
-          c === PROJ_WARDEN || c === PROJ_CLUSTER
+          c === PROJ_WARDEN || c === PROJ_CLUSTER || c === PROJ_FUSION
             ? 10
-            : c === PROJ_SPECIAL || c === PROJ_MORTAR
+            : c === PROJ_SPECIAL || c === PROJ_MORTAR || c === PROJ_GRENADE
               ? 7
-              : c === PROJ_RAIL
+              : c === PROJ_RAIL || c === PROJ_HYPER
                 ? 3
                 : SHOCKWAVE_END;
         const wslot = shockwaves.count;

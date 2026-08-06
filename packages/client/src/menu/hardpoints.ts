@@ -29,7 +29,7 @@ export const HARDPOINTS: readonly HardpointSpec[] = [
  * is a value cycler with no visible list to run off the end of, so stopping at
  * the last option would just look broken.
  *
- * Slot lengths differ (3 guns, 4 heavies, 2 specials), so the modulo has to be
+ * Slot lengths differ (4 guns, 6 heavies, 3 specials), so the modulo has to be
  * per slot — a shared length would silently pick the wrong weapon.
  */
 export function cycleHardpoint(loadout: Loadout, hardpoint: Hardpoint, delta: number): Loadout {

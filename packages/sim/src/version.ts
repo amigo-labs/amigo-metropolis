@@ -385,4 +385,7 @@
 //         that motivated WGOAL_SUPPRESS. urban-jungle's mid-map free-production
 //         stream was 80% LOS-blocked; silencing that stream alone razed the
 //         core in ~200 s, and with (c) all four arenas resolve 5/5 seeds.
-export const SIM_VERSION = 24;
+// v25: four original weapons as catalog drop-ins (issue #48) — Electric Gun,
+//     Hyper Velocity Rocket, Fusion Torpedo, Grenade Launcher. Append-only;
+//     default loadout / goldens header-only.
+export const SIM_VERSION = 25;

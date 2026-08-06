@@ -89,9 +89,10 @@ describe("weapons screen", () => {
 
   test("lists all three hardpoints with slot position and catalog size", () => {
     const html = weapons(baseState({ stage: "weapons" }));
-    expect(html).toContain("Gun (1/3)");
-    expect(html).toContain("Heavy (1/4)");
-    expect(html).toContain("Special (1/2)");
+    // Catalog sizes after #48 drop-ins: 4 guns, 6 heavies, 3 specials.
+    expect(html).toContain("Gun (1/4)");
+    expect(html).toContain("Heavy (1/6)");
+    expect(html).toContain("Special (1/3)");
   });
 
   test("shows only the weapon fitted to each hardpoint, not the catalog", () => {
@@ -100,7 +101,7 @@ describe("weapons screen", () => {
     const html = weapons(
       baseState({ stage: "weapons", loadout: { gun: 1, heavy: 0, special: 0 } }),
     );
-    expect(html).toContain("Gun (2/3)");
+    expect(html).toContain("Gun (2/4)");
     expect(html).not.toContain("Powered Mini-Gun");
   });
 
