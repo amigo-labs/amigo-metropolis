@@ -268,59 +268,44 @@ function decide(state: SimState, id: number, d: number): void {
     }
   }
 
-  // 4. Commit to a push that has arrived. Under §9, reaching the enemy core is
-  // where the work starts rather than where it ends: 300 unit-shots into 3000 HP
-  // with the ring and the base's own guns answering. A Warden that flies off to
-  // capture its 30th pad at that moment throws the match away — measured during
-  // an escorted push, capture took 67-75% of its ticks on urban-jungle and
-  // la-cantina against 9% escorting. Under §1 there is nothing to escort: a unit
-  // that arrives at the gate has already won.
+  // 4. Living push on a §9 arena. Under §9 a unit at the enemy core still has
+  // to raze 3000 HP while the base shoots back; flying off for pads throws that
+  // away. Commit-range used to gate this rung, so a mid-map tip lost to CAPTURE
+  // — urban-jungle: tip inside 45 m only 16% of a ten-minute match (mean 82 m)
+  // while CAPTURE took 34% of ticks. Any living tip now outranks capture.
   //
-  // Below the buy goals on purpose. Buying feeds the push and is a short errand
-  // (8-17% of ticks measured); capturing is the errand that loses matches.
+  // Suppress first when something is stopping the tip (v20: no standoff LOS,
+  // close to WARDEN_SUPPRESS_DISTANCE). Escort otherwise. Under §1 a unit at the
+  // gate has already won, so this block is gated on hasCore.
   //
-  // Escorting an arrived push is necessary but not sufficient, and the gap between
-  // the two is what a §9 arena's geometry does to a superplane. Measured over
-  // ten-minute difficulty-8 matches against an idle player, the Warden already
-  // arrives — 64-86% of its ticks on ESCORT, a mean 34-43 m from the enemy core,
-  // its push tip at 75-82% of the lane — and then holds a target for 1-18% of the
-  // match and lands 1.6-9.3k damage where its own cooldowns allow ~66k. A base
-  // emplacement is inside its cannon range 60-89% of the time and visible 0-7% of
-  // it. It is not out of position and it is not mistargeting; there is a wall in
-  // the way, and no standoff position exists (see WARDEN_SUPPRESS_DISTANCE).
-  //
-  // So on arrival the first question is what is STOPPING the push, not who to fly
-  // alongside. Escort remains the fallback, and stays the goal whenever nothing is
-  // in the way — which is also what keeps the rung honest on an arena whose last
-  // stretch is open.
-  if (hasCore(state, enemy)) {
-    const commit = WARDEN_PUSH_COMMIT_RANGE[d];
+  // Below the buy goals on purpose — buying feeds the push and is a short errand.
+  // Measured with BASE_TURRET_RESPAWN 120 s (issue #31): la-cantina, proving-
+  // ground and bug-hunt resolve d8 vs idle; urban-jungle still stalls mid-map
+  // (tip mean ~80 m) — a push-arrival problem, not a capture distraction.
+  if (hasCore(state, enemy) && WARDEN_PUSH_COMMIT_RANGE[d] > 0) {
     const tip = foremostGroundUnit(state, me);
-    if (commit > 0 && tip >= 0) {
-      const core = state.map.bases[enemy].core;
-      const tdx = ent.posX[tip] - core.x;
-      const tdy = ent.posY[tip] - core.y;
-      if (tdx * tdx + tdy * tdy <= commit * commit) {
-        const blocker = emplacementBlocking(state, tip, enemy);
-        if (blocker >= 0) {
-          setGoal(state, WGOAL_SUPPRESS, blocker);
-          return;
-        }
-        setGoal(state, WGOAL_ESCORT, tip);
+    if (tip >= 0) {
+      const blocker = emplacementBlocking(state, tip, enemy);
+      if (blocker >= 0) {
+        setGoal(state, WGOAL_SUPPRESS, blocker);
         return;
       }
+      setGoal(state, WGOAL_ESCORT, tip);
+      return;
     }
   }
 
   // 5. Map control: hover a neutral turret into ownership (presence is
-  // currency — the superplane captures like any avatar).
+  // currency — the superplane captures like any avatar). On §9 this only runs
+  // when the field has no friendly ground unit left to cover.
   const spot = nearestNeutralTurretSpot(state, id);
   if (spot >= 0) {
     setGoal(state, WGOAL_CAPTURE, spot);
     return;
   }
 
-  // 6. Escort the push: fly cover for our ground unit closest to their gate.
+  // 6. Escort on gate-breach arenas (no core): fly cover for the tip. §9 already
+  // handled a living tip above; this is the §1 path and the no-core fallback.
   const front = foremostGroundUnit(state, me);
   if (front >= 0) {
     setGoal(state, WGOAL_ESCORT, front);
@@ -633,3 +618,5 @@ function foremostGroundUnit(state: SimState, team: number): number {
   }
   return best;
 }
+
+

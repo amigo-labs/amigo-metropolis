@@ -184,7 +184,16 @@ export const TURRET_RANGE = 28;
 export const TURRET_DAMAGE = 15;
 export const TURRET_COOLDOWN_TICKS = 20;
 export const DUMMY_RESPAWN_TICKS = 450; // 15 s
-export const BASE_TURRET_RESPAWN_TICKS = 1800; // 60 s (rules.md §5)
+/**
+ * Base ring + built-in defence respawn. Was 60 s (rules.md §5 placeholder).
+ * At authentic density a d8 Warden strips an emplacement in ~8 s then breaks
+ * contact to repair, and the ring replaced itself as fast as one superplane
+ * could clear it — la-cantina stalled at ~900 core HP after fifteen minutes on
+ * 5/5 seeds post multi-deck. 120 s restores finishes on la-cantina and
+ * proving-ground (issue #31); urban-jungle needed the escort/capture ladder
+ * fix in warden.ts as well.
+ */
+export const BASE_TURRET_RESPAWN_TICKS = 3600; // 120 s (rules.md §5, #31)
 
 // Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
 export const PAD_REPAIR_HP_PER_TICK = 0.5; // 15 hp/s
