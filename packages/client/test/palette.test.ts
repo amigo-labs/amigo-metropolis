@@ -67,8 +67,10 @@ describe("team ramps", () => {
 });
 
 describe("projectile tints", () => {
-  test("seven kinds, primary tracer is white", () => {
-    expect(PROJECTILE_HEX.length).toBe(7);
+  test("ten kinds (three drop-ins from #48), primary tracer is white", () => {
+    // 0 unused/muzzle, 1 hellfire, 2 plasma, 3 warden, 4 cluster, 5 rail,
+    // 6 mortar, 7 hyper, 8 fusion, 9 grenade.
+    expect(PROJECTILE_HEX.length).toBe(10);
     expect(PROJECTILE_HEX[0]).toBe(paletteHex("muzzle"));
     expect(PROJECTILE_HEX[0]).toBe(0xffffff);
     expect(PROJECTILE_HEX[3]).toBe(paletteHex("warden_bomb"));

@@ -1,6 +1,6 @@
 // Hardpoint cycling for the weapons screen. Pure, so it runs without a DOM.
 //
-// The slot lengths differ (3 guns, 4 heavies, 2 specials) and that asymmetry is
+// The slot lengths differ (4 guns, 6 heavies, 3 specials) and that asymmetry is
 // the whole risk here: a shared modulo would silently fit the wrong weapon.
 
 import { describe, expect, test } from "bun:test";

@@ -90,7 +90,7 @@ describe("loadoutFromParams", () => {
       special: 1,
     });
     expect(loadoutFromParams(new URLSearchParams("gun=99&heavy=-1"))).toEqual({
-      gun: 2,
+      gun: 3, // GUNS.length - 1 after Electric Gun (#48)
       heavy: 0,
       special: 0,
     });
