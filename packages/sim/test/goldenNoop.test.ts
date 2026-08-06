@@ -20,7 +20,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   "golden-04-warden": { last: 4033123080, count: 9000 },
   "golden-05-fcop": { last: 2751040396, count: 2700 },
   "golden-06-layered": { last: 3787894536, count: 600 },
-  "golden-07-pa": { last: 3451952923, count: 3600 },
+  // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
+  // runs a Warden on a core arena, so only its sequence moves.
+  "golden-07-pa": { last: 472675949, count: 3600 },
 };
 
 describe("single-story golden last-hash pins", () => {

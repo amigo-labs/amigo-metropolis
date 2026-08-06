@@ -373,11 +373,16 @@
 //     keys and venice-beach adopt stage 2. Single-storey wall lattices rebuild
 //     with a few bits moved (road carve); la-cantina's 26 bridge nodes carry
 //     layer 1. Default layer 0 is a no-op on district-01 / test maps.
-// v24: issue #31 balance close-out. BASE_TURRET_RESPAWN_TICKS 60→120 s (the ring
-//     no longer regenerates as fast as one superplane clears it). On §9 arenas
-//     a living ground tip always outranks CAPTURE for suppress/escort — commit-
-//     range used to gate that, so urban-jungle spent 34% of ticks capturing
-//     while its tip was mid-map (in commit range only 16% of the match). Measured
-//     d8 Warden-vs-idle, 10 min / five seeds where noted: la-cantina and
-//     proving-ground resolve; bug-hunt and urban-jungle improve (see PLAN).
+// v24: issue #31 balance close-out.
+//     (a) BASE_TURRET_RESPAWN_TICKS 60→120 s — the ring no longer regenerates as
+//         fast as one superplane clears it.
+//     (b) On §9 arenas a living ground tip always outranks CAPTURE for
+//         suppress/escort (commit-range alone left urban-jungle capturing 34% of
+//         ticks with tip mid-map).
+//     (c) Warden soft-target wall pierce: hitscan and target acquisition may
+//         hit enemy ground units through the lattice (superplane altitude), but
+//         emplacements still need LOS — cover stays real for the standoff case
+//         that motivated WGOAL_SUPPRESS. urban-jungle's mid-map free-production
+//         stream was 80% LOS-blocked; silencing that stream alone razed the
+//         core in ~200 s, and with (c) all four arenas resolve 5/5 seeds.
 export const SIM_VERSION = 24;

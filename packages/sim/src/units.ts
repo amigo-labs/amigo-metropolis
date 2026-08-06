@@ -85,7 +85,14 @@ export function nearestEnemyInRange(
     const dy = ent.posY[t] - y;
     const d2 = dx * dx + dy * dy;
     if (d2 < bestD2) {
-      if (segmentBlocked(state.map, x, y, ent.posX[t], ent.posY[t])) {
+      // The Warden is a superplane: walls block shots at emplacements (cover is
+      // real, issue #31 / v20), but mid-map free-production streams live behind
+      // dense city lattice the flyer sits above. Soft targets (ground units)
+      // remain acquirable so the AI can clear a lane without sniping turrets
+      // from standoff. Avatars still respect walls via the same path.
+      const flyerSoft =
+        ent.archetype[id] === ARCHETYPE.WARDEN && isGroundUnit(archetype);
+      if (!flyerSoft && segmentBlocked(state.map, x, y, ent.posX[t], ent.posY[t])) {
         continue; // wall between us — invisible, so neither halt nor shot
       }
       bestD2 = d2;

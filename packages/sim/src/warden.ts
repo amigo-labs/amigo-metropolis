@@ -156,17 +156,19 @@ function goalValid(state: SimState, id: number): boolean {
         isGroundUnit(ent.archetype[slot])
       );
     case WGOAL_SUPPRESS:
-      // Holds until the emplacement is dead — deliberately not re-checked against
-      // the push that motivated it. The tip that halted on this turret is usually
+      // Holds until the blocker is dead — deliberately not re-checked against
+      // the push that motivated it. The tip that halted on a turret is usually
       // dead long before the turret is, and a Warden that abandoned the kill each
       // time its escortee died would never finish one: 500 HP at its 60 dps is
-      // 8 s, and a free Runner lives about that long.
+      // 8 s, and a free Runner lives about that long. Enemy ground units also
+      // qualify (urban-jungle: the mid-map stream is what stops the push, not
+      // only the ring).
       return (
         slot >= 0 &&
         slot < ent.high &&
         ent.alive[slot] === 1 &&
         ent.team[slot] === (me ^ 1) &&
-        ent.archetype[slot] === ARCHETYPE.TURRET
+        (ent.archetype[slot] === ARCHETYPE.TURRET || isGroundUnit(ent.archetype[slot]))
       );
     case WGOAL_BUY_GROUND:
       return slot > 0 && state.points[me] >= COST_RUNNER;
@@ -581,23 +583,40 @@ function nearestNeutralOutpost(state: SimState, id: number): number {
  * visibility it is flying in to obtain would never fire. It flies straight at
  * things by design — moveAndAct has always ignored the lattice.
  */
+/**
+ * What is stopping the tip of our push: prefer an enemy emplacement (the last-
+ * mile case), else the nearest enemy ground unit (mid-map stream annihilation —
+ * urban-jungle's free production kills the push at ~70–80 m mean tip distance
+ * while a silenced defending stream lets the Warden raze in ~200 s).
+ */
 function emplacementBlocking(state: SimState, tip: number, enemy: number): number {
   const ent = state.ent;
   const tx = ent.posX[tip];
   const ty = ent.posY[tip];
-  let best = -1;
-  let bestD2 = WARDEN_SUPPRESS_RADIUS * WARDEN_SUPPRESS_RADIUS;
+  const reach2 = WARDEN_SUPPRESS_RADIUS * WARDEN_SUPPRESS_RADIUS;
+  let bestTurret = -1;
+  let bestTurretD2 = reach2;
+  let bestUnit = -1;
+  let bestUnitD2 = reach2;
   for (let t = 0; t < ent.high; t++) {
-    if (!ent.alive[t] || ent.team[t] !== enemy || ent.archetype[t] !== ARCHETYPE.TURRET) continue;
+    if (!ent.alive[t] || ent.team[t] !== enemy) continue;
     const dx = ent.posX[t] - tx;
     const dy = ent.posY[t] - ty;
     const d2 = dx * dx + dy * dy;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      best = t;
+    if (d2 >= reach2) continue;
+    if (ent.archetype[t] === ARCHETYPE.TURRET) {
+      if (d2 < bestTurretD2) {
+        bestTurretD2 = d2;
+        bestTurret = t;
+      }
+    } else if (isGroundUnit(ent.archetype[t])) {
+      if (d2 < bestUnitD2) {
+        bestUnitD2 = d2;
+        bestUnit = t;
+      }
     }
   }
-  return best;
+  return bestTurret >= 0 ? bestTurret : bestUnit;
 }
 
 /** Own ground unit closest to the enemy gate — the tip of the push. */
