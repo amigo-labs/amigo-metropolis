@@ -9,7 +9,7 @@ import {
   SPECIAL_COOLDOWN_TICKS,
   SPECIAL_DAMAGE,
 } from "../src/balance";
-import { BUTTON_FIRE1, BUTTON_FIRE2, createTickInputs } from "../src/inputs";
+import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_FIRE3, createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
 import { createSim, step } from "../src/sim";
 import {
@@ -62,7 +62,7 @@ describe("weapon catalog", () => {
 });
 
 /**
- * The seven weapons Metropolis shares with Future Cop, pinned against the
+ * The eleven weapons Metropolis shares with Future Cop, pinned against the
  * original's own front-end bars.
  *
  * Bars are 1/55, so they give ratios: each slot's index-0 weapon is the anchor,
@@ -77,10 +77,14 @@ describe("original weapon table (rules.md §2)", () => {
     "Powered Mini-Gun": { rate: 55, dmg: 3 },
     "Gatling Laser": { rate: 55, dmg: 3 },
     Flamethrower: { rate: 55, dmg: 9 },
+    "Electric Gun": { rate: 28, dmg: 9 },
     "Hell Fire 2000": { rate: 42, dmg: 9 },
     "Concussion Beam": { rate: 21, dmg: 19 },
+    "Hyper Velocity Rocket": { rate: 55, dmg: 11 },
+    "Fusion Torpedo": { rate: 22, dmg: 37 },
     "Mortar Launcher": { rate: 28, dmg: 19 },
     "Plasma Flare": { rate: 28, dmg: 24 },
+    "Grenade Launcher": { rate: 28, dmg: 37 },
   } as const;
 
   const ANCHOR = ["Powered Mini-Gun", "Hell Fire 2000", "Plasma Flare"] as const;
@@ -191,5 +195,63 @@ describe("loadout combat", () => {
     inputs.players[0].buttons = BUTTON_FIRE2;
     step(sim, inputs);
     expect(sim.ent.ammoA[id]).toBe(before - 1);
+  });
+
+  test("electric gun is ammo-free hitscan at catalog id 9", () => {
+    const map = getMapById("test-128");
+    expect(GUNS[3].name).toBe("Electric Gun");
+    const sim = createSim(map, 5, { loadouts: [{ gun: 3, heavy: 0, special: 0 }] });
+    const inputs = createTickInputs();
+    inputs.players[0].aimX = 127;
+    inputs.players[0].buttons = BUTTON_FIRE1;
+    step(sim, inputs);
+    let found = false;
+    for (let i = 0; i < sim.events.count; i++) {
+      const o = i * 4;
+      if (sim.events.data[o] === 1 /* EV_SHOT */ && sim.events.data[o + 3] === 9) found = true;
+    }
+    expect(found).toBe(true);
+  });
+
+  test("hyper velocity rocket spends heavy ammo", () => {
+    const map = getMapById("test-128");
+    expect(HEAVIES[4].name).toBe("Hyper Velocity Rocket");
+    const sim = createSim(map, 6, { loadouts: [{ gun: 0, heavy: 4, special: 0 }] });
+    const id = sim.avatarId[0];
+    const before = sim.ent.ammoA[id];
+    expect(before).toBe(HEAVIES[4].ammo);
+    const inputs = createTickInputs();
+    inputs.players[0].aimX = 127;
+    inputs.players[0].buttons = BUTTON_FIRE2;
+    step(sim, inputs);
+    expect(sim.ent.ammoA[id]).toBe(before - 1);
+  });
+
+  test("fusion torpedo spends heavy ammo", () => {
+    const map = getMapById("test-128");
+    expect(HEAVIES[5].name).toBe("Fusion Torpedo");
+    const sim = createSim(map, 7, { loadouts: [{ gun: 0, heavy: 5, special: 0 }] });
+    const id = sim.avatarId[0];
+    const before = sim.ent.ammoA[id];
+    expect(before).toBe(HEAVIES[5].ammo);
+    const inputs = createTickInputs();
+    inputs.players[0].aimX = 127;
+    inputs.players[0].buttons = BUTTON_FIRE2;
+    step(sim, inputs);
+    expect(sim.ent.ammoA[id]).toBe(before - 1);
+  });
+
+  test("grenade launcher spends special ammo", () => {
+    const map = getMapById("test-128");
+    expect(SPECIALS[2].name).toBe("Grenade Launcher");
+    const sim = createSim(map, 8, { loadouts: [{ gun: 0, heavy: 0, special: 2 }] });
+    const id = sim.avatarId[0];
+    const before = sim.ent.ammoB[id];
+    expect(before).toBe(SPECIALS[2].ammo);
+    const inputs = createTickInputs();
+    inputs.players[0].aimX = 127;
+    inputs.players[0].buttons = BUTTON_FIRE3;
+    step(sim, inputs);
+    expect(sim.ent.ammoB[id]).toBe(before - 1);
   });
 });

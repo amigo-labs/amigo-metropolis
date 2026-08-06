@@ -3,19 +3,24 @@
 // goldens and empty configs stay bit-identical. Non-default picks change combat
 // and therefore hashes — they only apply when the player selects them.
 //
-// The seven weapons this catalog shares with the original carry the original's
+// The eleven weapons this catalog shares with the original carry the original's
 // damage, cadence and display names, derived per slot from the front-end bars —
 // the arithmetic and the two declared deviations are documented at the
 // "Non-default catalog weapons" block in balance.ts, and every number here is a
 // named constant from there (no inline gameplay values).
 //
-// The original has 15 (five per slot) and this has 9. The eight it does not have
-// are not table entries but new mechanics — a deployable shield, a drone, mines,
-// a shockwave — and are tracked as issues rather than guessed at here.
+// The original has 15 (five per slot) and this has 13. Four of the eight that
+// were missing are table rows and land here (Electric Gun, Hyper Velocity
+// Rocket, Fusion Torpedo, Grenade Launcher — issue #48). The other four are
+// new mechanics — a deployable shield, a drone, mines, a shockwave — and stay
+// tracked as issues rather than guessed at here.
 
 import {
   AVATAR_AMMO_HEAVY,
   AVATAR_AMMO_SPECIAL,
+  GUN_ELECTRIC_COOLDOWN_TICKS,
+  GUN_ELECTRIC_DAMAGE,
+  GUN_ELECTRIC_RANGE,
   GUN_FLAME_COOLDOWN_TICKS,
   GUN_FLAME_DAMAGE,
   GUN_FLAME_RANGE,
@@ -35,6 +40,18 @@ import {
   HEAVY_CLUSTER_TTL_TICKS,
   HEAVY_COOLDOWN_TICKS,
   HEAVY_DAMAGE,
+  HEAVY_FUSION_AMMO,
+  HEAVY_FUSION_AOE_RADIUS,
+  HEAVY_FUSION_COOLDOWN_TICKS,
+  HEAVY_FUSION_DAMAGE,
+  HEAVY_FUSION_SPEED,
+  HEAVY_FUSION_TTL_TICKS,
+  HEAVY_HYPER_AMMO,
+  HEAVY_HYPER_AOE_RADIUS,
+  HEAVY_HYPER_COOLDOWN_TICKS,
+  HEAVY_HYPER_DAMAGE,
+  HEAVY_HYPER_SPEED,
+  HEAVY_HYPER_TTL_TICKS,
   HEAVY_RAIL_AMMO,
   HEAVY_RAIL_AOE_RADIUS,
   HEAVY_RAIL_COOLDOWN_TICKS,
@@ -49,6 +66,12 @@ import {
   SPECIAL_AOE_RADIUS,
   SPECIAL_COOLDOWN_TICKS,
   SPECIAL_DAMAGE,
+  SPECIAL_GRENADE_AMMO,
+  SPECIAL_GRENADE_AOE_RADIUS,
+  SPECIAL_GRENADE_COOLDOWN_TICKS,
+  SPECIAL_GRENADE_DAMAGE,
+  SPECIAL_GRENADE_SPEED,
+  SPECIAL_GRENADE_TTL_TICKS,
   SPECIAL_MORTAR_AMMO,
   SPECIAL_MORTAR_AOE_RADIUS,
   SPECIAL_MORTAR_COOLDOWN_TICKS,
@@ -68,6 +91,9 @@ export const PROJ_WARDEN = 3;
 export const PROJ_CLUSTER = 4;
 export const PROJ_RAIL = 5;
 export const PROJ_MORTAR = 6;
+export const PROJ_HYPER = 7;
+export const PROJ_FUSION = 8;
+export const PROJ_GRENADE = 9;
 
 export const WEAPON_SLOT_GUN = 0;
 export const WEAPON_SLOT_HEAVY = 1;
@@ -84,11 +110,15 @@ export type WeaponVfx =
   | "minigun"
   | "laser"
   | "flame"
+  | "electric"
   | "rocket"
   | "cluster"
   | "rail"
+  | "hyper"
+  | "fusion"
   | "plasma"
   | "mortar"
+  | "grenade"
   | "beam";
 
 export interface WeaponDef {
@@ -177,6 +207,25 @@ export const GUNS: readonly WeaponDef[] = [
     projKind: 0,
     vfx: "flame",
   },
+  {
+    // Original Gun id 0x03. Same damage bar as the Flamethrower, half the rate —
+    // a slower, harder hitscan. Chain/arc behaviour is unknown and not faked.
+    id: 9,
+    slot: 0,
+    index: 3,
+    name: "Electric Gun",
+    blurb: "Slower bolt, harder hit. Same reach as the Mini-Gun.",
+    delivery: "hitscan",
+    damage: GUN_ELECTRIC_DAMAGE,
+    cooldownTicks: GUN_ELECTRIC_COOLDOWN_TICKS,
+    range: GUN_ELECTRIC_RANGE,
+    speed: 0,
+    ttlTicks: 0,
+    aoeRadius: 0,
+    ammo: 0,
+    projKind: 0,
+    vfx: "electric",
+  },
 ];
 
 export const HEAVIES: readonly WeaponDef[] = [
@@ -257,6 +306,43 @@ export const HEAVIES: readonly WeaponDef[] = [
     projKind: 0,
     vfx: "beam",
   },
+  {
+    // Original Heavy id 0x13 (display: Hyper Velocity Rocket). Fast, light
+    // projectile — overlaps Rail Cannon in role; both stay (rules.md §2).
+    id: 10,
+    slot: 1,
+    index: 4,
+    name: "Hyper Velocity Rocket",
+    blurb: "Fast light rocket. High cadence, tight blast.",
+    delivery: "projectile",
+    damage: HEAVY_HYPER_DAMAGE,
+    cooldownTicks: HEAVY_HYPER_COOLDOWN_TICKS,
+    range: 0,
+    speed: HEAVY_HYPER_SPEED,
+    ttlTicks: HEAVY_HYPER_TTL_TICKS,
+    aoeRadius: HEAVY_HYPER_AOE_RADIUS,
+    ammo: HEAVY_HYPER_AMMO,
+    projKind: PROJ_HYPER,
+    vfx: "hyper",
+  },
+  {
+    // Original Heavy id 0x14. Slow heavy shell with a wide crater.
+    id: 11,
+    slot: 1,
+    index: 5,
+    name: "Fusion Torpedo",
+    blurb: "Slow heavy torpedo. Huge single-shot punch.",
+    delivery: "projectile",
+    damage: HEAVY_FUSION_DAMAGE,
+    cooldownTicks: HEAVY_FUSION_COOLDOWN_TICKS,
+    range: 0,
+    speed: HEAVY_FUSION_SPEED,
+    ttlTicks: HEAVY_FUSION_TTL_TICKS,
+    aoeRadius: HEAVY_FUSION_AOE_RADIUS,
+    ammo: HEAVY_FUSION_AMMO,
+    projKind: PROJ_FUSION,
+    vfx: "fusion",
+  },
 ];
 
 export const SPECIALS: readonly WeaponDef[] = [
@@ -294,10 +380,29 @@ export const SPECIALS: readonly WeaponDef[] = [
     projKind: PROJ_MORTAR,
     vfx: "mortar",
   },
-  // Two entries, not three: the Concussion Beam moved to HEAVIES, where the
-  // original files it. The original's own Special slot has five (Mortar
-  // Launcher, Plasma Flare, Pop-Up Mines, Shockwave Generator, Grenade
-  // Launcher) — the three missing ones are new mechanics, tracked as issues.
+  {
+    // Original Special id 0x24. Mortar-shaped flight at the Plasma Flare's
+    // cadence with a heavier damage bar. True ballistic arc is not in the sim
+    // (same as the Mortar — "arcing" is flavor over 2D flight).
+    id: 12,
+    slot: 2,
+    index: 2,
+    name: "Grenade Launcher",
+    blurb: "Arcing shell, hard crater. Faster cadence feel than the Mortar's punch.",
+    delivery: "projectile",
+    damage: SPECIAL_GRENADE_DAMAGE,
+    cooldownTicks: SPECIAL_GRENADE_COOLDOWN_TICKS,
+    range: 0,
+    speed: SPECIAL_GRENADE_SPEED,
+    ttlTicks: SPECIAL_GRENADE_TTL_TICKS,
+    aoeRadius: SPECIAL_GRENADE_AOE_RADIUS,
+    ammo: SPECIAL_GRENADE_AMMO,
+    projKind: PROJ_GRENADE,
+    vfx: "grenade",
+  },
+  // Three entries: Plasma, Mortar, Grenade. The original's Special slot also
+  // has Pop-Up Mines and Shockwave Generator — both new mechanics, still open
+  // under issue #48. Riot Shield (Gun) and K-9 Drone (Heavy) likewise.
 ];
 
 const BY_SLOT: readonly (readonly WeaponDef[])[] = [GUNS, HEAVIES, SPECIALS];
@@ -363,6 +468,12 @@ export function projectileBlast(kind: number): { damage: number; radius: number 
       return { damage: HEAVY_RAIL_DAMAGE, radius: HEAVY_RAIL_AOE_RADIUS };
     case PROJ_MORTAR:
       return { damage: SPECIAL_MORTAR_DAMAGE, radius: SPECIAL_MORTAR_AOE_RADIUS };
+    case PROJ_HYPER:
+      return { damage: HEAVY_HYPER_DAMAGE, radius: HEAVY_HYPER_AOE_RADIUS };
+    case PROJ_FUSION:
+      return { damage: HEAVY_FUSION_DAMAGE, radius: HEAVY_FUSION_AOE_RADIUS };
+    case PROJ_GRENADE:
+      return { damage: SPECIAL_GRENADE_DAMAGE, radius: SPECIAL_GRENADE_AOE_RADIUS };
     default:
       return { damage: HEAVY_DAMAGE, radius: HEAVY_AOE_RADIUS };
   }

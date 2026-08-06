@@ -368,4 +368,14 @@
 //     move — no height changed — and the terrain .glb's independent correlation
 //     against the heightfield IMPROVED, 0.939 to 0.982, because the art has
 //     always had geometry at those deck heights and now has somewhere to match.
-export const SIM_VERSION = 22;
+// v23: four drop-in weapons from the original's table (issue #48) — Electric
+//     Gun (hitscan), Hyper Velocity Rocket, Fusion Torpedo, Grenade Launcher.
+//     Append-only catalog: existing loadout indices keep their meaning, default
+//     kit is unchanged, so goldens 01-07 re-header only (byte-identical hash
+//     arrays). The bump is for the clamp surface: `gun: 3` / `heavy: 4` /
+//     `special: 2` used to clamp to the previous last pick and now select the
+//     new weapons, so two peers on opposite sides of this bump with a
+//     non-default kit would run different weapons off identical inputs.
+//     Cluster Bomb and Rail Cannon stay; Heavy is six deep. The four originals
+//     that need new mechanics (Riot Shield, K-9, Mines, Shockwave) stay open.
+export const SIM_VERSION = 23;
