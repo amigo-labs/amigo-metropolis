@@ -165,8 +165,8 @@ const ARENAS: ArenaExpectation[] = [
     // and the base's own structures, of 4327 (6.5%). Up from 242: the carve now
     // walks each road the way a unit steps rather than in fixed 0.25 m slices,
     // and opens team 0's console leg, which was walled off entirely (issue #30).
-    wallsVPin: 1021236662,
-    wallsHPin: 3383256014,
+    wallsVPin: 2005359668,
+    wallsHPin: 2450311990,
     turretSpots: 32,
     outpostSpots: 2,
     dummySpots: 0,
@@ -208,8 +208,8 @@ const ARENAS: ArenaExpectation[] = [
     // 308 bits carved + 20 to reconnect, of 6330 (5.2%) — Slim's road network
     // is the densest of the four, at 640 edges. Neither team could leave its own
     // base before the road carve learned about the console leg (issue #30).
-    wallsVPin: 2680440707,
-    wallsHPin: 466939193,
+    wallsVPin: 3839074122,
+    wallsHPin: 3427479675,
     turretSpots: 29,
     outpostSpots: 2,
     dummySpots: 0,
@@ -295,8 +295,8 @@ const ARENAS: ArenaExpectation[] = [
     // 312 bits carved + 23 to reconnect, of 6225 (5.4%). Moved when the ground
     // and air consoles were un-swapped: the carve opens the ground console's leg
     // to the road, and that leg now starts at the other console.
-    wallsVPin: 3664435848,
-    wallsHPin: 840504655,
+    wallsVPin: 3983085979,
+    wallsHPin: 16700859,
     turretSpots: 29,
     outpostSpots: 2,
     dummySpots: 0,

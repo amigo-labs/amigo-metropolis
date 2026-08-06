@@ -124,6 +124,7 @@ import {
   type MapBaseTurret,
   type MapData,
   type MapTriggerVolume,
+  resolveHeight,
   sampleHeight,
   worldExtent,
 } from "./map";
@@ -282,8 +283,11 @@ export function spawnAvatar(state: SimState, player: number): number {
   if (id < 0) return -1;
   ent.posX[id] = s.x;
   ent.posY[id] = s.y;
-  const ground = sampleHeight(state.map, s.x, s.y);
+  // Feature layer (issue #33): spawn height is the surface the spawn sits on,
+  // not always the ground under it. layer 0 → sampleHeight (bit-identical).
+  const ground = resolveHeight(state.map, s.x, s.y, s.layer);
   ent.height[id] = warden ? Math.max(ground, state.map.waterLevel) + WARDEN_ALTITUDE : ground;
+  ent.entLayer[id] = warden ? 0 : s.layer;
   ent.yaw[id] = s.yaw;
   ent.aimX[id] = cosLUT(s.yaw);
   ent.aimY[id] = sinLUT(s.yaw);
@@ -318,7 +322,8 @@ function spawnDummy(state: SimState, k: number): number {
   if (id < 0) return -1;
   ent.posX[id] = spot.x;
   ent.posY[id] = spot.y;
-  ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
+  ent.height[id] = resolveHeight(state.map, spot.x, spot.y, spot.layer);
+  ent.entLayer[id] = spot.layer;
   ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
   ent.ownerId[id] = -1;
   ent.mode[id] = TURRET_DUMMY;
@@ -334,7 +339,8 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   if (id < 0) return -1;
   ent.posX[id] = spot.x;
   ent.posY[id] = spot.y;
-  ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
+  ent.height[id] = resolveHeight(state.map, spot.x, spot.y, spot.layer);
+  ent.entLayer[id] = spot.layer;
   ent.hp[id] =
     state.map.turretHp.length > 0 ? state.map.turretHp[k] : ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
   ent.ownerId[id] = -1;
@@ -361,7 +367,8 @@ function spawnOutpostConsole(state: SimState, k: number): number {
   if (id < 0) return -1;
   ent.posX[id] = spot.x;
   ent.posY[id] = spot.y;
-  ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
+  ent.height[id] = resolveHeight(state.map, spot.x, spot.y, spot.layer);
+  ent.entLayer[id] = spot.layer;
   ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.CONSOLE];
   ent.ownerId[id] = team;
   // Face the arena centre so the screen reads toward the midfield approach.
@@ -397,7 +404,8 @@ function spawnBaseTurret(state: SimState, k: number): number {
   if (id < 0) return -1;
   ent.posX[id] = spot.x;
   ent.posY[id] = spot.y;
-  ent.height[id] = sampleHeight(state.map, spot.x, spot.y);
+  ent.height[id] = resolveHeight(state.map, spot.x, spot.y, spot.layer);
+  ent.entLayer[id] = spot.layer;
   ent.hp[id] = spot.hp > 0 ? spot.hp : ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
   ent.ownerId[id] = team;
   ent.mode[id] = TURRET_DEFENSE;
@@ -415,11 +423,11 @@ function spawnBaseTurret(state: SimState, k: number): number {
 function baseDefenceSpot(
   map: MapData,
   k: number,
-): { team: number; x: number; y: number; weapon: number; hp: number } {
+): { team: number; x: number; y: number; weapon: number; hp: number; layer: number } {
   const n0 = map.bases[0].defence.length;
   const team = k < n0 ? 0 : 1;
   const d = map.bases[team].defence[k < n0 ? k : k - n0];
-  return { team, x: d.x, y: d.y, weapon: d.weapon, hp: d.hp };
+  return { team, x: d.x, y: d.y, weapon: d.weapon, hp: d.hp, layer: d.layer };
 }
 
 /**
@@ -432,12 +440,13 @@ function baseDefenceSpot(
  */
 function spawnBaseDefence(state: SimState, k: number): number {
   const ent = state.ent;
-  const { team, x, y, weapon, hp } = baseDefenceSpot(state.map, k);
+  const { team, x, y, weapon, hp, layer } = baseDefenceSpot(state.map, k);
   const id = spawn(ent, ARCHETYPE.TURRET, team);
   if (id < 0) return -1;
   ent.posX[id] = x;
   ent.posY[id] = y;
-  ent.height[id] = sampleHeight(state.map, x, y);
+  ent.height[id] = resolveHeight(state.map, x, y, layer);
+  ent.entLayer[id] = layer;
   ent.hp[id] = hp;
   ent.ownerId[id] = team;
   // Bolted into the base structure (fcop-logic.md §8.1) — no freestanding mesh.
@@ -464,12 +473,19 @@ export function spawnUnit(
   y: number,
   mode: number = UNIT_MODE_PATROL,
   forward = false,
+  /** Surface the unit starts on (issue #33). Seeds height so resolveWalker stays. */
+  layer = 0,
 ): number {
   const ent = state.ent;
   const id = spawn(ent, archetype as 1 | 2 | 3 | 4, team);
   if (id < 0) return -1;
   ent.posX[id] = x;
   ent.posY[id] = y;
+  // Seed height/layer before snapUnitHeight: resolveWalker picks surfaces within
+  // STEP_SNAP of the current height, so a unit born under a deck never climbs
+  // onto it without this seed (issue #33).
+  ent.height[id] = resolveHeight(state.map, x, y, layer);
+  ent.entLayer[id] = layer;
   ent.hp[id] = ARCHETYPE_MAX_HP[archetype];
   ent.ownerId[id] = team;
   ent.mode[id] = mode;
@@ -993,6 +1009,7 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
   let archetype = -1;
   let spawnX = 0;
   let spawnY = 0;
+  let spawnLayer = 0;
   let mode = UNIT_MODE_PATROL;
   let forward = false;
   let claim = -1;
@@ -1009,12 +1026,14 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
       cost = heavy ? COST_JUGGERNAUT : COST_RUNNER;
       spawnX = base.groundConsole.x;
       spawnY = base.groundConsole.y;
+      spawnLayer = base.groundConsole.layer;
     } else if (adx * adx + ady * ady <= r2) {
       target = 512 + heavy;
       archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
       cost = heavy ? COST_FORTRESS : COST_GUARDIAN;
       spawnX = base.airConsole.x;
       spawnY = base.airConsole.y;
+      spawnLayer = base.airConsole.layer;
     } else {
       for (let k = 0; k < map.outpostSpots.length; k++) {
         const s = map.outpostSpots[k];
@@ -1030,6 +1049,7 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
           cost = (heavy ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
           spawnX = s.x;
           spawnY = s.y;
+          spawnLayer = s.layer;
           mode = heavy ? UNIT_MODE_ASSAULT : UNIT_MODE_PATROL;
           forward = true;
         } else if (owner === -1 && state.outpostConsole[k] >= 0) {
@@ -1078,7 +1098,7 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
     pushEvent(state.events, EV_CLAIM, cid, player, claim);
     return;
   }
-  const uid = spawnUnit(state, archetype, player, spawnX, spawnY, mode, forward);
+  const uid = spawnUnit(state, archetype, player, spawnX, spawnY, mode, forward, spawnLayer);
   if (uid >= 0) {
     pushEvent(state.events, EV_PURCHASE, uid, player, archetype);
   } else {
@@ -1231,7 +1251,17 @@ export function hitscan(
   if (bestId >= 0) {
     // Walls stop the ray: bestId is the CLOSEST body hit, so a wall on the
     // way to it means the shot hits the wall and nothing else.
-    if (segmentBlocked(state.map, ox, oy, ox + dx * bestT, oy + dy * bestT)) return;
+    // Exception: the Warden superplane may hit enemy ground units through the
+    // lattice (it flies above it). Emplacements still need line of sight — that
+    // is the arenas' cover model for anything that can answer a standoff shot
+    // (issue #31 urban-jungle mid-map stream).
+    const flyerSoft =
+      ent.archetype[shooter] === ARCHETYPE.WARDEN &&
+      ent.archetype[bestId] >= ARCHETYPE.RUNNER &&
+      ent.archetype[bestId] <= ARCHETYPE.FORTRESS;
+    if (!flyerSoft && segmentBlocked(state.map, ox, oy, ox + dx * bestT, oy + dy * bestT)) {
+      return;
+    }
     applyDamage(state, bestId, damage, player);
   }
 }
@@ -1749,6 +1779,9 @@ function systemProduction(state: SimState): void {
       team,
       base.groundConsole.x,
       base.groundConsole.y,
+      UNIT_MODE_PATROL,
+      false,
+      base.groundConsole.layer,
     );
     if (uid >= 0) pushEvent(state.events, EV_PRODUCE, uid, team, ARCHETYPE.RUNNER);
   }

@@ -35,7 +35,7 @@ import {
   WAYPOINT_RADIUS,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
-import { type MapData, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
+import { type MapData, resolveHeight, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
 import { ANIM_MOVING, rideHeight, type SimState, STEP_SNAP } from "./sim";
 import { atan2Poly, cosLUT, rand01, sinLUT, TAU } from "./simMath";
 
@@ -85,7 +85,13 @@ export function nearestEnemyInRange(
     const dy = ent.posY[t] - y;
     const d2 = dx * dx + dy * dy;
     if (d2 < bestD2) {
-      if (segmentBlocked(state.map, x, y, ent.posX[t], ent.posY[t])) {
+      // The Warden is a superplane: walls block shots at emplacements (cover is
+      // real, issue #31 / v20), but mid-map free-production streams live behind
+      // dense city lattice the flyer sits above. Soft targets (ground units)
+      // remain acquirable so the AI can clear a lane without sniping turrets
+      // from standoff. Avatars still respect walls via the same path.
+      const flyerSoft = ent.archetype[id] === ARCHETYPE.WARDEN && isGroundUnit(archetype);
+      if (!flyerSoft && segmentBlocked(state.map, x, y, ent.posX[t], ent.posY[t])) {
         continue; // wall between us — invisible, so neither halt nor shot
       }
       bestD2 = d2;
@@ -201,8 +207,27 @@ function moveGroundUnit(state: SimState, id: number, speed: number, range: numbe
   if (map.laneGraph !== undefined && ent.timerB[id] === GRAPH_MODE) {
     const node = advanceOnGraph(state, id, team);
     past = node < 0;
-    tx = past ? gate.x : map.laneGraph.nodes[node].x;
-    ty = past ? gate.y : map.laneGraph.nodes[node].y;
+    if (past) {
+      tx = gate.x;
+      ty = gate.y;
+    } else {
+      const nd = map.laneGraph.nodes[node];
+      tx = nd.x;
+      ty = nd.y;
+      // Deck roads (issue #33): ground_cast put the node on a surface that sits
+      // more than STEP_SNAP above the floor under it, so resolveWalker alone can
+      // never climb from a canal onto the city. Once the unit is near the node,
+      // snap onto that surface — the same place a ramp would have left it.
+      if (nd.layer !== ent.entLayer[id]) {
+        const dxn = nd.x - x;
+        const dyn = nd.y - y;
+        const near = GRAPH_WAYPOINT_RADIUS * 4;
+        if (dxn * dxn + dyn * dyn <= near * near) {
+          ent.height[id] = resolveHeight(map, nd.x, nd.y, nd.layer);
+          ent.entLayer[id] = nd.layer;
+        }
+      }
+    }
   } else {
     const laneIdx = ent.timerA[id];
     const lane = laneIdx < map.lanes.length ? map.lanes[laneIdx] : undefined;

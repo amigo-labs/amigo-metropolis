@@ -156,17 +156,19 @@ function goalValid(state: SimState, id: number): boolean {
         isGroundUnit(ent.archetype[slot])
       );
     case WGOAL_SUPPRESS:
-      // Holds until the emplacement is dead — deliberately not re-checked against
-      // the push that motivated it. The tip that halted on this turret is usually
+      // Holds until the blocker is dead — deliberately not re-checked against
+      // the push that motivated it. The tip that halted on a turret is usually
       // dead long before the turret is, and a Warden that abandoned the kill each
       // time its escortee died would never finish one: 500 HP at its 60 dps is
-      // 8 s, and a free Runner lives about that long.
+      // 8 s, and a free Runner lives about that long. Enemy ground units also
+      // qualify (urban-jungle: the mid-map stream is what stops the push, not
+      // only the ring).
       return (
         slot >= 0 &&
         slot < ent.high &&
         ent.alive[slot] === 1 &&
         ent.team[slot] === (me ^ 1) &&
-        ent.archetype[slot] === ARCHETYPE.TURRET
+        (ent.archetype[slot] === ARCHETYPE.TURRET || isGroundUnit(ent.archetype[slot]))
       );
     case WGOAL_BUY_GROUND:
       return slot > 0 && state.points[me] >= COST_RUNNER;
@@ -268,59 +270,44 @@ function decide(state: SimState, id: number, d: number): void {
     }
   }
 
-  // 4. Commit to a push that has arrived. Under §9, reaching the enemy core is
-  // where the work starts rather than where it ends: 300 unit-shots into 3000 HP
-  // with the ring and the base's own guns answering. A Warden that flies off to
-  // capture its 30th pad at that moment throws the match away — measured during
-  // an escorted push, capture took 67-75% of its ticks on urban-jungle and
-  // la-cantina against 9% escorting. Under §1 there is nothing to escort: a unit
-  // that arrives at the gate has already won.
+  // 4. Living push on a §9 arena. Under §9 a unit at the enemy core still has
+  // to raze 3000 HP while the base shoots back; flying off for pads throws that
+  // away. Commit-range used to gate this rung, so a mid-map tip lost to CAPTURE
+  // — urban-jungle: tip inside 45 m only 16% of a ten-minute match (mean 82 m)
+  // while CAPTURE took 34% of ticks. Any living tip now outranks capture.
   //
-  // Below the buy goals on purpose. Buying feeds the push and is a short errand
-  // (8-17% of ticks measured); capturing is the errand that loses matches.
+  // Suppress first when something is stopping the tip (v20: no standoff LOS,
+  // close to WARDEN_SUPPRESS_DISTANCE). Escort otherwise. Under §1 a unit at the
+  // gate has already won, so this block is gated on hasCore.
   //
-  // Escorting an arrived push is necessary but not sufficient, and the gap between
-  // the two is what a §9 arena's geometry does to a superplane. Measured over
-  // ten-minute difficulty-8 matches against an idle player, the Warden already
-  // arrives — 64-86% of its ticks on ESCORT, a mean 34-43 m from the enemy core,
-  // its push tip at 75-82% of the lane — and then holds a target for 1-18% of the
-  // match and lands 1.6-9.3k damage where its own cooldowns allow ~66k. A base
-  // emplacement is inside its cannon range 60-89% of the time and visible 0-7% of
-  // it. It is not out of position and it is not mistargeting; there is a wall in
-  // the way, and no standoff position exists (see WARDEN_SUPPRESS_DISTANCE).
-  //
-  // So on arrival the first question is what is STOPPING the push, not who to fly
-  // alongside. Escort remains the fallback, and stays the goal whenever nothing is
-  // in the way — which is also what keeps the rung honest on an arena whose last
-  // stretch is open.
-  if (hasCore(state, enemy)) {
-    const commit = WARDEN_PUSH_COMMIT_RANGE[d];
+  // Below the buy goals on purpose — buying feeds the push and is a short errand.
+  // Measured with BASE_TURRET_RESPAWN 120 s (issue #31): la-cantina, proving-
+  // ground and bug-hunt resolve d8 vs idle; urban-jungle still stalls mid-map
+  // (tip mean ~80 m) — a push-arrival problem, not a capture distraction.
+  if (hasCore(state, enemy) && WARDEN_PUSH_COMMIT_RANGE[d] > 0) {
     const tip = foremostGroundUnit(state, me);
-    if (commit > 0 && tip >= 0) {
-      const core = state.map.bases[enemy].core;
-      const tdx = ent.posX[tip] - core.x;
-      const tdy = ent.posY[tip] - core.y;
-      if (tdx * tdx + tdy * tdy <= commit * commit) {
-        const blocker = emplacementBlocking(state, tip, enemy);
-        if (blocker >= 0) {
-          setGoal(state, WGOAL_SUPPRESS, blocker);
-          return;
-        }
-        setGoal(state, WGOAL_ESCORT, tip);
+    if (tip >= 0) {
+      const blocker = emplacementBlocking(state, tip, enemy);
+      if (blocker >= 0) {
+        setGoal(state, WGOAL_SUPPRESS, blocker);
         return;
       }
+      setGoal(state, WGOAL_ESCORT, tip);
+      return;
     }
   }
 
   // 5. Map control: hover a neutral turret into ownership (presence is
-  // currency — the superplane captures like any avatar).
+  // currency — the superplane captures like any avatar). On §9 this only runs
+  // when the field has no friendly ground unit left to cover.
   const spot = nearestNeutralTurretSpot(state, id);
   if (spot >= 0) {
     setGoal(state, WGOAL_CAPTURE, spot);
     return;
   }
 
-  // 6. Escort the push: fly cover for our ground unit closest to their gate.
+  // 6. Escort on gate-breach arenas (no core): fly cover for the tip. §9 already
+  // handled a living tip above; this is the §1 path and the no-core fallback.
   const front = foremostGroundUnit(state, me);
   if (front >= 0) {
     setGoal(state, WGOAL_ESCORT, front);
@@ -596,23 +583,40 @@ function nearestNeutralOutpost(state: SimState, id: number): number {
  * visibility it is flying in to obtain would never fire. It flies straight at
  * things by design — moveAndAct has always ignored the lattice.
  */
+/**
+ * What is stopping the tip of our push: prefer an enemy emplacement (the last-
+ * mile case), else the nearest enemy ground unit (mid-map stream annihilation —
+ * urban-jungle's free production kills the push at ~70–80 m mean tip distance
+ * while a silenced defending stream lets the Warden raze in ~200 s).
+ */
 function emplacementBlocking(state: SimState, tip: number, enemy: number): number {
   const ent = state.ent;
   const tx = ent.posX[tip];
   const ty = ent.posY[tip];
-  let best = -1;
-  let bestD2 = WARDEN_SUPPRESS_RADIUS * WARDEN_SUPPRESS_RADIUS;
+  const reach2 = WARDEN_SUPPRESS_RADIUS * WARDEN_SUPPRESS_RADIUS;
+  let bestTurret = -1;
+  let bestTurretD2 = reach2;
+  let bestUnit = -1;
+  let bestUnitD2 = reach2;
   for (let t = 0; t < ent.high; t++) {
-    if (!ent.alive[t] || ent.team[t] !== enemy || ent.archetype[t] !== ARCHETYPE.TURRET) continue;
+    if (!ent.alive[t] || ent.team[t] !== enemy) continue;
     const dx = ent.posX[t] - tx;
     const dy = ent.posY[t] - ty;
     const d2 = dx * dx + dy * dy;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      best = t;
+    if (d2 >= reach2) continue;
+    if (ent.archetype[t] === ARCHETYPE.TURRET) {
+      if (d2 < bestTurretD2) {
+        bestTurretD2 = d2;
+        bestTurret = t;
+      }
+    } else if (isGroundUnit(ent.archetype[t])) {
+      if (d2 < bestUnitD2) {
+        bestUnitD2 = d2;
+        bestUnit = t;
+      }
     }
   }
-  return best;
+  return bestTurret >= 0 ? bestTurret : bestUnit;
 }
 
 /** Own ground unit closest to the enemy gate — the tip of the push. */
