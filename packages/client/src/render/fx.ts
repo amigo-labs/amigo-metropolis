@@ -18,12 +18,10 @@ import {
   EVENT_STRIDE,
   type EventBuffer,
   PRIMARY_RANGE,
-  PROJ_CLUSTER,
-  PROJ_FUSION,
-  PROJ_GRENADE,
   PROJ_HYPER,
+  PROJ_MINE,
   PROJ_MORTAR,
-  PROJ_RAIL,
+  PROJ_SHOCKWAVE,
   PROJ_SPECIAL,
   PROJ_WARDEN,
   SHOT_SLOT_HITSCAN,
@@ -242,14 +240,11 @@ function age(pool: Pool, dt: number): void {
 }
 
 function explosionTint(kind: number): number {
-  if (kind === PROJ_SPECIAL) return PROJECTILE_HEX[2] ?? paletteHex("special");
+  if (kind === PROJ_SPECIAL || kind === PROJ_MORTAR) return PROJECTILE_HEX[6] ?? 0xffa060;
   if (kind === PROJ_WARDEN) return PROJECTILE_HEX[3] ?? paletteHex("warden_bomb");
-  if (kind === PROJ_CLUSTER) return PROJECTILE_HEX[4] ?? 0xff7020;
-  if (kind === PROJ_RAIL) return PROJECTILE_HEX[5] ?? 0xc0e8ff;
-  if (kind === PROJ_MORTAR) return PROJECTILE_HEX[6] ?? 0xffa060;
   if (kind === PROJ_HYPER) return PROJECTILE_HEX[7] ?? 0xffe8a0;
-  if (kind === PROJ_FUSION) return PROJECTILE_HEX[8] ?? 0x60e0ff;
-  if (kind === PROJ_GRENADE) return PROJECTILE_HEX[9] ?? 0xc8f060;
+  if (kind === PROJ_MINE) return PROJECTILE_HEX[10] ?? 0xff9040;
+  if (kind === PROJ_SHOCKWAVE) return PROJECTILE_HEX[11] ?? 0xa0d8ff;
   return 0xffffff; // original fireball colors when atlas is bound
 }
 
@@ -433,13 +428,15 @@ export function createFx(scene: THREE.Scene): ShotFx {
       } else if (type === EV_EXPLOSION) {
         // c = projectile kind (mode).
         const endScale =
-          c === PROJ_SPECIAL || c === PROJ_MORTAR || c === PROJ_GRENADE
-            ? 5.5
-            : c === PROJ_WARDEN || c === PROJ_CLUSTER || c === PROJ_FUSION
-              ? 7.0
-              : c === PROJ_RAIL || c === PROJ_HYPER
-                ? 3.2
-                : EXPLOSION_END;
+          c === PROJ_SHOCKWAVE
+            ? 9.0
+            : c === PROJ_SPECIAL || c === PROJ_MORTAR || c === PROJ_MINE
+              ? 5.5
+              : c === PROJ_WARDEN
+                ? 7.0
+                : c === PROJ_HYPER
+                  ? 3.2
+                  : EXPLOSION_END;
         const slot = explosions.count;
         if (spawn(explosions, EXPLOSION_LIFE, px, py + 0.6, pz, 0, endScale)) {
           scratchColor.setHex(explosionTint(c));
@@ -459,13 +456,15 @@ export function createFx(scene: THREE.Scene): ShotFx {
         }
         // Shockwave rides the ground under the fireball (procedural — no ring sprite).
         const waveEnd =
-          c === PROJ_WARDEN || c === PROJ_CLUSTER || c === PROJ_FUSION
-            ? 10
-            : c === PROJ_SPECIAL || c === PROJ_MORTAR || c === PROJ_GRENADE
-              ? 7
-              : c === PROJ_RAIL || c === PROJ_HYPER
-                ? 3
-                : SHOCKWAVE_END;
+          c === PROJ_SHOCKWAVE
+            ? 14
+            : c === PROJ_WARDEN
+              ? 10
+              : c === PROJ_SPECIAL || c === PROJ_MORTAR || c === PROJ_MINE
+                ? 7
+                : c === PROJ_HYPER
+                  ? 3
+                  : SHOCKWAVE_END;
         const wslot = shockwaves.count;
         if (spawn(shockwaves, SHOCKWAVE_LIFE, px, py + 0.15, pz, 0, waveEnd)) {
           const tint = explosionTint(c);

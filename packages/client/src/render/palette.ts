@@ -109,21 +109,24 @@ export function teamRamp(team: number): Ramp {
 }
 
 /**
- * Projectile tint by payload kind (entity.mode / snapshot aux):
- * 0 unused, 1 heavy/hellfire, 2 plasma, 3 warden bomb, 4 cluster, 5 rail,
- * 6 mortar, 7 hyper velocity, 8 fusion torpedo, 9 grenade.
+ * Projectile tint by payload kind (entity.mode / snapshot aux).
+ * Indexed by PROJ_* constants in weapons.ts — sparse by design (never renumber):
+ * 0 muzzle, 1 hellfire, 2 special(=mortar blast), 3 warden,
+ * 6 mortar, 7 hyper, 10 mine, 11 shockwave.
  */
 export const PROJECTILE_HEX: readonly number[] = [
-  paletteHex("muzzle"),
-  paletteHex("heavy"),
-  paletteHex("special"),
-  paletteHex("warden_bomb"),
-  0xff7020, // cluster — deeper orange
-  0xc0e8ff, // rail — icy white-blue
-  0xffa060, // mortar — warm shell
-  0xffe8a0, // hyper — pale gold streak
-  0x60e0ff, // fusion — cold cyan shell
-  0xc8f060, // grenade — lime shell
+  paletteHex("muzzle"), // 0
+  paletteHex("heavy"), // 1 PROJ_HEAVY
+  paletteHex("special"), // 2 PROJ_SPECIAL
+  paletteHex("warden_bomb"), // 3 PROJ_WARDEN
+  0xffffff, // 4 unused
+  0xffffff, // 5 unused
+  0xffa060, // 6 PROJ_MORTAR
+  0xffe8a0, // 7 PROJ_HYPER
+  0xffffff, // 8 unused
+  0xffffff, // 9 unused
+  0xff9040, // 10 PROJ_MINE
+  0xa0d8ff, // 11 PROJ_SHOCKWAVE
 ];
 
 /** Terrain / water colors consumed by the heightfield mesh builder. */

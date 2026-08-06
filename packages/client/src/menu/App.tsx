@@ -1,16 +1,28 @@
 // Menu root. A pure function of (state, callbacks) — runMenu in index.ts owns
 // the state and re-renders on change, so this file has no hooks of its own and
 // can be rendered to a string in `bun test` without a DOM.
+//
+// Layout mirrors the original Precinct Assault console (docs/renders/fcop-ui/
+// and the PA main-menu screenshots): left pill column, centre map panel with
+// START, bottom loadout strip with rate/damage bars. Live 3D stays as the
+// backdrop behind the console frame (docs/specs/ui.md §3).
 
+import { MAP_REGISTRY } from "@metropolis/sim";
 import type { AudioEngine } from "../audio/engine";
 import type { TexPref } from "../render/texVariants";
-import { loadoutSummary } from "./hardpoints";
+import {
+  cycleHardpoint,
+  fittedWeapons,
+  HARDPOINTS,
+  type HardpointSpec,
+  weaponBarFractions,
+} from "./hardpoints";
+import { weaponIconUrl } from "./weaponArt";
 import type { MenuChoice } from "./routing";
 import { ArenaPicker } from "./screens/ArenaPicker";
 import { Drawer } from "./screens/Drawer";
 import { OnlinePanel } from "./screens/OnlinePanel";
-import { Weapons } from "./screens/Weapons";
-import type { MenuDrawer, MenuMode, MenuState } from "./state";
+import type { Hardpoint, MenuDrawer, MenuMode, MenuState } from "./state";
 
 export interface AppProps {
   state: MenuState;
@@ -26,7 +38,7 @@ export interface AppProps {
   onTexPref(pref: TexPref): void;
 }
 
-function SoloPanel({ state, update, go }: Pick<AppProps, "state" | "update" | "go">) {
+function SoloPanel({ state, update }: Pick<AppProps, "state" | "update">) {
   return (
     <>
       <div class="menu-row">
@@ -47,163 +59,241 @@ function SoloPanel({ state, update, go }: Pick<AppProps, "state" | "update" | "g
         <span class="menu-value ck-value">{state.difficulty}</span>
       </div>
       <p class="menu-hint">
-        Low levels play defensively; higher levels push Juggernauts. Prefer a target dummy?{" "}
-        {/* In-process like every other choice; the href stays for
-            middle-click/copy. */}
-        <a
-          href="?play=1"
-          onClick={(e) => {
-            e.preventDefault();
-            go({ mode: "solo" });
-          }}
-        >
-          Open the sandbox
-        </a>
-        .
+        Low levels play defensively; higher levels push Juggernauts. START fields the Warden AI.
       </p>
-      <button
-        type="button"
-        class="menu-go"
-        onClick={() => go({ mode: "warden", difficulty: state.difficulty })}
-      >
-        Start match
-      </button>
     </>
+  );
+}
+
+/** Bottom rack: Gun / Heavy / Special stacked; ◀ ▶ cycles each slot in place. */
+function LoadoutStrip({
+  state,
+  update,
+}: {
+  state: MenuState;
+  update(patch: Partial<MenuState>): void;
+}) {
+  const fitted = fittedWeapons(state.loadout);
+  return (
+    <div class="menu-loadout-strip">
+      {HARDPOINTS.map((spec: HardpointSpec, i) => {
+        const w = fitted[i];
+        const bars = weaponBarFractions(w, spec.list);
+        const hardpoint = i as Hardpoint;
+        const idx = state.loadout[spec.key];
+        const n = spec.list.length;
+        return (
+          <div class="menu-loadout-slot" key={spec.key}>
+            <div class="menu-loadout-slot-head">
+              <span class="menu-loadout-slot-label ck-label">{spec.label}</span>
+              <span class="menu-loadout-slot-pos ck-label">
+                {idx + 1}/{n}
+              </span>
+            </div>
+            <div class="menu-loadout-cycle">
+              <button
+                type="button"
+                class="menu-loadout-arrow"
+                aria-label={`Previous ${spec.label}`}
+                onClick={() => update({ loadout: cycleHardpoint(state.loadout, hardpoint, -1) })}
+              >
+                ◀
+              </button>
+              <span class="menu-loadout-pick">
+                <img
+                  class="menu-loadout-icon"
+                  src={weaponIconUrl(w.name)}
+                  alt=""
+                  width={45}
+                  height={42}
+                  draggable={false}
+                />
+                <span class="menu-loadout-slot-name" title={w.name}>
+                  {w.name}
+                </span>
+              </span>
+              <button
+                type="button"
+                class="menu-loadout-arrow"
+                aria-label={`Next ${spec.label}`}
+                onClick={() => update({ loadout: cycleHardpoint(state.loadout, hardpoint, 1) })}
+              >
+                ▶
+              </button>
+            </div>
+            <span class="menu-bar-row" aria-hidden="true">
+              <span class="menu-bar-track">
+                <span
+                  class="menu-bar menu-bar--rate"
+                  style={`width:${(bars.rate * 100).toFixed(0)}%`}
+                />
+              </span>
+              <span class="menu-bar-track">
+                <span
+                  class="menu-bar menu-bar--damage"
+                  style={`width:${(bars.damage * 100).toFixed(0)}%`}
+                />
+              </span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
 export function App(props: AppProps) {
   const { state, audio, installPrompt, showDebugModes, update, go, onSelect, onTexPref } = props;
 
-  if (state.stage === "weapons") {
-    return (
-      <div class="menu-stage ck-bezel">
-        <div class="menu-screen ck-screen">
-          <Weapons state={state} update={update} onDone={() => update({ stage: "rail" })} />
-        </div>
-      </div>
-    );
-  }
+  // Clicking the active pill closes the panel again — disclosure pattern.
+  const selectMode = (which: MenuMode) => {
+    if (!which) return;
+    update({ mode: state.mode === which ? null : which, drawer: null });
+  };
+  const toggleDrawer = (which: MenuDrawer) => {
+    if (!which) return;
+    update({ drawer: state.drawer === which ? null : which, mode: null });
+  };
 
-  // Clicking the active mode closes it again — the panel is a disclosure, and
-  // the button is its handle.
-  const toggleMode = (which: MenuMode) => update({ mode: state.mode === which ? null : which });
-  const toggleDrawer = (which: MenuDrawer) =>
-    update({ drawer: state.drawer === which ? null : which });
+  const mapName = MAP_REGISTRY.find((m) => m.id === state.mapId)?.displayName ?? state.mapId;
+  const modeTitle =
+    state.mode === "online" ? "ONLINE" : state.mode === "solo" ? "SOLO" : "PRECINCT ASSAULT";
+  const modeSub =
+    state.mode === "online" ? "1v1 over the internet" : state.mode === "solo" ? "1 PLAYER" : "map";
+
+  const startMatch = () => {
+    // Online has its own Host/Join controls; START only boots a local match.
+    if (state.mode === "online") return;
+    go({ mode: "warden", difficulty: state.difficulty });
+  };
 
   return (
     <div class="menu">
-      {/* Left-edge scrim: darkens the arena behind the rail so text stays
-          legible while the rest of the map reads bright and immersive. */}
+      {/* Dim the live arena so the console chrome stays legible; the centre
+          map panel still sits over a bright 3D backdrop cutout feel. */}
       <div class="menu-scrim" />
-      <div class="menu-rail ck-scroll">
-        <div class="menu-brand">
-          <div class="ck-label">arena strategy-action · solo · online</div>
+
+      <div class="menu-console ck-bezel">
+        <div class="menu-handle menu-handle--left" aria-hidden="true" />
+        <div class="menu-handle menu-handle--right" aria-hidden="true" />
+
+        <header class="menu-brand-head">
           <h1 class="menu-title">METROPOLIS</h1>
-          <p class="menu-objective">
-            Break the enemy base's gate before they break yours. Drive your avatar, capture turrets
-            and outposts, and buy waves of units to push a lane.
-          </p>
-        </div>
+          <p class="menu-tagline">A Future Cop: Precinct Assault homage</p>
+        </header>
 
-        <ArenaPicker mapId={state.mapId} onPick={onSelect} />
-
-        <section class="menu-section">
-          <div class="ck-label">Weapons</div>
-          <button
-            type="button"
-            class="menu-loadout ck-panel"
-            onClick={() => update({ stage: "weapons" })}
-          >
-            <span class="menu-loadout-kit ck-value">{loadoutSummary(state.loadout)}</span>
-            <span class="menu-loadout-cta">Arm the X1-Alpha →</span>
-          </button>
-        </section>
-
-        <div class="menu-modes">
-          <button
-            type="button"
-            class={`menu-mode ck-panel${state.mode === "solo" ? " is-active" : ""}`}
-            onClick={() => toggleMode("solo")}
-          >
-            <b>Solo</b>
-            <span>vs the Warden AI</span>
-          </button>
-          <button
-            type="button"
-            class={`menu-mode ck-panel${state.mode === "online" ? " is-active" : ""}`}
-            onClick={() => toggleMode("online")}
-          >
-            <b>Online</b>
-            <span>1v1 over the internet</span>
-          </button>
-          {/* Localhost-only: free-fly debug over the sandbox. */}
-          {showDebugModes ? (
-            <>
-              <button
-                type="button"
-                class="menu-mode menu-mode--debug"
-                onClick={() => go({ mode: "fly" })}
-              >
-                <b>Fly</b>
-                <span>debug cam · mesh units · turrets</span>
-              </button>
-              <button
-                type="button"
-                class="menu-mode menu-mode--debug"
-                onClick={() => go({ mode: "sandbox" })}
-              >
-                <b>Sandbox</b>
-                <span>spawn units + turrets · all weapons</span>
-              </button>
-            </>
-          ) : null}
-        </div>
-
-        {state.mode ? (
-          <div class="menu-panel ck-panel">
-            {state.mode === "solo" ? (
-              <SoloPanel state={state} update={update} go={go} />
-            ) : (
-              <OnlinePanel state={state} update={update} go={go} />
-            )}
-          </div>
-        ) : null}
-
-        <div class="menu-footer">
-          <button
-            type="button"
-            class={`menu-link${state.drawer === "how" ? " is-active" : ""}`}
-            onClick={() => toggleDrawer("how")}
-          >
-            How to play
-          </button>
-          <button
-            type="button"
-            class={`menu-link${state.drawer === "sound" ? " is-active" : ""}`}
-            onClick={() => toggleDrawer("sound")}
-          >
-            Sound
-          </button>
-          <button
-            type="button"
-            class={`menu-link${state.drawer === "gfx" ? " is-active" : ""}`}
-            onClick={() => toggleDrawer("gfx")}
-          >
-            Graphics
-          </button>
-          {installPrompt ? (
-            <button type="button" class="menu-link menu-link--accent" onClick={installPrompt}>
-              Install
+        <div class="menu-console-body">
+          {/* --- Left pill column (FCOP NEW GAME / PREFERENCES / …) -------- */}
+          <nav class="menu-pills" aria-label="Main menu">
+            <button
+              type="button"
+              class={`menu-pill${state.mode === "solo" ? " is-active" : ""}`}
+              onClick={() => selectMode("solo")}
+            >
+              Solo
             </button>
-          ) : null}
+            <button
+              type="button"
+              class={`menu-pill${state.mode === "online" ? " is-active" : ""}`}
+              onClick={() => selectMode("online")}
+            >
+              Online
+            </button>
+            <button
+              type="button"
+              class={`menu-pill${state.drawer === "prefs" ? " is-active" : ""}`}
+              onClick={() => toggleDrawer("prefs")}
+            >
+              Preferences
+            </button>
+            <button
+              type="button"
+              class={`menu-pill${state.drawer === "how" ? " is-active" : ""}`}
+              onClick={() => toggleDrawer("how")}
+            >
+              How to play
+            </button>
+            {installPrompt ? (
+              <button type="button" class="menu-pill menu-pill--accent" onClick={installPrompt}>
+                Install
+              </button>
+            ) : null}
+            {showDebugModes ? (
+              <>
+                <button
+                  type="button"
+                  class="menu-pill menu-pill--debug"
+                  onClick={() => go({ mode: "fly" })}
+                >
+                  Fly
+                </button>
+                <button
+                  type="button"
+                  class="menu-pill menu-pill--debug"
+                  onClick={() => go({ mode: "sandbox" })}
+                >
+                  Sandbox
+                </button>
+              </>
+            ) : null}
+          </nav>
+
+          {/* --- Centre: mode title, map, options, START ------------------- */}
+          <div class="menu-center ck-scroll">
+            <header class="menu-center-head">
+              <h2 class="menu-mode-title">{modeTitle}</h2>
+              <span class="menu-mode-tag ck-label">{modeSub}</span>
+            </header>
+
+            <div class="menu-map-panel ck-screen">
+              <img
+                class="menu-map-preview"
+                src={`/models/${encodeURIComponent(state.mapId)}/preview.png`}
+                alt=""
+                decoding="async"
+                onError={(e) => {
+                  // Fall back to the arena strip's procedural thumbs — hide the
+                  // broken image so the panel still shows the grid + name.
+                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                }}
+              />
+            </div>
+            <div class="menu-map-name">{mapName}</div>
+
+            <ArenaPicker mapId={state.mapId} onPick={onSelect} />
+
+            {state.mode === "solo" ? (
+              <div class="menu-panel ck-panel">
+                <SoloPanel state={state} update={update} />
+              </div>
+            ) : null}
+            {state.mode === "online" ? (
+              <div class="menu-panel ck-panel">
+                <OnlinePanel state={state} update={update} go={go} />
+              </div>
+            ) : null}
+
+            <Drawer kind={state.drawer} audio={audio} onTexPref={onTexPref} />
+
+            <div class="menu-start-row">
+              <button
+                type="button"
+                class="menu-start"
+                disabled={state.mode === "online"}
+                title={
+                  state.mode === "online"
+                    ? "Host or join from the panel above"
+                    : "Start solo match vs the Warden"
+                }
+                onClick={startMatch}
+              >
+                Start
+              </button>
+            </div>
+          </div>
         </div>
 
-        <Drawer kind={state.drawer} audio={audio} onTexPref={onTexPref} />
-
-        <div class="menu-credits">
-          A Future Cop: Precinct Assault homage · a working-title prototype.
-        </div>
+        <LoadoutStrip state={state} update={update} />
       </div>
     </div>
   );

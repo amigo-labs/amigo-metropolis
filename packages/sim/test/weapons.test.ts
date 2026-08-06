@@ -8,7 +8,10 @@ import {
   PRIMARY_DAMAGE,
   SPECIAL_COOLDOWN_TICKS,
   SPECIAL_DAMAGE,
+  SPECIAL_MINE_ARM_TICKS,
+  SPECIAL_MINE_TRIGGER_RADIUS,
 } from "../src/balance";
+import { ARCHETYPE } from "../src/archetypes";
 import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_FIRE3, createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
 import { createSim, step } from "../src/sim";
@@ -17,6 +20,7 @@ import {
   GUNS,
   HEAVIES,
   normalizeLoadout,
+  PROJ_MINE,
   resolveLoadout,
   SPECIALS,
   weaponById,
@@ -25,11 +29,33 @@ import {
 describe("weapon catalog", () => {
   test("default kit matches historic balance numbers", () => {
     const kit = resolveLoadout(DEFAULT_LOADOUT);
+    expect(kit.gun.name).toBe("Powered Mini-Gun");
+    expect(kit.heavy.name).toBe("Hell Fire 2000");
+    expect(kit.special.name).toBe("Mortar Launcher");
     expect(kit.gun.damage).toBe(PRIMARY_DAMAGE);
     expect(kit.heavy.damage).toBe(HEAVY_DAMAGE);
     expect(kit.heavy.ammo).toBe(AVATAR_AMMO_HEAVY);
     expect(kit.special.damage).toBe(SPECIAL_DAMAGE);
     expect(kit.special.ammo).toBe(AVATAR_AMMO_SPECIAL);
+  });
+
+  test("catalog is the ten original PA weapons", () => {
+    expect(GUNS.map((w) => w.name)).toEqual([
+      "Powered Mini-Gun",
+      "Gatling Laser",
+      "Flamethrower",
+      "Electric Gun",
+    ]);
+    expect(HEAVIES.map((w) => w.name)).toEqual([
+      "Hell Fire 2000",
+      "Concussion Beam",
+      "Hyper Velocity Rocket",
+    ]);
+    expect(SPECIALS.map((w) => w.name)).toEqual([
+      "Mortar Launcher",
+      "Pop-Up Mines",
+      "Shockwave Generator",
+    ]);
   });
 
   test("normalizeLoadout clamps out-of-range picks", () => {
@@ -50,8 +76,6 @@ describe("weapon catalog", () => {
   });
 
   test("slot and index fields agree with each list's position", () => {
-    // The Concussion Beam moved slot; a stale `slot`/`index` field would make
-    // weaponInSlot and the menu disagree about what the player picked.
     for (const [slot, list] of [GUNS, HEAVIES, SPECIALS].entries()) {
       for (const [index, w] of list.entries()) {
         expect(w.slot as number).toBe(slot);
@@ -62,8 +86,8 @@ describe("weapon catalog", () => {
 });
 
 /**
- * The eleven weapons Metropolis shares with Future Cop, pinned against the
- * original's own front-end bars.
+ * The ten original Precinct Assault weapons, pinned against the original's
+ * front-end bars (rules.md §2).
  *
  * Bars are 1/55, so they give ratios: each slot's index-0 weapon is the anchor,
  * `damage = anchorDamage * bar / anchorBar` and
@@ -72,7 +96,9 @@ describe("weapon catalog", () => {
  * either side has to be justified.
  */
 describe("original weapon table (rules.md §2)", () => {
-  // panel, firing-rate bar, damage bar — measured off extracted/frontend/*.png.
+  // panel, firing-rate bar, damage bar — measured off extracted/frontend/*.png
+  // for the long-standing nine, and scale-matched from PA weapons-screen
+  // captures for Pop-Up Mines and Shockwave Generator.
   const BARS = {
     "Powered Mini-Gun": { rate: 55, dmg: 3 },
     "Gatling Laser": { rate: 55, dmg: 3 },
@@ -81,17 +107,14 @@ describe("original weapon table (rules.md §2)", () => {
     "Hell Fire 2000": { rate: 42, dmg: 9 },
     "Concussion Beam": { rate: 21, dmg: 19 },
     "Hyper Velocity Rocket": { rate: 55, dmg: 11 },
-    "Fusion Torpedo": { rate: 22, dmg: 37 },
     "Mortar Launcher": { rate: 28, dmg: 19 },
-    "Plasma Flare": { rate: 28, dmg: 24 },
-    "Grenade Launcher": { rate: 28, dmg: 37 },
+    "Pop-Up Mines": { rate: 55, dmg: 55 },
+    "Shockwave Generator": { rate: 19, dmg: 28 },
   } as const;
 
-  const ANCHOR = ["Powered Mini-Gun", "Hell Fire 2000", "Plasma Flare"] as const;
+  const ANCHOR = ["Powered Mini-Gun", "Hell Fire 2000", "Mortar Launcher"] as const;
 
   test("each slot's anchor is the default pick, unchanged", () => {
-    // This is why no golden moved: the anchors ARE the historic numbers, so the
-    // default loadout comes out bit-identical.
     for (const [slot, list] of [GUNS, HEAVIES, SPECIALS].entries()) {
       expect(list[0].name).toBe(ANCHOR[slot]);
     }
@@ -103,12 +126,12 @@ describe("original weapon table (rules.md §2)", () => {
     expect(SPECIALS[0].cooldownTicks).toBe(SPECIAL_COOLDOWN_TICKS);
   });
 
-  test("every shared weapon sits at its slot-anchored ratio", () => {
+  test("every catalog weapon sits at its slot-anchored ratio", () => {
     for (const [slot, list] of [GUNS, HEAVIES, SPECIALS].entries()) {
       const anchorBars = BARS[ANCHOR[slot]];
       for (const w of list) {
         const bars = BARS[w.name as keyof typeof BARS];
-        if (!bars) continue; // Cluster Bomb / Rail Cannon — ours, nothing to match
+        expect(bars).toBeDefined();
         expect(w.damage).toBe(Math.round((list[0].damage * bars.dmg) / anchorBars.dmg));
         expect(w.cooldownTicks).toBe(
           Math.round((list[0].cooldownTicks * anchorBars.rate) / bars.rate),
@@ -123,9 +146,6 @@ describe("original weapon table (rules.md §2)", () => {
   });
 
   test("the declared deviation is the Mini-Gun/Laser range, and only that", () => {
-    // The bars cannot tell the two apart (both 55/55 and 3/55). Adopting that
-    // literally would ship two identical picks, so reach separates them —
-    // deliberately, and nothing else about them differs.
     const [mini, laser] = GUNS;
     expect(laser.damage).toBe(mini.damage);
     expect(laser.cooldownTicks).toBe(mini.cooldownTicks);
@@ -135,7 +155,6 @@ describe("original weapon table (rules.md §2)", () => {
 
 describe("loadout combat", () => {
   test("default loadout leaves the first shot hash path intact on test-128", () => {
-    // Smoke: createSim + one idle tick still works with explicit default loadout.
     const map = getMapById("test-128");
     const a = createSim(map, 1, { loadouts: [DEFAULT_LOADOUT] });
     const b = createSim(map, 1);
@@ -149,16 +168,12 @@ describe("loadout combat", () => {
   test("gatling laser uses its own ammo-free hitscan kit", () => {
     const map = getMapById("test-128");
     const sim = createSim(map, 2, { loadouts: [{ gun: 1, heavy: 0, special: 0 }] });
-    const id = sim.avatarId[0];
-    expect(id).toBeGreaterThanOrEqual(0);
-    // Point aim +X and fire gun once.
     const inputs = createTickInputs();
     inputs.players[0].aimX = 127;
     inputs.players[0].aimY = 0;
     inputs.players[0].buttons = BUTTON_FIRE1;
     step(sim, inputs);
     expect(sim.events.count).toBeGreaterThan(0);
-    // Event c carries weapon id 1 (Gatling Laser).
     let found = false;
     for (let i = 0; i < sim.events.count; i++) {
       const o = i * 4;
@@ -168,28 +183,12 @@ describe("loadout combat", () => {
   });
 
   test("concussion beam (heavy hitscan) spends heavy ammo", () => {
-    // It sat in the Special slot until the original's table said otherwise
-    // (`Beam Cannon`, id 0x12 — a Heavy). Moving it changes which button fires it
-    // and which ammo pool it draws from, which is what this pins.
     const map = getMapById("test-128");
-    const sim = createSim(map, 3, { loadouts: [{ gun: 0, heavy: 3, special: 0 }] });
+    const sim = createSim(map, 3, { loadouts: [{ gun: 0, heavy: 1, special: 0 }] });
     const id = sim.avatarId[0];
     const before = sim.ent.ammoA[id];
-    expect(HEAVIES[3].name).toBe("Concussion Beam");
-    expect(before).toBe(HEAVIES[3].ammo);
-    const inputs = createTickInputs();
-    inputs.players[0].aimX = 127;
-    inputs.players[0].buttons = BUTTON_FIRE2;
-    step(sim, inputs);
-    expect(sim.ent.ammoA[id]).toBe(before - 1);
-  });
-
-  test("rail cannon heavy spends heavy ammo", () => {
-    const map = getMapById("test-128");
-    const sim = createSim(map, 4, { loadouts: [{ gun: 0, heavy: 2, special: 0 }] });
-    const id = sim.avatarId[0];
-    const before = sim.ent.ammoA[id];
-    expect(before).toBe(HEAVIES[2].ammo);
+    expect(HEAVIES[1].name).toBe("Concussion Beam");
+    expect(before).toBe(HEAVIES[1].ammo);
     const inputs = createTickInputs();
     inputs.players[0].aimX = 127;
     inputs.players[0].buttons = BUTTON_FIRE2;
@@ -215,11 +214,11 @@ describe("loadout combat", () => {
 
   test("hyper velocity rocket spends heavy ammo", () => {
     const map = getMapById("test-128");
-    expect(HEAVIES[4].name).toBe("Hyper Velocity Rocket");
-    const sim = createSim(map, 6, { loadouts: [{ gun: 0, heavy: 4, special: 0 }] });
+    expect(HEAVIES[2].name).toBe("Hyper Velocity Rocket");
+    const sim = createSim(map, 6, { loadouts: [{ gun: 0, heavy: 2, special: 0 }] });
     const id = sim.avatarId[0];
     const before = sim.ent.ammoA[id];
-    expect(before).toBe(HEAVIES[4].ammo);
+    expect(before).toBe(HEAVIES[2].ammo);
     const inputs = createTickInputs();
     inputs.players[0].aimX = 127;
     inputs.players[0].buttons = BUTTON_FIRE2;
@@ -227,31 +226,92 @@ describe("loadout combat", () => {
     expect(sim.ent.ammoA[id]).toBe(before - 1);
   });
 
-  test("fusion torpedo spends heavy ammo", () => {
+  test("pop-up mines place a charge without aim and spend special ammo", () => {
     const map = getMapById("test-128");
-    expect(HEAVIES[5].name).toBe("Fusion Torpedo");
-    const sim = createSim(map, 7, { loadouts: [{ gun: 0, heavy: 5, special: 0 }] });
-    const id = sim.avatarId[0];
-    const before = sim.ent.ammoA[id];
-    expect(before).toBe(HEAVIES[5].ammo);
-    const inputs = createTickInputs();
-    inputs.players[0].aimX = 127;
-    inputs.players[0].buttons = BUTTON_FIRE2;
-    step(sim, inputs);
-    expect(sim.ent.ammoA[id]).toBe(before - 1);
-  });
-
-  test("grenade launcher spends special ammo", () => {
-    const map = getMapById("test-128");
-    expect(SPECIALS[2].name).toBe("Grenade Launcher");
-    const sim = createSim(map, 8, { loadouts: [{ gun: 0, heavy: 0, special: 2 }] });
+    expect(SPECIALS[1].name).toBe("Pop-Up Mines");
+    const sim = createSim(map, 8, { loadouts: [{ gun: 0, heavy: 0, special: 1 }] });
     const id = sim.avatarId[0];
     const before = sim.ent.ammoB[id];
-    expect(before).toBe(SPECIALS[2].ammo);
+    expect(before).toBe(SPECIALS[1].ammo);
     const inputs = createTickInputs();
-    inputs.players[0].aimX = 127;
+    // Zero aim — mines must still place.
+    inputs.players[0].aimX = 0;
+    inputs.players[0].aimY = 0;
     inputs.players[0].buttons = BUTTON_FIRE3;
     step(sim, inputs);
     expect(sim.ent.ammoB[id]).toBe(before - 1);
+    let mineId = -1;
+    for (let e = 0; e < sim.ent.high; e++) {
+      if (sim.ent.alive[e] && sim.ent.archetype[e] === ARCHETYPE.PROJECTILE && sim.ent.mode[e] === PROJ_MINE) {
+        mineId = e;
+        break;
+      }
+    }
+    expect(mineId).toBeGreaterThanOrEqual(0);
+    expect(sim.ent.timerB[mineId]).toBe(SPECIAL_MINE_ARM_TICKS - 1);
+  });
+
+  test("armed mine detonates on enemy avatar proximity", () => {
+    const map = getMapById("test-128");
+    const sim = createSim(map, 10, {
+      loadouts: [
+        { gun: 0, heavy: 0, special: 1 },
+        { gun: 0, heavy: 0, special: 0 },
+      ],
+    });
+    const a0 = sim.avatarId[0];
+    const a1 = sim.avatarId[1];
+    expect(a0).toBeGreaterThanOrEqual(0);
+    expect(a1).toBeGreaterThanOrEqual(0);
+    // test-128 co-locates both spawns — park the enemy clear before placing so
+    // arming does not trip on the standing teammate-enemy.
+    sim.ent.posX[a1] = sim.ent.posX[a0] + 40;
+    sim.ent.posY[a1] = sim.ent.posY[a0];
+    const place = createTickInputs();
+    place.players[0].buttons = BUTTON_FIRE3;
+    step(sim, place);
+    let mineId = -1;
+    for (let e = 0; e < sim.ent.high; e++) {
+      if (sim.ent.alive[e] && sim.ent.mode[e] === PROJ_MINE) mineId = e;
+    }
+    expect(mineId).toBeGreaterThanOrEqual(0);
+    const mx = sim.ent.posX[mineId];
+    const my = sim.ent.posY[mineId];
+    const idle = createTickInputs();
+    for (let t = 0; t < SPECIAL_MINE_ARM_TICKS + 1; t++) step(sim, idle);
+    expect(sim.ent.alive[mineId]).toBe(1);
+    // Walk the enemy into the trigger (test-only state write — fuze only).
+    sim.ent.posX[a1] = mx + SPECIAL_MINE_TRIGGER_RADIUS * 0.5;
+    sim.ent.posY[a1] = my;
+    const hpBefore = sim.ent.hp[a1];
+    expect(hpBefore).toBeGreaterThan(0);
+    step(sim, idle);
+    expect(sim.ent.alive[mineId]).toBe(0);
+    expect(sim.ent.hp[a1]).toBeLessThan(hpBefore);
+  });
+
+  test("shockwave generator fires without aim and damages nearby enemies", () => {
+    const map = getMapById("test-128");
+    expect(SPECIALS[2].name).toBe("Shockwave Generator");
+    const sim = createSim(map, 11, {
+      loadouts: [
+        { gun: 0, heavy: 0, special: 2 },
+        { gun: 0, heavy: 0, special: 0 },
+      ],
+    });
+    const a0 = sim.avatarId[0];
+    const a1 = sim.avatarId[1];
+    // Put enemy next to p0.
+    sim.ent.posX[a1] = sim.ent.posX[a0] + 2;
+    sim.ent.posY[a1] = sim.ent.posY[a0];
+    const hpBefore = sim.ent.hp[a1];
+    const before = sim.ent.ammoB[a0];
+    const inputs = createTickInputs();
+    inputs.players[0].aimX = 0;
+    inputs.players[0].aimY = 0;
+    inputs.players[0].buttons = BUTTON_FIRE3;
+    step(sim, inputs);
+    expect(sim.ent.ammoB[a0]).toBe(before - 1);
+    expect(sim.ent.hp[a1]).toBeLessThan(hpBefore);
   });
 });

@@ -23,6 +23,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
   "golden-07-pa": { last: 472675949, count: 3600 },
+  // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
+  // and moves mid-sequence; last-hash pins above stay the same numbers.
 };
 
 describe("single-story golden last-hash pins", () => {

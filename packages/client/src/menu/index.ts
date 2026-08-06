@@ -24,7 +24,6 @@ import { attachNavFocus, type NavFocusHandle } from "../ui/navFocus";
 import "../ui/cockpit.css";
 import "./menu.css";
 import { App } from "./App";
-import { cycleHardpoint, stepHardpoint } from "./hardpoints";
 import { isLocalhost, type MenuChoice } from "./routing";
 import { initialMenuState, type MenuState, mapIdFromParams } from "./state";
 
@@ -45,7 +44,7 @@ export interface MenuOptions {
   audio: AudioEngine;
   /** Called once when the player picks a mode; main.ts starts it in-process.
    *  `mapId` is the arena picked in the menu's persistent arena gallery.
-   *  `loadout` is the gun/heavy/special kit (Future Cop weapons screen). */
+   *  `loadout` is the gun/heavy/special kit from the console strip. */
   onChoice(choice: MenuChoice, mapId: string, loadout: Loadout): void;
   /** Called whenever the arena selection changes so the live 3D backdrop can
    *  preview the picked arena. `mapId` is the newly selected arena. */
@@ -89,36 +88,12 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   };
 
   function update(patch: Partial<MenuState>): void {
-    const stageChanged = patch.stage !== undefined && patch.stage !== state.stage;
     state = { ...state, ...patch };
     draw();
-    // Switching stage replaces the whole tree, so whatever had focus is gone
-    // and focus has fallen to <body>. Put it back inside the new screen or the
-    // pad appears dead until the player reaches for the mouse.
-    if (stageChanged) nav?.focusFirst();
   }
 
-  /**
-   * Left/right on the weapons screen cycles the fitted weapon instead of moving
-   * focus. Claimed here rather than in a keydown handler because gamepad
-   * directions never become DOM events — navFocus offers both paths to the same
-   * hook (docs/specs/ui.md §4).
-   */
-  const onDirection = (dir: "up" | "down" | "left" | "right"): boolean => {
-    if (state.stage !== "weapons") return false;
-    if (dir === "left" || dir === "right") {
-      update({ loadout: cycleHardpoint(state.loadout, state.hardpoint, dir === "left" ? -1 : 1) });
-      return true;
-    }
-    // Vertical still moves focus, and each hardpoint box syncs state.hardpoint
-    // on focus — but update it here too so a move is never a frame behind.
-    update({ hardpoint: stepHardpoint(state.hardpoint, dir === "up" ? -1 : 1) });
-    return false;
-  };
-
   const onCancel = (): void => {
-    if (state.stage === "weapons") update({ stage: "rail" });
-    else if (state.drawer) update({ drawer: null });
+    if (state.drawer) update({ drawer: null });
     else if (state.mode) update({ mode: null });
   };
 
@@ -139,7 +114,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   }
 
   draw();
-  nav = attachNavFocus(root, { onCancel, onDirection });
+  nav = attachNavFocus(root, { onCancel });
 
   return {
     offerInstall(prompt: () => void): void {

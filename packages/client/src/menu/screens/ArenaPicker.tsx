@@ -1,5 +1,6 @@
-// Arena gallery. Selecting a card swaps the live 3D backdrop through
-// opts.onSelect, so the picker doubles as the preview.
+// Arena gallery for the console centre column. Selecting a card swaps the live
+// 3D backdrop through opts.onSelect, so the picker doubles as the preview.
+// Compact horizontal strip under the large map panel (FCOP PA layout).
 
 import { getMapById, MAP_REGISTRY } from "@metropolis/sim";
 import { drawArenaThumbnail } from "../../render/arenaThumb";
@@ -48,9 +49,9 @@ function ArenaThumb({ id }: { id: string }) {
 
 export function ArenaPicker({ mapId, onPick }: Props) {
   return (
-    <section class="menu-section">
+    <section class="menu-section menu-arena-section">
       <div class="ck-label">Arena</div>
-      <div class="menu-arena-grid">
+      <div class="menu-arena-grid" data-grid>
         {MAP_REGISTRY.map((info) => (
           <button
             type="button"

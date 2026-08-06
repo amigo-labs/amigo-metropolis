@@ -69,15 +69,35 @@ belongs in the same commit as the harness updates it forces.
 
 Modelled on the original's cockpit console. Reference shots live in
 `docs/renders/fcop-ui/` (`weapons-screen.png`, `load-zone-screen.png`,
-`hud-in-match.png`); provenance is in `CREDITS.md`.
+`hud-in-match.png`); provenance is in `CREDITS.md`. The title menu also
+tracks the Precinct Assault main-console layout (left pill column, centre
+map panel, START, bottom loadout strip with rate/damage bars).
 
 - Heavy metal/circuit bezel framing a dark screen
 - Faint green grid on near-black, drawn as a `repeating-linear-gradient` — a
   gradient, never an image, so it costs nothing to ship and scales cleanly
 - Thin cyan panel borders; cyan text in a chunky rounded techno face
-- Lavender reserved for the confirming action ("Ready") — one accent, one
-  meaning
+- Lavender reserved for the confirming action ("Ready" / "Start") — one accent,
+  one meaning
 - Red and blue are **team colours** and are never used for chrome
+- Loadout strip bars: **green = rate**, **red = damage**, scaled within each
+  hardpoint's catalog (same relative idea as the original's front-end panels)
+
+### Title menu layout
+
+The title screen is a **console frame** over the live 3D arena backdrop (the
+arena still previews the picked map). Inside the frame:
+
+| Zone | Content |
+|------|---------|
+| Left | Pill buttons: Solo, Online, Preferences, How to play (+ Install / debug) |
+| Centre | Mode title, large arena preview, arena strip, mode panel / drawer, **Start** |
+| Bottom | Three hardpoints stacked with ◀ ▶ to cycle weapons and rate/damage bars |
+
+There is **no separate weapons screen** — the loadout is fitted on the console
+strip. Preferences combines Sound and Graphics (one drawer). Online uses
+Host/Join in its panel — Start is disabled there because a net match is not a
+single button.
 
 Tokens live in `src/ui/cockpit.css` as custom properties and are the only thing
 the two UI worlds share. The font is self-hosted: the PWA has to work offline.

@@ -1,19 +1,8 @@
-// Avatar loadout catalog (Future Cop style): one Gun + one Heavy + one Special.
-// Defaults (index 0 in each slot) reproduce the historic balance.ts numbers so
-// goldens and empty configs stay bit-identical. Non-default picks change combat
-// and therefore hashes — they only apply when the player selects them.
-//
-// The eleven weapons this catalog shares with the original carry the original's
-// damage, cadence and display names, derived per slot from the front-end bars —
-// the arithmetic and the two declared deviations are documented at the
-// "Non-default catalog weapons" block in balance.ts, and every number here is a
-// named constant from there (no inline gameplay values).
-//
-// The original has 15 (five per slot) and this has 13. Four of the eight that
-// were missing are table rows and land here (Electric Gun, Hyper Velocity
-// Rocket, Fusion Torpedo, Grenade Launcher — issue #48). The other four are
-// new mechanics — a deployable shield, a drone, mines, a shockwave — and stay
-// tracked as issues rather than guessed at here.
+// Avatar loadout catalog — Future Cop Precinct Assault, ten weapons only:
+// four Guns, three Heavies, three Specials (rules.md §2, SIM_VERSION 26).
+// Defaults (index 0 in each slot) are the original kit: Powered Mini-Gun +
+// Hell Fire 2000 + Mortar Launcher. Rate/damage for every shared panel weapon
+// come from the original front-end bars; the arithmetic lives in balance.ts.
 
 import {
   AVATAR_AMMO_HEAVY,
@@ -32,32 +21,14 @@ import {
   HEAVY_BEAM_COOLDOWN_TICKS,
   HEAVY_BEAM_DAMAGE,
   HEAVY_BEAM_RANGE,
-  HEAVY_CLUSTER_AMMO,
-  HEAVY_CLUSTER_AOE_RADIUS,
-  HEAVY_CLUSTER_COOLDOWN_TICKS,
-  HEAVY_CLUSTER_DAMAGE,
-  HEAVY_CLUSTER_SPEED,
-  HEAVY_CLUSTER_TTL_TICKS,
   HEAVY_COOLDOWN_TICKS,
   HEAVY_DAMAGE,
-  HEAVY_FUSION_AMMO,
-  HEAVY_FUSION_AOE_RADIUS,
-  HEAVY_FUSION_COOLDOWN_TICKS,
-  HEAVY_FUSION_DAMAGE,
-  HEAVY_FUSION_SPEED,
-  HEAVY_FUSION_TTL_TICKS,
   HEAVY_HYPER_AMMO,
   HEAVY_HYPER_AOE_RADIUS,
   HEAVY_HYPER_COOLDOWN_TICKS,
   HEAVY_HYPER_DAMAGE,
   HEAVY_HYPER_SPEED,
   HEAVY_HYPER_TTL_TICKS,
-  HEAVY_RAIL_AMMO,
-  HEAVY_RAIL_AOE_RADIUS,
-  HEAVY_RAIL_COOLDOWN_TICKS,
-  HEAVY_RAIL_DAMAGE,
-  HEAVY_RAIL_SPEED,
-  HEAVY_RAIL_TTL_TICKS,
   HEAVY_SPEED,
   HEAVY_TTL_TICKS,
   PRIMARY_COOLDOWN_TICKS,
@@ -66,41 +37,47 @@ import {
   SPECIAL_AOE_RADIUS,
   SPECIAL_COOLDOWN_TICKS,
   SPECIAL_DAMAGE,
-  SPECIAL_GRENADE_AMMO,
-  SPECIAL_GRENADE_AOE_RADIUS,
-  SPECIAL_GRENADE_COOLDOWN_TICKS,
-  SPECIAL_GRENADE_DAMAGE,
-  SPECIAL_GRENADE_SPEED,
-  SPECIAL_GRENADE_TTL_TICKS,
-  SPECIAL_MORTAR_AMMO,
-  SPECIAL_MORTAR_AOE_RADIUS,
-  SPECIAL_MORTAR_COOLDOWN_TICKS,
-  SPECIAL_MORTAR_DAMAGE,
-  SPECIAL_MORTAR_SPEED,
-  SPECIAL_MORTAR_TTL_TICKS,
+  SPECIAL_MINE_AMMO,
+  SPECIAL_MINE_AOE_RADIUS,
+  SPECIAL_MINE_COOLDOWN_TICKS,
+  SPECIAL_MINE_DAMAGE,
+  SPECIAL_MINE_TTL_TICKS,
+  SPECIAL_SHOCK_AMMO,
+  SPECIAL_SHOCK_AOE_RADIUS,
+  SPECIAL_SHOCK_COOLDOWN_TICKS,
+  SPECIAL_SHOCK_DAMAGE,
   SPECIAL_SPEED,
   SPECIAL_TTL_TICKS,
   WARDEN_HEAVY_AOE_RADIUS,
   WARDEN_HEAVY_DAMAGE,
 } from "./balance";
 
-/** Projectile payload kinds written into entity.mode (snapshot aux). */
+/**
+ * Projectile payload kinds written into entity.mode (snapshot aux).
+ * Numbers are stable; gaps are intentional (never renumber).
+ * Live catalog uses: HEAVY, MORTAR, HYPER, MINE, SHOCKWAVE (+ WARDEN).
+ */
 export const PROJ_HEAVY = 1;
+/** Same blast as PROJ_MORTAR — kept for older event payloads. */
 export const PROJ_SPECIAL = 2;
 export const PROJ_WARDEN = 3;
-export const PROJ_CLUSTER = 4;
-export const PROJ_RAIL = 5;
 export const PROJ_MORTAR = 6;
 export const PROJ_HYPER = 7;
-export const PROJ_FUSION = 8;
-export const PROJ_GRENADE = 9;
+export const PROJ_MINE = 10;
+export const PROJ_SHOCKWAVE = 11;
 
 export const WEAPON_SLOT_GUN = 0;
 export const WEAPON_SLOT_HEAVY = 1;
 export const WEAPON_SLOT_SPECIAL = 2;
 
-/** Fire delivery. Hitscan is instant; projectile spawns a flying entity. */
-export type WeaponDelivery = "hitscan" | "projectile";
+/**
+ * Fire delivery.
+ * - hitscan: instant ray
+ * - projectile: flying shell
+ * - mine: places a proximity charge at the shooter's feet (no aim needed)
+ * - shockwave: self-centred pulse (no aim needed)
+ */
+export type WeaponDelivery = "hitscan" | "projectile" | "mine" | "shockwave";
 
 /**
  * Client VFX style key. The renderer maps these to tracers / sprites / rings;
@@ -112,20 +89,17 @@ export type WeaponVfx =
   | "flame"
   | "electric"
   | "rocket"
-  | "cluster"
-  | "rail"
   | "hyper"
-  | "fusion"
-  | "plasma"
   | "mortar"
-  | "grenade"
-  | "beam";
+  | "beam"
+  | "mine"
+  | "shockwave";
 
 export interface WeaponDef {
-  /** Stable id, unique across the whole catalog. */
+  /** Stable id, unique across the whole catalog. Never renumbered. */
   readonly id: number;
   readonly slot: 0 | 1 | 2;
-  /** Index within the slot (0 = default / historic). */
+  /** Index within the slot (0 = default / original kit). */
   readonly index: number;
   readonly name: string;
   readonly blurb: string;
@@ -139,7 +113,7 @@ export interface WeaponDef {
   readonly aoeRadius: number;
   /** Max ammo for heavy/special; guns ignore (infinite). */
   readonly ammo: number;
-  /** Projectile mode written to entity.mode; 0 for pure hitscan. */
+  /** Projectile mode written to entity.mode; 0 for pure hitscan / pulse. */
   readonly projKind: number;
   readonly vfx: WeaponVfx;
 }
@@ -247,52 +221,11 @@ export const HEAVIES: readonly WeaponDef[] = [
     vfx: "rocket",
   },
   {
-    id: 4,
-    slot: 1,
-    index: 1,
-    name: "Cluster Bomb",
-    blurb: "Slow shell, wide fireball. Clears clusters of units. (Metropolis)",
-    delivery: "projectile",
-    damage: HEAVY_CLUSTER_DAMAGE,
-    cooldownTicks: HEAVY_CLUSTER_COOLDOWN_TICKS,
-    range: 0,
-    speed: HEAVY_CLUSTER_SPEED,
-    ttlTicks: HEAVY_CLUSTER_TTL_TICKS,
-    aoeRadius: HEAVY_CLUSTER_AOE_RADIUS,
-    ammo: HEAVY_CLUSTER_AMMO,
-    projKind: PROJ_CLUSTER,
-    vfx: "cluster",
-  },
-  {
-    id: 5,
-    slot: 1,
-    index: 2,
-    name: "Rail Cannon",
-    blurb: "Hyper-velocity slug. Pinpoint, almost no splash. (Metropolis)",
-    delivery: "projectile",
-    damage: HEAVY_RAIL_DAMAGE,
-    cooldownTicks: HEAVY_RAIL_COOLDOWN_TICKS,
-    range: 0,
-    speed: HEAVY_RAIL_SPEED,
-    ttlTicks: HEAVY_RAIL_TTL_TICKS,
-    aoeRadius: HEAVY_RAIL_AOE_RADIUS,
-    ammo: HEAVY_RAIL_AMMO,
-    projKind: PROJ_RAIL,
-    vfx: "rail",
-  },
-  {
-    // Moved here from the Special slot for fidelity: the original files it as a
-    // Heavy (`Beam Cannon`, id 0x12 — high nibble = slot). The id-to-name pairing
-    // inside the Heavy group was made by elimination, so WHICH heavy id it is is
-    // not certain; that it IS a heavy does not depend on the elimination, because
-    // both leftover ids were heavies. Appended rather than inserted so existing
-    // heavy loadout indices keep meaning.
-    //
-    // `id` stays 8 — catalog ids are stable and never renumbered, only the slot
-    // and index move.
+    // Original Heavy (`Beam Cannon`, id 0x12). Index 1 so the original kit
+    // order Hell Fire → Concussion → Hyper matches the PA weapons screen.
     id: 8,
     slot: 1,
-    index: 3,
+    index: 1,
     name: "Concussion Beam",
     blurb: "Instant long-range beam. No projectile travel time.",
     delivery: "hitscan",
@@ -307,11 +240,10 @@ export const HEAVIES: readonly WeaponDef[] = [
     vfx: "beam",
   },
   {
-    // Original Heavy id 0x13 (display: Hyper Velocity Rocket). Fast, light
-    // projectile — overlaps Rail Cannon in role; both stay (rules.md §2).
+    // Original Heavy id 0x13 (display: Hyper Velocity Rocket).
     id: 10,
     slot: 1,
-    index: 4,
+    index: 2,
     name: "Hyper Velocity Rocket",
     blurb: "Fast light rocket. High cadence, tight blast.",
     delivery: "projectile",
@@ -325,33 +257,15 @@ export const HEAVIES: readonly WeaponDef[] = [
     projKind: PROJ_HYPER,
     vfx: "hyper",
   },
-  {
-    // Original Heavy id 0x14. Slow heavy shell with a wide crater.
-    id: 11,
-    slot: 1,
-    index: 5,
-    name: "Fusion Torpedo",
-    blurb: "Slow heavy torpedo. Huge single-shot punch.",
-    delivery: "projectile",
-    damage: HEAVY_FUSION_DAMAGE,
-    cooldownTicks: HEAVY_FUSION_COOLDOWN_TICKS,
-    range: 0,
-    speed: HEAVY_FUSION_SPEED,
-    ttlTicks: HEAVY_FUSION_TTL_TICKS,
-    aoeRadius: HEAVY_FUSION_AOE_RADIUS,
-    ammo: HEAVY_FUSION_AMMO,
-    projKind: PROJ_FUSION,
-    vfx: "fusion",
-  },
 ];
 
 export const SPECIALS: readonly WeaponDef[] = [
   {
-    id: 6,
+    id: 7,
     slot: 2,
     index: 0,
-    name: "Plasma Flare",
-    blurb: "Slow plasma orb. Huge single-target punch.",
+    name: "Mortar Launcher", // the original's front-end name + default special
+    blurb: "Arcing shell with a wide crater. Softens bases.",
     delivery: "projectile",
     damage: SPECIAL_DAMAGE,
     cooldownTicks: SPECIAL_COOLDOWN_TICKS,
@@ -360,49 +274,46 @@ export const SPECIALS: readonly WeaponDef[] = [
     ttlTicks: SPECIAL_TTL_TICKS,
     aoeRadius: SPECIAL_AOE_RADIUS,
     ammo: AVATAR_AMMO_SPECIAL,
-    projKind: PROJ_SPECIAL,
-    vfx: "plasma",
-  },
-  {
-    id: 7,
-    slot: 2,
-    index: 1,
-    name: "Mortar Launcher", // the original's front-end name
-    blurb: "Arcing shell with a wide crater. Softens bases.",
-    delivery: "projectile",
-    damage: SPECIAL_MORTAR_DAMAGE,
-    cooldownTicks: SPECIAL_MORTAR_COOLDOWN_TICKS,
-    range: 0,
-    speed: SPECIAL_MORTAR_SPEED,
-    ttlTicks: SPECIAL_MORTAR_TTL_TICKS,
-    aoeRadius: SPECIAL_MORTAR_AOE_RADIUS,
-    ammo: SPECIAL_MORTAR_AMMO,
     projKind: PROJ_MORTAR,
     vfx: "mortar",
   },
   {
-    // Original Special id 0x24. Mortar-shaped flight at the Plasma Flare's
-    // cadence with a heavier damage bar. True ballistic arc is not in the sim
-    // (same as the Mortar — "arcing" is flavor over 2D flight).
-    id: 12,
+    // Proximity charge. Placed at the avatar's feet; arms after a short delay,
+    // then detonates when an enemy walks into the trigger radius.
+    id: 13,
+    slot: 2,
+    index: 1,
+    name: "Pop-Up Mines",
+    blurb: "Drop a proximity charge. Arms after a short delay.",
+    delivery: "mine",
+    damage: SPECIAL_MINE_DAMAGE,
+    cooldownTicks: SPECIAL_MINE_COOLDOWN_TICKS,
+    range: 0,
+    speed: 0,
+    ttlTicks: SPECIAL_MINE_TTL_TICKS,
+    aoeRadius: SPECIAL_MINE_AOE_RADIUS,
+    ammo: SPECIAL_MINE_AMMO,
+    projKind: PROJ_MINE,
+    vfx: "mine",
+  },
+  {
+    // Self-centred expanding pulse — no aim, no projectile travel.
+    id: 14,
     slot: 2,
     index: 2,
-    name: "Grenade Launcher",
-    blurb: "Arcing shell, hard crater. Faster cadence feel than the Mortar's punch.",
-    delivery: "projectile",
-    damage: SPECIAL_GRENADE_DAMAGE,
-    cooldownTicks: SPECIAL_GRENADE_COOLDOWN_TICKS,
+    name: "Shockwave Generator",
+    blurb: "Self-centred pulse. Clears everything in a wide ring.",
+    delivery: "shockwave",
+    damage: SPECIAL_SHOCK_DAMAGE,
+    cooldownTicks: SPECIAL_SHOCK_COOLDOWN_TICKS,
     range: 0,
-    speed: SPECIAL_GRENADE_SPEED,
-    ttlTicks: SPECIAL_GRENADE_TTL_TICKS,
-    aoeRadius: SPECIAL_GRENADE_AOE_RADIUS,
-    ammo: SPECIAL_GRENADE_AMMO,
-    projKind: PROJ_GRENADE,
-    vfx: "grenade",
+    speed: 0,
+    ttlTicks: 0,
+    aoeRadius: SPECIAL_SHOCK_AOE_RADIUS,
+    ammo: SPECIAL_SHOCK_AMMO,
+    projKind: PROJ_SHOCKWAVE,
+    vfx: "shockwave",
   },
-  // Three entries: Plasma, Mortar, Grenade. The original's Special slot also
-  // has Pop-Up Mines and Shockwave Generator — both new mechanics, still open
-  // under issue #48. Riot Shield (Gun) and K-9 Drone (Heavy) likewise.
 ];
 
 const BY_SLOT: readonly (readonly WeaponDef[])[] = [GUNS, HEAVIES, SPECIALS];
@@ -459,21 +370,16 @@ export function resolveLoadout(loadout: Loadout): {
 export function projectileBlast(kind: number): { damage: number; radius: number } {
   switch (kind) {
     case PROJ_SPECIAL:
+    case PROJ_MORTAR:
       return { damage: SPECIAL_DAMAGE, radius: SPECIAL_AOE_RADIUS };
     case PROJ_WARDEN:
       return { damage: WARDEN_HEAVY_DAMAGE, radius: WARDEN_HEAVY_AOE_RADIUS };
-    case PROJ_CLUSTER:
-      return { damage: HEAVY_CLUSTER_DAMAGE, radius: HEAVY_CLUSTER_AOE_RADIUS };
-    case PROJ_RAIL:
-      return { damage: HEAVY_RAIL_DAMAGE, radius: HEAVY_RAIL_AOE_RADIUS };
-    case PROJ_MORTAR:
-      return { damage: SPECIAL_MORTAR_DAMAGE, radius: SPECIAL_MORTAR_AOE_RADIUS };
     case PROJ_HYPER:
       return { damage: HEAVY_HYPER_DAMAGE, radius: HEAVY_HYPER_AOE_RADIUS };
-    case PROJ_FUSION:
-      return { damage: HEAVY_FUSION_DAMAGE, radius: HEAVY_FUSION_AOE_RADIUS };
-    case PROJ_GRENADE:
-      return { damage: SPECIAL_GRENADE_DAMAGE, radius: SPECIAL_GRENADE_AOE_RADIUS };
+    case PROJ_MINE:
+      return { damage: SPECIAL_MINE_DAMAGE, radius: SPECIAL_MINE_AOE_RADIUS };
+    case PROJ_SHOCKWAVE:
+      return { damage: SPECIAL_SHOCK_DAMAGE, radius: SPECIAL_SHOCK_AOE_RADIUS };
     default:
       return { damage: HEAVY_DAMAGE, radius: HEAVY_AOE_RADIUS };
   }

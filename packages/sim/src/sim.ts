@@ -66,6 +66,8 @@ import {
   POINTS_KILL_TURRET,
   POINTS_KILL_UNIT,
   RESPAWN_TICKS,
+  SPECIAL_MINE_ARM_TICKS,
+  SPECIAL_MINE_TRIGGER_RADIUS,
   STARTING_POINTS,
   TICK_DT,
   TRANSFORM_LOCK_TICKS,
@@ -145,8 +147,10 @@ import {
   DEFAULT_LOADOUT,
   type Loadout,
   normalizeLoadout,
+  PROJ_MINE,
   projectileBlast,
   resolveLoadout,
+  type WeaponDef,
   weaponInSlot,
 } from "./weapons";
 
@@ -229,7 +233,7 @@ export interface SimState {
   /**
    * Avatar loadout indices per player (Future Cop style gun/heavy/special).
    * Config-only — not hashed (peers agree via MatchConfig / createSim options).
-   * Default 0/0/0 is the historic Mini-Gun + Hellfire + Plasma kit.
+   * Default 0/0/0 is the original kit: Mini-Gun + Hell Fire 2000 + Mortar.
    */
   readonly loadoutGun: Uint8Array;
   readonly loadoutHeavy: Uint8Array;
@@ -1174,30 +1178,35 @@ function avatarWeapons(
   if (locked) return;
   const dirX = ent.aimX[id];
   const dirY = ent.aimY[id];
-  if (dirX === 0 && dirY === 0) return;
+  const hasAim = dirX !== 0 || dirY !== 0;
 
   // Gun (slot 0) — always infinite ammo; delivery from the loadout profile.
-  if ((buttons & BUTTON_FIRE1) !== 0 && ent.cooldownA[id] <= 0) {
+  if ((buttons & BUTTON_FIRE1) !== 0 && ent.cooldownA[id] <= 0 && hasAim) {
     const w = kit.gun;
     ent.cooldownA[id] = w.cooldownTicks;
     pushEvent(state.events, EV_SHOT, id, 0, w.id);
     fireWeapon(state, id, player, w, dirX, dirY);
   }
   // Heavy (slot 1).
-  if ((buttons & BUTTON_FIRE2) !== 0 && ent.cooldownB[id] <= 0 && ent.ammoA[id] > 0) {
+  if ((buttons & BUTTON_FIRE2) !== 0 && ent.cooldownB[id] <= 0 && ent.ammoA[id] > 0 && hasAim) {
     const w = kit.heavy;
     ent.cooldownB[id] = w.cooldownTicks;
     ent.ammoA[id] -= 1;
     pushEvent(state.events, EV_SHOT, id, 1, w.id);
     fireWeapon(state, id, player, w, dirX, dirY);
   }
-  // Special (slot 2).
+  // Special (slot 2). Mines and shockwave need no aim; shells/hitscans do.
   if ((buttons & BUTTON_FIRE3) !== 0 && ent.cooldownC[id] <= 0 && ent.ammoB[id] > 0) {
     const w = kit.special;
-    ent.cooldownC[id] = w.cooldownTicks;
-    ent.ammoB[id] -= 1;
-    pushEvent(state.events, EV_SHOT, id, 2, w.id);
-    fireWeapon(state, id, player, w, dirX, dirY);
+    const needsAim = w.delivery === "hitscan" || w.delivery === "projectile";
+    if (needsAim && !hasAim) {
+      // leave ammo/cooldown alone — stick not aimed yet
+    } else {
+      ent.cooldownC[id] = w.cooldownTicks;
+      ent.ammoB[id] -= 1;
+      pushEvent(state.events, EV_SHOT, id, 2, w.id);
+      fireWeapon(state, id, player, w, dirX, dirY);
+    }
   }
 }
 
@@ -1205,7 +1214,7 @@ function fireWeapon(
   state: SimState,
   shooter: number,
   player: number,
-  w: ReturnType<typeof weaponInSlot>,
+  w: WeaponDef,
   dirX: number,
   dirY: number,
 ): void {
@@ -1213,7 +1222,71 @@ function fireWeapon(
     hitscan(state, shooter, player, dirX, dirY, w.range, w.damage);
     return;
   }
+  if (w.delivery === "shockwave") {
+    // Self-centred pulse at the shooter's feet — ignore aim.
+    aoeAt(state, entPos(state, shooter), entTeam(state, shooter), player, w.damage, w.aoeRadius, w.projKind);
+    return;
+  }
+  if (w.delivery === "mine") {
+    spawnMine(state, shooter, player, w);
+    return;
+  }
   spawnProjectile(state, shooter, player, w.projKind, dirX, dirY, w.speed, w.ttlTicks);
+}
+
+function entPos(state: SimState, id: number): { x: number; y: number } {
+  return { x: state.ent.posX[id], y: state.ent.posY[id] };
+}
+
+function entTeam(state: SimState, id: number): number {
+  return state.ent.team[id];
+}
+
+/** Instant AoE at a world point (shockwave pulse; also used by explode). */
+function aoeAt(
+  state: SimState,
+  pos: { x: number; y: number },
+  team: number,
+  owner: number,
+  damage: number,
+  radius: number,
+  kind: number,
+): void {
+  const ent = state.ent;
+  pushEvent(state.events, EV_EXPLOSION, Math.floor(pos.x * 16), Math.floor(pos.y * 16), kind);
+  for (let t = 0; t < ent.high; t++) {
+    if (!ent.alive[t]) continue;
+    if (ent.team[t] === team) continue;
+    if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
+    const r = radius + ARCHETYPE_RADIUS[ent.archetype[t]];
+    const dx = ent.posX[t] - pos.x;
+    const dy = ent.posY[t] - pos.y;
+    if (dx * dx + dy * dy <= r * r) {
+      applyDamage(state, t, damage, owner);
+    }
+  }
+}
+
+/**
+ * Drop a Pop-Up Mine at the shooter's feet. Uses the PROJECTILE archetype with
+ * `PROJ_MINE` mode: zero velocity, arming delay in timerB, live TTL in timerA.
+ * systemProjectiles special-cases it so ground/wall contact does not detonate.
+ */
+function spawnMine(state: SimState, shooter: number, player: number, w: WeaponDef): void {
+  const ent = state.ent;
+  const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
+  if (id < 0) return;
+  ent.posX[id] = ent.posX[shooter];
+  ent.posY[id] = ent.posY[shooter];
+  ent.height[id] = ent.height[shooter] + 0.25;
+  ent.velX[id] = 0;
+  ent.velY[id] = 0;
+  ent.yaw[id] = ent.yaw[shooter];
+  ent.hp[id] = 1;
+  ent.mode[id] = PROJ_MINE;
+  ent.timerA[id] = w.ttlTicks; // live lifetime
+  ent.timerB[id] = SPECIAL_MINE_ARM_TICKS; // arming delay
+  ent.ownerId[id] = player;
 }
 
 /** First enemy hit along the 2D ray within `range`, if any (shared w/ Warden). */
@@ -1439,13 +1512,48 @@ function nearestEnemyAvatar(state: SimState, id: number, range: number): number 
   return bestId;
 }
 
-/** Projectiles: fly, expire, explode on contact or terrain. */
+/** Projectiles: fly, expire, explode on contact or terrain. Mines arm + wait. */
 function systemProjectiles(state: SimState): void {
   const ent = state.ent;
   const map = state.map;
   const extent = worldExtent(map);
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.PROJECTILE) continue;
+
+    // Pop-Up Mines: stationary proximity charges. Ground/wall contact must NOT
+    // detonate them (they sit on the floor by design). Arming delay in timerB
+    // lets the placer walk clear; silent despawn on TTL so a forgotten mine
+    // does not linger forever.
+    if (ent.mode[id] === PROJ_MINE) {
+      ent.timerA[id] -= 1;
+      if (ent.timerA[id] <= 0) {
+        despawn(ent, id);
+        continue;
+      }
+      if (ent.timerB[id] > 0) {
+        ent.timerB[id] -= 1;
+        continue;
+      }
+      const mx = ent.posX[id];
+      const my = ent.posY[id];
+      const team = ent.team[id];
+      let trip = false;
+      for (let t = 0; t < ent.high; t++) {
+        if (!ent.alive[t] || t === id) continue;
+        if (ent.team[t] === team) continue;
+        if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
+        const r = SPECIAL_MINE_TRIGGER_RADIUS + ARCHETYPE_RADIUS[ent.archetype[t]];
+        const dx = ent.posX[t] - mx;
+        const dy = ent.posY[t] - my;
+        if (dx * dx + dy * dy <= r * r) {
+          trip = true;
+          break;
+        }
+      }
+      if (trip) explode(state, id);
+      continue;
+    }
+
     ent.timerA[id] -= 1;
     const px = ent.posX[id];
     const py = ent.posY[id];
@@ -1487,25 +1595,13 @@ function explode(state: SimState, id: number): void {
   const ent = state.ent;
   const kind = ent.mode[id];
   const blast = projectileBlast(kind);
-  const radius = blast.radius;
-  const damage = blast.damage;
   const x = ent.posX[id];
   const y = ent.posY[id];
   const team = ent.team[id];
   const owner = ent.ownerId[id];
-  pushEvent(state.events, EV_EXPLOSION, Math.floor(x * 16), Math.floor(y * 16), kind);
-  for (let t = 0; t < ent.high; t++) {
-    if (!ent.alive[t] || t === id) continue;
-    if (ent.team[t] === team) continue;
-    if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-    const r = radius + ARCHETYPE_RADIUS[ent.archetype[t]];
-    const dx = ent.posX[t] - x;
-    const dy = ent.posY[t] - y;
-    if (dx * dx + dy * dy <= r * r) {
-      applyDamage(state, t, damage, owner);
-    }
-  }
+  // Despawn first so the blast loop never re-hits the shell itself.
   despawn(ent, id);
+  aoeAt(state, { x, y }, team, owner, blast.damage, blast.radius, kind);
 }
 
 /** Collects deaths: points, events, avatar/dummy respawn scheduling. */

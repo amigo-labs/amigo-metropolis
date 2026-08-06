@@ -67,13 +67,17 @@ describe("team ramps", () => {
 });
 
 describe("projectile tints", () => {
-  test("ten kinds (three drop-ins from #48), primary tracer is white", () => {
-    // 0 unused/muzzle, 1 hellfire, 2 plasma, 3 warden, 4 cluster, 5 rail,
-    // 6 mortar, 7 hyper, 8 fusion, 9 grenade.
-    expect(PROJECTILE_HEX.length).toBe(10);
+  test("projectile kind table covers the live PROJ_* ids", () => {
+    // Sparse table aligned with weapons.ts PROJ_* numbers.
+    expect(PROJECTILE_HEX.length).toBe(12);
     expect(PROJECTILE_HEX[0]).toBe(paletteHex("muzzle"));
     expect(PROJECTILE_HEX[0]).toBe(0xffffff);
+    expect(PROJECTILE_HEX[1]).toBe(paletteHex("heavy"));
     expect(PROJECTILE_HEX[3]).toBe(paletteHex("warden_bomb"));
+    expect(PROJECTILE_HEX[6]).toBe(0xffa060); // mortar
+    expect(PROJECTILE_HEX[7]).toBe(0xffe8a0); // hyper
+    expect(PROJECTILE_HEX[10]).toBe(0xff9040); // mine
+    expect(PROJECTILE_HEX[11]).toBe(0xa0d8ff); // shockwave
   });
 });
 

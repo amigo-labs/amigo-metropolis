@@ -10,21 +10,15 @@
 import { type Loadout, MAP_REGISTRY, normalizeLoadout } from "@metropolis/sim";
 import { loadoutFromParams } from "./routing";
 
-/** Which full-screen stage is showing. Weapons is its own screen in the
- *  original too — it needs the width for the hardpoint column and the X1
- *  render, which the rail does not have. */
-export type MenuStage = "rail" | "weapons";
-
 export type MenuMode = "solo" | "online" | null;
-export type MenuDrawer = "how" | "sound" | "gfx" | null;
+/** Console drawers: how-to and a combined preferences (sound + graphics). */
+export type MenuDrawer = "how" | "prefs" | null;
 /** Hardpoint index: 0 Gun, 1 Heavy, 2 Special — the original's slot order. */
 export type Hardpoint = 0 | 1 | 2;
 
 export interface MenuState {
-  stage: MenuStage;
   mapId: string;
   loadout: Loadout;
-  hardpoint: Hardpoint;
   mode: MenuMode;
   drawer: MenuDrawer;
   /** Warden skill. Survives leaving and re-entering the solo panel. */
@@ -51,10 +45,8 @@ export function mapIdFromParams(params: URLSearchParams): string {
 
 export function initialMenuState(initialLoadout?: Loadout, mapId?: string): MenuState {
   return {
-    stage: "rail",
     mapId: mapId ?? MAP_REGISTRY[0].id,
     loadout: normalizeLoadout(initialLoadout),
-    hardpoint: 0,
     mode: null,
     drawer: null,
     difficulty: 4,

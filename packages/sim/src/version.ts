@@ -385,7 +385,12 @@
 //         that motivated WGOAL_SUPPRESS. urban-jungle's mid-map free-production
 //         stream was 80% LOS-blocked; silencing that stream alone razed the
 //         core in ~200 s, and with (c) all four arenas resolve 5/5 seeds.
-// v25: four original weapons as catalog drop-ins (issue #48) — Electric Gun,
-//     Hyper Velocity Rocket, Fusion Torpedo, Grenade Launcher. Append-only;
-//     default loadout / goldens header-only.
-export const SIM_VERSION = 25;
+// v25: catalog drop-ins (issue #48). Append-only; default loadout / goldens
+//     header-only.
+// v26: catalog locked to the ten Precinct Assault weapons (rules.md §2):
+//     4 guns / 3 heavies / 3 specials. Default kit Mini-Gun · Hell Fire · Mortar.
+//     SPECIAL_* is Mortar; Pop-Up Mines + Shockwave Generator as specials 1–2
+//     (place / self-centred pulse). Loadout indices renumber — peers on opposite
+//     sides of the bump with a non-default kit would desync. Bump mandatory;
+//     only golden-02-combat hash sequence moves (fires special).
+export const SIM_VERSION = 26;

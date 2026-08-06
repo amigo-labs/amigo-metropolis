@@ -167,6 +167,78 @@
         left: calc(6px + env(safe-area-inset-left));
       }
 
+      /* --- In-match pause (ESC; main.ts) — raw DOM, frame-loop world -------- */
+      #pause-menu {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(4, 10, 18, 0.72);
+        cursor: default;
+      }
+      #pause-menu.is-open {
+        display: flex;
+      }
+      .pause-card {
+        min-width: min(360px, 90vw);
+        padding: 28px 32px;
+        border: 1px solid rgba(76, 157, 192, 0.45);
+        border-radius: 6px;
+        background: linear-gradient(165deg, #142848 0%, #0a1428 100%);
+        box-shadow:
+          0 16px 48px rgba(0, 0, 0, 0.55),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        color: #a9d8ee;
+        font: 15px / 1.5 "Bahnschrift", "DIN Alternate", ui-sans-serif, system-ui, sans-serif;
+        text-align: center;
+      }
+      .pause-card h1 {
+        margin: 0 0 8px;
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #dcf2ff;
+      }
+      .pause-card p {
+        margin: 0 0 20px;
+        color: #6d93a8;
+        font-size: 13px;
+      }
+      .pause-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .pause-btn {
+        width: 100%;
+        padding: 12px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(76, 157, 192, 0.55);
+        background: linear-gradient(180deg, #0e2a44 0%, #081828 100%);
+        color: #a9d8ee;
+        font: inherit;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+      .pause-btn:hover {
+        border-color: #7ef2ff;
+        color: #dcf2ff;
+      }
+      .pause-btn--primary {
+        border-color: rgba(185, 166, 236, 0.75);
+        color: #d6c9ff;
+        background: linear-gradient(180deg, rgba(185, 166, 236, 0.2) 0%, rgba(80, 60, 140, 0.35) 100%);
+      }
+      .pause-btn--primary:hover {
+        border-color: #d6c9ff;
+        color: #fff;
+      }
+
       /* --- Sandbox test bench (?sandbox=1, debug/sandboxPanel.ts) ----------
          Debug-only overlay, raw DOM, so its rules live here rather than in the
          menu bundle (docs/specs/ui.md §1).

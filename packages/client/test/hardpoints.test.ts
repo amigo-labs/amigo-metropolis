@@ -1,11 +1,19 @@
 // Hardpoint cycling for the weapons screen. Pure, so it runs without a DOM.
 //
-// The slot lengths differ (4 guns, 6 heavies, 3 specials) and that asymmetry is
+// The slot lengths differ (4 guns, 3 heavies, 3 specials) and that asymmetry is
 // the whole risk here: a shared modulo would silently fit the wrong weapon.
 
 import { describe, expect, test } from "bun:test";
 import { GUNS, HEAVIES, SPECIALS } from "@metropolis/sim";
-import { cycleHardpoint, HARDPOINTS, loadoutSummary, stepHardpoint } from "../src/menu/hardpoints";
+import {
+  cycleHardpoint,
+  fittedWeapons,
+  HARDPOINTS,
+  loadoutSummary,
+  stepHardpoint,
+  weaponBarFractions,
+} from "../src/menu/hardpoints";
+import { weaponArtSlug, weaponIconUrl, weaponPanelUrl } from "../src/menu/weaponArt";
 
 const KIT = { gun: 0, heavy: 0, special: 0 };
 
@@ -81,5 +89,50 @@ describe("stepHardpoint", () => {
 describe("loadoutSummary", () => {
   test("names all three fitted weapons in slot order", () => {
     expect(loadoutSummary(KIT)).toBe(`${GUNS[0].name} · ${HEAVIES[0].name} · ${SPECIALS[0].name}`);
+  });
+});
+
+describe("weaponBarFractions", () => {
+  test("anchors rate and damage within the slot", () => {
+    // Index-0 gun is the slot's rate floor (shortest cooldown among equals) and
+    // a low damage bar relative to the flamethrower / electric.
+    const mini = weaponBarFractions(GUNS[0], GUNS);
+    expect(mini.rate).toBe(1);
+    expect(mini.damage).toBeLessThan(1);
+    const flame = weaponBarFractions(GUNS[2], GUNS);
+    expect(flame.damage).toBeGreaterThan(mini.damage);
+  });
+
+  test("stays in [0, 1]", () => {
+    for (const list of [GUNS, HEAVIES, SPECIALS]) {
+      for (const w of list) {
+        const b = weaponBarFractions(w, list);
+        expect(b.rate).toBeGreaterThanOrEqual(0);
+        expect(b.rate).toBeLessThanOrEqual(1);
+        expect(b.damage).toBeGreaterThanOrEqual(0);
+        expect(b.damage).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+});
+
+describe("fittedWeapons", () => {
+  test("returns the three catalog entries for a loadout", () => {
+    const fitted = fittedWeapons({ gun: 1, heavy: 0, special: 2 });
+    expect(fitted[0]).toBe(GUNS[1]);
+    expect(fitted[1]).toBe(HEAVIES[0]);
+    expect(fitted[2]).toBe(SPECIALS[2]);
+  });
+});
+
+describe("weaponArt", () => {
+  test("slugs every catalog name to a stable icon/panel path", () => {
+    expect(weaponArtSlug("Powered Mini-Gun")).toBe("powered-mini-gun");
+    expect(weaponArtSlug("Hell Fire 2000")).toBe("hell-fire-2000");
+    expect(weaponArtSlug("Pop-Up Mines")).toBe("pop-up-mines");
+    for (const w of [...GUNS, ...HEAVIES, ...SPECIALS]) {
+      expect(weaponIconUrl(w.name)).toBe(`/ui/weapons/icons/${weaponArtSlug(w.name)}.png`);
+      expect(weaponPanelUrl(w.name)).toBe(`/ui/weapons/panels/${weaponArtSlug(w.name)}.png`);
+    }
   });
 });

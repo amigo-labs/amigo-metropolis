@@ -34,8 +34,8 @@ describe("buildModeQuery", () => {
 
   test("sandbox keeps the picked loadout in the deep link", () => {
     expect(
-      buildModeQuery({ mode: "sandbox" }, "urban-jungle", { gun: 2, heavy: 3, special: 1 }),
-    ).toBe("?play=1&sandbox=1&cam=fly&opponent=idle&map=urban-jungle&gun=2&heavy=3&special=1");
+      buildModeQuery({ mode: "sandbox" }, "urban-jungle", { gun: 2, heavy: 2, special: 1 }),
+    ).toBe("?play=1&sandbox=1&cam=fly&opponent=idle&map=urban-jungle&gun=2&heavy=2&special=1");
   });
 
   test("warden clamps difficulty into 1..10", () => {

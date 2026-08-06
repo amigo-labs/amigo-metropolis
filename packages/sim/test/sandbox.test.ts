@@ -353,8 +353,8 @@ describe("setSandboxLoadout", () => {
   it("swaps the kit and reports it back", () => {
     const sim = rangeSim();
     expect(sandboxLoadout(sim, 0)).toEqual({ gun: 0, heavy: 0, special: 0 });
-    setSandboxLoadout(sim, 0, { gun: 2, heavy: 3, special: 1 });
-    expect(sandboxLoadout(sim, 0)).toEqual({ gun: 2, heavy: 3, special: 1 });
+    setSandboxLoadout(sim, 0, { gun: 2, heavy: 2, special: 1 });
+    expect(sandboxLoadout(sim, 0)).toEqual({ gun: 2, heavy: 2, special: 1 });
   });
 
   it("refills ammo and clears cooldowns on the live avatar", () => {
@@ -440,7 +440,7 @@ describe("determinism", () => {
     const hashes: number[] = [];
     spawnSandbox(sim, "turret-defense", 0, 30, 30);
     spawnSandbox(sim, "runner", 1, 34, 6);
-    setSandboxLoadout(sim, 0, { gun: 2, heavy: 3, special: 1 });
+    setSandboxLoadout(sim, 0, { gun: 2, heavy: 2, special: 1 });
     for (let i = 0; i < 90; i++) {
       step(sim, inputs);
       if (i === 30) spawnSandbox(sim, "juggernaut", 0, 20, 6, UNIT_MODE_ASSAULT);

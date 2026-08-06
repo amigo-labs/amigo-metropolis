@@ -44,9 +44,9 @@ describe("shot VFX", () => {
   test("EV_SHOT heavy/special projectiles spawn only muzzle (entity draws the shell)", () => {
     const fx = createFx(new THREE.Scene());
     const events = createEventBuffer();
-    // c = weapon catalog id: 3 Hellfire, 6 Plasma (both projectile delivery).
+    // c = weapon catalog id: 3 Hell Fire 2000, 7 Mortar (both projectile delivery).
     pushEvent(events, EV_SHOT, 1, 1, 3);
-    pushEvent(events, EV_SHOT, 1, 2, 6);
+    pushEvent(events, EV_SHOT, 1, 2, 7);
 
     fx.pump(events, atOrigin);
 
@@ -55,10 +55,10 @@ describe("shot VFX", () => {
     expect(c.muzzles).toBe(2);
   });
 
-  test("EV_SHOT concussion beam (special hitscan) still draws a tracer", () => {
+  test("EV_SHOT concussion beam (heavy hitscan) still draws a tracer", () => {
     const fx = createFx(new THREE.Scene());
     const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, 2, 8); // Concussion Beam
+    pushEvent(events, EV_SHOT, 1, 1, 8); // Concussion Beam (Heavy)
 
     fx.pump(events, atOrigin);
 

@@ -108,53 +108,40 @@ export const HEAVY_DAMAGE = 60;
 export const HEAVY_SPEED = 25;
 export const HEAVY_TTL_TICKS = 75;
 export const HEAVY_AOE_RADIUS = 6;
+// SPECIAL_* is the Mortar Launcher — default special (Mini-Gun + Hell Fire +
+// Mortar). Magazine size is AVATAR_AMMO_SPECIAL (entity ammoB at spawn).
 export const SPECIAL_COOLDOWN_TICKS = 60;
-export const SPECIAL_DAMAGE = 150;
-export const SPECIAL_SPEED = 12;
-export const SPECIAL_TTL_TICKS = 90;
-export const SPECIAL_AOE_RADIUS = 4;
+export const SPECIAL_DAMAGE = 119;
+export const SPECIAL_SPEED = 10;
+export const SPECIAL_TTL_TICKS = 110;
+export const SPECIAL_AOE_RADIUS = 8;
 
 // --- Non-default catalog weapons (weapons.ts) --------------------------------
 //
 // The three constants blocks above are the DEFAULT kit, index 0 in each slot.
-// These are the alternative picks. They used to be inlined in weapons.ts, which
-// the repo's own rule forbids; they moved here when their values were re-derived
-// from the original.
+// Alternatives scale from those anchors. Catalog = ten Precinct Assault weapons
+// only (rules.md §2): four Guns, three Heavies, three Specials.
 //
-// Eleven of the thirteen weapons Metropolis carries also exist in Future Cop,
-// and those eleven take the original's damage and cadence. The source is the
-// game's own front-end panels (`febmp.bin` → one 134x40 panel per weapon, two
-// bars, 55 px trough, bar length = value) plus the 15 `{weapon_id, name}` records
-// in the executable. Measured independently of the RE handoff by counting the
-// green (firing rate) and red (damage) pixel runs; all 15 panels reproduce it.
-//
-// The bars are RATIOS, not absolutes, so each slot's default weapon is the
-// anchor and the others scale against it WITHIN that slot:
+// Rate/damage from the original front-end panels (`febmp.bin`, 55 px trough):
 //
 //   damage   = anchorDamage   * bar_dmg  / anchorBar_dmg
 //   cooldown = anchorCooldown * anchorBar_rate / bar_rate      (rate is 1/cooldown)
 //
-// Anchoring across slots does not work and was tried: on a global Mini-Gun
-// anchor, Hell Fire's cooldown comes out at 7 ticks instead of 24. Within a slot
-// the ratios land almost exactly on the numbers this game already had, which is
-// the reassuring part — only the gun slot really moves.
+// Anchoring across slots does not work — a global Mini-Gun anchor puts Hell
+// Fire's cooldown at 7 ticks instead of 24.
 //
 //   Gatling Laser          55/55 rate,  3/55 dmg → 8 dmg, 5 tick
 //   Flamethrower           55/55 rate,  9/55 dmg → 24 dmg, 5 tick
-//   Electric Gun           28/55 rate,  9/55 dmg → 24 dmg, 10 tick   (#48)
+//   Electric Gun           28/55 rate,  9/55 dmg → 24 dmg, 10 tick
 //   Concussion Beam        21/55 rate, 19/55 dmg → 127 dmg, 48 tick
-//   Hyper Velocity Rocket  55/55 rate, 11/55 dmg → 73 dmg, 18 tick   (#48)
-//   Fusion Torpedo         22/55 rate, 37/55 dmg → 247 dmg, 46 tick  (#48)
-//   Mortar Launcher        28/55 rate, 19/55 dmg → 119 dmg, 60 tick
-//   Grenade Launcher       28/55 rate, 37/55 dmg → 231 dmg, 60 tick  (#48)
+//   Hyper Velocity Rocket  55/55 rate, 11/55 dmg → 73 dmg, 18 tick
+//   Pop-Up Mines           55/55 rate, 55/55 dmg → 344 dmg, 31 tick
+//   Shockwave Generator    19/55 rate, 28/55 dmg → 175 dmg, 88 tick
 //
-// Declared deviation: the original's bars do NOT distinguish Mini-Gun from
-// Laser — both read 55/55 and 3/55. Taken literally that makes two of the five
-// gun picks identical, which is worse play, so the range difference (40 vs 44)
-// stays as ours. See rules.md §2.
-//
-// Four of the original fifteen still need new mechanics and are NOT here:
-// Riot Shield, K-9 Drone, Pop-Up Mines, Shockwave Generator (issue #48).
+// Declared deviation: the bars do NOT distinguish Mini-Gun from Laser (both
+// 55/55 rate, 3/55 damage). Reach separates them (40 vs 44). Ranges, speeds,
+// TTLs, AoE, magazine sizes and mine arming are ours — panels carry rate/damage
+// only. See rules.md §2.
 export const GUN_LASER_DAMAGE = 8;
 export const GUN_LASER_COOLDOWN_TICKS = 5;
 export const GUN_LASER_RANGE = 44; // ours — the bars cannot tell it from the Mini-Gun
@@ -174,42 +161,24 @@ export const HEAVY_HYPER_SPEED = 50; // ours — fast light rocket
 export const HEAVY_HYPER_TTL_TICKS = 45;
 export const HEAVY_HYPER_AOE_RADIUS = 2;
 export const HEAVY_HYPER_AMMO = 14;
-export const HEAVY_FUSION_DAMAGE = 247;
-export const HEAVY_FUSION_COOLDOWN_TICKS = 46;
-export const HEAVY_FUSION_SPEED = 12; // ours — slow heavy shell
-export const HEAVY_FUSION_TTL_TICKS = 100;
-export const HEAVY_FUSION_AOE_RADIUS = 8;
-export const HEAVY_FUSION_AMMO = 6;
-export const SPECIAL_MORTAR_DAMAGE = 119;
-export const SPECIAL_MORTAR_COOLDOWN_TICKS = 60;
-export const SPECIAL_MORTAR_SPEED = 10;
-export const SPECIAL_MORTAR_TTL_TICKS = 110;
-export const SPECIAL_MORTAR_AOE_RADIUS = 8;
-export const SPECIAL_MORTAR_AMMO = 4;
-export const SPECIAL_GRENADE_DAMAGE = 231;
-export const SPECIAL_GRENADE_COOLDOWN_TICKS = 60;
-export const SPECIAL_GRENADE_SPEED = 10; // ours — Mortar-shaped flight
-export const SPECIAL_GRENADE_TTL_TICKS = 110;
-export const SPECIAL_GRENADE_AOE_RADIUS = 7;
-export const SPECIAL_GRENADE_AMMO = 4;
-// Metropolis inventions — no counterpart in the original's 15, so nothing to
-// adopt. Kept, and declared as ours (rules.md §2). Cluster Bomb and Rail Cannon
-// stay even though Heavy now has six entries once Hyper Velocity and Fusion
-// land — retiring them would throw away shipped identity for a five-per-slot
-// count the original already no longer matches (we already had four heavies
-// after the Concussion Beam moved).
-export const HEAVY_CLUSTER_DAMAGE = 45;
-export const HEAVY_CLUSTER_COOLDOWN_TICKS = 30;
-export const HEAVY_CLUSTER_SPEED = 18;
-export const HEAVY_CLUSTER_TTL_TICKS = 90;
-export const HEAVY_CLUSTER_AOE_RADIUS = 9;
-export const HEAVY_CLUSTER_AMMO = 14;
-export const HEAVY_RAIL_DAMAGE = 90;
-export const HEAVY_RAIL_COOLDOWN_TICKS = 28;
-export const HEAVY_RAIL_SPEED = 55;
-export const HEAVY_RAIL_TTL_TICKS = 40;
-export const HEAVY_RAIL_AOE_RADIUS = 1.5;
-export const HEAVY_RAIL_AMMO = 16;
+// Pop-Up Mines / Shockwave: rate+damage from original bars (Mortar-anchored);
+// placement, arming, trigger and pulse radii are ours.
+export const SPECIAL_MINE_DAMAGE = 344;
+export const SPECIAL_MINE_COOLDOWN_TICKS = 31;
+export const SPECIAL_MINE_AMMO = 4;
+/** Live lifetime once placed; despawns without boom if nobody trips it. */
+export const SPECIAL_MINE_TTL_TICKS = 900; // 30 s
+/** Ticks after place before an enemy can arm the fuze (owner walk-off). */
+export const SPECIAL_MINE_ARM_TICKS = 15; // 0.5 s
+/** Proximity trigger radius (world units). */
+export const SPECIAL_MINE_TRIGGER_RADIUS = 3;
+/** Blast radius when a mine goes off. */
+export const SPECIAL_MINE_AOE_RADIUS = 6;
+export const SPECIAL_SHOCK_DAMAGE = 175;
+export const SPECIAL_SHOCK_COOLDOWN_TICKS = 88;
+export const SPECIAL_SHOCK_AMMO = 3;
+/** Self-centred pulse radius (world units). */
+export const SPECIAL_SHOCK_AOE_RADIUS = 12;
 
 // Turrets (sandbox dummies AND base ring turrets share combat stats for now).
 export const TURRET_RANGE = 28;

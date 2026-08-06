@@ -4,16 +4,15 @@
 // Scope note. `preact-render-to-string` cannot render the hook-using screens
 // here, because bun's workspace resolution gives it its own preact instance
 // (three copies land in node_modules/.bun, and hook state lives on the client
-// copy's vnodes). That is why App, ArenaPicker and Weapons are deliberately
-// hook-free — and why OnlinePanel and the Sound/Graphics drawers, which are
-// genuinely stateful, are exercised in a browser instead of here.
+// copy's vnodes). That is why App and ArenaPicker are deliberately hook-free —
+// and why OnlinePanel and the Preferences drawer, which are genuinely stateful,
+// are exercised in a browser instead of here.
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { render } from "preact-render-to-string";
 import { App, type AppProps } from "../src/menu/App";
-import { Weapons } from "../src/menu/screens/Weapons";
 import { initialMenuState, type MenuState } from "../src/menu/state";
 
 function baseState(patch: Partial<MenuState> = {}): MenuState {
@@ -38,16 +37,33 @@ function renderApp(state: MenuState, extra: Partial<AppProps> = {}): string {
   );
 }
 
-describe("rail", () => {
-  test("shows the title, the objective and every arena", () => {
+describe("console rail", () => {
+  test("shows the PA title, arena name and every arena card", () => {
     const html = renderApp(baseState());
+    expect(html).toContain("PRECINCT ASSAULT");
     expect(html).toContain("METROPOLIS");
-    expect(html).toContain("Break the enemy base's gate");
     expect(html).toContain("Urban Jungle");
+    expect(html).toContain("Start");
   });
 
-  test("summarises the fitted loadout without opening the weapons screen", () => {
-    expect(renderApp(baseState())).toContain("Powered Mini-Gun");
+  test("lists left-column pills for modes and drawers", () => {
+    const html = renderApp(baseState());
+    expect(html).toContain("Solo");
+    expect(html).toContain("Online");
+    expect(html).toContain("Preferences");
+    expect(html).toContain("How to play");
+    // Weapons are fitted on the bottom strip — no separate screen entry.
+    expect(html).not.toContain(">Weapons<");
+  });
+
+  test("summarises the fitted loadout on the bottom strip with cycle arrows", () => {
+    const html = renderApp(baseState());
+    expect(html).toContain("Powered Mini-Gun");
+    expect(html).toContain("menu-bar--rate");
+    expect(html).toContain("menu-bar--damage");
+    expect(html).toContain("menu-loadout-arrow");
+    expect(html).toContain("Previous Gun");
+    expect(html).toContain("Next Special");
   });
 
   test("the mode panel appears only once a mode is picked", () => {
@@ -56,13 +72,21 @@ describe("rail", () => {
   });
 
   test("debug modes are off unless the caller asks for them", () => {
-    expect(renderApp(baseState())).not.toContain("menu-mode--debug");
-    expect(renderApp(baseState(), { showDebugModes: true })).toContain("menu-mode--debug");
+    expect(renderApp(baseState())).not.toContain("menu-pill--debug");
+    expect(renderApp(baseState(), { showDebugModes: true })).toContain("menu-pill--debug");
   });
 
   test("Install appears only once beforeinstallprompt has fired", () => {
     expect(renderApp(baseState())).not.toContain(">Install<");
     expect(renderApp(baseState(), { installPrompt: noop })).toContain(">Install<");
+  });
+
+  test("START is the confirming action on the console (enabled for solo)", () => {
+    // OnlinePanel uses hooks and cannot be string-rendered (see file header),
+    // so the disabled-in-online branch is browser-only. Solo path stays pure.
+    const html = renderApp(baseState({ mode: "solo" }));
+    expect(html).toContain("menu-start");
+    expect(html).not.toMatch(/menu-start[^>]*disabled/);
   });
 });
 
@@ -80,43 +104,6 @@ describe("state survives a panel switch", () => {
     const away = { ...chosen, mode: null };
     expect(renderApp(away)).not.toContain("menu-difficulty");
     expect(renderApp({ ...away, mode: "solo" as const })).toContain('value="7"');
-  });
-});
-
-describe("weapons screen", () => {
-  const weapons = (state: MenuState) =>
-    render(<Weapons state={state} update={noop} onDone={noop} />);
-
-  test("lists all three hardpoints with slot position and catalog size", () => {
-    const html = weapons(baseState({ stage: "weapons" }));
-    // Catalog sizes after #48 drop-ins: 4 guns, 6 heavies, 3 specials.
-    expect(html).toContain("Gun (1/4)");
-    expect(html).toContain("Heavy (1/6)");
-    expect(html).toContain("Special (1/3)");
-  });
-
-  test("shows only the weapon fitted to each hardpoint, not the catalog", () => {
-    // The original shows one weapon per slot; a visible list would be a
-    // different screen entirely.
-    const html = weapons(
-      baseState({ stage: "weapons", loadout: { gun: 1, heavy: 0, special: 0 } }),
-    );
-    expect(html).toContain("Gun (2/4)");
-    expect(html).not.toContain("Powered Mini-Gun");
-  });
-
-  test("marks the selected hardpoint and only that one", () => {
-    const html = weapons(baseState({ stage: "weapons", hardpoint: 2 }));
-    const boxes = html.split("wpn-box");
-    expect(boxes[1]).not.toContain("is-active");
-    expect(boxes[2]).not.toContain("is-active");
-    expect(boxes[3]).toContain("is-active");
-  });
-
-  test("offers Ready and states the controls", () => {
-    const html = weapons(baseState({ stage: "weapons" }));
-    expect(html).toContain("Ready");
-    expect(html).toContain("select hardpoint");
   });
 });
 

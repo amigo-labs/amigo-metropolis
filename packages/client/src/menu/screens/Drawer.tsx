@@ -1,4 +1,4 @@
-// Footer drawers: how to play, sound, graphics.
+// Console drawers: how to play, and a combined preferences (sound + graphics).
 //
 // Audio and texture preferences are persisted by the modules that own them
 // (audio/engine.ts, render/texVariants.ts) — this only drives them. Volume and
@@ -158,13 +158,23 @@ function Sound({ audio }: { audio: AudioEngine }) {
   );
 }
 
+function Preferences({ audio, onTexPref }: { audio: AudioEngine; onTexPref(pref: TexPref): void }) {
+  return (
+    <>
+      <h2 class="menu-h2">Sound</h2>
+      <Sound audio={audio} />
+      <h2 class="menu-h2">Graphics</h2>
+      <Graphics onTexPref={onTexPref} />
+    </>
+  );
+}
+
 export function Drawer({ kind, audio, onTexPref }: Props) {
   if (!kind) return null;
   return (
     <div class="menu-drawer ck-panel">
       {kind === "how" ? <HowTo /> : null}
-      {kind === "sound" ? <Sound audio={audio} /> : null}
-      {kind === "gfx" ? <Graphics onTexPref={onTexPref} /> : null}
+      {kind === "prefs" ? <Preferences audio={audio} onTexPref={onTexPref} /> : null}
     </div>
   );
 }

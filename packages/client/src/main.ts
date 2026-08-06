@@ -662,6 +662,173 @@ function refreshOverlay(): void {
   setOverlay(text);
 }
 
+// --- In-match pause (ESC) + quit to title menu --------------------------------
+// Solo / fly / sandbox / online all need a way to release the pointer and leave.
+// Browser ESC already exits pointer lock; a second ESC (or ESC while unlocked)
+// opens this overlay. Offline freezes ticks; online keeps lockstep running so
+// the peer is not starved, and Leave disconnects cleanly.
+let matchPaused = false;
+/** Suppresses opening the pause card on the same ESC that released pointer lock. */
+let suppressPauseForUnlock = false;
+
+const pauseEl = document.createElement("div");
+pauseEl.id = "pause-menu";
+pauseEl.setAttribute("role", "dialog");
+pauseEl.setAttribute("aria-modal", "true");
+pauseEl.setAttribute("aria-label", "Paused");
+const pauseCard = document.createElement("div");
+pauseCard.className = "pause-card";
+const pauseTitle = document.createElement("h1");
+pauseTitle.textContent = "Paused";
+const pauseHint = document.createElement("p");
+pauseHint.textContent = "ESC resumes · click canvas to recapture the mouse";
+const pauseActions = document.createElement("div");
+pauseActions.className = "pause-actions";
+const pauseResumeBtn = document.createElement("button");
+pauseResumeBtn.type = "button";
+pauseResumeBtn.className = "pause-btn pause-btn--primary";
+pauseResumeBtn.textContent = "Resume";
+const pauseQuitBtn = document.createElement("button");
+pauseQuitBtn.type = "button";
+pauseQuitBtn.className = "pause-btn";
+pauseQuitBtn.textContent = "Quit to menu";
+pauseActions.append(pauseResumeBtn, pauseQuitBtn);
+pauseCard.append(pauseTitle, pauseHint, pauseActions);
+pauseEl.appendChild(pauseCard);
+document.body.appendChild(pauseEl);
+
+function isMatchLive(): boolean {
+  return phase === "match" || phase === "connecting";
+}
+
+function setMatchPaused(paused: boolean): void {
+  if (paused === matchPaused) return;
+  matchPaused = paused;
+  pauseEl.classList.toggle("is-open", paused);
+  if (paused) {
+    if (document.pointerLockElement) document.exitPointerLock();
+    document.body.style.cursor = "default";
+    flyState.keys.clear();
+    pauseResumeBtn.focus();
+  } else if (isMatchLive()) {
+    // Hidden cursor again; click re-engages pointer lock (mouseLook / fly).
+    document.body.style.cursor = "";
+  }
+}
+
+/**
+ * Tear down a live match (or connecting lobby) and remount the title menu over
+ * a fresh demo backdrop. Works for solo, online, fly and sandbox.
+ */
+function returnToMenu(): void {
+  setMatchPaused(false);
+  if (document.pointerLockElement) document.exitPointerLock();
+
+  // Drop the net session first so no further tryStep runs against a dying sim.
+  if (net) {
+    net.close();
+    net = undefined;
+  }
+  netStatus = null;
+  setOverlay(null);
+
+  matchHud?.destroy();
+  matchHud = undefined;
+  document.body.classList.remove("hud-text-hidden");
+
+  sandboxPanel?.dispose();
+  sandboxPanel = null;
+
+  for (const v of views) v.hud.remove();
+  views = [];
+  viewBySlot.fill(undefined);
+
+  if (orbitControls) {
+    orbitControls.dispose();
+    orbitControls = null;
+  }
+  mouseLook.dispose();
+  mouseLook = createMouseLook(renderer.domElement);
+
+  flyMode = false;
+  sandboxMode = false;
+  warden = false;
+  wardenDifficulty = 0;
+  // Menu backdrop uses the AI feeder so the live arena stays lively.
+  opponentMode = "feeder";
+  timeScale = 1;
+  debugPaused = false;
+  setFlyCrosshairVisible(false);
+  reticle.style.display = "none";
+  touchControls?.hide();
+  document.body.style.cursor = "default";
+
+  phase = "menu";
+  // Keep the arena the player was on as the menu backdrop.
+  rebuildArena(map.id);
+  sim = createDemoSim(map);
+  countPrev = 0;
+  countCurr = writeSnapshot(sim, snapCurr);
+  if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
+
+  // Drop mode query so refresh lands on the title screen, not back into the match.
+  history.pushState(null, "", location.pathname + location.hash);
+
+  if (!document.querySelector(".menu-root")) {
+    menuHandle = runMenu({
+      audio,
+      onChoice: handleMenuChoice,
+      onSelect: previewArena,
+      initialLoadout: playerLoadout,
+      onTexPref: (pref) => {
+        texPref = pref;
+        texSwitcher?.setVariant(variantOfPref(pref));
+        refreshDebugLabel();
+      },
+    });
+  }
+  refreshDebugLabel();
+}
+
+pauseResumeBtn.addEventListener("click", () => setMatchPaused(false));
+pauseQuitBtn.addEventListener("click", () => returnToMenu());
+
+document.addEventListener("pointerlockchange", () => {
+  if (document.pointerLockElement) {
+    // Canvas recaptured — hide the system cursor again.
+    if (isMatchLive() && !matchPaused) document.body.style.cursor = "";
+    return;
+  }
+  if (!isMatchLive() || matchPaused) return;
+  // Browser ESC (and our own exitPointerLock) both land here. Mark the unlock
+  // so the same keypress does not immediately open the pause card.
+  suppressPauseForUnlock = true;
+  document.body.style.cursor = "default";
+  setTimeout(() => {
+    suppressPauseForUnlock = false;
+  }, 120);
+});
+
+addEventListener("keydown", (e) => {
+  if (e.code !== "Escape" || e.repeat) return;
+  if (isTextEntryTarget(e.target)) return;
+  if (pinModal.isOpen() || pinBusy) return;
+  if (!isMatchLive()) return;
+
+  // Always drop pointer lock first — "give up cursor focus".
+  if (document.pointerLockElement) {
+    e.preventDefault();
+    document.exitPointerLock();
+    return;
+  }
+  if (suppressPauseForUnlock) {
+    e.preventDefault();
+    return;
+  }
+  e.preventDefault();
+  setMatchPaused(!matchPaused);
+});
+
 // --- Debug tooling: texture-variant switcher + fly-cam label -------------------
 // Armed by buildArenaGroup's onMaterials callback (mesh render path only).
 // Hotkeys 0/1/2 swap the map's atlas texture between the shipped default and
@@ -690,12 +857,19 @@ function refreshDebugLabel(): void {
   // No early return when nothing is active: after rebuildArena drops the
   // switcher the label must hide (empty text) instead of staying stale.
   const parts: string[] = [];
-  if (texSwitcher) parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan`);
+  // Title-menu backdrop also arms the switcher (Graphics drawer live preview),
+  // but the hotkey legend sits over the console footer — hide it until a match.
+  if (texSwitcher && phase !== "menu") {
+    parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan`);
+  }
   if (flyMode) {
-    parts.push("fly: WASD+QE move, Shift fast, click=mouse-look (ESC releases)");
+    parts.push("fly: WASD+QE move, Shift fast, click=mouse-look");
     parts.push("pin: P = capture + problem note (Shift+P pauses sim)");
   }
   if (sandboxMode) parts.push("sandbox: F2 = spawn + weapon panel");
+  if (phase === "match" || phase === "connecting") {
+    parts.push("ESC: release mouse · pause · quit to menu");
+  }
   const text = parts.join("\n");
   if (text === debugLabelText) return;
   debugLabelText = text;
@@ -1290,9 +1464,12 @@ function frame(now: number): void {
     // Everything else — offline matches AND the menu/lobby/connecting demo
     // battle — steps locally every tick. All paced at 30 Hz by the accumulator.
     if (phase === "match" && net) {
+      // Online keeps stepping while the pause card is up so the peer is not
+      // starved; Quit to menu is what leaves the room.
       if (!net.tryStep()) break;
     } else if (sim) {
       if (debugPaused) break; // ?debug harness freeze (metropolisPause)
+      if (matchPaused) break; // ESC pause freezes offline / fly / sandbox
       runTick();
     } else {
       break; // online deep link: no sim at all until MSG_WELCOME
@@ -1404,6 +1581,7 @@ function resetForMatch(newSim: SimState): void {
 
 function startMatch(localPlayers: readonly { slot: number; input: LocalInputSource }[]): void {
   phase = "match";
+  setMatchPaused(false);
   views = createPlayerViews(localPlayers, map.spawns, extent);
   // Start facing the way the rig starts: spawn -> arena centre. Otherwise the
   // first tick snaps the avatar to yaw 0 before the player has touched anything.
