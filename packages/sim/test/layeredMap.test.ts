@@ -56,6 +56,51 @@ function tiny(): MapJson {
   };
 }
 
+describe("feature layer (issue #33)", () => {
+  it("defaults every feature to layer 0 when the field is absent", () => {
+    const m = loadMapFromJson(tiny());
+    expect(m.spawns[0].layer).toBe(0);
+    expect(m.basePlots[0].layer).toBe(0);
+    expect(m.bases[0].gate.layer).toBe(0);
+    expect(m.bases[0].core.layer).toBe(0);
+    expect(m.bases[0].groundConsole.layer).toBe(0);
+  });
+
+  it("loads an explicit layer on spawns, spots and base sub-features", () => {
+    const raw = tiny();
+    raw.layers = [
+      {
+        heights: [
+          [64, 64],
+          [64, 64],
+        ],
+        mask: ["11", "11"],
+      },
+    ];
+    raw.spawns[0] = { x: 0, y: 0, yaw: 0, layer: 1 };
+    raw.turretSpots = [{ x: 0.5, y: 0.5, layer: 1 }];
+    raw.bases[0].core = { x: 0, y: 0, layer: 1 };
+    raw.bases[0].groundConsole = { x: 0, y: 0, layer: 1 };
+    raw.bases[0].turrets = [{ x: 0, y: 0, weapon: 0, hp: 100, yaw: 0, layer: 1 }];
+    raw.weapons = [{ range: 6, delay: 16, damage: 15, turnSpeed: 0.1, fovCos: -1 }];
+    const m = loadMapFromJson(raw);
+    expect(m.spawns[0].layer).toBe(1);
+    expect(m.turretSpots[0].layer).toBe(1);
+    expect(m.bases[0].core.layer).toBe(1);
+    expect(m.bases[0].groundConsole.layer).toBe(1);
+    expect(m.bases[0].turrets[0].layer).toBe(1);
+    // Height on the feature's layer is the deck, not the ground.
+    expect(resolveHeight(m, 0, 0, m.spawns[0].layer)).toBeCloseTo(64 * HEIGHT_SCALE, 6);
+    expect(resolveHeight(m, 0, 0, 0)).toBe(0);
+  });
+
+  it("rejects a layer index past the deck count", () => {
+    const raw = tiny();
+    raw.spawns[0] = { x: 0, y: 0, yaw: 0, layer: 1 };
+    expect(() => loadMapFromJson(raw)).toThrow("layer 1 out of range");
+  });
+});
+
 describe("layered MapData", () => {
   it("single-story maps get empty layer arrays", () => {
     const m = loadMapFromJson(tiny());

@@ -224,7 +224,7 @@ describe("loadMapFromJson validation", () => {
     expect(() => loadMapFromJson(badTurrets)).toThrow("base 1 turrets is not a list");
     const badCore = tiny();
     (badCore.bases[0] as { core: unknown }).core = undefined;
-    expect(() => loadMapFromJson(badCore)).toThrow("core is not an [x, y] pair");
+    expect(() => loadMapFromJson(badCore)).toThrow("core is not a point");
   });
 
   // Precinct Assault fields (rules.md §9). They are optional, so the first

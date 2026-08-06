@@ -154,7 +154,9 @@ Avatar 300 HP; walker speed 5, hover speed 9.
 
 - **Base**: gate (win trigger volume), 2 build consoles (ground/air),
   ammo/repair pad, ring of 4–6 **Base turrets**. Base turrets respawn
-  60 s after destruction (attack timing matters). Base core is indestructible.
+  120 s after destruction (attack timing matters — 60 s let the ring replace
+  itself as fast as a superplane could strip it at authentic density; issue
+  #31). Base core is indestructible under §1; under §9 it is the win target.
 - **Neutral turret**: capture by Avatar standing in radius for 3 s uncontested.
   Fires at enemies of its owner. Can be destroyed (reverts to neutral husk,
   respawns neutral after 45 s).

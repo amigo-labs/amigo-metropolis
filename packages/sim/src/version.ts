@@ -368,14 +368,24 @@
 //     move — no height changed — and the terrain .glb's independent correlation
 //     against the heightfield IMPROVED, 0.939 to 0.982, because the art has
 //     always had geometry at those deck heights and now has somewhere to match.
-// v23: four drop-in weapons from the original's table (issue #48) — Electric
-//     Gun (hitscan), Hyper Velocity Rocket, Fusion Torpedo, Grenade Launcher.
-//     Append-only catalog: existing loadout indices keep their meaning, default
-//     kit is unchanged, so goldens 01-07 re-header only (byte-identical hash
-//     arrays). The bump is for the clamp surface: `gun: 3` / `heavy: 4` /
-//     `special: 2` used to clamp to the previous last pick and now select the
-//     new weapons, so two peers on opposite sides of this bump with a
-//     non-default kit would run different weapons off identical inputs.
-//     Cluster Bomb and Rail Cannon stay; Heavy is six deep. The four originals
-//     that need new mechanics (Riot Shield, K-9, Mines, Shockwave) stay open.
-export const SIM_VERSION = 23;
+// v23: feature `layer` on map features (issue #33) + Cnet ground_cast on lane
+//     nodes, with units snapping onto a node's surface when close. hollywood-
+//     keys and venice-beach adopt stage 2. Single-storey wall lattices rebuild
+//     with a few bits moved (road carve); la-cantina's 26 bridge nodes carry
+//     layer 1. Default layer 0 is a no-op on district-01 / test maps.
+// v24: issue #31 balance close-out.
+//     (a) BASE_TURRET_RESPAWN_TICKS 60→120 s — the ring no longer regenerates as
+//         fast as one superplane clears it.
+//     (b) On §9 arenas a living ground tip always outranks CAPTURE for
+//         suppress/escort (commit-range alone left urban-jungle capturing 34% of
+//         ticks with tip mid-map).
+//     (c) Warden soft-target wall pierce: hitscan and target acquisition may
+//         hit enemy ground units through the lattice (superplane altitude), but
+//         emplacements still need LOS — cover stays real for the standoff case
+//         that motivated WGOAL_SUPPRESS. urban-jungle's mid-map free-production
+//         stream was 80% LOS-blocked; silencing that stream alone razed the
+//         core in ~200 s, and with (c) all four arenas resolve 5/5 seeds.
+// v25: four original weapons as catalog drop-ins (issue #48) — Electric Gun,
+//     Hyper Velocity Rocket, Fusion Torpedo, Grenade Launcher. Append-only;
+//     default loadout / goldens header-only.
+export const SIM_VERSION = 25;

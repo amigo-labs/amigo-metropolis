@@ -14,21 +14,30 @@ import urbanJungleJson from "../maps/urban-jungle.json";
 import veniceBeachJson from "../maps/venice-beach.json";
 import { clamp, cosLUT, lerp, sinLUT } from "./simMath";
 
+/**
+ * A 2D map point. `layer` is the stacked surface the feature sits on
+ * (0 = ground / `heights`, 1+ = `layerHeights[layer-1]`). Absent in JSON → 0,
+ * which is every pre-#33 arena and keeps their spawn heights bit-identical.
+ */
 export interface MapPoint {
   readonly x: number;
   readonly y: number;
+  /** 0-based surface index; see resolveHeight. */
+  readonly layer: number;
 }
 
 export interface MapSpawn {
   readonly x: number;
   readonly y: number;
   readonly yaw: number;
+  readonly layer: number;
 }
 
 export interface MapPlot {
   readonly x: number;
   readonly y: number;
   readonly radius: number;
+  readonly layer: number;
 }
 
 /**
@@ -63,6 +72,7 @@ export interface MapBaseDefence {
   /** Index into MapData.weapons. */
   readonly weapon: number;
   readonly hp: number;
+  readonly layer: number;
 }
 
 /**
@@ -85,6 +95,7 @@ export interface MapBaseTurret {
   readonly hp: number;
   /** Rest yaw (original gun_rotation). */
   readonly yaw: number;
+  readonly layer: number;
 }
 
 /** One team's base structures (rules.md §5). Index = team id. */
@@ -152,6 +163,7 @@ export interface MapPickup {
   readonly kind: number;
   /** Ticks before the spot re-arms after being taken. */
   readonly respawnTicks: number;
+  readonly layer: number;
 }
 
 /**
@@ -168,6 +180,7 @@ export interface MapTriggerVolume {
   readonly team: number;
   /** TRIGGER_WATCH_* bitmask (balance.ts). */
   readonly watch: number;
+  readonly layer: number;
 }
 
 /**
@@ -184,6 +197,7 @@ export interface MapProp {
   readonly yaw: number;
   /** Original Cobj resource id, so the renderer can pick the model. */
   readonly model: number;
+  readonly layer: number;
 }
 
 export interface MapData {
@@ -437,14 +451,18 @@ export interface MapJson {
    * absent → every deck shares the layer-0 lattice.
    */
   layers?: { heights: number[][]; mask: string[]; wallsV?: string[]; wallsH?: string[] }[];
-  spawns: { x: number; y: number; yaw: number }[];
-  basePlots: { x: number; y: number; radius: number }[];
+  /** Optional `layer` (default 0) — surface the spawn sits on (issue #33). */
+  spawns: { x: number; y: number; yaw: number; layer?: number }[];
+  basePlots: { x: number; y: number; radius: number; layer?: number }[];
   bases: MapBaseJson[];
-  /** Point lists are [x, y] pairs; length is validated at load time. */
-  lanes: number[][][];
-  turretSpots: number[][];
-  outpostSpots: number[][];
-  dummySpots: number[][];
+  /**
+   * Point lists are `[x, y]` pairs (layer 0) or `{x, y, layer?}` objects.
+   * Length is validated at load time.
+   */
+  lanes: (number[] | { x: number; y: number; layer?: number })[][];
+  turretSpots: (number[] | { x: number; y: number; layer?: number })[];
+  outpostSpots: (number[] | { x: number; y: number; layer?: number })[];
+  dummySpots: (number[] | { x: number; y: number; layer?: number })[];
   /**
    * OPTIONAL Precinct Assault data (rules.md §9). Every field here is absent on
    * the pre-PA arenas and on the inline MapJson literals the tests build, which
@@ -460,13 +478,13 @@ export interface MapJson {
   turretHp?: number[];
   /** Original Cnet graph. `edges` is one 4-tuple per node, -1 = no edge. */
   laneGraph?: {
-    nodes: number[][];
+    nodes: (number[] | { x: number; y: number; layer?: number })[];
     edges: number[][];
     nextHopA: number[][];
     nextHopB: number[][];
     entry: number[];
   };
-  pickups?: { x: number; y: number; kind: number; respawnTicks: number }[];
+  pickups?: { x: number; y: number; kind: number; respawnTicks: number; layer?: number }[];
   triggerVolumes?: {
     x: number;
     y: number;
@@ -474,26 +492,30 @@ export interface MapJson {
     halfL: number;
     team: number;
     watch: number;
+    layer?: number;
   }[];
   /** Render-only scenery; never read by the sim. */
-  props?: { x: number; y: number; height: number; yaw: number; model: number }[];
+  props?: { x: number; y: number; height: number; yaw: number; model: number; layer?: number }[];
 }
 
-/** JSON shape of one base; point lists are [x, y] pairs like everywhere else. */
+/** JSON shape of one base; point lists are [x, y] pairs or {x,y,layer?} objects. */
 export interface MapBaseJson {
-  gate: { x: number; y: number; radius: number };
-  core: number[];
-  groundConsole: number[];
-  airConsole: number[];
-  pad: { x: number; y: number; radius: number };
+  gate: { x: number; y: number; radius: number; layer?: number };
+  core: number[] | { x: number; y: number; layer?: number };
+  groundConsole: number[] | { x: number; y: number; layer?: number };
+  airConsole: number[] | { x: number; y: number; layer?: number };
+  pad: { x: number; y: number; radius: number; layer?: number };
   /**
    * Ring turrets. Either a bare `[x, y]` pair (pre-PA arenas: global weapon
    * defaults) or an object carrying the original Turret actor's parameters. Both
    * forms are accepted so the arenas that never had the data stay byte-identical.
    */
-  turrets: (number[] | { x: number; y: number; weapon: number; hp: number; yaw: number })[];
+  turrets: (
+    | number[]
+    | { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number }
+  )[];
   /** OPTIONAL PA extras; absent → empty / 0, i.e. pre-PA behavior. */
-  defence?: { x: number; y: number; weapon: number; hp: number }[];
+  defence?: { x: number; y: number; weapon: number; hp: number; layer?: number }[];
   coreHp?: number;
   productionTicks?: number;
   productionLimit?: number;
@@ -612,31 +634,57 @@ export function loadMapFromJson(raw: MapJson): MapData {
 
   const extent = (size - 1) * cellSize;
   const inBounds = (x: number, y: number) => x >= 0 && x <= extent && y >= 0 && y <= extent;
+  /** Highest legal layer index: 0 = ground, layerHeights.length = top deck. */
+  const maxLayer = layerHeights.length;
+  const layerOf = (v: unknown, what: string): number => {
+    if (v === undefined || v === null) return 0;
+    if (!Number.isInteger(v) || (v as number) < 0 || (v as number) > maxLayer) {
+      fail(id, `${what} layer ${String(v)} out of range (0..${maxLayer})`);
+    }
+    return v as number;
+  };
   if (raw.spawns.length !== 2) fail(id, "need exactly 2 spawns");
   if (raw.basePlots.length !== 2) fail(id, "need exactly 2 base plots");
   for (const s of raw.spawns) {
     if (!inBounds(s.x, s.y)) fail(id, `spawn out of bounds (${s.x}, ${s.y})`);
   }
-  const point = (p: number[], what: string): MapPoint => {
-    if (!Array.isArray(p) || p.length !== 2) fail(id, `${what} is not an [x, y] pair`);
-    const [x, y] = p;
-    if (typeof x !== "number" || typeof y !== "number") {
-      fail(id, `${what} is not an [x, y] pair`);
+  /**
+   * A map point: either the historic `[x, y]` pair (layer 0) or an object
+   * `{x, y, layer?}`. Object form is what issue #33 needs for deck features.
+   */
+  const point = (p: unknown, what: string): MapPoint => {
+    if (Array.isArray(p)) {
+      if (p.length !== 2) fail(id, `${what} is not an [x, y] pair`);
+      const [x, y] = p;
+      if (typeof x !== "number" || typeof y !== "number") {
+        fail(id, `${what} is not an [x, y] pair`);
+      }
+      if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
+      return { x, y, layer: 0 };
     }
-    if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
-    return { x, y };
+    if (!p || typeof p !== "object") fail(id, `${what} is not a point`);
+    const o = p as { x?: unknown; y?: unknown; layer?: unknown };
+    if (typeof o.x !== "number" || typeof o.y !== "number") {
+      fail(id, `${what} is not an {x, y} point`);
+    }
+    if (!inBounds(o.x, o.y)) fail(id, `${what} out of bounds (${o.x}, ${o.y})`);
+    return { x: o.x, y: o.y, layer: layerOf(o.layer, what) };
   };
   for (const lane of raw.lanes) {
     if (lane.length < 2) fail(id, "lane with fewer than 2 waypoints");
   }
-  const points = (list: number[][], what: string): MapPoint[] => list.map((p) => point(p, what));
+  const points = (list: unknown[], what: string): MapPoint[] =>
+    list.map((p, i) => point(p, `${what} ${i}`));
 
-  const plot = (p: { x: number; y: number; radius: number }, what: string): MapPlot => {
+  const plot = (
+    p: { x: number; y: number; radius: number; layer?: number },
+    what: string,
+  ): MapPlot => {
     if (!p || typeof p.x !== "number" || typeof p.y !== "number" || !(p.radius > 0)) {
       fail(id, `${what} is not an {x, y, radius} plot`);
     }
     if (!inBounds(p.x, p.y)) fail(id, `${what} out of bounds (${p.x}, ${p.y})`);
-    return { x: p.x, y: p.y, radius: p.radius };
+    return { x: p.x, y: p.y, radius: p.radius, layer: layerOf(p.layer, what) };
   };
   /**
    * Asserts a field really is a finite number before it reaches MapData.
@@ -713,7 +761,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
         // which is what those arenas did before this field existed.
         if (Array.isArray(t)) {
           const p = point(t, what);
-          return { x: p.x, y: p.y, weapon: -1, hp: 0, yaw: 0 };
+          return { x: p.x, y: p.y, weapon: -1, hp: 0, yaw: 0, layer: p.layer };
         }
         if (!t || typeof t !== "object") fail(id, `${what} is neither a pair nor an object`);
         const x = num(t.x, `${what} x`);
@@ -722,7 +770,14 @@ export function loadMapFromJson(raw: MapJson): MapData {
         const yaw = num(t.yaw, `${what} yaw`);
         if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
         if (!(hp > 0)) fail(id, `${what} bad hp ${hp}`);
-        return { x, y, weapon: weaponIndex(t.weapon, what), hp, yaw };
+        return {
+          x,
+          y,
+          weapon: weaponIndex(t.weapon, what),
+          hp,
+          yaw,
+          layer: layerOf(t.layer, what),
+        };
       }),
       defence: (b.defence ?? []).map((d, k) => {
         if (!d || typeof d !== "object") fail(id, `base ${team} defence ${k} is not an object`);
@@ -738,6 +793,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
           y: dy,
           weapon: weaponIndex(d.weapon, `base ${team} defence ${k}`),
           hp: dhp,
+          layer: layerOf(d.layer, `base ${team} defence ${k}`),
         };
       }),
       coreHp,
@@ -844,7 +900,13 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (!Number.isInteger(p.respawnTicks) || p.respawnTicks < 0) {
       fail(id, `pickup ${k} bad respawnTicks ${p.respawnTicks}`);
     }
-    return { x, y, kind: p.kind, respawnTicks: p.respawnTicks };
+    return {
+      x,
+      y,
+      kind: p.kind,
+      respawnTicks: p.respawnTicks,
+      layer: layerOf(p.layer, `pickup ${k}`),
+    };
   });
 
   const triggerVolumes: MapTriggerVolume[] = (raw.triggerVolumes ?? []).map((v, k) => {
@@ -857,7 +919,15 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (!(halfW > 0) || !(halfL > 0)) fail(id, `trigger ${k} needs positive half extents`);
     if (v.team !== 0 && v.team !== 1) fail(id, `trigger ${k} bad team ${v.team}`);
     if (!Number.isInteger(v.watch) || v.watch < 0) fail(id, `trigger ${k} bad watch ${v.watch}`);
-    return { x, y, halfW, halfL, team: v.team, watch: v.watch };
+    return {
+      x,
+      y,
+      halfW,
+      halfL,
+      team: v.team,
+      watch: v.watch,
+      layer: layerOf(v.layer, `trigger ${k}`),
+    };
   });
 
   return {
@@ -873,8 +943,13 @@ export function loadMapFromJson(raw: MapJson): MapData {
     layerMask,
     layerWallsV,
     layerWallsH,
-    spawns: raw.spawns.map((s) => ({ x: s.x, y: s.y, yaw: s.yaw })),
-    basePlots: raw.basePlots.map((p) => ({ x: p.x, y: p.y, radius: p.radius })),
+    spawns: raw.spawns.map((s, i) => ({
+      x: s.x,
+      y: s.y,
+      yaw: s.yaw,
+      layer: layerOf(s.layer, `spawn ${i}`),
+    })),
+    basePlots: raw.basePlots.map((p, i) => plot(p, `base plot ${i}`)),
     bases,
     lanes: raw.lanes.map((lane) => lane.map((p) => point(p, "lane waypoint"))),
     turretSpots,
@@ -895,6 +970,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
       height: p.height,
       yaw: p.yaw,
       model: p.model,
+      layer: typeof p.layer === "number" && Number.isInteger(p.layer) && p.layer >= 0 ? p.layer : 0,
     })),
   };
 }
@@ -927,11 +1003,16 @@ export function createTestMap(): MapData {
   // ammo behavior), gates sit in opposite corners far from the action, no
   // ring turrets — the test map stays a combat-free driving range.
   const testBase = (team: number): MapBase => ({
-    gate: { x: team === 0 ? 10 : extent - 10, y: team === 0 ? 10 : extent - 10, radius: 6 },
-    core: { x: center + (team === 0 ? -6 : 6), y: center },
-    groundConsole: { x: center + (team === 0 ? -12 : 12), y: center },
-    airConsole: { x: center, y: center + (team === 0 ? -12 : 12) },
-    pad: { x: center, y: center, radius: 20 },
+    gate: {
+      x: team === 0 ? 10 : extent - 10,
+      y: team === 0 ? 10 : extent - 10,
+      radius: 6,
+      layer: 0,
+    },
+    core: { x: center + (team === 0 ? -6 : 6), y: center, layer: 0 },
+    groundConsole: { x: center + (team === 0 ? -12 : 12), y: center, layer: 0 },
+    airConsole: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
+    pad: { x: center, y: center, radius: 20, layer: 0 },
     turrets: [],
     // No Precinct Assault features on the sandbox map: an indestructible core
     // and no production keep it on the gate-breach rules, and the empty lists
@@ -955,12 +1036,12 @@ export function createTestMap(): MapData {
     layerWallsV: [],
     layerWallsH: [],
     spawns: [
-      { x: center, y: center, yaw: 0 },
-      { x: center, y: center, yaw: 0 },
+      { x: center, y: center, yaw: 0, layer: 0 },
+      { x: center, y: center, yaw: 0, layer: 0 },
     ],
     basePlots: [
-      { x: center, y: center, radius: 20 },
-      { x: center, y: center, radius: 20 },
+      { x: center, y: center, radius: 20, layer: 0 },
+      { x: center, y: center, radius: 20, layer: 0 },
     ],
     bases: [testBase(0), testBase(1)],
     lanes: [],

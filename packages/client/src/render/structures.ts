@@ -3,7 +3,7 @@
 // static matrix — no per-frame cost at all. Ring turrets are live entities
 // and render through the greybox instancing path instead.
 
-import { type MapData, sampleHeight } from "@metropolis/sim";
+import { type MapData, resolveHeight } from "@metropolis/sim";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { teamRamp } from "./palette";
@@ -14,6 +14,11 @@ function box(w: number, h: number, d: number, x: number, y: number, z: number) {
   return g;
 }
 
+/** Surface height for a feature that carries its own layer (issue #33). */
+function featureH(map: MapData, x: number, y: number, layer: number): number {
+  return resolveHeight(map, x, y, layer);
+}
+
 export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
   for (let team = 0; team < map.bases.length; team++) {
     const base = map.bases[team];
@@ -22,7 +27,7 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
     // Gate: two pillars flanking the opening + crossbar, oriented so the
     // opening faces away from the core (toward the arena approach).
     const g = base.gate;
-    const gh = sampleHeight(map, g.x, g.y);
+    const gh = featureH(map, g.x, g.y, g.layer);
     const inYaw = Math.atan2(base.core.y - g.y, base.core.x - g.x);
     const px = -Math.sin(inYaw); // perpendicular to the approach, sim space
     const py = Math.cos(inYaw);
@@ -36,7 +41,7 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
 
     // Core: indestructible centerpiece — chunky tower with a beveled cap
     // (narrower edge box above the cap slab reads as a chamfer).
-    const ch = sampleHeight(map, base.core.x, base.core.y);
+    const ch = featureH(map, base.core.x, base.core.y, base.core.layer);
     parts.push(box(4.4, 7, 4.4, base.core.x, ch + 3.5, base.core.y));
     parts.push(box(5.6, 1.2, 5.6, base.core.x, ch + 7.6, base.core.y));
     parts.push(box(4.8, 0.5, 4.8, base.core.x, ch + 8.45, base.core.y));
@@ -48,7 +53,7 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
       [base.groundConsole, false],
       [base.airConsole, true],
     ] as const) {
-      const h = sampleHeight(map, c.x, c.y);
+      const h = featureH(map, c.x, c.y, c.layer);
       const faceYaw = Math.atan2(base.core.y - c.y, base.core.x - c.x);
       parts.push(box(3.4, 0.25, 3.4, c.x, h + 0.125, c.y));
       parts.push(box(1.0, 1.3, 1.0, c.x, h + 0.9, c.y));
@@ -63,7 +68,7 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
 
     // Ammo/repair pad: flat disc.
     const pad = new THREE.CylinderGeometry(base.pad.radius, base.pad.radius, 0.3, 16);
-    const ph = sampleHeight(map, base.pad.x, base.pad.y);
+    const ph = featureH(map, base.pad.x, base.pad.y, base.pad.layer);
     pad.translate(base.pad.x, ph + 0.15, base.pad.y);
     parts.push(pad);
 
@@ -89,13 +94,13 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
 export function buildSpawnMarkers(scene: THREE.Object3D, map: MapData): void {
   const parts: THREE.BufferGeometry[] = [];
   for (const s of map.spawns) {
-    const h = sampleHeight(map, s.x, s.y);
+    const h = featureH(map, s.x, s.y, s.layer);
     const ring = new THREE.CylinderGeometry(1.6, 1.8, 0.3, 20);
     ring.translate(s.x, h + 0.15, s.y);
     parts.push(ring);
   }
   for (const o of map.outpostSpots) {
-    const h = sampleHeight(map, o.x, o.y);
+    const h = featureH(map, o.x, o.y, o.layer);
     const post = new THREE.CylinderGeometry(0.6, 0.8, 3.2, 12);
     post.translate(o.x, h + 1.6, o.y);
     parts.push(post);

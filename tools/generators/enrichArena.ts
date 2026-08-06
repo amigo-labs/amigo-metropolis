@@ -49,6 +49,7 @@ import {
   type MapJson,
   openLine,
   reachableFrom,
+  resolveHeight,
   roadProbes,
   sampleHeight,
   segmentWalkable,
@@ -164,7 +165,10 @@ interface Logic {
     watchesActor: number;
   }[];
   props: { id: number; x: number; z: number; height: number; objId: number }[];
-  nets: { netId: number; nodes: { x: number; z: number; neighbours: number[] }[] }[];
+  nets: {
+    netId: number;
+    nodes: { x: number; z: number; neighbours: number[]; groundCast?: number }[];
+  }[];
 }
 
 interface Turret {
@@ -190,6 +194,66 @@ interface Weapon {
 const sx = (x: number): number => x + LOGIC_OFFSET_X;
 const sz = (z: number): number => z + LOGIC_OFFSET_Z;
 const round4 = (v: number): number => Math.round(v * 10000) / 10000;
+
+// ---------------------------------------------------------------------------
+// Feature layer (issue #33)
+// ---------------------------------------------------------------------------
+//
+// ACT pos_h is 0 on every PC mission, so deck membership cannot come from the
+// container. Surfaces at a cell are the ground + any present deck masks; the
+// original Cnet's ground_cast picks among them for lane nodes (HIGH / LOW /
+// MIDDLE). Gameplay actors without a cast sit on the topmost surface — the same
+// reading as RE's actors.layered.json `layer_top`. Layer 0 is omitted from JSON
+// so existing single-storey maps stay byte-identical when re-emitted.
+
+/** Cnet ground_cast enums, as carried in the committed logic JSON. */
+const CAST_HIGH = 0;
+const CAST_LOW = 1;
+// const CAST_NONE = 2; // engine default = topmost
+const CAST_MIDDLE = 3;
+
+/** Every present surface at a cell, ascending by height, as sim layer indices. */
+function surfacesAt(map: MapData, x: number, y: number): { layer: number; h: number }[] {
+  const s = map.size;
+  const i = Math.min(s - 1, Math.max(0, Math.floor(x / map.cellSize)));
+  const j = Math.min(s - 1, Math.max(0, Math.floor(y / map.cellSize)));
+  const out: { layer: number; h: number }[] = [{ layer: 0, h: resolveHeight(map, x, y, 0) }];
+  for (let L = 0; L < map.layerHeights.length; L++) {
+    if (map.layerMask[L][j * s + i] !== 1) continue;
+    out.push({ layer: L + 1, h: resolveHeight(map, x, y, L + 1) });
+  }
+  out.sort((a, b) => a.h - b.h || a.layer - b.layer);
+  return out;
+}
+
+/**
+ * Surface selected by a Cnet node's ground_cast (fcop-logic.md §3.1).
+ * LOW = bottom of the stack, HIGH = top, MIDDLE = the one between when present.
+ *
+ * Non-Cnet features (bases, turrets, pickups, props) stay on layer 0 for now.
+ * RE's actors.layered.json `layer_top` would place some of them on decks, but
+ * sampling the topmost surface at every cell is the wrong default — la-cantina's
+ * cores sit under bridges and must stay on the ground. Until that side-file is
+ * committed in-tree, only nodes with an authored cast leave layer 0.
+ */
+function layerFromCast(map: MapData, x: number, y: number, cast: number | undefined): number {
+  const stack = surfacesAt(map, x, y);
+  if (stack.length === 1 || cast === undefined) return stack[0].layer;
+  if (cast === CAST_LOW) return stack[0].layer;
+  if (cast === CAST_MIDDLE) return stack[Math.floor((stack.length - 1) / 2)].layer;
+  if (cast === CAST_HIGH) return stack[stack.length - 1].layer;
+  return stack[0].layer; // NONE → ground (safe for flattened import)
+}
+
+/** Point as [x,y] or {x,y,layer} when the feature is off the ground. */
+function emitPoint(
+  x: number,
+  y: number,
+  layer: number,
+): number[] | { x: number; y: number; layer: number } {
+  if (layer <= 0) return [x, y];
+  return { x, y, layer };
+}
 
 /**
  * The offset is a measurement, so check it against the measurement rather than
@@ -274,7 +338,7 @@ function teamsOf<
 function out0Spawns(
   spawns: readonly { x: number; z: number }[],
   field: Field,
-): { x: number; y: number; yaw: number }[] {
+): { x: number; y: number; yaw: number; layer?: number }[] {
   // yaw is atan2(dy, dx) in sim convention, so +z is +pi/2 and +x is 0.
   const toward = field.axis === "z" ? [Math.PI / 2, -Math.PI / 2] : [0, Math.PI];
   return spawns.map((s, team) => ({
@@ -387,7 +451,7 @@ function turretWeapon(t: Turret, table: WeaponTable): number {
 // ---------------------------------------------------------------------------
 
 interface Graph {
-  nodes: { x: number; z: number }[];
+  nodes: { x: number; z: number; layer: number }[];
   edges: number[][];
   nextHopA: number[][];
   nextHopB: number[][];
@@ -447,15 +511,28 @@ function ownedNets(logic: Logic, teamNet: readonly number[]): Logic["nets"] {
   return logic.nets.filter((n) => teamNet.includes(n.netId));
 }
 
-function buildGraph(logic: Logic, teamNet: number[], enemyBase: { x: number; z: number }[]): Graph {
-  const nodes: { x: number; z: number }[] = [];
+function buildGraph(
+  logic: Logic,
+  teamNet: number[],
+  enemyBase: { x: number; z: number }[],
+  terrain: MapData,
+): Graph {
+  const nodes: { x: number; z: number; layer: number }[] = [];
   const edges: number[][] = [];
   const offsetOf = new Map<number, number>();
 
   for (const net of ownedNets(logic, teamNet)) {
     offsetOf.set(net.netId, nodes.length);
     const base = nodes.length;
-    for (const n of net.nodes) nodes.push({ x: round4(sx(n.x)), z: round4(sz(n.z)) });
+    for (const n of net.nodes) {
+      const x = round4(sx(n.x));
+      const z = round4(sz(n.z));
+      nodes.push({
+        x,
+        z,
+        layer: layerFromCast(terrain, x, z, n.groundCast),
+      });
+    }
     for (const n of net.nodes) {
       edges.push(n.neighbours.map((nb) => (nb < 0 ? -1 : base + nb)));
     }
@@ -538,13 +615,17 @@ function buildGraph(logic: Logic, teamNet: number[], enemyBase: { x: number; z: 
 }
 
 /** Walks the committed signposts into a plain polyline, for `lanes`. */
-function graphRoute(graph: Graph, team: number): number[][] {
-  const out: number[][] = [];
+function graphRoute(
+  graph: Graph,
+  team: number,
+): (number[] | { x: number; y: number; layer: number })[] {
+  const out: (number[] | { x: number; y: number; layer: number })[] = [];
   let at = graph.entry[team];
   const seen = new Set<number>();
   while (at >= 0 && !seen.has(at)) {
     seen.add(at);
-    out.push([graph.nodes[at].x, graph.nodes[at].z]);
+    const n = graph.nodes[at];
+    out.push(emitPoint(n.x, n.z, n.layer));
     at = graph.nextHopA[team][at];
   }
   return out;
@@ -901,6 +982,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   assertFrameOffset(mapId);
   const mapPath = join(REPO_ROOT, "packages", "sim", "maps", `${mapId}.json`);
   const raw = JSON.parse(readFileSync(mapPath, "utf8")) as MapJson;
+  // Terrain for layer sampling only — features below overwrite spawns downwards.
+  const terrain = loadMapFromJson(raw);
   const logic = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
   ) as Logic;
@@ -934,7 +1017,12 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       logic.props,
       team,
     );
-    const core = [round4(sx(base.x)), round4(sz(base.z))];
+    const coreX = round4(sx(base.x));
+    const coreY = round4(sz(base.z));
+    const gcx = round4(sx(buttons[0].x));
+    const gcy = round4(sz(buttons[0].z));
+    const acx = round4(sx(buttons[1].x));
+    const acy = round4(sz(buttons[1].z));
     // Permanent base ring = team-unique type-8 pads only. The original also
     // lists dual-team type-8 actors on mid plates that are NeutralTurrets —
     // those pads are capturable, not permanent guns for both teams. Putting
@@ -969,11 +1057,12 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       // The base structure IS the objective under the original rules, so the
       // gate volume sits on it. With coreHp set, systemWinCheck uses the core;
       // the gate still anchors lane termination and produced-unit heading.
-      gate: { x: core[0], y: core[1], radius: 4 },
-      core,
-      groundConsole: [round4(sx(buttons[0].x)), round4(sz(buttons[0].z))],
-      airConsole: [round4(sx(buttons[1].x)), round4(sz(buttons[1].z))],
-      pad: { x: core[0], y: core[1], radius: 3 },
+      // Features without a Cnet ground_cast stay layer 0 (see layerFromCast).
+      gate: { x: coreX, y: coreY, radius: 4 },
+      core: [coreX, coreY],
+      groundConsole: [gcx, gcy],
+      airConsole: [acx, acy],
+      pad: { x: coreX, y: coreY, radius: 3 },
       // The ring carries each Turret actor's OWN shooter block, not just its
       // position. Dropping it left the ring on the global 28 m TURRET_RANGE
       // against an imported engage_range of 6 m — see spawnBaseTurret in sim.ts.
@@ -987,8 +1076,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         yaw: round4(rotToYaw(t.gunRotationRaw, true)),
       })),
       defence: new Array(base.defenceWeaponCount).fill(0).map(() => ({
-        x: core[0],
-        y: core[1],
+        x: coreX,
+        y: coreY,
         weapon: table.intern({
           range: rangeToCells(base.defenceWeapon.engageRangeRaw),
           delay: toSimTicks(base.defenceWeapon.targetingDelayRaw, TICK_HZ),
@@ -1012,12 +1101,14 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // The build area only: gate/core/consoles/pad/spawn. Ring turrets spread up to
   // ~20 cells along the base approach in the original, so a plot containing them
   // would cover a quarter of the arena.
+  const pointXY = (p: number[] | { x: number; y: number }): [number, number] =>
+    Array.isArray(p) ? [p[0], p[1]] : [p.x, p.y];
   const basePlots = bases.map((b, team) => {
     const pts = [
       [b.gate.x, b.gate.y],
-      b.core,
-      b.groundConsole,
-      b.airConsole,
+      b.core as number[],
+      b.groundConsole as number[],
+      b.airConsole as number[],
       [round4(sx(teamSpawns[team].x)), round4(sz(teamSpawns[team].z))],
     ];
     const cx = (Math.min(...pts.map((p) => p[0])) + Math.max(...pts.map((p) => p[0]))) / 2;
@@ -1029,7 +1120,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
 
   // --- capturable turrets ------------------------------------------------
   const neutrals = [...logic.neutrals].sort((a, b) => a.id - b.id);
-  const turretSpots = neutrals.map((t) => [round4(sx(t.x)), round4(sz(t.z))]);
+  const turretSpots = neutrals.map((t) => [round4(sx(t.x)), round4(sz(t.z))] as number[]);
   const turretParams = neutrals.map((t) => turretWeapon(t, table));
   const turretYaw = neutrals.map((t) => round4(rotToYaw(t.gunRotationRaw, true)));
   // The original's Turret health, rather than the Phase-1 ARCHETYPE_MAX_HP
@@ -1040,7 +1131,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const outpostSpots = midfieldOutposts(neutrals, field);
 
   // --- lane graph + polyline ---------------------------------------------
-  const graph = buildGraph(logic, teamNet, enemyBase);
+  const graph = buildGraph(logic, teamNet, enemyBase, terrain);
   const lanes = [graphRoute(graph, 0)];
   if (lanes[0].length < 2) throw new Error("team 0's committed route is shorter than 2 waypoints");
 
@@ -1078,11 +1169,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     const y = round4(sz(t.z));
     const halfW = Math.max(0.5, round4(t.widthRaw / 8192 / 2));
     const halfL = Math.max(0.5, round4(t.lengthRaw / 8192 / 2));
-    const team =
-      Math.hypot(x - bases[0].core[0], y - bases[0].core[1]) <
-      Math.hypot(x - bases[1].core[0], y - bases[1].core[1])
-        ? 0
-        : 1;
+    const c0 = bases[0].core as number[];
+    const c1 = bases[1].core as number[];
+    const team = Math.hypot(x - c0[0], y - c0[1]) < Math.hypot(x - c1[0], y - c1[1]) ? 0 : 1;
     const key = `${x}|${y}|${halfW}|${halfL}|${team}`;
     if (seenVolume.has(key)) continue;
     seenVolume.add(key);
@@ -1105,8 +1194,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     .map((p) => {
       const x = round4(sx(p.x));
       const y = round4(sz(p.z));
-      const c0 = bases[0].core;
-      const c1 = bases[1].core;
+      const c0 = bases[0].core as number[];
+      const c1 = bases[1].core as number[];
       const d0 = (x - c0[0]) * (x - c0[0]) + (y - c0[1]) * (y - c0[1]);
       const d1 = (x - c1[0]) * (x - c1[0]) + (y - c1[1]) * (y - c1[1]);
       const cx = d0 <= d1 ? c0[0] : c1[0];
@@ -1145,14 +1234,20 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       wallsV: pristine.wallsV,
       wallsH: pristine.wallsH,
     });
-    const roads = carveRoads(pristineMap, wallsV, wallsH, graph, bases, arena.carveLimit);
+    // RoadBase only needs gate + groundConsole x/y.
+    const roadBases = bases.map((b) => ({
+      gate: { x: b.gate.x, y: b.gate.y },
+      groundConsole: pointXY(b.groundConsole as number[] | { x: number; y: number }),
+    }));
+    const roads = carveRoads(pristineMap, wallsV, wallsH, graph, roadBases, arena.carveLimit);
     carved = roads.cleared;
     entries = roads.entries;
     // Opening the lane edges is not enough on its own: a corridor can be
     // drivable end to end and still be sealed off from the rest of the arena,
     // which is what leaves the outer ring's capture pads unreachable.
+    const spawns = out0Spawns(teamSpawns, field);
     const repair = repairReachability(
-      { ...raw, spawns: out0Spawns(teamSpawns, field), wallsV, wallsH },
+      { ...raw, spawns, wallsV, wallsH },
       wallsV,
       wallsH,
       [
@@ -1168,16 +1263,20 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         // the spawn component already; Conft's, Slim's and Joke's do not, and
         // without these the arena generates clean and plays unbuyable.
         ...bases.flatMap((b) => [
-          { x: b.core[0], y: b.core[1], kind: "core" },
-          { x: b.groundConsole[0], y: b.groundConsole[1], kind: "console" },
-          { x: b.airConsole[0], y: b.airConsole[1], kind: "console" },
+          { x: (b.core as number[])[0], y: (b.core as number[])[1], kind: "core" },
+          {
+            x: (b.groundConsole as number[])[0],
+            y: (b.groundConsole as number[])[1],
+            kind: "console",
+          },
+          { x: (b.airConsole as number[])[0], y: (b.airConsole as number[])[1], kind: "console" },
           // Ring turrets too: one the player can neither reach nor shoot past is
           // dead content, and mapConnectivity.test.ts treats it as an error. Its
           // own cell need not be walkable — that test asks only that a
           // NEIGHBOURING cell is, for the same plinth reason capture pads have.
           ...b.turrets.map((t) => ({ x: t.x, y: t.y, reach: 1, kind: "ring turret" })),
         ]),
-        ...out0Spawns(teamSpawns, field).map((s) => ({ x: s.x, y: s.y, kind: "spawn" })),
+        ...spawns.map((s) => ({ x: s.x, y: s.y, kind: "spawn" })),
       ],
       arena.repairLimit,
     );
@@ -1194,7 +1293,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // useful, symmetric answer is "look down your own lane".
     spawns: out0Spawns(teamSpawns, field),
     basePlots,
-    bases,
+    bases: bases as MapJson["bases"],
     lanes,
     turretSpots,
     outpostSpots,
@@ -1205,7 +1304,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     turretYaw,
     turretHp,
     laneGraph: {
-      nodes: graph.nodes.map((n) => [n.x, n.z]),
+      nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,
       nextHopA: graph.nextHopA,
       nextHopB: graph.nextHopB,
@@ -1577,11 +1676,8 @@ function main(): void {
     else if (check) bad += checkArena(arena) ? 0 : 1;
     else if (which === "all" && !isImported(arena)) {
       // `all` re-runs what is already adopted; it does not adopt anything new.
-      // hollywood-keys and venice-beach are blocked on issue #33 (their decks are
-      // unreachable, so an import puts the whole road network under the city) and
-      // `all` used to import them anyway, silently. Naming one still works, which
-      // is how they get adopted the day #33 lands.
-      console.log(`${arena.mapId}: not imported — name it explicitly to adopt it (issue #33)`);
+      // Naming an arena still works, which is how a fresh stage-2 lands.
+      console.log(`${arena.mapId}: not imported — name it explicitly to adopt it`);
     } else bad += writeArena(arena);
   }
   if (bad > 0) process.exit(1);
