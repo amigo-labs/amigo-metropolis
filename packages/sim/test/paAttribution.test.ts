@@ -299,68 +299,32 @@ describe("a Warden vs an idle player: breaks the line on la-cantina", () => {
   }
 
   it("resolves the match: razes the idle player's core inside fifteen minutes", () => {
-    // This assertion used to read `winner === -1` with the note "WHEN THIS STARTS
-    // FAILING, THAT IS THE BALANCE PASS LANDING: move it back to asserting the win,
-    // do not delete it." v20 is that landing, and the mechanism it names is worth
-    // correcting rather than deleting, because it was wrong:
+    // v20 landed the suppress rung and this assertion read `winner === 1` with a
+    // finish at 268 s (later 699 s after the build consoles were un-swapped). #29
+    // broke the finish without touching any balance constant: la-cantina's decks
+    // went live, one produced unit spent 30 ticks on a bridge, and the push that
+    // used to raze stalled at ~910 core HP after fifteen minutes on 5/5 seeds.
+    // Isolating the halves of #29 showed the thinner ground lattice and the
+    // per-deck walls were inert — only resolveWalker selecting a deck at all
+    // reshuffled the pack.
     //
-    //   "The Warden escorts whatever unit is deepest, which after each exchange is
-    //   a fresh unit near its own base, so it fights an attrition war in the middle
-    //   and its push never reaches the range where WARDEN_PUSH_COMMIT_RANGE
-    //   applies."
+    // v23 is the balance half of that recovery (issue #31). Measured across
+    // BASE_TURRET_RESPAWN_TICKS ∈ {60, 80, 90, 120, 150, 180, 240} s on five
+    // seeds, 120 s is the first value that restores the finish: 5/5 seeds raze
+    // at ~178 s, and the recycled-emplacement count drops from ~180 to the ~20
+    // that actually guard the base. Shorter values leave the core at ~1240 after
+    // ten minutes on every seed. The mechanism the earlier note named for the
+    // stall ("the Warden never reaches commit range") was already wrong in v20 —
+    // it reached and held that range; it could not keep a cleared path open
+    // against a 60 s ring.
     //
-    // Measured, it reached that range and stayed there. Over ten minutes at
-    // difficulty 8 it spent 64-86% of its ticks on ESCORT at a mean 34-43 m from
-    // the enemy core with its push tip at 75-82% of the lane. It was not fighting
-    // in the middle and it was not mistargeting. It held a target for 1-18% of the
-    // match and landed 1.6-9.3k damage where its cooldowns allow ~66k, because a
-    // base emplacement was inside its 42 m cannon range 60-89% of the time and
-    // VISIBLE 0-7% of it — see "no standoff position exists" below. The mid-line
-    // front was not what held; the wall lattice was.
-    //
-    // With WGOAL_SUPPRESS the match ends at 268 s on this seed, and on 5/5 seeds it
-    // ends: 300 core hits against 24 before. Bounded as "resolves, and the Warden's
-    // own core is untouched by an idle opponent" rather than on the exact tick.
-    //
-    // The window was ten minutes until la-cantina's build consoles were
-    // un-swapped: the Warden buys at the ground console, so its spawn point and
-    // road leg moved ~5 m and it now finishes at 699 s on 5/5 seeds instead of
-    // 268 s. Slower, same outcome.
-    //
-    // Worth knowing how narrow this is. Measured on the same scenario while the
-    // outpost placement was being investigated: with the two outposts deleted the
-    // Warden stalls outright (core 2950/3000 after ten minutes), and moving them
-    // six cells off their pads stalls it just as hard (2920/3000). This test
-    // passes because of where things sit, not only because of the suppress rung.
-    //
-    // ISSUE #29 MOVED IT, AND NOT BY WINNING SLOWER — IT NO LONGER FINISHES.
-    // la-cantina became the multi-deck arena its source terrain always described,
-    // so `resolveWalker` is live on it and units can take a bridge. Measured on
-    // 5/5 seeds: the push razes the core from 3000 to 910 (70%) and the fifteen
-    // minutes run out. Seed-invariant, because both avatars idle.
-    //
-    // The cause is narrower than it looks, and worth recording so nobody re-derives
-    // it. Isolating the two halves of #29 against this same scenario:
-    //   - the thinner GROUND lattice (632 of 4009 bits re-attributed to the deck
-    //     they stand on) changes NOTHING: identical outcome, to the tick.
-    //   - the per-deck wall lattices change nothing either.
-    //   - zeroing the deck masks reproduces the old arena exactly.
-    // So the whole delta is `resolveWalker` selecting a deck at all: ONE produced
-    // unit spends 30 ticks on a bridge and comes back down, which reshuffles how
-    // the push packs and cascades deterministically from there. Line of sight is
-    // not the mechanism either — gun→road sightlines within 42 m went 10.6% → 10.5%.
-    //
-    // Bounded, therefore, on what is structurally true rather than on the win: the
-    // Warden still breaks the line and takes the core most of the way down, with
-    // its own core untouched by an idle opponent. Restoring the finish is #31's
-    // balance pass, which owns both Warden tuning and TURRET_DAMAGE — the one
-    // invented number on this arena and the intended lever.
-    //
-    // WHEN THIS STARTS PASSING `winner === 1` AGAIN, #31 HAS LANDED: move it back
-    // to asserting the win, do not delete it.
-    expect(state.winner).toBe(-1);
-    expect(state.coreHp[0]).toBeLessThan(1000);
-    expect(state.coreHp[0]).toBeGreaterThan(0);
+    // urban-jungle / proving-ground / bug-hunt do not respond to this knob
+    // (their push never arrives; mean core hits stay 0–13 across the whole
+    // sweep), so they stay open under #31. Bounded here as "resolves, and the
+    // Warden's own core is untouched by an idle opponent" rather than on the
+    // exact tick.
+    expect(state.winner).toBe(1);
+    expect(state.coreHp[0]).toBe(0);
     expect(state.coreHp[1]).toBe(3000);
   });
 
@@ -416,7 +380,9 @@ describe("how far an unescorted push gets, per arena", () => {
   // two differ qualitatively on two of the four arenas.
 
   it("la-cantina: razes into the core", () => {
-    // 20 core hits, closest approach 5.4 m. The full objective loop runs.
+    // At 120 s respawn a free trickle now finishes the job (300 hits, core 0)
+    // on this seed — the ring no longer replaces itself faster than 8 dps can
+    // clear it. Still pins that the full objective loop runs unescorted here.
     const r = push(LA_CANTINA_ID);
     expect(r.coreHits).toBeGreaterThan(0);
     expect(r.closest).toBeLessThanOrEqual(CORE_ATTACK_RADIUS);
@@ -435,13 +401,13 @@ describe("how far an unescorted push gets, per arena", () => {
   });
 
   for (const id of [PROVING_GROUND_ID, BUG_HUNT_ID]) {
-    it(`${id}: a trickle stops ~11 m out on one ring turret`, () => {
-      // 11.5 m and 11.4 m measured. Both arenas place a ring turret 9-10 m from
-      // the core, inside the last stretch of road: a Runner halts 14 m from it,
-      // chips 500 imported HP at 8 dps (~62 s) and the ring respawns in 60 s, so
-      // the emplacement regenerates as fast as a trickle can kill it. Nothing
-      // about the road: paRoads drives this exact route unopposed, and with the
-      // defenders removed outright both arenas raze the core (see below).
+    it(`${id}: a trickle stops short of the core on one ring turret`, () => {
+      // proving-ground ~11.5 m, bug-hunt ~16.6 m (re-measured at v23). Both arenas
+      // place a ring turret on the last stretch of road: a Runner halts outside
+      // its 6 m reach, chips 500 imported HP at 8 dps, and cannot clear it before
+      // the ring comes back. Nothing about the road: paRoads drives this exact
+      // route unopposed, and with the defenders removed outright both arenas raze
+      // the core (see below).
       //
       // This is the free stream failing on its own, which design pillar 1 says it
       // should: the player is the tiebreaker. What has to be true is that a party
@@ -449,7 +415,7 @@ describe("how far an unescorted push gets, per arena", () => {
       const r = push(id);
       expect(r.coreHits).toBe(0);
       expect(r.closest).toBeGreaterThan(CORE_ATTACK_RADIUS);
-      expect(r.closest).toBeLessThan(15);
+      expect(r.closest).toBeLessThan(20);
     });
   }
 });
@@ -473,36 +439,18 @@ describe("what an escort changes, per arena", () => {
   // Escort went from 0% of ticks to 51-77%. See WARDEN_CORE_DEFEND_RADIUS and
   // WARDEN_PUSH_COMMIT_RANGE.
 
-  // Measured core hits in 5 minutes on this seed, v18 → v20 (the suppress rung):
-  // la-cantina 22 → 23, urban-jungle 8 → 1, proving-ground 8 → 114, bug-hunt 2 → 32.
-  // Bounded loosely below the measured value — what must not regress is that the
-  // push arrives and the core takes damage.
-  //
-  // urban-jungle's 8 → 1 is NOT a regression and is the reason the bound for it is
-  // the bare "damages it": that arena's outcome is the seed-sensitive one. Over the
-  // five seeds the version note uses, it scores [1, 2, 300, 56, 0] against
-  // [8, 8, 0, 2, 2] before — mean 4 → 72, and the 300 is the core razed outright.
-  // The other three are seed-invariant here (both avatars idle, so the only PRNG
-  // draw in play is the harass coin flip). One seed is not a measurement on
-  // urban-jungle; it is on the rest.
-  // Re-measured after the build consoles were un-swapped on la-cantina and
-  // bug-hunt (enrichArena's consoleRole reads the console's icon instead of
-  // guessing from trigger footprints). The ground console — and with it the
-  // spawn point and the road leg produced units take — moved ~5 m on both:
-  // la-cantina 23 → 123, bug-hunt 32 → 6. urban-jungle and proving-ground are
-  // untouched by that fix and hold their numbers exactly, which is the control.
-  // bug-hunt going down is real and is not papered over; what the assertions
-  // below still pin is the invariant — the push arrives and the core takes
-  // damage — not the magnitude.
-  // la-cantina 123 → 22 in #29, for the reason spelled out on "resolves the
-  // match" above: its decks went live and one unit taking a bridge cascades. The
-  // invariant is untouched — the push still arrives inside CORE_ATTACK_RADIUS and
-  // the core still takes damage — and the magnitude is not what this pins.
+  // Measured core hits in 5 minutes on this seed at v23 (120 s base-turret
+  // respawn). The invariant the bound pins is arrival + damage, not magnitude:
+  // la-cantina 87, urban-jungle 207, proving-ground 6, bug-hunt 300 (razes).
+  // proving-ground is the thin one — the push still reaches inside
+  // CORE_ATTACK_RADIUS and chips the core, it just does not stay there for long
+  // in five minutes on this seed. urban-jungle was seed-sensitive under earlier
+  // versions; on this seed it is now the strong escort case.
   for (const [id, hits] of [
-    [LA_CANTINA_ID, 22],
-    [URBAN_JUNGLE_ID, 1],
-    [PROVING_GROUND_ID, 114],
-    [BUG_HUNT_ID, 6],
+    [LA_CANTINA_ID, 87],
+    [URBAN_JUNGLE_ID, 207],
+    [PROVING_GROUND_ID, 6],
+    [BUG_HUNT_ID, 300],
   ] as const) {
     it(`${id}: an escorted push reaches the core and damages it`, () => {
       const r = push(id, true);

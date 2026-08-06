@@ -368,4 +368,15 @@
 //     move — no height changed — and the terrain .glb's independent correlation
 //     against the heightfield IMPROVED, 0.939 to 0.982, because the art has
 //     always had geometry at those deck heights and now has somewhere to match.
-export const SIM_VERSION = 22;
+// v23: BASE_TURRET_RESPAWN_TICKS 60 s → 120 s (issue #31). After #29 left
+//     la-cantina's multi-deck roads live, a difficulty-8 Warden vs idle chipped
+//     the core to ~900 HP in fifteen minutes on 5/5 seeds and never finished —
+//     the ring regenerated as fast as one superplane could clear it. 120 s is
+//     the first value that restores the finish (5/5 at ~178 s). Measured and
+//     rejected for the other three single-storey arenas: urban-jungle,
+//     proving-ground and bug-hunt do not respond to this knob (their push never
+//     arrives at the core), so they stay open under #31. Only golden-07-pa runs
+//     a Warden against a core-bearing arena; goldens 01-06 re-header only if
+//     their hash arrays stay byte-identical (a base-turret death+respawn has to
+//     fall inside the scripted window for the sequence to move).
+export const SIM_VERSION = 23;

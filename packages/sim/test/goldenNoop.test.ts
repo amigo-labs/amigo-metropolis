@@ -12,30 +12,16 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
   "golden-01-drive": { last: 3720970189, count: 1800 },
   "golden-02-combat": { last: 26623427, count: 2700 },
-  "golden-03-match": { last: 370472177, count: 4500 },
-  "golden-04-warden": { last: 2692203283, count: 9000 },
+  // Re-frozen at SIM_VERSION 23 with 03/04/07: BASE_TURRET_RESPAWN_TICKS 60→120 s
+  // is global, so any script that kills a base emplacement and lives past the
+  // old timer sees a different world. 01/02/05/06 still byte-identical (header
+  // only) — none of those scripts hold a dead ring turret long enough for the
+  // timer to matter.
+  "golden-03-match": { last: 789235038, count: 4500 },
+  "golden-04-warden": { last: 4033123080, count: 9000 },
   "golden-05-fcop": { last: 2751040396, count: 2700 },
   "golden-06-layered": { last: 3787894536, count: 600 },
-  // Re-frozen alone at SIM_VERSION 20 (the Warden's suppress rung): the only golden
-  // that runs a Warden on an arena carrying a core, so the only one whose hashes
-  // moved. 01-06 above are UNTOUCHED across that bump, which is the no-op proof —
-  // golden-04-warden runs a difficulty-8 Warden on district-01 and the rung is
-  // gated on `hasCore(enemy)`, so it never fires there.
-  //
-  // Re-frozen alone AGAIN when la-cantina's ground and air build consoles were
-  // un-swapped (enrichArena's consoleRole). No sim code changed, so this is map
-  // data moving under an unchanged SIM_VERSION: the Warden buys at the ground
-  // console, that coordinate moved ~5 m, and every tick after the first purchase
-  // differs. 01-06 untouched again — 05 runs urban-jungle, whose consoles were
-  // already the right way round.
-  //
-  // Re-frozen alone a THIRD time at SIM_VERSION 22 (issue #29): la-cantina now
-  // carries its bridge decks, so resolveWalker is live on it. 01-06 untouched
-  // once more, including 06 on the synthetic layered-test map — per-deck wall
-  // lattices reach nothing that has none, which is the no-op proof for the
-  // collision change. The one moved sequence traces to a single produced unit
-  // spending 30 ticks on a bridge; see the v22 note in version.ts.
-  "golden-07-pa": { last: 3780981965, count: 3600 },
+  "golden-07-pa": { last: 115691331, count: 3600 },
 };
 
 describe("single-story golden last-hash pins", () => {

@@ -515,22 +515,25 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       only replay whose hashes move and the only one running a Warden on an arena
       with a core; golden-04-warden runs one on district-01, where the rung is gated
       out, and 01-06 stay byte-identical
-- [ ] What #31 still has open, now down to one question on two arenas:
-      **proving-ground and urban-jungle do not resolve in ten minutes.** No longer a
-      Warden-behaviour gap — it clears 37 and 16 defenders where it cleared 5 and 17,
-      and in the escorted case both convert (114 and 72 mean core hits). It is the
-      race the earlier `TURRET_RESPAWN` note predicted: `BASE_TURRET_RESPAWN_TICKS` is
-      60 s and a 500 HP emplacement takes the Warden ~8 s at 60 dps, but there are 20
-      per base and it has to break contact to repair, so the ring replaces itself
-      about as fast as one superplane can strip it. The candidates are that constant
-      and unit dps, both ours; the 500 HP and the 6 m reach are extracted and stay.
-      Not turned here on purpose — this change is a behaviour fix with a clean
-      before/after, and turning a respawn knob in the same commit would confound it.
-      One earlier measurement in this phase was wrong and is worth correcting rather
-      than quietly dropping: "the base guns' HP (3000 → 500) changes nothing". It
-      changes nothing in an idle-vs-idle match, which is where it was measured — the
-      streams annihilate at the mid-line and no gun is ever shot at. In the escorted
-      case, the only one where the last mile exists, it is most of the fix
+- [x] `BASE_TURRET_RESPAWN_TICKS` 60 s → 120 s (SIM_VERSION 23, issue #31). After
+      #29 left la-cantina's multi-deck roads live the Warden-vs-idle finish that
+      v20 had restored stalled again: core chipped to ~900 HP in fifteen minutes
+      on 5/5 seeds, never razed. Sweeping the constant across {60, 80, 90, 120,
+      150, 180, 240} s on five seeds found 120 s is the first value that restores
+      the finish (5/5 at ~178 s; recycled emplacements ~180 → ~20). The other
+      three single-storey arenas do **not** respond to this knob — urban-jungle
+      stays at 2.4 mean core hits, proving-ground at 0–13, bug-hunt at 0, even at
+      240 s and a fifteen-minute window — so their problem is arrival, not the
+      ring regenerating. 500 HP and 6 m reach stay extracted. golden-07-pa
+      re-records; goldens 01-06 re-header only if byte-identical.
+- [ ] What #31 still has open, now down to **arrival on three arenas**:
+      **urban-jungle, proving-ground and bug-hunt do not resolve in ten (or
+      fifteen) minutes** against an idle player, and `BASE_TURRET_RESPAWN_TICKS`
+      is not the lever — measured. Escorted pushes still reach and damage the
+      core on all three (`paAttribution.test.ts`), so the objective is reachable
+      once a defence is actually beaten; a lone superplane cannot open the path.
+      Remaining candidates are unit dps and further Warden last-mile behaviour,
+      both ours; the extracted 500 HP / 6 m reach stay.
 
 **Definition of Done:** all four PA arenas play under §9 — production
 runs, pads capture, the enemy core can be razed — with `bun test`,
@@ -538,12 +541,10 @@ runs, pads capture, the enemy core can be razed — with `bun test`,
 reporting byte-identical output, and the per-arena fidelity screenshots showing
 turrets on their original pads. **Structurally met on all four**: production runs
 and reaches, pads capture, and razing works once the defence is beaten — now
-asserted for all four arenas, not just la-cantina (`paAttribution.test.ts`). A
-party that is trying now reaches AND damages the core on **all four** — bug-hunt
-was the last holdout and converts 32 core hits where it managed 2 — and la-cantina
-resolves outright against an idle player. What remains open is the ten-minute
-resolution on proving-ground and urban-jungle, one respawn-versus-clearance
-question rather than four arena-shaped ones (#31, item above).
+asserted for all four arenas (`paAttribution.test.ts`). A party that is trying
+reaches AND damages the core on **all four**, and la-cantina resolves outright
+against an idle player again (v23). What remains open is Warden-vs-idle
+resolution on the other three — an arrival question, not a respawn race.
 
 **Issue #29 landed (2026-08-03):** `la-cantina` is converted as the multi-deck
 arena its source terrain describes — two bridge decks, and walls attributed to the

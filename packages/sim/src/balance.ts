@@ -184,7 +184,19 @@ export const TURRET_RANGE = 28;
 export const TURRET_DAMAGE = 15;
 export const TURRET_COOLDOWN_TICKS = 20;
 export const DUMMY_RESPAWN_TICKS = 450; // 15 s
-export const BASE_TURRET_RESPAWN_TICKS = 1800; // 60 s (rules.md §5)
+/**
+ * Base ring + built-in defence respawn. Was 60 s (rules.md §5 placeholder);
+ * issue #31 measured that at authentic turret density a difficulty-8 Warden
+ * strips an emplacement in ~8 s at 60 dps, then has to break contact to repair,
+ * and the ring replaces itself about as fast as one superplane can clear it.
+ * On la-cantina after the multi-deck conversion (#29) that race left the core at
+ * ~900 HP after fifteen minutes on every seed. 120 s (3600 ticks) is the first
+ * value that restores a clean finish: 5/5 seeds raze at ~178 s, and the kill
+ * count drops from ~180 recycled emplacements to the ~20 that actually guard
+ * the base. urban-jungle / proving-ground / bug-hunt do not respond to this
+ * knob (their push never arrives); those stay open under #31.
+ */
+export const BASE_TURRET_RESPAWN_TICKS = 3600; // 120 s (rules.md §5, #31)
 
 // Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
 export const PAD_REPAIR_HP_PER_TICK = 0.5; // 15 hp/s
