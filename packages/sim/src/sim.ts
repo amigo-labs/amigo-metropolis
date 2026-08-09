@@ -658,9 +658,16 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
 
 const AXIS_SCALE = 1 / 127;
 const GROUND_EPS = 0.001;
+/** Shell spawn height above the shooter's feet — the X1's gun, not its roof. */
+const MUZZLE_HEIGHT = 0.6;
 /** Height changes up to this snap to the terrain; larger drops become falls. */
 export const STEP_SNAP = 0.35;
-const MUZZLE_OFFSET = 2;
+/**
+ * How far in front of the shooter a shell appears. Scaled with the models
+ * (assets.md §4): 2 m put the muzzle more than a body-length ahead of a 0.80 m
+ * mech, so shells materialised in mid-air in front of it.
+ */
+const MUZZLE_OFFSET = 0.6;
 
 /**
  * The horizontal slope gate, shared by both axis moves: is the step from (x,y)
@@ -1405,7 +1412,7 @@ export function spawnProjectile(
   if (id < 0) return;
   ent.posX[id] = ent.posX[shooter] + dx * MUZZLE_OFFSET;
   ent.posY[id] = ent.posY[shooter] + dy * MUZZLE_OFFSET;
-  ent.height[id] = ent.height[shooter] + 1;
+  ent.height[id] = ent.height[shooter] + MUZZLE_HEIGHT;
   ent.velX[id] = dx * speed;
   ent.velY[id] = dy * speed;
   ent.yaw[id] = atan2Poly(dy, dx);

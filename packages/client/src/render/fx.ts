@@ -36,7 +36,7 @@ import * as THREE from "three";
 import { PROJECTILE_HEX, paletteHex } from "./palette";
 
 /** Must match sim.ts MUZZLE_OFFSET (not exported; keep in lockstep by hand). */
-const MUZZLE_OFFSET = 2;
+const MUZZLE_OFFSET = 0.6;
 
 const TRACER_CAP = 128;
 const MUZZLE_CAP = 64;
@@ -401,7 +401,7 @@ export function createFx(scene: THREE.Scene): ShotFx {
         const sin = Math.sin(yaw);
         const mx = px + cos * MUZZLE_OFFSET;
         const mz = pz + sin * MUZZLE_OFFSET;
-        const my = py + 0.9;
+        const my = py + 0.6; // sim.ts MUZZLE_HEIGHT
         // What `c` means depends on `b` — see events.ts. Slots 0/1/2 are the
         // avatar's and pack a catalog id with the shot's reach;
         // SHOT_SLOT_HITSCAN carries a reach in decimetres; SHOT_SLOT_LAUNCH

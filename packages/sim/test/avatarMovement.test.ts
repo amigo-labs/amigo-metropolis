@@ -381,10 +381,21 @@ function driveEast(sim: SimState, player: number, hover: boolean, ticks: number)
 }
 
 describe("hover slope gate", () => {
-  it("pins the span to the avatar's own footprint", () => {
-    // The span is the vehicle's footprint diameter, not a tuned number. If the
-    // avatar's radius moves, this is the reminder that the span moves with it.
-    expect(HOVER_CUSHION_SPAN).toBe(2 * ARCHETYPE_RADIUS[ARCHETYPE.AVATAR]);
+  it("pins the span against the terrain, not against the hull", () => {
+    // This used to assert HOVER_CUSHION_SPAN === 2 * ARCHETYPE_RADIUS[AVATAR],
+    // "the vehicle's footprint diameter", with the comment inviting the next
+    // person to move the span whenever the radius moved. They did, when the
+    // models came down to the size the original authored, and it cost the whole
+    // issue-#34 kerb fix: hover-blocked road edges went 0->10 on la-cantina,
+    // 20->49 on urban-jungle, and three of the four arenas lost a team that
+    // could drive its own network. The kerbs the cushion rides over are terrain,
+    // and terrain did not shrink.
+    //
+    // So the span is pinned to what it is measured against. It must clear the
+    // FCOP streets' kerbs by a wide margin — those run to ~0.17 m, and the span
+    // is an order of magnitude over that.
+    expect(HOVER_CUSHION_SPAN).toBe(2.4);
+    expect(HOVER_CUSHION_SPAN).toBeGreaterThan(ARCHETYPE_RADIUS[ARCHETYPE.AVATAR] * 2);
     // And the ceiling it implies has to stay under the walker's jump, or the
     // hover would out-climb the form whose job is climbing.
     expect(HOVER_CUSHION_SPAN * AVATAR_HOVER_MAX_SLOPE).toBeLessThan(JUMPABLE_RISE);
