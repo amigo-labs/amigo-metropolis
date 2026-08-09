@@ -9,8 +9,13 @@
 // The heightfields are extracted 1:1 from the original missions (int8, 1/32 m
 // units) by tools/generators/convert.ts; regenerating one changes gameplay
 // everywhere it is sampled, so a changed heightsPin means a SIM_VERSION bump +
-// golden regeneration for every golden recorded on it. Stage 2 never touches
-// terrain, so every heightsPin below survived the rebuild unchanged.
+// golden regeneration for every golden recorded on it. Stage 2 (enrichArena)
+// never touches terrain.
+//
+// Stage 1.5 (stampPads) does, and is the only thing that has: three of the four
+// pins below moved when the sunken pads were lifted onto the plates the terrain
+// mesh draws over them (SIM_VERSION 27). la-cantina's did not — it had no sunken
+// pad. `tools/generators/test/terrainCollision.test.ts` is the measurement.
 //
 // Stage 1 has no water, so the district-01 river assertions are absent. The
 // mirror assertion is NOT absent any more — see the mirrorAxis field.
@@ -160,7 +165,10 @@ const ARENAS: ArenaExpectation[] = [
     size: 257,
     laneCount: 1,
     groundHeight: 0.906,
-    heightsPin: 264067427, // terrain untouched by the rebuild
+    // Moved by the pad stamp (gen:pads): 8 cells under the two sunken outpost
+    // pads at x 86 / 153, y 120-121, lifted from -3.19/-3.91 m onto the -2.41 m
+    // plate the terrain mesh draws there.
+    heightsPin: 1333068003,
     // 262 bits carved to open the original roads + 21 to reconnect the ring
     // and the base's own structures, of 4327 (6.5%). Up from 242: the carve now
     // walks each road the way a unit steps rather than in fixed 0.25 m slices,
@@ -204,7 +212,9 @@ const ARENAS: ArenaExpectation[] = [
     // spawn straddled a 2 m shelf and a 0 m floor, and the bilinear sampler
     // averaged them to exactly 1. There is no 1 m shelf on this arena.
     groundHeight: 0,
-    heightsPin: 1261122911, // terrain untouched by the rebuild
+    // Moved by the pad stamp (gen:pads): the 4 cells of the turret pad at
+    // (86-87, 135-136), lifted from -3.97 m onto its -2.00 m plate.
+    heightsPin: 3889076703,
     // 308 bits carved + 20 to reconnect, of 6330 (5.2%) — Slim's road network
     // is the densest of the four, at 640 edges. Neither team could leave its own
     // base before the road carve learned about the console leg (issue #30).
@@ -291,7 +301,9 @@ const ARENAS: ArenaExpectation[] = [
     size: 257,
     laneCount: 1,
     groundHeight: 0,
-    heightsPin: 3837183847, // terrain untouched by the rebuild
+    // Moved by the pad stamp (gen:pads): the same pad as proving-ground, at
+    // (86-87, 135-136) — Joke and Slim share that corner of their terrain.
+    heightsPin: 398785895,
     // 312 bits carved + 23 to reconnect, of 6225 (5.4%). Moved when the ground
     // and air consoles were un-swapped: the carve opens the ground console's leg
     // to the road, and that leg now starts at the other console.

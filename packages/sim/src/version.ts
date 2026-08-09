@@ -393,4 +393,21 @@
 //     (place / self-centred pulse). Loadout indices renumber — peers on opposite
 //     sides of the bump with a non-default kit would desync. Bump mandatory;
 //     only golden-02-combat hash sequence moves (fires special).
-export const SIM_VERSION = 26;
+// v27: sunken FCOP pads lifted onto the floor the player can see (gen:pads).
+//     Six pads across three arenas had their collision floor more than STEP_SNAP
+//     below the plate the terrain .glb draws over them, so walking onto visible
+//     art put the avatar in the gravity branch: urban-jungle's two outpost pads
+//     at x 86/153, y 120-121 (0.78 m), and the turret pad at (86-87, 135-136) on
+//     proving-ground and bug-hunt alike (1.97 m). 16 cells total, each lifted to
+//     its own mesh height. la-cantina had none.
+//     MEASURED, NOT AUTHORED. convert.ts carried a hand-written `padHeights`
+//     table for this, behind a flag nothing ever set. It was checked before being
+//     switched on and it was stale: 8 of its 80 cells landed within 0.3 m of the
+//     mesh, and it would have raised la-cantina's (88,83) to +1.0 m where the art
+//     sits at -2.50 — the avatar hovering 3.5 m over a pit. The table is gone;
+//     tools/generators/stampPads.ts reads the heights out of the committed .glb
+//     and tools/generators/test/terrainCollision.test.ts pins the result.
+//     Three heightsPins move (urban-jungle, proving-ground, bug-hunt) and
+//     golden-05-fcop, which runs on urban-jungle, moves with them. la-cantina's
+//     pin and golden-07-pa do not.
+export const SIM_VERSION = 27;

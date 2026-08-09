@@ -18,7 +18,11 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 01/02/05/06 header-only.
   "golden-03-match": { last: 789235038, count: 4500 },
   "golden-04-warden": { last: 4033123080, count: 9000 },
-  "golden-05-fcop": { last: 2751040396, count: 2700 },
+  // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
+  // lifted onto the plate the terrain mesh draws over them (8 cells). This is
+  // the only single-story golden on that map, and the only one of the seven
+  // whose hashes move.
+  "golden-05-fcop": { last: 3353300176, count: 2700 },
   "golden-06-layered": { last: 3787894536, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
