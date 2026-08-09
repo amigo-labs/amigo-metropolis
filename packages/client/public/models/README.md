@@ -5,7 +5,7 @@
 One `.glb` per entity archetype (`avatar-walker`, `avatar-hover`, `runner`,
 `guardian`, `juggernaut`, `fortress`, `turret`, `console`, `warden`), following
 `docs/specs/assets.md` §4: Y-up, meters, +Z forward, origin at the
-ground-contact center, footprint matched to the greybox extents, tri budgets
+ground-contact center, **the size the original authored**, tri budgets
 1500/5000. Each file is a single one-material primitive — the FCOP originals
 keep their packed 256px texture pages as one atlas, untextured sources carry
 baked vertex colors — so the runtime (`src/render/unitMeshes.ts`) can swap it
@@ -14,10 +14,18 @@ instance colors, exactly as in greybox mode (team units are desaturated by the
 pipeline so the tint owns the hue, like FCOP's own grey team variants). The
 projectile stays procedural (payload-colored sphere).
 
-8 of 9 units are the ORIGINAL Precinct Assault Cobj models from the `Mp`
-container (extracted in `amigo-labs/fcop-reverse-engineering`); the
-avatar-walker is a CC0 stand-in because the X1-Alpha walker's rig does not
-survive extraction cleanly (Stage C: pose bake). Provenance in `CREDITS.md`.
+Every unit is an ORIGINAL Precinct Assault model from the `Mp` container
+(extracted in `amigo-labs/fcop-reverse-engineering`), including the X1-Alpha
+walker and hover forms assembled by `extract_x1.py`. This used to note the
+avatar-walker as a CC0 stand-in "because the X1-Alpha walker's rig does not
+survive extraction cleanly" — the assembly landed in `4a57b3e` and the note was
+left behind. Provenance in `CREDITS.md`.
+
+The raws are already in map metres, the same frame the FCOP terrain imports at
+(one grid cell per metre), so `nativeScale` is on for all of them and nothing is
+stretched to a target footprint. The arena scenery below is the same bytes for
+Cobj 29 as the `console` unit — when the two disagreed on size, the fitting was
+the thing that was wrong.
 Regenerate with `bun run gen:units` (`tools/generators/genUnitModels.ts`, driven
 by `tools/generators/units/manifest.ts`);
 `tools/generators/test/unitModels.test.ts` asserts the committed output matches

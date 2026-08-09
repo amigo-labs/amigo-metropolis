@@ -86,24 +86,32 @@ export interface CameraInput {
  * 26° is a little under the old ACTION anchor's 30°, which was the low end of a
  * range that reached 62°. With nothing to zoom out to, the framing has to read
  * on its own: low enough to feel behind the machine, high enough to see the road.
+ *
+ * The 15 m dolly framed a 2.8 m avatar. The models now carry the size the
+ * original authored — the X1 walker is 0.98 m — so the dolly comes in with
+ * them: 6 m is the same subject height on screen, which is what "one angle
+ * behind the X1" has to mean to stay readable. Everything else measured
+ * against the avatar rather than against the arena follows for the same reason;
+ * pitch and FOV are angles and do not.
  */
-const CHASE: ViewAnchor = { pitchDeg: 26, distance: 15, fovDeg: 58 };
+const CHASE: ViewAnchor = { pitchDeg: 26, distance: 6, fovDeg: 58 };
 
 // Default rig parameters (spec §7). Starting values, tuned in playtest.
 export const DEFAULT_RIG_CONFIG: CameraRigConfig = {
   action: CHASE,
   tactical: CHASE,
-  focusHeight: 1.0,
+  // ~2/3 of the walker's height: the cockpit, not the feet and not the sky.
+  focusHeight: 0.6,
   // The mouse steers both the avatar and the camera as one (input.spec §4.1),
   // so the rig takes an absolute heading rather than integrating a delta.
   yawLocked: false,
   followSmoothTime: 0.12,
   paramSmoothTime: 0.18,
   yawSmoothTime: 0.15,
-  lookAheadMax: 4.0,
+  lookAheadMax: 1.6,
   tFreeLookThreshold: 0.7,
   transformBias: 0.15,
-  deadzone: 0.15,
+  deadzone: 0.06,
 };
 
 // Speed (world u/s) at which look-ahead saturates to `lookAheadMax`. Tied to the

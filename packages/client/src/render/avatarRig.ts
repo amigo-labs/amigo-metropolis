@@ -34,13 +34,26 @@ import { tintFor } from "./greybox";
 import { loadUnitAsset } from "./unitMeshes";
 
 /**
- * Triangle-centre |x| below this counts as hip rather than leg. The legs sit at
- * x ±0.75 and the hip bridge at x ≈ 0, so the threshold is in a wide gap; at
- * 0.15 the shipped asset splits 94 left / 94 right / 28 hip triangles, i.e.
- * perfectly symmetric. Split per TRIANGLE, never per vertex — a vertex-wise
- * split tears triangles that straddle the seam.
+ * Triangle-centre |x| below this FRACTION of the legs island's own half-width
+ * counts as hip rather than leg. At 0.20 the shipped asset splits 94 left /
+ * 94 right / 28 hip triangles, i.e. perfectly symmetric — a mech with one leg
+ * heavier than the other means the threshold landed inside geometry. Split per
+ * TRIANGLE, never per vertex: a vertex-wise split tears triangles that straddle
+ * the seam.
+ *
+ * A FRACTION rather than metres, because the asset's metre size is not a
+ * constant of this code. It was 0.15 m against legs then sitting at x ±0.75,
+ * and rebuilding the walker at its native FCOP size (2.87x smaller) moved them
+ * to ±0.26 — the absolute threshold then cut through the legs and left 41 of
+ * each 94 triangles welded to the body, still perfectly symmetric and silently
+ * wrong. 0.20 is the same cut the 0.15 m made, expressed so a rescale cannot
+ * move it.
+ *
+ * The gap it lands in is narrower than it looks: measured against this asset,
+ * 94/94 holds for 0.192-0.21 and 95/95 for 0.15-0.183, with asymmetric splits
+ * in between and below. Retune by measuring, not by nudging.
  */
-export const LEG_SPLIT_X = 0.15;
+export const LEG_SPLIT_FRACTION = 0.2;
 
 /** Peak hip swing, radians. The one authored number in the gait. */
 export const SWING_RADIANS = 0.44;
@@ -170,6 +183,20 @@ export function splitWalkerParts(position: PositionReader, index: ArrayLike<numb
     }
   }
 
+  // The threshold is a FRACTION of the legs island's own half-width, resolved
+  // here, because the asset's metre size is not a constant of this code: the
+  // walker is authored at the original's scale and the same split has to hold
+  // whatever that turns out to be. As an absolute 0.15 m it silently ate half
+  // of each leg the first time the model was rebuilt at its native size —
+  // 41 swinging triangles instead of 94, the rest welded to the body.
+  let legHalfWidth = 0;
+  for (let v = 0; v < vertexCount; v++) {
+    if (find(canonical[v]) !== legRoot) continue;
+    const ax = position.getX(v) < 0 ? -position.getX(v) : position.getX(v);
+    if (ax > legHalfWidth) legHalfWidth = ax;
+  }
+  const splitX = legHalfWidth * LEG_SPLIT_FRACTION;
+
   const legL: number[] = [];
   const legR: number[] = [];
   const body: number[] = [];
@@ -180,8 +207,8 @@ export function splitWalkerParts(position: PositionReader, index: ArrayLike<numb
     let target = body;
     if (find(canonical[i0]) === legRoot) {
       const centreX = (position.getX(i0) + position.getX(i1) + position.getX(i2)) / 3;
-      if (centreX > LEG_SPLIT_X) target = legL;
-      else if (centreX < -LEG_SPLIT_X) target = legR;
+      if (centreX > splitX) target = legL;
+      else if (centreX < -splitX) target = legR;
     }
     target.push(i0, i1, i2);
   }

@@ -6,18 +6,32 @@
 // output still matches it. Swapping a model = changing one entry here, dropping
 // the raw file next to it, and re-running `bun run gen:units`.
 //
-// Two arrays, two contracts. UNIT_MODELS are gameplay archetypes, fitted to the
-// greybox silhouettes. PROP_MODELS are the original arena scenery placements
-// (see PROP_MODELS below) and are deliberately NOT fitted — their original
-// proportions are the whole point.
+// Two arrays, ONE scale. Every model here and in PROP_MODELS keeps the size the
+// original authored it at, because the arena around them does: the FCOP terrain
+// imports at one grid cell per metre, and the Cobj extractions are already in
+// those metres.
+//
+// This used to say "UNIT_MODELS are gameplay archetypes, fitted to the greybox
+// silhouettes … so models stay honest against the collision radii". Fitting was
+// the mistake. It stretched every unit by a different factor — 1.02x for the
+// Flyer, 1.85x for the heavy gunship, 2.87x for the X1-Alpha walker — so the
+// unit set was not even internally consistent, let alone consistent with the
+// arena. The proof sits inside this file: Cobj 29 is BOTH the `console` unit and
+// the `prop-029` scenery, one raw file, and la-cantina drew it at 3.20 m and
+// 1.47 m simultaneously. The original's own base-mouth trigger volumes are
+// 2.5 x 1.5 m, which the fitted 2.31 m-deep walker could not drive through.
+//
+// So `nativeScale` is on everywhere, and `footprint`/`maxHeight` are what they
+// already were for the two turrets: SOFT UPPER BOUNDS the client test checks
+// (unitModels.test.ts), measured off the raw, not targets to stretch to. A raw
+// asset that grows past them fails loudly instead of silently rescaling.
 //
 // Conventions for the OUTPUT files (checked by the client test):
 // - Y-up, meters, origin at the ground-contact center (bbox minY=0, XZ-centered)
 // - +Z is forward (assets.md §4); the runtime loader rotates +Z onto the sim's
 //   +X forward when it builds the InstancedMesh geometry
-// - `footprint` is the target max horizontal extent in world units, matched to
-//   the greybox silhouettes in render/greybox.ts so models stay honest against
-//   the collision radii in packages/sim/src/balance.ts
+// - `footprint` is the max horizontal extent in world units; `ARCHETYPE_RADIUS`
+//   in packages/sim/src/balance.ts is half of it, so the two stay in step
 // - `maxTris` per assets.md §4: ~1500 standard, ~5000 Juggernaut/Fortress/Avatar
 
 export interface UnitModelSource {
@@ -89,11 +103,14 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
-    // Scale is height-led: the assembled walker is taller than it is wide, so a
-    // pure footprint stretch ballooned past 6 m. ~2.8 m tall keeps presence next
-    // to 1.6 m turrets without looking like a building.
-    footprint: 2.6,
-    maxHeight: 2.8,
+    // Native 0.59 x 0.98 x 0.80. The height cap used to read 2.8 "to keep
+    // presence next to 1.6 m turrets", which stretched the X1 by 2.87x and made
+    // it the tallest thing in the game by a wide margin — taller than the
+    // consoles it walks up to, and too wide for its own base mouth. Presence is
+    // the camera's job (render/camera.ts), not the asset's.
+    footprint: 0.81,
+    maxHeight: 0.98,
+    nativeScale: true,
     maxTris: 5000,
     neutralizeColors: true,
   },
@@ -109,8 +126,11 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
-    footprint: 3.3,
-    maxHeight: 2.4,
+    // Native 0.59 x 0.48 x 1.24 — a skimmer, longer than it is wide and half
+    // the walker's height, which is the silhouette change the transform is for.
+    footprint: 1.25,
+    maxHeight: 0.48,
+    nativeScale: true,
     maxTris: 5000,
     neutralizeColors: true,
   },
@@ -125,7 +145,10 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     },
     // 0 like every other Cobj: the extraction already puts the nose on +Z.
     rotateQuarterY: 0,
-    footprint: 2.0,
+    // Native 1.05 x 0.40 x 1.52 — longer than the X1 and half its height.
+    footprint: 1.53,
+    maxHeight: 0.4,
+    nativeScale: true,
     maxTris: 1500,
     neutralizeColors: true,
   },
@@ -139,7 +162,11 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
-    footprint: 3.2,
+    // Native 3.15 x 0.68 x 2.14 — the widest thing on the field, and it always
+    // was: this is the only unit the old fitting barely touched (1.02x).
+    footprint: 3.15,
+    maxHeight: 0.69,
+    nativeScale: true,
     maxTris: 1500,
     neutralizeColors: true,
   },
@@ -153,7 +180,10 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
-    footprint: 4.1,
+    // Native 1.20 x 0.63 x 2.22 — was stretched 1.85x.
+    footprint: 2.22,
+    maxHeight: 0.63,
+    nativeScale: true,
     maxTris: 5000,
     neutralizeColors: true,
   },
@@ -167,7 +197,10 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
-    footprint: 5.0,
+    // Native 2.10 x 1.89 x 2.67 — was stretched 1.88x.
+    footprint: 2.67,
+    maxHeight: 1.89,
+    nativeScale: true,
     maxTris: 5000,
     neutralizeColors: true,
   },
@@ -217,8 +250,11 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 2,
-    footprint: 3.4,
-    maxHeight: 3.2,
+    // Native 1.00 x 1.47 x 1.12 — the same bytes prop-029 ships at. Fitting
+    // drew this at 3.20 m next to its own 1.47 m twin, in the same arena.
+    footprint: 1.12,
+    maxHeight: 1.48,
+    nativeScale: true,
     maxTris: 1500,
     neutralizeColors: false,
   },
@@ -233,7 +269,10 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     },
     // 0 like every other Cobj: the extraction already puts the nose on +Z.
     rotateQuarterY: 0,
-    footprint: 4.8,
+    // Native 1.49 x 0.71 x 2.04 — was stretched 2.36x.
+    footprint: 2.04,
+    maxHeight: 0.71,
+    nativeScale: true,
     maxTris: 1500,
     neutralizeColors: true,
   },
