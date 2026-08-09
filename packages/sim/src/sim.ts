@@ -87,7 +87,7 @@ import {
   WARDEN_HP,
   WARDEN_INCOME_PERCENT,
 } from "./balance";
-import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
+import { crossesWallX, crossesWallY, segmentBlocked, segmentBlockT } from "./collision";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
 import {
   clearEvents,
@@ -109,6 +109,7 @@ import {
   pushEvent,
   reachToShotPayload,
   SHOT_SLOT_HITSCAN,
+  weaponShotPayload,
 } from "./events";
 import { fnv1aBytes, fnv1aInit, fnv1aU32 } from "./hash";
 import {
@@ -1184,16 +1185,14 @@ function avatarWeapons(
   if ((buttons & BUTTON_FIRE1) !== 0 && ent.cooldownA[id] <= 0 && hasAim) {
     const w = kit.gun;
     ent.cooldownA[id] = w.cooldownTicks;
-    pushEvent(state.events, EV_SHOT, id, 0, w.id);
-    fireWeapon(state, id, player, w, dirX, dirY);
+    fireWeapon(state, id, player, w, dirX, dirY, 0);
   }
   // Heavy (slot 1).
   if ((buttons & BUTTON_FIRE2) !== 0 && ent.cooldownB[id] <= 0 && ent.ammoA[id] > 0 && hasAim) {
     const w = kit.heavy;
     ent.cooldownB[id] = w.cooldownTicks;
     ent.ammoA[id] -= 1;
-    pushEvent(state.events, EV_SHOT, id, 1, w.id);
-    fireWeapon(state, id, player, w, dirX, dirY);
+    fireWeapon(state, id, player, w, dirX, dirY, 1);
   }
   // Special (slot 2). Mines and shockwave need no aim; shells/hitscans do.
   if ((buttons & BUTTON_FIRE3) !== 0 && ent.cooldownC[id] <= 0 && ent.ammoB[id] > 0) {
@@ -1204,12 +1203,19 @@ function avatarWeapons(
     } else {
       ent.cooldownC[id] = w.cooldownTicks;
       ent.ammoB[id] -= 1;
-      pushEvent(state.events, EV_SHOT, id, 2, w.id);
-      fireWeapon(state, id, player, w, dirX, dirY);
+      fireWeapon(state, id, player, w, dirX, dirY, 2);
     }
   }
 }
 
+/**
+ * Delivers one avatar weapon and emits its EV_SHOT.
+ *
+ * Hitscan lets `hitscan` push the event, because that is where the shot's real
+ * reach is resolved; every other delivery has no tracer to size, so the event
+ * goes out here with reach 0. Either way EV_SHOT precedes the EV_HITs of the
+ * same shot, which is the ordering attribution relies on.
+ */
 function fireWeapon(
   state: SimState,
   shooter: number,
@@ -1217,14 +1223,24 @@ function fireWeapon(
   w: WeaponDef,
   dirX: number,
   dirY: number,
+  shotSlot: number,
 ): void {
   if (w.delivery === "hitscan") {
-    hitscan(state, shooter, player, dirX, dirY, w.range, w.damage);
+    hitscan(state, shooter, player, dirX, dirY, w.range, w.damage, shotSlot, w.id);
     return;
   }
+  pushEvent(state.events, EV_SHOT, shooter, shotSlot, weaponShotPayload(w.id, 0));
   if (w.delivery === "shockwave") {
     // Self-centred pulse at the shooter's feet — ignore aim.
-    aoeAt(state, entPos(state, shooter), entTeam(state, shooter), player, w.damage, w.aoeRadius, w.projKind);
+    aoeAt(
+      state,
+      entPos(state, shooter),
+      entTeam(state, shooter),
+      player,
+      w.damage,
+      w.aoeRadius,
+      w.projKind,
+    );
     return;
   }
   if (w.delivery === "mine") {
@@ -1289,7 +1305,19 @@ function spawnMine(state: SimState, shooter: number, player: number, w: WeaponDe
   ent.ownerId[id] = player;
 }
 
-/** First enemy hit along the 2D ray within `range`, if any (shared w/ Warden). */
+/**
+ * First enemy hit along the 2D ray within `range`, if any (shared w/ Warden).
+ *
+ * Also emits this shot's EV_SHOT, because only here is the shot's REACH known —
+ * the distance to the body it hits, to the wall that stops it, or the full
+ * range. The renderer draws the tracer to that (fx.ts); pushed from the caller
+ * it could only ever be the weapon's nominal range. It is emitted BEFORE
+ * applyDamage so the event buffer keeps pairing each EV_SHOT with the EV_HITs
+ * it caused, which is how attribution reads it (paAttribution.test.ts).
+ *
+ * `shotSlot < 0` skips the event entirely — for callers that have no tracer to
+ * draw, and for tests exercising the damage path alone.
+ */
 export function hitscan(
   state: SimState,
   shooter: number,
@@ -1298,6 +1326,8 @@ export function hitscan(
   dy: number,
   range: number,
   damage: number,
+  shotSlot = -1,
+  shotWeaponId = 0,
 ): void {
   const ent = state.ent;
   const ox = ent.posX[shooter];
@@ -1320,6 +1350,27 @@ export function hitscan(
       bestT = t;
       bestId = id;
     }
+  }
+  if (shotSlot >= 0) {
+    // How far this shot actually travels. Render-only: it is computed from the
+    // map and the ray, writes nothing, and the damage decision below still runs
+    // through the untouched `segmentBlocked` call on its own short segment —
+    // so no arithmetic that feeds the hash changed.
+    let reach = bestId >= 0 ? bestT : range;
+    const wallT = segmentBlockT(state.map, ox, oy, ox + dx * range, oy + dy * range);
+    if (wallT >= 0) {
+      const wallDist = wallT * range;
+      if (wallDist < reach) reach = wallDist;
+    }
+    pushEvent(
+      state.events,
+      EV_SHOT,
+      shooter,
+      shotSlot,
+      shotSlot === SHOT_SLOT_HITSCAN
+        ? reachToShotPayload(reach)
+        : weaponShotPayload(shotWeaponId, reach),
+    );
   }
   if (bestId >= 0) {
     // Walls stop the ray: bestId is the CLOSEST body hit, so a wall on the
@@ -1456,13 +1507,10 @@ function systemTargeting(state: SimState): void {
       }
       if (onTarget && ent.cooldownA[id] <= 0) {
         ent.cooldownA[id] = w ? w.delay : TURRET_COOLDOWN_TICKS;
-        pushEvent(
-          state.events,
-          EV_SHOT,
-          id,
-          SHOT_SLOT_HITSCAN,
-          reachToShotPayload(w ? w.range : TURRET_RANGE),
-        );
+        // Reach is the distance to the target it is about to hit, not the
+        // profile's range: an emplacement that reaches 6 m and fires at
+        // something 2 m away should draw a 2 m bolt.
+        pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_HITSCAN, reachToTarget(state, id, target));
         // ownerId is the owning player for base turrets (kill credit) and
         // -1 for dummies (no credit) — exactly the Phase 1 rule.
         applyDamage(state, target, w ? w.damage : TURRET_DAMAGE, ent.ownerId[id]);
@@ -1474,17 +1522,23 @@ function systemTargeting(state: SimState): void {
       ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
       if (ent.cooldownA[id] <= 0) {
         ent.cooldownA[id] = UNIT_FIRE_COOLDOWN_TICKS[archetype];
-        pushEvent(
-          state.events,
-          EV_SHOT,
-          id,
-          SHOT_SLOT_HITSCAN,
-          reachToShotPayload(UNIT_RANGE[archetype]),
-        );
+        pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_HITSCAN, reachToTarget(state, id, target));
         applyDamage(state, target, UNIT_DAMAGE[archetype], ent.ownerId[id]);
       }
     }
   }
+}
+
+/**
+ * EV_SHOT payload for a shooter that already picked its target: the reach IS
+ * the distance to it. Emplacements and ground units never miss once they fire,
+ * so there is no wall or fall-short case to consider here.
+ */
+function reachToTarget(state: SimState, shooter: number, target: number): number {
+  const ent = state.ent;
+  const dx = ent.posX[target] - ent.posX[shooter];
+  const dy = ent.posY[target] - ent.posY[shooter];
+  return reachToShotPayload(Math.sqrt(dx * dx + dy * dy));
 }
 
 /** Phase 1 dummy-turret targeting: nearest VISIBLE enemy avatar in range. */

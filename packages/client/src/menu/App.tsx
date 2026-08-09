@@ -17,12 +17,12 @@ import {
   type HardpointSpec,
   weaponBarFractions,
 } from "./hardpoints";
-import { weaponIconUrl } from "./weaponArt";
 import type { MenuChoice } from "./routing";
 import { ArenaPicker } from "./screens/ArenaPicker";
 import { Drawer } from "./screens/Drawer";
 import { OnlinePanel } from "./screens/OnlinePanel";
 import type { Hardpoint, MenuDrawer, MenuMode, MenuState } from "./state";
+import { weaponIconUrl } from "./weaponArt";
 
 export interface AppProps {
   state: MenuState;

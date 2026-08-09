@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ARCHETYPE } from "../src/archetypes";
 import {
   AVATAR_AMMO_HEAVY,
   AVATAR_AMMO_SPECIAL,
@@ -11,10 +12,10 @@ import {
   SPECIAL_MINE_ARM_TICKS,
   SPECIAL_MINE_TRIGGER_RADIUS,
 } from "../src/balance";
-import { ARCHETYPE } from "../src/archetypes";
+import { EV_SHOT, EVENT_STRIDE, shotPayloadWeaponId } from "../src/events";
 import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_FIRE3, createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
-import { createSim, step } from "../src/sim";
+import { createSim, type SimState, step } from "../src/sim";
 import {
   DEFAULT_LOADOUT,
   GUNS,
@@ -25,6 +26,22 @@ import {
   SPECIALS,
   weaponById,
 } from "../src/weapons";
+
+/**
+ * Catalog ids of the avatar shots in this tick's event buffer.
+ *
+ * The avatar slots pack the id together with the shot's reach (events.ts
+ * `weaponShotPayload`), so `c` is no longer the bare id these tests used to
+ * compare against.
+ */
+function firedWeaponIds(sim: SimState): number[] {
+  const ids: number[] = [];
+  for (let i = 0; i < sim.events.count; i++) {
+    const o = i * EVENT_STRIDE;
+    if (sim.events.data[o] === EV_SHOT) ids.push(shotPayloadWeaponId(sim.events.data[o + 3]));
+  }
+  return ids;
+}
 
 describe("weapon catalog", () => {
   test("default kit matches historic balance numbers", () => {
@@ -174,12 +191,7 @@ describe("loadout combat", () => {
     inputs.players[0].buttons = BUTTON_FIRE1;
     step(sim, inputs);
     expect(sim.events.count).toBeGreaterThan(0);
-    let found = false;
-    for (let i = 0; i < sim.events.count; i++) {
-      const o = i * 4;
-      if (sim.events.data[o] === 1 /* EV_SHOT */ && sim.events.data[o + 3] === 1) found = true;
-    }
-    expect(found).toBe(true);
+    expect(firedWeaponIds(sim)).toContain(1);
   });
 
   test("concussion beam (heavy hitscan) spends heavy ammo", () => {
@@ -204,12 +216,7 @@ describe("loadout combat", () => {
     inputs.players[0].aimX = 127;
     inputs.players[0].buttons = BUTTON_FIRE1;
     step(sim, inputs);
-    let found = false;
-    for (let i = 0; i < sim.events.count; i++) {
-      const o = i * 4;
-      if (sim.events.data[o] === 1 /* EV_SHOT */ && sim.events.data[o + 3] === 9) found = true;
-    }
-    expect(found).toBe(true);
+    expect(firedWeaponIds(sim)).toContain(9);
   });
 
   test("hyper velocity rocket spends heavy ammo", () => {
@@ -242,7 +249,11 @@ describe("loadout combat", () => {
     expect(sim.ent.ammoB[id]).toBe(before - 1);
     let mineId = -1;
     for (let e = 0; e < sim.ent.high; e++) {
-      if (sim.ent.alive[e] && sim.ent.archetype[e] === ARCHETYPE.PROJECTILE && sim.ent.mode[e] === PROJ_MINE) {
+      if (
+        sim.ent.alive[e] &&
+        sim.ent.archetype[e] === ARCHETYPE.PROJECTILE &&
+        sim.ent.mode[e] === PROJ_MINE
+      ) {
         mineId = e;
         break;
       }
