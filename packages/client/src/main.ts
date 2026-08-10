@@ -745,7 +745,7 @@ function returnToMenu(): void {
 
   if (orbitControls) {
     orbitControls.dispose();
-    orbitControls = null;
+    orbitControls = undefined;
   }
   mouseLook.dispose();
   mouseLook = createMouseLook(renderer.domElement);
