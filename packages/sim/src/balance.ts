@@ -345,9 +345,12 @@ export const WARDEN_HEAVY_AOE_RADIUS = 6;
 export const WARDEN_HEAVY_RANGE = 30; // only bombs targets closer than this
 
 // Decision-layer geometry (difficulty-independent).
-// 28 m is the original's aircraft target_detection_range (28672 raw), which is
-// what this radius is: the distance at which the Warden NOTICES a threat to its
-// gate, not the distance it shoots from. It was 55.
+//
+// Ours, not the original's — though the original has a number for this shape:
+// aircraft target_detection_range is 28672 raw = 28 cells, and this radius is
+// the same KIND of thing, the distance at which the Warden notices a threat to
+// its gate rather than the distance it shoots from. Moving 55 onto it is part
+// of the reach question above and waits on the same decision.
 export const WARDEN_DEFEND_RADIUS = 55;
 /**
  * The same radius on a Precinct Assault arena (rules.md §9), where it has to mean

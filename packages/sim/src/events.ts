@@ -65,8 +65,16 @@ export function shotPayloadToReach(payload: number): number {
  * hashed, so no SIM_VERSION with it.
  */
 export function weaponShotPayload(weaponId: number, reach: number): number {
-  const dm = reachToShotPayload(reach);
-  return (weaponId & 0xff) | ((dm < 0 ? 0 : dm) << 8);
+  // A POSITIVE reach never packs to zero. `reachToShotPayload` rounds, so
+  // anything under 5 cm would land on 0 dm, and 0 is how the renderer spells
+  // "no reach travelled with this shot" — it falls back to the weapon's nominal
+  // range there (fx.ts hitscanLook). Firing while flush against a wall would
+  // then draw the full forty metres straight through it, which is the exact bug
+  // this payload exists to fix, surviving at the boundary. One decimetre is the
+  // shortest a real shot may report.
+  let dm = reachToShotPayload(reach);
+  if (dm <= 0) dm = reach > 0 ? 1 : 0;
+  return (weaponId & 0xff) | (dm << 8);
 }
 
 /** Catalog id out of a `weaponShotPayload`. */

@@ -261,9 +261,11 @@ interface HitscanLook {
 /**
  * Tracer colors for an avatar weapon, at the reach the shot actually had.
  *
- * `reach` comes from the event (events.ts `weaponShotPayload`). The fallback to
- * the weapon's nominal range only covers a zero payload, which no live shot
- * produces — a hitscan always resolves to a body, a wall or its full range.
+ * `reach` comes from the event (events.ts `weaponShotPayload`), which never
+ * packs a positive reach down to zero — a point-blank shot reports one
+ * decimetre rather than rounding into the fallback below. So the fallback only
+ * covers a payload that carried no reach at all, i.e. a non-hitscan delivery
+ * that has no tracer to size anyway.
  */
 function hitscanLook(w: WeaponDef | undefined, reach: number): HitscanLook {
   const vfx = w?.vfx ?? "minigun";
