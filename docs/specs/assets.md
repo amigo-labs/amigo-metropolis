@@ -64,6 +64,17 @@ forever as a debug render mode (`?render=greybox`).
 
 - One .glb per archetype in `packages/client/public/models/`.
 - Y-up, meters, origin at ground contact center, +Z facing forward.
+- **Scale: the original's own.** FCOP terrain imports at one grid cell per metre
+  and the Cobj extractions are already in those metres, so units, scenery and
+  arena share one frame and nothing is fitted to a target footprint
+  (`tools/generators/units/manifest.ts`, `nativeScale`). Units used to be
+  stretched onto hand-picked footprints — by a different factor each, 1.02x to
+  2.87x — which put the X1-Alpha walker at 2.80 m against its authored 0.98 m,
+  and drew Cobj 29 at 3.20 m as a unit and 1.47 m as scenery from the same bytes
+  in the same arena. Anything measured against the avatar rather than against
+  the arena follows this scale: greybox stand-ins (`render/greybox.ts`), the
+  chase framing (`camera.spec` §7), and `ARCHETYPE_RADIUS` in `balance.ts`,
+  which is half the model's footprint.
 - Named nodes for code-driven animation (rigid transforms, no skinning):
   `root, hull, turret_yaw, barrel_pitch, leg_l, leg_r, fx_muzzle, fx_thruster`.
 - **Reality check, avatar walk (v20):** the pipeline emits ONE node per unit —

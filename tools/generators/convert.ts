@@ -95,28 +95,6 @@ interface ArenaSpec {
    *  three remaining single-story arenas leave this unset — their minor ledges
    *  are not real decks (Stage-0 decision) and they stay byte-identical. */
   layered?: boolean;
-  /**
-   * Optional height stamps `[x, y, meters]`. Walk_height is the collision floor;
-   * many FCOP turret pads are raised mesh plates above a channel, and stamping
-   * the 2×2 bilinear neighborhood would make `sampleHeight` match the textured
-   * pad top so entities sit on the art.
-   *
-   * NOT APPLIED unless `stampPadHeights` is set, and nothing sets it. The
-   * committed la-cantina.json — the artifact `heightsPin` pins — is the raw
-   * padded `walk_height` with these stamps ABSENT: I diffed all 241×241 cells,
-   * and the only differences a stamping run produces are the 63 cells these 18
-   * entries cover. So the list was authored but never landed, and the dangling
-   * `patchLaCantinaPadHeights` reference below is the other half of that story.
-   *
-   * Left switched off deliberately. Turning it on lowers four pads onto the
-   * channel floor and raises others (e.g. (108,70) 70 → 32 quanta), which is a
-   * terrain change owing its own measurement and pin bump — not something to
-   * smuggle in behind a change about decks. The data stays so that work has a
-   * starting point.
-   */
-  padHeights?: [number, number, number][];
-  /** Opt in to stamping `padHeights`. See the warning above before setting it. */
-  stampPadHeights?: boolean;
 }
 
 // --- Arena specs --------------------------------------------------------------
@@ -381,9 +359,11 @@ const PROVING_GROUND: ArenaSpec = {
 //   - Dummies = ACT 8/36 pads on the next ring out (target practice)
 //   - Outposts = outer NeutralTurret midpoints (east/west)
 // Cell-center coordinates; SRC 209×241 pads +X to 241 (no feature offset).
-// The terrain is the raw walk_height: the `padHeights` stamps below are NOT
-// applied (see ArenaSpec.padHeights), and `patchLaCantinaPadHeights` never
-// existed.
+// The terrain is the raw walk_height, and it is CORRECT: measured against the
+// committed terrain .glb, all 34 of this arena's pads agree with the art within
+// STEP_SNAP (tools/generators/test/terrainCollision.test.ts). An authored
+// `padHeights` stamp table used to sit in the spec below claiming otherwise; it
+// was stale and is gone — see the note where it stood.
 // LAYERED (issue #29): Mp is bridged — uses_bridges, 1566 multi-level points, a
 // 2398-cell deck over the road and a 108-cell deck above that. Converting it as
 // single-storey charged the bridges' walls to the road running underneath, which
@@ -523,30 +503,22 @@ const LA_CANTINA: ArenaSpec = {
     [100.5, 94.5],
     [91.5, 94.5],
   ],
-  // Mesh-raycast pad tops + small base shelves (see packages/sim/maps/la-cantina.json).
-  // Full shelf/ramp baking lives in the committed JSON; convert re-stamps pads only.
-  padHeights: [
-    [84.5, 69.5, 1.0],
-    [107.5, 70.0, 1.0],
-    [88.0, 83.0, 1.0],
-    [104.0, 83.0, 1.0],
-    [84.5, 154.5, 1.0],
-    [107.5, 154.5, 1.0],
-    [88.0, 141.0, 1.0],
-    [104.0, 141.0, 1.0],
-    [96.5, 69.5, 1.0],
-    [96.5, 155.5, 1.0],
-    [86.5, 103.5, 0.0],
-    [113.5, 100.5, -1.5],
-    [86.5, 120.5, 0.0],
-    [113.5, 123.5, -1.5],
-    [105.5, 103.5, 0.0],
-    [105.5, 120.5, 0.0],
-    [100.5, 94.5, -1.5],
-    [91.5, 94.5, -1.5],
-    [91.5, 112.0, -2.5],
-    [125.5, 112.0, 0.0],
-  ],
+  // NO pad-height stamps. There WAS a 20-entry `padHeights` table here, behind a
+  // `stampPadHeights` flag nothing ever set, described as "mesh-raycast pad tops"
+  // that would make the collision floor match the raised plates the art draws.
+  //
+  // It was measured against the terrain .glb before being switched on, and it is
+  // stale: of the 80 cells it writes, 8 land within 0.3 m of the mesh surface.
+  // It would have made things WORSE — at (88,83) the art is at -2.50 and the
+  // collision already agrees, and the stamp raises collision to +1.0, i.e. the
+  // avatar floating 3.5 m over a pit. The pads it was written for were fixed
+  // another way: the #26/#30 frame correction took la-cantina's mesh/heightfield
+  // correlation from 0.939 to 0.982, and all 34 of its pads now agree with the
+  // art within STEP_SNAP. Deleted rather than left switched off, because a
+  // wrong table behind an inviting flag is a trap.
+  //
+  // `tools/generators/test/terrainCollision.test.ts` pins the agreement, so if a
+  // future arena import does need stamps, it will say so with numbers.
 };
 
 const BUG_HUNT: ArenaSpec = {
@@ -744,24 +716,6 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
       row.push(i < SRC_W ? srcRow[i] : srcRow[SRC_W - 1]);
     }
     heights.push(row);
-  }
-
-  // Raise walk_height under authored pads so sampleHeight matches mesh tops.
-  // Off by default — see the ArenaSpec.padHeights warning.
-  if (spec.padHeights && spec.stampPadHeights === true) {
-    for (const [x, y, meters] of spec.padHeights) {
-      const q = Math.round(meters / HEIGHT_SCALE);
-      const i0 = Math.floor(x);
-      const j0 = Math.floor(y);
-      for (let dj = 0; dj <= 1; dj++) {
-        for (let di = 0; di <= 1; di++) {
-          const i = i0 + di;
-          const j = j0 + dj;
-          if (j < 0 || j >= SIZE || i < 0 || i >= SIZE) continue;
-          heights[j][i] = q;
-        }
-      }
-    }
   }
 
   let minQ = Number.POSITIVE_INFINITY;

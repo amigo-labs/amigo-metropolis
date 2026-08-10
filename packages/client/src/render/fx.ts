@@ -27,13 +27,16 @@ import {
   SHOT_SLOT_HITSCAN,
   SHOT_SLOT_SPECIAL,
   shotPayloadToReach,
+  shotPayloadWeaponId,
+  shotPayloadWeaponReach,
+  type WeaponDef,
   weaponById,
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { PROJECTILE_HEX, paletteHex } from "./palette";
 
 /** Must match sim.ts MUZZLE_OFFSET (not exported; keep in lockstep by hand). */
-const MUZZLE_OFFSET = 2;
+const MUZZLE_OFFSET = 0.6;
 
 const TRACER_CAP = 128;
 const MUZZLE_CAP = 64;
@@ -255,11 +258,18 @@ interface HitscanLook {
   thick: number;
 }
 
-/** Tracer length + colors for an avatar weapon (by catalog id). */
-function hitscanLook(weaponId: number): HitscanLook {
-  const w = weaponById(weaponId);
+/**
+ * Tracer colors for an avatar weapon, at the reach the shot actually had.
+ *
+ * `reach` comes from the event (events.ts `weaponShotPayload`), which never
+ * packs a positive reach down to zero — a point-blank shot reports one
+ * decimetre rather than rounding into the fallback below. So the fallback only
+ * covers a payload that carried no reach at all, i.e. a non-hitscan delivery
+ * that has no tracer to size anyway.
+ */
+function hitscanLook(w: WeaponDef | undefined, reach: number): HitscanLook {
   const vfx = w?.vfx ?? "minigun";
-  const length = w?.delivery === "hitscan" ? w.range || PRIMARY_RANGE : PRIMARY_RANGE;
+  const length = reach > 0 ? reach : (w?.range ?? 0) || PRIMARY_RANGE;
   if (vfx === "laser") return { length, core: 0xffffff, halo: 0x7ef2ff, thick: 1.1 };
   if (vfx === "flame") return { length, core: 0xffe080, halo: 0xff6020, thick: 1.8 };
   if (vfx === "beam") return { length, core: 0xffffff, halo: 0xd080ff, thick: 1.4 };
@@ -393,22 +403,30 @@ export function createFx(scene: THREE.Scene): ShotFx {
         const sin = Math.sin(yaw);
         const mx = px + cos * MUZZLE_OFFSET;
         const mz = pz + sin * MUZZLE_OFFSET;
-        const my = py + 0.9;
+        const my = py + 0.6; // sim.ts MUZZLE_HEIGHT
         // What `c` means depends on `b` — see events.ts. Slots 0/1/2 are the
-        // avatar's and carry a catalog id; SHOT_SLOT_HITSCAN carries a reach in
-        // decimetres; SHOT_SLOT_LAUNCH carries nothing and is a muzzle flash for
-        // a shell that renders as its own entity.
+        // avatar's and pack a catalog id with the shot's reach;
+        // SHOT_SLOT_HITSCAN carries a reach in decimetres; SHOT_SLOT_LAUNCH
+        // carries nothing and is a muzzle flash for a shell that renders as its
+        // own entity.
         const emplacement = b === SHOT_SLOT_HITSCAN;
         // Only the avatar's three slots index the catalog. Resolving any other
         // slot through weaponById lands on id 0, the Mini-Gun, which is how a
         // bomb launch came to draw a 40 m hitscan streak next to its own shell.
-        const w = b <= SHOT_SLOT_SPECIAL ? weaponById(c) : undefined;
+        const avatarSlot = b <= SHOT_SLOT_SPECIAL;
+        const w = avatarSlot ? weaponById(shotPayloadWeaponId(c)) : undefined;
         const muzzleScale = w?.vfx === "flame" ? MUZZLE_SCALE * 1.5 : MUZZLE_SCALE;
         spawn(muzzles, MUZZLE_LIFE, mx, my, mz, yaw, muzzleScale);
         // Hitscan weapons get a tracer bolt (gun minigun/laser/flame, special beam).
         // Projectiles already render as entities.
         if (emplacement || w?.delivery === "hitscan") {
-          const look = emplacement ? emplacementLook(shotPayloadToReach(c)) : hitscanLook(c);
+          // Length is the shot's own reach, carried in the event — where it hit
+          // a body, where a wall stopped it, or the full range. It used to be
+          // the weapon's nominal range, so a burst into a wall three metres off
+          // still drew forty metres of bolt straight through it.
+          const look = emplacement
+            ? emplacementLook(shotPayloadToReach(c))
+            : hitscanLook(w, shotPayloadWeaponReach(c));
           const half = look.length * 0.5;
           const cx = mx + cos * half;
           const cz = mz + sin * half;

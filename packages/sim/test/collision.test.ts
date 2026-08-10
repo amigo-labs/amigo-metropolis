@@ -4,9 +4,10 @@
 // end-to-end by the regenerated goldens.
 import { describe, expect, it } from "bun:test";
 import { crossesWallX, crossesWallY, segmentBlocked } from "../src/collision";
+import { EV_SHOT, EVENT_STRIDE, SHOT_SLOT_GUN, shotPayloadWeaponReach } from "../src/events";
 import { BUTTON_TRANSFORM, createTickInputs } from "../src/inputs";
 import { createTestMap, loadMapFromJson, type MapData, type MapJson } from "../src/map";
-import { createSim, hitscan, step } from "../src/sim";
+import { createSim, hitscan, type SimState, step } from "../src/sim";
 
 /** Minimal walled map: 4×4 points (3×3 cells), cellSize 1, flat ground. */
 function walledMap(walls: { v?: [number, number][]; h?: [number, number][] }): MapData {
@@ -138,6 +139,36 @@ describe("segmentBlocked (line of sight)", () => {
     const openHp = openSim.ent.hp[q1];
     hitscan(openSim, openSim.avatarId[0], 0, 1, 0, 60, 10);
     expect(openSim.ent.hp[q1]).toBe(openHp - 10);
+  });
+
+  it("reports the reach the shot had, not the range it was given", () => {
+    // The tracer is drawn to this number (render/fx.ts), so a shot that stops
+    // at a wall three metres out must not report forty. Three cases, one ray:
+    // wall, body, neither.
+    const reachOf = (sim: SimState): number => {
+      for (let i = 0; i < sim.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (sim.events.data[o] === EV_SHOT) return shotPayloadWeaponReach(sim.events.data[o + 3]);
+      }
+      return Number.NaN;
+    };
+
+    // Wall on grid line x=4 of a cellSize-4 map = world x 16; P0 stands at 12.
+    const walled = createSim(loadMapFromJson(walledArenaJson()), 1);
+    hitscan(walled, walled.avatarId[0], 0, 1, 0, 60, 10, SHOT_SLOT_GUN, 0);
+    expect(reachOf(walled)).toBeCloseTo(4, 6);
+
+    // Same shot with the wall removed connects with P1 at x=50.
+    const openJson = walledArenaJson();
+    openJson.wallsV = openJson.wallsV?.map(() => "0".repeat(16));
+    const open = createSim(loadMapFromJson(openJson), 1);
+    hitscan(open, open.avatarId[0], 0, 1, 0, 60, 10, SHOT_SLOT_GUN, 0);
+    expect(reachOf(open)).toBeCloseTo(38, 6);
+
+    // Fired the other way there is neither wall nor body: the full range.
+    const empty = createSim(loadMapFromJson(openJson), 1);
+    hitscan(empty, empty.avatarId[0], 0, 0, -1, 60, 10, SHOT_SLOT_GUN, 0);
+    expect(reachOf(empty)).toBeCloseTo(60, 6);
   });
 });
 

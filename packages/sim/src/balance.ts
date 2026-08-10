@@ -56,22 +56,32 @@ export const AVATAR_WALKER_MAX_SLOPE = 0.6;
 export const AVATAR_HOVER_MAX_SLOPE = 0.5;
 
 /**
- * Distance, in metres, the hover judges a climb over: its own footprint, not the
- * 0.3 m it covers in one tick.
+ * Distance, in metres, the hover judges a climb over: the length of its cushion,
+ * NOT the size of its hull.
  *
- * A cushion riding HOVER_CLEARANCE off the ground rides over a step its hull
- * spans; what stops it is ground that keeps climbing. Sampled per tick those are
+ * A cushion riding HOVER_CLEARANCE off the ground rides over a step its span
+ * covers; what stops it is ground that keeps climbing. Sampled per tick those are
  * one reading, and a pessimistic one: 0.3 m into a 0.17 m kerb the gradient is
  * 0.58, and a diagonal crossing of a bilinear cell is quadratic, so it reads
  * worse still. So the gate consults both — a step steeper than the limit blocks
  * only if the ground a span ahead is over the limit too (sim.ts `slopeBlocks`).
  * That is what stopped the hover dead against 17 cm kerbs on the original's
- * streets, which the walker does not even measure (issue #34).
+ * streets (issue #34).
  *
- * 2.4 m is the avatar's own footprint diameter, 2 × ARCHETYPE_RADIUS[AVATAR];
- * avatarMovement.test.ts pins the relationship. It caps what the hover climbs in
- * one step at span × limit = 1.2 m, below the walker's 1.4 m jump, so the walker
- * keeps more ground on both axes of the asymmetry.
+ * THIS DOES NOT SCALE WITH THE AVATAR. It used to be documented as
+ * "2 x ARCHETYPE_RADIUS[AVATAR], the avatar's own footprint diameter", with
+ * avatarMovement.test.ts pinning the relationship — and when the models came
+ * down to the size the original authored (assets.md §4) that read as licence to
+ * take this to 0.8 with them. Measured, that costs the #34 fix outright: road
+ * edges the hover cannot take go 0→10 on la-cantina, which was the one clean
+ * arena, 20→49 on urban-jungle, 44→53 and 45→53 on proving-ground and bug-hunt,
+ * and the teams that can drive their whole network drop from 2 to 1 on three of
+ * the four. The kerbs it has to ride over are TERRAIN, and terrain did not
+ * shrink. The number is sized against them and stays where it was measured.
+ *
+ * It still caps what the hover climbs in one step at span x limit = 1.2 m, below
+ * the walker's 1.4 m jump, so the walker keeps more ground on both axes of the
+ * asymmetry.
  */
 export const HOVER_CUSHION_SPAN = 2.4;
 
@@ -79,7 +89,7 @@ export const HOVER_CUSHION_SPAN = 2.4;
 export const TRANSFORM_LOCK_TICKS = 15; // ~0.5 s: no move/jump/weapons
 export const AVATAR_JUMP_SPEED = 8; // m/s up → 1.6 m apex, clears 1.4 m ledges
 export const GRAVITY = 20; // m/s²
-export const HOVER_CLEARANCE = 0.8; // ride height above ground/water surface
+export const HOVER_CLEARANCE = 0.3; // ride height above ground/water surface
 /**
  * Hover traction: fraction of the velocity error closed per tick, picked by
  * what the stick is doing. Throttle responds, counter-steer bites hard (drift
@@ -95,6 +105,32 @@ export const AVATAR_AMMO_HEAVY = 20;
 export const AVATAR_AMMO_SPECIAL = 5;
 
 // Weapons (rules.md §2: primary hitscan, heavy projectile w/ AoE, special).
+//
+// OPEN: the player outranges the whole arena, and the original says so.
+// Every shooter on Mp — bases, turrets, neutrals, ground units and aircraft
+// alike — carries engage_range 6144 raw, which is 6 cells at the extractor's
+// 1/1024 scale (tools/generators/fcopLogic.ts) and 6 metres at the arenas'
+// one-cell-per-metre import. Acquisition is a separate, much longer number:
+// aircraft target_detection_range 28672-32358, i.e. 28-32 cells. See far, shoot
+// close. Our emplacements already obey it — the imported per-arena profiles set
+// 6 and sim.ts prefers them on all six playable arenas — but PRIMARY_RANGE is
+// 40: 6.7x an emplacement and ~3x the escorts it fights alongside.
+//
+// It is NOT a one-line fix, which is why it is a note and not a change. The §1
+// arenas (rules.md §1-§7) are a coherent triangle — units 14-18 < TURRET_RANGE
+// 28 < primary 40 — and each inequality carries a rule: the turret must outreach
+// a unit or design pillar 3's "a lone runner dies to the enemy ring" fails
+// (units.test.ts), and the player must outreach the turret or a base ring cannot
+// be cleared at all. Measured, cutting primary to 14 alone inverts the second
+// one and no golden script can clear a ring any more. Cutting TURRET_RANGE with
+// it inverts the first. The §9 arenas have the opposite ordering by design
+// (rules.md §9: emplacements at 6, units at 14 so "a push can answer a turret"),
+// so the two families genuinely want different numbers from one shared table.
+//
+// Resolving that is a balance pass with an owner decision in it — split the
+// table per arena family, or move §1 onto the original's ordering and re-author
+// what depends on it. Whoever takes it: the anchor is 6 m, and the measurements
+// above are the starting point.
 export const PRIMARY_COOLDOWN_TICKS = 5;
 export const PRIMARY_DAMAGE = 8;
 export const PRIMARY_RANGE = 40;
@@ -181,6 +217,11 @@ export const SPECIAL_SHOCK_AMMO = 3;
 export const SPECIAL_SHOCK_AOE_RADIUS = 12;
 
 // Turrets (sandbox dummies AND base ring turrets share combat stats for now).
+//
+// This global is dead on all six PLAYABLE arenas — each carries the original's
+// imported weapon profiles at 6 m and sim.ts prefers them — so it reaches only
+// district-01 (not in MAP_REGISTRY) and the sandbox. See the reach note above
+// for why it is not simply pulled to 6 with them.
 export const TURRET_RANGE = 28;
 export const TURRET_DAMAGE = 15;
 export const TURRET_COOLDOWN_TICKS = 20;
@@ -304,7 +345,13 @@ export const WARDEN_HEAVY_AOE_RADIUS = 6;
 export const WARDEN_HEAVY_RANGE = 30; // only bombs targets closer than this
 
 // Decision-layer geometry (difficulty-independent).
-export const WARDEN_DEFEND_RADIUS = 55; // enemy ground unit this close to own gate → intercept
+//
+// Ours, not the original's — though the original has a number for this shape:
+// aircraft target_detection_range is 28672 raw = 28 cells, and this radius is
+// the same KIND of thing, the distance at which the Warden notices a threat to
+// its gate rather than the distance it shoots from. Moving 55 onto it is part
+// of the reach question above and waits on the same decision.
+export const WARDEN_DEFEND_RADIUS = 55;
 /**
  * The same radius on a Precinct Assault arena (rules.md §9), where it has to mean
  * something different because the loss condition does.
@@ -431,17 +478,29 @@ export const UNIT_FIRE_COOLDOWN_TICKS: readonly number[] = [
   0, // WARDEN
 ];
 
-/** 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP. */
+/**
+ * 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP.
+ *
+ * HALF THE MODEL'S FOOTPRINT, which is the convention these already followed —
+ * against models that were stretched 1.02x-2.87x off the FCOP originals. The
+ * models now carry the size the original authored (assets.md §4), so these
+ * follow: the avatar's disc was 2.4 m across against a 0.80 m mech, wider than
+ * the catwalks it walks and wider than its own base mouth.
+ *
+ * Only hit detection reads these — AoE, projectile contact, mine triggers.
+ * Wall collision treats every mover as a point (collision.ts), so shrinking
+ * them opens no geometry that was closed.
+ */
 export const ARCHETYPE_RADIUS: readonly number[] = [
-  1.2, // AVATAR
-  1.0, // RUNNER
-  1.2, // GUARDIAN
-  2.2, // JUGGERNAUT
-  2.6, // FORTRESS
-  1.5, // TURRET
-  0.4, // PROJECTILE
-  1.2, // CONSOLE
-  1.6, // WARDEN — a superplane is a bigger target
+  0.4, // AVATAR      0.80 m footprint
+  0.76, // RUNNER     1.52
+  1.1, // GUARDIAN    3.15 wingspan; half of it, like the rest
+  1.1, // JUGGERNAUT  2.22
+  1.33, // FORTRESS   2.67
+  0.7, // TURRET      1.41
+  0.15, // PROJECTILE
+  0.56, // CONSOLE    1.12
+  1.0, // WARDEN      2.04 — a superplane is still a bigger target than the X1
 ];
 
 // Max HP per archetype, indexed by ARCHETYPE value (rules.md §4 placeholders;

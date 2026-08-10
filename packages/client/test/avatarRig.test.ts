@@ -4,7 +4,7 @@ import { ANIM_AIRBORNE, ANIM_HOVER, ANIM_MOVING } from "@metropolis/sim";
 import {
   advanceGait,
   createGait,
-  LEG_SPLIT_X,
+  LEG_SPLIT_FRACTION,
   type PositionReader,
   SWING_RADIANS,
   splitWalkerParts,
@@ -125,14 +125,20 @@ describe("walker part split", () => {
   });
 
   test("the two legs mirror each other to within a centimetre", () => {
-    // Left triangles all sit at x > +LEG_SPLIT_X, right ones at x < -that, and
-    // the two x-extents mirror. This is the check that would catch a threshold
-    // that quietly swallowed one leg into the hip.
+    // Left triangles all sit clear of the centre line on the +x side, right ones
+    // on the -x side, and the two x-extents mirror. This is the check that would
+    // catch a threshold that quietly swallowed one leg into the hip.
     //
-    // NOT exact: the pipeline's simplify pass breaks the original's symmetry by
-    // up to ~6 mm (the two legs also differ in their lowest vertex, 0.000 vs
-    // 0.011). One centimetre is the honest tolerance, and it is still an order
-    // of magnitude tighter than any plausible mis-split.
+    // The bound is rebuilt from the legs' own extent rather than compared
+    // against a metre constant, because the threshold is a fraction of the
+    // island's half-width (avatarRig.LEG_SPLIT_FRACTION) — the asset is authored
+    // at the original's scale and this test must not re-import an assumption
+    // about what that scale is.
+    //
+    // NOT exact: the pipeline's simplify pass breaks the original's symmetry.
+    // Measured on the shipped walker it is 2.6 mm, against a 0.80 m footprint.
+    // 4 mm is the honest tolerance and still an order of magnitude tighter than
+    // any plausible mis-split.
     const extent = (part: Uint32Array) => {
       let lo = Infinity;
       let hi = -Infinity;
@@ -146,13 +152,15 @@ describe("walker part split", () => {
     };
     const [lLo, lHi] = extent(split.legL);
     const [rLo, rHi] = extent(split.legR);
-    expect(lLo).toBeGreaterThan(LEG_SPLIT_X);
-    expect(rHi).toBeLessThan(-LEG_SPLIT_X);
-    // Absolute tolerance, not toBeCloseTo's decimal digits — the measured
-    // asymmetry is 5.6 mm, which digit-2 (< 5 mm) would reject for the wrong
-    // reason. One centimetre is the claim.
-    expect(Math.abs(lLo - -rHi)).toBeLessThan(0.01);
-    expect(Math.abs(lHi - -rLo)).toBeLessThan(0.01);
+    // Lower bound on the real threshold: triangle centres never reach as far out
+    // as the vertices the source measures the half-width from.
+    const minSplitX = Math.max(lHi, -rLo) * LEG_SPLIT_FRACTION;
+    expect(lLo).toBeGreaterThan(minSplitX);
+    expect(rHi).toBeLessThan(-minSplitX);
+    // Absolute tolerance, not toBeCloseTo's decimal digits, which quantize in
+    // powers of ten and cannot express "4 mm".
+    expect(Math.abs(lLo - -rHi)).toBeLessThan(0.004);
+    expect(Math.abs(lHi - -rLo)).toBeLessThan(0.004);
   });
 });
 
@@ -162,7 +170,7 @@ describe("stride derivation", () => {
     // backwards relative to the hull at exactly the hull's speed. Sampled
     // numerically here rather than restating strideForLeg's algebra, so an
     // algebra slip in the source cannot pass by matching itself.
-    const legLength = 1.875; // the shipped walker's hip height above the sole
+    const legLength = 0.653; // the shipped walker's hip height above the sole
     const stride = strideForLeg(legLength);
     const footZ = (phase: number) => legLength * Math.sin(SWING_RADIANS * Math.sin(phase));
     const dPhase = 1e-6;

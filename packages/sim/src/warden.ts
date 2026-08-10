@@ -49,13 +49,7 @@ import {
   WARDEN_SUPPRESS_RADIUS,
   WARDEN_WAVE_SIZE,
 } from "./balance";
-import {
-  EV_SHOT,
-  pushEvent,
-  reachToShotPayload,
-  SHOT_SLOT_HITSCAN,
-  SHOT_SLOT_LAUNCH,
-} from "./events";
+import { EV_SHOT, pushEvent, SHOT_SLOT_HITSCAN, SHOT_SLOT_LAUNCH } from "./events";
 import { BUTTON_FIRE2, BUTTON_INTERACT } from "./inputs";
 import { sampleHeight, worldExtent } from "./map";
 import { ANIM_MOVING, hitscan, type SimState, spawnProjectile, systemBuy } from "./sim";
@@ -457,13 +451,8 @@ function moveAndAct(state: SimState, id: number, me: number): void {
     ent.yaw[id] = atan2Poly(ay, ax);
     if (ent.cooldownA[id] <= 0) {
       ent.cooldownA[id] = WARDEN_PRIMARY_COOLDOWN_TICKS;
-      pushEvent(
-        state.events,
-        EV_SHOT,
-        id,
-        SHOT_SLOT_HITSCAN,
-        reachToShotPayload(WARDEN_PRIMARY_RANGE),
-      );
+      // hitscan pushes the EV_SHOT: only it knows how far this cannon burst
+      // actually reached (target, wall, or the full range).
       hitscan(
         state,
         id,
@@ -472,6 +461,7 @@ function moveAndAct(state: SimState, id: number, me: number): void {
         ent.aimY[id],
         WARDEN_PRIMARY_RANGE,
         WARDEN_PRIMARY_DAMAGE,
+        SHOT_SLOT_HITSCAN,
       );
     }
     if (ent.cooldownB[id] <= 0 && ax * ax + ay * ay <= WARDEN_HEAVY_RANGE * WARDEN_HEAVY_RANGE) {

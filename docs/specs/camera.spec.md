@@ -74,7 +74,7 @@ Derivable parameters:
 | `focus: Vec3` | Target point on the ground (interpolated unit position + `focusHeight`) |
 | `t: number ∈ [0,1]` | View continuum. **Inert**: both anchors carry the same values, so nothing it feeds can move |
 | `pitch` | **fixed** (26° above the horizon) |
-| `distance` | **fixed** (15 m dolly) |
+| `distance` | **fixed** (6 m dolly) |
 | `fov` | **fixed** (58°) |
 | `yaw` | azimuth; **follows the steered heading** (`CameraInput.yawAbsolute`) |
 | `lookAhead: Vec3` | focus offset toward movement/aim |
@@ -212,7 +212,7 @@ The rig output (camera position/rotation) is computed deterministically from
 | Field | Value | Note |
 | --- | --- | --- |
 | `CHASE.pitchDeg` | 26 | the one angle; low enough to sit behind the machine, high enough to read the road |
-| `CHASE.distance` | 15 | dolly |
+| `CHASE.distance` | 6 | dolly. Was 15, framing a 2.8 m avatar; the models now carry the original's own size (~0.98 m walker) and the dolly came in with them |
 | `CHASE.fovDeg` | 58 | |
 | `action.pitchDeg` | 30 | *superseded — both anchors are now `CHASE`* |
 | `action.distance` | 14 | near |
@@ -220,14 +220,14 @@ The rig output (camera position/rotation) is computed deterministically from
 | `tactical.pitchDeg` | 62 | high overview, not quite top-down (readability) |
 | `tactical.distance` | 34 | far |
 | `tactical.fovDeg` | 50 | |
-| `focusHeight` | 1.0 | ~unit center |
+| `focusHeight` | 0.6 | ~unit center. Was 1.0, for the same reason as the dolly |
 | `followSmoothTime` | 0.12 | s |
 | `paramSmoothTime` | 0.18 | s |
 | `yawSmoothTime` | 0.15 | s |
-| `lookAheadMax` | 4.0 | world meters |
+| `lookAheadMax` | 1.6 | world meters. Scaled with the avatar, not with the arena |
 | `tFreeLookThreshold` | 0.7 | |
 | `transformBias` | 0.15 | Pursuit +, Walker − |
-| `deadzone` | 0.15 | world meters |
+| `deadzone` | 0.06 | world meters. Scaled with the avatar |
 
 > The numbers are deliberately starting values. Tune `pitch`/`distance`
 > together; the `t` curve may use easing (e.g. smoothstep) instead of linear.
@@ -274,23 +274,32 @@ geometry can occlude the unit:
       playtest passes. Wheel zooms the pointer view; free-look edge-pan/drag UX
       is deferred pending the §11 Go-Gate.)
 
-## 12. Implementation status (v0.1)
+## 12. Implementation status
 
 The rig core is implemented in `packages/client/src/render/camera.ts` (pure,
 no imports) and wired into the render loop (`main.ts` `updateRigCamera`), one
-`CameraState` per `PlayerView`. Defaults are §7 verbatim in `DEFAULT_RIG_CONFIG`.
-Movement is now camera-relative to the **world-fixed** yaw basis (input.spec §5),
-not the avatar aim — the decoupling this spec calls for (§5, §9). Decisions taken
-on the open §11 questions, following the spec's own recommendations (still
-reversible until the Go-Gate closes):
+`CameraState` per `PlayerView`.
 
-- Yaw **world-fixed**, per-client oriented spawn→arena-centre; manual rotation
-  supported by the rig (`yawLocked:false`) but no rotate key is bound in v1.
-- `t` curve = **smoothstep**.
+> **This section described the pre-reversal rig** — "movement is camera-relative
+> to the **world-fixed** yaw basis … the decoupling this spec calls for" — which
+> §1's revision note, §3's yaw policy and §9 all contradict. Yaw follows the
+> steered heading and has since the owner's reversal. Corrected here rather than
+> deleted, because a stale status section that disagrees with the spec above it
+> is worse than none.
+
+- Yaw **follows the mouse-steered heading**, taken absolutely via
+  `CameraInput.yawAbsolute` (§3). `yawLocked:false`; `yawDelta` still integrates
+  when no absolute heading is supplied, and nothing binds a rotate key.
+- `t` curve = **smoothstep**; both anchors carry the same `CHASE` values, so it
+  is inert (§1).
 - Free-look: the pure function supports `panOffset`/`recenter`; the edge-pan vs
   drag UX is **not yet bound** (open question) — v1 keeps the focus on the unit.
-- Aim unchanged: mouse raycast / right stick (already spec-correct, input.spec §4).
+- Aim = facing, from the same heading (§5, input.spec §4.1).
 - Occlusion (§8): deferred to v2.
+- Framing tracks the models' scale. `distance` and `focusHeight` were authored
+  against a 2.8 m avatar; the units now carry the size the original authored
+  (assets.md), so §7's defaults moved with them — 6 m dolly, 0.6 m focus height.
+  Pitch and FOV are angles and did not.
 
 ---
 

@@ -153,17 +153,30 @@ function buildMatch01Timeline(): MatchPhase[] {
     t += ticks;
     phases.push({ until: t, moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: 0, ...p });
   };
+  // Dead-reckons with the QUANTISED direction, which is the one the sim will
+  // actually drive: the move intent goes out as int8, so `quantizeAxis` rounds
+  // the heading off by up to a fifth of a degree, and over a 40 m leg that put
+  // the avatar 2.9 m from where this function thought it stood. The snipes below
+  // aim from `px, py`, so that error lands as aim error — invisible while a
+  // turret was a 1.5 m disc, fatal once the hitboxes came down to the size of
+  // the models (balance.ts ARCHETYPE_RADIUS). Reckoning along the rounded
+  // heading closes it, and keeps these scripts robust against the next change to
+  // either number.
   const walkTo = (x: number, y: number, settle = 6) => {
     const dx = x - px;
     const dy = y - py;
     const d = Math.sqrt(dx * dx + dy * dy);
-    push(Math.round((d / AVATAR_WALKER_SPEED) * TICK_HZ), {
-      moveX: quantizeAxis(dx / d),
-      moveY: quantizeAxis(dy / d),
-    });
+    const qx = quantizeAxis(dx / d);
+    const qy = quantizeAxis(dy / d);
+    const qlen = Math.sqrt(qx * qx + qy * qy);
+    const ux = qx / qlen;
+    const uy = qy / qlen;
+    const ticks = Math.round((d / AVATAR_WALKER_SPEED) * TICK_HZ);
+    push(ticks, { moveX: qx, moveY: qy });
     push(settle, {}); // full stop between legs
-    px = x;
-    py = y;
+    const travelled = (ticks / TICK_HZ) * AVATAR_WALKER_SPEED;
+    px += ux * travelled;
+    py += uy * travelled;
   };
   const snipe = (x: number, y: number, ticks: number) => {
     const dx = x - px;

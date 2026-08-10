@@ -393,4 +393,42 @@
 //     (place / self-centred pulse). Loadout indices renumber — peers on opposite
 //     sides of the bump with a non-default kit would desync. Bump mandatory;
 //     only golden-02-combat hash sequence moves (fires special).
-export const SIM_VERSION = 26;
+// v27: sunken FCOP pads lifted onto the floor the player can see (gen:pads).
+//     Six pads across three arenas had their collision floor more than STEP_SNAP
+//     below the plate the terrain .glb draws over them, so walking onto visible
+//     art put the avatar in the gravity branch: urban-jungle's two outpost pads
+//     at x 86/153, y 120-121 (0.78 m), and the turret pad at (86-87, 135-136) on
+//     proving-ground and bug-hunt alike (1.97 m). 16 cells total, each lifted to
+//     its own mesh height. la-cantina had none.
+//     MEASURED, NOT AUTHORED. convert.ts carried a hand-written `padHeights`
+//     table for this, behind a flag nothing ever set. It was checked before being
+//     switched on and it was stale: 8 of its 80 cells landed within 0.3 m of the
+//     mesh, and it would have raised la-cantina's (88,83) to +1.0 m where the art
+//     sits at -2.50 — the avatar hovering 3.5 m over a pit. The table is gone;
+//     tools/generators/stampPads.ts reads the heights out of the committed .glb
+//     and tools/generators/test/terrainCollision.test.ts pins the result.
+//     Three heightsPins move (urban-jungle, proving-ground, bug-hunt) and
+//     golden-05-fcop, which runs on urban-jungle, moves with them. la-cantina's
+//     pin does not.
+//     ALSO IN v27: hitboxes follow the models. ARCHETYPE_RADIUS was half the
+//     model footprint by convention, against models stretched 1.02x-2.87x off
+//     the FCOP originals; the models came down to the size the original authored
+//     (assets.md §4) and these came with them — the avatar's disc was 2.4 m
+//     across against a 0.80 m mech, wider than the catwalks it walks. Only hit
+//     detection reads them (AoE, projectile contact, mine triggers); wall
+//     collision treats every mover as a point, so nothing opened. HOVER_CLEARANCE
+//     0.8 -> 0.3 (a 0.48 m skimmer floating higher than it is tall) and
+//     MUZZLE_OFFSET 2 -> 0.6 with it.
+//     HOVER_CUSHION_SPAN deliberately does NOT follow, though it was documented
+//     as 2 x the avatar radius: it is a cushion length measured against the
+//     original's kerbs, which are terrain and did not shrink. Taking it to 0.8
+//     costs the whole issue-#34 fix — hover-blocked road edges 0->10 on
+//     la-cantina, 20->49 on urban-jungle, and three arenas lose a team that can
+//     drive its own network. Same for AoE radii, which are sized against the
+//     SPACING of what they engulf: the Warden's bomb at 2 m instead of 6 ends
+//     the escort outright on urban-jungle. Both measured, both left alone.
+//     Goldens 01/02/03/07 move: smaller targets change what the scripted snipes
+//     connect with. match01's dead reckoning was also corrected to follow the
+//     QUANTISED heading the sim drives — it was 2.9 m out by the ring, which the
+//     old 1.5 m turret disc hid and a 0.7 m one does not.
+export const SIM_VERSION = 27;

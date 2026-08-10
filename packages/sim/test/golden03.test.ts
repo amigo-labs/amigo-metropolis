@@ -18,7 +18,10 @@ import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
 // Pinned after recording; regenerate together with the golden.
-const BREACH_TICK_PIN = 2956;
+// 2956 -> 2959 at SIM_VERSION 27: hitboxes follow the models, so the scripted
+// snipes take a slightly different number of bursts to clear the ring, and the
+// forward wave leaves three ticks later.
+const BREACH_TICK_PIN = 2959;
 
 describe("golden-03-match beats", () => {
   it("avatar snipe, outpost claim, forward wave, breach on the pinned tick", () => {

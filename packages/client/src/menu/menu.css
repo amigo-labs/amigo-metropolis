@@ -429,8 +429,14 @@
   flex: 0 0 auto;
   width: 36px;
   height: 34px;
-  image-rendering: pixelated;
+  /* Two declarations on purpose: `crisp-edges` is the fallback for engines that
+   * do not know `pixelated`, and the preferred value has to come SECOND to win
+   * where both are understood. It was the other way round, so every modern
+   * browser took `crisp-edges` — which the spec only asks to preserve contrast,
+   * not to sample nearest-neighbour, which is what this portrait wants. */
   image-rendering: crisp-edges;
+  /* biome-ignore lint/suspicious/noDuplicateProperties: progressive enhancement, see above */
+  image-rendering: pixelated;
   border: 1px solid rgba(80, 180, 220, 0.45);
   background: #000;
   object-fit: contain;

@@ -77,9 +77,17 @@ export function createMouseLook(
     },
     update() {
       if (pendingX === 0) return;
-      // Screen +X is to the right; sim yaw grows counter-clockwise, so moving
-      // the mouse right has to DECREASE it or the avatar turns the wrong way.
-      yaw = wrapYaw(yaw - pendingX * sensitivity);
+      // Mouse right INCREASES the heading. Derived, not guessed: the chase rig
+      // sits behind the ground-forward (cos yaw, 0, sin yaw) and three's camera
+      // right is forward x up, which at yaw 0 is (1,0,0) x (0,1,0) = +Z. The
+      // derivative d(forward)/d(yaw) = (-sin, 0, cos) is +Z at yaw 0 too — the
+      // same direction. So growing yaw swings the hull toward screen-right.
+      //
+      // This read `yaw - pendingX` until the sign was measured, on the grounds
+      // that "sim yaw grows counter-clockwise". Yaw does, on a chart with +y up;
+      // the screen puts sim y on three z, pointing DOWN the screen in a top-down
+      // view, which flips what counter-clockwise looks like to the player.
+      yaw = wrapYaw(yaw + pendingX * sensitivity);
       pendingX = 0;
     },
     dispose() {

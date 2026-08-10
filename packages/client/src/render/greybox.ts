@@ -117,45 +117,106 @@ function consoleCapacity(): number {
   return Math.max(8, worst * 2);
 }
 
+/**
+ * Native size of each modelled archetype, from tools/generators/units/manifest.ts
+ * — max horizontal extent and height, in metres, as the FCOP originals author
+ * them. The greybox silhouettes below are hand-drawn at whatever proportions
+ * read best and then scaled onto these, so the stand-in and the .glb it stands
+ * in for are the same size by construction.
+ *
+ * They used to be hand-matched literals, which is how they came to be matched
+ * to models that were themselves stretched 1.02x-2.87x off the original.
+ */
+const NATIVE: Record<string, { footprint: number; height: number }> = {
+  walker: { footprint: 0.8, height: 0.98 },
+  hover: { footprint: 1.24, height: 0.48 },
+  runner: { footprint: 1.52, height: 0.4 },
+  guardian: { footprint: 3.15, height: 0.68 },
+  juggernaut: { footprint: 2.22, height: 0.63 },
+  fortress: { footprint: 2.67, height: 1.89 },
+  console: { footprint: 1.12, height: 1.47 },
+  warden: { footprint: 2.04, height: 0.71 },
+};
+
+/**
+ * Scales an authored silhouette onto its native size and grounds it, applying
+ * genUnitModels.ts's own rule: one uniform factor, the tighter of the footprint
+ * and the height fit, then bbox minY to 0.
+ */
+function fitNative(geometry: THREE.BufferGeometry, key: string): THREE.BufferGeometry {
+  const n = NATIVE[key];
+  geometry.computeBoundingBox();
+  const bb = geometry.boundingBox;
+  if (!bb) return geometry;
+  const sizeX = bb.max.x - bb.min.x;
+  const sizeY = bb.max.y - bb.min.y;
+  const sizeZ = bb.max.z - bb.min.z;
+  const scale = Math.min(n.footprint / Math.max(sizeX, sizeZ), n.height / sizeY);
+  // Read minY BEFORE scaling: three's applyMatrix4 transforms the cached
+  // boundingBox in place, so `bb` is already scaled by the time we ground it.
+  const minY = bb.min.y;
+  geometry.scale(scale, scale, scale);
+  geometry.translate(0, -minY * scale, 0);
+  return geometry;
+}
+
 export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   // Walker: torso + two legs, reads as "standing mech". +X is forward.
-  const walkerGeometry = mergeGeometries([
-    box(1.8, 1.3, 1.6, 0, 1.55, 0), // torso
-    box(0.5, 1.0, 0.45, 0.1, 0.5, -0.5), // leg L
-    box(0.5, 1.0, 0.45, 0.1, 0.5, 0.5), // leg R
-    box(1.0, 0.35, 0.35, 1.2, 1.7, 0), // gun
-  ]);
+  const walkerGeometry = fitNative(
+    mergeGeometries([
+      box(1.8, 1.3, 1.6, 0, 1.55, 0), // torso
+      box(0.5, 1.0, 0.45, 0.1, 0.5, -0.5), // leg L
+      box(0.5, 1.0, 0.45, 0.1, 0.5, 0.5), // leg R
+      box(1.0, 0.35, 0.35, 1.2, 1.7, 0), // gun
+    ]),
+    "walker",
+  );
   // Hover: flat wedge with a nose block.
-  const hoverGeometry = mergeGeometries([
-    box(2.6, 0.6, 1.8, -0.2, 0.3, 0), // hull
-    box(1.0, 0.4, 1.0, 1.3, 0.25, 0), // nose
-    box(0.5, 0.5, 2.2, -1.1, 0.5, 0), // tail spoiler
-  ]);
+  const hoverGeometry = fitNative(
+    mergeGeometries([
+      box(2.6, 0.6, 1.8, -0.2, 0.3, 0), // hull
+      box(1.0, 0.4, 1.0, 1.3, 0.25, 0), // nose
+      box(0.5, 0.5, 2.2, -1.1, 0.5, 0), // tail spoiler
+    ]),
+    "hover",
+  );
   // Runner: squat tank — tracked hull, small turret, stub barrel. +X forward.
-  const runnerGeometry = mergeGeometries([
-    box(1.7, 0.6, 1.3, 0, 0.3, 0), // hull
-    box(0.8, 0.5, 0.8, -0.1, 0.85, 0), // turret
-    box(0.9, 0.2, 0.2, 0.7, 0.95, 0), // barrel
-  ]);
+  const runnerGeometry = fitNative(
+    mergeGeometries([
+      box(1.7, 0.6, 1.3, 0, 0.3, 0), // hull
+      box(0.8, 0.5, 0.8, -0.1, 0.85, 0), // turret
+      box(0.9, 0.2, 0.2, 0.7, 0.95, 0), // barrel
+    ]),
+    "runner",
+  );
   // Guardian: small plane — fuselage, straight wing, tail fin. +X forward.
-  const guardianGeometry = mergeGeometries([
-    box(2.2, 0.5, 0.7, 0, 0, 0), // fuselage
-    box(0.7, 0.12, 3.2, -0.1, 0.1, 0), // wing
-    box(0.5, 0.7, 0.12, -0.95, 0.35, 0), // tail fin
-  ]);
+  const guardianGeometry = fitNative(
+    mergeGeometries([
+      box(2.2, 0.5, 0.7, 0, 0, 0), // fuselage
+      box(0.7, 0.12, 3.2, -0.1, 0.1, 0), // wing
+      box(0.5, 0.7, 0.12, -0.95, 0.35, 0), // tail fin
+    ]),
+    "guardian",
+  );
   // Juggernaut: hulking siege tank — twin barrels, high back. +X forward.
-  const juggernautGeometry = mergeGeometries([
-    box(3.6, 1.4, 2.6, 0, 0.7, 0), // hull
-    box(1.8, 1.0, 1.8, -0.5, 1.9, 0), // casemate
-    box(1.6, 0.28, 0.3, 1.5, 2.1, -0.45), // barrel L
-    box(1.6, 0.28, 0.3, 1.5, 2.1, 0.45), // barrel R
-  ]);
+  const juggernautGeometry = fitNative(
+    mergeGeometries([
+      box(3.6, 1.4, 2.6, 0, 0.7, 0), // hull
+      box(1.8, 1.0, 1.8, -0.5, 1.9, 0), // casemate
+      box(1.6, 0.28, 0.3, 1.5, 2.1, -0.45), // barrel L
+      box(1.6, 0.28, 0.3, 1.5, 2.1, 0.45), // barrel R
+    ]),
+    "juggernaut",
+  );
   // Fortress: broad flying wing with a fat body. +X forward.
-  const fortressGeometry = mergeGeometries([
-    box(2.8, 0.9, 1.5, 0, 0, 0), // body
-    box(1.3, 0.25, 5.0, -0.3, 0.15, 0), // wing
-    box(1.0, 0.5, 0.8, 1.6, -0.1, 0), // nose
-  ]);
+  const fortressGeometry = fitNative(
+    mergeGeometries([
+      box(2.8, 0.9, 1.5, 0, 0, 0), // body
+      box(1.3, 0.25, 5.0, -0.3, 0.15, 0), // wing
+      box(1.0, 0.5, 0.8, 1.6, -0.1, 0), // nose
+    ]),
+    "fortress",
+  );
   // Turret Standard ≈ FCOP Cobj assembly (~1.4 m footprint, ~1.6 m tall).
   const turretBase = new THREE.CylinderGeometry(0.55, 0.65, 0.95, 8);
   turretBase.translate(0, 0.48, 0);
@@ -169,27 +230,35 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   turretDefenseGeometry.scale(defenseScale, defenseScale, defenseScale);
   // Projectile: elongated energy bolt along +X (sim forward). Unlit + instance
   // color reads as a glowing shell; the old 0.35 m ball vanished against terrain.
-  const projectileGeometry = new THREE.CylinderGeometry(0.2, 0.12, 1.5, 6);
+  // Half a metre, i.e. roughly the length of the X1's own gun — at the 1.5 m it
+  // carried while the units were stretched it was longer than the mech firing it.
+  const projectileGeometry = new THREE.CylinderGeometry(0.07, 0.04, 0.5, 6);
   projectileGeometry.rotateZ(-Math.PI / 2);
-  projectileGeometry.translate(0, 0.25, 0);
+  projectileGeometry.translate(0, 0.08, 0);
   // Outpost console: slab + pedestal + tilted screen (a live entity — it
   // changes team on claim and respawns — unlike the static base consoles).
-  const consoleGeometry = mergeGeometries([
-    box(3.4, 0.25, 3.4, 0, 0.125, 0),
-    box(1.0, 1.3, 1.0, 0, 0.9, 0),
-    box(1.4, 0.35, 1.0, 0, 1.7, 0),
-    box(0.15, 2.4, 0.15, -0.5, 3.0, -0.5),
-  ]);
+  const consoleGeometry = fitNative(
+    mergeGeometries([
+      box(3.4, 0.25, 3.4, 0, 0.125, 0),
+      box(1.0, 1.3, 1.0, 0, 0.9, 0),
+      box(1.4, 0.35, 1.0, 0, 1.7, 0),
+      box(0.15, 2.4, 0.15, -0.5, 3.0, -0.5),
+    ]),
+    "console",
+  );
   // Warden: the solo-opponent superplane — long fuselage, swept main wing,
   // canards and a twin tail. Clearly bigger than a Guardian. +X forward.
-  const wardenGeometry = mergeGeometries([
-    box(3.6, 0.8, 1.1, 0, 0, 0), // fuselage
-    box(1.6, 0.2, 4.6, -0.6, 0.15, 0), // main wing
-    box(0.8, 0.15, 2.0, 1.2, 0.1, 0), // canards
-    box(0.9, 1.0, 0.15, -1.5, 0.6, -0.8), // tail fin L
-    box(0.9, 1.0, 0.15, -1.5, 0.6, 0.8), // tail fin R
-    box(1.2, 0.5, 0.7, 1.9, 0, 0), // nose
-  ]);
+  const wardenGeometry = fitNative(
+    mergeGeometries([
+      box(3.6, 0.8, 1.1, 0, 0, 0), // fuselage
+      box(1.6, 0.2, 4.6, -0.6, 0.15, 0), // main wing
+      box(0.8, 0.15, 2.0, 1.2, 0.1, 0), // canards
+      box(0.9, 1.0, 0.15, -1.5, 0.6, -0.8), // tail fin L
+      box(0.9, 1.0, 0.15, -1.5, 0.6, 0.8), // tail fin R
+      box(1.2, 0.5, 0.7, 1.9, 0, 0), // nose
+    ]),
+    "warden",
+  );
 
   const avatarWalker = bucket(scene, walkerGeometry, 4);
   const avatarHover = bucket(scene, hoverGeometry, 4);

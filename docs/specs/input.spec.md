@@ -90,6 +90,13 @@ shipped model is simpler and already correct:
 - **Mouse X steers.** Pointer-locked `movementX` accumulates into a heading
   (`input/mouseLook.ts`), wrapped to `[-PI, PI)`. Sensitivity is a local
   preference (§8) and is never synchronized.
+- **Sign: mouse right INCREASES the heading.** Written down because it shipped
+  backwards. The chase rig sits behind the ground-forward `(cos yaw, 0, sin yaw)`
+  and three's camera right is `forward × up`, which is `+Z` at yaw 0;
+  `d(forward)/d(yaw)` is `+Z` there too, so growing yaw swings the hull toward
+  screen-right. Reasoning from "sim yaw grows counter-clockwise" gets the
+  opposite answer and is the trap: that is true on a chart with `+y` up, and the
+  renderer puts sim `y` on three `z`, which runs *down* the view.
 - **Mouse Y does nothing.** It is read off the event and discarded rather than
   simply unused, so no later change can quietly route it into a pitch that
   neither the camera nor the sim has.

@@ -67,11 +67,7 @@ export function crossesWallY(map: MapData, x: number, y: number, ny: number, lay
 
 /**
  * Line-of-sight test: does the segment (x0,y0)→(x1,y1) cross any wall?
- * Amanatides–Woo grid traversal over the wall lattice — every vertical line
- * crossing is checked against wallsV in the row it happens in, every
- * horizontal one against wallsH in its column. Only + - * /, floor, min/max
- * and compares (IEEE-exact); the step count is bounded by the cell distance,
- * so it terminates regardless of float edge cases.
+ * Thin wrapper over `segmentBlockT` — see there for the traversal.
  */
 export function segmentBlocked(
   map: MapData,
@@ -81,9 +77,35 @@ export function segmentBlocked(
   y1: number,
   layer = 0,
 ): boolean {
+  return segmentBlockT(map, x0, y0, x1, y1, layer) >= 0;
+}
+
+/**
+ * WHERE the segment (x0,y0)→(x1,y1) first crosses a wall, as the parametric
+ * `t ∈ [0,1]` of that crossing, or **-1** when the segment is clear.
+ *
+ * Amanatides–Woo grid traversal over the wall lattice — every vertical line
+ * crossing is checked against wallsV in the row it happens in, every
+ * horizontal one against wallsH in its column. Only + - * /, floor, min/max
+ * and compares (IEEE-exact); the step count is bounded by the cell distance,
+ * so it terminates regardless of float edge cases.
+ *
+ * The `t` exists for the RENDERER's benefit — a hitscan tracer has to stop
+ * where the shot stopped (fx.ts), and "blocked: yes/no" cannot say where. It
+ * feeds no sim state: `hitscan` still takes its damage decision through the
+ * boolean above, on the same short segment it always used, so no hash moves.
+ */
+export function segmentBlockT(
+  map: MapData,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  layer = 0,
+): number {
   const wallsV = latticeV(map, layer);
   const wallsH = latticeH(map, layer);
-  if (wallsV.length === 0 && wallsH.length === 0) return false;
+  if (wallsV.length === 0 && wallsH.length === 0) return -1;
   const s = map.size;
   const inv = 1 / map.cellSize;
   const maxCell = s - 2;
@@ -110,15 +132,15 @@ export function segmentBlocked(
     if (tMaxX <= tMaxY) {
       // Crossing the vertical line between gx and gx+stepX, in row gy.
       const line = gx + (stepX > 0 ? 1 : 0);
-      if (wallsV[clampCell(gy) * s + line] !== 0) return true;
+      if (wallsV[clampCell(gy) * s + line] !== 0) return tMaxX;
       gx += stepX;
       tMaxX += tDeltaX;
     } else {
       const line = gy + (stepY > 0 ? 1 : 0);
-      if (wallsH[line * s + clampCell(gx)] !== 0) return true;
+      if (wallsH[line * s + clampCell(gx)] !== 0) return tMaxY;
       gy += stepY;
       tMaxY += tDeltaY;
     }
   }
-  return false;
+  return -1;
 }

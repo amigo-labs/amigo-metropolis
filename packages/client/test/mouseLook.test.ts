@@ -62,18 +62,24 @@ describe("mouse look — yaw only", () => {
 
     h.move(100, -500);
     look.update();
-    expect(look.yaw).toBeCloseTo(-100 * DEFAULT_LOOK_SENSITIVITY, 10);
+    expect(look.yaw).toBeCloseTo(100 * DEFAULT_LOOK_SENSITIVITY, 10);
   });
 
   test("moving the mouse right turns the avatar right", () => {
-    // Sim yaw is atan2(y, x) and grows counter-clockwise, so a rightward drag
-    // has to DECREASE it. Getting this backwards is invisible in a unit test
-    // that only checks magnitude, and instantly obvious in the game.
+    // The chase rig sits behind the ground-forward (cos yaw, 0, sin yaw), and
+    // three's camera right is forward x up = +Z at yaw 0. d(forward)/d(yaw) is
+    // +Z there as well, so a rightward drag has to INCREASE the heading.
+    //
+    // This asserted `< 0` for as long as the bug shipped, with a confident
+    // comment about sim yaw growing counter-clockwise. It does — on a chart with
+    // +y up. On screen sim y is three z, which runs down the view, so the
+    // player sees the opposite rotation. A magnitude-only test cannot catch
+    // this; the sign is the whole test.
     const h = harness();
     const look = createMouseLook(h.canvas, { doc: h.doc, initialYaw: 0 });
     h.move(50, 0);
     look.update();
-    expect(look.yaw).toBeLessThan(0);
+    expect(look.yaw).toBeGreaterThan(0);
   });
 
   test("movement only accumulates while the pointer is locked", () => {

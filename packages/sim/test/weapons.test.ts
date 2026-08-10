@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ARCHETYPE } from "../src/archetypes";
 import {
   AVATAR_AMMO_HEAVY,
   AVATAR_AMMO_SPECIAL,
@@ -11,10 +12,17 @@ import {
   SPECIAL_MINE_ARM_TICKS,
   SPECIAL_MINE_TRIGGER_RADIUS,
 } from "../src/balance";
-import { ARCHETYPE } from "../src/archetypes";
+import {
+  EV_SHOT,
+  EVENT_STRIDE,
+  SHOT_SLOT_SPECIAL,
+  shotPayloadWeaponId,
+  shotPayloadWeaponReach,
+  weaponShotPayload,
+} from "../src/events";
 import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_FIRE3, createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
-import { createSim, step } from "../src/sim";
+import { createSim, type SimState, step } from "../src/sim";
 import {
   DEFAULT_LOADOUT,
   GUNS,
@@ -25,6 +33,29 @@ import {
   SPECIALS,
   weaponById,
 } from "../src/weapons";
+
+/**
+ * Catalog ids of the AVATAR shots in this tick's event buffer.
+ *
+ * The avatar slots pack the id together with the shot's reach (events.ts
+ * `weaponShotPayload`), so `c` is no longer the bare id these tests used to
+ * compare against — and what `c` means depends on the slot. An emplacement's
+ * EV_SHOT carries reach alone, so decoding one as a weapon id yields
+ * `reachDecimetres & 0xff`, a number that could collide with a real catalog id
+ * and pass an assertion for the wrong reason. test-128 has no turrets, dummies
+ * or units, so nothing else fires here today; the slot check is what keeps that
+ * from being load-bearing.
+ */
+function firedWeaponIds(sim: SimState): number[] {
+  const ids: number[] = [];
+  for (let i = 0; i < sim.events.count; i++) {
+    const o = i * EVENT_STRIDE;
+    if (sim.events.data[o] !== EV_SHOT) continue;
+    if (sim.events.data[o + 2] > SHOT_SLOT_SPECIAL) continue; // not an avatar slot
+    ids.push(shotPayloadWeaponId(sim.events.data[o + 3]));
+  }
+  return ids;
+}
 
 describe("weapon catalog", () => {
   test("default kit matches historic balance numbers", () => {
@@ -153,6 +184,29 @@ describe("original weapon table (rules.md §2)", () => {
   });
 });
 
+describe("EV_SHOT payload", () => {
+  test("a positive reach never packs to zero", () => {
+    // Zero is how the renderer spells "no reach travelled with this shot", and
+    // it falls back to the weapon's nominal range there. Rounding at 1 dm means
+    // anything under 5 cm would land on it — so firing while flush against a
+    // wall would draw the full forty metres straight through it, which is the
+    // bug this payload exists to prevent.
+    for (const reach of [0.049, 0.01, 0.0001]) {
+      expect(shotPayloadWeaponReach(weaponShotPayload(0, reach))).toBeCloseTo(0.1, 10);
+    }
+    // A shot that genuinely carried no reach still says so.
+    expect(shotPayloadWeaponReach(weaponShotPayload(0, 0))).toBe(0);
+    // And the weapon id survives the clamp untouched.
+    expect(shotPayloadWeaponId(weaponShotPayload(9, 0.01))).toBe(9);
+  });
+
+  test("reach round-trips at the resolution it is stored in", () => {
+    for (const reach of [0.1, 3.7, 14, 39.9]) {
+      expect(shotPayloadWeaponReach(weaponShotPayload(1, reach))).toBeCloseTo(reach, 10);
+    }
+  });
+});
+
 describe("loadout combat", () => {
   test("default loadout leaves the first shot hash path intact on test-128", () => {
     const map = getMapById("test-128");
@@ -174,12 +228,7 @@ describe("loadout combat", () => {
     inputs.players[0].buttons = BUTTON_FIRE1;
     step(sim, inputs);
     expect(sim.events.count).toBeGreaterThan(0);
-    let found = false;
-    for (let i = 0; i < sim.events.count; i++) {
-      const o = i * 4;
-      if (sim.events.data[o] === 1 /* EV_SHOT */ && sim.events.data[o + 3] === 1) found = true;
-    }
-    expect(found).toBe(true);
+    expect(firedWeaponIds(sim)).toContain(1);
   });
 
   test("concussion beam (heavy hitscan) spends heavy ammo", () => {
@@ -204,12 +253,7 @@ describe("loadout combat", () => {
     inputs.players[0].aimX = 127;
     inputs.players[0].buttons = BUTTON_FIRE1;
     step(sim, inputs);
-    let found = false;
-    for (let i = 0; i < sim.events.count; i++) {
-      const o = i * 4;
-      if (sim.events.data[o] === 1 /* EV_SHOT */ && sim.events.data[o + 3] === 9) found = true;
-    }
-    expect(found).toBe(true);
+    expect(firedWeaponIds(sim)).toContain(9);
   });
 
   test("hyper velocity rocket spends heavy ammo", () => {
@@ -242,7 +286,11 @@ describe("loadout combat", () => {
     expect(sim.ent.ammoB[id]).toBe(before - 1);
     let mineId = -1;
     for (let e = 0; e < sim.ent.high; e++) {
-      if (sim.ent.alive[e] && sim.ent.archetype[e] === ARCHETYPE.PROJECTILE && sim.ent.mode[e] === PROJ_MINE) {
+      if (
+        sim.ent.alive[e] &&
+        sim.ent.archetype[e] === ARCHETYPE.PROJECTILE &&
+        sim.ent.mode[e] === PROJ_MINE
+      ) {
         mineId = e;
         break;
       }
