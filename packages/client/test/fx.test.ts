@@ -210,6 +210,8 @@ describe("shot VFX", () => {
 
     const life = 6 / 90; // reach / BOLT_SPEED
     fx.update(life * 0.5);
+    // Halfway through its life it is halfway down its reach — which is the same
+    // as saying it moves at BOLT_SPEED, and nothing else.
     expect(fx.debugCounts().boltsSingle + fx.debugCounts().boltsTwin).toBe(1);
 
     // atOrigin faces +X, so the bolt is 3 m along X, out of a 6 m reach, plus
@@ -226,6 +228,29 @@ describe("shot VFX", () => {
 
     fx.update(life * 0.6);
     expect(fx.debugCounts().boltsSingle + fx.debugCounts().boltsTwin).toBe(0);
+  });
+
+  test("a long shot's bolt still travels at BOLT_SPEED, it does not speed up", () => {
+    // There used to be a lifetime cap, which bounded the LIFE while the distance
+    // stayed the full reach — so past ~22 m the bolt covered more ground in the
+    // same time and quietly outran the constant that names its speed. A 40 m
+    // shot, the longest the catalog can produce, is the case that exposed it.
+    const scene = new THREE.Scene();
+    const fx = createFx(scene);
+    const events = createEventBuffer();
+    pushEvent(events, EV_SHOT, 1, SHOT_SLOT_HITSCAN, reachToShotPayload(40));
+    fx.pump(events, atOrigin);
+
+    fx.update(0.25);
+    const bolt = scene.children.find(
+      (c): c is THREE.InstancedMesh => (c as THREE.InstancedMesh).isInstancedMesh && c.count === 1,
+    );
+    expect(bolt).toBeDefined();
+    const m = new THREE.Matrix4();
+    bolt?.getMatrixAt(0, m);
+    // 0.25 s at 90 m/s is 22.5 m, from the muzzle — not the 40 m a capped life
+    // would have dragged it to.
+    expect(new THREE.Vector3().setFromMatrixPosition(m).x).toBeCloseTo(0.6 + 22.5, 2);
   });
 
   test("a launch flash spawns no tracer — the shell is its own entity", () => {

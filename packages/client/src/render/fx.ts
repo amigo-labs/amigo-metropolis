@@ -51,18 +51,23 @@ import { PROJECTILE_HEX, paletteHex } from "./palette";
 import { loadUnitAsset } from "./unitMeshes";
 
 /**
- * Flight speed of an emplacement bolt, m/s, and the longest it may stay alive.
+ * Flight speed of an emplacement bolt, m/s.
  *
  * The original's bolt is an OBJECT that travels (Cobj 12/14, ~1 m of facer
  * beam), not a streak drawn over the shot's whole reach — see
  * docs/specs/fcop-fx.md §5. The sim stays hitscan, so damage still lands the
  * instant the shot is fired and this is pure cosmetics; the speed is picked so
  * the visual arrives without a noticeable lag at the ranges emplacements
- * actually fire at (la-cantina imports engage_range 6 m, so ~0.07 s), and the
- * cap keeps a long shot from lingering after its damage.
+ * actually fire at (la-cantina imports engage_range 6 m, so ~0.07 s).
+ *
+ * A bolt's lifetime is exactly the time to cover its reach at this speed, with
+ * no upper cap. There was one, and it was wrong: capping the LIFE while the
+ * distance stayed the full reach made the bolt travel faster than BOLT_SPEED on
+ * any shot past ~22 m, so the constant quietly stopped being the speed. The
+ * longest shot the catalog can produce is 40 m, i.e. 0.44 s of flight — a real
+ * object covering real ground, which is the point.
  */
 const BOLT_SPEED = 90;
-const BOLT_MAX_LIFE = 0.25;
 const BOLT_CAP = 128;
 
 const TRACER_CAP = 128;
@@ -495,7 +500,7 @@ export function createFx(scene: THREE.Scene): ShotFx {
         if (emplacement) {
           const reach = shotPayloadToReach(c);
           const pool = poseScratch[4] === ARCHETYPE.TURRET ? boltsTwin : boltsSingle;
-          const life = Math.min(reach / BOLT_SPEED, BOLT_MAX_LIFE);
+          const life = reach / BOLT_SPEED;
           if (life > 0) spawn(pool, life, mx, my, mz, yaw, reach);
         } else if (w?.delivery === "hitscan") {
           // Length is the shot's own reach, carried in the event — where it hit

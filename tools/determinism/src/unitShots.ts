@@ -286,14 +286,21 @@ async function main(): Promise<void> {
   if (mesh.renderer === null) problems.push("no WebGL2 context");
   if (mesh.fallbacks.length) problems.push(`greybox fallbacks: ${mesh.fallbacks.join(" | ")}`);
   const missing = [...UNIT_GLBS, ...FX_GLBS].filter((k) => !mesh.glbsLoaded.includes(k));
-  if (missing.length) problems.push(`unit glbs never returned 200: ${missing.join(", ")}`);
+  if (missing.length) {
+    // Name the family, so a missing projectile mesh does not get reported as a
+    // missing unit and send the reader to the wrong directory.
+    const named = missing.map((k) => `${FX_GLBS.includes(k) ? "fx" : "units"}/${k}`);
+    problems.push(`model glbs never returned 200: ${named.join(", ")}`);
+  }
   if (mesh.badAssets.length) problems.push(`asset errors: ${mesh.badAssets.join(", ")}`);
   if (mesh.errors.length) problems.push(`console/page errors: ${mesh.errors.join(" | ")}`);
 
   if (problems.length) {
     console.error(`FAIL units: ${problems.join("; ")}`);
   } else {
-    console.log("OK   units: all unit models loaded, no fallback, no errors");
+    console.log(
+      `OK   units: all ${UNIT_GLBS.length} unit + ${FX_GLBS.length} fx models loaded, no fallback, no errors`,
+    );
   }
   console.log(`\nWebGL renderer: ${mesh.renderer ?? "unavailable"}`);
   console.log(`screenshots: ${OUT}`);
