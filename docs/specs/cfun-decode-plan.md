@@ -1,4 +1,4 @@
-# Decoding `Cfun` — the plan (EXECUTED; three claims retracted)
+# Decoding `Cfun` — the plan (EXECUTED; four claims retracted)
 
 Goal: recover the **Precinct Assault rule set** from the original's mission
 bytecode, so rules like "how does a pad get captured" come from the game instead
@@ -6,7 +6,7 @@ of from us.
 
 Work happens in `amigo-labs/fcop-reverse-engineering`. This document is the
 plan; the findings belong in that repo's `README.md` table and its
-`extracted/handoff/`, and only then flow into `docs/specs/fcop-logic.md` here.
+`extracted/findings/`, and only then flow into `docs/specs/fcop-logic.md` here.
 
 House rule, taken from that repo's own probe tooling: *nothing here is proven —
 every claim ships with its method and its counter-argument.* A statistical lead
@@ -16,9 +16,9 @@ is a lead, not a fact.
 
 ## Outcome — read this before the plan below
 
-The plan ran. Findings: `extracted/handoff/cfun_decode.md` in the RE repo
-(313 lines, method and counter-argument per claim), tooling
-`tools/gfx/cfun_disasm.py` + `probe_cfun_rules.py`.
+The plan ran. Findings: `extracted/findings/cfun_decode.md` in the RE repo
+(method and counter-argument per claim) plus `cfun_interpreter.md` for the
+retail VM itself, tooling `tools/gfx/cfun_disasm.py` + `probe_cfun_rules.py`.
 
 **The headline answer is negative, and it is the useful part: the capture rule
 is not in `Cfun`.** The one `MapObjectiveNodeGroup` id per arena (263/264) does
@@ -50,6 +50,20 @@ claims below did not survive:
    between arenas is not a global production rule — and those functions'
    operands are `type_14`/`DynamicProp` pairs, not `TeamBase` ids. The 5-second
    agreement with `spawnTicks: 300` was a coincidence I read as a cross-check.
+4. **§1's sound probe is withdrawn — and it was the precedent the rest leaned
+   on.** "The operand of `27 0c 00` is a sound `script_id` at 13/13, p≈1e-20"
+   was measured with the same pair-model walk that retraction 1 discards, so the
+   three-byte opcode word it counted does not exist. Against the retail
+   interpreter (`FUN_00457550`, a stack VM — decompiled since, RE issue #12)
+   `0x27` is arithmetic addition, and `0c` and `00` are a separate opcode and the
+   stream terminator. Nothing in the decoded table is a proven sound-play op; the
+   queue/voice handlers `0x0c`-`0x0f` are the remaining candidates. This is why
+   the base-intrusion alert cue is still authored (`fcop-logic.md` §8.6) — but
+   for want of a binding, not for want of a decoder.
+
+While retracting: the plan's premise that `Cfun` is single-player-scoped is also
+wrong. It is predominantly a **multiplayer** structure — 57-59 functions per PA
+arena against 1-19 on campaign maps.
 
 What held: `Cfun` is overwhelmingly a multiplayer structure (§0's table), six
 arenas share four byte-identical scripts (§2's table), and the disassembler's

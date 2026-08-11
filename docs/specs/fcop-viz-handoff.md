@@ -35,7 +35,8 @@ Decoding of the original *Future Cop: L.A.P.D.* mission logic (see the full spec
   and the **TeamBase (act_type 28)** — 2/arena, team-symmetric, HP 3000, 4 built-in
   defence weapons, 5 s spawn cadence, bound to its team `Cnet`.
 - **"Enemy-in-base alert" mechanic** = `Trigger` (95) volumes around each base
-  watching the enemy X1Alpha + enemy units; sound is wired in `Cfun` (not decoded).
+  watching the enemy X1Alpha + enemy units; sound is wired in `Cfun` (script
+  disassembled since, but the sound binding itself is unrecovered).
 - Layout/behaviour reference came from Ghoster738/Future-Cop-MIT, cloned at
   `D:\github\Future-Cop-MIT`.
 - Memories written: `fcop-original-lanes-cnet`, `meshmap-alignment-bug`,
@@ -142,7 +143,8 @@ files above if needed):
 
 Open (lower priority): the meshMap fix (§3) — now with a concrete target (centre the
 glb on the gameplay/logic content centre, not `worldExtent/2`); other 5 arenas need
-their own logic-bbox-centre computed the same way; `Cfun` scripting still undecoded.
+their own logic-bbox-centre computed the same way. (`Cfun` scripting is decoded
+since — see `cfun-decode-plan.md`.)
 
 ## 6. Terrain decks and per-deck walls (added 2026-08-03, issue #29)
 

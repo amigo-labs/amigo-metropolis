@@ -21,9 +21,11 @@ generator fails the suite.
 
 Why the manifest is empty: the 348 unique sounds extracted from the original
 game carry no semantic labels, and the chain that would tell us which is which
-(`Cshd` sound events → `Cfun` script table) is broken because `Cfun` is
-undecoded. Picking is a listening pass — see the manifest header for the
-shortlists in the RE repo that narrow 348 down to 46, and issue #27.
+(`Cshd` sound events → `Cfun` script table) is still open. `Cfun` itself is no
+longer the blocker — it has been disassembled against the retail interpreter —
+but none of its opcodes is a proven sound-play op, so nothing yet binds an event
+to a sound id. Picking is a listening pass — see the manifest header for the
+shortlists in the RE repo that narrow 348 down, and issue #27.
 
 The service worker needs no change: `sw.js` applies stale-while-revalidate to
 every same-origin GET, so `/sfx/*.wav` is cached on first play. It is

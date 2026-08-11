@@ -168,8 +168,9 @@ export interface MapPickup {
 
 /**
  * An axis-aligned base-intrusion volume (original Trigger, act_type 95;
- * fcop-logic.md §8.6). Detection only — the original's alert sound lived in the
- * undecoded Cfun script, so the cue is the client's choice.
+ * fcop-logic.md §8.6). Detection only — the original's alert sound was bound in
+ * the Cfun script and that binding is unrecovered, so the cue is the client's
+ * choice.
  */
 export interface MapTriggerVolume {
   readonly x: number;

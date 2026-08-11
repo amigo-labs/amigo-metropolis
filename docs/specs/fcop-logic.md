@@ -212,7 +212,7 @@ Adopted for `la-cantina` only, on the owner's call, and written up as
 | Aircraft orbit shape (option 3) | not adopted; `moveAirUnit` keeps its own model |
 | `TeamBase` production + HP (§8.1) | **adopted** — 5 s cadence, 3000 HP core, base-destruction win |
 | `ItemPickup` (§8.2) | **adopted** |
-| `Trigger` intrusion volumes (§8.6) | **adopted** as detection; the alert cue is authored, since `Cfun` is undecoded |
+| `Trigger` intrusion volumes (§8.6) | **adopted** as detection; the alert cue is authored, since the `Cfun` binding that carried it is unrecovered |
 | Types 14 / 89 (§8.5) | not adopted; extracted for provenance only |
 
 The extractions are committed at `tools/generators/fcop/<mission>-logic.json` —
@@ -360,5 +360,17 @@ enemy X1Alpha; its siblings watch enemy units 75/87/173/144/205.
 
 The trigger only **detects**; it carries no sound. The actual alert sound is wired
 in the `Cfun` mission script, which references the trigger by `matching_number`.
-`Cfun` is single-player-scoped and left undecoded — so the detection half is
-confirmed in the data, the sound half lives in the (undecoded) script layer.
+
+`Cfun` has since been disassembled against the retail interpreter
+(`FUN_00457550`, a stack VM; full opcode table 1…0x3e, scheduler and spawn
+handlers — RE issue #12), which corrects two things stated here earlier: the
+script is **not** single-player-scoped — it is predominantly a multiplayer
+structure, each PA arena carrying 57-59 functions against 1-19 on campaign maps
+— and it is no longer undecoded. What is still missing is narrower: none of the
+decoded opcodes is a proven sound-play op. The queue/voice handlers `0x0c`-`0x0f`
+are the candidates. An earlier reading that `27 0c ..` meant "play sound" is
+withdrawn — it came from a pair-model walk that the stack VM supersedes, and
+`0x27` is arithmetic addition.
+
+So the detection half is confirmed in the data, and the sound half is an open
+binding rather than an unreadable one.

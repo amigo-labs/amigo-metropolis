@@ -1999,8 +1999,9 @@ function systemPickups(state: SimState): void {
  * Base-intrusion detection (rules.md §9, fcop-logic.md §8.6): fires an alarm when
  * a watched actor enters a base's volume.
  *
- * Detection only, exactly as the original data is — the alert SOUND lived in the
- * undecoded Cfun script. Re-arming is gated here rather than in the client so
+ * Detection only, exactly as the original data is — the alert SOUND was bound in
+ * the Cfun script and that binding is unrecovered. Re-arming is gated here
+ * rather than in the client so
  * every peer (and every replay) agrees on when the alarm sounded.
  */
 function systemTriggers(state: SimState): void {
