@@ -29,6 +29,8 @@ import {
   EV_SHOT,
   EVENT_STRIDE,
   type EventBuffer,
+  MUZZLE_HEIGHT,
+  MUZZLE_OFFSET,
   PRIMARY_RANGE,
   PROJ_HYPER,
   PROJ_MINE,
@@ -47,9 +49,6 @@ import {
 import * as THREE from "three";
 import { PROJECTILE_HEX, paletteHex } from "./palette";
 import { loadUnitAsset } from "./unitMeshes";
-
-/** Must match sim.ts MUZZLE_OFFSET (not exported; keep in lockstep by hand). */
-const MUZZLE_OFFSET = 0.6;
 
 /**
  * Flight speed of an emplacement bolt, m/s, and the longest it may stay alive.
@@ -473,7 +472,7 @@ export function createFx(scene: THREE.Scene): ShotFx {
         const sin = Math.sin(yaw);
         const mx = px + cos * MUZZLE_OFFSET;
         const mz = pz + sin * MUZZLE_OFFSET;
-        const my = py + 0.6; // sim.ts MUZZLE_HEIGHT
+        const my = py + MUZZLE_HEIGHT;
         // What `c` means depends on `b` — see events.ts. Slots 0/1/2 are the
         // avatar's and pack a catalog id with the shot's reach;
         // SHOT_SLOT_HITSCAN carries a reach in decimetres; SHOT_SLOT_LAUNCH

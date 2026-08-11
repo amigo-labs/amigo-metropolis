@@ -3,14 +3,21 @@ import { ARCHETYPE } from "../src/archetypes";
 import {
   AVATAR_AMMO_HEAVY,
   AVATAR_AMMO_SPECIAL,
+  GRAVITY,
   HEAVY_COOLDOWN_TICKS,
   HEAVY_DAMAGE,
+  MORTAR_LAUNCH_SPEED,
+  MUZZLE_HEIGHT,
+  MUZZLE_OFFSET,
   PRIMARY_COOLDOWN_TICKS,
   PRIMARY_DAMAGE,
   SPECIAL_COOLDOWN_TICKS,
   SPECIAL_DAMAGE,
   SPECIAL_MINE_ARM_TICKS,
   SPECIAL_MINE_TRIGGER_RADIUS,
+  SPECIAL_SPEED,
+  SPECIAL_TTL_TICKS,
+  TICK_DT,
 } from "../src/balance";
 import {
   EV_SHOT,
@@ -29,6 +36,7 @@ import {
   HEAVIES,
   normalizeLoadout,
   PROJ_MINE,
+  PROJ_MORTAR,
   resolveLoadout,
   SPECIALS,
   weaponById,
@@ -268,6 +276,100 @@ describe("loadout combat", () => {
     inputs.players[0].buttons = BUTTON_FIRE2;
     step(sim, inputs);
     expect(sim.ent.ammoA[id]).toBe(before - 1);
+  });
+
+  test("the mortar lobs, and lands where the flat shell used to expire", () => {
+    // The arc's whole contract (balance.ts MORTAR_LAUNCH_SPEED): the shell
+    // reaches the ground on exactly the tick its TTL would have run out on, at
+    // exactly the distance the flat shell covered in that time. So the
+    // trajectory changes and no balance number does.
+    const map = getMapById("test-128");
+    const sim = createSim(map, 11, { loadouts: [DEFAULT_LOADOUT] });
+    const avatar = sim.avatarId[0];
+    const startX = sim.ent.posX[avatar];
+    const startY = sim.ent.posY[avatar];
+    const inputs = createTickInputs();
+    inputs.players[0].aimX = 127; // straight along +x
+    inputs.players[0].aimY = 0;
+    inputs.players[0].buttons = BUTTON_FIRE3;
+    step(sim, inputs);
+
+    const findShell = (): number => {
+      for (let e = 0; e < sim.ent.high; e++) {
+        if (
+          sim.ent.alive[e] &&
+          sim.ent.archetype[e] === ARCHETYPE.PROJECTILE &&
+          sim.ent.mode[e] === PROJ_MORTAR
+        ) {
+          return e;
+        }
+      }
+      return -1;
+    };
+    const shell = findShell();
+    expect(shell).toBeGreaterThanOrEqual(0);
+    const launchHeight = sim.ent.height[shell];
+
+    // Let it fly, holding nothing down, and watch the apex go by.
+    const idle = createTickInputs();
+    let apex = launchHeight;
+    let lastX = sim.ent.posX[shell];
+    let lastY = sim.ent.posY[shell];
+    let ticks = 0;
+    while (findShell() >= 0 && ticks < SPECIAL_TTL_TICKS + 20) {
+      const id = findShell();
+      apex = Math.max(apex, sim.ent.height[id]);
+      lastX = sim.ent.posX[id];
+      lastY = sim.ent.posY[id];
+      step(sim, idle);
+      ticks++;
+    }
+
+    // It went UP: a flat shell never leaves its muzzle height.
+    expect(apex).toBeGreaterThan(launchHeight + 10);
+    // test-128 is a slope — it climbs ~4.7 m over the shell's flight — so the
+    // ground comes up to meet the shell and it lands a few ticks EARLY. That is
+    // the arc working: a flat shell at muzzle height would have ploughed into
+    // that same rise far sooner. What must hold on any terrain is that it never
+    // outlives its TTL, and that it flew at constant horizontal speed the whole
+    // way. The exact level-ground landing tick is pinned below, where terrain
+    // cannot muddy it.
+    expect(ticks).toBeLessThanOrEqual(SPECIAL_TTL_TICKS);
+    expect(ticks).toBeGreaterThan(SPECIAL_TTL_TICKS * 0.8);
+    // Measured from the avatar, so the muzzle offset the shell spawned at is
+    // part of the distance.
+    const flew = Math.sqrt((lastX - startX) ** 2 + (lastY - startY) ** 2);
+    expect(flew).toBeCloseTo(MUZZLE_OFFSET + SPECIAL_SPEED * ticks * TICK_DT, 1);
+  });
+
+  test("on level ground the arc lands exactly when the flat shell expired", () => {
+    // The balance claim behind MORTAR_LAUNCH_SPEED, checked against the DISCRETE
+    // integration the tick loop actually runs rather than the closed form it was
+    // derived from — a half-tick error in the derivation would not show up in
+    // the algebra, and would move where every mortar lands.
+    let height = MUZZLE_HEIGHT;
+    let vertical = MORTAR_LAUNCH_SPEED;
+    let ticks = 0;
+    while (height > 0 && ticks < SPECIAL_TTL_TICKS * 2) {
+      vertical -= GRAVITY * TICK_DT;
+      height += vertical * TICK_DT;
+      ticks++;
+    }
+    expect(ticks).toBe(SPECIAL_TTL_TICKS);
+  });
+
+  test("rockets do not lob — only the mortar has a vertical component", () => {
+    const map = getMapById("test-128");
+    const sim = createSim(map, 12, { loadouts: [{ gun: 0, heavy: 0, special: 0 }] });
+    const inputs = createTickInputs();
+    inputs.players[0].aimX = 127;
+    inputs.players[0].buttons = BUTTON_FIRE2; // Hell Fire 2000
+    step(sim, inputs);
+    for (let e = 0; e < sim.ent.high; e++) {
+      if (sim.ent.alive[e] && sim.ent.archetype[e] === ARCHETYPE.PROJECTILE) {
+        expect(sim.ent.timerB[e]).toBe(0);
+      }
+    }
   });
 
   test("pop-up mines place a charge without aim and spend special ammo", () => {

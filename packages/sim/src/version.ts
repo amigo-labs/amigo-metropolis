@@ -431,4 +431,31 @@
 //     connect with. match01's dead reckoning was also corrected to follow the
 //     QUANTISED heading the sim drives — it was 2.9 m out by the ring, which the
 //     old 1.5 m turret disc hid and a 0.7 m one does not.
-export const SIM_VERSION = 27;
+// v28: the Mortar lobs. It is the one weapon the original arcs, and the one the
+//     blurb here has always called an "arcing shell" while it flew dead flat —
+//     spawnProjectile set velX/velY and nothing vertical, so a mortar was a slow
+//     rocket. It now launches with a vertical velocity carried in timerB (the
+//     field entities.ts already documents as "vertical velocity (jump/fall) or
+//     secondary timer", and which only the mine used, for its arming delay) and
+//     integrates GRAVITY each tick, semi-implicit: velocity first, then height.
+//     No new entity field, so the hashable layout is untouched.
+//     MORTAR_LAUNCH_SPEED is DERIVED, not tuned: it is the speed at which the
+//     shell falls back to launch height exactly as its TTL runs out, so on level
+//     ground the arc lands on the same tick and at the same distance the flat
+//     shell reached when it expired — 110 ticks, 36.7 m. No balance number
+//     moves; only the path between the two ends. On rising ground it now lands
+//     EARLIER (the ground comes up to meet it) and on falling ground later,
+//     which is what an arc is for.
+//     The apex is ~34 m, which is steep. That is the direct consequence of the
+//     existing pair — 10 m/s over 3.67 s — and flattening it means raising
+//     SPECIAL_SPEED and lowering SPECIAL_TTL_TICKS together, a balance decision
+//     deliberately not taken here.
+//     Walls are unchanged: segmentBlocked is a 2D lattice with no height, so a
+//     shell still stops at a wall it is flying 30 m above. Making the mortar
+//     clear walls needs a height model the lattice does not have.
+//     Only golden-02-combat moves — it is the one replay that fires a mortar.
+//     MUZZLE_OFFSET/MUZZLE_HEIGHT also moved from sim.ts to balance.ts, where
+//     the constants rule says they belong; render/fx.ts imports them now instead
+//     of keeping the hand-copied duplicate its comment warned about. Values
+//     identical, no behaviour change.
+export const SIM_VERSION = 28;

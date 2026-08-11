@@ -152,6 +152,34 @@ export const SPECIAL_SPEED = 10;
 export const SPECIAL_TTL_TICKS = 110;
 export const SPECIAL_AOE_RADIUS = 8;
 
+// Muzzle geometry, shared by the sim and by the renderer's muzzle flash. They
+// lived in sim.ts, where render/fx.ts could only keep a hand-copied duplicate
+// and a comment asking the next reader to keep the two in lockstep.
+/** How far in front of the shooter a shell appears. */
+export const MUZZLE_OFFSET = 0.6;
+/** Shell spawn height above the shooter's feet — the X1's gun, not its roof. */
+export const MUZZLE_HEIGHT = 0.6;
+
+/**
+ * Upward launch speed of the Mortar, m/s. The one weapon that LOBS.
+ *
+ * Derived, not tuned, and the derivation is the point: it is the speed at which
+ * the shell falls back to launch height exactly as its TTL runs out. So an
+ * arcing mortar lands on the same tick, at the same distance, as the flat one
+ * did when it expired — 110 ticks and 36.7 m on level ground — and no balance
+ * number moves. Only the path between the two ends changes.
+ *
+ * Solve h0 + v·t − g·t²/2 = 0 for v at t = TTL:  v = g·t/2 − h0/t.
+ *
+ * That works out at ~36.5 m/s and an apex near 34 m, which is a STEEP lob. It
+ * is steep because the existing pair — 10 m/s over 3.67 s — is a slow shell
+ * with a long life, and an arc that has to last that long has nowhere to go but
+ * up. Flattening it means raising SPECIAL_SPEED and lowering SPECIAL_TTL_TICKS
+ * together, which is a balance decision and not this one.
+ */
+export const MORTAR_LAUNCH_SPEED =
+  (GRAVITY * (SPECIAL_TTL_TICKS * TICK_DT)) / 2 - MUZZLE_HEIGHT / (SPECIAL_TTL_TICKS * TICK_DT);
+
 // --- Non-default catalog weapons (weapons.ts) --------------------------------
 //
 // The three constants blocks above are the DEFAULT kit, index 0 in each slot.

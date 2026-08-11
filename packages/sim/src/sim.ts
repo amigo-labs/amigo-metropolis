@@ -43,6 +43,9 @@ import {
   HOVER_TRACTION_COAST,
   JUGGERNAUT_ALIVE_LIMIT,
   MAX_PLAYERS,
+  MORTAR_LAUNCH_SPEED,
+  MUZZLE_HEIGHT,
+  MUZZLE_OFFSET,
   NEUTRAL_TURRET_RESPAWN_TICKS,
   OUTPOST_CONSOLE_RESPAWN_TICKS,
   OUTPOST_COST_MULTIPLIER,
@@ -149,6 +152,8 @@ import {
   type Loadout,
   normalizeLoadout,
   PROJ_MINE,
+  PROJ_MORTAR,
+  PROJ_SPECIAL,
   projectileBlast,
   resolveLoadout,
   type WeaponDef,
@@ -658,16 +663,8 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
 
 const AXIS_SCALE = 1 / 127;
 const GROUND_EPS = 0.001;
-/** Shell spawn height above the shooter's feet — the X1's gun, not its roof. */
-const MUZZLE_HEIGHT = 0.6;
 /** Height changes up to this snap to the terrain; larger drops become falls. */
 export const STEP_SNAP = 0.35;
-/**
- * How far in front of the shooter a shell appears. Scaled with the models
- * (assets.md §4): 2 m put the muzzle more than a body-length ahead of a 0.80 m
- * mech, so shells materialised in mid-air in front of it.
- */
-const MUZZLE_OFFSET = 0.6;
 
 /**
  * The horizontal slope gate, shared by both axis moves: is the step from (x,y)
@@ -1419,7 +1416,23 @@ export function spawnProjectile(
   ent.hp[id] = 1;
   ent.mode[id] = kind;
   ent.timerA[id] = ttl;
+  // The mortar lobs; everything else flies flat. timerB is the shell's vertical
+  // velocity — the field entities.ts already documents as "vertical velocity
+  // (jump/fall) or secondary timer", and which only the mine uses otherwise (as
+  // its arming delay). No new field, so the hashable layout is untouched.
+  ent.timerB[id] = arcs(kind) ? MORTAR_LAUNCH_SPEED : 0;
   ent.ownerId[id] = player;
+}
+
+/**
+ * Does this payload follow a ballistic arc?
+ *
+ * The Mortar only. The rockets fly flat in the original as well as here, and
+ * the mine never travels. PROJ_SPECIAL is the legacy id for the mortar blast
+ * and is treated as the mortar everywhere else too (projectileBlast).
+ */
+function arcs(kind: number): boolean {
+  return kind === PROJ_MORTAR || kind === PROJ_SPECIAL;
 }
 
 /** Damage bookkeeping; deaths are collected by systemDamageDeath afterwards. */
@@ -1626,6 +1639,14 @@ function systemProjectiles(state: SimState): void {
     if (!walled) {
       ent.posX[id] = x;
       ent.posY[id] = y;
+    }
+    // Ballistic step for the mortar, semi-implicit Euler: gravity first, then
+    // the position. That order is what makes the shell reach the ground on
+    // exactly the tick its TTL would have expired on (see MORTAR_LAUNCH_SPEED),
+    // so an arcing mortar lands where the flat one used to.
+    if (arcs(ent.mode[id])) {
+      ent.timerB[id] -= GRAVITY * TICK_DT;
+      ent.height[id] += ent.timerB[id] * TICK_DT;
     }
     const ground = sampleHeight(map, ent.posX[id], ent.posY[id]);
     let boom = walled || ent.timerA[id] <= 0;
