@@ -1204,6 +1204,11 @@ function entityPose(id: number, out: Float32Array): boolean {
   out[1] = snapCurr[o + 5];
   out[2] = snapCurr[o + 4];
   if (out.length > 3) out[3] = snapCurr[o + 6];
+  // Slot 4, for callers that ask for it: the shooter's archetype. render/fx.ts
+  // needs it to pick the bolt — the original gives turrets the twin bolt and
+  // ground units the single one (docs/specs/fcop-fx.md §4). Guarded by length
+  // like the yaw above, so the audio resolver's shorter buffer is untouched.
+  if (out.length > 4) out[4] = snapCurr[o + 1];
   return true;
 }
 

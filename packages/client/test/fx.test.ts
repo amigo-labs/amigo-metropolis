@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ARCHETYPE,
   createEventBuffer,
   EV_EXPLOSION,
   EV_HIT,
@@ -141,11 +142,18 @@ describe("shot VFX", () => {
     expect(PARTICLE_ID.spark).toBe(7);
   });
 
-  test("an emplacement tracer is as long as the gun's reach, not the Mini-Gun's", () => {
-    // The bug this pins: turrets and units pushed EV_SHOT with b=0, c=0, which
-    // the renderer resolved to weaponById(0) and drew at PRIMARY_RANGE = 40 m.
+  test("an emplacement throws a bolt that covers the gun's reach", () => {
+    // Two bugs are pinned here, one old and one the original's data settled.
+    //
+    // The old one: turrets and units pushed EV_SHOT with b=0, c=0, which the
+    // renderer resolved to weaponById(0) and drew at PRIMARY_RANGE = 40 m.
     // la-cantina's turrets have an imported engage_range of 6 m, so 72
-    // emplacements each drew a bolt seven times longer than their own shot.
+    // emplacements each drew a streak seven times longer than their own shot.
+    // The reach still comes from the event, and it is still 6.
+    //
+    // The new one: it is not a streak at all. The original throws an OBJECT
+    // about a metre long that travels (docs/specs/fcop-fx.md §5), so the shot
+    // spawns a bolt and no tracer.
     const fx = createFx(new THREE.Scene());
     const events = createEventBuffer();
     pushEvent(events, EV_SHOT, 1, SHOT_SLOT_HITSCAN, reachToShotPayload(6));
@@ -153,10 +161,71 @@ describe("shot VFX", () => {
     fx.pump(events, atOrigin);
 
     const c = fx.debugCounts();
-    expect(c.tracers).toBe(1);
+    expect(c.tracers).toBe(0);
     expect(c.muzzles).toBe(1);
-    // param carries the tracer's world length.
-    expect(fx.debugTracerLength()).toBeCloseTo(6, 5);
+    expect(c.boltsSingle + c.boltsTwin).toBe(1);
+    // param carries the distance the bolt covers before it expires.
+    expect(fx.debugBoltReach()).toBeCloseTo(6, 5);
+  });
+
+  test("turrets throw the twin bolt, units the single one", () => {
+    // The original's AI weapon table hands weapon_id 3 — every turret and
+    // neutral turret on la-cantina, 64 of 64 — the TWIN bolt, and weapon_id 1
+    // and 6, its ground units and aircraft, the single one
+    // (docs/specs/fcop-fx.md §4). The archetype is what the renderer has to go
+    // on, since the map JSON carries no weapon id.
+    const shooterArchetype =
+      (archetype: number): FxPoseResolver =>
+      (_type, _a, _b, _c, out) => {
+        out[0] = 0;
+        out[1] = 0;
+        out[2] = 0;
+        out[3] = 0;
+        if (out.length > 4) out[4] = archetype;
+        return true;
+      };
+
+    const turret = createFx(new THREE.Scene());
+    const events = createEventBuffer();
+    pushEvent(events, EV_SHOT, 1, SHOT_SLOT_HITSCAN, reachToShotPayload(6));
+    turret.pump(events, shooterArchetype(ARCHETYPE.TURRET));
+    expect(turret.debugCounts().boltsTwin).toBe(1);
+    expect(turret.debugCounts().boltsSingle).toBe(0);
+
+    const unit = createFx(new THREE.Scene());
+    unit.pump(events, shooterArchetype(ARCHETYPE.RUNNER));
+    expect(unit.debugCounts().boltsSingle).toBe(1);
+    expect(unit.debugCounts().boltsTwin).toBe(0);
+  });
+
+  test("a bolt travels its reach and then expires", () => {
+    // The whole point of the change: it MOVES. Half a life in it is halfway
+    // down the shot, where the old streak covered the whole reach from frame
+    // one and never went anywhere.
+    const scene = new THREE.Scene();
+    const fx = createFx(scene);
+    const events = createEventBuffer();
+    pushEvent(events, EV_SHOT, 1, SHOT_SLOT_HITSCAN, reachToShotPayload(6));
+    fx.pump(events, atOrigin);
+
+    const life = 6 / 90; // reach / BOLT_SPEED
+    fx.update(life * 0.5);
+    expect(fx.debugCounts().boltsSingle + fx.debugCounts().boltsTwin).toBe(1);
+
+    // atOrigin faces +X, so the bolt is 3 m along X, out of a 6 m reach, plus
+    // the muzzle offset it started from.
+    const bolt = scene.children.find(
+      (c): c is THREE.InstancedMesh => (c as THREE.InstancedMesh).isInstancedMesh && c.count === 1,
+    );
+    expect(bolt).toBeDefined();
+    const m = new THREE.Matrix4();
+    bolt?.getMatrixAt(0, m);
+    const at = new THREE.Vector3().setFromMatrixPosition(m);
+    expect(at.x).toBeCloseTo(0.6 + 3, 3);
+    expect(at.z).toBeCloseTo(0, 5);
+
+    fx.update(life * 0.6);
+    expect(fx.debugCounts().boltsSingle + fx.debugCounts().boltsTwin).toBe(0);
   });
 
   test("a launch flash spawns no tracer — the shell is its own entity", () => {
