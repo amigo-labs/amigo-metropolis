@@ -75,6 +75,19 @@ forever as a debug render mode (`?render=greybox`).
   the arena follows this scale: greybox stand-ins (`render/greybox.ts`), the
   chase framing (`camera.spec` §7), and `ARCHETYPE_RADIUS` in `balance.ts`,
   which is half the model's footprint.
+- **Projectiles and weapon effects keep their pivot, not the ground.** The third
+  model family (`FX_MODELS` → `packages/client/public/models/fx/`) follows the
+  same native-scale law, but is neither grounded nor XZ-centred: a shell flies
+  about the centre the original authored it on, and dropping `minY` to 0 would
+  lift every bolt off the line it travels. `docs/specs/fcop-fx.md` records which
+  mesh belongs to which weapon and how that was established.
+- **Facer geometry may mix with textured geometry in one model.** The original's
+  `Star` / `Billboard` / `Line` primitives carry colour in `COLOR_0` and no UVs,
+  while bodies carry UVs and no colour; a model can have both — every FCOP
+  projectile does, and so does the Sky Captain gunship. The pipeline packs the
+  real pages plus a small white patch that the facers' synthesised UVs point at,
+  so one primitive carries both. Demanding UVs on *every* primitive is what made
+  `fortress.glb` ship untextured for six line facers' sake.
 - Named nodes for code-driven animation (rigid transforms, no skinning):
   `root, hull, turret_yaw, barrel_pitch, leg_l, leg_r, fx_muzzle, fx_thruster`.
 - **Reality check, avatar walk (v20):** the pipeline emits ONE node per unit —

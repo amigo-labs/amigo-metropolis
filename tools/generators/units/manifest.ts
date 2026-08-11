@@ -278,6 +278,191 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
   },
 ];
 
+/**
+ * Projectile / weapon-effect model. Third family next to UNIT_MODELS and
+ * PROP_MODELS, and the one with the strictest origin rule.
+ *
+ * Same `nativeScale` law as the units — these are Cobj assemblies already in map
+ * meters — but unlike a unit these are NOT grounded and NOT XZ-centred. A
+ * projectile's origin is its own pivot: the original authored the bolt centred
+ * on its middle (Cobj 12's bbox centre sits 0.006 m off origin in Z, its ends at
+ * ±0.51) and the sim positions the shell at that centre. Sliding minY to 0 would
+ * push every bolt half its thickness above the line it is meant to travel.
+ *
+ * Which mesh belongs to which weapon comes from the original's own template
+ * tables, not from taste — see `docs/specs/fcop-fx.md` §3/§4, which records per
+ * row what is extracted and what is derived. The `role` field below is that
+ * table's verdict in one line.
+ */
+export interface FxModelSpec {
+  /** Output name: packages/client/public/models/fx/<key>.glb. */
+  readonly key: string;
+  /** Original Cobj resource id in the Mp container. */
+  readonly cobj: number;
+  readonly raw: string;
+  readonly source: UnitModelSource;
+  /** Where the original uses it, per docs/specs/fcop-fx.md. */
+  readonly role: string;
+  readonly rotateQuarterY: 0 | 1 | 2 | 3;
+  /** Soft upper bound on the max horizontal extent, measured off the raw. */
+  readonly footprint: number;
+  /** Soft upper bound on height, measured off the raw. */
+  readonly maxHeight: number;
+  readonly maxTris: number;
+  /**
+   * Desaturate so the per-instance tint reads. ON for the whole family, and
+   * this is the original's behaviour rather than ours: every type-99 row names
+   * its mesh twice, in slot 0 and slot 3, and those are the two team variants
+   * (Ant Missile 44/45 and Mine 50/51 have identical raw payloads; the glow pair
+   * 46/47 is one geometry in two colours). We ship one mesh and tint it.
+   */
+  readonly neutralizeColors: boolean;
+}
+
+// The eight type-99 rows and the two AI bolts that PA actually fires. Not
+// shipped, but committed as raws under the same directory because they are the
+// evidence for the table: obj 048 (Robo Dog, the 11-frame morph), obj 046/047
+// (Fusion Torpedo / Plasma Flare glow), obj 052 (Grenade), obj 013 (the flat
+// bolt of AI weapon 2) and obj 053 (AI weapon 6) — all weapons this game does
+// not carry. See docs/specs/fcop-fx.md.
+export const FX_MODELS: readonly FxModelSpec[] = [
+  {
+    key: "bolt-single",
+    cobj: 12,
+    raw: "fcop-fx/mp-obj012-bolt-single.glb",
+    source: {
+      title: "Single bolt (Mp Cobj 12, AI weapon 1)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "AI weapon_id 1 — ground units and aircraft",
+    rotateQuarterY: 0,
+    // Native 0.219 x 0.219 x 1.025: a 1 m beam of pure facer geometry. The
+    // length is the point — the original throws an object this long, where
+    // render/fx.ts used to draw a streak the full 40 m reach of the shot.
+    footprint: 1.03,
+    maxHeight: 0.22,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
+  {
+    key: "bolt-twin",
+    cobj: 14,
+    raw: "fcop-fx/mp-obj014-bolt-twin.glb",
+    source: {
+      title: "Twin bolt (Mp Cobj 14, AI weapon 3)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "AI weapon_id 3 — turrets and neutral turrets (64 of 64 on la-cantina)",
+    rotateQuarterY: 0,
+    // Native 0.313 x 0.313 x 1.094 — two beams, so wider and slightly longer.
+    footprint: 1.1,
+    maxHeight: 0.32,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
+  {
+    key: "rocket-heavy",
+    cobj: 42,
+    raw: "fcop-fx/mp-obj042-rocket-heavy.glb",
+    source: {
+      title: "Heavy rocket (Mp Cobj 42, AI weapon 4)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "AI weapon_id 4 — aircraft only; carries the Warden's bomb here",
+    rotateQuarterY: 0,
+    // Native 0.199 x 0.199 x 0.543 — the largest of the rocket family.
+    footprint: 0.55,
+    maxHeight: 0.2,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
+  {
+    key: "rocket-helfire",
+    cobj: 43,
+    raw: "fcop-fx/mp-obj043-rocket-helfire.glb",
+    source: {
+      title: "Helfire rocket (Mp Cobj 43, player weapon row 6)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "player Helfire — our Hell Fire 2000, PROJ_HEAVY",
+    rotateQuarterY: 0,
+    // Native 0.182 x 0.148 x 0.389.
+    footprint: 0.4,
+    maxHeight: 0.15,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
+  {
+    key: "missile-ant",
+    cobj: 44,
+    raw: "fcop-fx/mp-obj044-missile-ant.glb",
+    source: {
+      title: "Ant Missile (Mp Cobj 44, player weapon row 8)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    // Row 8 is EXE weapon 0x13, which weapons.ts carries as the Hyper Velocity
+    // Rocket. The RE name table reads it "Ant Missle?" with the question mark
+    // its own — the two names are for the same slot, and this asset settles
+    // only the mesh, not the naming.
+    role: "player weapon 0x13 — our Hyper Velocity Rocket, PROJ_HYPER",
+    rotateQuarterY: 0,
+    // Native 0.107 x 0.090 x 0.234 — the smallest body in the family.
+    footprint: 0.24,
+    maxHeight: 0.1,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
+  {
+    key: "shell-mortar",
+    cobj: 49,
+    raw: "fcop-fx/mp-obj049-shell-mortar.glb",
+    source: {
+      title: "Mortar shell (Mp Cobj 49, player weapon row 11)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "player Mortar — PROJ_MORTAR and the legacy PROJ_SPECIAL",
+    rotateQuarterY: 0,
+    // Native 0.188 x 0.188 x 0.352 — round, unlike the pointed rockets.
+    footprint: 0.36,
+    maxHeight: 0.19,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
+  {
+    key: "mine",
+    cobj: 50,
+    raw: "fcop-fx/mp-obj050-mine.glb",
+    source: {
+      title: "Mine (Mp Cobj 50, player weapon row 13)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    // The original blinks this one through a `color_anim` on face 4
+    // (grey -> magenta, speed 16). The pipeline has no path for per-face colour
+    // animation, so it ships static; the arming blink stays the client's job.
+    role: "player Mine — PROJ_MINE",
+    rotateQuarterY: 0,
+    // Native 0.324 x 0.215 x 0.369.
+    footprint: 0.38,
+    maxHeight: 0.22,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
+];
+
 export interface PropModelSpec {
   /**
    * Output name: packages/client/public/models/props/<key>.glb.
