@@ -38,9 +38,28 @@ const UNIT_GLBS = [
   "guardian",
   "juggernaut",
   "fortress",
-  "turret",
+  // The two turret modes are two models and two buckets; "turret" has not been
+  // a shipped key since the Standard/Defense split, so this list asked for a
+  // file that cannot 200 and the verifier failed on every run.
+  "turret-standard",
+  "turret-defense",
   "console",
   "warden",
+];
+
+/**
+ * Projectile / weapon-effect models (docs/specs/fcop-fx.md). Loaded at boot
+ * like the units: five projectile buckets from unitMeshes.ts, plus the two
+ * bolts render/fx.ts swaps into its own pools.
+ */
+const FX_GLBS = [
+  "rocket-helfire",
+  "missile-ant",
+  "shell-mortar",
+  "mine",
+  "rocket-heavy",
+  "bolt-single",
+  "bolt-twin",
 ];
 
 interface ShotResult {
@@ -88,8 +107,8 @@ async function main(): Promise<void> {
       const u = r.url();
       if (u.includes("/models/")) {
         if (r.status() >= 400) badAssets.push(`${r.status()} ${u}`);
-        const unit = u.match(/\/models\/units\/([a-z-]+)\.glb$/);
-        if (unit && r.ok()) glbsLoaded.push(unit[1]);
+        const asset = u.match(/\/models\/(units|fx)\/([a-z0-9-]+)\.glb$/);
+        if (asset && r.ok()) glbsLoaded.push(asset[2]);
       }
     });
 
@@ -113,9 +132,10 @@ async function main(): Promise<void> {
       { timeout: 15000 },
     );
     if (mode === "mesh") {
-      // All nine unit models answered (200) or warned (fallback) before posing.
+      // Every unit and FX model answered (200) or warned (fallback) before posing.
       const deadline = Date.now() + 15000;
-      while (Date.now() < deadline && glbsLoaded.length + fallbacks.length < UNIT_GLBS.length) {
+      const wanted = UNIT_GLBS.length + FX_GLBS.length;
+      while (Date.now() < deadline && glbsLoaded.length + fallbacks.length < wanted) {
         await page.waitForTimeout(200);
       }
     }
@@ -265,7 +285,7 @@ async function main(): Promise<void> {
   const problems: string[] = [];
   if (mesh.renderer === null) problems.push("no WebGL2 context");
   if (mesh.fallbacks.length) problems.push(`greybox fallbacks: ${mesh.fallbacks.join(" | ")}`);
-  const missing = UNIT_GLBS.filter((k) => !mesh.glbsLoaded.includes(k));
+  const missing = [...UNIT_GLBS, ...FX_GLBS].filter((k) => !mesh.glbsLoaded.includes(k));
   if (missing.length) problems.push(`unit glbs never returned 200: ${missing.join(", ")}`);
   if (mesh.badAssets.length) problems.push(`asset errors: ${mesh.badAssets.join(", ")}`);
   if (mesh.errors.length) problems.push(`console/page errors: ${mesh.errors.join(" | ")}`);
