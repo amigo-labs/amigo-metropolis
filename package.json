@@ -16,6 +16,7 @@
     "gen:sfx": "bun run tools/generators/genSfx.ts",
     "gen:fxsheet": "bun run tools/generators/fx/particleSheet.ts",
     "gen:fxkey": "bun run tools/generators/fx/keyAtlas.ts",
+    "gen:fxcobj": "bun run tools/generators/fx/cobjContact.ts",
     "gen:mapalign": "bun run tools/generators/genMapAlign.ts",
     "gen:palogic": "bun run tools/generators/fcopLogic.ts",
     "gen:walls": "bun run tools/generators/fcopWalls.ts",
