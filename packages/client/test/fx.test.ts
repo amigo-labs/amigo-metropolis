@@ -226,18 +226,21 @@ describe("transformation discharge", () => {
       fx.update(1 / 60);
       elapsed += 1 / 60;
     }
-    expect(fx.debugCounts().shockwaves).toBe(0);
+    expect(fx.debugCounts().transformFlashes).toBe(0);
 
     while (elapsed < DURATION * 0.6) {
       fx.update(1 / 60);
       elapsed += 1 / 60;
     }
-    // One ring, and it does not re-fire on later frames of the same morph.
-    expect(fx.debugCounts().shockwaves).toBe(1);
-    // Comfortably past SHOCKWAVE_LIFE (0.28 s): the ring ages out and no second
-    // one takes its place.
+    // One flash, and it does not re-fire on later frames of the same morph.
+    expect(fx.debugCounts().transformFlashes).toBe(1);
+    // Comfortably past TRANSFORM_FLASH_LIFE: it ages out and nothing replaces it.
     for (let i = 0; i < 24; i++) fx.update(1 / 60);
+    expect(fx.debugCounts().transformFlashes).toBe(0);
+    // And it never touched the shared explosion/shockwave pools, which age on a
+    // different clock.
     expect(fx.debugCounts().shockwaves).toBe(0);
+    expect(fx.debugCounts().explosions).toBe(0);
   });
 
   test("the emitter releases itself when the lock is over", () => {

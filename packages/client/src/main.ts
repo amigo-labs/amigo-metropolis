@@ -1328,10 +1328,11 @@ function rotateSnapshot(): void {
   writeMatchSnapshot(sim, matchSnap);
 }
 
-function renderEntities(alpha: number, dtSec: number): void {
+function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
   // Once per frame, ahead of the sweep that samples it. This is the one place
-  // the entity pass runs, however many views the frame ends up drawing.
-  avatarMorph.advance(dtSec);
+  // the entity pass runs, however many views the frame ends up drawing. On the
+  // SIM's clock, not the frame's — see advanceSimClock.
+  avatarMorph.advance(simDtSec);
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }
@@ -1550,6 +1551,42 @@ function hudText(view: PlayerView, fps: number, banner: string): string {
 let last = performance.now();
 let accumulator = 0;
 
+/**
+ * Sim time (in fractional ticks) the previous frame interpolated to, or -1
+ * before the first frame and after a discontinuity.
+ */
+let lastSimTime = -1;
+
+/**
+ * How far the SIM moved since the last frame, in seconds — the clock anything
+ * timed against a sim window has to use.
+ *
+ * `dtMs` is capped at 250 ms so a backgrounded tab cannot spiral the
+ * accumulator, which means one long frame can hand a wall-clock effect a third
+ * of a second in a single go. Harmless for a 0.09 s tracer; ruinous for the
+ * transformation, whose 0.8 s has to line up tick for tick with the sim's
+ * transform lock or the mech finishes changing shape and then stands frozen.
+ *
+ * Zero while the sim is paused or has not started, so the pin harness can
+ * freeze a transformation mid-swing and photograph it.
+ */
+function advanceSimClock(alpha: number): number {
+  if (!sim) {
+    lastSimTime = -1;
+    return 0;
+  }
+  const simTime = sim.tick + alpha;
+  // First frame, a new match (tick back to 0) or a rollback: no delta to report,
+  // just re-anchor. A negative one would run every live morph backwards.
+  if (lastSimTime < 0 || simTime < lastSimTime) {
+    lastSimTime = simTime;
+    return 0;
+  }
+  const delta = simTime - lastSimTime;
+  lastSimTime = simTime;
+  return delta / TICK_HZ;
+}
+
 function frame(now: number): void {
   const dtMs = Math.min(now - last, 250);
   // timeScale is 1 everywhere except sandbox slow motion; net matches never see
@@ -1590,11 +1627,13 @@ function frame(now: number): void {
   // dtSec before renderEntities: the walk rig fades its swing in and out in real
   // seconds (the stride itself is distance-driven — render/avatarRig.ts).
   const dtSec = dtMs / 1000;
-  renderEntities(accumulator / TICK_MS, dtSec);
+  const alpha = accumulator / TICK_MS;
+  const simDtSec = advanceSimClock(alpha);
+  renderEntities(alpha, dtSec, simDtSec);
   if (views.length === 0) {
     // No views yet: menu / lobby / waiting-for-opponent — flyover over the demo.
     updateFlyoverCamera(flyCam, now / 1000, extent);
-    if (phase === "match") fx.update(dtSec, flyCam);
+    if (phase === "match") fx.update(dtSec, flyCam, simDtSec);
     renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.setScissor(0, 0, innerWidth, innerHeight);
     renderer.render(scene, flyCam);
@@ -1620,7 +1659,7 @@ function frame(now: number): void {
       }
       // Billboards face the local view's camera (view 0); update once after
       // that camera is posed, before any scissored draw.
-      if (v === 0 && phase === "match") fx.update(dtSec, view.camera);
+      if (v === 0 && phase === "match") fx.update(dtSec, view.camera, simDtSec);
       const vp = view.viewport;
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);

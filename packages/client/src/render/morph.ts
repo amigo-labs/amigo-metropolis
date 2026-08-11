@@ -9,11 +9,21 @@
 // the fx pools already use (architecture.md §3: cosmetics drain the event
 // buffer, never feed back).
 //
-// The clock is wall time and the lock is ticks, so the two can drift if the sim
-// stalls. Both ends are covered and neither is worse than a cosmetic: a morph
-// that outlives its lock is cut short by `release()` when ANIM_TRANSFORMING
-// clears, and one that finishes early just settles into its destination form a
-// few frames before the avatar can move again.
+// The clock is the SIM's, not the wall's: `advance()` is fed the sim time the
+// frame is interpolating to, converted to seconds, so a morph and the lock it
+// belongs to cannot drift apart. Wall time was the obvious choice and it was
+// wrong — the frame loop caps a frame at 250 ms, a third of the whole
+// transformation, so one hitch (a shader compile, a GC, a tab refocus) would
+// fast-forward the mech into its new form and leave it standing frozen for the
+// rest of the lock. Under the headless pin harness that is not an edge case at
+// all: a `page.evaluate` round trip stalls the loop and the morph was finishing
+// in a quarter of the time.
+//
+// Being on the sim clock also means the morph FREEZES when the sim does, which
+// is what makes a mid-transformation pin worth taking.
+//
+// `release()` still exists for the cases the clock cannot see: a death or a
+// rollback that ends the lock early.
 //
 // Why a phase split rather than a cross-fade: walker and hover are two unrelated
 // meshes on two unrelated render paths, and fading between them would need
@@ -27,7 +37,7 @@ import { TICK_HZ, TRANSFORM_LOCK_TICKS } from "@metropolis/sim";
 /** One per avatar the renderer can draw at once — matches RIG_CAPACITY. */
 export const MORPH_SLOTS = 4;
 
-/** Wall-clock length of one transformation, straight off the sim's lock. */
+/** Length of one transformation in SIM seconds, straight off the sim's lock. */
 export const MORPH_DURATION_SEC = TRANSFORM_LOCK_TICKS / TICK_HZ;
 
 /** How flat the mech gets at the swap, as a fraction of its standing height. */
@@ -91,8 +101,13 @@ export interface AvatarMorph {
    * form being left is its negation.
    */
   start(id: number, toHover: boolean): void;
-  /** Age every live morph. Call once per frame, before sampling. */
-  advance(dtSec: number): void;
+  /**
+   * Age every live morph. Call once per frame, before sampling.
+   *
+   * `simDtSec` is how far the SIM advanced since the last frame, interpolation
+   * included — zero while it is paused. Never the frame's wall-clock delta.
+   */
+  advance(simDtSec: number): void;
   /**
    * Fills `out` (length MORPH_OUT_LEN) for `id` and returns true, or returns
    * false and leaves `out` alone when `id` is not morphing.
@@ -144,11 +159,11 @@ export function createAvatarMorph(): AvatarMorph {
       elapsed[i] = 0;
       toHover[i] = hover ? 1 : 0;
     },
-    advance(dtSec) {
-      if (dtSec <= 0) return;
+    advance(simDtSec) {
+      if (simDtSec <= 0) return;
       for (let i = 0; i < MORPH_SLOTS; i++) {
         if (ids[i] === -1) continue;
-        elapsed[i] += dtSec;
+        elapsed[i] += simDtSec;
         if (elapsed[i] >= MORPH_DURATION_SEC) free(i);
       }
     },

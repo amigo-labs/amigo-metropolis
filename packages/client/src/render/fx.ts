@@ -80,21 +80,41 @@ const SHOCKWAVE_END = 8;
  * Electric Gun already established (hitscanLook).
  */
 const ARC_LIFE = 0.09;
-const ARC_RADIUS = 0.55;
-const ARC_HEIGHT = 1.25;
-const ARC_LEN_MIN = 0.22;
-const ARC_LEN_SPAN = 0.33;
-const ARC_CORE_THICK = 0.035;
-const ARC_GLOW_THICK = 0.11;
+const ARC_RADIUS = 0.45;
+const ARC_HEIGHT = 0.95;
+const ARC_LEN_MIN = 0.13;
+const ARC_LEN_SPAN = 0.2;
+/**
+ * Thin. Measured off the first pass, which had these at 0.035/0.11: against a
+ * 0.8 m mech that is a 10 cm slab, and a screenful of them read as white glass
+ * shards rather than as electricity. Length carries an arc; width kills it.
+ */
+const ARC_CORE_THICK = 0.018;
+const ARC_GLOW_THICK = 0.05;
 const ARC_CORE_HEX = 0xe8ffff;
 const ARC_GLOW_HEX = 0x40c0ff;
 /** Streaks per burst, and how often bursts land at the ends vs at the swap. */
-const ARC_PER_BURST = 5;
-const ARC_INTERVAL_CALM = 0.09;
-const ARC_INTERVAL_PEAK = 0.03;
-/** The discharge that covers the mesh swap, at the halfway point of the lock. */
-const TRANSFORM_FLASH_SCALE = 2.6;
+const ARC_PER_BURST = 8;
+const ARC_INTERVAL_CALM = 0.07;
+const ARC_INTERVAL_PEAK = 0.025;
+/**
+ * The discharge that covers the mesh swap, at the halfway point of the lock.
+ *
+ * It borrows the explosion SPRITE but not the explosion POOL. The sprite,
+ * because the muzzle particle is a 32x32 red puff and blown up over a
+ * transforming mech it read as a pink pixel blob, where the explosion ball tints
+ * cleanly to the arc palette. Its own pool, because everything in this effect
+ * has to age on the sim clock: parked in the shared pools, the flash and the
+ * ring decayed on wall time while the arcs around them stayed frozen, so a
+ * paused mid-transformation frame lost exactly the beat worth photographing.
+ */
+const TRANSFORM_FLASH_CAP = 8;
+const TRANSFORM_FLASH_START = 0.45;
+const TRANSFORM_FLASH_END = 1.9;
+const TRANSFORM_FLASH_LIFE = 0.22;
+const TRANSFORM_RING_START = 0.4;
 const TRANSFORM_RING_END = 3.2;
+const TRANSFORM_RING_LIFE = 0.3;
 
 /**
  * Cpyr particle ids per role, read off the contact sheet (gen:fxsheet).
@@ -145,8 +165,14 @@ export interface ShotFx {
   /**
    * Age live effects and rewrite instance matrices (call once per frame).
    * Pass the active camera so Cpyr billboards face the viewer.
+   *
+   * `simDtSec` is how far the sim moved this frame, and only the transformation
+   * discharge uses it: that effect spans a sim window (the transform lock) and
+   * has to stay in step with the morph it plays over, while a tracer or a
+   * fireball is a sub-frame flash that should burn out in real time whatever the
+   * sim is doing. Omit it and the discharge falls back to the frame's own delta.
    */
-  update(dtSec: number, camera?: THREE.Camera): void;
+  update(dtSec: number, camera?: THREE.Camera, simDtSec?: number): void;
   /** Test/debug: live slot counts per pool. */
   debugCounts(): {
     tracers: number;
@@ -158,6 +184,8 @@ export interface ShotFx {
     arcs: number;
     /** Transformations currently discharging. */
     arcEmitters: number;
+    /** Live swap flashes (the ground ring is spawned one for one with these). */
+    transformFlashes: number;
   };
   /** Test/debug: world length of the newest live tracer, or 0 when there is none. */
   debugTracerLength(): number;
@@ -453,7 +481,19 @@ export function createFx(scene: THREE.Scene): ShotFx {
   // is no arc frame in the extract, and stretching a puff into a streak reads as
   // a smear rather than electricity.
   const arcCore = makePool(scene, quadGeom, makeAdditiveMaterial(ARC_CORE_HEX, 1), ARC_CAP);
-  const arcGlow = makePool(scene, quadGeom, makeAdditiveMaterial(ARC_GLOW_HEX, 0.5), ARC_CAP);
+  const arcGlow = makePool(scene, quadGeom, makeAdditiveMaterial(ARC_GLOW_HEX, 0.35), ARC_CAP);
+  // The flash and the ground ring belong to the discharge, not to the explosion
+  // and shockwave pools they look like — they age on the sim clock with the arcs.
+  // Under 1: the Cpyr ball is a dense speckled sprite at NearestFilter, and at
+  // full opacity it goes opaque enough to read as static rather than as light.
+  const transformFlashMat = makeAdditiveMaterial(ARC_CORE_HEX, 0.8);
+  const transformFlashes = makePool(scene, quadGeom, transformFlashMat, TRANSFORM_FLASH_CAP);
+  const transformRings = makePool(
+    scene,
+    ringGeom,
+    makeAdditiveMaterial(ARC_GLOW_HEX, 0.7),
+    TRANSFORM_FLASH_CAP,
+  );
   const arcEmitters = makeArcEmitters();
 
   let atlasReady = false;
@@ -466,6 +506,11 @@ export function createFx(scene: THREE.Scene): ShotFx {
     bindSpriteMap(explosionMat, loaded.maps.explosion);
     bindSpriteMap(explosionLateMat, loaded.maps.explosionLate);
     bindSpriteMap(sparkMat, loaded.maps.spark);
+    // Same round soft ball, kept tinted: bindSpriteMap whitens the material so
+    // the sprite's own colours show, which is right for a fireball and wrong for
+    // a discharge.
+    bindSpriteMap(transformFlashMat, loaded.maps.explosion);
+    transformFlashMat.color.setHex(ARC_CORE_HEX);
     atlasReady = true;
   });
 
@@ -655,13 +700,16 @@ export function createFx(scene: THREE.Scene): ShotFx {
       // The swap happens halfway (render/morph.ts): flash over it once.
       if (arcEmitters.flashed[i] === 0 && t >= 0.5) {
         arcEmitters.flashed[i] = 1;
-        spawn(muzzles, MUZZLE_LIFE * 3, px, py + ARC_HEIGHT * 0.5, pz, 0, TRANSFORM_FLASH_SCALE);
-        const wslot = shockwaves.count;
-        if (spawn(shockwaves, SHOCKWAVE_LIFE, px, py + 0.1, pz, 0, TRANSFORM_RING_END)) {
-          scratchColor.setHex(ARC_GLOW_HEX);
-          shockwaves.mesh.setColorAt(wslot, scratchColor);
-          if (shockwaves.mesh.instanceColor) shockwaves.mesh.instanceColor.needsUpdate = true;
-        }
+        spawn(
+          transformFlashes,
+          TRANSFORM_FLASH_LIFE,
+          px,
+          py + ARC_HEIGHT * 0.5,
+          pz,
+          0,
+          TRANSFORM_FLASH_END,
+        );
+        spawn(transformRings, TRANSFORM_RING_LIFE, px, py + 0.1, pz, 0, TRANSFORM_RING_END);
       }
 
       // Triangular density: calm at both ends, peak at the swap.
@@ -723,9 +771,10 @@ export function createFx(scene: THREE.Scene): ShotFx {
     pool.mesh.instanceMatrix.needsUpdate = true;
   }
 
-  function update(dtSec: number, camera?: THREE.Camera): void {
+  function update(dtSec: number, camera?: THREE.Camera, simDtSec?: number): void {
     hasCamera = camera !== undefined;
     if (camera) camera.getWorldQuaternion(camQuat);
+    const arcDt = simDtSec ?? dtSec;
 
     if (dtSec > 0) {
       age(tracerCore, dtSec);
@@ -735,11 +784,19 @@ export function createFx(scene: THREE.Scene): ShotFx {
       age(explosionsLate, dtSec);
       age(sparks, dtSec);
       age(shockwaves, dtSec);
-      age(arcCore, dtSec);
-      age(arcGlow, dtSec);
+    }
+    // The discharge runs on the sim's clock, so it freezes with a paused sim
+    // and cannot be fast-forwarded by a long frame — the streaks age on the same
+    // clock that schedules them, or a freeze would drain the pool and leave a
+    // mid-transformation pin with nothing to look at.
+    if (arcDt > 0) {
+      age(arcCore, arcDt);
+      age(arcGlow, arcDt);
+      age(transformFlashes, arcDt);
+      age(transformRings, arcDt);
       // AFTER the ages: a streak spawned this frame should get its whole life,
       // and at ARC_LIFE it only has about three frames to give away.
-      advanceArcEmitters(dtSec);
+      advanceArcEmitters(arcDt);
     }
 
     writeOriented(tracerCore, false, (i, t) => {
@@ -779,6 +836,16 @@ export function createFx(scene: THREE.Scene): ShotFx {
       const s = 0.8 + shockwaves.param[i] * t;
       scratchScale.set(s, 1, s);
     });
+    // Punch in hard, then fade — the swap happens under the brightest frame.
+    writeOriented(transformFlashes, true, (i, t) => {
+      const s = TRANSFORM_FLASH_START + (transformFlashes.param[i] - TRANSFORM_FLASH_START) * t;
+      const f = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+      scratchScale.set(s * f, s * f, s * f);
+    });
+    writeOriented(transformRings, false, (i, t) => {
+      const s = TRANSFORM_RING_START + transformRings.param[i] * t;
+      scratchScale.set(s, 1, s);
+    });
     // Arcs snap to full length and thin out rather than shrinking: a discharge
     // that scales down reads as a receding object, not as one going out.
     writeRolled(arcCore, (i, t) => {
@@ -805,6 +872,7 @@ export function createFx(scene: THREE.Scene): ShotFx {
       shockwaves: shockwaves.count,
       arcs: arcCore.count,
       arcEmitters: liveArcEmitters(),
+      transformFlashes: transformFlashes.count,
     }),
   };
 }
