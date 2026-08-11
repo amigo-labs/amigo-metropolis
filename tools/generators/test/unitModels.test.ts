@@ -89,7 +89,7 @@ describe("committed unit models match the manifest contract", () => {
         const mixed = prims[0].getAttribute("COLOR_0");
         if (mixed) {
           expect(mixed.getType()).toBe("VEC4");
-          expect(mixed.getCount()).toBe(prims[0].getAttribute("POSITION")?.getCount());
+          expect(mixed.getCount()).toBe(prims[0].getAttribute("POSITION")?.getCount() ?? 0);
         }
       } else {
         expect(prims[0].getAttribute("COLOR_0")).not.toBeNull();
