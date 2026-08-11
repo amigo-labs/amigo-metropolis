@@ -28,7 +28,7 @@
 // byte-reproducible today, so that refactor has no safety net. Hip swing gets
 // the legs moving without touching a single asset byte.
 
-import { ANIM_AIRBORNE, ANIM_MOVING, ARCHETYPE } from "@metropolis/sim";
+import { ANIM_AIRBORNE, ANIM_MOVING } from "@metropolis/sim";
 import * as THREE from "three";
 import { tintFor } from "./greybox";
 import { loadUnitAsset } from "./unitMeshes";
@@ -495,7 +495,7 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
         }
         if (part.tintCache[slot] !== team) {
           part.tintCache[slot] = team;
-          part.mesh.setColorAt(slot, tintFor(ARCHETYPE.AVATAR, team, 0));
+          part.mesh.setColorAt(slot, tintFor(team));
           if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
         }
       }

@@ -10,12 +10,18 @@ import {
   ARCHETYPE,
   getMapById,
   MAP_REGISTRY,
+  PROJ_HEAVY,
+  PROJ_HYPER,
+  PROJ_MINE,
+  PROJ_MORTAR,
+  PROJ_SPECIAL,
+  PROJ_WARDEN,
   TURRET_BUILTIN,
   TURRET_DEFENSE,
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { NEUTRAL_RAMP, PROJECTILE_HEX, TEAM_RAMPS } from "./palette";
+import { NEUTRAL_RAMP, TEAM_RAMPS } from "./palette";
 
 // Colors come from the shared game palette (assets.md §3) — team meshes use the
 // ramp's base shade; base structures reach for the dark shade themselves.
@@ -23,7 +29,6 @@ export const TEAM_COLORS: readonly THREE.Color[] = TEAM_RAMPS.map(
   (ramp) => new THREE.Color(ramp.base),
 );
 export const NEUTRAL_COLOR = new THREE.Color(NEUTRAL_RAMP.base);
-const PROJECTILE_COLORS: readonly THREE.Color[] = PROJECTILE_HEX.map((hex) => new THREE.Color(hex));
 
 export interface Bucket {
   readonly mesh: THREE.InstancedMesh;
@@ -45,6 +50,13 @@ export interface GreyboxMeshes {
   readonly turretStandard: Bucket;
   /** Mode "Defense": base-ring turrets (TURRET_DEFENSE). */
   readonly turretDefense: Bucket;
+  /** One bucket per projectile kind — the original has one mesh per kind. */
+  readonly projHeavy: Bucket;
+  readonly projHyper: Bucket;
+  readonly projMortar: Bucket;
+  readonly projMine: Bucket;
+  readonly projWarden: Bucket;
+  /** Kinds with no mesh of their own (the shockwave pulse). */
   readonly projectile: Bucket;
   readonly console: Bucket;
   readonly warden: Bucket;
@@ -136,14 +148,34 @@ const NATIVE: Record<string, { footprint: number; height: number }> = {
   fortress: { footprint: 2.67, height: 1.89 },
   console: { footprint: 1.12, height: 1.47 },
   warden: { footprint: 2.04, height: 0.71 },
+  // Projectiles and bolts, from FX_MODELS (docs/specs/fcop-fx.md). Same rule as
+  // above: the stand-in is drawn at whatever proportions read best and then
+  // scaled onto the original's size, so swapping the .glb in changes the shape
+  // and never the scale.
+  projHeavy: { footprint: 0.39, height: 0.15 },
+  projHyper: { footprint: 0.23, height: 0.09 },
+  projMortar: { footprint: 0.35, height: 0.19 },
+  projMine: { footprint: 0.37, height: 0.22 },
+  projWarden: { footprint: 0.54, height: 0.2 },
+  boltSingle: { footprint: 1.03, height: 0.22 },
+  boltTwin: { footprint: 1.09, height: 0.31 },
 };
 
 /**
  * Scales an authored silhouette onto its native size and grounds it, applying
  * genUnitModels.ts's own rule: one uniform factor, the tighter of the footprint
  * and the height fit, then bbox minY to 0.
+ *
+ * `ground: false` centres on Y instead, for the things that fly: the FX models
+ * keep the pivot the original authored (roughly their own centre) rather than
+ * standing on anything, so a grounded stand-in would sit half its own height
+ * above the .glb that replaces it.
  */
-function fitNative(geometry: THREE.BufferGeometry, key: string): THREE.BufferGeometry {
+function fitNative(
+  geometry: THREE.BufferGeometry,
+  key: string,
+  ground = true,
+): THREE.BufferGeometry {
   const n = NATIVE[key];
   geometry.computeBoundingBox();
   const bb = geometry.boundingBox;
@@ -152,11 +184,11 @@ function fitNative(geometry: THREE.BufferGeometry, key: string): THREE.BufferGeo
   const sizeY = bb.max.y - bb.min.y;
   const sizeZ = bb.max.z - bb.min.z;
   const scale = Math.min(n.footprint / Math.max(sizeX, sizeZ), n.height / sizeY);
-  // Read minY BEFORE scaling: three's applyMatrix4 transforms the cached
-  // boundingBox in place, so `bb` is already scaled by the time we ground it.
-  const minY = bb.min.y;
+  // Read the offset BEFORE scaling: three's applyMatrix4 transforms the cached
+  // boundingBox in place, so `bb` is already scaled by the time we shift it.
+  const offsetY = ground ? bb.min.y : (bb.min.y + bb.max.y) / 2;
   geometry.scale(scale, scale, scale);
-  geometry.translate(0, -minY * scale, 0);
+  geometry.translate(0, -offsetY * scale, 0);
   return geometry;
 }
 
@@ -228,10 +260,36 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const defenseScale = 0.65;
   const turretDefenseGeometry = turretGeometry.clone();
   turretDefenseGeometry.scale(defenseScale, defenseScale, defenseScale);
-  // Projectile: elongated energy bolt along +X (sim forward). Unlit + instance
-  // color reads as a glowing shell; the old 0.35 m ball vanished against terrain.
-  // Half a metre, i.e. roughly the length of the X1's own gun — at the 1.5 m it
-  // carried while the units were stretched it was longer than the mech firing it.
+  // Projectiles: one stand-in per kind, because the original has one MESH per
+  // kind (docs/specs/fcop-fx.md §3). They used to share a single cylinder that
+  // was told apart only by tint, which is why the tint had to carry the kind.
+  // Now the shape carries it and the tint is free to say whose it is.
+  //
+  // All are authored along +X (sim forward) and scaled onto the FCOP size by
+  // fitNative, so a stand-in and the .glb that replaces it are the same size.
+  /** Pointed shell along +X, in the proportions of the FCOP rocket family. */
+  const rocket = (key: string) => {
+    const body = new THREE.CylinderGeometry(0.07, 0.05, 0.34, 6);
+    body.rotateZ(-Math.PI / 2);
+    const nose = new THREE.ConeGeometry(0.07, 0.16, 6);
+    nose.rotateZ(-Math.PI / 2);
+    nose.translate(0.25, 0, 0);
+    return fitNative(mergeGeometries([body, nose]), key, false);
+  };
+  const projHeavyGeometry = rocket("projHeavy");
+  const projHyperGeometry = rocket("projHyper");
+  const projWardenGeometry = rocket("projWarden");
+  // Mortar: round where the rockets are pointed — that is the silhouette
+  // difference in the original too (Cobj 49 against Cobj 43/44).
+  const projMortarGeometry = fitNative(new THREE.SphereGeometry(0.18, 8, 6), "projMortar", false);
+  // Mine: a flat drum that sits on the floor.
+  const projMineGeometry = fitNative(
+    new THREE.CylinderGeometry(0.18, 0.18, 0.1, 8),
+    "projMine",
+    false,
+  );
+  // Fallback for any kind without a mesh of its own — the shockwave pulse has
+  // no flying object in the original either (type-99 row 14 is empty).
   const projectileGeometry = new THREE.CylinderGeometry(0.07, 0.04, 0.5, 6);
   projectileGeometry.rotateZ(-Math.PI / 2);
   projectileGeometry.translate(0, 0.08, 0);
@@ -272,7 +330,16 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const turretCap = turretCapacity();
   const turretStandard = bucket(scene, turretGeometry, turretCap);
   const turretDefense = bucket(scene, turretDefenseGeometry, turretCap);
-  const projectile = bucket(scene, projectileGeometry, 128, true);
+  // Split from the one 128-slot bucket the kinds used to share. Sized by what
+  // can plausibly be in the air at once rather than evenly: the two rockets are
+  // the high-cadence weapons, mines are ammo-capped per player, and the Warden
+  // is a single aircraft.
+  const projHeavy = bucket(scene, projHeavyGeometry, 64, true);
+  const projHyper = bucket(scene, projHyperGeometry, 64, true);
+  const projMortar = bucket(scene, projMortarGeometry, 32, true);
+  const projMine = bucket(scene, projMineGeometry, 32, true);
+  const projWarden = bucket(scene, projWardenGeometry, 16, true);
+  const projectile = bucket(scene, projectileGeometry, 32, true);
   const consoleBucket = bucket(scene, consoleGeometry, consoleCapacity());
   const warden = bucket(scene, wardenGeometry, 2);
   return {
@@ -284,6 +351,11 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     fortress,
     turretStandard,
     turretDefense,
+    projHeavy,
+    projHyper,
+    projMortar,
+    projMine,
+    projWarden,
     projectile,
     console: consoleBucket,
     warden,
@@ -296,6 +368,11 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
       fortress,
       turretStandard,
       turretDefense,
+      projHeavy,
+      projHyper,
+      projMortar,
+      projMine,
+      projWarden,
       projectile,
       consoleBucket,
       warden,
@@ -323,22 +400,45 @@ export function bucketFor(
     if (aux === TURRET_BUILTIN) return undefined;
     return aux === TURRET_DEFENSE ? greybox.turretDefense : greybox.turretStandard;
   }
-  if (archetype === ARCHETYPE.PROJECTILE) return greybox.projectile;
+  if (archetype === ARCHETYPE.PROJECTILE) {
+    // aux is the projectile kind. PROJ_SPECIAL is the legacy id for the mortar
+    // blast and shares its shell, exactly as projectileBlast() shares its numbers.
+    switch (aux) {
+      case PROJ_HEAVY:
+        return greybox.projHeavy;
+      case PROJ_HYPER:
+        return greybox.projHyper;
+      case PROJ_MORTAR:
+      case PROJ_SPECIAL:
+        return greybox.projMortar;
+      case PROJ_MINE:
+        return greybox.projMine;
+      case PROJ_WARDEN:
+        return greybox.projWarden;
+      default:
+        return greybox.projectile;
+    }
+  }
   if (archetype === ARCHETYPE.CONSOLE) return greybox.console;
   if (archetype === ARCHETYPE.WARDEN) return greybox.warden;
   return undefined;
 }
 
-/** Instance tint: team color, or payload color for projectiles. */
-export function tintFor(archetype: number, team: number, aux: number): THREE.Color {
-  if (archetype === ARCHETYPE.PROJECTILE) {
-    return PROJECTILE_COLORS[aux] ?? PROJECTILE_COLORS[0];
-  }
+/**
+ * Instance tint: the owning team, for everything including projectiles.
+ *
+ * Projectiles used to be tinted by KIND, and took archetype + aux to work that
+ * out, because every kind shared one cylinder and colour was the only thing
+ * telling a rocket from a mortar shell. Now each kind has the mesh the original
+ * gave it, so the shape says what it is and the colour is free to say whose it
+ * is — which is what the original did too: every row of its weapon table names
+ * its mesh twice, once per team (docs/specs/fcop-fx.md §2). PROJECTILE_HEX
+ * survives as the explosion tint in render/fx.ts, where a blast really is
+ * identified by kind and not by owner.
+ *
+ * The team IS the cache key, so there is no separate tintKey any more.
+ */
+export function tintFor(team: number): THREE.Color {
   if (team >= 0 && team < TEAM_COLORS.length) return TEAM_COLORS[team];
   return NEUTRAL_COLOR;
-}
-
-/** Cache key mirroring tintFor's inputs. */
-export function tintKey(archetype: number, team: number, aux: number): number {
-  return archetype === ARCHETYPE.PROJECTILE ? 16 + aux : team;
 }
