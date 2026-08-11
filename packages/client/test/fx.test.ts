@@ -4,12 +4,14 @@ import {
   EV_EXPLOSION,
   EV_HIT,
   EV_SHOT,
+  EV_TRANSFORM,
   PROJ_HEAVY,
   pushEvent,
   reachToShotPayload,
   SHOT_SLOT_HITSCAN,
   SHOT_SLOT_LAUNCH,
   shotPayloadToReach,
+  TICK_HZ,
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { createFx, type FxPoseResolver, PARTICLE_ID } from "../src/render/fx";
@@ -176,5 +178,103 @@ describe("shot VFX", () => {
     for (const reach of [6, 14, 28, 40, 42, 0.1]) {
       expect(shotPayloadToReach(reachToShotPayload(reach))).toBeCloseTo(reach, 5);
     }
+  });
+});
+
+describe("transformation discharge", () => {
+  const LOCK_TICKS = 24;
+  const DURATION = LOCK_TICKS / TICK_HZ;
+
+  /** Pumps one EV_TRANSFORM and returns the fx it started. */
+  function startTransform(): ReturnType<typeof createFx> {
+    const fx = createFx(new THREE.Scene());
+    const events = createEventBuffer();
+    pushEvent(events, EV_TRANSFORM, 1, 1, LOCK_TICKS);
+    fx.pump(events, atOrigin);
+    return fx;
+  }
+
+  test("EV_TRANSFORM starts an emitter but spawns nothing until the first frame", () => {
+    const fx = startTransform();
+
+    // pump only claims the emitter — arcs are spawned by update, so a tick that
+    // is never followed by a frame cannot leave streaks behind.
+    expect(fx.debugCounts().arcEmitters).toBe(1);
+    expect(fx.debugCounts().arcs).toBe(0);
+  });
+
+  test("the emitter crackles: arcs appear on the first frame and keep coming", () => {
+    const fx = startTransform();
+
+    fx.update(1 / 60);
+    const first = fx.debugCounts().arcs;
+    expect(first).toBeGreaterThan(0);
+
+    // Well past one arc lifetime: old streaks have died and new ones replaced
+    // them, so the pool is still populated rather than drained once.
+    for (let i = 0; i < 12; i++) fx.update(1 / 60);
+    expect(fx.debugCounts().arcs).toBeGreaterThan(0);
+    expect(fx.debugCounts().arcEmitters).toBe(1);
+  });
+
+  test("the flash over the mesh swap fires once, at the halfway point", () => {
+    const fx = startTransform();
+
+    // Just short of half the lock: still only arcs.
+    let elapsed = 0;
+    while (elapsed < DURATION * 0.45) {
+      fx.update(1 / 60);
+      elapsed += 1 / 60;
+    }
+    expect(fx.debugCounts().shockwaves).toBe(0);
+
+    while (elapsed < DURATION * 0.6) {
+      fx.update(1 / 60);
+      elapsed += 1 / 60;
+    }
+    // One ring, and it does not re-fire on later frames of the same morph.
+    expect(fx.debugCounts().shockwaves).toBe(1);
+    // Comfortably past SHOCKWAVE_LIFE (0.28 s): the ring ages out and no second
+    // one takes its place.
+    for (let i = 0; i < 24; i++) fx.update(1 / 60);
+    expect(fx.debugCounts().shockwaves).toBe(0);
+  });
+
+  test("the emitter releases itself when the lock is over", () => {
+    const fx = startTransform();
+
+    let elapsed = 0;
+    while (elapsed < DURATION + 0.05) {
+      fx.update(1 / 60);
+      elapsed += 1 / 60;
+    }
+    expect(fx.debugCounts().arcEmitters).toBe(0);
+
+    // And the streaks it left drain rather than sticking on screen.
+    for (let i = 0; i < 12; i++) fx.update(1 / 60);
+    expect(fx.debugCounts().arcs).toBe(0);
+  });
+
+  test("more transforms than emitter slots drops the extras, never overflows", () => {
+    const fx = createFx(new THREE.Scene());
+    const events = createEventBuffer();
+    for (let id = 1; id <= 8; id++) pushEvent(events, EV_TRANSFORM, id, 1, LOCK_TICKS);
+
+    fx.pump(events, atOrigin);
+
+    // Four slots, one per avatar the renderer can draw — the rest are dropped.
+    expect(fx.debugCounts().arcEmitters).toBe(4);
+    for (let i = 0; i < 40; i++) fx.update(1 / 60);
+    expect(fx.debugCounts().arcs).toBeLessThanOrEqual(128);
+  });
+
+  test("an unresolvable position skips the discharge entirely", () => {
+    const fx = createFx(new THREE.Scene());
+    const events = createEventBuffer();
+    pushEvent(events, EV_TRANSFORM, 1, 1, LOCK_TICKS);
+
+    fx.pump(events, missing);
+
+    expect(fx.debugCounts().arcEmitters).toBe(0);
   });
 });

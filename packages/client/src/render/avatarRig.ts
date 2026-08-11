@@ -31,6 +31,7 @@
 import { ANIM_AIRBORNE, ANIM_MOVING, ARCHETYPE } from "@metropolis/sim";
 import * as THREE from "three";
 import { tintFor } from "./greybox";
+import { MORPH_FOLD, MORPH_SCALE_XZ, MORPH_SCALE_Y, MORPH_SPIN } from "./morph";
 import { loadUnitAsset } from "./unitMeshes";
 
 /**
@@ -334,6 +335,7 @@ export function advanceGait(
 
 const scratchPos = new THREE.Vector3();
 const scratchQuat = new THREE.Quaternion();
+/** Identity except mid-transformation, when place() squashes the whole mech. */
 const scratchScale = new THREE.Vector3(1, 1, 1);
 const scratchBase = new THREE.Matrix4();
 const scratchHinge = new THREE.Matrix4();
@@ -360,6 +362,13 @@ export interface AvatarRig {
   /**
    * Poses one walking avatar. Returns false when the rig cannot take it (not
    * loaded yet, or out of capacity) — then the caller must use its bucket.
+   *
+   * `morph` is a filled `sample()` buffer from render/morph.ts while this avatar
+   * is mid-transformation, or null the rest of the time. When present it takes
+   * the pose over completely: both hips tuck to the same angle instead of
+   * swinging in antiphase, the whole mech squashes, and it turns on the spot.
+   * A walk cycle is the wrong thing to be blending while the legs are folding
+   * away.
    */
   place(
     id: number,
@@ -370,6 +379,7 @@ export interface AvatarRig {
     animState: number,
     team: number,
     dtSec: number,
+    morph: Float32Array | null,
   ): boolean;
   /** Publishes counts and matrices. Call after the entity sweep. */
   end(): void;
@@ -458,7 +468,7 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
     begin() {
       count = 0;
     },
-    place(id, x, height, y, yaw, animState, team, dtSec) {
+    place(id, x, height, y, yaw, animState, team, dtSec, morph) {
       const p = parts;
       const g = gait;
       if (!p || !g) return false;
@@ -475,14 +485,30 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
       }
       const slot = count;
       count = slot + 1;
+      // Always advance the cycle, even mid-morph: it costs nothing, keeps the
+      // slot's last position current, and means a transform that is cut short
+      // resumes the stride instead of snapping out of a stale phase.
       advanceGait(g, slot, id, x, y, animState, dtSec, scratchAngles);
+      if (morph) {
+        // Both hips to the same angle — a tuck, not a stride.
+        scratchAngles[0] = morph[MORPH_FOLD];
+        scratchAngles[1] = morph[MORPH_FOLD];
+      }
       written[slot * 2] = scratchAngles[0];
       written[slot * 2 + 1] = scratchAngles[1];
 
       // sim (x, y, height, yaw) → three (x, height, z), model +Z forward folded
       // into the yaw so the hip hinge stays on the model's left-right axis.
       scratchPos.set(x, height, y);
-      scratchQuat.setFromAxisAngle(UP, MODEL_YAW - yaw);
+      scratchQuat.setFromAxisAngle(UP, MODEL_YAW - yaw - (morph ? morph[MORPH_SPIN] : 0));
+      if (morph) {
+        scratchScale.set(morph[MORPH_SCALE_XZ], morph[MORPH_SCALE_Y], morph[MORPH_SCALE_XZ]);
+      } else {
+        scratchScale.set(1, 1, 1);
+      }
+      // Scale is applied OUTSIDE the hinge below (base · hinge), so the legs
+      // rotate in the model's own frame and the posed mech is what gets
+      // squashed. Composing it the other way round would shear the hips.
       scratchBase.compose(scratchPos, scratchQuat, scratchScale);
       for (let i = 0; i < p.length; i++) {
         const part = p[i];

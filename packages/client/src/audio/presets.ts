@@ -152,6 +152,28 @@ export const PRESETS: Record<string, SfxrPreset> = {
     lpfFreq: 0.5,
     soundVol: 0.22,
   },
+  // Walker <-> hover change: an electrical discharge with a servo under it.
+  //
+  // Noise rather than a tone, because the arcs it plays over are noise; the
+  // rising ramp is the servo committing and the vibrato is the crackle. Long
+  // decay on purpose — it has the sim's whole transform lock to fill (~0.8 s),
+  // and a short blip under three quarters of a second of visible sparking reads
+  // as the sound having failed.
+  transform: {
+    waveType: 3,
+    baseFreq: 0.28,
+    freqRamp: 0.14,
+    freqDramp: -0.12,
+    envAttack: 0.03,
+    envSustain: 0.2,
+    envPunch: 0.35,
+    envDecay: 0.5,
+    vibStrength: 0.35,
+    vibSpeed: 0.6,
+    lpfFreq: 0.7,
+    lpfResonance: 0.3,
+    soundVol: 0.36,
+  },
   // A unit is chewing on a base core: dull structural thud.
   coreHit: {
     waveType: 3,

@@ -135,6 +135,7 @@ playtest on the live deploy.)
 ## Phase 7 — Look & sound (Stage B/C of assets.md)
 
 - [x] Model pass (Quaternius/Kenney or direct rebuilds) mapped to archetypes, CREDITS.md
+- [x] Walker ↔ hover transformation: morph + arc discharge + cue (assets.md §4)
 - [ ] Pincel texture atlases + shared palette; NearestFilter pipeline
 - [x] jsfxr SFX set wired to event buffer; CC0 music loop; volume settings
 - [x] PWA polish: manifest, icons, offline solo mode, install prompt
@@ -170,7 +171,15 @@ avatar is the one exception: `render/avatarRig.ts` recovers its parts by
 labelling connected components in the shipped glb (the largest island is exactly
 the original's 648-vertex legs mesh) and swings the hips from distance
 travelled — client-only, no asset change. Knee bend still wants the generator to
-emit joints, which waits on `gen:units` becoming byte-reproducible. `bun run gen:units`
+emit joints, which waits on `gen:units` becoming byte-reproducible.
+The transformation itself is no longer a one-frame mesh swap: `render/morph.ts`
+plays it as collapse → discharge → unfold over the sim's lock, off a single
+`EV_TRANSFORM` event, with arc streaks in the Electric Gun's palette
+(`render/fx.ts`) and a `transform` sfxr cue. The lock grew 15 → 24 ticks to give
+it room, which is a balance change and bumped SIM_VERSION to 28 — see
+`version.ts` for what moved and the counter-check that the event itself did not.
+Shape and timing of the arcs are the tunable part, via the pin loop.
+`bun run gen:units`
 (`tools/generators/genUnitModels.ts` + manifest) processes raws into one
 spec-conformant glb per archetype under `public/models/units/` (texture pages
 packed into one atlas, team units desaturated so the whole-unit instanceColor

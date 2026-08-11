@@ -19,6 +19,7 @@ import {
   sinLUT,
   TICK_HZ,
   type TickInputs,
+  TRANSFORM_LOCK_TICKS,
   type WardenConfig,
 } from "@metropolis/sim";
 
@@ -60,6 +61,27 @@ export function drive01(tick: number, out: TickInputs): void {
 }
 
 /**
+ * Exactly one transform, however the respawn tick lands.
+ *
+ * The mash this replaces pressed for a whole four-second phase, which made the
+ * form the avatar ended in a parity accident: a press can only land when the
+ * previous lock has expired, so the toggle count was phaseLength/lockLength and
+ * TRANSFORM_LOCK_TICKS 15 -> 24 turned five toggles (ending hover) into four
+ * (ending walker) without a line of the script changing.
+ *
+ * Mashing for strictly LESS than one lock fixes that at the root. The rising
+ * edges still give a respawn that drifts several chances to catch one, but only
+ * the first can ever land — every later edge falls inside the lock it started.
+ * The form at the end of the phase is the script's choice again, not arithmetic
+ * on two constants that move independently.
+ */
+function transformOnce(t: number, from: number): number {
+  const dt = t - from;
+  if (dt < 0 || dt >= (TRANSFORM_LOCK_TICKS - 1) / TICK_HZ) return 0;
+  return Math.floor(dt * 10) % 2 === 0 ? BUTTON_TRANSFORM : 0;
+}
+
+/**
  * Golden #2 (Phase 1): 70 s movement+combat on district-01. Kills the dummy
  * turret east of base 0 with the primary, transforms to hover, crosses the
  * central ford, trades heavy/special fire at the mid dummy, then loiters in
@@ -70,9 +92,6 @@ export function combat01(tick: number, out: TickInputs): void {
   clearTickInputs(out);
   const p = out.players[0];
   const t = tick / TICK_HZ;
-  // Transform "mash": edge-triggered presses every few ticks, robust against
-  // the exact respawn tick shifting when balance numbers are retuned.
-  const mash = Math.floor(t * 5) % 2 === 0 ? BUTTON_TRANSFORM : 0;
   if (t < 4.5) {
     p.moveX = 127; // walk east off the plot, shooting the (85,127) dummy
     p.aimX = 127;
@@ -81,7 +100,7 @@ export function combat01(tick: number, out: TickInputs): void {
     p.aimX = 127; // hold position in the dummy crossfire: death → respawn
     p.buttons = BUTTON_FIRE1;
   } else if (t < 24) {
-    p.buttons = mash; // freshly respawned: switch to hover
+    p.buttons = transformOnce(t, 20); // freshly respawned: switch to hover
   } else if (t < 38) {
     // Facing-aligned drive (v19): aim must match throttle or the vehicle stalls.
     p.moveY = -127; // hover north along the west edge — no dummy covers it
@@ -92,7 +111,7 @@ export function combat01(tick: number, out: TickInputs): void {
     p.aimX = 127; // face travel direction; heavies detonate on terrain
     p.buttons = t > 46 ? BUTTON_FIRE2 : BUTTON_FIRE1;
   } else if (t < 60) {
-    p.buttons = mash; // back to walker on the dry east side
+    p.buttons = transformOnce(t, 56); // back to walker on the dry east side
   } else if (t < 62) {
     p.aimY = 127; // special shot (exercises TTL/terrain detonation)
     p.buttons = BUTTON_FIRE3;

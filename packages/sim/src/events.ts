@@ -101,6 +101,18 @@ export const EV_ALARM = 10; //    a=x*16, b=y*16, c=team whose base is intruded
 export const EV_PICKUP = 11; //   a=x*16, b=y*16, c=pickup kind
 export const EV_PRODUCE = 12; //  a=unit id, b=team, c=archetype
 export const EV_CORE_HIT = 13; // a=x*16, b=y*16, c=team whose core was hit
+/**
+ * The avatar committed to a walker <-> hover change (rules.md §2). Fired ONCE,
+ * on the tick the mode byte flips, which is also the tick the transform lock
+ * starts — so `c` is the whole window the presentation has to play in and the
+ * client can run the morph off its own clock rather than a per-tick progress
+ * field. The unit is move-locked for that window, so the position resolved from
+ * `a` stays put and a static anchor is enough for the arcs.
+ *
+ * `b` is the mode being entered, not the one being left: the flip has already
+ * happened when this fires, so the OUTGOING form is `1 - b`.
+ */
+export const EV_TRANSFORM = 14; // a=entity id, b=new mode (0 walker/1 hover), c=lock ticks
 
 export interface EventBuffer {
   count: number;

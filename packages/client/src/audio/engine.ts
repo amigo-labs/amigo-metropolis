@@ -27,6 +27,7 @@ import {
   EV_PURCHASE,
   EV_RESPAWN,
   EV_SHOT,
+  EV_TRANSFORM,
   EVENT_STRIDE,
   type EventBuffer,
 } from "@metropolis/sim";
@@ -50,6 +51,7 @@ cueByType[EV_ALARM] = "alarm";
 cueByType[EV_PICKUP] = "pickup";
 cueByType[EV_PRODUCE] = "produce";
 cueByType[EV_CORE_HIT] = "coreHit";
+cueByType[EV_TRANSFORM] = "transform";
 
 /**
  * Distance at which a world sound is still at full volume; past it the gain rolls

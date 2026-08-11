@@ -19,6 +19,7 @@
 
 import {
   ANIM_HOVER,
+  ANIM_TRANSFORMING,
   ARCHETYPE,
   CAPTURE_TICKS,
   CONSOLE_HOLD_TICKS,
@@ -32,6 +33,8 @@ import {
   EV_PICKUP,
   EV_RESPAWN,
   EV_SHOT,
+  EV_TRANSFORM,
+  EVENT_STRIDE,
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
@@ -92,6 +95,15 @@ import { createFx } from "./render/fx";
 import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
 import { loadMapMesh } from "./render/meshMap";
+import {
+  createAvatarMorph,
+  MORPH_DRAW_HOVER,
+  MORPH_FOLD,
+  MORPH_OUT_LEN,
+  MORPH_SCALE_XZ,
+  MORPH_SCALE_Y,
+  MORPH_SPIN,
+} from "./render/morph";
 import { ATMOSPHERE_HEX } from "./render/palette";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
 import { loadProps } from "./render/props";
@@ -245,6 +257,16 @@ if (params.has("debug") && !netMode) {
       components: number;
       legVertices: number;
     } | null;
+    metropolisMorph?: (id: number) => {
+      morphing: boolean;
+      scaleXZ: number;
+      scaleY: number;
+      spin: number;
+      fold: number;
+      drawingHover: boolean;
+      arcs: number;
+      emitters: number;
+    };
   };
   dbg.metropolisSim = sim;
   // Debug-only spawner + freeze + snapshot for the verify:units screenshot
@@ -337,6 +359,27 @@ if (params.has("debug") && !netMode) {
           components: avatarRig.split?.componentCount ?? 0,
           legVertices: avatarRig.split?.legVertexCount ?? 0,
         };
+
+  // Transformation readout, same reasoning as the rig hook above: a single
+  // screenshot of a morph always looks plausible, so the harness reads the
+  // curve it is being posed by rather than trusting the picture. Sampled off a
+  // scratch buffer of its own — the frame loop's is mid-sweep whenever this is
+  // called from a pin.
+  const morphProbe = new Float32Array(MORPH_OUT_LEN);
+  dbg.metropolisMorph = (id) => {
+    const counts = fx.debugCounts();
+    const morphing = avatarMorph.sample(id, morphProbe);
+    return {
+      morphing,
+      scaleXZ: morphing ? morphProbe[MORPH_SCALE_XZ] : 1,
+      scaleY: morphing ? morphProbe[MORPH_SCALE_Y] : 1,
+      spin: morphing ? morphProbe[MORPH_SPIN] : 0,
+      fold: morphing ? morphProbe[MORPH_FOLD] : 0,
+      drawingHover: morphing && morphProbe[MORPH_DRAW_HOVER] === 1,
+      arcs: counts.arcs,
+      emitters: counts.arcEmitters,
+    };
+  };
 }
 
 // --- Online helpers (no-ops unless ?online) ----------------------------------
@@ -560,6 +603,11 @@ if (renderMode === "mesh") loadUnitMeshes(greybox);
 // avatar-walker.glb has loaded and split (render/avatarRig.ts). Until then — and
 // forever in ?render=greybox — the bucket keeps drawing them.
 const avatarRig: AvatarRig | null = renderMode === "mesh" ? createAvatarRig(scene) : null;
+// Walker <-> hover transformation (render/morph.ts). Client-local clock started
+// by EV_TRANSFORM; drives which of the two forms is on screen and how squashed.
+const avatarMorph = createAvatarMorph();
+/** Preallocated sample buffer — one avatar is posed at a time in the sweep. */
+const morphScratch = new Float32Array(MORPH_OUT_LEN);
 
 let extent = worldExtent(map);
 
@@ -1236,6 +1284,7 @@ function resolveEventPosition(
     case EV_HIT:
     case EV_DEATH:
     case EV_RESPAWN:
+    case EV_TRANSFORM:
       return entityPose(a, out);
     default:
       return false;
@@ -1247,6 +1296,24 @@ function pumpCosmetics(events: typeof sim.events): void {
   buildAudioIndex();
   audio.pump(events, resolveEventPosition);
   fx.pump(events, resolveEventPosition);
+  startMorphs(events);
+}
+
+/**
+ * Starts a mesh morph for every avatar that just changed form.
+ *
+ * Separate from fx.pump because the two want different things out of the same
+ * event: the arcs need a world position and nothing else, while the morph needs
+ * the entity id and the form being entered, and would have to resolve a pose it
+ * never uses to get them through the fx resolver.
+ */
+function startMorphs(events: typeof sim.events): void {
+  const data = events.data;
+  for (let i = 0; i < events.count; i++) {
+    const o = i * EVENT_STRIDE;
+    if (data[o] !== EV_TRANSFORM) continue;
+    avatarMorph.start(data[o + 1], data[o + 2] === 1);
+  }
 }
 
 function rotateSnapshot(): void {
@@ -1262,6 +1329,9 @@ function rotateSnapshot(): void {
 }
 
 function renderEntities(alpha: number, dtSec: number): void {
+  // Once per frame, ahead of the sweep that samples it. This is the one place
+  // the entity pass runs, however many views the frame ends up drawing.
+  avatarMorph.advance(dtSec);
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }
@@ -1281,11 +1351,33 @@ function renderEntities(alpha: number, dtSec: number): void {
     const archetype = snapCurr[o + 1];
     const animState = snapCurr[o + 7];
     const aux = snapCurr[o + 9];
+
+    // Mid-transformation the form on screen is NOT the one in ANIM_HOVER: the
+    // sim flips the mode byte on the first tick of the lock, so the snapshot
+    // already reads as the destination while the mech is still collapsing out of
+    // the form it is leaving. render/morph.ts owns that half-and-half decision.
+    let morph: Float32Array | null = null;
+    if (archetype === ARCHETYPE.AVATAR) {
+      if ((animState & ANIM_TRANSFORMING) === 0) {
+        // The lock ended (or was cut short by a death or a rollback) before the
+        // client's own clock ran out. The sim is the authority on that.
+        avatarMorph.release(id);
+      } else if (avatarMorph.sample(id, morphScratch)) {
+        morph = morphScratch;
+      }
+    }
+    const drawHover = morph ? morph[MORPH_DRAW_HOVER] === 1 : (animState & ANIM_HOVER) !== 0;
+
     // Walking avatars go to the three-part walk rig instead of a single bucket
     // instance (render/avatarRig.ts). Hovering ones, and every avatar before the
     // rig's asset lands, keep their bucket.
-    const rig = archetype === ARCHETYPE.AVATAR && (animState & ANIM_HOVER) === 0 ? readyRig : null;
-    const bucket = rig ? undefined : bucketFor(greybox, archetype, animState, aux);
+    const rig = archetype === ARCHETYPE.AVATAR && !drawHover ? readyRig : null;
+    // The bucket picks walker vs hover off ANIM_HOVER too, and it is what draws
+    // the avatar whenever the rig is unavailable (?render=greybox, or the asset
+    // still loading). Hand it the form actually being drawn, or the fallback
+    // would swap meshes half a morph before the rig path does.
+    const bucketAnim = drawHover ? animState | ANIM_HOVER : animState & ~ANIM_HOVER;
+    const bucket = rig ? undefined : bucketFor(greybox, archetype, bucketAnim, aux);
     if (!rig && !bucket) continue;
 
     let x = snapCurr[o + 3];
@@ -1322,7 +1414,7 @@ function renderEntities(alpha: number, dtSec: number): void {
     if (rig) {
       // The rig poses all three of its parts and keeps its own gait state; a
       // false return means it is out of capacity and has already said so.
-      rig.place(id, x, height, y, yaw, animState, team, dtSec);
+      rig.place(id, x, height, y, yaw, animState, team, dtSec, morph);
     } else if (bucket) {
       const slot = bucket.count;
       if (slot >= bucket.tintCache.length) {
@@ -1341,7 +1433,14 @@ function renderEntities(alpha: number, dtSec: number): void {
 
       // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
       scratchPos.set(x, height, y);
-      scratchQuat.setFromAxisAngle(UP, -yaw);
+      scratchQuat.setFromAxisAngle(UP, -yaw - (morph ? morph[MORPH_SPIN] : 0));
+      if (morph) {
+        scratchScale.set(morph[MORPH_SCALE_XZ], morph[MORPH_SCALE_Y], morph[MORPH_SCALE_XZ]);
+      } else {
+        // Shared module scratch: a morphing avatar earlier in the sweep left its
+        // squash in here, and every later instance would inherit it.
+        scratchScale.set(1, 1, 1);
+      }
       scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
       bucket.mesh.setMatrixAt(slot, scratchMatrix);
 
