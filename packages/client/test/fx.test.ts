@@ -12,9 +12,10 @@ import {
   SHOT_SLOT_LAUNCH,
   shotPayloadToReach,
   TICK_HZ,
+  TRANSFORM_LOCK_TICKS,
 } from "@metropolis/sim";
 import * as THREE from "three";
-import { createFx, type FxPoseResolver, PARTICLE_ID } from "../src/render/fx";
+import { ARC_CAP, createFx, type FxPoseResolver, PARTICLE_ID } from "../src/render/fx";
 
 /** Resolver that always places the event at the origin facing +X. */
 const atOrigin: FxPoseResolver = (_type, _a, _b, _c, out) => {
@@ -182,7 +183,10 @@ describe("shot VFX", () => {
 });
 
 describe("transformation discharge", () => {
-  const LOCK_TICKS = 24;
+  // Off balance.ts, not a literal: the event carries the sim's own lock, so a
+  // hard-coded 24 would keep passing while testing a window the sim no longer
+  // uses the next time this is retuned.
+  const LOCK_TICKS = TRANSFORM_LOCK_TICKS;
   const DURATION = LOCK_TICKS / TICK_HZ;
 
   /** Pumps one EV_TRANSFORM and returns the fx it started. */
@@ -267,8 +271,13 @@ describe("transformation discharge", () => {
 
     // Four slots, one per avatar the renderer can draw — the rest are dropped.
     expect(fx.debugCounts().arcEmitters).toBe(4);
+    // Run every one of them through the densest part of its discharge. STRICTLY
+    // under capacity: at the ceiling `spawn` starts returning false, which drops
+    // streaks silently and is the only way the core and glow pools could ever
+    // come apart. The cap is sized off the burst numbers so this stays true when
+    // someone retunes the density.
     for (let i = 0; i < 40; i++) fx.update(1 / 60);
-    expect(fx.debugCounts().arcs).toBeLessThanOrEqual(128);
+    expect(fx.debugCounts().arcs).toBeLessThan(ARC_CAP);
   });
 
   test("an unresolvable position skips the discharge entirely", () => {

@@ -45,7 +45,6 @@ const MUZZLE_CAP = 64;
 const EXPLOSION_CAP = 48;
 const SPARK_CAP = 64;
 const SHOCKWAVE_CAP = 48;
-const ARC_CAP = 128;
 /** One per avatar that can be transforming at once (render/morph.ts slots). */
 const ARC_EMITTERS = 4;
 
@@ -97,6 +96,25 @@ const ARC_GLOW_HEX = 0x40c0ff;
 const ARC_PER_BURST = 8;
 const ARC_INTERVAL_CALM = 0.07;
 const ARC_INTERVAL_PEAK = 0.025;
+
+/**
+ * Derived, not picked. At the peak an emitter holds one burst for every
+ * ARC_INTERVAL_PEAK of ARC_LIFE, so the ceiling is emitters x burst x that
+ * ratio — measured at 32 live streaks for a single transformation, which is
+ * exactly what this computes.
+ *
+ * It was a hand-set 128, and 4 x 32 is 128: four simultaneous transformations
+ * sat precisely on the ceiling, where a frame landing between two bursts starts
+ * silently dropping streaks. One spare burst of headroom, and the number now
+ * follows whoever retunes the density instead of quietly becoming wrong.
+ *
+ * `spawn` returning false is what dropping looks like, and it is the one way
+ * arcCore and arcGlow could disagree — they are spawned as a pair, share a cap
+ * and a lifetime, and age on the same clock, so they fill and drain in lockstep
+ * and only a cap this tight could have split them.
+ */
+export const ARC_CAP =
+  ARC_EMITTERS * ARC_PER_BURST * Math.ceil(ARC_LIFE / ARC_INTERVAL_PEAK) + ARC_PER_BURST;
 /**
  * The discharge that covers the mesh swap, at the halfway point of the lock.
  *
@@ -108,7 +126,15 @@ const ARC_INTERVAL_PEAK = 0.025;
  * ring decayed on wall time while the arcs around them stayed frozen, so a
  * paused mid-transformation frame lost exactly the beat worth photographing.
  */
-const TRANSFORM_FLASH_CAP = 8;
+/**
+ * Two per emitter. Each transformation spawns exactly one flash and one ring, so
+ * one apiece would do; the spare covers a flash still fading when the same
+ * avatar transforms straight back. With headroom this size neither spawn can
+ * fail, which is what keeps the pair a pair — the flash marks the emitter fired
+ * before spawning, deliberately, because a discharge that arrives late is worse
+ * than one that never arrives.
+ */
+const TRANSFORM_FLASH_CAP = ARC_EMITTERS * 2;
 const TRANSFORM_FLASH_START = 0.45;
 const TRANSFORM_FLASH_END = 1.9;
 const TRANSFORM_FLASH_LIFE = 0.22;
