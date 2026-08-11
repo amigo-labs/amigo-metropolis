@@ -17,26 +17,29 @@
 // sound is therefore still open, and picking is a listening job for someone who
 // knows the game (PLAN.md Phase 12, owner pass).
 //
-// The RE repo narrows it a long way and is the place to start. Note the findings
-// live under `extracted/findings/`, not the `extracted/handoff/` path this file
-// used to cite:
-// - extracted/findings/sfx_pa_candidates.md — 46 of the 348 appear ONLY in the
+// The RE repo narrows it a long way and is the place to start. EVERY path in the
+// list below is relative to a checkout of `amigo-labs/fcop-reverse-engineering`,
+// NOT to this repo — `docs/` in particular exists in both. Note also that the
+// findings moved to `extracted/findings/`, from the `extracted/handoff/` path
+// this file used to cite:
+// - `extracted/findings/sfx_pa_candidates.md` — 46 of the 348 appear ONLY in the
 //   six Precinct Assault containers, so those are the candidates for the
 //   PA-specific cues (capture / claim / produce / purchase).
-// - docs/sfx_index.md "Precinct Assault / MP family" — sharper than the 46. The
-//   six PA arenas share one bank whose `script_id`s 70-90 are stable across all
-//   of them (slots 0-16 identical on all six), so a PA-specific cue is one of
-//   ~21 ids rather than one of 46 files.
-// - extracted/findings/sfx_manual_class.json — 118 sounds labelled by ear
+// - `docs/sfx_index.md` § "Precinct Assault / MP family" — sharper than the 46.
+//   The six PA arenas share one bank whose `script_id`s 70-90 are stable across
+//   all of them (slots 0-16 identical on all six), so a PA-specific cue is one
+//   of ~21 ids rather than one of 46 files.
+// - `extracted/findings/sfx_manual_class.json` — 118 sounds labelled by ear
 //   (impact / weapon_fire / explosion / gunshot / loop_tone / whoosh / …), plus
-//   structural classes from `Cshd` in sfx_cshd_class.md. Those beat the CLAP
-//   auto-tags in extracted/findings/sfx_clap_tags.md, which are machine guesses
-//   and are contradicted by the hard `loop` field in 58 of 348 cases.
+//   structural classes from `Cshd` in `extracted/findings/sfx_cshd_class.md`.
+//   Those beat the CLAP auto-tags in `extracted/findings/sfx_clap_tags.md`,
+//   which are machine guesses and are contradicted by the hard `loop` field in
+//   58 of 348 cases.
 // - The base-intrusion alarm is the one cue with no candidate at all: `Trigger`
 //   (95) only detects, and the alert was bound in `Cfun`. That binding is not
 //   recovered — the decoded opcode table has no proven sound-play op, only the
 //   queue/voice handlers 0x0c-0x0f as candidates — so `alarm` stays authored
-//   until it is (docs/specs/fcop-logic.md §8.6).
+//   until it is (this repo's `docs/specs/fcop-logic.md` §8.6).
 //
 // TO FILL A CUE: drop the WAV under tools/generators/sfx/raw/fcop/, add an entry
 // below, run `bun run gen:sfx`, and commit the generated output in the same
