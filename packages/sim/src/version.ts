@@ -431,7 +431,26 @@
 //     connect with. match01's dead reckoning was also corrected to follow the
 //     QUANTISED heading the sim drives — it was 2.9 m out by the ring, which the
 //     old 1.5 m turret disc hid and a 0.7 m one does not.
-// v28: the Mortar lobs. It is the one weapon the original arcs, and the one the
+// v28: TRANSFORM_LOCK_TICKS 15 -> 24 (~0.5 s -> ~0.8 s). The walker/hover change
+//     grew a presentation — collapse, discharge, unfold (assets.md §4) — and the
+//     window it plays in is sim state, so the lock grew with it. 0.3 s longer
+//     defenceless is a balance change, not polish, and it is deliberate.
+//     ONE golden moves: golden-02-combat, the only script that presses
+//     BUTTON_TRANSFORM. The other six are header-only. It moves for two reasons,
+//     and the second one is a script edit, not the sim: combat01's transform
+//     "mash" pressed for a whole four-second phase, and because a press can only
+//     land once the previous lock expires, the form it ended in was
+//     phaseLength/lockLength parity — five toggles (hover) at 15, four (walker)
+//     at 24. golden02.test.ts caught it as a collapsed hover phase (1080 ->
+//     144 ticks). The mash now runs for strictly less than one lock, so exactly
+//     one press can land however the respawn tick drifts, and the phase ends in
+//     the form the script asks for at any lock length.
+//     The EV_TRANSFORM event added in the same commit is NOT why this bumped.
+//     Events are transient and never hashed (events.ts). Verified rather than
+//     asserted: re-recording all seven goldens with the pushEvent call removed
+//     produces byte-identical .hashes.json files. Nothing from the presentation
+//     leaked into the tick.
+// v29: the Mortar lobs. It is the one weapon the original arcs, and the one the
 //     blurb here has always called an "arcing shell" while it flew dead flat —
 //     spawnProjectile set velX/velY and nothing vertical, so a mortar was a slow
 //     rocket. It now launches with a vertical velocity carried in timerB (the
@@ -453,9 +472,10 @@
 //     Walls are unchanged: segmentBlocked is a 2D lattice with no height, so a
 //     shell still stops at a wall it is flying 30 m above. Making the mortar
 //     clear walls needs a height model the lattice does not have.
-//     Only golden-02-combat moves — it is the one replay that fires a mortar.
+//     Only golden-02-combat moves — it is the one replay that fires a mortar,
+//     and it is the same one v28 moved, for its own unrelated reason.
 //     MUZZLE_OFFSET/MUZZLE_HEIGHT also moved from sim.ts to balance.ts, where
 //     the constants rule says they belong; render/fx.ts imports them now instead
 //     of keeping the hand-copied duplicate its comment warned about. Values
 //     identical, no behaviour change.
-export const SIM_VERSION = 28;
+export const SIM_VERSION = 29;

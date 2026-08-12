@@ -86,7 +86,20 @@ export const AVATAR_HOVER_MAX_SLOPE = 0.5;
 export const HOVER_CUSHION_SPAN = 2.4;
 
 // Transform & jump (rules.md §2).
-export const TRANSFORM_LOCK_TICKS = 15; // ~0.5 s: no move/jump/weapons
+/**
+ * ~0.8 s: no move/jump/weapons.
+ *
+ * Was 15 (~0.5 s) for as long as the transform was a one-frame mesh swap with
+ * nothing to watch. It is an animation now — the outgoing form collapses, the
+ * discharge covers the swap, the incoming form unfolds (assets.md §4) — and
+ * half a second split three ways reads as a glitch rather than a machine
+ * changing shape. 24 ticks gives each beat about a quarter of a second.
+ *
+ * This is a real balance change, not presentation: it is 0.3 s longer that the
+ * avatar is a stationary target that cannot shoot back. That is the trade the
+ * original makes too — committing to the change is what the window is for.
+ */
+export const TRANSFORM_LOCK_TICKS = 24;
 export const AVATAR_JUMP_SPEED = 8; // m/s up → 1.6 m apex, clears 1.4 m ledges
 export const GRAVITY = 20; // m/s²
 export const HOVER_CLEARANCE = 0.3; // ride height above ground/water surface

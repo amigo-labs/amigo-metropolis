@@ -113,7 +113,9 @@ export const PRESETS: Record<string, SfxrPreset> = {
   // --- Precinct Assault cues (rules.md §9) ---------------------------------
   // Enemy in your base: a slow two-tone klaxon. Long and low so it reads over a
   // firefight — this is the one cue the player must never miss, and the original
-  // wired it in the Cfun script we cannot decode, so the sound is ours.
+  // bound it in the Cfun script. That script is disassembled now, but no opcode
+  // in it is a proven sound-play op, so the binding is unrecovered and the
+  // sound stays ours.
   alarm: {
     waveType: 1,
     baseFreq: 0.24,
@@ -151,6 +153,28 @@ export const PRESETS: Record<string, SfxrPreset> = {
     duty: 0.55,
     lpfFreq: 0.5,
     soundVol: 0.22,
+  },
+  // Walker <-> hover change: an electrical discharge with a servo under it.
+  //
+  // Noise rather than a tone, because the arcs it plays over are noise; the
+  // rising ramp is the servo committing and the vibrato is the crackle. Long
+  // decay on purpose — it has the sim's whole transform lock to fill (~0.8 s),
+  // and a short blip under three quarters of a second of visible sparking reads
+  // as the sound having failed.
+  transform: {
+    waveType: 3,
+    baseFreq: 0.28,
+    freqRamp: 0.14,
+    freqDramp: -0.12,
+    envAttack: 0.03,
+    envSustain: 0.2,
+    envPunch: 0.35,
+    envDecay: 0.5,
+    vibStrength: 0.35,
+    vibSpeed: 0.6,
+    lpfFreq: 0.7,
+    lpfResonance: 0.3,
+    soundVol: 0.36,
   },
   // A unit is chewing on a base core: dull structural thud.
   coreHit: {

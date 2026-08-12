@@ -108,6 +108,7 @@ import {
   EV_PURCHASE,
   EV_RESPAWN,
   EV_SHOT,
+  EV_TRANSFORM,
   type EventBuffer,
   pushEvent,
   reachToShotPayload,
@@ -753,6 +754,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         hover = !hover;
         ent.mode[id] = hover ? MODE_HOVER : MODE_WALKER;
         ent.timerA[id] = TRANSFORM_LOCK_TICKS;
+        pushEvent(state.events, EV_TRANSFORM, id, hover ? 1 : 0, TRANSFORM_LOCK_TICKS);
         ride = hover
           ? rideHeight(map, x, y, hover)
           : resolveWalker(map, x, y, ent.height[id]).height;
@@ -2020,8 +2022,9 @@ function systemPickups(state: SimState): void {
  * Base-intrusion detection (rules.md §9, fcop-logic.md §8.6): fires an alarm when
  * a watched actor enters a base's volume.
  *
- * Detection only, exactly as the original data is — the alert SOUND lived in the
- * undecoded Cfun script. Re-arming is gated here rather than in the client so
+ * Detection only, exactly as the original data is — the alert SOUND was bound in
+ * the Cfun script and that binding is unrecovered. Re-arming is gated here
+ * rather than in the client so
  * every peer (and every replay) agrees on when the alarm sounded.
  */
 function systemTriggers(state: SimState): void {
