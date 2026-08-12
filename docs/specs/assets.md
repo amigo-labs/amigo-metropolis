@@ -11,7 +11,8 @@ Visuals are Phase 6. Nothing in Phases 0–5 may depend on final assets.
 
 **Stage A — Greybox (Phases 0–5).**
 Procedural Three geometry with vertex colors, flat shading:
-- Avatar walker: box torso + leg boxes; hover: flat wedge. Transform = swap.
+- Avatar walker: box torso + leg boxes; hover: flat wedge. Transform: the same
+  swap, played as a morph — see §4.
 - Runner: box + barrel cylinder. Guardian: flattened cone. Juggernaut: 2× runner
   scale. Fortress: large disc. Turret: cylinder + cone. Base: block with gate cutout.
 - Team tint via instance color (red/blue), neutral = grey.
@@ -89,6 +90,23 @@ forever as a debug render mode (`?render=greybox`).
   `leg_r`) rather than one — a deliberate, bounded exception to the
   one-mesh-per-archetype rule in `CLAUDE.md`, capped at four instances. Still no
   `Object3D` tree and no per-limb matrix update.
+- **Walker ↔ hover transformation** (`render/morph.ts`): three beats over the
+  sim's transform lock (~0.8 s), driven by a client-local clock that one
+  `EV_TRANSFORM` event starts.
+  1. **Collapse** — the form being LEFT squashes to a third of its height,
+     spreads sideways, tucks both hips to the same angle (not the gait's
+     antiphase swing) and turns a full circle on the spot.
+  2. **Discharge** — arcs in the Electric Gun's palette (`0xe8ffff` core,
+     `0x40c0ff` glow) crackle over a metre-high cage around the mech, densest at
+     the halfway point, where a flash and a ground ring cover the mesh swap.
+  3. **Unfold** — the form being ENTERED runs the collapse backwards.
+  The two forms are never on screen together. A cross-fade would need
+  per-instance opacity, i.e. a `ShaderMaterial`; the client has none and is not
+  getting one for this, so the swap hides inside the flash instead. That also
+  means neither the rig nor the hover bucket needs extra capacity.
+  The mesh swap point is NOT `ANIM_HOVER`: the sim flips the mode byte on the
+  first tick of the lock, so the snapshot reads as the destination for the whole
+  window. `render/morph.ts` owns which half of the morph draws which form.
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
 - Materials: single atlas texture, `flatShading: true`, no PBR maps.
 

@@ -22,10 +22,15 @@ Design pillars, in priority order:
 
 ## 2. The Avatar
 
-- Transforming vehicle with two modes (toggle, ~0.5 s transform lock):
+- Transforming vehicle with two modes (toggle, ~0.8 s transform lock):
   - **Walker**: slower, can jump, precise handling, better on slopes.
   - **Hover**: fast, drifty (low traction), can cross water, cannot jump,
     steep slopes impassable.
+- The lock (`TRANSFORM_LOCK_TICKS`, 24) is a **commitment**, not a formality: no
+  moving, no jumping, no weapons for its whole length. It was 15 while the change
+  was an invisible one-frame mesh swap; it grew when the change grew an animation
+  to play (`assets.md` §4), and the extra 0.3 s of being a stationary target is
+  the deliberate price of that. Deciding to change form is a real decision.
 - **Drive only in facing direction** (no holonomic strafe): throttle is the
   stick component along aim/lock heading; reverse is allowed. Turn by aiming.
 - The slope asymmetry is **deliberate**: `AVATAR_HOVER_MAX_SLOPE` (0.5) is

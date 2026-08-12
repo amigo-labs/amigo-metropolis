@@ -15,6 +15,7 @@ import {
   EV_EXPLOSION,
   EV_HIT,
   EV_SHOT,
+  EV_TRANSFORM,
   EVENT_STRIDE,
   type EventBuffer,
   PRIMARY_RANGE,
@@ -29,6 +30,7 @@ import {
   shotPayloadToReach,
   shotPayloadWeaponId,
   shotPayloadWeaponReach,
+  TICK_HZ,
   type WeaponDef,
   weaponById,
 } from "@metropolis/sim";
@@ -43,6 +45,8 @@ const MUZZLE_CAP = 64;
 const EXPLOSION_CAP = 48;
 const SPARK_CAP = 64;
 const SHOCKWAVE_CAP = 48;
+/** One per avatar that can be transforming at once (render/morph.ts slots). */
+const ARC_EMITTERS = 4;
 
 const TRACER_LIFE = 0.09;
 const MUZZLE_LIFE = 0.06;
@@ -58,6 +62,85 @@ const SPARK_SCALE = 0.9;
 const EXPLOSION_START = 1.2;
 const EXPLOSION_END = 6.5;
 const SHOCKWAVE_END = 8;
+
+/**
+ * Transformation discharge (rules.md §2) — the arcs that crawl over the mech
+ * while it changes form.
+ *
+ * Sized against the unit, not against the explosions: the avatar is 0.80 m
+ * across (ARCHETYPE_RADIUS 0.4) and about a metre tall, so the whole cage these
+ * live in is roughly a metre cube. Explosion numbers here would swallow it.
+ *
+ * Each arc is a short camera-facing streak at a random point on that cage,
+ * lasting about three frames, rather than a connected polyline. A real bolt
+ * would need a per-segment 3D direction, which the shared Pool has no room for
+ * — and at this scale, with this lifetime, a scatter of bright angled streaks
+ * and a connected chain are the same picture. Core plus glow in the palette the
+ * Electric Gun already established (hitscanLook).
+ */
+const ARC_LIFE = 0.09;
+const ARC_RADIUS = 0.45;
+const ARC_HEIGHT = 0.95;
+const ARC_LEN_MIN = 0.13;
+const ARC_LEN_SPAN = 0.2;
+/**
+ * Thin. Measured off the first pass, which had these at 0.035/0.11: against a
+ * 0.8 m mech that is a 10 cm slab, and a screenful of them read as white glass
+ * shards rather than as electricity. Length carries an arc; width kills it.
+ */
+const ARC_CORE_THICK = 0.018;
+const ARC_GLOW_THICK = 0.05;
+const ARC_CORE_HEX = 0xe8ffff;
+const ARC_GLOW_HEX = 0x40c0ff;
+/** Streaks per burst, and how often bursts land at the ends vs at the swap. */
+const ARC_PER_BURST = 8;
+const ARC_INTERVAL_CALM = 0.07;
+const ARC_INTERVAL_PEAK = 0.025;
+
+/**
+ * Derived, not picked. At the peak an emitter holds one burst for every
+ * ARC_INTERVAL_PEAK of ARC_LIFE, so the ceiling is emitters x burst x that
+ * ratio — measured at 32 live streaks for a single transformation, which is
+ * exactly what this computes.
+ *
+ * It was a hand-set 128, and 4 x 32 is 128: four simultaneous transformations
+ * sat precisely on the ceiling, where a frame landing between two bursts starts
+ * silently dropping streaks. One spare burst of headroom, and the number now
+ * follows whoever retunes the density instead of quietly becoming wrong.
+ *
+ * `spawn` returning false is what dropping looks like, and it is the one way
+ * arcCore and arcGlow could disagree — they are spawned as a pair, share a cap
+ * and a lifetime, and age on the same clock, so they fill and drain in lockstep
+ * and only a cap this tight could have split them.
+ */
+export const ARC_CAP =
+  ARC_EMITTERS * ARC_PER_BURST * Math.ceil(ARC_LIFE / ARC_INTERVAL_PEAK) + ARC_PER_BURST;
+/**
+ * The discharge that covers the mesh swap, at the halfway point of the lock.
+ *
+ * It borrows the explosion SPRITE but not the explosion POOL. The sprite,
+ * because the muzzle particle is a 32x32 red puff and blown up over a
+ * transforming mech it read as a pink pixel blob, where the explosion ball tints
+ * cleanly to the arc palette. Its own pool, because everything in this effect
+ * has to age on the sim clock: parked in the shared pools, the flash and the
+ * ring decayed on wall time while the arcs around them stayed frozen, so a
+ * paused mid-transformation frame lost exactly the beat worth photographing.
+ */
+/**
+ * Two per emitter. Each transformation spawns exactly one flash and one ring, so
+ * one apiece would do; the spare covers a flash still fading when the same
+ * avatar transforms straight back. With headroom this size neither spawn can
+ * fail, which is what keeps the pair a pair — the flash marks the emitter fired
+ * before spawning, deliberately, because a discharge that arrives late is worse
+ * than one that never arrives.
+ */
+const TRANSFORM_FLASH_CAP = ARC_EMITTERS * 2;
+const TRANSFORM_FLASH_START = 0.45;
+const TRANSFORM_FLASH_END = 1.9;
+const TRANSFORM_FLASH_LIFE = 0.22;
+const TRANSFORM_RING_START = 0.4;
+const TRANSFORM_RING_END = 3.2;
+const TRANSFORM_RING_LIFE = 0.3;
 
 /**
  * Cpyr particle ids per role, read off the contact sheet (gen:fxsheet).
@@ -108,8 +191,14 @@ export interface ShotFx {
   /**
    * Age live effects and rewrite instance matrices (call once per frame).
    * Pass the active camera so Cpyr billboards face the viewer.
+   *
+   * `simDtSec` is how far the sim moved this frame, and only the transformation
+   * discharge uses it: that effect spans a sim window (the transform lock) and
+   * has to stay in step with the morph it plays over, while a tracer or a
+   * fireball is a sub-frame flash that should burn out in real time whatever the
+   * sim is doing. Omit it and the discharge falls back to the frame's own delta.
    */
-  update(dtSec: number, camera?: THREE.Camera): void;
+  update(dtSec: number, camera?: THREE.Camera, simDtSec?: number): void;
   /** Test/debug: live slot counts per pool. */
   debugCounts(): {
     tracers: number;
@@ -117,6 +206,12 @@ export interface ShotFx {
     explosions: number;
     sparks: number;
     shockwaves: number;
+    /** Live arc streaks (core pool; the glow pool mirrors it one for one). */
+    arcs: number;
+    /** Transformations currently discharging. */
+    arcEmitters: number;
+    /** Live swap flashes (the ground ring is spawned one for one with these). */
+    transformFlashes: number;
   };
   /** Test/debug: world length of the newest live tracer, or 0 when there is none. */
   debugTracerLength(): number;
@@ -137,14 +232,38 @@ interface Pool {
   count: number;
 }
 
+/**
+ * A transformation in progress: where it is, how far through it is, and when it
+ * next spits arcs. Fixed slots, filled in place — an emitter outlives the single
+ * event that starts it, so unlike every other effect in here it cannot just be a
+ * pool entry that ages out.
+ */
+interface ArcEmitters {
+  readonly x: Float32Array;
+  readonly y: Float32Array;
+  readonly z: Float32Array;
+  /** Seconds since the transform started. */
+  readonly elapsed: Float32Array;
+  /** Total seconds this discharge runs — the sim's lock, carried in the event. */
+  readonly duration: Float32Array;
+  /** Seconds until the next burst of streaks. */
+  readonly nextBurst: Float32Array;
+  /** 0 until the mid-point flash has been fired, 1 after. */
+  readonly flashed: Uint8Array;
+  readonly live: Uint8Array;
+}
+
 // Module-scope scratch — never allocate inside pump/update.
 const scratchMatrix = new THREE.Matrix4();
 const scratchQuat = new THREE.Quaternion();
+const scratchRoll = new THREE.Quaternion();
 const scratchPos = new THREE.Vector3();
 const scratchScale = new THREE.Vector3(1, 1, 1);
 const scratchColor = new THREE.Color();
 const camQuat = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
+/** Roll axis for arc streaks: the quad's own normal, so it spins in screen space. */
+const FORWARD = new THREE.Vector3(0, 0, 1);
 const poseScratch = new Float32Array(4);
 let hasCamera = false;
 
@@ -228,6 +347,19 @@ function kill(pool: Pool, i: number): void {
     }
   }
   pool.count = last;
+}
+
+function makeArcEmitters(): ArcEmitters {
+  return {
+    x: new Float32Array(ARC_EMITTERS),
+    y: new Float32Array(ARC_EMITTERS),
+    z: new Float32Array(ARC_EMITTERS),
+    elapsed: new Float32Array(ARC_EMITTERS),
+    duration: new Float32Array(ARC_EMITTERS),
+    nextBurst: new Float32Array(ARC_EMITTERS),
+    flashed: new Uint8Array(ARC_EMITTERS),
+    live: new Uint8Array(ARC_EMITTERS),
+  };
 }
 
 function age(pool: Pool, dt: number): void {
@@ -370,6 +502,26 @@ export function createFx(scene: THREE.Scene): ShotFx {
   const explosionsLate = makePool(scene, quadGeom, explosionLateMat, EXPLOSION_CAP, true);
   const sparks = makePool(scene, quadGeom, sparkMat, SPARK_CAP);
 
+  // --- Transformation discharge: arc streaks (core + glow) -------------------
+  // Deliberately NOT sprite-backed. The Cpyr atlas is fireballs and puffs; there
+  // is no arc frame in the extract, and stretching a puff into a streak reads as
+  // a smear rather than electricity.
+  const arcCore = makePool(scene, quadGeom, makeAdditiveMaterial(ARC_CORE_HEX, 1), ARC_CAP);
+  const arcGlow = makePool(scene, quadGeom, makeAdditiveMaterial(ARC_GLOW_HEX, 0.35), ARC_CAP);
+  // The flash and the ground ring belong to the discharge, not to the explosion
+  // and shockwave pools they look like — they age on the sim clock with the arcs.
+  // Under 1: the Cpyr ball is a dense speckled sprite at NearestFilter, and at
+  // full opacity it goes opaque enough to read as static rather than as light.
+  const transformFlashMat = makeAdditiveMaterial(ARC_CORE_HEX, 0.8);
+  const transformFlashes = makePool(scene, quadGeom, transformFlashMat, TRANSFORM_FLASH_CAP);
+  const transformRings = makePool(
+    scene,
+    ringGeom,
+    makeAdditiveMaterial(ARC_GLOW_HEX, 0.7),
+    TRANSFORM_FLASH_CAP,
+  );
+  const arcEmitters = makeArcEmitters();
+
   let atlasReady = false;
 
   // Fire-and-forget atlas load. Missing file keeps the solid additive fallback
@@ -380,6 +532,11 @@ export function createFx(scene: THREE.Scene): ShotFx {
     bindSpriteMap(explosionMat, loaded.maps.explosion);
     bindSpriteMap(explosionLateMat, loaded.maps.explosionLate);
     bindSpriteMap(sparkMat, loaded.maps.spark);
+    // Same round soft ball, kept tinted: bindSpriteMap whitens the material so
+    // the sprite's own colours show, which is right for a fireball and wrong for
+    // a discharge.
+    bindSpriteMap(transformFlashMat, loaded.maps.explosion);
+    transformFlashMat.color.setHex(ARC_CORE_HEX);
     atlasReady = true;
   });
 
@@ -492,6 +649,104 @@ export function createFx(scene: THREE.Scene): ShotFx {
         }
       } else if (type === EV_HIT) {
         spawn(sparks, SPARK_LIFE, px, py + 1.0, pz, 0, SPARK_SCALE);
+      } else if (type === EV_TRANSFORM) {
+        // c = the sim's lock in ticks, so the discharge is exactly as long as
+        // the window the avatar is frozen for, whatever balance.ts says today.
+        startArcEmitter(px, py, pz, c / TICK_HZ);
+      }
+    }
+  }
+
+  function liveArcEmitters(): number {
+    let n = 0;
+    for (let i = 0; i < ARC_EMITTERS; i++) n += arcEmitters.live[i];
+    return n;
+  }
+
+  /** Claims an emitter slot for a transformation starting now. */
+  function startArcEmitter(px: number, py: number, pz: number, duration: number): void {
+    let slot = -1;
+    for (let i = 0; i < ARC_EMITTERS; i++) {
+      if (arcEmitters.live[i] === 0) {
+        slot = i;
+        break;
+      }
+    }
+    // Full means more avatars are transforming than can be on screen at once,
+    // which cannot happen from the sim side. Dropping it loses the arcs, not the
+    // transformation.
+    if (slot === -1) return;
+    arcEmitters.live[slot] = 1;
+    arcEmitters.x[slot] = px;
+    arcEmitters.y[slot] = py;
+    arcEmitters.z[slot] = pz;
+    arcEmitters.elapsed[slot] = 0;
+    arcEmitters.duration[slot] = duration;
+    arcEmitters.nextBurst[slot] = 0; // first burst on the frame it starts
+    arcEmitters.flashed[slot] = 0;
+  }
+
+  /** One burst of streaks scattered over the cage around the mech. */
+  function spawnArcBurst(px: number, py: number, pz: number): void {
+    for (let i = 0; i < ARC_PER_BURST; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = ARC_RADIUS * (0.45 + Math.random() * 0.55);
+      const ax = px + Math.cos(angle) * radius;
+      const az = pz + Math.sin(angle) * radius;
+      const ay = py + Math.random() * ARC_HEIGHT;
+      const roll = Math.random() * Math.PI * 2;
+      const length = ARC_LEN_MIN + Math.random() * ARC_LEN_SPAN;
+      spawn(arcCore, ARC_LIFE, ax, ay, az, roll, length);
+      spawn(arcGlow, ARC_LIFE, ax, ay, az, roll, length);
+    }
+  }
+
+  /**
+   * Ages the emitters and lets them fire.
+   *
+   * Bursts come faster towards the middle of the window, so the discharge builds
+   * into the swap and dies away after it instead of crackling at one flat rate
+   * for eight tenths of a second.
+   */
+  function advanceArcEmitters(dtSec: number): void {
+    for (let i = 0; i < ARC_EMITTERS; i++) {
+      if (arcEmitters.live[i] === 0) continue;
+      const duration = arcEmitters.duration[i];
+      arcEmitters.elapsed[i] += dtSec;
+      const elapsed = arcEmitters.elapsed[i];
+      if (elapsed >= duration) {
+        arcEmitters.live[i] = 0;
+        continue;
+      }
+      const px = arcEmitters.x[i];
+      const py = arcEmitters.y[i];
+      const pz = arcEmitters.z[i];
+      const t = duration > 0 ? elapsed / duration : 1;
+
+      // The swap happens halfway (render/morph.ts): flash over it once.
+      if (arcEmitters.flashed[i] === 0 && t >= 0.5) {
+        arcEmitters.flashed[i] = 1;
+        spawn(
+          transformFlashes,
+          TRANSFORM_FLASH_LIFE,
+          px,
+          py + ARC_HEIGHT * 0.5,
+          pz,
+          0,
+          TRANSFORM_FLASH_END,
+        );
+        spawn(transformRings, TRANSFORM_RING_LIFE, px, py + 0.1, pz, 0, TRANSFORM_RING_END);
+      }
+
+      // Triangular density: calm at both ends, peak at the swap.
+      const peak = 1 - Math.abs(2 * t - 1);
+      const interval = ARC_INTERVAL_CALM - (ARC_INTERVAL_CALM - ARC_INTERVAL_PEAK) * peak;
+      arcEmitters.nextBurst[i] -= dtSec;
+      // `while`, not `if`: a long frame owes more than one burst, and `interval`
+      // is never zero so this cannot spin.
+      while (arcEmitters.nextBurst[i] <= 0) {
+        spawnArcBurst(px, py, pz);
+        arcEmitters.nextBurst[i] += interval;
       }
     }
   }
@@ -519,9 +774,33 @@ export function createFx(scene: THREE.Scene): ShotFx {
     pool.mesh.instanceMatrix.needsUpdate = true;
   }
 
-  function update(dtSec: number, camera?: THREE.Camera): void {
+  /**
+   * Camera-facing streak: the billboard quat with a roll about its own normal,
+   * so `pool.yaw` reads as an angle on screen rather than a heading in the world.
+   * Everything else here orients in the world; an arc has no world heading to
+   * orient to.
+   */
+  function writeRolled(pool: Pool, scaleFor: (i: number, t: number) => void): void {
+    const n = pool.count;
+    for (let i = 0; i < n; i++) {
+      const t = 1 - pool.life[i] / pool.maxLife[i];
+      scaleFor(i, t);
+      scratchPos.set(pool.x[i], pool.y[i], pool.z[i]);
+      if (hasCamera) scratchQuat.copy(camQuat);
+      else scratchQuat.identity();
+      scratchRoll.setFromAxisAngle(FORWARD, pool.yaw[i]);
+      scratchQuat.multiply(scratchRoll);
+      scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
+      pool.mesh.setMatrixAt(i, scratchMatrix);
+    }
+    pool.mesh.count = n;
+    pool.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  function update(dtSec: number, camera?: THREE.Camera, simDtSec?: number): void {
     hasCamera = camera !== undefined;
     if (camera) camera.getWorldQuaternion(camQuat);
+    const arcDt = simDtSec ?? dtSec;
 
     if (dtSec > 0) {
       age(tracerCore, dtSec);
@@ -531,6 +810,19 @@ export function createFx(scene: THREE.Scene): ShotFx {
       age(explosionsLate, dtSec);
       age(sparks, dtSec);
       age(shockwaves, dtSec);
+    }
+    // The discharge runs on the sim's clock, so it freezes with a paused sim
+    // and cannot be fast-forwarded by a long frame — the streaks age on the same
+    // clock that schedules them, or a freeze would drain the pool and leave a
+    // mid-transformation pin with nothing to look at.
+    if (arcDt > 0) {
+      age(arcCore, arcDt);
+      age(arcGlow, arcDt);
+      age(transformFlashes, arcDt);
+      age(transformRings, arcDt);
+      // AFTER the ages: a streak spawned this frame should get its whole life,
+      // and at ARC_LIFE it only has about three frames to give away.
+      advanceArcEmitters(arcDt);
     }
 
     writeOriented(tracerCore, false, (i, t) => {
@@ -570,6 +862,25 @@ export function createFx(scene: THREE.Scene): ShotFx {
       const s = 0.8 + shockwaves.param[i] * t;
       scratchScale.set(s, 1, s);
     });
+    // Punch in hard, then fade — the swap happens under the brightest frame.
+    writeOriented(transformFlashes, true, (i, t) => {
+      const s = TRANSFORM_FLASH_START + (transformFlashes.param[i] - TRANSFORM_FLASH_START) * t;
+      const f = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+      scratchScale.set(s * f, s * f, s * f);
+    });
+    writeOriented(transformRings, false, (i, t) => {
+      const s = TRANSFORM_RING_START + transformRings.param[i] * t;
+      scratchScale.set(s, 1, s);
+    });
+    // Arcs snap to full length and thin out rather than shrinking: a discharge
+    // that scales down reads as a receding object, not as one going out.
+    writeRolled(arcCore, (i, t) => {
+      scratchScale.set(arcCore.param[i], ARC_CORE_THICK * (1 - t), 1);
+    });
+    writeRolled(arcGlow, (i, t) => {
+      const fade = 1 - t;
+      scratchScale.set(arcGlow.param[i] * (1 + t * 0.25), ARC_GLOW_THICK * fade, 1);
+    });
   }
 
   return {
@@ -585,6 +896,9 @@ export function createFx(scene: THREE.Scene): ShotFx {
       explosions: explosions.count,
       sparks: sparks.count,
       shockwaves: shockwaves.count,
+      arcs: arcCore.count,
+      arcEmitters: liveArcEmitters(),
+      transformFlashes: transformFlashes.count,
     }),
   };
 }

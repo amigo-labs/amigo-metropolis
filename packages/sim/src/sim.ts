@@ -105,6 +105,7 @@ import {
   EV_PURCHASE,
   EV_RESPAWN,
   EV_SHOT,
+  EV_TRANSFORM,
   type EventBuffer,
   pushEvent,
   reachToShotPayload,
@@ -756,6 +757,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         hover = !hover;
         ent.mode[id] = hover ? MODE_HOVER : MODE_WALKER;
         ent.timerA[id] = TRANSFORM_LOCK_TICKS;
+        pushEvent(state.events, EV_TRANSFORM, id, hover ? 1 : 0, TRANSFORM_LOCK_TICKS);
         ride = hover
           ? rideHeight(map, x, y, hover)
           : resolveWalker(map, x, y, ent.height[id]).height;

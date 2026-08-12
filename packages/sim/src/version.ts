@@ -431,4 +431,23 @@
 //     connect with. match01's dead reckoning was also corrected to follow the
 //     QUANTISED heading the sim drives — it was 2.9 m out by the ring, which the
 //     old 1.5 m turret disc hid and a 0.7 m one does not.
-export const SIM_VERSION = 27;
+// v28: TRANSFORM_LOCK_TICKS 15 -> 24 (~0.5 s -> ~0.8 s). The walker/hover change
+//     grew a presentation — collapse, discharge, unfold (assets.md §4) — and the
+//     window it plays in is sim state, so the lock grew with it. 0.3 s longer
+//     defenceless is a balance change, not polish, and it is deliberate.
+//     ONE golden moves: golden-02-combat, the only script that presses
+//     BUTTON_TRANSFORM. The other six are header-only. It moves for two reasons,
+//     and the second one is a script edit, not the sim: combat01's transform
+//     "mash" pressed for a whole four-second phase, and because a press can only
+//     land once the previous lock expires, the form it ended in was
+//     phaseLength/lockLength parity — five toggles (hover) at 15, four (walker)
+//     at 24. golden02.test.ts caught it as a collapsed hover phase (1080 ->
+//     144 ticks). The mash now runs for strictly less than one lock, so exactly
+//     one press can land however the respawn tick drifts, and the phase ends in
+//     the form the script asks for at any lock length.
+//     The EV_TRANSFORM event added in the same commit is NOT why this bumped.
+//     Events are transient and never hashed (events.ts). Verified rather than
+//     asserted: re-recording all seven goldens with the pushEvent call removed
+//     produces byte-identical .hashes.json files. Nothing from the presentation
+//     leaked into the tick.
+export const SIM_VERSION = 28;
