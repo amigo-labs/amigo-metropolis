@@ -92,7 +92,7 @@ import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/cam
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx } from "./render/fx";
-import { bucketFor, createGreyboxMeshes, tintFor, tintKey } from "./render/greybox";
+import { bucketFor, createGreyboxMeshes, tintFor } from "./render/greybox";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
 import { loadMapMesh } from "./render/meshMap";
 import {
@@ -665,12 +665,19 @@ let timeScale = 1;
 
 const scratchMatrix = new THREE.Matrix4();
 const scratchQuat = new THREE.Quaternion();
+const scratchPitch = new THREE.Quaternion();
 const scratchPos = new THREE.Vector3();
 const scratchScale = new THREE.Vector3(1, 1, 1);
 const camTarget = new THREE.Vector3();
 const rigFocus = { x: 0, y: 0, z: 0 };
 const rigVel = { x: 0, y: 0, z: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
+/**
+ * Local axis a nose pitches about. Models are baked +Z -> +X (unitMeshes.ts), so
+ * after the yaw rotation a shell's nose is local +X and rolling about local +Z
+ * lifts it toward +Y.
+ */
+const PITCH_AXIS = new THREE.Vector3(0, 0, 1);
 const TAU = Math.PI * 2;
 
 // The chase rig has no zoom to give the wheel (camera.spec §3), and under
@@ -1245,6 +1252,11 @@ function entityPose(id: number, out: Float32Array): boolean {
   out[1] = snapCurr[o + 5];
   out[2] = snapCurr[o + 4];
   if (out.length > 3) out[3] = snapCurr[o + 6];
+  // Slot 4, for callers that ask for it: the shooter's archetype. render/fx.ts
+  // needs it to pick the bolt — the original gives turrets the twin bolt and
+  // ground units the single one (docs/specs/fcop-fx.md §4). Guarded by length
+  // like the yaw above, so the audio resolver's shorter buffer is untouched.
+  if (out.length > 4) out[4] = snapCurr[o + 1];
   return true;
 }
 
@@ -1442,13 +1454,29 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
         // squash in here, and every later instance would inherit it.
         scratchScale.set(1, 1, 1);
       }
+      // A shell points where it is going, in the vertical too. The snapshot
+      // carries no vertical velocity, but the two ticks being interpolated
+      // between do: rise over run across that step IS the flight angle. Costs
+      // nothing while projectiles fly flat (the delta is zero, atan2 gives
+      // zero) and turns the mortar's arc into a shell that noses over at the
+      // top of it. No allocation — both quaternions are module scratch. Never
+      // collides with the morph above: a projectile is not an avatar.
+      if (archetype === ARCHETYPE.PROJECTILE && hasPrev) {
+        const dh = snapCurr[o + 5] - snapPrev[po + 5];
+        const dx = snapCurr[o + 3] - snapPrev[po + 3];
+        const dy = snapCurr[o + 4] - snapPrev[po + 4];
+        const run = Math.sqrt(dx * dx + dy * dy);
+        if (dh !== 0 || run !== 0) {
+          scratchPitch.setFromAxisAngle(PITCH_AXIS, Math.atan2(dh, run));
+          scratchQuat.multiply(scratchPitch);
+        }
+      }
       scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
       bucket.mesh.setMatrixAt(slot, scratchMatrix);
 
-      const key = tintKey(archetype, team, aux);
-      if (bucket.tintCache[slot] !== key) {
-        bucket.tintCache[slot] = key;
-        bucket.mesh.setColorAt(slot, tintFor(archetype, team, aux));
+      if (bucket.tintCache[slot] !== team) {
+        bucket.tintCache[slot] = team;
+        bucket.mesh.setColorAt(slot, tintFor(team));
         if (bucket.mesh.instanceColor) bucket.mesh.instanceColor.needsUpdate = true;
       }
     }

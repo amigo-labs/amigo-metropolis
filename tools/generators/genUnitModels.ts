@@ -46,12 +46,13 @@ import {
 } from "@gltf-transform/functions";
 import { MeshoptSimplifier } from "meshoptimizer";
 import { type DecodedImage, decodePng, encodePng } from "./png";
-import { PROP_MODELS, UNIT_MODELS } from "./units/manifest";
+import { FX_MODELS, PROP_MODELS, UNIT_MODELS } from "./units/manifest";
 
 const RAW_DIR = join(import.meta.dir, "units", "raw");
 const MODELS_DIR = join(import.meta.dir, "..", "..", "packages", "client", "public", "models");
 const OUT_UNITS = join(MODELS_DIR, "units");
 const OUT_PROPS = join(MODELS_DIR, "props");
+const OUT_FX = join(MODELS_DIR, "fx");
 
 /**
  * One model to build. Flattened from the manifest's two arrays so the pipeline
@@ -77,6 +78,12 @@ interface ModelPass {
   readonly neutralizeColors: boolean;
   /** Move the origin to the bbox centre in XZ (see the grounding step below). */
   readonly centreXZ: boolean;
+  /**
+   * Drop the origin onto the mesh's lowest point. True for anything that stands
+   * on the ground; FALSE for projectiles, which are positioned by their own
+   * centre in flight and whose authored origin already is that centre.
+   */
+  readonly groundY: boolean;
 }
 
 const PASSES: readonly ModelPass[] = [
@@ -91,6 +98,7 @@ const PASSES: readonly ModelPass[] = [
     nativeScale: spec.nativeScale,
     neutralizeColors: spec.neutralizeColors,
     centreXZ: true,
+    groundY: true,
   })),
   ...PROP_MODELS.map((spec) => ({
     key: spec.key,
@@ -102,6 +110,23 @@ const PASSES: readonly ModelPass[] = [
     maxTris: spec.maxTris,
     neutralizeColors: false,
     centreXZ: false,
+    groundY: true,
+  })),
+  ...FX_MODELS.map((spec) => ({
+    key: spec.key,
+    raw: spec.raw,
+    outDir: OUT_FX,
+    rotateQuarterY: spec.rotateQuarterY,
+    maxTris: spec.maxTris,
+    footprint: spec.footprint,
+    maxHeight: spec.maxHeight,
+    // Cobj assemblies in map meters, exactly like the units.
+    nativeScale: true,
+    neutralizeColors: spec.neutralizeColors,
+    // A projectile keeps the origin the original authored, on both axes: it
+    // flies about its own centre rather than standing on anything.
+    centreXZ: false,
+    groundY: false,
   })),
 ];
 
@@ -432,18 +457,32 @@ async function processModel(spec: ModelPass): Promise<Report> {
   const prims = root.listMeshes().flatMap((m) => m.listPrimitives());
   const unitMat = document.createMaterial("unit").setBaseColorFactor([1, 1, 1, 1]);
   unitMat.setMetallicFactor(0).setRoughnessFactor(1);
+  // Facer primitives (`Star` / `Billboard` / `Line` in the original's 3DQL,
+  // exported in an emissive `facer` material) carry no texture and no UVs — a
+  // beam's colour lives in COLOR_0. A model can mix the two: every FCOP
+  // projectile body has a facer glow bolted to it, and so does the Sky Captain
+  // gunship. This used to demand UVs on EVERY primitive, so one facer dropped
+  // the whole model into the vertex-colour path and its atlas was thrown away.
+  // That is why fortress.glb shipped untextured (Cobj 57 carries six lines).
+  //
+  // So the two are packed together: real pages side by side, plus a small white
+  // patch that the facers' synthesised UVs point at, which leaves their COLOR_0
+  // to come through the multiply unchanged.
+  const texturedPrims = prims.filter((p) => p.getMaterial()?.getBaseColorTexture());
+  const facerPrims = prims.filter((p) => !p.getMaterial()?.getBaseColorTexture());
   const textured =
-    root.listTextures().length > 0 && prims.every((p) => p.getAttribute("TEXCOORD_0"));
+    texturedPrims.length > 0 && texturedPrims.every((p) => p.getAttribute("TEXCOORD_0"));
+  /** Width of the white patch, in texels. Only wide enough to sample safely. */
+  const WHITE_PATCH = 8;
   if (textured) {
     // Textured path (the FCOP originals): pack all referenced 256x256 pages
-    // side by side into ONE atlas, remap each primitive's U into its page's
-    // column, and drop COLOR_0 — the original look lives in the texture.
-    // Optional desaturation keeps the panel detail while letting the
+    // side by side into ONE atlas and remap each primitive's U into its page's
+    // column. Optional desaturation keeps the panel detail while letting the
     // whole-unit instanceColor team tint own the hue (like FCOP's own grey
     // unit variants).
     const pages: DecodedImage[] = [];
     const pageIndex = new Map<unknown, number>();
-    for (const prim of prims) {
+    for (const prim of texturedPrims) {
       const texture = prim.getMaterial()?.getBaseColorTexture();
       if (!texture) throw new Error(`${spec.key}: textured model with untextured primitive`);
       if (!pageIndex.has(texture)) {
@@ -457,10 +496,16 @@ async function processModel(spec: ModelPass): Promise<Report> {
     if (pages.some((p) => p.height !== height)) {
       throw new Error(`${spec.key}: texture pages differ in height`);
     }
-    const width = pages.reduce((n, p) => n + p.width, 0);
+    const pagesWidth = pages.reduce((n, p) => n + p.width, 0);
+    const needWhite = facerPrims.length > 0;
+    const width = pagesWidth + (needWhite ? WHITE_PATCH : 0);
     const packed = new Uint8Array(width * height * 4);
+    // Per-page x offsets rather than "column idx of n": the white patch is
+    // narrower than a page, so equal-width columns no longer hold.
+    const offsets: number[] = [];
     let xOff = 0;
     for (const page of pages) {
+      offsets.push(xOff);
       for (let y = 0; y < height; y++) {
         packed.set(
           page.pixels.subarray(y * page.width * 4, (y + 1) * page.width * 4),
@@ -474,8 +519,11 @@ async function processModel(spec: ModelPass): Promise<Report> {
       // team0 / team1 / neutral). Preserve panel contrast: mean-push on the
       // whole FCOP sheet (dark padding + tiny UV islands) washed details out.
       // Stretch only the used (non-near-black) luminance into a sharp ramp.
+      // Only the real pages: the white patch is painted after this ramp, so it
+      // neither skews lo/hi nor comes out at 0.95 instead of white.
       const lums = new Float32Array(width * height);
       for (let i = 0; i < width * height; i++) {
+        if (i % width >= pagesWidth) continue;
         lums[i] =
           0.2126 * srgbToLinear(packed[i * 4] / 255) +
           0.7152 * srgbToLinear(packed[i * 4 + 1] / 255) +
@@ -497,6 +545,7 @@ async function processModel(spec: ModelPass): Promise<Report> {
       const outHi = 0.95;
       const span = hi - lo;
       for (let i = 0; i < width * height; i++) {
+        if (i % width >= pagesWidth) continue;
         const t = lums[i] < bg ? 0.05 : outLo + ((lums[i] - lo) / span) * (outHi - outLo);
         const v = Math.round(linearToSrgb(Math.min(1, Math.max(0, t))) * 255);
         packed[i * 4] = v;
@@ -504,24 +553,84 @@ async function processModel(spec: ModelPass): Promise<Report> {
         packed[i * 4 + 2] = v;
       }
     }
+    if (needWhite) {
+      for (let y = 0; y < height; y++) {
+        for (let x = pagesWidth; x < width; x++) {
+          const o = (y * width + x) * 4;
+          packed[o] = 255;
+          packed[o + 1] = 255;
+          packed[o + 2] = 255;
+          packed[o + 3] = 255;
+        }
+      }
+    }
     const atlas = document
       .createTexture("atlas")
       .setImage(encodePng({ width, height, pixels: packed }))
       .setMimeType("image/png");
     unitMat.setBaseColorTexture(atlas);
-    const n = pages.length;
-    for (const prim of prims) {
+
+    // Textured primitives: U into the page's own column, and — only where the
+    // model actually mixes in facers — a white COLOR_0, so every primitive
+    // carries the same attribute set for joinPrimitives below. A model without
+    // facers keeps exactly the vertex layout it had before mixing existed.
+    const white = new Float32Array(0);
+    for (const prim of texturedPrims) {
       const idx = pageIndex.get(prim.getMaterial()?.getBaseColorTexture()) ?? 0;
       const uv = prim.getAttribute("TEXCOORD_0");
-      if (uv && n > 1) {
+      if (uv) {
         const el: number[] = [0, 0];
+        const off = offsets[idx];
+        const pw = pages[idx].width;
         for (let i = 0; i < uv.getCount(); i++) {
           uv.getElement(i, el);
-          uv.setElement(i, [(el[0] + idx) / n, el[1]]);
+          uv.setElement(i, [(off + el[0] * pw) / width, el[1]]);
         }
       }
       prim.getAttribute("COLOR_0")?.dispose();
+      if (needWhite) {
+        const count = prim.getAttribute("POSITION")?.getCount() ?? 0;
+        const array = new Float32Array(count * 4).fill(1);
+        prim.setAttribute(
+          "COLOR_0",
+          document
+            .createAccessor("COLOR_0")
+            .setType("VEC4")
+            .setArray(array.length > 0 ? array : white)
+            .setBuffer(root.listBuffers()[0]),
+        );
+      }
       prim.setMaterial(unitMat);
+    }
+
+    // Facer primitives: keep the colour, borrow the white patch for UVs. The
+    // desaturation happens here rather than in the shared pass at the end of
+    // this function, which only ever saw the vertex-colour path.
+    if (facerPrims.length > 0) {
+      const u = (pagesWidth + WHITE_PATCH / 2) / width;
+      for (const prim of facerPrims) {
+        // Unconditionally, not just when COLOR_0 is missing: the exporter writes
+        // facer colour as VEC3 and joinPrimitives needs one encoding across the
+        // whole mesh. bakeVertexColors re-emits it as VEC4, folding in the
+        // material's baseColorFactor on the way.
+        bakeVertexColors(document, prim);
+        if (spec.neutralizeColors) neutralizeColors(prim);
+        const count = prim.getAttribute("POSITION")?.getCount() ?? 0;
+        const uvArray = new Float32Array(count * 2);
+        for (let i = 0; i < count; i++) {
+          uvArray[i * 2] = u;
+          uvArray[i * 2 + 1] = 0.5;
+        }
+        prim.setAttribute(
+          "TEXCOORD_0",
+          document
+            .createAccessor("TEXCOORD_0")
+            .setType("VEC2")
+            .setArray(uvArray)
+            .setBuffer(root.listBuffers()[0]),
+        );
+        prim.setMaterial(unitMat);
+      }
     }
     for (const texture of root.listTextures()) {
       if (texture !== atlas) texture.dispose();
@@ -631,16 +740,20 @@ async function processModel(spec: ModelPass): Promise<Report> {
   // origin, so re-centering would slide it off the spot it was authored on —
   // Cobj 28's bbox centre alone is 0.32 m off in Z. Their minY is already 0, so
   // the Y term is a no-op there and only states the invariant.
+  // Projectiles keep BOTH: they are drawn about the centre they were authored
+  // on, in the air, so neither term applies (`groundY: false`).
   bounds = getBounds(scene);
   apply(
     translateMatrix(
       spec.centreXZ ? -(bounds.min[0] + bounds.max[0]) / 2 : 0,
-      -bounds.min[1],
+      spec.groundY ? -bounds.min[1] : 0,
       spec.centreXZ ? -(bounds.min[2] + bounds.max[2]) / 2 : 0,
     ),
   );
 
-  if (spec.neutralizeColors) {
+  // Vertex-colour path only: on the textured path the desaturation already ran
+  // per facer primitive, against the atlas ramp rather than after it.
+  if (spec.neutralizeColors && !textured) {
     for (const prim of mesh.listPrimitives()) neutralizeColors(prim);
   }
 

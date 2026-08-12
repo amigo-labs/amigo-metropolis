@@ -14,12 +14,25 @@
 
 import { describe, expect, test } from "bun:test";
 import { NodeIO } from "@gltf-transform/core";
+import {
+  ARCHETYPE,
+  PROJ_HEAVY,
+  PROJ_HYPER,
+  PROJ_MINE,
+  PROJ_MORTAR,
+  PROJ_SHOCKWAVE,
+  PROJ_SPECIAL,
+  PROJ_WARDEN,
+} from "@metropolis/sim";
 import * as THREE from "three";
-import { createGreyboxMeshes, type GreyboxMeshes } from "../src/render/greybox";
+import { bucketFor, createGreyboxMeshes, type GreyboxMeshes } from "../src/render/greybox";
 
-/** Max horizontal extent and height of a committed unit model, in metres. */
-async function modelSize(key: string): Promise<{ footprint: number; height: number }> {
-  const path = new URL(`../public/models/units/${key}.glb`, import.meta.url).pathname;
+/** Max horizontal extent and height of a committed model, in metres. */
+async function modelSize(
+  key: string,
+  dir: "units" | "fx" = "units",
+): Promise<{ footprint: number; height: number }> {
+  const path = new URL(`../public/models/${dir}/${key}.glb`, import.meta.url).pathname;
   const doc = await new NodeIO().read(path);
   const lo = [Infinity, Infinity, Infinity];
   const hi = [-Infinity, -Infinity, -Infinity];
@@ -89,5 +102,57 @@ describe("greybox stand-ins match the models they stand in for", () => {
       g.computeBoundingBox();
       expect(Math.abs(g.boundingBox?.min.y ?? 1)).toBeLessThan(1e-6);
     }
+  });
+});
+
+/** Bucket name -> FX model key, for the projectile kinds that have a mesh. */
+const FX_PAIRS: readonly (readonly [keyof GreyboxMeshes, string, number])[] = [
+  ["projHeavy", "rocket-helfire", PROJ_HEAVY],
+  ["projHyper", "rocket-hyper", PROJ_HYPER],
+  ["projMortar", "shell-mortar", PROJ_MORTAR],
+  ["projMine", "mine", PROJ_MINE],
+  ["projWarden", "rocket-heavy", PROJ_WARDEN],
+];
+
+describe("projectile stand-ins match the FX models they stand in for", () => {
+  const meshes = createGreyboxMeshes(new THREE.Scene());
+
+  for (const [bucketName, key, kind] of FX_PAIRS) {
+    test(`${key}`, async () => {
+      const model = await modelSize(key, "fx");
+      const grey = bucketSize((meshes[bucketName] as { mesh: THREE.InstancedMesh }).mesh);
+      const fitted = Math.min(
+        Math.abs(grey.footprint - model.footprint),
+        Math.abs(grey.height - model.height),
+      );
+      expect(fitted).toBeLessThan(0.02);
+      expect(grey.footprint).toBeLessThanOrEqual(model.footprint + 0.02);
+      expect(grey.height).toBeLessThanOrEqual(model.height + 0.02);
+      // Each kind routes to its OWN bucket — that is the whole point of the
+      // split, and the reason the tint no longer has to carry the kind.
+      expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, kind)).toBe(meshes[bucketName]);
+    });
+  }
+
+  test("projectile stand-ins are centred on the pivot, not grounded", () => {
+    // The opposite invariant to the units above: a shell has no ground contact,
+    // and the FX models keep the centre the original authored (assets.md §4).
+    for (const [bucketName] of FX_PAIRS) {
+      const g = (meshes[bucketName] as { mesh: THREE.InstancedMesh }).mesh.geometry;
+      g.computeBoundingBox();
+      const bb = g.boundingBox;
+      expect(bb).not.toBeNull();
+      expect(Math.abs(((bb?.min.y ?? 0) + (bb?.max.y ?? 0)) / 2)).toBeLessThan(1e-6);
+    }
+  });
+
+  test("the legacy special kind shares the mortar's shell", () => {
+    // PROJ_SPECIAL is the old id for the mortar blast and projectileBlast()
+    // already treats the two as one; the drawing must agree.
+    expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, PROJ_SPECIAL)).toBe(meshes.projMortar);
+  });
+
+  test("a kind with no mesh of its own falls back rather than vanishing", () => {
+    expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, PROJ_SHOCKWAVE)).toBe(meshes.projectile);
   });
 });

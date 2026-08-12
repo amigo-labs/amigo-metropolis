@@ -3,21 +3,35 @@
 // allocations in the hot path (pools preallocated at createFx).
 //
 // Hybrid visual language (as much original FCOP as the assets allow):
-//   Cpyr particle sprites (public/fx/particles.png) → muzzle, explosion, hit
-//   Procedural geometry                               → MG/laser tracers,
+//   Cobj meshes (public/models/fx/)                   → emplacement/unit bolts
+//   Cpyr particle sprites (public/fx/particles.png)   → muzzle, explosion, hit
+//   Procedural geometry                               → the avatar's own tracer,
 //                                                       shockwave rings
-// The particle atlas is only fireballs/puffs — no laser or ring frames exist
-// in the extract. PYDT carries no labels, so the id->role mapping is read off
-// the contact sheet (`bun run gen:fxsheet` -> docs/renders/fx/particles-contact.png)
-// rather than guessed; fx.test.ts records what each sprite actually looks like.
+//
+// The split is not a matter of taste — it is where the original has an asset
+// and where it does not (docs/specs/fcop-fx.md):
+// - Turrets and units throw a real object, ~1 m of facer beam, twin for turrets
+//   and single for ground units. That IS the original's tracer.
+// - The avatar's four hitscan guns spawn nothing in the original's weapon
+//   table: their rows are empty. The streak drawn for them is ours, and stays
+//   marked as ours.
+// - The particle atlas is only fireballs/puffs, and it is static — 8 sprites,
+//   one frame each. PYDT carries no labels, so the id->role mapping is read off
+//   the contact sheet (`bun run gen:fxsheet`) rather than guessed; fx.test.ts
+//   records what each sprite actually looks like.
+// - No ring sprite and no explosion mesh exist anywhere, so the shockwave ring
+//   and the fireball's scale-and-fade are procedural.
 
 import {
+  ARCHETYPE,
   EV_EXPLOSION,
   EV_HIT,
   EV_SHOT,
   EV_TRANSFORM,
   EVENT_STRIDE,
   type EventBuffer,
+  MUZZLE_HEIGHT,
+  MUZZLE_OFFSET,
   PRIMARY_RANGE,
   PROJ_HYPER,
   PROJ_MINE,
@@ -36,9 +50,27 @@ import {
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { PROJECTILE_HEX, paletteHex } from "./palette";
+import { loadUnitAsset } from "./unitMeshes";
 
-/** Must match sim.ts MUZZLE_OFFSET (not exported; keep in lockstep by hand). */
-const MUZZLE_OFFSET = 0.6;
+/**
+ * Flight speed of an emplacement bolt, m/s.
+ *
+ * The original's bolt is an OBJECT that travels (Cobj 12/14, ~1 m of facer
+ * beam), not a streak drawn over the shot's whole reach — see
+ * docs/specs/fcop-fx.md §5. The sim stays hitscan, so damage still lands the
+ * instant the shot is fired and this is pure cosmetics; the speed is picked so
+ * the visual arrives without a noticeable lag at the ranges emplacements
+ * actually fire at (la-cantina imports engage_range 6 m, so ~0.07 s).
+ *
+ * A bolt's lifetime is exactly the time to cover its reach at this speed, with
+ * no upper cap. There was one, and it was wrong: capping the LIFE while the
+ * distance stayed the full reach made the bolt travel faster than BOLT_SPEED on
+ * any shot past ~22 m, so the constant quietly stopped being the speed. The
+ * longest shot the catalog can produce is 40 m, i.e. 0.44 s of flight — a real
+ * object covering real ground, which is the point.
+ */
+const BOLT_SPEED = 90;
+const BOLT_CAP = 128;
 
 const TRACER_CAP = 128;
 const MUZZLE_CAP = 64;
@@ -206,6 +238,9 @@ export interface ShotFx {
     explosions: number;
     sparks: number;
     shockwaves: number;
+    /** Bolts in flight, by which of the original's two the shooter throws. */
+    boltsSingle: number;
+    boltsTwin: number;
     /** Live arc streaks (core pool; the glow pool mirrors it one for one). */
     arcs: number;
     /** Transformations currently discharging. */
@@ -215,6 +250,8 @@ export interface ShotFx {
   };
   /** Test/debug: world length of the newest live tracer, or 0 when there is none. */
   debugTracerLength(): number;
+  /** Test/debug: distance the newest live bolt will cover, or 0 when there is none. */
+  debugBoltReach(): number;
   /** True once the original Cpyr atlas has been applied to the sprite pools. */
   readonly atlasReady: boolean;
 }
@@ -264,7 +301,9 @@ const camQuat = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
 /** Roll axis for arc streaks: the quad's own normal, so it spins in screen space. */
 const FORWARD = new THREE.Vector3(0, 0, 1);
-const poseScratch = new Float32Array(4);
+// Five slots: x, height, z, yaw, and the shooter's archetype (main.ts
+// entityPose fills the last one only because this buffer asks for it).
+const poseScratch = new Float32Array(5);
 let hasCamera = false;
 
 function makeAdditiveMaterial(hex: number, opacity = 0.95): THREE.MeshBasicMaterial {
@@ -411,17 +450,24 @@ function hitscanLook(w: WeaponDef | undefined, reach: number): HitscanLook {
 }
 
 /**
- * Tracer for an emplacement or a ground unit, whose reach travels in the event
- * (events.ts SHOT_SLOT_HITSCAN) because it has no weapons.ts entry.
- *
- * These used to resolve to weaponById(0) and draw the Mini-Gun's 40 m bolt. On
- * la-cantina every turret's imported engage_range is 6 m, so 72 emplacements
- * were each firing a tracer seven times longer than the shot behind it. Thinner
- * than the avatar's too — a turret burst should not read as heavier than the
- * player's own gun.
+ * Swaps an FX model into a pool's InstancedMesh, keeping the pool's instance
+ * data. Same contract as unitMeshes.ts's bucket swap: init-time, fire and
+ * forget, and a missing or broken asset simply keeps the stand-in.
  */
-function emplacementLook(reach: number): HitscanLook {
-  return { length: reach, core: 0xffffff, halo: 0xffc86a, thick: 0.75 };
+async function swapPoolGeometry(pool: Pool, key: string): Promise<void> {
+  try {
+    const { geometry, material } = await loadUnitAsset(key, "fx", true);
+    // Authored +Z forward (assets.md §4); the sim's frame is +X forward.
+    geometry.rotateY(Math.PI / 2);
+    pool.mesh.geometry.dispose();
+    pool.mesh.geometry = geometry;
+    (pool.mesh.material as THREE.Material).dispose();
+    material.depthWrite = false;
+    material.transparent = true;
+    pool.mesh.material = material;
+  } catch (err) {
+    console.warn(`[fx] no usable FX asset for ${key}, keeping the stand-in: ${err}`);
+  }
 }
 
 function findSprite(meta: ParticleMeta, id: number): ParticleSpriteRect | null {
@@ -462,6 +508,34 @@ function bindSpriteMap(material: THREE.MeshBasicMaterial, map: THREE.Texture): v
 }
 
 export function createFx(scene: THREE.Scene): ShotFx {
+  // --- Emplacement/unit bolts: the original's own flying object --------------
+  // Two pools because the original has two bolts and hands them out by shooter:
+  // the twin to turrets (all 64 turret and neutral-turret shooters on
+  // la-cantina), the single to ground units and aircraft. Each keeps its
+  // authored 1 m length and travels; it does not stretch to the shot's reach.
+  // The stand-in below is that length as a thin box, so the swap changes the
+  // shape and never the scale — the same rule greybox.ts follows.
+  const boltStandIn = new THREE.BoxGeometry(1.02, 0.12, 0.12);
+  const boltsSingle = makePool(
+    scene,
+    boltStandIn,
+    makeAdditiveMaterial(0xffe08a, 1),
+    BOLT_CAP,
+    false,
+  );
+  const boltsTwin = makePool(
+    scene,
+    boltStandIn.clone(),
+    makeAdditiveMaterial(0xffe08a, 1),
+    BOLT_CAP,
+    false,
+  );
+  // The models carry the original's own colours in COLOR_0, and no team tint:
+  // unlike the player's weapons, the AI bolt rows name exactly ONE mesh each,
+  // with no second team variant (docs/specs/fcop-fx.md §4).
+  void swapPoolGeometry(boltsSingle, "bolt-single");
+  void swapPoolGeometry(boltsTwin, "bolt-twin");
+
   // --- Procedural: laser/MG tracers (core + soft halo) -----------------------
   const tracerGeom = new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
   tracerGeom.rotateZ(-Math.PI / 2);
@@ -560,7 +634,7 @@ export function createFx(scene: THREE.Scene): ShotFx {
         const sin = Math.sin(yaw);
         const mx = px + cos * MUZZLE_OFFSET;
         const mz = pz + sin * MUZZLE_OFFSET;
-        const my = py + 0.6; // sim.ts MUZZLE_HEIGHT
+        const my = py + MUZZLE_HEIGHT;
         // What `c` means depends on `b` — see events.ts. Slots 0/1/2 are the
         // avatar's and pack a catalog id with the shot's reach;
         // SHOT_SLOT_HITSCAN carries a reach in decimetres; SHOT_SLOT_LAUNCH
@@ -574,16 +648,23 @@ export function createFx(scene: THREE.Scene): ShotFx {
         const w = avatarSlot ? weaponById(shotPayloadWeaponId(c)) : undefined;
         const muzzleScale = w?.vfx === "flame" ? MUZZLE_SCALE * 1.5 : MUZZLE_SCALE;
         spawn(muzzles, MUZZLE_LIFE, mx, my, mz, yaw, muzzleScale);
-        // Hitscan weapons get a tracer bolt (gun minigun/laser/flame, special beam).
-        // Projectiles already render as entities.
-        if (emplacement || w?.delivery === "hitscan") {
+        // Emplacements and units throw the original's bolt: a ~1 m object that
+        // flies to where the shot actually reached. The avatar does NOT — its
+        // four hitscan guns are among the seven weapons whose row in the
+        // original's table is EMPTY, i.e. they spawn no object at all, so the
+        // streak below stays ours rather than being dressed up as extraction
+        // (docs/specs/fcop-fx.md §3).
+        if (emplacement) {
+          const reach = shotPayloadToReach(c);
+          const pool = poseScratch[4] === ARCHETYPE.TURRET ? boltsTwin : boltsSingle;
+          const life = reach / BOLT_SPEED;
+          if (life > 0) spawn(pool, life, mx, my, mz, yaw, reach);
+        } else if (w?.delivery === "hitscan") {
           // Length is the shot's own reach, carried in the event — where it hit
           // a body, where a wall stopped it, or the full range. It used to be
           // the weapon's nominal range, so a burst into a wall three metres off
           // still drew forty metres of bolt straight through it.
-          const look = emplacement
-            ? emplacementLook(shotPayloadToReach(c))
-            : hitscanLook(w, shotPayloadWeaponReach(c));
+          const look = hitscanLook(w, shotPayloadWeaponReach(c));
           const half = look.length * 0.5;
           const cx = mx + cos * half;
           const cz = mz + sin * half;
@@ -775,6 +856,32 @@ export function createFx(scene: THREE.Scene): ShotFx {
   }
 
   /**
+   * Bolts, which are the one pool that MOVES: everything else ages in place.
+   * Position comes from the stored muzzle point plus how far the bolt has flown,
+   * so no per-instance velocity arrays are needed — `param` holds the distance
+   * to cover and the life fraction says how much of it is behind us.
+   */
+  function writeBolts(pool: Pool): void {
+    const n = pool.count;
+    for (let i = 0; i < n; i++) {
+      const t = 1 - pool.life[i] / pool.maxLife[i];
+      const travelled = pool.param[i] * t;
+      const yaw = pool.yaw[i];
+      scratchPos.set(
+        pool.x[i] + Math.cos(yaw) * travelled,
+        pool.y[i],
+        pool.z[i] + Math.sin(yaw) * travelled,
+      );
+      scratchQuat.setFromAxisAngle(UP, -yaw);
+      scratchScale.set(1, 1, 1);
+      scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
+      pool.mesh.setMatrixAt(i, scratchMatrix);
+    }
+    pool.mesh.count = n;
+    pool.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /**
    * Camera-facing streak: the billboard quat with a roll about its own normal,
    * so `pool.yaw` reads as an angle on screen rather than a heading in the world.
    * Everything else here orients in the world; an arc has no world heading to
@@ -803,6 +910,8 @@ export function createFx(scene: THREE.Scene): ShotFx {
     const arcDt = simDtSec ?? dtSec;
 
     if (dtSec > 0) {
+      age(boltsSingle, dtSec);
+      age(boltsTwin, dtSec);
       age(tracerCore, dtSec);
       age(tracerHalo, dtSec);
       age(muzzles, dtSec);
@@ -825,6 +934,8 @@ export function createFx(scene: THREE.Scene): ShotFx {
       advanceArcEmitters(arcDt);
     }
 
+    writeBolts(boltsSingle);
+    writeBolts(boltsTwin);
     writeOriented(tracerCore, false, (i, t) => {
       const fade = 1 - t;
       scratchScale.set(tracerCore.param[i], TRACER_CORE_THICK * fade, TRACER_CORE_THICK * fade);
@@ -890,12 +1001,18 @@ export function createFx(scene: THREE.Scene): ShotFx {
       return atlasReady;
     },
     debugTracerLength: () => (tracerCore.count > 0 ? tracerCore.param[tracerCore.count - 1] : 0),
+    debugBoltReach: () => {
+      const pool = boltsTwin.count > 0 ? boltsTwin : boltsSingle;
+      return pool.count > 0 ? pool.param[pool.count - 1] : 0;
+    },
     debugCounts: () => ({
       tracers: tracerCore.count,
       muzzles: muzzles.count,
       explosions: explosions.count,
       sparks: sparks.count,
       shockwaves: shockwaves.count,
+      boltsSingle: boltsSingle.count,
+      boltsTwin: boltsTwin.count,
       arcs: arcCore.count,
       arcEmitters: liveArcEmitters(),
       transformFlashes: transformFlashes.count,

@@ -17,7 +17,7 @@ import type { Bucket, GreyboxMeshes } from "./greybox";
 
 const loader = new GLTFLoader();
 
-/** Model key under /models/units/ per bucket; projectiles stay procedural. */
+/** Model key under /models/units/ per bucket. */
 const UNIT_MODEL_KEYS = [
   ["avatarWalker", "avatar-walker"],
   ["avatarHover", "avatar-hover"],
@@ -32,6 +32,24 @@ const UNIT_MODEL_KEYS = [
 ] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
 
 /**
+ * Model key under /models/fx/ per projectile bucket — the mesh the original
+ * fires for that kind, per the type-99 weapon table (docs/specs/fcop-fx.md §3).
+ *
+ * The Warden's bomb takes the AI aircraft's rocket (type-98 row 4, the only
+ * weapon flown by aircraft and nothing else), which is a derivation and marked
+ * as one in the manifest; the other four come straight off the player table.
+ * The shockwave has no entry because the original has none either — its row is
+ * one of the seven empty ones.
+ */
+const FX_MODEL_KEYS = [
+  ["projHeavy", "rocket-helfire"],
+  ["projHyper", "rocket-hyper"],
+  ["projMortar", "shell-mortar"],
+  ["projMine", "mine"],
+  ["projWarden", "rocket-heavy"],
+] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
+
+/**
  * Kicks off the async model load for every model-backed bucket. Fire and
  * forget: buckets upgrade in place as their .glb arrives.
  */
@@ -39,13 +57,19 @@ export function loadUnitMeshes(buckets: GreyboxMeshes): void {
   for (const [bucketName, key] of UNIT_MODEL_KEYS) {
     swapBucketMesh(buckets[bucketName], key);
   }
+  // Projectiles keep the unlit material their bucket was built with: a bolt or
+  // a shell reads as a light source, not as a lit surface, which is also why
+  // the original drew their glows as emissive facer geometry.
+  for (const [bucketName, key] of FX_MODEL_KEYS) {
+    swapBucketMesh(buckets[bucketName], key, "fx", true);
+  }
 }
 
 /** One merged geometry plus the single material every unit asset carries. */
 export interface UnitAsset {
   /** Model space, i.e. still +Z forward — the caller decides on the bake. */
   readonly geometry: THREE.BufferGeometry;
-  readonly material: THREE.MeshStandardMaterial;
+  readonly material: THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
 }
 
 /**
@@ -60,8 +84,12 @@ export interface UnitAsset {
  * Rejects with the loader's error when the asset is missing or unmergeable, so
  * every caller can fall back to its greybox.
  */
-export async function loadUnitAsset(key: string): Promise<UnitAsset> {
-  const url = `/models/units/${key}.glb`;
+export async function loadUnitAsset(
+  key: string,
+  dir: "units" | "fx" = "units",
+  unlit = false,
+): Promise<UnitAsset> {
+  const url = `/models/${dir}/${key}.glb`;
   const gltf = await loader.loadAsync(url);
   // Init-time, so allocations and Box3-free traversal are fine here.
   gltf.scene.updateMatrixWorld(true);
@@ -99,16 +127,20 @@ export async function loadUnitAsset(key: string): Promise<UnitAsset> {
     map.colorSpace = THREE.SRGBColorSpace;
     map.needsUpdate = true;
   }
-  const material = new THREE.MeshStandardMaterial({
-    flatShading: true,
-    vertexColors: merged.hasAttribute("color"),
-    map,
-  });
+  const vertexColors = merged.hasAttribute("color");
+  const material = unlit
+    ? new THREE.MeshBasicMaterial({ vertexColors, map, toneMapped: false })
+    : new THREE.MeshStandardMaterial({ flatShading: true, vertexColors, map });
   return { geometry: merged, material };
 }
 
-function swapBucketMesh(bucket: Bucket, key: string): void {
-  loadUnitAsset(key).then(
+function swapBucketMesh(
+  bucket: Bucket,
+  key: string,
+  dir: "units" | "fx" = "units",
+  unlit = false,
+): void {
+  loadUnitAsset(key, dir, unlit).then(
     ({ geometry, material }) => {
       // Models are authored +Z forward (assets.md §4); the sim/greybox frame
       // is +X forward, so bake the quarter turn into the geometry once.
