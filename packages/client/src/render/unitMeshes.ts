@@ -43,7 +43,7 @@ const UNIT_MODEL_KEYS = [
  */
 const FX_MODEL_KEYS = [
   ["projHeavy", "rocket-helfire"],
-  ["projHyper", "missile-ant"],
+  ["projHyper", "rocket-hyper"],
   ["projMortar", "shell-mortar"],
   ["projMine", "mine"],
   ["projWarden", "rocket-heavy"],

@@ -108,7 +108,7 @@ describe("greybox stand-ins match the models they stand in for", () => {
 /** Bucket name -> FX model key, for the projectile kinds that have a mesh. */
 const FX_PAIRS: readonly (readonly [keyof GreyboxMeshes, string, number])[] = [
   ["projHeavy", "rocket-helfire", PROJ_HEAVY],
-  ["projHyper", "missile-ant", PROJ_HYPER],
+  ["projHyper", "rocket-hyper", PROJ_HYPER],
   ["projMortar", "shell-mortar", PROJ_MORTAR],
   ["projMine", "mine", PROJ_MINE],
   ["projWarden", "rocket-heavy", PROJ_WARDEN],

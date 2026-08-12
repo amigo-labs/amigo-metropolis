@@ -175,7 +175,7 @@ describe("committed FX models match the manifest contract", () => {
 
       // The authored pivot AND the authored size, both kept, asserted the only
       // way that actually proves it: against the raw's own box. Not "the origin
-      // is inside the model" — the Ant Missile's origin sits 5 cm below its
+      // is inside the model" — the Hyper Velocity Rocket's origin sits 5 cm below its
       // body, and that is the original's choice, not damage. Grounding a
       // projectile (minY -> 0) would lift every bolt off the line it travels
       // along, which is why FX_MODELS opts out of it in the generator.

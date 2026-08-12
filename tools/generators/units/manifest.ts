@@ -313,7 +313,7 @@ export interface FxModelSpec {
    * Desaturate so the per-instance tint reads. ON for the whole family, and
    * this is the original's behaviour rather than ours: every type-99 row names
    * its mesh twice, in slot 0 and slot 3, and those are the two team variants
-   * (Ant Missile 44/45 and Mine 50/51 have identical raw payloads; the glow pair
+   * (the Hyper Velocity Rocket 44/45 and Mine 50/51 have identical raw payloads; the glow pair
    * 46/47 is one geometry in two colours). We ship one mesh and tint it.
    */
   readonly neutralizeColors: boolean;
@@ -401,20 +401,22 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     neutralizeColors: true,
   },
   {
-    key: "missile-ant",
+    key: "rocket-hyper",
     cobj: 44,
-    raw: "fcop-fx/mp-obj044-missile-ant.glb",
+    raw: "fcop-fx/mp-obj044-rocket-hyper.glb",
     source: {
-      title: "Ant Missile (Mp Cobj 44, player weapon row 8)",
+      title: "Hyper Velocity Rocket (Mp Cobj 44, player weapon row 8)",
       author: EA,
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
-    // Row 8 is EXE weapon 0x13, which weapons.ts carries as the Hyper Velocity
-    // Rocket. The RE name table reads it "Ant Missle?" with the question mark
-    // its own — the two names are for the same slot, and this asset settles
-    // only the mesh, not the naming.
-    role: "player weapon 0x13 — our Hyper Velocity Rocket, PROJ_HYPER",
+    // Row 8 is EXE weapon 0x13. The RE name table reads it "Ant Missle?" — the
+    // question mark is the extraction's own, not ours — while weapons.ts has
+    // always carried the slot as the Hyper Velocity Rocket. Same slot, two
+    // names, and this repo goes by the catalog: the asset is named for the
+    // weapon players see. The extracted table keeps its own wording verbatim in
+    // docs/specs/fcop-fx.md §3, where it is evidence rather than a label.
+    role: "player weapon 0x13 — the Hyper Velocity Rocket, PROJ_HYPER",
     rotateQuarterY: 0,
     // Native 0.107 x 0.090 x 0.234 — the smallest body in the family.
     footprint: 0.24,

@@ -54,7 +54,7 @@ const UNIT_GLBS = [
  */
 const FX_GLBS = [
   "rocket-helfire",
-  "missile-ant",
+  "rocket-hyper",
   "shell-mortar",
   "mine",
   "rocket-heavy",

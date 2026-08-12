@@ -46,7 +46,7 @@ They are **template banks**, and their row order is the index:
 
 Each row references its `Cobj` in **slot 0 and slot 3**. Those are the two team
 variants: for Mortar, Grenade, Robo Dog and Helfire both slots name the *same*
-id; for Ant Missile (44/45) and Mine (50/51) they name two ids whose raw payload
+id; for the Hyper Velocity Rocket (44/45) and Mine (50/51) they name two ids whose raw payload
 SHA is identical; only the glow pair (46/47) differs in payload — the same
 geometry in two colours. Metropolis has one mesh per role and tints per team
 (`greybox.ts` `tintFor`), so slot 3 is recorded here and otherwise unused.
@@ -74,6 +74,13 @@ per container, the structure does not.
 | 13 | **Mine** | 50 / 51 | 0.37 m, body + glow, `color_anim` grey→magenta |
 | 14 | Shockwave | — | |
 | 15 | **Grenade** | 52 | octahedron, 0.24 m, 12 tris |
+
+The **weapon column is the EXE name table verbatim**, question mark and spelling
+included — it is evidence, not a label, so it is quoted rather than tidied. This
+repo's own names differ in one place: row 8 is EXE weapon `0x13`, which
+`weapons.ts` has always carried as the **Hyper Velocity Rocket**, and the asset
+built from Cobj 44 is named for the catalog (`fx/rocket-hyper.glb`) because that
+is the name a player sees. Same slot, two names; the table keeps the original's.
 
 **Why the row order is the weapon order, not a guess.** Four independent checks,
 each of which could have failed:
