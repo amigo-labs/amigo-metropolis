@@ -113,7 +113,9 @@ export const PRESETS: Record<string, SfxrPreset> = {
   // --- Precinct Assault cues (rules.md §9) ---------------------------------
   // Enemy in your base: a slow two-tone klaxon. Long and low so it reads over a
   // firefight — this is the one cue the player must never miss, and the original
-  // wired it in the Cfun script we cannot decode, so the sound is ours.
+  // bound it in the Cfun script. That script is disassembled now, but no opcode
+  // in it is a proven sound-play op, so the binding is unrecovered and the
+  // sound stays ours.
   alarm: {
     waveType: 1,
     baseFreq: 0.24,

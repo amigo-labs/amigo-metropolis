@@ -293,7 +293,8 @@ only what Metropolis adopts from it.
   `tools/generators/enrichArena.ts`.
 - **Base intrusion alert.** Each base is wrapped in trigger volumes that fire
   when an enemy Avatar or unit enters. Detection only: the original's alert sound
-  lived in the undecoded `Cfun` script, so the cue is ours to author.
+  was bound in the `Cfun` script, and while that script is now disassembled, no
+  opcode in it is a proven sound-play op — so the cue stays ours to author.
 - **Lanes** may be the original waypoint graph — see the §6 amendment.
 
 Not adopted: the original's `Aircraft` orbit parameters (air units keep §4's
