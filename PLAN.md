@@ -524,22 +524,35 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       only replay whose hashes move and the only one running a Warden on an arena
       with a core; golden-04-warden runs one on district-01, where the rung is gated
       out, and 01-06 stay byte-identical
-- [ ] What #31 still has open, now down to one question on two arenas:
-      **proving-ground and urban-jungle do not resolve in ten minutes.** No longer a
-      Warden-behaviour gap — it clears 37 and 16 defenders where it cleared 5 and 17,
-      and in the escorted case both convert (114 and 72 mean core hits). It is the
-      race the earlier `TURRET_RESPAWN` note predicted: `BASE_TURRET_RESPAWN_TICKS` is
-      60 s and a 500 HP emplacement takes the Warden ~8 s at 60 dps, but there are 20
-      per base and it has to break contact to repair, so the ring replaces itself
-      about as fast as one superplane can strip it. The candidates are that constant
-      and unit dps, both ours; the 500 HP and the 6 m reach are extracted and stay.
-      Not turned here on purpose — this change is a behaviour fix with a clean
-      before/after, and turning a respawn knob in the same commit would confound it.
-      One earlier measurement in this phase was wrong and is worth correcting rather
-      than quietly dropping: "the base guns' HP (3000 → 500) changes nothing". It
-      changes nothing in an idle-vs-idle match, which is where it was measured — the
-      streams annihilate at the mid-line and no gun is ever shot at. In the escorted
-      case, the only one where the last mile exists, it is most of the fix
+- [x] What #31 still had open — closed at SIM_VERSION 30, and the diagnosis
+      above it was stale, which is worth correcting out loud rather than
+      quietly dropping (this file's own convention). The item read "a
+      respawn-versus-clearance race, candidates: `BASE_TURRET_RESPAWN_TICKS`
+      and unit dps". Measured again from scratch (`tools/balance/paResolve.ts`,
+      the harness this pass added): by v29 that race no longer existed — the
+      v24 respawn turn (60→120 s) had already paid off, and three of the four
+      arenas resolved a d8-vs-idle match in 141–175 s. What remained was
+      **urban-jungle freezing outright on 2 of 5 seeds**, and it was never a
+      balance number: produced units wedged into a standing mill at their own
+      base exit — fresh production heading to entry node 237 (the road's own
+      endpoint, 6.6 m INSIDE the base) against outbound traffic doubling back
+      out (237→257→238 re-crosses the spawn area), held stable by
+      `UNIT_SEPARATION`, freezing production at the alive limit from minute ~3.
+      The fix is the graph jam relief in `advanceOnGraph` (v30): a unit stalled
+      for `GRAPH_JAM_TICKS` near its node reads the same signpost arrival would
+      have read, gated to the two measured deadlock shapes (walled off the
+      disc, or milling in its own base pocket) so the pinned design property
+      "an unescorted trickle fails on its own" survives — the ungated variant
+      broke that pin on two arenas and was rejected. A generator entry re-pick
+      ("join the road forward") was measured and rejected too: it skips
+      27–68 m of the original streets, and the road is the arena content.
+      After v30: d8-vs-idle razes 5/5 seeds on ALL FOUR arenas, worst 175 s,
+      pinned in `paAttribution.test.ts` ("a d8 Warden match RESOLVES") with
+      the two stall seeds in the set. Still open and now measurable per run:
+      d3/d5 do not resolve proving-ground within ten minutes (the difficulty
+      curve pass, open since Phase 4), and the swapped-side Warden stalls
+      there too — both are curve/AI questions, not deadlocks, and the harness
+      prints them on demand
 
 **Definition of Done:** all four PA arenas play under §9 — production
 runs, pads capture, the enemy core can be razed — with `bun test`,

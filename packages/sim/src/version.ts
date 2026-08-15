@@ -478,4 +478,40 @@
 //     the constants rule says they belong; render/fx.ts imports them now instead
 //     of keeping the hand-copied duplicate its comment warned about. Values
 //     identical, no behaviour change.
-export const SIM_VERSION = 29;
+// v30: graph jam relief — the last open item of issue #31 (PLAN Phase 13).
+//     What PLAN recorded as "proving-ground and urban-jungle do not resolve in
+//     ten minutes ... a respawn-versus-clearance race" was measured again from
+//     scratch (tools/balance/paResolve.ts) and is neither of those things at
+//     v29: three arenas resolve in 141-175 s, and urban-jungle FREEZES on 2 of
+//     5 seeds — 8 produced units plus a Juggernaut at full HP displacing
+//     under 0.5 m per 10 s, wedged where fresh production (heading to entry
+//     node 237, the road's own endpoint 6.6 m INSIDE the base) crosses
+//     outbound traffic (237→257→238 passes back through the spawn area).
+//     UNIT_SEPARATION holds the mill stable, production sticks at the alive
+//     limit, and the match is frozen from minute ~3. The same signature jams
+//     bug-hunt's escorted push mid-route (10 units on one contested node).
+//     The fix is a bounded relief in advanceOnGraph, not a knob and not
+//     pathfinding: a unit that has spent GRAPH_JAM_TICKS (8 s) within
+//     GRAPH_JAM_RADIUS (8 m) of its target node without entering the 0.5 m
+//     advance disc reads the SAME next-hop signpost that arrival would have
+//     read — but only in the two measured deadlock shapes: a wall bit across
+//     its straight step to the disc (separation pushed it off the validated
+//     road), or milling inside its own base pocket (GRAPH_JAM_HOME_RADIUS).
+//     Open-field queues behind a combat front are deliberately NOT relieved:
+//     a variant without these gates let the unescorted free trickle spread
+//     into a firing line and raze proving-ground and bug-hunt, which
+//     paAttribution pins as a pillar-1 violation. With the gates, d8-vs-idle
+//     resolves 5/5 seeds on ALL FOUR arenas (worst 175 s), the trickle still
+//     fails on its own (it now reaches the doorstep in better order — 60/14
+//     core hits in 5 min against the 300 a raze needs — so that pin's loose
+//     bound moved 50 → 150 with its story updated), and the escorted push
+//     resolves everywhere. Alternatives measured and rejected: a pure timer
+//     (breaks the trickle pins), wall-relief at any distance (same), and a
+//     generator entry re-pick joining the road forward (skips 27-68 m of the
+//     original streets — the road IS the arena content, rules.md §6).
+//     The stall clock lives BELOW the GRAPH_MODE sentinel in timerB (graph
+//     membership is now timerB <= GRAPH_MODE), so the entity layout is
+//     untouched. Goldens: only 05 and 07 run graph arenas and only their
+//     hash bytes move; 01-04 and 06 run polyline maps where advanceOnGraph
+//     never executes, and stay byte-identical (re-headered only).
+export const SIM_VERSION = 30;
