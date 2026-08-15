@@ -90,6 +90,12 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   function update(patch: Partial<MenuState>): void {
     state = { ...state, ...patch };
     draw();
+    // A re-render that removed the focused control (panel/drawer swap) drops
+    // focus to <body>; without a focused element the keyboard/gamepad nav is
+    // stranded (ui.md §4 — the visible ring is functional, not decoration).
+    if (document.activeElement === document.body || document.activeElement === null) {
+      nav?.focusFirst();
+    }
   }
 
   const onCancel = (): void => {
@@ -115,6 +121,9 @@ export function runMenu(opts: MenuOptions): MenuHandle {
 
   draw();
   nav = attachNavFocus(root, { onCancel });
+  // Give keyboard/gamepad users a starting point: without this the first
+  // arrow press navigates from <body> and no ring is visible (ui.md §4).
+  nav.focusFirst();
 
   return {
     offerInstall(prompt: () => void): void {
