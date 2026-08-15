@@ -99,6 +99,32 @@ describe("shot VFX", () => {
     expect(c.shockwaves).toBe(0);
   });
 
+  test("reset drops every live effect immediately", () => {
+    const fx = createFx(new THREE.Scene());
+    const events = createEventBuffer();
+    pushEvent(events, EV_SHOT, 1, 0, 0);
+    pushEvent(events, EV_EXPLOSION, 0, 0, 0);
+    pushEvent(events, EV_HIT, 0, 0, 0);
+    pushEvent(events, EV_TRANSFORM, 1, 0, TRANSFORM_LOCK_TICKS);
+    fx.pump(events, atOrigin);
+    expect(fx.debugCounts().tracers).toBe(1);
+    expect(fx.debugCounts().arcEmitters).toBe(1);
+
+    fx.reset();
+
+    const c = fx.debugCounts();
+    expect(c.tracers).toBe(0);
+    expect(c.muzzles).toBe(0);
+    expect(c.explosions).toBe(0);
+    expect(c.sparks).toBe(0);
+    expect(c.shockwaves).toBe(0);
+    expect(c.boltsSingle).toBe(0);
+    expect(c.boltsTwin).toBe(0);
+    expect(c.arcs).toBe(0);
+    expect(c.arcEmitters).toBe(0);
+    expect(c.transformFlashes).toBe(0);
+  });
+
   test("update drains effects after their lifetime", () => {
     const fx = createFx(new THREE.Scene());
     const events = createEventBuffer();

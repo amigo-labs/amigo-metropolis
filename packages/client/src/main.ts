@@ -791,6 +791,10 @@ function returnToMenu(): void {
   matchHud = undefined;
   document.body.classList.remove("hud-text-hidden");
 
+  // fx.update only runs while a match is on — anything still in flight would
+  // freeze over the menu backdrop for good if it were not dropped here.
+  fx.reset();
+
   sandboxPanel?.dispose();
   sandboxPanel = null;
 
@@ -1737,6 +1741,8 @@ function frame(now: number): void {
  */
 function resetForMatch(newSim: SimState): void {
   sim = newSim;
+  // A rematch must not inherit the previous match's in-flight effects.
+  fx.reset();
   for (let i = 0; i < inputQueue.length; i++) {
     for (let p = 0; p < MAX_PLAYERS; p++) zeroPlayerInput(inputQueue[i].players[p]);
   }
