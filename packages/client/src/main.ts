@@ -500,7 +500,12 @@ renderer.setScissorTest(true); // each player view renders scissored to its rect
 // Filmic tone mapping is the base look (the dusk palette is built for it, and
 // the additive FX opt out via toneMapped:false, which is also what makes the
 // bloom threshold selective). ?tone=off keeps the raw output for debugging.
-if (params.get("tone") !== "off") {
+// Software rasterizers (SwiftShader — the e2e/verification environment) skip
+// it like they skip bloom: the look is not for them, the extra shader cost
+// shifts the harnesses' wall-clock input timing against the sim, and the
+// committed verification screenshots stay comparable. ?tone=on forces it.
+const toneParam = params.get("tone");
+if (toneParam === "on" || (toneParam !== "off" && !isSoftwareRenderer(renderer))) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   // Slightly over unity: ACES sinks midtones, and the arenas' rooftop texels
   // are dark to begin with. Eyeballed against SwiftShader shots at 1.0-1.3.

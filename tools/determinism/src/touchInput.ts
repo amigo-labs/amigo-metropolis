@@ -123,29 +123,83 @@ async function main(): Promise<void> {
     );
   };
 
-  // --- left stick: drive forward, avatar must move ---------------------------
-  const before = await probe();
-  if (!before) throw new Error("avatar not present in sim");
-  await pointer("pointerdown", 200, 280, 11);
-  await pointer("pointermove", 200, 200, 11); // 80 px up-screen = full forward
-  await advance(before.tick, 45); // 1.5 s of held stick
-  const afterMove = await probe();
-  await pointer("pointerup", 200, 200, 11);
-  if (!afterMove) throw new Error("avatar vanished during move");
-  const moved = Math.hypot(afterMove.x - before.x, afterMove.y - before.y);
+  /**
+   * Waits until the avatar is alive, buffs it out of killing range, and
+   * returns its pose. The d1 Warden kills an unattended avatar on this map
+   * from ~tick 96 on — on a fast dev machine the whole script finishes before
+   * that, but on software GL (this CI-less verification environment) shader
+   * compilation eats seconds of boot and the phases land inside kill windows,
+   * with respawn-teleports zeroing the measured movement. This harness asserts
+   * input plumbing, not survivability, so the test avatar simply must not die:
+   * hp is re-buffed before every phase (the ammo/repair pad would otherwise
+   * clamp it back). Debug-hook poke, same class as metropolisSpawn — the map
+   * is a sandbox no golden covers.
+   */
+  const awaitAlive = async (): Promise<Probe> => {
+    await page.waitForFunction(
+      () =>
+        ((globalThis as { metropolisSim?: { avatarId: Int32Array } }).metropolisSim?.avatarId[0] ??
+          -1) >= 0,
+      null,
+      { timeout: 20000 }, // respawn is 8 s of sim time
+    );
+    await page.evaluate(() => {
+      const g = globalThis as unknown as {
+        metropolisSim?: { avatarId: Int32Array; ent: { hp: Int32Array | Float32Array } };
+      };
+      const s = g.metropolisSim;
+      if (!s) return;
+      const a = s.avatarId[0];
+      if (a >= 0) s.ent.hp[a] = 1000000;
+    });
+    const p = await probe();
+    if (!p) throw new Error("avatar not present after alive-wait");
+    return p;
+  };
 
-  // --- right stick: engage aim, facing must change ----------------------------
-  // Aim opposite-ish to the current yaw so the assertion can't pass by luck.
-  const preAim = await probe();
-  if (!preAim) throw new Error("avatar not present before aim");
-  await pointer("pointerdown", 600, 280, 22);
-  await pointer("pointermove", 540, 280, 22); // 60 px left-of-base aim drag
-  await advance(preAim.tick, 30);
-  const afterAim = await probe();
-  await pointer("pointerup", 540, 280, 22);
-  if (!afterAim) throw new Error("avatar vanished during aim");
+  /** One stick hold: pose before, drag, `holdTicks`, pose after (or null). */
+  const stickHold = async (
+    id: number,
+    base: readonly [number, number],
+    drag: readonly [number, number],
+    holdTicks: number,
+    before: Probe,
+  ): Promise<Probe | null> => {
+    await pointer("pointerdown", base[0], base[1], id);
+    await pointer("pointermove", drag[0], drag[1], id);
+    await advance(before.tick, holdTicks);
+    const after = await probe();
+    await pointer("pointerup", drag[0], drag[1], id);
+    return after;
+  };
+
+  // Both phases run as one unit and retry together after a death: the aim
+  // assertion's geometry ("drag left of the base ≈ 90° off the current yaw")
+  // only holds right after the move phase established that yaw — a respawned
+  // avatar can face any way, including exactly where the fixed drag points.
+  let moved = 0;
+  let turned = 0;
   const wrap = (d: number) => Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
-  const turned = wrap(afterAim.yaw - preAim.yaw);
+  for (let attempt = 0; ; attempt++) {
+    // --- left stick: drive forward (80 px up-screen = full forward, 1.5 s) --
+    const before = await awaitAlive();
+    const afterMove = await stickHold(11, [200, 280], [200, 200], 45, before);
+    if (afterMove) {
+      moved = Math.hypot(afterMove.x - before.x, afterMove.y - before.y);
+      // --- right stick: engage aim, facing must change ----------------------
+      // Aim opposite-ish to the yaw the move phase just established.
+      const preAim = await probe();
+      if (preAim) {
+        const afterAim = await stickHold(22, [600, 280], [540, 280], 30, preAim);
+        if (afterAim) {
+          turned = wrap(afterAim.yaw - preAim.yaw);
+          break;
+        }
+      }
+    }
+    if (attempt >= 2) throw new Error("avatar kept dying during the stick phases");
+    console.log("  (avatar died mid-phase — retrying both phases after respawn)");
+  }
 
   // --- verdict ----------------------------------------------------------------
   const problems: string[] = [];
