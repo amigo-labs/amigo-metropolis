@@ -43,6 +43,12 @@ clips; Stage B ships rigid rest poses only.
 The projectile keeps its procedural low-poly sphere (greybox, payload-colored)
 by design — no asset needed.
 
+### Fonts
+
+| Asset | Where | Source / license |
+| --- | --- | --- |
+| Saira SemiCondensed 400/600/800 (latin subset, woff2) | `packages/client/public/fonts/` | © Omnibus-Type (Héctor Gatti et al.), [github.com/Omnibus-Type/Saira](https://github.com/Omnibus-Type/Saira), [SIL OFL 1.1](https://openfontlicense.org/). The cockpit face (`ui/cockpit.css` `--ck-font`), self-hosted so the PWA keeps its look offline (ui.md §3); woff2 subsets fetched from Google Fonts' rendition of the same OFL release |
+
 ## Reference / source material
 
 The original *Future Cop: L.A.P.D.* (1998) is used as reference and may be

@@ -10,6 +10,36 @@
  * never used for chrome — if they show up, they mean a player.
  */
 
+/* Self-hosted cockpit face (ui.md §3: the PWA has to work offline, so the
+ * face ships with the app). Saira SemiCondensed, SIL OFL 1.1 — the closest
+ * free match for the Bahnschrift/DIN/Eurostile intent this stack always
+ * named, with real weights for the HUD's 700/800. Latin subset, ~18 KB per
+ * weight; provenance in CREDITS.md. font-display: swap keeps first paint on
+ * the fallback stack instead of invisible text. */
+@font-face {
+  font-family: "Saira SemiCondensed";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/saira-semicondensed-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Saira SemiCondensed";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/saira-semicondensed-600.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Saira SemiCondensed";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/saira-semicondensed-800.woff2") format("woff2");
+}
+
 :root {
   /* --- Screen ------------------------------------------------------------ */
   --ck-screen: #050a08;
@@ -28,12 +58,12 @@
   --ck-radius: 3px;
 
   /* --- Type -------------------------------------------------------------- */
-  /* One token so a self-hosted face is a one-line swap. The original uses a
-     chunky rounded techno face; no system font is a close match, so this stack
-     picks the widest, most mechanical thing likely to be installed and falls
-     back gracefully. Substituting the real face is tracked separately — it
-     must be self-hosted, because the PWA has to work offline. */
-  --ck-font: "Bahnschrift", "DIN Alternate", "Eurostile", ui-sans-serif, system-ui, sans-serif;
+  /* One token, and the self-hosted face leads it (the @font-face blocks
+     above). The old system-stack survives as the fallback for the swap
+     period and for a cache miss. */
+  --ck-font:
+    "Saira SemiCondensed", "Bahnschrift", "DIN Alternate", "Eurostile", ui-sans-serif, system-ui,
+    sans-serif;
   --ck-text: #a9d8ee;
   --ck-text-bright: #dcf2ff;
   --ck-text-dim: #6d93a8;
