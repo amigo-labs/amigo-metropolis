@@ -42,6 +42,13 @@
       "name": "@metropolis/sim",
       "version": "0.0.1",
     },
+    "tools/balance": {
+      "name": "@metropolis/tools-balance",
+      "version": "0.0.1",
+      "dependencies": {
+        "@metropolis/sim": "workspace:*",
+      },
+    },
     "tools/determinism": {
       "name": "@metropolis/tools-determinism",
       "version": "0.0.1",
@@ -271,6 +278,8 @@
     "@metropolis/server": ["@metropolis/server@workspace:packages/server"],
 
     "@metropolis/sim": ["@metropolis/sim@workspace:packages/sim"],
+
+    "@metropolis/tools-balance": ["@metropolis/tools-balance@workspace:tools/balance"],
 
     "@metropolis/tools-determinism": ["@metropolis/tools-determinism@workspace:tools/determinism"],
 
