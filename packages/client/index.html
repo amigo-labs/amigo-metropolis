@@ -239,6 +239,38 @@
         color: #fff;
       }
 
+      /* --- Match-end card (main.ts) — same world and skin as the pause card,
+         its own element so the two can never stack. z-index above #pause-menu
+         (40): once the match is decided, the end card owns the screen. ------ */
+      #match-end {
+        position: fixed;
+        inset: 0;
+        z-index: 45;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(4, 10, 18, 0.72);
+        cursor: default;
+      }
+      #match-end.is-open {
+        display: flex;
+      }
+      /* Victory gets the confirming lavender accent (ui.md §3); defeat stays
+         on the neutral cyan chrome. */
+      #match-end .pause-card.is-victory h1 {
+        color: #d6c9ff;
+      }
+      .end-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin: 0 0 20px;
+        color: #a9d8ee;
+        font-size: 14px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.06em;
+      }
+
       /* --- Sandbox test bench (?sandbox=1, debug/sandboxPanel.ts) ----------
          Debug-only overlay, raw DOM, so its rules live here rather than in the
          menu bundle (docs/specs/ui.md §1).

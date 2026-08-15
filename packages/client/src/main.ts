@@ -38,10 +38,14 @@ import {
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
+  MATCH_SLOT_POINTS,
   MATCH_SNAPSHOT_LEN,
+  MATCH_TICK,
+  MATCH_WINNER,
   MAX_ENTITIES,
   MAX_PLAYERS,
   type MatchConfig,
+  matchSlotOffset,
   type PlayerInput,
   SIM_VERSION,
   type SimState,
@@ -94,6 +98,7 @@ import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./r
 import { createFx } from "./render/fx";
 import { bucketFor, createGreyboxMeshes, tintFor } from "./render/greybox";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
+import { matchClock, matchEndText } from "./render/matchEnd";
 import { loadMapMesh } from "./render/meshMap";
 import {
   createAvatarMorph,
@@ -761,6 +766,97 @@ pauseCard.append(pauseTitle, pauseHint, pauseActions);
 pauseEl.appendChild(pauseCard);
 document.body.appendChild(pauseEl);
 
+// --- Match-end screen ----------------------------------------------------------
+// Shown a beat after the sim freezes on a winner (the banner and death FX get
+// their moment first). Raw DOM like the pause card; Rematch is offline-only —
+// online peers each return to the menu, there is no rematch handshake.
+const endEl = document.createElement("div");
+endEl.id = "match-end";
+endEl.setAttribute("role", "dialog");
+endEl.setAttribute("aria-modal", "true");
+endEl.setAttribute("aria-label", "Match over");
+const endCard = document.createElement("div");
+endCard.className = "pause-card";
+const endTitle = document.createElement("h1");
+const endSubtitle = document.createElement("p");
+const endStats = document.createElement("div");
+endStats.className = "end-stats";
+const endStatTime = document.createElement("div");
+const endStatPoints = document.createElement("div");
+const endStatKills = document.createElement("div");
+endStats.append(endStatTime, endStatPoints, endStatKills);
+const endActions = document.createElement("div");
+endActions.className = "pause-actions";
+const endRematchBtn = document.createElement("button");
+endRematchBtn.type = "button";
+endRematchBtn.className = "pause-btn pause-btn--primary";
+endRematchBtn.textContent = "Rematch";
+const endMenuBtn = document.createElement("button");
+endMenuBtn.type = "button";
+endMenuBtn.className = "pause-btn";
+endMenuBtn.textContent = "Return to menu";
+endActions.append(endRematchBtn, endMenuBtn);
+endCard.append(endTitle, endSubtitle, endStats, endActions);
+endEl.appendChild(endCard);
+document.body.appendChild(endEl);
+
+/** -1 until a winner is first seen; then the wall-clock ms it was seen at. */
+let winSeenAtMs = -1;
+let matchEndShown = false;
+/** EV_DEATH events credited to the local slot this match (pumpCosmetics). */
+let localKills = 0;
+/** Delay between the sim freezing and the card appearing. */
+const MATCH_END_DELAY_MS = 2500;
+
+function resetMatchEnd(): void {
+  winSeenAtMs = -1;
+  localKills = 0;
+  matchEndShown = false;
+  endEl.classList.remove("is-open");
+}
+
+function showMatchEnd(winner: number): void {
+  matchEndShown = true;
+  setMatchPaused(false); // the end card replaces the pause card, never stacks
+  const slot = views[0]?.slot ?? 0;
+  const hasCore = sim.coreHp.length > 0;
+  const text = matchEndText(winner, slot, hasCore);
+  endTitle.textContent = text.title;
+  endCard.classList.toggle("is-victory", winner === slot);
+  endSubtitle.textContent = text.subtitle;
+  const mine = matchSlotOffset(slot);
+  const other = matchSlotOffset(slot === 0 ? 1 : 0);
+  endStatTime.textContent = `Time ${matchClock(matchSnap[MATCH_TICK] | 0, TICK_HZ)}`;
+  endStatPoints.textContent = `Points ${matchSnap[mine + MATCH_SLOT_POINTS] | 0} — ${
+    matchSnap[other + MATCH_SLOT_POINTS] | 0
+  }`;
+  endStatKills.textContent = `Kills ${localKills}`;
+  endRematchBtn.style.display = netMode ? "none" : "";
+  endEl.classList.add("is-open");
+  if (document.pointerLockElement) document.exitPointerLock();
+  document.body.style.cursor = "default";
+  reticle.style.display = "none";
+  touchControls?.hide();
+  (netMode ? endMenuBtn : endRematchBtn).focus();
+}
+
+/** Offline rematch: same arena, same opponent, a fresh derived seed. */
+function rematchSolo(): void {
+  resetMatchEnd();
+  // Derived, not fixed: the same seed replays the same AI match move for move.
+  const newSeed = (seed + sim.tick + 1) >>> 0;
+  resetForMatch(
+    createSim(map, newSeed, {
+      ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
+      loadouts: [playerLoadout],
+    }),
+  );
+  startMatch([{ slot: 0, input: localInput }]);
+}
+
+endRematchBtn.addEventListener("click", () => rematchSolo());
+endMenuBtn.addEventListener("click", () => returnToMenu());
+
 function isMatchLive(): boolean {
   return phase === "match" || phase === "connecting";
 }
@@ -803,6 +899,7 @@ function returnToMenu(): void {
   // fx.update only runs while a match is on — anything still in flight would
   // freeze over the menu backdrop for good if it were not dropped here.
   fx.reset();
+  resetMatchEnd();
 
   sandboxPanel?.dispose();
   sandboxPanel = null;
@@ -894,6 +991,12 @@ addEventListener("keydown", (e) => {
     return;
   }
   e.preventDefault();
+  // The end card owns ESC once it is up: the match is over, so "pause" has
+  // nothing left to pause — ESC means leave.
+  if (matchEndShown) {
+    returnToMenu();
+    return;
+  }
   setMatchPaused(!matchPaused);
 });
 
@@ -1323,6 +1426,13 @@ function pumpCosmetics(events: typeof sim.events): void {
   fx.pump(events, resolveEventPosition);
   startMorphs(events);
   matchHud?.pumpEvents(events, performance.now());
+  // Kills credited to the local player, for the match-end stats row.
+  // EV_DEATH.b is the killer's player slot (-1 for unowned deaths).
+  const localSlot = views[0]?.slot ?? 0;
+  for (let i = 0; i < events.count; i++) {
+    const o = i * EVENT_STRIDE;
+    if (events.data[o] === EV_DEATH && events.data[o + 2] === localSlot) localKills += 1;
+  }
 }
 
 /**
@@ -1728,6 +1838,15 @@ function frame(now: number): void {
   if (matchHud && now - matchHudLastUpdate > 100) {
     matchHudLastUpdate = now;
     matchHud.refresh(matchSnap, snapCurr, countCurr, extent);
+    // Match end rides the same cadence: once the sim freezes on a winner, give
+    // the banner and the death FX a beat, then put up the end card. Debug
+    // camera modes skip it — they exist to look at the world (matchHud is
+    // undefined there anyway, which is why this lives inside the guard).
+    const endWinner = matchSnap[MATCH_WINNER] | 0;
+    if (endWinner >= 0 && winSeenAtMs < 0) winSeenAtMs = now;
+    if (winSeenAtMs >= 0 && !matchEndShown && now - winSeenAtMs > MATCH_END_DELAY_MS) {
+      showMatchEnd(endWinner);
+    }
   }
 
   hudFrames++;
@@ -1757,6 +1876,7 @@ function resetForMatch(newSim: SimState): void {
   sim = newSim;
   // A rematch must not inherit the previous match's in-flight effects.
   fx.reset();
+  resetMatchEnd();
   for (let i = 0; i < inputQueue.length; i++) {
     for (let p = 0; p < MAX_PLAYERS; p++) zeroPlayerInput(inputQueue[i].players[p]);
   }
