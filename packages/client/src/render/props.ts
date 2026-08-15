@@ -29,6 +29,16 @@ function modelKey(cobj: number): string {
 }
 
 /**
+ * Cobj ids the maps place but no committed model covers — their extraction
+ * lives in the private RE repo. Literal copy of UNAVAILABLE_PROP_COBJS in
+ * tools/generators/units/manifest.ts (the client must not import tools/);
+ * propModels.test.ts keeps the two lists honest against the maps.
+ * Skipping here avoids a guaranteed 404 per arena load, which the
+ * verify:arenas harness counts as a broken asset.
+ */
+const UNAVAILABLE_PROP_COBJS: ReadonlySet<number> = new Set([31, 38]);
+
+/**
  * Kicks off one async load per distinct prop model. Fire and forget: each
  * model's InstancedMesh joins the arena group when its .glb arrives.
  */
@@ -41,6 +51,10 @@ export function loadProps(map: MapData, group: THREE.Object3D, cancelled?: () =>
     else byModel.set(prop.model, [prop]);
   }
   for (const [cobj, placements] of byModel) {
+    if (UNAVAILABLE_PROP_COBJS.has(cobj)) {
+      console.info(`[props] no committed model for Cobj ${cobj} yet, skipping its placements`);
+      continue;
+    }
     addPropMesh(map, group, cobj, placements, cancelled);
   }
 }

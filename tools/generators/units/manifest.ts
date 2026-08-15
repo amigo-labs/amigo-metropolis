@@ -599,4 +599,44 @@ export const PROP_MODELS: readonly PropModelSpec[] = [
     },
     maxTris: 1500,
   },
+  // Cobj 36/41: parked vehicles — the heavy gunship and the flyer as static
+  // scenery. Placed by the OTHER §9 arenas (36+41 on urban-jungle, 41 on
+  // proving-ground), not by la-cantina; the raws were in the Mp handoff pack
+  // all along, they were just never carried here, so those arenas dropped
+  // 2-4 placements each with a 404 (issue #28's coverage gap).
+  {
+    key: "prop-036",
+    cobj: 36,
+    raw: "fcop/mp-obj036-heavy-gunship.glb",
+    source: {
+      title: "Parked heavy gunship (Mp Cobj 36)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    maxTris: 1500,
+  },
+  {
+    key: "prop-041",
+    cobj: 41,
+    raw: "fcop/mp-obj041-flyer.glb",
+    source: {
+      title: "Parked flyer (Mp Cobj 41)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    maxTris: 1500,
+  },
 ];
+
+/**
+ * Cobj ids the maps place but no committed raw covers: their extraction lives
+ * in the private RE repo and has not been handed off. The client skips these
+ * (render/props.ts keeps its own literal copy — it must not import tools/),
+ * and propModels.test.ts asserts the list stays minimal: an id leaves this
+ * set the moment its raw lands in PROP_MODELS.
+ * - 31: hollywood-keys scenery (4 placements)
+ * - 38: bug-hunt scenery (2 placements)
+ */
+export const UNAVAILABLE_PROP_COBJS: readonly number[] = [31, 38];
