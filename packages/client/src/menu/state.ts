@@ -8,7 +8,6 @@
 // away and back is free.
 
 import { type Loadout, MAP_REGISTRY, normalizeLoadout } from "@metropolis/sim";
-import { loadoutFromParams } from "./routing";
 
 export type MenuMode = "solo" | "online" | null;
 /** Console drawers: how-to and a combined preferences (sound + graphics). */
@@ -56,9 +55,4 @@ export function initialMenuState(initialLoadout?: Loadout, mapId?: string): Menu
     lobbyPassword: "",
     lobbyPublic: true,
   };
-}
-
-/** Reads ?gun=&heavy=&special= for callers that boot straight into the menu. */
-export function loadoutFromLocation(): Loadout {
-  return loadoutFromParams(new URLSearchParams(location.search));
 }

@@ -2,7 +2,7 @@
 
 Browser-based arena strategy-action game — a homage to the *Precinct
 Assault* mode of Future Cop: L.A.P.D. (1998). One deterministic lockstep
-simulation drives solo, couch splitscreen and online 1v1. Title: **Metropolis**.
+simulation drives solo vs. AI and online 1v1. Title: **Metropolis**.
 
 Read `CLAUDE.md` (hard rules) and `docs/specs/` (source of truth) before
 touching code. Work follows `PLAN.md` phase by phase.
@@ -12,9 +12,8 @@ touching code. Work follows `PLAN.md` phase by phase.
 ```sh
 bun install
 bun test               # sim tests + golden replays (must pass before any commit)
-bun run dev            # opens the "Metropolis" title menu (solo / couch /
-                       #   online). Deep links skip it: ?warden=1-10 vs the AI;
-                       #   ?splitscreen (two gamepads, press A to join) for couch;
+bun run dev            # opens the "Metropolis" title menu (solo / online).
+                       #   Deep links skip it: ?warden=1-10 vs the AI;
                        #   ?online=<CODE> for 1v1 lockstep (see below); ?play or
                        #   ?debug boot the solo sandbox directly;
                        #   ?sandbox=1 adds the test bench (F2) — spawn any unit,

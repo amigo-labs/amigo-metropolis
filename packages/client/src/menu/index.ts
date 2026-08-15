@@ -16,7 +16,7 @@
 // smuggling a ref out of the tree. It also keeps App a pure function of its
 // props, which is what lets `bun test` render screens to a string.
 
-import { type Loadout, normalizeLoadout } from "@metropolis/sim";
+import type { Loadout } from "@metropolis/sim";
 import { render } from "preact";
 import type { AudioEngine } from "../audio/engine";
 import type { TexPref } from "../render/texVariants";
@@ -152,9 +152,4 @@ export function runMenu(opts: MenuOptions): MenuHandle {
       setTimeout(remove, 500);
     },
   };
-}
-
-/** Kept for callers that want the normalized kit without mounting the menu. */
-export function normalizeMenuLoadout(loadout?: Loadout): Loadout {
-  return normalizeLoadout(loadout);
 }
