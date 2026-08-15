@@ -541,7 +541,15 @@ fillLight.updateMatrix();
 scene.add(fillLight);
 // All static arena visuals live in one group so an online joiner can swap the
 // arena wholesale when the authoritative config names a different map.
+//
+// The epoch guards the async loaders inside: rapid preview swaps in the menu
+// can otherwise resolve a slow .glb load into a group that rebuildArena has
+// already removed and disposed — the stale load must throw its parse away
+// (and must not re-arm texSwitcher for the wrong map).
+let arenaEpoch = 0;
 function buildArenaGroup(m: typeof map): THREE.Group {
+  const epoch = ++arenaEpoch;
+  const stale = () => epoch !== arenaEpoch;
   const group = new THREE.Group();
   group.matrixAutoUpdate = false; // identity transform, per renderer rules
   const buildGreyboxTerrain = () => {
@@ -577,11 +585,12 @@ function buildArenaGroup(m: typeof map): THREE.Group {
         texSwitcher.setVariant(variantOfPref(texPref));
         refreshDebugLabel();
       },
+      stale,
     );
     // Original scenery actors, on the mesh path only: they are the arena's own
     // art, so they belong with the textured terrain and not on top of greybox
     // blocks (render/props.ts). No-op on arenas that carry no `props`.
-    loadProps(m, group);
+    loadProps(m, group, stale);
     if (showGreyboxStructures) buildGreyboxStructures();
   } else {
     buildGreyboxTerrain();

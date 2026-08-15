@@ -32,7 +32,7 @@ function modelKey(cobj: number): string {
  * Kicks off one async load per distinct prop model. Fire and forget: each
  * model's InstancedMesh joins the arena group when its .glb arrives.
  */
-export function loadProps(map: MapData, group: THREE.Object3D): void {
+export function loadProps(map: MapData, group: THREE.Object3D, cancelled?: () => boolean): void {
   if (map.props.length === 0) return;
   const byModel = new Map<number, MapProp[]>();
   for (const prop of map.props) {
@@ -41,7 +41,7 @@ export function loadProps(map: MapData, group: THREE.Object3D): void {
     else byModel.set(prop.model, [prop]);
   }
   for (const [cobj, placements] of byModel) {
-    addPropMesh(map, group, cobj, placements);
+    addPropMesh(map, group, cobj, placements, cancelled);
   }
 }
 
@@ -50,10 +50,27 @@ function addPropMesh(
   group: THREE.Object3D,
   cobj: number,
   placements: readonly MapProp[],
+  cancelled?: () => boolean,
 ): void {
   const url = `/models/props/${modelKey(cobj)}.glb`;
   loader.loadAsync(url).then(
     (gltf) => {
+      // Stale (the arena was swapped while this loaded): free the loader's
+      // resources instead of merging into a group that already left the scene.
+      if (cancelled?.()) {
+        gltf.scene.traverse((obj) => {
+          const mesh = obj as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.geometry.dispose();
+          const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const material of list) {
+            const std = material as THREE.MeshStandardMaterial;
+            if (std.isMeshStandardMaterial) std.map?.dispose();
+            material.dispose();
+          }
+        });
+        return;
+      }
       // Init-time: allocations here are fine (same call as meshMap.ts's Box3).
       gltf.scene.updateMatrixWorld(true);
       const geometries: THREE.BufferGeometry[] = [];
