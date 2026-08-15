@@ -1322,6 +1322,7 @@ function pumpCosmetics(events: typeof sim.events): void {
   audio.pump(events, resolveEventPosition);
   fx.pump(events, resolveEventPosition);
   startMorphs(events);
+  matchHud?.pumpEvents(events, performance.now());
 }
 
 /**
@@ -1552,7 +1553,11 @@ function refreshHud(fps: number): void {
     if (archetype >= 1 && archetype <= 4 && (team === 0 || team === 1)) unitCounts[team] += 1;
   }
   const banner =
-    sim.winner >= 0 ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} BREACHED THE GATE` : "";
+    sim.winner >= 0
+      ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} ${
+          sim.coreHp.length > 0 ? "RAZED THE BASE" : "BREACHED THE GATE"
+        }`
+      : "";
   for (let v = 0; v < views.length; v++) {
     views[v].hud.textContent = hudText(views[v], fps, banner);
   }
@@ -1778,7 +1783,13 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   // Before layoutViews, not after: the text HUD's inset depends on whether this
   // one exists.
   matchHud?.destroy();
-  matchHud = flyMode || orbitMode ? undefined : createMatchHud(views[0]?.slot ?? 0);
+  matchHud =
+    flyMode || orbitMode
+      ? undefined
+      : createMatchHud(views[0]?.slot ?? 0, {
+          hasCore: map.bases.some((b) => b.coreHp > 0),
+          outpostTotal: map.outpostSpots.length,
+        });
   layoutViews(views, "v", innerWidth, innerHeight, textHudInset());
 
   // The text HUD keeps being written in every mode — globalThis.metropolisHud()
