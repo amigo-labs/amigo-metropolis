@@ -182,10 +182,14 @@ function advanceOnGraph(state: SimState, id: number, team: number): number {
       const gate = state.map.bases[team].gate;
       const hx = x - gate.x;
       const hy = y - gate.y;
+      // Walled = the full straight segment to the node crosses ANY wall bit
+      // (segmentBlocked, the same DDA the sight checks use). The per-axis
+      // crossesWallX/Y primitives are for sub-cell per-tick steps and test
+      // only one lattice line each — across an up-to-8 m span they miss every
+      // intermediate wall, which is where a shoved-off unit actually sits.
       relievable =
         hx * hx + hy * hy <= GRAPH_JAM_HOME_RADIUS * GRAPH_JAM_HOME_RADIUS ||
-        crossesWallX(state.map, x, target.x, y, ent.entLayer[id]) ||
-        crossesWallY(state.map, target.x, y, target.y, ent.entLayer[id]);
+        segmentBlocked(state.map, x, y, target.x, target.y, ent.entLayer[id]);
     }
     if (!relievable) {
       ent.timerB[id] = GRAPH_MODE; // en route or free to approach: clock resets

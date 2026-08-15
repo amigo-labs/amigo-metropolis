@@ -113,7 +113,7 @@ export function loadMapMesh(
 }
 
 /** Frees every geometry, material and texture under `root` (stale loads). */
-function disposeSubtree(root: THREE.Object3D): void {
+export function disposeSubtree(root: THREE.Object3D): void {
   root.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh) return;

@@ -17,6 +17,7 @@ import { type MapData, type MapProp, sampleHeight } from "@metropolis/sim";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { disposeSubtree } from "./meshMap";
 
 const loader = new GLTFLoader();
 
@@ -31,12 +32,13 @@ function modelKey(cobj: number): string {
 /**
  * Cobj ids the maps place but no committed model covers — their extraction
  * lives in the private RE repo. Literal copy of UNAVAILABLE_PROP_COBJS in
- * tools/generators/units/manifest.ts (the client must not import tools/);
- * propModels.test.ts keeps the two lists honest against the maps.
- * Skipping here avoids a guaranteed 404 per arena load, which the
- * verify:arenas harness counts as a broken asset.
+ * tools/generators/units/manifest.ts (the client must not import tools/ at
+ * runtime); propAllowlist.test.ts pins this copy to the manifest's list, and
+ * propModels.test.ts keeps that list honest against the maps. Skipping here
+ * avoids a guaranteed 404 per arena load, which the verify:arenas harness
+ * counts as a broken asset.
  */
-const UNAVAILABLE_PROP_COBJS: ReadonlySet<number> = new Set([31, 38]);
+export const UNAVAILABLE_PROP_COBJS: ReadonlySet<number> = new Set([31, 38]);
 
 /**
  * Kicks off one async load per distinct prop model. Fire and forget: each
@@ -72,17 +74,7 @@ function addPropMesh(
       // Stale (the arena was swapped while this loaded): free the loader's
       // resources instead of merging into a group that already left the scene.
       if (cancelled?.()) {
-        gltf.scene.traverse((obj) => {
-          const mesh = obj as THREE.Mesh;
-          if (!mesh.isMesh) return;
-          mesh.geometry.dispose();
-          const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          for (const material of list) {
-            const std = material as THREE.MeshStandardMaterial;
-            if (std.isMeshStandardMaterial) std.map?.dispose();
-            material.dispose();
-          }
-        });
+        disposeSubtree(gltf.scene);
         return;
       }
       // Init-time: allocations here are fine (same call as meshMap.ts's Box3).

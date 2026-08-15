@@ -90,12 +90,16 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   };
 
   function update(patch: Partial<MenuState>): void {
-    state = { ...state, ...patch };
-    draw();
-    // A re-render that removed the focused control (panel/drawer swap) drops
+    // A re-render that removes the focused control (panel/drawer swap) drops
     // focus to <body>; without a focused element the keyboard/gamepad nav is
     // stranded (ui.md §4 — the visible ring is functional, not decoration).
-    if (document.activeElement === document.body || document.activeElement === null) {
+    // Only restore when focus was INSIDE the menu before the redraw: macOS
+    // Safari/Firefox never focus a clicked <button>, so "activeElement is
+    // <body>" alone would steal focus to the first control on every click.
+    const hadFocus = root.contains(document.activeElement);
+    state = { ...state, ...patch };
+    draw();
+    if (hadFocus && !root.contains(document.activeElement)) {
       nav?.focusFirst();
     }
   }

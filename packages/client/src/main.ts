@@ -38,6 +38,7 @@ import {
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
+  MATCH_SLOT_CORE_FRAC,
   MATCH_SLOT_POINTS,
   MATCH_SNAPSHOT_LEN,
   MATCH_TICK,
@@ -530,6 +531,11 @@ function setBloom(enabled: boolean): void {
   if (enabled && post === null) {
     post = createPost(renderer, scene);
     post.setSize(innerWidth, innerHeight, Math.min(devicePixelRatio, 2));
+  } else if (!enabled && post !== null) {
+    // Free the composer's screen-sized render targets: a player who tried
+    // bloom and turned it off should not keep paying its GPU memory.
+    post.dispose();
+    post = null;
   }
 }
 
@@ -872,7 +878,9 @@ function showMatchEnd(winner: number): void {
   matchEndShown = true;
   setMatchPaused(false); // the end card replaces the pause card, never stacks
   const slot = views[0]?.slot ?? 0;
-  const hasCore = sim.coreHp.length > 0;
+  // Read the win condition off the snapshot, not sim internals (renderer
+  // rule 4): the core fraction is -1 exactly on gate (§1) arenas.
+  const hasCore = matchSnap[matchSlotOffset(slot) + MATCH_SLOT_CORE_FRAC] >= 0;
   const text = matchEndText(winner, slot, hasCore);
   endTitle.textContent = text.title;
   endCard.classList.toggle("is-victory", winner === slot);
@@ -893,13 +901,18 @@ function showMatchEnd(winner: number): void {
   (netMode ? endMenuBtn : endRematchBtn).focus();
 }
 
+/** Seed of the running local match; each rematch derives the next from it. */
+let matchSeed = seed;
+
 /** Offline rematch: same arena, same opponent, a fresh derived seed. */
 function rematchSolo(): void {
   resetMatchEnd();
-  // Derived, not fixed: the same seed replays the same AI match move for move.
-  const newSeed = (seed + sim.tick + 1) >>> 0;
+  // Derived from the PREVIOUS match's seed, not the boot constant: seeding
+  // from (bootSeed + tick) alone has a fixed point — two matches of equal
+  // length would replay the same AI match move for move, forever.
+  matchSeed = (matchSeed * 0x9e3779b9 + sim.tick + 1) >>> 0;
   resetForMatch(
-    createSim(map, newSeed, {
+    createSim(map, matchSeed, {
       ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
       loadouts: [playerLoadout],
     }),

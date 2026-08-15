@@ -14,5 +14,3 @@ export function weaponArtSlug(name: string): string {
 export function weaponIconUrl(name: string): string {
   return `/ui/weapons/icons/${weaponArtSlug(name)}.png`;
 }
-
-/** 134×39/40 original front-end panel (name + rate/damage bars). */

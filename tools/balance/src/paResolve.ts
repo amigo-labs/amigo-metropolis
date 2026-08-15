@@ -127,6 +127,16 @@ function runMatch(
 
   const goalTicks = new Array(GOAL_NAMES.length).fill(0);
   const turretsPerMinute: number[] = [];
+  const countTurrets = (): number => {
+    let turrets = 0;
+    const ent = state.ent;
+    for (let id = 0; id < ent.high; id++) {
+      if (ent.alive[id] && ent.archetype[id] === ARCHETYPE.TURRET && ent.team[id] === defender)
+        turrets += 1;
+    }
+    return turrets;
+  };
+  turretsPerMinute.push(countTurrets()); // t=0, so sub-minute matches report too
   const cap = state.ent.posX.length;
   // Jam detector scratch: position of each attacker ground unit one window ago.
   const refX = new Float32Array(cap);
@@ -141,12 +151,7 @@ function runMatch(
 
     const ent = state.ent;
     if (state.tick % (60 * TICK_HZ) === 0) {
-      let turrets = 0;
-      for (let id = 0; id < ent.high; id++) {
-        if (ent.alive[id] && ent.archetype[id] === ARCHETYPE.TURRET && ent.team[id] === defender)
-          turrets += 1;
-      }
-      turretsPerMinute.push(turrets);
+      turretsPerMinute.push(countTurrets());
     }
     if (state.tick % JAM_WINDOW === 0) {
       let jammed = 0;
