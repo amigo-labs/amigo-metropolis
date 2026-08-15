@@ -36,6 +36,7 @@ export interface AppProps {
   go(choice: MenuChoice): void;
   onSelect(mapId: string): void;
   onTexPref(pref: TexPref): void;
+  onBloomPref(enabled: boolean): void;
 }
 
 function SoloPanel({ state, update }: Pick<AppProps, "state" | "update">) {
@@ -143,7 +144,17 @@ function LoadoutStrip({
 }
 
 export function App(props: AppProps) {
-  const { state, audio, installPrompt, showDebugModes, update, go, onSelect, onTexPref } = props;
+  const {
+    state,
+    audio,
+    installPrompt,
+    showDebugModes,
+    update,
+    go,
+    onSelect,
+    onTexPref,
+    onBloomPref,
+  } = props;
 
   // Clicking the active pill closes the panel again — disclosure pattern.
   const selectMode = (which: MenuMode) => {
@@ -273,7 +284,12 @@ export function App(props: AppProps) {
               </div>
             ) : null}
 
-            <Drawer kind={state.drawer} audio={audio} onTexPref={onTexPref} />
+            <Drawer
+              kind={state.drawer}
+              audio={audio}
+              onTexPref={onTexPref}
+              onBloomPref={onBloomPref}
+            />
 
             <div class="menu-start-row">
               <button

@@ -111,6 +111,7 @@ import {
 } from "./render/morph";
 import { ATMOSPHERE_HEX } from "./render/palette";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
+import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
 import { loadProps } from "./render/props";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
@@ -121,6 +122,7 @@ import {
 } from "./render/terrain";
 import {
   createVariantSwitcher,
+  loadBloomPref,
   loadTexPref,
   parseTexPref,
   type TexPref,
@@ -445,6 +447,10 @@ let countCurr = 0;
 // Match scalars (points, ammo, respawn, unit counts). Preallocated like the
 // entity snapshots — rotateSnapshot() refills it every tick, never reallocates.
 const matchSnap = new Float32Array(MATCH_SNAPSHOT_LEN);
+// A zero-filled buffer would read as "team 0 already won" (MATCH_WINNER is
+// index 1, and 0 is a valid team) until the first rotateSnapshot writes it —
+// the match-end detection must never see that boot frame.
+matchSnap[MATCH_WINNER] = -1;
 
 const keyboard = new PlayerOneInput(window);
 // In touch mode the local player's device is the on-screen overlay instead;
@@ -491,7 +497,46 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffe
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setScissorTest(true); // each player view renders scissored to its rect
+// Filmic tone mapping is the base look (the dusk palette is built for it, and
+// the additive FX opt out via toneMapped:false, which is also what makes the
+// bloom threshold selective). ?tone=off keeps the raw output for debugging.
+if (params.get("tone") !== "off") {
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // Slightly over unity: ACES sinks midtones, and the arenas' rooftop texels
+  // are dark to begin with. Eyeballed against SwiftShader shots at 1.0-1.3.
+  renderer.toneMappingExposure = 1.2;
+}
 document.body.appendChild(renderer.domElement);
+
+// Threshold bloom behind a graphics preference (render/post.ts). Session
+// override ?bloom=0|1 wins; software rasterizers (SwiftShader — the e2e and
+// verification environment) default off, both for speed and to keep the
+// committed verification screenshots comparable.
+const bloomParam = params.get("bloom");
+let bloomOn =
+  bloomParam === "1"
+    ? true
+    : bloomParam === "0"
+      ? false
+      : loadBloomPref() && !isSoftwareRenderer(renderer);
+let post: PostPipeline | null = null;
+function setBloom(enabled: boolean): void {
+  bloomOn = enabled;
+  if (enabled && post === null) {
+    post = createPost(renderer, scene);
+    post.setSize(innerWidth, innerHeight, Math.min(devicePixelRatio, 2));
+  }
+}
+
+/**
+ * The one place a camera reaches the canvas: through the composer when bloom
+ * is on (single full-window view only — the multi-view scissor path predates
+ * the composer and post-v1 2v2 will need its own pass layout), else direct.
+ */
+function renderScene(camera: THREE.Camera): void {
+  if (bloomOn && post !== null && views.length <= 1) post.render(camera);
+  else renderer.render(scene, camera);
+}
 
 // Dusk sky gradient (Blade-Runner-ish): deep indigo zenith, a narrow warm amber
 // smog band at the horizon, cool haze/nadir below. Built once as an
@@ -610,6 +655,9 @@ const greybox = createGreyboxMeshes(scene);
 // Client-only shot VFX (tracers, muzzle flashes, explosions) — same event
 // buffer as audio, independent of sim hash.
 const fx = createFx(scene);
+// Instantiate the composer only when bloom actually starts on — its render
+// targets are the cost, and a SwiftShader run never pays it.
+if (bloomOn) setBloom(true);
 // Stage B unit models upgrade the greybox buckets in place as they load;
 // missing assets keep their greybox mesh (render/unitMeshes.ts).
 if (renderMode === "mesh") loadUnitMeshes(greybox);
@@ -950,6 +998,7 @@ function returnToMenu(): void {
         texSwitcher?.setVariant(variantOfPref(pref));
         refreshDebugLabel();
       },
+      onBloomPref: setBloom,
     });
   }
   refreshDebugLabel();
@@ -1792,7 +1841,7 @@ function frame(now: number): void {
     if (phase === "match") fx.update(dtSec, flyCam, simDtSec);
     renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.setScissor(0, 0, innerWidth, innerHeight);
-    renderer.render(scene, flyCam);
+    renderScene(flyCam);
   } else {
     // Drain accumulated wheel into the pointer view's rig (scroll up → zoom in
     // → toward ACTION). Only the pointer view takes zoom.
@@ -1820,7 +1869,7 @@ function frame(now: number): void {
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
       renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
-      renderer.render(scene, view.camera);
+      renderScene(view.camera);
       // Audio listener follows the local view's camera: translation plus the
       // first basis column (its right vector) is all a stereo pan needs. Raw
       // matrix element reads, so no allocation in the frame loop.
@@ -1843,7 +1892,11 @@ function frame(now: number): void {
     // camera modes skip it — they exist to look at the world (matchHud is
     // undefined there anyway, which is why this lives inside the guard).
     const endWinner = matchSnap[MATCH_WINNER] | 0;
-    if (endWinner >= 0 && winSeenAtMs < 0) winSeenAtMs = now;
+    if (endWinner < 0) {
+      winSeenAtMs = -1; // no winner (or a fresh sim): the clock re-arms
+    } else if (winSeenAtMs < 0) {
+      winSeenAtMs = now;
+    }
     if (winSeenAtMs >= 0 && !matchEndShown && now - winSeenAtMs > MATCH_END_DELAY_MS) {
       showMatchEnd(endWinner);
     }
@@ -1882,6 +1935,9 @@ function resetForMatch(newSim: SimState): void {
   }
   countPrev = 0;
   countCurr = writeSnapshot(sim, snapCurr);
+  // Refresh the match scalars immediately: the 10 Hz consumer (HUD + match-end
+  // detection) must never read the previous sim's winner against the new one.
+  writeMatchSnapshot(sim, matchSnap);
   if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
 }
 
@@ -2241,6 +2297,8 @@ if (online) {
       texSwitcher?.setVariant(variantOfPref(pref));
       refreshDebugLabel();
     },
+    // Bloom applies live to the backdrop; persistence is the drawer's job.
+    onBloomPref: setBloom,
   });
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {
@@ -2256,6 +2314,7 @@ addEventListener("popstate", () => location.reload());
 
 addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
+  post?.setSize(innerWidth, innerHeight, Math.min(devicePixelRatio, 2));
   flyCam.aspect = innerWidth / innerHeight;
   flyCam.updateProjectionMatrix();
   if (views.length > 0) layoutViews(views, "v", innerWidth, innerHeight, textHudInset());

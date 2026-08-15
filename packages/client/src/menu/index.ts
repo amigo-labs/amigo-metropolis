@@ -52,6 +52,8 @@ export interface MenuOptions {
   /** Called when the Graphics drawer changes the texture preference so main.ts
    *  can apply it to the live arena immediately (persistence happens there). */
   onTexPref(pref: TexPref): void;
+  /** Called when the Graphics drawer toggles bloom (persisted by the drawer). */
+  onBloomPref(enabled: boolean): void;
   /** Optional initial loadout (e.g. from ?gun= URL). */
   initialLoadout?: Loadout;
 }
@@ -114,6 +116,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         go,
         onSelect: selectArena,
         onTexPref: opts.onTexPref,
+        onBloomPref: opts.onBloomPref,
       }),
       root,
     );

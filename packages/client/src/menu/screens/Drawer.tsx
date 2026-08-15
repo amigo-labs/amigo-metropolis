@@ -8,13 +8,21 @@
 import { useState } from "preact/hooks";
 import type { AudioEngine, VolumeKind } from "../../audio/engine";
 import { MUSIC_OPTIONS, parseMusicSelection } from "../../audio/tracks";
-import { loadTexPref, parseTexPref, saveTexPref, type TexPref } from "../../render/texVariants";
+import {
+  loadBloomPref,
+  loadTexPref,
+  parseTexPref,
+  saveBloomPref,
+  saveTexPref,
+  type TexPref,
+} from "../../render/texVariants";
 import type { MenuDrawer } from "../state";
 
 interface Props {
   kind: MenuDrawer;
   audio: AudioEngine;
   onTexPref(pref: TexPref): void;
+  onBloomPref(enabled: boolean): void;
 }
 
 const CONTROLS: readonly (readonly [string, string])[] = [
@@ -54,30 +62,58 @@ function HowTo() {
   );
 }
 
-function Graphics({ onTexPref }: { onTexPref(pref: TexPref): void }) {
+function Graphics({
+  onTexPref,
+  onBloomPref,
+}: {
+  onTexPref(pref: TexPref): void;
+  onBloomPref(enabled: boolean): void;
+}) {
   const [pref, setPref] = useState<TexPref>(loadTexPref());
+  const [bloom, setBloom] = useState<boolean>(loadBloomPref());
   return (
-    <div class="menu-row">
-      <label class="menu-label" for="menu-gfx-textures">
-        Textures
-      </label>
-      <select
-        id="menu-gfx-textures"
-        class="menu-select"
-        value={pref}
-        onChange={(e) => {
-          const next = parseTexPref((e.currentTarget as HTMLSelectElement).value) ?? "hd";
-          setPref(next);
-          saveTexPref(next);
-          onTexPref(next);
-        }}
-      >
-        {/* HD is the shipped ESRGAN atlas; Classic is the 1998 source texels.
-            Takes effect on the textured map path; greybox ignores it. */}
-        <option value="hd">HD (upscaled)</option>
-        <option value="original">Classic</option>
-      </select>
-    </div>
+    <>
+      <div class="menu-row">
+        <label class="menu-label" for="menu-gfx-textures">
+          Textures
+        </label>
+        <select
+          id="menu-gfx-textures"
+          class="menu-select"
+          value={pref}
+          onChange={(e) => {
+            const next = parseTexPref((e.currentTarget as HTMLSelectElement).value) ?? "hd";
+            setPref(next);
+            saveTexPref(next);
+            onTexPref(next);
+          }}
+        >
+          {/* HD is the shipped ESRGAN atlas; Classic is the 1998 source texels.
+              Takes effect on the textured map path; greybox ignores it. */}
+          <option value="hd">HD (upscaled)</option>
+          <option value="original">Classic</option>
+        </select>
+      </div>
+      <div class="menu-row">
+        <label class="menu-label" for="menu-gfx-bloom">
+          Bloom
+        </label>
+        <select
+          id="menu-gfx-bloom"
+          class="menu-select"
+          value={bloom ? "on" : "off"}
+          onChange={(e) => {
+            const next = (e.currentTarget as HTMLSelectElement).value === "on";
+            setBloom(next);
+            saveBloomPref(next);
+            onBloomPref(next);
+          }}
+        >
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
+    </>
   );
 }
 
@@ -158,23 +194,33 @@ function Sound({ audio }: { audio: AudioEngine }) {
   );
 }
 
-function Preferences({ audio, onTexPref }: { audio: AudioEngine; onTexPref(pref: TexPref): void }) {
+function Preferences({
+  audio,
+  onTexPref,
+  onBloomPref,
+}: {
+  audio: AudioEngine;
+  onTexPref(pref: TexPref): void;
+  onBloomPref(enabled: boolean): void;
+}) {
   return (
     <>
       <h2 class="menu-h2">Sound</h2>
       <Sound audio={audio} />
       <h2 class="menu-h2">Graphics</h2>
-      <Graphics onTexPref={onTexPref} />
+      <Graphics onTexPref={onTexPref} onBloomPref={onBloomPref} />
     </>
   );
 }
 
-export function Drawer({ kind, audio, onTexPref }: Props) {
+export function Drawer({ kind, audio, onTexPref, onBloomPref }: Props) {
   if (!kind) return null;
   return (
     <div class="menu-drawer ck-panel">
       {kind === "how" ? <HowTo /> : null}
-      {kind === "prefs" ? <Preferences audio={audio} onTexPref={onTexPref} /> : null}
+      {kind === "prefs" ? (
+        <Preferences audio={audio} onTexPref={onTexPref} onBloomPref={onBloomPref} />
+      ) : null}
     </div>
   );
 }
