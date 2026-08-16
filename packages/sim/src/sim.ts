@@ -2244,7 +2244,7 @@ export function hash(state: SimState): number {
  */
 export const MATCH_SNAPSHOT_HEADER = 4;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
-export const MATCH_SNAPSHOT_SLOT_STRIDE = 8;
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 11;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
 
 /** Header fields. */
@@ -2263,6 +2263,20 @@ export const MATCH_SLOT_RESPAWN_TICKS = 5;
 export const MATCH_SLOT_OUTPOSTS = 6;
 /** Units alive for this slot (RUNNER..FORTRESS), for the readout column. */
 export const MATCH_SLOT_UNITS = 7;
+/** Console hold-to-buy progress 0..1, or -1 when the slot is not buying. */
+export const MATCH_SLOT_BUY_FRAC = 8;
+/**
+ * Best capture progress 0..1 among neutral-turret spots this slot is standing
+ * on, or -1 when it is capturing nowhere. "Best" is safe: the capture rule is
+ * uncontested presence, so one avatar advances at most one spot at a time —
+ * ties only exist for a frame when a spot resets.
+ */
+export const MATCH_SLOT_CAPTURE_FRAC = 9;
+/**
+ * This slot's own core HP as a fraction of the map's full value, or -1 on an
+ * arena without cores (§1 gate-breach arenas). The HUD shows both slots' bars.
+ */
+export const MATCH_SLOT_CORE_FRAC = 10;
 
 /** Byte offset of slot `s`'s block. */
 export function matchSlotOffset(slot: number): number {
@@ -2291,6 +2305,19 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     out[o + MATCH_SLOT_RESPAWN_TICKS] = a >= 0 ? 0 : state.respawnTimer[slot];
     out[o + MATCH_SLOT_OUTPOSTS] = 0;
     out[o + MATCH_SLOT_UNITS] = 0;
+    out[o + MATCH_SLOT_BUY_FRAC] =
+      state.buyTarget[slot] >= 0 ? state.buyProgress[slot] / CONSOLE_HOLD_TICKS : -1;
+    let capture = -1;
+    for (let k = 0; k < state.captureTeam.length; k++) {
+      if (state.captureTeam[k] !== slot) continue;
+      const frac = state.captureProgress[k] / CAPTURE_TICKS;
+      if (frac > capture) capture = frac;
+    }
+    out[o + MATCH_SLOT_CAPTURE_FRAC] = capture;
+    out[o + MATCH_SLOT_CORE_FRAC] =
+      state.coreHp.length > 0 && state.map.bases[slot].coreHp > 0
+        ? state.coreHp[slot] / state.map.bases[slot].coreHp
+        : -1;
   }
   for (let k = 0; k < state.outpostOwner.length; k++) {
     const owner = state.outpostOwner[k];

@@ -27,11 +27,15 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
   // whose hashes move.
-  "golden-05-fcop": { last: 3353300176, count: 2700 },
+  // Re-frozen at SIM_VERSION 30 (graph jam relief): the stall clock lives in
+  // timerB on graph arenas, so 05 and 07 — the two goldens on maps that carry
+  // a lane graph — move from the first near-node tick on; 01-04/06 run
+  // polyline maps where advanceOnGraph never executes and stay byte-identical.
+  "golden-05-fcop": { last: 436906440, count: 2700 },
   "golden-06-layered": { last: 3787894536, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
-  "golden-07-pa": { last: 2801867636, count: 3600 },
+  "golden-07-pa": { last: 2145709388, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

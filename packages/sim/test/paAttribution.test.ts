@@ -435,23 +435,24 @@ describe("how far an unescorted push gets, per arena", () => {
   });
 
   for (const id of [PROVING_GROUND_ID, BUG_HUNT_ID]) {
-    it(`${id}: a trickle stops ~11 m out on one ring turret`, () => {
-      // 11.5 m and 11.4 m measured. Both arenas place a ring turret 9-10 m from
-      // the core, inside the last stretch of road: a Runner halts 14 m from it,
-      // chips 500 imported HP at 8 dps (~62 s) and the ring respawns in 60 s, so
-      // the emplacement regenerates as fast as a trickle can kill it. Nothing
-      // about the road: paRoads drives this exact route unopposed, and with the
-      // defenders removed outright both arenas raze the core (see below).
+    it(`${id}: a trickle reaches the doorstep but cannot open the base`, () => {
+      // Before the jam relief (SIM_VERSION 30) this read "stops ~11 m out on
+      // one ring turret" at 11.5/11.4 m measured. The relief returns walled-out
+      // stragglers to the road, so the stream arrives in better order: it now
+      // reaches the doorstep (4.5 m measured on both, inside CORE_ATTACK_RADIUS)
+      // and chips — 60 and 14 core hits in five minutes against the 300 a raze
+      // needs — held there by the base's own built-in guns, exactly like the
+      // urban-jungle block above. Nothing about the road: paRoads drives this
+      // exact route unopposed, and with the defenders removed outright both
+      // arenas raze the core (see below).
       //
       // This is the free stream failing on its own, which design pillar 1 says it
       // should: the player is the tiebreaker. What has to be true is that a party
-      // WHICH IS TRYING gets through, and that is the next block.
+      // WHICH IS TRYING gets through, and that is the next block. The bound is
+      // half the core, loose on purpose (file header): a trickle that RAZES is
+      // the regression this pin exists to catch.
       const r = push(id);
-      // A free trickle may chip the core or even sit inside CORE_ATTACK_RADIUS
-      // after a stage-2 rebuild moves a few wall bits; it must not raze (300
-      // hits = 3000 HP). Design pillar 1 still holds: the player is the
-      // tiebreaker for a real win.
-      expect(r.coreHits).toBeLessThan(50);
+      expect(r.coreHits).toBeLessThan(150);
       expect(r.closest).toBeLessThan(20);
     });
   }
@@ -590,4 +591,30 @@ describe("what an escort changes, per arena", () => {
       expect(state.winner).toBe(1);
     }
   });
+});
+
+describe("a d8 Warden match RESOLVES on every §9 arena", () => {
+  // The last open item of issue #31 / PLAN Phase 13, pinned so it cannot
+  // silently regress: a difficulty-8 Warden against an idle player razes the
+  // core within ten minutes on all four arenas. Before the jam relief
+  // (SIM_VERSION 30) urban-jungle froze on 2 of 5 seeds — produced units
+  // wedged into a standing mill at their own base exit (fresh spawns crossing
+  // outbound traffic under UNIT_SEPARATION), production stuck at the alive
+  // limit, match frozen from minute ~3. Seeds 2 and 4 are IN this set because
+  // they are the two that stalled; c0ffee is the suite's usual seed.
+  const TEN_MINUTES = 10 * 60 * 30;
+  for (const id of [LA_CANTINA_ID, URBAN_JUNGLE_ID, PROVING_GROUND_ID, BUG_HUNT_ID]) {
+    it(`${id}: d8 vs idle razes within ten minutes on the stall seeds`, () => {
+      for (const seed of [0xc0ffee, 2, 4]) {
+        const state = createSim(getMapById(id), seed, {
+          wardenPlayer: 1,
+          wardenDifficulty: 8,
+        });
+        const idle = createTickInputs();
+        for (let t = 0; t < TEN_MINUTES && state.winner < 0; t++) step(state, idle);
+        expect(state.winner).toBe(1);
+        expect(state.tick).toBeLessThanOrEqual(TEN_MINUTES);
+      }
+    });
+  }
 });

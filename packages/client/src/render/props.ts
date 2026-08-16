@@ -17,6 +17,7 @@ import { type MapData, type MapProp, sampleHeight } from "@metropolis/sim";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { disposeSubtree } from "./meshMap";
 
 const loader = new GLTFLoader();
 
@@ -29,10 +30,21 @@ function modelKey(cobj: number): string {
 }
 
 /**
+ * Cobj ids the maps place but no committed model covers — their extraction
+ * lives in the private RE repo. Literal copy of UNAVAILABLE_PROP_COBJS in
+ * tools/generators/units/manifest.ts (the client must not import tools/ at
+ * runtime); propAllowlist.test.ts pins this copy to the manifest's list, and
+ * propModels.test.ts keeps that list honest against the maps. Skipping here
+ * avoids a guaranteed 404 per arena load, which the verify:arenas harness
+ * counts as a broken asset.
+ */
+export const UNAVAILABLE_PROP_COBJS: ReadonlySet<number> = new Set([31, 38]);
+
+/**
  * Kicks off one async load per distinct prop model. Fire and forget: each
  * model's InstancedMesh joins the arena group when its .glb arrives.
  */
-export function loadProps(map: MapData, group: THREE.Object3D): void {
+export function loadProps(map: MapData, group: THREE.Object3D, cancelled?: () => boolean): void {
   if (map.props.length === 0) return;
   const byModel = new Map<number, MapProp[]>();
   for (const prop of map.props) {
@@ -41,7 +53,11 @@ export function loadProps(map: MapData, group: THREE.Object3D): void {
     else byModel.set(prop.model, [prop]);
   }
   for (const [cobj, placements] of byModel) {
-    addPropMesh(map, group, cobj, placements);
+    if (UNAVAILABLE_PROP_COBJS.has(cobj)) {
+      console.info(`[props] no committed model for Cobj ${cobj} yet, skipping its placements`);
+      continue;
+    }
+    addPropMesh(map, group, cobj, placements, cancelled);
   }
 }
 
@@ -50,10 +66,17 @@ function addPropMesh(
   group: THREE.Object3D,
   cobj: number,
   placements: readonly MapProp[],
+  cancelled?: () => boolean,
 ): void {
   const url = `/models/props/${modelKey(cobj)}.glb`;
   loader.loadAsync(url).then(
     (gltf) => {
+      // Stale (the arena was swapped while this loaded): free the loader's
+      // resources instead of merging into a group that already left the scene.
+      if (cancelled?.()) {
+        disposeSubtree(gltf.scene);
+        return;
+      }
       // Init-time: allocations here are fine (same call as meshMap.ts's Box3).
       gltf.scene.updateMatrixWorld(true);
       const geometries: THREE.BufferGeometry[] = [];

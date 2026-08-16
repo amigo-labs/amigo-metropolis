@@ -231,33 +231,6 @@ function astar(
   throw new Error(`A* failed ${from} -> ${to}`);
 }
 
-/** Nearest walkable cell to (x,y), preferring smaller x when side=west. */
-function nearestWalkable(
-  walk: Uint8Array,
-  x: number,
-  y: number,
-  prefer: "west" | "east" | "any",
-): Cell {
-  let best: Cell | null = null;
-  let bestScore = 1e9;
-  for (let j = 0; j < size; j++) {
-    for (let i = 0; i < size; i++) {
-      if (!walk[key(i, j)]) continue;
-      const cx = i + 0.5;
-      const cy = j + 0.5;
-      const d = Math.hypot(cx - x, cy - y);
-      const bias = prefer === "west" ? cx * 0.15 : prefer === "east" ? -cx * 0.15 : 0;
-      const score = d + bias;
-      if (score < bestScore) {
-        bestScore = score;
-        best = [cx, cy];
-      }
-    }
-  }
-  if (!best) throw new Error("no walkable cell");
-  return best;
-}
-
 /** Collapse wall/slope-safe runs. Does NOT rewrite endpoints (callers pin those). */
 function thinLos(pts: Cell[]): Cell[] {
   if (pts.length <= 2) return pts.slice();

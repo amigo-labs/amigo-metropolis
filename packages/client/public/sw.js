@@ -11,13 +11,19 @@
 //
 // Bump CACHE to invalidate old assets; activate() drops every other cache.
 
-const CACHE = "district-breach-v1";
+const CACHE = "district-breach-v2";
 const SHELL = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
+  // Cockpit face (cockpit.css @font-face): cached up front so the first
+  // OFFLINE launch already has it — runtime caching would only catch it
+  // after an online visit that happened to render each weight.
+  "/fonts/saira-semicondensed-400.woff2",
+  "/fonts/saira-semicondensed-600.woff2",
+  "/fonts/saira-semicondensed-800.woff2",
 ];
 
 self.addEventListener("install", (event) => {

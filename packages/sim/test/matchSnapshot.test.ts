@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
+import { CAPTURE_TICKS, CONSOLE_HOLD_TICKS } from "../src/balance";
 import { createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
 import {
@@ -14,6 +15,9 @@ import {
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_AVATAR_ID,
+  MATCH_SLOT_BUY_FRAC,
+  MATCH_SLOT_CAPTURE_FRAC,
+  MATCH_SLOT_CORE_FRAC,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
@@ -139,6 +143,61 @@ describe("writeMatchSnapshot", () => {
 
     expect(out[matchSlotOffset(0) + MATCH_SLOT_OUTPOSTS]).toBe(1);
     expect(out[matchSlotOffset(1) + MATCH_SLOT_OUTPOSTS]).toBe(1);
+  });
+
+  it("reports buy progress as a fraction, -1 while not buying", () => {
+    const sim = freshSim();
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_BUY_FRAC]).toBe(-1);
+
+    // The buy ledger is sim state the interact system normally advances;
+    // setting it directly keeps this a contract test, not a movement script.
+    sim.buyTarget[0] = 3;
+    sim.buyProgress[0] = Math.floor(CONSOLE_HOLD_TICKS / 3);
+    writeMatchSnapshot(sim, out);
+    const frac = out[matchSlotOffset(0) + MATCH_SLOT_BUY_FRAC];
+    expect(frac).toBeGreaterThan(0);
+    expect(frac).toBeLessThan(1);
+    expect(out[matchSlotOffset(1) + MATCH_SLOT_BUY_FRAC]).toBe(-1);
+  });
+
+  it("reports the best capture progress of the capturing slot, -1 otherwise", () => {
+    const sim = freshSim();
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+    expect(sim.captureTeam.length).toBeGreaterThan(1);
+
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_CAPTURE_FRAC]).toBe(-1);
+
+    sim.captureTeam[0] = 0;
+    sim.captureProgress[0] = Math.floor(CAPTURE_TICKS / 2);
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_CAPTURE_FRAC]).toBeCloseTo(
+      Math.floor(CAPTURE_TICKS / 2) / CAPTURE_TICKS,
+      5,
+    );
+    expect(out[matchSlotOffset(1) + MATCH_SLOT_CAPTURE_FRAC]).toBe(-1);
+  });
+
+  it("reports core HP fractions on a core arena and -1 on a gate arena", () => {
+    // urban-jungle is §9 (coreHp 3000 per base).
+    const sim = freshSim();
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_CORE_FRAC]).toBe(1);
+    expect(out[matchSlotOffset(1) + MATCH_SLOT_CORE_FRAC]).toBe(1);
+
+    sim.coreHp[1] = Math.floor(sim.map.bases[1].coreHp / 2);
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(1) + MATCH_SLOT_CORE_FRAC]).toBeCloseTo(0.5, 5);
+
+    // district-01 is §1: no cores, the field reads -1 for both slots.
+    const gateSim = createSim(getMapById("district-01"), 1);
+    writeMatchSnapshot(gateSim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_CORE_FRAC]).toBe(-1);
+    expect(out[matchSlotOffset(1) + MATCH_SLOT_CORE_FRAC]).toBe(-1);
   });
 
   it("overwrites every field, so a reused buffer never shows a stale value", () => {

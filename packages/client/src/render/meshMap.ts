@@ -26,10 +26,18 @@ export function loadMapMesh(
   group: THREE.Group,
   onMissing?: () => void,
   onMaterials?: (materials: THREE.MeshStandardMaterial[]) => void,
+  cancelled?: () => boolean,
 ): void {
   const url = `/models/${map.id}/${map.id}.glb`;
   loader.loadAsync(url).then(
     (gltf) => {
+      // A preview swap can outrun this load: the group is already out of the
+      // scene and disposed, so attaching (or arming onMaterials for the wrong
+      // map) would leak GPU memory into a dead tree. Dispose what was parsed.
+      if (cancelled?.()) {
+        disposeSubtree(gltf.scene);
+        return;
+      }
       const materials: THREE.MeshStandardMaterial[] = [];
       gltf.scene.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
@@ -97,8 +105,37 @@ export function loadMapMesh(
       if (materials.length > 0) onMaterials?.(materials);
     },
     () => {
+      if (cancelled?.()) return;
       console.warn(`[meshMap] no mesh asset at ${url}, falling back to greybox terrain`);
       onMissing?.();
     },
   );
+}
+
+/**
+ * Frees every geometry, material and texture under `root` (stale loads).
+ * All MeshStandardMaterial texture slots are covered, not just `map`: the
+ * FCOP pipeline happens to emit baseColor-only materials today, but this
+ * helper is the generic half of the cancellation path and must not leak the
+ * day an asset ships a normal or emissive map. Double-dispose of a texture
+ * shared between slots/materials is safe (three no-ops on disposed).
+ */
+export function disposeSubtree(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.dispose();
+    const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const m of list) {
+      const mat = m as THREE.MeshStandardMaterial;
+      mat.map?.dispose();
+      mat.normalMap?.dispose();
+      mat.roughnessMap?.dispose();
+      mat.metalnessMap?.dispose();
+      mat.aoMap?.dispose();
+      mat.emissiveMap?.dispose();
+      mat.alphaMap?.dispose();
+      mat.dispose();
+    }
+  });
 }

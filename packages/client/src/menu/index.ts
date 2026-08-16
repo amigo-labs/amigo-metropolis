@@ -16,7 +16,7 @@
 // smuggling a ref out of the tree. It also keeps App a pure function of its
 // props, which is what lets `bun test` render screens to a string.
 
-import { type Loadout, normalizeLoadout } from "@metropolis/sim";
+import type { Loadout } from "@metropolis/sim";
 import { render } from "preact";
 import type { AudioEngine } from "../audio/engine";
 import type { TexPref } from "../render/texVariants";
@@ -52,6 +52,8 @@ export interface MenuOptions {
   /** Called when the Graphics drawer changes the texture preference so main.ts
    *  can apply it to the live arena immediately (persistence happens there). */
   onTexPref(pref: TexPref): void;
+  /** Called when the Graphics drawer toggles bloom (persisted by the drawer). */
+  onBloomPref(enabled: boolean): void;
   /** Optional initial loadout (e.g. from ?gun= URL). */
   initialLoadout?: Loadout;
 }
@@ -88,8 +90,18 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   };
 
   function update(patch: Partial<MenuState>): void {
+    // A re-render that removes the focused control (panel/drawer swap) drops
+    // focus to <body>; without a focused element the keyboard/gamepad nav is
+    // stranded (ui.md §4 — the visible ring is functional, not decoration).
+    // Only restore when focus was INSIDE the menu before the redraw: macOS
+    // Safari/Firefox never focus a clicked <button>, so "activeElement is
+    // <body>" alone would steal focus to the first control on every click.
+    const hadFocus = root.contains(document.activeElement);
     state = { ...state, ...patch };
     draw();
+    if (hadFocus && !root.contains(document.activeElement)) {
+      nav?.focusFirst();
+    }
   }
 
   const onCancel = (): void => {
@@ -108,6 +120,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         go,
         onSelect: selectArena,
         onTexPref: opts.onTexPref,
+        onBloomPref: opts.onBloomPref,
       }),
       root,
     );
@@ -115,6 +128,9 @@ export function runMenu(opts: MenuOptions): MenuHandle {
 
   draw();
   nav = attachNavFocus(root, { onCancel });
+  // Give keyboard/gamepad users a starting point: without this the first
+  // arrow press navigates from <body> and no ring is visible (ui.md §4).
+  nav.focusFirst();
 
   return {
     offerInstall(prompt: () => void): void {
@@ -140,9 +156,4 @@ export function runMenu(opts: MenuOptions): MenuHandle {
       setTimeout(remove, 500);
     },
   };
-}
-
-/** Kept for callers that want the normalized kit without mounting the menu. */
-export function normalizeMenuLoadout(loadout?: Loadout): Loadout {
-  return normalizeLoadout(loadout);
 }

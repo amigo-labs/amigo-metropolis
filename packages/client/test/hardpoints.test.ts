@@ -13,7 +13,7 @@ import {
   stepHardpoint,
   weaponBarFractions,
 } from "../src/menu/hardpoints";
-import { weaponArtSlug, weaponIconUrl, weaponPanelUrl } from "../src/menu/weaponArt";
+import { weaponArtSlug, weaponIconUrl } from "../src/menu/weaponArt";
 
 const KIT = { gun: 0, heavy: 0, special: 0 };
 
@@ -132,7 +132,6 @@ describe("weaponArt", () => {
     expect(weaponArtSlug("Pop-Up Mines")).toBe("pop-up-mines");
     for (const w of [...GUNS, ...HEAVIES, ...SPECIALS]) {
       expect(weaponIconUrl(w.name)).toBe(`/ui/weapons/icons/${weaponArtSlug(w.name)}.png`);
-      expect(weaponPanelUrl(w.name)).toBe(`/ui/weapons/panels/${weaponArtSlug(w.name)}.png`);
     }
   });
 });

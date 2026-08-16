@@ -50,8 +50,42 @@ export function loadTexPref(): TexPref {
 }
 
 export function saveTexPref(pref: TexPref): void {
+  writeGfxPref("textures", pref);
+}
+
+// --- Player preference: "Bloom" ----------------------------------------------
+// Same storage record as the texture pref; the writer merges so the two
+// settings cannot clobber each other. Default ON — the dusk look is built
+// around it; main.ts still forces it off on software renderers.
+
+export function loadBloomPref(): boolean {
   try {
-    localStorage.setItem(PREF_KEY, JSON.stringify({ textures: pref }));
+    const parsed: unknown = JSON.parse(localStorage.getItem(PREF_KEY) ?? "{}");
+    const bloom = (parsed as { bloom?: unknown }).bloom;
+    return typeof bloom === "boolean" ? bloom : true;
+  } catch {
+    return true;
+  }
+}
+
+export function saveBloomPref(enabled: boolean): void {
+  writeGfxPref("bloom", enabled);
+}
+
+/** Read-merge-write so every gfx pref shares one record without clobbering. */
+function writeGfxPref(key: "textures" | "bloom", value: unknown): void {
+  try {
+    let current: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = JSON.parse(localStorage.getItem(PREF_KEY) ?? "{}");
+      if (parsed !== null && typeof parsed === "object") {
+        current = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Corrupt record: rebuild it from this write.
+    }
+    current[key] = value;
+    localStorage.setItem(PREF_KEY, JSON.stringify(current));
   } catch {
     // Private mode / quota: the choice still applies for this session.
   }

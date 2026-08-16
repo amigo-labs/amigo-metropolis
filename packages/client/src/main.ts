@@ -38,10 +38,15 @@ import {
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
+  MATCH_SLOT_CORE_FRAC,
+  MATCH_SLOT_POINTS,
   MATCH_SNAPSHOT_LEN,
+  MATCH_TICK,
+  MATCH_WINNER,
   MAX_ENTITIES,
   MAX_PLAYERS,
   type MatchConfig,
+  matchSlotOffset,
   type PlayerInput,
   SIM_VERSION,
   type SimState,
@@ -94,6 +99,7 @@ import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./r
 import { createFx } from "./render/fx";
 import { bucketFor, createGreyboxMeshes, tintFor } from "./render/greybox";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
+import { matchClock, matchEndText } from "./render/matchEnd";
 import { loadMapMesh } from "./render/meshMap";
 import {
   createAvatarMorph,
@@ -106,6 +112,7 @@ import {
 } from "./render/morph";
 import { ATMOSPHERE_HEX } from "./render/palette";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
+import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
 import { loadProps } from "./render/props";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
@@ -116,6 +123,7 @@ import {
 } from "./render/terrain";
 import {
   createVariantSwitcher,
+  loadBloomPref,
   loadTexPref,
   parseTexPref,
   type TexPref,
@@ -440,6 +448,10 @@ let countCurr = 0;
 // Match scalars (points, ammo, respawn, unit counts). Preallocated like the
 // entity snapshots — rotateSnapshot() refills it every tick, never reallocates.
 const matchSnap = new Float32Array(MATCH_SNAPSHOT_LEN);
+// A zero-filled buffer would read as "team 0 already won" (MATCH_WINNER is
+// index 1, and 0 is a valid team) until the first rotateSnapshot writes it —
+// the match-end detection must never see that boot frame.
+matchSnap[MATCH_WINNER] = -1;
 
 const keyboard = new PlayerOneInput(window);
 // In touch mode the local player's device is the on-screen overlay instead;
@@ -486,7 +498,59 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffe
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setScissorTest(true); // each player view renders scissored to its rect
+// Filmic tone mapping is the base look (the dusk palette is built for it, and
+// the additive FX opt out via toneMapped:false, which is also what makes the
+// bloom threshold selective). ?tone=off keeps the raw output for debugging.
+// Software rasterizers (SwiftShader — the e2e/verification environment) skip
+// it like they skip bloom: the look is not for them, the extra shader cost
+// shifts the harnesses' wall-clock input timing against the sim, and the
+// committed verification screenshots stay comparable. ?tone=on forces it.
+const toneParam = params.get("tone");
+if (toneParam === "on" || (toneParam !== "off" && !isSoftwareRenderer(renderer))) {
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // Slightly over unity: ACES sinks midtones, and the arenas' rooftop texels
+  // are dark to begin with. Eyeballed against SwiftShader shots at 1.0-1.3.
+  renderer.toneMappingExposure = 1.2;
+}
 document.body.appendChild(renderer.domElement);
+
+// Threshold bloom behind a graphics preference (render/post.ts). ?bloom=0|1
+// decides the BOOT state, overriding both the stored preference and the
+// software-rasterizer default (SwiftShader — the e2e and verification
+// environment — defaults off, both for speed and to keep the committed
+// verification screenshots comparable). It is deliberately not a lock: the
+// Graphics drawer still applies live, because a player explicitly flipping
+// the toggle outranks whatever the URL bootstrapped.
+const bloomParam = params.get("bloom");
+let bloomOn =
+  bloomParam === "1"
+    ? true
+    : bloomParam === "0"
+      ? false
+      : loadBloomPref() && !isSoftwareRenderer(renderer);
+let post: PostPipeline | null = null;
+function setBloom(enabled: boolean): void {
+  bloomOn = enabled;
+  if (enabled && post === null) {
+    post = createPost(renderer, scene);
+    post.setSize(innerWidth, innerHeight, Math.min(devicePixelRatio, 2));
+  } else if (!enabled && post !== null) {
+    // Free the composer's screen-sized render targets: a player who tried
+    // bloom and turned it off should not keep paying its GPU memory.
+    post.dispose();
+    post = null;
+  }
+}
+
+/**
+ * The one place a camera reaches the canvas: through the composer when bloom
+ * is on (single full-window view only — the multi-view scissor path predates
+ * the composer and post-v1 2v2 will need its own pass layout), else direct.
+ */
+function renderScene(camera: THREE.Camera): void {
+  if (bloomOn && post !== null && views.length <= 1) post.render(camera);
+  else renderer.render(scene, camera);
+}
 
 // Dusk sky gradient (Blade-Runner-ish): deep indigo zenith, a narrow warm amber
 // smog band at the horizon, cool haze/nadir below. Built once as an
@@ -541,7 +605,15 @@ fillLight.updateMatrix();
 scene.add(fillLight);
 // All static arena visuals live in one group so an online joiner can swap the
 // arena wholesale when the authoritative config names a different map.
+//
+// The epoch guards the async loaders inside: rapid preview swaps in the menu
+// can otherwise resolve a slow .glb load into a group that rebuildArena has
+// already removed and disposed — the stale load must throw its parse away
+// (and must not re-arm texSwitcher for the wrong map).
+let arenaEpoch = 0;
 function buildArenaGroup(m: typeof map): THREE.Group {
+  const epoch = ++arenaEpoch;
+  const stale = () => epoch !== arenaEpoch;
   const group = new THREE.Group();
   group.matrixAutoUpdate = false; // identity transform, per renderer rules
   const buildGreyboxTerrain = () => {
@@ -577,11 +649,12 @@ function buildArenaGroup(m: typeof map): THREE.Group {
         texSwitcher.setVariant(variantOfPref(texPref));
         refreshDebugLabel();
       },
+      stale,
     );
     // Original scenery actors, on the mesh path only: they are the arena's own
     // art, so they belong with the textured terrain and not on top of greybox
     // blocks (render/props.ts). No-op on arenas that carry no `props`.
-    loadProps(m, group);
+    loadProps(m, group, stale);
     if (showGreyboxStructures) buildGreyboxStructures();
   } else {
     buildGreyboxTerrain();
@@ -596,6 +669,9 @@ const greybox = createGreyboxMeshes(scene);
 // Client-only shot VFX (tracers, muzzle flashes, explosions) — same event
 // buffer as audio, independent of sim hash.
 const fx = createFx(scene);
+// Instantiate the composer only when bloom actually starts on — its render
+// targets are the cost, and a SwiftShader run never pays it.
+if (bloomOn) setBloom(true);
 // Stage B unit models upgrade the greybox buckets in place as they load;
 // missing assets keep their greybox mesh (render/unitMeshes.ts).
 if (renderMode === "mesh") loadUnitMeshes(greybox);
@@ -752,6 +828,104 @@ pauseCard.append(pauseTitle, pauseHint, pauseActions);
 pauseEl.appendChild(pauseCard);
 document.body.appendChild(pauseEl);
 
+// --- Match-end screen ----------------------------------------------------------
+// Shown a beat after the sim freezes on a winner (the banner and death FX get
+// their moment first). Raw DOM like the pause card; Rematch is offline-only —
+// online peers each return to the menu, there is no rematch handshake.
+const endEl = document.createElement("div");
+endEl.id = "match-end";
+endEl.setAttribute("role", "dialog");
+endEl.setAttribute("aria-modal", "true");
+endEl.setAttribute("aria-label", "Match over");
+const endCard = document.createElement("div");
+endCard.className = "pause-card";
+const endTitle = document.createElement("h1");
+const endSubtitle = document.createElement("p");
+const endStats = document.createElement("div");
+endStats.className = "end-stats";
+const endStatTime = document.createElement("div");
+const endStatPoints = document.createElement("div");
+const endStatKills = document.createElement("div");
+endStats.append(endStatTime, endStatPoints, endStatKills);
+const endActions = document.createElement("div");
+endActions.className = "pause-actions";
+const endRematchBtn = document.createElement("button");
+endRematchBtn.type = "button";
+endRematchBtn.className = "pause-btn pause-btn--primary";
+endRematchBtn.textContent = "Rematch";
+const endMenuBtn = document.createElement("button");
+endMenuBtn.type = "button";
+endMenuBtn.className = "pause-btn";
+endMenuBtn.textContent = "Return to menu";
+endActions.append(endRematchBtn, endMenuBtn);
+endCard.append(endTitle, endSubtitle, endStats, endActions);
+endEl.appendChild(endCard);
+document.body.appendChild(endEl);
+
+/** -1 until a winner is first seen; then the wall-clock ms it was seen at. */
+let winSeenAtMs = -1;
+let matchEndShown = false;
+/** EV_DEATH events credited to the local slot this match (pumpCosmetics). */
+let localKills = 0;
+/** Delay between the sim freezing and the card appearing. */
+const MATCH_END_DELAY_MS = 2500;
+
+function resetMatchEnd(): void {
+  winSeenAtMs = -1;
+  localKills = 0;
+  matchEndShown = false;
+  endEl.classList.remove("is-open");
+}
+
+function showMatchEnd(winner: number): void {
+  matchEndShown = true;
+  setMatchPaused(false); // the end card replaces the pause card, never stacks
+  const slot = views[0]?.slot ?? 0;
+  // Read the win condition off the snapshot, not sim internals (renderer
+  // rule 4): the core fraction is -1 exactly on gate (§1) arenas.
+  const hasCore = matchSnap[matchSlotOffset(slot) + MATCH_SLOT_CORE_FRAC] >= 0;
+  const text = matchEndText(winner, slot, hasCore);
+  endTitle.textContent = text.title;
+  endCard.classList.toggle("is-victory", winner === slot);
+  endSubtitle.textContent = text.subtitle;
+  const mine = matchSlotOffset(slot);
+  const other = matchSlotOffset(slot === 0 ? 1 : 0);
+  endStatTime.textContent = `Time ${matchClock(matchSnap[MATCH_TICK] | 0, TICK_HZ)}`;
+  endStatPoints.textContent = `Points ${matchSnap[mine + MATCH_SLOT_POINTS] | 0} — ${
+    matchSnap[other + MATCH_SLOT_POINTS] | 0
+  }`;
+  endStatKills.textContent = `Kills ${localKills}`;
+  endRematchBtn.style.display = netMode ? "none" : "";
+  endEl.classList.add("is-open");
+  if (document.pointerLockElement) document.exitPointerLock();
+  document.body.style.cursor = "default";
+  reticle.style.display = "none";
+  touchControls?.hide();
+  (netMode ? endMenuBtn : endRematchBtn).focus();
+}
+
+/** Seed of the running local match; each rematch derives the next from it. */
+let matchSeed = seed;
+
+/** Offline rematch: same arena, same opponent, a fresh derived seed. */
+function rematchSolo(): void {
+  resetMatchEnd();
+  // Derived from the PREVIOUS match's seed, not the boot constant: seeding
+  // from (bootSeed + tick) alone has a fixed point — two matches of equal
+  // length would replay the same AI match move for move, forever.
+  matchSeed = (matchSeed * 0x9e3779b9 + sim.tick + 1) >>> 0;
+  resetForMatch(
+    createSim(map, matchSeed, {
+      ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
+      loadouts: [playerLoadout],
+    }),
+  );
+  startMatch([{ slot: 0, input: localInput }]);
+}
+
+endRematchBtn.addEventListener("click", () => rematchSolo());
+endMenuBtn.addEventListener("click", () => returnToMenu());
+
 function isMatchLive(): boolean {
   return phase === "match" || phase === "connecting";
 }
@@ -790,6 +964,11 @@ function returnToMenu(): void {
   matchHud?.destroy();
   matchHud = undefined;
   document.body.classList.remove("hud-text-hidden");
+
+  // fx.update only runs while a match is on — anything still in flight would
+  // freeze over the menu backdrop for good if it were not dropped here.
+  fx.reset();
+  resetMatchEnd();
 
   sandboxPanel?.dispose();
   sandboxPanel = null;
@@ -840,6 +1019,7 @@ function returnToMenu(): void {
         texSwitcher?.setVariant(variantOfPref(pref));
         refreshDebugLabel();
       },
+      onBloomPref: setBloom,
     });
   }
   refreshDebugLabel();
@@ -881,6 +1061,12 @@ addEventListener("keydown", (e) => {
     return;
   }
   e.preventDefault();
+  // The end card owns ESC once it is up: the match is over, so "pause" has
+  // nothing left to pause — ESC means leave.
+  if (matchEndShown) {
+    returnToMenu();
+    return;
+  }
   setMatchPaused(!matchPaused);
 });
 
@@ -1309,6 +1495,14 @@ function pumpCosmetics(events: typeof sim.events): void {
   audio.pump(events, resolveEventPosition);
   fx.pump(events, resolveEventPosition);
   startMorphs(events);
+  matchHud?.pumpEvents(events, performance.now());
+  // Kills credited to the local player, for the match-end stats row.
+  // EV_DEATH.b is the killer's player slot (-1 for unowned deaths).
+  const localSlot = views[0]?.slot ?? 0;
+  for (let i = 0; i < events.count; i++) {
+    const o = i * EVENT_STRIDE;
+    if (events.data[o] === EV_DEATH && events.data[o + 2] === localSlot) localKills += 1;
+  }
 }
 
 /**
@@ -1539,7 +1733,11 @@ function refreshHud(fps: number): void {
     if (archetype >= 1 && archetype <= 4 && (team === 0 || team === 1)) unitCounts[team] += 1;
   }
   const banner =
-    sim.winner >= 0 ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} BREACHED THE GATE` : "";
+    sim.winner >= 0
+      ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} ${
+          sim.coreHp.length > 0 ? "RAZED THE BASE" : "BREACHED THE GATE"
+        }`
+      : "";
   for (let v = 0; v < views.length; v++) {
     views[v].hud.textContent = hudText(views[v], fps, banner);
   }
@@ -1664,7 +1862,7 @@ function frame(now: number): void {
     if (phase === "match") fx.update(dtSec, flyCam, simDtSec);
     renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.setScissor(0, 0, innerWidth, innerHeight);
-    renderer.render(scene, flyCam);
+    renderScene(flyCam);
   } else {
     // Drain accumulated wheel into the pointer view's rig (scroll up → zoom in
     // → toward ACTION). Only the pointer view takes zoom.
@@ -1692,7 +1890,7 @@ function frame(now: number): void {
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
       renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
-      renderer.render(scene, view.camera);
+      renderScene(view.camera);
       // Audio listener follows the local view's camera: translation plus the
       // first basis column (its right vector) is all a stereo pan needs. Raw
       // matrix element reads, so no allocation in the frame loop.
@@ -1710,6 +1908,19 @@ function frame(now: number): void {
   if (matchHud && now - matchHudLastUpdate > 100) {
     matchHudLastUpdate = now;
     matchHud.refresh(matchSnap, snapCurr, countCurr, extent);
+    // Match end rides the same cadence: once the sim freezes on a winner, give
+    // the banner and the death FX a beat, then put up the end card. Debug
+    // camera modes skip it — they exist to look at the world (matchHud is
+    // undefined there anyway, which is why this lives inside the guard).
+    const endWinner = matchSnap[MATCH_WINNER] | 0;
+    if (endWinner < 0) {
+      winSeenAtMs = -1; // no winner (or a fresh sim): the clock re-arms
+    } else if (winSeenAtMs < 0) {
+      winSeenAtMs = now;
+    }
+    if (winSeenAtMs >= 0 && !matchEndShown && now - winSeenAtMs > MATCH_END_DELAY_MS) {
+      showMatchEnd(endWinner);
+    }
   }
 
   hudFrames++;
@@ -1737,11 +1948,17 @@ function frame(now: number): void {
  */
 function resetForMatch(newSim: SimState): void {
   sim = newSim;
+  // A rematch must not inherit the previous match's in-flight effects.
+  fx.reset();
+  resetMatchEnd();
   for (let i = 0; i < inputQueue.length; i++) {
     for (let p = 0; p < MAX_PLAYERS; p++) zeroPlayerInput(inputQueue[i].players[p]);
   }
   countPrev = 0;
   countCurr = writeSnapshot(sim, snapCurr);
+  // Refresh the match scalars immediately: the 10 Hz consumer (HUD + match-end
+  // detection) must never read the previous sim's winner against the new one.
+  writeMatchSnapshot(sim, matchSnap);
   if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
 }
 
@@ -1763,7 +1980,13 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   // Before layoutViews, not after: the text HUD's inset depends on whether this
   // one exists.
   matchHud?.destroy();
-  matchHud = flyMode || orbitMode ? undefined : createMatchHud(views[0]?.slot ?? 0);
+  matchHud =
+    flyMode || orbitMode
+      ? undefined
+      : createMatchHud(views[0]?.slot ?? 0, {
+          hasCore: map.bases.some((b) => b.coreHp > 0),
+          outpostTotal: map.outpostSpots.length,
+        });
   layoutViews(views, "v", innerWidth, innerHeight, textHudInset());
 
   // The text HUD keeps being written in every mode — globalThis.metropolisHud()
@@ -2095,6 +2318,8 @@ if (online) {
       texSwitcher?.setVariant(variantOfPref(pref));
       refreshDebugLabel();
     },
+    // Bloom applies live to the backdrop; persistence is the drawer's job.
+    onBloomPref: setBloom,
   });
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {
@@ -2110,6 +2335,7 @@ addEventListener("popstate", () => location.reload());
 
 addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
+  post?.setSize(innerWidth, innerHeight, Math.min(devicePixelRatio, 2));
   flyCam.aspect = innerWidth / innerHeight;
   flyCam.updateProjectionMatrix();
   if (views.length > 0) layoutViews(views, "v", innerWidth, innerHeight, textHudInset());

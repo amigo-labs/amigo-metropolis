@@ -116,7 +116,9 @@ describe("base production", () => {
     let checked = 0;
     for (let id = 0; id < ent.high; id++) {
       if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.RUNNER) continue;
-      expect(ent.timerB[id]).toBe(-2); // GRAPH_MODE
+      // GRAPH_MODE, or below it: values under the sentinel carry the jam-relief
+      // stall clock (units.ts) and still mean "on the graph".
+      expect(ent.timerB[id]).toBeLessThanOrEqual(-2);
       expect(ent.timerA[id]).toBe(graph.entry[ent.team[id]]);
       checked += 1;
     }

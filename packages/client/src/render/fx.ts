@@ -231,6 +231,12 @@ export interface ShotFx {
    * sim is doing. Omit it and the discharge falls back to the frame's own delta.
    */
   update(dtSec: number, camera?: THREE.Camera, simDtSec?: number): void;
+  /**
+   * Drop every live effect immediately. Call on match teardown: update() only
+   * runs while a match is on, so anything still in flight when the player
+   * quits would otherwise freeze over the menu backdrop for good.
+   */
+  reset(): void;
   /** Test/debug: live slot counts per pool. */
   debugCounts(): {
     tracers: number;
@@ -994,9 +1000,33 @@ export function createFx(scene: THREE.Scene): ShotFx {
     });
   }
 
+  const reset = (): void => {
+    const pools = [
+      boltsSingle,
+      boltsTwin,
+      tracerCore,
+      tracerHalo,
+      shockwaves,
+      muzzles,
+      explosions,
+      explosionsLate,
+      sparks,
+      arcCore,
+      arcGlow,
+      transformFlashes,
+      transformRings,
+    ];
+    for (const pool of pools) {
+      pool.count = 0;
+      pool.mesh.count = 0;
+    }
+    arcEmitters.live.fill(0);
+  };
+
   return {
     pump,
     update,
+    reset,
     get atlasReady() {
       return atlasReady;
     },

@@ -191,7 +191,7 @@
           0 16px 48px rgba(0, 0, 0, 0.55),
           inset 0 1px 0 rgba(255, 255, 255, 0.08);
         color: #a9d8ee;
-        font: 15px / 1.5 "Bahnschrift", "DIN Alternate", ui-sans-serif, system-ui, sans-serif;
+        font: 15px / 1.5 "Saira SemiCondensed", "Bahnschrift", "DIN Alternate", ui-sans-serif, system-ui, sans-serif;
         text-align: center;
       }
       .pause-card h1 {
@@ -237,6 +237,38 @@
       .pause-btn--primary:hover {
         border-color: #d6c9ff;
         color: #fff;
+      }
+
+      /* --- Match-end card (main.ts) — same world and skin as the pause card,
+         its own element so the two can never stack. z-index above #pause-menu
+         (40): once the match is decided, the end card owns the screen. ------ */
+      #match-end {
+        position: fixed;
+        inset: 0;
+        z-index: 45;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(4, 10, 18, 0.72);
+        cursor: default;
+      }
+      #match-end.is-open {
+        display: flex;
+      }
+      /* Victory gets the confirming lavender accent (ui.md §3); defeat stays
+         on the neutral cyan chrome. */
+      #match-end .pause-card.is-victory h1 {
+        color: #d6c9ff;
+      }
+      .end-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin: 0 0 20px;
+        color: #a9d8ee;
+        font-size: 14px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.06em;
       }
 
       /* --- Sandbox test bench (?sandbox=1, debug/sandboxPanel.ts) ----------

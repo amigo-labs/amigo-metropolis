@@ -357,6 +357,39 @@ export const WAYPOINT_RADIUS = 3; // lane waypoint advance distance
  * unit-ticks, against 6.7-34.6% at 3.
  */
 export const GRAPH_WAYPOINT_RADIUS = 0.5;
+
+/**
+ * Graph jam relief (issue #31's last open item, SIM_VERSION 30). The 0.5 m
+ * advance radius above is load-bearing for route fidelity, but it demands that
+ * every unit physically enters a half-metre disc — and under free production
+ * that disc is CONTESTED: 8+ units converge on one node, UNIT_SEPARATION
+ * shoves the pack off the validated centre line, and a wall bit then stands
+ * between a unit and a disc it can see. Measured on urban-jungle (d8 vs idle,
+ * seeds 2/4): 8-9 units at full HP displacing < 0.5 m per 10 s from minute 2
+ * on, production frozen at the alive limit, match frozen. Same signature on
+ * bug-hunt's escorted push (peak 10 around one mid-route node).
+ *
+ * The relief is NOT pathfinding (rules.md pillar 3 / §6 amendment): a unit
+ * that has spent GRAPH_JAM_TICKS inside GRAPH_JAM_RADIUS of its target node
+ * without arriving reads the SAME next-hop signpost that arrival would have
+ * read — one array entry, no search. A healthy unit crosses that ring in
+ * 2-3 s, so the 8 s clock only ever fires inside a standing crowd; the radius
+ * gate keeps a long, slow first leg (console → graph entry) from ever
+ * counting as a jam.
+ *
+ * The relief fires only in the two measured deadlock shapes (units.ts
+ * advanceOnGraph): walled off the disc anywhere, or milling inside the unit's
+ * OWN base pocket (GRAPH_JAM_HOME_RADIUS around its gate — Conft's pocket
+ * spans ~10 m). A crowd queuing in the open behind a combat front is NOT
+ * relieved: that a free unescorted trickle piles up on one defending ring
+ * turret and fails there is a pinned design property (rules.md pillar 1 via
+ * paAttribution.test.ts), and a relief that spread those queues broke the pin
+ * on two arenas when it was measured without the gates.
+ */
+export const GRAPH_JAM_TICKS = 240; // 8 s without arriving = jammed
+export const GRAPH_JAM_RADIUS = 8; // only ticks this close to the node count
+export const GRAPH_JAM_HOME_RADIUS = 25; // own-base pocket where mills relieve
+
 export const ORBIT_ANGULAR_SPEED = 0.6; // rad/s patrol orbit
 export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart
 export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tick

@@ -8,10 +8,10 @@
 // If PROP_MODELS changes, `bun run gen:units` must be re-run in the same commit.
 
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getBounds, NodeIO } from "@gltf-transform/core";
-import laCantina from "../../../packages/sim/maps/la-cantina.json";
-import { PROP_MODELS } from "../units/manifest";
+import { PROP_MODELS, UNAVAILABLE_PROP_COBJS } from "../units/manifest";
 
 const REPO = join(import.meta.dir, "..", "..", "..");
 const OUT_DIR = join(REPO, "packages", "client", "public", "models", "props");
@@ -79,11 +79,31 @@ describe("committed prop models match the manifest contract", () => {
     });
   }
 
-  test("every Cobj id placed in la-cantina has a model", () => {
-    const placed = new Set(laCantina.props.map((p) => p.model));
+  // Coverage across EVERY map, not just la-cantina: the other arenas place
+  // Cobjs of their own, and a missing model there was invisible to CI while
+  // this test only read one arena (each 404 silently dropped 2-4 placements).
+  test("every Cobj id placed by any map has a model or is on the allowlist", () => {
+    const mapsDir = join(REPO, "packages", "sim", "maps");
+    const placed = new Set<number>();
+    for (const file of readdirSync(mapsDir)) {
+      if (!file.endsWith(".json")) continue;
+      const data = JSON.parse(readFileSync(join(mapsDir, file), "utf8")) as {
+        props?: { model: number }[];
+      };
+      for (const prop of data.props ?? []) placed.add(prop.model);
+    }
+    expect(placed.size).toBeGreaterThan(0);
+
     const known = new Set(PROP_MODELS.map((s) => s.cobj));
-    expect([...placed].filter((id) => !known.has(id))).toEqual([]);
-    // And nothing is carried that the arena never places.
+    const unavailable = new Set(UNAVAILABLE_PROP_COBJS);
+
+    // Every placement is either covered or explicitly declared unavailable.
+    expect([...placed].filter((id) => !known.has(id) && !unavailable.has(id)).sort()).toEqual([]);
+    // Nothing is carried that no arena places.
     expect([...known].filter((id) => !placed.has(id))).toEqual([]);
+    // The allowlist stays minimal: an id leaves it the moment its raw lands,
+    // or the moment no map places it any more.
+    expect([...unavailable].filter((id) => known.has(id))).toEqual([]);
+    expect([...unavailable].filter((id) => !placed.has(id))).toEqual([]);
   });
 });

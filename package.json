@@ -30,7 +30,8 @@
     "verify:units": "bun run tools/determinism/src/unitShots.ts",
     "pin:serve": "bun run tools/determinism/src/pinServer.ts",
     "pin:drive": "bun run tools/determinism/src/pinDrive.ts",
-    "pin:cmd": "bun run tools/determinism/src/pinCmd.ts"
+    "pin:cmd": "bun run tools/determinism/src/pinCmd.ts",
+    "balance:pa": "bun run tools/balance/src/paResolve.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",

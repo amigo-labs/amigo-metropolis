@@ -18,6 +18,9 @@ import {
   FORTRESS_PATROL_RADIUS,
   FORTRESS_RANGE,
   FORTRESS_SPEED,
+  GRAPH_JAM_HOME_RADIUS,
+  GRAPH_JAM_RADIUS,
+  GRAPH_JAM_TICKS,
   GRAPH_WAYPOINT_RADIUS,
   GUARDIAN_ASSAULT_STANDOFF,
   GUARDIAN_PATROL_RADIUS,
@@ -128,7 +131,11 @@ export function systemUnitMovement(state: SimState): void {
 
 /**
  * Marks a ground unit as traversing the lane GRAPH rather than a polyline
- * (`timerB` sentinel). Field reuse follows the convention at the top of this file.
+ * (`timerB` sentinel). Field reuse follows the convention at the top of this
+ * file. Values BELOW the sentinel carry the jam-relief stall clock:
+ * `GRAPH_MODE - timerB` is how many ticks the unit has spent inside
+ * GRAPH_JAM_RADIUS of its target node without arriving (advanceOnGraph).
+ * Graph membership is therefore `timerB <= GRAPH_MODE`, never `===`.
  */
 export const GRAPH_MODE = -2;
 
@@ -153,7 +160,49 @@ function advanceOnGraph(state: SimState, id: number, team: number): number {
   const target = g.nodes[node];
   const dx = target.x - ent.posX[id];
   const dy = target.y - ent.posY[id];
-  if (dx * dx + dy * dy > GRAPH_WAYPOINT_RADIUS * GRAPH_WAYPOINT_RADIUS) return node;
+  const d2 = dx * dx + dy * dy;
+  if (d2 > GRAPH_WAYPOINT_RADIUS * GRAPH_WAYPOINT_RADIUS) {
+    // Jam relief (balance.ts GRAPH_JAM_*): a crowd contests the half-metre
+    // disc — separation shoves units off the validated line and can hold a
+    // pack in a standing mill. A unit that has been near its node for
+    // GRAPH_JAM_TICKS without arriving reads the signpost anyway, but ONLY
+    // in the two measured deadlock shapes:
+    //  - a wall bit stands across its straight step to the disc (separation
+    //    pushed it off the road and the lattice keeps it off), anywhere; or
+    //  - it is milling in its own base pocket (within GRAPH_JAM_HOME_RADIUS
+    //    of its own gate), where fresh production crosses outbound traffic.
+    // Crowds queuing in the open behind a combat front stay strict — that a
+    // free trickle piles up on one defending ring turret and fails is a
+    // design pin (paAttribution.test.ts), not a bug. The stall clock lives
+    // below the GRAPH_MODE sentinel in timerB.
+    const x = ent.posX[id];
+    const y = ent.posY[id];
+    let relievable = false;
+    if (d2 <= GRAPH_JAM_RADIUS * GRAPH_JAM_RADIUS) {
+      const gate = state.map.bases[team].gate;
+      const hx = x - gate.x;
+      const hy = y - gate.y;
+      // Walled = the full straight segment to the node crosses ANY wall bit
+      // (segmentBlocked, the same DDA the sight checks use). The per-axis
+      // crossesWallX/Y primitives are for sub-cell per-tick steps and test
+      // only one lattice line each — across an up-to-8 m span they miss every
+      // intermediate wall, which is where a shoved-off unit actually sits.
+      relievable =
+        hx * hx + hy * hy <= GRAPH_JAM_HOME_RADIUS * GRAPH_JAM_HOME_RADIUS ||
+        segmentBlocked(state.map, x, y, target.x, target.y, ent.entLayer[id]);
+    }
+    if (!relievable) {
+      ent.timerB[id] = GRAPH_MODE; // en route or free to approach: clock resets
+      return node;
+    }
+    const stalled = GRAPH_MODE - ent.timerB[id];
+    if (stalled < GRAPH_JAM_TICKS) {
+      ent.timerB[id] = GRAPH_MODE - (stalled + 1);
+      return node;
+    }
+    // Jammed long enough: fall through to the signpost read below.
+  }
+  ent.timerB[id] = GRAPH_MODE; // arrived (or relieved): stall clock resets
 
   // Arrived at this node: read the signpost.
   const a = g.nextHopA[team * n + node];
@@ -204,7 +253,7 @@ function moveGroundUnit(state: SimState, id: number, speed: number, range: numbe
   let tx: number;
   let ty: number;
   let past: boolean;
-  if (map.laneGraph !== undefined && ent.timerB[id] === GRAPH_MODE) {
+  if (map.laneGraph !== undefined && ent.timerB[id] <= GRAPH_MODE) {
     const node = advanceOnGraph(state, id, team);
     past = node < 0;
     if (past) {
@@ -241,7 +290,7 @@ function moveGroundUnit(state: SimState, id: number, speed: number, range: numbe
   const dy = ty - y;
   const d2 = dx * dx + dy * dy;
   // Polyline advance only: graph units advance inside advanceOnGraph above.
-  if (!past && ent.timerB[id] !== GRAPH_MODE && d2 <= WAYPOINT_RADIUS * WAYPOINT_RADIUS) {
+  if (!past && ent.timerB[id] > GRAPH_MODE && d2 <= WAYPOINT_RADIUS * WAYPOINT_RADIUS) {
     ent.timerB[id] += team === 0 ? 1 : -1;
   }
   if (d2 > 0.0001) {
