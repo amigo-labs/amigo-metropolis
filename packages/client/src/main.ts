@@ -514,10 +514,13 @@ if (toneParam === "on" || (toneParam !== "off" && !isSoftwareRenderer(renderer))
 }
 document.body.appendChild(renderer.domElement);
 
-// Threshold bloom behind a graphics preference (render/post.ts). Session
-// override ?bloom=0|1 wins; software rasterizers (SwiftShader — the e2e and
-// verification environment) default off, both for speed and to keep the
-// committed verification screenshots comparable.
+// Threshold bloom behind a graphics preference (render/post.ts). ?bloom=0|1
+// decides the BOOT state, overriding both the stored preference and the
+// software-rasterizer default (SwiftShader — the e2e and verification
+// environment — defaults off, both for speed and to keep the committed
+// verification screenshots comparable). It is deliberately not a lock: the
+// Graphics drawer still applies live, because a player explicitly flipping
+// the toggle outranks whatever the URL bootstrapped.
 const bloomParam = params.get("bloom");
 let bloomOn =
   bloomParam === "1"

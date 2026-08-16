@@ -112,7 +112,14 @@ export function loadMapMesh(
   );
 }
 
-/** Frees every geometry, material and texture under `root` (stale loads). */
+/**
+ * Frees every geometry, material and texture under `root` (stale loads).
+ * All MeshStandardMaterial texture slots are covered, not just `map`: the
+ * FCOP pipeline happens to emit baseColor-only materials today, but this
+ * helper is the generic half of the cancellation path and must not leak the
+ * day an asset ships a normal or emissive map. Double-dispose of a texture
+ * shared between slots/materials is safe (three no-ops on disposed).
+ */
 export function disposeSubtree(root: THREE.Object3D): void {
   root.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
@@ -122,6 +129,12 @@ export function disposeSubtree(root: THREE.Object3D): void {
     for (const m of list) {
       const mat = m as THREE.MeshStandardMaterial;
       mat.map?.dispose();
+      mat.normalMap?.dispose();
+      mat.roughnessMap?.dispose();
+      mat.metalnessMap?.dispose();
+      mat.aoMap?.dispose();
+      mat.emissiveMap?.dispose();
+      mat.alphaMap?.dispose();
       mat.dispose();
     }
   });
