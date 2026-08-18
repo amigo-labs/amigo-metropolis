@@ -32,7 +32,15 @@ if (existsSync(join(root, "packages", "client", "dist", "index.html"))) {
 const bun = process.execPath;
 const run = (args: string[]): void => {
   const result = spawnSync(bun, args, { stdio: "inherit", cwd: root });
-  if (result.status) process.exit(result.status);
+  if (result.error) {
+    console.error("ensureClientDist:", result.error.message);
+    process.exit(1);
+  }
+  if (result.signal) {
+    console.error("ensureClientDist: killed by", result.signal);
+    process.exit(1);
+  }
+  if (result.status !== 0) process.exit(result.status ?? 1);
 };
 
 run(["install", "--frozen-lockfile"]);
