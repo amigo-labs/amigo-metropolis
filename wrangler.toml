@@ -20,11 +20,13 @@ main = "packages/server/src/index.ts"
 compatibility_date = "2026-07-08"
 
 # Build the client before deploy so packages/client/dist exists for [assets].
-# Runs from the repo root during `wrangler deploy`. A frozen install against the
-# committed bun.lock keeps it reproducible; deps are usually already present from
-# the Workers Builds install step, so this is a cheap, deterministic safety net.
+# Runs from the repo root during `wrangler deploy`. Skips Vite when
+# `bun run build` (or a previous deploy) already wrote dist/index.html —
+# otherwise Workers Builds' `bun run --filter '*' build` used to start Vite
+# twice into the same directory (client script + this [build] via the
+# server dry-run) and one of them ENOENT'd mid-write.
 [build]
-command = "bun install --frozen-lockfile && bun run --filter @metropolis/client build"
+command = "bun run --filter @metropolis/server ensure-client-dist"
 
 # Serve the Vite build as static assets from this same Worker. The client routes
 # entirely via query string on "/", so an unmatched path falls back to the app
