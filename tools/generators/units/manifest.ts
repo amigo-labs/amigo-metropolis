@@ -197,9 +197,12 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
-    // Native 2.10 x 1.89 x 2.67 — was stretched 1.88x.
-    footprint: 2.67,
-    maxHeight: 1.89,
+    // Hull-only ~2.10 x 1.09 x 1.35. The raw also carries a tex10 searchlight
+    // volume, six facer lines, and two 4-tri exhaust billboards under the
+    // nacelles (combined 2.10 x 1.89 x 2.67); gen:units drops those so they
+    // do not bake into opaque bars / dark jet cones.
+    footprint: 2.11,
+    maxHeight: 1.27,
     nativeScale: true,
     maxTris: 5000,
     neutralizeColors: true,
@@ -269,9 +272,11 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     },
     // 0 like every other Cobj: the extraction already puts the nose on +Z.
     rotateQuarterY: 0,
-    // Native 1.49 x 0.71 x 2.04 — was stretched 2.36x.
-    footprint: 2.04,
-    maxHeight: 0.71,
+    // Hull-only 1.49 x 0.42 x 1.13. The raw's second primitive is a 1 m
+    // tex10 searchlight pair (combined 1.49 x 0.71 x 2.04); gen:units drops
+    // it so the beams do not bake into the dark cones in warden-iso.png.
+    footprint: 1.5,
+    maxHeight: 0.42,
     nativeScale: true,
     maxTris: 1500,
     neutralizeColors: true,

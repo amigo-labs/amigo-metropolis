@@ -82,9 +82,8 @@ describe("committed unit models match the manifest contract", () => {
         expect(texCount).toBe(1);
         expect(material.getBaseColorTexture()).not.toBeNull();
         expect(prims[0].getAttribute("TEXCOORD_0")).not.toBeNull();
-        // COLOR_0 alongside the atlas is allowed, and means the model mixes in
-        // facer geometry (Star / Billboard / Line), whose colour has nowhere
-        // else to live — the Sky Captain gunship carries six lines. Where it is
+        // COLOR_0 alongside the atlas means leftover facer verts (FX_MODELS
+        // keep them; units drop tex10/facer before the merge). Where it is
         // present it must cover every vertex, or the two would drift apart.
         const mixed = prims[0].getAttribute("COLOR_0");
         if (mixed) {
@@ -199,3 +198,98 @@ describe("committed FX models match the manifest contract", () => {
     });
   }
 });
+
+// Cobj 54/57 ship a tex10 searchlight volume (and 57 also six facer lines).
+// Those stay on the raw; the committed unit must be hull-only, or the beams
+// bake into the opaque cones on docs/renders/units/warden-iso.png.
+describe("Sky Captain units drop FCOP FX attachments", () => {
+  for (const key of ["warden", "fortress"] as const) {
+    test(`${key} output has no leftover COLOR_0 mix and stays hull-sized`, async () => {
+      const document = await io.read(join(OUT_DIR, `${key}.glb`));
+      const root = document.getRoot();
+      const prim = root.listMeshes()[0].listPrimitives()[0];
+      expect(root.listTextures().length).toBe(1);
+      expect(prim.getAttribute("COLOR_0")).toBeNull();
+
+      const scene = root.getDefaultScene() ?? root.listScenes()[0];
+      const { min, max } = getBounds(scene);
+      const sizeZ = max[2] - min[2];
+      // Beams add ~1 m of +Z on the jet and stretch the gunship to 2.67 m.
+      if (key === "warden") expect(sizeZ).toBeLessThan(1.3);
+      else expect(sizeZ).toBeLessThan(1.5);
+
+      // Cobj 57 also hung two 4-tri exhaust cards under the nacelles (AABB
+      // thickness 0). Those must not survive the planar-billboard drop.
+      if (key === "fortress") {
+        expect(thinnestComponent(prim)).toBeGreaterThan(0.02);
+      }
+    });
+  }
+});
+
+/** Smallest AABB dimension across position-welded connected components. */
+function thinnestComponent(prim: Primitive): number {
+  const pos = prim.getAttribute("POSITION");
+  const indices = prim.getIndices();
+  if (!pos) return 0;
+  const triCount = (indices ? indices.getCount() : pos.getCount()) / 3;
+  const vertAt = (t: number, k: number): number =>
+    indices ? indices.getScalar(t * 3 + k) : t * 3 + k;
+  const parent = Array.from({ length: pos.getCount() }, (_, i) => i);
+  const find = (x: number): number => {
+    let i = x;
+    while (parent[i] !== i) i = parent[i];
+    let j = x;
+    while (j !== i) {
+      const next = parent[j];
+      parent[j] = i;
+      j = next;
+    }
+    return i;
+  };
+  const union = (a: number, b: number): void => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+  const quant = (i: number): string => {
+    const e = [0, 0, 0];
+    pos.getElement(i, e);
+    return `${Math.round(e[0] * 1000)},${Math.round(e[1] * 1000)},${Math.round(e[2] * 1000)}`;
+  };
+  const firstAt = new Map<string, number>();
+  for (let i = 0; i < pos.getCount(); i++) {
+    const key = quant(i);
+    const seen = firstAt.get(key);
+    if (seen === undefined) firstAt.set(key, i);
+    else union(i, seen);
+  }
+  for (let t = 0; t < triCount; t++) {
+    union(vertAt(t, 0), vertAt(t, 1));
+    union(vertAt(t, 1), vertAt(t, 2));
+  }
+  const comps = new Map<number, number[]>();
+  for (let t = 0; t < triCount; t++) {
+    const root = find(vertAt(t, 0));
+    const list = comps.get(root);
+    if (list) list.push(t);
+    else comps.set(root, [t]);
+  }
+  let thin = Number.POSITIVE_INFINITY;
+  const el = [0, 0, 0];
+  for (const tris of comps.values()) {
+    const min = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+    const max = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+    for (const t of tris) {
+      for (let k = 0; k < 3; k++) {
+        pos.getElement(vertAt(t, k), el);
+        for (let a = 0; a < 3; a++) {
+          if (el[a] < min[a]) min[a] = el[a];
+          if (el[a] > max[a]) max[a] = el[a];
+        }
+      }
+    }
+    thin = Math.min(thin, max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  }
+  return thin;
+}
