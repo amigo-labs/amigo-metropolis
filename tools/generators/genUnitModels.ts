@@ -420,10 +420,11 @@ function dropPlanarBillboardPrim(document: Document, prim: Primitive): void {
 
   for (const semantic of prim.listSemantics()) {
     const attr = prim.getAttribute(semantic);
-    const src = attr?.getArray();
-    if (!attr || !src) continue;
+    if (!attr) continue;
+    const src = attr.getArray();
+    if (!src) continue;
     const dim = attr.getElementSize();
-    const Ctor = src.constructor as new (n: number) => typeof src;
+    const Ctor = src.constructor as new (n: number) => NonNullable<typeof src>;
     const out = new Ctor(remap.size * dim);
     for (const [old, neu] of remap) {
       out.set(src.subarray(old * dim, old * dim + dim), neu * dim);
