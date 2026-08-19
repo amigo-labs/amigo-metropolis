@@ -145,9 +145,12 @@ const NATIVE: Record<string, { footprint: number; height: number }> = {
   runner: { footprint: 1.52, height: 0.4 },
   guardian: { footprint: 3.15, height: 0.68 },
   juggernaut: { footprint: 2.22, height: 0.63 },
-  fortress: { footprint: 2.67, height: 1.89 },
+  // Hull-only: gen:units drops Cobj 57's tex10/facer volumes and the two
+  // exhaust billboards, so this is 2.10 x 1.09 rather than the raw 2.67 x 1.89.
+  fortress: { footprint: 2.1, height: 1.09 },
   console: { footprint: 1.12, height: 1.47 },
-  warden: { footprint: 2.04, height: 0.71 },
+  // Hull-only: Cobj 54's 1 m tex10 searchlights are dropped (raw 2.04 x 0.71).
+  warden: { footprint: 1.49, height: 0.42 },
   // Projectiles and bolts, from FX_MODELS (docs/specs/fcop-fx.md). Same rule as
   // above: the stand-in is drawn at whatever proportions read best and then
   // scaled onto the original's size, so swapping the .glb in changes the shape
