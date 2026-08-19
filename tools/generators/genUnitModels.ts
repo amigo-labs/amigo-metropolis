@@ -84,6 +84,13 @@ interface ModelPass {
    * centre in flight and whose authored origin already is that centre.
    */
   readonly groundY: boolean;
+  /**
+   * Drop FCOP FX attachments (`tex10` searchlight volumes, `facer` additive
+   * lines) before the one-material merge. Units only: the InstancedMesh
+   * contract is one opaque primitive, so those beams bake into solid cones.
+   * Projectiles keep them — there the beam *is* the model.
+   */
+  readonly dropFxAttachments?: boolean;
 }
 
 const PASSES: readonly ModelPass[] = [
@@ -99,6 +106,7 @@ const PASSES: readonly ModelPass[] = [
     neutralizeColors: spec.neutralizeColors,
     centreXZ: true,
     groundY: true,
+    dropFxAttachments: true,
   })),
   ...PROP_MODELS.map((spec) => ({
     key: spec.key,
@@ -252,6 +260,25 @@ function bakeSkinRestPose(document: Document): void {
 }
 
 /**
+ * FCOP Cobj 54/57 bolt the shared FX atlas (`tex10`: light streaks, fire,
+ * smoke) and emissive `facer` lines onto the hull. Those were additive
+ * billboards in the original; joining them as opaque unit geometry turns the
+ * Sky Captain searchlights into the dark cones in warden-iso.png. Material
+ * names are the exporter's own (`extract_objects.py`).
+ */
+const FX_ATTACHMENT_MATERIALS = new Set(["tex10", "facer"]);
+
+function dropFxAttachments(document: Document): void {
+  for (const mesh of document.getRoot().listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      const name = prim.getMaterial()?.getName() ?? "";
+      if (FX_ATTACHMENT_MATERIALS.has(name)) prim.dispose();
+    }
+    if (mesh.listPrimitives().length === 0) mesh.dispose();
+  }
+}
+
+/**
  * Fails the build if any mesh or vertex attribute has more than one owner.
  *
  * The stages that follow edit vertex data in place, once per primitive (atlas UV
@@ -291,6 +318,131 @@ function triangleCount(mesh: Mesh): number {
     tris += count / 3;
   }
   return tris;
+}
+
+/**
+ * FCOP also bakes additive exhaust / glow as standalone billboard cards on
+ * the hull page (Cobj 57's two 4-tri YZ quads under the nacelles). Material
+ * drop cannot see them — they share `tex09` with the body — so after join we
+ * throw away any connected component whose AABB is thinner than a centimetre.
+ */
+const BILLBOARD_THICKNESS = 0.02;
+
+function dropPlanarBillboards(document: Document, mesh: Mesh): void {
+  for (const prim of mesh.listPrimitives()) dropPlanarBillboardPrim(document, prim);
+}
+
+function dropPlanarBillboardPrim(document: Document, prim: Primitive): void {
+  const pos = prim.getAttribute("POSITION");
+  if (!pos) return;
+  const indices = prim.getIndices();
+  const triCount = (indices ? indices.getCount() : pos.getCount()) / 3;
+  if (triCount === 0) return;
+
+  const vertAt = (t: number, k: number): number =>
+    indices ? indices.getScalar(t * 3 + k) : t * 3 + k;
+
+  const parent = Array.from({ length: pos.getCount() }, (_, i) => i);
+  const find = (x: number): number => {
+    let i = x;
+    while (parent[i] !== i) i = parent[i];
+    let j = x;
+    while (j !== i) {
+      const next = parent[j];
+      parent[j] = i;
+      j = next;
+    }
+    return i;
+  };
+  const union = (a: number, b: number): void => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+  const quant = (i: number): string => {
+    const e = [0, 0, 0];
+    pos.getElement(i, e);
+    return `${Math.round(e[0] * 1000)},${Math.round(e[1] * 1000)},${Math.round(e[2] * 1000)}`;
+  };
+  const firstAt = new Map<string, number>();
+  for (let i = 0; i < pos.getCount(); i++) {
+    const key = quant(i);
+    const seen = firstAt.get(key);
+    if (seen === undefined) firstAt.set(key, i);
+    else union(i, seen);
+  }
+  for (let t = 0; t < triCount; t++) {
+    union(vertAt(t, 0), vertAt(t, 1));
+    union(vertAt(t, 1), vertAt(t, 2));
+  }
+
+  const comps = new Map<number, number[]>();
+  for (let t = 0; t < triCount; t++) {
+    const root = find(vertAt(t, 0));
+    const list = comps.get(root);
+    if (list) list.push(t);
+    else comps.set(root, [t]);
+  }
+
+  const drop = new Set<number>();
+  const el = [0, 0, 0];
+  for (const tris of comps.values()) {
+    const min = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+    const max = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+    for (const t of tris) {
+      for (let k = 0; k < 3; k++) {
+        pos.getElement(vertAt(t, k), el);
+        for (let a = 0; a < 3; a++) {
+          if (el[a] < min[a]) min[a] = el[a];
+          if (el[a] > max[a]) max[a] = el[a];
+        }
+      }
+    }
+    const thin = Math.min(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+    if (thin < BILLBOARD_THICKNESS) for (const t of tris) drop.add(t);
+  }
+  if (drop.size === 0) return;
+
+  const remap = new Map<number, number>();
+  const newIndex: number[] = [];
+  for (let t = 0; t < triCount; t++) {
+    if (drop.has(t)) continue;
+    for (let k = 0; k < 3; k++) {
+      const old = vertAt(t, k);
+      let neu = remap.get(old);
+      if (neu === undefined) {
+        neu = remap.size;
+        remap.set(old, neu);
+      }
+      newIndex.push(neu);
+    }
+  }
+
+  for (const semantic of prim.listSemantics()) {
+    const attr = prim.getAttribute(semantic);
+    const src = attr?.getArray();
+    if (!attr || !src) continue;
+    const dim = attr.getElementSize();
+    const Ctor = src.constructor as new (n: number) => typeof src;
+    const out = new Ctor(remap.size * dim);
+    for (const [old, neu] of remap) {
+      out.set(src.subarray(old * dim, old * dim + dim), neu * dim);
+    }
+    attr.setArray(out);
+  }
+
+  const idxOut = newIndex.length <= 65535 ? new Uint16Array(newIndex) : new Uint32Array(newIndex);
+  if (indices) {
+    indices.setArray(idxOut);
+    return;
+  }
+  prim.setIndices(
+    document
+      .createAccessor("indices")
+      .setType("SCALAR")
+      .setArray(idxOut)
+      .setBuffer(document.getRoot().listBuffers()[0]),
+  );
 }
 
 // --- Minimal PNG decode (8-bit, non-interlaced) --------------------------
@@ -407,8 +559,13 @@ interface Report {
   bytes: number;
 }
 
-async function processModel(spec: ModelPass): Promise<Report> {
-  const document = await io.read(join(RAW_DIR, spec.raw));
+async function processModel(spec: ModelPass): Promise<Report | null> {
+  const rawPath = join(RAW_DIR, spec.raw);
+  if (!(await Bun.file(rawPath).exists())) {
+    console.warn(`skip ${spec.key}: missing ${spec.raw}`);
+    return null;
+  }
+  const document = await io.read(rawPath);
   const root = document.getRoot();
 
   // Rest pose only: Stage B ships rigid merged meshes; rigs return in Stage C.
@@ -452,6 +609,10 @@ async function processModel(spec: ModelPass): Promise<Report> {
     prune(),
     flatten(),
   );
+  if (spec.dropFxAttachments) {
+    dropFxAttachments(document);
+    await document.transform(prune());
+  }
   assertUnsharedVertexData(document, spec.key);
 
   const prims = root.listMeshes().flatMap((m) => m.listPrimitives());
@@ -460,10 +621,12 @@ async function processModel(spec: ModelPass): Promise<Report> {
   // Facer primitives (`Star` / `Billboard` / `Line` in the original's 3DQL,
   // exported in an emissive `facer` material) carry no texture and no UVs — a
   // beam's colour lives in COLOR_0. A model can mix the two: every FCOP
-  // projectile body has a facer glow bolted to it, and so does the Sky Captain
-  // gunship. This used to demand UVs on EVERY primitive, so one facer dropped
-  // the whole model into the vertex-colour path and its atlas was thrown away.
-  // That is why fortress.glb shipped untextured (Cobj 57 carries six lines).
+  // projectile body has a facer glow bolted to it. Units drop those
+  // attachments above (they cannot render additively on one InstancedMesh);
+  // this mix path is for FX_MODELS. This used to demand UVs on EVERY
+  // primitive, so one facer dropped the whole model into the vertex-colour
+  // path and its atlas was thrown away. That is why fortress.glb used to
+  // ship untextured (Cobj 57 carries six lines plus a tex10 volume).
   //
   // So the two are packed together: real pages side by side, plus a small white
   // patch that the facers' synthesised UVs point at, which leaves their COLOR_0
@@ -694,6 +857,8 @@ async function processModel(spec: ModelPass): Promise<Report> {
     transformMesh(mesh, m as unknown as Parameters<typeof transformMesh>[1]);
   apply(quarterYMatrix(spec.rotateQuarterY));
 
+  if (spec.dropFxAttachments) dropPlanarBillboards(document, mesh);
+
   let bounds = getBounds(scene);
   // FCOP Cobj assemblies are already in map meters — only orient + ground.
   // Everything else stretches to the greybox footprint / height cap.
@@ -780,7 +945,8 @@ async function processModel(spec: ModelPass): Promise<Report> {
 
 const reports: Report[] = [];
 for (const spec of PASSES) {
-  reports.push(await processModel(spec));
+  const report = await processModel(spec);
+  if (report) reports.push(report);
 }
 console.log("key            tris   simplified  dims (x y z)          KB");
 for (const r of reports) {

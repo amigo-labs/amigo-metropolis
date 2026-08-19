@@ -66,8 +66,10 @@ Feintuning der Previews steht als Konstanten oben im Skript (`PREVIEW_ZOOM`,
   Normalen → Backface-Culling reißt Löcher. Das Skript setzt daher
   `use_backface_culling = False`.
 - **Neutralisierte Units rendern grau** (Team-Tint, `neutralizeColors:true` im
-  Unit-Manifest); turret/console behalten Farbe. Dunkle Flächen an fortress/warden
-  sind dunkle Atlas-Textur, kein Fehler.
+  Unit-Manifest); turret/console behalten Farbe. Dunkle Flächen auf dem Rumpf
+  sind dunkle Atlas-Textur. Suchscheinwerfer (`tex10`/`facer`) und die
+  flachen Düsen-Billboards unter den Fortress-Gondeln droppt `gen:units` —
+  sonst backt der opake Join sie als Vollkörper.
 - **Arenen in Blöcken rendern.** Alle 6 Arenen (1600px, große Meshes) in einem
   `execute_blender_code`-Aufruf sprengen das MCP-Request-Timeout (~60 s). Das Skript
   läuft in Blender zwar durch, die Antwort kommt aber nicht zurück — daher Arenen in
