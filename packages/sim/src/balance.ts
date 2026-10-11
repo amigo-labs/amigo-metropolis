@@ -119,31 +119,30 @@ export const AVATAR_AMMO_SPECIAL = 5;
 
 // Weapons (rules.md §2: primary hitscan, heavy projectile w/ AoE, special).
 //
-// OPEN: the player outranges the whole arena, and the original says so.
-// Every shooter on Mp — bases, turrets, neutrals, ground units and aircraft
-// alike — carries engage_range 6144 raw, which is 6 cells at the extractor's
-// 1/1024 scale (tools/generators/fcopLogic.ts) and 6 metres at the arenas'
-// one-cell-per-metre import. Acquisition is a separate, much longer number:
-// aircraft target_detection_range 28672-32358, i.e. 28-32 cells. See far, shoot
-// close. Our emplacements already obey it — the imported per-arena profiles set
-// 6 and sim.ts prefers them on all six playable arenas — but PRIMARY_RANGE is
-// 40: 6.7x an emplacement and ~3x the escorts it fights alongside.
+// OPEN (reach): where the PA arenas stand since the original's range scale
+// (fcop-fidelity.md I1). Every shooter on the six PA maps — base turrets,
+// neutral turrets, tanks, jets and the Dreadnought's guns — carries
+// engage_range 6144 raw, and the retail code reads it as `raw << 4` world units:
+// raw/512 = **12 m** (fcop-re/ranges-turrets-capture.md Q1; tools/generators/
+// fcopLogic.ts RANGE_SCALE). The extractor's old 1/1024 guess made it 6 m. The
+// imported per-arena turret profiles now say 12, and sim.ts prefers them on all
+// six playable arenas. Acquisition is a separate, longer number: aircraft search
+// range 28672-32358 raw = 56-63 m. See far, shoot close.
 //
-// It is NOT a one-line fix, which is why it is a note and not a change. The §1
-// arenas (rules.md §1-§7) are a coherent triangle — units 14-18 < TURRET_RANGE
-// 28 < primary 40 — and each inequality carries a rule: the turret must outreach
-// a unit or design pillar 3's "a lone runner dies to the enemy ring" fails
-// (units.test.ts), and the player must outreach the turret or a base ring cannot
-// be cleared at all. Measured, cutting primary to 14 alone inverts the second
-// one and no golden script can clear a ring any more. Cutting TURRET_RANGE with
-// it inverts the first. The §9 arenas have the opposite ordering by design
-// (rules.md §9: emplacements at 6, units at 14 so "a push can answer a turret"),
-// so the two families genuinely want different numbers from one shared table.
+// What is still ours: PRIMARY_RANGE 40 (3.3x an emplacement) and the unit ranges
+// 14-30. The original's player lock is 12 m too and its hitscan damages only the
+// locked target (fcop-fidelity.md W2), so the ledger expects the player to land on
+// the turrets' 12 m — W4 calls the old mismatch dissolved once that lands. That,
+// and the per-weapon ranges, are the weapons package (W1-W4), not this note.
 //
-// Resolving that is a balance pass with an owner decision in it — split the
-// table per arena family, or move §1 onto the original's ordering and re-author
-// what depends on it. Whoever takes it: the anchor is 6 m, and the measurements
-// above are the starting point.
+// The constraint that package inherits: the §1 arenas (rules.md §1-§7,
+// district-01) are a coherent triangle — units 14-18 < TURRET_RANGE 28 < primary
+// 40 — and each inequality carries a rule: the turret must outreach a unit or
+// pillar 3's "a lone runner dies to the enemy ring" fails (units.test.ts), and the
+// player must outreach the turret or a base ring cannot be cleared at all. The PA
+// arenas run the opposite ordering — emplacements 12 m, units 14 m
+// (paAttribution.test.ts asserts it per profile) — so the two families still want
+// different numbers from one shared table.
 export const PRIMARY_COOLDOWN_TICKS = 5;
 export const PRIMARY_DAMAGE = 8;
 export const PRIMARY_RANGE = 40;
@@ -260,7 +259,7 @@ export const SPECIAL_SHOCK_AOE_RADIUS = 12;
 // Turrets (sandbox dummies AND base ring turrets share combat stats for now).
 //
 // This global is dead on all six PLAYABLE arenas — each carries the original's
-// imported weapon profiles at 6 m and sim.ts prefers them — so it reaches only
+// imported weapon profiles at 12 m and sim.ts prefers them — so it reaches only
 // district-01 (not in MAP_REGISTRY) and the sandbox. See the reach note above
 // for why it is not simply pulled to 6 with them.
 export const TURRET_RANGE = 28;
@@ -421,7 +420,7 @@ export const WARDEN_HEAVY_RANGE = 30; // only bombs targets closer than this
 // Decision-layer geometry (difficulty-independent).
 //
 // Ours, not the original's — though the original has a number for this shape:
-// aircraft target_detection_range is 28672 raw = 28 cells, and this radius is
+// aircraft target_detection_range is 28672 raw = 56 m (raw/512), and this radius is
 // the same KIND of thing, the distance at which the Warden notices a threat to
 // its gate rather than the distance it shoots from. Moving 55 onto it is part
 // of the reach question above and waits on the same decision.
@@ -503,7 +502,7 @@ export const WARDEN_SUPPRESS_RADIUS = 24;
  * none at 20 m and beyond. Sniping one from cannon range is not a thing the map
  * allows anybody to do — a player kills these by coming down the street they
  * guard. So the Warden does the same: it closes until the wall lattice stops
- * mattering, inside the 6 m the emplacement itself reaches, and trades.
+ * mattering, inside the 12 m the emplacement itself reaches, and trades.
  */
 export const WARDEN_SUPPRESS_DISTANCE = 3;
 /** Guardians kept alive for base defense. */

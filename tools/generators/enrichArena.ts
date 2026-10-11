@@ -60,7 +60,15 @@ import {
 } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
 import { type FcopArena, logicFile, selectArenas, wallsFile } from "./fcopArenas";
-import { fovToCos, rangeToCells, rotToYaw, toSimTicks, turnSpeedToRadPerTick } from "./fcopLogic";
+import {
+  fovToCos,
+  rangeToCells,
+  rotToYaw,
+  targetingDelayToSimTicks,
+  toSimTicks,
+  triggerHalfExtent,
+  turnSpeedToRadPerTick,
+} from "./fcopLogic";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const TICK_HZ = 30; // packages/sim/src/balance.ts
@@ -120,6 +128,10 @@ const BASE_DEFENCE_HP = 500;
  *   restore_health   -> HEALTH
  *   power_up_*       -> POWER        (temporary damage boost)
  *   invisibility     -> INVIS
+ *   invincibility    -> INVULN       (flag 0x80000, 20 s in the original; no PA
+ *                                     pickup carries it — fcop-re/player-and-
+ *                                     weapons.md §6 — but a campaign-style
+ *                                     arena that did would import, not throw)
  */
 const PICKUP_KIND: Record<string, number> = {
   reload_gun: 0,
@@ -127,6 +139,7 @@ const PICKUP_KIND: Record<string, number> = {
   reload_special: 1,
   restore_health: 2,
   invisibility: 4,
+  invincibility: 3,
   power_up_gun: 5,
   power_up_heavy: 5,
   power_up_special: 5,
@@ -439,7 +452,7 @@ function padKey(x: number, z: number): string {
 function turretWeapon(t: Turret, table: WeaponTable): number {
   return table.intern({
     range: rangeToCells(t.shooter.engageRangeRaw),
-    delay: toSimTicks(t.shooter.targetingDelayRaw, TICK_HZ),
+    delay: targetingDelayToSimTicks(t.shooter.targetingDelayRaw, TICK_HZ),
     damage: TURRET_DAMAGE,
     turnSpeed: round4(turnSpeedToRadPerTick(t.turnSpeedRaw, TICK_HZ)),
     fovCos: fovToCos(t.shooter.fovRaw),
@@ -1065,7 +1078,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       pad: { x: coreX, y: coreY, radius: 3 },
       // The ring carries each Turret actor's OWN shooter block, not just its
       // position. Dropping it left the ring on the global 28 m TURRET_RANGE
-      // against an imported engage_range of 6 m — see spawnBaseTurret in sim.ts.
+      // against an imported engage_range of 12 m — see spawnBaseTurret in sim.ts.
       // Every mission's ring shares the neutrals' parameters exactly, so these
       // intern to the same profile the capturable pads already use.
       turrets: ring.map((t) => ({
@@ -1080,7 +1093,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         y: coreY,
         weapon: table.intern({
           range: rangeToCells(base.defenceWeapon.engageRangeRaw),
-          delay: toSimTicks(base.defenceWeapon.targetingDelayRaw, TICK_HZ),
+          delay: targetingDelayToSimTicks(base.defenceWeapon.targetingDelayRaw, TICK_HZ),
           damage: TURRET_DAMAGE,
           // BaseShooter carries no turn_speed: the base's built-in guns do not
           // slew, they just fire (fcop-logic.md §8.1).
@@ -1167,8 +1180,11 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     if (t.flags.includes("action_button")) continue; // those are the consoles
     const x = round4(sx(t.x));
     const y = round4(sz(t.z));
-    const halfW = Math.max(0.5, round4(t.widthRaw / 8192 / 2));
-    const halfL = Math.max(0.5, round4(t.lengthRaw / 8192 / 2));
+    // Half-extent raw/1024 m (fcopLogic.ts TRIGGER_SCALE); the intruder's own
+    // radius is added by the sim's containment test (sim.ts insideVolume), as the
+    // original's test does.
+    const halfW = round4(triggerHalfExtent(t.widthRaw));
+    const halfL = round4(triggerHalfExtent(t.lengthRaw));
     const c0 = bases[0].core as number[];
     const c1 = bases[1].core as number[];
     const team = Math.hypot(x - c0[0], y - c0[1]) < Math.hypot(x - c1[0], y - c1[1]) ? 0 : 1;

@@ -71,7 +71,7 @@ describe("la-cantina loads the original parameters into the sim", () => {
     // The original's reach is much shorter than the pre-PA global — that is the
     // point of importing it, so assert the direction of the change.
     const profile = map.weapons[map.turretParams[0]];
-    expect(profile.range).toBe(6);
+    expect(profile.range).toBe(12); // engage_range 6144 / 512 (fcop-re Q1)
     expect(profile.range).toBeLessThan(TURRET_RANGE);
     expect(profile.damage).toBe(TURRET_DAMAGE);
   });

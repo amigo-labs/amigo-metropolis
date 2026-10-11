@@ -60,7 +60,7 @@ import { loadUnitAsset } from "./unitMeshes";
  * docs/specs/fcop-fx.md §5. The sim stays hitscan, so damage still lands the
  * instant the shot is fired and this is pure cosmetics; the speed is picked so
  * the visual arrives without a noticeable lag at the ranges emplacements
- * actually fire at (la-cantina imports engage_range 6 m, so ~0.07 s).
+ * actually fire at (the PA arenas import engage_range 12 m, so ~0.13 s).
  *
  * A bolt's lifetime is exactly the time to cover its reach at this speed, with
  * no upper cap. There was one, and it was wrong: capping the LIFE while the

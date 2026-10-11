@@ -8,10 +8,12 @@
 //      silently reshape the arena. The counts and the team symmetry below are
 //      exactly the structure docs/specs/fcop-logic.md §8 describes, so this is
 //      also a check that the decode still means what the spec says.
-//   2. Pin the INFERRED scales. Positions and rotations are documented, but the
-//      distance and timing scales are derived in fcopLogic.ts from geometry.
-//      They are load-bearing for balance, so they get explicit expectations with
-//      the reasoning attached rather than living only in a comment.
+//   2. Pin the scales. Positions and rotations are documented; the distance,
+//      trigger, delay and slew scales were read from the retail code
+//      (docs/specs/fcop-re/ranges-turrets-capture.md) and are applied in
+//      fcopLogic.ts. They are load-bearing for balance, so they get explicit
+//      expectations with the evidence attached rather than living only in a
+//      comment.
 
 import { describe, expect, test } from "bun:test";
 import conftLogic from "../fcop/conft-logic.json";
@@ -22,11 +24,16 @@ import ovmpLogic from "../fcop/ovmp-logic.json";
 import slimLogic from "../fcop/slim-logic.json";
 import {
   fovToCos,
+  orbitLeashToCells,
+  orbitPatrolToCells,
   ROTATION_TURN,
   rangeToCells,
   rotToYaw,
+  targetingDelayToSimTicks,
   toSimTicks,
+  triggerHalfExtent,
   turnSpeedToRadPerTick,
+  turnSpeedToUnitsPerEngineTick,
 } from "../fcopLogic";
 
 /** packages/sim/src/balance.ts TICK_HZ — duplicated so this stays dep-free. */
@@ -171,28 +178,38 @@ describe("committed Mp logic artifact", () => {
   });
 });
 
-describe("inferred raw-unit conversions", () => {
-  // The scale that matters most: every Mp shooter carries engage_range 6144.
-  // 1024 is derived from placement geometry (all 64 turrets sit 1.9-8.4 cells
-  // from a lane node, so the weapon's reach is short) plus the aircraft fields
-  // (target_detection_range 28672 -> 28 cells, orbit_area 24576 -> 24 cells).
-  // If this expectation ever changes, arena balance changes with it.
-  test("engage_range 6144 is 6 cells", () => {
-    expect(rangeToCells(6144)).toBe(6);
-    expect(rangeToCells(4096)).toBe(4);
-    expect(rangeToCells(5120)).toBe(5);
+describe("raw-unit conversions read from the retail code", () => {
+  // fcop-re/ranges-turrets-capture.md Q1: `cact_shooter_acquire` loads
+  // engage_range with `shl 4` and compares it against world-unit deltas, 8192 wu
+  // = 1 m, so metres = raw / 512. The scale used to be an inferred 1/1024 — half
+  // the reach. If this expectation ever changes, arena balance changes with it.
+  test("engage_range 6144 is 12 m", () => {
+    expect(rangeToCells(6144)).toBe(12);
+    // Weapon 3's own range field is the same 6144 and flies its rounds 12 m.
+    expect(rangeToCells(512)).toBe(1); // aircraft standoff
   });
 
-  test("aircraft patrol figures land on a ~96-cell playfield", () => {
-    expect(rangeToCells(28672)).toBe(28); // target_detection_range
-    expect(rangeToCells(24576)).toBe(24); // orbit_area_x, light aircraft
-    expect(rangeToCells(30720)).toBe(30); // orbit_area_x, heavy gunship
+  test("aircraft search and orbit figures", () => {
+    // target_detection_range takes the same `shl 4` (0x00420796).
+    expect(rangeToCells(28672)).toBe(56); // jets
+    expect(rangeToCells(32358)).toBeCloseTo(63.2, 1); // Fortress, captain craft
+    // orbit_area: leash half-extent raw/1024, destinations drawn in +-raw/2048.
+    expect(orbitLeashToCells(24576)).toBe(24);
+    expect(orbitLeashToCells(20480)).toBe(20);
+    expect(orbitPatrolToCells(24576)).toBe(12);
+    expect(orbitLeashToCells(30720)).toBe(30); // heavy gunship
   });
 
-  test("original 60 Hz tick counts halve into sim ticks", () => {
-    expect(toSimTicks(300, TICK_HZ)).toBe(150); // 5 s production cadence
-    expect(toSimTicks(32, TICK_HZ)).toBe(16); // turret fire cooldown
-    expect(toSimTicks(16, TICK_HZ)).toBe(8); // base defence cooldown
+  test("trigger extents are halved, then shifted by 4 against world units", () => {
+    // Half-extent raw/1024 m (the intruder radius is added by the sim's test).
+    expect(triggerHalfExtent(20480)).toBe(20); // Mp base zone: 40 x 24 m
+    expect(triggerHalfExtent(12288)).toBe(12);
+    expect(triggerHalfExtent(2457)).toBeCloseTo(2.4, 2); // gate: 4.8 x 3.6 m
+    expect(triggerHalfExtent(1843)).toBeCloseTo(1.8, 2);
+  });
+
+  test("spawner periods are 1/60 s and halve into sim ticks", () => {
+    expect(toSimTicks(300, TICK_HZ)).toBe(150); // 5 s Dreadnought/tank/jet spawner
     // Respawn delays are stored negative; magnitude is what counts.
     expect(toSimTicks(-1500, TICK_HZ)).toBe(750); // 25 s neutral turret
     expect(toSimTicks(-2250, TICK_HZ)).toBe(1125); // 37.5 s base turret
@@ -200,6 +217,13 @@ describe("inferred raw-unit conversions", () => {
     // Never zero, or a cooldown would fire every tick.
     expect(toSimTicks(0, TICK_HZ)).toBe(1);
     expect(toSimTicks(1, TICK_HZ)).toBe(1);
+  });
+
+  test("targeting_delay is 1/16 s, not the spawner unit", () => {
+    // trunc(raw * 4096 / 218) engine ticks at 300 Hz (0x0044ea83).
+    expect(targetingDelayToSimTicks(32, TICK_HZ)).toBe(60); // 601 ticks = 2.0 s
+    expect(targetingDelayToSimTicks(16, TICK_HZ)).toBe(30); // 300 ticks = 1.0 s
+    expect(targetingDelayToSimTicks(0, TICK_HZ)).toBe(1);
   });
 
   test("rotation follows the documented 4096 = 360 degrees", () => {
@@ -220,11 +244,11 @@ describe("inferred raw-unit conversions", () => {
     expect(fovToCos(1024)).toBeCloseTo(Math.SQRT1_2, 10); // 90° total -> cos(45°)
   });
 
-  test("gun slew is positive and sane", () => {
+  test("gun slew is the retail /218 rate block: 2457 -> 290 deg/s", () => {
+    // turn_rate = (raw * 16 / 218) >> 4 units (4096 = 360°) per 1/300 s.
+    expect(turnSpeedToUnitsPerEngineTick(2457)).toBe(11);
     const slew = turnSpeedToRadPerTick(2457, TICK_HZ);
-    expect(slew).toBeGreaterThan(0);
-    // ~216 deg/s: a 90-degree turn in about half a second.
-    expect(slew * TICK_HZ).toBeCloseTo(3.769, 2);
+    expect(((slew * TICK_HZ) / Math.PI) * 180).toBeCloseTo(290.04, 1);
   });
 });
 

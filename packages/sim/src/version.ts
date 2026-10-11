@@ -514,4 +514,22 @@
 //     untouched. Goldens: only 05 and 07 run graph arenas and only their
 //     hash bytes move; 01-04 and 06 run polyline maps where advanceOnGraph
 //     never executes, and stay byte-identical (re-headered only).
-export const SIM_VERSION = 30;
+// v31: the original's import scales (docs/specs/fcop-fidelity.md I1-I5, I8),
+//     read from the retail executable instead of inferred from geometry
+//     (docs/specs/fcop-re/ranges-turrets-capture.md Q1/Q3). engage_range is
+//     `raw << 4` world units, so 6144 is 12 m, not 6: every imported turret and
+//     base-gun profile doubles its reach. targeting_delay is 1/16 s, not 1/60 s:
+//     turret cadence 16 -> 60 ticks (2.0 s, which is also weapon 3's refire),
+//     base guns 8 -> 30. turn_speed is the retail /218 rate block, 2457 -> 11
+//     units per 1/300 s = 290°/s (was 216°/s). Trigger volumes are half-extent
+//     raw/1024 m (was full raw/8192: 16x too small) and the sim's containment
+//     test now grows them by the intruder's ARCHETYPE_RADIUS, as the original's
+//     does — so Mp's base zone is 40 x 24 m and a gate 4.8 x 3.6 m. Turret damage
+//     stays 15 (weapons package). The "invincibility" grant imports as INVULN
+//     instead of throwing; no PA pickup carries it, so no map moves for it.
+//     Goldens: 05 (urban-jungle) and 07 (la-cantina) run imported arenas and
+//     move; 01-04 and 06 run maps with no weapon profiles or trigger volumes and
+//     stay byte-identical (re-headered only). paAttribution's trickle/escort
+//     numbers were re-measured and re-pinned; d8-vs-idle still resolves 5/5 seeds
+//     on all four arenas (worst 190/402/234/250 s).
+export const SIM_VERSION = 31;

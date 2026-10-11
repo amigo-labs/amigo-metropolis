@@ -218,10 +218,13 @@ Adopted for `la-cantina` only, on the owner's call, and written up as
 The extractions are committed at `tools/generators/fcop/<mission>-logic.json` —
 all six MP missions (Mp, Conft, Slim, Joke, Hk, Ovmp) — alongside each arena's
 pristine stage-1 wall lattice in `<mission>-walls.json`; the raw→sim
-unit conversions live in `tools/generators/fcopLogic.ts`. Note the distance scale
-(`engage_range`, `orbit_area`, `target_detection_range`) is **inferred** as 1/1024
-from the Mp geometry — the extractor reads those fields as bare u16 — so it is
-pinned by a test rather than assumed.
+unit conversions live in `tools/generators/fcopLogic.ts`. The distance, trigger,
+delay and slew scales were first **inferred** (1/1024 for ranges) from the Mp
+geometry, because the extractor reads those fields as bare u16. They have since
+been **read from the retail code** (`fcop-re/ranges-turrets-capture.md` Q1/Q3,
+ledger rows I1-I5): ranges are raw/512 m (`engage_range` 6144 = 12 m), trigger
+half-extents raw/1024 m plus the intruder's radius, `targeting_delay` 1/16 s, and
+`turn_speed` `((raw*16)/218)>>4` angle units per 1/300 s. The test pins them.
 
 One correction to §5's validation note while here: the decoded X1Alpha positions
 match `convert.ts`'s **old** hand-placed values because both sat in the actor

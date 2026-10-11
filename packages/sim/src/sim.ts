@@ -404,7 +404,7 @@ function baseTurretSpot(map: MapData, k: number): { team: number; spot: MapBaseT
  * (spawnNeutralTurret) and the built-in base guns (spawnBaseDefence). It did not,
  * for one release, and the effect was not subtle: with weaponProfile at -1 the
  * ring fell through to the global TURRET_RANGE of 28 m against an imported
- * engage_range of 6 m, so 32 turrets covered the whole midfield and shot every
+ * engage_range of (then) 6 m, so 32 turrets covered the whole midfield and shot every
  * produced unit dead from outside the units' own reach. Sentinels keep the pre-PA
  * arenas on the globals.
  */
@@ -1530,7 +1530,7 @@ function systemTargeting(state: SimState): void {
       if (onTarget && ent.cooldownA[id] <= 0) {
         ent.cooldownA[id] = w ? w.delay : TURRET_COOLDOWN_TICKS;
         // Reach is the distance to the target it is about to hit, not the
-        // profile's range: an emplacement that reaches 6 m and fires at
+        // profile's range: an emplacement that reaches 12 m and fires at
         // something 2 m away should draw a 2 m bolt.
         pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_HITSCAN, reachToTarget(state, id, target));
         // ownerId is the owning player for base turrets (kill credit) and
@@ -2062,11 +2062,18 @@ function systemTriggers(state: SimState): void {
   }
 }
 
-/** Axis-aligned containment test for an intrusion volume. */
+/**
+ * Axis-aligned containment test for an intrusion volume, grown by the intruder's
+ * own hit radius — the original's test is `|centre - pos| - halfExtent - radius < 0`
+ * (fcop-re/ranges-turrets-capture.md Q1, retail 0x00420150..0x0042017f).
+ */
 function insideVolume(ent: EntityStore, id: number, vol: MapTriggerVolume): boolean {
   const dx = ent.posX[id] - vol.x;
   const dy = ent.posY[id] - vol.y;
-  return dx <= vol.halfW && dx >= -vol.halfW && dy <= vol.halfL && dy >= -vol.halfL;
+  const r = ARCHETYPE_RADIUS[ent.archetype[id]];
+  const hw = vol.halfW + r;
+  const hl = vol.halfL + r;
+  return dx <= hw && dx >= -hw && dy <= hl && dy >= -hl;
 }
 
 /**

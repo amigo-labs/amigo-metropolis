@@ -210,11 +210,11 @@ property of the arenas rather than a choice about the Warden: on the imported FC
 arenas a defending emplacement is shootable from 8–17% of the directions around it
 at 8 m and from essentially none at 20 m and beyond, because the wall lattice is
 dense city geometry. There is no firing position, for anybody — a player kills
-these by coming down the street they guard, and so does the Warden, inside the 6 m
+these by coming down the street they guard, and so does the Warden, inside the 12 m
 the emplacement itself reaches. Flight does not change that: the Warden ignores
 *terrain*, not walls, and its line of sight is the same lattice test as everyone
 else's. Exempting flight from it would delete the arenas' cover model and, since
-an emplacement's reach is 6 m, would make the Warden unanswerable.
+an emplacement's reach is 12 m, would make the Warden unanswerable.
 
 ## 8. Out of scope for v1
 
@@ -268,7 +268,9 @@ only what Metropolis adopts from it.
   position — they sit on the core because the original stores no coordinates for
   them — and four 3000 HP guns standing on the objective gated it at a unit's own
   reach (issue #31). The original's reach is short: `engage_range` 6144 is
-  6 m, against the pre-PA global 28 m, and turrets are placed within a few metres
+  12 m (`raw << 4` world units — fcop-re/ranges-turrets-capture.md Q1; it read
+  6 m under an inferred scale until SIM_VERSION 31), against the pre-PA global
+  28 m, and turrets are placed within a few metres
   of the road they guard. That short reach is load-bearing, not decoration — it is
   what keeps a turret inside the 14 m a Runner can shoot back from, so a push can
   answer a turret instead of dying to one it cannot reach (`paAttribution.test.ts`

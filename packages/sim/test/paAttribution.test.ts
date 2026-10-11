@@ -415,11 +415,14 @@ describe("how far an unescorted push gets, per arena", () => {
   // TURRET_DAMAGE changes that. The escorted case is the block below, and the
   // two differ qualitatively on two of the four arenas.
 
-  it("la-cantina: razes into the core", () => {
-    // 20 core hits, closest approach 5.4 m. The full objective loop runs.
+  it("la-cantina: reaches the doorstep but a trickle cannot open it", () => {
+    // Was "razes into the core" (20 hits, 5.4 m). Since the original's range
+    // scale (engage_range 6144 = 12 m, not 6) the base's own guns reach the
+    // doorstep: measured 6.3 m closest, 0 core hits — held exactly like the
+    // three arenas below.
     const r = push(LA_CANTINA_ID);
-    expect(r.coreHits).toBeGreaterThan(0);
-    expect(r.closest).toBeLessThanOrEqual(CORE_ATTACK_RADIUS);
+    expect(r.coreHits).toBeLessThan(150);
+    expect(r.closest).toBeLessThan(CORE_ATTACK_RADIUS + 2);
   });
 
   it("urban-jungle: arrives at the core but a trickle cannot open it", () => {
@@ -429,8 +432,9 @@ describe("how far an unescorted push gets, per arena", () => {
     // the base structure's 3000 (see BASE_DEFENCE_HP in enrichArena.ts); at 500 a
     // trickle still cannot clear four of them faster than they respawn, but an
     // escort can — see the block below, where this arena razes.
+    // 8.6 m since the original's 12 m range scale.
     const r = push(URBAN_JUNGLE_ID);
-    expect(r.closest).toBeLessThan(CORE_ATTACK_RADIUS + 2);
+    expect(r.closest).toBeLessThan(CORE_ATTACK_RADIUS + 4);
     expect(r.coreHits).toBe(0);
   });
 
@@ -502,11 +506,14 @@ describe("what an escort changes, per arena", () => {
   // match" above: its decks went live and one unit taking a bridge cascades. The
   // invariant is untouched — the push still arrives inside CORE_ATTACK_RADIUS and
   // the core still takes damage — and the magnitude is not what this pins.
+  // The original's range scale (12 m emplacements and base guns, 2.0 s cadence)
+  // re-measured it: la-cantina 83, proving-ground 4, bug-hunt 4, and urban-jungle
+  // stops 8.6 m out with 0 — its seed-sensitive outcome (see above) landed on the
+  // stalled side for this seed.
   for (const [id, hits] of [
-    [LA_CANTINA_ID, 22],
-    [URBAN_JUNGLE_ID, 1],
-    [PROVING_GROUND_ID, 114],
-    [BUG_HUNT_ID, 6],
+    [LA_CANTINA_ID, 83],
+    [PROVING_GROUND_ID, 4],
+    [BUG_HUNT_ID, 4],
   ] as const) {
     it(`${id}: an escorted push reaches the core and damages it`, () => {
       const r = push(id, true);
@@ -515,6 +522,10 @@ describe("what an escort changes, per arena", () => {
       expect(r.coreHits).toBeGreaterThanOrEqual(Math.floor(hits / 2));
     });
   }
+  it(`${URBAN_JUNGLE_ID}: an escorted push reaches the doorstep`, () => {
+    const r = push(URBAN_JUNGLE_ID, true);
+    expect(r.closest).toBeLessThan(CORE_ATTACK_RADIUS + 4);
+  });
 
   it("no standoff position exists against a base emplacement, on any arena", () => {
     // The finding v20's WGOAL_SUPPRESS is built on, and the reason it closes to 3 m

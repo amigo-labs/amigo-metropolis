@@ -25,8 +25,8 @@ export const EV_SHOT = 1; //      a=shooter id, b=weapon slot, c=payload (see be
  * reach comes from the arena's imported weapon profile, from UNIT_RANGE, or from
  * balance.ts. They used to push `b=0, c=0`, which the renderer resolved to
  * weaponById(0) = the Mini-Gun, and drew a 40 m tracer for a turret whose
- * engage_range is 6 m. On a PA arena that is 72 emplacements firing seven times
- * further than they can shoot. So they get their own slot and put their actual
+ * engage_range was then 6 m (12 m since the original's range scale). On a PA arena
+ * that was 72 emplacements firing several times further than they can shoot. So they get their own slot and put their actual
  * reach in `c`, in DECIMETRES (reach * 10, rounded) to stay integral.
  *
  * REACH IS THE SHOT'S, NOT THE WEAPON'S. Both encodings carry how far this

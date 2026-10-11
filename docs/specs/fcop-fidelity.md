@@ -56,14 +56,14 @@ Decision column: **adopt** = take the original's value; **keep** = deliberate de
 
 | # | Metropolis had | Original | Decision | Status |
 |---|---|---|---|---|
-| I1 | `RANGE_SCALE` 1024: engage_range 6144 = 6 m | `raw << 4` world units: raw/512, so **12 m** | adopt | open |
-| I2 | Aircraft detection 28–32 m | raw/512: 56–63 m | adopt | open |
-| I3 | `TRIGGER_SCALE` 8192 | half-width raw/1024 m + intruder radius. A gate box is about 4.8 × 3.6 m; Mp's base zone is 40 × 24 m | adopt | open |
-| I4 | targeting_delay 16 = 8 ticks (60 Hz) | units of 1/16 s: 16 = 1.0 s, 32 = 2.0 s | adopt | open |
-| I5 | turn_speed 2457 = 216°/s | `((raw<<8)/218)>>4` units per 300 Hz tick: 2457 = **290°/s** | adopt | open |
+| I1 | `RANGE_SCALE` 1024: engage_range 6144 = 6 m | `raw << 4` world units: raw/512, so **12 m** | adopt | adopted in "Import ranges, triggers, delays and slew at the original's scales", SIM_VERSION 31: `RANGE_SCALE` 512, turret/base-gun profiles 12 m |
+| I2 | Aircraft detection 28–32 m | raw/512: 56–63 m | adopt | adopted in the same commit, in the converter only (`rangeToCells`, `orbitLeashToCells` raw/1024, `orbitPatrolToCells` raw/2048): air units keep §4's own patrol model, so nothing in the sim reads them yet (units package) |
+| I3 | `TRIGGER_SCALE` 8192 | half-width raw/1024 m + intruder radius. A gate box is about 4.8 × 3.6 m; Mp's base zone is 40 × 24 m | adopt | adopted in the same commit, SIM_VERSION 31: `TRIGGER_SCALE` 1024 half-extent; `sim.ts insideVolume` adds the intruder's `ARCHETYPE_RADIUS` |
+| I4 | targeting_delay 16 = 8 ticks (60 Hz) | units of 1/16 s: 16 = 1.0 s, 32 = 2.0 s | adopt | adopted in the same commit, SIM_VERSION 31: `targetingDelayToSimTicks`, turrets 60 ticks (2.0 s), base guns 30 |
+| I5 | turn_speed 2457 = 216°/s | `((raw<<8)/218)>>4` units per 300 Hz tick: 2457 = **290°/s** | adopt | adopted in the same commit, SIM_VERSION 31. The code is `((raw*16)/218)>>4` (`turret.c:715`), i.e. 11 units/tick; `raw<<8` in the cell to the left is a typo for it |
 | I6 | Type 28 = base with 3000 HP core, 4 built-in guns stacked at its centre | Type 28 = **Dreadnought** spawn point (class 3, 3000 HP, 4 hull guns at model points) | adopt | open |
 | I7 | Base production: 1 Runner per 5 s, free | none; tank/jet/Dreadnought spawners are shut and only purchases spawn | adopt | open |
-| I8 | Pickup grant "invincibility" unmapped (importer throws) | Flag exists (20 s), but **no PA pickup carries it** | adopt (map it anyway) | open |
+| I8 | Pickup grant "invincibility" unmapped (importer throws) | Flag exists (20 s), but **no PA pickup carries it** | adopt (map it anyway) | adopted in the same commit: `invincibility` -> `PICKUP_INVULN` in `enrichArena.ts`; no map changes (no PA pickup carries it) |
 | I9 | Csac/tSAC periods in 1/60 s | confirmed ×5 at 300 Hz | — | confirmed |
 | I10 | Positions /8192, angles 4096 = 360° | confirmed | — | confirmed |
 
