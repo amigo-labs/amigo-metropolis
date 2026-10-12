@@ -69,6 +69,42 @@ export interface MapWeapon {
    * which is what every original Mp shooter carries (fov 4096 = 360°).
    */
   readonly fovCos: number;
+  // --- The original's weapon catalogue entry (fcop-fidelity.md W3). All of
+  // these default to 0 / -1 when absent, which keeps the shooter on the old
+  // instant-hit cooldown model (`delay`, `damage` at the target).
+  /**
+   * Refire period in engine units (1/300 s): the entry's burst gap. > 0 runs the
+   * original's rate machine (sim.ts `shooterDue`) instead of the `delay` cooldown.
+   */
+  readonly refireUnits: number;
+  /** Re-acquire period (the shooter's targeting_delay) in engine units; 0 = every tick. */
+  readonly searchUnits: number;
+  /** Round speed, m/s; 0 = an instant hit. */
+  readonly speed: number;
+  /** How far the round flies, m (the entry's range). */
+  readonly flight: number;
+  /** 1: the round homes on its target (catalogue kind 3). */
+  readonly guided: number;
+  /** 1: the round is aimed with an intercept lead (kind 2). */
+  readonly lead: number;
+  /** cos of the firing cone about the gun's facing (precomputed); -1 = none. */
+  readonly arcCos: number;
+  /** 1: HOLD_TARGET — keeps its target and re-scans every search period. */
+  readonly hold: number;
+  /** 1: prefers the higher target priority (Dreadnought > tank > X1 > other). */
+  readonly priority: number;
+}
+
+/**
+ * One side's purchasable unit as the original arena defines it (the tank, jet
+ * and Flying Fortress spawner records): its health and its shooter's weapon
+ * profile. Precinct Assault arenas only; absent, the unit keeps balance.ts's
+ * own stats (fcop-fidelity.md W3).
+ */
+export interface MapUnitProfile {
+  readonly hp: number;
+  /** Index into MapData.weapons. */
+  readonly weapon: number;
 }
 
 /**
@@ -168,6 +204,10 @@ export interface MapBase {
   readonly turrets: readonly MapBaseTurret[];
   /** The original Dreadnought's spawn point and stats, or undefined (§1 arenas). */
   readonly juggernaut: MapJuggernaut | undefined;
+  /** The original tank (Runner), jet (Guardian) and Flying Fortress, or undefined. */
+  readonly runner: MapUnitProfile | undefined;
+  readonly guardian: MapUnitProfile | undefined;
+  readonly fortress: MapUnitProfile | undefined;
 }
 
 /**
@@ -524,7 +564,22 @@ export interface MapJson {
    * is what makes the load produce empty arrays and the sim behave exactly as
    * before — the property the golden replays depend on.
    */
-  weapons?: { range: number; delay: number; damage: number; turnSpeed: number; fovCos: number }[];
+  weapons?: {
+    range: number;
+    delay: number;
+    damage: number;
+    turnSpeed: number;
+    fovCos: number;
+    refireUnits?: number;
+    searchUnits?: number;
+    speed?: number;
+    flight?: number;
+    guided?: number;
+    lead?: number;
+    arcCos?: number;
+    hold?: number;
+    priority?: number;
+  }[];
   /** Weapon index per turretSpots entry; length must equal turretSpots.length. */
   turretParams?: number[];
   /** Rest yaw per turretSpots entry; length must equal turretSpots.length. */
@@ -581,6 +636,10 @@ export interface MapBaseJson {
     weapon: number;
     layer?: number;
   };
+  /** OPTIONAL PA extras: the original tank, jet and Flying Fortress (MapUnitProfile). */
+  runner?: { hp: number; weapon: number };
+  guardian?: { hp: number; weapon: number };
+  fortress?: { hp: number; weapon: number };
 }
 
 function fail(id: string, reason: string): never {
@@ -781,13 +840,50 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (!(damage >= 0)) fail(id, `weapon ${k} bad damage ${damage}`);
     if (!(turnSpeed >= 0)) fail(id, `weapon ${k} bad turnSpeed ${turnSpeed}`);
     if (!(fovCos >= -1 && fovCos <= 1)) fail(id, `weapon ${k} bad fovCos ${fovCos}`);
-    return { range, delay: w.delay, damage, turnSpeed, fovCos };
+    const opt = (v: number | undefined, what: string, dflt: number): number =>
+      v === undefined ? dflt : num(v, `weapon ${k} ${what}`);
+    const refireUnits = opt(w.refireUnits, "refireUnits", 0);
+    const searchUnits = opt(w.searchUnits, "searchUnits", 0);
+    const speed = opt(w.speed, "speed", 0);
+    const flight = opt(w.flight, "flight", 0);
+    const arcCos = opt(w.arcCos, "arcCos", -1);
+    if (!(refireUnits >= 0) || !(searchUnits >= 0) || !(speed >= 0) || !(flight >= 0)) {
+      fail(id, `weapon ${k} has a negative refire, search, speed or flight`);
+    }
+    if (!(arcCos >= -1 && arcCos <= 1)) fail(id, `weapon ${k} bad arcCos ${arcCos}`);
+    if (speed > 0 && !(flight > 0)) fail(id, `weapon ${k} fires rounds with no flight range`);
+    return {
+      range,
+      delay: w.delay,
+      damage,
+      turnSpeed,
+      fovCos,
+      refireUnits,
+      searchUnits,
+      speed,
+      flight,
+      guided: opt(w.guided, "guided", 0) ? 1 : 0,
+      lead: opt(w.lead, "lead", 0) ? 1 : 0,
+      arcCos,
+      hold: opt(w.hold, "hold", 0) ? 1 : 0,
+      priority: opt(w.priority, "priority", 0) ? 1 : 0,
+    };
   });
   const weaponIndex = (v: number, what: string): number => {
     if (!Number.isInteger(v) || v < 0 || v >= weapons.length) {
       fail(id, `${what} weapon index ${v} out of range (${weapons.length} profiles)`);
     }
     return v;
+  };
+
+  const unitProfile = (
+    u: { hp: number; weapon: number } | undefined,
+    what: string,
+  ): MapUnitProfile | undefined => {
+    if (u === undefined) return undefined;
+    if (!u || typeof u !== "object") fail(id, `${what} is not an object`);
+    if (!Number.isInteger(u.hp) || u.hp < 1) fail(id, `${what} bad hp ${u.hp}`);
+    return { hp: u.hp, weapon: weaponIndex(u.weapon, what) };
   };
 
   if (!Array.isArray(raw.bases) || raw.bases.length !== 2) fail(id, "need exactly 2 bases");
@@ -869,6 +965,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
         };
       }),
       juggernaut,
+      runner: unitProfile(b.runner, `base ${team} runner`),
+      guardian: unitProfile(b.guardian, `base ${team} guardian`),
+      fortress: unitProfile(b.fortress, `base ${team} fortress`),
     };
   });
 
@@ -1096,6 +1195,9 @@ export function createTestMap(): MapData {
     // No Precinct Assault Dreadnought on the sandbox map: its Juggernaut keeps
     // balance.ts's own stats.
     juggernaut: undefined,
+    runner: undefined,
+    guardian: undefined,
+    fortress: undefined,
   });
   return {
     id: TEST_MAP_ID,

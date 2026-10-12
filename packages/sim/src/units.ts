@@ -16,7 +16,6 @@ import {
   AVATAR_HOVER_SPEED,
   AVATAR_WALKER_MAX_SLOPE,
   FORTRESS_PATROL_RADIUS,
-  FORTRESS_RANGE,
   FORTRESS_SPEED,
   GRAPH_JAM_HOME_RADIUS,
   GRAPH_JAM_RADIUS,
@@ -24,13 +23,14 @@ import {
   GRAPH_WAYPOINT_RADIUS,
   GUARDIAN_ASSAULT_STANDOFF,
   GUARDIAN_PATROL_RADIUS,
-  GUARDIAN_RANGE,
   GUARDIAN_SPEED,
   HOVER_CUSHION_SPAN,
   JUGGERNAUT_SPEED,
   ORBIT_ANGULAR_SPEED,
-  RUNNER_RANGE,
   RUNNER_SPEED,
+  TARGET_PRIORITY_AVATAR,
+  TARGET_PRIORITY_JUGGERNAUT,
+  TARGET_PRIORITY_RUNNER,
   TICK_DT,
   UNIT_RANGE,
   UNIT_SEPARATION_PUSH,
@@ -65,6 +65,11 @@ export function nearestEnemyInRange(
   id: number,
   range: number,
   skipStructures = false,
+  /**
+   * Prefer the higher target priority, nearest within it (the PA team turrets'
+   * bitfield 0x40; balance.ts TARGET_PRIORITY_*).
+   */
+  byPriority = false,
 ): number {
   const ent = state.ent;
   // Invisible avatars are unacquirable (rules.md §9). Resolved to entity ids up
@@ -84,6 +89,8 @@ export function nearestEnemyInRange(
   const skipConsoles = skipStructures || isPrecinctAssault(state.map);
   let bestD2 = range * range;
   let bestId = -1;
+  let bestPrio = -1;
+  const range2 = range * range;
   for (let t = 0; t < ent.high; t++) {
     if (!ent.alive[t] || t === id) continue;
     if (t === hidden0 || t === hidden1) continue;
@@ -96,7 +103,11 @@ export function nearestEnemyInRange(
     const dx = ent.posX[t] - x;
     const dy = ent.posY[t] - y;
     const d2 = dx * dx + dy * dy;
-    if (d2 < bestD2) {
+    const prio = byPriority ? targetPriority(archetype) : 0;
+    const better = byPriority
+      ? d2 < range2 && (prio > bestPrio || (prio === bestPrio && d2 < bestD2))
+      : d2 < bestD2;
+    if (better) {
       // The Warden is a superplane: walls block shots at emplacements (cover is
       // real, issue #31 / v20), but mid-map free-production streams live behind
       // dense city lattice the flyer sits above. Soft targets (ground units)
@@ -108,14 +119,24 @@ export function nearestEnemyInRange(
       }
       bestD2 = d2;
       bestId = t;
+      bestPrio = prio;
     }
   }
   return bestId;
 }
 
+/** A target's priority for the PA team turrets (balance.ts TARGET_PRIORITY_*). */
+function targetPriority(archetype: number): number {
+  if (archetype === ARCHETYPE.JUGGERNAUT) return TARGET_PRIORITY_JUGGERNAUT;
+  if (archetype === ARCHETYPE.RUNNER) return TARGET_PRIORITY_RUNNER;
+  if (archetype === ARCHETYPE.AVATAR) return TARGET_PRIORITY_AVATAR;
+  return 0;
+}
+
 /**
- * A unit's engage range: its imported weapon profile where it carries one (the
- * PA Juggernaut's hull guns, sim.ts spawnUnit), else UNIT_RANGE. Movement halts
+ * A unit's engage range: its imported weapon profile where it carries one (every
+ * unit on a PA arena — the tank's, jet's and Fortress' records and the
+ * Dreadnought's guns, 12 m; sim.ts spawnUnit), else UNIT_RANGE. Movement halts
  * and targeting acquires on the same number, or a unit would stop where it
  * cannot shoot.
  */
@@ -131,7 +152,8 @@ export function systemUnitMovement(state: SimState): void {
     if (!ent.alive[id]) continue;
     switch (ent.archetype[id]) {
       case ARCHETYPE.RUNNER:
-        moveGroundUnit(state, id, RUNNER_SPEED, RUNNER_RANGE);
+        // unitRange: on a PA arena the tank's record reaches 12 m (W3).
+        moveGroundUnit(state, id, RUNNER_SPEED, unitRange(state, id));
         break;
       case ARCHETYPE.JUGGERNAUT:
         // unitRange: on a PA arena the Dreadnought's guns reach 12 m, and a unit
@@ -139,10 +161,10 @@ export function systemUnitMovement(state: SimState): void {
         moveGroundUnit(state, id, JUGGERNAUT_SPEED, unitRange(state, id));
         break;
       case ARCHETYPE.GUARDIAN:
-        moveAirUnit(state, id, GUARDIAN_SPEED, GUARDIAN_RANGE, GUARDIAN_PATROL_RADIUS);
+        moveAirUnit(state, id, GUARDIAN_SPEED, unitRange(state, id), GUARDIAN_PATROL_RADIUS);
         break;
       case ARCHETYPE.FORTRESS:
-        moveAirUnit(state, id, FORTRESS_SPEED, FORTRESS_RANGE, FORTRESS_PATROL_RADIUS);
+        moveAirUnit(state, id, FORTRESS_SPEED, unitRange(state, id), FORTRESS_PATROL_RADIUS);
         break;
       default:
         break;

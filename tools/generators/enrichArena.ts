@@ -42,9 +42,8 @@ import {
   CAPTURE_RADIUS,
   crossesWallX,
   crossesWallY,
-  DREADNOUGHT_GUN_DAMAGE,
-  DREADNOUGHT_GUN_REFIRE_TICKS,
   GROUND_STEPS,
+  gapUnits,
   JUMPABLE_RISE,
   loadMapFromJson,
   type MapData,
@@ -53,9 +52,14 @@ import {
   reachableFrom,
   resolveHeight,
   roadProbes,
+  roundSpeed,
+  SHOOTER_FRONT_ARC_COS,
   sampleHeight,
   segmentWalkable,
   type WallHit,
+  WORLD_KIND_GUIDED,
+  WORLD_KIND_LEAD,
+  WORLD_WEAPONS,
   walkRoad,
   worstHoverRise,
   worstUphillRise,
@@ -67,7 +71,6 @@ import {
   fovToCos,
   rangeToCells,
   rotToYaw,
-  targetingDelayToSimTicks,
   toSimTicks,
   triggerHalfExtent,
   turnSpeedToRadPerTick,
@@ -85,23 +88,6 @@ const TICK_HZ = 30; // packages/sim/src/balance.ts
  */
 export const LOGIC_OFFSET_X = 16;
 export const LOGIC_OFFSET_Z = 0;
-
-/**
- * Damage per shot for the imported weapon profiles.
- *
- * The original stores weapon_id 3 on these actors. The weapon table it indexes
- * WAS decoded since (15 records in the game executable, values off the
- * front-end panels in febmp.bin) — but not into this id space: the executable's
- * weapon ids and BaseShooter's weapon_id are two different spaces, and the
- * decode says so explicitly. So there is still no authentic number for a turret
- * here, and the reason is now "the binding is unproven" rather than "the table
- * is unknown".
- *
- * Kept at the pre-PA global TURRET_DAMAGE so importing the originals changes
- * reach and cadence — which ARE data — without silently inventing a damage
- * curve. Tuning lives in balance.ts.
- */
-const TURRET_DAMAGE = 15;
 
 /**
  * Pickup kinds (must match balance.ts PICKUP_*).
@@ -148,8 +134,12 @@ interface Logic {
     health: number;
     netId: number;
     gunCount: number;
-    gun: { engageRangeRaw: number; targetingDelayRaw: number; fovRaw: number };
+    gun: Shooter;
   }[];
+  /** Tank (Runner) spawner records; spawnLimit 20 marks the purchasable ones. */
+  units: { id: number; team: number; health: number; spawnLimit?: number; shooter: Shooter }[];
+  /** Jet (Guardian) and Flying Fortress records. */
+  aircraft: { id: number; team: number; health: number; shooter: Shooter }[];
   turrets: Turret[];
   neutrals: Turret[];
   pickups: { id: number; x: number; z: number; grants: string[]; spawnTicks: number }[];
@@ -177,8 +167,16 @@ interface Turret {
   health: number;
   gunRotationRaw: number;
   turnSpeedRaw: number;
-  shooter: { engageRangeRaw: number; targetingDelayRaw: number; fovRaw: number };
+  shooter: Shooter;
   spawnTicks: number;
+}
+
+/** A BaseShooter block as fcopLogic.ts carries it. */
+interface Shooter {
+  weaponId: number;
+  engageRangeRaw: number;
+  targetingDelayRaw: number;
+  fovRaw: number;
 }
 
 interface Weapon {
@@ -187,6 +185,15 @@ interface Weapon {
   damage: number;
   turnSpeed: number;
   fovCos: number;
+  refireUnits: number;
+  searchUnits: number;
+  speed: number;
+  flight: number;
+  guided: number;
+  lead: number;
+  arcCos: number;
+  hold: number;
+  priority: number;
 }
 
 const sx = (x: number): number => x + LOGIC_OFFSET_X;
@@ -354,7 +361,7 @@ function out0Spawns(
 class WeaponTable {
   readonly list: Weapon[] = [];
   intern(w: Weapon): number {
-    const key = (x: Weapon) => `${x.range}|${x.delay}|${x.damage}|${x.turnSpeed}|${x.fovCos}`;
+    const key = (x: Weapon) => JSON.stringify(x);
     const k = key(w);
     for (let i = 0; i < this.list.length; i++) if (key(this.list[i]) === k) return i;
     this.list.push(w);
@@ -438,14 +445,100 @@ function padKey(x: number, z: number): string {
   return `${Math.round(x * 2) / 2},${Math.round(z * 2) / 2}`;
 }
 
-function turretWeapon(t: Turret, table: WeaponTable): number {
-  return table.intern({
-    range: rangeToCells(t.shooter.engageRangeRaw),
-    delay: targetingDelayToSimTicks(t.shooter.targetingDelayRaw, TICK_HZ),
-    damage: TURRET_DAMAGE,
-    turnSpeed: round4(turnSpeedToRadPerTick(t.turnSpeedRaw, TICK_HZ)),
-    fovCos: fovToCos(t.shooter.fovRaw),
-  });
+/**
+ * A shooter's weapon profile: its record's reach, re-search period and fov, and
+ * the catalogue entry its weapon id names (balance.ts WORLD_WEAPONS; the
+ * mission's type-98 catalogue, fcop-re/ranges-turrets-capture.md Q3) — damage,
+ * refire, round speed and flight, guided or lead-aimed (fcop-fidelity.md W3).
+ * `arc`: the shooter blocks its side and rear sectors (bitfield 0x02|0x04, every
+ * PA turret); `hold` + `priority`: HOLD_TARGET and the priority preference
+ * (0x4000 and 0x40, the team turrets' bitfield 0x4246).
+ */
+function shooterWeapon(
+  sh: Shooter,
+  turnSpeed: number,
+  opts: { arc: boolean; hold: boolean; priority: boolean },
+): Weapon {
+  const w = WORLD_WEAPONS[sh.weaponId];
+  if (w === undefined) {
+    throw new Error(`weapon_id ${sh.weaponId} is not in balance.ts WORLD_WEAPONS`);
+  }
+  if (w.rounds !== 1 || w.w0e !== 0 || w.accel !== 0) {
+    throw new Error(`weapon_id ${sh.weaponId}: bursts, blasts and acceleration are not modelled`);
+  }
+  if (w.kind !== WORLD_KIND_LEAD && w.kind !== WORLD_KIND_GUIDED) {
+    throw new Error(`weapon_id ${sh.weaponId}: catalogue kind ${w.kind} is not modelled`);
+  }
+  const refireUnits = gapUnits(w.burstGap);
+  return {
+    range: rangeToCells(sh.engageRangeRaw),
+    delay: Math.max(1, Math.round((refireUnits * TICK_HZ) / 300)),
+    damage: w.damage,
+    turnSpeed,
+    fovCos: fovToCos(sh.fovRaw),
+    refireUnits,
+    searchUnits: gapUnits(Math.abs(sh.targetingDelayRaw)),
+    speed: roundSpeed(w.speed),
+    flight: rangeToCells(w.range),
+    guided: w.kind === WORLD_KIND_GUIDED ? 1 : 0,
+    lead: w.kind === WORLD_KIND_LEAD ? 1 : 0,
+    arcCos: opts.arc ? SHOOTER_FRONT_ARC_COS : -1,
+    hold: opts.hold ? 1 : 0,
+    priority: opts.priority ? 1 : 0,
+  };
+}
+
+/** A team (type 8) turret holds its target and prefers priority; a neutral (36) does neither. */
+function turretWeapon(t: Turret, table: WeaponTable, team: boolean): number {
+  return table.intern(
+    shooterWeapon(t.shooter, round4(turnSpeedToRadPerTick(t.turnSpeedRaw, TICK_HZ)), {
+      arc: true,
+      hold: team,
+      priority: team,
+    }),
+  );
+}
+
+/**
+ * A side's purchasable tank, jet and Flying Fortress: health and weapon from its
+ * own spawner record. Every one of a kind on a side carries the same values
+ * (asserted), which is what lets one profile stand for all of them.
+ */
+function unitProfiles(
+  logic: Logic,
+  team: number,
+  table: WeaponTable,
+): Record<"runner" | "guardian" | "fortress", { hp: number; weapon: number }> {
+  const one = (list: { id: number; health: number; shooter: Shooter }[], what: string) => {
+    if (list.length === 0) throw new Error(`team ${team} has no ${what} record`);
+    const key = (u: { health: number; shooter: Shooter }) => JSON.stringify([u.health, u.shooter]);
+    if (new Set(list.map(key)).size !== 1) {
+      throw new Error(`team ${team}'s ${what} records disagree on health or weapon`);
+    }
+    const u = list[0];
+    return {
+      hp: u.health,
+      weapon: table.intern(
+        shooterWeapon(u.shooter, 0, { arc: false, hold: false, priority: false }),
+      ),
+    };
+  };
+  const tanks = logic.units.filter((u) => u.team === team && u.spawnLimit === 20);
+  const air = logic.aircraft.filter((a) => a.team === team);
+  // The jets and the Fortress share the type-9 record; the Fortress is the one
+  // with the heavy hull (class 4, 2000 HP against the jets' 150).
+  const top = Math.max(...air.map((a) => a.health));
+  return {
+    runner: one(tanks, "tank"),
+    guardian: one(
+      air.filter((a) => a.health !== top),
+      "jet",
+    ),
+    fortress: one(
+      air.filter((a) => a.health === top),
+      "Flying Fortress",
+    ),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1155,30 +1248,27 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       turrets: ring.map((t) => ({
         x: round4(sx(t.x)),
         y: round4(sz(t.z)),
-        weapon: turretWeapon(t, table),
+        weapon: turretWeapon(t, table, true),
         hp: t.health,
         yaw: round4(rotToYaw(t.gunRotationRaw, true)),
       })),
       // The type-28 record IS the Dreadnought (fcop-re/ranges-turrets-capture.md
       // top + Q4): the Juggernaut spawns where it stands, with its 3000 HP and its
-      // four hull guns. The guns' reach comes from the record (engage_range ->
-      // 12 m); damage and refire are weapon 3's (balance.ts DREADNOUGHT_GUN_*).
-      // targeting_delay (16 = 1.0 s) is the guns' re-search period, which the sim
-      // does not model apart from the refire.
+      // four hull guns, each its record's shooter on catalogue weapon 3. The
+      // mounts' own yaw (237°/s, relative to the hull) is not modelled — the guns
+      // stand at the hull and aim at their target — so their ±22.5° arc is not
+      // applied either.
       juggernaut: {
         x: coreX,
         y: coreY,
         hp: base.health,
         guns: base.gunCount,
-        weapon: table.intern({
-          range: rangeToCells(base.gun.engageRangeRaw),
-          delay: DREADNOUGHT_GUN_REFIRE_TICKS,
-          damage: DREADNOUGHT_GUN_DAMAGE,
-          // Mount slew (237°/s, Q4) is not modelled: the guns stand at the hull.
-          turnSpeed: 0,
-          fovCos: fovToCos(base.gun.fovRaw),
-        }),
+        weapon: table.intern(
+          shooterWeapon(base.gun, 0, { arc: false, hold: false, priority: false }),
+        ),
       },
+      // The tank, jet and Flying Fortress spawner records (fcop-fidelity.md W3).
+      ...unitProfiles(logic, base.team, table),
     };
   });
 
@@ -1206,7 +1296,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // --- capturable turrets ------------------------------------------------
   const neutrals = [...logic.neutrals].sort((a, b) => a.id - b.id);
   const turretSpots = neutrals.map((t) => [round4(sx(t.x)), round4(sz(t.z))] as number[]);
-  const turretParams = neutrals.map((t) => turretWeapon(t, table));
+  const turretParams = neutrals.map((t) => turretWeapon(t, table, false));
   const turretYaw = neutrals.map((t) => round4(rotToYaw(t.gunRotationRaw, true)));
   // The original's Turret health, rather than the Phase-1 ARCHETYPE_MAX_HP
   // placeholder. Same value the ring turrets carry — they are the same actor kind.

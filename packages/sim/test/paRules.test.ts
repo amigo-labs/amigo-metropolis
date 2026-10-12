@@ -11,7 +11,6 @@ import {
   ARCHETYPE_RADIUS,
   AVATAR_HP,
   DREADNOUGHT_GUN_DAMAGE,
-  DREADNOUGHT_GUN_REFIRE_TICKS,
   MATCH_OUTRO_TICKS,
   PICKUP_HEALTH,
   PICKUP_INVIS,
@@ -98,7 +97,25 @@ describe("la-cantina loads the original parameters into the sim", () => {
     const profile = map.weapons[map.turretParams[0]];
     expect(profile.range).toBe(12); // engage_range 6144 / 512 (fcop-re Q1)
     expect(profile.range).toBeLessThan(TURRET_RANGE);
-    expect(profile.damage).toBe(TURRET_DAMAGE);
+    // Weapon 3 of the mission's catalogue (fcop-fidelity.md W3; Q3): 100 damage,
+    // 601 engine units between rounds, a 7.62 m/s lead-aimed round flying 12 m,
+    // fired only within 22.5° of the barrel; re-search every 2.0 s.
+    expect(TURRET_DAMAGE).toBe(15); // district-01's, Metropolis' own
+    expect(profile.damage).toBe(100);
+    expect(profile.refireUnits).toBe(601);
+    expect(profile.searchUnits).toBe(601);
+    expect(profile.speed).toBeCloseTo(7.617, 3);
+    expect(profile.flight).toBe(12);
+    expect(profile.lead).toBe(1);
+    expect(profile.guided).toBe(0);
+    expect(profile.arcCos).toBeCloseTo(Math.cos((22.5 * Math.PI) / 180), 12);
+    // A neutral turret neither holds a target nor prefers one; the team ring does both.
+    expect(profile.hold).toBe(0);
+    expect(profile.priority).toBe(0);
+    const ring = map.weapons[map.bases[0].turrets[0].weapon];
+    expect(ring.hold).toBe(1);
+    expect(ring.priority).toBe(1);
+    expect(ring.damage).toBe(100);
   });
 
   it("carries each side's Dreadnought as its Juggernaut", () => {
@@ -113,7 +130,9 @@ describe("la-cantina loads the original parameters into the sim", () => {
       const w = map.weapons[j.weapon];
       expect(w.range).toBe(12);
       expect(w.damage).toBe(DREADNOUGHT_GUN_DAMAGE);
-      expect(w.delay).toBe(DREADNOUGHT_GUN_REFIRE_TICKS);
+      expect(w.refireUnits).toBe(601);
+      // Re-search 16 -> 1.0 s, the guns' own targeting delay.
+      expect(w.searchUnits).toBe(300);
       // Next to its road's start (enrichArena validates the beeline).
       const graph = map.laneGraph;
       if (!graph) throw new Error("la-cantina must carry a lane graph");
@@ -163,7 +182,8 @@ describe("the Juggernaut is the original Dreadnought", () => {
     ent.hp[foe] = 100000;
     let shots = 0;
     let damage = 0;
-    for (let t = 0; t < DREADNOUGHT_GUN_REFIRE_TICKS; t++) {
+    // 601 engine units at 10 a tick, the reload clamping the leftover: 61 ticks.
+    for (let t = 0; t < 61; t++) {
       ent.posX[foe] = ent.posX[id] + 0.5;
       ent.posY[foe] = ent.posY[id] + 0.5;
       step(state, idle);

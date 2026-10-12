@@ -1195,16 +1195,113 @@ export const MATCH_OUTRO_TICKS = 175;
 // --- Precinct Assault mode (rules.md §9) ------------------------------------
 // Everything here is inert on arenas whose map data carries no PA features.
 
+// --- The world's weapons (fcop-fidelity.md W3) --------------------------------
+//
+// Every shooting actor on a PA map — turret, neutral turret, tank, jet, Flying
+// Fortress, Dreadnought gun — names its weapon by id, and the id indexes the
+// mission's own type-98 catalogue (`cact_shooter_init`, linear search on the
+// entry's id byte, 0x0044e900; fcop-re/ranges-turrets-capture.md Q3). The entries
+// the PA actors use are byte-identical on all six PA maps in every gameplay
+// field (decoded from fixtures/missions/{Mp,Conft,Slim,Joke,Hk,Ovmp}; only an fx
+// byte differs on one map). Raw halfwords, converted like the player's
+// (gaps raw * 4096 / 218 engine units, speed trunc(raw / 300) << 4 wu a unit,
+// range raw << 4 wu):
+//   id 3  turrets, neutral turrets, Dreadnought guns: kind 2 (aimed with an
+//         intercept lead, unguided), 100 dmg, burst gap 32 (601 units, 2.0 s), 1
+//         round, speed 4096 (7.62 m/s), range 6144 (12 m), no blast;
+//   id 1  tanks and jets of one side / id 6 the other side's: kind 2, 50 dmg,
+//         burst gap 16 (300 units, 1.0 s), speed 4096, range 6144;
+//   id 4  Flying Fortress: kind 3 (guided), 100 dmg, burst gap 8 (150 units,
+//         0.5 s), speed 4096, range 12288 (24 m).
+// The magazines (20000, or -1 = unlimited) never run out in a match.
+export interface WorldWeaponRecord {
+  readonly kind: number;
+  readonly damage: number;
+  readonly rounds: number;
+  readonly burstGap: number;
+  readonly roundGap: number;
+  readonly w0e: number;
+  readonly speed: number;
+  readonly accel: number;
+  readonly range: number;
+}
+
+export const WORLD_WEAPONS: Readonly<Record<number, WorldWeaponRecord>> = {
+  1: {
+    kind: 2,
+    damage: 50,
+    rounds: 1,
+    burstGap: 16,
+    roundGap: 0,
+    w0e: 0,
+    speed: 4096,
+    accel: 0,
+    range: 6144,
+  },
+  3: {
+    kind: 2,
+    damage: 100,
+    rounds: 1,
+    burstGap: 32,
+    roundGap: 0,
+    w0e: 0,
+    speed: 4096,
+    accel: 0,
+    range: 6144,
+  },
+  4: {
+    kind: 3,
+    damage: 100,
+    rounds: 1,
+    burstGap: 8,
+    roundGap: 0,
+    w0e: 0,
+    speed: 4096,
+    accel: 0,
+    range: 12288,
+  },
+  6: {
+    kind: 2,
+    damage: 50,
+    rounds: 1,
+    burstGap: 16,
+    roundGap: 0,
+    w0e: 0,
+    speed: 4096,
+    accel: 0,
+    range: 6144,
+  },
+};
+
+/** Catalogue kinds: 2 = aimed with an intercept lead, unguided; 3 = guided. */
+export const WORLD_KIND_LEAD = 2;
+export const WORLD_KIND_GUIDED = 3;
+
 /**
- * The Dreadnought's hull guns (Precinct Assault arenas): each is weapon 3, 100
- * damage with a 601-engine-tick refire (2.003 s -> 60 sim ticks), the same weapon
- * every PA turret carries (fcop-re/ranges-turrets-capture.md Q3 table, Q4). Its
- * 12 m reach and the gun count come from the arena's imported record; these two
- * are weapon-table values the record only names by id, so the arena generator
- * writes them into the Juggernaut's weapon profile from here.
+ * The firing arc of every PA turret and Dreadnought gun: bitfield 0x02|0x04
+ * blocks the side and rear sectors, so a round goes out only when its aim lies
+ * within 22.5° of the gun's forward axis (`discharge.h:172-189`). cos 22.5°,
+ * precomputed (no trig in the sim).
  */
-export const DREADNOUGHT_GUN_DAMAGE = 100;
-export const DREADNOUGHT_GUN_REFIRE_TICKS = 60;
+export const SHOOTER_FRONT_ARC_COS = 0.9238795325112867;
+/**
+ * A round refused by the arc or by the terrain line of sight is put back and the
+ * fire clock is pushed back by `(rand - 0x38) & 0xff` engine units, 0-0.85 s.
+ */
+export const SHOOTER_RETRY_UNITS = 256;
+/**
+ * Target priority, which the team turrets (bitfield 0x40) prefer: a Dreadnought
+ * 15 > a tank 10 > the X1-Alpha 5 > everything else 0 (Q3).
+ */
+export const TARGET_PRIORITY_JUGGERNAUT = 15;
+export const TARGET_PRIORITY_RUNNER = 10;
+export const TARGET_PRIORITY_AVATAR = 5;
+
+/**
+ * The Dreadnought's hull guns: weapon 3 (above). Kept as names for the readers
+ * that pin them; the arena generator builds every profile from WORLD_WEAPONS.
+ */
+export const DREADNOUGHT_GUN_DAMAGE = WORLD_WEAPONS[3].damage;
 
 /** Power-up kinds; must match the mapping in tools/generators/enrichArena.ts. */
 export const PICKUP_HEAVY_AMMO = 0;

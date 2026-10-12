@@ -34,6 +34,11 @@ export const PROJ_SHOCKWAVE = 11;
 export const PROJ_BEAM = 12;
 /** A Mini-Gun / Gatling Laser block-B splash at the shot's end (explosion kind). */
 export const PROJ_SPLASH = 13;
+/**
+ * A world shooter's round (turret, tank, jet, Fortress, Dreadnought gun): the
+ * PA catalogue's 7.62 m/s bolt (fcop-fidelity.md W3).
+ */
+export const PROJ_ROUND = 14;
 
 export const WEAPON_SLOT_GUN = 0;
 export const WEAPON_SLOT_HEAVY = 1;
@@ -172,6 +177,15 @@ function metres(raw: number): number {
 /** Top speed: trunc(raw / 300) << 4 wu per engine unit, in m/s. */
 function topSpeed(raw: number): number {
   return (((raw / 300) | 0) * 16 * 300) / 8192;
+}
+
+/**
+ * A catalogue round's speed in m/s, the same conversion (the world's catalogue
+ * shares the loader's rescale): 4096 -> 13 << 4 = 208 wu per engine unit =
+ * 7.62 m/s, not 7.5 — the truncation matters (ranges-turrets-capture.md Q3).
+ */
+export function roundSpeed(raw: number): number {
+  return topSpeed(raw);
 }
 
 /** Acceleration: trunc(raw * 256 / 300) / 16 wu per unit per unit, in m/s². */

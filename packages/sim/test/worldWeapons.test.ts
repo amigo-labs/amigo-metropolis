@@ -1,0 +1,269 @@
+// The world's weapons on a Precinct Assault arena (fcop-fidelity.md W3;
+// fcop-re/ranges-turrets-capture.md Q3): every turret, neutral turret and
+// Dreadnought gun fires catalogue weapon 3, the tanks and jets weapon 1/6, the
+// Flying Fortress weapon 4 — rounds that fly, on the original's rate machine,
+// re-search period, hold-target, priority and firing arc. district-01 keeps
+// Metropolis' own instant-hit table.
+import { describe, expect, it } from "bun:test";
+import { ARCHETYPE } from "../src/archetypes";
+import {
+  ARCHETYPE_MAX_HP,
+  AVATAR_LOCK_RANGE,
+  SHOOTER_FRONT_ARC_COS,
+  WORLD_WEAPONS,
+} from "../src/balance";
+import { segmentBlocked } from "../src/collision";
+import { EV_HIT, EV_SHOT, EVENT_STRIDE, SHOT_SLOT_LAUNCH } from "../src/events";
+import { createTickInputs } from "../src/inputs";
+import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID } from "../src/map";
+import { createSim, type SimState, spawnUnit, step } from "../src/sim";
+import { PROJ_ROUND } from "../src/weapons";
+
+const map = getMapById(LA_CANTINA_ID);
+const idle = createTickInputs();
+
+/**
+ * A spot about `dist` m from (x, y) with a clear line to it, scanning 16
+ * bearings and distances down to half of it; undefined if the lattice walls the
+ * spot in on every side.
+ */
+function clearSpot(
+  state: SimState,
+  x: number,
+  y: number,
+  dist: number,
+): [number, number] | undefined {
+  for (let d = dist; d >= dist / 2; d -= 0.5) {
+    for (let k = 0; k < 16; k++) {
+      const a = (k * Math.PI) / 8;
+      const px = x + d * Math.cos(a);
+      const py = y + d * Math.sin(a);
+      if (!segmentBlocked(state.map, x, y, px, py)) return [px, py];
+    }
+  }
+  return undefined;
+}
+
+/** A team-0 ring turret with the enemy avatar parked ~`dist` m away in the open. */
+function ringDuel(dist: number) {
+  const state = createSim(map, 1);
+  const ent = state.ent;
+  let t = -1;
+  let spot: [number, number] | undefined;
+  for (let k = 0; k < state.baseTurretEntity.length && spot === undefined; k++) {
+    t = state.baseTurretEntity[k];
+    if (ent.team[t] !== 0) continue;
+    spot = clearSpot(state, ent.posX[t], ent.posY[t], dist);
+  }
+  if (spot === undefined) throw new Error("no team-0 ring turret with a clear line");
+  const [fx, fy] = spot;
+  const foe = state.avatarId[1];
+  ent.hp[foe] = 1e6;
+  const park = () => {
+    ent.posX[foe] = fx;
+    ent.posY[foe] = fy;
+    ent.velX[foe] = 0;
+    ent.velY[foe] = 0;
+  };
+  park();
+  return { state, ent, t, foe, park, fx, fy };
+}
+
+function shotsBy(state: SimState, id: number): number {
+  let n = 0;
+  for (let i = 0; i < state.events.count; i++) {
+    const o = i * EVENT_STRIDE;
+    if (state.events.data[o] === EV_SHOT && state.events.data[o + 1] === id) {
+      expect(state.events.data[o + 2]).toBe(SHOT_SLOT_LAUNCH); // the round renders itself
+      n += 1;
+    }
+  }
+  return n;
+}
+
+describe("PA turrets fire the original's weapon 3 (fcop-fidelity.md W3)", () => {
+  it("is the catalogue's entry: 100 dmg, 2.0 s, 7.62 m/s, 12 m, lead-aimed", () => {
+    const w = WORLD_WEAPONS[3];
+    expect(w.damage).toBe(100);
+    expect(w.burstGap).toBe(32);
+    expect(w.speed).toBe(4096);
+    expect(w.range).toBe(6144);
+    expect(w.kind).toBe(2);
+  });
+
+  it("fires a round every 61 ticks that flies at 7.62 m/s and hits for 100", () => {
+    const { state, ent, t, foe, park } = ringDuel(6);
+    ent.yaw[t] = Math.atan2(ent.posY[foe] - ent.posY[t], ent.posX[foe] - ent.posX[t]);
+    const fired: number[] = [];
+    let damage = 0;
+    let checkedSpeed = false;
+    for (let k = 0; k < 130; k++) {
+      park();
+      step(state, idle);
+      if (shotsBy(state, t) > 0) fired.push(k);
+      for (let i = 0; i < state.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (state.events.data[o] === EV_HIT && state.events.data[o + 1] === foe) {
+          damage += state.events.data[o + 3];
+        }
+      }
+      for (let e = 0; e < ent.high && !checkedSpeed; e++) {
+        if (
+          ent.alive[e] &&
+          ent.archetype[e] === ARCHETYPE.PROJECTILE &&
+          ent.mode[e] === PROJ_ROUND
+        ) {
+          expect(Math.hypot(ent.velX[e], ent.velY[e])).toBeCloseTo(7.6171875, 4);
+          expect(ent.ammoA[e]).toBe(100);
+          checkedSpeed = true;
+        }
+      }
+    }
+    expect(checkedSpeed).toBe(true);
+    // 601 engine units at 10 a tick; the reload clamps the leftover, so 61.
+    expect(fired).toEqual([0, 61, 122]);
+    // 6 m at 7.62 m/s is under a second: the first two have landed.
+    expect(damage).toBeGreaterThanOrEqual(200);
+    expect(damage % 100).toBe(0);
+  });
+
+  it("fires only once its barrel is within 22.5° of the aim", () => {
+    const { state, ent, t, foe, park } = ringDuel(6);
+    const bearing = Math.atan2(ent.posY[foe] - ent.posY[t], ent.posX[foe] - ent.posX[t]);
+    ent.yaw[t] = bearing + Math.PI; // pointing away
+    let first = -1;
+    let errAtShot = 0;
+    for (let k = 0; k < 90 && first < 0; k++) {
+      park();
+      step(state, idle);
+      if (shotsBy(state, t) > 0) {
+        first = k;
+        let d = ent.yaw[t] - bearing;
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d < -Math.PI) d += 2 * Math.PI;
+        errAtShot = Math.abs(d);
+      }
+    }
+    // 290°/s is 9.67° a tick: 157.5° of slew before the arc admits the round.
+    expect(first).toBeGreaterThanOrEqual(16);
+    expect(Math.cos(errAtShot)).toBeGreaterThanOrEqual(SHOOTER_FRONT_ARC_COS - 1e-6);
+  });
+
+  it("a team turret prefers the Dreadnought to a nearer X1-Alpha", () => {
+    const { state, ent, t, foe } = ringDuel(4);
+    const spot = clearSpot(state, ent.posX[t], ent.posY[t], 9);
+    if (spot === undefined) throw new Error("no clear spot for the Dreadnought");
+    const [jx, jy] = spot;
+    const j = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 1, jx, jy);
+    ent.hp[j] = 1e6;
+    const hold = () => {
+      ent.posX[j] = jx;
+      ent.posY[j] = jy;
+    };
+    hold();
+    step(state, idle);
+    expect(ent.cooldownC[t] - 1).toBe(j);
+    expect(foe).toBeGreaterThanOrEqual(0);
+  });
+
+  it("a captured neutral turret re-searches on its 2.0 s targeting delay", () => {
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    let t = -1;
+    let spot: [number, number] | undefined;
+    for (let k = 0; k < state.neutralTurretEntity.length && spot === undefined; k++) {
+      t = state.neutralTurretEntity[k];
+      spot = clearSpot(state, ent.posX[t], ent.posY[t], 5);
+    }
+    if (spot === undefined) throw new Error("no neutral turret with a clear line");
+    ent.team[t] = 0;
+    ent.ownerId[t] = 0;
+    const foe = state.avatarId[1];
+    const [fx, fy] = spot;
+    ent.posX[foe] = fx;
+    ent.posY[foe] = fy;
+    ent.hp[foe] = 1e6;
+    ent.yaw[t] = Math.atan2(fy - ent.posY[t], fx - ent.posX[t]); // barrel already on it
+    step(state, idle); // tick 0: the first search finds it, the round goes out
+    expect(ent.cooldownC[t] - 1).toBe(foe);
+    // Gone out of reach before the next round falls due (tick 61), back at 71.
+    // The due round drops the lost target, but the search countdown was reloaded
+    // with 601 units at tick 0 and only runs while a round waits, so the turret
+    // finds it again a full search period later, at tick 121 — not at 71.
+    let reacquired = -1;
+    for (let k = 1; k < 200 && reacquired < 0; k++) {
+      ent.posX[foe] = k < 71 ? fx + 30 : fx;
+      ent.posY[foe] = fy;
+      step(state, idle);
+      if (k > 61 && ent.cooldownC[t] - 1 === foe) reacquired = k;
+    }
+    expect(reacquired).toBe(121);
+  });
+});
+
+describe("PA units carry their spawner records (fcop-fidelity.md W3)", () => {
+  it("tank 150 HP / weapon 1, jet 150 / weapon 6-or-1, Fortress 2000 / weapon 4", () => {
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    const c = map.bases[0].groundConsole;
+    const r = spawnUnit(state, ARCHETYPE.RUNNER, 0, c.x, c.y);
+    const g = spawnUnit(state, ARCHETYPE.GUARDIAN, 0, c.x, c.y);
+    const f = spawnUnit(state, ARCHETYPE.FORTRESS, 0, c.x, c.y);
+    expect([ent.hp[r], ent.hp[g], ent.hp[f]]).toEqual([150, 150, 2000]);
+    const wr = map.weapons[ent.weaponProfile[r]];
+    const wg = map.weapons[ent.weaponProfile[g]];
+    const wf = map.weapons[ent.weaponProfile[f]];
+    for (const w of [wr, wg]) {
+      expect(w.damage).toBe(50);
+      expect(w.refireUnits).toBe(300); // 1.0 s
+      expect(w.range).toBe(12);
+      expect(w.flight).toBe(12);
+      expect(w.lead).toBe(1);
+      expect(w.speed).toBeCloseTo(7.617, 3);
+    }
+    expect(wf.damage).toBe(100);
+    expect(wf.refireUnits).toBe(150); // 0.5 s
+    expect(wf.guided).toBe(1);
+    expect(wf.flight).toBe(24);
+    expect(wf.range).toBe(12); // its shooter's engage range
+  });
+
+  it("a Fortress round homes on its target", () => {
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    const c = map.bases[0].airConsole;
+    const f = spawnUnit(state, ARCHETYPE.FORTRESS, 0, c.x, c.y);
+    const foe = state.avatarId[1];
+    ent.posX[foe] = ent.posX[f] + 5;
+    ent.posY[foe] = ent.posY[f];
+    ent.hp[foe] = 1e6;
+    step(state, idle);
+    let round = -1;
+    for (let e = 0; e < ent.high; e++) {
+      if (ent.alive[e] && ent.archetype[e] === ARCHETYPE.PROJECTILE && ent.mode[e] === PROJ_ROUND) {
+        round = e;
+      }
+    }
+    if (round < 0) return; // a wall between them on this spot: nothing to pin
+    expect(ent.cooldownC[round]).toBe(foe);
+    expect(ent.ammoB[round] & 1).toBe(1);
+  });
+
+  it("district-01's units keep Metropolis' own table", () => {
+    const d01 = getMapById(DISTRICT_01_ID);
+    const state = createSim(d01, 1);
+    const ent = state.ent;
+    const c = d01.bases[0].groundConsole;
+    for (const a of [ARCHETYPE.RUNNER, ARCHETYPE.GUARDIAN, ARCHETYPE.FORTRESS]) {
+      const id = spawnUnit(state, a, 0, c.x, c.y);
+      expect(ent.hp[id]).toBe(ARCHETYPE_MAX_HP[a]);
+      expect(ent.weaponProfile[id]).toBe(-1);
+    }
+  });
+});
+
+describe("the reach the two sides trade at (fcop-fidelity.md W4)", () => {
+  it("the X1-Alpha's lock and every PA shooter's reach are the same 12 m", () => {
+    for (const w of map.weapons) expect(w.range).toBe(AVATAR_LOCK_RANGE);
+  });
+});

@@ -185,7 +185,9 @@ const ARENAS: ArenaExpectation[] = [
     // Team-unique type-8 pads only; dual-team mid plates are capturable (not ring).
     ringTurrets: [9, 8],
     graphNodes: 462, // both Cnet graphs, 237 + 225
-    weapons: 2,
+    // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
+    // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
+    weapons: 5,
     pickups: 11,
     triggerVolumes: 7, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
@@ -239,7 +241,9 @@ const ARENAS: ArenaExpectation[] = [
     // Team-unique pads after dual/neutral filter (Slim raw lists 14).
     ringTurrets: [6, 7],
     graphNodes: 578, // 292 + 286
-    weapons: 2,
+    // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
+    // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
+    weapons: 5,
     pickups: 9,
     triggerVolumes: 8, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
@@ -291,7 +295,9 @@ const ARENAS: ArenaExpectation[] = [
     // Team-unique type-8 only (8/base); dual mid plates stay capturable.
     ringTurrets: 8,
     graphNodes: 283, // both Cnet graphs, 143 + 140
-    weapons: 2,
+    // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
+    // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
+    weapons: 5,
     pickups: 8,
     triggerVolumes: 7, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
@@ -332,7 +338,9 @@ const ARENAS: ArenaExpectation[] = [
     // Team-unique pads after dual/neutral filter (Joke raw lists 14).
     ringTurrets: [6, 7],
     graphNodes: 594, // 303 + 291
-    weapons: 2,
+    // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
+    // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
+    weapons: 5,
     pickups: 9,
     triggerVolumes: 8, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,

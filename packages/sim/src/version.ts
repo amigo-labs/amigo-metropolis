@@ -711,4 +711,25 @@
 //     30 s and lobs mortars over the ford; 03 takes the ring from inside its reach
 //     and breaches at 4262, was 4002, over 160 s, was 150); 04's patrol downs the
 //     Warden 10 times (was 9) and ends on 100 points.
-export const SIM_VERSION = 41;
+// v42: every shooter on an imported PA arena fires its original catalogue
+//     weapon (docs/specs/fcop-fidelity.md W3; fcop-re/ranges-turrets-capture.md
+//     Q3). balance.ts WORLD_WEAPONS holds the type-98 entries the PA actors name
+//     (identical on all six maps): turrets, neutral turrets and Dreadnought guns
+//     weapon 3 (100 dmg every 601 engine units, a 7.62 m/s lead-aimed round
+//     flying 12 m; was 15 dmg, instant, every 60 ticks), tanks and jets 1/6 (50
+//     dmg every 300 units), the Flying Fortress 4 (guided, 100 dmg every 150 units,
+//     flies 24 m). Runners, Guardians and Fortresses take their spawner records'
+//     150/150/2000 HP and these weapons on a PA arena (was 60/50/500 and the
+//     instant UNIT_* table; MapBase.runner/guardian/fortress) and engage at 12 m
+//     (was 14/18/30). Rounds are projectile entities (PROJ_ROUND) on the
+//     original's rate machine; PA turrets re-search on their targeting delay while
+//     a round waits, team turrets hold their target and prefer Dreadnought > tank >
+//     X1, and every turret fires only within 22.5° of its slewing barrel with a
+//     clear line, else retries 0-0.85 s later (sim PRNG). A straight round (any
+//     shooter's, the X1's missiles too) no longer dies on the heightfield; only
+//     walls, its range and a strike stop it. district-01 and the sandbox keep the
+//     instant-hit tables. The arena JSONs carry the new MapWeapon fields and unit
+//     profiles. Goldens: 05 and 07 (imported arenas) re-record; 01 re-records
+//     (its Hell Fire rounds cross the test map's slope instead of dying on it);
+//     02-04 (district-01) and 06 stay byte-identical (re-headered only).
+export const SIM_VERSION = 42;

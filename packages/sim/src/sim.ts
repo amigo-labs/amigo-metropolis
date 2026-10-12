@@ -85,11 +85,13 @@ import {
   RESPAWN_TICKS,
   RUNNER_ALIVE_LIMIT,
   retentionPerTick,
+  SHOOTER_RETRY_UNITS,
   SPECIAL_MINE_ARM_TICKS,
   SPECIAL_MINE_FUSE_TICKS,
   SPECIAL_MINE_TTL_TICKS,
   STARTING_POINTS,
   TICK_DT,
+  TICK_HZ,
   TRANSFORM_LOCK_TICKS,
   TRIGGER_REARM_TICKS,
   TRIGGER_WATCH_ENEMY_AVATAR,
@@ -162,6 +164,7 @@ import {
   pushEvent,
   reachToShotPayload,
   SHOT_SLOT_HITSCAN,
+  SHOT_SLOT_LAUNCH,
   weaponShotPayload,
 } from "./events";
 import { fnv1aBytes, fnv1aInit, fnv1aU32 } from "./hash";
@@ -182,11 +185,12 @@ import {
   type MapBaseTurret,
   type MapData,
   type MapTriggerVolume,
+  type MapWeapon,
   resolveHeight,
   sampleHeight,
   worldExtent,
 } from "./map";
-import { atan2Poly, cosLUT, sinLUT } from "./simMath";
+import { atan2Poly, cosLUT, rand01, sinLUT } from "./simMath";
 import {
   GRAPH_MODE,
   isGroundUnit,
@@ -206,6 +210,7 @@ import {
   normalizeLoadout,
   PROJ_BEAM,
   PROJ_MINE,
+  PROJ_ROUND,
   PROJ_SPLASH,
   PROJ_WARDEN,
   resolveLoadout,
@@ -463,12 +468,9 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   // Per-spot original parameters (rules.md §9); empty lists leave the profile at
   // -1 and the yaw at 0, i.e. the pre-PA behavior.
   if (state.map.turretParams.length > 0) ent.weaponProfile[id] = state.map.turretParams[k];
-  if (state.map.turretYaw.length > 0) {
-    const yaw = state.map.turretYaw[k];
-    ent.yaw[id] = yaw;
-    ent.aimX[id] = cosLUT(yaw);
-    ent.aimY[id] = sinLUT(yaw);
-  }
+  // The rest yaw. A turret's aimX/aimY are its shooter state (systemTargeting),
+  // so they start at zero.
+  if (state.map.turretYaw.length > 0) ent.yaw[id] = state.map.turretYaw[k];
   state.neutralTurretEntity[k] = id;
   return id;
 }
@@ -525,11 +527,8 @@ function spawnBaseTurret(state: SimState, k: number): number {
   ent.ownerId[id] = team;
   ent.mode[id] = TURRET_DEFENSE;
   ent.weaponProfile[id] = spot.weapon;
-  if (spot.yaw !== 0) {
-    ent.yaw[id] = spot.yaw;
-    ent.aimX[id] = cosLUT(spot.yaw);
-    ent.aimY[id] = sinLUT(spot.yaw);
-  }
+  // Rest yaw only: aimX/aimY are the shooter's state (systemTargeting).
+  if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   state.baseTurretEntity[k] = id;
   return id;
 }
@@ -568,10 +567,25 @@ export function spawnUnit(
   // On a Precinct Assault arena the Juggernaut IS the original's Dreadnought, and
   // takes its HP and hull-gun profile from the imported record (map.ts
   // MapJuggernaut). Elsewhere it keeps balance.ts's own stats.
-  const dread = state.map.bases[team].juggernaut;
+  const base = state.map.bases[team];
+  const dread = base.juggernaut;
   if (archetype === ARCHETYPE.JUGGERNAUT && dread !== undefined) {
     ent.hp[id] = dread.hp;
     ent.weaponProfile[id] = dread.weapon;
+  }
+  // Likewise the tank, jet and Flying Fortress take their spawner records' health
+  // and weapon on a PA arena (fcop-fidelity.md W3): 150 / 150 / 2000 HP.
+  const unit =
+    archetype === ARCHETYPE.RUNNER
+      ? base.runner
+      : archetype === ARCHETYPE.GUARDIAN
+        ? base.guardian
+        : archetype === ARCHETYPE.FORTRESS
+          ? base.fortress
+          : undefined;
+  if (unit !== undefined) {
+    ent.hp[id] = unit.hp;
+    ent.weaponProfile[id] = unit.weapon;
   }
   const gate = state.map.bases[team ^ 1].gate;
   ent.yaw[id] = atan2Poly(gate.y - y, gate.x - x);
@@ -2292,13 +2306,6 @@ function applyDamage(state: SimState, target: number, damage: number, attacker: 
 }
 
 /**
- * Turrets and units acquire the nearest hostile and fire. All non-avatar
- * shots are instant hits at this stage (Phase 1/2 simplicity — the Fortress'
- * homing projectiles are flavor for a later pass). Owned turrets defend
- * against avatars AND units; neutral dummies keep their Phase 1 behavior and
- * only ever engage avatars. Turrets never target turrets.
- */
-/**
  * Shortest signed angular difference from `from` to `to`, in (-PI, PI].
  * Plain arithmetic only — no trig, no Math.atan2 (CLAUDE.md rule 1).
  */
@@ -2309,6 +2316,21 @@ function angleDelta(from: number, to: number): number {
   return d;
 }
 
+/**
+ * Turrets and units acquire a hostile and fire. Owned turrets defend against
+ * avatars AND units; neutral dummies keep their Phase 1 behaviour and only ever
+ * engage avatars. Turrets never target turrets.
+ *
+ * Two models, by the shooter's weapon profile:
+ * - a profile with the original's catalogue entry (`refireUnits` > 0: every
+ *   shooter on the imported PA arenas, fcop-fidelity.md W3) runs the original's
+ *   rate machine and fires a ROUND — a projectile entity at the entry's speed,
+ *   lead-aimed or guided, flying the entry's range — and a turret also runs the
+ *   original's re-search period, hold-target, priority and firing arc
+ *   (`shooterTurret`);
+ * - everything else (district-01, the sandbox) keeps Metropolis' instant hit on
+ *   a tick cooldown, with its own table (balance.ts TURRET_*, UNIT_*).
+ */
 function systemTargeting(state: SimState): void {
   const ent = state.ent;
   const weapons = state.map.weapons;
@@ -2319,11 +2341,15 @@ function systemTargeting(state: SimState): void {
       // Capturable neutral turrets are dormant: no owner, nobody to fire at
       // (rules.md §5 "fires at enemies of its owner").
       if (ent.mode[id] === TURRET_CAPTURABLE && ent.ownerId[id] < 0) continue;
-      if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
       // Per-turret original parameters when the arena carries them (rules.md §9);
       // otherwise the globals, producing bit-identical arithmetic to before.
       const profile = ent.weaponProfile[id];
       const w = profile >= 0 ? weapons[profile] : undefined;
+      if (w !== undefined && w.refireUnits > 0) {
+        shooterTurret(state, id, w);
+        continue;
+      }
+      if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
       const range = w ? w.range : TURRET_RANGE;
       const target =
         ent.ownerId[id] < 0
@@ -2335,16 +2361,7 @@ function systemTargeting(state: SimState): void {
       if (w !== undefined && w.turnSpeed > 0) {
         // Slew toward the bearing at the original's turn speed, and only fire
         // once the gun is actually pointing there.
-        const d = angleDelta(ent.yaw[id], bearing);
-        if (d > w.turnSpeed) {
-          ent.yaw[id] += w.turnSpeed;
-          onTarget = false;
-        } else if (d < -w.turnSpeed) {
-          ent.yaw[id] -= w.turnSpeed;
-          onTarget = false;
-        } else {
-          ent.yaw[id] = bearing;
-        }
+        onTarget = slewTo(ent, id, bearing, w.turnSpeed);
       } else {
         ent.yaw[id] = bearing;
       }
@@ -2371,39 +2388,243 @@ function systemTargeting(state: SimState): void {
         applyDamage(state, target, w ? w.damage : TURRET_DAMAGE, ent.ownerId[id]);
       }
     } else if (isUnit(archetype)) {
+      const profile = ent.weaponProfile[id];
+      const w = profile >= 0 ? weapons[profile] : undefined;
+      if (w !== undefined && w.refireUnits > 0) {
+        shooterUnit(state, id, w);
+        continue;
+      }
       if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
       const target = nearestEnemyInRange(state, id, unitRange(state, id));
       if (target < 0) continue;
       ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
       if (ent.cooldownA[id] <= 0) {
-        const profile = ent.weaponProfile[id];
-        if (profile >= 0) {
-          // A PA Juggernaut: the original Dreadnought's hull guns (map.ts
-          // MapJuggernaut). Modelled as `guns` independent shooters standing at
-          // the hull, so they share the nearest target and fire one volley per
-          // refire — a gun each, each its own shot.
-          const w = weapons[profile];
-          const dread = state.map.bases[ent.team[id]].juggernaut;
-          const guns = dread !== undefined ? dread.guns : 1;
-          ent.cooldownA[id] = w.delay;
-          for (let g = 0; g < guns; g++) {
-            pushEvent(
-              state.events,
-              EV_SHOT,
-              id,
-              SHOT_SLOT_HITSCAN,
-              reachToTarget(state, id, target),
-            );
-            applyDamage(state, target, w.damage, ent.ownerId[id]);
-          }
-        } else {
-          ent.cooldownA[id] = UNIT_FIRE_COOLDOWN_TICKS[archetype];
-          pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_HITSCAN, reachToTarget(state, id, target));
-          applyDamage(state, target, UNIT_DAMAGE[archetype], ent.ownerId[id]);
-        }
+        ent.cooldownA[id] = UNIT_FIRE_COOLDOWN_TICKS[archetype];
+        pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_HITSCAN, reachToTarget(state, id, target));
+        applyDamage(state, target, UNIT_DAMAGE[archetype], ent.ownerId[id]);
       }
     }
   }
+}
+
+/** Turns `id`'s yaw toward `bearing` by at most `rate`; true once on it. */
+function slewTo(ent: EntityStore, id: number, bearing: number, rate: number): boolean {
+  const d = angleDelta(ent.yaw[id], bearing);
+  if (d > rate) {
+    ent.yaw[id] += rate;
+    return false;
+  }
+  if (d < -rate) {
+    ent.yaw[id] -= rate;
+    return false;
+  }
+  ent.yaw[id] = bearing;
+  return true;
+}
+
+// The original's shooter rate machine (`cact_shooter_step` 0x0044e5e0;
+// combat.md "The rate machine"), for the PA catalogue's one-round entries. State
+// on the shooter entity: cooldownA = the clock in engine units, aimY = the phase.
+// Inside a burst the clock runs up to the round gap (0) and the round falls due;
+// fired, the burst is over and the clock runs up to the burst gap; the reload
+// clamps the leftover to the round gap, so the next round is due the tick after.
+// With the 10-unit tick, weapon 3's 601-unit gap is a round every 61 ticks
+// (2.03 s). A due round waits for a target with the clock stopped.
+const PHASE_INSIDE = 0;
+const PHASE_DUE = 1;
+const PHASE_BETWEEN = 2;
+
+/** Advances the rate machine one tick; true when a round is due. */
+function shooterDue(ent: EntityStore, id: number, w: MapWeapon): boolean {
+  let phase = ent.aimY[id];
+  let clock = ent.cooldownA[id];
+  if (phase === PHASE_INSIDE) {
+    clock += WEAPON_UNITS_PER_TICK;
+    if (clock >= 0) phase = PHASE_DUE;
+  } else if (phase === PHASE_BETWEEN) {
+    clock += WEAPON_UNITS_PER_TICK;
+    if (clock >= w.refireUnits) {
+      clock -= w.refireUnits;
+      if (clock > 0) clock = 0; // clamped to the round gap: due next tick
+      phase = PHASE_INSIDE;
+    }
+  }
+  ent.aimY[id] = phase;
+  ent.cooldownA[id] = clock;
+  return phase === PHASE_DUE;
+}
+
+/**
+ * The PA turret (`turret_tick` + its shooter, fcop-re/ranges-turrets-capture.md
+ * Q3; fcop-fidelity.md W3). Its target lives in cooldownC (id + 1, 0 = none) and
+ * its re-search countdown in cooldownB (engine units):
+ * - a due round first drops a dead or out-of-reach target (12 m, horizontal);
+ * - with no target — or always, for a HOLD_TARGET team turret — it searches,
+ *   but only when the countdown has run out, which reloads it with the
+ *   targeting delay (2.0 s): the nearest enemy in reach with a line of sight,
+ *   a team turret preferring the higher priority (Dreadnought > tank > X1);
+ * - the gun slews toward its target at the original's turn rate every tick;
+ * - the round goes out only if its (lead-)aim lies within 22.5° of the barrel
+ *   and the line is clear; otherwise it is put back and the clock pushed back
+ *   0-0.85 s at random (the sim PRNG).
+ */
+function shooterTurret(state: SimState, id: number, w: MapWeapon): void {
+  const ent = state.ent;
+  let target = ent.cooldownC[id] - 1;
+  const due = shooterDue(ent, id, w);
+  let search = ent.cooldownB[id];
+  if (!due) {
+    // The countdown also runs between rounds for a holding turret, clamped at 0.
+    if (w.hold === 1) {
+      search -= WEAPON_UNITS_PER_TICK;
+      if (search < 0) search = 0;
+      ent.cooldownB[id] = search;
+    }
+    if (target >= 0 && ent.alive[target]) turretSlew(state, id, target, w);
+    return;
+  }
+  if (target >= 0 && !shooterTargetValid(state, id, target, w.range)) target = -1;
+  if (target < 0 || w.hold === 1) {
+    search -= WEAPON_UNITS_PER_TICK;
+    let found = -1;
+    if (search < 0) {
+      search = w.searchUnits;
+      found = nearestEnemyInRange(state, id, w.range, true, w.priority === 1);
+    }
+    if (found >= 0) target = found;
+  }
+  ent.cooldownB[id] = search;
+  ent.cooldownC[id] = target + 1;
+  if (target < 0) return; // the round waits, the clock stopped
+  turretSlew(state, id, target, w);
+  if (!aimRound(state, id, target, w)) return;
+  const fx = cosLUT(ent.yaw[id]);
+  const fy = sinLUT(ent.yaw[id]);
+  const blocked = segmentBlocked(
+    state.map,
+    ent.posX[id],
+    ent.posY[id],
+    ent.posX[target],
+    ent.posY[target],
+  );
+  if (blocked || (w.arcCos > -1 && aimScratch.x * fx + aimScratch.y * fy < w.arcCos)) {
+    // Put back: due again once the clock has run the retry delay back up.
+    ent.aimY[id] = PHASE_INSIDE;
+    ent.cooldownA[id] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
+    return;
+  }
+  fireRound(state, id, target, w, 1);
+}
+
+/** A turret's gun follows its target at the record's turn rate (instant without one). */
+function turretSlew(state: SimState, id: number, target: number, w: MapWeapon): void {
+  const ent = state.ent;
+  const bearing = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
+  if (w.turnSpeed > 0) slewTo(ent, id, bearing, w.turnSpeed);
+  else ent.yaw[id] = bearing;
+}
+
+/** The shooter's own keep-target test: alive, still an enemy, inside reach. */
+function shooterTargetValid(state: SimState, id: number, t: number, range: number): boolean {
+  const ent = state.ent;
+  if (!ent.alive[t] || ent.hp[t] <= 0 || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
+  const team = ent.team[t];
+  if (team === ent.team[id] || team === TEAM_NEUTRAL) return false;
+  const dx = ent.posX[t] - ent.posX[id];
+  const dy = ent.posY[t] - ent.posY[id];
+  return dx * dx + dy * dy < range * range;
+}
+
+/**
+ * A PA unit's weapon: the original's rate machine and rounds (fcop-fidelity.md
+ * W3), on Metropolis' targeting — the nearest enemy in reach with a line of
+ * sight, re-read every tick, the same answer that halts its movement (units.ts).
+ * The original re-searches on the shooter's targeting delay; units' targeting is
+ * the units/AI package's, with their routing. A Juggernaut's due round is a
+ * volley, one round from each of its hull guns.
+ */
+function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
+  const ent = state.ent;
+  const due = shooterDue(ent, id, w);
+  const target = nearestEnemyInRange(state, id, unitRange(state, id));
+  if (target < 0) return;
+  ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
+  if (!due || !aimRound(state, id, target, w)) return;
+  let rounds = 1;
+  if (ent.archetype[id] === ARCHETYPE.JUGGERNAUT) {
+    const dread = state.map.bases[ent.team[id]].juggernaut;
+    if (dread !== undefined) rounds = dread.guns;
+  }
+  fireRound(state, id, target, w, rounds);
+}
+
+/** Scratch: the aim aimRound computed (module scope, no allocation per shot). */
+const aimScratch = { x: 0, y: 0 };
+
+/**
+ * The round's horizontal aim at `target`: with an intercept lead for a lead-aimed
+ * entry (`cact_discharge_lead`), else straight at it. False only when the target
+ * stands on the shooter.
+ */
+function aimRound(state: SimState, id: number, target: number, w: MapWeapon): boolean {
+  if (w.lead === 1 && leadAim(state, id, target, w.speed)) {
+    aimScratch.x = leadScratch.x;
+    aimScratch.y = leadScratch.y;
+    return true;
+  }
+  const ent = state.ent;
+  const dx = ent.posX[target] - ent.posX[id];
+  const dy = ent.posY[target] - ent.posY[id];
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1e-6) return false;
+  aimScratch.x = dx / len;
+  aimScratch.y = dy / len;
+  return true;
+}
+
+/**
+ * Discharges `rounds` rounds along aimScratch: projectile entities at the entry's
+ * speed (no acceleration), flying its range, homing on `target` when guided, and
+ * damaging only what they strike (no PA world weapon has a blast). Each round's
+ * EV_SHOT is a muzzle flash — the round renders as its own entity. The rate machine goes
+ * between bursts once anything went out; a full entity store fires nothing and
+ * leaves the round due.
+ */
+function fireRound(
+  state: SimState,
+  id: number,
+  target: number,
+  w: MapWeapon,
+  rounds: number,
+): void {
+  const ent = state.ent;
+  let fired = false;
+  for (let r = 0; r < rounds; r++) {
+    const p = spawnStraight(
+      state,
+      id,
+      aimScratch.x,
+      aimScratch.y,
+      w.guided === 1 ? target : -1,
+      target,
+    );
+    if (p < 0) break;
+    ent.mode[p] = PROJ_ROUND;
+    ent.ownerId[p] = ent.ownerId[id];
+    ent.ammoA[p] = w.damage;
+    ent.aux[p] = 0;
+    ent.ammoB[p] = w.guided === 1 ? ROUND_HOMING : 0;
+    ent.timerA[p] = Math.ceil((w.flight / w.speed) * TICK_HZ) + 1;
+    ent.cooldownA[p] = w.speed;
+    ent.velX[p] = aimScratch.x * w.speed;
+    ent.velY[p] = aimScratch.y * w.speed;
+    ent.cooldownB[p] = w.flight;
+    ent.aimX[p] = w.speed;
+    ent.aimY[p] = 0;
+    pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, 0);
+    fired = true;
+  }
+  if (fired) ent.aimY[id] = PHASE_BETWEEN;
 }
 
 /**
@@ -2579,10 +2800,16 @@ function systemProjectiles(state: SimState): void {
         else ent.cooldownB[id] = left - step;
       }
     }
-    const ground = sampleHeight(map, ent.posX[id], ent.posY[id]);
     let boom = walled || expired;
     if (x <= 0 || x >= extent || y <= 0 || y >= extent) boom = true;
-    if (!boom && ground >= ent.height[id]) boom = true;
+    // Only a lobbed shell meets the ground. A straight round flies the line it was
+    // aimed along and is stopped by the wall lattice (Metropolis' cover model) or
+    // its range: units and turrets stand on decks and road casts the base
+    // heightfield does not describe, and a round born under that surface used to
+    // die on its first step.
+    if (!boom && arc && sampleHeight(map, ent.posX[id], ent.posY[id]) >= ent.height[id]) {
+      boom = true;
+    }
     let struck = -1;
     if (!boom) {
       // Contact fuze: any enemy non-projectile within its hit radius + 0.5.
@@ -3319,6 +3546,31 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
   out[MATCH_ENTITY_COUNT] = live;
 }
 
+/**
+ * The health an entity spawned with: a PA arena's units take their record's
+ * (spawnUnit), everything else its archetype's. Renderer-facing only.
+ */
+function maxHpOf(state: SimState, id: number): number {
+  const ent = state.ent;
+  const arch = ent.archetype[id];
+  const team = ent.team[id];
+  if (team === 0 || team === 1) {
+    const base = state.map.bases[team];
+    const p =
+      arch === ARCHETYPE.RUNNER
+        ? base.runner
+        : arch === ARCHETYPE.GUARDIAN
+          ? base.guardian
+          : arch === ARCHETYPE.FORTRESS
+            ? base.fortress
+            : arch === ARCHETYPE.JUGGERNAUT
+              ? base.juggernaut
+              : undefined;
+    if (p !== undefined) return p.hp;
+  }
+  return ARCHETYPE_MAX_HP[arch];
+}
+
 /** Snapshot record layout (architecture.md §3). */
 export const SNAPSHOT_STRIDE = 10;
 
@@ -3342,7 +3594,7 @@ export function writeSnapshot(state: SimState, out: Float32Array): number {
     out[o + 5] = ent.height[id];
     out[o + 6] = ent.yaw[id];
     out[o + 7] = ent.animState[id];
-    out[o + 8] = ent.hp[id] / ARCHETYPE_MAX_HP[ent.archetype[id]];
+    out[o + 8] = ent.hp[id] / maxHpOf(state, id);
     // PROJECTILE: payload kind. TURRET: DEFENSE / DUMMY / CAPTURABLE so the
     // renderer can pick Defense vs Standard meshes. Everything else: aux.
     out[o + 9] =

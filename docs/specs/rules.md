@@ -270,6 +270,10 @@ Initial stats (all in `balance.ts`, all placeholders):
 Runner 60 HP / 8 dps / speed 4. Guardian 50 HP / 10 dps / speed 7.
 Juggernaut 600 HP / 20 dps / speed 2.5. Fortress 500 HP / 25 dps / speed 6.
 Avatar 1250 HP (the original's, §2); walker 4.69 m/s, hover 9.38 m/s.
+On the imported arenas the units' HP and weapons are the original's spawner
+records instead (§9: tank and jet 150 HP with 50-damage rounds every second,
+Fortress 2000 HP with guided 100-damage rounds every 0.5 s, all at 12 m);
+their speeds are still these.
 
 ## 5. Structures
 
@@ -423,36 +427,51 @@ only what Metropolis adopts from it.
   section used to adopt was the Dreadnought spawner's period.
 - **The Juggernaut is the original Dreadnought.** It rolls out at the type-28
   record (node 0 of its Cnet, beside the HQ) rather than at the console it is
-  bought from, with 3000 HP and four hull guns of weapon 3 (100 damage every
-  2.0 s, 12 m). The guns are modelled as four shooters at the hull's position
-  sharing one target: the original mounts them at the hull model's points (under
-  0.9 m off centre) with their own 237°/s slew, which at a 12 m reach changes
-  nothing a player can see. The "four built-in base guns" the core used to carry
-  were these guns. On §1 arenas the Juggernaut keeps §4's stats.
+  bought from, with 3000 HP and four hull guns of weapon 3. The guns are modelled
+  as four shooters at the hull's position sharing one target, each firing its own
+  round: the original mounts them at the hull model's points (under 0.9 m off
+  centre) with their own 237°/s slew relative to the hull, which is not modelled —
+  so neither is their ±22.5° firing arc. The "four built-in base guns" the core
+  used to carry were these guns. On §1 arenas the Juggernaut keeps §4's stats.
+- **Every shooter fires the original's catalogue weapon** (SIM_VERSION 42;
+  `fcop-fidelity.md` W3; `fcop-re/ranges-turrets-capture.md` Q3). A shooter's
+  `weapon_id` indexes the mission's own type-98 catalogue, whose entries are
+  identical on the six PA maps (`balance.ts` WORLD_WEAPONS):
+  | Shooter | HP | Weapon | Damage | Refire | Round |
+  |---|---|---|---|---|---|
+  | team turret, neutral turret | 500 | 3 | 100 | 2.03 s | 7.62 m/s, lead-aimed, flies 12 m |
+  | Dreadnought gun (×4) | 3000 (hull) | 3 | 100 | 2.03 s | the same |
+  | tank (Runner), jet (Guardian) | 150 | 1 / 6 | 50 | 1.0 s | 7.62 m/s, lead-aimed, flies 12 m |
+  | Flying Fortress | 2000 | 4 | 100 | 0.5 s | 7.62 m/s, guided, flies 24 m |
+  All engage at 12 m, horizontal and centre to centre. The rounds are entities
+  that fly — they used to be instant hits — and damage only what they strike
+  (none has a blast); the wall lattice stops them, the heightfield does not (a
+  lobbed shell is the only round that meets the ground). The rate machine is the
+  original's (`cact_shooter_step`): the reload clamps the leftover clock, so a
+  2.0 s entry fires every 61 ticks. The tanks', jets' and Fortress' HP and
+  weapons come from their spawner records (`MapBase.runner/guardian/fortress`);
+  their speeds, routing and targeting stay §4's (the units/AI package's), so a
+  unit re-picks the nearest target in reach every tick.
 - **Turrets carry their own parameters.** Range, fire cadence, gun slew, field of
-  view, rest rotation and health come from the arena's imported data instead of the
-  global constants — for both kinds: capturable pads and base ring turrets.
-  (A third kind, "built-in base guns" on the core, existed until SIM_VERSION 32;
-  they were the Dreadnought's hull guns and now ride on the Juggernaut.) The
-  original's reach is short: `engage_range` 6144 is
-  12 m (`raw << 4` world units — fcop-re/ranges-turrets-capture.md Q1; it read
-  6 m under an inferred scale until SIM_VERSION 31), against the pre-PA global
-  28 m, and turrets are placed within a few metres
-  of the road they guard. That short reach is load-bearing, not decoration — it is
-  what keeps a turret inside the 14 m a Runner can shoot back from, so a push can
-  answer a turret instead of dying to one it cannot reach (`paAttribution.test.ts`
-  asserts the relation for every profile an arena carries).
-  Damage stays on the global value. This used to say "the original's weapon
-  table was not decoded"; it is decoded now — 15 records in the game executable
-  plus the front-end panels in `febmp.bin`, with firing rate and damage read off
-  the game's own bars. It still does not apply here: those ids are a **different
-  id space** from the `weapon_id` on `BaseShooter` actors, so the figures are the
-  player's loadout and say nothing about a turret. The avatar's weapons DID adopt
-  them (§2, SIM_VERSION 21). The actor `weapon_id` has since been bound too: it
-  indexes each mission's own type-98 catalogue, and every turret carries weapon 3
-  (100 damage every 2.0 s — `fcop-re/ranges-turrets-capture.md` Q3). The
-  Juggernaut's hull guns use it; turret damage moves to it with the weapons
-  package (`fcop-fidelity.md` W3) and stays ours until then.
+  view, rest rotation, health and weapon come from the arena's imported data,
+  for both kinds: capturable pads and base ring turrets. The original's reach is
+  short: `engage_range` 6144 is 12 m (`raw << 4` world units —
+  `fcop-re/ranges-turrets-capture.md` Q1), against the pre-PA global 28 m, and
+  turrets are placed within a few metres of the road they guard. Units engage at
+  the same 12 m, so a turret never outreaches the push it shoots at
+  (`paAttribution.test.ts`); since SIM_VERSION 42 it no longer falls short of it
+  either (Metropolis' units reached 14 m). Like the original's turret, it
+  - searches for a target only on its targeting delay (2.0 s), and only while a
+    round is waiting for one — so a turret that loses its target takes up to
+    2 s to find the next;
+  - picks the nearest enemy in reach with a line of sight; a **team turret holds
+    its target**, re-scanning every 2.0 s, and **prefers the higher priority** —
+    a Juggernaut over a Runner over an X1-Alpha (neutral turrets do neither);
+  - fires only when its aim lies within **±22.5° of the barrel**, which slews at
+    290°/s, and with a clear line; a refused round is put back and tried again
+    0-0.85 s later (the sim's PRNG).
+  `district-01` and the sandbox keep Metropolis' instant-hit turret and unit
+  table (`TURRET_*`, `UNIT_*`): those arenas are not the original's.
 - **Capture points are the original pads.** Every original `NeutralTurret`
   becomes a capture spot — 32 on Mp and Conft, 29 on Slim and Joke, against the
   4–6 of §5. They capture by §5's rule, which is the original's own since

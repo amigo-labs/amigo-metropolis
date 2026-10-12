@@ -339,7 +339,9 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const projMortar = bucket(scene, projMortarGeometry, 32, true);
   const projMine = bucket(scene, projMineGeometry, 32, true);
   const projWarden = bucket(scene, projWardenGeometry, 16, true);
-  const projectile = bucket(scene, projectileGeometry, 32, true);
+  // The generic bolt, which is also every PA shooter's round since SIM_VERSION 42
+  // (PROJ_ROUND: 64 turrets and up to 80 units each with a 1.6 s round in the air).
+  const projectile = bucket(scene, projectileGeometry, 192, true);
   const consoleBucket = bucket(scene, consoleGeometry, consoleCapacity());
   const warden = bucket(scene, wardenGeometry, 2);
   return {

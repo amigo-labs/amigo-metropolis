@@ -21,12 +21,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import {
-  COST_JUGGERNAUT,
-  POINTS_CAPTURE_TURRET,
-  STARTING_POINTS,
-  UNIT_RANGE,
-} from "../src/balance";
+import { COST_JUGGERNAUT, POINTS_CAPTURE_TURRET, STARTING_POINTS } from "../src/balance";
 import { segmentBlocked } from "../src/collision";
 import { EV_CAPTURE, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
@@ -87,23 +82,33 @@ function push(mapId: string, archetype: number, count: number): Push {
 describe("turret reach on the imported arenas", () => {
   it("no turret outranges the units it shoots at", () => {
     // THE invariant, and the one that broke. Every imported turret profile
-    // engages at 12 m (engage_range 6144 = raw/512, fcop-re Q1) while the
-    // shortest-ranged ground unit answers from 14 m, so a unit can always shoot a
-    // turret from outside its reach. When the ring lost its profile it fell back
-    // to the 28 m global and inverted this.
+    // engages at 12 m (engage_range 6144 = raw/512, fcop-re Q1). When the ring
+    // lost its profile it fell back to the 28 m global and inverted this.
+    //
+    // Since SIM_VERSION 42 the units carry their own records too, and the
+    // original answers the reach question with ONE number: tanks, jets, the
+    // Fortress and the Dreadnought's guns all engage at the same 12 m as the
+    // turrets (fcop-fidelity.md W3/W4). So a unit does not outreach a turret any
+    // more (it did at Metropolis' 14 m); it is never outreached by one, which is
+    // what this guards.
     //
     // Asserted against every TURRET profile the arena carries — the capturable
     // pads' and the ring's — because the failure was a missing reference, not a
-    // wrong number. (The Juggernaut's hull-gun profile is a unit weapon.)
-    const shortestUnitReach = Math.min(
-      UNIT_RANGE[ARCHETYPE.RUNNER],
-      UNIT_RANGE[ARCHETYPE.GUARDIAN],
-      UNIT_RANGE[ARCHETYPE.FORTRESS],
-    );
+    // wrong number.
+    let shortestUnitReach = Number.POSITIVE_INFINITY;
+    for (const b of MAP.bases) {
+      for (const u of [b.runner, b.guardian, b.fortress, b.juggernaut]) {
+        if (u === undefined) throw new Error("la-cantina must carry its unit records");
+        shortestUnitReach = Math.min(shortestUnitReach, MAP.weapons[u.weapon].range);
+      }
+    }
+    expect(shortestUnitReach).toBe(12);
     const turretProfiles = new Set<number>(MAP.turretParams);
     for (const base of MAP.bases) for (const t of base.turrets) turretProfiles.add(t.weapon);
     expect(turretProfiles.size).toBeGreaterThan(0);
-    for (const k of turretProfiles) expect(MAP.weapons[k].range).toBeLessThan(shortestUnitReach);
+    for (const k of turretProfiles) {
+      expect(MAP.weapons[k].range).toBeLessThanOrEqual(shortestUnitReach);
+    }
     // Belt and braces on the entity side: no live turret may hold the global
     // fallback profile on an arena that carries imported ones.
     const state = createSim(MAP, 1);
@@ -166,16 +171,20 @@ describe("turret reach on the imported arenas", () => {
 });
 
 describe("an unescorted bought push against an intact defence, per arena", () => {
-  // Measured at SIM_VERSION 32 (seed c0ffee, team 0 idle), with turret damage
-  // still the pre-original 15 per 2.0 s:
-  //   lone Runner     la-cantina dies 3.3 m from the gate, urban-jungle dies
-  //                   16.1 m out; proving-ground and bug-hunt breach after
-  //                   ~154 s of chipping the ring from outside its 12 m reach.
-  //   lone Juggernaut breaches all four in 35-52 s: 3000 HP and four 100-damage
-  //                   guns against 7.5 dps emplacements.
+  // Measured at SIM_VERSION 42 (seed c0ffee, team 0 idle), with the original's
+  // weapons on both sides (fcop-fidelity.md W3): turrets fire weapon 3 (100 per
+  // 2.03 s), the tank's 150 HP and weapon 1 (50 per 1.0 s), the Dreadnought's
+  // 3000 HP and four weapon-3 guns, all at 12 m:
+  //   lone Runner     dies on every arena — 3.3 m from the gate on la-cantina,
+  //                   16-17 m out on the other three, in 20-32 s. Until v42
+  //                   (turret damage 15, Runner 60 HP at 14 m) it chipped the
+  //                   proving-ground and bug-hunt rings from outside their reach
+  //                   and breached after ~154 s.
+  //   lone Juggernaut breaches all four in 36-62 s (was 35-52 s), killing 1-4
+  //                   emplacements on its way.
   // The Juggernaut half is the original's own shape — the Dreadnought is the
-  // siege unit, one alive per side and 50 points. The Runner half is today's
-  // turret damage; the weapons package moves both (fcop-fidelity.md W3).
+  // siege unit, one alive per side and 50 points; a tank does not get through an
+  // intact ring on its own.
   it("a lone Runner is held at the gate on la-cantina and short of it on urban-jungle", () => {
     const lc = push(LA_CANTINA_ID, ARCHETYPE.RUNNER, 1);
     expect(lc.breachAt).toBe(-1);
@@ -184,10 +193,11 @@ describe("an unescorted bought push against an intact defence, per arena", () =>
     expect(uj.breachAt).toBe(-1);
   });
 
-  it("a lone Runner needs minutes, not seconds, where it does get through", () => {
+  it("a lone Runner does not get through an intact ring anywhere", () => {
     for (const id of [PROVING_GROUND_ID, BUG_HUNT_ID]) {
       const r = push(id, ARCHETYPE.RUNNER, 1);
-      if (r.breachAt >= 0) expect(r.breachAt).toBeGreaterThan(2 * 60 * 30);
+      expect(r.breachAt).toBe(-1);
+      expect(r.closest).toBeGreaterThan(12);
     }
   });
 
