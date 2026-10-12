@@ -43,6 +43,7 @@ import {
   crossesWallX,
   crossesWallY,
   GROUND_STEPS,
+  gapUnits,
   JUMPABLE_RISE,
   loadMapFromJson,
   type MapData,
@@ -51,16 +52,29 @@ import {
   reachableFrom,
   resolveHeight,
   roadProbes,
+  roundSpeed,
+  SHOOTER_FRONT_ARC_COS,
   sampleHeight,
   segmentWalkable,
   type WallHit,
+  WORLD_KIND_GUIDED,
+  WORLD_KIND_LEAD,
+  WORLD_WEAPONS,
   walkRoad,
   worstHoverRise,
   worstUphillRise,
 } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
 import { type FcopArena, logicFile, selectArenas, wallsFile } from "./fcopArenas";
-import { fovToCos, rangeToCells, rotToYaw, toSimTicks, turnSpeedToRadPerTick } from "./fcopLogic";
+import {
+  captureRangeToCells,
+  fovToCos,
+  rangeToCells,
+  rotToYaw,
+  toSimTicks,
+  triggerHalfExtent,
+  turnSpeedToRadPerTick,
+} from "./fcopLogic";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const TICK_HZ = 30; // packages/sim/src/balance.ts
@@ -76,60 +90,33 @@ export const LOGIC_OFFSET_X = 16;
 export const LOGIC_OFFSET_Z = 0;
 
 /**
- * Damage per shot for the imported weapon profiles.
- *
- * The original stores weapon_id 3 on these actors. The weapon table it indexes
- * WAS decoded since (15 records in the game executable, values off the
- * front-end panels in febmp.bin) — but not into this id space: the executable's
- * weapon ids and BaseShooter's weapon_id are two different spaces, and the
- * decode says so explicitly. So there is still no authentic number for a turret
- * here, and the reason is now "the binding is unproven" rather than "the table
- * is unknown".
- *
- * Kept at the pre-PA global TURRET_DAMAGE so importing the originals changes
- * reach and cadence — which ARE data — without silently inventing a damage
- * curve. Tuning lives in balance.ts.
- */
-const TURRET_DAMAGE = 15;
-
-/**
- * Health for a base's built-in defence weapons (fcop-logic.md §8.1).
- *
- * Also NOT in the extracted data: `BaseShooter` carries reach, cadence and FOV but
- * no health, and the base structure's own `health` is the core's 3000. Reusing it
- * put a 3000 HP gun on the core on all four arenas, and it is what held an
- * escorted push on the doorstep — a Runner stops at its own 14 m reach and chips
- * 3000 HP at 8 dps, which is 375 s per gun against four of them.
- *
- * The originals' Turret actors all carry 500, and a built-in gun is the same kind
- * of thing — a structure you can shoot off a base that comes back on the ring
- * timer (see spawnBaseDefence in sim.ts). So it takes the same number, and the
- * core keeps the 3000 that IS extracted.
- */
-const BASE_DEFENCE_HP = 500;
-
-/**
  * Pickup kinds (must match balance.ts PICKUP_*).
  *
- * The original's 8 grant kinds do not map one-to-one, because Metropolis'
- * primary weapon has infinite ammo (rules.md §2) and has no damage-boost
- * concept of its own. The adaptation is deliberate and recorded here:
- *   reload_gun       -> HEAVY_AMMO   (nearest meaningful refill)
+ * The original's 8 grant kinds (fcop-re/player-and-weapons.md §6):
+ *   reload_gun       -> GUN_AMMO     (the guns' magazines are finite since
+ *                                     SIM_VERSION 41; it was a heavy refill)
  *   reload_heavy     -> HEAVY_AMMO
  *   reload_special   -> SPECIAL_AMMO
  *   restore_health   -> HEALTH
- *   power_up_*       -> POWER        (temporary damage boost)
+ *   power_up_gun     -> POWER (_GUN)  the slot's block-B weapon (fcop-fidelity.md
+ *   power_up_heavy   -> POWER_HEAVY   P8); all three were one x2-damage kind
+ *   power_up_special -> POWER_SPECIAL until SIM_VERSION 43
  *   invisibility     -> INVIS
+ *   invincibility    -> INVULN       (flag 0x80000, 20 s in the original; no PA
+ *                                     pickup carries it — fcop-re/player-and-
+ *                                     weapons.md §6 — but a campaign-style
+ *                                     arena that did would import, not throw)
  */
 const PICKUP_KIND: Record<string, number> = {
-  reload_gun: 0,
+  reload_gun: 6,
   reload_heavy: 0,
   reload_special: 1,
   restore_health: 2,
   invisibility: 4,
+  invincibility: 3,
   power_up_gun: 5,
-  power_up_heavy: 5,
-  power_up_special: 5,
+  power_up_heavy: 7,
+  power_up_special: 8,
 };
 
 /** balance.ts TRIGGER_WATCH_* bits. */
@@ -140,18 +127,21 @@ interface Logic {
   mission: string;
   mapId: string;
   spawns: { id: number; x: number; z: number }[];
-  bases: {
+  /** The type-28 records: the two Dreadnoughts (fcopLogic.ts PaDreadnought). */
+  dreadnoughts: {
     id: number;
     x: number;
     z: number;
     team: number;
     health: number;
     netId: number;
-    spawnTicks: number;
-    spawnLimit: number;
-    defenceWeaponCount: number;
-    defenceWeapon: { engageRangeRaw: number; targetingDelayRaw: number; fovRaw: number };
+    gunCount: number;
+    gun: Shooter;
   }[];
+  /** Tank (Runner) spawner records; spawnLimit 20 marks the purchasable ones. */
+  units: { id: number; team: number; health: number; spawnLimit?: number; shooter: Shooter }[];
+  /** Jet (Guardian) and Flying Fortress records. */
+  aircraft: { id: number; team: number; health: number; shooter: Shooter }[];
   turrets: Turret[];
   neutrals: Turret[];
   pickups: { id: number; x: number; z: number; grants: string[]; spawnTicks: number }[];
@@ -179,8 +169,16 @@ interface Turret {
   health: number;
   gunRotationRaw: number;
   turnSpeedRaw: number;
-  shooter: { engageRangeRaw: number; targetingDelayRaw: number; fovRaw: number };
+  shooter: Shooter;
   spawnTicks: number;
+}
+
+/** A BaseShooter block as fcopLogic.ts carries it. */
+interface Shooter {
+  weaponId: number;
+  engageRangeRaw: number;
+  targetingDelayRaw: number;
+  fovRaw: number;
 }
 
 interface Weapon {
@@ -189,6 +187,15 @@ interface Weapon {
   damage: number;
   turnSpeed: number;
   fovCos: number;
+  refireUnits: number;
+  searchUnits: number;
+  speed: number;
+  flight: number;
+  guided: number;
+  lead: number;
+  arcCos: number;
+  hold: number;
+  priority: number;
 }
 
 const sx = (x: number): number => x + LOGIC_OFFSET_X;
@@ -338,13 +345,17 @@ function teamsOf<
 function out0Spawns(
   spawns: readonly { x: number; z: number }[],
   field: Field,
-): { x: number; y: number; yaw: number; layer?: number }[] {
+  hover: boolean,
+): { x: number; y: number; yaw: number; layer?: number; hover?: boolean }[] {
   // yaw is atan2(dy, dx) in sim convention, so +z is +pi/2 and +x is 0.
   const toward = field.axis === "z" ? [Math.PI / 2, -Math.PI / 2] : [0, Math.PI];
+  // The spawn form (FcopArena.spawnHover) is written only where it is hover, so a
+  // walker arena's JSON is byte-identical to before the field existed.
   return spawns.map((s, team) => ({
     x: round4(sx(s.x)),
     y: round4(sz(s.z)),
     yaw: toward[team],
+    ...(hover ? { hover: true } : {}),
   }));
 }
 
@@ -352,7 +363,7 @@ function out0Spawns(
 class WeaponTable {
   readonly list: Weapon[] = [];
   intern(w: Weapon): number {
-    const key = (x: Weapon) => `${x.range}|${x.delay}|${x.damage}|${x.turnSpeed}|${x.fovCos}`;
+    const key = (x: Weapon) => JSON.stringify(x);
     const k = key(w);
     for (let i = 0; i < this.list.length; i++) if (key(this.list[i]) === k) return i;
     this.list.push(w);
@@ -436,14 +447,100 @@ function padKey(x: number, z: number): string {
   return `${Math.round(x * 2) / 2},${Math.round(z * 2) / 2}`;
 }
 
-function turretWeapon(t: Turret, table: WeaponTable): number {
-  return table.intern({
-    range: rangeToCells(t.shooter.engageRangeRaw),
-    delay: toSimTicks(t.shooter.targetingDelayRaw, TICK_HZ),
-    damage: TURRET_DAMAGE,
-    turnSpeed: round4(turnSpeedToRadPerTick(t.turnSpeedRaw, TICK_HZ)),
-    fovCos: fovToCos(t.shooter.fovRaw),
-  });
+/**
+ * A shooter's weapon profile: its record's reach, re-search period and fov, and
+ * the catalogue entry its weapon id names (balance.ts WORLD_WEAPONS; the
+ * mission's type-98 catalogue, fcop-re/ranges-turrets-capture.md Q3) — damage,
+ * refire, round speed and flight, guided or lead-aimed (fcop-fidelity.md W3).
+ * `arc`: the shooter blocks its side and rear sectors (bitfield 0x02|0x04, every
+ * PA turret); `hold` + `priority`: HOLD_TARGET and the priority preference
+ * (0x4000 and 0x40, the team turrets' bitfield 0x4246).
+ */
+function shooterWeapon(
+  sh: Shooter,
+  turnSpeed: number,
+  opts: { arc: boolean; hold: boolean; priority: boolean },
+): Weapon {
+  const w = WORLD_WEAPONS[sh.weaponId];
+  if (w === undefined) {
+    throw new Error(`weapon_id ${sh.weaponId} is not in balance.ts WORLD_WEAPONS`);
+  }
+  if (w.rounds !== 1 || w.w0e !== 0 || w.accel !== 0) {
+    throw new Error(`weapon_id ${sh.weaponId}: bursts, blasts and acceleration are not modelled`);
+  }
+  if (w.kind !== WORLD_KIND_LEAD && w.kind !== WORLD_KIND_GUIDED) {
+    throw new Error(`weapon_id ${sh.weaponId}: catalogue kind ${w.kind} is not modelled`);
+  }
+  const refireUnits = gapUnits(w.burstGap);
+  return {
+    range: rangeToCells(sh.engageRangeRaw),
+    delay: Math.max(1, Math.round((refireUnits * TICK_HZ) / 300)),
+    damage: w.damage,
+    turnSpeed,
+    fovCos: fovToCos(sh.fovRaw),
+    refireUnits,
+    searchUnits: gapUnits(Math.abs(sh.targetingDelayRaw)),
+    speed: roundSpeed(w.speed),
+    flight: rangeToCells(w.range),
+    guided: w.kind === WORLD_KIND_GUIDED ? 1 : 0,
+    lead: w.kind === WORLD_KIND_LEAD ? 1 : 0,
+    arcCos: opts.arc ? SHOOTER_FRONT_ARC_COS : -1,
+    hold: opts.hold ? 1 : 0,
+    priority: opts.priority ? 1 : 0,
+  };
+}
+
+/** A team (type 8) turret holds its target and prefers priority; a neutral (36) does neither. */
+function turretWeapon(t: Turret, table: WeaponTable, team: boolean): number {
+  return table.intern(
+    shooterWeapon(t.shooter, round4(turnSpeedToRadPerTick(t.turnSpeedRaw, TICK_HZ)), {
+      arc: true,
+      hold: team,
+      priority: team,
+    }),
+  );
+}
+
+/**
+ * A side's purchasable tank, jet and Flying Fortress: health and weapon from its
+ * own spawner record. Every one of a kind on a side carries the same values
+ * (asserted), which is what lets one profile stand for all of them.
+ */
+function unitProfiles(
+  logic: Logic,
+  team: number,
+  table: WeaponTable,
+): Record<"runner" | "guardian" | "fortress", { hp: number; weapon: number }> {
+  const one = (list: { id: number; health: number; shooter: Shooter }[], what: string) => {
+    if (list.length === 0) throw new Error(`team ${team} has no ${what} record`);
+    const key = (u: { health: number; shooter: Shooter }) => JSON.stringify([u.health, u.shooter]);
+    if (new Set(list.map(key)).size !== 1) {
+      throw new Error(`team ${team}'s ${what} records disagree on health or weapon`);
+    }
+    const u = list[0];
+    return {
+      hp: u.health,
+      weapon: table.intern(
+        shooterWeapon(u.shooter, 0, { arc: false, hold: false, priority: false }),
+      ),
+    };
+  };
+  const tanks = logic.units.filter((u) => u.team === team && u.spawnLimit === 20);
+  const air = logic.aircraft.filter((a) => a.team === team);
+  // The jets and the Fortress share the type-9 record; the Fortress is the one
+  // with the heavy hull (class 4, 2000 HP against the jets' 150).
+  const top = Math.max(...air.map((a) => a.health));
+  return {
+    runner: one(tanks, "tank"),
+    guardian: one(
+      air.filter((a) => a.health !== top),
+      "jet",
+    ),
+    fortress: one(
+      air.filter((a) => a.health === top),
+      "Flying Fortress",
+    ),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -639,6 +736,8 @@ function graphRoute(
 interface RoadBase {
   readonly gate: { readonly x: number; readonly y: number };
   readonly groundConsole: readonly number[];
+  /** Where the Juggernaut (the original Dreadnought) spawns: [x, y]. */
+  readonly juggernaut: readonly number[];
 }
 
 /**
@@ -775,7 +874,17 @@ function carveRoads(
         );
       }
     }
-    // Leg 3 — the road's far end into the enemy base. This one has no
+    // Leg 1b — the Juggernaut's own spawn (the Dreadnought record, node 0 of
+    // its Cnet by the HQ) to wherever the road was joined above. Usually a few
+    // centimetres; when leg 1 re-picked the entry it is a real beeline, and a
+    // Juggernaut that cannot reach the road never leaves its base.
+    const jug = bases[team].juggernaut;
+    const entry = graph.nodes[graph.entry[team]];
+    if (!segmentWalkable(map, jug[0], jug[1], entry.x, entry.z)) {
+      carve(jug[0], jug[1], entry.x, entry.z);
+      entries.push(`team ${team} Juggernaut leg to #${graph.entry[team]} CARVED`);
+    }
+    // Leg 3 — the road's far end into the enemy gate. This one has no
     // alternative to pick: `moveGroundUnit` beelines the gate once the signposts
     // run out, so the last few metres either open or the objective is
     // unreachable by anything the arena produces.
@@ -827,8 +936,9 @@ function carveRoads(
  * `reach` is in cells. 0 means the target's OWN cell must be in the flood, which
  * is right for anything walked on — a lane node, a buy console, a spawn.
  *
- * It is wrong for a capture pad. Capturing is proximity (`CAPTURE_RADIUS`, and
- * the Warden parks at `CAPTURE_RADIUS - 1`), and the original mounts these pads
+ * It is wrong for a capture pad. Capturing is proximity — an action-key press
+ * within the arena's capture range plus the capturer's radius, at least 4.0 + 0.4 m
+ * on every imported arena (sim.ts systemCapture) — and the original mounts these pads
  * on raised plinths with parapets around them, so demanding the pad cell itself
  * be walkable asks for something the game never asks for — and the only way to
  * grant it is to knock the parapets down. All 8 of la-cantina's outer-ring pads
@@ -973,6 +1083,70 @@ function repairReachability(
   throw new Error("reachability repair did not converge in 200 passes");
 }
 
+/**
+ * The gate triggers: no `retrigger`, no `action_button`. Each base carries one
+ * box, listed six times — once per watched enemy tank template and once for the
+ * enemy Dreadnought — on all six missions (fcop-re/ai-and-rules.md §5).
+ */
+function isGateTrigger(t: Logic["triggers"][number]): boolean {
+  return !t.flags.includes("retrigger") && !t.flags.includes("action_button");
+}
+
+/**
+ * The gate of the base whose own Dreadnought is `ownId`, read from the gate
+ * trigger that watches the enemy Dreadnought `enemyId` — entering it with an
+ * enemy tank or Dreadnought is the original's win (fcop-re/ai-and-rules.md §5).
+ *
+ * Box half-extents are raw/1024 m (fcopLogic.ts TRIGGER_SCALE; the sim adds the
+ * intruder's radius). `radius` is the larger half-extent: what the renderer and
+ * the AI read as the gate's size.
+ */
+function gateOf(
+  logic: Logic,
+  enemyId: number,
+  ownId: number,
+): { x: number; y: number; radius: number; halfW: number; halfL: number } {
+  const hits = logic.triggers.filter((t) => isGateTrigger(t) && t.watchesActor === enemyId);
+  if (hits.length !== 1) {
+    throw new Error(
+      `Dreadnought ${ownId}: expected one gate trigger watching enemy Dreadnought ${enemyId}, ` +
+        `found ${hits.length}`,
+    );
+  }
+  const t = hits[0];
+  const halfW = round4(triggerHalfExtent(t.widthRaw));
+  const halfL = round4(triggerHalfExtent(t.lengthRaw));
+  return {
+    x: round4(sx(t.x)),
+    y: round4(sz(t.z)),
+    radius: Math.max(halfW, halfL),
+    halfW,
+    halfL,
+  };
+}
+
+/**
+ * The committed map with the retired §9 base fields (coreHp, production,
+ * built-in guns — SIM_VERSION 32) dropped, so the strict loader accepts it as
+ * the terrain input. Every base field is rebuilt below anyway.
+ */
+function terrainOnly(raw: MapJson): MapJson {
+  const bases = raw.bases.map((b) => {
+    const { coreHp, productionTicks, productionLimit, defence, ...rest } = b as typeof b & {
+      coreHp?: unknown;
+      productionTicks?: unknown;
+      productionLimit?: unknown;
+      defence?: unknown;
+    };
+    void coreHp;
+    void productionTicks;
+    void productionLimit;
+    void defence;
+    return rest;
+  });
+  return { ...raw, bases };
+}
+
 // ---------------------------------------------------------------------------
 // Build
 // ---------------------------------------------------------------------------
@@ -981,23 +1155,27 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const { mapId } = arena;
   assertFrameOffset(mapId);
   const mapPath = join(REPO_ROOT, "packages", "sim", "maps", `${mapId}.json`);
-  const raw = JSON.parse(readFileSync(mapPath, "utf8")) as MapJson;
+  const raw = terrainOnly(JSON.parse(readFileSync(mapPath, "utf8")) as MapJson);
   // Terrain for layer sampling only — features below overwrite spawns downwards.
   const terrain = loadMapFromJson(raw);
   const logic = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
   ) as Logic;
 
-  // Team 0 is the low end of the field axis; each base drives its own Cnet
-  // (fcop-logic.md §8.1) and owns the nearer X1Alpha.
-  const field = fieldOf(logic.bases);
-  const teams = teamsOf(logic.bases, logic.spawns, field);
+  // Team 0 is the low end of the field axis; each side's Dreadnought drives its
+  // own Cnet (fcop-logic.md §8.1) and the side owns the nearer X1Alpha. The
+  // Dreadnought records stand next to each HQ, so they are what locates a base.
+  const field = fieldOf(logic.dreadnoughts);
+  const teams = teamsOf(logic.dreadnoughts, logic.spawns, field);
   const teamBases = teams.map((t) => t.base);
   const teamSpawns = teams.map((t) => t.spawn);
   const teamNet = [teamBases[0].netId, teamBases[1].netId];
+  // Each side's gate: the trigger that watches the ENEMY's Dreadnought.
+  const gates = teamBases.map((own, team) => gateOf(logic, teamBases[1 - team].id, own.id));
+  // A team's road leads to the enemy GATE — the objective since SIM_VERSION 32.
   const enemyBase = [
-    { x: sx(teamBases[1].x), z: sz(teamBases[1].z) },
-    { x: sx(teamBases[0].x), z: sz(teamBases[0].z) },
+    { x: gates[1].x, z: gates[1].y },
+    { x: gates[0].x, z: gates[0].y },
   ];
 
   const table = new WeaponTable();
@@ -1054,46 +1232,45 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     ringDropped += ownTurrets.length - ring.length;
 
     return {
-      // The base structure IS the objective under the original rules, so the
-      // gate volume sits on it. With coreHp set, systemWinCheck uses the core;
-      // the gate still anchors lane termination and produced-unit heading.
-      // Features without a Cnet ground_cast stay layer 0 (see layerFromCast).
-      gate: { x: coreX, y: coreY, radius: 4 },
+      // The original's gate trigger box (gateOf). Features without a Cnet
+      // ground_cast stay layer 0 (see layerFromCast).
+      gate: gates[team],
+      // The HQ anchor, at the Dreadnought record — which is where the original
+      // stands its Dreadnought by node 0 of the Cnet, next to the HQ. No HP: the
+      // original has no destructible core (fcop-fidelity.md I6/R1).
       core: [coreX, coreY],
       groundConsole: [gcx, gcy],
       airConsole: [acx, acy],
       pad: { x: coreX, y: coreY, radius: 3 },
       // The ring carries each Turret actor's OWN shooter block, not just its
       // position. Dropping it left the ring on the global 28 m TURRET_RANGE
-      // against an imported engage_range of 6 m — see spawnBaseTurret in sim.ts.
+      // against an imported engage_range of 12 m — see spawnBaseTurret in sim.ts.
       // Every mission's ring shares the neutrals' parameters exactly, so these
       // intern to the same profile the capturable pads already use.
       turrets: ring.map((t) => ({
         x: round4(sx(t.x)),
         y: round4(sz(t.z)),
-        weapon: turretWeapon(t, table),
+        weapon: turretWeapon(t, table, true),
         hp: t.health,
         yaw: round4(rotToYaw(t.gunRotationRaw, true)),
       })),
-      defence: new Array(base.defenceWeaponCount).fill(0).map(() => ({
+      // The type-28 record IS the Dreadnought (fcop-re/ranges-turrets-capture.md
+      // top + Q4): the Juggernaut spawns where it stands, with its 3000 HP and its
+      // four hull guns, each its record's shooter on catalogue weapon 3. The
+      // mounts' own yaw (237°/s, relative to the hull) is not modelled — the guns
+      // stand at the hull and aim at their target — so their ±22.5° arc is not
+      // applied either.
+      juggernaut: {
         x: coreX,
         y: coreY,
-        weapon: table.intern({
-          range: rangeToCells(base.defenceWeapon.engageRangeRaw),
-          delay: toSimTicks(base.defenceWeapon.targetingDelayRaw, TICK_HZ),
-          damage: TURRET_DAMAGE,
-          // BaseShooter carries no turn_speed: the base's built-in guns do not
-          // slew, they just fire (fcop-logic.md §8.1).
-          turnSpeed: 0,
-          fovCos: fovToCos(base.defenceWeapon.fovRaw),
-        }),
-        hp: BASE_DEFENCE_HP,
-      })),
-      coreHp: base.health,
-      productionTicks: toSimTicks(base.spawnTicks, TICK_HZ),
-      // The original's spawn_limit is 1 per cycle, not a population cap. The cap
-      // is ours: without one, 2 bases at 12 units/min fill the entity store.
-      productionLimit: 8,
+        hp: base.health,
+        guns: base.gunCount,
+        weapon: table.intern(
+          shooterWeapon(base.gun, 0, { arc: false, hold: false, priority: false }),
+        ),
+      },
+      // The tank, jet and Flying Fortress spawner records (fcop-fidelity.md W3).
+      ...unitProfiles(logic, base.team, table),
     };
   });
 
@@ -1121,7 +1298,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // --- capturable turrets ------------------------------------------------
   const neutrals = [...logic.neutrals].sort((a, b) => a.id - b.id);
   const turretSpots = neutrals.map((t) => [round4(sx(t.x)), round4(sz(t.z))] as number[]);
-  const turretParams = neutrals.map((t) => turretWeapon(t, table));
+  const turretParams = neutrals.map((t) => turretWeapon(t, table, false));
   const turretYaw = neutrals.map((t) => round4(rotToYaw(t.gunRotationRaw, true)));
   // The original's Turret health, rather than the Phase-1 ARCHETYPE_MAX_HP
   // placeholder. Same value the ring turrets carry — they are the same actor kind.
@@ -1165,10 +1342,14 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   }[] = [];
   for (const t of [...logic.triggers].sort((a, b) => a.id - b.id)) {
     if (t.flags.includes("action_button")) continue; // those are the consoles
+    if (isGateTrigger(t)) continue; // those are the gates (gateOf)
     const x = round4(sx(t.x));
     const y = round4(sz(t.z));
-    const halfW = Math.max(0.5, round4(t.widthRaw / 8192 / 2));
-    const halfL = Math.max(0.5, round4(t.lengthRaw / 8192 / 2));
+    // Half-extent raw/1024 m (fcopLogic.ts TRIGGER_SCALE); the intruder's own
+    // radius is added by the sim's containment test (sim.ts insideVolume), as the
+    // original's test does.
+    const halfW = round4(triggerHalfExtent(t.widthRaw));
+    const halfL = round4(triggerHalfExtent(t.lengthRaw));
     const c0 = bases[0].core as number[];
     const c1 = bases[1].core as number[];
     const team = Math.hypot(x - c0[0], y - c0[1]) < Math.hypot(x - c1[0], y - c1[1]) ? 0 : 1;
@@ -1238,6 +1419,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     const roadBases = bases.map((b) => ({
       gate: { x: b.gate.x, y: b.gate.y },
       groundConsole: pointXY(b.groundConsole as number[] | { x: number; y: number }),
+      juggernaut: [b.juggernaut.x, b.juggernaut.y],
     }));
     const roads = carveRoads(pristineMap, wallsV, wallsH, graph, roadBases, arena.carveLimit);
     carved = roads.cleared;
@@ -1245,16 +1427,17 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // Opening the lane edges is not enough on its own: a corridor can be
     // drivable end to end and still be sealed off from the rest of the arena,
     // which is what leaves the outer ring's capture pads unreachable.
-    const spawns = out0Spawns(teamSpawns, field);
+    const spawns = out0Spawns(teamSpawns, field, arena.spawnHover);
     const repair = repairReachability(
       { ...raw, spawns, wallsV, wallsH },
       wallsV,
       wallsH,
       [
         ...graph.nodes.map((n) => ({ x: n.x, y: n.z, kind: "lane node" })),
-        // Capture pads and outposts are taken by standing NEAR them, not on
-        // them — see RepairTarget. The Warden's arrival radius is the stricter of
-        // the two rules the sim applies, so it is the one to hold the map to.
+        // Capture pads and outposts are taken from NEAR them, not on them — see
+        // RepairTarget. CAPTURE_RADIUS - 1 = 4 m is inside the smallest imported
+        // capture reach (4.0 m + the avatar's radius), so it is the bound to hold
+        // the map to.
         ...turretSpots.map(([x, y]) => ({ x, y, reach: CAPTURE_RADIUS - 1, kind: "capture pad" })),
         ...outpostSpots.map(([x, y]) => ({ x, y, reach: CAPTURE_RADIUS - 1, kind: "outpost" })),
         ...pickups.map((p) => ({ x: p.x, y: p.y, kind: "pickup" })),
@@ -1291,7 +1474,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     wallsH,
     // Face the enemy base: the original stores an X1Alpha rotation, but the
     // useful, symmetric answer is "look down your own lane".
-    spawns: out0Spawns(teamSpawns, field),
+    spawns: out0Spawns(teamSpawns, field, arena.spawnHover),
     basePlots,
     bases: bases as MapJson["bases"],
     lanes,
@@ -1303,6 +1486,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     turretParams,
     turretYaw,
     turretHp,
+    // The NeutralTurrets' capture range (fcop-re/ranges-turrets-capture.md Q2),
+    // uniform per arena; the sim adds the capturer's own radius.
+    captureRange: round4(captureRangeToCells(arena.neutralCaptureRaw)),
     laneGraph: {
       nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,
@@ -1398,7 +1584,7 @@ function checkArena(arena: FcopArena): boolean {
  * best shift, the frame is wrong and no budget increase will fix it.
  */
 function probeOffsets(arena: FcopArena): boolean {
-  const raw = JSON.parse(readFileSync(mapPathOf(arena), "utf8")) as MapJson;
+  const raw = terrainOnly(JSON.parse(readFileSync(mapPathOf(arena), "utf8")) as MapJson);
   const logic = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
   ) as Logic;
@@ -1407,8 +1593,8 @@ function probeOffsets(arena: FcopArena): boolean {
   ) as { wallsV: string[]; wallsH: string[] };
   const map = loadMapFromJson({ ...raw, wallsV: pristine.wallsV, wallsH: pristine.wallsH });
 
-  const field = fieldOf(logic.bases);
-  const teamNet = teamsOf(logic.bases, logic.spawns, field).map((t) => t.base.netId);
+  const field = fieldOf(logic.dreadnoughts);
+  const teamNet = teamsOf(logic.dreadnoughts, logic.spawns, field).map((t) => t.base.netId);
   const nets = ownedNets(logic, teamNet);
 
   // Every directed Cnet edge, in the raw actor frame.
@@ -1513,8 +1699,7 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
       ` bases ${round4(stats.field.separation)} cells apart`,
   );
   console.log(
-    `  spawns 2  bases 2 (${map.bases[0].turrets.length}+${map.bases[1].turrets.length} ring,` +
-      ` ${map.bases[0].defence.length}+${map.bases[1].defence.length} built-in defence)` +
+    `  spawns 2  bases 2 (${map.bases[0].turrets.length}+${map.bases[1].turrets.length} ring)` +
       `  capturables ${map.turretSpots.length}  outposts ${map.outpostSpots.length}`,
   );
   console.log(
@@ -1525,7 +1710,8 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
     `  lane graph ${graph.nodes.length} nodes, polyline route ${map.lanes[0].length} waypoints`,
   );
   console.log(
-    `  core HP ${map.bases[0].coreHp}  production every ${map.bases[0].productionTicks} ticks`,
+    `  gates ${map.bases.map((b) => `${b.gate.halfW}x${b.gate.halfL}`).join(", ")} half-extents;` +
+      ` Juggernaut ${map.bases[0].juggernaut?.hp} HP, ${map.bases[0].juggernaut?.guns} guns`,
   );
   console.log(
     `  wall bits carved to open the original roads: ${carved}/${arena.carveLimit} allowed`,
@@ -1595,12 +1781,12 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
       const per = `${round4(step)} m/tick`;
       if (w.reached) {
         console.log(
-          `  team ${team} road at ${per}: console -> core in ${(w.ticks / TICK_HZ).toFixed(1)} s`,
+          `  team ${team} road at ${per}: console -> enemy gate in ${(w.ticks / TICK_HZ).toFixed(1)} s`,
         );
       } else {
         flag(
           `team ${team} cannot drive its road at ${per}: stopped on leg ${w.leg}` +
-            ` at (${round4(w.x)}, ${round4(w.y)}), ${round4(w.distanceToCore)} m from the core` +
+            ` at (${round4(w.x)}, ${round4(w.y)}), ${round4(w.distanceToGate)} m from the gate` +
             `, aiming at node ${w.node}`,
         );
       }

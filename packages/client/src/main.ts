@@ -21,12 +21,10 @@ import {
   ANIM_HOVER,
   ANIM_TRANSFORMING,
   ARCHETYPE,
-  CAPTURE_TICKS,
   CONSOLE_HOLD_TICKS,
   createSim,
   createTickInputs,
   EV_CAPTURE,
-  EV_CORE_HIT,
   EV_DEATH,
   EV_EXPLOSION,
   EV_HIT,
@@ -38,7 +36,6 @@ import {
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
-  MATCH_SLOT_CORE_FRAC,
   MATCH_SLOT_POINTS,
   MATCH_SNAPSHOT_LEN,
   MATCH_TICK,
@@ -881,10 +878,8 @@ function showMatchEnd(winner: number): void {
   matchEndShown = true;
   setMatchPaused(false); // the end card replaces the pause card, never stacks
   const slot = views[0]?.slot ?? 0;
-  // Read the win condition off the snapshot, not sim internals (renderer
-  // rule 4): the core fraction is -1 exactly on gate (§1) arenas.
-  const hasCore = matchSnap[matchSlotOffset(slot) + MATCH_SLOT_CORE_FRAC] >= 0;
-  const text = matchEndText(winner, slot, hasCore);
+  // Every arena ends at a gate since SIM_VERSION 32 (the original has no core).
+  const text = matchEndText(winner, slot);
   endTitle.textContent = text.title;
   endCard.classList.toggle("is-victory", winner === slot);
   endSubtitle.textContent = text.subtitle;
@@ -1460,8 +1455,7 @@ function resolveEventPosition(
   switch (type) {
     // Already quantized to x*16 / y*16 by the sim.
     case EV_EXPLOSION:
-    case EV_PICKUP:
-    case EV_CORE_HIT: {
+    case EV_PICKUP: {
       out[0] = a / 16;
       out[2] = b / 16;
       out[1] = 1.5;
@@ -1733,11 +1727,7 @@ function refreshHud(fps: number): void {
     if (archetype >= 1 && archetype <= 4 && (team === 0 || team === 1)) unitCounts[team] += 1;
   }
   const banner =
-    sim.winner >= 0
-      ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} ${
-          sim.coreHp.length > 0 ? "RAZED THE BASE" : "BREACHED THE GATE"
-        }`
-      : "";
+    sim.winner >= 0 ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} BREACHED THE GATE` : "";
   for (let v = 0; v < views.length; v++) {
     views[v].hud.textContent = hudText(views[v], fps, banner);
   }
@@ -1754,11 +1744,6 @@ function hudText(view: PlayerView, fps: number, banner: string): string {
   let progress = "";
   if (sim.buyTarget[slot] >= 0)
     progress += `  buying ${sim.buyProgress[slot]}/${CONSOLE_HOLD_TICKS}`;
-  for (let k = 0; k < sim.captureTeam.length; k++) {
-    if (sim.captureTeam[k] === slot) {
-      progress += `  capturing ${Math.round((sim.captureProgress[k] / CAPTURE_TICKS) * 100)}%`;
-    }
-  }
   let ownOutposts = 0;
   for (let k = 0; k < sim.outpostOwner.length; k++) {
     if (sim.outpostOwner[k] === slot) ownOutposts += 1;
@@ -1790,7 +1775,7 @@ let lastSimTime = -1;
  * `dtMs` is capped at 250 ms so a backgrounded tab cannot spiral the
  * accumulator, which means one long frame can hand a wall-clock effect a third
  * of a second in a single go. Harmless for a 0.09 s tracer; ruinous for the
- * transformation, whose 0.8 s has to line up tick for tick with the sim's
+ * transformation, whose 1.37 s has to line up tick for tick with the sim's
  * transform lock or the mech finishes changing shape and then stands frozen.
  *
  * Zero while the sim is paused or has not started, so the pin harness can
@@ -1984,7 +1969,6 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
     flyMode || orbitMode
       ? undefined
       : createMatchHud(views[0]?.slot ?? 0, {
-          hasCore: map.bases.some((b) => b.coreHp > 0),
           outpostTotal: map.outpostSpots.length,
         });
   layoutViews(views, "v", innerWidth, innerHeight, textHudInset());

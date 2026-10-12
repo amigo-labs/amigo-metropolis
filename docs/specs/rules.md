@@ -7,7 +7,8 @@ Design pillars, in priority order:
 1. **The player is escort and disruptor, never the win condition.** You cannot win
    by attacking the enemy base yourself. Only your units can breach.
 2. **Presence is currency.** Building happens at physical consoles; capturing
-   requires standing there. Every decision costs map control.
+   requires going there and pressing the action key. Every decision costs map
+   control.
 3. **Units are dumb on purpose.** They follow lanes blindly and die easily.
    Their stupidity creates the escort gameplay.
 4. **Readable in 5 minutes, deep over 50 matches.**
@@ -17,26 +18,70 @@ Design pillars, in priority order:
 - 1v1. Each side: one **Base**, one **Avatar** (player- or AI-controlled).
 - Arena contains neutral **Turrets** and neutral **Outposts**.
 - **Win condition: a friendly ground unit (Runner or Juggernaut) physically enters
-  the enemy Base gate.** Nothing else ends the match.
+  the enemy Base gate.** Nothing else decides the match — not a Guardian, not an
+  avatar. The breach decides it; the match then plays on for a 5.83 s outro
+  (`MATCH_OUTRO_TICKS`, the original's 1750-tick countdown) and ends. A second
+  breach during the outro changes nothing. This is also the original Precinct
+  Assault's rule (§9; `fcop-fidelity.md` R1).
 - No match timer in v1 (original had none; revisit if stalemates emerge).
 
 ## 2. The Avatar
 
-- Transforming vehicle with two modes (toggle, ~0.8 s transform lock):
+- Transforming vehicle with two modes (toggle, 1.37 s transformation):
   - **Walker**: slower, can jump, precise handling, better on slopes.
-  - **Hover**: fast, drifty (low traction), can cross water, cannot jump,
-    steep slopes impassable.
-- The lock (`TRANSFORM_LOCK_TICKS`, 24) is a **commitment**, not a formality: no
-  moving, no jumping, no weapons for its whole length. It was 15 while the change
-  was an invisible one-frame mesh swap; it grew when the change grew an animation
-  to play (`assets.md` §4), and the extra 0.3 s of being a stationary target is
-  the deliberate price of that. Deciding to change form is a real decision.
-- **Drive only in facing direction** (no holonomic strafe): throttle is the
-  stick component along aim/lock heading; reverse is allowed. Turn by aiming.
+  - **Hover**: fast, drifty (low traction), can cross water, cannot jump (the
+    jump button brakes it), steep slopes impassable.
+- **Both forms move by the original's models** (SIM_VERSION 39,
+  `fcop-fidelity.md` P4/P5; `fcop-re/player-and-weapons.md` §3-§5), run at 30 Hz
+  as 1.25 of the original's 37.5 Hz movement steps in closed form (`balance.ts`
+  "X1-Alpha movement"): every step `v += push - drag * v`, gravity 26.1 m/s² to a
+  14.06 m/s terminal fall in both forms, and a landing over 10.78 m/s costs
+  health (the original's absolute 1000 f(x) HP).
+- **Health: 1250** (`AVATAR_HP`, SIM_VERSION 41; `fcop-fidelity.md` P1), the
+  original's NORMAL mech: every PA X1Alpha record stores 1000 and the default
+  NORMAL pick scales it by 125 % (HARD 1000, EASY 1500; Metropolis has no
+  difficulty pick and models NORMAL). No regeneration in the original; the own
+  base pad's 15 hp/s repair is Metropolis' own (it was 300 HP until v41).
+  | | Walker | Hover |
+  |---|---|---|
+  | fore/aft | **4.69 m/s**, 95 % in 0.17 s | **9.38 m/s**, 95 % in 1.56 s |
+  | strafe | 3.13 m/s | 2.93 m/s |
+  | released | stops dead under 0.59 m/s (~0.1 s) | coasts, half-life 0.36 s, stops under 0.15 m/s; after ~6 s idle the drag ramps up |
+  | brake | — | the jump button: drag 0.15 a step (0.05 coasting) |
+  | cap | — | 10.7 m/s horizontal |
+  | turn | 105°/s at rest, falling linearly to 0 at 18.75 m/s (79°/s running); none in the air | 158°/s after a ~0.26 s ramp; also in the air |
+  | ride | on the ground | 0.5 m over ground or water; off a ledge it falls |
+  | slope | pushed downhill above 17.5°, climbs to a 1.04 gradient | pushed downhill above 14.5° |
+  A diagonal (fore/aft + strafe) pushes as hard as straight ahead, at 45°. The
+  stick is read as the original's digital input — eight 45° sectors around the
+  hull's facing — and its length scales the push, as the original's stick path
+  does; there is no slow modifier (the original's halves the speeds and holds a
+  hover at ledges), so a half-pushed stick is the slow row.
+- The change (`TRANSFORM_LOCK_TICKS`, **41 ticks = 1.365 s**, the original's
+  `player_transform_step`; SIM_VERSION 38, `fcop-fidelity.md` P3) is a
+  **commitment**: no driving, no turning, no jumping and no lock cycling for its
+  whole length, while the hull **coasts on hover physics** in both directions
+  and its ride height ramps. The **weapons stay live** — all three slots fire
+  through it, as the original's do (Metropolis locked them until v38). It is
+  refused while a change is running and **on water in either form**. It was 15
+  ticks while the change was a one-frame mesh swap and 24 while it was sized to
+  the morph (`assets.md` §4); the morph now plays over the original's length.
+  The original triggers it with a two-button chord; the toggle key is our
+  control choice.
+- **Drive and strafe relative to the facing**, as the original does: the stick's
+  component along the facing drives fore/aft, its component across strafes
+  (since SIM_VERSION 39; it was a throttle along the facing only, and sideways
+  stick did nothing). **Turn by aiming**: the aim (or the soft-lock, or the
+  stick when nothing aims) is the heading the hull TURNS to, at its form's rate
+  — the original turns with buttons, Metropolis steers by an absolute heading
+  (`input.spec.md` §4.1), so the rate is applied toward it.
 - The slope asymmetry is **deliberate**: `AVATAR_HOVER_MAX_SLOPE` (0.5) is
-  stricter than `AVATAR_WALKER_MAX_SLOPE` (0.6), because hover rides clearance
+  stricter than `AVATAR_WALKER_MAX_SLOPE` (1.04), because hover rides clearance
   and trades terrain for speed and water. Each form has ground the other cannot
-  take, and neither is meant to go everywhere.
+  take, and neither is meant to go everywhere. The walker's gate is where the
+  original's slope push stops its walk (the original has no hard gate); it was
+  0.6, which the original's walker walks straight up. The hover's is Metropolis'
+  issue-#34 rule (the original's push stalls a hover near 0.62).
 - What each form measures a climb **over** is part of the asymmetry, not an
   implementation detail (issue #34). The walker judges the step it is taking. The
   hover judges the step AND the ground `HOVER_CUSHION_SPAN` (2.4 m, its own
@@ -45,93 +90,172 @@ Design pillars, in priority order:
   Judged per tick instead, the two are one reading: on a bilinear heightfield a
   0.17 m kerb is a 0.58-gradient wall while you are on it, which is how the hover
   used to be locked out of 10-13% of every FCOP arena's road network, la-cantina
-  included. The step it clears this way tops out at span × limit = **1.2 m**,
-  under the walker's 1.4 m jump, so the walker still owns more ground on both
-  axes — and the hover owns some the walker cannot jump at all, 2 lane edges each
-  on proving-ground and bug-hunt.
+  included. The step it clears this way tops out at span × limit = **1.2 m**.
+  Since SIM_VERSION 39 that is a little over the walker's one-cell step (1.04 m),
+  so the hover owns single steps of 1.04-1.2 m with flat ground beyond (2, 6 and
+  7 lane edges on urban-jungle, proving-ground and bug-hunt), while the walker
+  owns all sustained climbing — twice the hover's gradient. (Until v39 the
+  walker's air-steered 1.4 m jump outreached the cushion.)
 - Neither of those makes the originals' terrain uniformly drivable, and it should
-  not: their roads also carry 1.3-3 m steps. Those stay walls for the hover, which
-  has no jump — transform or route around. `fcop-arenas.test.ts` pins per arena
-  what each form cannot pass, and how many teams can drive their whole road
-  network in hover (7 of 8, and la-cantina is clean in both forms).
-- The **jump** is the walker's answer to a step it cannot climb: the slope gate
-  is skipped while airborne, so an 8 m/s launch against 20 m/s² gravity clears a
-  ledge up to ~1.4 m. On the imported FCOP arenas that covers 70-100% of the
-  original terrain's blocking steps; the rest are 1.4-2.5 m walls to route
-  around, and a walk-only path to the enemy base exists on every arena.
-  `fcop-arenas.test.ts` pins both counts per arena.
-- Same three weapon slots in both modes: primary (hitscan-ish rapid),
-  heavy (projectile, AoE), special (slow, high damage).
+  not: their roads also carry 1.3-3 m steps. Those are walls for both forms —
+  transform or route around. `fcop-arenas.test.ts` pins per arena what each form
+  cannot pass, and how many teams can drive their whole road network in hover
+  (7 of 8, and la-cantina is clean in both forms). A climb-free walking path to
+  the enemy base exists on every arena.
+- The **jumps** are the original's three, chosen by one button the way it
+  chooses them (SIM_VERSION 39): at a run, the **leap** (7.32 m/s up, +1.76 m/s
+  forward on top of the run, apex 0.91 m); otherwise, with ground rising over
+  0.34 m within a metre ahead, the **high jump** (8.79 m/s straight up, apex
+  1.37 m, and a +2.11 m/s forward lunge at 0.24 s unless that rise is over
+  1.1 m); otherwise the **hop** (6.45 m/s up and +4.69 m/s forward). No air
+  control, no turning in the air, and no jumping off ground steeper than 38.7°.
+  The original made the high jump for ledges with vertical faces; on a
+  heightfield every step is a one-cell ramp, and the jumps climb nothing the
+  walk does not (`units.ts` JUMPABLE_RISE 0, was 1.4 with an air-steered jump),
+  so the walker's reach on the imported arenas is its walk: the 1.04-1.4 m steps
+  the old jump cleared are walls now, the 0.6-1.04 m ones it had to jump it
+  walks.
+- **Water**: the hover rides it. A walker that steps into water transforms to
+  hover on its own (the original's NORMAL rule; HARD's sinking and drowning are
+  not modelled — Metropolis has no player difficulty and models NORMAL).
+- Same three weapon slots in both modes: Gun, Heavy, Special.
 - **The weapon catalog is the original Precinct Assault set only** (SIM_VERSION
   26): **ten weapons**, four Guns / three Heavies / three Specials. Default kit
   matches the original weapons screen: Powered Mini-Gun · Hell Fire 2000 ·
   Mortar Launcher.
-  | Slot | Weapons |
+  | Slot | Weapons (original loadout code) |
   |------|---------|
-  | Gun | Powered Mini-Gun, Gatling Laser, Flamethrower, Electric Gun |
-  | Heavy | Hell Fire 2000, Concussion Beam, Hyper Velocity Rocket |
-  | Special | Mortar Launcher, Pop-Up Mines, Shockwave Generator |
-- Damage and firing rate come from the original front-end panels (`febmp.bin` →
-  134x40, green rate + red damage bars in a 55 px trough). Extracted panels and
-  icons ship under `packages/client/public/ui/weapons/`. There is no finer
-  numeric table in the executable. Arithmetic: the "Non-default catalog weapons"
-  block in `balance.ts`.
-- The bars are **ratios**, so they are anchored **per slot**: each slot's
-  index-0 weapon keeps this game's numbers and the rest scale against it inside
-  that slot. Anchoring across slots does not work — it puts Hell Fire's cooldown
-  at 7 ticks against 24.
-- **Declared deviations, none hidden:**
-  1. The bars do **not** distinguish Mini-Gun from Gatling Laser — both read
-     55/55 rate and 3/55 damage. The two keep their range difference (40 vs 44)
-     as ours.
-  2. Ranges, projectile speeds, TTLs, AoE radii, magazine sizes, mine arming
-     and shockwave pulse radius are **ours throughout** — the panels carry
-     rate and damage only.
-- **Deliveries:** Pop-Up Mines place a proximity charge at the avatar's feet
-  (arm delay, then trip on enemy contact). Shockwave Generator is a self-centred
-  pulse — no aim, no projectile travel.
+  | Gun | Powered Mini-Gun 0x00, Gatling Laser 0x01, Flamethrower 0x02, Electric Gun 0x03 |
+  | Heavy | Hell Fire 2000 0x10, Concussion Beam 0x12, Hyper Velocity Rocket 0x13 |
+  | Special | Mortar Launcher 0x20, Pop-Up Mines 0x22, Shockwave Generator 0x23 |
+  The original's other five — Riot Shield 0x05, Fusion Torpedo 0x14, K-9 Drone
+  0x15, Plasma Flare 0x21, Grenade Launcher 0x24 — are not offered by the menu
+  and not adopted (`weapons.ts` NOT_ADOPTED_CODES).
+- **Every number is the original's own weapon record** (SIM_VERSION 41;
+  `fcop-fidelity.md` W1; `fcop-re/player-and-weapons.md` §7,
+  `player-weapons.json`): each weapon's block A (as issued) and block B (powered
+  up, §9), converted the way the loader converts them (`balance.ts`
+  WEAPON_RECORDS, `weapons.ts`). They replace the rate and damage scaled off the
+  front-end panel bars, and the ranges, speeds, TTLs, blast radii and magazines
+  Metropolis had invented. Damage is absolute HP against the 1250-HP mech.
+  | Weapon | Block A |
+  |---|---|
+  | Powered Mini-Gun | hitscan on the lock, 1 dmg every tick (30/s), 7500 rounds, 12 m |
+  | Gatling Laser | the same, 6250 rounds |
+  | Flamethrower | 6 dmg on the lock, 3750 rounds, 12 m (cadence ours, below) |
+  | Electric Gun | 3 dmg on the lock every 2nd tick, 3750 rounds, 9.6 m |
+  | Hell Fire 2000 | homing missile, 25 dmg, every 0.5 s, 181 rounds, 1.98 → 15.8 m/s, 16 m |
+  | Concussion Beam | beam to the lock bursting for 50 in 1 m, every 1.0 s, 93 rounds, 8 m |
+  | Hyper Velocity Rocket | 4 lead-aimed rockets on 4 ticks every 1.23 s, 30 dmg, 150 rounds, 2.5 → 19.9 m/s, 16 m |
+  | Mortar Launcher | lobbed shell, 200 in a 3.2 m blast, every 2.03 s, 31 rounds, 7.6 m/s under 6 m/s² (reach 9.7 m) |
+  | Pop-Up Mines | dropped charge, sprung by an enemy within 2 m + its radius, 600 in a 5.6 m blast 1 s later, every 1.0 s, 37 |
+  | Shockwave Generator | self-centred pulse, 300 within 6 m, every 3.03 s, 25 |
+  Ammunition is the record's NORMAL value (×1.25) and every slot has a
+  magazine, the Gun's included (it was infinite). Pads and ammo pickups fill a
+  slot to its ceiling.
+- **The trigger** (`player_fire_slot`): Gun and Heavy fire on every tick they
+  are held; each round ADDS its gap (raw × 4096/218 engine units) to the slot's
+  cooldown, which loses 10 units a tick floored at zero, and a round goes out
+  whenever it is back at zero. So a gap of 0 fires every tick — **30 rounds a
+  second, the original's frame-bound rate pinned at 30 fps** — a gap of g every
+  ⌈g / 10⌉ ticks, and a negative round gap carries over (the Hyper Velocity
+  Rocket's burst). Special is held-fire too; it becomes press-to-fire, with a
+  second press detonating the kept round, only with a kept-round weapon (Plasma
+  Flare, Grenade), neither of which is offered.
+- **The lock decides what is hit** (`fcop-fidelity.md` W2; `input.spec.md`
+  §4.4): 12 m horizontal, acquired within ±12.5° of the facing (automatically
+  whenever there is none), held within ±25°. The hitscan guns damage **only the
+  lock** — with no lock the line does nothing, except a powered (block B) gun
+  with a blast, which area-damages where the line ends — and a wall on the line
+  stops them. Hell Fire 2000 homes on the lock; the Hyper Velocity Rocket is
+  lead-aimed at it and flies straight; arced shells solve the original's
+  ballistic (the high root: a lob) to the lock, or to 8 m ahead with none.
+  Missiles launch at an eighth of their top speed and accelerate to it, and fly
+  their record's range.
+- **Blasts fall off linearly over horizontal distance**, centre to centre:
+  damage × (r − d) / r (`cact_area_damage`). Rounds without a blast damage only
+  what they strike.
+- **Declared deviations, none hidden** (each waits on the RE,
+  `fcop-re/player-and-weapons.md` §9):
+  1. How the Flamethrower, the Concussion Beam and the Shockwave spread their
+     damage over time was not established. They keep Metropolis' time profile
+     (a flame hit every 5 ticks, an instant beam, an instant flat pulse) with the
+     original's per-hit damage, radius and reach.
+  2. The homing turn rate (`MISSILE_TURN_RATE`, ours: 180°/s), the Hyper
+     Velocity Rocket's exact lead, the powered Hell Fire's split (three missiles
+     fanned at launch, ours) and the powered Mortar's fragment spread (ours).
+  3. Mines: whether an untriggered mine goes off after its 5 s lifetime; it
+     keeps Metropolis' 30 s silent despawn and 0.5 s arming delay, and is
+     placed at the feet rather than dropped.
+  4. The powered Electric Gun's arc to two more targets is not modelled.
+- **Deliveries:** Pop-Up Mines place a proximity charge at the avatar's feet.
+  Shockwave Generator is a self-centred pulse — no aim, no projectile travel.
 - Slot membership: the **Concussion Beam is a Heavy**, not a Special.
-- Ammo: primary infinite; heavy/special finite, refilled at own Base/Outpost pads.
-- Death: respawn at own Base after `RESPAWN_TICKS` (placeholder: 8 s).
-  Killer's owner earns **10 pts**.
-- The Avatar deals no damage to the enemy Base core (pillar 1). Base *turrets*
-  are attackable by anyone.
+- Ammo refills at own Base/Outpost pads.
+- Death: the avatar respawns **4 s** after going down (`RESPAWN_TICKS` 120, the
+  original's `player_op4` countdown; SIM_VERSION 37, `fcop-fidelity.md` P2) at its
+  team's fixed spawn, facing the spawn facing, in the spawn's form (walker, or
+  hover where the record asks for it — both of hollywood-keys'). It comes back
+  with full health and full ammunition and **loses its power-up**; a running
+  cloak or invulnerability keeps counting down. While down it is not drawn and
+  cannot be hit, because it is not there. There are no lives. Going down pays
+  the **other side 10 pts and costs the downed side 10** (never below 0),
+  whoever did it, settled when the avatar respawns (the original's rule, §3).
+  The Warden comes back after the Sky Captain's (14 − level) × 0.5 s (§7).
+- The Base core is indestructible on every arena (pillar 1, and the original has
+  no destructible core — §9). Base *turrets* are attackable by anyone.
 
 ## 3. Economy
 
-One resource: **Points**. Both players start with `STARTING_POINTS`
-(placeholder: 20 — an opening wave, not a Juggernaut). Earned by:
+One resource: **Points**. Both players start with `STARTING_POINTS` = **10**
+(the Warden on 0 and a free opening order, §7).
+These are the original Precinct Assault's numbers (SIM_VERSION 33;
+`fcop-fidelity.md` R2-R10, `fcop-re/ai-and-rules.md` §2). None of them reads
+arena-specific data, so they apply on every arena, district-01 included.
 
-| Event                          | Points |
-|--------------------------------|--------|
-| Capture neutral turret         | 3      |
-| Destroy enemy-owned turret     | 2      |
-| Destroy enemy unit (any)       | 1      |
-| Destroy enemy Base turret      | 2      |
-| Kill enemy Avatar              | 10     |
-| Trickle income                 | 1 per 10 s |
+**There is no income over time.** Points come only from these events, and a
+death pays the **other** side whoever caused it — the original pays from the
+dying actor's own script, not from a kill credit, so a unit lost to friendly
+fire or the terrain still pays the enemy:
+
+| Event                                              | Points |
+|----------------------------------------------------|--------|
+| An enemy Runner or Guardian dies                   | +1     |
+| An enemy Juggernaut or Fortress dies               | +5     |
+| An enemy base turret dies                          | +1     |
+| A turret the enemy captured dies                   | +1     |
+| You capture a neutral turret                       | +1     |
+| The enemy avatar goes down (paid at its respawn; the Warden's when it falls) | +10 |
+| Your own avatar goes down (same timing)            | −10, never below 0 |
+
+This replaced an invented table (start 20, 1 point every 10 s, capture 3, a
+turret 2 and a unit 1 to the killer, 10 to an avatar's killer).
 
 Spending (at Base consoles / Outpost consoles):
 
-| Purchase        | At Base | At Outpost | Limit        |
+| Purchase        | At Base | At Outpost | Limit (alive, per side) |
 |-----------------|---------|------------|--------------|
-| Runner (tank)   | 1       | 2          | none         |
-| Guardian (plane)| 1       | 2          | none         |
-| Claim Outpost   | 30 (at the outpost itself) | —  | per outpost  |
-| Juggernaut      | 50      | not available | 1 alive at a time |
-| Fortress        | 50      | not available | 1 alive at a time |
+| Runner (tank)   | 1       | 2          | 20           |
+| Guardian (plane)| 1       | 2          | 20           |
+| Claim Outpost   | 30 (drive into its claim zone) | —  | per outpost  |
+| Juggernaut      | 50      | not available | 1          |
+| Fortress        | 50      | not available | 1          |
+
+The Runner and Guardian caps count base and outpost purchases together. The
+Juggernaut and Fortress open the first time a side holds 50 points and stay
+open for the rest of the match (the original enables their zones then).
 
 Buying = drive Avatar onto the console pad, hold interact for 0.5 s per unit.
+Claiming an outpost needs no button: entering its claim zone with 30 points
+claims it (§5).
 Points are visible to both players (open information, like the original).
 
 ## 4. Units
 
-All units are unarmored-by-cleverness: no target prioritization, no retreating.
+All units are unarmored-by-cleverness: no retreating, no plan.
 
 - **Runner** — ground drone. Spawns at the structure that built it, follows the
-  lane network toward the enemy Base, attacks whatever blocks its path
-  (turrets/units in range), otherwise beelines the gate. Fragile.
-  **Reaching the enemy gate = victory.**
+  roads toward the enemy Base. Fragile. **Reaching the enemy gate = victory.**
 - **Guardian** — air drone. Built at Base: patrols a radius around own Base and
   engages enemy air/ground that enters. Built at Outpost: flies toward the enemy
   Base and attacks it and its defenders (offensive mode). Same stats, spawn
@@ -141,10 +265,55 @@ All units are unarmored-by-cleverness: no target prioritization, no retreating.
 - **Fortress** — heavy Guardian, defensive only, large patrol radius, homing
   shots, long lifetime. The anti-rush insurance.
 
+**On the imported arenas the ground units are the original's route followers**
+(SIM_VERSION 44; `fcop-fidelity.md` U1/U2, `fcop-re/ai-and-rules.md` §4). Each
+side's Runners and Juggernaut drive that side's own original road net, a directed
+graph, and choose their way at every node:
+- a **Runner** (the PA tank) seeks: on 60 % of its steps it looks for the nearest
+  enemy (any enemy actor — avatar, unit, turret, the Warden; not a cloaked
+  avatar) within **16 m** and takes the link whose step points most toward it,
+  judged by octaves of the dot product, so two links within a factor of two are a
+  tie; with nobody that close, and on the other 40 % of steps, it steps at random;
+- a **Juggernaut** (the Dreadnought) always steps at random;
+- a link already taken by a friendly follower counts an octave less per follower
+  (the original's traffic avoidance); a follower **never steps straight back**,
+  and takes the node before last only from a dead end; ties are a coin flip;
+- they drive at **1.98 m/s** (both; the original's route block), on the road
+  itself, and **never stop to fight**: their guns fire on the move. Traffic only
+  slows them, for 1 s at a time: behind a friendly follower heading for the same
+  node they take half its speed, a non-follower within 2 m dead ahead stops
+  them, a slightly further one slows them; the Juggernaut ignores traffic.
+The original's nets are built so that this walk always reaches the enemy gate —
+measured over 400 random walks per side on all six arenas, every one gets there,
+along 150–220 m of road on average (about 75–110 s unopposed). This replaced
+Metropolis' committed next-hop signposts with a seeded coin at forks, 4 m/s
+Runners and 2.5 m/s Juggernauts that halted for anything in reach.
+
+**Targeting on the imported arenas is the original's too** (SIM_VERSION 45,
+`fcop-fidelity.md` U4): a unit keeps its target while it lives, stays hostile
+and stays within its 12 m reach, and looks for another only on its targeting
+delay — 2.0 s for a Runner or Guardian, 1.0 s for the Juggernaut's guns and the
+Fortress — so it does not switch to whatever comes nearer. A **Guardian or
+Fortress** is the original's aircraft: every 3.0–4.7 s it looks for the nearest
+enemy within **56 m** (Fortress **63.2 m**), flies at it while it stays inside a
+patrol leash around the spawner it was built at (±24 × ±20 m, Fortress ±30 ×
+±28 m: the base, or the outpost it was bought at) and fires only then; pulled off
+the leash it cruises back for 4–11 s with its gun silent. It never stops: inside
+1 m of its target it reverses, so it circles and jitters about it.
+
+Elsewhere (district-01, the test maps) units follow Metropolis' authored lane
+polylines, attack whatever blocks their path (an enemy in attack range halts
+them) and otherwise beeline the gate.
+
 Initial stats (all in `balance.ts`, all placeholders):
 Runner 60 HP / 8 dps / speed 4. Guardian 50 HP / 10 dps / speed 7.
 Juggernaut 600 HP / 20 dps / speed 2.5. Fortress 500 HP / 25 dps / speed 6.
-Avatar 300 HP; walker speed 5, hover speed 9.
+Avatar 1250 HP (the original's, §2); walker 4.69 m/s, hover 9.38 m/s.
+On the imported arenas the units' HP and weapons are the original's spawner
+records instead (§9: tank and jet 150 HP with 50-damage rounds every second,
+Fortress 2000 HP with guided 100-damage rounds every 0.5 s, all at 12 m), the
+ground units drive at 1.98 m/s, and the jet and Flying Fortress fly at their
+records' 4.0 and 4.8 m/s.
 
 ## 5. Structures
 
@@ -152,69 +321,134 @@ Avatar 300 HP; walker speed 5, hover speed 9.
   ammo/repair pad, ring of 4–6 **Base turrets**. Base turrets respawn
   120 s after destruction (attack timing matters — 60 s let the ring replace
   itself as fast as a superplane could strip it at authentic density; issue
-  #31). Base core is indestructible under §1; under §9 it is the win target.
-- **Neutral turret**: capture by Avatar standing in radius for 3 s uncontested.
-  Fires at enemies of its owner. Can be destroyed (reverts to neutral husk,
-  respawns neutral after 45 s).
-- **Outpost**: claimable for 30 pts at its console. Grants: forward spawn for
-  Runners/Guardians (at 2× cost), ammo pad, 2 own turret slots. Enemy can
-  destroy an owned outpost's console to revert it to neutral (claimable again).
+  #31). Base core is indestructible: a centrepiece and anchor, never a target
+  (§9: the original's "core" was its Dreadnought's spawn point).
+- **Neutral turret**: dormant until captured (it shoots nobody). Captured
+  **instantly** — no timer, no contest — by the original's rule (SIM_VERSION 34;
+  `fcop-fidelity.md` R12, `fcop-re/ranges-turrets-capture.md` Q2):
+  - an avatar **pressing the action key** (Interact, rising edge) within the
+    turret's capture range plus its own radius, measured in 3D;
+  - a **Runner** (tank) simply coming that close, also in 3D;
+  - the **Warden** flying over it (flat distance, no button), as the original's
+    Sky Captain does.
+  Guardians, Juggernauts and Fortresses never capture. The range is the
+  original's `(range + 1024) / 512` m on the imported arenas — 4.0 m on
+  la-cantina, urban-jungle and venice-beach, 5.2 m on proving-ground and bug-hunt,
+  5.6 m on hollywood-keys — and `CAPTURE_RADIUS` (5 m, ours) on district-01.
+  Capturing pays +1 (§3). A captured turret fires at enemies of its owner and stays
+  captured until it is destroyed; it then respawns **neutral after 25 s** (the
+  original's spawner period; was 45 s). This used to be "stand in a 5 m radius for
+  3 s uncontested, avatars only".
+- **Outpost**: claimed by **driving into its claim zone with 30 pts** — no button,
+  no hold; −30, first come first served (the original's touch zone, SIM_VERSION
+  35, `fcop-fidelity.md` R14). The zone is `OUTPOST_CLAIM_RADIUS` around the
+  outpost console, which stays as its visual anchor. A player's avatar trips it;
+  the Warden claims only when it has decided to (the original's Sky Captain claims
+  by a script decision, not by flying over). Grants: forward spawn for
+  Runners/Guardians (at 2× cost) and an ammo pad.
+  - On the **imported arenas a claim is permanent**, as the original's is: the
+    console takes no damage and nothing targets it.
+  - On district-01 (Metropolis' own outposts-as-a-menu, a deliberate deviation)
+    the enemy can still destroy an owned outpost's console to revert it to
+    neutral (claimable again after 10 s).
+  - The original also opens the owner's two outpost-turret spawners there (25 s
+    respawn) and shuts the enemy's. Metropolis' outposts have no turret slots —
+    on the imported arenas they are two invented mid-field pads, while the
+    original has four outposts with their own claim zones, pads and turret
+    plates — so that part waits on importing the original's outposts (ledger
+    R14).
 
 ## 6. Arena anatomy
 
 - Logical playfield: 2D plane + heightfield (see architecture.md). Water areas:
   hover-only. Jump-only ledges: walker shortcuts.
 - 2–3 ground lanes between the bases; lane graph is authored per map
-  (waypoint polylines, no runtime pathfinding in v1). **Amended (§9):** an arena
-  may instead carry the original's waypoint *graph*. That is still not runtime
-  pathfinding — the routes are searched once at authoring time and committed as
-  a next-hop signpost per (team, node), so a unit reads one array entry per
-  waypoint and, at a fork, flips one seeded coin. It never searches.
-  A unit on that graph advances at `GRAPH_WAYPOINT_RADIUS` (0.5 m), not the
-  polylines' 3 m, and the difference is load-bearing rather than cosmetic: an
-  original road is a metre-wide street in a wall lattice imported at 1 m
-  resolution, and the only path the arena pipeline validates as walkable is the
-  edge itself. A unit that advances 3 m early leaves that edge and cuts the
-  corner through whatever the original built there. The pipeline validates the
-  two beelines the sim generates around the graph as well — production console to
-  entry node, road's far end to enemy gate — because those are equally part of
-  the route a produced unit drives (issue #30).
+  (waypoint polylines, no runtime pathfinding in v1). **Amended (§9, §4):** an
+  arena may instead carry the original's waypoint *graph*, one directed net per
+  side. That is still not runtime pathfinding: since SIM_VERSION 44 a unit makes
+  the original's local step choice at each node — it scores at most four
+  neighbours against the nearest enemy, or at random — and never searches a
+  route. (Until then the routes were searched once at authoring time and
+  committed as next-hop signposts; the arena pipeline still computes them, and
+  uses them with its road walker to prove every road's wall bits open — the
+  production console to the entry node, the net, and the far end to the enemy
+  gate (issue #30) — but the sim no longer reads them.) A unit on the graph walks
+  each leg to its full length, on the road, so the pipeline's open walls are the
+  only ones it meets.
 - v1 ships **one arena** ("District 01"), sized so Hover crosses it in ~25 s.
   Use FC:MIT viewer on original maps as *reference* for proportions only.
 
 ## 7. Solo opponent ("Warden")
 
-AI avatar analogous to Sky Captain: a superplane (flies, ignores terrain,
-stronger than the player Avatar). Same rules and economy as a player — it earns
-and spends points; it does not cheat resources. Difficulty 1–10 scales its
-income multiplier, aggression thresholds, and reaction delay (see PLAN Phase 4).
+**The Warden is the original's Sky Captain** (SIM_VERSION 46;
+`fcop-fidelity.md` U3, `fcop-re/ai-and-rules.md` §1): an aircraft with a
+commander's decision pass, playing the second side by the human economy's rules.
+It replaced Metropolis' own superplane (450 HP, 10 m/s, a 42 m cannon and a goal
+ladder of defend / buy / push / suppress / capture / escort / harass).
 
-Its goal ladder reads the arena's rule set where the two differ, because two of
-its rungs are about the loss condition and §9 changes what that is. Under §1 an
-enemy ground unit near the Warden's own gate *is* the loss condition, so it
-outranks every other goal, and a unit of its own that reaches the enemy gate has
-already won, so there is nothing to escort. Under §9 neither holds: both bases
-emit a free Runner every 5 s, which makes "an enemy unit near my gate" the steady
-state rather than an emergency, and arriving at the enemy core is where the work
-starts rather than where it ends. So on an arena carrying a core the Warden
-defends a tight radius around it and leaves the approaches to its 20 emplacements,
-and it commits to a push that has arrived instead of leaving it there to capture
-another pad (`WARDEN_CORE_DEFEND_RADIUS`, `WARDEN_PUSH_COMMIT_RANGE`). Both are
-gated on map data like every other §9 mechanic, so a §1 arena behaves as before.
+- **Level.** Difficulty 1–10 is the captain's level 0–9 (`wardenLevel`; the
+  original's state word 19). It scales everything below. After a one-viewport
+  win the original raises it by one — a campaign feature, not built.
+  | Level | Health | Speed | Rethink | Respawn | Gun arc | Missile arc |
+  |---|---|---|---|---|---|---|
+  | 0 | 250 | 2.72 m/s | 2.8–3.7 s | 7.0 s | front | front |
+  | 1–2 | 250 / 500 | 3.01 / 3.31 | 2.6–3.4 / 2.3–3.1 s | 6.5 / 6.0 s | front + sides | front |
+  | 3–6 | 500–1000 | 3.60–4.05 | 2.0–2.9 … 1.2–2.1 s | 5.5–4.0 s | front + sides | front + sides |
+  | 7–9 | 1000 / 1125 / 1250 | 4.20 / 4.35 / 4.51 | 1.0–1.8 … 0.4–1.3 s | 3.5 / 3.0 / 2.5 s | front + sides | all round |
+  (front = within 22.5° of its heading, sides to 157.5°; defending, it rethinks a
+  little sooner, by up to 0.1 s, instead of up to 0.85 s later.)
+- **Weapons**, all sharing one target, which it takes only inside **12 m**: a gun
+  (2 damage every 0.06 s — a round every other tick), a guided missile (25 every
+  0.5 s, needs a line of sight, flies 24 m) and a bomb (200 in a 3.2 m blast with
+  falloff, every 2.0 s). Without a target of its own choosing its guns pick the
+  nearest enemy in 12 m every 1.0 s. The missile's and bomb's speed is not
+  established: they fly at Metropolis' 25 m/s, the bomb flat.
+- **Deciding.** On every rethink it scans the field from three places — its home
+  (its spawn), the player's base, itself — and picks a mode:
+  - **defend** (it starts here) whenever an enemy tank or Juggernaut is near home
+    (64 / 72 m), or while it owns fewer than **ten turrets** near home (8 base + 2
+    per owned outpost in the original). It engages that unit, or with none it
+    flies at the player;
+  - **attack** with its own Juggernaut (or tank) near the player's base: it escorts it;
+  - **roam** otherwise: a badly hurt player within 40 m, then an enemy Juggernaut
+    (40 m), tank (32 m), a neutral turret to capture (48 m), a jet (24 m), a turret
+    the player captured (40 m), a Fortress (24 m), then the nearest neutral or
+    player-held turret anywhere, else the midpoint between the bases.
+  Whatever the mode it shoots the player's mech when it comes within 12 m and it
+  is not busy with the Juggernaut or tank it chose. It never patrols; inside 1 m
+  of what it flies at it reverses, so it circles and jitters about it.
+- **Retreat.** Below half its health less a random 0–63 (a quarter while
+  defending or attacking) it breaks off for home, faster, and is restored to full
+  within 2 m of it; cruising home it diverts to a nearer health pickup.
+- **Economy.** Its budget **is** its side's Current Points (§3), but it starts on
+  **0**, not 10 (a one-viewport game's), and from level 1 gets a **free opening
+  order** of ten base units, 9 − level + 0–3 of them Runners and the rest
+  Guardians. It earns exactly as a player does, and each credit makes it rethink
+  at once; its fall costs it 10. It buys by request at the player's prices: base
+  Runners/Guardians 1, outpost ones 2, an outpost claim 30 (from wherever it is,
+  in a fixed order picked at the start), a Juggernaut or Fortress 50 (a second
+  Juggernaut while one lives spends the 50 and is refused — the original's quirk).
+  Requests are spawned a Runner per 3.4 s and a Guardian per 0.97 s per queue.
+  What it buys depends on the mode: defending, Guardians and a Fortress near home
+  (and at level 9 a base Runner against a threat at home); roaming or attacking,
+  outpost claims; attacking, outpost Runners and Guardians; roaming, a Juggernaut
+  and Runners at its outposts and its base.
 
-Committing means asking what is *stopping* the push before asking who to fly
-alongside: the Warden takes the enemy emplacement nearest the push's tip and
-closes to contact on it (`WARDEN_SUPPRESS_RADIUS`, `WARDEN_SUPPRESS_DISTANCE`),
-escorting only while the way is clear. Contact, not standoff, and that is a
-property of the arenas rather than a choice about the Warden: on the imported FCOP
-arenas a defending emplacement is shootable from 8–17% of the directions around it
-at 8 m and from essentially none at 20 m and beyond, because the wall lattice is
-dense city geometry. There is no firing position, for anybody — a player kills
-these by coming down the street they guard, and so does the Warden, inside the 6 m
-the emplacement itself reaches. Flight does not change that: the Warden ignores
-*terrain*, not walls, and its line of sight is the same lattice test as everyone
-else's. Exempting flight from it would delete the arenas' cover model and, since
-an emplacement's reach is 6 m, would make the Warden unanswerable.
+**What this means on Metropolis' arenas (measured).** No arena gives the captain
+ten turrets: the rings are 4 (district-01) to 9 and Metropolis' outposts carry no
+turret plates (`fcop-fidelity.md` R14), and claiming one needs a mode it never
+reaches. So it defends for the whole match, chasing the player and capturing the
+pads it flies over; its points (from downing the player) go to Guardians and a
+Fortress. Its **opening order is its offence**: on the imported arenas those
+Runners are the original's route followers and break an idle player's gate in
+52–111 s on 17 of 20 seeds at difficulty 8; at difficulty 1 (level 0, no opening
+order) it never breaches. On district-01 its Runners halt at the first ring
+turret (§4) and die, and it does not breach. Whether the original's arenas ever
+give it ten turrets is open in the RE; importing the original outposts (R14) is
+where that question lands.
+
+The Warden flies over terrain and walls; walls stop its shots at emplacements and
+avatars but not at ground units below it (it flies above the lattice).
 
 ## 8. Out of scope for v1
 
@@ -223,20 +457,23 @@ replays-as-feature (replays exist as a test artifact from day one).
 
 ## 9. Precinct Assault mode (FCOP arenas)
 
-Status: adopted for four FCOP arenas — `la-cantina` (mission Mp), `urban-jungle`
-(Conft), `proving-ground` (Slim) and `bug-hunt` (Joke). `la-cantina` is
+Status: adopted for the six FCOP arenas; balance is measured on four of them —
+`la-cantina` (mission Mp), `urban-jungle` (Conft), `proving-ground` (Slim) and
+`bug-hunt` (Joke). `la-cantina` is
 **multi-deck** since issue #29: it carries the two bridge decks its source terrain
 describes, and its walls are attributed to the deck they stand on rather than
 flattened into one lattice.
 
-`hollywood-keys` and `venice-beach` stay on §1–§7. That is not for want of data —
+`hollywood-keys` and `venice-beach` are imported by the same pipeline and carry
+the same §9 data, but have no balance pins yet. This paragraph used to say they
+"stay on §1–§7". That is not for want of data —
 their logic is extracted and committed. It is also NOT because their decks are
 unreachable: that argument was retired as circular, because the extractor only
 separates surfaces more than 0.5 m apart and keeps ramps inside the ground rank, so
 "every deck is above the step height" is a restatement of its clustering constant.
 Decks are entered sideways at their edges, and both arenas have thousands of such
 entry cells. What is genuinely missing is per-FEATURE layer information: Hk puts 8
-`Turret`, 3 `NeutralTurret` and 2 `TeamBase?` on cells with a deck overhead and
+`Turret`, 3 `NeutralTurret` and 2 type-28 Dreadnought records on cells with a deck overhead and
 nothing in `MapJson` can say which storey they belong to. See
 `packages/sim/test/layeredArenas.test.ts` for the measurements and issue #33.
 
@@ -248,54 +485,112 @@ exactly as §1–§7 describe — that is what keeps the existing goldens valid.
 The original's decoded model is `docs/specs/fcop-logic.md` §8; this section is
 only what Metropolis adopts from it.
 
-- **Win condition — destroy the enemy base.** A base carries `coreHp` (the
-  original stores 3000). Only *units* damage it; the Avatar and the Warden never
-  can, so pillar 1 survives — you still cannot win by attacking the base
-  yourself. On an arena with `coreHp > 0` this **replaces** the gate breach of
-  §1; gate-breach remains the only win condition where `coreHp` is 0.
-- **Base production.** Each base produces one Runner onto its own lane every
-  `productionTicks` (the original: 5 s), free, up to `productionLimit` alive.
-  This is **additive** to the §3 points economy: consoles, costs and the Warden's
-  spending are unchanged. The alive limit is ours, not the original's — the
-  original stores a per-cycle spawn count, and two bases at 12 units/min would
-  otherwise fill the entity store.
+- **Win condition — §1's gate, the original's box.** There is **no destructible
+  core** (SIM_VERSION 32). This section used to adopt a "destroy the enemy base"
+  objective with a 3000 HP core; the decompiled executable says otherwise
+  (`fcop-re/ranges-turrets-capture.md` top + Q4, `ai-and-rules.md` §0/§5): actor
+  type 28, extracted as "TeamBase?", is the **Dreadnought**, and the 3000 HP was
+  its own. The original wins when an enemy **tank or Dreadnought** — a Runner or
+  Juggernaut — enters the base's gate trigger, then counts 1750 ticks (5.83 s)
+  down to the results page, which is §1's rule and outro. Each base's gate is the
+  imported gate trigger box (Mp 2457 × 1843 raw = 4.8 × 3.6 m; half-extent
+  raw/1024 m, grown by the intruder's own radius). Jets and avatars never breach,
+  so pillar 1 survives exactly as in §1.
+- **No free production.** The original's tank, jet and Dreadnought spawners are
+  shut in PA; units appear only when bought (§3). The "1 Runner per 5 s" this
+  section used to adopt was the Dreadnought spawner's period.
+- **The Juggernaut is the original Dreadnought.** It rolls out at the type-28
+  record (node 0 of its Cnet, beside the HQ) rather than at the console it is
+  bought from, with 3000 HP and four hull guns of weapon 3. The guns are modelled
+  as four shooters at the hull's position sharing one target, each firing its own
+  round: the original mounts them at the hull model's points (under 0.9 m off
+  centre) with their own 237°/s slew relative to the hull, which is not modelled —
+  so neither is their ±22.5° firing arc. The "four built-in base guns" the core
+  used to carry were these guns. On §1 arenas the Juggernaut keeps §4's stats.
+- **Every shooter fires the original's catalogue weapon** (SIM_VERSION 42;
+  `fcop-fidelity.md` W3; `fcop-re/ranges-turrets-capture.md` Q3). A shooter's
+  `weapon_id` indexes the mission's own type-98 catalogue, whose entries are
+  identical on the six PA maps (`balance.ts` WORLD_WEAPONS):
+  | Shooter | HP | Weapon | Damage | Refire | Round |
+  |---|---|---|---|---|---|
+  | team turret, neutral turret | 500 | 3 | 100 | 2.03 s | 7.62 m/s, lead-aimed, flies 12 m |
+  | Dreadnought gun (×4) | 3000 (hull) | 3 | 100 | 2.03 s | the same |
+  | tank (Runner), jet (Guardian) | 150 | 1 / 6 | 50 | 1.0 s | 7.62 m/s, lead-aimed, flies 12 m |
+  | Flying Fortress | 2000 | 4 | 100 | 0.5 s | 7.62 m/s, guided, flies 24 m |
+  All engage at 12 m, horizontal and centre to centre. The rounds are entities
+  that fly — they used to be instant hits — and damage only what they strike
+  (none has a blast); the wall lattice stops them, the heightfield does not (a
+  lobbed shell is the only round that meets the ground). The rate machine is the
+  original's (`cact_shooter_step`): the reload clamps the leftover clock, so a
+  2.0 s entry fires every 61 ticks. The tanks', jets' and Fortress' HP and
+  weapons come from their spawner records (`MapBase.runner/guardian/fortress`);
+  their routing, speeds and targeting are the original's (§4, SIM_VERSION
+  44-45).
 - **Turrets carry their own parameters.** Range, fire cadence, gun slew, field of
-  view, rest rotation and health come from the arena's imported data instead of the
-  global constants — for **all three** kinds: capturable pads, base ring turrets
-  and the built-in base guns. Health too, with one exception: `BaseShooter` carries
-  no health field, so the built-in guns take the 500 every original `Turret` actor
-  has rather than the base structure's own 3000. That number is ours, like their
-  position — they sit on the core because the original stores no coordinates for
-  them — and four 3000 HP guns standing on the objective gated it at a unit's own
-  reach (issue #31). The original's reach is short: `engage_range` 6144 is
-  6 m, against the pre-PA global 28 m, and turrets are placed within a few metres
-  of the road they guard. That short reach is load-bearing, not decoration — it is
-  what keeps a turret inside the 14 m a Runner can shoot back from, so a push can
-  answer a turret instead of dying to one it cannot reach (`paAttribution.test.ts`
-  asserts the relation for every profile an arena carries).
-  Damage stays on the global value. This used to say "the original's weapon
-  table was not decoded"; it is decoded now — 15 records in the game executable
-  plus the front-end panels in `febmp.bin`, with firing rate and damage read off
-  the game's own bars. It still does not apply here: those ids are a **different
-  id space** from the `weapon_id` on `BaseShooter` actors, so the figures are the
-  player's loadout and say nothing about a turret. The avatar's weapons DID adopt
-  them (§2, SIM_VERSION 21); binding the actor `weapon_id` space to the executable's
-  is still open, and until it is, turret damage stays ours.
+  view, rest rotation, health and weapon come from the arena's imported data,
+  for both kinds: capturable pads and base ring turrets. The original's reach is
+  short: `engage_range` 6144 is 12 m (`raw << 4` world units —
+  `fcop-re/ranges-turrets-capture.md` Q1), against the pre-PA global 28 m, and
+  turrets are placed within a few metres of the road they guard. Units engage at
+  the same 12 m, so a turret never outreaches the push it shoots at
+  (`paAttribution.test.ts`); since SIM_VERSION 42 it no longer falls short of it
+  either (Metropolis' units reached 14 m). Like the original's turret, it
+  - searches for a target only on its targeting delay (2.0 s), and only while a
+    round is waiting for one — so a turret that loses its target takes up to
+    2 s to find the next;
+  - picks the nearest enemy in reach with a line of sight; a **team turret holds
+    its target**, re-scanning every 2.0 s, and **prefers the higher priority** —
+    a Juggernaut over a Runner over an X1-Alpha (neutral turrets do neither);
+  - fires only when its aim lies within **±22.5° of the barrel**, which slews at
+    290°/s, and with a clear line; a refused round is put back and tried again
+    0-0.85 s later (the sim's PRNG).
+  `district-01` and the sandbox keep Metropolis' instant-hit turret and unit
+  table (`TURRET_*`, `UNIT_*`): those arenas are not the original's.
 - **Capture points are the original pads.** Every original `NeutralTurret`
   becomes a capture spot — 32 on Mp and Conft, 29 on Slim and Joke, against the
-  4–6 of §5. Capture rules
-  themselves are unchanged; the density is a balance question, tuned in
-  `balance.ts`, never by dropping content.
-- **Power-ups.** `ItemPickup` spots grant ammo, health, invisibility or a
-  temporary damage boost, and re-arm on the original's timer. The original's
-  eight grant kinds do not map one-to-one — Metropolis' primary weapon has
-  infinite ammo (§2) — so the mapping is recorded in
-  `tools/generators/enrichArena.ts`.
-- **Base intrusion alert.** Each base is wrapped in trigger volumes that fire
-  when an enemy Avatar or unit enters. Detection only: the original's alert sound
-  was bound in the `Cfun` script, and while that script is now disassembled, no
-  opcode in it is a proven sound-play op — so the cue stays ours to author.
+  4–6 of §5. They capture by §5's rule, which is the original's own since
+  SIM_VERSION 34, with each arena's imported capture range; the density is a
+  balance question, tuned in `balance.ts`, never by dropping content.
+- **Power-ups.** `ItemPickup` spots grant ammo, health, a cloak or a
+  slot's power-up, and re-arm on the original's timer: **50 s** after an
+  ammo or health pickup is taken, **100 s** after a power-up or cloak, one alive
+  per spot (the Csac spawners' tSAC, `fcop-fidelity.md` P9). The mapping of
+  the original's grant kinds is recorded in `tools/generators/enrichArena.ts`.
+  The original's rules, SIM_VERSION 37:
+  - **ammo** fills that slot's magazine to its ceiling — Gun, Heavy or Special
+    (the Gun's has its own pickup since SIM_VERSION 41, when its magazine became
+    finite; it was imported as a heavy refill);
+  - **health** refills to the maximum (P6);
+  - **cloak** lasts **45 s**: turrets, units and the Warden skip the cloaked
+    avatar (P7), and a homing missile within 4 m of it drops its lock
+    (SIM_VERSION 41, the original's missile);
+  - **invulnerability** lasts 20 s; no PA pickup carries it (I8);
+  - a **power-up** is the original's, per slot (SIM_VERSION 43, P8): the Gun's,
+    Heavy's or Special's pickup fills that slot's block-B magazine to its NORMAL
+    ceiling, and the slot fires its **block B** — the record's powered weapon
+    (§2) — until that magazine is empty, then block A again. Block B is, for
+    example, the Mini-Gun's 2 damage with a 1 m splash (750 rounds), Hell Fire's
+    three homing missiles a shot (18), the Hyper Velocity Rocket's 8-round burst,
+    the Mortar's shell bursting into four 100-damage fragments at its apex, the
+    Mines' 1000 in 8 m, the Shockwave's 8 m every 1.0 s. It is lost when the
+    avatar goes down. It replaced Metropolis' x2 damage for 15 s.
+- **Alerts are the original's voice lines** (SIM_VERSION 36, `fcop-fidelity.md`
+  R15). The original's mission scripts speak them through ops 0x0c/0x0d
+  (`fcop-re/ai-and-rules.md` §6); the sim emits the events with the original's
+  cooldowns and the client plays the extracted speech for the side concerned:
+  - **base intrusion** (`EV_ALARM`): each base is wrapped in trigger volumes
+    that fire when an enemy avatar or an enemy **ground** unit (tank or
+    Dreadnought — not a jet) enters; then that base stays quiet for **8.3 s**
+    (`TRIGGER_REARM_TICKS`, all its volumes together). Speech 2 / 3.
+  - **base turret under fire** (`EV_TURRET_UNDER_FIRE`): a ring turret is hit;
+    at most once per side per **10 s**. Speech 4 / 5.
+  - **base turret lost** (`EV_TURRET_LOST`). Speech 0 / 1.
+  - **gate reached** (`EV_BREACH`): speech 6 (slot 1's gate) / 19 (slot 0's),
+    on top of the breach fanfare.
+  The turret and gate alerts work on every arena; intrusion needs the imported
+  trigger volumes. What the lines say is not transcribed — the meaning is the
+  event that plays them — so they are played by side, not "your base".
 - **Lanes** may be the original waypoint graph — see the §6 amendment.
 
-Not adopted: the original's `Aircraft` orbit parameters (air units keep §4's
-model), the `Cfun` mission VM, and the `act_type` 14/89 marker classes.
+Not adopted: the `Cfun` mission VM and the `act_type` 14/89 marker classes. The
+original's `Aircraft` parameters are read since SIM_VERSION 45 (§4).

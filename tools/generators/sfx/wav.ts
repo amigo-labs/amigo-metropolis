@@ -2,8 +2,9 @@
 //
 // Hand-rolled on purpose: the generators workspace has no audio dependencies and
 // uncompressed PCM needs none. Reading covers what the extracted Future Cop
-// sounds actually are (RIFF PCM s16le 22050 Hz mono) plus the neighbouring depths
-// a re-export might produce; writing is always mono 16-bit PCM.
+// sounds actually are (RIFF PCM s16le 22050 Hz mono; the voice bank is u8) plus the
+// neighbouring depths a re-export might produce; writing is mono PCM, 16-bit by
+// default or 8-bit for a source that never had more (the voice lines).
 
 export interface Pcm {
   readonly rate: number;
@@ -116,30 +117,40 @@ export function decodeWav(bytes: Uint8Array): Pcm {
   return { rate, samples: out };
 }
 
-/** Encodes mono 16-bit PCM. */
-export function encodeWav(pcm: Pcm): Uint8Array {
+/**
+ * Encodes mono PCM, 16-bit (default) or 8-bit unsigned. 8-bit halves the file and
+ * loses nothing for a source that was 8-bit to begin with, which is what the
+ * original's voice bank is (extracted/voice/wav, u8 22050 Hz).
+ */
+export function encodeWav(pcm: Pcm, bits: 8 | 16 = 16): Uint8Array {
   const n = pcm.samples.length;
-  const bytes = new Uint8Array(44 + n * 2);
+  const width = bits / 8;
+  const bytes = new Uint8Array(44 + n * width);
   const view = new DataView(bytes.buffer);
   const ascii = (at: number, s: string) => {
     for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i));
   };
   ascii(0, "RIFF");
-  view.setUint32(4, 36 + n * 2, true);
+  view.setUint32(4, 36 + n * width, true);
   ascii(8, "WAVE");
   ascii(12, "fmt ");
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true); // PCM
   view.setUint16(22, 1, true); // mono
   view.setUint32(24, pcm.rate, true);
-  view.setUint32(28, pcm.rate * 2, true); // byte rate
-  view.setUint16(32, 2, true); // block align
-  view.setUint16(34, 16, true); // bits per sample
+  view.setUint32(28, pcm.rate * width, true); // byte rate
+  view.setUint16(32, width, true); // block align
+  view.setUint16(34, bits, true); // bits per sample
   ascii(36, "data");
-  view.setUint32(40, n * 2, true);
+  view.setUint32(40, n * width, true);
   for (let i = 0; i < n; i++) {
     const v = pcm.samples[i] < -1 ? -1 : pcm.samples[i] > 1 ? 1 : pcm.samples[i];
-    view.setInt16(44 + i * 2, Math.round(v < 0 ? v * 32768 : v * 32767), true);
+    if (bits === 8) {
+      // Unsigned, centred on 128 — the inverse of decodeWav's (u8 - 128) / 128.
+      view.setUint8(44 + i, Math.min(255, Math.max(0, Math.round(v * 128 + 128))));
+    } else {
+      view.setInt16(44 + i * 2, Math.round(v < 0 ? v * 32768 : v * 32767), true);
+    }
   }
   return bytes;
 }

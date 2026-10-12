@@ -25,8 +25,8 @@ export const EV_SHOT = 1; //      a=shooter id, b=weapon slot, c=payload (see be
  * reach comes from the arena's imported weapon profile, from UNIT_RANGE, or from
  * balance.ts. They used to push `b=0, c=0`, which the renderer resolved to
  * weaponById(0) = the Mini-Gun, and drew a 40 m tracer for a turret whose
- * engage_range is 6 m. On a PA arena that is 72 emplacements firing seven times
- * further than they can shoot. So they get their own slot and put their actual
+ * engage_range was then 6 m (12 m since the original's range scale). On a PA arena
+ * that was 72 emplacements firing several times further than they can shoot. So they get their own slot and put their actual
  * reach in `c`, in DECIMETRES (reach * 10, rounded) to stay integral.
  *
  * REACH IS THE SHOT'S, NOT THE WEAPON'S. Both encodings carry how far this
@@ -91,6 +91,10 @@ export const EV_HIT = 3; //       a=target id, b=attacker player, c=damage
 export const EV_DEATH = 4; //     a=victim id, b=killer player (-1 none), c=archetype
 export const EV_RESPAWN = 5; //   a=entity id, b=player
 export const EV_PURCHASE = 6; //  a=entity id, b=player, c=archetype
+/**
+ * A gate breach: fired on the tick an enemy Runner/Juggernaut enters a gate,
+ * which starts the MATCH_OUTRO_TICKS countdown. `winner` is set when it ends.
+ */
 export const EV_BREACH = 7; //    a=unit id, b=winning team
 export const EV_CAPTURE = 8; //   a=turret id, b=team, c=turret spot index
 export const EV_CLAIM = 9; //     a=console id, b=team, c=outpost index
@@ -99,8 +103,9 @@ export const EV_CLAIM = 9; //     a=console id, b=team, c=outpost index
 // events are transient and never hashed.
 export const EV_ALARM = 10; //    a=x*16, b=y*16, c=team whose base is intruded
 export const EV_PICKUP = 11; //   a=x*16, b=y*16, c=pickup kind
-export const EV_PRODUCE = 12; //  a=unit id, b=team, c=archetype
-export const EV_CORE_HIT = 13; // a=x*16, b=y*16, c=team whose core was hit
+// 12 (EV_PRODUCE, free base production) and 13 (EV_CORE_HIT, core damage) are
+// retired with the model they reported (SIM_VERSION 32): the original has neither
+// free production nor a destructible core. The numbers stay reserved.
 /**
  * The avatar committed to a walker <-> hover change (rules.md §2). Fired ONCE,
  * on the tick the mode byte flips, which is also the tick the transform lock
@@ -113,6 +118,19 @@ export const EV_CORE_HIT = 13; // a=x*16, b=y*16, c=team whose core was hit
  * happened when this fires, so the OUTGOING form is `1 - b`.
  */
 export const EV_TRANSFORM = 14; // a=entity id, b=new mode (0 walker/1 hover), c=lock ticks
+/**
+ * Alert cues (fcop-fidelity.md R15). The original's scripts speak these as voice
+ * lines (fcop-re/ai-and-rules.md §6); the client plays them. The other two alerts
+ * the original voices already have events: base intrusion is EV_ALARM (c = the
+ * intruded team, voice ids 2/3) and the gate being reached is EV_BREACH (b = the
+ * winning team, voice ids 6/19).
+ *
+ * A side's base turret was hit, at most once per TURRET_ALERT_COOLDOWN_TICKS per
+ * side (voice ids 4/5).
+ */
+export const EV_TURRET_UNDER_FIRE = 15; // a=turret id, b=its team
+/** A side's base turret was destroyed (voice ids 0/1). */
+export const EV_TURRET_LOST = 16; // a=turret id, b=its team, c=ring slot
 
 export interface EventBuffer {
   count: number;

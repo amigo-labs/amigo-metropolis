@@ -29,7 +29,13 @@
 // For capture behaviour, use the arena's own pads — every FCOP arena has them.
 
 import { ARCHETYPE, type Archetype, TEAM_NEUTRAL } from "./archetypes";
-import { ARCHETYPE_MAX_HP, AVATAR_HP, MAX_PLAYERS, WARDEN_ALTITUDE, WARDEN_HP } from "./balance";
+import {
+  ARCHETYPE_MAX_HP,
+  AVATAR_HP,
+  MAX_PLAYERS,
+  SKY_RECORD_HP,
+  WARDEN_ALTITUDE,
+} from "./balance";
 import { despawn, spawn } from "./entities";
 import { sampleHeight, worldExtent } from "./map";
 import {
@@ -291,7 +297,6 @@ function isBookkept(state: SimState, id: number): boolean {
     contains(state.dummyEntity, id) ||
     contains(state.neutralTurretEntity, id) ||
     contains(state.baseTurretEntity, id) ||
-    contains(state.baseDefenceEntity, id) ||
     contains(state.outpostConsole, id)
   );
 }
@@ -342,8 +347,12 @@ export function setSandboxLoadout(
   const id = state.avatarId[p];
   if (id < 0 || !state.ent.alive[id]) return;
   const resolved = resolveLoadout(kit);
+  state.gunAmmo[p] = resolved.gun.ammo;
   state.ent.ammoA[id] = resolved.heavy.ammo;
   state.ent.ammoB[id] = resolved.special.ammo;
+  state.burstLeft[p * 3] = resolved.gun.a.rounds;
+  state.burstLeft[p * 3 + 1] = resolved.heavy.a.rounds;
+  state.burstLeft[p * 3 + 2] = resolved.special.a.rounds;
   state.ent.cooldownA[id] = 0;
   state.ent.cooldownB[id] = 0;
   state.ent.cooldownC[id] = 0;
@@ -359,12 +368,13 @@ export function sandboxLoadout(state: SimState, player: number): Loadout {
   };
 }
 
-/** Tops `player`'s heavy/special ammo back up — the panel's infinite-ammo tick. */
+/** Tops `player`'s gun/heavy/special ammo back up — the panel's infinite-ammo tick. */
 export function refillSandboxAmmo(state: SimState, player: number): void {
   const p = clampPlayer(player);
   const id = state.avatarId[p];
   if (id < 0 || !state.ent.alive[id]) return;
   const kit = kitFor(state, p);
+  state.gunAmmo[p] = kit.gun.ammo;
   state.ent.ammoA[id] = kit.heavy.ammo;
   state.ent.ammoB[id] = kit.special.ammo;
 }
@@ -386,7 +396,7 @@ function kitFor(state: SimState, player: number) {
 }
 
 function maxHpFor(archetype: number): number {
-  if (archetype === ARCHETYPE.WARDEN) return WARDEN_HP;
+  if (archetype === ARCHETYPE.WARDEN) return SKY_RECORD_HP; // the record's, no level here
   if (archetype === ARCHETYPE.AVATAR) return AVATAR_HP;
   return ARCHETYPE_MAX_HP[archetype];
 }

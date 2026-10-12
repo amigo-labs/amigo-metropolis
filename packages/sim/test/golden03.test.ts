@@ -1,8 +1,10 @@
-// Golden #3 (Phase 2 DoD mini-match, replayed on the Phase 3 economy):
-// beyond the hash-sequence check in golden.test.ts, assert the scripted
-// match actually plays out — the avatar clears the dummies and base East's
-// ring on the enemy-owned-turret bounty, claims the outpost, forward-buys
-// runners at 2× and breaches on the KNOWN tick before the ring respawns.
+// Golden #3 (Phase 2 DoD mini-match, replayed on the original's economy since
+// SIM_VERSION 33): beyond the hash-sequence check in golden.test.ts, assert the
+// scripted match actually plays out — the avatar clears the dummies and base
+// East's ring, puts player 1's avatar down twice (the original pays 10 a down,
+// at the victim's respawn, and the ring bounty alone is 1 a turret now), claims
+// the outpost with that, forward-buys runners at 2× and breaches on the KNOWN
+// tick before the ring respawns.
 // If a balance retune shifts the match off these beats, this fails and the
 // script needs adjusting WITH the regenerated golden (and a new pin).
 
@@ -10,7 +12,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ARCHETYPE } from "../src/archetypes";
-import { COST_OUTPOST_CLAIM, STARTING_POINTS } from "../src/balance";
+import { COST_OUTPOST_CLAIM, POINTS_TURRET_DIES, STARTING_POINTS } from "../src/balance";
 import { EV_BREACH, EV_CLAIM, EV_DEATH, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
@@ -21,7 +23,18 @@ import { createSim, step } from "../src/sim";
 // 2956 -> 2959 at SIM_VERSION 27: hitboxes follow the models, so the scripted
 // snipes take a slightly different number of bursts to clear the ring, and the
 // forward wave leaves three ticks later.
-const BREACH_TICK_PIN = 2959;
+// 2959 -> 3716 at SIM_VERSION 33: the claim is funded by two downs of player 1's
+// avatar, which the script waits out (each pays at the victim's respawn).
+// 3716 -> 3701 at SIM_VERSION 35: the claim is taken on entering the zone, not
+// after a 0.5 s hold, so the forward wave leaves 15 ticks earlier.
+// 3701 -> 4002 at SIM_VERSION 39: the original's walker turns at 105°/s, so
+// the script turns on the spot before every leg and every snipe (~10 s over the
+// route), and player 1's measured stand moved with its own walk.
+// 4002 -> 4262 at SIM_VERSION 41: the original's weapons (12 m lock, lock-only
+// Mini-Gun) and 1250-HP mechs. Nothing is sniped from outside a turret's reach
+// any more: the script walks up to each dummy and ring turret and fires all three
+// slots on the lock, and needs ~17 s to put player 1's mech down twice.
+const BREACH_TICK_PIN = 4262;
 
 describe("golden-03-match beats", () => {
   it("avatar snipe, outpost claim, forward wave, breach on the pinned tick", () => {
@@ -39,6 +52,7 @@ describe("golden-03-match beats", () => {
     let turretDeaths = 0;
     let runnerDeaths = 0;
     let avatarDeaths = 0;
+    let p0Down = false;
     let breaches = 0;
     let breachTick = -1;
     let breachTeam = -1;
@@ -46,6 +60,7 @@ describe("golden-03-match beats", () => {
     for (let t = 0; t < replay.tickCount; t++) {
       readFrame(replay, t, inputs);
       step(sim, inputs);
+      if (sim.avatarId[0] < 0) p0Down = true;
       for (let i = 0; i < sim.events.count; i++) {
         const o = i * EVENT_STRIDE;
         const type = sim.events.data[o];
@@ -68,15 +83,18 @@ describe("golden-03-match beats", () => {
       }
     }
 
-    // Player 0 clears 2 dummies + all 4 ring turrets; the avatar survives.
+    // Player 0 clears 2 dummies + all 4 ring turrets and survives (on 153 of its
+    // 1250 HP since SIM_VERSION 41: it fights the ring inside its reach now);
+    // player 1's avatar goes down twice.
     expect(turretDeaths).toBeGreaterThanOrEqual(6);
-    expect(avatarDeaths).toBe(0);
-    // The claim is funded by start + trickle + the enemy-owned turret bounty
-    // (a 20-point start alone could never cover the 30-point claim).
+    expect(p0Down).toBe(false);
+    expect(avatarDeaths).toBe(2);
+    // The claim is funded by the start, the ring and feeder bounties and the two
+    // downs: start + 4 ring turrets at 1 each could never cover 30.
     expect(claims).toBe(1);
-    expect(STARTING_POINTS).toBeLessThan(COST_OUTPOST_CLAIM);
+    expect(STARTING_POINTS + 4 * POINTS_TURRET_DIES).toBeLessThan(COST_OUTPOST_CLAIM);
     // Forward runners bought at the outpost; feeders spawned on both sides.
-    expect(purchases[0]).toBeGreaterThanOrEqual(4);
+    expect(purchases[0]).toBeGreaterThanOrEqual(3);
     expect(purchases[1]).toBeGreaterThanOrEqual(3);
     expect(runnerDeaths).toBeGreaterThanOrEqual(2); // player 1's feeders die
     // (the last feeder may still be mid-fight when the breach freezes the sim)
@@ -86,7 +104,8 @@ describe("golden-03-match beats", () => {
     expect(breachTick).toBeGreaterThan(claimTick);
     expect(breachTick).toBe(BREACH_TICK_PIN);
     expect(sim.winner).toBe(0);
-    // The replay ran well past the breach: the frozen tail is in the golden.
+    // The replay ran well past the breach: the outro and the frozen tail are in
+    // the golden.
     expect(replay.tickCount).toBeGreaterThan(BREACH_TICK_PIN + 300);
   });
 });

@@ -91,33 +91,6 @@
   margin-top: 2px;
 }
 
-/* Core HP: one thin bar per team under its score block (§9 arenas only).
-   Team colour is meaning (ui.md §3) — the fill reuses the score tints. */
-.mhud-core {
-  width: 96px;
-  height: 5px;
-  margin-top: 5px;
-  margin-left: auto;
-  border: 1px solid var(--ck-line-dim);
-  border-radius: 2px;
-  background: rgba(4, 12, 10, 0.7);
-  overflow: hidden;
-}
-
-.mhud-core-fill {
-  height: 100%;
-  width: 100%;
-  transition: width 0.18s linear;
-}
-
-.mhud-score--own .mhud-core-fill {
-  background: var(--ck-team-blue);
-}
-
-.mhud-score--foe .mhud-core-fill {
-  background: var(--ck-team-red);
-}
-
 /* --- Objective ticker ------------------------------------------------------- */
 
 .mhud-ticker {
@@ -258,6 +231,27 @@
 
 .mhud-ammo-cell--special {
   color: #7fa8e8;
+}
+
+/* A powered slot (fcop-fidelity.md P8) fires its block B until it runs dry. */
+.mhud-ammo-cell.is-powered {
+  color: #ffd35a;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* The lock (fcop-fidelity.md W2): the guns hit only what is locked. */
+.mhud-lock {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #e85b5b;
+  text-shadow: 0 2px 6px #000;
+  padding-bottom: 6px;
+}
+
+.mhud-lock:empty {
+  display: none;
 }
 
 /* --- Banner --------------------------------------------------------------- */

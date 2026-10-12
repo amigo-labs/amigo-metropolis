@@ -3,7 +3,7 @@
   "mapId": "hollywood-keys",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "a3f84c45afc2ff25c53212011e3850762df0d9fb",
+    "commit": "9d9ce805944d7afb980f12dcc2cd20d6d967b28d",
     "extractor": "tools/gfx/extract_logic.py"
   },
   "frame": {
@@ -12,11 +12,12 @@
     "note": "x/z are 0-based grid cells (raw/8192 for actors, raw/32 for Cnet nodes). The sim heightfield frame is this frame shifted by LOGIC_OFFSET_X/Z in tools/generators/enrichArena.ts — see docs/specs/fcop-viz-handoff.md."
   },
   "scales": {
-    "range": 1024,
-    "trigger": 8192,
+    "range": 512,
+    "trigger": 1024,
     "rotationTurn": 4096,
     "originalTickHz": 60,
-    "note": "Positions/rotations are documented (fcop-logic.md §3). Distance and timing scales are inferred in tools/generators/fcopLogic.ts; raw values are preserved here so a correction touches only the converter."
+    "engineTickHz": 300,
+    "note": "Positions/rotations are documented (fcop-logic.md §3). Distances are raw/range m (engage/search ranges), trigger half-extents raw/trigger m; spawner periods are 1/originalTickHz s, targeting_delay is 1/16 s, turn_speed is ((raw*16/218)>>4)/rotationTurn turns per 1/engineTickHz s — all read from the retail code (docs/specs/fcop-re/ranges-turrets-capture.md) and applied in tools/generators/fcopLogic.ts; raw values are preserved here."
   },
   "spawns": [
     {
@@ -30,7 +31,7 @@
       "z": 112.625
     }
   ],
-  "bases": [
+  "dreadnoughts": [
     {
       "id": 7,
       "x": 71,
@@ -40,8 +41,8 @@
       "netId": 1,
       "spawnTicks": 300,
       "spawnLimit": 1,
-      "defenceWeaponCount": 4,
-      "defenceWeapon": {
+      "gunCount": 4,
+      "gun": {
         "weaponId": 3,
         "targetType": 4,
         "targeting": 2,
@@ -49,8 +50,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 16
       },
-      "unitMoveSpeed": 1024,
-      "unitAcceleration": 1228
+      "moveSpeed": 1024,
+      "acceleration": 1228
     },
     {
       "id": 57,
@@ -61,8 +62,8 @@
       "netId": 2,
       "spawnTicks": 300,
       "spawnLimit": 1,
-      "defenceWeaponCount": 4,
-      "defenceWeapon": {
+      "gunCount": 4,
+      "gun": {
         "weaponId": 3,
         "targetType": 4,
         "targeting": 1,
@@ -70,8 +71,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 16
       },
-      "unitMoveSpeed": 1024,
-      "unitAcceleration": 1228
+      "moveSpeed": 1024,
+      "acceleration": 1228
     }
   ],
   "turrets": [

@@ -115,9 +115,9 @@ export const DEFAULT_RIG_CONFIG: CameraRigConfig = {
 };
 
 // Speed (world u/s) at which look-ahead saturates to `lookAheadMax`. Tied to the
-// avatar hover top speed (balance.AVATAR_HOVER_SPEED = 9) but inlined so this
-// module keeps its no-sim-import boundary.
-const LOOKAHEAD_REF_SPEED = 9;
+// avatar hover top speed (balance.AVATAR_HOVER_SPEED, the original's 9.38 since
+// SIM_VERSION 39) but inlined so this module keeps its no-sim-import boundary.
+const LOOKAHEAD_REF_SPEED = 9.38;
 
 const DEG2RAD = Math.PI / 180;
 

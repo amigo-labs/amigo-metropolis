@@ -5,8 +5,17 @@
 // cues listed here are then replaced by their file. Loudness is already baked
 // into each file by the generator, so the runtime just swaps the buffer.
 //
-// Empty is the normal state while the cue picking is an open ear pass (#27) —
-// see tools/generators/sfx/manifest.ts. Re-run `bun run gen:sfx` after editing
-// that manifest.
+// The original's voice lines for the alert cues are listed; the ordinary sound
+// effects are still an open ear pass (#27) — see tools/generators/sfx/manifest.ts.
+// Re-run `bun run gen:sfx` after editing that manifest.
 
-export const SFX_FILES: Readonly<Record<string, string>> = {};
+export const SFX_FILES: Readonly<Record<string, string>> = {
+  vo_turret_lost_0: "/sfx/vo_turret_lost_0.wav",
+  vo_turret_lost_1: "/sfx/vo_turret_lost_1.wav",
+  vo_intrusion_0: "/sfx/vo_intrusion_0.wav",
+  vo_intrusion_1: "/sfx/vo_intrusion_1.wav",
+  vo_turret_fire_0: "/sfx/vo_turret_fire_0.wav",
+  vo_turret_fire_1: "/sfx/vo_turret_fire_1.wav",
+  vo_gate_1: "/sfx/vo_gate_1.wav",
+  vo_gate_0: "/sfx/vo_gate_0.wav",
+};

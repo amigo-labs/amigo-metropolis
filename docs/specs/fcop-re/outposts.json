@@ -1,0 +1,5118 @@
+{
+  "_units": "metres in the extract_logic frame (x = actors.json x, z = actors.json z; runtime position[2] = x, position[0] = z). Metropolis frame: x + 16 (LOGIC_OFFSET_X), z + 0. Times in seconds (300 Hz engine).",
+  "_sources": "fixtures/missions/<Map> (tACT/tSAC bytes), extracted/logic/<Map>/actors.json, Cfun decoded with scratchpad cdec.py/rpns.py; engine: dispatch.c 0x00421910, turret.c 0x0041bf90, turret_part.c 0x0041cf70, spawner.c 0x0044f2c0, spawn.c 0x0044f3b0, type14.c 0x0041f770",
+  "captain_count_rule": {
+    "counts": "live actors of type 8 (team turret) whose team byte (+0x18) equals the captain's own +0x18 (2), octagonal flat distance from the captain's home point (point_0c = its spawn position) < 0x200000 wu = 256 m",
+    "double_count": "every type-8 turret is TWO type-8 actors in the live list: the turret and its base part (part_b), built by cact_create from the same tACT record (0x0041c08e -> 0x0043ada0 -> 0x0041cf70 -> base construct 0x0041a5b0 writes +0x16 = record type 8, 0x0041a59d +0x18 = record team) and linked at 0x0043ad70",
+    "excludes": "type 36 (neutral or captured by either side): never reaches the counter (only 5/8/9/28 enter table 2, 0x00421aad; captain-owned type 36 falls out at 0x00421a15)",
+    "threshold": "mode 2 (defend) is entered/kept while count < 10 and mode != 1 (0x00421d1c); in mode 2 count >= 10 and no far tank/Dreadnought -> mode 0 (0x00421eac/0x00421ecc)"
+  },
+  "maps": {
+    "Mp": {
+      "start_functions": [
+        {
+          "fn": 27,
+          "gate": "(T[3] == 0)",
+          "requests": [30, 26, 28, 31, 29, 27, 23, 14, 22, 19, 25, 20, 18, 21, 36, 38],
+          "groups": []
+        },
+        {
+          "fn": 28,
+          "gate": "(T[5] == 0)",
+          "requests": [100, 101, 102, 103, 284, 285, 286, 291, 293, 294, 298],
+          "groups": []
+        },
+        {
+          "fn": 29,
+          "gate": "(T[6] == 0)",
+          "requests": [],
+          "groups": [50]
+        }
+      ],
+      "captain_home": {
+        "x": 96.062,
+        "z": 66.812,
+        "records": [287, 295, 296, 297]
+      },
+      "max_octagonal_distance_home_to_any_team2_type8_m": 74.5,
+      "base_plates": [
+        {
+          "x": 84.469,
+          "z": 69.562,
+          "csac": 22,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 84.5,
+          "z": 154.531,
+          "csac": 29,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 88.001,
+          "z": 141.0,
+          "csac": 23,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 88.03,
+          "z": 83.031,
+          "csac": 25,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 92.531,
+          "z": 88.469,
+          "csac": 36,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 92.531,
+          "z": 139.5,
+          "csac": 30,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 92.592,
+          "z": 135.469,
+          "csac": 26,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 92.624,
+          "z": 84.531,
+          "csac": 38,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 99.469,
+          "z": 135.5,
+          "csac": 28,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 99.53,
+          "z": 139.531,
+          "csac": 31,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 99.531,
+          "z": 88.5,
+          "csac": 18,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 99.531,
+          "z": 84.5,
+          "csac": 21,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 104.001,
+          "z": 83.031,
+          "csac": 20,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 104.125,
+          "z": 141.0,
+          "csac": 14,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 107.53,
+          "z": 69.5,
+          "csac": 19,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 107.562,
+          "z": 154.438,
+          "csac": 27,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        }
+      ],
+      "outposts": [
+        {
+          "index": 0,
+          "owner_word": 40,
+          "captain_claim_fn": {
+            "fn": 22,
+            "enables": [149]
+          },
+          "claim_zone": {
+            "cact": 152,
+            "x": 116.5,
+            "z": 96.125,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 117.938,
+            "x1": 120.5,
+            "z0": 90.938,
+            "z1": 101.156,
+            "props": [245, 253, 254, 255]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [150, 151],
+              "pads": [
+                {
+                  "id": 150,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 115.906,
+                  "z": 93.875
+                },
+                {
+                  "id": 151,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 115.78,
+                  "z": 98.344
+                }
+              ],
+              "opens_type8_spawners": [157, 158],
+              "opened_plates": [
+                {
+                  "csac": 157,
+                  "x": 113.438,
+                  "z": 91.625
+                },
+                {
+                  "csac": 158,
+                  "x": 113.438,
+                  "z": 100.562
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [40, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [149, 153],
+              "pads": [
+                {
+                  "id": 149,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 115.906,
+                  "z": 93.875
+                },
+                {
+                  "id": 153,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 115.78,
+                  "z": 98.344
+                }
+              ],
+              "opens_type8_spawners": [85, 162],
+              "opened_plates": [
+                {
+                  "csac": 85,
+                  "x": 113.438,
+                  "z": 91.625
+                },
+                {
+                  "csac": 162,
+                  "x": 113.438,
+                  "z": 100.562
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 113.438,
+              "z": 91.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 157,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 85,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 113,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 113.438,
+              "z": 100.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 158,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 162,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 119,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "owner_word": 41,
+          "captain_claim_fn": {
+            "fn": 23,
+            "enables": [170]
+          },
+          "claim_zone": {
+            "cact": 169,
+            "x": 75.689,
+            "z": 96.0,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 71.531,
+            "x1": 74.125,
+            "z0": 90.906,
+            "z1": 101.156,
+            "props": [246, 250, 251, 252]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [166, 167],
+              "pads": [
+                {
+                  "id": 166,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 76.001,
+                  "z": 93.656
+                },
+                {
+                  "id": 167,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 75.968,
+                  "z": 98.344
+                }
+              ],
+              "opens_type8_spawners": [176, 182],
+              "opened_plates": [
+                {
+                  "csac": 176,
+                  "x": 78.749,
+                  "z": 91.562
+                },
+                {
+                  "csac": 182,
+                  "x": 78.626,
+                  "z": 100.625
+                }
+              ],
+              "shuts_spawners": [265, 267],
+              "die_orders_0x3d": [169, 265, 267],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [41, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [170, 171],
+              "pads": [
+                {
+                  "id": 170,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 76.001,
+                  "z": 93.656
+                },
+                {
+                  "id": 171,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 75.968,
+                  "z": 98.344
+                }
+              ],
+              "opens_type8_spawners": [180, 184],
+              "opened_plates": [
+                {
+                  "csac": 180,
+                  "x": 78.749,
+                  "z": 91.562
+                },
+                {
+                  "csac": 184,
+                  "x": 78.626,
+                  "z": 100.625
+                }
+              ],
+              "shuts_spawners": [267, 265],
+              "die_orders_0x3d": [169, 267, 265],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 78.626,
+              "z": 100.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 182,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 184,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 267,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 78.749,
+              "z": 91.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 176,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 180,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 265,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "owner_word": 42,
+          "captain_claim_fn": {
+            "fn": 24,
+            "enables": [192]
+          },
+          "claim_zone": {
+            "cact": 191,
+            "x": 75.627,
+            "z": 128.062,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 71.562,
+            "x1": 74.187,
+            "z0": 122.938,
+            "z1": 133.188,
+            "props": [247, 259, 260, 261]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [188, 189],
+              "pads": [
+                {
+                  "id": 188,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 75.907,
+                  "z": 130.344
+                },
+                {
+                  "id": 189,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 76.0,
+                  "z": 125.719
+                }
+              ],
+              "opens_type8_spawners": [199, 203],
+              "opened_plates": [
+                {
+                  "csac": 199,
+                  "x": 78.563,
+                  "z": 123.562
+                },
+                {
+                  "csac": 203,
+                  "x": 78.563,
+                  "z": 132.562
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [42, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [192, 193],
+              "pads": [
+                {
+                  "id": 192,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 75.907,
+                  "z": 130.344
+                },
+                {
+                  "id": 193,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 76.0,
+                  "z": 125.719
+                }
+              ],
+              "opens_type8_spawners": [198, 202],
+              "opened_plates": [
+                {
+                  "csac": 198,
+                  "x": 78.563,
+                  "z": 123.562
+                },
+                {
+                  "csac": 202,
+                  "x": 78.563,
+                  "z": 132.562
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 78.563,
+              "z": 123.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 199,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 198,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 271,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 78.563,
+              "z": 132.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 203,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 202,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 274,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "owner_word": 43,
+          "captain_claim_fn": {
+            "fn": 25,
+            "enables": [214]
+          },
+          "claim_zone": {
+            "cact": 213,
+            "x": 116.438,
+            "z": 128.125,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 117.938,
+            "x1": 120.564,
+            "z0": 122.938,
+            "z1": 133.125,
+            "props": [248, 256, 257, 258]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [210, 211],
+              "pads": [
+                {
+                  "id": 210,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 115.658,
+                  "z": 130.375
+                },
+                {
+                  "id": 211,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 115.592,
+                  "z": 125.969
+                }
+              ],
+              "opens_type8_spawners": [217, 45],
+              "opened_plates": [
+                {
+                  "csac": 217,
+                  "x": 113.5,
+                  "z": 123.5
+                },
+                {
+                  "csac": 45,
+                  "x": 113.563,
+                  "z": 132.562
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 279, 219, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [43, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [214, 215],
+              "pads": [
+                {
+                  "id": 214,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 115.658,
+                  "z": 130.375
+                },
+                {
+                  "id": 215,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 115.592,
+                  "z": 125.969
+                }
+              ],
+              "opens_type8_spawners": [220, 224],
+              "opened_plates": [
+                {
+                  "csac": 220,
+                  "x": 113.5,
+                  "z": 123.5
+                },
+                {
+                  "csac": 224,
+                  "x": 113.563,
+                  "z": 132.562
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 219, 279, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 113.5,
+              "z": 123.5,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 217,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 220,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 279,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 113.563,
+              "z": 132.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 45,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 224,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 277,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "neutral_only_plates": 24,
+      "counts": {
+        "type8_team1": 16,
+        "type8_team2": 16,
+        "type36": 32,
+        "base_type8_per_side": {
+          "team1": 8,
+          "team2": 8
+        },
+        "live_type8_at_start": {
+          "team1": 8,
+          "team2": 8
+        }
+      },
+      "captain_turret_count": {
+        "base_turrets_team2": 8,
+        "actors_counted_at_start": 16,
+        "threshold": 10,
+        "leaves_defend_at_start": true,
+        "back_to_defend_after_base_turrets_lost": 4,
+        "per_owned_outpost": 4,
+        "note": "count = 2 x live own type-8 turrets (turret + base part); valid once fn27 has spawned the base turrets"
+      }
+    },
+    "Conft": {
+      "start_functions": [
+        {
+          "fn": 27,
+          "gate": "(T[3] == 0)",
+          "requests": [30, 26, 28, 31, 29, 27, 23, 14, 22, 19, 25, 20, 18, 21, 36, 38],
+          "groups": []
+        },
+        {
+          "fn": 28,
+          "gate": "(T[5] == 0)",
+          "requests": [100, 101, 102, 103, 284, 285, 286, 291, 293, 294, 298],
+          "groups": []
+        },
+        {
+          "fn": 29,
+          "gate": "(T[6] == 0)",
+          "requests": [],
+          "groups": [50]
+        }
+      ],
+      "captain_home": {
+        "x": 104.187,
+        "z": 179.562,
+        "records": [287, 295, 296, 297]
+      },
+      "max_octagonal_distance_home_to_any_team2_type8_m": 110.0,
+      "base_plates": [
+        {
+          "x": 86.0,
+          "z": 168.062,
+          "csac": 22,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 88.064,
+          "z": 73.938,
+          "csac": 23,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 92.093,
+          "z": 167.094,
+          "csac": 19,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 93.0,
+          "z": 73.938,
+          "csac": 14,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 99.0,
+          "z": 77.062,
+          "csac": 30,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 99.093,
+          "z": 163.0,
+          "csac": 25,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 102.032,
+          "z": 166.031,
+          "csac": 20,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 102.061,
+          "z": 73.969,
+          "csac": 26,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 106.031,
+          "z": 166.094,
+          "csac": 18,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 106.062,
+          "z": 73.938,
+          "csac": 28,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 109.061,
+          "z": 77.094,
+          "csac": 31,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 109.062,
+          "z": 163.062,
+          "csac": 21,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 115.093,
+          "z": 166.156,
+          "csac": 38,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 116.062,
+          "z": 73.031,
+          "csac": 29,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 120.0,
+          "z": 166.0,
+          "csac": 36,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 122.0,
+          "z": 72.0,
+          "csac": 27,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        }
+      ],
+      "outposts": [
+        {
+          "index": 0,
+          "owner_word": 40,
+          "captain_claim_fn": {
+            "fn": 22,
+            "enables": [149]
+          },
+          "claim_zone": {
+            "cact": 152,
+            "x": 137.937,
+            "z": 91.0,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 130.438,
+            "x1": 140.875,
+            "z0": 82.438,
+            "z1": 93.75,
+            "props": [245, 253, 254, 255]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [150, 151],
+              "pads": [
+                {
+                  "id": 150,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 137.0,
+                  "z": 88.75
+                },
+                {
+                  "id": 151,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 139.811,
+                  "z": 88.688
+                }
+              ],
+              "opens_type8_spawners": [157, 158],
+              "opened_plates": [
+                {
+                  "csac": 157,
+                  "x": 131.563,
+                  "z": 83.5
+                },
+                {
+                  "csac": 158,
+                  "x": 131.438,
+                  "z": 92.562
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [40, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [149, 153],
+              "pads": [
+                {
+                  "id": 149,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 137.0,
+                  "z": 88.75
+                },
+                {
+                  "id": 153,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 139.811,
+                  "z": 88.688
+                }
+              ],
+              "opens_type8_spawners": [85, 162],
+              "opened_plates": [
+                {
+                  "csac": 85,
+                  "x": 131.563,
+                  "z": 83.5
+                },
+                {
+                  "csac": 162,
+                  "x": 131.438,
+                  "z": 92.562
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 131.438,
+              "z": 92.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 158,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 162,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 119,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 131.563,
+              "z": 83.5,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 157,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 85,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 113,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "owner_word": 41,
+          "captain_claim_fn": {
+            "fn": 23,
+            "enables": [170]
+          },
+          "claim_zone": {
+            "cact": 169,
+            "x": 70.252,
+            "z": 85.062,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 67.375,
+            "x1": 77.75,
+            "z0": 82.375,
+            "z1": 93.75,
+            "props": [246, 250, 251, 252]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [166, 167],
+              "pads": [
+                {
+                  "id": 166,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 71.251,
+                  "z": 87.25
+                },
+                {
+                  "id": 167,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 68.312,
+                  "z": 87.188
+                }
+              ],
+              "opens_type8_spawners": [176, 182],
+              "opened_plates": [
+                {
+                  "csac": 176,
+                  "x": 76.562,
+                  "z": 83.375
+                },
+                {
+                  "csac": 182,
+                  "x": 76.501,
+                  "z": 92.562
+                }
+              ],
+              "shuts_spawners": [265, 267],
+              "die_orders_0x3d": [169, 265, 267],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [41, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [170, 171],
+              "pads": [
+                {
+                  "id": 170,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 71.251,
+                  "z": 87.25
+                },
+                {
+                  "id": 171,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 68.312,
+                  "z": 87.188
+                }
+              ],
+              "opens_type8_spawners": [180, 184],
+              "opened_plates": [
+                {
+                  "csac": 180,
+                  "x": 76.562,
+                  "z": 83.375
+                },
+                {
+                  "csac": 184,
+                  "x": 76.501,
+                  "z": 92.562
+                }
+              ],
+              "shuts_spawners": [267, 265],
+              "die_orders_0x3d": [169, 267, 265],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 76.501,
+              "z": 92.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 182,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 184,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 267,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 76.562,
+              "z": 83.375,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 176,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 180,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 265,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "owner_word": 42,
+          "captain_claim_fn": {
+            "fn": 24,
+            "enables": [192]
+          },
+          "claim_zone": {
+            "cact": 191,
+            "x": 70.314,
+            "z": 149.0,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 67.437,
+            "x1": 77.812,
+            "z0": 146.375,
+            "z1": 157.688,
+            "props": [247, 259, 260, 261]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [188, 189],
+              "pads": [
+                {
+                  "id": 188,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 71.189,
+                  "z": 151.25
+                },
+                {
+                  "id": 189,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 68.187,
+                  "z": 151.188
+                }
+              ],
+              "opens_type8_spawners": [199, 203],
+              "opened_plates": [
+                {
+                  "csac": 199,
+                  "x": 76.501,
+                  "z": 147.5
+                },
+                {
+                  "csac": 203,
+                  "x": 76.438,
+                  "z": 156.688
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [42, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [192, 193],
+              "pads": [
+                {
+                  "id": 192,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 71.189,
+                  "z": 151.25
+                },
+                {
+                  "id": 193,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 68.187,
+                  "z": 151.188
+                }
+              ],
+              "opens_type8_spawners": [198, 202],
+              "opened_plates": [
+                {
+                  "csac": 198,
+                  "x": 76.501,
+                  "z": 147.5
+                },
+                {
+                  "csac": 202,
+                  "x": 76.438,
+                  "z": 156.688
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 76.438,
+              "z": 156.688,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 203,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 202,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 274,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 76.501,
+              "z": 147.5,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 199,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 198,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 271,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "owner_word": 43,
+          "captain_claim_fn": {
+            "fn": 25,
+            "enables": [214]
+          },
+          "claim_zone": {
+            "cact": 213,
+            "x": 137.875,
+            "z": 155.062,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 130.438,
+            "x1": 140.814,
+            "z0": 146.375,
+            "z1": 157.75,
+            "props": [248, 256, 257, 258]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [210, 211],
+              "pads": [
+                {
+                  "id": 210,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 137.126,
+                  "z": 152.812
+                },
+                {
+                  "id": 211,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 139.998,
+                  "z": 152.812
+                }
+              ],
+              "opens_type8_spawners": [217, 45],
+              "opened_plates": [
+                {
+                  "csac": 217,
+                  "x": 131.625,
+                  "z": 147.562
+                },
+                {
+                  "csac": 45,
+                  "x": 131.501,
+                  "z": 156.562
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 279, 219, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [43, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [214, 215],
+              "pads": [
+                {
+                  "id": 214,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 137.126,
+                  "z": 152.812
+                },
+                {
+                  "id": 215,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 139.998,
+                  "z": 152.812
+                }
+              ],
+              "opens_type8_spawners": [220, 224],
+              "opened_plates": [
+                {
+                  "csac": 220,
+                  "x": 131.625,
+                  "z": 147.562
+                },
+                {
+                  "csac": 224,
+                  "x": 131.501,
+                  "z": 156.562
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 219, 279, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 131.501,
+              "z": 156.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 45,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 224,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 277,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 131.625,
+              "z": 147.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 217,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 220,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 279,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "neutral_only_plates": 24,
+      "counts": {
+        "type8_team1": 16,
+        "type8_team2": 16,
+        "type36": 32,
+        "base_type8_per_side": {
+          "team1": 8,
+          "team2": 8
+        },
+        "live_type8_at_start": {
+          "team1": 8,
+          "team2": 8
+        }
+      },
+      "captain_turret_count": {
+        "base_turrets_team2": 8,
+        "actors_counted_at_start": 16,
+        "threshold": 10,
+        "leaves_defend_at_start": true,
+        "back_to_defend_after_base_turrets_lost": 4,
+        "per_owned_outpost": 4,
+        "note": "count = 2 x live own type-8 turrets (turret + base part); valid once fn27 has spawned the base turrets"
+      }
+    },
+    "Slim": {
+      "start_functions": [
+        {
+          "fn": 27,
+          "gate": "(T[5] == 0)",
+          "requests": [30, 26, 28, 31, 29, 27, 22, 19, 25, 20, 18, 21],
+          "groups": []
+        },
+        {
+          "fn": 28,
+          "gate": "(T[7] == 0)",
+          "requests": [100, 101, 102, 103, 126, 127, 128, 339, 340],
+          "groups": []
+        },
+        {
+          "fn": 29,
+          "gate": "(T[8] == 0)",
+          "requests": [],
+          "groups": [50]
+        }
+      ],
+      "captain_home": {
+        "x": 120.0,
+        "z": 174.938,
+        "records": [164, 347, 348, 349]
+      },
+      "max_octagonal_distance_home_to_any_team2_type8_m": 96.1,
+      "base_plates": [
+        {
+          "x": 77.501,
+          "z": 78.562,
+          "csac": 30,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 82.624,
+          "z": 78.469,
+          "csac": 26,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 87.437,
+          "z": 78.562,
+          "csac": 28,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 90.624,
+          "z": 78.594,
+          "csac": 31,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 93.437,
+          "z": 78.594,
+          "csac": 29,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 98.501,
+          "z": 78.438,
+          "csac": 27,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 109.501,
+          "z": 161.562,
+          "csac": 22,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 114.531,
+          "z": 161.406,
+          "csac": 19,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 117.469,
+          "z": 161.438,
+          "csac": 25,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 120.594,
+          "z": 161.406,
+          "csac": 20,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 125.656,
+          "z": 161.406,
+          "csac": 18,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 130.625,
+          "z": 161.5,
+          "csac": 21,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        }
+      ],
+      "outposts": [
+        {
+          "index": 0,
+          "owner_word": 40,
+          "captain_claim_fn": {
+            "fn": 22,
+            "enables": [149]
+          },
+          "claim_zone": {
+            "cact": 152,
+            "x": 114.75,
+            "z": 90.062,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 117.5,
+            "x1": 120.562,
+            "z0": 82.5,
+            "z1": 85.5,
+            "props": [245, 253, 254, 255]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [150, 151],
+              "pads": [
+                {
+                  "id": 150,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 114.625,
+                  "z": 88.375
+                },
+                {
+                  "id": 151,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 114.687,
+                  "z": 91.688
+                }
+              ],
+              "opens_type8_spawners": [157, 158],
+              "opened_plates": [
+                {
+                  "csac": 157,
+                  "x": 112.376,
+                  "z": 82.625
+                },
+                {
+                  "csac": 158,
+                  "x": 122.438,
+                  "z": 90.625
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [40, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [149, 153],
+              "pads": [
+                {
+                  "id": 149,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 114.625,
+                  "z": 88.375
+                },
+                {
+                  "id": 153,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 114.687,
+                  "z": 91.688
+                }
+              ],
+              "opens_type8_spawners": [85, 162],
+              "opened_plates": [
+                {
+                  "csac": 85,
+                  "x": 112.376,
+                  "z": 82.625
+                },
+                {
+                  "csac": 162,
+                  "x": 122.438,
+                  "z": 90.625
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 112.376,
+              "z": 82.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 157,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 85,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 113,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 122.438,
+              "z": 90.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 158,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 162,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 119,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "owner_word": 41,
+          "captain_claim_fn": {
+            "fn": 23,
+            "enables": [170]
+          },
+          "claim_zone": {
+            "cact": 169,
+            "x": 81.376,
+            "z": 112.875,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 82.438,
+            "x1": 85.5,
+            "z0": 110.5,
+            "z1": 114.5,
+            "props": [246, 250, 251, 252]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [166, 167],
+              "pads": [
+                {
+                  "id": 166,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 81.251,
+                  "z": 111.188
+                },
+                {
+                  "id": 167,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 81.312,
+                  "z": 114.5
+                }
+              ],
+              "opens_type8_spawners": [176, 182],
+              "opened_plates": [
+                {
+                  "csac": 176,
+                  "x": 86.562,
+                  "z": 106.5
+                },
+                {
+                  "csac": 182,
+                  "x": 84.501,
+                  "z": 116.688
+                }
+              ],
+              "shuts_spawners": [265, 267],
+              "die_orders_0x3d": [169, 265, 267],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [41, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [170, 171],
+              "pads": [
+                {
+                  "id": 170,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 81.251,
+                  "z": 111.188
+                },
+                {
+                  "id": 171,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 81.312,
+                  "z": 114.5
+                }
+              ],
+              "opens_type8_spawners": [180, 184],
+              "opened_plates": [
+                {
+                  "csac": 180,
+                  "x": 86.562,
+                  "z": 106.5
+                },
+                {
+                  "csac": 184,
+                  "x": 84.501,
+                  "z": 116.688
+                }
+              ],
+              "shuts_spawners": [267, 265],
+              "die_orders_0x3d": [169, 267, 265],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 84.501,
+              "z": 116.688,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 182,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 184,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 267,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 86.562,
+              "z": 106.5,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 176,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 180,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 265,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "owner_word": 42,
+          "captain_claim_fn": {
+            "fn": 24,
+            "enables": [192]
+          },
+          "claim_zone": {
+            "cact": 191,
+            "x": 89.376,
+            "z": 143.375,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 89.625,
+            "x1": 93.562,
+            "z0": 145.562,
+            "z1": 148.562,
+            "props": [247, 259, 260, 261]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [188, 189],
+              "pads": [
+                {
+                  "id": 188,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 89.376,
+                  "z": 145.125
+                },
+                {
+                  "id": 189,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 88.562,
+                  "z": 141.688
+                }
+              ],
+              "opens_type8_spawners": [199, 203],
+              "opened_plates": [
+                {
+                  "csac": 199,
+                  "x": 84.563,
+                  "z": 140.5
+                },
+                {
+                  "csac": 203,
+                  "x": 91.501,
+                  "z": 156.625
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [42, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [192, 193],
+              "pads": [
+                {
+                  "id": 192,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 89.376,
+                  "z": 145.125
+                },
+                {
+                  "id": 193,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 88.562,
+                  "z": 141.688
+                }
+              ],
+              "opens_type8_spawners": [198, 202],
+              "opened_plates": [
+                {
+                  "csac": 198,
+                  "x": 84.563,
+                  "z": 140.5
+                },
+                {
+                  "csac": 202,
+                  "x": 91.501,
+                  "z": 156.625
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 84.563,
+              "z": 140.5,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 199,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 198,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 271,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 91.501,
+              "z": 156.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 203,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 202,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 274,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "owner_word": 43,
+          "captain_claim_fn": {
+            "fn": 25,
+            "enables": [214]
+          },
+          "claim_zone": {
+            "cact": 213,
+            "x": 124.062,
+            "z": 134.312,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 122.064,
+            "x1": 124.439,
+            "z0": 136.688,
+            "z1": 141.25,
+            "props": [248, 256, 257, 258]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [210, 211],
+              "pads": [
+                {
+                  "id": 210,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 125.501,
+                  "z": 136.812
+                },
+                {
+                  "id": 211,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 125.562,
+                  "z": 134.312
+                }
+              ],
+              "opens_type8_spawners": [217, 45],
+              "opened_plates": [
+                {
+                  "csac": 217,
+                  "x": 120.875,
+                  "z": 136.625
+                },
+                {
+                  "csac": 45,
+                  "x": 117.125,
+                  "z": 146.25
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 279, 219, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [43, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [214, 215],
+              "pads": [
+                {
+                  "id": 214,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 125.501,
+                  "z": 136.812
+                },
+                {
+                  "id": 215,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 125.562,
+                  "z": 134.312
+                }
+              ],
+              "opens_type8_spawners": [220, 224],
+              "opened_plates": [
+                {
+                  "csac": 220,
+                  "x": 120.875,
+                  "z": 136.625
+                },
+                {
+                  "csac": 224,
+                  "x": 117.125,
+                  "z": 146.25
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 219, 279, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 117.125,
+              "z": 146.25,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 45,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 224,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 277,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 120.875,
+              "z": 136.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 217,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 220,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 279,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "neutral_only_plates": 21,
+      "counts": {
+        "type8_team1": 14,
+        "type8_team2": 14,
+        "type36": 29,
+        "base_type8_per_side": {
+          "team1": 6,
+          "team2": 6
+        },
+        "live_type8_at_start": {
+          "team1": 6,
+          "team2": 6
+        }
+      },
+      "captain_turret_count": {
+        "base_turrets_team2": 6,
+        "actors_counted_at_start": 12,
+        "threshold": 10,
+        "leaves_defend_at_start": true,
+        "back_to_defend_after_base_turrets_lost": 2,
+        "per_owned_outpost": 4,
+        "note": "count = 2 x live own type-8 turrets (turret + base part); valid once fn27 has spawned the base turrets"
+      }
+    },
+    "Joke": {
+      "start_functions": [
+        {
+          "fn": 27,
+          "gate": "(T[5] == 0)",
+          "requests": [30, 26, 28, 31, 29, 27, 22, 19, 25, 20, 18, 21],
+          "groups": []
+        },
+        {
+          "fn": 28,
+          "gate": "(T[7] == 0)",
+          "requests": [100, 101, 102, 103, 126, 127, 128, 339, 340],
+          "groups": []
+        },
+        {
+          "fn": 29,
+          "gate": "(T[8] == 0)",
+          "requests": [],
+          "groups": [50]
+        }
+      ],
+      "captain_home": {
+        "x": 120.0,
+        "z": 175.0,
+        "records": [164, 292]
+      },
+      "max_octagonal_distance_home_to_any_team2_type8_m": 96.2,
+      "base_plates": [
+        {
+          "x": 77.501,
+          "z": 78.562,
+          "csac": 30,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 82.624,
+          "z": 78.469,
+          "csac": 26,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 87.437,
+          "z": 78.562,
+          "csac": 28,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 90.624,
+          "z": 78.594,
+          "csac": 31,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 93.437,
+          "z": 78.594,
+          "csac": 29,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 98.501,
+          "z": 78.438,
+          "csac": 27,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 109.501,
+          "z": 161.562,
+          "csac": 22,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 114.531,
+          "z": 161.406,
+          "csac": 19,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 117.469,
+          "z": 161.438,
+          "csac": 25,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 120.594,
+          "z": 161.406,
+          "csac": 20,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 125.656,
+          "z": 161.406,
+          "csac": 18,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 130.625,
+          "z": 161.5,
+          "csac": 21,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        }
+      ],
+      "outposts": [
+        {
+          "index": 0,
+          "owner_word": 40,
+          "captain_claim_fn": {
+            "fn": 22,
+            "enables": [149]
+          },
+          "claim_zone": {
+            "cact": 152,
+            "x": 114.75,
+            "z": 90.062,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 117.5,
+            "x1": 120.562,
+            "z0": 82.5,
+            "z1": 85.5,
+            "props": [245, 253, 254, 255]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [150, 151],
+              "pads": [
+                {
+                  "id": 150,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 114.625,
+                  "z": 88.375
+                },
+                {
+                  "id": 151,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 114.687,
+                  "z": 91.688
+                }
+              ],
+              "opens_type8_spawners": [157, 158],
+              "opened_plates": [
+                {
+                  "csac": 157,
+                  "x": 112.376,
+                  "z": 82.625
+                },
+                {
+                  "csac": 158,
+                  "x": 122.438,
+                  "z": 90.625
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [40, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [149, 153],
+              "pads": [
+                {
+                  "id": 149,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 114.625,
+                  "z": 88.375
+                },
+                {
+                  "id": 153,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 114.687,
+                  "z": 91.688
+                }
+              ],
+              "opens_type8_spawners": [85, 162],
+              "opened_plates": [
+                {
+                  "csac": 85,
+                  "x": 112.376,
+                  "z": 82.625
+                },
+                {
+                  "csac": 162,
+                  "x": 122.438,
+                  "z": 90.625
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 112.376,
+              "z": 82.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 157,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 85,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 113,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 122.438,
+              "z": 90.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 158,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 162,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 119,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "owner_word": 41,
+          "captain_claim_fn": {
+            "fn": 23,
+            "enables": [170]
+          },
+          "claim_zone": {
+            "cact": 169,
+            "x": 81.376,
+            "z": 112.875,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 82.438,
+            "x1": 85.5,
+            "z0": 110.5,
+            "z1": 114.5,
+            "props": [246, 250, 251, 252]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [166, 167],
+              "pads": [
+                {
+                  "id": 166,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 81.251,
+                  "z": 111.188
+                },
+                {
+                  "id": 167,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 81.312,
+                  "z": 114.5
+                }
+              ],
+              "opens_type8_spawners": [176, 182],
+              "opened_plates": [
+                {
+                  "csac": 176,
+                  "x": 86.562,
+                  "z": 106.5
+                },
+                {
+                  "csac": 182,
+                  "x": 78.501,
+                  "z": 116.625
+                }
+              ],
+              "shuts_spawners": [265, 267],
+              "die_orders_0x3d": [169, 265, 267],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [41, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [170, 171],
+              "pads": [
+                {
+                  "id": 170,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 81.251,
+                  "z": 111.188
+                },
+                {
+                  "id": 171,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 81.312,
+                  "z": 114.5
+                }
+              ],
+              "opens_type8_spawners": [180, 184],
+              "opened_plates": [
+                {
+                  "csac": 180,
+                  "x": 86.562,
+                  "z": 106.5
+                },
+                {
+                  "csac": 184,
+                  "x": 78.501,
+                  "z": 116.625
+                }
+              ],
+              "shuts_spawners": [267, 265],
+              "die_orders_0x3d": [169, 267, 265],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 78.501,
+              "z": 116.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 182,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 184,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 267,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 86.562,
+              "z": 106.5,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 176,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 180,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 265,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "owner_word": 42,
+          "captain_claim_fn": {
+            "fn": 24,
+            "enables": [192]
+          },
+          "claim_zone": {
+            "cact": 191,
+            "x": 89.376,
+            "z": 143.375,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 89.625,
+            "x1": 93.562,
+            "z0": 145.562,
+            "z1": 148.562,
+            "props": [247, 259, 260, 261]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [188, 189],
+              "pads": [
+                {
+                  "id": 188,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 89.376,
+                  "z": 145.125
+                },
+                {
+                  "id": 189,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 88.562,
+                  "z": 141.688
+                }
+              ],
+              "opens_type8_spawners": [199, 203],
+              "opened_plates": [
+                {
+                  "csac": 199,
+                  "x": 89.875,
+                  "z": 138.5
+                },
+                {
+                  "csac": 203,
+                  "x": 86.438,
+                  "z": 149.5
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [42, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [192, 193],
+              "pads": [
+                {
+                  "id": 192,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 89.376,
+                  "z": 145.125
+                },
+                {
+                  "id": 193,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 88.562,
+                  "z": 141.688
+                }
+              ],
+              "opens_type8_spawners": [198, 202],
+              "opened_plates": [
+                {
+                  "csac": 198,
+                  "x": 89.875,
+                  "z": 138.5
+                },
+                {
+                  "csac": 202,
+                  "x": 86.438,
+                  "z": 149.5
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 86.438,
+              "z": 149.5,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 203,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 202,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 274,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 89.875,
+              "z": 138.5,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 199,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 198,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 271,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "owner_word": 43,
+          "captain_claim_fn": {
+            "fn": 25,
+            "enables": [214]
+          },
+          "claim_zone": {
+            "cact": 213,
+            "x": 124.062,
+            "z": 134.312,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 122.064,
+            "x1": 124.439,
+            "z0": 136.688,
+            "z1": 141.25,
+            "props": [248, 256, 257, 258]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [210, 211],
+              "pads": [
+                {
+                  "id": 210,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 125.501,
+                  "z": 136.812
+                },
+                {
+                  "id": 211,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 125.562,
+                  "z": 134.312
+                }
+              ],
+              "opens_type8_spawners": [217, 45],
+              "opened_plates": [
+                {
+                  "csac": 217,
+                  "x": 120.875,
+                  "z": 136.625
+                },
+                {
+                  "csac": 45,
+                  "x": 117.125,
+                  "z": 146.25
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 279, 219, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [43, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [214, 215],
+              "pads": [
+                {
+                  "id": 214,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 125.501,
+                  "z": 136.812
+                },
+                {
+                  "id": 215,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 125.562,
+                  "z": 134.312
+                }
+              ],
+              "opens_type8_spawners": [220, 224],
+              "opened_plates": [
+                {
+                  "csac": 220,
+                  "x": 120.875,
+                  "z": 136.625
+                },
+                {
+                  "csac": 224,
+                  "x": 117.125,
+                  "z": 146.25
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 219, 279, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 117.125,
+              "z": 146.25,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 45,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 224,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 277,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 120.875,
+              "z": 136.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 217,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 220,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 279,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "neutral_only_plates": 21,
+      "counts": {
+        "type8_team1": 14,
+        "type8_team2": 14,
+        "type36": 29,
+        "base_type8_per_side": {
+          "team1": 6,
+          "team2": 6
+        },
+        "live_type8_at_start": {
+          "team1": 6,
+          "team2": 6
+        }
+      },
+      "captain_turret_count": {
+        "base_turrets_team2": 6,
+        "actors_counted_at_start": 12,
+        "threshold": 10,
+        "leaves_defend_at_start": true,
+        "back_to_defend_after_base_turrets_lost": 2,
+        "per_owned_outpost": 4,
+        "note": "count = 2 x live own type-8 turrets (turret + base part); valid once fn27 has spawned the base turrets"
+      }
+    },
+    "Hk": {
+      "start_functions": [
+        {
+          "fn": 27,
+          "gate": "(T[3] == 0)",
+          "requests": [30, 26, 28, 31, 29, 27, 23, 14, 22, 19, 25, 20, 18, 21, 36, 38],
+          "groups": []
+        },
+        {
+          "fn": 28,
+          "gate": "(T[5] == 0)",
+          "requests": [100, 101, 102, 103, 98, 105, 110, 22, 29],
+          "groups": []
+        },
+        {
+          "fn": 29,
+          "gate": "(T[6] == 0)",
+          "requests": [],
+          "groups": [50]
+        }
+      ],
+      "captain_home": {
+        "x": 206.499,
+        "z": 119.562,
+        "records": [64, 31, 46, 66]
+      },
+      "max_octagonal_distance_home_to_any_team2_type8_m": 130.3,
+      "base_plates": [
+        {
+          "x": 83.312,
+          "z": 122.75,
+          "csac": 14,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 83.376,
+          "z": 118.375,
+          "csac": 23,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 83.687,
+          "z": 131.812,
+          "csac": 28,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 83.749,
+          "z": 128.125,
+          "csac": 30,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 84.437,
+          "z": 135.688,
+          "csac": 27,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 87.498,
+          "z": 113.656,
+          "csac": 26,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 184.687,
+          "z": 126.5,
+          "csac": 36,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 188.408,
+          "z": 112.094,
+          "csac": 20,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 188.499,
+          "z": 107.625,
+          "csac": 21,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 188.531,
+          "z": 103.406,
+          "csac": 38,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 188.842,
+          "z": 117.406,
+          "csac": 18,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 188.843,
+          "z": 121.562,
+          "csac": 25,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        }
+      ],
+      "outposts": [
+        {
+          "index": 0,
+          "owner_word": 40,
+          "captain_claim_fn": {
+            "fn": 22,
+            "enables": [149]
+          },
+          "claim_zone": {
+            "cact": 152,
+            "x": 163.375,
+            "z": 66.125,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 167.25,
+            "x1": 172.0,
+            "z0": 77.5,
+            "z1": 77.5,
+            "props": [245, 253, 254, 255]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [150, 151],
+              "pads": [
+                {
+                  "id": 150,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 167.188,
+                  "z": 72.312
+                },
+                {
+                  "id": 151,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 170.499,
+                  "z": 70.125
+                }
+              ],
+              "opens_type8_spawners": [157, 158],
+              "opened_plates": [
+                {
+                  "csac": 157,
+                  "x": 174.376,
+                  "z": 77.5
+                },
+                {
+                  "csac": 158,
+                  "x": 161.563,
+                  "z": 77.438
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [40, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [149, 153],
+              "pads": [
+                {
+                  "id": 149,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 167.188,
+                  "z": 72.312
+                },
+                {
+                  "id": 153,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 170.499,
+                  "z": 70.125
+                }
+              ],
+              "opens_type8_spawners": [85, 162],
+              "opened_plates": [
+                {
+                  "csac": 85,
+                  "x": 174.376,
+                  "z": 77.5
+                },
+                {
+                  "csac": 162,
+                  "x": 161.563,
+                  "z": 77.438
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 161.563,
+              "z": 77.438,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 158,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 162,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 119,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 174.376,
+              "z": 77.5,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 157,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 85,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 113,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "owner_word": 41,
+          "captain_claim_fn": {
+            "fn": 23,
+            "enables": [170]
+          },
+          "claim_zone": {
+            "cact": 169,
+            "x": 108.814,
+            "z": 66.5,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 100.625,
+            "x1": 104.5,
+            "z0": 77.5,
+            "z1": 77.5,
+            "props": [246, 250, 251, 252]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [166, 167],
+              "pads": [
+                {
+                  "id": 166,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 104.752,
+                  "z": 72.375
+                },
+                {
+                  "id": 167,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 101.749,
+                  "z": 70.25
+                }
+              ],
+              "opens_type8_spawners": [176, 182],
+              "opened_plates": [
+                {
+                  "csac": 176,
+                  "x": 97.499,
+                  "z": 77.312
+                },
+                {
+                  "csac": 182,
+                  "x": 110.376,
+                  "z": 77.438
+                }
+              ],
+              "shuts_spawners": [265, 267],
+              "die_orders_0x3d": [169, 265, 267],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [41, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [170, 171],
+              "pads": [
+                {
+                  "id": 170,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 104.752,
+                  "z": 72.375
+                },
+                {
+                  "id": 171,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 101.749,
+                  "z": 70.25
+                }
+              ],
+              "opens_type8_spawners": [180, 184],
+              "opened_plates": [
+                {
+                  "csac": 180,
+                  "x": 97.499,
+                  "z": 77.312
+                },
+                {
+                  "csac": 184,
+                  "x": 110.376,
+                  "z": 77.438
+                }
+              ],
+              "shuts_spawners": [267, 265],
+              "die_orders_0x3d": [169, 267, 265],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 97.499,
+              "z": 77.312,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 176,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 180,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 265,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 110.376,
+              "z": 77.438,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 182,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 184,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 267,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "owner_word": 42,
+          "captain_claim_fn": {
+            "fn": 24,
+            "enables": [192]
+          },
+          "claim_zone": {
+            "cact": 191,
+            "x": 109.377,
+            "z": 173.812,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 100.25,
+            "x1": 104.812,
+            "z0": 162.5,
+            "z1": 162.5,
+            "props": [247, 259, 260, 261]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [188, 189],
+              "pads": [
+                {
+                  "id": 188,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 105.376,
+                  "z": 167.625
+                },
+                {
+                  "id": 189,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 101.875,
+                  "z": 169.812
+                }
+              ],
+              "opens_type8_spawners": [199, 203],
+              "opened_plates": [
+                {
+                  "csac": 199,
+                  "x": 97.625,
+                  "z": 162.5
+                },
+                {
+                  "csac": 203,
+                  "x": 110.501,
+                  "z": 162.625
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [42, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [192, 193],
+              "pads": [
+                {
+                  "id": 192,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 105.376,
+                  "z": 167.625
+                },
+                {
+                  "id": 193,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 101.937,
+                  "z": 169.812
+                }
+              ],
+              "opens_type8_spawners": [198, 202],
+              "opened_plates": [
+                {
+                  "csac": 198,
+                  "x": 97.625,
+                  "z": 162.5
+                },
+                {
+                  "csac": 202,
+                  "x": 110.501,
+                  "z": 162.625
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 97.625,
+              "z": 162.5,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 199,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 198,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 271,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 110.501,
+              "z": 162.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 203,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 202,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 274,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "owner_word": 43,
+          "captain_claim_fn": {
+            "fn": 25,
+            "enables": [214]
+          },
+          "claim_zone": {
+            "cact": 213,
+            "x": 163.188,
+            "z": 174.062,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 167.376,
+            "x1": 171.939,
+            "z0": 162.5,
+            "z1": 162.5,
+            "props": [248, 256, 257, 258]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [210, 211],
+              "pads": [
+                {
+                  "id": 210,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 167.126,
+                  "z": 167.75
+                },
+                {
+                  "id": 211,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 170.248,
+                  "z": 170.125
+                }
+              ],
+              "opens_type8_spawners": [217, 45],
+              "opened_plates": [
+                {
+                  "csac": 217,
+                  "x": 174.501,
+                  "z": 162.562
+                },
+                {
+                  "csac": 45,
+                  "x": 161.625,
+                  "z": 162.625
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 279, 219, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [43, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [214, 215],
+              "pads": [
+                {
+                  "id": 214,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 167.126,
+                  "z": 167.75
+                },
+                {
+                  "id": 215,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 170.248,
+                  "z": 170.125
+                }
+              ],
+              "opens_type8_spawners": [220, 224],
+              "opened_plates": [
+                {
+                  "csac": 220,
+                  "x": 174.501,
+                  "z": 162.562
+                },
+                {
+                  "csac": 224,
+                  "x": 161.625,
+                  "z": 162.625
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 219, 279, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 161.625,
+              "z": 162.625,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 45,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 224,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 277,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 174.501,
+              "z": 162.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 217,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 220,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 279,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "neutral_only_plates": 27,
+      "counts": {
+        "type8_team1": 14,
+        "type8_team2": 14,
+        "type36": 35,
+        "base_type8_per_side": {
+          "team1": 6,
+          "team2": 6
+        },
+        "live_type8_at_start": {
+          "team1": 6,
+          "team2": 6
+        }
+      },
+      "captain_turret_count": {
+        "base_turrets_team2": 6,
+        "actors_counted_at_start": 12,
+        "threshold": 10,
+        "leaves_defend_at_start": true,
+        "back_to_defend_after_base_turrets_lost": 2,
+        "per_owned_outpost": 4,
+        "note": "count = 2 x live own type-8 turrets (turret + base part); valid once fn27 has spawned the base turrets"
+      }
+    },
+    "Ovmp": {
+      "start_functions": [
+        {
+          "fn": 27,
+          "gate": "(T[3] == 0)",
+          "requests": [30, 26, 28, 31, 29, 27, 23, 14, 22, 19, 25, 20, 18, 21, 36, 38],
+          "groups": []
+        },
+        {
+          "fn": 28,
+          "gate": "(T[5] == 0)",
+          "requests": [100, 101, 102, 103, 90, 92, 93, 94, 105, 110, 111, 114],
+          "groups": []
+        },
+        {
+          "fn": 29,
+          "gate": "(T[6] == 0)",
+          "requests": [],
+          "groups": [50]
+        }
+      ],
+      "captain_home": {
+        "x": 128.062,
+        "z": 221.062,
+        "records": [98, 116, 117, 120]
+      },
+      "max_octagonal_distance_home_to_any_team2_type8_m": 117.8,
+      "base_plates": [
+        {
+          "x": 120.938,
+          "z": 94.656,
+          "csac": 29,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 120.968,
+          "z": 193.406,
+          "csac": 38,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 121.125,
+          "z": 203.344,
+          "csac": 22,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 121.189,
+          "z": 84.5,
+          "csac": 23,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 124.813,
+          "z": 84.562,
+          "csac": 14,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 124.843,
+          "z": 203.438,
+          "csac": 19,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 126.875,
+          "z": 84.562,
+          "csac": 30,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 126.906,
+          "z": 203.438,
+          "csac": 18,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 129.061,
+          "z": 84.594,
+          "csac": 26,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 129.187,
+          "z": 203.406,
+          "csac": 21,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 131.25,
+          "z": 84.562,
+          "csac": 28,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 131.343,
+          "z": 203.406,
+          "csac": 25,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 134.811,
+          "z": 84.656,
+          "csac": 31,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 134.845,
+          "z": 203.5,
+          "csac": 20,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 135.187,
+          "z": 94.625,
+          "csac": 27,
+          "team": 1,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        },
+        {
+          "x": 135.187,
+          "z": 193.375,
+          "csac": 36,
+          "team": 2,
+          "live_at_start": true,
+          "respawn_s": 37.5
+        }
+      ],
+      "outposts": [
+        {
+          "index": 0,
+          "owner_word": 40,
+          "captain_claim_fn": {
+            "fn": 22,
+            "enables": [149]
+          },
+          "claim_zone": {
+            "cact": 152,
+            "x": 157.625,
+            "z": 120.062,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 149.062,
+            "x1": 159.0,
+            "z0": 113.875,
+            "z1": 127.0,
+            "props": [245, 253, 254, 255]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [150, 151],
+              "pads": [
+                {
+                  "id": 150,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 150.75,
+                  "z": 125.062
+                },
+                {
+                  "id": 151,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 150.811,
+                  "z": 116.188
+                }
+              ],
+              "opens_type8_spawners": [157, 158],
+              "opened_plates": [
+                {
+                  "csac": 157,
+                  "x": 160.376,
+                  "z": 128.438
+                },
+                {
+                  "csac": 158,
+                  "x": 148.438,
+                  "z": 113.438
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [40, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [149, 153],
+              "pads": [
+                {
+                  "id": 149,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 150.75,
+                  "z": 125.062
+                },
+                {
+                  "id": 153,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 150.811,
+                  "z": 116.188
+                }
+              ],
+              "opens_type8_spawners": [85, 162],
+              "opened_plates": [
+                {
+                  "csac": 85,
+                  "x": 160.376,
+                  "z": 128.438
+                },
+                {
+                  "csac": 162,
+                  "x": 148.438,
+                  "z": 113.438
+                }
+              ],
+              "shuts_spawners": [113, 119],
+              "die_orders_0x3d": [152, 156, 113, 159, 119],
+              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 148.438,
+              "z": 113.438,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 158,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 162,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 119,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 160.376,
+              "z": 128.438,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 157,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 85,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 113,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "owner_word": 41,
+          "captain_claim_fn": {
+            "fn": 23,
+            "enables": [170]
+          },
+          "claim_zone": {
+            "cact": 169,
+            "x": 98.439,
+            "z": 120.062,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 97.062,
+            "x1": 106.938,
+            "z0": 113.938,
+            "z1": 127.062,
+            "props": [246, 250, 251, 252]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [166, 167],
+              "pads": [
+                {
+                  "id": 166,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 105.438,
+                  "z": 116.25
+                },
+                {
+                  "id": 167,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 105.437,
+                  "z": 125.188
+                }
+              ],
+              "opens_type8_spawners": [176, 182],
+              "opened_plates": [
+                {
+                  "csac": 176,
+                  "x": 95.687,
+                  "z": 128.438
+                },
+                {
+                  "csac": 182,
+                  "x": 107.501,
+                  "z": 113.688
+                }
+              ],
+              "shuts_spawners": [265, 267],
+              "die_orders_0x3d": [169, 265, 267],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [41, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [170, 171],
+              "pads": [
+                {
+                  "id": 170,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 105.438,
+                  "z": 116.25
+                },
+                {
+                  "id": 171,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 105.437,
+                  "z": 125.188
+                }
+              ],
+              "opens_type8_spawners": [180, 184],
+              "opened_plates": [
+                {
+                  "csac": 180,
+                  "x": 95.687,
+                  "z": 128.438
+                },
+                {
+                  "csac": 184,
+                  "x": 107.501,
+                  "z": 113.688
+                }
+              ],
+              "shuts_spawners": [267, 265],
+              "die_orders_0x3d": [169, 267, 265],
+              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 95.687,
+              "z": 128.438,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 176,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 180,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 265,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 107.501,
+              "z": 113.688,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 182,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 184,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 267,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "owner_word": 42,
+          "captain_claim_fn": {
+            "fn": 24,
+            "enables": [192]
+          },
+          "claim_zone": {
+            "cact": 191,
+            "x": 98.189,
+            "z": 167.938,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 97.125,
+            "x1": 107.062,
+            "z0": 160.938,
+            "z1": 174.0,
+            "props": [247, 259, 260, 261]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [188, 189],
+              "pads": [
+                {
+                  "id": 188,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 105.314,
+                  "z": 163.312
+                },
+                {
+                  "id": 189,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 105.437,
+                  "z": 171.938
+                }
+              ],
+              "opens_type8_spawners": [199, 203],
+              "opened_plates": [
+                {
+                  "csac": 199,
+                  "x": 95.625,
+                  "z": 159.562
+                },
+                {
+                  "csac": 203,
+                  "x": 107.438,
+                  "z": 174.438
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [42, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [192, 193],
+              "pads": [
+                {
+                  "id": 192,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 105.314,
+                  "z": 163.312
+                },
+                {
+                  "id": 193,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 105.437,
+                  "z": 171.938
+                }
+              ],
+              "opens_type8_spawners": [198, 202],
+              "opened_plates": [
+                {
+                  "csac": 198,
+                  "x": 95.625,
+                  "z": 159.562
+                },
+                {
+                  "csac": 202,
+                  "x": 107.438,
+                  "z": 174.438
+                }
+              ],
+              "shuts_spawners": [271, 274],
+              "die_orders_0x3d": [191, 271, 195, 274, 194],
+              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 95.625,
+              "z": 159.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 199,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 198,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 271,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 107.438,
+              "z": 174.438,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 203,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 202,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 274,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "owner_word": 43,
+          "captain_claim_fn": {
+            "fn": 25,
+            "enables": [214]
+          },
+          "claim_zone": {
+            "cact": 213,
+            "x": 157.938,
+            "z": 168.062,
+            "radius_raw": 614,
+            "radius_m": 1.199,
+            "mode": 6,
+            "touched_by": "any type-1 actor (X1Alpha; selector 1 value 1); script splits on SELF == 12 (slot 0)",
+            "needs_points": "> 29 (W25 slot 0 / W26 slot 1)"
+          },
+          "footprint_corner_props": {
+            "x0": 149.063,
+            "x1": 158.939,
+            "z0": 160.875,
+            "z1": 174.062,
+            "props": [248, 256, 257, 258]
+          },
+          "sides": {
+            "slot0_team1": {
+              "pad_chain": [210, 211],
+              "pads": [
+                {
+                  "id": 210,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 150.627,
+                  "z": 171.812
+                },
+                {
+                  "id": 211,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 150.749,
+                  "z": 163.0
+                }
+              ],
+              "opens_type8_spawners": [217, 45],
+              "opened_plates": [
+                {
+                  "csac": 217,
+                  "x": 160.501,
+                  "z": 159.562
+                },
+                {
+                  "csac": 45,
+                  "x": 148.625,
+                  "z": 174.438
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 279, 219, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 33,
+              "owner_word_written_by_script": [43, 1],
+              "script_deducts_30": true
+            },
+            "slot1_team2": {
+              "pad_chain": [214, 215],
+              "pads": [
+                {
+                  "id": 214,
+                  "unit": "tank",
+                  "cost": 2,
+                  "x": 150.627,
+                  "z": 171.812
+                },
+                {
+                  "id": 215,
+                  "unit": "jet",
+                  "cost": 2,
+                  "x": 150.749,
+                  "z": 163.0
+                }
+              ],
+              "opens_type8_spawners": [220, 224],
+              "opened_plates": [
+                {
+                  "csac": 220,
+                  "x": 160.501,
+                  "z": 159.562
+                },
+                {
+                  "csac": 224,
+                  "x": 148.625,
+                  "z": 174.438
+                }
+              ],
+              "shuts_spawners": [279, 277],
+              "die_orders_0x3d": [213, 219, 279, 277, 223],
+              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "claimed_counter_word": 34,
+              "owner_word_written_by_script": null,
+              "script_deducts_30": true
+            }
+          },
+          "plates": [
+            {
+              "x": 148.625,
+              "z": 174.438,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 45,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 224,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 277,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            },
+            {
+              "x": 160.501,
+              "z": 159.562,
+              "records": [
+                {
+                  "cont": "Csac",
+                  "id": 217,
+                  "type": 8,
+                  "team": 1,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 220,
+                  "type": 8,
+                  "team": 2,
+                  "shut_at_load": 1,
+                  "live_at_start": false,
+                  "respawn_s": 25.0
+                },
+                {
+                  "cont": "Csac",
+                  "id": 279,
+                  "type": 36,
+                  "team": 0,
+                  "shut_at_load": 0,
+                  "live_at_start": true,
+                  "respawn_s": 25.0
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "neutral_only_plates": 31,
+      "counts": {
+        "type8_team1": 16,
+        "type8_team2": 16,
+        "type36": 39,
+        "base_type8_per_side": {
+          "team1": 8,
+          "team2": 8
+        },
+        "live_type8_at_start": {
+          "team1": 8,
+          "team2": 8
+        }
+      },
+      "captain_turret_count": {
+        "base_turrets_team2": 8,
+        "actors_counted_at_start": 16,
+        "threshold": 10,
+        "leaves_defend_at_start": true,
+        "back_to_defend_after_base_turrets_lost": 4,
+        "per_owned_outpost": 4,
+        "note": "count = 2 x live own type-8 turrets (turret + base part); valid once fn27 has spawned the base turrets"
+      }
+    }
+  }
+}

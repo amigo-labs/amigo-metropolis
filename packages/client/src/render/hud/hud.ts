@@ -22,14 +22,16 @@ import "./hud.css";
 import {
   EVENT_STRIDE,
   type EventBuffer,
+  MATCH_OUTRO_WINNER,
+  MATCH_SLOT_AMMO_GUN,
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_BUY_FRAC,
-  MATCH_SLOT_CAPTURE_FRAC,
-  MATCH_SLOT_CORE_FRAC,
   MATCH_SLOT_HP_FRAC,
+  MATCH_SLOT_LOCK,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
+  MATCH_SLOT_POWER,
   MATCH_SLOT_RESPAWN_TICKS,
   MATCH_SLOT_UNITS,
   MATCH_WINNER,
@@ -48,12 +50,14 @@ const BLIP_R_SELF = 3.5;
 /** Ticker geometry: fixed rows, newest at the bottom. */
 const TICKER_ROWS = 4;
 const TICKER_ROW_MS = 5000;
-/** Per-(type, team) repeat suppression: alarms and core hits fire in bursts. */
+/** Per-(type, team) repeat suppression: alarms fire in bursts. */
 const TICKER_REPEAT_MS = 5000;
 
+/** Pre-built banner strings (renderer rule 1: refresh() builds no strings). */
+const BANNER_OVER = ["MATCH OVER — BLUE BREACHED THE GATE", "MATCH OVER — RED BREACHED THE GATE"];
+const BANNER_BREACH = ["BLUE BREACHED THE GATE", "RED BREACHED THE GATE"];
+
 export interface MatchHudOptions {
-  /** §9 arena: show both core-HP bars and word the win banner as a raze. */
-  hasCore?: boolean;
   /** Number of outpost spots on the arena; 0 hides the outpost readout. */
   outpostTotal?: number;
 }
@@ -62,7 +66,7 @@ export interface MatchHud {
   /** Writes changed values only. Safe to call every frame; cheap when idle. */
   refresh(match: Float32Array, snapshot: Float32Array, count: number, arenaExtent: number): void;
   /**
-   * Drains this tick's objective events (capture/claim/alarm/core hit) into
+   * Drains this tick's objective events (capture/claim/alarm/breach) into
    * the ticker. Call once per sim step, like the audio pump; allocation-free.
    */
   pumpEvents(events: EventBuffer, nowMs: number): void;
@@ -105,7 +109,6 @@ export function createMatchHud(
   opts: MatchHudOptions = {},
   parent: HTMLElement = document.body,
 ): MatchHud {
-  const hasCore = opts.hasCore === true;
   const outpostTotal = opts.outpostTotal ?? 0;
   const root = div(parent, "mhud");
 
@@ -127,12 +130,10 @@ export function createMatchHud(
   const ownPoints = cell(own, "mhud-points");
   const ownUnits = cell(own, "mhud-units");
   const ownOutposts = outpostTotal > 0 ? cell(own, "mhud-units mhud-outposts") : null;
-  const ownCore = hasCore ? div(div(own, "mhud-core"), "mhud-core-fill") : null;
   const foe = div(scores, "mhud-score mhud-score--foe");
   const foePoints = cell(foe, "mhud-points");
   const foeUnits = cell(foe, "mhud-units");
   const foeOutposts = outpostTotal > 0 ? cell(foe, "mhud-units mhud-outposts") : null;
-  const foeCore = hasCore ? div(div(foe, "mhud-core"), "mhud-core-fill") : null;
 
   // --- Objective ticker ------------------------------------------------------
   // Four fixed rows top-centre; rows expire in refresh(). Built once, text
@@ -149,7 +150,7 @@ export function createMatchHud(
   /** Next allowed show time per (kind, team). */
   const tickerNextAt = new Float64Array(TICKER_KINDS * 2);
 
-  // --- Objective progress bar (hold-to-buy / capture) ------------------------
+  // --- Objective progress bar (hold-to-buy) ---------------------------------
   const progressWrap = div(root, "mhud-progress");
   const progressLabel = cell(progressWrap, "mhud-progress-label");
   const progressTrack = div(progressWrap, "mhud-progress-track");
@@ -163,6 +164,9 @@ export function createMatchHud(
   const ammoGun = cell(ammo, "mhud-ammo-cell mhud-ammo-cell--gun");
   const ammoHeavy = cell(ammo, "mhud-ammo-cell mhud-ammo-cell--heavy");
   const ammoSpecial = cell(ammo, "mhud-ammo-cell mhud-ammo-cell--special");
+  // The lock (fcop-fidelity.md W2): the guns hit nothing else, so the HUD says
+  // whether there is one.
+  const lockCell = cell(bottom, "mhud-lock");
   const banner = cell(root, "mhud-banner");
 
   // Scratch: last written values for things that are not text cells.
@@ -171,8 +175,7 @@ export function createMatchHud(
   let lastBanner = "";
   let lastProgressPct = -1;
   let lastProgressOn = false;
-  let lastOwnCorePct = -1;
-  let lastFoeCorePct = -1;
+  let lastPower = -1;
 
   const pushTickerRow = (text: string, nowMs: number): void => {
     // Shift up, newest last — fixed-size, no allocation.
@@ -182,12 +185,6 @@ export function createMatchHud(
     }
     tickerText[TICKER_ROWS - 1] = text;
     tickerUntil[TICKER_ROWS - 1] = nowMs + TICKER_ROW_MS;
-  };
-
-  const writeCoreBar = (fill: HTMLElement, frac: number, last: number): number => {
-    const pct = Math.max(0, Math.round(frac * 100));
-    if (pct !== last) fill.style.width = `${pct}%`;
-    return pct;
   };
 
   return {
@@ -203,25 +200,18 @@ export function createMatchHud(
         write(ownOutposts, `outposts ${match[mine + MATCH_SLOT_OUTPOSTS] | 0}/${outpostTotal}`);
         write(foeOutposts, `outposts ${match[other + MATCH_SLOT_OUTPOSTS] | 0}/${outpostTotal}`);
       }
-      if (ownCore && foeCore) {
-        lastOwnCorePct = writeCoreBar(ownCore, match[mine + MATCH_SLOT_CORE_FRAC], lastOwnCorePct);
-        lastFoeCorePct = writeCoreBar(foeCore, match[other + MATCH_SLOT_CORE_FRAC], lastFoeCorePct);
-      }
 
-      // Hold-to-buy and capture share one bar: both are "stand here and hold",
-      // both come out of the snapshot as 0..1 (or -1 while inactive), and the
-      // sim never runs them at once — buying needs a console pad, capturing a
-      // neutral turret radius.
-      const buyFrac = match[mine + MATCH_SLOT_BUY_FRAC];
-      const captureFrac = match[mine + MATCH_SLOT_CAPTURE_FRAC];
-      const progressFrac = buyFrac >= 0 ? buyFrac : captureFrac;
+      // Hold-to-buy: 0..1 from the snapshot, -1 while inactive. Capture used to
+      // share this bar (a 3 s hold); since SIM_VERSION 34 it is instant on the
+      // action key, like the original's, and the ticker reports it instead.
+      const progressFrac = match[mine + MATCH_SLOT_BUY_FRAC];
       const progressOn = progressFrac >= 0;
       if (progressOn !== lastProgressOn) {
         lastProgressOn = progressOn;
         progressWrap.classList.toggle("is-on", progressOn);
       }
       if (progressOn) {
-        write(progressLabel, buyFrac >= 0 ? "DEPLOYING" : "CAPTURING");
+        write(progressLabel, "DEPLOYING");
         const pct = Math.round(progressFrac * 100);
         if (pct !== lastProgressPct) {
           lastProgressPct = pct;
@@ -252,21 +242,35 @@ export function createMatchHud(
         write(ammoGun, `respawn ${Math.ceil(respawn / TICK_HZ)}s`);
         write(ammoHeavy, "");
         write(ammoSpecial, "");
+        write(lockCell, "");
       } else {
-        // The gun has no magazine in this catalog — the original prints a large
-        // standing number there, so show the belt rather than a blank.
-        write(ammoGun, "∞");
+        // The gun has a magazine since SIM_VERSION 41 (the Mini-Gun's 7500 on
+        // NORMAL, the original's record).
+        write(ammoGun, String(match[mine + MATCH_SLOT_AMMO_GUN] | 0));
         write(ammoHeavy, String(match[mine + MATCH_SLOT_AMMO_HEAVY] | 0));
         write(ammoSpecial, String(match[mine + MATCH_SLOT_AMMO_SPECIAL] | 0));
+        write(lockCell, match[mine + MATCH_SLOT_LOCK] >= 0 ? "LOCK" : "");
+      }
+      // A powered slot fires its block B (fcop-fidelity.md P8): its count is the
+      // B magazine, and the cell says so. Write-on-change.
+      const power = respawn > 0 ? 0 : match[mine + MATCH_SLOT_POWER] | 0;
+      if (power !== lastPower) {
+        lastPower = power;
+        ammoGun.node.classList.toggle("is-powered", (power & 1) !== 0);
+        ammoHeavy.node.classList.toggle("is-powered", (power & 2) !== 0);
+        ammoSpecial.node.classList.toggle("is-powered", (power & 4) !== 0);
       }
 
       const winner = match[MATCH_WINNER] | 0;
-      // §9 arenas end by razing the core (rules.md §9), not by a gate breach —
-      // the banner has to say what actually happened.
+      // A breach decides the match and starts the outro (rules.md §1); the
+      // banner says so for the outro's length, then that the match is over.
+      const breacher = match[MATCH_OUTRO_WINNER] | 0;
       const text =
         winner >= 0
-          ? `MATCH OVER — ${winner === 0 ? "BLUE" : "RED"} ${hasCore ? "RAZED THE BASE" : "BREACHED THE GATE"}`
-          : "";
+          ? BANNER_OVER[winner === 0 ? 0 : 1]
+          : breacher >= 0
+            ? BANNER_BREACH[breacher === 0 ? 0 : 1]
+            : "";
       if (text !== lastBanner) {
         lastBanner = text;
         write(banner, text);

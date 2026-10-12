@@ -10,10 +10,13 @@
 // 3. the hand-rolled WAV codec round-trips, since it has no library behind it.
 
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { PRESETS } from "../../../packages/client/src/audio/presets";
 import { SFX_FILES } from "../../../packages/client/src/audio/sfxFiles.generated";
 import { SFX_CUES } from "../sfx/manifest";
 import { decodeWav, encodeWav } from "../sfx/wav";
+
+const PUBLIC_SFX = join(import.meta.dir, "..", "..", "..", "packages", "client", "public", "sfx");
 
 describe("sfx cue manifest", () => {
   test("every cue is a real preset", () => {
@@ -34,6 +37,32 @@ describe("sfx cue manifest", () => {
     }
   });
 
+  test("the voice cues are the original's alert lines, small and committed", () => {
+    // fcop-fidelity.md R15: speech id N -> extracted/voice/wav/v{N+1:03d}.wav.
+    const want: Record<string, number> = {
+      vo_turret_lost_0: 0,
+      vo_turret_lost_1: 1,
+      vo_intrusion_0: 2,
+      vo_intrusion_1: 3,
+      vo_turret_fire_0: 4,
+      vo_turret_fire_1: 5,
+      vo_gate_1: 6,
+      vo_gate_0: 19,
+    };
+    for (const [cue, id] of Object.entries(want)) {
+      const spec = SFX_CUES.find((s) => s.cue === cue);
+      expect(spec).toBeDefined();
+      const file = `v${String(id + 1).padStart(3, "0")}.wav`;
+      expect(spec?.source.srcId).toBe(id);
+      expect(spec?.raw).toBe(`fcop/voice/${file}`);
+      expect(spec?.source.path).toBe(`extracted/voice/wav/${file}`);
+      expect(spec?.bits).toBe(8);
+      const out = Bun.file(join(PUBLIC_SFX, `${cue}.wav`));
+      expect(out.size).toBeGreaterThan(1000);
+      expect(out.size).toBeLessThan(60 * 1024);
+    }
+  });
+
   test("an empty manifest leaves every cue on the synth", () => {
     // Not a tautology: it pins the intended default. When cues do get filled in
     // this flips to a count, and the presets must still all be present.
@@ -43,6 +72,20 @@ describe("sfx cue manifest", () => {
 });
 
 describe("wav codec", () => {
+  test("round-trips mono float within 8-bit quantization", () => {
+    const samples = new Float32Array(256);
+    for (let i = 0; i < samples.length; i++) samples[i] = (i / (samples.length - 1)) * 2 - 1;
+    const bytes = encodeWav({ rate: 22050, samples }, 8);
+    expect(bytes.length).toBe(44 + samples.length);
+    const back = decodeWav(bytes);
+    let maxErr = 0;
+    for (let i = 0; i < samples.length; i++) {
+      maxErr = Math.max(maxErr, Math.abs(samples[i] - back.samples[i]));
+    }
+    // Half an 8-bit step, plus the asymmetric top rail (255 is 127/128).
+    expect(maxErr).toBeLessThanOrEqual(1 / 128);
+  });
+
   test("round-trips mono float within 16-bit quantization", () => {
     const rate = 22050;
     const samples = new Float32Array(1024);

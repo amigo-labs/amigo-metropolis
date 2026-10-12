@@ -1,0 +1,1090 @@
+{
+  "units": {
+    "world_units_per_m": 8192,
+    "clock_hz": 300,
+    "script_period_ticks": "authored*5"
+  },
+  "sky_captain": {
+    "type": 37,
+    "record_base": {
+      "hp": 1000,
+      "speed_raw": 1843,
+      "turn_rate": 4096,
+      "alt_min_cruise_max_raw": [614, 655, 716],
+      "alt_m_above_envelope": [1.199, 1.279, 1.398],
+      "standoff_m": 1.0,
+      "group_byte_target_team": 1,
+      "team": 2
+    },
+    "levels": [
+      {
+        "level_word19": 0,
+        "displayed": "L01",
+        "max_hp": 250,
+        "retreat_threshold_hp": "62..125 (mode 0); halved in modes 1/2",
+        "speed_internal": 19019,
+        "speed_m_per_s_level_flight": 2.721,
+        "retreat_speed_bonus": "speed += speed>>4 (+6.25%)",
+        "rethink_ticks": {
+          "mode0_1": [848, 1103],
+          "mode2": [817, 848]
+        },
+        "rethink_s": {
+          "mode0_1": [2.827, 3.677],
+          "mode2": [2.723, 2.827]
+        },
+        "respawn_ticks": 2100,
+        "respawn_s": 7.0,
+        "target_distance_penalty_m": 4.5,
+        "home_distance_bonus_m": 0.0,
+        "mg_weapon7_arc": "front only (+-22.5 deg)",
+        "missile_weapon8_arc": "front only",
+        "bomb_weapon9_arc": "front+side (rear blocked, record 0x0242, never patched)",
+        "initial_free_order": {
+          "base_tanks": 0,
+          "base_jets": 0
+        },
+        "level_voice_id": null
+      },
+      {
+        "level_word19": 1,
+        "displayed": "L02",
+        "max_hp": 250,
+        "retreat_threshold_hp": "62..125 (mode 0); halved in modes 1/2",
+        "speed_internal": 21067,
+        "speed_m_per_s_level_flight": 3.014,
+        "retreat_speed_bonus": "speed += speed>>4 (+6.25%)",
+        "rethink_ticks": {
+          "mode0_1": [768, 1023],
+          "mode2": [737, 768]
+        },
+        "rethink_s": {
+          "mode0_1": [2.56, 3.41],
+          "mode2": [2.457, 2.56]
+        },
+        "respawn_ticks": 1950,
+        "respawn_s": 6.5,
+        "target_distance_penalty_m": 4.0,
+        "home_distance_bonus_m": 8.0,
+        "mg_weapon7_arc": "front+side (rear 22.5 deg blocked)",
+        "missile_weapon8_arc": "front only",
+        "bomb_weapon9_arc": "front+side (rear blocked, record 0x0242, never patched)",
+        "initial_free_order": {
+          "base_tanks": "min(10, rand(0..3)+9-L)",
+          "base_jets": "10 - tanks (not written if tanks==10)"
+        },
+        "level_voice_id": 74
+      },
+      {
+        "level_word19": 2,
+        "displayed": "L03",
+        "max_hp": 500,
+        "retreat_threshold_hp": "187..250 (mode 0); halved in modes 1/2",
+        "speed_internal": 23115,
+        "speed_m_per_s_level_flight": 3.307,
+        "retreat_speed_bonus": "speed += speed>>4 (+6.25%)",
+        "rethink_ticks": {
+          "mode0_1": [688, 943],
+          "mode2": [657, 688]
+        },
+        "rethink_s": {
+          "mode0_1": [2.293, 3.143],
+          "mode2": [2.19, 2.293]
+        },
+        "respawn_ticks": 1800,
+        "respawn_s": 6.0,
+        "target_distance_penalty_m": 3.5,
+        "home_distance_bonus_m": 16.0,
+        "mg_weapon7_arc": "front+side (rear 22.5 deg blocked)",
+        "missile_weapon8_arc": "front only",
+        "bomb_weapon9_arc": "front+side (rear blocked, record 0x0242, never patched)",
+        "initial_free_order": {
+          "base_tanks": "min(10, rand(0..3)+9-L)",
+          "base_jets": "10 - tanks (not written if tanks==10)"
+        },
+        "level_voice_id": 75
+      },
+      {
+        "level_word19": 3,
+        "displayed": "L04",
+        "max_hp": 500,
+        "retreat_threshold_hp": "187..250 (mode 0); halved in modes 1/2",
+        "speed_internal": 25163,
+        "speed_m_per_s_level_flight": 3.6,
+        "retreat_speed_bonus": "speed += speed>>4 (+6.25%)",
+        "rethink_ticks": {
+          "mode0_1": [608, 863],
+          "mode2": [577, 608]
+        },
+        "rethink_s": {
+          "mode0_1": [2.027, 2.877],
+          "mode2": [1.923, 2.027]
+        },
+        "respawn_ticks": 1650,
+        "respawn_s": 5.5,
+        "target_distance_penalty_m": 3.0,
+        "home_distance_bonus_m": 24.0,
+        "mg_weapon7_arc": "front+side (rear 22.5 deg blocked)",
+        "missile_weapon8_arc": "front+side",
+        "bomb_weapon9_arc": "front+side (rear blocked, record 0x0242, never patched)",
+        "initial_free_order": {
+          "base_tanks": "min(10, rand(0..3)+9-L)",
+          "base_jets": "10 - tanks (not written if tanks==10)"
+        },
+        "level_voice_id": 76
+      },
+      {
+        "level_word19": 4,
+        "displayed": "L05",
+        "max_hp": 750,
+        "retreat_threshold_hp": "312..375 (mode 0); halved in modes 1/2",
+        "speed_internal": 26219,
+        "speed_m_per_s_level_flight": 3.751,
+        "retreat_speed_bonus": "speed += speed>>3 (+12.50%)",
+        "rethink_ticks": {
+          "mode0_1": [528, 783],
+          "mode2": [497, 528]
+        },
+        "rethink_s": {
+          "mode0_1": [1.76, 2.61],
+          "mode2": [1.657, 1.76]
+        },
+        "respawn_ticks": 1500,
+        "respawn_s": 5.0,
+        "target_distance_penalty_m": 2.5,
+        "home_distance_bonus_m": 32.0,
+        "mg_weapon7_arc": "front+side (rear 22.5 deg blocked)",
+        "missile_weapon8_arc": "front+side",
+        "bomb_weapon9_arc": "front+side (rear blocked, record 0x0242, never patched)",
+        "initial_free_order": {
+          "base_tanks": "min(10, rand(0..3)+9-L)",
+          "base_jets": "10 - tanks (not written if tanks==10)"
+        },
+        "level_voice_id": 77
+      },
+      {
+        "level_word19": 5,
+        "displayed": "L06",
+        "max_hp": 750,
+        "retreat_threshold_hp": "312..375 (mode 0); halved in modes 1/2",
+        "speed_internal": 27275,
+        "speed_m_per_s_level_flight": 3.902,
+        "retreat_speed_bonus": "speed += speed>>3 (+12.50%)",
+        "rethink_ticks": {
+          "mode0_1": [448, 703],
+          "mode2": [417, 448]
+        },
+        "rethink_s": {
+          "mode0_1": [1.493, 2.343],
+          "mode2": [1.39, 1.493]
+        },
+        "respawn_ticks": 1350,
+        "respawn_s": 4.5,
+        "target_distance_penalty_m": 2.0,
+        "home_distance_bonus_m": 40.0,
+        "mg_weapon7_arc": "front+side (rear 22.5 deg blocked)",
+        "missile_weapon8_arc": "front+side",
+        "bomb_weapon9_arc": "front+side (rear blocked, record 0x0242, never patched)",
+        "initial_free_order": {
+          "base_tanks": "min(10, rand(0..3)+9-L)",
+          "base_jets": "10 - tanks (not written if tanks==10)"
+        },
+        "level_voice_id": 78
+      },
+      {
+        "level_word19": 6,
+        "displayed": "L07",
+        "max_hp": 1000,
+        "retreat_threshold_hp": "437..500 (mode 0); halved in modes 1/2",
+        "speed_internal": 28331,
+        "speed_m_per_s_level_flight": 4.053,
+        "retreat_speed_bonus": "speed += speed>>3 (+12.50%)",
+        "rethink_ticks": {
+          "mode0_1": [368, 623],
+          "mode2": [337, 368]
+        },
+        "rethink_s": {
+          "mode0_1": [1.227, 2.077],
+          "mode2": [1.123, 1.227]
+        },
+        "respawn_ticks": 1200,
+        "respawn_s": 4.0,
+        "target_distance_penalty_m": 1.5,
+        "home_distance_bonus_m": 48.0,
+        "mg_weapon7_arc": "front+side (rear 22.5 deg blocked)",
+        "missile_weapon8_arc": "front+side",
+        "bomb_weapon9_arc": "front+side (rear blocked, record 0x0242, never patched)",
+        "initial_free_order": {
+          "base_tanks": "min(10, rand(0..3)+9-L)",
+          "base_jets": "10 - tanks (not written if tanks==10)"
+        },
+        "level_voice_id": 79
+      },
+      {
+        "level_word19": 7,
+        "displayed": "L08",
+        "max_hp": 1000,
+        "retreat_threshold_hp": "437..500 (mode 0); halved in modes 1/2",
+        "speed_internal": 29387,
+        "speed_m_per_s_level_flight": 4.204,
+        "retreat_speed_bonus": "speed += speed>>3 (+12.50%)",
+        "rethink_ticks": {
+          "mode0_1": [288, 543],
+          "mode2": [257, 288]
+        },
+        "rethink_s": {
+          "mode0_1": [0.96, 1.81],
+          "mode2": [0.857, 0.96]
+        },
+        "respawn_ticks": 1050,
+        "respawn_s": 3.5,
+        "target_distance_penalty_m": 1.0,
+        "home_distance_bonus_m": 56.0,
+        "mg_weapon7_arc": "front+side (rear 22.5 deg blocked)",
+        "missile_weapon8_arc": "all round",
+        "bomb_weapon9_arc": "front+side (rear blocked, record 0x0242, never patched)",
+        "initial_free_order": {
+          "base_tanks": "min(10, rand(0..3)+9-L)",
+          "base_jets": "10 - tanks (not written if tanks==10)"
+        },
+        "level_voice_id": 80
+      },
+      {
+        "level_word19": 8,
+        "displayed": "L09",
+        "max_hp": 1125,
+        "retreat_threshold_hp": "499..562 (mode 0); halved in modes 1/2",
+        "speed_internal": 30443,
+        "speed_m_per_s_level_flight": 4.355,
+        "retreat_speed_bonus": "speed += speed>>2 (+25.00%)",
+        "rethink_ticks": {
+          "mode0_1": [208, 463],
+          "mode2": [177, 208]
+        },
+        "rethink_s": {
+          "mode0_1": [0.693, 1.543],
+          "mode2": [0.59, 0.693]
+        },
+        "respawn_ticks": 900,
+        "respawn_s": 3.0,
+        "target_distance_penalty_m": 0.5,
+        "home_distance_bonus_m": 64.0,
+        "mg_weapon7_arc": "front+side (rear 22.5 deg blocked)",
+        "missile_weapon8_arc": "all round",
+        "bomb_weapon9_arc": "front+side (rear blocked, record 0x0242, never patched)",
+        "initial_free_order": {
+          "base_tanks": "min(10, rand(0..3)+9-L)",
+          "base_jets": "10 - tanks (not written if tanks==10)"
+        },
+        "level_voice_id": 81
+      },
+      {
+        "level_word19": 9,
+        "displayed": "L10",
+        "max_hp": 1250,
+        "retreat_threshold_hp": "562..625 (mode 0); halved in modes 1/2",
+        "speed_internal": 31499,
+        "speed_m_per_s_level_flight": 4.506,
+        "retreat_speed_bonus": "speed += speed>>2 (+25.00%)",
+        "rethink_ticks": {
+          "mode0_1": [128, 383],
+          "mode2": [97, 128]
+        },
+        "rethink_s": {
+          "mode0_1": [0.427, 1.277],
+          "mode2": [0.323, 0.427]
+        },
+        "respawn_ticks": 750,
+        "respawn_s": 2.5,
+        "target_distance_penalty_m": 0.0,
+        "home_distance_bonus_m": 72.0,
+        "mg_weapon7_arc": "front+side (rear 22.5 deg blocked)",
+        "missile_weapon8_arc": "all round",
+        "bomb_weapon9_arc": "front+side (rear blocked, record 0x0242, never patched)",
+        "initial_free_order": {
+          "base_tanks": "min(10, rand(0..3)+9-L)",
+          "base_jets": "10 - tanks (not written if tanks==10)"
+        },
+        "level_voice_id": 82
+      }
+    ],
+    "weapons": {
+      "7": {
+        "slot": "instance shooter (aircraft record +0x20)",
+        "kind": 12,
+        "kind_meaning": "hitscan (0x0043c120)",
+        "damage": 2,
+        "rounds_per_burst": 1,
+        "burst_gap_raw": 1,
+        "refire_ticks": 18,
+        "refire_s": 0.06,
+        "dps": 33.3,
+        "blast_radius_m": 0,
+        "range_m": 24.0,
+        "magazine": "unlimited (-1)"
+      },
+      "8": {
+        "slot": "ai->weapon[0] (record +0x54)",
+        "kind": 3,
+        "kind_meaning": "guided projectile (missile class CHILD), needs line of sight",
+        "damage": 25,
+        "rounds_per_burst": 1,
+        "burst_gap_raw": 8,
+        "refire_ticks": 150,
+        "refire_s": 0.5,
+        "dps": 50.0,
+        "blast_radius_m": 0,
+        "range_m": 24.0,
+        "speed_raw": 8192,
+        "magazine": "unlimited"
+      },
+      "9": {
+        "slot": "ai->weapon[1] (record +0x64)",
+        "kind": 4,
+        "kind_meaning": "arced round (0x0044d440 cact_round_spawn_arced)",
+        "damage": 200,
+        "rounds_per_burst": 1,
+        "burst_gap_raw": 32,
+        "refire_ticks": 601,
+        "refire_s": 2.003,
+        "dps": 99.8,
+        "blast_radius_m": 3.199,
+        "range_field_m": 6.0,
+        "speed_raw": 4096,
+        "magazine": "unlimited"
+      },
+      "shooter_record_all_three": {
+        "engage_range_raw": 6144,
+        "engage_range_m": 12.0,
+        "targeting_delay_raw": 16,
+        "targeting_delay_ticks": 300,
+        "target_type": 4,
+        "targeting": "team 1 (the human slot 0)",
+        "fov": 4096
+      }
+    },
+    "distances_m": {
+      "near_tank_from_player_base_max": 52.0,
+      "near_dreadnought_from_player_base_max": 60.0,
+      "far_tank_from_home_max": 64.0,
+      "far_dreadnought_from_home_max": 72.0,
+      "own_turret_count_radius": 256.0,
+      "mode1_escort_dreadnought": 60.0,
+      "mode1_escort_tank": 52.0,
+      "mode1_capture_neutral_override": 8.0,
+      "mode0_hurt_player": 40.0,
+      "mode0_enemy_dreadnought": 40.0,
+      "mode0_enemy_tank": 32.0,
+      "mode0_neutral_turret": 48.0,
+      "mode0_enemy_jet": 24.0,
+      "mode0_player_owned_turret": 40.0,
+      "mode0_enemy_fortress": 24.0,
+      "mode2_L9_extra_tank_dreadnought": 18.0,
+      "mode2_L9_extra_tank_tank": 16.0,
+      "mode2_home_spend_radius": 64.0,
+      "retreat_repair_at_home": 2.0,
+      "turn_boost_radius": 10.0,
+      "pickup_collect": 0.5,
+      "standoff_reverse": 1.0
+    }
+  },
+  "economy": {
+    "costs": {
+      "tank_at_base": 1,
+      "jet_at_base": 1,
+      "tank_at_owned_outpost": 2,
+      "jet_at_owned_outpost": 2,
+      "outpost_claim": 30,
+      "dreadnought": 50,
+      "flying_fortress": 50,
+      "captain_same_costs": true,
+      "start_points": {
+        "human_slot0": 10,
+        "human_slot1_2P": 10,
+        "sky_captain_budget": 0
+      }
+    },
+    "income": {
+      "enemy_tank_or_jet_dies": 1,
+      "enemy_base_or_outpost_turret_dies": 1,
+      "capture_neutral_turret": 1,
+      "destroy_enemy_owned_neutral_turret": 1,
+      "enemy_dreadnought_or_fortress_dies": 5,
+      "enemy_avatar_down_or_sky_captain_dies": 10,
+      "victim_avatar_or_captain_loses": -10,
+      "trickle": null
+    },
+    "caps": {
+      "tanks_alive_per_side": 20,
+      "jets_alive_per_side": 20,
+      "dreadnought_alive_per_side": 1,
+      "fortress_alive_per_side": 1,
+      "spawner_limit_tank_jet": 20,
+      "spawner_limit_dreadnought_fortress": 1,
+      "outposts": 4
+    },
+    "state_words": {
+      "3": "viewports/humans (1 = vs Sky Captain, 2 = two humans)",
+      "16": "slot-0-lost flag (set to 1 when slot 1's ground unit reaches slot 0's base)",
+      "17": "1 (set at load)",
+      "19": "Sky Captain level 0..9",
+      "23": "Precinct Assault flag (1)",
+      "25": "slot0 Current Points",
+      "26": "slot1 Current Points = Sky Captain budget",
+      "27": "slot0 tanks alive",
+      "28": "slot0 jets alive",
+      "29": "slot1 tanks alive (captain CLASS_A_COUNT)",
+      "30": "slot1 jets alive (captain CLASS_B_COUNT)",
+      "31": "slot0 Points Scored",
+      "32": "slot1 Points Scored",
+      "33": "slot0 Outposts Claimed",
+      "34": "slot1 Outposts Claimed",
+      "39": "captain mode mirror",
+      "40": "outpost 0 owner (0 none, 1 slot0, 2 captain/slot1)",
+      "41": "outpost 1 owner",
+      "42": "outpost 2 owner",
+      "43": "outpost 3 owner",
+      "44": "captain request: tanks at base",
+      "45": "captain request: jets at base",
+      "46": "captain request: Dreadnought (+1)",
+      "47": "captain request: Flying Fortress (+1)",
+      "48": "tanks at outpost 0",
+      "49": "jets at outpost 0",
+      "50": "tanks at outpost 1",
+      "51": "jets at outpost 1",
+      "52": "tanks at outpost 2",
+      "53": "jets at outpost 2",
+      "54": "tanks at outpost 3",
+      "55": "jets at outpost 3",
+      "56": "announcement code 0..9 (voice event)"
+    },
+    "spawn_cadence_s": {
+      "tank_queue_per_spawn_point": "one per 3.25-3.40 s (script period 195-204 units)",
+      "jet_queue_captain": "one per 0.83-0.97 s",
+      "human_jet_purchase": "immediate",
+      "base_turret_respawn": 37.5,
+      "outpost_turret_respawn": 25.0,
+      "neutral_turret_respawn": 25.0,
+      "pickup_respawn": [50.0, 100.0]
+    },
+    "health": {
+      "tank": 150,
+      "jet": 150,
+      "dreadnought": 3000,
+      "flying_fortress": 2000,
+      "turret": 500,
+      "neutral_turret": 500,
+      "x1alpha": 1000,
+      "sky_captain_base": 1000
+    },
+    "unit_speeds_m_per_s": {
+      "tank_and_dreadnought": 1.978,
+      "jet": 4.0,
+      "flying_fortress": 4.799
+    }
+  },
+  "voices": [
+    {
+      "id": 0,
+      "file": "extracted/voice/wav/v001.wav",
+      "name": "m0001",
+      "dur_s": 2.04,
+      "use": "slot-0 base turret destroyed"
+    },
+    {
+      "id": 1,
+      "file": "extracted/voice/wav/v002.wav",
+      "name": "m0002",
+      "dur_s": 2.14,
+      "use": "slot-1 base turret destroyed"
+    },
+    {
+      "id": 2,
+      "file": "extracted/voice/wav/v003.wav",
+      "name": "m0003",
+      "dur_s": 2.32,
+      "use": "INTRUSION: enemy tank/Dreadnought/avatar entered slot-0 base zone (cooldown 8.3 s)"
+    },
+    {
+      "id": 3,
+      "file": "extracted/voice/wav/v004.wav",
+      "name": "m0004",
+      "dur_s": 2.43,
+      "use": "INTRUSION: enemy entered slot-1 base zone (cooldown 8.3 s)"
+    },
+    {
+      "id": 4,
+      "file": "extracted/voice/wav/v005.wav",
+      "name": "m0005",
+      "dur_s": 2.08,
+      "use": "slot-0 base turret under fire (cooldown 10 s)"
+    },
+    {
+      "id": 5,
+      "file": "extracted/voice/wav/v006.wav",
+      "name": "m0006",
+      "dur_s": 2.15,
+      "use": "slot-1 base turret under fire (cooldown 10 s)"
+    },
+    {
+      "id": 6,
+      "file": "extracted/voice/wav/v007.wav",
+      "name": "m0007",
+      "dur_s": 1.87,
+      "use": "slot-1 base reached by slot-0 ground unit (slot 0 wins)"
+    },
+    {
+      "id": 7,
+      "file": "extracted/voice/wav/v008.wav",
+      "name": "m0008",
+      "dur_s": 2.33,
+      "use": "slot0 claimed outpost 2 (Mp)"
+    },
+    {
+      "id": 8,
+      "file": "extracted/voice/wav/v009.wav",
+      "name": "m0009",
+      "dur_s": 2.5,
+      "use": "slot1 claimed outpost 2"
+    },
+    {
+      "id": 9,
+      "file": "extracted/voice/wav/v010.wav",
+      "name": "m0010",
+      "dur_s": 2.42,
+      "use": "slot0 claimed outpost 3"
+    },
+    {
+      "id": 10,
+      "file": "extracted/voice/wav/v011.wav",
+      "name": "m0011",
+      "dur_s": 2.46,
+      "use": "slot1 claimed outpost 3"
+    },
+    {
+      "id": 11,
+      "file": "extracted/voice/wav/v012.wav",
+      "name": "m0012",
+      "dur_s": 2.53,
+      "use": "slot0 claimed outpost 1"
+    },
+    {
+      "id": 12,
+      "file": "extracted/voice/wav/v013.wav",
+      "name": "m0013",
+      "dur_s": 2.48,
+      "use": "slot1 claimed outpost 1"
+    },
+    {
+      "id": 13,
+      "file": "extracted/voice/wav/v014.wav",
+      "name": "m0014",
+      "dur_s": 2.5,
+      "use": "slot0 claimed outpost 0"
+    },
+    {
+      "id": 14,
+      "file": "extracted/voice/wav/v015.wav",
+      "name": "m0015",
+      "dur_s": 2.45,
+      "use": "slot1 claimed outpost 0"
+    },
+    {
+      "id": 15,
+      "file": "extracted/voice/wav/v016.wav",
+      "name": "m0016",
+      "dur_s": 1.99,
+      "use": "slot0 bought Dreadnought"
+    },
+    {
+      "id": 16,
+      "file": "extracted/voice/wav/v017.wav",
+      "name": "m0017",
+      "dur_s": 1.96,
+      "use": "slot1/captain bought Dreadnought"
+    },
+    {
+      "id": 17,
+      "file": "extracted/voice/wav/v018.wav",
+      "name": "m0018",
+      "dur_s": 2.17,
+      "use": "slot0 bought Flying Fortress"
+    },
+    {
+      "id": 18,
+      "file": "extracted/voice/wav/v019.wav",
+      "name": "m0019",
+      "dur_s": 2.27,
+      "use": "slot1/captain bought Flying Fortress"
+    },
+    {
+      "id": 19,
+      "file": "extracted/voice/wav/v020.wav",
+      "name": "m0022",
+      "dur_s": 1.76,
+      "use": "slot-0 base reached by slot-1 ground unit (slot 0 loses)"
+    },
+    {
+      "id": 20,
+      "file": "extracted/voice/wav/v021.wav",
+      "name": "m0023",
+      "dur_s": 1.92,
+      "use": "slot0 Dreadnought destroyed"
+    },
+    {
+      "id": 21,
+      "file": "extracted/voice/wav/v022.wav",
+      "name": "m0024",
+      "dur_s": 1.91,
+      "use": "slot1 Dreadnought destroyed"
+    },
+    {
+      "id": 22,
+      "file": "extracted/voice/wav/v023.wav",
+      "name": "m0025",
+      "dur_s": 2.13,
+      "use": "slot0 Flying Fortress destroyed"
+    },
+    {
+      "id": 23,
+      "file": "extracted/voice/wav/v024.wav",
+      "name": "m0026",
+      "dur_s": 2.24,
+      "use": "slot1 Flying Fortress destroyed"
+    },
+    {
+      "id": 24,
+      "file": "extracted/voice/wav/v025.wav",
+      "name": "m_00_27",
+      "dur_s": 3.9,
+      "use": "captain idle chatter (mode 0, 10%/5 s)"
+    },
+    {
+      "id": 25,
+      "file": "extracted/voice/wav/v026.wav",
+      "name": "m_00_28",
+      "dur_s": 3.57,
+      "use": "captain idle chatter"
+    },
+    {
+      "id": 26,
+      "file": "extracted/voice/wav/v027.wav",
+      "name": "m_00_29",
+      "dur_s": 2.61,
+      "use": "captain gloats: player went down"
+    },
+    {
+      "id": 27,
+      "file": "extracted/voice/wav/v028.wav",
+      "name": "m_00_30",
+      "dur_s": 2.45,
+      "use": "captain gloats"
+    },
+    {
+      "id": 28,
+      "file": "extracted/voice/wav/v029.wav",
+      "name": "m_00_31a",
+      "dur_s": 2.58,
+      "use": "captain destroyed"
+    },
+    {
+      "id": 29,
+      "file": "extracted/voice/wav/v030.wav",
+      "name": "m_00_31b",
+      "dur_s": 1.67,
+      "use": "captain destroyed"
+    },
+    {
+      "id": 30,
+      "file": "extracted/voice/wav/v031.wav",
+      "name": "m_00_32",
+      "dur_s": 3.26,
+      "use": "captain ordered tanks"
+    },
+    {
+      "id": 31,
+      "file": "extracted/voice/wav/v032.wav",
+      "name": "m_00_33",
+      "dur_s": 1.97,
+      "use": "event1: captain switches to attack (mode 1)"
+    },
+    {
+      "id": 32,
+      "file": "extracted/voice/wav/v033.wav",
+      "name": "m_00_34",
+      "dur_s": 3.61,
+      "use": "captain claimed an outpost"
+    },
+    {
+      "id": 33,
+      "file": "extracted/voice/wav/v034.wav",
+      "name": "m_00_35",
+      "dur_s": 2.23,
+      "use": "event2: captain fires at player"
+    },
+    {
+      "id": 34,
+      "file": "extracted/voice/wav/v035.wav",
+      "name": "m_00_36",
+      "dur_s": 1.9,
+      "use": "event2"
+    },
+    {
+      "id": 35,
+      "file": "extracted/voice/wav/v036.wav",
+      "name": "m_00_37",
+      "dur_s": 2.61,
+      "use": "event4: captain repaired"
+    },
+    {
+      "id": 36,
+      "file": "extracted/voice/wav/v037.wav",
+      "name": "m_00_38",
+      "dur_s": 3.5,
+      "use": "captain wins (1P)"
+    },
+    {
+      "id": 37,
+      "file": "extracted/voice/wav/v038.wav",
+      "name": "m_00_39",
+      "dur_s": 3.29,
+      "use": "captain wins"
+    },
+    {
+      "id": 38,
+      "file": "extracted/voice/wav/v039.wav",
+      "name": "m_00_40",
+      "dur_s": 1.82,
+      "use": "event5: player hit the captain"
+    },
+    {
+      "id": 39,
+      "file": "extracted/voice/wav/v040.wav",
+      "name": "m_00_41",
+      "dur_s": 1.58,
+      "use": "unused by PA scripts"
+    },
+    {
+      "id": 40,
+      "file": "extracted/voice/wav/v041.wav",
+      "name": "m_00_42",
+      "dur_s": 2.45,
+      "use": "captain idle chatter"
+    },
+    {
+      "id": 41,
+      "file": "extracted/voice/wav/v042.wav",
+      "name": "m_00_43",
+      "dur_s": 3.87,
+      "use": "captain gloats"
+    },
+    {
+      "id": 42,
+      "file": "extracted/voice/wav/v043.wav",
+      "name": "m_00_44",
+      "dur_s": 2.21,
+      "use": "captain gloats"
+    },
+    {
+      "id": 43,
+      "file": "extracted/voice/wav/v044.wav",
+      "name": "m_00_45",
+      "dur_s": 3.08,
+      "use": "captain gloats"
+    },
+    {
+      "id": 44,
+      "file": "extracted/voice/wav/v045.wav",
+      "name": "m_00_46",
+      "dur_s": 1.37,
+      "use": "captain destroyed"
+    },
+    {
+      "id": 45,
+      "file": "extracted/voice/wav/v046.wav",
+      "name": "m_00_47",
+      "dur_s": 3.15,
+      "use": "captain destroyed"
+    },
+    {
+      "id": 46,
+      "file": "extracted/voice/wav/v047.wav",
+      "name": "m_00_48",
+      "dur_s": 3.92,
+      "use": "captain ordered tanks"
+    },
+    {
+      "id": 47,
+      "file": "extracted/voice/wav/v048.wav",
+      "name": "m_00_50",
+      "dur_s": 2.27,
+      "use": "captain ordered jets"
+    },
+    {
+      "id": 48,
+      "file": "extracted/voice/wav/v049.wav",
+      "name": "m_00_51",
+      "dur_s": 2.82,
+      "use": "captain ordered jets"
+    },
+    {
+      "id": 49,
+      "file": "extracted/voice/wav/v050.wav",
+      "name": "m_00_52",
+      "dur_s": 2.79,
+      "use": "captain ordered jets"
+    },
+    {
+      "id": 50,
+      "file": "extracted/voice/wav/v051.wav",
+      "name": "m_00_53",
+      "dur_s": 3.0,
+      "use": "event6: captain captured neutral turret"
+    },
+    {
+      "id": 51,
+      "file": "extracted/voice/wav/v052.wav",
+      "name": "m_00_54",
+      "dur_s": 2.91,
+      "use": "event6"
+    },
+    {
+      "id": 52,
+      "file": "extracted/voice/wav/v053.wav",
+      "name": "m_00_55",
+      "dur_s": 1.64,
+      "use": "event6"
+    },
+    {
+      "id": 53,
+      "file": "extracted/voice/wav/v054.wav",
+      "name": "m_00_56",
+      "dur_s": 0.8,
+      "use": "event7: captain destroyed a player-owned neutral turret"
+    },
+    {
+      "id": 54,
+      "file": "extracted/voice/wav/v055.wav",
+      "name": "m_00_57",
+      "dur_s": 2.45,
+      "use": "event7"
+    },
+    {
+      "id": 55,
+      "file": "extracted/voice/wav/v056.wav",
+      "name": "m_00_58",
+      "dur_s": 2.6,
+      "use": "event7"
+    },
+    {
+      "id": 56,
+      "file": "extracted/voice/wav/v057.wav",
+      "name": "m_00_59",
+      "dur_s": 2.71,
+      "use": "event1"
+    },
+    {
+      "id": 57,
+      "file": "extracted/voice/wav/v058.wav",
+      "name": "m_00_60",
+      "dur_s": 2.78,
+      "use": "event1"
+    },
+    {
+      "id": 58,
+      "file": "extracted/voice/wav/v059.wav",
+      "name": "m_00_61",
+      "dur_s": 2.49,
+      "use": "captain claimed an outpost"
+    },
+    {
+      "id": 59,
+      "file": "extracted/voice/wav/v060.wav",
+      "name": "m_00_62",
+      "dur_s": 3.39,
+      "use": "captain claimed an outpost"
+    },
+    {
+      "id": 60,
+      "file": "extracted/voice/wav/v061.wav",
+      "name": "m_00_63",
+      "dur_s": 1.78,
+      "use": "event4"
+    },
+    {
+      "id": 61,
+      "file": "extracted/voice/wav/v062.wav",
+      "name": "m_00_64",
+      "dur_s": 2.5,
+      "use": "event4"
+    },
+    {
+      "id": 62,
+      "file": "extracted/voice/wav/v063.wav",
+      "name": "m_00_65",
+      "dur_s": 2.15,
+      "use": "captain wins"
+    },
+    {
+      "id": 63,
+      "file": "extracted/voice/wav/v064.wav",
+      "name": "m_00_66",
+      "dur_s": 3.3,
+      "use": "event5"
+    },
+    {
+      "id": 64,
+      "file": "extracted/voice/wav/v065.wav",
+      "name": "m_00_67",
+      "dur_s": 1.39,
+      "use": "unused by PA scripts"
+    },
+    {
+      "id": 65,
+      "file": "extracted/voice/wav/v066.wav",
+      "name": "m_00_68",
+      "dur_s": 1.44,
+      "use": "captain loses (1P)"
+    },
+    {
+      "id": 66,
+      "file": "extracted/voice/wav/v067.wav",
+      "name": "m_00_69",
+      "dur_s": 2.78,
+      "use": "captain loses"
+    },
+    {
+      "id": 67,
+      "file": "extracted/voice/wav/v068.wav",
+      "name": "m_00_70",
+      "dur_s": 1.99,
+      "use": "captain loses"
+    },
+    {
+      "id": 68,
+      "file": "extracted/voice/wav/v069.wav",
+      "name": "m_00_71",
+      "dur_s": 2.12,
+      "use": "player claimed outpost (1P)"
+    },
+    {
+      "id": 69,
+      "file": "extracted/voice/wav/v070.wav",
+      "name": "m_00_72",
+      "dur_s": 2.59,
+      "use": "player claimed outpost"
+    },
+    {
+      "id": 70,
+      "file": "extracted/voice/wav/v071.wav",
+      "name": "m_00_73",
+      "dur_s": 2.16,
+      "use": "player claimed outpost"
+    },
+    {
+      "id": 71,
+      "file": "extracted/voice/wav/v072.wav",
+      "name": "m_00_74",
+      "dur_s": 3.06,
+      "use": "event8: player's side scored a neutral-turret kill vs captain"
+    },
+    {
+      "id": 72,
+      "file": "extracted/voice/wav/v073.wav",
+      "name": "m_00_75",
+      "dur_s": 2.14,
+      "use": "event8"
+    },
+    {
+      "id": 73,
+      "file": "extracted/voice/wav/v074.wav",
+      "name": "m_00_76",
+      "dur_s": 0.66,
+      "use": "event8"
+    },
+    {
+      "id": 74,
+      "file": "extracted/voice/wav/v075.wav",
+      "name": "m_00_77",
+      "dur_s": 3.61,
+      "use": "level announcement, word19=1 (displayed L02)"
+    },
+    {
+      "id": 75,
+      "file": "extracted/voice/wav/v076.wav",
+      "name": "m_00_78",
+      "dur_s": 3.82,
+      "use": "level announcement, word19=2 (displayed L03)"
+    },
+    {
+      "id": 76,
+      "file": "extracted/voice/wav/v077.wav",
+      "name": "m_00_79",
+      "dur_s": 3.5,
+      "use": "level announcement, word19=3 (displayed L04)"
+    },
+    {
+      "id": 77,
+      "file": "extracted/voice/wav/v078.wav",
+      "name": "m_00_80",
+      "dur_s": 3.62,
+      "use": "level announcement, word19=4 (displayed L05)"
+    },
+    {
+      "id": 78,
+      "file": "extracted/voice/wav/v079.wav",
+      "name": "m_00_81",
+      "dur_s": 3.8,
+      "use": "level announcement, word19=5 (displayed L06)"
+    },
+    {
+      "id": 79,
+      "file": "extracted/voice/wav/v080.wav",
+      "name": "m_00_82",
+      "dur_s": 3.32,
+      "use": "level announcement, word19=6 (displayed L07)"
+    },
+    {
+      "id": 80,
+      "file": "extracted/voice/wav/v081.wav",
+      "name": "m_00_83",
+      "dur_s": 2.84,
+      "use": "level announcement, word19=7 (displayed L08)"
+    },
+    {
+      "id": 81,
+      "file": "extracted/voice/wav/v082.wav",
+      "name": "m_00_84",
+      "dur_s": 3.95,
+      "use": "level announcement, word19=8 (displayed L09)"
+    },
+    {
+      "id": 82,
+      "file": "extracted/voice/wav/v083.wav",
+      "name": "m_00_85",
+      "dur_s": 5.51,
+      "use": "level announcement, word19=9 (displayed L10)"
+    },
+    {
+      "id": 83,
+      "file": "extracted/voice/wav/v084.wav",
+      "name": "m_00_86",
+      "dur_s": 2.4,
+      "use": "event9: captain respawned"
+    },
+    {
+      "id": 84,
+      "file": "extracted/voice/wav/v085.wav",
+      "name": "m_00_87",
+      "dur_s": 2.48,
+      "use": "event3: captain hunts badly hurt player"
+    },
+    {
+      "id": 85,
+      "file": "extracted/voice/wav/v086.wav",
+      "name": "m_00_89",
+      "dur_s": 2.88,
+      "use": "event3"
+    }
+  ]
+}

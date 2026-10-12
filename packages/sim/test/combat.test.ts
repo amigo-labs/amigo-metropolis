@@ -4,16 +4,11 @@ import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
   ARCHETYPE_MAX_HP,
-  AVATAR_AMMO_HEAVY,
   AVATAR_HP,
   DUMMY_RESPAWN_TICKS,
-  HEAVY_COOLDOWN_TICKS,
-  PRIMARY_COOLDOWN_TICKS,
-  PRIMARY_DAMAGE,
+  POINTS_AVATAR_DOWN,
   RESPAWN_TICKS,
   STARTING_POINTS,
-  TRICKLE_INTERVAL_TICKS,
-  TRICKLE_POINTS,
   TURRET_DAMAGE,
 } from "../src/balance";
 import { countAlive } from "../src/entities";
@@ -21,10 +16,20 @@ import { EV_DEATH, EV_RESPAWN, EVENT_STRIDE } from "../src/events";
 import { BUTTON_FIRE1, BUTTON_FIRE2, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, type SimState, step } from "../src/sim";
+import { GUNS, HEAVIES } from "../src/weapons";
 
-// Flat 16×16 grid, 4 m cells. P0 spawns at (20,30); dummy spot at (50,30) —
-// out of primary range (40) until P0 walks a few meters east. P1 spawns far
-// north to stay out of every engagement.
+// The default kit's numbers (the original's records, weapons.ts): the Mini-Gun
+// hits its lock for 1 every tick; Hell Fire 2000 is a 25-damage homing missile
+// every 15 ticks.
+const PRIMARY_DAMAGE = GUNS[0].a.damage;
+const HEAVY_DAMAGE = HEAVIES[0].a.damage;
+const HEAVY_AMMO = HEAVIES[0].a.ammoCap;
+const HEAVY_COOLDOWN_TICKS = HEAVIES[0].cooldownTicks;
+
+// Flat 16×16 grid, 4 m cells. P0 spawns at (20,30) facing east; the dummy spot
+// is at (30,30), 10 m ahead: inside the X1-Alpha's 12 m lock, and inside the
+// dummy's own 28 m (Metropolis' sandbox turret). P1 spawns far north to stay out
+// of every engagement.
 function flatArena(dummies: number[][]): MapJson {
   const size = 16;
   const heights: number[][] = [];
@@ -89,7 +94,7 @@ function reset(): void {
 }
 
 function simWithDummy(): SimState {
-  return createSim(loadMapFromJson(flatArena([[50, 30]])), 7);
+  return createSim(loadMapFromJson(flatArena([[30, 30]])), 7);
 }
 
 function eventTypes(sim: SimState): number[] {
@@ -101,25 +106,30 @@ function eventTypes(sim: SimState): number[] {
 }
 
 describe("primary hitscan", () => {
-  it("hits the dummy in range, paced by the cooldown", () => {
+  it("locks the dummy ahead and hits it on every tick the trigger is held", () => {
     reset();
     const sim = simWithDummy();
     const dummy = sim.dummyEntity[0];
     expect(sim.ent.archetype[dummy]).toBe(ARCHETYPE.TURRET);
     p0.aimX = 127; // aim due east at the dummy
     p0.buttons = BUTTON_FIRE1;
-    for (let i = 0; i < PRIMARY_COOLDOWN_TICKS * 4; i++) step(sim, inputs);
-    // 30 m away, in range: 4 shots in 4 cooldown windows.
-    expect(sim.ent.hp[dummy]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET] - 4 * PRIMARY_DAMAGE);
+    for (let i = 0; i < 20; i++) step(sim, inputs);
+    expect(sim.lockTarget[0]).toBe(dummy);
+    expect(sim.ent.hp[dummy]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET] - 20 * PRIMARY_DAMAGE);
   });
 
-  it("misses when aiming away", () => {
+  it("hits nothing with the hull turned away: no lock, no damage", () => {
     reset();
     const sim = simWithDummy();
     const dummy = sim.dummyEntity[0];
-    p0.aimY = 127; // aim north, dummy is east
+    const a0 = sim.avatarId[0];
+    sim.ent.yaw[a0] = Math.PI / 2; // facing north, the dummy is east
+    sim.ent.aimX[a0] = 0;
+    sim.ent.aimY[a0] = 1;
+    p0.aimY = 127;
     p0.buttons = BUTTON_FIRE1;
     for (let i = 0; i < 30; i++) step(sim, inputs);
+    expect(sim.lockTarget[0]).toBe(-1);
     expect(sim.ent.hp[dummy]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
   });
 
@@ -130,7 +140,7 @@ describe("primary hitscan", () => {
     p0.buttons = BUTTON_FIRE1;
     const need = Math.ceil(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET] / PRIMARY_DAMAGE);
     let died = false;
-    for (let i = 0; i < need * PRIMARY_COOLDOWN_TICKS + 10; i++) {
+    for (let i = 0; i < need + 10; i++) {
       step(sim, inputs);
       if (eventTypes(sim).includes(EV_DEATH)) died = true;
       if (sim.dummyEntity[0] === -1) break;
@@ -151,39 +161,39 @@ describe("primary hitscan", () => {
 });
 
 describe("heavy projectile", () => {
-  it("flies, explodes on the dummy, and consumes ammo", () => {
+  it("flies, homes onto the dummy, hits it, and consumes ammo", () => {
     reset();
     const sim = simWithDummy();
     const dummy = sim.dummyEntity[0];
     p0.aimX = 127;
     p0.buttons = BUTTON_FIRE2;
     step(sim, inputs);
-    expect(sim.ent.ammoA[0]).toBe(AVATAR_AMMO_HEAVY - 1); // refill ran before the shot
+    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 1); // refill ran before the shot
     expect(countAlive(sim.ent)).toBe(4); // 2 avatars + dummy + projectile
     step(sim, inputs);
-    expect(sim.ent.ammoA[0]).toBe(AVATAR_AMMO_HEAVY); // base plot refills next tick
-    // One heavy (60) does not kill the 100 hp dummy; wait for impact.
+    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO); // base plot refills next tick
+    // One Hell Fire (25) does not kill the 100 hp dummy; wait for impact.
     p0.buttons = 0;
     for (let i = 0; i < 60; i++) step(sim, inputs);
-    expect(sim.ent.hp[dummy]).toBe(40);
+    expect(sim.ent.hp[dummy]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET] - HEAVY_DAMAGE);
     expect(countAlive(sim.ent)).toBe(3); // projectile gone
   });
 
   it("ammo depletes away from the base plot and respects the cooldown", () => {
     reset();
     const sim = simWithDummy();
-    // Walk off the plot first (10 m north-east), then fire twice.
+    // Walk off the plot first, then fire twice.
     p0.moveX = 127;
-    for (let i = 0; i < 75; i++) step(sim, inputs); // 12.5 m east
+    for (let i = 0; i < 75; i++) step(sim, inputs); // ~11.7 m east
     p0.moveX = 0;
     p0.aimX = 127;
     p0.buttons = BUTTON_FIRE2;
     step(sim, inputs);
-    expect(sim.ent.ammoA[0]).toBe(AVATAR_AMMO_HEAVY - 1);
+    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 1);
     step(sim, inputs); // cooldown blocks the second shot
-    expect(sim.ent.ammoA[0]).toBe(AVATAR_AMMO_HEAVY - 1);
+    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 1);
     for (let i = 0; i < HEAVY_COOLDOWN_TICKS; i++) step(sim, inputs);
-    expect(sim.ent.ammoA[0]).toBe(AVATAR_AMMO_HEAVY - 2);
+    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 2);
   });
 });
 
@@ -191,9 +201,10 @@ describe("dummy turret retaliation, death and respawn", () => {
   it("turret damages the avatar in range; avatar dies and respawns", () => {
     reset();
     const sim = simWithDummy();
-    // Walk into turret range (28) and stand there.
+    // Step off the repairing pad (radius 6) and stand in the dummy's 28 m
+    // without firing back.
     p0.moveX = 127;
-    for (let i = 0; i < 60; i++) step(sim, inputs); // x ≈ 30, 20 m from dummy
+    for (let i = 0; i < 45; i++) step(sim, inputs); // ~7 m east, 3 m from the dummy
     p0.moveX = 0;
     let sawDamage = false;
     let deathTick = -1;
@@ -211,18 +222,20 @@ describe("dummy turret retaliation, death and respawn", () => {
     // systemSpawning runs after damage/death in the same tick, so the timer
     // has already counted down once.
     expect(sim.respawnTimer[0]).toBe(RESPAWN_TICKS - 1);
-    // Dummies never earn players points: only starting balance + trickle
-    // (which fired for every processed tick that was a multiple of 300).
-    const trickled = Math.floor((sim.tick - 1) / TRICKLE_INTERVAL_TICKS) * TRICKLE_POINTS;
-    expect(sim.points[1]).toBe(STARTING_POINTS + trickled);
+    // Nothing is paid at the kill: there is no trickle, and a player's going-
+    // down is paid by its own respawn (fcop-fidelity.md R3, R4).
+    expect(sim.points[1]).toBe(STARTING_POINTS);
 
     // Respawn: full hp, back at the spawn point, EV_RESPAWN fired.
     let respawned = false;
-    for (let i = 0; i < RESPAWN_TICKS; i++) {
+    for (let i = 0; i < RESPAWN_TICKS && !respawned; i++) {
       step(sim, inputs);
       if (eventTypes(sim).includes(EV_RESPAWN)) respawned = true;
     }
     expect(respawned).toBe(true);
+    // ...which pays the other side 10 and costs the downed side 10, floor 0.
+    expect(sim.points[1]).toBe(STARTING_POINTS + POINTS_AVATAR_DOWN);
+    expect(sim.points[0]).toBe(Math.max(STARTING_POINTS - POINTS_AVATAR_DOWN, 0));
     const id = sim.avatarId[0];
     expect(id).toBeGreaterThanOrEqual(0);
     expect(sim.ent.hp[id]).toBe(AVATAR_HP);

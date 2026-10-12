@@ -2,13 +2,14 @@
 // and with what text. Pure and DOM-free so it is testable without a browser;
 // hud.ts owns the rows, the expiry and the repeat suppression.
 
-import { EV_ALARM, EV_CAPTURE, EV_CLAIM, EV_CORE_HIT } from "@metropolis/sim";
+import { EV_ALARM, EV_BREACH, EV_CAPTURE, EV_CLAIM } from "@metropolis/sim";
 
 export const TICKER_KINDS = 4;
 export const TK_CAPTURE = 0;
 export const TK_CLAIM = 1;
 export const TK_ALARM = 2;
-export const TK_CORE = 3;
+/** A gate breach: the match is decided and the outro is running. */
+export const TK_BREACH = 3;
 
 // Pre-built strings indexed by [kind][team] — the pump never builds a string
 // (renderer rule 1; it runs on the sim-step path). Team colour is meaning
@@ -17,7 +18,7 @@ export const TICKER_TEXT: readonly (readonly [string, string])[] = [
   ["TURRET CAPTURED — BLUE", "TURRET CAPTURED — RED"],
   ["OUTPOST CLAIMED — BLUE", "OUTPOST CLAIMED — RED"],
   ["INTRUSION — BLUE BASE", "INTRUSION — RED BASE"],
-  ["CORE UNDER ATTACK — BLUE", "CORE UNDER ATTACK — RED"],
+  ["GATE BREACHED — BLUE WINS", "GATE BREACHED — RED WINS"],
 ];
 
 /**
@@ -37,9 +38,9 @@ export function classifyTickerEvent(type: number, b: number, c: number): number 
   } else if (type === EV_ALARM) {
     kind = TK_ALARM;
     team = c;
-  } else if (type === EV_CORE_HIT) {
-    kind = TK_CORE;
-    team = c;
+  } else if (type === EV_BREACH) {
+    kind = TK_BREACH;
+    team = b;
   } else {
     return -1;
   }

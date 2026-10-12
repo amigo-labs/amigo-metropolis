@@ -104,7 +104,7 @@ forever as a debug render mode (`?render=greybox`).
   one-mesh-per-archetype rule in `CLAUDE.md`, capped at four instances. Still no
   `Object3D` tree and no per-limb matrix update.
 - **Walker ↔ hover transformation** (`render/morph.ts`): three beats over the
-  sim's transform lock (~0.8 s), driven by a client-local clock that one
+  sim's transform lock (41 ticks, 1.37 s — the original's), driven by a client-local clock that one
   `EV_TRANSFORM` event starts.
   1. **Collapse** — the form being LEFT squashes to a third of its height,
      spreads sideways, tucks both hips to the same angle (not the gait's

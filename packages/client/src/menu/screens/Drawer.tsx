@@ -31,7 +31,7 @@ const CONTROLS: readonly (readonly [string, string])[] = [
   ["LMB / RMB / MMB", "primary / special / heavy"],
   ["Q", "transform (walker ⇄ hover)"],
   ["Space", "jump"],
-  ["hold E", "buy / claim / capture at a console"],
+  ["E", "tap: capture a turret · hold: buy at a console"],
 ];
 
 const VOLUMES: readonly (readonly [VolumeKind, string])[] = [
@@ -54,9 +54,9 @@ function HowTo() {
       </div>
       <h2 class="menu-h2">Winning</h2>
       <p class="menu-hint">
-        Earn points from kills, captures, and a steady trickle. Spend them at your base consoles to
-        field Runners, Guardians, and heavy units, then escort a push through a lane and breach the
-        enemy gate.
+        Earn points when enemy units, turrets and avatars fall and when you capture turrets. Spend
+        them at your base consoles to field Runners, Guardians, and heavy units, then escort a push
+        through a lane and breach the enemy gate.
       </p>
     </>
   );

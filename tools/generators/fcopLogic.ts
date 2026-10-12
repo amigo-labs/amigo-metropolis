@@ -20,13 +20,14 @@
 // Authoring-time only, like convert.ts — the committed JSON is the artifact, so
 // any Math.* is fine here. The determinism guard only scans packages/sim/src.
 //
-// UNIT SCALES — what is documented and what is inferred
+// UNIT SCALES — read from the retail executable
 // Positions and rotations are documented in docs/specs/fcop-logic.md §3
 // (POS_FACTOR 1/8192, NET_FACTOR 1/32, ROT_FACTOR -pi/2048, 4096 = 360°). The
-// extractor leaves the remaining parameter fields as raw u16 and says the scale
-// is unconfirmed, so RANGE_SCALE below is derived here from the geometry; see
-// its comment. Every raw value is preserved in the artifact next to its derived
-// value, so a later correction only changes this file, not the data.
+// extractor leaves the remaining parameter fields as raw u16; what the engine
+// does with each of them was read from the decompiled C against the retail
+// disassembly (docs/specs/fcop-re/ranges-turrets-capture.md Q1, Q3, Q5) and is
+// implemented below. Every raw value is preserved in the artifact next to its
+// derived value, so a later correction only changes this file, not the data.
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -37,53 +38,120 @@ import { type FcopArena, logicFile, selectArenas } from "./fcopArenas";
 // Unit conversion
 // ---------------------------------------------------------------------------
 
-/** Original simulation rate; Metropolis runs at balance.ts TICK_HZ (30). */
+/**
+ * Unit of the authored spawner (tSAC) and script periods: 1/60 s. The engine
+ * clock is 300 Hz and `csac_load` multiplies the raw word by 5
+ * (fcop-re/ranges-turrets-capture.md Q5), so raw/60 is seconds. Metropolis runs at
+ * balance.ts TICK_HZ (30).
+ */
 export const ORIGINAL_TICK_HZ = 60;
+/** The original engine clock: every actor tick advances in 1/300 s steps. */
+export const ENGINE_TICK_HZ = 300;
 /** docs/specs/fcop-logic.md §3.2 — 4096 raw = 360°. */
 export const ROTATION_TURN = 4096;
 /** Turret rotations are stored offset by a quarter turn (fcop-logic.md §3.2). */
 export const TURRET_ROTATION_BIAS = 1024;
 
 /**
- * Raw-to-cells divisor for distance parameters (engage_range, orbit_area,
- * target_detection_range).
+ * Raw-to-metres divisor for distance parameters (engage_range,
+ * target_detection_range / search_range, standoff).
  *
- * NOT documented — extract_logic.py reads these as bare u16. Derived here from
- * the Mp geometry, and 1024 (2^10, u16 max 64 cells) is the only scale all the
- * evidence agrees on:
+ * Read from the retail code (fcop-re/ranges-turrets-capture.md Q1):
+ * `cact_shooter_acquire` loads engage_range with `shl 4` (0x0044e96b) and
+ * `cact_target_score` compares it against raw position deltas in world units,
+ * where 8192 wu = 1 m. So metres = raw * 16 / 8192 = raw / 512: engage_range 6144
+ * is 12 m, and weapon 3's own range field (also 6144, `<< 4` in
+ * `cact_missile_spawn`) makes its rounds fly exactly those 12 m. The aircraft
+ * search range takes the same `shl 4` (0x00420796): 28672 is 56 m, 32358 63.2 m.
  *
- *   - Every one of the 64 turrets on Mp sits 1.9-8.4 cells from a lane node
- *     (median 2.7 for base turrets, 3.5 for the capturable ones). Designers only
- *     hug the road they are guarding that tightly when the weapon's reach is
- *     short: at /1024 engage_range 6144 = 6 cells, which covers the adjacent
- *     road and little else. At /256 it would be 24 cells and the precise
- *     placement would be pointless, since one turret would cover half the
- *     compound and several unrelated lanes.
- *   - Aircraft target_detection_range 28672 -> 28 cells and orbit_area
- *     24576x20480 -> 24x20 cells, both sane patrol figures on a ~96-cell
- *     playfield (and the two heavy gunships get a bigger 30x28 orbit, matching
- *     the Guardian/Fortress split in rules.md §4). At /256 those become 112
- *     cells and 96x80 — larger than the arena.
- *   - fcop-logic.md §5 reports engage_range ∈ {4096, 5120, 6144} across
- *     campaign missions, i.e. a clean {4, 5, 6}-cell ladder at this scale.
- *
- * Trigger volumes are the exception and use the POSITION scale (1/8192): their
- * raw 20480x12288 becomes a 2.5x1.5-cell box, which matches the small
- * base-mouth footprints in docs/renders/fcop-viz/la-cantina/.
+ * This was 1024, inferred from turret placement before the code was read — half
+ * the real reach.
  */
-export const RANGE_SCALE = 1024;
-/** Trigger volume extents use the position fixed point, not RANGE_SCALE. */
-export const TRIGGER_SCALE = 8192;
+export const RANGE_SCALE = 512;
+/**
+ * Raw-to-metres divisor for a trigger volume's HALF-extent.
+ *
+ * The loader halves the raw width/length (`sar 1`, 0x0041fde2..0x0041fdff) and the
+ * containment test shifts the half back up by 4 against world units
+ * (0x00420150..0x0042017f): half-extent = raw * 8 wu = raw / 1024 m, grown by the
+ * intruder's own radius (fcop-re/ranges-turrets-capture.md Q1). Mp's base zone
+ * 20480 x 12288 is therefore 40 x 24 m and a gate 2457 x 1843 is 4.8 x 3.6 m. It
+ * was 8192 on the full extent, i.e. 16x too small.
+ */
+export const TRIGGER_SCALE = 1024;
+/**
+ * Raw-to-metres divisor for an aircraft orbit_area field as the LEASH half-extent:
+ * stored `raw >> 5`, tripped at `|d| >> 8 > stored`, i.e. raw * 8 wu = raw / 1024 m
+ * (`aircraft.c:1014`, 0x00420904..0x00420924).
+ */
+export const ORBIT_LEASH_SCALE = 1024;
+/** New patrol destinations are drawn within half the leash: +-raw / 2048 m. */
+export const ORBIT_PATROL_SCALE = 2048;
 
-/** Distance parameter (raw u16) to cells. */
+/** Distance parameter (raw u16) to metres (= cells). */
 export function rangeToCells(raw: number): number {
   return raw / RANGE_SCALE;
 }
 
-/** Original 60 Hz tick count to sim ticks, floored at one tick. */
+/**
+ * NeutralTurret capture range (raw) to metres, before the capturer's own radius.
+ *
+ * `turret_op10` (0x0041c920) captures when the distance between reference points
+ * is under `(range + 0x400) << 4` world units plus the candidate's radius_68
+ * (0x0041ca04..0x0041ca20; fcop-re/ranges-turrets-capture.md Q2). At 8192 wu/m
+ * that is (raw + 1024) / 512 m: 1024 -> 4.0, 1638 -> 5.2, 1843 -> 5.6.
+ */
+export function captureRangeToCells(raw: number): number {
+  return (raw + 1024) / RANGE_SCALE;
+}
+
+/** Trigger width/length (raw) to the volume's half-extent in metres. */
+export function triggerHalfExtent(raw: number): number {
+  return raw / TRIGGER_SCALE;
+}
+
+/** Aircraft orbit_area (raw) to the leash half-extent in metres. */
+export function orbitLeashToCells(raw: number): number {
+  return raw / ORBIT_LEASH_SCALE;
+}
+
+/** Aircraft orbit_area (raw) to the patrol-destination half-extent in metres. */
+export function orbitPatrolToCells(raw: number): number {
+  return raw / ORBIT_PATROL_SCALE;
+}
+
+/** Original 1/60 s spawner/script period to sim ticks, floored at one tick. */
 export function toSimTicks(raw: number, tickHz: number): number {
   const seconds = Math.abs(raw) / ORIGINAL_TICK_HZ;
   return Math.max(1, Math.round(seconds * tickHz));
+}
+
+/**
+ * BaseShooter targeting_delay (raw) to sim ticks.
+ *
+ * NOT the spawner unit. `cact_shooter_init` stores `trunc(raw * 4096 / 218)`
+ * 300 Hz ticks (0x0044ea83..0x0044eaa6), and 218 = 4096 * 16 / 300, so the raw
+ * value is in 1/16 s: 32 -> 601 ticks = 2.0 s (turrets, tanks, jets), 16 -> 300
+ * ticks = 1.0 s (Dreadnought guns, Fortress, captain)
+ * (fcop-re/ranges-turrets-capture.md Q3). Reading it as 1/60 s made 32 a 0.53 s
+ * cooldown.
+ */
+export function targetingDelayToSimTicks(raw: number, tickHz: number): number {
+  const engineTicks = Math.trunc((Math.abs(raw) * 4096) / 218);
+  return Math.max(1, Math.round((engineTicks * tickHz) / ENGINE_TICK_HZ));
+}
+
+/**
+ * Turret turn_speed (raw) to angle units (4096 = 360°) per 300 Hz engine tick.
+ *
+ * `turret_construct` on the /218 rate block (flag 0x04, set on all 196 PA turrets):
+ * `turn_rate = (raw * 16 / 218) >> 4`, truncating division then an arithmetic
+ * shift (`turret.c:711-735`, retail 0x0041c255..0x0041c272), and `turret_turn`
+ * caps each step at `turn_rate * dt`. 2457 -> 11 units per tick = 3300 units/s =
+ * 290°/s (fcop-re/ranges-turrets-capture.md Q3).
+ */
+export function turnSpeedToUnitsPerEngineTick(raw: number): number {
+  return Math.trunc((raw * 16) / 218) >> 4;
 }
 
 /** Actor rotation (raw) to a yaw in radians, matching the original's sign. */
@@ -104,15 +172,13 @@ export function fovToCos(raw: number): number {
 }
 
 /**
- * Gun slew (raw) to radians per sim tick.
- *
- * Inferred: read as rotation units per second, so raw/4096 turns per second.
- * Every Mp turret shares turn_speed 2457 (~216°/s), so on this arena the scale
- * only sets one global slew rate — a later correction cannot reshuffle relative
- * turret behaviour.
+ * Gun slew (raw) to radians per sim tick, through the retail integer rate
+ * (turnSpeedToUnitsPerEngineTick): 2457 -> 11 units per 1/300 s -> 290°/s. It
+ * used to read raw/4096 turns per second (216°/s), which was a guess.
  */
 export function turnSpeedToRadPerTick(raw: number, tickHz: number): number {
-  return ((raw / ROTATION_TURN) * (2 * Math.PI)) / tickHz;
+  const unitsPerSecond = turnSpeedToUnitsPerEngineTick(raw) * ENGINE_TICK_HZ;
+  return ((unitsPerSecond / ROTATION_TURN) * (2 * Math.PI)) / tickHz;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +268,12 @@ export const ACT = {
   AIRCRAFT: 9,
   DYNAMIC_PROP: 11,
   ITEM_PICKUP: 16,
-  TEAM_BASE: 28,
+  /**
+   * Extracted as "TeamBase?". It is the Dreadnought (fcop-re/ranges-turrets-
+   * capture.md, top + Q4): record class byte 3 ("Dreadnoughts" on the results
+   * screen), it drives its Cnet like a tank, and its four guns sit on its hull.
+   */
+  DREADNOUGHT: 28,
   NEUTRAL_TURRET: 36,
   TRIGGER: 95,
   MARKER_14: 14,
@@ -228,22 +299,34 @@ export interface PaSpawn {
   readonly z: number;
 }
 
-export interface PaBase {
+/**
+ * One side's Dreadnought record (act_type 28). Its position is the Dreadnought's
+ * spawn point — node 0 of its Cnet, next to the HQ — not a base structure: the
+ * original has no destructible core (fcop-re/ranges-turrets-capture.md, top).
+ */
+export interface PaDreadnought {
   readonly id: number;
   readonly x: number;
   readonly z: number;
   /** Original team byte: 1 or 2. */
   readonly team: number;
+  /** 3000 on every PA record: the Dreadnought's own HP. */
   readonly health: number;
-  /** Cnet this base's produced units traverse (fcop-logic.md §8.1). */
+  /** Cnet the Dreadnought drives; it spawns at node 0 (fcop-logic.md §8.1). */
   readonly netId: number;
-  /** Production cadence in original 60 Hz ticks (300 = 5 s). */
+  /**
+   * Its Csac spawner period in 1/60 s (300 = 5 s) and limit (1). The spawner is
+   * SHUT in PA: the Dreadnought appears only when bought (ai-and-rules.md §0).
+   */
   readonly spawnTicks: number;
   readonly spawnLimit: number;
-  readonly defenceWeaponCount: number;
-  readonly defenceWeapon: PaShooter;
-  readonly unitMoveSpeed: number;
-  readonly unitAcceleration: number;
+  /** Hull guns (4): mounts at the hull model's points 0..3 (Q4). */
+  readonly gunCount: number;
+  /** Gun 0's BaseShooter block (guns 1..3 carry the same values). */
+  readonly gun: PaShooter;
+  /** Its own route block at payload 0x30: move_speed 1024, accel 1228. */
+  readonly moveSpeed: number;
+  readonly acceleration: number;
 }
 
 export interface PaTurret {
@@ -370,10 +453,11 @@ export interface PaLogic {
     readonly trigger: number;
     readonly rotationTurn: number;
     readonly originalTickHz: number;
+    readonly engineTickHz: number;
     readonly note: string;
   };
   readonly spawns: readonly PaSpawn[];
-  readonly bases: readonly PaBase[];
+  readonly dreadnoughts: readonly PaDreadnought[];
   readonly turrets: readonly PaTurret[];
   readonly neutrals: readonly PaTurret[];
   readonly pickups: readonly PaPickup[];
@@ -454,16 +538,21 @@ export function buildPaLogic(
       trigger: TRIGGER_SCALE,
       rotationTurn: ROTATION_TURN,
       originalTickHz: ORIGINAL_TICK_HZ,
+      engineTickHz: ENGINE_TICK_HZ,
       note:
-        "Positions/rotations are documented (fcop-logic.md §3). Distance and " +
-        "timing scales are inferred in tools/generators/fcopLogic.ts; raw values " +
-        "are preserved here so a correction touches only the converter.",
+        "Positions/rotations are documented (fcop-logic.md §3). Distances are raw/range m " +
+        "(engage/search ranges), trigger half-extents raw/trigger m; spawner periods are " +
+        "1/originalTickHz s, targeting_delay is 1/16 s, turn_speed is " +
+        "((raw*16/218)>>4)/rotationTurn turns per 1/engineTickHz s — all read from the " +
+        "retail code (docs/specs/fcop-re/ranges-turrets-capture.md) and applied in " +
+        "tools/generators/fcopLogic.ts; raw values are preserved here.",
     },
     spawns: of(ACT.X1ALPHA).map(marker),
-    bases: of(ACT.TEAM_BASE).map((a) => {
+    dreadnoughts: of(ACT.DREADNOUGHT).map((a) => {
       const p = a.params ?? {};
+      // The extractor still calls the gun blocks "defense_weapon".
       const dw = p.defense_weapon;
-      if (!dw) throw new Error(`base ${a.matching} has no defense_weapon block`);
+      if (!dw) throw new Error(`Dreadnought ${a.matching} has no gun (defense_weapon) block`);
       return {
         id: a.matching,
         x: a.x,
@@ -473,8 +562,8 @@ export function buildPaLogic(
         netId: a.net_id ?? -1,
         spawnTicks: a.spawn_ticks ?? 0,
         spawnLimit: a.spawn_limit ?? 0,
-        defenceWeaponCount: p.defense_weapon_count ?? 0,
-        defenceWeapon: {
+        gunCount: p.defense_weapon_count ?? 0,
+        gun: {
           weaponId: dw.weapon_id,
           targetType: dw.target_type,
           targeting: dw.targeting,
@@ -482,8 +571,8 @@ export function buildPaLogic(
           engageRangeRaw: dw.engage_range,
           targetingDelayRaw: dw.targeting_delay,
         },
-        unitMoveSpeed: p.unit_template?.move_speed ?? 0,
-        unitAcceleration: p.unit_template?.acceleration ?? 0,
+        moveSpeed: p.unit_template?.move_speed ?? 0,
+        acceleration: p.unit_template?.acceleration ?? 0,
       };
     }),
     turrets: of(ACT.TURRET).map(turret),
@@ -637,16 +726,17 @@ function extract(arena: FcopArena, reRepo: string, commit: string): void {
 
   console.log(`wrote ${out}`);
   console.log(
-    `  spawns ${logic.spawns.length}  bases ${logic.bases.length}` +
+    `  spawns ${logic.spawns.length}  dreadnoughts ${logic.dreadnoughts.length}` +
       `  turrets ${logic.turrets.length}  neutrals ${logic.neutrals.length}` +
       `  pickups ${logic.pickups.length}  triggers ${logic.triggers.length}` +
       `  units ${logic.units.length}  aircraft ${logic.aircraft.length}` +
       `  props ${logic.props.length}  nets ${logic.nets.map((n) => n.nodes.length).join("+")}`,
   );
   console.log(
-    `  derived: engage_range 6144 -> ${rangeToCells(6144)} cells,` +
-      ` targeting_delay 32 -> ${toSimTicks(32, 30)} sim ticks,` +
-      ` production 300 -> ${toSimTicks(300, 30)} sim ticks`,
+    `  derived: engage_range 6144 -> ${rangeToCells(6144)} m,` +
+      ` targeting_delay 32 -> ${targetingDelayToSimTicks(32, 30)} sim ticks,` +
+      ` spawner period 300 -> ${toSimTicks(300, 30)} sim ticks,` +
+      ` turn_speed 2457 -> ${turnSpeedToUnitsPerEngineTick(2457)} units per 1/300 s`,
   );
 }
 

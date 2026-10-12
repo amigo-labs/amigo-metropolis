@@ -20,7 +20,7 @@
 // Stage 1 has no water, so the district-01 river assertions are absent. The
 // mirror assertion is NOT absent any more — see the mirrorAxis field.
 import { describe, expect, it } from "bun:test";
-import { AVATAR_JUMP_SPEED, GRAVITY } from "../src/balance";
+import { AVATAR_JUMP_SPEED, X1_GRAVITY } from "../src/balance";
 import { crossesWallX, crossesWallY } from "../src/collision";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
@@ -37,7 +37,7 @@ import { segmentWalkable } from "../src/roads";
 import { JUMPABLE_RISE, worstHoverRise, worstUphillRise } from "../src/units";
 
 /** The apex JUMPABLE_RISE is derived from; asserted below so they cannot drift. */
-const JUMP_APEX = (AVATAR_JUMP_SPEED * AVATAR_JUMP_SPEED) / (2 * GRAVITY);
+const JUMP_APEX = (AVATAR_JUMP_SPEED * AVATAR_JUMP_SPEED) / (2 * X1_GRAVITY);
 
 interface ArenaExpectation {
   id: string;
@@ -73,11 +73,12 @@ interface ArenaExpectation {
    */
   graphNodes: number;
   weapons: number;
-  baseDefence: number;
   pickups: number;
   triggerVolumes: number;
-  coreHp: number;
-  productionTicks: number;
+  /** The original Dreadnought's HP, carried as each side's Juggernaut. */
+  juggernautHp: number;
+  /** The gate box's half-extents [x, y] in metres (raw/1024). */
+  gateHalf: readonly [number, number];
   /** Original scenery placements. Render-only — determinismGuard.test.ts enforces it. */
   props: number;
   /**
@@ -111,7 +112,7 @@ interface ArenaExpectation {
    * JUMPABLE_RISE. This is the number that means "impassable"; `steepLaneEdges`
    * on its own is a regression anchor, not a playability claim.
    *
-   * These are 1.4-2.5 m terrain steps, not kerbs: no blocking rise on any of the
+   * These are 1.1-2.5 m terrain steps, not kerbs: no blocking rise on any of the
    * four arenas is small enough for a step-up tolerance to help. See the pinning
    * test for the distribution.
    */
@@ -173,30 +174,44 @@ const ARENAS: ArenaExpectation[] = [
     // and the base's own structures, of 4327 (6.5%). Up from 242: the carve now
     // walks each road the way a unit steps rather than in fixed 0.25 m slices,
     // and opens team 0's console leg, which was walled off entirely (issue #30).
-    wallsVPin: 2005359668,
-    wallsHPin: 2450311990,
+    // SIM_VERSION 32: 256 carved + 13 reconnected. The roads now end at the
+    // original's gate box rather than at the Dreadnought spot, and each
+    // Juggernaut's spawn-to-road leg is validated too.
+    wallsVPin: 3397164092,
+    wallsHPin: 4095836062,
     turretSpots: 32,
     outpostSpots: 2,
     dummySpots: 0,
     // Team-unique type-8 pads only; dual-team mid plates are capturable (not ring).
     ringTurrets: [9, 8],
     graphNodes: 462, // both Cnet graphs, 237 + 225
-    weapons: 2,
-    baseDefence: 4,
+    // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
+    // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
+    weapons: 5,
     pickups: 11,
-    triggerVolumes: 13,
-    coreHp: 3000,
-    productionTicks: 150, // 5 s
+    triggerVolumes: 7, // base zones; the gate boxes are the gates now
+    juggernautHp: 3000,
+    gateHalf: [2.3994, 1.7998], // gate trigger 2457 x 1843 raw
     props: 36,
     mirrorAxis: 120,
     flatPlots: false, // spawn platform above the base floor
-    steepLaneEdges: 40,
-    hardWallLaneEdges: 8, // of 518 edges; smallest blocking rise 0.50 m
+    // SIM_VERSION 39 (the original's walker, fcop-fidelity.md P4): it walks
+    // what its slope push climbs, up to a 1.04 gradient (was a 0.6 gate), and
+    // its jumps climb nothing the walk cannot (JUMPABLE_RISE 1.4 -> 0). So
+    // 40 -> 15 steep edges, and every one is a wall (was 8).
+    steepLaneEdges: 15,
+    hardWallLaneEdges: 15, // of 518 edges; smallest blocking rise 0.89 m
+    // SIM_VERSION 32: the committed route now ends at the node nearest the
+    // enemy GATE (was: nearest the Dreadnought spot), three nodes shorter. Since
+    // v39 one of its steps is a wall for the walker (it jumped all four before);
+    // the walker routes around it on the graph (escortable, asserted above).
     steepLaneSteps: 1,
     hardWallLaneSteps: 1,
-    hoverBlockedEdges: 20,
-    walkerOnlyEdges: 2,
-    hoverOnlyEdges: 0,
+    // v39: the hover's tick travel follows its top speed (9 -> 9.38 m/s), which
+    // moves where worstHoverRise samples: 20 -> 19.
+    hoverBlockedEdges: 19,
+    walkerOnlyEdges: 6,
+    hoverOnlyEdges: 2,
     hoverBlockedLaneSteps: 1,
     hoverDrivableTeams: 2,
   },
@@ -226,22 +241,27 @@ const ARENAS: ArenaExpectation[] = [
     // Team-unique pads after dual/neutral filter (Slim raw lists 14).
     ringTurrets: [6, 7],
     graphNodes: 578, // 292 + 286
-    weapons: 2,
-    baseDefence: 4,
+    // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
+    // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
+    weapons: 5,
     pickups: 9,
-    triggerVolumes: 13,
-    coreHp: 3000,
-    productionTicks: 150,
+    triggerVolumes: 8, // base zones; the gate boxes are the gates now
+    juggernautHp: 3000,
+    gateHalf: [1.7998, 2.0996], // gate trigger 1843 x 2150 raw
     props: 36,
     mirrorAxis: 120,
     flatPlots: true, // spawn and base share the 0 m floor here
-    steepLaneEdges: 43,
-    hardWallLaneEdges: 13, // of 640 edges; smallest blocking rise 0.55 m
-    steepLaneSteps: 4,
-    hardWallLaneSteps: 1,
-    hoverBlockedEdges: 44,
-    walkerOnlyEdges: 11,
-    hoverOnlyEdges: 2,
+    // SIM_VERSION 39 (fcop-fidelity.md P4): the walker walks gradients to 1.04
+    // and its jumps climb nothing more (was 0.6 / 1.4): 43 -> 36 steep, 13 -> 36
+    // walls — the 1.04-1.4 m steps the old air-steered jump cleared are walls
+    // for the original's walker. The road is still escortable (asserted above).
+    steepLaneEdges: 36,
+    hardWallLaneEdges: 36, // of 640 edges; smallest blocking rise 0.85 m
+    steepLaneSteps: 3,
+    hardWallLaneSteps: 3,
+    hoverBlockedEdges: 42,
+    walkerOnlyEdges: 12,
+    hoverOnlyEdges: 6,
     hoverBlockedLaneSteps: 5,
     hoverDrivableTeams: 1,
   },
@@ -263,9 +283,10 @@ const ARENAS: ArenaExpectation[] = [
     //
     // On top of that ground lattice, stage 2 carves 37 bits to open the original
     // roads (was 56) and opens 2 more for a ring turret (was 10). 39 of 4009,
-    // 1.0%, down from 66.
+    // 1.0%, down from 66. 36 carved since SIM_VERSION 32 (the roads end at the
+    // original's gate box, not at the Dreadnought spot).
     wallsVPin: 1495349930,
-    wallsHPin: 1064616740,
+    wallsHPin: 4066112243,
     // Mp's two bridge decks: 2398 cells over the roads, and 108 above those.
     layerCells: [2398, 108],
     turretSpots: 32, // every original NeutralTurret pad
@@ -274,18 +295,20 @@ const ARENAS: ArenaExpectation[] = [
     // Team-unique type-8 only (8/base); dual mid plates stay capturable.
     ringTurrets: 8,
     graphNodes: 283, // both Cnet graphs, 143 + 140
-    weapons: 2,
-    baseDefence: 4,
+    // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
+    // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
+    weapons: 5,
     pickups: 8,
-    triggerVolumes: 13,
-    coreHp: 3000,
-    productionTicks: 150, // 5 s
+    triggerVolumes: 7, // base zones; the gate boxes are the gates now
+    juggernautHp: 3000,
+    gateHalf: [2.3994, 1.7998], // gate trigger 2457 x 1843 raw
     props: 36,
     mirrorAxis: 112,
     flatPlots: false,
-    steepLaneEdges: 10,
-    // Mp is the clean one: every steep edge is jumpable and the committed road
-    // has no blocking step at all. It is why the other three went unnoticed.
+    // Mp is the clean one: since SIM_VERSION 39 the walker walks every edge of
+    // its graph (its 10 steep edges were 0.6-1.04 gradients, which the original's
+    // walker climbs), and the committed road has no blocking step at all.
+    steepLaneEdges: 0,
     hardWallLaneEdges: 0,
     steepLaneSteps: 0,
     hardWallLaneSteps: 0,
@@ -315,22 +338,25 @@ const ARENAS: ArenaExpectation[] = [
     // Team-unique pads after dual/neutral filter (Joke raw lists 14).
     ringTurrets: [6, 7],
     graphNodes: 594, // 303 + 291
-    weapons: 2,
-    baseDefence: 4,
+    // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
+    // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
+    weapons: 5,
     pickups: 9,
-    triggerVolumes: 13,
-    coreHp: 3000,
-    productionTicks: 150,
+    triggerVolumes: 8, // base zones; the gate boxes are the gates now
+    juggernautHp: 3000,
+    gateHalf: [1.7998, 2.0996], // gate trigger 1843 x 2150 raw
     props: 36,
     mirrorAxis: 120,
     flatPlots: true,
-    steepLaneEdges: 43,
-    hardWallLaneEdges: 13, // of 661 edges; smallest blocking rise 0.55 m
-    steepLaneSteps: 4,
-    hardWallLaneSteps: 1,
-    hoverBlockedEdges: 45,
-    walkerOnlyEdges: 12,
-    hoverOnlyEdges: 2,
+    // SIM_VERSION 39: as proving-ground (the same terrain): 43 -> 37 steep,
+    // 13 -> 37 walls.
+    steepLaneEdges: 37,
+    hardWallLaneEdges: 37, // of 661 edges; smallest blocking rise 0.85 m
+    steepLaneSteps: 3,
+    hardWallLaneSteps: 3,
+    hoverBlockedEdges: 43,
+    walkerOnlyEdges: 13,
+    hoverOnlyEdges: 7,
     hoverBlockedLaneSteps: 5,
     hoverDrivableTeams: 2,
   },
@@ -362,9 +388,12 @@ for (const arena of ARENAS) {
           ? arena.ringTurrets[team]
           : arena.ringTurrets;
         expect(base.turrets.length).toBe(ringWant);
-        expect(base.defence.length).toBe(arena.baseDefence);
-        expect(base.coreHp).toBe(arena.coreHp);
-        expect(base.productionTicks).toBe(arena.productionTicks);
+        // Type 28 is the Dreadnought (fcop-fidelity.md I6): each side's
+        // Juggernaut, with no core HP and no free production left on the base.
+        expect(base.juggernaut?.hp).toBe(arena.juggernautHp);
+        expect(base.juggernaut?.guns).toBe(4);
+        expect(base.gate.halfW).toBeCloseTo(arena.gateHalf[0], 3);
+        expect(base.gate.halfL).toBeCloseTo(arena.gateHalf[1], 3);
       }
       // Per-spot lists stay parallel to turretSpots or the guns get shuffled.
       if (arena.weapons > 0) {
@@ -602,7 +631,9 @@ for (const arena of ARENAS) {
 
       it("pins how many lane-graph edges the walker cannot climb, and cannot jump", () => {
         // The jump clearance and the apex have to stay consistent, or the
-        // hardWall split below silently changes meaning.
+        // hardWall split below silently changes meaning. Since SIM_VERSION 39 the
+        // jump clears nothing the walk cannot (units.ts JUMPABLE_RISE), so the
+        // two counts are equal; the apex is the original's 1.37 m all the same.
         expect(JUMP_APEX).toBeGreaterThan(JUMPABLE_RISE);
 
         const g = map.laneGraph;
@@ -629,10 +660,10 @@ for (const arena of ARENAS) {
 
         // The finding that settles what these obstacles ARE: not one blocking
         // rise anywhere is small enough for a kerb-sized step-up tolerance to
-        // clear (STEP_SNAP is 0.35 m). They are 0.6 m-plus terrain steps, so no
-        // tolerance and no value of AVATAR_WALKER_MAX_SLOPE short of "climbs
-        // walls" makes the original roads uniformly walkable. Jump or route
-        // around is the answer, and both exist.
+        // clear (STEP_SNAP is 0.35 m). They are 0.85 m-plus terrain steps (0.5 m
+        // before the original's walker, SIM_VERSION 39), so no tolerance makes
+        // the original roads uniformly walkable. Jump or route around is the
+        // answer, and both exist.
         if (steep > 0) expect(smallestBlockingRise).toBeGreaterThan(0.35);
       });
 

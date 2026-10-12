@@ -8,10 +8,12 @@
 //      silently reshape the arena. The counts and the team symmetry below are
 //      exactly the structure docs/specs/fcop-logic.md §8 describes, so this is
 //      also a check that the decode still means what the spec says.
-//   2. Pin the INFERRED scales. Positions and rotations are documented, but the
-//      distance and timing scales are derived in fcopLogic.ts from geometry.
-//      They are load-bearing for balance, so they get explicit expectations with
-//      the reasoning attached rather than living only in a comment.
+//   2. Pin the scales. Positions and rotations are documented; the distance,
+//      trigger, delay and slew scales were read from the retail code
+//      (docs/specs/fcop-re/ranges-turrets-capture.md) and are applied in
+//      fcopLogic.ts. They are load-bearing for balance, so they get explicit
+//      expectations with the evidence attached rather than living only in a
+//      comment.
 
 import { describe, expect, test } from "bun:test";
 import conftLogic from "../fcop/conft-logic.json";
@@ -22,11 +24,16 @@ import ovmpLogic from "../fcop/ovmp-logic.json";
 import slimLogic from "../fcop/slim-logic.json";
 import {
   fovToCos,
+  orbitLeashToCells,
+  orbitPatrolToCells,
   ROTATION_TURN,
   rangeToCells,
   rotToYaw,
+  targetingDelayToSimTicks,
   toSimTicks,
+  triggerHalfExtent,
   turnSpeedToRadPerTick,
+  turnSpeedToUnitsPerEngineTick,
 } from "../fcopLogic";
 
 /** packages/sim/src/balance.ts TICK_HZ — duplicated so this stays dep-free. */
@@ -43,7 +50,7 @@ describe("committed Mp logic artifact", () => {
 
   test("carries the full Precinct Assault actor set", () => {
     expect(logic.spawns.length).toBe(2);
-    expect(logic.bases.length).toBe(2);
+    expect(logic.dreadnoughts.length).toBe(2);
     expect(logic.turrets.length).toBe(32);
     expect(logic.neutrals.length).toBe(32);
     expect(logic.pickups.length).toBe(8);
@@ -63,22 +70,28 @@ describe("committed Mp logic artifact", () => {
     expect(logic.nets.map((n) => n.netId)).toEqual([1, 2]);
   });
 
-  // fcop-logic.md §8.1: 2 per arena, team-symmetric, HP 3000, 4 built-in
-  // defence weapons, 5 s cadence, each bound to its own Cnet.
-  test("bases match the TeamBase model in fcop-logic.md §8.1", () => {
-    expect(logic.bases.map((b) => b.team).sort()).toEqual([1, 2]);
-    for (const base of logic.bases) {
-      expect(base.health).toBe(3000);
-      expect(base.spawnTicks).toBe(300);
-      expect(toSimTicks(base.spawnTicks, TICK_HZ)).toBe(150); // 5 s
-      expect(base.spawnLimit).toBe(1);
-      expect(base.defenceWeaponCount).toBe(4);
-      expect(base.defenceWeapon.engageRangeRaw).toBe(6144);
-      expect(base.defenceWeapon.targetingDelayRaw).toBe(16);
-      // Each base drives its own lane graph, so the two nets are the two teams'.
-      expect([1, 2]).toContain(base.netId);
+  // Type 28 is the Dreadnought, not a team base (fcop-re/ranges-turrets-capture.md
+  // top + Q4; fcop-logic.md §8.1): 2 per arena, team-symmetric, 3000 HP, four
+  // hull guns, a limit-1 spawner (5 s period, shut in PA), each driving its own
+  // Cnet from node 0.
+  test("type 28 matches the Dreadnought record in fcop-logic.md §8.1", () => {
+    expect(logic.dreadnoughts.map((b) => b.team).sort()).toEqual([1, 2]);
+    for (const d of logic.dreadnoughts) {
+      expect(d.health).toBe(3000);
+      expect(d.spawnTicks).toBe(300);
+      expect(toSimTicks(d.spawnTicks, TICK_HZ)).toBe(150); // 5 s spawner period
+      expect(d.spawnLimit).toBe(1);
+      expect(d.gunCount).toBe(4);
+      expect(d.gun.weaponId).toBe(3);
+      expect(d.gun.engageRangeRaw).toBe(6144);
+      expect(d.gun.targetingDelayRaw).toBe(16);
+      // Its own route block: the same 1024/1228 a tank carries.
+      expect(d.moveSpeed).toBe(1024);
+      expect(d.acceleration).toBe(1228);
+      // Each side's Dreadnought drives its own lane graph.
+      expect([1, 2]).toContain(d.netId);
     }
-    expect(logic.bases[0].netId).not.toBe(logic.bases[1].netId);
+    expect(logic.dreadnoughts[0].netId).not.toBe(logic.dreadnoughts[1].netId);
   });
 
   test("turrets are team-symmetric and capturables are neutral", () => {
@@ -93,10 +106,11 @@ describe("committed Mp logic artifact", () => {
     }
   });
 
-  test("each net's node 0 sits on its own base", () => {
-    // fcop-logic.md §8.1: the base is bound to its Cnet, and the graph starts
-    // there. This is the invariant that makes "base -> lane -> enemy base" work.
-    for (const base of logic.bases) {
+  test("each net's node 0 is where that side's Dreadnought spawns", () => {
+    // fcop-logic.md §8.1: the Dreadnought is bound to its Cnet and starts at
+    // node 0, next to the HQ. This is the invariant that makes "base -> lane ->
+    // enemy base" work.
+    for (const base of logic.dreadnoughts) {
       const net = logic.nets.find((n) => n.netId === base.netId);
       expect(net).toBeDefined();
       const node = net?.nodes[0];
@@ -164,35 +178,70 @@ describe("committed Mp logic artifact", () => {
 
   test("base-intrusion triggers watch named actors (fcop-logic.md §8.6)", () => {
     const watched = new Set(logic.triggers.map((t) => t.watchesActor));
-    // Both X1Alpha players are watched, and so is each TeamBase.
+    // Both X1Alpha players are watched, and so is each Dreadnought.
     for (const s of logic.spawns) expect(watched.has(s.id)).toBe(true);
-    for (const b of logic.bases) expect(watched.has(b.id)).toBe(true);
+    for (const b of logic.dreadnoughts) expect(watched.has(b.id)).toBe(true);
     for (const t of logic.triggers) expect(t.watchesActor).toBeGreaterThan(0);
+  });
+
+  test("each base has one gate box, watching the enemy Dreadnought and tanks", () => {
+    // fcop-re/ai-and-rules.md §5: the gate trigger set (no retrigger, no action
+    // button) watches the enemy's five tank templates and its Dreadnought — not
+    // jets, not the avatar. Entering it is the win. enrichArena reads the gate
+    // from the one watching the Dreadnought.
+    const gates = logic.triggers.filter(
+      (t) => !t.flags.includes("retrigger") && !t.flags.includes("action_button"),
+    );
+    expect(gates.length).toBe(12); // 6 per base, one box
+    for (const d of logic.dreadnoughts) {
+      const watching = gates.filter((t) => t.watchesActor === d.id);
+      expect(watching.length).toBe(1);
+      expect(watching[0].widthRaw).toBe(2457);
+      expect(watching[0].lengthRaw).toBe(1843);
+      // It stands in the OTHER side's base: nearer the other Dreadnought.
+      const other = logic.dreadnoughts.find((o) => o.id !== d.id);
+      const dOwn = Math.hypot(watching[0].x - d.x, watching[0].z - d.z);
+      const dOther = Math.hypot(watching[0].x - (other?.x ?? 0), watching[0].z - (other?.z ?? 0));
+      expect(dOther).toBeLessThan(dOwn);
+    }
+    for (const s of logic.spawns) {
+      expect(gates.some((t) => t.watchesActor === s.id)).toBe(false);
+    }
   });
 });
 
-describe("inferred raw-unit conversions", () => {
-  // The scale that matters most: every Mp shooter carries engage_range 6144.
-  // 1024 is derived from placement geometry (all 64 turrets sit 1.9-8.4 cells
-  // from a lane node, so the weapon's reach is short) plus the aircraft fields
-  // (target_detection_range 28672 -> 28 cells, orbit_area 24576 -> 24 cells).
-  // If this expectation ever changes, arena balance changes with it.
-  test("engage_range 6144 is 6 cells", () => {
-    expect(rangeToCells(6144)).toBe(6);
-    expect(rangeToCells(4096)).toBe(4);
-    expect(rangeToCells(5120)).toBe(5);
+describe("raw-unit conversions read from the retail code", () => {
+  // fcop-re/ranges-turrets-capture.md Q1: `cact_shooter_acquire` loads
+  // engage_range with `shl 4` and compares it against world-unit deltas, 8192 wu
+  // = 1 m, so metres = raw / 512. The scale used to be an inferred 1/1024 — half
+  // the reach. If this expectation ever changes, arena balance changes with it.
+  test("engage_range 6144 is 12 m", () => {
+    expect(rangeToCells(6144)).toBe(12);
+    // Weapon 3's own range field is the same 6144 and flies its rounds 12 m.
+    expect(rangeToCells(512)).toBe(1); // aircraft standoff
   });
 
-  test("aircraft patrol figures land on a ~96-cell playfield", () => {
-    expect(rangeToCells(28672)).toBe(28); // target_detection_range
-    expect(rangeToCells(24576)).toBe(24); // orbit_area_x, light aircraft
-    expect(rangeToCells(30720)).toBe(30); // orbit_area_x, heavy gunship
+  test("aircraft search and orbit figures", () => {
+    // target_detection_range takes the same `shl 4` (0x00420796).
+    expect(rangeToCells(28672)).toBe(56); // jets
+    expect(rangeToCells(32358)).toBeCloseTo(63.2, 1); // Fortress, captain craft
+    // orbit_area: leash half-extent raw/1024, destinations drawn in +-raw/2048.
+    expect(orbitLeashToCells(24576)).toBe(24);
+    expect(orbitLeashToCells(20480)).toBe(20);
+    expect(orbitPatrolToCells(24576)).toBe(12);
+    expect(orbitLeashToCells(30720)).toBe(30); // heavy gunship
   });
 
-  test("original 60 Hz tick counts halve into sim ticks", () => {
-    expect(toSimTicks(300, TICK_HZ)).toBe(150); // 5 s production cadence
-    expect(toSimTicks(32, TICK_HZ)).toBe(16); // turret fire cooldown
-    expect(toSimTicks(16, TICK_HZ)).toBe(8); // base defence cooldown
+  test("trigger extents are halved, then shifted by 4 against world units", () => {
+    // Half-extent raw/1024 m (the intruder radius is added by the sim's test).
+    expect(triggerHalfExtent(20480)).toBe(20); // Mp base zone: 40 x 24 m
+    expect(triggerHalfExtent(12288)).toBe(12);
+    expect(triggerHalfExtent(2457)).toBeCloseTo(2.4, 2); // gate: 4.8 x 3.6 m
+    expect(triggerHalfExtent(1843)).toBeCloseTo(1.8, 2);
+  });
+
+  test("spawner periods are 1/60 s and halve into sim ticks", () => {
+    expect(toSimTicks(300, TICK_HZ)).toBe(150); // 5 s Dreadnought/tank/jet spawner
     // Respawn delays are stored negative; magnitude is what counts.
     expect(toSimTicks(-1500, TICK_HZ)).toBe(750); // 25 s neutral turret
     expect(toSimTicks(-2250, TICK_HZ)).toBe(1125); // 37.5 s base turret
@@ -200,6 +249,13 @@ describe("inferred raw-unit conversions", () => {
     // Never zero, or a cooldown would fire every tick.
     expect(toSimTicks(0, TICK_HZ)).toBe(1);
     expect(toSimTicks(1, TICK_HZ)).toBe(1);
+  });
+
+  test("targeting_delay is 1/16 s, not the spawner unit", () => {
+    // trunc(raw * 4096 / 218) engine ticks at 300 Hz (0x0044ea83).
+    expect(targetingDelayToSimTicks(32, TICK_HZ)).toBe(60); // 601 ticks = 2.0 s
+    expect(targetingDelayToSimTicks(16, TICK_HZ)).toBe(30); // 300 ticks = 1.0 s
+    expect(targetingDelayToSimTicks(0, TICK_HZ)).toBe(1);
   });
 
   test("rotation follows the documented 4096 = 360 degrees", () => {
@@ -220,11 +276,11 @@ describe("inferred raw-unit conversions", () => {
     expect(fovToCos(1024)).toBeCloseTo(Math.SQRT1_2, 10); // 90° total -> cos(45°)
   });
 
-  test("gun slew is positive and sane", () => {
+  test("gun slew is the retail /218 rate block: 2457 -> 290 deg/s", () => {
+    // turn_rate = (raw * 16 / 218) >> 4 units (4096 = 360°) per 1/300 s.
+    expect(turnSpeedToUnitsPerEngineTick(2457)).toBe(11);
     const slew = turnSpeedToRadPerTick(2457, TICK_HZ);
-    expect(slew).toBeGreaterThan(0);
-    // ~216 deg/s: a 90-degree turn in about half a second.
-    expect(slew * TICK_HZ).toBeCloseTo(3.769, 2);
+    expect(((slew * TICK_HZ) / Math.PI) * 180).toBeCloseTo(290.04, 1);
   });
 });
 

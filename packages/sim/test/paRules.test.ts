@@ -8,20 +8,38 @@
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
+  ARCHETYPE_RADIUS,
   AVATAR_HP,
-  CORE_DAMAGE_PER_SHOT,
-  PA_PRODUCTION_ALIVE_LIMIT,
+  DREADNOUGHT_GUN_DAMAGE,
+  MATCH_OUTRO_TICKS,
   PICKUP_HEALTH,
-  PICKUP_HEALTH_AMOUNT,
+  PICKUP_INVIS,
+  PICKUP_INVIS_TICKS,
+  PICKUP_INVULN_TICKS,
+  PICKUP_POWER,
+  PICKUP_POWER_HEAVY,
+  PICKUP_POWER_SPECIAL,
+  RESPAWN_TICKS,
   TRIGGER_REARM_TICKS,
+  TURRET_ALERT_COOLDOWN_TICKS,
   TURRET_COOLDOWN_TICKS,
   TURRET_DAMAGE,
   TURRET_RANGE,
 } from "../src/balance";
-import { EV_ALARM, EV_PICKUP, EV_PRODUCE, EVENT_STRIDE } from "../src/events";
-import { createTickInputs } from "../src/inputs";
+import {
+  EV_ALARM,
+  EV_BREACH,
+  EV_HIT,
+  EV_PICKUP,
+  EV_SHOT,
+  EV_TURRET_LOST,
+  EV_TURRET_UNDER_FIRE,
+  EVENT_STRIDE,
+} from "../src/events";
+import { BUTTON_FIRE1, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID } from "../src/map";
-import { createSim, type SimState, step } from "../src/sim";
+import { createSim, MODE_HOVER, MODE_WALKER, type SimState, spawnUnit, step } from "../src/sim";
+import { nearestEnemyInRange } from "../src/units";
 
 const idle = createTickInputs();
 
@@ -49,14 +67,21 @@ function countAliveOf(state: SimState, archetype: number, team: number): number 
 const map = getMapById(LA_CANTINA_ID);
 
 describe("la-cantina loads the original parameters into the sim", () => {
-  it("spawns every capturable pad, ring turret and built-in base weapon", () => {
+  it("spawns every capturable pad and ring turret, and no guns on the base", () => {
     const state = createSim(map, 1);
     expect(state.neutralTurretEntity.length).toBe(32);
     // Team-unique ring only (8/base); dual mid plates are capturable, not ring.
     expect(state.baseTurretEntity.length).toBe(16);
-    expect(state.baseDefenceEntity.length).toBe(8); // 4 per base
-    for (const id of state.baseDefenceEntity) expect(id).toBeGreaterThanOrEqual(0);
     for (const id of state.neutralTurretEntity) expect(id).toBeGreaterThanOrEqual(0);
+    // The four "built-in base guns" this used to spawn on each core were the
+    // Dreadnought's hull guns (fcop-fidelity.md I6): every turret alive at the
+    // start is a ring turret or a capturable pad.
+    const ent = state.ent;
+    let turrets = 0;
+    for (let id = 0; id < ent.high; id++) {
+      if (ent.alive[id] && ent.archetype[id] === ARCHETYPE.TURRET) turrets += 1;
+    }
+    expect(turrets).toBe(16 + 32);
   });
 
   it("gives capturable turrets the original weapon profile and rest yaw", () => {
@@ -71,153 +96,198 @@ describe("la-cantina loads the original parameters into the sim", () => {
     // The original's reach is much shorter than the pre-PA global — that is the
     // point of importing it, so assert the direction of the change.
     const profile = map.weapons[map.turretParams[0]];
-    expect(profile.range).toBe(6);
+    expect(profile.range).toBe(12); // engage_range 6144 / 512 (fcop-re Q1)
     expect(profile.range).toBeLessThan(TURRET_RANGE);
-    expect(profile.damage).toBe(TURRET_DAMAGE);
+    // Weapon 3 of the mission's catalogue (fcop-fidelity.md W3; Q3): 100 damage,
+    // 601 engine units between rounds, a 7.62 m/s lead-aimed round flying 12 m,
+    // fired only within 22.5° of the barrel; re-search every 2.0 s.
+    expect(TURRET_DAMAGE).toBe(15); // district-01's, Metropolis' own
+    expect(profile.damage).toBe(100);
+    expect(profile.refireUnits).toBe(601);
+    expect(profile.searchUnits).toBe(601);
+    expect(profile.speed).toBeCloseTo(7.617, 3);
+    expect(profile.flight).toBe(12);
+    expect(profile.lead).toBe(1);
+    expect(profile.guided).toBe(0);
+    expect(profile.arcCos).toBeCloseTo(Math.cos((22.5 * Math.PI) / 180), 12);
+    // A neutral turret neither holds a target nor prefers one; the team ring does both.
+    expect(profile.hold).toBe(0);
+    expect(profile.priority).toBe(0);
+    const ring = map.weapons[map.bases[0].turrets[0].weapon];
+    expect(ring.hold).toBe(1);
+    expect(ring.priority).toBe(1);
+    expect(ring.damage).toBe(100);
   });
 
-  it("seeds both cores and both production timers", () => {
-    const state = createSim(map, 1);
-    expect(Array.from(state.coreHp)).toEqual([3000, 3000]);
-    // Seeded to a full interval: the first free unit is due at t = cadence, not 0.
-    expect(Array.from(state.productionTimer)).toEqual([150, 150]);
-  });
-});
-
-describe("base production", () => {
-  it("produces the first unit exactly one cadence in, then holds the limit", () => {
-    const state = createSim(map, 1);
-    expect(countAliveOf(state, ARCHETYPE.RUNNER, 0)).toBe(0);
-
-    run(state, 149);
-    expect(countEvents(state, EV_PRODUCE)).toBe(0);
-    expect(countAliveOf(state, ARCHETYPE.RUNNER, 0)).toBe(0);
-
-    step(state, idle); // tick 150
-    expect(countEvents(state, EV_PRODUCE)).toBe(2); // one per base
-    expect(countAliveOf(state, ARCHETYPE.RUNNER, 0)).toBe(1);
-    expect(countAliveOf(state, ARCHETYPE.RUNNER, 1)).toBe(1);
-
-    // Long enough for far more cycles than the cap allows.
-    run(state, 150 * (PA_PRODUCTION_ALIVE_LIMIT + 6));
+  it("carries each side's Dreadnought as its Juggernaut", () => {
+    // fcop-re/ranges-turrets-capture.md top + Q4: the type-28 record is the
+    // Dreadnought — 3000 HP, four hull guns of weapon 3 (100 dmg / 2.0 s / 12 m),
+    // spawning at node 0 of its Cnet by the HQ.
     for (const team of [0, 1]) {
-      expect(countAliveOf(state, ARCHETYPE.RUNNER, team)).toBeLessThanOrEqual(
-        PA_PRODUCTION_ALIVE_LIMIT,
-      );
-    }
-  });
-
-  it("puts produced units on the original lane graph, not a polyline", () => {
-    const state = createSim(map, 1);
-    run(state, 151);
-    const ent = state.ent;
-    const graph = map.laneGraph;
-    if (!graph) throw new Error("la-cantina must carry a lane graph");
-    let checked = 0;
-    for (let id = 0; id < ent.high; id++) {
-      if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.RUNNER) continue;
-      // GRAPH_MODE, or below it: values under the sentinel carry the jam-relief
-      // stall clock (units.ts) and still mean "on the graph".
-      expect(ent.timerB[id]).toBeLessThanOrEqual(-2);
-      expect(ent.timerA[id]).toBe(graph.entry[ent.team[id]]);
-      checked += 1;
-    }
-    expect(checked).toBe(2);
-  });
-
-  it("walks a produced unit along the graph toward the enemy base", () => {
-    const state = createSim(map, 1);
-    const graph = map.laneGraph;
-    if (!graph) throw new Error("la-cantina must carry a lane graph");
-    run(state, 151);
-    const ent = state.ent;
-    let unit = -1;
-    for (let id = 0; id < ent.high; id++) {
-      if (ent.alive[id] && ent.archetype[id] === ARCHETYPE.RUNNER && ent.team[id] === 0) unit = id;
-    }
-    expect(unit).toBeGreaterThanOrEqual(0);
-    const startNode = ent.timerA[unit];
-    const enemy = map.basePlots[1];
-    const startDist = Math.hypot(ent.posX[unit] - enemy.x, ent.posY[unit] - enemy.y);
-    run(state, 900); // 30 s of driving
-    // Either it advanced past its entry node, or it is dead/held — but if it is
-    // still alive it must have made progress toward the enemy base.
-    if (ent.alive[unit] && ent.archetype[unit] === ARCHETYPE.RUNNER) {
-      const dist = Math.hypot(ent.posX[unit] - enemy.x, ent.posY[unit] - enemy.y);
-      expect(dist).toBeLessThan(startDist);
-      expect(ent.timerA[unit] === startNode && dist === startDist).toBe(false);
+      const j = map.bases[team].juggernaut;
+      if (!j) throw new Error("la-cantina must carry its Dreadnought");
+      expect(j.hp).toBe(3000);
+      expect(j.guns).toBe(4);
+      const w = map.weapons[j.weapon];
+      expect(w.range).toBe(12);
+      expect(w.damage).toBe(DREADNOUGHT_GUN_DAMAGE);
+      expect(w.refireUnits).toBe(601);
+      // Re-search 16 -> 1.0 s, the guns' own targeting delay.
+      expect(w.searchUnits).toBe(300);
+      // Next to its road's start (enrichArena validates the beeline).
+      const graph = map.laneGraph;
+      if (!graph) throw new Error("la-cantina must carry a lane graph");
+      const entry = graph.nodes[graph.entry[team]];
+      expect(Math.hypot(entry.x - j.x, entry.y - j.y)).toBeLessThan(8);
     }
   });
 });
 
-describe("base destruction is the win condition", () => {
-  it("ends the match for the other team when a core reaches zero", () => {
+describe("no free production (fcop-fidelity.md I7)", () => {
+  it("puts nothing on the field that nobody bought", () => {
+    // The original's tank, jet and Dreadnought spawners are shut in PA; only a
+    // purchase spawns a unit. The "1 Runner per 5 s" this pinned was the
+    // Dreadnought spawner's period.
     const state = createSim(map, 1);
-    expect(state.winner).toBe(-1);
-    state.coreHp[1] = 0;
+    run(state, 150 * 4);
+    for (const team of [0, 1]) {
+      for (const a of [ARCHETYPE.RUNNER, ARCHETYPE.GUARDIAN, ARCHETYPE.JUGGERNAUT]) {
+        expect(countAliveOf(state, a, team)).toBe(0);
+      }
+    }
+  });
+});
+
+describe("the Juggernaut is the original Dreadnought", () => {
+  it("spawns at the Dreadnought record with its HP, not at the console", () => {
+    const state = createSim(map, 1);
+    const j = map.bases[0].juggernaut;
+    if (!j) throw new Error("la-cantina must carry its Dreadnought");
+    // A console purchase routes the spawn to the record (sim.ts systemBuy); the
+    // unit itself takes the imported stats in spawnUnit.
+    const id = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 0, j.x, j.y);
+    expect(state.ent.hp[id]).toBe(3000);
+    expect(state.ent.weaponProfile[id]).toBe(j.weapon);
+  });
+
+  it("fires a volley of four 100-damage shots, then waits the refire", () => {
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    const j = map.bases[0].juggernaut;
+    if (!j) throw new Error("la-cantina must carry its Dreadnought");
+    const id = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 0, j.x, j.y);
+    // Put the enemy avatar 5 m off, in the open by the Dreadnought's spawn.
+    const foe = state.avatarId[1];
+    ent.posX[foe] = ent.posX[id] + 0.5;
+    ent.posY[foe] = ent.posY[id] + 0.5;
+    ent.hp[foe] = 100000;
+    let shots = 0;
+    let damage = 0;
+    // 601 engine units at 10 a tick, the reload clamping the leftover: 61 ticks.
+    for (let t = 0; t < 61; t++) {
+      ent.posX[foe] = ent.posX[id] + 0.5;
+      ent.posY[foe] = ent.posY[id] + 0.5;
+      step(state, idle);
+      for (let i = 0; i < state.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        const type = state.events.data[o];
+        if (type === EV_SHOT && state.events.data[o + 1] === id) shots += 1;
+        if (type === EV_HIT && state.events.data[o + 1] === foe) damage += state.events.data[o + 3];
+      }
+    }
+    // One volley inside one refire window: four guns, 100 each.
+    expect(shots).toBe(4);
+    expect(damage).toBeGreaterThanOrEqual(4 * DREADNOUGHT_GUN_DAMAGE);
+  });
+});
+
+describe("the gate is the win condition (fcop-fidelity.md R1)", () => {
+  /** Puts a fresh unit of `archetype` for `team` at (x, y) and steps once. */
+  function placeAndStep(archetype: number, team: number, x: number, y: number): SimState {
+    const state = createSim(map, 1);
+    const id = spawnUnit(state, archetype, team, x, y);
+    state.ent.posX[id] = x;
+    state.ent.posY[id] = y;
     step(state, idle);
+    return state;
+  }
+
+  it("is the imported gate trigger box, not the Dreadnought spot", () => {
+    for (const team of [0, 1]) {
+      const g = map.bases[team].gate;
+      // Mp's gate trigger: 2457 x 1843 raw -> half-extents raw/1024 m.
+      expect(g.halfW).toBeCloseTo(2.4, 2);
+      expect(g.halfL).toBeCloseTo(1.8, 2);
+      const core = map.bases[team].core;
+      expect(Math.hypot(g.x - core.x, g.y - core.y)).toBeGreaterThan(5);
+    }
+  });
+
+  it("an enemy Runner or Juggernaut inside decides it; the match ends one outro later", () => {
+    for (const a of [ARCHETYPE.RUNNER, ARCHETYPE.JUGGERNAUT]) {
+      const g = map.bases[1].gate;
+      const state = placeAndStep(a, 0, g.x, g.y);
+      expect(countEvents(state, EV_BREACH)).toBe(1);
+      expect(state.winner).toBe(-1);
+      expect(state.outroWinner).toBe(0);
+      run(state, MATCH_OUTRO_TICKS);
+      expect(state.winner).toBe(0);
+    }
+  });
+
+  it("grows the box by the intruder's radius, and no further", () => {
+    const g = map.bases[1].gate;
+    const r = ARCHETYPE_RADIUS[ARCHETYPE.RUNNER];
+    const inside = placeAndStep(ARCHETYPE.RUNNER, 0, g.x + g.halfW + r - 0.01, g.y);
+    expect(inside.outroWinner).toBe(0);
+    const outside = placeAndStep(ARCHETYPE.RUNNER, 0, g.x + g.halfW + r + 0.05, g.y);
+    expect(outside.outroWinner).toBe(-1);
+  });
+
+  it("a jet or an avatar in the gate decides nothing", () => {
+    const g = map.bases[1].gate;
+    const jet = placeAndStep(ARCHETYPE.GUARDIAN, 0, g.x, g.y);
+    expect(jet.outroWinner).toBe(-1);
+    const state = createSim(map, 1);
+    const avatar = state.avatarId[0];
+    state.ent.posX[avatar] = g.x;
+    state.ent.posY[avatar] = g.y;
+    run(state, 5);
+    expect(state.outroWinner).toBe(-1);
+    expect(state.winner).toBe(-1);
+  });
+
+  it("the first breach decides; a later one during the outro changes nothing", () => {
+    const g1 = map.bases[1].gate;
+    const g0 = map.bases[0].gate;
+    const state = placeAndStep(ARCHETYPE.RUNNER, 0, g1.x, g1.y);
+    expect(state.outroWinner).toBe(0);
+    const late = spawnUnit(state, ARCHETYPE.RUNNER, 1, g0.x, g0.y);
+    state.ent.posX[late] = g0.x;
+    state.ent.posY[late] = g0.y;
+    run(state, MATCH_OUTRO_TICKS);
     expect(state.winner).toBe(0);
   });
 
-  it("lets only ground units damage the core", () => {
-    const state = createSim(map, 1);
-    const core = map.bases[1].core;
-    const ent = state.ent;
-
-    // Park team 0's avatar on the enemy core: pillar 1 says it may not hurt it.
-    const avatar = state.avatarId[0];
-    ent.posX[avatar] = core.x;
-    ent.posY[avatar] = core.y;
-    const before = state.coreHp[1];
-    run(state, 30);
-    expect(state.coreHp[1]).toBe(before);
-
-    // A ground unit in the same place does.
-    run(state, 151); // let production give us one
-    let unit = -1;
-    for (let id = 0; id < ent.high; id++) {
-      if (ent.alive[id] && ent.archetype[id] === ARCHETYPE.RUNNER && ent.team[id] === 0) unit = id;
-    }
-    expect(unit).toBeGreaterThanOrEqual(0);
-    // The base's own guns sit on the core, and a unit spends its cooldown on
-    // whichever it engages first — so clear the defenders to isolate the core
-    // rule itself rather than asserting on that interaction.
-    for (let id = 0; id < ent.high; id++) {
-      if (ent.alive[id] && ent.team[id] === 1 && id !== unit) ent.alive[id] = 0;
-    }
-    ent.posX[unit] = core.x;
-    ent.posY[unit] = core.y;
-    ent.cooldownA[unit] = 0;
-    const hpBefore = state.coreHp[1];
-    step(state, idle);
-    expect(state.coreHp[1]).toBe(hpBefore - CORE_DAMAGE_PER_SHOT);
-  });
-
-  it("keeps the gate breach as the only win on arenas without a core", () => {
-    // district-01, now that all four FCOP single-storey arenas carry PA data.
+  it("keeps the gate breach as the only win on the §1 arenas too", () => {
+    // district-01: a circle gate, the same win test, the same outro.
     const legacy = getMapById(DISTRICT_01_ID);
     const state = createSim(legacy, 1);
-    expect(state.coreHp.length).toBe(0);
     const gate = legacy.bases[1].gate;
-    const uid = state.ent;
-    // Put a ground unit in the enemy gate the way the pre-PA rule expects.
-    run(state, 1);
-    const ent = uid;
-    let unit = -1;
-    for (let id = 0; id < ent.high; id++) {
-      if (ent.alive[id] && ent.archetype[id] === ARCHETYPE.RUNNER) unit = id;
-    }
-    if (unit >= 0) {
-      ent.posX[unit] = gate.x;
-      ent.posY[unit] = gate.y;
-      step(state, idle);
-      expect(state.winner).toBe(ent.team[unit] ?? -1);
-    }
+    expect(gate.halfW).toBe(0);
+    const unit = spawnUnit(state, ARCHETYPE.RUNNER, 0, gate.x, gate.y);
+    state.ent.posX[unit] = gate.x;
+    state.ent.posY[unit] = gate.y;
+    state.ent.hp[unit] = 1000; // the ring's 28 m guns would kill it before the check
+    step(state, idle);
+    expect(state.outroWinner).toBe(0);
+    run(state, MATCH_OUTRO_TICKS);
+    expect(state.winner).toBe(0);
   });
 });
 
-describe("power-ups", () => {
-  it("heals an avatar standing on a health pickup and re-arms the spot", () => {
+describe("power-ups (fcop-fidelity.md P6, P7, P9)", () => {
+  it("a health pickup refills to the maximum, and the spot re-arms", () => {
     const state = createSim(map, 1);
     const ent = state.ent;
     const k = map.pickups.findIndex((p) => p.kind === PICKUP_HEALTH);
@@ -229,18 +299,237 @@ describe("power-ups", () => {
     ent.posX[avatar] = spot.x;
     ent.posY[avatar] = spot.y;
     step(state, idle);
-    // Healing is capped at AVATAR_HP and applied after damage in the same tick,
-    // so assert the gain, not an absolute figure — turrets may have hit first.
-    expect(ent.hp[avatar]).toBeGreaterThan(50);
-    expect(ent.hp[avatar]).toBeLessThanOrEqual(Math.min(AVATAR_HP, 50 + PICKUP_HEALTH_AMOUNT));
+    // The original's grant passes amount -1, "fill" (player-and-weapons.md §6):
+    // full health, not +100. Pickups run after damage in the tick, so whatever
+    // hit it first, it ends the tick full.
+    expect(ent.hp[avatar]).toBe(AVATAR_HP);
     expect(countEvents(state, EV_PICKUP)).toBeGreaterThan(0);
     expect(state.pickupCooldown[k]).toBe(spot.respawnTicks);
 
     // Still standing there, but the spot is spent until it re-arms.
-    const held = ent.hp[avatar];
+    ent.hp[avatar] = 50;
     step(state, idle);
     expect(countEvents(state, EV_PICKUP)).toBe(0);
-    expect(ent.hp[avatar]).toBeLessThanOrEqual(held);
+    expect(ent.hp[avatar]).toBeLessThanOrEqual(50);
+  });
+
+  it("re-arms 50 s after ammo and health, 100 s after power and cloak, on every arena", () => {
+    // The Csac spawners' tSAC words -3000 / -6000 x 5 engine units at 300 Hz
+    // (player-and-weapons.md §6), carried by the imported data as is.
+    for (const id of [
+      "la-cantina",
+      "urban-jungle",
+      "proving-ground",
+      "bug-hunt",
+      "hollywood-keys",
+      "venice-beach",
+    ]) {
+      const m = getMapById(id);
+      expect(m.pickups.length).toBeGreaterThan(0);
+      for (const p of m.pickups) {
+        const slow =
+          p.kind === PICKUP_POWER ||
+          p.kind === PICKUP_POWER_HEAVY ||
+          p.kind === PICKUP_POWER_SPECIAL ||
+          p.kind === PICKUP_INVIS;
+        expect(p.respawnTicks).toBe(slow ? 3000 : 1500);
+      }
+    }
+  });
+
+  it("a cloak lasts 45 s, and turrets, units and the Warden skip the cloaked avatar", () => {
+    const state = createSim(map, 1, { wardenPlayer: 1, wardenDifficulty: 10 });
+    const ent = state.ent;
+    const k = map.pickups.findIndex((p) => p.kind === PICKUP_INVIS);
+    expect(k).toBeGreaterThanOrEqual(0);
+    const avatar = state.avatarId[0];
+    ent.posX[avatar] = map.pickups[k].x;
+    ent.posY[avatar] = map.pickups[k].y;
+    step(state, idle);
+    expect(state.buffInvis[0]).toBe(PICKUP_INVIS_TICKS);
+    expect(PICKUP_INVIS_TICKS).toBe(1350); // 0x34bc = 13500 units at 300 Hz
+
+    // An enemy Runner right next to it acquires nothing.
+    const runner = spawnUnit(state, ARCHETYPE.RUNNER, 1, ent.posX[avatar] + 2, ent.posY[avatar]);
+    expect(nearestEnemyInRange(state, runner, 6)).toBe(-1);
+    // The Warden (the Sky Captain) never makes it its weapons' target while the
+    // cloak runs: its scan skips the cloaked mech (the view-block gate, P7) and its
+    // shooters' own search skips it like a turret's. It may still fly at it — its
+    // defend mode chases player slot 0 itself, cloak or not.
+    const warden = state.avatarId[1];
+    let aimed = 0;
+    for (let t = 0; t < 600; t++) {
+      ent.posX[warden] = ent.posX[avatar] + 3;
+      ent.posY[warden] = ent.posY[avatar];
+      step(state, idle);
+      if (state.captain.aim === avatar) aimed++;
+    }
+    expect(aimed).toBe(0);
+    // ...which is the cloak's doing: uncloaked, the same captain takes it within
+    // its shooters' 1.0 s search.
+    state.buffInvis[0] = 0;
+    let taken = -1;
+    for (let t = 0; t < 60 && taken < 0; t++) {
+      ent.posX[warden] = ent.posX[avatar] + 3;
+      ent.posY[warden] = ent.posY[avatar];
+      step(state, idle);
+      if (state.captain.aim === avatar) taken = t;
+    }
+    expect(taken).toBeGreaterThanOrEqual(0);
+    // And uncloaked, a Runner sees it again.
+    const r2 = spawnUnit(state, ARCHETYPE.RUNNER, 1, ent.posX[avatar] + 2, ent.posY[avatar]);
+    expect(nearestEnemyInRange(state, r2, 6)).toBe(state.avatarId[0]);
+  });
+
+  it("an invulnerability grant lasts 20 s", () => {
+    // 0x1770 = 6000 units (player-and-weapons.md §6). No PA pickup carries it
+    // (fcop-fidelity.md I8), so this pins the constant the kind would use.
+    expect(PICKUP_INVULN_TICKS).toBe(600);
+  });
+});
+
+describe("going down and coming back (fcop-fidelity.md P2)", () => {
+  it("respawns 4 s later at its spawn: full health, full ammo, power-up lost, cloak kept", () => {
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    const avatar = state.avatarId[0];
+    state.powerAmmo[1] = 10; // a powered Heavy
+    state.buffInvis[0] = 1000;
+    ent.ammoA[avatar] = 0;
+    ent.ammoB[avatar] = 0;
+    ent.hp[avatar] = -1;
+    step(state, idle);
+    expect(state.avatarId[0]).toBe(-1);
+    // `player_op4`: 0x4b0 = 1200 units = 4.0 s; Metropolis had 8 s.
+    expect(RESPAWN_TICKS).toBe(120);
+    expect(state.respawnTimer[0]).toBe(RESPAWN_TICKS - 1);
+    // Power-ups are lost (`player_respawn` clears block B); the cloak keeps
+    // counting down while the mech is down.
+    expect(state.powerAmmo[1]).toBe(0);
+    expect(state.buffInvis[0]).toBe(999);
+    run(state, RESPAWN_TICKS - 1);
+    const back = state.avatarId[0];
+    expect(back).toBeGreaterThanOrEqual(0);
+    expect(ent.hp[back]).toBe(AVATAR_HP);
+    expect(ent.ammoA[back]).toBeGreaterThan(0);
+    expect(ent.ammoB[back]).toBeGreaterThan(0);
+    expect(ent.posX[back]).toBe(Math.fround(map.spawns[0].x));
+    expect(ent.posY[back]).toBe(Math.fround(map.spawns[0].y));
+    expect(ent.yaw[back]).toBe(Math.fround(map.spawns[0].yaw));
+    expect(ent.mode[back]).toBe(MODE_WALKER);
+    expect(state.buffInvis[0]).toBe(1000 - RESPAWN_TICKS);
+  });
+
+  it("comes back in its spawn form: hover on hollywood-keys", () => {
+    // Both of Hk's X1Alpha records carry a negative facing = hover
+    // (player-and-weapons.md §1); every other PA arena spawns walkers.
+    const hk = getMapById("hollywood-keys");
+    expect(hk.spawns.every((s) => s.hover)).toBe(true);
+    for (const id of ["la-cantina", "urban-jungle", "proving-ground", "bug-hunt", "venice-beach"]) {
+      expect(getMapById(id).spawns.some((s) => s.hover)).toBe(false);
+    }
+    const state = createSim(hk, 1);
+    const avatar = state.avatarId[0];
+    expect(state.ent.mode[avatar]).toBe(MODE_HOVER);
+    state.ent.hp[avatar] = -1;
+    run(state, RESPAWN_TICKS);
+    expect(state.ent.mode[state.avatarId[0]]).toBe(MODE_HOVER);
+  });
+});
+
+describe("capture on the imported arenas (fcop-fidelity.md R12)", () => {
+  it("carries each mission's capture range: (raw + 1024) / 512 m", () => {
+    // fcop-re/ranges-turrets-capture.md Q2: Mp/Conft/Ovmp 1024 -> 4.0 m,
+    // Slim/Joke 1638 -> 5.2 m, Hk 1843 -> 5.6 m (before the capturer's radius).
+    expect(getMapById("la-cantina").captureRange).toBe(4);
+    expect(getMapById("urban-jungle").captureRange).toBe(4);
+    expect(getMapById("venice-beach").captureRange).toBe(4);
+    expect(getMapById("proving-ground").captureRange).toBeCloseTo(5.2, 2);
+    expect(getMapById("bug-hunt").captureRange).toBeCloseTo(5.2, 2);
+    expect(getMapById("hollywood-keys").captureRange).toBeCloseTo(5.6, 2);
+    expect(getMapById(DISTRICT_01_ID).captureRange).toBe(0); // none: ours
+  });
+
+  it("takes a la-cantina pad on a press within 4.0 m + the avatar's radius", () => {
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    // Pad 1 (107.9, 114.9): the ground 4 m west of it is level with its base, so
+    // the 3D distance is the flat one.
+    const tid = state.neutralTurretEntity[1];
+    const a = state.avatarId[0];
+    const press = createTickInputs();
+    const reach = 4 + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
+    const pressAt = (dx: number): void => {
+      ent.posX[a] = ent.posX[tid] - dx;
+      ent.posY[a] = ent.posY[tid];
+      ent.height[a] = ent.height[tid];
+      press.players[0].buttons = 0;
+      step(state, press);
+      ent.posX[a] = ent.posX[tid] - dx;
+      ent.posY[a] = ent.posY[tid];
+      ent.height[a] = ent.height[tid];
+      press.players[0].buttons = BUTTON_INTERACT;
+      step(state, press);
+    };
+    pressAt(reach + 0.05);
+    expect(ent.ownerId[tid]).toBe(-1);
+    pressAt(reach - 0.05);
+    expect(ent.ownerId[tid]).toBe(0);
+  });
+});
+
+describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
+  it("a claim is permanent: the console takes no damage and nothing targets it", () => {
+    // venice-beach, because la-cantina's consoles stand inside parapets no shot
+    // reaches; a test that cannot hit the console proves nothing.
+    const vb = getMapById("venice-beach");
+    const state = createSim(vb, 1);
+    const ent = state.ent;
+    const spot = vb.outpostSpots[0];
+    const a = state.avatarId[0];
+    state.points[0] = 40;
+    ent.posX[a] = spot.x;
+    ent.posY[a] = spot.y;
+    step(state, idle);
+    expect(state.outpostOwner[0]).toBe(0);
+    const cid = state.outpostConsole[0];
+    const hp = ent.hp[cid];
+    // The claimer steps off, or it would be the target and take the shots.
+    ent.posX[a] = spot.x;
+    ent.posY[a] = spot.y + 20;
+    // An enemy Runner next to it does not take it for a target...
+    const runner = spawnUnit(state, ARCHETYPE.RUNNER, 1, spot.x + 3, spot.y);
+    expect(nearestEnemyInRange(state, runner, 14)).not.toBe(cid);
+    // ...and the enemy avatar shooting it point-blank does not hurt it.
+    const foe = state.avatarId[1];
+    const fire = createTickInputs();
+    fire.players[1].aimX = 127;
+    fire.players[1].buttons = BUTTON_FIRE1;
+    for (let k = 0; k < 60; k++) {
+      ent.posX[foe] = spot.x - 5; // an open line of fire (no wall in between)
+      ent.posY[foe] = spot.y;
+      step(state, fire);
+      for (let i = 0; i < state.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (state.events.data[o] === EV_HIT) expect(state.events.data[o + 1]).not.toBe(cid);
+      }
+    }
+    expect(ent.alive[cid]).toBe(1);
+    expect(ent.hp[cid]).toBe(hp);
+    expect(state.outpostOwner[0]).toBe(0);
+  });
+
+  it("the Warden claims by a decision, never by flying over an outpost", () => {
+    const state = createSim(map, 1, { wardenPlayer: 1, wardenDifficulty: 8 });
+    const w = state.avatarId[1];
+    const spot = map.outpostSpots[1];
+    state.points[1] = 40;
+    for (let t = 0; t < 10; t++) {
+      state.ent.posX[w] = spot.x;
+      state.ent.posY[w] = spot.y;
+      step(state, idle);
+    }
+    expect(state.outpostOwner[1]).toBe(-1);
   });
 });
 
@@ -264,11 +553,107 @@ describe("base intrusion alerts", () => {
     expect(countEvents(state, EV_ALARM)).toBe(0);
     expect(state.triggerArm[0]).toBe(TRIGGER_REARM_TICKS - 1);
   });
+
+  it("holds the whole base quiet for the original's 8.3 s (fcop-fidelity.md R15)", () => {
+    expect(TRIGGER_REARM_TICKS).toBe(250); // 2500 engine ticks at 300 Hz
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    const vol = map.triggerVolumes[0];
+    const foe = state.avatarId[vol.team ^ 1];
+    ent.posX[foe] = vol.x;
+    ent.posY[foe] = vol.y;
+    step(state, idle);
+    // Every volume guarding that base re-armed together: one alert per base.
+    let alerts = 0;
+    for (let i = 0; i < state.events.count; i++) {
+      if (state.events.data[i * EVENT_STRIDE] === EV_ALARM) alerts += 1;
+    }
+    expect(alerts).toBe(1);
+    for (let u = 0; u < map.triggerVolumes.length; u++) {
+      if (map.triggerVolumes[u].team === vol.team) {
+        expect(state.triggerArm[u]).toBe(TRIGGER_REARM_TICKS);
+      }
+    }
+    let again = -1;
+    for (let t = 1; t <= TRIGGER_REARM_TICKS + 5 && again < 0; t++) {
+      ent.posX[foe] = vol.x;
+      ent.posY[foe] = vol.y;
+      step(state, idle);
+      if (countEvents(state, EV_ALARM) > 0) again = t;
+    }
+    expect(again).toBe(TRIGGER_REARM_TICKS);
+  });
+
+  it("is tripped by an enemy tank or Dreadnought, not by a jet", () => {
+    const state = createSim(map, 1);
+    const vol = map.triggerVolumes[0];
+    const jet = spawnUnit(state, ARCHETYPE.GUARDIAN, vol.team ^ 1, vol.x, vol.y);
+    state.ent.posX[jet] = vol.x;
+    state.ent.posY[jet] = vol.y;
+    step(state, idle);
+    expect(countEvents(state, EV_ALARM)).toBe(0);
+    spawnUnit(state, ARCHETYPE.RUNNER, vol.team ^ 1, vol.x, vol.y);
+    step(state, idle);
+    expect(countEvents(state, EV_ALARM)).toBe(1);
+  });
+});
+
+describe("base turret alerts (fcop-fidelity.md R15)", () => {
+  it("says a base turret is under fire at most once per side per 10 s", () => {
+    // On district-01 (no walls), so the shots land: the alert is not PA-only.
+    expect(TURRET_ALERT_COOLDOWN_TICKS).toBe(300);
+    const d1 = getMapById(DISTRICT_01_ID);
+    const state = createSim(d1, 1);
+    const ent = state.ent;
+    const tid = state.baseTurretEntity[0];
+    const team = ent.team[tid];
+    const foe = state.avatarId[team ^ 1];
+    const fire = createTickInputs();
+    fire.players[team ^ 1].aimX = -127; // west, at the turret
+    fire.players[team ^ 1].buttons = BUTTON_FIRE1;
+    const fired: number[] = [];
+    for (let t = 0; t < TURRET_ALERT_COOLDOWN_TICKS + 30; t++) {
+      ent.posX[foe] = ent.posX[tid] + 8;
+      ent.posY[foe] = ent.posY[tid];
+      ent.hp[foe] = AVATAR_HP; // both stay alive: only the alert is under test
+      ent.hp[tid] = 100;
+      step(state, fire);
+      for (let i = 0; i < state.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (state.events.data[o] === EV_TURRET_UNDER_FIRE) {
+          expect(state.events.data[o + 1]).toBe(tid);
+          expect(state.events.data[o + 2]).toBe(team);
+          fired.push(t);
+        }
+      }
+    }
+    expect(fired.length).toBe(2);
+    expect(fired[1] - fired[0]).toBe(TURRET_ALERT_COOLDOWN_TICKS);
+  });
+
+  it("says a base turret was lost, with its side", () => {
+    const state = createSim(map, 1);
+    const tid = state.baseTurretEntity[0];
+    const team = state.ent.team[tid];
+    state.ent.hp[tid] = 0;
+    step(state, idle);
+    let lost = 0;
+    for (let i = 0; i < state.events.count; i++) {
+      const o = i * EVENT_STRIDE;
+      if (state.events.data[o] === EV_TURRET_LOST) {
+        lost += 1;
+        expect(state.events.data[o + 1]).toBe(tid);
+        expect(state.events.data[o + 2]).toBe(team);
+        expect(state.events.data[o + 3]).toBe(0);
+      }
+    }
+    expect(lost).toBe(1);
+  });
 });
 
 describe("the no-op invariant", () => {
   it("leaves an arena without PA data on exactly the pre-PA numbers", () => {
-    // district-01 carries no weapons, pickups, triggers, cores or production, so
+    // district-01 carries no weapons, pickups, triggers or Dreadnought, so
     // every PA array must be empty and every PA-gated branch unreachable. It
     // replaced proving-ground here when that arena was rebuilt from the original
     // Slim logic and gained the full §9 data set. district-01 is the better
@@ -278,13 +663,11 @@ describe("the no-op invariant", () => {
     // test-128 has none and would silently no-op it.
     const legacy = getMapById(DISTRICT_01_ID);
     const state = createSim(legacy, 0xc0ffee);
-    expect(state.baseDefenceEntity.length).toBe(0);
-    expect(state.coreHp.length).toBe(0);
-    expect(state.productionTimer.length).toBe(0);
+    expect(legacy.bases[0].juggernaut).toBeUndefined();
+    expect(legacy.bases[1].juggernaut).toBeUndefined();
     expect(state.pickupCooldown.length).toBe(0);
     expect(state.buffInvuln.length).toBe(0);
     expect(state.buffInvis.length).toBe(0);
-    expect(state.buffPower.length).toBe(0);
     expect(state.triggerArm.length).toBe(0);
     expect(legacy.weapons.length).toBe(0);
     expect(legacy.laneGraph).toBeUndefined();

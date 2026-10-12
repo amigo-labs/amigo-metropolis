@@ -32,9 +32,10 @@ import { resolveWalker } from "./units";
 
 export interface ReachOptions {
   /**
-   * Skip water cells (walkers never enter water). The generator's flood did not
-   * check water and the connectivity test did, so it stays a caller's choice
-   * rather than a silent behaviour change on one of them.
+   * Skip water cells: a walk-only path (a walker that enters water becomes a
+   * hover, SIM_VERSION 39). The generator's flood did not check water and the
+   * connectivity test did, so it stays a caller's choice rather than a silent
+   * behaviour change on one of them.
    */
   blockWater?: boolean;
   /** Layer to start on. Defaults to whatever `resolveWalker` says at the seed. */

@@ -31,6 +31,12 @@ export interface MapSpawn {
   readonly y: number;
   readonly yaw: number;
   readonly layer: number;
+  /**
+   * Spawn (and respawn) in hover form. The original encodes it as a negative
+   * X1Alpha facing (`player_respawn`, fcop-re/player-and-weapons.md §1): both
+   * hollywood-keys (Hk) spawns, nothing else in PA. False when the JSON omits it.
+   */
+  readonly hover: boolean;
 }
 
 export interface MapPlot {
@@ -63,16 +69,93 @@ export interface MapWeapon {
    * which is what every original Mp shooter carries (fov 4096 = 360°).
    */
   readonly fovCos: number;
+  // --- The original's weapon catalogue entry (fcop-fidelity.md W3). All of
+  // these default to 0 / -1 when absent, which keeps the shooter on the old
+  // instant-hit cooldown model (`delay`, `damage` at the target).
+  /**
+   * Refire period in engine units (1/300 s): the entry's burst gap. > 0 runs the
+   * original's rate machine (sim.ts `shooterDue`) instead of the `delay` cooldown.
+   */
+  readonly refireUnits: number;
+  /** Re-acquire period (the shooter's targeting_delay) in engine units; 0 = every tick. */
+  readonly searchUnits: number;
+  /** Round speed, m/s; 0 = an instant hit. */
+  readonly speed: number;
+  /** How far the round flies, m (the entry's range). */
+  readonly flight: number;
+  /** 1: the round homes on its target (catalogue kind 3). */
+  readonly guided: number;
+  /** 1: the round is aimed with an intercept lead (kind 2). */
+  readonly lead: number;
+  /** cos of the firing cone about the gun's facing (precomputed); -1 = none. */
+  readonly arcCos: number;
+  /** 1: HOLD_TARGET — keeps its target and re-scans every search period. */
+  readonly hold: number;
+  /** 1: prefers the higher target priority (Dreadnought > tank > X1 > other). */
+  readonly priority: number;
 }
 
-/** A base's built-in defence weapon (fcop-logic.md §8.1: 4 per TeamBase). */
-export interface MapBaseDefence {
-  readonly x: number;
-  readonly y: number;
+/**
+ * One side's purchasable unit as the original arena defines it (the tank, jet
+ * and Flying Fortress spawner records): its health and its shooter's weapon
+ * profile. Precinct Assault arenas only; absent, the unit keeps balance.ts's
+ * own stats (fcop-fidelity.md W3).
+ */
+export interface MapUnitProfile {
+  readonly hp: number;
   /** Index into MapData.weapons. */
   readonly weapon: number;
-  readonly hp: number;
+}
+
+/**
+ * A side's Juggernaut as the original arena defines it: the Dreadnought record
+ * (act_type 28, extracted as "TeamBase?" — fcop-re/ranges-turrets-capture.md top
+ * + Q4). Precinct Assault arenas only; absent on the §1 arenas, whose Juggernaut
+ * keeps balance.ts's own stats and spawns at the ground console.
+ *
+ * The four hull guns are modelled as `guns` independent shooters standing at the
+ * hull's position, all on one weapon profile: the original mounts them at the
+ * hull model's points 0..3 (offsets under 0.9 m) with their own yaw, which at a
+ * 12 m reach changes nothing a player can see.
+ */
+export interface MapJuggernaut {
+  /** Spawn point: the type-28 record's position, node 0 of its Cnet by the HQ. */
+  readonly x: number;
+  readonly y: number;
   readonly layer: number;
+  /** Max HP (the original's 3000). */
+  readonly hp: number;
+  /** Hull guns that fire per volley (4). */
+  readonly guns: number;
+  /** Index into MapData.weapons: one gun's profile. */
+  readonly weapon: number;
+}
+
+/**
+ * The win trigger volume. `halfW`/`halfL` > 0 make it the original's axis-aligned
+ * gate box (x/y half-extents in metres, grown by the intruder's own radius —
+ * fcop-re/ranges-turrets-capture.md Q1); 0 keeps the §1 circle of `radius`. The
+ * radius stays meaningful on a box gate too: it is what the renderer and the AI
+ * read as the gate's size.
+ */
+export interface MapGate extends MapPlot {
+  readonly halfW: number;
+  readonly halfL: number;
+}
+
+/**
+ * Is a body of hit radius `r` centred at (x, y) inside `gate`? The single win
+ * test (sim.ts systemWinCheck) and the road walker (roads.ts) share it.
+ */
+export function insideGate(gate: MapGate, x: number, y: number, r: number): boolean {
+  const dx = x - gate.x;
+  const dy = y - gate.y;
+  if (gate.halfW > 0) {
+    const hw = gate.halfW + r;
+    const hl = gate.halfL + r;
+    return dx <= hw && dx >= -hw && dy <= hl && dy >= -hl;
+  }
+  return dx * dx + dy * dy <= gate.radius * gate.radius;
 }
 
 /**
@@ -100,9 +183,16 @@ export interface MapBaseTurret {
 
 /** One team's base structures (rules.md §5). Index = team id. */
 export interface MapBase {
-  /** Win trigger volume: enemy Runner/Juggernaut inside = breach. */
-  readonly gate: MapPlot;
-  /** Indestructible centerpiece (render + flavor, no gameplay hitbox). */
+  /**
+   * Win trigger volume: an enemy Runner or Juggernaut inside = breach (rules.md
+   * §1; on the PA arenas the original's gate trigger box, §9).
+   */
+  readonly gate: MapGate;
+  /**
+   * The base's centrepiece and anchor point — render, the Guardians' patrol
+   * orbit, the Warden's holding point. Indestructible everywhere: the original
+   * has no destructible core (fcop-fidelity.md I6/R1).
+   */
   readonly core: MapPoint;
   /** Build console for ground units (Runner/Juggernaut). */
   readonly groundConsole: MapPoint;
@@ -112,26 +202,12 @@ export interface MapBase {
   readonly pad: MapPlot;
   /** Ring turrets; each respawns 60 s after destruction. */
   readonly turrets: readonly MapBaseTurret[];
-  /**
-   * Built-in defence weapons bolted to the base structure itself
-   * (fcop-logic.md §8.1). Kept separate from `turrets` so the ring concept —
-   * and its max-8 guard — keeps its meaning. EMPTY on pre-PA arenas.
-   */
-  readonly defence: readonly MapBaseDefence[];
-  /**
-   * Destructible core HP (the original TeamBase carries 3000). 0 = the core is
-   * indestructible and the gate breach is the only win condition (rules.md §1).
-   * Non-zero switches this arena to the original's "destroy the enemy base"
-   * objective (rules.md §9).
-   */
-  readonly coreHp: number;
-  /**
-   * Free unit production cadence in ticks (the original produces one unit every
-   * 5 s onto its lane). 0 = no production, console purchases only.
-   */
-  readonly productionTicks: number;
-  /** Max simultaneously alive produced units; 0 with productionTicks = unused. */
-  readonly productionLimit: number;
+  /** The original Dreadnought's spawn point and stats, or undefined (§1 arenas). */
+  readonly juggernaut: MapJuggernaut | undefined;
+  /** The original tank (Runner), jet (Guardian) and Flying Fortress, or undefined. */
+  readonly runner: MapUnitProfile | undefined;
+  readonly guardian: MapUnitProfile | undefined;
+  readonly fortress: MapUnitProfile | undefined;
 }
 
 /**
@@ -153,6 +229,13 @@ export interface MapLaneGraph {
   readonly nextHopB: Int16Array;
   /** Entry node per team (index = team id). */
   readonly entry: readonly number[];
+  /**
+   * Which team's net each node belongs to (0 / 1; 255 for a node on neither).
+   * The original carries one Cnet per side and each side's units drive their
+   * own (fcop-logic.md §8.1); the import merges them into one node list, so the
+   * loader labels the two connected components by the entry each contains.
+   */
+  readonly net: Uint8Array;
 }
 
 /** A power-up spot (original ItemPickup, act_type 16). */
@@ -168,9 +251,9 @@ export interface MapPickup {
 
 /**
  * An axis-aligned base-intrusion volume (original Trigger, act_type 95;
- * fcop-logic.md §8.6). Detection only — the original's alert sound was bound in
- * the Cfun script and that binding is unrecovered, so the cue is the client's
- * choice.
+ * fcop-logic.md §8.6). The sim detects and emits EV_ALARM; the client speaks the
+ * original's intrusion line for the base's side (speech 2/3, fcop-fidelity.md
+ * R15).
  */
 export interface MapTriggerVolume {
   readonly x: number;
@@ -277,6 +360,13 @@ export interface MapData {
    * ARCHETYPE_MAX_HP[TURRET], the Phase-1 sandbox placeholder.
    */
   readonly turretHp: readonly number[];
+  /**
+   * Capture range of the `turretSpots`, in metres, BEFORE the capturer's own
+   * radius: the original's `(range + 1024) / 512` (fcop-re/ranges-turrets-capture.md
+   * Q2) — 4.0 on Mp/Conft/Ovmp, 5.2 on Slim/Joke, 5.6 on Hk. 0 = the arena imports
+   * none, and the sim uses balance.ts CAPTURE_RADIUS (sim.ts `captureRange`).
+   */
+  readonly captureRange: number;
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
   readonly laneGraph: MapLaneGraph | undefined;
   /** Power-up spots. EMPTY → no pickups on this arena. */
@@ -285,6 +375,49 @@ export interface MapData {
   readonly triggerVolumes: readonly MapTriggerVolume[];
   /** Render-only scenery. The sim must not read this. */
   readonly props: readonly MapProp[];
+}
+
+/**
+ * Is this one of the arenas imported from the original's Precinct Assault data?
+ * They are the arenas that carry the original's Dreadnought records
+ * (MapBase.juggernaut, fcop-fidelity.md I6); district-01 and the test maps do not.
+ * Rules the original has and Metropolis' own arenas keep their own balance for
+ * (an outpost claim's permanence, R14) are gated on this.
+ */
+/**
+ * Labels each node with the team whose entry shares its connected component
+ * (edges taken as undirected), 255 where neither does. Union-find in index
+ * order: deterministic, and only run at load.
+ */
+function labelNets(edges: Int16Array, n: number, entry: readonly number[]): Uint8Array {
+  const parent = new Int32Array(n);
+  for (let k = 0; k < n; k++) parent[k] = k;
+  const find = (a: number): number => {
+    let r = a;
+    while (parent[r] !== r) r = parent[r];
+    while (parent[a] !== r) {
+      const next = parent[a];
+      parent[a] = r;
+      a = next;
+    }
+    return r;
+  };
+  for (let k = 0; k < n; k++) {
+    for (let s = 0; s < 4; s++) {
+      const v = edges[k * 4 + s];
+      if (v >= 0) parent[find(k)] = find(v);
+    }
+  }
+  const out = new Uint8Array(n).fill(255);
+  for (let team = 1; team >= 0; team--) {
+    const root = find(entry[team]);
+    for (let k = 0; k < n; k++) if (find(k) === root) out[k] = team;
+  }
+  return out;
+}
+
+export function isPrecinctAssault(map: MapData): boolean {
+  return map.bases[0].juggernaut !== undefined;
 }
 
 /** Playable extent in meters along one axis: [0, extent] on both axes. */
@@ -453,7 +586,7 @@ export interface MapJson {
    */
   layers?: { heights: number[][]; mask: string[]; wallsV?: string[]; wallsH?: string[] }[];
   /** Optional `layer` (default 0) — surface the spawn sits on (issue #33). */
-  spawns: { x: number; y: number; yaw: number; layer?: number }[];
+  spawns: { x: number; y: number; yaw: number; layer?: number; hover?: boolean }[];
   basePlots: { x: number; y: number; radius: number; layer?: number }[];
   bases: MapBaseJson[];
   /**
@@ -470,13 +603,30 @@ export interface MapJson {
    * is what makes the load produce empty arrays and the sim behave exactly as
    * before — the property the golden replays depend on.
    */
-  weapons?: { range: number; delay: number; damage: number; turnSpeed: number; fovCos: number }[];
+  weapons?: {
+    range: number;
+    delay: number;
+    damage: number;
+    turnSpeed: number;
+    fovCos: number;
+    refireUnits?: number;
+    searchUnits?: number;
+    speed?: number;
+    flight?: number;
+    guided?: number;
+    lead?: number;
+    arcCos?: number;
+    hold?: number;
+    priority?: number;
+  }[];
   /** Weapon index per turretSpots entry; length must equal turretSpots.length. */
   turretParams?: number[];
   /** Rest yaw per turretSpots entry; length must equal turretSpots.length. */
   turretYaw?: number[];
   /** Max HP per turretSpots entry; length must equal turretSpots.length. */
   turretHp?: number[];
+  /** Capture range of the turret spots in metres, before the capturer's radius. */
+  captureRange?: number;
   /** Original Cnet graph. `edges` is one 4-tuple per node, -1 = no edge. */
   laneGraph?: {
     nodes: (number[] | { x: number; y: number; layer?: number })[];
@@ -501,7 +651,8 @@ export interface MapJson {
 
 /** JSON shape of one base; point lists are [x, y] pairs or {x,y,layer?} objects. */
 export interface MapBaseJson {
-  gate: { x: number; y: number; radius: number; layer?: number };
+  /** halfW/halfL: the original's gate box; absent -> the §1 circle. */
+  gate: { x: number; y: number; radius: number; halfW?: number; halfL?: number; layer?: number };
   core: number[] | { x: number; y: number; layer?: number };
   groundConsole: number[] | { x: number; y: number; layer?: number };
   airConsole: number[] | { x: number; y: number; layer?: number };
@@ -515,11 +666,19 @@ export interface MapBaseJson {
     | number[]
     | { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number }
   )[];
-  /** OPTIONAL PA extras; absent → empty / 0, i.e. pre-PA behavior. */
-  defence?: { x: number; y: number; weapon: number; hp: number; layer?: number }[];
-  coreHp?: number;
-  productionTicks?: number;
-  productionLimit?: number;
+  /** OPTIONAL PA extra: the original Dreadnought (MapJuggernaut). */
+  juggernaut?: {
+    x: number;
+    y: number;
+    hp: number;
+    guns: number;
+    weapon: number;
+    layer?: number;
+  };
+  /** OPTIONAL PA extras: the original tank, jet and Flying Fortress (MapUnitProfile). */
+  runner?: { hp: number; weapon: number };
+  guardian?: { hp: number; weapon: number };
+  fortress?: { hp: number; weapon: number };
 }
 
 function fail(id: string, reason: string): never {
@@ -648,6 +807,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
   if (raw.basePlots.length !== 2) fail(id, "need exactly 2 base plots");
   for (const s of raw.spawns) {
     if (!inBounds(s.x, s.y)) fail(id, `spawn out of bounds (${s.x}, ${s.y})`);
+    if (s.hover !== undefined && typeof s.hover !== "boolean") {
+      fail(id, `spawn hover must be a boolean, got ${String(s.hover)}`);
+    }
   }
   /**
    * A map point: either the historic `[x, y]` pair (layer 0) or an object
@@ -717,13 +879,50 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (!(damage >= 0)) fail(id, `weapon ${k} bad damage ${damage}`);
     if (!(turnSpeed >= 0)) fail(id, `weapon ${k} bad turnSpeed ${turnSpeed}`);
     if (!(fovCos >= -1 && fovCos <= 1)) fail(id, `weapon ${k} bad fovCos ${fovCos}`);
-    return { range, delay: w.delay, damage, turnSpeed, fovCos };
+    const opt = (v: number | undefined, what: string, dflt: number): number =>
+      v === undefined ? dflt : num(v, `weapon ${k} ${what}`);
+    const refireUnits = opt(w.refireUnits, "refireUnits", 0);
+    const searchUnits = opt(w.searchUnits, "searchUnits", 0);
+    const speed = opt(w.speed, "speed", 0);
+    const flight = opt(w.flight, "flight", 0);
+    const arcCos = opt(w.arcCos, "arcCos", -1);
+    if (!(refireUnits >= 0) || !(searchUnits >= 0) || !(speed >= 0) || !(flight >= 0)) {
+      fail(id, `weapon ${k} has a negative refire, search, speed or flight`);
+    }
+    if (!(arcCos >= -1 && arcCos <= 1)) fail(id, `weapon ${k} bad arcCos ${arcCos}`);
+    if (speed > 0 && !(flight > 0)) fail(id, `weapon ${k} fires rounds with no flight range`);
+    return {
+      range,
+      delay: w.delay,
+      damage,
+      turnSpeed,
+      fovCos,
+      refireUnits,
+      searchUnits,
+      speed,
+      flight,
+      guided: opt(w.guided, "guided", 0) ? 1 : 0,
+      lead: opt(w.lead, "lead", 0) ? 1 : 0,
+      arcCos,
+      hold: opt(w.hold, "hold", 0) ? 1 : 0,
+      priority: opt(w.priority, "priority", 0) ? 1 : 0,
+    };
   });
   const weaponIndex = (v: number, what: string): number => {
     if (!Number.isInteger(v) || v < 0 || v >= weapons.length) {
       fail(id, `${what} weapon index ${v} out of range (${weapons.length} profiles)`);
     }
     return v;
+  };
+
+  const unitProfile = (
+    u: { hp: number; weapon: number } | undefined,
+    what: string,
+  ): MapUnitProfile | undefined => {
+    if (u === undefined) return undefined;
+    if (!u || typeof u !== "object") fail(id, `${what} is not an object`);
+    if (!Number.isInteger(u.hp) || u.hp < 1) fail(id, `${what} bad hp ${u.hp}`);
+    return { hp: u.hp, weapon: weaponIndex(u.weapon, what) };
   };
 
   if (!Array.isArray(raw.bases) || raw.bases.length !== 2) fail(id, "need exactly 2 bases");
@@ -735,23 +934,47 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (b.turrets.length > 16) {
       fail(id, `base ${team} has ${b.turrets.length} ring turrets (max 16)`);
     }
-    const coreHp = b.coreHp ?? 0;
-    const productionTicks = b.productionTicks ?? 0;
-    const productionLimit = b.productionLimit ?? 0;
-    if (!Number.isInteger(coreHp) || coreHp < 0) fail(id, `base ${team} bad coreHp ${coreHp}`);
-    if (!Number.isInteger(productionTicks) || productionTicks < 0) {
-      fail(id, `base ${team} bad productionTicks ${productionTicks}`);
+    // The core-HP / free-production / built-in-gun fields of the retired §9 model
+    // (SIM_VERSION 32). A map still carrying them was authored for rules the sim
+    // no longer has; refuse it rather than silently ignore what it asks for.
+    const legacy = b as { coreHp?: unknown; productionTicks?: unknown; defence?: unknown };
+    if (legacy.coreHp !== undefined || legacy.productionTicks !== undefined) {
+      fail(
+        id,
+        `base ${team} carries coreHp/productionTicks: the original has no core (rules.md §9)`,
+      );
     }
-    if (!Number.isInteger(productionLimit) || productionLimit < 0) {
-      fail(id, `base ${team} bad productionLimit ${productionLimit}`);
+    if (legacy.defence !== undefined) {
+      fail(id, `base ${team} carries built-in defence guns: they were the Dreadnought's hull guns`);
     }
-    // Production with no ceiling would fill the entity store; the sim also
-    // clamps, but authoring should not rely on that.
-    if (productionTicks > 0 && productionLimit < 1) {
-      fail(id, `base ${team} produces every ${productionTicks} ticks with no productionLimit`);
+    let juggernaut: MapJuggernaut | undefined;
+    if (b.juggernaut !== undefined) {
+      const j = b.juggernaut;
+      const what = `base ${team} juggernaut`;
+      if (!j || typeof j !== "object") fail(id, `${what} is not an object`);
+      const x = num(j.x, `${what} x`);
+      const y = num(j.y, `${what} y`);
+      if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
+      if (!Number.isInteger(j.hp) || j.hp < 1) fail(id, `${what} bad hp ${j.hp}`);
+      if (!Number.isInteger(j.guns) || j.guns < 1) fail(id, `${what} bad guns ${j.guns}`);
+      juggernaut = {
+        x,
+        y,
+        layer: layerOf(j.layer, what),
+        hp: j.hp,
+        guns: j.guns,
+        weapon: weaponIndex(j.weapon, what),
+      };
+    }
+    const g = b.gate;
+    const gatePlot = plot(g, `base ${team} gate`);
+    const halfW = g.halfW === undefined ? 0 : num(g.halfW, `base ${team} gate halfW`);
+    const halfL = g.halfL === undefined ? 0 : num(g.halfL, `base ${team} gate halfL`);
+    if (halfW < 0 || halfL < 0 || halfW > 0 !== halfL > 0) {
+      fail(id, `base ${team} gate needs both half extents positive, or neither`);
     }
     return {
-      gate: plot(b.gate, `base ${team} gate`),
+      gate: { ...gatePlot, halfW, halfL },
       core: point(b.core, `base ${team} core`),
       groundConsole: point(b.groundConsole, `base ${team} ground console`),
       airConsole: point(b.airConsole, `base ${team} air console`),
@@ -780,26 +1003,10 @@ export function loadMapFromJson(raw: MapJson): MapData {
           layer: layerOf(t.layer, what),
         };
       }),
-      defence: (b.defence ?? []).map((d, k) => {
-        if (!d || typeof d !== "object") fail(id, `base ${team} defence ${k} is not an object`);
-        const dx = num(d.x, `base ${team} defence ${k} x`);
-        const dy = num(d.y, `base ${team} defence ${k} y`);
-        const dhp = num(d.hp, `base ${team} defence ${k} hp`);
-        if (!inBounds(dx, dy)) {
-          fail(id, `base ${team} defence ${k} out of bounds (${dx}, ${dy})`);
-        }
-        if (!(dhp > 0)) fail(id, `base ${team} defence ${k} bad hp ${dhp}`);
-        return {
-          x: dx,
-          y: dy,
-          weapon: weaponIndex(d.weapon, `base ${team} defence ${k}`),
-          hp: dhp,
-          layer: layerOf(d.layer, `base ${team} defence ${k}`),
-        };
-      }),
-      coreHp,
-      productionTicks,
-      productionLimit,
+      juggernaut,
+      runner: unitProfile(b.runner, `base ${team} runner`),
+      guardian: unitProfile(b.guardian, `base ${team} guardian`),
+      fortress: unitProfile(b.fortress, `base ${team} fortress`),
     };
   });
 
@@ -822,6 +1029,11 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (!Number.isInteger(v) || v < 1) fail(id, `turret spot ${k} bad hp ${v}`);
     return v;
   });
+
+  const captureRange = raw.captureRange ?? 0;
+  if (!Number.isFinite(captureRange) || captureRange < 0) {
+    fail(id, `bad captureRange ${raw.captureRange}`);
+  }
 
   let laneGraph: MapLaneGraph | undefined;
   if (raw.laneGraph) {
@@ -889,7 +1101,14 @@ export function loadMapFromJson(raw: MapJson): MapData {
         at = nextHopA[team * n + at];
       }
     }
-    laneGraph = { nodes, edges, nextHopA, nextHopB, entry: [g.entry[0], g.entry[1]] };
+    laneGraph = {
+      nodes,
+      edges,
+      nextHopA,
+      nextHopB,
+      entry: [g.entry[0], g.entry[1]],
+      net: labelNets(edges, n, g.entry),
+    };
   }
 
   const pickups: MapPickup[] = (raw.pickups ?? []).map((p, k) => {
@@ -949,6 +1168,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
       y: s.y,
       yaw: s.yaw,
       layer: layerOf(s.layer, `spawn ${i}`),
+      hover: s.hover === true,
     })),
     basePlots: raw.basePlots.map((p, i) => plot(p, `base plot ${i}`)),
     bases,
@@ -960,6 +1180,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     turretParams,
     turretYaw,
     turretHp,
+    captureRange,
     laneGraph,
     pickups,
     triggerVolumes,
@@ -1008,6 +1229,8 @@ export function createTestMap(): MapData {
       x: team === 0 ? 10 : extent - 10,
       y: team === 0 ? 10 : extent - 10,
       radius: 6,
+      halfW: 0,
+      halfL: 0,
       layer: 0,
     },
     core: { x: center + (team === 0 ? -6 : 6), y: center, layer: 0 },
@@ -1015,13 +1238,12 @@ export function createTestMap(): MapData {
     airConsole: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
     pad: { x: center, y: center, radius: 20, layer: 0 },
     turrets: [],
-    // No Precinct Assault features on the sandbox map: an indestructible core
-    // and no production keep it on the gate-breach rules, and the empty lists
-    // are what make every PA system a provable no-op here.
-    defence: [],
-    coreHp: 0,
-    productionTicks: 0,
-    productionLimit: 0,
+    // No Precinct Assault Dreadnought on the sandbox map: its Juggernaut keeps
+    // balance.ts's own stats.
+    juggernaut: undefined,
+    runner: undefined,
+    guardian: undefined,
+    fortress: undefined,
   });
   return {
     id: TEST_MAP_ID,
@@ -1037,8 +1259,8 @@ export function createTestMap(): MapData {
     layerWallsV: [],
     layerWallsH: [],
     spawns: [
-      { x: center, y: center, yaw: 0, layer: 0 },
-      { x: center, y: center, yaw: 0, layer: 0 },
+      { x: center, y: center, yaw: 0, layer: 0, hover: false },
+      { x: center, y: center, yaw: 0, layer: 0, hover: false },
     ],
     basePlots: [
       { x: center, y: center, radius: 20, layer: 0 },
@@ -1053,6 +1275,7 @@ export function createTestMap(): MapData {
     turretParams: [],
     turretYaw: [],
     turretHp: [],
+    captureRange: 0,
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],

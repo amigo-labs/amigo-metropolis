@@ -514,4 +514,299 @@
 //     untouched. Goldens: only 05 and 07 run graph arenas and only their
 //     hash bytes move; 01-04 and 06 run polyline maps where advanceOnGraph
 //     never executes, and stay byte-identical (re-headered only).
-export const SIM_VERSION = 30;
+// v31: the original's import scales (docs/specs/fcop-fidelity.md I1-I5, I8),
+//     read from the retail executable instead of inferred from geometry
+//     (docs/specs/fcop-re/ranges-turrets-capture.md Q1/Q3). engage_range is
+//     `raw << 4` world units, so 6144 is 12 m, not 6: every imported turret and
+//     base-gun profile doubles its reach. targeting_delay is 1/16 s, not 1/60 s:
+//     turret cadence 16 -> 60 ticks (2.0 s, which is also weapon 3's refire),
+//     base guns 8 -> 30. turn_speed is the retail /218 rate block, 2457 -> 11
+//     units per 1/300 s = 290°/s (was 216°/s). Trigger volumes are half-extent
+//     raw/1024 m (was full raw/8192: 16x too small) and the sim's containment
+//     test now grows them by the intruder's ARCHETYPE_RADIUS, as the original's
+//     does — so Mp's base zone is 40 x 24 m and a gate 4.8 x 3.6 m. Turret damage
+//     stays 15 (weapons package). The "invincibility" grant imports as INVULN
+//     instead of throwing; no PA pickup carries it, so no map moves for it.
+//     Goldens: 05 (urban-jungle) and 07 (la-cantina) run imported arenas and
+//     move; 01-04 and 06 run maps with no weapon profiles or trigger volumes and
+//     stay byte-identical (re-headered only). paAttribution's trickle/escort
+//     numbers were re-measured and re-pinned; d8-vs-idle still resolves 5/5 seeds
+//     on all four arenas (worst 190/402/234/250 s).
+// v32: the original's Precinct Assault model (docs/specs/fcop-fidelity.md I6,
+//     I7, R1; fcop-re/ranges-turrets-capture.md top + Q4, ai-and-rules.md §0/§5).
+//     Actor type 28 is the Dreadnought, not a team base, and the original has no
+//     destructible core. Removed: coreHp and the core-raze win, systemCoreAttack,
+//     free base production (productionTicks/Limit, systemProduction — the "1
+//     Runner per 5 s" was the Dreadnought spawner's period, and the spawner is
+//     shut in PA) and the four "built-in base guns" on the core (they were the
+//     Dreadnought's hull guns). The win is §1's gate rule with the original's
+//     specifics: an enemy Runner (tank) or Juggernaut (Dreadnought) inside the
+//     gate box — on the imported arenas the original's gate trigger (Mp 2457 x
+//     1843 raw = 4.8 x 3.6 m, grown by the intruder's radius) — starts a
+//     MATCH_OUTRO_TICKS (175 = the original's 1750 at 300 Hz) countdown; the match
+//     plays on and `winner` is set when it ends. Jets and avatars never breach.
+//     The PA Juggernaut takes the Dreadnought record: it spawns there (node 0 of
+//     its Cnet by the HQ), with 3000 HP and four hull guns of weapon 3 (100 dmg,
+//     60-tick refire, 12 m), modelled as four shooters at the hull. The Warden
+//     defends on the one §1 radius everywhere and gates its push/suppress rung on
+//     the arena carrying the original road graph instead of on a core.
+//     State: baseDefence/coreHp/productionTimer arrays gone; outroTimer and
+//     outroWinner hashed only while an outro runs. Goldens: 05 and 07 re-record
+//     (imported arenas: no production, no base guns, gate-box win, regenerated
+//     roads); 03 and 04 re-record from their breach on (district-01's breach now
+//     plays the outro); 01, 02 and 06 never breach and stay byte-identical
+//     (re-headered only). balance:pa d8 vs idle: 5/5 seeds resolve on all four
+//     arenas, worst 79/98/96/83 s (the idle side fields nothing now).
+// v33: the original's economy (docs/specs/fcop-fidelity.md R2-R7, R9, R10;
+//     fcop-re/ai-and-rules.md §2, §8). Applied on every arena: none of these
+//     rules reads PA-only data. STARTING_POINTS 20 -> 10. No trickle (was 1 per
+//     10 s). A death pays the OTHER side, whoever caused it (the original pays
+//     from the dying actor's death script, not the kill credit): Runner/Guardian
+//     +1 (was +1 to the killer), Juggernaut/Fortress +5 (was +1), a base turret or
+//     an enemy-captured pad +1 (was +2 to the killer), capture +1 (was +3). An
+//     avatar going down pays the other side 10 and costs the downed side 10,
+//     floored at 0 (was +10 to the killer, no loss): a player's at its respawn,
+//     the Warden's when it falls, as the original's two scripts do. Alive caps:
+//     20 Runners and 20 Guardians per side (were uncapped). The Juggernaut and
+//     Fortress purchases open the first time a side holds 50 points
+//     (`heavyUnlocked`, hashed, sticky). The Warden's difficulty income
+//     multiplier went with the trickle (`wardenIncomeAcc` no longer hashed): the
+//     Sky Captain's budget is its Current Points. Goldens: every one re-records,
+//     because the hash covers the starting balance and the new per-player flag.
+//     01, 02, 05 and 06 play the same moves; 02's beat test now pins the avatar
+//     down payment. 03's script (district-01) could no longer afford its outpost
+//     from the ring bounty: it now downs player 1's avatar twice for the 20
+//     points and breaches at tick 3716 (was 2959). 04 (d8 Warden on district-01)
+//     no longer breaches in its 300 s: the Warden saves for a Juggernaut it can
+//     no longer fund, because each of its falls costs it 10 (re-pinned; the Sky
+//     Captain port, U3, replaces this AI). 07 replays the same script against
+//     the new economy. balance:pa d8 vs idle still resolves 5/5 seeds on all four
+//     arenas, worst 166/352/664/621 s (was 79/98/96/83 s).
+// v34: the original's capture (docs/specs/fcop-fidelity.md R12;
+//     fcop-re/ranges-turrets-capture.md Q2). A neutral turret flips INSTANTLY,
+//     with no timer and no contest, to an avatar whose action key (Interact)
+//     goes down within the capture range plus its own radius (3D), to a Runner
+//     that comes that close (3D, no button), or to the Warden flying over it
+//     (flat, no button — the Sky Captain's type 0x25). Guardians, Juggernauts and
+//     Fortresses never capture. Was: an avatar standing 3 s within 5 m,
+//     uncontested. The range is imported per arena as MapData.captureRange, the
+//     original's (raw + 1024) / 512 m from the NeutralTurret record's last
+//     halfword: 4.0 m on Mp/Conft/Ovmp, 5.2 on Slim/Joke, 5.6 on Hk; district-01
+//     keeps CAPTURE_RADIUS 5 m. A destroyed pad respawns neutral after 25 s
+//     (was 45 s). State: captureTeam/captureProgress are gone from the hash; the
+//     transient capturePress is cleared within the tick and never hashed.
+//     Goldens: every one on a map with turret spots re-records, because the
+//     per-spot capture fields left the hash (02, 03, 04, 05, 07); 01 (test-128)
+//     and 06 (layered-test) have none and stay byte-identical (re-headered only).
+// v35: the original's outpost claim (docs/specs/fcop-fidelity.md R14;
+//     fcop-re/ai-and-rules.md §2). Entering an unowned outpost's claim zone
+//     (OUTPOST_CLAIM_RADIUS around its console) with 30 points claims it on the
+//     spot: no button, no hold (was a 0.5 s interact hold at the console). A
+//     player's avatar trips the zone; the Warden claims only while its goal is
+//     to (the Sky Captain's claim is a script decision, not a fly-over — a
+//     difficulty-8 Warden saving for its Juggernaut otherwise spent its 30 on
+//     every outpost pad it captured, and three arenas stopped resolving). On the
+//     imported arenas a claim is permanent, as the original's is: an outpost
+//     console takes no damage and no unit or Warden targets it. district-01
+//     keeps console destruction reverting the outpost (outposts as a menu, a
+//     deliberate deviation). Goldens: 03 re-records (its avatar claims on
+//     arrival instead of after a hold); the others never claim or shoot an
+//     outpost console and stay byte-identical (re-headered only).
+// v36: the original's alert cues (docs/specs/fcop-fidelity.md R15;
+//     fcop-re/ai-and-rules.md §6). New events EV_TURRET_UNDER_FIRE (a ring
+//     turret was hit; per side, at most once per TURRET_ALERT_COOLDOWN_TICKS =
+//     300, the original's 10 s) and EV_TURRET_LOST (a ring turret died). Base
+//     intrusion keeps EV_ALARM but follows the original: the cooldown is per
+//     BASE (every volume guarding it re-arms together) and 250 ticks, the
+//     original's 2500 engine ticks = 8.3 s (was 90 per volume), and the watched
+//     enemy units are its ground units (tank, Dreadnought), not its jets.
+//     State: `turretAlert` per side, hashed on maps with ring turrets only.
+//     Goldens: every one on a map with ring turrets re-records for the new hash
+//     field (02, 03, 04, 05, 07); 07 also trips the alarm on the new cadence.
+//     01 and 06 have no ring turrets and stay byte-identical (re-headered only).
+// v37: the X1-Alpha's life cycle (docs/specs/fcop-fidelity.md P2, P6, P7, P9;
+//     fcop-re/player-and-weapons.md §1, §6). A player's avatar respawns 4.0 s
+//     after going down (RESPAWN_TICKS 240 -> 120, `player_op4`'s 0x4b0 at
+//     300 Hz); the Warden keeps 8 s (WARDEN_RESPAWN_TICKS, U3's to change). Going
+//     down drops the power-up (`player_respawn` clears block B); the cloak and
+//     invulnerability timers keep running. A spawn record may ask for hover form
+//     (MapSpawn.hover: both of Hk's), and the avatar spawns and respawns in it.
+//     Health pickup: full heal (was +100). Cloak 1350 ticks (was 300), and the
+//     Warden's hunt skips a cloaked or invulnerable avatar as the original
+//     commander's target search does. Invulnerability 600 ticks (was 300; no PA
+//     pickup carries it). Pickup re-arm 50/100 s is the imported data, unchanged.
+//     Goldens: 02, 03 and 04 re-record (district-01: the player respawns 4 s
+//     sooner after each down). 07 (la-cantina) re-records: its player goes down
+//     too. 01, 05 and 06 never lose an avatar and stay byte-identical
+//     (re-headered only).
+// v38: the original's transformation (docs/specs/fcop-fidelity.md P3;
+//     fcop-re/player-and-weapons.md §2). TRANSFORM_LOCK_TICKS 24 -> 41 (the
+//     original's 409.6 engine units). The weapons fire through it (they were
+//     locked); drive, turn (the facing is frozen), jump and the lock cycle stay
+//     locked. The hull runs hover physics for the whole ramp in both directions,
+//     so a walker coming out of hover coasts instead of stopping dead, and the
+//     ride height ramps 0 -> clearance into hover and back out of it. Refused on
+//     water in either form (was: only hover -> walker over water). Goldens: 02
+//     re-records (it transforms twice); the others never transform and stay
+//     byte-identical (re-headered only).
+// v39: the X1-Alpha's two movement models are the original's
+//     (docs/specs/fcop-fidelity.md P4, P5; fcop-re/player-and-weapons.md §3-§5),
+//     run at 30 Hz as 1.25 of its 37.5 Hz steps in closed form (balance.ts
+//     "X1-Alpha movement"). Walker 5 -> 4.69 m/s with drag 0.375 a step (95 %
+//     in 0.17 s), strafe 3.13; hover traction knobs -> push 0x6666 against drag
+//     0.05 a step (9 -> 9.38 m/s, 95 % in 1.56 s), strafe 2.93, brake 0.15 on
+//     the jump button, idle drag ramp, 10.7 m/s cap, stop-dead thresholds. The
+//     stick strafes across the facing (it was a throttle along it), read as
+//     eight 45° sectors; the hull TURNS toward the aim/lock at 105°·(1 - v/18.75)
+//     (walker, not in the air) or 158°/s after a 0.26 s ramp (hover) instead of
+//     snapping. Gravity 20 -> 26.1 m/s² with a 14.06 m/s terminal fall in both
+//     forms; the hover rides 0.5 m (was 0.3) and falls off ledges; landings over
+//     10.78 m/s hurt (1000 f(x) HP x AVATAR_HP / 1250, interim). The jump is
+//     the original's three (leap / high jump with lunge / hop), no air control.
+//     Downhill slope push in both forms; the walker's gate 0.6 -> 1.04, where
+//     that push stops the original's walk (it has no hard gate). A walker in
+//     water transforms to hover (NORMAL). Transform no longer needs the ground.
+//     New hashed per-player state: avatarTurnRate, avatarIdle, avatarLunge.
+//     Goldens: all seven re-record (every one moves an avatar). 03's script now
+//     turns on the spot before each leg and snipe and aims at player 1's
+//     measured stand; it breaches at 4002 (was 3701). 04's patrol is downed once
+//     (was twice) and ends on 90 points.
+// v40: the X1-Alpha's lock is the original's (docs/specs/fcop-fidelity.md W2;
+//     fcop-re/player-and-weapons.md §7, `player_target_acquire` 0x0045a240 and
+//     `player_target_hold` 0x0045a2a0). 12 m horizontal (AVATAR_LOCK_RANGE 44 ->
+//     12), acquired inside +-12.5° of the hull's facing and held inside +-25°;
+//     auto-acquired every tick while there is no lock (it was taken only by the
+//     Target-Cycle press, in any direction); the press takes the nearest OTHER
+//     target in the acquire cone, or keeps the lock (it stepped through every
+//     enemy by ascending id). No line-of-sight test (the original has none).
+//     Enemy turrets and units are lockable as well as avatars; uncaptured neutral
+//     turrets and the imported arenas' consoles are not. Only a lock the player
+//     took with the press turns the hull (new hashed per-player `lockSteer`); an
+//     auto-acquired one aims the weapons alone. Goldens: all seven re-record for
+//     the new hash field and the auto-acquired locks; none presses Target-Cycle,
+//     and nothing fires along the lock yet, so no trajectory moves.
+// v41: the X1-Alpha's weapons are the original's records and its health the
+//     original's 1250 (docs/specs/fcop-fidelity.md P1, W1, W2, W4;
+//     fcop-re/player-and-weapons.md §5, §7, player-weapons.json). AVATAR_HP
+//     300 -> 1250 (NORMAL); landing damage loses its interim AVATAR_HP / 1250.
+//     The ten catalogue weapons carry their block-A records (balance.ts
+//     WEAPON_RECORDS): damage, NORMAL ammo (every slot finite, the Gun's too, with
+//     its own ammo pickup kind), gaps added to a cooldown that decays 10 engine
+//     units a tick floored at zero (gap 0 = every tick), burst counters, reach,
+//     missile launch/top speed and acceleration, flight range, ballistic speed and
+//     gravity, blast radii with linear falloff over horizontal distance. Hitscan
+//     damages only the lock; Hell Fire homes on it; the HVR leads it; the Mortar
+//     solves the original's lob to it (or 8 m ahead); mines spring at 2 m and blow
+//     1 s later; a homing round drops a cloaked avatar within 4 m. The Flamethrower,
+//     Concussion Beam and Shockwave keep Metropolis' time profile with the
+//     original's damage and radius. The Warden's harass closes in when the avatar
+//     is hidden from its stand and nothing else is in sight, and suppresses the
+//     nearest emplacement when even contact is blind (it parked for good behind a
+//     wall once a first pass no longer killed); a health pickup fills its taker to
+//     its own maximum (it set the Warden to the avatar's). New hashed per-player
+//     state: gunAmmo, burstLeft. The arena JSONs re-import reload_gun as the new
+//     PICKUP_GUN_AMMO. Goldens: all seven re-record (the new hash fields; every
+//     arena's avatars have 1250 HP). 02 and 03 run re-timed scripts — the avatar
+//     walks up to its targets and fires on the lock (02 ends its crossfire hold at
+//     30 s and lobs mortars over the ford; 03 takes the ring from inside its reach
+//     and breaches at 4262, was 4002, over 160 s, was 150); 04's patrol downs the
+//     Warden 10 times (was 9) and ends on 100 points.
+// v42: every shooter on an imported PA arena fires its original catalogue
+//     weapon (docs/specs/fcop-fidelity.md W3; fcop-re/ranges-turrets-capture.md
+//     Q3). balance.ts WORLD_WEAPONS holds the type-98 entries the PA actors name
+//     (identical on all six maps): turrets, neutral turrets and Dreadnought guns
+//     weapon 3 (100 dmg every 601 engine units, a 7.62 m/s lead-aimed round
+//     flying 12 m; was 15 dmg, instant, every 60 ticks), tanks and jets 1/6 (50
+//     dmg every 300 units), the Flying Fortress 4 (guided, 100 dmg every 150 units,
+//     flies 24 m). Runners, Guardians and Fortresses take their spawner records'
+//     150/150/2000 HP and these weapons on a PA arena (was 60/50/500 and the
+//     instant UNIT_* table; MapBase.runner/guardian/fortress) and engage at 12 m
+//     (was 14/18/30). Rounds are projectile entities (PROJ_ROUND) on the
+//     original's rate machine; PA turrets re-search on their targeting delay while
+//     a round waits, team turrets hold their target and prefer Dreadnought > tank >
+//     X1, and every turret fires only within 22.5° of its slewing barrel with a
+//     clear line, else retries 0-0.85 s later (sim PRNG). A straight round (any
+//     shooter's, the X1's missiles too) no longer dies on the heightfield; only
+//     walls, its range and a strike stop it. district-01 and the sandbox keep the
+//     instant-hit tables. The arena JSONs carry the new MapWeapon fields and unit
+//     profiles. Goldens: 05 and 07 (imported arenas) re-record; 01 re-records
+//     (its Hell Fire rounds cross the test map's slope instead of dying on it);
+//     02-04 (district-01) and 06 stay byte-identical (re-headered only).
+// v43: the power-up is the original's (docs/specs/fcop-fidelity.md P8;
+//     fcop-re/player-and-weapons.md §6, §7). Each slot has its own pickup kind
+//     (PICKUP_POWER_GUN 5, _HEAVY 7, _SPECIAL 8; the arenas re-import
+//     power_up_*). A pickup fills that slot's block-B magazine (new hashed
+//     per-player-and-slot `powerAmmo`, the original's ammo_b) to its NORMAL
+//     ceiling; the slot fires its block B — the record's powered weapon — until
+//     the magazine is empty, then block A; a down loses it. The x2 damage for 15 s
+//     (`buffPower`, PICKUP_POWER_TICKS, PICKUP_POWER_MULTIPLIER) is gone. Goldens:
+//     all seven re-record for the new hash field (the buff timer, hashed only on
+//     pickup arenas, left the hash); 07 takes a Special power pickup, which now
+//     fills a block-B magazine instead of doubling its taker's damage.
+// v44: ground units on the imported arenas are the original's route followers
+//     (docs/specs/fcop-fidelity.md U1, U2; fcop-re/ai-and-rules.md §4, route.c
+//     `cnet_route_next`, route_tick.c, route_near.c). Each side's Runners and
+//     Juggernaut drive their own side's Cnet (MapLaneGraph.net, labelled at
+//     load). At every node the step chooser scores up to four links: a Runner
+//     (the PA tank) seeks the nearest enemy-team actor within 16 m on 60 % of
+//     steps (wander 1638/4096 is random) and scores each link by the octave of
+//     its dot product with the target (32 + floor log2, below 32 for a step
+//     away), a Juggernaut (the Dreadnought) scores at random; a positive score
+//     halves per follower already heading to that node; the node just left is
+//     refused and the one before is the last resort; ties are a coin flip, links
+//     scanned backwards. Was: the committed signposts with a seeded 50/50 coin
+//     at a fork. They walk each leg to its full length at 1.98 m/s (route block
+//     1024 raw; was RUNNER_SPEED 4, JUGGERNAUT_SPEED 2.5), on the road (no walls,
+//     no separation push, no arrival radius, so the v30 jam relief is gone), and
+//     never halt to fight — the guns fire on the move. Traffic is the original's
+//     1 s holds: behind a follower of their net heading for the same node with
+//     less leg left they take half its speed, a non-follower within 2 m dead
+//     ahead stops them, a nearer one slows them; the Juggernaut ignores traffic
+//     (route flag 0x8). A forward (outpost) spawn joins its own side's net (it
+//     took the nearest node of either). Jets and Flying Fortresses fly at the
+//     records' 4.0 / 4.8 m/s on these arenas (was 7 / 6). New hashed unit-field
+//     reuse: prev-of-prev node in ammoB, commanded speed in aimX, the hold in
+//     timerB. Goldens: 07 (la-cantina, bought units) re-records; the others field
+//     no ground unit on a graph arena and stay byte-identical (re-headered only).
+// v45: PA units target as the original's shooters and aircraft do
+//     (docs/specs/fcop-fidelity.md U1/U2 targeting, I2, W3's kept note;
+//     fcop-re/ranges-turrets-capture.md Q3, ai-and-rules.md §4, aircraft.c). A
+//     unit keeps its target while it lives, stays hostile and in its 12 m reach,
+//     and re-searches only when a due round has none, on its shooter's targeting
+//     delay (tank and jet 601 units = 2.0 s, Dreadnought and Fortress 300 = 1.0
+//     s; the records hold no target and prefer no priority); a round with no clear
+//     line is put back for 0-0.85 s. Was: the nearest enemy in reach every tick.
+//     Jets and Flying Fortresses on the imported arenas are the original's
+//     aircraft: a target search every 900 + rand 0..511 engine units within the
+//     record's detection range (56 / 63.2 m, I2), flight at the target inside the
+//     patrol leash (±24 x ±20 / ±30 x ±28 m about the spawner they were built at;
+//     outside it a 4.0-10.8 s cruise to a destination in half the leash), a 1 m
+//     standoff reverse held 0.5-0.9 s, no halting, and a gun that fires only while
+//     engaging. Was: §4's base-core orbit / enemy-core assault, halting in reach.
+//     Turrets still never target turrets (the original's "by team" search is not
+//     read for that). New entity field timerC (a PA aircraft's cruise countdown);
+//     outpost-built PA Guardians carry mode 1 + outpost index. Goldens: all seven
+//     re-record for the new field; 07 also fields bought units under the new
+//     targeting.
+// v46: the Warden is the original's Sky Captain (docs/specs/fcop-fidelity.md U3;
+//     fcop-re/ai-and-rules.md §1, dispatch.c / aircraft.c). Difficulty 1-10 plays
+//     level 0-9: health 250-1250, speed 2.72-4.51 m/s, rethink every 848 - 80 L
+//     engine units (+0..255, or -0..31 defending), respawn (14 - L) * 150 units.
+//     The decision pass scans from home, the player's base and itself (octagonal
+//     distances, a (9 - L) * 0.5 m penalty) and runs the defend / attack / roam
+//     machine, its aim (inside 12 m) and move targets, then the spend blocks;
+//     retreat below maxHP/2 - rand 63 (halved defending/attacking), restore at
+//     home or from a health pickup. Weapons 7/8/9 (gun 2 per 18 units, guided
+//     missile 25 per 150, bomb 200 in 3.2 m with falloff per 601) on the
+//     shooters' rate machine with the level's arcs; flight at its target with a
+//     1 m standoff reverse. Its budget is its Current Points from 0, plus a free
+//     opening order of ten base units from level 1; requests pay at once and
+//     spawn from queues (a tank per 3.4 s, a jet per 0.97 s); outposts are
+//     claimed by decision; every engine credit zeroes its rethink. Was:
+//     Metropolis' goal ladder, 450 HP, 10 m/s, a 42 m cannon, pad repair, 8 s
+//     respawn, 10 starting points. SimState's wardenGoal/Slot/Think become the
+//     hashed `captain` block. Goldens: 04 (district-01, d8) and 07 (la-cantina,
+//     d8; its scripted capture press moves a phase earlier, to tick 555, since the
+//     captain chasing the player flies over that pad at 557) re-record; 01-03,
+//     05, 06 have no Warden and are byte-identical (re-headered).
+export const SIM_VERSION = 46;

@@ -18,16 +18,16 @@ import {
   EV_BREACH,
   EV_CAPTURE,
   EV_CLAIM,
-  EV_CORE_HIT,
   EV_DEATH,
   EV_EXPLOSION,
   EV_HIT,
   EV_PICKUP,
-  EV_PRODUCE,
   EV_PURCHASE,
   EV_RESPAWN,
   EV_SHOT,
   EV_TRANSFORM,
+  EV_TURRET_LOST,
+  EV_TURRET_UNDER_FIRE,
   EVENT_STRIDE,
   type EventBuffer,
 } from "@metropolis/sim";
@@ -47,11 +47,35 @@ cueByType[EV_PURCHASE] = "purchase";
 cueByType[EV_BREACH] = "breach";
 cueByType[EV_CAPTURE] = "capture";
 cueByType[EV_CLAIM] = "claim";
-cueByType[EV_ALARM] = "alarm";
 cueByType[EV_PICKUP] = "pickup";
-cueByType[EV_PRODUCE] = "produce";
-cueByType[EV_CORE_HIT] = "coreHit";
 cueByType[EV_TRANSFORM] = "transform";
+
+/**
+ * The cue an event plays. Most event types have one; the alert events speak the
+ * original's voice line for the SIDE they concern (fcop-fidelity.md R15,
+ * fcop-re/ai-and-rules.md §6): intrusion into slot 0's / slot 1's base is speech
+ * id 2 / 3, its base turret under fire 4 / 5, a base turret lost 0 / 1. Played by
+ * side, as the original's scripts do, not from the local player's point of view —
+ * the line content is not transcribed, so a "your base" reading would be a guess.
+ * Returns "" for an event with no cue. Pure, for test.
+ */
+export function cueForEvent(type: number, _a: number, b: number, c: number): string {
+  if (type === EV_ALARM) return c === 1 ? "vo_intrusion_1" : "vo_intrusion_0";
+  if (type === EV_TURRET_UNDER_FIRE) return b === 1 ? "vo_turret_fire_1" : "vo_turret_fire_0";
+  if (type === EV_TURRET_LOST) return b === 1 ? "vo_turret_lost_1" : "vo_turret_lost_0";
+  return cueByType[type] ?? "";
+}
+
+/**
+ * A voice line an event speaks ON TOP of its cue, or "". Only the gate: the
+ * breach keeps its fanfare and adds the original's line for the gate that was
+ * reached — slot 1's (speech id 6) when slot 0 wins, slot 0's (19) when slot 1
+ * does. EV_BREACH's b is the winning team.
+ */
+export function voiceForEvent(type: number, _a: number, b: number, _c: number): string {
+  if (type === EV_BREACH) return b === 0 ? "vo_gate_1" : "vo_gate_0";
+  return "";
+}
 
 /**
  * Distance at which a world sound is still at full volume; past it the gain rolls
@@ -104,7 +128,7 @@ const STORAGE_KEY = "metropolis.audio.v1";
 const DEFAULT_VOLUMES: Volumes = { master: 0.8, sfx: 1, music: 0 };
 const MAX_VOICES = 24;
 /** Cues that can fire many times per tick and would stack into noise. */
-const COALESCE = new Set(["shot", "hit", "explosion"]);
+const COALESCE = new Set(["shot", "hit", "explosion", "vo_turret_lost_0", "vo_turret_lost_1"]);
 
 /**
  * Parses the persisted settings JSON. Pure so tests can cover it without a
@@ -140,7 +164,7 @@ function clamp01(v: number): number {
 
 export class AudioEngine {
   /** Total cues seen, indexed by EV_* type — debug HUD parity with the old stub. */
-  readonly counts = new Uint32Array(16);
+  readonly counts = new Uint32Array(32);
   /** Most recent non-shot cue (shots fire constantly and would drown it). */
   lastCue = "";
 
@@ -333,7 +357,10 @@ export class AudioEngine {
       const type = events.data[o];
       if (type <= 0 || type >= this.counts.length) continue;
       this.counts[type] += 1;
-      const cue = cueByType[type];
+      const a = events.data[o + 1];
+      const b = events.data[o + 2];
+      const c = events.data[o + 3];
+      const cue = cueForEvent(type, a, b, c);
       if (!cue) continue;
       if (type !== EV_SHOT) this.lastCue = cue;
       if (!this.unlocked) continue;
@@ -344,15 +371,11 @@ export class AudioEngine {
       }
       let positional = false;
       if (resolvePosition !== undefined && !GLOBAL_CUES.has(cue)) {
-        positional = resolvePosition(
-          type,
-          events.data[o + 1],
-          events.data[o + 2],
-          events.data[o + 3],
-          this.posScratch,
-        );
+        positional = resolvePosition(type, a, b, c, this.posScratch);
       }
       this.play(cue, this.posScratch[0], this.posScratch[1], this.posScratch[2], positional);
+      const voice = voiceForEvent(type, a, b, c);
+      if (voice) this.play(voice);
     }
   }
 

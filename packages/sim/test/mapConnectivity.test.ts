@@ -86,15 +86,17 @@ for (const id of PLAYABLE_IDS) {
     it("neutral turrets and outposts are capturable from spawn 0", () => {
       // On FCOP maps both teams share one ground component; spawn 0 is enough.
       const f = floodHas(map, map.spawns[0].x, map.spawns[0].y);
-      // Capturing is PROXIMITY, not occupancy: sim.ts holds a pad for whoever is
-      // within CAPTURE_RADIUS of it, and the Warden parks at CAPTURE_RADIUS - 1.
+      // Capturing is PROXIMITY, not occupancy: sim.ts gives a pad to a press
+      // within the arena's capture range plus the avatar's radius — at least
+      // 4.0 + 0.4 m on every imported arena — and CAPTURE_RADIUS - 1 = 4 m is
+      // inside that everywhere.
       // The original mounts these pads on raised plinths with parapets around
       // them — all 8 of la-cantina's outer-ring pads have a walkable cell one
       // cell away and none at all on the pad itself. Demanding the pad's own cell
       // be walkable therefore asks for something the game never asks for, and the
       // only way to grant it is to knock the original's parapets down, which is
       // what the generator used to do. Same reasoning the ring-turret check above
-      // already applies, and the stricter of the sim's two radii is the bound.
+      // already applies.
       const reach = CAPTURE_RADIUS - 1;
       const capturable = (p: { x: number; y: number }): boolean => {
         const cell = map.cellSize;

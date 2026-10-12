@@ -1,23 +1,22 @@
+// The X1-Alpha's weapons are the original's records (fcop-fidelity.md W1, W2,
+// P1; fcop-re/player-and-weapons.md §5, §7, player-weapons.json). The catalogue's
+// numbers are checked against the evidence file itself, and the delivery rules
+// — lock-only hitscan, the cooldown machine, the missiles, the ballistic solve,
+// the blast falloff, the mines and the pulse — on a flat arena.
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { ARCHETYPE } from "../src/archetypes";
 import {
-  AVATAR_AMMO_HEAVY,
-  AVATAR_AMMO_SPECIAL,
-  GRAVITY,
-  HEAVY_COOLDOWN_TICKS,
-  HEAVY_DAMAGE,
-  MORTAR_LAUNCH_SPEED,
-  MUZZLE_HEIGHT,
-  MUZZLE_OFFSET,
-  PRIMARY_COOLDOWN_TICKS,
-  PRIMARY_DAMAGE,
-  SPECIAL_COOLDOWN_TICKS,
-  SPECIAL_DAMAGE,
+  AVATAR_HP,
+  AVATAR_LOCK_RANGE,
+  PICKUP_POWER_GUN,
+  PICKUP_POWER_HEAVY,
+  PICKUP_POWER_SPECIAL,
   SPECIAL_MINE_ARM_TICKS,
-  SPECIAL_MINE_TRIGGER_RADIUS,
-  SPECIAL_SPEED,
-  SPECIAL_TTL_TICKS,
-  TICK_DT,
+  SPECIAL_MINE_FUSE_TICKS,
+  TICK_HZ,
+  WEAPON_UNITS_PER_TICK,
 } from "../src/balance";
 import {
   EV_SHOT,
@@ -28,31 +27,42 @@ import {
   weaponShotPayload,
 } from "../src/events";
 import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_FIRE3, createTickInputs } from "../src/inputs";
-import { getMapById } from "../src/map";
+import { getMapById, LA_CANTINA_ID, loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, type SimState, step } from "../src/sim";
 import {
   DEFAULT_LOADOUT,
   GUNS,
+  gapUnits,
   HEAVIES,
+  NOT_ADOPTED_CODES,
   normalizeLoadout,
+  PROJ_HEAVY,
+  PROJ_HYPER,
   PROJ_MINE,
   PROJ_MORTAR,
   resolveLoadout,
   SPECIALS,
+  type WeaponDef,
   weaponById,
 } from "../src/weapons";
 
+const EVIDENCE = JSON.parse(
+  readFileSync(
+    join(import.meta.dir, "..", "..", "..", "docs", "specs", "fcop-re", "player-weapons.json"),
+    "utf8",
+  ),
+) as { weapons: Record<string, Record<string, Record<string, unknown>>> };
+
+const ALL: readonly WeaponDef[] = [...GUNS, ...HEAVIES, ...SPECIALS];
+
+function evidence(w: WeaponDef, block: "A_normal" | "B_powered"): Record<string, unknown> {
+  const key = `0x${w.code.toString(16).padStart(2, "0")}`;
+  return EVIDENCE.weapons[key][block];
+}
+
 /**
- * Catalog ids of the AVATAR shots in this tick's event buffer.
- *
- * The avatar slots pack the id together with the shot's reach (events.ts
- * `weaponShotPayload`), so `c` is no longer the bare id these tests used to
- * compare against — and what `c` means depends on the slot. An emplacement's
- * EV_SHOT carries reach alone, so decoding one as a weapon id yields
- * `reachDecimetres & 0xff`, a number that could collide with a real catalog id
- * and pass an assertion for the wrong reason. test-128 has no turrets, dummies
- * or units, so nothing else fires here today; the slot check is what keeps that
- * from being load-bearing.
+ * Catalog ids of the AVATAR shots in this tick's event buffer (the avatar slots
+ * pack the id with the shot's reach; events.ts `weaponShotPayload`).
  */
 function firedWeaponIds(sim: SimState): number[] {
   const ids: number[] = [];
@@ -65,36 +75,112 @@ function firedWeaponIds(sim: SimState): number[] {
   return ids;
 }
 
+// Flat 16×16 grid, 4 m cells, no water. P0 spawns at (20, 30) facing +x on its
+// pad; P1 spawns far north. Tests move the avatars where they need them.
+function flatArena(): MapJson {
+  const size = 16;
+  const heights: number[][] = [];
+  const water: string[] = [];
+  for (let j = 0; j < size; j++) {
+    heights.push(new Array(size).fill(0));
+    water.push("0".repeat(size));
+  }
+  return {
+    id: "flat-weapons",
+    size,
+    cellSize: 4,
+    waterLevel: -10,
+    heights,
+    water,
+    spawns: [
+      { x: 20, y: 30, yaw: 0 },
+      { x: 30, y: 58, yaw: 0 },
+    ],
+    basePlots: [
+      { x: 20, y: 30, radius: 6 },
+      { x: 30, y: 58, radius: 6 },
+    ],
+    bases: [
+      {
+        gate: { x: 2, y: 2, radius: 2 },
+        core: [14, 30],
+        groundConsole: [20, 24],
+        airConsole: [20, 36],
+        pad: { x: 6, y: 6, radius: 2 },
+        turrets: [],
+      },
+      {
+        gate: { x: 58, y: 58, radius: 2 },
+        core: [36, 58],
+        groundConsole: [30, 52],
+        airConsole: [24, 58],
+        pad: { x: 54, y: 54, radius: 2 },
+        turrets: [],
+      },
+    ],
+    lanes: [],
+    turretSpots: [],
+    outpostSpots: [],
+    dummySpots: [],
+  };
+}
+
+const FLAT = loadMapFromJson(flatArena());
+
+/** A duel on the flat arena: p0 at (20, 30) facing +x, p1 `dx` m east of it. */
+function duel(loadout: Partial<typeof DEFAULT_LOADOUT>, dx: number, dy = 0) {
+  const sim = createSim(FLAT, 1, { loadouts: [loadout, DEFAULT_LOADOUT] });
+  const a0 = sim.avatarId[0];
+  const a1 = sim.avatarId[1];
+  sim.ent.posX[a1] = 20 + dx;
+  sim.ent.posY[a1] = 30 + dy;
+  // p1 faces away so it never locks p0.
+  sim.ent.yaw[a1] = Math.PI;
+  sim.ent.aimX[a1] = -1;
+  sim.ent.aimY[a1] = 0;
+  return { sim, a0, a1, inputs: createTickInputs() };
+}
+
+function projectiles(sim: SimState, kind: number): number[] {
+  const out: number[] = [];
+  for (let e = 0; e < sim.ent.high; e++) {
+    if (sim.ent.alive[e] && sim.ent.archetype[e] === ARCHETYPE.PROJECTILE) {
+      if (sim.ent.mode[e] === kind) out.push(e);
+    }
+  }
+  return out;
+}
+
 describe("weapon catalog", () => {
-  test("default kit matches historic balance numbers", () => {
+  test("default kit is the original's: Mini-Gun, Hell Fire 2000, Mortar", () => {
     const kit = resolveLoadout(DEFAULT_LOADOUT);
     expect(kit.gun.name).toBe("Powered Mini-Gun");
     expect(kit.heavy.name).toBe("Hell Fire 2000");
     expect(kit.special.name).toBe("Mortar Launcher");
-    expect(kit.gun.damage).toBe(PRIMARY_DAMAGE);
-    expect(kit.heavy.damage).toBe(HEAVY_DAMAGE);
-    expect(kit.heavy.ammo).toBe(AVATAR_AMMO_HEAVY);
-    expect(kit.special.damage).toBe(SPECIAL_DAMAGE);
-    expect(kit.special.ammo).toBe(AVATAR_AMMO_SPECIAL);
+    expect([kit.gun.code, kit.heavy.code, kit.special.code]).toEqual([0x00, 0x10, 0x20]);
   });
 
-  test("catalog is the ten original PA weapons", () => {
-    expect(GUNS.map((w) => w.name)).toEqual([
-      "Powered Mini-Gun",
-      "Gatling Laser",
-      "Flamethrower",
-      "Electric Gun",
+  test("catalog is the ten original PA weapons, mapped to their codes", () => {
+    expect(GUNS.map((w) => [w.name, w.code])).toEqual([
+      ["Powered Mini-Gun", 0x00],
+      ["Gatling Laser", 0x01],
+      ["Flamethrower", 0x02],
+      ["Electric Gun", 0x03],
     ]);
-    expect(HEAVIES.map((w) => w.name)).toEqual([
-      "Hell Fire 2000",
-      "Concussion Beam",
-      "Hyper Velocity Rocket",
+    expect(HEAVIES.map((w) => [w.name, w.code])).toEqual([
+      ["Hell Fire 2000", 0x10],
+      ["Concussion Beam", 0x12],
+      ["Hyper Velocity Rocket", 0x13],
     ]);
-    expect(SPECIALS.map((w) => w.name)).toEqual([
-      "Mortar Launcher",
-      "Pop-Up Mines",
-      "Shockwave Generator",
+    expect(SPECIALS.map((w) => [w.name, w.code])).toEqual([
+      ["Mortar Launcher", 0x20],
+      ["Pop-Up Mines", 0x22],
+      ["Shockwave Generator", 0x23],
     ]);
+    // The other five records exist in the original and are not offered.
+    const offered = new Set(ALL.map((w) => w.code));
+    for (const c of NOT_ADOPTED_CODES) expect(offered.has(c)).toBe(false);
+    expect(offered.size + NOT_ADOPTED_CODES.length).toBe(15);
   });
 
   test("normalizeLoadout clamps out-of-range picks", () => {
@@ -107,7 +193,7 @@ describe("weapon catalog", () => {
 
   test("every catalog id resolves uniquely", () => {
     const ids = new Set<number>();
-    for (const w of [...GUNS, ...HEAVIES, ...SPECIALS]) {
+    for (const w of ALL) {
       expect(ids.has(w.id)).toBe(false);
       ids.add(w.id);
       expect(weaponById(w.id)?.name).toBe(w.name);
@@ -125,86 +211,315 @@ describe("weapon catalog", () => {
 });
 
 /**
- * The ten original Precinct Assault weapons, pinned against the original's
- * front-end bars (rules.md §2).
- *
- * Bars are 1/55, so they give ratios: each slot's index-0 weapon is the anchor,
- * `damage = anchorDamage * bar / anchorBar` and
- * `cooldown = anchorCooldown * anchorRate / rate`. Recomputed here from the raw
- * bar readings rather than restating balance.ts's results, so a hand-edit to
- * either side has to be justified.
+ * Every number against docs/specs/fcop-re/player-weapons.json, both blocks. The
+ * file's derived SI values are the evidence; the catalogue converts the raw
+ * halfwords the way the loader does, and the two must agree.
  */
-describe("original weapon table (rules.md §2)", () => {
-  // panel, firing-rate bar, damage bar — measured off extracted/frontend/*.png
-  // for the long-standing nine, and scale-matched from PA weapons-screen
-  // captures for Pop-Up Mines and Shockwave Generator.
-  const BARS = {
-    "Powered Mini-Gun": { rate: 55, dmg: 3 },
-    "Gatling Laser": { rate: 55, dmg: 3 },
-    Flamethrower: { rate: 55, dmg: 9 },
-    "Electric Gun": { rate: 28, dmg: 9 },
-    "Hell Fire 2000": { rate: 42, dmg: 9 },
-    "Concussion Beam": { rate: 21, dmg: 19 },
-    "Hyper Velocity Rocket": { rate: 55, dmg: 11 },
-    "Mortar Launcher": { rate: 28, dmg: 19 },
-    "Pop-Up Mines": { rate: 55, dmg: 55 },
-    "Shockwave Generator": { rate: 19, dmg: 28 },
-  } as const;
-
-  const ANCHOR = ["Powered Mini-Gun", "Hell Fire 2000", "Mortar Launcher"] as const;
-
-  test("each slot's anchor is the default pick, unchanged", () => {
-    for (const [slot, list] of [GUNS, HEAVIES, SPECIALS].entries()) {
-      expect(list[0].name).toBe(ANCHOR[slot]);
-    }
-    expect(GUNS[0].damage).toBe(PRIMARY_DAMAGE);
-    expect(GUNS[0].cooldownTicks).toBe(PRIMARY_COOLDOWN_TICKS);
-    expect(HEAVIES[0].damage).toBe(HEAVY_DAMAGE);
-    expect(HEAVIES[0].cooldownTicks).toBe(HEAVY_COOLDOWN_TICKS);
-    expect(SPECIALS[0].damage).toBe(SPECIAL_DAMAGE);
-    expect(SPECIALS[0].cooldownTicks).toBe(SPECIAL_COOLDOWN_TICKS);
-  });
-
-  test("every catalog weapon sits at its slot-anchored ratio", () => {
-    for (const [slot, list] of [GUNS, HEAVIES, SPECIALS].entries()) {
-      const anchorBars = BARS[ANCHOR[slot]];
-      for (const w of list) {
-        const bars = BARS[w.name as keyof typeof BARS];
-        expect(bars).toBeDefined();
-        expect(w.damage).toBe(Math.round((list[0].damage * bars.dmg) / anchorBars.dmg));
-        expect(w.cooldownTicks).toBe(
-          Math.round((list[0].cooldownTicks * anchorBars.rate) / bars.rate),
-        );
+describe("the original's records (fcop-fidelity.md W1)", () => {
+  test("damage, NORMAL ammunition and gaps", () => {
+    for (const w of ALL) {
+      for (const [blk, ev] of [
+        [w.a, evidence(w, "A_normal")],
+        [w.b, evidence(w, "B_powered")],
+      ] as const) {
+        const raw = ev.raw as Record<string, number>;
+        expect(blk.damage).toBe(ev.damage as number);
+        expect(blk.ammo).toBe((ev.ammo_start as Record<string, number>).normal);
+        expect(blk.ammoCap).toBe((ev.ammo_cap as Record<string, number>).normal);
+        expect(blk.rounds).toBe(raw.rounds_per_burst);
+        const units = ev.gap_units_1_300s as Record<string, number>;
+        expect(blk.burstGap).toBe(units.burst);
+        expect(blk.roundGap).toBe(units.round);
       }
     }
   });
 
-  test("the Concussion Beam is a Heavy, as in the original", () => {
-    expect(HEAVIES.some((w) => w.name === "Concussion Beam")).toBe(true);
-    expect(SPECIALS.some((w) => w.name === "Concussion Beam")).toBe(false);
+  test("gaps are raw * 4096 / 218, truncated toward zero", () => {
+    expect(gapUnits(8)).toBe(150); // Hell Fire: 0.5 s
+    expect(gapUnits(16)).toBe(300); // 1.0 s
+    expect(gapUnits(32)).toBe(601); // 2.003 s
+    expect(gapUnits(48)).toBe(901);
+    expect(gapUnits(1)).toBe(18);
+    expect(gapUnits(-2)).toBe(-37); // the Hyper Velocity Rocket's carried gap
   });
 
-  test("the declared deviation is the Mini-Gun/Laser range, and only that", () => {
-    const [mini, laser] = GUNS;
-    expect(laser.damage).toBe(mini.damage);
-    expect(laser.cooldownTicks).toBe(mini.cooldownTicks);
-    expect(laser.range).toBeGreaterThan(mini.range);
+  test("ranges, blasts, speeds and gravities", () => {
+    for (const w of ALL) {
+      for (const [blk, ev] of [
+        [w.a, evidence(w, "A_normal")],
+        [w.b, evidence(w, "B_powered")],
+      ] as const) {
+        if (typeof ev.range_m === "number") expect(blk.range).toBeCloseTo(ev.range_m, 2);
+        if (typeof ev.blast_radius_m === "number" && w.delivery === "hitscan") {
+          expect(blk.blast).toBeCloseTo(ev.blast_radius_m, 2);
+        }
+        const m = ev.missile as Record<string, number> | undefined;
+        if (m !== undefined) {
+          expect(blk.speed).toBeCloseTo(m.top_speed_m_s, 2);
+          expect(blk.launchSpeed).toBeCloseTo(m.launch_speed_m_s, 2);
+          expect(blk.accel).toBeCloseTo(m.accel_m_s2, 1);
+          expect(blk.range).toBeCloseTo(m.range_m, 2);
+          expect(blk.blast).toBeCloseTo(m.blast_radius_m, 2);
+        }
+        const b = ev.ballistic as Record<string, number> | undefined;
+        if (b !== undefined) {
+          expect(blk.launchSpeed).toBeCloseTo(b.launch_speed_m_s, 2);
+          expect(blk.gravity).toBeCloseTo(b.gravity_m_s2, 2);
+          expect(blk.blast).toBeCloseTo(b.blast_radius_m, 2);
+        }
+        const beam = ev.beam as Record<string, number> | undefined;
+        if (beam !== undefined) {
+          expect(blk.range).toBeCloseTo(beam.range_m, 2);
+          expect(blk.blast).toBeCloseTo(beam.blast_radius_m, 2);
+        }
+        const mine = ev.mine as Record<string, number> | undefined;
+        if (mine !== undefined) {
+          expect(blk.blast).toBeCloseTo(mine.blast_radius_m, 1);
+          expect(blk.reach).toBeCloseTo(mine.trigger_radius_m_plus_half_extent, 2);
+        }
+        const shock = ev.shockwave as Record<string, number> | undefined;
+        if (shock !== undefined) expect(blk.blast).toBeCloseTo(shock.radius_m, 2);
+      }
+    }
+  });
+
+  test("the Mortar's flat reach is v² / g = 9.67 m", () => {
+    expect(SPECIALS[0].range).toBeCloseTo(9.67, 2);
+  });
+});
+
+describe("the cooldown machine (`player_fire_slot`)", () => {
+  test("a gap-0 gun fires on every tick it is held: 30 rounds a second", () => {
+    expect(WEAPON_UNITS_PER_TICK).toBe(10);
+    const { sim, a1, inputs } = duel({ gun: 0 }, 8);
+    inputs.players[0].buttons = BUTTON_FIRE1;
+    for (let t = 0; t < TICK_HZ; t++) step(sim, inputs);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - TICK_HZ);
+    expect(sim.gunAmmo[0]).toBe(GUNS[0].a.ammoCap - TICK_HZ);
+  });
+
+  test("the Electric Gun's 18-unit gap fires on every other tick", () => {
+    const { sim, a1, inputs } = duel({ gun: 3 }, 8);
+    inputs.players[0].buttons = BUTTON_FIRE1;
+    for (let t = 0; t < TICK_HZ; t++) step(sim, inputs);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 15 * 3);
+  });
+
+  test("the Hyper Velocity Rocket fires four rounds on four ticks, then waits", () => {
+    const { sim, a0, inputs } = duel({ heavy: 2 }, 30);
+    inputs.players[0].buttons = BUTTON_FIRE2;
+    const fired: number[] = [];
+    for (let t = 0; t < 80; t++) {
+      step(sim, inputs);
+      if (firedWeaponIds(sim).includes(HEAVIES[2].id)) fired.push(t);
+    }
+    // 450 - 3 * 37 = 339 units after the fourth: 34 ticks, so a 37-tick cycle.
+    expect(fired.slice(0, 8)).toEqual([0, 1, 2, 3, 37, 38, 39, 40]);
+    expect(sim.ent.ammoA[a0]).toBe(HEAVIES[2].a.ammoCap - fired.length);
+  });
+
+  test("the Mortar's 601-unit gap is 61 ticks: the cooldown floors at zero", () => {
+    const { sim, inputs } = duel({ special: 0 }, 30);
+    inputs.players[0].buttons = BUTTON_FIRE3;
+    const fired: number[] = [];
+    for (let t = 0; t < 130; t++) {
+      step(sim, inputs);
+      if (firedWeaponIds(sim).includes(SPECIALS[0].id)) fired.push(t);
+    }
+    expect(fired).toEqual([0, 61, 122]);
+  });
+
+  test("an empty magazine fires nothing", () => {
+    const { sim, a1, inputs } = duel({ gun: 0 }, 8);
+    sim.gunAmmo[0] = 2;
+    inputs.players[0].buttons = BUTTON_FIRE1;
+    for (let t = 0; t < 10; t++) step(sim, inputs);
+    expect(sim.gunAmmo[0]).toBe(0);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 2);
+  });
+});
+
+describe("hitscan damages only the lock (fcop-fidelity.md W2)", () => {
+  test("a target ahead inside 12 m is locked and hit", () => {
+    const { sim, a1, inputs } = duel({ gun: 0 }, 11.5);
+    inputs.players[0].buttons = BUTTON_FIRE1;
+    step(sim, inputs);
+    expect(sim.lockTarget[0]).toBe(a1);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 1);
+  });
+
+  test("past 12 m nothing is locked and nothing is hit", () => {
+    const { sim, a1, inputs } = duel({ gun: 0 }, AVATAR_LOCK_RANGE + 0.5);
+    inputs.players[0].buttons = BUTTON_FIRE1;
+    for (let t = 0; t < 10; t++) step(sim, inputs);
+    expect(sim.lockTarget[0]).toBe(-1);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP);
+  });
+
+  test("the line does nothing to what it crosses without a lock", () => {
+    // An uncaptured neutral turret is not lockable (its skip flag), so a Mini-Gun
+    // aimed straight through it from 6 m hits nothing — the old any-body-on-the-
+    // line hitscan would have chewed through its 500 HP.
+    const map = getMapById(LA_CANTINA_ID);
+    const sim = createSim(map, 3);
+    const t = sim.neutralTurretEntity[0];
+    const a0 = sim.avatarId[0];
+    const hp = sim.ent.hp[t];
+    sim.ent.posX[a0] = sim.ent.posX[t] - 6;
+    sim.ent.posY[a0] = sim.ent.posY[t];
+    sim.ent.height[a0] = sim.ent.height[t];
+    sim.ent.yaw[a0] = 0;
+    sim.ent.aimX[a0] = 1;
+    sim.ent.aimY[a0] = 0;
+    const inputs = createTickInputs();
+    inputs.players[0].buttons = BUTTON_FIRE1;
+    for (let k = 0; k < 30; k++) step(sim, inputs);
+    expect(sim.lockTarget[0]).toBe(-1);
+    expect(sim.ent.hp[t]).toBe(hp);
+  });
+
+  test("the shot's reach is the distance to the lock", () => {
+    const { sim, inputs } = duel({ gun: 0 }, 7);
+    inputs.players[0].buttons = BUTTON_FIRE1;
+    step(sim, inputs);
+    for (let i = 0; i < sim.events.count; i++) {
+      const o = i * EVENT_STRIDE;
+      if (sim.events.data[o] !== EV_SHOT || sim.events.data[o + 2] !== 0) continue;
+      expect(shotPayloadWeaponReach(sim.events.data[o + 3])).toBeCloseTo(7, 1);
+    }
+  });
+});
+
+describe("missiles", () => {
+  test("Hell Fire 2000 launches slow, accelerates and homes on the lock", () => {
+    const { sim, a1, inputs } = duel({ heavy: 0 }, 9, 1.5);
+    inputs.players[0].buttons = BUTTON_FIRE2;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    const [m] = projectiles(sim, PROJ_HEAVY);
+    expect(m).toBeDefined();
+    // Launch at an eighth of top speed (1.98 m/s), 71 m/s² to 15.8 m/s; the
+    // projectile system already flew it one tick.
+    expect(sim.ent.cooldownA[m]).toBeCloseTo(
+      HEAVIES[0].a.launchSpeed + HEAVIES[0].a.accel / TICK_HZ,
+      3,
+    );
+    expect(sim.ent.cooldownC[m]).toBe(a1);
+    step(sim, inputs);
+    expect(sim.ent.cooldownA[m]).toBeGreaterThan(HEAVIES[0].a.launchSpeed);
+    for (let t = 0; t < 40 && sim.ent.alive[m]; t++) step(sim, inputs);
+    // It found the target 1.5 m off its launch line and dealt its 25: no blast.
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 25);
+  });
+
+  test("a missile without a lock flies straight and ends at its 16 m range", () => {
+    const { sim, inputs } = duel({ heavy: 0 }, 0, 25);
+    inputs.players[0].buttons = BUTTON_FIRE2;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    const [m] = projectiles(sim, PROJ_HEAVY);
+    expect(sim.ent.cooldownC[m]).toBe(-1);
+    let lastX = 0;
+    while (sim.ent.alive[m]) {
+      lastX = sim.ent.posX[m];
+      step(sim, inputs);
+    }
+    expect(lastX - 20).toBeGreaterThan(15);
+    expect(lastX - 20).toBeLessThan(17);
+  });
+
+  test("the Hyper Velocity Rocket is lead-aimed at a moving lock", () => {
+    const { sim, a1, inputs } = duel({ heavy: 2 }, 10);
+    sim.ent.velY[a1] = 3; // the target is crossing at 3 m/s
+    inputs.players[0].buttons = BUTTON_FIRE2;
+    step(sim, inputs);
+    const [r] = projectiles(sim, PROJ_HYPER);
+    expect(sim.ent.velY[r]).toBeGreaterThan(0); // aimed ahead of it, not at it
+    expect(sim.ent.cooldownC[r]).toBe(-1); // and not homing
+  });
+});
+
+describe("arced rounds", () => {
+  test("the Mortar lobs to 8 m ahead with no lock, under its own 6 m/s² gravity", () => {
+    const { sim, inputs } = duel({ special: 0 }, 0, 25);
+    inputs.players[0].buttons = BUTTON_FIRE3;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    const [s] = projectiles(sim, PROJ_MORTAR);
+    const h0 = sim.ent.height[s];
+    let apex = h0;
+    let x = 0;
+    while (sim.ent.alive[s]) {
+      apex = Math.max(apex, sim.ent.height[s]);
+      x = sim.ent.posX[s];
+      step(sim, inputs);
+    }
+    // The high root of the solve: a steep lob (62°) that comes down 8 m out.
+    expect(apex - h0).toBeGreaterThan(3);
+    expect(x - 20).toBeGreaterThan(8.6 - 0.6);
+    expect(x - 20).toBeLessThan(8.6 + 0.6);
+  });
+
+  test("the Mortar lands on the lock and its blast falls off with distance", () => {
+    const { sim, a1, inputs } = duel({ special: 0 }, 7);
+    inputs.players[0].buttons = BUTTON_FIRE3;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    for (let t = 0; t < 120; t++) step(sim, inputs);
+    const lost = AVATAR_HP - sim.ent.hp[a1];
+    // Lands within a contact radius of the target: 200 * (3.2 - d) / 3.2.
+    expect(lost).toBeGreaterThan(100);
+    expect(lost).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("mines and the pulse", () => {
+  test("a mine springs on an enemy within 2 m + its radius and blows a second later", () => {
+    const { sim, a0, a1, inputs } = duel({ special: 1 }, 30);
+    inputs.players[0].buttons = BUTTON_FIRE3;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    const [mine] = projectiles(sim, PROJ_MINE);
+    expect(sim.ent.timerB[mine]).toBe(SPECIAL_MINE_ARM_TICKS - 1); // armed one tick already
+    // p0 walks off; once armed, p1 steps 2.2 m from it (inside 2 + 0.4).
+    sim.ent.posX[a0] = 0.5;
+    sim.ent.posY[a0] = 0.5;
+    for (let t = 0; t < SPECIAL_MINE_ARM_TICKS + 1; t++) step(sim, inputs);
+    sim.ent.posX[a1] = sim.ent.posX[mine] + 2.2;
+    sim.ent.posY[a1] = sim.ent.posY[mine];
+    step(sim, inputs);
+    expect(sim.ent.cooldownA[mine]).toBe(SPECIAL_MINE_FUSE_TICKS);
+    for (let t = 0; t < SPECIAL_MINE_FUSE_TICKS - 1; t++) step(sim, inputs);
+    expect(sim.ent.alive[mine]).toBe(1);
+    step(sim, inputs);
+    expect(sim.ent.alive[mine]).toBe(0);
+    // 600 * (5.6 - 2.2) / 5.6, truncated.
+    expect(AVATAR_HP - sim.ent.hp[a1]).toBe(Math.floor((600 * (5.599609375 - 2.2)) / 5.599609375));
+  });
+
+  test("the Shockwave Generator hits everything within 6 m for its full 300", () => {
+    const { sim, a1, inputs } = duel({ special: 2 }, 5);
+    inputs.players[0].buttons = BUTTON_FIRE3;
+    step(sim, inputs);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 300);
+  });
+
+  test("the Concussion Beam bursts at the lock for 50", () => {
+    const { sim, a1, inputs } = duel({ heavy: 1 }, 6);
+    inputs.players[0].buttons = BUTTON_FIRE2;
+    step(sim, inputs);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 50);
   });
 });
 
 describe("EV_SHOT payload", () => {
   test("a positive reach never packs to zero", () => {
     // Zero is how the renderer spells "no reach travelled with this shot", and
-    // it falls back to the weapon's nominal range there. Rounding at 1 dm means
-    // anything under 5 cm would land on it — so firing while flush against a
-    // wall would draw the full forty metres straight through it, which is the
-    // bug this payload exists to prevent.
+    // it falls back to the weapon's nominal range there.
     for (const reach of [0.049, 0.01, 0.0001]) {
       expect(shotPayloadWeaponReach(weaponShotPayload(0, reach))).toBeCloseTo(0.1, 10);
     }
-    // A shot that genuinely carried no reach still says so.
     expect(shotPayloadWeaponReach(weaponShotPayload(0, 0))).toBe(0);
-    // And the weapon id survives the clamp untouched.
     expect(shotPayloadWeaponId(weaponShotPayload(9, 0.01))).toBe(9);
   });
 
@@ -215,8 +530,16 @@ describe("EV_SHOT payload", () => {
   });
 });
 
-describe("loadout combat", () => {
-  test("default loadout leaves the first shot hash path intact on test-128", () => {
+describe("ammunition", () => {
+  test("spawn fills all three A magazines to their NORMAL ceilings", () => {
+    const sim = createSim(FLAT, 1, { loadouts: [{ gun: 1, heavy: 2, special: 1 }] });
+    const a0 = sim.avatarId[0];
+    expect(sim.gunAmmo[0]).toBe(6250);
+    expect(sim.ent.ammoA[a0]).toBe(150);
+    expect(sim.ent.ammoB[a0]).toBe(37);
+  });
+
+  test("the default loadout leaves the first shot's hash path intact", () => {
     const map = getMapById("test-128");
     const a = createSim(map, 1, { loadouts: [DEFAULT_LOADOUT] });
     const b = createSim(map, 1);
@@ -227,241 +550,111 @@ describe("loadout combat", () => {
     expect(a.ent.ammoB[a.avatarId[0]]).toBe(b.ent.ammoB[b.avatarId[0]]);
   });
 
-  test("gatling laser uses its own ammo-free hitscan kit", () => {
-    const map = getMapById("test-128");
-    const sim = createSim(map, 2, { loadouts: [{ gun: 1, heavy: 0, special: 0 }] });
-    const inputs = createTickInputs();
-    inputs.players[0].aimX = 127;
-    inputs.players[0].aimY = 0;
+  test("every weapon fires its own catalog id", () => {
+    for (const w of ALL) {
+      const loadout = {
+        gun: 0,
+        heavy: 0,
+        special: 0,
+        [["gun", "heavy", "special"][w.slot]]: w.index,
+      };
+      const { sim, inputs } = duel(loadout, 8);
+      inputs.players[0].buttons = [BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_FIRE3][w.slot];
+      step(sim, inputs);
+      expect(firedWeaponIds(sim)).toContain(w.id);
+    }
+  });
+});
+
+/**
+ * The power-up is the original's (fcop-fidelity.md P8; fcop-re/player-and-
+ * weapons.md §6): a slot's power pickup fills that slot's block-B magazine, the
+ * slot fires block B until it is empty and then block A again, and a down loses
+ * it. It replaced Metropolis' x2 damage for 15 s.
+ */
+describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
+  /** A la-cantina avatar standing on the first pickup of `kind`. */
+  function onPickup(kind: number, loadout: Partial<typeof DEFAULT_LOADOUT> = {}) {
+    const map = getMapById(LA_CANTINA_ID);
+    const sim = createSim(map, 1, { loadouts: [loadout] });
+    const k = map.pickups.findIndex((p) => p.kind === kind);
+    expect(k).toBeGreaterThanOrEqual(0);
+    const a0 = sim.avatarId[0];
+    sim.ent.posX[a0] = map.pickups[k].x;
+    sim.ent.posY[a0] = map.pickups[k].y;
+    return { sim, a0, inputs: createTickInputs() };
+  }
+
+  test("each slot's pickup fills its own B magazine to the NORMAL ceiling", () => {
+    for (const [kind, slot, w] of [
+      [PICKUP_POWER_GUN, 0, GUNS[0]],
+      [PICKUP_POWER_HEAVY, 1, HEAVIES[0]],
+      [PICKUP_POWER_SPECIAL, 2, SPECIALS[0]],
+    ] as const) {
+      const { sim, inputs } = onPickup(kind);
+      step(sim, inputs);
+      expect(sim.powerAmmo[slot]).toBe(w.b.ammoCap);
+      for (let s = 0; s < 3; s++) if (s !== slot) expect(sim.powerAmmo[s]).toBe(0);
+    }
+    expect(HEAVIES[0].b.ammoCap).toBe(18); // Hell Fire B: 15 x 1.25
+  });
+
+  test("a powered Hell Fire fires its B block — three missiles — until empty, then A", () => {
+    const { sim, a0, inputs } = onPickup(PICKUP_POWER_HEAVY);
+    step(sim, inputs);
+    sim.powerAmmo[1] = 2;
+    const ammoA = sim.ent.ammoA[a0];
+    inputs.players[0].buttons = BUTTON_FIRE2;
+    const volleys: number[] = [];
+    for (let t = 0; t < 60; t++) {
+      const before = projectiles(sim, PROJ_HEAVY).length;
+      step(sim, inputs);
+      const after = projectiles(sim, PROJ_HEAVY).length;
+      if (firedWeaponIds(sim).includes(HEAVIES[0].id)) volleys.push(after - before);
+    }
+    // Two B volleys of three (225-unit gap: 23 ticks), then A's single missile.
+    expect(volleys.slice(0, 3)).toEqual([3, 3, 1]);
+    expect(sim.powerAmmo[1]).toBe(0);
+    expect(sim.ent.ammoA[a0]).toBeLessThan(ammoA + 1);
+  });
+
+  test("a powered Mini-Gun splashes 2 in 1 m at the line's end even with no lock", () => {
+    const { sim, inputs } = duel({ gun: 0 }, 0, 25);
+    sim.powerAmmo[0] = 750;
+    // An enemy 12.5 m ahead: past the lock, inside a metre of the line's 12 m end.
+    const a1 = sim.avatarId[1];
+    sim.ent.posX[a1] = 20 + 12.3;
+    sim.ent.posY[a1] = 30;
     inputs.players[0].buttons = BUTTON_FIRE1;
     step(sim, inputs);
-    expect(sim.events.count).toBeGreaterThan(0);
-    expect(firedWeaponIds(sim)).toContain(1);
+    expect(sim.lockTarget[0]).toBe(-1);
+    // 2 * (1 - 0.3) / 1, truncated: 1.
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 1);
+    expect(sim.powerAmmo[0]).toBe(749);
   });
 
-  test("concussion beam (heavy hitscan) spends heavy ammo", () => {
-    const map = getMapById("test-128");
-    const sim = createSim(map, 3, { loadouts: [{ gun: 0, heavy: 1, special: 0 }] });
-    const id = sim.avatarId[0];
-    const before = sim.ent.ammoA[id];
-    expect(HEAVIES[1].name).toBe("Concussion Beam");
-    expect(before).toBe(HEAVIES[1].ammo);
-    const inputs = createTickInputs();
-    inputs.players[0].aimX = 127;
-    inputs.players[0].buttons = BUTTON_FIRE2;
-    step(sim, inputs);
-    expect(sim.ent.ammoA[id]).toBe(before - 1);
-  });
-
-  test("electric gun is ammo-free hitscan at catalog id 9", () => {
-    const map = getMapById("test-128");
-    expect(GUNS[3].name).toBe("Electric Gun");
-    const sim = createSim(map, 5, { loadouts: [{ gun: 3, heavy: 0, special: 0 }] });
-    const inputs = createTickInputs();
-    inputs.players[0].aimX = 127;
-    inputs.players[0].buttons = BUTTON_FIRE1;
-    step(sim, inputs);
-    expect(firedWeaponIds(sim)).toContain(9);
-  });
-
-  test("hyper velocity rocket spends heavy ammo", () => {
-    const map = getMapById("test-128");
-    expect(HEAVIES[2].name).toBe("Hyper Velocity Rocket");
-    const sim = createSim(map, 6, { loadouts: [{ gun: 0, heavy: 2, special: 0 }] });
-    const id = sim.avatarId[0];
-    const before = sim.ent.ammoA[id];
-    expect(before).toBe(HEAVIES[2].ammo);
-    const inputs = createTickInputs();
-    inputs.players[0].aimX = 127;
-    inputs.players[0].buttons = BUTTON_FIRE2;
-    step(sim, inputs);
-    expect(sim.ent.ammoA[id]).toBe(before - 1);
-  });
-
-  test("the mortar lobs, and lands where the flat shell used to expire", () => {
-    // The arc's whole contract (balance.ts MORTAR_LAUNCH_SPEED): the shell
-    // reaches the ground on exactly the tick its TTL would have run out on, at
-    // exactly the distance the flat shell covered in that time. So the
-    // trajectory changes and no balance number does.
-    const map = getMapById("test-128");
-    const sim = createSim(map, 11, { loadouts: [DEFAULT_LOADOUT] });
-    const avatar = sim.avatarId[0];
-    const startX = sim.ent.posX[avatar];
-    const startY = sim.ent.posY[avatar];
-    const inputs = createTickInputs();
-    inputs.players[0].aimX = 127; // straight along +x
-    inputs.players[0].aimY = 0;
+  test("a powered Mortar bursts into four fragments at its apex", () => {
+    const { sim, inputs } = duel({ special: 0 }, 0, 25);
+    sim.powerAmmo[2] = 12;
     inputs.players[0].buttons = BUTTON_FIRE3;
     step(sim, inputs);
-
-    const findShell = (): number => {
-      for (let e = 0; e < sim.ent.high; e++) {
-        if (
-          sim.ent.alive[e] &&
-          sim.ent.archetype[e] === ARCHETYPE.PROJECTILE &&
-          sim.ent.mode[e] === PROJ_MORTAR
-        ) {
-          return e;
-        }
-      }
-      return -1;
-    };
-    const shell = findShell();
-    expect(shell).toBeGreaterThanOrEqual(0);
-    const launchHeight = sim.ent.height[shell];
-
-    // Let it fly, holding nothing down, and watch the apex go by.
-    const idle = createTickInputs();
-    let apex = launchHeight;
-    let lastX = sim.ent.posX[shell];
-    let lastY = sim.ent.posY[shell];
-    let ticks = 0;
-    while (findShell() >= 0 && ticks < SPECIAL_TTL_TICKS + 20) {
-      const id = findShell();
-      apex = Math.max(apex, sim.ent.height[id]);
-      lastX = sim.ent.posX[id];
-      lastY = sim.ent.posY[id];
-      step(sim, idle);
-      ticks++;
+    inputs.players[0].buttons = 0;
+    expect(projectiles(sim, PROJ_MORTAR).length).toBe(1);
+    let most = 1;
+    for (let t = 0; t < 120; t++) {
+      step(sim, inputs);
+      most = Math.max(most, projectiles(sim, PROJ_MORTAR).length);
     }
-
-    // It went UP: a flat shell never leaves its muzzle height.
-    expect(apex).toBeGreaterThan(launchHeight + 10);
-    // test-128 is a slope — it climbs ~4.7 m over the shell's flight — so the
-    // ground comes up to meet the shell and it lands a few ticks EARLY. That is
-    // the arc working: a flat shell at muzzle height would have ploughed into
-    // that same rise far sooner. What must hold on any terrain is that it never
-    // outlives its TTL, and that it flew at constant horizontal speed the whole
-    // way. The exact level-ground landing tick is pinned below, where terrain
-    // cannot muddy it.
-    expect(ticks).toBeLessThanOrEqual(SPECIAL_TTL_TICKS);
-    expect(ticks).toBeGreaterThan(SPECIAL_TTL_TICKS * 0.8);
-    // Measured from the avatar, so the muzzle offset the shell spawned at is
-    // part of the distance.
-    const flew = Math.sqrt((lastX - startX) ** 2 + (lastY - startY) ** 2);
-    expect(flew).toBeCloseTo(MUZZLE_OFFSET + SPECIAL_SPEED * ticks * TICK_DT, 1);
+    expect(most).toBe(4);
+    expect(sim.powerAmmo[2]).toBe(11);
   });
 
-  test("on level ground the arc lands exactly when the flat shell expired", () => {
-    // The balance claim behind MORTAR_LAUNCH_SPEED, checked against the DISCRETE
-    // integration the tick loop actually runs rather than the closed form it was
-    // derived from — a half-tick error in the derivation would not show up in
-    // the algebra, and would move where every mortar lands.
-    let height = MUZZLE_HEIGHT;
-    let vertical = MORTAR_LAUNCH_SPEED;
-    let ticks = 0;
-    while (height > 0 && ticks < SPECIAL_TTL_TICKS * 2) {
-      vertical -= GRAVITY * TICK_DT;
-      height += vertical * TICK_DT;
-      ticks++;
-    }
-    expect(ticks).toBe(SPECIAL_TTL_TICKS);
-  });
-
-  test("rockets do not lob — only the mortar has a vertical component", () => {
-    const map = getMapById("test-128");
-    const sim = createSim(map, 12, { loadouts: [{ gun: 0, heavy: 0, special: 0 }] });
-    const inputs = createTickInputs();
-    inputs.players[0].aimX = 127;
-    inputs.players[0].buttons = BUTTON_FIRE2; // Hell Fire 2000
+  test("going down loses it", () => {
+    const { sim, a0, inputs } = onPickup(PICKUP_POWER_SPECIAL);
     step(sim, inputs);
-    for (let e = 0; e < sim.ent.high; e++) {
-      if (sim.ent.alive[e] && sim.ent.archetype[e] === ARCHETYPE.PROJECTILE) {
-        expect(sim.ent.timerB[e]).toBe(0);
-      }
-    }
-  });
-
-  test("pop-up mines place a charge without aim and spend special ammo", () => {
-    const map = getMapById("test-128");
-    expect(SPECIALS[1].name).toBe("Pop-Up Mines");
-    const sim = createSim(map, 8, { loadouts: [{ gun: 0, heavy: 0, special: 1 }] });
-    const id = sim.avatarId[0];
-    const before = sim.ent.ammoB[id];
-    expect(before).toBe(SPECIALS[1].ammo);
-    const inputs = createTickInputs();
-    // Zero aim — mines must still place.
-    inputs.players[0].aimX = 0;
-    inputs.players[0].aimY = 0;
-    inputs.players[0].buttons = BUTTON_FIRE3;
+    expect(sim.powerAmmo[2]).toBeGreaterThan(0);
+    sim.ent.hp[a0] = -1;
     step(sim, inputs);
-    expect(sim.ent.ammoB[id]).toBe(before - 1);
-    let mineId = -1;
-    for (let e = 0; e < sim.ent.high; e++) {
-      if (
-        sim.ent.alive[e] &&
-        sim.ent.archetype[e] === ARCHETYPE.PROJECTILE &&
-        sim.ent.mode[e] === PROJ_MINE
-      ) {
-        mineId = e;
-        break;
-      }
-    }
-    expect(mineId).toBeGreaterThanOrEqual(0);
-    expect(sim.ent.timerB[mineId]).toBe(SPECIAL_MINE_ARM_TICKS - 1);
-  });
-
-  test("armed mine detonates on enemy avatar proximity", () => {
-    const map = getMapById("test-128");
-    const sim = createSim(map, 10, {
-      loadouts: [
-        { gun: 0, heavy: 0, special: 1 },
-        { gun: 0, heavy: 0, special: 0 },
-      ],
-    });
-    const a0 = sim.avatarId[0];
-    const a1 = sim.avatarId[1];
-    expect(a0).toBeGreaterThanOrEqual(0);
-    expect(a1).toBeGreaterThanOrEqual(0);
-    // test-128 co-locates both spawns — park the enemy clear before placing so
-    // arming does not trip on the standing teammate-enemy.
-    sim.ent.posX[a1] = sim.ent.posX[a0] + 40;
-    sim.ent.posY[a1] = sim.ent.posY[a0];
-    const place = createTickInputs();
-    place.players[0].buttons = BUTTON_FIRE3;
-    step(sim, place);
-    let mineId = -1;
-    for (let e = 0; e < sim.ent.high; e++) {
-      if (sim.ent.alive[e] && sim.ent.mode[e] === PROJ_MINE) mineId = e;
-    }
-    expect(mineId).toBeGreaterThanOrEqual(0);
-    const mx = sim.ent.posX[mineId];
-    const my = sim.ent.posY[mineId];
-    const idle = createTickInputs();
-    for (let t = 0; t < SPECIAL_MINE_ARM_TICKS + 1; t++) step(sim, idle);
-    expect(sim.ent.alive[mineId]).toBe(1);
-    // Walk the enemy into the trigger (test-only state write — fuze only).
-    sim.ent.posX[a1] = mx + SPECIAL_MINE_TRIGGER_RADIUS * 0.5;
-    sim.ent.posY[a1] = my;
-    const hpBefore = sim.ent.hp[a1];
-    expect(hpBefore).toBeGreaterThan(0);
-    step(sim, idle);
-    expect(sim.ent.alive[mineId]).toBe(0);
-    expect(sim.ent.hp[a1]).toBeLessThan(hpBefore);
-  });
-
-  test("shockwave generator fires without aim and damages nearby enemies", () => {
-    const map = getMapById("test-128");
-    expect(SPECIALS[2].name).toBe("Shockwave Generator");
-    const sim = createSim(map, 11, {
-      loadouts: [
-        { gun: 0, heavy: 0, special: 2 },
-        { gun: 0, heavy: 0, special: 0 },
-      ],
-    });
-    const a0 = sim.avatarId[0];
-    const a1 = sim.avatarId[1];
-    // Put enemy next to p0.
-    sim.ent.posX[a1] = sim.ent.posX[a0] + 2;
-    sim.ent.posY[a1] = sim.ent.posY[a0];
-    const hpBefore = sim.ent.hp[a1];
-    const before = sim.ent.ammoB[a0];
-    const inputs = createTickInputs();
-    inputs.players[0].aimX = 0;
-    inputs.players[0].aimY = 0;
-    inputs.players[0].buttons = BUTTON_FIRE3;
-    step(sim, inputs);
-    expect(sim.ent.ammoB[a0]).toBe(before - 1);
-    expect(sim.ent.hp[a1]).toBeLessThan(hpBefore);
+    expect(sim.powerAmmo[2]).toBe(0);
   });
 });

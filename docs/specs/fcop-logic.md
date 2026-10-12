@@ -153,7 +153,7 @@ semantics).
 | Question | (a) Stored as `Cact` data | (b) Engine behaviour |
 |---|---|---|
 | **Aircraft flight** | spawn_type/pos, move_speed, turn_rate, orbit_area_x/y, height_offset, time_to_descend, target_detection_range | orbit/descend algorithm (engine; only stubbed in FC:MIT) |
-| **Ground unit (Pathed)** | move_speed, acceleration, **Cnet path ref** (`rsl[2]`), start node (= position), graph topology | traverse graph node→node; FC:MIT picks a **random** neighbour at each junction + linear interpolation (its guess of the engine rule) |
+| **Ground unit (Pathed)** | move_speed, acceleration, **Cnet path ref** (`rsl[2]`), start node (= position), graph topology, route mode / wander / search range | traverse graph node→node; FC:MIT guessed a **random** neighbour at each junction. The decompiled step chooser (`cnet_route_next`) is a seek-or-random octave score with occupancy and no doubling back (`fcop-re/ai-and-rules.md` §4), adopted in SIM_VERSION 44 |
 | **Turret targeting** | weapon_id, target_type, targeting, **engage_range**, **targeting_delay**, fov, **turn_speed**, gun_rotation, base_rotation, shooter bitfield | pick current target in range + slew gun + fire on cooldown (engine; not in FC:MIT) |
 
 So for the three questions asked:
@@ -207,21 +207,24 @@ Adopted for `la-cantina` only, on the owner's call, and written up as
 
 | Item | Status |
 |---|---|
-| `Cnet` as lanes (option 1) | **adopted**, flattened to committed next-hop tables so no runtime search is needed |
+| `Cnet` as lanes (option 1) | **adopted**; flattened to committed next-hop tables until SIM_VERSION 44, since then driven by the original's step chooser on each side's own net (rules.md §4; the tables remain the arena pipeline's road proof) |
 | Turret parameters (option 2) | **adopted as data**, not as balance reference: range/cadence/slew/FOV are per-arena weapon profiles |
-| Aircraft orbit shape (option 3) | not adopted; `moveAirUnit` keeps its own model |
-| `TeamBase` production + HP (§8.1) | **adopted** — 5 s cadence, 3000 HP core, base-destruction win |
+| Aircraft orbit shape (option 3) | **adopted** on the imported arenas in SIM_VERSION 45: target search within the detection range, leash about the spawner, standoff reverse (`units.ts` `moveAircraft`; dwell timers, turn rate and altitude not modelled) |
+| Type 28 (§8.1) | adopted as a 5 s free-production base with a 3000 HP core and a base-destruction win; **withdrawn in SIM_VERSION 32**: it is the Dreadnought. Now the Juggernaut's spawn point and stats; the win is the gate trigger box (§8.6) |
 | `ItemPickup` (§8.2) | **adopted** |
-| `Trigger` intrusion volumes (§8.6) | **adopted** as detection; the alert cue is authored, since the `Cfun` binding that carried it is unrecovered |
+| `Trigger` intrusion volumes (§8.6) | **adopted** as detection; the alert is the original's voice line (speech 2/3, 8.3 s per base) since SIM_VERSION 36 — the `Cfun` binding was read (§8.6, `fcop-fidelity.md` R15) |
 | Types 14 / 89 (§8.5) | not adopted; extracted for provenance only |
 
 The extractions are committed at `tools/generators/fcop/<mission>-logic.json` —
 all six MP missions (Mp, Conft, Slim, Joke, Hk, Ovmp) — alongside each arena's
 pristine stage-1 wall lattice in `<mission>-walls.json`; the raw→sim
-unit conversions live in `tools/generators/fcopLogic.ts`. Note the distance scale
-(`engage_range`, `orbit_area`, `target_detection_range`) is **inferred** as 1/1024
-from the Mp geometry — the extractor reads those fields as bare u16 — so it is
-pinned by a test rather than assumed.
+unit conversions live in `tools/generators/fcopLogic.ts`. The distance, trigger,
+delay and slew scales were first **inferred** (1/1024 for ranges) from the Mp
+geometry, because the extractor reads those fields as bare u16. They have since
+been **read from the retail code** (`fcop-re/ranges-turrets-capture.md` Q1/Q3,
+ledger rows I1-I5): ranges are raw/512 m (`engage_range` 6144 = 12 m), trigger
+half-extents raw/1024 m plus the intruder's radius, `targeting_delay` 1/16 s, and
+`turn_speed` `((raw*16)/218)>>4` angle units per 1/300 s. The test pins them.
 
 One correction to §5's validation note while here: the decoded X1Alpha positions
 match `convert.ts`'s **old** hand-placed values because both sat in the actor
@@ -265,33 +268,42 @@ is **not** ignored any more — see §7's entry: it turned out to be an MP
 structure, and reading it is what established that the capture rule is not in
 there.
 
-### 8.1 The team production base (`act_type = 28`, "TeamBase?")
+### 8.1 The Dreadnought (`act_type = 28`, extracted as "TeamBase?")
 
-Not in FC:MIT (it lists 28 as Unknown). Identified here purely from the data and
-it is the **core Precinct Assault mechanic**:
+Not in FC:MIT (it lists 28 as Unknown). This section used to identify it from the
+data alone as **the team production base** — a 3000 HP structure producing a unit
+onto its lane every 5 s and defended by four built-in guns — and Metropolis built
+a core-HP win and free production on that reading. **The reading was wrong.**
+Reading the decompiled executable against the retail disassembly
+(`fcop-re/ranges-turrets-capture.md` top + Q4, `fcop-re/ai-and-rules.md` §0, §3):
 
-- **Exactly 2 per arena**, team-symmetric: each sits ~7 cells from one X1Alpha
-  spawn and far from the other. Byte `team` = 1 vs 2.
-- **Each base is bound to its own `Cnet`**: team-0 base → `Cnet` id 1, team-1 base
-  → `Cnet` id 2. So the two path networks per arena are the two teams' lanes.
-- Carries a **`tSAC` spawn timer**: `spawn_ticks = 300` = **5 s**, `spawn_limit = 1`
-  → produces a unit onto its lane every 5 s.
-- `health = 3000` (the structure you attack). Model refs: alive `Cobj` + destroyed `Cobj`.
+- **It is the Dreadnought**, a purchasable 4-gun ground unit. Its record class
+  byte is 3 on every PA map, which the results screen counts as "Dreadnoughts"
+  (`csac_credit_spawn`, `results.c:49`); tanks are class 1, jets 2, Flying
+  Fortresses 4. `cact_handler_type28` ticks the tank route handler before its gun
+  mounts: it drives its Cnet like a tank.
+- **Exactly 2 per arena**, team-symmetric, each next to its side's HQ and X1Alpha
+  spawn. Byte `team` = 1 vs 2. **Each is bound to its own `Cnet`** (team-0 → id 1,
+  team-1 → id 2) and stands at node 0: it rolls out from there.
+- Its **`tSAC`** (`spawn_ticks = 300` = 5 s, `spawn_limit = 1`) is the
+  Dreadnought spawner, and it is **shut** in PA: the Dreadnought appears only when
+  bought for 50 points, one alive per side. Nothing in PA is produced for free.
+- `health = 3000` is the Dreadnought's own HP. There is **no destructible core**
+  anywhere in the original; the PA win is an enemy tank or Dreadnought entering
+  the base's gate trigger (§8.6).
 
-Full 112-byte payload (RE'd here, no FC:MIT reference; identical across all 12 MP
-instances):
+Full 112-byte payload (identical across all 12 MP instances):
 - `0x00` **BaseEntity** — flags, `health = 3000`, collision_damage 10, `team` (1/2),
-  group 3, target_priority 15.
-- `0x10, 0x40, 0x50, 0x60` — **4 identical BaseShooter defence weapons**: weapon_id 3,
-  target_type 4, `targeting = enemy team` (verified: team-2 base → targets 1, team-1 →
-  targets 2 in every instance), fov `0x1000`, engage_range 6144, targeting_delay 16.
-  → the base's built-in defensive ring.
-- `0x20` — **produced-unit movement template**: move_speed 1024, acceleration 1228
-  (matches the `PathedActor` values → the unit this base spawns).
+  group 3, target_priority 15 (turrets prefer it over tanks, 10, and the X1, 5).
+- `0x10, 0x40, 0x50, 0x60` — **its 4 hull guns' BaseShooter blocks**: weapon_id 3,
+  target_type 4, `targeting = enemy team`, fov `0x1000`, engage_range 6144
+  (= 12 m), targeting_delay 16 (= 1.0 s). Mounted at the hull model's points 0..3.
+- `0x20`/`0x30` — **its own route block**: move_speed 1024, acceleration 1228 (the
+  same values a `PathedActor` tank carries; ≈ 1.98 m/s).
 
-This ties the whole MP loop together: **base → its `Cnet` lane → `PathedActor`
-units traverse it toward the enemy base**, on a 5 s production cadence, while 4
-built-in weapons defend the base.
+What Metropolis takes from it (`rules.md` §9): the Juggernaut's spawn point, its
+3000 HP and its four guns (weapon 3: 100 damage every 2.0 s, 12 m). The committed
+`<mission>-logic.json` lists these records under `dreadnoughts`.
 
 ### 8.2 MP-relevant, already extracted
 
@@ -301,21 +313,25 @@ built-in weapons defend the base.
 | Base turrets (`Turret` 8) + capturable (`NeutralTurret` 36) | `actors.json` params | placement + engage_range / targeting_delay / turn_speed / weapon_id |
 | Combat units (`PathedActor` 5) | `actors.json` | move_speed + `Cnet` ref (`rsl[2]`) |
 | Lanes (`Cnet`) | `nets.json` | 2 per MP arena; per-team (see 8.1) |
-| Spawn cadence (`tSAC`) | `spawn_ticks`/`spawn_seconds`/`spawn_limit` | on turrets, units, pickups, bases |
+| Spawn cadence (`tSAC`) | `spawn_ticks`/`spawn_seconds`/`spawn_limit` | on turrets, units, pickups, Dreadnoughts |
 | Air units (`Aircraft` 9) | `actors.json` params | +orbit fields: orbit_area_x/y, turn_rate, move_speed, time_to_descend, target_detection_range, spawn_type |
 | Power-ups (`ItemPickup` 16) | `actors.json` params | `grants` list: reload/power-up gun·heavy·special, restore_health, invisibility, invincibility |
 | Trigger volumes (`Trigger` 95) | `actors.json` params | width/length/height (raw), flags (retrigger/action_button/disable), `triggering_actor_id` (watched actor); see §8.6 |
 
 ### 8.3 Ignore (single-player or scenery)
 
-- Campaign-only missions and `Cfun`, `canm`, `MapObjectiveNodeGroup` (35),
-  `SkyCaptain` (37, just a PA map-type marker).
+- Campaign-only missions and `Cfun`, `canm`, `MapObjectiveNodeGroup` (35).
+- `SkyCaptain` (37) is not a map-type marker: it is the one-viewport opponent, an
+  aircraft with a commander's decision pass (`fcop-re/ai-and-rules.md` §1). Its
+  record is the same in all 22 instances and its level is a front-end setting, so
+  nothing per arena is imported: the Warden plays it from `balance.ts` `SKY_*`
+  (rules.md §7, SIM_VERSION 46).
 - Scenery/decoration actor types still Unknown that carry `Cobj` models and appear
   in prop-like counts: codes 87–99 (mostly), 98, 90–93. Low MP value.
 
 ### 8.4 Remaining MP-optional targets (by value)
 
-Done: `TeamBase?` payload (§8.1), `ItemPickup` contents, `Aircraft` orbit fields,
+Done: the type-28 (Dreadnought) payload (§8.1), `ItemPickup` contents, `Aircraft` orbit fields,
 partial characterization of logic types 14 & 89 (§8.5) — all in `extract_logic.py`.
 No high-value MP data known to remain undecoded.
 
@@ -353,7 +369,11 @@ The pattern holds across **all 6 arenas** (each of the 2 bases per arena is guar
   enemy `PathedActor` units — i.e. they detect an intruder entering your base.
 - **Button zones** (flag `action_button`, point-sized) watch the base's **own**
   `X1Alpha` — player interactions at the base.
-- Some triggers watch the opposing `TeamBase` itself (win/damage wiring).
+- **Gate triggers** (no flags) watch the enemy's five tank templates and its
+  Dreadnought (type 28) — not jets, not the avatar. One box per base, listed six
+  times (Mp 2457 × 1843 raw = 4.8 × 3.6 m). Entering it is the PA win
+  (`fcop-re/ai-and-rules.md` §5): it sets the "base reached" flag and a 1750-tick
+  countdown to the results page. Metropolis imports it as the base's gate.
 
 Example (Conft): base team-2's trigger #234 (`retrigger`) watches actor 12 = the
 enemy X1Alpha; its siblings watch enemy units 75/87/173/144/205.
@@ -374,3 +394,9 @@ withdrawn — it came from a pair-model walk that the stack VM supersedes, and
 
 So the detection half is confirmed in the data, and the sound half is an open
 binding rather than an unreadable one.
+
+**Resolved (2026-10-11, `fcop-re/ai-and-rules.md` §6):** ops `0x0c` (queue) and
+`0x0d` (interrupt) play SPEECH lines, and the decompiled scripts of all six PA
+arenas say which: intrusion into slot 0's / slot 1's base zone is speech id 2 / 3,
+with an 8.3 s cooldown. Metropolis plays the original lines since SIM_VERSION 36
+(`fcop-fidelity.md` R15).

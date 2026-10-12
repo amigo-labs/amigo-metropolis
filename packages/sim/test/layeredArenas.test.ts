@@ -60,7 +60,8 @@ const PINS: Record<string, Pins> = {
     layerHeights: [3981683061, 2671519192],
     layerMasks: [3788166252, 1780779980],
     wallsV: 3492741943,
-    wallsH: 1478409668,
+    // SIM_VERSION 32: the roads end at the original's gate box.
+    wallsH: 2183115802,
   },
 };
 

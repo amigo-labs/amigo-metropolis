@@ -1,0 +1,1603 @@
+{
+  "_units": "1 m = 8192 world units = one terrain sample (Metropolis convention); engine time unit = 1/300 s; gaps are raw*4096/218 units (C-truncated) = ~raw*0.0626 s; distance fields <<4 world units = raw/512 m",
+  "_source": "type-99 Cact records (tACT type 99) in every mission container, identical in all 15 missions incl. the 6 PA maps; read from fixtures/missions/Mp; loader 0x00458c60 + rescale 0x00458d30/0x0044eb10",
+  "_fire_mode": "Gun (button 0x04000000) and Heavy (0x00400000) fire every frame they are held, spaced by the slot cooldown; Special (latch on 0x01000000) is held-fire unless any slot block A has flags&4 (Plasma Flare, Grenade), then press-edge; a second Special press with a kept round alive detonates it",
+  "_difficulty": "ammo start (+2) and cap (+4) scaled by the per-player HARD/NORMAL/EASY pick: x1, x1.25, x1.5 (0x00458d80, 0x00459e50)",
+  "weapons": {
+    "0x00": {
+      "code": 0,
+      "exe_name": "Mini Gun",
+      "ui_name": "Powered Mini-Gun",
+      "slot": "gun",
+      "A_normal": {
+        "raw": {
+          "kind": 10,
+          "flags": 0,
+          "ammo": 6000,
+          "ammo_cap": 6000,
+          "rounds_per_burst": 1,
+          "burst_gap": 0,
+          "round_gap": 0,
+          "damage": 1,
+          "blast_or_spread_0e": 0,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 0,
+          "range_16": 6144,
+          "w18": 80,
+          "impact_fx_1a": 21,
+          "launch_fx_1b": 20,
+          "sound_1c": 26,
+          "msg_kind_1f": 1
+        },
+        "behaviour": "hitscan: Mini Gun line (direct path 0x004595e0)",
+        "flags_meaning": [],
+        "damage": 1,
+        "ammo_start": {
+          "hard": 6000,
+          "normal": 7500,
+          "easy": 9000
+        },
+        "ammo_cap": {
+          "hard": 6000,
+          "normal": 7500,
+          "easy": 9000
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.0,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 0,
+          "round": 0
+        },
+        "refire_s": 0.0,
+        "range_m": 12.0,
+        "blast_radius_m": 0,
+        "note": "damage only to the locked target (msg op 0x0e) unless the line hits terrain; with no lock no damage, except block B with blast>0 which area-damages at the line end",
+        "lock_scatter_m": "target half_h/2",
+        "refire_note": "gap 0: fires every frame the button is held (frame-bound, 30-37.5/s)"
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 10,
+          "flags": 0,
+          "ammo": 0,
+          "ammo_cap": 600,
+          "rounds_per_burst": 1,
+          "burst_gap": 0,
+          "round_gap": 0,
+          "damage": 2,
+          "blast_or_spread_0e": 512,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 0,
+          "range_16": 6144,
+          "w18": 80,
+          "impact_fx_1a": 27,
+          "launch_fx_1b": 25,
+          "sound_1c": 27,
+          "msg_kind_1f": 1
+        },
+        "behaviour": "hitscan: Mini Gun line (direct path 0x004595e0)",
+        "flags_meaning": [],
+        "damage": 2,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 600,
+          "normal": 750,
+          "easy": 900
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.0,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 0,
+          "round": 0
+        },
+        "refire_s": 0.0,
+        "range_m": 12.0,
+        "blast_radius_m": 1.0,
+        "note": "damage only to the locked target (msg op 0x0e) unless the line hits terrain; with no lock no damage, except block B with blast>0 which area-damages at the line end",
+        "lock_scatter_m": 0.062,
+        "refire_note": "gap 0: fires every frame the button is held (frame-bound, 30-37.5/s)"
+      },
+      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+    },
+    "0x01": {
+      "code": 1,
+      "exe_name": "Laser",
+      "ui_name": "Gatling Laser",
+      "slot": "gun",
+      "A_normal": {
+        "raw": {
+          "kind": 12,
+          "flags": 0,
+          "ammo": 5000,
+          "ammo_cap": 5000,
+          "rounds_per_burst": 1,
+          "burst_gap": 0,
+          "round_gap": 0,
+          "damage": 1,
+          "blast_or_spread_0e": 0,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 0,
+          "range_16": 6144,
+          "w18": 80,
+          "impact_fx_1a": 32,
+          "launch_fx_1b": 30,
+          "sound_1c": 28,
+          "msg_kind_1f": 2
+        },
+        "behaviour": "hitscan: Laser tracer",
+        "flags_meaning": [],
+        "damage": 1,
+        "ammo_start": {
+          "hard": 5000,
+          "normal": 6250,
+          "easy": 7500
+        },
+        "ammo_cap": {
+          "hard": 5000,
+          "normal": 6250,
+          "easy": 7500
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.0,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 0,
+          "round": 0
+        },
+        "refire_s": 0.0,
+        "range_m": 12.0,
+        "blast_radius_m": 0,
+        "note": "damage only to the locked target (msg op 0x0e) unless the line hits terrain; with no lock no damage, except block B with blast>0 which area-damages at the line end",
+        "refire_note": "gap 0: fires every frame the button is held (frame-bound, 30-37.5/s)"
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 12,
+          "flags": 0,
+          "ammo": 0,
+          "ammo_cap": 600,
+          "rounds_per_burst": 1,
+          "burst_gap": 0,
+          "round_gap": 0,
+          "damage": 2,
+          "blast_or_spread_0e": 512,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 0,
+          "range_16": 6144,
+          "w18": 80,
+          "impact_fx_1a": 32,
+          "launch_fx_1b": 35,
+          "sound_1c": 33,
+          "msg_kind_1f": 2
+        },
+        "behaviour": "hitscan: Laser tracer",
+        "flags_meaning": [],
+        "damage": 2,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 600,
+          "normal": 750,
+          "easy": 900
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.0,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 0,
+          "round": 0
+        },
+        "refire_s": 0.0,
+        "range_m": 12.0,
+        "blast_radius_m": 1.0,
+        "note": "damage only to the locked target (msg op 0x0e) unless the line hits terrain; with no lock no damage, except block B with blast>0 which area-damages at the line end",
+        "refire_note": "gap 0: fires every frame the button is held (frame-bound, 30-37.5/s)"
+      },
+      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+    },
+    "0x02": {
+      "code": 2,
+      "exe_name": "Flame Thrower",
+      "ui_name": "Flamethrower",
+      "slot": "gun",
+      "A_normal": {
+        "raw": {
+          "kind": 14,
+          "flags": 0,
+          "ammo": 3000,
+          "ammo_cap": 3000,
+          "rounds_per_burst": 1,
+          "burst_gap": 0,
+          "round_gap": 0,
+          "damage": 6,
+          "blast_or_spread_0e": 409,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 0,
+          "range_16": 6144,
+          "w18": 80,
+          "impact_fx_1a": 42,
+          "launch_fx_1b": 40,
+          "sound_1c": 29,
+          "msg_kind_1f": 2
+        },
+        "behaviour": "flame: attached sustained fire (0x004595e0 -> sustain_attached_fire_block)",
+        "flags_meaning": [],
+        "damage": 6,
+        "ammo_start": {
+          "hard": 3000,
+          "normal": 3750,
+          "easy": 4500
+        },
+        "ammo_cap": {
+          "hard": 3000,
+          "normal": 3750,
+          "easy": 4500
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.0,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 0,
+          "round": 0
+        },
+        "refire_s": 0.0,
+        "range_m": 12.0,
+        "flame_spread_m": 0.05,
+        "note": "damage delivered by sustained fire nodes (per-node damage = this value); node rate/lifetime not established",
+        "refire_note": "gap 0: fires every frame the button is held (frame-bound, 30-37.5/s)"
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 14,
+          "flags": 0,
+          "ammo": 0,
+          "ammo_cap": 600,
+          "rounds_per_burst": 1,
+          "burst_gap": 0,
+          "round_gap": 1,
+          "damage": 10,
+          "blast_or_spread_0e": 819,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 0,
+          "range_16": 6144,
+          "w18": 80,
+          "impact_fx_1a": 47,
+          "launch_fx_1b": 45,
+          "sound_1c": 29,
+          "msg_kind_1f": 2
+        },
+        "behaviour": "flame: attached sustained fire (0x004595e0 -> sustain_attached_fire_block)",
+        "flags_meaning": [],
+        "damage": 10,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 600,
+          "normal": 750,
+          "easy": 900
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.0,
+        "gap_between_rounds_s": 0.06,
+        "gap_units_1_300s": {
+          "burst": 0,
+          "round": 18
+        },
+        "refire_s": 0.0,
+        "range_m": 12.0,
+        "flame_spread_m": 0.1,
+        "note": "damage delivered by sustained fire nodes (per-node damage = this value); node rate/lifetime not established",
+        "refire_note": "gap 0: fires every frame the button is held (frame-bound, 30-37.5/s)"
+      },
+      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+    },
+    "0x03": {
+      "code": 3,
+      "exe_name": "Electric Gun",
+      "ui_name": "Electric Gun",
+      "slot": "gun",
+      "A_normal": {
+        "raw": {
+          "kind": 11,
+          "flags": 0,
+          "ammo": 3000,
+          "ammo_cap": 3000,
+          "rounds_per_burst": 1,
+          "burst_gap": 1,
+          "round_gap": 0,
+          "damage": 3,
+          "blast_or_spread_0e": 0,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 0,
+          "range_16": 4915,
+          "w18": 80,
+          "impact_fx_1a": 53,
+          "launch_fx_1b": 50,
+          "sound_1c": 30,
+          "msg_kind_1f": 8
+        },
+        "behaviour": "hitscan: Electric Gun link (B: arcs to two more targets)",
+        "flags_meaning": [],
+        "damage": 3,
+        "ammo_start": {
+          "hard": 3000,
+          "normal": 3750,
+          "easy": 4500
+        },
+        "ammo_cap": {
+          "hard": 3000,
+          "normal": 3750,
+          "easy": 4500
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.06,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 18,
+          "round": 0
+        },
+        "refire_s": 0.06,
+        "range_m": 9.6,
+        "blast_radius_m": 0,
+        "note": "damage only to the locked target (msg op 0x0e) unless the line hits terrain; with no lock no damage, except block B with blast>0 which area-damages at the line end",
+        "lock_scatter_m": "target half_h/2",
+        "refire_note": "18-unit cooldown: every 2nd frame at 30 fps (15/s), every 3rd at 37.5 fps"
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 11,
+          "flags": 0,
+          "ammo": 0,
+          "ammo_cap": 500,
+          "rounds_per_burst": 1,
+          "burst_gap": 1,
+          "round_gap": 0,
+          "damage": 6,
+          "blast_or_spread_0e": 0,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 0,
+          "range_16": 4915,
+          "w18": 80,
+          "impact_fx_1a": 53,
+          "launch_fx_1b": 50,
+          "sound_1c": 30,
+          "msg_kind_1f": 8
+        },
+        "behaviour": "hitscan: Electric Gun link (B: arcs to two more targets)",
+        "flags_meaning": [],
+        "damage": 6,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 500,
+          "normal": 625,
+          "easy": 750
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.06,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 18,
+          "round": 0
+        },
+        "refire_s": 0.06,
+        "range_m": 9.6,
+        "blast_radius_m": 0,
+        "note": "damage only to the locked target (msg op 0x0e) unless the line hits terrain; with no lock no damage, except block B with blast>0 which area-damages at the line end",
+        "lock_scatter_m": "target half_h/2",
+        "refire_note": "18-unit cooldown: every 2nd frame at 30 fps (15/s), every 3rd at 37.5 fps"
+      },
+      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+    },
+    "0x05": {
+      "code": 5,
+      "exe_name": "Riot Shield",
+      "ui_name": "Riot Shield",
+      "slot": "gun",
+      "A_normal": {
+        "raw": {
+          "kind": 13,
+          "flags": 0,
+          "ammo": 600,
+          "ammo_cap": 600,
+          "rounds_per_burst": 1,
+          "burst_gap": 1,
+          "round_gap": 1,
+          "damage": 20,
+          "blast_or_spread_0e": 819,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 0,
+          "range_16": 12288,
+          "w18": 80,
+          "impact_fx_1a": 0,
+          "launch_fx_1b": 0,
+          "sound_1c": 50,
+          "msg_kind_1f": 8
+        },
+        "behaviour": "sphere toggle (sustain_sphere_toggle) - a shield sphere around the mech",
+        "flags_meaning": [],
+        "damage": 20,
+        "ammo_start": {
+          "hard": 600,
+          "normal": 750,
+          "easy": 900
+        },
+        "ammo_cap": {
+          "hard": 600,
+          "normal": 750,
+          "easy": 900
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.06,
+        "gap_between_rounds_s": 0.06,
+        "gap_units_1_300s": {
+          "burst": 18,
+          "round": 18
+        },
+        "refire_s": 0.06,
+        "range_m": 24.0,
+        "sphere_radius_m": 1.6,
+        "sphere_reach_w10": 0,
+        "note": "toggle; ammo spent every round_gap while up (spend_period = round_gap); per-contact damage semantics not established"
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 13,
+          "flags": 0,
+          "ammo": 0,
+          "ammo_cap": 300,
+          "rounds_per_burst": 1,
+          "burst_gap": 1,
+          "round_gap": 1,
+          "damage": 40,
+          "blast_or_spread_0e": 1228,
+          "w10": 2048,
+          "speed_12": 8192,
+          "accel_14": 0,
+          "range_16": 12288,
+          "w18": 80,
+          "impact_fx_1a": 0,
+          "launch_fx_1b": 0,
+          "sound_1c": 51,
+          "msg_kind_1f": 8
+        },
+        "behaviour": "sphere toggle (sustain_sphere_toggle) - a shield sphere around the mech",
+        "flags_meaning": [],
+        "damage": 40,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 300,
+          "normal": 375,
+          "easy": 450
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.06,
+        "gap_between_rounds_s": 0.06,
+        "gap_units_1_300s": {
+          "burst": 18,
+          "round": 18
+        },
+        "refire_s": 0.06,
+        "range_m": 24.0,
+        "sphere_radius_m": 2.398,
+        "sphere_reach_w10": 2048,
+        "note": "toggle; ammo spent every round_gap while up (spend_period = round_gap); per-contact damage semantics not established"
+      },
+      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+    },
+    "0x10": {
+      "code": 16,
+      "exe_name": "Helfire",
+      "ui_name": "Hell Fire 2000",
+      "slot": "heavy",
+      "A_normal": {
+        "raw": {
+          "kind": 3,
+          "flags": 1,
+          "ammo": 145,
+          "ammo_cap": 145,
+          "rounds_per_burst": 1,
+          "burst_gap": 8,
+          "round_gap": 0,
+          "damage": 25,
+          "blast_or_spread_0e": 0,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 122,
+          "range_16": 8192,
+          "w18": 48,
+          "impact_fx_1a": 83,
+          "launch_fx_1b": 79,
+          "sound_1c": 45,
+          "msg_kind_1f": 2
+        },
+        "behaviour": "homing missile at lock",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 25,
+        "ammo_start": {
+          "hard": 145,
+          "normal": 181,
+          "easy": 217
+        },
+        "ammo_cap": {
+          "hard": 145,
+          "normal": 181,
+          "easy": 217
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.5,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 150,
+          "round": 0
+        },
+        "refire_s": 0.5,
+        "missile": {
+          "top_speed_m_s": 15.82,
+          "launch_speed_m_s": 1.978,
+          "accel_m_s2": 71.41,
+          "range_m": 16.0,
+          "blast_radius_m": 0.0
+        }
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 18,
+          "flags": 1,
+          "ammo": 0,
+          "ammo_cap": 15,
+          "rounds_per_burst": 1,
+          "burst_gap": 12,
+          "round_gap": 0,
+          "damage": 25,
+          "blast_or_spread_0e": 0,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 204,
+          "range_16": 8192,
+          "w18": 48,
+          "impact_fx_1a": 83,
+          "launch_fx_1b": 79,
+          "sound_1c": 47,
+          "msg_kind_1f": 1
+        },
+        "behaviour": "homing missile that splits into three",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 25,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 15,
+          "normal": 18,
+          "easy": 22
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 0.75,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 225,
+          "round": 0
+        },
+        "refire_s": 0.75,
+        "missile": {
+          "top_speed_m_s": 15.82,
+          "launch_speed_m_s": 1.978,
+          "accel_m_s2": 119.48,
+          "range_m": 16.0,
+          "blast_radius_m": 0.0
+        }
+      },
+      "models": [["Cobj", 43], ["NULL", 0], ["NULL", 0], ["Cobj", 43]]
+    },
+    "0x12": {
+      "code": 18,
+      "exe_name": "Beam Cannon",
+      "ui_name": "Concussion Beam",
+      "slot": "heavy",
+      "A_normal": {
+        "raw": {
+          "kind": 17,
+          "flags": 1,
+          "ammo": 75,
+          "ammo_cap": 75,
+          "rounds_per_burst": 1,
+          "burst_gap": 16,
+          "round_gap": 16,
+          "damage": 50,
+          "blast_or_spread_0e": 512,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 4096,
+          "range_16": 4096,
+          "w18": 80,
+          "impact_fx_1a": 102,
+          "launch_fx_1b": 100,
+          "sound_1c": 49,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "aimed sustained beam from gun block at lock (sustain_aimed_fire_block)",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 50,
+        "ammo_start": {
+          "hard": 75,
+          "normal": 93,
+          "easy": 112
+        },
+        "ammo_cap": {
+          "hard": 75,
+          "normal": 93,
+          "easy": 112
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 1.0,
+        "gap_between_rounds_s": 1.0,
+        "gap_units_1_300s": {
+          "burst": 300,
+          "round": 300
+        },
+        "refire_s": 1.0,
+        "beam": {
+          "blast_radius_m": 1.0,
+          "range_m": 8.0,
+          "speed_12": 8192,
+          "accel_14": 4096,
+          "note": "aimed sustained effect; damage application rate not established"
+        }
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 17,
+          "flags": 1,
+          "ammo": 0,
+          "ammo_cap": 15,
+          "rounds_per_burst": 1,
+          "burst_gap": 16,
+          "round_gap": 16,
+          "damage": 100,
+          "blast_or_spread_0e": 1024,
+          "w10": 0,
+          "speed_12": 8192,
+          "accel_14": 4096,
+          "range_16": 8192,
+          "w18": 80,
+          "impact_fx_1a": 107,
+          "launch_fx_1b": 105,
+          "sound_1c": 49,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "aimed sustained beam from gun block at lock (sustain_aimed_fire_block)",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 100,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 15,
+          "normal": 18,
+          "easy": 22
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 1.0,
+        "gap_between_rounds_s": 1.0,
+        "gap_units_1_300s": {
+          "burst": 300,
+          "round": 300
+        },
+        "refire_s": 1.0,
+        "beam": {
+          "blast_radius_m": 2.0,
+          "range_m": 16.0,
+          "speed_12": 8192,
+          "accel_14": 4096,
+          "note": "aimed sustained effect; damage application rate not established"
+        }
+      },
+      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+    },
+    "0x13": {
+      "code": 19,
+      "exe_name": "Ant Missle?",
+      "ui_name": "Hyper Velocity Rocket",
+      "slot": "heavy",
+      "A_normal": {
+        "raw": {
+          "kind": 2,
+          "flags": 0,
+          "ammo": 120,
+          "ammo_cap": 120,
+          "rounds_per_burst": 4,
+          "burst_gap": 24,
+          "round_gap": -2,
+          "damage": 30,
+          "blast_or_spread_0e": 0,
+          "w10": 0,
+          "speed_12": 10240,
+          "accel_14": 40,
+          "range_16": 8192,
+          "w18": 48,
+          "impact_fx_1a": 114,
+          "launch_fx_1b": 110,
+          "sound_1c": 66,
+          "msg_kind_1f": 1
+        },
+        "behaviour": "missile with intercept lead at lock (kind 1 = straight when no lock)",
+        "flags_meaning": [],
+        "damage": 30,
+        "ammo_start": {
+          "hard": 120,
+          "normal": 150,
+          "easy": 180
+        },
+        "ammo_cap": {
+          "hard": 120,
+          "normal": 150,
+          "easy": 180
+        },
+        "rounds_per_burst": 4,
+        "gap_between_bursts_s": 1.5,
+        "gap_between_rounds_s": -0.1233,
+        "gap_units_1_300s": {
+          "burst": 450,
+          "round": -37
+        },
+        "missile": {
+          "top_speed_m_s": 19.922,
+          "launch_speed_m_s": 2.49,
+          "accel_m_s2": 23.35,
+          "range_m": 16.0,
+          "blast_radius_m": 0.0
+        },
+        "burst_note": "4 rounds on 4 consecutive frames (round_gap -37 units accumulates), then cooldown 450-3*37=339 units = 1.13 s"
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 2,
+          "flags": 8,
+          "ammo": 0,
+          "ammo_cap": 80,
+          "rounds_per_burst": 8,
+          "burst_gap": 24,
+          "round_gap": -1,
+          "damage": 30,
+          "blast_or_spread_0e": 0,
+          "w10": 0,
+          "speed_12": 10240,
+          "accel_14": 40,
+          "range_16": 8192,
+          "w18": 48,
+          "impact_fx_1a": 118,
+          "launch_fx_1b": 115,
+          "sound_1c": 67,
+          "msg_kind_1f": 2
+        },
+        "behaviour": "missile with intercept lead at lock (kind 1 = straight when no lock)",
+        "flags_meaning": ["missile spin"],
+        "damage": 30,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 80,
+          "normal": 100,
+          "easy": 120
+        },
+        "rounds_per_burst": 8,
+        "gap_between_bursts_s": 1.5,
+        "gap_between_rounds_s": -0.06,
+        "gap_units_1_300s": {
+          "burst": 450,
+          "round": -18
+        },
+        "missile": {
+          "top_speed_m_s": 19.922,
+          "launch_speed_m_s": 2.49,
+          "accel_m_s2": 23.35,
+          "range_m": 16.0,
+          "blast_radius_m": 0.0
+        },
+        "burst_note": "8 rounds on 8 consecutive frames (round_gap -18), then 450-7*18=324 units = 1.08 s"
+      },
+      "models": [["Cobj", 44], ["NULL", 0], ["NULL", 0], ["Cobj", 45]]
+    },
+    "0x14": {
+      "code": 20,
+      "exe_name": "Fusion Torpedo",
+      "ui_name": "Fusion Torpedo",
+      "slot": "heavy",
+      "A_normal": {
+        "raw": {
+          "kind": 3,
+          "flags": 3,
+          "ammo": 40,
+          "ammo_cap": 40,
+          "rounds_per_burst": 1,
+          "burst_gap": 16,
+          "round_gap": 16,
+          "damage": 100,
+          "blast_or_spread_0e": 512,
+          "w10": 0,
+          "speed_12": 6144,
+          "accel_14": 24,
+          "range_16": 8192,
+          "w18": 120,
+          "impact_fx_1a": 127,
+          "launch_fx_1b": 120,
+          "sound_1c": 68,
+          "msg_kind_1f": 2
+        },
+        "behaviour": "homing missile at lock",
+        "flags_meaning": [
+          "round carries actor flag 0x80000",
+          "damage falls off with distance flown (missiles)"
+        ],
+        "damage": 100,
+        "ammo_start": {
+          "hard": 40,
+          "normal": 50,
+          "easy": 60
+        },
+        "ammo_cap": {
+          "hard": 40,
+          "normal": 50,
+          "easy": 60
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 1.0,
+        "gap_between_rounds_s": 1.0,
+        "gap_units_1_300s": {
+          "burst": 300,
+          "round": 300
+        },
+        "refire_s": 1.0,
+        "missile": {
+          "top_speed_m_s": 11.719,
+          "launch_speed_m_s": 1.465,
+          "accel_m_s2": 13.73,
+          "range_m": 16.0,
+          "blast_radius_m": 1.0
+        }
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 3,
+          "flags": 3,
+          "ammo": 0,
+          "ammo_cap": 10,
+          "rounds_per_burst": 1,
+          "burst_gap": 16,
+          "round_gap": 16,
+          "damage": 150,
+          "blast_or_spread_0e": 1024,
+          "w10": 0,
+          "speed_12": 6144,
+          "accel_14": 24,
+          "range_16": 8192,
+          "w18": 120,
+          "impact_fx_1a": 137,
+          "launch_fx_1b": 130,
+          "sound_1c": 68,
+          "msg_kind_1f": 16
+        },
+        "behaviour": "homing missile at lock",
+        "flags_meaning": [
+          "round carries actor flag 0x80000",
+          "damage falls off with distance flown (missiles)"
+        ],
+        "damage": 150,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 10,
+          "normal": 12,
+          "easy": 15
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 1.0,
+        "gap_between_rounds_s": 1.0,
+        "gap_units_1_300s": {
+          "burst": 300,
+          "round": 300
+        },
+        "refire_s": 1.0,
+        "missile": {
+          "top_speed_m_s": 11.719,
+          "launch_speed_m_s": 1.465,
+          "accel_m_s2": 13.73,
+          "range_m": 16.0,
+          "blast_radius_m": 2.0
+        }
+      },
+      "models": [["Cobj", 46], ["NULL", 0], ["NULL", 0], ["Cobj", 47]]
+    },
+    "0x15": {
+      "code": 21,
+      "exe_name": "Robo Dog",
+      "ui_name": "K-9 Drone",
+      "slot": "heavy",
+      "A_normal": {
+        "raw": {
+          "kind": 21,
+          "flags": 1,
+          "ammo": 25,
+          "ammo_cap": 25,
+          "rounds_per_burst": 1,
+          "burst_gap": 48,
+          "round_gap": 0,
+          "damage": 150,
+          "blast_or_spread_0e": 0,
+          "w10": 0,
+          "speed_12": 2457,
+          "accel_14": 40,
+          "range_16": 8192,
+          "w18": 48,
+          "impact_fx_1a": 193,
+          "launch_fx_1b": 190,
+          "sound_1c": 1,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "ground-hugging homing missile (health 2x damage, clears terrain)",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 150,
+        "ammo_start": {
+          "hard": 25,
+          "normal": 31,
+          "easy": 37
+        },
+        "ammo_cap": {
+          "hard": 25,
+          "normal": 31,
+          "easy": 37
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 3.0033,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 901,
+          "round": 0
+        },
+        "refire_s": 3.0033,
+        "missile": {
+          "top_speed_m_s": 4.688,
+          "launch_speed_m_s": 0.586,
+          "accel_m_s2": 23.35,
+          "range_m": 16.0,
+          "blast_radius_m": 0.0
+        }
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 21,
+          "flags": 1,
+          "ammo": 0,
+          "ammo_cap": 18,
+          "rounds_per_burst": 3,
+          "burst_gap": 64,
+          "round_gap": 0,
+          "damage": 200,
+          "blast_or_spread_0e": 0,
+          "w10": 0,
+          "speed_12": 2457,
+          "accel_14": 40,
+          "range_16": 8192,
+          "w18": 48,
+          "impact_fx_1a": 198,
+          "launch_fx_1b": 195,
+          "sound_1c": 1,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "ground-hugging homing missile (health 2x damage, clears terrain)",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 200,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 18,
+          "normal": 22,
+          "easy": 27
+        },
+        "rounds_per_burst": 3,
+        "gap_between_bursts_s": 4.0067,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 1202,
+          "round": 0
+        },
+        "missile": {
+          "top_speed_m_s": 4.688,
+          "launch_speed_m_s": 0.586,
+          "accel_m_s2": 23.35,
+          "range_m": 16.0,
+          "blast_radius_m": 0.0
+        }
+      },
+      "models": [["Cobj", 48], ["NULL", 0], ["NULL", 0], ["Cobj", 48]]
+    },
+    "0x20": {
+      "code": 32,
+      "exe_name": "Mortar",
+      "ui_name": "Mortar Launcher",
+      "slot": "special",
+      "A_normal": {
+        "raw": {
+          "kind": 4,
+          "flags": 1,
+          "ammo": 25,
+          "ammo_cap": 25,
+          "rounds_per_burst": 1,
+          "burst_gap": 32,
+          "round_gap": 32,
+          "damage": 200,
+          "blast_or_spread_0e": 1638,
+          "w10": 0,
+          "speed_12": 4096,
+          "accel_14": 0,
+          "range_16": 3072,
+          "w18": 48,
+          "impact_fx_1a": 142,
+          "launch_fx_1b": 140,
+          "sound_1c": 47,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "arced shell (ballistic solve to aim point)",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 200,
+        "ammo_start": {
+          "hard": 25,
+          "normal": 31,
+          "easy": 37
+        },
+        "ammo_cap": {
+          "hard": 25,
+          "normal": 31,
+          "easy": 37
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 2.0033,
+        "gap_between_rounds_s": 2.0033,
+        "gap_units_1_300s": {
+          "burst": 601,
+          "round": 601
+        },
+        "refire_s": 2.0033,
+        "ballistic": {
+          "launch_speed_m_s": 7.617,
+          "gravity_m_s2": 6.0,
+          "max_flat_range_m": 9.67,
+          "blast_radius_m": 3.199
+        }
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 20,
+          "flags": 1,
+          "ammo": 0,
+          "ammo_cap": 10,
+          "rounds_per_burst": 1,
+          "burst_gap": 16,
+          "round_gap": 16,
+          "damage": 100,
+          "blast_or_spread_0e": 2048,
+          "w10": 0,
+          "speed_12": 4096,
+          "accel_14": 0,
+          "range_16": 3072,
+          "w18": 48,
+          "impact_fx_1a": 142,
+          "launch_fx_1b": 140,
+          "sound_1c": 48,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "arced shell that bursts into 4 kind-4 fragments at apex",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 100,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 10,
+          "normal": 12,
+          "easy": 15
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 1.0,
+        "gap_between_rounds_s": 1.0,
+        "gap_units_1_300s": {
+          "burst": 300,
+          "round": 300
+        },
+        "refire_s": 1.0,
+        "ballistic": {
+          "launch_speed_m_s": 7.617,
+          "gravity_m_s2": 6.0,
+          "max_flat_range_m": 9.67,
+          "blast_radius_m": 4.0
+        }
+      },
+      "models": [["Cobj", 49], ["NULL", 0], ["NULL", 0], ["Cobj", 49]]
+    },
+    "0x21": {
+      "code": 33,
+      "exe_name": "Plasma Flare",
+      "ui_name": "Plasma Flare",
+      "slot": "special",
+      "A_normal": {
+        "raw": {
+          "kind": 4,
+          "flags": 13,
+          "ammo": 30,
+          "ammo_cap": 30,
+          "rounds_per_burst": 1,
+          "burst_gap": 32,
+          "round_gap": 32,
+          "damage": 250,
+          "blast_or_spread_0e": 3072,
+          "w10": 0,
+          "speed_12": 4096,
+          "accel_14": 0,
+          "range_16": 2662,
+          "w18": 48,
+          "impact_fx_1a": 153,
+          "launch_fx_1b": 150,
+          "sound_1c": 3,
+          "msg_kind_1f": 2
+        },
+        "behaviour": "arced shell (ballistic solve to aim point)",
+        "flags_meaning": [
+          "round carries actor flag 0x80000",
+          "round kept: second Special press detonates it; Special becomes press-to-fire",
+          "missile spin"
+        ],
+        "damage": 250,
+        "ammo_start": {
+          "hard": 30,
+          "normal": 37,
+          "easy": 45
+        },
+        "ammo_cap": {
+          "hard": 30,
+          "normal": 37,
+          "easy": 45
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 2.0033,
+        "gap_between_rounds_s": 2.0033,
+        "gap_units_1_300s": {
+          "burst": 601,
+          "round": 601
+        },
+        "refire_s": 2.0033,
+        "ballistic": {
+          "launch_speed_m_s": 7.617,
+          "gravity_m_s2": 5.199,
+          "max_flat_range_m": 11.16,
+          "blast_radius_m": 6.0
+        }
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 20,
+          "flags": 13,
+          "ammo": 0,
+          "ammo_cap": 15,
+          "rounds_per_burst": 1,
+          "burst_gap": 48,
+          "round_gap": 0,
+          "damage": 200,
+          "blast_or_spread_0e": 3072,
+          "w10": 0,
+          "speed_12": 4096,
+          "accel_14": 0,
+          "range_16": 2662,
+          "w18": 48,
+          "impact_fx_1a": 158,
+          "launch_fx_1b": 155,
+          "sound_1c": 3,
+          "msg_kind_1f": 2
+        },
+        "behaviour": "arced shell that bursts into 4 kind-4 fragments at apex",
+        "flags_meaning": [
+          "round carries actor flag 0x80000",
+          "round kept: second Special press detonates it; Special becomes press-to-fire",
+          "missile spin"
+        ],
+        "damage": 200,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 15,
+          "normal": 18,
+          "easy": 22
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 3.0033,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 901,
+          "round": 0
+        },
+        "refire_s": 3.0033,
+        "ballistic": {
+          "launch_speed_m_s": 7.617,
+          "gravity_m_s2": 5.199,
+          "max_flat_range_m": 11.16,
+          "blast_radius_m": 6.0
+        }
+      },
+      "models": [["Cobj", 46], ["NULL", 0], ["NULL", 0], ["Cobj", 47]]
+    },
+    "0x22": {
+      "code": 34,
+      "exe_name": "Mine",
+      "ui_name": "Pop-Up Mines",
+      "slot": "special",
+      "A_normal": {
+        "raw": {
+          "kind": 5,
+          "flags": 1,
+          "ammo": 30,
+          "ammo_cap": 30,
+          "rounds_per_burst": 1,
+          "burst_gap": 16,
+          "round_gap": 16,
+          "damage": 600,
+          "blast_or_spread_0e": 2867,
+          "w10": 1024,
+          "speed_12": 4096,
+          "accel_14": 0,
+          "range_16": 3072,
+          "w18": 80,
+          "impact_fx_1a": 162,
+          "launch_fx_1b": 0,
+          "sound_1c": 4,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "dropped round (type 0x0f): falls, bounces, proximity fuse",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 600,
+        "ammo_start": {
+          "hard": 30,
+          "normal": 37,
+          "easy": 45
+        },
+        "ammo_cap": {
+          "hard": 30,
+          "normal": 37,
+          "easy": 45
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 1.0,
+        "gap_between_rounds_s": 1.0,
+        "gap_units_1_300s": {
+          "burst": 300,
+          "round": 300
+        },
+        "refire_s": 1.0,
+        "mine": {
+          "gravity_m_s2": 8.0,
+          "blast_radius_m": 5.6,
+          "trigger_radius_m_plus_half_extent": 2.0,
+          "lifetime_s": 5.01,
+          "sprung_fuse_s": 1.0
+        }
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 5,
+          "flags": 1,
+          "ammo": 0,
+          "ammo_cap": 15,
+          "rounds_per_burst": 1,
+          "burst_gap": 16,
+          "round_gap": 0,
+          "damage": 1000,
+          "blast_or_spread_0e": 4096,
+          "w10": 1024,
+          "speed_12": 4096,
+          "accel_14": 0,
+          "range_16": 4096,
+          "w18": 80,
+          "impact_fx_1a": 167,
+          "launch_fx_1b": 0,
+          "sound_1c": 4,
+          "msg_kind_1f": 2
+        },
+        "behaviour": "dropped round (type 0x0f): falls, bounces, proximity fuse",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 1000,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 15,
+          "normal": 18,
+          "easy": 22
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 1.0,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 300,
+          "round": 0
+        },
+        "refire_s": 1.0,
+        "mine": {
+          "gravity_m_s2": 8.0,
+          "blast_radius_m": 8.0,
+          "trigger_radius_m_plus_half_extent": 2.0,
+          "lifetime_s": 5.01,
+          "sprung_fuse_s": 1.0
+        }
+      },
+      "models": [["Cobj", 50], ["NULL", 0], ["NULL", 0], ["Cobj", 51]]
+    },
+    "0x23": {
+      "code": 35,
+      "exe_name": "Shockwave",
+      "ui_name": "Shockwave Generator",
+      "slot": "special",
+      "A_normal": {
+        "raw": {
+          "kind": 15,
+          "flags": 1,
+          "ammo": 20,
+          "ammo_cap": 20,
+          "rounds_per_burst": 1,
+          "burst_gap": 48,
+          "round_gap": 48,
+          "damage": 300,
+          "blast_or_spread_0e": 3072,
+          "w10": 0,
+          "speed_12": 4096,
+          "accel_14": 0,
+          "range_16": 3072,
+          "w18": 48,
+          "impact_fx_1a": 0,
+          "launch_fx_1b": 170,
+          "sound_1c": 26,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "self-centred sustained effect (sustain_launch_effect)",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 300,
+        "ammo_start": {
+          "hard": 20,
+          "normal": 25,
+          "easy": 30
+        },
+        "ammo_cap": {
+          "hard": 20,
+          "normal": 25,
+          "easy": 30
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 3.0033,
+        "gap_between_rounds_s": 3.0033,
+        "gap_units_1_300s": {
+          "burst": 901,
+          "round": 901
+        },
+        "refire_s": 3.0033,
+        "shockwave": {
+          "radius_m": 6.0,
+          "range_16_m": 6.0,
+          "note": "self-centred; how damage is applied over time not established"
+        }
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 15,
+          "flags": 1,
+          "ammo": 0,
+          "ammo_cap": 10,
+          "rounds_per_burst": 1,
+          "burst_gap": 16,
+          "round_gap": 16,
+          "damage": 300,
+          "blast_or_spread_0e": 4096,
+          "w10": 0,
+          "speed_12": 4096,
+          "accel_14": 0,
+          "range_16": 4096,
+          "w18": 48,
+          "impact_fx_1a": 0,
+          "launch_fx_1b": 175,
+          "sound_1c": 25,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "self-centred sustained effect (sustain_launch_effect)",
+        "flags_meaning": ["round carries actor flag 0x80000"],
+        "damage": 300,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 10,
+          "normal": 12,
+          "easy": 15
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 1.0,
+        "gap_between_rounds_s": 1.0,
+        "gap_units_1_300s": {
+          "burst": 300,
+          "round": 300
+        },
+        "refire_s": 1.0,
+        "shockwave": {
+          "radius_m": 8.0,
+          "range_16_m": 8.0,
+          "note": "self-centred; how damage is applied over time not established"
+        }
+      },
+      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+    },
+    "0x24": {
+      "code": 36,
+      "exe_name": "Grenade",
+      "ui_name": "Grenade Launcher",
+      "slot": "special",
+      "A_normal": {
+        "raw": {
+          "kind": 9,
+          "flags": 13,
+          "ammo": 30,
+          "ammo_cap": 30,
+          "rounds_per_burst": 1,
+          "burst_gap": 16,
+          "round_gap": 0,
+          "damage": 400,
+          "blast_or_spread_0e": 2150,
+          "w10": 0,
+          "speed_12": 4096,
+          "accel_14": 4096,
+          "range_16": 4096,
+          "w18": 48,
+          "impact_fx_1a": 182,
+          "launch_fx_1b": 180,
+          "sound_1c": 10,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "ballistic-solved bouncing round (type 0x0f, timed fuse)",
+        "flags_meaning": [
+          "round carries actor flag 0x80000",
+          "round kept: second Special press detonates it; Special becomes press-to-fire",
+          "missile spin"
+        ],
+        "damage": 400,
+        "ammo_start": {
+          "hard": 30,
+          "normal": 37,
+          "easy": 45
+        },
+        "ammo_cap": {
+          "hard": 30,
+          "normal": 37,
+          "easy": 45
+        },
+        "rounds_per_burst": 1,
+        "gap_between_bursts_s": 1.0,
+        "gap_between_rounds_s": 0.0,
+        "gap_units_1_300s": {
+          "burst": 300,
+          "round": 0
+        },
+        "refire_s": 1.0,
+        "ballistic": {
+          "launch_speed_m_s": 7.617,
+          "gravity_m_s2": 8.0,
+          "max_flat_range_m": 7.25,
+          "blast_radius_m": 4.199,
+          "fuse_s": [3.003, 4.457]
+        }
+      },
+      "B_powered": {
+        "raw": {
+          "kind": 9,
+          "flags": 13,
+          "ammo": 0,
+          "ammo_cap": 16,
+          "rounds_per_burst": 2,
+          "burst_gap": 16,
+          "round_gap": 1,
+          "damage": 600,
+          "blast_or_spread_0e": 2150,
+          "w10": 0,
+          "speed_12": 4096,
+          "accel_14": 4096,
+          "range_16": 4096,
+          "w18": 48,
+          "impact_fx_1a": 187,
+          "launch_fx_1b": 185,
+          "sound_1c": 10,
+          "msg_kind_1f": 4
+        },
+        "behaviour": "ballistic-solved bouncing round (type 0x0f, timed fuse)",
+        "flags_meaning": [
+          "round carries actor flag 0x80000",
+          "round kept: second Special press detonates it; Special becomes press-to-fire",
+          "missile spin"
+        ],
+        "damage": 600,
+        "ammo_start": {
+          "hard": 0,
+          "normal": 0,
+          "easy": 0
+        },
+        "ammo_cap": {
+          "hard": 16,
+          "normal": 20,
+          "easy": 24
+        },
+        "rounds_per_burst": 2,
+        "gap_between_bursts_s": 1.0,
+        "gap_between_rounds_s": 0.06,
+        "gap_units_1_300s": {
+          "burst": 300,
+          "round": 18
+        },
+        "ballistic": {
+          "launch_speed_m_s": 7.617,
+          "gravity_m_s2": 8.0,
+          "max_flat_range_m": 7.25,
+          "blast_radius_m": 4.199,
+          "fuse_s": [3.003, 4.457]
+        }
+      },
+      "models": [["Cobj", 52], ["NULL", 0], ["NULL", 0], ["Cobj", 52]]
+    }
+  },
+  "_lock": "lock range 0x18000 wu = 12 m horizontal; acquire cone cos 0xf9ee (+-12.5 deg), hold cone cos 0xe804 (+-25 deg); auto-acquire when none; hitscan damages only the lock",
+  "_no_lock_aim": "missiles fly along heading; arced/bounce rounds solve to a point 0x10000 wu = 8 m ahead at muzzle height",
+  "_blast": "linear falloff over horizontal distance: dmg*(r-d)/r (damage.c 0x0042f170)",
+  "_confidence": "raw bytes H (dumped from fixtures/missions/*, identical in 15 maps); unit conversions M; sustained-effect (flame/beam/shockwave/shield) time behaviour not established"
+}

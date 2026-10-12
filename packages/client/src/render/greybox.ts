@@ -16,7 +16,6 @@ import {
   PROJ_MORTAR,
   PROJ_SPECIAL,
   PROJ_WARDEN,
-  TURRET_BUILTIN,
   TURRET_DEFENSE,
 } from "@metropolis/sim";
 import * as THREE from "three";
@@ -108,8 +107,6 @@ function turretCapacity(): number {
     const n =
       map.bases[0].turrets.length +
       map.bases[1].turrets.length +
-      map.bases[0].defence.length +
-      map.bases[1].defence.length +
       map.turretSpots.length +
       map.dummySpots.length;
     if (n > worst) worst = n;
@@ -342,7 +339,9 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const projMortar = bucket(scene, projMortarGeometry, 32, true);
   const projMine = bucket(scene, projMineGeometry, 32, true);
   const projWarden = bucket(scene, projWardenGeometry, 16, true);
-  const projectile = bucket(scene, projectileGeometry, 32, true);
+  // The generic bolt, which is also every PA shooter's round since SIM_VERSION 42
+  // (PROJ_ROUND: 64 turrets and up to 80 units each with a 1.6 s round in the air).
+  const projectile = bucket(scene, projectileGeometry, 192, true);
   const consoleBucket = bucket(scene, consoleGeometry, consoleCapacity());
   const warden = bucket(scene, wardenGeometry, 2);
   return {
@@ -399,8 +398,6 @@ export function bucketFor(
   if (archetype === ARCHETYPE.JUGGERNAUT) return greybox.juggernaut;
   if (archetype === ARCHETYPE.FORTRESS) return greybox.fortress;
   if (archetype === ARCHETYPE.TURRET) {
-    // Built-in BaseShooter guns are combat-only (bolted into the base mesh).
-    if (aux === TURRET_BUILTIN) return undefined;
     return aux === TURRET_DEFENSE ? greybox.turretDefense : greybox.turretStandard;
   }
   if (archetype === ARCHETYPE.PROJECTILE) {

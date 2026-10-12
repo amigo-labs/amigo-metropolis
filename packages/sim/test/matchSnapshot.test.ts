@@ -5,25 +5,29 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { CAPTURE_TICKS, CONSOLE_HOLD_TICKS } from "../src/balance";
+import { CONSOLE_HOLD_TICKS } from "../src/balance";
 import { createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
 import {
   createSim,
   hash,
   MATCH_ENTITY_COUNT,
+  MATCH_OUTRO_LEFT,
+  MATCH_OUTRO_WINNER,
+  MATCH_SLOT_AMMO_GUN,
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_BUY_FRAC,
-  MATCH_SLOT_CAPTURE_FRAC,
-  MATCH_SLOT_CORE_FRAC,
   MATCH_SLOT_HP_FRAC,
+  MATCH_SLOT_LOCK,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
+  MATCH_SLOT_POWER,
   MATCH_SLOT_RESPAWN_TICKS,
   MATCH_SLOT_UNITS,
   MATCH_SNAPSHOT_LEN,
+  MATCH_SNAPSHOT_SLOT_STRIDE,
   MATCH_TICK,
   MATCH_WINNER,
   matchSlotOffset,
@@ -163,41 +167,57 @@ describe("writeMatchSnapshot", () => {
     expect(out[matchSlotOffset(1) + MATCH_SLOT_BUY_FRAC]).toBe(-1);
   });
 
-  it("reports the best capture progress of the capturing slot, -1 otherwise", () => {
-    const sim = freshSim();
-    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
-    expect(sim.captureTeam.length).toBeGreaterThan(1);
-
-    writeMatchSnapshot(sim, out);
-    expect(out[matchSlotOffset(0) + MATCH_SLOT_CAPTURE_FRAC]).toBe(-1);
-
-    sim.captureTeam[0] = 0;
-    sim.captureProgress[0] = Math.floor(CAPTURE_TICKS / 2);
-    writeMatchSnapshot(sim, out);
-    expect(out[matchSlotOffset(0) + MATCH_SLOT_CAPTURE_FRAC]).toBeCloseTo(
-      Math.floor(CAPTURE_TICKS / 2) / CAPTURE_TICKS,
-      5,
-    );
-    expect(out[matchSlotOffset(1) + MATCH_SLOT_CAPTURE_FRAC]).toBe(-1);
+  it("carries no capture progress: a capture is instant (fcop-fidelity.md R12)", () => {
+    // MATCH_SLOT_CAPTURE_FRAC (slot field 9) reported a 3 s hold until SIM_VERSION
+    // 34. The original captures on one key press, so there is nothing to report
+    // and the slot block lost the field. Since SIM_VERSION 41 the Gun magazine and
+    // the lock follow the buy fraction, appended.
+    expect(MATCH_SLOT_BUY_FRAC).toBe(8);
+    expect(MATCH_SLOT_AMMO_GUN).toBe(9);
+    expect(MATCH_SLOT_LOCK).toBe(10);
+    expect(MATCH_SLOT_POWER).toBe(11);
+    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(12);
   });
 
-  it("reports core HP fractions on a core arena and -1 on a gate arena", () => {
-    // urban-jungle is §9 (coreHp 3000 per base).
+  it("reports the post-breach outro, and nothing while none runs", () => {
+    // Replaces the core-HP bars (MATCH_SLOT_CORE_FRAC): the original has no core
+    // (fcop-fidelity.md R1). What the HUD can show instead is the breach that
+    // decided the match while the outro plays.
     const sim = freshSim();
     const out = new Float32Array(MATCH_SNAPSHOT_LEN);
     writeMatchSnapshot(sim, out);
-    expect(out[matchSlotOffset(0) + MATCH_SLOT_CORE_FRAC]).toBe(1);
-    expect(out[matchSlotOffset(1) + MATCH_SLOT_CORE_FRAC]).toBe(1);
+    expect(out[MATCH_OUTRO_LEFT]).toBe(0);
+    expect(out[MATCH_OUTRO_WINNER]).toBe(-1);
 
-    sim.coreHp[1] = Math.floor(sim.map.bases[1].coreHp / 2);
+    sim.outroTimer = 100;
+    sim.outroWinner = 1;
     writeMatchSnapshot(sim, out);
-    expect(out[matchSlotOffset(1) + MATCH_SLOT_CORE_FRAC]).toBeCloseTo(0.5, 5);
+    expect(out[MATCH_OUTRO_LEFT]).toBe(100);
+    expect(out[MATCH_OUTRO_WINNER]).toBe(1);
+  });
 
-    // district-01 is §1: no cores, the field reads -1 for both slots.
-    const gateSim = createSim(getMapById("district-01"), 1);
-    writeMatchSnapshot(gateSim, out);
-    expect(out[matchSlotOffset(0) + MATCH_SLOT_CORE_FRAC]).toBe(-1);
-    expect(out[matchSlotOffset(1) + MATCH_SLOT_CORE_FRAC]).toBe(-1);
+  it("reports the Gun magazine and the lock (fcop-fidelity.md W1, W2)", () => {
+    const sim = freshSim();
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+    sim.gunAmmo[0] = 1234;
+    sim.lockTarget[0] = sim.avatarId[1];
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_AMMO_GUN]).toBe(1234);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_LOCK]).toBe(sim.avatarId[1]);
+    sim.lockTarget[0] = -1;
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_LOCK]).toBe(-1);
+  });
+
+  it("reports a powered slot and counts its block-B magazine (fcop-fidelity.md P8)", () => {
+    const sim = freshSim();
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_POWER]).toBe(0);
+    sim.powerAmmo[1] = 18; // player 0's Heavy
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_POWER]).toBe(2);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_AMMO_HEAVY]).toBe(18);
   });
 
   it("overwrites every field, so a reused buffer never shows a stale value", () => {

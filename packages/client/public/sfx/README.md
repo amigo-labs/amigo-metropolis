@@ -4,9 +4,11 @@ One `.wav` per game cue, named after the cue in
 `packages/client/src/audio/presets.ts` — `shot.wav`, `capture.wav` and so on.
 Fetched at runtime, so adding one needs no rebuild, exactly like `../music/`.
 
-**This directory is empty, and that is the working state.** Every cue is
-rendered at unlock by the clean-room sfxr synth (`src/audio/sfxr.ts`), and the
-synth remains the fallback forever. `audio/engine.ts` `loadSfxFiles()` then
+**What is here: the original's alert voice lines** (`vo_*.wav`, speech ids 0-6
+and 19 from the six Precinct Assault arenas' shared voice bank; rules.md §9,
+`docs/specs/fcop-fidelity.md` R15). Every other cue is still rendered at unlock
+by the clean-room sfxr synth (`src/audio/sfxr.ts`), and the synth remains the
+fallback forever, voices included. `audio/engine.ts` `loadSfxFiles()` then
 replaces only the cues listed in `src/audio/sfxFiles.generated.ts`; a cue with
 no file, or one whose file 404s or fails to decode, keeps its synth. So real
 sounds can arrive one cue at a time with nothing else to change.
@@ -19,13 +21,11 @@ buffer. `tools/generators/test/sfxCues.test.ts` asserts the generated lookup
 still matches the manifest, so editing the manifest without re-running the
 generator fails the suite.
 
-Why the manifest is empty: the 348 unique sounds extracted from the original
-game carry no semantic labels, and the chain that would tell us which is which
-(`Cshd` sound events → `Cfun` script table) is still open. `Cfun` itself is no
-longer the blocker — it has been disassembled against the retail interpreter —
-but none of its opcodes is a proven sound-play op, so nothing yet binds an event
-to a sound id. Picking is a listening pass — see the manifest header for the
-shortlists in the RE repo that narrow 348 down, and issue #27.
+Why only the voices: the mission scripts' speech ops (0x0c/0x0d) name which line
+each event plays, so the alert lines are bound by reading, not by ear. The 348
+unique sound EFFECTS carry no semantic labels and their binding is still open, so
+picking those is a listening pass — see the manifest header for the shortlists in
+the RE repo that narrow 348 down, and issue #27.
 
 The service worker needs no change: `sw.js` applies stale-while-revalidate to
 every same-origin GET, so `/sfx/*.wav` is cached on first play. It is

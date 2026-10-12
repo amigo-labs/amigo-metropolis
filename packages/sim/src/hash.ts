@@ -28,3 +28,13 @@ export function fnv1aU32(h: number, v: number): number {
   acc = Math.imul(acc ^ ((v >>> 24) & 0xff), FNV_PRIME) >>> 0;
   return acc;
 }
+
+/** Scratch for fnv1aF32: one float's bits, no allocation per call. */
+const F32_SCRATCH = new Float32Array(1);
+const F32_BITS = new Uint32Array(F32_SCRATCH.buffer);
+
+/** Folds a number, rounded to float32, into h by its bit pattern. */
+export function fnv1aF32(h: number, v: number): number {
+  F32_SCRATCH[0] = v;
+  return fnv1aU32(h, F32_BITS[0]);
+}
