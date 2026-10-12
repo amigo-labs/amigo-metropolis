@@ -15,9 +15,9 @@ import {
   GUARDIAN_ASSAULT_STANDOFF,
   MATCH_OUTRO_TICKS,
   PAD_REPAIR_HP_PER_TICK,
+  POINTS_UNIT_DIES,
   RUNNER_SPEED,
   STARTING_POINTS,
-  TRICKLE_INTERVAL_TICKS,
   UNIT_SEPARATION_RADIUS,
 } from "../src/balance";
 import { EV_BREACH, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
@@ -324,9 +324,9 @@ describe("runner lane-following and the win check", () => {
     for (let t = 0; t < 600; t++) step(sim, inputs);
     expect(sim.ent.alive[id]).toBe(0); // shredded on approach
     expect(sim.winner).toBe(-1);
-    // The kill credits the turret's owner (beyond start balance + trickle).
-    const trickled = Math.floor((sim.tick - 1) / TRICKLE_INTERVAL_TICKS);
-    expect(sim.points[1]).toBe(STARTING_POINTS + trickled + 1);
+    // The dead Runner pays the other side 1 (its death script, whoever killed
+    // it — fcop-fidelity.md R6); there is no trickle on top.
+    expect(sim.points[1]).toBe(STARTING_POINTS + POINTS_UNIT_DIES);
   });
 
   it("a juggernaut kills the ring turret in its path and then breaches", () => {

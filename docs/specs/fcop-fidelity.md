@@ -72,15 +72,15 @@ Decision column: **adopt** = take the original's value; **keep** = deliberate de
 | # | Metropolis had | Original | Decision | Status |
 |---|---|---|---|---|
 | R1 | §9 win: destroy the enemy core | Enemy **tank or Dreadnought** enters your gate trigger; 1750 ticks (5.83 s) countdown, then results. No timer | adopt (§9 returns to §1's gate rule) | adopted in "Model type 28 as the Dreadnought and win at the gate box", SIM_VERSION 32: gate = imported gate trigger box + intruder radius; Runner/Juggernaut only; `MATCH_OUTRO_TICKS` 175 on every arena (district-01 too) |
-| R2 | Start 20 points | **10** | adopt | open |
-| R3 | Trickle 1 point / 10 s | **none** | adopt | open |
-| R4 | Kill avatar +10 | Avatar down: killer side **+10, victim −10** (floor 0) | adopt | open |
-| R5 | Kill turret +2 | **+1** (enemy base or outpost turret) | adopt | open |
-| R6 | Kill unit +1 (to the killer) | enemy tank/jet dies: **+1 to the other side whoever killed it**; Dreadnought/Fortress **+5** | adopt | open |
-| R7 | Capture turret +3 | **+1**, and +1 for destroying an enemy-held one | adopt | open |
+| R2 | Start 20 points | **10** | adopt | adopted in "Pay points the way the original does", SIM_VERSION 33: `STARTING_POINTS` 10 on every arena, the Warden included (the Sky Captain's 0 + free opening order is U3's) |
+| R3 | Trickle 1 point / 10 s | **none** | adopt | adopted in "Pay points the way the original does", SIM_VERSION 33: trickle and the Warden's income multiplier removed on every arena |
+| R4 | Kill avatar +10 | Avatar down: killer side **+10, victim −10** (floor 0) | adopt | adopted in "Pay points the way the original does", SIM_VERSION 33: the other side +10, the victim −10 floored at 0, whoever did it; a player's paid at its respawn (`player_respawn`), the Warden's when it falls (the captain's death script) |
+| R5 | Kill turret +2 | **+1** (enemy base or outpost turret) | adopt | adopted in "Pay points the way the original does", SIM_VERSION 33: a base ring turret's death pays the other side 1, whoever killed it (Metropolis has no outpost turrets, R14) |
+| R6 | Kill unit +1 (to the killer) | enemy tank/jet dies: **+1 to the other side whoever killed it**; Dreadnought/Fortress **+5** | adopt | adopted in "Pay points the way the original does", SIM_VERSION 33 |
+| R7 | Capture turret +3 | **+1**, and +1 for destroying an enemy-held one | adopt | adopted in "Pay points the way the original does", SIM_VERSION 33: capture +1; a captured pad's death pays the side opposite its owner 1 |
 | R8 | Costs 1/1/50/50, outpost 30, outpost units ×2 | identical | — | confirmed |
-| R9 | Alive caps: production 8; Juggernaut 1, Fortress 1 | **20 tanks + 20 jets** per side; Dreadnought 1, Fortress 1 | adopt | open |
-| R10 | Heavy units buyable at once | Dreadnought/Fortress pads unlock the first time a side reaches 50 points | adopt | open |
+| R9 | Alive caps: production 8; Juggernaut 1, Fortress 1 | **20 tanks + 20 jets** per side; Dreadnought 1, Fortress 1 | adopt | adopted in "Pay points the way the original does", SIM_VERSION 33: `RUNNER_ALIVE_LIMIT`/`GUARDIAN_ALIVE_LIMIT` 20 per side, base and outpost purchases together, every arena |
+| R10 | Heavy units buyable at once | Dreadnought/Fortress pads unlock the first time a side reaches 50 points | adopt | adopted in "Pay points the way the original does", SIM_VERSION 33: sticky per-side `heavyUnlocked`, set at the end of the tick a side holds 50. With the price also 50 it only refuses a purchase on the tick the points arrive |
 | R11 | "No match timer — original had none" | correct (the countdown is the win outro) | — | confirmed |
 | R12 | Capture: stand 3 s within 5 m, uncontested | **Instant** on an action-key press within `(range+1024)/512` m + own radius (4.0–5.6 m by map). Tanks capture by proximity, jets and Dreadnoughts cannot. Captured is permanent until destroyed; respawns neutral after 25 s | adopt | open |
 | R13 | Neutral turrets fire? | Uncaptured turrets **never fire** | adopt | confirmed: already true (sim.ts `systemTargeting` skips unowned capturables) |

@@ -280,16 +280,52 @@ export const BASE_TURRET_RESPAWN_TICKS = 3600; // 120 s (rules.md §5, #31)
 // Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
 export const PAD_REPAIR_HP_PER_TICK = 0.5; // 15 hp/s
 
-// Economy (rules.md §3). One resource: points, open information.
-export const STARTING_POINTS = 20; // enough for an opening wave, not a Juggernaut
-export const TRICKLE_INTERVAL_TICKS = 300; // 1 pt per 10 s
-export const TRICKLE_POINTS = 1;
-export const POINTS_CAPTURE_TURRET = 3;
+// Economy (rules.md §3). One resource: points, open information. The numbers are
+// the original's (fcop-re/ai-and-rules.md §2, §8; fcop-fidelity.md R2-R10): all
+// six PA arenas run identical economy scripts, and none of the rules below reads
+// PA-only map data, so they apply on every arena, district-01 included.
+/** Both sides start with 10 (the mission script's `W25 = 10`, ai-and-rules.md §2). */
+export const STARTING_POINTS = 10;
+// No trickle: no script or engine path adds points over time (ai-and-rules.md §2,
+// "no trickle"). Points come only from the events below.
+/**
+ * An enemy Runner (tank) or Guardian (jet) dies: +1 to the OTHER side, whoever
+ * killed it — the points come from the dying unit's own death script, not from
+ * the kill credit (ai-and-rules.md §2, §1.8).
+ */
+export const POINTS_UNIT_DIES = 1;
+/** The enemy's Juggernaut (Dreadnought) or Fortress dies: +5 to the other side. */
+export const POINTS_HEAVY_DIES = 5;
+/**
+ * An enemy base turret, or a neutral turret the enemy captured, dies: +1 to the
+ * other side (death scripts pool@1537/1561; turret.c 0x0041bdca for captured ones).
+ */
+export const POINTS_TURRET_DIES = 1;
+/** Capturing a neutral turret: +1 to the capturer (turret.c 0x0041cb7b). */
+export const POINTS_CAPTURE_TURRET = 1;
+/**
+ * An avatar goes down: the other side gains 10 and the downed side loses 10,
+ * never below 0. A player's script pays at its respawn (`player_respawn`
+ * 0x004475e9, pool@136); the Sky Captain's death script pays when it is shot down.
+ */
+export const POINTS_AVATAR_DOWN = 10;
 export const COST_RUNNER = 1;
 export const COST_GUARDIAN = 1;
 export const COST_JUGGERNAUT = 50;
 export const COST_FORTRESS = 50;
 export const COST_OUTPOST_CLAIM = 30;
+/**
+ * Alive caps per side: 20 tanks and 20 jets (the pad scripts' check and
+ * `SKY_UNIT_CAP 0x14`; ai-and-rules.md §1.8, §3). Base and outpost purchases
+ * count against the same cap.
+ */
+export const RUNNER_ALIVE_LIMIT = 20;
+export const GUARDIAN_ALIVE_LIMIT = 20;
+/**
+ * The Dreadnought and Fortress zones open the first time a side reaches 50 points
+ * (fn30, ai-and-rules.md §2), and stay open. Sticky per side.
+ */
+export const HEAVY_UNLOCK_POINTS = 50;
 /** Units bought at an owned outpost (forward spawn) cost this multiple. */
 export const OUTPOST_COST_MULTIPLIER = 2;
 
@@ -298,7 +334,8 @@ export const OUTPOST_COST_MULTIPLIER = 2;
 // heavy variant at base consoles and the air unit at outpost consoles.
 export const CONSOLE_RADIUS = 3;
 export const CONSOLE_HOLD_TICKS = 15; // 0.5 s
-export const JUGGERNAUT_ALIVE_LIMIT = 1; // rules.md §3
+/** One Dreadnought and one Fortress alive per side (spawner limit 1, ai-and-rules.md §3). */
+export const JUGGERNAUT_ALIVE_LIMIT = 1;
 export const FORTRESS_ALIVE_LIMIT = 1;
 
 // Neutral turret capture (rules.md §5).
@@ -430,16 +467,14 @@ export const WARDEN_ESCORT_DISTANCE = 6; // hover distance from the escorted uni
 export const WARDEN_RETREAT_DONE_HP_PERCENT = 80; // leave the pad at this hp
 
 /**
- * Difficulty 1–10 knobs (PLAN Phase 4), indexed by (difficulty - 1):
- * reaction delay between decision re-plans, trickle-income multiplier in
- * percent (100 = the player's rate — the Warden never cheats other earnings),
- * and the aggression percent that gates harassing, Juggernaut savings and how
- * low its hp may drop before it runs home to repair.
+ * Difficulty 1–10 knobs (PLAN Phase 4), indexed by (difficulty - 1): reaction
+ * delay between decision re-plans, and the aggression percent that gates
+ * harassing, Juggernaut savings and how low its hp may drop before it runs home
+ * to repair. There is no income knob: the original's Sky Captain earns exactly
+ * like a human side — its budget IS its Current Points (fcop-re/ai-and-rules.md
+ * §1.8) — and Metropolis has no trickle left for a multiplier to scale.
  */
 export const WARDEN_REACTION_TICKS: readonly number[] = [48, 42, 36, 30, 24, 18, 12, 8, 5, 3];
-export const WARDEN_INCOME_PERCENT: readonly number[] = [
-  50, 65, 80, 90, 100, 110, 125, 140, 170, 200,
-];
 export const WARDEN_AGGRESSION_PERCENT: readonly number[] = [
   10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
 ];
@@ -491,11 +526,6 @@ export const WARDEN_SUPPRESS_DISTANCE = 3;
 export const WARDEN_GUARDIAN_TARGET: readonly number[] = [0, 0, 1, 1, 1, 2, 2, 2, 3, 3];
 /** Aggression at or above this saves 50 points for a Juggernaut push. */
 export const WARDEN_JUGGERNAUT_AGGRO = 60;
-
-// Points (rules.md §3, the Phase 1 stub subset).
-export const POINTS_KILL_AVATAR = 10;
-export const POINTS_KILL_TURRET = 2;
-export const POINTS_KILL_UNIT = 1;
 
 // Unit combat stats indexed by ARCHETYPE value (avatar/turret/projectile
 // slots unused — those fight through their own constants above).

@@ -8,6 +8,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ARCHETYPE } from "../src/archetypes";
+import { POINTS_AVATAR_DOWN, STARTING_POINTS } from "../src/balance";
 import { EV_DEATH, EV_EXPLOSION, EV_RESPAWN, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
 import { getMapById, isWater } from "../src/map";
@@ -64,7 +65,12 @@ describe("golden-02-combat beats", () => {
     }
 
     expect(turretKills).toBeGreaterThanOrEqual(1);
-    expect(sim.points[0]).toBeGreaterThanOrEqual(2);
+    // A neutral dummy pays nothing, and there is no trickle: the only payment
+    // is the avatar's going-down, settled at its respawn (+10 to player 1, -10
+    // to player 0 floored at 0 — fcop-fidelity.md R4). This pinned a trickle-fed
+    // ">= 2" until SIM_VERSION 33.
+    expect(sim.points[1]).toBe(STARTING_POINTS + POINTS_AVATAR_DOWN * avatarRespawns);
+    expect(sim.points[0]).toBe(0);
     expect(avatarDeaths).toBeGreaterThanOrEqual(1);
     expect(avatarRespawns).toBeGreaterThanOrEqual(1);
     expect(dummyRespawns).toBeGreaterThanOrEqual(1);

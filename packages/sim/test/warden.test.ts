@@ -5,8 +5,9 @@
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
+  POINTS_AVATAR_DOWN,
   RESPAWN_TICKS,
-  TRICKLE_INTERVAL_TICKS,
+  STARTING_POINTS,
   WARDEN_ALTITUDE,
   WARDEN_DEFEND_RADIUS,
   WARDEN_HP,
@@ -101,15 +102,20 @@ describe("warden", () => {
     expect(diverged).toBe(true);
   });
 
-  it("scales trickle income by the difficulty multiplier (integer-exact)", () => {
-    // Difficulty 1 earns 50%: the fixed-point accumulator holds the odd half
-    // point after one interval and flushes it on the next — no float drift.
-    // (+1: the trickle fires during the step that BEGINS on the interval tick)
+  it("earns like a human side: same start, and its fall pays the enemy 10 at once", () => {
+    // The original's Sky Captain budget IS its Current Points
+    // (fcop-re/ai-and-rules.md §1.8). This used to pin a difficulty income
+    // multiplier on the trickle; the original has neither.
     const sim = wardenSim(1);
-    for (let t = 0; t < TRICKLE_INTERVAL_TICKS + 1; t++) step(sim, idle);
-    expect(sim.wardenIncomeAcc).toBe(50);
-    for (let t = 0; t < TRICKLE_INTERVAL_TICKS; t++) step(sim, idle);
-    expect(sim.wardenIncomeAcc).toBe(0);
+    expect(sim.points[1]).toBe(STARTING_POINTS);
+    sim.points[1] = 25;
+    const wid = sim.avatarId[1];
+    sim.ent.hp[wid] = -10;
+    step(sim, idle);
+    expect(sim.avatarId[1]).toBe(-1);
+    // Its death script pays when it is shot down, not at its respawn.
+    expect(sim.points[0]).toBe(STARTING_POINTS + POINTS_AVATAR_DOWN);
+    expect(sim.points[1]).toBe(25 - POINTS_AVATAR_DOWN);
   });
 
   it("respawns as the superplane after death", () => {
@@ -160,12 +166,21 @@ describe("the goal ladder on the imported arenas (rules.md §7, §9)", () => {
   // while doing nothing toward the objective.
   const PA_ARENAS = [LA_CANTINA_ID, URBAN_JUNGLE_ID, PROVING_GROUND_ID, BUG_HUNT_ID];
 
-  /** Fraction of ticks spent on each goal over a 5-minute difficulty-8 match. */
+  /**
+   * The window these measure over: twelve minutes, or the breach. It was five
+   * until v33, when the original's economy (no trickle, a 10-point start) made a
+   * difficulty-8 Warden spend its first minutes capturing toward the 50-point
+   * Juggernaut it saves for — proving-ground and bug-hunt field nothing in the
+   * first five, so a five-minute window held no push to measure.
+   */
+  const WINDOW = 12 * 60 * 30;
+
+  /** Fraction of ticks spent on each goal over a difficulty-8 match. */
   function goalMix(mapId: string): Map<number, number> {
     const map = getMapById(mapId);
     const sim = createSim(map, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
     const ticks = new Map<number, number>();
-    while (sim.tick < 5 * 60 * 30 && sim.winner < 0) {
+    while (sim.tick < WINDOW && sim.winner < 0) {
       step(sim, idle);
       ticks.set(sim.wardenGoal, (ticks.get(sim.wardenGoal) ?? 0) + 1);
     }
@@ -178,11 +193,12 @@ describe("the goal ladder on the imported arenas (rules.md §7, §9)", () => {
    *
    * Asserted as the sum from v20 on, because that rung now answers "what is
    * stopping this push" before "who do I fly alongside" and the split between the
-   * two forms is arena geometry, not the behaviour under test: over five minutes
-   * at difficulty 8 it is SUPPRESS 68/22/60/62% against ESCORT 3/24/6/5% on
-   * la-cantina, urban-jungle, proving-ground and bug-hunt. Pinning ESCORT alone
-   * would read urban-jungle's 24% and la-cantina's 3% as a regression when what
-   * changed is that la-cantina's last stretch has something in the way.
+   * two forms is arena geometry, not the behaviour under test. Measured at v33
+   * over the window, at difficulty 8: SUPPRESS 11/2/2/3% and ESCORT 10/10/5/6% on
+   * la-cantina, urban-jungle, proving-ground and bug-hunt (at v32, over five
+   * minutes with a trickle, it was SUPPRESS 68/22/60/62% and ESCORT 3/24/6/5%).
+   * The share is small now because a push is one Juggernaut bought late, not a
+   * stream; pinning either form alone would read geometry as a regression.
    */
   const committed = (mix: Map<number, number>): number =>
     (mix.get(WGOAL_ESCORT) ?? 0) + (mix.get(WGOAL_SUPPRESS) ?? 0);
@@ -242,7 +258,7 @@ describe("the goal ladder on the imported arenas (rules.md §7, §9)", () => {
       const sim = createSim(getMapById(id), 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
       let capture = 0;
       let pushing = 0;
-      while (sim.tick < 5 * 60 * 30 && sim.winner < 0) {
+      while (sim.tick < WINDOW && sim.winner < 0) {
         step(sim, idle);
         let tip = false;
         for (let e = 0; e < sim.ent.high && !tip; e++) {
@@ -276,7 +292,7 @@ describe("the goal ladder on the imported arenas (rules.md §7, §9)", () => {
       const sim = createSim(map, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
       let closest = Number.POSITIVE_INFINITY;
       let suppressTicks = 0;
-      while (sim.tick < 5 * 60 * 30 && sim.winner < 0) {
+      while (sim.tick < WINDOW && sim.winner < 0) {
         step(sim, idle);
         if (sim.wardenGoal === WGOAL_SUPPRESS) suppressTicks += 1;
         const w = sim.avatarId[1];

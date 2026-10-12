@@ -222,9 +222,12 @@ describe("a Warden vs an idle player on la-cantina", () => {
   // With nothing produced for free, the idle player fields no units at all, so
   // the Warden's bought waves meet only the turret line. Measured at v32: it
   // breaches at 79 s on this seed (capture 44% of its ticks, then the committed
-  // push: escort 20%, suppress 15%). The long history of this describe — the
-  // stalled pushes of v15-v30 against a free production stream — ended with the
-  // stream.
+  // push: escort 20%, suppress 15%). At v33 (the original's economy: a 10-point
+  // start, no trickle, +1 a capture) it breaches at 160 s: a difficulty-8 Warden
+  // saves for its Juggernaut, and with no trickle the 50 points come from pads
+  // (capture 73% of its ticks), then the Juggernaut push (escort 10%, suppress
+  // 11%) wins. The long history of this describe — the stalled pushes of v15-v30
+  // against a free production stream — ended with the stream.
   const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
   const idle = createTickInputs();
   let captures = 0;
@@ -242,12 +245,14 @@ describe("a Warden vs an idle player on la-cantina", () => {
   });
 
   it("funds that push from capture income that is not absurd", () => {
-    // #31's open question: 32 pads at POINTS_CAPTURE_TURRET is a lot of points on
-    // a map where a Juggernaut costs 50. Recorded as a relation so a change to
-    // either is deliberate (the economy package owns both numbers).
+    // #31's open question was whether 32 pads at 3 points each (96, nearly two
+    // Juggernauts) was too much. The original answers it: a capture pays 1
+    // (fcop-fidelity.md R7), so the whole board is worth less than one
+    // Dreadnought, and a side funds its heavy push from pads AND kills. Recorded
+    // as a relation so a change to either number is deliberate.
     const boardValue = MAP.turretSpots.length * POINTS_CAPTURE_TURRET;
-    expect(boardValue / COST_JUGGERNAUT).toBeGreaterThan(1);
-    expect(boardValue / COST_JUGGERNAUT).toBeLessThan(3);
+    expect(boardValue / COST_JUGGERNAUT).toBeGreaterThan(0.5);
+    expect(boardValue / COST_JUGGERNAUT).toBeLessThan(1);
     // The board is not what wins the match: the Warden takes some pads and wins
     // without needing the whole board.
     expect(captures).toBeGreaterThan(0);
@@ -258,22 +263,27 @@ describe("a Warden vs an idle player on la-cantina", () => {
 describe("a d8 Warden match RESOLVES on every imported arena", () => {
   // The last open item of issue #31 / PLAN Phase 13, pinned so it cannot
   // silently regress: a difficulty-8 Warden against an idle player wins through
-  // the gate within ten minutes on all four arenas. Seeds 2 and 4 are in the set
-  // because they are the two that once stalled urban-jungle (a standing mill of
-  // produced units at the base exit, before the v30 jam relief); c0ffee is the
-  // suite's usual seed.
-  const TEN_MINUTES = 10 * 60 * 30;
+  // the gate on all four arenas. Seeds 2 and 4 are in the set because they are
+  // the two that once stalled urban-jungle (a standing mill of produced units at
+  // the base exit, before the v30 jam relief); c0ffee is the suite's usual seed.
+  //
+  // Twelve minutes, not ten, since v33: the original's economy has no trickle and
+  // a 10-point start, and a difficulty-8 Warden saves for its 50-point Juggernaut
+  // before it buys anything. Measured worst cases: la-cantina 166 s,
+  // urban-jungle 352 s, proving-ground 664 s, bug-hunt 621 s (were 79/98/96/83 s).
+  // The Warden's spending rules are ours until the Sky Captain lands (U3).
+  const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {
-    it(`${id}: d8 vs idle breaches within ten minutes on the stall seeds`, () => {
+    it(`${id}: d8 vs idle breaches within twelve minutes on the stall seeds`, () => {
       for (const seed of [0xc0ffee, 2, 4]) {
         const state = createSim(getMapById(id), seed, {
           wardenPlayer: 1,
           wardenDifficulty: 8,
         });
         const idle = createTickInputs();
-        for (let t = 0; t < TEN_MINUTES && state.winner < 0; t++) step(state, idle);
+        for (let t = 0; t < TWELVE_MINUTES && state.winner < 0; t++) step(state, idle);
         expect(state.winner).toBe(1);
-        expect(state.tick).toBeLessThanOrEqual(TEN_MINUTES);
+        expect(state.tick).toBeLessThanOrEqual(TWELVE_MINUTES);
       }
     });
   }

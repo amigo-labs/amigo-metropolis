@@ -34,6 +34,8 @@ import {
   DUMMY_RESPAWN_TICKS,
   FORTRESS_ALIVE_LIMIT,
   GRAVITY,
+  GUARDIAN_ALIVE_LIMIT,
+  HEAVY_UNLOCK_POINTS,
   HOVER_CLEARANCE,
   HOVER_CUSHION_SPAN,
   HOVER_TRACTION_ACCEL,
@@ -62,18 +64,18 @@ import {
   PICKUP_POWER_TICKS,
   PICKUP_RADIUS,
   PICKUP_SPECIAL_AMMO,
+  POINTS_AVATAR_DOWN,
   POINTS_CAPTURE_TURRET,
-  POINTS_KILL_AVATAR,
-  POINTS_KILL_TURRET,
-  POINTS_KILL_UNIT,
+  POINTS_HEAVY_DIES,
+  POINTS_TURRET_DIES,
+  POINTS_UNIT_DIES,
   RESPAWN_TICKS,
+  RUNNER_ALIVE_LIMIT,
   SPECIAL_MINE_ARM_TICKS,
   SPECIAL_MINE_TRIGGER_RADIUS,
   STARTING_POINTS,
   TICK_DT,
   TRANSFORM_LOCK_TICKS,
-  TRICKLE_INTERVAL_TICKS,
-  TRICKLE_POINTS,
   TRIGGER_REARM_TICKS,
   TRIGGER_WATCH_ENEMY_AVATAR,
   TRIGGER_WATCH_ENEMY_UNITS,
@@ -85,7 +87,6 @@ import {
   UNIT_FIRE_COOLDOWN_TICKS,
   WARDEN_ALTITUDE,
   WARDEN_HP,
-  WARDEN_INCOME_PERCENT,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked, segmentBlockT } from "./collision";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
@@ -217,8 +218,14 @@ export interface SimState {
   readonly respawnTimer: Int32Array;
   /** Previous tick's buttons per player, for edge detection. */
   readonly lastButtons: Uint8Array;
-  /** Points ledger per player (stub economy until Phase 3). */
+  /** Current Points per player: what a side spends (rules.md §3). */
   readonly points: Uint32Array;
+  /**
+   * 1 once the side has reached HEAVY_UNLOCK_POINTS: the Juggernaut/Fortress
+   * purchase opens the first time a side reaches 50 points and stays open
+   * (fcop-fidelity.md R10).
+   */
+  readonly heavyUnlocked: Uint8Array;
   /** Next lane index per player (ground-unit round-robin). */
   readonly laneCounter: Uint8Array;
   /** Sandbox dummy turrets: entity id (-1 dead) + respawn countdown per spot. */
@@ -260,8 +267,6 @@ export interface SimState {
   wardenSlot: number;
   /** Ticks until the next decision re-plan (the reaction delay). */
   wardenThink: number;
-  /** Fixed-point (percent) remainder of the Warden's trickle multiplier. */
-  wardenIncomeAcc: number;
 
   // --- Precinct Assault state (rules.md §9) --------------------------------
   // Every array here is sized from the map's own feature lists, so on an arena
@@ -556,6 +561,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     respawnTimer: new Int32Array(MAX_PLAYERS),
     lastButtons: new Uint8Array(MAX_PLAYERS),
     points: new Uint32Array(MAX_PLAYERS).fill(STARTING_POINTS),
+    heavyUnlocked: new Uint8Array(MAX_PLAYERS),
     laneCounter: new Uint8Array(MAX_PLAYERS),
     dummyEntity: new Int32Array(map.dummySpots.length).fill(-1),
     dummyRespawn: new Int32Array(map.dummySpots.length),
@@ -579,7 +585,6 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     wardenGoal: WGOAL_IDLE,
     wardenSlot: -1,
     wardenThink: 0,
-    wardenIncomeAcc: 0,
     pickupCooldown: new Int32Array(map.pickups.length),
     buffInvuln: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
     buffInvis: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
@@ -1033,20 +1038,20 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
     }
   }
 
-  // Affordability and alive-limits gate the hold itself.
+  // Affordability, the heavy-unit unlock and the alive caps gate the hold itself
+  // (fcop-fidelity.md R9, R10): 20 Runners and 20 Guardians per side, base and
+  // outpost purchases alike; one Juggernaut and one Fortress, and those two only
+  // once the side has reached 50 points.
   if (target >= 0) {
     if (state.points[player] < cost) {
       target = -1;
-    } else if (
-      archetype === ARCHETYPE.JUGGERNAUT &&
-      countAliveOfArchetype(state, archetype, player) >= JUGGERNAUT_ALIVE_LIMIT
-    ) {
-      target = -1;
-    } else if (
-      archetype === ARCHETYPE.FORTRESS &&
-      countAliveOfArchetype(state, archetype, player) >= FORTRESS_ALIVE_LIMIT
-    ) {
-      target = -1;
+    } else if (archetype >= 0) {
+      const heavy = archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS;
+      if (heavy && state.heavyUnlocked[player] === 0) {
+        target = -1;
+      } else if (countAliveOfArchetype(state, archetype, player) >= aliveLimit(archetype)) {
+        target = -1;
+      }
     }
   }
 
@@ -1075,6 +1080,14 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
   } else {
     state.points[player] += cost; // entity cap hit: refund, nothing spawned
   }
+}
+
+/** Per-side alive cap of a purchasable unit archetype (fcop-fidelity.md R9). */
+function aliveLimit(archetype: number): number {
+  if (archetype === ARCHETYPE.RUNNER) return RUNNER_ALIVE_LIMIT;
+  if (archetype === ARCHETYPE.GUARDIAN) return GUARDIAN_ALIVE_LIMIT;
+  if (archetype === ARCHETYPE.JUGGERNAUT) return JUGGERNAUT_ALIVE_LIMIT;
+  return FORTRESS_ALIVE_LIMIT;
 }
 
 function countAliveOfArchetype(state: SimState, archetype: number, team: number): number {
@@ -1679,15 +1692,20 @@ function systemDamageDeath(state: SimState): void {
     const killer = ent.aux[id] - 1; // -1 = environment/dummy
     const archetype = ent.archetype[id];
     pushEvent(state.events, EV_DEATH, id, killer, archetype);
-    // Earn table (rules.md §3): avatars 10 (the Warden counts as one),
-    // ENEMY-OWNED turrets 2, units 1. Neutral turrets (dummies, dormant
-    // capturables) and consoles pay nothing.
-    if (killer >= 0 && killer < MAX_PLAYERS && ent.team[id] !== killer) {
-      if (archetype === ARCHETYPE.AVATAR || archetype === ARCHETYPE.WARDEN)
-        state.points[killer] += POINTS_KILL_AVATAR;
-      else if (archetype === ARCHETYPE.TURRET && ent.ownerId[id] >= 0)
-        state.points[killer] += POINTS_KILL_TURRET;
-      else if (isUnit(archetype)) state.points[killer] += POINTS_KILL_UNIT;
+    // Earn table (rules.md §3, fcop-fidelity.md R4-R7): a death pays the OTHER
+    // side whoever caused it, because the original pays from the dying actor's
+    // own death script, not from the kill credit. Neutral turrets (dummies,
+    // uncaptured pads) and consoles pay nothing. A player's avatar pays at its
+    // respawn (systemSpawning); the Warden, like the Sky Captain, when it falls.
+    const team = ent.team[id];
+    if (team === 0 || team === 1) {
+      const other = team ^ 1;
+      if (archetype === ARCHETYPE.WARDEN) avatarDown(state, team);
+      else if (archetype === ARCHETYPE.TURRET) state.points[other] += POINTS_TURRET_DIES;
+      else if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN)
+        state.points[other] += POINTS_UNIT_DIES;
+      else if (archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS)
+        state.points[other] += POINTS_HEAVY_DIES;
     }
     if (archetype === ARCHETYPE.AVATAR || archetype === ARCHETYPE.WARDEN) {
       const player = ent.ownerId[id];
@@ -1742,12 +1760,26 @@ function systemDamageDeath(state: SimState): void {
   }
 }
 
+/**
+ * An avatar went down (fcop-fidelity.md R4): the other side gains
+ * POINTS_AVATAR_DOWN and `team` loses as many, never below 0.
+ */
+function avatarDown(state: SimState, team: number): void {
+  state.points[team ^ 1] += POINTS_AVATAR_DOWN;
+  const left = state.points[team];
+  state.points[team] = left > POINTS_AVATAR_DOWN ? left - POINTS_AVATAR_DOWN : 0;
+}
+
 /** Respawns avatars and sandbox dummies when their timers elapse. */
 function systemSpawning(state: SimState): void {
   for (let p = 0; p < MAX_PLAYERS; p++) {
     if (state.respawnTimer[p] > 0) {
       state.respawnTimer[p] -= 1;
       if (state.respawnTimer[p] === 0) {
+        // A player's going-down is paid by its own script when it respawns
+        // (`player_respawn` runs pool@136, fcop-re/ai-and-rules.md §1.8). The
+        // Warden paid when it fell.
+        if (p !== state.wardenPlayer) avatarDown(state, p);
         const id = spawnAvatar(state, p);
         if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, p, 0);
       }
@@ -1833,22 +1865,16 @@ function systemCapture(state: SimState): void {
 }
 
 /**
- * Trickle income (rules.md §3): +1 to both ledgers every 10 s. The Warden's
- * trickle is scaled by its difficulty's income multiplier (PLAN Phase 4) —
- * the ONLY resource asymmetry it gets; every other earn event is the shared
- * table. Fixed-point percent accumulator keeps the math integer-exact.
+ * Economy bookkeeping (rules.md §3). There is no trickle: the original adds no
+ * points over time (fcop-fidelity.md R3), so income is entirely the event table
+ * in systemDamageDeath / systemCapture. What runs here is the heavy-unit unlock
+ * (R10): the first time a side holds HEAVY_UNLOCK_POINTS, its Juggernaut and
+ * Fortress purchases open for the rest of the match. Checked at the end of the
+ * tick, after every credit, so a side that reaches 50 can buy from the next tick.
  */
 function systemEconomy(state: SimState): void {
-  if (state.tick === 0 || state.tick % TRICKLE_INTERVAL_TICKS !== 0) return;
   for (let p = 0; p < MAX_PLAYERS; p++) {
-    if (p === state.wardenPlayer) {
-      const pct = WARDEN_INCOME_PERCENT[state.wardenDifficulty - 1];
-      const total = TRICKLE_POINTS * pct + state.wardenIncomeAcc;
-      state.points[p] += Math.floor(total / 100);
-      state.wardenIncomeAcc = total % 100;
-    } else {
-      state.points[p] += TRICKLE_POINTS;
-    }
+    if (state.points[p] >= HEAVY_UNLOCK_POINTS) state.heavyUnlocked[p] = 1;
   }
 }
 
@@ -2059,6 +2085,7 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.respawnTimer[p] >>> 0);
     h = fnv1aU32(h, state.lastButtons[p]);
     h = fnv1aU32(h, state.points[p] >>> 0);
+    h = fnv1aU32(h, state.heavyUnlocked[p]);
     h = fnv1aU32(h, state.laneCounter[p]);
     h = fnv1aU32(h, state.buyTarget[p] >>> 0);
     h = fnv1aU32(h, state.buyProgress[p] >>> 0);
@@ -2114,7 +2141,6 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.wardenGoal >>> 0);
     h = fnv1aU32(h, state.wardenSlot >>> 0);
     h = fnv1aU32(h, state.wardenThink >>> 0);
-    h = fnv1aU32(h, state.wardenIncomeAcc >>> 0);
   }
   return h;
 }

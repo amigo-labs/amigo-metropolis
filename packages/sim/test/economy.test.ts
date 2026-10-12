@@ -1,23 +1,35 @@
-// Phase 3 economy & capture on a synthetic arena: trickle income, neutral
-// turret capture (uncontested presence), husk respawns, outpost claiming,
-// forward spawning at 2× cost and console destruction reverting ownership.
+// Phase 3 economy & capture on a synthetic arena: the original's income table
+// (no trickle; deaths pay the other side), alive caps and the heavy unlock,
+// neutral turret capture, husk respawns, outpost claiming, forward spawning at
+// 2× cost and console destruction reverting ownership.
+//
+// The income numbers pin the original's (fcop-re/ai-and-rules.md §2, §8;
+// fcop-fidelity.md R2-R10), not the invented 20-point start, 1-per-10-s trickle
+// and killer-paid bounties this file used to pin.
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
   AVATAR_AMMO_HEAVY,
   CAPTURE_TICKS,
   CONSOLE_HOLD_TICKS,
+  COST_FORTRESS,
   COST_GUARDIAN,
+  COST_JUGGERNAUT,
   COST_OUTPOST_CLAIM,
   COST_RUNNER,
+  GUARDIAN_ALIVE_LIMIT,
+  HEAVY_UNLOCK_POINTS,
   NEUTRAL_TURRET_RESPAWN_TICKS,
   OUTPOST_CONSOLE_RESPAWN_TICKS,
   OUTPOST_COST_MULTIPLIER,
+  POINTS_AVATAR_DOWN,
   POINTS_CAPTURE_TURRET,
-  POINTS_KILL_TURRET,
+  POINTS_HEAVY_DIES,
+  POINTS_TURRET_DIES,
+  POINTS_UNIT_DIES,
+  RESPAWN_TICKS,
+  RUNNER_ALIVE_LIMIT,
   STARTING_POINTS,
-  TRICKLE_INTERVAL_TICKS,
-  TRICKLE_POINTS,
 } from "../src/balance";
 import { EV_CAPTURE, EV_CLAIM, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
 import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
@@ -104,14 +116,124 @@ function findEvents(sim: SimState, type: number): number[][] {
   return out;
 }
 
-describe("trickle income", () => {
-  it("pays both ledgers every interval on top of the starting balance", () => {
+describe("income (fcop-fidelity.md R2-R7)", () => {
+  it("starts both sides at 10 and adds nothing over time", () => {
     reset();
     const sim = freshSim();
+    expect(STARTING_POINTS).toBe(10);
+    expect(sim.points[0]).toBe(10);
+    expect(sim.points[1]).toBe(10);
+    for (let t = 0; t < 30 * 60; t++) step(sim, inputs); // a quiet minute
+    expect(sim.points[0]).toBe(10);
+    expect(sim.points[1]).toBe(10);
+  });
+
+  it("a dead Runner or Guardian pays the other side 1, whoever killed it", () => {
+    reset();
+    const sim = freshSim();
+    const runner = spawnUnit(sim, ARCHETYPE.RUNNER, 1, 30, 20);
+    const guard = spawnUnit(sim, ARCHETYPE.GUARDIAN, 1, 30, 24);
+    // No killer at all (environment): the death script pays regardless.
+    sim.ent.hp[runner] = 0;
+    sim.ent.hp[guard] = 0;
+    step(sim, inputs);
+    expect(POINTS_UNIT_DIES).toBe(1);
+    expect(sim.points[0]).toBe(STARTING_POINTS + 2 * POINTS_UNIT_DIES);
+    expect(sim.points[1]).toBe(STARTING_POINTS);
+  });
+
+  it("a dead Juggernaut or Fortress pays the other side 5", () => {
+    reset();
+    const sim = freshSim();
+    const jugg = spawnUnit(sim, ARCHETYPE.JUGGERNAUT, 0, 30, 20);
+    const fort = spawnUnit(sim, ARCHETYPE.FORTRESS, 0, 30, 24);
+    sim.ent.hp[jugg] = 0;
+    sim.ent.hp[fort] = 0;
+    step(sim, inputs);
+    expect(POINTS_HEAVY_DIES).toBe(5);
+    expect(sim.points[1]).toBe(STARTING_POINTS + 2 * POINTS_HEAVY_DIES);
     expect(sim.points[0]).toBe(STARTING_POINTS);
-    for (let t = 0; t < TRICKLE_INTERVAL_TICKS * 2 + 1; t++) step(sim, inputs);
-    expect(sim.points[0]).toBe(STARTING_POINTS + 2 * TRICKLE_POINTS);
-    expect(sim.points[1]).toBe(STARTING_POINTS + 2 * TRICKLE_POINTS);
+  });
+
+  it("an avatar going down pays 10 at its respawn and costs the victim 10, floored at 0", () => {
+    reset();
+    const sim = freshSim();
+    sim.points[0] = 14;
+    sim.ent.hp[sim.avatarId[0]] = -10; // below the pad's same-tick repair
+    step(sim, inputs);
+    // Paid by the downed side's own script when it comes back, not at the kill.
+    expect(sim.points[1]).toBe(STARTING_POINTS);
+    for (let t = 0; t < RESPAWN_TICKS && sim.avatarId[0] < 0; t++) step(sim, inputs);
+    expect(sim.avatarId[0]).toBeGreaterThanOrEqual(0);
+    expect(sim.points[1]).toBe(STARTING_POINTS + POINTS_AVATAR_DOWN);
+    expect(sim.points[0]).toBe(14 - POINTS_AVATAR_DOWN);
+    // A second fall with 4 left floors the victim at 0.
+    sim.ent.hp[sim.avatarId[0]] = -10; // below the pad's same-tick repair
+    step(sim, inputs);
+    for (let t = 0; t < RESPAWN_TICKS && sim.avatarId[0] < 0; t++) step(sim, inputs);
+    expect(sim.avatarId[0]).toBeGreaterThanOrEqual(0);
+    expect(sim.points[0]).toBe(0);
+    expect(sim.points[1]).toBe(STARTING_POINTS + 2 * POINTS_AVATAR_DOWN);
+  });
+});
+
+describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
+  function hold(sim: SimState, x: number, y: number, buttons: number, ticks: number): void {
+    sim.ent.posX[0] = x;
+    sim.ent.posY[0] = y;
+    inputs.players[0].buttons = buttons;
+    for (let t = 0; t < ticks; t++) step(sim, inputs);
+    inputs.players[0].buttons = 0;
+  }
+
+  it("caps Runners and Guardians at 20 alive per side", () => {
+    reset();
+    const sim = freshSim();
+    expect(RUNNER_ALIVE_LIMIT).toBe(20);
+    expect(GUARDIAN_ALIVE_LIMIT).toBe(20);
+    for (let k = 0; k < RUNNER_ALIVE_LIMIT; k++) spawnUnit(sim, ARCHETYPE.RUNNER, 0, 6, 40);
+    sim.points[0] = 100;
+    hold(sim, 6, 14, BUTTON_INTERACT, CONSOLE_HOLD_TICKS * 3);
+    expect(sim.points[0]).toBe(100); // the ground console refuses the 21st
+    hold(sim, 6, 22, BUTTON_INTERACT, CONSOLE_HOLD_TICKS);
+    expect(sim.points[0]).toBe(100 - COST_GUARDIAN); // the jet cap is separate
+  });
+
+  it("opens the heavy units the first time a side reaches 50, and keeps them open", () => {
+    reset();
+    const sim = freshSim();
+    expect(HEAVY_UNLOCK_POINTS).toBe(50);
+    expect(sim.heavyUnlocked[0]).toBe(0);
+    sim.points[0] = HEAVY_UNLOCK_POINTS - 1;
+    step(sim, inputs);
+    expect(sim.heavyUnlocked[0]).toBe(0);
+    sim.points[0] = HEAVY_UNLOCK_POINTS;
+    step(sim, inputs);
+    expect(sim.heavyUnlocked[0]).toBe(1);
+    expect(sim.heavyUnlocked[1]).toBe(0); // per side
+    // Spend below 50: the purchase stays open, and a second heavy can be bought
+    // with the next 50 points.
+    hold(sim, 6, 14, BUTTON_INTERACT | BUTTON_FIRE2, CONSOLE_HOLD_TICKS + 1);
+    expect(sim.points[0]).toBe(HEAVY_UNLOCK_POINTS - COST_JUGGERNAUT);
+    expect(sim.heavyUnlocked[0]).toBe(1);
+    sim.points[0] = COST_FORTRESS;
+    hold(sim, 6, 22, BUTTON_INTERACT | BUTTON_FIRE2, CONSOLE_HOLD_TICKS + 1);
+    expect(sim.points[0]).toBe(0);
+  });
+
+  it("refuses a heavy unit until the end of the tick the side first holds 50", () => {
+    reset();
+    const sim = freshSim();
+    // The unlock is checked after every credit, at the end of the tick, so a side
+    // whose points arrive this tick can buy from the next one.
+    sim.points[0] = HEAVY_UNLOCK_POINTS;
+    sim.ent.posX[0] = 6;
+    sim.ent.posY[0] = 14;
+    inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2;
+    step(sim, inputs);
+    expect(sim.buyTarget[0]).toBe(-1); // refused on the first tick
+    expect(sim.heavyUnlocked[0]).toBe(1); // ...and open from the next
+    inputs.players[0].buttons = 0;
   });
 });
 
@@ -167,7 +289,7 @@ describe("neutral turret capture (rules.md §5)", () => {
     expect(sim.captureProgress[0]).toBe(0);
   });
 
-  it("destroying an enemy-owned turret pays 2 and it respawns neutral", () => {
+  it("destroying an enemy-owned turret pays 1 and it respawns neutral", () => {
     reset();
     const sim = freshSim();
     // Hand the turret to team 1, then let avatar 0 shoot it dead.
@@ -184,8 +306,8 @@ describe("neutral turret capture (rules.md §5)", () => {
       if (!sim.ent.alive[tid]) died = t;
     }
     expect(died).toBeGreaterThan(0);
-    const trickled = Math.floor((sim.tick - 1) / TRICKLE_INTERVAL_TICKS) * TRICKLE_POINTS;
-    expect(sim.points[0]).toBe(STARTING_POINTS + trickled + POINTS_KILL_TURRET);
+    expect(POINTS_TURRET_DIES).toBe(1);
+    expect(sim.points[0]).toBe(STARTING_POINTS + POINTS_TURRET_DIES);
     expect(sim.neutralTurretEntity[0]).toBe(-1);
     // Husk: back as NEUTRAL after 45 s.
     inputs.players[0].buttons = 0;

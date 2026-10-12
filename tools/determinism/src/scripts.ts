@@ -197,6 +197,30 @@ function buildMatch01Timeline(): MatchPhase[] {
     px += ux * travelled;
     py += uy * travelled;
   };
+  // A tighter aim than per-axis quantising, for a target as thin as an avatar
+  // (0.4 m hit radius): the integer stick pair whose bearing is closest to the
+  // target's. `snipe` keeps the per-axis form, which the ring snipes were
+  // recorded with and which is plenty for a 0.7 m turret.
+  const aimPrecise = (x: number, y: number, ticks: number) => {
+    const dx = x - px;
+    const dy = y - py;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    let best = -2;
+    let bx = 0;
+    let by = 0;
+    for (let ax = -127; ax <= 127; ax++) {
+      for (let ay = -127; ay <= 127; ay++) {
+        if (ax === 0 && ay === 0) continue;
+        const c = (ax * dx + ay * dy) / (d * Math.sqrt(ax * ax + ay * ay));
+        if (c > best) {
+          best = c;
+          bx = ax;
+          by = ay;
+        }
+      }
+    }
+    push(ticks, { aimX: bx, aimY: by, buttons: BUTTON_FIRE1 });
+  };
   const snipe = (x: number, y: number, ticks: number) => {
     const dx = x - px;
     const dy = y - py;
@@ -222,7 +246,19 @@ function buildMatch01Timeline(): MatchPhase[] {
   walkTo(206, 110); // advance: south-inner shoots back for ~2 s here
   snipe(213, 136, 130); // ring south-inner
   snipe(219, 142, 130); // ring south-outer
-  walkTo(176, 88); // outpost console
+  // The original's economy (SIM_VERSION 33) has no trickle and pays a ring
+  // turret 1, so the ring bounty and player 1's dead feeders come to ~17 points,
+  // short of the 30-point claim. What pays is putting the enemy avatar down: +10
+  // to us when it respawns (fcop-fidelity.md R4). Player 1 idles at its ground
+  // console, then at its spawn on its own pad, both inside primary range of here.
+  // Dead reckoning puts this stand at (206, 110); the sim has it at (205.39,
+  // 110.17), and at 36 m those 0.6 m are wider than the avatar. Measured, not
+  // reckoned (golden03.test.ts pins that both downs land).
+  px = 205.386;
+  py = 110.173;
+  aimPrecise(228, 139, 200); // player 1 at its console
+  aimPrecise(224, 127, 560); // its spawn: keep firing through the respawn, drop it again
+  walkTo(176, 88); // outpost console: claim once the second respawn has paid
   return phases;
 }
 
@@ -248,8 +284,9 @@ export function match01(tick: number, out: TickInputs): void {
       }
     }
   } else if (tick >= MATCH01_HOLD_FROM) {
-    // Claim the outpost (30 pts: start + trickle + ring bounty), then keep
-    // holding — forward runners at 2× walk through the dead ring's window.
+    // Claim the outpost (30 pts: start, ring bounty, feeders, two downs of the
+    // enemy avatar), then keep holding — forward runners at 2× walk through the
+    // dead ring's window.
     p0.buttons = BUTTON_INTERACT;
   }
 

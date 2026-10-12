@@ -96,34 +96,50 @@ Design pillars, in priority order:
   pulse — no aim, no projectile travel.
 - Slot membership: the **Concussion Beam is a Heavy**, not a Special.
 - Ammo: primary infinite; heavy/special finite, refilled at own Base/Outpost pads.
-- Death: respawn at own Base after `RESPAWN_TICKS` (placeholder: 8 s).
-  Killer's owner earns **10 pts**.
+- Death: respawn at own Base after `RESPAWN_TICKS` (placeholder: 8 s). Going
+  down pays the **other side 10 pts and costs the downed side 10** (never below
+  0), whoever did it, settled when the avatar respawns (the original's rule, §3).
 - The Base core is indestructible on every arena (pillar 1, and the original has
   no destructible core — §9). Base *turrets* are attackable by anyone.
 
 ## 3. Economy
 
-One resource: **Points**. Both players start with `STARTING_POINTS`
-(placeholder: 20 — an opening wave, not a Juggernaut). Earned by:
+One resource: **Points**. Both players start with `STARTING_POINTS` = **10**.
+These are the original Precinct Assault's numbers (SIM_VERSION 33;
+`fcop-fidelity.md` R2-R10, `fcop-re/ai-and-rules.md` §2). None of them reads
+arena-specific data, so they apply on every arena, district-01 included.
 
-| Event                          | Points |
-|--------------------------------|--------|
-| Capture neutral turret         | 3      |
-| Destroy enemy-owned turret     | 2      |
-| Destroy enemy unit (any)       | 1      |
-| Destroy enemy Base turret      | 2      |
-| Kill enemy Avatar              | 10     |
-| Trickle income                 | 1 per 10 s |
+**There is no income over time.** Points come only from these events, and a
+death pays the **other** side whoever caused it — the original pays from the
+dying actor's own script, not from a kill credit, so a unit lost to friendly
+fire or the terrain still pays the enemy:
+
+| Event                                              | Points |
+|----------------------------------------------------|--------|
+| An enemy Runner or Guardian dies                   | +1     |
+| An enemy Juggernaut or Fortress dies               | +5     |
+| An enemy base turret dies                          | +1     |
+| A turret the enemy captured dies                   | +1     |
+| You capture a neutral turret                       | +1     |
+| The enemy avatar goes down (paid at its respawn; the Warden's when it falls) | +10 |
+| Your own avatar goes down (same timing)            | −10, never below 0 |
+
+This replaced an invented table (start 20, 1 point every 10 s, capture 3, a
+turret 2 and a unit 1 to the killer, 10 to an avatar's killer).
 
 Spending (at Base consoles / Outpost consoles):
 
-| Purchase        | At Base | At Outpost | Limit        |
+| Purchase        | At Base | At Outpost | Limit (alive, per side) |
 |-----------------|---------|------------|--------------|
-| Runner (tank)   | 1       | 2          | none         |
-| Guardian (plane)| 1       | 2          | none         |
+| Runner (tank)   | 1       | 2          | 20           |
+| Guardian (plane)| 1       | 2          | 20           |
 | Claim Outpost   | 30 (at the outpost itself) | —  | per outpost  |
-| Juggernaut      | 50      | not available | 1 alive at a time |
-| Fortress        | 50      | not available | 1 alive at a time |
+| Juggernaut      | 50      | not available | 1          |
+| Fortress        | 50      | not available | 1          |
+
+The Runner and Guardian caps count base and outpost purchases together. The
+Juggernaut and Fortress open the first time a side holds 50 points and stay
+open for the rest of the match (the original enables their zones then).
 
 Buying = drive Avatar onto the console pad, hold interact for 0.5 s per unit.
 Points are visible to both players (open information, like the original).
@@ -192,7 +208,12 @@ Avatar 300 HP; walker speed 5, hover speed 9.
 AI avatar analogous to Sky Captain: a superplane (flies, ignores terrain,
 stronger than the player Avatar). Same rules and economy as a player — it earns
 and spends points; it does not cheat resources. Difficulty 1–10 scales its
-income multiplier, aggression thresholds, and reaction delay (see PLAN Phase 4).
+aggression thresholds and reaction delay (see PLAN Phase 4). It used to scale an
+income multiplier on the trickle too; the trickle is gone (§3), and the original's
+Sky Captain earns exactly like a human side — its budget is its Current Points.
+Since SIM_VERSION 33 its falls cost it 10 points each, which starves the
+difficulty-6+ Juggernaut save on district-01 (golden-04 pins it); the Sky Captain
+port replaces this decision layer.
 
 Its loss condition is the same on every arena — an enemy ground unit in its gate
 — so it defends one radius around the gate (`WARDEN_DEFEND_RADIUS`) everywhere.

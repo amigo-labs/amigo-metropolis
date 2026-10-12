@@ -8,8 +8,10 @@
 //   {retreat, defend, buy logic, commit to an arrived push — suppressing whatever
 //    is stopping it or else escorting it, capture, escort, harass avatar}
 // re-planned every WARDEN_REACTION_TICKS (the difficulty's reaction delay) or
-// immediately when the current goal dies under it. Aggression thresholds and
-// the income multiplier are the other difficulty knobs (balance.ts).
+// immediately when the current goal dies under it. Aggression thresholds are the
+// other difficulty knob (balance.ts). Its income is exactly a human side's — the
+// original Sky Captain's budget IS its Current Points (fcop-re/ai-and-rules.md
+// §1.8) — so no difficulty scales what it earns.
 //
 // Entity field reuse on the WARDEN archetype:
 //   cooldownA/B — cannon / bomb cooldowns

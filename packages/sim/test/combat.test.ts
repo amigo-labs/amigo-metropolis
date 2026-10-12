@@ -8,12 +8,11 @@ import {
   AVATAR_HP,
   DUMMY_RESPAWN_TICKS,
   HEAVY_COOLDOWN_TICKS,
+  POINTS_AVATAR_DOWN,
   PRIMARY_COOLDOWN_TICKS,
   PRIMARY_DAMAGE,
   RESPAWN_TICKS,
   STARTING_POINTS,
-  TRICKLE_INTERVAL_TICKS,
-  TRICKLE_POINTS,
   TURRET_DAMAGE,
 } from "../src/balance";
 import { countAlive } from "../src/entities";
@@ -211,10 +210,9 @@ describe("dummy turret retaliation, death and respawn", () => {
     // systemSpawning runs after damage/death in the same tick, so the timer
     // has already counted down once.
     expect(sim.respawnTimer[0]).toBe(RESPAWN_TICKS - 1);
-    // Dummies never earn players points: only starting balance + trickle
-    // (which fired for every processed tick that was a multiple of 300).
-    const trickled = Math.floor((sim.tick - 1) / TRICKLE_INTERVAL_TICKS) * TRICKLE_POINTS;
-    expect(sim.points[1]).toBe(STARTING_POINTS + trickled);
+    // Nothing is paid at the kill: there is no trickle, and a player's going-
+    // down is paid by its own respawn (fcop-fidelity.md R3, R4).
+    expect(sim.points[1]).toBe(STARTING_POINTS);
 
     // Respawn: full hp, back at the spawn point, EV_RESPAWN fired.
     let respawned = false;
@@ -223,6 +221,9 @@ describe("dummy turret retaliation, death and respawn", () => {
       if (eventTypes(sim).includes(EV_RESPAWN)) respawned = true;
     }
     expect(respawned).toBe(true);
+    // ...which pays the other side 10 and costs the downed side 10, floor 0.
+    expect(sim.points[1]).toBe(STARTING_POINTS + POINTS_AVATAR_DOWN);
+    expect(sim.points[0]).toBe(Math.max(STARTING_POINTS - POINTS_AVATAR_DOWN, 0));
     const id = sim.avatarId[0];
     expect(id).toBeGreaterThanOrEqual(0);
     expect(sim.ent.hp[id]).toBe(AVATAR_HP);

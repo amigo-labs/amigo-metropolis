@@ -557,4 +557,29 @@
 //     plays the outro); 01, 02 and 06 never breach and stay byte-identical
 //     (re-headered only). balance:pa d8 vs idle: 5/5 seeds resolve on all four
 //     arenas, worst 79/98/96/83 s (the idle side fields nothing now).
-export const SIM_VERSION = 32;
+// v33: the original's economy (docs/specs/fcop-fidelity.md R2-R7, R9, R10;
+//     fcop-re/ai-and-rules.md §2, §8). Applied on every arena: none of these
+//     rules reads PA-only data. STARTING_POINTS 20 -> 10. No trickle (was 1 per
+//     10 s). A death pays the OTHER side, whoever caused it (the original pays
+//     from the dying actor's death script, not the kill credit): Runner/Guardian
+//     +1 (was +1 to the killer), Juggernaut/Fortress +5 (was +1), a base turret or
+//     an enemy-captured pad +1 (was +2 to the killer), capture +1 (was +3). An
+//     avatar going down pays the other side 10 and costs the downed side 10,
+//     floored at 0 (was +10 to the killer, no loss): a player's at its respawn,
+//     the Warden's when it falls, as the original's two scripts do. Alive caps:
+//     20 Runners and 20 Guardians per side (were uncapped). The Juggernaut and
+//     Fortress purchases open the first time a side holds 50 points
+//     (`heavyUnlocked`, hashed, sticky). The Warden's difficulty income
+//     multiplier went with the trickle (`wardenIncomeAcc` no longer hashed): the
+//     Sky Captain's budget is its Current Points. Goldens: every one re-records,
+//     because the hash covers the starting balance and the new per-player flag.
+//     01, 02, 05 and 06 play the same moves; 02's beat test now pins the avatar
+//     down payment. 03's script (district-01) could no longer afford its outpost
+//     from the ring bounty: it now downs player 1's avatar twice for the 20
+//     points and breaches at tick 3716 (was 2959). 04 (d8 Warden on district-01)
+//     no longer breaches in its 300 s: the Warden saves for a Juggernaut it can
+//     no longer fund, because each of its falls costs it 10 (re-pinned; the Sky
+//     Captain port, U3, replaces this AI). 07 replays the same script against
+//     the new economy. balance:pa d8 vs idle still resolves 5/5 seeds on all four
+//     arenas, worst 166/352/664/621 s (was 79/98/96/83 s).
+export const SIM_VERSION = 33;

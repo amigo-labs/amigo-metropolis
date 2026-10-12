@@ -1,10 +1,18 @@
 // Golden #4 (Phase 4 DoD): a full Warden-vs-scripted-input match. Beyond the
-// hash-sequence check in golden.test.ts, assert the AI match actually plays
-// out — the difficulty-8 Warden captures the map, builds waves and the
-// Juggernaut, trades kills with the patrol-and-shoot player 0, and breaches
-// on the KNOWN tick. If a balance retune or AI change shifts the match off
-// these beats, this fails and the golden needs regenerating WITH a new pin
-// (and justification in the commit message — CLAUDE.md hard rule 6).
+// hash-sequence check in golden.test.ts, assert what the AI match actually
+// plays out. If a balance retune or AI change shifts the match off these beats,
+// this fails and the golden needs regenerating WITH new pins (and justification
+// in the commit message — CLAUDE.md hard rule 6).
+//
+// Until SIM_VERSION 32 the difficulty-8 Warden captured the map, saved for a
+// Juggernaut on a 20-point start plus a trickle plus 3 a pad, and breached at
+// tick 7660. Under the original's economy (v33, fcop-fidelity.md R2-R7) it no
+// longer does: it takes all six pads (+6) and downs the patrolling player twice
+// (+20), but each of its own nine falls costs it 10, so the Juggernaut save it
+// holds every other purchase for never completes and it fields nothing. That is
+// a defect of this invented AI under the original's rules, pinned here as
+// measured rather than hidden; the Sky Captain port (fidelity ledger U3) replaces
+// it, and its spending is the original's, not a saving rule.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -16,11 +24,8 @@ import { getMapById } from "../src/map";
 import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
-// Pinned after recording; regenerate together with the golden.
-const BREACH_TICK_PIN = 7660;
-
 describe("golden-04-warden beats", () => {
-  it("the Warden captures, builds and breaches on the pinned tick", () => {
+  it("the Warden captures and trades kills, but its falls starve its save", () => {
     const replay = decodeReplay(
       new Uint8Array(readFileSync(join(import.meta.dir, "goldens", "golden-04-warden.mrep"))),
     );
@@ -64,22 +69,22 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    // The Warden plays the whole game: map control, waves, the 50-point
-    // Juggernaut save (difficulty 8 aggression), and it wins.
-    expect(wardenCaptures).toBeGreaterThanOrEqual(4);
-    expect(wardenRunners).toBeGreaterThanOrEqual(4);
-    expect(wardenJuggernauts).toBeGreaterThanOrEqual(1);
+    // Map control: every pad on district-01.
+    expect(wardenCaptures).toBe(6);
     // Both sides trade kills: the scripted patrol hurts the Warden enough to
     // exercise its retreat/respawn paths, and dies to it in return.
-    expect(wardenDeaths).toBeGreaterThanOrEqual(1);
-    expect(avatarDeaths).toBeGreaterThanOrEqual(1);
-    // Exactly one breach, by the Warden's team, on the known tick.
-    expect(breaches).toBe(1);
-    expect(breachTeam).toBe(1);
-    expect(breachTick).toBe(BREACH_TICK_PIN);
-    expect(sim.winner).toBe(1);
-    // The replay ran well past the breach: the outro and the frozen tail are in
-    // the golden.
-    expect(replay.tickCount).toBeGreaterThan(BREACH_TICK_PIN + 300);
+    expect(wardenDeaths).toBe(9);
+    expect(avatarDeaths).toBe(2);
+    // Each Warden fall costs it 10 and pays player 0 10 (R4), so the
+    // difficulty-8 Juggernaut save never reaches 50 and nothing is bought.
+    expect(wardenRunners).toBe(0);
+    expect(wardenJuggernauts).toBe(0);
+    expect(sim.points[1]).toBe(0);
+    expect(sim.points[0]).toBe(80);
+    // No breach: the match is still running when the recording ends.
+    expect(breaches).toBe(0);
+    expect(breachTick).toBe(-1);
+    expect(breachTeam).toBe(-1);
+    expect(sim.winner).toBe(-1);
   });
 });
