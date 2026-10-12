@@ -7,9 +7,10 @@
 // Since SIM_VERSION 46 the Warden is the original's Sky Captain at level 7
 // (difficulty 8; fcop-fidelity.md U3). It does not breach district-01, and the
 // reason is measured, not hidden:
-// - the captain's mode machine promotes it to DEFEND whenever it owns fewer than
-//   ten turrets within 256 m of home (8 base turrets + 2 per owned outpost in
-//   the original; district-01's ring is 4 and Metropolis' outposts carry none).
+// - the captain's mode machine promotes it to DEFEND whenever its own team
+//   turrets within 256 m of home, each counted twice (the turret and its base
+//   part, fcop-re/outposts.md Q2), come to fewer than ten: fewer than 5 turrets.
+//   district-01's ring is 4 and Metropolis' outposts carry no plates, so 8.
 //   In defend mode it flies at the player and buys only jets, a Fortress past 65
 //   points, and — at level 9 only — a base tank against a threat at home; it
 //   claims outposts and buys tanks or a Dreadnought only in its other two modes.
@@ -19,8 +20,8 @@
 //   halts at the first thing in reach and dies there: all five do;
 // - chasing the patrolling player into district-01's ring (Metropolis' 28 m
 //   instant-hit turrets) it falls six times, each costing it 10.
-// On the imported arenas the same opening order breaches an idle player in
-// 41-132 s on 19 of 20 seeds (paAttribution.test.ts): their Runners are the
+// On the imported arenas its 6- or 8-turret ring counts 12 or 16 and it roams,
+// buying tanks and Juggernauts (paAttribution.test.ts); their Runners are the
 // original's route followers and do not stop to fight.
 
 import { describe, expect, it } from "bun:test";

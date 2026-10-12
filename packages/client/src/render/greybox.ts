@@ -108,6 +108,7 @@ function turretCapacity(): number {
       map.bases[0].turrets.length +
       map.bases[1].turrets.length +
       map.turretSpots.length +
+      map.outpostPlates.length +
       map.dummySpots.length;
     if (n > worst) worst = n;
   }

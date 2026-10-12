@@ -180,10 +180,11 @@ const ARENAS: ArenaExpectation[] = [
     wallsVPin: 3397164092,
     wallsHPin: 4095836062,
     turretSpots: 32,
-    outpostSpots: 2,
+    outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0,
-    // Team-unique type-8 pads only; dual-team mid plates are capturable (not ring).
-    ringTurrets: [9, 8],
+    // The type-8 records on no outpost plate (fcop-re/outposts.md Q1): 8 per side.
+    // Was [9, 8]: a half-cell pad key leaked Csac217, outpost 3's, into team 0's.
+    ringTurrets: 8,
     graphNodes: 462, // both Cnet graphs, 237 + 225
     // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
     // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
@@ -236,10 +237,11 @@ const ARENAS: ArenaExpectation[] = [
     wallsVPin: 3839074122,
     wallsHPin: 3427479675,
     turretSpots: 29,
-    outpostSpots: 2,
+    outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0,
-    // Team-unique pads after dual/neutral filter (Slim raw lists 14).
-    ringTurrets: [6, 7],
+    // The type-8 records on no outpost plate (fcop-re/outposts.md Q1): 6 per side
+    // of Slim's 14. Was [6, 7] under the half-cell pad key.
+    ringTurrets: 6,
     graphNodes: 578, // 292 + 286
     // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
     // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
@@ -290,7 +292,7 @@ const ARENAS: ArenaExpectation[] = [
     // Mp's two bridge decks: 2398 cells over the roads, and 108 above those.
     layerCells: [2398, 108],
     turretSpots: 32, // every original NeutralTurret pad
-    outpostSpots: 2,
+    outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0, // no original counterpart
     // Team-unique type-8 only (8/base); dual mid plates stay capturable.
     ringTurrets: 8,
@@ -333,10 +335,11 @@ const ARENAS: ArenaExpectation[] = [
     wallsVPin: 3983085979,
     wallsHPin: 16700859,
     turretSpots: 29,
-    outpostSpots: 2,
+    outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0,
-    // Team-unique pads after dual/neutral filter (Joke raw lists 14).
-    ringTurrets: [6, 7],
+    // The type-8 records on no outpost plate (fcop-re/outposts.md Q1): 6 per side
+    // of Joke's 14. Was [6, 7] under the half-cell pad key.
+    ringTurrets: 6,
     graphNodes: 594, // 303 + 291
     // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
     // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.

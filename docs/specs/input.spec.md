@@ -229,7 +229,7 @@ Bit assignment (as shipped, `packages/sim/src/inputs.ts`):
 | 2 | `BUTTON_FIRE3` | Fire — special | held |
 | 3 | `BUTTON_TRANSFORM` | Transform (walker ↔ hover) | edge |
 | 4 | `BUTTON_JUMP` | Jump (walker: hop / leap / high jump by context); **brake** in hover | edge (jump), held (brake) |
-| 5 | `BUTTON_INTERACT` | Action / Interact: **press** to capture a neutral turret in range; **hold** to buy at a console | edge + held |
+| 5 | `BUTTON_INTERACT` | Action / Interact: **press** to capture a neutral turret in range or claim an outpost from its zone; **hold** to buy at a console or outpost pad | edge + held |
 | 6 | `BUTTON_TARGET_CYCLE` | Target-cycle (soft-lock, §4.4) | edge |
 
 Bit 7 is free. Purchase runs through Interact + console-pad presence (rules.md
@@ -237,8 +237,11 @@ Bit 7 is free. Purchase runs through Interact + console-pad presence (rules.md
 original's action key (`[+0xac]+0x40` button latch, an edge — fcop-re/
 ranges-turrets-capture.md Q2) flips a neutral turret the frame it goes down within
 range, with no hold (rules.md §5, SIM_VERSION 34). No new bit and no wire change.
-Claiming an outpost needs no button at all: entering its claim zone with 30
-points claims it (rules.md §5, SIM_VERSION 35). (This renumbers the v0.1 draft's proposal —
+Claiming an outpost reads the same rising edge inside its claim zone with 30
+points (rules.md §5, SIM_VERSION 48): the original's claim zone carries the same
+latch test (gate bit 0x04, fcop-re/outposts.md Q3). SIM_VERSION 35-47 claimed on
+entering the zone with no button, a misreading. One press inside a claim zone
+that also lies in a neutral turret's capture range does both. (This renumbers the v0.1 draft's proposal —
 Transform/Jump were swapped — to match the code, which is the source of truth for
 replays and the wire frame.)
 

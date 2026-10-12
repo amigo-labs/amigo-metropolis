@@ -76,6 +76,7 @@ import {
   SKY_STANDOFF,
   SKY_TANK_QUEUE_TICKS,
   SKY_TURRET_COUNT,
+  SKY_TURRET_PARTS,
   SKY_TURRETS_SAFE,
   SKY_UNIT_CAP,
   skyMaxHp,
@@ -484,7 +485,8 @@ function groupOf(state: SimState, t: number): number {
  * - its own units from the player's base: a tank within 52 m (+1 score), its
  *   Dreadnought within 60 m (+10), its Fortress anywhere;
  * - the rest from home: an enemy tank within 64 m, an enemy Dreadnought within
- *   72 m, and a count of its own turrets within 256 m;
+ *   72 m, and a count of its own team turrets within 256 m, two per turret (its
+ *   base part is a second type-8 actor);
  * - the same rest from itself, with (9 - L) * 0.5 m added: the player's mech, an
  *   enemy tank, Dreadnought, jet, Fortress, a turret the player captured, and a
  *   neutral turret (this slot drifts by rand 0..0x3fff wu per losing candidate).
@@ -556,7 +558,9 @@ function scanAll(state: SimState, id: number, level: number): void {
           s.far5D = d;
         }
       } else if (type === 8) {
-        if (group === me && d < SKY_TURRET_COUNT) s.ownTurrets += 1;
+        // A team turret and its base part are both type 8: two to the count. A
+        // turret captured from neutral is type 36 and never counts.
+        if (group === me && d < SKY_TURRET_COUNT) s.ownTurrets += SKY_TURRET_PARTS;
       } else if (type === 28) {
         if (d <= SKY_FAR_DREAD && (s.far28 < 0 || s.far28D > d)) {
           s.far28 = t;
@@ -612,12 +616,6 @@ function scanAll(state: SimState, id: number, level: number): void {
       default:
         break;
     }
-  }
-  // Metropolis' outposts have no turret plates (fcop-fidelity.md R14): the
-  // original's two per-side outpost turrets of every outpost the captain owns
-  // count as its own here, as `8 base + 2 per owned outpost` (§1.5).
-  for (let k = 0; k < state.outpostOwner.length; k++) {
-    if (state.outpostOwner[k] === me) s.ownTurrets += 2;
   }
 }
 
@@ -771,7 +769,10 @@ function jetCount(state: SimState, me: number): number {
   return n;
 }
 
-/** State words 40..43: does `team` own outpost k (Metropolis has fewer than four)? */
+/**
+ * State words 40..43: does `team` own outpost k? The imported arenas carry the
+ * original's four, in owner-word order; Metropolis' own arenas have fewer.
+ */
 function owns(state: SimState, k: number, team: number): boolean {
   return k < state.outpostOwner.length && state.outpostOwner[k] === team;
 }
@@ -841,7 +842,7 @@ function spend(state: SimState, id: number, level: number): void {
     const order = c.order === 1 ? ORDER_1 : ORDER_0;
     for (let i = 0; i < SKY_OUTPOSTS; i++) {
       const k = order[i];
-      if (k >= state.outpostOwner.length) continue; // Metropolis has two outposts
+      if (k >= state.outpostOwner.length) continue; // district-01 has two outposts
       if (state.outpostOwner[k] !== -1 || state.outpostConsole[k] < 0) continue;
       if (state.points[me] < COST_OUTPOST_CLAIM) {
         refused += 1;
@@ -898,7 +899,7 @@ function spend(state: SimState, id: number, level: number): void {
     }
     if (allowed && tankCount(state, me) < 2) {
       let want = randInt(state, 4) + level + 6;
-      // "+6 if the player owns all four outposts": all of Metropolis' outposts.
+      // "+6 if the player owns all four outposts" (all of district-01's two).
       const all =
         state.outpostOwner.length > 0 && ownedCount(state, enemy) === state.outpostOwner.length;
       if (all) want += 6;
@@ -984,7 +985,10 @@ function captainQueues(state: SimState, me: number): void {
         c.queue[q] = 0;
         continue;
       }
-      const at = map.outpostSpots[k];
+      // The original's outposts have a tank pad and a jet pad; Metropolis' own
+      // sell both at the console.
+      const o = map.outposts.length > 0 ? map.outposts[k] : undefined;
+      const at = o === undefined ? map.outpostSpots[k] : jet ? o.jetPad : o.tankPad;
       x = at.x;
       y = at.y;
       layer = at.layer;

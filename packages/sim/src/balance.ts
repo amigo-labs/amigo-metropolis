@@ -890,13 +890,20 @@ export const CAPTURE_RADIUS = 5;
  */
 export const NEUTRAL_TURRET_RESPAWN_TICKS = 750;
 /**
- * Outpost claim zone (fcop-fidelity.md R14): driving into it with
- * COST_OUTPOST_CLAIM points claims the outpost, no button and no hold — the
- * original's type-14 touch zone (fcop-re/ai-and-rules.md §2). The zone's size is
- * not in the extracted record, so it is ours: the console pad's radius, with the
- * console as the zone's visual anchor.
+ * Outpost claim zone (fcop-fidelity.md R14): pressing the action key inside it
+ * with COST_OUTPOST_CLAIM points claims the outpost, no hold — the original's
+ * type-14 zone with the op-10 gate bit 0x04 (fcop-re/outposts.md Q3). On the
+ * imported arenas the zone is the record's 1.2 m (MapOutpost.zone) plus the
+ * toucher's ARCHETYPE_RADIUS; this is the size of Metropolis' own outposts
+ * (district-01): the console pad's radius, the console as the zone's anchor.
  */
 export const OUTPOST_CLAIM_RADIUS = CONSOLE_RADIUS;
+/**
+ * An outpost plate's team turret comes back 25 s after each death, for the rest
+ * of the match: its Csac spawner's tSAC is -1500 = 7500 engine ticks at 300 Hz,
+ * opened by the claim and never shut again (fcop-re/outposts.md Q1, Q3).
+ */
+export const OUTPOST_TURRET_RESPAWN_TICKS = 750;
 /**
  * Destroyed outpost consoles return (neutral) after this many ticks. district-01
  * only: on the imported arenas a claim is permanent, as the original's is (R14),
@@ -1117,8 +1124,23 @@ export const SKY_NEAR_DREAD = 0x78000 / 8192; //      own Dreadnought, from it: 
 export const SKY_FAR_TANK = 0x80000 / 8192; //        enemy tank, from home: 64 m
 export const SKY_FAR_DREAD = 0x90000 / 8192; //       enemy Dreadnought, from home: 72 m
 export const SKY_TURRET_COUNT = 0x200000 / 8192; //   own turrets counted within 256 m
-/** Fewer own turrets than this (8 base + 2 per owned outpost) promotes to defend. */
+/**
+ * A count of own team turrets below this promotes to defend (0x00421d1c `cmp
+ * ecx, 0xa`). Each live team turret counts SKY_TURRET_PARTS times, so the
+ * captain defends while fewer than 5 of its team turrets (ring + owned outpost
+ * plates) stand: 16 at the start on Mp/Conft/Ovmp, 12 on Slim/Joke/Hk
+ * (fcop-re/outposts.md Q2). Was read as "8 base + 2 per owned outpost" counted
+ * once, which never reached ten.
+ */
 export const SKY_TURRETS_SAFE = 10;
+/**
+ * Every type-8 turret is two type-8 actors in the original's live list: the
+ * turret and its base part, built by `turret_construct` from the same tACT
+ * record (0x0041c08e -> `cact_create`; the part's construct writes type 8 and
+ * the record's team, 0x0041a5b0 / 0x0041a59d). The scan counts both
+ * (fcop-re/outposts.md Q2, [A]).
+ */
+export const SKY_TURRET_PARTS = 2;
 /** A Dreadnought near the player's base is worth 10, a tank 1; 2 means attack. */
 export const SKY_SCORE_ATTACK = 2;
 /** Mode 1's detour to a neutral turret while escorting: within 0x10000 wu = 8 m. */

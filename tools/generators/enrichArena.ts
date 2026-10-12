@@ -372,11 +372,6 @@ class WeaponTable {
 }
 
 /**
- * Half-cell pad key in sim frame. Dual-team mid turrets and NeutralTurret pads
- * that share a plate land on the same key after LOGIC_OFFSET, even when the
- * raw actor coords differ by a few centimetres.
- */
-/**
  * Which unit a build console sells, read off the Cobj parked on it.
  *
  * The original labels its consoles with an icon rather than a field, and the
@@ -443,8 +438,55 @@ function assignConsoles(
   return [ground[0], air[0]];
 }
 
-function padKey(x: number, z: number): string {
-  return `${Math.round(x * 2) / 2},${Math.round(z * 2) / 2}`;
+// ---------------------------------------------------------------------------
+// The original's outposts (docs/specs/fcop-re/outposts.md)
+// ---------------------------------------------------------------------------
+
+/** One record stacked on an outpost turret plate (outposts.json `plates[].records`). */
+interface PlateRecord {
+  id: number;
+  type: number;
+  team: number;
+}
+
+/** One outpost as outposts.json carries it, in the extract_logic frame. */
+interface EvidenceOutpost {
+  index: number;
+  claim_zone: { x: number; z: number; radius_m: number };
+  sides: Record<string, { pads: { unit: string; cost: number; x: number; z: number }[] }>;
+  plates: { x: number; z: number; records: PlateRecord[] }[];
+}
+
+interface EvidenceMap {
+  base_plates: { csac: number; team: number }[];
+  outposts: EvidenceOutpost[];
+}
+
+/**
+ * The outposts of `arena`'s mission, read from the committed evidence
+ * (docs/specs/fcop-re/outposts.json, built from the shipped mission bytes and
+ * scripts). Four per PA map, in owner-word order W40..W43, each with a type-14
+ * claim zone, a tank and a jet pad per side, and two turret plates carrying a
+ * type-36 neutral turret (live at start) and both teams' type-8 records (shut at
+ * load, opened by that side's claim).
+ */
+function evidenceOf(arena: FcopArena): EvidenceMap {
+  const all = JSON.parse(
+    readFileSync(join(REPO_ROOT, "docs", "specs", "fcop-re", "outposts.json"), "utf8"),
+  ) as { maps: Record<string, EvidenceMap> };
+  const m = all.maps[arena.mission];
+  if (!m) throw new Error(`outposts.json has no entry for mission ${arena.mission}`);
+  if (m.outposts.length !== 4) {
+    throw new Error(`${arena.mission}: outposts.json lists ${m.outposts.length} outposts, not 4`);
+  }
+  return m;
+}
+
+/** Every record id stacked on any outpost plate: the outposts' own turrets. */
+function outpostMembers(ev: EvidenceMap): Set<number> {
+  const ids = new Set<number>();
+  for (const o of ev.outposts) for (const p of o.plates) for (const r of p.records) ids.add(r.id);
+  return ids;
 }
 
 /**
@@ -563,38 +605,6 @@ interface Graph {
  * rules.md §6's "no runtime pathfinding" true in substance: the sim reads one
  * array entry per waypoint and, at a fork, flips one seeded coin.
  */
-/** Half-width of the band around the mid-line that counts as mid-field. */
-const MIDFIELD_BAND_CELLS = 12;
-
-/**
- * The two capturable pads furthest out on either flank of the mid-line.
- *
- * Metropolis-only concept (rules.md §5): the original has no outposts. Putting
- * them on real turret pads means they sit on authored geometry rather than
- * invented ground. The band used to be `|z - 112| < 12`, which is Mp's mid-line
- * on Mp's axis; both come from `field` now. Widen rather than fail if a mission
- * puts nothing within the band, and say so — an arena with no mid-field pads at
- * all is a data problem worth reading, not a silent zero.
- */
-function midfieldOutposts(neutrals: readonly Turret[], field: Field): number[][] {
-  const cross = field.axis === "x" ? "z" : "x";
-  const pads = neutrals.map((t) => ({ x: sx(t.x), z: sz(t.z) }));
-  const limit = Math.max(MIDFIELD_BAND_CELLS, field.separation / 2);
-  for (let band = MIDFIELD_BAND_CELLS; band <= limit; band *= 1.5) {
-    const inBand = pads
-      .filter((p) => Math.abs(p[field.axis] - field.mid) < band)
-      .sort((a, b) => a[cross] - b[cross]);
-    if (inBand.length >= 2) {
-      return [inBand[0], inBand[inBand.length - 1]].map((p) => [round4(p.x), round4(p.z)]);
-    }
-  }
-  const spread = pads.map((p) => round4(p[field.axis])).sort((a, b) => a - b);
-  throw new Error(
-    `no mid-field pads to host the outposts: mid-line ${field.axis}=${field.mid}, ` +
-      `widened to ${round4(limit)} cells, pads at ${field.axis} ${spread.join(",")}`,
-  );
-}
-
 /**
  * The Cnets the two bases actually drive, in netId order.
  *
@@ -1187,6 +1197,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // — see consoleRole(). This used to be "the wider footprint is the ground
   // console", which was a guess, and on four of six missions it was the wrong
   // way round.
+  const evidence = evidenceOf(arena);
+  const members = outpostMembers(evidence);
   let ringDropped = 0;
   const bases = teamBases.map((base, team) => {
     const own = teamSpawns[team];
@@ -1201,33 +1213,30 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     const gcy = round4(sz(buttons[0].z));
     const acx = round4(sx(buttons[1].x));
     const acy = round4(sz(buttons[1].z));
-    // Permanent base ring = team-unique type-8 pads only. The original also
-    // lists dual-team type-8 actors on mid plates that are NeutralTurrets —
-    // those pads are capturable, not permanent guns for both teams. Putting
-    // them in both rings AND turretSpots stacked three meshes (and three
-    // shooters) on one plate: team0 ring + team1 ring + capturable.
-    // importLaCantinaFromFcopViz.ts uses the same teamOnlyTurrets rule.
+    // Permanent base ring = the type-8 records that belong to no outpost. The
+    // original lists 16 (or 14) type-8 records per side, but only 8 (6 on
+    // Slim/Joke/Hk) are base guns, live from t = 0: the rest stand on the
+    // outposts' turret plates with the other side's record and a NeutralTurret,
+    // shut at load, and open only when that side claims the outpost
+    // (fcop-re/outposts.md Q1). Those are imported with the outposts below.
     //
-    // The two filters below are near-identical on Mp by construction, not by
-    // accident: every plate a team shares with a NeutralTurret is also one the
-    // other team lists (the mid-field row at x 94.5 and x 129.5). So 8 of each
-    // team's 16 Turret actors drop out and 8+8 is the ring the original's data
-    // supports. Re-measured; the filters are not over-eager. PLAN.md phase 12
-    // claimed 16+16 and has been corrected.
-    const otherTeam = teamBases[1 - team].team;
-    const otherPadKeys = new Set(
-      logic.turrets.filter((t) => t.team === otherTeam).map((t) => padKey(sx(t.x), sz(t.z))),
-    );
-    const neutralPadKeys = new Set(logic.neutrals.map((t) => padKey(sx(t.x), sz(t.z))));
+    // Membership comes from the evidence (outposts.json), not from a half-cell
+    // pad key: the key leaked on Conft, where Csac217 (team 1) sits at x 147.75 ->
+    // key 148.0 while its plate-mates key to 147.5, so team 1's ring got a 9th
+    // turret that is outpost 3's (and Slim/Joke a 7th the same way). The count is
+    // asserted against the evidence's base plates.
     const ownTurrets = logic.turrets
-      .filter((t) => t.team === base.team)
-      .filter((t) => {
-        const k = padKey(sx(t.x), sz(t.z));
-        return !otherPadKeys.has(k) && !neutralPadKeys.has(k);
-      })
+      .filter((t) => t.team === base.team && !members.has(t.id))
       .sort((a, b) => a.id - b.id);
-    // MapBase.turrets caps at 16. After dual/neutral filtering Mp/Ovmp keep 8
-    // unique per base; Slim/Joke keep 6–7. Count anything the cap would drop.
+    const basePlates = evidence.base_plates.filter((p) => p.team === base.team).length;
+    if (ownTurrets.length !== basePlates) {
+      throw new Error(
+        `${mapId}: team ${base.team} keeps ${ownTurrets.length} non-outpost type-8 turrets, ` +
+          `outposts.json lists ${basePlates} base plates`,
+      );
+    }
+    // MapBase.turrets caps at 16. The ring is 8 on Mp/Conft/Ovmp and 6 on
+    // Slim/Joke/Hk; count anything the cap would drop.
     const ring = ownTurrets.slice(0, 16);
     ringDropped += ownTurrets.length - ring.length;
 
@@ -1305,7 +1314,64 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const turretHp = neutrals.map((t) => t.health);
 
   // --- outposts ----------------------------------------------------------
-  const outpostSpots = midfieldOutposts(neutrals, field);
+  // The original's four (fcop-re/outposts.md Q3), in owner-word order W40..W43
+  // so the Sky Captain's outpost indices are the original's. The spot is the
+  // type-14 claim zone's centre, where the console marker stands; the pads are
+  // the same two points for either side (both sides' pad records share them,
+  // to a few centimetres; slot 0's are taken);
+  // each plate names its NeutralTurret by turretSpots index and carries both
+  // teams' type-8 records, the plate turret a claim opens.
+  const neutralIndex = new Map(neutrals.map((t, k) => [t.id, k] as const));
+  const turretById = new Map(logic.turrets.map((t) => [t.id, t] as const));
+  const padOf = (o: EvidenceOutpost, unit: string): number[] => {
+    const at = Object.values(o.sides).map((side) => {
+      const pad = side.pads.find((p) => p.unit === unit);
+      if (!pad) throw new Error(`${mapId}: outpost ${o.index} has a side with no ${unit} pad`);
+      return pad;
+    });
+    for (const p of at) {
+      // Within a few centimetres: Hk outpost 2's jet pads are 6 cm apart.
+      if (Math.abs(p.x - at[0].x) > 0.1 || Math.abs(p.z - at[0].z) > 0.1) {
+        throw new Error(`${mapId}: outpost ${o.index}'s two ${unit} pads stand apart`);
+      }
+    }
+    return [round4(sx(at[0].x)), round4(sz(at[0].z))];
+  };
+  const evOutposts = [...evidence.outposts].sort((a, b) => a.index - b.index);
+  const outpostSpots = evOutposts.map((o) => [
+    round4(sx(o.claim_zone.x)),
+    round4(sz(o.claim_zone.z)),
+  ]);
+  const outposts = evOutposts.map((o) => ({
+    zone: round4(o.claim_zone.radius_m),
+    tankPad: padOf(o, "tank"),
+    jetPad: padOf(o, "jet"),
+    plates: o.plates.map((plate) => {
+      const neutral = plate.records.filter((r) => r.type === 36);
+      if (neutral.length !== 1 || !neutralIndex.has(neutral[0].id)) {
+        throw new Error(`${mapId}: outpost ${o.index} plate has no single imported NeutralTurret`);
+      }
+      return {
+        spot: neutralIndex.get(neutral[0].id) as number,
+        turrets: teamBases.map((b) => {
+          const recs = plate.records.filter((r) => r.type === 8 && r.team === b.team);
+          const t = recs.length === 1 ? turretById.get(recs[0].id) : undefined;
+          if (!t) {
+            throw new Error(
+              `${mapId}: outpost ${o.index} plate has no team-${b.team} type-8 record`,
+            );
+          }
+          return {
+            x: round4(sx(t.x)),
+            y: round4(sz(t.z)),
+            weapon: turretWeapon(t, table, true),
+            hp: t.health,
+            yaw: round4(rotToYaw(t.gunRotationRaw, true)),
+          };
+        }),
+      };
+    }),
+  }));
 
   // --- lane graph + polyline ---------------------------------------------
   const graph = buildGraph(logic, teamNet, enemyBase, terrain);
@@ -1439,7 +1505,13 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         // capture reach (4.0 m + the avatar's radius), so it is the bound to hold
         // the map to.
         ...turretSpots.map(([x, y]) => ({ x, y, reach: CAPTURE_RADIUS - 1, kind: "capture pad" })),
-        ...outpostSpots.map(([x, y]) => ({ x, y, reach: CAPTURE_RADIUS - 1, kind: "outpost" })),
+        // An outpost's claim zone and pads are touched (1.2 m + the mech's
+        // radius), so the bound is the ring turrets' 1 m.
+        ...outpostSpots.map(([x, y]) => ({ x, y, reach: 1, kind: "outpost" })),
+        ...outposts.flatMap((o) => [
+          { x: o.tankPad[0], y: o.tankPad[1], reach: 1, kind: "outpost pad" },
+          { x: o.jetPad[0], y: o.jetPad[1], reach: 1, kind: "outpost pad" },
+        ]),
         ...pickups.map((p) => ({ x: p.x, y: p.y, kind: "pickup" })),
         // The base's own structures, or the player cannot walk from their spawn
         // to a buy console and back out onto the road. Mp's happened to land in
@@ -1480,6 +1552,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     lanes,
     turretSpots,
     outpostSpots,
+    outposts,
     // No original counterpart: dummy turrets are a Phase-1 sandbox concept.
     dummySpots: [],
     weapons: table.list,

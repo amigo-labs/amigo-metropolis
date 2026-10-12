@@ -240,12 +240,12 @@ describe("an unescorted bought push against an intact defence, per arena", () =>
 
 describe("a Warden vs an idle player on la-cantina", () => {
   // Since SIM_VERSION 46 the Warden is the original's Sky Captain (level 7 at
-  // difficulty 8). With fewer than ten turrets of its own it stays in defend mode
-  // (fcop-fidelity.md U3), chasing the player and capturing the pads it flies
-  // over; what breaches is its free opening order: on this seed 5 tanks, which
-  // drive through the ring the way a lone Runner does (above), at 39 s. Until
-  // v45 Metropolis' own Warden saved for a Juggernaut from pads and kills and
-  // pushed it in (77-183 s).
+  // difficulty 8). Its 8 ring turrets count 16 (each twice, SIM_VERSION 49), so
+  // it roams (fcop-fidelity.md U3), capturing pads (21 here); what breaches is
+  // its free opening order: on this seed 5 tanks, which drive through the ring
+  // the way a lone Runner does (above), at 46 s, before it has 30 points for an
+  // outpost. Until v45 Metropolis' own Warden saved for a Juggernaut from pads
+  // and kills and pushed it in (77-183 s).
   const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
   const idle = createTickInputs();
   let captures = 0;
@@ -273,8 +273,7 @@ describe("a Warden vs an idle player on la-cantina", () => {
     expect(boardValue / COST_JUGGERNAUT).toBeLessThan(1);
     // The board alone does not fund the heavy push: the start plus every pad is
     // still short of a Juggernaut, so kills pay the rest. (The Sky Captain starts
-    // on 0, not STARTING_POINTS, and in defend mode never buys one anyway; the
-    // relation is the human side's.)
+    // on 0, not STARTING_POINTS; the relation is the human side's.)
     expect(STARTING_POINTS + boardValue).toBeLessThan(COST_JUGGERNAUT);
     expect(captures).toBeGreaterThan(0);
     expect(captures).toBeLessThanOrEqual(2 * MAP.turretSpots.length);
@@ -282,23 +281,23 @@ describe("a Warden vs an idle player on la-cantina", () => {
 });
 
 describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () => {
-  // The original's captain, pinned as measured (SIM_VERSION 46; fcop-fidelity.md
-  // U3). On every imported arena it spends the match in defend mode: it owns
-  // fewer than the ten turrets near home that let it roam or attack (8 base + 2
-  // per owned outpost in the original; Metropolis' rings are 6-9 and its outposts
-  // carry no turrets, R14), and in defend mode it chases the player and buys only
-  // jets and a Fortress — never a tank below level 9, never an outpost claim or a
-  // Dreadnought. What wins is its free opening order (level 7: 2-5 base tanks and
-  // jets for the rest of ten), whose tanks are the original's route followers.
-  // Measured over seeds c0ffee/1/2/3/4: 17 of 20 resolve, in 52-111 s. The three
-  // that do not are urban-jungle seeds 2, 3 and 4: an opening order of two or
-  // three tanks dies short of that arena's gate, and nothing replaces it (the
-  // captain's points pile up to ~350 by downing the idle player, and defend mode
-  // spends them on a Fortress). Seeds 2 and 4 used to be "the stall seeds" of the
-  // v30 jam relief; they stay because they are the instructive ones again.
+  // The original's captain, pinned as measured (SIM_VERSION 49; fcop-fidelity.md
+  // U3, fcop-re/outposts.md Q2). It counts each of its live team turrets twice
+  // (the turret and its base part), so its 8 (or 6) ring turrets give it 16 (12),
+  // at or above the 10 that keeps it out of defend: against an idle player, with
+  // no enemy tank near its home, it never defends. It roams — capturing neutral
+  // turrets, claiming outposts with 30, buying a Juggernaut with 50 and Runners
+  // at its outposts and base — and attacks behind its Juggernaut or tanks near
+  // the player's base. Measured over seeds c0ffee/1/2/3/4: 17 of 20 resolve, in
+  // 45-113 s. The three that do not are urban-jungle seeds 1, 3 and 4: once it
+  // has captured the pads in reach and claimed an outpost it holds 2-3 points,
+  // and an idle player who is never downed (roaming, it does not chase the
+  // player) pays it nothing more, so nothing replaces its dead tanks.
+  // (SIM_VERSION 46-48 counted each turret once, so it defended all match and
+  // only its opening order breached: 17-19 of 20 on these seeds.)
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {
-    it(`${id}: d8 vs idle, the opening order breaches (or measurably does not)`, () => {
+    it(`${id}: d8 vs idle, it roams and breaches (or measurably does not)`, () => {
       for (const seed of [0xc0ffee, 2, 4]) {
         const state = createSim(getMapById(id), seed, {
           wardenPlayer: 1,
@@ -310,8 +309,8 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
           step(state, idle);
           if (state.captain.mode === 2) defend += 1;
         }
-        expect(defend).toBe(state.tick);
-        if (id === URBAN_JUNGLE_ID && seed !== 0xc0ffee) {
+        expect(defend).toBe(0);
+        if (id === URBAN_JUNGLE_ID && seed === 4) {
           expect(state.winner).toBe(-1);
           continue;
         }

@@ -31,7 +31,7 @@ const CONTROLS: readonly (readonly [string, string])[] = [
   ["LMB / RMB / MMB", "primary / special / heavy"],
   ["Q", "transform (walker ⇄ hover)"],
   ["Space", "jump"],
-  ["E", "tap: capture a turret · hold: buy at a console"],
+  ["E", "tap: capture a turret or claim an outpost · hold: buy at a console"],
 ];
 
 const VOLUMES: readonly (readonly [VolumeKind, string])[] = [
