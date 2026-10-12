@@ -74,7 +74,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // polyline maps where advanceOnGraph never executes and stay byte-identical.
   // Re-frozen at SIM_VERSION 31 (the original's import scales): 05 and 07 run
   // imported arenas, whose turret profiles and trigger volumes changed.
-  "golden-05-fcop": { last: 4055343112, count: 2700 },
+  // Re-frozen at SIM_VERSION 47: urban-jungle's team-0 ring lost the outpost
+  // plate turret the half-cell pad key had leaked into it (9 -> 8).
+  "golden-05-fcop": { last: 847665659, count: 2700 },
   "golden-06-layered": { last: 3892665265, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.

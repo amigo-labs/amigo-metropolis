@@ -372,11 +372,6 @@ class WeaponTable {
 }
 
 /**
- * Half-cell pad key in sim frame. Dual-team mid turrets and NeutralTurret pads
- * that share a plate land on the same key after LOGIC_OFFSET, even when the
- * raw actor coords differ by a few centimetres.
- */
-/**
  * Which unit a build console sells, read off the Cobj parked on it.
  *
  * The original labels its consoles with an icon rather than a field, and the
@@ -443,8 +438,55 @@ function assignConsoles(
   return [ground[0], air[0]];
 }
 
-function padKey(x: number, z: number): string {
-  return `${Math.round(x * 2) / 2},${Math.round(z * 2) / 2}`;
+// ---------------------------------------------------------------------------
+// The original's outposts (docs/specs/fcop-re/outposts.md)
+// ---------------------------------------------------------------------------
+
+/** One record stacked on an outpost turret plate (outposts.json `plates[].records`). */
+interface PlateRecord {
+  id: number;
+  type: number;
+  team: number;
+}
+
+/** One outpost as outposts.json carries it, in the extract_logic frame. */
+interface EvidenceOutpost {
+  index: number;
+  claim_zone: { x: number; z: number; radius_m: number };
+  sides: Record<string, { pads: { unit: string; cost: number; x: number; z: number }[] }>;
+  plates: { x: number; z: number; records: PlateRecord[] }[];
+}
+
+interface EvidenceMap {
+  base_plates: { csac: number; team: number }[];
+  outposts: EvidenceOutpost[];
+}
+
+/**
+ * The outposts of `arena`'s mission, read from the committed evidence
+ * (docs/specs/fcop-re/outposts.json, built from the shipped mission bytes and
+ * scripts). Four per PA map, in owner-word order W40..W43, each with a type-14
+ * claim zone, a tank and a jet pad per side, and two turret plates carrying a
+ * type-36 neutral turret (live at start) and both teams' type-8 records (shut at
+ * load, opened by that side's claim).
+ */
+function evidenceOf(arena: FcopArena): EvidenceMap {
+  const all = JSON.parse(
+    readFileSync(join(REPO_ROOT, "docs", "specs", "fcop-re", "outposts.json"), "utf8"),
+  ) as { maps: Record<string, EvidenceMap> };
+  const m = all.maps[arena.mission];
+  if (!m) throw new Error(`outposts.json has no entry for mission ${arena.mission}`);
+  if (m.outposts.length !== 4) {
+    throw new Error(`${arena.mission}: outposts.json lists ${m.outposts.length} outposts, not 4`);
+  }
+  return m;
+}
+
+/** Every record id stacked on any outpost plate: the outposts' own turrets. */
+function outpostMembers(ev: EvidenceMap): Set<number> {
+  const ids = new Set<number>();
+  for (const o of ev.outposts) for (const p of o.plates) for (const r of p.records) ids.add(r.id);
+  return ids;
 }
 
 /**
@@ -1187,6 +1229,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // — see consoleRole(). This used to be "the wider footprint is the ground
   // console", which was a guess, and on four of six missions it was the wrong
   // way round.
+  const evidence = evidenceOf(arena);
+  const members = outpostMembers(evidence);
   let ringDropped = 0;
   const bases = teamBases.map((base, team) => {
     const own = teamSpawns[team];
@@ -1201,33 +1245,30 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     const gcy = round4(sz(buttons[0].z));
     const acx = round4(sx(buttons[1].x));
     const acy = round4(sz(buttons[1].z));
-    // Permanent base ring = team-unique type-8 pads only. The original also
-    // lists dual-team type-8 actors on mid plates that are NeutralTurrets —
-    // those pads are capturable, not permanent guns for both teams. Putting
-    // them in both rings AND turretSpots stacked three meshes (and three
-    // shooters) on one plate: team0 ring + team1 ring + capturable.
-    // importLaCantinaFromFcopViz.ts uses the same teamOnlyTurrets rule.
+    // Permanent base ring = the type-8 records that belong to no outpost. The
+    // original lists 16 (or 14) type-8 records per side, but only 8 (6 on
+    // Slim/Joke/Hk) are base guns, live from t = 0: the rest stand on the
+    // outposts' turret plates with the other side's record and a NeutralTurret,
+    // shut at load, and open only when that side claims the outpost
+    // (fcop-re/outposts.md Q1). Those are imported with the outposts below.
     //
-    // The two filters below are near-identical on Mp by construction, not by
-    // accident: every plate a team shares with a NeutralTurret is also one the
-    // other team lists (the mid-field row at x 94.5 and x 129.5). So 8 of each
-    // team's 16 Turret actors drop out and 8+8 is the ring the original's data
-    // supports. Re-measured; the filters are not over-eager. PLAN.md phase 12
-    // claimed 16+16 and has been corrected.
-    const otherTeam = teamBases[1 - team].team;
-    const otherPadKeys = new Set(
-      logic.turrets.filter((t) => t.team === otherTeam).map((t) => padKey(sx(t.x), sz(t.z))),
-    );
-    const neutralPadKeys = new Set(logic.neutrals.map((t) => padKey(sx(t.x), sz(t.z))));
+    // Membership comes from the evidence (outposts.json), not from a half-cell
+    // pad key: the key leaked on Conft, where Csac217 (team 1) sits at x 147.75 ->
+    // key 148.0 while its plate-mates key to 147.5, so team 1's ring got a 9th
+    // turret that is outpost 3's (and Slim/Joke a 7th the same way). The count is
+    // asserted against the evidence's base plates.
     const ownTurrets = logic.turrets
-      .filter((t) => t.team === base.team)
-      .filter((t) => {
-        const k = padKey(sx(t.x), sz(t.z));
-        return !otherPadKeys.has(k) && !neutralPadKeys.has(k);
-      })
+      .filter((t) => t.team === base.team && !members.has(t.id))
       .sort((a, b) => a.id - b.id);
-    // MapBase.turrets caps at 16. After dual/neutral filtering Mp/Ovmp keep 8
-    // unique per base; Slim/Joke keep 6–7. Count anything the cap would drop.
+    const basePlates = evidence.base_plates.filter((p) => p.team === base.team).length;
+    if (ownTurrets.length !== basePlates) {
+      throw new Error(
+        `${mapId}: team ${base.team} keeps ${ownTurrets.length} non-outpost type-8 turrets, ` +
+          `outposts.json lists ${basePlates} base plates`,
+      );
+    }
+    // MapBase.turrets caps at 16. The ring is 8 on Mp/Conft/Ovmp and 6 on
+    // Slim/Joke/Hk; count anything the cap would drop.
     const ring = ownTurrets.slice(0, 16);
     ringDropped += ownTurrets.length - ring.length;
 

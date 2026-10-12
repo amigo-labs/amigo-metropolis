@@ -285,17 +285,20 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // The original's captain, pinned as measured (SIM_VERSION 46; fcop-fidelity.md
   // U3). On every imported arena it spends the match in defend mode: it owns
   // fewer than the ten turrets near home that let it roam or attack (8 base + 2
-  // per owned outpost in the original; Metropolis' rings are 6-9 and its outposts
+  // per owned outpost in the original; Metropolis' rings are 6-8 and its outposts
   // carry no turrets, R14), and in defend mode it chases the player and buys only
   // jets and a Fortress — never a tank below level 9, never an outpost claim or a
   // Dreadnought. What wins is its free opening order (level 7: 2-5 base tanks and
   // jets for the rest of ten), whose tanks are the original's route followers.
-  // Measured over seeds c0ffee/1/2/3/4: 17 of 20 resolve, in 52-111 s. The three
-  // that do not are urban-jungle seeds 2, 3 and 4: an opening order of two or
-  // three tanks dies short of that arena's gate, and nothing replaces it (the
-  // captain's points pile up to ~350 by downing the idle player, and defend mode
-  // spends them on a Fortress). Seeds 2 and 4 used to be "the stall seeds" of the
-  // v30 jam relief; they stay because they are the instructive ones again.
+  // Measured over seeds c0ffee/1/2/3/4: 19 of 20 resolve, in 52-111 s. The one
+  // that does not is urban-jungle seed 4: an opening order of two or three tanks
+  // dies short of that arena's gate, and nothing replaces it (the captain's
+  // points pile up to ~350 by downing the idle player, and defend mode spends
+  // them on a Fortress). Seed 2 resolves since SIM_VERSION 47 (measured, 105 s),
+  // when the import dropped the 9th ring turret urban-jungle's team 0 carried:
+  // Csac217, one of outpost 3's plate turrets (fcop-re/outposts.md). Seeds 2
+  // and 4 used to be "the stall seeds" of the v30 jam relief; they stay because
+  // they are the instructive ones again.
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {
     it(`${id}: d8 vs idle, the opening order breaches (or measurably does not)`, () => {
@@ -311,7 +314,7 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
           if (state.captain.mode === 2) defend += 1;
         }
         expect(defend).toBe(state.tick);
-        if (id === URBAN_JUNGLE_ID && seed !== 0xc0ffee) {
+        if (id === URBAN_JUNGLE_ID && seed === 4) {
           expect(state.winner).toBe(-1);
           continue;
         }

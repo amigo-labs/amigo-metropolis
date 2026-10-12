@@ -809,4 +809,13 @@
 //     d8; its scripted capture press moves a phase earlier, to tick 555, since the
 //     captain chasing the player flies over that pad at 557) re-record; 01-03,
 //     05, 06 have no Warden and are byte-identical (re-headered).
-export const SIM_VERSION = 46;
+// v47: the base rings are the original's 8 (Mp/Conft/Ovmp) or 6 (Slim/Joke/Hk)
+//     per side (fcop-re/outposts.md Q1). enrichArena.ts drops the type-8 records
+//     that stand on an outpost's turret plates by their membership in
+//     outposts.json instead of by a half-cell pad key, which leaked on three
+//     arenas: urban-jungle's team 0 ring 9 -> 8 (Csac217, outpost 3's), and
+//     proving-ground's and bug-hunt's team 1 rings 7 -> 6. Walls, spots and
+//     every other feature are unchanged. Goldens: 05 (urban-jungle) re-records,
+//     one turret fewer; 01-04, 06 and 07 (la-cantina, whose rings were already
+//     8/8) are byte-identical (re-headered).
+export const SIM_VERSION = 47;

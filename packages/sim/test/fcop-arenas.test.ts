@@ -182,8 +182,9 @@ const ARENAS: ArenaExpectation[] = [
     turretSpots: 32,
     outpostSpots: 2,
     dummySpots: 0,
-    // Team-unique type-8 pads only; dual-team mid plates are capturable (not ring).
-    ringTurrets: [9, 8],
+    // The type-8 records on no outpost plate (fcop-re/outposts.md Q1): 8 per side.
+    // Was [9, 8]: a half-cell pad key leaked Csac217, outpost 3's, into team 0's.
+    ringTurrets: 8,
     graphNodes: 462, // both Cnet graphs, 237 + 225
     // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
     // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
@@ -238,8 +239,9 @@ const ARENAS: ArenaExpectation[] = [
     turretSpots: 29,
     outpostSpots: 2,
     dummySpots: 0,
-    // Team-unique pads after dual/neutral filter (Slim raw lists 14).
-    ringTurrets: [6, 7],
+    // The type-8 records on no outpost plate (fcop-re/outposts.md Q1): 6 per side
+    // of Slim's 14. Was [6, 7] under the half-cell pad key.
+    ringTurrets: 6,
     graphNodes: 578, // 292 + 286
     // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
     // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.
@@ -335,8 +337,9 @@ const ARENAS: ArenaExpectation[] = [
     turretSpots: 29,
     outpostSpots: 2,
     dummySpots: 0,
-    // Team-unique pads after dual/neutral filter (Joke raw lists 14).
-    ringTurrets: [6, 7],
+    // The type-8 records on no outpost plate (fcop-re/outposts.md Q1): 6 per side
+    // of Joke's 14. Was [6, 7] under the half-cell pad key.
+    ringTurrets: 6,
     graphNodes: 594, // 303 + 291
     // Five profiles since SIM_VERSION 42 (W3): team ring turret, neutral turret
     // (no hold/priority), Dreadnought guns, tank/jet (weapon 1 = 6), Fortress.

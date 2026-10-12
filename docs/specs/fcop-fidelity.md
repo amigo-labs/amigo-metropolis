@@ -66,6 +66,7 @@ Decision column: **adopt** = take the original's value; **keep** = deliberate de
 | I8 | Pickup grant "invincibility" unmapped (importer throws) | Flag exists (20 s), but **no PA pickup carries it** | adopt (map it anyway) | adopted in the same commit: `invincibility` -> `PICKUP_INVULN` in `enrichArena.ts`; no map changes (no PA pickup carries it) |
 | I9 | Csac/tSAC periods in 1/60 s | confirmed ×5 at 300 Hz | — | confirmed |
 | I10 | Positions /8192, angles 4096 = 360° | confirmed | — | confirmed |
+| I11 | Base ring = each side's type-8 records whose half-cell pad key no other team's record or NeutralTurret shares: 9/8 on Conft, 6/7 on Slim and Joke | **8 per side on Mp/Conft/Ovmp, 6 on Slim/Joke/Hk**: the other type-8 records are the outposts' plate turrets, shut at load ([`outposts.md`](fcop-re/outposts.md) Q1) | adopt | adopted in "Import the base rings by outpost membership", SIM_VERSION 47: `enrichArena.ts` drops every record stacked on an outpost plate by its id in `outposts.json` and asserts the count against the evidence's base plates. The pad key had leaked Conft's Csac217 (outpost 3) into team 0's ring and one plate record each into Slim's and Joke's team-1 rings. Respawn kept at Metropolis' 120 s (`BASE_TURRET_RESPAWN_TICKS`); the original's is 37.5 s (not this row's) |
 
 ### Match rules (`rules.md` §1/§3/§5/§9, `sim.ts`, `balance.ts`)
 
