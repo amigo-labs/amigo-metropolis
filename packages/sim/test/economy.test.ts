@@ -10,7 +10,7 @@ import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
   ARCHETYPE_RADIUS,
-  AVATAR_AMMO_HEAVY,
+  AVATAR_HP,
   CAPTURE_RADIUS,
   CONSOLE_HOLD_TICKS,
   COST_FORTRESS,
@@ -38,6 +38,7 @@ import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from ".
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, type SimState, spawnUnit, step, TURRET_CAPTURABLE } from "../src/sim";
 import { UNIT_MODE_ASSAULT } from "../src/units";
+import { HEAVIES } from "../src/weapons";
 
 // Flat 16×16 grid, 4 m cells → 60 m square. One lane along y=6, a neutral
 // turret spot mid-map and one outpost spot between lane and bases.
@@ -249,7 +250,7 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
     sim.ent.posX[0] = 33;
     sim.ent.posY[0] = 42; // 12 m from the spot: inside TURRET_RANGE, outside capture
     for (let t = 0; t < 120; t++) step(sim, inputs);
-    expect(sim.ent.hp[0]).toBe(300);
+    expect(sim.ent.hp[0]).toBe(AVATAR_HP);
   });
 
   /** Puts avatar `p` at (x, y) and runs one tick with `buttons` held. */
@@ -368,11 +369,13 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
     sim.ent.team[tid] = 1;
     sim.ent.ownerId[tid] = 1;
     sim.ent.posX[0] = 30;
-    sim.ent.posY[0] = 62; // 32 m south: outside TURRET_RANGE, inside PRIMARY_RANGE
+    // 10 m north of it: inside the X1-Alpha's 12 m lock, which the Mini-Gun needs
+    // (it hits only its lock; fcop-fidelity.md W2). The turret shoots back.
+    sim.ent.posY[0] = sim.ent.posY[tid] + 10;
     inputs.players[0].aimY = -127; // aim straight at the turret
     inputs.players[0].buttons = BUTTON_FIRE1;
     let died = -1;
-    for (let t = 1; t < 400 && died < 0; t++) {
+    for (let t = 1; t < 1200 && died < 0; t++) {
       step(sim, inputs);
       if (!sim.ent.alive[tid]) died = t;
     }
@@ -480,7 +483,7 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     sim.ent.posX[1] = 33;
     sim.ent.posY[1] = 46; // enemy avatar also on the pad
     step(sim, inputs);
-    expect(sim.ent.ammoA[0]).toBe(AVATAR_AMMO_HEAVY);
+    expect(sim.ent.ammoA[0]).toBe(HEAVIES[0].a.ammoCap);
     expect(sim.ent.ammoA[1]).toBe(0);
   });
 

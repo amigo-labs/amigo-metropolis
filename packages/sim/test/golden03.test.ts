@@ -30,7 +30,11 @@ import { createSim, step } from "../src/sim";
 // 3701 -> 4002 at SIM_VERSION 39: the original's walker turns at 105°/s, so
 // the script turns on the spot before every leg and every snipe (~10 s over the
 // route), and player 1's measured stand moved with its own walk.
-const BREACH_TICK_PIN = 4002;
+// 4002 -> 4262 at SIM_VERSION 41: the original's weapons (12 m lock, lock-only
+// Mini-Gun) and 1250-HP mechs. Nothing is sniped from outside a turret's reach
+// any more: the script walks up to each dummy and ring turret and fires all three
+// slots on the lock, and needs ~17 s to put player 1's mech down twice.
+const BREACH_TICK_PIN = 4262;
 
 describe("golden-03-match beats", () => {
   it("avatar snipe, outpost claim, forward wave, breach on the pinned tick", () => {
@@ -79,8 +83,9 @@ describe("golden-03-match beats", () => {
       }
     }
 
-    // Player 0 clears 2 dummies + all 4 ring turrets and survives; player 1's
-    // avatar goes down twice.
+    // Player 0 clears 2 dummies + all 4 ring turrets and survives (on 153 of its
+    // 1250 HP since SIM_VERSION 41: it fights the ring inside its reach now);
+    // player 1's avatar goes down twice.
     expect(turretDeaths).toBeGreaterThanOrEqual(6);
     expect(p0Down).toBe(false);
     expect(avatarDeaths).toBe(2);

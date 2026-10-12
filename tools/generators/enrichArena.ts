@@ -106,10 +106,9 @@ const TURRET_DAMAGE = 15;
 /**
  * Pickup kinds (must match balance.ts PICKUP_*).
  *
- * The original's 8 grant kinds do not map one-to-one, because Metropolis'
- * primary weapon has infinite ammo (rules.md §2) and has no damage-boost
- * concept of its own. The adaptation is deliberate and recorded here:
- *   reload_gun       -> HEAVY_AMMO   (nearest meaningful refill)
+ * The original's 8 grant kinds (fcop-re/player-and-weapons.md §6):
+ *   reload_gun       -> GUN_AMMO     (the guns' magazines are finite since
+ *                                     SIM_VERSION 41; it was a heavy refill)
  *   reload_heavy     -> HEAVY_AMMO
  *   reload_special   -> SPECIAL_AMMO
  *   restore_health   -> HEALTH
@@ -121,7 +120,7 @@ const TURRET_DAMAGE = 15;
  *                                     arena that did would import, not throw)
  */
 const PICKUP_KIND: Record<string, number> = {
-  reload_gun: 0,
+  reload_gun: 6,
   reload_heavy: 0,
   reload_special: 1,
   restore_health: 2,

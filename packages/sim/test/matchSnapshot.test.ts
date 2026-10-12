@@ -14,11 +14,13 @@ import {
   MATCH_ENTITY_COUNT,
   MATCH_OUTRO_LEFT,
   MATCH_OUTRO_WINNER,
+  MATCH_SLOT_AMMO_GUN,
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_BUY_FRAC,
   MATCH_SLOT_HP_FRAC,
+  MATCH_SLOT_LOCK,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
   MATCH_SLOT_RESPAWN_TICKS,
@@ -167,9 +169,12 @@ describe("writeMatchSnapshot", () => {
   it("carries no capture progress: a capture is instant (fcop-fidelity.md R12)", () => {
     // MATCH_SLOT_CAPTURE_FRAC (slot field 9) reported a 3 s hold until SIM_VERSION
     // 34. The original captures on one key press, so there is nothing to report
-    // and the slot block is one field shorter. The buy fraction is the last field.
-    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(9);
-    expect(MATCH_SLOT_BUY_FRAC).toBe(MATCH_SNAPSHOT_SLOT_STRIDE - 1);
+    // and the slot block lost the field. Since SIM_VERSION 41 the Gun magazine and
+    // the lock follow the buy fraction, appended.
+    expect(MATCH_SLOT_BUY_FRAC).toBe(8);
+    expect(MATCH_SLOT_AMMO_GUN).toBe(9);
+    expect(MATCH_SLOT_LOCK).toBe(10);
+    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(11);
   });
 
   it("reports the post-breach outro, and nothing while none runs", () => {
@@ -187,6 +192,19 @@ describe("writeMatchSnapshot", () => {
     writeMatchSnapshot(sim, out);
     expect(out[MATCH_OUTRO_LEFT]).toBe(100);
     expect(out[MATCH_OUTRO_WINNER]).toBe(1);
+  });
+
+  it("reports the Gun magazine and the lock (fcop-fidelity.md W1, W2)", () => {
+    const sim = freshSim();
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+    sim.gunAmmo[0] = 1234;
+    sim.lockTarget[0] = sim.avatarId[1];
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_AMMO_GUN]).toBe(1234);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_LOCK]).toBe(sim.avatarId[1]);
+    sim.lockTarget[0] = -1;
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_LOCK]).toBe(-1);
   });
 
   it("overwrites every field, so a reused buffer never shows a stale value", () => {

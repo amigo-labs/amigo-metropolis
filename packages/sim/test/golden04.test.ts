@@ -73,7 +73,9 @@ describe("golden-04-warden beats", () => {
     expect(wardenCaptures).toBe(6);
     // Both sides trade kills: the scripted patrol hurts the Warden enough to
     // exercise its retreat/respawn paths, and dies to it in return.
-    expect(wardenDeaths).toBe(9);
+    // 9 -> 10 at SIM_VERSION 41: the patrol's Mini-Gun hits whatever it locks
+    // within 12 m, every tick, and the Warden it harasses is that.
+    expect(wardenDeaths).toBe(10);
     // Two player downs (three before SIM_VERSION 37): the avatar respawns 4 s
     // after a down now (fcop-fidelity.md P2), so the open-loop patrol is back on
     // its route 4 s sooner and is no longer caught where it died the third time.
@@ -86,7 +88,7 @@ describe("golden-04-warden beats", () => {
     expect(wardenRunners).toBe(0);
     expect(wardenJuggernauts).toBe(0);
     expect(sim.points[1]).toBe(0);
-    expect(sim.points[0]).toBe(90);
+    expect(sim.points[0]).toBe(100);
     // No breach: the match is still running when the recording ends.
     expect(breaches).toBe(0);
     expect(breachTick).toBe(-1);

@@ -341,8 +341,12 @@ export function setSandboxLoadout(
   const id = state.avatarId[p];
   if (id < 0 || !state.ent.alive[id]) return;
   const resolved = resolveLoadout(kit);
+  state.gunAmmo[p] = resolved.gun.ammo;
   state.ent.ammoA[id] = resolved.heavy.ammo;
   state.ent.ammoB[id] = resolved.special.ammo;
+  state.burstLeft[p * 3] = resolved.gun.a.rounds;
+  state.burstLeft[p * 3 + 1] = resolved.heavy.a.rounds;
+  state.burstLeft[p * 3 + 2] = resolved.special.a.rounds;
   state.ent.cooldownA[id] = 0;
   state.ent.cooldownB[id] = 0;
   state.ent.cooldownC[id] = 0;
@@ -358,12 +362,13 @@ export function sandboxLoadout(state: SimState, player: number): Loadout {
   };
 }
 
-/** Tops `player`'s heavy/special ammo back up — the panel's infinite-ammo tick. */
+/** Tops `player`'s gun/heavy/special ammo back up — the panel's infinite-ammo tick. */
 export function refillSandboxAmmo(state: SimState, player: number): void {
   const p = clampPlayer(player);
   const id = state.avatarId[p];
   if (id < 0 || !state.ent.alive[id]) return;
   const kit = kitFor(state, p);
+  state.gunAmmo[p] = kit.gun.ammo;
   state.ent.ammoA[id] = kit.heavy.ammo;
   state.ent.ammoB[id] = kit.special.ammo;
 }

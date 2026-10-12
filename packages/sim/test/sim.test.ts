@@ -32,22 +32,23 @@ describe("sim tick loop", () => {
     // SIM_VERSION 39: the hash covers the X1-Alpha's movement state (turn rate,
     // idle timer, lunge countdown) on every map. SIM_VERSION 40: and the lock's
     // steer flag; the test map spawns both avatars on one spot, so each
-    // auto-acquires the other on the first tick.
-    expect(hash(createSim(map, 0xdead))).toBe(1360804233);
+    // auto-acquires the other on the first tick. SIM_VERSION 41: and the avatars'
+    // 1250 HP, their Gun magazines and burst counters.
+    expect(hash(createSim(map, 0xdead))).toBe(4072693229);
   });
 
   it("pins hashes for idle and movement scripts", () => {
     const sim = createSim(map, 0xdead);
     const inputs = createTickInputs();
     for (let i = 0; i < 10; i++) step(sim, inputs);
-    expect(hash(sim)).toBe(4242733010);
+    expect(hash(sim)).toBe(2647353158);
     expect(sim.tick).toBe(10);
 
     inputs.players[0].moveX = 127;
     for (let i = 0; i < 30; i++) step(sim, inputs);
     // The original's walker (SIM_VERSION 39): 4.69 m/s reached in ~0.2 s, and
     // slowed a little by the slope push up the test map's rise (was a flat 5 m/s).
-    expect(hash(sim)).toBe(22903143);
+    expect(hash(sim)).toBe(2586805899);
     expect(sim.ent.posX[0]).toBe(131.49205017089844);
     expect(sim.ent.posY[0]).toBe(127);
     expect(sim.ent.height[0]).toBe(0.34852543473243713);

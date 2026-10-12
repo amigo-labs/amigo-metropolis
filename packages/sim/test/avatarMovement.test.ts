@@ -20,7 +20,6 @@ import {
   WALKER_DRAG,
   WALKER_PUSH_STRAFE,
   X1_GRAVITY,
-  X1_IMPACT_INTERIM_SCALE,
   X1_TERMINAL_FALL,
 } from "../src/balance";
 import { EV_SHOT, EV_TRANSFORM, EVENT_STRIDE } from "../src/events";
@@ -277,11 +276,12 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
       fastest = Math.min(fastest, sim.ent.timerB[id]);
     }
     // ~4 m of fall lands at ~13 m/s: over the 10.78 m/s threshold, so it costs
-    // health — the original's absolute 1000 f(x) HP, scaled by AVATAR_HP / 1250
-    // until the weapons package sets the original's 1250 HP.
+    // health — the original's absolute 1000 f(x) HP against its 1250-HP mech
+    // (fcop-fidelity.md P1): never more than the 1000 of a terminal-speed fall.
+    expect(AVATAR_HP).toBe(1250);
     expect(fastest).toBeLessThan(-10.78);
     expect(sim.ent.hp[id]).toBeLessThan(AVATAR_HP);
-    expect(AVATAR_HP - sim.ent.hp[id]).toBeLessThanOrEqual(1000 * X1_IMPACT_INTERIM_SCALE);
+    expect(AVATAR_HP - sim.ent.hp[id]).toBeLessThanOrEqual(1000);
   });
 });
 

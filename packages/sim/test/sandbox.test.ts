@@ -464,6 +464,8 @@ describe("determinism", () => {
     refillSandboxAmmo(plain, 0);
     swapped.ent.ammoA[swapped.avatarId[0]] = plain.ent.ammoA[plain.avatarId[0]];
     swapped.ent.ammoB[swapped.avatarId[0]] = plain.ent.ammoB[plain.avatarId[0]];
+    swapped.gunAmmo[0] = plain.gunAmmo[0];
+    swapped.burstLeft.set(plain.burstLeft);
     expect(hash(swapped)).toBe(hash(plain));
   });
 });

@@ -24,6 +24,7 @@
 
 import {
   ARCHETYPE,
+  AVATAR_LOCK_RANGE,
   EV_EXPLOSION,
   EV_HIT,
   EV_SHOT,
@@ -32,7 +33,6 @@ import {
   type EventBuffer,
   MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
-  PRIMARY_RANGE,
   PROJ_HYPER,
   PROJ_MINE,
   PROJ_MORTAR,
@@ -446,7 +446,7 @@ interface HitscanLook {
  */
 function hitscanLook(w: WeaponDef | undefined, reach: number): HitscanLook {
   const vfx = w?.vfx ?? "minigun";
-  const length = reach > 0 ? reach : (w?.range ?? 0) || PRIMARY_RANGE;
+  const length = reach > 0 ? reach : (w?.range ?? 0) || AVATAR_LOCK_RANGE;
   if (vfx === "laser") return { length, core: 0xffffff, halo: 0x7ef2ff, thick: 1.1 };
   if (vfx === "flame") return { length, core: 0xffe080, halo: 0xff6020, thick: 1.8 };
   if (vfx === "beam") return { length, core: 0xffffff, halo: 0xd080ff, thick: 1.4 };
@@ -665,7 +665,7 @@ export function createFx(scene: THREE.Scene): ShotFx {
           const pool = poseScratch[4] === ARCHETYPE.TURRET ? boltsTwin : boltsSingle;
           const life = reach / BOLT_SPEED;
           if (life > 0) spawn(pool, life, mx, my, mz, yaw, reach);
-        } else if (w?.delivery === "hitscan") {
+        } else if (w?.delivery === "hitscan" || w?.delivery === "flame" || w?.delivery === "beam") {
           // Length is the shot's own reach, carried in the event — where it hit
           // a body, where a wall stopped it, or the full range. It used to be
           // the weapon's nominal range, so a burst into a wall three metres off

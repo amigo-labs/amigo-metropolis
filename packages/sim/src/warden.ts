@@ -34,8 +34,6 @@ import {
   WARDEN_GUARDIAN_TARGET,
   WARDEN_HEAVY_COOLDOWN_TICKS,
   WARDEN_HEAVY_RANGE,
-  WARDEN_HEAVY_SPEED,
-  WARDEN_HEAVY_TTL_TICKS,
   WARDEN_HP,
   WARDEN_JUGGERNAUT_AGGRO,
   WARDEN_PRIMARY_COOLDOWN_TICKS,
@@ -50,6 +48,7 @@ import {
   WARDEN_SUPPRESS_RADIUS,
   WARDEN_WAVE_SIZE,
 } from "./balance";
+import { segmentBlocked } from "./collision";
 import { EV_SHOT, pushEvent, SHOT_SLOT_HITSCAN, SHOT_SLOT_LAUNCH } from "./events";
 import { BUTTON_FIRE2, BUTTON_INTERACT } from "./inputs";
 import { sampleHeight, worldExtent } from "./map";
@@ -59,12 +58,11 @@ import {
   claimOutpost,
   hitscan,
   type SimState,
-  spawnProjectile,
+  spawnWardenBomb,
   systemBuy,
 } from "./sim";
 import { atan2Poly, rand01 } from "./simMath";
 import { isGroundUnit, nearestEnemyInRange } from "./units";
-import { PROJ_WARDEN } from "./weapons";
 
 // Goals (SimState.wardenGoal). wardenSlot is the goal's operand.
 export const WGOAL_IDLE = 0; //            hold near own core
@@ -331,11 +329,41 @@ function decide(state: SimState, id: number, d: number): void {
   }
 
   // 7. Harass the enemy avatar — an aggression-gated coin flip (sim PRNG).
+  // The harass used to hold at half cannon range whether or not the lattice hid
+  // the avatar from there. While a first pass killed (the 300-HP avatar) that did
+  // not matter; against the original's 1250-HP mech (SIM_VERSION 41) it does: on
+  // la-cantina the Warden held such a stand 21 m from an idle avatar for the rest
+  // of the match, harmless and earning nothing. Now, blind and with nothing else
+  // in sight, it closes in (moveAndAct); and once at contact with the lattice
+  // still in the way it works on what defends the avatar instead, the nearest
+  // enemy emplacement, as the push rung does (WGOAL_SUPPRESS).
   if (huntable(state, enemy) && rand01(state) * 100 < aggro) {
-    setGoal(state, WGOAL_HARASS, enemy);
-    return;
+    if (harassStandUseful(state, id, enemy)) {
+      setGoal(state, WGOAL_HARASS, enemy);
+      return;
+    }
+    const blocker = emplacementBlocking(state, id, enemy);
+    if (blocker >= 0) {
+      setGoal(state, WGOAL_SUPPRESS, blocker);
+      return;
+    }
   }
   setGoal(state, WGOAL_IDLE, -1);
+}
+
+/**
+ * False when the Warden has closed to contact with the enemy avatar and a wall
+ * still stands between them: the harass can do nothing from there.
+ */
+function harassStandUseful(state: SimState, id: number, enemy: number): boolean {
+  const ent = state.ent;
+  const a = state.avatarId[enemy];
+  if (a < 0) return false;
+  const dx = ent.posX[a] - ent.posX[id];
+  const dy = ent.posY[a] - ent.posY[id];
+  const stand = WARDEN_SUPPRESS_DISTANCE + 1;
+  if (dx * dx + dy * dy > stand * stand) return true;
+  return !segmentBlocked(state.map, ent.posX[id], ent.posY[id], ent.posX[a], ent.posY[a]);
 }
 
 function setGoal(state: SimState, goal: number, slot: number): void {
@@ -367,11 +395,19 @@ function moveAndAct(state: SimState, id: number, me: number): void {
       break;
     case WGOAL_HARASS: {
       const a = state.avatarId[state.wardenSlot];
+      arrive = WARDEN_PRIMARY_RANGE * 0.5;
       if (a >= 0) {
         tx = ent.posX[a];
         ty = ent.posY[a];
+        // Half cannon range is a stand only if the cannon has something to
+        // shoot from it; blind, it closes to contact (decide, rung 7).
+        if (
+          segmentBlocked(map, ent.posX[id], ent.posY[id], tx, ty) &&
+          nearestEnemyInRange(state, id, WARDEN_PRIMARY_RANGE) < 0
+        ) {
+          arrive = WARDEN_SUPPRESS_DISTANCE;
+        }
       }
-      arrive = WARDEN_PRIMARY_RANGE * 0.5;
       break;
     }
     case WGOAL_CAPTURE: {
@@ -482,16 +518,7 @@ function moveAndAct(state: SimState, id: number, me: number): void {
       // flash and nothing else. As slot 1 with c=0 it resolved to the Mini-Gun and
       // drew a 40 m hitscan tracer alongside the shell it had just spawned.
       pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, 0);
-      spawnProjectile(
-        state,
-        id,
-        me,
-        PROJ_WARDEN,
-        ent.aimX[id],
-        ent.aimY[id],
-        WARDEN_HEAVY_SPEED,
-        WARDEN_HEAVY_TTL_TICKS,
-      );
+      spawnWardenBomb(state, id, me, ent.aimX[id], ent.aimY[id]);
     }
   }
 

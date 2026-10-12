@@ -23,10 +23,12 @@ import {
   EVENT_STRIDE,
   type EventBuffer,
   MATCH_OUTRO_WINNER,
+  MATCH_SLOT_AMMO_GUN,
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_BUY_FRAC,
   MATCH_SLOT_HP_FRAC,
+  MATCH_SLOT_LOCK,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
   MATCH_SLOT_RESPAWN_TICKS,
@@ -161,6 +163,9 @@ export function createMatchHud(
   const ammoGun = cell(ammo, "mhud-ammo-cell mhud-ammo-cell--gun");
   const ammoHeavy = cell(ammo, "mhud-ammo-cell mhud-ammo-cell--heavy");
   const ammoSpecial = cell(ammo, "mhud-ammo-cell mhud-ammo-cell--special");
+  // The lock (fcop-fidelity.md W2): the guns hit nothing else, so the HUD says
+  // whether there is one.
+  const lockCell = cell(bottom, "mhud-lock");
   const banner = cell(root, "mhud-banner");
 
   // Scratch: last written values for things that are not text cells.
@@ -235,12 +240,14 @@ export function createMatchHud(
         write(ammoGun, `respawn ${Math.ceil(respawn / TICK_HZ)}s`);
         write(ammoHeavy, "");
         write(ammoSpecial, "");
+        write(lockCell, "");
       } else {
-        // The gun has no magazine in this catalog — the original prints a large
-        // standing number there, so show the belt rather than a blank.
-        write(ammoGun, "∞");
+        // The gun has a magazine since SIM_VERSION 41 (the Mini-Gun's 7500 on
+        // NORMAL, the original's record).
+        write(ammoGun, String(match[mine + MATCH_SLOT_AMMO_GUN] | 0));
         write(ammoHeavy, String(match[mine + MATCH_SLOT_AMMO_HEAVY] | 0));
         write(ammoSpecial, String(match[mine + MATCH_SLOT_AMMO_SPECIAL] | 0));
+        write(lockCell, match[mine + MATCH_SLOT_LOCK] >= 0 ? "LOCK" : "");
       }
 
       const winner = match[MATCH_WINNER] | 0;

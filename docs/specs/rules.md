@@ -36,8 +36,12 @@ Design pillars, in priority order:
   as 1.25 of the original's 37.5 Hz movement steps in closed form (`balance.ts`
   "X1-Alpha movement"): every step `v += push - drag * v`, gravity 26.1 m/s² to a
   14.06 m/s terminal fall in both forms, and a landing over 10.78 m/s costs
-  health (the original's absolute 1000 f(x) HP, scaled by `AVATAR_HP` / 1250
-  until the weapons package sets the original's 1250 HP).
+  health (the original's absolute 1000 f(x) HP).
+- **Health: 1250** (`AVATAR_HP`, SIM_VERSION 41; `fcop-fidelity.md` P1), the
+  original's NORMAL mech: every PA X1Alpha record stores 1000 and the default
+  NORMAL pick scales it by 125 % (HARD 1000, EASY 1500; Metropolis has no
+  difficulty pick and models NORMAL). No regeneration in the original; the own
+  base pad's 15 hp/s repair is Metropolis' own (it was 300 HP until v41).
   | | Walker | Hover |
   |---|---|---|
   | fore/aft | **4.69 m/s**, 95 % in 0.17 s | **9.38 m/s**, 95 % in 1.56 s |
@@ -114,38 +118,80 @@ Design pillars, in priority order:
 - **Water**: the hover rides it. A walker that steps into water transforms to
   hover on its own (the original's NORMAL rule; HARD's sinking and drowning are
   not modelled — Metropolis has no player difficulty and models NORMAL).
-- Same three weapon slots in both modes: primary (hitscan-ish rapid),
-  heavy (projectile, AoE), special (slow, high damage).
+- Same three weapon slots in both modes: Gun, Heavy, Special.
 - **The weapon catalog is the original Precinct Assault set only** (SIM_VERSION
   26): **ten weapons**, four Guns / three Heavies / three Specials. Default kit
   matches the original weapons screen: Powered Mini-Gun · Hell Fire 2000 ·
   Mortar Launcher.
-  | Slot | Weapons |
+  | Slot | Weapons (original loadout code) |
   |------|---------|
-  | Gun | Powered Mini-Gun, Gatling Laser, Flamethrower, Electric Gun |
-  | Heavy | Hell Fire 2000, Concussion Beam, Hyper Velocity Rocket |
-  | Special | Mortar Launcher, Pop-Up Mines, Shockwave Generator |
-- Damage and firing rate come from the original front-end panels (`febmp.bin` →
-  134x40, green rate + red damage bars in a 55 px trough). Extracted panels and
-  icons ship under `packages/client/public/ui/weapons/`. There is no finer
-  numeric table in the executable. Arithmetic: the "Non-default catalog weapons"
-  block in `balance.ts`.
-- The bars are **ratios**, so they are anchored **per slot**: each slot's
-  index-0 weapon keeps this game's numbers and the rest scale against it inside
-  that slot. Anchoring across slots does not work — it puts Hell Fire's cooldown
-  at 7 ticks against 24.
-- **Declared deviations, none hidden:**
-  1. The bars do **not** distinguish Mini-Gun from Gatling Laser — both read
-     55/55 rate and 3/55 damage. The two keep their range difference (40 vs 44)
-     as ours.
-  2. Ranges, projectile speeds, TTLs, AoE radii, magazine sizes, mine arming
-     and shockwave pulse radius are **ours throughout** — the panels carry
-     rate and damage only.
-- **Deliveries:** Pop-Up Mines place a proximity charge at the avatar's feet
-  (arm delay, then trip on enemy contact). Shockwave Generator is a self-centred
-  pulse — no aim, no projectile travel.
+  | Gun | Powered Mini-Gun 0x00, Gatling Laser 0x01, Flamethrower 0x02, Electric Gun 0x03 |
+  | Heavy | Hell Fire 2000 0x10, Concussion Beam 0x12, Hyper Velocity Rocket 0x13 |
+  | Special | Mortar Launcher 0x20, Pop-Up Mines 0x22, Shockwave Generator 0x23 |
+  The original's other five — Riot Shield 0x05, Fusion Torpedo 0x14, K-9 Drone
+  0x15, Plasma Flare 0x21, Grenade Launcher 0x24 — are not offered by the menu
+  and not adopted (`weapons.ts` NOT_ADOPTED_CODES).
+- **Every number is the original's own weapon record** (SIM_VERSION 41;
+  `fcop-fidelity.md` W1; `fcop-re/player-and-weapons.md` §7,
+  `player-weapons.json`): each weapon's block A (as issued) and block B (powered
+  up, §9), converted the way the loader converts them (`balance.ts`
+  WEAPON_RECORDS, `weapons.ts`). They replace the rate and damage scaled off the
+  front-end panel bars, and the ranges, speeds, TTLs, blast radii and magazines
+  Metropolis had invented. Damage is absolute HP against the 1250-HP mech.
+  | Weapon | Block A |
+  |---|---|
+  | Powered Mini-Gun | hitscan on the lock, 1 dmg every tick (30/s), 7500 rounds, 12 m |
+  | Gatling Laser | the same, 6250 rounds |
+  | Flamethrower | 6 dmg on the lock, 3750 rounds, 12 m (cadence ours, below) |
+  | Electric Gun | 3 dmg on the lock every 2nd tick, 3750 rounds, 9.6 m |
+  | Hell Fire 2000 | homing missile, 25 dmg, every 0.5 s, 181 rounds, 1.98 → 15.8 m/s, 16 m |
+  | Concussion Beam | beam to the lock bursting for 50 in 1 m, every 1.0 s, 93 rounds, 8 m |
+  | Hyper Velocity Rocket | 4 lead-aimed rockets on 4 ticks every 1.23 s, 30 dmg, 150 rounds, 2.5 → 19.9 m/s, 16 m |
+  | Mortar Launcher | lobbed shell, 200 in a 3.2 m blast, every 2.03 s, 31 rounds, 7.6 m/s under 6 m/s² (reach 9.7 m) |
+  | Pop-Up Mines | dropped charge, sprung by an enemy within 2 m + its radius, 600 in a 5.6 m blast 1 s later, every 1.0 s, 37 |
+  | Shockwave Generator | self-centred pulse, 300 within 6 m, every 3.03 s, 25 |
+  Ammunition is the record's NORMAL value (×1.25) and every slot has a
+  magazine, the Gun's included (it was infinite). Pads and ammo pickups fill a
+  slot to its ceiling.
+- **The trigger** (`player_fire_slot`): Gun and Heavy fire on every tick they
+  are held; each round ADDS its gap (raw × 4096/218 engine units) to the slot's
+  cooldown, which loses 10 units a tick floored at zero, and a round goes out
+  whenever it is back at zero. So a gap of 0 fires every tick — **30 rounds a
+  second, the original's frame-bound rate pinned at 30 fps** — a gap of g every
+  ⌈g / 10⌉ ticks, and a negative round gap carries over (the Hyper Velocity
+  Rocket's burst). Special is held-fire too; it becomes press-to-fire, with a
+  second press detonating the kept round, only with a kept-round weapon (Plasma
+  Flare, Grenade), neither of which is offered.
+- **The lock decides what is hit** (`fcop-fidelity.md` W2; `input.spec.md`
+  §4.4): 12 m horizontal, acquired within ±12.5° of the facing (automatically
+  whenever there is none), held within ±25°. The hitscan guns damage **only the
+  lock** — with no lock the line does nothing, except a powered (block B) gun
+  with a blast, which area-damages where the line ends — and a wall on the line
+  stops them. Hell Fire 2000 homes on the lock; the Hyper Velocity Rocket is
+  lead-aimed at it and flies straight; arced shells solve the original's
+  ballistic (the high root: a lob) to the lock, or to 8 m ahead with none.
+  Missiles launch at an eighth of their top speed and accelerate to it, and fly
+  their record's range.
+- **Blasts fall off linearly over horizontal distance**, centre to centre:
+  damage × (r − d) / r (`cact_area_damage`). Rounds without a blast damage only
+  what they strike.
+- **Declared deviations, none hidden** (each waits on the RE,
+  `fcop-re/player-and-weapons.md` §9):
+  1. How the Flamethrower, the Concussion Beam and the Shockwave spread their
+     damage over time was not established. They keep Metropolis' time profile
+     (a flame hit every 5 ticks, an instant beam, an instant flat pulse) with the
+     original's per-hit damage, radius and reach.
+  2. The homing turn rate (`MISSILE_TURN_RATE`, ours: 180°/s), the Hyper
+     Velocity Rocket's exact lead, the powered Hell Fire's split (three missiles
+     fanned at launch, ours) and the powered Mortar's fragment spread (ours).
+  3. Mines: whether an untriggered mine goes off after its 5 s lifetime; it
+     keeps Metropolis' 30 s silent despawn and 0.5 s arming delay, and is
+     placed at the feet rather than dropped.
+  4. The powered Electric Gun's arc to two more targets is not modelled.
+- **Deliveries:** Pop-Up Mines place a proximity charge at the avatar's feet.
+  Shockwave Generator is a self-centred pulse — no aim, no projectile travel.
 - Slot membership: the **Concussion Beam is a Heavy**, not a Special.
-- Ammo: primary infinite; heavy/special finite, refilled at own Base/Outpost pads.
+- Ammo refills at own Base/Outpost pads.
 - Death: the avatar respawns **4 s** after going down (`RESPAWN_TICKS` 120, the
   original's `player_op4` countdown; SIM_VERSION 37, `fcop-fidelity.md` P2) at its
   team's fixed spawn, facing the spawn facing, in the spawn's form (walker, or
@@ -223,7 +269,7 @@ All units are unarmored-by-cleverness: no target prioritization, no retreating.
 Initial stats (all in `balance.ts`, all placeholders):
 Runner 60 HP / 8 dps / speed 4. Guardian 50 HP / 10 dps / speed 7.
 Juggernaut 600 HP / 20 dps / speed 2.5. Fortress 500 HP / 25 dps / speed 6.
-Avatar 300 HP; walker speed 5, hover speed 9.
+Avatar 1250 HP (the original's, §2); walker 4.69 m/s, hover 9.38 m/s.
 
 ## 5. Structures
 
@@ -415,14 +461,16 @@ only what Metropolis adopts from it.
 - **Power-ups.** `ItemPickup` spots grant ammo, health, a cloak or a
   temporary damage boost, and re-arm on the original's timer: **50 s** after an
   ammo or health pickup is taken, **100 s** after a power-up or cloak, one alive
-  per spot (the Csac spawners' tSAC, `fcop-fidelity.md` P9). The original's
-  eight grant kinds do not map one-to-one — Metropolis' primary weapon has
-  infinite ammo (§2) — so the mapping is recorded in
-  `tools/generators/enrichArena.ts`. The original's rules, SIM_VERSION 37:
+  per spot (the Csac spawners' tSAC, `fcop-fidelity.md` P9). The mapping of
+  the original's grant kinds is recorded in `tools/generators/enrichArena.ts`.
+  The original's rules, SIM_VERSION 37:
+  - **ammo** fills that slot's magazine to its ceiling — Gun, Heavy or Special
+    (the Gun's has its own pickup since SIM_VERSION 41, when its magazine became
+    finite; it was imported as a heavy refill);
   - **health** refills to the maximum (P6);
   - **cloak** lasts **45 s**: turrets, units and the Warden skip the cloaked
-    avatar (P7). The original also disarms a homing missile that comes within
-    4 m of it; Metropolis has no homing rounds yet (the weapons package);
+    avatar (P7), and a homing missile within 4 m of it drops its lock
+    (SIM_VERSION 41, the original's missile);
   - **invulnerability** lasts 20 s; no PA pickup carries it (I8);
   - the **damage boost** (x2, 15 s) is still Metropolis' stand-in for the
     original's per-slot block-B weapon (P8, the weapons package). It is lost

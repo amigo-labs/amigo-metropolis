@@ -12,6 +12,7 @@
 
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
+  ARC_FREE_AIM_DISTANCE,
   ARCHETYPE_MAX_HP,
   ARCHETYPE_RADIUS,
   AVATAR_HOVER_MAX_SLOPE,
@@ -22,6 +23,7 @@ import {
   AVATAR_WALKER_MAX_SLOPE,
   BASE_TURRET_RESPAWN_TICKS,
   CAPTURE_RADIUS,
+  CLOAK_DISARM_RADIUS,
   CONSOLE_HOLD_TICKS,
   CONSOLE_RADIUS,
   COST_FORTRESS,
@@ -30,10 +32,11 @@ import {
   COST_OUTPOST_CLAIM,
   COST_RUNNER,
   DUMMY_RESPAWN_TICKS,
+  FLAME_PULSE_TICKS,
   FORTRESS_ALIVE_LIMIT,
-  GRAVITY,
   GUARDIAN_ALIVE_LIMIT,
   HEAVY_UNLOCK_POINTS,
+  HELLFIRE_SPLIT_FAN,
   HOVER_BRAKE_DRAG,
   HOVER_CLEARANCE,
   HOVER_CUSHION_SPAN,
@@ -52,7 +55,8 @@ import {
   JUGGERNAUT_ALIVE_LIMIT,
   MATCH_OUTRO_TICKS,
   MAX_PLAYERS,
-  MORTAR_LAUNCH_SPEED,
+  MISSILE_TURN_RATE,
+  MORTAR_FRAGMENT_SPREAD,
   MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
   NEUTRAL_TURRET_RESPAWN_TICKS,
@@ -61,6 +65,7 @@ import {
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_PAD_RADIUS,
   PAD_REPAIR_HP_PER_TICK,
+  PICKUP_GUN_AMMO,
   PICKUP_HEALTH,
   PICKUP_HEAVY_AMMO,
   PICKUP_INVIS,
@@ -81,7 +86,8 @@ import {
   RUNNER_ALIVE_LIMIT,
   retentionPerTick,
   SPECIAL_MINE_ARM_TICKS,
-  SPECIAL_MINE_TRIGGER_RADIUS,
+  SPECIAL_MINE_FUSE_TICKS,
+  SPECIAL_MINE_TTL_TICKS,
   STARTING_POINTS,
   TICK_DT,
   TRANSFORM_LOCK_TICKS,
@@ -117,12 +123,14 @@ import {
   WALKER_TURN_STEP,
   WALKER_TURN_ZERO_SPEED,
   WARDEN_ALTITUDE,
+  WARDEN_HEAVY_SPEED,
+  WARDEN_HEAVY_TTL_TICKS,
   WARDEN_HP,
   WARDEN_RESPAWN_TICKS,
+  WEAPON_UNITS_PER_TICK,
   X1_DIAGONAL_SCALE,
   X1_GRAVITY,
   X1_IMPACT_HP,
-  X1_IMPACT_INTERIM_SCALE,
   X1_IMPACT_SCALE,
   X1_IMPACT_SPEED,
   X1_IMPACT_SPEED_MAX,
@@ -196,12 +204,14 @@ import {
   DEFAULT_LOADOUT,
   type Loadout,
   normalizeLoadout,
+  PROJ_BEAM,
   PROJ_MINE,
-  PROJ_MORTAR,
-  PROJ_SPECIAL,
-  projectileBlast,
+  PROJ_SPLASH,
+  PROJ_WARDEN,
   resolveLoadout,
+  type WeaponBlock,
   type WeaponDef,
+  wardenBlast,
   weaponInSlot,
 } from "./weapons";
 
@@ -308,6 +318,14 @@ export interface SimState {
    */
   readonly lockSteer: Uint8Array;
   /**
+   * The Gun slot's block-A magazine per player (the Heavy's and the Special's
+   * are the avatar entity's ammoA / ammoB). The original's guns have finite
+   * ammunition too (the Mini-Gun 7500 rounds on NORMAL; fcop-fidelity.md W1).
+   */
+  readonly gunAmmo: Uint16Array;
+  /** Rounds left in the current burst, per player and slot (player * 3 + slot). */
+  readonly burstLeft: Uint8Array;
+  /**
    * Avatar loadout indices per player (Future Cop style gun/heavy/special).
    * Config-only — not hashed (peers agree via MatchConfig / createSim options).
    * Default 0/0/0 is the original kit: Mini-Gun + Hell Fire 2000 + Mortar.
@@ -389,14 +407,15 @@ export function spawnAvatar(state: SimState, player: number): number {
   if (warden) {
     ent.ammoA[id] = 0;
     ent.ammoB[id] = 0;
+    state.gunAmmo[player] = 0;
   } else {
-    const kit = resolveLoadout({
-      gun: state.loadoutGun[player],
-      heavy: state.loadoutHeavy[player],
-      special: state.loadoutSpecial[player],
-    });
-    ent.ammoA[id] = kit.heavy.ammo;
-    ent.ammoB[id] = kit.special.ammo;
+    // `player_respawn`: all three A magazines to their ceilings, and each burst
+    // counter from its block (fcop-re/player-and-weapons.md §1, §7).
+    refillAmmo(state, player, id);
+    const kit = loadoutOf(state, player);
+    state.burstLeft[player * 3] = kit.gun.a.rounds;
+    state.burstLeft[player * 3 + 1] = kit.heavy.a.rounds;
+    state.burstLeft[player * 3 + 2] = kit.special.a.rounds;
   }
   ent.ownerId[id] = player;
   state.avatarId[player] = id;
@@ -658,6 +677,8 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     buyTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     lockTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     lockSteer: new Uint8Array(MAX_PLAYERS),
+    gunAmmo: new Uint16Array(MAX_PLAYERS),
+    burstLeft: new Uint8Array(MAX_PLAYERS * 3),
     buyProgress: new Int32Array(MAX_PLAYERS),
     loadoutGun: new Uint8Array(MAX_PLAYERS),
     loadoutHeavy: new Uint8Array(MAX_PLAYERS),
@@ -807,9 +828,8 @@ const ANGLE_UNIT = (2 * Math.PI) / 4096;
 
 /**
  * Landing damage (`player_impact_damage`, fcop-fidelity.md P4/P5): above a
- * 10.78 m/s landing, the original's absolute 1000 * f(x), here times the
- * interim AVATAR_HP / 1250 (X1_IMPACT_INTERIM_SCALE) until P1. Credited to
- * nobody, as the original credits the mech itself.
+ * 10.78 m/s landing, the original's absolute 1000 * f(x) HP against the 1250-HP
+ * mech (P1). Credited to nobody, as the original credits the mech itself.
  */
 function landingImpact(state: SimState, id: number, speed: number): void {
   if (speed <= X1_IMPACT_SPEED) return;
@@ -819,7 +839,7 @@ function landingImpact(state: SimState, id: number, speed: number): void {
   if (x <= 0.5) f = x * (0x9cc4 / 65536);
   else if (x <= 0.75) f = x * Math.sqrt(x) * (0xddb3 / 65536);
   else f = x * x;
-  applyDamage(state, id, X1_IMPACT_HP * f * X1_IMPACT_INTERIM_SCALE, -1);
+  applyDamage(state, id, X1_IMPACT_HP * f, -1);
 }
 
 /** The hover's ride height over its surface now: ramps through a change. */
@@ -1219,7 +1239,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
 
     // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub. They
     // fire through a transformation (fcop-fidelity.md P3).
-    avatarWeapons(state, p, id, input.buttons);
+    avatarWeapons(state, p, id, input.buttons, pressed);
     // Hold-to-buy at consoles (rules.md §3): runs every tick, holds decay.
     systemBuy(state, p, id, input.buttons);
   }
@@ -1531,24 +1551,60 @@ export function rideHeight(map: MapData, x: number, y: number, hover: boolean): 
   return g;
 }
 
-function avatarWeapons(state: SimState, player: number, id: number, buttons: number): void {
+/** The A-block magazine of `slot` (0 gun, 1 heavy, 2 special) for avatar `id`. */
+function slotAmmo(state: SimState, player: number, id: number, slot: number): number {
+  if (slot === 0) return state.gunAmmo[player];
+  return slot === 1 ? state.ent.ammoA[id] : state.ent.ammoB[id];
+}
+
+function setSlotAmmo(state: SimState, player: number, id: number, slot: number, v: number): void {
+  if (slot === 0) state.gunAmmo[player] = v;
+  else if (slot === 1) state.ent.ammoA[id] = v;
+  else state.ent.ammoB[id] = v;
+}
+
+/** Fill all three A magazines to their ceilings (`cact_type99_ammo_add(slot, -1)`). */
+function refillAmmo(state: SimState, player: number, id: number): void {
+  const kit = loadoutOf(state, player);
+  state.gunAmmo[player] = kit.gun.a.ammoCap;
+  state.ent.ammoA[id] = kit.heavy.a.ammoCap;
+  state.ent.ammoB[id] = kit.special.a.ammoCap;
+}
+
+function loadoutOf(state: SimState, player: number) {
+  return resolveLoadout({
+    gun: state.loadoutGun[player],
+    heavy: state.loadoutHeavy[player],
+    special: state.loadoutSpecial[player],
+  });
+}
+
+/** `player_target_hold`'s cooldown decay: 10 engine units a tick, floored at zero. */
+function decayCooldown(cd: Float32Array, id: number): void {
+  if (cd[id] > 0) {
+    const v = cd[id] - WEAPON_UNITS_PER_TICK;
+    cd[id] = v > 0 ? v : 0;
+  }
+}
+
+function avatarWeapons(
+  state: SimState,
+  player: number,
+  id: number,
+  buttons: number,
+  pressed: number,
+): void {
   const ent = state.ent;
-  if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
-  if (ent.cooldownB[id] > 0) ent.cooldownB[id] -= 1;
-  if (ent.cooldownC[id] > 0) ent.cooldownC[id] -= 1;
+  decayCooldown(ent.cooldownA, id);
+  decayCooldown(ent.cooldownB, id);
+  decayCooldown(ent.cooldownC, id);
 
   // Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
   const pad = state.map.bases[player].pad;
   const pdx = ent.posX[id] - pad.x;
   const pdy = ent.posY[id] - pad.y;
-  const kit = resolveLoadout({
-    gun: state.loadoutGun[player],
-    heavy: state.loadoutHeavy[player],
-    special: state.loadoutSpecial[player],
-  });
   if (pdx * pdx + pdy * pdy <= pad.radius * pad.radius) {
-    ent.ammoA[id] = kit.heavy.ammo;
-    ent.ammoB[id] = kit.special.ammo;
+    refillAmmo(state, player, id);
     if (ent.hp[id] < AVATAR_HP) {
       ent.hp[id] += PAD_REPAIR_HP_PER_TICK;
       if (ent.hp[id] > AVATAR_HP) ent.hp[id] = AVATAR_HP;
@@ -1561,137 +1617,526 @@ function avatarWeapons(state: SimState, player: number, id: number, buttons: num
     const odx = ent.posX[id] - s.x;
     const ody = ent.posY[id] - s.y;
     if (odx * odx + ody * ody <= OUTPOST_PAD_RADIUS * OUTPOST_PAD_RADIUS) {
-      ent.ammoA[id] = kit.heavy.ammo;
-      ent.ammoB[id] = kit.special.ammo;
+      refillAmmo(state, player, id);
     }
   }
 
-  const dirX = ent.aimX[id];
-  const dirY = ent.aimY[id];
-  const hasAim = dirX !== 0 || dirY !== 0;
-
-  // Gun (slot 0) — always infinite ammo; delivery from the loadout profile.
-  if ((buttons & BUTTON_FIRE1) !== 0 && ent.cooldownA[id] <= 0 && hasAim) {
-    const w = kit.gun;
-    ent.cooldownA[id] = w.cooldownTicks;
-    fireWeapon(state, id, player, w, dirX, dirY, 0);
-  }
-  // Heavy (slot 1).
-  if ((buttons & BUTTON_FIRE2) !== 0 && ent.cooldownB[id] <= 0 && ent.ammoA[id] > 0 && hasAim) {
-    const w = kit.heavy;
-    ent.cooldownB[id] = w.cooldownTicks;
-    ent.ammoA[id] -= 1;
-    fireWeapon(state, id, player, w, dirX, dirY, 1);
-  }
-  // Special (slot 2). Mines and shockwave need no aim; shells/hitscans do.
-  if ((buttons & BUTTON_FIRE3) !== 0 && ent.cooldownC[id] <= 0 && ent.ammoB[id] > 0) {
-    const w = kit.special;
-    const needsAim = w.delivery === "hitscan" || w.delivery === "projectile";
-    if (needsAim && !hasAim) {
-      // leave ammo/cooldown alone — stick not aimed yet
-    } else {
-      ent.cooldownC[id] = w.cooldownTicks;
-      ent.ammoB[id] -= 1;
-      fireWeapon(state, id, player, w, dirX, dirY, 2);
-    }
+  // `player_fire_buttons`: Gun and Heavy fire on every tick they are held,
+  // paced by their cooldowns. Special is held-fire too, unless a slot's block A
+  // keeps its round (flag 4: the Plasma Flare and the Grenade, neither in the
+  // catalogue), which makes it press-to-fire.
+  const kit = loadoutOf(state, player);
+  if ((buttons & BUTTON_FIRE1) !== 0) fireSlot(state, player, id, 0, kit.gun);
+  if ((buttons & BUTTON_FIRE2) !== 0) fireSlot(state, player, id, 1, kit.heavy);
+  const keeps =
+    ((kit.gun.a.flags | kit.heavy.a.flags | kit.special.a.flags) & WEAPON_FLAG_KEEP) !== 0;
+  if (((keeps ? pressed : buttons) & BUTTON_FIRE3) !== 0) {
+    fireSlot(state, player, id, 2, kit.special);
   }
 }
 
+/** Block A flag 4: the round is kept, and Special becomes press-to-fire. */
+const WEAPON_FLAG_KEEP = 4;
+
 /**
- * Delivers one avatar weapon and emits its EV_SHOT.
- *
- * Hitscan lets `hitscan` push the event, because that is where the shot's real
- * reach is resolved; every other delivery has no tracer to size, so the event
- * goes out here with reach 0. Either way EV_SHOT precedes the EV_HITs of the
- * same shot, which is the ordering attribution relies on.
+ * One slot's trigger, `player_fire_slot` (retail 0x00458ed0): refused while its
+ * cooldown is above zero or its magazine is empty; otherwise the shot goes out,
+ * one round is spent, and the burst counter picks the gap the cooldown GAINS —
+ * the round gap inside a burst, the burst gap after its last round.
  */
-function fireWeapon(
+function fireSlot(state: SimState, player: number, id: number, slot: number, w: WeaponDef): void {
+  const ent = state.ent;
+  const cd = slot === 0 ? ent.cooldownA : slot === 1 ? ent.cooldownB : ent.cooldownC;
+  if (cd[id] > 0) return;
+  const blk = w.a;
+  const allowance = slotAmmo(state, player, id, slot);
+  if (allowance <= 0) return;
+  if (!deliver(state, id, player, w, blk, slot, false)) return;
+  setSlotAmmo(state, player, id, slot, allowance - 1);
+  const k = player * 3 + slot;
+  let left = state.burstLeft[k] - 1;
+  let gap: number;
+  if (left <= 0) {
+    left = blk.rounds;
+    gap = blk.burstGap;
+  } else {
+    gap = blk.roundGap;
+  }
+  state.burstLeft[k] = left;
+  // The Flamethrower's time profile is Metropolis' (balance.ts FLAME_PULSE_TICKS).
+  if (w.delivery === "flame") gap = FLAME_PULSE_TICKS * WEAPON_UNITS_PER_TICK;
+  cd[id] += gap;
+}
+
+/**
+ * Delivers one round of `blk` and emits its EV_SHOT. Returns false only when no
+ * round could be spawned (the entity store is full), which spends nothing.
+ */
+function deliver(
   state: SimState,
   shooter: number,
   player: number,
   w: WeaponDef,
-  dirX: number,
-  dirY: number,
-  shotSlot: number,
-): void {
-  if (w.delivery === "hitscan") {
-    hitscan(state, shooter, player, dirX, dirY, w.range, w.damage, shotSlot, w.id);
-    return;
+  blk: WeaponBlock,
+  slot: number,
+  powered: boolean,
+): boolean {
+  const ent = state.ent;
+  const lock = state.lockTarget[player];
+  const fx = ent.aimX[shooter];
+  const fy = ent.aimY[shooter];
+  switch (w.delivery) {
+    case "hitscan":
+    case "flame":
+      directShot(state, shooter, player, w, blk, slot, lock, powered);
+      return true;
+    case "beam":
+      beamShot(state, shooter, player, w, blk, slot, lock);
+      return true;
+    case "shockwave": {
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0));
+      // Self-centred pulse at the shooter's feet — ignores aim and lock.
+      blastAt(
+        state,
+        ent.posX[shooter],
+        ent.posY[shooter],
+        ent.team[shooter],
+        player,
+        blk.damage,
+        blk.blast,
+        w.projKind,
+        BLAST_FLAT,
+      );
+      return true;
+    }
+    case "mine": {
+      if (!spawnMine(state, shooter, player, w.projKind, blk)) return false;
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0));
+      return true;
+    }
+    case "arced": {
+      const x = ent.posX[shooter] + fx * MUZZLE_OFFSET;
+      const y = ent.posY[shooter] + fy * MUZZLE_OFFSET;
+      const h = ent.height[shooter] + MUZZLE_HEIGHT;
+      let tx: number;
+      let ty: number;
+      let th: number;
+      if (lock >= 0) {
+        tx = ent.posX[lock];
+        ty = ent.posY[lock];
+        th = ent.height[lock];
+      } else {
+        tx = x + fx * ARC_FREE_AIM_DISTANCE;
+        ty = y + fy * ARC_FREE_AIM_DISTANCE;
+        th = h;
+      }
+      const flags = blk.kind === KIND_ARCED_CLUSTER ? ROUND_ARC | ROUND_CLUSTER : ROUND_ARC;
+      const id = spawnArced(state, x, y, h, tx, ty, th, blk.launchSpeed, blk.gravity);
+      if (id < 0) return false;
+      armRound(state, id, shooter, player, w.projKind, blk, flags, -1);
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0));
+      return true;
+    }
+    default: {
+      // "missile": kinds 3 and 0x12 home on the lock; kind 2 is lead-aimed at it
+      // (`cact_discharge_lead`) and flies straight, as kind 1 does without one.
+      const homing = blk.kind !== KIND_MISSILE_LEAD && lock >= 0;
+      let dx = fx;
+      let dy = fy;
+      if (blk.kind === KIND_MISSILE_LEAD && lock >= 0) {
+        if (leadAim(state, shooter, lock, blk.speed)) {
+          dx = leadScratch.x;
+          dy = leadScratch.y;
+        }
+      }
+      // Block B of the Hell Fire (kind 0x12) splits into three: Metropolis
+      // launches the three at once, fanned (balance.ts HELLFIRE_SPLIT_FAN).
+      const count = blk.kind === KIND_MISSILE_SPLIT ? 3 : 1;
+      let any = false;
+      for (let i = 0; i < count; i++) {
+        let ux = dx;
+        let uy = dy;
+        if (count > 1 && i > 0) {
+          const a = i === 1 ? HELLFIRE_SPLIT_FAN : -HELLFIRE_SPLIT_FAN;
+          const c = cosLUT(a);
+          const s = sinLUT(a);
+          ux = dx * c - dy * s;
+          uy = dx * s + dy * c;
+        }
+        const id = spawnStraight(state, shooter, ux, uy, homing ? lock : -1, lock);
+        if (id < 0) break;
+        armRound(state, id, shooter, player, w.projKind, blk, homing ? ROUND_HOMING : 0, lock);
+        any = true;
+      }
+      if (!any) return false;
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0));
+      return true;
+    }
   }
-  pushEvent(state.events, EV_SHOT, shooter, shotSlot, weaponShotPayload(w.id, 0));
-  if (w.delivery === "shockwave") {
-    // Self-centred pulse at the shooter's feet — ignore aim.
-    aoeAt(
-      state,
-      entPos(state, shooter),
-      entTeam(state, shooter),
-      player,
-      w.damage,
-      w.aoeRadius,
-      w.projKind,
-    );
-    return;
-  }
-  if (w.delivery === "mine") {
-    spawnMine(state, shooter, player, w);
-    return;
-  }
-  spawnProjectile(state, shooter, player, w.projKind, dirX, dirY, w.speed, w.ttlTicks);
 }
 
-function entPos(state: SimState, id: number): { x: number; y: number } {
-  return { x: state.ent.posX[id], y: state.ent.posY[id] };
-}
+const KIND_MISSILE_LEAD = 2;
+const KIND_MISSILE_SPLIT = 0x12;
+const KIND_ARCED_CLUSTER = 0x14;
 
-function entTeam(state: SimState, id: number): number {
-  return state.ent.team[id];
-}
-
-/** Instant AoE at a world point (shockwave pulse; also used by explode). */
-function aoeAt(
+/**
+ * The direct path, `player_fire_direct` (retail 0x004595e0; fcop-fidelity.md
+ * W2): a line from the muzzle to the LOCK, or `range` ahead along the facing with
+ * none. A wall on the line stops it (the original's terrain trace). It damages
+ * only the lock: with no lock the line does nothing — except a powered block with
+ * a blast, which area-damages where the line ends (at the lock when there is one).
+ */
+function directShot(
   state: SimState,
-  pos: { x: number; y: number },
+  shooter: number,
+  player: number,
+  w: WeaponDef,
+  blk: WeaponBlock,
+  slot: number,
+  lock: number,
+  powered: boolean,
+): void {
+  const ent = state.ent;
+  const ox = ent.posX[shooter];
+  const oy = ent.posY[shooter];
+  let ex: number;
+  let ey: number;
+  if (lock >= 0) {
+    ex = ent.posX[lock];
+    ey = ent.posY[lock];
+  } else {
+    ex = ox + ent.aimX[shooter] * blk.range;
+    ey = oy + ent.aimY[shooter] * blk.range;
+  }
+  const dx = ex - ox;
+  const dy = ey - oy;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  let reach = len;
+  let blocked = false;
+  const wallT = segmentBlockT(state.map, ox, oy, ex, ey);
+  if (wallT >= 0) {
+    blocked = true;
+    reach = wallT * len;
+  }
+  pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, reach));
+  if (blocked) return;
+  if (powered && blk.blast > 0 && w.delivery === "hitscan") {
+    blastAt(state, ex, ey, ent.team[shooter], player, blk.damage, blk.blast, PROJ_SPLASH, 0);
+  } else if (lock >= 0) {
+    applyDamage(state, lock, blk.damage, player);
+  }
+}
+
+/**
+ * The Concussion Beam (kind 0x11, `sustain_aimed_fire_block`): an aimed beam to
+ * the lock — or its range ahead, or as far toward the lock as its range goes —
+ * that bursts with the record's blast and linear falloff at its end. How the
+ * original spreads the beam's damage over time was not established; this is
+ * Metropolis' instant beam carrying the original's per-hit damage, radius and
+ * reach (fcop-re/player-and-weapons.md §9.1).
+ */
+function beamShot(
+  state: SimState,
+  shooter: number,
+  player: number,
+  w: WeaponDef,
+  blk: WeaponBlock,
+  slot: number,
+  lock: number,
+): void {
+  const ent = state.ent;
+  const ox = ent.posX[shooter];
+  const oy = ent.posY[shooter];
+  let ux = ent.aimX[shooter];
+  let uy = ent.aimY[shooter];
+  let len = blk.range;
+  if (lock >= 0) {
+    const dx = ent.posX[lock] - ox;
+    const dy = ent.posY[lock] - oy;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > 1e-6) {
+      ux = dx / d;
+      uy = dy / d;
+      if (d < len) len = d;
+    }
+  }
+  let ex = ox + ux * len;
+  let ey = oy + uy * len;
+  const wallT = segmentBlockT(state.map, ox, oy, ex, ey);
+  if (wallT >= 0) {
+    len *= wallT;
+    ex = ox + ux * len;
+    ey = oy + uy * len;
+  }
+  pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, len));
+  blastAt(state, ex, ey, ent.team[shooter], player, blk.damage, blk.blast, PROJ_BEAM, BLAST_EMIT);
+}
+
+/** blastAt options. */
+const BLAST_EMIT = 1;
+/** Metropolis' flat pulse (radius + the target's own) instead of the original's falloff. */
+const BLAST_FLAT = 2 | BLAST_EMIT;
+
+/**
+ * Area damage at a point. The original's blast (`cact_area_damage`, damage.c
+ * 0x0042f170) falls off linearly over HORIZONTAL distance, centre to centre:
+ * damage * (r - d) / r inside r, truncated, nothing at 0 (fcop-fidelity.md W1).
+ * BLAST_FLAT keeps Metropolis' full-damage pulse to the radius plus the target's
+ * own: the Shockwave Generator's (whose time profile was not established) and the
+ * Warden's bomb (Metropolis' own weapon). Own team and projectiles are skipped
+ * (Metropolis has no friendly fire).
+ */
+function blastAt(
+  state: SimState,
+  x: number,
+  y: number,
   team: number,
   owner: number,
   damage: number,
   radius: number,
   kind: number,
+  opts: number,
 ): void {
   const ent = state.ent;
-  pushEvent(state.events, EV_EXPLOSION, Math.floor(pos.x * 16), Math.floor(pos.y * 16), kind);
+  if ((opts & BLAST_EMIT) !== 0) {
+    pushEvent(state.events, EV_EXPLOSION, Math.floor(x * 16), Math.floor(y * 16), kind);
+  }
+  if (!(radius > 0)) return;
+  const flat = (opts & BLAST_FLAT) === BLAST_FLAT;
   for (let t = 0; t < ent.high; t++) {
     if (!ent.alive[t]) continue;
     if (ent.team[t] === team) continue;
     if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-    const r = radius + ARCHETYPE_RADIUS[ent.archetype[t]];
-    const dx = ent.posX[t] - pos.x;
-    const dy = ent.posY[t] - pos.y;
-    if (dx * dx + dy * dy <= r * r) {
-      applyDamage(state, t, damage, owner);
+    const dx = ent.posX[t] - x;
+    const dy = ent.posY[t] - y;
+    const d2 = dx * dx + dy * dy;
+    if (flat) {
+      const r = radius + ARCHETYPE_RADIUS[ent.archetype[t]];
+      if (d2 <= r * r) applyDamage(state, t, damage, owner);
+    } else if (d2 < radius * radius) {
+      const dmg = Math.floor((damage * (radius - Math.sqrt(d2))) / radius);
+      if (dmg > 0) applyDamage(state, t, dmg, owner);
     }
   }
 }
 
+// Round behaviour bits, in a projectile's ammoB.
+const ROUND_HOMING = 1;
+const ROUND_ARC = 2;
+const ROUND_CLUSTER = 4;
+/** The Warden's bomb: Metropolis' flat blast. */
+const ROUND_FLAT_BLAST = 8;
+
 /**
- * Drop a Pop-Up Mine at the shooter's feet. Uses the PROJECTILE archetype with
- * `PROJ_MINE` mode: zero velocity, arming delay in timerB, live TTL in timerA.
- * systemProjectiles special-cases it so ground/wall contact does not detonate.
+ * A projectile's fields (the PROJECTILE archetype reuses the store):
+ *   mode       payload kind (renderer + explosion kind)
+ *   velX/velY  horizontal velocity, m/s
+ *   timerA     ticks left before it expires
+ *   timerB     vertical velocity, m/s (a mine: its arming delay, ticks)
+ *   cooldownA  current speed, m/s (a mine: its sprung fuse, ticks; 0 = not sprung)
+ *   cooldownB  flight distance left, m (0 = no limit)
+ *   cooldownC  homing target id, -1 none (a mine: its trigger radius)
+ *   aimX       top speed, m/s (arced: gravity, m/s²)
+ *   aimY       acceleration, m/s²
+ *   ammoA      damage; aux: blast radius, m; ammoB: ROUND_* bits
+ *   ownerId    the player credited (or -1)
  */
-function spawnMine(state: SimState, shooter: number, player: number, w: WeaponDef): void {
+function spawnStraight(
+  state: SimState,
+  shooter: number,
+  dx: number,
+  dy: number,
+  homeOn: number,
+  aimAt: number,
+): number {
   const ent = state.ent;
   const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
-  if (id < 0) return;
+  if (id < 0) return -1;
+  const x = ent.posX[shooter] + dx * MUZZLE_OFFSET;
+  const y = ent.posY[shooter] + dy * MUZZLE_OFFSET;
+  const h = ent.height[shooter] + MUZZLE_HEIGHT;
+  ent.posX[id] = x;
+  ent.posY[id] = y;
+  ent.height[id] = h;
+  ent.velX[id] = dx;
+  ent.velY[id] = dy;
+  ent.yaw[id] = atan2Poly(dy, dx);
+  ent.hp[id] = 1;
+  ent.cooldownC[id] = homeOn;
+  ent.timerB[id] = 0;
+  if (aimAt >= 0) {
+    // Climb or dive toward the target's muzzle-relative height along the way.
+    const tx = ent.posX[aimAt] - x;
+    const ty = ent.posY[aimAt] - y;
+    const d = Math.sqrt(tx * tx + ty * ty);
+    if (d > 0.5) ent.timerB[id] = (ent.height[aimAt] + MUZZLE_HEIGHT - h) / d; // per metre
+  }
+  return id;
+}
+
+/**
+ * The original's ballistic solve (`cact_discharge_arc`; combat.md "The ballistic
+ * solution"): launch speed v, gravity k, horizontal distance x (clamped above
+ * zero), height difference dy, A = x k / (2 v²), tangent of elevation
+ * t = (1 + sqrt(1 - 4 (dy/x + A) A)) / (2A) — the HIGH root, a lob. An
+ * unreachable aim point is not an error: the root is taken as zero and the shell
+ * leaves at the boundary elevation and falls short. The elevation is not
+ * quantised to the original's 12-bit angle; cos/sin come from t by sqrt alone.
+ */
+function spawnArced(
+  state: SimState,
+  x: number,
+  y: number,
+  h: number,
+  tx: number,
+  ty: number,
+  th: number,
+  v: number,
+  k: number,
+): number {
+  const ent = state.ent;
+  // The team is set by armRound's caller: spawn as neutral, then overwrite.
+  const id = spawn(ent, ARCHETYPE.PROJECTILE, TEAM_NEUTRAL);
+  if (id < 0) return -1;
+  let hx = tx - x;
+  let hy = ty - y;
+  let dist = Math.sqrt(hx * hx + hy * hy);
+  if (dist < 1e-9) {
+    hx = 1; // straight overhead: any heading, the clamp below takes over
+    hy = 0;
+  }
+  const inv = 1 / Math.sqrt(hx * hx + hy * hy);
+  if (dist < ARC_MIN_DISTANCE) dist = ARC_MIN_DISTANCE;
+  const a = (dist * k) / (2 * v * v);
+  const disc = 1 - 4 * ((th - h) / dist + a) * a;
+  const t = (1 + (disc > 0 ? Math.sqrt(disc) : 0)) / (2 * a);
+  const c = 1 / Math.sqrt(1 + t * t);
+  ent.posX[id] = x;
+  ent.posY[id] = y;
+  ent.height[id] = h;
+  ent.velX[id] = hx * inv * v * c;
+  ent.velY[id] = hy * inv * v * c;
+  ent.timerB[id] = v * t * c;
+  ent.yaw[id] = atan2Poly(hy, hx);
+  ent.hp[id] = 1;
+  ent.cooldownC[id] = -1;
+  ent.aimX[id] = k;
+  return id;
+}
+
+/** The solve's distance clamp (the original's is 2 wu), metres. */
+const ARC_MIN_DISTANCE = 0.05;
+
+/** Stamps a spawned round with its block's damage, blast, speeds and life. */
+function armRound(
+  state: SimState,
+  id: number,
+  shooter: number,
+  owner: number,
+  kind: number,
+  blk: WeaponBlock,
+  flags: number,
+  _lock: number,
+): void {
+  const ent = state.ent;
+  ent.team[id] = ent.team[shooter];
+  ent.mode[id] = kind;
+  ent.ownerId[id] = owner;
+  ent.ammoA[id] = blk.damage;
+  ent.aux[id] = blk.blast;
+  ent.ammoB[id] = flags;
+  ent.timerA[id] = blk.fuseTicks > 0 ? blk.fuseTicks : ROUND_MAX_TICKS;
+  if ((flags & ROUND_ARC) === 0) {
+    // A missile: launch speed along its direction, accelerating to its top.
+    const sp = blk.launchSpeed;
+    ent.cooldownA[id] = sp;
+    ent.velX[id] *= sp;
+    ent.velY[id] *= sp;
+    ent.cooldownB[id] = blk.range;
+    ent.aimX[id] = blk.speed;
+    ent.aimY[id] = blk.accel;
+  }
+}
+
+/** A safety lifetime for a round whose record carries no fuse, ticks. */
+const ROUND_MAX_TICKS = 300;
+
+/** Scratch for leadAim (module scope: no allocation per shot). */
+const leadScratch = { x: 0, y: 0 };
+
+/**
+ * Intercept lead (`cact_discharge_lead`): the horizontal direction from the
+ * shooter at which a round of `speed` meets `target` moving at its current
+ * velocity. Writes leadScratch and answers true; false when there is no
+ * intercept (the caller then fires straight at the target or along its facing).
+ * The original's lead details (it passes the block's speed unshifted) were not
+ * established (fcop-re/player-and-weapons.md §9.3); this is the plain solution.
+ */
+function leadAim(state: SimState, shooter: number, target: number, speed: number): boolean {
+  const ent = state.ent;
+  const px = ent.posX[target] - ent.posX[shooter];
+  const py = ent.posY[target] - ent.posY[shooter];
+  const vx = ent.velX[target];
+  const vy = ent.velY[target];
+  // |P + V t| = s t  ->  (V.V - s²) t² + 2 P.V t + P.P = 0
+  const a = vx * vx + vy * vy - speed * speed;
+  const b = 2 * (px * vx + py * vy);
+  const c = px * px + py * py;
+  let t = -1;
+  if (Math.abs(a) < 1e-9) {
+    if (Math.abs(b) > 1e-9) t = -c / b;
+  } else {
+    const disc = b * b - 4 * a * c;
+    if (disc >= 0) {
+      const sq = Math.sqrt(disc);
+      const t1 = (-b - sq) / (2 * a);
+      const t2 = (-b + sq) / (2 * a);
+      t = t1 > 0 && (t2 <= 0 || t1 < t2) ? t1 : t2;
+    }
+  }
+  let ax = px;
+  let ay = py;
+  if (t > 0) {
+    ax = px + vx * t;
+    ay = py + vy * t;
+  }
+  const len = Math.sqrt(ax * ax + ay * ay);
+  if (len < 1e-6) return false;
+  leadScratch.x = ax / len;
+  leadScratch.y = ay / len;
+  return true;
+}
+
+/**
+ * Drop a Pop-Up Mine at the shooter's feet (the original drops it from the
+ * muzzle and lets it fall; Metropolis places it). Live lifetime and arming delay
+ * are Metropolis' own (balance.ts SPECIAL_MINE_*); the trigger reach, fuse,
+ * damage and blast are the record's.
+ */
+function spawnMine(
+  state: SimState,
+  shooter: number,
+  player: number,
+  kind: number,
+  blk: WeaponBlock,
+): boolean {
+  const ent = state.ent;
+  const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
+  if (id < 0) return false;
   ent.posX[id] = ent.posX[shooter];
   ent.posY[id] = ent.posY[shooter];
   ent.height[id] = ent.height[shooter] + 0.25;
-  ent.velX[id] = 0;
-  ent.velY[id] = 0;
   ent.yaw[id] = ent.yaw[shooter];
   ent.hp[id] = 1;
-  ent.mode[id] = PROJ_MINE;
-  ent.timerA[id] = w.ttlTicks; // live lifetime
+  ent.mode[id] = kind;
+  ent.timerA[id] = SPECIAL_MINE_TTL_TICKS; // live lifetime
   ent.timerB[id] = SPECIAL_MINE_ARM_TICKS; // arming delay
+  ent.cooldownA[id] = 0; // not sprung
+  ent.cooldownC[id] = blk.reach; // trigger radius
+  ent.ammoA[id] = blk.damage;
+  ent.aux[id] = blk.blast;
   ent.ownerId[id] = player;
+  return true;
 }
 
 /**
@@ -1779,45 +2224,33 @@ export function hitscan(
   }
 }
 
-export function spawnProjectile(
+/**
+ * The Warden's bomb (warden.ts): Metropolis' own weapon (U3's), a flat rocket at
+ * WARDEN_HEAVY_SPEED for WARDEN_HEAVY_TTL_TICKS with a flat blast.
+ */
+export function spawnWardenBomb(
   state: SimState,
   shooter: number,
   player: number,
-  kind: number,
   dx: number,
   dy: number,
-  speed: number,
-  ttl: number,
 ): void {
   const ent = state.ent;
-  const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
+  const id = spawnStraight(state, shooter, dx, dy, -1, -1);
   if (id < 0) return;
-  ent.posX[id] = ent.posX[shooter] + dx * MUZZLE_OFFSET;
-  ent.posY[id] = ent.posY[shooter] + dy * MUZZLE_OFFSET;
-  ent.height[id] = ent.height[shooter] + MUZZLE_HEIGHT;
-  ent.velX[id] = dx * speed;
-  ent.velY[id] = dy * speed;
-  ent.yaw[id] = atan2Poly(dy, dx);
-  ent.hp[id] = 1;
-  ent.mode[id] = kind;
-  ent.timerA[id] = ttl;
-  // The mortar lobs; everything else flies flat. timerB is the shell's vertical
-  // velocity — the field entities.ts already documents as "vertical velocity
-  // (jump/fall) or secondary timer", and which only the mine uses otherwise (as
-  // its arming delay). No new field, so the hashable layout is untouched.
-  ent.timerB[id] = arcs(kind) ? MORTAR_LAUNCH_SPEED : 0;
+  const blast = wardenBlast();
+  ent.mode[id] = PROJ_WARDEN;
   ent.ownerId[id] = player;
-}
-
-/**
- * Does this payload follow a ballistic arc?
- *
- * The Mortar only. The rockets fly flat in the original as well as here, and
- * the mine never travels. PROJ_SPECIAL is the legacy id for the mortar blast
- * and is treated as the mortar everywhere else too (projectileBlast).
- */
-function arcs(kind: number): boolean {
-  return kind === PROJ_MORTAR || kind === PROJ_SPECIAL;
+  ent.ammoA[id] = blast.damage;
+  ent.aux[id] = blast.radius;
+  ent.ammoB[id] = ROUND_FLAT_BLAST;
+  ent.timerA[id] = WARDEN_HEAVY_TTL_TICKS;
+  ent.cooldownA[id] = WARDEN_HEAVY_SPEED;
+  ent.velX[id] = dx * WARDEN_HEAVY_SPEED;
+  ent.velY[id] = dy * WARDEN_HEAVY_SPEED;
+  ent.cooldownB[id] = 0;
+  ent.aimX[id] = WARDEN_HEAVY_SPEED;
+  ent.aimY[id] = 0;
 }
 
 /** Damage bookkeeping; deaths are collected by systemDamageDeath afterwards. */
@@ -2010,7 +2443,10 @@ function nearestEnemyAvatar(state: SimState, id: number, range: number): number 
   return bestId;
 }
 
-/** Projectiles: fly, expire, explode on contact or terrain. Mines arm + wait. */
+/**
+ * Projectiles: fly, home, expire, burst at the apex, explode on contact or terrain.
+ * Mines arm, wait, spring and blow.
+ */
 function systemProjectiles(state: SimState): void {
   const ent = state.ent;
   const map = state.map;
@@ -2019,10 +2455,17 @@ function systemProjectiles(state: SimState): void {
     if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.PROJECTILE) continue;
 
     // Pop-Up Mines: stationary proximity charges. Ground/wall contact must NOT
-    // detonate them (they sit on the floor by design). Arming delay in timerB
-    // lets the placer walk clear; silent despawn on TTL so a forgotten mine
-    // does not linger forever.
+    // detonate them (they sit on the floor by design). The arming delay in timerB
+    // lets the placer walk clear; a silent despawn on TTL keeps a forgotten mine
+    // from lingering forever (both Metropolis' own). An enemy within the record's
+    // trigger reach plus its own radius springs it, and it goes off a second
+    // later wherever that enemy has gone (fcop-re/player-and-weapons.md §7).
     if (ent.mode[id] === PROJ_MINE) {
+      if (ent.cooldownA[id] > 0) {
+        ent.cooldownA[id] -= 1;
+        if (ent.cooldownA[id] <= 0) explode(state, id);
+        continue;
+      }
       ent.timerA[id] -= 1;
       if (ent.timerA[id] <= 0) {
         despawn(ent, id);
@@ -2035,47 +2478,112 @@ function systemProjectiles(state: SimState): void {
       const mx = ent.posX[id];
       const my = ent.posY[id];
       const team = ent.team[id];
-      let trip = false;
+      const reach = ent.cooldownC[id];
       for (let t = 0; t < ent.high; t++) {
         if (!ent.alive[t] || t === id) continue;
         if (ent.team[t] === team) continue;
         if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-        const r = SPECIAL_MINE_TRIGGER_RADIUS + ARCHETYPE_RADIUS[ent.archetype[t]];
+        const r = reach + ARCHETYPE_RADIUS[ent.archetype[t]];
         const dx = ent.posX[t] - mx;
         const dy = ent.posY[t] - my;
         if (dx * dx + dy * dy <= r * r) {
-          trip = true;
+          ent.cooldownA[id] = SPECIAL_MINE_FUSE_TICKS;
           break;
         }
       }
-      if (trip) explode(state, id);
       continue;
     }
 
+    const flags = ent.ammoB[id];
     ent.timerA[id] -= 1;
+    let vx = ent.velX[id];
+    let vy = ent.velY[id];
+    const arc = (flags & ROUND_ARC) !== 0;
+    let speed = arc ? 0 : ent.cooldownA[id];
+    if (!arc) {
+      // A missile accelerates from its launch speed to its top speed.
+      const top = ent.aimX[id];
+      if (speed < top) {
+        speed += ent.aimY[id] * TICK_DT;
+        if (speed > top) speed = top;
+      }
+      const vl = Math.sqrt(vx * vx + vy * vy);
+      let ux = vl > 1e-9 ? vx / vl : cosLUT(ent.yaw[id]);
+      let uy = vl > 1e-9 ? vy / vl : sinLUT(ent.yaw[id]);
+      const target = ent.cooldownC[id];
+      if ((flags & ROUND_HOMING) !== 0 && target >= 0) {
+        if (!homingValid(state, id, target)) {
+          ent.cooldownC[id] = -1;
+        } else {
+          // Steer toward the target at MISSILE_TURN_RATE (ours, §9.3 of the RE),
+          // and climb or dive to arrive at its muzzle-relative height.
+          const tx = ent.posX[target] - ent.posX[id];
+          const ty = ent.posY[target] - ent.posY[id];
+          const d = Math.sqrt(tx * tx + ty * ty);
+          if (d > 1e-6) {
+            const want = atan2Poly(ty, tx);
+            const have = atan2Poly(uy, ux);
+            const err = angleDelta(have, want);
+            const lim = MISSILE_TURN_RATE * TICK_DT;
+            const turn = err > lim ? lim : err < -lim ? -lim : err;
+            if (turn === err) {
+              ux = tx / d;
+              uy = ty / d;
+            } else {
+              const c = cosLUT(turn);
+              const s = sinLUT(turn);
+              const nx = ux * c - uy * s;
+              uy = ux * s + uy * c;
+              ux = nx;
+            }
+            ent.timerB[id] = (ent.height[target] + MUZZLE_HEIGHT - ent.height[id]) / d;
+          }
+        }
+      }
+      vx = ux * speed;
+      vy = uy * speed;
+      ent.velX[id] = vx;
+      ent.velY[id] = vy;
+      ent.cooldownA[id] = speed;
+      ent.yaw[id] = atan2Poly(uy, ux);
+    }
+
     const px = ent.posX[id];
     const py = ent.posY[id];
-    const x = px + ent.velX[id] * TICK_DT;
-    const y = py + ent.velY[id] * TICK_DT;
+    const x = px + vx * TICK_DT;
+    const y = py + vy * TICK_DT;
     // A wall stops the shell on the near side: don't advance into it, so the
-    // explosion (and its AOE center) stays on the shooter's side.
+    // explosion (and its blast centre) stays on the shooter's side.
     const walled = segmentBlocked(map, px, py, x, y);
     if (!walled) {
       ent.posX[id] = x;
       ent.posY[id] = y;
     }
-    // Ballistic step for the mortar, semi-implicit Euler: gravity first, then
-    // the position. That order is what makes the shell reach the ground on
-    // exactly the tick its TTL would have expired on (see MORTAR_LAUNCH_SPEED),
-    // so an arcing mortar lands where the flat one used to.
-    if (arcs(ent.mode[id])) {
-      ent.timerB[id] -= GRAVITY * TICK_DT;
+    let expired = ent.timerA[id] <= 0;
+    if (arc) {
+      // Semi-implicit Euler under the round's own gravity (its record's range
+      // field): velocity first, then the position.
+      const before = ent.timerB[id];
+      ent.timerB[id] -= ent.aimX[id] * TICK_DT;
       ent.height[id] += ent.timerB[id] * TICK_DT;
+      if ((flags & ROUND_CLUSTER) !== 0 && before > 0 && ent.timerB[id] <= 0) {
+        burstCluster(state, id);
+        continue;
+      }
+    } else {
+      const step = speed * TICK_DT;
+      ent.height[id] += ent.timerB[id] * step;
+      const left = ent.cooldownB[id];
+      if (left > 0) {
+        if (left <= step) expired = true;
+        else ent.cooldownB[id] = left - step;
+      }
     }
     const ground = sampleHeight(map, ent.posX[id], ent.posY[id]);
-    let boom = walled || ent.timerA[id] <= 0;
+    let boom = walled || expired;
     if (x <= 0 || x >= extent || y <= 0 || y >= extent) boom = true;
     if (!boom && ground >= ent.height[id]) boom = true;
+    let struck = -1;
     if (!boom) {
       // Contact fuze: any enemy non-projectile within its hit radius + 0.5.
       for (let t = 0; t < ent.high; t++) {
@@ -2083,31 +2591,105 @@ function systemProjectiles(state: SimState): void {
         if (ent.team[t] === ent.team[id]) continue;
         if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
         const r = ARCHETYPE_RADIUS[ent.archetype[t]] + 0.5;
-        const dx = ent.posX[t] - x;
-        const dy = ent.posY[t] - y;
+        const dx = ent.posX[t] - ent.posX[id];
+        const dy = ent.posY[t] - ent.posY[id];
         if (dx * dx + dy * dy <= r * r) {
           boom = true;
+          struck = t;
           break;
         }
       }
     }
     if (boom) {
-      explode(state, id);
+      if (expired && ent.aux[id] <= 0 && struck < 0) {
+        despawn(ent, id); // a round with no blast that runs out of range just ends
+      } else {
+        explode(state, id, struck);
+      }
     }
   }
 }
 
-function explode(state: SimState, id: number): void {
+/**
+ * A homing round keeps its target while it lives — and, as the original's
+ * missile does, drops it when the target is a cloaked X1-Alpha within 4 m
+ * (0x8000 wu, retail 0x0042379f; fcop-re/player-and-weapons.md §6, P7).
+ */
+function homingValid(state: SimState, id: number, target: number): boolean {
+  const ent = state.ent;
+  if (!ent.alive[target] || ent.hp[target] <= 0) return false;
+  if (state.buffInvis.length > 0) {
+    for (let p = 0; p < MAX_PLAYERS; p++) {
+      if (state.avatarId[p] !== target || state.buffInvis[p] <= 0) continue;
+      const dx = ent.posX[target] - ent.posX[id];
+      const dy = ent.posY[target] - ent.posY[id];
+      if (dx * dx + dy * dy < CLOAK_DISARM_RADIUS * CLOAK_DISARM_RADIUS) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * The powered Mortar's shell bursts at its apex into four fragments of its own
+ * block (kind 4, the B record's damage and blast). The spread is Metropolis' own
+ * (balance.ts MORTAR_FRAGMENT_SPREAD): a cross about the shell's heading.
+ */
+function burstCluster(state: SimState, id: number): void {
+  const ent = state.ent;
+  const vx = ent.velX[id];
+  const vy = ent.velY[id];
+  const sp = Math.sqrt(vx * vx + vy * vy);
+  const fx = sp > 1e-6 ? vx / sp : 1;
+  const fy = sp > 1e-6 ? vy / sp : 0;
+  for (let i = 0; i < 4; i++) {
+    const f = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[id]);
+    if (f < 0) break;
+    // Forward, back, left, right of the heading.
+    const ax = i === 0 ? fx : i === 1 ? -fx : i === 2 ? -fy : fy;
+    const ay = i === 0 ? fy : i === 1 ? -fy : i === 2 ? fx : -fx;
+    ent.posX[f] = ent.posX[id];
+    ent.posY[f] = ent.posY[id];
+    ent.height[f] = ent.height[id];
+    ent.velX[f] = vx + ax * MORTAR_FRAGMENT_SPREAD;
+    ent.velY[f] = vy + ay * MORTAR_FRAGMENT_SPREAD;
+    ent.timerB[f] = 0;
+    ent.yaw[f] = ent.yaw[id];
+    ent.hp[f] = 1;
+    ent.mode[f] = ent.mode[id];
+    ent.ownerId[f] = ent.ownerId[id];
+    ent.ammoA[f] = ent.ammoA[id];
+    ent.aux[f] = ent.aux[id];
+    ent.ammoB[f] = ROUND_ARC;
+    ent.timerA[f] = ent.timerA[id];
+    ent.cooldownC[f] = -1;
+    ent.aimX[f] = ent.aimX[id];
+  }
+  despawn(ent, id);
+}
+
+/**
+ * A round goes off. With a blast it area-damages where it is (the original's
+ * linear falloff; the Warden's bomb keeps Metropolis' flat one); without one it
+ * damages only the body it struck.
+ */
+function explode(state: SimState, id: number, struck = -1): void {
   const ent = state.ent;
   const kind = ent.mode[id];
-  const blast = projectileBlast(kind);
+  const damage = ent.ammoA[id];
+  const radius = ent.aux[id];
+  const flat = (ent.ammoB[id] & ROUND_FLAT_BLAST) !== 0;
   const x = ent.posX[id];
   const y = ent.posY[id];
   const team = ent.team[id];
   const owner = ent.ownerId[id];
   // Despawn first so the blast loop never re-hits the shell itself.
   despawn(ent, id);
-  aoeAt(state, { x, y }, team, owner, blast.damage, blast.radius, kind);
+  if (radius > 0) {
+    blastAt(state, x, y, team, owner, damage, radius, kind, flat ? BLAST_FLAT : BLAST_EMIT);
+  } else {
+    pushEvent(state.events, EV_EXPLOSION, Math.floor(x * 16), Math.floor(y * 16), kind);
+    if (struck >= 0) applyDamage(state, struck, damage, owner);
+  }
 }
 
 /** Collects deaths: points, events, avatar/dummy respawn scheduling. */
@@ -2404,13 +2986,18 @@ function systemPickups(state: SimState): void {
       const dy = ent.posY[a] - spots[k].y;
       if (dx * dx + dy * dy > r2) continue;
       const kind = spots[k].kind;
-      if (kind === PICKUP_HEAVY_AMMO) {
-        ent.ammoA[a] = weaponInSlot(1, state.loadoutHeavy[p]).ammo;
+      // An ammo pickup fills that slot's A magazine to its ceiling
+      // (`cact_type99_ammo_add(slot, -1)`; fcop-re/player-and-weapons.md §6).
+      if (kind === PICKUP_GUN_AMMO) {
+        state.gunAmmo[p] = weaponInSlot(0, state.loadoutGun[p]).a.ammoCap;
+      } else if (kind === PICKUP_HEAVY_AMMO) {
+        ent.ammoA[a] = weaponInSlot(1, state.loadoutHeavy[p]).a.ammoCap;
       } else if (kind === PICKUP_SPECIAL_AMMO) {
-        ent.ammoB[a] = weaponInSlot(2, state.loadoutSpecial[p]).ammo;
+        ent.ammoB[a] = weaponInSlot(2, state.loadoutSpecial[p]).a.ammoCap;
       } else if (kind === PICKUP_HEALTH) {
-        // Full heal: the grant passes amount -1, "fill" (fcop-fidelity.md P6).
-        ent.hp[a] = AVATAR_HP;
+        // Full heal: the grant passes amount -1, "fill" (fcop-fidelity.md P6) —
+        // to the taker's own maximum (it set the Warden to the X1-Alpha's).
+        ent.hp[a] = ARCHETYPE_MAX_HP[ent.archetype[a]];
       } else if (kind === PICKUP_INVULN) state.buffInvuln[p] = PICKUP_INVULN_TICKS;
       else if (kind === PICKUP_INVIS) state.buffInvis[p] = PICKUP_INVIS_TICKS;
       else if (kind === PICKUP_POWER) state.buffPower[p] = PICKUP_POWER_TICKS;
@@ -2610,6 +3197,9 @@ export function hash(state: SimState): number {
   }
   // Appended at SIM_VERSION 40: which locks steer the hull (fcop-fidelity.md W2).
   for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.lockSteer[p]);
+  // Appended at SIM_VERSION 41: the Gun magazine and the burst counters.
+  for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.gunAmmo[p]);
+  for (let k = 0; k < state.burstLeft.length; k++) h = fnv1aU32(h, state.burstLeft[k]);
   // Weapon profiles are a side array like entLayer: hashed only where they exist.
   if (state.map.weapons.length > 0) {
     for (let id = 0; id < ent.high; id++) {
@@ -2643,7 +3233,7 @@ export function hash(state: SimState): number {
  */
 export const MATCH_SNAPSHOT_HEADER = 6;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
-export const MATCH_SNAPSHOT_SLOT_STRIDE = 9;
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 11;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
 
 /** Header fields. */
@@ -2668,6 +3258,10 @@ export const MATCH_SLOT_OUTPOSTS = 6;
 export const MATCH_SLOT_UNITS = 7;
 /** Console hold-to-buy progress 0..1, or -1 when the slot is not buying. */
 export const MATCH_SLOT_BUY_FRAC = 8;
+/** The Gun slot's magazine (finite since SIM_VERSION 41: the original's records). */
+export const MATCH_SLOT_AMMO_GUN = 9;
+/** The X1-Alpha's lock: the locked entity id, -1 for none (fcop-fidelity.md W2). */
+export const MATCH_SLOT_LOCK = 10;
 // Slot field 9 was MATCH_SLOT_CAPTURE_FRAC, retired with the 3 s capture timer
 // (SIM_VERSION 34): the original captures instantly on a key press. Slot field 10
 // was MATCH_SLOT_CORE_FRAC, retired with the destructible core (SIM_VERSION 32).
@@ -2703,6 +3297,8 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     out[o + MATCH_SLOT_UNITS] = 0;
     out[o + MATCH_SLOT_BUY_FRAC] =
       state.buyTarget[slot] >= 0 ? state.buyProgress[slot] / CONSOLE_HOLD_TICKS : -1;
+    out[o + MATCH_SLOT_AMMO_GUN] = a >= 0 ? state.gunAmmo[slot] : 0;
+    out[o + MATCH_SLOT_LOCK] = a >= 0 ? state.lockTarget[slot] : -1;
   }
   for (let k = 0; k < state.outpostOwner.length; k++) {
     const owner = state.outpostOwner[k];

@@ -685,4 +685,30 @@
 //     auto-acquired one aims the weapons alone. Goldens: all seven re-record for
 //     the new hash field and the auto-acquired locks; none presses Target-Cycle,
 //     and nothing fires along the lock yet, so no trajectory moves.
-export const SIM_VERSION = 40;
+// v41: the X1-Alpha's weapons are the original's records and its health the
+//     original's 1250 (docs/specs/fcop-fidelity.md P1, W1, W2, W4;
+//     fcop-re/player-and-weapons.md §5, §7, player-weapons.json). AVATAR_HP
+//     300 -> 1250 (NORMAL); landing damage loses its interim AVATAR_HP / 1250.
+//     The ten catalogue weapons carry their block-A records (balance.ts
+//     WEAPON_RECORDS): damage, NORMAL ammo (every slot finite, the Gun's too, with
+//     its own ammo pickup kind), gaps added to a cooldown that decays 10 engine
+//     units a tick floored at zero (gap 0 = every tick), burst counters, reach,
+//     missile launch/top speed and acceleration, flight range, ballistic speed and
+//     gravity, blast radii with linear falloff over horizontal distance. Hitscan
+//     damages only the lock; Hell Fire homes on it; the HVR leads it; the Mortar
+//     solves the original's lob to it (or 8 m ahead); mines spring at 2 m and blow
+//     1 s later; a homing round drops a cloaked avatar within 4 m. The Flamethrower,
+//     Concussion Beam and Shockwave keep Metropolis' time profile with the
+//     original's damage and radius. The Warden's harass closes in when the avatar
+//     is hidden from its stand and nothing else is in sight, and suppresses the
+//     nearest emplacement when even contact is blind (it parked for good behind a
+//     wall once a first pass no longer killed); a health pickup fills its taker to
+//     its own maximum (it set the Warden to the avatar's). New hashed per-player
+//     state: gunAmmo, burstLeft. The arena JSONs re-import reload_gun as the new
+//     PICKUP_GUN_AMMO. Goldens: all seven re-record (the new hash fields; every
+//     arena's avatars have 1250 HP). 02 and 03 run re-timed scripts — the avatar
+//     walks up to its targets and fires on the lock (02 ends its crossfire hold at
+//     30 s and lobs mortars over the ford; 03 takes the ring from inside its reach
+//     and breaches at 4262, was 4002, over 160 s, was 150); 04's patrol downs the
+//     Warden 10 times (was 9) and ends on 100 points.
+export const SIM_VERSION = 41;

@@ -88,40 +88,47 @@ function transformOnce(t: number, from: number): number {
 }
 
 /**
- * Golden #2 (Phase 1): 70 s movement+combat on district-01. Kills the dummy
- * turret east of base 0 with the primary, transforms to hover, crosses the
- * central ford, trades heavy/special fire at the mid dummy, then loiters in
- * turret range until killed, respawns, and drives again. Open-loop script —
- * the golden test asserts the death/respawn/points beats actually happen.
+ * Golden #2 (Phase 1): 90 s movement+combat on district-01. Walks east into the
+ * dummies' crossfire and kills the (85,127) dummy with the primary once it is
+ * inside the 12 m lock, holds there until killed, respawns, transforms to hover,
+ * crosses the north-edge ford lobbing mortar shells, transforms back, then walks
+ * with jump chatter and circles. Open-loop script — the golden test asserts the
+ * death/respawn/points beats actually happen.
+ *
+ * Re-timed at SIM_VERSION 41 for the original's weapons and 1250-HP mech
+ * (fcop-fidelity.md W1, W2, P1): the Mini-Gun hits only its lock, 12 m out, so the
+ * avatar walks up to the dummy instead of shooting from its spawn, and the
+ * crossfire needs ~20 s rather than ~5 s to put it down. The explosions are
+ * mortar shells now: a Hell Fire 2000 without a lock flies its 16 m and ends.
  */
 export function combat01(tick: number, out: TickInputs): void {
   clearTickInputs(out);
   const p = out.players[0];
   const t = tick / TICK_HZ;
-  if (t < 4.5) {
-    p.moveX = 127; // walk east off the plot, shooting the (85,127) dummy
+  if (t < 10) {
+    p.moveX = 127; // walk east off the plot into the dummies' 28 m
     p.aimX = 127;
-    p.buttons = BUTTON_FIRE1;
-  } else if (t < 20) {
+    p.buttons = BUTTON_FIRE1; // the (85,127) dummy locks at 12 m and dies
+  } else if (t < 30) {
     p.aimX = 127; // hold position in the dummy crossfire: death → respawn
     p.buttons = BUTTON_FIRE1;
-  } else if (t < 24) {
-    p.buttons = transformOnce(t, 20); // freshly respawned: switch to hover
-  } else if (t < 38) {
+  } else if (t < 34) {
+    p.buttons = transformOnce(t, 30); // freshly respawned: switch to hover
+  } else if (t < 48) {
     // Facing-aligned drive (v19): aim must match throttle or the vehicle stalls.
     p.moveY = -127; // hover north along the west edge — no dummy covers it
     p.aimY = -127;
     p.buttons = BUTTON_FIRE1;
-  } else if (t < 56) {
+  } else if (t < 66) {
     p.moveX = 127; // east along the north edge: crosses open river water
-    p.aimX = 127; // face travel direction; heavies detonate on terrain
-    p.buttons = t > 46 ? BUTTON_FIRE2 : BUTTON_FIRE1;
-  } else if (t < 60) {
-    p.buttons = transformOnce(t, 56); // back to walker on the dry east side
-  } else if (t < 62) {
-    p.aimY = 127; // special shot (exercises TTL/terrain detonation)
+    p.aimX = 127; // face travel direction; mortar shells land 8 m ahead
+    p.buttons = t > 56 ? BUTTON_FIRE3 : BUTTON_FIRE1;
+  } else if (t < 70) {
+    p.buttons = transformOnce(t, 66); // back to walker on the dry east side
+  } else if (t < 72) {
+    p.aimY = 127; // special shot (exercises the lob and its blast)
     p.buttons = BUTTON_FIRE3;
-  } else if (t < 76) {
+  } else if (t < 84) {
     p.moveY = 127; // walk south with jump chatter
     p.aimY = 127;
     p.buttons = BUTTON_FIRE1 | (Math.floor(t * 2) % 2 === 0 ? BUTTON_JUMP : 0);
@@ -135,18 +142,19 @@ export function combat01(tick: number, out: TickInputs): void {
 
 /**
  * Golden #3 (Phase 2 DoD "mini-match", replayed on the Phase 3 economy): the
- * full toolkit in one script. Player 0's avatar hovers the dummy-free
- * north-edge corridor (the golden-02 route), walks down behind base East and
- * snipes all four ring turrets from outside their range — earning the
- * enemy-owned turret bounty — then claims the (176, 88) outpost with it and
- * forward-spawns runners at 2× cost straight through the dead ring before
- * its 60 s respawns land. Player 1 runs a fixed losing build order: three
- * feeder runners into base West's intact ring, then idles. The replay tail
- * runs PAST the breach, pinning the post-win freeze into the golden.
+ * full toolkit in one script. Player 0's avatar walks the north lane, kills the
+ * two dummies that cover it and base East's four ring turrets from inside their
+ * reach — earning the enemy-owned turret bounty — puts player 1's avatar down
+ * twice, then claims the (176, 88) outpost with it and forward-spawns runners at
+ * 2× cost straight through the dead ring before it respawns. Player 1 runs a
+ * fixed losing build order: three feeder runners into base West's intact ring,
+ * then idles. The replay tail runs PAST the breach, pinning the post-win freeze
+ * into the golden.
  *
- * Aim vectors are dead-reckoned from the deterministic avatar positions at
- * the snipe ticks (verified by the golden03 beats test): the sim is exact,
- * so these constants hold on every engine.
+ * Positions are dead-reckoned from the deterministic avatar walk (verified by the
+ * golden03 beats test): the sim is exact, so these constants hold on every
+ * engine. Since SIM_VERSION 41 the lock does the aiming: anything within 12 m and
+ * 12.5° of the facing is locked, and every weapon fires at the lock.
  */
 interface MatchPhase {
   until: number;
@@ -238,75 +246,48 @@ function buildMatch01Timeline(): MatchPhase[] {
     px += ux * travelled;
     py += uy * travelled;
   };
-  // A stand measured in the sim rather than reckoned: the walk legs climb and
-  // descend the lane's ramps, where the original's slope push changes the pace.
-  const at = (x: number, y: number) => {
-    px = x;
-    py = y;
-  };
-  // A tighter aim than per-axis quantising, for a target as thin as an avatar
-  // (0.4 m hit radius): the integer stick pair whose bearing is closest to the
-  // target's. `snipe` keeps the per-axis form, which the ring snipes were
-  // recorded with and which is plenty for a 0.7 m turret.
-  const aimPrecise = (x: number, y: number, ticks: number) => {
+  // SIM_VERSION 41: the original's weapons (fcop-fidelity.md W1, W2). The
+  // Mini-Gun hits only its lock, 12 m out, so nothing is sniped from outside a
+  // turret's 28 m any more: the avatar walks up to `stand` m of each target,
+  // where the lock takes it, and fires all three — the Mini-Gun on the lock, the
+  // Hell Fire homing on it, the Mortar landing on it up to its 9.7 m reach —
+  // soaking the return fire on the original's 1250 HP.
+  const engage = (x: number, y: number, stand: number, ticks: number) => {
     const dx = x - px;
     const dy = y - py;
     const d = Math.sqrt(dx * dx + dy * dy);
-    let best = -2;
-    let bx = 0;
-    let by = 0;
-    for (let ax = -127; ax <= 127; ax++) {
-      for (let ay = -127; ay <= 127; ay++) {
-        if (ax === 0 && ay === 0) continue;
-        const c = (ax * dx + ay * dy) / (d * Math.sqrt(ax * ax + ay * ay));
-        if (c > best) {
-          best = c;
-          bx = ax;
-          by = ay;
-        }
-      }
-    }
-    face(bx, by);
-    push(ticks, { aimX: bx, aimY: by, buttons: BUTTON_FIRE1 });
-  };
-  const snipe = (x: number, y: number, ticks: number) => {
-    const dx = x - px;
-    const dy = y - py;
-    const inv = 1 / Math.sqrt(dx * dx + dy * dy);
-    const ax = quantizeAxis(dx * inv);
-    const ay = quantizeAxis(dy * inv);
+    if (d > stand + 0.5) walkTo(px + (dx * (d - stand)) / d, py + (dy * (d - stand)) / d);
+    const ex = x - px;
+    const ey = y - py;
+    const inv = 1 / Math.sqrt(ex * ex + ey * ey);
+    const ax = quantizeAxis(ex * inv);
+    const ay = quantizeAxis(ey * inv);
     face(ax, ay);
-    push(ticks, { aimX: ax, aimY: ay, buttons: BUTTON_FIRE1 });
+    push(ticks, { aimX: ax, aimY: ay, buttons: BUTTON_FIRE1 | BUTTON_FIRE2 | BUTTON_FIRE3 });
   };
 
-  snipe(60, 110, 110); // dummy (60,110) covers the lane entry — kill from spawn
+  engage(60, 110, 8, 60); // dummy (60,110) covers the lane entry
   walkTo(40, 116); // join the north lane
   walkTo(62, 84);
   walkTo(92, 62);
-  snipe(127, 60, 110); // dummy (127,60) sits on the mid-lane ford
+  engage(127, 60, 8, 60); // dummy (127,60) sits on the mid-lane ford
   walkTo(127, 54);
   walkTo(162, 62);
   walkTo(192, 84); // lane end short of base East
-  walkTo(196, 90); // snipe spot: outside all four ring turrets' range
-  snipe(213, 118, 130); // ring north-inner
-  snipe(219, 112, 130); // ring north-outer
-  walkTo(206, 110); // advance: south-inner shoots back for ~2 s here
-  snipe(213, 136, 130); // ring south-inner
-  snipe(219, 142, 130); // ring south-outer
+  // The ring from the north, nearest pair first, so at most two of the four
+  // reach the avatar at a time.
+  walkTo(210, 102);
+  engage(219, 112, 8.5, 60); // ring north-outer
+  engage(213, 118, 8.5, 60); // ring north-inner
+  engage(213, 136, 8.5, 60); // ring south-inner
+  engage(219, 142, 8.5, 60); // ring south-outer
   // The original's economy (SIM_VERSION 33) has no trickle and pays a ring
   // turret 1, so the ring bounty and player 1's dead feeders come to ~17 points,
   // short of the 30-point claim. What pays is putting the enemy avatar down: +10
   // to us when it respawns (fcop-fidelity.md R4). Player 1 idles at its ground
-  // console, then at its spawn on its own pad, both inside primary range of here.
-  // Measured, not reckoned: at 36 m a 0.6 m error is wider than the avatar
-  // (golden03.test.ts pins that both downs land). Since the original's walker
-  // (SIM_VERSION 39) the reckoning above lands within 0.1 m of this anyway.
-  at(205.934, 109.989);
-  // Player 1 stands at (227.34, 137.47) after its walk to the console: the
-  // original's walker turns and strafes on its way there (SIM_VERSION 39), so
-  // that is measured too.
-  aimPrecise(227.342, 137.474, 240); // player 1 at its console
-  aimPrecise(224, 127, 560); // its spawn: keep firing through the respawn, drop it again
+  // console, then at its spawn on its own pad.
+  engage(227.342, 137.474, 7, 300); // player 1 at its console
+  engage(224, 127, 7, 420); // its spawn: keep firing through the respawn, drop it again
   walkTo(176, 88); // outpost console: claim once the second respawn has paid
   return phases;
 }
@@ -500,7 +481,7 @@ export const SCRIPTS: Record<
 > = {
   "drive-01": { script: drive01, ticks: 60 * TICK_HZ },
   "combat-01": { script: combat01, ticks: 90 * TICK_HZ, mapId: "district-01" },
-  "match-01": { script: match01, ticks: 150 * TICK_HZ, mapId: "district-01" },
+  "match-01": { script: match01, ticks: 160 * TICK_HZ, mapId: "district-01" },
   "warden-01": {
     script: warden01,
     ticks: 300 * TICK_HZ,

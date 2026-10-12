@@ -35,10 +35,16 @@ export const P2P_INPUT_REDUNDANCY_TICKS = ONLINE_INPUT_DELAY_TICKS + 2;
 
 // Avatar (rules.md §2, §4).
 /**
- * Metropolis' own until the weapons package: the original's NORMAL mech has 1250
- * (fcop-fidelity.md P1), and every damage number is absolute HP against it.
+ * The X1-Alpha's health: 1250, the original's NORMAL mech (fcop-fidelity.md P1).
+ * Every PA X1Alpha record stores a base of 1000; `player_construct` scales it by
+ * the per-player difficulty word, 100/125/150 % (`imul ecx,ecx,0x64` at
+ * 0x00446c3c), and NORMAL is the default pick (fcop-re/player-and-weapons.md §5).
+ * Metropolis has no difficulty choice and models NORMAL, as it does for the
+ * walker's water rule and the ammunition (x1.25). No regeneration: health comes
+ * back only from a pickup or the restore at going down. Every damage number in
+ * this file is absolute HP against it, as the original's are. Was 300.
  */
-export const AVATAR_HP = 300;
+export const AVATAR_HP = 1250;
 
 // Slope limits as rise/run: the steepest ground each form's hard gate lets it
 // climb (sim.ts `slopeBlocks`). Hover stays stricter, because it rides
@@ -118,13 +124,6 @@ export const HOVER_CUSHION_SPAN = 2.4;
  * ride height ramps. (Metropolis used to lock the weapons as well.)
  */
 export const TRANSFORM_LOCK_TICKS = 41;
-/**
- * Projectile gravity: the Mortar's arc (MORTAR_LAUNCH_SPEED). Metropolis' own;
- * the original's arced rounds carry their own gravity in the weapon record
- * (fcop-re/player-and-weapons.md §7), which is the weapons package's. The
- * X1-Alpha falls under X1_GRAVITY below.
- */
-export const GRAVITY = 20; // m/s²
 
 // --- X1-Alpha movement (rules.md §2; fcop-fidelity.md P4, P5) ----------------
 //
@@ -200,14 +199,6 @@ export const X1_IMPACT_SPEED = 0x93333 * FX * X1_SPEED_UNIT;
 export const X1_IMPACT_SPEED_MAX = 0x300000 * FX * X1_SPEED_UNIT;
 export const X1_IMPACT_SCALE = 0x16db6c15 / 0x40000000 / X1_SPEED_UNIT;
 export const X1_IMPACT_HP = 1000;
-/**
- * INTERIM, for the weapons package to delete: impact damage is absolute HP
- * against the original's 1250-HP NORMAL mech, and Metropolis' avatar still has
- * AVATAR_HP 300 (fcop-fidelity.md P1). Until P1 lands, the damage is scaled by
- * AVATAR_HP / 1250 = 0.24 so a fall costs the same FRACTION of health as in the
- * original. When AVATAR_HP becomes 1250 this is 1: remove it then.
- */
-export const X1_IMPACT_INTERIM_SCALE = AVATAR_HP / 1250;
 
 // Hover (`player_hover_tick`; fcop-re/player-and-weapons.md §3).
 /** Fore/aft push 0x6666 per step (0x00442850). */
@@ -309,39 +300,411 @@ export const WALKER_LUNGE_MAX_RISE = 0x2333 / 8192;
 /** Jump take-off speed of the high jump (kept under its old name for its readers). */
 export const AVATAR_JUMP_SPEED = WALKER_HIGH_LIFT;
 
-// Ammo capacities (rules.md §2: heavy/special finite).
-export const AVATAR_AMMO_HEAVY = 20;
-export const AVATAR_AMMO_SPECIAL = 5;
+// --- The X1-Alpha's weapons (rules.md §2; fcop-fidelity.md W1, W2, W4) -------
+//
+// The original's own records, not the front-end bars. Every mission carries the
+// player's 15 weapons as type-99 Cact records, byte-identical in all 15 missions
+// including the six PA maps: `{key, key >> 4, 0, 0, block A[0x20], block B[0x20]}`,
+// A the weapon as issued and B the weapon after that slot's power-up
+// (fcop-re/player-and-weapons.md §7, player-weapons.json; loader 0x00458c60, the
+// rescale helpers 0x00458d30 / 0x0044eb10). These are the raw halfwords of the ten
+// Metropolis offers (weapons.ts maps them to its catalogue); weapons.ts converts
+// them the way the loader does:
+//   - gaps (`burstGap`, `roundGap`, `fuse`): raw * 4096 / 218, C-truncated, in
+//     engine units of 1/300 s (~raw * 0.0626 s); the X1 spends 10 a sim tick;
+//   - ammunition (`ammo`, `cap`): x1.25 on NORMAL, truncated (the per-player
+//     difficulty pick; Metropolis models NORMAL, as AVATAR_HP does);
+//   - lengths (`w0e` blast, `w10` reach, `range`): raw << 4 wu = raw / 512 m;
+//     for arced and dropped rounds `range` is their GRAVITY in wu/s², raw / 512
+//     m/s² (type7.h:50);
+//   - `speed`: trunc(raw / 300) << 4 wu per engine unit; `accel`: trunc(raw * 256
+//     / 300) / 16 wu per unit per unit. A missile launches at an eighth of its
+//     top speed and accelerates to it (player-weapons.json `missile`).
+// `kind` picks the launcher, `flags` bit 4 is a kept round (Special becomes a
+// press-edge trigger), bit 2 damage falloff with distance flown, bit 8 spin.
+export interface WeaponRecord {
+  readonly kind: number;
+  readonly flags: number;
+  readonly ammo: number;
+  readonly cap: number;
+  readonly rounds: number;
+  readonly burstGap: number;
+  readonly roundGap: number;
+  readonly damage: number;
+  readonly w0e: number;
+  readonly w10: number;
+  readonly speed: number;
+  readonly accel: number;
+  readonly range: number;
+  readonly fuse: number;
+}
 
-// Weapons (rules.md §2: primary hitscan, heavy projectile w/ AoE, special).
-//
-// OPEN (reach): where the PA arenas stand since the original's range scale
-// (fcop-fidelity.md I1). Every shooter on the six PA maps — base turrets,
-// neutral turrets, tanks, jets and the Dreadnought's guns — carries
-// engage_range 6144 raw, and the retail code reads it as `raw << 4` world units:
-// raw/512 = **12 m** (fcop-re/ranges-turrets-capture.md Q1; tools/generators/
-// fcopLogic.ts RANGE_SCALE). The extractor's old 1/1024 guess made it 6 m. The
-// imported per-arena turret profiles now say 12, and sim.ts prefers them on all
-// six playable arenas. Acquisition is a separate, longer number: aircraft search
-// range 28672-32358 raw = 56-63 m. See far, shoot close.
-//
-// What is still ours: PRIMARY_RANGE 40 (3.3x an emplacement) and the unit ranges
-// 14-30. The original's player lock is 12 m too and its hitscan damages only the
-// locked target (fcop-fidelity.md W2), so the ledger expects the player to land on
-// the turrets' 12 m — W4 calls the old mismatch dissolved once that lands. That,
-// and the per-weapon ranges, are the weapons package (W1-W4), not this note.
-//
-// The constraint that package inherits: the §1 arenas (rules.md §1-§7,
-// district-01) are a coherent triangle — units 14-18 < TURRET_RANGE 28 < primary
-// 40 — and each inequality carries a rule: the turret must outreach a unit or
-// pillar 3's "a lone runner dies to the enemy ring" fails (units.test.ts), and the
-// player must outreach the turret or a base ring cannot be cleared at all. The PA
-// arenas run the opposite ordering — emplacements 12 m, units 14 m
-// (paAttribution.test.ts asserts it per profile) — so the two families still want
-// different numbers from one shared table.
-export const PRIMARY_COOLDOWN_TICKS = 5;
-export const PRIMARY_DAMAGE = 8;
-export const PRIMARY_RANGE = 40;
+/** Block A (as issued) and block B (powered up) of one weapon, keyed by its loadout code. */
+export const WEAPON_RECORDS: Readonly<Record<number, { a: WeaponRecord; b: WeaponRecord }>> = {
+  // Powered Mini-Gun (the executable's "Mini Gun")
+  0: {
+    a: {
+      kind: 10,
+      flags: 0,
+      ammo: 6000,
+      cap: 6000,
+      rounds: 1,
+      burstGap: 0,
+      roundGap: 0,
+      damage: 1,
+      w0e: 0,
+      w10: 0,
+      speed: 8192,
+      accel: 0,
+      range: 6144,
+      fuse: 80,
+    },
+    b: {
+      kind: 10,
+      flags: 0,
+      ammo: 0,
+      cap: 600,
+      rounds: 1,
+      burstGap: 0,
+      roundGap: 0,
+      damage: 2,
+      w0e: 512,
+      w10: 0,
+      speed: 8192,
+      accel: 0,
+      range: 6144,
+      fuse: 80,
+    },
+  },
+  // Gatling Laser (the executable's "Laser")
+  1: {
+    a: {
+      kind: 12,
+      flags: 0,
+      ammo: 5000,
+      cap: 5000,
+      rounds: 1,
+      burstGap: 0,
+      roundGap: 0,
+      damage: 1,
+      w0e: 0,
+      w10: 0,
+      speed: 8192,
+      accel: 0,
+      range: 6144,
+      fuse: 80,
+    },
+    b: {
+      kind: 12,
+      flags: 0,
+      ammo: 0,
+      cap: 600,
+      rounds: 1,
+      burstGap: 0,
+      roundGap: 0,
+      damage: 2,
+      w0e: 512,
+      w10: 0,
+      speed: 8192,
+      accel: 0,
+      range: 6144,
+      fuse: 80,
+    },
+  },
+  // Flamethrower (the executable's "Flame Thrower")
+  2: {
+    a: {
+      kind: 14,
+      flags: 0,
+      ammo: 3000,
+      cap: 3000,
+      rounds: 1,
+      burstGap: 0,
+      roundGap: 0,
+      damage: 6,
+      w0e: 409,
+      w10: 0,
+      speed: 8192,
+      accel: 0,
+      range: 6144,
+      fuse: 80,
+    },
+    b: {
+      kind: 14,
+      flags: 0,
+      ammo: 0,
+      cap: 600,
+      rounds: 1,
+      burstGap: 0,
+      roundGap: 1,
+      damage: 10,
+      w0e: 819,
+      w10: 0,
+      speed: 8192,
+      accel: 0,
+      range: 6144,
+      fuse: 80,
+    },
+  },
+  // Electric Gun (the executable's "Electric Gun")
+  3: {
+    a: {
+      kind: 11,
+      flags: 0,
+      ammo: 3000,
+      cap: 3000,
+      rounds: 1,
+      burstGap: 1,
+      roundGap: 0,
+      damage: 3,
+      w0e: 0,
+      w10: 0,
+      speed: 8192,
+      accel: 0,
+      range: 4915,
+      fuse: 80,
+    },
+    b: {
+      kind: 11,
+      flags: 0,
+      ammo: 0,
+      cap: 500,
+      rounds: 1,
+      burstGap: 1,
+      roundGap: 0,
+      damage: 6,
+      w0e: 0,
+      w10: 0,
+      speed: 8192,
+      accel: 0,
+      range: 4915,
+      fuse: 80,
+    },
+  },
+  // Hell Fire 2000 (the executable's "Helfire")
+  16: {
+    a: {
+      kind: 3,
+      flags: 1,
+      ammo: 145,
+      cap: 145,
+      rounds: 1,
+      burstGap: 8,
+      roundGap: 0,
+      damage: 25,
+      w0e: 0,
+      w10: 0,
+      speed: 8192,
+      accel: 122,
+      range: 8192,
+      fuse: 48,
+    },
+    b: {
+      kind: 18,
+      flags: 1,
+      ammo: 0,
+      cap: 15,
+      rounds: 1,
+      burstGap: 12,
+      roundGap: 0,
+      damage: 25,
+      w0e: 0,
+      w10: 0,
+      speed: 8192,
+      accel: 204,
+      range: 8192,
+      fuse: 48,
+    },
+  },
+  // Concussion Beam (the executable's "Beam Cannon")
+  18: {
+    a: {
+      kind: 17,
+      flags: 1,
+      ammo: 75,
+      cap: 75,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 16,
+      damage: 50,
+      w0e: 512,
+      w10: 0,
+      speed: 8192,
+      accel: 4096,
+      range: 4096,
+      fuse: 80,
+    },
+    b: {
+      kind: 17,
+      flags: 1,
+      ammo: 0,
+      cap: 15,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 16,
+      damage: 100,
+      w0e: 1024,
+      w10: 0,
+      speed: 8192,
+      accel: 4096,
+      range: 8192,
+      fuse: 80,
+    },
+  },
+  // Hyper Velocity Rocket (the executable's "Ant Missle?")
+  19: {
+    a: {
+      kind: 2,
+      flags: 0,
+      ammo: 120,
+      cap: 120,
+      rounds: 4,
+      burstGap: 24,
+      roundGap: -2,
+      damage: 30,
+      w0e: 0,
+      w10: 0,
+      speed: 10240,
+      accel: 40,
+      range: 8192,
+      fuse: 48,
+    },
+    b: {
+      kind: 2,
+      flags: 8,
+      ammo: 0,
+      cap: 80,
+      rounds: 8,
+      burstGap: 24,
+      roundGap: -1,
+      damage: 30,
+      w0e: 0,
+      w10: 0,
+      speed: 10240,
+      accel: 40,
+      range: 8192,
+      fuse: 48,
+    },
+  },
+  // Mortar Launcher (the executable's "Mortar")
+  32: {
+    a: {
+      kind: 4,
+      flags: 1,
+      ammo: 25,
+      cap: 25,
+      rounds: 1,
+      burstGap: 32,
+      roundGap: 32,
+      damage: 200,
+      w0e: 1638,
+      w10: 0,
+      speed: 4096,
+      accel: 0,
+      range: 3072,
+      fuse: 48,
+    },
+    b: {
+      kind: 20,
+      flags: 1,
+      ammo: 0,
+      cap: 10,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 16,
+      damage: 100,
+      w0e: 2048,
+      w10: 0,
+      speed: 4096,
+      accel: 0,
+      range: 3072,
+      fuse: 48,
+    },
+  },
+  // Pop-Up Mines (the executable's "Mine")
+  34: {
+    a: {
+      kind: 5,
+      flags: 1,
+      ammo: 30,
+      cap: 30,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 16,
+      damage: 600,
+      w0e: 2867,
+      w10: 1024,
+      speed: 4096,
+      accel: 0,
+      range: 3072,
+      fuse: 80,
+    },
+    b: {
+      kind: 5,
+      flags: 1,
+      ammo: 0,
+      cap: 15,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 0,
+      damage: 1000,
+      w0e: 4096,
+      w10: 1024,
+      speed: 4096,
+      accel: 0,
+      range: 4096,
+      fuse: 80,
+    },
+  },
+  // Shockwave Generator (the executable's "Shockwave")
+  35: {
+    a: {
+      kind: 15,
+      flags: 1,
+      ammo: 20,
+      cap: 20,
+      rounds: 1,
+      burstGap: 48,
+      roundGap: 48,
+      damage: 300,
+      w0e: 3072,
+      w10: 0,
+      speed: 4096,
+      accel: 0,
+      range: 3072,
+      fuse: 48,
+    },
+    b: {
+      kind: 15,
+      flags: 1,
+      ammo: 0,
+      cap: 10,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 16,
+      damage: 300,
+      w0e: 4096,
+      w10: 0,
+      speed: 4096,
+      accel: 0,
+      range: 4096,
+      fuse: 48,
+    },
+  },
+};
+
+/**
+ * Engine units of the 300 Hz clock a sim tick spends off a weapon's cooldown.
+ * The original's slot cooldowns decay by the frame delta, floored at zero, and a
+ * shot ADDS its gap (`player_target_hold` 0x0045a2a0, `player_fire_slot`
+ * 0x00458ed0). Lockstep pins the frame at 30 fps, delta 10, the same binding as
+ * X1_UNITS_PER_TICK. So a gap of 0 fires on every tick the button is held, 30
+ * rounds a second (the original is frame-bound: 30-37.5 at its 30-37.5 fps), a
+ * gap of g fires every ceil(g / 10) ticks, and a negative round gap carries over:
+ * the Hyper Velocity Rocket's -37 fires its four rounds on four consecutive ticks.
+ */
+export const WEAPON_UNITS_PER_TICK = 300 / TICK_HZ;
+
 /**
  * The X1-Alpha's lock (fcop-fidelity.md W2; fcop-re/player-and-weapons.md §7,
  * `player_target_acquire` 0x0045a240 / `player_target_hold` 0x0045a2a0): 0x18000
@@ -357,18 +720,55 @@ export const AVATAR_LOCK_RANGE = 0x18000 / 8192;
 export const AVATAR_LOCK_ACQUIRE_COS = 0xf9ee / 65536;
 /** The hold cone, cos 0xe804 (+-25°): a lock outside it (or past 12 m) drops. */
 export const AVATAR_LOCK_HOLD_COS = 0xe804 / 65536;
-export const HEAVY_COOLDOWN_TICKS = 24;
-export const HEAVY_DAMAGE = 60;
-export const HEAVY_SPEED = 25;
-export const HEAVY_TTL_TICKS = 75;
-export const HEAVY_AOE_RADIUS = 6;
-// SPECIAL_* is the Mortar Launcher — default special (Mini-Gun + Hell Fire +
-// Mortar). Magazine size is AVATAR_AMMO_SPECIAL (entity ammoB at spawn).
-export const SPECIAL_COOLDOWN_TICKS = 60;
-export const SPECIAL_DAMAGE = 119;
-export const SPECIAL_SPEED = 10;
-export const SPECIAL_TTL_TICKS = 110;
-export const SPECIAL_AOE_RADIUS = 8;
+
+/**
+ * The Flamethrower's damage cadence: Metropolis' own. The original's fire is a
+ * sustained effect whose nodes each carry the record's 6 (B: 10) damage, and how
+ * often a node hits was not established (fcop-re/player-and-weapons.md §9.1). So
+ * the time profile stays Metropolis' (one hit every 5 ticks, as the old flame
+ * did) and the per-hit damage, reach and ammunition are the record's.
+ */
+export const FLAME_PULSE_TICKS = 5;
+
+/**
+ * A homing missile's turn rate, rad/s: Metropolis' own. The original's
+ * `missile_home` steering rate was not established (player-and-weapons.md §9.3);
+ * the speeds, accelerations and ranges it steers are the records'.
+ */
+export const MISSILE_TURN_RATE = Math.PI;
+
+/**
+ * Arced and bouncing rounds aim at the lock, or with none at a point 0x10000 wu =
+ * 8 m ahead at muzzle height (player-weapons.json `_no_lock_aim`).
+ */
+export const ARC_FREE_AIM_DISTANCE = 0x10000 / 8192;
+
+/**
+ * Where the Hell Fire 2000's powered missile splits, and how: Metropolis' own.
+ * Block B is kind 0x12, a homing missile "that splits into three"; when and how
+ * the split happens was not read. Metropolis launches the three at once, fanned
+ * +-SPLIT_FAN rad, each homing on the lock.
+ */
+export const HELLFIRE_SPLIT_FAN = 0.35;
+
+/**
+ * The powered Mortar's shell (kind 0x14) bursts into four kind-4 fragments at its
+ * apex (player-weapons.json); how they spread was not read. Metropolis throws
+ * them as a cross at this horizontal speed relative to the shell, m/s: ours.
+ */
+export const MORTAR_FRAGMENT_SPREAD = 1.5;
+
+// Pop-Up Mines: the record gives the trigger reach (w10 1024 = 2 m, plus the
+// intruder's own radius), the 1.0 s fuse once sprung, and the blast. The record's
+// 5.0 s lifetime field is not used: whether an untriggered mine goes off after
+// 5 s or waits was not established (player-and-weapons.md §9.2). So a mine keeps
+// Metropolis' 30 s silent despawn and its arming delay, both ours.
+/** Live lifetime once placed; despawns without a blast if nobody trips it. Ours. */
+export const SPECIAL_MINE_TTL_TICKS = 900; // 30 s
+/** Ticks after placing before an enemy can spring the fuse (owner walk-off). Ours. */
+export const SPECIAL_MINE_ARM_TICKS = 15; // 0.5 s
+/** Sprung -> blast: 1.0 s (player-weapons.json `mine.sprung_fuse_s`). */
+export const SPECIAL_MINE_FUSE_TICKS = 30;
 
 // Muzzle geometry, shared by the sim and by the renderer's muzzle flash. They
 // lived in sim.ts, where render/fx.ts could only keep a hand-copied duplicate
@@ -378,96 +778,21 @@ export const MUZZLE_OFFSET = 0.6;
 /** Shell spawn height above the shooter's feet — the X1's gun, not its roof. */
 export const MUZZLE_HEIGHT = 0.6;
 
-/**
- * Upward launch speed of the Mortar, m/s. The one weapon that LOBS.
- *
- * Derived, not tuned, and the derivation is the point: it is the speed at which
- * the shell falls back to launch height exactly as its TTL runs out. So an
- * arcing mortar lands on the same tick, at the same distance, as the flat one
- * did when it expired — 110 ticks and 36.7 m on level ground — and no balance
- * number moves. Only the path between the two ends changes.
- *
- * Solve h0 + v·t − g·t²/2 = 0 for v at t = TTL:  v = g·t/2 − h0/t.
- *
- * That works out at ~36.5 m/s and an apex near 34 m, which is a STEEP lob. It
- * is steep because the existing pair — 10 m/s over 3.67 s — is a slow shell
- * with a long life, and an arc that has to last that long has nowhere to go but
- * up. Flattening it means raising SPECIAL_SPEED and lowering SPECIAL_TTL_TICKS
- * together, which is a balance decision and not this one.
- */
-export const MORTAR_LAUNCH_SPEED =
-  (GRAVITY * (SPECIAL_TTL_TICKS * TICK_DT)) / 2 - MUZZLE_HEIGHT / (SPECIAL_TTL_TICKS * TICK_DT);
-
-// --- Non-default catalog weapons (weapons.ts) --------------------------------
-//
-// The three constants blocks above are the DEFAULT kit, index 0 in each slot.
-// Alternatives scale from those anchors. Catalog = ten Precinct Assault weapons
-// only (rules.md §2): four Guns, three Heavies, three Specials.
-//
-// Rate/damage from the original front-end panels (`febmp.bin`, 55 px trough):
-//
-//   damage   = anchorDamage   * bar_dmg  / anchorBar_dmg
-//   cooldown = anchorCooldown * anchorBar_rate / bar_rate      (rate is 1/cooldown)
-//
-// Anchoring across slots does not work — a global Mini-Gun anchor puts Hell
-// Fire's cooldown at 7 ticks instead of 24.
-//
-//   Gatling Laser          55/55 rate,  3/55 dmg → 8 dmg, 5 tick
-//   Flamethrower           55/55 rate,  9/55 dmg → 24 dmg, 5 tick
-//   Electric Gun           28/55 rate,  9/55 dmg → 24 dmg, 10 tick
-//   Concussion Beam        21/55 rate, 19/55 dmg → 127 dmg, 48 tick
-//   Hyper Velocity Rocket  55/55 rate, 11/55 dmg → 73 dmg, 18 tick
-//   Pop-Up Mines           55/55 rate, 55/55 dmg → 344 dmg, 31 tick
-//   Shockwave Generator    19/55 rate, 28/55 dmg → 175 dmg, 88 tick
-//
-// Declared deviation: the bars do NOT distinguish Mini-Gun from Laser (both
-// 55/55 rate, 3/55 damage). Reach separates them (40 vs 44). Ranges, speeds,
-// TTLs, AoE, magazine sizes and mine arming are ours — panels carry rate/damage
-// only. See rules.md §2.
-export const GUN_LASER_DAMAGE = 8;
-export const GUN_LASER_COOLDOWN_TICKS = 5;
-export const GUN_LASER_RANGE = 44; // ours — the bars cannot tell it from the Mini-Gun
-export const GUN_FLAME_DAMAGE = 24;
-export const GUN_FLAME_COOLDOWN_TICKS = 5;
-export const GUN_FLAME_RANGE = 14; // ours — no range on either bar
-export const GUN_ELECTRIC_DAMAGE = 24;
-export const GUN_ELECTRIC_COOLDOWN_TICKS = 10;
-export const GUN_ELECTRIC_RANGE = 40; // ours — bars carry rate/damage only
-export const HEAVY_BEAM_DAMAGE = 127;
-export const HEAVY_BEAM_COOLDOWN_TICKS = 48;
-export const HEAVY_BEAM_RANGE = 50; // ours
-export const HEAVY_BEAM_AMMO = 6;
-export const HEAVY_HYPER_DAMAGE = 73;
-export const HEAVY_HYPER_COOLDOWN_TICKS = 18;
-export const HEAVY_HYPER_SPEED = 50; // ours — fast light rocket
-export const HEAVY_HYPER_TTL_TICKS = 45;
-export const HEAVY_HYPER_AOE_RADIUS = 2;
-export const HEAVY_HYPER_AMMO = 14;
-// Pop-Up Mines / Shockwave: rate+damage from original bars (Mortar-anchored);
-// placement, arming, trigger and pulse radii are ours.
-export const SPECIAL_MINE_DAMAGE = 344;
-export const SPECIAL_MINE_COOLDOWN_TICKS = 31;
-export const SPECIAL_MINE_AMMO = 4;
-/** Live lifetime once placed; despawns without boom if nobody trips it. */
-export const SPECIAL_MINE_TTL_TICKS = 900; // 30 s
-/** Ticks after place before an enemy can arm the fuze (owner walk-off). */
-export const SPECIAL_MINE_ARM_TICKS = 15; // 0.5 s
-/** Proximity trigger radius (world units). */
-export const SPECIAL_MINE_TRIGGER_RADIUS = 3;
-/** Blast radius when a mine goes off. */
-export const SPECIAL_MINE_AOE_RADIUS = 6;
-export const SPECIAL_SHOCK_DAMAGE = 175;
-export const SPECIAL_SHOCK_COOLDOWN_TICKS = 88;
-export const SPECIAL_SHOCK_AMMO = 3;
-/** Self-centred pulse radius (world units). */
-export const SPECIAL_SHOCK_AOE_RADIUS = 12;
-
 // Turrets (sandbox dummies AND base ring turrets share combat stats for now).
 //
 // This global is dead on all six PLAYABLE arenas — each carries the original's
 // imported weapon profiles at 12 m and sim.ts prefers them — so it reaches only
-// district-01 (not in MAP_REGISTRY) and the sandbox. See the reach note above
-// for why it is not simply pulled to 6 with them.
+// district-01 (not in MAP_REGISTRY) and the sandbox, which keep Metropolis' own
+// balance (fcop-fidelity.md W3).
+//
+// THE REACH NOTE THAT USED TO STAND HERE DISSOLVED (fcop-fidelity.md W4). It
+// asked how the player's 40 m hitscan should relate to an emplacement's 12 m on
+// the PA arenas and its 28 m on district-01. The original answers it: the X1's
+// guns reach only their lock, and the lock is 12 m (AVATAR_LOCK_RANGE), the same
+// 12 m every PA turret, tank, jet and Dreadnought gun engages at — player and
+// emplacement trade at one reach. On district-01 the turret's 28 m now outreaches
+// the player, and the player's answer is the original's 1250 HP: it walks in
+// under fire (golden03 clears that ring from inside its reach).
 export const TURRET_RANGE = 28;
 export const TURRET_DAMAGE = 15;
 export const TURRET_COOLDOWN_TICKS = 20;
@@ -484,6 +809,13 @@ export const DUMMY_RESPAWN_TICKS = 450; // 15 s
 export const BASE_TURRET_RESPAWN_TICKS = 3600; // 120 s (rules.md §5, #31)
 
 // Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
+/**
+ * Metropolis' own, kept as it was: the original's PA has no repair pad (health
+ * comes back only from the health pickup and the restore at going down,
+ * fcop-re/player-and-weapons.md §5). 15 hp/s fills the 1250-HP mech in 83 s (it
+ * filled the old 300 in 20 s); scaling it with AVATAR_HP would have made an X1
+ * parked on its pad outheal a turret and the Warden's cannon together.
+ */
 export const PAD_REPAIR_HP_PER_TICK = 0.5; // 15 hp/s
 
 // Economy (rules.md §3). One resource: points, open information. The numbers are
@@ -680,7 +1012,13 @@ export const WARDEN_RESPAWN_TICKS = 240;
 // player Avatar, plays by the same economy. All decision inputs that scale
 // with difficulty live in the arrays below, indexed by (difficulty - 1).
 
-export const WARDEN_HP = 450; // "stronger than the player Avatar" (300)
+/**
+ * Metropolis' own, from when the avatar had 300. The avatar has the original's
+ * 1250 since SIM_VERSION 40 (fcop-fidelity.md P1), so this superplane is now the
+ * weaker of the two; the Sky Captain's 250-1250 by level is U3's (the units/AI
+ * package), which replaces it.
+ */
+export const WARDEN_HP = 450;
 export const WARDEN_SPEED = 10; // a hair above hover (9): it can disengage
 export const WARDEN_ALTITUDE = 7; // cruise height above ground/water surface
 
@@ -875,7 +1213,13 @@ export const PICKUP_HEALTH = 2;
 export const PICKUP_INVULN = 3;
 export const PICKUP_INVIS = 4;
 export const PICKUP_POWER = 5;
-export const PICKUP_KIND_COUNT = 6;
+/**
+ * The Gun's ammunition (grant bit 0x01, `reload_gun`): the guns have finite
+ * magazines since SIM_VERSION 41, so it refills the Gun slot's A magazine to its
+ * ceiling as the original's does. Until then it was imported as a heavy refill.
+ */
+export const PICKUP_GUN_AMMO = 6;
+export const PICKUP_KIND_COUNT = 7;
 /** Avatar must be within this of a pickup spot to take it. */
 export const PICKUP_RADIUS = 2.5;
 // A health pickup refills to the maximum (grant bit 0x20000 passes amount -1,
@@ -891,6 +1235,11 @@ export const PICKUP_INVULN_TICKS = 600;
  * §6). Turrets, units and the Warden skip a cloaked avatar. Was 300 (10 s).
  */
 export const PICKUP_INVIS_TICKS = 1350;
+/**
+ * A homing missile within 0x8000 wu = 4 m of a cloaked X1-Alpha drops its target
+ * (retail 0x0042379f; player-and-weapons.md §6).
+ */
+export const CLOAK_DISARM_RADIUS = 0x8000 / 8192;
 /**
  * Metropolis' power-up: x2 damage for 15 s. The original's is a per-slot block-B
  * weapon with its own magazine (fcop-fidelity.md P8), which the weapons package

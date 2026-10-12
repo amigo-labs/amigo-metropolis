@@ -153,7 +153,7 @@ describe("base structures", () => {
     const sim = openSim(); // avatar 0 spawns on its pad
     sim.ent.hp[0] = AVATAR_HP - 100;
     step(sim, inputs);
-    expect(sim.ent.hp[0]).toBe(AVATAR_HP - 100 + PAD_REPAIR_HP_PER_TICK);
+    expect(sim.ent.hp[0]).toBe(Math.fround(AVATAR_HP - 100 + PAD_REPAIR_HP_PER_TICK));
     for (let t = 0; t < 300; t++) step(sim, inputs);
     expect(sim.ent.hp[0]).toBe(AVATAR_HP); // clamped at max
   });

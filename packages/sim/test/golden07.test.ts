@@ -119,6 +119,14 @@ describe("the win condition is reachable on la-cantina", () => {
         if (!state.ent.alive[id] || state.ent.team[id] !== 1) continue;
         if (state.ent.archetype[id] === ARCHETYPE.TURRET) state.ent.alive[id] = 0;
       }
+      // The idle defender's avatar is parked out of the Runner's way too: a
+      // Runner halts to shoot anything in its reach, and against the original's
+      // 1250-HP mech (SIM_VERSION 41) that duel, not the road, would set the time.
+      const foe = state.avatarId[1];
+      if (foe >= 0) {
+        state.ent.posX[foe] = 1;
+        state.ent.posY[foe] = 1;
+      }
       for (let k = 0; k < state.events.count; k++) {
         if (state.events.data[k * EVENT_STRIDE] === EV_BREACH) breachAt = state.tick;
       }
