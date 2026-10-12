@@ -233,6 +233,13 @@
   color: #7fa8e8;
 }
 
+/* A powered slot (fcop-fidelity.md P8) fires its block B until it runs dry. */
+.mhud-ammo-cell.is-powered {
+  color: #ffd35a;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
 /* The lock (fcop-fidelity.md W2): the guns hit only what is locked. */
 .mhud-lock {
   font-size: 14px;

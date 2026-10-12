@@ -31,6 +31,7 @@ import {
   MATCH_SLOT_LOCK,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
+  MATCH_SLOT_POWER,
   MATCH_SLOT_RESPAWN_TICKS,
   MATCH_SLOT_UNITS,
   MATCH_WINNER,
@@ -174,6 +175,7 @@ export function createMatchHud(
   let lastBanner = "";
   let lastProgressPct = -1;
   let lastProgressOn = false;
+  let lastPower = -1;
 
   const pushTickerRow = (text: string, nowMs: number): void => {
     // Shift up, newest last — fixed-size, no allocation.
@@ -248,6 +250,15 @@ export function createMatchHud(
         write(ammoHeavy, String(match[mine + MATCH_SLOT_AMMO_HEAVY] | 0));
         write(ammoSpecial, String(match[mine + MATCH_SLOT_AMMO_SPECIAL] | 0));
         write(lockCell, match[mine + MATCH_SLOT_LOCK] >= 0 ? "LOCK" : "");
+      }
+      // A powered slot fires its block B (fcop-fidelity.md P8): its count is the
+      // B magazine, and the cell says so. Write-on-change.
+      const power = respawn > 0 ? 0 : match[mine + MATCH_SLOT_POWER] | 0;
+      if (power !== lastPower) {
+        lastPower = power;
+        ammoGun.node.classList.toggle("is-powered", (power & 1) !== 0);
+        ammoHeavy.node.classList.toggle("is-powered", (power & 2) !== 0);
+        ammoSpecial.node.classList.toggle("is-powered", (power & 4) !== 0);
       }
 
       const winner = match[MATCH_WINNER] | 0;

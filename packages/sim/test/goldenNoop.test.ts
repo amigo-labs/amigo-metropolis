@@ -23,6 +23,9 @@ import { join } from "node:path";
 // imported arenas whose turrets and units fire weapon-3/1/4 rounds now; 01 fires
 // Hell Fire over the test map's slope, and a straight round no longer dies on the
 // heightfield. 02-04 (district-01) and 06 keep their pins.
+// Re-frozen at SIM_VERSION 43 (the original's power-up, P8): the per-slot block-B
+// magazines are hashed on every map (the x2 buff timer, hashed only where pickups
+// exist, is gone), so all seven move.
 // Re-frozen at SIM_VERSION 39 (the original's walker and hover models, P4/P5):
 // every golden moves an avatar, so all seven move.
 // Re-frozen at SIM_VERSION 38 (the original's 41-tick transformation, P3): only
@@ -49,14 +52,14 @@ import { join } from "node:path";
 const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 19 (on top of v18 hover cushion): facing-aligned
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
-  "golden-01-drive": { last: 1708918410, count: 1800 },
-  "golden-02-combat": { last: 569310991, count: 2700 },
+  "golden-01-drive": { last: 2863179370, count: 1800 },
+  "golden-02-combat": { last: 1611435791, count: 2700 },
   // Re-frozen at SIM_VERSION 24 (issue #31): BASE_TURRET_RESPAWN 60→120 s is
   // global, so scripts that kill a base emplacement and live past the old timer
   // move (03/04). golden-07-pa also moves from the §9 escort/capture ladder.
   // 01/02/05/06 header-only.
-  "golden-03-match": { last: 2231623386, count: 4800 },
-  "golden-04-warden": { last: 1550591244, count: 9000 },
+  "golden-03-match": { last: 4054331802, count: 4800 },
+  "golden-04-warden": { last: 600856140, count: 9000 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -67,11 +70,11 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // polyline maps where advanceOnGraph never executes and stay byte-identical.
   // Re-frozen at SIM_VERSION 31 (the original's import scales): 05 and 07 run
   // imported arenas, whose turret profiles and trigger volumes changed.
-  "golden-05-fcop": { last: 3130062984, count: 2700 },
-  "golden-06-layered": { last: 2953831761, count: 600 },
+  "golden-05-fcop": { last: 1926914056, count: 2700 },
+  "golden-06-layered": { last: 3003849649, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
-  "golden-07-pa": { last: 1421484302, count: 3600 },
+  "golden-07-pa": { last: 1410610143, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

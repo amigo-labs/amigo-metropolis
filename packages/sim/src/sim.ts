@@ -72,9 +72,9 @@ import {
   PICKUP_INVIS_TICKS,
   PICKUP_INVULN,
   PICKUP_INVULN_TICKS,
-  PICKUP_POWER,
-  PICKUP_POWER_MULTIPLIER,
-  PICKUP_POWER_TICKS,
+  PICKUP_POWER_GUN,
+  PICKUP_POWER_HEAVY,
+  PICKUP_POWER_SPECIAL,
   PICKUP_RADIUS,
   PICKUP_SPECIAL_AMMO,
   POINTS_AVATAR_DOWN,
@@ -357,7 +357,12 @@ export interface SimState {
   /** Power-up timers per player; length 0 when the arena has no pickups. */
   readonly buffInvuln: Int32Array;
   readonly buffInvis: Int32Array;
-  readonly buffPower: Int32Array;
+  /**
+   * Block-B (powered-up) magazines per player and slot (player * 3 + slot): the
+   * original's `ammo_b` (fcop-fidelity.md P8). A slot with B ammunition fires its
+   * block B. 0 = not powered; cleared when the avatar goes down.
+   */
+  readonly powerAmmo: Uint16Array;
   /** Ticks until each intrusion volume can fire again (shared per base). */
   readonly triggerArm: Int32Array;
   /**
@@ -417,6 +422,7 @@ export function spawnAvatar(state: SimState, player: number): number {
     // `player_respawn`: all three A magazines to their ceilings, and each burst
     // counter from its block (fcop-re/player-and-weapons.md §1, §7).
     refillAmmo(state, player, id);
+    for (let k = 0; k < 3; k++) state.powerAmmo[player * 3 + k] = 0;
     const kit = loadoutOf(state, player);
     state.burstLeft[player * 3] = kit.gun.a.rounds;
     state.burstLeft[player * 3 + 1] = kit.heavy.a.rounds;
@@ -705,7 +711,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     pickupCooldown: new Int32Array(map.pickups.length),
     buffInvuln: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
     buffInvis: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
-    buffPower: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
+    powerAmmo: new Uint16Array(MAX_PLAYERS * 3),
     triggerArm: new Int32Array(map.triggerVolumes.length),
     turretAlert: new Int32Array(ringSlots > 0 ? MAX_PLAYERS : 0),
     avatarTurnRate: new Float32Array(MAX_PLAYERS),
@@ -1662,12 +1668,15 @@ function fireSlot(state: SimState, player: number, id: number, slot: number, w: 
   const ent = state.ent;
   const cd = slot === 0 ? ent.cooldownA : slot === 1 ? ent.cooldownB : ent.cooldownC;
   if (cd[id] > 0) return;
-  const blk = w.a;
-  const allowance = slotAmmo(state, player, id, slot);
-  if (allowance <= 0) return;
-  if (!deliver(state, id, player, w, blk, slot, false)) return;
-  setSlotAmmo(state, player, id, slot, allowance - 1);
   const k = player * 3 + slot;
+  // Block B while its magazine lasts (fcop-fidelity.md P8), then block A again.
+  const powered = state.powerAmmo[k] > 0;
+  const blk = powered ? w.b : w.a;
+  const allowance = powered ? state.powerAmmo[k] : slotAmmo(state, player, id, slot);
+  if (allowance <= 0) return;
+  if (!deliver(state, id, player, w, blk, slot, powered)) return;
+  if (powered) state.powerAmmo[k] = allowance - 1;
+  else setSlotAmmo(state, player, id, slot, allowance - 1);
   let left = state.burstLeft[k] - 1;
   let gap: number;
   if (left <= 0) {
@@ -1680,6 +1689,27 @@ function fireSlot(state: SimState, player: number, id: number, slot: number, w: 
   // The Flamethrower's time profile is Metropolis' (balance.ts FLAME_PULSE_TICKS).
   if (w.delivery === "flame") gap = FLAME_PULSE_TICKS * WEAPON_UNITS_PER_TICK;
   cd[id] += gap;
+  // The last powered round: back to block A, its burst counter from A.
+  if (powered && allowance - 1 <= 0) state.burstLeft[k] = w.a.rounds;
+}
+
+/**
+ * A slot's power-up (`cact_pickup_grant` bits 0x10/0x20/0x40; fcop-re/player-and-
+ * weapons.md §6): block B's magazine to its NORMAL ceiling. A slot that was not
+ * powered also takes its burst counter from block B.
+ */
+function powerUp(state: SimState, player: number, slot: number): void {
+  const k = player * 3 + slot;
+  const w = weaponInSlot(
+    slot as 0 | 1 | 2,
+    slot === 0
+      ? state.loadoutGun[player]
+      : slot === 1
+        ? state.loadoutHeavy[player]
+        : state.loadoutSpecial[player],
+  );
+  if (state.powerAmmo[k] === 0) state.burstLeft[k] = w.b.rounds;
+  state.powerAmmo[k] = w.b.ammoCap;
 }
 
 /**
@@ -2277,9 +2307,6 @@ function applyDamage(state: SimState, target: number, damage: number, attacker: 
     // attribution, so a shielded player can still be credited a kill assist.
     for (let p = 0; p < MAX_PLAYERS; p++) {
       if (state.avatarId[p] === target && state.buffInvuln[p] > 0) return;
-    }
-    if (attacker >= 0 && attacker < MAX_PLAYERS && state.buffPower[attacker] > 0) {
-      damage *= PICKUP_POWER_MULTIPLIER;
     }
   }
   // On the imported arenas an outpost claim is permanent, as the original's is
@@ -2949,10 +2976,10 @@ function systemDamageDeath(state: SimState): void {
       state.respawnTimer[player] =
         archetype === ARCHETYPE.WARDEN ? WARDEN_RESPAWN_TICKS : RESPAWN_TICKS;
       // Power-ups are lost when the avatar goes down (`player_respawn` clears the
-      // block-B ammunition; fcop-fidelity.md P2). The cloak and invulnerability
+      // block-B ammunition; fcop-fidelity.md P2, P8). The cloak and invulnerability
       // timers are NOT cleared: the original keeps counting them down while the
       // mech is down (fcop-re/player-and-weapons.md §1).
-      if (state.buffPower.length > 0) state.buffPower[player] = 0;
+      for (let k = 0; k < 3; k++) state.powerAmmo[player * 3 + k] = 0;
       state.buyTarget[player] = -1; // death drops any buy hold
       state.buyProgress[player] = 0;
       state.lockTarget[player] = -1; // and any lock
@@ -3196,7 +3223,6 @@ function systemPickups(state: SimState): void {
   for (let p = 0; p < MAX_PLAYERS; p++) {
     if (state.buffInvuln[p] > 0) state.buffInvuln[p] -= 1;
     if (state.buffInvis[p] > 0) state.buffInvis[p] -= 1;
-    if (state.buffPower[p] > 0) state.buffPower[p] -= 1;
   }
   const r2 = PICKUP_RADIUS * PICKUP_RADIUS;
   for (let k = 0; k < spots.length; k++) {
@@ -3227,7 +3253,9 @@ function systemPickups(state: SimState): void {
         ent.hp[a] = ARCHETYPE_MAX_HP[ent.archetype[a]];
       } else if (kind === PICKUP_INVULN) state.buffInvuln[p] = PICKUP_INVULN_TICKS;
       else if (kind === PICKUP_INVIS) state.buffInvis[p] = PICKUP_INVIS_TICKS;
-      else if (kind === PICKUP_POWER) state.buffPower[p] = PICKUP_POWER_TICKS;
+      else if (kind === PICKUP_POWER_GUN) powerUp(state, p, 0);
+      else if (kind === PICKUP_POWER_HEAVY) powerUp(state, p, 1);
+      else if (kind === PICKUP_POWER_SPECIAL) powerUp(state, p, 2);
       state.pickupCooldown[k] = spots[k].respawnTicks;
       pushEvent(
         state.events,
@@ -3405,7 +3433,6 @@ export function hash(state: SimState): number {
   for (let p = 0; p < state.buffInvuln.length; p++) {
     h = fnv1aU32(h, state.buffInvuln[p] >>> 0);
     h = fnv1aU32(h, state.buffInvis[p] >>> 0);
-    h = fnv1aU32(h, state.buffPower[p] >>> 0);
   }
   for (let k = 0; k < state.triggerArm.length; k++) {
     h = fnv1aU32(h, state.triggerArm[k] >>> 0);
@@ -3424,6 +3451,8 @@ export function hash(state: SimState): number {
   }
   // Appended at SIM_VERSION 40: which locks steer the hull (fcop-fidelity.md W2).
   for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.lockSteer[p]);
+  // Appended at SIM_VERSION 43: the block-B magazines (replacing the x2 timer).
+  for (let k = 0; k < state.powerAmmo.length; k++) h = fnv1aU32(h, state.powerAmmo[k]);
   // Appended at SIM_VERSION 41: the Gun magazine and the burst counters.
   for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.gunAmmo[p]);
   for (let k = 0; k < state.burstLeft.length; k++) h = fnv1aU32(h, state.burstLeft[k]);
@@ -3460,7 +3489,7 @@ export function hash(state: SimState): number {
  */
 export const MATCH_SNAPSHOT_HEADER = 6;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
-export const MATCH_SNAPSHOT_SLOT_STRIDE = 11;
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 12;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
 
 /** Header fields. */
@@ -3489,6 +3518,11 @@ export const MATCH_SLOT_BUY_FRAC = 8;
 export const MATCH_SLOT_AMMO_GUN = 9;
 /** The X1-Alpha's lock: the locked entity id, -1 for none (fcop-fidelity.md W2). */
 export const MATCH_SLOT_LOCK = 10;
+/**
+ * Powered slots, a bit each (1 gun, 2 heavy, 4 special): the slot fires its block
+ * B, and its ammo field above counts the block-B magazine (fcop-fidelity.md P8).
+ */
+export const MATCH_SLOT_POWER = 11;
 // Slot field 9 was MATCH_SLOT_CAPTURE_FRAC, retired with the 3 s capture timer
 // (SIM_VERSION 34): the original captures instantly on a key press. Slot field 10
 // was MATCH_SLOT_CORE_FRAC, retired with the destructible core (SIM_VERSION 32).
@@ -3517,14 +3551,25 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     out[o + MATCH_SLOT_POINTS] = state.points[slot];
     out[o + MATCH_SLOT_AVATAR_ID] = a;
     out[o + MATCH_SLOT_HP_FRAC] = a >= 0 ? ent.hp[a] / ARCHETYPE_MAX_HP[ent.archetype[a]] : 0;
-    out[o + MATCH_SLOT_AMMO_HEAVY] = a >= 0 ? ent.ammoA[a] : 0;
-    out[o + MATCH_SLOT_AMMO_SPECIAL] = a >= 0 ? ent.ammoB[a] : 0;
+    // The magazine each slot fires from: block B while powered, else block A.
+    const pk = slot * 3;
+    out[o + MATCH_SLOT_AMMO_HEAVY] =
+      a >= 0 ? (state.powerAmmo[pk + 1] > 0 ? state.powerAmmo[pk + 1] : ent.ammoA[a]) : 0;
+    out[o + MATCH_SLOT_AMMO_SPECIAL] =
+      a >= 0 ? (state.powerAmmo[pk + 2] > 0 ? state.powerAmmo[pk + 2] : ent.ammoB[a]) : 0;
     out[o + MATCH_SLOT_RESPAWN_TICKS] = a >= 0 ? 0 : state.respawnTimer[slot];
     out[o + MATCH_SLOT_OUTPOSTS] = 0;
     out[o + MATCH_SLOT_UNITS] = 0;
     out[o + MATCH_SLOT_BUY_FRAC] =
       state.buyTarget[slot] >= 0 ? state.buyProgress[slot] / CONSOLE_HOLD_TICKS : -1;
-    out[o + MATCH_SLOT_AMMO_GUN] = a >= 0 ? state.gunAmmo[slot] : 0;
+    out[o + MATCH_SLOT_AMMO_GUN] =
+      a >= 0 ? (state.powerAmmo[pk] > 0 ? state.powerAmmo[pk] : state.gunAmmo[slot]) : 0;
+    out[o + MATCH_SLOT_POWER] =
+      a >= 0
+        ? (state.powerAmmo[pk] > 0 ? 1 : 0) |
+          (state.powerAmmo[pk + 1] > 0 ? 2 : 0) |
+          (state.powerAmmo[pk + 2] > 0 ? 4 : 0)
+        : 0;
     out[o + MATCH_SLOT_LOCK] = a >= 0 ? state.lockTarget[slot] : -1;
   }
   for (let k = 0; k < state.outpostOwner.length; k++) {

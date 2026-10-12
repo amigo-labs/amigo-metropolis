@@ -10,6 +10,9 @@ import { ARCHETYPE } from "../src/archetypes";
 import {
   AVATAR_HP,
   AVATAR_LOCK_RANGE,
+  PICKUP_POWER_GUN,
+  PICKUP_POWER_HEAVY,
+  PICKUP_POWER_SPECIAL,
   SPECIAL_MINE_ARM_TICKS,
   SPECIAL_MINE_FUSE_TICKS,
   TICK_HZ,
@@ -560,5 +563,98 @@ describe("ammunition", () => {
       step(sim, inputs);
       expect(firedWeaponIds(sim)).toContain(w.id);
     }
+  });
+});
+
+/**
+ * The power-up is the original's (fcop-fidelity.md P8; fcop-re/player-and-
+ * weapons.md §6): a slot's power pickup fills that slot's block-B magazine, the
+ * slot fires block B until it is empty and then block A again, and a down loses
+ * it. It replaced Metropolis' x2 damage for 15 s.
+ */
+describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
+  /** A la-cantina avatar standing on the first pickup of `kind`. */
+  function onPickup(kind: number, loadout: Partial<typeof DEFAULT_LOADOUT> = {}) {
+    const map = getMapById(LA_CANTINA_ID);
+    const sim = createSim(map, 1, { loadouts: [loadout] });
+    const k = map.pickups.findIndex((p) => p.kind === kind);
+    expect(k).toBeGreaterThanOrEqual(0);
+    const a0 = sim.avatarId[0];
+    sim.ent.posX[a0] = map.pickups[k].x;
+    sim.ent.posY[a0] = map.pickups[k].y;
+    return { sim, a0, inputs: createTickInputs() };
+  }
+
+  test("each slot's pickup fills its own B magazine to the NORMAL ceiling", () => {
+    for (const [kind, slot, w] of [
+      [PICKUP_POWER_GUN, 0, GUNS[0]],
+      [PICKUP_POWER_HEAVY, 1, HEAVIES[0]],
+      [PICKUP_POWER_SPECIAL, 2, SPECIALS[0]],
+    ] as const) {
+      const { sim, inputs } = onPickup(kind);
+      step(sim, inputs);
+      expect(sim.powerAmmo[slot]).toBe(w.b.ammoCap);
+      for (let s = 0; s < 3; s++) if (s !== slot) expect(sim.powerAmmo[s]).toBe(0);
+    }
+    expect(HEAVIES[0].b.ammoCap).toBe(18); // Hell Fire B: 15 x 1.25
+  });
+
+  test("a powered Hell Fire fires its B block — three missiles — until empty, then A", () => {
+    const { sim, a0, inputs } = onPickup(PICKUP_POWER_HEAVY);
+    step(sim, inputs);
+    sim.powerAmmo[1] = 2;
+    const ammoA = sim.ent.ammoA[a0];
+    inputs.players[0].buttons = BUTTON_FIRE2;
+    const volleys: number[] = [];
+    for (let t = 0; t < 60; t++) {
+      const before = projectiles(sim, PROJ_HEAVY).length;
+      step(sim, inputs);
+      const after = projectiles(sim, PROJ_HEAVY).length;
+      if (firedWeaponIds(sim).includes(HEAVIES[0].id)) volleys.push(after - before);
+    }
+    // Two B volleys of three (225-unit gap: 23 ticks), then A's single missile.
+    expect(volleys.slice(0, 3)).toEqual([3, 3, 1]);
+    expect(sim.powerAmmo[1]).toBe(0);
+    expect(sim.ent.ammoA[a0]).toBeLessThan(ammoA + 1);
+  });
+
+  test("a powered Mini-Gun splashes 2 in 1 m at the line's end even with no lock", () => {
+    const { sim, inputs } = duel({ gun: 0 }, 0, 25);
+    sim.powerAmmo[0] = 750;
+    // An enemy 12.5 m ahead: past the lock, inside a metre of the line's 12 m end.
+    const a1 = sim.avatarId[1];
+    sim.ent.posX[a1] = 20 + 12.3;
+    sim.ent.posY[a1] = 30;
+    inputs.players[0].buttons = BUTTON_FIRE1;
+    step(sim, inputs);
+    expect(sim.lockTarget[0]).toBe(-1);
+    // 2 * (1 - 0.3) / 1, truncated: 1.
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 1);
+    expect(sim.powerAmmo[0]).toBe(749);
+  });
+
+  test("a powered Mortar bursts into four fragments at its apex", () => {
+    const { sim, inputs } = duel({ special: 0 }, 0, 25);
+    sim.powerAmmo[2] = 12;
+    inputs.players[0].buttons = BUTTON_FIRE3;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    expect(projectiles(sim, PROJ_MORTAR).length).toBe(1);
+    let most = 1;
+    for (let t = 0; t < 120; t++) {
+      step(sim, inputs);
+      most = Math.max(most, projectiles(sim, PROJ_MORTAR).length);
+    }
+    expect(most).toBe(4);
+    expect(sim.powerAmmo[2]).toBe(11);
+  });
+
+  test("going down loses it", () => {
+    const { sim, a0, inputs } = onPickup(PICKUP_POWER_SPECIAL);
+    step(sim, inputs);
+    expect(sim.powerAmmo[2]).toBeGreaterThan(0);
+    sim.ent.hp[a0] = -1;
+    step(sim, inputs);
+    expect(sim.powerAmmo[2]).toBe(0);
   });
 });

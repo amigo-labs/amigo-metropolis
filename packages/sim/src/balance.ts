@@ -1309,14 +1309,22 @@ export const PICKUP_SPECIAL_AMMO = 1;
 export const PICKUP_HEALTH = 2;
 export const PICKUP_INVULN = 3;
 export const PICKUP_INVIS = 4;
+/**
+ * The power-ups, one per slot (grant bits 0x10 / 0x20 / 0x40; fcop-fidelity.md
+ * P8): the Gun's keeps the old kind number, the Heavy's and the Special's are new
+ * (SIM_VERSION 43; they all imported as one x2-damage kind before).
+ */
 export const PICKUP_POWER = 5;
+export const PICKUP_POWER_GUN = PICKUP_POWER;
 /**
  * The Gun's ammunition (grant bit 0x01, `reload_gun`): the guns have finite
  * magazines since SIM_VERSION 41, so it refills the Gun slot's A magazine to its
  * ceiling as the original's does. Until then it was imported as a heavy refill.
  */
 export const PICKUP_GUN_AMMO = 6;
-export const PICKUP_KIND_COUNT = 7;
+export const PICKUP_POWER_HEAVY = 7;
+export const PICKUP_POWER_SPECIAL = 8;
+export const PICKUP_KIND_COUNT = 9;
 /** Avatar must be within this of a pickup spot to take it. */
 export const PICKUP_RADIUS = 2.5;
 // A health pickup refills to the maximum (grant bit 0x20000 passes amount -1,
@@ -1337,15 +1345,13 @@ export const PICKUP_INVIS_TICKS = 1350;
  * (retail 0x0042379f; player-and-weapons.md §6).
  */
 export const CLOAK_DISARM_RADIUS = 0x8000 / 8192;
-/**
- * Metropolis' power-up: x2 damage for 15 s. The original's is a per-slot block-B
- * weapon with its own magazine (fcop-fidelity.md P8), which the weapons package
- * adopts with the B blocks; until then this stays, and it is lost when the avatar
- * goes down, as the original's block-B ammunition is (`player_respawn` clears it).
- */
-export const PICKUP_POWER_TICKS = 450; // 15 s
-/** Damage multiplier while a POWER pickup is active. Integer: exact in binary. */
-export const PICKUP_POWER_MULTIPLIER = 2;
+// The power-up is the original's, since SIM_VERSION 43 (fcop-fidelity.md P8;
+// fcop-re/player-and-weapons.md §6): a slot's power pickup fills that slot's
+// block-B magazine to its NORMAL ceiling, and the slot fires block B — the
+// record's "powered" weapon — until that magazine is empty, then block A again.
+// It is lost at a down. It replaced Metropolis' x2 damage for 15 s
+// (PICKUP_POWER_TICKS 450, PICKUP_POWER_MULTIPLIER 2); there is no timer and no
+// multiplier.
 
 /**
  * Base-intrusion trigger watch bits (fcop-logic.md §8.6). ENEMY_UNITS means the

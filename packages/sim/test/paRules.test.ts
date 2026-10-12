@@ -17,6 +17,8 @@ import {
   PICKUP_INVIS_TICKS,
   PICKUP_INVULN_TICKS,
   PICKUP_POWER,
+  PICKUP_POWER_HEAVY,
+  PICKUP_POWER_SPECIAL,
   RESPAWN_TICKS,
   TRIGGER_REARM_TICKS,
   TURRET_ALERT_COOLDOWN_TICKS,
@@ -326,7 +328,11 @@ describe("power-ups (fcop-fidelity.md P6, P7, P9)", () => {
       const m = getMapById(id);
       expect(m.pickups.length).toBeGreaterThan(0);
       for (const p of m.pickups) {
-        const slow = p.kind === PICKUP_POWER || p.kind === PICKUP_INVIS;
+        const slow =
+          p.kind === PICKUP_POWER ||
+          p.kind === PICKUP_POWER_HEAVY ||
+          p.kind === PICKUP_POWER_SPECIAL ||
+          p.kind === PICKUP_INVIS;
         expect(p.respawnTicks).toBe(slow ? 3000 : 1500);
       }
     }
@@ -382,7 +388,7 @@ describe("going down and coming back (fcop-fidelity.md P2)", () => {
     const state = createSim(map, 1);
     const ent = state.ent;
     const avatar = state.avatarId[0];
-    state.buffPower[0] = 200;
+    state.powerAmmo[1] = 10; // a powered Heavy
     state.buffInvis[0] = 1000;
     ent.ammoA[avatar] = 0;
     ent.ammoB[avatar] = 0;
@@ -394,7 +400,7 @@ describe("going down and coming back (fcop-fidelity.md P2)", () => {
     expect(state.respawnTimer[0]).toBe(RESPAWN_TICKS - 1);
     // Power-ups are lost (`player_respawn` clears block B); the cloak keeps
     // counting down while the mech is down.
-    expect(state.buffPower[0]).toBe(0);
+    expect(state.powerAmmo[1]).toBe(0);
     expect(state.buffInvis[0]).toBe(999);
     run(state, RESPAWN_TICKS - 1);
     const back = state.avatarId[0];
@@ -657,7 +663,6 @@ describe("the no-op invariant", () => {
     expect(state.pickupCooldown.length).toBe(0);
     expect(state.buffInvuln.length).toBe(0);
     expect(state.buffInvis.length).toBe(0);
-    expect(state.buffPower.length).toBe(0);
     expect(state.triggerArm.length).toBe(0);
     expect(legacy.weapons.length).toBe(0);
     expect(legacy.laneGraph).toBeUndefined();

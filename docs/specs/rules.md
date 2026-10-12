@@ -478,7 +478,7 @@ only what Metropolis adopts from it.
   SIM_VERSION 34, with each arena's imported capture range; the density is a
   balance question, tuned in `balance.ts`, never by dropping content.
 - **Power-ups.** `ItemPickup` spots grant ammo, health, a cloak or a
-  temporary damage boost, and re-arm on the original's timer: **50 s** after an
+  slot's power-up, and re-arm on the original's timer: **50 s** after an
   ammo or health pickup is taken, **100 s** after a power-up or cloak, one alive
   per spot (the Csac spawners' tSAC, `fcop-fidelity.md` P9). The mapping of
   the original's grant kinds is recorded in `tools/generators/enrichArena.ts`.
@@ -491,9 +491,15 @@ only what Metropolis adopts from it.
     avatar (P7), and a homing missile within 4 m of it drops its lock
     (SIM_VERSION 41, the original's missile);
   - **invulnerability** lasts 20 s; no PA pickup carries it (I8);
-  - the **damage boost** (x2, 15 s) is still Metropolis' stand-in for the
-    original's per-slot block-B weapon (P8, the weapons package). It is lost
-    when the avatar goes down.
+  - a **power-up** is the original's, per slot (SIM_VERSION 43, P8): the Gun's,
+    Heavy's or Special's pickup fills that slot's block-B magazine to its NORMAL
+    ceiling, and the slot fires its **block B** — the record's powered weapon
+    (§2) — until that magazine is empty, then block A again. Block B is, for
+    example, the Mini-Gun's 2 damage with a 1 m splash (750 rounds), Hell Fire's
+    three homing missiles a shot (18), the Hyper Velocity Rocket's 8-round burst,
+    the Mortar's shell bursting into four 100-damage fragments at its apex, the
+    Mines' 1000 in 8 m, the Shockwave's 8 m every 1.0 s. It is lost when the
+    avatar goes down. It replaced Metropolis' x2 damage for 15 s.
 - **Alerts are the original's voice lines** (SIM_VERSION 36, `fcop-fidelity.md`
   R15). The original's mission scripts speak them through ops 0x0c/0x0d
   (`fcop-re/ai-and-rules.md` §6); the sim emits the events with the original's

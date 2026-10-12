@@ -732,4 +732,15 @@
 //     profiles. Goldens: 05 and 07 (imported arenas) re-record; 01 re-records
 //     (its Hell Fire rounds cross the test map's slope instead of dying on it);
 //     02-04 (district-01) and 06 stay byte-identical (re-headered only).
-export const SIM_VERSION = 42;
+// v43: the power-up is the original's (docs/specs/fcop-fidelity.md P8;
+//     fcop-re/player-and-weapons.md §6, §7). Each slot has its own pickup kind
+//     (PICKUP_POWER_GUN 5, _HEAVY 7, _SPECIAL 8; the arenas re-import
+//     power_up_*). A pickup fills that slot's block-B magazine (new hashed
+//     per-player-and-slot `powerAmmo`, the original's ammo_b) to its NORMAL
+//     ceiling; the slot fires its block B — the record's powered weapon — until
+//     the magazine is empty, then block A; a down loses it. The x2 damage for 15 s
+//     (`buffPower`, PICKUP_POWER_TICKS, PICKUP_POWER_MULTIPLIER) is gone. Goldens:
+//     all seven re-record for the new hash field (the buff timer, hashed only on
+//     pickup arenas, left the hash); 07 takes a Special power pickup, which now
+//     fills a block-B magazine instead of doubling its taker's damage.
+export const SIM_VERSION = 43;

@@ -98,7 +98,9 @@ export const LOGIC_OFFSET_Z = 0;
  *   reload_heavy     -> HEAVY_AMMO
  *   reload_special   -> SPECIAL_AMMO
  *   restore_health   -> HEALTH
- *   power_up_*       -> POWER        (temporary damage boost)
+ *   power_up_gun     -> POWER (_GUN)  the slot's block-B weapon (fcop-fidelity.md
+ *   power_up_heavy   -> POWER_HEAVY   P8); all three were one x2-damage kind
+ *   power_up_special -> POWER_SPECIAL until SIM_VERSION 43
  *   invisibility     -> INVIS
  *   invincibility    -> INVULN       (flag 0x80000, 20 s in the original; no PA
  *                                     pickup carries it — fcop-re/player-and-
@@ -113,8 +115,8 @@ const PICKUP_KIND: Record<string, number> = {
   invisibility: 4,
   invincibility: 3,
   power_up_gun: 5,
-  power_up_heavy: 5,
-  power_up_special: 5,
+  power_up_heavy: 7,
+  power_up_special: 8,
 };
 
 /** balance.ts TRIGGER_WATCH_* bits. */

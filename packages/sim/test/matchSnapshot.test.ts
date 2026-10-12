@@ -23,6 +23,7 @@ import {
   MATCH_SLOT_LOCK,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
+  MATCH_SLOT_POWER,
   MATCH_SLOT_RESPAWN_TICKS,
   MATCH_SLOT_UNITS,
   MATCH_SNAPSHOT_LEN,
@@ -174,7 +175,8 @@ describe("writeMatchSnapshot", () => {
     expect(MATCH_SLOT_BUY_FRAC).toBe(8);
     expect(MATCH_SLOT_AMMO_GUN).toBe(9);
     expect(MATCH_SLOT_LOCK).toBe(10);
-    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(11);
+    expect(MATCH_SLOT_POWER).toBe(11);
+    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(12);
   });
 
   it("reports the post-breach outro, and nothing while none runs", () => {
@@ -205,6 +207,17 @@ describe("writeMatchSnapshot", () => {
     sim.lockTarget[0] = -1;
     writeMatchSnapshot(sim, out);
     expect(out[matchSlotOffset(0) + MATCH_SLOT_LOCK]).toBe(-1);
+  });
+
+  it("reports a powered slot and counts its block-B magazine (fcop-fidelity.md P8)", () => {
+    const sim = freshSim();
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_POWER]).toBe(0);
+    sim.powerAmmo[1] = 18; // player 0's Heavy
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_POWER]).toBe(2);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_AMMO_HEAVY]).toBe(18);
   });
 
   it("overwrites every field, so a reused buffer never shows a stale value", () => {
