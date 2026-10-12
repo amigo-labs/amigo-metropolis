@@ -139,8 +139,10 @@ apart on each axis. Hk's 6.15 m radius is effectively clipped by that.
 **Before capture a neutral turret shoots nobody.** Its shooter targets team 10 (BaseShooter
 `targeting` = 10), and no PA actor has team byte 10.
 
-**On death** a captured type-36 scores a kill for the side it belonged to (op 5,
-`turret.c:426-439`, stub). Its Csac spawner rebuilds it from the record, so it comes back
+**On death** a captured type-36 pays the side that did **not** hold it. This sentence used to say
+"scores a kill for the side it belonged to" (op 5, `turret.c:426-439`, then a stub). RE M3-OF has
+since decompiled the scoring: the engine credits the other team, and the holder's results-page
+"Turrets lost" tally counts the loss (corrected 2026-10-12). Its Csac spawner rebuilds it from the record, so it comes back
 **neutral**. tSAC raw −1500 → 25 s after death (Q5).
 
 Confidence: high on the gate, the effects and that there is no timer (all read in the
