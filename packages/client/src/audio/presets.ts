@@ -176,7 +176,8 @@ export const PRESETS: Record<string, SfxrPreset> = {
   //
   // Noise rather than a tone, because the arcs it plays over are noise; the
   // rising ramp is the servo committing and the vibrato is the crackle. Long
-  // decay on purpose — it has the sim's whole transform lock to fill (~0.8 s),
+  // decay on purpose — it has the sim's whole transform lock to fill (1.37 s
+  // since the original's 41 ticks; it was tuned against 0.8 s),
   // and a short blip under three quarters of a second of visible sparking reads
   // as the sound having failed.
   transform: {

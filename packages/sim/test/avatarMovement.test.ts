@@ -12,7 +12,8 @@ import {
   HOVER_CUSHION_SPAN,
   TRANSFORM_LOCK_TICKS,
 } from "../src/balance";
-import { BUTTON_JUMP, BUTTON_TRANSFORM, createTickInputs } from "../src/inputs";
+import { EV_SHOT, EVENT_STRIDE } from "../src/events";
+import { BUTTON_FIRE1, BUTTON_JUMP, BUTTON_TRANSFORM, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson, sampleHeight } from "../src/map";
 import { createSim, MODE_HOVER, MODE_WALKER, type SimState, step } from "../src/sim";
 import { JUMPABLE_RISE } from "../src/units";
@@ -193,6 +194,66 @@ describe("transform", () => {
     p0.buttons = BUTTON_TRANSFORM;
     step(sim, inputs);
     expect(sim.ent.mode[0]).toBe(MODE_WALKER);
+  });
+
+  it("takes the original's 41 ticks, keeps the guns live and the facing frozen", () => {
+    // player_transform_step: 0 -> 0x10000 at 160 per engine unit = 409.6 units
+    // at 300 Hz (fcop-fidelity.md P3).
+    expect(TRANSFORM_LOCK_TICKS).toBe(41);
+    reset();
+    const sim = freshSim();
+    const id = sim.avatarId[0];
+    const yaw0 = sim.ent.yaw[id];
+    p0.buttons = BUTTON_TRANSFORM;
+    step(sim, inputs);
+    // Mid-change: the stick and the aim are ignored, the trigger is not.
+    p0.buttons = BUTTON_FIRE1;
+    p0.aimX = 0;
+    p0.aimY = 127;
+    p0.moveY = 127;
+    let shots = 0;
+    for (let i = 0; i < TRANSFORM_LOCK_TICKS - 1; i++) {
+      step(sim, inputs);
+      for (let e = 0; e < sim.events.count; e++) {
+        if (sim.events.data[e * EVENT_STRIDE] === EV_SHOT) shots++;
+      }
+      expect(sim.ent.yaw[id]).toBe(yaw0);
+      expect(sim.ent.timerA[id]).toBeGreaterThan(0);
+    }
+    expect(shots).toBeGreaterThan(0);
+    expect(sim.ent.velY[id]).toBe(0);
+    // The ride height ramped up to the full clearance on the last ramp tick.
+    expect(sim.ent.height[id]).toBeCloseTo(
+      sampleHeight(sim.map, sim.ent.posX[id], 30) +
+        HOVER_CLEARANCE * (1 - 1 / TRANSFORM_LOCK_TICKS),
+      4,
+    );
+    step(sim, inputs);
+    expect(sim.ent.timerA[id]).toBe(0);
+    expect(sim.ent.velY[id]).toBeGreaterThan(0); // the stick drives again
+  });
+
+  it("coasts on hover physics through the change, in both directions", () => {
+    reset();
+    const sim = freshSim();
+    const id = sim.avatarId[0];
+    // Hover north at speed, then change back to walker: the hull keeps going.
+    p0.buttons = BUTTON_TRANSFORM;
+    step(sim, inputs);
+    p0.buttons = 0;
+    for (let i = 0; i < TRANSFORM_LOCK_TICKS; i++) step(sim, inputs);
+    p0.moveY = 127;
+    for (let i = 0; i < 90; i++) step(sim, inputs);
+    const fast = sim.ent.velY[id];
+    expect(fast).toBeGreaterThan(3);
+    p0.buttons = BUTTON_TRANSFORM;
+    step(sim, inputs);
+    expect(sim.ent.mode[id]).toBe(MODE_WALKER);
+    const y0 = sim.ent.posY[id];
+    step(sim, inputs);
+    expect(sim.ent.velY[id]).toBeGreaterThan(0); // not stopped dead
+    expect(sim.ent.velY[id]).toBeLessThan(fast); // but no thrust
+    expect(sim.ent.posY[id]).toBeGreaterThan(y0);
   });
 
   it("refuses to become a walker over water", () => {

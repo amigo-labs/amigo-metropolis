@@ -27,15 +27,21 @@ Design pillars, in priority order:
 
 ## 2. The Avatar
 
-- Transforming vehicle with two modes (toggle, ~0.8 s transform lock):
+- Transforming vehicle with two modes (toggle, 1.37 s transformation):
   - **Walker**: slower, can jump, precise handling, better on slopes.
   - **Hover**: fast, drifty (low traction), can cross water, cannot jump,
     steep slopes impassable.
-- The lock (`TRANSFORM_LOCK_TICKS`, 24) is a **commitment**, not a formality: no
-  moving, no jumping, no weapons for its whole length. It was 15 while the change
-  was an invisible one-frame mesh swap; it grew when the change grew an animation
-  to play (`assets.md` §4), and the extra 0.3 s of being a stationary target is
-  the deliberate price of that. Deciding to change form is a real decision.
+- The change (`TRANSFORM_LOCK_TICKS`, **41 ticks = 1.365 s**, the original's
+  `player_transform_step`; SIM_VERSION 38, `fcop-fidelity.md` P3) is a
+  **commitment**: no driving, no turning, no jumping and no lock cycling for its
+  whole length, while the hull **coasts on hover physics** in both directions
+  and its ride height ramps. The **weapons stay live** — all three slots fire
+  through it, as the original's do (Metropolis locked them until v38). It is
+  refused while a change is running and **on water in either form**. It was 15
+  ticks while the change was a one-frame mesh swap and 24 while it was sized to
+  the morph (`assets.md` §4); the morph now plays over the original's length.
+  The original triggers it with a two-button chord; the toggle key is our
+  control choice.
 - **Drive only in facing direction** (no holonomic strafe): throttle is the
   stick component along aim/lock heading; reverse is allowed. Turn by aiming.
 - The slope asymmetry is **deliberate**: `AVATAR_HOVER_MAX_SLOPE` (0.5) is

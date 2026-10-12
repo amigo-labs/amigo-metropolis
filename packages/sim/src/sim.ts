@@ -721,23 +721,29 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // Hover always counts as grounded (it rides its clearance height).
     const grounded = hover || (ent.height[id] <= ride + GROUND_EPS && ent.timerB[id] <= 0);
 
-    // Transform (edge-triggered): grounded only, never into walker over water.
-    if (!locked && (pressed & BUTTON_TRANSFORM) !== 0 && grounded) {
-      if (!(hover && isWater(map, x, y))) {
-        hover = !hover;
-        ent.mode[id] = hover ? MODE_HOVER : MODE_WALKER;
-        ent.timerA[id] = TRANSFORM_LOCK_TICKS;
-        pushEvent(state.events, EV_TRANSFORM, id, hover ? 1 : 0, TRANSFORM_LOCK_TICKS);
-        ride = hover
-          ? rideHeight(map, x, y, hover)
-          : resolveWalker(map, x, y, ent.height[id]).height;
-      }
+    // Transform (edge-triggered; fcop-fidelity.md P3): refused while a change is
+    // already running and on water in either form (the original's byte_146,
+    // set by surface material 1). Grounded only.
+    if (!locked && (pressed & BUTTON_TRANSFORM) !== 0 && grounded && !isWater(map, x, y)) {
+      hover = !hover;
+      ent.mode[id] = hover ? MODE_HOVER : MODE_WALKER;
+      ent.timerA[id] = TRANSFORM_LOCK_TICKS;
+      pushEvent(state.events, EV_TRANSFORM, id, hover ? 1 : 0, TRANSFORM_LOCK_TICKS);
+      ride = hover ? rideHeight(map, x, y, hover) : resolveWalker(map, x, y, ent.height[id]).height;
     }
+    // While the change runs, the original cuts the movement tick's input to
+    // nothing — no drive, no turn, no jump, no lock cycle — and runs the HOVER
+    // tick for the whole ramp in both directions, so the hull coasts on hover
+    // drag while its ride height ramps (fcop-re/player-and-weapons.md §2). The
+    // weapons are NOT locked: all three fire buttons keep working.
     const nowLocked = ent.timerA[id] > 0;
+    /** Hover physics this tick: the hover form, or any transformation ramp. */
+    const hoverPhys = hover || nowLocked;
 
     // Soft-lock (input.spec §4.4 "lock"): resolve before facing/drive so the
-    // throttle projects onto the locked heading this tick.
-    if ((pressed & BUTTON_TARGET_CYCLE) !== 0) cycleLockTarget(state, p, id, x, y);
+    // throttle projects onto the locked heading this tick. The cycle press is
+    // dropped while transforming, as the original drops the lock-cycle bit.
+    if (!nowLocked && (pressed & BUTTON_TARGET_CYCLE) !== 0) cycleLockTarget(state, p, id, x, y);
     // The capture press is an edge, like the original's button latch
     // (fcop-re/ranges-turrets-capture.md Q2); systemCapture consumes it.
     if ((pressed & BUTTON_INTERACT) !== 0) state.capturePress[p] = 1;
@@ -759,8 +765,11 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       my *= inv;
     }
 
-    // Facing: lock > aim > move intent > previous facing (when coasting).
-    if (lockId >= 0) {
+    // Facing: lock > aim > move intent > previous facing (when coasting). Frozen
+    // while transforming: the turn bits are cut with the rest.
+    if (nowLocked) {
+      // keep the facing the change started with
+    } else if (lockId >= 0) {
       const dx = ent.posX[lockId] - x;
       const dy = ent.posY[lockId] - y;
       const d2 = dx * dx + dy * dy;
@@ -796,7 +805,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // Traction model: walker is exact; hover drifts toward the target with
     // stick-dependent grip — throttle accelerates, reverse brakes hard,
     // a released stick coasts (rules.md §2 "fast, drifty").
-    if (hover) {
+    if (hoverPhys) {
       let traction = HOVER_TRACTION_COAST;
       if (drive2 > 0) {
         const along = driveX * ent.velX[id] + driveY * ent.velY[id];
@@ -813,7 +822,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     if (!hover && !nowLocked && grounded && (pressed & BUTTON_JUMP) !== 0) {
       ent.timerB[id] = AVATAR_JUMP_SPEED;
     }
-    const airborne = !hover && (ent.height[id] > ride + GROUND_EPS || ent.timerB[id] > 0);
+    const airborne = !hoverPhys && (ent.height[id] > ride + GROUND_EPS || ent.timerB[id] > 0);
 
     // Horizontal movement, axis-separated for wall sliding. Uphill steps
     // beyond the slope limit are blocked (slopeBlocks); walkers never enter
@@ -822,14 +831,14 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // Walls come from the deck the avatar is standing on (entLayer, set by the
     // resolveWalker snap below on the previous tick). A hovering avatar is not on
     // a deck, so it keeps reading layer 0's lattice.
-    const wallLayer = hover ? 0 : ent.entLayer[id];
+    const wallLayer = hoverPhys ? 0 : ent.entLayer[id];
     const stepX = ent.velX[id] * TICK_DT;
     if (stepX !== 0) {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
       let ok = true;
-      if (!hover && isWater(map, nx, y)) ok = false;
+      if (!hoverPhys && isWater(map, nx, y)) ok = false;
       if (ok && crossesWallX(map, x, nx, y, wallLayer)) ok = false;
-      if (ok && !airborne && slopeBlocks(map, x, y, nx, y, hover, ent.height[id])) ok = false;
+      if (ok && !airborne && slopeBlocks(map, x, y, nx, y, hoverPhys, ent.height[id])) ok = false;
       if (ok) x = nx;
       else ent.velX[id] = 0;
     }
@@ -837,9 +846,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     if (stepY !== 0) {
       const ny = Math.min(Math.max(y + stepY, 0), extent);
       let ok = true;
-      if (!hover && isWater(map, x, ny)) ok = false;
+      if (!hoverPhys && isWater(map, x, ny)) ok = false;
       if (ok && crossesWallY(map, x, y, ny, wallLayer)) ok = false;
-      if (ok && !airborne && slopeBlocks(map, x, y, x, ny, hover, ent.height[id])) ok = false;
+      if (ok && !airborne && slopeBlocks(map, x, y, x, ny, hoverPhys, ent.height[id])) ok = false;
       if (ok) y = ny;
       else ent.velY[id] = 0;
     }
@@ -848,9 +857,12 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
 
     // Vertical: hover snaps to its ride height; walker snaps to terrain for
     // step-sized height changes and integrates gravity for real falls/jumps.
-    if (hover) {
-      ride = rideHeight(map, x, y, hover);
-      ent.height[id] = ride + HOVER_CLEARANCE;
+    // During a change the ride height ramps with it: 0 -> HOVER_CLEARANCE into
+    // hover, back to 0 out of it (the original's `word_f2 = progress >> 4`).
+    if (hoverPhys) {
+      ride = rideHeight(map, x, y, true);
+      const left = ent.timerA[id] / TRANSFORM_LOCK_TICKS;
+      ent.height[id] = ride + HOVER_CLEARANCE * (nowLocked ? (hover ? 1 - left : left) : 1);
       ent.timerB[id] = 0;
     } else {
       const wr = resolveWalker(map, x, y, ent.height[id]);
@@ -893,8 +905,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       (ent.height[id] > ride + GROUND_EPS ? ANIM_AIRBORNE : 0) |
       (ent.timerA[id] > 0 ? ANIM_TRANSFORMING : 0);
 
-    // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub.
-    avatarWeapons(state, p, id, input.buttons, nowLocked);
+    // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub. They
+    // fire through a transformation (fcop-fidelity.md P3).
+    avatarWeapons(state, p, id, input.buttons);
     // Hold-to-buy at consoles (rules.md §3): runs every tick, holds decay.
     systemBuy(state, p, id, input.buttons);
   }
@@ -1155,13 +1168,7 @@ export function rideHeight(map: MapData, x: number, y: number, hover: boolean): 
   return g;
 }
 
-function avatarWeapons(
-  state: SimState,
-  player: number,
-  id: number,
-  buttons: number,
-  locked: boolean,
-): void {
+function avatarWeapons(state: SimState, player: number, id: number, buttons: number): void {
   const ent = state.ent;
   if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
   if (ent.cooldownB[id] > 0) ent.cooldownB[id] -= 1;
@@ -1196,7 +1203,6 @@ function avatarWeapons(
     }
   }
 
-  if (locked) return;
   const dirX = ent.aimX[id];
   const dirY = ent.aimY[id];
   const hasAim = dirX !== 0 || dirY !== 0;

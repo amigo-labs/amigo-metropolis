@@ -1,5 +1,5 @@
 // The transformation morph is the one piece of the walker <-> hover change that
-// a screenshot cannot check: it is a curve over 0.8 s, and any single frame of
+// a screenshot cannot check: it is a curve over 1.37 s, and any single frame of
 // it looks plausible. So the curves and the slot bookkeeping are pinned here,
 // and the pin harness is left to judge whether it looks right.
 

@@ -12,6 +12,8 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+// Re-frozen at SIM_VERSION 38 (the original's 41-tick transformation, P3): only
+// 02 transforms.
 // Re-frozen at SIM_VERSION 37 (the X1-Alpha's life cycle, P2): a player respawns
 // 4 s after a down instead of 8, so every golden whose player goes down moves
 // (03, 04, 07; 02 moves mid-sequence and ends on the same hash).
@@ -35,7 +37,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 19 (on top of v18 hover cushion): facing-aligned
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
   "golden-01-drive": { last: 2352489124, count: 1800 },
-  "golden-02-combat": { last: 226773839, count: 2700 },
+  "golden-02-combat": { last: 206945774, count: 2700 },
   // Re-frozen at SIM_VERSION 24 (issue #31): BASE_TURRET_RESPAWN 60→120 s is
   // global, so scripts that kill a base emplacement and live past the old timer
   // move (03/04). golden-07-pa also moves from the §9 escort/capture ladder.

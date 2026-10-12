@@ -639,4 +639,14 @@
 //     sooner after each down). 07 (la-cantina) re-records: its player goes down
 //     too. 01, 05 and 06 never lose an avatar and stay byte-identical
 //     (re-headered only).
-export const SIM_VERSION = 37;
+// v38: the original's transformation (docs/specs/fcop-fidelity.md P3;
+//     fcop-re/player-and-weapons.md §2). TRANSFORM_LOCK_TICKS 24 -> 41 (the
+//     original's 409.6 engine units). The weapons fire through it (they were
+//     locked); drive, turn (the facing is frozen), jump and the lock cycle stay
+//     locked. The hull runs hover physics for the whole ramp in both directions,
+//     so a walker coming out of hover coasts instead of stopping dead, and the
+//     ride height ramps 0 -> clearance into hover and back out of it. Refused on
+//     water in either form (was: only hover -> walker over water). Goldens: 02
+//     re-records (it transforms twice); the others never transform and stay
+//     byte-identical (re-headered only).
+export const SIM_VERSION = 38;

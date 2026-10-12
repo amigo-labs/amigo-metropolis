@@ -1775,7 +1775,7 @@ let lastSimTime = -1;
  * `dtMs` is capped at 250 ms so a backgrounded tab cannot spiral the
  * accumulator, which means one long frame can hand a wall-clock effect a third
  * of a second in a single go. Harmless for a 0.09 s tracer; ruinous for the
- * transformation, whose 0.8 s has to line up tick for tick with the sim's
+ * transformation, whose 1.37 s has to line up tick for tick with the sim's
  * transform lock or the mech finishes changing shape and then stands frozen.
  *
  * Zero while the sim is paused or has not started, so the pin harness can
