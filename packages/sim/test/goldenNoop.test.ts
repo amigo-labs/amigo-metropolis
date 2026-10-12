@@ -85,7 +85,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 44 (the original's route followers): 07's bought
   // units drive la-cantina's Cnet by the step chooser at 1.98 m/s.
   // Re-frozen at SIM_VERSION 48: la-cantina's four original outposts.
-  "golden-07-pa": { last: 2720106409, count: 3600 },
+  // Re-frozen at SIM_VERSION 49: its captain counts each turret twice and roams.
+  "golden-07-pa": { last: 2245859112, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

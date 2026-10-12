@@ -836,4 +836,17 @@
 //     Goldens: 03 (district-01) claims at its press, a few ticks later than on
 //     entry; 05 (urban-jungle) and 07 (la-cantina) have new outpost consoles in
 //     the entity store; 01, 02, 04 and 06 are byte-identical (re-headered).
-export const SIM_VERSION = 48;
+// v49: the Sky Captain counts each of its live team turrets twice
+//     (fcop-fidelity.md U3; fcop-re/outposts.md Q2): the original's type-8
+//     turret is two type-8 actors in the live list, the turret and its base
+//     part built from the same record, and its scan counts both against the
+//     defend threshold of 10. So it defends while fewer than 5 of its team
+//     turrets stand (ring + owned outpost plates; captured neutrals never
+//     count), or when an enemy tank is within 64 m / a Dreadnought within 72 m
+//     of home. On the imported arenas its ring of 8 or 6 counts 16 or 12: it
+//     roams from the first decision, claims outposts and buys Juggernauts and
+//     Runners. Was: each turret once, which kept it in defend all match.
+//     Goldens: 07 (la-cantina, d8) re-records, the captain roaming; 04
+//     (district-01, ring 4 = 8 < 10) still defends all match and is
+//     byte-identical, as are 01-03, 05 and 06 (no Warden); re-headered.
+export const SIM_VERSION = 49;

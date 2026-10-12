@@ -161,12 +161,22 @@ describe("the Warden is the Sky Captain", () => {
     for (const d of [1, 10]) {
       const sim = wardenSim(d, 9, LA_CANTINA_ID);
       const l = d - 1;
-      step(sim, idle); // the construct's decision
-      const reload = sim.captain.think;
-      expect(sim.captain.mode).toBe(SKY_MODE_DEFEND);
+      // The construct's decision reloads in the construct's mode (defend), and
+      // leaves it: la-cantina's 8 ring turrets count 16.
+      step(sim, idle);
+      let reload = sim.captain.think;
+      expect(sim.captain.mode).toBe(SKY_MODE_ROAM);
       expect(reload).toBeLessThanOrEqual(SKY_RETHINK_BASE - SKY_RETHINK_PER_LEVEL * l);
       expect(reload).toBeGreaterThan(
         SKY_RETHINK_BASE - SKY_RETHINK_PER_LEVEL * l - SKY_RETHINK_JITTER_DEFEND,
+      );
+      // Roaming, the next one comes up to 255 units later instead.
+      sim.captain.think = 0;
+      step(sim, idle);
+      reload = sim.captain.think;
+      expect(reload).toBeGreaterThanOrEqual(SKY_RETHINK_BASE - SKY_RETHINK_PER_LEVEL * l);
+      expect(reload).toBeLessThan(
+        SKY_RETHINK_BASE - SKY_RETHINK_PER_LEVEL * l + SKY_RETHINK_JITTER,
       );
     }
     expect(SKY_RETHINK_JITTER).toBe(256);
@@ -196,13 +206,67 @@ describe("the Warden is the Sky Captain", () => {
 });
 
 describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
-  it("defends while it owns fewer than ten turrets near home, flying at the player", () => {
-    // la-cantina's ring is 8: one short of ten even with an outpost... two short.
+  /** Kills all but `keep` of the captain's (team 1's) ring turrets. */
+  function thinRing(sim: SimState, keep: number): void {
+    const n0 = sim.map.bases[0].turrets.length;
+    for (let k = n0 + keep; k < sim.baseTurretEntity.length; k++) {
+      sim.ent.hp[sim.baseTurretEntity[k]] = 0;
+    }
+  }
+  /** Steps once with a decision on that tick. */
+  function decideNow(sim: SimState): void {
+    sim.captain.think = 0;
+    step(sim, idle);
+  }
+
+  it("defends while fewer than five of its team turrets stand, flying at the player", () => {
+    // fcop-re/outposts.md Q2: each live team turret counts twice (the turret and
+    // its base part), against 10. la-cantina's ring is 8 (16): it roams; with 4
+    // left (8) it defends; with 5 (10) it roams again.
     const sim = wardenSim(8, 5, LA_CANTINA_ID);
     step(sim, idle);
+    expect(sim.captain.mode).toBe(SKY_MODE_ROAM);
+    thinRing(sim, 4);
+    step(sim, idle); // the deaths
+    decideNow(sim);
     expect(sim.captain.mode).toBe(SKY_MODE_DEFEND);
     expect(sim.captain.move).toBe(sim.avatarId[0]);
     expect(sim.captain.fly).toBe(SKY_ENGAGE);
+    const five = wardenSim(8, 5, LA_CANTINA_ID);
+    step(five, idle);
+    thinRing(five, 5);
+    step(five, idle);
+    decideNow(five);
+    expect(five.captain.mode).toBe(SKY_MODE_ROAM);
+    // district-01's ring is 4: it defends from the start.
+    const d01 = wardenSim(8, 5);
+    step(d01, idle);
+    expect(d01.captain.mode).toBe(SKY_MODE_DEFEND);
+  });
+
+  it("counts its outposts' plate turrets once they stand, never a captured neutral", () => {
+    const sim = wardenSim(8, 5, LA_CANTINA_ID);
+    step(sim, idle);
+    thinRing(sim, 4);
+    step(sim, idle);
+    // Three neutral turrets it captured: type 36, not counted.
+    let taken = 0;
+    for (let k = 0; k < sim.neutralTurretEntity.length && taken < 3; k++) {
+      const tid = sim.neutralTurretEntity[k];
+      if (tid < 0 || sim.ent.ownerId[tid] >= 0) continue;
+      sim.ent.team[tid] = 1;
+      sim.ent.ownerId[tid] = 1;
+      taken += 1;
+    }
+    decideNow(sim);
+    expect(sim.captain.mode).toBe(SKY_MODE_DEFEND);
+    // An owned outpost's two plate turrets stand from its claim's spawner pass:
+    // 4 + 2 = 6 team turrets, 12.
+    sim.points[1] = COST_OUTPOST_CLAIM;
+    expect(claimOutpostSlot(sim, 1, 0)).toBe(true);
+    step(sim, idle);
+    decideNow(sim);
+    expect(sim.captain.mode).toBe(SKY_MODE_ROAM);
   });
 
   it("defends home against an enemy tank within 64 m, aiming once inside 12 m", () => {
@@ -220,18 +284,14 @@ describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
     expect(sim.captain.aim).toBe(tank);
   });
 
-  it("roams with ten turrets: claims outposts and buys a Dreadnought from its points", () => {
-    // An owned outpost's two plate turrets stand from the spawner pass after its
-    // claim: 8 ring + 2 = 10 own turrets at the next decision.
+  it("roams from the start: claims outposts and buys a Dreadnought from its points", () => {
+    // la-cantina's 8 ring turrets count 16 >= 10. The player holds outposts 0-2,
+    // so one is left to claim.
     const sim = wardenSim(8, 5, LA_CANTINA_ID);
-    sim.points[1] = COST_OUTPOST_CLAIM;
-    expect(claimOutpostSlot(sim, 1, 0)).toBe(true);
-    step(sim, idle); // the first decision: defend, the plate turrets not up yet
-    // The player holds outposts 1 and 2, so one is left to claim.
+    sim.outpostOwner[0] = 0;
     sim.outpostOwner[1] = 0;
     sim.outpostOwner[2] = 0;
     sim.points[1] = 85;
-    sim.captain.think = 0; // decide on the next tick
     let claims = 0;
     let dreads = 0;
     step(sim, idle);
@@ -257,11 +317,6 @@ describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
 
   it("attacks — escorts — once its Dreadnought nears the player's base", () => {
     const sim = wardenSim(8, 5, LA_CANTINA_ID);
-    sim.points[1] = 2 * COST_OUTPOST_CLAIM;
-    claimOutpostSlot(sim, 1, 0);
-    claimOutpostSlot(sim, 1, 1);
-    step(sim, idle); // the plate turrets stand: 8 + 4 own turrets
-    sim.captain.think = 0;
     const pbase = LC.spawns[0];
     const dread = spawnUnit(sim, ARCHETYPE.JUGGERNAUT, 1, pbase.x, pbase.y + 30);
     sim.ent.timerA[dread] = -1;

@@ -1124,8 +1124,23 @@ export const SKY_NEAR_DREAD = 0x78000 / 8192; //      own Dreadnought, from it: 
 export const SKY_FAR_TANK = 0x80000 / 8192; //        enemy tank, from home: 64 m
 export const SKY_FAR_DREAD = 0x90000 / 8192; //       enemy Dreadnought, from home: 72 m
 export const SKY_TURRET_COUNT = 0x200000 / 8192; //   own turrets counted within 256 m
-/** Fewer own turrets than this (8 base + 2 per owned outpost) promotes to defend. */
+/**
+ * A count of own team turrets below this promotes to defend (0x00421d1c `cmp
+ * ecx, 0xa`). Each live team turret counts SKY_TURRET_PARTS times, so the
+ * captain defends while fewer than 5 of its team turrets (ring + owned outpost
+ * plates) stand: 16 at the start on Mp/Conft/Ovmp, 12 on Slim/Joke/Hk
+ * (fcop-re/outposts.md Q2). Was read as "8 base + 2 per owned outpost" counted
+ * once, which never reached ten.
+ */
 export const SKY_TURRETS_SAFE = 10;
+/**
+ * Every type-8 turret is two type-8 actors in the original's live list: the
+ * turret and its base part, built by `turret_construct` from the same tACT
+ * record (0x0041c08e -> `cact_create`; the part's construct writes type 8 and
+ * the record's team, 0x0041a5b0 / 0x0041a59d). The scan counts both
+ * (fcop-re/outposts.md Q2, [A]).
+ */
+export const SKY_TURRET_PARTS = 2;
 /** A Dreadnought near the player's base is worth 10, a tank 1; 2 means attack. */
 export const SKY_SCORE_ATTACK = 2;
 /** Mode 1's detour to a neutral turret while escorting: within 0x10000 wu = 8 m. */

@@ -701,8 +701,14 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
   });
 
   it("the Warden claims by a decision, never by flying over an outpost", () => {
+    // Defending (an enemy tank parked at its home), it claims nothing, even
+    // hovering on a claim zone with the points.
     const state = createSim(map, 1, { wardenPlayer: 1, wardenDifficulty: 8 });
     const w = state.avatarId[1];
+    const home = map.spawns[1];
+    const tank = spawnUnit(state, ARCHETYPE.RUNNER, 0, home.x + 6, home.y);
+    state.ent.timerA[tank] = -1;
+    state.ent.hp[tank] = 1e6;
     const spot = map.outpostSpots[1];
     state.points[1] = 40;
     for (let t = 0; t < 10; t++) {
@@ -710,7 +716,17 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
       state.ent.posY[w] = spot.y;
       step(state, idle);
     }
+    expect(state.captain.mode).toBe(2); // SKY_MODE_DEFEND
     expect(state.outpostOwner[1]).toBe(-1);
+    // Roaming, it claims on its first decision from its spawn, far from any zone
+    // (its construct's order: 3, 2, 1, 0 or 1, 0, 3, 2).
+    const roam = createSim(map, 1, { wardenPlayer: 1, wardenDifficulty: 8 });
+    roam.points[1] = 40;
+    step(roam, idle);
+    let owned = 0;
+    for (let k = 0; k < 4; k++) if (roam.outpostOwner[k] === 1) owned += 1;
+    expect(owned).toBe(1);
+    expect(roam.points[1]).toBe(10);
   });
 });
 

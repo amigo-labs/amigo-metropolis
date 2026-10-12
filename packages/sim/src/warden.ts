@@ -76,6 +76,7 @@ import {
   SKY_STANDOFF,
   SKY_TANK_QUEUE_TICKS,
   SKY_TURRET_COUNT,
+  SKY_TURRET_PARTS,
   SKY_TURRETS_SAFE,
   SKY_UNIT_CAP,
   skyMaxHp,
@@ -484,7 +485,8 @@ function groupOf(state: SimState, t: number): number {
  * - its own units from the player's base: a tank within 52 m (+1 score), its
  *   Dreadnought within 60 m (+10), its Fortress anywhere;
  * - the rest from home: an enemy tank within 64 m, an enemy Dreadnought within
- *   72 m, and a count of its own turrets within 256 m;
+ *   72 m, and a count of its own team turrets within 256 m, two per turret (its
+ *   base part is a second type-8 actor);
  * - the same rest from itself, with (9 - L) * 0.5 m added: the player's mech, an
  *   enemy tank, Dreadnought, jet, Fortress, a turret the player captured, and a
  *   neutral turret (this slot drifts by rand 0..0x3fff wu per losing candidate).
@@ -556,7 +558,9 @@ function scanAll(state: SimState, id: number, level: number): void {
           s.far5D = d;
         }
       } else if (type === 8) {
-        if (group === me && d < SKY_TURRET_COUNT) s.ownTurrets += 1;
+        // A team turret and its base part are both type 8: two to the count. A
+        // turret captured from neutral is type 36 and never counts.
+        if (group === me && d < SKY_TURRET_COUNT) s.ownTurrets += SKY_TURRET_PARTS;
       } else if (type === 28) {
         if (d <= SKY_FAR_DREAD && (s.far28 < 0 || s.far28D > d)) {
           s.far28 = t;

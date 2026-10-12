@@ -408,10 +408,13 @@ ladder of defend / buy / push / suppress / capture / escort / harass).
   established: they fly at Metropolis' 25 m/s, the bomb flat.
 - **Deciding.** On every rethink it scans the field from three places — its home
   (its spawn), the player's base, itself — and picks a mode:
-  - **defend** (it starts here) whenever an enemy tank or Juggernaut is near home
-    (64 / 72 m), or while it owns fewer than **ten turrets** near home (8 base + 2
-    per owned outpost in the original). It engages that unit, or with none it
-    flies at the player;
+  - **defend** (it is built in this mode) whenever an enemy tank or Juggernaut is
+    near home (64 / 72 m), or while it owns fewer than **five team turrets**: its
+    scan counts each live team turret within 256 m of home (the whole arena)
+    **twice** — the original's turret is two type-8 actors, the turret and its
+    base part (`fcop-re/outposts.md` Q2) — against a threshold of ten. Its ring
+    and its outposts' plate turrets count; neutral turrets it captured never do.
+    It engages that unit, or with none it flies at the player;
   - **attack** with its own Juggernaut (or tank) near the player's base: it escorts it;
   - **roam** otherwise: a badly hurt player within 40 m, then an enemy Juggernaut
     (40 m), tank (32 m), a neutral turret to capture (48 m), a jet (24 m), a turret
@@ -437,18 +440,21 @@ ladder of defend / buy / push / suppress / capture / escort / harass).
   outpost claims; attacking, outpost Runners and Guardians; roaming, a Juggernaut
   and Runners at its outposts and its base.
 
-**What this means on Metropolis' arenas (measured).** No arena gives the captain
-ten turrets: the rings are 4 (district-01) to 9 and Metropolis' outposts carry no
-turret plates (`fcop-fidelity.md` R14), and claiming one needs a mode it never
-reaches. So it defends for the whole match, chasing the player and capturing the
-pads it flies over; its points (from downing the player) go to Guardians and a
-Fortress. Its **opening order is its offence**: on the imported arenas those
-Runners are the original's route followers and break an idle player's gate in
-52–111 s on 17 of 20 seeds at difficulty 8; at difficulty 1 (level 0, no opening
-order) it never breaches. On district-01 its Runners halt at the first ring
-turret (§4) and die, and it does not breach. Whether the original's arenas ever
-give it ten turrets is open in the RE; importing the original outposts (R14) is
-where that question lands.
+**What this means on Metropolis' arenas (measured, SIM_VERSION 49).** On the
+imported arenas its ring of 8 (6) counts 16 (12), so it leaves defend at its first
+decision and roams: it captures pads, claims outposts (their plate turrets then
+add 4 each), buys a Juggernaut with 50 and stocks Runners at its outposts and base,
+and attacks behind them once they near the player's base. It falls back to defend
+when an enemy tank comes near home or its turrets fall below five. Against an idle
+player (4 arenas × 5 seeds, 15 min) every match resolves at difficulties 1 and 5,
+17 of 20 at 8 (urban-jungle 2 of 5) and 7 of 20 at 10 (level 9 stocks no
+Runners): an idle player is never downed, so once the pads in reach are taken and
+an outpost is claimed its income stops (`tools/balance/src/paResolve.ts`; the numbers are in the
+ledger's U3 row). On district-01 its ring of 4 counts 8: it defends all match,
+chasing the player; its Runners (the opening order) halt at the first ring turret
+(§4) and die, and it does not breach. SIM_VERSION 46-48 counted each turret once
+(the earlier "8 base + 2 per outpost" reading), which kept it in defend on every
+arena.
 
 The Warden flies over terrain and walls; walls stop its shots at emplacements and
 avatars but not at ground units below it (it flies above the lattice).
