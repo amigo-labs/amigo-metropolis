@@ -10,7 +10,6 @@ import { ARCHETYPE } from "../src/archetypes";
 import {
   ARCHETYPE_RADIUS,
   AVATAR_HP,
-  CONSOLE_HOLD_TICKS,
   COST_RUNNER,
   DREADNOUGHT_GUN_DAMAGE,
   MATCH_OUTRO_TICKS,
@@ -642,26 +641,28 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     expect(state.outpostOwner[0]).toBe(0);
     const o = map.outposts[0];
     const buy = createTickInputs();
-    buy.players[0].buttons = BUTTON_INTERACT;
     const a = state.avatarId[0];
-    const holdAt = (x: number, y: number): number => {
-      for (let t = 0; t < 2 * CONSOLE_HOLD_TICKS; t++) {
+    /** One press on the pad (released, then down): the unit it bought, or -1. */
+    const pressPad = (x: number, y: number): number => {
+      let bought = -1;
+      for (const buttons of [0, BUTTON_INTERACT]) {
+        buy.players[0].buttons = buttons;
         ent.posX[a] = x;
         ent.posY[a] = y;
         ent.height[a] = resolveHeight(map, x, y, 0);
         step(state, buy);
         for (let i = 0; i < state.events.count; i++) {
           const e = i * EVENT_STRIDE;
-          if (state.events.data[e] === EV_PURCHASE) return state.events.data[e + 1];
+          if (state.events.data[e] === EV_PURCHASE) bought = state.events.data[e + 1];
         }
       }
-      return -1;
+      return bought;
     };
-    const tank = holdAt(o.tankPad.x, o.tankPad.y);
+    const tank = pressPad(o.tankPad.x, o.tankPad.y);
     expect(tank).toBeGreaterThanOrEqual(0);
     expect(ent.archetype[tank]).toBe(ARCHETYPE.RUNNER);
     expect(state.points[0]).toBe(20 - COST_RUNNER * OUTPOST_COST_MULTIPLIER);
-    const jet = holdAt(o.jetPad.x, o.jetPad.y);
+    const jet = pressPad(o.jetPad.x, o.jetPad.y);
     expect(jet).toBeGreaterThanOrEqual(0);
     expect(ent.archetype[jet]).toBe(ARCHETYPE.GUARDIAN);
     expect(ent.mode[jet]).toBe(1); // patrols outpost 0, the spawner it was built at
@@ -673,8 +674,8 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     pressAt(other, 0, map.outpostSpots[0].x, map.outpostSpots[0].y);
     const b = other.avatarId[1];
     const foeBuy = createTickInputs();
-    foeBuy.players[1].buttons = BUTTON_INTERACT;
-    for (let t = 0; t < 2 * CONSOLE_HOLD_TICKS; t++) {
+    for (let t = 0; t < 30; t++) {
+      foeBuy.players[1].buttons = t % 2 === 1 ? BUTTON_INTERACT : 0; // fifteen presses
       other.ent.posX[b] = o.tankPad.x;
       other.ent.posY[b] = o.tankPad.y;
       step(other, foeBuy);

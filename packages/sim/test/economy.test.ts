@@ -12,7 +12,6 @@ import {
   ARCHETYPE_RADIUS,
   AVATAR_HP,
   CAPTURE_RADIUS,
-  CONSOLE_HOLD_TICKS,
   COST_FORTRESS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -33,7 +32,13 @@ import {
   RUNNER_ALIVE_LIMIT,
   STARTING_POINTS,
 } from "../src/balance";
-import { EV_CAPTURE, EV_CLAIM, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
+import {
+  EV_CAPTURE,
+  EV_CLAIM,
+  EV_PURCHASE,
+  EV_PURCHASE_REFUSED,
+  EVENT_STRIDE,
+} from "../src/events";
 import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, type SimState, spawnUnit, step, TURRET_CAPTURABLE } from "../src/sim";
@@ -181,12 +186,16 @@ describe("income (fcop-fidelity.md R2-R7)", () => {
 });
 
 describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
-  function hold(sim: SimState, x: number, y: number, buttons: number, ticks: number): void {
+  /** `presses` presses of `buttons` at (x, y), each one tick down and one up. */
+  function press(sim: SimState, x: number, y: number, buttons: number, presses = 1): void {
     sim.ent.posX[0] = x;
     sim.ent.posY[0] = y;
-    inputs.players[0].buttons = buttons;
-    for (let t = 0; t < ticks; t++) step(sim, inputs);
-    inputs.players[0].buttons = 0;
+    for (let k = 0; k < presses; k++) {
+      inputs.players[0].buttons = buttons;
+      step(sim, inputs);
+      inputs.players[0].buttons = 0;
+      step(sim, inputs);
+    }
   }
 
   it("caps Runners and Guardians at 20 alive per side", () => {
@@ -196,9 +205,18 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     expect(GUARDIAN_ALIVE_LIMIT).toBe(20);
     for (let k = 0; k < RUNNER_ALIVE_LIMIT; k++) spawnUnit(sim, ARCHETYPE.RUNNER, 0, 6, 40);
     sim.points[0] = 100;
-    hold(sim, 6, 14, BUTTON_INTERACT, CONSOLE_HOLD_TICKS * 3);
-    expect(sim.points[0]).toBe(100); // the ground console refuses the 21st
-    hold(sim, 6, 22, BUTTON_INTERACT, CONSOLE_HOLD_TICKS);
+    sim.ent.posX[0] = 6;
+    sim.ent.posY[0] = 14;
+    inputs.players[0].buttons = BUTTON_INTERACT;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    expect(sim.points[0]).toBe(100); // the ground console refuses the 21st...
+    const refused = findEvents(sim, EV_PURCHASE_REFUSED);
+    expect(refused.length).toBe(1); // ...out loud, as the original's spot does
+    expect(refused[0][2]).toBe(ARCHETYPE.RUNNER);
+    press(sim, 6, 14, BUTTON_INTERACT, 3);
+    expect(sim.points[0]).toBe(100);
+    press(sim, 6, 22, BUTTON_INTERACT);
     expect(sim.points[0]).toBe(100 - COST_GUARDIAN); // the jet cap is separate
   });
 
@@ -216,11 +234,11 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     expect(sim.heavyUnlocked[1]).toBe(0); // per side
     // Spend below 50: the purchase stays open, and a second heavy can be bought
     // with the next 50 points.
-    hold(sim, 6, 14, BUTTON_INTERACT | BUTTON_FIRE2, CONSOLE_HOLD_TICKS + 1);
+    press(sim, 6, 14, BUTTON_INTERACT | BUTTON_FIRE2);
     expect(sim.points[0]).toBe(HEAVY_UNLOCK_POINTS - COST_JUGGERNAUT);
     expect(sim.heavyUnlocked[0]).toBe(1);
     sim.points[0] = COST_FORTRESS;
-    hold(sim, 6, 22, BUTTON_INTERACT | BUTTON_FIRE2, CONSOLE_HOLD_TICKS + 1);
+    press(sim, 6, 22, BUTTON_INTERACT | BUTTON_FIRE2);
     expect(sim.points[0]).toBe(0);
   });
 
@@ -234,8 +252,17 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     sim.ent.posY[0] = 14;
     inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2;
     step(sim, inputs);
-    expect(sim.buyTarget[0]).toBe(-1); // refused on the first tick
+    // The zone is still closed on the first tick: no purchase, and no refusal
+    // either (a closed zone does not answer)...
+    expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
+    expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
+    expect(sim.points[0]).toBe(HEAVY_UNLOCK_POINTS);
     expect(sim.heavyUnlocked[0]).toBe(1); // ...and open from the next
+    inputs.players[0].buttons = 0;
+    step(sim, inputs);
+    inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2;
+    step(sim, inputs);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
     inputs.players[0].buttons = 0;
   });
 });
@@ -446,8 +473,10 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     const sim = freshSim();
     sim.points[0] = COST_OUTPOST_CLAIM - 1;
     for (let t = 0; t < 30; t++) claim(sim, 0);
-    expect(sim.outpostOwner[0]).toBe(-1); // too poor: nothing happens
+    expect(sim.outpostOwner[0]).toBe(-1); // too poor: refused
     expect(sim.points[0]).toBe(COST_OUTPOST_CLAIM - 1);
+    // The press is answered with the refuse sound (c = -1: a claim).
+    expect(findEvents(sim, EV_PURCHASE_REFUSED)).toEqual([[sim.avatarId[0], 0, -1]]);
     sim.points[0] = COST_OUTPOST_CLAIM;
     stand(sim, 0);
     expect(sim.outpostOwner[0]).toBe(-1); // the points alone claim nothing
@@ -464,25 +493,24 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     sim.points[0] = 60;
     claim(sim, 0);
     const afterClaim = sim.points[0];
-    // Runner at 2× cost, spawned AT the outpost, joining the nearest lane.
+    // Runner at 2× cost, spawned AT the outpost, joining the nearest lane: one
+    // press, one unit (the claim's press was its own: a press that claims buys
+    // nothing, so this is the next one).
+    step(sim, inputs); // released
     inputs.players[0].buttons = BUTTON_INTERACT;
-    let bought: number[][] = [];
-    for (let t = 0; t < CONSOLE_HOLD_TICKS && bought.length === 0; t++) {
-      step(sim, inputs);
-      bought = findEvents(sim, EV_PURCHASE);
-    }
+    step(sim, inputs);
+    let bought = findEvents(sim, EV_PURCHASE);
     expect(bought.length).toBe(1);
     expect(bought[0][2]).toBe(ARCHETYPE.RUNNER);
     expect(sim.points[0]).toBe(afterClaim - COST_RUNNER * OUTPOST_COST_MULTIPLIER);
     const rid = bought[0][0];
     expect(Math.hypot(sim.ent.posX[rid] - 30, sim.ent.posY[rid] - 46)).toBeLessThan(8);
     // FIRE2 orders the air unit — it leaves in ASSAULT mode (spawn-site switch).
+    inputs.players[0].buttons = 0;
+    step(sim, inputs);
     inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2;
-    bought = [];
-    for (let t = 0; t < CONSOLE_HOLD_TICKS + 1 && bought.length === 0; t++) {
-      step(sim, inputs);
-      bought = findEvents(sim, EV_PURCHASE);
-    }
+    step(sim, inputs);
+    bought = findEvents(sim, EV_PURCHASE);
     expect(bought.length).toBe(1);
     expect(bought[0][2]).toBe(ARCHETYPE.GUARDIAN);
     expect(sim.ent.mode[bought[0][0]]).toBe(UNIT_MODE_ASSAULT);

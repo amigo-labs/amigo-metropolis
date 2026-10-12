@@ -41,7 +41,9 @@ import { createSim, step } from "../src/sim";
 // first and fought player 1 inside it for ~40 s). Player 1 now walks out to the
 // outpost to be put down (three times, for the wave's points too), and the ring's
 // north pair is cleared just before the wave is bought.
-const BREACH_TICK_PIN = 5640;
+// 5640 -> 5602 at SIM_VERSION 51: a Runner per key press, so the wave of six is
+// bought in 26 ticks instead of 90 (one per completed 0.5 s hold).
+const BREACH_TICK_PIN = 5602;
 
 describe("golden-03-match beats", () => {
   it("avatar snipe, outpost claim, forward wave, breach on the pinned tick", () => {

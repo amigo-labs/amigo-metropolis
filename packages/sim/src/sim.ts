@@ -24,7 +24,6 @@ import {
   BASE_TURRET_RESPAWN_TICKS,
   CAPTURE_RADIUS,
   CLOAK_DISARM_RADIUS,
-  CONSOLE_HOLD_TICKS,
   CONSOLE_RADIUS,
   COST_FORTRESS,
   COST_GUARDIAN,
@@ -160,6 +159,7 @@ import {
   EV_HIT,
   EV_PICKUP,
   EV_PURCHASE,
+  EV_PURCHASE_REFUSED,
   EV_RESPAWN,
   EV_SHOT,
   EV_TRANSFORM,
@@ -335,9 +335,6 @@ export interface SimState {
   readonly outpostOwner: Int8Array;
   readonly outpostConsole: Int32Array;
   readonly outpostRespawn: Int32Array;
-  /** Hold-to-buy per player: encoded console target (-1 none) + held ticks. */
-  readonly buyTarget: Int32Array;
-  readonly buyProgress: Int32Array;
   /**
    * The X1-Alpha's lock per player (-1 none): the original's view+0x6c, held,
    * cycled and auto-acquired in-sim (`updateLock`). Hitscan guns damage only it.
@@ -762,12 +759,10 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     outpostOwner: new Int8Array(map.outpostSpots.length).fill(-1),
     outpostConsole: new Int32Array(map.outpostSpots.length).fill(-1),
     outpostRespawn: new Int32Array(map.outpostSpots.length),
-    buyTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     lockTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     lockSteer: new Uint8Array(MAX_PLAYERS),
     gunAmmo: new Uint16Array(MAX_PLAYERS),
     burstLeft: new Uint8Array(MAX_PLAYERS * 3),
-    buyProgress: new Int32Array(MAX_PLAYERS),
     loadoutGun: new Uint8Array(MAX_PLAYERS),
     loadoutHeavy: new Uint8Array(MAX_PLAYERS),
     loadoutSpecial: new Uint8Array(MAX_PLAYERS),
@@ -1327,7 +1322,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub. They
     // fire through a transformation (fcop-fidelity.md P3).
     avatarWeapons(state, p, id, input.buttons, pressed);
-    // Hold-to-buy at consoles (rules.md §3): runs every tick, holds decay.
+    // Purchases (rules.md §3): one unit per press of the action key on a spot.
     systemBuy(state, p, id, input.buttons);
   }
 }
@@ -1486,7 +1481,8 @@ function touchesZone(
  * the spot, no hold. The original's zone carries the op-10 gate bit 0x04, which
  * refuses a player whose button latch is not pressed this frame
  * (fcop-re/outposts.md Q3), so entering is not enough. -30, first come first
- * served. Returns true when it claimed.
+ * served. Returns true when the press was the zone's: claimed, or refused for want of
+ * the points (EV_PURCHASE_REFUSED, the original's refuse sound).
  *
  * The zone watches a player's own avatar. The Warden never touches it: the
  * original's Sky Captain claims by a decision (its dispatch writes the outpost's
@@ -1494,13 +1490,18 @@ function touchesZone(
  */
 export function claimOutpost(state: SimState, player: number, id: number): boolean {
   if (state.capturePress[player] !== 1) return false;
-  if (state.points[player] < COST_OUTPOST_CLAIM) return false;
   const map = state.map;
   const spots = map.outpostSpots;
   for (let k = 0; k < spots.length; k++) {
     if (state.outpostOwner[k] !== -1 || state.outpostConsole[k] < 0) continue;
     const zone = map.outposts.length > 0 ? map.outposts[k].zone : 0;
     if (!touchesZone(state, id, spots[k].x, spots[k].y, spots[k].layer, zone)) continue;
+    if (state.points[player] < COST_OUTPOST_CLAIM) {
+      // "With fewer, the press is refused" (fcop-re/outposts.md Q3): the refuse
+      // sound, c = -1 for a claim.
+      pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, -1);
+      return true;
+    }
     return claimOutpostSlot(state, player, k);
   }
   return false;
@@ -1554,26 +1555,30 @@ export function claimOutpostSlot(state: SimState, player: number, k: number): bo
 }
 
 /**
- * Console purchases. First the outpost claim zones (claimOutpost: the action
- * key pressed inside one with the points). Then hold-to-buy (rules.md §3):
- * standing on a console pad with INTERACT held buys one unit per completed
- * CONSOLE_HOLD_TICKS hold. Switching consoles, toggling the FIRE2 heavy
- * modifier, releasing the button, running out of points or hitting an
- * alive-limit all reset the hold. FIRE2 orders the heavy variant at base
- * consoles and the (assault) air unit at Metropolis' outpost consoles; an
- * imported arena's outposts have a tank pad and a jet pad instead. Exported for the Warden, which buys through the exact same rules with
- * synthesized buttons (rules.md §7: same rules and economy as a player).
+ * Purchases, the original's way (fcop-fidelity.md R17; fcop-re/ai-and-rules.md
+ * §2/§3): there is no menu and no hold — every purchase spot is a trigger that
+ * answers the action key on the frame it goes down (capturePress, the same
+ * rising edge as a capture or a claim), ONE unit per press. First the outpost
+ * claim zones (claimOutpost); a press that claims buys nothing more. Then the
+ * spot the avatar stands on: base consoles (FIRE2 held orders the heavy variant,
+ * Metropolis' stand-in for the original's separate Dreadnought and Fortress
+ * zones), an imported outpost's tank and jet pads, Metropolis' outpost consoles
+ * (FIRE2 for the Guardian). A press the spot refuses — the points are short, or
+ * the side already has 20 of that unit alive — answers with EV_PURCHASE_REFUSED,
+ * the original's refuse sound; an accepted one with EV_PURCHASE. A heavy zone
+ * that is still locked (R10) or whose unit is alive is closed, as the original's
+ * is, and stays silent.
  */
 export function systemBuy(state: SimState, player: number, id: number, buttons: number): void {
   const ent = state.ent;
   const map = state.map;
-  if (player !== state.wardenPlayer) claimOutpost(state, player, id);
+  if (state.capturePress[player] !== 1) return;
+  if (claimOutpost(state, player, id)) return;
   const r2 = CONSOLE_RADIUS * CONSOLE_RADIUS;
   const heavy = (buttons & BUTTON_FIRE2) !== 0 ? 1 : 0;
   const x = ent.posX[id];
   const y = ent.posY[id];
 
-  let target = -1;
   let cost = 0;
   let archetype = -1;
   let spawnX = 0;
@@ -1582,108 +1587,89 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
   let mode = UNIT_MODE_PATROL;
   let forward = false;
 
-  if ((buttons & BUTTON_INTERACT) !== 0) {
-    const base = map.bases[player];
-    const gdx = x - base.groundConsole.x;
-    const gdy = y - base.groundConsole.y;
-    const adx = x - base.airConsole.x;
-    const ady = y - base.airConsole.y;
-    if (gdx * gdx + gdy * gdy <= r2) {
-      target = 256 + heavy;
-      archetype = heavy ? ARCHETYPE.JUGGERNAUT : ARCHETYPE.RUNNER;
-      cost = heavy ? COST_JUGGERNAUT : COST_RUNNER;
-      spawnX = base.groundConsole.x;
-      spawnY = base.groundConsole.y;
-      spawnLayer = base.groundConsole.layer;
-      // The original's Dreadnought rolls out of its own spawner at node 0 of its
-      // Cnet by the HQ, not at the purchase pad (fcop-re/ranges-turrets-capture.md
-      // top). The console is where it is bought; this is where it appears.
-      const dread = base.juggernaut;
-      if (heavy && dread !== undefined) {
-        spawnX = dread.x;
-        spawnY = dread.y;
-        spawnLayer = dread.layer;
+  const base = map.bases[player];
+  const gdx = x - base.groundConsole.x;
+  const gdy = y - base.groundConsole.y;
+  const adx = x - base.airConsole.x;
+  const ady = y - base.airConsole.y;
+  if (gdx * gdx + gdy * gdy <= r2) {
+    archetype = heavy ? ARCHETYPE.JUGGERNAUT : ARCHETYPE.RUNNER;
+    cost = heavy ? COST_JUGGERNAUT : COST_RUNNER;
+    spawnX = base.groundConsole.x;
+    spawnY = base.groundConsole.y;
+    spawnLayer = base.groundConsole.layer;
+    // The original's Dreadnought rolls out of its own spawner at node 0 of its
+    // Cnet by the HQ, not at the purchase pad (fcop-re/ranges-turrets-capture.md
+    // top). The console is where it is bought; this is where it appears.
+    const dread = base.juggernaut;
+    if (heavy && dread !== undefined) {
+      spawnX = dread.x;
+      spawnY = dread.y;
+      spawnLayer = dread.layer;
+    }
+  } else if (adx * adx + ady * ady <= r2) {
+    archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
+    cost = heavy ? COST_FORTRESS : COST_GUARDIAN;
+    spawnX = base.airConsole.x;
+    spawnY = base.airConsole.y;
+    spawnLayer = base.airConsole.layer;
+  } else if (map.outposts.length > 0) {
+    // The original's outpost pads (fcop-re/outposts.md Q3): a tank pad and a jet
+    // pad per outpost, its owner's only, 2 points a unit. The unit leaves from
+    // the pad; a jet patrols the outpost it was built at (mode 1 + k).
+    for (let k = 0; k < map.outposts.length; k++) {
+      if (state.outpostOwner[k] !== player) continue;
+      const o = map.outposts[k];
+      const jet = touchesZone(state, id, o.jetPad.x, o.jetPad.y, o.jetPad.layer, o.zone);
+      if (!jet && !touchesZone(state, id, o.tankPad.x, o.tankPad.y, o.tankPad.layer, o.zone)) {
+        continue;
       }
-    } else if (adx * adx + ady * ady <= r2) {
-      target = 512 + heavy;
-      archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
-      cost = heavy ? COST_FORTRESS : COST_GUARDIAN;
-      spawnX = base.airConsole.x;
-      spawnY = base.airConsole.y;
-      spawnLayer = base.airConsole.layer;
-    } else if (map.outposts.length > 0) {
-      // The original's outpost pads (fcop-re/outposts.md Q3): a tank pad and a jet
-      // pad per outpost, its owner's only, 2 points a unit. The unit leaves from
-      // the pad; a jet patrols the outpost it was built at (mode 1 + k).
-      for (let k = 0; k < map.outposts.length; k++) {
-        if (state.outpostOwner[k] !== player) continue;
-        const o = map.outposts[k];
-        const jet = touchesZone(state, id, o.jetPad.x, o.jetPad.y, o.jetPad.layer, o.zone);
-        if (!jet && !touchesZone(state, id, o.tankPad.x, o.tankPad.y, o.tankPad.layer, o.zone)) {
-          continue;
-        }
-        const pad = jet ? o.jetPad : o.tankPad;
-        target = 768 + k * 2 + (jet ? 1 : 0);
-        archetype = jet ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
-        cost = (jet ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
-        spawnX = pad.x;
-        spawnY = pad.y;
-        spawnLayer = pad.layer;
-        mode = jet ? 1 + k : UNIT_MODE_PATROL;
+      const pad = jet ? o.jetPad : o.tankPad;
+      archetype = jet ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
+      cost = (jet ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
+      spawnX = pad.x;
+      spawnY = pad.y;
+      spawnLayer = pad.layer;
+      mode = jet ? 1 + k : UNIT_MODE_PATROL;
+      forward = true;
+      break;
+    }
+  } else {
+    for (let k = 0; k < map.outpostSpots.length; k++) {
+      const s = map.outpostSpots[k];
+      const dx = x - s.x;
+      const dy = y - s.y;
+      if (dx * dx + dy * dy > r2) continue;
+      const owner = state.outpostOwner[k];
+      if (owner === player) {
+        // Forward spawn at 2× cost (rules.md §3); guardians leave in
+        // assault mode — the outpost spawn-site switch (rules.md §4). On a PA
+        // arena a Guardian is the original's jet and patrols the spawner it
+        // was built at: mode 1 + k names outpost k (units.ts moveAircraft).
+        archetype = heavy ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
+        cost = (heavy ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
+        spawnX = s.x;
+        spawnY = s.y;
+        spawnLayer = s.layer;
+        mode = heavy ? (isPrecinctAssault(map) ? 1 + k : UNIT_MODE_ASSAULT) : UNIT_MODE_PATROL;
         forward = true;
-        break;
       }
-    } else {
-      for (let k = 0; k < map.outpostSpots.length; k++) {
-        const s = map.outpostSpots[k];
-        const dx = x - s.x;
-        const dy = y - s.y;
-        if (dx * dx + dy * dy > r2) continue;
-        const owner = state.outpostOwner[k];
-        if (owner === player) {
-          // Forward spawn at 2× cost (rules.md §3); guardians leave in
-          // assault mode — the outpost spawn-site switch (rules.md §4). On a PA
-          // arena a Guardian is the original's jet and patrols the spawner it
-          // was built at: mode 1 + k names outpost k (units.ts moveAircraft).
-          target = 768 + k * 2 + heavy;
-          archetype = heavy ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
-          cost = (heavy ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
-          spawnX = s.x;
-          spawnY = s.y;
-          spawnLayer = s.layer;
-          mode = heavy ? (isPrecinctAssault(map) ? 1 + k : UNIT_MODE_ASSAULT) : UNIT_MODE_PATROL;
-          forward = true;
-        }
-        break;
-      }
+      break;
     }
   }
 
-  // Affordability, the heavy-unit unlock and the alive caps gate the hold itself
-  // (fcop-fidelity.md R9, R10): 20 Runners and 20 Guardians per side, base and
-  // outpost purchases alike; one Juggernaut and one Fortress, and those two only
-  // once the side has reached 50 points.
-  if (target >= 0) {
-    if (state.points[player] < cost) {
-      target = -1;
-    } else if (archetype >= 0) {
-      const heavy = archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS;
-      if (heavy && state.heavyUnlocked[player] === 0) {
-        target = -1;
-      } else if (countAliveOfArchetype(state, archetype, player) >= aliveLimit(archetype)) {
-        target = -1;
-      }
-    }
-  }
+  if (archetype < 0) return; // not on a purchase spot: the press is not a purchase
 
-  if (state.buyTarget[player] !== target) {
-    state.buyTarget[player] = target;
-    state.buyProgress[player] = 0;
+  // The spot's own gates (fcop-fidelity.md R9, R10): a heavy zone opens the first
+  // time the side holds 50 and closes while its unit lives (silent); the points
+  // and the 20-alive cap of tanks and jets are refused out loud.
+  const isHeavy = archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS;
+  const alive = countAliveOfArchetype(state, archetype, player);
+  if (isHeavy && (state.heavyUnlocked[player] === 0 || alive >= aliveLimit(archetype))) return;
+  if (state.points[player] < cost || alive >= aliveLimit(archetype)) {
+    pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
+    return;
   }
-  if (target < 0) return;
-  state.buyProgress[player] += 1;
-  if (state.buyProgress[player] < CONSOLE_HOLD_TICKS) return;
-  state.buyProgress[player] = 0; // per-unit hold: the next unit starts fresh
 
   state.points[player] -= cost;
   const uid = spawnUnit(state, archetype, player, spawnX, spawnY, mode, forward, spawnLayer);
@@ -1691,6 +1677,7 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
     pushEvent(state.events, EV_PURCHASE, uid, player, archetype);
   } else {
     state.points[player] += cost; // entity cap hit: refund, nothing spawned
+    pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
   }
 }
 
@@ -3217,9 +3204,7 @@ function systemDamageDeath(state: SimState): void {
       // timers are NOT cleared: the original keeps counting them down while the
       // mech is down (fcop-re/player-and-weapons.md §1).
       for (let k = 0; k < 3; k++) state.powerAmmo[player * 3 + k] = 0;
-      state.buyTarget[player] = -1; // death drops any buy hold
-      state.buyProgress[player] = 0;
-      state.lockTarget[player] = -1; // and any lock
+      state.lockTarget[player] = -1; // death drops any lock
       state.lockSteer[player] = 0;
     } else if (archetype === ARCHETYPE.TURRET) {
       let slotted = false;
@@ -3672,8 +3657,6 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.points[p] >>> 0);
     h = fnv1aU32(h, state.heavyUnlocked[p]);
     h = fnv1aU32(h, state.laneCounter[p]);
-    h = fnv1aU32(h, state.buyTarget[p] >>> 0);
-    h = fnv1aU32(h, state.buyProgress[p] >>> 0);
     h = fnv1aU32(h, state.lockTarget[p] >>> 0);
   }
   for (let k = 0; k < state.dummyEntity.length; k++) {
@@ -3782,7 +3765,7 @@ export function hash(state: SimState): number {
  */
 export const MATCH_SNAPSHOT_HEADER = 6;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
-export const MATCH_SNAPSHOT_SLOT_STRIDE = 12;
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 11;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
 
 /** Header fields. */
@@ -3805,20 +3788,21 @@ export const MATCH_SLOT_RESPAWN_TICKS = 5;
 export const MATCH_SLOT_OUTPOSTS = 6;
 /** Units alive for this slot (RUNNER..FORTRESS), for the readout column. */
 export const MATCH_SLOT_UNITS = 7;
-/** Console hold-to-buy progress 0..1, or -1 when the slot is not buying. */
-export const MATCH_SLOT_BUY_FRAC = 8;
 /** The Gun slot's magazine (finite since SIM_VERSION 41: the original's records). */
-export const MATCH_SLOT_AMMO_GUN = 9;
+export const MATCH_SLOT_AMMO_GUN = 8;
 /** The X1-Alpha's lock: the locked entity id, -1 for none (fcop-fidelity.md W2). */
-export const MATCH_SLOT_LOCK = 10;
+export const MATCH_SLOT_LOCK = 9;
 /**
  * Powered slots, a bit each (1 gun, 2 heavy, 4 special): the slot fires its block
  * B, and its ammo field above counts the block-B magazine (fcop-fidelity.md P8).
  */
-export const MATCH_SLOT_POWER = 11;
+export const MATCH_SLOT_POWER = 10;
 // Slot field 9 was MATCH_SLOT_CAPTURE_FRAC, retired with the 3 s capture timer
 // (SIM_VERSION 34): the original captures instantly on a key press. Slot field 10
 // was MATCH_SLOT_CORE_FRAC, retired with the destructible core (SIM_VERSION 32).
+// Slot field 8 was MATCH_SLOT_BUY_FRAC, the hold-to-buy progress, retired with the
+// hold (SIM_VERSION 51): the original sells one unit per key press, so there is
+// nothing to fill; the fields after it moved down one.
 
 /** Byte offset of slot `s`'s block. */
 export function matchSlotOffset(slot: number): number {
@@ -3854,8 +3838,6 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     out[o + MATCH_SLOT_RESPAWN_TICKS] = a >= 0 ? 0 : state.respawnTimer[slot];
     out[o + MATCH_SLOT_OUTPOSTS] = 0;
     out[o + MATCH_SLOT_UNITS] = 0;
-    out[o + MATCH_SLOT_BUY_FRAC] =
-      state.buyTarget[slot] >= 0 ? state.buyProgress[slot] / CONSOLE_HOLD_TICKS : -1;
     out[o + MATCH_SLOT_AMMO_GUN] =
       a >= 0 ? (state.powerAmmo[pk] > 0 ? state.powerAmmo[pk] : state.gunAmmo[slot]) : 0;
     out[o + MATCH_SLOT_POWER] =

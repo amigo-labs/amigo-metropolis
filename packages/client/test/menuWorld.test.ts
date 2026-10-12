@@ -19,10 +19,15 @@ describe("demoFeeder", () => {
     demoFeeder(1, 75, out);
     expect(out.moveX).toBe(40);
     expect(out.moveY).toBe(120);
-    // After the walk: 10 s INTERACT bursts, 20 s pauses (900-tick cycle).
+    // After the walk: 10 s bursts of one press every 0.5 s (a purchase is a
+    // press, not a hold), 20 s pauses (900-tick cycle).
     demoFeeder(1, 76, out);
+    expect(out).toEqual({ moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: 0 });
+    demoFeeder(1, 90, out);
     expect(out).toEqual({ moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: BUTTON_INTERACT });
-    demoFeeder(1, 900 + 299, out);
+    demoFeeder(1, 91, out);
+    expect(out.buttons).toBe(0); // released: the next press is a new edge
+    demoFeeder(1, 900 + 285, out);
     expect(out.buttons).toBe(BUTTON_INTERACT);
     demoFeeder(1, 900 + 300, out);
     expect(out.buttons).toBe(0);

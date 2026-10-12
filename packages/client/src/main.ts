@@ -21,7 +21,6 @@ import {
   ANIM_HOVER,
   ANIM_TRANSFORMING,
   ARCHETYPE,
-  CONSOLE_HOLD_TICKS,
   createSim,
   createTickInputs,
   EV_CAPTURE,
@@ -472,7 +471,7 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
 
 // Scripted opponent (?opponent=feeder|idle, Phase 3 DoD): a slot that is
 // neither a local human nor the Warden runs the feeder build order — walk to
-// its ground console, then hold-to-buy runner bursts forever. Used for solo
+// its ground console, then runner bursts forever (a press per runner). Used for solo
 // ?opponent play AND the menu demo battle's slot 0; the (slot-aware) script
 // itself lives in menuWorld.ts, shared by both.
 //
@@ -1742,8 +1741,6 @@ function hudText(view: PlayerView, fps: number, banner: string): string {
         `${(sim.ent.animState[a] & ANIM_HOVER) !== 0 ? "HOVER" : "WALKER"}`
       : `respawn in ${Math.ceil(sim.respawnTimer[slot] / TICK_HZ)}s`;
   let progress = "";
-  if (sim.buyTarget[slot] >= 0)
-    progress += `  buying ${sim.buyProgress[slot]}/${CONSOLE_HOLD_TICKS}`;
   let ownOutposts = 0;
   for (let k = 0; k < sim.outpostOwner.length; k++) {
     if (sim.outpostOwner[k] === slot) ownOutposts += 1;

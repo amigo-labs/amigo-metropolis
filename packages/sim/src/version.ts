@@ -862,4 +862,18 @@
 //     is cleared and breaches inside its 37.5 s (tick 4262 -> 5640, 160 -> 200 s).
 //     01, 02 and 04-07 are byte-identical (no ring turret of theirs is down when
 //     the old and the new period differ); re-headered.
-export const SIM_VERSION = 50;
+// v51: a purchase is one press of the action key (fcop-fidelity.md R17;
+//     fcop-re/ai-and-rules.md §2): every purchase spot — base consoles, an
+//     imported outpost's tank and jet pads, Metropolis' outpost consoles —
+//     sells one unit on the tick Interact goes down, as the original's trigger
+//     zones answer its Action Key, instead of one per 0.5 s held. A press the spot
+//     refuses (points short, 20 alive, a claim under 30) emits the new
+//     EV_PURCHASE_REFUSED (the original's refuse sound; events are not hashed); a
+//     closed heavy zone (not yet unlocked, or its unit alive) stays silent. A
+//     press that claims an outpost buys nothing more. SimState loses the hashed
+//     buyTarget/buyProgress, so every golden's hash moves; the match snapshot
+//     loses MATCH_SLOT_BUY_FRAC (stride 12 -> 11). Golden scripts press every
+//     0.5 s where they held: 03's player 1 buys its three feeders on three
+//     presses and player 0 its wave on six (breach 5640 -> 5602), 05 and 07 buy
+//     their waves the same way.
+export const SIM_VERSION = 51;

@@ -105,6 +105,18 @@ export const PRESETS: Record<string, SfxrPreset> = {
     duty: 0.4,
     soundVol: 0.34,
   },
+  // Purchase refused (points short, 20 alive, a claim under 30): a low falling
+  // buzz, the counterpart of the purchase blip.
+  refuse: {
+    waveType: 1,
+    baseFreq: 0.26,
+    freqRamp: -0.18,
+    envSustain: 0.08,
+    envDecay: 0.18,
+    duty: 0.5,
+    lpfFreq: 0.6,
+    soundVol: 0.3,
+  },
   // Gate breached — match-deciding fanfare: longer, brighter, vibrato tail.
   breach: {
     waveType: 1,
@@ -210,6 +222,7 @@ export const DETUNE_CUES: ReadonlySet<string> = new Set(["shot", "hit"]);
 export const GLOBAL_CUES: ReadonlySet<string> = new Set([
   "alarm",
   "purchase",
+  "refuse",
   "claim",
   "breach",
   "vo_intrusion_0",

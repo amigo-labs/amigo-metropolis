@@ -866,11 +866,12 @@ export const HEAVY_UNLOCK_POINTS = 50;
 /** Units bought at an owned outpost (forward spawn) cost this multiple. */
 export const OUTPOST_COST_MULTIPLIER = 2;
 
-// Console purchases: stand on the console pad and HOLD interact — one unit
-// per completed hold (rules.md §3: 0.5 s per unit). FIRE2 modifier orders the
-// heavy variant at base consoles and the air unit at outpost consoles.
+// Purchases: stand on the console pad and PRESS interact — one unit per press,
+// on the frame the key goes down, as the original's purchase triggers answer
+// its Action Key (fcop-fidelity.md R17; fcop-re/ai-and-rules.md §2). The FIRE2
+// modifier orders the heavy variant at base consoles and the air unit at
+// Metropolis' outpost consoles. Was a 0.5 s hold per unit (CONSOLE_HOLD_TICKS).
 export const CONSOLE_RADIUS = 3;
-export const CONSOLE_HOLD_TICKS = 15; // 0.5 s
 /** One Dreadnought and one Fortress alive per side (spawner limit 1, ai-and-rules.md §3). */
 export const JUGGERNAUT_ALIVE_LIMIT = 1;
 export const FORTRESS_ALIVE_LIMIT = 1;

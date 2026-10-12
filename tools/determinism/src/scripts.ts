@@ -268,6 +268,14 @@ class Choreo {
     this.push(ticks, { aimX: ax, aimY: ay, buttons: BUTTON_FIRE1 | BUTTON_FIRE2 | BUTTON_FIRE3 });
   }
 
+  /** `n` presses of `buttons`: each one tick down, then `gap` ticks up. */
+  taps(n: number, buttons: number, gap = 4) {
+    for (let k = 0; k < n; k++) {
+      this.push(1, { buttons });
+      this.push(gap, {});
+    }
+  }
+
   /** The inputs of this timeline at `tick`, or false once it has run out. */
   read(
     tick: number,
@@ -351,10 +359,9 @@ function buildMatch01P0(): Choreo {
   c.walkTo(205, 100);
   c.engage(219, 112, 8.5, 90); // ring north-outer
   c.engage(213, 118, 8.5, 90); // ring north-inner
-  // Back to the outpost console for the wave: a Runner per completed hold, 2
-  // points each.
+  // Back to the outpost console for the wave: a Runner per press, 2 points each.
   c.walkTo(MATCH01_POST_X, MATCH01_POST_Y);
-  c.push(MATCH01_WAVE * 15 + 5, { buttons: BUTTON_INTERACT });
+  c.taps(MATCH01_WAVE, BUTTON_INTERACT);
   // The escort: along the lane's end with the wave, into the south pair's reach.
   c.walkTo(192, 84);
   c.walkTo(205, 110);
@@ -399,7 +406,8 @@ export function match01(tick: number, out: TickInputs): void {
     p1.moveX = 40;
     p1.moveY = 120; // walk spawn → own ground console
   }
-  if (tick >= 1000 && tick < 1046) p1.buttons = BUTTON_INTERACT;
+  // Three presses at its console, a feeder Runner each (one unit a press).
+  if (tick >= 1000 && tick < 1040 && (tick - 1000) % 15 === 0) p1.buttons = BUTTON_INTERACT;
   if (tick >= 1046) MATCH01_P1.read(tick, p1);
 }
 
@@ -459,7 +467,9 @@ export function fcop01(tick: number, out: TickInputs): void {
     // the original Conft logic, not the (38,128) this comment was written for.
     p.moveY = -127; // north, off the base platform toward the consoles
   } else if (t < 20) {
-    p.buttons = BUTTON_INTERACT; // hold-to-buy runner waves onto the lanes
+    // Runner waves onto the lanes: one per press of the action key, a press every
+    // 0.5 s (the rate the 0.5 s hold bought at until SIM_VERSION 51).
+    p.buttons = tick % 15 === 0 ? BUTTON_INTERACT : 0;
   } else if (t < 40) {
     p.moveX = 127; // ENE toward the wall band — pins on line x=81 around y≈115
     p.moveY = -35;
@@ -509,7 +519,7 @@ export function layered01(tick: number, out: TickInputs): void {
  * actually is: nothing is produced for free (SIM_VERSION 32), so an unattended
  * recording would exercise nothing at all.
  *
- * Route: spawn (112.1, 69.1) on the north base platform, hold INTERACT at the
+ * Route: spawn (112.1, 69.1) on the north base platform, press INTERACT at the
  * console for a bought wave, then drive south-west to the pad at (94.8, 91.7) and
  * tap the action key there: the original captures on a press, instantly
  * (SIM_VERSION 34). The route used to run east along row 69 to the pad at
@@ -526,7 +536,8 @@ export function pa01(tick: number, out: TickInputs): void {
     p.moveX = 90; // spawn -> ground console at (114.1, 74.6)
     p.moveY = 110;
   } else if (t < 12) {
-    p.buttons = BUTTON_INTERACT; // hold-to-buy runners onto the graph
+    // Runners onto the graph: one per press, a press every 0.5 s.
+    p.buttons = tick % 15 === 0 ? BUTTON_INTERACT : 0;
   } else if (t < 18.5) {
     p.moveX = -100; // south-west to the pad at (94.8, 91.7)
     p.moveY = 78;

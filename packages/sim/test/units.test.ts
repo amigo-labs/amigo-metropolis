@@ -9,7 +9,6 @@ import {
   ARCHETYPE_MAX_HP,
   AVATAR_HP,
   BASE_TURRET_RESPAWN_TICKS,
-  CONSOLE_HOLD_TICKS,
   COST_JUGGERNAUT,
   COST_RUNNER,
   GUARDIAN_ASSAULT_STANDOFF,
@@ -20,7 +19,7 @@ import {
   STARTING_POINTS,
   UNIT_SEPARATION_RADIUS,
 } from "../src/balance";
-import { EV_BREACH, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
+import { EV_BREACH, EV_PURCHASE, EV_PURCHASE_REFUSED, EVENT_STRIDE } from "../src/events";
 import { BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
@@ -159,80 +158,102 @@ describe("base structures", () => {
   });
 });
 
-describe("console purchases (hold-to-buy, rules.md §3)", () => {
-  /** Steps until the first EV_PURCHASE, returning [tick, event] or null. */
-  function stepUntilPurchase(sim: SimState, maxTicks: number): number[] | null {
-    for (let t = 1; t <= maxTicks; t++) {
-      step(sim, inputs);
-      const bought = findEvents(sim, EV_PURCHASE);
-      if (bought.length > 0) return [t, ...bought[0]];
-    }
-    return null;
+describe("console purchases (one unit per press, rules.md §3)", () => {
+  // The original's purchase spots answer the Action Key on the frame it goes down
+  // and sell one unit per press (fcop-fidelity.md R17). Was: a 0.5 s hold per unit
+  // (CONSOLE_HOLD_TICKS), with the button held buying one every 15 ticks.
+
+  /** One tick with `buttons` down, then one with them released: one press. */
+  function press(sim: SimState, buttons: number): void {
+    inputs.players[0].buttons = buttons;
+    step(sim, inputs);
+  }
+  function release(sim: SimState): void {
+    inputs.players[0].buttons = 0;
+    step(sim, inputs);
   }
 
-  it("holding interact at the ground console buys one Runner per full hold", () => {
+  it("a press at the ground console buys one Runner at once; holding buys no more", () => {
     reset();
     const sim = openSim();
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14; // on the own ground console
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    const first = stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 1);
-    expect(first).not.toBeNull();
-    const [tick, uid, player, archetype] = first as number[];
-    expect(tick).toBe(CONSOLE_HOLD_TICKS);
+    press(sim, BUTTON_INTERACT);
+    const bought = findEvents(sim, EV_PURCHASE);
+    expect(bought.length).toBe(1);
+    const [uid, player, archetype] = bought[0];
     expect(player).toBe(0);
     expect(archetype).toBe(ARCHETYPE.RUNNER);
     expect(sim.ent.alive[uid]).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS - COST_RUNNER);
-    // Per-unit hold: keeping the button down buys the next one a hold later.
-    const second = stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 1);
-    expect((second as number[])[0]).toBe(CONSOLE_HOLD_TICKS);
+    // Keeping the key down is not a press: nothing more, however long.
+    for (let t = 0; t < 60; t++) {
+      step(sim, inputs);
+      expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
+    }
+    expect(sim.points[0]).toBe(STARTING_POINTS - COST_RUNNER);
+    // Release and press again: the next unit.
+    release(sim);
+    press(sim, BUTTON_INTERACT);
+    expect(findEvents(sim, EV_PURCHASE).length).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS - 2 * COST_RUNNER);
   });
 
-  it("releasing the button resets the hold", () => {
+  it("every press is one unit: five taps, five Runners", () => {
     reset();
     const sim = openSim();
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    for (let t = 0; t < CONSOLE_HOLD_TICKS - 2; t++) step(sim, inputs);
-    inputs.players[0].buttons = 0;
-    step(sim, inputs); // hold broken just short of completion
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    for (let t = 0; t < CONSOLE_HOLD_TICKS - 2; t++) step(sim, inputs);
-    expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
-    expect(sim.points[0]).toBe(STARTING_POINTS); // nothing charged
+    let n = 0;
+    for (let k = 0; k < 5; k++) {
+      press(sim, BUTTON_INTERACT);
+      n += findEvents(sim, EV_PURCHASE).length;
+      release(sim);
+    }
+    expect(n).toBe(5);
+    expect(sim.points[0]).toBe(STARTING_POINTS - 5 * COST_RUNNER);
   });
 
-  it("an empty ledger blocks the hold entirely", () => {
+  it("a press with the points short is refused out loud and charges nothing", () => {
     reset();
     const sim = openSim();
     sim.points[0] = 0;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    for (let t = 0; t < CONSOLE_HOLD_TICKS * 3; t++) step(sim, inputs);
+    press(sim, BUTTON_INTERACT);
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
+    const refused = findEvents(sim, EV_PURCHASE_REFUSED);
+    expect(refused.length).toBe(1);
+    expect(refused[0]).toEqual([sim.avatarId[0], 0, ARCHETYPE.RUNNER]);
+    expect(sim.points[0]).toBe(0);
+    // Held, it is not pressed again: one answer per press.
+    step(sim, inputs);
+    expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
   });
 
-  it("interact+fire2 buys the 50-point heavy variant, capped at one alive", () => {
+  it("interact+fire2 buys the 50-point heavy variant; its zone is closed while it lives", () => {
     reset();
     const sim = openSim();
     sim.points[0] = 120;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
-    inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2;
-    const first = stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 1);
-    expect((first as number[])[3]).toBe(ARCHETYPE.JUGGERNAUT);
+    release(sim); // the side holds 50: the heavy zones open at the end of the tick (R10)
+    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    const first = findEvents(sim, EV_PURCHASE);
+    expect(first[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
     expect(sim.points[0]).toBe(120 - COST_JUGGERNAUT);
-    const jugg = (first as number[])[1];
-    // The one-alive limit blocks the hold while it lives…
-    expect(stepUntilPurchase(sim, CONSOLE_HOLD_TICKS * 3)).toBeNull();
-    // …and killing it frees the slot.
+    const jugg = first[0][0];
+    // The one-alive limit closes the zone while it lives: a press is neither a
+    // purchase nor a refusal (the original's zone is disabled, not refusing).
+    release(sim);
+    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
+    expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
+    // …and killing it reopens it.
     sim.ent.hp[jugg] = 0;
-    const second = stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 2);
-    expect((second as number[])[3]).toBe(ARCHETYPE.JUGGERNAUT);
+    release(sim);
+    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
   });
 
   it("the air console sells Guardians and Fortresses", () => {
@@ -241,22 +262,21 @@ describe("console purchases (hold-to-buy, rules.md §3)", () => {
     sim.points[0] = 120;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 22; // on the own air console
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    expect((stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 1) as number[])[3]).toBe(
-      ARCHETYPE.GUARDIAN,
-    );
-    inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2; // modifier resets the hold
-    expect((stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 1) as number[])[3]).toBe(
-      ARCHETYPE.FORTRESS,
-    );
+    release(sim);
+    press(sim, BUTTON_INTERACT);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
+    release(sim);
+    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.FORTRESS);
   });
 
-  it("interact away from any console buys nothing", () => {
+  it("a press away from any console buys nothing and refuses nothing", () => {
     reset();
     const sim = openSim();
-    inputs.players[0].buttons = BUTTON_INTERACT; // at spawn, far from consoles
-    for (let t = 0; t < CONSOLE_HOLD_TICKS * 2; t++) step(sim, inputs);
+    press(sim, BUTTON_INTERACT); // at spawn, far from consoles
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
+    expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
+    expect(sim.points[0]).toBe(STARTING_POINTS);
   });
 });
 
@@ -422,8 +442,8 @@ describe("determinism with units in play", () => {
     }
     for (let t = 0; t < 900; t++) {
       for (const run of [A, B]) {
-        // Hold interact for 20-tick stretches: real hold-to-buy purchases.
-        const btn = t % 60 < 20 ? BUTTON_INTERACT : 0;
+        // A press every 60 ticks: real purchases, one unit each.
+        const btn = t % 60 === 0 ? BUTTON_INTERACT : 0;
         run.ins.players[0].buttons = btn;
         run.ins.players[1].buttons = btn;
         step(run.sim, run.ins);

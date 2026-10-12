@@ -5,7 +5,6 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { CONSOLE_HOLD_TICKS } from "../src/balance";
 import { createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
 import {
@@ -18,7 +17,6 @@ import {
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_AVATAR_ID,
-  MATCH_SLOT_BUY_FRAC,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_LOCK,
   MATCH_SLOT_OUTPOSTS,
@@ -149,34 +147,17 @@ describe("writeMatchSnapshot", () => {
     expect(out[matchSlotOffset(1) + MATCH_SLOT_OUTPOSTS]).toBe(1);
   });
 
-  it("reports buy progress as a fraction, -1 while not buying", () => {
-    const sim = freshSim();
-    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
-
-    writeMatchSnapshot(sim, out);
-    expect(out[matchSlotOffset(0) + MATCH_SLOT_BUY_FRAC]).toBe(-1);
-
-    // The buy ledger is sim state the interact system normally advances;
-    // setting it directly keeps this a contract test, not a movement script.
-    sim.buyTarget[0] = 3;
-    sim.buyProgress[0] = Math.floor(CONSOLE_HOLD_TICKS / 3);
-    writeMatchSnapshot(sim, out);
-    const frac = out[matchSlotOffset(0) + MATCH_SLOT_BUY_FRAC];
-    expect(frac).toBeGreaterThan(0);
-    expect(frac).toBeLessThan(1);
-    expect(out[matchSlotOffset(1) + MATCH_SLOT_BUY_FRAC]).toBe(-1);
-  });
-
-  it("carries no capture progress: a capture is instant (fcop-fidelity.md R12)", () => {
+  it("carries no capture or buy progress: both are one key press (R12, R17)", () => {
     // MATCH_SLOT_CAPTURE_FRAC (slot field 9) reported a 3 s hold until SIM_VERSION
-    // 34. The original captures on one key press, so there is nothing to report
-    // and the slot block lost the field. Since SIM_VERSION 41 the Gun magazine and
-    // the lock follow the buy fraction, appended.
-    expect(MATCH_SLOT_BUY_FRAC).toBe(8);
-    expect(MATCH_SLOT_AMMO_GUN).toBe(9);
-    expect(MATCH_SLOT_LOCK).toBe(10);
-    expect(MATCH_SLOT_POWER).toBe(11);
-    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(12);
+    // 34, and MATCH_SLOT_BUY_FRAC (field 8) the 0.5 s purchase hold until
+    // SIM_VERSION 51. The original captures and sells on one key press, so there
+    // is nothing to report and the slot block lost both fields; the Gun magazine,
+    // the lock and the power bits follow the units count.
+    expect(MATCH_SLOT_UNITS).toBe(7);
+    expect(MATCH_SLOT_AMMO_GUN).toBe(8);
+    expect(MATCH_SLOT_LOCK).toBe(9);
+    expect(MATCH_SLOT_POWER).toBe(10);
+    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(11);
   });
 
   it("reports the post-breach outro, and nothing while none runs", () => {

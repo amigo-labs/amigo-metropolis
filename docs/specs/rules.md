@@ -245,8 +245,18 @@ The Runner and Guardian caps count base and outpost purchases together. The
 Juggernaut and Fortress open the first time a side holds 50 points and stay
 open for the rest of the match (the original enables their zones then).
 
-Buying = drive Avatar onto the console pad, hold interact for 0.5 s per unit
-(on an imported arena's outpost: its tank pad or its jet pad, §9).
+Buying = drive Avatar onto the console pad and **press interact: one unit per
+press** (on an imported arena's outpost: its tank pad or its jet pad, §9). That
+is the original's: there is no menu, every purchase spot is a trigger that answers
+the Action Key on the frame it goes down, and holding it buys nothing more
+(SIM_VERSION 51, `fcop-fidelity.md` R17; it was a 0.5 s hold per unit). FIRE2
+held with the press orders the heavy variant at a base console (the original has
+separate Dreadnought and Fortress zones). A press the spot refuses — the points
+are short, or 20 of that unit are alive — is answered with a refuse sound, an
+accepted one with the purchase sound, as the original's scripts answer every
+press; the heavy zones stay silent until the side first holds 50 and while their
+unit lives (the original's zone is shut then). A press that claims an outpost
+buys nothing on the same press.
 Claiming an outpost is a press of the action key inside its claim zone with 30
 points (§5), like a capture.
 Points are visible to both players (open information, like the original).
@@ -563,10 +573,9 @@ only what Metropolis adopts from it.
   `fcop-re/outposts.json` through the arena frame (x + 16). Each has:
   - a **claim zone** (the type-14 record's 1.2 m, plus the claimer's radius) with
     the console marker at its centre — §5's press with 30 points claims it;
-  - a **tank pad** and a **jet pad**, the owner's only: hold interact on one for a
-    Runner or a Guardian at 2 points (the original sells one per press; the hold is
-    Metropolis' purchase gesture, as at the base consoles). The unit leaves from
-    the pad; a Guardian patrols that outpost;
+  - a **tank pad** and a **jet pad**, the owner's only: a press of interact on one
+    buys a Runner or a Guardian at 2 points (one per press, §3). The unit leaves
+    from the pad; a Guardian patrols that outpost;
   - two **turret plates**. Each holds a capturable neutral turret, live from the
     start (one of the arena's capture spots), and a team turret record per side,
     shut. A claim **kills both plates' neutral turrets for good** — whoever held

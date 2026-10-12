@@ -28,7 +28,7 @@ export const GAMEPAD_BUTTON_MAP: readonly (readonly [number, number])[] = [
   [5, BUTTON_FIRE3], // RB — special
   [0, BUTTON_JUMP], // A
   [3, BUTTON_TRANSFORM], // Y
-  [2, BUTTON_INTERACT], // X — tap: capture/claim · hold: buy
+  [2, BUTTON_INTERACT], // X — press: capture / claim / buy one unit
 ];
 
 /** Below this stick magnitude the axis reads as centered (drift rejection). */
