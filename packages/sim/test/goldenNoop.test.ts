@@ -50,16 +50,19 @@ import { join } from "node:path";
 // sim freezes (breach ticks themselves are unchanged — golden03/04 pin them);
 // 05 and 07 run imported arenas with no free production and no base guns.
 const FROZEN: Record<string, { last: number; count: number }> = {
+  // All seven re-frozen at SIM_VERSION 45: the entity store gained a float field
+  // (timerC, a PA aircraft's cruise countdown), so every hash moves; 07's bought
+  // units also target as the original's shooters and aircraft do.
   // Re-frozen at SIM_VERSION 19 (on top of v18 hover cushion): facing-aligned
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
-  "golden-01-drive": { last: 2863179370, count: 1800 },
-  "golden-02-combat": { last: 1611435791, count: 2700 },
+  "golden-01-drive": { last: 1696573034, count: 1800 },
+  "golden-02-combat": { last: 2284195599, count: 2700 },
   // Re-frozen at SIM_VERSION 24 (issue #31): BASE_TURRET_RESPAWN 60→120 s is
   // global, so scripts that kill a base emplacement and live past the old timer
   // move (03/04). golden-07-pa also moves from the §9 escort/capture ladder.
   // 01/02/05/06 header-only.
-  "golden-03-match": { last: 4054331802, count: 4800 },
-  "golden-04-warden": { last: 600856140, count: 9000 },
+  "golden-03-match": { last: 1878356378, count: 4800 },
+  "golden-04-warden": { last: 376018508, count: 9000 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -70,13 +73,13 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // polyline maps where advanceOnGraph never executes and stay byte-identical.
   // Re-frozen at SIM_VERSION 31 (the original's import scales): 05 and 07 run
   // imported arenas, whose turret profiles and trigger volumes changed.
-  "golden-05-fcop": { last: 1926914056, count: 2700 },
-  "golden-06-layered": { last: 3003849649, count: 600 },
+  "golden-05-fcop": { last: 4055343112, count: 2700 },
+  "golden-06-layered": { last: 3892665265, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
   // Re-frozen at SIM_VERSION 44 (the original's route followers): 07's bought
   // units drive la-cantina's Cnet by the step chooser at 1.98 m/s.
-  "golden-07-pa": { last: 1938583282, count: 3600 },
+  "golden-07-pa": { last: 2833088072, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

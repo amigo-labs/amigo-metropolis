@@ -9,7 +9,8 @@
 // for traffic in 1 s holds and never stop to fight (their guns fire on the move).
 // Elsewhere they follow Metropolis' authored lane polylines toward the enemy
 // gate and halt for anything hostile in attack range (rules.md §4). Guardians
-// and Fortresses fly patrol orbits or assault runs.
+// and Fortresses are the original's aircraft on the imported arenas (search,
+// leash, standoff; moveAircraft) and fly patrol orbits or assault runs elsewhere.
 //
 // Per-archetype field reuse on unit entities (see entities.ts):
 //   timerA    — ground: lane index, or on the graph the node it walks to (-1 halted)
@@ -19,20 +20,35 @@
 //   cooldownB — ground on the graph: the node it came from (-1 none)
 //   ammoB     — ground on the graph: the node before that, + 1 (0 = none)
 //   aimX      — ground on the graph: the commanded speed, m/s
-//   mode      — GUARDIAN: UNIT_MODE_PATROL | UNIT_MODE_ASSAULT (spawn-site switch)
+//   mode      — GUARDIAN: UNIT_MODE_PATROL | UNIT_MODE_ASSAULT (spawn-site switch);
+//               on a PA arena the aircraft's anchor (0 base, 1 + k outpost k)
+//   (a PA aircraft's own reuse is listed at moveAircraft)
 
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
   AIR_ALTITUDE,
+  AIRCRAFT_CRUISE_JITTER,
+  AIRCRAFT_CRUISE_TICKS,
+  AIRCRAFT_REVERSE_JITTER,
+  AIRCRAFT_REVERSE_TICKS,
+  AIRCRAFT_SEARCH_JITTER,
+  AIRCRAFT_SEARCH_TICKS,
+  AIRCRAFT_STANDOFF,
   ARCHETYPE_RADIUS,
   AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HOVER_SPEED,
   AVATAR_WALKER_MAX_SLOPE,
   FORTRESS_AIRCRAFT_SPEED,
+  FORTRESS_DETECT_RANGE,
+  FORTRESS_LEASH_X,
+  FORTRESS_LEASH_Y,
   FORTRESS_PATROL_RADIUS,
   FORTRESS_SPEED,
   GUARDIAN_AIRCRAFT_SPEED,
   GUARDIAN_ASSAULT_STANDOFF,
+  GUARDIAN_DETECT_RANGE,
+  GUARDIAN_LEASH_X,
+  GUARDIAN_LEASH_Y,
   GUARDIAN_PATROL_RADIUS,
   GUARDIAN_SPEED,
   HOVER_CUSHION_SPAN,
@@ -71,7 +87,7 @@ import {
   worldExtent,
 } from "./map";
 import { ANIM_MOVING, rideHeight, type SimState, STEP_SNAP } from "./sim";
-import { atan2Poly, cosLUT, randInt, sinLUT, TAU } from "./simMath";
+import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
 
 export const UNIT_MODE_PATROL = 0;
 export const UNIT_MODE_ASSAULT = 1;
@@ -176,6 +192,7 @@ export function unitRange(state: SimState, id: number): number {
 export function systemUnitMovement(state: SimState): void {
   const ent = state.ent;
   const routes = followsRoutes(state);
+  const pa = isPrecinctAssault(state.map);
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id]) continue;
     switch (ent.archetype[id]) {
@@ -189,16 +206,211 @@ export function systemUnitMovement(state: SimState): void {
         else moveGroundUnit(state, id, JUGGERNAUT_SPEED, unitRange(state, id));
         break;
       case ARCHETYPE.GUARDIAN:
-        moveAirUnit(state, id, airSpeed(state, id), unitRange(state, id), GUARDIAN_PATROL_RADIUS);
+        if (pa) moveAircraft(state, id);
+        else moveAirUnit(state, id, GUARDIAN_SPEED, unitRange(state, id), GUARDIAN_PATROL_RADIUS);
         break;
       case ARCHETYPE.FORTRESS:
-        moveAirUnit(state, id, airSpeed(state, id), unitRange(state, id), FORTRESS_PATROL_RADIUS);
+        if (pa) moveAircraft(state, id);
+        else moveAirUnit(state, id, FORTRESS_SPEED, unitRange(state, id), FORTRESS_PATROL_RADIUS);
         break;
       default:
         break;
     }
   }
   if (!routes) separateGroundUnits(state);
+}
+
+/**
+ * A PA aircraft's anchor — the spawner it was built at, which its patrol leash
+ * is measured from (the original's `anchor`, the record's own position): the
+ * base air console for a base-built one (mode 0), outpost k's spot for one built
+ * there (mode 1 + k).
+ */
+function aircraftAnchorX(state: SimState, id: number): number {
+  const m = state.ent.mode[id];
+  const spots = state.map.outpostSpots;
+  if (m >= 1 && m - 1 < spots.length) return spots[m - 1].x;
+  return state.map.bases[state.ent.team[id]].airConsole.x;
+}
+
+function aircraftAnchorY(state: SimState, id: number): number {
+  const m = state.ent.mode[id];
+  const spots = state.map.outpostSpots;
+  if (m >= 1 && m - 1 < spots.length) return spots[m - 1].y;
+  return state.map.bases[state.ent.team[id]].airConsole.y;
+}
+
+/** Inside its patrol leash (the original's box test against the anchor)? */
+function insideLeash(state: SimState, id: number): boolean {
+  const ent = state.ent;
+  const fortress = ent.archetype[id] === ARCHETYPE.FORTRESS;
+  const lx = fortress ? FORTRESS_LEASH_X : GUARDIAN_LEASH_X;
+  const ly = fortress ? FORTRESS_LEASH_Y : GUARDIAN_LEASH_Y;
+  const dx = ent.posX[id] - aircraftAnchorX(state, id);
+  const dy = ent.posY[id] - aircraftAnchorY(state, id);
+  return dx <= lx && dx >= -lx && dy <= ly && dy >= -ly;
+}
+
+/**
+ * Is this PA aircraft engaging — holding a move target, inside its leash and not
+ * cruising? Its shooter fires only then (sim.ts shooterUnit; the original steps
+ * an aircraft's weapon in STATE_ENGAGE only). Off the PA arenas, always.
+ */
+export function aircraftEngaged(state: SimState, id: number): boolean {
+  if (!isPrecinctAssault(state.map)) return true;
+  const ent = state.ent;
+  return ent.ammoB[id] > 0 && ent.timerC[id] <= 0 && insideLeash(state, id);
+}
+
+/** A new patrol destination inside half the leash (`aircraft_pick_destination`). */
+function pickDestination(state: SimState, id: number): void {
+  const ent = state.ent;
+  const fortress = ent.archetype[id] === ARCHETYPE.FORTRESS;
+  const lx = (fortress ? FORTRESS_LEASH_X : GUARDIAN_LEASH_X) * 0.5;
+  const ly = (fortress ? FORTRESS_LEASH_Y : GUARDIAN_LEASH_Y) * 0.5;
+  const extent = worldExtent(state.map);
+  const x = aircraftAnchorX(state, id) + (rand01(state) * 2 - 1) * lx;
+  const y = aircraftAnchorY(state, id) + (rand01(state) * 2 - 1) * ly;
+  ent.timerA[id] = Math.min(Math.max(x, 0), extent);
+  ent.timerB[id] = Math.min(Math.max(y, 0), extent);
+}
+
+/**
+ * The aircraft's target search (`cact_find_target`, every 900 + rand 0..511
+ * engine units): the nearest enemy-team actor within the record's detection
+ * range — the jet's 28672 raw = 56 m, the Fortress' 32358 = 63.2 m (I2) — with
+ * no cone and no line of sight. A cloaked avatar is skipped (P7); projectiles
+ * and Metropolis' outpost consoles are not actors of the original.
+ */
+function aircraftSearch(state: SimState, id: number): number {
+  const ent = state.ent;
+  const team = ent.team[id];
+  const range =
+    ent.archetype[id] === ARCHETYPE.FORTRESS ? FORTRESS_DETECT_RANGE : GUARDIAN_DETECT_RANGE;
+  let hidden0 = -1;
+  let hidden1 = -1;
+  if (state.buffInvis.length > 0) {
+    if (state.buffInvis[0] > 0) hidden0 = state.avatarId[0];
+    if (state.buffInvis[1] > 0) hidden1 = state.avatarId[1];
+  }
+  let best = -1;
+  let bestD2 = range * range;
+  for (let t = 0; t < ent.high; t++) {
+    if (!ent.alive[t] || t === id || t === hidden0 || t === hidden1) continue;
+    const tt = ent.team[t];
+    if (tt === team || tt === TEAM_NEUTRAL) continue;
+    const a = ent.archetype[t];
+    if (a === ARCHETYPE.PROJECTILE || a === ARCHETYPE.CONSOLE) continue;
+    const dx = ent.posX[t] - ent.posX[id];
+    const dy = ent.posY[t] - ent.posY[id];
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = t;
+    }
+  }
+  return best;
+}
+
+/**
+ * A PA jet or Flying Fortress, the original's aircraft (`aircraft_step`, retail
+ * 0x00420700; fcop-re/ai-and-rules.md §4, camera-and-movement.md "Aircraft"):
+ * - every 900 + rand 0..511 engine units (3.0-4.7 s) it searches for a target
+ *   (aircraftSearch) and keeps it until it dies;
+ * - engaging (a target, inside its leash) it flies at the target and its gun
+ *   fires; outside the leash — ±24 × ±20 m around its anchor for a jet,
+ *   ±30 × ±28 m for a Fortress (orbit_area raw / 1024) — it picks a destination
+ *   inside half the leash and cruises there for 4.0-10.8 s (0x4b0 + rand 0..0x7ff
+ *   units) with its gun silent; with no target it cruises to a destination;
+ * - inside the 1 m standoff of whatever it flies at it reverses, and keeps
+ *   reversing for 0.5-0.9 s (150 + rand 0..127 units): it circles and jitters
+ *   about its target instead of stopping. It never halts.
+ * Field reuse: timerA/timerB the destination, timerC the cruise countdown,
+ * cooldownB the search countdown (ticks), ammoB the target + 1, aimX the
+ * reverse countdown (ticks), mode the anchor (aircraftAnchorX).
+ * Not modelled (not in the extracted records): the ENGAGE / CRUISE dwell timers
+ * of a target-less patrol (it re-draws its destination on arrival instead), the
+ * turn rate (it turns at once) and the altitude controller (AIR_ALTITUDE).
+ */
+function moveAircraft(state: SimState, id: number): void {
+  const ent = state.ent;
+  ent.cooldownB[id] -= 1;
+  if (ent.cooldownB[id] < 0) {
+    ent.cooldownB[id] = AIRCRAFT_SEARCH_TICKS + randInt(state, AIRCRAFT_SEARCH_JITTER);
+    const found = aircraftSearch(state, id);
+    if (found >= 0) ent.ammoB[id] = found + 1;
+  }
+  let target = ent.ammoB[id] - 1;
+  if (target >= 0) {
+    const tt = ent.team[target];
+    if (!ent.alive[target] || tt === ent.team[id] || tt === TEAM_NEUTRAL) {
+      target = -1;
+      ent.ammoB[id] = 0;
+      pickDestination(state, id);
+    }
+  }
+  if (ent.timerC[id] > 0) ent.timerC[id] -= 1;
+  let tx: number;
+  let ty: number;
+  if (ent.timerC[id] <= 0 && target >= 0 && !insideLeash(state, id)) {
+    // Off the leash: a fresh destination and a long cruise, gun silent.
+    pickDestination(state, id);
+    ent.timerC[id] = AIRCRAFT_CRUISE_TICKS + randInt(state, AIRCRAFT_CRUISE_JITTER);
+  }
+  if (ent.timerC[id] <= 0 && target >= 0) {
+    tx = ent.posX[target];
+    ty = ent.posY[target];
+  } else {
+    tx = ent.timerA[id];
+    ty = ent.timerB[id];
+  }
+  let dx = tx - ent.posX[id];
+  let dy = ty - ent.posY[id];
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (target < 0 && d < AIRCRAFT_STANDOFF) {
+    pickDestination(state, id); // a target-less patrol moves on
+  }
+  // The standoff reverse, and its countdown.
+  let reverse = false;
+  if (d < AIRCRAFT_STANDOFF) {
+    reverse = true;
+    if (ent.aimX[id] <= 0) {
+      ent.aimX[id] = AIRCRAFT_REVERSE_TICKS + randInt(state, AIRCRAFT_REVERSE_JITTER);
+    }
+  } else if (ent.aimX[id] > 0) {
+    reverse = true;
+  }
+  if (ent.aimX[id] > 0) ent.aimX[id] -= 1;
+  if (d > 1e-6) {
+    dx /= d;
+    dy /= d;
+  } else {
+    dx = cosLUT(ent.yaw[id]);
+    dy = sinLUT(ent.yaw[id]);
+  }
+  if (reverse) {
+    dx = -dx;
+    dy = -dy;
+  }
+  const speed = airSpeed(state, id);
+  ent.velX[id] = dx * speed;
+  ent.velY[id] = dy * speed;
+  ent.yaw[id] = atan2Poly(dy, dx);
+  stepAndSnap(state, id, true);
+}
+
+/**
+ * Starts a PA aircraft: its destination is where it was built and it searches on
+ * its first tick.
+ */
+export function startAircraft(state: SimState, id: number): void {
+  const ent = state.ent;
+  ent.timerA[id] = ent.posX[id];
+  ent.timerB[id] = ent.posY[id];
+  ent.timerC[id] = 0;
+  ent.cooldownB[id] = 0;
+  ent.ammoB[id] = 0;
+  ent.aimX[id] = 0;
 }
 
 /**

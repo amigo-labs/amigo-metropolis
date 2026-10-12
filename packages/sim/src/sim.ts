@@ -192,11 +192,14 @@ import {
 } from "./map";
 import { atan2Poly, cosLUT, rand01, sinLUT } from "./simMath";
 import {
+  aircraftEngaged,
+  isAirUnit,
   isGroundUnit,
   isUnit,
   nearestEnemyInRange,
   resolveWalker,
   snapUnitHeight,
+  startAircraft,
   startRoute,
   systemUnitMovement,
   UNIT_MODE_ASSAULT,
@@ -651,6 +654,11 @@ export function spawnUnit(
       ent.timerB[id] = -1; // no lanes on this map: beeline the gate
     }
     snapUnitHeight(state, id, false);
+  } else if (isPrecinctAssault(state.map)) {
+    // The original's aircraft (units.ts moveAircraft): patrols its anchor, the
+    // spawner it was built at (mode 0 base, 1 + k outpost k).
+    startAircraft(state, id);
+    snapUnitHeight(state, id, true);
   } else {
     const core = state.map.bases[team].core;
     ent.timerA[id] = atan2Poly(y - core.y, x - core.x);
@@ -1491,14 +1499,16 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
         const owner = state.outpostOwner[k];
         if (owner === player) {
           // Forward spawn at 2× cost (rules.md §3); guardians leave in
-          // assault mode — the outpost spawn-site switch (rules.md §4).
+          // assault mode — the outpost spawn-site switch (rules.md §4). On a PA
+          // arena a Guardian is the original's jet and patrols the spawner it
+          // was built at: mode 1 + k names outpost k (units.ts moveAircraft).
           target = 768 + k * 2 + heavy;
           archetype = heavy ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
           cost = (heavy ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
           spawnX = s.x;
           spawnY = s.y;
           spawnLayer = s.layer;
-          mode = heavy ? UNIT_MODE_ASSAULT : UNIT_MODE_PATROL;
+          mode = heavy ? (isPrecinctAssault(map) ? 1 + k : UNIT_MODE_ASSAULT) : UNIT_MODE_PATROL;
           forward = true;
         }
         break;
@@ -2565,26 +2575,71 @@ function shooterTargetValid(state: SimState, id: number, t: number, range: numbe
 }
 
 /**
- * A PA unit's weapon: the original's rate machine and rounds (fcop-fidelity.md
- * W3), on Metropolis' targeting — the nearest enemy in reach with a line of
- * sight, re-read every tick, the same answer that halts its movement (units.ts).
- * The original re-searches on the shooter's targeting delay; units' targeting is
- * the units/AI package's, with their routing. A Juggernaut's due round is a
- * volley, one round from each of its hull guns.
+ * A PA unit's shooter (`cact_shooter_step`; fcop-fidelity.md W3 and U1-U2's
+ * targeting row; fcop-re/ranges-turrets-capture.md Q3): the original's rate
+ * machine and rounds, and its targeting — the same one a turret runs, on the
+ * unit's own record:
+ * - the target lives in cooldownC (id + 1, 0 = none) and the re-search countdown
+ *   in ammoA (engine units);
+ * - a due round first drops a dead, no-longer-hostile or out-of-reach (12 m)
+ *   target;
+ * - with no target it searches, but only when the countdown has run out, which
+ *   reloads it with the shooter's targeting delay: 32/16 s = 2.0 s for the tank
+ *   and the jet, 16/16 = 1.0 s for the Dreadnought's guns and the Fortress. The
+ *   search is the nearest enemy in reach with a line of sight; none of the units'
+ *   records holds its target or prefers by priority (only the team turrets do);
+ * - a round goes out at the target with a clear line, else it is put back and
+ *   tried 0-0.85 s later (the sim PRNG); units have no firing arc.
+ * An aircraft fires only while it is engaging (a move target held, units.ts
+ * `moveAircraft`): the original steps an aircraft's shooter in STATE_ENGAGE
+ * only. A Juggernaut's due round is a volley, one round from each of its hull
+ * guns.
+ * Until SIM_VERSION 45 a unit re-picked the nearest enemy in reach every tick.
  */
 function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
   const ent = state.ent;
+  let target = ent.cooldownC[id] - 1;
   const due = shooterDue(ent, id, w);
-  const target = nearestEnemyInRange(state, id, unitRange(state, id));
-  if (target < 0) return;
-  ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
-  if (!due || !aimRound(state, id, target, w)) return;
+  if (target >= 0 && !ent.alive[target]) target = -1;
+  if (!due) {
+    ent.cooldownC[id] = target + 1;
+    if (target >= 0) faceTarget(ent, id, target);
+    return;
+  }
+  const range = unitRange(state, id);
+  if (target >= 0 && !shooterTargetValid(state, id, target, range)) target = -1;
+  if (target < 0) {
+    let search = ent.ammoA[id] - WEAPON_UNITS_PER_TICK;
+    if (search < 0) {
+      search = w.searchUnits;
+      target = nearestEnemyInRange(state, id, range);
+    }
+    ent.ammoA[id] = search;
+  }
+  ent.cooldownC[id] = target + 1;
+  if (target < 0) return; // the round waits, the clock stopped
+  if (isAirUnit(ent.archetype[id]) && !aircraftEngaged(state, id)) {
+    // An aircraft fires only while engaging: the round stays due.
+    return;
+  }
+  faceTarget(ent, id, target);
+  if (!aimRound(state, id, target, w)) return;
+  if (segmentBlocked(state.map, ent.posX[id], ent.posY[id], ent.posX[target], ent.posY[target])) {
+    ent.aimY[id] = PHASE_INSIDE;
+    ent.cooldownA[id] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
+    return;
+  }
   let rounds = 1;
   if (ent.archetype[id] === ARCHETYPE.JUGGERNAUT) {
     const dread = state.map.bases[ent.team[id]].juggernaut;
     if (dread !== undefined) rounds = dread.guns;
   }
   fireRound(state, id, target, w, rounds);
+}
+
+/** A unit's hull (or gun) turns to its target at once. */
+function faceTarget(ent: EntityStore, id: number, target: number): void {
+  ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
 }
 
 /** Scratch: the aim aimRound computed (module scope, no allocation per shot). */

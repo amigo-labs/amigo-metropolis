@@ -32,6 +32,8 @@ export interface EntityStore {
   readonly timerA: Float32Array;
   /** Vertical velocity (jump/fall) or secondary timer. */
   readonly timerB: Float32Array;
+  /** Third per-archetype timer (a PA aircraft's cruise countdown, units.ts). */
+  readonly timerC: Float32Array;
   /** Weapon cooldowns in ticks (avatar: primary/heavy/special; turret: A). */
   readonly cooldownA: Float32Array;
   readonly cooldownB: Float32Array;
@@ -77,7 +79,7 @@ export interface EntityStore {
   readonly weaponProfile: Int16Array;
 }
 
-const FLOAT_FIELDS = 15;
+const FLOAT_FIELDS = 16;
 const U16_FIELDS = 2;
 const I16_FIELDS = 1;
 const BYTE_FIELDS = 5;
@@ -115,6 +117,7 @@ export function createEntityStore(cap: number = MAX_ENTITIES): EntityStore {
     cooldownC: f(12),
     aimX: f(13),
     aimY: f(14),
+    timerC: f(15),
     ammoA: new Uint16Array(buffer, u16Start, cap),
     ammoB: new Uint16Array(buffer, u16Start + cap * 2, cap),
     ownerId: new Int16Array(buffer, i16Start, cap),
@@ -171,6 +174,7 @@ export function despawn(store: EntityStore, id: number): void {
   store.aux[id] = 0;
   store.timerA[id] = 0;
   store.timerB[id] = 0;
+  store.timerC[id] = 0;
   store.cooldownA[id] = 0;
   store.cooldownB[id] = 0;
   store.cooldownC[id] = 0;

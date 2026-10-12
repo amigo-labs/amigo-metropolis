@@ -997,6 +997,39 @@ export const ROUTE_CONE_COS = 0xf600 / 0x10000;
  */
 export const GUARDIAN_AIRCRAFT_SPEED = 2048 / 512; // (raw << 12) / 300 >> 8 per tick at 300 Hz
 export const FORTRESS_AIRCRAFT_SPEED = 2457 / 512;
+/**
+ * The PA aircraft's target search (`aircraft_step` 0x00420752): every 900 + rand
+ * 0..511 engine units (3.0-4.7 s), the nearest enemy within the record's
+ * target_detection_range raw / 512 m — the jet's 28672 = 56 m, the Flying
+ * Fortress' 32358 = 63.2 m (fcop-fidelity.md I2, `rangeToCells`;
+ * camera-and-movement.md "Aircraft").
+ */
+export const AIRCRAFT_SEARCH_TICKS = 90;
+export const AIRCRAFT_SEARCH_JITTER = 52; // rand 0..511 engine units, in ticks
+export const GUARDIAN_DETECT_RANGE = 28672 / 512;
+export const FORTRESS_DETECT_RANGE = 32358 / 512;
+/**
+ * The patrol leash: orbit_area raw / 1024 m half-extents about the aircraft's
+ * anchor (I2, `orbitLeashToCells`): jet 24576 x 20480 = ±24 x ±20 m, Fortress
+ * 30720 x 28672 = ±30 x ±28 m; destinations are drawn inside half of it. x is
+ * orbit_area_x on the world x axis (the original tests its axes crosswise
+ * against two record halfwords; for the jet the difference is 4 m).
+ */
+export const GUARDIAN_LEASH_X = 24576 / 1024;
+export const GUARDIAN_LEASH_Y = 20480 / 1024;
+export const FORTRESS_LEASH_X = 30720 / 1024;
+export const FORTRESS_LEASH_Y = 28672 / 1024;
+/** Off the leash it cruises 0x4b0 + rand 0..0x7ff engine units (4.0-10.8 s). */
+export const AIRCRAFT_CRUISE_TICKS = 120;
+export const AIRCRAFT_CRUISE_JITTER = 205;
+/**
+ * Inside the standoff (record 512 << 4 wu = 1 m, the Sky Captain's; the PA
+ * jets' is not in the extracted records) it reverses, for 150 + rand 0..127
+ * engine units.
+ */
+export const AIRCRAFT_STANDOFF = 1;
+export const AIRCRAFT_REVERSE_TICKS = 15;
+export const AIRCRAFT_REVERSE_JITTER = 13;
 
 export const ORBIT_ANGULAR_SPEED = 0.6; // rad/s patrol orbit
 export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart

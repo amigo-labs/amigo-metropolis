@@ -288,6 +288,18 @@ along 150–220 m of road on average (about 75–110 s unopposed). This replaced
 Metropolis' committed next-hop signposts with a seeded coin at forks, 4 m/s
 Runners and 2.5 m/s Juggernauts that halted for anything in reach.
 
+**Targeting on the imported arenas is the original's too** (SIM_VERSION 45,
+`fcop-fidelity.md` U4): a unit keeps its target while it lives, stays hostile
+and stays within its 12 m reach, and looks for another only on its targeting
+delay — 2.0 s for a Runner or Guardian, 1.0 s for the Juggernaut's guns and the
+Fortress — so it does not switch to whatever comes nearer. A **Guardian or
+Fortress** is the original's aircraft: every 3.0–4.7 s it looks for the nearest
+enemy within **56 m** (Fortress **63.2 m**), flies at it while it stays inside a
+patrol leash around the spawner it was built at (±24 × ±20 m, Fortress ±30 ×
+±28 m: the base, or the outpost it was bought at) and fires only then; pulled off
+the leash it cruises back for 4–11 s with its gun silent. It never stops: inside
+1 m of its target it reverses, so it circles and jitters about it.
+
 Elsewhere (district-01, the test maps) units follow Metropolis' authored lane
 polylines, attack whatever blocks their path (an enemy in attack range halts
 them) and otherwise beeline the gate.
@@ -475,9 +487,8 @@ only what Metropolis adopts from it.
   original's (`cact_shooter_step`): the reload clamps the leftover clock, so a
   2.0 s entry fires every 61 ticks. The tanks', jets' and Fortress' HP and
   weapons come from their spawner records (`MapBase.runner/guardian/fortress`);
-  their routing and speeds are the original's (§4, SIM_VERSION 44); their
-  targeting stays §4's, so a unit re-picks the nearest target in reach every
-  tick.
+  their routing, speeds and targeting are the original's (§4, SIM_VERSION
+  44-45).
 - **Turrets carry their own parameters.** Range, fire cadence, gun slew, field of
   view, rest rotation, health and weapon come from the arena's imported data,
   for both kinds: capturable pads and base ring turrets. The original's reach is
@@ -544,5 +555,5 @@ only what Metropolis adopts from it.
   event that plays them — so they are played by side, not "your base".
 - **Lanes** may be the original waypoint graph — see the §6 amendment.
 
-Not adopted: the original's `Aircraft` orbit parameters (air units keep §4's
-model), the `Cfun` mission VM, and the `act_type` 14/89 marker classes.
+Not adopted: the `Cfun` mission VM and the `act_type` 14/89 marker classes. The
+original's `Aircraft` parameters are read since SIM_VERSION 45 (§4).

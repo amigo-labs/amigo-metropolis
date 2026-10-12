@@ -768,4 +768,24 @@
 //     reuse: prev-of-prev node in ammoB, commanded speed in aimX, the hold in
 //     timerB. Goldens: 07 (la-cantina, bought units) re-records; the others field
 //     no ground unit on a graph arena and stay byte-identical (re-headered only).
-export const SIM_VERSION = 44;
+// v45: PA units target as the original's shooters and aircraft do
+//     (docs/specs/fcop-fidelity.md U1/U2 targeting, I2, W3's kept note;
+//     fcop-re/ranges-turrets-capture.md Q3, ai-and-rules.md §4, aircraft.c). A
+//     unit keeps its target while it lives, stays hostile and in its 12 m reach,
+//     and re-searches only when a due round has none, on its shooter's targeting
+//     delay (tank and jet 601 units = 2.0 s, Dreadnought and Fortress 300 = 1.0
+//     s; the records hold no target and prefer no priority); a round with no clear
+//     line is put back for 0-0.85 s. Was: the nearest enemy in reach every tick.
+//     Jets and Flying Fortresses on the imported arenas are the original's
+//     aircraft: a target search every 900 + rand 0..511 engine units within the
+//     record's detection range (56 / 63.2 m, I2), flight at the target inside the
+//     patrol leash (±24 x ±20 / ±30 x ±28 m about the spawner they were built at;
+//     outside it a 4.0-10.8 s cruise to a destination in half the leash), a 1 m
+//     standoff reverse held 0.5-0.9 s, no halting, and a gun that fires only while
+//     engaging. Was: §4's base-core orbit / enemy-core assault, halting in reach.
+//     Turrets still never target turrets (the original's "by team" search is not
+//     read for that). New entity field timerC (a PA aircraft's cruise countdown);
+//     outpost-built PA Guardians carry mode 1 + outpost index. Goldens: all seven
+//     re-record for the new field; 07 also fields bought units under the new
+//     targeting.
+export const SIM_VERSION = 45;
