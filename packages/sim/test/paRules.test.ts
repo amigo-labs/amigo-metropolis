@@ -40,7 +40,6 @@ import { BUTTON_FIRE1, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID } from "../src/map";
 import { createSim, MODE_HOVER, MODE_WALKER, type SimState, spawnUnit, step } from "../src/sim";
 import { nearestEnemyInRange } from "../src/units";
-import { WGOAL_HARASS } from "../src/warden";
 
 const idle = createTickInputs();
 
@@ -353,24 +352,30 @@ describe("power-ups (fcop-fidelity.md P6, P7, P9)", () => {
     // An enemy Runner right next to it acquires nothing.
     const runner = spawnUnit(state, ARCHETYPE.RUNNER, 1, ent.posX[avatar] + 2, ent.posY[avatar]);
     expect(nearestEnemyInRange(state, runner, 6)).toBe(-1);
-    // The Warden drops a hunt for it the tick it is cloaked, and does not take
-    // it up again while the cloak runs.
-    state.wardenGoal = WGOAL_HARASS;
-    state.wardenSlot = 0;
-    state.wardenThink = 1000;
-    let harassed = 0;
+    // The Warden (the Sky Captain) never makes it its weapons' target while the
+    // cloak runs: its scan skips the cloaked mech (the view-block gate, P7) and its
+    // shooters' own search skips it like a turret's. It may still fly at it — its
+    // defend mode chases player slot 0 itself, cloak or not.
+    const warden = state.avatarId[1];
+    let aimed = 0;
     for (let t = 0; t < 600; t++) {
+      ent.posX[warden] = ent.posX[avatar] + 3;
+      ent.posY[warden] = ent.posY[avatar];
       step(state, idle);
-      if (state.wardenGoal === WGOAL_HARASS) harassed++;
+      if (state.captain.aim === avatar) aimed++;
     }
-    expect(harassed).toBe(0);
-    // ...which is the cloak's doing: uncloaked, the same hunt holds.
+    expect(aimed).toBe(0);
+    // ...which is the cloak's doing: uncloaked, the same captain takes it within
+    // its shooters' 1.0 s search.
     state.buffInvis[0] = 0;
-    state.wardenGoal = WGOAL_HARASS;
-    state.wardenSlot = 0;
-    state.wardenThink = 1000;
-    step(state, idle);
-    expect(state.wardenGoal).toBe(WGOAL_HARASS);
+    let taken = -1;
+    for (let t = 0; t < 60 && taken < 0; t++) {
+      ent.posX[warden] = ent.posX[avatar] + 3;
+      ent.posY[warden] = ent.posY[avatar];
+      step(state, idle);
+      if (state.captain.aim === avatar) taken = t;
+    }
+    expect(taken).toBeGreaterThanOrEqual(0);
     // And uncloaked, a Runner sees it again.
     const r2 = spawnUnit(state, ARCHETYPE.RUNNER, 1, ent.posX[avatar] + 2, ent.posY[avatar]);
     expect(nearestEnemyInRange(state, r2, 6)).toBe(state.avatarId[0]);

@@ -118,9 +118,10 @@ describe("turret reach on the imported arenas", () => {
   });
 
   it("no standoff position exists against a base emplacement, on any arena", () => {
-    // The finding v20's WGOAL_SUPPRESS is built on, and the reason it closes to 3 m
-    // instead of picking a firing position: the arenas' wall lattice is dense city
-    // geometry, so a defending emplacement is not shootable from range by ANYBODY.
+    // The finding Metropolis' own Warden's suppress goal (v20-v45) was built on, and
+    // the reason it closed to 3 m instead of picking a firing position: the arenas'
+    // wall lattice is dense city geometry, so a defending emplacement is not
+    // shootable from range by ANYBODY. (The Sky Captain, v46, aims inside 12 m.)
     //
     // This is what ruled out the two cheaper readings of "the Warden holds a target
     // for 1-18% of the match". It is not out of position — there is nowhere to
@@ -238,16 +239,13 @@ describe("an unescorted bought push against an intact defence, per arena", () =>
 });
 
 describe("a Warden vs an idle player on la-cantina", () => {
-  // With nothing produced for free, the idle player fields no units at all, so
-  // the Warden's bought waves meet only the turret line. Measured at v32: it
-  // breaches at 79 s on this seed (capture 44% of its ticks, then the committed
-  // push: escort 20%, suppress 15%). At v33 (the original's economy: a 10-point
-  // start, no trickle, +1 a capture) it breached at 160 s: a difficulty-8 Warden
-  // saves for its Juggernaut, and with no trickle the 50 points came from pads
-  // (capture 73% of its ticks), then the Juggernaut push (escort 10%, suppress
-  // 11%) won. At v34 a capture is instant and the Warden takes a pad by flying
-  // over it, so it breaches at 77 s. The long history of this describe — the stalled pushes of v15-v30
-  // against a free production stream — ended with the stream.
+  // Since SIM_VERSION 46 the Warden is the original's Sky Captain (level 7 at
+  // difficulty 8). With fewer than ten turrets of its own it stays in defend mode
+  // (fcop-fidelity.md U3), chasing the player and capturing the pads it flies
+  // over; what breaches is its free opening order: on this seed 5 tanks, which
+  // drive through the ring the way a lone Runner does (above), at 39 s. Until
+  // v45 Metropolis' own Warden saved for a Juggernaut from pads and kills and
+  // pushed it in (77-183 s).
   const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
   const idle = createTickInputs();
   let captures = 0;
@@ -274,42 +272,51 @@ describe("a Warden vs an idle player on la-cantina", () => {
     expect(boardValue / COST_JUGGERNAUT).toBeGreaterThan(0.5);
     expect(boardValue / COST_JUGGERNAUT).toBeLessThan(1);
     // The board alone does not fund the heavy push: the start plus every pad is
-    // still short of a Juggernaut, so kills pay the rest. Since SIM_VERSION 34 a
-    // capture is instant and the Warden takes a pad by flying over it (the Sky
-    // Captain's flat-proximity capture), so on this seed it sweeps all 32 pads in
-    // 46 s and buys its Juggernaut at 46 s; until then (a 3 s stand per pad) it
-    // took some of the board and won without the rest.
+    // still short of a Juggernaut, so kills pay the rest. (The Sky Captain starts
+    // on 0, not STARTING_POINTS, and in defend mode never buys one anyway; the
+    // relation is the human side's.)
     expect(STARTING_POINTS + boardValue).toBeLessThan(COST_JUGGERNAUT);
     expect(captures).toBeGreaterThan(0);
     expect(captures).toBeLessThanOrEqual(2 * MAP.turretSpots.length);
   });
 });
 
-describe("a d8 Warden match RESOLVES on every imported arena", () => {
-  // The last open item of issue #31 / PLAN Phase 13, pinned so it cannot
-  // silently regress: a difficulty-8 Warden against an idle player wins through
-  // the gate on all four arenas. Seeds 2 and 4 are in the set because they are
-  // the two that once stalled urban-jungle (a standing mill of produced units at
-  // the base exit, before the v30 jam relief); c0ffee is the suite's usual seed.
-  //
-  // Twelve minutes, not ten, since v33: the original's economy has no trickle and
-  // a 10-point start, and a difficulty-8 Warden saves for its 50-point Juggernaut
-  // before it buys anything. Measured worst cases: la-cantina 83 s,
-  // urban-jungle 351 s, proving-ground 592 s, bug-hunt 603 s at v34 (instant
-  // capture); 166/352/664/621 s at v33; 79/98/96/83 s at v32.
-  // The Warden's spending rules are ours until the Sky Captain lands (U3).
+describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () => {
+  // The original's captain, pinned as measured (SIM_VERSION 46; fcop-fidelity.md
+  // U3). On every imported arena it spends the match in defend mode: it owns
+  // fewer than the ten turrets near home that let it roam or attack (8 base + 2
+  // per owned outpost in the original; Metropolis' rings are 6-9 and its outposts
+  // carry no turrets, R14), and in defend mode it chases the player and buys only
+  // jets and a Fortress — never a tank below level 9, never an outpost claim or a
+  // Dreadnought. What wins is its free opening order (level 7: 2-5 base tanks and
+  // jets for the rest of ten), whose tanks are the original's route followers.
+  // Measured over seeds c0ffee/1/2/3/4: 17 of 20 resolve, in 52-111 s. The three
+  // that do not are urban-jungle seeds 2, 3 and 4: an opening order of two or
+  // three tanks dies short of that arena's gate, and nothing replaces it (the
+  // captain's points pile up to ~350 by downing the idle player, and defend mode
+  // spends them on a Fortress). Seeds 2 and 4 used to be "the stall seeds" of the
+  // v30 jam relief; they stay because they are the instructive ones again.
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {
-    it(`${id}: d8 vs idle breaches within twelve minutes on the stall seeds`, () => {
+    it(`${id}: d8 vs idle, the opening order breaches (or measurably does not)`, () => {
       for (const seed of [0xc0ffee, 2, 4]) {
         const state = createSim(getMapById(id), seed, {
           wardenPlayer: 1,
           wardenDifficulty: 8,
         });
         const idle = createTickInputs();
-        for (let t = 0; t < TWELVE_MINUTES && state.winner < 0; t++) step(state, idle);
+        let defend = 0;
+        for (let t = 0; t < TWELVE_MINUTES && state.winner < 0; t++) {
+          step(state, idle);
+          if (state.captain.mode === 2) defend += 1;
+        }
+        expect(defend).toBe(state.tick);
+        if (id === URBAN_JUNGLE_ID && seed !== 0xc0ffee) {
+          expect(state.winner).toBe(-1);
+          continue;
+        }
         expect(state.winner).toBe(1);
-        expect(state.tick).toBeLessThanOrEqual(TWELVE_MINUTES);
+        expect(state.tick).toBeLessThan(3 * 60 * 30);
       }
     });
   }

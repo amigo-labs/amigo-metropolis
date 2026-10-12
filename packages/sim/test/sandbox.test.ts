@@ -7,7 +7,7 @@
 // goldens (replay:verify) must be untouched by this module existing.
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE, TEAM_NEUTRAL } from "../src/archetypes";
-import { ARCHETYPE_MAX_HP, AVATAR_HP, WARDEN_ALTITUDE, WARDEN_HP } from "../src/balance";
+import { ARCHETYPE_MAX_HP, AVATAR_HP, SKY_RECORD_HP, WARDEN_ALTITUDE } from "../src/balance";
 import { createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson, sampleHeight } from "../src/map";
 import {
@@ -151,7 +151,7 @@ describe("spawnSandbox", () => {
       const id = spawnSandbox(sim, def.key, 0, 30, 30);
       const expected =
         def.archetype === ARCHETYPE.WARDEN
-          ? WARDEN_HP
+          ? SKY_RECORD_HP
           : def.archetype === ARCHETYPE.AVATAR
             ? AVATAR_HP
             : ARCHETYPE_MAX_HP[def.archetype];

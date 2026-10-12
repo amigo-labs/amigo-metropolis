@@ -11,8 +11,6 @@
 
 import {
   FLAME_PULSE_TICKS,
-  WARDEN_HEAVY_AOE_RADIUS,
-  WARDEN_HEAVY_DAMAGE,
   WEAPON_RECORDS,
   WEAPON_UNITS_PER_TICK,
   type WeaponRecord,
@@ -451,16 +449,6 @@ export function resolveLoadout(loadout: Loadout): {
     heavy: HEAVIES[l.heavy],
     special: SPECIALS[l.special],
   };
-}
-
-/**
- * The Warden's bomb blast. Every avatar round carries its own damage and radius
- * on its entity (sim.ts spawnRound); the Warden's flat bomb is Metropolis' own
- * weapon and keeps its balance.ts numbers (its weapons are the units/AI
- * package's, U3).
- */
-export function wardenBlast(): { damage: number; radius: number } {
-  return { damage: WARDEN_HEAVY_DAMAGE, radius: WARDEN_HEAVY_AOE_RADIUS };
 }
 
 /**

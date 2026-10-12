@@ -86,10 +86,15 @@ import {
   RUNNER_ALIVE_LIMIT,
   retentionPerTick,
   SHOOTER_RETRY_UNITS,
+  SKY_BOMB_BLAST,
+  SKY_BOMB_DAMAGE,
+  SKY_MISSILE_DAMAGE,
+  SKY_MISSILE_FLIGHT,
   SPECIAL_MINE_ARM_TICKS,
   SPECIAL_MINE_FUSE_TICKS,
   SPECIAL_MINE_TTL_TICKS,
   STARTING_POINTS,
+  skyRespawnTicks,
   TICK_DT,
   TICK_HZ,
   TRANSFORM_LOCK_TICKS,
@@ -127,9 +132,8 @@ import {
   WARDEN_ALTITUDE,
   WARDEN_HEAVY_SPEED,
   WARDEN_HEAVY_TTL_TICKS,
-  WARDEN_HP,
-  WARDEN_RESPAWN_TICKS,
   WEAPON_UNITS_PER_TICK,
+  wardenLevel,
   X1_DIAGONAL_SCALE,
   X1_GRAVITY,
   X1_IMPACT_HP,
@@ -167,7 +171,7 @@ import {
   SHOT_SLOT_LAUNCH,
   weaponShotPayload,
 } from "./events";
-import { fnv1aBytes, fnv1aInit, fnv1aU32 } from "./hash";
+import { fnv1aBytes, fnv1aF32, fnv1aInit, fnv1aU32 } from "./hash";
 import {
   BUTTON_FIRE1,
   BUTTON_FIRE2,
@@ -206,7 +210,16 @@ import {
   UNIT_MODE_PATROL,
   unitRange,
 } from "./units";
-import { systemWarden, WGOAL_IDLE } from "./warden";
+import {
+  type CaptainState,
+  captainConstruct,
+  captainCredit,
+  captainMaxHp,
+  captainRespawn,
+  captainRestore,
+  createCaptainState,
+  systemWarden,
+} from "./warden";
 import {
   DEFAULT_LOADOUT,
   type Loadout,
@@ -219,7 +232,6 @@ import {
   resolveLoadout,
   type WeaponBlock,
   type WeaponDef,
-  wardenBlast,
   weaponInSlot,
 } from "./weapons";
 
@@ -345,12 +357,8 @@ export interface SimState {
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
   readonly wardenDifficulty: number;
-  /** Warden decision state: current goal (WGOAL_* in warden.ts). */
-  wardenGoal: number;
-  /** Goal operand: entity id, spot index or remaining-purchase count. */
-  wardenSlot: number;
-  /** Ticks until the next decision re-plan (the reaction delay). */
-  wardenThink: number;
+  /** The Warden's Sky Captain state (warden.ts); hashed only when a Warden exists. */
+  readonly captain: CaptainState;
 
   // --- Precinct Assault state (rules.md §9) --------------------------------
   // Every array here is sized from the map's own feature lists, so on an arena
@@ -411,7 +419,7 @@ export function spawnAvatar(state: SimState, player: number): number {
   ent.yaw[id] = s.yaw;
   ent.aimX[id] = cosLUT(s.yaw);
   ent.aimY[id] = sinLUT(s.yaw);
-  ent.hp[id] = warden ? WARDEN_HP : AVATAR_HP;
+  ent.hp[id] = warden ? captainMaxHp(state) : AVATAR_HP;
   // Spawn form (fcop-fidelity.md P2): every respawn comes back in the form the
   // spawn record asks for, as `player_respawn` resets the row from the record.
   const hover = !warden && s.hover;
@@ -715,9 +723,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     loadoutSpecial: new Uint8Array(MAX_PLAYERS),
     wardenPlayer,
     wardenDifficulty,
-    wardenGoal: WGOAL_IDLE,
-    wardenSlot: -1,
-    wardenThink: 0,
+    captain: createCaptainState(),
     pickupCooldown: new Int32Array(map.pickups.length),
     buffInvuln: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
     buffInvis: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
@@ -752,6 +758,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
   for (let k = 0; k < map.outpostSpots.length; k++) {
     spawnOutpostConsole(state, k);
   }
+  captainConstruct(state);
   return state;
 }
 
@@ -1421,16 +1428,29 @@ export function claimOutpost(state: SimState, player: number, id: number): boole
     const dx = ent.posX[id] - spots[k].x;
     const dy = ent.posY[id] - spots[k].y;
     if (dx * dx + dy * dy > r2) continue;
-    state.points[player] -= COST_OUTPOST_CLAIM;
-    state.outpostOwner[k] = player;
-    const cid = state.outpostConsole[k];
-    ent.team[cid] = player;
-    ent.ownerId[cid] = player;
-    ent.hp[cid] = ARCHETYPE_MAX_HP[ARCHETYPE.CONSOLE];
-    pushEvent(state.events, EV_CLAIM, cid, player, k);
-    return true;
+    return claimOutpostSlot(state, player, k);
   }
   return false;
+}
+
+/**
+ * Claims outpost `k` for `player`: -30, the owner, the console's team. The
+ * zone's claim (claimOutpost) and the Sky Captain's decision (warden.ts, which
+ * writes the original's owner word from wherever it is) both end here. False
+ * when it is taken, its console is down, or the points are short.
+ */
+export function claimOutpostSlot(state: SimState, player: number, k: number): boolean {
+  if (state.points[player] < COST_OUTPOST_CLAIM) return false;
+  if (state.outpostOwner[k] !== -1 || state.outpostConsole[k] < 0) return false;
+  const ent = state.ent;
+  state.points[player] -= COST_OUTPOST_CLAIM;
+  state.outpostOwner[k] = player;
+  const cid = state.outpostConsole[k];
+  ent.team[cid] = player;
+  ent.ownerId[cid] = player;
+  ent.hp[cid] = ARCHETYPE_MAX_HP[ARCHETYPE.CONSOLE];
+  pushEvent(state.events, EV_CLAIM, cid, player, k);
+  return true;
 }
 
 /**
@@ -2281,8 +2301,10 @@ export function hitscan(
 }
 
 /**
- * The Warden's bomb (warden.ts): Metropolis' own weapon (U3's), a flat rocket at
- * WARDEN_HEAVY_SPEED for WARDEN_HEAVY_TTL_TICKS with a flat blast.
+ * The Warden's bomb (warden.ts): the Sky Captain's weapon 9, 200 damage in a
+ * 3.2 m blast with the original's linear falloff (fcop-re/ai-and-rules.md §1.4).
+ * Its speed and arc could not be established, so it keeps Metropolis' flight: a
+ * flat round at WARDEN_HEAVY_SPEED for WARDEN_HEAVY_TTL_TICKS.
  */
 export function spawnWardenBomb(
   state: SimState,
@@ -2294,12 +2316,11 @@ export function spawnWardenBomb(
   const ent = state.ent;
   const id = spawnStraight(state, shooter, dx, dy, -1, -1);
   if (id < 0) return;
-  const blast = wardenBlast();
   ent.mode[id] = PROJ_WARDEN;
   ent.ownerId[id] = player;
-  ent.ammoA[id] = blast.damage;
-  ent.aux[id] = blast.radius;
-  ent.ammoB[id] = ROUND_FLAT_BLAST;
+  ent.ammoA[id] = SKY_BOMB_DAMAGE;
+  ent.aux[id] = SKY_BOMB_BLAST;
+  ent.ammoB[id] = 0; // linear falloff, as the original's area damage
   ent.timerA[id] = WARDEN_HEAVY_TTL_TICKS;
   ent.cooldownA[id] = WARDEN_HEAVY_SPEED;
   ent.velX[id] = dx * WARDEN_HEAVY_SPEED;
@@ -2307,6 +2328,37 @@ export function spawnWardenBomb(
   ent.cooldownB[id] = 0;
   ent.aimX[id] = WARDEN_HEAVY_SPEED;
   ent.aimY[id] = 0;
+}
+
+/**
+ * The Warden's missile (warden.ts): the Sky Captain's weapon 8, guided, 25
+ * damage, flying 24 m (fcop-re/ai-and-rules.md §1.4), homing on `target`. Its
+ * speed could not be established, so it flies at Metropolis' WARDEN_HEAVY_SPEED.
+ */
+export function fireWardenMissile(
+  state: SimState,
+  shooter: number,
+  target: number,
+  dx: number,
+  dy: number,
+): void {
+  const ent = state.ent;
+  const p = spawnStraight(state, shooter, dx, dy, target, target);
+  if (p < 0) return;
+  const speed = WARDEN_HEAVY_SPEED;
+  ent.mode[p] = PROJ_ROUND;
+  ent.ownerId[p] = ent.ownerId[shooter];
+  ent.ammoA[p] = SKY_MISSILE_DAMAGE;
+  ent.aux[p] = 0;
+  ent.ammoB[p] = ROUND_HOMING;
+  ent.timerA[p] = Math.ceil((SKY_MISSILE_FLIGHT / speed) * TICK_HZ) + 1;
+  ent.cooldownA[p] = speed;
+  ent.velX[p] = dx * speed;
+  ent.velY[p] = dy * speed;
+  ent.cooldownB[p] = SKY_MISSILE_FLIGHT;
+  ent.aimX[p] = speed;
+  ent.aimY[p] = 0;
+  pushEvent(state.events, EV_SHOT, shooter, SHOT_SLOT_LAUNCH, 0);
 }
 
 /** Damage bookkeeping; deaths are collected by systemDamageDeath afterwards. */
@@ -3021,8 +3073,11 @@ function systemDamageDeath(state: SimState): void {
     if (team === 0 || team === 1) {
       const other = team ^ 1;
       if (archetype === ARCHETYPE.WARDEN) avatarDown(state, team);
-      else if (archetype === ARCHETYPE.TURRET) state.points[other] += POINTS_TURRET_DIES;
-      else if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN)
+      else if (archetype === ARCHETYPE.TURRET) {
+        state.points[other] += POINTS_TURRET_DIES;
+        // A captured neutral turret destroyed is an engine credit (turret.c).
+        if (ent.mode[id] === TURRET_CAPTURABLE) captainCredit(state, other);
+      } else if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN)
         state.points[other] += POINTS_UNIT_DIES;
       else if (archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS)
         state.points[other] += POINTS_HEAVY_DIES;
@@ -3031,7 +3086,9 @@ function systemDamageDeath(state: SimState): void {
       const player = ent.ownerId[id];
       state.avatarId[player] = -1;
       state.respawnTimer[player] =
-        archetype === ARCHETYPE.WARDEN ? WARDEN_RESPAWN_TICKS : RESPAWN_TICKS;
+        archetype === ARCHETYPE.WARDEN
+          ? skyRespawnTicks(wardenLevel(state.wardenDifficulty))
+          : RESPAWN_TICKS;
       // Power-ups are lost when the avatar goes down (`player_respawn` clears the
       // block-B ammunition; fcop-fidelity.md P2, P8). The cloak and invulnerability
       // timers are NOT cleared: the original keeps counting them down while the
@@ -3096,6 +3153,8 @@ function systemDamageDeath(state: SimState): void {
  */
 function avatarDown(state: SimState, team: number): void {
   state.points[team ^ 1] += POINTS_AVATAR_DOWN;
+  // The player's kill credit zeroes the captain's rethink (0x004477ea).
+  captainCredit(state, team ^ 1);
   const left = state.points[team];
   state.points[team] = left > POINTS_AVATAR_DOWN ? left - POINTS_AVATAR_DOWN : 0;
 }
@@ -3111,6 +3170,7 @@ function systemSpawning(state: SimState): void {
         // Warden paid when it fell.
         if (p !== state.wardenPlayer) avatarDown(state, p);
         const id = spawnAvatar(state, p);
+        if (p === state.wardenPlayer) captainRespawn(state);
         if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, p, 0);
       }
     }
@@ -3216,6 +3276,7 @@ function systemCapture(state: SimState): void {
     ent.team[tid] = team;
     ent.ownerId[tid] = team;
     state.points[team] += POINTS_CAPTURE_TURRET;
+    captainCredit(state, team); // an engine credit: the captain rethinks at once
     pushEvent(state.events, EV_CAPTURE, tid, team, k);
   }
   for (let p = 0; p < MAX_PLAYERS; p++) state.capturePress[p] = 0;
@@ -3307,7 +3368,8 @@ function systemPickups(state: SimState): void {
       } else if (kind === PICKUP_HEALTH) {
         // Full heal: the grant passes amount -1, "fill" (fcop-fidelity.md P6) —
         // to the taker's own maximum (it set the Warden to the X1-Alpha's).
-        ent.hp[a] = ARCHETYPE_MAX_HP[ent.archetype[a]];
+        if (p === state.wardenPlayer) captainRestore(state, a);
+        else ent.hp[a] = AVATAR_HP;
       } else if (kind === PICKUP_INVULN) state.buffInvuln[p] = PICKUP_INVULN_TICKS;
       else if (kind === PICKUP_INVIS) state.buffInvis[p] = PICKUP_INVIS_TICKS;
       else if (kind === PICKUP_POWER_GUN) powerUp(state, p, 0);
@@ -3525,9 +3587,26 @@ export function hash(state: SimState): number {
   if (state.wardenPlayer >= 0) {
     h = fnv1aU32(h, state.wardenPlayer >>> 0);
     h = fnv1aU32(h, state.wardenDifficulty >>> 0);
-    h = fnv1aU32(h, state.wardenGoal >>> 0);
-    h = fnv1aU32(h, state.wardenSlot >>> 0);
-    h = fnv1aU32(h, state.wardenThink >>> 0);
+    const c = state.captain;
+    h = fnv1aU32(h, c.mode >>> 0);
+    h = fnv1aU32(h, c.think >>> 0);
+    h = fnv1aU32(h, c.aim >>> 0);
+    h = fnv1aU32(h, c.move >>> 0);
+    h = fnv1aU32(h, c.fly >>> 0);
+    h = fnv1aF32(h, c.destX);
+    h = fnv1aF32(h, c.destY);
+    h = fnv1aU32(h, c.threshold >>> 0);
+    h = fnv1aF32(h, c.speed);
+    h = fnv1aU32(h, c.order >>> 0);
+    h = fnv1aU32(h, c.search >>> 0);
+    for (let k = 0; k < 3; k++) {
+      h = fnv1aF32(h, c.gunClock[k]);
+      h = fnv1aU32(h, c.gunPhase[k]);
+    }
+    for (let k = 0; k < c.queue.length; k++) {
+      h = fnv1aU32(h, c.queue[k] >>> 0);
+      h = fnv1aU32(h, c.queueTimer[k] >>> 0);
+    }
   }
   return h;
 }
@@ -3607,7 +3686,8 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     const a = state.avatarId[slot];
     out[o + MATCH_SLOT_POINTS] = state.points[slot];
     out[o + MATCH_SLOT_AVATAR_ID] = a;
-    out[o + MATCH_SLOT_HP_FRAC] = a >= 0 ? ent.hp[a] / ARCHETYPE_MAX_HP[ent.archetype[a]] : 0;
+    const maxHp = slot === state.wardenPlayer ? captainMaxHp(state) : AVATAR_HP;
+    out[o + MATCH_SLOT_HP_FRAC] = a >= 0 ? ent.hp[a] / maxHp : 0;
     // The magazine each slot fires from: block B while powered, else block A.
     const pk = slot * 3;
     out[o + MATCH_SLOT_AMMO_HEAVY] =

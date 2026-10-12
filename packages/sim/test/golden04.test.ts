@@ -4,15 +4,24 @@
 // this fails and the golden needs regenerating WITH new pins (and justification
 // in the commit message — CLAUDE.md hard rule 6).
 //
-// Until SIM_VERSION 32 the difficulty-8 Warden captured the map, saved for a
-// Juggernaut on a 20-point start plus a trickle plus 3 a pad, and breached at
-// tick 7660. Under the original's economy (v33, fcop-fidelity.md R2-R7) it no
-// longer does: it takes all six pads (+6) and downs the patrolling player three
-// times (+30; twice at v33), but each of its own nine falls costs it 10, so the Juggernaut save it
-// holds every other purchase for never completes and it fields nothing. That is
-// a defect of this invented AI under the original's rules, pinned here as
-// measured rather than hidden; the Sky Captain port (fidelity ledger U3) replaces
-// it, and its spending is the original's, not a saving rule.
+// Since SIM_VERSION 46 the Warden is the original's Sky Captain at level 7
+// (difficulty 8; fcop-fidelity.md U3). It does not breach district-01, and the
+// reason is measured, not hidden:
+// - the captain's mode machine promotes it to DEFEND whenever it owns fewer than
+//   ten turrets within 256 m of home (8 base turrets + 2 per owned outpost in
+//   the original; district-01's ring is 4 and Metropolis' outposts carry none).
+//   In defend mode it flies at the player and buys only jets, a Fortress past 65
+//   points, and — at level 9 only — a base tank against a threat at home; it
+//   claims outposts and buys tanks or a Dreadnought only in its other two modes.
+//   So it spends this match in defend mode (all but the 6 ticks after a respawn);
+// - its only tanks are its free opening order (level 7: 2-5 tanks and the rest
+//   of ten jets, unpaid). On district-01 (Metropolis' polyline lanes) a Runner
+//   halts at the first thing in reach and dies there: all five do;
+// - chasing the patrolling player into district-01's ring (Metropolis' 28 m
+//   instant-hit turrets) it falls six times, each costing it 10.
+// On the imported arenas the same opening order breaches an idle player in
+// 41-132 s on 19 of 20 seeds (paAttribution.test.ts): their Runners are the
+// original's route followers and do not stop to fight.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -25,7 +34,7 @@ import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
 describe("golden-04-warden beats", () => {
-  it("the Warden captures and trades kills, but its falls starve its save", () => {
+  it("the Sky Captain defends, trades kills, and its opening order dies on the lanes", () => {
     const replay = decodeReplay(
       new Uint8Array(readFileSync(join(import.meta.dir, "goldens", "golden-04-warden.mrep"))),
     );
@@ -69,26 +78,19 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    // Map control: every pad on district-01.
-    expect(wardenCaptures).toBe(6);
-    // Both sides trade kills: the scripted patrol hurts the Warden enough to
-    // exercise its retreat/respawn paths, and dies to it in return.
-    // 9 -> 10 at SIM_VERSION 41: the patrol's Mini-Gun hits whatever it locks
-    // within 12 m, every tick, and the Warden it harasses is that.
-    expect(wardenDeaths).toBe(10);
-    // Two player downs (three before SIM_VERSION 37): the avatar respawns 4 s
-    // after a down now (fcop-fidelity.md P2), so the open-loop patrol is back on
-    // its route 4 s sooner and is no longer caught where it died the third time.
-    // One player down since SIM_VERSION 39 (two at v37-38, three before): the
-    // patrol now strafes and turns the original walker's way, at 4.69 m/s, so it
-    // stands somewhere else when the Warden comes.
-    expect(avatarDeaths).toBe(1);
-    // Each Warden fall costs it 10 and pays player 0 10 (R4), so the
-    // difficulty-8 Juggernaut save never reaches 50 and nothing is bought.
-    expect(wardenRunners).toBe(0);
+    // It captures the two pads it flies over chasing the player.
+    expect(wardenCaptures).toBe(2);
+    // Its opening order is its whole field: five Runners (and five jets), none
+    // bought — its defend mode buys no tank below level 9.
+    expect(wardenRunners).toBe(5);
     expect(wardenJuggernauts).toBe(0);
+    // Both sides trade kills: it falls six times to the patrol and the ring, and
+    // downs the patrol once.
+    expect(wardenDeaths).toBe(6);
+    expect(avatarDeaths).toBe(1);
+    // Each fall costs it 10 and pays player 0 10 (R4): it ends on nothing.
     expect(sim.points[1]).toBe(0);
-    expect(sim.points[0]).toBe(100);
+    expect(sim.points[0]).toBe(65);
     // No breach: the match is still running when the recording ends.
     expect(breaches).toBe(0);
     expect(breachTick).toBe(-1);

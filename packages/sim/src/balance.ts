@@ -1046,112 +1046,166 @@ export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tic
  * NORMAL walker Metropolis models transforms to hover in deep water instead.
  */
 export const RESPAWN_TICKS = 120;
+// --- The Warden: the original's Sky Captain (fcop-fidelity.md U3) ----------
+// fcop-re/ai-and-rules.md §1 (dispatch.c, aircraft.c in the RE repo). The
+// Warden is actor type 37: an aircraft with the commander's decision pass on
+// top. Metropolis' difficulty 1-10 is the captain's level 0-9 (state word 19):
+// level = difficulty - 1. Distances the decision pass measures are the
+// original's octagonal estimate |dx| + |dy| - min(|dx|, |dy|) / 2, in metres
+// (8192 wu = 1 m).
+
+/** The level a Warden difficulty plays (word 19, clamped 0..9). */
+export function wardenLevel(difficulty: number): number {
+  const l = difficulty - 1;
+  return l < 0 ? 0 : l > 9 ? 9 : l;
+}
+
 /**
- * The Warden's respawn: Metropolis' own 8 s, unchanged by P2. The Sky Captain's
- * is (14 - level) * 150 engine units (fcop-fidelity.md U3), which is the units
- * package's to adopt with the rest of the captain.
+ * The record's health, 1000 in all 22 shipped instances; by level (construct):
+ * below 6 `max - (max >> 2) * ((7 - L) >> 1)`, above 7 `max + (max >> 3) * (L - 7)`
+ * = 250, 250, 500, 500, 750, 750, 1000, 1000, 1125, 1250. Was WARDEN_HP 450.
  */
-export const WARDEN_RESPAWN_TICKS = 240;
-
-// --- Warden (rules.md §7, PLAN Phase 4) -------------------------------------
-// The solo-opponent superplane: flies over everything, stronger than the
-// player Avatar, plays by the same economy. All decision inputs that scale
-// with difficulty live in the arrays below, indexed by (difficulty - 1).
+export const SKY_RECORD_HP = 1000;
+export function skyMaxHp(level: number): number {
+  if (level < 6) return SKY_RECORD_HP - (SKY_RECORD_HP >> 2) * ((7 - level) >> 1);
+  if (level > 7) return SKY_RECORD_HP + (SKY_RECORD_HP >> 3) * (level - 7);
+  return SKY_RECORD_HP;
+}
 
 /**
- * Metropolis' own, from when the avatar had 300. The avatar has the original's
- * 1250 since SIM_VERSION 40 (fcop-fidelity.md P1), so this superplane is now the
- * weaker of the two; the Sky Captain's 250-1250 by level is U3's (the units/AI
- * package), which replaces it.
+ * Level-flight speed: the record's 1843 raw is `(1843 << 12) / 300` = 25163
+ * internal, plus `(L - 3) * 0x800` below level 3 and `(L - 3) * 0x420` from 3, and
+ * a level aircraft moves `speed * dt >> 8` wu per engine tick: 2.72 m/s at level
+ * 0, 3.60 at 3, 4.51 at 9. Was WARDEN_SPEED 10.
  */
-export const WARDEN_HP = 450;
-export const WARDEN_SPEED = 10; // a hair above hover (9): it can disengage
-export const WARDEN_ALTITUDE = 7; // cruise height above ground/water surface
+export const SKY_RECORD_SPEED = 25163;
+export function skySpeed(level: number): number {
+  const internal = SKY_RECORD_SPEED + (level < 3 ? (level - 3) * 0x800 : (level - 3) * 0x420);
+  return (internal * 300) / 256 / 8192;
+}
 
-// Own weapon set (rules.md §7): hitscan cannon + AoE bomb, both cooldown-only
-// (a superplane carries no ammo counter; returning to base is never forced).
-export const WARDEN_PRIMARY_DAMAGE = 10;
-export const WARDEN_PRIMARY_COOLDOWN_TICKS = 5;
-export const WARDEN_PRIMARY_RANGE = 42;
-export const WARDEN_HEAVY_DAMAGE = 60;
-export const WARDEN_HEAVY_COOLDOWN_TICKS = 36;
+/** Cruise height above ground/water: Metropolis' (the record's 1.28 m is above a
+ * coarse ground envelope the heightfield does not carry). */
+export const WARDEN_ALTITUDE = 7;
+
+/**
+ * Rethink: the decision pass runs when the countdown goes negative and reloads it
+ * with `0x350 - 80 * L` engine units, plus rand 0..255 in modes 0/1 or minus rand
+ * 0..31 in mode 2 (0x00421658..0x0042168f): 2.83-3.68 s at level 0, 0.43-1.28 s
+ * at level 9. Every credit the engine pays the captain zeroes it.
+ */
+export const SKY_RETHINK_BASE = 0x350;
+export const SKY_RETHINK_PER_LEVEL = 80;
+export const SKY_RETHINK_JITTER = 0x100;
+export const SKY_RETHINK_JITTER_DEFEND = 0x20;
+
+/**
+ * Respawn: the crash landing sets `(14 - L) * 150` engine units (aircraft.c
+ * 0x00420d90): 7.0 s at level 0, 2.5 s at level 9. The tumble before it is not
+ * modelled, so the countdown starts when it falls. Was WARDEN_RESPAWN_TICKS 240.
+ */
+export function skyRespawnTicks(level: number): number {
+  return ((14 - level) * 150) / 10;
+}
+
+/** From itself, every candidate is `(9 - L) * 0x1000` wu = 0.5 m further away. */
+export const SKY_LEVEL_PENALTY = 0.5;
+
+/** The scan's reach, octagonal metres (fcop-re/ai-and-rules.md §1.5). */
+export const SKY_NEAR_TANK = 0x68000 / 8192; //       own tank, from the player's base: 52 m
+export const SKY_NEAR_DREAD = 0x78000 / 8192; //      own Dreadnought, from it: 60 m
+export const SKY_FAR_TANK = 0x80000 / 8192; //        enemy tank, from home: 64 m
+export const SKY_FAR_DREAD = 0x90000 / 8192; //       enemy Dreadnought, from home: 72 m
+export const SKY_TURRET_COUNT = 0x200000 / 8192; //   own turrets counted within 256 m
+/** Fewer own turrets than this (8 base + 2 per owned outpost) promotes to defend. */
+export const SKY_TURRETS_SAFE = 10;
+/** A Dreadnought near the player's base is worth 10, a tank 1; 2 means attack. */
+export const SKY_SCORE_ATTACK = 2;
+/** Mode 1's detour to a neutral turret while escorting: within 0x10000 wu = 8 m. */
+export const SKY_ESCORT_CAPTURE = 0x10000 / 8192;
+/** Mode 0's ladder, from itself with the level penalty (octagonal metres). */
+export const SKY_HURT_PLAYER = 0x50000 / 8192; //  the player below 1/4 health: 40 m
+export const SKY_ROAM_DREAD = 0x50000 / 8192; //   40 m
+export const SKY_ROAM_TANK = 0x40000 / 8192; //    32 m
+export const SKY_ROAM_NEUTRAL = 0x60000 / 8192; // 48 m
+export const SKY_ROAM_JET = 0x30000 / 8192; //     24 m
+export const SKY_ROAM_TAKEN = 0x50000 / 8192; //   a turret the player captured: 40 m
+export const SKY_ROAM_FORTRESS = 0x30000 / 8192; // 24 m
+/** The neutral-turret slot's per-candidate jitter: rand & 0x3fff wu. */
+export const SKY_NEUTRAL_JITTER = 0x4000;
+
+/** It aims only inside its shooters' engage_range 6144 << 4 wu = 12 m, true distance. */
+export const SKY_AIM_RANGE = 12;
+/** It reverses inside the record's standoff, 512 << 4 wu = 1 m. */
+export const SKY_STANDOFF = 1;
+
+/**
+ * Retreat: below `maxHP / 2 - rand 0..63` (halved in modes 1 and 2), within
+ * 0x4000 wu = 2 m of home it is restored on the spot; engaging, it breaks for
+ * home with `speed += speed >> (4 - L / 4)`; cruising, a health pickup within
+ * 0x1000 wu = 0.5 m restores it, a nearer one than home diverts it.
+ */
+export const SKY_RETREAT_JITTER = 0x40;
+export const SKY_HOME_RADIUS = 0x4000 / 8192;
+export const SKY_PICKUP_RADIUS = 0x1000 / 8192;
+
+/**
+ * Its three weapons, ids 7 / 8 / 9 of every PA arena's type-98 catalogue
+ * (fcop-re/ai-and-rules.md §1.4), unlimited, sharing one target:
+ * - 7, the gun: hitscan, 2 damage, a round every 18 engine units (0.06 s), 24 m;
+ * - 8, the missile: guided, needs a line of sight, 25 damage, every 150 units
+ *   (0.5 s), flies 24 m;
+ * - 9, the bomb: 200 damage in a 3.2 m blast (linear falloff), every 601 units
+ *   (2.0 s).
+ * The projectile speed of 8 and 9 could not be established (catalogue
+ * +0x12/+0x14 left raw), so both fly at Metropolis' WARDEN_HEAVY_SPEED, and the
+ * bomb keeps Metropolis' flat flight and lifetime instead of the original's arc.
+ * Was: a 10-damage cannon every 5 ticks at 42 m and a 60-damage 6 m bomb.
+ */
+export const SKY_GUN_DAMAGE = 2;
+export const SKY_GUN_REFIRE_UNITS = 18;
+export const SKY_GUN_REACH = 24;
+export const SKY_MISSILE_DAMAGE = 25;
+export const SKY_MISSILE_REFIRE_UNITS = 150;
+export const SKY_MISSILE_FLIGHT = 24;
+export const SKY_BOMB_DAMAGE = 200;
+export const SKY_BOMB_REFIRE_UNITS = 601;
+export const SKY_BOMB_BLAST = 3.2;
 export const WARDEN_HEAVY_SPEED = 25;
 export const WARDEN_HEAVY_TTL_TICKS = 75;
-export const WARDEN_HEAVY_AOE_RADIUS = 6;
-export const WARDEN_HEAVY_RANGE = 30; // only bombs targets closer than this
+/** With no target the shooters search by team on their targeting delay, 16 = 1.0 s. */
+export const SKY_SEARCH_UNITS = 300;
+/**
+ * The firing arcs the construct writes by level (shooter bitfield bits 1/2,
+ * ARC_BLOCK_REAR / ARC_BLOCK_SIDE): the gun front only (±22.5°) at level 0, front
+ * and sides (±157.5°) from level 1; the missile front only below 3, front and
+ * sides 3-6, all round from 7. The bomb keeps its record's bits, which were not
+ * read: all round here. [B] in the evidence (the reading of bits 0..2).
+ */
+export const SKY_ARC_SIDE_COS = -0.9238795325112867; // cos 157.5°
 
-// Decision-layer geometry (difficulty-independent).
-//
-// Ours, not the original's — though the original has a number for this shape:
-// aircraft target_detection_range is 28672 raw = 56 m (raw/512), and this radius is
-// the same KIND of thing, the distance at which the Warden notices a threat to
-// its gate rather than the distance it shoots from. Moving 55 onto it is part
-// of the reach question above and waits on the same decision.
-export const WARDEN_DEFEND_RADIUS = 55;
-export const WARDEN_STANDOFF = 24; // approach distance for attack goals
-export const WARDEN_ESCORT_DISTANCE = 6; // hover distance from the escorted unit
-export const WARDEN_RETREAT_DONE_HP_PERCENT = 80; // leave the pad at this hp
-
+/** Its units' cap (SKY_UNIT_CAP 0x14), the same 20 the human pads check. */
+export const SKY_UNIT_CAP = 20;
+/** What the spend blocks pay (the scripts' prices; ai-and-rules.md §1.8). */
+export const SKY_OUTPOST_UNIT_COST = 2;
+/** Mode 2, level 9: one base tank for an enemy Dreadnought < 18 m or tank < 16 m of home. */
+export const SKY_L9_DREAD = 0x24000 / 8192;
+export const SKY_L9_TANK = 0x20000 / 8192;
+/** Mode 2 orders from near home: within 0x80000 wu (64 m) less 8 m a level. */
+export const SKY_SPEND_HOME = 0x80000 / 8192;
+export const SKY_SPEND_HOME_PER_LEVEL = 0x10000 / 8192;
+/** A Fortress when the budget exceeds 0x41 + rand 0..7; outpost jets keep 5 back. */
+export const SKY_FORTRESS_BUDGET = 0x41;
+export const SKY_SPARE_BUDGET = 5;
 /**
- * Difficulty 1–10 knobs (PLAN Phase 4), indexed by (difficulty - 1): reaction
- * delay between decision re-plans, and the aggression percent that gates
- * harassing, Juggernaut savings and how low its hp may drop before it runs home
- * to repair. There is no income knob: the original's Sky Captain earns exactly
- * like a human side — its budget IS its Current Points (fcop-re/ai-and-rules.md
- * §1.8) — and Metropolis has no trickle left for a multiplier to scale.
+ * The scripts that turn its requests into units spawn base tanks one per 3.4 s
+ * (fn19) and base jets one per 0.97 s (fn17) per queue; the outpost queues'
+ * periods were not read, so they use the same.
  */
-export const WARDEN_REACTION_TICKS: readonly number[] = [48, 42, 36, 30, 24, 18, 12, 8, 5, 3];
-export const WARDEN_AGGRESSION_PERCENT: readonly number[] = [
-  10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
-];
-export const WARDEN_RETREAT_HP_PERCENT: readonly number[] = [
-  40, 38, 35, 32, 30, 28, 25, 22, 20, 15,
-];
-/** Runners bought per console trip. */
-export const WARDEN_WAVE_SIZE: readonly number[] = [1, 1, 2, 2, 3, 3, 4, 4, 5, 6];
-/**
- * Distance from the enemy core at which the Warden treats its own push as
- * committed and escorts it in instead of capturing another pad. Precinct Assault
- * arenas only (rules.md §9) — see the goal ladder in warden.ts. 0 means "never
- * commits", which is how the bottom difficulties keep giving their advantages
- * away, like WARDEN_WAVE_SIZE and WARDEN_GUARDIAN_TARGET.
- *
- * The floor that makes it useful is measured, not picked: everything defending a
- * base — its ring turrets (the "4 built-in guns" this used to count were the
- * Dreadnought's hull guns, SIM_VERSION 32) — sits within 16 m of its core, and
- * a ground unit halts at its own 14-16 m reach from the first thing it can see.
- * So below ~30 m the Warden only arrives after its push has already stalled; the
- * upper difficulties commit early enough to arrive with it.
- */
-export const WARDEN_PUSH_COMMIT_RANGE: readonly number[] = [0, 0, 30, 30, 36, 36, 42, 45, 45, 50];
-/**
- * How far from the tip of its own push the Warden looks for the emplacement that
- * is stopping it. Precinct Assault arenas only (rules.md §9).
- *
- * A ground unit halts at its own 14-16 m reach from the first hostile it can see,
- * so whatever is holding the tip is within roughly that distance of it; 24 m
- * covers the halt plus the spread of a base's ring without reaching across the
- * arena for a target that is not in the way.
- */
-export const WARDEN_SUPPRESS_RADIUS = 24;
-/**
- * How close the Warden gets to an emplacement it is suppressing.
- *
- * This is not a standoff, and that is the point. Measured over ten-minute
- * difficulty-8 matches on the four §9 arenas, a base emplacement is inside the
- * Warden's 42 m cannon range for 60-89% of the match and VISIBLE to it for 0-7%:
- * the arenas' wall lattice is dense city geometry, and a defending turret is
- * shootable from 8-17% of the directions around it at 8 m and from essentially
- * none at 20 m and beyond. Sniping one from cannon range is not a thing the map
- * allows anybody to do — a player kills these by coming down the street they
- * guard. So the Warden does the same: it closes until the wall lattice stops
- * mattering, inside the 12 m the emplacement itself reaches, and trades.
- */
-export const WARDEN_SUPPRESS_DISTANCE = 3;
-/** Guardians kept alive for base defense. */
-export const WARDEN_GUARDIAN_TARGET: readonly number[] = [0, 0, 1, 1, 1, 2, 2, 2, 3, 3];
-/** Aggression at or above this saves 50 points for a Juggernaut push. */
-export const WARDEN_JUGGERNAUT_AGGRO = 60;
+export const SKY_TANK_QUEUE_TICKS = 102;
+export const SKY_JET_QUEUE_TICKS = 29;
+/** Free opening order (construct 0x00421476): from level 1, 10 units. */
+export const SKY_OPENING_ORDER = 10;
 
 // Unit combat stats indexed by ARCHETYPE value (avatar/turret/projectile
 // slots unused — those fight through their own constants above).
@@ -1211,7 +1265,7 @@ export const ARCHETYPE_RADIUS: readonly number[] = [
   0.7, // TURRET      1.41
   0.15, // PROJECTILE
   0.56, // CONSOLE    1.12
-  1.0, // WARDEN      2.04 — a superplane is still a bigger target than the X1
+  1.0, // WARDEN      2.04 — the Sky Captain's craft
 ];
 
 // Max HP per archetype, indexed by ARCHETYPE value (rules.md §4 placeholders;
@@ -1225,7 +1279,7 @@ export const ARCHETYPE_MAX_HP: readonly number[] = [
   100, // TURRET (Phase 1 dummy value; Phase 2 rebalances)
   1, // PROJECTILE
   150, // CONSOLE
-  WARDEN_HP, // WARDEN
+  SKY_RECORD_HP, // WARDEN (its level scales it: skyMaxHp)
 ];
 
 /**

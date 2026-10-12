@@ -331,9 +331,10 @@ export function match01(tick: number, out: TickInputs): void {
 /**
  * Golden #4 (Phase 4 DoD "AI match"): the Warden (difficulty 8) as player 1
  * against a scripted player 0 running an open-loop patrol-and-shoot defense
- * near its own base — enough resistance to exercise the Warden's harass /
- * retreat / defend paths, but a losing game plan. The Warden must capture,
- * build and breach through it; the golden04 beats test pins the outcome.
+ * near its own base — enough resistance to exercise the Warden's retreat,
+ * respawn and defend paths. Since SIM_VERSION 46 the Warden is the Sky Captain:
+ * it defends, captures what it flies over and fields its opening order, which
+ * dies on district-01's lanes; the golden04 beats test pins the outcome.
  * Player 1's input channel stays all-zero: the AI ignores TickInputs.
  */
 export function warden01(tick: number, out: TickInputs): void {
@@ -455,8 +456,10 @@ export function pa01(tick: number, out: TickInputs): void {
     p.moveX = -100; // south-west to the pad at (94.8, 91.7)
     p.moveY = 78;
   } else if (t < 46) {
-    // By the pad: tap the action key (a press captures; holding does not).
-    p.buttons = Math.floor(tick / 15) % 2 === 0 ? BUTTON_INTERACT : 0;
+    // By the pad: tap the action key (a press captures; holding does not). The
+    // first press lands on the tick it arrives (555): the Sky Captain chases the
+    // player and flies over this pad two ticks later (SIM_VERSION 46).
+    p.buttons = Math.floor(tick / 15) % 2 === 1 ? BUTTON_INTERACT : 0;
   } else if (t < 62) {
     p.moveX = -127; // back west across the base platform
     p.moveY = 30;

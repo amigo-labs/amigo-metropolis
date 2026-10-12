@@ -50,6 +50,7 @@ import { join } from "node:path";
 // sim freezes (breach ticks themselves are unchanged — golden03/04 pin them);
 // 05 and 07 run imported arenas with no free production and no base guns.
 const FROZEN: Record<string, { last: number; count: number }> = {
+  // 04 and 07 re-frozen at SIM_VERSION 46: their Warden is the Sky Captain.
   // All seven re-frozen at SIM_VERSION 45: the entity store gained a float field
   // (timerC, a PA aircraft's cruise countdown), so every hash moves; 07's bought
   // units also target as the original's shooters and aircraft do.
@@ -62,7 +63,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // move (03/04). golden-07-pa also moves from the §9 escort/capture ladder.
   // 01/02/05/06 header-only.
   "golden-03-match": { last: 1878356378, count: 4800 },
-  "golden-04-warden": { last: 376018508, count: 9000 },
+  "golden-04-warden": { last: 3738813715, count: 9000 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -79,7 +80,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // runs a Warden on a core arena, so only its sequence moves.
   // Re-frozen at SIM_VERSION 44 (the original's route followers): 07's bought
   // units drive la-cantina's Cnet by the step chooser at 1.98 m/s.
-  "golden-07-pa": { last: 2833088072, count: 3600 },
+  "golden-07-pa": { last: 108646463, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

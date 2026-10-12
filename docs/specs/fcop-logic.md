@@ -153,7 +153,7 @@ semantics).
 | Question | (a) Stored as `Cact` data | (b) Engine behaviour |
 |---|---|---|
 | **Aircraft flight** | spawn_type/pos, move_speed, turn_rate, orbit_area_x/y, height_offset, time_to_descend, target_detection_range | orbit/descend algorithm (engine; only stubbed in FC:MIT) |
-| **Ground unit (Pathed)** | move_speed, acceleration, **Cnet path ref** (`rsl[2]`), start node (= position), graph topology | traverse graph node→node; FC:MIT picks a **random** neighbour at each junction + linear interpolation (its guess of the engine rule) |
+| **Ground unit (Pathed)** | move_speed, acceleration, **Cnet path ref** (`rsl[2]`), start node (= position), graph topology, route mode / wander / search range | traverse graph node→node; FC:MIT guessed a **random** neighbour at each junction. The decompiled step chooser (`cnet_route_next`) is a seek-or-random octave score with occupancy and no doubling back (`fcop-re/ai-and-rules.md` §4), adopted in SIM_VERSION 44 |
 | **Turret targeting** | weapon_id, target_type, targeting, **engage_range**, **targeting_delay**, fov, **turn_speed**, gun_rotation, base_rotation, shooter bitfield | pick current target in range + slew gun + fire on cooldown (engine; not in FC:MIT) |
 
 So for the three questions asked:
@@ -207,9 +207,9 @@ Adopted for `la-cantina` only, on the owner's call, and written up as
 
 | Item | Status |
 |---|---|
-| `Cnet` as lanes (option 1) | **adopted**, flattened to committed next-hop tables so no runtime search is needed |
+| `Cnet` as lanes (option 1) | **adopted**; flattened to committed next-hop tables until SIM_VERSION 44, since then driven by the original's step chooser on each side's own net (rules.md §4; the tables remain the arena pipeline's road proof) |
 | Turret parameters (option 2) | **adopted as data**, not as balance reference: range/cadence/slew/FOV are per-arena weapon profiles |
-| Aircraft orbit shape (option 3) | not adopted; `moveAirUnit` keeps its own model |
+| Aircraft orbit shape (option 3) | **adopted** on the imported arenas in SIM_VERSION 45: target search within the detection range, leash about the spawner, standoff reverse (`units.ts` `moveAircraft`; dwell timers, turn rate and altitude not modelled) |
 | Type 28 (§8.1) | adopted as a 5 s free-production base with a 3000 HP core and a base-destruction win; **withdrawn in SIM_VERSION 32**: it is the Dreadnought. Now the Juggernaut's spawn point and stats; the win is the gate trigger box (§8.6) |
 | `ItemPickup` (§8.2) | **adopted** |
 | `Trigger` intrusion volumes (§8.6) | **adopted** as detection; the alert is the original's voice line (speech 2/3, 8.3 s per base) since SIM_VERSION 36 — the `Cfun` binding was read (§8.6, `fcop-fidelity.md` R15) |
@@ -320,8 +320,12 @@ What Metropolis takes from it (`rules.md` §9): the Juggernaut's spawn point, it
 
 ### 8.3 Ignore (single-player or scenery)
 
-- Campaign-only missions and `Cfun`, `canm`, `MapObjectiveNodeGroup` (35),
-  `SkyCaptain` (37, just a PA map-type marker).
+- Campaign-only missions and `Cfun`, `canm`, `MapObjectiveNodeGroup` (35).
+- `SkyCaptain` (37) is not a map-type marker: it is the one-viewport opponent, an
+  aircraft with a commander's decision pass (`fcop-re/ai-and-rules.md` §1). Its
+  record is the same in all 22 instances and its level is a front-end setting, so
+  nothing per arena is imported: the Warden plays it from `balance.ts` `SKY_*`
+  (rules.md §7, SIM_VERSION 46).
 - Scenery/decoration actor types still Unknown that carry `Cobj` models and appear
   in prop-like counts: codes 87–99 (mostly), 98, 90–93. Low MP value.
 

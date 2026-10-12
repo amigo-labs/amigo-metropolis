@@ -788,4 +788,25 @@
 //     outpost-built PA Guardians carry mode 1 + outpost index. Goldens: all seven
 //     re-record for the new field; 07 also fields bought units under the new
 //     targeting.
-export const SIM_VERSION = 45;
+// v46: the Warden is the original's Sky Captain (docs/specs/fcop-fidelity.md U3;
+//     fcop-re/ai-and-rules.md §1, dispatch.c / aircraft.c). Difficulty 1-10 plays
+//     level 0-9: health 250-1250, speed 2.72-4.51 m/s, rethink every 848 - 80 L
+//     engine units (+0..255, or -0..31 defending), respawn (14 - L) * 150 units.
+//     The decision pass scans from home, the player's base and itself (octagonal
+//     distances, a (9 - L) * 0.5 m penalty) and runs the defend / attack / roam
+//     machine, its aim (inside 12 m) and move targets, then the spend blocks;
+//     retreat below maxHP/2 - rand 63 (halved defending/attacking), restore at
+//     home or from a health pickup. Weapons 7/8/9 (gun 2 per 18 units, guided
+//     missile 25 per 150, bomb 200 in 3.2 m with falloff per 601) on the
+//     shooters' rate machine with the level's arcs; flight at its target with a
+//     1 m standoff reverse. Its budget is its Current Points from 0, plus a free
+//     opening order of ten base units from level 1; requests pay at once and
+//     spawn from queues (a tank per 3.4 s, a jet per 0.97 s); outposts are
+//     claimed by decision; every engine credit zeroes its rethink. Was:
+//     Metropolis' goal ladder, 450 HP, 10 m/s, a 42 m cannon, pad repair, 8 s
+//     respawn, 10 starting points. SimState's wardenGoal/Slot/Think become the
+//     hashed `captain` block. Goldens: 04 (district-01, d8) and 07 (la-cantina,
+//     d8; its scripted capture press moves a phase earlier, to tick 555, since the
+//     captain chasing the player flies over that pad at 557) re-record; 01-03,
+//     05, 06 have no Warden and are byte-identical (re-headered).
+export const SIM_VERSION = 46;

@@ -201,13 +201,14 @@ Design pillars, in priority order:
   cannot be hit, because it is not there. There are no lives. Going down pays
   the **other side 10 pts and costs the downed side 10** (never below 0),
   whoever did it, settled when the avatar respawns (the original's rule, §3).
-  The Warden keeps its own 8 s (`WARDEN_RESPAWN_TICKS`).
+  The Warden comes back after the Sky Captain's (14 − level) × 0.5 s (§7).
 - The Base core is indestructible on every arena (pillar 1, and the original has
   no destructible core — §9). Base *turrets* are attackable by anyone.
 
 ## 3. Economy
 
-One resource: **Points**. Both players start with `STARTING_POINTS` = **10**.
+One resource: **Points**. Both players start with `STARTING_POINTS` = **10**
+(the Warden on 0 and a free opening order, §7).
 These are the original Precinct Assault's numbers (SIM_VERSION 33;
 `fcop-fidelity.md` R2-R10, `fcop-re/ai-and-rules.md` §2). None of them reads
 arena-specific data, so they apply on every arena, district-01 included.
@@ -379,39 +380,75 @@ records' 4.0 and 4.8 m/s.
 
 ## 7. Solo opponent ("Warden")
 
-AI avatar analogous to Sky Captain: a superplane (flies, ignores terrain,
-stronger than the player Avatar). Same rules and economy as a player — it earns
-and spends points; it does not cheat resources. Difficulty 1–10 scales its
-aggression thresholds and reaction delay (see PLAN Phase 4). It used to scale an
-income multiplier on the trickle too; the trickle is gone (§3), and the original's
-Sky Captain earns exactly like a human side — its budget is its Current Points.
-Since SIM_VERSION 33 its falls cost it 10 points each, which starves the
-difficulty-6+ Juggernaut save on district-01 (golden-04 pins it); the Sky Captain
-port replaces this decision layer.
+**The Warden is the original's Sky Captain** (SIM_VERSION 46;
+`fcop-fidelity.md` U3, `fcop-re/ai-and-rules.md` §1): an aircraft with a
+commander's decision pass, playing the second side by the human economy's rules.
+It replaced Metropolis' own superplane (450 HP, 10 m/s, a 42 m cannon and a goal
+ladder of defend / buy / push / suppress / capture / escort / harass).
 
-Its loss condition is the same on every arena — an enemy ground unit in its gate
-— so it defends one radius around the gate (`WARDEN_DEFEND_RADIUS`) everywhere.
-Until SIM_VERSION 32 a §9 arena tightened that radius to its core, because both
-bases emitted a free Runner every 5 s and "an enemy unit near my gate" was the
-steady state; the original has no such free stream, so the §1 radius is right
-again. On the imported arenas the Warden also commits to a living push instead of
-leaving it to capture another pad (`WARDEN_PUSH_COMMIT_RANGE`), a rung gated on
-the arena carrying the original road graph — the city lattice it was measured on.
-Rebuilding the Warden as the original's Sky Captain is the units/AI package's.
+- **Level.** Difficulty 1–10 is the captain's level 0–9 (`wardenLevel`; the
+  original's state word 19). It scales everything below. After a one-viewport
+  win the original raises it by one — a campaign feature, not built.
+  | Level | Health | Speed | Rethink | Respawn | Gun arc | Missile arc |
+  |---|---|---|---|---|---|---|
+  | 0 | 250 | 2.72 m/s | 2.8–3.7 s | 7.0 s | front | front |
+  | 1–2 | 250 / 500 | 3.01 / 3.31 | 2.6–3.4 / 2.3–3.1 s | 6.5 / 6.0 s | front + sides | front |
+  | 3–6 | 500–1000 | 3.60–4.05 | 2.0–2.9 … 1.2–2.1 s | 5.5–4.0 s | front + sides | front + sides |
+  | 7–9 | 1000 / 1125 / 1250 | 4.20 / 4.35 / 4.51 | 1.0–1.8 … 0.4–1.3 s | 3.5 / 3.0 / 2.5 s | front + sides | all round |
+  (front = within 22.5° of its heading, sides to 157.5°; defending, it rethinks a
+  little sooner, by up to 0.1 s, instead of up to 0.85 s later.)
+- **Weapons**, all sharing one target, which it takes only inside **12 m**: a gun
+  (2 damage every 0.06 s — a round every other tick), a guided missile (25 every
+  0.5 s, needs a line of sight, flies 24 m) and a bomb (200 in a 3.2 m blast with
+  falloff, every 2.0 s). Without a target of its own choosing its guns pick the
+  nearest enemy in 12 m every 1.0 s. The missile's and bomb's speed is not
+  established: they fly at Metropolis' 25 m/s, the bomb flat.
+- **Deciding.** On every rethink it scans the field from three places — its home
+  (its spawn), the player's base, itself — and picks a mode:
+  - **defend** (it starts here) whenever an enemy tank or Juggernaut is near home
+    (64 / 72 m), or while it owns fewer than **ten turrets** near home (8 base + 2
+    per owned outpost in the original). It engages that unit, or with none it
+    flies at the player;
+  - **attack** with its own Juggernaut (or tank) near the player's base: it escorts it;
+  - **roam** otherwise: a badly hurt player within 40 m, then an enemy Juggernaut
+    (40 m), tank (32 m), a neutral turret to capture (48 m), a jet (24 m), a turret
+    the player captured (40 m), a Fortress (24 m), then the nearest neutral or
+    player-held turret anywhere, else the midpoint between the bases.
+  Whatever the mode it shoots the player's mech when it comes within 12 m and it
+  is not busy with the Juggernaut or tank it chose. It never patrols; inside 1 m
+  of what it flies at it reverses, so it circles and jitters about it.
+- **Retreat.** Below half its health less a random 0–63 (a quarter while
+  defending or attacking) it breaks off for home, faster, and is restored to full
+  within 2 m of it; cruising home it diverts to a nearer health pickup.
+- **Economy.** Its budget **is** its side's Current Points (§3), but it starts on
+  **0**, not 10 (a one-viewport game's), and from level 1 gets a **free opening
+  order** of ten base units, 9 − level + 0–3 of them Runners and the rest
+  Guardians. It earns exactly as a player does, and each credit makes it rethink
+  at once; its fall costs it 10. It buys by request at the player's prices: base
+  Runners/Guardians 1, outpost ones 2, an outpost claim 30 (from wherever it is,
+  in a fixed order picked at the start), a Juggernaut or Fortress 50 (a second
+  Juggernaut while one lives spends the 50 and is refused — the original's quirk).
+  Requests are spawned a Runner per 3.4 s and a Guardian per 0.97 s per queue.
+  What it buys depends on the mode: defending, Guardians and a Fortress near home
+  (and at level 9 a base Runner against a threat at home); roaming or attacking,
+  outpost claims; attacking, outpost Runners and Guardians; roaming, a Juggernaut
+  and Runners at its outposts and its base.
 
-Committing means asking what is *stopping* the push before asking who to fly
-alongside: the Warden takes the enemy emplacement nearest the push's tip and
-closes to contact on it (`WARDEN_SUPPRESS_RADIUS`, `WARDEN_SUPPRESS_DISTANCE`),
-escorting only while the way is clear. Contact, not standoff, and that is a
-property of the arenas rather than a choice about the Warden: on the imported FCOP
-arenas a defending emplacement is shootable from 8–17% of the directions around it
-at 8 m and from essentially none at 20 m and beyond, because the wall lattice is
-dense city geometry. There is no firing position, for anybody — a player kills
-these by coming down the street they guard, and so does the Warden, inside the 12 m
-the emplacement itself reaches. Flight does not change that: the Warden ignores
-*terrain*, not walls, and its line of sight is the same lattice test as everyone
-else's. Exempting flight from it would delete the arenas' cover model and, since
-an emplacement's reach is 12 m, would make the Warden unanswerable.
+**What this means on Metropolis' arenas (measured).** No arena gives the captain
+ten turrets: the rings are 4 (district-01) to 9 and Metropolis' outposts carry no
+turret plates (`fcop-fidelity.md` R14), and claiming one needs a mode it never
+reaches. So it defends for the whole match, chasing the player and capturing the
+pads it flies over; its points (from downing the player) go to Guardians and a
+Fortress. Its **opening order is its offence**: on the imported arenas those
+Runners are the original's route followers and break an idle player's gate in
+52–111 s on 17 of 20 seeds at difficulty 8; at difficulty 1 (level 0, no opening
+order) it never breaches. On district-01 its Runners halt at the first ring
+turret (§4) and die, and it does not breach. Whether the original's arenas ever
+give it ten turrets is open in the RE; importing the original outposts (R14) is
+where that question lands.
+
+The Warden flies over terrain and walls; walls stop its shots at emplacements and
+avatars but not at ground units below it (it flies above the lattice).
 
 ## 8. Out of scope for v1
 

@@ -60,7 +60,9 @@ function SoloPanel({ state, update }: Pick<AppProps, "state" | "update">) {
         <span class="menu-value ck-value">{state.difficulty}</span>
       </div>
       <p class="menu-hint">
-        Low levels play defensively; higher levels push Juggernauts. START fields the Warden AI.
+        The Sky Captain's level ({state.difficulty - 1} of 0-9): tougher, faster and quicker to
+        decide as it rises, and from level 1 it opens with ten free units. START fields the Warden
+        AI.
       </p>
     </>
   );

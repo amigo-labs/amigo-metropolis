@@ -29,7 +29,13 @@
 // For capture behaviour, use the arena's own pads — every FCOP arena has them.
 
 import { ARCHETYPE, type Archetype, TEAM_NEUTRAL } from "./archetypes";
-import { ARCHETYPE_MAX_HP, AVATAR_HP, MAX_PLAYERS, WARDEN_ALTITUDE, WARDEN_HP } from "./balance";
+import {
+  ARCHETYPE_MAX_HP,
+  AVATAR_HP,
+  MAX_PLAYERS,
+  SKY_RECORD_HP,
+  WARDEN_ALTITUDE,
+} from "./balance";
 import { despawn, spawn } from "./entities";
 import { sampleHeight, worldExtent } from "./map";
 import {
@@ -390,7 +396,7 @@ function kitFor(state: SimState, player: number) {
 }
 
 function maxHpFor(archetype: number): number {
-  if (archetype === ARCHETYPE.WARDEN) return WARDEN_HP;
+  if (archetype === ARCHETYPE.WARDEN) return SKY_RECORD_HP; // the record's, no level here
   if (archetype === ARCHETYPE.AVATAR) return AVATAR_HP;
   return ARCHETYPE_MAX_HP[archetype];
 }
