@@ -20,7 +20,7 @@
 // Stage 1 has no water, so the district-01 river assertions are absent. The
 // mirror assertion is NOT absent any more — see the mirrorAxis field.
 import { describe, expect, it } from "bun:test";
-import { AVATAR_JUMP_SPEED, X1_GRAVITY } from "../src/balance";
+import { AVATAR_JUMP_SPEED, BASE_TURRET_RESPAWN_TICKS, X1_GRAVITY } from "../src/balance";
 import { crossesWallX, crossesWallY } from "../src/collision";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
@@ -34,6 +34,7 @@ import {
   worldExtent,
 } from "../src/map";
 import { segmentWalkable } from "../src/roads";
+import { ringRespawnTicks } from "../src/sim";
 import { JUMPABLE_RISE, worstHoverRise, worstUphillRise } from "../src/units";
 
 /** The apex JUMPABLE_RISE is derived from; asserted below so they cannot drift. */
@@ -391,6 +392,9 @@ for (const arena of ARENAS) {
           ? arena.ringTurrets[team]
           : arena.ringTurrets;
         expect(base.turrets.length).toBe(ringWant);
+        // The ring spawner's tSAC -2250 = 37.5 s (fcop-fidelity.md R16).
+        expect(base.turretRespawnTicks).toBe(1125);
+        expect(ringRespawnTicks(map, team)).toBe(BASE_TURRET_RESPAWN_TICKS);
         // Type 28 is the Dreadnought (fcop-fidelity.md I6): each side's
         // Juggernaut, with no core HP and no free production left on the base.
         expect(base.juggernaut?.hp).toBe(arena.juggernautHp);

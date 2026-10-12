@@ -550,6 +550,16 @@ function spawnOutpostConsole(state: SimState, k: number): number {
   return id;
 }
 
+/**
+ * Ticks a base ring turret of `team` stays down: the imported ring spawner's
+ * period (MapBase.turretRespawnTicks, the original's 37.5 s), else
+ * BASE_TURRET_RESPAWN_TICKS, the same 37.5 s (fcop-fidelity.md R16).
+ */
+export function ringRespawnTicks(map: MapData, team: number): number {
+  const t = map.bases[team].turretRespawnTicks;
+  return t > 0 ? t : BASE_TURRET_RESPAWN_TICKS;
+}
+
 /** Resolves flattened ring slot `k` to its map entry (base 0 slots first). */
 function baseTurretSpot(map: MapData, k: number): { team: number; spot: MapBaseTurret } {
   const n0 = map.bases[0].turrets.length;
@@ -3225,7 +3235,10 @@ function systemDamageDeath(state: SimState): void {
         for (let k = 0; k < state.baseTurretEntity.length; k++) {
           if (state.baseTurretEntity[k] === id) {
             state.baseTurretEntity[k] = -1;
-            state.baseTurretRespawn[k] = BASE_TURRET_RESPAWN_TICKS;
+            state.baseTurretRespawn[k] = ringRespawnTicks(
+              state.map,
+              baseTurretSpot(state.map, k).team,
+            );
             // "Base turret lost" (fcop-fidelity.md R15, voice ids 0/1).
             pushEvent(state.events, EV_TURRET_LOST, id, ent.team[id], k);
             slotted = true;

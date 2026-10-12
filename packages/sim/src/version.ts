@@ -849,4 +849,17 @@
 //     Goldens: 07 (la-cantina, d8) re-records, the captain roaming; 04
 //     (district-01, ring 4 = 8 < 10) still defends all match and is
 //     byte-identical, as are 01-03, 05 and 06 (no Warden); re-headered.
-export const SIM_VERSION = 49;
+// v50: a base ring turret comes back 37.5 s after it dies, the original's ring
+//     spawner period (tSAC -2250; fcop-fidelity.md R16, fcop-re/outposts.md Q1),
+//     on every arena, instead of Metropolis' 120 s. The imported arenas carry it
+//     as data (MapBase.turretRespawnTicks, 1125 ticks, read from the ring
+//     records' own spawner by enrichArena.ts and checked against outposts.json);
+//     district-01 and the test maps fall back to BASE_TURRET_RESPAWN_TICKS, the
+//     same 1125. Goldens: 03 (district-01) re-records with a new script — the old
+//     one cleared base East's ring and fought player 1 inside it for ~40 s, and
+//     the ring came back and put player 0 down; player 1 now walks out to the
+//     outpost to be put down, and the wave is bought after the ring's north pair
+//     is cleared and breaches inside its 37.5 s (tick 4262 -> 5640, 160 -> 200 s).
+//     01, 02 and 04-07 are byte-identical (no ring turret of theirs is down when
+//     the old and the new period differ); re-headered.
+export const SIM_VERSION = 50;

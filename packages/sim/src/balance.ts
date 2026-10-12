@@ -798,15 +798,14 @@ export const TURRET_DAMAGE = 15;
 export const TURRET_COOLDOWN_TICKS = 20;
 export const DUMMY_RESPAWN_TICKS = 450; // 15 s
 /**
- * Base ring + built-in defence respawn. Was 60 s (rules.md §5 placeholder).
- * At authentic density a d8 Warden strips an emplacement in ~8 s then breaks
- * contact to repair, and the ring replaced itself as fast as one superplane
- * could clear it — la-cantina stalled at ~900 core HP after fifteen minutes on
- * 5/5 seeds post multi-deck. 120 s restores finishes on la-cantina and
- * proving-ground (issue #31); urban-jungle needed the escort/capture ladder
- * fix in warden.ts as well.
+ * A base ring turret comes back 37.5 s after each death: its Csac spawner's tSAC
+ * is -2250 = 2250 * 5 engine ticks at 300 Hz, on every PA map
+ * (fcop-re/outposts.md Q1, ranges-turrets-capture.md Q3; fcop-fidelity.md R16).
+ * The imported arenas carry it as data (MapBase.turretRespawnTicks); this is the
+ * value for an arena that imports none (district-01, the test maps), the same
+ * 37.5 s. Was Metropolis' 120 s, sized for its own superplane (issue #31).
  */
-export const BASE_TURRET_RESPAWN_TICKS = 3600; // 120 s (rules.md §5, #31)
+export const BASE_TURRET_RESPAWN_TICKS = 1125;
 
 // Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
 /**

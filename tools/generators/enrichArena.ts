@@ -458,7 +458,7 @@ interface EvidenceOutpost {
 }
 
 interface EvidenceMap {
-  base_plates: { csac: number; team: number }[];
+  base_plates: { csac: number; team: number; respawn_s: number }[];
   outposts: EvidenceOutpost[];
 }
 
@@ -1239,6 +1239,23 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // Slim/Joke/Hk; count anything the cap would drop.
     const ring = ownTurrets.slice(0, 16);
     ringDropped += ownTurrets.length - ring.length;
+    // The ring's spawner period: tSAC -2250 = 37.5 s after each death on every PA
+    // map (fcop-re/outposts.md Q1; the plates' -1500 is the outposts'). One
+    // value per base, asserted shared by its records and against the evidence.
+    const periods = new Set(ring.map((t) => t.spawnTicks));
+    if (periods.size !== 1) {
+      throw new Error(
+        `${mapId}: team ${base.team}'s ring turrets disagree on their respawn period`,
+      );
+    }
+    const turretRespawnTicks = toSimTicks(ring[0].spawnTicks, TICK_HZ);
+    for (const p of evidence.base_plates) {
+      if (p.team === base.team && Math.round(p.respawn_s * TICK_HZ) !== turretRespawnTicks) {
+        throw new Error(
+          `${mapId}: ring respawn ${turretRespawnTicks} ticks, outposts.json says ${p.respawn_s} s`,
+        );
+      }
+    }
 
     return {
       // The original's gate trigger box (gateOf). Features without a Cnet
@@ -1263,6 +1280,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         hp: t.health,
         yaw: round4(rotToYaw(t.gunRotationRaw, true)),
       })),
+      turretRespawnTicks,
       // The type-28 record IS the Dreadnought (fcop-re/ranges-turrets-capture.md
       // top + Q4): the Juggernaut spawns where it stands, with its 3000 HP and its
       // four hull guns, each its record's shooter on catalogue weapon 3. The

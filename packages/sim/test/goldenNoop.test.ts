@@ -58,11 +58,10 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
   "golden-01-drive": { last: 1696573034, count: 1800 },
   "golden-02-combat": { last: 2284195599, count: 2700 },
-  // Re-frozen at SIM_VERSION 24 (issue #31): BASE_TURRET_RESPAWN 60→120 s is
-  // global, so scripts that kill a base emplacement and live past the old timer
-  // move (03/04). golden-07-pa also moves from the §9 escort/capture ladder.
-  // 01/02/05/06 header-only.
-  "golden-03-match": { last: 1878356378, count: 4800 },
+  // Re-frozen at SIM_VERSION 50 (the original's 37.5 s ring respawn, R16): 03's
+  // script was rewritten around it (player 1 is put down at the outpost, the wave
+  // goes in inside the ring's window) and runs 200 s.
+  "golden-03-match": { last: 2672865104, count: 6000 },
   "golden-04-warden": { last: 3738813715, count: 9000 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is

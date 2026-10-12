@@ -321,9 +321,12 @@ records' 4.0 and 4.8 m/s.
 - **Base**: gate (win trigger volume), 2 build consoles (ground/air),
   ammo/repair pad, ring of **Base turrets** (4 on district-01; the original's 6
   or 8 on the imported arenas, §9). Base turrets respawn
-  120 s after destruction (attack timing matters — 60 s let the ring replace
-  itself as fast as a superplane could strip it at authentic density; issue
-  #31). Base core is indestructible: a centrepiece and anchor, never a target
+  **37.5 s** after destruction, the original's ring spawner period (tSAC −2250;
+  SIM_VERSION 50, `fcop-fidelity.md` R16) on every arena — the imported ones read
+  it from the ring records. Attack timing matters: a cleared ring is back before a
+  wave bought afterwards at an outpost could reach the gate, so the wave goes in
+  with it. (Metropolis had 120 s, sized for its own superplane; issue #31.) Base
+  core is indestructible: a centrepiece and anchor, never a target
   (§9: the original's "core" was its Dreadnought's spawn point).
 - **Neutral turret**: dormant until captured (it shoots nobody). Captured
   **instantly** — no timer, no contest — by the original's rule (SIM_VERSION 34;

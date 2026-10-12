@@ -200,8 +200,15 @@ export interface MapBase {
   readonly airConsole: MapPoint;
   /** Ammo/repair pad. */
   readonly pad: MapPlot;
-  /** Ring turrets; each respawns 60 s after destruction. */
+  /** Ring turrets; each respawns `turretRespawnTicks` after destruction. */
   readonly turrets: readonly MapBaseTurret[];
+  /**
+   * Ticks a ring turret stays down: the original ring spawner's period (tSAC
+   * -2250 = 37.5 s = 1125 ticks on every PA map, fcop-re/outposts.md Q1), or 0
+   * where the arena imports none and the sim uses BASE_TURRET_RESPAWN_TICKS,
+   * the same 37.5 s (sim.ts `ringRespawnTicks`).
+   */
+  readonly turretRespawnTicks: number;
   /** The original Dreadnought's spawn point and stats, or undefined (§1 arenas). */
   readonly juggernaut: MapJuggernaut | undefined;
   /** The original tank (Runner), jet (Guardian) and Flying Fortress, or undefined. */
@@ -718,6 +725,8 @@ export interface MapBaseJson {
     | number[]
     | { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number }
   )[];
+  /** OPTIONAL: the ring spawner's period in sim ticks (MapBase.turretRespawnTicks). */
+  turretRespawnTicks?: number;
   /** OPTIONAL PA extra: the original Dreadnought (MapJuggernaut). */
   juggernaut?: {
     x: number;
@@ -1039,6 +1048,10 @@ export function loadMapFromJson(raw: MapJson): MapData {
         weapon: weaponIndex(j.weapon, what),
       };
     }
+    const turretRespawnTicks = b.turretRespawnTicks ?? 0;
+    if (!Number.isInteger(turretRespawnTicks) || turretRespawnTicks < 0) {
+      fail(id, `base ${team} bad turretRespawnTicks ${String(b.turretRespawnTicks)}`);
+    }
     const g = b.gate;
     const gatePlot = plot(g, `base ${team} gate`);
     const halfW = g.halfW === undefined ? 0 : num(g.halfW, `base ${team} gate halfW`);
@@ -1063,6 +1076,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
         if (!t || typeof t !== "object") fail(id, `${what} is neither a pair nor an object`);
         return turretObject(t, what);
       }),
+      turretRespawnTicks,
       juggernaut,
       runner: unitProfile(b.runner, `base ${team} runner`),
       guardian: unitProfile(b.guardian, `base ${team} guardian`),
@@ -1338,6 +1352,7 @@ export function createTestMap(): MapData {
     airConsole: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
     pad: { x: center, y: center, radius: 20, layer: 0 },
     turrets: [],
+    turretRespawnTicks: 0,
     // No Precinct Assault Dreadnought on the sandbox map: its Juggernaut keeps
     // balance.ts's own stats.
     juggernaut: undefined,

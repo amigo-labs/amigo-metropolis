@@ -1,10 +1,12 @@
 // Golden #3 (Phase 2 DoD mini-match, replayed on the original's economy since
 // SIM_VERSION 33): beyond the hash-sequence check in golden.test.ts, assert the
-// scripted match actually plays out — the avatar clears the dummies and base
-// East's ring, puts player 1's avatar down twice (the original pays 10 a down,
-// at the victim's respawn, and the ring bounty alone is 1 a turret now), claims
-// the outpost with that, forward-buys runners at 2× and breaches on the KNOWN
-// tick before the ring respawns.
+// scripted match actually plays out — the avatar clears the dummies, puts player
+// 1's avatar down three times as it walks out to the (176, 88) outpost (the
+// original pays 10 a down, at the victim's respawn, and a ring turret only 1),
+// claims the outpost with that, clears the ring's north pair, forward-buys runners
+// at 2× and escorts them in: they breach on the KNOWN tick, inside the 37.5 s
+// before the ring's north pair returns (SIM_VERSION 50, the original's ring
+// respawn).
 // If a balance retune shifts the match off these beats, this fails and the
 // script needs adjusting WITH the regenerated golden (and a new pin).
 
@@ -34,7 +36,12 @@ import { createSim, step } from "../src/sim";
 // Mini-Gun) and 1250-HP mechs. Nothing is sniped from outside a turret's reach
 // any more: the script walks up to each dummy and ring turret and fires all three
 // slots on the lock, and needs ~17 s to put player 1's mech down twice.
-const BREACH_TICK_PIN = 4262;
+// 4262 -> 5640 at SIM_VERSION 50: the ring comes back after 37.5 s instead of
+// 120 s, which caught the old script's avatar in base East (it cleared the ring
+// first and fought player 1 inside it for ~40 s). Player 1 now walks out to the
+// outpost to be put down (three times, for the wave's points too), and the ring's
+// north pair is cleared just before the wave is bought.
+const BREACH_TICK_PIN = 5640;
 
 describe("golden-03-match beats", () => {
   it("avatar snipe, outpost claim, forward wave, breach on the pinned tick", () => {
@@ -83,14 +90,14 @@ describe("golden-03-match beats", () => {
       }
     }
 
-    // Player 0 clears 2 dummies + all 4 ring turrets and survives (on 153 of its
-    // 1250 HP since SIM_VERSION 41: it fights the ring inside its reach now);
-    // player 1's avatar goes down twice.
-    expect(turretDeaths).toBeGreaterThanOrEqual(6);
+    // Player 0 clears 2 dummies + the ring's north pair and one of its south pair
+    // and survives (it fights the ring inside its reach); player 1's avatar goes
+    // down three times.
+    expect(turretDeaths).toBeGreaterThanOrEqual(5);
     expect(p0Down).toBe(false);
-    expect(avatarDeaths).toBe(2);
-    // The claim is funded by the start, the ring and feeder bounties and the two
-    // downs: start + 4 ring turrets at 1 each could never cover 30.
+    expect(avatarDeaths).toBe(3);
+    // The claim is funded by the start, the feeder bounties and two downs: start
+    // + 4 ring turrets at 1 each could never cover 30.
     expect(claims).toBe(1);
     expect(STARTING_POINTS + 4 * POINTS_TURRET_DIES).toBeLessThan(COST_OUTPOST_CLAIM);
     // Forward runners bought at the outpost; feeders spawned on both sides.
