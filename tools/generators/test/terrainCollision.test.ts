@@ -21,7 +21,7 @@
 // (determinismGuard.test.ts pins that), and this needs both sides.
 
 import { describe, expect, test } from "bun:test";
-import { getMapById, STEP_SNAP } from "@metropolis/sim";
+import { AVATAR_WALKER_MAX_SLOPE, getMapById, JUMPABLE_RISE, STEP_SNAP } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../../packages/client/src/render/mapAlign.generated";
 import { readGlbPositions } from "../genMapAlign";
 
@@ -108,8 +108,12 @@ describe("collision agrees with the terrain the player sees", () => {
         "proving-ground": 1,
         "bug-hunt": 1,
       };
-      const MAX_SLOPE = 0.6; // AVATAR_WALKER_MAX_SLOPE
-      const JUMP = 1.4; // AVATAR_JUMP_SPEED against GRAVITY, rules.md §2
+      // The walker's limits since SIM_VERSION 39 (fcop-fidelity.md P4): the gate
+      // where the original's slope push stalls its walk, and the rise its high
+      // jump's lunge still carries it onto. Was 0.6 / 1.4. The two traps below
+      // are 2.00 m shafts, deeper than either.
+      const MAX_SLOPE = AVATAR_WALKER_MAX_SLOPE;
+      const JUMP = JUMPABLE_RISE;
 
       for (const id of ARENAS) {
         const map = getMapById(id);

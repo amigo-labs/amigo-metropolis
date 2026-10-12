@@ -29,8 +29,30 @@ Design pillars, in priority order:
 
 - Transforming vehicle with two modes (toggle, 1.37 s transformation):
   - **Walker**: slower, can jump, precise handling, better on slopes.
-  - **Hover**: fast, drifty (low traction), can cross water, cannot jump,
-    steep slopes impassable.
+  - **Hover**: fast, drifty (low traction), can cross water, cannot jump (the
+    jump button brakes it), steep slopes impassable.
+- **Both forms move by the original's models** (SIM_VERSION 39,
+  `fcop-fidelity.md` P4/P5; `fcop-re/player-and-weapons.md` §3-§5), run at 30 Hz
+  as 1.25 of the original's 37.5 Hz movement steps in closed form (`balance.ts`
+  "X1-Alpha movement"): every step `v += push - drag * v`, gravity 26.1 m/s² to a
+  14.06 m/s terminal fall in both forms, and a landing over 10.78 m/s costs
+  health (the original's absolute 1000 f(x) HP, scaled by `AVATAR_HP` / 1250
+  until the weapons package sets the original's 1250 HP).
+  | | Walker | Hover |
+  |---|---|---|
+  | fore/aft | **4.69 m/s**, 95 % in 0.17 s | **9.38 m/s**, 95 % in 1.56 s |
+  | strafe | 3.13 m/s | 2.93 m/s |
+  | released | stops dead under 0.59 m/s (~0.1 s) | coasts, half-life 0.36 s, stops under 0.15 m/s; after ~6 s idle the drag ramps up |
+  | brake | — | the jump button: drag 0.15 a step (0.05 coasting) |
+  | cap | — | 10.7 m/s horizontal |
+  | turn | 105°/s at rest, falling linearly to 0 at 18.75 m/s (79°/s running); none in the air | 158°/s after a ~0.26 s ramp; also in the air |
+  | ride | on the ground | 0.5 m over ground or water; off a ledge it falls |
+  | slope | pushed downhill above 17.5°, climbs to a 1.04 gradient | pushed downhill above 14.5° |
+  A diagonal (fore/aft + strafe) pushes as hard as straight ahead, at 45°. The
+  stick is read as the original's digital input — eight 45° sectors around the
+  hull's facing — and its length scales the push, as the original's stick path
+  does; there is no slow modifier (the original's halves the speeds and holds a
+  hover at ledges), so a half-pushed stick is the slow row.
 - The change (`TRANSFORM_LOCK_TICKS`, **41 ticks = 1.365 s**, the original's
   `player_transform_step`; SIM_VERSION 38, `fcop-fidelity.md` P3) is a
   **commitment**: no driving, no turning, no jumping and no lock cycling for its
@@ -42,12 +64,20 @@ Design pillars, in priority order:
   the morph (`assets.md` §4); the morph now plays over the original's length.
   The original triggers it with a two-button chord; the toggle key is our
   control choice.
-- **Drive only in facing direction** (no holonomic strafe): throttle is the
-  stick component along aim/lock heading; reverse is allowed. Turn by aiming.
+- **Drive and strafe relative to the facing**, as the original does: the stick's
+  component along the facing drives fore/aft, its component across strafes
+  (since SIM_VERSION 39; it was a throttle along the facing only, and sideways
+  stick did nothing). **Turn by aiming**: the aim (or the soft-lock, or the
+  stick when nothing aims) is the heading the hull TURNS to, at its form's rate
+  — the original turns with buttons, Metropolis steers by an absolute heading
+  (`input.spec.md` §4.1), so the rate is applied toward it.
 - The slope asymmetry is **deliberate**: `AVATAR_HOVER_MAX_SLOPE` (0.5) is
-  stricter than `AVATAR_WALKER_MAX_SLOPE` (0.6), because hover rides clearance
+  stricter than `AVATAR_WALKER_MAX_SLOPE` (1.04), because hover rides clearance
   and trades terrain for speed and water. Each form has ground the other cannot
-  take, and neither is meant to go everywhere.
+  take, and neither is meant to go everywhere. The walker's gate is where the
+  original's slope push stops its walk (the original has no hard gate); it was
+  0.6, which the original's walker walks straight up. The hover's is Metropolis'
+  issue-#34 rule (the original's push stalls a hover near 0.62).
 - What each form measures a climb **over** is part of the asymmetry, not an
   implementation detail (issue #34). The walker judges the step it is taking. The
   hover judges the step AND the ground `HOVER_CUSHION_SPAN` (2.4 m, its own
@@ -56,21 +86,34 @@ Design pillars, in priority order:
   Judged per tick instead, the two are one reading: on a bilinear heightfield a
   0.17 m kerb is a 0.58-gradient wall while you are on it, which is how the hover
   used to be locked out of 10-13% of every FCOP arena's road network, la-cantina
-  included. The step it clears this way tops out at span × limit = **1.2 m**,
-  under the walker's 1.4 m jump, so the walker still owns more ground on both
-  axes — and the hover owns some the walker cannot jump at all, 2 lane edges each
-  on proving-ground and bug-hunt.
+  included. The step it clears this way tops out at span × limit = **1.2 m**.
+  Since SIM_VERSION 39 that is a little over the walker's one-cell step (1.04 m),
+  so the hover owns single steps of 1.04-1.2 m with flat ground beyond (2, 6 and
+  7 lane edges on urban-jungle, proving-ground and bug-hunt), while the walker
+  owns all sustained climbing — twice the hover's gradient. (Until v39 the
+  walker's air-steered 1.4 m jump outreached the cushion.)
 - Neither of those makes the originals' terrain uniformly drivable, and it should
-  not: their roads also carry 1.3-3 m steps. Those stay walls for the hover, which
-  has no jump — transform or route around. `fcop-arenas.test.ts` pins per arena
-  what each form cannot pass, and how many teams can drive their whole road
-  network in hover (7 of 8, and la-cantina is clean in both forms).
-- The **jump** is the walker's answer to a step it cannot climb: the slope gate
-  is skipped while airborne, so an 8 m/s launch against 20 m/s² gravity clears a
-  ledge up to ~1.4 m. On the imported FCOP arenas that covers 70-100% of the
-  original terrain's blocking steps; the rest are 1.4-2.5 m walls to route
-  around, and a walk-only path to the enemy base exists on every arena.
-  `fcop-arenas.test.ts` pins both counts per arena.
+  not: their roads also carry 1.3-3 m steps. Those are walls for both forms —
+  transform or route around. `fcop-arenas.test.ts` pins per arena what each form
+  cannot pass, and how many teams can drive their whole road network in hover
+  (7 of 8, and la-cantina is clean in both forms). A climb-free walking path to
+  the enemy base exists on every arena.
+- The **jumps** are the original's three, chosen by one button the way it
+  chooses them (SIM_VERSION 39): at a run, the **leap** (7.32 m/s up, +1.76 m/s
+  forward on top of the run, apex 0.91 m); otherwise, with ground rising over
+  0.34 m within a metre ahead, the **high jump** (8.79 m/s straight up, apex
+  1.37 m, and a +2.11 m/s forward lunge at 0.24 s unless that rise is over
+  1.1 m); otherwise the **hop** (6.45 m/s up and +4.69 m/s forward). No air
+  control, no turning in the air, and no jumping off ground steeper than 38.7°.
+  The original made the high jump for ledges with vertical faces; on a
+  heightfield every step is a one-cell ramp, and the jumps climb nothing the
+  walk does not (`units.ts` JUMPABLE_RISE 0, was 1.4 with an air-steered jump),
+  so the walker's reach on the imported arenas is its walk: the 1.04-1.4 m steps
+  the old jump cleared are walls now, the 0.6-1.04 m ones it had to jump it
+  walks.
+- **Water**: the hover rides it. A walker that steps into water transforms to
+  hover on its own (the original's NORMAL rule; HARD's sinking and drowning are
+  not modelled — Metropolis has no player difficulty and models NORMAL).
 - Same three weapon slots in both modes: primary (hitscan-ish rapid),
   heavy (projectile, AoE), special (slow, high damage).
 - **The weapon catalog is the original Precinct Assault set only** (SIM_VERSION

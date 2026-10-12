@@ -29,22 +29,26 @@ describe("quantizeAxis", () => {
 
 describe("sim tick loop", () => {
   it("pins the initial state hash", () => {
-    expect(hash(createSim(map, 0xdead))).toBe(2066415881);
+    // SIM_VERSION 39: the hash covers the X1-Alpha's movement state (turn rate,
+    // idle timer, lunge countdown) on every map.
+    expect(hash(createSim(map, 0xdead))).toBe(2752419177);
   });
 
   it("pins hashes for idle and movement scripts", () => {
     const sim = createSim(map, 0xdead);
     const inputs = createTickInputs();
     for (let i = 0; i < 10; i++) step(sim, inputs);
-    expect(hash(sim)).toBe(1815987531);
+    expect(hash(sim)).toBe(583992427);
     expect(sim.tick).toBe(10);
 
     inputs.players[0].moveX = 127;
     for (let i = 0; i < 30; i++) step(sim, inputs);
-    expect(hash(sim)).toBe(2291558430);
-    expect(sim.ent.posX[0]).toBe(132.00010681152344);
+    // The original's walker (SIM_VERSION 39): 4.69 m/s reached in ~0.2 s, and
+    // slowed a little by the slope push up the test map's rise (was a flat 5 m/s).
+    expect(hash(sim)).toBe(2805735587);
+    expect(sim.ent.posX[0]).toBe(131.49205017089844);
     expect(sim.ent.posY[0]).toBe(127);
-    expect(sim.ent.height[0]).toBe(0.46052786707878113);
+    expect(sim.ent.height[0]).toBe(0.34852543473243713);
   });
 
   it("produces identical hash sequences for identical seed + inputs", () => {
@@ -96,9 +100,9 @@ describe("writeSnapshot", () => {
       0, // id
       0, // archetype AVATAR
       0, // team
-      132.00010681152344, // x
+      131.49205017089844, // x
       127, // y
-      0.46052786707878113, // height
+      0.34852543473243713, // height
       0, // yaw (moving +x)
       1, // animState: moving
       1, // hpFrac

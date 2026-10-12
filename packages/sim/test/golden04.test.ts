@@ -77,13 +77,16 @@ describe("golden-04-warden beats", () => {
     // Two player downs (three before SIM_VERSION 37): the avatar respawns 4 s
     // after a down now (fcop-fidelity.md P2), so the open-loop patrol is back on
     // its route 4 s sooner and is no longer caught where it died the third time.
-    expect(avatarDeaths).toBe(2);
+    // One player down since SIM_VERSION 39 (two at v37-38, three before): the
+    // patrol now strafes and turns the original walker's way, at 4.69 m/s, so it
+    // stands somewhere else when the Warden comes.
+    expect(avatarDeaths).toBe(1);
     // Each Warden fall costs it 10 and pays player 0 10 (R4), so the
     // difficulty-8 Juggernaut save never reaches 50 and nothing is bought.
     expect(wardenRunners).toBe(0);
     expect(wardenJuggernauts).toBe(0);
     expect(sim.points[1]).toBe(0);
-    expect(sim.points[0]).toBe(80);
+    expect(sim.points[0]).toBe(90);
     // No breach: the match is still running when the recording ends.
     expect(breaches).toBe(0);
     expect(breachTick).toBe(-1);

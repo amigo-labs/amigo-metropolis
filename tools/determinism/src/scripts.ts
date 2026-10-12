@@ -7,6 +7,7 @@
 
 import {
   AVATAR_WALKER_SPEED,
+  atan2Poly,
   BUTTON_FIRE1,
   BUTTON_FIRE2,
   BUTTON_FIRE3,
@@ -16,11 +17,16 @@ import {
   clearTickInputs,
   cosLUT,
   quantizeAxis,
+  retentionPerTick,
   sinLUT,
   TICK_HZ,
   type TickInputs,
   TRANSFORM_LOCK_TICKS,
+  WALKER_DRAG,
+  WALKER_STOP_SPEED,
+  WALKER_TURN_STEP,
   type WardenConfig,
+  X1_STEPS_PER_TICK,
 } from "@metropolis/sim";
 
 export type InputScript = (tick: number, out: TickInputs) => void;
@@ -165,12 +171,45 @@ function buildMatch01Timeline(): MatchPhase[] {
   let t = 100;
   let px = 30;
   let py = 127; // player 0 spawn
+  let facing = 0; // its spawn yaw
   const push = (
     ticks: number,
     p: Partial<Pick<MatchPhase, "moveX" | "moveY" | "aimX" | "aimY" | "buttons">>,
   ) => {
     t += ticks;
     phases.push({ until: t, moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: 0, ...p });
+  };
+  // The hull TURNS toward the aim at the original walker's rate (SIM_VERSION
+  // 39, fcop-fidelity.md P4: 0x20 engine angle units a step at rest), so every
+  // new heading gets a stationary turn first — driving or shooting before the
+  // turn ends would strafe or shoot wide. The facing is tracked here to size it.
+  const TURN_PER_TICK = WALKER_TURN_STEP * X1_STEPS_PER_TICK * ((2 * Math.PI) / 4096);
+  const face = (ax: number, ay: number) => {
+    const want = atan2Poly(ay, ax);
+    let d = want - facing;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    const ticks = Math.ceil(Math.abs(d) / TURN_PER_TICK) + 1;
+    push(ticks, { aimX: ax, aimY: ay });
+    facing = want;
+  };
+  // The original walker's run on flat ground (balance.ts "X1-Alpha movement"):
+  // 1.25 steps a tick of v += P - 0.375 v toward 4.69 m/s, then a coast that
+  // stops dead under 0.586 m/s. Distance covered by `n` driven ticks and the
+  // coast after them, in the sim's own integration order.
+  const walkDistance = (n: number): number => {
+    const r = retentionPerTick(WALKER_DRAG);
+    let v = 0;
+    let x = 0;
+    for (let i = 0; i < n; i++) {
+      v = AVATAR_WALKER_SPEED * (1 - r) + v * r;
+      x += v / TICK_HZ;
+    }
+    while (v > 0) {
+      v = Math.abs(v * (1 - WALKER_DRAG)) < WALKER_STOP_SPEED ? 0 : v * r;
+      x += v / TICK_HZ;
+    }
+    return x;
   };
   // Dead-reckons with the QUANTISED direction, which is the one the sim will
   // actually drive: the move intent goes out as int8, so `quantizeAxis` rounds
@@ -190,12 +229,20 @@ function buildMatch01Timeline(): MatchPhase[] {
     const qlen = Math.sqrt(qx * qx + qy * qy);
     const ux = qx / qlen;
     const uy = qy / qlen;
-    const ticks = Math.round((d / AVATAR_WALKER_SPEED) * TICK_HZ);
-    push(ticks, { moveX: qx, moveY: qy });
-    push(settle, {}); // full stop between legs
-    const travelled = (ticks / TICK_HZ) * AVATAR_WALKER_SPEED;
+    face(qx, qy);
+    let ticks = 1;
+    while (walkDistance(ticks + 1) <= d) ticks++;
+    push(ticks, { moveX: qx, moveY: qy, aimX: qx, aimY: qy });
+    push(settle, { aimX: qx, aimY: qy }); // the coast, and a full stop between legs
+    const travelled = walkDistance(ticks);
     px += ux * travelled;
     py += uy * travelled;
+  };
+  // A stand measured in the sim rather than reckoned: the walk legs climb and
+  // descend the lane's ramps, where the original's slope push changes the pace.
+  const at = (x: number, y: number) => {
+    px = x;
+    py = y;
   };
   // A tighter aim than per-axis quantising, for a target as thin as an avatar
   // (0.4 m hit radius): the integer stick pair whose bearing is closest to the
@@ -219,17 +266,17 @@ function buildMatch01Timeline(): MatchPhase[] {
         }
       }
     }
+    face(bx, by);
     push(ticks, { aimX: bx, aimY: by, buttons: BUTTON_FIRE1 });
   };
   const snipe = (x: number, y: number, ticks: number) => {
     const dx = x - px;
     const dy = y - py;
     const inv = 1 / Math.sqrt(dx * dx + dy * dy);
-    push(ticks, {
-      aimX: quantizeAxis(dx * inv),
-      aimY: quantizeAxis(dy * inv),
-      buttons: BUTTON_FIRE1,
-    });
+    const ax = quantizeAxis(dx * inv);
+    const ay = quantizeAxis(dy * inv);
+    face(ax, ay);
+    push(ticks, { aimX: ax, aimY: ay, buttons: BUTTON_FIRE1 });
   };
 
   snipe(60, 110, 110); // dummy (60,110) covers the lane entry — kill from spawn
@@ -251,12 +298,14 @@ function buildMatch01Timeline(): MatchPhase[] {
   // short of the 30-point claim. What pays is putting the enemy avatar down: +10
   // to us when it respawns (fcop-fidelity.md R4). Player 1 idles at its ground
   // console, then at its spawn on its own pad, both inside primary range of here.
-  // Dead reckoning puts this stand at (206, 110); the sim has it at (205.39,
-  // 110.17), and at 36 m those 0.6 m are wider than the avatar. Measured, not
-  // reckoned (golden03.test.ts pins that both downs land).
-  px = 205.386;
-  py = 110.173;
-  aimPrecise(228, 139, 200); // player 1 at its console
+  // Measured, not reckoned: at 36 m a 0.6 m error is wider than the avatar
+  // (golden03.test.ts pins that both downs land). Since the original's walker
+  // (SIM_VERSION 39) the reckoning above lands within 0.1 m of this anyway.
+  at(205.934, 109.989);
+  // Player 1 stands at (227.34, 137.47) after its walk to the console: the
+  // original's walker turns and strafes on its way there (SIM_VERSION 39), so
+  // that is measured too.
+  aimPrecise(227.342, 137.474, 240); // player 1 at its console
   aimPrecise(224, 127, 560); // its spawn: keep firing through the respawn, drop it again
   walkTo(176, 88); // outpost console: claim once the second respawn has paid
   return phases;

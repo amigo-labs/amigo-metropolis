@@ -40,11 +40,18 @@ describe("soft-lock (input.spec §4.4)", () => {
     expect(sim.ent.aimY[a0]).toBeCloseTo(0, 6);
 
     // Hold nothing (edge clears); the lock persists and tracks the moved target.
+    // The hull TURNS to it at the walker's rate, the original's 105°/s at rest
+    // (fcop-fidelity.md P4), so a quarter turn takes 26 ticks, not one.
     inputs.players[0].buttons = 0;
     sim.ent.posX[a1] = 50;
     sim.ent.posY[a1] = 60; // now 10 north
-    step(sim, inputs);
+    let ticks = 0;
+    while (sim.ent.aimY[a0] < 1 - 1e-6 && ticks < 60) {
+      step(sim, inputs);
+      ticks++;
+    }
     expect(sim.lockTarget[0]).toBe(a1);
+    expect(ticks).toBe(26);
     expect(sim.ent.aimX[a0]).toBeCloseTo(0, 6);
     expect(sim.ent.aimY[a0]).toBeCloseTo(1, 6);
   });
@@ -64,7 +71,9 @@ describe("soft-lock (input.spec §4.4)", () => {
     sim.ent.posX[a1] = 50 + AVATAR_LOCK_RANGE + 20;
     step(sim, inputs);
     expect(sim.lockTarget[0]).toBe(-1);
-    // Facing now follows the transmitted aim again (south).
+    // Facing now turns toward the transmitted aim again (south), at the walker's
+    // turn rate.
+    for (let t = 0; t < 30; t++) step(sim, inputs);
     expect(sim.ent.aimY[a0]).toBeCloseTo(-1, 6);
   });
 

@@ -20,7 +20,7 @@
 // Stage 1 has no water, so the district-01 river assertions are absent. The
 // mirror assertion is NOT absent any more — see the mirrorAxis field.
 import { describe, expect, it } from "bun:test";
-import { AVATAR_JUMP_SPEED, GRAVITY } from "../src/balance";
+import { AVATAR_JUMP_SPEED, X1_GRAVITY } from "../src/balance";
 import { crossesWallX, crossesWallY } from "../src/collision";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
@@ -37,7 +37,7 @@ import { segmentWalkable } from "../src/roads";
 import { JUMPABLE_RISE, worstHoverRise, worstUphillRise } from "../src/units";
 
 /** The apex JUMPABLE_RISE is derived from; asserted below so they cannot drift. */
-const JUMP_APEX = (AVATAR_JUMP_SPEED * AVATAR_JUMP_SPEED) / (2 * GRAVITY);
+const JUMP_APEX = (AVATAR_JUMP_SPEED * AVATAR_JUMP_SPEED) / (2 * X1_GRAVITY);
 
 interface ArenaExpectation {
   id: string;
@@ -112,7 +112,7 @@ interface ArenaExpectation {
    * JUMPABLE_RISE. This is the number that means "impassable"; `steepLaneEdges`
    * on its own is a regression anchor, not a playability claim.
    *
-   * These are 1.4-2.5 m terrain steps, not kerbs: no blocking rise on any of the
+   * These are 1.1-2.5 m terrain steps, not kerbs: no blocking rise on any of the
    * four arenas is small enough for a step-up tolerance to help. See the pinning
    * test for the distribution.
    */
@@ -193,16 +193,23 @@ const ARENAS: ArenaExpectation[] = [
     props: 36,
     mirrorAxis: 120,
     flatPlots: false, // spawn platform above the base floor
-    steepLaneEdges: 40,
-    hardWallLaneEdges: 8, // of 518 edges; smallest blocking rise 0.50 m
+    // SIM_VERSION 39 (the original's walker, fcop-fidelity.md P4): it walks
+    // what its slope push climbs, up to a 1.04 gradient (was a 0.6 gate), and
+    // its jumps climb nothing the walk cannot (JUMPABLE_RISE 1.4 -> 0). So
+    // 40 -> 15 steep edges, and every one is a wall (was 8).
+    steepLaneEdges: 15,
+    hardWallLaneEdges: 15, // of 518 edges; smallest blocking rise 0.89 m
     // SIM_VERSION 32: the committed route now ends at the node nearest the
-    // enemy GATE (was: nearest the Dreadnought spot), three nodes shorter; it
-    // trades its one 1.4 m+ step for three jumpable ones.
-    steepLaneSteps: 4,
-    hardWallLaneSteps: 0,
-    hoverBlockedEdges: 20,
-    walkerOnlyEdges: 2,
-    hoverOnlyEdges: 0,
+    // enemy GATE (was: nearest the Dreadnought spot), three nodes shorter. Since
+    // v39 one of its steps is a wall for the walker (it jumped all four before);
+    // the walker routes around it on the graph (escortable, asserted above).
+    steepLaneSteps: 1,
+    hardWallLaneSteps: 1,
+    // v39: the hover's tick travel follows its top speed (9 -> 9.38 m/s), which
+    // moves where worstHoverRise samples: 20 -> 19.
+    hoverBlockedEdges: 19,
+    walkerOnlyEdges: 6,
+    hoverOnlyEdges: 2,
     hoverBlockedLaneSteps: 1,
     hoverDrivableTeams: 2,
   },
@@ -240,13 +247,17 @@ const ARENAS: ArenaExpectation[] = [
     props: 36,
     mirrorAxis: 120,
     flatPlots: true, // spawn and base share the 0 m floor here
-    steepLaneEdges: 43,
-    hardWallLaneEdges: 13, // of 640 edges; smallest blocking rise 0.55 m
-    steepLaneSteps: 4,
-    hardWallLaneSteps: 1,
-    hoverBlockedEdges: 44,
-    walkerOnlyEdges: 11,
-    hoverOnlyEdges: 2,
+    // SIM_VERSION 39 (fcop-fidelity.md P4): the walker walks gradients to 1.04
+    // and its jumps climb nothing more (was 0.6 / 1.4): 43 -> 36 steep, 13 -> 36
+    // walls — the 1.04-1.4 m steps the old air-steered jump cleared are walls
+    // for the original's walker. The road is still escortable (asserted above).
+    steepLaneEdges: 36,
+    hardWallLaneEdges: 36, // of 640 edges; smallest blocking rise 0.85 m
+    steepLaneSteps: 3,
+    hardWallLaneSteps: 3,
+    hoverBlockedEdges: 42,
+    walkerOnlyEdges: 12,
+    hoverOnlyEdges: 6,
     hoverBlockedLaneSteps: 5,
     hoverDrivableTeams: 1,
   },
@@ -288,9 +299,10 @@ const ARENAS: ArenaExpectation[] = [
     props: 36,
     mirrorAxis: 112,
     flatPlots: false,
-    steepLaneEdges: 10,
-    // Mp is the clean one: every steep edge is jumpable and the committed road
-    // has no blocking step at all. It is why the other three went unnoticed.
+    // Mp is the clean one: since SIM_VERSION 39 the walker walks every edge of
+    // its graph (its 10 steep edges were 0.6-1.04 gradients, which the original's
+    // walker climbs), and the committed road has no blocking step at all.
+    steepLaneEdges: 0,
     hardWallLaneEdges: 0,
     steepLaneSteps: 0,
     hardWallLaneSteps: 0,
@@ -328,13 +340,15 @@ const ARENAS: ArenaExpectation[] = [
     props: 36,
     mirrorAxis: 120,
     flatPlots: true,
-    steepLaneEdges: 43,
-    hardWallLaneEdges: 13, // of 661 edges; smallest blocking rise 0.55 m
-    steepLaneSteps: 4,
-    hardWallLaneSteps: 1,
-    hoverBlockedEdges: 45,
-    walkerOnlyEdges: 12,
-    hoverOnlyEdges: 2,
+    // SIM_VERSION 39: as proving-ground (the same terrain): 43 -> 37 steep,
+    // 13 -> 37 walls.
+    steepLaneEdges: 37,
+    hardWallLaneEdges: 37, // of 661 edges; smallest blocking rise 0.85 m
+    steepLaneSteps: 3,
+    hardWallLaneSteps: 3,
+    hoverBlockedEdges: 43,
+    walkerOnlyEdges: 13,
+    hoverOnlyEdges: 7,
     hoverBlockedLaneSteps: 5,
     hoverDrivableTeams: 2,
   },
@@ -609,7 +623,9 @@ for (const arena of ARENAS) {
 
       it("pins how many lane-graph edges the walker cannot climb, and cannot jump", () => {
         // The jump clearance and the apex have to stay consistent, or the
-        // hardWall split below silently changes meaning.
+        // hardWall split below silently changes meaning. Since SIM_VERSION 39 the
+        // jump clears nothing the walk cannot (units.ts JUMPABLE_RISE), so the
+        // two counts are equal; the apex is the original's 1.37 m all the same.
         expect(JUMP_APEX).toBeGreaterThan(JUMPABLE_RISE);
 
         const g = map.laneGraph;
@@ -636,10 +652,10 @@ for (const arena of ARENAS) {
 
         // The finding that settles what these obstacles ARE: not one blocking
         // rise anywhere is small enough for a kerb-sized step-up tolerance to
-        // clear (STEP_SNAP is 0.35 m). They are 0.6 m-plus terrain steps, so no
-        // tolerance and no value of AVATAR_WALKER_MAX_SLOPE short of "climbs
-        // walls" makes the original roads uniformly walkable. Jump or route
-        // around is the answer, and both exist.
+        // clear (STEP_SNAP is 0.35 m). They are 0.85 m-plus terrain steps (0.5 m
+        // before the original's walker, SIM_VERSION 39), so no tolerance makes
+        // the original roads uniformly walkable. Jump or route around is the
+        // answer, and both exist.
         if (steep > 0) expect(smallestBlockingRise).toBeGreaterThan(0.35);
       });
 

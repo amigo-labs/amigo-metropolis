@@ -33,16 +33,30 @@ export const ONLINE_INPUT_DELAY_TICKS = 3;
  */
 export const P2P_INPUT_REDUNDANCY_TICKS = ONLINE_INPUT_DELAY_TICKS + 2;
 
-// Avatar (rules.md §2, §4) — Phase 0 only uses walker speed for the debug cube.
+// Avatar (rules.md §2, §4).
+/**
+ * Metropolis' own until the weapons package: the original's NORMAL mech has 1250
+ * (fcop-fidelity.md P1), and every damage number is absolute HP against it.
+ */
 export const AVATAR_HP = 300;
-export const AVATAR_WALKER_SPEED = 5;
-export const AVATAR_HOVER_SPEED = 9;
 
-// Slope limits as rise/run. Walker handles everything except deliberate
-// jump-only ledges (rise ≈ 0.7); hover stays stricter, because it rides
+// Slope limits as rise/run: the steepest ground each form's hard gate lets it
+// climb (sim.ts `slopeBlocks`). Hover stays stricter, because it rides
 // clearance and trades terrain for speed and water. Map authoring relies on
 // these — the district-01 schema test checks lane traversability against the
 // walker limit.
+//
+// The WALKER's is the original's, since SIM_VERSION 39 (fcop-fidelity.md P4).
+// The original has no hard slope wall at all (fcop-re/player-and-weapons.md §4):
+// its walker climbs until the downhill push 40 (t - 0.3)³ lift' 0.59375 per step
+// outgrows its 1.5 fore push. Metropolis runs that push now (sim.ts
+// `slopePush`), and in its horizontal model the two cross at a gradient of
+// 1.043 (46°); the gate sits just under it, at 1.04, where the walker still
+// creeps uphill, so the gate and the physics agree on what is climbable and
+// `worstUphillRise` stays an exact mirror. It was 0.6 (31°), Metropolis' own,
+// which the original's walker walks straight up — and which, with the
+// original's jump (no air control, a 2.1 m/s lunge), would have left the walker
+// unable to climb a 0.7 m terrain step at all.
 //
 // The hover limit was 0.35 until issue #34 measured it against the geometry it
 // has to drive. Over the span below, the steepest sustained climb anywhere in
@@ -50,9 +64,11 @@ export const AVATAR_HOVER_SPEED = 9;
 // is 0.40. On the other three the sustained climbs run from 0.35 to 1.5 with
 // their mass at 0.50 and up, which is the arenas' 1.3-3 m terrain steps rather
 // than their roads. So 0.35 sat below the roads themselves, and 0.50 admits the
-// roads' own ramps while still rejecting the terrain — with the walker's 0.6
-// clear above it.
-export const AVATAR_WALKER_MAX_SLOPE = 0.6;
+// roads' own ramps while still rejecting the terrain — with the walker clear
+// above it. The original's hover has no hard gate either; its push stalls near
+// 0.62 (32°) by the same arithmetic, but the hover's gate is issue #34's measured
+// rule with its cushion span and stays Metropolis' (fcop-fidelity.md P5).
+export const AVATAR_WALKER_MAX_SLOPE = 1.04;
 export const AVATAR_HOVER_MAX_SLOPE = 0.5;
 
 /**
@@ -102,18 +118,196 @@ export const HOVER_CUSHION_SPAN = 2.4;
  * ride height ramps. (Metropolis used to lock the weapons as well.)
  */
 export const TRANSFORM_LOCK_TICKS = 41;
-export const AVATAR_JUMP_SPEED = 8; // m/s up → 1.6 m apex, clears 1.4 m ledges
-export const GRAVITY = 20; // m/s²
-export const HOVER_CLEARANCE = 0.3; // ride height above ground/water surface
 /**
- * Hover traction: fraction of the velocity error closed per tick, picked by
- * what the stick is doing. Throttle responds, counter-steer bites hard (drift
- * is escapable), a released stick glides for over a second. All three are
- * FEEL-TUNING KNOBS — defaults need a human pass on real hardware.
+ * Projectile gravity: the Mortar's arc (MORTAR_LAUNCH_SPEED). Metropolis' own;
+ * the original's arced rounds carry their own gravity in the weapon record
+ * (fcop-re/player-and-weapons.md §7), which is the weapons package's. The
+ * X1-Alpha falls under X1_GRAVITY below.
  */
-export const HOVER_TRACTION_ACCEL = 0.1; // stick along velocity (or standstill)
-export const HOVER_TRACTION_BRAKE = 0.25; // stick against velocity
-export const HOVER_TRACTION_COAST = 0.02; // stick released
+export const GRAVITY = 20; // m/s²
+
+// --- X1-Alpha movement (rules.md §2; fcop-fidelity.md P4, P5) ----------------
+//
+// The original's two movement models, `player_hover_tick` (retail 0x00442510)
+// and `player_walk_tick` (0x00444100), read in fcop-re/player-and-weapons.md
+// §3-§5. Their numbers are 16.16 fixed point per MOVEMENT STEP: the player tick
+// runs one step per 8 engine units of its 300 Hz clock, 37.5 steps/s, and a
+// velocity of 1.0 moves 256 world units a step (8192 wu = 1 m).
+//
+// HOW THEY RUN AT 30 Hz. A sim tick is X1_STEPS_PER_TICK = 1.25 steps. Each step
+// does `v += push - d * v` (drag d, push P, both per step), whose steady speed is
+// P / d and whose solution after n steps is exactly
+//
+//     v_n = P/d + (v_0 - P/d) * (1 - d)^n.
+//
+// So the sim applies one tick as n = 1.25 steps of that closed form: the
+// retention per tick is (1 - d)^1.25 = (1 - d) * sqrt(sqrt(1 - d)), which needs
+// only Math.sqrt (IEEE-exact, CLAUDE.md rule 1). Steady speeds, time constants
+// and coast half-lives are the original's exactly; only the within-tick path is
+// sampled at 30 Hz. Per-step accelerations that are not drag-coupled (gravity,
+// the jump lifts) are multiplied by the steps per tick, and the position
+// integrates semi-implicitly (velocity first, then position), as the original's
+// steps do. The original's own frame rate varies (8-60 engine units a frame);
+// lockstep pins it at the 30 fps it ran at most, delta = 10 units a frame, which
+// is what the turn ramp and the idle timer below count in.
+
+/** Movement steps per sim tick: (300 Hz / 8) / TICK_HZ. */
+export const X1_STEPS_PER_TICK = 300 / 8 / TICK_HZ;
+/** Engine units of the 300 Hz clock per sim tick (the original's frame delta at 30 fps). */
+export const X1_UNITS_PER_TICK = 300 / TICK_HZ;
+/** A 16.16 velocity of 1.0 per step, in m/s: 256 wu/step * 37.5 steps/s / 8192 wu/m. */
+export const X1_SPEED_UNIT = 1.171875;
+/** One 16.16 value as a fraction. */
+const FX = 1 / 65536;
+/** Retention of one sim tick under a per-step drag `d`: (1 - d)^1.25, sqrt-only. */
+export function retentionPerTick(d: number): number {
+  const k = 1 - d;
+  return k * Math.sqrt(Math.sqrt(k));
+}
+
+/**
+ * Gravity, both forms: 0x9800 = 0.59375 per step per step, 26.09 m/s²
+ * (`change[1] -= 0x9800`, 0x00442aa2). Was GRAVITY 20 for the walker.
+ */
+export const X1_GRAVITY = 0x9800 * FX * X1_SPEED_UNIT * (300 / 8);
+/** Terminal fall: -12.0 per step (`0xfff40000`, 0x00442ad5) = 14.06 m/s. */
+export const X1_TERMINAL_FALL = 12 * X1_SPEED_UNIT;
+/**
+ * The diagonal: a fore/aft push with a sideways bit is scaled by 181/256 along
+ * the heading turned an eighth of a turn (unnormalised, length sqrt 2), so a
+ * diagonal pushes as hard as straight ahead (`player_heading_push`).
+ */
+export const X1_DIAGONAL_SCALE = 181 / 256;
+/**
+ * sin(22.5°): Metropolis' stick is analogue, the original's input digital
+ * (its stick path is dead in retail). The stick, in the hull's frame, is read
+ * as the original's bits: a fore/aft bit when its component along the facing
+ * is over sin 22.5° of its length, a sideways bit likewise across it — the
+ * eight 45° sectors of a d-pad. A keyboard's unit diagonals land on the
+ * diagonals. The stick's length scales the push (the original's own stick
+ * path, `push = mag * push >> 7`, at 0x004428be).
+ */
+export const X1_STICK_SECTOR = 0.3826834323650898;
+/**
+ * Impact (landing) damage, `player_impact_damage` (0x004438e0): none at or
+ * below 0x93333 per step = 10.78 m/s of fall; above it x = (v - 10.78) * 0.3048
+ * (v clamped to 56.25 m/s), f(x) = 0.6124x up to 0.5, 0.866x^1.5 up to 0.75, x²
+ * above, and the damage is 1000 * f(x) ABSOLUTE HP on every difficulty
+ * (fcop-re/player-and-weapons.md §5). ~40 HP at 11 m/s, ~1000 at the 14.06 m/s
+ * terminal fall.
+ */
+export const X1_IMPACT_SPEED = 0x93333 * FX * X1_SPEED_UNIT;
+export const X1_IMPACT_SPEED_MAX = 0x300000 * FX * X1_SPEED_UNIT;
+export const X1_IMPACT_SCALE = 0x16db6c15 / 0x40000000 / X1_SPEED_UNIT;
+export const X1_IMPACT_HP = 1000;
+/**
+ * INTERIM, for the weapons package to delete: impact damage is absolute HP
+ * against the original's 1250-HP NORMAL mech, and Metropolis' avatar still has
+ * AVATAR_HP 300 (fcop-fidelity.md P1). Until P1 lands, the damage is scaled by
+ * AVATAR_HP / 1250 = 0.24 so a fall costs the same FRACTION of health as in the
+ * original. When AVATAR_HP becomes 1250 this is 1: remove it then.
+ */
+export const X1_IMPACT_INTERIM_SCALE = AVATAR_HP / 1250;
+
+// Hover (`player_hover_tick`; fcop-re/player-and-weapons.md §3).
+/** Fore/aft push 0x6666 per step (0x00442850). */
+export const HOVER_PUSH_FORE = 0x6666 * FX * X1_SPEED_UNIT;
+/** Strafe push 0x2000 per step (0x00442884). */
+export const HOVER_PUSH_STRAFE = 0x2000 * FX * X1_SPEED_UNIT;
+/** Drag 0x0ccc = 0.05 of the velocity per step, horizontal always (0x004427b9). */
+export const HOVER_DRAG = 0xccc * FX;
+/** Brake drag 0x2666 = 0.15 (0x004428a5): the jump button, in hover, grounded. */
+export const HOVER_BRAKE_DRAG = 0x2666 * FX;
+/**
+ * Idle ramp: the idle timer counts engine units while nothing drives the
+ * hover, capped at 0x800; past 0x700 (5.97 s) the drag climbs
+ * (idle - 0x700) * 21300 / 256 per 65536, to 0x6000 = 0.375 at 0x800 (6.83 s).
+ */
+export const HOVER_IDLE_KNEE = 0x700;
+export const HOVER_IDLE_CEILING = 0x800;
+export const HOVER_IDLE_SLOPE = 21300 / 256;
+/** Top speed fore/aft: push / drag = 9.38 m/s. Was AVATAR_HOVER_SPEED 9. */
+export const AVATAR_HOVER_SPEED = HOVER_PUSH_FORE / HOVER_DRAG;
+/** Hard cap on horizontal speed: 0x92147 per step = 10.70 m/s (0x00442b1c). */
+export const HOVER_SPEED_CAP = 0x92147 * FX * X1_SPEED_UNIT;
+/** Undriven and grounded, every component under 0x2000 = 0.146 m/s stops dead. */
+export const HOVER_STOP_SPEED = 0x2000 * FX * X1_SPEED_UNIT;
+/**
+ * The turn: a rate word steps by the frame delta each step toward the side
+ * turned to (from zero on a reversal or release), clamped at 0x60, and the
+ * facing turns by half of it a step: 48 units = 158.2°/s at most, reached in
+ * ~0.26 s at 30 fps. 4096 units = one turn.
+ */
+export const HOVER_TURN_LIMIT = 0x60;
+/** Ride height 0x1000 wu = 0.5 m above ground or water (`word_f2`). Was 0.3. */
+export const HOVER_CLEARANCE = 0x1000 / 8192;
+/**
+ * Held down within 0xcc wu (2.5 cm) of its ride height a step, else airborne
+ * (0x00442cea). Per tick it covers 1.25 steps of ground, so the band is scaled
+ * to keep the same slope at which a fast hover leaves the ground.
+ */
+export const HOVER_HOLD_DOWN = (0xcc / 8192) * X1_STEPS_PER_TICK;
+/** The surface tilt (normal's horizontal length) where its downhill push starts: 0.25 (14.5°). */
+export const HOVER_SLOPE_KNEE = 0x4000 * FX;
+/** Downhill push = gain * (tilt - knee)³ * lift * 0.59375 per step (`shl eax, 5`). */
+export const HOVER_SLOPE_GAIN = 32;
+
+// Walker (`player_walk_tick` + `player_velocity_delta`; player-and-weapons.md §4).
+/** Fore/aft push 0x18000 per step (0x004445ec). */
+export const WALKER_PUSH_FORE = 0x18000 * FX * X1_SPEED_UNIT;
+/** Strafe push 0x10000 per step (0x0044465d). */
+export const WALKER_PUSH_STRAFE = 0x10000 * FX * X1_SPEED_UNIT;
+/** Ground drag 0x6000 = 0.375 per step on every axis: "effectively instant". */
+export const WALKER_DRAG = 0x6000 * FX;
+/** Airborne horizontal drag 0x666 = 0.025 per step, and no push at all. */
+export const WALKER_AIR_DRAG = 0x666 * FX;
+/** Top speed fore/aft: push / drag = 4.69 m/s. Was 5. */
+export const AVATAR_WALKER_SPEED = WALKER_PUSH_FORE / WALKER_DRAG;
+/** Undriven on the ground, a largest component under 0x8000 = 0.586 m/s stops dead. */
+export const WALKER_STOP_SPEED = 0x8000 * FX * X1_SPEED_UNIT;
+/**
+ * Turn: 0x20 units a step on the ground, less (|v| >> 11) * 0x20 >> 9, i.e.
+ * 105.5°/s at rest falling linearly to 0 at 18.75 m/s (79°/s at a full run).
+ * No ramp, no turning in the air.
+ */
+export const WALKER_TURN_STEP = 0x20;
+export const WALKER_TURN_ZERO_SPEED = ((512 * 2048) / 65536) * X1_SPEED_UNIT;
+/** The surface tilt where the walker's downhill push starts: 0x4ccc (17.5°). */
+export const WALKER_SLOPE_KNEE = 0x4ccc * FX;
+export const WALKER_SLOPE_GAIN = 40;
+/** Steep (no jump, no leap): the surface normal's horizontal part over 0.625 (38.7°). */
+export const WALKER_STEEP_TILT = 0xa000 * FX;
+/**
+ * The jumps (`player_walk_tick` 0x004444e9 jump table). One button, three jumps,
+ * chosen the way the original chooses them:
+ * - running forward: the LEAP, lift 0x64000 = 7.32 m/s plus a forward push of
+ *   1.5 (+1.76 m/s) on top of the run;
+ * - otherwise, if the ground 1 m ahead rises more than 0xae1 (0.34 m): the HIGH
+ *   jump, lift 0x78000 = 8.79 m/s straight up, and 9 steps (0.24 s) later a
+ *   one-off forward LUNGE of 0x1cccc = +2.11 m/s — unless the rise ahead is over
+ *   0x2333 (1.1 m), when there is no lunge;
+ * - otherwise the HOP: lift 0x58000 = 6.45 m/s plus a forward push of 4.0
+ *   (+4.69 m/s).
+ * The crouch before the high jump and the hop is animation data the RE has not
+ * read (player-and-weapons.md §9.6), so they launch at once. No air control.
+ */
+export const WALKER_LEAP_LIFT = 0x64000 * FX * X1_SPEED_UNIT;
+export const WALKER_LEAP_PUSH = 0x18000 * FX * X1_SPEED_UNIT;
+export const WALKER_HIGH_LIFT = 0x78000 * FX * X1_SPEED_UNIT;
+export const WALKER_HOP_LIFT = 0x58000 * FX * X1_SPEED_UNIT;
+export const WALKER_HOP_PUSH = 0x40000 * FX * X1_SPEED_UNIT;
+export const WALKER_LUNGE_PUSH = 0x1cccc * FX * X1_SPEED_UNIT;
+/** 9 steps after take-off = 0.24 s = 7.2 ticks. */
+export const WALKER_LUNGE_TICKS = 7;
+/** Where the high-jump probe looks: 1 m ahead (sine >> 3), from 8 m up. */
+export const WALKER_PROBE_AHEAD = 1;
+export const WALKER_PROBE_LIFT = 8;
+/** Rise ahead that makes it a high jump instead of a hop: 0xae1 wu = 0.34 m. */
+export const WALKER_HIGH_RISE = 0xae1 / 8192;
+/** Rise ahead past which the high jump gets no lunge: 0x2333 wu = 1.1 m. */
+export const WALKER_LUNGE_MAX_RISE = 0x2333 / 8192;
+/** Jump take-off speed of the high jump (kept under its old name for its readers). */
+export const AVATAR_JUMP_SPEED = WALKER_HIGH_LIFT;
 
 // Ammo capacities (rules.md §2: heavy/special finite).
 export const AVATAR_AMMO_HEAVY = 20;

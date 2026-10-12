@@ -520,8 +520,8 @@ export function resolveWalker(
  *   deck within STEP_SNAP reading as a cliff.
  *
  * The caller decides what an impassable rise means: a rise the JUMP clears
- * (`AVATAR_JUMP_SPEED`/`GRAVITY`, ~1.4 m) is still passable, because the gate is
- * skipped while airborne.
+ * (JUMPABLE_RISE; none since SIM_VERSION 39) is still passable, because the gate is skipped while
+ * airborne.
  */
 export function worstUphillRise(
   map: MapData,
@@ -552,12 +552,23 @@ export function worstUphillRise(
 }
 
 /**
- * Rise a walker clears by jumping: an 8 m/s launch against 20 m/s² gravity is a
- * 1.6 m apex, and balance.ts pins the usable clearance at 1.4 m. Paired with
- * `worstUphillRise` — a blocking rise above this is genuinely impassable, one
- * below it is a jump.
+ * Rise a walker clears by jumping where it cannot walk: NONE, on Metropolis'
+ * terrain, since SIM_VERSION 39 (fcop-fidelity.md P4). Was 1.4 (an 8 m/s jump
+ * against 20 m/s² with full air control). Paired with `worstUphillRise`: a
+ * blocking rise above this is impassable for the walker — so now every one is.
+ *
+ * Why. The jumps are the original's, with no air control. Every terrain step
+ * is a one-cell ramp (1 m cells, bilinear — as the original's terrain is), and
+ * a step blocks only past the walk's 1.04 gradient (AVATAR_WALKER_MAX_SLOPE),
+ * i.e. at 1.04 m and more over its cell. The standing HIGH jump (apex 1.37 m)
+ * moves forward only by its 2.11 m/s lunge at 0.24 s, too late to cross a metre
+ * of ramp before it comes down, and the lunge is withheld above 1.1 m anyway
+ * (WALKER_LUNGE_MAX_RISE); the RUNNING LEAP (apex 0.91 m) clears less than the
+ * walk does. avatarMovement.test.ts measures both against a 1.06 m step. The
+ * original made its high jump for ledges with vertical faces, which the
+ * heightfield has none of.
  */
-export const JUMPABLE_RISE = 1.4;
+export const JUMPABLE_RISE = 0;
 
 /**
  * Per-tick travel of the hover, and therefore the resolution its slope gate is

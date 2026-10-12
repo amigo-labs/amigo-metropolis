@@ -27,7 +27,10 @@ import { createSim, step } from "../src/sim";
 // avatar, which the script waits out (each pays at the victim's respawn).
 // 3716 -> 3701 at SIM_VERSION 35: the claim is taken on entering the zone, not
 // after a 0.5 s hold, so the forward wave leaves 15 ticks earlier.
-const BREACH_TICK_PIN = 3701;
+// 3701 -> 4002 at SIM_VERSION 39: the original's walker turns at 105°/s, so
+// the script turns on the spot before every leg and every snipe (~10 s over the
+// route), and player 1's measured stand moved with its own walk.
+const BREACH_TICK_PIN = 4002;
 
 describe("golden-03-match beats", () => {
   it("avatar snipe, outpost claim, forward wave, breach on the pinned tick", () => {

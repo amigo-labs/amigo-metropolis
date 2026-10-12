@@ -20,7 +20,7 @@ export interface Vec2 {
 /**
  * Standard Gamepad button index → our input bit (W3C "standard" mapping).
  * Twin-stick layout: triggers/shoulders fire, face buttons do the rest.
- *   RT primary · LT heavy · RB special · A jump · Y transform · X interact.
+ *   RT primary · LT heavy · RB special · A jump (hover: brake) · Y transform · X interact.
  */
 export const GAMEPAD_BUTTON_MAP: readonly (readonly [number, number])[] = [
   [7, BUTTON_FIRE1], // RT — primary hitscan

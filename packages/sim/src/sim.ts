@@ -15,12 +15,9 @@ import {
   ARCHETYPE_MAX_HP,
   ARCHETYPE_RADIUS,
   AVATAR_HOVER_MAX_SLOPE,
-  AVATAR_HOVER_SPEED,
   AVATAR_HP,
-  AVATAR_JUMP_SPEED,
   AVATAR_LOCK_RANGE,
   AVATAR_WALKER_MAX_SLOPE,
-  AVATAR_WALKER_SPEED,
   BASE_TURRET_RESPAWN_TICKS,
   CAPTURE_RADIUS,
   CONSOLE_HOLD_TICKS,
@@ -35,11 +32,21 @@ import {
   GRAVITY,
   GUARDIAN_ALIVE_LIMIT,
   HEAVY_UNLOCK_POINTS,
+  HOVER_BRAKE_DRAG,
   HOVER_CLEARANCE,
   HOVER_CUSHION_SPAN,
-  HOVER_TRACTION_ACCEL,
-  HOVER_TRACTION_BRAKE,
-  HOVER_TRACTION_COAST,
+  HOVER_DRAG,
+  HOVER_HOLD_DOWN,
+  HOVER_IDLE_CEILING,
+  HOVER_IDLE_KNEE,
+  HOVER_IDLE_SLOPE,
+  HOVER_PUSH_FORE,
+  HOVER_PUSH_STRAFE,
+  HOVER_SLOPE_GAIN,
+  HOVER_SLOPE_KNEE,
+  HOVER_SPEED_CAP,
+  HOVER_STOP_SPEED,
+  HOVER_TURN_LIMIT,
   JUGGERNAUT_ALIVE_LIMIT,
   MATCH_OUTRO_TICKS,
   MAX_PLAYERS,
@@ -70,6 +77,7 @@ import {
   POINTS_UNIT_DIES,
   RESPAWN_TICKS,
   RUNNER_ALIVE_LIMIT,
+  retentionPerTick,
   SPECIAL_MINE_ARM_TICKS,
   SPECIAL_MINE_TRIGGER_RADIUS,
   STARTING_POINTS,
@@ -85,9 +93,41 @@ import {
   TURRET_RANGE,
   UNIT_DAMAGE,
   UNIT_FIRE_COOLDOWN_TICKS,
+  WALKER_AIR_DRAG,
+  WALKER_DRAG,
+  WALKER_HIGH_LIFT,
+  WALKER_HIGH_RISE,
+  WALKER_HOP_LIFT,
+  WALKER_HOP_PUSH,
+  WALKER_LEAP_LIFT,
+  WALKER_LEAP_PUSH,
+  WALKER_LUNGE_MAX_RISE,
+  WALKER_LUNGE_PUSH,
+  WALKER_LUNGE_TICKS,
+  WALKER_PROBE_AHEAD,
+  WALKER_PROBE_LIFT,
+  WALKER_PUSH_FORE,
+  WALKER_PUSH_STRAFE,
+  WALKER_SLOPE_GAIN,
+  WALKER_SLOPE_KNEE,
+  WALKER_STEEP_TILT,
+  WALKER_STOP_SPEED,
+  WALKER_TURN_STEP,
+  WALKER_TURN_ZERO_SPEED,
   WARDEN_ALTITUDE,
   WARDEN_HP,
   WARDEN_RESPAWN_TICKS,
+  X1_DIAGONAL_SCALE,
+  X1_GRAVITY,
+  X1_IMPACT_HP,
+  X1_IMPACT_INTERIM_SCALE,
+  X1_IMPACT_SCALE,
+  X1_IMPACT_SPEED,
+  X1_IMPACT_SPEED_MAX,
+  X1_STEPS_PER_TICK,
+  X1_STICK_SECTOR,
+  X1_TERMINAL_FALL,
+  X1_UNITS_PER_TICK,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked, segmentBlockT } from "./collision";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
@@ -293,6 +333,17 @@ export interface SimState {
    */
   readonly turretAlert: Int32Array;
 
+  // --- X1-Alpha movement state, per player (fcop-fidelity.md P4/P5) ---------
+  /**
+   * The hover's turn-rate word (the original's block +0xc2), in engine angle
+   * units: ramps toward +-HOVER_TURN_LIMIT while turning, 0 on a release.
+   */
+  readonly avatarTurnRate: Float32Array;
+  /** The hover's idle timer (block +0xdc), engine units, capped at 0x800. */
+  readonly avatarIdle: Int32Array;
+  /** Ticks until the high jump's lunge (byte +0xc2's countdown), 0 for none. */
+  readonly avatarLunge: Int32Array;
+
   /** Per-tick transient events (NOT hashed). */
   readonly events: EventBuffer;
 }
@@ -338,6 +389,9 @@ export function spawnAvatar(state: SimState, player: number): number {
   }
   ent.ownerId[id] = player;
   state.avatarId[player] = id;
+  state.avatarTurnRate[player] = 0;
+  state.avatarIdle[player] = 0;
+  state.avatarLunge[player] = 0;
   return id;
 }
 
@@ -607,6 +661,9 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     buffPower: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
     triggerArm: new Int32Array(map.triggerVolumes.length),
     turretAlert: new Int32Array(ringSlots > 0 ? MAX_PLAYERS : 0),
+    avatarTurnRate: new Float32Array(MAX_PLAYERS),
+    avatarIdle: new Int32Array(MAX_PLAYERS),
+    avatarLunge: new Int32Array(MAX_PLAYERS),
     events: createEventBuffer(),
   };
   // Apply loadouts before avatars spawn so ammo capacities match the kit.
@@ -689,7 +746,92 @@ function slopeBlocks(
   return rideHeight(map, px, py, hover) - here > HOVER_CUSHION_SPAN * maxSlope;
 }
 
-/** input + avatar movement: transform, jump/gravity, slope/water rules. */
+/** Scratch for `surfaceTilt` (the tick is synchronous and not re-entrant). */
+const tilt = { gx: 0, gy: 0, t: 0, lift: 0 };
+/** Half-width of the central difference `surfaceTilt` reads the surface with, m. */
+const TILT_PROBE = 0.25;
+
+/**
+ * The surface under a mover as the original's surface normal: the height
+ * gradient (gx, gy), the normal's horizontal length `t` (its "tilt") and its
+ * vertical part `lift`. The hover reads its ride surface (water is flat), the
+ * walker the deck it stands on.
+ */
+function surfaceTilt(map: MapData, x: number, y: number, hover: boolean, h: number): typeof tilt {
+  const e = TILT_PROBE;
+  const at = (px: number, py: number) =>
+    hover ? rideHeight(map, px, py, true) : resolveWalker(map, px, py, h).height;
+  const gx = (at(x + e, y) - at(x - e, y)) / (2 * e);
+  const gy = (at(x, y + e) - at(x, y - e)) / (2 * e);
+  const g2 = gx * gx + gy * gy;
+  const lift = 1 / Math.sqrt(1 + g2);
+  tilt.gx = gx;
+  tilt.gy = gy;
+  tilt.lift = lift;
+  tilt.t = Math.sqrt(g2) * lift;
+  return tilt;
+}
+
+/**
+ * The original's downhill push on a tilted surface, as a per-step velocity
+ * change (m/s) along the downhill direction: gain * (t - knee)³ * lift' * g_step,
+ * with lift' the normal's vertical part raised by 0.15 and saturating at 1
+ * (`player_velocity_delta` 0x00445150; the hover's twin at 0x00442947). Zero
+ * below the knee: on gentle ground thrust and gravity cancel exactly.
+ */
+function slopePush(knee: number, gain: number): number {
+  if (tilt.t < knee) return 0;
+  const over = tilt.t - knee;
+  const lift = tilt.lift > 0xd999 / 65536 ? 1 : tilt.lift + 0x2666 / 65536;
+  return gain * over * over * over * lift * X1_GRAVITY_PER_STEP;
+}
+
+/** Gravity per movement step, m/s (0x9800 per step). */
+const X1_GRAVITY_PER_STEP = X1_GRAVITY / (300 / 8);
+/** A heading error this small (rad) is on heading: the yaw is stored as float32. */
+const TURN_SETTLED = 1e-4;
+/** Engine angle units (4096 a turn) to radians. */
+const ANGLE_UNIT = (2 * Math.PI) / 4096;
+
+/**
+ * Landing damage (`player_impact_damage`, fcop-fidelity.md P4/P5): above a
+ * 10.78 m/s landing, the original's absolute 1000 * f(x), here times the
+ * interim AVATAR_HP / 1250 (X1_IMPACT_INTERIM_SCALE) until P1. Credited to
+ * nobody, as the original credits the mech itself.
+ */
+function landingImpact(state: SimState, id: number, speed: number): void {
+  if (speed <= X1_IMPACT_SPEED) return;
+  const v = speed < X1_IMPACT_SPEED_MAX ? speed : X1_IMPACT_SPEED_MAX;
+  const x = (v - X1_IMPACT_SPEED) * X1_IMPACT_SCALE;
+  let f: number;
+  if (x <= 0.5) f = x * (0x9cc4 / 65536);
+  else if (x <= 0.75) f = x * Math.sqrt(x) * (0xddb3 / 65536);
+  else f = x * x;
+  applyDamage(state, id, X1_IMPACT_HP * f * X1_IMPACT_INTERIM_SCALE, -1);
+}
+
+/** The hover's ride height over its surface now: ramps through a change. */
+function clearanceOf(ent: EntityStore, id: number): number {
+  const left = ent.timerA[id] / TRANSFORM_LOCK_TICKS;
+  const hover = ent.mode[id] === MODE_HOVER;
+  if (ent.timerA[id] <= 0) return hover ? HOVER_CLEARANCE : 0;
+  return HOVER_CLEARANCE * (hover ? 1 - left : left);
+}
+
+/** Starts a change of form (fcop-fidelity.md P3), published as EV_TRANSFORM. */
+function startTransform(state: SimState, id: number, hover: boolean): void {
+  state.ent.mode[id] = hover ? MODE_HOVER : MODE_WALKER;
+  state.ent.timerA[id] = TRANSFORM_LOCK_TICKS;
+  pushEvent(state.events, EV_TRANSFORM, id, hover ? 1 : 0, TRANSFORM_LOCK_TICKS);
+}
+
+/**
+ * input + avatar movement: the original's two movement models (rules.md §2,
+ * fcop-fidelity.md P3-P5; the per-tick conversion is described in balance.ts
+ * "X1-Alpha movement"), transform, jumps, gravity and landings, then weapons and
+ * buying. Walls, decks and the two slope gates are Metropolis' collision and
+ * are unchanged.
+ */
 function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
   const ent = state.ent;
   const map = state.map;
@@ -713,23 +855,13 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     let x = ent.posX[id];
     let y = ent.posY[id];
     let hover = ent.mode[id] === MODE_HOVER;
-    // Walkers resolve their deck (base or an upper layer reachable within a
-    // step); hover ignores layers and rides the base/water surface.
-    let ride = hover
-      ? rideHeight(map, x, y, hover)
-      : resolveWalker(map, x, y, ent.height[id]).height;
-    // Hover always counts as grounded (it rides its clearance height).
-    const grounded = hover || (ent.height[id] <= ride + GROUND_EPS && ent.timerB[id] <= 0);
 
     // Transform (edge-triggered; fcop-fidelity.md P3): refused while a change is
     // already running and on water in either form (the original's byte_146,
-    // set by surface material 1). Grounded only.
-    if (!locked && (pressed & BUTTON_TRANSFORM) !== 0 && grounded && !isWater(map, x, y)) {
+    // set by surface material 1). In the air too: the original does not ask.
+    if (!locked && (pressed & BUTTON_TRANSFORM) !== 0 && !isWater(map, x, y)) {
       hover = !hover;
-      ent.mode[id] = hover ? MODE_HOVER : MODE_WALKER;
-      ent.timerA[id] = TRANSFORM_LOCK_TICKS;
-      pushEvent(state.events, EV_TRANSFORM, id, hover ? 1 : 0, TRANSFORM_LOCK_TICKS);
-      ride = hover ? rideHeight(map, x, y, hover) : resolveWalker(map, x, y, ent.height[id]).height;
+      startTransform(state, id, hover);
     }
     // While the change runs, the original cuts the movement tick's input to
     // nothing — no drive, no turn, no jump, no lock cycle — and runs the HOVER
@@ -738,10 +870,21 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // weapons are NOT locked: all three fire buttons keep working.
     const nowLocked = ent.timerA[id] > 0;
     /** Hover physics this tick: the hover form, or any transformation ramp. */
-    const hoverPhys = hover || nowLocked;
+    let hoverPhys = hover || nowLocked;
+
+    // Where it stands. The walker resolves its deck (base or an upper layer
+    // reachable within a step); the hover ignores layers and rides the base or
+    // water surface at its clearance.
+    let ride = hoverPhys
+      ? rideHeight(map, x, y, true) + clearanceOf(ent, id)
+      : resolveWalker(map, x, y, ent.height[id]).height;
+    let vz = ent.timerB[id];
+    const airborne = hoverPhys
+      ? ent.height[id] > ride + HOVER_HOLD_DOWN || vz > 0
+      : ent.height[id] > ride + GROUND_EPS || vz > 0;
 
     // Soft-lock (input.spec §4.4 "lock"): resolve before facing/drive so the
-    // throttle projects onto the locked heading this tick. The cycle press is
+    // hull turns toward the locked target this tick. The cycle press is
     // dropped while transforming, as the original drops the lock-cycle bit.
     if (!nowLocked && (pressed & BUTTON_TARGET_CYCLE) !== 0) cycleLockTarget(state, p, id, x, y);
     // The capture press is an edge, like the original's button latch
@@ -753,9 +896,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       state.lockTarget[p] = -1;
     }
 
-    // Desired move intent (unit-clamped); zero while transform-locked.
-    // Vehicles only drive along their facing (no strafe): the stick is a
-    // throttle projected onto aim/lock heading — reverse is allowed.
+    // The stick, unit-clamped; nothing while transforming.
     let mx = nowLocked ? 0 : input.moveX * AXIS_SCALE;
     let my = nowLocked ? 0 : input.moveY * AXIS_SCALE;
     const l2 = mx * mx + my * my;
@@ -765,144 +906,306 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       my *= inv;
     }
 
-    // Facing: lock > aim > move intent > previous facing (when coasting). Frozen
-    // while transforming: the turn bits are cut with the rest.
-    if (nowLocked) {
-      // keep the facing the change started with
-    } else if (lockId >= 0) {
-      const dx = ent.posX[lockId] - x;
-      const dy = ent.posY[lockId] - y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > 1e-6) {
-        const inv = 1 / Math.sqrt(d2);
-        ent.aimX[id] = dx * inv;
-        ent.aimY[id] = dy * inv;
-        ent.yaw[id] = atan2Poly(dy, dx);
+    // The heading it wants: lock > aim > stick > none. Metropolis steers by an
+    // absolute heading (input.spec §4.1) where the original has turn buttons, so
+    // the hull TURNS toward it at the original's rate rather than snapping.
+    let wantX = 0;
+    let wantY = 0;
+    if (!nowLocked) {
+      if (lockId >= 0) {
+        wantX = ent.posX[lockId] - x;
+        wantY = ent.posY[lockId] - y;
+      } else {
+        const ax = input.aimX * AXIS_SCALE;
+        const ay = input.aimY * AXIS_SCALE;
+        if (ax * ax + ay * ay > 0.04) {
+          wantX = ax;
+          wantY = ay;
+        } else if (l2 > 0) {
+          wantX = mx;
+          wantY = my;
+        }
+      }
+    }
+    const want2 = wantX * wantX + wantY * wantY;
+    if (want2 > 1e-6) {
+      const goal = atan2Poly(wantY, wantX);
+      const err = angleDelta(ent.yaw[id], goal);
+      let reach: number;
+      if (hoverPhys) {
+        // Hover: the rate word ramps by the frame delta a step toward the side
+        // turned to, from zero on a reversal or a release, clamped at 0x60; the
+        // facing turns by half of it a step (158°/s at most).
+        // An error within TURN_SETTLED is "on heading": the turn is released and
+        // the next turn ramps from zero again, as a released button does.
+        const turning = Math.abs(err) > TURN_SETTLED;
+        let rate = state.avatarTurnRate[p];
+        if (!turning || (rate !== 0 && rate > 0 !== err > 0)) rate = 0;
+        if (turning) {
+          rate += (err > 0 ? 1 : -1) * X1_UNITS_PER_TICK * X1_STEPS_PER_TICK;
+          if (rate > HOVER_TURN_LIMIT) rate = HOVER_TURN_LIMIT;
+          else if (rate < -HOVER_TURN_LIMIT) rate = -HOVER_TURN_LIMIT;
+        }
+        state.avatarTurnRate[p] = rate;
+        reach = Math.abs(rate) * 0.5 * X1_STEPS_PER_TICK * ANGLE_UNIT;
+      } else if (airborne) {
+        reach = 0; // the walker does not turn in the air
+      } else {
+        // Walker: 0x20 a step, less in proportion to speed (105°/s at rest,
+        // nothing at 18.75 m/s). No ramp.
+        const v = Math.sqrt(ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id]);
+        const k = 1 - v / WALKER_TURN_ZERO_SPEED;
+        reach = k > 0 ? WALKER_TURN_STEP * X1_STEPS_PER_TICK * ANGLE_UNIT * k : 0;
+      }
+      if (Math.abs(err) <= reach) {
+        // On the heading: take the wanted direction exactly, not its table
+        // approximation, so a held aim is as precise as the stick that sent it.
+        const inv = 1 / Math.sqrt(want2);
+        ent.yaw[id] = goal;
+        ent.aimX[id] = wantX * inv;
+        ent.aimY[id] = wantY * inv;
+      } else {
+        let yaw = ent.yaw[id] + (err > 0 ? reach : -reach);
+        if (yaw > Math.PI) yaw -= 2 * Math.PI;
+        else if (yaw <= -Math.PI) yaw += 2 * Math.PI;
+        ent.yaw[id] = yaw;
+        ent.aimX[id] = cosLUT(yaw);
+        ent.aimY[id] = sinLUT(yaw);
       }
     } else {
-      const ax = input.aimX * AXIS_SCALE;
-      const ay = input.aimY * AXIS_SCALE;
-      if (ax * ax + ay * ay > 0.04) {
-        const inv = 1 / Math.sqrt(ax * ax + ay * ay);
-        ent.aimX[id] = ax * inv;
-        ent.aimY[id] = ay * inv;
-        ent.yaw[id] = atan2Poly(ay, ax);
-      } else if (l2 > 0) {
-        const inv = 1 / Math.sqrt(l2);
-        ent.aimX[id] = mx * inv;
-        ent.aimY[id] = my * inv;
-        ent.yaw[id] = atan2Poly(my, mx);
-      }
+      state.avatarTurnRate[p] = 0;
     }
     const fx = ent.aimX[id];
     const fy = ent.aimY[id];
-    // Throttle = stick component along facing. Sideways stick alone = no drive.
-    const throttle = l2 > 0 ? mx * fx + my * fy : 0;
-    const driveX = fx * throttle;
-    const driveY = fy * throttle;
-    const drive2 = throttle * throttle;
 
-    // Traction model: walker is exact; hover drifts toward the target with
-    // stick-dependent grip — throttle accelerates, reverse brakes hard,
-    // a released stick coasts (rules.md §2 "fast, drifty").
-    if (hoverPhys) {
-      let traction = HOVER_TRACTION_COAST;
-      if (drive2 > 0) {
-        const along = driveX * ent.velX[id] + driveY * ent.velY[id];
-        traction = along < 0 ? HOVER_TRACTION_BRAKE : HOVER_TRACTION_ACCEL;
+    // The stick read as the original's input bits, in the hull's frame: fore/aft
+    // along the facing, sideways across it (screen right is (-fy, fx)), each
+    // set beyond sin 22.5° of the stick's length — eight d-pad sectors. Its
+    // length scales the push, as the original's stick path does.
+    const brake = hover && !nowLocked && (input.buttons & BUTTON_JUMP) !== 0;
+    let pushX = 0;
+    let pushY = 0;
+    let fore = 0;
+    let side = 0;
+    if (l2 > 0 && !brake) {
+      const mag = Math.sqrt(l2 < 1 ? l2 : 1);
+      const f = mx * fx + my * fy;
+      const sd = -mx * fy + my * fx;
+      if (Math.abs(f) > X1_STICK_SECTOR * mag) fore = f > 0 ? 1 : -1;
+      if (Math.abs(sd) > X1_STICK_SECTOR * mag) side = sd > 0 ? 1 : -1;
+      const pf = (hoverPhys ? HOVER_PUSH_FORE : WALKER_PUSH_FORE) * mag;
+      if (fore !== 0 && side !== 0) {
+        // The diagonal: 181/256 of the fore push along (F ± R), length √2.
+        const k = pf * X1_DIAGONAL_SCALE;
+        pushX = k * (fore * fx - side * fy);
+        pushY = k * (fore * fy + side * fx);
+      } else if (fore !== 0) {
+        pushX = pf * fore * fx;
+        pushY = pf * fore * fy;
+      } else if (side !== 0) {
+        const ps = (hoverPhys ? HOVER_PUSH_STRAFE : WALKER_PUSH_STRAFE) * mag;
+        pushX = -ps * side * fy;
+        pushY = ps * side * fx;
       }
-      ent.velX[id] += (driveX * AVATAR_HOVER_SPEED - ent.velX[id]) * traction;
-      ent.velY[id] += (driveY * AVATAR_HOVER_SPEED - ent.velY[id]) * traction;
-    } else {
-      ent.velX[id] = driveX * AVATAR_WALKER_SPEED;
-      ent.velY[id] = driveY * AVATAR_WALKER_SPEED;
     }
+    const commanded = fore !== 0 || side !== 0;
 
-    // Jump (walker only, grounded, edge-triggered).
-    if (!hover && !nowLocked && grounded && (pressed & BUTTON_JUMP) !== 0) {
-      ent.timerB[id] = AVATAR_JUMP_SPEED;
+    // The walker's jump (edge-triggered; balance.ts WALKER_* jumps): on the
+    // ground, not steep, not mid-change. It leaves the ground this tick, so the
+    // velocity below takes the airborne path, as the original's launch states do.
+    let jumpLift = 0;
+    let jumpPush = 0;
+    let lunge = state.avatarLunge[p];
+    if (!hoverPhys && !airborne && (pressed & BUTTON_JUMP) !== 0) {
+      const h = ent.height[id];
+      if (surfaceTilt(map, x, y, false, h).t <= WALKER_STEEP_TILT) {
+        if (fore > 0) {
+          jumpLift = WALKER_LEAP_LIFT; // running forward: the leap
+          jumpPush = WALKER_LEAP_PUSH;
+          lunge = 0;
+        } else {
+          const ax = Math.min(Math.max(x + fx * WALKER_PROBE_AHEAD, 0), extent);
+          const ay = Math.min(Math.max(y + fy * WALKER_PROBE_AHEAD, 0), extent);
+          const rise = resolveWalker(map, ax, ay, h + WALKER_PROBE_LIFT).height - h;
+          if (rise > WALKER_HIGH_RISE) {
+            jumpLift = WALKER_HIGH_LIFT; // a step ahead: the high jump
+            lunge = rise > WALKER_LUNGE_MAX_RISE ? 0 : WALKER_LUNGE_TICKS;
+          } else {
+            jumpLift = WALKER_HOP_LIFT; // open ground: the hop
+            jumpPush = WALKER_HOP_PUSH;
+            lunge = 0;
+          }
+        }
+      }
     }
-    const airborne = !hoverPhys && (ent.height[id] > ride + GROUND_EPS || ent.timerB[id] > 0);
+    const inAir = airborne || jumpLift > 0;
+
+    // Velocity: n = 1.25 steps of v += P - d v in closed form (balance.ts).
+    let vx = ent.velX[id];
+    let vy = ent.velY[id];
+    if (hoverPhys) {
+      // The idle timer counts the frame delta while nothing drives the hover,
+      // and past 0x700 units ramps the drag toward 0.375.
+      let idle = state.avatarIdle[p];
+      idle = commanded || brake ? 0 : Math.min(idle + X1_UNITS_PER_TICK, HOVER_IDLE_CEILING);
+      state.avatarIdle[p] = idle;
+      let d = HOVER_DRAG;
+      if (idle > HOVER_IDLE_KNEE) d += ((idle - HOVER_IDLE_KNEE) * HOVER_IDLE_SLOPE) / 65536;
+      if (brake && !inAir) d = HOVER_BRAKE_DRAG;
+      if (!inAir) {
+        // With control, the tilted ground pushes it downhill.
+        const t = surfaceTilt(map, x, y, true, ent.height[id]);
+        const sp = slopePush(HOVER_SLOPE_KNEE, HOVER_SLOPE_GAIN);
+        if (sp > 0) {
+          const g = Math.sqrt(t.gx * t.gx + t.gy * t.gy);
+          pushX -= (sp * t.gx) / g;
+          pushY -= (sp * t.gy) / g;
+        }
+      }
+      // Undriven on the ground, a near-standstill stops dead. The original tests
+      // after every step, so the test here is the tick's FIRST step: one that
+      // ends under the threshold stops it, as it would have in the original.
+      const settle =
+        !commanded &&
+        !brake &&
+        !inAir &&
+        Math.abs(vx * (1 - d) + pushX) < HOVER_STOP_SPEED &&
+        Math.abs(vy * (1 - d) + pushY) < HOVER_STOP_SPEED &&
+        Math.abs(vz) < HOVER_STOP_SPEED;
+      const r = retentionPerTick(d);
+      vx = settle ? 0 : (pushX / d) * (1 - r) + vx * r;
+      vy = settle ? 0 : (pushY / d) * (1 - r) + vy * r;
+      const v2 = vx * vx + vy * vy;
+      if (v2 > HOVER_SPEED_CAP * HOVER_SPEED_CAP) {
+        const k = HOVER_SPEED_CAP / Math.sqrt(v2);
+        vx *= k;
+        vy *= k;
+      }
+    } else if (inAir) {
+      // Airborne walker: no push, no steering, a light horizontal drag.
+      const r = retentionPerTick(WALKER_AIR_DRAG);
+      vx *= r;
+      vy *= r;
+    } else {
+      const t = surfaceTilt(map, x, y, false, ent.height[id]);
+      const sp = slopePush(WALKER_SLOPE_KNEE, WALKER_SLOPE_GAIN);
+      if (sp > 0) {
+        const g = Math.sqrt(t.gx * t.gx + t.gy * t.gy);
+        pushX -= (sp * t.gx) / g;
+        pushY -= (sp * t.gy) / g;
+      }
+      // The stop test of the tick's first step, as for the hover.
+      const k = 1 - WALKER_DRAG;
+      const settle =
+        !commanded &&
+        Math.abs(vx * k + pushX) < WALKER_STOP_SPEED &&
+        Math.abs(vy * k + pushY) < WALKER_STOP_SPEED;
+      const r = retentionPerTick(WALKER_DRAG);
+      vx = settle ? 0 : (pushX / WALKER_DRAG) * (1 - r) + vx * r;
+      vy = settle ? 0 : (pushY / WALKER_DRAG) * (1 - r) + vy * r;
+    }
+    if (jumpLift > 0) {
+      vz = jumpLift;
+      vx += jumpPush * fx;
+      vy += jumpPush * fy;
+    } else if (!hoverPhys && airborne && lunge > 0) {
+      // The high jump's lunge, 9 steps after take-off.
+      lunge -= 1;
+      if (lunge === 0) {
+        vx += WALKER_LUNGE_PUSH * fx;
+        vy += WALKER_LUNGE_PUSH * fy;
+      }
+    }
+    ent.velX[id] = vx;
+    ent.velY[id] = vy;
 
     // Horizontal movement, axis-separated for wall sliding. Uphill steps
-    // beyond the slope limit are blocked (slopeBlocks); walkers never enter
-    // water. Airborne walkers skip the slope check so a jump can carry them
-    // onto a ledge.
+    // beyond the slope limit are blocked (slopeBlocks). Airborne walkers skip
+    // the slope check so a jump can carry them onto a ledge.
     // Walls come from the deck the avatar is standing on (entLayer, set by the
     // resolveWalker snap below on the previous tick). A hovering avatar is not on
     // a deck, so it keeps reading layer 0's lattice.
     const wallLayer = hoverPhys ? 0 : ent.entLayer[id];
-    const stepX = ent.velX[id] * TICK_DT;
+    const skipSlope = !hoverPhys && inAir;
+    const stepX = vx * TICK_DT;
     if (stepX !== 0) {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
-      let ok = true;
-      if (!hoverPhys && isWater(map, nx, y)) ok = false;
-      if (ok && crossesWallX(map, x, nx, y, wallLayer)) ok = false;
-      if (ok && !airborne && slopeBlocks(map, x, y, nx, y, hoverPhys, ent.height[id])) ok = false;
+      let ok = !crossesWallX(map, x, nx, y, wallLayer);
+      if (ok && !skipSlope && slopeBlocks(map, x, y, nx, y, hoverPhys, ent.height[id])) ok = false;
       if (ok) x = nx;
       else ent.velX[id] = 0;
     }
-    const stepY = ent.velY[id] * TICK_DT;
+    const stepY = vy * TICK_DT;
     if (stepY !== 0) {
       const ny = Math.min(Math.max(y + stepY, 0), extent);
-      let ok = true;
-      if (!hoverPhys && isWater(map, x, ny)) ok = false;
-      if (ok && crossesWallY(map, x, y, ny, wallLayer)) ok = false;
-      if (ok && !airborne && slopeBlocks(map, x, y, x, ny, hoverPhys, ent.height[id])) ok = false;
+      let ok = !crossesWallY(map, x, y, ny, wallLayer);
+      if (ok && !skipSlope && slopeBlocks(map, x, y, x, ny, hoverPhys, ent.height[id])) ok = false;
       if (ok) y = ny;
       else ent.velY[id] = 0;
     }
     ent.posX[id] = x;
     ent.posY[id] = y;
 
-    // Vertical: hover snaps to its ride height; walker snaps to terrain for
-    // step-sized height changes and integrates gravity for real falls/jumps.
-    // During a change the ride height ramps with it: 0 -> HOVER_CLEARANCE into
-    // hover, back to 0 out of it (the original's `word_f2 = progress >> 4`).
+    // A walker in water transforms to hover on its own: the NORMAL/EASY rule
+    // (`player_order` code 1). HARD's sinking and drowning are not modelled —
+    // Metropolis has no difficulty for the player and models NORMAL.
+    if (!hoverPhys && isWater(map, x, y)) {
+      hover = true;
+      hoverPhys = true;
+      startTransform(state, id, true);
+    }
+
+    // Vertical: gravity 26.1 m/s² to a 14.06 m/s terminal fall in both forms,
+    // and a landing over 10.78 m/s hurts.
+    let h = ent.height[id];
     if (hoverPhys) {
-      ride = rideHeight(map, x, y, true);
-      const left = ent.timerA[id] / TRANSFORM_LOCK_TICKS;
-      ent.height[id] = ride + HOVER_CLEARANCE * (nowLocked ? (hover ? 1 - left : left) : 1);
-      ent.timerB[id] = 0;
+      // Snapped up to its ride height, held down within HOVER_HOLD_DOWN of it,
+      // and airborne above that — off a ledge it falls.
+      ride = rideHeight(map, x, y, true) + clearanceOf(ent, id);
+      const air = h > ride + HOVER_HOLD_DOWN || vz > 0;
+      if (air) {
+        vz -= X1_GRAVITY * TICK_DT;
+        if (vz < -X1_TERMINAL_FALL) vz = -X1_TERMINAL_FALL;
+        h += vz * TICK_DT;
+      }
+      if (!air || h <= ride) {
+        if (air && vz < 0) landingImpact(state, id, -vz);
+        h = ride;
+        vz = 0;
+      }
+      lunge = 0;
     } else {
-      const wr = resolveWalker(map, x, y, ent.height[id]);
+      // The walker snaps to step-sized height changes (STEP_SNAP, Metropolis'
+      // deck rule) and falls past them.
+      const wr = resolveWalker(map, x, y, h);
       ent.entLayer[id] = wr.layer;
       ride = wr.height;
-      let h = ent.height[id];
-      if (ent.timerB[id] > 0 || h > ride + STEP_SNAP) {
-        ent.timerB[id] -= GRAVITY * TICK_DT;
-        h += ent.timerB[id] * TICK_DT;
+      if (vz !== 0 || h > ride + STEP_SNAP) {
+        vz -= X1_GRAVITY * TICK_DT;
+        if (vz < -X1_TERMINAL_FALL) vz = -X1_TERMINAL_FALL;
+        h += vz * TICK_DT;
         if (h <= ride) {
+          if (vz < 0) landingImpact(state, id, -vz);
           h = ride;
-          ent.timerB[id] = 0;
+          vz = 0;
+          lunge = 0;
         }
       } else {
         h = ride;
-        ent.timerB[id] = 0;
-      }
-      ent.height[id] = h;
-    }
-
-    // Soft-lock tracks the target after the move so facing stays on it if the
-    // target slid; free aim is already set above from this tick's input.
-    if (lockId >= 0) {
-      const dx = ent.posX[lockId] - x;
-      const dy = ent.posY[lockId] - y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > 1e-6) {
-        const inv = 1 / Math.sqrt(d2);
-        ent.aimX[id] = dx * inv;
-        ent.aimY[id] = dy * inv;
-        ent.yaw[id] = atan2Poly(dy, dx);
+        vz = 0;
+        lunge = 0;
       }
     }
+    ent.height[id] = h;
+    ent.timerB[id] = vz;
+    state.avatarLunge[p] = lunge;
 
     ent.animState[id] =
-      (drive2 > 1e-6 || ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id] > 1e-6
+      (commanded || ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id] > 1e-6
         ? ANIM_MOVING
         : 0) |
       (hover ? ANIM_HOVER : 0) |
-      (ent.height[id] > ride + GROUND_EPS ? ANIM_AIRBORNE : 0) |
+      (h > ride + GROUND_EPS ? ANIM_AIRBORNE : 0) |
       (ent.timerA[id] > 0 ? ANIM_TRANSFORMING : 0);
 
     // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub. They
@@ -2236,6 +2539,13 @@ export function hash(state: SimState): number {
   // turrets.
   for (let p = 0; p < state.turretAlert.length; p++) {
     h = fnv1aU32(h, state.turretAlert[p] >>> 0);
+  }
+  // Appended at SIM_VERSION 39: the X1-Alpha's movement state, every map.
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    // The rate moves in steps of 12.5 units, so twice it is an exact integer.
+    h = fnv1aU32(h, (state.avatarTurnRate[p] * 2) >>> 0);
+    h = fnv1aU32(h, state.avatarIdle[p] >>> 0);
+    h = fnv1aU32(h, state.avatarLunge[p] >>> 0);
   }
   // Weapon profiles are a side array like entLayer: hashed only where they exist.
   if (state.map.weapons.length > 0) {

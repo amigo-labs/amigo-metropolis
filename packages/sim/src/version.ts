@@ -649,4 +649,26 @@
 //     water in either form (was: only hover -> walker over water). Goldens: 02
 //     re-records (it transforms twice); the others never transform and stay
 //     byte-identical (re-headered only).
-export const SIM_VERSION = 38;
+// v39: the X1-Alpha's two movement models are the original's
+//     (docs/specs/fcop-fidelity.md P4, P5; fcop-re/player-and-weapons.md §3-§5),
+//     run at 30 Hz as 1.25 of its 37.5 Hz steps in closed form (balance.ts
+//     "X1-Alpha movement"). Walker 5 -> 4.69 m/s with drag 0.375 a step (95 %
+//     in 0.17 s), strafe 3.13; hover traction knobs -> push 0x6666 against drag
+//     0.05 a step (9 -> 9.38 m/s, 95 % in 1.56 s), strafe 2.93, brake 0.15 on
+//     the jump button, idle drag ramp, 10.7 m/s cap, stop-dead thresholds. The
+//     stick strafes across the facing (it was a throttle along it), read as
+//     eight 45° sectors; the hull TURNS toward the aim/lock at 105°·(1 - v/18.75)
+//     (walker, not in the air) or 158°/s after a 0.26 s ramp (hover) instead of
+//     snapping. Gravity 20 -> 26.1 m/s² with a 14.06 m/s terminal fall in both
+//     forms; the hover rides 0.5 m (was 0.3) and falls off ledges; landings over
+//     10.78 m/s hurt (1000 f(x) HP x AVATAR_HP / 1250, interim). The jump is
+//     the original's three (leap / high jump with lunge / hop), no air control.
+//     Downhill slope push in both forms; the walker's gate 0.6 -> 1.04, where
+//     that push stops the original's walk (it has no hard gate). A walker in
+//     water transforms to hover (NORMAL). Transform no longer needs the ground.
+//     New hashed per-player state: avatarTurnRate, avatarIdle, avatarLunge.
+//     Goldens: all seven re-record (every one moves an avatar). 03's script now
+//     turns on the spot before each leg and snipe and aims at player 1's
+//     measured stand; it breaches at 4002 (was 3701). 04's patrol is downed once
+//     (was twice) and ends on 90 points.
+export const SIM_VERSION = 39;

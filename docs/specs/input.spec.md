@@ -105,10 +105,17 @@ shipped model is simpler and already correct:
   vector. Same wire format as before; only where the vector comes from changed.
 - The camera is locked behind the same heading (`camera.spec` §3), so steering,
   looking and aiming are one act.
-- The unit orients to the aim vector. **Drive is facing-aligned only** (no
-  strafe): the move stick is a throttle projected onto the aim/lock heading,
-  reverse allowed; pure sideways stick does not translate. Shipped
-  (`systemAvatarMovement`, SIM_VERSION 19).
+- The unit **turns toward** the aim vector at its form's turn rate — the
+  original's walker 105°/s (less at speed), hover 158°/s after a short ramp
+  (SIM_VERSION 39, `rules.md` §2). The original turns with buttons; the absolute
+  heading is our control, so the rate is applied toward it, and the hull can lag
+  a fast mouse flick. The camera follows the input heading, not the hull.
+- The move stick drives **relative to the facing**: its component along the
+  facing drives fore/aft (reverse allowed), its component across it **strafes**
+  (SIM_VERSION 39; until then it was a throttle along the facing only and
+  sideways stick did nothing). The stick is read as the original's digital
+  input, eight 45° sectors around the facing, and its length scales the push.
+  No new input: on keyboard A/D already arrive as the sideways component.
 
 **What the cursor raycast did, for the record.** It projected the cursor onto a
 horizontal plane at the avatar's height. When the ray ran near-parallel to that
@@ -160,8 +167,9 @@ Setting `aimAssistMode: "off" | "assist" | "lock"` — a LOCAL client setting
   or, when already locked, cycles to the next by ascending entity id. The lock is
   per-player sim state (`state.lockTarget`), so it resolves identically on every
   peer — **no target id is transmitted**.
-- While a valid lock is held, the sim overrides facing to point at the target
-  every tick (perfect tracking). The transmitted `aimX/aimY` is the fallback.
+- While a valid lock is held, the target is the heading the hull turns to, at
+  its turn rate (since SIM_VERSION 39; it snapped before). The transmitted
+  `aimX/aimY` is the fallback.
 - The lock **releases** when the target dies, leaves `AVATAR_LOCK_RANGE`, or the
   holder dies — falling back to free aim (re-lock via the key).
 - **Auto-elevation** for flying targets (§4.3) is deferred: avatar weapons are
@@ -201,7 +209,7 @@ Bit assignment (as shipped, `packages/sim/src/inputs.ts`):
 | 1 | `BUTTON_FIRE2` | Fire — heavy (also the buy-heavy modifier) | held |
 | 2 | `BUTTON_FIRE3` | Fire — special | held |
 | 3 | `BUTTON_TRANSFORM` | Transform (walker ↔ hover) | edge |
-| 4 | `BUTTON_JUMP` | Jump | edge |
+| 4 | `BUTTON_JUMP` | Jump (walker: hop / leap / high jump by context); **brake** in hover | edge (jump), held (brake) |
 | 5 | `BUTTON_INTERACT` | Action / Interact: **press** to capture a neutral turret in range; **hold** to buy at a console | edge + held |
 | 6 | `BUTTON_TARGET_CYCLE` | Target-cycle (soft-lock, §4.4) | edge |
 

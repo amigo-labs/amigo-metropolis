@@ -1,31 +1,44 @@
-// Avatar movement rules on a tiny authored map: a flat plain with a steep
-// wall, a jumpable ledge, and a water strip. Exercises walker/hover slope
-// limits, water rules, jump/gravity, transform lock, and hover drift.
+// Avatar movement rules on a tiny authored map: a flat plain with a wall too
+// steep to walk, a plateau, and a water strip. Exercises the original's two
+// movement models (fcop-fidelity.md P3-P5, SIM_VERSION 39): walker and hover
+// speeds, strafe, turn rates, drag and braking, the three jumps, gravity and
+// landing damage, water, and the transform.
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
   ARCHETYPE_RADIUS,
   AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HOVER_SPEED,
+  AVATAR_HP,
+  AVATAR_WALKER_MAX_SLOPE,
   AVATAR_WALKER_SPEED,
   HOVER_CLEARANCE,
   HOVER_CUSHION_SPAN,
+  HOVER_DRAG,
+  HOVER_PUSH_STRAFE,
   TRANSFORM_LOCK_TICKS,
+  WALKER_DRAG,
+  WALKER_PUSH_STRAFE,
+  X1_GRAVITY,
+  X1_IMPACT_INTERIM_SCALE,
+  X1_TERMINAL_FALL,
 } from "../src/balance";
-import { EV_SHOT, EVENT_STRIDE } from "../src/events";
+import { EV_SHOT, EV_TRANSFORM, EVENT_STRIDE } from "../src/events";
 import { BUTTON_FIRE1, BUTTON_JUMP, BUTTON_TRANSFORM, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson, sampleHeight } from "../src/map";
-import { createSim, MODE_HOVER, MODE_WALKER, type SimState, step } from "../src/sim";
+import { ANIM_AIRBORNE, createSim, MODE_HOVER, MODE_WALKER, type SimState, step } from "../src/sim";
 import { JUMPABLE_RISE } from "../src/units";
 
+const DEG = 180 / Math.PI;
+
 // 16×16 grid, 4 m cells → 60 m square. Column layout (x in cells):
-//   0-6: flat plain (h 0)   7: steep wall top (h 96 = 3 m, slope 0.75)
-//   8-9: high plateau (3 m) 10: back to 0   11-12: water channel (h -64 = -2 m)
-//   13-15: far bank (h 0)
+//   0-6: flat plain (h 0)   7: wall top (h 160 = 5 m, gradient 1.25 — past the
+//   walker's 1.04)          8-9: high plateau (5 m) 10: back to 0
+//   11-12: water channel (h -64 = -2 m)   13-15: far bank (h 0)
 // Rows are uniform, so movement along +x meets: wall → plateau → water.
 function arenaJson(): MapJson {
   const size = 16;
-  const colHeights = [0, 0, 0, 0, 0, 0, 0, 96, 96, 96, 0, -64, -64, 0, 0, 0];
+  const colHeights = [0, 0, 0, 0, 0, 0, 0, 160, 160, 160, 0, -64, -64, 0, 0, 0];
   const colWater = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0];
   const heights: number[][] = [];
   const water: string[] = [];
@@ -92,64 +105,118 @@ function reset(): void {
   }
 }
 
-describe("walker movement", () => {
-  it("moves at walker speed on flat ground", () => {
+/** Count of events of `type` emitted in the last tick. */
+function events(sim: SimState, type: number): number {
+  let n = 0;
+  for (let e = 0; e < sim.events.count; e++) if (sim.events.data[e * EVENT_STRIDE] === type) n++;
+  return n;
+}
+
+describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
+  it("runs at 4.69 m/s, reached almost at once", () => {
     reset();
     const sim = freshSim();
     p0.moveX = 127;
-    for (let i = 0; i < 30; i++) step(sim, inputs);
-    expect(sim.ent.posX[0]).toBeCloseTo(12 + AVATAR_WALKER_SPEED, 3);
-  });
-
-  it("drives only along facing — pure strafe does not translate", () => {
-    reset();
-    const sim = freshSim();
-    // Face +X (spawn default) while only requesting +Y move (strafe).
-    p0.aimX = 127;
-    p0.aimY = 0;
+    let t95 = -1;
+    for (let i = 0; i < 30; i++) {
+      step(sim, inputs);
+      if (t95 < 0 && sim.ent.velX[0] > 0.95 * AVATAR_WALKER_SPEED) t95 = i + 1;
+    }
+    // push 0x18000 against drag 0x6000 a step: 4.6875 m/s; 95 % after 0.17 s.
+    expect(AVATAR_WALKER_SPEED).toBe(4.6875);
+    expect(sim.ent.velX[0]).toBeCloseTo(AVATAR_WALKER_SPEED, 4);
+    expect(t95).toBeLessThanOrEqual(6);
+    expect(sim.ent.posX[0]).toBeGreaterThan(12 + AVATAR_WALKER_SPEED - 0.4);
+    expect(sim.ent.posX[0]).toBeLessThan(12 + AVATAR_WALKER_SPEED);
+    // Released, it stops within a few ticks (under 0.586 m/s it stops dead).
     p0.moveX = 0;
+    for (let i = 0; i < 6; i++) step(sim, inputs);
+    expect(sim.ent.velX[0]).toBe(0);
+  });
+
+  it("strafes at 3.13 m/s across its facing, and a diagonal pushes as hard as ahead", () => {
+    reset();
+    const sim = freshSim();
+    // Face +X (spawn default) while the stick asks for +Y: the original strafes.
+    p0.aimX = 127;
     p0.moveY = 127;
-    const x0 = sim.ent.posX[0];
-    const y0 = sim.ent.posY[0];
     for (let i = 0; i < 30; i++) step(sim, inputs);
-    expect(sim.ent.posX[0]).toBeCloseTo(x0, 3);
-    expect(sim.ent.posY[0]).toBeCloseTo(y0, 3);
-    // Throttle along facing still works.
-    p0.moveX = 127;
-    p0.moveY = 0;
+    expect(sim.ent.velX[0]).toBeCloseTo(0, 6);
+    expect(sim.ent.velY[0]).toBeCloseTo(WALKER_PUSH_STRAFE / WALKER_DRAG, 4);
+    expect(WALKER_PUSH_STRAFE / WALKER_DRAG).toBe(3.125);
+    expect(sim.ent.yaw[0]).toBe(0);
+    // Forward + strafe: 181/256 of the fore push at 45°, as fast as straight on.
+    p0.moveX = 90;
+    p0.moveY = 90;
     for (let i = 0; i < 30; i++) step(sim, inputs);
-    expect(sim.ent.posX[0]).toBeGreaterThan(x0 + 1);
+    expect(Math.hypot(sim.ent.velX[0], sim.ent.velY[0])).toBeCloseTo(AVATAR_WALKER_SPEED, 2);
+    expect(sim.ent.velX[0]).toBeCloseTo(sim.ent.velY[0], 4);
   });
 
-  it("is blocked by the steep wall but jumps onto the ledge", () => {
+  it("turns at 105°/s standing, 79°/s at a full run", () => {
     reset();
     const sim = freshSim();
-    // Wall base is at x=24 (cell 6→7 rises 3 m over 4 m = slope 0.75 > 0.6).
+    p0.aimY = 127; // a quarter turn left of the +X spawn facing
+    step(sim, inputs);
+    expect(sim.ent.yaw[0] * DEG * 30).toBeCloseTo(105.47, 1);
+    reset();
+    const run = freshSim();
+    p0.aimX = 127;
     p0.moveX = 127;
-    for (let i = 0; i < 90; i++) step(sim, inputs); // 15 m of driving into it
+    for (let i = 0; i < 30; i++) step(run, inputs);
+    p0.aimX = 0;
+    p0.aimY = 127;
+    step(run, inputs);
+    // 105.47 * (1 - 4.69 / 18.75): the faster it goes, the slower it turns.
+    expect(run.ent.yaw[0] * DEG * 30).toBeCloseTo(79.1, 0);
+  });
+
+  it("is blocked by the wall it cannot walk, and cannot jump it", () => {
+    reset();
+    const sim = freshSim();
+    // Wall base at x=24: 5 m over 4 m is a 1.25 gradient, past the walker's 1.04.
+    expect(AVATAR_WALKER_MAX_SLOPE).toBe(1.04);
+    p0.moveX = 127;
+    for (let i = 0; i < 90; i++) step(sim, inputs);
     const blockedX = sim.ent.posX[0];
-    expect(blockedX).toBeLessThan(26); // stuck at the foot of the wall
-    expect(sim.ent.height[0]).toBeLessThan(1.5);
-
-    // 3 m wall is too high even for a jump (apex 1.6 m) — stays blocked.
-    p0.buttons = BUTTON_JUMP;
-    for (let i = 0; i < 60; i++) step(sim, inputs);
+    expect(blockedX).toBeGreaterThan(23); // at the foot of the ramp...
+    expect(blockedX).toBeLessThan(26); // ...and no further
+    // The jump does not clear it either: 5 m is far over the 1.1 m it can.
+    p0.moveX = 0;
+    for (let i = 0; i < 10; i++) step(sim, inputs);
+    for (let k = 0; k < 3; k++) {
+      p0.buttons = BUTTON_JUMP;
+      step(sim, inputs);
+      p0.buttons = 0;
+      for (let i = 0; i < 40; i++) step(sim, inputs);
+    }
     expect(sim.ent.posX[0]).toBeLessThan(27);
+    expect(sim.ent.height[0]).toBeLessThan(2);
   });
 
-  it("cannot enter water on foot", () => {
+  it("walks into water and turns into a hover on its own (NORMAL)", () => {
     reset();
     const sim = freshSim();
-    // Teleport-free approach: player 1 spawns at x=50; drive west to water
-    // edge (water cells 11-12 → x 42..52 nearest-vertex zone).
+    // Player 1 spawns on the far bank and walks west into the channel. The
+    // original's NORMAL walker requests a transform on water (`player_order`
+    // code 1); HARD's sinking is not modelled.
     const p1 = inputs.players[1];
+    const id = sim.avatarId[1];
     p1.moveX = -127;
-    for (let i = 0; i < 150; i++) step(sim, inputs);
-    expect(sim.ent.posX[1]).toBeGreaterThan(45); // stopped at the bank
-    expect(sim.ent.velX[1]).toBe(0);
+    p1.aimX = -127;
+    let changed = -1;
+    for (let i = 0; i < 150 && changed < 0; i++) {
+      step(sim, inputs);
+      if (events(sim, EV_TRANSFORM) > 0) changed = i;
+    }
+    expect(changed).toBeGreaterThanOrEqual(0);
+    expect(sim.ent.mode[id]).toBe(MODE_HOVER);
+    for (let i = 0; i < TRANSFORM_LOCK_TICKS + 30; i++) step(sim, inputs);
+    // Floating on the water at its ride height, not sunk.
+    expect(sim.ent.height[id]).toBeGreaterThanOrEqual(Math.fround(-0.5 + HOVER_CLEARANCE) - 1e-6);
   });
 
-  it("jump follows a gravity arc and lands", () => {
+  it("hops on open ground: 6.45 m/s up and 4.69 m/s forward", () => {
     reset();
     const sim = freshSim();
     const ground = sampleHeight(sim.map, 12, 30);
@@ -165,11 +232,56 @@ describe("walker movement", () => {
       if (h > 0.001) airTicks++;
       if (i > 5 && h <= 0.001) break;
     }
-    step(sim, inputs); // one more tick fully snaps the landing
-    expect(apex).toBeGreaterThan(1.2);
-    expect(apex).toBeLessThan(1.7); // v²/2g = 1.6 m
-    expect(airTicks).toBeGreaterThan(15); // ~0.8 s of air time
-    expect(sim.ent.height[0]).toBe(ground); // landed
+    // The original's apex is 0.71 m; 30 Hz semi-implicit steps land it at 0.69.
+    expect(apex).toBeGreaterThan(0.65);
+    expect(apex).toBeLessThan(0.75);
+    expect(airTicks).toBeGreaterThan(11); // ~0.48 s
+    expect(sim.ent.posX[0] - 12).toBeGreaterThan(1.5); // ~1.8 m forward
+    expect(sim.ent.height[0]).toBe(ground);
+  });
+
+  it("leaps when it jumps at a run: 7.32 m/s up on top of the run", () => {
+    reset();
+    const sim = freshSim();
+    p0.moveX = 127;
+    for (let i = 0; i < 15; i++) step(sim, inputs);
+    const ground = sampleHeight(sim.map, sim.ent.posX[0], 30);
+    p0.buttons = BUTTON_JUMP;
+    step(sim, inputs);
+    p0.buttons = 0;
+    // The leap adds 1.76 m/s forward on top of the run.
+    expect(sim.ent.velX[0]).toBeGreaterThan(AVATAR_WALKER_SPEED + 1.5);
+    let apex = 0;
+    for (let i = 0; i < 30; i++) {
+      step(sim, inputs);
+      apex = Math.max(apex, sim.ent.height[0] - ground);
+    }
+    expect(apex).toBeGreaterThan(0.85); // the original's 0.93 m
+    expect(apex).toBeLessThan(0.97);
+  });
+
+  it("falls under 26.1 m/s² to a 14.06 m/s terminal speed, and a long fall hurts", () => {
+    expect(X1_GRAVITY).toBeCloseTo(26.09, 2);
+    expect(X1_TERMINAL_FALL).toBe(14.0625);
+    // Walk off the 5 m plateau's far edge (x=40 down to 0 by x=40): the drop is
+    // a ramp too steep to hold, so the walker falls the rest of the way.
+    reset();
+    const sim = freshSim();
+    const id = sim.avatarId[0];
+    sim.ent.posX[id] = 36;
+    sim.ent.height[id] = sampleHeight(sim.map, 36, 30);
+    p0.moveX = 127;
+    let fastest = 0;
+    for (let i = 0; i < 60; i++) {
+      step(sim, inputs);
+      fastest = Math.min(fastest, sim.ent.timerB[id]);
+    }
+    // ~4 m of fall lands at ~13 m/s: over the 10.78 m/s threshold, so it costs
+    // health — the original's absolute 1000 f(x) HP, scaled by AVATAR_HP / 1250
+    // until the weapons package sets the original's 1250 HP.
+    expect(fastest).toBeLessThan(-10.78);
+    expect(sim.ent.hp[id]).toBeLessThan(AVATAR_HP);
+    expect(AVATAR_HP - sim.ent.hp[id]).toBeLessThanOrEqual(1000 * X1_IMPACT_INTERIM_SCALE);
   });
 });
 
@@ -291,60 +403,131 @@ describe("transform", () => {
   });
 });
 
-describe("hover drift", () => {
-  it("accelerates gradually toward the commanded velocity", () => {
+/** Transforms player 0 into a hover and waits out the change. */
+function toHover(sim: SimState): void {
+  p0.buttons = BUTTON_TRANSFORM;
+  step(sim, inputs);
+  p0.buttons = 0;
+  for (let i = 0; i < TRANSFORM_LOCK_TICKS; i++) step(sim, inputs);
+  expect(sim.ent.mode[0]).toBe(MODE_HOVER);
+}
+
+describe("hover model (the original's, fcop-fidelity.md P5)", () => {
+  it("reaches 9.38 m/s in the original's 1.56 s and coasts with a 0.36 s half-life", () => {
     reset();
     const sim = freshSim();
-    p0.buttons = BUTTON_TRANSFORM;
-    step(sim, inputs);
-    p0.buttons = 0;
-    for (let i = 0; i < TRANSFORM_LOCK_TICKS; i++) step(sim, inputs);
+    toHover(sim);
+    expect(sim.ent.height[0]).toBe(HOVER_CLEARANCE); // 0.5 m (was 0.3)
+    p0.aimY = 127;
+    for (let i = 0; i < 20; i++) step(sim, inputs); // face north first
     p0.moveY = 127; // open ground to the north/south
-    step(sim, inputs);
-    const v1 = sim.ent.velY[0];
-    expect(v1).toBeGreaterThan(0);
-    expect(v1).toBeLessThan(AVATAR_HOVER_SPEED * 0.2); // far from top speed
-    for (let i = 0; i < 120; i++) step(sim, inputs);
-    expect(sim.ent.velY[0]).toBeGreaterThan(AVATAR_HOVER_SPEED * 0.9); // ~4 s later
-    // Release the stick: hover keeps sliding (drift), walker would stop dead.
+    let t95 = -1;
+    for (let i = 0; i < 120; i++) {
+      step(sim, inputs);
+      if (t95 < 0 && sim.ent.velY[0] > 0.95 * AVATAR_HOVER_SPEED) t95 = i + 1;
+    }
+    // push 0x6666 against drag 0x0ccc a step: 9.38 m/s.
+    expect(AVATAR_HOVER_SPEED).toBeCloseTo(9.377, 3);
+    expect(sim.ent.velY[0]).toBeCloseTo(AVATAR_HOVER_SPEED, 2);
+    expect(t95 / 30).toBeCloseTo(1.56, 1);
+    // Released: it glides, half its speed gone in ~0.36 s, and then stops dead
+    // under 0.146 m/s.
     p0.moveY = 0;
-    step(sim, inputs);
-    expect(sim.ent.velY[0]).toBeGreaterThan(AVATAR_HOVER_SPEED * 0.8);
+    const v0 = sim.ent.velY[0];
+    let half = -1;
+    let stop = -1;
+    for (let i = 0; i < 120; i++) {
+      step(sim, inputs);
+      if (half < 0 && sim.ent.velY[0] < v0 / 2) half = i + 1;
+      if (stop < 0 && sim.ent.velY[0] === 0) stop = i + 1;
+    }
+    expect(half / 30).toBeCloseTo(0.36, 1);
+    expect(stop).toBeGreaterThan(half);
+    expect(stop / 30).toBeLessThan(3);
   });
 
-  it("counter-steer kills drift far faster than coasting", () => {
-    // Two identical hovers at full speed north; one releases the stick, the
-    // other counter-steers. The brake must bite hard while the coast glides.
-    const half = AVATAR_HOVER_SPEED * 0.5;
-    const ticksToHalfSpeed = (steer: number): number => {
+  it("brakes on the jump button: drag 0.15 a step instead of 0.05", () => {
+    const halfLife = (buttons: number, moveY: number): number => {
       reset();
       const sim = freshSim();
-      p0.buttons = BUTTON_TRANSFORM;
-      step(sim, inputs);
-      p0.buttons = 0;
+      toHover(sim);
+      p0.aimY = 127;
+      for (let i = 0; i < 20; i++) step(sim, inputs);
       p0.moveY = 127;
-      for (let i = 0; i < 150; i++) step(sim, inputs); // reach top speed
-      expect(sim.ent.velY[0]).toBeGreaterThan(AVATAR_HOVER_SPEED * 0.95);
-      p0.moveY = steer;
+      for (let i = 0; i < 120; i++) step(sim, inputs);
+      const v0 = sim.ent.velY[0];
+      p0.moveY = moveY;
+      p0.buttons = buttons;
       for (let t = 1; t <= 120; t++) {
         step(sim, inputs);
-        if (sim.ent.velY[0] < half) return t;
+        if (sim.ent.velY[0] < v0 / 2) return t;
       }
       return 121;
     };
-    const brakeTicks = ticksToHalfSpeed(-127);
-    const coastTicks = ticksToHalfSpeed(0);
-    expect(brakeTicks).toBeLessThan(8); // counter-steer stops the slide fast
-    expect(coastTicks).toBeGreaterThan(20); // released stick keeps gliding
-    expect(brakeTicks * 4).toBeLessThan(coastTicks);
+    const coast = halfLife(0, 0);
+    const brake = halfLife(BUTTON_JUMP, 0);
+    const reverse = halfLife(0, -127);
+    expect(brake * 2).toBeLessThan(coast); // ln 0.5 / ln 0.85 vs / ln 0.95
+    expect(reverse).toBeLessThan(coast); // back thrust also bites
+  });
+
+  it("strafes at 2.93 m/s", () => {
+    reset();
+    const sim = freshSim();
+    toHover(sim);
+    p0.aimX = 127;
+    p0.moveY = 127;
+    for (let i = 0; i < 150; i++) step(sim, inputs);
+    expect(sim.ent.velY[0]).toBeCloseTo(HOVER_PUSH_STRAFE / HOVER_DRAG, 3);
+    expect(sim.ent.velY[0]).toBeCloseTo(2.93, 2);
+  });
+
+  it("turns at 158°/s after a ~0.26 s ramp", () => {
+    reset();
+    const sim = freshSim();
+    toHover(sim);
+    p0.aimX = -127; // half a turn
+    const deltas: number[] = [];
+    let last = sim.ent.yaw[0];
+    for (let i = 0; i < 60; i++) {
+      step(sim, inputs);
+      let d = sim.ent.yaw[0] - last;
+      if (d > Math.PI) d -= 2 * Math.PI;
+      if (d < -Math.PI) d += 2 * Math.PI;
+      deltas.push(Math.abs(d) * DEG * 30);
+      last = sim.ent.yaw[0];
+    }
+    expect(Math.max(...deltas)).toBeCloseTo(158.2, 0);
+    expect(deltas[0]).toBeLessThan(30); // the rate word starts from zero
+    // 0x60 / 12.5 a tick: full rate on the 8th tick.
+    expect(deltas.findIndex((d) => d > 158)).toBe(7);
+  });
+
+  it("drives off a ledge and falls, where it used to stick to the ground", () => {
+    reset();
+    const sim = kerbSim();
+    // Spawn 1 stands on the 2.06 m shelf; west of x=14 the ground drops 1.31 m.
+    const p1 = inputs.players[1];
+    p1.buttons = BUTTON_TRANSFORM;
+    step(sim, inputs);
+    p1.buttons = 0;
+    for (let i = 0; i < TRANSFORM_LOCK_TICKS; i++) step(sim, inputs);
+    p1.aimX = -127;
+    for (let i = 0; i < 40; i++) step(sim, inputs);
+    p1.moveX = -127;
+    let air = 0;
+    for (let i = 0; i < 60; i++) {
+      step(sim, inputs);
+      if ((sim.ent.animState[1] & ANIM_AIRBORNE) !== 0) air++;
+    }
+    expect(air).toBeGreaterThan(2);
+    expect(sim.ent.posX[1]).toBeLessThan(13);
   });
 
   it("hover cannot climb the steep wall", () => {
     reset();
     const sim = freshSim();
-    p0.buttons = BUTTON_TRANSFORM;
-    step(sim, inputs);
-    p0.buttons = 0;
+    toHover(sim);
     p0.moveX = 127;
     for (let i = 0; i < 200; i++) step(sim, inputs);
     expect(sim.ent.posX[0]).toBeLessThan(26); // blocked like the walker
@@ -457,9 +640,19 @@ describe("hover slope gate", () => {
     // is an order of magnitude over that.
     expect(HOVER_CUSHION_SPAN).toBe(2.4);
     expect(HOVER_CUSHION_SPAN).toBeGreaterThan(ARCHETYPE_RADIUS[ARCHETYPE.AVATAR] * 2);
-    // And the ceiling it implies has to stay under the walker's jump, or the
-    // hover would out-climb the form whose job is climbing.
-    expect(HOVER_CUSHION_SPAN * AVATAR_HOVER_MAX_SLOPE).toBeLessThan(JUMPABLE_RISE);
+    // What it implies against the walker. Until SIM_VERSION 39 the cushion's
+    // 1.2 m single-step ceiling sat under the walker's 1.4 m air-steered jump.
+    // The original's walker (fcop-fidelity.md P4) instead WALKS what its slope
+    // push climbs, a 1.04 gradient — twice the hover's sustained 0.5 — and its
+    // jumps climb nothing the walk does not (JUMPABLE_RISE 0). So the walker
+    // owns all sustained climbing, and the one band the hover owns is a single
+    // step of 1.04-1.2 m with flat ground beyond.
+    // The original's hover has no cushion (it snaps up per step and stalls on
+    // its own slope push); the span is Metropolis' issue-#34 rule.
+    expect(AVATAR_WALKER_MAX_SLOPE).toBeGreaterThan(2 * AVATAR_HOVER_MAX_SLOPE);
+    const hoverStep = HOVER_CUSHION_SPAN * AVATAR_HOVER_MAX_SLOPE;
+    expect(hoverStep).toBeGreaterThan(AVATAR_WALKER_MAX_SLOPE);
+    expect(hoverStep - AVATAR_WALKER_MAX_SLOPE).toBeLessThan(0.2);
   });
 
   it("rides over a step its hull spans, and stops at one it does not", () => {
@@ -489,21 +682,77 @@ describe("hover slope gate", () => {
     expect(onShelf).toBeLessThan(2.35);
   });
 
-  it("splits the ground the two forms own, in both directions", () => {
-    // The asymmetry rules.md §2 claims, measured on the same three features:
-    // the walker climbs the sustained ramp the hover cannot, and the hover rides
-    // over the 0.75 m step the walker has to jump.
+  it("splits the ground the two forms own", () => {
+    // The asymmetry rules.md §2 claims, measured on the same three features.
+    // The walker climbs the sustained ramp the hover cannot.
     reset();
     const walkerRamp = driveEast(kerbSim(), 1, false, 240);
     expect(walkerRamp).toBeGreaterThan(21); // walked up the 0.5625 ramp
 
+    // The 0.75 m kerb it used to have to jump, the original's walker walks
+    // (a 0.75 gradient, under its 1.04); and the 1.31 m step stops it, walking
+    // or jumping, as it stops the hover.
     reset();
     const sim = kerbSim();
     const walkerKerb = driveEast(sim, 0, false, 120);
-    expect(walkerKerb).toBeLessThan(8); // stopped dead at the 0.75 m step
-    inputs.players[0].buttons = BUTTON_JUMP; // ...which it clears by jumping
-    for (let i = 0; i < 120; i++) step(sim, inputs);
-    expect(sim.ent.posX[0]).toBeGreaterThan(9);
+    expect(walkerKerb).toBeGreaterThan(9);
+    expect(walkerKerb).toBeLessThan(14);
+    inputs.players[0].moveX = 0;
+    for (let k = 0; k < 3; k++) {
+      inputs.players[0].buttons = BUTTON_JUMP;
+      step(sim, inputs);
+      inputs.players[0].buttons = 0;
+      for (let i = 0; i < 40; i++) step(sim, inputs);
+    }
+    expect(sim.ent.posX[0]).toBeLessThan(14.5);
+  });
+
+  it("climbs nothing by jumping that it cannot walk (JUMPABLE_RISE 0)", () => {
+    // A one-cell step is a 1 m ramp, the way the terrain draws every step. The
+    // walker walks a 1.0 m one (a 1.0 gradient, under its 1.04). At 1.06 m it is
+    // stopped at the foot, and neither of the original's jumps gets it on top:
+    // the standing high jump's lunge comes too late to cross the ramp, and the
+    // running leap (pressed at full speed just short of the foot) is lower than
+    // the step.
+    const ledge = (rise32: number): SimState => {
+      const j = kerbJson();
+      j.heights = j.heights.map((row) => row.map((_, i) => (i >= 9 ? rise32 : 0)));
+      return createSim(loadMapFromJson(j), 1);
+    };
+    expect(JUMPABLE_RISE).toBe(0);
+    const top = (sim: SimState, rise32: number) => sim.ent.height[0] >= rise32 / 32 - 0.01;
+    // 1.0 m: walked.
+    reset();
+    let sim = ledge(32);
+    inputs.players[0].moveX = 127;
+    for (let i = 0; i < 150; i++) step(sim, inputs);
+    expect(top(sim, 32)).toBe(true);
+    // 1.06 m: not walked...
+    reset();
+    sim = ledge(34);
+    inputs.players[0].moveX = 127;
+    for (let i = 0; i < 150; i++) step(sim, inputs);
+    expect(top(sim, 34)).toBe(false);
+    // ...nor high-jumped from the foot...
+    inputs.players[0].moveX = 0;
+    for (let i = 0; i < 10; i++) step(sim, inputs);
+    inputs.players[0].buttons = BUTTON_JUMP;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    for (let i = 0; i < 40; i++) step(sim, inputs);
+    expect(top(sim, 34)).toBe(false);
+    // ...nor leapt at a run (from x=4 the foot is ~0.85 s away).
+    reset();
+    sim = ledge(34);
+    inputs.players[0].moveX = 127;
+    for (let i = 0; i < 24; i++) step(sim, inputs);
+    expect(sim.ent.posX[0]).toBeLessThan(8);
+    inputs.players[0].buttons = BUTTON_JUMP;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    inputs.players[0].moveX = 0;
+    for (let i = 0; i < 40; i++) step(sim, inputs);
+    expect(top(sim, 34)).toBe(false);
   });
 });
 
