@@ -312,19 +312,22 @@ patrol leash around the spawner it was built at (±24 × ±20 m, Fortress ±30 �
 the leash it cruises back for 4–11 s with its gun silent. It never stops: inside
 1 m of its target it reverses, so it circles and jitters about it.
 
-Elsewhere (district-01, the test maps) units follow Metropolis' authored lane
-polylines, attack whatever blocks their path (an enemy in attack range halts
-them) and otherwise beeline the gate.
+Elsewhere (district-01, the test maps) the ground units follow Metropolis'
+authored lane polylines toward the enemy gate, since those arenas have no road
+graph — but as the original's units (SIM_VERSION 52, owner's call): at 1.98 m/s,
+**never stopping to fight** (their guns fire on the move; they used to halt for
+anything in reach), with the original's targeting; Guardians and Fortresses are
+the original's aircraft there too, leashed to the base air console or the outpost
+they were bought at.
 
-Initial stats (all in `balance.ts`, all placeholders):
-Runner 60 HP / 8 dps / speed 4. Guardian 50 HP / 10 dps / speed 7.
-Juggernaut 600 HP / 20 dps / speed 2.5. Fortress 500 HP / 25 dps / speed 6.
-Avatar 1250 HP (the original's, §2); walker 4.69 m/s, hover 9.38 m/s.
-On the imported arenas the units' HP and weapons are the original's spawner
-records instead (§9: tank and jet 150 HP with 50-damage rounds every second,
-Fortress 2000 HP with guided 100-damage rounds every 0.5 s, all at 12 m), the
-ground units drive at 1.98 m/s, and the jet and Flying Fortress fly at their
-records' 4.0 and 4.8 m/s.
+Unit stats are the original's on every arena (§9; `balance.ts`
+ORIGINAL_UNIT_PROFILES where an arena imports none): tank (Runner) and jet
+(Guardian) 150 HP with 50-damage rounds every second, Fortress 2000 HP with guided
+100-damage rounds every 0.5 s, Juggernaut 3000 HP with four 100-damage guns every
+2 s, all at 12 m; the ground units drive at 1.98 m/s, the jet and Flying Fortress
+fly at 4.0 and 4.8 m/s. Avatar 1250 HP (§2); walker 4.69 m/s, hover 9.38 m/s.
+(Metropolis' placeholder table — Runner 60 HP / 8 dps / 4 m/s, Guardian 50 / 10
+/ 7, Juggernaut 600 / 20 / 2.5, Fortress 500 / 25 / 6 — is gone.)
 
 ## 5. Structures
 
@@ -349,7 +352,8 @@ records' 4.0 and 4.8 m/s.
   Guardians, Juggernauts and Fortresses never capture. The range is the
   original's `(range + 1024) / 512` m on the imported arenas — 4.0 m on
   la-cantina, urban-jungle and venice-beach, 5.2 m on proving-ground and bug-hunt,
-  5.6 m on hollywood-keys — and `CAPTURE_RADIUS` (5 m, ours) on district-01.
+  5.6 m on hollywood-keys — and Mp's 4.0 m (`ORIGINAL_CAPTURE_RANGE`) on
+  district-01 (it was Metropolis' 5 m until SIM_VERSION 52).
   Capturing pays +1 (§3). A captured turret fires at enemies of its owner and stays
   captured until it is destroyed; it then respawns **neutral after 25 s** (the
   original's spawner period; was 45 s). This used to be "stand in a 5 m radius for
@@ -368,11 +372,13 @@ records' 4.0 and 4.8 m/s.
     its claim zone (1.2 m + the avatar's radius, in 3D), a tank pad and a jet pad,
     and two **turret plates** (§9). A claim is **permanent**: the console marker
     takes no damage and nothing targets it.
-  - On district-01 (Metropolis' own outposts-as-a-menu, a deliberate deviation)
-    the zone is `OUTPOST_CLAIM_RADIUS` (3 m) around the console, both units are
-    bought at the console (FIRE2 for the Guardian), there are no plates, and the
-    enemy can still destroy an owned outpost's console to revert it to neutral
-    (claimable again after 10 s).
+  - On district-01 the outposts keep Metropolis' layout — a console and no pads
+    or plates; both units are bought at the console (FIRE2 for the Guardian) —
+    but the original's rules (SIM_VERSION 52, owner's call): the claim zone is
+    the original record's 1.2 m + the avatar's radius in 3D around the console
+    (`OUTPOST_ZONE_RADIUS`; it was a flat 3 m), and the claim is permanent: the
+    console takes no damage (an enemy used to be able to destroy it and revert
+    the outpost).
 
 ## 6. Arena anatomy
 
@@ -464,8 +470,10 @@ player (4 arenas × 5 seeds, 15 min) every match resolves at difficulties 1 and 
 Runners): an idle player is never downed, so once the pads in reach are taken and
 an outpost is claimed its income stops (`tools/balance/src/paResolve.ts`; the numbers are in the
 ledger's U3 row). On district-01 its ring of 4 counts 8: it defends all match,
-chasing the player; its Runners (the opening order) halt at the first ring turret
-(§4) and die, and it does not breach. SIM_VERSION 46-48 counted each turret once
+chasing the player, and buys no tank; but since district-01 plays the original's
+units (SIM_VERSION 52) its opening order's Runners no longer halt at the ring and
+die there — one breaches base West at 94 s in golden-04 (d8 against a patrolling
+player). Until then they halted at the first ring turret and it never breached. SIM_VERSION 46-48 counted each turret once
 (the earlier "8 base + 2 per outpost" reading), which kept it in defend on every
 arena.
 
@@ -501,8 +509,11 @@ nothing in `MapJson` can say which storey they belong to. See
 
 A deliberate deviation from §1–§6, taken on the owner's call: where the original
 *Precinct Assault* mission data says how the arena works, the data wins. Every
-rule below is **per-arena map data**, so an arena that carries none of it behaves
-exactly as §1–§7 describe — that is what keeps the existing goldens valid.
+rule below is per-arena map data where the original has a record for it. Since
+SIM_VERSION 52 (owner's call) an arena that carries none of it — district-01, the
+test maps — is NOT left on Metropolis' own numbers: it loads the original's
+turret and unit profiles, capture range and claim zone with its own geometry
+(no road graph, pickups, trigger volumes or outpost plates).
 
 The original's decoded model is `docs/specs/fcop-logic.md` §8; this section is
 only what Metropolis adopts from it.
@@ -528,7 +539,8 @@ only what Metropolis adopts from it.
   round: the original mounts them at the hull model's points (under 0.9 m off
   centre) with their own 237°/s slew relative to the hull, which is not modelled —
   so neither is their ±22.5° firing arc. The "four built-in base guns" the core
-  used to carry were these guns. On §1 arenas the Juggernaut keeps §4's stats.
+  used to carry were these guns. On an arena without the record (district-01) it
+  has the same 3000 HP and four guns and rolls out at the ground console.
 - **Every shooter fires the original's catalogue weapon** (SIM_VERSION 42;
   `fcop-fidelity.md` W3; `fcop-re/ranges-turrets-capture.md` Q3). A shooter's
   `weapon_id` indexes the mission's own type-98 catalogue, whose entries are
@@ -566,8 +578,12 @@ only what Metropolis adopts from it.
   - fires only when its aim lies within **±22.5° of the barrel**, which slews at
     290°/s, and with a clear line; a refused round is put back and tried again
     0-0.85 s later (the sim's PRNG).
-  `district-01` and the sandbox keep Metropolis' instant-hit turret and unit
-  table (`TURRET_*`, `UNIT_*`): those arenas are not the original's.
+  `district-01`, the test maps and the sandbox load exactly these profiles
+  (`balance.ts` ORIGINAL_WEAPON_PROFILES, the imported arenas' own table) since
+  SIM_VERSION 52, on the owner's call: Metropolis' instant-hit turret and unit
+  table (`TURRET_*` 28 m / 15 damage, `UNIT_*`) is gone. Metropolis' own target
+  dummies (district-01's lane dummies) shoot avatars only, on the neutral
+  turret's gun, with 500 HP and their 15 s respawn.
 - **Outposts are the original's four** (SIM_VERSION 48; `fcop-fidelity.md` R14,
   `fcop-re/outposts.md`), in the original's owner-word order, imported from
   `fcop-re/outposts.json` through the arena frame (x + 16). Each has:

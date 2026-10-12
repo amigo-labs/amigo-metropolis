@@ -249,15 +249,27 @@ describe("PA units carry their spawner records (fcop-fidelity.md W3)", () => {
     expect(ent.ammoB[round] & 1).toBe(1);
   });
 
-  it("district-01's units keep Metropolis' own table", () => {
+  it("district-01's units carry the original's records too (SIM_VERSION 52)", () => {
+    // Until SIM_VERSION 52 district-01 kept Metropolis' own table (60/50/500 HP,
+    // instant hits, profile -1). The owner moved it onto the original's: the
+    // same records the PA arenas import, from balance.ts ORIGINAL_UNIT_PROFILES.
     const d01 = getMapById(DISTRICT_01_ID);
+    const pa = getMapById("la-cantina");
     const state = createSim(d01, 1);
     const ent = state.ent;
     const c = d01.bases[0].groundConsole;
-    for (const a of [ARCHETYPE.RUNNER, ARCHETYPE.GUARDIAN, ARCHETYPE.FORTRESS]) {
+    const want = [
+      [ARCHETYPE.RUNNER, 150, pa.bases[0].runner.weapon],
+      [ARCHETYPE.GUARDIAN, 150, pa.bases[0].guardian.weapon],
+      [ARCHETYPE.FORTRESS, 2000, pa.bases[0].fortress.weapon],
+      [ARCHETYPE.JUGGERNAUT, 3000, pa.bases[0].juggernaut.weapon],
+    ];
+    for (const [a, hp, weapon] of want) {
       const id = spawnUnit(state, a, 0, c.x, c.y);
+      expect(ent.hp[id]).toBe(hp);
       expect(ent.hp[id]).toBe(ARCHETYPE_MAX_HP[a]);
-      expect(ent.weaponProfile[id]).toBe(-1);
+      expect(ent.weaponProfile[id]).toBe(weapon);
+      expect(d01.weapons[weapon]).toEqual(pa.weapons[weapon]);
     }
   });
 });

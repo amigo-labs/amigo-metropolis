@@ -6,10 +6,11 @@ import {
   ARCHETYPE_MAX_HP,
   AVATAR_HP,
   DUMMY_RESPAWN_TICKS,
+  ORIGINAL_WEAPON_PROFILES,
   POINTS_AVATAR_DOWN,
+  PROFILE_NEUTRAL_TURRET,
   RESPAWN_TICKS,
   STARTING_POINTS,
-  TURRET_DAMAGE,
 } from "../src/balance";
 import { countAlive } from "../src/entities";
 import { EV_DEATH, EV_RESPAWN, EVENT_STRIDE } from "../src/events";
@@ -28,8 +29,9 @@ const HEAVY_COOLDOWN_TICKS = HEAVIES[0].cooldownTicks;
 
 // Flat 16×16 grid, 4 m cells. P0 spawns at (20,30) facing east; the dummy spot
 // is at (30,30), 10 m ahead: inside the X1-Alpha's 12 m lock, and inside the
-// dummy's own 28 m (Metropolis' sandbox turret). P1 spawns far north to stay out
-// of every engagement.
+// dummy's own 12 m (the original neutral turret's gun since SIM_VERSION 52; was
+// Metropolis' 28 m instant hit). P1 spawns far north to stay out of every
+// engagement.
 function flatArena(dummies: number[][]): MapJson {
   const size = 16;
   const heights: number[][] = [];
@@ -172,11 +174,19 @@ describe("heavy projectile", () => {
     expect(countAlive(sim.ent)).toBe(4); // 2 avatars + dummy + projectile
     step(sim, inputs);
     expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO); // base plot refills next tick
-    // One Hell Fire (25) does not kill the 100 hp dummy; wait for impact.
+    // One Hell Fire (25) does not kill the 500 hp dummy; wait for impact.
     p0.buttons = 0;
     for (let i = 0; i < 60; i++) step(sim, inputs);
     expect(sim.ent.hp[dummy]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET] - HEAVY_DAMAGE);
-    expect(countAlive(sim.ent)).toBe(3); // projectile gone
+    // The missile is gone (the dummy's own rounds may be in the air: it shoots
+    // back since SIM_VERSION 52).
+    let ours = 0;
+    for (let id = 0; id < sim.ent.high; id++) {
+      if (sim.ent.alive[id] && sim.ent.archetype[id] === ARCHETYPE.PROJECTILE) {
+        if (sim.ent.ownerId[id] === 0) ours += 1;
+      }
+    }
+    expect(ours).toBe(0);
   });
 
   it("ammo depletes away from the base plot and respects the cooldown", () => {
@@ -201,14 +211,16 @@ describe("dummy turret retaliation, death and respawn", () => {
   it("turret damages the avatar in range; avatar dies and respawns", () => {
     reset();
     const sim = simWithDummy();
-    // Step off the repairing pad (radius 6) and stand in the dummy's 28 m
+    // Step off the repairing pad (radius 6) and stand in the dummy's 12 m
     // without firing back.
     p0.moveX = 127;
     for (let i = 0; i < 45; i++) step(sim, inputs); // ~7 m east, 3 m from the dummy
     p0.moveX = 0;
     let sawDamage = false;
     let deathTick = -1;
-    const maxTicks = Math.ceil(AVATAR_HP / TURRET_DAMAGE + 2) * 30;
+    // The dummy's gun: the original neutral turret's, 100 a round every 61 ticks.
+    const gun = ORIGINAL_WEAPON_PROFILES[PROFILE_NEUTRAL_TURRET];
+    const maxTicks = Math.ceil(AVATAR_HP / gun.damage + 2) * Math.ceil(gun.refireUnits / 10 + 1);
     for (let i = 0; i < maxTicks; i++) {
       step(sim, inputs);
       if (sim.avatarId[0] === -1) {

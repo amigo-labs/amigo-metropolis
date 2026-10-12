@@ -1,9 +1,8 @@
 // Precinct Assault mode (rules.md §9) behaviour, on the arena that carries it.
 //
-// The most important test in here is the LAST one: a map without PA data must
-// produce numbers identical to the pre-PA sim. Everything else verifies the new
-// mechanics; that one verifies they cost nothing where they are not wanted, which
-// is the property the golden replays depend on.
+// The LAST one checks district-01, which carries no PA data: since SIM_VERSION 52
+// it loads the original's profiles, units and capture range on its own geometry
+// (it used to pin that such a map stays on the pre-PA numbers).
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
@@ -14,6 +13,8 @@ import {
   DREADNOUGHT_GUN_DAMAGE,
   MATCH_OUTRO_TICKS,
   NEUTRAL_TURRET_RESPAWN_TICKS,
+  ORIGINAL_CAPTURE_RANGE,
+  ORIGINAL_TURRET_HP,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_TURRET_RESPAWN_TICKS,
   PICKUP_HEALTH,
@@ -24,12 +25,11 @@ import {
   PICKUP_POWER_HEAVY,
   PICKUP_POWER_SPECIAL,
   POINTS_TURRET_DIES,
+  PROFILE_NEUTRAL_TURRET,
+  PROFILE_TEAM_TURRET,
   RESPAWN_TICKS,
   TRIGGER_REARM_TICKS,
   TURRET_ALERT_COOLDOWN_TICKS,
-  TURRET_COOLDOWN_TICKS,
-  TURRET_DAMAGE,
-  TURRET_RANGE,
 } from "../src/balance";
 import {
   EV_ALARM,
@@ -117,15 +117,13 @@ describe("la-cantina loads the original parameters into the sim", () => {
       // Float32 storage, so the JSON value round-trips approximately.
       expect(ent.yaw[id]).toBeCloseTo(map.turretYaw[k], 5);
     }
-    // The original's reach is much shorter than the pre-PA global — that is the
-    // point of importing it, so assert the direction of the change.
+    // The original's reach: engage_range 6144 / 512 (fcop-re Q1) — against the
+    // 28 m of Metropolis' retired global table.
     const profile = map.weapons[map.turretParams[0]];
-    expect(profile.range).toBe(12); // engage_range 6144 / 512 (fcop-re Q1)
-    expect(profile.range).toBeLessThan(TURRET_RANGE);
+    expect(profile.range).toBe(12);
     // Weapon 3 of the mission's catalogue (fcop-fidelity.md W3; Q3): 100 damage,
     // 601 engine units between rounds, a 7.62 m/s lead-aimed round flying 12 m,
     // fired only within 22.5° of the barrel; re-search every 2.0 s.
-    expect(TURRET_DAMAGE).toBe(15); // district-01's, Metropolis' own
     expect(profile.damage).toBe(100);
     expect(profile.refireUnits).toBe(601);
     expect(profile.searchUnits).toBe(601);
@@ -471,7 +469,8 @@ describe("capture on the imported arenas (fcop-fidelity.md R12)", () => {
     expect(getMapById("proving-ground").captureRange).toBeCloseTo(5.2, 2);
     expect(getMapById("bug-hunt").captureRange).toBeCloseTo(5.2, 2);
     expect(getMapById("hollywood-keys").captureRange).toBeCloseTo(5.6, 2);
-    expect(getMapById(DISTRICT_01_ID).captureRange).toBe(0); // none: ours
+    // None imported: the original's 4.0 m (Metropolis' 5 m until SIM_VERSION 52).
+    expect(getMapById(DISTRICT_01_ID).captureRange).toBe(ORIGINAL_CAPTURE_RANGE);
   });
 
   it("takes a la-cantina pad on a press within 4.0 m + the avatar's radius", () => {
@@ -849,44 +848,67 @@ describe("base turret alerts (fcop-fidelity.md R15)", () => {
   });
 });
 
-describe("the no-op invariant", () => {
-  it("leaves an arena without PA data on exactly the pre-PA numbers", () => {
-    // district-01 carries no weapons, pickups, triggers or Dreadnought, so
-    // every PA array must be empty and every PA-gated branch unreachable. It
-    // replaced proving-ground here when that arena was rebuilt from the original
-    // Slim logic and gained the full §9 data set. district-01 is the better
-    // fixture anyway: it is the map goldens 02-04 actually run on, so this test
-    // now asserts the byte-stream invariant those goldens depend on rather than a
-    // proxy for it. It has 8 ring turrets, which the cadence check below needs —
-    // test-128 has none and would silently no-op it.
+describe("district-01 on the original's rules (owner's call, SIM_VERSION 52)", () => {
+  it("loads Metropolis' geometry with the original's turrets, units and capture range", () => {
+    // Until SIM_VERSION 52 this pinned the "no-op invariant": an arena without PA
+    // data stayed on Metropolis' instant-hit TURRET_* / UNIT_* table, its 5 m
+    // capture, its flat 3 m claim zone and its destructible consoles. The owner
+    // moved district-01 onto the original's rules; only its geometry (ring of 4,
+    // six pads, two outposts, three polyline lanes, no road graph) is its own.
     const legacy = getMapById(DISTRICT_01_ID);
     const state = createSim(legacy, 0xc0ffee);
-    expect(legacy.bases[0].juggernaut).toBeUndefined();
-    expect(legacy.bases[1].juggernaut).toBeUndefined();
+    // Still no imported extras: no pickups, triggers or road graph.
     expect(state.pickupCooldown.length).toBe(0);
     expect(state.buffInvuln.length).toBe(0);
     expect(state.buffInvis.length).toBe(0);
     expect(state.triggerArm.length).toBe(0);
-    expect(legacy.weapons.length).toBe(0);
     expect(legacy.laneGraph).toBeUndefined();
+    expect(legacy.outposts.length).toBe(0); // its consoles, no pads or plates
+    // The original's profiles, exactly the imported arenas' table.
+    expect(legacy.weapons).toEqual(map.weapons);
+    expect(legacy.captureRange).toBe(ORIGINAL_CAPTURE_RANGE);
+    for (const base of legacy.bases) {
+      expect(base.juggernaut.hp).toBe(3000);
+      expect(base.juggernaut.guns).toBe(4);
+      // No Dreadnought record: it rolls out at the ground console.
+      expect(base.juggernaut.x).toBe(base.groundConsole.x);
+      expect(base.juggernaut.y).toBe(base.groundConsole.y);
+      expect(base.runner).toEqual(map.bases[0].runner);
+      expect(base.guardian).toEqual(map.bases[0].guardian);
+      expect(base.fortress).toEqual(map.bases[0].fortress);
+      expect(base.turrets.length).toBe(4);
+      for (const t of base.turrets) {
+        expect(t.weapon).toBe(PROFILE_TEAM_TURRET);
+        expect(t.hp).toBe(ORIGINAL_TURRET_HP);
+      }
+    }
+    expect(legacy.turretParams).toEqual(legacy.turretSpots.map(() => PROFILE_NEUTRAL_TURRET));
 
-    // No entity carries a weapon profile, so every turret uses the globals.
+    // Every shooter carries a profile on the original's rate machine.
     run(state, 60);
     const ent = state.ent;
     for (let id = 0; id < ent.high; id++) {
-      if (ent.alive[id]) expect(ent.weaponProfile[id]).toBe(-1);
+      if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.TURRET) continue;
+      expect(ent.weaponProfile[id]).toBeGreaterThanOrEqual(0);
+      expect(legacy.weapons[ent.weaponProfile[id]].refireUnits).toBe(601);
     }
 
-    // And a ring turret still fires on the global cadence.
+    // A ring turret fires the original's round at an enemy avatar 6 m off: a
+    // projectile, 100 damage, not an instant hit.
     const turret = state.baseTurretEntity[0];
-    expect(turret).toBeGreaterThanOrEqual(0);
     const avatar = state.avatarId[1 - (ent.team[turret] as number)];
-    if (avatar >= 0) {
-      ent.posX[avatar] = ent.posX[turret] + 2;
+    expect(avatar).toBeGreaterThanOrEqual(0);
+    const hp = ent.hp[avatar];
+    let launched = false;
+    for (let t = 0; t < 120 && ent.hp[avatar] === hp; t++) {
+      ent.posX[avatar] = ent.posX[turret] + 6;
       ent.posY[avatar] = ent.posY[turret];
-      ent.cooldownA[turret] = 0;
       step(state, idle);
-      expect(ent.cooldownA[turret]).toBe(TURRET_COOLDOWN_TICKS);
+      for (let id = 0; id < ent.high; id++) {
+        if (ent.alive[id] && ent.archetype[id] === ARCHETYPE.PROJECTILE) launched = true;
+      }
     }
+    expect(launched).toBe(true);
+    expect(hp - ent.hp[avatar]).toBe(100);
   });
 });

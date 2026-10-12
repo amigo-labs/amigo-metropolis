@@ -876,4 +876,25 @@
 //     0.5 s where they held: 03's player 1 buys its three feeders on three
 //     presses and player 0 its wave on six (breach 5640 -> 5602), 05 and 07 buy
 //     their waves the same way.
-export const SIM_VERSION = 51;
+// v52: district-01 and the test maps play the original's rules on their own
+//     geometry (owner's call; fcop-fidelity.md W3, U1-U4, R12, R14 and the
+//     district-01 row). A map that imports no profiles loads the original's
+//     (balance.ts ORIGINAL_WEAPON_PROFILES / ORIGINAL_UNIT_PROFILES /
+//     ORIGINAL_TURRET_HP, the imported arenas' own table): ring and capture
+//     turrets on weapon 3 (100 a round every 61 ticks, 12 m, 7.62 m/s lead round,
+//     ±22.5° arc, 2.0 s re-search, 290°/s slew; 500 HP), tanks and jets 150 HP on
+//     weapon 1/6, the Fortress 2000 HP on weapon 4, the Juggernaut 3000 HP with four
+//     guns (rolling out at the ground console); Metropolis' dummies keep their
+//     avatar-only role on the neutral turret's gun. Units everywhere are the
+//     original's: polyline-lane tanks drive at 1.98 m/s and never stop to fight,
+//     aircraft are the original's leashed aircraft at 4.0/4.8 m/s. Capture range
+//     4.0 m (was 5), an outpost claim zone is the record's 1.2 m + the avatar's
+//     radius in 3D (was a flat 3 m), and an outpost console takes no damage on
+//     any arena (the destruction revert and SimState.outpostRespawn are gone).
+//     Metropolis' TURRET_*, UNIT_*, patrol/assault and console-respawn tables are
+//     removed. Every golden's hash moves (outpostRespawn left the hash, weapon
+//     profiles are hashed on every map); 02 (dummies now 500 HP: the mech holds
+//     fire until one puts it down, 90 -> 120 s), 03 (a new choreography, breach
+//     5602 -> 4610) and 04 (the captain's opening Runners breach at 2824; was no
+//     breach) change behaviour on district-01.
+export const SIM_VERSION = 52;

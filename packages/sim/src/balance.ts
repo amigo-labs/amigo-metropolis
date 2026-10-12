@@ -778,24 +778,23 @@ export const MUZZLE_OFFSET = 0.6;
 /** Shell spawn height above the shooter's feet — the X1's gun, not its roof. */
 export const MUZZLE_HEIGHT = 0.6;
 
-// Turrets (sandbox dummies AND base ring turrets share combat stats for now).
+// Turrets. Every turret on every arena is the original's: the imported arenas
+// carry their records' profiles, and an arena that imports none (district-01,
+// the test maps, the sandbox) gets ORIGINAL_WEAPON_PROFILES below (map.ts
+// loadMapFromJson), with ORIGINAL_TURRET_HP. Metropolis' own instant-hit table
+// (TURRET_RANGE 28 m, TURRET_DAMAGE 15, TURRET_COOLDOWN_TICKS 20) is gone with
+// the last arena that used it (fcop-fidelity.md W3, owner's call 2026-10-12).
 //
-// This global is dead on all six PLAYABLE arenas — each carries the original's
-// imported weapon profiles at 12 m and sim.ts prefers them — so it reaches only
-// district-01 (not in MAP_REGISTRY) and the sandbox, which keep Metropolis' own
-// balance (fcop-fidelity.md W3).
-//
-// THE REACH NOTE THAT USED TO STAND HERE DISSOLVED (fcop-fidelity.md W4). It
-// asked how the player's 40 m hitscan should relate to an emplacement's 12 m on
-// the PA arenas and its 28 m on district-01. The original answers it: the X1's
-// guns reach only their lock, and the lock is 12 m (AVATAR_LOCK_RANGE), the same
-// 12 m every PA turret, tank, jet and Dreadnought gun engages at — player and
-// emplacement trade at one reach. On district-01 the turret's 28 m now outreaches
-// the player, and the player's answer is the original's 1250 HP: it walks in
-// under fire (golden03 clears that ring from inside its reach).
-export const TURRET_RANGE = 28;
-export const TURRET_DAMAGE = 15;
-export const TURRET_COOLDOWN_TICKS = 20;
+// THE REACH NOTE THAT USED TO STAND HERE DISSOLVED (fcop-fidelity.md W4). The
+// X1's guns reach only their lock, and the lock is 12 m (AVATAR_LOCK_RANGE), the
+// same 12 m every turret, tank, jet and Dreadnought gun engages at — player and
+// emplacement trade at one reach, on every arena.
+/**
+ * Metropolis' own target-practice dummy (district-01's lane dummies, the
+ * sandbox): neutral, shoots avatars only, back after 15 s. Its gun is the
+ * original's neutral turret profile and its health the original turret's 500;
+ * the dummy itself and its respawn are Metropolis'.
+ */
 export const DUMMY_RESPAWN_TICKS = 450; // 15 s
 /**
  * A base ring turret comes back 37.5 s after each death: its Csac spawner's tSAC
@@ -881,8 +880,13 @@ export const FORTRESS_ALIVE_LIMIT = 1;
 // turret's capture range plus the capturer's own ARCHETYPE_RADIUS
 // (fcop-re/ranges-turrets-capture.md Q2). The imported arenas carry the
 // original's range (MapData.captureRange: 4.0 / 5.2 / 5.6 m by mission).
-/** Capture range on an arena that imports none (district-01): ours. */
-export const CAPTURE_RADIUS = 5;
+/**
+ * Capture range on an arena that imports none (district-01, the test maps): the
+ * original's `(range + 1024) / 512` m with Mp's, Conft's and Ovmp's range 1024,
+ * i.e. 4.0 m (fcop-re/ranges-turrets-capture.md Q2; la-cantina's). Was
+ * Metropolis' 5 m (CAPTURE_RADIUS) until SIM_VERSION 52.
+ */
+export const ORIGINAL_CAPTURE_RANGE = (1024 + 1024) / 512;
 /**
  * A destroyed neutral turret comes back neutral after 25 s: its Csac spawner's
  * tSAC is -1500 = 1500 * 5 engine ticks at 300 Hz (ranges-turrets-capture.md Q3,
@@ -892,47 +896,38 @@ export const NEUTRAL_TURRET_RESPAWN_TICKS = 750;
 /**
  * Outpost claim zone (fcop-fidelity.md R14): pressing the action key inside it
  * with COST_OUTPOST_CLAIM points claims the outpost, no hold — the original's
- * type-14 zone with the op-10 gate bit 0x04 (fcop-re/outposts.md Q3). On the
- * imported arenas the zone is the record's 1.2 m (MapOutpost.zone) plus the
- * toucher's ARCHETYPE_RADIUS; this is the size of Metropolis' own outposts
- * (district-01): the console pad's radius, the console as the zone's anchor.
+ * type-14 zone with the op-10 gate bit 0x04 (fcop-re/outposts.md Q3), touched
+ * within its radius plus the toucher's ARCHETYPE_RADIUS, in 3D. The imported
+ * arenas carry each record's radius (MapOutpost.zone, 614 raw << 4 wu); this is
+ * the same record radius for an outpost that imports none (district-01's,
+ * centred on its console). Was Metropolis' flat 3 m (OUTPOST_CLAIM_RADIUS).
  */
-export const OUTPOST_CLAIM_RADIUS = CONSOLE_RADIUS;
+export const OUTPOST_ZONE_RADIUS = (614 << 4) / 8192;
 /**
  * An outpost plate's team turret comes back 25 s after each death, for the rest
  * of the match: its Csac spawner's tSAC is -1500 = 7500 engine ticks at 300 Hz,
  * opened by the claim and never shut again (fcop-re/outposts.md Q1, Q3).
  */
 export const OUTPOST_TURRET_RESPAWN_TICKS = 750;
-/**
- * Destroyed outpost consoles return (neutral) after this many ticks. district-01
- * only: on the imported arenas a claim is permanent, as the original's is (R14),
- * and the console cannot be destroyed.
- */
-export const OUTPOST_CONSOLE_RESPAWN_TICKS = 300; // 10 s
 /** Owned outposts refill ammo (no repair) within this radius of the console. */
 export const OUTPOST_PAD_RADIUS = 4;
 
-// Units (rules.md §4 placeholder stat table; dps = damage / cooldown).
+// Units: every unit on every arena is the original's (fcop-fidelity.md W3,
+// U1-U4): health and weapon from the imported spawner records, or from
+// ORIGINAL_UNIT_PROFILES below where an arena imports none; speeds
+// ROUTE_TOP_SPEED and the aircraft speeds; targeting the shooter machine.
+// Metropolis' placeholder table (Runner 60 HP / 8 dps / 4 m/s, Guardian 50 / 10
+// / 7, Juggernaut 600 / 20 / 2.5, Fortress 500 / 25 / 6, patrol orbits and an
+// assault standoff) went with district-01's last use of it, SIM_VERSION 52.
+/**
+ * The authoring road walker's two probe steps (roads.ts GROUND_STEPS), in m/s:
+ * Metropolis' old Runner and Juggernaut speeds. NO UNIT MOVES AT THESE ANY MORE
+ * (every one drives at ROUTE_TOP_SPEED); the arena pipeline still steps its
+ * road walker by them, and changing them would change the walls it carves, so
+ * the committed arenas reproduce only with these.
+ */
 export const RUNNER_SPEED = 4;
-export const RUNNER_DAMAGE = 4;
-export const RUNNER_COOLDOWN_TICKS = 15; // 8 dps
-export const RUNNER_RANGE = 14;
-export const GUARDIAN_SPEED = 7;
-export const GUARDIAN_DAMAGE = 5;
-export const GUARDIAN_COOLDOWN_TICKS = 15; // 10 dps
-export const GUARDIAN_RANGE = 18;
-export const GUARDIAN_PATROL_RADIUS = 30;
-export const GUARDIAN_ASSAULT_STANDOFF = 14; // hold-off distance from the enemy core
 export const JUGGERNAUT_SPEED = 2.5;
-export const JUGGERNAUT_DAMAGE = 10;
-export const JUGGERNAUT_COOLDOWN_TICKS = 15; // 20 dps
-export const JUGGERNAUT_RANGE = 16;
-export const FORTRESS_SPEED = 6;
-export const FORTRESS_DAMAGE = 25;
-export const FORTRESS_COOLDOWN_TICKS = 30; // 25 dps
-export const FORTRESS_RANGE = 30;
-export const FORTRESS_PATROL_RADIUS = 45;
 
 // Unit movement shared knobs.
 export const AIR_ALTITUDE = 6; // flyers ride this high above ground/water
@@ -999,8 +994,8 @@ export const ROUTE_CONE_COS = 0xf600 / 0x10000;
 /**
  * Level-flight speeds of the PA jet (2048 raw) and Flying Fortress (2457 raw):
  * `(raw << 12) / 300` moved `speed * dt >> 8` wu per engine tick = 4.0 / 4.8 m/s
- * (fcop-re/ai-and-rules.md §4, camera-and-movement.md "Aircraft"). PA arenas
- * only; was GUARDIAN_SPEED 7 and FORTRESS_SPEED 6 there.
+ * (fcop-re/ai-and-rules.md §4, camera-and-movement.md "Aircraft"). Every arena
+ * since SIM_VERSION 52; was GUARDIAN_SPEED 7 and FORTRESS_SPEED 6.
  */
 export const GUARDIAN_AIRCRAFT_SPEED = 2048 / 512; // (raw << 12) / 300 >> 8 per tick at 300 Hz
 export const FORTRESS_AIRCRAFT_SPEED = 2457 / 512;
@@ -1038,7 +1033,6 @@ export const AIRCRAFT_STANDOFF = 1;
 export const AIRCRAFT_REVERSE_TICKS = 15;
 export const AIRCRAFT_REVERSE_JITTER = 13;
 
-export const ORBIT_ANGULAR_SPEED = 0.6; // rad/s patrol orbit
 export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart
 export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tick
 
@@ -1229,42 +1223,6 @@ export const SKY_JET_QUEUE_TICKS = 29;
 /** Free opening order (construct 0x00421476): from level 1, 10 units. */
 export const SKY_OPENING_ORDER = 10;
 
-// Unit combat stats indexed by ARCHETYPE value (avatar/turret/projectile
-// slots unused — those fight through their own constants above).
-export const UNIT_RANGE: readonly number[] = [
-  0, // AVATAR
-  RUNNER_RANGE,
-  GUARDIAN_RANGE,
-  JUGGERNAUT_RANGE,
-  FORTRESS_RANGE,
-  0, // TURRET
-  0, // PROJECTILE
-  0, // CONSOLE
-  0, // WARDEN
-];
-export const UNIT_DAMAGE: readonly number[] = [
-  0,
-  RUNNER_DAMAGE,
-  GUARDIAN_DAMAGE,
-  JUGGERNAUT_DAMAGE,
-  FORTRESS_DAMAGE,
-  0,
-  0,
-  0,
-  0, // WARDEN
-];
-export const UNIT_FIRE_COOLDOWN_TICKS: readonly number[] = [
-  0,
-  RUNNER_COOLDOWN_TICKS,
-  GUARDIAN_COOLDOWN_TICKS,
-  JUGGERNAUT_COOLDOWN_TICKS,
-  FORTRESS_COOLDOWN_TICKS,
-  0,
-  0,
-  0,
-  0, // WARDEN
-];
-
 /**
  * 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP.
  *
@@ -1290,17 +1248,18 @@ export const ARCHETYPE_RADIUS: readonly number[] = [
   1.0, // WARDEN      2.04 — the Sky Captain's craft
 ];
 
-// Max HP per archetype, indexed by ARCHETYPE value (rules.md §4 placeholders;
-// turret/projectile values are stand-ins until their phases land).
+// Max HP per archetype, indexed by ARCHETYPE value: the original's records
+// (ORIGINAL_UNIT_PROFILES, ORIGINAL_TURRET_HP; the imported arenas carry the same
+// numbers per record). Was Metropolis' 60 / 50 / 600 / 500 / 100 placeholders.
 export const ARCHETYPE_MAX_HP: readonly number[] = [
   AVATAR_HP, // AVATAR
-  60, // RUNNER
-  50, // GUARDIAN
-  600, // JUGGERNAUT
-  500, // FORTRESS
-  100, // TURRET (Phase 1 dummy value; Phase 2 rebalances)
+  150, // RUNNER      the PA tank
+  150, // GUARDIAN    the PA jet
+  3000, // JUGGERNAUT the Dreadnought
+  2000, // FORTRESS   the Flying Fortress
+  500, // TURRET      type 8 / type 36
   1, // PROJECTILE
-  150, // CONSOLE
+  150, // CONSOLE (Metropolis' outpost marker; it takes no damage)
   SKY_RECORD_HP, // WARDEN (its level scales it: skyMaxHp)
 ];
 
@@ -1418,6 +1377,129 @@ export const SHOOTER_RETRY_UNITS = 256;
 export const TARGET_PRIORITY_JUGGERNAUT = 15;
 export const TARGET_PRIORITY_RUNNER = 10;
 export const TARGET_PRIORITY_AVATAR = 5;
+
+/**
+ * The original's shooter profiles, in the order every imported arena's
+ * `weapons` table lists them (they are identical on all six PA maps, except the
+ * Dreadnought gun's fov on Slim and Joke, which no refire shooter reads;
+ * fcop-arenas.test.ts asserts the rest). An arena that imports no profiles
+ * (district-01, the test maps, the sandbox) is given exactly these by
+ * map.ts loadMapFromJson, so its turrets and units are the original's too
+ * (fcop-fidelity.md W3, owner's call 2026-10-12). Fields as map.ts MapWeapon:
+ *   0 team turret (type 8): weapon 3 — 100 dmg every 601 units (61 ticks), 12 m,
+ *     7.62 m/s lead round flying 12 m; slews 290°/s (0.1687 rad a tick);
+ *     ±22.5° firing arc; re-searches every 2.0 s; holds its target and prefers
+ *     priority (bitfield 0x4246);
+ *   1 Dreadnought hull gun: weapon 3, re-search 1.0 s, no arc (mounts not
+ *     modelled), no hold;
+ *   2 tank and jet: weapon 1/6 — 50 dmg every 300 units (1.0 s), 12 m, re-search
+ *     2.0 s;
+ *   3 Flying Fortress: weapon 4 — guided 100 dmg every 150 units (0.5 s), flies
+ *     24 m, re-search 1.0 s;
+ *   4 neutral turret (type 36): the team turret's gun without hold or priority.
+ */
+export const ORIGINAL_WEAPON_PROFILES = [
+  {
+    range: 12,
+    delay: 60,
+    damage: 100,
+    turnSpeed: 0.1687,
+    fovCos: -1,
+    refireUnits: 601,
+    searchUnits: 601,
+    speed: 7.6171875,
+    flight: 12,
+    guided: 0,
+    lead: 1,
+    arcCos: SHOOTER_FRONT_ARC_COS,
+    hold: 1,
+    priority: 1,
+  },
+  {
+    range: 12,
+    delay: 60,
+    damage: 100,
+    turnSpeed: 0,
+    fovCos: -1,
+    refireUnits: 601,
+    searchUnits: 300,
+    speed: 7.6171875,
+    flight: 12,
+    guided: 0,
+    lead: 1,
+    arcCos: -1,
+    hold: 0,
+    priority: 0,
+  },
+  {
+    range: 12,
+    delay: 30,
+    damage: 50,
+    turnSpeed: 0,
+    fovCos: -1,
+    refireUnits: 300,
+    searchUnits: 601,
+    speed: 7.6171875,
+    flight: 12,
+    guided: 0,
+    lead: 1,
+    arcCos: -1,
+    hold: 0,
+    priority: 0,
+  },
+  {
+    range: 12,
+    delay: 15,
+    damage: 100,
+    turnSpeed: 0,
+    fovCos: -1,
+    refireUnits: 150,
+    searchUnits: 300,
+    speed: 7.6171875,
+    flight: 24,
+    guided: 1,
+    lead: 0,
+    arcCos: -1,
+    hold: 0,
+    priority: 0,
+  },
+  {
+    range: 12,
+    delay: 60,
+    damage: 100,
+    turnSpeed: 0.1687,
+    fovCos: -1,
+    refireUnits: 601,
+    searchUnits: 601,
+    speed: 7.6171875,
+    flight: 12,
+    guided: 0,
+    lead: 1,
+    arcCos: SHOOTER_FRONT_ARC_COS,
+    hold: 0,
+    priority: 0,
+  },
+] as const;
+/** Indices into ORIGINAL_WEAPON_PROFILES (and every imported arena's table). */
+export const PROFILE_TEAM_TURRET = 0;
+export const PROFILE_DREAD_GUN = 1;
+export const PROFILE_TANK_JET = 2;
+export const PROFILE_FORTRESS = 3;
+export const PROFILE_NEUTRAL_TURRET = 4;
+/** Every turret record's health, type 8 and type 36 alike (Q3). */
+export const ORIGINAL_TURRET_HP = 500;
+/**
+ * The original's purchasable units as an arena without records gets them (the
+ * imported arenas carry the same per side): tank and jet 150 HP on the tank/jet
+ * gun, Flying Fortress 2000 HP on weapon 4, the Dreadnought 3000 HP with four
+ * hull guns (fcop-fidelity.md W3, I6).
+ */
+export const ORIGINAL_UNIT_PROFILES = {
+  runner: { hp: 150, weapon: PROFILE_TANK_JET },
+  guardian: { hp: 150, weapon: PROFILE_TANK_JET },
+  fortress: { hp: 2000, weapon: PROFILE_FORTRESS },
+  juggernaut: { hp: 3000, guns: 4, weapon: PROFILE_DREAD_GUN },
+} as const;
 
 /**
  * The Dreadnought's hull guns: weapon 3 (above). Kept as names for the readers

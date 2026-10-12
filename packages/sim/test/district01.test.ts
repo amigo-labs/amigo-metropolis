@@ -3,6 +3,12 @@
 // gameplay everywhere it is sampled, so a changed pin means SIM_VERSION bump
 // + golden regeneration for every golden recorded on this map.
 import { describe, expect, it } from "bun:test";
+import {
+  ORIGINAL_CAPTURE_RANGE,
+  ORIGINAL_UNIT_PROFILES,
+  ORIGINAL_WEAPON_PROFILES,
+  PROFILE_NEUTRAL_TURRET,
+} from "../src/balance";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
   DISTRICT_01_ID,
@@ -227,24 +233,39 @@ describe("loadMapFromJson validation", () => {
     expect(() => loadMapFromJson(badCore)).toThrow("core is not a point");
   });
 
-  // Precinct Assault fields (rules.md §9). They are optional, so the first
-  // assertion here is the load-bearing one: a map without them stays valid and
-  // comes back with every PA list empty, which is what makes the PA systems a
-  // provable no-op on the other arenas.
+  // Precinct Assault fields (rules.md §9). They are optional: a map without them
+  // stays valid. Since SIM_VERSION 52 it comes back with the original's own
+  // profiles, units and capture range filled in (balance.ts ORIGINAL_*: every
+  // arena plays the original's rules on its own geometry) and every other PA list
+  // empty (no pickups, triggers or road graph).
   it("treats the PA feature fields as optional and rejects malformed ones", () => {
     const plain = loadMapFromJson(tiny());
-    expect(plain.weapons).toEqual([]);
-    expect(plain.turretParams).toEqual([]);
+    expect(plain.weapons).toEqual(ORIGINAL_WEAPON_PROFILES.map((w) => ({ ...w })));
+    expect(plain.turretParams).toEqual(plain.turretSpots.map(() => PROFILE_NEUTRAL_TURRET));
     expect(plain.turretYaw).toEqual([]);
+    expect(plain.captureRange).toBe(ORIGINAL_CAPTURE_RANGE);
     expect(plain.laneGraph).toBeUndefined();
     expect(plain.pickups).toEqual([]);
     expect(plain.triggerVolumes).toEqual([]);
     expect(plain.props).toEqual([]);
     for (const base of plain.bases) {
-      expect(base.juggernaut).toBeUndefined();
+      // The Dreadnought rolls out at the ground console, on the original's record.
+      expect(base.juggernaut.x).toBe(base.groundConsole.x);
+      expect(base.juggernaut.hp).toBe(ORIGINAL_UNIT_PROFILES.juggernaut.hp);
+      expect(base.runner).toEqual(ORIGINAL_UNIT_PROFILES.runner);
       expect(base.gate.halfW).toBe(0); // the §1 circle gate
       expect(base.gate.halfL).toBe(0);
     }
+    // A map with weapons of its own keeps its indices; what it leaves out gets
+    // the original's profiles appended after them.
+    const own = loadMapFromJson({
+      ...tiny(),
+      weapons: [{ range: 6, delay: 16, damage: 8, turnSpeed: 0.1, fovCos: -1 }],
+    });
+    expect(own.weapons.length).toBe(1 + ORIGINAL_WEAPON_PROFILES.length);
+    expect(own.weapons[own.bases[0].runner.weapon]).toEqual({
+      ...ORIGINAL_WEAPON_PROFILES[ORIGINAL_UNIT_PROFILES.runner.weapon],
+    });
 
     const weapon = { range: 6, delay: 16, damage: 8, turnSpeed: 0.1, fovCos: -1 };
     expect(() => loadMapFromJson({ ...tiny(), weapons: [{ ...weapon, range: 0 }] })).toThrow(

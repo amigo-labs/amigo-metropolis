@@ -9,9 +9,9 @@
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
+  ARCHETYPE_MAX_HP,
   ARCHETYPE_RADIUS,
   AVATAR_HP,
-  CAPTURE_RADIUS,
   COST_FORTRESS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -20,9 +20,9 @@ import {
   GUARDIAN_ALIVE_LIMIT,
   HEAVY_UNLOCK_POINTS,
   NEUTRAL_TURRET_RESPAWN_TICKS,
-  OUTPOST_CLAIM_RADIUS,
-  OUTPOST_CONSOLE_RESPAWN_TICKS,
+  ORIGINAL_CAPTURE_RANGE,
   OUTPOST_COST_MULTIPLIER,
+  OUTPOST_ZONE_RADIUS,
   POINTS_AVATAR_DOWN,
   POINTS_CAPTURE_TURRET,
   POINTS_HEAVY_DIES,
@@ -42,7 +42,7 @@ import {
 import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, type SimState, spawnUnit, step, TURRET_CAPTURABLE } from "../src/sim";
-import { UNIT_MODE_ASSAULT } from "../src/units";
+import { UNIT_MODE_OUTPOST } from "../src/units";
 import { HEAVIES } from "../src/weapons";
 
 // Flat 16×16 grid, 4 m cells → 60 m square. One lane along y=6, a neutral
@@ -275,7 +275,7 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
     reset();
     const sim = freshSim();
     sim.ent.posX[0] = 33;
-    sim.ent.posY[0] = 42; // 12 m from the spot: inside TURRET_RANGE, outside capture
+    sim.ent.posY[0] = 39.5; // 10 m from the spot: inside a turret's 12 m, outside capture
     for (let t = 0; t < 120; t++) step(sim, inputs);
     expect(sim.ent.hp[0]).toBe(AVATAR_HP);
   });
@@ -311,7 +311,7 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
     let hurt = false;
     for (let t = 0; t < 90 && !hurt; t++) {
       step(sim, inputs);
-      hurt = !sim.ent.alive[runner] || sim.ent.hp[runner] < 60;
+      hurt = !sim.ent.alive[runner] || sim.ent.hp[runner] < ARCHETYPE_MAX_HP[ARCHETYPE.RUNNER];
     }
     expect(hurt).toBe(true);
   });
@@ -319,8 +319,10 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
   it("reaches the arena's range plus the avatar's own radius, in 3D", () => {
     reset();
     const sim = freshSim();
-    expect(sim.map.captureRange).toBe(0); // no imported range: CAPTURE_RADIUS
-    const reach = CAPTURE_RADIUS + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
+    // No imported range: the original's 4.0 m (was Metropolis' 5 m until
+    // SIM_VERSION 52).
+    expect(sim.map.captureRange).toBe(ORIGINAL_CAPTURE_RANGE);
+    const reach = ORIGINAL_CAPTURE_RANGE + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
     at(sim, 0, 30 + reach + 0.05, 30, BUTTON_INTERACT);
     expect(findEvents(sim, EV_CAPTURE).length).toBe(0);
     at(sim, 0, 30 + reach + 0.05, 30, 0);
@@ -455,11 +457,12 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     expect(sim.points[0]).toBe(40 - COST_OUTPOST_CLAIM);
     const cid = sim.outpostConsole[0];
     expect(sim.ent.team[cid]).toBe(0);
-    // Edge of the zone: OUTPOST_CLAIM_RADIUS around the console, district-01's
-    // size (an imported arena's zone is its record's 1.2 m, paRules.test.ts).
+    // Edge of the zone: the original's 1.2 m record radius plus the avatar's own
+    // around the console, as on the imported arenas (paRules.test.ts); was a flat
+    // 3 m on Metropolis' own arenas until SIM_VERSION 52.
     const other = freshSim();
     other.points[0] = 40;
-    other.ent.posX[0] = 30 + OUTPOST_CLAIM_RADIUS + 0.1;
+    other.ent.posX[0] = 30 + OUTPOST_ZONE_RADIUS + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR] + 0.05;
     other.ent.posY[0] = 46;
     step(other, inputs);
     inputs.players[0].buttons = BUTTON_INTERACT;
@@ -487,7 +490,7 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     expect(sim.points[0]).toBe(0);
   });
 
-  it("an owned outpost forward-spawns runners and assault guardians at 2×", () => {
+  it("an owned outpost forward-spawns runners and guardians leashed to it at 2×", () => {
     reset();
     const sim = freshSim();
     sim.points[0] = 60;
@@ -505,7 +508,8 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     expect(sim.points[0]).toBe(afterClaim - COST_RUNNER * OUTPOST_COST_MULTIPLIER);
     const rid = bought[0][0];
     expect(Math.hypot(sim.ent.posX[rid] - 30, sim.ent.posY[rid] - 46)).toBeLessThan(8);
-    // FIRE2 orders the air unit — it leaves in ASSAULT mode (spawn-site switch).
+    // FIRE2 orders the air unit — the original's jet, leashed to this outpost
+    // (mode 1 + k; Metropolis' ASSAULT run until SIM_VERSION 52).
     inputs.players[0].buttons = 0;
     step(sim, inputs);
     inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2;
@@ -513,7 +517,7 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     bought = findEvents(sim, EV_PURCHASE);
     expect(bought.length).toBe(1);
     expect(bought[0][2]).toBe(ARCHETYPE.GUARDIAN);
-    expect(sim.ent.mode[bought[0][0]]).toBe(UNIT_MODE_ASSAULT);
+    expect(sim.ent.mode[bought[0][0]]).toBe(UNIT_MODE_OUTPOST + 0);
     expect(sim.points[0]).toBe(
       afterClaim - (COST_RUNNER + COST_GUARDIAN) * OUTPOST_COST_MULTIPLIER,
     );
@@ -533,22 +537,31 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     expect(sim.ent.ammoA[1]).toBe(0);
   });
 
-  it("destroying the console reverts the outpost on an arena of our own", () => {
-    // district-01-style maps keep Metropolis' rule (outposts as a purchase menu,
-    // a deliberate deviation); on the imported arenas a claim is permanent and the
-    // console takes no damage (paRules.test.ts).
+  it("a claim is permanent on an arena of our own too: the console takes no damage", () => {
+    // district-01-style maps reverted an outpost whose console was destroyed until
+    // SIM_VERSION 52 (Metropolis' outposts-as-a-menu). The original's claim is
+    // permanent (fcop-fidelity.md R14), and so is it here now: the enemy avatar
+    // firing everything at the console point-blank leaves it whole and owned.
     reset();
     const sim = freshSim();
     sim.points[0] = 40;
     claim(sim, 0);
     const cid = sim.outpostConsole[0];
-    sim.ent.hp[cid] = 0; // enemy demolition
-    step(sim, inputs);
-    expect(sim.outpostOwner[0]).toBe(-1);
-    expect(sim.outpostConsole[0]).toBe(-1);
-    for (let t = 0; t < OUTPOST_CONSOLE_RESPAWN_TICKS; t++) step(sim, inputs);
-    const back = sim.outpostConsole[0];
-    expect(back).toBeGreaterThanOrEqual(0);
-    expect(sim.ent.team[back]).toBe(-1); // claimable again
+    const hp = sim.ent.hp[cid];
+    const foe = sim.avatarId[1];
+    sim.ent.posX[0] = 30;
+    sim.ent.posY[0] = 30; // the claimer steps away
+    inputs.players[1].aimX = -127;
+    inputs.players[1].buttons = BUTTON_FIRE1 | BUTTON_FIRE2;
+    for (let t = 0; t < 120; t++) {
+      sim.ent.posX[foe] = 35;
+      sim.ent.posY[foe] = 46;
+      step(sim, inputs);
+    }
+    inputs.players[1].buttons = 0;
+    inputs.players[1].aimX = 0;
+    expect(sim.ent.hp[cid]).toBe(hp);
+    expect(sim.outpostConsole[0]).toBe(cid);
+    expect(sim.outpostOwner[0]).toBe(0);
   });
 });

@@ -88,7 +88,7 @@ import {
 } from "./balance";
 import { segmentBlocked } from "./collision";
 import { EV_PURCHASE, EV_SHOT, pushEvent, SHOT_SLOT_HITSCAN, SHOT_SLOT_LAUNCH } from "./events";
-import { isPrecinctAssault, sampleHeight, worldExtent } from "./map";
+import { sampleHeight, worldExtent } from "./map";
 import {
   ANIM_MOVING,
   claimOutpostSlot,
@@ -101,7 +101,7 @@ import {
   TURRET_DEFENSE,
 } from "./sim";
 import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
-import { isGroundUnit, nearestEnemyInRange, UNIT_MODE_ASSAULT, UNIT_MODE_PATROL } from "./units";
+import { isGroundUnit, nearestEnemyInRange, UNIT_MODE_OUTPOST, UNIT_MODE_PATROL } from "./units";
 
 /** The captain's modes (`ai->mode`, mirrored in state word 39). */
 export const SKY_MODE_ROAM = 0; //   the opportunist (mode 0)
@@ -993,7 +993,7 @@ function captainQueues(state: SimState, me: number): void {
       y = at.y;
       layer = at.layer;
       forward = true;
-      if (jet) mode = isPrecinctAssault(map) ? 1 + k : UNIT_MODE_ASSAULT;
+      if (jet) mode = UNIT_MODE_OUTPOST + k;
     }
     const uid = spawnUnit(state, archetype, me, x, y, mode, forward, layer);
     if (uid < 0) continue; // the entity store is full: try again next tick

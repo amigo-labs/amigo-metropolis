@@ -42,18 +42,11 @@ import {
   FORTRESS_DETECT_RANGE,
   FORTRESS_LEASH_X,
   FORTRESS_LEASH_Y,
-  FORTRESS_PATROL_RADIUS,
-  FORTRESS_SPEED,
   GUARDIAN_AIRCRAFT_SPEED,
-  GUARDIAN_ASSAULT_STANDOFF,
   GUARDIAN_DETECT_RANGE,
   GUARDIAN_LEASH_X,
   GUARDIAN_LEASH_Y,
-  GUARDIAN_PATROL_RADIUS,
-  GUARDIAN_SPEED,
   HOVER_CUSHION_SPAN,
-  JUGGERNAUT_SPEED,
-  ORBIT_ANGULAR_SPEED,
   ROUTE_CONE_COS,
   ROUTE_HOLD_TICKS,
   ROUTE_NEAR_BLOCK,
@@ -67,30 +60,26 @@ import {
   ROUTE_SEEK_RANGE,
   ROUTE_TOP_SPEED,
   ROUTE_WANDER,
-  RUNNER_SPEED,
   TARGET_PRIORITY_AVATAR,
   TARGET_PRIORITY_JUGGERNAUT,
   TARGET_PRIORITY_RUNNER,
   TICK_DT,
-  UNIT_RANGE,
   UNIT_SEPARATION_PUSH,
   UNIT_SEPARATION_RADIUS,
   WAYPOINT_RADIUS,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
-import {
-  isPrecinctAssault,
-  type MapData,
-  resolveHeight,
-  sampleHeight,
-  sampleLayerHeight,
-  worldExtent,
-} from "./map";
+import { type MapData, resolveHeight, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
 import { ANIM_MOVING, rideHeight, type SimState, STEP_SNAP } from "./sim";
-import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
+import { atan2Poly, cosLUT, rand01, randInt, sinLUT } from "./simMath";
 
+/**
+ * An aircraft's anchor, the spawner it was built at (moveAircraft): 0 the base
+ * air console, UNIT_MODE_OUTPOST + k outpost k. (Until SIM_VERSION 52 mode 1
+ * was Metropolis' ASSAULT run off the PA arenas.)
+ */
 export const UNIT_MODE_PATROL = 0;
-export const UNIT_MODE_ASSAULT = 1;
+export const UNIT_MODE_OUTPOST = 1;
 
 /**
  * Nearest live enemy of `id` within `range` (dense id order; ties keep the
@@ -124,9 +113,8 @@ export function nearestEnemyInRange(
   const x = ent.posX[id];
   const y = ent.posY[id];
   const team = ent.team[id];
-  // An imported arena's outpost consoles cannot be destroyed (fcop-fidelity.md
-  // R14, sim.ts applyDamage), so nothing halts to shoot at one.
-  const skipConsoles = skipStructures || isPrecinctAssault(state.map);
+  // Outpost consoles cannot be destroyed on any arena (fcop-fidelity.md R14,
+  // sim.ts applyDamage), so nothing shoots at one.
   let bestD2 = range * range;
   let bestId = -1;
   let bestPrio = -1;
@@ -139,7 +127,7 @@ export function nearestEnemyInRange(
     const archetype = ent.archetype[t];
     if (archetype === ARCHETYPE.PROJECTILE) continue;
     if (skipStructures && archetype === ARCHETYPE.TURRET) continue;
-    if (skipConsoles && archetype === ARCHETYPE.CONSOLE) continue;
+    if (archetype === ARCHETYPE.CONSOLE) continue;
     const dx = ent.posX[t] - x;
     const dy = ent.posY[t] - y;
     const d2 = dx * dx + dy * dy;
@@ -174,44 +162,36 @@ function targetPriority(archetype: number): number {
 }
 
 /**
- * A unit's engage range: its imported weapon profile where it carries one (every
- * unit on a PA arena — the tank's, jet's and Fortress' records and the
- * Dreadnought's guns, 12 m; sim.ts spawnUnit), else UNIT_RANGE. Movement halts
- * and targeting acquires on the same number, or a unit would stop where it
- * cannot shoot.
+ * A unit's engage range: its weapon profile's (the tank's, jet's and Fortress'
+ * records and the Dreadnought's guns, 12 m on every arena; sim.ts spawnUnit), 0
+ * for an entity without one.
  */
 export function unitRange(state: SimState, id: number): number {
   const profile = state.ent.weaponProfile[id];
-  return profile >= 0 ? state.map.weapons[profile].range : UNIT_RANGE[state.ent.archetype[id]];
+  return profile >= 0 ? state.map.weapons[profile].range : 0;
 }
 
 /**
  * unit movement system: moves every unit, then separates ground units on the
- * polyline arenas (route followers are never pushed off their road).
+ * polyline arenas (route followers are never pushed off their road). Ground
+ * units drive the original's road graph where the arena carries one, else
+ * Metropolis' lane polylines (district-01, the test maps) — both at the
+ * original's ROUTE_TOP_SPEED; aircraft are the original's everywhere.
  */
 export function systemUnitMovement(state: SimState): void {
   const ent = state.ent;
   const routes = followsRoutes(state);
-  const pa = isPrecinctAssault(state.map);
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id]) continue;
     switch (ent.archetype[id]) {
       case ARCHETYPE.RUNNER:
-        // unitRange: on a PA arena the tank's record reaches 12 m (W3).
-        if (routes) moveRouteFollower(state, id);
-        else moveGroundUnit(state, id, RUNNER_SPEED, unitRange(state, id));
-        break;
       case ARCHETYPE.JUGGERNAUT:
         if (routes) moveRouteFollower(state, id);
-        else moveGroundUnit(state, id, JUGGERNAUT_SPEED, unitRange(state, id));
+        else moveGroundUnit(state, id, ROUTE_TOP_SPEED);
         break;
       case ARCHETYPE.GUARDIAN:
-        if (pa) moveAircraft(state, id);
-        else moveAirUnit(state, id, GUARDIAN_SPEED, unitRange(state, id), GUARDIAN_PATROL_RADIUS);
-        break;
       case ARCHETYPE.FORTRESS:
-        if (pa) moveAircraft(state, id);
-        else moveAirUnit(state, id, FORTRESS_SPEED, unitRange(state, id), FORTRESS_PATROL_RADIUS);
+        moveAircraft(state, id);
         break;
       default:
         break;
@@ -252,12 +232,11 @@ function insideLeash(state: SimState, id: number): boolean {
 }
 
 /**
- * Is this PA aircraft engaging — holding a move target, inside its leash and not
+ * Is this aircraft engaging — holding a move target, inside its leash and not
  * cruising? Its shooter fires only then (sim.ts shooterUnit; the original steps
- * an aircraft's weapon in STATE_ENGAGE only). Off the PA arenas, always.
+ * an aircraft's weapon in STATE_ENGAGE only).
  */
 export function aircraftEngaged(state: SimState, id: number): boolean {
-  if (!isPrecinctAssault(state.map)) return true;
   const ent = state.ent;
   return ent.ammoB[id] > 0 && ent.timerC[id] <= 0 && insideLeash(state, id);
 }
@@ -414,16 +393,14 @@ export function startAircraft(state: SimState, id: number): void {
 }
 
 /**
- * An aircraft's level-flight speed: on a PA arena the original's records (jet
- * 2048 raw = 4.0 m/s, Flying Fortress 2457 = 4.8 m/s; fcop-re/ai-and-rules.md
- * §4), elsewhere Metropolis' own.
+ * An aircraft's level-flight speed: the original's records (jet 2048 raw = 4.0
+ * m/s, Flying Fortress 2457 = 4.8 m/s; fcop-re/ai-and-rules.md §4), on every
+ * arena since SIM_VERSION 52.
  */
 export function airSpeed(state: SimState, id: number): number {
-  const ent = state.ent;
-  const pa = isPrecinctAssault(state.map);
-  if (ent.archetype[id] === ARCHETYPE.FORTRESS)
-    return pa ? FORTRESS_AIRCRAFT_SPEED : FORTRESS_SPEED;
-  return pa ? GUARDIAN_AIRCRAFT_SPEED : GUARDIAN_SPEED;
+  return state.ent.archetype[id] === ARCHETYPE.FORTRESS
+    ? FORTRESS_AIRCRAFT_SPEED
+    : GUARDIAN_AIRCRAFT_SPEED;
 }
 
 /** True when ground units on this map follow the original's routes (rules.md §9). */
@@ -762,21 +739,14 @@ export function startRoute(state: SimState, id: number, start: number): void {
  * test maps — Metropolis' own lanes): seek the current waypoint, advance on
  * proximity; past the lane's far end (either direction), beeline the enemy gate.
  * Lanes are authored base 0 → base 1, so team 0 walks indices up and team 1 down.
- * Anything hostile in attack range halts the unit (rules.md §4, Metropolis'
- * own). On an arena with the graph the unit is a route follower instead
- * (moveRouteFollower).
+ * It drives at the original's speed and, like the original's route follower,
+ * never stops to fight: its guns fire on the move (SIM_VERSION 52; until then
+ * anything hostile in its reach halted it, rules.md §4's Metropolis rule). On an
+ * arena with the graph the unit is a route follower instead (moveRouteFollower).
  */
-function moveGroundUnit(state: SimState, id: number, speed: number, range: number): void {
+function moveGroundUnit(state: SimState, id: number, speed: number): void {
   const ent = state.ent;
   const map = state.map;
-
-  // Engage-in-path: anything hostile in attack range halts the unit.
-  if (nearestEnemyInRange(state, id, range) >= 0) {
-    ent.velX[id] = 0;
-    ent.velY[id] = 0;
-    ent.animState[id] = 0;
-    return;
-  }
 
   const team = ent.team[id];
   const x = ent.posX[id];
@@ -805,115 +775,6 @@ function moveGroundUnit(state: SimState, id: number, speed: number, range: numbe
     ent.velY[id] = 0;
   }
   stepAndSnap(state, id, false);
-}
-
-/**
- * Flyer: patrol orbits the own base core and chases anything hostile that
- * enters the patrol radius; assault (mode 1, spawn-site switch) presses
- * toward the enemy core and holds a standoff. Flyers ignore terrain.
- */
-function moveAirUnit(
-  state: SimState,
-  id: number,
-  speed: number,
-  range: number,
-  patrolRadius: number,
-): void {
-  const ent = state.ent;
-  const map = state.map;
-  const assault = ent.mode[id] === UNIT_MODE_ASSAULT;
-  const team = ent.team[id];
-  const anchor = assault ? map.bases[team ^ 1].core : map.bases[team].core;
-
-  // Shooting range halts movement, exactly like ground units.
-  if (nearestEnemyInRange(state, id, range) >= 0) {
-    ent.velX[id] = 0;
-    ent.velY[id] = 0;
-    ent.animState[id] = 0;
-    stepAndSnap(state, id, true);
-    return;
-  }
-
-  const x = ent.posX[id];
-  const y = ent.posY[id];
-  let tx: number;
-  let ty: number;
-  if (assault) {
-    // Press toward the enemy core, hold a standoff once there.
-    const ddx = anchor.x - x;
-    const ddy = anchor.y - y;
-    if (ddx * ddx + ddy * ddy <= GUARDIAN_ASSAULT_STANDOFF * GUARDIAN_ASSAULT_STANDOFF) {
-      ent.velX[id] = 0;
-      ent.velY[id] = 0;
-      ent.animState[id] = 0;
-      stepAndSnap(state, id, true);
-      return;
-    }
-    tx = anchor.x;
-    ty = anchor.y;
-  } else {
-    const intruder = nearestEnemyNear(state, id, anchor.x, anchor.y, patrolRadius);
-    if (intruder >= 0) {
-      tx = ent.posX[intruder];
-      ty = ent.posY[intruder];
-    } else {
-      // Orbit the anchor; the angle advances every tick and wraps.
-      let angle = ent.timerA[id] + ORBIT_ANGULAR_SPEED * TICK_DT;
-      if (angle > TAU) angle -= TAU;
-      ent.timerA[id] = angle;
-      const orbitR = patrolRadius * 0.5;
-      tx = anchor.x + cosLUT(angle) * orbitR;
-      ty = anchor.y + sinLUT(angle) * orbitR;
-    }
-  }
-
-  const dx = tx - x;
-  const dy = ty - y;
-  const d2 = dx * dx + dy * dy;
-  if (d2 > 0.0001) {
-    const inv = 1 / Math.sqrt(d2);
-    ent.velX[id] = dx * inv * speed;
-    ent.velY[id] = dy * inv * speed;
-    ent.yaw[id] = atan2Poly(dy, dx);
-  } else {
-    ent.velX[id] = 0;
-    ent.velY[id] = 0;
-  }
-  stepAndSnap(state, id, true);
-}
-
-/** Nearest live enemy to `id` among enemies within `radius` of an anchor. */
-function nearestEnemyNear(
-  state: SimState,
-  id: number,
-  ax: number,
-  ay: number,
-  radius: number,
-): number {
-  const ent = state.ent;
-  const x = ent.posX[id];
-  const y = ent.posY[id];
-  const team = ent.team[id];
-  const r2 = radius * radius;
-  let bestD2 = Infinity;
-  let bestId = -1;
-  for (let t = 0; t < ent.high; t++) {
-    if (!ent.alive[t] || t === id) continue;
-    const tt = ent.team[t];
-    if (tt === team || tt === TEAM_NEUTRAL) continue;
-    if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-    const adx = ent.posX[t] - ax;
-    const ady = ent.posY[t] - ay;
-    if (adx * adx + ady * ady > r2) continue;
-    const dx = ent.posX[t] - x;
-    const dy = ent.posY[t] - y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      bestId = t;
-    }
-  }
-  return bestId;
 }
 
 /** Integrates velocity, clamps to the map, snaps height (ground or air). */

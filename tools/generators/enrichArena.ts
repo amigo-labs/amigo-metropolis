@@ -39,7 +39,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  CAPTURE_RADIUS,
   crossesWallX,
   crossesWallY,
   GROUND_STEPS,
@@ -48,6 +47,7 @@ import {
   loadMapFromJson,
   type MapData,
   type MapJson,
+  ORIGINAL_CAPTURE_RANGE,
   openLine,
   reachableFrom,
   resolveHeight,
@@ -1269,7 +1269,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       airConsole: [acx, acy],
       pad: { x: coreX, y: coreY, radius: 3 },
       // The ring carries each Turret actor's OWN shooter block, not just its
-      // position. Dropping it left the ring on the global 28 m TURRET_RANGE
+      // position. Dropping it once left the ring on the then-global 28 m TURRET_RANGE
       // against an imported engage_range of 12 m — see spawnBaseTurret in sim.ts.
       // Every mission's ring shares the neutrals' parameters exactly, so these
       // intern to the same profile the capturable pads already use.
@@ -1519,10 +1519,15 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       [
         ...graph.nodes.map((n) => ({ x: n.x, y: n.z, kind: "lane node" })),
         // Capture pads and outposts are taken from NEAR them, not on them — see
-        // RepairTarget. CAPTURE_RADIUS - 1 = 4 m is inside the smallest imported
-        // capture reach (4.0 m + the avatar's radius), so it is the bound to hold
-        // the map to.
-        ...turretSpots.map(([x, y]) => ({ x, y, reach: CAPTURE_RADIUS - 1, kind: "capture pad" })),
+        // RepairTarget. ORIGINAL_CAPTURE_RANGE, 4 m, is the smallest imported
+        // capture range (the avatar's radius comes on top), so it is the bound to
+        // hold the map to.
+        ...turretSpots.map(([x, y]) => ({
+          x,
+          y,
+          reach: ORIGINAL_CAPTURE_RANGE,
+          kind: "capture pad",
+        })),
         // An outpost's claim zone and pads are touched (1.2 m + the mech's
         // radius), so the bound is the ring turrets' 1 m.
         ...outpostSpots.map(([x, y]) => ({ x, y, reach: 1, kind: "outpost" })),

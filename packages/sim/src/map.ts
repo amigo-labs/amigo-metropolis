@@ -12,6 +12,14 @@ import layeredTestJson from "../maps/layered-test.json";
 import provingGroundJson from "../maps/proving-ground.json";
 import urbanJungleJson from "../maps/urban-jungle.json";
 import veniceBeachJson from "../maps/venice-beach.json";
+import {
+  ORIGINAL_CAPTURE_RANGE,
+  ORIGINAL_TURRET_HP,
+  ORIGINAL_UNIT_PROFILES,
+  ORIGINAL_WEAPON_PROFILES,
+  PROFILE_NEUTRAL_TURRET,
+  PROFILE_TEAM_TURRET,
+} from "./balance";
 import { clamp, cosLUT, lerp, sinLUT } from "./simMath";
 
 /**
@@ -51,8 +59,9 @@ export interface MapPlot {
  * (docs/specs/fcop-logic.md §3.2). Referenced by index from turrets and base
  * defences so identical originals share one entry.
  *
- * A map with no profiles leaves every shooter on the global TURRET_* constants,
- * which is what keeps existing arenas bit-identical (rules.md §9).
+ * A map that imports no profiles gets the original's own (balance.ts
+ * ORIGINAL_WEAPON_PROFILES, loadMapFromJson), since SIM_VERSION 52; until then it
+ * left every shooter on Metropolis' instant-hit TURRET_* / UNIT_* constants.
  */
 export interface MapWeapon {
   /** Engage range in meters. */
@@ -164,17 +173,15 @@ export function insideGate(gate: MapGate, x: number, y: number, r: number): bool
  * capturable pad and the original gives it the same block: `engage_range`,
  * `targeting_delay`, `fov`, `turn_speed`, `gun_rotation` and `health`.
  *
- * `weapon` -1 and `hp` 0 mean "no imported parameters" — the pre-PA arenas
- * (district-01, hollywood-keys, venice-beach) authored bare positions, and those
- * fall back to the global TURRET_* constants and ARCHETYPE_MAX_HP exactly as
- * before.
+ * The pre-PA authoring form, a bare position (district-01), loads as the
+ * original team turret: PROFILE_TEAM_TURRET and ORIGINAL_TURRET_HP.
  */
 export interface MapBaseTurret {
   readonly x: number;
   readonly y: number;
-  /** Index into MapData.weapons, or -1 for the global defaults. */
+  /** Index into MapData.weapons. */
   readonly weapon: number;
-  /** Max HP, or 0 for ARCHETYPE_MAX_HP[TURRET]. */
+  /** Max HP. */
   readonly hp: number;
   /** Rest yaw (original gun_rotation). */
   readonly yaw: number;
@@ -209,12 +216,15 @@ export interface MapBase {
    * the same 37.5 s (sim.ts `ringRespawnTicks`).
    */
   readonly turretRespawnTicks: number;
-  /** The original Dreadnought's spawn point and stats, or undefined (§1 arenas). */
-  readonly juggernaut: MapJuggernaut | undefined;
-  /** The original tank (Runner), jet (Guardian) and Flying Fortress, or undefined. */
-  readonly runner: MapUnitProfile | undefined;
-  readonly guardian: MapUnitProfile | undefined;
-  readonly fortress: MapUnitProfile | undefined;
+  /**
+   * The original Dreadnought's spawn point and stats: the type-28 record on an
+   * imported arena; elsewhere the ground console and ORIGINAL_UNIT_PROFILES.
+   */
+  readonly juggernaut: MapJuggernaut;
+  /** The original tank (Runner), jet (Guardian) and Flying Fortress: records or defaults. */
+  readonly runner: MapUnitProfile;
+  readonly guardian: MapUnitProfile;
+  readonly fortress: MapUnitProfile;
 }
 
 /**
@@ -388,28 +398,34 @@ export interface MapData {
   /** Destructible test-dummy turret spots (Phase 1 sandbox targets). */
   readonly dummySpots: readonly MapPoint[];
   /**
-   * Weapon profiles referenced by index. EMPTY → every shooter uses the global
-   * TURRET_* constants, i.e. exactly the pre-PA numbers.
+   * The dummies' gun: an index into `weapons`, the original neutral turret's
+   * profile (balance.ts PROFILE_NEUTRAL_TURRET); -1 on a map without dummies.
+   */
+  readonly dummyWeapon: number;
+  /**
+   * Weapon profiles referenced by index: the arena's imported ones, or
+   * ORIGINAL_WEAPON_PROFILES (same order) where it imports none.
    */
   readonly weapons: readonly MapWeapon[];
   /**
-   * Weapon index per `turretSpots` entry, same length and index space. EMPTY
-   * means "all spots use the defaults" — the two lists are kept parallel rather
-   * than fused so capture bookkeeping keeps indexing turretSpots directly.
+   * Weapon index per `turretSpots` entry, same length and index space
+   * (PROFILE_NEUTRAL_TURRET where the arena imports none) — the two lists are
+   * kept parallel rather than fused so capture bookkeeping keeps indexing
+   * turretSpots directly.
    */
   readonly turretParams: readonly number[];
   /** Rest yaw per `turretSpots` entry (original gun_rotation). EMPTY = 0. */
   readonly turretYaw: readonly number[];
   /**
-   * Max HP per `turretSpots` entry (original Turret `health`). EMPTY means
-   * ARCHETYPE_MAX_HP[TURRET], the Phase-1 sandbox placeholder.
+   * Max HP per `turretSpots` entry (original Turret `health`; ORIGINAL_TURRET_HP
+   * where the arena imports none).
    */
   readonly turretHp: readonly number[];
   /**
    * Capture range of the `turretSpots`, in metres, BEFORE the capturer's own
    * radius: the original's `(range + 1024) / 512` (fcop-re/ranges-turrets-capture.md
-   * Q2) — 4.0 on Mp/Conft/Ovmp, 5.2 on Slim/Joke, 5.6 on Hk. 0 = the arena imports
-   * none, and the sim uses balance.ts CAPTURE_RADIUS (sim.ts `captureRange`).
+   * Q2) — 4.0 on Mp/Conft/Ovmp, 5.2 on Slim/Joke, 5.6 on Hk; an arena that
+   * imports none gets ORIGINAL_CAPTURE_RANGE, the 4.0 m.
    */
   readonly captureRange: number;
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
@@ -422,13 +438,6 @@ export interface MapData {
   readonly props: readonly MapProp[];
 }
 
-/**
- * Is this one of the arenas imported from the original's Precinct Assault data?
- * They are the arenas that carry the original's Dreadnought records
- * (MapBase.juggernaut, fcop-fidelity.md I6); district-01 and the test maps do not.
- * Rules the original has and Metropolis' own arenas keep their own balance for
- * (an outpost claim's permanence, R14) are gated on this.
- */
 /**
  * Labels each node with the team whose entry shares its connected component
  * (edges taken as undirected), 255 where neither does. Union-find in index
@@ -459,10 +468,6 @@ function labelNets(edges: Int16Array, n: number, entry: readonly number[]): Uint
     for (let k = 0; k < n; k++) if (find(k) === root) out[k] = team;
   }
   return out;
-}
-
-export function isPrecinctAssault(map: MapData): boolean {
-  return map.bases[0].juggernaut !== undefined;
 }
 
 /** Playable extent in meters along one axis: [0, extent] on both axes. */
@@ -657,10 +662,10 @@ export interface MapJson {
     }[];
   }[];
   /**
-   * OPTIONAL Precinct Assault data (rules.md §9). Every field here is absent on
-   * the pre-PA arenas and on the inline MapJson literals the tests build, which
-   * is what makes the load produce empty arrays and the sim behave exactly as
-   * before — the property the golden replays depend on.
+   * OPTIONAL Precinct Assault data (rules.md §9). Absent on district-01 and on
+   * the inline MapJson literals the tests build: those load with the original's
+   * own profiles, health and capture range (balance.ts ORIGINAL_*), so every
+   * arena plays the original's rules on its own geometry (SIM_VERSION 52).
    */
   weapons?: {
     range: number;
@@ -717,9 +722,9 @@ export interface MapBaseJson {
   airConsole: number[] | { x: number; y: number; layer?: number };
   pad: { x: number; y: number; radius: number; layer?: number };
   /**
-   * Ring turrets. Either a bare `[x, y]` pair (pre-PA arenas: global weapon
-   * defaults) or an object carrying the original Turret actor's parameters. Both
-   * forms are accepted so the arenas that never had the data stay byte-identical.
+   * Ring turrets. Either a bare `[x, y]` pair (district-01: the original team
+   * turret's defaults) or an object carrying the original Turret actor's own
+   * parameters (the imported arenas).
    */
   turrets: (
     | number[]
@@ -929,6 +934,10 @@ export function loadMapFromJson(raw: MapJson): MapData {
   // --- Precinct Assault features (rules.md §9) ----------------------------
   // All optional. Absent → empty arrays / undefined / 0, which every consumer
   // treats as "feature not present on this arena".
+  // An arena that imports no profiles (district-01, the test maps) gets the
+  // original's own (balance.ts ORIGINAL_WEAPON_PROFILES, in the imported arenas'
+  // order): every turret and unit on every arena is the original's
+  // (fcop-fidelity.md W3, owner's call 2026-10-12).
   const weapons: MapWeapon[] = (raw.weapons ?? []).map((w, k) => {
     if (!w || typeof w !== "object") fail(id, `weapon ${k} is not an object`);
     const range = num(w.range, `weapon ${k} range`);
@@ -969,18 +978,33 @@ export function loadMapFromJson(raw: MapJson): MapData {
       priority: opt(w.priority, "priority", 0) ? 1 : 0,
     };
   });
+  // An index the map names itself refers to its own profiles, never to the
+  // defaults appended after them.
+  const ownProfiles = weapons.length;
   const weaponIndex = (v: number, what: string): number => {
-    if (!Number.isInteger(v) || v < 0 || v >= weapons.length) {
-      fail(id, `${what} weapon index ${v} out of range (${weapons.length} profiles)`);
+    if (!Number.isInteger(v) || v < 0 || v >= ownProfiles) {
+      fail(id, `${what} weapon index ${v} out of range (${ownProfiles} profiles)`);
     }
     return v;
+  };
+  // The original's own profiles, appended the first time a feature without its
+  // own record needs one (on a map with no weapons of its own they ARE the table,
+  // in the imported arenas' order; balance.ts PROFILE_*).
+  let defaultsAt = -1;
+  const original = (k: number): number => {
+    if (defaultsAt < 0) {
+      defaultsAt = weapons.length;
+      for (const w of ORIGINAL_WEAPON_PROFILES) weapons.push({ ...w });
+    }
+    return defaultsAt + k;
   };
 
   const unitProfile = (
     u: { hp: number; weapon: number } | undefined,
     what: string,
-  ): MapUnitProfile | undefined => {
-    if (u === undefined) return undefined;
+    dflt: { hp: number; weapon: number },
+  ): MapUnitProfile => {
+    if (u === undefined) return { hp: dflt.hp, weapon: original(dflt.weapon) };
     if (!u || typeof u !== "object") fail(id, `${what} is not an object`);
     if (!Number.isInteger(u.hp) || u.hp < 1) fail(id, `${what} bad hp ${u.hp}`);
     return { hp: u.hp, weapon: weaponIndex(u.weapon, what) };
@@ -1029,8 +1053,21 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (legacy.defence !== undefined) {
       fail(id, `base ${team} carries built-in defence guns: they were the Dreadnought's hull guns`);
     }
-    let juggernaut: MapJuggernaut | undefined;
-    if (b.juggernaut !== undefined) {
+    let juggernaut: MapJuggernaut;
+    if (b.juggernaut === undefined) {
+      // No Dreadnought record: the original's Dreadnought rolls out at the ground
+      // console it is bought from (district-01, the test maps).
+      const gc = point(b.groundConsole, `base ${team} ground console`);
+      const d = ORIGINAL_UNIT_PROFILES.juggernaut;
+      juggernaut = {
+        x: gc.x,
+        y: gc.y,
+        layer: gc.layer,
+        hp: d.hp,
+        guns: d.guns,
+        weapon: original(d.weapon),
+      };
+    } else {
       const j = b.juggernaut;
       const what = `base ${team} juggernaut`;
       if (!j || typeof j !== "object") fail(id, `${what} is not an object`);
@@ -1067,20 +1104,27 @@ export function loadMapFromJson(raw: MapJson): MapData {
       pad: plot(b.pad, `base ${team} pad`),
       turrets: b.turrets.map((t, k) => {
         const what = `base ${team} ring turret ${k}`;
-        // Bare pair: the pre-PA authoring form. Sentinels say "use the globals",
-        // which is what those arenas did before this field existed.
+        // Bare pair: the pre-PA authoring form (district-01). It is the
+        // original's team turret on the original's profile.
         if (Array.isArray(t)) {
           const p = point(t, what);
-          return { x: p.x, y: p.y, weapon: -1, hp: 0, yaw: 0, layer: p.layer };
+          return {
+            x: p.x,
+            y: p.y,
+            weapon: original(PROFILE_TEAM_TURRET),
+            hp: ORIGINAL_TURRET_HP,
+            yaw: 0,
+            layer: p.layer,
+          };
         }
         if (!t || typeof t !== "object") fail(id, `${what} is neither a pair nor an object`);
         return turretObject(t, what);
       }),
       turretRespawnTicks,
       juggernaut,
-      runner: unitProfile(b.runner, `base ${team} runner`),
-      guardian: unitProfile(b.guardian, `base ${team} guardian`),
-      fortress: unitProfile(b.fortress, `base ${team} fortress`),
+      runner: unitProfile(b.runner, `base ${team} runner`, ORIGINAL_UNIT_PROFILES.runner),
+      guardian: unitProfile(b.guardian, `base ${team} guardian`, ORIGINAL_UNIT_PROFILES.guardian),
+      fortress: unitProfile(b.fortress, `base ${team} fortress`, ORIGINAL_UNIT_PROFILES.fortress),
     };
   });
 
@@ -1092,17 +1136,22 @@ export function loadMapFromJson(raw: MapJson): MapData {
     }
     return list;
   };
-  const turretParams = perSpot(raw.turretParams, "turretParams").map((v, k) =>
-    weaponIndex(v, `turret spot ${k}`),
-  );
+  // Without per-spot data a capture spot is the original's neutral turret.
+  const turretParams =
+    raw.turretParams === undefined
+      ? turretSpots.map(() => original(PROFILE_NEUTRAL_TURRET))
+      : perSpot(raw.turretParams, "turretParams").map((v, k) => weaponIndex(v, `turret spot ${k}`));
   const turretYaw = perSpot(raw.turretYaw, "turretYaw").map((v, k) => {
     if (typeof v !== "number" || !Number.isFinite(v)) fail(id, `turret spot ${k} bad yaw ${v}`);
     return v;
   });
-  const turretHp = perSpot(raw.turretHp, "turretHp").map((v, k) => {
-    if (!Number.isInteger(v) || v < 1) fail(id, `turret spot ${k} bad hp ${v}`);
-    return v;
-  });
+  const turretHp =
+    raw.turretHp === undefined
+      ? turretSpots.map(() => ORIGINAL_TURRET_HP)
+      : perSpot(raw.turretHp, "turretHp").map((v, k) => {
+          if (!Number.isInteger(v) || v < 1) fail(id, `turret spot ${k} bad hp ${v}`);
+          return v;
+        });
 
   const outpostSpots = points(raw.outpostSpots, "outpost spot");
   const outposts: MapOutpost[] = [];
@@ -1142,8 +1191,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
     });
   }
 
-  const captureRange = raw.captureRange ?? 0;
-  if (!Number.isFinite(captureRange) || captureRange < 0) {
+  // Without one, the original's 4.0 m (Mp/Conft/Ovmp; ORIGINAL_CAPTURE_RANGE).
+  const captureRange = raw.captureRange ?? ORIGINAL_CAPTURE_RANGE;
+  if (!Number.isFinite(captureRange) || captureRange <= 0) {
     fail(id, `bad captureRange ${raw.captureRange}`);
   }
 
@@ -1262,6 +1312,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
     };
   });
 
+  const dummySpots = points(raw.dummySpots, "dummy spot");
+  const dummyWeapon = dummySpots.length > 0 ? original(PROFILE_NEUTRAL_TURRET) : -1;
   return {
     id,
     size,
@@ -1289,7 +1341,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
     outpostSpots,
     outposts,
     outpostPlates,
-    dummySpots: points(raw.dummySpots, "dummy spot"),
+    dummySpots,
+    dummyWeapon,
     weapons,
     turretParams,
     turretYaw,
@@ -1353,12 +1406,19 @@ export function createTestMap(): MapData {
     pad: { x: center, y: center, radius: 20, layer: 0 },
     turrets: [],
     turretRespawnTicks: 0,
-    // No Precinct Assault Dreadnought on the sandbox map: its Juggernaut keeps
-    // balance.ts's own stats.
-    juggernaut: undefined,
-    runner: undefined,
-    guardian: undefined,
-    fortress: undefined,
+    // The original's units on their default profiles; the Dreadnought rolls
+    // out at the ground console (as on district-01).
+    juggernaut: {
+      x: center + (team === 0 ? -12 : 12),
+      y: center,
+      layer: 0,
+      hp: ORIGINAL_UNIT_PROFILES.juggernaut.hp,
+      guns: ORIGINAL_UNIT_PROFILES.juggernaut.guns,
+      weapon: ORIGINAL_UNIT_PROFILES.juggernaut.weapon,
+    },
+    runner: { ...ORIGINAL_UNIT_PROFILES.runner },
+    guardian: { ...ORIGINAL_UNIT_PROFILES.guardian },
+    fortress: { ...ORIGINAL_UNIT_PROFILES.fortress },
   });
   return {
     id: TEST_MAP_ID,
@@ -1388,11 +1448,12 @@ export function createTestMap(): MapData {
     outposts: [],
     outpostPlates: [],
     dummySpots: [],
-    weapons: [],
+    dummyWeapon: -1,
+    weapons: ORIGINAL_WEAPON_PROFILES.map((w) => ({ ...w })),
     turretParams: [],
     turretYaw: [],
     turretHp: [],
-    captureRange: 0,
+    captureRange: ORIGINAL_CAPTURE_RANGE,
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],
