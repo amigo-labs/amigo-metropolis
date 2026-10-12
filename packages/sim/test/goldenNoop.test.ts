@@ -74,7 +74,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   "golden-06-layered": { last: 3003849649, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
-  "golden-07-pa": { last: 1410610143, count: 3600 },
+  // Re-frozen at SIM_VERSION 44 (the original's route followers): 07's bought
+  // units drive la-cantina's Cnet by the step chooser at 1.98 m/s.
+  "golden-07-pa": { last: 1938583282, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

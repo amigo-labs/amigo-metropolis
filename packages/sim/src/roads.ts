@@ -2,7 +2,7 @@
 // on a Precinct Assault arena (rules.md §9), walked with the sim's own stepper.
 //
 // AUTHORING AND VERIFICATION ONLY. Nothing here runs inside a tick — it is a
-// replay of `units.ts` movement over a map, used by stage 2 of the arena
+// replay of the pre-v44 `units.ts` movement over a map, used by stage 2 of the arena
 // pipeline (tools/generators/enrichArena.ts) to decide which wall bits block a
 // road, and by packages/sim/test to pin that the roads stay walkable. It lives
 // in the sim, next to the rule it mirrors, for the reason `worstUphillRise`
@@ -286,7 +286,11 @@ export interface RoadWalk extends WalkResult {
 
 /**
  * Walks one unopposed Runner from its production console to the enemy gate,
- * following the committed signposts exactly as `moveGroundUnit` does.
+ * following the committed signposts as `moveGroundUnit` did until SIM_VERSION
+ * 44. The sim's route followers now choose their own way at every node
+ * (units.ts `moveRouteFollower`), so this proves that ONE road through the net
+ * is open end to end — the property the arena pipeline carves for — not the
+ * path a given unit takes.
  *
  * `reached` means it got inside the gate by the sim's own win test (map.ts
  * `insideGate`, a Runner's radius), i.e. the walk would have won the match. No

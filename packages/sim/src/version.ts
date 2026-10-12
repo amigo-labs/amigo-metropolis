@@ -743,4 +743,29 @@
 //     all seven re-record for the new hash field (the buff timer, hashed only on
 //     pickup arenas, left the hash); 07 takes a Special power pickup, which now
 //     fills a block-B magazine instead of doubling its taker's damage.
-export const SIM_VERSION = 43;
+// v44: ground units on the imported arenas are the original's route followers
+//     (docs/specs/fcop-fidelity.md U1, U2; fcop-re/ai-and-rules.md §4, route.c
+//     `cnet_route_next`, route_tick.c, route_near.c). Each side's Runners and
+//     Juggernaut drive their own side's Cnet (MapLaneGraph.net, labelled at
+//     load). At every node the step chooser scores up to four links: a Runner
+//     (the PA tank) seeks the nearest enemy-team actor within 16 m on 60 % of
+//     steps (wander 1638/4096 is random) and scores each link by the octave of
+//     its dot product with the target (32 + floor log2, below 32 for a step
+//     away), a Juggernaut (the Dreadnought) scores at random; a positive score
+//     halves per follower already heading to that node; the node just left is
+//     refused and the one before is the last resort; ties are a coin flip, links
+//     scanned backwards. Was: the committed signposts with a seeded 50/50 coin
+//     at a fork. They walk each leg to its full length at 1.98 m/s (route block
+//     1024 raw; was RUNNER_SPEED 4, JUGGERNAUT_SPEED 2.5), on the road (no walls,
+//     no separation push, no arrival radius, so the v30 jam relief is gone), and
+//     never halt to fight — the guns fire on the move. Traffic is the original's
+//     1 s holds: behind a follower of their net heading for the same node with
+//     less leg left they take half its speed, a non-follower within 2 m dead
+//     ahead stops them, a nearer one slows them; the Juggernaut ignores traffic
+//     (route flag 0x8). A forward (outpost) spawn joins its own side's net (it
+//     took the nearest node of either). Jets and Flying Fortresses fly at the
+//     records' 4.0 / 4.8 m/s on these arenas (was 7 / 6). New hashed unit-field
+//     reuse: prev-of-prev node in ammoB, commanded speed in aimX, the hold in
+//     timerB. Goldens: 07 (la-cantina, bought units) re-records; the others field
+//     no ground unit on a graph arena and stay byte-identical (re-headered only).
+export const SIM_VERSION = 44;

@@ -229,6 +229,13 @@ export interface MapLaneGraph {
   readonly nextHopB: Int16Array;
   /** Entry node per team (index = team id). */
   readonly entry: readonly number[];
+  /**
+   * Which team's net each node belongs to (0 / 1; 255 for a node on neither).
+   * The original carries one Cnet per side and each side's units drive their
+   * own (fcop-logic.md §8.1); the import merges them into one node list, so the
+   * loader labels the two connected components by the entry each contains.
+   */
+  readonly net: Uint8Array;
 }
 
 /** A power-up spot (original ItemPickup, act_type 16). */
@@ -377,6 +384,38 @@ export interface MapData {
  * Rules the original has and Metropolis' own arenas keep their own balance for
  * (an outpost claim's permanence, R14) are gated on this.
  */
+/**
+ * Labels each node with the team whose entry shares its connected component
+ * (edges taken as undirected), 255 where neither does. Union-find in index
+ * order: deterministic, and only run at load.
+ */
+function labelNets(edges: Int16Array, n: number, entry: readonly number[]): Uint8Array {
+  const parent = new Int32Array(n);
+  for (let k = 0; k < n; k++) parent[k] = k;
+  const find = (a: number): number => {
+    let r = a;
+    while (parent[r] !== r) r = parent[r];
+    while (parent[a] !== r) {
+      const next = parent[a];
+      parent[a] = r;
+      a = next;
+    }
+    return r;
+  };
+  for (let k = 0; k < n; k++) {
+    for (let s = 0; s < 4; s++) {
+      const v = edges[k * 4 + s];
+      if (v >= 0) parent[find(k)] = find(v);
+    }
+  }
+  const out = new Uint8Array(n).fill(255);
+  for (let team = 1; team >= 0; team--) {
+    const root = find(entry[team]);
+    for (let k = 0; k < n; k++) if (find(k) === root) out[k] = team;
+  }
+  return out;
+}
+
 export function isPrecinctAssault(map: MapData): boolean {
   return map.bases[0].juggernaut !== undefined;
 }
@@ -1062,7 +1101,14 @@ export function loadMapFromJson(raw: MapJson): MapData {
         at = nextHopA[team * n + at];
       }
     }
-    laneGraph = { nodes, edges, nextHopA, nextHopB, entry: [g.entry[0], g.entry[1]] };
+    laneGraph = {
+      nodes,
+      edges,
+      nextHopA,
+      nextHopB,
+      entry: [g.entry[0], g.entry[1]],
+      net: labelNets(edges, n, g.entry),
+    };
   }
 
   const pickups: MapPickup[] = (raw.pickups ?? []).map((p, k) => {

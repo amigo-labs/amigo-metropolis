@@ -251,12 +251,10 @@ Points are visible to both players (open information, like the original).
 
 ## 4. Units
 
-All units are unarmored-by-cleverness: no target prioritization, no retreating.
+All units are unarmored-by-cleverness: no retreating, no plan.
 
 - **Runner** — ground drone. Spawns at the structure that built it, follows the
-  lane network toward the enemy Base, attacks whatever blocks its path
-  (turrets/units in range), otherwise beelines the gate. Fragile.
-  **Reaching the enemy gate = victory.**
+  roads toward the enemy Base. Fragile. **Reaching the enemy gate = victory.**
 - **Guardian** — air drone. Built at Base: patrols a radius around own Base and
   engages enemy air/ground that enters. Built at Outpost: flies toward the enemy
   Base and attacks it and its defenders (offensive mode). Same stats, spawn
@@ -266,14 +264,43 @@ All units are unarmored-by-cleverness: no target prioritization, no retreating.
 - **Fortress** — heavy Guardian, defensive only, large patrol radius, homing
   shots, long lifetime. The anti-rush insurance.
 
+**On the imported arenas the ground units are the original's route followers**
+(SIM_VERSION 44; `fcop-fidelity.md` U1/U2, `fcop-re/ai-and-rules.md` §4). Each
+side's Runners and Juggernaut drive that side's own original road net, a directed
+graph, and choose their way at every node:
+- a **Runner** (the PA tank) seeks: on 60 % of its steps it looks for the nearest
+  enemy (any enemy actor — avatar, unit, turret, the Warden; not a cloaked
+  avatar) within **16 m** and takes the link whose step points most toward it,
+  judged by octaves of the dot product, so two links within a factor of two are a
+  tie; with nobody that close, and on the other 40 % of steps, it steps at random;
+- a **Juggernaut** (the Dreadnought) always steps at random;
+- a link already taken by a friendly follower counts an octave less per follower
+  (the original's traffic avoidance); a follower **never steps straight back**,
+  and takes the node before last only from a dead end; ties are a coin flip;
+- they drive at **1.98 m/s** (both; the original's route block), on the road
+  itself, and **never stop to fight**: their guns fire on the move. Traffic only
+  slows them, for 1 s at a time: behind a friendly follower heading for the same
+  node they take half its speed, a non-follower within 2 m dead ahead stops
+  them, a slightly further one slows them; the Juggernaut ignores traffic.
+The original's nets are built so that this walk always reaches the enemy gate —
+measured over 400 random walks per side on all six arenas, every one gets there,
+along 150–220 m of road on average (about 75–110 s unopposed). This replaced
+Metropolis' committed next-hop signposts with a seeded coin at forks, 4 m/s
+Runners and 2.5 m/s Juggernauts that halted for anything in reach.
+
+Elsewhere (district-01, the test maps) units follow Metropolis' authored lane
+polylines, attack whatever blocks their path (an enemy in attack range halts
+them) and otherwise beeline the gate.
+
 Initial stats (all in `balance.ts`, all placeholders):
 Runner 60 HP / 8 dps / speed 4. Guardian 50 HP / 10 dps / speed 7.
 Juggernaut 600 HP / 20 dps / speed 2.5. Fortress 500 HP / 25 dps / speed 6.
 Avatar 1250 HP (the original's, §2); walker 4.69 m/s, hover 9.38 m/s.
 On the imported arenas the units' HP and weapons are the original's spawner
 records instead (§9: tank and jet 150 HP with 50-damage rounds every second,
-Fortress 2000 HP with guided 100-damage rounds every 0.5 s, all at 12 m);
-their speeds are still these.
+Fortress 2000 HP with guided 100-damage rounds every 0.5 s, all at 12 m), the
+ground units drive at 1.98 m/s, and the jet and Flying Fortress fly at their
+records' 4.0 and 4.8 m/s.
 
 ## 5. Structures
 
@@ -323,20 +350,18 @@ their speeds are still these.
 - Logical playfield: 2D plane + heightfield (see architecture.md). Water areas:
   hover-only. Jump-only ledges: walker shortcuts.
 - 2–3 ground lanes between the bases; lane graph is authored per map
-  (waypoint polylines, no runtime pathfinding in v1). **Amended (§9):** an arena
-  may instead carry the original's waypoint *graph*. That is still not runtime
-  pathfinding — the routes are searched once at authoring time and committed as
-  a next-hop signpost per (team, node), so a unit reads one array entry per
-  waypoint and, at a fork, flips one seeded coin. It never searches.
-  A unit on that graph advances at `GRAPH_WAYPOINT_RADIUS` (0.5 m), not the
-  polylines' 3 m, and the difference is load-bearing rather than cosmetic: an
-  original road is a metre-wide street in a wall lattice imported at 1 m
-  resolution, and the only path the arena pipeline validates as walkable is the
-  edge itself. A unit that advances 3 m early leaves that edge and cuts the
-  corner through whatever the original built there. The pipeline validates the
-  two beelines the sim generates around the graph as well — production console to
-  entry node, road's far end to enemy gate — because those are equally part of
-  the route a produced unit drives (issue #30).
+  (waypoint polylines, no runtime pathfinding in v1). **Amended (§9, §4):** an
+  arena may instead carry the original's waypoint *graph*, one directed net per
+  side. That is still not runtime pathfinding: since SIM_VERSION 44 a unit makes
+  the original's local step choice at each node — it scores at most four
+  neighbours against the nearest enemy, or at random — and never searches a
+  route. (Until then the routes were searched once at authoring time and
+  committed as next-hop signposts; the arena pipeline still computes them, and
+  uses them with its road walker to prove every road's wall bits open — the
+  production console to the entry node, the net, and the far end to the enemy
+  gate (issue #30) — but the sim no longer reads them.) A unit on the graph walks
+  each leg to its full length, on the road, so the pipeline's open walls are the
+  only ones it meets.
 - v1 ships **one arena** ("District 01"), sized so Hover crosses it in ~25 s.
   Use FC:MIT viewer on original maps as *reference* for proportions only.
 
@@ -450,8 +475,9 @@ only what Metropolis adopts from it.
   original's (`cact_shooter_step`): the reload clamps the leftover clock, so a
   2.0 s entry fires every 61 ticks. The tanks', jets' and Fortress' HP and
   weapons come from their spawner records (`MapBase.runner/guardian/fortress`);
-  their speeds, routing and targeting stay §4's (the units/AI package's), so a
-  unit re-picks the nearest target in reach every tick.
+  their routing and speeds are the original's (§4, SIM_VERSION 44); their
+  targeting stays §4's, so a unit re-picks the nearest target in reach every
+  tick.
 - **Turrets carry their own parameters.** Range, fire cadence, gun slew, field of
   view, rest rotation, health and weapon come from the arena's imported data,
   for both kinds: capturable pads and base ring turrets. The original's reach is

@@ -192,12 +192,12 @@ import {
 } from "./map";
 import { atan2Poly, cosLUT, rand01, sinLUT } from "./simMath";
 import {
-  GRAPH_MODE,
   isGroundUnit,
   isUnit,
   nearestEnemyInRange,
   resolveWalker,
   snapUnitHeight,
+  startRoute,
   systemUnitMovement,
   UNIT_MODE_ASSAULT,
   UNIT_MODE_PATROL,
@@ -599,13 +599,17 @@ export function spawnUnit(
     const graph = state.map.laneGraph;
     const lanes = state.map.lanes;
     if (graph !== undefined) {
-      // Original waypoint graph (rules.md §9). A base-built unit starts at its
-      // team's entry node; a forward (outpost) spawn joins at the nearest node,
-      // scanned in index order so ties break identically on every peer.
+      // Original road graph (rules.md §9): a route follower on its own side's
+      // net (fcop-logic.md §8.1, each team drives its own Cnet). A base-built
+      // unit starts at its team's entry node; a forward (outpost) spawn joins at
+      // the nearest node of that net, scanned in index order so ties break
+      // identically on every peer. (It used to take the nearest node of either
+      // net, which on the enemy's directed net leads back to its own base.)
       let node = graph.entry[team];
       if (forward) {
         let best = Infinity;
         for (let k = 0; k < graph.nodes.length; k++) {
+          if (graph.net[k] !== team) continue;
           const dx = graph.nodes[k].x - x;
           const dy = graph.nodes[k].y - y;
           const d2 = dx * dx + dy * dy;
@@ -615,9 +619,7 @@ export function spawnUnit(
           }
         }
       }
-      ent.timerA[id] = node;
-      ent.timerB[id] = GRAPH_MODE;
-      ent.cooldownB[id] = -1; // no previous node yet
+      startRoute(state, id, node);
     } else if (lanes.length > 0) {
       let lane: number;
       let wp: number;

@@ -171,33 +171,37 @@ describe("turret reach on the imported arenas", () => {
 });
 
 describe("an unescorted bought push against an intact defence, per arena", () => {
-  // Measured at SIM_VERSION 42 (seed c0ffee, team 0 idle), with the original's
-  // weapons on both sides (fcop-fidelity.md W3): turrets fire weapon 3 (100 per
-  // 2.03 s), the tank's 150 HP and weapon 1 (50 per 1.0 s), the Dreadnought's
-  // 3000 HP and four weapon-3 guns, all at 12 m:
-  //   lone Runner     dies on every arena — 3.3 m from the gate on la-cantina,
-  //                   16-17 m out on the other three, in 20-32 s. Until v42
-  //                   (turret damage 15, Runner 60 HP at 14 m) it chipped the
-  //                   proving-ground and bug-hunt rings from outside their reach
-  //                   and breached after ~154 s.
-  //   lone Juggernaut breaches all four in 36-62 s (was 35-52 s), killing 1-4
-  //                   emplacements on its way.
+  // Measured at SIM_VERSION 44 (seed c0ffee, team 0 idle), with the original's
+  // weapons on both sides (fcop-fidelity.md W3) and, since v44, the original's
+  // route followers (U1/U2): a tank drives its side's Cnet at 1.98 m/s, steps
+  // toward the nearest enemy within 16 m on 60 % of its steps and at random on
+  // the rest, and NEVER stops to fight — its gun fires on the move. Until v43 a
+  // unit halted at 12 m from the first thing it could see and traded there.
+  //   lone Runner     la-cantina: breaches in 36-79 s (seeds c0ffee/1/2) — its
+  //                   gate sits on the road a step past the ring, and a tank that
+  //                   keeps driving crosses the 12 m reach in a few seconds; at
+  //                   v42-v43 it halted 3.3 m out and died there.
+  //                   urban-jungle, proving-ground, bug-hunt: dies 7-16 m out
+  //                   after 56-97 s (it wanders the net first: 150-175 m of road
+  //                   on average, against ~100 m by the old signposts).
+  //   lone Juggernaut breaches all four in 63-104 s (was 36-62 s at 2.5 m/s);
+  //                   it walks the net at random and its 3000 HP outlast the ring.
   // The Juggernaut half is the original's own shape — the Dreadnought is the
-  // siege unit, one alive per side and 50 points; a tank does not get through an
-  // intact ring on its own.
-  it("a lone Runner is held at the gate on la-cantina and short of it on urban-jungle", () => {
+  // siege unit, one alive per side and 50 points. That a tank slips through on
+  // la-cantina is the original's too, as far as these rules go: Mp's gate box is
+  // on the tank road just past its ring.
+  it("a lone Runner drives through la-cantina's ring and is stopped short on urban-jungle", () => {
     const lc = push(LA_CANTINA_ID, ARCHETYPE.RUNNER, 1);
-    expect(lc.breachAt).toBe(-1);
-    expect(lc.closest).toBeLessThan(10);
+    expect(lc.breachAt).toBeGreaterThan(0);
     const uj = push(URBAN_JUNGLE_ID, ARCHETYPE.RUNNER, 1);
     expect(uj.breachAt).toBe(-1);
   });
 
-  it("a lone Runner does not get through an intact ring anywhere", () => {
+  it("a lone Runner does not get through an intact ring on proving-ground or bug-hunt", () => {
     for (const id of [PROVING_GROUND_ID, BUG_HUNT_ID]) {
       const r = push(id, ARCHETYPE.RUNNER, 1);
       expect(r.breachAt).toBe(-1);
-      expect(r.closest).toBeGreaterThan(12);
+      expect(r.closest).toBeGreaterThan(4);
     }
   });
 

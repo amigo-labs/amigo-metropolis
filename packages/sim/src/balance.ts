@@ -931,59 +931,72 @@ export const FORTRESS_PATROL_RADIUS = 45;
 export const AIR_ALTITUDE = 6; // flyers ride this high above ground/water
 export const WAYPOINT_RADIUS = 3; // lane waypoint advance distance
 /**
- * Waypoint advance distance on the original Cnet graph (rules.md §9), separate
- * from the hand-authored polylines' 3 m because the two roads are not the same
- * kind of thing. A polyline lane is a wide hand-placed suggestion; a Cnet edge is
- * a metre-wide street in a wall lattice imported at 1 m resolution, and the only
- * path stage 2 validates as walkable is the edge itself. Advancing 3 m early
- * makes a unit leave that edge and cut the corner across whatever is there —
- * measured as 32% and 35% of all ground-unit ticks jammed against a wall on
- * proving-ground and bug-hunt, and produced units that cannot leave their own
- * base at all (issue #30).
+ * Waypoint advance distance of the AUTHORING road walker (roads.ts `walkRoad`),
+ * which stage 2 of the arena pipeline and paRoads.test.ts use to prove a road's
+ * wall bits are open. The sim no longer reads it: since SIM_VERSION 44 a ground
+ * unit on the original graph walks each leg to its full length (units.ts
+ * moveRouteFollower), with no arrival radius, as the original does.
  *
- * Bounded from both sides, which is what picks the number:
- *  - it has to exceed a tick's travel, or a unit steps over the node without
- *    ever sampling inside the radius and orbits it. The fastest ground unit
- *    covers 0.1333 m per tick, so 0.5 leaves 3.75x headroom — enough that a
- *    separation nudge cannot make a unit miss its waypoint either;
- *  - it has to stay small enough that the path travelled IS the path validated.
- * Measured over 3-minute Warden matches on all four PA arenas, 0.5 traverses
- * every road end to end at both ground step lengths and jams 0.0-3.1% of
- * unit-ticks, against 6.7-34.6% at 3.
+ * Why 0.5 for the walker: a Cnet edge is a metre-wide street in a wall lattice
+ * imported at 1 m resolution, so a walker that advanced 3 m early (the polylines'
+ * WAYPOINT_RADIUS) would cut corners through whatever the original built there
+ * (issue #30). It has to exceed a tick of travel at the probe steps, or the
+ * walker steps over the node.
  */
 export const GRAPH_WAYPOINT_RADIUS = 0.5;
 
+// --- Route followers on the original road graph (fcop-fidelity.md U1/U2) ---
+// The PA tank (Runner) and the Dreadnought (Juggernaut) drive their side's Cnet
+// as the original's route followers do (units.ts moveRouteFollower;
+// fcop-re/ai-and-rules.md §4, route.c / route_tick.c / route_near.c). Imported
+// arenas only: district-01 and the test maps keep Metropolis' polyline lanes.
+
 /**
- * Graph jam relief (issue #31's last open item, SIM_VERSION 30). The 0.5 m
- * advance radius above is load-bearing for route fidelity, but it demands that
- * every unit physically enters a half-metre disc — and under free production
- * that disc is CONTESTED: 8+ units converge on one node, UNIT_SEPARATION
- * shoves the pack off the validated centre line, and a wall bit then stands
- * between a unit and a disc it can see. Measured on urban-jungle (d8 vs idle,
- * seeds 2/4): 8-9 units at full HP displacing < 0.5 m per 10 s from minute 2
- * on, production frozen at the alive limit, match frozen. Same signature on
- * bug-hunt's escorted push (peak 10 around one mid-route node).
- *
- * The relief is NOT pathfinding (rules.md pillar 3 / §6 amendment): a unit
- * that has spent GRAPH_JAM_TICKS inside GRAPH_JAM_RADIUS of its target node
- * without arriving reads the SAME next-hop signpost that arrival would have
- * read — one array entry, no search. A healthy unit crosses that ring in
- * 2-3 s, so the 8 s clock only ever fires inside a standing crowd; the radius
- * gate keeps a long, slow first leg (console → graph entry) from ever
- * counting as a jam.
- *
- * The relief fires only in the two measured deadlock shapes (units.ts
- * advanceOnGraph): walled off the disc anywhere, or milling inside the unit's
- * OWN base pocket (GRAPH_JAM_HOME_RADIUS around its gate — Conft's pocket
- * spans ~10 m). A crowd queuing in the open behind a combat front is NOT
- * relieved: that a free unescorted trickle piles up on one defending ring
- * turret and fails there is a pinned design property (rules.md pillar 1 via
- * paAttribution.test.ts), and a relief that spread those queues broke the pin
- * on two arenas when it was measured without the gates.
+ * Top speed of every PA tank and of the Dreadnought: the route block's 1024 raw
+ * -> `((1024 << 8) / 300) >> 4` = 54 world units per 300 Hz tick = 1.98 m/s
+ * (fcop-re/ai-and-rules.md §4; the Dreadnought's own route block carries the same
+ * 1024, fcop-logic.md §8.1). Acceleration 1228 raw is full speed within one
+ * engine tick, so a follower starts and stops at once. Was RUNNER_SPEED 4 and
+ * JUGGERNAUT_SPEED 2.5 on these arenas.
  */
-export const GRAPH_JAM_TICKS = 240; // 8 s without arriving = jammed
-export const GRAPH_JAM_RADIUS = 8; // only ticks this close to the node count
-export const GRAPH_JAM_HOME_RADIUS = 25; // own-base pocket where mills relieve
+export const ROUTE_TOP_SPEED = (54 * 300) / 8192;
+/** A tank's wander: 1638 of 4096 steps (40 %) are random (`cnet_route_next`). */
+export const ROUTE_WANDER = 1638;
+/** A tank's seek search: the nearest enemy-team actor within 8192 << 4 wu = 16 m. */
+export const ROUTE_SEEK_RANGE = 16;
+/** Node units per metre: a Cnet node coordinate is 1/32 m (8192 wu >> 8). */
+export const ROUTE_NODE_UNITS = 32;
+/** The step chooser's rejections: no link, the node just left, the one before. */
+export const ROUTE_SCORE_NO_LINK = -4;
+export const ROUTE_SCORE_PREV = -2;
+export const ROUTE_SCORE_PREV2 = -1;
+/** Every traffic slowdown holds 300 engine ticks = 1 s (`CNET_ROUTE_HOLD_TICKS`). */
+export const ROUTE_HOLD_TICKS = 30;
+/** The pair test records a neighbour only inside a 0x4000 wu = 2 m gap. */
+export const ROUTE_NEAR_GAP = 2;
+/** A non-follower closer than 0x4000 wu = 2 m dead ahead stops the follower. */
+export const ROUTE_NEAR_BLOCK = 2;
+/** The traffic reaction's vertical band, 0x1400 wu = 0.625 m. */
+export const ROUTE_NEAR_RISE = 0.625;
+/** Below 16 wu the neighbour counts as dead ahead (`CNET_ROUTE_NEAR_MIN_LEN`). */
+export const ROUTE_NEAR_MIN_LEN = 16 / 8192;
+/**
+ * The cone ahead the reaction needs: cos 0xf600 / 0x10000 = cos 16.05°. The
+ * original divides by an approximate length that over-reads by up to 5.35 %, so
+ * the cone it enforces narrows to ~7.2° in some directions; this is the exact
+ * cosine. The wider 60° cone behind CNET_ROUTE_NEAR_CLOSE is unreachable from
+ * the pair test's output and is not modelled.
+ */
+export const ROUTE_CONE_COS = 0xf600 / 0x10000;
+
+/**
+ * Level-flight speeds of the PA jet (2048 raw) and Flying Fortress (2457 raw):
+ * `(raw << 12) / 300` moved `speed * dt >> 8` wu per engine tick = 4.0 / 4.8 m/s
+ * (fcop-re/ai-and-rules.md §4, camera-and-movement.md "Aircraft"). PA arenas
+ * only; was GUARDIAN_SPEED 7 and FORTRESS_SPEED 6 there.
+ */
+export const GUARDIAN_AIRCRAFT_SPEED = 2048 / 512; // (raw << 12) / 300 >> 8 per tick at 300 Hz
+export const FORTRESS_AIRCRAFT_SPEED = 2457 / 512;
 
 export const ORBIT_ANGULAR_SPEED = 0.6; // rad/s patrol orbit
 export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart
