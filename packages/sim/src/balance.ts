@@ -664,9 +664,22 @@ export const PICKUP_POWER_TICKS = 450; // 15 s
 /** Damage multiplier while a POWER pickup is active. Integer: exact in binary. */
 export const PICKUP_POWER_MULTIPLIER = 2;
 
-/** Base-intrusion trigger watch bits (fcop-logic.md §8.6). */
+/**
+ * Base-intrusion trigger watch bits (fcop-logic.md §8.6). ENEMY_UNITS means the
+ * enemy's ground units — tanks and the Dreadnought, the actors the original's
+ * zone triggers watch (fcop-re/ai-and-rules.md §6), not its jets.
+ */
 export const TRIGGER_WATCH_ENEMY_AVATAR = 1 << 0;
 export const TRIGGER_WATCH_ENEMY_UNITS = 1 << 1;
 export const TRIGGER_WATCH_OWN_AVATAR = 1 << 2;
-/** Re-arm delay, so one intruder loitering does not fire the alarm every tick. */
-export const TRIGGER_REARM_TICKS = 90; // 3 s
+/**
+ * The intrusion alert's cooldown, per base: after one fires, no volume of that
+ * base fires again for 8.3 s — the original's 2500 engine ticks at 300 Hz
+ * (fcop-re/ai-and-rules.md §6, voice ids 2/3). Was 90 ticks per volume.
+ */
+export const TRIGGER_REARM_TICKS = 250;
+/**
+ * "Base turret under fire" alert cooldown, per side: 10 s (fcop-re/ai-and-rules.md
+ * §6, voice ids 4/5).
+ */
+export const TURRET_ALERT_COOLDOWN_TICKS = 300;

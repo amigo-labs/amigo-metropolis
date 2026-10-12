@@ -1,45 +1,39 @@
 // SFX cue manifest (#27, assets.md §5). Cue name -> one original Future Cop
-// `Cwav` sound, committed as a raw next to this file and processed into
+// sound, committed as a raw next to this file and processed into
 // packages/client/public/sfx/<cue>.wav by `bun run gen:sfx`.
 //
 // The shipped default is the clean-room sfxr synth in
 // packages/client/src/audio/presets.ts, and it stays the fallback for every cue
 // forever: audio/engine.ts renders all presets synchronously at unlock and only
-// then upgrades the cues listed here from their files. An empty manifest is
-// therefore a valid, fully working state — which is exactly what it is right
-// now — and a cue with no entry simply keeps its synth.
+// then upgrades the cues listed here from their files. A cue with no entry
+// simply keeps its synth.
 //
-// WHY THIS IS EMPTY. The 348 unique extracted sounds carry no semantic labels.
-// Nothing in the mission data says which one is "shot" and which is "capture":
-// `Cshd` gives sound ids, loop flags and script ids, and `Cfun` — the script
-// layer that would bind an event to one of those ids — is now disassembled, but
-// no sound-play opcode in it is proven (see below). The chain from an event to a
-// sound is therefore still open, and picking is a listening job for someone who
-// knows the game (PLAN.md Phase 12, owner pass).
+// WHAT IS FILLED, AND WHY THOSE. The original's alert lines are bound now. This
+// file used to say it was empty "on purpose" because no sound op in the `Cfun`
+// mission scripts was proven; that is obsolete. Script ops 0x0c (queue) and 0x0d
+// (interrupt) play SPEECH lines, and the decompiled scripts of all six PA arenas
+// say which line each event plays (docs/specs/fcop-re/ai-and-rules.md §6, the
+// RE repo's docs/behavior/precinct-assault.md "Voice cues"). Speech id N is
+// `extracted/voice/wav/v{N+1:03d}.wav`, verified for all 86 ids in all six
+// arenas. The voice cues below (`vo_*`) are those lines, for the events the sim
+// emits (fcop-fidelity.md R15). What each line SAYS is not transcribed; the
+// meaning is the event that plays it. The lines come in pairs per side, and are
+// played by side (the slot the original's script names), not from the local
+// player's point of view.
 //
-// The RE repo narrows it a long way and is the place to start. EVERY path in the
-// list below is relative to a checkout of `amigo-labs/fcop-reverse-engineering`,
-// NOT to this repo — `docs/` in particular exists in both. Note also that the
-// findings moved to `extracted/findings/`, from the `extracted/handoff/` path
-// this file used to cite:
+// STILL OPEN: the ordinary sound effects. The 348 unique extracted sounds carry no
+// semantic labels and their binding (`Cshd` sound events -> script) is not read,
+// so which one is "shot" is still a listening job (PLAN.md Phase 12, owner
+// pass). The RE repo narrows it — every path below is relative to a checkout of
+// `amigo-labs/fcop-reverse-engineering`, NOT to this repo:
 // - `extracted/findings/sfx_pa_candidates.md` — 46 of the 348 appear ONLY in the
-//   six Precinct Assault containers, so those are the candidates for the
-//   PA-specific cues (capture / claim / produce / purchase).
-// - `docs/sfx_index.md` § "Precinct Assault / MP family" — sharper than the 46.
-//   The six PA arenas share one bank whose `script_id`s 70-90 are stable across
-//   all of them (slots 0-16 identical on all six), so a PA-specific cue is one
-//   of ~21 ids rather than one of 46 files.
-// - `extracted/findings/sfx_manual_class.json` — 118 sounds labelled by ear
-//   (impact / weapon_fire / explosion / gunshot / loop_tone / whoosh / …), plus
-//   structural classes from `Cshd` in `extracted/findings/sfx_cshd_class.md`.
-//   Those beat the CLAP auto-tags in `extracted/findings/sfx_clap_tags.md`,
-//   which are machine guesses and are contradicted by the hard `loop` field in
-//   58 of 348 cases.
-// - The base-intrusion alarm is the one cue with no candidate at all: `Trigger`
-//   (95) only detects, and the alert was bound in `Cfun`. That binding is not
-//   recovered — the decoded opcode table has no proven sound-play op, only the
-//   queue/voice handlers 0x0c-0x0f as candidates — so `alarm` stays authored
-//   until it is (this repo's `docs/specs/fcop-logic.md` §8.6).
+//   six Precinct Assault containers (capture / claim / purchase candidates).
+// - `docs/sfx_index.md` § "Precinct Assault / MP family" — the PA bank's
+//   `script_id`s 70-90 are stable across all six arenas.
+// - `extracted/findings/sfx_manual_class.json` — 118 sounds labelled by ear,
+//   which beat the CLAP auto-tags in `extracted/findings/sfx_clap_tags.md`.
+// - The purchase pads' accept/deny sounds and the pickup sound are pending-sound
+//   slot values 63 / 73 / 83 (ai-and-rules.md §6), a lead for those three cues.
 //
 // TO FILL A CUE: drop the WAV under tools/generators/sfx/raw/fcop/, add an entry
 // below, run `bun run gen:sfx`, and commit the generated output in the same
@@ -49,7 +43,11 @@
 export interface SfxCueSource {
   /** Source file in the RE repo, e.g. "extracted/sfx_v2/s004.wav". */
   readonly path: string;
-  /** `src_id` from extracted/sfx_v2/manifest.json — the original Cwav id. */
+  /**
+   * The original's id: for a sound effect the `src_id` from
+   * extracted/sfx_v2/manifest.json (the Cwav id); for a voice line its speech id
+   * N (the file is v{N+1:03d}.wav).
+   */
   readonly srcId: number;
   readonly author: string;
   readonly license: string;
@@ -70,6 +68,39 @@ export interface SfxCueSpec {
    * that is correct but too loud against the others. 1 = leave it.
    */
   readonly gain?: number;
+  /** Output bit depth. Default 16; 8 for a source that is 8-bit already. */
+  readonly bits?: 8 | 16;
 }
 
-export const SFX_CUES: readonly SfxCueSpec[] = [];
+/** One original voice line: speech id `id`, the bank shared by all six PA arenas. */
+function voice(cue: string, id: number): SfxCueSpec {
+  const file = `v${String(id + 1).padStart(3, "0")}.wav`;
+  return {
+    cue,
+    raw: `fcop/voice/${file}`,
+    source: {
+      path: `extracted/voice/wav/${file}`,
+      srcId: id,
+      author: "Electronic Arts / EA Canada (Future Cop: L.A.P.D., 1998)",
+      license: "original game asset, used as permitted by docs/specs/assets.md §2",
+    },
+    // u8 22050 Hz mono at the source: 8-bit output keeps every file under 55 KB.
+    bits: 8,
+  };
+}
+
+export const SFX_CUES: readonly SfxCueSpec[] = [
+  // A base turret is destroyed: slot 0's (id 0) / slot 1's (id 1).
+  voice("vo_turret_lost_0", 0),
+  voice("vo_turret_lost_1", 1),
+  // Intrusion: an enemy tank, Dreadnought or avatar entered slot 0's (2) / slot
+  // 1's (3) base zone; the sim holds each base quiet for 8.3 s after.
+  voice("vo_intrusion_0", 2),
+  voice("vo_intrusion_1", 3),
+  // A base turret is under fire: slot 0's (4) / slot 1's (5); 10 s per side.
+  voice("vo_turret_fire_0", 4),
+  voice("vo_turret_fire_1", 5),
+  // A gate is reached: slot 1's (6, slot 0 wins) / slot 0's (19, slot 0 loses).
+  voice("vo_gate_1", 6),
+  voice("vo_gate_0", 19),
+];

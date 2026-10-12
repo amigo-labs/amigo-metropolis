@@ -118,6 +118,19 @@ export const EV_PICKUP = 11; //   a=x*16, b=y*16, c=pickup kind
  * happened when this fires, so the OUTGOING form is `1 - b`.
  */
 export const EV_TRANSFORM = 14; // a=entity id, b=new mode (0 walker/1 hover), c=lock ticks
+/**
+ * Alert cues (fcop-fidelity.md R15). The original's scripts speak these as voice
+ * lines (fcop-re/ai-and-rules.md §6); the client plays them. The other two alerts
+ * the original voices already have events: base intrusion is EV_ALARM (c = the
+ * intruded team, voice ids 2/3) and the gate being reached is EV_BREACH (b = the
+ * winning team, voice ids 6/19).
+ *
+ * A side's base turret was hit, at most once per TURRET_ALERT_COOLDOWN_TICKS per
+ * side (voice ids 4/5).
+ */
+export const EV_TURRET_UNDER_FIRE = 15; // a=turret id, b=its team
+/** A side's base turret was destroyed (voice ids 0/1). */
+export const EV_TURRET_LOST = 16; // a=turret id, b=its team, c=ring slot
 
 export interface EventBuffer {
   count: number;

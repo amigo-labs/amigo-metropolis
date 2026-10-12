@@ -361,10 +361,22 @@ only what Metropolis adopts from it.
   eight grant kinds do not map one-to-one — Metropolis' primary weapon has
   infinite ammo (§2) — so the mapping is recorded in
   `tools/generators/enrichArena.ts`.
-- **Base intrusion alert.** Each base is wrapped in trigger volumes that fire
-  when an enemy Avatar or unit enters. Detection only: the original's alert sound
-  was bound in the `Cfun` script, and while that script is now disassembled, no
-  opcode in it is a proven sound-play op — so the cue stays ours to author.
+- **Alerts are the original's voice lines** (SIM_VERSION 36, `fcop-fidelity.md`
+  R15). The original's mission scripts speak them through ops 0x0c/0x0d
+  (`fcop-re/ai-and-rules.md` §6); the sim emits the events with the original's
+  cooldowns and the client plays the extracted speech for the side concerned:
+  - **base intrusion** (`EV_ALARM`): each base is wrapped in trigger volumes
+    that fire when an enemy avatar or an enemy **ground** unit (tank or
+    Dreadnought — not a jet) enters; then that base stays quiet for **8.3 s**
+    (`TRIGGER_REARM_TICKS`, all its volumes together). Speech 2 / 3.
+  - **base turret under fire** (`EV_TURRET_UNDER_FIRE`): a ring turret is hit;
+    at most once per side per **10 s**. Speech 4 / 5.
+  - **base turret lost** (`EV_TURRET_LOST`). Speech 0 / 1.
+  - **gate reached** (`EV_BREACH`): speech 6 (slot 1's gate) / 19 (slot 0's),
+    on top of the breach fanfare.
+  The turret and gate alerts work on every arena; intrusion needs the imported
+  trigger volumes. What the lines say is not transcribed — the meaning is the
+  event that plays them — so they are played by side, not "your base".
 - **Lanes** may be the original waypoint graph — see the §6 amendment.
 
 Not adopted: the original's `Aircraft` orbit parameters (air units keep §4's

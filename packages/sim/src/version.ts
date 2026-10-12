@@ -612,4 +612,16 @@
 //     deliberate deviation). Goldens: 03 re-records (its avatar claims on
 //     arrival instead of after a hold); the others never claim or shoot an
 //     outpost console and stay byte-identical (re-headered only).
-export const SIM_VERSION = 35;
+// v36: the original's alert cues (docs/specs/fcop-fidelity.md R15;
+//     fcop-re/ai-and-rules.md §6). New events EV_TURRET_UNDER_FIRE (a ring
+//     turret was hit; per side, at most once per TURRET_ALERT_COOLDOWN_TICKS =
+//     300, the original's 10 s) and EV_TURRET_LOST (a ring turret died). Base
+//     intrusion keeps EV_ALARM but follows the original: the cooldown is per
+//     BASE (every volume guarding it re-arms together) and 250 ticks, the
+//     original's 2500 engine ticks = 8.3 s (was 90 per volume), and the watched
+//     enemy units are its ground units (tank, Dreadnought), not its jets.
+//     State: `turretAlert` per side, hashed on maps with ring turrets only.
+//     Goldens: every one on a map with ring turrets re-records for the new hash
+//     field (02, 03, 04, 05, 07); 07 also trips the alarm on the new cadence.
+//     01 and 06 have no ring turrets and stay byte-identical (re-headered only).
+export const SIM_VERSION = 36;

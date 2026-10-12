@@ -198,9 +198,9 @@ export interface MapPickup {
 
 /**
  * An axis-aligned base-intrusion volume (original Trigger, act_type 95;
- * fcop-logic.md §8.6). Detection only — the original's alert sound was bound in
- * the Cfun script and that binding is unrecovered, so the cue is the client's
- * choice.
+ * fcop-logic.md §8.6). The sim detects and emits EV_ALARM; the client speaks the
+ * original's intrusion line for the base's side (speech 2/3, fcop-fidelity.md
+ * R15).
  */
 export interface MapTriggerVolume {
   readonly x: number;

@@ -16,11 +16,21 @@ import {
   PICKUP_HEALTH,
   PICKUP_HEALTH_AMOUNT,
   TRIGGER_REARM_TICKS,
+  TURRET_ALERT_COOLDOWN_TICKS,
   TURRET_COOLDOWN_TICKS,
   TURRET_DAMAGE,
   TURRET_RANGE,
 } from "../src/balance";
-import { EV_ALARM, EV_BREACH, EV_HIT, EV_PICKUP, EV_SHOT, EVENT_STRIDE } from "../src/events";
+import {
+  EV_ALARM,
+  EV_BREACH,
+  EV_HIT,
+  EV_PICKUP,
+  EV_SHOT,
+  EV_TURRET_LOST,
+  EV_TURRET_UNDER_FIRE,
+  EVENT_STRIDE,
+} from "../src/events";
 import { BUTTON_FIRE1, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID } from "../src/map";
 import { createSim, type SimState, spawnUnit, step } from "../src/sim";
@@ -393,6 +403,102 @@ describe("base intrusion alerts", () => {
     step(state, idle);
     expect(countEvents(state, EV_ALARM)).toBe(0);
     expect(state.triggerArm[0]).toBe(TRIGGER_REARM_TICKS - 1);
+  });
+
+  it("holds the whole base quiet for the original's 8.3 s (fcop-fidelity.md R15)", () => {
+    expect(TRIGGER_REARM_TICKS).toBe(250); // 2500 engine ticks at 300 Hz
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    const vol = map.triggerVolumes[0];
+    const foe = state.avatarId[vol.team ^ 1];
+    ent.posX[foe] = vol.x;
+    ent.posY[foe] = vol.y;
+    step(state, idle);
+    // Every volume guarding that base re-armed together: one alert per base.
+    let alerts = 0;
+    for (let i = 0; i < state.events.count; i++) {
+      if (state.events.data[i * EVENT_STRIDE] === EV_ALARM) alerts += 1;
+    }
+    expect(alerts).toBe(1);
+    for (let u = 0; u < map.triggerVolumes.length; u++) {
+      if (map.triggerVolumes[u].team === vol.team) {
+        expect(state.triggerArm[u]).toBe(TRIGGER_REARM_TICKS);
+      }
+    }
+    let again = -1;
+    for (let t = 1; t <= TRIGGER_REARM_TICKS + 5 && again < 0; t++) {
+      ent.posX[foe] = vol.x;
+      ent.posY[foe] = vol.y;
+      step(state, idle);
+      if (countEvents(state, EV_ALARM) > 0) again = t;
+    }
+    expect(again).toBe(TRIGGER_REARM_TICKS);
+  });
+
+  it("is tripped by an enemy tank or Dreadnought, not by a jet", () => {
+    const state = createSim(map, 1);
+    const vol = map.triggerVolumes[0];
+    const jet = spawnUnit(state, ARCHETYPE.GUARDIAN, vol.team ^ 1, vol.x, vol.y);
+    state.ent.posX[jet] = vol.x;
+    state.ent.posY[jet] = vol.y;
+    step(state, idle);
+    expect(countEvents(state, EV_ALARM)).toBe(0);
+    spawnUnit(state, ARCHETYPE.RUNNER, vol.team ^ 1, vol.x, vol.y);
+    step(state, idle);
+    expect(countEvents(state, EV_ALARM)).toBe(1);
+  });
+});
+
+describe("base turret alerts (fcop-fidelity.md R15)", () => {
+  it("says a base turret is under fire at most once per side per 10 s", () => {
+    // On district-01 (no walls), so the shots land: the alert is not PA-only.
+    expect(TURRET_ALERT_COOLDOWN_TICKS).toBe(300);
+    const d1 = getMapById(DISTRICT_01_ID);
+    const state = createSim(d1, 1);
+    const ent = state.ent;
+    const tid = state.baseTurretEntity[0];
+    const team = ent.team[tid];
+    const foe = state.avatarId[team ^ 1];
+    const fire = createTickInputs();
+    fire.players[team ^ 1].aimX = -127; // west, at the turret
+    fire.players[team ^ 1].buttons = BUTTON_FIRE1;
+    const fired: number[] = [];
+    for (let t = 0; t < TURRET_ALERT_COOLDOWN_TICKS + 30; t++) {
+      ent.posX[foe] = ent.posX[tid] + 8;
+      ent.posY[foe] = ent.posY[tid];
+      ent.hp[foe] = AVATAR_HP; // both stay alive: only the alert is under test
+      ent.hp[tid] = 100;
+      step(state, fire);
+      for (let i = 0; i < state.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (state.events.data[o] === EV_TURRET_UNDER_FIRE) {
+          expect(state.events.data[o + 1]).toBe(tid);
+          expect(state.events.data[o + 2]).toBe(team);
+          fired.push(t);
+        }
+      }
+    }
+    expect(fired.length).toBe(2);
+    expect(fired[1] - fired[0]).toBe(TURRET_ALERT_COOLDOWN_TICKS);
+  });
+
+  it("says a base turret was lost, with its side", () => {
+    const state = createSim(map, 1);
+    const tid = state.baseTurretEntity[0];
+    const team = state.ent.team[tid];
+    state.ent.hp[tid] = 0;
+    step(state, idle);
+    let lost = 0;
+    for (let i = 0; i < state.events.count; i++) {
+      const o = i * EVENT_STRIDE;
+      if (state.events.data[o] === EV_TURRET_LOST) {
+        lost += 1;
+        expect(state.events.data[o + 1]).toBe(tid);
+        expect(state.events.data[o + 2]).toBe(team);
+        expect(state.events.data[o + 3]).toBe(0);
+      }
+    }
+    expect(lost).toBe(1);
   });
 });
 

@@ -212,7 +212,7 @@ Adopted for `la-cantina` only, on the owner's call, and written up as
 | Aircraft orbit shape (option 3) | not adopted; `moveAirUnit` keeps its own model |
 | Type 28 (§8.1) | adopted as a 5 s free-production base with a 3000 HP core and a base-destruction win; **withdrawn in SIM_VERSION 32**: it is the Dreadnought. Now the Juggernaut's spawn point and stats; the win is the gate trigger box (§8.6) |
 | `ItemPickup` (§8.2) | **adopted** |
-| `Trigger` intrusion volumes (§8.6) | **adopted** as detection; the alert cue is authored, since the `Cfun` binding that carried it is unrecovered |
+| `Trigger` intrusion volumes (§8.6) | **adopted** as detection; the alert is the original's voice line (speech 2/3, 8.3 s per base) since SIM_VERSION 36 — the `Cfun` binding was read (§8.6, `fcop-fidelity.md` R15) |
 | Types 14 / 89 (§8.5) | not adopted; extracted for provenance only |
 
 The extractions are committed at `tools/generators/fcop/<mission>-logic.json` —
@@ -390,3 +390,9 @@ withdrawn — it came from a pair-model walk that the stack VM supersedes, and
 
 So the detection half is confirmed in the data, and the sound half is an open
 binding rather than an unreadable one.
+
+**Resolved (2026-10-11, `fcop-re/ai-and-rules.md` §6):** ops `0x0c` (queue) and
+`0x0d` (interrupt) play SPEECH lines, and the decompiled scripts of all six PA
+arenas say which: intrusion into slot 0's / slot 1's base zone is speech id 2 / 3,
+with an 8.3 s cooldown. Metropolis plays the original lines since SIM_VERSION 36
+(`fcop-fidelity.md` R15).

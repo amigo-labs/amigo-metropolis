@@ -6,6 +6,39 @@
 
 import type { SfxrPreset } from "./sfxr";
 
+/**
+ * Stand-in for an original voice line (the `vo_*` cues below) until its file has
+ * loaded: a short two-tone radio chirp, so an alert is never silent. The files
+ * themselves are the original's speech (tools/generators/sfx/manifest.ts).
+ */
+const RADIO: SfxrPreset = {
+  waveType: 0,
+  baseFreq: 0.4,
+  envSustain: 0.08,
+  envDecay: 0.18,
+  arpMod: 0.3,
+  arpSpeed: 0.45,
+  duty: 0.5,
+  lpfFreq: 0.75,
+  soundVol: 0.3,
+};
+
+/** Enemy in your base (see `alarm` below). */
+const ALARM: SfxrPreset = {
+  waveType: 1,
+  baseFreq: 0.24,
+  envAttack: 0.02,
+  envSustain: 0.5,
+  envDecay: 0.45,
+  arpMod: -0.35,
+  arpSpeed: 0.35,
+  repeatSpeed: 0.55,
+  vibStrength: 0.12,
+  vibSpeed: 0.22,
+  lpfFreq: 0.6,
+  soundVol: 0.55,
+};
+
 export const PRESETS: Record<string, SfxrPreset> = {
   // Primary weapon: short descending zap.
   shot: {
@@ -112,24 +145,22 @@ export const PRESETS: Record<string, SfxrPreset> = {
   },
   // --- Precinct Assault cues (rules.md §9) ---------------------------------
   // Enemy in your base: a slow two-tone klaxon. Long and low so it reads over a
-  // firefight — this is the one cue the player must never miss, and the original
-  // bound it in the Cfun script. That script is disassembled now, but no opcode
-  // in it is a proven sound-play op, so the binding is unrecovered and the
-  // sound stays ours.
-  alarm: {
-    waveType: 1,
-    baseFreq: 0.24,
-    envAttack: 0.02,
-    envSustain: 0.5,
-    envDecay: 0.45,
-    arpMod: -0.35,
-    arpSpeed: 0.35,
-    repeatSpeed: 0.55,
-    vibStrength: 0.12,
-    vibSpeed: 0.22,
-    lpfFreq: 0.6,
-    soundVol: 0.55,
-  },
+  // firefight. Since the alert lines were bound (fcop-fidelity.md R15) the event
+  // speaks the original's intrusion line instead (vo_intrusion_*, below); this
+  // klaxon is that cue's synth stand-in and the settings preview.
+  alarm: ALARM,
+  // --- The original's alert lines (fcop-fidelity.md R15) --------------------
+  // Played by side: `_0` is the line the original speaks for slot 0's base, `_1`
+  // for slot 1's (fcop-re/ai-and-rules.md §6). Each is upgraded to the original
+  // speech file by audio/sfxFiles.generated.ts; these are the synth stand-ins.
+  vo_intrusion_0: ALARM,
+  vo_intrusion_1: ALARM,
+  vo_turret_fire_0: RADIO,
+  vo_turret_fire_1: RADIO,
+  vo_turret_lost_0: RADIO,
+  vo_turret_lost_1: RADIO,
+  vo_gate_0: RADIO,
+  vo_gate_1: RADIO,
   // Power-up collected: bright rising triad, clearly a reward.
   pickup: {
     waveType: 2,
@@ -175,4 +206,17 @@ export const DETUNE_CUES: ReadonlySet<string> = new Set(["shot", "hit"]);
  * that pans quietly to one side is exactly the wrong behaviour, and purchases /
  * claims / breach are UI feedback for an action the player just took.
  */
-export const GLOBAL_CUES: ReadonlySet<string> = new Set(["alarm", "purchase", "claim", "breach"]);
+export const GLOBAL_CUES: ReadonlySet<string> = new Set([
+  "alarm",
+  "purchase",
+  "claim",
+  "breach",
+  "vo_intrusion_0",
+  "vo_intrusion_1",
+  "vo_turret_fire_0",
+  "vo_turret_fire_1",
+  "vo_turret_lost_0",
+  "vo_turret_lost_1",
+  "vo_gate_0",
+  "vo_gate_1",
+]);

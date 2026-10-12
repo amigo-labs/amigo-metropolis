@@ -80,6 +80,7 @@ import {
   TRIGGER_WATCH_ENEMY_AVATAR,
   TRIGGER_WATCH_ENEMY_UNITS,
   TRIGGER_WATCH_OWN_AVATAR,
+  TURRET_ALERT_COOLDOWN_TICKS,
   TURRET_COOLDOWN_TICKS,
   TURRET_DAMAGE,
   TURRET_RANGE,
@@ -105,6 +106,8 @@ import {
   EV_RESPAWN,
   EV_SHOT,
   EV_TRANSFORM,
+  EV_TURRET_LOST,
+  EV_TURRET_UNDER_FIRE,
   type EventBuffer,
   pushEvent,
   reachToShotPayload,
@@ -281,8 +284,14 @@ export interface SimState {
   readonly buffInvuln: Int32Array;
   readonly buffInvis: Int32Array;
   readonly buffPower: Int32Array;
-  /** Ticks until each intrusion volume can fire again. */
+  /** Ticks until each intrusion volume can fire again (shared per base). */
   readonly triggerArm: Int32Array;
+  /**
+   * Ticks until each side's "base turret under fire" alert can fire again
+   * (TURRET_ALERT_COOLDOWN_TICKS). Length MAX_PLAYERS on an arena with ring
+   * turrets, 0 otherwise — so a map with none hashes exactly as before.
+   */
+  readonly turretAlert: Int32Array;
 
   /** Per-tick transient events (NOT hashed). */
   readonly events: EventBuffer;
@@ -593,6 +602,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     buffInvis: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
     buffPower: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
     triggerArm: new Int32Array(map.triggerVolumes.length),
+    turretAlert: new Int32Array(ringSlots > 0 ? MAX_PLAYERS : 0),
     events: createEventBuffer(),
   };
   // Apply loadouts before avatars spawn so ammo capacities match the kit.
@@ -1459,6 +1469,20 @@ function applyDamage(state: SimState, target: number, damage: number, attacker: 
   // aux stores 1 + last attacking player for kill attribution (0 = none).
   ent.aux[target] = attacker + 1;
   pushEvent(state.events, EV_HIT, target, attacker, damage);
+  // "Base turret under fire" (fcop-fidelity.md R15): a ring turret was hit, at
+  // most once per side per TURRET_ALERT_COOLDOWN_TICKS. The cooldown is sim
+  // state so every peer and every replay agrees on when the line plays.
+  if (
+    state.turretAlert.length > 0 &&
+    ent.archetype[target] === ARCHETYPE.TURRET &&
+    ent.mode[target] === TURRET_DEFENSE
+  ) {
+    const team = ent.team[target];
+    if ((team === 0 || team === 1) && state.turretAlert[team] === 0) {
+      state.turretAlert[team] = TURRET_ALERT_COOLDOWN_TICKS;
+      pushEvent(state.events, EV_TURRET_UNDER_FIRE, target, team, 0);
+    }
+  }
 }
 
 /**
@@ -1759,6 +1783,8 @@ function systemDamageDeath(state: SimState): void {
           if (state.baseTurretEntity[k] === id) {
             state.baseTurretEntity[k] = -1;
             state.baseTurretRespawn[k] = BASE_TURRET_RESPAWN_TICKS;
+            // "Base turret lost" (fcop-fidelity.md R15, voice ids 0/1).
+            pushEvent(state.events, EV_TURRET_LOST, id, ent.team[id], k);
             slotted = true;
             break;
           }
@@ -2021,23 +2047,27 @@ function systemPickups(state: SimState): void {
 }
 
 /**
- * Base-intrusion detection (rules.md §9, fcop-logic.md §8.6): fires an alarm when
- * a watched actor enters a base's volume.
- *
- * Detection only, exactly as the original data is — the alert SOUND was bound in
- * the Cfun script and that binding is unrecovered. Re-arming is gated here
- * rather than in the client so
- * every peer (and every replay) agrees on when the alarm sounded.
+ * Base alerts (rules.md §9, fcop-fidelity.md R15). Counts the "turret under
+ * fire" cooldowns down, then runs base-intrusion detection (fcop-logic.md §8.6):
+ * an alarm fires when an enemy avatar or an enemy ground unit (tank or
+ * Dreadnought — the original's zone triggers watch those, not its jets) enters
+ * a base's volume, and then that BASE stays quiet for TRIGGER_REARM_TICKS, the
+ * original's 8.3 s voice cooldown (fcop-re/ai-and-rules.md §6). The client
+ * speaks it (voice ids 2/3). Cooldowns live here rather than in the client so
+ * every peer and every replay agrees on when the alarm sounded.
  */
 function systemTriggers(state: SimState): void {
+  for (let p = 0; p < state.turretAlert.length; p++) {
+    if (state.turretAlert[p] > 0) state.turretAlert[p] -= 1;
+  }
   const volumes = state.map.triggerVolumes;
   if (volumes.length === 0) return;
   const ent = state.ent;
   for (let v = 0; v < volumes.length; v++) {
-    if (state.triggerArm[v] > 0) {
-      state.triggerArm[v] -= 1;
-      continue;
-    }
+    if (state.triggerArm[v] > 0) state.triggerArm[v] -= 1;
+  }
+  for (let v = 0; v < volumes.length; v++) {
+    if (state.triggerArm[v] > 0) continue;
     const vol = volumes[v];
     const foe = vol.team ^ 1;
     let intruder = -1;
@@ -2047,7 +2077,7 @@ function systemTriggers(state: SimState): void {
     }
     if (intruder < 0 && (vol.watch & TRIGGER_WATCH_ENEMY_UNITS) !== 0) {
       for (let id = 0; id < ent.high; id++) {
-        if (!ent.alive[id] || ent.team[id] !== foe || !isUnit(ent.archetype[id])) continue;
+        if (!ent.alive[id] || ent.team[id] !== foe || !isGroundUnit(ent.archetype[id])) continue;
         if (insideVolume(ent, id, vol)) {
           intruder = id;
           break;
@@ -2059,7 +2089,10 @@ function systemTriggers(state: SimState): void {
       if (a >= 0 && insideVolume(ent, a, vol)) intruder = a;
     }
     if (intruder < 0) continue;
-    state.triggerArm[v] = TRIGGER_REARM_TICKS;
+    // One alert per base per cooldown: every volume guarding this base re-arms.
+    for (let u = 0; u < volumes.length; u++) {
+      if (volumes[u].team === vol.team) state.triggerArm[u] = TRIGGER_REARM_TICKS;
+    }
     pushEvent(state.events, EV_ALARM, Math.round(vol.x * 16), Math.round(vol.y * 16), vol.team);
   }
 }
@@ -2181,6 +2214,11 @@ export function hash(state: SimState): number {
   }
   for (let k = 0; k < state.triggerArm.length; k++) {
     h = fnv1aU32(h, state.triggerArm[k] >>> 0);
+  }
+  // Appended at SIM_VERSION 36; empty (and so absent) on a map without ring
+  // turrets.
+  for (let p = 0; p < state.turretAlert.length; p++) {
+    h = fnv1aU32(h, state.turretAlert[p] >>> 0);
   }
   // Weapon profiles are a side array like entLayer: hashed only where they exist.
   if (state.map.weapons.length > 0) {
