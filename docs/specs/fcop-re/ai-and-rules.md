@@ -1,5 +1,11 @@
 # Precinct Assault AI and rules, extracted from FC:LAPD (RE repo @ 7766374)
 
+> **Correction (2026-10-12, [`outposts.md`](outposts.md)).** Three statements below are wrong:
+> - §1.5/§9, "8 base + 2 per outpost" and "defending is the early game's normal state": every type-8 turret counts **twice** (its base part is a second type-8 actor from the same record). The captain therefore starts at 16 (Mp/Conft/Ovmp) or 12 (Slim/Joke/Hk), at or above the threshold of 10, and roams from the start. The equivalent rule is "defend while fewer than 5 own team turrets are alive".
+> - §2, "a claim shuts the enemy's spawners": a claim kills the plate's neutral turret and shuts **its** spawner, then opens the claimer's own type-8 spawner. The enemy's plate spawner was never open.
+> - "Drive into the zone": claiming needs an action-key press while touching the type-14 zone (gate bit 0x04).
+
+
 Units used throughout: 300 Hz engine clock (1 tick = 1/300 s); 8192 world units (wu) = 1 m (= 1 map cell);
 angles 4096 = 360 deg; script/Csac authored units x5 = ticks. Distances in the Sky Captain AI are the
 engine's **octagonal** estimate `|dx|+|dz|-min(|dx|,|dz|)/2` on x/z only (dispatch.c `sky_flat_distance`).

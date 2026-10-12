@@ -1,5 +1,8 @@
 # Precinct Assault rules for Metropolis: what the retail executable does
 
+> **Correction (2026-10-12, [`outposts.md`](outposts.md)).** "16/14 base guns per side" counts the outpost plates too. 8 (Mp/Conft/Ovmp) or 6 (Slim/Joke/Hk) per side are base turrets, live from the start. The rest are outpost-plate turrets, which spawn only after their outpost is claimed.
+
+
 RE tree: `/home/user/fcop-reverse-engineering` @ 7766374. All claims were read against
 `tools/re/disasm.py` on `fixtures/FCopLAPD.exe`, and the shipped record bytes were decoded
 from `fixtures/missions/<Map>`. Decoders: `scratchpad/decode.py`, `cobj.py`, `air.py` and
