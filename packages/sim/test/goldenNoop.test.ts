@@ -12,6 +12,9 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+// Re-frozen at SIM_VERSION 37 (the X1-Alpha's life cycle, P2): a player respawns
+// 4 s after a down instead of 8, so every golden whose player goes down moves
+// (03, 04, 07; 02 moves mid-sequence and ends on the same hash).
 // Re-frozen at SIM_VERSION 36 (alert cues): the per-side turret-alert
 // cooldown is hashed on every map with ring turrets (02-05, 07); 01 and 06 keep
 // their pins.
@@ -37,8 +40,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // global, so scripts that kill a base emplacement and live past the old timer
   // move (03/04). golden-07-pa also moves from the §9 escort/capture ladder.
   // 01/02/05/06 header-only.
-  "golden-03-match": { last: 171738568, count: 4500 },
-  "golden-04-warden": { last: 727582959, count: 9000 },
+  "golden-03-match": { last: 1339025221, count: 4500 },
+  "golden-04-warden": { last: 3416353851, count: 9000 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -53,7 +56,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   "golden-06-layered": { last: 2900857896, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
-  "golden-07-pa": { last: 736115547, count: 3600 },
+  "golden-07-pa": { last: 1433290765, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

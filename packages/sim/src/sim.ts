@@ -53,7 +53,6 @@ import {
   OUTPOST_PAD_RADIUS,
   PAD_REPAIR_HP_PER_TICK,
   PICKUP_HEALTH,
-  PICKUP_HEALTH_AMOUNT,
   PICKUP_HEAVY_AMMO,
   PICKUP_INVIS,
   PICKUP_INVIS_TICKS,
@@ -88,6 +87,7 @@ import {
   UNIT_FIRE_COOLDOWN_TICKS,
   WARDEN_ALTITUDE,
   WARDEN_HP,
+  WARDEN_RESPAWN_TICKS,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked, segmentBlockT } from "./collision";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
@@ -319,7 +319,11 @@ export function spawnAvatar(state: SimState, player: number): number {
   ent.aimX[id] = cosLUT(s.yaw);
   ent.aimY[id] = sinLUT(s.yaw);
   ent.hp[id] = warden ? WARDEN_HP : AVATAR_HP;
-  ent.mode[id] = MODE_WALKER;
+  // Spawn form (fcop-fidelity.md P2): every respawn comes back in the form the
+  // spawn record asks for, as `player_respawn` resets the row from the record.
+  const hover = !warden && s.hover;
+  ent.mode[id] = hover ? MODE_HOVER : MODE_WALKER;
+  if (hover) ent.height[id] = rideHeight(state.map, s.x, s.y, true) + HOVER_CLEARANCE;
   if (warden) {
     ent.ammoA[id] = 0;
     ent.ammoB[id] = 0;
@@ -1764,7 +1768,13 @@ function systemDamageDeath(state: SimState): void {
     if (archetype === ARCHETYPE.AVATAR || archetype === ARCHETYPE.WARDEN) {
       const player = ent.ownerId[id];
       state.avatarId[player] = -1;
-      state.respawnTimer[player] = RESPAWN_TICKS;
+      state.respawnTimer[player] =
+        archetype === ARCHETYPE.WARDEN ? WARDEN_RESPAWN_TICKS : RESPAWN_TICKS;
+      // Power-ups are lost when the avatar goes down (`player_respawn` clears the
+      // block-B ammunition; fcop-fidelity.md P2). The cloak and invulnerability
+      // timers are NOT cleared: the original keeps counting them down while the
+      // mech is down (fcop-re/player-and-weapons.md §1).
+      if (state.buffPower.length > 0) state.buffPower[player] = 0;
       state.buyTarget[player] = -1; // death drops any buy hold
       state.buyProgress[player] = 0;
       state.lockTarget[player] = -1; // and any soft-lock
@@ -2029,7 +2039,8 @@ function systemPickups(state: SimState): void {
       } else if (kind === PICKUP_SPECIAL_AMMO) {
         ent.ammoB[a] = weaponInSlot(2, state.loadoutSpecial[p]).ammo;
       } else if (kind === PICKUP_HEALTH) {
-        ent.hp[a] = Math.min(AVATAR_HP, ent.hp[a] + PICKUP_HEALTH_AMOUNT);
+        // Full heal: the grant passes amount -1, "fill" (fcop-fidelity.md P6).
+        ent.hp[a] = AVATAR_HP;
       } else if (kind === PICKUP_INVULN) state.buffInvuln[p] = PICKUP_INVULN_TICKS;
       else if (kind === PICKUP_INVIS) state.buffInvis[p] = PICKUP_INVIS_TICKS;
       else if (kind === PICKUP_POWER) state.buffPower[p] = PICKUP_POWER_TICKS;

@@ -36,6 +36,14 @@ export interface FcopArena {
    * Conft 32x1024, Slim 29x1638, Joke 29x1638, Hk 35x1843, Ovmp 39x1024).
    */
   readonly neutralCaptureRaw: number;
+  /**
+   * Both X1Alpha records start (and respawn) the mech in HOVER form: the original
+   * stores that as a negative spawn facing (`player_respawn` 0x004474a0,
+   * fcop-re/player-and-weapons.md §1). extract_logic does not carry the facing, so
+   * this is carried here, read from the shipped records: Hk's two are -3072 and
+   * -1024, every other PA arena's are non-negative (walker).
+   */
+  readonly spawnHover: boolean;
 }
 
 /** Ordered as convert.ts's ARENAS, so reports read the same across both stages. */
@@ -47,6 +55,7 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1024,
+    spawnHover: false,
   },
   {
     mapId: "proving-ground",
@@ -55,6 +64,7 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1638,
+    spawnHover: false,
   },
   {
     mapId: "la-cantina",
@@ -63,6 +73,7 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1024,
+    spawnHover: false,
   },
   {
     mapId: "bug-hunt",
@@ -71,6 +82,7 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1638,
+    spawnHover: false,
   },
   {
     mapId: "hollywood-keys",
@@ -79,6 +91,7 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1843,
+    spawnHover: true,
   },
   {
     mapId: "venice-beach",
@@ -87,6 +100,7 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1024,
+    spawnHover: false,
   },
 ];
 

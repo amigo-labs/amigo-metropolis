@@ -91,15 +91,15 @@ Decision column: **adopt** = take the original's value; **keep** = deliberate de
 
 | # | Metropolis had | Original | Decision | Status |
 |---|---|---|---|---|
-| P1 | HP 300 | **1250** (NORMAL; HARD 1000, EASY 1500), no regen | adopt 1250 | open |
-| P2 | Respawn 8 s | **4 s** (0.5 s after drowning), full HP, full normal ammo, power-ups lost, at the team spawn in spawn form; no lives | adopt | open |
+| P1 | HP 300 | **1250** (NORMAL; HARD 1000, EASY 1500), no regen | adopt 1250 | open: deferred to the weapons package, because every damage number is absolute HP against it (W1/W3). The X1-Alpha package leaves `AVATAR_HP` 300 |
+| P2 | Respawn 8 s | **4 s** (0.5 s after drowning), full HP, full normal ammo, power-ups lost, at the team spawn in spawn form; no lives | adopt | adopted in "Bring the X1-Alpha back the way the original does", SIM_VERSION 37: `RESPAWN_TICKS` 120; the power-up is cleared at the down, cloak/invulnerability keep counting; `MapSpawn.hover` (both Hk records, carried in `fcopArenas.ts`) spawns and respawns in hover. The 0.5 s drowning path has no counterpart: drowning is HARD's, and Metropolis models NORMAL (P4). The Warden keeps 8 s (`WARDEN_RESPAWN_TICKS`, U3's) |
 | P3 | Transform 0.8 s, no weapons | **1.365 s (41 ticks)**: movement locked, weapons fire, coasts on hover physics, refused on water | adopt | open |
 | P4 | Walker 5 m/s, jump 8 against gravity 20 | **4.69 m/s**, strafe 3.13, turn 105°·(1 − v/18.75), jump 8.8 against 26.1 (apex 1.37 m), steep at normal 0.625 | adopt | open |
 | P5 | Hover 9 m/s, traction knobs | **9.38 m/s** (strafe 2.93, slow ×½), drag 1.92/s, brake 6.1/s, cap 10.7, turn 158°/s, ride height 0.5 m | adopt | open |
-| P6 | Pickup health +100 | **full heal** | adopt | open |
-| P7 | Invisible 10 s | **cloak 45 s**: AI and turrets skip the mech | adopt | open |
-| P8 | Power-up ×2 damage 15 s | per-slot **block B weapon** with its own magazine | adopt | open |
-| P9 | Pickup re-arm from tSAC | 50 s (ammo, health), 100 s (power, cloak) | confirmed (data) | open |
+| P6 | Pickup health +100 | **full heal** | adopt | adopted in "Bring the X1-Alpha back the way the original does", SIM_VERSION 37 |
+| P7 | Invisible 10 s | **cloak 45 s**: AI and turrets skip the mech | adopt | adopted in "Bring the X1-Alpha back the way the original does", SIM_VERSION 37: `PICKUP_INVIS_TICKS` 1350; turrets and units already skipped it, the Warden's hunt now does too (and skips an invulnerable one, as the commander does). Invulnerability 600 ticks (20 s), unused in PA. Not modelled: the homing-missile disarm within 4 m, because Metropolis has no homing rounds yet (W1) |
+| P8 | Power-up ×2 damage 15 s | per-slot **block B weapon** with its own magazine | adopt | open: deferred to the weapons package with the B blocks (W1). Since SIM_VERSION 37 the x2 stand-in is lost at a down, as block B is |
+| P9 | Pickup re-arm from tSAC | 50 s (ammo, health), 100 s (power, cloak) | confirmed (data) | confirmed: all six arenas import 1500 / 3000 ticks, re-armed per spot after collection (paRules pins it). The first appearance stays at match start (the original's 50/100 s is an L reading) |
 
 ### Weapons (`balance.ts`, `weapons.ts`)
 

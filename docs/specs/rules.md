@@ -97,9 +97,16 @@ Design pillars, in priority order:
   pulse — no aim, no projectile travel.
 - Slot membership: the **Concussion Beam is a Heavy**, not a Special.
 - Ammo: primary infinite; heavy/special finite, refilled at own Base/Outpost pads.
-- Death: respawn at own Base after `RESPAWN_TICKS` (placeholder: 8 s). Going
-  down pays the **other side 10 pts and costs the downed side 10** (never below
-  0), whoever did it, settled when the avatar respawns (the original's rule, §3).
+- Death: the avatar respawns **4 s** after going down (`RESPAWN_TICKS` 120, the
+  original's `player_op4` countdown; SIM_VERSION 37, `fcop-fidelity.md` P2) at its
+  team's fixed spawn, facing the spawn facing, in the spawn's form (walker, or
+  hover where the record asks for it — both of hollywood-keys'). It comes back
+  with full health and full ammunition and **loses its power-up**; a running
+  cloak or invulnerability keeps counting down. While down it is not drawn and
+  cannot be hit, because it is not there. There are no lives. Going down pays
+  the **other side 10 pts and costs the downed side 10** (never below 0),
+  whoever did it, settled when the avatar respawns (the original's rule, §3).
+  The Warden keeps its own 8 s (`WARDEN_RESPAWN_TICKS`).
 - The Base core is indestructible on every arena (pillar 1, and the original has
   no destructible core — §9). Base *turrets* are attackable by anyone.
 
@@ -356,11 +363,21 @@ only what Metropolis adopts from it.
   4–6 of §5. They capture by §5's rule, which is the original's own since
   SIM_VERSION 34, with each arena's imported capture range; the density is a
   balance question, tuned in `balance.ts`, never by dropping content.
-- **Power-ups.** `ItemPickup` spots grant ammo, health, invisibility or a
-  temporary damage boost, and re-arm on the original's timer. The original's
+- **Power-ups.** `ItemPickup` spots grant ammo, health, a cloak or a
+  temporary damage boost, and re-arm on the original's timer: **50 s** after an
+  ammo or health pickup is taken, **100 s** after a power-up or cloak, one alive
+  per spot (the Csac spawners' tSAC, `fcop-fidelity.md` P9). The original's
   eight grant kinds do not map one-to-one — Metropolis' primary weapon has
   infinite ammo (§2) — so the mapping is recorded in
-  `tools/generators/enrichArena.ts`.
+  `tools/generators/enrichArena.ts`. The original's rules, SIM_VERSION 37:
+  - **health** refills to the maximum (P6);
+  - **cloak** lasts **45 s**: turrets, units and the Warden skip the cloaked
+    avatar (P7). The original also disarms a homing missile that comes within
+    4 m of it; Metropolis has no homing rounds yet (the weapons package);
+  - **invulnerability** lasts 20 s; no PA pickup carries it (I8);
+  - the **damage boost** (x2, 15 s) is still Metropolis' stand-in for the
+    original's per-slot block-B weapon (P8, the weapons package). It is lost
+    when the avatar goes down.
 - **Alerts are the original's voice lines** (SIM_VERSION 36, `fcop-fidelity.md`
   R15). The original's mission scripts speak them through ops 0x0c/0x0d
   (`fcop-re/ai-and-rules.md` §6); the sim emits the events with the original's

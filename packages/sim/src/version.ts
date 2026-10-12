@@ -624,4 +624,19 @@
 //     Goldens: every one on a map with ring turrets re-records for the new hash
 //     field (02, 03, 04, 05, 07); 07 also trips the alarm on the new cadence.
 //     01 and 06 have no ring turrets and stay byte-identical (re-headered only).
-export const SIM_VERSION = 36;
+// v37: the X1-Alpha's life cycle (docs/specs/fcop-fidelity.md P2, P6, P7, P9;
+//     fcop-re/player-and-weapons.md §1, §6). A player's avatar respawns 4.0 s
+//     after going down (RESPAWN_TICKS 240 -> 120, `player_op4`'s 0x4b0 at
+//     300 Hz); the Warden keeps 8 s (WARDEN_RESPAWN_TICKS, U3's to change). Going
+//     down drops the power-up (`player_respawn` clears block B); the cloak and
+//     invulnerability timers keep running. A spawn record may ask for hover form
+//     (MapSpawn.hover: both of Hk's), and the avatar spawns and respawns in it.
+//     Health pickup: full heal (was +100). Cloak 1350 ticks (was 300), and the
+//     Warden's hunt skips a cloaked or invulnerable avatar as the original
+//     commander's target search does. Invulnerability 600 ticks (was 300; no PA
+//     pickup carries it). Pickup re-arm 50/100 s is the imported data, unchanged.
+//     Goldens: 02, 03 and 04 re-record (district-01: the player respawns 4 s
+//     sooner after each down). 07 (la-cantina) re-records: its player goes down
+//     too. 01, 05 and 06 never lose an avatar and stay byte-identical
+//     (re-headered only).
+export const SIM_VERSION = 37;

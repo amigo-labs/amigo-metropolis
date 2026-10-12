@@ -337,13 +337,17 @@ function teamsOf<
 function out0Spawns(
   spawns: readonly { x: number; z: number }[],
   field: Field,
-): { x: number; y: number; yaw: number; layer?: number }[] {
+  hover: boolean,
+): { x: number; y: number; yaw: number; layer?: number; hover?: boolean }[] {
   // yaw is atan2(dy, dx) in sim convention, so +z is +pi/2 and +x is 0.
   const toward = field.axis === "z" ? [Math.PI / 2, -Math.PI / 2] : [0, Math.PI];
+  // The spawn form (FcopArena.spawnHover) is written only where it is hover, so a
+  // walker arena's JSON is byte-identical to before the field existed.
   return spawns.map((s, team) => ({
     x: round4(sx(s.x)),
     y: round4(sz(s.z)),
     yaw: toward[team],
+    ...(hover ? { hover: true } : {}),
   }));
 }
 
@@ -1332,7 +1336,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // Opening the lane edges is not enough on its own: a corridor can be
     // drivable end to end and still be sealed off from the rest of the arena,
     // which is what leaves the outer ring's capture pads unreachable.
-    const spawns = out0Spawns(teamSpawns, field);
+    const spawns = out0Spawns(teamSpawns, field, arena.spawnHover);
     const repair = repairReachability(
       { ...raw, spawns, wallsV, wallsH },
       wallsV,
@@ -1379,7 +1383,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     wallsH,
     // Face the enemy base: the original stores an X1Alpha rotation, but the
     // useful, symmetric answer is "look down your own lane".
-    spawns: out0Spawns(teamSpawns, field),
+    spawns: out0Spawns(teamSpawns, field, arena.spawnHover),
     basePlots,
     bases: bases as MapJson["bases"],
     lanes,

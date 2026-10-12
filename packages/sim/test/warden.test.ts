@@ -6,12 +6,12 @@ import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
   POINTS_AVATAR_DOWN,
-  RESPAWN_TICKS,
   STARTING_POINTS,
   WARDEN_ALTITUDE,
   WARDEN_DEFEND_RADIUS,
   WARDEN_HP,
   WARDEN_PUSH_COMMIT_RANGE,
+  WARDEN_RESPAWN_TICKS,
   WARDEN_SUPPRESS_DISTANCE,
 } from "../src/balance";
 import { EV_CAPTURE, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
@@ -127,8 +127,10 @@ describe("warden", () => {
     step(sim, idle);
     expect(sim.avatarId[1]).toBe(-1);
     // The spawning system already counted down once in the death tick.
-    expect(sim.respawnTimer[1]).toBe(RESPAWN_TICKS - 1);
-    for (let t = 0; t < RESPAWN_TICKS - 1; t++) step(sim, idle);
+    // The Warden keeps Metropolis' own 8 s (WARDEN_RESPAWN_TICKS): the player's
+    // 4 s is the X1-Alpha's (fcop-fidelity.md P2); the Sky Captain's is U3's.
+    expect(sim.respawnTimer[1]).toBe(WARDEN_RESPAWN_TICKS - 1);
+    for (let t = 0; t < WARDEN_RESPAWN_TICKS - 1; t++) step(sim, idle);
     const reborn = sim.avatarId[1];
     expect(reborn).toBeGreaterThanOrEqual(0);
     expect(sim.ent.archetype[reborn]).toBe(ARCHETYPE.WARDEN);

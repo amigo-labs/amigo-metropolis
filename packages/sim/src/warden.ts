@@ -79,6 +79,19 @@ export const WGOAL_BUY_AIR = 8; //         slot = guardians left to buy
 export const WGOAL_CLAIM = 9; //           slot = outpost spot index
 export const WGOAL_SUPPRESS = 10; //       slot = enemy turret entity id
 
+/**
+ * Can the Warden pick player `p`'s avatar as a target to hunt? Not while it is
+ * down, cloaked or invulnerable: the original commander's target search skips a
+ * mech with either timer running (dispatch.c 0x00421910;
+ * fcop-re/player-and-weapons.md §6, fcop-fidelity.md P7). The buff arrays are
+ * empty on an arena without pickups, so there it is only "alive".
+ */
+function huntable(state: SimState, p: number): boolean {
+  if (state.avatarId[p] < 0) return false;
+  if (state.buffInvis.length === 0) return true;
+  return state.buffInvis[p] === 0 && state.buffInvuln[p] === 0;
+}
+
 /** Warden system: decide (rate-limited) → move → shoot → buy. */
 export function systemWarden(state: SimState): void {
   const me = state.wardenPlayer;
@@ -139,7 +152,7 @@ function goalValid(state: SimState, id: number): boolean {
       return true;
     }
     case WGOAL_HARASS:
-      return state.avatarId[me ^ 1] >= 0;
+      return huntable(state, me ^ 1);
     case WGOAL_CAPTURE: {
       if (slot < 0 || slot >= state.neutralTurretEntity.length) return false;
       const tid = state.neutralTurretEntity[slot];
@@ -318,7 +331,7 @@ function decide(state: SimState, id: number, d: number): void {
   }
 
   // 7. Harass the enemy avatar — an aggression-gated coin flip (sim PRNG).
-  if (state.avatarId[enemy] >= 0 && rand01(state) * 100 < aggro) {
+  if (huntable(state, enemy) && rand01(state) * 100 < aggro) {
     setGoal(state, WGOAL_HARASS, enemy);
     return;
   }

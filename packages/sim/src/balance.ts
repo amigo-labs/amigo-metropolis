@@ -451,8 +451,23 @@ export const ORBIT_ANGULAR_SPEED = 0.6; // rad/s patrol orbit
 export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart
 export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tick
 
-// Death & respawn (rules.md §2: 8 s).
-export const RESPAWN_TICKS = 240;
+// Death & respawn (rules.md §2; fcop-fidelity.md P2).
+/**
+ * A player's avatar comes back 4.0 s after it goes down: `player_op4` sets the
+ * countdown to 0x4b0 = 1200 engine units at 300 Hz (fcop-re/player-and-weapons.md
+ * §1, retail 0x004476e3). Was 240 (8 s).
+ *
+ * The original's other countdown, 0x96 = 150 units (0.5 s) after a drowned or
+ * sunk walker, has no path here: drowning is the HARD difficulty's (§4), and the
+ * NORMAL walker Metropolis models transforms to hover in deep water instead.
+ */
+export const RESPAWN_TICKS = 120;
+/**
+ * The Warden's respawn: Metropolis' own 8 s, unchanged by P2. The Sky Captain's
+ * is (14 - level) * 150 engine units (fcop-fidelity.md U3), which is the units
+ * package's to adopt with the rest of the captain.
+ */
+export const WARDEN_RESPAWN_TICKS = 240;
 
 // --- Warden (rules.md §7, PLAN Phase 4) -------------------------------------
 // The solo-opponent superplane: flies over everything, stronger than the
@@ -657,9 +672,25 @@ export const PICKUP_POWER = 5;
 export const PICKUP_KIND_COUNT = 6;
 /** Avatar must be within this of a pickup spot to take it. */
 export const PICKUP_RADIUS = 2.5;
-export const PICKUP_HEALTH_AMOUNT = 100;
-export const PICKUP_INVULN_TICKS = 300; // 10 s
-export const PICKUP_INVIS_TICKS = 300;
+// A health pickup refills to the maximum (grant bit 0x20000 passes amount -1,
+// "fill": fcop-re/player-and-weapons.md §6). Was +100. No constant: it is AVATAR_HP.
+/**
+ * Invulnerability: block+0x326 = 0x1770 = 6000 engine units = 20 s
+ * (player-and-weapons.md §6). Was 300 (10 s). No PA pickup carries the grant
+ * (fcop-fidelity.md I8); the kind stays for maps that place one.
+ */
+export const PICKUP_INVULN_TICKS = 600;
+/**
+ * Cloak: block+0x324 = 0x34bc = 13500 engine units = 45 s (player-and-weapons.md
+ * §6). Turrets, units and the Warden skip a cloaked avatar. Was 300 (10 s).
+ */
+export const PICKUP_INVIS_TICKS = 1350;
+/**
+ * Metropolis' power-up: x2 damage for 15 s. The original's is a per-slot block-B
+ * weapon with its own magazine (fcop-fidelity.md P8), which the weapons package
+ * adopts with the B blocks; until then this stays, and it is lost when the avatar
+ * goes down, as the original's block-B ammunition is (`player_respawn` clears it).
+ */
 export const PICKUP_POWER_TICKS = 450; // 15 s
 /** Damage multiplier while a POWER pickup is active. Integer: exact in binary. */
 export const PICKUP_POWER_MULTIPLIER = 2;

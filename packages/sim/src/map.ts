@@ -31,6 +31,12 @@ export interface MapSpawn {
   readonly y: number;
   readonly yaw: number;
   readonly layer: number;
+  /**
+   * Spawn (and respawn) in hover form. The original encodes it as a negative
+   * X1Alpha facing (`player_respawn`, fcop-re/player-and-weapons.md §1): both
+   * hollywood-keys (Hk) spawns, nothing else in PA. False when the JSON omits it.
+   */
+  readonly hover: boolean;
 }
 
 export interface MapPlot {
@@ -501,7 +507,7 @@ export interface MapJson {
    */
   layers?: { heights: number[][]; mask: string[]; wallsV?: string[]; wallsH?: string[] }[];
   /** Optional `layer` (default 0) — surface the spawn sits on (issue #33). */
-  spawns: { x: number; y: number; yaw: number; layer?: number }[];
+  spawns: { x: number; y: number; yaw: number; layer?: number; hover?: boolean }[];
   basePlots: { x: number; y: number; radius: number; layer?: number }[];
   bases: MapBaseJson[];
   /**
@@ -703,6 +709,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
   if (raw.basePlots.length !== 2) fail(id, "need exactly 2 base plots");
   for (const s of raw.spawns) {
     if (!inBounds(s.x, s.y)) fail(id, `spawn out of bounds (${s.x}, ${s.y})`);
+    if (s.hover !== undefined && typeof s.hover !== "boolean") {
+      fail(id, `spawn hover must be a boolean, got ${String(s.hover)}`);
+    }
   }
   /**
    * A map point: either the historic `[x, y]` pair (layer 0) or an object
@@ -1014,6 +1023,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
       y: s.y,
       yaw: s.yaw,
       layer: layerOf(s.layer, `spawn ${i}`),
+      hover: s.hover === true,
     })),
     basePlots: raw.basePlots.map((p, i) => plot(p, `base plot ${i}`)),
     bases,
@@ -1101,8 +1111,8 @@ export function createTestMap(): MapData {
     layerWallsV: [],
     layerWallsH: [],
     spawns: [
-      { x: center, y: center, yaw: 0, layer: 0 },
-      { x: center, y: center, yaw: 0, layer: 0 },
+      { x: center, y: center, yaw: 0, layer: 0, hover: false },
+      { x: center, y: center, yaw: 0, layer: 0, hover: false },
     ],
     basePlots: [
       { x: center, y: center, radius: 20, layer: 0 },

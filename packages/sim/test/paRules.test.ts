@@ -14,7 +14,11 @@ import {
   DREADNOUGHT_GUN_REFIRE_TICKS,
   MATCH_OUTRO_TICKS,
   PICKUP_HEALTH,
-  PICKUP_HEALTH_AMOUNT,
+  PICKUP_INVIS,
+  PICKUP_INVIS_TICKS,
+  PICKUP_INVULN_TICKS,
+  PICKUP_POWER,
+  RESPAWN_TICKS,
   TRIGGER_REARM_TICKS,
   TURRET_ALERT_COOLDOWN_TICKS,
   TURRET_COOLDOWN_TICKS,
@@ -33,8 +37,9 @@ import {
 } from "../src/events";
 import { BUTTON_FIRE1, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID } from "../src/map";
-import { createSim, type SimState, spawnUnit, step } from "../src/sim";
+import { createSim, MODE_HOVER, MODE_WALKER, type SimState, spawnUnit, step } from "../src/sim";
 import { nearestEnemyInRange } from "../src/units";
+import { WGOAL_HARASS } from "../src/warden";
 
 const idle = createTickInputs();
 
@@ -260,8 +265,8 @@ describe("the gate is the win condition (fcop-fidelity.md R1)", () => {
   });
 });
 
-describe("power-ups", () => {
-  it("heals an avatar standing on a health pickup and re-arms the spot", () => {
+describe("power-ups (fcop-fidelity.md P6, P7, P9)", () => {
+  it("a health pickup refills to the maximum, and the spot re-arms", () => {
     const state = createSim(map, 1);
     const ent = state.ent;
     const k = map.pickups.findIndex((p) => p.kind === PICKUP_HEALTH);
@@ -273,18 +278,131 @@ describe("power-ups", () => {
     ent.posX[avatar] = spot.x;
     ent.posY[avatar] = spot.y;
     step(state, idle);
-    // Healing is capped at AVATAR_HP and applied after damage in the same tick,
-    // so assert the gain, not an absolute figure — turrets may have hit first.
-    expect(ent.hp[avatar]).toBeGreaterThan(50);
-    expect(ent.hp[avatar]).toBeLessThanOrEqual(Math.min(AVATAR_HP, 50 + PICKUP_HEALTH_AMOUNT));
+    // The original's grant passes amount -1, "fill" (player-and-weapons.md §6):
+    // full health, not +100. Pickups run after damage in the tick, so whatever
+    // hit it first, it ends the tick full.
+    expect(ent.hp[avatar]).toBe(AVATAR_HP);
     expect(countEvents(state, EV_PICKUP)).toBeGreaterThan(0);
     expect(state.pickupCooldown[k]).toBe(spot.respawnTicks);
 
     // Still standing there, but the spot is spent until it re-arms.
-    const held = ent.hp[avatar];
+    ent.hp[avatar] = 50;
     step(state, idle);
     expect(countEvents(state, EV_PICKUP)).toBe(0);
-    expect(ent.hp[avatar]).toBeLessThanOrEqual(held);
+    expect(ent.hp[avatar]).toBeLessThanOrEqual(50);
+  });
+
+  it("re-arms 50 s after ammo and health, 100 s after power and cloak, on every arena", () => {
+    // The Csac spawners' tSAC words -3000 / -6000 x 5 engine units at 300 Hz
+    // (player-and-weapons.md §6), carried by the imported data as is.
+    for (const id of [
+      "la-cantina",
+      "urban-jungle",
+      "proving-ground",
+      "bug-hunt",
+      "hollywood-keys",
+      "venice-beach",
+    ]) {
+      const m = getMapById(id);
+      expect(m.pickups.length).toBeGreaterThan(0);
+      for (const p of m.pickups) {
+        const slow = p.kind === PICKUP_POWER || p.kind === PICKUP_INVIS;
+        expect(p.respawnTicks).toBe(slow ? 3000 : 1500);
+      }
+    }
+  });
+
+  it("a cloak lasts 45 s, and turrets, units and the Warden skip the cloaked avatar", () => {
+    const state = createSim(map, 1, { wardenPlayer: 1, wardenDifficulty: 10 });
+    const ent = state.ent;
+    const k = map.pickups.findIndex((p) => p.kind === PICKUP_INVIS);
+    expect(k).toBeGreaterThanOrEqual(0);
+    const avatar = state.avatarId[0];
+    ent.posX[avatar] = map.pickups[k].x;
+    ent.posY[avatar] = map.pickups[k].y;
+    step(state, idle);
+    expect(state.buffInvis[0]).toBe(PICKUP_INVIS_TICKS);
+    expect(PICKUP_INVIS_TICKS).toBe(1350); // 0x34bc = 13500 units at 300 Hz
+
+    // An enemy Runner right next to it acquires nothing.
+    const runner = spawnUnit(state, ARCHETYPE.RUNNER, 1, ent.posX[avatar] + 2, ent.posY[avatar]);
+    expect(nearestEnemyInRange(state, runner, 6)).toBe(-1);
+    // The Warden drops a hunt for it the tick it is cloaked, and does not take
+    // it up again while the cloak runs.
+    state.wardenGoal = WGOAL_HARASS;
+    state.wardenSlot = 0;
+    state.wardenThink = 1000;
+    let harassed = 0;
+    for (let t = 0; t < 600; t++) {
+      step(state, idle);
+      if (state.wardenGoal === WGOAL_HARASS) harassed++;
+    }
+    expect(harassed).toBe(0);
+    // ...which is the cloak's doing: uncloaked, the same hunt holds.
+    state.buffInvis[0] = 0;
+    state.wardenGoal = WGOAL_HARASS;
+    state.wardenSlot = 0;
+    state.wardenThink = 1000;
+    step(state, idle);
+    expect(state.wardenGoal).toBe(WGOAL_HARASS);
+    // And uncloaked, a Runner sees it again.
+    const r2 = spawnUnit(state, ARCHETYPE.RUNNER, 1, ent.posX[avatar] + 2, ent.posY[avatar]);
+    expect(nearestEnemyInRange(state, r2, 6)).toBe(state.avatarId[0]);
+  });
+
+  it("an invulnerability grant lasts 20 s", () => {
+    // 0x1770 = 6000 units (player-and-weapons.md §6). No PA pickup carries it
+    // (fcop-fidelity.md I8), so this pins the constant the kind would use.
+    expect(PICKUP_INVULN_TICKS).toBe(600);
+  });
+});
+
+describe("going down and coming back (fcop-fidelity.md P2)", () => {
+  it("respawns 4 s later at its spawn: full health, full ammo, power-up lost, cloak kept", () => {
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    const avatar = state.avatarId[0];
+    state.buffPower[0] = 200;
+    state.buffInvis[0] = 1000;
+    ent.ammoA[avatar] = 0;
+    ent.ammoB[avatar] = 0;
+    ent.hp[avatar] = -1;
+    step(state, idle);
+    expect(state.avatarId[0]).toBe(-1);
+    // `player_op4`: 0x4b0 = 1200 units = 4.0 s; Metropolis had 8 s.
+    expect(RESPAWN_TICKS).toBe(120);
+    expect(state.respawnTimer[0]).toBe(RESPAWN_TICKS - 1);
+    // Power-ups are lost (`player_respawn` clears block B); the cloak keeps
+    // counting down while the mech is down.
+    expect(state.buffPower[0]).toBe(0);
+    expect(state.buffInvis[0]).toBe(999);
+    run(state, RESPAWN_TICKS - 1);
+    const back = state.avatarId[0];
+    expect(back).toBeGreaterThanOrEqual(0);
+    expect(ent.hp[back]).toBe(AVATAR_HP);
+    expect(ent.ammoA[back]).toBeGreaterThan(0);
+    expect(ent.ammoB[back]).toBeGreaterThan(0);
+    expect(ent.posX[back]).toBe(Math.fround(map.spawns[0].x));
+    expect(ent.posY[back]).toBe(Math.fround(map.spawns[0].y));
+    expect(ent.yaw[back]).toBe(Math.fround(map.spawns[0].yaw));
+    expect(ent.mode[back]).toBe(MODE_WALKER);
+    expect(state.buffInvis[0]).toBe(1000 - RESPAWN_TICKS);
+  });
+
+  it("comes back in its spawn form: hover on hollywood-keys", () => {
+    // Both of Hk's X1Alpha records carry a negative facing = hover
+    // (player-and-weapons.md §1); every other PA arena spawns walkers.
+    const hk = getMapById("hollywood-keys");
+    expect(hk.spawns.every((s) => s.hover)).toBe(true);
+    for (const id of ["la-cantina", "urban-jungle", "proving-ground", "bug-hunt", "venice-beach"]) {
+      expect(getMapById(id).spawns.some((s) => s.hover)).toBe(false);
+    }
+    const state = createSim(hk, 1);
+    const avatar = state.avatarId[0];
+    expect(state.ent.mode[avatar]).toBe(MODE_HOVER);
+    state.ent.hp[avatar] = -1;
+    run(state, RESPAWN_TICKS);
+    expect(state.ent.mode[state.avatarId[0]]).toBe(MODE_HOVER);
   });
 });
 
