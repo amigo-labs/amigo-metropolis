@@ -351,7 +351,19 @@ export const CAPTURE_RADIUS = 5;
  * Q5). Was 45 s.
  */
 export const NEUTRAL_TURRET_RESPAWN_TICKS = 750;
-/** Destroyed outpost consoles return (neutral) after this many ticks. */
+/**
+ * Outpost claim zone (fcop-fidelity.md R14): driving into it with
+ * COST_OUTPOST_CLAIM points claims the outpost, no button and no hold — the
+ * original's type-14 touch zone (fcop-re/ai-and-rules.md §2). The zone's size is
+ * not in the extracted record, so it is ours: the console pad's radius, with the
+ * console as the zone's visual anchor.
+ */
+export const OUTPOST_CLAIM_RADIUS = CONSOLE_RADIUS;
+/**
+ * Destroyed outpost consoles return (neutral) after this many ticks. district-01
+ * only: on the imported arenas a claim is permanent, as the original's is (R14),
+ * and the console cannot be destroyed.
+ */
 export const OUTPOST_CONSOLE_RESPAWN_TICKS = 300; // 10 s
 /** Owned outposts refill ammo (no repair) within this radius of the console. */
 export const OUTPOST_PAD_RADIUS = 4;

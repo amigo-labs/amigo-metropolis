@@ -51,7 +51,7 @@ writeSnapshot(state: SimState, out: Float32Array): number // returns entity coun
   fire3, transform, jump, interact.
 - **Systems order is fixed** (order is behavior — document any change):
   input → avatar movement → unit lane-following → targeting → projectiles →
-  damage/death → capture progress → economy → spawning → win check.
+  damage/death → capture → economy → spawning → win check.
 - **Lane following**: authored waypoint polylines per map; units seek current
   waypoint, advance on proximity. No dynamic pathfinding in v1. Avoidance =
   simple radial separation between friendly ground units.

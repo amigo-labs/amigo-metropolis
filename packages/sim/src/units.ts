@@ -38,7 +38,14 @@ import {
   WAYPOINT_RADIUS,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
-import { type MapData, resolveHeight, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
+import {
+  isPrecinctAssault,
+  type MapData,
+  resolveHeight,
+  sampleHeight,
+  sampleLayerHeight,
+  worldExtent,
+} from "./map";
 import { ANIM_MOVING, rideHeight, type SimState, STEP_SNAP } from "./sim";
 import { atan2Poly, cosLUT, rand01, sinLUT, TAU } from "./simMath";
 
@@ -72,6 +79,9 @@ export function nearestEnemyInRange(
   const x = ent.posX[id];
   const y = ent.posY[id];
   const team = ent.team[id];
+  // An imported arena's outpost consoles cannot be destroyed (fcop-fidelity.md
+  // R14, sim.ts applyDamage), so nothing halts to shoot at one.
+  const skipConsoles = skipStructures || isPrecinctAssault(state.map);
   let bestD2 = range * range;
   let bestId = -1;
   for (let t = 0; t < ent.high; t++) {
@@ -81,9 +91,8 @@ export function nearestEnemyInRange(
     if (tt === team || tt === TEAM_NEUTRAL) continue;
     const archetype = ent.archetype[t];
     if (archetype === ARCHETYPE.PROJECTILE) continue;
-    if (skipStructures && (archetype === ARCHETYPE.TURRET || archetype === ARCHETYPE.CONSOLE)) {
-      continue;
-    }
+    if (skipStructures && archetype === ARCHETYPE.TURRET) continue;
+    if (skipConsoles && archetype === ARCHETYPE.CONSOLE) continue;
     const dx = ent.posX[t] - x;
     const dy = ent.posY[t] - y;
     const d2 = dx * dx + dy * dy;

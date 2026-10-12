@@ -47,6 +47,7 @@ import {
   MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
   NEUTRAL_TURRET_RESPAWN_TICKS,
+  OUTPOST_CLAIM_RADIUS,
   OUTPOST_CONSOLE_RESPAWN_TICKS,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_PAD_RADIUS,
@@ -123,6 +124,7 @@ import {
 } from "./inputs";
 import {
   insideGate,
+  isPrecinctAssault,
   isWater,
   type MapBaseTurret,
   type MapData,
@@ -958,18 +960,53 @@ function cycleLockTarget(
 }
 
 /**
- * Hold-to-buy (rules.md §3): standing on a console pad with INTERACT held
- * buys one unit per completed CONSOLE_HOLD_TICKS hold. Switching consoles,
- * toggling the FIRE2 heavy modifier, releasing the button, running out of
- * points or hitting an alive-limit all reset the hold. FIRE2 orders the
- * heavy variant at base consoles and the (assault) air unit at outposts;
- * a neutral outpost console sells the outpost itself — the 30-point claim.
- * Exported for the Warden, which buys through the exact same rules with
+ * Outpost claim (rules.md §5, fcop-fidelity.md R14): an avatar inside an unowned
+ * outpost's claim zone (OUTPOST_CLAIM_RADIUS around its console) holding
+ * COST_OUTPOST_CLAIM points claims it on the spot — no button and no hold, the
+ * original's touch zone (fcop-re/ai-and-rules.md §2: drive in with >= 30 points,
+ * -30, first come first served). Returns true when it claimed.
+ *
+ * The zone watches a player's own avatar. The Warden does not trip it by flying
+ * over: the original's Sky Captain claims by a decision (its dispatch writes the
+ * outpost's owner word, ai-and-rules.md §1.8), so warden.ts calls this only while
+ * its goal is to claim.
+ */
+export function claimOutpost(state: SimState, player: number, id: number): boolean {
+  if (state.points[player] < COST_OUTPOST_CLAIM) return false;
+  const ent = state.ent;
+  const spots = state.map.outpostSpots;
+  const r2 = OUTPOST_CLAIM_RADIUS * OUTPOST_CLAIM_RADIUS;
+  for (let k = 0; k < spots.length; k++) {
+    if (state.outpostOwner[k] !== -1 || state.outpostConsole[k] < 0) continue;
+    const dx = ent.posX[id] - spots[k].x;
+    const dy = ent.posY[id] - spots[k].y;
+    if (dx * dx + dy * dy > r2) continue;
+    state.points[player] -= COST_OUTPOST_CLAIM;
+    state.outpostOwner[k] = player;
+    const cid = state.outpostConsole[k];
+    ent.team[cid] = player;
+    ent.ownerId[cid] = player;
+    ent.hp[cid] = ARCHETYPE_MAX_HP[ARCHETYPE.CONSOLE];
+    pushEvent(state.events, EV_CLAIM, cid, player, k);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Console purchases. First the outpost claim zones (claimOutpost: entering one
+ * with the points is enough). Then hold-to-buy (rules.md §3): standing on a
+ * console pad with INTERACT held buys one unit per completed CONSOLE_HOLD_TICKS
+ * hold. Switching consoles, toggling the FIRE2 heavy modifier, releasing the
+ * button, running out of points or hitting an alive-limit all reset the hold.
+ * FIRE2 orders the heavy variant at base consoles and the (assault) air unit at
+ * outposts. Exported for the Warden, which buys through the exact same rules with
  * synthesized buttons (rules.md §7: same rules and economy as a player).
  */
 export function systemBuy(state: SimState, player: number, id: number, buttons: number): void {
   const ent = state.ent;
   const map = state.map;
+  if (player !== state.wardenPlayer) claimOutpost(state, player, id);
   const r2 = CONSOLE_RADIUS * CONSOLE_RADIUS;
   const heavy = (buttons & BUTTON_FIRE2) !== 0 ? 1 : 0;
   const x = ent.posX[id];
@@ -983,7 +1020,6 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
   let spawnLayer = 0;
   let mode = UNIT_MODE_PATROL;
   let forward = false;
-  let claim = -1;
 
   if ((buttons & BUTTON_INTERACT) !== 0) {
     const base = map.bases[player];
@@ -1032,10 +1068,6 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
           spawnLayer = s.layer;
           mode = heavy ? UNIT_MODE_ASSAULT : UNIT_MODE_PATROL;
           forward = true;
-        } else if (owner === -1 && state.outpostConsole[k] >= 0) {
-          target = 1024 + k * 2;
-          cost = COST_OUTPOST_CLAIM;
-          claim = k;
         }
         break;
       }
@@ -1069,15 +1101,6 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
   state.buyProgress[player] = 0; // per-unit hold: the next unit starts fresh
 
   state.points[player] -= cost;
-  if (claim >= 0) {
-    state.outpostOwner[claim] = player;
-    const cid = state.outpostConsole[claim];
-    ent.team[cid] = player;
-    ent.ownerId[cid] = player;
-    ent.hp[cid] = ARCHETYPE_MAX_HP[ARCHETYPE.CONSOLE];
-    pushEvent(state.events, EV_CLAIM, cid, player, claim);
-    return;
-  }
   const uid = spawnUnit(state, archetype, player, spawnX, spawnY, mode, forward, spawnLayer);
   if (uid >= 0) {
     pushEvent(state.events, EV_PURCHASE, uid, player, archetype);
@@ -1429,6 +1452,9 @@ function applyDamage(state: SimState, target: number, damage: number, attacker: 
       damage *= PICKUP_POWER_MULTIPLIER;
     }
   }
+  // On the imported arenas an outpost claim is permanent, as the original's is
+  // (fcop-fidelity.md R14): its console is the claim zone's marker, not a target.
+  if (ent.archetype[target] === ARCHETYPE.CONSOLE && isPrecinctAssault(state.map)) return;
   ent.hp[target] -= damage;
   // aux stores 1 + last attacking player for kill attribution (0 = none).
   ent.aux[target] = attacker + 1;
@@ -1750,7 +1776,8 @@ function systemDamageDeath(state: SimState): void {
         }
       }
     } else if (archetype === ARCHETYPE.CONSOLE) {
-      // Console destruction reverts the outpost to neutral (rules.md §5).
+      // Console destruction reverts the outpost to neutral (rules.md §5) — on
+      // district-01 only: an imported arena's consoles take no damage (R14).
       for (let k = 0; k < state.outpostConsole.length; k++) {
         if (state.outpostConsole[k] === id) {
           state.outpostConsole[k] = -1;

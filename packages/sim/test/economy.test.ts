@@ -21,6 +21,7 @@ import {
   GUARDIAN_ALIVE_LIMIT,
   HEAVY_UNLOCK_POINTS,
   NEUTRAL_TURRET_RESPAWN_TICKS,
+  OUTPOST_CLAIM_RADIUS,
   OUTPOST_CONSOLE_RESPAWN_TICKS,
   OUTPOST_COST_MULTIPLIER,
   POINTS_AVATAR_DOWN,
@@ -391,43 +392,49 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
   });
 });
 
-describe("outposts (rules.md §5)", () => {
+describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
+  /** Puts `player`'s avatar in the outpost's claim zone for one tick, no button. */
   function claim(sim: SimState, player: number): void {
     sim.ent.posX[player] = 30;
-    sim.ent.posY[player] = 46; // on the outpost console
-    inputs.players[player].buttons = BUTTON_INTERACT;
-    for (let t = 0; t < CONSOLE_HOLD_TICKS; t++) step(sim, inputs);
+    sim.ent.posY[player] = 46; // on the outpost console, inside its claim zone
     inputs.players[player].buttons = 0;
+    step(sim, inputs);
   }
 
-  it("holding interact at a neutral outpost claims it for 30 points", () => {
+  it("entering a neutral outpost's claim zone with 30 points claims it: no button", () => {
+    // Pinned a 0.5 s interact hold at the console until SIM_VERSION 35. The
+    // original claims on entry with >= 30 points (fcop-re/ai-and-rules.md §2).
     reset();
     const sim = freshSim();
     sim.points[0] = 40;
     claim(sim, 0);
+    expect(findEvents(sim, EV_CLAIM).length).toBe(1);
     expect(sim.outpostOwner[0]).toBe(0);
     expect(sim.points[0]).toBe(40 - COST_OUTPOST_CLAIM);
     const cid = sim.outpostConsole[0];
     expect(sim.ent.team[cid]).toBe(0);
+    // Edge of the zone: OUTPOST_CLAIM_RADIUS around the console.
+    const other = freshSim();
+    other.points[0] = 40;
+    other.ent.posX[0] = 30 + OUTPOST_CLAIM_RADIUS + 0.1;
+    other.ent.posY[0] = 46;
+    step(other, inputs);
+    expect(other.outpostOwner[0]).toBe(-1);
   });
 
-  it("claiming emits EV_CLAIM and is blocked without the points", () => {
+  it("is refused without the points, and taken the moment they arrive in the zone", () => {
     reset();
     const sim = freshSim();
     sim.points[0] = COST_OUTPOST_CLAIM - 1;
-    claim(sim, 0);
-    expect(sim.outpostOwner[0]).toBe(-1); // too poor: hold never progressed
+    for (let t = 0; t < 30; t++) claim(sim, 0);
+    expect(sim.outpostOwner[0]).toBe(-1); // too poor: nothing happens
+    expect(sim.points[0]).toBe(COST_OUTPOST_CLAIM - 1);
     sim.points[0] = COST_OUTPOST_CLAIM;
-    sim.ent.posX[0] = 30;
-    sim.ent.posY[0] = 46;
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    let claimed: number[][] = [];
-    for (let t = 0; t < CONSOLE_HOLD_TICKS && claimed.length === 0; t++) {
-      step(sim, inputs);
-      claimed = findEvents(sim, EV_CLAIM);
-    }
+    claim(sim, 0);
+    const claimed = findEvents(sim, EV_CLAIM);
     expect(claimed.length).toBe(1);
     expect(claimed[0][1]).toBe(0);
+    expect(sim.points[0]).toBe(0);
   });
 
   it("an owned outpost forward-spawns runners and assault guardians at 2×", () => {
@@ -477,7 +484,10 @@ describe("outposts (rules.md §5)", () => {
     expect(sim.ent.ammoA[1]).toBe(0);
   });
 
-  it("destroying the console reverts the outpost; it respawns neutral", () => {
+  it("destroying the console reverts the outpost on an arena of our own", () => {
+    // district-01-style maps keep Metropolis' rule (outposts as a purchase menu,
+    // a deliberate deviation); on the imported arenas a claim is permanent and the
+    // console takes no damage (paRules.test.ts).
     reset();
     const sim = freshSim();
     sim.points[0] = 40;

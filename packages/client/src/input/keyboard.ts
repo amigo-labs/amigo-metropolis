@@ -39,7 +39,7 @@ const moveScratch: Vec2 = { x: 0, y: 0 };
 export class PlayerOneInput implements LocalInputSource {
   readonly label = "Keyboard / Mouse";
   readonly hint =
-    "WASD drive · mouse steers left/right · LMB/RMB/MMB fire · Q transform · Space jump · E: tap to capture · hold to buy/claim";
+    "WASD drive · mouse steers left/right · LMB/RMB/MMB fire · Q transform · Space jump · E: tap to capture · hold to buy";
   private readonly down = new Set<string>();
   private mouseButtons = 0;
   private aimX = 0;

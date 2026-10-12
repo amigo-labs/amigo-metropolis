@@ -598,4 +598,18 @@
 //     Goldens: every one on a map with turret spots re-records, because the
 //     per-spot capture fields left the hash (02, 03, 04, 05, 07); 01 (test-128)
 //     and 06 (layered-test) have none and stay byte-identical (re-headered only).
-export const SIM_VERSION = 34;
+// v35: the original's outpost claim (docs/specs/fcop-fidelity.md R14;
+//     fcop-re/ai-and-rules.md §2). Entering an unowned outpost's claim zone
+//     (OUTPOST_CLAIM_RADIUS around its console) with 30 points claims it on the
+//     spot: no button, no hold (was a 0.5 s interact hold at the console). A
+//     player's avatar trips the zone; the Warden claims only while its goal is
+//     to (the Sky Captain's claim is a script decision, not a fly-over — a
+//     difficulty-8 Warden saving for its Juggernaut otherwise spent its 30 on
+//     every outpost pad it captured, and three arenas stopped resolving). On the
+//     imported arenas a claim is permanent, as the original's is: an outpost
+//     console takes no damage and no unit or Warden targets it. district-01
+//     keeps console destruction reverting the outpost (outposts as a menu, a
+//     deliberate deviation). Goldens: 03 re-records (its avatar claims on
+//     arrival instead of after a hold); the others never claim or shoot an
+//     outpost console and stay byte-identical (re-headered only).
+export const SIM_VERSION = 35;

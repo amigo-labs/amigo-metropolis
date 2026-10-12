@@ -12,6 +12,8 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+// Re-frozen at SIM_VERSION 35 (outpost claim on entering the zone): only 03
+// claims an outpost, now on arrival instead of after a hold.
 // Re-frozen at SIM_VERSION 34 (the original's instant capture): the per-spot
 // capture fields left the hash, so every golden on a map with turret spots moves
 // (02-05, 07); 01 and 06 have none and keep their pins.
@@ -32,7 +34,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // global, so scripts that kill a base emplacement and live past the old timer
   // move (03/04). golden-07-pa also moves from the §9 escort/capture ladder.
   // 01/02/05/06 header-only.
-  "golden-03-match": { last: 470193076, count: 4500 },
+  "golden-03-match": { last: 963097800, count: 4500 },
   "golden-04-warden": { last: 2880804591, count: 9000 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is

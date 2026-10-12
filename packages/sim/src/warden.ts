@@ -24,6 +24,7 @@ import {
   COST_JUGGERNAUT,
   COST_OUTPOST_CLAIM,
   COST_RUNNER,
+  OUTPOST_CLAIM_RADIUS,
   PAD_REPAIR_HP_PER_TICK,
   TICK_DT,
   WARDEN_AGGRESSION_PERCENT,
@@ -55,6 +56,7 @@ import { sampleHeight, worldExtent } from "./map";
 import {
   ANIM_MOVING,
   captureRange,
+  claimOutpost,
   hitscan,
   type SimState,
   spawnProjectile,
@@ -397,11 +399,12 @@ function moveAndAct(state: SimState, id: number, me: number): void {
       buttons = BUTTON_INTERACT;
       break;
     case WGOAL_CLAIM: {
+      // Entering the claim zone with the points is the claim (fcop-fidelity.md
+      // R14): no button. Arriving inside it is enough.
       const s = map.outpostSpots[state.wardenSlot];
       tx = s.x;
       ty = s.y;
-      arrive = CONSOLE_RADIUS - 1;
-      buttons = BUTTON_INTERACT;
+      arrive = OUTPOST_CLAIM_RADIUS - 1;
       break;
     }
     default:
@@ -478,6 +481,11 @@ function moveAndAct(state: SimState, id: number, me: number): void {
       );
     }
   }
+
+  // An outpost claim is the Warden's decision, like the Sky Captain's: it takes
+  // the zone it was sent to, never one it happens to fly over (sim.ts
+  // claimOutpost).
+  if (state.wardenGoal === WGOAL_CLAIM && claimOutpost(state, me, id)) state.wardenThink = 0;
 
   // Console interaction through the player's exact hold-to-buy rules; a
   // completed purchase shows up as a points drop → count the wave down.

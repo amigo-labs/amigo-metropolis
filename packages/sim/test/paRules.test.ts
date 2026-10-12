@@ -21,9 +21,10 @@ import {
   TURRET_RANGE,
 } from "../src/balance";
 import { EV_ALARM, EV_BREACH, EV_HIT, EV_PICKUP, EV_SHOT, EVENT_STRIDE } from "../src/events";
-import { BUTTON_INTERACT, createTickInputs } from "../src/inputs";
+import { BUTTON_FIRE1, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID } from "../src/map";
 import { createSim, type SimState, spawnUnit, step } from "../src/sim";
+import { nearestEnemyInRange } from "../src/units";
 
 const idle = createTickInputs();
 
@@ -315,6 +316,61 @@ describe("capture on the imported arenas (fcop-fidelity.md R12)", () => {
     expect(ent.ownerId[tid]).toBe(-1);
     pressAt(reach - 0.05);
     expect(ent.ownerId[tid]).toBe(0);
+  });
+});
+
+describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
+  it("a claim is permanent: the console takes no damage and nothing targets it", () => {
+    // venice-beach, because la-cantina's consoles stand inside parapets no shot
+    // reaches; a test that cannot hit the console proves nothing.
+    const vb = getMapById("venice-beach");
+    const state = createSim(vb, 1);
+    const ent = state.ent;
+    const spot = vb.outpostSpots[0];
+    const a = state.avatarId[0];
+    state.points[0] = 40;
+    ent.posX[a] = spot.x;
+    ent.posY[a] = spot.y;
+    step(state, idle);
+    expect(state.outpostOwner[0]).toBe(0);
+    const cid = state.outpostConsole[0];
+    const hp = ent.hp[cid];
+    // The claimer steps off, or it would be the target and take the shots.
+    ent.posX[a] = spot.x;
+    ent.posY[a] = spot.y + 20;
+    // An enemy Runner next to it does not take it for a target...
+    const runner = spawnUnit(state, ARCHETYPE.RUNNER, 1, spot.x + 3, spot.y);
+    expect(nearestEnemyInRange(state, runner, 14)).not.toBe(cid);
+    // ...and the enemy avatar shooting it point-blank does not hurt it.
+    const foe = state.avatarId[1];
+    const fire = createTickInputs();
+    fire.players[1].aimX = 127;
+    fire.players[1].buttons = BUTTON_FIRE1;
+    for (let k = 0; k < 60; k++) {
+      ent.posX[foe] = spot.x - 5; // an open line of fire (no wall in between)
+      ent.posY[foe] = spot.y;
+      step(state, fire);
+      for (let i = 0; i < state.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (state.events.data[o] === EV_HIT) expect(state.events.data[o + 1]).not.toBe(cid);
+      }
+    }
+    expect(ent.alive[cid]).toBe(1);
+    expect(ent.hp[cid]).toBe(hp);
+    expect(state.outpostOwner[0]).toBe(0);
+  });
+
+  it("the Warden claims by a decision, never by flying over an outpost", () => {
+    const state = createSim(map, 1, { wardenPlayer: 1, wardenDifficulty: 8 });
+    const w = state.avatarId[1];
+    const spot = map.outpostSpots[1];
+    state.points[1] = 40;
+    for (let t = 0; t < 10; t++) {
+      state.ent.posX[w] = spot.x;
+      state.ent.posY[w] = spot.y;
+      step(state, idle);
+    }
+    expect(state.outpostOwner[1]).toBe(-1);
   });
 });
 

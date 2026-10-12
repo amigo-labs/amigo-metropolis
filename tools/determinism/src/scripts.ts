@@ -284,9 +284,9 @@ export function match01(tick: number, out: TickInputs): void {
       }
     }
   } else if (tick >= MATCH01_HOLD_FROM) {
-    // Claim the outpost (30 pts: start, ring bounty, feeders, two downs of the
-    // enemy avatar), then keep holding — forward runners at 2× walk through the
-    // dead ring's window.
+    // The outpost is claimed on arrival in its zone (30 pts: start, ring
+    // bounty, feeders, two downs of the enemy avatar); holding interact there
+    // then buys forward runners at 2×, which walk through the dead ring's window.
     p0.buttons = BUTTON_INTERACT;
   }
 

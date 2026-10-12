@@ -49,11 +49,13 @@ Two buffers, both written once per tick:
 - `writeSnapshot(state, out) → count` — per-entity, stride 10. Health bars and
   the radar come from here (`hpFrac`, `teamId`, `x`, `y`, `archetype`).
 - `writeMatchSnapshot(state, out)` — per-match scalars that have no per-entity
-  home: points per slot, unit counts, outpost ownership, capture progress, buy
-  progress, core HP fractions (−1 on gate arenas), respawn timer, avatar ammo,
-  winner. (Capture/buy progress and core HP were listed here before they were
-  actually written — they landed with `MATCH_SLOT_BUY_FRAC` /
-  `MATCH_SLOT_CAPTURE_FRAC` / `MATCH_SLOT_CORE_FRAC`, stride 8 → 11.)
+  home: points per slot, unit counts, outpost ownership, buy progress, respawn
+  timer, avatar ammo, winner, and the post-breach outro. (Capture/buy progress
+  and core HP were listed here before they were actually written — they landed
+  with `MATCH_SLOT_BUY_FRAC` / `MATCH_SLOT_CAPTURE_FRAC` / `MATCH_SLOT_CORE_FRAC`,
+  stride 8 → 11. Core HP left with the core (SIM_VERSION 32) and capture
+  progress with the capture timer (SIM_VERSION 34: a capture is instant), stride
+  11 → 9.)
 
 Both are pure reads of sim state into caller-owned buffers. They never mutate
 and are therefore invisible to `hashState` — adding a field to either cannot

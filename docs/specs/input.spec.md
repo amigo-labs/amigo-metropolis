@@ -202,14 +202,16 @@ Bit assignment (as shipped, `packages/sim/src/inputs.ts`):
 | 2 | `BUTTON_FIRE3` | Fire — special | held |
 | 3 | `BUTTON_TRANSFORM` | Transform (walker ↔ hover) | edge |
 | 4 | `BUTTON_JUMP` | Jump | edge |
-| 5 | `BUTTON_INTERACT` | Action / Interact: **press** to capture a neutral turret in range; **hold** to buy/claim at a console | edge + held |
+| 5 | `BUTTON_INTERACT` | Action / Interact: **press** to capture a neutral turret in range; **hold** to buy at a console | edge + held |
 | 6 | `BUTTON_TARGET_CYCLE` | Target-cycle (soft-lock, §4.4) | edge |
 
 Bit 7 is free. Purchase runs through Interact + console-pad presence (rules.md
 §3), not a discrete deploy command. Capture reads the same bit's rising edge: the
 original's action key (`[+0xac]+0x40` button latch, an edge — fcop-re/
 ranges-turrets-capture.md Q2) flips a neutral turret the frame it goes down within
-range, with no hold (rules.md §5, SIM_VERSION 34). No new bit and no wire change. (This renumbers the v0.1 draft's proposal —
+range, with no hold (rules.md §5, SIM_VERSION 34). No new bit and no wire change.
+Claiming an outpost needs no button at all: entering its claim zone with 30
+points claims it (rules.md §5, SIM_VERSION 35). (This renumbers the v0.1 draft's proposal —
 Transform/Jump were swapped — to match the code, which is the source of truth for
 replays and the wire frame.)
 

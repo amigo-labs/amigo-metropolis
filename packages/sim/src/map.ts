@@ -324,6 +324,17 @@ export interface MapData {
   readonly props: readonly MapProp[];
 }
 
+/**
+ * Is this one of the arenas imported from the original's Precinct Assault data?
+ * They are the arenas that carry the original's Dreadnought records
+ * (MapBase.juggernaut, fcop-fidelity.md I6); district-01 and the test maps do not.
+ * Rules the original has and Metropolis' own arenas keep their own balance for
+ * (an outpost claim's permanence, R14) are gated on this.
+ */
+export function isPrecinctAssault(map: MapData): boolean {
+  return map.bases[0].juggernaut !== undefined;
+}
+
 /** Playable extent in meters along one axis: [0, extent] on both axes. */
 export function worldExtent(map: MapData): number {
   return (map.size - 1) * map.cellSize;

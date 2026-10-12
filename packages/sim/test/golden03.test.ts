@@ -25,7 +25,9 @@ import { createSim, step } from "../src/sim";
 // forward wave leaves three ticks later.
 // 2959 -> 3716 at SIM_VERSION 33: the claim is funded by two downs of player 1's
 // avatar, which the script waits out (each pays at the victim's respawn).
-const BREACH_TICK_PIN = 3716;
+// 3716 -> 3701 at SIM_VERSION 35: the claim is taken on entering the zone, not
+// after a 0.5 s hold, so the forward wave leaves 15 ticks earlier.
+const BREACH_TICK_PIN = 3701;
 
 describe("golden-03-match beats", () => {
   it("avatar snipe, outpost claim, forward wave, breach on the pinned tick", () => {

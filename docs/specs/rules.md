@@ -134,7 +134,7 @@ Spending (at Base consoles / Outpost consoles):
 |-----------------|---------|------------|--------------|
 | Runner (tank)   | 1       | 2          | 20           |
 | Guardian (plane)| 1       | 2          | 20           |
-| Claim Outpost   | 30 (at the outpost itself) | —  | per outpost  |
+| Claim Outpost   | 30 (drive into its claim zone) | —  | per outpost  |
 | Juggernaut      | 50      | not available | 1          |
 | Fortress        | 50      | not available | 1          |
 
@@ -143,6 +143,8 @@ Juggernaut and Fortress open the first time a side holds 50 points and stay
 open for the rest of the match (the original enables their zones then).
 
 Buying = drive Avatar onto the console pad, hold interact for 0.5 s per unit.
+Claiming an outpost needs no button: entering its claim zone with 30 points
+claims it (§5).
 Points are visible to both players (open information, like the original).
 
 ## 4. Units
@@ -191,9 +193,24 @@ Avatar 300 HP; walker speed 5, hover speed 9.
   captured until it is destroyed; it then respawns **neutral after 25 s** (the
   original's spawner period; was 45 s). This used to be "stand in a 5 m radius for
   3 s uncontested, avatars only".
-- **Outpost**: claimable for 30 pts at its console. Grants: forward spawn for
-  Runners/Guardians (at 2× cost), ammo pad, 2 own turret slots. Enemy can
-  destroy an owned outpost's console to revert it to neutral (claimable again).
+- **Outpost**: claimed by **driving into its claim zone with 30 pts** — no button,
+  no hold; −30, first come first served (the original's touch zone, SIM_VERSION
+  35, `fcop-fidelity.md` R14). The zone is `OUTPOST_CLAIM_RADIUS` around the
+  outpost console, which stays as its visual anchor. A player's avatar trips it;
+  the Warden claims only when it has decided to (the original's Sky Captain claims
+  by a script decision, not by flying over). Grants: forward spawn for
+  Runners/Guardians (at 2× cost) and an ammo pad.
+  - On the **imported arenas a claim is permanent**, as the original's is: the
+    console takes no damage and nothing targets it.
+  - On district-01 (Metropolis' own outposts-as-a-menu, a deliberate deviation)
+    the enemy can still destroy an owned outpost's console to revert it to
+    neutral (claimable again after 10 s).
+  - The original also opens the owner's two outpost-turret spawners there (25 s
+    respawn) and shuts the enemy's. Metropolis' outposts have no turret slots —
+    on the imported arenas they are two invented mid-field pads, while the
+    original has four outposts with their own claim zones, pads and turret
+    plates — so that part waits on importing the original's outposts (ledger
+    R14).
 
 ## 6. Arena anatomy
 
