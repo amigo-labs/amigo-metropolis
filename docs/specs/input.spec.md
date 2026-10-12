@@ -162,16 +162,35 @@ Setting `aimAssistMode: "off" | "assist" | "lock"` — a LOCAL client setting
   only shapes the player's own transmitted aim: no sim intervention, no
   cross-client divergence (`netcode.spec` §2). Defaults are playtest-tunable (§9).
 
-**Lock (tracking)** — shipped, in the sim (`systemAvatarMovement`, `cycleLockTarget`):
-- The **Target-Cycle** button (bit 6, edge-triggered) acquires the nearest enemy
-  or, when already locked, cycles to the next by ascending entity id. The lock is
-  per-player sim state (`state.lockTarget`), so it resolves identically on every
-  peer — **no target id is transmitted**.
-- While a valid lock is held, the target is the heading the hull turns to, at
-  its turn rate (since SIM_VERSION 39; it snapped before). The transmitted
-  `aimX/aimY` is the fallback.
-- The lock **releases** when the target dies, leaves `AVATAR_LOCK_RANGE`, or the
-  holder dies — falling back to free aim (re-lock via the key).
+**Lock** — in the sim (`systemAvatarMovement` → `updateLock`), and since
+SIM_VERSION 40 the original's (`fcop-fidelity.md` W2; `fcop-re/player-and-weapons.md`
+§7, `player_target_acquire` / `player_target_hold`):
+- **Range 12 m** (`AVATAR_LOCK_RANGE`, 0x18000 wu), horizontal and centre to
+  centre. Was 44 m, sized to a 40 m hitscan the original does not have.
+- **Acquire cone ±12.5°** about the hull's facing (`AVATAR_LOCK_ACQUIRE_COS`),
+  **hold cone ±25°** (`AVATAR_LOCK_HOLD_COS`). A lock past 12 m or outside the
+  hold cone drops; so does one whose target dies.
+- **Auto-acquire**: every tick with no lock, the nearest lockable target in the
+  acquire cone is locked — in every aim mode, because the original's guns hit
+  nothing but the lock (§2 of `rules.md`). No line-of-sight test: the original's
+  lock has none; a wall stops the *shot* instead.
+- **Target-Cycle** (bit 6, edge-triggered; dropped while transforming): the
+  nearest *other* target in the acquire cone replaces the lock, or the lock stays
+  when there is none — so with two targets in the cone it alternates between them,
+  as the original's exclude-the-current search does. (It used to acquire the
+  nearest within 44 m in any direction and then step through every enemy by
+  ascending id.)
+- **Lockable**: anything on another team — the enemy avatar or Warden, units,
+  turrets the enemy owns — except projectiles, uncaptured neutral turrets (the
+  original's search skips them) and, on the imported arenas, outpost consoles
+  (indestructible there). The sandbox's neutral dummies stay lockable.
+- **Steering**: a lock the player took with Target-Cycle is the heading the hull
+  turns to, at its turn rate (`state.lockSteer`; the `lock` mode's feel). An
+  auto-acquired lock aims the weapons and does **not** turn the hull: turning away
+  25° drops it, as in the original, whose lock never turns the mech. The
+  transmitted `aimX/aimY` is the heading otherwise. The lock and the steer flag
+  are per-player sim state, so they resolve identically on every peer — **no
+  target id is transmitted**.
 - **Auto-elevation** for flying targets (§4.3) is deferred: avatar weapons are
   ground-plane only today, so there is no vertical channel to drive yet.
 
@@ -265,9 +284,9 @@ target — it sends only the Target-Cycle button and the sim resolves the tracki
 - [x] **Aim representation:** a quantized int8 direction vector (`aimX/aimY`), not
       brads. Manual air-pitch is out; auto-elevation via lock is deferred (§4.3).
 - [x] **Soft-lock modes:** `off` / `assist` / `lock` as shipped (§4.4).
-- [x] **Target-acquisition (lock):** nearest within `AVATAR_LOCK_RANGE` on
-      acquire, then cycle by ascending entity id; on target loss it releases to
-      free-aim and re-locks via the key.
+- [x] **Target-acquisition (lock):** the original's since SIM_VERSION 40 — 12 m,
+      ±12.5° to acquire (by the key, or automatically with no lock), ±25° to
+      hold; the key takes the nearest *other* target in the cone (§4.4).
 - [~] **`assistConeDeg` / `assistStrength`:** defaults 25° / 0.5 shipped; the feel
       pass stays open like the other playtest passes.
 - [ ] **Mode switch:** currently boot-time (`?aim=`); an in-menu / mid-match

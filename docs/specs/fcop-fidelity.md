@@ -106,7 +106,7 @@ Decision column: **adopt** = take the original's value; **keep** = deliberate de
 | # | Metropolis had | Original | Decision | Status |
 |---|---|---|---|---|
 | W1 | Damage and rate scaled from the 55 px bars; ranges, ammo and speeds invented | Full A/B records for all 15 weapons in the mission data (`player-weapons.json`) | adopt | open |
-| W2 | Soft lock 44 m, hitscan hits anything on the line | Lock **12 m**, acquire ±12.5°, hold ±25°. Hitscan damages **only the locked target** | adopt | open |
+| W2 | Soft lock 44 m, hitscan hits anything on the line | Lock **12 m**, acquire ±12.5°, hold ±25°. Hitscan damages **only the locked target** | adopt | lock adopted in "Lock on the original's 12 m cones", SIM_VERSION 40: `AVATAR_LOCK_RANGE` 12 (horizontal), acquire cos 0xf9ee / hold cos 0xe804 about the facing, auto-acquire every tick without a lock, the cycle press takes the nearest other target in the cone (or keeps the lock); no LOS test (the original has none). Turrets and units are lockable; uncaptured neutral turrets (their skip flag, M) and the imported arenas' consoles are not. **Kept Metropolis':** a lock taken by the cycle press steers the hull (`lockSteer`, the `lock` aim mode); an auto-acquired one does not. Lock-only hitscan damage: open (the weapons commit) |
 | W3 | Turret damage 15 (global) | Every turret, neutral turret and Dreadnought gun uses weapon 3: **100 dmg every 2.0 s**, 12 m, 7.62 m/s lead-aimed round, no splash; fires within ±22.5° of the barrel | adopt | open |
 | W4 | "Reach mismatch" note (`balance.ts`) | Dissolves: player hitscan 12 m = turret 12 m | adopt | open |
 

@@ -16,6 +16,8 @@ import {
   ARCHETYPE_RADIUS,
   AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HP,
+  AVATAR_LOCK_ACQUIRE_COS,
+  AVATAR_LOCK_HOLD_COS,
   AVATAR_LOCK_RANGE,
   AVATAR_WALKER_MAX_SLOPE,
   BASE_TURRET_RESPAWN_TICKS,
@@ -294,8 +296,17 @@ export interface SimState {
   /** Hold-to-buy per player: encoded console target (-1 none) + held ticks. */
   readonly buyTarget: Int32Array;
   readonly buyProgress: Int32Array;
-  /** Soft-lock target entity per player (-1 none); acquired/cycled in-sim. */
+  /**
+   * The X1-Alpha's lock per player (-1 none): the original's view+0x6c, held,
+   * cycled and auto-acquired in-sim (`updateLock`). Hitscan guns damage only it.
+   */
   readonly lockTarget: Int32Array;
+  /**
+   * 1 while the lock was taken by the player's own cycle press: then it is the
+   * heading the hull turns to (input.spec §4.4 `lock` mode). 0 for none or an
+   * auto-acquired lock, which aims the weapons only.
+   */
+  readonly lockSteer: Uint8Array;
   /**
    * Avatar loadout indices per player (Future Cop style gun/heavy/special).
    * Config-only — not hashed (peers agree via MatchConfig / createSim options).
@@ -646,6 +657,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     outpostRespawn: new Int32Array(map.outpostSpots.length),
     buyTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     lockTarget: new Int32Array(MAX_PLAYERS).fill(-1),
+    lockSteer: new Uint8Array(MAX_PLAYERS),
     buyProgress: new Int32Array(MAX_PLAYERS),
     loadoutGun: new Uint8Array(MAX_PLAYERS),
     loadoutHeavy: new Uint8Array(MAX_PLAYERS),
@@ -883,18 +895,15 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       ? ent.height[id] > ride + HOVER_HOLD_DOWN || vz > 0
       : ent.height[id] > ride + GROUND_EPS || vz > 0;
 
-    // Soft-lock (input.spec §4.4 "lock"): resolve before facing/drive so the
-    // hull turns toward the locked target this tick. The cycle press is
-    // dropped while transforming, as the original drops the lock-cycle bit.
-    if (!nowLocked && (pressed & BUTTON_TARGET_CYCLE) !== 0) cycleLockTarget(state, p, id, x, y);
+    // The lock (fcop-fidelity.md W2): hold, cycle, auto-acquire, against the
+    // facing the hull had coming into this tick. Resolved before facing/drive so
+    // a steering lock turns the hull this tick. The cycle press is dropped while
+    // transforming, as the original drops the lock-cycle bit.
+    updateLock(state, p, id, !nowLocked && (pressed & BUTTON_TARGET_CYCLE) !== 0);
     // The capture press is an edge, like the original's button latch
     // (fcop-re/ranges-turrets-capture.md Q2); systemCapture consumes it.
     if ((pressed & BUTTON_INTERACT) !== 0) state.capturePress[p] = 1;
-    let lockId = state.lockTarget[p];
-    if (lockId >= 0 && !isLockValid(state, p, id, lockId, x, y)) {
-      lockId = -1;
-      state.lockTarget[p] = -1;
-    }
+    const lockId = state.lockSteer[p] === 1 ? state.lockTarget[p] : -1;
 
     // The stick, unit-clamped; nothing while transforming.
     let mx = nowLocked ? 0 : input.moveX * AXIS_SCALE;
@@ -1216,77 +1225,128 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
   }
 }
 
-/** Lockable = enemy combat entities: avatars, spawned units, and the Warden. */
-function isLockable(archetype: number): boolean {
-  return archetype <= ARCHETYPE.FORTRESS || archetype === ARCHETYPE.WARDEN;
-}
-
-/** A lock holds while its target is a live enemy within AVATAR_LOCK_RANGE. */
-function isLockValid(
-  state: SimState,
-  player: number,
-  selfId: number,
-  targetId: number,
-  x: number,
-  y: number,
-): boolean {
+/**
+ * What the X1-Alpha's lock may take (fcop-fidelity.md W2). The original's search
+ * (`cact_find_target_near`) takes any live actor whose team byte differs from the
+ * mech's, so enemy turrets are locked like units: they have to be, because a
+ * hitscan gun damages nothing but its lock. Not lockable:
+ * - projectiles;
+ * - a neutral turret before it is captured — the original's capture clears that
+ *   turret's flag bit 0, the search's skip bit, so an uncaptured one is skipped
+ *   (ranges-turrets-capture.md Q2; the reading is the flag's, M). The sandbox's
+ *   neutral target dummies are Metropolis' own and stay lockable;
+ * - an outpost console on an imported arena (it takes no damage, R14); on
+ *   district-01 an enemy-owned console stays a target, as it is destructible there.
+ */
+function isLockable(state: SimState, player: number, selfId: number, t: number): boolean {
   const ent = state.ent;
-  if (targetId === selfId || !ent.alive[targetId]) return false;
-  const team = ent.team[targetId];
-  if (team < 0 || team === player) return false; // neutral or own team
-  if (!isLockable(ent.archetype[targetId])) return false;
-  const dx = ent.posX[targetId] - x;
-  const dy = ent.posY[targetId] - y;
-  if (dx * dx + dy * dy > AVATAR_LOCK_RANGE * AVATAR_LOCK_RANGE) return false;
-  // A wall breaks (and prevents) the lock — same visibility rule as targeting.
-  return !segmentBlocked(state.map, x, y, ent.posX[targetId], ent.posY[targetId]);
+  if (t === selfId || !ent.alive[t] || ent.hp[t] <= 0) return false;
+  const team = ent.team[t];
+  if (team === player) return false;
+  const arch = ent.archetype[t];
+  if (arch === ARCHETYPE.PROJECTILE) return false;
+  if (team === TEAM_NEUTRAL) return arch === ARCHETYPE.TURRET && ent.mode[t] === TURRET_DUMMY;
+  if (arch === ARCHETYPE.CONSOLE) return !isPrecinctAssault(state.map);
+  return true;
 }
 
 /**
- * Target-Cycle (input.spec §4.4): with no lock, acquire the nearest in-range
- * enemy (ties broken by lowest entity id); with a lock, cycle to the next valid
- * enemy by ascending id, wrapping. Sets `lockTarget[player]` to -1 when nothing
- * is in range. Scans entity arrays in dense id order — identical on every peer.
+ * `cact_target_score` for the lock: the horizontal distance to `t` if it is
+ * inside AVATAR_LOCK_RANGE and inside the cone `cos` about the hull's facing
+ * (`fx`, `fy`), else -1. Like the original, a target closer than the cone's
+ * minimum distance passes the cone.
  */
-function cycleLockTarget(
+function lockScore(
   state: SimState,
-  player: number,
-  selfId: number,
+  t: number,
   x: number,
   y: number,
-): void {
+  fx: number,
+  fy: number,
+  cos: number,
+): number {
   const ent = state.ent;
-  const cur = state.lockTarget[player];
-  if (cur < 0) {
-    let best = -1;
-    let bestD2 = AVATAR_LOCK_RANGE * AVATAR_LOCK_RANGE + 1;
-    for (let e = 0; e < ent.high; e++) {
-      if (!isLockValid(state, player, selfId, e, x, y)) continue;
-      const dx = ent.posX[e] - x;
-      const dy = ent.posY[e] - y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bestD2) {
-        best = e;
-        bestD2 = d2;
-      }
-    }
-    state.lockTarget[player] = best;
-    return;
+  const dx = ent.posX[t] - x;
+  const dy = ent.posY[t] - y;
+  const d2 = dx * dx + dy * dy;
+  if (d2 >= AVATAR_LOCK_RANGE * AVATAR_LOCK_RANGE) return -1;
+  const d = Math.sqrt(d2);
+  if (d > LOCK_CONE_MIN_DISTANCE && dx * fx + dy * fy < cos * d) return -1;
+  return d;
+}
+
+/** The original's `CACT_TARGET_CONE_MIN_DISTANCE`, 8 wu: no cone test inside it. */
+const LOCK_CONE_MIN_DISTANCE = 8 / 8192;
+
+/**
+ * `cact_find_target_near` for the lock: the nearest lockable target inside the
+ * acquire cone, skipping `exclude`. Dense id order, strictly nearer wins, so a tie
+ * keeps the lowest id on every peer. -1 when there is none.
+ */
+function findLockTarget(state: SimState, player: number, selfId: number, exclude: number): number {
+  const ent = state.ent;
+  const x = ent.posX[selfId];
+  const y = ent.posY[selfId];
+  const fx = ent.aimX[selfId];
+  const fy = ent.aimY[selfId];
+  let best = -1;
+  let bestD = AVATAR_LOCK_RANGE;
+  for (let t = 0; t < ent.high; t++) {
+    if (t === exclude || !isLockable(state, player, selfId, t)) continue;
+    const d = lockScore(state, t, x, y, fx, fy, AVATAR_LOCK_ACQUIRE_COS);
+    if (d < 0 || d >= bestD) continue;
+    best = t;
+    bestD = d;
   }
-  // Already locked: advance to the next valid id after cur, wrapping to 0..cur.
-  for (let e = cur + 1; e < ent.high; e++) {
-    if (isLockValid(state, player, selfId, e, x, y)) {
-      state.lockTarget[player] = e;
-      return;
-    }
+  return best;
+}
+
+/**
+ * The lock, once a tick, in the original's three steps (fcop-fidelity.md W2;
+ * fcop-re/player-and-weapons.md §7):
+ * 1. HOLD (`player_target_hold`): a lock drops when its target is gone, no longer
+ *    lockable, past 12 m or outside the +-25° hold cone about the facing.
+ * 2. CYCLE (`player_target_acquire(0)`, the lock-cycle press, not while
+ *    transforming): the nearest OTHER target in the +-12.5° acquire cone replaces
+ *    the lock; with none, the lock stays. With two targets in the cone the press
+ *    alternates between them, as the original's exclude-the-current search does.
+ * 3. AUTO-ACQUIRE (`player_target_acquire(1)`, every tick while there is no lock):
+ *    the nearest target in the acquire cone.
+ *
+ * No line of sight: the original's lock does not test terrain (a wall stops the
+ * shot instead, `player_fire_direct`'s trace).
+ *
+ * Metropolis steers by an absolute heading (input.spec §4.1), and its `lock` aim
+ * mode makes the lock the heading the hull turns to. Only a lock the PLAYER took
+ * with the cycle press does that (`lockSteer`); an auto-acquired one aims the
+ * weapons and leaves the hull to the aim, so turning away 25° drops it, as in the
+ * original, where the lock never turns the mech.
+ */
+function updateLock(state: SimState, player: number, selfId: number, cycle: boolean): void {
+  const ent = state.ent;
+  let lock = state.lockTarget[player];
+  if (lock >= 0) {
+    const ok =
+      isLockable(state, player, selfId, lock) &&
+      lockScore(
+        state,
+        lock,
+        ent.posX[selfId],
+        ent.posY[selfId],
+        ent.aimX[selfId],
+        ent.aimY[selfId],
+        AVATAR_LOCK_HOLD_COS,
+      ) >= 0;
+    if (!ok) lock = -1;
   }
-  for (let e = 0; e <= cur; e++) {
-    if (isLockValid(state, player, selfId, e, x, y)) {
-      state.lockTarget[player] = e;
-      return;
-    }
+  if (lock < 0) state.lockSteer[player] = 0;
+  if (cycle) {
+    const next = findLockTarget(state, player, selfId, lock);
+    if (next >= 0) lock = next;
+    if (lock >= 0) state.lockSteer[player] = 1;
   }
-  state.lockTarget[player] = -1;
+  if (lock < 0) lock = findLockTarget(state, player, selfId, -1);
+  state.lockTarget[player] = lock;
 }
 
 /**
@@ -2086,7 +2146,8 @@ function systemDamageDeath(state: SimState): void {
       if (state.buffPower.length > 0) state.buffPower[player] = 0;
       state.buyTarget[player] = -1; // death drops any buy hold
       state.buyProgress[player] = 0;
-      state.lockTarget[player] = -1; // and any soft-lock
+      state.lockTarget[player] = -1; // and any lock
+      state.lockSteer[player] = 0;
     } else if (archetype === ARCHETYPE.TURRET) {
       let slotted = false;
       for (let k = 0; k < state.dummyEntity.length; k++) {
@@ -2547,6 +2608,8 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.avatarIdle[p] >>> 0);
     h = fnv1aU32(h, state.avatarLunge[p] >>> 0);
   }
+  // Appended at SIM_VERSION 40: which locks steer the hull (fcop-fidelity.md W2).
+  for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.lockSteer[p]);
   // Weapon profiles are a side array like entLayer: hashed only where they exist.
   if (state.map.weapons.length > 0) {
     for (let id = 0; id < ent.high; id++) {

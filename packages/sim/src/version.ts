@@ -671,4 +671,18 @@
 //     turns on the spot before each leg and snipe and aims at player 1's
 //     measured stand; it breaches at 4002 (was 3701). 04's patrol is downed once
 //     (was twice) and ends on 90 points.
-export const SIM_VERSION = 39;
+// v40: the X1-Alpha's lock is the original's (docs/specs/fcop-fidelity.md W2;
+//     fcop-re/player-and-weapons.md §7, `player_target_acquire` 0x0045a240 and
+//     `player_target_hold` 0x0045a2a0). 12 m horizontal (AVATAR_LOCK_RANGE 44 ->
+//     12), acquired inside +-12.5° of the hull's facing and held inside +-25°;
+//     auto-acquired every tick while there is no lock (it was taken only by the
+//     Target-Cycle press, in any direction); the press takes the nearest OTHER
+//     target in the acquire cone, or keeps the lock (it stepped through every
+//     enemy by ascending id). No line-of-sight test (the original has none).
+//     Enemy turrets and units are lockable as well as avatars; uncaptured neutral
+//     turrets and the imported arenas' consoles are not. Only a lock the player
+//     took with the press turns the hull (new hashed per-player `lockSteer`); an
+//     auto-acquired one aims the weapons alone. Goldens: all seven re-record for
+//     the new hash field and the auto-acquired locks; none presses Target-Cycle,
+//     and nothing fires along the lock yet, so no trajectory moves.
+export const SIM_VERSION = 40;

@@ -342,11 +342,21 @@ export const AVATAR_AMMO_SPECIAL = 5;
 export const PRIMARY_COOLDOWN_TICKS = 5;
 export const PRIMARY_DAMAGE = 8;
 export const PRIMARY_RANGE = 40;
-// Soft-lock (input.spec §4.4 "lock"): the max distance at which the Target-Cycle
-// button can acquire/hold an enemy — a touch beyond PRIMARY_RANGE so you can
-// lock a target just before it enters firing range. A lock that drifts past this
-// releases back to free aim.
-export const AVATAR_LOCK_RANGE = 44;
+/**
+ * The X1-Alpha's lock (fcop-fidelity.md W2; fcop-re/player-and-weapons.md §7,
+ * `player_target_acquire` 0x0045a240 / `player_target_hold` 0x0045a2a0): 0x18000
+ * wu = 12 m, HORIZONTAL and centre to centre (`cact_target_score`). Was 44, sized
+ * to a 40 m hitscan the original does not have.
+ */
+export const AVATAR_LOCK_RANGE = 0x18000 / 8192;
+/**
+ * The acquire cone, cos 0xf9ee (+-12.5°) about the hull's facing: the lock is
+ * taken only by something nearly straight ahead, by the cycle press or by the
+ * auto-acquire that runs every tick while there is no lock.
+ */
+export const AVATAR_LOCK_ACQUIRE_COS = 0xf9ee / 65536;
+/** The hold cone, cos 0xe804 (+-25°): a lock outside it (or past 12 m) drops. */
+export const AVATAR_LOCK_HOLD_COS = 0xe804 / 65536;
 export const HEAVY_COOLDOWN_TICKS = 24;
 export const HEAVY_DAMAGE = 60;
 export const HEAVY_SPEED = 25;
