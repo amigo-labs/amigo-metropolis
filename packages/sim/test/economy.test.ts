@@ -396,36 +396,52 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
 });
 
 describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
-  /** Puts `player`'s avatar in the outpost's claim zone for one tick, no button. */
-  function claim(sim: SimState, player: number): void {
+  /** Stands `player`'s avatar on the outpost console for a tick, button up. */
+  function stand(sim: SimState, player: number): void {
     sim.ent.posX[player] = 30;
     sim.ent.posY[player] = 46; // on the outpost console, inside its claim zone
     inputs.players[player].buttons = 0;
     step(sim, inputs);
   }
+  /** Stands there, then presses the action key (its rising edge) for one tick. */
+  function claim(sim: SimState, player: number): void {
+    stand(sim, player);
+    inputs.players[player].buttons = BUTTON_INTERACT;
+    step(sim, inputs);
+    inputs.players[player].buttons = 0;
+  }
 
-  it("entering a neutral outpost's claim zone with 30 points claims it: no button", () => {
-    // Pinned a 0.5 s interact hold at the console until SIM_VERSION 35. The
-    // original claims on entry with >= 30 points (fcop-re/ai-and-rules.md §2).
+  it("the action key pressed in a neutral outpost's claim zone with 30 points claims it", () => {
+    // Pinned a 0.5 s interact hold at the console until SIM_VERSION 35, then a
+    // claim on entry until SIM_VERSION 48. The original's claim zone carries the
+    // op-10 gate bit 0x04: a press while touching it (fcop-re/outposts.md Q3).
     reset();
     const sim = freshSim();
     sim.points[0] = 40;
-    claim(sim, 0);
+    for (let t = 0; t < 30; t++) stand(sim, 0);
+    expect(sim.outpostOwner[0]).toBe(-1); // entering is not enough
+    inputs.players[0].buttons = BUTTON_INTERACT;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
     expect(findEvents(sim, EV_CLAIM).length).toBe(1);
     expect(sim.outpostOwner[0]).toBe(0);
     expect(sim.points[0]).toBe(40 - COST_OUTPOST_CLAIM);
     const cid = sim.outpostConsole[0];
     expect(sim.ent.team[cid]).toBe(0);
-    // Edge of the zone: OUTPOST_CLAIM_RADIUS around the console.
+    // Edge of the zone: OUTPOST_CLAIM_RADIUS around the console, district-01's
+    // size (an imported arena's zone is its record's 1.2 m, paRules.test.ts).
     const other = freshSim();
     other.points[0] = 40;
     other.ent.posX[0] = 30 + OUTPOST_CLAIM_RADIUS + 0.1;
     other.ent.posY[0] = 46;
     step(other, inputs);
+    inputs.players[0].buttons = BUTTON_INTERACT;
+    step(other, inputs);
+    inputs.players[0].buttons = 0;
     expect(other.outpostOwner[0]).toBe(-1);
   });
 
-  it("is refused without the points, and taken the moment they arrive in the zone", () => {
+  it("is refused without the points, and taken on the first press once they arrive", () => {
     reset();
     const sim = freshSim();
     sim.points[0] = COST_OUTPOST_CLAIM - 1;
@@ -433,6 +449,8 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     expect(sim.outpostOwner[0]).toBe(-1); // too poor: nothing happens
     expect(sim.points[0]).toBe(COST_OUTPOST_CLAIM - 1);
     sim.points[0] = COST_OUTPOST_CLAIM;
+    stand(sim, 0);
+    expect(sim.outpostOwner[0]).toBe(-1); // the points alone claim nothing
     claim(sim, 0);
     const claimed = findEvents(sim, EV_CLAIM);
     expect(claimed.length).toBe(1);

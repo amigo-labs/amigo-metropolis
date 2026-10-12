@@ -76,13 +76,16 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // imported arenas, whose turret profiles and trigger volumes changed.
   // Re-frozen at SIM_VERSION 47: urban-jungle's team-0 ring lost the outpost
   // plate turret the half-cell pad key had leaked into it (9 -> 8).
-  "golden-05-fcop": { last: 847665659, count: 2700 },
+  // Re-frozen at SIM_VERSION 48: the arena's four original outposts replace its
+  // two invented consoles (two more console entities in the store).
+  "golden-05-fcop": { last: 3223870856, count: 2700 },
   "golden-06-layered": { last: 3892665265, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
   // Re-frozen at SIM_VERSION 44 (the original's route followers): 07's bought
   // units drive la-cantina's Cnet by the step chooser at 1.98 m/s.
-  "golden-07-pa": { last: 108646463, count: 3600 },
+  // Re-frozen at SIM_VERSION 48: la-cantina's four original outposts.
+  "golden-07-pa": { last: 2720106409, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

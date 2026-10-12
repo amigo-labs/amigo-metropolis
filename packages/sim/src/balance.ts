@@ -890,13 +890,20 @@ export const CAPTURE_RADIUS = 5;
  */
 export const NEUTRAL_TURRET_RESPAWN_TICKS = 750;
 /**
- * Outpost claim zone (fcop-fidelity.md R14): driving into it with
- * COST_OUTPOST_CLAIM points claims the outpost, no button and no hold — the
- * original's type-14 touch zone (fcop-re/ai-and-rules.md §2). The zone's size is
- * not in the extracted record, so it is ours: the console pad's radius, with the
- * console as the zone's visual anchor.
+ * Outpost claim zone (fcop-fidelity.md R14): pressing the action key inside it
+ * with COST_OUTPOST_CLAIM points claims the outpost, no hold — the original's
+ * type-14 zone with the op-10 gate bit 0x04 (fcop-re/outposts.md Q3). On the
+ * imported arenas the zone is the record's 1.2 m (MapOutpost.zone) plus the
+ * toucher's ARCHETYPE_RADIUS; this is the size of Metropolis' own outposts
+ * (district-01): the console pad's radius, the console as the zone's anchor.
  */
 export const OUTPOST_CLAIM_RADIUS = CONSOLE_RADIUS;
+/**
+ * An outpost plate's team turret comes back 25 s after each death, for the rest
+ * of the match: its Csac spawner's tSAC is -1500 = 7500 engine ticks at 300 Hz,
+ * opened by the claim and never shut again (fcop-re/outposts.md Q1, Q3).
+ */
+export const OUTPOST_TURRET_RESPAWN_TICKS = 750;
 /**
  * Destroyed outpost consoles return (neutral) after this many ticks. district-01
  * only: on the imported arenas a claim is permanent, as the original's is (R14),

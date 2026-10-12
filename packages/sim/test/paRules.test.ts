@@ -10,8 +10,13 @@ import { ARCHETYPE } from "../src/archetypes";
 import {
   ARCHETYPE_RADIUS,
   AVATAR_HP,
+  CONSOLE_HOLD_TICKS,
+  COST_RUNNER,
   DREADNOUGHT_GUN_DAMAGE,
   MATCH_OUTRO_TICKS,
+  NEUTRAL_TURRET_RESPAWN_TICKS,
+  OUTPOST_COST_MULTIPLIER,
+  OUTPOST_TURRET_RESPAWN_TICKS,
   PICKUP_HEALTH,
   PICKUP_INVIS,
   PICKUP_INVIS_TICKS,
@@ -19,6 +24,7 @@ import {
   PICKUP_POWER,
   PICKUP_POWER_HEAVY,
   PICKUP_POWER_SPECIAL,
+  POINTS_TURRET_DIES,
   RESPAWN_TICKS,
   TRIGGER_REARM_TICKS,
   TURRET_ALERT_COOLDOWN_TICKS,
@@ -31,14 +37,24 @@ import {
   EV_BREACH,
   EV_HIT,
   EV_PICKUP,
+  EV_PURCHASE,
   EV_SHOT,
   EV_TURRET_LOST,
   EV_TURRET_UNDER_FIRE,
   EVENT_STRIDE,
 } from "../src/events";
 import { BUTTON_FIRE1, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
-import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID } from "../src/map";
-import { createSim, MODE_HOVER, MODE_WALKER, type SimState, spawnUnit, step } from "../src/sim";
+import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID, resolveHeight } from "../src/map";
+import {
+  claimOutpostSlot,
+  createSim,
+  MODE_HOVER,
+  MODE_WALKER,
+  type SimState,
+  spawnUnit,
+  step,
+  TURRET_DEFENSE,
+} from "../src/sim";
 import { nearestEnemyInRange } from "../src/units";
 
 const idle = createTickInputs();
@@ -65,6 +81,15 @@ function countAliveOf(state: SimState, archetype: number, team: number): number 
 }
 
 const map = getMapById(LA_CANTINA_ID);
+/** Every arena imported from the original's Precinct Assault missions. */
+const PA_ARENA_IDS = [
+  "la-cantina",
+  "urban-jungle",
+  "proving-ground",
+  "bug-hunt",
+  "hollywood-keys",
+  "venice-beach",
+];
 
 describe("la-cantina loads the original parameters into the sim", () => {
   it("spawns every capturable pad and ring turret, and no guns on the base", () => {
@@ -479,19 +504,63 @@ describe("capture on the imported arenas (fcop-fidelity.md R12)", () => {
 });
 
 describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
-  it("a claim is permanent: the console takes no damage and nothing targets it", () => {
-    // venice-beach, because la-cantina's consoles stand inside parapets no shot
-    // reaches; a test that cannot hit the console proves nothing.
+  /** Stands avatar `p` at (x, y) on the ground, then presses the action key. */
+  function pressAt(state: SimState, p: number, x: number, y: number): void {
+    const ent = state.ent;
+    const a = state.avatarId[p];
+    const release = createTickInputs();
+    ent.posX[a] = x;
+    ent.posY[a] = y;
+    ent.height[a] = resolveHeight(state.map, x, y, 0);
+    step(state, release);
+    const press = createTickInputs();
+    press.players[p].buttons = BUTTON_INTERACT;
+    ent.posX[a] = x;
+    ent.posY[a] = y;
+    step(state, press);
+  }
+
+  it("imports the original's four outposts, each with two plates on a neutral turret", () => {
+    for (const id of PA_ARENA_IDS) {
+      const m = getMapById(id);
+      expect(m.outpostSpots.length).toBe(4);
+      expect(m.outposts.length).toBe(4);
+      expect(m.outpostPlates.length).toBe(8);
+      for (const o of m.outposts) expect(o.zone).toBeCloseTo(1.2, 2);
+      for (const pl of m.outpostPlates) {
+        // Each team's record stands on its neutral's plate, to a few cm.
+        const n = m.turretSpots[pl.spot];
+        for (const t of pl.turrets) expect(Math.hypot(t.x - n.x, t.y - n.y)).toBeLessThan(0.2);
+      }
+    }
+    // la-cantina (Mp) outpost 0: claim zone (116.5, 96.125) + 16 on x
+    // (fcop-re/outposts.md, Mp table).
+    expect(map.outpostSpots[0].x).toBeCloseTo(132.5, 3);
+    expect(map.outpostSpots[0].y).toBeCloseTo(96.125, 3);
+  });
+
+  it("claims on the action key inside the 1.2 m zone, not on entry, and for good", () => {
+    // venice-beach outpost 0 from 5 m east: an open line on which the console is
+    // hit 23 times in 2 s with the two guards below removed (measured); a test
+    // that cannot hit the console proves nothing.
     const vb = getMapById("venice-beach");
     const state = createSim(vb, 1);
     const ent = state.ent;
     const spot = vb.outpostSpots[0];
-    const a = state.avatarId[0];
+    const reach = vb.outposts[0].zone + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
     state.points[0] = 40;
-    ent.posX[a] = spot.x;
-    ent.posY[a] = spot.y;
-    step(state, idle);
+    const a = state.avatarId[0];
+    for (let t = 0; t < 10; t++) {
+      ent.posX[a] = spot.x;
+      ent.posY[a] = spot.y;
+      step(state, idle);
+    }
+    expect(state.outpostOwner[0]).toBe(-1); // standing in it is not a claim
+    pressAt(state, 0, spot.x + reach + 0.05, spot.y);
+    expect(state.outpostOwner[0]).toBe(-1); // just outside the zone
+    pressAt(state, 0, spot.x + reach - 0.05, spot.y);
     expect(state.outpostOwner[0]).toBe(0);
+    expect(state.points[0]).toBe(10);
     const cid = state.outpostConsole[0];
     const hp = ent.hp[cid];
     // The claimer steps off, or it would be the target and take the shots.
@@ -503,10 +572,10 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     // ...and the enemy avatar shooting it point-blank does not hurt it.
     const foe = state.avatarId[1];
     const fire = createTickInputs();
-    fire.players[1].aimX = 127;
+    fire.players[1].aimX = -127;
     fire.players[1].buttons = BUTTON_FIRE1;
     for (let k = 0; k < 60; k++) {
-      ent.posX[foe] = spot.x - 5; // an open line of fire (no wall in between)
+      ent.posX[foe] = spot.x + 5; // an open line of fire (no wall in between)
       ent.posY[foe] = spot.y;
       step(state, fire);
       for (let i = 0; i < state.events.count; i++) {
@@ -517,6 +586,118 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     expect(ent.alive[cid]).toBe(1);
     expect(ent.hp[cid]).toBe(hp);
     expect(state.outpostOwner[0]).toBe(0);
+  });
+
+  it("a claim kills its plates' neutral turrets for good and raises the claimer's own", () => {
+    // fcop-re/outposts.md Q1: DIE + SHUT the neutral, OPEN the claimer's type-8.
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    const plates = map.outpostPlates.filter((pl) => pl.outpost === 0);
+    expect(plates.length).toBe(2);
+    // Player 1 captured one of the plate's neutrals beforehand.
+    const taken = state.neutralTurretEntity[plates[0].spot];
+    ent.team[taken] = 1;
+    ent.ownerId[taken] = 1;
+    state.points[0] = 40;
+    state.points[1] = 0;
+    pressAt(state, 0, map.outpostSpots[0].x, map.outpostSpots[0].y);
+    expect(state.outpostOwner[0]).toBe(0);
+    // Its death paid nobody: player 1 has nothing, player 0 paid 30 only.
+    expect(state.points[1]).toBe(0);
+    expect(state.points[0]).toBe(10);
+    const turrets: number[] = [];
+    for (const pl of plates) {
+      const j = map.outpostPlates.indexOf(pl);
+      expect(state.neutralTurretEntity[pl.spot]).toBe(-1);
+      expect(state.neutralTurretRespawn[pl.spot]).toBe(-1);
+      const tid = state.plateTurretEntity[j];
+      expect(tid).toBeGreaterThanOrEqual(0);
+      expect(ent.team[tid]).toBe(0);
+      expect(ent.mode[tid]).toBe(TURRET_DEFENSE);
+      expect(ent.hp[tid]).toBe(pl.turrets[0].hp);
+      expect(ent.posX[tid]).toBeCloseTo(pl.turrets[0].x, 3);
+      turrets.push(j);
+    }
+    // The neutrals never come back; the claimer's turret does, 25 s after a death.
+    const j = turrets[0];
+    ent.hp[state.plateTurretEntity[j]] = 0;
+    step(state, idle);
+    expect(state.plateTurretEntity[j]).toBe(-1);
+    expect(state.points[1]).toBe(POINTS_TURRET_DIES); // an outpost turret's death pays
+    // The death tick counts: it stands again at the end of the 750th tick.
+    run(state, OUTPOST_TURRET_RESPAWN_TICKS - 2);
+    expect(state.plateTurretEntity[j]).toBe(-1);
+    step(state, idle);
+    expect(state.plateTurretEntity[j]).toBeGreaterThanOrEqual(0);
+    expect(ent.team[state.plateTurretEntity[j]]).toBe(0);
+    run(state, 2 * NEUTRAL_TURRET_RESPAWN_TICKS);
+    for (const pl of plates) expect(state.neutralTurretEntity[pl.spot]).toBe(-1);
+  });
+
+  it("an owned outpost sells a tank at its tank pad and a jet at its jet pad, 2 each", () => {
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    state.points[0] = 50;
+    pressAt(state, 0, map.outpostSpots[0].x, map.outpostSpots[0].y);
+    expect(state.outpostOwner[0]).toBe(0);
+    const o = map.outposts[0];
+    const buy = createTickInputs();
+    buy.players[0].buttons = BUTTON_INTERACT;
+    const a = state.avatarId[0];
+    const holdAt = (x: number, y: number): number => {
+      for (let t = 0; t < 2 * CONSOLE_HOLD_TICKS; t++) {
+        ent.posX[a] = x;
+        ent.posY[a] = y;
+        ent.height[a] = resolveHeight(map, x, y, 0);
+        step(state, buy);
+        for (let i = 0; i < state.events.count; i++) {
+          const e = i * EVENT_STRIDE;
+          if (state.events.data[e] === EV_PURCHASE) return state.events.data[e + 1];
+        }
+      }
+      return -1;
+    };
+    const tank = holdAt(o.tankPad.x, o.tankPad.y);
+    expect(tank).toBeGreaterThanOrEqual(0);
+    expect(ent.archetype[tank]).toBe(ARCHETYPE.RUNNER);
+    expect(state.points[0]).toBe(20 - COST_RUNNER * OUTPOST_COST_MULTIPLIER);
+    const jet = holdAt(o.jetPad.x, o.jetPad.y);
+    expect(jet).toBeGreaterThanOrEqual(0);
+    expect(ent.archetype[jet]).toBe(ARCHETYPE.GUARDIAN);
+    expect(ent.mode[jet]).toBe(1); // patrols outpost 0, the spawner it was built at
+    expect(state.points[0]).toBe(16);
+    // Not the other side's: player 1 on the same pad buys nothing.
+    const other = createSim(map, 1);
+    other.points[0] = 50;
+    other.points[1] = 50;
+    pressAt(other, 0, map.outpostSpots[0].x, map.outpostSpots[0].y);
+    const b = other.avatarId[1];
+    const foeBuy = createTickInputs();
+    foeBuy.players[1].buttons = BUTTON_INTERACT;
+    for (let t = 0; t < 2 * CONSOLE_HOLD_TICKS; t++) {
+      other.ent.posX[b] = o.tankPad.x;
+      other.ent.posY[b] = o.tankPad.y;
+      step(other, foeBuy);
+    }
+    expect(other.points[1]).toBe(50);
+  });
+
+  it("the Sky Captain's claim opens the same plates for its side", () => {
+    const state = createSim(map, 1, { wardenPlayer: 1, wardenDifficulty: 8 });
+    state.points[1] = 30;
+    expect(claimOutpostSlot(state, 1, 2)).toBe(true);
+    step(state, idle);
+    for (let j = 0; j < map.outpostPlates.length; j++) {
+      const pl = map.outpostPlates[j];
+      const tid = state.plateTurretEntity[j];
+      if (pl.outpost !== 2) {
+        expect(tid).toBe(-1);
+        continue;
+      }
+      expect(state.ent.team[tid]).toBe(1);
+      expect(state.ent.posX[tid]).toBeCloseTo(pl.turrets[1].x, 3);
+      expect(state.neutralTurretEntity[pl.spot]).toBe(-1);
+    }
   });
 
   it("the Warden claims by a decision, never by flying over an outpost", () => {

@@ -818,4 +818,22 @@
 //     every other feature are unchanged. Goldens: 05 (urban-jungle) re-records,
 //     one turret fewer; 01-04, 06 and 07 (la-cantina, whose rings were already
 //     8/8) are byte-identical (re-headered).
-export const SIM_VERSION = 47;
+// v48: the original's outposts on the imported arenas (fcop-fidelity.md R14;
+//     fcop-re/outposts.md). Each arena carries the original's four outposts
+//     (MapData.outposts/outpostPlates, imported from outposts.json) instead of
+//     two invented mid-field consoles: a 1.2 m type-14 claim zone (the console
+//     marker stands at its centre), a tank pad and a jet pad (2 points a unit,
+//     the owner's only), and two turret plates on a NeutralTurret each. A claim
+//     kills both plates' neutral turrets, unscored, whoever held them, and shuts
+//     their spawners (respawn -1); the claimer's own plate turret spawns at that
+//     tick's spawner pass and returns 750 ticks (25 s) after every death, for
+//     the rest of the match (new hashed plateTurretEntity/Respawn). On every
+//     arena a claim now needs the action key's rising edge inside the zone
+//     (the zone's op-10 gate bit 0x04), not just entering it; district-01 keeps
+//     its 3 m zone, its consoles and their destruction. The Sky Captain no
+//     longer adds 2 per owned outpost to its turret count: the plate turrets
+//     are real type-8 turrets now. Its outpost queues spawn at the pads.
+//     Goldens: 03 (district-01) claims at its press, a few ticks later than on
+//     entry; 05 (urban-jungle) and 07 (la-cantina) have new outpost consoles in
+//     the entity store; 01, 02, 04 and 06 are byte-identical (re-headered).
+export const SIM_VERSION = 48;

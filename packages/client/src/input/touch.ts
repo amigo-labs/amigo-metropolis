@@ -65,7 +65,7 @@ function capture(el: Element, pointerId: number): void {
 export class TouchInput implements LocalInputSource {
   readonly label = "Touch";
   readonly hint =
-    "left stick drive · right stick aim (auto-fire) · MODE transform · JUMP · hold USE to buy/claim · HVY/SPC fire";
+    "left stick drive · right stick aim (auto-fire) · MODE transform · JUMP · tap USE to capture/claim · hold to buy · HVY/SPC fire";
 
   // Stick ownership + state. The aim direction is remembered in the SCREEN
   // frame (x right, y up-screen) and rotated by the camera basis on sample,

@@ -284,6 +284,36 @@ export interface MapProp {
   readonly layer: number;
 }
 
+/**
+ * One of the original's outposts (fcop-re/outposts.md Q3), parallel to
+ * `MapData.outpostSpots` (the claim zone's centre, where the console marker
+ * stands). Precinct Assault arenas only.
+ */
+export interface MapOutpost {
+  /**
+   * The type-14 claim zone's and the pads' radius in metres (614 raw << 4 wu =
+   * 1.2 m), before the toucher's own radius.
+   */
+  readonly zone: number;
+  /** Where an owner buys a tank (Runner) and a jet (Guardian), at 2 points each. */
+  readonly tankPad: MapPoint;
+  readonly jetPad: MapPoint;
+}
+
+/**
+ * One outpost turret plate (fcop-re/outposts.md Q1): a NeutralTurret, live at
+ * start, and each side's type-8 turret record, shut until that side claims the
+ * outpost. The claim kills the neutral for good and opens the claimer's turret.
+ */
+export interface MapOutpostPlate {
+  /** Index into MapData.outposts / outpostSpots. */
+  readonly outpost: number;
+  /** Index into MapData.turretSpots: the plate's NeutralTurret. */
+  readonly spot: number;
+  /** The plate's team turret per team (index = team): position, weapon, hp, yaw. */
+  readonly turrets: readonly MapBaseTurret[];
+}
+
 export interface MapData {
   readonly id: string;
   /** Vertices per side (the grid is size × size, so (size-1)² cells). */
@@ -338,8 +368,16 @@ export interface MapData {
   readonly lanes: readonly (readonly MapPoint[])[];
   /** Neutral turret spots (Phase 2/3). */
   readonly turretSpots: readonly MapPoint[];
-  /** Neutral outpost spots (Phase 2/3). */
+  /** Outpost spots: the console / claim zone of each outpost (rules.md §5). */
   readonly outpostSpots: readonly MapPoint[];
+  /**
+   * The original's outposts, parallel to `outpostSpots` (fcop-re/outposts.md).
+   * EMPTY on Metropolis' own arenas, whose outposts are consoles with no pads
+   * and no turret plates (district-01 keeps them as a purchase menu).
+   */
+  readonly outposts: readonly MapOutpost[];
+  /** Every outpost's turret plates, flattened in outpost order. EMPTY with `outposts`. */
+  readonly outpostPlates: readonly MapOutpostPlate[];
   /** Destructible test-dummy turret spots (Phase 1 sandbox targets). */
   readonly dummySpots: readonly MapPoint[];
   /**
@@ -597,6 +635,20 @@ export interface MapJson {
   turretSpots: (number[] | { x: number; y: number; layer?: number })[];
   outpostSpots: (number[] | { x: number; y: number; layer?: number })[];
   dummySpots: (number[] | { x: number; y: number; layer?: number })[];
+  /**
+   * OPTIONAL: the original's outposts (MapOutpost), one per `outpostSpots` entry.
+   * Each plate names its NeutralTurret by `turretSpots` index and carries both
+   * teams' turrets in the ring turrets' object form.
+   */
+  outposts?: {
+    zone: number;
+    tankPad: number[] | { x: number; y: number; layer?: number };
+    jetPad: number[] | { x: number; y: number; layer?: number };
+    plates: {
+      spot: number;
+      turrets: { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number }[];
+    }[];
+  }[];
   /**
    * OPTIONAL Precinct Assault data (rules.md §9). Every field here is absent on
    * the pre-PA arenas and on the inline MapJson literals the tests build, which
@@ -925,6 +977,27 @@ export function loadMapFromJson(raw: MapJson): MapData {
     return { hp: u.hp, weapon: weaponIndex(u.weapon, what) };
   };
 
+  /** A turret record in its object form: the ring's, and an outpost plate's. */
+  const turretObject = (
+    t: { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number },
+    what: string,
+  ): MapBaseTurret => {
+    const x = num(t.x, `${what} x`);
+    const y = num(t.y, `${what} y`);
+    const hp = num(t.hp, `${what} hp`);
+    const yaw = num(t.yaw, `${what} yaw`);
+    if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
+    if (!(hp > 0)) fail(id, `${what} bad hp ${hp}`);
+    return {
+      x,
+      y,
+      weapon: weaponIndex(t.weapon, what),
+      hp,
+      yaw,
+      layer: layerOf(t.layer, what),
+    };
+  };
+
   if (!Array.isArray(raw.bases) || raw.bases.length !== 2) fail(id, "need exactly 2 bases");
   const bases: MapBase[] = raw.bases.map((b, team) => {
     if (!b || typeof b !== "object") fail(id, `base ${team} is not an object`);
@@ -988,20 +1061,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
           return { x: p.x, y: p.y, weapon: -1, hp: 0, yaw: 0, layer: p.layer };
         }
         if (!t || typeof t !== "object") fail(id, `${what} is neither a pair nor an object`);
-        const x = num(t.x, `${what} x`);
-        const y = num(t.y, `${what} y`);
-        const hp = num(t.hp, `${what} hp`);
-        const yaw = num(t.yaw, `${what} yaw`);
-        if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
-        if (!(hp > 0)) fail(id, `${what} bad hp ${hp}`);
-        return {
-          x,
-          y,
-          weapon: weaponIndex(t.weapon, what),
-          hp,
-          yaw,
-          layer: layerOf(t.layer, what),
-        };
+        return turretObject(t, what);
       }),
       juggernaut,
       runner: unitProfile(b.runner, `base ${team} runner`),
@@ -1029,6 +1089,44 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (!Number.isInteger(v) || v < 1) fail(id, `turret spot ${k} bad hp ${v}`);
     return v;
   });
+
+  const outpostSpots = points(raw.outpostSpots, "outpost spot");
+  const outposts: MapOutpost[] = [];
+  const outpostPlates: MapOutpostPlate[] = [];
+  if (raw.outposts !== undefined) {
+    if (!Array.isArray(raw.outposts) || raw.outposts.length !== outpostSpots.length) {
+      fail(id, `outposts has ${raw.outposts?.length} entries for ${outpostSpots.length} spots`);
+    }
+    const plated = new Set<number>();
+    raw.outposts.forEach((o, k) => {
+      const what = `outpost ${k}`;
+      if (!o || typeof o !== "object") fail(id, `${what} is not an object`);
+      const zone = num(o.zone, `${what} zone`);
+      if (!(zone > 0)) fail(id, `${what} bad zone ${zone}`);
+      outposts.push({
+        zone,
+        tankPad: point(o.tankPad, `${what} tank pad`),
+        jetPad: point(o.jetPad, `${what} jet pad`),
+      });
+      if (!Array.isArray(o.plates)) fail(id, `${what} plates is not a list`);
+      o.plates.forEach((pl, j) => {
+        const pw = `${what} plate ${j}`;
+        if (!Number.isInteger(pl.spot) || pl.spot < 0 || pl.spot >= turretSpots.length) {
+          fail(id, `${pw} names turret spot ${pl.spot} of ${turretSpots.length}`);
+        }
+        if (plated.has(pl.spot)) fail(id, `${pw}: turret spot ${pl.spot} is on two plates`);
+        plated.add(pl.spot);
+        if (!Array.isArray(pl.turrets) || pl.turrets.length !== 2) {
+          fail(id, `${pw} needs one turret per team`);
+        }
+        outpostPlates.push({
+          outpost: k,
+          spot: pl.spot,
+          turrets: pl.turrets.map((t, team) => turretObject(t, `${pw} team ${team} turret`)),
+        });
+      });
+    });
+  }
 
   const captureRange = raw.captureRange ?? 0;
   if (!Number.isFinite(captureRange) || captureRange < 0) {
@@ -1174,7 +1272,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
     bases,
     lanes: raw.lanes.map((lane) => lane.map((p) => point(p, "lane waypoint"))),
     turretSpots,
-    outpostSpots: points(raw.outpostSpots, "outpost spot"),
+    outpostSpots,
+    outposts,
+    outpostPlates,
     dummySpots: points(raw.dummySpots, "dummy spot"),
     weapons,
     turretParams,
@@ -1270,6 +1370,8 @@ export function createTestMap(): MapData {
     lanes: [],
     turretSpots: [],
     outpostSpots: [],
+    outposts: [],
+    outpostPlates: [],
     dummySpots: [],
     weapons: [],
     turretParams: [],

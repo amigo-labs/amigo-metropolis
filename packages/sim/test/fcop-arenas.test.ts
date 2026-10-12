@@ -180,7 +180,7 @@ const ARENAS: ArenaExpectation[] = [
     wallsVPin: 3397164092,
     wallsHPin: 4095836062,
     turretSpots: 32,
-    outpostSpots: 2,
+    outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0,
     // The type-8 records on no outpost plate (fcop-re/outposts.md Q1): 8 per side.
     // Was [9, 8]: a half-cell pad key leaked Csac217, outpost 3's, into team 0's.
@@ -237,7 +237,7 @@ const ARENAS: ArenaExpectation[] = [
     wallsVPin: 3839074122,
     wallsHPin: 3427479675,
     turretSpots: 29,
-    outpostSpots: 2,
+    outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0,
     // The type-8 records on no outpost plate (fcop-re/outposts.md Q1): 6 per side
     // of Slim's 14. Was [6, 7] under the half-cell pad key.
@@ -292,7 +292,7 @@ const ARENAS: ArenaExpectation[] = [
     // Mp's two bridge decks: 2398 cells over the roads, and 108 above those.
     layerCells: [2398, 108],
     turretSpots: 32, // every original NeutralTurret pad
-    outpostSpots: 2,
+    outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0, // no original counterpart
     // Team-unique type-8 only (8/base); dual mid plates stay capturable.
     ringTurrets: 8,
@@ -335,7 +335,7 @@ const ARENAS: ArenaExpectation[] = [
     wallsVPin: 3983085979,
     wallsHPin: 16700859,
     turretSpots: 29,
-    outpostSpots: 2,
+    outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0,
     // The type-8 records on no outpost plate (fcop-re/outposts.md Q1): 6 per side
     // of Joke's 14. Was [6, 7] under the half-cell pad key.

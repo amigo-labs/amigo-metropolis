@@ -10,6 +10,7 @@
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
+  COST_OUTPOST_CLAIM,
   POINTS_AVATAR_DOWN,
   SKY_RETHINK_BASE,
   SKY_RETHINK_JITTER,
@@ -26,7 +27,7 @@ import {
 import { EV_CLAIM, EV_PURCHASE, EV_SHOT, EVENT_STRIDE, SHOT_SLOT_HITSCAN } from "../src/events";
 import { createTickInputs } from "../src/inputs";
 import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID, sampleHeight } from "../src/map";
-import { createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
+import { claimOutpostSlot, createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
 import {
   SKY_CRUISE,
   SKY_ENGAGE,
@@ -220,11 +221,17 @@ describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
   });
 
   it("roams with ten turrets: claims outposts and buys a Dreadnought from its points", () => {
-    // Owning an outpost counts its two (not imported) turrets: 8 + 2 = 10.
+    // An owned outpost's two plate turrets stand from the spawner pass after its
+    // claim: 8 ring + 2 = 10 own turrets at the next decision.
     const sim = wardenSim(8, 5, LA_CANTINA_ID);
-    sim.outpostOwner[0] = 1;
-    sim.ent.team[sim.outpostConsole[0]] = 1;
+    sim.points[1] = COST_OUTPOST_CLAIM;
+    expect(claimOutpostSlot(sim, 1, 0)).toBe(true);
+    step(sim, idle); // the first decision: defend, the plate turrets not up yet
+    // The player holds outposts 1 and 2, so one is left to claim.
+    sim.outpostOwner[1] = 0;
+    sim.outpostOwner[2] = 0;
     sim.points[1] = 85;
+    sim.captain.think = 0; // decide on the next tick
     let claims = 0;
     let dreads = 0;
     step(sim, idle);
@@ -243,15 +250,18 @@ describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
     // Roaming or attacking it claims every free outpost while it has 30 (-30),
     // then, roaming, a Dreadnought with none near the player's base (-50).
     expect(claims).toBe(1);
-    expect(sim.outpostOwner[1]).toBe(1);
+    expect(sim.outpostOwner[3]).toBe(1);
     expect(dreads).toBe(1);
     expect(sim.points[1]).toBe(85 - 30 - 50);
   });
 
   it("attacks — escorts — once its Dreadnought nears the player's base", () => {
     const sim = wardenSim(8, 5, LA_CANTINA_ID);
-    sim.outpostOwner[0] = 1;
-    sim.outpostOwner[1] = 1;
+    sim.points[1] = 2 * COST_OUTPOST_CLAIM;
+    claimOutpostSlot(sim, 1, 0);
+    claimOutpostSlot(sim, 1, 1);
+    step(sim, idle); // the plate turrets stand: 8 + 4 own turrets
+    sim.captain.think = 0;
     const pbase = LC.spawns[0];
     const dread = spawnUnit(sim, ARCHETYPE.JUGGERNAUT, 1, pbase.x, pbase.y + 30);
     sim.ent.timerA[dread] = -1;

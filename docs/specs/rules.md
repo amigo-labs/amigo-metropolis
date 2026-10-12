@@ -237,7 +237,7 @@ Spending (at Base consoles / Outpost consoles):
 |-----------------|---------|------------|--------------|
 | Runner (tank)   | 1       | 2          | 20           |
 | Guardian (plane)| 1       | 2          | 20           |
-| Claim Outpost   | 30 (drive into its claim zone) | —  | per outpost  |
+| Claim Outpost   | 30 (action key in its claim zone) | —  | per outpost  |
 | Juggernaut      | 50      | not available | 1          |
 | Fortress        | 50      | not available | 1          |
 
@@ -245,9 +245,10 @@ The Runner and Guardian caps count base and outpost purchases together. The
 Juggernaut and Fortress open the first time a side holds 50 points and stay
 open for the rest of the match (the original enables their zones then).
 
-Buying = drive Avatar onto the console pad, hold interact for 0.5 s per unit.
-Claiming an outpost needs no button: entering its claim zone with 30 points
-claims it (§5).
+Buying = drive Avatar onto the console pad, hold interact for 0.5 s per unit
+(on an imported arena's outpost: its tank pad or its jet pad, §9).
+Claiming an outpost is a press of the action key inside its claim zone with 30
+points (§5), like a capture.
 Points are visible to both players (open information, like the original).
 
 ## 4. Units
@@ -318,7 +319,8 @@ records' 4.0 and 4.8 m/s.
 ## 5. Structures
 
 - **Base**: gate (win trigger volume), 2 build consoles (ground/air),
-  ammo/repair pad, ring of 4–6 **Base turrets**. Base turrets respawn
+  ammo/repair pad, ring of **Base turrets** (4 on district-01; the original's 6
+  or 8 on the imported arenas, §9). Base turrets respawn
   120 s after destruction (attack timing matters — 60 s let the ring replace
   itself as fast as a superplane could strip it at authentic density; issue
   #31). Base core is indestructible: a centrepiece and anchor, never a target
@@ -339,24 +341,25 @@ records' 4.0 and 4.8 m/s.
   captured until it is destroyed; it then respawns **neutral after 25 s** (the
   original's spawner period; was 45 s). This used to be "stand in a 5 m radius for
   3 s uncontested, avatars only".
-- **Outpost**: claimed by **driving into its claim zone with 30 pts** — no button,
-  no hold; −30, first come first served (the original's touch zone, SIM_VERSION
-  35, `fcop-fidelity.md` R14). The zone is `OUTPOST_CLAIM_RADIUS` around the
-  outpost console, which stays as its visual anchor. A player's avatar trips it;
-  the Warden claims only when it has decided to (the original's Sky Captain claims
-  by a script decision, not by flying over). Grants: forward spawn for
-  Runners/Guardians (at 2× cost) and an ammo pad.
-  - On the **imported arenas a claim is permanent**, as the original's is: the
-    console takes no damage and nothing targets it.
+- **Outpost**: claimed by **pressing the action key** (Interact, rising edge, as
+  a capture) inside its claim zone with 30 pts — no hold; −30, first come first
+  served (SIM_VERSION 48, `fcop-fidelity.md` R14). The original's claim zone is a
+  type-14 zone whose op-10 gate bit 0x04 refuses a player that has not pressed
+  the button this frame (`fcop-re/outposts.md` Q3), so entering it is not
+  enough; SIM_VERSION 35-47 claimed on entry, a misreading. A player's avatar
+  claims; the Warden claims only when it has decided to (the original's Sky
+  Captain claims by a script decision, from wherever it is). Grants: forward spawn
+  for Runners/Guardians (at 2× cost) and an ammo pad (Metropolis', not the
+  original's).
+  - On the **imported arenas** they are the original's four outposts, each with
+    its claim zone (1.2 m + the avatar's radius, in 3D), a tank pad and a jet pad,
+    and two **turret plates** (§9). A claim is **permanent**: the console marker
+    takes no damage and nothing targets it.
   - On district-01 (Metropolis' own outposts-as-a-menu, a deliberate deviation)
-    the enemy can still destroy an owned outpost's console to revert it to
-    neutral (claimable again after 10 s).
-  - The original also opens the owner's two outpost-turret spawners there (25 s
-    respawn) and shuts the enemy's. Metropolis' outposts have no turret slots —
-    on the imported arenas they are two invented mid-field pads, while the
-    original has four outposts with their own claim zones, pads and turret
-    plates — so that part waits on importing the original's outposts (ledger
-    R14).
+    the zone is `OUTPOST_CLAIM_RADIUS` (3 m) around the console, both units are
+    bought at the console (FIRE2 for the Guardian), there are no plates, and the
+    enemy can still destroy an owned outpost's console to revert it to neutral
+    (claimable again after 10 s).
 
 ## 6. Arena anatomy
 
@@ -546,6 +549,26 @@ only what Metropolis adopts from it.
     0-0.85 s later (the sim's PRNG).
   `district-01` and the sandbox keep Metropolis' instant-hit turret and unit
   table (`TURRET_*`, `UNIT_*`): those arenas are not the original's.
+- **Outposts are the original's four** (SIM_VERSION 48; `fcop-fidelity.md` R14,
+  `fcop-re/outposts.md`), in the original's owner-word order, imported from
+  `fcop-re/outposts.json` through the arena frame (x + 16). Each has:
+  - a **claim zone** (the type-14 record's 1.2 m, plus the claimer's radius) with
+    the console marker at its centre — §5's press with 30 points claims it;
+  - a **tank pad** and a **jet pad**, the owner's only: hold interact on one for a
+    Runner or a Guardian at 2 points (the original sells one per press; the hold is
+    Metropolis' purchase gesture, as at the base consoles). The unit leaves from
+    the pad; a Guardian patrols that outpost;
+  - two **turret plates**. Each holds a capturable neutral turret, live from the
+    start (one of the arena's capture spots), and a team turret record per side,
+    shut. A claim **kills both plates' neutral turrets for good** — whoever held
+    them: one the other side had captured goes too, and its death pays nobody —
+    and **opens the claimer's team turret** on each plate. It stands from the next
+    tick (500 HP, weapon 3, a team turret's targeting) and comes back **25 s**
+    after every death for the rest of the match; its death pays the other side 1
+    like a base turret's. The other side's record on the plate is never used.
+  The base rings are what is left of the original's type-8 records: **8 per side**
+  on la-cantina, urban-jungle and venice-beach, **6** on proving-ground, bug-hunt
+  and hollywood-keys (SIM_VERSION 47; the other 8 per side are the plates').
 - **Capture points are the original pads.** Every original `NeutralTurret`
   becomes a capture spot — 32 on Mp and Conft, 29 on Slim and Joke, against the
   4–6 of §5. They capture by §5's rule, which is the original's own since

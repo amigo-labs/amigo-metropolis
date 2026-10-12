@@ -310,7 +310,8 @@ What Metropolis takes from it (`rules.md` §9): the Juggernaut's spawn point, it
 | Data | Where | Note |
 |---|---|---|
 | X1Alpha spawns (type 1) | `actors.json` | 2/arena, validated vs. `convert.ts` |
-| Base turrets (`Turret` 8) + capturable (`NeutralTurret` 36) | `actors.json` params | placement + engage_range / targeting_delay / turn_speed / weapon_id |
+| Base turrets (`Turret` 8) + capturable (`NeutralTurret` 36) | `actors.json` params | placement + engage_range / targeting_delay / turn_speed / weapon_id. Half the type-8 records per side are not base guns: they stand on the outposts' turret plates, shut until their side claims ([`fcop-re/outposts.md`](fcop-re/outposts.md); split by `outposts.json` since SIM_VERSION 47) |
+| Outposts (type 14 zones, plates, Cfun claim scripts) | `fcop-re/outposts.json` | 4 per arena: claim zone, tank/jet pad per side, 2 turret plates; see §8.5 |
 | Combat units (`PathedActor` 5) | `actors.json` | move_speed + `Cnet` ref (`rsl[2]`) |
 | Lanes (`Cnet`) | `nets.json` | 2 per MP arena; per-team (see 8.1) |
 | Spawn cadence (`tSAC`) | `spawn_ticks`/`spawn_seconds`/`spawn_limit` | on turrets, units, pickups, Dreadnoughts |
@@ -341,6 +342,14 @@ Both are Unknown in FC:MIT and invisible (no `Cobj` model, no team/health, only
 NULL RSL refs). Characterized here from spatial + payload analysis; **tentative,
 kept numeric (`type_14`/`type_89`) in the parser to avoid false precision.**
 
+- **Type 14 — resolved (2026-10-12, [`fcop-re/outposts.md`](fcop-re/outposts.md) Q3):
+  the outposts' touch zones.** Each of the four outposts has a claim zone (mode 0x06,
+  any X1-Alpha) and per side a tank pad and a jet pad (mode 0x36: disabled until the
+  side's claim enables them, only that side's X1-Alpha). 614 raw is the radius,
+  `614 << 4` wu = 1.2 m; gate bit 0x04 makes contact count only with the action key
+  pressed that frame. Metropolis imports them as `MapData.outposts` (claim zone =
+  `outpostSpots[k]`, the pads) with each outpost's two turret plates
+  (`outpostPlates`), SIM_VERSION 48. The reading below was the pre-RE guess.
 - **Type 14** — 24 B, **exactly 24 per arena** (all six). Instances form **clusters
   of ~5 at symmetric strongpoints** (the arena's corner outposts) plus a few near
   the base approaches, hugging the lanes (median ~2–6 cells from a `Cnet` node) and

@@ -64,6 +64,7 @@ import {
   OUTPOST_CONSOLE_RESPAWN_TICKS,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_PAD_RADIUS,
+  OUTPOST_TURRET_RESPAWN_TICKS,
   PAD_REPAIR_HP_PER_TICK,
   PICKUP_GUN_AMMO,
   PICKUP_HEALTH,
@@ -310,9 +311,20 @@ export interface SimState {
   /** Base ring turrets, slots flattened base 0 then base 1 (rules.md §5). */
   readonly baseTurretEntity: Int32Array;
   readonly baseTurretRespawn: Int32Array;
-  /** Capturable turrets, one slot per map turretSpot (rules.md §5). */
+  /**
+   * Capturable turrets, one slot per map turretSpot (rules.md §5). A respawn of
+   * -1 is a shut spawner: an outpost claim killed that plate's neutral for good
+   * (fcop-re/outposts.md Q1).
+   */
   readonly neutralTurretEntity: Int32Array;
   readonly neutralTurretRespawn: Int32Array;
+  /**
+   * Outpost plate turrets, one slot per map outpostPlate: the claimer's team
+   * turret, entity id (-1 none) and respawn countdown (0 = none pending). Empty
+   * until a claim opens them; zero-length on an arena without plates.
+   */
+  readonly plateTurretEntity: Int32Array;
+  readonly plateTurretRespawn: Int32Array;
   /**
    * 1 for a player whose avatar pressed the action key (BUTTON_INTERACT, rising
    * edge) this tick. TRANSIENT and not hashed: set by systemAvatarMovement and
@@ -489,6 +501,32 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   // so they start at zero.
   if (state.map.turretYaw.length > 0) ent.yaw[id] = state.map.turretYaw[k];
   state.neutralTurretEntity[k] = id;
+  return id;
+}
+
+/**
+ * Spawns outpost plate `j`'s team turret for the outpost's owner: the plate's
+ * type-8 record of that team, a full team turret (TURRET_DEFENSE: it shoots, the
+ * Sky Captain counts it), opened by the claim (fcop-re/outposts.md Q1).
+ */
+function spawnPlateTurret(state: SimState, j: number): number {
+  const ent = state.ent;
+  const plate = state.map.outpostPlates[j];
+  const team = state.outpostOwner[plate.outpost];
+  if (team !== 0 && team !== 1) return -1;
+  const spot = plate.turrets[team];
+  const id = spawn(ent, ARCHETYPE.TURRET, team);
+  if (id < 0) return -1;
+  ent.posX[id] = spot.x;
+  ent.posY[id] = spot.y;
+  ent.height[id] = resolveHeight(state.map, spot.x, spot.y, spot.layer);
+  ent.entLayer[id] = spot.layer;
+  ent.hp[id] = spot.hp;
+  ent.ownerId[id] = team;
+  ent.mode[id] = TURRET_DEFENSE;
+  ent.weaponProfile[id] = spot.weapon;
+  if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
+  state.plateTurretEntity[j] = id;
   return id;
 }
 
@@ -708,6 +746,8 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     baseTurretRespawn: new Int32Array(ringSlots),
     neutralTurretEntity: new Int32Array(map.turretSpots.length).fill(-1),
     neutralTurretRespawn: new Int32Array(map.turretSpots.length),
+    plateTurretEntity: new Int32Array(map.outpostPlates.length).fill(-1),
+    plateTurretRespawn: new Int32Array(map.outpostPlates.length),
     capturePress: new Uint8Array(MAX_PLAYERS),
     outpostOwner: new Int8Array(map.outpostSpots.length).fill(-1),
     outpostConsole: new Int32Array(map.outpostSpots.length).fill(-1),
@@ -1407,27 +1447,50 @@ function updateLock(state: SimState, player: number, selfId: number, cycle: bool
 }
 
 /**
- * Outpost claim (rules.md §5, fcop-fidelity.md R14): an avatar inside an unowned
- * outpost's claim zone (OUTPOST_CLAIM_RADIUS around its console) holding
- * COST_OUTPOST_CLAIM points claims it on the spot — no button and no hold, the
- * original's touch zone (fcop-re/ai-and-rules.md §2: drive in with >= 30 points,
- * -30, first come first served). Returns true when it claimed.
+ * Is avatar `id` touching an outpost zone at (x, y) on `layer`? On the imported
+ * arenas a type-14 zone's contact (fcop-re/outposts.md Q3): within the record's
+ * radius plus the avatar's own, horizontally and vertically (a sphere, as the
+ * capture test is). On Metropolis' own arenas the flat OUTPOST_CLAIM_RADIUS.
+ */
+function touchesZone(
+  state: SimState,
+  id: number,
+  x: number,
+  y: number,
+  layer: number,
+  zone: number,
+): boolean {
+  const ent = state.ent;
+  const dx = ent.posX[id] - x;
+  const dy = ent.posY[id] - y;
+  if (zone <= 0) return dx * dx + dy * dy <= OUTPOST_CLAIM_RADIUS * OUTPOST_CLAIM_RADIUS;
+  const dh = ent.height[id] - resolveHeight(state.map, x, y, layer);
+  const reach = zone + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
+  return dx * dx + dy * dy + dh * dh < reach * reach;
+}
+
+/**
+ * Outpost claim (rules.md §5, fcop-fidelity.md R14): an avatar touching an
+ * unowned outpost's claim zone that presses the action key (capturePress, the
+ * same rising edge as a capture) holding COST_OUTPOST_CLAIM points claims it on
+ * the spot, no hold. The original's zone carries the op-10 gate bit 0x04, which
+ * refuses a player whose button latch is not pressed this frame
+ * (fcop-re/outposts.md Q3), so entering is not enough. -30, first come first
+ * served. Returns true when it claimed.
  *
- * The zone watches a player's own avatar. The Warden does not trip it by flying
- * over: the original's Sky Captain claims by a decision (its dispatch writes the
- * outpost's owner word, ai-and-rules.md §1.8), so warden.ts calls this only while
- * its goal is to claim.
+ * The zone watches a player's own avatar. The Warden never touches it: the
+ * original's Sky Captain claims by a decision (its dispatch writes the outpost's
+ * owner word, ai-and-rules.md §1.8), so warden.ts calls claimOutpostSlot.
  */
 export function claimOutpost(state: SimState, player: number, id: number): boolean {
+  if (state.capturePress[player] !== 1) return false;
   if (state.points[player] < COST_OUTPOST_CLAIM) return false;
-  const ent = state.ent;
-  const spots = state.map.outpostSpots;
-  const r2 = OUTPOST_CLAIM_RADIUS * OUTPOST_CLAIM_RADIUS;
+  const map = state.map;
+  const spots = map.outpostSpots;
   for (let k = 0; k < spots.length; k++) {
     if (state.outpostOwner[k] !== -1 || state.outpostConsole[k] < 0) continue;
-    const dx = ent.posX[id] - spots[k].x;
-    const dy = ent.posY[id] - spots[k].y;
-    if (dx * dx + dy * dy > r2) continue;
+    const zone = map.outposts.length > 0 ? map.outposts[k].zone : 0;
+    if (!touchesZone(state, id, spots[k].x, spots[k].y, spots[k].layer, zone)) continue;
     return claimOutpostSlot(state, player, k);
   }
   return false;
@@ -1438,6 +1501,17 @@ export function claimOutpost(state: SimState, player: number, id: number): boole
  * zone's claim (claimOutpost) and the Sky Captain's decision (warden.ts, which
  * writes the original's owner word from wherever it is) both end here. False
  * when it is taken, its console is down, or the points are short.
+ *
+ * On an outpost with turret plates it is also the original's claim script
+ * (fcop-re/outposts.md Q1/Q3), on each of its plates:
+ * - the plate's NeutralTurret dies (order 0x3d) and its spawner is shut for the
+ *   rest of the match. It dies whoever holds it: a turret the other side had
+ *   captured goes too, and its death pays nothing (the DIE order sets the death
+ *   flag that `turret.c` checks before scoring), so it is made neutral first;
+ * - the claimer's own type-8 spawner opens: its turret spawns at this tick's
+ *   spawner pass (systemSpawning), so it stands from the next tick, and returns
+ *   OUTPOST_TURRET_RESPAWN_TICKS after every death. The other side's record on
+ *   the plate is never used.
  */
 export function claimOutpostSlot(state: SimState, player: number, k: number): boolean {
   if (state.points[player] < COST_OUTPOST_CLAIM) return false;
@@ -1449,18 +1523,35 @@ export function claimOutpostSlot(state: SimState, player: number, k: number): bo
   ent.team[cid] = player;
   ent.ownerId[cid] = player;
   ent.hp[cid] = ARCHETYPE_MAX_HP[ARCHETYPE.CONSOLE];
+  const plates = state.map.outpostPlates;
+  for (let j = 0; j < plates.length; j++) {
+    if (plates[j].outpost !== k) continue;
+    const spot = plates[j].spot;
+    const tid = state.neutralTurretEntity[spot];
+    if (tid >= 0 && ent.alive[tid]) {
+      // Dies in this tick's systemDamageDeath, neutral and unattributed: no
+      // points, no engine credit, and the shut spawner below keeps it gone.
+      ent.team[tid] = TEAM_NEUTRAL;
+      ent.ownerId[tid] = -1;
+      ent.aux[tid] = 0;
+      ent.hp[tid] = 0;
+    }
+    state.neutralTurretRespawn[spot] = -1;
+    state.plateTurretRespawn[j] = 1;
+  }
   pushEvent(state.events, EV_CLAIM, cid, player, k);
   return true;
 }
 
 /**
- * Console purchases. First the outpost claim zones (claimOutpost: entering one
- * with the points is enough). Then hold-to-buy (rules.md §3): standing on a
- * console pad with INTERACT held buys one unit per completed CONSOLE_HOLD_TICKS
- * hold. Switching consoles, toggling the FIRE2 heavy modifier, releasing the
- * button, running out of points or hitting an alive-limit all reset the hold.
- * FIRE2 orders the heavy variant at base consoles and the (assault) air unit at
- * outposts. Exported for the Warden, which buys through the exact same rules with
+ * Console purchases. First the outpost claim zones (claimOutpost: the action
+ * key pressed inside one with the points). Then hold-to-buy (rules.md §3):
+ * standing on a console pad with INTERACT held buys one unit per completed
+ * CONSOLE_HOLD_TICKS hold. Switching consoles, toggling the FIRE2 heavy
+ * modifier, releasing the button, running out of points or hitting an
+ * alive-limit all reset the hold. FIRE2 orders the heavy variant at base
+ * consoles and the (assault) air unit at Metropolis' outpost consoles; an
+ * imported arena's outposts have a tank pad and a jet pad instead. Exported for the Warden, which buys through the exact same rules with
  * synthesized buttons (rules.md §7: same rules and economy as a player).
  */
 export function systemBuy(state: SimState, player: number, id: number, buttons: number): void {
@@ -1510,6 +1601,28 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
       spawnX = base.airConsole.x;
       spawnY = base.airConsole.y;
       spawnLayer = base.airConsole.layer;
+    } else if (map.outposts.length > 0) {
+      // The original's outpost pads (fcop-re/outposts.md Q3): a tank pad and a jet
+      // pad per outpost, its owner's only, 2 points a unit. The unit leaves from
+      // the pad; a jet patrols the outpost it was built at (mode 1 + k).
+      for (let k = 0; k < map.outposts.length; k++) {
+        if (state.outpostOwner[k] !== player) continue;
+        const o = map.outposts[k];
+        const jet = touchesZone(state, id, o.jetPad.x, o.jetPad.y, o.jetPad.layer, o.zone);
+        if (!jet && !touchesZone(state, id, o.tankPad.x, o.tankPad.y, o.tankPad.layer, o.zone)) {
+          continue;
+        }
+        const pad = jet ? o.jetPad : o.tankPad;
+        target = 768 + k * 2 + (jet ? 1 : 0);
+        archetype = jet ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
+        cost = (jet ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
+        spawnX = pad.x;
+        spawnY = pad.y;
+        spawnLayer = pad.layer;
+        mode = jet ? 1 + k : UNIT_MODE_PATROL;
+        forward = true;
+        break;
+      }
     } else {
       for (let k = 0; k < map.outpostSpots.length; k++) {
         const s = map.outpostSpots[k];
@@ -3121,12 +3234,26 @@ function systemDamageDeath(state: SimState): void {
         }
       }
       if (!slotted) {
-        // Capturable turret: husk now, back as NEUTRAL in 45 s (rules.md §5)
-        // regardless of who owned it when it died.
+        // An outpost plate's team turret: back for its owner in 25 s, every time.
+        for (let j = 0; j < state.plateTurretEntity.length; j++) {
+          if (state.plateTurretEntity[j] === id) {
+            state.plateTurretEntity[j] = -1;
+            state.plateTurretRespawn[j] = OUTPOST_TURRET_RESPAWN_TICKS;
+            slotted = true;
+            break;
+          }
+        }
+      }
+      if (!slotted) {
+        // Capturable turret: husk now, back as NEUTRAL in 25 s (rules.md §5)
+        // regardless of who owned it when it died — unless an outpost claim shut
+        // its spawner (-1), which keeps it gone.
         for (let k = 0; k < state.neutralTurretEntity.length; k++) {
           if (state.neutralTurretEntity[k] === id) {
             state.neutralTurretEntity[k] = -1;
-            state.neutralTurretRespawn[k] = NEUTRAL_TURRET_RESPAWN_TICKS;
+            if (state.neutralTurretRespawn[k] >= 0) {
+              state.neutralTurretRespawn[k] = NEUTRAL_TURRET_RESPAWN_TICKS;
+            }
             break;
           }
         }
@@ -3159,7 +3286,10 @@ function avatarDown(state: SimState, team: number): void {
   state.points[team] = left > POINTS_AVATAR_DOWN ? left - POINTS_AVATAR_DOWN : 0;
 }
 
-/** Respawns avatars and sandbox dummies when their timers elapse. */
+/**
+ * Respawns avatars, sandbox dummies, ring, neutral and outpost plate turrets and
+ * Metropolis' outpost consoles when their timers elapse.
+ */
 function systemSpawning(state: SimState): void {
   for (let p = 0; p < MAX_PLAYERS; p++) {
     if (state.respawnTimer[p] > 0) {
@@ -3198,6 +3328,15 @@ function systemSpawning(state: SimState): void {
       state.neutralTurretRespawn[k] -= 1;
       if (state.neutralTurretRespawn[k] === 0) {
         const id = spawnNeutralTurret(state, k);
+        if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, -1, 0);
+      }
+    }
+  }
+  for (let j = 0; j < state.plateTurretRespawn.length; j++) {
+    if (state.plateTurretRespawn[j] > 0) {
+      state.plateTurretRespawn[j] -= 1;
+      if (state.plateTurretRespawn[j] === 0) {
+        const id = spawnPlateTurret(state, j);
         if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, -1, 0);
       }
     }
@@ -3540,6 +3679,11 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.outpostOwner[k] >>> 0);
     h = fnv1aU32(h, state.outpostConsole[k] >>> 0);
     h = fnv1aU32(h, state.outpostRespawn[k] >>> 0);
+  }
+  // Outpost plates: zero-length (nothing hashed) on an arena without them.
+  for (let j = 0; j < state.plateTurretEntity.length; j++) {
+    h = fnv1aU32(h, state.plateTurretEntity[j] >>> 0);
+    h = fnv1aU32(h, state.plateTurretRespawn[j] >>> 0);
   }
   // Precinct Assault state, APPENDED after everything above and each block
   // guarded by its own feature list. On an arena without PA data every loop here

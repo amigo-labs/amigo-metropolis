@@ -90,7 +90,7 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
   }
 }
 
-/** Static markers at avatar spawns + neutral outposts (render-only). */
+/** Static markers at avatar spawns + outposts and their pads (render-only). */
 export function buildSpawnMarkers(scene: THREE.Object3D, map: MapData): void {
   const parts: THREE.BufferGeometry[] = [];
   for (const s of map.spawns) {
@@ -104,6 +104,20 @@ export function buildSpawnMarkers(scene: THREE.Object3D, map: MapData): void {
     const post = new THREE.CylinderGeometry(0.6, 0.8, 3.2, 12);
     post.translate(o.x, h + 1.6, o.y);
     parts.push(post);
+  }
+  // The original's outposts (fcop-re/outposts.md): a flat disc of the zone's
+  // radius on the claim zone and on each of its two purchase pads, so the
+  // player can see where to press. The plates need none: their turret (the
+  // neutral one, then the claimer's) stands on them as a live entity.
+  for (let k = 0; k < map.outposts.length; k++) {
+    const o = map.outposts[k];
+    const spot = map.outpostSpots[k];
+    for (const p of [spot, o.tankPad, o.jetPad]) {
+      const h = featureH(map, p.x, p.y, p.layer);
+      const disc = new THREE.CylinderGeometry(o.zone, o.zone, 0.08, 20);
+      disc.translate(p.x, h + 0.05, p.y);
+      parts.push(disc);
+    }
   }
   if (parts.length === 0) return;
   const mesh = new THREE.Mesh(

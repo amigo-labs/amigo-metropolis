@@ -314,9 +314,11 @@ export function match01(tick: number, out: TickInputs): void {
       }
     }
   } else if (tick >= MATCH01_HOLD_FROM) {
-    // The outpost is claimed on arrival in its zone (30 pts: start, ring
-    // bounty, feeders, two downs of the enemy avatar); holding interact there
-    // then buys forward runners at 2×, which walk through the dead ring's window.
+    // The outpost is claimed by the action key's press as the avatar stops in
+    // its zone (30 pts: start, ring bounty, feeders, two downs of the enemy
+    // avatar; the press is the rising edge of this hold, SIM_VERSION 48);
+    // holding interact there then buys forward runners at 2×, which walk
+    // through the dead ring's window.
     p0.buttons = BUTTON_INTERACT;
   }
 

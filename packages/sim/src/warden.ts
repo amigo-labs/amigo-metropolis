@@ -613,12 +613,6 @@ function scanAll(state: SimState, id: number, level: number): void {
         break;
     }
   }
-  // Metropolis' outposts have no turret plates (fcop-fidelity.md R14): the
-  // original's two per-side outpost turrets of every outpost the captain owns
-  // count as its own here, as `8 base + 2 per owned outpost` (§1.5).
-  for (let k = 0; k < state.outpostOwner.length; k++) {
-    if (state.outpostOwner[k] === me) s.ownTurrets += 2;
-  }
 }
 
 /** Inside its shooters' 12 m engage range, by true distance (`sky_in_weapon_range`)? */
@@ -771,7 +765,10 @@ function jetCount(state: SimState, me: number): number {
   return n;
 }
 
-/** State words 40..43: does `team` own outpost k (Metropolis has fewer than four)? */
+/**
+ * State words 40..43: does `team` own outpost k? The imported arenas carry the
+ * original's four, in owner-word order; Metropolis' own arenas have fewer.
+ */
 function owns(state: SimState, k: number, team: number): boolean {
   return k < state.outpostOwner.length && state.outpostOwner[k] === team;
 }
@@ -841,7 +838,7 @@ function spend(state: SimState, id: number, level: number): void {
     const order = c.order === 1 ? ORDER_1 : ORDER_0;
     for (let i = 0; i < SKY_OUTPOSTS; i++) {
       const k = order[i];
-      if (k >= state.outpostOwner.length) continue; // Metropolis has two outposts
+      if (k >= state.outpostOwner.length) continue; // district-01 has two outposts
       if (state.outpostOwner[k] !== -1 || state.outpostConsole[k] < 0) continue;
       if (state.points[me] < COST_OUTPOST_CLAIM) {
         refused += 1;
@@ -898,7 +895,7 @@ function spend(state: SimState, id: number, level: number): void {
     }
     if (allowed && tankCount(state, me) < 2) {
       let want = randInt(state, 4) + level + 6;
-      // "+6 if the player owns all four outposts": all of Metropolis' outposts.
+      // "+6 if the player owns all four outposts" (all of district-01's two).
       const all =
         state.outpostOwner.length > 0 && ownedCount(state, enemy) === state.outpostOwner.length;
       if (all) want += 6;
@@ -984,7 +981,10 @@ function captainQueues(state: SimState, me: number): void {
         c.queue[q] = 0;
         continue;
       }
-      const at = map.outpostSpots[k];
+      // The original's outposts have a tank pad and a jet pad; Metropolis' own
+      // sell both at the console.
+      const o = map.outposts.length > 0 ? map.outposts[k] : undefined;
+      const at = o === undefined ? map.outpostSpots[k] : jet ? o.jetPad : o.tankPad;
       x = at.x;
       y = at.y;
       layer = at.layer;
