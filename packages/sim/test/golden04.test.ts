@@ -7,8 +7,8 @@
 // Until SIM_VERSION 32 the difficulty-8 Warden captured the map, saved for a
 // Juggernaut on a 20-point start plus a trickle plus 3 a pad, and breached at
 // tick 7660. Under the original's economy (v33, fcop-fidelity.md R2-R7) it no
-// longer does: it takes all six pads (+6) and downs the patrolling player twice
-// (+20), but each of its own nine falls costs it 10, so the Juggernaut save it
+// longer does: it takes all six pads (+6) and downs the patrolling player three
+// times (+30; twice at v33), but each of its own nine falls costs it 10, so the Juggernaut save it
 // holds every other purchase for never completes and it fields nothing. That is
 // a defect of this invented AI under the original's rules, pinned here as
 // measured rather than hidden; the Sky Captain port (fidelity ledger U3) replaces
@@ -74,13 +74,13 @@ describe("golden-04-warden beats", () => {
     // Both sides trade kills: the scripted patrol hurts the Warden enough to
     // exercise its retreat/respawn paths, and dies to it in return.
     expect(wardenDeaths).toBe(9);
-    expect(avatarDeaths).toBe(2);
+    expect(avatarDeaths).toBe(3);
     // Each Warden fall costs it 10 and pays player 0 10 (R4), so the
     // difficulty-8 Juggernaut save never reaches 50 and nothing is bought.
     expect(wardenRunners).toBe(0);
     expect(wardenJuggernauts).toBe(0);
     expect(sim.points[1]).toBe(0);
-    expect(sim.points[0]).toBe(80);
+    expect(sim.points[0]).toBe(70);
     // No breach: the match is still running when the recording ends.
     expect(breaches).toBe(0);
     expect(breachTick).toBe(-1);

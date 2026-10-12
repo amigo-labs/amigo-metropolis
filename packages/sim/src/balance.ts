@@ -338,10 +338,19 @@ export const CONSOLE_HOLD_TICKS = 15; // 0.5 s
 export const JUGGERNAUT_ALIVE_LIMIT = 1;
 export const FORTRESS_ALIVE_LIMIT = 1;
 
-// Neutral turret capture (rules.md §5).
+// Neutral turret capture (rules.md §5; fcop-fidelity.md R12). Instant: an avatar
+// presses the action key, a Runner or the Warden simply comes close, within the
+// turret's capture range plus the capturer's own ARCHETYPE_RADIUS
+// (fcop-re/ranges-turrets-capture.md Q2). The imported arenas carry the
+// original's range (MapData.captureRange: 4.0 / 5.2 / 5.6 m by mission).
+/** Capture range on an arena that imports none (district-01): ours. */
 export const CAPTURE_RADIUS = 5;
-export const CAPTURE_TICKS = 90; // 3 s uncontested
-export const NEUTRAL_TURRET_RESPAWN_TICKS = 1350; // 45 s, respawns neutral
+/**
+ * A destroyed neutral turret comes back neutral after 25 s: its Csac spawner's
+ * tSAC is -1500 = 1500 * 5 engine ticks at 300 Hz (ranges-turrets-capture.md Q3,
+ * Q5). Was 45 s.
+ */
+export const NEUTRAL_TURRET_RESPAWN_TICKS = 750;
 /** Destroyed outpost consoles return (neutral) after this many ticks. */
 export const OUTPOST_CONSOLE_RESPAWN_TICKS = 300; // 10 s
 /** Owned outposts refill ammo (no repair) within this radius of the console. */

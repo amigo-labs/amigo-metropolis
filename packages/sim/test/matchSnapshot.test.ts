@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { CAPTURE_TICKS, CONSOLE_HOLD_TICKS } from "../src/balance";
+import { CONSOLE_HOLD_TICKS } from "../src/balance";
 import { createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
 import {
@@ -18,13 +18,13 @@ import {
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_BUY_FRAC,
-  MATCH_SLOT_CAPTURE_FRAC,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
   MATCH_SLOT_RESPAWN_TICKS,
   MATCH_SLOT_UNITS,
   MATCH_SNAPSHOT_LEN,
+  MATCH_SNAPSHOT_SLOT_STRIDE,
   MATCH_TICK,
   MATCH_WINNER,
   matchSlotOffset,
@@ -164,22 +164,12 @@ describe("writeMatchSnapshot", () => {
     expect(out[matchSlotOffset(1) + MATCH_SLOT_BUY_FRAC]).toBe(-1);
   });
 
-  it("reports the best capture progress of the capturing slot, -1 otherwise", () => {
-    const sim = freshSim();
-    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
-    expect(sim.captureTeam.length).toBeGreaterThan(1);
-
-    writeMatchSnapshot(sim, out);
-    expect(out[matchSlotOffset(0) + MATCH_SLOT_CAPTURE_FRAC]).toBe(-1);
-
-    sim.captureTeam[0] = 0;
-    sim.captureProgress[0] = Math.floor(CAPTURE_TICKS / 2);
-    writeMatchSnapshot(sim, out);
-    expect(out[matchSlotOffset(0) + MATCH_SLOT_CAPTURE_FRAC]).toBeCloseTo(
-      Math.floor(CAPTURE_TICKS / 2) / CAPTURE_TICKS,
-      5,
-    );
-    expect(out[matchSlotOffset(1) + MATCH_SLOT_CAPTURE_FRAC]).toBe(-1);
+  it("carries no capture progress: a capture is instant (fcop-fidelity.md R12)", () => {
+    // MATCH_SLOT_CAPTURE_FRAC (slot field 9) reported a 3 s hold until SIM_VERSION
+    // 34. The original captures on one key press, so there is nothing to report
+    // and the slot block is one field shorter. The buy fraction is the last field.
+    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(9);
+    expect(MATCH_SLOT_BUY_FRAC).toBe(MATCH_SNAPSHOT_SLOT_STRIDE - 1);
   });
 
   it("reports the post-breach outro, and nothing while none runs", () => {

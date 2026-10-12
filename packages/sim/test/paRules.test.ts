@@ -21,7 +21,7 @@ import {
   TURRET_RANGE,
 } from "../src/balance";
 import { EV_ALARM, EV_BREACH, EV_HIT, EV_PICKUP, EV_SHOT, EVENT_STRIDE } from "../src/events";
-import { createTickInputs } from "../src/inputs";
+import { BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID } from "../src/map";
 import { createSim, type SimState, spawnUnit, step } from "../src/sim";
 
@@ -274,6 +274,47 @@ describe("power-ups", () => {
     step(state, idle);
     expect(countEvents(state, EV_PICKUP)).toBe(0);
     expect(ent.hp[avatar]).toBeLessThanOrEqual(held);
+  });
+});
+
+describe("capture on the imported arenas (fcop-fidelity.md R12)", () => {
+  it("carries each mission's capture range: (raw + 1024) / 512 m", () => {
+    // fcop-re/ranges-turrets-capture.md Q2: Mp/Conft/Ovmp 1024 -> 4.0 m,
+    // Slim/Joke 1638 -> 5.2 m, Hk 1843 -> 5.6 m (before the capturer's radius).
+    expect(getMapById("la-cantina").captureRange).toBe(4);
+    expect(getMapById("urban-jungle").captureRange).toBe(4);
+    expect(getMapById("venice-beach").captureRange).toBe(4);
+    expect(getMapById("proving-ground").captureRange).toBeCloseTo(5.2, 2);
+    expect(getMapById("bug-hunt").captureRange).toBeCloseTo(5.2, 2);
+    expect(getMapById("hollywood-keys").captureRange).toBeCloseTo(5.6, 2);
+    expect(getMapById(DISTRICT_01_ID).captureRange).toBe(0); // none: ours
+  });
+
+  it("takes a la-cantina pad on a press within 4.0 m + the avatar's radius", () => {
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    // Pad 1 (107.9, 114.9): the ground 4 m west of it is level with its base, so
+    // the 3D distance is the flat one.
+    const tid = state.neutralTurretEntity[1];
+    const a = state.avatarId[0];
+    const press = createTickInputs();
+    const reach = 4 + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
+    const pressAt = (dx: number): void => {
+      ent.posX[a] = ent.posX[tid] - dx;
+      ent.posY[a] = ent.posY[tid];
+      ent.height[a] = ent.height[tid];
+      press.players[0].buttons = 0;
+      step(state, press);
+      ent.posX[a] = ent.posX[tid] - dx;
+      ent.posY[a] = ent.posY[tid];
+      ent.height[a] = ent.height[tid];
+      press.players[0].buttons = BUTTON_INTERACT;
+      step(state, press);
+    };
+    pressAt(reach + 0.05);
+    expect(ent.ownerId[tid]).toBe(-1);
+    pressAt(reach - 0.05);
+    expect(ent.ownerId[tid]).toBe(0);
   });
 });
 

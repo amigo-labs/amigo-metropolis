@@ -93,6 +93,18 @@ export function rangeToCells(raw: number): number {
   return raw / RANGE_SCALE;
 }
 
+/**
+ * NeutralTurret capture range (raw) to metres, before the capturer's own radius.
+ *
+ * `turret_op10` (0x0041c920) captures when the distance between reference points
+ * is under `(range + 0x400) << 4` world units plus the candidate's radius_68
+ * (0x0041ca04..0x0041ca20; fcop-re/ranges-turrets-capture.md Q2). At 8192 wu/m
+ * that is (raw + 1024) / 512 m: 1024 -> 4.0, 1638 -> 5.2, 1843 -> 5.6.
+ */
+export function captureRangeToCells(raw: number): number {
+  return (raw + 1024) / RANGE_SCALE;
+}
+
 /** Trigger width/length (raw) to the volume's half-extent in metres. */
 export function triggerHalfExtent(raw: number): number {
   return raw / TRIGGER_SCALE;

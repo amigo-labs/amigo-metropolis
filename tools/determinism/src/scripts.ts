@@ -404,11 +404,13 @@ export function layered01(tick: number, out: TickInputs): void {
  * recording would exercise nothing at all.
  *
  * Route: spawn (112.1, 69.1) on the north base platform, hold INTERACT at the
- * ground console for a bought wave, then run east
- * to the pad at (137.6, 68.6) — same row as the spawn, so inside its own half
- * rather than under the enemy's 20 forward turrets — and hold there for the 3 s
- * uncontested capture. Then push south down the central spine, firing, as far as
- * the enemy line allows.
+ * console for a bought wave, then drive south-west to the pad at (94.8, 91.7) and
+ * tap the action key there: the original captures on a press, instantly
+ * (SIM_VERSION 34). The route used to run east along row 69 to the pad at
+ * (137.6, 68.6) and stand there for a 3 s capture, but a wall on x = 115 has
+ * stopped the avatar at (115.0, 73.0) since the arena's walls were rebuilt, so
+ * every capture in this golden was the Warden's. Then push south down the
+ * central spine, firing, as far as the enemy line allows.
  */
 export function pa01(tick: number, out: TickInputs): void {
   clearTickInputs(out);
@@ -419,11 +421,12 @@ export function pa01(tick: number, out: TickInputs): void {
     p.moveY = 110;
   } else if (t < 12) {
     p.buttons = BUTTON_INTERACT; // hold-to-buy runners onto the graph
-  } else if (t < 34) {
-    p.moveX = 127; // east along row 69 toward the pad at (137.6, 68.6)
-    p.moveY = -20;
+  } else if (t < 18.5) {
+    p.moveX = -100; // south-west to the pad at (94.8, 91.7)
+    p.moveY = 78;
   } else if (t < 46) {
-    p.moveX = 15; // settle inside the capture radius and hold it
+    // By the pad: tap the action key (a press captures; holding does not).
+    p.buttons = Math.floor(tick / 15) % 2 === 0 ? BUTTON_INTERACT : 0;
   } else if (t < 62) {
     p.moveX = -127; // back west across the base platform
     p.moveY = 30;

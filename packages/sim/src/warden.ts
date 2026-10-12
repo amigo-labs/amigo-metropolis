@@ -19,7 +19,6 @@
 
 import { ARCHETYPE } from "./archetypes";
 import {
-  CAPTURE_RADIUS,
   CONSOLE_RADIUS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -53,7 +52,14 @@ import {
 import { EV_SHOT, pushEvent, SHOT_SLOT_HITSCAN, SHOT_SLOT_LAUNCH } from "./events";
 import { BUTTON_FIRE2, BUTTON_INTERACT } from "./inputs";
 import { sampleHeight, worldExtent } from "./map";
-import { ANIM_MOVING, hitscan, type SimState, spawnProjectile, systemBuy } from "./sim";
+import {
+  ANIM_MOVING,
+  captureRange,
+  hitscan,
+  type SimState,
+  spawnProjectile,
+  systemBuy,
+} from "./sim";
 import { atan2Poly, rand01 } from "./simMath";
 import { isGroundUnit, nearestEnemyInRange } from "./units";
 import { PROJ_WARDEN } from "./weapons";
@@ -291,9 +297,10 @@ function decide(state: SimState, id: number, d: number): void {
     }
   }
 
-  // 5. Map control: hover a neutral turret into ownership (presence is
-  // currency — the superplane captures like any avatar). On §9 this only runs
-  // when the field has no friendly ground unit left to cover.
+  // 5. Map control: fly over a neutral turret to take it. Like the original's
+  // Sky Captain it captures by flat proximity, with no button and no timer
+  // (fcop-fidelity.md R12). On §9 this only runs when the field has no friendly
+  // ground unit left to cover.
   const spot = nearestNeutralTurretSpot(state, id);
   if (spot >= 0) {
     setGoal(state, WGOAL_CAPTURE, spot);
@@ -356,7 +363,9 @@ function moveAndAct(state: SimState, id: number, me: number): void {
       const s = map.turretSpots[state.wardenSlot];
       tx = s.x;
       ty = s.y;
-      arrive = CAPTURE_RADIUS - 1;
+      // It captures by flat proximity within the range plus its own radius
+      // (systemCapture), so parking at the range itself is a metre inside.
+      arrive = captureRange(map);
       break;
     }
     case WGOAL_ESCORT:

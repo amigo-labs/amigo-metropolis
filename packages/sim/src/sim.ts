@@ -4,7 +4,7 @@
 // System order inside step() is FIXED and part of determinism (order is
 // behavior — document any change):
 //   input → avatar movement+weapons → unit lane-following → targeting →
-//   projectiles → damage/death → capture progress → economy → spawning →
+//   projectiles → damage/death → capture → economy → spawning →
 //   win check.
 // Phase 1 implements avatar movement/weapons, turret targeting (sandbox
 // dummies), projectiles, damage/death and (re)spawning; later phases fill in
@@ -23,7 +23,6 @@ import {
   AVATAR_WALKER_SPEED,
   BASE_TURRET_RESPAWN_TICKS,
   CAPTURE_RADIUS,
-  CAPTURE_TICKS,
   CONSOLE_HOLD_TICKS,
   CONSOLE_RADIUS,
   COST_FORTRESS,
@@ -237,9 +236,12 @@ export interface SimState {
   /** Capturable turrets, one slot per map turretSpot (rules.md §5). */
   readonly neutralTurretEntity: Int32Array;
   readonly neutralTurretRespawn: Int32Array;
-  /** Capture progress per turret spot: capturing team (-1 none) + held ticks. */
-  readonly captureTeam: Int8Array;
-  readonly captureProgress: Int32Array;
+  /**
+   * 1 for a player whose avatar pressed the action key (BUTTON_INTERACT, rising
+   * edge) this tick. TRANSIENT and not hashed: set by systemAvatarMovement and
+   * cleared by systemCapture in the same tick, so it is all-zero between ticks.
+   */
+  readonly capturePress: Uint8Array;
   /** Outposts, one slot per map outpostSpot: owner, console entity, respawn. */
   readonly outpostOwner: Int8Array;
   readonly outpostConsole: Int32Array;
@@ -569,8 +571,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     baseTurretRespawn: new Int32Array(ringSlots),
     neutralTurretEntity: new Int32Array(map.turretSpots.length).fill(-1),
     neutralTurretRespawn: new Int32Array(map.turretSpots.length),
-    captureTeam: new Int8Array(map.turretSpots.length).fill(-1),
-    captureProgress: new Int32Array(map.turretSpots.length),
+    capturePress: new Uint8Array(MAX_PLAYERS),
     outpostOwner: new Int8Array(map.outpostSpots.length).fill(-1),
     outpostConsole: new Int32Array(map.outpostSpots.length).fill(-1),
     outpostRespawn: new Int32Array(map.outpostSpots.length),
@@ -721,6 +722,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // Soft-lock (input.spec §4.4 "lock"): resolve before facing/drive so the
     // throttle projects onto the locked heading this tick.
     if ((pressed & BUTTON_TARGET_CYCLE) !== 0) cycleLockTarget(state, p, id, x, y);
+    // The capture press is an edge, like the original's button latch
+    // (fcop-re/ranges-turrets-capture.md Q2); systemCapture consumes it.
+    if ((pressed & BUTTON_INTERACT) !== 0) state.capturePress[p] = 1;
     let lockId = state.lockTarget[p];
     if (lockId >= 0 && !isLockValid(state, p, id, lockId, x, y)) {
       lockId = -1;
@@ -1824,44 +1828,71 @@ function systemSpawning(state: SimState): void {
 }
 
 /**
- * Capture progress (rules.md §5): a lone team's avatar inside the capture
- * radius of a NEUTRAL capturable turret for 3 s takes ownership. An enemy
- * avatar in the radius contests — progress resets. Presence is currency:
- * only avatars capture, units never do.
+ * Capture range of the arena's turret spots, in metres, before the capturer's own
+ * radius: the imported original value, or CAPTURE_RADIUS where none is imported.
+ */
+export function captureRange(map: MapData): number {
+  return map.captureRange > 0 ? map.captureRange : CAPTURE_RADIUS;
+}
+
+/** Is entity `id` inside `reach` of turret `tid`? `flat` skips the height term. */
+function withinCapture(ent: EntityStore, id: number, tid: number, reach: number, flat: boolean) {
+  const dx = ent.posX[id] - ent.posX[tid];
+  const dy = ent.posY[id] - ent.posY[tid];
+  const dh = flat ? 0 : ent.height[id] - ent.height[tid];
+  return dx * dx + dy * dy + dh * dh < reach * reach;
+}
+
+/**
+ * Neutral turret capture (rules.md §5, fcop-fidelity.md R12), the original's
+ * `turret_op10` (fcop-re/ranges-turrets-capture.md Q2). INSTANT: no timer and no
+ * contest. A neutral turret flips to the first candidate inside the arena's
+ * capture range plus the candidate's own ARCHETYPE_RADIUS:
+ *  - an avatar, only on the tick its action key goes down (capturePress), in 3D;
+ *  - the Warden (the Sky Captain's type 0x25), by flat proximity, no button;
+ *  - a Runner (tank), by proximity in 3D, no button.
+ * Guardians, Juggernauts and Fortresses never capture. A captured turret stays
+ * captured until it is destroyed; it then comes back neutral after
+ * NEUTRAL_TURRET_RESPAWN_TICKS (systemDamageDeath / systemSpawning).
+ *
+ * Candidates are tried in a fixed order — avatars by player slot, then the
+ * Warden, then Runners by entity id — so every peer picks the same capturer.
  */
 function systemCapture(state: SimState): void {
   const ent = state.ent;
   const spots = state.map.turretSpots;
+  const range = captureRange(state.map);
   for (let k = 0; k < spots.length; k++) {
     const tid = state.neutralTurretEntity[k];
-    if (tid < 0 || ent.ownerId[tid] >= 0) {
-      state.captureTeam[k] = -1;
-      state.captureProgress[k] = 0;
-      continue;
-    }
-    let present = 0; // team presence bitmask
-    for (let p = 0; p < MAX_PLAYERS; p++) {
+    if (tid < 0 || ent.ownerId[tid] >= 0) continue;
+    let team = -1;
+    for (let p = 0; p < MAX_PLAYERS && team < 0; p++) {
       const a = state.avatarId[p];
       if (a < 0) continue;
-      const dx = ent.posX[a] - spots[k].x;
-      const dy = ent.posY[a] - spots[k].y;
-      if (dx * dx + dy * dy <= CAPTURE_RADIUS * CAPTURE_RADIUS) present |= 1 << p;
+      if (p === state.wardenPlayer) {
+        if (withinCapture(ent, a, tid, range + ARCHETYPE_RADIUS[ARCHETYPE.WARDEN], true)) team = p;
+      } else if (state.capturePress[p] === 1) {
+        if (withinCapture(ent, a, tid, range + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR], false)) team = p;
+      }
     }
-    const team = present === 1 ? 0 : present === 2 ? 1 : -1; // both/none = -1
-    if (team < 0 || state.captureTeam[k] !== team) {
-      state.captureTeam[k] = team;
-      state.captureProgress[k] = 0;
-      if (team < 0) continue;
+    if (team < 0) {
+      const reach = range + ARCHETYPE_RADIUS[ARCHETYPE.RUNNER];
+      for (let id = 0; id < ent.high; id++) {
+        if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.RUNNER) continue;
+        const t = ent.team[id];
+        if ((t === 0 || t === 1) && withinCapture(ent, id, tid, reach, false)) {
+          team = t;
+          break;
+        }
+      }
     }
-    state.captureProgress[k] += 1;
-    if (state.captureProgress[k] < CAPTURE_TICKS) continue;
-    state.captureProgress[k] = 0;
-    state.captureTeam[k] = -1;
+    if (team < 0) continue;
     ent.team[tid] = team;
     ent.ownerId[tid] = team;
     state.points[team] += POINTS_CAPTURE_TURRET;
     pushEvent(state.events, EV_CAPTURE, tid, team, k);
   }
+  for (let p = 0; p < MAX_PLAYERS; p++) state.capturePress[p] = 0;
 }
 
 /**
@@ -2102,8 +2133,6 @@ export function hash(state: SimState): number {
   for (let k = 0; k < state.neutralTurretEntity.length; k++) {
     h = fnv1aU32(h, state.neutralTurretEntity[k] >>> 0);
     h = fnv1aU32(h, state.neutralTurretRespawn[k] >>> 0);
-    h = fnv1aU32(h, state.captureTeam[k] >>> 0);
-    h = fnv1aU32(h, state.captureProgress[k] >>> 0);
   }
   for (let k = 0; k < state.outpostOwner.length; k++) {
     h = fnv1aU32(h, state.outpostOwner[k] >>> 0);
@@ -2159,7 +2188,7 @@ export function hash(state: SimState): number {
  */
 export const MATCH_SNAPSHOT_HEADER = 6;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
-export const MATCH_SNAPSHOT_SLOT_STRIDE = 10;
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 9;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
 
 /** Header fields. */
@@ -2184,15 +2213,9 @@ export const MATCH_SLOT_OUTPOSTS = 6;
 export const MATCH_SLOT_UNITS = 7;
 /** Console hold-to-buy progress 0..1, or -1 when the slot is not buying. */
 export const MATCH_SLOT_BUY_FRAC = 8;
-/**
- * Best capture progress 0..1 among neutral-turret spots this slot is standing
- * on, or -1 when it is capturing nowhere. "Best" is safe: the capture rule is
- * uncontested presence, so one avatar advances at most one spot at a time —
- * ties only exist for a frame when a spot resets.
- */
-export const MATCH_SLOT_CAPTURE_FRAC = 9;
-// Slot field 10 was MATCH_SLOT_CORE_FRAC, retired with the destructible core
-// (SIM_VERSION 32): the original has none.
+// Slot field 9 was MATCH_SLOT_CAPTURE_FRAC, retired with the 3 s capture timer
+// (SIM_VERSION 34): the original captures instantly on a key press. Slot field 10
+// was MATCH_SLOT_CORE_FRAC, retired with the destructible core (SIM_VERSION 32).
 
 /** Byte offset of slot `s`'s block. */
 export function matchSlotOffset(slot: number): number {
@@ -2225,13 +2248,6 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     out[o + MATCH_SLOT_UNITS] = 0;
     out[o + MATCH_SLOT_BUY_FRAC] =
       state.buyTarget[slot] >= 0 ? state.buyProgress[slot] / CONSOLE_HOLD_TICKS : -1;
-    let capture = -1;
-    for (let k = 0; k < state.captureTeam.length; k++) {
-      if (state.captureTeam[k] !== slot) continue;
-      const frac = state.captureProgress[k] / CAPTURE_TICKS;
-      if (frac > capture) capture = frac;
-    }
-    out[o + MATCH_SLOT_CAPTURE_FRAC] = capture;
   }
   for (let k = 0; k < state.outpostOwner.length; k++) {
     const owner = state.outpostOwner[k];

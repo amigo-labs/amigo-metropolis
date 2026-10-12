@@ -21,7 +21,12 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { COST_JUGGERNAUT, POINTS_CAPTURE_TURRET, UNIT_RANGE } from "../src/balance";
+import {
+  COST_JUGGERNAUT,
+  POINTS_CAPTURE_TURRET,
+  STARTING_POINTS,
+  UNIT_RANGE,
+} from "../src/balance";
 import { segmentBlocked } from "../src/collision";
 import { EV_CAPTURE, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
@@ -223,10 +228,11 @@ describe("a Warden vs an idle player on la-cantina", () => {
   // the Warden's bought waves meet only the turret line. Measured at v32: it
   // breaches at 79 s on this seed (capture 44% of its ticks, then the committed
   // push: escort 20%, suppress 15%). At v33 (the original's economy: a 10-point
-  // start, no trickle, +1 a capture) it breaches at 160 s: a difficulty-8 Warden
-  // saves for its Juggernaut, and with no trickle the 50 points come from pads
+  // start, no trickle, +1 a capture) it breached at 160 s: a difficulty-8 Warden
+  // saves for its Juggernaut, and with no trickle the 50 points came from pads
   // (capture 73% of its ticks), then the Juggernaut push (escort 10%, suppress
-  // 11%) wins. The long history of this describe — the stalled pushes of v15-v30
+  // 11%) won. At v34 a capture is instant and the Warden takes a pad by flying
+  // over it, so it breaches at 77 s. The long history of this describe — the stalled pushes of v15-v30
   // against a free production stream — ended with the stream.
   const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
   const idle = createTickInputs();
@@ -253,10 +259,15 @@ describe("a Warden vs an idle player on la-cantina", () => {
     const boardValue = MAP.turretSpots.length * POINTS_CAPTURE_TURRET;
     expect(boardValue / COST_JUGGERNAUT).toBeGreaterThan(0.5);
     expect(boardValue / COST_JUGGERNAUT).toBeLessThan(1);
-    // The board is not what wins the match: the Warden takes some pads and wins
-    // without needing the whole board.
+    // The board alone does not fund the heavy push: the start plus every pad is
+    // still short of a Juggernaut, so kills pay the rest. Since SIM_VERSION 34 a
+    // capture is instant and the Warden takes a pad by flying over it (the Sky
+    // Captain's flat-proximity capture), so on this seed it sweeps all 32 pads in
+    // 46 s and buys its Juggernaut at 46 s; until then (a 3 s stand per pad) it
+    // took some of the board and won without the rest.
+    expect(STARTING_POINTS + boardValue).toBeLessThan(COST_JUGGERNAUT);
     expect(captures).toBeGreaterThan(0);
-    expect(captures).toBeLessThan(MAP.turretSpots.length);
+    expect(captures).toBeLessThanOrEqual(2 * MAP.turretSpots.length);
   });
 });
 
@@ -269,8 +280,9 @@ describe("a d8 Warden match RESOLVES on every imported arena", () => {
   //
   // Twelve minutes, not ten, since v33: the original's economy has no trickle and
   // a 10-point start, and a difficulty-8 Warden saves for its 50-point Juggernaut
-  // before it buys anything. Measured worst cases: la-cantina 166 s,
-  // urban-jungle 352 s, proving-ground 664 s, bug-hunt 621 s (were 79/98/96/83 s).
+  // before it buys anything. Measured worst cases: la-cantina 83 s,
+  // urban-jungle 351 s, proving-ground 592 s, bug-hunt 603 s at v34 (instant
+  // capture); 166/352/664/621 s at v33; 79/98/96/83 s at v32.
   // The Warden's spending rules are ours until the Sky Captain lands (U3).
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {

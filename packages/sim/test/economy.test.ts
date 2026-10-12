@@ -9,8 +9,9 @@
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
+  ARCHETYPE_RADIUS,
   AVATAR_AMMO_HEAVY,
-  CAPTURE_TICKS,
+  CAPTURE_RADIUS,
   CONSOLE_HOLD_TICKS,
   COST_FORTRESS,
   COST_GUARDIAN,
@@ -237,7 +238,10 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
   });
 });
 
-describe("neutral turret capture (rules.md §5)", () => {
+describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
+  // These pinned a 3 s uncontested stand within 5 m until SIM_VERSION 34. The
+  // original captures on one action-key press, in range + radius, with no
+  // contest; tanks capture by proximity (fcop-re/ranges-turrets-capture.md Q2).
   it("spawns dormant: no shots at avatars parked in range", () => {
     reset();
     const sim = freshSim();
@@ -247,26 +251,33 @@ describe("neutral turret capture (rules.md §5)", () => {
     expect(sim.ent.hp[0]).toBe(300);
   });
 
-  it("a lone avatar captures after 3 s and the turret starts fighting", () => {
+  /** Puts avatar `p` at (x, y) and runs one tick with `buttons` held. */
+  function at(sim: SimState, p: number, x: number, y: number, buttons: number): void {
+    sim.ent.posX[sim.avatarId[p]] = x;
+    sim.ent.posY[sim.avatarId[p]] = y;
+    inputs.players[p].buttons = buttons;
+    step(sim, inputs);
+  }
+
+  it("an avatar captures instantly on the action-key press, and the turret fights", () => {
     reset();
     const sim = freshSim();
-    sim.ent.posX[0] = 33;
-    sim.ent.posY[0] = 30; // 3 m from the spot
-    let captured: number[][] = [];
-    let ticks = 0;
-    for (let t = 1; t <= CAPTURE_TICKS + 2 && captured.length === 0; t++) {
-      step(sim, inputs);
-      captured = findEvents(sim, EV_CAPTURE);
-      ticks = t;
-    }
+    // Standing next to it does nothing: the original gates the avatar on a press.
+    for (let t = 0; t < 120; t++) at(sim, 0, 33, 30, 0);
+    expect(findEvents(sim, EV_CAPTURE).length).toBe(0);
+    expect(sim.ent.ownerId[sim.neutralTurretEntity[0]]).toBe(-1);
+    // One press, and it flips on that tick: no timer (fcop-fidelity.md R12).
+    at(sim, 0, 33, 30, BUTTON_INTERACT);
+    const captured = findEvents(sim, EV_CAPTURE);
     expect(captured.length).toBe(1);
-    expect(ticks).toBe(CAPTURE_TICKS);
     const tid = captured[0][0];
     expect(captured[0][1]).toBe(0);
     expect(sim.ent.team[tid]).toBe(0);
     expect(sim.ent.ownerId[tid]).toBe(0);
+    expect(POINTS_CAPTURE_TURRET).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS + POINTS_CAPTURE_TURRET);
     // The captured turret now engages an enemy unit walking by.
+    inputs.players[0].buttons = 0;
     const runner = spawnUnit(sim, ARCHETYPE.RUNNER, 1, 30, 20);
     let hurt = false;
     for (let t = 0; t < 90 && !hurt; t++) {
@@ -276,17 +287,76 @@ describe("neutral turret capture (rules.md §5)", () => {
     expect(hurt).toBe(true);
   });
 
-  it("an enemy avatar in the radius contests the capture", () => {
+  it("reaches the arena's range plus the avatar's own radius, in 3D", () => {
     reset();
     const sim = freshSim();
-    sim.ent.posX[0] = 33;
-    sim.ent.posY[0] = 30;
-    sim.ent.posX[1] = 27;
-    sim.ent.posY[1] = 30; // both inside CAPTURE_RADIUS
-    for (let t = 0; t < CAPTURE_TICKS * 3; t++) step(sim, inputs);
+    expect(sim.map.captureRange).toBe(0); // no imported range: CAPTURE_RADIUS
+    const reach = CAPTURE_RADIUS + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
+    at(sim, 0, 30 + reach + 0.05, 30, BUTTON_INTERACT);
+    expect(findEvents(sim, EV_CAPTURE).length).toBe(0);
+    at(sim, 0, 30 + reach + 0.05, 30, 0);
+    // Close enough on the ground, but the height counts too.
+    sim.ent.height[sim.avatarId[0]] = reach;
+    sim.ent.posX[sim.avatarId[0]] = 31;
+    sim.ent.posY[sim.avatarId[0]] = 30;
+    inputs.players[0].buttons = BUTTON_INTERACT;
+    step(sim, inputs);
+    expect(findEvents(sim, EV_CAPTURE).length).toBe(0);
+    sim.ent.height[sim.avatarId[0]] = 0; // back on the ground
+    at(sim, 0, 31, 30, 0);
+    at(sim, 0, 30 + reach - 0.05, 30, BUTTON_INTERACT);
+    expect(findEvents(sim, EV_CAPTURE).length).toBe(1);
+  });
+
+  it("counts the press, not the hold", () => {
+    reset();
+    const sim = freshSim();
+    at(sim, 0, 45, 30, BUTTON_INTERACT); // pressed out of range...
+    for (let t = 0; t < 30; t++) at(sim, 0, 33, 30, BUTTON_INTERACT); // ...held into it
+    expect(sim.ent.ownerId[sim.neutralTurretEntity[0]]).toBe(-1);
+    at(sim, 0, 33, 30, 0);
+    at(sim, 0, 33, 30, BUTTON_INTERACT); // a fresh press takes it
+    expect(sim.ent.ownerId[sim.neutralTurretEntity[0]]).toBe(0);
+  });
+
+  it("is not contested, and a captured turret stays captured until destroyed", () => {
+    reset();
+    const sim = freshSim();
+    // The enemy standing on it changes nothing: the first press wins.
+    sim.ent.posX[sim.avatarId[1]] = 27;
+    sim.ent.posY[sim.avatarId[1]] = 30;
+    at(sim, 0, 33, 30, BUTTON_INTERACT);
     const tid = sim.neutralTurretEntity[0];
-    expect(sim.ent.ownerId[tid]).toBe(-1); // still neutral
-    expect(sim.captureProgress[0]).toBe(0);
+    expect(sim.ent.ownerId[tid]).toBe(0);
+    // The other side cannot press it back.
+    inputs.players[0].buttons = 0;
+    for (let t = 0; t < 4; t++) {
+      inputs.players[1].buttons = t % 2 === 0 ? BUTTON_INTERACT : 0;
+      step(sim, inputs);
+    }
+    expect(sim.ent.ownerId[tid]).toBe(0);
+    expect(sim.points[1]).toBe(STARTING_POINTS);
+  });
+
+  it("a Runner captures by coming close; Guardians and Juggernauts never do", () => {
+    reset();
+    const sim = freshSim();
+    const tid = sim.neutralTurretEntity[0];
+    const guard = spawnUnit(sim, ARCHETYPE.GUARDIAN, 1, 30, 30);
+    const jugg = spawnUnit(sim, ARCHETYPE.JUGGERNAUT, 1, 31, 30);
+    sim.ent.posX[guard] = 30;
+    sim.ent.posY[guard] = 30;
+    sim.ent.height[guard] = 0;
+    step(sim, inputs);
+    expect(sim.ent.ownerId[tid]).toBe(-1);
+    sim.ent.hp[guard] = 0;
+    sim.ent.hp[jugg] = 0;
+    step(sim, inputs);
+    const runner = spawnUnit(sim, ARCHETYPE.RUNNER, 1, 32, 30);
+    step(sim, inputs);
+    expect(sim.ent.alive[runner]).toBe(1);
+    expect(sim.ent.ownerId[tid]).toBe(1);
+    expect(sim.points[1]).toBe(STARTING_POINTS + POINTS_CAPTURE_TURRET);
   });
 
   it("destroying an enemy-owned turret pays 1 and it respawns neutral", () => {
@@ -309,7 +379,8 @@ describe("neutral turret capture (rules.md §5)", () => {
     expect(POINTS_TURRET_DIES).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS + POINTS_TURRET_DIES);
     expect(sim.neutralTurretEntity[0]).toBe(-1);
-    // Husk: back as NEUTRAL after 45 s.
+    // Husk: back as NEUTRAL after the original's 25 s.
+    expect(NEUTRAL_TURRET_RESPAWN_TICKS).toBe(750);
     inputs.players[0].buttons = 0;
     for (let t = 0; t < NEUTRAL_TURRET_RESPAWN_TICKS; t++) step(sim, inputs);
     const back = sim.neutralTurretEntity[0];

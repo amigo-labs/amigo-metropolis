@@ -63,6 +63,7 @@ import {
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
 import { type FcopArena, logicFile, selectArenas, wallsFile } from "./fcopArenas";
 import {
+  captureRangeToCells,
   fovToCos,
   rangeToCells,
   rotToYaw,
@@ -837,8 +838,9 @@ function carveRoads(
  * `reach` is in cells. 0 means the target's OWN cell must be in the flood, which
  * is right for anything walked on — a lane node, a buy console, a spawn.
  *
- * It is wrong for a capture pad. Capturing is proximity (`CAPTURE_RADIUS`, and
- * the Warden parks at `CAPTURE_RADIUS - 1`), and the original mounts these pads
+ * It is wrong for a capture pad. Capturing is proximity — an action-key press
+ * within the arena's capture range plus the capturer's radius, at least 4.0 + 0.4 m
+ * on every imported arena (sim.ts systemCapture) — and the original mounts these pads
  * on raised plinths with parapets around them, so demanding the pad cell itself
  * be walkable asks for something the game never asks for — and the only way to
  * grant it is to knock the parapets down. All 8 of la-cantina's outer-ring pads
@@ -1337,9 +1339,10 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       wallsH,
       [
         ...graph.nodes.map((n) => ({ x: n.x, y: n.z, kind: "lane node" })),
-        // Capture pads and outposts are taken by standing NEAR them, not on
-        // them — see RepairTarget. The Warden's arrival radius is the stricter of
-        // the two rules the sim applies, so it is the one to hold the map to.
+        // Capture pads and outposts are taken from NEAR them, not on them — see
+        // RepairTarget. CAPTURE_RADIUS - 1 = 4 m is inside the smallest imported
+        // capture reach (4.0 m + the avatar's radius), so it is the bound to hold
+        // the map to.
         ...turretSpots.map(([x, y]) => ({ x, y, reach: CAPTURE_RADIUS - 1, kind: "capture pad" })),
         ...outpostSpots.map(([x, y]) => ({ x, y, reach: CAPTURE_RADIUS - 1, kind: "outpost" })),
         ...pickups.map((p) => ({ x: p.x, y: p.y, kind: "pickup" })),
@@ -1388,6 +1391,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     turretParams,
     turretYaw,
     turretHp,
+    // The NeutralTurrets' capture range (fcop-re/ranges-turrets-capture.md Q2),
+    // uniform per arena; the sim adds the capturer's own radius.
+    captureRange: round4(captureRangeToCells(arena.neutralCaptureRaw)),
     laneGraph: {
       nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,

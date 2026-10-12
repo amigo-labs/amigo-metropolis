@@ -27,7 +27,11 @@ import { isGroundUnit } from "../src/units";
 const GOLDEN = join(import.meta.dir, "goldens", "golden-07-pa.mrep");
 
 /** Re-simulates the golden, collecting the first tick each event type appeared. */
-function replayBeats(): { firstAt: Map<number, number>; counts: Map<number, number> } {
+function replayBeats(): {
+  firstAt: Map<number, number>;
+  counts: Map<number, number>;
+  playerCaptures: number;
+} {
   const replay = decodeReplay(new Uint8Array(readFileSync(GOLDEN)));
   const state = createSim(getMapById(replay.mapId), replay.seed, {
     wardenPlayer: replay.wardenPlayer,
@@ -36,20 +40,22 @@ function replayBeats(): { firstAt: Map<number, number>; counts: Map<number, numb
   const inputs = createTickInputs();
   const firstAt = new Map<number, number>();
   const counts = new Map<number, number>();
+  let playerCaptures = 0;
   for (let t = 0; t < replay.tickCount; t++) {
     readFrame(replay, t, inputs);
     step(state, inputs);
     for (let i = 0; i < state.events.count; i++) {
       const type = state.events.data[i * EVENT_STRIDE];
+      if (type === EV_CAPTURE && state.events.data[i * EVENT_STRIDE + 2] === 0) playerCaptures += 1;
       if (!firstAt.has(type)) firstAt.set(type, t);
       counts.set(type, (counts.get(type) ?? 0) + 1);
     }
   }
-  return { firstAt, counts };
+  return { firstAt, counts, playerCaptures };
 }
 
 describe("golden-07 exercises the Precinct Assault mechanics", () => {
-  const { counts } = replayBeats();
+  const { counts, playerCaptures } = replayBeats();
 
   it("fields only units somebody bought", () => {
     // The original has no free production (fcop-fidelity.md I7): the script's
@@ -60,6 +66,10 @@ describe("golden-07 exercises the Precinct Assault mechanics", () => {
 
   it("captures an authentic turret pad", () => {
     expect(counts.get(EV_CAPTURE) ?? 0).toBeGreaterThan(0);
+    // ...and the player's capture is the action-key press (fcop-fidelity.md R12):
+    // the script taps it by the (94.8, 91.7) pad. Until SIM_VERSION 34 every
+    // capture here was the Warden's — the scripted avatar was stuck on a wall.
+    expect(playerCaptures).toBeGreaterThan(0);
   });
 
   it("trips a base-intrusion alarm, because a push now reaches a base", () => {

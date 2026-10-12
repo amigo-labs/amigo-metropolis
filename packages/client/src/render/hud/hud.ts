@@ -26,7 +26,6 @@ import {
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_BUY_FRAC,
-  MATCH_SLOT_CAPTURE_FRAC,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
@@ -148,7 +147,7 @@ export function createMatchHud(
   /** Next allowed show time per (kind, team). */
   const tickerNextAt = new Float64Array(TICKER_KINDS * 2);
 
-  // --- Objective progress bar (hold-to-buy / capture) ------------------------
+  // --- Objective progress bar (hold-to-buy) ---------------------------------
   const progressWrap = div(root, "mhud-progress");
   const progressLabel = cell(progressWrap, "mhud-progress-label");
   const progressTrack = div(progressWrap, "mhud-progress-track");
@@ -195,20 +194,17 @@ export function createMatchHud(
         write(foeOutposts, `outposts ${match[other + MATCH_SLOT_OUTPOSTS] | 0}/${outpostTotal}`);
       }
 
-      // Hold-to-buy and capture share one bar: both are "stand here and hold",
-      // both come out of the snapshot as 0..1 (or -1 while inactive), and the
-      // sim never runs them at once — buying needs a console pad, capturing a
-      // neutral turret radius.
-      const buyFrac = match[mine + MATCH_SLOT_BUY_FRAC];
-      const captureFrac = match[mine + MATCH_SLOT_CAPTURE_FRAC];
-      const progressFrac = buyFrac >= 0 ? buyFrac : captureFrac;
+      // Hold-to-buy: 0..1 from the snapshot, -1 while inactive. Capture used to
+      // share this bar (a 3 s hold); since SIM_VERSION 34 it is instant on the
+      // action key, like the original's, and the ticker reports it instead.
+      const progressFrac = match[mine + MATCH_SLOT_BUY_FRAC];
       const progressOn = progressFrac >= 0;
       if (progressOn !== lastProgressOn) {
         lastProgressOn = progressOn;
         progressWrap.classList.toggle("is-on", progressOn);
       }
       if (progressOn) {
-        write(progressLabel, buyFrac >= 0 ? "DEPLOYING" : "CAPTURING");
+        write(progressLabel, "DEPLOYING");
         const pct = Math.round(progressFrac * 100);
         if (pct !== lastProgressPct) {
           lastProgressPct = pct;

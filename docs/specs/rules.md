@@ -7,7 +7,8 @@ Design pillars, in priority order:
 1. **The player is escort and disruptor, never the win condition.** You cannot win
    by attacking the enemy base yourself. Only your units can breach.
 2. **Presence is currency.** Building happens at physical consoles; capturing
-   requires standing there. Every decision costs map control.
+   requires going there and pressing the action key. Every decision costs map
+   control.
 3. **Units are dumb on purpose.** They follow lanes blindly and die easily.
    Their stupidity creates the escort gameplay.
 4. **Readable in 5 minutes, deep over 50 matches.**
@@ -174,9 +175,22 @@ Avatar 300 HP; walker speed 5, hover speed 9.
   itself as fast as a superplane could strip it at authentic density; issue
   #31). Base core is indestructible: a centrepiece and anchor, never a target
   (§9: the original's "core" was its Dreadnought's spawn point).
-- **Neutral turret**: capture by Avatar standing in radius for 3 s uncontested.
-  Fires at enemies of its owner. Can be destroyed (reverts to neutral husk,
-  respawns neutral after 45 s).
+- **Neutral turret**: dormant until captured (it shoots nobody). Captured
+  **instantly** — no timer, no contest — by the original's rule (SIM_VERSION 34;
+  `fcop-fidelity.md` R12, `fcop-re/ranges-turrets-capture.md` Q2):
+  - an avatar **pressing the action key** (Interact, rising edge) within the
+    turret's capture range plus its own radius, measured in 3D;
+  - a **Runner** (tank) simply coming that close, also in 3D;
+  - the **Warden** flying over it (flat distance, no button), as the original's
+    Sky Captain does.
+  Guardians, Juggernauts and Fortresses never capture. The range is the
+  original's `(range + 1024) / 512` m on the imported arenas — 4.0 m on
+  la-cantina, urban-jungle and venice-beach, 5.2 m on proving-ground and bug-hunt,
+  5.6 m on hollywood-keys — and `CAPTURE_RADIUS` (5 m, ours) on district-01.
+  Capturing pays +1 (§3). A captured turret fires at enemies of its owner and stays
+  captured until it is destroyed; it then respawns **neutral after 25 s** (the
+  original's spawner period; was 45 s). This used to be "stand in a 5 m radius for
+  3 s uncontested, avatars only".
 - **Outpost**: claimable for 30 pts at its console. Grants: forward spawn for
   Runners/Guardians (at 2× cost), ammo pad, 2 own turret slots. Enemy can
   destroy an owned outpost's console to revert it to neutral (claimable again).
@@ -322,9 +336,9 @@ only what Metropolis adopts from it.
   package (`fcop-fidelity.md` W3) and stays ours until then.
 - **Capture points are the original pads.** Every original `NeutralTurret`
   becomes a capture spot — 32 on Mp and Conft, 29 on Slim and Joke, against the
-  4–6 of §5. Capture rules
-  themselves are unchanged; the density is a balance question, tuned in
-  `balance.ts`, never by dropping content.
+  4–6 of §5. They capture by §5's rule, which is the original's own since
+  SIM_VERSION 34, with each arena's imported capture range; the density is a
+  balance question, tuned in `balance.ts`, never by dropping content.
 - **Power-ups.** `ItemPickup` spots grant ammo, health, invisibility or a
   temporary damage boost, and re-arm on the original's timer. The original's
   eight grant kinds do not map one-to-one — Metropolis' primary weapon has

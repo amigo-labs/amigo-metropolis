@@ -71,7 +71,8 @@ shipped model is simpler and already correct:
 
 - **No `edges` field.** The sim derives press edges itself by diffing `buttons`
   against the previous tick's (`state.lastButtons`), so edge-triggered actions
-  (jump, transform, target-cycle) need no separate channel (§7).
+  (jump, transform, target-cycle, the capture press) need no separate channel
+  (§7).
 - **No `deploy` field.** Purchasing is Precinct-Assault console interaction:
   stand on a base/outpost pad and hold **Interact** to buy (rules.md §3,
   `systemBuy`). Which unit spawns is chosen by the pad, not a transmitted enum —
@@ -201,11 +202,14 @@ Bit assignment (as shipped, `packages/sim/src/inputs.ts`):
 | 2 | `BUTTON_FIRE3` | Fire — special | held |
 | 3 | `BUTTON_TRANSFORM` | Transform (walker ↔ hover) | edge |
 | 4 | `BUTTON_JUMP` | Jump | edge |
-| 5 | `BUTTON_INTERACT` | Action / Interact (hold to buy/claim/capture) | held |
+| 5 | `BUTTON_INTERACT` | Action / Interact: **press** to capture a neutral turret in range; **hold** to buy/claim at a console | edge + held |
 | 6 | `BUTTON_TARGET_CYCLE` | Target-cycle (soft-lock, §4.4) | edge |
 
 Bit 7 is free. Purchase runs through Interact + console-pad presence (rules.md
-§3), not a discrete deploy command. (This renumbers the v0.1 draft's proposal —
+§3), not a discrete deploy command. Capture reads the same bit's rising edge: the
+original's action key (`[+0xac]+0x40` button latch, an edge — fcop-re/
+ranges-turrets-capture.md Q2) flips a neutral turret the frame it goes down within
+range, with no hold (rules.md §5, SIM_VERSION 34). No new bit and no wire change. (This renumbers the v0.1 draft's proposal —
 Transform/Jump were swapped — to match the code, which is the source of truth for
 replays and the wire frame.)
 

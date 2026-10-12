@@ -582,4 +582,20 @@
 //     Captain port, U3, replaces this AI). 07 replays the same script against
 //     the new economy. balance:pa d8 vs idle still resolves 5/5 seeds on all four
 //     arenas, worst 166/352/664/621 s (was 79/98/96/83 s).
-export const SIM_VERSION = 33;
+// v34: the original's capture (docs/specs/fcop-fidelity.md R12;
+//     fcop-re/ranges-turrets-capture.md Q2). A neutral turret flips INSTANTLY,
+//     with no timer and no contest, to an avatar whose action key (Interact)
+//     goes down within the capture range plus its own radius (3D), to a Runner
+//     that comes that close (3D, no button), or to the Warden flying over it
+//     (flat, no button — the Sky Captain's type 0x25). Guardians, Juggernauts and
+//     Fortresses never capture. Was: an avatar standing 3 s within 5 m,
+//     uncontested. The range is imported per arena as MapData.captureRange, the
+//     original's (raw + 1024) / 512 m from the NeutralTurret record's last
+//     halfword: 4.0 m on Mp/Conft/Ovmp, 5.2 on Slim/Joke, 5.6 on Hk; district-01
+//     keeps CAPTURE_RADIUS 5 m. A destroyed pad respawns neutral after 25 s
+//     (was 45 s). State: captureTeam/captureProgress are gone from the hash; the
+//     transient capturePress is cleared within the tick and never hashed.
+//     Goldens: every one on a map with turret spots re-records, because the
+//     per-spot capture fields left the hash (02, 03, 04, 05, 07); 01 (test-128)
+//     and 06 (layered-test) have none and stay byte-identical (re-headered only).
+export const SIM_VERSION = 34;

@@ -307,6 +307,13 @@ export interface MapData {
    * ARCHETYPE_MAX_HP[TURRET], the Phase-1 sandbox placeholder.
    */
   readonly turretHp: readonly number[];
+  /**
+   * Capture range of the `turretSpots`, in metres, BEFORE the capturer's own
+   * radius: the original's `(range + 1024) / 512` (fcop-re/ranges-turrets-capture.md
+   * Q2) — 4.0 on Mp/Conft/Ovmp, 5.2 on Slim/Joke, 5.6 on Hk. 0 = the arena imports
+   * none, and the sim uses balance.ts CAPTURE_RADIUS (sim.ts `captureRange`).
+   */
+  readonly captureRange: number;
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
   readonly laneGraph: MapLaneGraph | undefined;
   /** Power-up spots. EMPTY → no pickups on this arena. */
@@ -507,6 +514,8 @@ export interface MapJson {
   turretYaw?: number[];
   /** Max HP per turretSpots entry; length must equal turretSpots.length. */
   turretHp?: number[];
+  /** Capture range of the turret spots in metres, before the capturer's radius. */
+  captureRange?: number;
   /** Original Cnet graph. `edges` is one 4-tuple per node, -1 = no edge. */
   laneGraph?: {
     nodes: (number[] | { x: number; y: number; layer?: number })[];
@@ -863,6 +872,11 @@ export function loadMapFromJson(raw: MapJson): MapData {
     return v;
   });
 
+  const captureRange = raw.captureRange ?? 0;
+  if (!Number.isFinite(captureRange) || captureRange < 0) {
+    fail(id, `bad captureRange ${raw.captureRange}`);
+  }
+
   let laneGraph: MapLaneGraph | undefined;
   if (raw.laneGraph) {
     const g = raw.laneGraph;
@@ -1000,6 +1014,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     turretParams,
     turretYaw,
     turretHp,
+    captureRange,
     laneGraph,
     pickups,
     triggerVolumes,
@@ -1091,6 +1106,7 @@ export function createTestMap(): MapData {
     turretParams: [],
     turretYaw: [],
     turretHp: [],
+    captureRange: 0,
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],

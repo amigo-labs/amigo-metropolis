@@ -21,7 +21,6 @@ import {
   ANIM_HOVER,
   ANIM_TRANSFORMING,
   ARCHETYPE,
-  CAPTURE_TICKS,
   CONSOLE_HOLD_TICKS,
   createSim,
   createTickInputs,
@@ -1745,11 +1744,6 @@ function hudText(view: PlayerView, fps: number, banner: string): string {
   let progress = "";
   if (sim.buyTarget[slot] >= 0)
     progress += `  buying ${sim.buyProgress[slot]}/${CONSOLE_HOLD_TICKS}`;
-  for (let k = 0; k < sim.captureTeam.length; k++) {
-    if (sim.captureTeam[k] === slot) {
-      progress += `  capturing ${Math.round((sim.captureProgress[k] / CAPTURE_TICKS) * 100)}%`;
-    }
-  }
   let ownOutposts = 0;
   for (let k = 0; k < sim.outpostOwner.length; k++) {
     if (sim.outpostOwner[k] === slot) ownOutposts += 1;

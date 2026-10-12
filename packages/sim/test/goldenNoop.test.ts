@@ -12,6 +12,9 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+// Re-frozen at SIM_VERSION 34 (the original's instant capture): the per-spot
+// capture fields left the hash, so every golden on a map with turret spots moves
+// (02-05, 07); 01 and 06 have none and keep their pins.
 // Re-frozen at SIM_VERSION 33 (the original's economy): every golden moves,
 // because the hash covers the starting balance (20 -> 10) and the per-player
 // heavy-unit unlock flag; 03's script and 04's outcome changed with the economy
@@ -24,13 +27,13 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 19 (on top of v18 hover cushion): facing-aligned
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
   "golden-01-drive": { last: 2352489124, count: 1800 },
-  "golden-02-combat": { last: 182023591, count: 2700 },
+  "golden-02-combat": { last: 3850800239, count: 2700 },
   // Re-frozen at SIM_VERSION 24 (issue #31): BASE_TURRET_RESPAWN 60→120 s is
   // global, so scripts that kill a base emplacement and live past the old timer
   // move (03/04). golden-07-pa also moves from the §9 escort/capture ladder.
   // 01/02/05/06 header-only.
-  "golden-03-match": { last: 2371924768, count: 4500 },
-  "golden-04-warden": { last: 658839510, count: 9000 },
+  "golden-03-match": { last: 470193076, count: 4500 },
+  "golden-04-warden": { last: 2880804591, count: 9000 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -41,11 +44,11 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // polyline maps where advanceOnGraph never executes and stay byte-identical.
   // Re-frozen at SIM_VERSION 31 (the original's import scales): 05 and 07 run
   // imported arenas, whose turret profiles and trigger volumes changed.
-  "golden-05-fcop": { last: 2560775984, count: 2700 },
+  "golden-05-fcop": { last: 2407809200, count: 2700 },
   "golden-06-layered": { last: 2900857896, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
-  "golden-07-pa": { last: 1987355837, count: 3600 },
+  "golden-07-pa": { last: 365676246, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

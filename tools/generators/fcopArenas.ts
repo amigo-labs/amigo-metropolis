@@ -27,16 +27,67 @@ export interface FcopArena {
    */
   readonly carveLimit: number;
   readonly repairLimit: number;
+  /**
+   * The NeutralTurret capture range, raw: the last halfword of the 60-byte type-36
+   * record (payload 0x4a, loaded by `turret_construct` at 0x0041c1de into +0xfc;
+   * fcop-re/ranges-turrets-capture.md Q1/Q2). extract_logic does not decode that
+   * halfword, so it is carried here. Read from the shipped mission bytes on
+   * 2026-10-12: it is the same on every NeutralTurret of an arena (Mp 32x1024,
+   * Conft 32x1024, Slim 29x1638, Joke 29x1638, Hk 35x1843, Ovmp 39x1024).
+   */
+  readonly neutralCaptureRaw: number;
 }
 
 /** Ordered as convert.ts's ARENAS, so reports read the same across both stages. */
 export const FCOP_ARENAS: readonly FcopArena[] = [
-  { mapId: "urban-jungle", mission: "Conft", layered: false, carveLimit: 400, repairLimit: 400 },
-  { mapId: "proving-ground", mission: "Slim", layered: false, carveLimit: 400, repairLimit: 400 },
-  { mapId: "la-cantina", mission: "Mp", layered: false, carveLimit: 400, repairLimit: 400 },
-  { mapId: "bug-hunt", mission: "Joke", layered: false, carveLimit: 400, repairLimit: 400 },
-  { mapId: "hollywood-keys", mission: "Hk", layered: true, carveLimit: 400, repairLimit: 400 },
-  { mapId: "venice-beach", mission: "Ovmp", layered: true, carveLimit: 400, repairLimit: 400 },
+  {
+    mapId: "urban-jungle",
+    mission: "Conft",
+    layered: false,
+    carveLimit: 400,
+    repairLimit: 400,
+    neutralCaptureRaw: 1024,
+  },
+  {
+    mapId: "proving-ground",
+    mission: "Slim",
+    layered: false,
+    carveLimit: 400,
+    repairLimit: 400,
+    neutralCaptureRaw: 1638,
+  },
+  {
+    mapId: "la-cantina",
+    mission: "Mp",
+    layered: false,
+    carveLimit: 400,
+    repairLimit: 400,
+    neutralCaptureRaw: 1024,
+  },
+  {
+    mapId: "bug-hunt",
+    mission: "Joke",
+    layered: false,
+    carveLimit: 400,
+    repairLimit: 400,
+    neutralCaptureRaw: 1638,
+  },
+  {
+    mapId: "hollywood-keys",
+    mission: "Hk",
+    layered: true,
+    carveLimit: 400,
+    repairLimit: 400,
+    neutralCaptureRaw: 1843,
+  },
+  {
+    mapId: "venice-beach",
+    mission: "Ovmp",
+    layered: true,
+    carveLimit: 400,
+    repairLimit: 400,
+    neutralCaptureRaw: 1024,
+  },
 ];
 
 const known = (): string => FCOP_ARENAS.map((a) => `${a.mapId} (${a.mission})`).join(", ");
