@@ -37,8 +37,10 @@ const FEEDER_MOVE_Y = [-120, 120];
 
 /**
  * The Phase 3 scripted feeder, generalized to either slot: walk to the ground
- * console, then hold-to-buy runner bursts forever (10 s burst, 20 s pause).
- * Slot 1 is byte-identical to the historic ?opponent=feeder behavior.
+ * console, then runner bursts forever (10 s burst, 20 s pause). A purchase is one
+ * press of the action key (rules.md §3, the original's), so a burst presses it
+ * every 0.5 s — one tick down, then released — the rate the old 0.5 s hold
+ * bought at. The walk is byte-identical to the historic ?opponent=feeder.
  */
 export function demoFeeder(slot: number, tick: number, out: PlayerInput): void {
   zeroPlayerInput(out);
@@ -47,7 +49,7 @@ export function demoFeeder(slot: number, tick: number, out: PlayerInput): void {
     out.moveY = FEEDER_MOVE_Y[slot];
     return;
   }
-  if (tick % 900 < 300) out.buttons = BUTTON_INTERACT;
+  if (tick % 900 < 300 && tick % 15 === 0) out.buttons = BUTTON_INTERACT;
 }
 
 /**

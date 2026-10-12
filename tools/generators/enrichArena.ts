@@ -39,7 +39,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  CAPTURE_RADIUS,
   crossesWallX,
   crossesWallY,
   GROUND_STEPS,
@@ -48,6 +47,7 @@ import {
   loadMapFromJson,
   type MapData,
   type MapJson,
+  ORIGINAL_CAPTURE_RANGE,
   openLine,
   reachableFrom,
   resolveHeight,
@@ -458,7 +458,7 @@ interface EvidenceOutpost {
 }
 
 interface EvidenceMap {
-  base_plates: { csac: number; team: number }[];
+  base_plates: { csac: number; team: number; respawn_s: number }[];
   outposts: EvidenceOutpost[];
 }
 
@@ -1239,6 +1239,23 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // Slim/Joke/Hk; count anything the cap would drop.
     const ring = ownTurrets.slice(0, 16);
     ringDropped += ownTurrets.length - ring.length;
+    // The ring's spawner period: tSAC -2250 = 37.5 s after each death on every PA
+    // map (fcop-re/outposts.md Q1; the plates' -1500 is the outposts'). One
+    // value per base, asserted shared by its records and against the evidence.
+    const periods = new Set(ring.map((t) => t.spawnTicks));
+    if (periods.size !== 1) {
+      throw new Error(
+        `${mapId}: team ${base.team}'s ring turrets disagree on their respawn period`,
+      );
+    }
+    const turretRespawnTicks = toSimTicks(ring[0].spawnTicks, TICK_HZ);
+    for (const p of evidence.base_plates) {
+      if (p.team === base.team && Math.round(p.respawn_s * TICK_HZ) !== turretRespawnTicks) {
+        throw new Error(
+          `${mapId}: ring respawn ${turretRespawnTicks} ticks, outposts.json says ${p.respawn_s} s`,
+        );
+      }
+    }
 
     return {
       // The original's gate trigger box (gateOf). Features without a Cnet
@@ -1252,7 +1269,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       airConsole: [acx, acy],
       pad: { x: coreX, y: coreY, radius: 3 },
       // The ring carries each Turret actor's OWN shooter block, not just its
-      // position. Dropping it left the ring on the global 28 m TURRET_RANGE
+      // position. Dropping it once left the ring on the then-global 28 m TURRET_RANGE
       // against an imported engage_range of 12 m — see spawnBaseTurret in sim.ts.
       // Every mission's ring shares the neutrals' parameters exactly, so these
       // intern to the same profile the capturable pads already use.
@@ -1263,6 +1280,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         hp: t.health,
         yaw: round4(rotToYaw(t.gunRotationRaw, true)),
       })),
+      turretRespawnTicks,
       // The type-28 record IS the Dreadnought (fcop-re/ranges-turrets-capture.md
       // top + Q4): the Juggernaut spawns where it stands, with its 3000 HP and its
       // four hull guns, each its record's shooter on catalogue weapon 3. The
@@ -1501,10 +1519,15 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       [
         ...graph.nodes.map((n) => ({ x: n.x, y: n.z, kind: "lane node" })),
         // Capture pads and outposts are taken from NEAR them, not on them — see
-        // RepairTarget. CAPTURE_RADIUS - 1 = 4 m is inside the smallest imported
-        // capture reach (4.0 m + the avatar's radius), so it is the bound to hold
-        // the map to.
-        ...turretSpots.map(([x, y]) => ({ x, y, reach: CAPTURE_RADIUS - 1, kind: "capture pad" })),
+        // RepairTarget. ORIGINAL_CAPTURE_RANGE, 4 m, is the smallest imported
+        // capture range (the avatar's radius comes on top), so it is the bound to
+        // hold the map to.
+        ...turretSpots.map(([x, y]) => ({
+          x,
+          y,
+          reach: ORIGINAL_CAPTURE_RANGE,
+          kind: "capture pad",
+        })),
         // An outpost's claim zone and pads are touched (1.2 m + the mech's
         // radius), so the bound is the ring turrets' 1 m.
         ...outpostSpots.map(([x, y]) => ({ x, y, reach: 1, kind: "outpost" })),

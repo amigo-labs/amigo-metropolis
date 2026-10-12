@@ -26,7 +26,6 @@ import {
   MATCH_SLOT_AMMO_GUN,
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
-  MATCH_SLOT_BUY_FRAC,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_LOCK,
   MATCH_SLOT_OUTPOSTS,
@@ -150,12 +149,6 @@ export function createMatchHud(
   /** Next allowed show time per (kind, team). */
   const tickerNextAt = new Float64Array(TICKER_KINDS * 2);
 
-  // --- Objective progress bar (hold-to-buy) ---------------------------------
-  const progressWrap = div(root, "mhud-progress");
-  const progressLabel = cell(progressWrap, "mhud-progress-label");
-  const progressTrack = div(progressWrap, "mhud-progress-track");
-  const progressFill = div(progressTrack, "mhud-progress-fill");
-
   // --- Bottom bar ----------------------------------------------------------
   const bottom = div(root, "mhud-bottom");
   const healthWrap = div(bottom, "mhud-health");
@@ -173,8 +166,6 @@ export function createMatchHud(
   let lastHpPct = -1;
   let lastRespawn = -1;
   let lastBanner = "";
-  let lastProgressPct = -1;
-  let lastProgressOn = false;
   let lastPower = -1;
 
   const pushTickerRow = (text: string, nowMs: number): void => {
@@ -199,24 +190,6 @@ export function createMatchHud(
       if (ownOutposts && foeOutposts) {
         write(ownOutposts, `outposts ${match[mine + MATCH_SLOT_OUTPOSTS] | 0}/${outpostTotal}`);
         write(foeOutposts, `outposts ${match[other + MATCH_SLOT_OUTPOSTS] | 0}/${outpostTotal}`);
-      }
-
-      // Hold-to-buy: 0..1 from the snapshot, -1 while inactive. Capture used to
-      // share this bar (a 3 s hold); since SIM_VERSION 34 it is instant on the
-      // action key, like the original's, and the ticker reports it instead.
-      const progressFrac = match[mine + MATCH_SLOT_BUY_FRAC];
-      const progressOn = progressFrac >= 0;
-      if (progressOn !== lastProgressOn) {
-        lastProgressOn = progressOn;
-        progressWrap.classList.toggle("is-on", progressOn);
-      }
-      if (progressOn) {
-        write(progressLabel, "DEPLOYING");
-        const pct = Math.round(progressFrac * 100);
-        if (pct !== lastProgressPct) {
-          lastProgressPct = pct;
-          progressFill.style.width = `${pct}%`;
-        }
       }
 
       // Expire ticker rows. performance.now() matches the pump's clock.

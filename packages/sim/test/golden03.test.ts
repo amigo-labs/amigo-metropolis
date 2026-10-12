@@ -1,10 +1,13 @@
 // Golden #3 (Phase 2 DoD mini-match, replayed on the original's economy since
 // SIM_VERSION 33): beyond the hash-sequence check in golden.test.ts, assert the
-// scripted match actually plays out — the avatar clears the dummies and base
-// East's ring, puts player 1's avatar down twice (the original pays 10 a down,
-// at the victim's respawn, and the ring bounty alone is 1 a turret now), claims
-// the outpost with that, forward-buys runners at 2× and breaches on the KNOWN
-// tick before the ring respawns.
+// scripted match actually plays out — the avatar walks the north lane, puts
+// player 1's avatar down three times as it walks out to the (176, 88) outpost
+// (the original pays 10 a down, at the victim's respawn, and a ring turret only
+// 1), claims the outpost with two of them, forward-buys runners at 2× with the
+// third and runs ahead of them into base East's ring, clearing its north pair:
+// they breach on the KNOWN tick, inside the 37.5 s before that pair returns
+// (SIM_VERSION 50, the original's ring respawn), on district-01 with the
+// original's turrets and units (SIM_VERSION 52).
 // If a balance retune shifts the match off these beats, this fails and the
 // script needs adjusting WITH the regenerated golden (and a new pin).
 
@@ -34,7 +37,19 @@ import { createSim, step } from "../src/sim";
 // Mini-Gun) and 1250-HP mechs. Nothing is sniped from outside a turret's reach
 // any more: the script walks up to each dummy and ring turret and fires all three
 // slots on the lock, and needs ~17 s to put player 1's mech down twice.
-const BREACH_TICK_PIN = 4262;
+// 4262 -> 5640 at SIM_VERSION 50: the ring comes back after 37.5 s instead of
+// 120 s, which caught the old script's avatar in base East (it cleared the ring
+// first and fought player 1 inside it for ~40 s). Player 1 now walks out to the
+// outpost to be put down (three times, for the wave's points too), and the ring's
+// north pair is cleared just before the wave is bought.
+// 5640 -> 5602 at SIM_VERSION 51: a Runner per key press, so the wave of six is
+// bought in 26 ticks instead of 90 (one per completed 0.5 s hold).
+// 5602 -> 4610 at SIM_VERSION 52: district-01 on the original's rules. Its
+// turrets and dummies are 500-HP weapon-3 turrets, so the avatar walks past the
+// dummies instead of clearing them; player 1 buys no feeders (three 150-HP tanks
+// that never stop to fight drove through base West's ring of four and breached);
+// the wave is five Runners at 1.98 m/s, bought before the ring is attacked.
+const BREACH_TICK_PIN = 4610;
 
 describe("golden-03-match beats", () => {
   it("avatar snipe, outpost claim, forward wave, breach on the pinned tick", () => {
@@ -83,21 +98,21 @@ describe("golden-03-match beats", () => {
       }
     }
 
-    // Player 0 clears 2 dummies + all 4 ring turrets and survives (on 153 of its
-    // 1250 HP since SIM_VERSION 41: it fights the ring inside its reach now);
-    // player 1's avatar goes down twice.
-    expect(turretDeaths).toBeGreaterThanOrEqual(6);
+    // Player 0 clears the ring's north pair (500 HP each, one at a time) and
+    // survives; player 1's avatar goes down three times.
+    expect(turretDeaths).toBeGreaterThanOrEqual(2);
     expect(p0Down).toBe(false);
-    expect(avatarDeaths).toBe(2);
-    // The claim is funded by the start, the ring and feeder bounties and the two
-    // downs: start + 4 ring turrets at 1 each could never cover 30.
+    expect(avatarDeaths).toBe(3);
+    // The claim is funded by the start and two downs: start + 4 ring turrets at 1
+    // each could never cover 30.
     expect(claims).toBe(1);
     expect(STARTING_POINTS + 4 * POINTS_TURRET_DIES).toBeLessThan(COST_OUTPOST_CLAIM);
-    // Forward runners bought at the outpost; feeders spawned on both sides.
-    expect(purchases[0]).toBeGreaterThanOrEqual(3);
-    expect(purchases[1]).toBeGreaterThanOrEqual(3);
-    expect(runnerDeaths).toBeGreaterThanOrEqual(2); // player 1's feeders die
-    // (the last feeder may still be mid-fight when the breach freezes the sim)
+    // Five forward Runners bought at the outpost; player 1 buys nothing (since
+    // SIM_VERSION 52 its old feeders breached base West). The ring kills at least
+    // one of the wave on the way in.
+    expect(purchases[0]).toBe(5);
+    expect(purchases[1]).toBe(0);
+    expect(runnerDeaths).toBeGreaterThanOrEqual(1);
     // Exactly one breach, by team 0, after the claim, on the known tick.
     expect(breaches).toBe(1);
     expect(breachTeam).toBe(0);

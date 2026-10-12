@@ -131,6 +131,14 @@ export const EV_TRANSFORM = 14; // a=entity id, b=new mode (0 walker/1 hover), c
 export const EV_TURRET_UNDER_FIRE = 15; // a=turret id, b=its team
 /** A side's base turret was destroyed (voice ids 0/1). */
 export const EV_TURRET_LOST = 16; // a=turret id, b=its team, c=ring slot
+/**
+ * A purchase spot refused an action-key press (fcop-fidelity.md R17): the points
+ * are short, the side already has 20 of that unit alive, or an outpost claim
+ * zone was pressed with fewer than 30 points. The original's spot scripts answer
+ * every press with an accept or a refuse sound (fcop-re/ai-and-rules.md §2); an
+ * accepted purchase is EV_PURCHASE. c = the refused archetype, -1 for a claim.
+ */
+export const EV_PURCHASE_REFUSED = 17; // a=avatar id, b=player, c=archetype (-1 claim)
 
 export interface EventBuffer {
   count: number;

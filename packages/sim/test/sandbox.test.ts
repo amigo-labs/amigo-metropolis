@@ -31,7 +31,7 @@ import {
   TURRET_DEFENSE,
   TURRET_DUMMY,
 } from "../src/sim";
-import { UNIT_MODE_ASSAULT } from "../src/units";
+import { UNIT_MODE_OUTPOST } from "../src/units";
 import { GUNS, HEAVIES, resolveLoadout, SPECIALS } from "../src/weapons";
 
 // Flat 16×16 grid at 4 m cells → 60 m square, one straight lane, one turret
@@ -237,8 +237,8 @@ describe("spawnSandbox", () => {
 
   it("passes the unit mode through to spawnUnit", () => {
     const sim = rangeSim();
-    const id = spawnSandbox(sim, "guardian", 0, 30, 6, UNIT_MODE_ASSAULT);
-    expect(sim.ent.mode[id]).toBe(UNIT_MODE_ASSAULT);
+    const id = spawnSandbox(sim, "guardian", 0, 30, 6, UNIT_MODE_OUTPOST);
+    expect(sim.ent.mode[id]).toBe(UNIT_MODE_OUTPOST);
   });
 
   it("spawns the hover avatar in hover mode", () => {
@@ -443,7 +443,7 @@ describe("determinism", () => {
     setSandboxLoadout(sim, 0, { gun: 2, heavy: 2, special: 1 });
     for (let i = 0; i < 90; i++) {
       step(sim, inputs);
-      if (i === 30) spawnSandbox(sim, "juggernaut", 0, 20, 6, UNIT_MODE_ASSAULT);
+      if (i === 30) spawnSandbox(sim, "juggernaut", 0, 20, 6, UNIT_MODE_OUTPOST);
       if (i === 60) clearSandboxSpawns(sim);
       hashes.push(hash(sim));
     }

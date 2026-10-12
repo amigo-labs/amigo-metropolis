@@ -74,8 +74,8 @@ shipped model is simpler and already correct:
   (jump, transform, target-cycle, the capture press) need no separate channel
   (§7).
 - **No `deploy` field.** Purchasing is Precinct-Assault console interaction:
-  stand on a base/outpost pad and hold **Interact** to buy (rules.md §3,
-  `systemBuy`). Which unit spawns is chosen by the pad, not a transmitted enum —
+  stand on a base/outpost pad and **press Interact** to buy one unit (rules.md
+  §3, `systemBuy`; one unit per press since SIM_VERSION 51, the original's). Which unit spawns is chosen by the pad, not a transmitted enum —
   so no deploy command travels on the wire.
 - **No `lockTarget` field.** Soft-lock `lock` mode is resolved entirely in the
   sim from the **Target-Cycle button** (§4.4); the target id is never
@@ -229,11 +229,14 @@ Bit assignment (as shipped, `packages/sim/src/inputs.ts`):
 | 2 | `BUTTON_FIRE3` | Fire — special | held |
 | 3 | `BUTTON_TRANSFORM` | Transform (walker ↔ hover) | edge |
 | 4 | `BUTTON_JUMP` | Jump (walker: hop / leap / high jump by context); **brake** in hover | edge (jump), held (brake) |
-| 5 | `BUTTON_INTERACT` | Action / Interact: **press** to capture a neutral turret in range or claim an outpost from its zone; **hold** to buy at a console or outpost pad | edge + held |
+| 5 | `BUTTON_INTERACT` | Action / Interact: **press** to capture a neutral turret in range, claim an outpost from its zone, or buy **one unit** at a console or outpost pad | edge |
 | 6 | `BUTTON_TARGET_CYCLE` | Target-cycle (soft-lock, §4.4) | edge |
 
 Bit 7 is free. Purchase runs through Interact + console-pad presence (rules.md
-§3), not a discrete deploy command. Capture reads the same bit's rising edge: the
+§3), not a discrete deploy command: one unit per rising edge, as the original's
+purchase triggers answer its Action Key (`fcop-fidelity.md` R17, SIM_VERSION 51;
+a refused press emits `EV_PURCHASE_REFUSED`, the original's refuse sound).
+Holding the key buys nothing more; it was a 0.5 s hold per unit before. Capture reads the same bit's rising edge: the
 original's action key (`[+0xac]+0x40` button latch, an edge — fcop-re/
 ranges-turrets-capture.md Q2) flips a neutral turret the frame it goes down within
 range, with no hold (rules.md §5, SIM_VERSION 34). No new bit and no wire change.
@@ -296,7 +299,7 @@ target — it sends only the Target-Cycle button and the sim resolves the tracki
       toggle is future UI work.
 - [x] **Local view prediction:** v1 has none — the delay is kept low (2/3 ticks)
       and the rollback path (`netcode.spec` §4) defuses it later.
-- [x] **`deploy`:** not adopted — purchasing is console-pad + hold-to-buy
+- [x] **`deploy`:** not adopted — purchasing is console-pad + a press per unit
       (rules.md §3), so the lane-vs-point question is moot.
 - [ ] **Special fire:** held today (bit 2). Tap-to-fire + tap-to-detonate (FC
       plasma-flare behavior) stays a possible future refinement.

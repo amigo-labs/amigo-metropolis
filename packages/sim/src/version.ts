@@ -849,4 +849,52 @@
 //     Goldens: 07 (la-cantina, d8) re-records, the captain roaming; 04
 //     (district-01, ring 4 = 8 < 10) still defends all match and is
 //     byte-identical, as are 01-03, 05 and 06 (no Warden); re-headered.
-export const SIM_VERSION = 49;
+// v50: a base ring turret comes back 37.5 s after it dies, the original's ring
+//     spawner period (tSAC -2250; fcop-fidelity.md R16, fcop-re/outposts.md Q1),
+//     on every arena, instead of Metropolis' 120 s. The imported arenas carry it
+//     as data (MapBase.turretRespawnTicks, 1125 ticks, read from the ring
+//     records' own spawner by enrichArena.ts and checked against outposts.json);
+//     district-01 and the test maps fall back to BASE_TURRET_RESPAWN_TICKS, the
+//     same 1125. Goldens: 03 (district-01) re-records with a new script — the old
+//     one cleared base East's ring and fought player 1 inside it for ~40 s, and
+//     the ring came back and put player 0 down; player 1 now walks out to the
+//     outpost to be put down, and the wave is bought after the ring's north pair
+//     is cleared and breaches inside its 37.5 s (tick 4262 -> 5640, 160 -> 200 s).
+//     01, 02 and 04-07 are byte-identical (no ring turret of theirs is down when
+//     the old and the new period differ); re-headered.
+// v51: a purchase is one press of the action key (fcop-fidelity.md R17;
+//     fcop-re/ai-and-rules.md §2): every purchase spot — base consoles, an
+//     imported outpost's tank and jet pads, Metropolis' outpost consoles —
+//     sells one unit on the tick Interact goes down, as the original's trigger
+//     zones answer its Action Key, instead of one per 0.5 s held. A press the spot
+//     refuses (points short, 20 alive, a claim under 30) emits the new
+//     EV_PURCHASE_REFUSED (the original's refuse sound; events are not hashed); a
+//     closed heavy zone (not yet unlocked, or its unit alive) stays silent. A
+//     press that claims an outpost buys nothing more. SimState loses the hashed
+//     buyTarget/buyProgress, so every golden's hash moves; the match snapshot
+//     loses MATCH_SLOT_BUY_FRAC (stride 12 -> 11). Golden scripts press every
+//     0.5 s where they held: 03's player 1 buys its three feeders on three
+//     presses and player 0 its wave on six (breach 5640 -> 5602), 05 and 07 buy
+//     their waves the same way.
+// v52: district-01 and the test maps play the original's rules on their own
+//     geometry (owner's call; fcop-fidelity.md W3, U1-U4, R12, R14 and the
+//     district-01 row). A map that imports no profiles loads the original's
+//     (balance.ts ORIGINAL_WEAPON_PROFILES / ORIGINAL_UNIT_PROFILES /
+//     ORIGINAL_TURRET_HP, the imported arenas' own table): ring and capture
+//     turrets on weapon 3 (100 a round every 61 ticks, 12 m, 7.62 m/s lead round,
+//     ±22.5° arc, 2.0 s re-search, 290°/s slew; 500 HP), tanks and jets 150 HP on
+//     weapon 1/6, the Fortress 2000 HP on weapon 4, the Juggernaut 3000 HP with four
+//     guns (rolling out at the ground console); Metropolis' dummies keep their
+//     avatar-only role on the neutral turret's gun. Units everywhere are the
+//     original's: polyline-lane tanks drive at 1.98 m/s and never stop to fight,
+//     aircraft are the original's leashed aircraft at 4.0/4.8 m/s. Capture range
+//     4.0 m (was 5), an outpost claim zone is the record's 1.2 m + the avatar's
+//     radius in 3D (was a flat 3 m), and an outpost console takes no damage on
+//     any arena (the destruction revert and SimState.outpostRespawn are gone).
+//     Metropolis' TURRET_*, UNIT_*, patrol/assault and console-respawn tables are
+//     removed. Every golden's hash moves (outpostRespawn left the hash, weapon
+//     profiles are hashed on every map); 02 (dummies now 500 HP: the mech holds
+//     fire until one puts it down, 90 -> 120 s), 03 (a new choreography, breach
+//     5602 -> 4610) and 04 (the captain's opening Runners breach at 2824; was no
+//     breach) change behaviour on district-01.
+export const SIM_VERSION = 52;

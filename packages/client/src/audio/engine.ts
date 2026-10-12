@@ -23,6 +23,7 @@ import {
   EV_HIT,
   EV_PICKUP,
   EV_PURCHASE,
+  EV_PURCHASE_REFUSED,
   EV_RESPAWN,
   EV_SHOT,
   EV_TRANSFORM,
@@ -44,6 +45,10 @@ cueByType[EV_HIT] = "hit";
 cueByType[EV_DEATH] = "death";
 cueByType[EV_RESPAWN] = "respawn";
 cueByType[EV_PURCHASE] = "purchase";
+// The original answers every purchase press with an accept or a refuse sound
+// (fcop-fidelity.md R17); which sound-bank entries those are is not read, so
+// both are sfxr cues.
+cueByType[EV_PURCHASE_REFUSED] = "refuse";
 cueByType[EV_BREACH] = "breach";
 cueByType[EV_CAPTURE] = "capture";
 cueByType[EV_CLAIM] = "claim";

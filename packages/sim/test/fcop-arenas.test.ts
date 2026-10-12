@@ -20,7 +20,12 @@
 // Stage 1 has no water, so the district-01 river assertions are absent. The
 // mirror assertion is NOT absent any more — see the mirrorAxis field.
 import { describe, expect, it } from "bun:test";
-import { AVATAR_JUMP_SPEED, X1_GRAVITY } from "../src/balance";
+import {
+  AVATAR_JUMP_SPEED,
+  BASE_TURRET_RESPAWN_TICKS,
+  ORIGINAL_WEAPON_PROFILES,
+  X1_GRAVITY,
+} from "../src/balance";
 import { crossesWallX, crossesWallY } from "../src/collision";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
@@ -34,6 +39,7 @@ import {
   worldExtent,
 } from "../src/map";
 import { segmentWalkable } from "../src/roads";
+import { ringRespawnTicks } from "../src/sim";
 import { JUMPABLE_RISE, worstHoverRise, worstUphillRise } from "../src/units";
 
 /** The apex JUMPABLE_RISE is derived from; asserted below so they cannot drift. */
@@ -391,12 +397,26 @@ for (const arena of ARENAS) {
           ? arena.ringTurrets[team]
           : arena.ringTurrets;
         expect(base.turrets.length).toBe(ringWant);
+        // The ring spawner's tSAC -2250 = 37.5 s (fcop-fidelity.md R16).
+        expect(base.turretRespawnTicks).toBe(1125);
+        expect(ringRespawnTicks(map, team)).toBe(BASE_TURRET_RESPAWN_TICKS);
         // Type 28 is the Dreadnought (fcop-fidelity.md I6): each side's
         // Juggernaut, with no core HP and no free production left on the base.
         expect(base.juggernaut?.hp).toBe(arena.juggernautHp);
         expect(base.juggernaut?.guns).toBe(4);
         expect(base.gate.halfW).toBeCloseTo(arena.gateHalf[0], 3);
         expect(base.gate.halfL).toBeCloseTo(arena.gateHalf[1], 3);
+      }
+      // The imported table IS the original's default one (balance.ts
+      // ORIGINAL_WEAPON_PROFILES, which district-01 and the test maps load), in
+      // the same order, so PROFILE_* indices mean the same on every arena. The
+      // Dreadnought gun's fov differs on Slim and Joke; no refire shooter reads it.
+      expect(map.weapons.length).toBe(ORIGINAL_WEAPON_PROFILES.length);
+      for (let k = 0; k < map.weapons.length; k++) {
+        expect({ ...map.weapons[k], fovCos: 0 }).toEqual({
+          ...ORIGINAL_WEAPON_PROFILES[k],
+          fovCos: 0,
+        });
       }
       // Per-spot lists stay parallel to turretSpots or the guns get shuffled.
       if (arena.weapons > 0) {

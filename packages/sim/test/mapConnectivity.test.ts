@@ -10,7 +10,7 @@
 // a bridged arena whose roads were walled off: it walked cells only, on layer 0's
 // walls, so it could not see either a deck or a road under one. See that file.
 import { describe, expect, it } from "bun:test";
-import { CAPTURE_RADIUS } from "../src/balance";
+import { ORIGINAL_CAPTURE_RANGE } from "../src/balance";
 import { getMapById, MAP_REGISTRY, type MapData } from "../src/map";
 import { type ReachSet, reachableFrom } from "../src/reach";
 
@@ -88,7 +88,7 @@ for (const id of PLAYABLE_IDS) {
       const f = floodHas(map, map.spawns[0].x, map.spawns[0].y);
       // Capturing is PROXIMITY, not occupancy: sim.ts gives a pad to a press
       // within the arena's capture range plus the avatar's radius — at least
-      // 4.0 + 0.4 m on every imported arena — and CAPTURE_RADIUS - 1 = 4 m is
+      // 4.0 + 0.4 m on every imported arena — and ORIGINAL_CAPTURE_RANGE, 4 m, is
       // inside that everywhere.
       // The original mounts these pads on raised plinths with parapets around
       // them — all 8 of la-cantina's outer-ring pads have a walkable cell one
@@ -97,7 +97,7 @@ for (const id of PLAYABLE_IDS) {
       // only way to grant it is to knock the original's parapets down, which is
       // what the generator used to do. Same reasoning the ring-turret check above
       // already applies.
-      const reach = CAPTURE_RADIUS - 1;
+      const reach = ORIGINAL_CAPTURE_RANGE;
       const capturable = (p: { x: number; y: number }): boolean => {
         const cell = map.cellSize;
         for (let dx = -reach; dx <= reach; dx += cell) {

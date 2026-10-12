@@ -6,7 +6,7 @@
 //   left half   floating move stick (analog, camera-relative like WASD)
 //   right half  floating aim stick (snap-to-unit + hold-last facing;
 //               primary FIRE1 auto-fires while engaged — twin-stick convention)
-//   buttons     TRANSFORM / JUMP / INTERACT(hold) / HEAVY / SPECIAL
+//   buttons     TRANSFORM / JUMP / INTERACT(press) / HEAVY / SPECIAL
 //
 // Pointer bookkeeping: the first pointer down in a screen half owns that stick
 // until its up/cancel (`setPointerCapture` keeps a finger sliding off-screen
@@ -65,7 +65,7 @@ function capture(el: Element, pointerId: number): void {
 export class TouchInput implements LocalInputSource {
   readonly label = "Touch";
   readonly hint =
-    "left stick drive · right stick aim (auto-fire) · MODE transform · JUMP · tap USE to capture/claim · hold to buy · HVY/SPC fire";
+    "left stick drive · right stick aim (auto-fire) · MODE transform · JUMP · tap USE to capture/claim/buy (one unit a tap) · HVY/SPC fire";
 
   // Stick ownership + state. The aim direction is remembered in the SCREEN
   // frame (x right, y up-screen) and rotated by the camera basis on sample,

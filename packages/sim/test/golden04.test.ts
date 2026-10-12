@@ -5,24 +5,24 @@
 // in the commit message — CLAUDE.md hard rule 6).
 //
 // Since SIM_VERSION 46 the Warden is the original's Sky Captain at level 7
-// (difficulty 8; fcop-fidelity.md U3). It does not breach district-01, and the
-// reason is measured, not hidden:
+// (difficulty 8; fcop-fidelity.md U3), and since SIM_VERSION 52 district-01 runs
+// on the original's rules too (turrets, units, speeds, targeting; owner's call).
+// It now BREACHES district-01, and the reason is measured:
 // - the captain's mode machine promotes it to DEFEND whenever its own team
 //   turrets within 256 m of home, each counted twice (the turret and its base
 //   part, fcop-re/outposts.md Q2), come to fewer than ten: fewer than 5 turrets.
-//   district-01's ring is 4 and Metropolis' outposts carry no plates, so 8.
-//   In defend mode it flies at the player and buys only jets, a Fortress past 65
-//   points, and — at level 9 only — a base tank against a threat at home; it
-//   claims outposts and buys tanks or a Dreadnought only in its other two modes.
-//   So it spends this match in defend mode (all but the 6 ticks after a respawn);
-// - its only tanks are its free opening order (level 7: 2-5 tanks and the rest
-//   of ten jets, unpaid). On district-01 (Metropolis' polyline lanes) a Runner
-//   halts at the first thing in reach and dies there: all five do;
-// - chasing the patrolling player into district-01's ring (Metropolis' 28 m
-//   instant-hit turrets) it falls six times, each costing it 10.
+//   district-01's ring is 4, so 8: it defends all match, flying at the player,
+//   and buys no tank (that needs roam/attack, or level 9);
+// - its only tanks are its free opening order (level 7: here 5 Runners and 5
+//   jets, unpaid). Until SIM_VERSION 52 they halted at the first thing in reach
+//   on the polyline lanes and died to the 28 m instant-hit ring; now they are
+//   the original's 150-HP tanks at 1.98 m/s that never stop to fight, against a
+//   ring of four 12 m weapon-3 turrets, and one reaches base West's gate at tick
+//   2824 (94 s);
+// - it downs the patrolling player once, kills one of its ring turrets and
+//   captures a pad, and is never shot down (was: six falls to the 28 m ring).
 // On the imported arenas its 6- or 8-turret ring counts 12 or 16 and it roams,
-// buying tanks and Juggernauts (paAttribution.test.ts); their Runners are the
-// original's route followers and do not stop to fight.
+// buying tanks and Juggernauts (paAttribution.test.ts).
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -35,7 +35,7 @@ import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
 describe("golden-04-warden beats", () => {
-  it("the Sky Captain defends, trades kills, and its opening order dies on the lanes", () => {
+  it("the Sky Captain defends, and its opening order breaches district-01", () => {
     const replay = decodeReplay(
       new Uint8Array(readFileSync(join(import.meta.dir, "goldens", "golden-04-warden.mrep"))),
     );
@@ -79,23 +79,24 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    // It captures the two pads it flies over chasing the player.
-    expect(wardenCaptures).toBe(2);
+    // It captures the one pad it flies over chasing the player.
+    expect(wardenCaptures).toBe(1);
     // Its opening order is its whole field: five Runners (and five jets), none
     // bought — its defend mode buys no tank below level 9.
     expect(wardenRunners).toBe(5);
     expect(wardenJuggernauts).toBe(0);
-    // Both sides trade kills: it falls six times to the patrol and the ring, and
-    // downs the patrol once.
-    expect(wardenDeaths).toBe(6);
+    // It downs the patrol once and is never shot down.
+    expect(wardenDeaths).toBe(0);
     expect(avatarDeaths).toBe(1);
-    // Each fall costs it 10 and pays player 0 10 (R4): it ends on nothing.
-    expect(sim.points[1]).toBe(0);
-    expect(sim.points[0]).toBe(65);
-    // No breach: the match is still running when the recording ends.
-    expect(breaches).toBe(0);
-    expect(breachTick).toBe(-1);
-    expect(breachTeam).toBe(-1);
-    expect(sim.winner).toBe(-1);
+    // The down pays it 10 and costs player 0 10 (R4); a ring turret and a capture
+    // pay it 1 each.
+    expect(sim.points[1]).toBe(12);
+    expect(sim.points[0]).toBe(0);
+    // An opening-order Runner breaches base West's gate (SIM_VERSION 52: was no
+    // breach), and the match ends one outro later.
+    expect(breaches).toBe(1);
+    expect(breachTick).toBe(2824);
+    expect(breachTeam).toBe(1);
+    expect(sim.winner).toBe(1);
   });
 });

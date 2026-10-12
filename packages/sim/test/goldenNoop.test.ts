@@ -50,20 +50,25 @@ import { join } from "node:path";
 // sim freezes (breach ticks themselves are unchanged — golden03/04 pin them);
 // 05 and 07 run imported arenas with no free production and no base guns.
 const FROZEN: Record<string, { last: number; count: number }> = {
+  // All seven re-frozen at SIM_VERSION 52 (district-01 and the test maps on the
+  // original's rules): the outpost console respawn left the hash and weapon
+  // profiles are hashed on every map; 02-04 also play differently on district-01.
+  // All seven re-frozen at SIM_VERSION 51 (a purchase is one key press, R17): the
+  // hashed purchase-hold state is gone, so every hash moves; 03, 05 and 07 buy by
+  // presses.
   // 04 and 07 re-frozen at SIM_VERSION 46: their Warden is the Sky Captain.
   // All seven re-frozen at SIM_VERSION 45: the entity store gained a float field
   // (timerC, a PA aircraft's cruise countdown), so every hash moves; 07's bought
   // units also target as the original's shooters and aircraft do.
   // Re-frozen at SIM_VERSION 19 (on top of v18 hover cushion): facing-aligned
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
-  "golden-01-drive": { last: 1696573034, count: 1800 },
-  "golden-02-combat": { last: 2284195599, count: 2700 },
-  // Re-frozen at SIM_VERSION 24 (issue #31): BASE_TURRET_RESPAWN 60→120 s is
-  // global, so scripts that kill a base emplacement and live past the old timer
-  // move (03/04). golden-07-pa also moves from the §9 escort/capture ladder.
-  // 01/02/05/06 header-only.
-  "golden-03-match": { last: 1878356378, count: 4800 },
-  "golden-04-warden": { last: 3738813715, count: 9000 },
+  "golden-01-drive": { last: 732950138, count: 1800 },
+  "golden-02-combat": { last: 242052263, count: 3600 },
+  // Re-frozen at SIM_VERSION 50 (the original's 37.5 s ring respawn, R16): 03's
+  // script was rewritten around it (player 1 is put down at the outpost, the wave
+  // goes in inside the ring's window) and runs 200 s.
+  "golden-03-match": { last: 1236955133, count: 6000 },
+  "golden-04-warden": { last: 65923620, count: 9000 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -78,15 +83,15 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // plate turret the half-cell pad key had leaked into it (9 -> 8).
   // Re-frozen at SIM_VERSION 48: the arena's four original outposts replace its
   // two invented consoles (two more console entities in the store).
-  "golden-05-fcop": { last: 3223870856, count: 2700 },
-  "golden-06-layered": { last: 3892665265, count: 600 },
+  "golden-05-fcop": { last: 2709464640, count: 2700 },
+  "golden-06-layered": { last: 233556689, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
   // Re-frozen at SIM_VERSION 44 (the original's route followers): 07's bought
   // units drive la-cantina's Cnet by the step chooser at 1.98 m/s.
   // Re-frozen at SIM_VERSION 48: la-cantina's four original outposts.
   // Re-frozen at SIM_VERSION 49: its captain counts each turret twice and roams.
-  "golden-07-pa": { last: 2245859112, count: 3600 },
+  "golden-07-pa": { last: 3275971503, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

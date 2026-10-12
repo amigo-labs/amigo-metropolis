@@ -22,9 +22,7 @@ import {
   AVATAR_LOCK_RANGE,
   AVATAR_WALKER_MAX_SLOPE,
   BASE_TURRET_RESPAWN_TICKS,
-  CAPTURE_RADIUS,
   CLOAK_DISARM_RADIUS,
-  CONSOLE_HOLD_TICKS,
   CONSOLE_RADIUS,
   COST_FORTRESS,
   COST_GUARDIAN,
@@ -60,11 +58,10 @@ import {
   MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
   NEUTRAL_TURRET_RESPAWN_TICKS,
-  OUTPOST_CLAIM_RADIUS,
-  OUTPOST_CONSOLE_RESPAWN_TICKS,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_PAD_RADIUS,
   OUTPOST_TURRET_RESPAWN_TICKS,
+  OUTPOST_ZONE_RADIUS,
   PAD_REPAIR_HP_PER_TICK,
   PICKUP_GUN_AMMO,
   PICKUP_HEALTH,
@@ -104,11 +101,6 @@ import {
   TRIGGER_WATCH_ENEMY_UNITS,
   TRIGGER_WATCH_OWN_AVATAR,
   TURRET_ALERT_COOLDOWN_TICKS,
-  TURRET_COOLDOWN_TICKS,
-  TURRET_DAMAGE,
-  TURRET_RANGE,
-  UNIT_DAMAGE,
-  UNIT_FIRE_COOLDOWN_TICKS,
   WALKER_AIR_DRAG,
   WALKER_DRAG,
   WALKER_HIGH_LIFT,
@@ -160,6 +152,7 @@ import {
   EV_HIT,
   EV_PICKUP,
   EV_PURCHASE,
+  EV_PURCHASE_REFUSED,
   EV_RESPAWN,
   EV_SHOT,
   EV_TRANSFORM,
@@ -185,7 +178,6 @@ import {
 } from "./inputs";
 import {
   insideGate,
-  isPrecinctAssault,
   isWater,
   type MapBaseTurret,
   type MapData,
@@ -207,7 +199,7 @@ import {
   startAircraft,
   startRoute,
   systemUnitMovement,
-  UNIT_MODE_ASSAULT,
+  UNIT_MODE_OUTPOST,
   UNIT_MODE_PATROL,
   unitRange,
 } from "./units";
@@ -331,13 +323,13 @@ export interface SimState {
    * cleared by systemCapture in the same tick, so it is all-zero between ticks.
    */
   readonly capturePress: Uint8Array;
-  /** Outposts, one slot per map outpostSpot: owner, console entity, respawn. */
+  /**
+   * Outposts, one slot per map outpostSpot: owner and console entity. A claim
+   * is permanent on every arena (R14): the console takes no damage, so nothing
+   * respawns (district-01's console-destruction revert went in SIM_VERSION 52).
+   */
   readonly outpostOwner: Int8Array;
   readonly outpostConsole: Int32Array;
-  readonly outpostRespawn: Int32Array;
-  /** Hold-to-buy per player: encoded console target (-1 none) + held ticks. */
-  readonly buyTarget: Int32Array;
-  readonly buyProgress: Int32Array;
   /**
    * The X1-Alpha's lock per player (-1 none): the original's view+0x6c, held,
    * cycled and auto-acquired in-sim (`updateLock`). Hitscan guns damage only it.
@@ -476,6 +468,9 @@ function spawnDummy(state: SimState, k: number): number {
   ent.hp[id] = ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
   ent.ownerId[id] = -1;
   ent.mode[id] = TURRET_DUMMY;
+  // Its gun is the original neutral turret's (SIM_VERSION 52); the dummy, its
+  // avatar-only targeting and its 15 s respawn are Metropolis'.
+  ent.weaponProfile[id] = state.map.dummyWeapon;
   state.dummyEntity[k] = id;
   return id;
 }
@@ -490,13 +485,12 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   ent.posY[id] = spot.y;
   ent.height[id] = resolveHeight(state.map, spot.x, spot.y, spot.layer);
   ent.entLayer[id] = spot.layer;
-  ent.hp[id] =
-    state.map.turretHp.length > 0 ? state.map.turretHp[k] : ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
+  ent.hp[id] = state.map.turretHp[k];
   ent.ownerId[id] = -1;
   ent.mode[id] = TURRET_CAPTURABLE;
-  // Per-spot original parameters (rules.md §9); empty lists leave the profile at
-  // -1 and the yaw at 0, i.e. the pre-PA behavior.
-  if (state.map.turretParams.length > 0) ent.weaponProfile[id] = state.map.turretParams[k];
+  // Per-spot original parameters (rules.md §9; the defaults where the arena
+  // imports none).
+  ent.weaponProfile[id] = state.map.turretParams[k];
   // The rest yaw. A turret's aimX/aimY are its shooter state (systemTargeting),
   // so they start at zero.
   if (state.map.turretYaw.length > 0) ent.yaw[id] = state.map.turretYaw[k];
@@ -550,6 +544,16 @@ function spawnOutpostConsole(state: SimState, k: number): number {
   return id;
 }
 
+/**
+ * Ticks a base ring turret of `team` stays down: the imported ring spawner's
+ * period (MapBase.turretRespawnTicks, the original's 37.5 s), else
+ * BASE_TURRET_RESPAWN_TICKS, the same 37.5 s (fcop-fidelity.md R16).
+ */
+export function ringRespawnTicks(map: MapData, team: number): number {
+  const t = map.bases[team].turretRespawnTicks;
+  return t > 0 ? t : BASE_TURRET_RESPAWN_TICKS;
+}
+
 /** Resolves flattened ring slot `k` to its map entry (base 0 slots first). */
 function baseTurretSpot(map: MapData, k: number): { team: number; spot: MapBaseTurret } {
   const n0 = map.bases[0].turrets.length;
@@ -566,8 +570,9 @@ function baseTurretSpot(map: MapData, k: number): { team: number; spot: MapBaseT
  * for one release, and the effect was not subtle: with weaponProfile at -1 the
  * ring fell through to the global TURRET_RANGE of 28 m against an imported
  * engage_range of (then) 6 m, so 32 turrets covered the whole midfield and shot every
- * produced unit dead from outside the units' own reach. Sentinels keep the pre-PA
- * arenas on the globals.
+ * produced unit dead from outside the units' own reach. Since SIM_VERSION 52 an
+ * arena without records (district-01) loads its ring on the original team
+ * turret's profile too (map.ts), so there are no globals left to fall to.
  */
 function spawnBaseTurret(state: SimState, k: number): number {
   const ent = state.ent;
@@ -578,7 +583,7 @@ function spawnBaseTurret(state: SimState, k: number): number {
   ent.posY[id] = spot.y;
   ent.height[id] = resolveHeight(state.map, spot.x, spot.y, spot.layer);
   ent.entLayer[id] = spot.layer;
-  ent.hp[id] = spot.hp > 0 ? spot.hp : ARCHETYPE_MAX_HP[ARCHETYPE.TURRET];
+  ent.hp[id] = spot.hp;
   ent.ownerId[id] = team;
   ent.mode[id] = TURRET_DEFENSE;
   ent.weaponProfile[id] = spot.weapon;
@@ -591,9 +596,9 @@ function spawnBaseTurret(state: SimState, k: number): number {
 /**
  * Spawns a combat unit for `team` at (x, y). Ground units pick their lane via
  * the per-player round-robin counter — or, when `forward` (outpost spawn),
- * join at the nearest waypoint of the nearest lane. Flyers start their patrol
- * orbit at the bearing from their anchor. `mode` is the Guardian spawn-site
- * switch (UNIT_MODE_PATROL at a base, UNIT_MODE_ASSAULT at an outpost).
+ * join at the nearest waypoint of the nearest lane. Flyers are the original's
+ * aircraft, and `mode` is an aircraft's anchor: UNIT_MODE_PATROL (0) the base,
+ * UNIT_MODE_OUTPOST + k outpost k.
  */
 export function spawnUnit(
   state: SimState,
@@ -619,26 +624,21 @@ export function spawnUnit(
   ent.hp[id] = ARCHETYPE_MAX_HP[archetype];
   ent.ownerId[id] = team;
   ent.mode[id] = mode;
-  // On a Precinct Assault arena the Juggernaut IS the original's Dreadnought, and
-  // takes its HP and hull-gun profile from the imported record (map.ts
-  // MapJuggernaut). Elsewhere it keeps balance.ts's own stats.
+  // The Juggernaut IS the original's Dreadnought and takes its HP and hull-gun
+  // profile from the record (map.ts MapJuggernaut; the defaults where the arena
+  // has none); the tank, jet and Flying Fortress their spawner records' health
+  // and weapon (fcop-fidelity.md W3): 150 / 150 / 2000 HP, on every arena.
   const base = state.map.bases[team];
-  const dread = base.juggernaut;
-  if (archetype === ARCHETYPE.JUGGERNAUT && dread !== undefined) {
-    ent.hp[id] = dread.hp;
-    ent.weaponProfile[id] = dread.weapon;
-  }
-  // Likewise the tank, jet and Flying Fortress take their spawner records' health
-  // and weapon on a PA arena (fcop-fidelity.md W3): 150 / 150 / 2000 HP.
-  const unit =
-    archetype === ARCHETYPE.RUNNER
-      ? base.runner
-      : archetype === ARCHETYPE.GUARDIAN
-        ? base.guardian
-        : archetype === ARCHETYPE.FORTRESS
-          ? base.fortress
-          : undefined;
-  if (unit !== undefined) {
+  if (archetype === ARCHETYPE.JUGGERNAUT) {
+    ent.hp[id] = base.juggernaut.hp;
+    ent.weaponProfile[id] = base.juggernaut.weapon;
+  } else {
+    const unit =
+      archetype === ARCHETYPE.RUNNER
+        ? base.runner
+        : archetype === ARCHETYPE.GUARDIAN
+          ? base.guardian
+          : base.fortress;
     ent.hp[id] = unit.hp;
     ent.weaponProfile[id] = unit.weapon;
   }
@@ -700,14 +700,10 @@ export function spawnUnit(
       ent.timerB[id] = -1; // no lanes on this map: beeline the gate
     }
     snapUnitHeight(state, id, false);
-  } else if (isPrecinctAssault(state.map)) {
+  } else {
     // The original's aircraft (units.ts moveAircraft): patrols its anchor, the
     // spawner it was built at (mode 0 base, 1 + k outpost k).
     startAircraft(state, id);
-    snapUnitHeight(state, id, true);
-  } else {
-    const core = state.map.bases[team].core;
-    ent.timerA[id] = atan2Poly(y - core.y, x - core.x);
     snapUnitHeight(state, id, true);
   }
   return id;
@@ -751,13 +747,10 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     capturePress: new Uint8Array(MAX_PLAYERS),
     outpostOwner: new Int8Array(map.outpostSpots.length).fill(-1),
     outpostConsole: new Int32Array(map.outpostSpots.length).fill(-1),
-    outpostRespawn: new Int32Array(map.outpostSpots.length),
-    buyTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     lockTarget: new Int32Array(MAX_PLAYERS).fill(-1),
     lockSteer: new Uint8Array(MAX_PLAYERS),
     gunAmmo: new Uint16Array(MAX_PLAYERS),
     burstLeft: new Uint8Array(MAX_PLAYERS * 3),
-    buyProgress: new Int32Array(MAX_PLAYERS),
     loadoutGun: new Uint8Array(MAX_PLAYERS),
     loadoutHeavy: new Uint8Array(MAX_PLAYERS),
     loadoutSpecial: new Uint8Array(MAX_PLAYERS),
@@ -1317,7 +1310,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub. They
     // fire through a transformation (fcop-fidelity.md P3).
     avatarWeapons(state, p, id, input.buttons, pressed);
-    // Hold-to-buy at consoles (rules.md §3): runs every tick, holds decay.
+    // Purchases (rules.md §3): one unit per press of the action key on a spot.
     systemBuy(state, p, id, input.buttons);
   }
 }
@@ -1332,8 +1325,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
  *   turret's flag bit 0, the search's skip bit, so an uncaptured one is skipped
  *   (ranges-turrets-capture.md Q2; the reading is the flag's, M). The sandbox's
  *   neutral target dummies are Metropolis' own and stay lockable;
- * - an outpost console on an imported arena (it takes no damage, R14); on
- *   district-01 an enemy-owned console stays a target, as it is destructible there.
+ * - an outpost console: it takes no damage on any arena (R14; district-01's too
+ *   since SIM_VERSION 52).
  */
 function isLockable(state: SimState, player: number, selfId: number, t: number): boolean {
   const ent = state.ent;
@@ -1343,7 +1336,7 @@ function isLockable(state: SimState, player: number, selfId: number, t: number):
   const arch = ent.archetype[t];
   if (arch === ARCHETYPE.PROJECTILE) return false;
   if (team === TEAM_NEUTRAL) return arch === ARCHETYPE.TURRET && ent.mode[t] === TURRET_DUMMY;
-  if (arch === ARCHETYPE.CONSOLE) return !isPrecinctAssault(state.map);
+  if (arch === ARCHETYPE.CONSOLE) return false;
   return true;
 }
 
@@ -1447,10 +1440,10 @@ function updateLock(state: SimState, player: number, selfId: number, cycle: bool
 }
 
 /**
- * Is avatar `id` touching an outpost zone at (x, y) on `layer`? On the imported
- * arenas a type-14 zone's contact (fcop-re/outposts.md Q3): within the record's
- * radius plus the avatar's own, horizontally and vertically (a sphere, as the
- * capture test is). On Metropolis' own arenas the flat OUTPOST_CLAIM_RADIUS.
+ * Is avatar `id` touching an outpost zone at (x, y) on `layer`? A type-14 zone's
+ * contact (fcop-re/outposts.md Q3): within the record's radius plus the avatar's
+ * own, horizontally and vertically (a sphere, as the capture test is). On every
+ * arena since SIM_VERSION 52 (district-01's zone was a flat 3 m).
  */
 function touchesZone(
   state: SimState,
@@ -1463,7 +1456,6 @@ function touchesZone(
   const ent = state.ent;
   const dx = ent.posX[id] - x;
   const dy = ent.posY[id] - y;
-  if (zone <= 0) return dx * dx + dy * dy <= OUTPOST_CLAIM_RADIUS * OUTPOST_CLAIM_RADIUS;
   const dh = ent.height[id] - resolveHeight(state.map, x, y, layer);
   const reach = zone + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
   return dx * dx + dy * dy + dh * dh < reach * reach;
@@ -1476,7 +1468,8 @@ function touchesZone(
  * the spot, no hold. The original's zone carries the op-10 gate bit 0x04, which
  * refuses a player whose button latch is not pressed this frame
  * (fcop-re/outposts.md Q3), so entering is not enough. -30, first come first
- * served. Returns true when it claimed.
+ * served. Returns true when the press was the zone's: claimed, or refused for want of
+ * the points (EV_PURCHASE_REFUSED, the original's refuse sound).
  *
  * The zone watches a player's own avatar. The Warden never touches it: the
  * original's Sky Captain claims by a decision (its dispatch writes the outpost's
@@ -1484,13 +1477,19 @@ function touchesZone(
  */
 export function claimOutpost(state: SimState, player: number, id: number): boolean {
   if (state.capturePress[player] !== 1) return false;
-  if (state.points[player] < COST_OUTPOST_CLAIM) return false;
   const map = state.map;
   const spots = map.outpostSpots;
   for (let k = 0; k < spots.length; k++) {
     if (state.outpostOwner[k] !== -1 || state.outpostConsole[k] < 0) continue;
-    const zone = map.outposts.length > 0 ? map.outposts[k].zone : 0;
+    // The record's radius; the same 1.2 m where the arena has no records.
+    const zone = map.outposts.length > 0 ? map.outposts[k].zone : OUTPOST_ZONE_RADIUS;
     if (!touchesZone(state, id, spots[k].x, spots[k].y, spots[k].layer, zone)) continue;
+    if (state.points[player] < COST_OUTPOST_CLAIM) {
+      // "With fewer, the press is refused" (fcop-re/outposts.md Q3): the refuse
+      // sound, c = -1 for a claim.
+      pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, -1);
+      return true;
+    }
     return claimOutpostSlot(state, player, k);
   }
   return false;
@@ -1522,7 +1521,6 @@ export function claimOutpostSlot(state: SimState, player: number, k: number): bo
   const cid = state.outpostConsole[k];
   ent.team[cid] = player;
   ent.ownerId[cid] = player;
-  ent.hp[cid] = ARCHETYPE_MAX_HP[ARCHETYPE.CONSOLE];
   const plates = state.map.outpostPlates;
   for (let j = 0; j < plates.length; j++) {
     if (plates[j].outpost !== k) continue;
@@ -1544,26 +1542,30 @@ export function claimOutpostSlot(state: SimState, player: number, k: number): bo
 }
 
 /**
- * Console purchases. First the outpost claim zones (claimOutpost: the action
- * key pressed inside one with the points). Then hold-to-buy (rules.md §3):
- * standing on a console pad with INTERACT held buys one unit per completed
- * CONSOLE_HOLD_TICKS hold. Switching consoles, toggling the FIRE2 heavy
- * modifier, releasing the button, running out of points or hitting an
- * alive-limit all reset the hold. FIRE2 orders the heavy variant at base
- * consoles and the (assault) air unit at Metropolis' outpost consoles; an
- * imported arena's outposts have a tank pad and a jet pad instead. Exported for the Warden, which buys through the exact same rules with
- * synthesized buttons (rules.md §7: same rules and economy as a player).
+ * Purchases, the original's way (fcop-fidelity.md R17; fcop-re/ai-and-rules.md
+ * §2/§3): there is no menu and no hold — every purchase spot is a trigger that
+ * answers the action key on the frame it goes down (capturePress, the same
+ * rising edge as a capture or a claim), ONE unit per press. First the outpost
+ * claim zones (claimOutpost); a press that claims buys nothing more. Then the
+ * spot the avatar stands on: base consoles (FIRE2 held orders the heavy variant,
+ * Metropolis' stand-in for the original's separate Dreadnought and Fortress
+ * zones), an imported outpost's tank and jet pads, Metropolis' outpost consoles
+ * (FIRE2 for the Guardian). A press the spot refuses — the points are short, or
+ * the side already has 20 of that unit alive — answers with EV_PURCHASE_REFUSED,
+ * the original's refuse sound; an accepted one with EV_PURCHASE. A heavy zone
+ * that is still locked (R10) or whose unit is alive is closed, as the original's
+ * is, and stays silent.
  */
 export function systemBuy(state: SimState, player: number, id: number, buttons: number): void {
   const ent = state.ent;
   const map = state.map;
-  if (player !== state.wardenPlayer) claimOutpost(state, player, id);
+  if (state.capturePress[player] !== 1) return;
+  if (claimOutpost(state, player, id)) return;
   const r2 = CONSOLE_RADIUS * CONSOLE_RADIUS;
   const heavy = (buttons & BUTTON_FIRE2) !== 0 ? 1 : 0;
   const x = ent.posX[id];
   const y = ent.posY[id];
 
-  let target = -1;
   let cost = 0;
   let archetype = -1;
   let spawnX = 0;
@@ -1572,108 +1574,88 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
   let mode = UNIT_MODE_PATROL;
   let forward = false;
 
-  if ((buttons & BUTTON_INTERACT) !== 0) {
-    const base = map.bases[player];
-    const gdx = x - base.groundConsole.x;
-    const gdy = y - base.groundConsole.y;
-    const adx = x - base.airConsole.x;
-    const ady = y - base.airConsole.y;
-    if (gdx * gdx + gdy * gdy <= r2) {
-      target = 256 + heavy;
-      archetype = heavy ? ARCHETYPE.JUGGERNAUT : ARCHETYPE.RUNNER;
-      cost = heavy ? COST_JUGGERNAUT : COST_RUNNER;
-      spawnX = base.groundConsole.x;
-      spawnY = base.groundConsole.y;
-      spawnLayer = base.groundConsole.layer;
-      // The original's Dreadnought rolls out of its own spawner at node 0 of its
-      // Cnet by the HQ, not at the purchase pad (fcop-re/ranges-turrets-capture.md
-      // top). The console is where it is bought; this is where it appears.
-      const dread = base.juggernaut;
-      if (heavy && dread !== undefined) {
-        spawnX = dread.x;
-        spawnY = dread.y;
-        spawnLayer = dread.layer;
+  const base = map.bases[player];
+  const gdx = x - base.groundConsole.x;
+  const gdy = y - base.groundConsole.y;
+  const adx = x - base.airConsole.x;
+  const ady = y - base.airConsole.y;
+  if (gdx * gdx + gdy * gdy <= r2) {
+    archetype = heavy ? ARCHETYPE.JUGGERNAUT : ARCHETYPE.RUNNER;
+    cost = heavy ? COST_JUGGERNAUT : COST_RUNNER;
+    spawnX = base.groundConsole.x;
+    spawnY = base.groundConsole.y;
+    spawnLayer = base.groundConsole.layer;
+    // The original's Dreadnought rolls out of its own spawner at node 0 of its
+    // Cnet by the HQ, not at the purchase pad (fcop-re/ranges-turrets-capture.md
+    // top). The console is where it is bought; this is where it appears.
+    const dread = base.juggernaut;
+    if (heavy && dread !== undefined) {
+      spawnX = dread.x;
+      spawnY = dread.y;
+      spawnLayer = dread.layer;
+    }
+  } else if (adx * adx + ady * ady <= r2) {
+    archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
+    cost = heavy ? COST_FORTRESS : COST_GUARDIAN;
+    spawnX = base.airConsole.x;
+    spawnY = base.airConsole.y;
+    spawnLayer = base.airConsole.layer;
+  } else if (map.outposts.length > 0) {
+    // The original's outpost pads (fcop-re/outposts.md Q3): a tank pad and a jet
+    // pad per outpost, its owner's only, 2 points a unit. The unit leaves from
+    // the pad; a jet patrols the outpost it was built at (mode 1 + k).
+    for (let k = 0; k < map.outposts.length; k++) {
+      if (state.outpostOwner[k] !== player) continue;
+      const o = map.outposts[k];
+      const jet = touchesZone(state, id, o.jetPad.x, o.jetPad.y, o.jetPad.layer, o.zone);
+      if (!jet && !touchesZone(state, id, o.tankPad.x, o.tankPad.y, o.tankPad.layer, o.zone)) {
+        continue;
       }
-    } else if (adx * adx + ady * ady <= r2) {
-      target = 512 + heavy;
-      archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
-      cost = heavy ? COST_FORTRESS : COST_GUARDIAN;
-      spawnX = base.airConsole.x;
-      spawnY = base.airConsole.y;
-      spawnLayer = base.airConsole.layer;
-    } else if (map.outposts.length > 0) {
-      // The original's outpost pads (fcop-re/outposts.md Q3): a tank pad and a jet
-      // pad per outpost, its owner's only, 2 points a unit. The unit leaves from
-      // the pad; a jet patrols the outpost it was built at (mode 1 + k).
-      for (let k = 0; k < map.outposts.length; k++) {
-        if (state.outpostOwner[k] !== player) continue;
-        const o = map.outposts[k];
-        const jet = touchesZone(state, id, o.jetPad.x, o.jetPad.y, o.jetPad.layer, o.zone);
-        if (!jet && !touchesZone(state, id, o.tankPad.x, o.tankPad.y, o.tankPad.layer, o.zone)) {
-          continue;
-        }
-        const pad = jet ? o.jetPad : o.tankPad;
-        target = 768 + k * 2 + (jet ? 1 : 0);
-        archetype = jet ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
-        cost = (jet ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
-        spawnX = pad.x;
-        spawnY = pad.y;
-        spawnLayer = pad.layer;
-        mode = jet ? 1 + k : UNIT_MODE_PATROL;
+      const pad = jet ? o.jetPad : o.tankPad;
+      archetype = jet ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
+      cost = (jet ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
+      spawnX = pad.x;
+      spawnY = pad.y;
+      spawnLayer = pad.layer;
+      mode = jet ? UNIT_MODE_OUTPOST + k : UNIT_MODE_PATROL;
+      forward = true;
+      break;
+    }
+  } else {
+    for (let k = 0; k < map.outpostSpots.length; k++) {
+      const s = map.outpostSpots[k];
+      const dx = x - s.x;
+      const dy = y - s.y;
+      if (dx * dx + dy * dy > r2) continue;
+      const owner = state.outpostOwner[k];
+      if (owner === player) {
+        // Forward spawn at 2× cost (rules.md §3). A Guardian is the original's
+        // jet and patrols the spawner it was built at: UNIT_MODE_OUTPOST + k
+        // names outpost k (units.ts moveAircraft).
+        archetype = heavy ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
+        cost = (heavy ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
+        spawnX = s.x;
+        spawnY = s.y;
+        spawnLayer = s.layer;
+        mode = heavy ? UNIT_MODE_OUTPOST + k : UNIT_MODE_PATROL;
         forward = true;
-        break;
       }
-    } else {
-      for (let k = 0; k < map.outpostSpots.length; k++) {
-        const s = map.outpostSpots[k];
-        const dx = x - s.x;
-        const dy = y - s.y;
-        if (dx * dx + dy * dy > r2) continue;
-        const owner = state.outpostOwner[k];
-        if (owner === player) {
-          // Forward spawn at 2× cost (rules.md §3); guardians leave in
-          // assault mode — the outpost spawn-site switch (rules.md §4). On a PA
-          // arena a Guardian is the original's jet and patrols the spawner it
-          // was built at: mode 1 + k names outpost k (units.ts moveAircraft).
-          target = 768 + k * 2 + heavy;
-          archetype = heavy ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
-          cost = (heavy ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
-          spawnX = s.x;
-          spawnY = s.y;
-          spawnLayer = s.layer;
-          mode = heavy ? (isPrecinctAssault(map) ? 1 + k : UNIT_MODE_ASSAULT) : UNIT_MODE_PATROL;
-          forward = true;
-        }
-        break;
-      }
+      break;
     }
   }
 
-  // Affordability, the heavy-unit unlock and the alive caps gate the hold itself
-  // (fcop-fidelity.md R9, R10): 20 Runners and 20 Guardians per side, base and
-  // outpost purchases alike; one Juggernaut and one Fortress, and those two only
-  // once the side has reached 50 points.
-  if (target >= 0) {
-    if (state.points[player] < cost) {
-      target = -1;
-    } else if (archetype >= 0) {
-      const heavy = archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS;
-      if (heavy && state.heavyUnlocked[player] === 0) {
-        target = -1;
-      } else if (countAliveOfArchetype(state, archetype, player) >= aliveLimit(archetype)) {
-        target = -1;
-      }
-    }
-  }
+  if (archetype < 0) return; // not on a purchase spot: the press is not a purchase
 
-  if (state.buyTarget[player] !== target) {
-    state.buyTarget[player] = target;
-    state.buyProgress[player] = 0;
+  // The spot's own gates (fcop-fidelity.md R9, R10): a heavy zone opens the first
+  // time the side holds 50 and closes while its unit lives (silent); the points
+  // and the 20-alive cap of tanks and jets are refused out loud.
+  const isHeavy = archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS;
+  const alive = countAliveOfArchetype(state, archetype, player);
+  if (isHeavy && (state.heavyUnlocked[player] === 0 || alive >= aliveLimit(archetype))) return;
+  if (state.points[player] < cost || alive >= aliveLimit(archetype)) {
+    pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
+    return;
   }
-  if (target < 0) return;
-  state.buyProgress[player] += 1;
-  if (state.buyProgress[player] < CONSOLE_HOLD_TICKS) return;
-  state.buyProgress[player] = 0; // per-unit hold: the next unit starts fresh
 
   state.points[player] -= cost;
   const uid = spawnUnit(state, archetype, player, spawnX, spawnY, mode, forward, spawnLayer);
@@ -1681,6 +1663,7 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
     pushEvent(state.events, EV_PURCHASE, uid, player, archetype);
   } else {
     state.points[player] += cost; // entity cap hit: refund, nothing spawned
+    pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
   }
 }
 
@@ -2486,9 +2469,9 @@ function applyDamage(state: SimState, target: number, damage: number, attacker: 
       if (state.avatarId[p] === target && state.buffInvuln[p] > 0) return;
     }
   }
-  // On the imported arenas an outpost claim is permanent, as the original's is
-  // (fcop-fidelity.md R14): its console is the claim zone's marker, not a target.
-  if (ent.archetype[target] === ARCHETYPE.CONSOLE && isPrecinctAssault(state.map)) return;
+  // An outpost claim is permanent, as the original's is (fcop-fidelity.md R14),
+  // on every arena: the console is the claim zone's marker, not a target.
+  if (ent.archetype[target] === ARCHETYPE.CONSOLE) return;
   ent.hp[target] -= damage;
   // aux stores 1 + last attacking player for kill attribution (0 = none).
   ent.aux[target] = attacker + 1;
@@ -2522,18 +2505,18 @@ function angleDelta(from: number, to: number): number {
 
 /**
  * Turrets and units acquire a hostile and fire. Owned turrets defend against
- * avatars AND units; neutral dummies keep their Phase 1 behaviour and only ever
+ * avatars AND units; neutral dummies keep their Phase 1 role and only ever
  * engage avatars. Turrets never target turrets.
  *
- * Two models, by the shooter's weapon profile:
- * - a profile with the original's catalogue entry (`refireUnits` > 0: every
- *   shooter on the imported PA arenas, fcop-fidelity.md W3) runs the original's
- *   rate machine and fires a ROUND — a projectile entity at the entry's speed,
- *   lead-aimed or guided, flying the entry's range — and a turret also runs the
- *   original's re-search period, hold-target, priority and firing arc
- *   (`shooterTurret`);
- * - everything else (district-01, the sandbox) keeps Metropolis' instant hit on
- *   a tick cooldown, with its own table (balance.ts TURRET_*, UNIT_*).
+ * Every shooter runs the original's model on its weapon profile (the arena's
+ * records, or balance.ts ORIGINAL_WEAPON_PROFILES where it has none;
+ * fcop-fidelity.md W3): the original's rate machine fires a ROUND — a projectile
+ * entity at the catalogue entry's speed, lead-aimed or guided, flying its range —
+ * and a turret also runs the original's re-search period, hold-target, priority
+ * and firing arc (`shooterTurret`), a unit the same machine on its own record
+ * (`shooterUnit`). Metropolis' instant hit on a tick cooldown (TURRET_*, UNIT_*),
+ * which district-01 and the sandbox kept until SIM_VERSION 52, is gone. A
+ * sandbox entity placed with no profile does not shoot.
  */
 function systemTargeting(state: SimState): void {
   const ent = state.ent;
@@ -2541,72 +2524,16 @@ function systemTargeting(state: SimState): void {
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id]) continue;
     const archetype = ent.archetype[id];
+    const profile = ent.weaponProfile[id];
+    if (profile < 0) continue;
+    const w = weapons[profile];
     if (archetype === ARCHETYPE.TURRET) {
       // Capturable neutral turrets are dormant: no owner, nobody to fire at
       // (rules.md §5 "fires at enemies of its owner").
       if (ent.mode[id] === TURRET_CAPTURABLE && ent.ownerId[id] < 0) continue;
-      // Per-turret original parameters when the arena carries them (rules.md §9);
-      // otherwise the globals, producing bit-identical arithmetic to before.
-      const profile = ent.weaponProfile[id];
-      const w = profile >= 0 ? weapons[profile] : undefined;
-      if (w !== undefined && w.refireUnits > 0) {
-        shooterTurret(state, id, w);
-        continue;
-      }
-      if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
-      const range = w ? w.range : TURRET_RANGE;
-      const target =
-        ent.ownerId[id] < 0
-          ? nearestEnemyAvatar(state, id, range)
-          : nearestEnemyInRange(state, id, range, true); // mobile targets only
-      if (target < 0) continue;
-      const bearing = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
-      let onTarget = true;
-      if (w !== undefined && w.turnSpeed > 0) {
-        // Slew toward the bearing at the original's turn speed, and only fire
-        // once the gun is actually pointing there.
-        onTarget = slewTo(ent, id, bearing, w.turnSpeed);
-      } else {
-        ent.yaw[id] = bearing;
-      }
-      if (w !== undefined && w.fovCos > -1 && onTarget) {
-        // Field of view against the gun's facing. Dot product versus the
-        // precomputed cos(fov/2) — no trig at runtime.
-        const dx = ent.posX[target] - ent.posX[id];
-        const dy = ent.posY[target] - ent.posY[id];
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len > 0) {
-          const fx = cosLUT(ent.yaw[id]);
-          const fy = sinLUT(ent.yaw[id]);
-          if ((dx * fx + dy * fy) / len < w.fovCos) onTarget = false;
-        }
-      }
-      if (onTarget && ent.cooldownA[id] <= 0) {
-        ent.cooldownA[id] = w ? w.delay : TURRET_COOLDOWN_TICKS;
-        // Reach is the distance to the target it is about to hit, not the
-        // profile's range: an emplacement that reaches 12 m and fires at
-        // something 2 m away should draw a 2 m bolt.
-        pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_HITSCAN, reachToTarget(state, id, target));
-        // ownerId is the owning player for base turrets (kill credit) and
-        // -1 for dummies (no credit) — exactly the Phase 1 rule.
-        applyDamage(state, target, w ? w.damage : TURRET_DAMAGE, ent.ownerId[id]);
-      }
+      shooterTurret(state, id, w);
     } else if (isUnit(archetype)) {
-      const profile = ent.weaponProfile[id];
-      const w = profile >= 0 ? weapons[profile] : undefined;
-      if (w !== undefined && w.refireUnits > 0) {
-        shooterUnit(state, id, w);
-        continue;
-      }
-      if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
-      const target = nearestEnemyInRange(state, id, unitRange(state, id));
-      if (target < 0) continue;
-      ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
-      if (ent.cooldownA[id] <= 0) {
-        ent.cooldownA[id] = UNIT_FIRE_COOLDOWN_TICKS[archetype];
-        pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_HITSCAN, reachToTarget(state, id, target));
-        applyDamage(state, target, UNIT_DAMAGE[archetype], ent.ownerId[id]);
-      }
+      shooterUnit(state, id, w);
     }
   }
 }
@@ -2693,7 +2620,11 @@ function shooterTurret(state: SimState, id: number, w: MapWeapon): void {
     let found = -1;
     if (search < 0) {
       search = w.searchUnits;
-      found = nearestEnemyInRange(state, id, w.range, true, w.priority === 1);
+      // A neutral dummy (Metropolis' target practice) engages avatars only.
+      found =
+        ent.ownerId[id] < 0
+          ? nearestEnemyAvatar(state, id, w.range)
+          : nearestEnemyInRange(state, id, w.range, true, w.priority === 1);
     }
     if (found >= 0) target = found;
   }
@@ -2874,18 +2805,6 @@ function fireRound(
     fired = true;
   }
   if (fired) ent.aimY[id] = PHASE_BETWEEN;
-}
-
-/**
- * EV_SHOT payload for a shooter that already picked its target: the reach IS
- * the distance to it. Emplacements and ground units never miss once they fire,
- * so there is no wall or fall-short case to consider here.
- */
-function reachToTarget(state: SimState, shooter: number, target: number): number {
-  const ent = state.ent;
-  const dx = ent.posX[target] - ent.posX[shooter];
-  const dy = ent.posY[target] - ent.posY[shooter];
-  return reachToShotPayload(Math.sqrt(dx * dx + dy * dy));
 }
 
 /** Phase 1 dummy-turret targeting: nearest VISIBLE enemy avatar in range. */
@@ -3207,9 +3126,7 @@ function systemDamageDeath(state: SimState): void {
       // timers are NOT cleared: the original keeps counting them down while the
       // mech is down (fcop-re/player-and-weapons.md §1).
       for (let k = 0; k < 3; k++) state.powerAmmo[player * 3 + k] = 0;
-      state.buyTarget[player] = -1; // death drops any buy hold
-      state.buyProgress[player] = 0;
-      state.lockTarget[player] = -1; // and any lock
+      state.lockTarget[player] = -1; // death drops any lock
       state.lockSteer[player] = 0;
     } else if (archetype === ARCHETYPE.TURRET) {
       let slotted = false;
@@ -3225,7 +3142,10 @@ function systemDamageDeath(state: SimState): void {
         for (let k = 0; k < state.baseTurretEntity.length; k++) {
           if (state.baseTurretEntity[k] === id) {
             state.baseTurretEntity[k] = -1;
-            state.baseTurretRespawn[k] = BASE_TURRET_RESPAWN_TICKS;
+            state.baseTurretRespawn[k] = ringRespawnTicks(
+              state.map,
+              baseTurretSpot(state.map, k).team,
+            );
             // "Base turret lost" (fcop-fidelity.md R15, voice ids 0/1).
             pushEvent(state.events, EV_TURRET_LOST, id, ent.team[id], k);
             slotted = true;
@@ -3258,17 +3178,6 @@ function systemDamageDeath(state: SimState): void {
           }
         }
       }
-    } else if (archetype === ARCHETYPE.CONSOLE) {
-      // Console destruction reverts the outpost to neutral (rules.md §5) — on
-      // district-01 only: an imported arena's consoles take no damage (R14).
-      for (let k = 0; k < state.outpostConsole.length; k++) {
-        if (state.outpostConsole[k] === id) {
-          state.outpostConsole[k] = -1;
-          state.outpostOwner[k] = -1;
-          state.outpostRespawn[k] = OUTPOST_CONSOLE_RESPAWN_TICKS;
-          break;
-        }
-      }
     }
     despawn(ent, id);
   }
@@ -3287,8 +3196,8 @@ function avatarDown(state: SimState, team: number): void {
 }
 
 /**
- * Respawns avatars, sandbox dummies, ring, neutral and outpost plate turrets and
- * Metropolis' outpost consoles when their timers elapse.
+ * Respawns avatars, sandbox dummies, ring, neutral and outpost plate turrets
+ * when their timers elapse.
  */
 function systemSpawning(state: SimState): void {
   for (let p = 0; p < MAX_PLAYERS; p++) {
@@ -3341,23 +3250,15 @@ function systemSpawning(state: SimState): void {
       }
     }
   }
-  for (let k = 0; k < state.outpostRespawn.length; k++) {
-    if (state.outpostRespawn[k] > 0) {
-      state.outpostRespawn[k] -= 1;
-      if (state.outpostRespawn[k] === 0) {
-        const id = spawnOutpostConsole(state, k);
-        if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, -1, 0);
-      }
-    }
-  }
 }
 
 /**
  * Capture range of the arena's turret spots, in metres, before the capturer's own
- * radius: the imported original value, or CAPTURE_RADIUS where none is imported.
+ * radius: the imported original value, or the original's 4.0 m
+ * (ORIGINAL_CAPTURE_RANGE, map.ts) where none is imported.
  */
 export function captureRange(map: MapData): number {
-  return map.captureRange > 0 ? map.captureRange : CAPTURE_RADIUS;
+  return map.captureRange;
 }
 
 /** Is entity `id` inside `reach` of turret `tid`? `flat` skips the height term. */
@@ -3659,8 +3560,6 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.points[p] >>> 0);
     h = fnv1aU32(h, state.heavyUnlocked[p]);
     h = fnv1aU32(h, state.laneCounter[p]);
-    h = fnv1aU32(h, state.buyTarget[p] >>> 0);
-    h = fnv1aU32(h, state.buyProgress[p] >>> 0);
     h = fnv1aU32(h, state.lockTarget[p] >>> 0);
   }
   for (let k = 0; k < state.dummyEntity.length; k++) {
@@ -3678,7 +3577,6 @@ export function hash(state: SimState): number {
   for (let k = 0; k < state.outpostOwner.length; k++) {
     h = fnv1aU32(h, state.outpostOwner[k] >>> 0);
     h = fnv1aU32(h, state.outpostConsole[k] >>> 0);
-    h = fnv1aU32(h, state.outpostRespawn[k] >>> 0);
   }
   // Outpost plates: zero-length (nothing hashed) on an arena without them.
   for (let j = 0; j < state.plateTurretEntity.length; j++) {
@@ -3719,11 +3617,10 @@ export function hash(state: SimState): number {
   // Appended at SIM_VERSION 41: the Gun magazine and the burst counters.
   for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.gunAmmo[p]);
   for (let k = 0; k < state.burstLeft.length; k++) h = fnv1aU32(h, state.burstLeft[k]);
-  // Weapon profiles are a side array like entLayer: hashed only where they exist.
-  if (state.map.weapons.length > 0) {
-    for (let id = 0; id < ent.high; id++) {
-      if (ent.alive[id]) h = fnv1aU32(h, ent.weaponProfile[id] >>> 0);
-    }
+  // Weapon profiles: every map carries them since SIM_VERSION 52 (the original's
+  // where it imports none).
+  for (let id = 0; id < ent.high; id++) {
+    if (ent.alive[id]) h = fnv1aU32(h, ent.weaponProfile[id] >>> 0);
   }
   // Warden decision state is hashed only when a Warden exists: matches
   // without one keep their exact pre-Phase-4 hash sequences (goldens 1–3
@@ -3769,7 +3666,7 @@ export function hash(state: SimState): number {
  */
 export const MATCH_SNAPSHOT_HEADER = 6;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
-export const MATCH_SNAPSHOT_SLOT_STRIDE = 12;
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 11;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
 
 /** Header fields. */
@@ -3792,20 +3689,21 @@ export const MATCH_SLOT_RESPAWN_TICKS = 5;
 export const MATCH_SLOT_OUTPOSTS = 6;
 /** Units alive for this slot (RUNNER..FORTRESS), for the readout column. */
 export const MATCH_SLOT_UNITS = 7;
-/** Console hold-to-buy progress 0..1, or -1 when the slot is not buying. */
-export const MATCH_SLOT_BUY_FRAC = 8;
 /** The Gun slot's magazine (finite since SIM_VERSION 41: the original's records). */
-export const MATCH_SLOT_AMMO_GUN = 9;
+export const MATCH_SLOT_AMMO_GUN = 8;
 /** The X1-Alpha's lock: the locked entity id, -1 for none (fcop-fidelity.md W2). */
-export const MATCH_SLOT_LOCK = 10;
+export const MATCH_SLOT_LOCK = 9;
 /**
  * Powered slots, a bit each (1 gun, 2 heavy, 4 special): the slot fires its block
  * B, and its ammo field above counts the block-B magazine (fcop-fidelity.md P8).
  */
-export const MATCH_SLOT_POWER = 11;
+export const MATCH_SLOT_POWER = 10;
 // Slot field 9 was MATCH_SLOT_CAPTURE_FRAC, retired with the 3 s capture timer
 // (SIM_VERSION 34): the original captures instantly on a key press. Slot field 10
 // was MATCH_SLOT_CORE_FRAC, retired with the destructible core (SIM_VERSION 32).
+// Slot field 8 was MATCH_SLOT_BUY_FRAC, the hold-to-buy progress, retired with the
+// hold (SIM_VERSION 51): the original sells one unit per key press, so there is
+// nothing to fill; the fields after it moved down one.
 
 /** Byte offset of slot `s`'s block. */
 export function matchSlotOffset(slot: number): number {
@@ -3841,8 +3739,6 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     out[o + MATCH_SLOT_RESPAWN_TICKS] = a >= 0 ? 0 : state.respawnTimer[slot];
     out[o + MATCH_SLOT_OUTPOSTS] = 0;
     out[o + MATCH_SLOT_UNITS] = 0;
-    out[o + MATCH_SLOT_BUY_FRAC] =
-      state.buyTarget[slot] >= 0 ? state.buyProgress[slot] / CONSOLE_HOLD_TICKS : -1;
     out[o + MATCH_SLOT_AMMO_GUN] =
       a >= 0 ? (state.powerAmmo[pk] > 0 ? state.powerAmmo[pk] : state.gunAmmo[slot]) : 0;
     out[o + MATCH_SLOT_POWER] =

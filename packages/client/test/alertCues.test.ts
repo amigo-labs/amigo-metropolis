@@ -8,6 +8,8 @@ import {
   EV_ALARM,
   EV_BREACH,
   EV_HIT,
+  EV_PURCHASE,
+  EV_PURCHASE_REFUSED,
   EV_SHOT,
   EV_TURRET_LOST,
   EV_TURRET_UNDER_FIRE,
@@ -36,6 +38,14 @@ describe("alert cues", () => {
     expect(voiceForEvent(EV_BREACH, 5, 1, 0)).toBe("vo_gate_0");
     expect(voiceForEvent(EV_SHOT, 0, 0, 0)).toBe("");
     expect(cueForEvent(EV_HIT, 0, 0, 0)).toBe("hit");
+  });
+
+  test("a purchase press is answered with an accept or a refuse sound (R17)", () => {
+    expect(cueForEvent(EV_PURCHASE, 9, 0, 1)).toBe("purchase");
+    expect(cueForEvent(EV_PURCHASE_REFUSED, 0, 0, 1)).toBe("refuse");
+    expect(cueForEvent(EV_PURCHASE_REFUSED, 0, 1, -1)).toBe("refuse"); // a claim
+    expect(PRESETS.refuse).toBeDefined();
+    expect(GLOBAL_CUES.has("refuse")).toBe(true); // UI feedback, like the accept
   });
 
   test("every voice cue has a synth stand-in, plays centred and has its original file", () => {

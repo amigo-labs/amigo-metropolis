@@ -123,46 +123,6 @@
   color: var(--ck-text);
 }
 
-/* --- Objective progress (hold-to-buy / capture) ----------------------------- */
-
-.mhud-progress {
-  position: absolute;
-  left: 50%;
-  bottom: 27%;
-  transform: translateX(-50%);
-  width: min(280px, 44vw);
-  opacity: 0;
-  transition: opacity 0.15s;
-  text-align: center;
-}
-
-.mhud-progress.is-on {
-  opacity: 1;
-}
-
-.mhud-progress-label {
-  margin-bottom: 4px;
-  color: var(--ck-accent-bright);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-shadow: 0 1px 3px #000;
-}
-
-.mhud-progress-track {
-  height: 7px;
-  border: 1px solid var(--ck-line-dim);
-  border-radius: 3px;
-  background: rgba(4, 12, 10, 0.7);
-  overflow: hidden;
-}
-
-.mhud-progress-fill {
-  height: 100%;
-  width: 0%;
-  background: var(--ck-accent-bright);
-}
-
 /* --- Bottom bar ----------------------------------------------------------- */
 
 .mhud-bottom {

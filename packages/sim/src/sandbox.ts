@@ -33,6 +33,8 @@ import {
   ARCHETYPE_MAX_HP,
   AVATAR_HP,
   MAX_PLAYERS,
+  PROFILE_NEUTRAL_TURRET,
+  PROFILE_TEAM_TURRET,
   SKY_RECORD_HP,
   WARDEN_ALTITUDE,
 } from "./balance";
@@ -106,7 +108,7 @@ export const SANDBOX_SPAWNABLE: readonly SandboxSpawnable[] = [
     teamable: true,
     requiresOwner: true,
     isUnit: true,
-    note: "Air unit. Orbits, then assaults in ASSAULT mode.",
+    note: "Air unit: the original's aircraft, leashed to the base (or outpost k: mode 1 + k).",
   },
   {
     key: "juggernaut",
@@ -256,6 +258,13 @@ export function spawnSandbox(
   ent.hp[id] = maxHpFor(def.archetype);
   ent.ownerId[id] = t;
   ent.mode[id] = def.mode;
+  // A turret is the original's (SIM_VERSION 52): the team turret's profile for a
+  // defense turret, the neutral one's for a dummy or a dormant pad. The indices
+  // are the same in ORIGINAL_WEAPON_PROFILES and every imported arena's table.
+  if (def.archetype === ARCHETYPE.TURRET) {
+    ent.weaponProfile[id] =
+      def.mode === TURRET_DEFENSE ? PROFILE_TEAM_TURRET : PROFILE_NEUTRAL_TURRET;
+  }
   // Face the arena centre, same convention as the outpost consoles — a turret
   // dropped at the edge then reads toward the midfield instead of off-map.
   const mid = worldExtent(state.map) * 0.5;

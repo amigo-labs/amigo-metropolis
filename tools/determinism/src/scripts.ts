@@ -95,6 +95,11 @@ function transformOnce(t: number, from: number): number {
  * with jump chatter and circles. Open-loop script — the golden test asserts the
  * death/respawn/points beats actually happen.
  *
+ * Re-timed at SIM_VERSION 52: the dummies are the original neutral turret's gun
+ * (500 HP, 100 a round, 12 m), so the Mini-Gun needs ~17 s on the (85,127) dummy
+ * and only that one reaches the stand; the mech holds fire there until the dummy
+ * returns and puts it down (~52 s), and the rest runs 30 s later (120 s in all).
+ *
  * Re-timed at SIM_VERSION 41 for the original's weapons and 1250-HP mech
  * (fcop-fidelity.md W1, W2, P1): the Mini-Gun hits only its lock, 12 m out, so the
  * avatar walks up to the dummy instead of shooting from its spawn, and the
@@ -110,25 +115,29 @@ export function combat01(tick: number, out: TickInputs): void {
     p.aimX = 127;
     p.buttons = BUTTON_FIRE1; // the (85,127) dummy locks at 12 m and dies
   } else if (t < 30) {
-    p.aimX = 127; // hold position in the dummy crossfire: death → respawn
+    p.aimX = 127; // hold position and keep firing: the dummy (500 HP) dies
     p.buttons = BUTTON_FIRE1;
-  } else if (t < 34) {
-    p.buttons = transformOnce(t, 30); // freshly respawned: switch to hover
-  } else if (t < 48) {
+  } else if (t < 60) {
+    // Hold fire in its reach: it comes back after 15 s and puts the mech down
+    // (100 a round since SIM_VERSION 52) → respawn.
+    p.aimX = 127;
+  } else if (t < 64) {
+    p.buttons = transformOnce(t, 60); // freshly respawned: switch to hover
+  } else if (t < 78) {
     // Facing-aligned drive (v19): aim must match throttle or the vehicle stalls.
     p.moveY = -127; // hover north along the west edge — no dummy covers it
     p.aimY = -127;
     p.buttons = BUTTON_FIRE1;
-  } else if (t < 66) {
+  } else if (t < 96) {
     p.moveX = 127; // east along the north edge: crosses open river water
     p.aimX = 127; // face travel direction; mortar shells land 8 m ahead
-    p.buttons = t > 56 ? BUTTON_FIRE3 : BUTTON_FIRE1;
-  } else if (t < 70) {
-    p.buttons = transformOnce(t, 66); // back to walker on the dry east side
-  } else if (t < 72) {
+    p.buttons = t > 86 ? BUTTON_FIRE3 : BUTTON_FIRE1;
+  } else if (t < 100) {
+    p.buttons = transformOnce(t, 96); // back to walker on the dry east side
+  } else if (t < 102) {
     p.aimY = 127; // special shot (exercises the lob and its blast)
     p.buttons = BUTTON_FIRE3;
-  } else if (t < 84) {
+  } else if (t < 114) {
     p.moveY = 127; // walk south with jump chatter
     p.aimY = 127;
     p.buttons = BUTTON_FIRE1 | (Math.floor(t * 2) % 2 === 0 ? BUTTON_JUMP : 0);
@@ -141,15 +150,17 @@ export function combat01(tick: number, out: TickInputs): void {
 }
 
 /**
- * Golden #3 (Phase 2 DoD "mini-match", replayed on the Phase 3 economy): the
- * full toolkit in one script. Player 0's avatar walks the north lane, kills the
- * two dummies that cover it and base East's four ring turrets from inside their
- * reach — earning the enemy-owned turret bounty — puts player 1's avatar down
- * twice, then claims the (176, 88) outpost with it and forward-spawns runners at
- * 2× cost straight through the dead ring before it respawns. Player 1 runs a
- * fixed losing build order: three feeder runners into base West's intact ring,
- * then idles. The replay tail runs PAST the breach, pinning the post-win freeze
- * into the golden.
+ * Golden #3 (Phase 2 DoD "mini-match", replayed on the original's rules): the
+ * full toolkit in one script. Player 0's avatar walks the north lane past the
+ * dummies and waits at the (176, 88) outpost. Player 1 walks out to meet it
+ * three times: each time player 0 puts its avatar down (+10 to player 0 at its
+ * respawn, fcop-fidelity.md R4). With two of them player 0 claims the outpost (a
+ * press in its zone), with the third it buys five Runners there at 2x, then runs
+ * ahead of them into base East's ring and fights it one turret at a time while
+ * they close in, and they breach. The ring comes back 37.5 s after each death
+ * (R16) and the Runners drive at 1.98 m/s (SIM_VERSION 52), so the wave is bought
+ * BEFORE the ring is attacked. The replay tail runs PAST the breach, pinning the
+ * post-win freeze into the golden.
  *
  * Positions are dead-reckoned from the deterministic avatar walk (verified by the
  * golden03 beats test): the sim is exact, so these constants hold on every
@@ -166,168 +177,243 @@ interface MatchPhase {
 }
 
 /**
- * Player 0's choreography as a timeline built from waypoints: walk legs at
- * exact walker speed (durations derived from distances), snipe pauses with
- * aim vectors dead-reckoned from the expected position. The avatar walks
- * the NORTH LANE — carved terrain the district schema test guarantees is
- * walker-traversable — killing the two dummies that cover it from outside
- * their range, then snipes base East's ring from beyond TURRET_RANGE,
- * claims the (176, 88) outpost and forward-buys the winning runners.
+ * One avatar's choreography as a timeline built from waypoints: walk legs at
+ * exact walker speed (durations derived from distances), engagements with aim
+ * vectors dead-reckoned from the expected position.
  */
-function buildMatch01Timeline(): MatchPhase[] {
-  const phases: MatchPhase[] = [];
-  let t = 100;
-  let px = 30;
-  let py = 127; // player 0 spawn
-  let facing = 0; // its spawn yaw
-  const push = (
+class Choreo {
+  readonly phases: MatchPhase[] = [];
+  t: number;
+  px: number;
+  py: number;
+  facing: number;
+
+  constructor(t: number, x: number, y: number, facing: number) {
+    this.t = t;
+    this.px = x;
+    this.py = y;
+    this.facing = facing;
+  }
+
+  push(
     ticks: number,
     p: Partial<Pick<MatchPhase, "moveX" | "moveY" | "aimX" | "aimY" | "buttons">>,
-  ) => {
-    t += ticks;
-    phases.push({ until: t, moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: 0, ...p });
-  };
+  ) {
+    this.t += ticks;
+    this.phases.push({ until: this.t, moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: 0, ...p });
+  }
+
+  /** Idle until `tick` (no-op when already past it). */
+  waitUntil(tick: number, buttons = 0) {
+    if (tick > this.t) this.push(tick - this.t, { buttons });
+  }
+
+  /** Back at the spawn after a down: the timeline resumes from there at `tick`. */
+  respawnAt(tick: number, x: number, y: number, facing: number) {
+    this.waitUntil(tick);
+    this.px = x;
+    this.py = y;
+    this.facing = facing;
+  }
+
   // The hull TURNS toward the aim at the original walker's rate (SIM_VERSION
   // 39, fcop-fidelity.md P4: 0x20 engine angle units a step at rest), so every
   // new heading gets a stationary turn first — driving or shooting before the
   // turn ends would strafe or shoot wide. The facing is tracked here to size it.
-  const TURN_PER_TICK = WALKER_TURN_STEP * X1_STEPS_PER_TICK * ((2 * Math.PI) / 4096);
-  const face = (ax: number, ay: number) => {
+  face(ax: number, ay: number) {
+    const TURN_PER_TICK = WALKER_TURN_STEP * X1_STEPS_PER_TICK * ((2 * Math.PI) / 4096);
     const want = atan2Poly(ay, ax);
-    let d = want - facing;
+    let d = want - this.facing;
     while (d > Math.PI) d -= 2 * Math.PI;
     while (d < -Math.PI) d += 2 * Math.PI;
     const ticks = Math.ceil(Math.abs(d) / TURN_PER_TICK) + 1;
-    push(ticks, { aimX: ax, aimY: ay });
-    facing = want;
-  };
-  // The original walker's run on flat ground (balance.ts "X1-Alpha movement"):
-  // 1.25 steps a tick of v += P - 0.375 v toward 4.69 m/s, then a coast that
-  // stops dead under 0.586 m/s. Distance covered by `n` driven ticks and the
-  // coast after them, in the sim's own integration order.
-  const walkDistance = (n: number): number => {
-    const r = retentionPerTick(WALKER_DRAG);
-    let v = 0;
-    let x = 0;
-    for (let i = 0; i < n; i++) {
-      v = AVATAR_WALKER_SPEED * (1 - r) + v * r;
-      x += v / TICK_HZ;
-    }
-    while (v > 0) {
-      v = Math.abs(v * (1 - WALKER_DRAG)) < WALKER_STOP_SPEED ? 0 : v * r;
-      x += v / TICK_HZ;
-    }
-    return x;
-  };
+    this.push(ticks, { aimX: ax, aimY: ay });
+    this.facing = want;
+  }
+
   // Dead-reckons with the QUANTISED direction, which is the one the sim will
   // actually drive: the move intent goes out as int8, so `quantizeAxis` rounds
   // the heading off by up to a fifth of a degree, and over a 40 m leg that put
-  // the avatar 2.9 m from where this function thought it stood. The snipes below
-  // aim from `px, py`, so that error lands as aim error — invisible while a
-  // turret was a 1.5 m disc, fatal once the hitboxes came down to the size of
-  // the models (balance.ts ARCHETYPE_RADIUS). Reckoning along the rounded
-  // heading closes it, and keeps these scripts robust against the next change to
-  // either number.
-  const walkTo = (x: number, y: number, settle = 6) => {
-    const dx = x - px;
-    const dy = y - py;
+  // the avatar 2.9 m from where this function thought it stood. The engagements
+  // aim from `px, py`, so that error lands as aim error. Reckoning along the
+  // rounded heading closes it.
+  walkTo(x: number, y: number, settle = 6) {
+    const dx = x - this.px;
+    const dy = y - this.py;
     const d = Math.sqrt(dx * dx + dy * dy);
     const qx = quantizeAxis(dx / d);
     const qy = quantizeAxis(dy / d);
     const qlen = Math.sqrt(qx * qx + qy * qy);
-    const ux = qx / qlen;
-    const uy = qy / qlen;
-    face(qx, qy);
+    this.face(qx, qy);
     let ticks = 1;
     while (walkDistance(ticks + 1) <= d) ticks++;
-    push(ticks, { moveX: qx, moveY: qy, aimX: qx, aimY: qy });
-    push(settle, { aimX: qx, aimY: qy }); // the coast, and a full stop between legs
+    this.push(ticks, { moveX: qx, moveY: qy, aimX: qx, aimY: qy });
+    this.push(settle, { aimX: qx, aimY: qy }); // the coast, and a full stop between legs
     const travelled = walkDistance(ticks);
-    px += ux * travelled;
-    py += uy * travelled;
-  };
+    this.px += (qx / qlen) * travelled;
+    this.py += (qy / qlen) * travelled;
+  }
+
   // SIM_VERSION 41: the original's weapons (fcop-fidelity.md W1, W2). The
-  // Mini-Gun hits only its lock, 12 m out, so nothing is sniped from outside a
-  // turret's 28 m any more: the avatar walks up to `stand` m of each target,
-  // where the lock takes it, and fires all three — the Mini-Gun on the lock, the
-  // Hell Fire homing on it, the Mortar landing on it up to its 9.7 m reach —
-  // soaking the return fire on the original's 1250 HP.
-  const engage = (x: number, y: number, stand: number, ticks: number) => {
-    const dx = x - px;
-    const dy = y - py;
+  // Mini-Gun hits only its lock, 12 m out: the avatar walks up to `stand` m of a
+  // target, where the lock takes it, and fires all three — the Mini-Gun on the
+  // lock, the Hell Fire homing on it, the Mortar landing on it up to its 9.7 m
+  // reach — soaking the return fire on the original's 1250 HP.
+  engage(x: number, y: number, stand: number, ticks: number) {
+    const dx = x - this.px;
+    const dy = y - this.py;
     const d = Math.sqrt(dx * dx + dy * dy);
-    if (d > stand + 0.5) walkTo(px + (dx * (d - stand)) / d, py + (dy * (d - stand)) / d);
-    const ex = x - px;
-    const ey = y - py;
+    if (d > stand + 0.5) {
+      this.walkTo(this.px + (dx * (d - stand)) / d, this.py + (dy * (d - stand)) / d);
+    }
+    const ex = x - this.px;
+    const ey = y - this.py;
     const inv = 1 / Math.sqrt(ex * ex + ey * ey);
     const ax = quantizeAxis(ex * inv);
     const ay = quantizeAxis(ey * inv);
-    face(ax, ay);
-    push(ticks, { aimX: ax, aimY: ay, buttons: BUTTON_FIRE1 | BUTTON_FIRE2 | BUTTON_FIRE3 });
-  };
+    this.face(ax, ay);
+    this.push(ticks, { aimX: ax, aimY: ay, buttons: BUTTON_FIRE1 | BUTTON_FIRE2 | BUTTON_FIRE3 });
+  }
 
-  engage(60, 110, 8, 60); // dummy (60,110) covers the lane entry
-  walkTo(40, 116); // join the north lane
-  walkTo(62, 84);
-  walkTo(92, 62);
-  engage(127, 60, 8, 60); // dummy (127,60) sits on the mid-lane ford
-  walkTo(127, 54);
-  walkTo(162, 62);
-  walkTo(192, 84); // lane end short of base East
-  // The ring from the north, nearest pair first, so at most two of the four
-  // reach the avatar at a time.
-  walkTo(210, 102);
-  engage(219, 112, 8.5, 60); // ring north-outer
-  engage(213, 118, 8.5, 60); // ring north-inner
-  engage(213, 136, 8.5, 60); // ring south-inner
-  engage(219, 142, 8.5, 60); // ring south-outer
-  // The original's economy (SIM_VERSION 33) has no trickle and pays a ring
-  // turret 1, so the ring bounty and player 1's dead feeders come to ~17 points,
-  // short of the 30-point claim. What pays is putting the enemy avatar down: +10
-  // to us when it respawns (fcop-fidelity.md R4). Player 1 idles at its ground
-  // console, then at its spawn on its own pad.
-  engage(227.342, 137.474, 7, 300); // player 1 at its console
-  engage(224, 127, 7, 420); // its spawn: keep firing through the respawn, drop it again
-  walkTo(176, 88); // outpost console: claim once the second respawn has paid
-  return phases;
+  /** `n` presses of `buttons`: each one tick down, then `gap` ticks up. */
+  taps(n: number, buttons: number, gap = 4) {
+    for (let k = 0; k < n; k++) {
+      this.push(1, { buttons });
+      this.push(gap, {});
+    }
+  }
+
+  /** The inputs of this timeline at `tick`, or false once it has run out. */
+  read(
+    tick: number,
+    p: { moveX: number; moveY: number; aimX: number; aimY: number; buttons: number },
+  ) {
+    for (let i = 0; i < this.phases.length; i++) {
+      const phase = this.phases[i];
+      if (tick < phase.until) {
+        p.moveX = phase.moveX;
+        p.moveY = phase.moveY;
+        p.aimX = phase.aimX;
+        p.aimY = phase.aimY;
+        p.buttons = phase.buttons;
+        return true;
+      }
+    }
+    return false;
+  }
 }
 
-const MATCH01_TIMELINE = buildMatch01Timeline();
-const MATCH01_HOLD_FROM = MATCH01_TIMELINE[MATCH01_TIMELINE.length - 1].until;
+// The original walker's run on flat ground (balance.ts "X1-Alpha movement"):
+// 1.25 steps a tick of v += P - 0.375 v toward 4.69 m/s, then a coast that
+// stops dead under 0.586 m/s. Distance covered by `n` driven ticks and the
+// coast after them, in the sim's own integration order.
+function walkDistance(n: number): number {
+  const r = retentionPerTick(WALKER_DRAG);
+  let v = 0;
+  let x = 0;
+  for (let i = 0; i < n; i++) {
+    v = AVATAR_WALKER_SPEED * (1 - r) + v * r;
+    x += v / TICK_HZ;
+  }
+  while (v > 0) {
+    v = Math.abs(v * (1 - WALKER_DRAG)) < WALKER_STOP_SPEED ? 0 : v * r;
+    x += v / TICK_HZ;
+  }
+  return x;
+}
+
+/** Where player 0 waits for player 1 and claims: inside the (176, 88) outpost's zone. */
+const MATCH01_POST_X = 177;
+const MATCH01_POST_Y = 88;
+/** Where player 1 walks to meet it, in front of it on the north lane's end. */
+const MATCH01_MEET_X = 184;
+const MATCH01_MEET_Y = 87;
+/** Player 1 sets out from its spawn this long after each respawn. */
+const MATCH01_P1_SLACK = 30;
+/**
+ * The ticks player 1's avatar comes back after each down (its respawn, 4 s
+ * after the down). Measured with the golden03 beats test; a shift here moves
+ * the whole second half of the script.
+ */
+const MATCH01_P1_RESPAWNS = [2031, 2878, 3730];
+/** Runners in player 0's forward wave (10 points after the claim). */
+const MATCH01_WAVE = 5;
+/** Ticks of fire on each ring turret (500 HP). */
+const MATCH01_ENGAGE = 240;
+
+function buildMatch01P0(): Choreo {
+  const c = new Choreo(100, 30, 127, 0); // player 0's spawn and its yaw
+  // Past the dummies without stopping: since SIM_VERSION 52 they are 500-HP
+  // turrets with the original's gun, not worth the time or the health.
+  c.walkTo(40, 116); // join the north lane
+  c.walkTo(62, 84);
+  c.walkTo(92, 62);
+  c.walkTo(127, 54);
+  c.walkTo(162, 62);
+  c.walkTo(192, 84); // lane end, well outside base East's ring
+  c.walkTo(MATCH01_POST_X, MATCH01_POST_Y); // into the outpost's claim zone
+  // Face the lane and fire at whatever comes: player 1's avatar, three times.
+  // The lock takes it at 12 m, so the weapons fire only once it is there.
+  const FIRE = BUTTON_FIRE1 | BUTTON_FIRE2 | BUTTON_FIRE3;
+  c.face(127, 0);
+  c.waitUntil(MATCH01_P1_RESPAWNS[1] + 20, FIRE);
+  // The claim: the action key's rising edge in the zone once the second down
+  // has paid (30 points: the start and two downs; SIM_VERSION 48).
+  c.push(10, { aimX: 127, buttons: FIRE | BUTTON_INTERACT });
+  c.waitUntil(MATCH01_P1_RESPAWNS[2] + 20, FIRE);
+  // The wave once the third down has paid: a Runner per press at the outpost
+  // console, 2 points each. The ring comes back 37.5 s after each death (R16)
+  // and the Runners drive at the original's 1.98 m/s (SIM_VERSION 52), so a ring
+  // cleared before buying would be back before they arrived: the wave is bought
+  // first and the mech runs ahead of it to clear the way.
+  c.taps(MATCH01_WAVE, BUTTON_INTERACT);
+  c.walkTo(192, 84);
+  c.walkTo(222, 100);
+  // One turret at a time, each from where the others are out of their 12 m.
+  c.engage(219, 112, 8.5, MATCH01_ENGAGE); // ring north-outer, from the north-east
+  c.engage(213, 118, 8.5, MATCH01_ENGAGE); // ring north-inner
+  c.engage(213, 136, 8.5, MATCH01_ENGAGE); // ring south-inner, over the gate
+  return c;
+}
+
+const MATCH01_P0 = buildMatch01P0();
+
+/** Player 1: out to the meeting point after each respawn (and the first time from its console). */
+function buildMatch01P1(): Choreo {
+  const c = new Choreo(1046, 227.342, 137.474, Math.PI);
+  c.walkTo(214, 116);
+  c.walkTo(192, 84);
+  c.walkTo(MATCH01_MEET_X, MATCH01_MEET_Y);
+  for (let k = 0; k < 2; k++) {
+    c.respawnAt(MATCH01_P1_RESPAWNS[k] + MATCH01_P1_SLACK, 224, 127, Math.PI);
+    c.walkTo(214, 116);
+    c.walkTo(192, 84);
+    c.walkTo(MATCH01_MEET_X, MATCH01_MEET_Y);
+  }
+  // After the third down it goes back to its console and stays there, out of
+  // the wave's way.
+  c.respawnAt(MATCH01_P1_RESPAWNS[2] + MATCH01_P1_SLACK, 224, 127, Math.PI);
+  c.walkTo(228, 139);
+  return c;
+}
+
+const MATCH01_P1 = buildMatch01P1();
 
 export function match01(tick: number, out: TickInputs): void {
   clearTickInputs(out);
   const p0 = out.players[0];
   const p1 = out.players[1];
 
-  // --- Player 0: lane walk, dummy + ring snipes, outpost claim, forward wave.
-  if (tick >= 100 && tick < MATCH01_HOLD_FROM) {
-    for (let i = 0; i < MATCH01_TIMELINE.length; i++) {
-      const phase = MATCH01_TIMELINE[i];
-      if (tick < phase.until) {
-        p0.moveX = phase.moveX;
-        p0.moveY = phase.moveY;
-        p0.aimX = phase.aimX;
-        p0.aimY = phase.aimY;
-        p0.buttons = phase.buttons;
-        break;
-      }
-    }
-  } else if (tick >= MATCH01_HOLD_FROM) {
-    // The outpost is claimed by the action key's press as the avatar stops in
-    // its zone (30 pts: start, ring bounty, feeders, two downs of the enemy
-    // avatar; the press is the rising edge of this hold, SIM_VERSION 48);
-    // holding interact there then buys forward runners at 2×, which walk
-    // through the dead ring's window.
-    p0.buttons = BUTTON_INTERACT;
-  }
+  // --- Player 0: lane walk, dummies, the fights at the outpost, claim, wave, escort.
+  if (tick >= 100) MATCH01_P0.read(tick, p0);
 
-  // --- Player 1: fixed (losing) build order — three feeders, then idle rich.
+  // --- Player 1: out to meet player 0, three times (no feeders: since SIM_VERSION
+  // 52 three 150-HP tanks that never stop drive through base West's ring of four).
   if (tick < 76) {
     p1.moveX = 40;
     p1.moveY = 120; // walk spawn → own ground console
   }
-  if (tick >= 1000 && tick < 1046) p1.buttons = BUTTON_INTERACT;
+  if (tick >= 1046) MATCH01_P1.read(tick, p1);
 }
 
 /**
@@ -335,8 +421,9 @@ export function match01(tick: number, out: TickInputs): void {
  * against a scripted player 0 running an open-loop patrol-and-shoot defense
  * near its own base — enough resistance to exercise the Warden's retreat,
  * respawn and defend paths. Since SIM_VERSION 46 the Warden is the Sky Captain:
- * it defends, captures what it flies over and fields its opening order, which
- * dies on district-01's lanes; the golden04 beats test pins the outcome.
+ * it defends, captures what it flies over and fields its opening order, whose
+ * Runners (the original's since SIM_VERSION 52) breach district-01; the golden04
+ * beats test pins the outcome.
  * Player 1's input channel stays all-zero: the AI ignores TickInputs.
  */
 export function warden01(tick: number, out: TickInputs): void {
@@ -386,7 +473,9 @@ export function fcop01(tick: number, out: TickInputs): void {
     // the original Conft logic, not the (38,128) this comment was written for.
     p.moveY = -127; // north, off the base platform toward the consoles
   } else if (t < 20) {
-    p.buttons = BUTTON_INTERACT; // hold-to-buy runner waves onto the lanes
+    // Runner waves onto the lanes: one per press of the action key, a press every
+    // 0.5 s (the rate the 0.5 s hold bought at until SIM_VERSION 51).
+    p.buttons = tick % 15 === 0 ? BUTTON_INTERACT : 0;
   } else if (t < 40) {
     p.moveX = 127; // ENE toward the wall band — pins on line x=81 around y≈115
     p.moveY = -35;
@@ -436,7 +525,7 @@ export function layered01(tick: number, out: TickInputs): void {
  * actually is: nothing is produced for free (SIM_VERSION 32), so an unattended
  * recording would exercise nothing at all.
  *
- * Route: spawn (112.1, 69.1) on the north base platform, hold INTERACT at the
+ * Route: spawn (112.1, 69.1) on the north base platform, press INTERACT at the
  * console for a bought wave, then drive south-west to the pad at (94.8, 91.7) and
  * tap the action key there: the original captures on a press, instantly
  * (SIM_VERSION 34). The route used to run east along row 69 to the pad at
@@ -453,7 +542,8 @@ export function pa01(tick: number, out: TickInputs): void {
     p.moveX = 90; // spawn -> ground console at (114.1, 74.6)
     p.moveY = 110;
   } else if (t < 12) {
-    p.buttons = BUTTON_INTERACT; // hold-to-buy runners onto the graph
+    // Runners onto the graph: one per press, a press every 0.5 s.
+    p.buttons = tick % 15 === 0 ? BUTTON_INTERACT : 0;
   } else if (t < 18.5) {
     p.moveX = -100; // south-west to the pad at (94.8, 91.7)
     p.moveY = 78;
@@ -485,8 +575,8 @@ export const SCRIPTS: Record<
   { script: InputScript; ticks: number; mapId?: string; warden?: WardenConfig }
 > = {
   "drive-01": { script: drive01, ticks: 60 * TICK_HZ },
-  "combat-01": { script: combat01, ticks: 90 * TICK_HZ, mapId: "district-01" },
-  "match-01": { script: match01, ticks: 160 * TICK_HZ, mapId: "district-01" },
+  "combat-01": { script: combat01, ticks: 120 * TICK_HZ, mapId: "district-01" },
+  "match-01": { script: match01, ticks: 200 * TICK_HZ, mapId: "district-01" },
   "warden-01": {
     script: warden01,
     ticks: 300 * TICK_HZ,

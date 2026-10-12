@@ -31,7 +31,7 @@ import {
   sandboxLoadout,
   setSandboxLoadout,
   spawnSandbox,
-  UNIT_MODE_ASSAULT,
+  UNIT_MODE_OUTPOST,
   UNIT_MODE_PATROL,
   type WeaponDef,
 } from "@metropolis/sim";
@@ -146,8 +146,9 @@ export function createSandboxPanel(deps: SandboxPanelDeps): SandboxPanel {
   }
   const modeSelect = el("select", "sbx-select");
   for (const [label, value] of [
-    ["Patrol", String(UNIT_MODE_PATROL)],
-    ["Assault", String(UNIT_MODE_ASSAULT)],
+    // An aircraft's anchor (sim units.ts): its base, or outpost 1.
+    ["Base", String(UNIT_MODE_PATROL)],
+    ["Outpost 1", String(UNIT_MODE_OUTPOST)],
   ] as const) {
     const opt = el("option", undefined, label);
     opt.value = value;

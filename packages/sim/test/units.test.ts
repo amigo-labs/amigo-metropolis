@@ -9,22 +9,21 @@ import {
   ARCHETYPE_MAX_HP,
   AVATAR_HP,
   BASE_TURRET_RESPAWN_TICKS,
-  CONSOLE_HOLD_TICKS,
   COST_JUGGERNAUT,
   COST_RUNNER,
-  GUARDIAN_ASSAULT_STANDOFF,
+  GUARDIAN_LEASH_X,
+  GUARDIAN_LEASH_Y,
   MATCH_OUTRO_TICKS,
   PAD_REPAIR_HP_PER_TICK,
   POINTS_UNIT_DIES,
-  RUNNER_SPEED,
+  ROUTE_TOP_SPEED,
   STARTING_POINTS,
   UNIT_SEPARATION_RADIUS,
 } from "../src/balance";
-import { EV_BREACH, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
+import { EV_BREACH, EV_PURCHASE, EV_PURCHASE_REFUSED, EVENT_STRIDE } from "../src/events";
 import { BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
-import { UNIT_MODE_ASSAULT } from "../src/units";
 
 // Flat 16×16 grid, 4 m cells → 60 m square. One straight lane along y=6
 // between the two gates; avatars/pads live at y=54.
@@ -84,6 +83,21 @@ function warzone(ringTurrets: { west: number[][]; east: number[][] }): MapJson {
 const openSim = (): SimState => createSim(loadMapFromJson(warzone({ west: [], east: [] })), 42);
 const defendedSim = (): SimState =>
   createSim(loadMapFromJson(warzone({ west: [], east: [[46, 14]] })), 42);
+/** Base East's gate behind a ring of three, flanking the lane's last 10 m. */
+const ringedSim = (): SimState =>
+  createSim(
+    loadMapFromJson(
+      warzone({
+        west: [],
+        east: [
+          [40, 12],
+          [44, 1],
+          [46, 14],
+        ],
+      }),
+    ),
+    42,
+  );
 
 const inputs = createTickInputs();
 
@@ -119,7 +133,7 @@ describe("base structures", () => {
     expect(sim.ent.ownerId[id]).toBe(1);
   });
 
-  it("ring turrets respawn 60 s after destruction", () => {
+  it("ring turrets respawn 37.5 s after destruction (the original's, R16)", () => {
     reset();
     const sim = defendedSim();
     const id = sim.baseTurretEntity[0];
@@ -137,7 +151,7 @@ describe("base structures", () => {
 
   it("owned turrets never fight each other, even in mutual range", () => {
     reset();
-    // Both rings authored 10 m apart mid-map — well inside TURRET_RANGE.
+    // Both rings authored 8 m apart mid-map — well inside a turret's 12 m.
     const sim = createSim(loadMapFromJson(warzone({ west: [[26, 30]], east: [[34, 30]] })), 42);
     const w = sim.baseTurretEntity[0];
     const e = sim.baseTurretEntity[1];
@@ -159,80 +173,102 @@ describe("base structures", () => {
   });
 });
 
-describe("console purchases (hold-to-buy, rules.md §3)", () => {
-  /** Steps until the first EV_PURCHASE, returning [tick, event] or null. */
-  function stepUntilPurchase(sim: SimState, maxTicks: number): number[] | null {
-    for (let t = 1; t <= maxTicks; t++) {
-      step(sim, inputs);
-      const bought = findEvents(sim, EV_PURCHASE);
-      if (bought.length > 0) return [t, ...bought[0]];
-    }
-    return null;
+describe("console purchases (one unit per press, rules.md §3)", () => {
+  // The original's purchase spots answer the Action Key on the frame it goes down
+  // and sell one unit per press (fcop-fidelity.md R17). Was: a 0.5 s hold per unit
+  // (CONSOLE_HOLD_TICKS), with the button held buying one every 15 ticks.
+
+  /** One tick with `buttons` down, then one with them released: one press. */
+  function press(sim: SimState, buttons: number): void {
+    inputs.players[0].buttons = buttons;
+    step(sim, inputs);
+  }
+  function release(sim: SimState): void {
+    inputs.players[0].buttons = 0;
+    step(sim, inputs);
   }
 
-  it("holding interact at the ground console buys one Runner per full hold", () => {
+  it("a press at the ground console buys one Runner at once; holding buys no more", () => {
     reset();
     const sim = openSim();
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14; // on the own ground console
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    const first = stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 1);
-    expect(first).not.toBeNull();
-    const [tick, uid, player, archetype] = first as number[];
-    expect(tick).toBe(CONSOLE_HOLD_TICKS);
+    press(sim, BUTTON_INTERACT);
+    const bought = findEvents(sim, EV_PURCHASE);
+    expect(bought.length).toBe(1);
+    const [uid, player, archetype] = bought[0];
     expect(player).toBe(0);
     expect(archetype).toBe(ARCHETYPE.RUNNER);
     expect(sim.ent.alive[uid]).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS - COST_RUNNER);
-    // Per-unit hold: keeping the button down buys the next one a hold later.
-    const second = stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 1);
-    expect((second as number[])[0]).toBe(CONSOLE_HOLD_TICKS);
+    // Keeping the key down is not a press: nothing more, however long.
+    for (let t = 0; t < 60; t++) {
+      step(sim, inputs);
+      expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
+    }
+    expect(sim.points[0]).toBe(STARTING_POINTS - COST_RUNNER);
+    // Release and press again: the next unit.
+    release(sim);
+    press(sim, BUTTON_INTERACT);
+    expect(findEvents(sim, EV_PURCHASE).length).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS - 2 * COST_RUNNER);
   });
 
-  it("releasing the button resets the hold", () => {
+  it("every press is one unit: five taps, five Runners", () => {
     reset();
     const sim = openSim();
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    for (let t = 0; t < CONSOLE_HOLD_TICKS - 2; t++) step(sim, inputs);
-    inputs.players[0].buttons = 0;
-    step(sim, inputs); // hold broken just short of completion
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    for (let t = 0; t < CONSOLE_HOLD_TICKS - 2; t++) step(sim, inputs);
-    expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
-    expect(sim.points[0]).toBe(STARTING_POINTS); // nothing charged
+    let n = 0;
+    for (let k = 0; k < 5; k++) {
+      press(sim, BUTTON_INTERACT);
+      n += findEvents(sim, EV_PURCHASE).length;
+      release(sim);
+    }
+    expect(n).toBe(5);
+    expect(sim.points[0]).toBe(STARTING_POINTS - 5 * COST_RUNNER);
   });
 
-  it("an empty ledger blocks the hold entirely", () => {
+  it("a press with the points short is refused out loud and charges nothing", () => {
     reset();
     const sim = openSim();
     sim.points[0] = 0;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    for (let t = 0; t < CONSOLE_HOLD_TICKS * 3; t++) step(sim, inputs);
+    press(sim, BUTTON_INTERACT);
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
+    const refused = findEvents(sim, EV_PURCHASE_REFUSED);
+    expect(refused.length).toBe(1);
+    expect(refused[0]).toEqual([sim.avatarId[0], 0, ARCHETYPE.RUNNER]);
+    expect(sim.points[0]).toBe(0);
+    // Held, it is not pressed again: one answer per press.
+    step(sim, inputs);
+    expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
   });
 
-  it("interact+fire2 buys the 50-point heavy variant, capped at one alive", () => {
+  it("interact+fire2 buys the 50-point heavy variant; its zone is closed while it lives", () => {
     reset();
     const sim = openSim();
     sim.points[0] = 120;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
-    inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2;
-    const first = stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 1);
-    expect((first as number[])[3]).toBe(ARCHETYPE.JUGGERNAUT);
+    release(sim); // the side holds 50: the heavy zones open at the end of the tick (R10)
+    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    const first = findEvents(sim, EV_PURCHASE);
+    expect(first[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
     expect(sim.points[0]).toBe(120 - COST_JUGGERNAUT);
-    const jugg = (first as number[])[1];
-    // The one-alive limit blocks the hold while it lives…
-    expect(stepUntilPurchase(sim, CONSOLE_HOLD_TICKS * 3)).toBeNull();
-    // …and killing it frees the slot.
+    const jugg = first[0][0];
+    // The one-alive limit closes the zone while it lives: a press is neither a
+    // purchase nor a refusal (the original's zone is disabled, not refusing).
+    release(sim);
+    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
+    expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
+    // …and killing it reopens it.
     sim.ent.hp[jugg] = 0;
-    const second = stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 2);
-    expect((second as number[])[3]).toBe(ARCHETYPE.JUGGERNAUT);
+    release(sim);
+    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
   });
 
   it("the air console sells Guardians and Fortresses", () => {
@@ -241,22 +277,21 @@ describe("console purchases (hold-to-buy, rules.md §3)", () => {
     sim.points[0] = 120;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 22; // on the own air console
-    inputs.players[0].buttons = BUTTON_INTERACT;
-    expect((stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 1) as number[])[3]).toBe(
-      ARCHETYPE.GUARDIAN,
-    );
-    inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2; // modifier resets the hold
-    expect((stepUntilPurchase(sim, CONSOLE_HOLD_TICKS + 1) as number[])[3]).toBe(
-      ARCHETYPE.FORTRESS,
-    );
+    release(sim);
+    press(sim, BUTTON_INTERACT);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
+    release(sim);
+    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.FORTRESS);
   });
 
-  it("interact away from any console buys nothing", () => {
+  it("a press away from any console buys nothing and refuses nothing", () => {
     reset();
     const sim = openSim();
-    inputs.players[0].buttons = BUTTON_INTERACT; // at spawn, far from consoles
-    for (let t = 0; t < CONSOLE_HOLD_TICKS * 2; t++) step(sim, inputs);
+    press(sim, BUTTON_INTERACT); // at spawn, far from consoles
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
+    expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
+    expect(sim.points[0]).toBe(STARTING_POINTS);
   });
 });
 
@@ -267,7 +302,7 @@ describe("runner lane-following and the win check", () => {
     const id = spawnUnit(sim, ARCHETYPE.RUNNER, 0, 14, 6);
     expect(id).toBeGreaterThanOrEqual(0);
     let breachTick = -1;
-    for (let t = 0; t < 400 + MATCH_OUTRO_TICKS; t++) {
+    for (let t = 0; t < 800 + MATCH_OUTRO_TICKS; t++) {
       step(sim, inputs);
       if (breachTick < 0 && findEvents(sim, EV_BREACH).length > 0) breachTick = t;
       if (sim.winner >= 0) {
@@ -278,8 +313,9 @@ describe("runner lane-following and the win check", () => {
     }
     expect(sim.winner).toBe(0);
     expect(breachTick).toBeGreaterThan(0);
-    // 32 m of lane at RUNNER_SPEED, breach at gate radius 3 → ~29 m.
-    const expected = Math.floor(29 / (RUNNER_SPEED / 30));
+    // 32 m of lane at the original's 1.98 m/s (ROUTE_TOP_SPEED on every arena
+    // since SIM_VERSION 52; was 4 m/s), breach at gate radius 3 → ~29 m.
+    const expected = Math.floor(29 / (ROUTE_TOP_SPEED / 30));
     expect(Math.abs(breachTick - expected)).toBeLessThan(30);
   });
 
@@ -288,7 +324,7 @@ describe("runner lane-following and the win check", () => {
     const sim = openSim();
     spawnUnit(sim, ARCHETYPE.RUNNER, 1, 46, 6); // team 1 walks the lane west
     let sawBreach: number[][] = [];
-    for (let t = 0; t < 400 && sawBreach.length === 0; t++) {
+    for (let t = 0; t < 800 && sawBreach.length === 0; t++) {
       step(sim, inputs);
       sawBreach = findEvents(sim, EV_BREACH);
     }
@@ -317,11 +353,15 @@ describe("runner lane-following and the win check", () => {
     expect(sim.winner).toBe(1); // …but the result stands
   });
 
-  it("a lone runner dies to the enemy ring turret (escort matters)", () => {
+  it("a lone runner dies to the enemy ring (escort matters)", () => {
+    // The original's tank never stops to fight (SIM_VERSION 52 on the polyline
+    // lanes too): it drives into the ring's fire at 1.98 m/s, shooting on the
+    // move, and its 150 HP is two of the ring's 100-damage rounds. A ring of three
+    // over the lane's last 10 m kills it short of the gate.
     reset();
-    const sim = defendedSim();
+    const sim = ringedSim();
     const id = spawnUnit(sim, ARCHETYPE.RUNNER, 0, 14, 6);
-    for (let t = 0; t < 600; t++) step(sim, inputs);
+    for (let t = 0; t < 900; t++) step(sim, inputs);
     expect(sim.ent.alive[id]).toBe(0); // shredded on approach
     expect(sim.winner).toBe(-1);
     // The dead Runner pays the other side 1 (its death script, whoever killed
@@ -329,32 +369,43 @@ describe("runner lane-following and the win check", () => {
     expect(sim.points[1]).toBe(STARTING_POINTS + POINTS_UNIT_DIES);
   });
 
-  it("a juggernaut kills the ring turret in its path and then breaches", () => {
+  it("a juggernaut drives through the ring's fire, shooting on the move, and breaches", () => {
+    // Was: it halted to kill the turret in its path (Metropolis' engage-in-path).
+    // The original's Dreadnought never stops: 3000 HP against 100-damage rounds,
+    // its four guns on whatever comes within 12 m.
     reset();
-    const sim = defendedSim();
-    const turret = sim.baseTurretEntity[0];
+    const sim = ringedSim();
+    const ring = [sim.baseTurretEntity[0], sim.baseTurretEntity[1], sim.baseTurretEntity[2]];
     const id = spawnUnit(sim, ARCHETYPE.JUGGERNAUT, 0, 14, 6);
-    let turretDied = -1;
+    let hitRing = false;
     for (let t = 0; t < 1200 && sim.winner < 0; t++) {
       step(sim, inputs);
-      if (turretDied < 0 && !sim.ent.alive[turret]) turretDied = t;
+      for (const tid of ring) {
+        if (!sim.ent.alive[tid] || sim.ent.hp[tid] < ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]) {
+          hitRing = true;
+        }
+      }
     }
-    expect(turretDied).toBeGreaterThan(0); // engage-in-path stopped and shot it
-    expect(sim.ent.alive[id]).toBe(1); // survived the exchange (600 hp)
-    expect(sim.winner).toBe(0); // then resumed and breached
+    expect(hitRing).toBe(true); // its guns fired on the ring as it passed
+    expect(sim.ent.alive[id]).toBe(1); // survived the run (3000 hp)
+    expect(sim.ent.hp[id]).toBeLessThan(ARCHETYPE_MAX_HP[ARCHETYPE.JUGGERNAUT]); // under fire
+    expect(sim.winner).toBe(0); // and breached
   });
 });
 
-describe("guardian behavior", () => {
-  it("patrols: orbits the own core and stays inside the patrol ring", () => {
+describe("guardian behavior (the original's aircraft on every arena, SIM_VERSION 52)", () => {
+  // Was Metropolis' patrol orbit of the own core (30 m) and an assault run to a
+  // standoff from the enemy core. The original's jet patrols a leash about the
+  // spawner it was built at — the base air console here, (6, 22) — and flies at
+  // what it finds within 56 m (units.ts moveAircraft; unitTargeting.test.ts).
+  it("patrols its leash about the base air console, at altitude", () => {
     reset();
     const sim = openSim();
     const id = spawnUnit(sim, ARCHETYPE.GUARDIAN, 0, 10, 10);
     for (let t = 0; t < 300; t++) {
       step(sim, inputs);
-      const dx = sim.ent.posX[id] - 6;
-      const dy = sim.ent.posY[id] - 6;
-      expect(Math.sqrt(dx * dx + dy * dy)).toBeLessThan(35);
+      expect(Math.abs(sim.ent.posX[id] - 6)).toBeLessThan(GUARDIAN_LEASH_X + 2);
+      expect(Math.abs(sim.ent.posY[id] - 22)).toBeLessThan(GUARDIAN_LEASH_Y + 2);
     }
     expect(sim.ent.height[id]).toBe(AIR_ALTITUDE); // flat map: flies at altitude
   });
@@ -378,16 +429,13 @@ describe("guardian behavior", () => {
     expect(engaged).toBe(true); // closed in on the intruder
   });
 
-  it("assault mode presses to the enemy core and holds the standoff", () => {
+  it("built far from its anchor, it flies back into its leash", () => {
     reset();
     const sim = openSim();
-    const id = spawnUnit(sim, ARCHETYPE.GUARDIAN, 0, 6, 6, UNIT_MODE_ASSAULT);
-    for (let t = 0; t < 400; t++) step(sim, inputs);
-    const dx = sim.ent.posX[id] - 54;
-    const dy = sim.ent.posY[id] - 6;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    expect(d).toBeLessThan(GUARDIAN_ASSAULT_STANDOFF + 2);
-    expect(d).toBeGreaterThan(GUARDIAN_ASSAULT_STANDOFF - 4);
+    const id = spawnUnit(sim, ARCHETYPE.GUARDIAN, 0, 54, 54); // ~57 m from (6, 22)
+    for (let t = 0; t < 600; t++) step(sim, inputs);
+    expect(Math.abs(sim.ent.posX[id] - 6)).toBeLessThan(GUARDIAN_LEASH_X);
+    expect(Math.abs(sim.ent.posY[id] - 22)).toBeLessThan(GUARDIAN_LEASH_Y);
   });
 });
 
@@ -422,8 +470,8 @@ describe("determinism with units in play", () => {
     }
     for (let t = 0; t < 900; t++) {
       for (const run of [A, B]) {
-        // Hold interact for 20-tick stretches: real hold-to-buy purchases.
-        const btn = t % 60 < 20 ? BUTTON_INTERACT : 0;
+        // A press every 60 ticks: real purchases, one unit each.
+        const btn = t % 60 === 0 ? BUTTON_INTERACT : 0;
         run.ins.players[0].buttons = btn;
         run.ins.players[1].buttons = btn;
         step(run.sim, run.ins);
