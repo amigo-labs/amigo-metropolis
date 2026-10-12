@@ -15,19 +15,20 @@
 // Scenarios:
 //   vs-idle  difficulty-N Warden (team 1) against an idle player — the
 //            resolution target: the Warden should raze within ~10 minutes.
-//   escort   defender's free production silenced, Warden escorts its own
-//            stream (paAttribution.test.ts's push(mapId, true) scenario) —
-//            pure throughput of an escorted push.
-//   trickle  defender silenced, NO Warden — pillar-1 guard: an unescorted
-//            free-production trickle must NOT raze a defended base.
+//   escort   historic: silenced the defender's free production. There has been
+//            none since SIM_VERSION 32 (the original has no free production,
+//            fcop-fidelity.md I7), so this is now identical to vs-idle.
+//   trickle  historic: no Warden, free production only. With nothing produced
+//            for free this match is empty and never resolves.
 //   swap     vs-idle with the Warden on team 0 — symmetry check.
 //
-// Per match this reports: resolve time, final core HP, defending emplacements
+// Per match this reports: resolve time, the breach tick (the gate entry that
+// starts the 175-tick outro; the original has no core HP), defending emplacements
 // alive per minute (respawn-vs-clearance), the Warden goal histogram, and a
 // JAM detector — attacking ground units at full HP that displaced less than
 // JAM_EPSILON over the last JAM_WINDOW ticks. That signature is what found the
-// urban-jungle stall: units wedged at their own base exit, freezing production
-// at PA_PRODUCTION_ALIVE_LIMIT forever.
+// urban-jungle stall: units wedged at their own base exit, freezing the
+// (then free) production at its alive limit forever.
 
 import {
   ARCHETYPE,
@@ -80,7 +81,8 @@ interface MatchReport {
   /** Tick the match resolved at, or -1 for a timeout. */
   resolvedTick: number;
   winner: number;
-  coreHp: [number, number];
+  /** Tick the deciding gate breach started the outro, or -1. */
+  breachTick: number;
   /** Defending emplacements alive, sampled once per minute. */
   turretsPerMinute: number[];
   /** Ticks spent per Warden goal (index = WGOAL_*). */
@@ -109,13 +111,9 @@ function runMatch(
   difficulty: number,
   minutes: number,
 ): MatchReport {
-  // getMapById builds fresh MapData per call, so silencing production is local.
   const map = getMapById(arena);
   const wardenTeam = scenario === "swap" ? 0 : 1;
   const defender = 1 - wardenTeam;
-  if (scenario === "escort" || scenario === "trickle") {
-    (map.bases[defender] as { productionTicks: number }).productionTicks = 0;
-  }
   const withWarden = scenario !== "trickle";
   const state: SimState = createSim(
     map,
@@ -145,8 +143,10 @@ function runMatch(
   let peakJammed = 0;
   let jamOnsetTick = -1;
 
+  let breachTick = -1;
   for (let t = 0; t < maxTicks && state.winner < 0; t++) {
     step(state, idle);
+    if (breachTick < 0 && state.outroTimer > 0) breachTick = state.tick;
     if (withWarden && state.wardenGoal < goalTicks.length) goalTicks[state.wardenGoal] += 1;
 
     const ent = state.ent;
@@ -194,7 +194,7 @@ function runMatch(
     difficulty,
     resolvedTick: state.winner >= 0 ? state.tick : -1,
     winner: state.winner,
-    coreHp: [state.coreHp[0] ?? 0, state.coreHp[1] ?? 0],
+    breachTick,
     turretsPerMinute,
     goalTicks,
     peakJammed,
@@ -244,7 +244,7 @@ function main(): void {
           const r = runMatch(arena, scenario, seed, difficulty, minutes);
           reports.push(r);
           if (!asJson) {
-            const core = `core ${r.coreHp[0]}/${r.coreHp[1]}`;
+            const core = `breach ${fmtSeconds(r.breachTick)}`;
             const jam =
               r.peakJammed > 0
                 ? ` jam peak ${r.peakJammed}${r.jamOnsetTick >= 0 ? ` @${fmtSeconds(r.jamOnsetTick)}` : ""}`

@@ -73,11 +73,12 @@ interface ArenaExpectation {
    */
   graphNodes: number;
   weapons: number;
-  baseDefence: number;
   pickups: number;
   triggerVolumes: number;
-  coreHp: number;
-  productionTicks: number;
+  /** The original Dreadnought's HP, carried as each side's Juggernaut. */
+  juggernautHp: number;
+  /** The gate box's half-extents [x, y] in metres (raw/1024). */
+  gateHalf: readonly [number, number];
   /** Original scenery placements. Render-only — determinismGuard.test.ts enforces it. */
   props: number;
   /**
@@ -173,8 +174,11 @@ const ARENAS: ArenaExpectation[] = [
     // and the base's own structures, of 4327 (6.5%). Up from 242: the carve now
     // walks each road the way a unit steps rather than in fixed 0.25 m slices,
     // and opens team 0's console leg, which was walled off entirely (issue #30).
-    wallsVPin: 2005359668,
-    wallsHPin: 2450311990,
+    // SIM_VERSION 32: 256 carved + 13 reconnected. The roads now end at the
+    // original's gate box rather than at the Dreadnought spot, and each
+    // Juggernaut's spawn-to-road leg is validated too.
+    wallsVPin: 3397164092,
+    wallsHPin: 4095836062,
     turretSpots: 32,
     outpostSpots: 2,
     dummySpots: 0,
@@ -182,18 +186,20 @@ const ARENAS: ArenaExpectation[] = [
     ringTurrets: [9, 8],
     graphNodes: 462, // both Cnet graphs, 237 + 225
     weapons: 2,
-    baseDefence: 4,
     pickups: 11,
-    triggerVolumes: 13,
-    coreHp: 3000,
-    productionTicks: 150, // 5 s
+    triggerVolumes: 7, // base zones; the gate boxes are the gates now
+    juggernautHp: 3000,
+    gateHalf: [2.3994, 1.7998], // gate trigger 2457 x 1843 raw
     props: 36,
     mirrorAxis: 120,
     flatPlots: false, // spawn platform above the base floor
     steepLaneEdges: 40,
     hardWallLaneEdges: 8, // of 518 edges; smallest blocking rise 0.50 m
-    steepLaneSteps: 1,
-    hardWallLaneSteps: 1,
+    // SIM_VERSION 32: the committed route now ends at the node nearest the
+    // enemy GATE (was: nearest the Dreadnought spot), three nodes shorter; it
+    // trades its one 1.4 m+ step for three jumpable ones.
+    steepLaneSteps: 4,
+    hardWallLaneSteps: 0,
     hoverBlockedEdges: 20,
     walkerOnlyEdges: 2,
     hoverOnlyEdges: 0,
@@ -227,11 +233,10 @@ const ARENAS: ArenaExpectation[] = [
     ringTurrets: [6, 7],
     graphNodes: 578, // 292 + 286
     weapons: 2,
-    baseDefence: 4,
     pickups: 9,
-    triggerVolumes: 13,
-    coreHp: 3000,
-    productionTicks: 150,
+    triggerVolumes: 8, // base zones; the gate boxes are the gates now
+    juggernautHp: 3000,
+    gateHalf: [1.7998, 2.0996], // gate trigger 1843 x 2150 raw
     props: 36,
     mirrorAxis: 120,
     flatPlots: true, // spawn and base share the 0 m floor here
@@ -263,9 +268,10 @@ const ARENAS: ArenaExpectation[] = [
     //
     // On top of that ground lattice, stage 2 carves 37 bits to open the original
     // roads (was 56) and opens 2 more for a ring turret (was 10). 39 of 4009,
-    // 1.0%, down from 66.
+    // 1.0%, down from 66. 36 carved since SIM_VERSION 32 (the roads end at the
+    // original's gate box, not at the Dreadnought spot).
     wallsVPin: 1495349930,
-    wallsHPin: 1064616740,
+    wallsHPin: 4066112243,
     // Mp's two bridge decks: 2398 cells over the roads, and 108 above those.
     layerCells: [2398, 108],
     turretSpots: 32, // every original NeutralTurret pad
@@ -275,11 +281,10 @@ const ARENAS: ArenaExpectation[] = [
     ringTurrets: 8,
     graphNodes: 283, // both Cnet graphs, 143 + 140
     weapons: 2,
-    baseDefence: 4,
     pickups: 8,
-    triggerVolumes: 13,
-    coreHp: 3000,
-    productionTicks: 150, // 5 s
+    triggerVolumes: 7, // base zones; the gate boxes are the gates now
+    juggernautHp: 3000,
+    gateHalf: [2.3994, 1.7998], // gate trigger 2457 x 1843 raw
     props: 36,
     mirrorAxis: 112,
     flatPlots: false,
@@ -316,11 +321,10 @@ const ARENAS: ArenaExpectation[] = [
     ringTurrets: [6, 7],
     graphNodes: 594, // 303 + 291
     weapons: 2,
-    baseDefence: 4,
     pickups: 9,
-    triggerVolumes: 13,
-    coreHp: 3000,
-    productionTicks: 150,
+    triggerVolumes: 8, // base zones; the gate boxes are the gates now
+    juggernautHp: 3000,
+    gateHalf: [1.7998, 2.0996], // gate trigger 1843 x 2150 raw
     props: 36,
     mirrorAxis: 120,
     flatPlots: true,
@@ -362,9 +366,12 @@ for (const arena of ARENAS) {
           ? arena.ringTurrets[team]
           : arena.ringTurrets;
         expect(base.turrets.length).toBe(ringWant);
-        expect(base.defence.length).toBe(arena.baseDefence);
-        expect(base.coreHp).toBe(arena.coreHp);
-        expect(base.productionTicks).toBe(arena.productionTicks);
+        // Type 28 is the Dreadnought (fcop-fidelity.md I6): each side's
+        // Juggernaut, with no core HP and no free production left on the base.
+        expect(base.juggernaut?.hp).toBe(arena.juggernautHp);
+        expect(base.juggernaut?.guns).toBe(4);
+        expect(base.gate.halfW).toBeCloseTo(arena.gateHalf[0], 3);
+        expect(base.gate.halfL).toBeCloseTo(arena.gateHalf[1], 3);
       }
       // Per-spot lists stay parallel to turretSpots or the guns get shuffled.
       if (arena.weapons > 0) {

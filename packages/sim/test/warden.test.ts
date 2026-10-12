@@ -8,7 +8,6 @@ import {
   RESPAWN_TICKS,
   TRICKLE_INTERVAL_TICKS,
   WARDEN_ALTITUDE,
-  WARDEN_CORE_DEFEND_RADIUS,
   WARDEN_DEFEND_RADIUS,
   WARDEN_HP,
   WARDEN_PUSH_COMMIT_RANGE,
@@ -25,7 +24,8 @@ import {
   sampleHeight,
   URBAN_JUNGLE_ID,
 } from "../src/map";
-import { createSim, hash, type SimState, step } from "../src/sim";
+import { createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
+import { isGroundUnit } from "../src/units";
 import { WGOAL_CAPTURE, WGOAL_DEFEND, WGOAL_ESCORT, WGOAL_SUPPRESS } from "../src/warden";
 
 const idle = createTickInputs();
@@ -149,23 +149,20 @@ describe("warden", () => {
   });
 });
 
-describe("the goal ladder reads the arena's rule set (rules.md §9)", () => {
-  // Two rungs behave differently depending on whether the arena's loss condition
-  // is a breached gate (§1) or a razed core (§9), and getting that wrong is not a
-  // subtle mis-tune: on a §9 arena the §1 forms made the Warden spend the whole
-  // match at home and never push. These pin the goal MIX rather than an outcome,
-  // because the mix is where the defect was visible and an outcome is not — a
-  // Warden can look busy while doing nothing toward the objective.
+describe("the goal ladder on the imported arenas (rules.md §7, §9)", () => {
+  // Until SIM_VERSION 32 two rungs read whether the loss condition was a breached
+  // gate (§1) or a razed core (§9). The original has no core and no free
+  // production (fcop-fidelity.md R1, I7), so the loss condition is the gate
+  // everywhere and base defense reads one radius. The push rung (commit, then
+  // suppress or escort) still reads the arena: it exists for the imported city
+  // lattice. These pin the goal MIX rather than an outcome, because the mix is
+  // where a defect is visible and an outcome is not — a Warden can look busy
+  // while doing nothing toward the objective.
   const PA_ARENAS = [LA_CANTINA_ID, URBAN_JUNGLE_ID, PROVING_GROUND_ID, BUG_HUNT_ID];
 
-  /**
-   * Fraction of ticks spent on each goal over a 5-minute difficulty-8 match.
-   * `silenceDefender` turns the far base's free production off, which is the
-   * escorted-push scenario paAttribution measures the outcome of.
-   */
-  function goalMix(mapId: string, silenceDefender = false): Map<number, number> {
+  /** Fraction of ticks spent on each goal over a 5-minute difficulty-8 match. */
+  function goalMix(mapId: string): Map<number, number> {
     const map = getMapById(mapId);
-    if (silenceDefender) (map.bases[0] as { productionTicks: number }).productionTicks = 0;
     const sim = createSim(map, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
     const ticks = new Map<number, number>();
     while (sim.tick < 5 * 60 * 30 && sim.winner < 0) {
@@ -192,12 +189,13 @@ describe("the goal ladder reads the arena's rule set (rules.md §9)", () => {
 
   it("commits to a PA push instead of sitting on home defence", () => {
     // Before v17, over ten minutes: escort 0% on la-cantina, urban-jungle and
-    // bug-hunt, with DEFEND taking 63%, 89% and 91%. An enemy ground unit was
-    // within 55 m of the gate essentially always, because both bases produce one
-    // free Runner every 5 s, so the §1 rung never released the Warden.
-    // After, over five minutes: the committed rung takes 71%, 46%, 66% and 67%,
-    // DEFEND 0.0% on all four. The bound on DEFEND is loose because home defence
-    // is not wrong, only wrong as a permanent state.
+    // bug-hunt, with DEFEND taking 63%, 89% and 91%: both bases produced a free
+    // Runner every 5 s, so an enemy unit was always near the gate. v17 tightened
+    // the §9 radius; v32 removed the free production instead, which is what the
+    // original does, and the one §1 radius is back. Against an idle player there
+    // is nobody to defend against, so DEFEND stays at zero and the committed rung
+    // carries the match. The bound on DEFEND is loose because home defence is not
+    // wrong, only wrong as a permanent state.
     for (const id of PA_ARENAS) {
       const mix = goalMix(id);
       expect(committed(mix)).toBeGreaterThan(0.05);
@@ -205,33 +203,59 @@ describe("the goal ladder reads the arena's rule set (rules.md §9)", () => {
     }
   }, 30_000);
 
-  it("still defends unconditionally on a gate-breach arena", () => {
-    // district-01 has coreHp 0, so a unit reaching the gate wins outright and the
-    // wide radius is correct there. This is the guard that the §9 tightening did
-    // not leak: goldens 01-04 run on this map and none of their hashes moved.
-    const sim = createSim(getMapById(DISTRICT_01_ID), 0xc0ffee, {
-      wardenPlayer: 1,
-      wardenDifficulty: 8,
-    });
-    expect(sim.map.bases[1].coreHp).toBe(0);
-    expect(WARDEN_DEFEND_RADIUS).toBeGreaterThan(WARDEN_CORE_DEFEND_RADIUS);
+  it("defends its gate on the §1 radius on a PA arena too", () => {
+    // An enemy Runner inside WARDEN_DEFEND_RADIUS of the Warden's gate is the
+    // loss condition on every arena now, so it outranks everything but survival.
+    const map = getMapById(LA_CANTINA_ID);
+    const sim = createSim(map, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
+    const gate = map.bases[1].gate;
+    const graph = map.laneGraph;
+    if (!graph) throw new Error("la-cantina must carry a lane graph");
+    // An enemy Runner on its own road, the node nearest 30 m from the gate.
+    let at = 0;
+    let best = Number.POSITIVE_INFINITY;
+    for (let k = 0; k < graph.nodes.length; k++) {
+      const d = Math.abs(Math.hypot(graph.nodes[k].x - gate.x, graph.nodes[k].y - gate.y) - 30);
+      if (d < best) {
+        best = d;
+        at = k;
+      }
+    }
+    const n = graph.nodes[at];
+    const unit = spawnUnit(sim, ARCHETYPE.RUNNER, 0, n.x, n.y, undefined, true);
+    expect(Math.hypot(n.x - gate.x, n.y - gate.y)).toBeLessThan(WARDEN_DEFEND_RADIUS);
+    sim.wardenThink = 0;
+    step(sim, idle);
+    expect(sim.wardenGoal).toBe(WGOAL_DEFEND);
+    expect(sim.wardenSlot).toBe(unit);
   });
 
-  it("does not abandon a push that has arrived at the enemy core", () => {
+  it("does not abandon a push for another pad", () => {
     // The other rung: WGOAL_CAPTURE outranked WGOAL_ESCORT unconditionally, so a
-    // Warden whose push was at the enemy core flew off for its 30th pad — measured
+    // Warden whose push was at the enemy base flew off for its 30th pad — measured
     // 67-75% of ticks capturing against 9% escorting, on arenas carrying 29-32
-    // pads. Measured in the scenario where a push actually reaches the core, since
-    // that is the only scenario the rung applies to: the committed rung now takes
-    // 83%, 71%, 71% and 73% against capture's 5%, 8%, 8% and 7%. Asserted as the
-    // relation that broke, not as transcribed percentages.
+    // pads. Measured over the ticks a push EXISTS: with nothing produced for free
+    // (v32) the Warden spends its opening on pads until its first bought wave
+    // rolls, which is capture with no push to abandon. While one lives: capture
+    // 0% on all four, the committed rung 63-70%. Asserted as the relation.
     for (const id of PA_ARENAS) {
-      const mix = goalMix(id, true);
-      expect(committed(mix)).toBeGreaterThan(mix.get(WGOAL_CAPTURE) ?? 0);
+      const sim = createSim(getMapById(id), 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
+      let capture = 0;
+      let pushing = 0;
+      while (sim.tick < 5 * 60 * 30 && sim.winner < 0) {
+        step(sim, idle);
+        let tip = false;
+        for (let e = 0; e < sim.ent.high && !tip; e++) {
+          tip =
+            sim.ent.alive[e] === 1 && sim.ent.team[e] === 1 && isGroundUnit(sim.ent.archetype[e]);
+        }
+        if (!tip) continue;
+        if (sim.wardenGoal === WGOAL_CAPTURE) capture += 1;
+        if (sim.wardenGoal === WGOAL_ESCORT || sim.wardenGoal === WGOAL_SUPPRESS) pushing += 1;
+      }
+      expect(pushing).toBeGreaterThan(capture);
     }
-    // Capture still runs when the field briefly has no tip (between waves). On
-    // a free-production arena that window is thin after v24 (any living tip
-    // outranks CAPTURE), so the bound is "not zero forever" rather than 5%.
+    // ...and capture still runs when the field has no tip.
     expect(goalMix(URBAN_JUNGLE_ID).get(WGOAL_CAPTURE) ?? 0).toBeGreaterThan(0);
     // And the bottom difficulties keep giving the advantage away, like every other
     // difficulty knob.
@@ -268,19 +292,18 @@ describe("the goal ladder reads the arena's rule set (rules.md §9)", () => {
         }
       }
       expect(suppressTicks).toBeGreaterThan(0);
-      // Inside the emplacement's own 6 m reach — the trade is the point, not a
+      // Inside the emplacement's own 12 m reach — the trade is the point, not a
       // side effect. Loose enough to survive a balance pass on the arrive radius.
       expect(closest).toBeLessThan(WARDEN_SUPPRESS_DISTANCE + 3);
     }
   }, 60_000);
 
-  it("never takes the suppress rung on a gate-breach arena", () => {
-    // Same containment as WARDEN_CORE_DEFEND_RADIUS: the rung sits inside
-    // `hasCore(enemy)`, so district-01 — where a unit at the gate wins outright and
-    // there is nothing to siege — must never reach it. This is what keeps goldens
-    // 01-04 re-headers rather than re-records.
+  it("never takes the suppress rung off the imported arenas", () => {
+    // The rung is gated on the arena carrying the original road graph (it used
+    // to be gated on a core): district-01 has neither the graph nor the city
+    // lattice the rung was measured on, so it must never reach it.
     const sim = wardenSim(8);
-    expect(sim.map.bases[0].coreHp).toBe(0);
+    expect(sim.map.laneGraph).toBeUndefined();
     let suppressTicks = 0;
     while (sim.tick < 3 * 60 * 30 && sim.winner < 0) {
       step(sim, idle);

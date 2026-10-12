@@ -26,8 +26,6 @@ import {
   CAPTURE_TICKS,
   CONSOLE_HOLD_TICKS,
   CONSOLE_RADIUS,
-  CORE_ATTACK_RADIUS,
-  CORE_DAMAGE_PER_SHOT,
   COST_FORTRESS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -42,6 +40,7 @@ import {
   HOVER_TRACTION_BRAKE,
   HOVER_TRACTION_COAST,
   JUGGERNAUT_ALIVE_LIMIT,
+  MATCH_OUTRO_TICKS,
   MAX_PLAYERS,
   MORTAR_LAUNCH_SPEED,
   MUZZLE_HEIGHT,
@@ -50,7 +49,6 @@ import {
   OUTPOST_CONSOLE_RESPAWN_TICKS,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_PAD_RADIUS,
-  PA_PRODUCTION_ALIVE_LIMIT,
   PAD_REPAIR_HP_PER_TICK,
   PICKUP_HEALTH,
   PICKUP_HEALTH_AMOUNT,
@@ -85,7 +83,6 @@ import {
   TURRET_RANGE,
   UNIT_DAMAGE,
   UNIT_FIRE_COOLDOWN_TICKS,
-  UNIT_RANGE,
   WARDEN_ALTITUDE,
   WARDEN_HP,
   WARDEN_INCOME_PERCENT,
@@ -99,12 +96,10 @@ import {
   EV_BREACH,
   EV_CAPTURE,
   EV_CLAIM,
-  EV_CORE_HIT,
   EV_DEATH,
   EV_EXPLOSION,
   EV_HIT,
   EV_PICKUP,
-  EV_PRODUCE,
   EV_PURCHASE,
   EV_RESPAWN,
   EV_SHOT,
@@ -127,6 +122,7 @@ import {
   type TickInputs,
 } from "./inputs";
 import {
+  insideGate,
   isWater,
   type MapBaseTurret,
   type MapData,
@@ -146,6 +142,7 @@ import {
   systemUnitMovement,
   UNIT_MODE_ASSAULT,
   UNIT_MODE_PATROL,
+  unitRange,
 } from "./units";
 import { systemWarden, WGOAL_IDLE } from "./warden";
 import {
@@ -172,8 +169,8 @@ export const TURRET_DEFENSE = 0; //     base ring: full targeting (mesh mode "De
 export const TURRET_BASE = TURRET_DEFENSE;
 export const TURRET_DUMMY = 1; //       Phase 1 sandbox: engages avatars only (mesh mode "Standard")
 export const TURRET_CAPTURABLE = 2; //  neutral spot: dormant until captured (mesh mode "Standard")
-/** Built-in BaseShooter guns bolted into the base structure (fcop-logic.md §8.1). Combat-only — no freestanding mesh. */
-export const TURRET_BUILTIN = 3;
+// 3 was TURRET_BUILTIN, the "built-in base guns" — retired with them in
+// SIM_VERSION 32: they were the Dreadnought's hull guns (fcop-fidelity.md I6).
 
 // animState bits (renderer-facing; snapshot field 7).
 export const ANIM_MOVING = 1 << 0;
@@ -204,6 +201,14 @@ export interface SimState {
   prng: number;
   /** Winning team, -1 while the match runs. Set once; the sim then freezes. */
   winner: number;
+  /**
+   * Ticks left of the match outro (MATCH_OUTRO_TICKS after a gate breach), 0 when
+   * none is running. The match keeps playing through it; `winner` is set when it
+   * reaches zero (rules.md §1, fcop-fidelity.md R1).
+   */
+  outroTimer: number;
+  /** Team the running outro will declare the winner, -1 when none is running. */
+  outroWinner: number;
   readonly map: MapData;
   readonly ent: EntityStore;
   /** Entity id of each player's avatar, -1 while dead/none. */
@@ -261,13 +266,6 @@ export interface SimState {
   // --- Precinct Assault state (rules.md §9) --------------------------------
   // Every array here is sized from the map's own feature lists, so on an arena
   // without PA data they are zero-length and every PA system iterates nothing.
-  /** Built-in base defence weapons, flattened base 0 then base 1 (§8.1). */
-  readonly baseDefenceEntity: Int32Array;
-  readonly baseDefenceRespawn: Int32Array;
-  /** Remaining core HP per team. Length 0 when no base carries a core. */
-  readonly coreHp: Int32Array;
-  /** Ticks until each base produces its next free unit. Length 0 = no production. */
-  readonly productionTimer: Int32Array;
   /** Ticks until each pickup spot re-arms (0 = available). */
   readonly pickupCooldown: Int32Array;
   /** Power-up timers per player; length 0 when the arena has no pickups. */
@@ -401,7 +399,7 @@ function baseTurretSpot(map: MapData, k: number): { team: number; spot: MapBaseT
  *
  * The ring gets the original Turret actor's own weapon profile, gun rotation and
  * health when the arena carries them, exactly like the capturable pads
- * (spawnNeutralTurret) and the built-in base guns (spawnBaseDefence). It did not,
+ * (spawnNeutralTurret). It did not,
  * for one release, and the effect was not subtle: with weaponProfile at -1 the
  * ring fell through to the global TURRET_RANGE of 28 m against an imported
  * engage_range of (then) 6 m, so 32 turrets covered the whole midfield and shot every
@@ -427,45 +425,6 @@ function spawnBaseTurret(state: SimState, k: number): number {
     ent.aimY[id] = sinLUT(spot.yaw);
   }
   state.baseTurretEntity[k] = id;
-  return id;
-}
-
-/** Resolves flattened defence slot `k` to its base and map entry. */
-function baseDefenceSpot(
-  map: MapData,
-  k: number,
-): { team: number; x: number; y: number; weapon: number; hp: number; layer: number } {
-  const n0 = map.bases[0].defence.length;
-  const team = k < n0 ? 0 : 1;
-  const d = map.bases[team].defence[k < n0 ? k : k - n0];
-  return { team, x: d.x, y: d.y, weapon: d.weapon, hp: d.hp, layer: d.layer };
-}
-
-/**
- * Spawns one of a base's built-in defence weapons (fcop-logic.md §8.1).
- *
- * Modelled as a team-owned turret entity, because that is what it behaves like:
- * it sits on the base, engages the enemy and can be shot. It is kept as its own
- * slot list rather than folded into the ring so the ring's max-8 concept — and
- * the "destroy an enemy base turret" scoring — keep their meaning.
- */
-function spawnBaseDefence(state: SimState, k: number): number {
-  const ent = state.ent;
-  const { team, x, y, weapon, hp, layer } = baseDefenceSpot(state.map, k);
-  const id = spawn(ent, ARCHETYPE.TURRET, team);
-  if (id < 0) return -1;
-  ent.posX[id] = x;
-  ent.posY[id] = y;
-  ent.height[id] = resolveHeight(state.map, x, y, layer);
-  ent.entLayer[id] = layer;
-  ent.hp[id] = hp;
-  ent.ownerId[id] = team;
-  // Bolted into the base structure (fcop-logic.md §8.1) — no freestanding mesh.
-  // All four sit at the core centre (original stores no coordinates); rendering
-  // them as turret-defense would stack four guns on the objective pad.
-  ent.mode[id] = TURRET_BUILTIN;
-  ent.weaponProfile[id] = weapon;
-  state.baseDefenceEntity[k] = id;
   return id;
 }
 
@@ -500,6 +459,14 @@ export function spawnUnit(
   ent.hp[id] = ARCHETYPE_MAX_HP[archetype];
   ent.ownerId[id] = team;
   ent.mode[id] = mode;
+  // On a Precinct Assault arena the Juggernaut IS the original's Dreadnought, and
+  // takes its HP and hull-gun profile from the imported record (map.ts
+  // MapJuggernaut). Elsewhere it keeps balance.ts's own stats.
+  const dread = state.map.bases[team].juggernaut;
+  if (archetype === ARCHETYPE.JUGGERNAUT && dread !== undefined) {
+    ent.hp[id] = dread.hp;
+    ent.weaponProfile[id] = dread.weapon;
+  }
   const gate = state.map.bases[team ^ 1].gate;
   ent.yaw[id] = atan2Poly(gate.y - y, gate.x - x);
   if (isGroundUnit(archetype)) {
@@ -566,11 +533,6 @@ export function spawnUnit(
 
 export function createSim(map: MapData, seed: number, options?: SimOptions): SimState {
   const ringSlots = map.bases[0].turrets.length + map.bases[1].turrets.length;
-  // Precinct Assault feature sizes (rules.md §9). Each stays 0 on arenas without
-  // the corresponding map data, which is what makes the PA systems no-ops there.
-  const defenceSlots = map.bases[0].defence.length + map.bases[1].defence.length;
-  const hasCore = map.bases[0].coreHp > 0 || map.bases[1].coreHp > 0;
-  const produces = map.bases[0].productionTicks > 0 || map.bases[1].productionTicks > 0;
   // Both config values end up as array indices (avatarId[player], the
   // difficulty knob tables), so coerce to integers — a fractional or NaN
   // input must degrade to a sane config, never poison the sim.
@@ -586,6 +548,8 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     tick: 0,
     prng: seed | 0,
     winner: -1,
+    outroTimer: 0,
+    outroWinner: -1,
     map,
     ent: createEntityStore(),
     avatarId: new Int32Array(MAX_PLAYERS).fill(-1),
@@ -616,16 +580,6 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     wardenSlot: -1,
     wardenThink: 0,
     wardenIncomeAcc: 0,
-    baseDefenceEntity: new Int32Array(defenceSlots).fill(-1),
-    baseDefenceRespawn: new Int32Array(defenceSlots),
-    coreHp: hasCore
-      ? Int32Array.from([map.bases[0].coreHp, map.bases[1].coreHp])
-      : new Int32Array(0),
-    // Seeded to the full cadence so the first free unit appears one interval in,
-    // not on tick 0 — otherwise both bases open with a free wave.
-    productionTimer: produces
-      ? Int32Array.from([map.bases[0].productionTicks, map.bases[1].productionTicks])
-      : new Int32Array(0),
     pickupCooldown: new Int32Array(map.pickups.length),
     buffInvuln: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
     buffInvis: new Int32Array(map.pickups.length > 0 ? MAX_PLAYERS : 0),
@@ -646,9 +600,6 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
   }
   for (let k = 0; k < ringSlots; k++) {
     spawnBaseTurret(state, k);
-  }
-  for (let k = 0; k < defenceSlots; k++) {
-    spawnBaseDefence(state, k);
   }
   for (let k = 0; k < map.dummySpots.length; k++) {
     spawnDummy(state, k);
@@ -1038,6 +989,15 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
       spawnX = base.groundConsole.x;
       spawnY = base.groundConsole.y;
       spawnLayer = base.groundConsole.layer;
+      // The original's Dreadnought rolls out of its own spawner at node 0 of its
+      // Cnet by the HQ, not at the purchase pad (fcop-re/ranges-turrets-capture.md
+      // top). The console is where it is bought; this is where it appears.
+      const dread = base.juggernaut;
+      if (heavy && dread !== undefined) {
+        spawnX = dread.x;
+        spawnY = dread.y;
+        spawnLayer = dread.layer;
+      }
     } else if (adx * adx + ady * ady <= r2) {
       target = 512 + heavy;
       archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
@@ -1539,13 +1499,35 @@ function systemTargeting(state: SimState): void {
       }
     } else if (isUnit(archetype)) {
       if (ent.cooldownA[id] > 0) ent.cooldownA[id] -= 1;
-      const target = nearestEnemyInRange(state, id, UNIT_RANGE[archetype]);
+      const target = nearestEnemyInRange(state, id, unitRange(state, id));
       if (target < 0) continue;
       ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
       if (ent.cooldownA[id] <= 0) {
-        ent.cooldownA[id] = UNIT_FIRE_COOLDOWN_TICKS[archetype];
-        pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_HITSCAN, reachToTarget(state, id, target));
-        applyDamage(state, target, UNIT_DAMAGE[archetype], ent.ownerId[id]);
+        const profile = ent.weaponProfile[id];
+        if (profile >= 0) {
+          // A PA Juggernaut: the original Dreadnought's hull guns (map.ts
+          // MapJuggernaut). Modelled as `guns` independent shooters standing at
+          // the hull, so they share the nearest target and fire one volley per
+          // refire — a gun each, each its own shot.
+          const w = weapons[profile];
+          const dread = state.map.bases[ent.team[id]].juggernaut;
+          const guns = dread !== undefined ? dread.guns : 1;
+          ent.cooldownA[id] = w.delay;
+          for (let g = 0; g < guns; g++) {
+            pushEvent(
+              state.events,
+              EV_SHOT,
+              id,
+              SHOT_SLOT_HITSCAN,
+              reachToTarget(state, id, target),
+            );
+            applyDamage(state, target, w.damage, ent.ownerId[id]);
+          }
+        } else {
+          ent.cooldownA[id] = UNIT_FIRE_COOLDOWN_TICKS[archetype];
+          pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_HITSCAN, reachToTarget(state, id, target));
+          applyDamage(state, target, UNIT_DAMAGE[archetype], ent.ownerId[id]);
+        }
       }
     }
   }
@@ -1735,16 +1717,6 @@ function systemDamageDeath(state: SimState): void {
         }
       }
       if (!slotted) {
-        for (let k = 0; k < state.baseDefenceEntity.length; k++) {
-          if (state.baseDefenceEntity[k] === id) {
-            state.baseDefenceEntity[k] = -1;
-            state.baseDefenceRespawn[k] = BASE_TURRET_RESPAWN_TICKS;
-            slotted = true;
-            break;
-          }
-        }
-      }
-      if (!slotted) {
         // Capturable turret: husk now, back as NEUTRAL in 45 s (rules.md §5)
         // regardless of who owned it when it died.
         for (let k = 0; k < state.neutralTurretEntity.length; k++) {
@@ -1795,17 +1767,6 @@ function systemSpawning(state: SimState): void {
       state.baseTurretRespawn[k] -= 1;
       if (state.baseTurretRespawn[k] === 0) {
         const id = spawnBaseTurret(state, k);
-        if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, -1, 0);
-      }
-    }
-  }
-  // Built-in base defence weapons respawn on the ring turret timer: they are the
-  // same kind of thing, a structure you can shoot off a base that comes back.
-  for (let k = 0; k < state.baseDefenceRespawn.length; k++) {
-    if (state.baseDefenceRespawn[k] > 0) {
-      state.baseDefenceRespawn[k] -= 1;
-      if (state.baseDefenceRespawn[k] === 0) {
-        const id = spawnBaseDefence(state, k);
         if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, -1, 0);
       }
     }
@@ -1892,78 +1853,35 @@ function systemEconomy(state: SimState): void {
 }
 
 /**
- * Win check (rules.md §1): a friendly GROUND unit physically inside the
- * enemy gate volume ends the match — nothing else does. Lowest entity id
+ * Win check (rules.md §1, and the original's Precinct Assault rule): an enemy
+ * GROUND unit — Runner (tank) or Juggernaut (Dreadnought) — physically inside a
+ * gate volume decides the match. Jets and avatars never do. Lowest entity id
  * wins a same-tick tie deterministically.
+ *
+ * The breach does not end the match on the spot. Like the original's 1750-tick
+ * phase countdown (fcop-re/ai-and-rules.md §5) it starts a MATCH_OUTRO_TICKS
+ * outro: EV_BREACH fires now, play continues, and `winner` is set — freezing the
+ * sim — when the outro runs out. The first breach decides; later ones during the
+ * outro change nothing.
  */
 function systemWinCheck(state: SimState): void {
-  const ent = state.ent;
-  // Precinct Assault objective (rules.md §9): a razed base ends the match, and
-  // it REPLACES the gate breach on arenas that carry a core. Arenas with
-  // coreHp 0 fall straight through to the original gate rule below.
-  if (state.coreHp.length > 0) {
-    for (let team = 0; team < 2; team++) {
-      if (state.map.bases[team].coreHp === 0) continue;
-      if (state.coreHp[team] > 0) continue;
-      state.winner = team ^ 1;
-      pushEvent(state.events, EV_BREACH, -1, team ^ 1, 0);
-      return;
-    }
+  if (state.outroTimer > 0) {
+    state.outroTimer -= 1;
+    if (state.outroTimer === 0) state.winner = state.outroWinner;
     return;
   }
+  const ent = state.ent;
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id] || !isGroundUnit(ent.archetype[id])) continue;
     const team = ent.team[id];
     if (team !== 0 && team !== 1) continue;
     const gate = state.map.bases[team ^ 1].gate;
-    const dx = ent.posX[id] - gate.x;
-    const dy = ent.posY[id] - gate.y;
-    if (dx * dx + dy * dy <= gate.radius * gate.radius) {
-      state.winner = team;
+    if (insideGate(gate, ent.posX[id], ent.posY[id], ARCHETYPE_RADIUS[ent.archetype[id]])) {
+      state.outroWinner = team;
+      state.outroTimer = MATCH_OUTRO_TICKS;
       pushEvent(state.events, EV_BREACH, id, team, 0);
       return;
     }
-  }
-}
-
-/**
- * Free base production (rules.md §9): each base puts one Runner on its own lane
- * every `productionTicks`.
- *
- * Additive to the points economy — consoles and costs are untouched — so a base
- * is a slow, free trickle of pressure the player must escort or intercept, the
- * way it works in the original.
- */
-function systemProduction(state: SimState): void {
-  if (state.productionTimer.length === 0) return; // arena has no production
-  for (let team = 0; team < 2; team++) {
-    const base = state.map.bases[team];
-    if (base.productionTicks === 0) continue;
-    state.productionTimer[team] -= 1;
-    if (state.productionTimer[team] > 0) continue;
-    state.productionTimer[team] = base.productionTicks;
-    // The map's ceiling, hard-capped by ours: the entity store is finite and a
-    // free 12 units/minute per base would eventually exhaust it.
-    const limit = Math.min(base.productionLimit, PA_PRODUCTION_ALIVE_LIMIT);
-    let alive = 0;
-    const ent = state.ent;
-    for (let id = 0; id < ent.high; id++) {
-      if (ent.alive[id] && ent.team[id] === team && ent.archetype[id] === ARCHETYPE.RUNNER) {
-        alive += 1;
-      }
-    }
-    if (alive >= limit) continue;
-    const uid = spawnUnit(
-      state,
-      ARCHETYPE.RUNNER,
-      team,
-      base.groundConsole.x,
-      base.groundConsole.y,
-      UNIT_MODE_PATROL,
-      false,
-      base.groundConsole.layer,
-    );
-    if (uid >= 0) pushEvent(state.events, EV_PRODUCE, uid, team, ARCHETYPE.RUNNER);
   }
 }
 
@@ -2076,35 +1994,6 @@ function insideVolume(ent: EntityStore, id: number, vol: MapTriggerVolume): bool
   return dx <= hw && dx >= -hw && dy <= hl && dy >= -hl;
 }
 
-/**
- * Ground units chew through the enemy base core (rules.md §9).
- *
- * Only units, never the Avatar or the Warden — pillar 1 says the player is escort
- * and disruptor, never the win condition, and that survives the change of
- * objective. Reuses the unit's own fire cooldown so a unit either shoots a target
- * or the core, not both in one tick.
- */
-function systemCoreAttack(state: SimState): void {
-  if (state.coreHp.length === 0) return;
-  const ent = state.ent;
-  const r2 = CORE_ATTACK_RADIUS * CORE_ATTACK_RADIUS;
-  for (let id = 0; id < ent.high; id++) {
-    if (!ent.alive[id] || !isGroundUnit(ent.archetype[id])) continue;
-    const team = ent.team[id];
-    if (team !== 0 && team !== 1) continue;
-    const foe = team ^ 1;
-    if (state.map.bases[foe].coreHp === 0 || state.coreHp[foe] <= 0) continue;
-    const core = state.map.bases[foe].core;
-    const dx = ent.posX[id] - core.x;
-    const dy = ent.posY[id] - core.y;
-    if (dx * dx + dy * dy > r2) continue;
-    if (ent.cooldownA[id] > 0) continue;
-    ent.cooldownA[id] = UNIT_FIRE_COOLDOWN_TICKS[ent.archetype[id]];
-    state.coreHp[foe] -= CORE_DAMAGE_PER_SHOT;
-    pushEvent(state.events, EV_CORE_HIT, Math.round(core.x * 16), Math.round(core.y * 16), foe);
-  }
-}
-
 /** Advances the sim by exactly one tick. Synchronous, allocation-free. */
 export function step(state: SimState, inputs: TickInputs): void {
   clearEvents(state.events);
@@ -2124,13 +2013,10 @@ export function step(state: SimState, inputs: TickInputs): void {
     // Precinct Assault systems (rules.md §9), inert on arenas without PA data.
     // Order is behavior and is deliberate: pickups after death so a dying avatar
     // cannot be healed; triggers after pickups so detection reads final
-    // positions; core damage before the win check; production just before
-    // spawning, so every new entity of a tick appears at the same boundary.
+    // positions.
     systemPickups(state);
     systemTriggers(state);
-    systemCoreAttack(state);
     systemEconomy(state);
-    systemProduction(state);
     systemSpawning(state);
     systemWinCheck(state);
   }
@@ -2149,6 +2035,12 @@ export function hash(state: SimState): number {
   h = fnv1aU32(h, state.tick >>> 0);
   h = fnv1aU32(h, state.prng >>> 0);
   h = fnv1aU32(h, state.winner >>> 0);
+  // The outro is hashed only while it runs: a match that never breaches — and
+  // every tick before a breach — hashes exactly as it did before it existed.
+  if (state.outroTimer > 0) {
+    h = fnv1aU32(h, state.outroTimer >>> 0);
+    h = fnv1aU32(h, state.outroWinner >>> 0);
+  }
   h = fnv1aU32(h, ent.high >>> 0);
   h = fnv1aU32(h, ent.freeCount >>> 0);
   h = fnv1aBytes(h, ent.bytes, 0, ent.fieldBytes);
@@ -2196,16 +2088,6 @@ export function hash(state: SimState): number {
   // runs zero times and every `if` is false, so the byte stream — and therefore
   // the hash — is bit-identical to before v13. That is the whole argument for
   // why the existing goldens keep their hash sequences.
-  for (let k = 0; k < state.baseDefenceEntity.length; k++) {
-    h = fnv1aU32(h, state.baseDefenceEntity[k] >>> 0);
-    h = fnv1aU32(h, state.baseDefenceRespawn[k] >>> 0);
-  }
-  for (let k = 0; k < state.coreHp.length; k++) {
-    h = fnv1aU32(h, state.coreHp[k] >>> 0);
-  }
-  for (let k = 0; k < state.productionTimer.length; k++) {
-    h = fnv1aU32(h, state.productionTimer[k] >>> 0);
-  }
   for (let k = 0; k < state.pickupCooldown.length; k++) {
     h = fnv1aU32(h, state.pickupCooldown[k] >>> 0);
   }
@@ -2249,9 +2131,9 @@ export function hash(state: SimState): number {
  * mutates state and is invisible to hashState, so adding a field here cannot
  * move a golden hash. Adding a field to SimState still can.
  */
-export const MATCH_SNAPSHOT_HEADER = 4;
+export const MATCH_SNAPSHOT_HEADER = 6;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
-export const MATCH_SNAPSHOT_SLOT_STRIDE = 11;
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 10;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
 
 /** Header fields. */
@@ -2259,6 +2141,10 @@ export const MATCH_TICK = 0;
 export const MATCH_WINNER = 1;
 export const MATCH_ENTITY_COUNT = 2;
 export const MATCH_WARDEN_DIFFICULTY = 3;
+/** Ticks left of the post-breach outro, 0 when none is running (systemWinCheck). */
+export const MATCH_OUTRO_LEFT = 4;
+/** Team whose breach started the running outro, -1 when none is running. */
+export const MATCH_OUTRO_WINNER = 5;
 
 /** Offsets within a slot block. */
 export const MATCH_SLOT_POINTS = 0;
@@ -2279,11 +2165,8 @@ export const MATCH_SLOT_BUY_FRAC = 8;
  * ties only exist for a frame when a spot resets.
  */
 export const MATCH_SLOT_CAPTURE_FRAC = 9;
-/**
- * This slot's own core HP as a fraction of the map's full value, or -1 on an
- * arena without cores (§1 gate-breach arenas). The HUD shows both slots' bars.
- */
-export const MATCH_SLOT_CORE_FRAC = 10;
+// Slot field 10 was MATCH_SLOT_CORE_FRAC, retired with the destructible core
+// (SIM_VERSION 32): the original has none.
 
 /** Byte offset of slot `s`'s block. */
 export function matchSlotOffset(slot: number): number {
@@ -2299,6 +2182,8 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
   out[MATCH_TICK] = state.tick;
   out[MATCH_WINNER] = state.winner;
   out[MATCH_WARDEN_DIFFICULTY] = state.wardenDifficulty;
+  out[MATCH_OUTRO_LEFT] = state.outroTimer;
+  out[MATCH_OUTRO_WINNER] = state.outroTimer > 0 ? state.outroWinner : -1;
 
   let live = 0;
   for (let slot = 0; slot < MAX_PLAYERS; slot++) {
@@ -2321,10 +2206,6 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
       if (frac > capture) capture = frac;
     }
     out[o + MATCH_SLOT_CAPTURE_FRAC] = capture;
-    out[o + MATCH_SLOT_CORE_FRAC] =
-      state.coreHp.length > 0 && state.map.bases[slot].coreHp > 0
-        ? state.coreHp[slot] / state.map.bases[slot].coreHp
-        : -1;
   }
   for (let k = 0; k < state.outpostOwner.length; k++) {
     const owner = state.outpostOwner[k];

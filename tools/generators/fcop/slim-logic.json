@@ -3,7 +3,7 @@
   "mapId": "proving-ground",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "7766374e4ba8c2bbe15d2ef176c42612f58c7fb5",
+    "commit": "9d9ce805944d7afb980f12dcc2cd20d6d967b28d",
     "extractor": "tools/gfx/extract_logic.py"
   },
   "frame": {
@@ -31,7 +31,7 @@
       "z": 175
     }
   ],
-  "bases": [
+  "dreadnoughts": [
     {
       "id": 17,
       "x": 91.9688,
@@ -41,8 +41,8 @@
       "netId": 1,
       "spawnTicks": 300,
       "spawnLimit": 1,
-      "defenceWeaponCount": 4,
-      "defenceWeapon": {
+      "gunCount": 4,
+      "gun": {
         "weaponId": 3,
         "targetType": 4,
         "targeting": 2,
@@ -50,8 +50,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 16
       },
-      "unitMoveSpeed": 1024,
-      "unitAcceleration": 1228
+      "moveSpeed": 1024,
+      "acceleration": 1228
     },
     {
       "id": 23,
@@ -62,8 +62,8 @@
       "netId": 2,
       "spawnTicks": 300,
       "spawnLimit": 1,
-      "defenceWeaponCount": 4,
-      "defenceWeapon": {
+      "gunCount": 4,
+      "gun": {
         "weaponId": 3,
         "targetType": 4,
         "targeting": 1,
@@ -71,8 +71,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 16
       },
-      "unitMoveSpeed": 1024,
-      "unitAcceleration": 1228
+      "moveSpeed": 1024,
+      "acceleration": 1228
     }
   ],
   "turrets": [

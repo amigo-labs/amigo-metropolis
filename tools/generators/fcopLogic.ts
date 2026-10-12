@@ -256,7 +256,12 @@ export const ACT = {
   AIRCRAFT: 9,
   DYNAMIC_PROP: 11,
   ITEM_PICKUP: 16,
-  TEAM_BASE: 28,
+  /**
+   * Extracted as "TeamBase?". It is the Dreadnought (fcop-re/ranges-turrets-
+   * capture.md, top + Q4): record class byte 3 ("Dreadnoughts" on the results
+   * screen), it drives its Cnet like a tank, and its four guns sit on its hull.
+   */
+  DREADNOUGHT: 28,
   NEUTRAL_TURRET: 36,
   TRIGGER: 95,
   MARKER_14: 14,
@@ -282,22 +287,34 @@ export interface PaSpawn {
   readonly z: number;
 }
 
-export interface PaBase {
+/**
+ * One side's Dreadnought record (act_type 28). Its position is the Dreadnought's
+ * spawn point — node 0 of its Cnet, next to the HQ — not a base structure: the
+ * original has no destructible core (fcop-re/ranges-turrets-capture.md, top).
+ */
+export interface PaDreadnought {
   readonly id: number;
   readonly x: number;
   readonly z: number;
   /** Original team byte: 1 or 2. */
   readonly team: number;
+  /** 3000 on every PA record: the Dreadnought's own HP. */
   readonly health: number;
-  /** Cnet this base's produced units traverse (fcop-logic.md §8.1). */
+  /** Cnet the Dreadnought drives; it spawns at node 0 (fcop-logic.md §8.1). */
   readonly netId: number;
-  /** Production cadence in original 60 Hz ticks (300 = 5 s). */
+  /**
+   * Its Csac spawner period in 1/60 s (300 = 5 s) and limit (1). The spawner is
+   * SHUT in PA: the Dreadnought appears only when bought (ai-and-rules.md §0).
+   */
   readonly spawnTicks: number;
   readonly spawnLimit: number;
-  readonly defenceWeaponCount: number;
-  readonly defenceWeapon: PaShooter;
-  readonly unitMoveSpeed: number;
-  readonly unitAcceleration: number;
+  /** Hull guns (4): mounts at the hull model's points 0..3 (Q4). */
+  readonly gunCount: number;
+  /** Gun 0's BaseShooter block (guns 1..3 carry the same values). */
+  readonly gun: PaShooter;
+  /** Its own route block at payload 0x30: move_speed 1024, accel 1228. */
+  readonly moveSpeed: number;
+  readonly acceleration: number;
 }
 
 export interface PaTurret {
@@ -428,7 +445,7 @@ export interface PaLogic {
     readonly note: string;
   };
   readonly spawns: readonly PaSpawn[];
-  readonly bases: readonly PaBase[];
+  readonly dreadnoughts: readonly PaDreadnought[];
   readonly turrets: readonly PaTurret[];
   readonly neutrals: readonly PaTurret[];
   readonly pickups: readonly PaPickup[];
@@ -519,10 +536,11 @@ export function buildPaLogic(
         "tools/generators/fcopLogic.ts; raw values are preserved here.",
     },
     spawns: of(ACT.X1ALPHA).map(marker),
-    bases: of(ACT.TEAM_BASE).map((a) => {
+    dreadnoughts: of(ACT.DREADNOUGHT).map((a) => {
       const p = a.params ?? {};
+      // The extractor still calls the gun blocks "defense_weapon".
       const dw = p.defense_weapon;
-      if (!dw) throw new Error(`base ${a.matching} has no defense_weapon block`);
+      if (!dw) throw new Error(`Dreadnought ${a.matching} has no gun (defense_weapon) block`);
       return {
         id: a.matching,
         x: a.x,
@@ -532,8 +550,8 @@ export function buildPaLogic(
         netId: a.net_id ?? -1,
         spawnTicks: a.spawn_ticks ?? 0,
         spawnLimit: a.spawn_limit ?? 0,
-        defenceWeaponCount: p.defense_weapon_count ?? 0,
-        defenceWeapon: {
+        gunCount: p.defense_weapon_count ?? 0,
+        gun: {
           weaponId: dw.weapon_id,
           targetType: dw.target_type,
           targeting: dw.targeting,
@@ -541,8 +559,8 @@ export function buildPaLogic(
           engageRangeRaw: dw.engage_range,
           targetingDelayRaw: dw.targeting_delay,
         },
-        unitMoveSpeed: p.unit_template?.move_speed ?? 0,
-        unitAcceleration: p.unit_template?.acceleration ?? 0,
+        moveSpeed: p.unit_template?.move_speed ?? 0,
+        acceleration: p.unit_template?.acceleration ?? 0,
       };
     }),
     turrets: of(ACT.TURRET).map(turret),
@@ -696,7 +714,7 @@ function extract(arena: FcopArena, reRepo: string, commit: string): void {
 
   console.log(`wrote ${out}`);
   console.log(
-    `  spawns ${logic.spawns.length}  bases ${logic.bases.length}` +
+    `  spawns ${logic.spawns.length}  dreadnoughts ${logic.dreadnoughts.length}` +
       `  turrets ${logic.turrets.length}  neutrals ${logic.neutrals.length}` +
       `  pickups ${logic.pickups.length}  triggers ${logic.triggers.length}` +
       `  units ${logic.units.length}  aircraft ${logic.aircraft.length}` +

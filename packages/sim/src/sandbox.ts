@@ -291,7 +291,6 @@ function isBookkept(state: SimState, id: number): boolean {
     contains(state.dummyEntity, id) ||
     contains(state.neutralTurretEntity, id) ||
     contains(state.baseTurretEntity, id) ||
-    contains(state.baseDefenceEntity, id) ||
     contains(state.outpostConsole, id)
   );
 }

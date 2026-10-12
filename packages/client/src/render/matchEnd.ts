@@ -1,21 +1,15 @@
 // Match-end wording: pure and DOM-free (the dialog itself is raw DOM in
 // main.ts, frame-loop world). Split out so the strings are testable — they
-// depend on which side won AND which win condition the arena runs (rules.md
-// §1 gate breach vs §9 core destruction).
+// depend on which side won. Every arena ends at a gate since SIM_VERSION 32
+// (rules.md §1; the original has no destructible core, §9).
 
 export interface MatchEndText {
   readonly title: string;
   readonly subtitle: string;
 }
 
-export function matchEndText(winner: number, slot: number, hasCore: boolean): MatchEndText {
+export function matchEndText(winner: number, slot: number): MatchEndText {
   const won = winner === slot;
-  if (hasCore) {
-    return {
-      title: won ? "VICTORY" : "DEFEAT",
-      subtitle: won ? "Enemy base razed" : "Your base was razed",
-    };
-  }
   return {
     title: won ? "VICTORY" : "DEFEAT",
     subtitle: won ? "Your unit breached the enemy gate" : "The enemy breached your gate",

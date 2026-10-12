@@ -5,22 +5,23 @@
 // while exercising none of the new mechanics would be worthless as a regression
 // net, so the PA events are asserted by name.
 //
-// The last test is the one that matters most for the arena being playable at all:
-// it proves the win condition is REACHABLE. Two idle players stalemate on this
-// map by design — the production streams annihilate at the centre line and the
-// player is the tiebreaker (design pillar 1) — so "no winner in an idle match" is
-// correct behaviour and must not be mistaken for a broken map. What would be
-// broken is a core that cannot be razed even once the defenders are gone.
+// The second describe is the one that matters most for the arena being playable
+// at all: it proves the win condition is REACHABLE. Since SIM_VERSION 32 that is
+// the original's — an enemy Runner (tank) or Juggernaut (Dreadnought) in the gate
+// box — and nothing is produced for free, so an idle match is simply quiet. What
+// would be broken is a road that cannot carry a unit into the enemy gate once
+// the defenders are gone.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ARCHETYPE } from "../src/archetypes";
-import { EV_ALARM, EV_CAPTURE, EV_CORE_HIT, EV_PRODUCE, EVENT_STRIDE } from "../src/events";
+import { MATCH_OUTRO_TICKS } from "../src/balance";
+import { EV_ALARM, EV_BREACH, EV_CAPTURE, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
 import { getMapById, LA_CANTINA_ID } from "../src/map";
 import { decodeReplay, readFrame } from "../src/replay";
-import { createSim, type SimState, step } from "../src/sim";
+import { createSim, type SimState, spawnUnit, step } from "../src/sim";
 import { isGroundUnit } from "../src/units";
 
 const GOLDEN = join(import.meta.dir, "goldens", "golden-07-pa.mrep");
@@ -48,13 +49,13 @@ function replayBeats(): { firstAt: Map<number, number>; counts: Map<number, numb
 }
 
 describe("golden-07 exercises the Precinct Assault mechanics", () => {
-  const { firstAt, counts } = replayBeats();
+  const { counts } = replayBeats();
 
-  it("produces free units on the original 5 s cadence", () => {
-    // 150 ticks is the original's cadence; production is seeded to a full
-    // interval so the first wave is due at 150, not 0.
-    expect(firstAt.get(EV_PRODUCE)).toBe(149);
-    expect(counts.get(EV_PRODUCE) ?? 0).toBeGreaterThan(20);
+  it("fields only units somebody bought", () => {
+    // The original has no free production (fcop-fidelity.md I7): the script's
+    // hold at the ground console and the Warden's own purchases are the only
+    // source of units, so purchases happen and they are the whole field.
+    expect(counts.get(EV_PURCHASE) ?? 0).toBeGreaterThan(0);
   });
 
   it("captures an authentic turret pad", () => {
@@ -62,14 +63,12 @@ describe("golden-07 exercises the Precinct Assault mechanics", () => {
   });
 
   it("trips a base-intrusion alarm, because a push now reaches a base", () => {
-    // This asserted ZERO alarms until v15, and the zero was a symptom. The ring
-    // turrets were firing at the global 28 m instead of their imported 6 m, so
-    // the two turret rings between them covered the whole midfield and nothing
-    // ever got close enough to an intrusion volume to trip it. With the reach
-    // corrected, a Warden-escorted push gets into the enemy base inside 120 s and
-    // the volumes fire — which is what these small (1x1 to 2.5x1.5 cell) boxes
-    // sitting on the bases are for. The mechanic itself is covered directly in
-    // paRules.test.ts; what this pins is that the arena is penetrable at all.
+    // This asserted ZERO alarms until v15, and the zero was a symptom: the ring
+    // turrets fired at the global 28 m, so nothing ever got close enough to an
+    // intrusion volume to trip it. Since v31 the volumes have the original's size
+    // (Mp's base zone is 40 x 24 m, not 2.5 x 1.5) and they fire on any enemy
+    // avatar or unit inside. The mechanic itself is covered directly in
+    // paRules.test.ts; what this pins is that the replay reaches a base at all.
     expect(counts.get(EV_ALARM) ?? 0).toBeGreaterThan(0);
   });
 });
@@ -85,17 +84,11 @@ describe("the win condition is reachable on la-cantina", () => {
     }
   }
 
-  it("razes a core once its defenders are gone, and awards the match", () => {
+  it("carries a Runner into the enemy gate once the defenders are gone", () => {
     const state = createSim(map, 0xc0ffee);
     // Stand in for what a player achieves by escorting a push: clear team 1's
-    // turret line AND keep its production off the field. Both halves are needed,
-    // and until v15 only the first was — with the ring firing at 28 m instead of
-    // its imported 6 m, team 0's OWN turrets shredded the incoming enemy stream
-    // from behind, so clearing one side's turrets was enough on its own. At the
-    // correct reach the enemy's units survive to the mid-line and annihilate the
-    // push there, which is the same stalemate the next test asserts. Beating that
-    // stream is the player's job (design pillar 1), so the stand-in has to cover
-    // it. Everything after this is the sim's own doing.
+    // turret line. Everything after this is the sim's own doing — one bought
+    // Runner driving the original road from its console into the gate.
     let cleared = 0;
     for (let id = 0; id < state.ent.high; id++) {
       if (state.ent.alive[id] && state.ent.archetype[id] === ARCHETYPE.TURRET) {
@@ -105,66 +98,60 @@ describe("the win condition is reachable on la-cantina", () => {
         }
       }
     }
-    expect(cleared).toBe(12); // 8 team-unique ring + 4 built-in
+    expect(cleared).toBe(8); // the team-unique ring; no guns stand on the base
+    const c = map.bases[0].groundConsole;
+    spawnUnit(state, ARCHETYPE.RUNNER, 0, c.x, c.y, undefined, false, c.layer);
 
-    for (let i = 0; i < 15 * 60 * 30; i++) {
+    let breachAt = -1;
+    for (let i = 0; i < 5 * 60 * 30; i++) {
       step(state, idle);
       for (let id = 0; id < state.ent.high; id++) {
         if (!state.ent.alive[id] || state.ent.team[id] !== 1) continue;
-        if (isGroundUnit(state.ent.archetype[id])) state.ent.alive[id] = 0;
+        if (state.ent.archetype[id] === ARCHETYPE.TURRET) state.ent.alive[id] = 0;
+      }
+      for (let k = 0; k < state.events.count; k++) {
+        if (state.events.data[k * EVENT_STRIDE] === EV_BREACH) breachAt = state.tick;
       }
       if (state.winner >= 0) break;
     }
-    expect(state.coreHp[1]).toBe(0);
     expect(state.winner).toBe(0);
-    // Fast enough to be a siege rather than a war of attrition: 300 unit-shots at
-    // CORE_DAMAGE_PER_SHOT against 3000 HP, with the arena crossing on top.
-    expect(state.tick).toBeLessThan(3 * 60 * 30);
+    expect(breachAt).toBeGreaterThan(0);
+    expect(state.tick - breachAt).toBe(MATCH_OUTRO_TICKS);
+    // The road is ~19 s console to gate at a Runner's step (enrichArena report).
+    expect(breachAt).toBeLessThan(60 * 30);
   });
 
-  it("stalemates between two idle players, which is the intended behaviour", () => {
-    // Not a defect: with nobody escorting, each side's units die on the other's
-    // turret line at the centre. rules.md pillar 1 makes the player the
-    // tiebreaker, so this asserts the design rather than a bug — and it would
-    // catch a future change that lets an unattended match resolve itself.
+  it("an idle match fields nothing and never resolves itself", () => {
+    // Not a defect: nothing is produced for free (the original's spawners are
+    // shut in PA), so with nobody buying there is nobody to push. rules.md pillar
+    // 1 makes the player the tiebreaker; this would catch a future change that
+    // lets an unattended match resolve itself.
     const state = createSim(map, 0xc0ffee);
     run(state, 5 * 60 * 30);
     expect(state.winner).toBe(-1);
-    expect(state.coreHp[0]).toBe(3000);
-    expect(state.coreHp[1]).toBe(3000);
-    // ...but units ARE being produced and dying, i.e. the loop runs.
     expect(state.tick).toBe(5 * 60 * 30);
+    for (let id = 0; id < state.ent.high; id++) {
+      if (state.ent.alive[id]) expect(isGroundUnit(state.ent.archetype[id])).toBe(false);
+    }
   });
 
-  it("never lets a core be damaged by an avatar", () => {
+  it("never lets an avatar in the enemy gate decide the match", () => {
+    // Design pillar 1, and the original's rule: the gate watches tanks and the
+    // Dreadnought, not the avatar (fcop-re/ai-and-rules.md §5).
     const state = createSim(map, 0xc0ffee);
-    const core = map.bases[1].core;
+    const gate = map.bases[1].gate;
     const avatar = state.avatarId[0];
-    state.ent.posX[avatar] = core.x;
-    state.ent.posY[avatar] = core.y;
-    // Clear the defenders so nothing else is happening at the core, then park
-    // the avatar on it: design pillar 1 says it may never be the win condition.
     for (let id = 0; id < state.ent.high; id++) {
       if (state.ent.alive[id] && state.ent.team[id] === 1 && id !== avatar) {
         state.ent.alive[id] = 0;
       }
     }
-    let hits = 0;
     for (let t = 0; t < 120; t++) {
+      state.ent.posX[avatar] = gate.x;
+      state.ent.posY[avatar] = gate.y;
       step(state, idle);
-      for (let i = 0; i < state.events.count; i++) {
-        if (state.events.data[i * EVENT_STRIDE] === EV_CORE_HIT) hits += 1;
-      }
-      state.ent.posX[avatar] = core.x;
-      state.ent.posY[avatar] = core.y;
-      // A produced unit would legitimately damage it; keep them away.
-      for (let id = 0; id < state.ent.high; id++) {
-        if (state.ent.alive[id] && state.ent.archetype[id] === ARCHETYPE.RUNNER) {
-          state.ent.alive[id] = 0;
-        }
-      }
     }
-    expect(hits).toBe(0);
-    expect(state.coreHp[1]).toBe(3000);
+    expect(state.outroWinner).toBe(-1);
+    expect(state.winner).toBe(-1);
   });
 });

@@ -61,8 +61,8 @@ Decision column: **adopt** = take the original's value; **keep** = deliberate de
 | I3 | `TRIGGER_SCALE` 8192 | half-width raw/1024 m + intruder radius. A gate box is about 4.8 × 3.6 m; Mp's base zone is 40 × 24 m | adopt | adopted in the same commit, SIM_VERSION 31: `TRIGGER_SCALE` 1024 half-extent; `sim.ts insideVolume` adds the intruder's `ARCHETYPE_RADIUS` |
 | I4 | targeting_delay 16 = 8 ticks (60 Hz) | units of 1/16 s: 16 = 1.0 s, 32 = 2.0 s | adopt | adopted in the same commit, SIM_VERSION 31: `targetingDelayToSimTicks`, turrets 60 ticks (2.0 s), base guns 30 |
 | I5 | turn_speed 2457 = 216°/s | `((raw<<8)/218)>>4` units per 300 Hz tick: 2457 = **290°/s** | adopt | adopted in the same commit, SIM_VERSION 31. The code is `((raw*16)/218)>>4` (`turret.c:715`), i.e. 11 units/tick; `raw<<8` in the cell to the left is a typo for it |
-| I6 | Type 28 = base with 3000 HP core, 4 built-in guns stacked at its centre | Type 28 = **Dreadnought** spawn point (class 3, 3000 HP, 4 hull guns at model points) | adopt | open |
-| I7 | Base production: 1 Runner per 5 s, free | none; tank/jet/Dreadnought spawners are shut and only purchases spawn | adopt | open |
+| I6 | Type 28 = base with 3000 HP core, 4 built-in guns stacked at its centre | Type 28 = **Dreadnought** spawn point (class 3, 3000 HP, 4 hull guns at model points) | adopt | adopted in "Model type 28 as the Dreadnought and win at the gate box", SIM_VERSION 32: logic JSON `dreadnoughts`; PA Juggernaut spawns at the record with 3000 HP and 4 guns (weapon 3: 100 dmg / 60 ticks / 12 m), modelled as 4 shooters at the hull (mount offsets and 237°/s slew not modelled); core HP and the base guns removed. Speed stays ours (U2) |
+| I7 | Base production: 1 Runner per 5 s, free | none; tank/jet/Dreadnought spawners are shut and only purchases spawn | adopt | adopted in "Model type 28 as the Dreadnought and win at the gate box", SIM_VERSION 32: free production removed |
 | I8 | Pickup grant "invincibility" unmapped (importer throws) | Flag exists (20 s), but **no PA pickup carries it** | adopt (map it anyway) | adopted in the same commit: `invincibility` -> `PICKUP_INVULN` in `enrichArena.ts`; no map changes (no PA pickup carries it) |
 | I9 | Csac/tSAC periods in 1/60 s | confirmed ×5 at 300 Hz | — | confirmed |
 | I10 | Positions /8192, angles 4096 = 360° | confirmed | — | confirmed |
@@ -71,7 +71,7 @@ Decision column: **adopt** = take the original's value; **keep** = deliberate de
 
 | # | Metropolis had | Original | Decision | Status |
 |---|---|---|---|---|
-| R1 | §9 win: destroy the enemy core | Enemy **tank or Dreadnought** enters your gate trigger; 1750 ticks (5.83 s) countdown, then results. No timer | adopt (§9 returns to §1's gate rule) | open |
+| R1 | §9 win: destroy the enemy core | Enemy **tank or Dreadnought** enters your gate trigger; 1750 ticks (5.83 s) countdown, then results. No timer | adopt (§9 returns to §1's gate rule) | adopted in "Model type 28 as the Dreadnought and win at the gate box", SIM_VERSION 32: gate = imported gate trigger box + intruder radius; Runner/Juggernaut only; `MATCH_OUTRO_TICKS` 175 on every arena (district-01 too) |
 | R2 | Start 20 points | **10** | adopt | open |
 | R3 | Trickle 1 point / 10 s | **none** | adopt | open |
 | R4 | Kill avatar +10 | Avatar down: killer side **+10, victim −10** (floor 0) | adopt | open |
@@ -83,7 +83,7 @@ Decision column: **adopt** = take the original's value; **keep** = deliberate de
 | R10 | Heavy units buyable at once | Dreadnought/Fortress pads unlock the first time a side reaches 50 points | adopt | open |
 | R11 | "No match timer — original had none" | correct (the countdown is the win outro) | — | confirmed |
 | R12 | Capture: stand 3 s within 5 m, uncontested | **Instant** on an action-key press within `(range+1024)/512` m + own radius (4.0–5.6 m by map). Tanks capture by proximity, jets and Dreadnoughts cannot. Captured is permanent until destroyed; respawns neutral after 25 s | adopt | open |
-| R13 | Neutral turrets fire? | Uncaptured turrets **never fire** | adopt | open |
+| R13 | Neutral turrets fire? | Uncaptured turrets **never fire** | adopt | confirmed: already true (sim.ts `systemTargeting` skips unowned capturables) |
 | R14 | Outpost claim at a console, 30 points | Drive into the claim zone with ≥ 30 points; permanent; opens own unit pads and turret spawners | adopt (console kept as the zone's visual) | open |
 | R15 | Intrusion alert: authored sfx | Voice id 2 (own base) / 3 (enemy base), 8.3 s cooldown. Turret under fire 4/5, turret lost 0/1, gate reached 19/6 | adopt | open |
 

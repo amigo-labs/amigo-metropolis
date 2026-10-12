@@ -27,12 +27,12 @@ import {
   GUARDIAN_RANGE,
   GUARDIAN_SPEED,
   HOVER_CUSHION_SPAN,
-  JUGGERNAUT_RANGE,
   JUGGERNAUT_SPEED,
   ORBIT_ANGULAR_SPEED,
   RUNNER_RANGE,
   RUNNER_SPEED,
   TICK_DT,
+  UNIT_RANGE,
   UNIT_SEPARATION_PUSH,
   UNIT_SEPARATION_RADIUS,
   WAYPOINT_RADIUS,
@@ -104,6 +104,17 @@ export function nearestEnemyInRange(
   return bestId;
 }
 
+/**
+ * A unit's engage range: its imported weapon profile where it carries one (the
+ * PA Juggernaut's hull guns, sim.ts spawnUnit), else UNIT_RANGE. Movement halts
+ * and targeting acquires on the same number, or a unit would stop where it
+ * cannot shoot.
+ */
+export function unitRange(state: SimState, id: number): number {
+  const profile = state.ent.weaponProfile[id];
+  return profile >= 0 ? state.map.weapons[profile].range : UNIT_RANGE[state.ent.archetype[id]];
+}
+
 /** unit lane-following system: moves every unit, then separates ground units. */
 export function systemUnitMovement(state: SimState): void {
   const ent = state.ent;
@@ -114,7 +125,9 @@ export function systemUnitMovement(state: SimState): void {
         moveGroundUnit(state, id, RUNNER_SPEED, RUNNER_RANGE);
         break;
       case ARCHETYPE.JUGGERNAUT:
-        moveGroundUnit(state, id, JUGGERNAUT_SPEED, JUGGERNAUT_RANGE);
+        // unitRange: on a PA arena the Dreadnought's guns reach 12 m, and a unit
+        // halts where it can shoot — halting at 16 m would park it out of reach.
+        moveGroundUnit(state, id, JUGGERNAUT_SPEED, unitRange(state, id));
         break;
       case ARCHETYPE.GUARDIAN:
         moveAirUnit(state, id, GUARDIAN_SPEED, GUARDIAN_RANGE, GUARDIAN_PATROL_RADIUS);

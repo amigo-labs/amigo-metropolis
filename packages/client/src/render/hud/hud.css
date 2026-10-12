@@ -91,33 +91,6 @@
   margin-top: 2px;
 }
 
-/* Core HP: one thin bar per team under its score block (§9 arenas only).
-   Team colour is meaning (ui.md §3) — the fill reuses the score tints. */
-.mhud-core {
-  width: 96px;
-  height: 5px;
-  margin-top: 5px;
-  margin-left: auto;
-  border: 1px solid var(--ck-line-dim);
-  border-radius: 2px;
-  background: rgba(4, 12, 10, 0.7);
-  overflow: hidden;
-}
-
-.mhud-core-fill {
-  height: 100%;
-  width: 100%;
-  transition: width 0.18s linear;
-}
-
-.mhud-score--own .mhud-core-fill {
-  background: var(--ck-team-blue);
-}
-
-.mhud-score--foe .mhud-core-fill {
-  background: var(--ck-team-red);
-}
-
 /* --- Objective ticker ------------------------------------------------------- */
 
 .mhud-ticker {

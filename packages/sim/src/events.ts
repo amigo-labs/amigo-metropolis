@@ -91,6 +91,10 @@ export const EV_HIT = 3; //       a=target id, b=attacker player, c=damage
 export const EV_DEATH = 4; //     a=victim id, b=killer player (-1 none), c=archetype
 export const EV_RESPAWN = 5; //   a=entity id, b=player
 export const EV_PURCHASE = 6; //  a=entity id, b=player, c=archetype
+/**
+ * A gate breach: fired on the tick an enemy Runner/Juggernaut enters a gate,
+ * which starts the MATCH_OUTRO_TICKS countdown. `winner` is set when it ends.
+ */
 export const EV_BREACH = 7; //    a=unit id, b=winning team
 export const EV_CAPTURE = 8; //   a=turret id, b=team, c=turret spot index
 export const EV_CLAIM = 9; //     a=console id, b=team, c=outpost index
@@ -99,8 +103,9 @@ export const EV_CLAIM = 9; //     a=console id, b=team, c=outpost index
 // events are transient and never hashed.
 export const EV_ALARM = 10; //    a=x*16, b=y*16, c=team whose base is intruded
 export const EV_PICKUP = 11; //   a=x*16, b=y*16, c=pickup kind
-export const EV_PRODUCE = 12; //  a=unit id, b=team, c=archetype
-export const EV_CORE_HIT = 13; // a=x*16, b=y*16, c=team whose core was hit
+// 12 (EV_PRODUCE, free base production) and 13 (EV_CORE_HIT, core damage) are
+// retired with the model they reported (SIM_VERSION 32): the original has neither
+// free production nor a destructible core. The numbers stay reserved.
 /**
  * The avatar committed to a walker <-> hover change (rules.md §2). Fired ONCE,
  * on the tick the mode byte flips, which is also the tick the transform lock

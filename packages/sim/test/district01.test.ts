@@ -241,10 +241,9 @@ describe("loadMapFromJson validation", () => {
     expect(plain.triggerVolumes).toEqual([]);
     expect(plain.props).toEqual([]);
     for (const base of plain.bases) {
-      expect(base.defence).toEqual([]);
-      expect(base.coreHp).toBe(0);
-      expect(base.productionTicks).toBe(0);
-      expect(base.productionLimit).toBe(0);
+      expect(base.juggernaut).toBeUndefined();
+      expect(base.gate.halfW).toBe(0); // the §1 circle gate
+      expect(base.gate.halfL).toBe(0);
     }
 
     const weapon = { range: 6, delay: 16, damage: 8, turnSpeed: 0.1, fovCos: -1 };
@@ -407,10 +406,34 @@ describe("loadMapFromJson validation", () => {
       }),
     ).toThrow("trigger 0 bad team");
 
-    // Production without a ceiling would fill the entity store.
-    const runaway = tiny();
-    runaway.bases[0].productionTicks = 150;
-    expect(() => loadMapFromJson(runaway)).toThrow("no productionLimit");
+    // The retired core / free-production model (SIM_VERSION 32) is refused, not
+    // silently ignored: a map asking for it was authored for rules the sim no
+    // longer has.
+    const stale = tiny();
+    (stale.bases[0] as unknown as { productionTicks: number }).productionTicks = 150;
+    expect(() => loadMapFromJson(stale)).toThrow("the original has no core");
+    const staleCore = tiny();
+    (staleCore.bases[0] as unknown as { coreHp: number }).coreHp = 3000;
+    expect(() => loadMapFromJson(staleCore)).toThrow("the original has no core");
+
+    // The original's gate box needs both half extents.
+    const halfGate = tiny();
+    halfGate.bases[0].gate = { ...halfGate.bases[0].gate, halfW: 2, halfL: 0 };
+    expect(() => loadMapFromJson(halfGate)).toThrow("gate needs both half extents");
+
+    // A Juggernaut block names a real weapon profile and a sane HP.
+    const jug = { x: 1, y: 1, hp: 3000, guns: 4, weapon: 0 };
+    const withJug = tiny();
+    withJug.weapons = [weapon];
+    withJug.bases[0].juggernaut = jug;
+    expect(loadMapFromJson(withJug).bases[0].juggernaut).toEqual({ ...jug, layer: 0 });
+    const badJug = tiny();
+    badJug.bases[0].juggernaut = jug; // no weapons: index 0 is out of range
+    expect(() => loadMapFromJson(badJug)).toThrow("juggernaut weapon index 0 out of range");
+    const zeroGuns = tiny();
+    zeroGuns.weapons = [weapon];
+    zeroGuns.bases[0].juggernaut = { ...jug, guns: 0 };
+    expect(() => loadMapFromJson(zeroGuns)).toThrow("bad guns");
   });
 });
 

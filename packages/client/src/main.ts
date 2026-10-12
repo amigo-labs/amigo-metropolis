@@ -26,7 +26,6 @@ import {
   createSim,
   createTickInputs,
   EV_CAPTURE,
-  EV_CORE_HIT,
   EV_DEATH,
   EV_EXPLOSION,
   EV_HIT,
@@ -38,7 +37,6 @@ import {
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
-  MATCH_SLOT_CORE_FRAC,
   MATCH_SLOT_POINTS,
   MATCH_SNAPSHOT_LEN,
   MATCH_TICK,
@@ -881,10 +879,8 @@ function showMatchEnd(winner: number): void {
   matchEndShown = true;
   setMatchPaused(false); // the end card replaces the pause card, never stacks
   const slot = views[0]?.slot ?? 0;
-  // Read the win condition off the snapshot, not sim internals (renderer
-  // rule 4): the core fraction is -1 exactly on gate (§1) arenas.
-  const hasCore = matchSnap[matchSlotOffset(slot) + MATCH_SLOT_CORE_FRAC] >= 0;
-  const text = matchEndText(winner, slot, hasCore);
+  // Every arena ends at a gate since SIM_VERSION 32 (the original has no core).
+  const text = matchEndText(winner, slot);
   endTitle.textContent = text.title;
   endCard.classList.toggle("is-victory", winner === slot);
   endSubtitle.textContent = text.subtitle;
@@ -1460,8 +1456,7 @@ function resolveEventPosition(
   switch (type) {
     // Already quantized to x*16 / y*16 by the sim.
     case EV_EXPLOSION:
-    case EV_PICKUP:
-    case EV_CORE_HIT: {
+    case EV_PICKUP: {
       out[0] = a / 16;
       out[2] = b / 16;
       out[1] = 1.5;
@@ -1733,11 +1728,7 @@ function refreshHud(fps: number): void {
     if (archetype >= 1 && archetype <= 4 && (team === 0 || team === 1)) unitCounts[team] += 1;
   }
   const banner =
-    sim.winner >= 0
-      ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} ${
-          sim.coreHp.length > 0 ? "RAZED THE BASE" : "BREACHED THE GATE"
-        }`
-      : "";
+    sim.winner >= 0 ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} BREACHED THE GATE` : "";
   for (let v = 0; v < views.length; v++) {
     views[v].hud.textContent = hudText(views[v], fps, banner);
   }
@@ -1984,7 +1975,6 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
     flyMode || orbitMode
       ? undefined
       : createMatchHud(views[0]?.slot ?? 0, {
-          hasCore: map.bases.some((b) => b.coreHp > 0),
           outpostTotal: map.outpostSpots.length,
         });
   layoutViews(views, "v", innerWidth, innerHeight, textHudInset());

@@ -29,15 +29,16 @@
 // is asserted at every step length a ground unit uses, and across a narrow
 // lateral band rather than on the centre line alone.
 
+import { ARCHETYPE } from "./archetypes";
 import {
-  CORE_ATTACK_RADIUS,
+  ARCHETYPE_RADIUS,
   GRAPH_WAYPOINT_RADIUS,
   JUGGERNAUT_SPEED,
   RUNNER_SPEED,
   TICK_DT,
 } from "./balance";
 import { crossesWallX, crossesWallY } from "./collision";
-import { type MapData, worldExtent } from "./map";
+import { insideGate, type MapData, worldExtent } from "./map";
 
 /**
  * Per-tick travel distances of the ground archetypes, slowest last.
@@ -275,8 +276,8 @@ export function onChain(map: MapData, team: number, node: number, goal: number):
 
 /** Where a road walk ended, and how far short of the objective it stopped. */
 export interface RoadWalk extends WalkResult {
-  /** Metres from the enemy core at the end of the walk. */
-  readonly distanceToCore: number;
+  /** Metres from the enemy gate's centre at the end of the walk. */
+  readonly distanceToGate: number;
   /** Which segment it was on: 0 = console -> entry, 1 = graph, 2 = gate beeline. */
   readonly leg: 0 | 1 | 2;
   /** Target node when it stopped, or -1 past the end of the chain. */
@@ -284,24 +285,25 @@ export interface RoadWalk extends WalkResult {
 }
 
 /**
- * Walks one unopposed produced unit from its production console to the enemy
- * core, following the committed signposts exactly as `moveGroundUnit` does.
+ * Walks one unopposed Runner from its production console to the enemy gate,
+ * following the committed signposts exactly as `moveGroundUnit` does.
  *
- * `reached` means it got inside `CORE_ATTACK_RADIUS`, i.e. it could damage the
- * core. No combat, no separation, no forks: `nextHopA` only, since `nextHopB` is
- * a coin flip the sim owns and every fork's alternative is validated as an edge
- * in its own right.
+ * `reached` means it got inside the gate by the sim's own win test (map.ts
+ * `insideGate`, a Runner's radius), i.e. the walk would have won the match. No
+ * combat, no separation, no forks: `nextHopA` only, since `nextHopB` is a coin
+ * flip the sim owns and every fork's alternative is validated as an edge in its
+ * own right.
  */
 export function walkRoad(map: MapData, team: number, step: number): RoadWalk {
   const g = map.laneGraph;
-  const core = map.bases[team ^ 1].core;
   const gate = map.bases[team ^ 1].gate;
+  const radius = ARCHETYPE_RADIUS[ARCHETYPE.RUNNER];
   const start = map.bases[team].groundConsole;
   if (g === undefined) {
     const w = walkLine(map, start.x, start.y, gate.x, gate.y, step);
     return {
       ...w,
-      distanceToCore: length(w.x - core.x, w.y - core.y),
+      distanceToGate: length(w.x - gate.x, w.y - gate.y),
       leg: 2,
       node: -1,
     };
@@ -318,9 +320,9 @@ export function walkRoad(map: MapData, team: number, step: number): RoadWalk {
   // sliding; a stuck walker exits on STUCK_TICKS long before this.
   const budget = 30 * 60 * 10;
   for (let t = 0; t < budget; t++) {
-    const dc = length(x - core.x, y - core.y);
-    if (dc <= CORE_ATTACK_RADIUS) {
-      return { reached: true, x, y, ticks: t, distanceToCore: dc, leg, node };
+    if (insideGate(gate, x, y, radius)) {
+      const dg = length(x - gate.x, y - gate.y);
+      return { reached: true, x, y, ticks: t, distanceToGate: dg, leg, node };
     }
     // One hop per tick, then move toward whatever the hop left us aiming at —
     // the order moveGroundUnit uses.
@@ -358,7 +360,7 @@ export function walkRoad(map: MapData, team: number, step: number): RoadWalk {
       x,
       y,
       ticks: t,
-      distanceToCore: length(x - core.x, y - core.y),
+      distanceToGate: length(x - gate.x, y - gate.y),
       leg,
       node,
     };
@@ -368,7 +370,7 @@ export function walkRoad(map: MapData, team: number, step: number): RoadWalk {
     x,
     y,
     ticks: budget,
-    distanceToCore: length(x - core.x, y - core.y),
+    distanceToGate: length(x - gate.x, y - gate.y),
     leg,
     node,
   };

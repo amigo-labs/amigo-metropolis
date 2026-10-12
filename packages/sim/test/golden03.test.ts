@@ -86,7 +86,8 @@ describe("golden-03-match beats", () => {
     expect(breachTick).toBeGreaterThan(claimTick);
     expect(breachTick).toBe(BREACH_TICK_PIN);
     expect(sim.winner).toBe(0);
-    // The replay ran well past the breach: the frozen tail is in the golden.
+    // The replay ran well past the breach: the outro and the frozen tail are in
+    // the golden.
     expect(replay.tickCount).toBeGreaterThan(BREACH_TICK_PIN + 300);
   });
 });

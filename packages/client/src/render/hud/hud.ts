@@ -22,11 +22,11 @@ import "./hud.css";
 import {
   EVENT_STRIDE,
   type EventBuffer,
+  MATCH_OUTRO_WINNER,
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_BUY_FRAC,
   MATCH_SLOT_CAPTURE_FRAC,
-  MATCH_SLOT_CORE_FRAC,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
@@ -48,12 +48,14 @@ const BLIP_R_SELF = 3.5;
 /** Ticker geometry: fixed rows, newest at the bottom. */
 const TICKER_ROWS = 4;
 const TICKER_ROW_MS = 5000;
-/** Per-(type, team) repeat suppression: alarms and core hits fire in bursts. */
+/** Per-(type, team) repeat suppression: alarms fire in bursts. */
 const TICKER_REPEAT_MS = 5000;
 
+/** Pre-built banner strings (renderer rule 1: refresh() builds no strings). */
+const BANNER_OVER = ["MATCH OVER — BLUE BREACHED THE GATE", "MATCH OVER — RED BREACHED THE GATE"];
+const BANNER_BREACH = ["BLUE BREACHED THE GATE", "RED BREACHED THE GATE"];
+
 export interface MatchHudOptions {
-  /** §9 arena: show both core-HP bars and word the win banner as a raze. */
-  hasCore?: boolean;
   /** Number of outpost spots on the arena; 0 hides the outpost readout. */
   outpostTotal?: number;
 }
@@ -62,7 +64,7 @@ export interface MatchHud {
   /** Writes changed values only. Safe to call every frame; cheap when idle. */
   refresh(match: Float32Array, snapshot: Float32Array, count: number, arenaExtent: number): void;
   /**
-   * Drains this tick's objective events (capture/claim/alarm/core hit) into
+   * Drains this tick's objective events (capture/claim/alarm/breach) into
    * the ticker. Call once per sim step, like the audio pump; allocation-free.
    */
   pumpEvents(events: EventBuffer, nowMs: number): void;
@@ -105,7 +107,6 @@ export function createMatchHud(
   opts: MatchHudOptions = {},
   parent: HTMLElement = document.body,
 ): MatchHud {
-  const hasCore = opts.hasCore === true;
   const outpostTotal = opts.outpostTotal ?? 0;
   const root = div(parent, "mhud");
 
@@ -127,12 +128,10 @@ export function createMatchHud(
   const ownPoints = cell(own, "mhud-points");
   const ownUnits = cell(own, "mhud-units");
   const ownOutposts = outpostTotal > 0 ? cell(own, "mhud-units mhud-outposts") : null;
-  const ownCore = hasCore ? div(div(own, "mhud-core"), "mhud-core-fill") : null;
   const foe = div(scores, "mhud-score mhud-score--foe");
   const foePoints = cell(foe, "mhud-points");
   const foeUnits = cell(foe, "mhud-units");
   const foeOutposts = outpostTotal > 0 ? cell(foe, "mhud-units mhud-outposts") : null;
-  const foeCore = hasCore ? div(div(foe, "mhud-core"), "mhud-core-fill") : null;
 
   // --- Objective ticker ------------------------------------------------------
   // Four fixed rows top-centre; rows expire in refresh(). Built once, text
@@ -171,8 +170,6 @@ export function createMatchHud(
   let lastBanner = "";
   let lastProgressPct = -1;
   let lastProgressOn = false;
-  let lastOwnCorePct = -1;
-  let lastFoeCorePct = -1;
 
   const pushTickerRow = (text: string, nowMs: number): void => {
     // Shift up, newest last — fixed-size, no allocation.
@@ -182,12 +179,6 @@ export function createMatchHud(
     }
     tickerText[TICKER_ROWS - 1] = text;
     tickerUntil[TICKER_ROWS - 1] = nowMs + TICKER_ROW_MS;
-  };
-
-  const writeCoreBar = (fill: HTMLElement, frac: number, last: number): number => {
-    const pct = Math.max(0, Math.round(frac * 100));
-    if (pct !== last) fill.style.width = `${pct}%`;
-    return pct;
   };
 
   return {
@@ -202,10 +193,6 @@ export function createMatchHud(
       if (ownOutposts && foeOutposts) {
         write(ownOutposts, `outposts ${match[mine + MATCH_SLOT_OUTPOSTS] | 0}/${outpostTotal}`);
         write(foeOutposts, `outposts ${match[other + MATCH_SLOT_OUTPOSTS] | 0}/${outpostTotal}`);
-      }
-      if (ownCore && foeCore) {
-        lastOwnCorePct = writeCoreBar(ownCore, match[mine + MATCH_SLOT_CORE_FRAC], lastOwnCorePct);
-        lastFoeCorePct = writeCoreBar(foeCore, match[other + MATCH_SLOT_CORE_FRAC], lastFoeCorePct);
       }
 
       // Hold-to-buy and capture share one bar: both are "stand here and hold",
@@ -261,12 +248,15 @@ export function createMatchHud(
       }
 
       const winner = match[MATCH_WINNER] | 0;
-      // §9 arenas end by razing the core (rules.md §9), not by a gate breach —
-      // the banner has to say what actually happened.
+      // A breach decides the match and starts the outro (rules.md §1); the
+      // banner says so for the outro's length, then that the match is over.
+      const breacher = match[MATCH_OUTRO_WINNER] | 0;
       const text =
         winner >= 0
-          ? `MATCH OVER — ${winner === 0 ? "BLUE" : "RED"} ${hasCore ? "RAZED THE BASE" : "BREACHED THE GATE"}`
-          : "";
+          ? BANNER_OVER[winner === 0 ? 0 : 1]
+          : breacher >= 0
+            ? BANNER_BREACH[breacher === 0 ? 0 : 1]
+            : "";
       if (text !== lastBanner) {
         lastBanner = text;
         write(banner, text);

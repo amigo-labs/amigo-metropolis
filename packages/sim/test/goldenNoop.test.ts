@@ -12,6 +12,10 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+// Re-frozen at SIM_VERSION 32 (the original's PA model): 03 and 04 move from
+// their breach tick on, because a breach now plays the 175-tick outro before the
+// sim freezes (breach ticks themselves are unchanged — golden03/04 pin them);
+// 05 and 07 run imported arenas with no free production and no base guns.
 const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 19 (on top of v18 hover cushion): facing-aligned
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
@@ -21,8 +25,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // global, so scripts that kill a base emplacement and live past the old timer
   // move (03/04). golden-07-pa also moves from the §9 escort/capture ladder.
   // 01/02/05/06 header-only.
-  "golden-03-match": { last: 1287878021, count: 4500 },
-  "golden-04-warden": { last: 4033123080, count: 9000 },
+  "golden-03-match": { last: 1462216514, count: 4500 },
+  "golden-04-warden": { last: 4290898407, count: 9000 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -33,11 +37,11 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // polyline maps where advanceOnGraph never executes and stay byte-identical.
   // Re-frozen at SIM_VERSION 31 (the original's import scales): 05 and 07 run
   // imported arenas, whose turret profiles and trigger volumes changed.
-  "golden-05-fcop": { last: 3174176568, count: 2700 },
+  "golden-05-fcop": { last: 4164439712, count: 2700 },
   "golden-06-layered": { last: 3787894536, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
-  "golden-07-pa": { last: 2021505717, count: 3600 },
+  "golden-07-pa": { last: 163857431, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

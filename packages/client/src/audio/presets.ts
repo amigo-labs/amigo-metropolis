@@ -141,19 +141,6 @@ export const PRESETS: Record<string, SfxrPreset> = {
     arpSpeed: 0.62,
     soundVol: 0.34,
   },
-  // A base produced a unit: soft mechanical thunk. Deliberately quiet — it fires
-  // every 5 s per base for the whole match.
-  produce: {
-    waveType: 0,
-    baseFreq: 0.2,
-    freqRamp: 0.08,
-    envSustain: 0.07,
-    envPunch: 0.3,
-    envDecay: 0.2,
-    duty: 0.55,
-    lpfFreq: 0.5,
-    soundVol: 0.22,
-  },
   // Walker <-> hover change: an electrical discharge with a servo under it.
   //
   // Noise rather than a tone, because the arcs it plays over are noise; the
@@ -175,16 +162,6 @@ export const PRESETS: Record<string, SfxrPreset> = {
     lpfFreq: 0.7,
     lpfResonance: 0.3,
     soundVol: 0.36,
-  },
-  // A unit is chewing on a base core: dull structural thud.
-  coreHit: {
-    waveType: 3,
-    baseFreq: 0.16,
-    envSustain: 0.05,
-    envPunch: 0.4,
-    envDecay: 0.22,
-    lpfFreq: 0.35,
-    soundVol: 0.3,
   },
 };
 

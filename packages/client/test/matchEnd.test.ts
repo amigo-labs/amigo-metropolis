@@ -1,28 +1,17 @@
-// Match-end wording (render/matchEnd.ts): the strings depend on which side
-// won and which win condition the arena runs — §1 gate breach vs §9 core raze.
+// Match-end wording (render/matchEnd.ts): the strings depend on which side won.
+// Every arena ends at a gate since SIM_VERSION 32 — the original has no core.
 
 import { describe, expect, test } from "bun:test";
 import { TICK_HZ } from "@metropolis/sim";
 import { matchClock, matchEndText } from "../src/render/matchEnd";
 
 describe("matchEndText", () => {
-  test("victory and defeat on a core (§9) arena", () => {
-    expect(matchEndText(0, 0, true)).toEqual({
-      title: "VICTORY",
-      subtitle: "Enemy base razed",
-    });
-    expect(matchEndText(1, 0, true)).toEqual({
-      title: "DEFEAT",
-      subtitle: "Your base was razed",
-    });
-  });
-
-  test("victory and defeat on a gate (§1) arena", () => {
-    expect(matchEndText(1, 1, false)).toEqual({
+  test("victory and defeat at the gate", () => {
+    expect(matchEndText(1, 1)).toEqual({
       title: "VICTORY",
       subtitle: "Your unit breached the enemy gate",
     });
-    expect(matchEndText(0, 1, false)).toEqual({
+    expect(matchEndText(0, 1)).toEqual({
       title: "DEFEAT",
       subtitle: "The enemy breached your gate",
     });

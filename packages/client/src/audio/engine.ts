@@ -18,12 +18,10 @@ import {
   EV_BREACH,
   EV_CAPTURE,
   EV_CLAIM,
-  EV_CORE_HIT,
   EV_DEATH,
   EV_EXPLOSION,
   EV_HIT,
   EV_PICKUP,
-  EV_PRODUCE,
   EV_PURCHASE,
   EV_RESPAWN,
   EV_SHOT,
@@ -49,8 +47,6 @@ cueByType[EV_CAPTURE] = "capture";
 cueByType[EV_CLAIM] = "claim";
 cueByType[EV_ALARM] = "alarm";
 cueByType[EV_PICKUP] = "pickup";
-cueByType[EV_PRODUCE] = "produce";
-cueByType[EV_CORE_HIT] = "coreHit";
 cueByType[EV_TRANSFORM] = "transform";
 
 /**

@@ -425,25 +425,6 @@ export const WARDEN_HEAVY_RANGE = 30; // only bombs targets closer than this
 // its gate rather than the distance it shoots from. Moving 55 onto it is part
 // of the reach question above and waits on the same decision.
 export const WARDEN_DEFEND_RADIUS = 55;
-/**
- * The same radius on a Precinct Assault arena (rules.md §9), where it has to mean
- * something different because the loss condition does.
- *
- * Under §1 a ground unit that reaches the gate wins the match on the spot, so an
- * enemy unit anywhere near it is the loss condition itself and outranks every
- * other goal — which is what the 55 m above is for. Under §9 the same unit has to
- * chip a 3000 HP core at CORE_DAMAGE_PER_SHOT, and both bases produce a free
- * Runner every 5 s, so "an enemy ground unit within 55 m of the gate" is not an
- * emergency, it is the steady state. Measured over ten-minute difficulty-8
- * matches: the Warden spent 63%, 89% and 91% of its ticks on WGOAL_DEFEND on
- * la-cantina, urban-jungle and bug-hunt, never pushed, and resolved nothing.
- *
- * At 16 m the goal keeps its meaning — a ground unit's own reach is 14-16 m, so
- * inside it something is already shooting the base's own guns and is one step
- * from CORE_ATTACK_RADIUS — and everything further out is left to the 16 ring
- * turrets and 4 built-in guns that exist for exactly that.
- */
-export const WARDEN_CORE_DEFEND_RADIUS = 16;
 export const WARDEN_STANDOFF = 24; // approach distance for attack goals
 export const WARDEN_ESCORT_DISTANCE = 6; // hover distance from the escorted unit
 export const WARDEN_RETREAT_DONE_HP_PERCENT = 80; // leave the pad at this hp
@@ -475,7 +456,8 @@ export const WARDEN_WAVE_SIZE: readonly number[] = [1, 1, 2, 2, 3, 3, 4, 4, 5, 6
  * away, like WARDEN_WAVE_SIZE and WARDEN_GUARDIAN_TARGET.
  *
  * The floor that makes it useful is measured, not picked: everything defending a
- * base — 16 ring turrets and 4 built-in guns — sits within 16 m of its core, and
+ * base — its ring turrets (the "4 built-in guns" this used to count were the
+ * Dreadnought's hull guns, SIM_VERSION 32) — sits within 16 m of its core, and
  * a ground unit halts at its own 14-16 m reach from the first thing it can see.
  * So below ~30 m the Warden only arrives after its push has already stalled; the
  * upper difficulties commit early enough to arrive with it.
@@ -590,15 +572,29 @@ export const ARCHETYPE_MAX_HP: readonly number[] = [
   WARDEN_HP, // WARDEN
 ];
 
+/**
+ * Match outro: ticks between a gate breach and the end of the match. The
+ * original sets a phase countdown of 1750 engine ticks (5.83 s at 300 Hz) when a
+ * gate trigger fires, keeps the game running, and goes to the results page when
+ * it reaches zero (fcop-re/ai-and-rules.md §5, `mission_frame_net` 0x00407fe0).
+ * 1750 / 10 = 175 sim ticks. The winner is decided at the breach; a second breach
+ * during the outro changes nothing.
+ */
+export const MATCH_OUTRO_TICKS = 175;
+
 // --- Precinct Assault mode (rules.md §9) ------------------------------------
 // Everything here is inert on arenas whose map data carries no PA features.
 
 /**
- * Hard ceiling on units a base may have alive from free production, whatever the
- * map asks for. This is a CORRECTNESS guard, not balance: two bases producing
- * every 5 s would add ~24 units/minute and fill the entity store in minutes.
+ * The Dreadnought's hull guns (Precinct Assault arenas): each is weapon 3, 100
+ * damage with a 601-engine-tick refire (2.003 s -> 60 sim ticks), the same weapon
+ * every PA turret carries (fcop-re/ranges-turrets-capture.md Q3 table, Q4). Its
+ * 12 m reach and the gun count come from the arena's imported record; these two
+ * are weapon-table values the record only names by id, so the arena generator
+ * writes them into the Juggernaut's weapon profile from here.
  */
-export const PA_PRODUCTION_ALIVE_LIMIT = 8;
+export const DREADNOUGHT_GUN_DAMAGE = 100;
+export const DREADNOUGHT_GUN_REFIRE_TICKS = 60;
 
 /** Power-up kinds; must match the mapping in tools/generators/enrichArena.ts. */
 export const PICKUP_HEAVY_AMMO = 0;
@@ -623,8 +619,3 @@ export const TRIGGER_WATCH_ENEMY_UNITS = 1 << 1;
 export const TRIGGER_WATCH_OWN_AVATAR = 1 << 2;
 /** Re-arm delay, so one intruder loitering does not fire the alarm every tick. */
 export const TRIGGER_REARM_TICKS = 90; // 3 s
-
-/** Damage a ground unit deals to an enemy base core, per its own cooldown. */
-export const CORE_DAMAGE_PER_SHOT = 10;
-/** How close a ground unit must be to the enemy core to damage it. */
-export const CORE_ATTACK_RADIUS = 6;

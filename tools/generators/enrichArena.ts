@@ -42,6 +42,8 @@ import {
   CAPTURE_RADIUS,
   crossesWallX,
   crossesWallY,
+  DREADNOUGHT_GUN_DAMAGE,
+  DREADNOUGHT_GUN_REFIRE_TICKS,
   GROUND_STEPS,
   JUMPABLE_RISE,
   loadMapFromJson,
@@ -101,22 +103,6 @@ export const LOGIC_OFFSET_Z = 0;
 const TURRET_DAMAGE = 15;
 
 /**
- * Health for a base's built-in defence weapons (fcop-logic.md §8.1).
- *
- * Also NOT in the extracted data: `BaseShooter` carries reach, cadence and FOV but
- * no health, and the base structure's own `health` is the core's 3000. Reusing it
- * put a 3000 HP gun on the core on all four arenas, and it is what held an
- * escorted push on the doorstep — a Runner stops at its own 14 m reach and chips
- * 3000 HP at 8 dps, which is 375 s per gun against four of them.
- *
- * The originals' Turret actors all carry 500, and a built-in gun is the same kind
- * of thing — a structure you can shoot off a base that comes back on the ring
- * timer (see spawnBaseDefence in sim.ts). So it takes the same number, and the
- * core keeps the 3000 that IS extracted.
- */
-const BASE_DEFENCE_HP = 500;
-
-/**
  * Pickup kinds (must match balance.ts PICKUP_*).
  *
  * The original's 8 grant kinds do not map one-to-one, because Metropolis'
@@ -153,17 +139,16 @@ interface Logic {
   mission: string;
   mapId: string;
   spawns: { id: number; x: number; z: number }[];
-  bases: {
+  /** The type-28 records: the two Dreadnoughts (fcopLogic.ts PaDreadnought). */
+  dreadnoughts: {
     id: number;
     x: number;
     z: number;
     team: number;
     health: number;
     netId: number;
-    spawnTicks: number;
-    spawnLimit: number;
-    defenceWeaponCount: number;
-    defenceWeapon: { engageRangeRaw: number; targetingDelayRaw: number; fovRaw: number };
+    gunCount: number;
+    gun: { engageRangeRaw: number; targetingDelayRaw: number; fovRaw: number };
   }[];
   turrets: Turret[];
   neutrals: Turret[];
@@ -652,6 +637,8 @@ function graphRoute(
 interface RoadBase {
   readonly gate: { readonly x: number; readonly y: number };
   readonly groundConsole: readonly number[];
+  /** Where the Juggernaut (the original Dreadnought) spawns: [x, y]. */
+  readonly juggernaut: readonly number[];
 }
 
 /**
@@ -788,7 +775,17 @@ function carveRoads(
         );
       }
     }
-    // Leg 3 — the road's far end into the enemy base. This one has no
+    // Leg 1b — the Juggernaut's own spawn (the Dreadnought record, node 0 of
+    // its Cnet by the HQ) to wherever the road was joined above. Usually a few
+    // centimetres; when leg 1 re-picked the entry it is a real beeline, and a
+    // Juggernaut that cannot reach the road never leaves its base.
+    const jug = bases[team].juggernaut;
+    const entry = graph.nodes[graph.entry[team]];
+    if (!segmentWalkable(map, jug[0], jug[1], entry.x, entry.z)) {
+      carve(jug[0], jug[1], entry.x, entry.z);
+      entries.push(`team ${team} Juggernaut leg to #${graph.entry[team]} CARVED`);
+    }
+    // Leg 3 — the road's far end into the enemy gate. This one has no
     // alternative to pick: `moveGroundUnit` beelines the gate once the signposts
     // run out, so the last few metres either open or the objective is
     // unreachable by anything the arena produces.
@@ -986,6 +983,70 @@ function repairReachability(
   throw new Error("reachability repair did not converge in 200 passes");
 }
 
+/**
+ * The gate triggers: no `retrigger`, no `action_button`. Each base carries one
+ * box, listed six times — once per watched enemy tank template and once for the
+ * enemy Dreadnought — on all six missions (fcop-re/ai-and-rules.md §5).
+ */
+function isGateTrigger(t: Logic["triggers"][number]): boolean {
+  return !t.flags.includes("retrigger") && !t.flags.includes("action_button");
+}
+
+/**
+ * The gate of the base whose own Dreadnought is `ownId`, read from the gate
+ * trigger that watches the enemy Dreadnought `enemyId` — entering it with an
+ * enemy tank or Dreadnought is the original's win (fcop-re/ai-and-rules.md §5).
+ *
+ * Box half-extents are raw/1024 m (fcopLogic.ts TRIGGER_SCALE; the sim adds the
+ * intruder's radius). `radius` is the larger half-extent: what the renderer and
+ * the AI read as the gate's size.
+ */
+function gateOf(
+  logic: Logic,
+  enemyId: number,
+  ownId: number,
+): { x: number; y: number; radius: number; halfW: number; halfL: number } {
+  const hits = logic.triggers.filter((t) => isGateTrigger(t) && t.watchesActor === enemyId);
+  if (hits.length !== 1) {
+    throw new Error(
+      `Dreadnought ${ownId}: expected one gate trigger watching enemy Dreadnought ${enemyId}, ` +
+        `found ${hits.length}`,
+    );
+  }
+  const t = hits[0];
+  const halfW = round4(triggerHalfExtent(t.widthRaw));
+  const halfL = round4(triggerHalfExtent(t.lengthRaw));
+  return {
+    x: round4(sx(t.x)),
+    y: round4(sz(t.z)),
+    radius: Math.max(halfW, halfL),
+    halfW,
+    halfL,
+  };
+}
+
+/**
+ * The committed map with the retired §9 base fields (coreHp, production,
+ * built-in guns — SIM_VERSION 32) dropped, so the strict loader accepts it as
+ * the terrain input. Every base field is rebuilt below anyway.
+ */
+function terrainOnly(raw: MapJson): MapJson {
+  const bases = raw.bases.map((b) => {
+    const { coreHp, productionTicks, productionLimit, defence, ...rest } = b as typeof b & {
+      coreHp?: unknown;
+      productionTicks?: unknown;
+      productionLimit?: unknown;
+      defence?: unknown;
+    };
+    void coreHp;
+    void productionTicks;
+    void productionLimit;
+    void defence;
+    return rest;
+  });
+  return { ...raw, bases };
+}
+
 // ---------------------------------------------------------------------------
 // Build
 // ---------------------------------------------------------------------------
@@ -994,23 +1055,27 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const { mapId } = arena;
   assertFrameOffset(mapId);
   const mapPath = join(REPO_ROOT, "packages", "sim", "maps", `${mapId}.json`);
-  const raw = JSON.parse(readFileSync(mapPath, "utf8")) as MapJson;
+  const raw = terrainOnly(JSON.parse(readFileSync(mapPath, "utf8")) as MapJson);
   // Terrain for layer sampling only — features below overwrite spawns downwards.
   const terrain = loadMapFromJson(raw);
   const logic = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
   ) as Logic;
 
-  // Team 0 is the low end of the field axis; each base drives its own Cnet
-  // (fcop-logic.md §8.1) and owns the nearer X1Alpha.
-  const field = fieldOf(logic.bases);
-  const teams = teamsOf(logic.bases, logic.spawns, field);
+  // Team 0 is the low end of the field axis; each side's Dreadnought drives its
+  // own Cnet (fcop-logic.md §8.1) and the side owns the nearer X1Alpha. The
+  // Dreadnought records stand next to each HQ, so they are what locates a base.
+  const field = fieldOf(logic.dreadnoughts);
+  const teams = teamsOf(logic.dreadnoughts, logic.spawns, field);
   const teamBases = teams.map((t) => t.base);
   const teamSpawns = teams.map((t) => t.spawn);
   const teamNet = [teamBases[0].netId, teamBases[1].netId];
+  // Each side's gate: the trigger that watches the ENEMY's Dreadnought.
+  const gates = teamBases.map((own, team) => gateOf(logic, teamBases[1 - team].id, own.id));
+  // A team's road leads to the enemy GATE — the objective since SIM_VERSION 32.
   const enemyBase = [
-    { x: sx(teamBases[1].x), z: sz(teamBases[1].z) },
-    { x: sx(teamBases[0].x), z: sz(teamBases[0].z) },
+    { x: gates[1].x, z: gates[1].y },
+    { x: gates[0].x, z: gates[0].y },
   ];
 
   const table = new WeaponTable();
@@ -1067,11 +1132,12 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     ringDropped += ownTurrets.length - ring.length;
 
     return {
-      // The base structure IS the objective under the original rules, so the
-      // gate volume sits on it. With coreHp set, systemWinCheck uses the core;
-      // the gate still anchors lane termination and produced-unit heading.
-      // Features without a Cnet ground_cast stay layer 0 (see layerFromCast).
-      gate: { x: coreX, y: coreY, radius: 4 },
+      // The original's gate trigger box (gateOf). Features without a Cnet
+      // ground_cast stay layer 0 (see layerFromCast).
+      gate: gates[team],
+      // The HQ anchor, at the Dreadnought record — which is where the original
+      // stands its Dreadnought by node 0 of the Cnet, next to the HQ. No HP: the
+      // original has no destructible core (fcop-fidelity.md I6/R1).
       core: [coreX, coreY],
       groundConsole: [gcx, gcy],
       airConsole: [acx, acy],
@@ -1088,25 +1154,26 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         hp: t.health,
         yaw: round4(rotToYaw(t.gunRotationRaw, true)),
       })),
-      defence: new Array(base.defenceWeaponCount).fill(0).map(() => ({
+      // The type-28 record IS the Dreadnought (fcop-re/ranges-turrets-capture.md
+      // top + Q4): the Juggernaut spawns where it stands, with its 3000 HP and its
+      // four hull guns. The guns' reach comes from the record (engage_range ->
+      // 12 m); damage and refire are weapon 3's (balance.ts DREADNOUGHT_GUN_*).
+      // targeting_delay (16 = 1.0 s) is the guns' re-search period, which the sim
+      // does not model apart from the refire.
+      juggernaut: {
         x: coreX,
         y: coreY,
+        hp: base.health,
+        guns: base.gunCount,
         weapon: table.intern({
-          range: rangeToCells(base.defenceWeapon.engageRangeRaw),
-          delay: targetingDelayToSimTicks(base.defenceWeapon.targetingDelayRaw, TICK_HZ),
-          damage: TURRET_DAMAGE,
-          // BaseShooter carries no turn_speed: the base's built-in guns do not
-          // slew, they just fire (fcop-logic.md §8.1).
+          range: rangeToCells(base.gun.engageRangeRaw),
+          delay: DREADNOUGHT_GUN_REFIRE_TICKS,
+          damage: DREADNOUGHT_GUN_DAMAGE,
+          // Mount slew (237°/s, Q4) is not modelled: the guns stand at the hull.
           turnSpeed: 0,
-          fovCos: fovToCos(base.defenceWeapon.fovRaw),
+          fovCos: fovToCos(base.gun.fovRaw),
         }),
-        hp: BASE_DEFENCE_HP,
-      })),
-      coreHp: base.health,
-      productionTicks: toSimTicks(base.spawnTicks, TICK_HZ),
-      // The original's spawn_limit is 1 per cycle, not a population cap. The cap
-      // is ours: without one, 2 bases at 12 units/min fill the entity store.
-      productionLimit: 8,
+      },
     };
   });
 
@@ -1178,6 +1245,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   }[] = [];
   for (const t of [...logic.triggers].sort((a, b) => a.id - b.id)) {
     if (t.flags.includes("action_button")) continue; // those are the consoles
+    if (isGateTrigger(t)) continue; // those are the gates (gateOf)
     const x = round4(sx(t.x));
     const y = round4(sz(t.z));
     // Half-extent raw/1024 m (fcopLogic.ts TRIGGER_SCALE); the intruder's own
@@ -1254,6 +1322,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     const roadBases = bases.map((b) => ({
       gate: { x: b.gate.x, y: b.gate.y },
       groundConsole: pointXY(b.groundConsole as number[] | { x: number; y: number }),
+      juggernaut: [b.juggernaut.x, b.juggernaut.y],
     }));
     const roads = carveRoads(pristineMap, wallsV, wallsH, graph, roadBases, arena.carveLimit);
     carved = roads.cleared;
@@ -1414,7 +1483,7 @@ function checkArena(arena: FcopArena): boolean {
  * best shift, the frame is wrong and no budget increase will fix it.
  */
 function probeOffsets(arena: FcopArena): boolean {
-  const raw = JSON.parse(readFileSync(mapPathOf(arena), "utf8")) as MapJson;
+  const raw = terrainOnly(JSON.parse(readFileSync(mapPathOf(arena), "utf8")) as MapJson);
   const logic = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
   ) as Logic;
@@ -1423,8 +1492,8 @@ function probeOffsets(arena: FcopArena): boolean {
   ) as { wallsV: string[]; wallsH: string[] };
   const map = loadMapFromJson({ ...raw, wallsV: pristine.wallsV, wallsH: pristine.wallsH });
 
-  const field = fieldOf(logic.bases);
-  const teamNet = teamsOf(logic.bases, logic.spawns, field).map((t) => t.base.netId);
+  const field = fieldOf(logic.dreadnoughts);
+  const teamNet = teamsOf(logic.dreadnoughts, logic.spawns, field).map((t) => t.base.netId);
   const nets = ownedNets(logic, teamNet);
 
   // Every directed Cnet edge, in the raw actor frame.
@@ -1529,8 +1598,7 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
       ` bases ${round4(stats.field.separation)} cells apart`,
   );
   console.log(
-    `  spawns 2  bases 2 (${map.bases[0].turrets.length}+${map.bases[1].turrets.length} ring,` +
-      ` ${map.bases[0].defence.length}+${map.bases[1].defence.length} built-in defence)` +
+    `  spawns 2  bases 2 (${map.bases[0].turrets.length}+${map.bases[1].turrets.length} ring)` +
       `  capturables ${map.turretSpots.length}  outposts ${map.outpostSpots.length}`,
   );
   console.log(
@@ -1541,7 +1609,8 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
     `  lane graph ${graph.nodes.length} nodes, polyline route ${map.lanes[0].length} waypoints`,
   );
   console.log(
-    `  core HP ${map.bases[0].coreHp}  production every ${map.bases[0].productionTicks} ticks`,
+    `  gates ${map.bases.map((b) => `${b.gate.halfW}x${b.gate.halfL}`).join(", ")} half-extents;` +
+      ` Juggernaut ${map.bases[0].juggernaut?.hp} HP, ${map.bases[0].juggernaut?.guns} guns`,
   );
   console.log(
     `  wall bits carved to open the original roads: ${carved}/${arena.carveLimit} allowed`,
@@ -1611,12 +1680,12 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
       const per = `${round4(step)} m/tick`;
       if (w.reached) {
         console.log(
-          `  team ${team} road at ${per}: console -> core in ${(w.ticks / TICK_HZ).toFixed(1)} s`,
+          `  team ${team} road at ${per}: console -> enemy gate in ${(w.ticks / TICK_HZ).toFixed(1)} s`,
         );
       } else {
         flag(
           `team ${team} cannot drive its road at ${per}: stopped on leg ${w.leg}` +
-            ` at (${round4(w.x)}, ${round4(w.y)}), ${round4(w.distanceToCore)} m from the core` +
+            ` at (${round4(w.x)}, ${round4(w.y)}), ${round4(w.distanceToGate)} m from the gate` +
             `, aiming at node ${w.node}`,
         );
       }

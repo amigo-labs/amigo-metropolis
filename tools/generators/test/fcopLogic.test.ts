@@ -50,7 +50,7 @@ describe("committed Mp logic artifact", () => {
 
   test("carries the full Precinct Assault actor set", () => {
     expect(logic.spawns.length).toBe(2);
-    expect(logic.bases.length).toBe(2);
+    expect(logic.dreadnoughts.length).toBe(2);
     expect(logic.turrets.length).toBe(32);
     expect(logic.neutrals.length).toBe(32);
     expect(logic.pickups.length).toBe(8);
@@ -70,22 +70,28 @@ describe("committed Mp logic artifact", () => {
     expect(logic.nets.map((n) => n.netId)).toEqual([1, 2]);
   });
 
-  // fcop-logic.md §8.1: 2 per arena, team-symmetric, HP 3000, 4 built-in
-  // defence weapons, 5 s cadence, each bound to its own Cnet.
-  test("bases match the TeamBase model in fcop-logic.md §8.1", () => {
-    expect(logic.bases.map((b) => b.team).sort()).toEqual([1, 2]);
-    for (const base of logic.bases) {
-      expect(base.health).toBe(3000);
-      expect(base.spawnTicks).toBe(300);
-      expect(toSimTicks(base.spawnTicks, TICK_HZ)).toBe(150); // 5 s
-      expect(base.spawnLimit).toBe(1);
-      expect(base.defenceWeaponCount).toBe(4);
-      expect(base.defenceWeapon.engageRangeRaw).toBe(6144);
-      expect(base.defenceWeapon.targetingDelayRaw).toBe(16);
-      // Each base drives its own lane graph, so the two nets are the two teams'.
-      expect([1, 2]).toContain(base.netId);
+  // Type 28 is the Dreadnought, not a team base (fcop-re/ranges-turrets-capture.md
+  // top + Q4; fcop-logic.md §8.1): 2 per arena, team-symmetric, 3000 HP, four
+  // hull guns, a limit-1 spawner (5 s period, shut in PA), each driving its own
+  // Cnet from node 0.
+  test("type 28 matches the Dreadnought record in fcop-logic.md §8.1", () => {
+    expect(logic.dreadnoughts.map((b) => b.team).sort()).toEqual([1, 2]);
+    for (const d of logic.dreadnoughts) {
+      expect(d.health).toBe(3000);
+      expect(d.spawnTicks).toBe(300);
+      expect(toSimTicks(d.spawnTicks, TICK_HZ)).toBe(150); // 5 s spawner period
+      expect(d.spawnLimit).toBe(1);
+      expect(d.gunCount).toBe(4);
+      expect(d.gun.weaponId).toBe(3);
+      expect(d.gun.engageRangeRaw).toBe(6144);
+      expect(d.gun.targetingDelayRaw).toBe(16);
+      // Its own route block: the same 1024/1228 a tank carries.
+      expect(d.moveSpeed).toBe(1024);
+      expect(d.acceleration).toBe(1228);
+      // Each side's Dreadnought drives its own lane graph.
+      expect([1, 2]).toContain(d.netId);
     }
-    expect(logic.bases[0].netId).not.toBe(logic.bases[1].netId);
+    expect(logic.dreadnoughts[0].netId).not.toBe(logic.dreadnoughts[1].netId);
   });
 
   test("turrets are team-symmetric and capturables are neutral", () => {
@@ -100,10 +106,11 @@ describe("committed Mp logic artifact", () => {
     }
   });
 
-  test("each net's node 0 sits on its own base", () => {
-    // fcop-logic.md §8.1: the base is bound to its Cnet, and the graph starts
-    // there. This is the invariant that makes "base -> lane -> enemy base" work.
-    for (const base of logic.bases) {
+  test("each net's node 0 is where that side's Dreadnought spawns", () => {
+    // fcop-logic.md §8.1: the Dreadnought is bound to its Cnet and starts at
+    // node 0, next to the HQ. This is the invariant that makes "base -> lane ->
+    // enemy base" work.
+    for (const base of logic.dreadnoughts) {
       const net = logic.nets.find((n) => n.netId === base.netId);
       expect(net).toBeDefined();
       const node = net?.nodes[0];
@@ -171,10 +178,35 @@ describe("committed Mp logic artifact", () => {
 
   test("base-intrusion triggers watch named actors (fcop-logic.md §8.6)", () => {
     const watched = new Set(logic.triggers.map((t) => t.watchesActor));
-    // Both X1Alpha players are watched, and so is each TeamBase.
+    // Both X1Alpha players are watched, and so is each Dreadnought.
     for (const s of logic.spawns) expect(watched.has(s.id)).toBe(true);
-    for (const b of logic.bases) expect(watched.has(b.id)).toBe(true);
+    for (const b of logic.dreadnoughts) expect(watched.has(b.id)).toBe(true);
     for (const t of logic.triggers) expect(t.watchesActor).toBeGreaterThan(0);
+  });
+
+  test("each base has one gate box, watching the enemy Dreadnought and tanks", () => {
+    // fcop-re/ai-and-rules.md §5: the gate trigger set (no retrigger, no action
+    // button) watches the enemy's five tank templates and its Dreadnought — not
+    // jets, not the avatar. Entering it is the win. enrichArena reads the gate
+    // from the one watching the Dreadnought.
+    const gates = logic.triggers.filter(
+      (t) => !t.flags.includes("retrigger") && !t.flags.includes("action_button"),
+    );
+    expect(gates.length).toBe(12); // 6 per base, one box
+    for (const d of logic.dreadnoughts) {
+      const watching = gates.filter((t) => t.watchesActor === d.id);
+      expect(watching.length).toBe(1);
+      expect(watching[0].widthRaw).toBe(2457);
+      expect(watching[0].lengthRaw).toBe(1843);
+      // It stands in the OTHER side's base: nearer the other Dreadnought.
+      const other = logic.dreadnoughts.find((o) => o.id !== d.id);
+      const dOwn = Math.hypot(watching[0].x - d.x, watching[0].z - d.z);
+      const dOther = Math.hypot(watching[0].x - (other?.x ?? 0), watching[0].z - (other?.z ?? 0));
+      expect(dOther).toBeLessThan(dOwn);
+    }
+    for (const s of logic.spawns) {
+      expect(gates.some((t) => t.watchesActor === s.id)).toBe(false);
+    }
   });
 });
 

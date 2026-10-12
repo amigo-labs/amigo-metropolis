@@ -357,18 +357,17 @@ export function layered01(tick: number, out: TickInputs): void {
 
 /**
  * Golden #7 (Precinct Assault): 120 s on la-cantina, the arena rebuilt from the
- * original Mp logic (rules.md §9). Covers what no other golden touches — free
- * base production onto the original Cnet graph, per-turret weapon profiles with
- * gun slew, capture on an authentic pad, a power-up pickup and a base-intrusion
- * alarm.
+ * original Mp logic (rules.md §9). Covers what no other golden touches — bought
+ * units on the original Cnet graph, per-turret weapon profiles with gun slew,
+ * capture on an authentic pad, a power-up pickup, a base-intrusion alarm and the
+ * original's gate-box win with its outro.
  *
  * Played against the Warden, because that is what a solo match on this arena
- * actually is: two idle players stalemate by design (the production streams
- * annihilate at the centre line and the player is the tiebreaker), so an
- * unattended recording would exercise production and nothing else.
+ * actually is: nothing is produced for free (SIM_VERSION 32), so an unattended
+ * recording would exercise nothing at all.
  *
  * Route: spawn (112.1, 69.1) on the north base platform, hold INTERACT at the
- * ground console for a bought wave alongside the free production, then run east
+ * ground console for a bought wave, then run east
  * to the pad at (137.6, 68.6) — same row as the spawn, so inside its own half
  * rather than under the enemy's 20 forward turrets — and hold there for the 3 s
  * uncontested capture. Then push south down the central spine, firing, as far as

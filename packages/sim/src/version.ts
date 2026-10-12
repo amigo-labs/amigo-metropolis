@@ -532,4 +532,29 @@
 //     stay byte-identical (re-headered only). paAttribution's trickle/escort
 //     numbers were re-measured and re-pinned; d8-vs-idle still resolves 5/5 seeds
 //     on all four arenas (worst 190/402/234/250 s).
-export const SIM_VERSION = 31;
+// v32: the original's Precinct Assault model (docs/specs/fcop-fidelity.md I6,
+//     I7, R1; fcop-re/ranges-turrets-capture.md top + Q4, ai-and-rules.md §0/§5).
+//     Actor type 28 is the Dreadnought, not a team base, and the original has no
+//     destructible core. Removed: coreHp and the core-raze win, systemCoreAttack,
+//     free base production (productionTicks/Limit, systemProduction — the "1
+//     Runner per 5 s" was the Dreadnought spawner's period, and the spawner is
+//     shut in PA) and the four "built-in base guns" on the core (they were the
+//     Dreadnought's hull guns). The win is §1's gate rule with the original's
+//     specifics: an enemy Runner (tank) or Juggernaut (Dreadnought) inside the
+//     gate box — on the imported arenas the original's gate trigger (Mp 2457 x
+//     1843 raw = 4.8 x 3.6 m, grown by the intruder's radius) — starts a
+//     MATCH_OUTRO_TICKS (175 = the original's 1750 at 300 Hz) countdown; the match
+//     plays on and `winner` is set when it ends. Jets and avatars never breach.
+//     The PA Juggernaut takes the Dreadnought record: it spawns there (node 0 of
+//     its Cnet by the HQ), with 3000 HP and four hull guns of weapon 3 (100 dmg,
+//     60-tick refire, 12 m), modelled as four shooters at the hull. The Warden
+//     defends on the one §1 radius everywhere and gates its push/suppress rung on
+//     the arena carrying the original road graph instead of on a core.
+//     State: baseDefence/coreHp/productionTimer arrays gone; outroTimer and
+//     outroWinner hashed only while an outro runs. Goldens: 05 and 07 re-record
+//     (imported arenas: no production, no base guns, gate-box win, regenerated
+//     roads); 03 and 04 re-record from their breach on (district-01's breach now
+//     plays the outro); 01, 02 and 06 never breach and stay byte-identical
+//     (re-headered only). balance:pa d8 vs idle: 5/5 seeds resolve on all four
+//     arenas, worst 79/98/96/83 s (the idle side fields nothing now).
+export const SIM_VERSION = 32;

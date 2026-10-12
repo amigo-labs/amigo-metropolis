@@ -16,7 +16,6 @@ import {
   PROJ_MORTAR,
   PROJ_SPECIAL,
   PROJ_WARDEN,
-  TURRET_BUILTIN,
   TURRET_DEFENSE,
 } from "@metropolis/sim";
 import * as THREE from "three";
@@ -108,8 +107,6 @@ function turretCapacity(): number {
     const n =
       map.bases[0].turrets.length +
       map.bases[1].turrets.length +
-      map.bases[0].defence.length +
-      map.bases[1].defence.length +
       map.turretSpots.length +
       map.dummySpots.length;
     if (n > worst) worst = n;
@@ -399,8 +396,6 @@ export function bucketFor(
   if (archetype === ARCHETYPE.JUGGERNAUT) return greybox.juggernaut;
   if (archetype === ARCHETYPE.FORTRESS) return greybox.fortress;
   if (archetype === ARCHETYPE.TURRET) {
-    // Built-in BaseShooter guns are combat-only (bolted into the base mesh).
-    if (aux === TURRET_BUILTIN) return undefined;
     return aux === TURRET_DEFENSE ? greybox.turretDefense : greybox.turretStandard;
   }
   if (archetype === ARCHETYPE.PROJECTILE) {

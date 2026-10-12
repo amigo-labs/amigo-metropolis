@@ -27,7 +27,6 @@ import {
   TICK_DT,
   WARDEN_AGGRESSION_PERCENT,
   WARDEN_ALTITUDE,
-  WARDEN_CORE_DEFEND_RADIUS,
   WARDEN_DEFEND_RADIUS,
   WARDEN_ESCORT_DISTANCE,
   WARDEN_GUARDIAN_TARGET,
@@ -123,16 +122,11 @@ function goalValid(state: SimState, id: number): boolean {
       ) {
         return false;
       }
-      // On a §9 arena the interception has to stay an interception: without this,
-      // a Warden that latches onto a unit at the edge of the radius follows it
-      // back across the arena, and the tighter radius buys nothing. Unbounded on
-      // a §1 arena, where chasing the unit that would win the match IS the goal.
-      if (!hasCore(state, me)) return true;
-      const gate = state.map.bases[me].gate;
-      const reach = defendRadius(state, me);
-      const dx = ent.posX[slot] - gate.x;
-      const dy = ent.posY[slot] - gate.y;
-      return dx * dx + dy * dy <= reach * reach;
+      // Unbounded: on every arena an enemy ground unit at the gate wins the
+      // match (rules.md §1, and the original's PA rule), so chasing the unit that
+      // would win IS the goal. (A §9 variant bounded this to a 16 m core radius
+      // while bases produced for free; both are gone since SIM_VERSION 32.)
+      return true;
     }
     case WGOAL_HARASS:
       return state.avatarId[me ^ 1] >= 0;
@@ -187,14 +181,15 @@ function goalValid(state: SimState, id: number): boolean {
 
 /**
  * The priority ladder. Highest first: survival, base defense, then spending
- * (Juggernaut savings gate the cheaper buys), then — on a rules.md §9 arena — a
- * push that has reached the enemy core, then map control (capture), then the push
- * wherever it is (escort), then optional avatar harassment, else idle.
+ * (Juggernaut savings gate the cheaper buys), then — on an imported Precinct
+ * Assault arena — a living push and whatever is stopping it, then map control
+ * (capture), then the push wherever it is (escort), then optional avatar
+ * harassment, else idle.
  *
- * Two of those rungs read the arena's rule set rather than being unconditional,
- * because the loss condition differs: under §1 a unit at the gate wins on arrival,
- * under §9 it has to raze a 3000 HP core while the base shoots back. See step 2
- * and step 4.
+ * The loss condition is the same everywhere since SIM_VERSION 32 — an enemy
+ * ground unit in the gate (rules.md §1; the original's PA rule, §9) — so base
+ * defense reads one radius. Step 4 still reads the arena: it exists for the wall
+ * lattice of the imported arenas (WARDEN_SUPPRESS_DISTANCE).
  */
 function decide(state: SimState, id: number, d: number): void {
   const ent = state.ent;
@@ -210,13 +205,13 @@ function decide(state: SimState, id: number, d: number): void {
   }
 
   // 2. Defense: an enemy ground unit near our gate is the only real loss
-  // condition (rules.md §1) — intercept the one closest to the gate. On a §9
-  // arena the radius tightens, because there the loss condition is a razed core
-  // rather than a breached gate and the free production stream would otherwise
-  // pin the Warden on home defence for the whole match (see
-  // WARDEN_CORE_DEFEND_RADIUS).
+  // condition (rules.md §1) — intercept the one closest to the gate. This had a
+  // tighter §9 radius (WARDEN_CORE_DEFEND_RADIUS, 16 m) while both bases produced
+  // a Runner every 5 s for free and made "an enemy unit near my gate" the steady
+  // state. The original produces nothing for free (fcop-fidelity.md I7), so the
+  // §1 radius is right again on every arena.
   const gate = state.map.bases[me].gate;
-  const reach = defendRadius(state, me);
+  const reach = WARDEN_DEFEND_RADIUS;
   let bestId = -1;
   let bestD2 = reach * reach;
   for (let t = 0; t < ent.high; t++) {
@@ -264,21 +259,24 @@ function decide(state: SimState, id: number, d: number): void {
     }
   }
 
-  // 4. Living push on a §9 arena. Under §9 a unit at the enemy core still has
-  // to raze 3000 HP while the base shoots back; flying off for pads throws that
-  // away. Commit-range used to gate this rung, so a mid-map tip lost to CAPTURE
-  // — urban-jungle: tip inside 45 m only 16% of a ten-minute match (mean 82 m)
-  // while CAPTURE took 34% of ticks. Any living tip now outranks capture.
+  // 4. Living push on an imported PA arena. Flying off for pads while the push
+  // is held throws it away. Commit-range used to gate this rung, so a mid-map tip
+  // lost to CAPTURE — urban-jungle: tip inside 45 m only 16% of a ten-minute
+  // match (mean 82 m) while CAPTURE took 34% of ticks. Any living tip now
+  // outranks capture.
   //
   // Suppress first when something is stopping the tip (v20: no standoff LOS,
-  // close to WARDEN_SUPPRESS_DISTANCE). Escort otherwise. Under §1 a unit at the
-  // gate has already won, so this block is gated on hasCore.
+  // close to WARDEN_SUPPRESS_DISTANCE). Escort otherwise. Gated on the arena
+  // carrying the original's road graph, i.e. on the imported city lattice the
+  // suppress rung was measured on — it used to be gated on a destructible core,
+  // which the original does not have (SIM_VERSION 32; the units/AI package owns
+  // the Warden's rework into the Sky Captain).
   //
   // Below the buy goals on purpose — buying feeds the push and is a short errand.
   // Measured with BASE_TURRET_RESPAWN 120 s (issue #31): la-cantina, proving-
   // ground and bug-hunt resolve d8 vs idle; urban-jungle still stalls mid-map
   // (tip mean ~80 m) — a push-arrival problem, not a capture distraction.
-  if (hasCore(state, enemy) && WARDEN_PUSH_COMMIT_RANGE[d] > 0) {
+  if (state.map.laneGraph !== undefined && WARDEN_PUSH_COMMIT_RANGE[d] > 0) {
     const tip = foremostGroundUnit(state, me);
     if (tip >= 0) {
       const blocker = emplacementBlocking(state, tip, enemy);
@@ -300,8 +298,8 @@ function decide(state: SimState, id: number, d: number): void {
     return;
   }
 
-  // 6. Escort on gate-breach arenas (no core): fly cover for the tip. §9 already
-  // handled a living tip above; this is the §1 path and the no-core fallback.
+  // 6. Escort: fly cover for the tip. On an imported PA arena step 4 already
+  // handled a living tip; this is the §1 path.
   const front = foremostGroundUnit(state, me);
   if (front >= 0) {
     setGoal(state, WGOAL_ESCORT, front);
@@ -319,19 +317,6 @@ function decide(state: SimState, id: number, d: number): void {
 function setGoal(state: SimState, goal: number, slot: number): void {
   state.wardenGoal = goal;
   state.wardenSlot = slot;
-}
-
-/**
- * True when this arena gives `player` a destructible core, i.e. when it plays by
- * rules.md §9 rather than §1. Same test systemWinCheck uses (sim.ts).
- */
-function hasCore(state: SimState, player: number): boolean {
-  return state.coreHp.length > 0 && state.map.bases[player].coreHp > 0;
-}
-
-/** Interception radius around own gate — tight on a §9 arena (see balance.ts). */
-function defendRadius(state: SimState, player: number): number {
-  return hasCore(state, player) ? WARDEN_CORE_DEFEND_RADIUS : WARDEN_DEFEND_RADIUS;
 }
 
 /** Superplane movement toward the goal, weapons free, console interaction. */

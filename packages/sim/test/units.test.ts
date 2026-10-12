@@ -13,6 +13,7 @@ import {
   COST_JUGGERNAUT,
   COST_RUNNER,
   GUARDIAN_ASSAULT_STANDOFF,
+  MATCH_OUTRO_TICKS,
   PAD_REPAIR_HP_PER_TICK,
   RUNNER_SPEED,
   STARTING_POINTS,
@@ -266,10 +267,12 @@ describe("runner lane-following and the win check", () => {
     const id = spawnUnit(sim, ARCHETYPE.RUNNER, 0, 14, 6);
     expect(id).toBeGreaterThanOrEqual(0);
     let breachTick = -1;
-    for (let t = 0; t < 400; t++) {
+    for (let t = 0; t < 400 + MATCH_OUTRO_TICKS; t++) {
       step(sim, inputs);
+      if (breachTick < 0 && findEvents(sim, EV_BREACH).length > 0) breachTick = t;
       if (sim.winner >= 0) {
-        breachTick = t;
+        // The match ends one outro after the breach (rules.md §1).
+        expect(t - breachTick).toBe(MATCH_OUTRO_TICKS);
         break;
       }
     }
@@ -280,7 +283,7 @@ describe("runner lane-following and the win check", () => {
     expect(Math.abs(breachTick - expected)).toBeLessThan(30);
   });
 
-  it("the breach emits EV_BREACH and freezes the sim", () => {
+  it("the breach emits EV_BREACH, plays the outro, then freezes the sim", () => {
     reset();
     const sim = openSim();
     spawnUnit(sim, ARCHETYPE.RUNNER, 1, 46, 6); // team 1 walks the lane west
@@ -289,9 +292,21 @@ describe("runner lane-following and the win check", () => {
       step(sim, inputs);
       sawBreach = findEvents(sim, EV_BREACH);
     }
-    expect(sim.winner).toBe(1);
     expect(sawBreach.length).toBe(1);
     expect(sawBreach[0][1]).toBe(1);
+    // The original's 1750-tick countdown (5.83 s): the match plays on, decided,
+    // and only ends when it runs out. The avatar still moves meanwhile.
+    expect(sim.winner).toBe(-1);
+    expect(sim.outroTimer).toBe(MATCH_OUTRO_TICKS);
+    expect(sim.outroWinner).toBe(1);
+    inputs.players[0].moveX = 127;
+    const xBefore = sim.ent.posX[0];
+    for (let t = 0; t < MATCH_OUTRO_TICKS - 1; t++) step(sim, inputs);
+    expect(sim.ent.posX[0]).not.toBe(xBefore);
+    expect(sim.winner).toBe(-1);
+    step(sim, inputs);
+    expect(sim.winner).toBe(1);
+    inputs.players[0].moveX = 0;
     // Frozen: avatars ignore input, only the tick advances the hash.
     const x0 = sim.ent.posX[0];
     inputs.players[0].moveX = 127;

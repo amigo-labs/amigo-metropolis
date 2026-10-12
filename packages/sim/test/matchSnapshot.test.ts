@@ -12,12 +12,13 @@ import {
   createSim,
   hash,
   MATCH_ENTITY_COUNT,
+  MATCH_OUTRO_LEFT,
+  MATCH_OUTRO_WINNER,
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_BUY_FRAC,
   MATCH_SLOT_CAPTURE_FRAC,
-  MATCH_SLOT_CORE_FRAC,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
@@ -181,23 +182,21 @@ describe("writeMatchSnapshot", () => {
     expect(out[matchSlotOffset(1) + MATCH_SLOT_CAPTURE_FRAC]).toBe(-1);
   });
 
-  it("reports core HP fractions on a core arena and -1 on a gate arena", () => {
-    // urban-jungle is §9 (coreHp 3000 per base).
+  it("reports the post-breach outro, and nothing while none runs", () => {
+    // Replaces the core-HP bars (MATCH_SLOT_CORE_FRAC): the original has no core
+    // (fcop-fidelity.md R1). What the HUD can show instead is the breach that
+    // decided the match while the outro plays.
     const sim = freshSim();
     const out = new Float32Array(MATCH_SNAPSHOT_LEN);
     writeMatchSnapshot(sim, out);
-    expect(out[matchSlotOffset(0) + MATCH_SLOT_CORE_FRAC]).toBe(1);
-    expect(out[matchSlotOffset(1) + MATCH_SLOT_CORE_FRAC]).toBe(1);
+    expect(out[MATCH_OUTRO_LEFT]).toBe(0);
+    expect(out[MATCH_OUTRO_WINNER]).toBe(-1);
 
-    sim.coreHp[1] = Math.floor(sim.map.bases[1].coreHp / 2);
+    sim.outroTimer = 100;
+    sim.outroWinner = 1;
     writeMatchSnapshot(sim, out);
-    expect(out[matchSlotOffset(1) + MATCH_SLOT_CORE_FRAC]).toBeCloseTo(0.5, 5);
-
-    // district-01 is §1: no cores, the field reads -1 for both slots.
-    const gateSim = createSim(getMapById("district-01"), 1);
-    writeMatchSnapshot(gateSim, out);
-    expect(out[matchSlotOffset(0) + MATCH_SLOT_CORE_FRAC]).toBe(-1);
-    expect(out[matchSlotOffset(1) + MATCH_SLOT_CORE_FRAC]).toBe(-1);
+    expect(out[MATCH_OUTRO_LEFT]).toBe(100);
+    expect(out[MATCH_OUTRO_WINNER]).toBe(1);
   });
 
   it("overwrites every field, so a reused buffer never shows a stale value", () => {

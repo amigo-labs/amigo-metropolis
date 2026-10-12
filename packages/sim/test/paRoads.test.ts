@@ -1,4 +1,6 @@
-// Can a produced unit actually drive to the enemy core? (issue #30)
+// Can a bought unit actually drive into the enemy gate? (issue #30; the objective
+// was "the enemy core" until SIM_VERSION 32 — the original has none, and its win
+// is a tank or Dreadnought entering the gate box, fcop-fidelity.md R1.)
 //
 // Phase 13 imported three more arenas and they read as clean: every Cnet edge
 // wall-free, every graph reaching its cores. A difficulty-8 Warden still got
@@ -26,7 +28,6 @@
 // months later as "the AI feels passive".
 import { describe, expect, it } from "bun:test";
 import {
-  CORE_ATTACK_RADIUS,
   GRAPH_WAYPOINT_RADIUS,
   JUGGERNAUT_SPEED,
   RUNNER_SPEED,
@@ -59,7 +60,7 @@ interface RoadExpectation {
   /** Console -> entry distance per team, metres, as the generator reports it. */
   readonly entryDistance: readonly [number, number];
   /**
-   * Upper bound on the unopposed console -> core drive, seconds. One number for
+   * Upper bound on the unopposed console -> enemy gate drive, seconds. One number for
    * both archetypes: a Juggernaut at 2.5 m/s is the slow case, so a bound it
    * clears covers a Runner too.
    */
@@ -75,7 +76,7 @@ const ROADS: RoadExpectation[] = [
     // out. Corroborates the icon reading in enrichArena's consoleRole().
     entry: [143, 6],
     entryDistance: [3.3, 3.1],
-    driveLimit: 40, // 21.5 s / 34.4 s measured (Runner / Juggernaut step)
+    driveLimit: 40, // 18.9 s / 30.2 s measured to the gate box (Runner / Juggernaut step)
   },
   {
     id: URBAN_JUNGLE_ID,
@@ -84,7 +85,7 @@ const ROADS: RoadExpectation[] = [
     // the Cnet's own node.
     entry: [0, 237],
     entryDistance: [6.6, 6.6],
-    driveLimit: 70, // 38.1 s / 61.0 s measured
+    driveLimit: 70, // 31.4 s / 50.3 s measured to the gate box
   },
   {
     id: PROVING_GROUND_ID,
@@ -92,7 +93,7 @@ const ROADS: RoadExpectation[] = [
     // same chain and reachable.
     entry: [0, 294],
     entryDistance: [7.6, 5.5],
-    driveLimit: 70, // 39.2 s / 62.7 s measured
+    driveLimit: 70, // 38.4 s / 61.4 s measured to the gate box
   },
   {
     id: BUG_HUNT_ID,
@@ -100,7 +101,7 @@ const ROADS: RoadExpectation[] = [
     // icons were read rather than guessed at from trigger footprints).
     entry: [1, 304],
     entryDistance: [3.2, 3.0],
-    driveLimit: 70, // 39.2 s / 62.7 s measured
+    driveLimit: 70, // 36.4 s / 58.1 s measured to the gate box
   },
 ];
 
@@ -157,16 +158,28 @@ describe.each(ROADS)("$id roads", (arena: RoadExpectation) => {
       // Leg 3. `moveGroundUnit` beelines the gate once the signposts run out, so
       // this is the last few metres of every push. Conft's was walled.
       expect(segmentWalkable(map, end.x, end.y, gate.x, gate.y)).toBe(true);
-      // The gate sits on the core under §9, so arriving there IS being in range.
-      const core = map.bases[team ^ 1].core;
-      expect(Math.sqrt((gate.x - core.x) ** 2 + (gate.y - core.y) ** 2)).toBeLessThan(
-        CORE_ATTACK_RADIUS,
-      );
+      // The gate is the original's trigger box (fcop-re/ai-and-rules.md §5), a
+      // few metres from the Dreadnought's spot by the HQ — not on it.
+      expect(gate.halfW).toBeGreaterThan(0);
+      expect(gate.halfL).toBeGreaterThan(0);
+    }
+  });
+
+  it("lets each side's Juggernaut reach the road from its own spawn", () => {
+    // Leg 1 for the Juggernaut: it rolls out at the Dreadnought record, node 0 of
+    // its Cnet by the HQ, and heads for the same entry node a Runner joins at.
+    if (!graph) return;
+    for (let team = 0; team < 2; team++) {
+      const j = map.bases[team].juggernaut;
+      expect(j).toBeDefined();
+      if (!j) continue;
+      const node = graph.nodes[graph.entry[team]];
+      expect(segmentWalkable(map, j.x, j.y, node.x, node.y)).toBe(true);
     }
   });
 
   for (const step of GROUND_STEPS) {
-    it(`drives console -> core unopposed at ${step} m/tick, both teams`, () => {
+    it(`drives console -> enemy gate unopposed at ${step} m/tick, both teams`, () => {
       if (!graph) return;
       for (let team = 0; team < 2; team++) {
         const w = walkRoad(map, team, step);
@@ -175,15 +188,17 @@ describe.each(ROADS)("$id roads", (arena: RoadExpectation) => {
         // "walkable" has to hold at both. This is the statement the arena is
         // playable at all — everything past it is balance.
         // Reported as an object so a failure says which leg and where, rather
-        // than "expected true". Which leg it ARRIVES on is not pinned: the road's
-        // last node is already inside core range on Slim and Joke, so the walk can
-        // finish on leg 1 there and on the gate beeline elsewhere.
+        // than "expected true". Which leg it ARRIVES on is not pinned: where the
+        // road runs through the gate box the walk finishes on the graph leg, and
+        // on the gate beeline elsewhere.
         expect(
           w.reached
             ? "reached"
-            : `stopped on leg ${w.leg} at (${Math.round(w.x)}, ${Math.round(w.y)}), ${Math.round(w.distanceToCore)} m short, aiming at node ${w.node}`,
+            : `stopped on leg ${w.leg} at (${Math.round(w.x)}, ${Math.round(w.y)}), ${Math.round(w.distanceToGate)} m short, aiming at node ${w.node}`,
         ).toBe("reached");
-        expect(w.distanceToCore).toBeLessThanOrEqual(CORE_ATTACK_RADIUS);
+        // Inside the box: within its half-diagonal plus a Runner's radius.
+        const g = map.bases[team ^ 1].gate;
+        expect(w.distanceToGate).toBeLessThanOrEqual(Math.hypot(g.halfW, g.halfL) + 1);
         expect(w.ticks / 30).toBeLessThan(arena.driveLimit);
       }
     });

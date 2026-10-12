@@ -17,7 +17,11 @@ Design pillars, in priority order:
 - 1v1. Each side: one **Base**, one **Avatar** (player- or AI-controlled).
 - Arena contains neutral **Turrets** and neutral **Outposts**.
 - **Win condition: a friendly ground unit (Runner or Juggernaut) physically enters
-  the enemy Base gate.** Nothing else ends the match.
+  the enemy Base gate.** Nothing else decides the match — not a Guardian, not an
+  avatar. The breach decides it; the match then plays on for a 5.83 s outro
+  (`MATCH_OUTRO_TICKS`, the original's 1750-tick countdown) and ends. A second
+  breach during the outro changes nothing. This is also the original Precinct
+  Assault's rule (§9; `fcop-fidelity.md` R1).
 - No match timer in v1 (original had none; revisit if stalemates emerge).
 
 ## 2. The Avatar
@@ -94,8 +98,8 @@ Design pillars, in priority order:
 - Ammo: primary infinite; heavy/special finite, refilled at own Base/Outpost pads.
 - Death: respawn at own Base after `RESPAWN_TICKS` (placeholder: 8 s).
   Killer's owner earns **10 pts**.
-- The Avatar deals no damage to the enemy Base core (pillar 1). Base *turrets*
-  are attackable by anyone.
+- The Base core is indestructible on every arena (pillar 1, and the original has
+  no destructible core — §9). Base *turrets* are attackable by anyone.
 
 ## 3. Economy
 
@@ -152,7 +156,8 @@ Avatar 300 HP; walker speed 5, hover speed 9.
   ammo/repair pad, ring of 4–6 **Base turrets**. Base turrets respawn
   120 s after destruction (attack timing matters — 60 s let the ring replace
   itself as fast as a superplane could strip it at authentic density; issue
-  #31). Base core is indestructible under §1; under §9 it is the win target.
+  #31). Base core is indestructible: a centrepiece and anchor, never a target
+  (§9: the original's "core" was its Dreadnought's spawn point).
 - **Neutral turret**: capture by Avatar standing in radius for 3 s uncontested.
   Fires at enemies of its owner. Can be destroyed (reverts to neutral husk,
   respawns neutral after 45 s).
@@ -189,18 +194,15 @@ stronger than the player Avatar). Same rules and economy as a player — it earn
 and spends points; it does not cheat resources. Difficulty 1–10 scales its
 income multiplier, aggression thresholds, and reaction delay (see PLAN Phase 4).
 
-Its goal ladder reads the arena's rule set where the two differ, because two of
-its rungs are about the loss condition and §9 changes what that is. Under §1 an
-enemy ground unit near the Warden's own gate *is* the loss condition, so it
-outranks every other goal, and a unit of its own that reaches the enemy gate has
-already won, so there is nothing to escort. Under §9 neither holds: both bases
-emit a free Runner every 5 s, which makes "an enemy unit near my gate" the steady
-state rather than an emergency, and arriving at the enemy core is where the work
-starts rather than where it ends. So on an arena carrying a core the Warden
-defends a tight radius around it and leaves the approaches to its 20 emplacements,
-and it commits to a push that has arrived instead of leaving it there to capture
-another pad (`WARDEN_CORE_DEFEND_RADIUS`, `WARDEN_PUSH_COMMIT_RANGE`). Both are
-gated on map data like every other §9 mechanic, so a §1 arena behaves as before.
+Its loss condition is the same on every arena — an enemy ground unit in its gate
+— so it defends one radius around the gate (`WARDEN_DEFEND_RADIUS`) everywhere.
+Until SIM_VERSION 32 a §9 arena tightened that radius to its core, because both
+bases emitted a free Runner every 5 s and "an enemy unit near my gate" was the
+steady state; the original has no such free stream, so the §1 radius is right
+again. On the imported arenas the Warden also commits to a living push instead of
+leaving it to capture another pad (`WARDEN_PUSH_COMMIT_RANGE`), a rung gated on
+the arena carrying the original road graph — the city lattice it was measured on.
+Rebuilding the Warden as the original's Sky Captain is the units/AI package's.
 
 Committing means asking what is *stopping* the push before asking who to fly
 alongside: the Warden takes the enemy emplacement nearest the push's tip and
@@ -223,20 +225,23 @@ replays-as-feature (replays exist as a test artifact from day one).
 
 ## 9. Precinct Assault mode (FCOP arenas)
 
-Status: adopted for four FCOP arenas — `la-cantina` (mission Mp), `urban-jungle`
-(Conft), `proving-ground` (Slim) and `bug-hunt` (Joke). `la-cantina` is
+Status: adopted for the six FCOP arenas; balance is measured on four of them —
+`la-cantina` (mission Mp), `urban-jungle` (Conft), `proving-ground` (Slim) and
+`bug-hunt` (Joke). `la-cantina` is
 **multi-deck** since issue #29: it carries the two bridge decks its source terrain
 describes, and its walls are attributed to the deck they stand on rather than
 flattened into one lattice.
 
-`hollywood-keys` and `venice-beach` stay on §1–§7. That is not for want of data —
+`hollywood-keys` and `venice-beach` are imported by the same pipeline and carry
+the same §9 data, but have no balance pins yet. This paragraph used to say they
+"stay on §1–§7". That is not for want of data —
 their logic is extracted and committed. It is also NOT because their decks are
 unreachable: that argument was retired as circular, because the extractor only
 separates surfaces more than 0.5 m apart and keeps ramps inside the ground rank, so
 "every deck is above the step height" is a restatement of its clustering constant.
 Decks are entered sideways at their edges, and both arenas have thousands of such
 entry cells. What is genuinely missing is per-FEATURE layer information: Hk puts 8
-`Turret`, 3 `NeutralTurret` and 2 `TeamBase?` on cells with a deck overhead and
+`Turret`, 3 `NeutralTurret` and 2 type-28 Dreadnought records on cells with a deck overhead and
 nothing in `MapJson` can say which storey they belong to. See
 `packages/sim/test/layeredArenas.test.ts` for the measurements and issue #33.
 
@@ -248,26 +253,34 @@ exactly as §1–§7 describe — that is what keeps the existing goldens valid.
 The original's decoded model is `docs/specs/fcop-logic.md` §8; this section is
 only what Metropolis adopts from it.
 
-- **Win condition — destroy the enemy base.** A base carries `coreHp` (the
-  original stores 3000). Only *units* damage it; the Avatar and the Warden never
-  can, so pillar 1 survives — you still cannot win by attacking the base
-  yourself. On an arena with `coreHp > 0` this **replaces** the gate breach of
-  §1; gate-breach remains the only win condition where `coreHp` is 0.
-- **Base production.** Each base produces one Runner onto its own lane every
-  `productionTicks` (the original: 5 s), free, up to `productionLimit` alive.
-  This is **additive** to the §3 points economy: consoles, costs and the Warden's
-  spending are unchanged. The alive limit is ours, not the original's — the
-  original stores a per-cycle spawn count, and two bases at 12 units/min would
-  otherwise fill the entity store.
+- **Win condition — §1's gate, the original's box.** There is **no destructible
+  core** (SIM_VERSION 32). This section used to adopt a "destroy the enemy base"
+  objective with a 3000 HP core; the decompiled executable says otherwise
+  (`fcop-re/ranges-turrets-capture.md` top + Q4, `ai-and-rules.md` §0/§5): actor
+  type 28, extracted as "TeamBase?", is the **Dreadnought**, and the 3000 HP was
+  its own. The original wins when an enemy **tank or Dreadnought** — a Runner or
+  Juggernaut — enters the base's gate trigger, then counts 1750 ticks (5.83 s)
+  down to the results page, which is §1's rule and outro. Each base's gate is the
+  imported gate trigger box (Mp 2457 × 1843 raw = 4.8 × 3.6 m; half-extent
+  raw/1024 m, grown by the intruder's own radius). Jets and avatars never breach,
+  so pillar 1 survives exactly as in §1.
+- **No free production.** The original's tank, jet and Dreadnought spawners are
+  shut in PA; units appear only when bought (§3). The "1 Runner per 5 s" this
+  section used to adopt was the Dreadnought spawner's period.
+- **The Juggernaut is the original Dreadnought.** It rolls out at the type-28
+  record (node 0 of its Cnet, beside the HQ) rather than at the console it is
+  bought from, with 3000 HP and four hull guns of weapon 3 (100 damage every
+  2.0 s, 12 m). The guns are modelled as four shooters at the hull's position
+  sharing one target: the original mounts them at the hull model's points (under
+  0.9 m off centre) with their own 237°/s slew, which at a 12 m reach changes
+  nothing a player can see. The "four built-in base guns" the core used to carry
+  were these guns. On §1 arenas the Juggernaut keeps §4's stats.
 - **Turrets carry their own parameters.** Range, fire cadence, gun slew, field of
   view, rest rotation and health come from the arena's imported data instead of the
-  global constants — for **all three** kinds: capturable pads, base ring turrets
-  and the built-in base guns. Health too, with one exception: `BaseShooter` carries
-  no health field, so the built-in guns take the 500 every original `Turret` actor
-  has rather than the base structure's own 3000. That number is ours, like their
-  position — they sit on the core because the original stores no coordinates for
-  them — and four 3000 HP guns standing on the objective gated it at a unit's own
-  reach (issue #31). The original's reach is short: `engage_range` 6144 is
+  global constants — for both kinds: capturable pads and base ring turrets.
+  (A third kind, "built-in base guns" on the core, existed until SIM_VERSION 32;
+  they were the Dreadnought's hull guns and now ride on the Juggernaut.) The
+  original's reach is short: `engage_range` 6144 is
   12 m (`raw << 4` world units — fcop-re/ranges-turrets-capture.md Q1; it read
   6 m under an inferred scale until SIM_VERSION 31), against the pre-PA global
   28 m, and turrets are placed within a few metres
@@ -281,8 +294,11 @@ only what Metropolis adopts from it.
   the game's own bars. It still does not apply here: those ids are a **different
   id space** from the `weapon_id` on `BaseShooter` actors, so the figures are the
   player's loadout and say nothing about a turret. The avatar's weapons DID adopt
-  them (§2, SIM_VERSION 21); binding the actor `weapon_id` space to the executable's
-  is still open, and until it is, turret damage stays ours.
+  them (§2, SIM_VERSION 21). The actor `weapon_id` has since been bound too: it
+  indexes each mission's own type-98 catalogue, and every turret carries weapon 3
+  (100 damage every 2.0 s — `fcop-re/ranges-turrets-capture.md` Q3). The
+  Juggernaut's hull guns use it; turret damage moves to it with the weapons
+  package (`fcop-fidelity.md` W3) and stays ours until then.
 - **Capture points are the original pads.** Every original `NeutralTurret`
   becomes a capture spot — 32 on Mp and Conft, 29 on Slim and Joke, against the
   4–6 of §5. Capture rules
