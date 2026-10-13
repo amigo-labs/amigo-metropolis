@@ -1,38 +1,29 @@
-# Sound-effect assets
+# The original's sounds
 
-One `.wav` per game cue, named after the cue in
-`packages/client/src/audio/presets.ts` — `shot.wav`, `capture.wav` and so on.
-Fetched at runtime, so adding one needs no rebuild, exactly like `../music/`.
+Future Cop: L.A.P.D.'s own sound files, unchanged:
 
-**What is here: the original's alert voice lines** (`vo_*.wav`, speech ids 0-6
-and 19 from the six Precinct Assault arenas' shared voice bank; rules.md §9,
-`docs/specs/fcop-fidelity.md` R15). Every other cue is still rendered at unlock
-by the clean-room sfxr synth (`src/audio/sfxr.ts`), and the synth remains the
-fallback forever, voices included. `audio/engine.ts` `loadSfxFiles()` then
-replaces only the cues listed in `src/audio/sfxFiles.generated.ts`; a cue with
-no file, or one whose file 404s or fails to decode, keeps its synth. So real
-sounds can arrive one cue at a time with nothing else to change.
+- `sNNN.wav` — every sample a Precinct Assault sound bank registers: the raw
+  `Cwav` RIFF images (22050 Hz, 16-bit, mono, with their `smpl` loop chunks),
+  named as the RE repo's `extracted/sfx_v2/` names them.
+- `voice/vNNN.wav` — the 86 speech lines of the six arenas' shared voice bank;
+  speech id N is `v{N+1:03d}.wav` (8-bit, 22050 Hz, mono).
 
-Do not drop files here by hand. They are built from committed raws by
-`bun run gen:sfx` (`tools/generators/genSfx.ts`, driven by
-`tools/generators/sfx/manifest.ts`), which trims, downmixes to mono and
-peak-normalises to −3 dBFS — loudness is baked in, so the runtime only swaps a
-buffer. `tools/generators/test/sfxCues.test.ts` asserts the generated lookup
-still matches the manifest, so editing the manifest without re-running the
-generator fails the suite.
+They are copied byte for byte by `tools/generators/importFcopAudio.ts` from a
+checkout of `amigo-labs/fcop-reverse-engineering`. Nothing is trimmed,
+normalised or re-encoded: the original has no per-sound level, so a file's own
+level is the level it plays at. Which file plays for which event — the script
+tables A, B and high, each slot's priority, polyphony, loop, lead-in head and
+round-robin variants — comes from the RE's simulation of the retail loader
+(`docs/specs/fcop-re/pa-audio.json`), turned into
+`src/audio/fcopAudio.generated.ts` by `bun run gen:sfx`, which also fails if a
+file the tables name is missing here.
 
-Why only the voices: the mission scripts' speech ops (0x0c/0x0d) name which line
-each event plays, so the alert lines are bound by reading, not by ear. The 348
-unique sound EFFECTS carry no semantic labels and their binding is still open, so
-picking those is a listening pass — see the manifest header for the shortlists in
-the RE repo that narrow 348 down, and issue #27.
+Do not drop files here by hand; re-run the import.
 
 The service worker needs no change: `sw.js` applies stale-while-revalidate to
-every same-origin GET, so `/sfx/*.wav` is cached on first play. It is
-deliberately not added to the `SHELL` precache list, whose `install` fails
-wholesale on a single 404 — the opposite of what a per-cue, tolerate-missing
-rollout wants.
+every same-origin GET, so `/sfx/*` is cached on first use. It is deliberately
+not in the `SHELL` precache list, whose `install` fails wholesale on a single
+404.
 
-Licensing follows `docs/specs/assets.md` §2 (no restriction on committed
-assets, original Future Cop material explicitly permitted), with provenance in
-`CREDITS.md`.
+Licensing follows `docs/specs/assets.md` §2 (original Future Cop material
+explicitly permitted), with provenance in `CREDITS.md`.
