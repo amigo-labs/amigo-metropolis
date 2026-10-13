@@ -623,30 +623,32 @@ Waves, in this order:
 The RE repo has the whole sound module decompiled (`src/game/snd/`), so which
 sound plays for which event is read from code and data, not picked by ear (#27).
 
-- [ ] RE: `tools/audio/pa_sound_tables.py` — the retail loader simulated over
+- [x] RE: `tools/audio/pa_sound_tables.py` — the retail loader simulated over
       GlblData + each PA mission: script tables A / B / high, slots with priority,
       polyphony, loop, lead-in heads, round-robin variants; weapon, ambient,
       effect, death-chain and emitter bytes
-- [ ] RE: music re-extracted in the engine's format (14260 Hz, 8-bit, stereo);
+- [x] RE: music re-extracted in the engine's format (14260 Hz, 8-bit, stereo);
       the nine front-end WAVE resources extracted; stale audio docs corrected
-- [ ] RE: `tools/audio/pa_voice_triggers.py` — every voice line's trigger
+- [x] RE: `tools/audio/pa_voice_triggers.py` — every voice line's trigger
 - [x] Mixer: level and pan curves, octagonal distance, 16 m linear falloff, the
       24-channel pool with both ways of stealing, kind-1 key decay, the speech
       ring (`audio/mixer.ts`, `audio/speech.ts`)
 - [x] Sim events the original sounds need: dry fire, five rounds left, transform
       refused, the block-B bit on the avatar's shots, the Sky Captain's missile and
       bomb rows. Events are not hashed: goldens unchanged
-- [ ] Import: the tables as `docs/specs/fcop-re/pa-audio.json`, raws under
-      `tools/generators/sfx/raw/fcop/`, files copied unchanged (no trim, no
-      normalising) by `gen:sfx`
-- [ ] Engine on the original's playback model, every cue wired: weapons (cued
-      loops / launch one-shots), world weapons, effects and death chains, walker
-      and hover loops, ambient queue, purchases, capture, pickups, pause, speech
-      with ducking, music per arena
-- [ ] The three original sliders (Sound Effects, Music, Movies, 0..127) with the
+- [x] Import: the tables as `docs/specs/fcop-re/pa-audio.json` and
+      `pa-voice.json`, the files copied unchanged (no trim, no normalising) into
+      `public/sfx` and `public/music` by `importFcopAudio.ts`; `gen:sfx` turns the
+      tables into `audio/fcopAudio.generated.ts`
+- [x] Engine on the original's playback model, every cue wired: weapons (cued
+      loops / launch one-shots), world weapons, effects and death chains, hover
+      loop, ambient queue and prop emitters, purchases, capture, pickups, pause,
+      speech with ducking (all 86 lines by the scripts' rules), music per arena.
+      The walker's loop waits on the X1's animations (ledger A9, wave 5)
+- [x] The three original sliders (Sound Effects, Music, Movies, 0..127) with the
       original's defaults
-- [ ] Remove the sfxr synth, the synth music and the owner's mp3s from the game
-- [ ] Ledger: an Audio section with the adopted rows and the RE gaps
+- [x] Remove the sfxr synth, the synth music and the owner's mp3s from the game
+- [x] Ledger: an Audio section with the adopted rows and the RE gaps
 - [ ] Close #27
 
 ## Backlog (post-v1, do not start)

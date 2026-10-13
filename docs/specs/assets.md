@@ -125,9 +125,17 @@ forever as a debug render mode (`?render=greybox`).
 
 ## 5. Audio
 
-- SFX: jsfxr presets committed as JSON (regenerable) + rendered .ogg; plus
-  packs like Kenney where procedural doesn't cut it. Mixed through a tiny
-  WebAudio wrapper (no audio library dependency).
-- Music: any tracks for v1. (Long-term candidate: amigo-trommel —
-  explicitly out of scope until Pincel v1.0 ships.)
-- All audio triggered from the sim event ring buffer, never from render state.
+Since the owner's rule of 2026-10-13 (`fcop-fidelity.md`, audio rows A1–A21) Metropolis
+plays only the original's sound:
+
+- SFX and speech: the original's `Cwav` samples and voice bank, copied unchanged into
+  `packages/client/public/sfx/` (`tools/generators/importFcopAudio.ts` from an RE
+  checkout). No synth, no packs, no per-sound level: the original has none.
+- Which file an event plays, at which priority, polyphony and loop: the RE's run of the
+  retail loader (`docs/specs/fcop-re/pa-audio.json`) and the voice ops of the arenas'
+  scripts (`pa-voice.json`), generated into `audio/fcopAudio.generated.ts` by
+  `bun run gen:sfx`. Mixed by a WebAudio model of the original's 24-channel module
+  (`audio/mixer.ts`, `audio/engine.ts`; no audio library dependency).
+- Music: each arena's own track (`public/music/<Mission>.wav`, 8-bit stereo 14260 Hz).
+- All audio is driven from the sim's event ring and the snapshot interface, never from
+  sim internals, and nothing the audio does reaches the sim.
