@@ -15,6 +15,11 @@ export interface BankSample {
   readonly start: number;
   /** Window length in frames. */
   readonly frames: number;
+  /**
+   * The load gate (`res_begin_resource` 0x004168b0): this sample is loaded only
+   * when either player's loadout carries the weapon with this code; -1 always.
+   */
+  readonly gate: number;
 }
 
 export interface BankSlot {
@@ -37,6 +42,25 @@ export interface SoundBank {
   readonly b: readonly number[];
   /** Script ids 70..129 -> slot, -1 none (DAT_004a1bb0). */
   readonly h: readonly number[];
+}
+
+/**
+ * The bank a match actually loads: every gated sample whose weapon neither
+ * player carries is left out, so a slot can end up with fewer variants or none
+ * — and a script id naming an empty slot plays nothing (`slotFor`). The RE's
+ * tables are the everything-loaded superset and no cell has two gated
+ * writers, so a loadout only ever removes. `codes` are the weapon codes of both
+ * players' loadouts (the original's mission state words 10..15).
+ */
+export function loadedBank(bank: SoundBank, codes: ReadonlySet<number>): SoundBank {
+  return {
+    ...bank,
+    slots: bank.slots.map((s) =>
+      s.samples.every((x) => x.gate < 0 || codes.has(x.gate))
+        ? s
+        : { ...s, samples: s.samples.filter((x) => x.gate < 0 || codes.has(x.gate)) },
+    ),
+  };
 }
 
 export const TABLE_A = 0;

@@ -14,6 +14,11 @@ export interface WeaponBlockSounds {
   readonly impactFx: number;
   /** +0x1b: the flash / launch effect (bank 1). */
   readonly launchFx: number;
+  /**
+   * The kind its damage message carries, which the target's death mask
+   * collects (0: none — rounds, missiles and blasts send no such message).
+   */
+  readonly hitKind: number;
 }
 
 export interface PlayerWeaponSounds {
@@ -39,11 +44,46 @@ export interface EffectRecord {
   readonly next: number;
   /** The successor's delay in sim ticks (0: at once). */
   readonly delay: number;
+  /** Ids 0x3d–0x44 and 0x64–0x76 play their sound at the player (0x0042d3d6). */
+  readonly atPlayer: boolean;
 }
 
-/** Ids 0x3d–0x44 and 0x64–0x76 play "at the player" (0x0042d020). */
-export function effectAtPlayer(id: number): boolean {
-  return (id >= 0x3d && id <= 0x44) || (id >= 0x64 && id <= 0x76);
+/**
+ * One class row of the effect table (type 91): what `cact_effect_emit`
+ * (0x0042b910) raises for an actor of that class when it dies.
+ */
+export interface DeathClass {
+  /** The effect bank: 0, the mech's 1. */
+  readonly bank: number;
+  /** The fallback id, raised instead of group 0's on the coin. */
+  readonly fallback: number;
+  /** Class flags bit 0 clear: group 0 may draw the fallback, one in two. */
+  readonly alternate: boolean;
+  /** Each group's id; group i (1..4) answers bit i of the death mask. */
+  readonly groups: readonly number[];
+}
+
+/** One voice op the arena's scripts carry, and its rule (pa-voice.json). */
+export interface VoiceRule {
+  readonly trigger: string;
+  /** 0 a mission function (polled), 1 an actor script (runs at once). */
+  readonly script: number;
+  /** 0 queue (op 0x0c), 1 interrupt (op 0x0d). */
+  readonly op: number;
+  /** The lines, one drawn uniformly. */
+  readonly lines: readonly number[];
+  /** The chance it plays when its gate passes. */
+  readonly p: number;
+  /** The function's poll period in sim ticks, 0 for an actor script. */
+  readonly poll: number;
+  /** Gated on, and re-arming, the captain's shared chatter cooldown. */
+  readonly chatter: boolean;
+  /** The function runs once a round. */
+  readonly once: boolean;
+  readonly outpost: number;
+  readonly slot: number;
+  /** Only in a one-viewport game (against the Sky Captain). */
+  readonly oneViewport: boolean;
 }
 
 export interface ArenaAudio {
@@ -65,18 +105,21 @@ export interface ArenaAudio {
     Readonly<Record<number, EffectRecord>>,
     Readonly<Record<number, EffectRecord>>,
   ];
-  /** The effect ids a death installs, by what died (bank 0; the mech's bank 1). */
+  /** The class rows a death emits from, by what died, in class order. */
   readonly deaths: {
-    readonly turret: readonly number[];
-    readonly neutralTurret: readonly number[];
-    readonly tank: readonly number[];
-    readonly jet: readonly number[];
-    readonly fortress: readonly number[];
-    readonly dreadnought: readonly number[];
-    readonly mech: readonly number[];
+    readonly turret: readonly DeathClass[];
+    readonly neutralTurret: readonly DeathClass[];
+    readonly tank: readonly DeathClass[];
+    readonly jet: readonly DeathClass[];
+    readonly fortress: readonly DeathClass[];
+    readonly dreadnought: readonly DeathClass[];
+    readonly captain: readonly DeathClass[];
+    readonly mech: readonly DeathClass[];
   };
   /** Prop sound emitters (type 96): metres in Metropolis' frame, script id. */
   readonly emitters: readonly { readonly x: number; readonly z: number; readonly sound: number }[];
+  /** Every voice op of the arena's scripts. */
+  readonly voice: readonly VoiceRule[];
   /** The arena's music URL. */
   readonly music: string;
 }

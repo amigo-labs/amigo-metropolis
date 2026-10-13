@@ -59,9 +59,7 @@ if (await Bun.file(voicePath).exists()) {
   specs.push(join(SPECS, "pa-voice.json"));
   await copyFile(voicePath, specs[1]);
 }
-// The RE writes indent 1; this repo's formatter owns its JSON's layout.
-const fmt = Bun.spawnSync(["bunx", "biome", "format", "--write", ...specs], { cwd: ROOT });
-if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+// Both stay byte-identical to the RE's output (biome.json leaves them out).
 
 // Every sample any PA bank registers.
 const samples = new Set<string>();
