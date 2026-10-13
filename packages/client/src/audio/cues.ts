@@ -8,23 +8,36 @@
 //   player_fire_launch 0x004591f1  other kinds: +0x1c, one-shot (table B)
 //   player_fire_slot   0x00458f57  empty: script 13; 0x00458f6f five left: 14
 //   player_gauge_set   0x004482f0  health under a third, then at zero: 14
-//   player_tick        0x00446fe5  transform: 21; refused (0x004421dc): 42
+//   player_tick        0x00446fe5  transform: 21 and effect 4; refused (0x004421dc): 42
 //   player_op4         0x00447610  the PA wreck: 65, effects 3 and 9 (bank 1)
 //   player_hover_tick  0x0044267f  hover loop: 40 idle, 41 driving, 42 brake
 //   cact_weapon_discharge 0x0044dfb4  world weapons: the row's +0x1c, at the shooter
 //   cact_effect_install   0x0042d020  every effect: its +0x16, at it or at the player
+//   cact_effect_emit      0x0042b910  a death's effects, by class, mask and coin
 //   cact_registry_build   0x0043b520  ambient loops: each actor's body[29], queued
+//   snd_emit_voice_follow 0x00430100  prop emitters, queued
 //   mission_flush_pending_sound 0x00436250  63 accept / capture, 73 refuse, 83 pickup
-//   Cfun ops 0x0c / 0x0d  speech lines (voice.c), by the scripts' rules
+//   Cfun ops 0x0c / 0x0d  speech, by the scripts' own rules (pa-voice.json)
 //
 // "Placed" follows the original's split-screen rule, which is also its network
 // rule: a sound that belongs to the local player is heard flat, one that
 // belongs to the other player is heard from where it happens.
+//
+// The random draws the original makes from its game stream (a death's coin,
+// a script's dice) are drawn here from the client's own: they decide what is
+// heard, never what happens, so they stay out of the lockstep sim.
 
 import {
   ARCHETYPE,
+  CAPTAIN_ORDER_DREADNOUGHT,
+  CAPTAIN_ORDER_FORTRESS,
+  CAPTAIN_ORDER_JETS,
+  CAPTAIN_ORDER_TANKS,
   EV_ALARM,
   EV_BREACH,
+  EV_CAPTAIN_EVENT,
+  EV_CAPTAIN_MODE,
+  EV_CAPTAIN_ORDER,
   EV_CAPTURE,
   EV_CLAIM,
   EV_DEATH,
@@ -35,6 +48,8 @@ import {
   EV_PICKUP,
   EV_PURCHASE,
   EV_PURCHASE_REFUSED,
+  EV_RESPAWN,
+  EV_ROUND_IMPACT,
   EV_SHOT,
   EV_TRANSFORM,
   EV_TRANSFORM_REFUSED,
@@ -45,21 +60,34 @@ import {
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_MOVE,
+  MAX_ENTITIES,
   MAX_PLAYERS,
   MOVE_CUE_BRAKE,
   MOVE_CUE_DRIVE,
   MOVE_CUE_TURN,
   matchSlotOffset,
+  roundSourceArchetype,
+  roundSourceTeam,
   SHOT_SLOT_HITSCAN,
   SHOT_SLOT_LAUNCH,
   SHOT_SLOT_SPECIAL,
+  SKY_MODE_DEFEND,
+  SKY_MODE_ROAM,
   SKY_WEAPON_BOMB,
   SKY_WEAPON_MISSILE,
   shotPayloadPowered,
   shotPayloadWeaponId,
+  shotPayloadWeaponReach,
+  TURRET_CAPTURABLE,
   weaponById,
 } from "@metropolis/sim";
-import { type ArenaAudio, effectAtPlayer, type PlayerWeaponSounds } from "./arenaAudio";
+import type {
+  ArenaAudio,
+  DeathClass,
+  PlayerWeaponSounds,
+  VoiceRule,
+  WeaponBlockSounds,
+} from "./arenaAudio";
 import { type AudioEngine, LOOP_SCRIPT_NONE, QUEUE_RECORDS } from "./engine";
 
 // --- script ids the original's code names outright --------------------------
@@ -71,11 +99,10 @@ const SCRIPT_WRECK = 65;
 const HOVER_IDLE = 40;
 const HOVER_MOVE = 41;
 const HOVER_BRAKE = 42;
-/** The mech's own effects (bank 1): its wreck (player_op4). */
+/** The mech's own effects (bank 1): its wreck (player_op4) and the transform. */
 const MECH_WRECK_EFFECTS = [3, 9] as const;
-/** The transform's effect (bank 1, player_tick 0x00446fe5). */
 const TRANSFORM_EFFECT = 4;
-/** Pending-sound slot values the scripts write (ai-and-rules.md §6). */
+/** Pending-sound slot values the scripts write. */
 const PENDING_ACCEPT = 63;
 const PENDING_REFUSE = 73;
 const PENDING_PICKUP = 83;
@@ -89,16 +116,21 @@ function directKind(kind: number): boolean {
 }
 /** `cact_registry_build`'s reach for the ambient queue: 0x22000 world units. */
 const AMBIENT_RANGE_M = 0x22000 / 8192;
+/** Delayed effect successors waiting to install. */
+const MAX_PENDING_EFFECTS = 64;
 /** An ambient queue record nobody owns; emitters own keys from EMITTER_KEY down. */
 const FREE = -1;
 const EMITTER_KEY = -2;
-/** Delayed effect successors waiting to install. */
-const MAX_PENDING_EFFECTS = 64;
-
-// --- speech -----------------------------------------------------------------
-/** Outpost claims, I7..I14: slot-major pairs in the order outposts 2, 3, 1, 0. */
-const CLAIM_LINE_BASE = 7;
-const CLAIM_ORDER = [3, 2, 0, 1] as const; // outpost index -> pair index
+/** The death mask's bits (cact_base_op11): hit kinds 2, 4, 8, 16 -> groups 1..4. */
+const MASK_BITS = 0x1e;
+/** The captain's chatter cooldown: 180 of the scripts' 1/60 s = 3 s. */
+const CHATTER_COOLDOWN_TICKS = 90;
+/** fn55: line `74 + level - 1`, for a level of 1 and up. */
+const LEVEL_LINE_BASE = 74;
+/** The captain's level bands for its class rows 220..223 (sky_construct). */
+function captainClassIndex(level: number): number {
+  return level < 3 ? 0 : level < 6 ? 1 : level < 9 ? 2 : 3;
+}
 
 /** Snapshot entity fields (sim.ts writeSnapshot). */
 const S_ID = 0;
@@ -106,7 +138,9 @@ const S_ARCH = 1;
 const S_TEAM = 2;
 const S_X = 3;
 const S_Y = 4;
+const S_YAW = 6;
 const S_ANIM = 7;
+const S_AUX = 9;
 const ANIM_HOVER = 1 << 1;
 
 export interface CueContext {
@@ -119,8 +153,15 @@ export interface CueContext {
   readonly localSlot: number;
   /** The Sky Captain's slot, -1 in a two-human match. */
   readonly captainSlot: number;
-  /** The Sky Captain's level (0..9), for the opening announcement. */
+  /** The Sky Captain's level (0..9), for the announcement and its class. */
   readonly captainLevel: number;
+}
+
+/** One voice rule's state: armed by an event, polled on its own period. */
+interface VoiceState {
+  pending: boolean;
+  countdown: number;
+  spent: boolean;
 }
 
 export class OriginalSounds {
@@ -131,7 +172,7 @@ export class OriginalSounds {
   private readonly gaugeAvatar = new Int32Array(MAX_PLAYERS).fill(-1);
   /** Per slot: hover (1) or walker (0) as last seen, for the loop register. */
   private readonly form = new Int8Array(MAX_PLAYERS).fill(-1);
-  /** Ambient queue record -> entity id, -1 free. */
+  /** Ambient queue record -> owner (entity id, or an emitter key). */
   private readonly ambientOwner = new Int32Array(QUEUE_RECORDS).fill(FREE);
   private readonly ambientSeen = new Uint8Array(QUEUE_RECORDS);
   /** Delayed effects: bank, id, x, z, ticks left (0 = free). */
@@ -140,8 +181,24 @@ export class OriginalSounds {
   private readonly fxX = new Float32Array(MAX_PENDING_EFFECTS);
   private readonly fxZ = new Float32Array(MAX_PENDING_EFFECTS);
   private readonly fxLeft = new Int32Array(MAX_PENDING_EFFECTS);
+  /** Each actor's death mask: OR of the hit kinds its op-0x0e hits carried. */
+  private readonly mask = new Uint8Array(MAX_ENTITIES);
+  /** Per player, this tick's direct-fire hit kind and pending impact effect. */
+  private readonly shotKind = new Uint8Array(MAX_PLAYERS);
+  private readonly shotImpact = new Int16Array(MAX_PLAYERS);
   private readonly pos = new Float32Array(3);
-  private announced = false;
+  /** id -> snapshot offset, rebuilt each tick. */
+  private readonly index = new Int32Array(MAX_ENTITIES).fill(-1);
+  // --- speech -----------------------------------------------------------------
+  private voice: VoiceState[] = [];
+  /** The captain's shared chatter cooldown (timer 10; Joke's and Slim's 12). */
+  private chatterTimer = 0;
+  /** State word 56: the captain's pending announcement, 0 none. */
+  private word56 = 0;
+  /** State word 39: the captain's mode, as its idle-chatter script reads it. */
+  private captainMode = SKY_MODE_DEFEND;
+  private levelLine = -1;
+  private started = false;
 
   constructor(private readonly engine: AudioEngine) {}
 
@@ -154,19 +211,35 @@ export class OriginalSounds {
     this.form.fill(-1);
     this.ambientOwner.fill(FREE);
     this.fxLeft.fill(0);
-    this.announced = false;
+    this.mask.fill(0);
+    this.voice = data.voice.map((v) => ({ pending: false, countdown: v.poll, spent: false }));
+    this.chatterTimer = 0;
+    this.word56 = 0;
+    // sky_construct leaves the captain defending (mode 2).
+    this.captainMode = SKY_MODE_DEFEND;
+    this.started = false;
   }
 
   /** One tick's events, then the per-tick state the original reads each frame. */
   tick(events: EventBuffer, ctx: CueContext): void {
     const data = this.data;
     if (!data) return;
-    if (!this.announced) {
-      this.announced = true;
-      // fn55: the level announcement, `74 + level - 1` for a level above 0.
-      if (ctx.captainSlot >= 0 && ctx.captainLevel > 0)
-        this.engine.speak(74 + ctx.captainLevel - 1);
+    this.buildIndex(ctx);
+    if (!this.started) {
+      this.started = true;
+      if (ctx.captainSlot >= 0) {
+        this.levelLine = ctx.captainLevel >= 1 ? LEVEL_LINE_BASE + ctx.captainLevel - 1 : -1;
+        this.arm("captain_level_announce", -1, -1);
+        // sky_construct posts the free opening order into the base's tank and
+        // jet words (level 1 and up), which their scripts announce.
+        if (ctx.captainLevel >= 1) {
+          this.arm("captain_orders_tanks", -1, -2);
+          this.arm("captain_orders_jets", -1, -2);
+        }
+      }
     }
+    this.shotKind.fill(0);
+    this.shotImpact.fill(-1);
     const d = events.data;
     for (let i = 0; i < events.count; i++) {
       const o = i * EVENT_STRIDE;
@@ -175,6 +248,7 @@ export class OriginalSounds {
     this.avatars(ctx);
     this.ambient(ctx);
     this.delayedEffects();
+    this.voiceTick(ctx);
     this.engine.frame();
   }
 
@@ -186,6 +260,9 @@ export class OriginalSounds {
       case EV_SHOT:
         this.shot(a, b, c, ctx);
         return;
+      case EV_HIT:
+        this.hit(a, b, ctx);
+        return;
       case EV_DRY_FIRE:
         this.playerScript(SCRIPT_EMPTY, b, a, ctx);
         return;
@@ -194,16 +271,23 @@ export class OriginalSounds {
         return;
       case EV_TRANSFORM:
         this.playerScript(SCRIPT_TRANSFORM, this.slotOfAvatar(a, ctx), a, ctx);
-        if (this.locate(a, ctx)) this.installEffect(1, TRANSFORM_EFFECT, this.pos[0], this.pos[2]);
+        if (this.locate(a)) this.installEffect(1, TRANSFORM_EFFECT, this.pos[0], this.pos[2]);
         return;
       case EV_TRANSFORM_REFUSED:
         this.playerScript(SCRIPT_TRANSFORM_REFUSED, b, a, ctx);
         return;
       case EV_PURCHASE:
-        // The purchase spots' scripts (accept 63) answer a human's key press;
-        // the Sky Captain buys through its request words and their scripts.
-        if (b !== ctx.captainSlot) engine.setPending(PENDING_ACCEPT);
-        this.purchaseLines(b, c, ctx);
+        // A human's purchase spot answers its key press (accept 63) and the
+        // heavy spots speak; the Sky Captain buys through its request words
+        // (EV_CAPTAIN_ORDER).
+        if (b !== ctx.captainSlot) {
+          engine.setPending(PENDING_ACCEPT);
+          if (c === ARCHETYPE.JUGGERNAUT) this.arm("dreadnought_bought", b, -1, 1);
+          else if (c === ARCHETYPE.FORTRESS) this.arm("flying_fortress_bought", b, -1, 1);
+        }
+        return;
+      case EV_CAPTAIN_ORDER:
+        this.captainOrder(b, c);
         return;
       case EV_PURCHASE_REFUSED:
         engine.setPending(PENDING_REFUSE);
@@ -211,34 +295,50 @@ export class OriginalSounds {
       case EV_CAPTURE:
         // turret_op10 runs the capture script, which writes the same 63.
         engine.setPending(PENDING_ACCEPT);
-        if (b === ctx.captainSlot) this.captain([50, 51, 52]);
+        if (b === ctx.captainSlot) this.word56 = 6; // 0x0041cbdd
         return;
       case EV_PICKUP:
         // The ItemPickup's death script.
         engine.setPending(PENDING_PICKUP);
         return;
       case EV_CLAIM:
-        this.claimLines(b, c, ctx);
+        this.claim(b, c, ctx);
         return;
       case EV_TURRET_LOST:
-        engine.speak(b === 1 ? 1 : 0);
+        this.arm("base_turret_destroyed", b, -1, 1);
         return;
       case EV_ALARM:
-        engine.speak(c === 1 ? 3 : 2);
+        this.arm("base_intrusion", c, -1);
         return;
       case EV_TURRET_UNDER_FIRE:
-        engine.speak(b === 1 ? 5 : 4);
+        this.arm("base_turret_under_fire", b, -1);
         return;
       case EV_BREACH:
-        this.breachLines(b, ctx);
+        // b is the winner; the overrun base is the loser's.
+        this.arm("base_overrun", b === 0 ? 1 : 0, -1);
+        this.arm(b === 0 ? "captain_loses" : "captain_wins", -1, -1);
         return;
       case EV_DEATH:
         this.death(a, b, c, ctx);
         return;
+      case EV_RESPAWN:
+        this.respawn(b, ctx);
+        return;
       case EV_EXPLOSION:
         this.explosion(a / 16, b / 16, c);
         return;
-      case EV_HIT:
+      case EV_ROUND_IMPACT: {
+        const w = this.data?.world[worldRow(roundSourceArchetype(c), roundSourceTeam(c))];
+        if (w) this.installEffect(0, w.impactFx, a / 16, b / 16);
+        return;
+      }
+      case EV_CAPTAIN_MODE:
+        // The decision pass's switch into mode 1 is event 1 (0x00421042).
+        if (b === 1 && this.captainMode !== 1) this.word56 = 1;
+        this.captainMode = b;
+        return;
+      case EV_CAPTAIN_EVENT:
+        this.word56 = b;
         return;
       default:
         return;
@@ -247,120 +347,202 @@ export class OriginalSounds {
 
   private shot(shooter: number, slot: number, c: number, ctx: CueContext): void {
     const data = this.data;
-    if (!data) return;
+    if (!data || !this.locate(shooter)) return;
+    const x = this.pos[0];
+    const z = this.pos[2];
     if (slot <= SHOT_SLOT_SPECIAL) {
       const player = this.slotOfAvatar(shooter, ctx);
       const w = weaponById(shotPayloadWeaponId(c));
       const rec = w ? this.weapons[w.code] : undefined;
-      if (!rec) return;
+      if (!w || !rec) return;
       const blk = shotPayloadPowered(c) ? rec.b : rec.a;
       const placed = player !== ctx.localSlot;
-      if (placed && !this.locate(shooter, ctx)) return;
-      if (directKind(blk.kind)) {
-        this.engine.playCued(placed ? 1 : 0, blk.sound, placed, this.pos[0], this.pos[2]);
-      } else {
-        this.engine.playScript(blk.sound, placed, this.pos[0], this.pos[2]);
+      const direct = directKind(blk.kind);
+      if (direct) this.engine.playCued(placed ? 1 : 0, blk.sound, placed, x, z);
+      else this.engine.playScript(blk.sound, placed, x, z);
+      this.installEffect(1, blk.launchFx, x, z);
+      if (player >= 0 && player < MAX_PLAYERS) {
+        this.shotKind[player] = blk.hitKind;
+        this.shotImpact[player] = direct ? blk.impactFx : -1;
+        if (direct) this.lineEnd(player, shooter, shotPayloadWeaponReach(c), w.range, blk, ctx);
       }
       return;
     }
-    // A world weapon: the row's sound at the shooter, always placed.
-    if (!this.locate(shooter, ctx)) return;
+    // A world weapon: the row's sound and launch effect at the shooter.
     const arch = this.archetypeOf(shooter, ctx);
     let row = 0;
     if (arch === ARCHETYPE.WARDEN) {
-      row =
-        slot === SHOT_SLOT_HITSCAN
-          ? 7
-          : c === SKY_WEAPON_MISSILE
-            ? 8
-            : c === SKY_WEAPON_BOMB
-              ? 9
-              : 0;
+      if (slot === SHOT_SLOT_HITSCAN) row = 7;
+      else if (c === SKY_WEAPON_MISSILE) row = 8;
+      else if (c === SKY_WEAPON_BOMB) row = 9;
     } else if (slot === SHOT_SLOT_LAUNCH) {
-      row = worldRow(arch);
+      row = worldRow(arch, this.teamOf(shooter, ctx));
     }
     const w = data.world[row];
-    if (!w || w.sound === 0) return;
-    this.engine.playScript(w.sound, true, this.pos[0], this.pos[2]);
+    if (!w || row === 0) return;
+    if (w.sound !== 0) this.engine.playScript(w.sound, true, x, z);
+    this.installEffect(0, w.launchFx, x, z);
+  }
+
+  /**
+   * The direct path raises its impact where the line ended when it reached a
+   * point: a body it hit (`hit`, below) or a wall short of its reach. A line
+   * that ran its full length into nothing raises none.
+   */
+  private lineEnd(
+    player: number,
+    shooter: number,
+    reach: number,
+    range: number,
+    blk: WeaponBlockSounds,
+    ctx: CueContext,
+  ): void {
+    if (reach <= 0 || reach >= range - 0.05) return;
+    const o = this.offsetOf(shooter);
+    if (o < 0) return;
+    const yaw = ctx.snapshot[o + S_YAW];
+    const x = ctx.snapshot[o + S_X] + Math.cos(yaw) * reach;
+    const z = ctx.snapshot[o + S_Y] + Math.sin(yaw) * reach;
+    // Raised here once; a body the same line hit adds nothing more.
+    this.shotImpact[player] = -1;
+    this.installEffect(1, blk.impactFx, x, z);
+  }
+
+  /** A damage message: the target's death mask, a direct line's impact, event 5. */
+  private hit(target: number, attacker: number, ctx: CueContext): void {
+    if (attacker < 0 || attacker >= MAX_PLAYERS) return;
+    const k = this.shotKind[attacker];
+    if (k > 1 && target >= 0 && target < MAX_ENTITIES) this.mask[target] |= k & MASK_BITS;
+    const fx = this.shotImpact[attacker];
+    if (fx > 0 && this.locate(target)) {
+      this.shotImpact[attacker] = -1;
+      this.installEffect(1, fx, this.pos[0], this.pos[2]);
+    }
+    // Every hit by player slot 0 on the captain rewrites word 56 (0x00421164).
+    if (attacker === 0 && this.archetypeOf(target, ctx) === ARCHETYPE.WARDEN) this.word56 = 5;
   }
 
   /** `snd_play_script(id, actor)` for a player's own mech. */
   private playerScript(id: number, player: number, avatar: number, ctx: CueContext): void {
     const placed = player !== ctx.localSlot;
     if (placed && ownViewOnly(id)) return;
-    if (placed && !this.locate(avatar, ctx)) return;
+    if (placed && !this.locate(avatar)) return;
     this.engine.playScript(id, placed, this.pos[0], this.pos[2]);
   }
 
-  private death(victim: number, _killer: number, archetype: number, ctx: CueContext): void {
+  private death(victim: number, killer: number, archetype: number, ctx: CueContext): void {
     const data = this.data;
     if (!data) return;
-    if (!this.locate(victim, ctx)) return;
+    const team = this.teamOf(victim, ctx);
+    let mask = 0;
+    if (victim >= 0 && victim < MAX_ENTITIES) {
+      mask = this.mask[victim];
+      this.mask[victim] = 0;
+    }
+    if (!this.locate(victim)) return;
     const x = this.pos[0];
     const z = this.pos[2];
-    const team = this.teamOf(victim, ctx);
+    const d = data.deaths;
     switch (archetype) {
       case ARCHETYPE.AVATAR: {
-        const player = this.slotOfAvatar(victim, ctx);
-        this.playerScript(SCRIPT_WRECK, player, victim, ctx);
+        this.emitDeath(d.mech[0], mask, x, z);
         for (const id of MECH_WRECK_EFFECTS) this.installEffect(1, id, x, z);
-        if (ctx.captainSlot >= 0 && player !== ctx.captainSlot) this.captain([26, 27, 41, 42, 43]);
+        this.playerScript(SCRIPT_WRECK, this.slotOfAvatar(victim, ctx), victim, ctx);
         return;
       }
       case ARCHETYPE.WARDEN:
-        this.deathEffects(data.deaths.fortress, x, z);
-        this.captain([28, 29, 44, 45]);
+        this.emitDeath(d.captain[captainClassIndex(ctx.captainLevel)], mask, x, z);
+        // Its death script: flag 27 (the shot-down line) and the chatter cooldown.
+        this.arm("captain_shot_down", -1, -1);
+        this.chatterTimer = CHATTER_COOLDOWN_TICKS;
         return;
-      case ARCHETYPE.TURRET:
-        this.deathEffects(team < 0 ? data.deaths.neutralTurret : data.deaths.turret, x, z);
+      case ARCHETYPE.TURRET: {
+        const neutral = this.auxOf(victim) === TURRET_CAPTURABLE;
+        this.emitDeath(neutral ? d.neutralTurret[0] : d.turret[0], mask, x, z);
+        if (neutral && ctx.captainSlot >= 0 && team >= 0) {
+          // Taken-turret death scoring: events 8 and 7 (0x0041bf03, 0x0041be82).
+          if (team === ctx.captainSlot) this.word56 = 8;
+          else if (killer === ctx.captainSlot) this.word56 = 7;
+        }
         return;
+      }
       case ARCHETYPE.RUNNER:
-        this.deathEffects(data.deaths.tank, x, z);
+        this.emitDeath(d.tank[0], mask, x, z);
         return;
       case ARCHETYPE.GUARDIAN:
-        this.deathEffects(data.deaths.jet, x, z);
+        this.emitDeath(d.jet[0], mask, x, z);
         return;
       case ARCHETYPE.JUGGERNAUT:
-        this.deathEffects(data.deaths.dreadnought, x, z);
-        if (team === 0 || team === 1) this.engine.speak(20 + team);
+        this.emitDeath(d.dreadnought[team === 1 ? 1 : 0] ?? d.dreadnought[0], mask, x, z);
+        this.arm("dreadnought_destroyed", team, -1, 1);
         return;
       case ARCHETYPE.FORTRESS:
-        this.deathEffects(data.deaths.fortress, x, z);
-        if (team === 0 || team === 1) this.engine.speak(22 + team);
+        this.emitDeath(d.fortress[0], mask, x, z);
+        this.arm("flying_fortress_destroyed", team, -1, 1);
         return;
       default:
         return;
     }
   }
 
-  private deathEffects(ids: readonly number[], x: number, z: number): void {
-    for (const id of ids) this.installEffect(0, id, x, z);
+  /**
+   * `cact_effect_emit` (0x0042b910) in mode 2: each group whose bit the death
+   * mask carries raises its id; none raised falls back to group 0, which draws
+   * the class's fallback instead on an odd coin when its flags allow.
+   */
+  private emitDeath(row: DeathClass | undefined, mask: number, x: number, z: number): void {
+    if (!row) return;
+    let raised = false;
+    for (let g = 1; g <= 4; g++) {
+      if ((mask & (1 << g)) === 0) continue;
+      const id = row.groups[g] ?? 0;
+      if (id === 0) continue;
+      this.installEffect(row.bank, id, x, z);
+      raised = true;
+    }
+    if (raised) return;
+    let id = row.groups[0] ?? 0;
+    if (row.alternate && Math.random() < 0.5) id = row.fallback;
+    if (id !== 0) this.installEffect(row.bank, id, x, z);
+  }
+
+  private respawn(player: number, ctx: CueContext): void {
+    if (player < 0) return;
+    if (player === ctx.captainSlot) {
+      this.word56 = 9; // sky_respawn 0x00422cc6
+      this.captainMode = SKY_MODE_ROAM;
+    } else if (player === 0 && ctx.captainSlot >= 0) {
+      // Player slot 0's reloc_28 runs at the respawn and sets flag 22: the gloat.
+      this.arm("captain_gloats_player_down", -1, -1);
+    }
   }
 
   private explosion(x: number, z: number, kind: number): void {
     const data = this.data;
     if (!data) return;
-    const fx = impactOf(kind, this.weapons, data);
-    if (fx) this.installEffect(fx.bank, fx.id, x, z);
+    const code = PROJ_CODE[kind];
+    if (code !== undefined) {
+      const w = this.weapons[code];
+      if (w) this.installEffect(1, w.a.impactFx, x, z);
+      return;
+    }
+    // The captain's bomb (row 9); world rounds come with EV_ROUND_IMPACT.
+    if (kind === PROJ_WARDEN) this.installEffect(0, data.world[9]?.impactFx ?? 0, x, z);
   }
 
   /**
-   * `cact_effect_install` (0x0042d020): the record's sound — at the player
-   * (flat, within 16 m) for the ids the install singles out, else where the
-   * effect is — and its successor, at once or after its delay.
+   * `cact_effect_install` (0x0042d020): dropped outright when no viewer is
+   * within 0x20000; otherwise the record's sound — flat for the ids the
+   * install sends to the player, else where the effect is — and its successor,
+   * at once or after its delay.
    */
   private installEffect(bank: number, id: number, x: number, z: number, depth = 0): void {
     const data = this.data;
-    if (!data || id <= 0 || depth > 8) return;
+    if (!data || id <= 0 || depth > 12) return;
+    if (!this.engine.inRange(x, z)) return;
     const rec = data.effects[bank === 1 ? 1 : 0][id];
     if (!rec) return;
-    if (rec.sound !== 0) {
-      if (effectAtPlayer(id)) {
-        if (this.engine.inRange(x, z)) this.engine.playScript(rec.sound, false, 0, 0);
-      } else {
-        this.engine.playScript(rec.sound, true, x, z);
-      }
-    }
+    if (rec.sound !== 0) this.engine.playScript(rec.sound, !rec.atPlayer, x, z);
     if (rec.next > 0) {
       if (rec.delay <= 0) this.installEffect(bank, rec.next, x, z, depth + 1);
       else this.deferEffect(bank, rec.next, x, z, rec.delay);
@@ -383,51 +565,112 @@ export class OriginalSounds {
     for (let i = 0; i < MAX_PENDING_EFFECTS; i++) {
       if (this.fxLeft[i] <= 0) continue;
       this.fxLeft[i]--;
-      if (this.fxLeft[i] === 0)
+      if (this.fxLeft[i] === 0) {
         this.installEffect(this.fxBank[i], this.fxId[i], this.fxX[i], this.fxZ[i]);
+      }
     }
   }
 
   // --- speech --------------------------------------------------------------------
 
-  private purchaseLines(player: number, archetype: number, ctx: CueContext): void {
-    const team = player === 1 ? 1 : 0;
-    if (archetype === ARCHETYPE.JUGGERNAUT) this.engine.speak(15 + team);
-    else if (archetype === ARCHETYPE.FORTRESS) this.engine.speak(17 + team);
-    else if (player === ctx.captainSlot) {
-      // The captain's order scripts: tanks 30/46 at 50 %, jets one of 47..49.
-      if (archetype === ARCHETYPE.RUNNER) {
-        if (Math.random() < 0.5) this.captain([30, 46]);
-      } else if (archetype === ARCHETYPE.GUARDIAN) this.captain([47, 48, 49]);
+  private captainOrder(kind: number, outpost: number): void {
+    // Its base's words carry no outpost: -2 picks the rule without one.
+    const at = outpost < 0 ? -2 : outpost;
+    if (kind === CAPTAIN_ORDER_TANKS) this.arm("captain_orders_tanks", -1, at);
+    else if (kind === CAPTAIN_ORDER_JETS) this.arm("captain_orders_jets", -1, at);
+    else if (kind === CAPTAIN_ORDER_DREADNOUGHT) this.arm("dreadnought_bought", -1, -1, 0);
+    else if (kind === CAPTAIN_ORDER_FORTRESS) this.arm("flying_fortress_bought", -1, -1, 0);
+  }
+
+  private claim(team: number, outpost: number, ctx: CueContext): void {
+    if (team === ctx.captainSlot) {
+      // fn22..25: the outpost's line and the captain's own chatter.
+      this.arm("outpost_bought", -1, outpost, 0);
+      this.arm("captain_chatter_outpost_bought", -1, outpost);
+      return;
+    }
+    // The pad's actor script: the outpost's line for the claiming slot.
+    this.arm("outpost_bought", team, outpost, 1);
+    // fn40: player slot 0's claim zone sets flag 23.
+    if (team === 0) this.arm("captain_chatter_player_claimed_outpost", -1, -1);
+  }
+
+  /**
+   * Arms every rule of `trigger` that matches `slot` (-1 any), `outpost` (-1
+   * any, -2 only a rule without one) and the kind of script (-1 either).
+   * Actor scripts speak at once; mission functions on their next poll.
+   */
+  private arm(trigger: string, slot: number, outpost: number, script = -1): void {
+    const data = this.data;
+    if (!data) return;
+    const rules = data.voice;
+    for (let i = 0; i < rules.length; i++) {
+      const r = rules[i];
+      if (r.trigger !== trigger) continue;
+      if (script >= 0 && r.script !== script) continue;
+      if (slot >= 0 && r.slot >= 0 && r.slot !== slot) continue;
+      if (outpost === -2 && r.outpost >= 0) continue;
+      if (outpost >= 0 && r.outpost >= 0 && r.outpost !== outpost) continue;
+      if (r.poll <= 0) this.say(r, i);
+      else this.voice[i].pending = true;
     }
   }
 
-  private claimLines(team: number, outpost: number, ctx: CueContext): void {
-    const pair = CLAIM_ORDER[outpost];
-    if (pair !== undefined && (team === 0 || team === 1)) {
-      this.engine.speakNow(CLAIM_LINE_BASE + pair * 2 + team);
+  /**
+   * Once a tick: the chatter cooldown runs down and every mission function
+   * polls on its own period (the scripts' repeating calls). A pending rule
+   * whose gate passes rolls its chance; the cooldown gates and re-arms the
+   * captain's chatter. The captain's announcement (word 56) is one slot each
+   * new event overwrites, taken by its function when its gate passes; the
+   * idle chatter polls the captain's mode.
+   */
+  private voiceTick(ctx: CueContext): void {
+    const data = this.data;
+    if (!data) return;
+    if (this.chatterTimer > 0) this.chatterTimer--;
+    const solo = ctx.captainSlot >= 0;
+    const rules = data.voice;
+    for (let i = 0; i < rules.length; i++) {
+      const r = rules[i];
+      if (r.poll <= 0) continue;
+      const st = this.voice[i];
+      if (--st.countdown > 0) continue;
+      st.countdown = r.poll;
+      if (st.spent || (r.oneViewport && !solo)) continue;
+      const event = CAPTAIN_EVENT_RULES[r.trigger];
+      if (event !== undefined) {
+        if (this.word56 !== event) continue;
+        if (r.chatter && this.chatterTimer > 0) continue; // stays pending
+        this.word56 = 0;
+        this.say(r, i);
+        continue;
+      }
+      if (r.trigger === "captain_idle_chatter") {
+        if (this.captainMode !== SKY_MODE_ROAM || this.chatterTimer > 0) continue;
+        this.say(r, i);
+        continue;
+      }
+      if (!st.pending) continue;
+      st.pending = false;
+      if (r.chatter && this.chatterTimer > 0) continue; // consumed, not said
+      this.say(r, i);
     }
-    if (ctx.captainSlot < 0) return;
-    if (team === ctx.captainSlot) this.captain([32, 58, 59]);
-    else this.captain([68, 69, 70]);
   }
 
-  private breachLines(winner: number, ctx: CueContext): void {
-    // fn02: slot 1's base overrun (I6), fn42: slot 0's (I19); in one-player
-    // the captain then wins (36/37/62) or loses (65..67).
-    if (winner === 0) {
-      this.engine.speakNow(6);
-      if (ctx.captainSlot === 1) this.captain([65, 66, 67]);
-    } else {
-      this.engine.speakNow(19);
-      if (ctx.captainSlot === 1) this.captain([36, 37, 62]);
+  /** The rule's dice, its line, and what it leaves behind. */
+  private say(r: VoiceRule, i: number): void {
+    const st = this.voice[i];
+    if (r.once) st.spent = true;
+    if (r.trigger === "captain_level_announce") {
+      if (this.levelLine >= 0) this.engine.speak(this.levelLine);
+      return;
     }
-  }
-
-  /** A queued captain line, `base + rand(-n)` over the script's set. */
-  private captain(lines: readonly number[]): void {
-    const pick = lines[Math.floor(Math.random() * lines.length)];
-    if (pick !== undefined) this.engine.speak(pick);
+    if (Math.random() >= r.p) return;
+    const line = r.lines[Math.floor(Math.random() * r.lines.length)];
+    if (line === undefined) return;
+    if (r.op === 1) this.engine.speakNow(line);
+    else this.engine.speak(line);
+    if (r.chatter) this.chatterTimer = CHATTER_COOLDOWN_TICKS;
   }
 
   // --- per tick: the mechs' loops and gauges, the ambient queue ----------------
@@ -445,7 +688,7 @@ export class OriginalSounds {
         continue;
       }
       const placed = p !== ctx.localSlot;
-      if (!this.locate(avatar, ctx)) continue;
+      if (!this.locate(avatar)) continue;
       const x = this.pos[0];
       const z = this.pos[2];
       this.gaugeTick(p, avatar, ctx.match[o + MATCH_SLOT_HP_FRAC], placed);
@@ -457,7 +700,9 @@ export class OriginalSounds {
         if ((move & (MOVE_CUE_DRIVE | MOVE_CUE_TURN)) !== 0) script = HOVER_MOVE;
         this.engine.loopSetScript(viewport, script, placed, x, z);
       } else if (this.form[p] === 1) {
-        // The walker end of a transform: `snd_loop_set_script(0xff)`.
+        // The walker end of a transform: `snd_loop_set_script(0xff)`. The
+        // walker's own loop follows its leg animation's event codes, which
+        // waits on the X1's animations (fcop-fidelity.md, audio rows).
         this.engine.loopSetScript(viewport, LOOP_SCRIPT_NONE, placed, x, z);
       }
       this.form[p] = hover ? 1 : 0;
@@ -466,18 +711,16 @@ export class OriginalSounds {
   }
 
   /**
-   * `player_gauge_set` (0x004482f0's caller): the health gauge's ceiling is a
-   * third of the maximum. Falling under it from full plays the gauge's sound
-   * (script 14), reaching zero from there plays it again; refilling to the
-   * ceiling is silent.
+   * `player_gauge_set`: the health gauge's ceiling is a third of the maximum.
+   * Falling under it from full plays the gauge's sound (script 14), reaching
+   * zero from there plays it again; refilling to the ceiling is silent.
    */
   private gaugeTick(p: number, avatar: number, hpFrac: number, placed: boolean): void {
     if (this.gaugeAvatar[p] !== avatar) {
       this.gaugeAvatar[p] = avatar;
       this.gauge[p] = 2;
     }
-    const third = 1 / 3;
-    if (hpFrac >= third) {
+    if (hpFrac >= 1 / 3) {
       this.gauge[p] = 2;
       return;
     }
@@ -494,8 +737,8 @@ export class OriginalSounds {
 
   /**
    * `cact_registry_build`: each actor that carries an ambient script and is
-   * within 0x22000 of the listener is queued; the engine's queue gives the
-   * eight loudest a channel.
+   * within 0x22000 of the listener is queued; prop emitters (type 96) too. The
+   * engine's queue gives the eight loudest a channel.
    */
   private ambient(ctx: CueContext): void {
     const data = this.data;
@@ -503,17 +746,13 @@ export class OriginalSounds {
     this.ambientSeen.fill(0);
     for (let k = 0; k < ctx.count; k++) {
       const o = k * ctx.stride;
-      const id = ctx.snapshot[o + S_ID];
-      const arch = ctx.snapshot[o + S_ARCH];
-      const sound = ambientOf(arch, data);
+      const sound = ambientOf(ctx.snapshot[o + S_ARCH], data);
       if (sound === 0) continue;
       const x = ctx.snapshot[o + S_X];
       const z = ctx.snapshot[o + S_Y];
       if (!this.engine.within(x, z, AMBIENT_RANGE_M)) continue;
-      this.queueAmbient(id, sound, x, z);
+      this.queueAmbient(ctx.snapshot[o + S_ID], sound, x, z);
     }
-    // Prop emitters (type 96, `snd_emit_voice_follow` 0x00430100) queue the
-    // same way, keyed below -1 so they never collide with an entity id.
     for (let k = 0; k < data.emitters.length; k++) {
       const e = data.emitters[k];
       if (!this.engine.within(e.x, e.z, AMBIENT_RANGE_M)) continue;
@@ -544,36 +783,51 @@ export class OriginalSounds {
 
   // --- snapshot lookups -------------------------------------------------------
 
+  private ctxSnapshot: Float32Array | null = null;
+
+  private buildIndex(ctx: CueContext): void {
+    this.ctxSnapshot = ctx.snapshot;
+    this.index.fill(-1);
+    for (let k = 0; k < ctx.count; k++) {
+      const o = k * ctx.stride;
+      const id = ctx.snapshot[o + S_ID];
+      if (id >= 0 && id < MAX_ENTITIES) this.index[id] = o;
+    }
+  }
+
+  private offsetOf(id: number): number {
+    return id >= 0 && id < MAX_ENTITIES ? this.index[id] : -1;
+  }
+
   /** World position (metres) of an entity into `this.pos`. */
-  private locate(id: number, ctx: CueContext): boolean {
-    const o = this.find(id, ctx);
-    if (o < 0) return false;
-    this.pos[0] = ctx.snapshot[o + S_X];
-    this.pos[2] = ctx.snapshot[o + S_Y];
+  private locate(id: number): boolean {
+    const o = this.offsetOf(id);
+    const snap = this.ctxSnapshot;
+    if (o < 0 || !snap) return false;
+    this.pos[0] = snap[o + S_X];
+    this.pos[2] = snap[o + S_Y];
     return true;
   }
 
-  private find(id: number, ctx: CueContext): number {
-    for (let k = 0; k < ctx.count; k++) {
-      const o = k * ctx.stride;
-      if (ctx.snapshot[o + S_ID] === id) return o;
-    }
-    return -1;
-  }
-
   private archetypeOf(id: number, ctx: CueContext): number {
-    const o = this.find(id, ctx);
+    const o = this.offsetOf(id);
     return o < 0 ? -1 : ctx.snapshot[o + S_ARCH];
   }
 
   private teamOf(id: number, ctx: CueContext): number {
-    const o = this.find(id, ctx);
+    const o = this.offsetOf(id);
     return o < 0 ? -1 : ctx.snapshot[o + S_TEAM];
   }
 
   private animOf(id: number, ctx: CueContext): number {
-    const o = this.find(id, ctx);
+    const o = this.offsetOf(id);
     return o < 0 ? 0 : ctx.snapshot[o + S_ANIM];
+  }
+
+  private auxOf(id: number): number {
+    const o = this.offsetOf(id);
+    const snap = this.ctxSnapshot;
+    return o < 0 || !snap ? -1 : snap[o + S_AUX];
   }
 
   private slotOfAvatar(id: number, ctx: CueContext): number {
@@ -584,17 +838,36 @@ export class OriginalSounds {
   }
 }
 
-/** The type-98 row a turret or unit fires (fcop-fx.md §4, combat.md). */
-function worldRow(archetype: number): number {
+/** The captain's event word values each poller takes (fn46..fn54). */
+const CAPTAIN_EVENT_RULES: Readonly<Record<string, number>> = {
+  captain_pushes_on_player_base: 1,
+  captain_fires_on_player: 2,
+  captain_hunts_hurt_player: 3,
+  captain_repaired: 4,
+  player_hit_captain: 5,
+  captain_captured_turret: 6,
+  captain_destroyed_player_turret: 7,
+  player_side_destroyed_captain_turret: 8,
+  captain_respawned: 9,
+};
+
+/**
+ * The type-98 row a shooter fires (the arenas' shooter records): turrets and
+ * the Dreadnought's guns 3, the first side's tanks and jets 1, the second's 6,
+ * the Flying Fortress 4, the captain's missile 8.
+ */
+function worldRow(archetype: number, team: number): number {
   switch (archetype) {
     case ARCHETYPE.TURRET:
     case ARCHETYPE.JUGGERNAUT:
       return 3;
     case ARCHETYPE.RUNNER:
     case ARCHETYPE.GUARDIAN:
-      return 1;
+      return team === 1 ? 6 : 1;
     case ARCHETYPE.FORTRESS:
       return 4;
+    case ARCHETYPE.WARDEN:
+      return 8;
     default:
       return 0;
   }
@@ -617,25 +890,6 @@ function ambientOf(archetype: number, data: ArenaAudio): number {
   }
 }
 
-/** The impact effect an explosion of `kind` installs, from its weapon's record. */
-function impactOf(
-  kind: number,
-  weapons: Readonly<Record<number, PlayerWeaponSounds>>,
-  data: ArenaAudio,
-): { bank: number; id: number } | null {
-  const code = PROJ_CODE[kind];
-  if (code !== undefined) {
-    const w = weapons[code];
-    return w && w.a.impactFx > 0 ? { bank: 1, id: w.a.impactFx } : null;
-  }
-  const row = PROJ_WORLD_ROW[kind];
-  if (row !== undefined) {
-    const w = data.world[row];
-    return w && w.impactFx > 0 ? { bank: 0, id: w.impactFx } : null;
-  }
-  return null;
-}
-
 /** weapons.ts PROJ_* -> the player weapon whose round it is. */
 const PROJ_CODE: Readonly<Record<number, number>> = {
   1: 0x10, // PROJ_HEAVY: Hell Fire 2000
@@ -645,8 +899,5 @@ const PROJ_CODE: Readonly<Record<number, number>> = {
   11: 0x23, // PROJ_SHOCKWAVE
   12: 0x12, // PROJ_BEAM
 };
-/** weapons.ts PROJ_* -> the world row whose round it is. */
-const PROJ_WORLD_ROW: Readonly<Record<number, number>> = {
-  3: 9, // PROJ_WARDEN: the captain's bomb
-  14: 3, // PROJ_ROUND: a turret's (see the audio rows in fcop-fidelity.md)
-};
+/** weapons.ts PROJ_WARDEN: the captain's bomb. */
+const PROJ_WARDEN = 3;

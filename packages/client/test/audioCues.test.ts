@@ -6,16 +6,20 @@ import { describe, expect, test } from "bun:test";
 import {
   ARCHETYPE,
   createEventBuffer,
+  EV_CAPTAIN_EVENT,
   EV_CAPTURE,
   EV_CLAIM,
+  EV_DEATH,
   EV_DRY_FIRE,
   EV_LOW_AMMO,
   EV_PICKUP,
   EV_PURCHASE,
   EV_PURCHASE_REFUSED,
+  EV_ROUND_IMPACT,
   EV_SHOT,
   EV_TRANSFORM_REFUSED,
   EV_TURRET_LOST,
+  EV_TURRET_UNDER_FIRE,
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_MOVE,
@@ -24,12 +28,14 @@ import {
   MOVE_CUE_DRIVE,
   matchSlotOffset,
   pushEvent,
+  roundSource,
   SHOT_SLOT_GUN,
   SHOT_SLOT_HEAVY,
   SHOT_SLOT_LAUNCH,
   SNAPSHOT_STRIDE,
   weaponShotPayload,
 } from "@metropolis/sim";
+import { loadedBank, slotFor, TABLE_A, TABLE_B } from "../src/audio/bank";
 import { type CueContext, OriginalSounds } from "../src/audio/cues";
 import { type AudioEngine, DEFAULT_LEVEL, parseAudioLevels } from "../src/audio/engine";
 import { FCOP_ARENA_AUDIO, FCOP_PLAYER_WEAPONS } from "../src/audio/fcopAudio.generated";
@@ -93,16 +99,38 @@ function context(over: Partial<CueContext> = {}): CueContext {
   };
 }
 
-function run(events: [number, number, number, number][], ctx = context()): string[] {
+/**
+ * Runs `events` in one tick, then `after` quiet ticks (mission functions speak
+ * on their poll), and returns the calls bar the loops and the queue.
+ */
+function run(
+  events: [number, number, number, number][],
+  ctx = context(),
+  after = 0,
+  mapId = "la-cantina",
+): string[] {
   const rec = new Recorder();
   const sounds = new OriginalSounds(rec as unknown as AudioEngine);
-  const data = FCOP_ARENA_AUDIO["la-cantina"];
-  if (!data) throw new Error("la-cantina");
+  const data = FCOP_ARENA_AUDIO[mapId];
+  if (!data) throw new Error(mapId);
   sounds.begin(data, FCOP_PLAYER_WEAPONS);
   const buf = createEventBuffer();
   for (const [t, a, b, c] of events) pushEvent(buf, t, a, b, c);
   sounds.tick(buf, ctx);
+  const quiet = createEventBuffer();
+  for (let i = 0; i < after; i++) sounds.tick(quiet, ctx);
   return rec.calls.filter((c) => !c.startsWith("loop") && !c.startsWith("queue"));
+}
+
+/** Runs `fn` with Math.random fixed at `value`. */
+function withRandom<T>(value: number, fn: () => T): T {
+  const real = Math.random;
+  Math.random = () => value;
+  try {
+    return fn();
+  } finally {
+    Math.random = real;
+  }
 }
 
 describe("the pending-sound slot", () => {
@@ -182,9 +210,64 @@ describe("speech", () => {
     expect(run([[EV_PURCHASE, 50, 1, ARCHETYPE.JUGGERNAUT]])).toEqual(["pending 63", "speak 16"]);
     expect(run([[EV_PURCHASE, 50, 0, ARCHETYPE.FORTRESS]])).toEqual(["pending 63", "speak 17"]);
   });
-  test("the opening announces the captain's level, 74 + level - 1", () => {
-    expect(run([], context({ captainSlot: 1, captainLevel: 3 }))).toEqual(["speak 76"]);
-    expect(run([], context({ captainSlot: 1, captainLevel: 0 }))).toEqual([]);
+  test("the opening announces the captain's level, 74 + level - 1, on fn55's poll", () => {
+    const levels = (ctx: CueContext) =>
+      run([], ctx, 30).filter((c) => /^speak (7[4-9]|8[0-2])$/.test(c));
+    expect(levels(context({ captainSlot: 1, captainLevel: 3 }))).toEqual(["speak 76"]);
+    expect(levels(context({ captainSlot: 1, captainLevel: 0 }))).toEqual([]);
+    // Not in a two-player game: fn55 is one-viewport only.
+    expect(levels(context({ captainLevel: 3 }))).toEqual([]);
+  });
+
+  test("the base's turret under fire speaks on its function's poll, not at once", () => {
+    expect(run([[EV_TURRET_UNDER_FIRE, 70, 0, 0]])).toEqual([]);
+    expect(run([[EV_TURRET_UNDER_FIRE, 70, 0, 0]], context(), 30)).toEqual(["speak 4"]);
+  });
+
+  test("the captain's announcements wait for the chatter cooldown, then roll their dice", () => {
+    const solo = context({ captainSlot: 1, captainLevel: 0 });
+    // Event 2 (its guns on the player) plays at 50 %: a low roll speaks 33/34.
+    const said = withRandom(0, () => run([[EV_CAPTAIN_EVENT, 99, 2, 0]], solo, 60));
+    expect(said).toContain("speak 33");
+    // The roll fails: nothing.
+    expect(withRandom(0.99, () => run([[EV_CAPTAIN_EVENT, 99, 2, 0]], solo, 60))).toEqual([]);
+  });
+});
+
+describe("effects", () => {
+  test("a world round's impact comes from its shooter's row", () => {
+    // A turret's (row 3) impact effect plays script 30, positioned.
+    const turret = roundSource(ARCHETYPE.TURRET, 1);
+    expect(run([[EV_ROUND_IMPACT, 5 * 16, 5 * 16, turret]])).toEqual(["script 30 placed"]);
+    // The second side's tanks fire row 6, whose impact is silent.
+    const tank = roundSource(ARCHETYPE.RUNNER, 1);
+    expect(run([[EV_ROUND_IMPACT, 5 * 16, 5 * 16, tank]])).toEqual([]);
+  });
+
+  test("a death emits its class's group 0, or the fallback on the coin", () => {
+    const ctx = context();
+    const snapshot = new Float32Array(SNAPSHOT_STRIDE * 3);
+    snapshot.set(ctx.snapshot);
+    snapshot.set([80, ARCHETYPE.RUNNER, 1, 5, 5, 0, 0, 0, 0, 0], SNAPSHOT_STRIDE * 2);
+    const dies = (r: number) =>
+      withRandom(r, () =>
+        run([[EV_DEATH, 80, -1, ARCHETYPE.RUNNER]], { ...ctx, snapshot, count: 3 }),
+      );
+    // Class 26: group 0 is effect 9 (script 27), the fallback 17 (script 26).
+    expect(dies(0.9)).toEqual(["script 27 placed"]);
+    expect(dies(0.1)).toEqual(["script 26 placed"]);
+  });
+});
+
+describe("the load gates", () => {
+  test("a weapon nobody carries leaves its samples out of the bank", () => {
+    const data = FCOP_ARENA_AUDIO["la-cantina"];
+    if (!data) throw new Error("la-cantina");
+    // A26, the Mini-Gun's loop, loads only for a loadout with code 0x00.
+    expect(slotFor(loadedBank(data.bank, new Set([0x00])), TABLE_A, 26)).toBeGreaterThanOrEqual(0);
+    expect(slotFor(loadedBank(data.bank, new Set([0x01])), TABLE_A, 26)).toBe(-1);
+    // The pickup (high 83) is never gated.
+    expect(slotFor(loadedBank(data.bank, new Set()), TABLE_B, 83)).toBeGreaterThanOrEqual(0);
   });
 });
 

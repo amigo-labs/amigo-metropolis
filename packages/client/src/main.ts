@@ -32,7 +32,9 @@ import {
   EV_SHOT,
   EV_TRANSFORM,
   EVENT_STRIDE,
+  GUNS,
   getMapById,
+  HEAVIES,
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
   MATCH_SLOT_AVATAR_ID,
@@ -49,6 +51,7 @@ import {
   SIM_VERSION,
   type SimState,
   SNAPSHOT_STRIDE,
+  SPECIALS,
   spawnUnit,
   step,
   TICK_HZ,
@@ -60,6 +63,7 @@ import {
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { loadedBank } from "./audio/bank";
 import { OriginalSounds } from "./audio/cues";
 import { AudioEngine } from "./audio/engine";
 import {
@@ -484,8 +488,15 @@ let listenerRightZ = 0;
 function beginMatchSounds(): void {
   const data = FCOP_ARENA_AUDIO[map.id] ?? FCOP_ARENA_AUDIO[FALLBACK_SOUND_ARENA];
   if (!data) return;
+  // The load gates: a weapon's sounds load only when either loadout carries it.
+  const codes = new Set<number>();
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    codes.add(GUNS[sim.loadoutGun[p]]?.code ?? -1);
+    codes.add(HEAVIES[sim.loadoutHeavy[p]]?.code ?? -1);
+    codes.add(SPECIALS[sim.loadoutSpecial[p]]?.code ?? -1);
+  }
   audio.setArena({
-    bank: data.bank,
+    bank: loadedBank(data.bank, codes),
     sampleUrls: FCOP_SAMPLE_FILES,
     voiceUrls: FCOP_VOICE_FILES,
     musicUrl: data.music,
