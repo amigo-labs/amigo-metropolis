@@ -5,6 +5,13 @@ Future Cop: L.A.P.D.'s *Precinct Assault* (PA) works, checked against the decomp
 executable in `amigo-labs/fcop-reverse-engineering` (`origin/main` @ `7766374`, where
 every byte of live game code is decompiled).
 
+**Owner's rule (2026-10-13): only the original counts.** Everything Metropolis does that
+the original does not goes back to the original; modernising starts only once all of it
+stands (PLAN.md Phase 14). Platform exceptions: online 1v1 and its lobby, the debug tools,
+and the HD textures as an option. Where the RE is still open, the Metropolis value stays,
+the row says "waits on RE", and the gap is an RE target. The rule of 2026-10-11 below is
+superseded where it let things the original does not have keep Metropolis' design.
+
 **Owner's rule (2026-10-11): the original wins.** Where the RE establishes a rule or a
 number, Metropolis adopts it. Where the RE is still open, the Metropolis value stays and
 the row says "waits on RE". Things the original does not have keep Metropolis' own

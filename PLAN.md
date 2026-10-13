@@ -584,6 +584,71 @@ ground lattice and the per-deck lattices are each measurably inert — so it is 
 deck movement #29 asked for, and restoring the finish is #31's balance pass. That
 moves the "ten-minute resolution" item above from two arenas to three.
 
+## Phase 14 — The original, 100 % (owner's rule 2026-10-13)
+
+**Only the original counts.** Everything Metropolis does that Future Cop:
+L.A.P.D.'s Precinct Assault does not do goes back to the original; modernising
+starts only once all of it stands. This sharpens the rule of 2026-10-11
+(`docs/specs/fcop-fidelity.md`), which let anything the original does not have
+keep Metropolis' own design. Where the RE has not answered yet, the Metropolis
+value stays and its ledger row says "waits on RE" — that gap becomes an RE target.
+
+Platform exceptions that stay: online 1v1 and its lobby (lockstep relay, PWA),
+the debug tools (fly camera, pins, `?sandbox`), and the HD textures **as an
+option** (Classic, the original texels, becomes the default). Back to the
+original explicitly: the controls 1:1 (keyboard and gamepad, digital, the
+original's bindings; the mouse is off, touch waits for the modernisation) and
+the front end (the Preact menu is replaced by the original's).
+
+Waves, in this order:
+
+1. **Audio** (below)
+2. Gameplay rules the ledger does not carry yet: spawn facing from the X1-Alpha
+   record, no base pad (no refill, no repair), no outpost refill, the tank queue
+   (one per ~3.4 s), water, pickup boxes, purchase zones as trigger volumes, no
+   Warden fire through walls, heavy units through the original's zones, lifts
+3. Controls 1:1: the original's button word (turn, strafe, slow/action on one
+   button, transform as the lock-cycle + slow chord), keypad defaults, digital
+   gamepad with the 25 % dead zone
+4. Weapon effects: the effect records (types 87–94), bolts for turrets and
+   units, the PYPL particle palettes
+5. Assets: each mission's own Cobjs, the Dreadnought's guns, team variants,
+   Classic textures by default, the X1's animations
+6. Presentation: camera presets, HUD and radar, the results page, the original's
+   names (tank, jet, Dreadnought, Flying Fortress, Sky Captain)
+7. Front end: the original's menus and UI sounds
+
+### Wave 1 — Audio
+
+The RE repo has the whole sound module decompiled (`src/game/snd/`), so which
+sound plays for which event is read from code and data, not picked by ear (#27).
+
+- [ ] RE: `tools/audio/pa_sound_tables.py` — the retail loader simulated over
+      GlblData + each PA mission: script tables A / B / high, slots with priority,
+      polyphony, loop, lead-in heads, round-robin variants; weapon, ambient,
+      effect, death-chain and emitter bytes
+- [ ] RE: music re-extracted in the engine's format (14260 Hz, 8-bit, stereo);
+      the nine front-end WAVE resources extracted; stale audio docs corrected
+- [ ] RE: `tools/audio/pa_voice_triggers.py` — every voice line's trigger
+- [x] Mixer: level and pan curves, octagonal distance, 16 m linear falloff, the
+      24-channel pool with both ways of stealing, kind-1 key decay, the speech
+      ring (`audio/mixer.ts`, `audio/speech.ts`)
+- [x] Sim events the original sounds need: dry fire, five rounds left, transform
+      refused, the block-B bit on the avatar's shots, the Sky Captain's missile and
+      bomb rows. Events are not hashed: goldens unchanged
+- [ ] Import: the tables as `docs/specs/fcop-re/pa-audio.json`, raws under
+      `tools/generators/sfx/raw/fcop/`, files copied unchanged (no trim, no
+      normalising) by `gen:sfx`
+- [ ] Engine on the original's playback model, every cue wired: weapons (cued
+      loops / launch one-shots), world weapons, effects and death chains, walker
+      and hover loops, ambient queue, purchases, capture, pickups, pause, speech
+      with ducking, music per arena
+- [ ] The three original sliders (Sound Effects, Music, Movies, 0..127) with the
+      original's defaults
+- [ ] Remove the sfxr synth, the synth music and the owner's mp3s from the game
+- [ ] Ledger: an Audio section with the adopted rows and the RE gaps
+- [ ] Close #27
+
 ## Backlog (post-v1, do not start)
 
 More arenas · map editor · rollback netcode upgrade · 2v2 ·
