@@ -474,6 +474,8 @@ const audio = new AudioEngine();
 audio.armUnlock();
 /** The original's sound calls, driven by the sim's events (audio/cues.ts). */
 const sounds = new OriginalSounds(audio);
+// ?debug: the sound module for the console / headless audio checks (read-only).
+if (params.has("debug")) (globalThis as { metropolisAudio?: AudioEngine }).metropolisAudio = audio;
 /**
  * The arena that has no original of its own (district-01, the test maps) plays
  * La Cantina's — the Mp bank. Metropolis' choice, until those maps go
