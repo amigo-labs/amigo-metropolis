@@ -51,6 +51,7 @@ import {
   HOVER_STOP_SPEED,
   HOVER_TURN_LIMIT,
   JUGGERNAUT_ALIVE_LIMIT,
+  LOW_AMMO_WARNING,
   MATCH_OUTRO_TICKS,
   MAX_PLAYERS,
   MISSILE_TURN_RATE,
@@ -148,14 +149,17 @@ import {
   EV_CAPTURE,
   EV_CLAIM,
   EV_DEATH,
+  EV_DRY_FIRE,
   EV_EXPLOSION,
   EV_HIT,
+  EV_LOW_AMMO,
   EV_PICKUP,
   EV_PURCHASE,
   EV_PURCHASE_REFUSED,
   EV_RESPAWN,
   EV_SHOT,
   EV_TRANSFORM,
+  EV_TRANSFORM_REFUSED,
   EV_TURRET_LOST,
   EV_TURRET_UNDER_FIRE,
   type EventBuffer,
@@ -163,6 +167,7 @@ import {
   reachToShotPayload,
   SHOT_SLOT_HITSCAN,
   SHOT_SLOT_LAUNCH,
+  SKY_WEAPON_MISSILE,
   weaponShotPayload,
 } from "./events";
 import { fnv1aBytes, fnv1aF32, fnv1aInit, fnv1aU32 } from "./hash";
@@ -248,6 +253,11 @@ export const ANIM_HOVER = 1 << 1;
 export const ANIM_AIRBORNE = 1 << 2;
 export const ANIM_TRANSFORMING = 1 << 3;
 
+// MATCH_SLOT_MOVE bits (SimState.moveCue).
+export const MOVE_CUE_DRIVE = 1 << 0;
+export const MOVE_CUE_BRAKE = 1 << 1;
+export const MOVE_CUE_TURN = 1 << 2;
+
 /**
  * Match configuration beyond map+seed. Part of the replay header (format 2)
  * and the online handshake — every peer must create the sim identically.
@@ -287,6 +297,15 @@ export interface SimState {
   readonly respawnTimer: Int32Array;
   /** Previous tick's buttons per player, for edge detection. */
   readonly lastButtons: Uint8Array;
+  /**
+   * What each avatar was told to do this tick, as the original's movement code
+   * reads its button word: MOVE_CUE_DRIVE (a fore/aft or strafe command),
+   * MOVE_CUE_BRAKE (the hover's brake), MOVE_CUE_TURN (the hull turned). The
+   * original picks the X1's movement sound from these, not from the velocity
+   * (`player_hover_tick` 0x0044267f). Presentation only: rewritten every tick,
+   * read by the match snapshot, and NOT hashed (like the events).
+   */
+  readonly moveCue: Uint8Array;
   /** Current Points per player: what a side spends (rules.md §3). */
   readonly points: Uint32Array;
   /**
@@ -733,6 +752,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     avatarId: new Int32Array(MAX_PLAYERS).fill(-1),
     respawnTimer: new Int32Array(MAX_PLAYERS),
     lastButtons: new Uint8Array(MAX_PLAYERS),
+    moveCue: new Uint8Array(MAX_PLAYERS),
     points: new Uint32Array(MAX_PLAYERS).fill(STARTING_POINTS),
     heavyUnlocked: new Uint8Array(MAX_PLAYERS),
     laneCounter: new Uint8Array(MAX_PLAYERS),
@@ -943,11 +963,13 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // by systemWarden, deterministically on every peer.
     if (p === state.wardenPlayer) continue;
     const id = state.avatarId[p];
+    state.moveCue[p] = 0;
     if (id < 0) {
       state.lastButtons[p] = inputs.players[p].buttons;
       continue;
     }
     const input = inputs.players[p];
+    const yaw0 = ent.yaw[id];
     const pressed = input.buttons & ~state.lastButtons[p];
     state.lastButtons[p] = input.buttons;
 
@@ -961,9 +983,13 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // Transform (edge-triggered; fcop-fidelity.md P3): refused while a change is
     // already running and on water in either form (the original's byte_146,
     // set by surface material 1). In the air too: the original does not ask.
-    if (!locked && (pressed & BUTTON_TRANSFORM) !== 0 && !isWater(map, x, y)) {
-      hover = !hover;
-      startTransform(state, id, hover);
+    if ((pressed & BUTTON_TRANSFORM) !== 0) {
+      if (!locked && !isWater(map, x, y)) {
+        hover = !hover;
+        startTransform(state, id, hover);
+      } else {
+        pushEvent(state.events, EV_TRANSFORM_REFUSED, id, p, 0);
+      }
     }
     // While the change runs, the original cuts the movement tick's input to
     // nothing — no drive, no turn, no jump, no lock cycle — and runs the HOVER
@@ -1108,6 +1134,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       }
     }
     const commanded = fore !== 0 || side !== 0;
+    state.moveCue[p] =
+      (commanded ? MOVE_CUE_DRIVE : 0) |
+      (brake ? MOVE_CUE_BRAKE : 0) |
+      (ent.yaw[id] !== yaw0 ? MOVE_CUE_TURN : 0);
 
     // The walker's jump (edge-triggered; balance.ts WALKER_* jumps): on the
     // ground, not steep, not mid-change. It leaves the ground this tick, so the
@@ -1801,7 +1831,14 @@ function fireSlot(state: SimState, player: number, id: number, slot: number, w: 
   const powered = state.powerAmmo[k] > 0;
   const blk = powered ? w.b : w.a;
   const allowance = powered ? state.powerAmmo[k] : slotAmmo(state, player, id, slot);
-  if (allowance <= 0) return;
+  if (allowance <= 0) {
+    pushEvent(state.events, EV_DRY_FIRE, id, player, slot);
+    return;
+  }
+  // Both sounds are the original's, from the same function and in this order:
+  // empty answers script 13 and nothing fires; five left answers script 14 and
+  // the round still goes out.
+  if (allowance === LOW_AMMO_WARNING) pushEvent(state.events, EV_LOW_AMMO, id, player, slot);
   if (!deliver(state, id, player, w, blk, slot, powered)) return;
   if (powered) state.powerAmmo[k] = allowance - 1;
   else setSlotAmmo(state, player, id, slot, allowance - 1);
@@ -1863,10 +1900,10 @@ function deliver(
       directShot(state, shooter, player, w, blk, slot, lock, powered);
       return true;
     case "beam":
-      beamShot(state, shooter, player, w, blk, slot, lock);
+      beamShot(state, shooter, player, w, blk, slot, lock, powered);
       return true;
     case "shockwave": {
-      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0));
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       // Self-centred pulse at the shooter's feet — ignores aim and lock.
       blastAt(
         state,
@@ -1883,7 +1920,7 @@ function deliver(
     }
     case "mine": {
       if (!spawnMine(state, shooter, player, w.projKind, blk)) return false;
-      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0));
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       return true;
     }
     case "arced": {
@@ -1906,7 +1943,7 @@ function deliver(
       const id = spawnArced(state, x, y, h, tx, ty, th, blk.launchSpeed, blk.gravity);
       if (id < 0) return false;
       armRound(state, id, shooter, player, w.projKind, blk, flags, -1);
-      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0));
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       return true;
     }
     default: {
@@ -1941,7 +1978,7 @@ function deliver(
         any = true;
       }
       if (!any) return false;
-      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0));
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       return true;
     }
   }
@@ -1990,7 +2027,7 @@ function directShot(
     blocked = true;
     reach = wallT * len;
   }
-  pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, reach));
+  pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, reach, powered));
   if (blocked) return;
   if (powered && blk.blast > 0 && w.delivery === "hitscan") {
     blastAt(state, ex, ey, ent.team[shooter], player, blk.damage, blk.blast, PROJ_SPLASH, 0);
@@ -2015,6 +2052,7 @@ function beamShot(
   blk: WeaponBlock,
   slot: number,
   lock: number,
+  powered: boolean,
 ): void {
   const ent = state.ent;
   const ox = ent.posX[shooter];
@@ -2040,7 +2078,7 @@ function beamShot(
     ex = ox + ux * len;
     ey = oy + uy * len;
   }
-  pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, len));
+  pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, len, powered));
   blastAt(state, ex, ey, ent.team[shooter], player, blk.damage, blk.blast, PROJ_BEAM, BLAST_EMIT);
 }
 
@@ -2454,7 +2492,7 @@ export function fireWardenMissile(
   ent.cooldownB[p] = SKY_MISSILE_FLIGHT;
   ent.aimX[p] = speed;
   ent.aimY[p] = 0;
-  pushEvent(state.events, EV_SHOT, shooter, SHOT_SLOT_LAUNCH, 0);
+  pushEvent(state.events, EV_SHOT, shooter, SHOT_SLOT_LAUNCH, SKY_WEAPON_MISSILE);
 }
 
 /** Damage bookkeeping; deaths are collected by systemDamageDeath afterwards. */
@@ -3666,7 +3704,7 @@ export function hash(state: SimState): number {
  */
 export const MATCH_SNAPSHOT_HEADER = 6;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
-export const MATCH_SNAPSHOT_SLOT_STRIDE = 11;
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 12;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
 
 /** Header fields. */
@@ -3698,6 +3736,8 @@ export const MATCH_SLOT_LOCK = 9;
  * B, and its ammo field above counts the block-B magazine (fcop-fidelity.md P8).
  */
 export const MATCH_SLOT_POWER = 10;
+/** The avatar's movement command this tick: MOVE_CUE_* bits (SimState.moveCue). */
+export const MATCH_SLOT_MOVE = 11;
 // Slot field 9 was MATCH_SLOT_CAPTURE_FRAC, retired with the 3 s capture timer
 // (SIM_VERSION 34): the original captures instantly on a key press. Slot field 10
 // was MATCH_SLOT_CORE_FRAC, retired with the destructible core (SIM_VERSION 32).
@@ -3748,6 +3788,7 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
           (state.powerAmmo[pk + 2] > 0 ? 4 : 0)
         : 0;
     out[o + MATCH_SLOT_LOCK] = a >= 0 ? state.lockTarget[slot] : -1;
+    out[o + MATCH_SLOT_MOVE] = a >= 0 ? state.moveCue[slot] : 0;
   }
   for (let k = 0; k < state.outpostOwner.length; k++) {
     const owner = state.outpostOwner[k];

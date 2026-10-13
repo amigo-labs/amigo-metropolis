@@ -64,7 +64,7 @@ export function shotPayloadToReach(payload: number): number {
  * this is a payload change and not a format change — and events are never
  * hashed, so no SIM_VERSION with it.
  */
-export function weaponShotPayload(weaponId: number, reach: number): number {
+export function weaponShotPayload(weaponId: number, reach: number, powered = false): number {
   // A POSITIVE reach never packs to zero. `reachToShotPayload` rounds, so
   // anything under 5 cm would land on 0 dm, and 0 is how the renderer spells
   // "no reach travelled with this shot" — it falls back to the weapon's nominal
@@ -74,12 +74,27 @@ export function weaponShotPayload(weaponId: number, reach: number): number {
   // shortest a real shot may report.
   let dm = reachToShotPayload(reach);
   if (dm <= 0) dm = reach > 0 ? 1 : 0;
-  return (weaponId & 0xff) | (dm << 8);
+  return (weaponId & SHOT_WEAPON_MASK) | (powered ? SHOT_POWERED : 0) | (dm << 8);
 }
+
+/** Low-byte bits of a `weaponShotPayload`: the catalog id, and the block flag. */
+const SHOT_WEAPON_MASK = 0x7f;
+/**
+ * The shot came out of the slot's block B (its power-up magazine). The block
+ * decides what the original plays — each block names its own sound and effects
+ * (fcop-re/player-and-weapons.md, `sound_1c`) — and only the tick that fired
+ * knows it: the snapshot after the last powered round already reads block A.
+ */
+const SHOT_POWERED = 0x80;
 
 /** Catalog id out of a `weaponShotPayload`. */
 export function shotPayloadWeaponId(payload: number): number {
-  return payload & 0xff;
+  return payload & SHOT_WEAPON_MASK;
+}
+
+/** True when a `weaponShotPayload` came out of block B. */
+export function shotPayloadPowered(payload: number): boolean {
+  return (payload & SHOT_POWERED) !== 0;
 }
 
 /** Reach (metres) out of a `weaponShotPayload`. */
@@ -139,6 +154,30 @@ export const EV_TURRET_LOST = 16; // a=turret id, b=its team, c=ring slot
  * accepted purchase is EV_PURCHASE. c = the refused archetype, -1 for a claim.
  */
 export const EV_PURCHASE_REFUSED = 17; // a=avatar id, b=player, c=archetype (-1 claim)
+/**
+ * A trigger pulled on an empty magazine (`player_fire_slot` 0x00458ed0: the
+ * slot's cooldown has run out, block B is empty and block A is too). The
+ * original plays sound script 13 for it, every frame the trigger is held.
+ */
+export const EV_DRY_FIRE = 18; // a=avatar id, b=player, c=slot (0 gun, 1 heavy, 2 special)
+/**
+ * A slot fired with exactly five rounds left in the block it fires from — the
+ * same function, before the shot goes out; the original plays script 14.
+ */
+export const EV_LOW_AMMO = 19; // a=avatar id, b=player, c=slot
+/**
+ * A transform press refused: a change already running, or water under the mech
+ * (`player_transform_step` 0x004421dc plays script 42 for it).
+ */
+export const EV_TRANSFORM_REFUSED = 20; // a=avatar id, b=player
+/**
+ * The Warden fired one of the Sky Captain's weapons that launch a round:
+ * `EV_SHOT` with `SHOT_SLOT_LAUNCH` and `c` = this, the captain's world-weapon
+ * row (8 the missile, 9 the bomb; its gun, row 7, is `SHOT_SLOT_HITSCAN`).
+ * Turrets and units launch with `c` = 0; their row follows from what they are.
+ */
+export const SKY_WEAPON_MISSILE = 8;
+export const SKY_WEAPON_BOMB = 9;
 
 export interface EventBuffer {
   count: number;

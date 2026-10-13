@@ -1529,6 +1529,13 @@ export const PICKUP_GUN_AMMO = 6;
 export const PICKUP_POWER_HEAVY = 7;
 export const PICKUP_POWER_SPECIAL = 8;
 export const PICKUP_KIND_COUNT = 9;
+/**
+ * The round count at which a slot warns it is running dry: `player_fire_slot`
+ * (retail 0x00458ed0) compares the allowance it is about to spend against 5
+ * (`PLAYER_FIRE_LOW_AMMO`) and plays sound script 14 (sim.ts fireSlot,
+ * EV_LOW_AMMO).
+ */
+export const LOW_AMMO_WARNING = 5;
 /** Avatar must be within this of a pickup spot to take it. */
 export const PICKUP_RADIUS = 2.5;
 // A health pickup refills to the maximum (grant bit 0x20000 passes amount -1,

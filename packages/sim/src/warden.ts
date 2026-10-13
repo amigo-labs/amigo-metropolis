@@ -87,7 +87,14 @@ import {
   wardenLevel,
 } from "./balance";
 import { segmentBlocked } from "./collision";
-import { EV_PURCHASE, EV_SHOT, pushEvent, SHOT_SLOT_HITSCAN, SHOT_SLOT_LAUNCH } from "./events";
+import {
+  EV_PURCHASE,
+  EV_SHOT,
+  pushEvent,
+  SHOT_SLOT_HITSCAN,
+  SHOT_SLOT_LAUNCH,
+  SKY_WEAPON_BOMB,
+} from "./events";
 import { sampleHeight, worldExtent } from "./map";
 import {
   ANIM_MOVING,
@@ -1108,7 +1115,7 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
     } else if (k === 1) {
       fireWardenMissile(state, id, t, ux, uy);
     } else {
-      pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, 0);
+      pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, SKY_WEAPON_BOMB);
       spawnWardenBomb(state, id, me, ux, uy);
     }
     c.gunPhase[k] = PHASE_BETWEEN;
