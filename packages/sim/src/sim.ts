@@ -53,6 +53,7 @@ import {
   JUGGERNAUT_ALIVE_LIMIT,
   LOW_AMMO_WARNING,
   MATCH_OUTRO_TICKS,
+  MAX_ENTITIES,
   MAX_PLAYERS,
   MISSILE_TURN_RATE,
   MORTAR_FRAGMENT_SPREAD,
@@ -157,6 +158,7 @@ import {
   EV_PURCHASE,
   EV_PURCHASE_REFUSED,
   EV_RESPAWN,
+  EV_ROUND_IMPACT,
   EV_SHOT,
   EV_TRANSFORM,
   EV_TRANSFORM_REFUSED,
@@ -165,6 +167,7 @@ import {
   type EventBuffer,
   pushEvent,
   reachToShotPayload,
+  roundSource,
   SHOT_SLOT_HITSCAN,
   SHOT_SLOT_LAUNCH,
   SKY_WEAPON_MISSILE,
@@ -306,6 +309,12 @@ export interface SimState {
    * read by the match snapshot, and NOT hashed (like the events).
    */
   readonly moveCue: Uint8Array;
+  /**
+   * What fired each live world round (`roundSource`), by entity id, for its
+   * EV_ROUND_IMPACT. Presentation only and NOT hashed: written when the round
+   * spawns, read when it strikes.
+   */
+  readonly roundFrom: Uint8Array;
   /** Current Points per player: what a side spends (rules.md §3). */
   readonly points: Uint32Array;
   /**
@@ -753,6 +762,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     respawnTimer: new Int32Array(MAX_PLAYERS),
     lastButtons: new Uint8Array(MAX_PLAYERS),
     moveCue: new Uint8Array(MAX_PLAYERS),
+    roundFrom: new Uint8Array(MAX_ENTITIES),
     points: new Uint32Array(MAX_PLAYERS).fill(STARTING_POINTS),
     heavyUnlocked: new Uint8Array(MAX_PLAYERS),
     laneCounter: new Uint8Array(MAX_PLAYERS),
@@ -2481,6 +2491,7 @@ export function fireWardenMissile(
   if (p < 0) return;
   const speed = WARDEN_HEAVY_SPEED;
   ent.mode[p] = PROJ_ROUND;
+  state.roundFrom[p] = roundSource(ent.archetype[shooter], ent.team[shooter]);
   ent.ownerId[p] = ent.ownerId[shooter];
   ent.ammoA[p] = SKY_MISSILE_DAMAGE;
   ent.aux[p] = 0;
@@ -2828,6 +2839,7 @@ function fireRound(
     );
     if (p < 0) break;
     ent.mode[p] = PROJ_ROUND;
+    state.roundFrom[p] = roundSource(ent.archetype[id], ent.team[id]);
     ent.ownerId[p] = ent.ownerId[id];
     ent.ammoA[p] = w.damage;
     ent.aux[p] = 0;
@@ -3121,6 +3133,15 @@ function explode(state: SimState, id: number, struck = -1): void {
     blastAt(state, x, y, team, owner, damage, radius, kind, flat ? BLAST_FLAT : BLAST_EMIT);
   } else {
     pushEvent(state.events, EV_EXPLOSION, Math.floor(x * 16), Math.floor(y * 16), kind);
+    if (kind === PROJ_ROUND) {
+      pushEvent(
+        state.events,
+        EV_ROUND_IMPACT,
+        Math.floor(x * 16),
+        Math.floor(y * 16),
+        state.roundFrom[id],
+      );
+    }
     if (struck >= 0) applyDamage(state, struck, damage, owner);
   }
 }

@@ -88,6 +88,13 @@ import {
 } from "./balance";
 import { segmentBlocked } from "./collision";
 import {
+  CAPTAIN_ORDER_DREADNOUGHT,
+  CAPTAIN_ORDER_FORTRESS,
+  CAPTAIN_ORDER_JETS,
+  CAPTAIN_ORDER_TANKS,
+  EV_CAPTAIN_EVENT,
+  EV_CAPTAIN_MODE,
+  EV_CAPTAIN_ORDER,
   EV_PURCHASE,
   EV_SHOT,
   pushEvent,
@@ -109,6 +116,11 @@ import {
 } from "./sim";
 import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
 import { isGroundUnit, nearestEnemyInRange, UNIT_MODE_OUTPOST, UNIT_MODE_PATROL } from "./units";
+
+/** Word 56's announcements the sim raises (EV_CAPTAIN_EVENT). */
+export const CAPTAIN_EVENT_FIRES_ON_PLAYER = 2;
+export const CAPTAIN_EVENT_HUNTS_HURT = 3;
+export const CAPTAIN_EVENT_REPAIRED = 4;
 
 /** The captain's modes (`ai->mode`, mirrored in state word 39). */
 export const SKY_MODE_ROAM = 0; //   the opportunist (mode 0)
@@ -292,7 +304,7 @@ export function captainRespawn(state: SimState): void {
   c.think = 0;
   c.aim = -1;
   c.move = -1;
-  c.mode = SKY_MODE_ROAM;
+  setMode(state, id, SKY_MODE_ROAM);
   c.fly = SKY_ENGAGE;
   refreshDestination(state);
   const yaw = (randInt(state, 4096) / 4096) * TAU;
@@ -313,6 +325,7 @@ export function captainRestore(state: SimState, id: number): void {
 
 function restore(state: SimState, id: number): void {
   const c = state.captain;
+  pushEvent(state.events, EV_CAPTAIN_EVENT, id, CAPTAIN_EVENT_REPAIRED, 0);
   state.ent.hp[id] = captainMaxHp(state);
   redrawThreshold(state);
   c.fly = SKY_ENGAGE;
@@ -708,6 +721,8 @@ function decide(state: SimState, id: number, level: number): void {
     const hurt =
       s.own1 >= 0 && s.own1D < SKY_HURT_PLAYER && ent.hp[s.own1] < Math.floor(AVATAR_HP / 4);
     if (hurt) {
+      // Word 56 := 3 (0x00422098).
+      pushEvent(state.events, EV_CAPTAIN_EVENT, id, CAPTAIN_EVENT_HUNTS_HURT, 0);
       if (!(c.move === s.own1 && c.aim === s.own1)) {
         if (c.aim !== s.own1 && inWeaponRange(state, id, s.own1)) c.aim = s.own1;
         if (c.move !== s.own1) setMove(state, s.own1);
@@ -742,10 +757,17 @@ function decide(state: SimState, id: number, level: number): void {
   if (s.own1 >= 0 && c.aim !== s.own1) {
     const held = c.aim;
     if (held < 0 || (held !== s.own28 && held !== s.own5)) {
-      if (inWeaponRange(state, id, s.own1)) c.aim = s.own1;
+      if (inWeaponRange(state, id, s.own1)) {
+        c.aim = s.own1;
+        // Word 56 := 2 (0x004223b0): its guns turned on the player's mech.
+        pushEvent(state.events, EV_CAPTAIN_EVENT, id, CAPTAIN_EVENT_FIRES_ON_PLAYER, 0);
+      }
     }
   }
-  if (entryMode !== c.mode) refreshDestination(state);
+  if (entryMode !== c.mode) {
+    pushEvent(state.events, EV_CAPTAIN_MODE, id, c.mode, 0);
+    refreshDestination(state);
+  }
   spend(state, id, level);
 }
 
@@ -784,9 +806,23 @@ function owns(state: SimState, k: number, team: number): boolean {
   return k < state.outpostOwner.length && state.outpostOwner[k] === team;
 }
 
+/** A mode change outside the decision pass, reported like the pass's own. */
+function setMode(state: SimState, id: number, mode: number): void {
+  if (state.captain.mode !== mode) pushEvent(state.events, EV_CAPTAIN_MODE, id, mode, 0);
+  state.captain.mode = mode;
+}
+
 /** Pay `cost` and queue `n` units on queue `q`. */
 function request(state: SimState, me: number, q: number, n: number, cost: number): void {
   state.captain.queue[q] += n;
+  // The request word the order scripts poll (words 44/45, 48..55).
+  pushEvent(
+    state.events,
+    EV_CAPTAIN_ORDER,
+    state.avatarId[me],
+    q % 2 === 0 ? CAPTAIN_ORDER_TANKS : CAPTAIN_ORDER_JETS,
+    q < 2 ? -1 : (q - 2) >> 1,
+  );
   const left = state.points[me] - cost;
   state.points[me] = left > 0 ? left : 0;
 }
@@ -939,6 +975,15 @@ function ownedCount(state: SimState, team: number): number {
 
 /** A Dreadnought or Fortress request: the script spawns it at once if its limit allows. */
 function heavyNow(state: SimState, me: number, archetype: number): void {
+  // Words 46 / 47: the scripts (fn05 / fn06) announce the order whether or not
+  // the spawner's limit then refuses it.
+  pushEvent(
+    state.events,
+    EV_CAPTAIN_ORDER,
+    state.avatarId[me],
+    archetype === ARCHETYPE.JUGGERNAUT ? CAPTAIN_ORDER_DREADNOUGHT : CAPTAIN_ORDER_FORTRESS,
+    -1,
+  );
   const limit = archetype === ARCHETYPE.JUGGERNAUT ? JUGGERNAUT_ALIVE_LIMIT : FORTRESS_ALIVE_LIMIT;
   if (countTeam(state, archetype, me) >= limit) return; // spent, refused: the quirk
   const base = state.map.bases[me];

@@ -176,6 +176,48 @@ export const EV_TRANSFORM_REFUSED = 20; // a=avatar id, b=player
  * row (8 the missile, 9 the bomb; its gun, row 7, is `SHOT_SLOT_HITSCAN`).
  * Turrets and units launch with `c` = 0; their row follows from what they are.
  */
+/**
+ * The Sky Captain's mode changed (`ai->mode`, mirrored in state word 39, which
+ * its idle-chatter script polls): from a decision pass, the respawn (roam) or
+ * the construct (defend). b = the new mode (warden.ts SKY_MODE_*).
+ */
+export const EV_CAPTAIN_MODE = 21; // a=captain id, b=new mode
+/**
+ * The Sky Captain stored an announcement into state word 56, which its event
+ * scripts poll (2: it turned its guns on the player's mech, 3: it went after a
+ * badly hurt player mech, 4: it was repaired). Events 1 (the switch to attack),
+ * 5..9 follow from EV_CAPTAIN_MODE, EV_HIT, EV_CAPTURE, EV_DEATH and EV_RESPAWN.
+ */
+export const EV_CAPTAIN_EVENT = 22; // a=captain id, b=event (2, 3, 4)
+/**
+ * The Sky Captain posted an order into a request word (its decision pass): the
+ * scripts that spawn the units also announce the order. b = CAPTAIN_ORDER_*,
+ * c = the outpost it is for, -1 its base.
+ */
+export const EV_CAPTAIN_ORDER = 23; // a=captain id, b=order kind, c=outpost (-1 base)
+export const CAPTAIN_ORDER_TANKS = 0;
+export const CAPTAIN_ORDER_JETS = 1;
+export const CAPTAIN_ORDER_DREADNOUGHT = 2;
+export const CAPTAIN_ORDER_FORTRESS = 3;
+/**
+ * A world round (`PROJ_ROUND`: a turret's, a unit's, the Dreadnought's guns',
+ * the Sky Captain's missile) struck something or a wall, beside its
+ * EV_EXPLOSION: c names what fired it, which decides the original's impact
+ * effect (each type-98 row has its own; see roundSourceArchetype/-Team).
+ */
+export const EV_ROUND_IMPACT = 24; // a=x*16, b=y*16, c=archetype | (team + 1) << 4
+/** EV_ROUND_IMPACT.c for a shooter. */
+export function roundSource(archetype: number, team: number): number {
+  return (archetype & 0xf) | ((team + 1) << 4);
+}
+/** The shooter's archetype out of EV_ROUND_IMPACT.c. */
+export function roundSourceArchetype(c: number): number {
+  return c & 0xf;
+}
+/** The shooter's team out of EV_ROUND_IMPACT.c (-1 neutral). */
+export function roundSourceTeam(c: number): number {
+  return (c >> 4) - 1;
+}
 export const SKY_WEAPON_MISSILE = 8;
 export const SKY_WEAPON_BOMB = 9;
 
