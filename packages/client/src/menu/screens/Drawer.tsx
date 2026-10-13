@@ -1,13 +1,12 @@
 // Console drawers: how to play, and a combined preferences (sound + graphics).
 //
 // Audio and texture preferences are persisted by the modules that own them
-// (audio/engine.ts, render/texVariants.ts) — this only drives them. Volume and
-// track are read from the engine on mount rather than mirrored into MenuState,
+// (audio/engine.ts, render/texVariants.ts) — this only drives them. The levels
+// are read from the engine on mount rather than mirrored into MenuState,
 // because the engine is the source of truth and is also changed from elsewhere.
 
 import { useState } from "preact/hooks";
-import type { AudioEngine, VolumeKind } from "../../audio/engine";
-import { MUSIC_OPTIONS, parseMusicSelection } from "../../audio/tracks";
+import type { AudioEngine, LevelKind } from "../../audio/engine";
 import {
   loadBloomPref,
   loadTexPref,
@@ -34,10 +33,15 @@ const CONTROLS: readonly (readonly [string, string])[] = [
   ["E", "press: capture a turret, claim an outpost, or buy one unit at a console"],
 ];
 
-const VOLUMES: readonly (readonly [VolumeKind, string])[] = [
-  ["master", "Master"],
-  ["sfx", "Effects"],
-  ["music", "Music"],
+/**
+ * The original's "Audio Controls" dialog (retail 0x00402930): three trackbars,
+ * 0..127, in the order every arm visits them, with the dialog's own labels.
+ * There is no master level.
+ */
+const LEVELS: readonly (readonly [LevelKind, string])[] = [
+  ["sfx", "Sound Effects Volume"],
+  ["music", "Music Volume"],
+  ["movies", "Movies Volume"],
 ];
 
 function HowTo() {
@@ -118,59 +122,16 @@ function Graphics({
 }
 
 function Sound({ audio }: { audio: AudioEngine }) {
-  const [vols, setVols] = useState(() => audio.getVolumes());
-  const [track, setTrack] = useState(() => audio.getMusicTrack());
-  const [trackErr, setTrackErr] = useState("");
+  const [levels, setLevels] = useState(() => audio.getLevels());
 
-  const setVolume = (kind: VolumeKind, pct: number): void => {
-    const v = pct / 100;
-    audio.setVolume(kind, v);
-    setVols({ ...audio.getVolumes() });
-    if (kind !== "music") audio.preview(kind === "master" ? "capture" : "shot");
+  const setLevel = (kind: LevelKind, v: number): void => {
+    audio.setLevel(kind, v);
+    setLevels(audio.getLevels());
   };
 
   return (
     <>
-      {/* Track picker first — picking a track is the on/off switch; the Music
-          slider below is only its level (bumped to 60 when a pick would be
-          mute). */}
-      <div class="menu-row">
-        <label class="menu-label" for="menu-music-track">
-          Track
-        </label>
-        <select
-          id="menu-music-track"
-          class="menu-select"
-          value={track}
-          onChange={(e) => {
-            // Parse before storing: parseMusicSelection is what narrows an
-            // arbitrary option value to a MusicSelection, and it also normalizes
-            // anything unexpected instead of putting it in state.
-            const sel = parseMusicSelection((e.currentTarget as HTMLSelectElement).value);
-            setTrackErr("");
-            setTrack(sel);
-            if (sel !== "off" && audio.getVolumes().music === 0) {
-              audio.setVolume("music", 0.6);
-              setVols({ ...audio.getVolumes() });
-            }
-            void audio.setMusicTrack(sel).then((res) => {
-              if (res === "missing") {
-                setTrackErr("Track file not found — drop mp3s into /music/.");
-                setTrack(audio.getMusicTrack());
-              }
-            });
-          }}
-        >
-          {MUSIC_OPTIONS.map((opt) => (
-            <option value={opt.id} key={opt.id}>
-              {opt.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      {trackErr ? <div class="menu-err">{trackErr}</div> : null}
-
-      {VOLUMES.map(([kind, name]) => (
+      {LEVELS.map(([kind, name]) => (
         <div class="menu-row" key={kind}>
           <label class="menu-label" for={`menu-vol-${kind}`}>
             {name}
@@ -180,16 +141,14 @@ function Sound({ audio }: { audio: AudioEngine }) {
             class="menu-slider"
             type="range"
             min={0}
-            max={100}
-            value={Math.round(vols[kind] * 100)}
-            onInput={(e) => setVolume(kind, Number((e.currentTarget as HTMLInputElement).value))}
+            max={127}
+            value={levels[kind]}
+            onInput={(e) => setLevel(kind, Number((e.currentTarget as HTMLInputElement).value))}
           />
-          <span class="menu-value ck-value">{Math.round(vols[kind] * 100)}</span>
+          <span class="menu-value ck-value">{levels[kind]}</span>
         </div>
       ))}
-      <p class="menu-hint">
-        Pick a track to turn music on (off by default). Settings are saved on this device.
-      </p>
+      <p class="menu-hint">Settings are saved on this device.</p>
     </>
   );
 }

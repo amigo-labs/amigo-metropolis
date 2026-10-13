@@ -35,9 +35,11 @@ import {
   getMapById,
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
+  MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_POINTS,
   MATCH_SNAPSHOT_LEN,
   MATCH_TICK,
+  MATCH_WARDEN_DIFFICULTY,
   MATCH_WINNER,
   MAX_ENTITIES,
   MAX_PLAYERS,
@@ -58,7 +60,14 @@ import {
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { OriginalSounds } from "./audio/cues";
 import { AudioEngine } from "./audio/engine";
+import {
+  FCOP_ARENA_AUDIO,
+  FCOP_PLAYER_WEAPONS,
+  FCOP_SAMPLE_FILES,
+  FCOP_VOICE_FILES,
+} from "./audio/fcopAudio.generated";
 import { findEntities } from "./debug/pinCapture";
 import { createPinModal, showPinToast } from "./debug/pinModal";
 import {
@@ -459,6 +468,31 @@ if (touchMode) document.body.classList.add("touch");
 const audio = new AudioEngine();
 // Browsers gate audio behind a gesture; the first pointer/key/touch unlocks it.
 audio.armUnlock();
+/** The original's sound calls, driven by the sim's events (audio/cues.ts). */
+const sounds = new OriginalSounds(audio);
+/**
+ * The arena that has no original of its own (district-01, the test maps) plays
+ * La Cantina's — the Mp bank. Metropolis' choice, until those maps go
+ * (fcop-fidelity.md, audio rows).
+ */
+const FALLBACK_SOUND_ARENA = "la-cantina";
+/** The camera's right vector on the ground, for the listener's pan. */
+let listenerRightX = 1;
+let listenerRightZ = 0;
+
+/** Points the engine and the cue table at the arena a match starts on. */
+function beginMatchSounds(): void {
+  const data = FCOP_ARENA_AUDIO[map.id] ?? FCOP_ARENA_AUDIO[FALLBACK_SOUND_ARENA];
+  if (!data) return;
+  audio.setArena({
+    bank: data.bank,
+    sampleUrls: FCOP_SAMPLE_FILES,
+    voiceUrls: FCOP_VOICE_FILES,
+    musicUrl: data.music,
+  });
+  sounds.begin(data, FCOP_PLAYER_WEAPONS);
+  audio.startMatch();
+}
 
 // Service worker for offline solo play (production builds only — the dev server
 // runs HMR and its own module graph). Best-effort: a failure just means no
@@ -927,6 +961,12 @@ function isMatchLive(): boolean {
 function setMatchPaused(paused: boolean): void {
   if (paused === matchPaused) return;
   matchPaused = paused;
+  // The original's pause (0x00434530): everything silenced, the menu's sound.
+  // Online the match runs on behind the card, and so does its sound.
+  if (!net && phase === "match") {
+    if (paused) audio.pause();
+    else audio.resume();
+  }
   pauseEl.classList.toggle("is-open", paused);
   if (paused) {
     if (document.pointerLockElement) document.exitPointerLock();
@@ -945,6 +985,7 @@ function setMatchPaused(paused: boolean): void {
  */
 function returnToMenu(): void {
   setMatchPaused(false);
+  audio.stopMatch();
   if (document.pointerLockElement) document.exitPointerLock();
 
   // Drop the net session first so no further tryStep runs against a dying sim.
@@ -1482,10 +1523,10 @@ function resolveEventPosition(
   }
 }
 
-/** Audio + VFX share the event buffer and the same position resolver. */
+/** Audio + VFX share the event buffer; VFX resolves positions here. */
 function pumpCosmetics(events: typeof sim.events): void {
   buildAudioIndex();
-  audio.pump(events, resolveEventPosition);
+  pumpSounds(events);
   fx.pump(events, resolveEventPosition);
   startMorphs(events);
   matchHud?.pumpEvents(events, performance.now());
@@ -1496,6 +1537,32 @@ function pumpCosmetics(events: typeof sim.events): void {
     const o = i * EVENT_STRIDE;
     if (events.data[o] === EV_DEATH && events.data[o + 2] === localSlot) localKills += 1;
   }
+}
+
+/** Scratch for the listener's position (the local mech, `snd_set_listener`). */
+const listenerPose = new Float32Array(3);
+
+/**
+ * One tick of the original's sound calls. The listener is the local mech
+ * (retail hands `snd_set_listener` the actor's position) facing the camera's
+ * way; while the mech is down it stays where it last stood.
+ */
+function pumpSounds(events: typeof sim.events): void {
+  const localSlot = views[0]?.slot ?? 0;
+  const avatar = matchSnap[matchSlotOffset(localSlot) + MATCH_SLOT_AVATAR_ID];
+  if (entityPose(avatar, listenerPose)) {
+    audio.setListener(listenerPose[0], listenerPose[2], listenerRightX, listenerRightZ);
+  }
+  const level = matchSnap[MATCH_WARDEN_DIFFICULTY] - 1;
+  sounds.tick(events, {
+    snapshot: snapCurr,
+    count: countCurr,
+    stride: SNAPSHOT_STRIDE,
+    match: matchSnap,
+    localSlot,
+    captainSlot: sim.wardenPlayer,
+    captainLevel: level > 0 ? level : 0,
+  });
 }
 
 /**
@@ -1749,7 +1816,7 @@ function hudText(view: PlayerView, fps: number, banner: string): string {
   const tag = slot === 0 ? "BLUE" : "RED";
   return (
     `P${slot + 1} ${tag}  ${status}  points ${sim.points[slot]}  units ${unitCounts[0]}v${unitCounts[1]}${progress}\n` +
-    `tick ${sim.tick}  fps ${fps}  entities ${countCurr}  sfx ${audio.lastCue || "-"}  map ${map.id}` +
+    `tick ${sim.tick}  fps ${fps}  entities ${countCurr}  sfx ${audio.lastPlayed || "-"}  map ${map.id}` +
     `${warden ? `  warden d${sim.wardenDifficulty}` : ""}\n${view.input.hint}${banner}`
   );
 }
@@ -1873,12 +1940,13 @@ function frame(now: number): void {
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
       renderer.setScissor(vp.left, yBottom, vp.width, vp.height);
       renderScene(view.camera);
-      // Audio listener follows the local view's camera: translation plus the
-      // first basis column (its right vector) is all a stereo pan needs. Raw
-      // matrix element reads, so no allocation in the frame loop.
+      // The listener's facing is the local view's camera: its first basis
+      // column (the right vector) on the ground plane. Raw matrix element
+      // reads, so no allocation in the frame loop.
       if (v === 0) {
         const e = view.camera.matrixWorld.elements;
-        audio.setListener(e[12], e[13], e[14], e[0], e[1], e[2]);
+        listenerRightX = e[0];
+        listenerRightZ = e[2];
       }
     }
   }
@@ -1947,6 +2015,7 @@ function resetForMatch(newSim: SimState): void {
 function startMatch(localPlayers: readonly { slot: number; input: LocalInputSource }[]): void {
   phase = "match";
   setMatchPaused(false);
+  beginMatchSounds();
   views = createPlayerViews(localPlayers, map.spawns, extent);
   // Start facing the way the rig starts: spawn -> arena centre. Otherwise the
   // first tick snaps the avatar to yaw 0 before the player has touched anything.
