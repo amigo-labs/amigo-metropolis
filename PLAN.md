@@ -651,6 +651,37 @@ sound plays for which event is read from code and data, not picked by ear (#27).
 - [x] Ledger: an Audio section with the adopted rows and the RE gaps
 - [ ] Close #27
 
+### Wave 2 — Gameplay rules
+
+Each rule read from the original's data (`tools/logic/pa_rules_data.py` in the RE
+repo → `tools/generators/fcop/<mission>-rules.json`, `bun run gen:parules`), one
+commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
+
+- [x] district-01 out of the game; goldens 02–04 re-recorded on original arenas
+      with closed-loop scripts (D2)
+- [x] No base pad, no outpost refill, no repair (P1, R14; v53)
+- [x] The Sky Captain fires as the original's: target by distance, walls stop its
+      gun and missile (U3; v54)
+- [x] Capture distance by the original's octagonal estimate (R12; v55)
+- [x] Purchase spots are the original's trigger boxes (R17; v56)
+- [x] The rule data imported from the RE (`gen:parules`)
+- [x] Spawn facing and hover form from the X1Alpha records (P10; v57)
+- [x] The bases' floors hurt the enemy mech; Hk's spawn guards (P11; v58)
+- [x] Water on Hk and Ovmp, NORMAL's auto-hover (P13; v59)
+- [x] Dreadnought and Fortress at their own zones, opened by the points poll
+      (R10; v60)
+- [x] Tanks queued, every unit from its spawner, shared with the Sky Captain
+      (R18; v61)
+- [x] Pickups collected in the original's box, the captain's 1.5 m touch, drawn
+      with the original's models (P9; v62)
+- [ ] Lifts (Conft, Slim, Joke): needs Slim, Joke and Conft imported with their
+      decks first — the spawn shafts on Slim and Joke exit onto a 2.0 m deck that
+      the single-storey import flattened away, so their mechs cannot leave the
+      spawn today
+- [ ] Ovmp's slippery patches (surface code 4) — with the controls wave (3)
+- [ ] HARD (sinking and drowning, 1000 HP, its ceilings) — with a difficulty
+      setting
+
 ## Backlog (post-v1, do not start)
 
 More arenas · map editor · rollback netcode upgrade · 2v2 ·
