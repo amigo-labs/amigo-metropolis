@@ -103,11 +103,19 @@ import { P2pLockstep } from "./net/p2pLockstep";
 import { openP2pSession, readP2pBootstrap } from "./net/p2pSession";
 import { WsTransport } from "./net/wsTransport";
 import { type AvatarRig, createAvatarRig } from "./render/avatarRig";
-import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
+import {
+  CAMERA_VFOV_DEG,
+  ENGINE_HZ,
+  gateCrowdControl,
+  pressCameraKey,
+  stepChaseCamera,
+} from "./render/camera";
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
+import { makeTerrainTrace } from "./render/cameraTrace";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx } from "./render/fx";
 import { bucketFor, createGreyboxMeshes, tintFor } from "./render/greybox";
+import { type CameraCaption, createCameraCaption } from "./render/hud/caption";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
 import { loadLifts, updateLifts } from "./render/lifts";
 import { matchClock, matchEndText } from "./render/matchEnd";
@@ -123,7 +131,12 @@ import {
 } from "./render/morph";
 import { ATMOSPHERE_HEX } from "./render/palette";
 import { loadPickups, updatePickups } from "./render/pickups";
-import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
+import {
+  applyChasePose,
+  createPlayerViews,
+  layoutViews,
+  type PlayerView,
+} from "./render/playerView";
 import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
 import { loadProps } from "./render/props";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
@@ -488,6 +501,12 @@ keyboard.setTable(loadControls()[0]);
 keyboard.onMap = () => {
   if (!net && phase === "match" && !matchEndShown) setMatchPaused(!matchPaused);
 };
+// The Camera Key cycles the local view's chase camera (render/camera.ts). A
+// client-local choice like the original's: the bit never reaches the sim.
+keyboard.onCamera = () => {
+  const view = views[0];
+  if (phase === "match" && view && cameraCaption) pressCameraKey(view.cam, false);
+};
 const localInput: LocalInputSource = keyboard;
 const audio = new AudioEngine();
 // Browsers gate audio behind a gesture; the first pointer/key/touch unlocks it.
@@ -760,6 +779,8 @@ const avatarMorph = createAvatarMorph();
 const morphScratch = new Float32Array(MORPH_OUT_LEN);
 
 let extent = worldExtent(map);
+/** The chase cameras' line-of-sight test over the arena's ground and decks. */
+let chaseTrace = makeTerrainTrace(map);
 
 /**
  * Online only: the server's MSG_WELCOME config is authoritative. If it names a
@@ -770,6 +791,7 @@ function rebuildArena(mapId: string): void {
   if (mapId === map.id) return;
   map = getMapById(mapId);
   extent = worldExtent(map);
+  chaseTrace = makeTerrainTrace(map);
   // Debug variant textures are per-map: free them before the arena they
   // belong to goes away (the switcher is re-armed by buildArenaGroup's
   // onMaterials callback once the new mesh loads).
@@ -818,9 +840,6 @@ const scratchQuat = new THREE.Quaternion();
 const scratchPitch = new THREE.Quaternion();
 const scratchPos = new THREE.Vector3();
 const scratchScale = new THREE.Vector3(1, 1, 1);
-const camTarget = new THREE.Vector3();
-const rigFocus = { x: 0, y: 0, z: 0 };
-const rigVel = { x: 0, y: 0, z: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 /**
  * Local axis a nose pitches about. Models are baked +Z -> +X (unitMeshes.ts), so
@@ -829,6 +848,15 @@ const UP = new THREE.Vector3(0, 1, 0);
  */
 const PITCH_AXIS = new THREE.Vector3(0, 0, 1);
 const TAU = Math.PI * 2;
+
+/**
+ * The occlusion trace's anchor above the avatar's feet, m: the original traces
+ * from the mech's model point (+0x5c); 0.5 m is the walker's middle, which keeps
+ * a trace from starting inside a slope it stands on.
+ */
+const CHASE_ANCHOR_LIFT = 0.5;
+/** The camera caption (render/hud/caption.ts), present while a chase camera is. */
+let cameraCaption: CameraCaption | undefined;
 
 // The chase rig has no zoom to give the wheel (camera.spec §3), and under
 // pointer lock there is no cursor for the reticle to follow — it sits in the
@@ -1046,6 +1074,8 @@ function returnToMenu(): void {
 
   matchHud?.destroy();
   matchHud = undefined;
+  cameraCaption?.destroy();
+  cameraCaption = undefined;
   document.body.classList.remove("hud-text-hidden");
 
   // fx.update only runs while a match is on — anything still in flight would
@@ -1395,12 +1425,11 @@ function downloadReplay(bytes: Uint8Array, name: string): void {
   URL.revokeObjectURL(url);
 }
 
-// Per-player avatar render state, filled by renderEntities for the chase rigs:
-// [threeX, threeZ, height, found(0/1), pursuit(0/1), velX, velZ, yaw]. velX/velZ
-// are world u/s in render space, from the raw per-tick snapshot delta; yaw is
-// the interpolated hull heading (sim radians).
+// Per-player avatar render state, filled by renderEntities for the chase
+// cameras: [threeX, threeZ, height, found(0/1), hover(0/1), yaw], all
+// interpolated; yaw is the hull heading (sim radians).
 const avatarPoses: Float32Array[] = [];
-for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses.push(new Float32Array(8));
+for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses.push(new Float32Array(6));
 
 function wrapAngleDelta(d: number): number {
   return ((((d + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
@@ -1675,16 +1704,8 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
       pose[1] = y; // three z (sim y)
       pose[2] = height; // three y
       pose[3] = 1; // found
-      pose[4] = (animState & ANIM_HOVER) !== 0 ? 1 : 0; // pursuit/hover framing
-      // Look-ahead velocity: raw per-tick delta → world u/s, in render space.
-      if (hasPrev) {
-        pose[5] = (snapCurr[o + 3] - snapPrev[po + 3]) * TICK_HZ;
-        pose[6] = (snapCurr[o + 4] - snapPrev[po + 4]) * TICK_HZ;
-      } else {
-        pose[5] = 0;
-        pose[6] = 0;
-      }
-      pose[7] = yaw; // the hull's heading, which the chase camera follows
+      pose[4] = (animState & ANIM_HOVER) !== 0 ? 1 : 0; // the chase camera's sink
+      pose[5] = yaw; // the hull's heading, which the chase camera follows
     }
 
     if (rig) {
@@ -1753,28 +1774,30 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
 }
 
 /**
- * Orbit-follow rig (camera.spec): world-fixed yaw, a stepless pitch+zoom `t`
- * continuum, look-ahead and a walker/pursuit resting-point bias. Client-local
- * render state — reads only the interpolated avatar pose, never the sim. Per
- * view; framerate-stable in real `dt` seconds.
+ * The original's chase camera for one view (camera.spec, render/camera.ts): the
+ * interpolated avatar is its subject, the frame's real time its clock in the
+ * engine's 300 Hz ticks. Client-local render state — reads only the
+ * interpolated avatar pose, never the sim. Frozen while the match is paused.
  */
-function updateRigCamera(view: PlayerView, dtSec: number): void {
+function updateChaseCamera(view: PlayerView, dtSec: number): void {
   const pose = avatarPoses[view.slot];
   if (pose[3] === 0) return; // avatar not present this frame
-  rigFocus.x = pose[0];
-  rigFocus.y = pose[2]; // three y (height) — the rig adds focusHeight
-  rigFocus.z = pose[1];
-  rigVel.x = pose[5];
-  rigVel.y = 0;
-  rigVel.z = pose[6];
-  const pursuit = pose[4] !== 0;
-  updateCamera(view.cam, view.camInput, rigFocus, rigVel, pursuit, DEFAULT_RIG_CONFIG, dtSec);
-  const fov = deriveCameraPose(view.cam, DEFAULT_RIG_CONFIG, view.camera.position, camTarget);
-  if (view.camera.fov !== fov) {
-    view.camera.fov = fov;
+  const subject = view.subject;
+  subject.x = pose[0];
+  subject.y = pose[1];
+  subject.height = pose[2];
+  subject.facing = pose[5];
+  subject.hover = pose[4] !== 0;
+  // No Precinct Assault arena has a volume trigger (camera.json pa_volume_triggers).
+  gateCrowdControl(view.cam, false);
+  const ticks = matchPaused ? 0 : dtSec * ENGINE_HZ;
+  stepChaseCamera(view.cam, subject, ticks, chaseTrace, CHASE_ANCHOR_LIFT, view.pose);
+  applyChasePose(view.camera, view.pose);
+  // The menu blend animates the fov; the chase owns it again afterwards.
+  if (view.camera.fov !== CAMERA_VFOV_DEG) {
+    view.camera.fov = CAMERA_VFOV_DEG;
     view.camera.updateProjectionMatrix();
   }
-  view.camera.lookAt(camTarget);
 }
 
 // --- HUD (1 Hz, host-side debug UI; reads sim directly) ----------------------
@@ -1924,15 +1947,8 @@ function frame(now: number): void {
     renderer.setScissor(0, 0, innerWidth, innerHeight);
     renderScene(flyCam);
   } else {
-    // Drain accumulated wheel into the pointer view's rig (scroll up → zoom in
-    // → toward ACTION). Only the pointer view takes zoom.
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
-      // Chase rig: the camera follows the hull's heading, as the original's
-      // sits behind the X1; nothing is left for the wheel (camera.spec §3).
-      const pose = avatarPoses[view.slot];
-      view.camInput.yawAbsolute = pose[3] !== 0 ? pose[7] : null;
-      view.camInput.zoomDelta = 0;
       if (flyMode && v === 0) {
         // Free-fly debug camera owns view 0's posing (render/flyCamera.ts) —
         // rig and blend are skipped, exactly like orbit below. Skip while the
@@ -1941,8 +1957,9 @@ function frame(now: number): void {
       } else if (orbitControls && v === 0) {
         orbitControls.update();
       } else {
-        updateRigCamera(view, dtSec);
+        updateChaseCamera(view, dtSec);
         if (blend.active) applyBlend(blend, view.camera, dtSec);
+        if (v === 0 && cameraCaption) cameraCaption.update(view.cam.name, view.cam.caption > 0);
       }
       // Billboards face the local view's camera (view 0); update once after
       // that camera is posed, before any scissored draw.
@@ -2050,6 +2067,10 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
           outpostTotal: map.outpostSpots.length,
         });
   layoutViews(views, "v", innerWidth, innerHeight, textHudInset());
+  // The camera caption rides with the chase camera: not under fly or orbit.
+  cameraCaption?.destroy();
+  cameraCaption = flyMode || orbitMode ? undefined : createCameraCaption();
+  cameraCaption?.layout(innerWidth, innerHeight);
 
   // The text HUD keeps being written in every mode — globalThis.metropolisHud()
   // is what the e2e and verification-pin harnesses assert against, so its
@@ -2402,6 +2423,7 @@ addEventListener("resize", () => {
   flyCam.aspect = innerWidth / innerHeight;
   flyCam.updateProjectionMatrix();
   if (views.length > 0) layoutViews(views, "v", innerWidth, innerHeight, textHudInset());
+  cameraCaption?.layout(innerWidth, innerHeight);
 });
 
 // The single persistent frame loop — every phase renders through it.

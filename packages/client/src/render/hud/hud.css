@@ -17,6 +17,14 @@
   color: var(--ck-text);
 }
 
+/* One canvas per element of the original's 640 x 480 layout (hudLayout.ts):
+   placed in CSS px, drawn in whole multiples of the original's pixels and
+   scaled the rest of the way without smoothing. */
+.mhud-c {
+  position: absolute;
+  image-rendering: pixelated;
+}
+
 /* --- Radar ---------------------------------------------------------------- */
 
 .mhud-radar {

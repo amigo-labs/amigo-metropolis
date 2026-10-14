@@ -23,8 +23,10 @@ import { firstPad, joyControlDown, type PadState } from "./gamepad";
 import { isTextEntryTarget } from "./textEntry";
 import type { LocalInputSource } from "./types";
 
-/** The Map Key's slot: the client's pause. */
+/** The Map Key's slot: the client's pause and map screen. */
 const SLOT_MAP = 8;
+/** The Camera Key's slot: the client's chase-camera cycle. */
+const SLOT_CAMERA = 9;
 
 /** The legend for a table: each slot's name and its key, in slot order. */
 export function controlsHint(table: readonly Binding[]): string {
@@ -42,6 +44,7 @@ export class PlayerOneInput implements LocalInputSource {
   private usesPad = false;
   private readonly down = new Set<string>();
   private mapWasDown = false;
+  private cameraWasDown = false;
   /**
    * While a match runs, the bound keys belong to the game: Tab, Alt and Space
    * would otherwise move focus, open the browser's menu or scroll the page.
@@ -49,6 +52,11 @@ export class PlayerOneInput implements LocalInputSource {
   capture = false;
   /** The Map Key's press, while capturing: the original pauses (solo) on it. */
   onMap: (() => void) | null = null;
+  /**
+   * The Camera Key's press, while capturing: the original cycles its chase
+   * cameras on it. Its bit never reaches the sim (inputs.ts BTN_CAMERA).
+   */
+  onCamera: (() => void) | null = null;
 
   constructor(target: Window) {
     this.hint = controlsHint(this.table);
@@ -59,6 +67,7 @@ export class PlayerOneInput implements LocalInputSource {
       if (!this.capture || !this.isBound(e.code)) return;
       e.preventDefault();
       if (!e.repeat && this.isKeyOf(SLOT_MAP, e.code)) this.onMap?.();
+      if (!e.repeat && this.isKeyOf(SLOT_CAMERA, e.code)) this.onCamera?.();
     });
     target.addEventListener("keyup", (e) => {
       if (isTextEntryTarget(e.target)) return;
@@ -98,20 +107,25 @@ export class PlayerOneInput implements LocalInputSource {
   }
 
   /**
-   * The pad's Map Key, once a frame while capturing: the keyboard's arrives as
-   * an event, a pad's has to be polled — also while the sim is paused, so it
-   * can resume it.
+   * The pad's Map and Camera Keys, once a frame while capturing: the keyboard's
+   * arrive as events, a pad's have to be polled — also while the sim is paused,
+   * so the Map Key can resume it.
    */
   pollPad(): void {
     if (!this.usesPad || !this.capture) {
       this.mapWasDown = false;
+      this.cameraWasDown = false;
       return;
     }
     const pad = firstPad();
-    const b = this.table[SLOT_MAP];
-    const down = pad !== null && b.device === DEVICE_JOYSTICK && joyControlDown(pad, b.code);
-    if (down && !this.mapWasDown) this.onMap?.();
-    this.mapWasDown = down;
+    const map = this.table[SLOT_MAP];
+    const mapDown = pad !== null && map.device === DEVICE_JOYSTICK && joyControlDown(pad, map.code);
+    if (mapDown && !this.mapWasDown) this.onMap?.();
+    this.mapWasDown = mapDown;
+    const cam = this.table[SLOT_CAMERA];
+    const camDown = pad !== null && cam.device === DEVICE_JOYSTICK && joyControlDown(pad, cam.code);
+    if (camDown && !this.cameraWasDown) this.onCamera?.();
+    this.cameraWasDown = camDown;
   }
 
   /** Writes the button word for this tick into `out`. */
