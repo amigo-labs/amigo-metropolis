@@ -244,3 +244,10 @@ export function pushEvent(buf: EventBuffer, type: number, a: number, b: number, 
   buf.data[o + 3] = c;
   buf.count += 1;
 }
+/**
+ * A lift leaves a stop (fcop-fidelity.md P12): a rider's press, or the end of
+ * its dwell. Its travel sound (the record's, 70) runs while it moves.
+ */
+export const EV_LIFT_START = 25; // a=lift index (map.lifts), b=the stop it heads for
+/** A lift reaches a stop: its arrival sound (71) plays at the lift. */
+export const EV_LIFT_ARRIVE = 26; // a=lift index (map.lifts), b=the stop it reached

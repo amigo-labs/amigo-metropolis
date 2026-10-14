@@ -374,6 +374,46 @@ export interface MapSpawnGuard {
 }
 
 /**
+ * One of the original's lifts (type-10 actor, `elevator.c`; fcop-fidelity.md
+ * P12; RE `camera-and-movement.md` "Lifts"). It moves only its height, between
+ * `stops` above the ground it was built on: from a stop whose `dwell` is 0 it
+ * leaves when a mech standing on its top presses the Action Key, from any other
+ * after `dwell` ticks; at either end of the table it turns round. Its top face
+ * is ground to a mech standing on it, and a tagged lift's top is its base's
+ * floor (`hurtsTeam`).
+ */
+export interface MapLift {
+  /** Centre, sim frame. */
+  readonly x: number;
+  readonly y: number;
+  /** The top face's rectangle, absolute sim coordinates (the record's box, turned by its yaw). */
+  readonly x0: number;
+  readonly x1: number;
+  readonly y0: number;
+  readonly y1: number;
+  /** The ground under the lift as it was built, m. */
+  readonly ground: number;
+  /** The top face above the lift's position, m. */
+  readonly top: number;
+  /** Stops in world units (1/8192 m) above `ground`, ascending (raw << 4). */
+  readonly stops: readonly number[];
+  /** World units a sim tick toward a higher stop (`up`) and a lower one (`down`). */
+  readonly up: number;
+  readonly down: number;
+  /** Per stop: sim ticks it waits there; 0 parks it until a rider's press. */
+  readonly dwell: readonly number[];
+  /** The stop it starts at; it first moves toward the next one up. */
+  readonly start: number;
+  /** Team whose mech its top hurts as that team's enemy floor does (tag 14/15), -1 none. */
+  readonly hurtsTeam: number;
+  /** Per stop: the surface a rider counts as standing on (0 ground, L deck L), for its walls. */
+  readonly layers: readonly number[];
+  /** Render only: the original Cobj and the yaw, radians. */
+  readonly model: number;
+  readonly yaw: number;
+}
+
+/**
  * A render-only scenery placement (original DynamicProp and friends).
  *
  * The SIM MUST NOT READ THIS. It rides along in the map so the client can place
@@ -556,6 +596,8 @@ export interface MapData {
   readonly floorMasks: readonly Uint8Array[];
   /** Hk's spawn guards. EMPTY elsewhere. */
   readonly spawnGuards: readonly MapSpawnGuard[];
+  /** The lifts (Conft, Slim, Joke). EMPTY elsewhere. */
+  readonly lifts: readonly MapLift[];
   /** Render-only scenery. The sim must not read this. */
   readonly props: readonly MapProp[];
 }
@@ -876,6 +918,26 @@ export interface MapJson {
     damage: number;
     resetTicks: number;
     layer?: number;
+  }[];
+  /** OPTIONAL: the lifts (MapLift). */
+  lifts?: {
+    x: number;
+    y: number;
+    x0: number;
+    x1: number;
+    y0: number;
+    y1: number;
+    ground: number;
+    top: number;
+    stops: number[];
+    up: number;
+    down: number;
+    dwell: number[];
+    start: number;
+    hurtsTeam: number;
+    layers: number[];
+    model: number;
+    yaw: number;
   }[];
   /** Render-only scenery; never read by the sim. */
   props?: { x: number; y: number; height: number; yaw: number; model: number; layer?: number }[];
@@ -1640,6 +1702,64 @@ export function loadMapFromJson(raw: MapJson): MapData {
     };
   });
 
+  const lifts: MapLift[] = (raw.lifts ?? []).map((l, k) => {
+    if (!l || typeof l !== "object") fail(id, `lift ${k} is not an object`);
+    const what = `lift ${k}`;
+    const x = num(l.x, `${what} x`);
+    const y = num(l.y, `${what} y`);
+    if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
+    const x0 = num(l.x0, `${what} x0`);
+    const x1 = num(l.x1, `${what} x1`);
+    const y0 = num(l.y0, `${what} y0`);
+    const y1 = num(l.y1, `${what} y1`);
+    if (!(x0 <= x && x <= x1 && y0 <= y && y <= y1))
+      fail(id, `${what} footprint misses its centre`);
+    const ints = (v: unknown, label: string): number[] => {
+      if (!Array.isArray(v)) fail(id, `${what} ${label} is not an array`);
+      for (const e of v as unknown[]) {
+        if (!Number.isInteger(e) || (e as number) < 0) fail(id, `${what} ${label} has a bad entry`);
+      }
+      return v as number[];
+    };
+    const stops = ints(l.stops, "stops");
+    if (stops.length < 2) fail(id, `${what} needs two stops`);
+    for (let i = 1; i < stops.length; i++) {
+      if (stops[i] <= stops[i - 1]) fail(id, `${what} stops are not ascending`);
+    }
+    const dwell = ints(l.dwell, "dwell");
+    const layers = ints(l.layers, "layers");
+    if (dwell.length !== stops.length || layers.length !== stops.length) {
+      fail(id, `${what} needs a dwell and a layer per stop`);
+    }
+    for (let i = 0; i < layers.length; i++) layerOf(layers[i], `${what} stop ${i}`);
+    if (!Number.isInteger(l.up) || l.up <= 0 || !Number.isInteger(l.down) || l.down <= 0) {
+      fail(id, `${what} needs positive integer speeds`);
+    }
+    if (!Number.isInteger(l.start) || l.start < 0 || l.start >= stops.length) {
+      fail(id, `${what} bad start stop`);
+    }
+    if (l.hurtsTeam !== -1 && l.hurtsTeam !== 0 && l.hurtsTeam !== 1) fail(id, `${what} bad team`);
+    return {
+      x,
+      y,
+      x0,
+      x1,
+      y0,
+      y1,
+      ground: num(l.ground, `${what} ground`),
+      top: num(l.top, `${what} top`),
+      stops,
+      up: l.up,
+      down: l.down,
+      dwell,
+      start: l.start,
+      hurtsTeam: l.hurtsTeam,
+      layers,
+      model: num(l.model, `${what} model`),
+      yaw: num(l.yaw, `${what} yaw`),
+    };
+  });
+
   const dummySpots = points(raw.dummySpots, "dummy spot");
   const dummyWeapon = dummySpots.length > 0 ? original(PROFILE_NEUTRAL_TURRET) : -1;
   return {
@@ -1682,6 +1802,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     triggerVolumes,
     floorMasks,
     spawnGuards,
+    lifts,
     // Render-only, and deliberately not validated against bounds: props are
     // scenery, so an out-of-play prop is a cosmetic question, not a load error.
     props: (raw.props ?? []).map((p) => ({
@@ -1797,6 +1918,7 @@ export function createTestMap(): MapData {
     triggerVolumes: [],
     floorMasks: [],
     spawnGuards: [],
+    lifts: [],
     props: [],
   };
 }

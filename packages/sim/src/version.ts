@@ -986,4 +986,23 @@
 //     deck (inWater tested layer 0 only); bridges stand >= 0.59 m above it.
 //     No golden replay leaves the ground surface in hover form; their hashes
 //     stay.
-export const SIM_VERSION = 63;
+// v64: the original's lifts (fcop-fidelity.md P12): MapLift (`lifts`, no
+//     arena carries one yet) and systemLifts right after the mechs move. A
+//     lift moves only its height between its stops (raw << 4 wu above its
+//     ground) at its own speeds up and down (wu per sim tick, 10 engine
+//     ticks), parks at a stop whose dwell is 0 until a mech standing on its
+//     top presses the Action Key (capturePress), dwells at the others, and
+//     turns round at either end of its table; EV_LIFT_START / EV_LIFT_ARRIVE.
+//     Its top is ground to a mech (avatarSurface: the walker's and the
+//     hover's probes answer it within LIFT_RIM_SLACK of its face, a rim within
+//     STEP_SNAP is stepped onto), its riders move with it (SimState.avatarLift,
+//     the carrier), a rider reads the walls of its nearer stop's surface, and
+//     a tagged top hurts the enemy mech as its base's floor does. State
+//     liftWu / liftStop / liftDir / liftPhase / liftTimer and avatarLift,
+//     hashed on arenas with lifts only. writeLiftSnapshot for the renderer.
+//     The surface tilt is read on the mover's own surface: a probe over a
+//     deck's edge, into a hole or onto a lift reads as the centre's height
+//     (was: the drop, a cliff of gradient that pushed walker and hover off
+//     every deck edge and kept a hover off a deck its probe reaches). Moves
+//     the layered goldens (03 on la-cantina, 06); single-surface arenas stay.
+export const SIM_VERSION = 64;

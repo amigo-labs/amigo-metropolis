@@ -78,7 +78,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 50 (the original's 37.5 s ring respawn, R16): 03's
   // script was rewritten around it (player 1 is put down at the outpost, the wave
   // goes in inside the ring's window) and runs 200 s.
-  "golden-03-match": { last: 237706050, count: 6000 },
+  // Re-frozen at SIM_VERSION 64: la-cantina has decks, and the surface tilt is
+  // read on the mover's own surface (a deck's edge is no longer a cliff slope).
+  "golden-03-match": { last: 2386534103, count: 6000 },
   // 04 and 07 re-frozen at SIM_VERSION 54: the captain takes its target without
   // a line of sight and walls stop its gun and missile at ground units too.
   // 03, 04 and 07 re-frozen at SIM_VERSION 55: captures by the octagonal estimate.

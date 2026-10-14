@@ -302,13 +302,15 @@ describe("the hover rides decks (fcop-fidelity.md P14)", () => {
     expect(sim.ent.height[id]).toBeCloseTo(HOVER_CLEARANCE, 3);
   });
 
-  it("is stopped by a deck edge its probe reaches but its cushion cannot climb", () => {
-    // A 0.8 m deck: within the probe, so it is the surface ahead, and too
-    // steep an edge for the hover's slope gate.
+  it("climbs a deck edge its probe reaches outright, as the original's does", () => {
+    // A 0.8 m deck: within the probe (the original climbs up to ~0.96 m in one
+    // step). Until SIM_VERSION 64 the tilt read the edge as a 1.6 gradient and
+    // pushed the hover back off it.
     const sim = createSim(loadMapFromJson(deckMap(26)), 1);
     const id = hoverAt(sim, 2, 3.5, 0);
     drive(sim, 127, 0, 30);
-    expect(sim.ent.posX[id]).toBeLessThan(4);
-    expect(sim.ent.entLayer[id]).toBe(0);
+    expect(sim.ent.posX[id]).toBeGreaterThan(5);
+    expect(sim.ent.entLayer[id]).toBe(1);
+    expect(sim.ent.height[id]).toBeCloseTo(26 / 32 + HOVER_CLEARANCE, 3);
   });
 });

@@ -125,6 +125,12 @@ Design pillars, in priority order:
   Tanks drive through it: only the mech's own movement reads it. HARD's sinking
   and drowning are not modelled — Metropolis has no player difficulty and models
   NORMAL. (Until v59 no imported arena had water.)
+- **Lifts** (SIM_VERSION 64, `fcop-fidelity.md` P12): a lift moves only its
+  height between its stops. It rests at the bottom until the mech standing on
+  it presses the Action Key, rises at its own speed, waits 1.5 s at the top and
+  comes back down by itself, faster. Its top is ground: the mech rides it and
+  steps off at the top onto the deck it serves. A lift under a base's spawn
+  (Slim, Joke) is that base's floor and hurts the enemy mech standing on it.
 - Same three weapon slots in both modes: Gun, Heavy, Special.
 - **The weapon catalog is the original Precinct Assault set only** (SIM_VERSION
   26): **ten weapons**, four Guns / three Heavies / three Specials. Default kit

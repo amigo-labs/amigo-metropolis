@@ -52,6 +52,7 @@ import {
   HOVER_STOP_SPEED,
   HOVER_TURN_LIMIT,
   JUGGERNAUT_ALIVE_LIMIT,
+  LIFT_RIM_SLACK,
   LOW_AMMO_WARNING,
   MATCH_OUTRO_TICKS,
   MAX_ENTITIES,
@@ -155,6 +156,8 @@ import {
   EV_DRY_FIRE,
   EV_EXPLOSION,
   EV_HIT,
+  EV_LIFT_ARRIVE,
+  EV_LIFT_START,
   EV_LOW_AMMO,
   EV_PICKUP,
   EV_PURCHASE,
@@ -438,6 +441,24 @@ export interface SimState {
    */
   readonly guardLatch: Uint8Array;
   readonly guardTimer: Int32Array;
+  /**
+   * The lifts (fcop-fidelity.md P12), per `map.lifts` entry: the height above
+   * the lift's ground in world units, the stop it is at or last left, the way
+   * it goes next (+1 up, -1 down), its phase (LIFT_*) and the dwell left.
+   * Length 0 on an arena without lifts.
+   */
+  readonly liftWu: Int32Array;
+  readonly liftStop: Int8Array;
+  readonly liftDir: Int8Array;
+  readonly liftPhase: Uint8Array;
+  readonly liftTimer: Int32Array;
+  /**
+   * Per player: the lift whose top the mech stands on this tick, -1 for none —
+   * the original's carrier (`player_follow_carrier`). Set by the avatar's
+   * movement; read by systemLifts (the rider's press, the carry) and
+   * systemFloors (a tagged top).
+   */
+  readonly avatarLift: Int8Array;
 
   // --- X1-Alpha movement state, per player (fcop-fidelity.md P4/P5) ---------
   /**
@@ -471,6 +492,10 @@ export function spawnAvatar(state: SimState, player: number): number {
   // not always the ground under it. layer 0 → sampleHeight (bit-identical).
   const ground = resolveHeight(state.map, s.x, s.y, s.layer);
   ent.height[id] = warden ? Math.max(ground, state.map.waterLevel) + WARDEN_ALTITUDE : ground;
+  // A spawn on a lift (Slim, Joke) stands on its top within a step.
+  if (!warden && state.map.lifts.length > 0) {
+    ent.height[id] = avatarSurface(state, s.x, s.y, ground, false).height;
+  }
   ent.entLayer[id] = warden ? 0 : s.layer;
   ent.yaw[id] = s.yaw;
   ent.aimX[id] = cosLUT(s.yaw);
@@ -828,6 +853,12 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     turretAlert: new Int32Array(ringSlots > 0 ? MAX_PLAYERS : 0),
     guardLatch: new Uint8Array(map.spawnGuards.length),
     guardTimer: new Int32Array(map.spawnGuards.length),
+    liftWu: new Int32Array(map.lifts.length),
+    liftStop: new Int8Array(map.lifts.length),
+    liftDir: new Int8Array(map.lifts.length),
+    liftPhase: new Uint8Array(map.lifts.length),
+    liftTimer: new Int32Array(map.lifts.length),
+    avatarLift: new Int8Array(MAX_PLAYERS).fill(-1),
     avatarTurnRate: new Float32Array(MAX_PLAYERS),
     avatarIdle: new Int32Array(MAX_PLAYERS),
     avatarLunge: new Int32Array(MAX_PLAYERS),
@@ -854,6 +885,16 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     for (let q = 0; q < UNIT_QUEUES; q++) {
       state.unitQueueTimer[p * UNIT_QUEUES + q] = randInt(state, queuePeriod(map, p, q));
     }
+  }
+  // Each lift at its record's stop, parked or dwelling as that stop says,
+  // headed for the next stop up (every shipped lift lists its stops ascending).
+  for (let k = 0; k < map.lifts.length; k++) {
+    const l = map.lifts[k];
+    state.liftStop[k] = l.start;
+    state.liftWu[k] = l.stops[l.start];
+    state.liftDir[k] = l.start < l.stops.length - 1 ? 1 : -1;
+    state.liftTimer[k] = l.dwell[l.start];
+    state.liftPhase[k] = l.dwell[l.start] > 0 ? LIFT_DWELL : LIFT_PARKED;
   }
   for (let p = 0; p < MAX_PLAYERS; p++) {
     spawnAvatar(state, p);
@@ -903,7 +944,7 @@ export const STEP_SNAP = 0.35;
  *   deck the hover rides is its ground.
  */
 function slopeBlocks(
-  map: MapData,
+  state: SimState,
   x: number,
   y: number,
   nx: number,
@@ -911,14 +952,14 @@ function slopeBlocks(
   hover: boolean,
   height: number,
 ): boolean {
-  const here = hover
-    ? hoverSurface(map, x, y, height).height
-    : resolveWalker(map, x, y, height).height;
-  const there = hover
-    ? hoverSurface(map, nx, ny, height).height
-    : resolveWalker(map, nx, ny, height).height;
-  const rise = there - here;
+  const map = state.map;
+  const here = avatarSurface(state, x, y, height, hover).height;
+  const ahead = avatarSurface(state, nx, ny, height, hover);
+  const rise = ahead.height - here;
   if (rise <= GROUND_EPS) return false;
+  // A lift's top within a step is stepped onto, as the original's probe steps
+  // onto it: its rim is a hard edge the gradient test would read as a wall.
+  if (ahead.lift >= 0 && rise <= STEP_SNAP) return false;
   const run = Math.abs(nx - x) + Math.abs(ny - y);
   const maxSlope = hover ? AVATAR_HOVER_MAX_SLOPE : AVATAR_WALKER_MAX_SLOPE;
   if (rise <= run * maxSlope) return false;
@@ -930,7 +971,7 @@ function slopeBlocks(
   const extent = worldExtent(map);
   const px = Math.min(Math.max(x + ((nx - x) / run) * HOVER_CUSHION_SPAN, 0), extent);
   const py = Math.min(Math.max(y + ((ny - y) / run) * HOVER_CUSHION_SPAN, 0), extent);
-  return hoverSurface(map, px, py, height).height - here > HOVER_CUSHION_SPAN * maxSlope;
+  return avatarSurface(state, px, py, height, hover).height - here > HOVER_CUSHION_SPAN * maxSlope;
 }
 
 /** Scratch for `surfaceTilt` (the tick is synchronous and not re-entrant). */
@@ -942,12 +983,36 @@ const TILT_PROBE = 0.25;
  * The surface under a mover as the original's surface normal: the height
  * gradient (gx, gy), the normal's horizontal length `t` (its "tilt") and its
  * vertical part `lift`. The hover reads its ride surface (water is flat; a
- * deck it rides), the walker the deck it stands on.
+ * deck it rides), the walker the deck it stands on. The original takes the
+ * normal of the plate under the mech, so the difference is read on that
+ * surface only: a probe that lands on another surface — over a deck's edge,
+ * into a hole, onto a lift — reads as the centre's height (a ledge is not a
+ * slope; the gates and gravity handle it). A lift's top is flat: the original's
+ * carrier answers its own face's normal. On a map with one surface this is the
+ * plain difference.
  */
-function surfaceTilt(map: MapData, x: number, y: number, hover: boolean, h: number): typeof tilt {
+function surfaceTilt(
+  state: SimState,
+  x: number,
+  y: number,
+  hover: boolean,
+  h: number,
+): typeof tilt {
+  const c = avatarSurface(state, x, y, h, hover);
+  if (c.lift >= 0) {
+    tilt.gx = 0;
+    tilt.gy = 0;
+    tilt.lift = 1;
+    tilt.t = 0;
+    return tilt;
+  }
+  const layer = c.layer;
+  const centre = c.height;
   const e = TILT_PROBE;
-  const at = (px: number, py: number) =>
-    hover ? hoverSurface(map, px, py, h).height : resolveWalker(map, px, py, h).height;
+  const at = (px: number, py: number) => {
+    const s = avatarSurface(state, px, py, h, hover);
+    return s.layer === layer && s.lift < 0 ? s.height : centre;
+  };
   const gx = (at(x + e, y) - at(x - e, y)) / (2 * e);
   const gy = (at(x, y + e) - at(x, y - e)) / (2 * e);
   const g2 = gx * gx + gy * gy;
@@ -1025,6 +1090,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
   for (let p = 0; p < MAX_PLAYERS; p++) {
     // The Warden's slot ignores TickInputs entirely: its superplane is moved
     // by systemWarden, deterministically on every peer.
+    state.avatarLift[p] = -1;
     if (p === state.wardenPlayer) continue;
     const id = state.avatarId[p];
     state.moveCue[p] = 0;
@@ -1068,8 +1134,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // reachable within a step); the hover rides the surface its probe finds
     // (`hoverSurface`: a deck, the ground or water) at its clearance.
     let ride = hoverPhys
-      ? hoverSurface(map, x, y, ent.height[id]).height + clearanceOf(ent, id)
-      : resolveWalker(map, x, y, ent.height[id]).height;
+      ? avatarSurface(state, x, y, ent.height[id], true).height + clearanceOf(ent, id)
+      : avatarSurface(state, x, y, ent.height[id], false).height;
     let vz = ent.timerB[id];
     const airborne = hoverPhys
       ? ent.height[id] > ride + HOVER_HOLD_DOWN || vz > 0
@@ -1211,7 +1277,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     let lunge = state.avatarLunge[p];
     if (!hoverPhys && !airborne && (pressed & BUTTON_JUMP) !== 0) {
       const h = ent.height[id];
-      if (surfaceTilt(map, x, y, false, h).t <= WALKER_STEEP_TILT) {
+      if (surfaceTilt(state, x, y, false, h).t <= WALKER_STEEP_TILT) {
         if (fore > 0) {
           jumpLift = WALKER_LEAP_LIFT; // running forward: the leap
           jumpPush = WALKER_LEAP_PUSH;
@@ -1219,7 +1285,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         } else {
           const ax = Math.min(Math.max(x + fx * WALKER_PROBE_AHEAD, 0), extent);
           const ay = Math.min(Math.max(y + fy * WALKER_PROBE_AHEAD, 0), extent);
-          const rise = resolveWalker(map, ax, ay, h + WALKER_PROBE_LIFT).height - h;
+          const rise = avatarSurface(state, ax, ay, h + WALKER_PROBE_LIFT, false).height - h;
           if (rise > WALKER_HIGH_RISE) {
             jumpLift = WALKER_HIGH_LIFT; // a step ahead: the high jump
             lunge = rise > WALKER_LUNGE_MAX_RISE ? 0 : WALKER_LUNGE_TICKS;
@@ -1247,7 +1313,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       if (brake && !inAir) d = HOVER_BRAKE_DRAG;
       if (!inAir) {
         // With control, the tilted ground pushes it downhill.
-        const t = surfaceTilt(map, x, y, true, ent.height[id]);
+        const t = surfaceTilt(state, x, y, true, ent.height[id]);
         const sp = slopePush(HOVER_SLOPE_KNEE, HOVER_SLOPE_GAIN);
         if (sp > 0) {
           const g = Math.sqrt(t.gx * t.gx + t.gy * t.gy);
@@ -1280,7 +1346,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       vx *= r;
       vy *= r;
     } else {
-      const t = surfaceTilt(map, x, y, false, ent.height[id]);
+      const t = surfaceTilt(state, x, y, false, ent.height[id]);
       const sp = slopePush(WALKER_SLOPE_KNEE, WALKER_SLOPE_GAIN);
       if (sp > 0) {
         const g = Math.sqrt(t.gx * t.gx + t.gy * t.gy);
@@ -1324,7 +1390,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     if (stepX !== 0) {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
       let ok = !crossesWallX(map, x, nx, y, wallLayer);
-      if (ok && !skipSlope && slopeBlocks(map, x, y, nx, y, hoverPhys, ent.height[id])) ok = false;
+      if (ok && !skipSlope && slopeBlocks(state, x, y, nx, y, hoverPhys, ent.height[id]))
+        ok = false;
       if (ok) x = nx;
       else ent.velX[id] = 0;
     }
@@ -1332,7 +1399,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     if (stepY !== 0) {
       const ny = Math.min(Math.max(y + stepY, 0), extent);
       let ok = !crossesWallY(map, x, y, ny, wallLayer);
-      if (ok && !skipSlope && slopeBlocks(map, x, y, x, ny, hoverPhys, ent.height[id])) ok = false;
+      if (ok && !skipSlope && slopeBlocks(state, x, y, x, ny, hoverPhys, ent.height[id]))
+        ok = false;
       if (ok) y = ny;
       else ent.velY[id] = 0;
     }
@@ -1351,11 +1419,13 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // Vertical: gravity 26.1 m/s² to a 14.06 m/s terminal fall in both forms,
     // and a landing over 10.78 m/s hurts.
     let h = ent.height[id];
+    let carrier = -1;
     if (hoverPhys) {
       // Snapped up to its ride height, held down within HOVER_HOLD_DOWN of it,
       // and airborne above that — off a ledge it falls.
-      const hs = hoverSurface(map, x, y, h);
+      const hs = avatarSurface(state, x, y, h, true);
       ent.entLayer[id] = hs.layer;
+      carrier = hs.lift;
       ride = hs.height + clearanceOf(ent, id);
       const air = h > ride + HOVER_HOLD_DOWN || vz > 0;
       if (air) {
@@ -1372,8 +1442,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     } else {
       // The walker snaps to step-sized height changes (STEP_SNAP, Metropolis'
       // deck rule) and falls past them.
-      const wr = resolveWalker(map, x, y, h);
+      const wr = avatarSurface(state, x, y, h, false);
       ent.entLayer[id] = wr.layer;
+      carrier = wr.lift;
       ride = wr.height;
       if (vz !== 0 || h > ride + STEP_SNAP) {
         vz -= X1_GRAVITY * TICK_DT;
@@ -1394,6 +1465,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     ent.height[id] = h;
     ent.timerB[id] = vz;
     state.avatarLunge[p] = lunge;
+    // Standing on a lift's top: that lift is its carrier this tick.
+    if (carrier >= 0 && h - ride <= GROUND_EPS) state.avatarLift[p] = carrier;
 
     ent.animState[id] =
       (commanded || ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id] > 1e-6
@@ -1901,6 +1974,68 @@ export function hoverSurface(
   const s = surfaceBelow(map, x, y, h + HOVER_PROBE_LIFT);
   if (s.layer === 0) s.height = rideHeight(map, x, y, true);
   return s;
+}
+
+/** Lift phases (SimState.liftPhase). */
+export const LIFT_PARKED = 0;
+export const LIFT_DWELL = 1;
+export const LIFT_MOVING = 2;
+
+/** The height of lift `k`'s top face now, m. */
+export function liftTopHeight(state: SimState, k: number): number {
+  const l = state.map.lifts[k];
+  return l.ground + state.liftWu[k] / 8192 + l.top;
+}
+
+/** The surface a rider of lift `k` counts as standing on: its nearest stop's. */
+function liftLayer(state: SimState, k: number): number {
+  const l = state.map.lifts[k];
+  const wu = state.liftWu[k];
+  let best = 0;
+  for (let i = 1; i < l.stops.length; i++) {
+    if (Math.abs(l.stops[i] - wu) < Math.abs(l.stops[best] - wu)) best = i;
+  }
+  return l.layers[best];
+}
+
+/** Scratch for `avatarSurface` (the tick is synchronous and not re-entrant). */
+const surf = { layer: 0, height: 0, lift: -1 };
+
+/**
+ * The surface a mech stands on (walker) or rides over (hover) at (x, y) at
+ * height `h`: the map's (`resolveWalker` / `hoverSurface`) or the top of a lift
+ * whose face covers (x, y) (within LIFT_RIM_SLACK), within the same reach above
+ * the mech, whichever is
+ * higher — the original's ground probe answers a lift (a carrier) as ground
+ * (fcop-fidelity.md P12). `lift` names that lift, -1 for the map's surface.
+ * Avatars only: units and tanks never ride a lift. Returns shared scratch.
+ */
+function avatarSurface(
+  state: SimState,
+  x: number,
+  y: number,
+  h: number,
+  hover: boolean,
+): typeof surf {
+  const map = state.map;
+  const s = hover ? hoverSurface(map, x, y, h) : resolveWalker(map, x, y, h);
+  surf.layer = s.layer;
+  surf.height = s.height;
+  surf.lift = -1;
+  const lifts = map.lifts;
+  if (lifts.length === 0) return surf;
+  const reach = h + (hover ? HOVER_PROBE_LIFT : STEP_SNAP);
+  for (let k = 0; k < lifts.length; k++) {
+    const l = lifts[k];
+    const rim = LIFT_RIM_SLACK;
+    if (x < l.x0 - rim || x > l.x1 + rim || y < l.y0 - rim || y > l.y1 + rim) continue;
+    const top = liftTopHeight(state, k);
+    if (top > reach || top <= surf.height) continue;
+    surf.layer = liftLayer(state, k);
+    surf.height = top;
+    surf.lift = k;
+  }
+  return surf;
 }
 
 /**
@@ -3757,13 +3892,22 @@ function systemFloors(state: SimState): void {
   const map = state.map;
   const ent = state.ent;
   const masks = map.floorMasks;
-  if (masks.length > 0) {
+  if (masks.length > 0 || map.lifts.length > 0) {
     // The movement steps that fall in this tick: 1, 1, 1, 2 at 1.25 a tick.
     const t = state.tick;
     const steps = Math.floor((t + 1) * X1_STEPS_PER_TICK) - Math.floor(t * X1_STEPS_PER_TICK);
     for (let p = 0; p < MAX_PLAYERS; p++) {
       const id = state.avatarId[p];
       if (id < 0 || ent.archetype[id] !== ARCHETYPE.AVATAR) continue;
+      // On a lift its top is the surface, in place of the floor under it: a
+      // tagged lift hurts like its base's floor (fcop-fidelity.md P12).
+      const carrier = state.avatarLift[p];
+      if (carrier >= 0) {
+        if (map.lifts[carrier].hurtsTeam === ent.team[id]) {
+          applyDamage(state, id, steps * FLOOR_DAMAGE_PER_STEP, -1);
+        }
+        continue;
+      }
       const layer = ent.entLayer[id];
       if (layer >= masks.length) continue;
       const x = ent.posX[id];
@@ -3819,12 +3963,75 @@ function insideVolume(ent: EntityStore, id: number, vol: MapTriggerVolume): bool
 }
 
 /** Advances the sim by exactly one tick. Synchronous, allocation-free. */
+/** A lift leaves the stop it is at for the next one its way. */
+function startLift(state: SimState, k: number): void {
+  state.liftPhase[k] = LIFT_MOVING;
+  state.liftTimer[k] = 0;
+  pushEvent(state.events, EV_LIFT_START, k, state.liftStop[k] + state.liftDir[k], 0);
+}
+
+/**
+ * The lifts (`elevator.c`; fcop-fidelity.md P12; RE `camera-and-movement.md`
+ * "Lifts"), right after the mechs move, so a press this tick and the carriers
+ * the movement found are current. A parked lift leaves when a mech standing on
+ * its top presses the Action Key (the down edge, capturePress — the same edge
+ * a capture or a purchase reads); a dwelling one when its dwell runs out. A
+ * moving one goes its stop's way at its own speed up or down, stops exactly at
+ * the stop, turns round at either end of its table, and then dwells or parks
+ * as that stop says. Its riders move with it (the carrier's translation,
+ * `player_follow_carrier`), so a rider never reads as airborne on it.
+ */
+function systemLifts(state: SimState): void {
+  const lifts = state.map.lifts;
+  const ent = state.ent;
+  for (let k = 0; k < lifts.length; k++) {
+    const l = lifts[k];
+    if (state.liftPhase[k] === LIFT_PARKED) {
+      for (let p = 0; p < MAX_PLAYERS; p++) {
+        if (state.avatarLift[p] === k && state.capturePress[p] === 1) {
+          startLift(state, k);
+          break;
+        }
+      }
+    } else if (state.liftPhase[k] === LIFT_DWELL) {
+      state.liftTimer[k] -= 1;
+      if (state.liftTimer[k] <= 0) startLift(state, k);
+    }
+    if (state.liftPhase[k] !== LIFT_MOVING) continue;
+    const before = state.liftWu[k];
+    const dir = state.liftDir[k];
+    const next = state.liftStop[k] + dir;
+    const target = l.stops[next];
+    let wu = before + (dir > 0 ? l.up : -l.down);
+    if (dir > 0 ? wu >= target : wu <= target) {
+      wu = target;
+      state.liftStop[k] = next;
+      if (next === 0 || next === l.stops.length - 1) state.liftDir[k] = -dir;
+      const d = l.dwell[next];
+      state.liftTimer[k] = d;
+      state.liftPhase[k] = d > 0 ? LIFT_DWELL : LIFT_PARKED;
+      pushEvent(state.events, EV_LIFT_ARRIVE, k, next, 0);
+    }
+    state.liftWu[k] = wu;
+    const dz = (wu - before) / 8192;
+    for (let p = 0; p < MAX_PLAYERS; p++) {
+      if (state.avatarLift[p] !== k) continue;
+      const id = state.avatarId[p];
+      if (id >= 0) ent.height[id] += dz;
+    }
+  }
+}
+
 export function step(state: SimState, inputs: TickInputs): void {
   clearEvents(state.events);
   // A breached match freezes: the tick (and thus the hash stream) keeps
   // advancing for replays/netcode, but no gameplay system runs anymore.
   if (state.winner === -1) {
     systemAvatarMovement(state, inputs);
+    // The lifts right after the mechs: a rider's press and its carrier are
+    // this tick's, and a carried rider is where its lift is before anything
+    // else reads its height.
+    systemLifts(state);
     systemQueues(state);
     // The Warden slots in directly after the human avatars: it IS the other
     // avatar (decision layer + superplane movement + weapons + buying), so it
@@ -3944,6 +4151,17 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.guardLatch[k]);
     h = fnv1aU32(h, state.guardTimer[k] >>> 0);
   }
+  // Appended at SIM_VERSION 64; empty (and so absent) on an arena without lifts.
+  for (let k = 0; k < state.liftWu.length; k++) {
+    h = fnv1aU32(h, state.liftWu[k] >>> 0);
+    h = fnv1aU32(h, state.liftStop[k] >>> 0);
+    h = fnv1aU32(h, state.liftDir[k] >>> 0);
+    h = fnv1aU32(h, state.liftPhase[k]);
+    h = fnv1aU32(h, state.liftTimer[k] >>> 0);
+  }
+  if (state.liftWu.length > 0) {
+    for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.avatarLift[p] >>> 0);
+  }
   // Appended at SIM_VERSION 39: the X1-Alpha's movement state, every map.
   for (let p = 0; p < MAX_PLAYERS; p++) {
     // The rate moves in steps of 12.5 units, so twice it is an exact integer.
@@ -4053,6 +4271,26 @@ export const MATCH_SLOT_MOVE = 11;
 /** Byte offset of slot `s`'s block. */
 export function matchSlotOffset(slot: number): number {
   return MATCH_SNAPSHOT_HEADER + slot * MATCH_SNAPSHOT_SLOT_STRIDE;
+}
+
+/**
+ * The lifts' snapshot (renderer rule 4): per `map.lifts` entry, LIFT_SNAP_STRIDE
+ * floats — the top face's height now and whether it moves. A pure read like
+ * writeMatchSnapshot, never hashed; the client keeps two for interpolation.
+ */
+export const LIFT_SNAP_STRIDE = 2;
+/** The lift's top face, m. */
+export const LIFT_SNAP_TOP = 0;
+/** 1 while the lift moves (its travel sound runs), else 0. */
+export const LIFT_SNAP_MOVING = 1;
+
+/** Writes the lifts into `out` (length map.lifts.length * LIFT_SNAP_STRIDE). */
+export function writeLiftSnapshot(state: SimState, out: Float32Array): void {
+  for (let k = 0; k < state.liftWu.length; k++) {
+    const o = k * LIFT_SNAP_STRIDE;
+    out[o + LIFT_SNAP_TOP] = liftTopHeight(state, k);
+    out[o + LIFT_SNAP_MOVING] = state.liftPhase[k] === LIFT_MOVING ? 1 : 0;
+  }
 }
 
 /**

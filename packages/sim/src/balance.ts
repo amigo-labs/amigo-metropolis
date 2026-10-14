@@ -889,6 +889,17 @@ export const SURFACE_REACH = 0.54;
  * X1_STEPS_PER_TICK that is 37.5 a second.
  */
 export const FLOOR_DAMAGE_PER_STEP = 1;
+/**
+ * How far past a lift's face its top still carries a mech: one movement step of
+ * the walker at full speed (4.69 m/s / 37.5 = 0.125 m). The original's walker
+ * probes the ground 0.4 m above its feet every step, so a gap narrower than a
+ * step between a lift and the deck around it (Slim's: the 1.89 m lift in a
+ * 2 m hole) costs it one airborne step and nothing more. Metropolis reads its
+ * walls per deck, and a mech that dropped into that gap would read the
+ * ground's — the shaft's wall — instead of the deck's. Metropolis' own
+ * (fcop-fidelity.md P12).
+ */
+export const LIFT_RIM_SLACK = 0x400 / 8192;
 /** One Dreadnought and one Fortress alive per side (spawner limit 1, ai-and-rules.md §3). */
 export const JUGGERNAUT_ALIVE_LIMIT = 1;
 export const FORTRESS_ALIVE_LIMIT = 1;
