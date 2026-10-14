@@ -1115,4 +1115,16 @@
 //     1.9316 m; were 1.1 and 1.33 m, sized for the models drawn before them.
 //     Hit tests only (hitscan, contact, blasts, mines). No golden's hash
 //     sequence moves: the goldens are re-recorded for the header alone.
-export const SIM_VERSION = 74;
+// v75: the Sky Captain's credit for a player's down (fcop-fidelity.md U3) is
+//     taken at the down, not at the respawn, and only when the hit that put
+//     the mech down was the captain's own — its gun, or a missile or bomb it
+//     fired — as `player_op4` (0x004477ab..0x004477ea) bumps its tally and
+//     zeroes its rethink only when the remembered attacker, or the owner a
+//     round's id carries, is the captain. Its tanks', jets' and turrets' kills,
+//     a fall and the water no longer make it rethink; the points still change
+//     hands at the respawn. SimState.captainHit per player (set by every hit
+//     on a mech, cleared at the respawn) and the rounds' ROUND_CAPTAIN bit,
+//     hashed in a Warden match only. HARD's sinking marker is now consumed at
+//     every down (it was kept for a down nobody was credited for, to tell the
+//     respawn not to credit the captain).
+export const SIM_VERSION = 75;

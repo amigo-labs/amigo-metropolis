@@ -333,8 +333,9 @@ function restore(state: SimState, id: number): void {
 
 /**
  * Every credit the engine pays the captain's side (a capture, a captured turret
- * destroyed, the human going down) zeroes its rethink countdown: it decides on
- * the next tick (ai-and-rules.md §1.8).
+ * destroyed, the human put down by the captain's own hit, at the down) zeroes
+ * its rethink countdown: it decides on the next tick (ai-and-rules.md §1.8;
+ * `player_op4` 0x004477ea for the down).
  */
 export function captainCredit(state: SimState, team: number): void {
   if (state.wardenPlayer >= 0 && team === state.wardenPlayer) state.captain.think = 0;

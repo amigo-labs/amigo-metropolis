@@ -28,7 +28,10 @@
 // carve for the misplaced ground console's leg closed, one bit by the tank shop
 // opened). Player 0 is downed twice (87 s, 110 s) and never shoots the captain
 // down; the captain buys ten tanks and the jet, claims an outpost, and its tanks
-// breach the player's gate at tick 3357 (112 s).
+// breach the player's gate at tick 3357 (112 s). Since SIM_VERSION 75 the
+// captain rethinks at the player's down, not 4 s later at the respawn (both
+// downs are its own fire): the second down comes at 109 s and its tanks do not
+// breach in these 150 s.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -41,7 +44,7 @@ import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
 describe("golden-04-warden beats", () => {
-  it("the Sky Captain roams, buys and claims, and its tanks breach the player's gate", () => {
+  it("the Sky Captain roams, buys and claims, and downs the player holding its gate twice", () => {
     const replay = decodeReplay(
       new Uint8Array(readFileSync(join(import.meta.dir, "goldens", "golden-04-warden.mrep"))),
     );
@@ -91,8 +94,8 @@ describe("golden-04-warden beats", () => {
     expect(claims).toBe(1);
     expect(wardenDeaths).toBe(0);
     expect(avatarDeaths).toBe(2);
-    expect(breachTick).toBe(3357);
-    expect(breachTeam).toBe(1);
-    expect(sim.winner).toBe(1);
+    expect(breachTick).toBe(-1);
+    expect(breachTeam).toBe(-1);
+    expect(sim.winner).toBe(-1);
   });
 });
