@@ -85,6 +85,14 @@ import {
   TURRET_CAPTURABLE,
   weaponById,
 } from "@metropolis/sim";
+import {
+  EffectChain,
+  type EffectListener,
+  fxArenaFor,
+  makeRaiseAt,
+  type RaiseAt,
+} from "../effects/chain";
+import { DEFAULT_SCALE, type FxRecord } from "../effects/records";
 import { X1_CODES_PER_TICK } from "../render/x1Walk";
 import type {
   ArenaAudio,
@@ -121,8 +129,6 @@ function directKind(kind: number): boolean {
 }
 /** `cact_registry_build`'s reach for the ambient queue: 0x22000 world units. */
 const AMBIENT_RANGE_M = 0x22000 / 8192;
-/** Delayed effect successors waiting to install. */
-const MAX_PENDING_EFFECTS = 64;
 /** An ambient queue record nobody owns; emitters own keys from EMITTER_KEY down. */
 const FREE = -1;
 const EMITTER_KEY = -2;
@@ -194,7 +200,7 @@ interface VoiceState {
   spent: boolean;
 }
 
-export class OriginalSounds {
+export class OriginalSounds implements EffectListener {
   private data: ArenaAudio | null = null;
   private lifts: readonly { x: number; y: number }[] = [];
   private weapons: Readonly<Record<number, PlayerWeaponSounds>> = {};
@@ -207,11 +213,8 @@ export class OriginalSounds {
   private readonly ambientOwner = new Int32Array(QUEUE_RECORDS).fill(FREE);
   private readonly ambientSeen = new Uint8Array(QUEUE_RECORDS);
   /** Delayed effects: bank, id, x, z, ticks left (0 = free). */
-  private readonly fxBank = new Uint8Array(MAX_PENDING_EFFECTS);
-  private readonly fxId = new Uint16Array(MAX_PENDING_EFFECTS);
-  private readonly fxX = new Float32Array(MAX_PENDING_EFFECTS);
-  private readonly fxZ = new Float32Array(MAX_PENDING_EFFECTS);
-  private readonly fxLeft = new Int32Array(MAX_PENDING_EFFECTS);
+  /** The placement of the raise being made (filled per call, never kept). */
+  private readonly at = makeRaiseAt();
   /** Each actor's death mask: OR of the hit kinds its op-0x0e hits carried. */
   private readonly mask = new Uint8Array(MAX_ENTITIES);
   /**
@@ -236,7 +239,21 @@ export class OriginalSounds {
   private levelLine = -1;
   private started = false;
 
-  constructor(private readonly engine: AudioEngine) {}
+  /**
+   * The effect chain both the sounds and the picture hang off: every install
+   * this class makes goes through it, and render/fx.ts listens on it too.
+   */
+  readonly effects: EffectChain;
+
+  constructor(
+    private readonly engine: AudioEngine,
+    effects?: EffectChain,
+  ) {
+    this.effects = effects ?? new EffectChain();
+    this.effects.addListener(this);
+    // `cact_effect_install` drops an install no viewport is within 0x20000 of.
+    this.effects.gate = (x, z) => this.engine.inRange(x, z);
+  }
 
   /** A new match on `data`'s arena, with its lifts (map.lifts: where each stands). */
   begin(
@@ -251,7 +268,7 @@ export class OriginalSounds {
     this.gaugeAvatar.fill(-1);
     this.form.fill(-1);
     this.ambientOwner.fill(FREE);
-    this.fxLeft.fill(0);
+    this.effects.begin(fxArenaFor(data.mission));
     this.mask.fill(0);
     this.voice = data.voice.map((v) => ({ pending: false, countdown: v.poll, spent: false }));
     this.chatterTimer = 0;
@@ -289,7 +306,7 @@ export class OriginalSounds {
     }
     this.avatars(ctx);
     this.ambient(ctx);
-    this.delayedEffects();
+    this.effects.tick();
     this.voiceTick(ctx);
     this.engine.frame();
   }
@@ -584,44 +601,39 @@ export class OriginalSounds {
   }
 
   /**
-   * `cact_effect_install` (0x0042d020): dropped outright when no viewer is
-   * within 0x20000; otherwise the record's sound — flat for the ids the
-   * install sends to the player, else where the effect is — and its successor,
-   * at once or after its delay.
+   * `cact_effect_install` (0x0042d020) at (x, z): the chain (effects/chain.ts)
+   * drops it when no viewer is within 0x20000, installs it — the record's
+   * sound below, its picture in render/fx.ts — and runs its successors and
+   * repeats.
    */
-  private installEffect(bank: number, id: number, x: number, z: number, depth = 0): void {
-    const data = this.data;
-    if (!data || id <= 0 || depth > 12) return;
-    if (!this.engine.inRange(x, z)) return;
-    const rec = data.effects[bank === 1 ? 1 : 0][id];
-    if (!rec) return;
-    if (rec.sound !== 0) this.engine.playScript(rec.sound, !rec.atPlayer, x, z);
-    if (rec.next > 0) {
-      if (rec.delay <= 0) this.installEffect(bank, rec.next, x, z, depth + 1);
-      else this.deferEffect(bank, rec.next, x, z, rec.delay);
-    }
+  private installEffect(bank: number, id: number, x: number, z: number): void {
+    const at = this.at;
+    at.x = x;
+    at.y = 0;
+    at.z = z;
+    at.yaw = 0;
+    at.attach = -1;
+    at.scale = 0;
+    at.raiserScale = DEFAULT_SCALE;
+    at.endX = Number.NaN;
+    at.endY = Number.NaN;
+    at.endZ = Number.NaN;
+    at.archetype = -1;
+    at.repeat = false;
+    this.effects.raise(bank, id, at);
   }
 
-  private deferEffect(bank: number, id: number, x: number, z: number, ticks: number): void {
-    for (let i = 0; i < MAX_PENDING_EFFECTS; i++) {
-      if (this.fxLeft[i] > 0) continue;
-      this.fxBank[i] = bank;
-      this.fxId[i] = id;
-      this.fxX[i] = x;
-      this.fxZ[i] = z;
-      this.fxLeft[i] = ticks;
-      return;
-    }
-  }
-
-  private delayedEffects(): void {
-    for (let i = 0; i < MAX_PENDING_EFFECTS; i++) {
-      if (this.fxLeft[i] <= 0) continue;
-      this.fxLeft[i]--;
-      if (this.fxLeft[i] === 0) {
-        this.installEffect(this.fxBank[i], this.fxId[i], this.fxX[i], this.fxZ[i]);
-      }
-    }
+  /**
+   * An install's sound: its +0x16, flat for the ids the install sends to the
+   * player, else where the effect is. A type-94 record's repeat is a burst on
+   * the same instance (its handler claims operation 1), not an install, so it
+   * is silent.
+   */
+  install(bank: number, id: number, rec: FxRecord | undefined, at: Readonly<RaiseAt>): void {
+    const sound = this.data?.effects[bank === 1 ? 1 : 0][id];
+    if (!sound || sound.sound === 0) return;
+    if (at.repeat && rec?.type === 94) return;
+    this.engine.playScript(sound.sound, !sound.atPlayer, at.x, at.z);
   }
 
   // --- speech --------------------------------------------------------------------

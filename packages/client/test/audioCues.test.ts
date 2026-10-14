@@ -271,6 +271,21 @@ describe("effects", () => {
     expect(run([[EV_ROUND_IMPACT, 5 * 16, 5 * 16, tank]])).toEqual([]);
   });
 
+  test("an effect's repeats install it again, sound and all", () => {
+    // The Dreadnought's death flash 61 (script 35) carries 20 repeats every 29
+    // ticks: each repeat period re-raises the record through the install
+    // (0x0042dc3d), so the bang is heard 20 times, not once — flat, as ids
+    // 0x3d..0x44 are.
+    const ctx = context();
+    const snapshot = new Float32Array(SNAPSHOT_STRIDE * 3);
+    snapshot.set(ctx.snapshot);
+    snapshot.set([81, ARCHETYPE.JUGGERNAUT, 0, 5, 5, 0, 0, 0, 0, 0], SNAPSHOT_STRIDE * 2);
+    const calls = withRandom(0.9, () =>
+      run([[EV_DEATH, 81, -1, ARCHETYPE.JUGGERNAUT]], { ...ctx, snapshot, count: 3 }, 90),
+    );
+    expect(calls.filter((c) => c === "script 35").length).toBe(20);
+  });
+
   test("a death emits its class's group 0, or the fallback on the coin", () => {
     const ctx = context();
     const snapshot = new Float32Array(SNAPSHOT_STRIDE * 3);
