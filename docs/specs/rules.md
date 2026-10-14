@@ -40,8 +40,10 @@ Design pillars, in priority order:
 - **Health: 1250** (`AVATAR_HP`, SIM_VERSION 41; `fcop-fidelity.md` P1), the
   original's NORMAL mech: every PA X1Alpha record stores 1000 and the default
   NORMAL pick scales it by 125 % (HARD 1000, EASY 1500; Metropolis has no
-  difficulty pick and models NORMAL). No regeneration in the original; the own
-  base pad's 15 hp/s repair is Metropolis' own (it was 300 HP until v41).
+  difficulty pick and models NORMAL). No regeneration in the original, and none
+  here: the own base pad's 15 hp/s repair, Metropolis' own, went in SIM_VERSION 53
+  (`fcop-fidelity.md` P1; health comes back from the health pickup and a respawn).
+  It was 300 HP until v41.
   | | Walker | Hover |
   |---|---|---|
   | fore/aft | **4.69 m/s**, 95 % in 0.17 s | **9.38 m/s**, 95 % in 1.56 s |
@@ -115,9 +117,14 @@ Design pillars, in priority order:
   so the walker's reach on the imported arenas is its walk: the 1.04-1.4 m steps
   the old jump cleared are walls now, the 0.6-1.04 m ones it had to jump it
   walks.
-- **Water**: the hover rides it. A walker that steps into water transforms to
-  hover on its own (the original's NORMAL rule; HARD's sinking and drowning are
-  not modelled — Metropolis has no player difficulty and models NORMAL).
+- **Water** (SIM_VERSION 59, `fcop-fidelity.md` P13): hollywood-keys and
+  venice-beach carry the original's water, each cell at its own level (Hk's main
+  water at −0.97 m, Ovmp's at −2.5 m); the other four arenas have none. The hover
+  rides on it. A walker that enters it changes to hover on its own (the
+  original's NORMAL rule), and on water a transform is refused in either form.
+  Tanks drive through it: only the mech's own movement reads it. HARD's sinking
+  and drowning are not modelled — Metropolis has no player difficulty and models
+  NORMAL. (Until v59 no imported arena had water.)
 - Same three weapon slots in both modes: Gun, Heavy, Special.
 - **The weapon catalog is the original Precinct Assault set only** (SIM_VERSION
   26): **ten weapons**, four Guns / three Heavies / three Specials. Default kit
@@ -151,8 +158,8 @@ Design pillars, in priority order:
   | Pop-Up Mines | dropped charge, sprung by an enemy within 2 m + its radius, 600 in a 5.6 m blast 1 s later, every 1.0 s, 37 |
   | Shockwave Generator | self-centred pulse, 300 within 6 m, every 3.03 s, 25 |
   Ammunition is the record's NORMAL value (×1.25) and every slot has a
-  magazine, the Gun's included (it was infinite). Pads and ammo pickups fill a
-  slot to its ceiling.
+  magazine, the Gun's included (it was infinite). Ammo pickups fill a slot to its
+  ceiling, and so does a respawn; no pad does (SIM_VERSION 53, below).
 - **The trigger** (`player_fire_slot`): Gun and Heavy fire on every tick they
   are held; each round ADDS its gap (raw × 4096/218 engine units) to the slot's
   cooldown, which loses 10 units a tick floored at zero, and a round goes out
@@ -191,15 +198,21 @@ Design pillars, in priority order:
 - **Deliveries:** Pop-Up Mines place a proximity charge at the avatar's feet.
   Shockwave Generator is a self-centred pulse — no aim, no projectile travel.
 - Slot membership: the **Concussion Beam is a Heavy**, not a Special.
-- Ammo refills at own Base/Outpost pads.
+- **No pad refills or repairs a mech** (SIM_VERSION 53; `fcop-fidelity.md` P1,
+  R14): the original has no base pad and no outpost refill. Ammo comes back from
+  the ammo pickups and a respawn, health from the health pickup and a respawn
+  (§9). Metropolis' pads (the own base pad's 15 hp/s repair, the 4 m outpost ammo
+  refill) are gone.
 - Death: the avatar respawns **4 s** after going down (`RESPAWN_TICKS` 120, the
   original's `player_op4` countdown; SIM_VERSION 37, `fcop-fidelity.md` P2) at its
-  team's fixed spawn, facing the spawn facing, in the spawn's form (walker, or
-  hover where the record asks for it — both of hollywood-keys'). It comes back
-  with full health and full ammunition and **loses its power-up**; a running
-  cloak or invulnerability keeps counting down. While down it is not drawn and
-  cannot be hit, because it is not there. There are no lives. Going down pays
-  the **other side 10 pts and costs the downed side 10** (never below 0),
+  team's fixed spawn, **facing as its X1Alpha record says** (SIM_VERSION 57, P10;
+  it was the field axis toward the enemy base, which the record agrees with on
+  four arenas — only urban-jungle and hollywood-keys moved), in the spawn's form
+  (walker, or hover where the record asks for it — both of hollywood-keys').
+  It comes back with full health and full ammunition and **loses its power-up**;
+  a running cloak or invulnerability keeps counting down. While down it is not
+  drawn and cannot be hit, because it is not there. There are no lives. Going
+  down pays the **other side 10 pts and costs the downed side 10** (never below 0),
   whoever did it, settled when the avatar respawns (the original's rule, §3).
   The Warden comes back after the Sky Captain's (14 − level) × 0.5 s (§7).
 - The Base core is indestructible on every arena (pillar 1, and the original has
@@ -211,7 +224,7 @@ One resource: **Points**. Both players start with `STARTING_POINTS` = **10**
 (the Warden on 0 and a free opening order, §7).
 These are the original Precinct Assault's numbers (SIM_VERSION 33;
 `fcop-fidelity.md` R2-R10, `fcop-re/ai-and-rules.md` §2). None of them reads
-arena-specific data, so they apply on every arena, district-01 included.
+arena-specific data, so they apply on every arena.
 
 **There is no income over time.** Points come only from these events, and a
 death pays the **other** side whoever caused it — the original pays from the
@@ -231,7 +244,7 @@ fire or the terrain still pays the enemy:
 This replaced an invented table (start 20, 1 point every 10 s, capture 3, a
 turret 2 and a unit 1 to the killer, 10 to an avatar's killer).
 
-Spending (at Base consoles / Outpost consoles):
+Spending (at the Base's shop spots / Outpost pads / the heavy zones, below):
 
 | Purchase        | At Base | At Outpost | Limit (alive, per side) |
 |-----------------|---------|------------|--------------|
@@ -241,22 +254,45 @@ Spending (at Base consoles / Outpost consoles):
 | Juggernaut      | 50      | not available | 1          |
 | Fortress        | 50      | not available | 1          |
 
-The Runner and Guardian caps count base and outpost purchases together. The
-Juggernaut and Fortress open the first time a side holds 50 points and stay
-open for the rest of the match (the original enables their zones then).
+The Runner and Guardian caps count base and outpost purchases together, and a
+tank counts from the purchase, queued or not (below). The Juggernaut and Fortress
+are one alive of each per side.
 
-Buying = drive Avatar onto the console pad and **press interact: one unit per
-press** (on an imported arena's outpost: its tank pad or its jet pad, §9). That
-is the original's: there is no menu, every purchase spot is a trigger that answers
-the Action Key on the frame it goes down, and holding it buys nothing more
-(SIM_VERSION 51, `fcop-fidelity.md` R17; it was a 0.5 s hold per unit). FIRE2
-held with the press orders the heavy variant at a base console (the original has
-separate Dreadnought and Fortress zones). A press the spot refuses — the points
-are short, or 20 of that unit are alive — is answered with a refuse sound, an
-accepted one with the purchase sound, as the original's scripts answer every
-press; the heavy zones stay silent until the side first holds 50 and while their
-unit lives (the original's zone is shut then). A press that claims an outpost
-buys nothing on the same press.
+Buying = drive the Avatar onto the unit's spot and **press interact: one unit per
+press**. That is the original's: there is no menu, every purchase spot is a
+trigger that answers the Action Key on the frame it goes down, and holding it buys
+nothing more (SIM_VERSION 51, `fcop-fidelity.md` R17; it was a 0.5 s hold per
+unit). The spots are the original's:
+- **Base**: a **tank spot** and a **jet spot**, each the original's trigger box
+  about its console, imported per console (on Mp 1.2 × 1.2 m for the tanks,
+  1.6 × 1.2 m and 1.6 × 1.6 m for the two sides' jets), widened by the buyer's
+  radius (SIM_VERSION 56; it was a 3 m circle).
+- **Outpost** (the owner only, 2 points each): a **tank pad** and a **jet pad**
+  (§5, §9).
+- **Dreadnought and Flying Fortress**: their own type-14 zones beside each base's
+  shop, 50 points, one alive of each per side (SIM_VERSION 60, R10). FIRE2 no
+  longer orders a heavy variant at the console. A zone is the record's radius
+  (0.8 m, Conft's Dreadnought zones 1.0 m) plus the mech's. The zones open **for
+  good** at the first points poll that sees 50 points: the original polls every
+  5 s (2.5 s on Joke and Slim), from a random phase drawn at load, so points held
+  only between two polls open nothing. Closed, a zone is silent; open, it refuses
+  short points or a living unit of its kind out loud.
+
+A **tank is queued** (SIM_VERSION 61, R18): the press is accepted at once, with
+the purchase sound, and the tank joins its side's spawn queue, which spawns one
+unit a period — base tanks about 3.3–3.4 s (98–102 ticks), outpost tanks 98–103
+ticks — from a random phase drawn at load. So a purchase waits 0 to one period
+for its first tank, then a period each, and queued tanks count against the
+20-alive cap from the purchase. A **jet comes at once**. Every unit leaves its
+spawner's position (the original's Csac template), not the console or the pad:
+the base's tank or jet spawner, an outpost's own for each side. The Dreadnought
+appears at its record (§9), the Fortress at its own spawner (the Sky Captain's
+too). Before v61 a tank appeared at once, at the console or the pad.
+
+A press the spot refuses — the points are short, or 20 of that unit are alive —
+is answered with a refuse sound, an accepted one with the purchase sound, as the
+original's scripts answer every press. A press that claims an outpost buys
+nothing on the same press.
 Claiming an outpost is a press of the action key inside its claim zone with 30
 points (§5), like a capture.
 Points are visible to both players (open information, like the original).
@@ -265,8 +301,9 @@ Points are visible to both players (open information, like the original).
 
 All units are unarmored-by-cleverness: no retreating, no plan.
 
-- **Runner** — ground drone. Spawns at the structure that built it, follows the
-  roads toward the enemy Base. Fragile. **Reaching the enemy gate = victory.**
+- **Runner** — ground drone. Spawns at the tank spawner of the structure that
+  built it (§3), follows the roads toward the enemy Base. Fragile. **Reaching the
+  enemy gate = victory.**
 - **Guardian** — air drone. Built at Base: patrols a radius around own Base and
   engages enemy air/ground that enters. Built at Outpost: flies toward the enemy
   Base and attacks it and its defenders (offensive mode). Same stats, spawn
@@ -312,13 +349,13 @@ patrol leash around the spawner it was built at (±24 × ±20 m, Fortress ±30 �
 the leash it cruises back for 4–11 s with its gun silent. It never stops: inside
 1 m of its target it reverses, so it circles and jitters about it.
 
-Elsewhere (district-01, the test maps) the ground units follow Metropolis'
-authored lane polylines toward the enemy gate, since those arenas have no road
-graph — but as the original's units (SIM_VERSION 52, owner's call): at 1.98 m/s,
-**never stopping to fight** (their guns fire on the move; they used to halt for
-anything in reach), with the original's targeting; Guardians and Fortresses are
-the original's aircraft there too, leashed to the base air console or the outpost
-they were bought at.
+On a map with no road graph (the test maps, which are debug fixtures only;
+district-01, the other one, is gone — `fcop-fidelity.md` D2) the ground units
+follow authored lane polylines toward the enemy gate — but as the original's
+units (SIM_VERSION 52, owner's call): at 1.98 m/s, **never stopping to fight**
+(their guns fire on the move; they used to halt for anything in reach), with the
+original's targeting; Guardians and Fortresses are the original's aircraft there
+too, leashed to the spawner they were bought at.
 
 Unit stats are the original's on every arena (§9; `balance.ts`
 ORIGINAL_UNIT_PROFILES where an arena imports none): tank (Runner) and jet
@@ -331,9 +368,11 @@ fly at 4.0 and 4.8 m/s. Avatar 1250 HP (§2); walker 4.69 m/s, hover 9.38 m/s.
 
 ## 5. Structures
 
-- **Base**: gate (win trigger volume), 2 build consoles (ground/air),
-  ammo/repair pad, ring of **Base turrets** (4 on district-01; the original's 6
-  or 8 on the imported arenas, §9). Base turrets respawn
+- **Base**: gate (win trigger volume), its shop — 2 build consoles (ground/air),
+  a tank spot and a jet spot, with the Dreadnought and Fortress zones beside them
+  (§3) — a floor that hurts the enemy mech (§9), and a ring of **Base turrets**
+  (the original's 6 or 8, §9). There is no ammo/repair pad (SIM_VERSION 53; the
+  original has none). Base turrets respawn
   **37.5 s** after destruction, the original's ring spawner period (tSAC −2250;
   SIM_VERSION 50, `fcop-fidelity.md` R16) on every arena — the imported ones read
   it from the ring records. Attack timing matters: a cleared ring is back before a
@@ -345,15 +384,19 @@ fly at 4.0 and 4.8 m/s. Avatar 1250 HP (§2); walker 4.69 m/s, hover 9.38 m/s.
   **instantly** — no timer, no contest — by the original's rule (SIM_VERSION 34;
   `fcop-fidelity.md` R12, `fcop-re/ranges-turrets-capture.md` Q2):
   - an avatar **pressing the action key** (Interact, rising edge) within the
-    turret's capture range plus its own radius, measured in 3D;
-  - a **Runner** (tank) simply coming that close, also in 3D;
+    turret's capture range plus its own radius (measured as below);
+  - a **Runner** (tank) simply coming that close, measured the same way;
   - the **Warden** flying over it (flat distance, no button), as the original's
     Sky Captain does.
-  Guardians, Juggernauts and Fortresses never capture. The range is the
-  original's `(range + 1024) / 512` m on the imported arenas — 4.0 m on
-  la-cantina, urban-jungle and venice-beach, 5.2 m on proving-ground and bug-hunt,
-  5.6 m on hollywood-keys — and Mp's 4.0 m (`ORIGINAL_CAPTURE_RANGE`) on
-  district-01 (it was Metropolis' 5 m until SIM_VERSION 52).
+  Guardians, Juggernauts and Fortresses never capture. The distance is the
+  original's own estimate (SIM_VERSION 55, R12; `turret_op10`): an octagonal
+  length in world units, taken flat first and then once more with the height
+  difference folded in — flat only for the Warden. (It was the Euclidean
+  distance.) The range is the original's `(range + 1024) / 512` m on the imported
+  arenas — 4.0 m on la-cantina, urban-jungle and venice-beach, 5.2 m on
+  proving-ground and bug-hunt, 5.6 m on hollywood-keys — and Mp's 4.0 m
+  (`ORIGINAL_CAPTURE_RANGE`) on a map that imports none (the test maps; it was
+  Metropolis' 5 m until SIM_VERSION 52).
   Capturing pays +1 (§3). A captured turret fires at enemies of its owner and stays
   captured until it is destroyed; it then respawns **neutral after 25 s** (the
   original's spawner period; was 45 s). This used to be "stand in a 5 m radius for
@@ -366,24 +409,21 @@ fly at 4.0 and 4.8 m/s. Avatar 1250 HP (§2); walker 4.69 m/s, hover 9.38 m/s.
   enough; SIM_VERSION 35-47 claimed on entry, a misreading. A player's avatar
   claims; the Warden claims only when it has decided to (the original's Sky
   Captain claims by a script decision, from wherever it is). Grants: forward spawn
-  for Runners/Guardians (at 2× cost) and an ammo pad (Metropolis', not the
-  original's).
-  - On the **imported arenas** they are the original's four outposts, each with
-    its claim zone (1.2 m + the avatar's radius, in 3D), a tank pad and a jet pad,
-    and two **turret plates** (§9). A claim is **permanent**: the console marker
-    takes no damage and nothing targets it.
-  - On district-01 the outposts keep Metropolis' layout — a console and no pads
-    or plates; both units are bought at the console (FIRE2 for the Guardian) —
-    but the original's rules (SIM_VERSION 52, owner's call): the claim zone is
-    the original record's 1.2 m + the avatar's radius in 3D around the console
-    (`OUTPOST_ZONE_RADIUS`; it was a flat 3 m), and the claim is permanent: the
-    console takes no damage (an enemy used to be able to destroy it and revert
-    the outpost).
+  for Runners/Guardians (at 2× cost). There is no outpost ammo pad: it was
+  Metropolis', not the original's, and went in SIM_VERSION 53.
+  - Every arena has the original's four outposts, each with its claim zone (1.2 m
+    + the avatar's radius, in 3D), a tank pad and a jet pad (the owner's only, 2
+    points each; §3), and two **turret plates** (§9). A claim is **permanent**: the
+    console marker takes no damage and nothing targets it. (SIM_VERSION 52: the
+    claim zone was a flat 3 m on district-01, whose outposts were consoles with no
+    pads or plates, and an enemy could destroy a console and revert the claim.
+    district-01 is gone, D2.)
 
 ## 6. Arena anatomy
 
-- Logical playfield: 2D plane + heightfield (see architecture.md). Water areas:
-  hover-only. Jump-only ledges: walker shortcuts.
+- Logical playfield: 2D plane + heightfield (see architecture.md). Water areas
+  (hollywood-keys, venice-beach; §2): the hover rides them, a walker that enters
+  turns hover, tanks drive through. Jump-only ledges: walker shortcuts.
 - 2–3 ground lanes between the bases; lane graph is authored per map
   (waypoint polylines, no runtime pathfinding in v1). **Amended (§9, §4):** an
   arena may instead carry the original's waypoint *graph*, one directed net per
@@ -397,8 +437,12 @@ fly at 4.0 and 4.8 m/s. Avatar 1250 HP (§2); walker 4.69 m/s, hover 9.38 m/s.
   gate (issue #30) — but the sim no longer reads them.) A unit on the graph walks
   each leg to its full length, on the road, so the pipeline's open walls are the
   only ones it meets.
-- v1 ships **one arena** ("District 01"), sized so Hover crosses it in ~25 s.
-  Use FC:MIT viewer on original maps as *reference* for proportions only.
+- The game has **six arenas**, all imported from the original (§9):
+  urban-jungle (Conft), proving-ground (Slim), la-cantina (Mp), bug-hunt (Joke),
+  hollywood-keys (Hk) and venice-beach (Ovmp). The test maps (test-128,
+  layered-test) are debug fixtures only. District-01, Metropolis' own arena, left
+  the game on the owner's call of 2026-10-14 (`fcop-fidelity.md` D2: only the
+  original counts).
 
 ## 7. Solo opponent ("Warden")
 
@@ -419,12 +463,15 @@ ladder of defend / buy / push / suppress / capture / escort / harass).
   | 7–9 | 1000 / 1125 / 1250 | 4.20 / 4.35 / 4.51 | 1.0–1.8 … 0.4–1.3 s | 3.5 / 3.0 / 2.5 s | front + sides | all round |
   (front = within 22.5° of its heading, sides to 157.5°; defending, it rethinks a
   little sooner, by up to 0.1 s, instead of up to 0.85 s later.)
-- **Weapons**, all sharing one target, which it takes only inside **12 m**: a gun
-  (2 damage every 0.06 s — a round every other tick), a guided missile (25 every
-  0.5 s, needs a line of sight, flies 24 m) and a bomb (200 in a 3.2 m blast with
-  falloff, every 2.0 s). Without a target of its own choosing its guns pick the
-  nearest enemy in 12 m every 1.0 s. The missile's and bomb's speed is not
-  established: they fly at Metropolis' 25 m/s, the bomb flat.
+- **Weapons**, all sharing one target, which it takes only inside **12 m** and by
+  distance alone, without a line of sight (SIM_VERSION 54; `fcop-fidelity.md` U3):
+  a gun (2 damage every 0.06 s — a round every other tick), a guided missile (25
+  every 0.5 s, flies 24 m) and a bomb (200 in a 3.2 m blast with falloff, every
+  2.0 s). The gun fires anyway but damages only along a clear terrain line; the
+  missile is put back on a blocked line; the bomb has no checks at all. Without a
+  target of its own choosing its guns pick the nearest enemy in 12 m every 1.0 s.
+  The missile's and bomb's speed is not established: they fly at Metropolis'
+  25 m/s, the bomb flat.
 - **Deciding.** On every rethink it scans the field from three places — its home
   (its spawn), the player's base, itself — and picks a mode:
   - **defend** (it is built in this mode) whenever an enemy tank or Juggernaut is
@@ -453,7 +500,10 @@ ladder of defend / buy / push / suppress / capture / escort / harass).
   Runners/Guardians 1, outpost ones 2, an outpost claim 30 (from wherever it is,
   in a fixed order picked at the start), a Juggernaut or Fortress 50 (a second
   Juggernaut while one lives spends the 50 and is refused — the original's quirk).
-  Requests are spawned a Runner per 3.4 s and a Guardian per 0.97 s per queue.
+  Its requests go to the same shared spawn queues as a human's (§3; SIM_VERSION
+  61, R18), each from its random phase and at its arena's own periods: base
+  Runners about 3.3–3.4 s, base Guardians 0.8–0.97 s. (It had queues of its own,
+  a fresh countdown at each request.)
   What it buys depends on the mode: defending, Guardians and a Fortress near home
   (and at level 9 a base Runner against a threat at home); roaming or attacking,
   outpost claims; attacking, outpost Runners and Guardians; roaming, a Juggernaut
@@ -468,17 +518,16 @@ when an enemy tank comes near home or its turrets fall below five. Against an id
 player (4 arenas × 5 seeds, 15 min) every match resolves at difficulties 1 and 5,
 17 of 20 at 8 (urban-jungle 2 of 5) and 7 of 20 at 10 (level 9 stocks no
 Runners): an idle player is never downed, so once the pads in reach are taken and
-an outpost is claimed its income stops (`tools/balance/src/paResolve.ts`; the numbers are in the
-ledger's U3 row). On district-01 its ring of 4 counts 8: it defends all match,
-chasing the player, and buys no tank; but since district-01 plays the original's
-units (SIM_VERSION 52) its opening order's Runners no longer halt at the ring and
-die there — one breaches base West at 94 s in golden-04 (d8 against a patrolling
-player). Until then they halted at the first ring turret and it never breached. SIM_VERSION 46-48 counted each turret once
+an outpost is claimed its income stops (`tools/balance/src/paResolve.ts`; the
+numbers are in the ledger's U3 row). SIM_VERSION 46-48 counted each turret once
 (the earlier "8 base + 2 per outpost" reading), which kept it in defend on every
-arena.
+arena. (district-01, whose ring of 4 counted 8 and kept it defending all match,
+is gone, D2.)
 
-The Warden flies over terrain and walls; walls stop its shots at emplacements and
-avatars but not at ground units below it (it flies above the lattice).
+The Warden flies over terrain and walls. Its gun damages only along a clear
+terrain line and its missile is put back on a blocked one; its bomb has no
+checks (SIM_VERSION 54, U3). Metropolis' old "superplane pierce" — a gun and
+missile that reached ground units through walls — is gone.
 
 ## 8. Out of scope for v1
 
@@ -510,10 +559,11 @@ nothing in `MapJson` can say which storey they belong to. See
 A deliberate deviation from §1–§6, taken on the owner's call: where the original
 *Precinct Assault* mission data says how the arena works, the data wins. Every
 rule below is per-arena map data where the original has a record for it. Since
-SIM_VERSION 52 (owner's call) an arena that carries none of it — district-01, the
-test maps — is NOT left on Metropolis' own numbers: it loads the original's
-turret and unit profiles, capture range and claim zone with its own geometry
-(no road graph, pickups, trigger volumes or outpost plates).
+SIM_VERSION 52 (owner's call) a map that carries none of it — the test maps, the
+debug fixtures; district-01, which was another, is gone (D2) — is NOT left on
+Metropolis' own numbers: it loads the original's turret and unit profiles,
+capture range and claim zone with its own geometry (no road graph, pickups,
+trigger volumes or outpost plates).
 
 The original's decoded model is `docs/specs/fcop-logic.md` §8; this section is
 only what Metropolis adopts from it.
@@ -530,17 +580,20 @@ only what Metropolis adopts from it.
   raw/1024 m, grown by the intruder's own radius). Jets and avatars never breach,
   so pillar 1 survives exactly as in §1.
 - **No free production.** The original's tank, jet and Dreadnought spawners are
-  shut in PA; units appear only when bought (§3). The "1 Runner per 5 s" this
+  shut in PA; units appear only when bought (§3), and then leave their spawner's
+  position, as the original's do (the queue is §3's). The "1 Runner per 5 s" this
   section used to adopt was the Dreadnought spawner's period.
-- **The Juggernaut is the original Dreadnought.** It rolls out at the type-28
-  record (node 0 of its Cnet, beside the HQ) rather than at the console it is
-  bought from, with 3000 HP and four hull guns of weapon 3. The guns are modelled
+- **The Juggernaut is the original Dreadnought.** It is bought at its own zone
+  beside the base's shop (§3, SIM_VERSION 60) and rolls out at the type-28
+  record (node 0 of its Cnet, beside the HQ) rather than at the console or the
+  zone, with 3000 HP and four hull guns of weapon 3. The guns are modelled
   as four shooters at the hull's position sharing one target, each firing its own
   round: the original mounts them at the hull model's points (under 0.9 m off
   centre) with their own 237°/s slew relative to the hull, which is not modelled —
   so neither is their ±22.5° firing arc. The "four built-in base guns" the core
-  used to carry were these guns. On an arena without the record (district-01) it
-  has the same 3000 HP and four guns and rolls out at the ground console.
+  used to carry were these guns. On a map without the record (the test maps) it
+  has the same 3000 HP and four guns and rolls out at the ground console; those
+  maps have no heavy zones, so they sell none (SIM_VERSION 60).
 - **Every shooter fires the original's catalogue weapon** (SIM_VERSION 42;
   `fcop-fidelity.md` W3; `fcop-re/ranges-turrets-capture.md` Q3). A shooter's
   `weapon_id` indexes the mission's own type-98 catalogue, whose entries are
@@ -578,20 +631,23 @@ only what Metropolis adopts from it.
   - fires only when its aim lies within **±22.5° of the barrel**, which slews at
     290°/s, and with a clear line; a refused round is put back and tried again
     0-0.85 s later (the sim's PRNG).
-  `district-01`, the test maps and the sandbox load exactly these profiles
+  The test maps and the sandbox load exactly these profiles
   (`balance.ts` ORIGINAL_WEAPON_PROFILES, the imported arenas' own table) since
   SIM_VERSION 52, on the owner's call: Metropolis' instant-hit turret and unit
   table (`TURRET_*` 28 m / 15 damage, `UNIT_*`) is gone. Metropolis' own target
-  dummies (district-01's lane dummies) shoot avatars only, on the neutral
-  turret's gun, with 500 HP and their 15 s respawn.
+  dummies (the sandbox's map dummies; district-01's lane dummies went with it,
+  D2) shoot avatars only, on the neutral turret's gun, with 500 HP and their 15 s
+  respawn.
 - **Outposts are the original's four** (SIM_VERSION 48; `fcop-fidelity.md` R14,
   `fcop-re/outposts.md`), in the original's owner-word order, imported from
   `fcop-re/outposts.json` through the arena frame (x + 16). Each has:
   - a **claim zone** (the type-14 record's 1.2 m, plus the claimer's radius) with
     the console marker at its centre — §5's press with 30 points claims it;
   - a **tank pad** and a **jet pad**, the owner's only: a press of interact on one
-    buys a Runner or a Guardian at 2 points (one per press, §3). The unit leaves
-    from the pad; a Guardian patrols that outpost;
+    buys a Runner or a Guardian at 2 points (one per press, §3). The tank is
+    queued to the outpost's tank spawner (SIM_VERSION 61); the jet comes at once
+    from the outpost's jet spawner. The unit leaves that spawner's position, not
+    the pad; a Guardian patrols that outpost;
   - two **turret plates**. Each holds a capturable neutral turret, live from the
     start (one of the arena's capture spots), and a team turret record per side,
     shut. A claim **kills both plates' neutral turrets for good** — whoever held
@@ -608,11 +664,29 @@ only what Metropolis adopts from it.
   4–6 of §5. They capture by §5's rule, which is the original's own since
   SIM_VERSION 34, with each arena's imported capture range; the density is a
   balance question, tuned in `balance.ts`, never by dropping content.
+- **A base's floor hurts the enemy mech** (SIM_VERSION 58; `fcop-fidelity.md`
+  P11). Each base's floor carries the original's surface codes 14 / 15, imported
+  per surface (`MapData.floorMasks`): it deals **1 damage per movement step —
+  37.5 a second —** to the *enemy* mech standing on it (within 0.54 m of its
+  feet), walker or hover, crediting no one. The own mech is safe; units and the
+  Sky Captain are untouched. Mp, Conft, Slim, Joke and Ovmp have it. Hollywood-keys
+  has no such floor: each spawn has a guard box (12 × 14.4 × 4 m) that deals **25**
+  to the enemy mech, then waits for a latch reset polled once a second (from a
+  random first poll); those boxes no longer sound as intrusion alerts. Nothing
+  else in a base hurts an intruder, and no pad heals the own mech there (§2).
 - **Power-ups.** `ItemPickup` spots grant ammo, health, a cloak or a
-  slot's power-up, and re-arm on the original's timer: **50 s** after an
-  ammo or health pickup is taken, **100 s** after a power-up or cloak, one alive
-  per spot (the Csac spawners' tSAC, `fcop-fidelity.md` P9). The mapping of
-  the original's grant kinds is recorded in `tools/generators/enrichArena.ts`.
+  slot's power-up. **All stand from the start of the match** and re-arm on the
+  original's timer: **50 s** after an ammo or health pickup is taken, **100 s**
+  after a power-up or cloak, one alive per spot (the Csac spawners' tSAC,
+  `fcop-fidelity.md` P9). They are drawn with the original's models, each
+  arena's own. The mapping of the original's grant kinds is recorded in
+  `tools/generators/enrichArena.ts`.
+  **Collection** is the original's (SIM_VERSION 62, P9; `pickup.c`): a mech
+  collects strictly inside a box about the pickup — **4.0 m along x, 1.6 m along
+  y and 1.6 m in height** — and the pickup stands 0.16 m above the ground (it was
+  a 2.5 m circle at any height). The Sky Captain collects by a flat **1.5 m**
+  touch, octagonal, no height: a health pickup heals it, any other pickup is
+  spent for nothing.
   The original's rules, SIM_VERSION 37:
   - **ammo** fills that slot's magazine to its ceiling — Gun, Heavy or Special
     (the Gun's has its own pickup since SIM_VERSION 41, when its magazine became
@@ -642,8 +716,10 @@ only what Metropolis adopts from it.
   - **base turret under fire** (`EV_TURRET_UNDER_FIRE`): a ring turret is hit;
     at most once per side per **10 s**. Speech 4 / 5.
   - **base turret lost** (`EV_TURRET_LOST`). Speech 0 / 1.
-  - **gate reached** (`EV_BREACH`): speech 6 (slot 1's gate) / 19 (slot 0's),
-    on top of the breach fanfare.
+  - **gate reached** (`EV_BREACH`): speech 6 (slot 1's gate) / 19 (slot 0's).
+    Nothing else plays: the breach fanfare was Metropolis' own, and the invented
+    alarm and breach sounds went in the audio wave (`fcop-fidelity.md` A11) —
+    only the original's voice lines and sounds are heard.
   The turret and gate alerts work on every arena; intrusion needs the imported
   trigger volumes. What the lines say is not transcribed — the meaning is the
   event that plays them — so they are played by side, not "your base".
