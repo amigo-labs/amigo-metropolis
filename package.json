@@ -26,6 +26,7 @@
     "gen:scenery": "bun run tools/generators/fcopScenery.ts",
     "gen:walls": "bun run tools/generators/fcopWalls.ts",
     "gen:arena": "bun run tools/generators/enrichArena.ts",
+    "gen:presentation": "bun run tools/generators/importFcopPresentation.ts",
     "gen:pads": "bun run tools/generators/stampPads.ts",
     "replay:record:all": "bun run tools/determinism/src/recordAll.ts",
     "replay:verify": "bun run tools/determinism/src/cli.ts verify-goldens",
