@@ -228,13 +228,12 @@ export class NetLockstep {
     this.slotIdx = slot;
     this.config = config;
     const map = getMapById(config.mapId);
-    this.sim = createSim(
-      map,
-      config.seed,
-      config.wardenPlayer >= 0
+    this.sim = createSim(map, config.seed, {
+      ...(config.wardenPlayer >= 0
         ? { wardenPlayer: config.wardenPlayer, wardenDifficulty: config.wardenDifficulty }
-        : undefined,
-    );
+        : {}),
+      difficulties: config.difficulties,
+    });
   }
 
   /** Builds an .mrep from the confirmed frames simulated so far (§6). */
@@ -246,7 +245,13 @@ export class NetLockstep {
       config.wardenPlayer >= 0
         ? { player: config.wardenPlayer, difficulty: config.wardenDifficulty }
         : undefined;
-    const replay: ReplayData = createReplayData(config.mapId, config.seed, tickCount, warden);
+    const replay: ReplayData = createReplayData(
+      config.mapId,
+      config.seed,
+      tickCount,
+      warden,
+      config.difficulties,
+    );
     for (let t = 0; t < tickCount; t++) {
       const frame = this.confirmed[t];
       if (!frame) continue;

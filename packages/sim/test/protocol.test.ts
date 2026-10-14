@@ -8,6 +8,9 @@ import {
   BTN_BACK,
   BTN_GUN,
   BTN_JINK_LEFT,
+  DIFFICULTY_EASY,
+  DIFFICULTY_HARD,
+  DIFFICULTY_NORMAL,
   decodeMessage,
   ERR_ROOM_FULL,
   encodeMessage,
@@ -37,6 +40,7 @@ const CONFIG: MatchConfig = {
   mapId: "la-cantina",
   wardenPlayer: -1,
   wardenDifficulty: 0,
+  difficulties: [DIFFICULTY_NORMAL, DIFFICULTY_NORMAL],
 };
 
 // The button word is a u16 (inputs.ts): Move Backward is its top bit.
@@ -59,6 +63,32 @@ describe("protocol codec", () => {
     expect(got).toEqual({ type: MSG_WELCOME, slot: 0, config: warden });
   });
 
+  it("round-trips each player's difficulty (protocol 3)", () => {
+    const picked: MatchConfig = { ...CONFIG, difficulties: [DIFFICULTY_HARD, DIFFICULTY_EASY] };
+    const got = roundTrip({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config: picked });
+    expect(got).toEqual({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config: picked });
+    // One byte a player after the Warden's two, as in the replay header.
+    const bytes = encodeMessage({ type: MSG_WELCOME, slot: 1, config: picked });
+    const at = 1 + 1 + 2 + 4 + 1 + 1;
+    expect([bytes[at], bytes[at + 1], bytes[at + 2]]).toEqual([0, 2, "la-cantina".length]);
+  });
+
+  it("refuses a difficulty off the three rows, on encode and on decode", () => {
+    for (const bad of [[3, 1], [1, -1], [1, 1.5], [1]]) {
+      expect(() =>
+        encodeMessage({
+          type: MSG_HELLO,
+          protocol: PROTOCOL_VERSION,
+          config: { ...CONFIG, difficulties: bad },
+        }),
+      ).toThrow(/difficult/);
+    }
+    const bytes = encodeMessage({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config: CONFIG });
+    // Slot 1's byte: tag, protocol, simVersion, seed, warden x2, slot 0.
+    bytes[1 + 1 + 2 + 4 + 1 + 1 + 1] = 3; // the original's debug row
+    expect(() => decodeMessage(bytes)).toThrow(/bad difficulty 3/);
+  });
+
   it("round-trips REJOIN", () => {
     const msg: NetMessage = {
       type: MSG_REJOIN,
@@ -75,8 +105,8 @@ describe("protocol codec", () => {
     expect(roundTrip(msg)).toEqual(msg);
   });
 
-  it("carries one player's input as a u16 LE word (protocol 2)", () => {
-    expect(PROTOCOL_VERSION).toBe(2);
+  it("carries one player's input as a u16 LE word (since protocol 2)", () => {
+    expect(PROTOCOL_VERSION).toBe(3);
     expect(PLAYER_INPUT_BYTES).toBe(2);
     const bytes = encodeMessage({ type: MSG_INPUT, tick: 900, input: INPUT_A });
     // tag(1) + tick(4) + buttons(2): 0x8410 is 10 84.
@@ -147,8 +177,9 @@ describe("protocol codec", () => {
 
   it("rejects a config with a non-ASCII mapId on decode", () => {
     const bytes = encodeMessage({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config: CONFIG });
-    // Corrupt the first mapId byte (after tag,protocol,simVersion,seed,warden×2,len).
-    bytes[1 + 1 + 2 + 4 + 1 + 1 + 1] = 0x80;
+    // Corrupt the first mapId byte (after tag,protocol,simVersion,seed,warden×2,
+    // the difficulties, len).
+    bytes[1 + 1 + 2 + 4 + 1 + 1 + MAX_PLAYERS + 1] = 0x80;
     expect(() => decodeMessage(bytes)).toThrow(/ASCII/);
   });
 

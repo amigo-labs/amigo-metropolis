@@ -22,6 +22,9 @@ import {
   clearTickInputs,
   createSim,
   createTickInputs,
+  DEFAULT_DIFFICULTIES,
+  DIFFICULTY_EASY,
+  DIFFICULTY_HARD,
   decodeMessage,
   decodeReplay,
   encodeMessage,
@@ -44,6 +47,7 @@ const CONFIG: MatchConfig = {
   mapId: LA_CANTINA_ID,
   wardenPlayer: -1,
   wardenDifficulty: 0,
+  difficulties: DEFAULT_DIFFICULTIES,
 };
 
 // A scripted 1v1: both avatars move and shoot so the hash stream is non-trivial
@@ -62,8 +66,8 @@ function refScript(tick: number, out: TickInputs): void {
 }
 
 /** Canonical offline hashes for `refScript` — the ground truth to match. */
-function referenceHashes(ticks: number): number[] {
-  const sim = createSim(getMapById(CONFIG.mapId), CONFIG.seed);
+function referenceHashes(ticks: number, difficulties?: readonly number[]): number[] {
+  const sim = createSim(getMapById(CONFIG.mapId), CONFIG.seed, { difficulties });
   const inputs = createTickInputs();
   const out: number[] = [];
   for (let t = 0; t < ticks; t++) {
@@ -182,6 +186,46 @@ describe("online lockstep (in-memory relay)", () => {
     const ref = referenceHashes(TICKS);
     expect(h0.slice(0, TICKS)).toEqual(ref);
     expect(h1.slice(0, TICKS)).toEqual(ref);
+  });
+
+  it("plays the host's difficulties on both clients, and dumps them with the replay", () => {
+    // The host's config is the room's (protocol 3): the joiner's own pick is
+    // ignored, as its seed and arena are.
+    const picked: MatchConfig = { ...CONFIG, difficulties: [DIFFICULTY_HARD, DIFFICULTY_EASY] };
+    const TICKS = 60;
+    const hub = new TestHub();
+    const h0: number[] = [];
+    const h1: number[] = [];
+    let sim1: SimState | null = null;
+    const net0 = new NetLockstep(hub.newClient("c0"), {
+      sampleInput: sampler(0),
+      onStep: (t, sim) => {
+        h0[t] = hash(sim);
+      },
+    });
+    const net1 = new NetLockstep(hub.newClient("c1"), {
+      sampleInput: sampler(1),
+      onWelcome: (_slot, sim) => {
+        sim1 = sim;
+      },
+      onStep: (t, sim) => {
+        h1[t] = hash(sim);
+      },
+    });
+    net0.start(picked);
+    net1.start(CONFIG);
+    const joined = sim1 as unknown as SimState;
+    expect(Array.from(joined.difficulty)).toEqual([DIFFICULTY_HARD, DIFFICULTY_EASY]);
+    expect(joined.ent.hp[joined.avatarId[0]]).toBe(1000);
+    expect(joined.ent.hp[joined.avatarId[1]]).toBe(1500);
+    drive(net0, net1, TICKS);
+    const ref = referenceHashes(TICKS, picked.difficulties);
+    expect(h0.slice(0, TICKS)).toEqual(ref);
+    expect(h1.slice(0, TICKS)).toEqual(ref);
+    expect(decodeReplay(net1.dumpReplay()).difficulties).toEqual([
+      DIFFICULTY_HARD,
+      DIFFICULTY_EASY,
+    ]);
   });
 
   it("flags a desync within 30 ticks and dumps both replays", () => {

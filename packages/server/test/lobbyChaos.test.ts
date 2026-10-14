@@ -20,6 +20,7 @@ const CFG: MatchConfig = {
   mapId: "district01",
   wardenPlayer: -1,
   wardenDifficulty: 0,
+  difficulties: [1, 1],
 };
 
 /** Executes effects the way lobbyDo.ts does, with invariant checks. */

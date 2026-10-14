@@ -23,6 +23,7 @@ import {
   ARCHETYPE,
   createSim,
   createTickInputs,
+  DEFAULT_DIFFICULTIES,
   EV_CAPTURE,
   EV_DEATH,
   EV_EXPLOSION,
@@ -2101,6 +2102,8 @@ function netConfig(matchSeed: number): MatchConfig {
     mapId: map.id,
     wardenPlayer: -1,
     wardenDifficulty: 0,
+    // The online lobby offers no difficulty pick yet: both players NORMAL.
+    difficulties: DEFAULT_DIFFICULTIES,
   };
 }
 

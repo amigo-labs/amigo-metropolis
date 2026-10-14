@@ -97,7 +97,9 @@ export class P2pLockstep {
     private readonly inputs: Transport,
     private readonly cb: P2pCallbacks,
   ) {
-    this.sim = createSim(getMapById(config.mapId), config.seed);
+    this.sim = createSim(getMapById(config.mapId), config.seed, {
+      difficulties: config.difficulties,
+    });
     control.onMessage((bytes) => this.onControl(bytes));
     inputs.onMessage((bytes) => this.onInputPacket(bytes));
     control.onClose(() => this.handleClose());
@@ -267,7 +269,13 @@ export class P2pLockstep {
   /** Builds an .mrep from the frames simulated so far (netcode.spec §7). */
   dumpReplay(): Uint8Array {
     const tickCount = this.sim.tick;
-    const replay: ReplayData = createReplayData(this.config.mapId, this.config.seed, tickCount);
+    const replay: ReplayData = createReplayData(
+      this.config.mapId,
+      this.config.seed,
+      tickCount,
+      undefined,
+      this.config.difficulties,
+    );
     for (let t = 0; t < tickCount; t++) {
       const local = this.localInputs[t];
       const remote = this.remoteInputs[t];

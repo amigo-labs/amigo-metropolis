@@ -12,6 +12,7 @@
 // SIMULATES — it only relays bytes and compares hashes clients send it.
 
 import {
+  DEFAULT_DIFFICULTIES,
   ERR_BAD_REJOIN,
   ERR_PROTOCOL,
   ERR_ROOM_FULL,
@@ -236,7 +237,9 @@ export class RoomLogic {
    * sequenced through it — the room then resumes from the last solid tick.
    */
   hydrate(config: MatchConfig, started: boolean, frames: PlayerInput[][]): void {
-    this.config = config;
+    // A config persisted before protocol 3 carries no difficulties: its match
+    // played both players NORMAL, the original's default.
+    this.config = config.difficulties ? config : { ...config, difficulties: DEFAULT_DIFFICULTIES };
     this.started = started;
     let next = 0;
     while (next < frames.length && frames[next]) {
