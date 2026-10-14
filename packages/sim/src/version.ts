@@ -925,4 +925,12 @@
 //     Was: the field axis toward the enemy base, which the record agrees with on
 //     Mp, Slim, Joke and Ovmp; urban-jungle (Conft) now starts along +x / -x,
 //     hollywood-keys (Hk) along -z / +z. Map data only; the sim is unchanged.
-export const SIM_VERSION = 57;
+// v58: the ground hurts the enemy mech where the original's does
+//     (fcop-fidelity.md P11): each base's floor (surface codes 14/15, imported
+//     per surface as MapData.floorMasks) deals 1 damage a movement step (37.5 a
+//     second) to the other team's mech within 0.54 m of its feet, walker or
+//     hover, crediting no one; Hk's two spawn guards (MapData.spawnGuards) deal
+//     25 instead, then wait for a latch reset polled every second from a random
+//     phase (SimState.guardLatch / guardTimer, hashed off Hk only). Hk's guard
+//     boxes are no longer imported as intrusion-alert volumes.
+export const SIM_VERSION = 58;

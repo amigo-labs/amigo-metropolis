@@ -868,6 +868,20 @@ export const OUTPOST_COST_MULTIPLIER = 2;
  */
 export const ORIGINAL_BUY_HALF_W = 819 / 1024;
 export const ORIGINAL_BUY_HALF_L = 614 / 1024;
+/**
+ * How far below the mech's feet the ground's material still reaches it: a base
+ * floor hurts only while the surface is less than this below the feet, so a
+ * hover riding its 0.5 m just feels it and a jumping walker above it does not
+ * (RE camera-and-movement.md, "the ground is felt within reach only";
+ * fcop-fidelity.md P11).
+ */
+export const SURFACE_REACH = 0.54;
+/**
+ * A base floor's damage to the enemy mech per movement step, walker and hover
+ * alike: codes 14/15 of player_order's table (fcop-fidelity.md P11). At
+ * X1_STEPS_PER_TICK that is 37.5 a second.
+ */
+export const FLOOR_DAMAGE_PER_STEP = 1;
 /** One Dreadnought and one Fortress alive per side (spawner limit 1, ai-and-rules.md §3). */
 export const JUGGERNAUT_ALIVE_LIMIT = 1;
 export const FORTRESS_ALIVE_LIMIT = 1;

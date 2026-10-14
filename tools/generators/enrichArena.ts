@@ -41,6 +41,7 @@ import { join } from "node:path";
 import {
   crossesWallX,
   crossesWallY,
+  FLOOR_DAMAGE_PER_STEP,
   GROUND_STEPS,
   gapUnits,
   JUMPABLE_RISE,
@@ -367,6 +368,68 @@ function out0Spawns(
       ...(rec.hover ? { hover: true } : {}),
     };
   });
+}
+
+/**
+ * The bases' floors (fcop-fidelity.md P11) as the sim's per-surface cell masks:
+ * '1' where the floor hurts team 0's mech, '2' team 1's, '0' elsewhere.
+ *
+ * The rules artifact gives each terrain sample's highest plate's code, and every
+ * plate of the samples whose plates disagree (a base floor under a roof, a deck
+ * over a plain road). A sample tile [x, x+1) maps onto sim cell x + LOGIC_OFFSET
+ * exactly, the offset being whole cells. On a stacked sample each sim surface
+ * takes the plate nearest its own height at the cell's centre, so a mech on the
+ * roof is not on the floor beneath it. undefined when no floor exists (Hk).
+ */
+function floorMasks(
+  terrain: MapData,
+  rules: FcopRules,
+  teamOfSlot: (slot: number) => number,
+): string[][] | undefined {
+  const surf = rules.surface;
+  const decode = (ch: string): number => (ch === "." ? -1 : surf.alphabet.indexOf(ch));
+  const hurts = new Map<number, number>();
+  for (const f of rules.damageFloors) {
+    if (f.damagePerStep !== FLOOR_DAMAGE_PER_STEP) {
+      throw new Error(`${rules.mapId}: floor ${f.code} deals ${f.damagePerStep} a step`);
+    }
+    hurts.set(f.code, teamOfSlot(f.hurtsSlot));
+  }
+  if (hurts.size === 0) return undefined;
+  const stacked = new Map<string, FcopRules["surface"]["stacked"][number]["plates"]>();
+  for (const st of surf.stacked) stacked.set(`${st.x},${st.z}`, st.plates);
+  const size = terrain.size;
+  const cs = terrain.cellSize;
+  const masks: string[][] = [];
+  for (let L = 0; L <= terrain.layerHeights.length; L++) {
+    const rows: string[] = [];
+    for (let j = 0; j < size; j++) {
+      let row = "";
+      for (let i = 0; i < size; i++) {
+        const x = i - LOGIC_OFFSET_X;
+        const z = j - LOGIC_OFFSET_Z;
+        let code = -1;
+        if (x >= 0 && z >= 0 && x < surf.answeredCols && z < surf.answeredRows) {
+          const plates = stacked.get(`${x},${z}`);
+          if (plates) {
+            const h = resolveHeight(terrain, (i + 0.5) * cs, (j + 0.5) * cs, L);
+            let best = plates[0];
+            for (const pl of plates) {
+              if (Math.abs(pl.heightM - h) < Math.abs(best.heightM - h)) best = pl;
+            }
+            code = best.code;
+          } else {
+            code = decode(surf.codes[z][x]);
+          }
+        }
+        const team = hurts.get(code);
+        row += team === undefined ? "0" : String(1 + team);
+      }
+      rows.push(row);
+    }
+    masks.push(rows);
+  }
+  return masks;
 }
 
 /** Interns weapon profiles so identical originals share one index. */
@@ -1192,6 +1255,14 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const teams = teamsOf(logic.dreadnoughts, logic.spawns, field);
   const teamBases = teams.map((t) => t.base);
   const teamSpawns = teams.map((t) => t.spawn);
+  // The original's player slot 0 is X1Alpha 12, slot 1 X1Alpha 16 (the rules
+  // artifact's x1alpha); which team that is falls out of the base pairing.
+  const teamOfSlot = (slot: number): number => {
+    const rec = rules.x1alpha.find((x) => x.slot === slot);
+    const team = rec ? teamSpawns.findIndex((sp) => sp.id === rec.id) : -1;
+    if (team < 0) throw new Error(`${mapId}: no team owns player slot ${slot}`);
+    return team;
+  };
   const teamNet = [teamBases[0].netId, teamBases[1].netId];
   // Each side's gate: the trigger that watches the ENEMY's Dreadnought.
   const gates = teamBases.map((own, team) => gateOf(logic, teamBases[1 - team].id, own.id));
@@ -1447,6 +1518,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   for (const t of [...logic.triggers].sort((a, b) => a.id - b.id)) {
     if (t.flags.includes("action_button")) continue; // those are the consoles
     if (isGateTrigger(t)) continue; // those are the gates (gateOf)
+    // Hk's spawn guards hurt the mech; they do not raise the base's alert.
+    if (rules.spawnGuards.some((g) => g.id === t.id)) continue;
     const x = round4(sx(t.x));
     const y = round4(sz(t.z));
     // Half-extent raw/1024 m (fcopLogic.ts TRIGGER_SCALE); the intruder's own
@@ -1469,6 +1542,19 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       watch: WATCH_ENEMY_AVATAR | WATCH_ENEMY_UNITS,
     });
   }
+
+  // Hk's spawn guards (fcop-fidelity.md P11): each trigger box watches the enemy
+  // mech; the first box halfword bounds actors x (the sim's x), the second z.
+  const spawnGuards = rules.spawnGuards.map((g) => ({
+    x: round4(sx(g.x)),
+    y: round4(sz(g.z)),
+    halfW: round4(triggerHalfExtent(g.widthRaw)),
+    halfL: round4(triggerHalfExtent(g.lengthRaw)),
+    halfH: round4(triggerHalfExtent(g.heightRaw)),
+    hurtsTeam: teamOfSlot(g.hurtsSlot),
+    damage: g.damage,
+    resetTicks: toSimTicks(g.resetUnits, TICK_HZ),
+  }));
 
   // Icon consoles and outpost kiosks: face the nearer base core so their
   // unit-type screens read toward the pad (player stands on the apron and
@@ -1613,6 +1699,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     },
     pickups,
     triggerVolumes,
+    floors: floorMasks(terrain, rules, teamOfSlot),
+    spawnGuards: spawnGuards.length > 0 ? spawnGuards : undefined,
     props,
   };
 

@@ -30,6 +30,7 @@ import {
   COST_RUNNER,
   DUMMY_RESPAWN_TICKS,
   FLAME_PULSE_TICKS,
+  FLOOR_DAMAGE_PER_STEP,
   FORTRESS_ALIVE_LIMIT,
   GUARDIAN_ALIVE_LIMIT,
   HEAVY_UNLOCK_POINTS,
@@ -90,6 +91,7 @@ import {
   SPECIAL_MINE_FUSE_TICKS,
   SPECIAL_MINE_TTL_TICKS,
   STARTING_POINTS,
+  SURFACE_REACH,
   skyRespawnTicks,
   TICK_DT,
   TICK_HZ,
@@ -193,7 +195,7 @@ import {
   sampleHeight,
   worldExtent,
 } from "./map";
-import { atan2Poly, cosLUT, octagonalLength, rand01, sinLUT } from "./simMath";
+import { atan2Poly, cosLUT, octagonalLength, rand01, randInt, sinLUT } from "./simMath";
 import {
   aircraftEngaged,
   isAirUnit,
@@ -412,6 +414,13 @@ export interface SimState {
    * turrets, 0 otherwise — so a map with none hashes exactly as before.
    */
   readonly turretAlert: Int32Array;
+  /**
+   * Hk's spawn guards (fcop-fidelity.md P11), per `map.spawnGuards` entry: the
+   * box's latch (1 = it has hurt and waits for the reset) and the countdown to
+   * the mission's next reset poll. Length 0 on every other arena.
+   */
+  readonly guardLatch: Uint8Array;
+  readonly guardTimer: Int32Array;
 
   // --- X1-Alpha movement state, per player (fcop-fidelity.md P4/P5) ---------
   /**
@@ -791,6 +800,8 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     powerAmmo: new Uint16Array(MAX_PLAYERS * 3),
     triggerArm: new Int32Array(map.triggerVolumes.length),
     turretAlert: new Int32Array(ringSlots > 0 ? MAX_PLAYERS : 0),
+    guardLatch: new Uint8Array(map.spawnGuards.length),
+    guardTimer: new Int32Array(map.spawnGuards.length),
     avatarTurnRate: new Float32Array(MAX_PLAYERS),
     avatarIdle: new Int32Array(MAX_PLAYERS),
     avatarLunge: new Int32Array(MAX_PLAYERS),
@@ -803,6 +814,11 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     state.loadoutGun[p] = kit.gun;
     state.loadoutHeavy[p] = kit.heavy;
     state.loadoutSpecial[p] = kit.special;
+  }
+  // A polled mission function's first poll falls at a random moment inside its
+  // first period (`cfun_load`: countdown = rand % period).
+  for (let k = 0; k < map.spawnGuards.length; k++) {
+    state.guardTimer[k] = randInt(state, map.spawnGuards[k].resetTicks);
   }
   for (let p = 0; p < MAX_PLAYERS; p++) {
     spawnAvatar(state, p);
@@ -3514,6 +3530,63 @@ function systemTriggers(state: SimState): void {
 }
 
 /**
+ * The ground under a mech hurts it where the original's does (fcop-fidelity.md
+ * P11): each base's floor (codes 14/15) deals FLOOR_DAMAGE_PER_STEP every
+ * movement step to the ENEMY mech standing on it, walker or hover, within
+ * SURFACE_REACH of its feet; and on Hk, where no floor carries the code, each
+ * spawn's guard box deals its damage once, then waits for the mission to clear
+ * its latch. No one is credited (the down is paid at the respawn as any other),
+ * an invulnerable mech takes nothing, and only a player's own mech reads the
+ * ground: tanks, jets and the Sky Captain are untouched.
+ */
+function systemFloors(state: SimState): void {
+  const map = state.map;
+  const ent = state.ent;
+  const masks = map.floorMasks;
+  if (masks.length > 0) {
+    // The movement steps that fall in this tick: 1, 1, 1, 2 at 1.25 a tick.
+    const t = state.tick;
+    const steps = Math.floor((t + 1) * X1_STEPS_PER_TICK) - Math.floor(t * X1_STEPS_PER_TICK);
+    for (let p = 0; p < MAX_PLAYERS; p++) {
+      const id = state.avatarId[p];
+      if (id < 0 || ent.archetype[id] !== ARCHETYPE.AVATAR) continue;
+      const layer = ent.entLayer[id];
+      if (layer >= masks.length) continue;
+      const x = ent.posX[id];
+      const y = ent.posY[id];
+      const i = Math.floor(x / map.cellSize);
+      const j = Math.floor(y / map.cellSize);
+      if (i < 0 || j < 0 || i >= map.size || j >= map.size) continue;
+      if (masks[layer][j * map.size + i] !== 1 + ent.team[id]) continue;
+      if (ent.height[id] - resolveHeight(map, x, y, layer) >= SURFACE_REACH) continue;
+      applyDamage(state, id, steps * FLOOR_DAMAGE_PER_STEP, -1);
+    }
+  }
+  const guards = map.spawnGuards;
+  for (let k = 0; k < guards.length; k++) {
+    const g = guards[k];
+    // The reset function's poll (`cfun_tick`): it clears a set latch.
+    state.guardTimer[k] -= 1;
+    if (state.guardTimer[k] < 0) {
+      state.guardTimer[k] += g.resetTicks;
+      state.guardLatch[k] = 0;
+    }
+    if (state.guardLatch[k] !== 0) continue;
+    const id = state.avatarId[g.hurtsTeam];
+    if (id < 0 || ent.archetype[id] !== ARCHETYPE.AVATAR) continue;
+    const r = ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
+    const dx = ent.posX[id] - g.x;
+    const dy = ent.posY[id] - g.y;
+    const dz = ent.height[id] - resolveHeight(map, g.x, g.y, g.layer);
+    if (dx >= g.halfW + r || dx <= -(g.halfW + r)) continue;
+    if (dy >= g.halfL + r || dy <= -(g.halfL + r)) continue;
+    if (dz >= g.halfH + r || dz <= -(g.halfH + r)) continue;
+    applyDamage(state, id, g.damage, -1);
+    state.guardLatch[k] = 1;
+  }
+}
+
+/**
  * Axis-aligned containment test for an intrusion volume, grown by the intruder's
  * own hit radius — the original's test is `|centre - pos| - halfExtent - radius < 0`
  * (fcop-re/ranges-turrets-capture.md Q1, retail 0x00420150..0x0042017f).
@@ -3538,6 +3611,7 @@ export function step(state: SimState, inputs: TickInputs): void {
     // avatar (decision layer + superplane movement + weapons + buying), so it
     // observes the same pre-unit-movement world a player does.
     systemWarden(state);
+    systemFloors(state);
     systemUnitMovement(state);
     systemTargeting(state);
     systemProjectiles(state);
@@ -3636,6 +3710,11 @@ export function hash(state: SimState): number {
   // turrets.
   for (let p = 0; p < state.turretAlert.length; p++) {
     h = fnv1aU32(h, state.turretAlert[p] >>> 0);
+  }
+  // Appended at SIM_VERSION 58; empty (and so absent) off Hk.
+  for (let k = 0; k < state.guardLatch.length; k++) {
+    h = fnv1aU32(h, state.guardLatch[k]);
+    h = fnv1aU32(h, state.guardTimer[k] >>> 0);
   }
   // Appended at SIM_VERSION 39: the X1-Alpha's movement state, every map.
   for (let p = 0; p < MAX_PLAYERS; p++) {

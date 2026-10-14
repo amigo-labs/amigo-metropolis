@@ -297,6 +297,27 @@ export interface MapTriggerVolume {
 }
 
 /**
+ * Hk's spawn guard (fcop-fidelity.md P11): a trigger box about a spawn that
+ * watches the ENEMY mech. While that mech is inside it takes `damage`, then the
+ * box waits for a latch reset the mission polls every `resetTicks` from a random
+ * phase (RE `pa_rules.json` damage_triggers; trigger.c's box test, every axis
+ * widened by the mech's radius).
+ */
+export interface MapSpawnGuard {
+  readonly x: number;
+  readonly y: number;
+  readonly halfW: number;
+  readonly halfL: number;
+  /** Half height about the terrain under the centre, sampled at load. */
+  readonly halfH: number;
+  /** Team whose mech the box hurts. */
+  readonly hurtsTeam: number;
+  readonly damage: number;
+  readonly resetTicks: number;
+  readonly layer: number;
+}
+
+/**
  * A render-only scenery placement (original DynamicProp and friends).
  *
  * The SIM MUST NOT READ THIS. It rides along in the map so the client can place
@@ -446,6 +467,15 @@ export interface MapData {
   readonly pickups: readonly MapPickup[];
   /** Base-intrusion volumes. EMPTY → no intrusion alerts. */
   readonly triggerVolumes: readonly MapTriggerVolume[];
+  /**
+   * The bases' floors (fcop-fidelity.md P11), one mask per surface (index 0 the
+   * ground, L deck L), cell-indexed (`floor(y) * size + floor(x)`): 0 = none,
+   * 1 + team = this cell's floor hurts that team's mech. EMPTY on an arena whose
+   * ground carries none.
+   */
+  readonly floorMasks: readonly Uint8Array[];
+  /** Hk's spawn guards. EMPTY elsewhere. */
+  readonly spawnGuards: readonly MapSpawnGuard[];
   /** Render-only scenery. The sim must not read this. */
   readonly props: readonly MapProp[];
 }
@@ -713,6 +743,23 @@ export interface MapJson {
     halfL: number;
     team: number;
     watch: number;
+    layer?: number;
+  }[];
+  /**
+   * OPTIONAL: the bases' floors, one mask per surface (ground, then each deck):
+   * size rows of size chars, '0' none, '1' hurts team 0's mech, '2' team 1's.
+   */
+  floors?: string[][];
+  /** OPTIONAL: Hk's spawn guards (MapSpawnGuard). */
+  spawnGuards?: {
+    x: number;
+    y: number;
+    halfW: number;
+    halfL: number;
+    halfH: number;
+    hurtsTeam: number;
+    damage: number;
+    resetTicks: number;
     layer?: number;
   }[];
   /** Render-only scenery; never read by the sim. */
@@ -1342,6 +1389,57 @@ export function loadMapFromJson(raw: MapJson): MapData {
     };
   });
 
+  const floorMasks: Uint8Array[] = [];
+  if (raw.floors !== undefined) {
+    if (raw.floors.length !== maxLayer + 1) {
+      fail(id, `floors needs one mask per surface (${maxLayer + 1}), got ${raw.floors.length}`);
+    }
+    for (let L = 0; L < raw.floors.length; L++) {
+      const rows = raw.floors[L];
+      if (rows.length !== size) fail(id, `floors ${L} expected ${size} rows`);
+      const mask = new Uint8Array(size * size);
+      for (let j = 0; j < size; j++) {
+        const row = rows[j];
+        if (row.length !== size) fail(id, `floors ${L} row ${j} has ${row.length} chars`);
+        for (let i = 0; i < size; i++) {
+          const c = row.charCodeAt(i) - 0x30;
+          if (c < 0 || c > 2) fail(id, `floors ${L} row ${j} has a bad char at ${i}`);
+          mask[j * size + i] = c;
+        }
+      }
+      floorMasks.push(mask);
+    }
+  }
+
+  const spawnGuards: MapSpawnGuard[] = (raw.spawnGuards ?? []).map((g, k) => {
+    if (!g || typeof g !== "object") fail(id, `spawn guard ${k} is not an object`);
+    const x = num(g.x, `spawn guard ${k} x`);
+    const y = num(g.y, `spawn guard ${k} y`);
+    if (!inBounds(x, y)) fail(id, `spawn guard ${k} out of bounds (${x}, ${y})`);
+    const halfW = num(g.halfW, `spawn guard ${k} halfW`);
+    const halfL = num(g.halfL, `spawn guard ${k} halfL`);
+    const halfH = num(g.halfH, `spawn guard ${k} halfH`);
+    if (!(halfW > 0) || !(halfL > 0) || !(halfH > 0)) {
+      fail(id, `spawn guard ${k} needs positive half extents`);
+    }
+    if (g.hurtsTeam !== 0 && g.hurtsTeam !== 1) fail(id, `spawn guard ${k} bad team`);
+    if (!Number.isInteger(g.damage) || g.damage <= 0) fail(id, `spawn guard ${k} bad damage`);
+    if (!Number.isInteger(g.resetTicks) || g.resetTicks <= 0) {
+      fail(id, `spawn guard ${k} bad resetTicks`);
+    }
+    return {
+      x,
+      y,
+      halfW,
+      halfL,
+      halfH,
+      hurtsTeam: g.hurtsTeam,
+      damage: g.damage,
+      resetTicks: g.resetTicks,
+      layer: layerOf(g.layer, `spawn guard ${k}`),
+    };
+  });
+
   const dummySpots = points(raw.dummySpots, "dummy spot");
   const dummyWeapon = dummySpots.length > 0 ? original(PROFILE_NEUTRAL_TURRET) : -1;
   return {
@@ -1381,6 +1479,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
     laneGraph,
     pickups,
     triggerVolumes,
+    floorMasks,
+    spawnGuards,
     // Render-only, and deliberately not validated against bounds: props are
     // scenery, so an out-of-play prop is a cosmetic question, not a load error.
     props: (raw.props ?? []).map((p) => ({
@@ -1488,6 +1588,8 @@ export function createTestMap(): MapData {
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],
+    floorMasks: [],
+    spawnGuards: [],
     props: [],
   };
 }
