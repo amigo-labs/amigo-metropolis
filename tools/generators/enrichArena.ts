@@ -80,7 +80,7 @@ import {
   turnSpeedToRadPerTick,
 } from "./fcopLogic";
 import type { FcopRules } from "./fcopRules";
-import { type Lattice, openKerbs, readGlbTriangles } from "./kerbs";
+import { type Lattice, openKerbs, readGlbTriangles, TerrainMesh } from "./kerbs";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const TICK_HZ = 30; // packages/sim/src/balance.ts
@@ -394,6 +394,26 @@ function liftCells(l: { x0: number; x1: number; y0: number; y1: number }): [numb
   return out;
 }
 
+/** How far a lift's face must reach into a cell for its rider to stand there. */
+const FACE_OVERLAP = 0.1;
+
+/**
+ * Every cell the lift's face reaches into by more than FACE_OVERLAP on both
+ * axes: where its rider can stand. A shaft cell, and the cell a face's edge
+ * crosses into (Conft's 1.1 m lifts reach 0.22 m past a cell line).
+ */
+function faceCells(l: { x0: number; x1: number; y0: number; y1: number }): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = Math.floor(l.x0); i < l.x1; i++) {
+    if (Math.min(i + 1, l.x1) - Math.max(i, l.x0) <= FACE_OVERLAP) continue;
+    for (let j = Math.floor(l.y0); j < l.y1; j++) {
+      if (Math.min(j + 1, l.y1) - Math.max(j, l.y0) <= FACE_OVERLAP) continue;
+      out.push([i, j]);
+    }
+  }
+  return out;
+}
+
 /** The four neighbours of a cell, with the lattice bit between them. */
 function edgesOf(
   i: number,
@@ -480,8 +500,8 @@ function liftsOf(
  * every surface's lattice: the shaft's own faces, from its floor up to the
  * floors it serves. The original's mech stands on the lift's top above them.
  * So:
- * - the edges between the shaft's own cells open on every lattice (the lift is
- *   one platform at every height);
+ * - the edges between the cells its face reaches into open on every lattice
+ *   (the lift is one platform at every height);
  * - at every stop above the lowest, an edge from the shaft to a floor at that
  *   stop's height (within STEP_SNAP of its top) opens on the rider's lattice
  *   there and on that floor's own — the rider steps off over the shaft's wall;
@@ -507,13 +527,19 @@ function openLiftShafts(
   for (const l of lifts) {
     const cells = liftCells(l);
     const inShaft = new Set(cells.map(([i, j]) => i * terrain.size + j));
+    // The lift is one platform wherever its face reaches.
+    const face = faceCells(l);
+    const onFace = new Set(face.map(([i, j]) => i * terrain.size + j));
+    for (const [i, j] of face) {
+      for (const e of edgesOf(i, j)) {
+        if (!onFace.has(e.ni * terrain.size + e.nj)) continue;
+        for (let layer = 0; layer < lattices.length; layer++) open(layer, e.axis, e.r, e.c);
+      }
+    }
     for (const [i, j] of cells) {
       for (const m of masks) if (m[j]?.[i] === "1") m[j][i] = "0";
       for (const e of edgesOf(i, j)) {
-        if (inShaft.has(e.ni * terrain.size + e.nj)) {
-          for (let layer = 0; layer < lattices.length; layer++) open(layer, e.axis, e.r, e.c);
-          continue;
-        }
+        if (inShaft.has(e.ni * terrain.size + e.nj)) continue;
         for (let s = 1; s < l.stops.length; s++) {
           const top = l.ground + l.stops[s] / 8192 + l.top;
           const wr = resolveWalker(terrain, e.ni + 0.5, e.nj + 0.5, top);
@@ -525,6 +551,71 @@ function openLiftShafts(
     }
   }
   return opened;
+}
+
+/**
+ * Lays the original's floor where a lift lands and the heightfield cannot carry
+ * it (fcop-fidelity.md P12), in place; returns the cells patched.
+ *
+ * The sim's heights sit on the grid's points and a deck's presence on its cells,
+ * so the last cell of a platform beside a shaft shares its far corners with the
+ * shaft's floor and slopes down into it: Conft's central platform is flat to
+ * its edge in the original's mesh, and on its south and east sides the cell
+ * between it and the lift's top stop reads as a 2 m slope. Where the mesh has a
+ * floor beside a shaft within STEP_SNAP of a stop above the lowest and the sim's
+ * surface there is not, the cell gets a deck patch at the mesh's height — on a
+ * deck that is absent there and whose corners no present cell of it holds at
+ * another height.
+ */
+function landLifts(
+  lifts: readonly LiftJson[],
+  terrain: MapData,
+  mesh: TerrainMesh,
+  heights: number[][][],
+  masks: string[][][],
+): number {
+  let patched = 0;
+  const size = terrain.size;
+  const present = (L: number, i: number, j: number): boolean =>
+    i >= 0 && j >= 0 && i < size && j < size && masks[L][j][i] === "1";
+  for (const l of lifts) {
+    const cells = liftCells(l);
+    const inShaft = new Set(cells.map(([i, j]) => i * size + j));
+    for (let s = 1; s < l.stops.length; s++) {
+      const top = l.ground + l.stops[s] / 8192 + l.top;
+      for (const [i, j] of cells) {
+        for (const e of edgesOf(i, j)) {
+          if (inShaft.has(e.ni * size + e.nj)) continue;
+          const art = mesh.floorNear(e.ni + 0.5, e.nj + 0.5, top);
+          if (art === undefined || Math.abs(art - top) > STEP_SNAP) continue;
+          const sim = resolveWalker(terrain, e.ni + 0.5, e.nj + 0.5, top).height;
+          if (Math.abs(sim - top) <= STEP_SNAP) continue;
+          const q = Math.round(art * 32);
+          for (let L = 0; L < masks.length; L++) {
+            if (present(L, e.ni, e.nj)) continue;
+            let clash = false;
+            for (let vj = e.nj; vj <= e.nj + 1; vj++) {
+              for (let vi = e.ni; vi <= e.ni + 1; vi++) {
+                for (let cj = vj - 1; cj <= vj; cj++) {
+                  for (let ci = vi - 1; ci <= vi; ci++) {
+                    if (present(L, ci, cj) && heights[L][vj][vi] !== q) clash = true;
+                  }
+                }
+              }
+            }
+            if (clash) continue;
+            for (let vj = e.nj; vj <= e.nj + 1; vj++) {
+              for (let vi = e.ni; vi <= e.ni + 1; vi++) heights[L][vj][vi] = q;
+            }
+            masks[L][e.nj][e.ni] = "1";
+            patched++;
+            break;
+          }
+        }
+      }
+    }
+  }
+  return patched;
 }
 
 /**
@@ -1988,11 +2079,15 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // neither keeps its decks as stage 1 wrote them.
   // A lift comes with the decks it serves: an arena still imported as one storey
   // has no platform for it to reach.
-  const lifts = arena.layered ? liftsOf(rules, terrain, teamOfSlot) : [];
+  let lifts = arena.layered ? liftsOf(rules, terrain, teamOfSlot) : [];
   let layers = raw.layers;
   let shaftBits = 0;
   let kerbBits = 0;
+  let landingCells = 0;
   if (lifts.length > 0 || arena.kerbs === true) {
+    const align = MAP_ALIGN[mapId];
+    const glb = join(REPO_ROOT, "packages", "client", "public", "models", mapId, `${mapId}.glb`);
+    const mesh = new TerrainMesh(readGlbTriangles(glb, align.x, align.z), raw.size);
     const decks = pristine.layers ?? [];
     const lattices: Lattice[] = [
       { v: wallsV.map((r) => r.split("")), h: wallsH.map((r) => r.split("")) },
@@ -2002,18 +2097,25 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       })),
     ];
     const masks = (raw.layers ?? []).map((L) => L.mask.map((r) => r.split("")));
-    shaftBits = openLiftShafts(lifts, terrain, lattices, masks);
-    if (arena.kerbs === true) {
-      const align = MAP_ALIGN[mapId];
-      const glb = join(REPO_ROOT, "packages", "client", "public", "models", mapId, `${mapId}.glb`);
-      kerbBits = openKerbs(terrain, readGlbTriangles(glb, align.x, align.z), lattices);
-    }
+    const heights = (raw.layers ?? []).map((L) => L.heights.map((r) => [...r]));
+    landingCells = landLifts(lifts, terrain, mesh, heights, masks);
+    const patched = (raw.layers ?? []).map((L, k) => ({
+      ...L,
+      heights: heights[k],
+      mask: masks[k].map((r) => r.join("")),
+    }));
+    // The lifts and the shafts read the terrain with their landings.
+    const landed = landingCells > 0 ? loadMapFromJson({ ...raw, layers: patched }) : terrain;
+    if (landingCells > 0) lifts = liftsOf(rules, landed, teamOfSlot);
+    shaftBits = openLiftShafts(lifts, landed, lattices, masks);
+    if (arena.kerbs === true) kerbBits = openKerbs(landed, mesh, lattices);
     for (let j = 0; j < wallsV.length; j++) {
       wallsV[j] = lattices[0].v[j].join("");
       wallsH[j] = lattices[0].h[j].join("");
     }
     layers = (raw.layers ?? []).map((L, k) => ({
       ...L,
+      heights: heights[k],
       mask: masks[k].map((r) => r.join("")),
       ...(lattices[k + 1]
         ? {
@@ -2147,6 +2249,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       carved,
       shaftBits,
       kerbBits,
+      landingCells,
       repaired,
       repairedFor,
       entries,
@@ -2318,6 +2421,8 @@ interface EnrichStats {
   shaftBits: number;
   /** Wall bits opened as kerbs (kerbs.ts openKerbs). */
   kerbBits: number;
+  /** Cells given a deck at a lift's landing (landLifts). */
+  landingCells: number;
   repaired: number;
   /** Bits the repair opened, per target kind — so a residual says what it bought. */
   repairedFor: Map<string, number>;
@@ -2360,7 +2465,8 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   if (stats.kerbBits > 0) console.log(`  wall bits opened as kerbs: ${stats.kerbBits}`);
   if (map.lifts.length > 0) {
     console.log(
-      `  lifts ${map.lifts.length}: ${stats.shaftBits} wall bits opened in their shafts; ` +
+      `  lifts ${map.lifts.length}: ${stats.landingCells} landing cells laid, ` +
+        `${stats.shaftBits} wall bits opened in their shafts; ` +
         map.lifts
           .map(
             (l) => `(${l.x}, ${l.y}) stops ${l.stops.join("/")} on surfaces ${l.layers.join("/")}`,

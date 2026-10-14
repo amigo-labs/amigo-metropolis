@@ -23,7 +23,7 @@
 //
 // A LIFT (fcop-fidelity.md P12) connects its stops. A flood that reaches a cell
 // under a lift's face, at a height its lowest stop's top is within a step of
-// (or below — the flood takes drops), can ride it: every footprint cell at
+// (LIFT_STEP_UP) or below it (the flood takes drops), can ride it: every footprint cell at
 // every stop joins the flood, on the surface the lift's rider counts as
 // standing on there, at that stop's top. On a map without lifts nothing
 // changes.
@@ -33,10 +33,9 @@
 // flood. This module is authoring/test machinery and is never called from the
 // tick, but it stays inside the determinism rules anyway so it can be.
 
-import { SURFACE_REACH } from "./balance";
+import { LIFT_STEP_UP, SURFACE_REACH } from "./balance";
 import { crossesWallX, crossesWallY } from "./collision";
 import { isWater, type MapData, resolveHeight, waterHeightAt, worldExtent } from "./map";
-import { STEP_SNAP } from "./sim";
 import { resolveWalker } from "./units";
 
 export interface ReachOptions {
@@ -150,7 +149,7 @@ export function reachableFrom(
     for (let k = 0; k < map.lifts.length; k++) {
       const l = map.lifts[k];
       if (boarded[k] !== 0 || x < l.x0 || x > l.x1 || y < l.y0 || y > l.y1) continue;
-      if (l.ground + l.stops[0] / 8192 + l.top > h + STEP_SNAP) continue;
+      if (l.ground + l.stops[0] / 8192 + l.top > h + LIFT_STEP_UP) continue;
       boarded[k] = 1;
       for (let s = 0; s < l.stops.length; s++) {
         const top = l.ground + l.stops[s] / 8192 + l.top;

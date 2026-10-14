@@ -1,5 +1,5 @@
-// Steps, not walls: opens the wall bits that stand for a kerb (fcop-fidelity.md
-// P15). Authoring-time only, part of stage 2 (enrichArena.ts).
+// Steps, not walls: opens the wall bits that stand for a kerb, or for nothing
+// (fcop-fidelity.md P15). Authoring-time only, part of stage 2 (enrichArena.ts).
 //
 // THE PROBLEM
 // The RE extractor (tools/gfx/til_mesh.py) turns EVERY near-vertical polygon of
@@ -14,14 +14,19 @@
 // deck it could not leave.
 //
 // THE RULE
-// A wall bit on a lattice (the ground's or a deck's) is a kerb when the
-// original's own floors on its two sides, read off the committed terrain .glb
-// (the original's mesh, as til_mesh.py wrote it), differ by more than a sliver
-// and at most KERB_STEP, and no polygon along the edge stands more than
-// KERB_CLEARANCE above the higher of the two. Each side takes the floor nearest
-// the surface the lattice describes there, so a deck's kerb is measured on the
-// deck and not on the road beneath it. A wall between two floors of one height
-// (a fence, a railing) and a face taller than a step stay walls.
+// A wall bit on a lattice (the ground's or a deck's) stands only where the
+// original's mesh has a face along it: it is opened when the original's own
+// floors on its two sides, read off the committed terrain .glb (the original's
+// mesh, as til_mesh.py wrote it), are at most KERB_STEP apart and no polygon
+// along the edge stands more than KERB_CLEARANCE above the higher of the two.
+// That takes two kinds of bit:
+// - a kerb: a face no taller than a step between two floors;
+// - a spill: the extractor marks a face on BOTH edges of the tile it lies in,
+//   so the edge a tile away from the face carries a wall with nothing on it.
+// Each side takes the floor nearest the surface the lattice describes there
+// (or the floor a walker from the other side meets), so a deck's kerb is
+// measured on the deck and not on the road beneath it. A fence or a building
+// face along the edge, and a step taller than KERB_STEP, stay walls.
 //
 // It is deterministic and a function of committed inputs (the .glb, the map's
 // heights and decks, the wall snapshot), like the rest of stage 2.
@@ -29,7 +34,6 @@
 import { readFileSync } from "node:fs";
 import {
   KERB_CLEARANCE,
-  KERB_SLIVER,
   KERB_STEP,
   type MapData,
   sampleHeight,
@@ -118,49 +122,52 @@ export interface Lattice {
 }
 
 /**
- * Opens every kerb bit (see the header) in `lattices` (index 0 the ground's,
- * L deck L's) in place, and returns how many it opened.
+ * The original's terrain mesh indexed by cell: its floors (near-horizontal
+ * triangles) and its faces (the rest), each listed in every cell its box
+ * touches, one cell of margin.
  */
-export function openKerbs(map: MapData, tris: Float64Array, lattices: Lattice[]): number {
-  const size = map.size;
-  // A cell grid of the floors (near-horizontal triangles) and of the faces
-  // (the rest, as their footprint's box and top), each listed in every cell its
-  // box touches, one cell of margin.
-  const floors = new Map<number, number[]>();
-  const faces = new Map<number, number[]>();
-  const n = tris.length / 9;
-  for (let t = 0; t < n; t++) {
-    const o = t * 9;
-    const ux = tris[o + 3] - tris[o];
-    const uy = tris[o + 4] - tris[o + 1];
-    const uz = tris[o + 5] - tris[o + 2];
-    const vx = tris[o + 6] - tris[o];
-    const vy = tris[o + 7] - tris[o + 1];
-    const vz = tris[o + 8] - tris[o + 2];
-    const nx = uy * vz - uz * vy;
-    const ny = uz * vx - ux * vz;
-    const nz = ux * vy - uy * vx;
-    const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-    if (len === 0) continue;
-    const xs = [tris[o], tris[o + 3], tris[o + 6]];
-    const ys = [tris[o + 2], tris[o + 5], tris[o + 8]];
-    const flat = Math.abs(ny) / len >= 0.5;
-    const target = flat ? floors : faces;
-    for (let i = Math.floor(Math.min(...xs)) - 1; i <= Math.floor(Math.max(...xs)) + 1; i++) {
-      for (let j = Math.floor(Math.min(...ys)) - 1; j <= Math.floor(Math.max(...ys)) + 1; j++) {
-        if (i < 0 || j < 0 || i >= size || j >= size) continue;
-        const k = j * size + i;
-        const list = target.get(k);
-        if (list) list.push(t);
-        else target.set(k, [t]);
+export class TerrainMesh {
+  private readonly floors = new Map<number, number[]>();
+  private readonly faces = new Map<number, number[]>();
+
+  constructor(
+    private readonly tris: Float64Array,
+    private readonly size: number,
+  ) {
+    const n = tris.length / 9;
+    for (let t = 0; t < n; t++) {
+      const o = t * 9;
+      const ux = tris[o + 3] - tris[o];
+      const uy = tris[o + 4] - tris[o + 1];
+      const uz = tris[o + 5] - tris[o + 2];
+      const vx = tris[o + 6] - tris[o];
+      const vy = tris[o + 7] - tris[o + 1];
+      const vz = tris[o + 8] - tris[o + 2];
+      const nx = uy * vz - uz * vy;
+      const ny = uz * vx - ux * vz;
+      const nz = ux * vy - uy * vx;
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (len === 0) continue;
+      const xs = [tris[o], tris[o + 3], tris[o + 6]];
+      const ys = [tris[o + 2], tris[o + 5], tris[o + 8]];
+      const target = Math.abs(ny) / len >= 0.5 ? this.floors : this.faces;
+      for (let i = Math.floor(Math.min(...xs)) - 1; i <= Math.floor(Math.max(...xs)) + 1; i++) {
+        for (let j = Math.floor(Math.min(...ys)) - 1; j <= Math.floor(Math.max(...ys)) + 1; j++) {
+          if (i < 0 || j < 0 || i >= size || j >= size) continue;
+          const k = j * size + i;
+          const list = target.get(k);
+          if (list) list.push(t);
+          else target.set(k, [t]);
+        }
       }
     }
   }
 
   /** The original's floor heights at (x, y). */
-  const floorsAt = (x: number, y: number): number[] => {
+  floorsAt(x: number, y: number): number[] {
+    const tris = this.tris;
     const out: number[] = [];
-    for (const t of floors.get(Math.floor(y) * size + Math.floor(x)) ?? []) {
+    for (const t of this.floors.get(Math.floor(y) * this.size + Math.floor(x)) ?? []) {
       const o = t * 9;
       const [ax, ah, ay, bx, bh, by, cx, ch, cy] = tris.subarray(o, o + 9);
       const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
@@ -172,7 +179,52 @@ export function openKerbs(map: MapData, tris: Float64Array, lattices: Lattice[])
       out.push(l1 * ah + l2 * bh + l3 * ch);
     }
     return out;
-  };
+  }
+
+  /** The original's floor at (x, y) nearest `ref`, undefined where it has none. */
+  floorNear(x: number, y: number, ref: number): number | undefined {
+    let best: number | undefined;
+    for (const h of this.floorsAt(x, y)) {
+      if (best === undefined || Math.abs(h - ref) < Math.abs(best - ref)) best = h;
+    }
+    return best;
+  }
+
+  /**
+   * Does a face within half a tile of the segment (x0..x1, y0..y1) stand above
+   * `limit`? Half a tile: the extractor puts a face on both edges of its tile,
+   * so a face anywhere in either tile beside an edge may be that edge's.
+   */
+  tall(x0: number, x1: number, y0: number, y1: number, limit: number): boolean {
+    const tris = this.tris;
+    const m = 0.5;
+    for (let i = Math.floor(x0) - 1; i <= Math.floor(x1) + 1; i++) {
+      for (let j = Math.floor(y0) - 1; j <= Math.floor(y1) + 1; j++) {
+        if (i < 0 || j < 0 || i >= this.size || j >= this.size) continue;
+        for (const t of this.faces.get(j * this.size + i) ?? []) {
+          const o = t * 9;
+          const fx0 = Math.min(tris[o], tris[o + 3], tris[o + 6]);
+          const fx1 = Math.max(tris[o], tris[o + 3], tris[o + 6]);
+          const fy0 = Math.min(tris[o + 2], tris[o + 5], tris[o + 8]);
+          const fy1 = Math.max(tris[o + 2], tris[o + 5], tris[o + 8]);
+          if (fx1 < x0 - m || fx0 > x1 + m || fy1 < y0 - m || fy0 > y1 + m) continue;
+          if (Math.max(tris[o + 1], tris[o + 4], tris[o + 7]) > limit) return true;
+        }
+      }
+    }
+    return false;
+  }
+}
+
+/**
+ * Opens every kerb bit (see the header) in `lattices` (index 0 the ground's,
+ * L deck L's) in place, and returns how many it opened.
+ */
+export function openKerbs(map: MapData, mesh: TerrainMesh, lattices: Lattice[]): number {
+  const size = map.size;
+  const floorsAt = (x: number, y: number): number[] => mesh.floorsAt(x, y);
+  const tall = (x0: number, x1: number, y0: number, y1: number, limit: number): boolean =>
+    mesh.tall(x0, x1, y0, y1, limit);
   /** The surface lattice `layer` describes at (x, y), undefined off its deck. */
   const surface = (layer: number, x: number, y: number): number | undefined => {
     if (layer === 0) return sampleHeight(map, x, y);
@@ -185,30 +237,11 @@ export function openKerbs(map: MapData, tris: Float64Array, lattices: Lattice[])
       if (best === undefined || Math.abs(h - ref) < Math.abs(best - ref)) best = h;
     return best;
   };
-  /** Does a face along the segment stand above `limit`? */
-  const tall = (x0: number, x1: number, y0: number, y1: number, limit: number): boolean => {
-    const m = 0.3;
-    for (let i = Math.floor(x0) - 1; i <= Math.floor(x1) + 1; i++) {
-      for (let j = Math.floor(y0) - 1; j <= Math.floor(y1) + 1; j++) {
-        if (i < 0 || j < 0 || i >= size || j >= size) continue;
-        for (const t of faces.get(j * size + i) ?? []) {
-          const o = t * 9;
-          const fx0 = Math.min(tris[o], tris[o + 3], tris[o + 6]);
-          const fx1 = Math.max(tris[o], tris[o + 3], tris[o + 6]);
-          const fy0 = Math.min(tris[o + 2], tris[o + 5], tris[o + 8]);
-          const fy1 = Math.max(tris[o + 2], tris[o + 5], tris[o + 8]);
-          if (fx1 < x0 - m || fx0 > x1 + m || fy1 < y0 - m || fy0 > y1 + m) continue;
-          if (Math.max(tris[o + 1], tris[o + 4], tris[o + 7]) > limit) return true;
-        }
-      }
-    }
-    return false;
-  };
   /** One pairing of floors across the edge: a step a walker takes either way? */
   const step = (ha: number | undefined, hb: number | undefined, seg: number[]): boolean => {
     if (ha === undefined || hb === undefined) return false;
     const rise = Math.abs(ha - hb);
-    if (rise <= KERB_SLIVER || rise > KERB_STEP) return false;
+    if (rise > KERB_STEP) return false;
     return !tall(seg[0], seg[1], seg[2], seg[3], Math.max(ha, hb) + KERB_CLEARANCE);
   };
   const isKerb = (

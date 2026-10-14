@@ -53,6 +53,7 @@ import {
   HOVER_TURN_LIMIT,
   JUGGERNAUT_ALIVE_LIMIT,
   LIFT_RIM_SLACK,
+  LIFT_STEP_UP,
   LOW_AMMO_WARNING,
   MATCH_OUTRO_TICKS,
   MAX_ENTITIES,
@@ -957,9 +958,10 @@ function slopeBlocks(
   const ahead = avatarSurface(state, nx, ny, height, hover);
   const rise = ahead.height - here;
   if (rise <= GROUND_EPS) return false;
-  // A lift's top within a step is stepped onto, as the original's probe steps
-  // onto it: its rim is a hard edge the gradient test would read as a wall.
-  if (ahead.lift >= 0 && rise <= STEP_SNAP) return false;
+  // A lift's top within the walker's probe is stepped onto, as the original's
+  // probe steps onto it: its rim is a hard edge the gradient test would read as
+  // a wall.
+  if (ahead.lift >= 0 && rise <= LIFT_STEP_UP) return false;
   const run = Math.abs(nx - x) + Math.abs(ny - y);
   const maxSlope = hover ? AVATAR_HOVER_MAX_SLOPE : AVATAR_WALKER_MAX_SLOPE;
   if (rise <= run * maxSlope) return false;
@@ -2024,7 +2026,7 @@ function avatarSurface(
   surf.lift = -1;
   const lifts = map.lifts;
   if (lifts.length === 0) return surf;
-  const reach = h + (hover ? HOVER_PROBE_LIFT : STEP_SNAP);
+  const reach = h + (hover ? HOVER_PROBE_LIFT : LIFT_STEP_UP);
   for (let k = 0; k < lifts.length; k++) {
     const l = lifts[k];
     const rim = LIFT_RIM_SLACK;

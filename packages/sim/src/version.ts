@@ -1019,4 +1019,15 @@
 //     spawn as the original's does: up the lift onto the base's platform and
 //     down the ramp to the consoles (until now the shaft held it). reach.ts'
 //     flood rides lifts. No golden plays these arenas; their hashes stay.
-export const SIM_VERSION = 65;
+// v66: a lift's top is found by the walker's own probe (LIFT_STEP_UP, 0x0ccc =
+//     0.4 m; was STEP_SNAP 0.35): Conft's lifts park 0.39 m above their pit's
+//     floor. The import (fcop-fidelity.md P12, P15) opens the walls between
+//     every cell a lift's face reaches into, lays the original's floor where a
+//     lift lands and the point heightfield bends it (landLifts), and opens a
+//     wall bit with no face of the original's mesh within half a tile of it
+//     standing above its floors (the extractor's spill onto a tile's far
+//     edge), not only kerbs. On proving-ground and bug-hunt only the decks'
+//     lattices change (deck 1: 3364 -> 2365 bits on Slim); the ground's and
+//     every height stay. reach.ts boards a lift at LIFT_STEP_UP. No golden
+//     plays these arenas; their hashes stay.
+export const SIM_VERSION = 66;

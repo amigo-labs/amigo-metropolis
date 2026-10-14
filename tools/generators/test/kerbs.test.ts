@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { loadMapFromJson, type MapJson } from "@metropolis/sim";
-import { type Lattice, openKerbs } from "../kerbs";
+import { type Lattice, openKerbs, TerrainMesh } from "../kerbs";
 
 const SIZE = 4;
 
@@ -71,7 +71,7 @@ function lattice(): Lattice[] {
 
 function opened(tris: number[]): boolean {
   const l = lattice();
-  openKerbs(map(), Float64Array.from(tris), l);
+  openKerbs(map(), new TerrainMesh(Float64Array.from(tris), SIZE), l);
   return l[0].v[1][2] === "0";
 }
 
@@ -92,6 +92,11 @@ describe("kerbs (fcop-fidelity.md P15)", () => {
     expect(
       opened([...floor(0, 2, 0, 4, 0), ...floor(2, 4, 0, 4, 0.3), ...face(2, 0, 4, 0, 1.5)]),
     ).toBe(false);
+  });
+
+  it("opens a wall bit with no face along it (the extractor's spill)", () => {
+    // The face stands a metre away, on the tile's other edge.
+    expect(opened([...floor(0, 4, 0, 4, 0), ...face(3, 0, 4, 0, 1.5)])).toBe(true);
   });
 
   it("keeps a fence between two floors of one height", () => {
