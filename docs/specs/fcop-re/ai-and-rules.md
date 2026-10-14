@@ -169,6 +169,10 @@ HP < 0 -> aircraft crash tumble -> on ground: `state_timer=(14-L)*150`, stats (F
   respawn by `player_respawn` 0x004475e9), +1 per neutral turret captured by the captain's team
   (0x0041cb7b) and +1 per human-owned neutral turret destroyed (0x0041bdca..); -10 (floor 0) when the
   captain dies. Each engine credit also zeroes its rethink countdown (forces a new decision pass).
+  The human's down is not one of those script points: its engine credit is taken at the down
+  (`player_op4` 0x004477ab..0x004477ea: the captain's tally +1, rethink 0), and only when the actor
+  the mech remembers as having put it below zero is the captain itself (a round counts as its
+  owner, whose id it carries); a down by its tanks, jets or turrets credits nothing there.
 * Counts: word 29 = captain tanks alive, word 30 = captain jets alive (the death scripts decrement
   them; dispatch's "CLASS_A/B_COUNT" are these). Cap 20 each (`SKY_UNIT_CAP 0x14`), same 20 the
   human pads check.

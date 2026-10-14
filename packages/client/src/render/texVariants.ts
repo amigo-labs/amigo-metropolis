@@ -1,35 +1,47 @@
-// Debug texture-variant switcher for the textured map render path (?render=mesh).
+// Texture-variant switcher for the textured map render path (?render=mesh): the
+// player's Textures option (Classic / HD) and the debug hotkeys.
 //
 // The atlas pipeline (RE-repo tools/gfx/atlas_repack.py) emits several atlas
 // PNGs per map that share ONE pack layout — identical UVs, interchangeable
-// pixels: atlas-original.png (source texels nearest-x4, the 1998 look) and
-// atlas-esrgan.png (Real-ESRGAN x4). This module swaps material.map between
-// them at runtime so texture quality can be judged in-game (hotkeys wired in
-// main.ts; typically together with ?cam=fly).
+// pixels: atlas-original.png (source texels nearest-x4, the 1998 look), the
+// shipped atlas.png (the HD upscale the .glb names) and, for la-cantina only,
+// atlas-esrgan.png (Real-ESRGAN x4). The arena loads with the preferred one in
+// place (render/meshMap.ts reads atlas-original.png for atlas.png when Classic
+// is chosen); this module swaps material.map between them afterwards, from the
+// Graphics drawer or the hotkeys in main.ts.
 //
-// Variants load LAZILY on first request and missing files are tolerated: only
-// la-cantina commits its variant PNGs (owner decision) — for other maps the
-// files 404 locally unless copied in, and the switcher just reports
-// "not available". Render-only debug tooling: no sim imports, no frame-loop
-// work (everything here runs on a keypress or a load callback).
+// Variants load LAZILY on first request and missing files are tolerated: every
+// map commits atlas.png and atlas-original.png, only la-cantina its esrgan
+// variant (owner decision) — for other maps that one 404s locally unless copied
+// in, and the switcher just reports "missing". Render-only: no sim imports, no
+// frame-loop work (everything here runs on a keypress or a load callback).
 
 import * as THREE from "three";
 
-/** Variant key -> atlas filename; "default" is whatever the .glb shipped with. */
+/** Variant key -> atlas filename in the map's model folder. */
 export const TEX_VARIANTS = {
   original: "atlas-original.png",
+  hd: "atlas.png",
   esrgan: "atlas-esrgan.png",
 } as const;
 
-export type VariantName = keyof typeof TEX_VARIANTS | "default";
+export type VariantName = keyof typeof TEX_VARIANTS;
 
-// --- Player preference: "Textures: HD / Original" ---------------------------
+// --- Player preference: "Textures: Classic / HD" ----------------------------
 // Persisted client-local like the audio settings (audio/engine.ts,
 // "metropolis.audio.v1"): versioned key, pure parser, try/catch around storage
-// (private mode / quota). "hd" maps to the shipped atlas.png (the ESRGAN
-// atlas), "original" to the nearest-x4 source-texel variant.
+// (private mode / quota). "original" (Classic) is the source texels, "hd" the
+// shipped upscale (atlas.png).
+//
+// Classic is the default (owner's rule of 2026-10-13, PLAN.md Phase 14: only
+// the original counts; HD stays as an option). It used to be HD. Only the
+// drawer ever writes the stored value, so a stored "hd" is a choice a player
+// made and is kept; a player who never chose gets Classic.
 
 export type TexPref = "hd" | "original";
+
+/** What a player who never chose sees: the original's texels. */
+export const DEFAULT_TEX_PREF: TexPref = "original";
 
 const PREF_KEY = "metropolis.gfx.v1";
 
@@ -38,14 +50,14 @@ export function parseTexPref(raw: unknown): TexPref | null {
   return raw === "hd" || raw === "original" ? raw : null;
 }
 
-/** Stored preference, defaulting to "hd". */
+/** Stored preference, defaulting to Classic. */
 export function loadTexPref(): TexPref {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(PREF_KEY) ?? "{}");
     const pref = (parsed as { textures?: unknown }).textures;
-    return parseTexPref(pref) ?? "hd";
+    return parseTexPref(pref) ?? DEFAULT_TEX_PREF;
   } catch {
-    return "hd";
+    return DEFAULT_TEX_PREF;
   }
 }
 
@@ -91,9 +103,9 @@ function writeGfxPref(key: "textures" | "bloom", value: unknown): void {
   }
 }
 
-/** Variant the preference selects ("hd" = the shipped default atlas). */
+/** Variant the preference selects. */
 export function variantOfPref(pref: TexPref): VariantName {
-  return pref === "original" ? "original" : "default";
+  return pref === "original" ? "original" : "hd";
 }
 
 interface VariantSlot {
@@ -114,32 +126,34 @@ export interface VariantSwitcher {
 
 /**
  * Creates the switcher for one loaded map mesh. `materials` come from
- * loadMapMesh's onMaterials callback; `mapId` names the asset directory.
- * The materials' original textures are captured as the "default" variant and
- * are NOT disposed here — rebuildArena owns them (main.ts).
+ * loadMapMesh's onMaterials callback; `mapId` names the asset directory;
+ * `loaded` is the variant the mesh was loaded with (meshMap.ts). The
+ * materials' own textures stand for that variant and are NOT disposed here —
+ * rebuildArena owns them (main.ts).
  */
 export function createVariantSwitcher(
   mapId: string,
   materials: readonly THREE.MeshStandardMaterial[],
+  loaded: VariantName,
 ): VariantSwitcher {
   const defaults = materials.map((m) => m.map);
   const slots = new Map<string, VariantSlot>();
   for (const name of Object.keys(TEX_VARIANTS)) {
     slots.set(name, { tex: null, state: "unloaded" });
   }
-  let active: VariantName = "default";
-  let statusLine = "tex: default";
+  let active: VariantName = loaded;
+  let statusLine = `tex: ${loaded}`;
   // Set by dispose(): the arena (and its materials) is gone, so late loader
   // callbacks must not touch materials and must free the texture they created.
   let disposed = false;
   // The variant the user selected LAST. An async load only applies itself when
   // it is still the requested one — otherwise a slow request would override a
-  // newer selection (press 2, press 0, esrgan load finishes -> must not apply).
-  let requested: VariantName = "default";
+  // newer selection (press 2, press 1, esrgan load finishes -> must not apply).
+  let requested: VariantName = loaded;
 
   const apply = (tex: THREE.Texture | null, name: VariantName) => {
     for (let i = 0; i < materials.length; i++) {
-      // null = restore each material's own shipped texture.
+      // null = restore each material's own texture (the `loaded` variant).
       materials[i].map = tex ?? defaults[i];
       materials[i].needsUpdate = true;
     }
@@ -149,8 +163,8 @@ export function createVariantSwitcher(
 
   const setVariant = (name: VariantName) => {
     requested = name;
-    if (name === "default") {
-      apply(null, "default");
+    if (name === loaded) {
+      apply(null, loaded);
       return;
     }
     const slot = slots.get(name);
@@ -170,7 +184,7 @@ export function createVariantSwitcher(
     slot.state = "loading";
     statusLine = `tex: ${name} (loading...)`;
     loader.load(
-      `/models/${mapId}/${TEX_VARIANTS[name as keyof typeof TEX_VARIANTS]}`,
+      `/models/${mapId}/${TEX_VARIANTS[name]}`,
       (tex) => {
         if (disposed) {
           // Map was swapped while this variant loaded: the materials this
@@ -180,6 +194,10 @@ export function createVariantSwitcher(
         }
         // Match the glTF sampler the shipped atlas uses: glTF textures are NOT
         // v-flipped, sRGB base color, repeat wrap, trilinear + anisotropy.
+        // Classic too, over its nearest-x4 texels — not the original's filter,
+        // which the RE has not settled: its "Filtering" box (THRASH state 7) is
+        // on by default, i.e. probably bilinear on an accelerator, while the
+        // software renderer point-samples (fcop-fidelity.md G3).
         tex.flipY = false;
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.wrapS = THREE.RepeatWrapping;
@@ -191,7 +209,7 @@ export function createVariantSwitcher(
         slot.tex = tex;
         slot.state = "ready";
         // Only take effect if this is still the variant the user wants — a
-        // newer selection (incl. back to default) must not be overridden.
+        // newer selection (incl. back to the loaded one) must not be overridden.
         if (requested === name) apply(tex, name);
       },
       undefined,
@@ -209,10 +227,10 @@ export function createVariantSwitcher(
     status: () => statusLine,
     dispose: () => {
       if (disposed) return;
-      // Point the materials back at their shipped textures first, so a variant
+      // Point the materials back at their own textures first, so a variant
       // never dangles on a material and rebuildArena's mat.map.dispose() frees
-      // the shipped atlas (not an already-disposed variant, leaking the atlas).
-      apply(null, "default");
+      // the loaded atlas (not an already-disposed variant, leaking the atlas).
+      apply(null, loaded);
       disposed = true;
       for (const slot of slots.values()) {
         slot.tex?.dispose();

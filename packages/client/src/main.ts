@@ -23,6 +23,7 @@ import {
   ARCHETYPE,
   createSim,
   createTickInputs,
+  DEFAULT_DIFFICULTIES,
   EV_CAPTURE,
   EV_DEATH,
   EV_EXPLOSION,
@@ -90,6 +91,7 @@ import { isTextEntryTarget } from "./input/textEntry";
 import type { LocalInputSource } from "./input/types";
 import {
   buildModeQuery,
+  difficultyFromParams,
   loadoutFromParams,
   type MenuChoice,
   type MenuHandle,
@@ -178,7 +180,8 @@ const renderMode: "mesh" | "greybox" = params.get("render") === "greybox" ? "gre
 // structures; on, it is the only way to see where the gate and pad VOLUMES
 // actually are, which matters when checking an imported layout.
 const showGreyboxStructures = params.get("structures") === "greybox";
-// Player texture preference (HD = shipped atlas, Original = 1998 texels).
+// Player texture preference: Classic (the 1998 texels, the default) or HD (the
+// upscaled atlas the .glb names).
 // ?tex=hd|original is a session override and is NOT persisted back (like ?aim=);
 // the menu's Graphics drawer writes the stored preference. Mutable: the menu
 // updates it live via onTexPref. Applied whenever a map mesh loads (see
@@ -209,6 +212,11 @@ const explicitMode =
   params.has("debug");
 /** Loadout for the local human (menu pick or ?gun=&heavy=&special= deep link). */
 let playerLoadout: Loadout = loadoutFromParams(params);
+/**
+ * The local human's difficulty, HARD / NORMAL / EASY (0 / 1 / 2): the menu's
+ * plates or ?difficulty=hard|easy. Solo only — a net match plays NORMAL.
+ */
+let playerDifficulty: number = difficultyFromParams(params);
 // Offline match modes build the sim now; a net mode defers — to the server's
 // authoritative config (arrives in MSG_WELCOME) or the lobby-brokered P2P
 // session — so both peers build a byte-identical sim. The menu instead shows
@@ -220,6 +228,7 @@ let sim: SimState = netMode
     ? createSim(map, seed, {
         ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
         loadouts: [playerLoadout],
+        difficulties: [playerDifficulty],
       })
     : createDemoSim(map);
 
@@ -691,7 +700,10 @@ function buildArenaGroup(m: typeof map): THREE.Group {
   if (renderMode === "mesh") {
     // Async: textured terrain mesh (incl. decks) added when loaded; maps
     // without a local asset fall back to greybox terrain instead of nothing.
-    // The materials callback arms the debug texture-variant switcher (0/1/2/3).
+    // The materials callback arms the texture-variant switcher (the Textures
+    // option, and the debug hotkeys 0/1/2). The mesh loads with the preferred
+    // atlas already in place, so a Classic player never fetches the HD one.
+    const loadedAs = variantOfPref(texPref);
     loadMapMesh(
       m,
       group,
@@ -700,13 +712,15 @@ function buildArenaGroup(m: typeof map): THREE.Group {
         buildGreyboxStructures();
       },
       (materials) => {
-        texSwitcher = createVariantSwitcher(m.id, materials);
-        // Player preference first (boot AND every map swap); the debug hotkeys
-        // 0-3 can still override it temporarily afterwards.
+        texSwitcher = createVariantSwitcher(m.id, materials, loadedAs);
+        // Player preference first (boot AND every map swap; it may have changed
+        // while the mesh loaded); the debug hotkeys can still override it
+        // temporarily afterwards.
         texSwitcher.setVariant(variantOfPref(texPref));
         refreshDebugLabel();
       },
       stale,
+      loadedAs === "original",
     );
     // Original scenery actors, on the mesh path only: they are the arena's own
     // art, so they belong with the textured terrain and not on top of greybox
@@ -976,6 +990,7 @@ function rematchSolo(): void {
     createSim(map, matchSeed, {
       ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
       loadouts: [playerLoadout],
+      difficulties: [playerDifficulty],
     }),
   );
   startMatch([{ slot: 0, input: localInput }]);
@@ -1079,6 +1094,7 @@ function returnToMenu(): void {
       onChoice: handleMenuChoice,
       onSelect: previewArena,
       initialLoadout: playerLoadout,
+      initialDifficulty: playerDifficulty,
       onTexPref: (pref) => {
         texPref = pref;
         texSwitcher?.setVariant(variantOfPref(pref));
@@ -1162,7 +1178,7 @@ function refreshDebugLabel(): void {
   // Title-menu backdrop also arms the switcher (Graphics drawer live preview),
   // but the hotkey legend sits over the console footer — hide it until a match.
   if (texSwitcher && phase !== "menu") {
-    parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan`);
+    parts.push(`${texSwitcher.status()}  [0]=hd [1]=original [2]=esrgan`);
   }
   if (flyMode) {
     parts.push("fly: WASD+QE move, Shift fast, click=mouse-look");
@@ -1360,7 +1376,7 @@ addEventListener("keydown", (e) => {
 // WASD/JKL, see input/keyboard.ts BUTTON_KEYS) — safe for debug bindings.
 addEventListener("keydown", (e) => {
   if (!texSwitcher) return;
-  if (e.code === "Digit0") texSwitcher.setVariant("default");
+  if (e.code === "Digit0") texSwitcher.setVariant("hd");
   else if (e.code === "Digit1") texSwitcher.setVariant("original");
   else if (e.code === "Digit2") texSwitcher.setVariant("esrgan");
   else return;
@@ -2095,6 +2111,8 @@ function netConfig(matchSeed: number): MatchConfig {
     mapId: map.id,
     wardenPlayer: -1,
     wardenDifficulty: 0,
+    // The online lobby offers no difficulty pick yet: both players NORMAL.
+    difficulties: DEFAULT_DIFFICULTIES,
   };
 }
 
@@ -2260,9 +2278,15 @@ function previewArena(mapId: string): void {
  * deep link (carrying a ?relay override), so it stays shareable and a refresh
  * re-enters through the deep-link path exactly as before.
  */
-function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): void {
+function handleMenuChoice(
+  choice: MenuChoice,
+  mapId: string,
+  loadout: Loadout,
+  difficulty: number,
+): void {
   playerLoadout = loadout;
-  const query = buildModeQuery(choice, mapId, loadout);
+  playerDifficulty = difficulty;
+  const query = buildModeQuery(choice, mapId, loadout, difficulty);
   const relay = params.get("relay");
   history.pushState(null, "", relay ? `${query}&relay=${encodeURIComponent(relay)}` : query);
   menuHandle?.dismiss();
@@ -2279,6 +2303,7 @@ function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): 
         createSim(map, seed, {
           ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
           loadouts: [playerLoadout],
+          difficulties: [playerDifficulty],
         }),
       );
       // The flagship transition: one continuous shot from flyover to chase rig.
@@ -2293,7 +2318,9 @@ function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): 
       flyMode = true;
       warden = false;
       wardenDifficulty = 0;
-      resetForMatch(createSim(map, seed, { loadouts: [playerLoadout] }));
+      resetForMatch(
+        createSim(map, seed, { loadouts: [playerLoadout], difficulties: [playerDifficulty] }),
+      );
       // No flyover→chase blend — fly cam owns posing from the first frame.
       startMatch([{ slot: 0, input: localInput }]);
       break;
@@ -2307,7 +2334,9 @@ function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): 
       opponentMode = "idle";
       warden = false;
       wardenDifficulty = 0;
-      resetForMatch(createSim(map, seed, { loadouts: [playerLoadout] }));
+      resetForMatch(
+        createSim(map, seed, { loadouts: [playerLoadout], difficulties: [playerDifficulty] }),
+      );
       startMatch([{ slot: 0, input: localInput }]);
       break;
     }
@@ -2342,6 +2371,7 @@ if (online) {
     onChoice: handleMenuChoice,
     onSelect: previewArena,
     initialLoadout: playerLoadout,
+    initialDifficulty: playerDifficulty,
     // Graphics drawer: apply a texture-preference change immediately to the
     // (possibly already loaded) backdrop arena; persisting is menu.ts's job.
     onTexPref: (pref) => {

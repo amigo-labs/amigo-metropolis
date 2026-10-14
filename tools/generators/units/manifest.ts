@@ -74,11 +74,23 @@ export interface UnitModelSpec {
   /**
    * Desaturate the model's colors (baked vertex colors, or the packed atlas
    * texture) toward luminance so the whole-unit instanceColor team tint
-   * (render/greybox.ts tintFor) reads cleanly — the equivalent of FCOP's own
-   * grey team-variant textures. Off for models whose own colors should
-   * survive the neutral/team tint (turret, console).
+   * (render/greybox.ts tintFor) reads cleanly. Off for models whose own
+   * colors should survive the neutral/team tint (turret, console).
+   *
+   * Metropolis' own, not the original's way (fcop-fidelity.md G4, open): the
+   * original keeps the art twice on one page, one half per team, and gives
+   * each actor a UV offset onto its team's half (BaseEntity uv_offset; RE
+   * docs/formats/x1-alpha.md "Team color"). Stays until that offset table is
+   * exported; the desaturation and the tint then go.
    */
   readonly neutralizeColors: boolean;
+  /**
+   * The largest empty horizontal slab the original itself authored, in metres.
+   * The contract test refuses floating parts, which is how a pose the parts
+   * were never posed in shows up; a Cobj whose part floats by design names its
+   * gap here instead of loosening the test for everyone.
+   */
+  readonly authoredGap?: number;
 }
 
 // Original Future Cop: L.A.P.D. (1998) assets are explicitly permitted, incl.
@@ -153,22 +165,37 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     neutralizeColors: true,
   },
   {
+    // The Precinct Assault jet: every jet spawner of every PA mission names
+    // Cobj 22 (RE extracted/logic/<Mission>/pa_rules.json `spawners`, kind
+    // "jet"). This entry used to carry Cobj 41, the Flying Fortress — the
+    // `fortress` entry below — so the jet flew as a 3.15 m bomber. Mp's
+    // payload is also Conft's, Slim's and Hk's; Ovmp's samples page 4, and
+    // Joke's is a model of its own (every arena draws Mp's: open).
+    //
+    // Cobj 22 is a 3-frame morph (extract_objects.py anim_kind "morph"): its
+    // rotor, the 54 vertices of the top hub and blades at y 0.11-0.16, turns
+    // about the hub from frame to frame. One InstancedMesh per archetype
+    // cannot drive per-instance morph weights through this pipeline, so
+    // gen:units keeps frame 0 and the rotor stands still (open: assets.md §4).
     key: "guardian",
-    raw: "fcop/mp-obj041-flyer.glb",
+    raw: "fcop/mp-obj022-jet.glb",
     source: {
-      title: "Flyer (Mp Cobj 41)",
+      title: "Jet (Mp Cobj 22, morph frame 0)",
       author: EA,
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
-    // Native 3.15 x 0.68 x 2.14 — the widest thing on the field, and it always
-    // was: this is the only unit the old fitting barely touched (1.02x).
-    footprint: 3.15,
-    maxHeight: 0.69,
+    // Native 1.40 x 0.42 x 1.50: rotor and stub wings 1.40 m across, the cabin
+    // nose on +Z and the tail boom on -Z.
+    footprint: 1.51,
+    maxHeight: 0.43,
     nativeScale: true,
     maxTris: 1500,
     neutralizeColors: true,
+    // The rotor has no mast: its hub (y 0.113) floats 5.1 cm over the cabin
+    // roof (y 0.063) in every frame, as authored.
+    authoredGap: 0.051,
   },
   {
     key: "juggernaut",
@@ -188,21 +215,26 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     neutralizeColors: true,
   },
   {
+    // The Flying Fortress: the spawners of kind "flying_fortress" name Cobj 41
+    // (Mp, Hk, Joke, Ovmp) or 42 (Conft, Slim) — Mp's payload on Mp, Conft,
+    // Slim and Hk; Ovmp's samples page 4, Joke's is a model of its own (every
+    // arena draws Mp's: open). This entry used to carry Cobj 57, one of the four
+    // Sky Captain models (Mp actors 287/295/296/297 = Cobj 54/56/57/58, one
+    // loaded per difficulty level), while the Fortress's own model stood in
+    // for the jet above.
     key: "fortress",
-    raw: "fcop/mp-obj057-skycaptain-gunship.glb",
+    raw: "fcop/mp-obj041-flying-fortress.glb",
     source: {
-      title: "Sky Captain gunship form (Mp Cobj 57)",
+      title: "Flying Fortress (Mp Cobj 41)",
       author: EA,
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
-    // Hull-only ~2.10 x 1.09 x 1.35. The raw also carries a tex10 searchlight
-    // volume, six facer lines, and two 4-tri exhaust billboards under the
-    // nacelles (combined 2.10 x 1.89 x 2.67); gen:units drops those so they
-    // do not bake into opaque bars / dark jet cones.
-    footprint: 2.11,
-    maxHeight: 1.27,
+    // Native 3.15 x 0.68 x 2.14 — a flying wing, the widest thing on the
+    // field; the pointed nose on +Z, the raised wing tips aft.
+    footprint: 3.15,
+    maxHeight: 0.69,
     nativeScale: true,
     maxTris: 5000,
     neutralizeColors: true,
@@ -245,7 +277,8 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
   },
   {
     key: "console",
-    raw: "fcop/mp-obj029-outpost-console.glb",
+    // la-cantina's own scenery raw for Cobj 29: one file for both treatments.
+    raw: "fcop-props/Mp/obj_029.glb",
     source: {
       title: "Outpost flag console (Mp Cobj 29)",
       author: EA,
@@ -253,7 +286,7 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 2,
-    // Native 1.00 x 1.47 x 1.12 — the same bytes prop-029 ships at. Fitting
+    // Native 1.00 x 1.47 x 1.12 — the size la-cantina's prop-029 ships at. Fitting
     // drew this at 3.20 m next to its own 1.47 m twin, in the same arena.
     footprint: 1.12,
     maxHeight: 1.48,
@@ -472,22 +505,50 @@ export const FX_MODELS: readonly FxModelSpec[] = [
 
 export interface PropModelSpec {
   /**
-   * Output name: packages/client/public/models/props/<key>.glb.
+   * Output name: packages/client/public/models/props/<mapId>/<key>.glb.
    * Always `prop-<cobj>` so render/props.ts can map a MapProp.model straight
-   * onto a URL without a second lookup table.
+   * onto a URL in the arena's folder without a second lookup table.
    */
   readonly key: string;
-  /** Original Cobj resource id, as carried by MapProp.model. */
+  /** The arena (packages/sim/maps/<mapId>.json) whose `props` place it. */
+  readonly mapId: string;
+  /** The arena's mission container: the Cobj id and its texels are this one's. */
+  readonly mission: string;
+  /** Original Cobj resource id in that mission, as carried by MapProp.model. */
   readonly cobj: number;
+  /**
+   * The Mp Cobj with the same payload (the same geometry and UVs), or null for
+   * a model of the mission's own. Evidence, not a lookup: the texels still come
+   * from the mission's own pages, so the file is never Mp's.
+   */
+  readonly mpTwin: number | null;
   /** Raw extraction, relative to tools/generators/units/raw/. */
   readonly raw: string;
   readonly source: UnitModelSource;
   readonly maxTris: number;
 }
 
-// Original la-cantina (Mp) scenery: the DynamicProp (act_type 11) placements
-// carried in packages/sim/maps/la-cantina.json `props`. Render-only — the sim
-// never reads them (determinismGuard.test.ts enforces that).
+// Original scenery: the DynamicProp (act_type 11) placements every imported
+// arena carries in packages/sim/maps/<mapId>.json `props` — 36 per arena, 8
+// models each. Render-only — the sim never reads them (determinismGuard.test.ts
+// enforces that).
+//
+// A placement's `model` is a Cobj id IN THAT ARENA'S OWN MISSION. The same id
+// is a different model on another arena: the six missions number their Cobjs
+// differently (Conft's Dreadnought hull is 37, its Fortress 42), so Conft 41 is
+// a kiosk and not Mp's Flying Fortress. These all drew Mp's file for the id
+// until Phase 14 wave 5, which put a Dreadnought hull (36) and a Flying
+// Fortress (41) on urban-jungle and a Fortress on proving-ground as "parked
+// vehicles", and left bug-hunt's 38 and hollywood-keys' 31 undrawn. Matching
+// the payload hashes of the RE's exports (extracted/objects/<Mission>/
+// manifest.json `sha256_16`) against Mp's gives every id its twin, below.
+//
+// The texels are each mission's own even where the payload is Mp's: an
+// identical payload samples the mission's own texture pages, and every one of
+// the 48 exports differs from every other. So each arena gets its own raws
+// (raw/fcop-props/<Mission>/obj_NNN.glb, copied unchanged from the RE by
+// `bun run gen:scenery`) and its own outputs, as the pickups and lifts do
+// (`models/pa-props/<mapId>/`).
 //
 // Unlike UNIT_MODELS these keep their source scale and orientation: they are
 // placed in the original's own frame at the original's own positions, so any
@@ -495,153 +556,157 @@ export interface PropModelSpec {
 // `footprint`, no `maxHeight` and no `rotateQuarterY` for that reason, and no
 // `neutralizeColors` either — nothing tints scenery.
 //
-// What the eight are, from their geometry and the texture region each samples
-// (page tex05 for the consoles, tex01/tex03 for the barrier):
-// - Cobj 28 (16 placements): thin (5 cm), 1.5 m tall, yellow/black hazard
-//   diagonals — a striped barrier. The only animated one; the pipeline keeps
-//   frame 0.
-// - Cobj 27/33/34/35/39/40 (2-4 each): small kiosks sampling the same atlas
-//   strip as Cobj 29 — yellow unit-type icons (jet, tank, turret) and the
-//   0-9 digit row. Siblings of the outpost console, differing in which part of
+// What the models are, from their geometry and the texture region each samples
+// (named by Mp's ids; page tex05 for the consoles, tex01/tex03 for the barrier):
+// - Mp 28 (16 placements): thin (5 cm), 1.5 m tall, yellow/black hazard
+//   diagonals — a striped barrier. A 6-frame morph; the pipeline keeps frame 0.
+// - Mp 27/33/34/35/39/40 (2-4 each): small kiosks sampling the same atlas
+//   strip as Cobj 29 — yellow unit-type icons (jet, tank, turret) and the 0-9
+//   digit row. Siblings of the outpost console, differing in which part of
 //   that strip they show.
-// - Cobj 29 (4 placements): the outpost flag console. Its raw is already
-//   committed for the `console` unit model above and is reused here rather
-//   than duplicated — same bytes, different treatment (unfitted).
-export const PROP_MODELS: readonly PropModelSpec[] = [
+// - Mp 29 (4 placements): the outpost flag console, the same bytes as the
+//   `console` unit's raw.
+// Ovmp's console and kiosks are payloads of its own (pages 4 and 8, the kiosks
+// a little larger); only its barrier is Mp's.
+const SCENERY_KINDS: Readonly<Record<number, string>> = {
+  27: "Scenery kiosk, unit-icon console variant",
+  28: "Hazard-striped barrier",
+  29: "Outpost flag console",
+  33: "Scenery kiosk, unit-icon console variant",
+  34: "Scenery kiosk, unit-icon console variant",
+  35: "Scenery kiosk, unit-icon console variant",
+  39: "Scenery kiosk, unit-icon console variant",
+  40: "Scenery kiosk, unit-icon console variant",
+};
+
+/** Ovmp's own payloads: what each is, by its geometry and its place in the set. */
+const OWN_KINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
+  Ovmp: {
+    27: "Scenery kiosk (Ovmp's own)",
+    29: "Outpost flag console (Ovmp's own)",
+    33: "Scenery kiosk (Ovmp's own)",
+    34: "Scenery kiosk (Ovmp's own)",
+    35: "Scenery kiosk (Ovmp's own)",
+    39: "Scenery kiosk (Ovmp's own)",
+    40: "Scenery kiosk (Ovmp's own)",
+  },
+};
+
+/** Each arena's scenery: [the mission's Cobj id, its Mp twin or null]. */
+export const ARENA_SCENERY: readonly {
+  readonly mapId: string;
+  readonly mission: string;
+  readonly props: readonly (readonly [cobj: number, mpTwin: number | null])[];
+}[] = [
   {
-    key: "prop-027",
-    cobj: 27,
-    raw: "fcop/mp-obj027-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 27)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "la-cantina",
+    mission: "Mp",
+    props: [
+      [27, 27],
+      [28, 28],
+      [29, 29],
+      [33, 33],
+      [34, 34],
+      [35, 35],
+      [39, 39],
+      [40, 40],
+    ],
   },
   {
-    key: "prop-028",
-    cobj: 28,
-    raw: "fcop/mp-obj028-hazard-barrier.glb",
-    source: {
-      title: "Hazard-striped barrier (Mp Cobj 28)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "urban-jungle",
+    mission: "Conft",
+    props: [
+      [27, 27],
+      [28, 28],
+      [29, 29],
+      [33, 33],
+      [35, 34],
+      [36, 35],
+      [40, 39],
+      [41, 40],
+    ],
   },
   {
-    key: "prop-029",
-    cobj: 29,
-    raw: "fcop/mp-obj029-outpost-console.glb",
-    source: {
-      title: "Outpost flag console (Mp Cobj 29)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "proving-ground",
+    mission: "Slim",
+    props: [
+      [27, 27],
+      [28, 28],
+      [29, 29],
+      [34, 33],
+      [35, 34],
+      [39, 35],
+      [40, 39],
+      [41, 40],
+    ],
   },
   {
-    key: "prop-033",
-    cobj: 33,
-    raw: "fcop/mp-obj033-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 33)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "bug-hunt",
+    mission: "Joke",
+    props: [
+      [27, 27],
+      [28, 28],
+      [29, 29],
+      [33, 33],
+      [34, 34],
+      [38, 35],
+      [39, 39],
+      [40, 40],
+    ],
   },
   {
-    key: "prop-034",
-    cobj: 34,
-    raw: "fcop/mp-obj034-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 34)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "hollywood-keys",
+    mission: "Hk",
+    props: [
+      [27, 27],
+      [28, 28],
+      [29, 29],
+      [31, 33],
+      [34, 34],
+      [35, 35],
+      [39, 39],
+      [40, 40],
+    ],
   },
   {
-    key: "prop-035",
-    cobj: 35,
-    raw: "fcop/mp-obj035-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 35)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
-  },
-  {
-    key: "prop-039",
-    cobj: 39,
-    raw: "fcop/mp-obj039-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 39)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
-  },
-  {
-    key: "prop-040",
-    cobj: 40,
-    raw: "fcop/mp-obj040-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 40)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
-  },
-  // Cobj 36/41: parked vehicles — the heavy gunship and the flyer as static
-  // scenery. Placed by the OTHER §9 arenas (36+41 on urban-jungle, 41 on
-  // proving-ground), not by la-cantina; the raws were in the Mp handoff pack
-  // all along, they were just never carried here, so those arenas dropped
-  // 2-4 placements each with a 404 (issue #28's coverage gap).
-  {
-    key: "prop-036",
-    cobj: 36,
-    raw: "fcop/mp-obj036-heavy-gunship.glb",
-    source: {
-      title: "Parked heavy gunship (Mp Cobj 36)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
-  },
-  {
-    key: "prop-041",
-    cobj: 41,
-    raw: "fcop/mp-obj041-flyer.glb",
-    source: {
-      title: "Parked flyer (Mp Cobj 41)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "venice-beach",
+    mission: "Ovmp",
+    props: [
+      [27, null],
+      [28, 28],
+      [29, null],
+      [33, null],
+      [34, null],
+      [35, null],
+      [39, null],
+      [40, null],
+    ],
   },
 ];
 
-/**
- * Cobj ids the maps place but no committed raw covers: their extraction lives
- * in the private RE repo and has not been handed off. The client skips these
- * (render/props.ts keeps its own literal copy — it must not import tools/),
- * and propModels.test.ts asserts the list stays minimal: an id leaves this
- * set the moment its raw lands in PROP_MODELS.
- * - 31: hollywood-keys scenery (4 placements)
- * - 38: bug-hunt scenery (2 placements)
- */
-export const UNAVAILABLE_PROP_COBJS: readonly number[] = [31, 38];
+/** Where an arena's scenery raw lives, relative to tools/generators/units/raw/. */
+export function sceneryRaw(mission: string, cobj: number): string {
+  return `fcop-props/${mission}/obj_${String(cobj).padStart(3, "0")}.glb`;
+}
+
+export const PROP_MODELS: readonly PropModelSpec[] = ARENA_SCENERY.flatMap((arena) =>
+  arena.props.map(([cobj, mpTwin]) => {
+    const kind = mpTwin === null ? OWN_KINDS[arena.mission]?.[cobj] : SCENERY_KINDS[mpTwin];
+    if (!kind) throw new Error(`${arena.mission} Cobj ${cobj}: no scenery kind`);
+    return {
+      key: `prop-${String(cobj).padStart(3, "0")}`,
+      mapId: arena.mapId,
+      mission: arena.mission,
+      cobj,
+      mpTwin,
+      raw: sceneryRaw(arena.mission, cobj),
+      source: {
+        title: `${kind} (${arena.mission} Cobj ${cobj})`,
+        author: EA,
+        url: RE_REPO,
+        license: FCOP_LICENSE,
+      },
+      maxTris: 1500,
+    };
+  }),
+);

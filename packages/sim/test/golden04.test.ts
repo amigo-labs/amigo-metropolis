@@ -21,7 +21,17 @@
 // toward each route cell, forward once within 22.5° of it) and its Special fires
 // from the latch's held state: holding its gate, it shoots the captain down once
 // (at 89 s), so the captain claims nothing and its tanks — eighteen now, and the
-// jet — do not breach in these 150 s; the player goes down once.
+// jet — do not breach in these 150 s; the player goes down once. Since
+// SIM_VERSION 73 urban-jungle's consoles are the original's way round: the
+// captain's jet patrols from the jet shop, its tanks join the road from the tank
+// shop, and the walls about the player's shops are the extracted ones (the old
+// carve for the misplaced ground console's leg closed, one bit by the tank shop
+// opened). Player 0 is downed twice (87 s, 110 s) and never shoots the captain
+// down; the captain buys ten tanks and the jet, claims an outpost, and its tanks
+// breach the player's gate at tick 3357 (112 s). Since SIM_VERSION 75 the
+// captain rethinks at the player's down, not 4 s later at the respawn (both
+// downs are its own fire): the second down comes at 109 s and its tanks do not
+// breach in these 150 s.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -34,7 +44,7 @@ import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
 describe("golden-04-warden beats", () => {
-  it("the Sky Captain roams and buys, and the player holding its gate shoots it down", () => {
+  it("the Sky Captain roams, buys and claims, and downs the player holding its gate twice", () => {
     const replay = decodeReplay(
       new Uint8Array(readFileSync(join(import.meta.dir, "goldens", "golden-04-warden.mrep"))),
     );
@@ -44,6 +54,7 @@ describe("golden-04-warden beats", () => {
     const sim = createSim(getMapById(replay.mapId), replay.seed, {
       wardenPlayer: replay.wardenPlayer,
       wardenDifficulty: replay.wardenDifficulty,
+      difficulties: replay.difficulties,
     });
     const inputs = createTickInputs();
 
@@ -78,11 +89,11 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    expect(bought.get(ARCHETYPE.RUNNER)).toBe(18);
+    expect(bought.get(ARCHETYPE.RUNNER)).toBe(10);
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
-    expect(claims).toBe(0);
-    expect(wardenDeaths).toBe(1);
-    expect(avatarDeaths).toBe(1);
+    expect(claims).toBe(1);
+    expect(wardenDeaths).toBe(0);
+    expect(avatarDeaths).toBe(2);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);
     expect(sim.winner).toBe(-1);

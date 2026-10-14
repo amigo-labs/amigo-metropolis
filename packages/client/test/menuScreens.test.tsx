@@ -91,6 +91,24 @@ describe("console rail", () => {
   });
 });
 
+describe("the difficulty plates", () => {
+  test("offer HARD, NORMAL, EASY with NORMAL pressed by default", () => {
+    const html = renderApp(baseState({ mode: "solo" }));
+    const plates = [...html.matchAll(/<button[^>]*class="menu-plate[^"]*"[^>]*>([A-Z]+)</g)];
+    expect(plates.map((m) => m[1])).toEqual(["HARD", "NORMAL", "EASY"]);
+    expect(html).toMatch(/aria-pressed="true"[^>]*>NORMAL</);
+    expect(html).not.toMatch(/aria-pressed="true"[^>]*>HARD</);
+  });
+
+  test("press the state's pick, which survives a panel switch", () => {
+    const hard = baseState({ mode: "solo", playerDifficulty: 0 });
+    expect(renderApp(hard)).toMatch(/aria-pressed="true"[^>]*>HARD</);
+    expect(renderApp({ ...hard, mode: null })).not.toContain("menu-plate");
+    expect(renderApp({ ...hard, mode: "solo" })).toMatch(/aria-pressed="true"[^>]*>HARD</);
+    expect(initialMenuState().playerDifficulty).toBe(1);
+  });
+});
+
 describe("state survives a panel switch", () => {
   // The bug the port exists to fix: difficulty used to live only in a DOM node
   // that replaceChildren() threw away when the panel was toggled.

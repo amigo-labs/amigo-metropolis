@@ -96,7 +96,13 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // console's trigger box.
   // Re-frozen at SIM_VERSION 67: urban-jungle is layered, with its lifts and
   // its kerbs and spilled walls opened (fcop-fidelity.md P12, P15).
-  "golden-04-warden": { last: 3344660320, count: 4500 },
+  // 04 and 05 re-frozen at SIM_VERSION 73: urban-jungle's consoles un-swapped
+  // (the captain's jet patrols from the jet shop; the walls by team 0's shops
+  // and the road entry follow the tank shop).
+  // 04 and 07 re-frozen at SIM_VERSION 75: the captain's credit for a down by
+  // its own hit is hashed (SimState.captainHit, its rounds' ROUND_CAPTAIN bit);
+  // 04's captain rethinks at the player's down instead of at the respawn.
+  "golden-04-warden": { last: 4199773677, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -113,7 +119,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // two invented consoles (two more console entities in the store).
   // Re-frozen at SIM_VERSION 67: urban-jungle is layered, with its lifts and
   // its kerbs and spilled walls opened (fcop-fidelity.md P12, P15).
-  "golden-05-fcop": { last: 1120851795, count: 2700 },
+  // Re-frozen at SIM_VERSION 73: its ENE leg crosses team 0's shops, where the
+  // wall bit carved for the misplaced ground console's leg now stands.
+  "golden-05-fcop": { last: 1737582108, count: 2700 },
   "golden-06-layered": { last: 1975921512, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
@@ -121,7 +129,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // units drive la-cantina's Cnet by the step chooser at 1.98 m/s.
   // Re-frozen at SIM_VERSION 48: la-cantina's four original outposts.
   // Re-frozen at SIM_VERSION 49: its captain counts each turret twice and roams.
-  "golden-07-pa": { last: 2112558238, count: 3600 },
+  // Re-frozen at SIM_VERSION 75: the captain's down credit is hashed; its
+  // player is never put down here, so nothing plays differently.
+  "golden-07-pa": { last: 3253032975, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

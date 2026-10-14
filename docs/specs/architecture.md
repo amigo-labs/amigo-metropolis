@@ -40,10 +40,14 @@ hash(state: SimState): number                            // FNV-1a 32-bit
 writeSnapshot(state: SimState, out: Float32Array): number // returns entity count
 ```
 
-- `SimOptions` is match config beyond map+seed — currently the Warden
-  assignment `{wardenPlayer, wardenDifficulty}` (rules.md §7). It travels in
-  the replay header and the online handshake; every peer must pass the same
-  options or the sims diverge by construction.
+- `SimOptions` is match config beyond map+seed — the Warden assignment
+  `{wardenPlayer, wardenDifficulty}` (rules.md §7) and each player's
+  difficulty, `difficulties` (HARD / NORMAL / EASY, rules.md §2; SIM_VERSION
+  72). Both travel in the replay header and the online handshake (the
+  difficulties since replay format 4 and protocol 3; the online lobby offers no
+  pick yet, so a net match plays both NORMAL); every peer must pass the same
+  options or the sims diverge by construction. (The loadouts do too, but neither header carries
+  them yet: replays and online matches play the default kit.)
 
 - **Inputs** (`TickInputs`): per player `{ buttons }`, the original's button
   word, a u16 (`input.spec.md` §3): move forward/back, turn right/left, jink
@@ -118,10 +122,13 @@ Flat `Float32Array`, stride 10 per entity:
 
 ## 6. Replays & desync tooling
 
-- A replay = `{mapId, seed, version, wardenConfig, inputFrames[]}`. Byte
-  format = network format. Recorded in every mode automatically (dev builds).
-  Format 2 added the Warden config (the AI runs inside the sim, so AI matches
-  replay from the header alone); format-1 files still decode as warden-less.
+- A replay = `{mapId, seed, version, wardenConfig, difficulties, inputFrames[]}`.
+  Byte format = network format (`packages/sim/src/replay.ts` documents the
+  layout). Recorded in every mode automatically (dev builds). Format 2 added
+  the Warden config (the AI runs inside the sim, so AI matches replay from the
+  header alone), format 3 the u16 button word (SIM_VERSION 69), format 4 a
+  difficulty byte per player (SIM_VERSION 72). Formats 1-3 are refused: no
+  current sim plays them right.
 - `tools/determinism`: `record`, `verify` (re-simulate, compare hash sequence),
   `bisect` (find first diverging tick between two runs).
 - **Golden replays** live in `packages/sim/test/goldens/` and run in CI/`bun test`.

@@ -20,6 +20,9 @@ import {
   clearTickInputs,
   createSim,
   createTickInputs,
+  DEFAULT_DIFFICULTIES,
+  DIFFICULTY_EASY,
+  DIFFICULTY_HARD,
   decodeReplay,
   ERR_VERSION_MISMATCH,
   getMapById,
@@ -42,6 +45,7 @@ const CONFIG: MatchConfig = {
   mapId: LA_CANTINA_ID,
   wardenPlayer: -1,
   wardenDifficulty: 0,
+  difficulties: DEFAULT_DIFFICULTIES,
 };
 
 // Same scripted-1v1 approach as netLockstep.test.ts: one function authors BOTH
@@ -57,8 +61,8 @@ function refScript(tick: number, out: TickInputs): void {
   if (tick % 25 < 4) p1.buttons |= BTN_HEAVY;
 }
 
-function referenceHashes(ticks: number): number[] {
-  const sim = createSim(getMapById(CONFIG.mapId), CONFIG.seed);
+function referenceHashes(ticks: number, difficulties?: readonly number[]): number[] {
+  const sim = createSim(getMapById(CONFIG.mapId), CONFIG.seed, { difficulties });
   const inputs = createTickInputs();
   const out: number[] = [];
   for (let t = 0; t < ticks; t++) {
@@ -246,6 +250,33 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
     expect(h1.slice(0, TICKS)).toEqual(ref);
     expect(pa.isEnded).toBe(null);
     expect(pb.isEnded).toBe(null);
+  });
+
+  it("plays the lobby config's difficulties on both peers, and dumps them", () => {
+    const picked: MatchConfig = { ...CONFIG, difficulties: [DIFFICULTY_EASY, DIFFICULTY_HARD] };
+    const TICKS = 60;
+    const [wa, wb] = channelPairs(0xbeef, HOSTILE);
+    const h0: number[] = [];
+    const h1: number[] = [];
+    const pa = new P2pLockstep(0, picked, wa.control, wa.inputs, {
+      sampleInput: sampler(0),
+      onStep: (t, sim) => {
+        h0[t] = hash(sim);
+      },
+    });
+    const pb = new P2pLockstep(1, picked, wb.control, wb.inputs, {
+      sampleInput: sampler(1),
+      onStep: (t, sim) => {
+        h1[t] = hash(sim);
+      },
+    });
+    expect(pb.simState.ent.hp[pb.simState.avatarId[0]]).toBe(1500);
+    expect(pb.simState.ent.hp[pb.simState.avatarId[1]]).toBe(1000);
+    drive(pa, pb, TICKS);
+    const ref = referenceHashes(TICKS, picked.difficulties);
+    expect(h0.slice(0, TICKS)).toEqual(ref);
+    expect(h1.slice(0, TICKS)).toEqual(ref);
+    expect(decodeReplay(pa.dumpReplay()).difficulties).toEqual([DIFFICULTY_EASY, DIFFICULTY_HARD]);
   });
 
   it("flags an induced desync within 30 ticks and dumps both replays", () => {

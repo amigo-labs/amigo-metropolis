@@ -13,6 +13,7 @@ export function simulateReplayHashes(replay: ReplayData): Uint32Array {
   const sim = createSim(map, replay.seed, {
     wardenPlayer: replay.wardenPlayer,
     wardenDifficulty: replay.wardenDifficulty,
+    difficulties: replay.difficulties,
   });
   const inputs = createTickInputs();
   const hashes = new Uint32Array(replay.tickCount);

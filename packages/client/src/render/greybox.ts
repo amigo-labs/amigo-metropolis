@@ -141,11 +141,11 @@ const NATIVE: Record<string, { footprint: number; height: number }> = {
   walker: { footprint: 0.8, height: 0.98 },
   hover: { footprint: 1.24, height: 0.48 },
   runner: { footprint: 1.52, height: 0.4 },
-  guardian: { footprint: 3.15, height: 0.68 },
+  // The PA jet, Cobj 22 (frame 0): 1.40 x 0.42 x 1.50.
+  guardian: { footprint: 1.5, height: 0.42 },
   juggernaut: { footprint: 2.22, height: 0.63 },
-  // Hull-only: gen:units drops Cobj 57's tex10/facer volumes and the two
-  // exhaust billboards, so this is 2.10 x 1.09 rather than the raw 2.67 x 1.89.
-  fortress: { footprint: 2.1, height: 1.09 },
+  // The Flying Fortress, Cobj 41: 3.15 x 0.68 x 2.14.
+  fortress: { footprint: 3.15, height: 0.68 },
   console: { footprint: 1.12, height: 1.47 },
   // Hull-only: Cobj 54's 1 m tex10 searchlights are dropped (raw 2.04 x 0.71).
   warden: { footprint: 1.49, height: 0.42 },
@@ -222,12 +222,14 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     ]),
     "runner",
   );
-  // Guardian: small plane — fuselage, straight wing, tail fin. +X forward.
+  // Guardian: the PA jet, a rotorcraft — cabin, tail boom, stub wings, and a
+  // rotor floating over the cabin as the original's does. +X forward.
   const guardianGeometry = fitNative(
     mergeGeometries([
-      box(2.2, 0.5, 0.7, 0, 0, 0), // fuselage
-      box(0.7, 0.12, 3.2, -0.1, 0.1, 0), // wing
-      box(0.5, 0.7, 0.12, -0.95, 0.35, 0), // tail fin
+      box(0.95, 0.3, 0.45, 0.27, 0, 0), // cabin
+      box(0.6, 0.1, 0.1, -0.45, 0.05, 0), // tail boom
+      box(0.25, 0.04, 1.4, 0.1, -0.13, 0), // stub wings
+      box(1.3, 0.03, 1.3, 0.05, 0.25, 0), // rotor
     ]),
     "guardian",
   );

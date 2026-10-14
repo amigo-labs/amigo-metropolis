@@ -15,7 +15,7 @@
 // JSON (not the binary protocol) is deliberate: signaling is a handful of
 // SDP-sized text blobs, not the 30 Hz hot path.
 
-import type { MatchConfig } from "@metropolis/sim";
+import { DEFAULT_DIFFICULTIES, isDifficulty, MAX_PLAYERS, type MatchConfig } from "@metropolis/sim";
 import type { LobbyIceConfig } from "./turn";
 
 // --- Lifecycle timeouts (wall-clock ms; server-side, not gameplay) -----------
@@ -104,10 +104,14 @@ function isAscii(s: string): boolean {
   return true;
 }
 
-/** Accepts only online-1v1 configs (no Warden slot — hosting.spec.md §1). */
+/**
+ * Accepts only online-1v1 configs (no Warden slot — hosting.spec.md §1). The
+ * players' difficulties are optional (both NORMAL when absent: the lobby offers
+ * no pick yet); when present, one row 0..2 a player.
+ */
 function parseConfig(v: unknown): MatchConfig | null {
   if (!isRecord(v)) return null;
-  const { simVersion, seed, mapId, wardenPlayer, wardenDifficulty } = v;
+  const { simVersion, seed, mapId, wardenPlayer, wardenDifficulty, difficulties } = v;
   if (
     !Number.isInteger(simVersion) ||
     (simVersion as number) < 0 ||
@@ -118,12 +122,19 @@ function parseConfig(v: unknown): MatchConfig | null {
   if (typeof mapId !== "string" || mapId.length === 0 || mapId.length > 255 || !isAscii(mapId))
     return null;
   if (wardenPlayer !== -1 || wardenDifficulty !== 0) return null;
+  let picked: readonly number[] = DEFAULT_DIFFICULTIES;
+  if (difficulties !== undefined) {
+    if (!Array.isArray(difficulties) || difficulties.length !== MAX_PLAYERS) return null;
+    if (!difficulties.every(isDifficulty)) return null;
+    picked = difficulties.slice();
+  }
   return {
     simVersion: simVersion as number,
     seed: seed as number,
     mapId,
     wardenPlayer: -1,
     wardenDifficulty: 0,
+    difficulties: picked,
   };
 }
 

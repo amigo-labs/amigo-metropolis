@@ -1,10 +1,14 @@
 {
-  "simVersion": 71,
+  "simVersion": 75,
   "mapId": "la-cantina",
   "seed": 12648430,
   "tickCount": 6000,
   "wardenPlayer": -1,
   "wardenDifficulty": 0,
+  "difficulties": [
+    1,
+    1
+  ],
   "hashes": [
     298087465,
     2437323113,

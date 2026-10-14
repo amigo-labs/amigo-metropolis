@@ -52,6 +52,7 @@ import {
   EV_RESPAWN,
   EV_ROUND_IMPACT,
   EV_SHOT,
+  EV_SUNK,
   EV_TRANSFORM,
   EV_TRANSFORM_REFUSED,
   EV_TURRET_LOST,
@@ -198,6 +199,11 @@ export class OriginalSounds {
   private readonly fxLeft = new Int32Array(MAX_PENDING_EFFECTS);
   /** Each actor's death mask: OR of the hit kinds its op-0x0e hits carried. */
   private readonly mask = new Uint8Array(MAX_ENTITIES);
+  /**
+   * The avatar this tick's EV_SUNK named (-1 none): its EV_DEATH, next in the
+   * same tick, raises nothing — `player_op4` with the +0xde marker set.
+   */
+  private sunk = -1;
   /** Per player, this tick's direct-fire hit kind and pending impact effect. */
   private readonly shotKind = new Uint8Array(MAX_PLAYERS);
   private readonly shotImpact = new Int16Array(MAX_PLAYERS);
@@ -260,6 +266,7 @@ export class OriginalSounds {
     }
     this.shotKind.fill(0);
     this.shotImpact.fill(-1);
+    this.sunk = -1;
     const d = events.data;
     for (let i = 0; i < events.count; i++) {
       const o = i * EVENT_STRIDE;
@@ -342,6 +349,9 @@ export class OriginalSounds {
         // b is the winner; the overrun base is the loser's.
         this.arm("base_overrun", b === 0 ? 1 : 0, -1);
         this.arm(b === 0 ? "captain_loses" : "captain_wins", -1, -1);
+        return;
+      case EV_SUNK:
+        this.sunk = a;
         return;
       case EV_DEATH:
         this.death(a, b, c, ctx);
@@ -470,6 +480,9 @@ export class OriginalSounds {
     const d = data.deaths;
     switch (archetype) {
       case ARCHETYPE.AVATAR: {
+        // A sunk mech (HARD's deep water) goes down with no wreck, no death
+        // effects and no wreck sound (fcop-fidelity.md P13).
+        if (victim === this.sunk) return;
         this.emitDeath(d.mech[0], mask, x, z);
         for (const id of MECH_WRECK_EFFECTS) this.installEffect(1, id, x, z);
         this.playerScript(SCRIPT_WRECK, this.slotOfAvatar(victim, ctx), victim, ctx);

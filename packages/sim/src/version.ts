@@ -1084,4 +1084,47 @@
 //     venice-beach (Ovmp) has any: 14 cells of code 4 in four patches beside its
 //     bases. The hover reads no mode. SimState.avatarMode, hashed on such an
 //     arena only.
-export const SIM_VERSION = 71;
+// v72: the original's per-player difficulty (fcop-fidelity.md P1, P2, P13, W1):
+//     SimOptions.difficulties, HARD / NORMAL / EASY per player (NORMAL by
+//     default; the Warden's slot has none). Health 1000 / 1250 / 1500
+//     (`player_construct`), the restore, the health pickup and the snapshot's
+//     maximum with it; the weapon tables carry the records' own magazines
+//     (HARD's) and every fill scales them, raw + raw >> 2 on NORMAL and
+//     raw + raw >> 1 on EASY (the stock, `cact_type99_ammo_cap`). On HARD a
+//     walker in deep water sinks instead of changing to hover: the +0xde
+//     marker, its invulnerability cleared, its buttons cut, its ground 0xc0 wu
+//     under it a step (0.879 m/s), and 1.75 m under the surface it takes its
+//     health + 1 credited to nobody (61 ticks after it reached the water); its
+//     down raises no wreck (EV_SUNK), gives the Sky Captain no credit and
+//     comes back after 0.5 s. The Warden's "badly hurt" test reads the mech's
+//     own maximum. The difficulties and the markers are hashed only in a match
+//     with a player off NORMAL, so every NORMAL replay's hash sequence is
+//     unchanged: the goldens are re-recorded for the header alone.
+// v73: urban-jungle's and proving-ground's ground and air consoles un-swapped
+//     (fcop-fidelity.md R17): the ground console stands on the shop trigger
+//     whose script queues a tank, the air console on the one whose script
+//     requests a jet (RE pa_rules.json `buy_triggers[].sells`), as the other
+//     four arenas already had it. The import had read the kiosk's Cobj id as if
+//     every mission numbered its Cobjs as Mp does; Conft's and Slim's 40 is Mp's
+//     39, the jet kiosk. Map data only: the console legs, their carved and
+//     reconnecting wall bits and the road entry nodes move with it.
+// v74: the jet's and the Flying Fortress's hit radius is the original's
+//     (fcop-fidelity.md G1): an actor's radius_68, the halfword at +12 of its
+//     model's 3DBB box << 4 wu (cact_model_block_init 0x00426e00, summed by
+//     cact_pair_test 0x00450190), Cobj 22's 537 = 1.0488 m and Cobj 41's 989 =
+//     1.9316 m; were 1.1 and 1.33 m, sized for the models drawn before them.
+//     Hit tests only (hitscan, contact, blasts, mines). No golden's hash
+//     sequence moves: the goldens are re-recorded for the header alone.
+// v75: the Sky Captain's credit for a player's down (fcop-fidelity.md U3) is
+//     taken at the down, not at the respawn, and only when the hit that put
+//     the mech down was the captain's own — its gun, or a missile or bomb it
+//     fired — as `player_op4` (0x004477ab..0x004477ea) bumps its tally and
+//     zeroes its rethink only when the remembered attacker, or the owner a
+//     round's id carries, is the captain. Its tanks', jets' and turrets' kills,
+//     a fall and the water no longer make it rethink; the points still change
+//     hands at the respawn. SimState.captainHit per player (set by every hit
+//     on a mech, cleared at the respawn) and the rounds' ROUND_CAPTAIN bit,
+//     hashed in a Warden match only. HARD's sinking marker is now consumed at
+//     every down (it was kept for a down nobody was credited for, to tell the
+//     respawn not to credit the captain).
+export const SIM_VERSION = 75;

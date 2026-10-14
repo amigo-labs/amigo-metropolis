@@ -696,8 +696,10 @@ commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
       re-imported (`FcopArena.kerbs`, P15)
 - [x] Ovmp's slippery patches (surface code 4) — with the controls wave (3;
       v71)
-- [ ] HARD (sinking and drowning, 1000 HP, its ceilings) — with a difficulty
-      setting
+- [x] HARD (sinking and drowning, 1000 HP, its ceilings) — with a difficulty
+      setting: HARD / NORMAL / EASY per player in the sim, replay format 4 and
+      protocol 3; the solo menu's three plates (the online lobby's pick and the
+      original front end's screen wait for the front end) (P1, P2, P13, W1; v72)
 
 ### Wave 3 — Controls 1:1
 
@@ -720,6 +722,23 @@ The original's controls from the RE (`docs/behavior/camera-and-movement.md`
 - [ ] The Camera Key's seven presets and the Map Key's map screen — with
       wave 6
 - [ ] The controls screen's original look — with wave 7
+
+### Wave 5 — Assets
+
+Each mission's own models and textures, read from the RE's Cobj exports and the
+spawners that name them (`docs/specs/fcop-fidelity.md` "Assets", rows G*). Render-only:
+no golden moves.
+
+- [x] The jet and the Flying Fortress drawn with their own Cobjs, 22 and 41 (G1)
+- [x] Each arena's scenery drawn with its own mission's Cobjs and texels (G2)
+- [x] Classic textures (the original texels) by default, HD the option (G3; the
+      original's filter waits on RE)
+- [ ] The jet's rotor and the barrier's animation (morph frames; G1)
+- [ ] Each mission's own unit models: Ovmp's page 4, Hk's tank, Joke's units (G1)
+- [ ] The Dreadnought's guns; the Sky Captain's model by level
+- [ ] Team variants by the original's UV offsets, in place of the invented
+      desaturate-and-tint (G4)
+- [ ] The X1's animations
 
 ## Backlog (post-v1, do not start)
 

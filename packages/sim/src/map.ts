@@ -425,7 +425,11 @@ export interface MapProp {
   readonly y: number;
   readonly height: number;
   readonly yaw: number;
-  /** Original Cobj resource id, so the renderer can pick the model. */
+  /**
+   * Original Cobj resource id in this arena's own mission container, so the
+   * renderer can pick the model. The missions number their Cobjs differently:
+   * the same id is another model on another arena.
+   */
   readonly model: number;
   readonly layer: number;
 }

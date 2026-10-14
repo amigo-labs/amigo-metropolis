@@ -1,10 +1,14 @@
 {
-  "simVersion": 71,
+  "simVersion": 75,
   "mapId": "test-128",
   "seed": 12648430,
   "tickCount": 1800,
   "wardenPlayer": -1,
   "wardenDifficulty": 0,
+  "difficulties": [
+    1,
+    1
+  ],
   "hashes": [
     3702077490,
     2226872026,

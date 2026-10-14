@@ -51,7 +51,8 @@ export interface PlayerInput {
 The original samples fourteen binding slots into a 32-bit word and permutes it;
 every bit the game reads lies in the upper half, so Metropolis' u16 is that word
 shifted down sixteen. Wire and replay frame: `u16 LE buttons` = 2 bytes a
-player (protocol v2, replay format 3; the 5-byte axes of v1 are refused).
+player (since protocol v2 and replay format 3; the 5-byte axes of v1 are
+refused).
 
 | bit | constant | slot | what it does |
 |---|---|---|---|

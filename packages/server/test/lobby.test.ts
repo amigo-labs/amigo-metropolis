@@ -22,6 +22,7 @@ const CFG: MatchConfig = {
   mapId: "district01",
   wardenPlayer: -1,
   wardenDifficulty: 0,
+  difficulties: [1, 1],
 };
 
 function createMsg(visibility: "public" | "private" = "public"): unknown {
@@ -277,6 +278,21 @@ describe("parseLobbyClientMsg", () => {
     expect(parseLobbyClientMsg(badSeed)).toBeNull();
     const badMap = { ...goodCreate, config: { ...CFG, mapId: "über-map" } };
     expect(parseLobbyClientMsg(badMap)).toBeNull();
+  });
+
+  test("carries the players' difficulties, both NORMAL when the config names none", () => {
+    const picked = { ...goodCreate, config: { ...CFG, difficulties: [0, 2] } };
+    expect(parseLobbyClientMsg(picked)).toMatchObject({ config: { difficulties: [0, 2] } });
+    const { difficulties: _, ...bare } = CFG;
+    expect(parseLobbyClientMsg({ ...goodCreate, config: bare })).toMatchObject({
+      config: { difficulties: [1, 1] },
+    });
+    // Off the three rows (3 is the original's debug row), or not one a player.
+    for (const bad of [[3, 1], [1], [1, 1, 1], "11", [1, 0.5]]) {
+      expect(
+        parseLobbyClientMsg({ ...goodCreate, config: { ...CFG, difficulties: bad } }),
+      ).toBeNull();
+    }
   });
 
   test("rejects an over-long lobby name", () => {

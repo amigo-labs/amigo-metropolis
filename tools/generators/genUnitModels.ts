@@ -63,6 +63,8 @@ const OUT_FX = join(MODELS_DIR, "fx");
  */
 interface ModelPass {
   readonly key: string;
+  /** Report name where `key` alone repeats (scenery: `<mapId>/<key>`). */
+  readonly label?: string;
   readonly raw: string;
   readonly outDir: string;
   readonly rotateQuarterY: 0 | 1 | 2 | 3;
@@ -110,8 +112,11 @@ const PASSES: readonly ModelPass[] = [
   })),
   ...PROP_MODELS.map((spec) => ({
     key: spec.key,
+    label: `${spec.mapId}/${spec.key}`,
     raw: spec.raw,
-    outDir: OUT_PROPS,
+    // One folder per arena: the same Cobj id is another model on another
+    // arena, and even a shared payload wears the mission's own texels.
+    outDir: join(OUT_PROPS, spec.mapId),
     // Scenery is placed in the original's own frame at the original's own
     // positions — re-orienting or rescaling it would misplace the arena.
     rotateQuarterY: 0 as const,
@@ -260,11 +265,11 @@ function bakeSkinRestPose(document: Document): void {
 }
 
 /**
- * FCOP Cobj 54/57 bolt the shared FX atlas (`tex10`: light streaks, fire,
- * smoke) and emissive `facer` lines onto the hull. Those were additive
- * billboards in the original; joining them as opaque unit geometry turns the
- * Sky Captain searchlights into the dark cones in warden-iso.png. Material
- * names are the exporter's own (`extract_objects.py`).
+ * The Sky Captain's Cobjs (54, and 56/57/58) bolt the shared FX atlas
+ * (`tex10`: light streaks, fire, smoke) and emissive `facer` lines onto the
+ * hull. Those were additive billboards in the original; joining them as opaque
+ * unit geometry turns the Sky Captain searchlights into the dark cones in
+ * warden-iso.png. Material names are the exporter's own (`extract_objects.py`).
  */
 const FX_ATTACHMENT_MATERIALS = new Set(["tex10", "facer"]);
 
@@ -322,9 +327,10 @@ function triangleCount(mesh: Mesh): number {
 
 /**
  * FCOP also bakes additive exhaust / glow as standalone billboard cards on
- * the hull page (Cobj 57's two 4-tri YZ quads under the nacelles). Material
- * drop cannot see them — they share `tex09` with the body — so after join we
- * throw away any connected component whose AABB is thinner than a centimetre.
+ * the hull page (the Sky Captain's Cobj 57: two 4-tri YZ quads under the
+ * nacelles). Material drop cannot see them — they share `tex09` with the body
+ * — so after join we throw away any connected component whose AABB is thinner
+ * than a centimetre.
  */
 const BILLBOARD_THICKNESS = 0.02;
 
@@ -563,7 +569,7 @@ interface Report {
 async function processModel(spec: ModelPass): Promise<Report | null> {
   const rawPath = join(RAW_DIR, spec.raw);
   if (!(await Bun.file(rawPath).exists())) {
-    console.warn(`skip ${spec.key}: missing ${spec.raw}`);
+    console.warn(`skip ${spec.label ?? spec.key}: missing ${spec.raw}`);
     return null;
   }
   const document = await io.read(rawPath);
@@ -626,8 +632,9 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
   // attachments above (they cannot render additively on one InstancedMesh);
   // this mix path is for FX_MODELS. This used to demand UVs on EVERY
   // primitive, so one facer dropped the whole model into the vertex-colour
-  // path and its atlas was thrown away. That is why fortress.glb used to
-  // ship untextured (Cobj 57 carries six lines plus a tex10 volume).
+  // path and its atlas was thrown away. That is why fortress.glb, when it
+  // still drew the Sky Captain's Cobj 57 (six lines plus a tex10 volume), used
+  // to ship untextured.
   //
   // So the two are packed together: real pages side by side, plus a small white
   // patch that the facers' synthesised UVs point at, which leaves their COLOR_0
@@ -941,7 +948,7 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
 
   bounds = getBounds(scene);
   const dims = [0, 1, 2].map((i) => (bounds.max[i] - bounds.min[i]).toFixed(2)).join(" x ");
-  return { key: spec.key, tris, simplified, size: dims, bytes: glb.byteLength };
+  return { key: spec.label ?? spec.key, tris, simplified, size: dims, bytes: glb.byteLength };
 }
 
 const reports: Report[] = [];
@@ -949,10 +956,10 @@ for (const spec of PASSES) {
   const report = await processModel(spec);
   if (report) reports.push(report);
 }
-console.log("key            tris   simplified  dims (x y z)          KB");
+console.log(`${"key".padEnd(28)}tris   simplified  dims (x y z)          KB`);
 for (const r of reports) {
   console.log(
-    `${r.key.padEnd(15)}${String(r.tris).padEnd(7)}${String(r.simplified).padEnd(12)}` +
+    `${r.key.padEnd(28)}${String(r.tris).padEnd(7)}${String(r.simplified).padEnd(12)}` +
       `${r.size.padEnd(22)}${(r.bytes / 1024).toFixed(0)}`,
   );
 }

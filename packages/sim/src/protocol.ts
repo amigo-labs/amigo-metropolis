@@ -9,12 +9,14 @@
 // namespace is split so client→server and server→client can never be confused:
 // 1–9 are client-authored, 10+ are server-authored.
 //
-// The MatchConfig header (seed / warden / mapId) mirrors the replay header body
-// (replay.ts) field-for-field: an online match and its recorded replay carry
-// the exact same match parameters, so the two definitions stay in lock-step.
+// The MatchConfig header (seed / warden / difficulties / mapId) mirrors the
+// replay header body (replay.ts) field-for-field: an online match and its
+// recorded replay carry the exact same match parameters, so the two definitions
+// stay in lock-step.
 
 import { MAX_PLAYERS } from "./balance";
 import type { PlayerInput } from "./inputs";
+import { isDifficulty } from "./replay";
 
 /**
  * Wire framing version, independent of SIM_VERSION. Bumped only when the byte
@@ -22,7 +24,7 @@ import type { PlayerInput } from "./inputs";
  * rejects clients whose SIM_VERSION differs (goldens would already be broken),
  * and this guards the framing itself.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 // --- Message type tags -------------------------------------------------------
 // Client → server (1–9).
@@ -54,6 +56,13 @@ export interface MatchConfig {
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10; 0 when wardenPlayer is -1. */
   readonly wardenDifficulty: number;
+  /**
+   * Each player's difficulty (balance.ts DIFFICULTY_*: 0 HARD, 1 NORMAL, 2
+   * EASY), MAX_PLAYERS entries, slot-indexed (since protocol 3). The online
+   * lobby offers no pick yet: both players NORMAL (replay.ts
+   * DEFAULT_DIFFICULTIES).
+   */
+  readonly difficulties: readonly number[];
 }
 
 /** One player's input: the button word, u16 (inputs.ts). 5 bytes of axes before v2. */
@@ -168,18 +177,29 @@ class Reader {
 
 // --- Config header (shared by HELLO / WELCOME) -------------------------------
 // Bytes: simVersion u16, seed u32, wardenPlayer u8 (0xff = -1),
-// wardenDifficulty u8, mapIdLen u8, mapId ASCII. Matches replay.ts offsets 6→.
+// wardenDifficulty u8, difficulty u8 × MAX_PLAYERS, mapIdLen u8, mapId ASCII.
+// Matches replay.ts offsets 6→.
 
 function configBytes(config: MatchConfig): number {
   if (config.mapId.length > 255) throw new Error("mapId too long");
-  return 2 + 4 + 1 + 1 + 1 + config.mapId.length;
+  return 2 + 4 + 1 + 1 + MAX_PLAYERS + 1 + config.mapId.length;
 }
 
 function writeConfig(w: Writer, config: MatchConfig): void {
+  // Refused on encode as on decode: a byte write would truncate a bad value.
+  if (config.difficulties.length !== MAX_PLAYERS) {
+    throw new Error(`difficulties needs ${MAX_PLAYERS} entries`);
+  }
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    if (!isDifficulty(config.difficulties[p])) {
+      throw new Error(`bad difficulty ${config.difficulties[p]}`);
+    }
+  }
   w.u16(config.simVersion);
   w.u32(config.seed);
   w.u8(config.wardenPlayer >= 0 ? config.wardenPlayer : 0xff);
   w.u8(config.wardenPlayer >= 0 ? config.wardenDifficulty : 0);
+  for (let p = 0; p < MAX_PLAYERS; p++) w.u8(config.difficulties[p]);
   w.u8(config.mapId.length);
   w.ascii(config.mapId);
 }
@@ -190,6 +210,8 @@ function readConfig(r: Reader): MatchConfig {
   const rawWarden = r.u8();
   const wardenPlayer = rawWarden === 0xff ? -1 : rawWarden;
   const wardenDifficulty = r.u8();
+  const difficulties: number[] = [];
+  for (let p = 0; p < MAX_PLAYERS; p++) difficulties.push(r.u8());
   const mapIdLen = r.u8();
   const mapId = r.ascii(mapIdLen);
   if (wardenPlayer >= MAX_PLAYERS) throw new Error(`bad wardenPlayer ${wardenPlayer}`);
@@ -199,7 +221,10 @@ function readConfig(r: Reader): MatchConfig {
   if (wardenPlayer < 0 && wardenDifficulty !== 0) {
     throw new Error("wardenDifficulty set without a wardenPlayer");
   }
-  return { simVersion, seed, mapId, wardenPlayer, wardenDifficulty };
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    if (!isDifficulty(difficulties[p])) throw new Error(`bad difficulty ${difficulties[p]}`);
+  }
+  return { simVersion, seed, mapId, wardenPlayer, wardenDifficulty, difficulties };
 }
 
 function writeInput(w: Writer, input: PlayerInput): void {

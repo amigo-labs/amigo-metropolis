@@ -5,13 +5,17 @@
 // checking a target footprint, this checks the output still measures what the
 // raw extraction measures — the assertion that `keepScale` really kept it.
 //
+// Each arena draws its own mission's Cobjs (manifest.ts ARENA_SCENERY): the
+// same id is another model on another arena, so the outputs live in one
+// folder per arena and the coverage check runs per arena too.
+//
 // If PROP_MODELS changes, `bun run gen:units` must be re-run in the same commit.
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getBounds, NodeIO } from "@gltf-transform/core";
-import { PROP_MODELS, UNAVAILABLE_PROP_COBJS } from "../units/manifest";
+import { type Document, getBounds, NodeIO } from "@gltf-transform/core";
+import { PROP_MODELS, sceneryRaw } from "../units/manifest";
 
 const REPO = join(import.meta.dir, "..", "..", "..");
 const OUT_DIR = join(REPO, "packages", "client", "public", "models", "props");
@@ -19,12 +23,25 @@ const RAW_DIR = join(REPO, "tools", "generators", "units", "raw");
 
 const io = new NodeIO();
 
+/** Every POSITION of every primitive, in order: the payload's geometry. */
+function positions(document: Document): number[] {
+  const out: number[] = [];
+  for (const mesh of document.getRoot().listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      const array = prim.getAttribute("POSITION")?.getArray();
+      if (array) out.push(...array);
+    }
+  }
+  return out;
+}
+
 describe("committed prop models match the manifest contract", () => {
   for (const spec of PROP_MODELS) {
-    test(spec.key, async () => {
+    test(`${spec.mapId}/${spec.key}`, async () => {
       expect(spec.key).toBe(`prop-${String(spec.cobj).padStart(3, "0")}`);
+      expect(spec.raw).toBe(sceneryRaw(spec.mission, spec.cobj));
 
-      const document = await io.read(join(OUT_DIR, `${spec.key}.glb`));
+      const document = await io.read(join(OUT_DIR, spec.mapId, `${spec.key}.glb`));
       const root = document.getRoot();
 
       // One single-material primitive, the shape render/props.ts swaps into the
@@ -76,34 +93,46 @@ describe("committed prop models match the manifest contract", () => {
       for (const axis of [0, 2]) {
         expect(Math.abs(out.min[axis] - raw.min[axis])).toBeLessThanOrEqual(0.01);
       }
+
+      // The raw is the mission's own export (extract_objects.py names the node
+      // `<Mission>_obj_NNN`), so the texels are the mission's — never Mp's file
+      // standing in for an id that means something else here.
+      const names = rawRoot.listNodes().map((n) => n.getName());
+      expect(names).toContain(`${spec.mission}_obj_${String(spec.cobj).padStart(3, "0")}`);
+
+      // The twin the manifest names is real: the same geometry as Mp's model
+      // of that id. A model of the mission's own is not Mp's same-numbered one.
+      if (spec.mission !== "Mp") {
+        const twinId = spec.mpTwin ?? spec.cobj;
+        const mp = await io.read(join(RAW_DIR, sceneryRaw("Mp", twinId)));
+        if (spec.mpTwin !== null) expect(positions(rawDoc)).toEqual(positions(mp));
+        else expect(positions(rawDoc)).not.toEqual(positions(mp));
+      } else {
+        expect(spec.mpTwin).toBe(spec.cobj);
+      }
     });
   }
 
-  // Coverage across EVERY map, not just la-cantina: the other arenas place
-  // Cobjs of their own, and a missing model there was invisible to CI while
-  // this test only read one arena (each 404 silently dropped 2-4 placements).
-  test("every Cobj id placed by any map has a model or is on the allowlist", () => {
+  // Coverage per arena, not across all of them: an id that one arena places
+  // and another arena's folder happens to carry is exactly the bug this
+  // replaced (urban-jungle drew Mp's Dreadnought hull and Flying Fortress for
+  // its own kiosks 36 and 41).
+  test("every arena's placed Cobj ids are exactly its models", () => {
     const mapsDir = join(REPO, "packages", "sim", "maps");
-    const placed = new Set<number>();
+    let arenas = 0;
     for (const file of readdirSync(mapsDir)) {
       if (!file.endsWith(".json")) continue;
       const data = JSON.parse(readFileSync(join(mapsDir, file), "utf8")) as {
+        id: string;
         props?: { model: number }[];
       };
-      for (const prop of data.props ?? []) placed.add(prop.model);
+      const placed = [...new Set((data.props ?? []).map((p) => p.model))].sort((a, b) => a - b);
+      const carried = PROP_MODELS.filter((s) => s.mapId === data.id)
+        .map((s) => s.cobj)
+        .sort((a, b) => a - b);
+      expect({ map: data.id, ids: carried }).toEqual({ map: data.id, ids: placed });
+      if (placed.length > 0) arenas++;
     }
-    expect(placed.size).toBeGreaterThan(0);
-
-    const known = new Set(PROP_MODELS.map((s) => s.cobj));
-    const unavailable = new Set(UNAVAILABLE_PROP_COBJS);
-
-    // Every placement is either covered or explicitly declared unavailable.
-    expect([...placed].filter((id) => !known.has(id) && !unavailable.has(id)).sort()).toEqual([]);
-    // Nothing is carried that no arena places.
-    expect([...known].filter((id) => !placed.has(id))).toEqual([]);
-    // The allowlist stays minimal: an id leaves it the moment its raw lands,
-    // or the moment no map places it any more.
-    expect([...unavailable].filter((id) => known.has(id))).toEqual([]);
-    expect([...unavailable].filter((id) => !placed.has(id))).toEqual([]);
+    expect(arenas).toBe(6);
   });
 });

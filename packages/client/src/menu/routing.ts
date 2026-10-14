@@ -8,7 +8,14 @@
 // deliberately frozen: a change to a query string is a change to every shared
 // link and every recorded test invocation.
 
-import { type Loadout, normalizeLoadout } from "@metropolis/sim";
+import {
+  DIFFICULTY_EASY,
+  DIFFICULTY_HARD,
+  DIFFICULTY_NORMAL,
+  type Loadout,
+  normalizeDifficulty,
+  normalizeLoadout,
+} from "@metropolis/sim";
 
 export type MenuChoice =
   | { mode: "solo" } // sandbox vs the scripted feeder opponent
@@ -19,12 +26,32 @@ export type MenuChoice =
   | { mode: "sandbox" }; // debug test bench: spawn panel + live weapon swap
 
 /**
+ * The original front end's difficulty plates, in its order: HARD, NORMAL, EASY
+ * (the difficulty word 0, 1, 2; `config.c:76` defaults to NORMAL). The debug
+ * row 3 is not offered.
+ */
+export const DIFFICULTY_PLATES: readonly { readonly value: number; readonly name: string }[] = [
+  { value: DIFFICULTY_HARD, name: "HARD" },
+  { value: DIFFICULTY_NORMAL, name: "NORMAL" },
+  { value: DIFFICULTY_EASY, name: "EASY" },
+];
+
+/** ?difficulty= value per difficulty word (NORMAL is the default and omitted). */
+const DIFFICULTY_PARAM = ["hard", "normal", "easy"] as const;
+
+/**
  * Pure mapping from a menu choice to the query string main.ts understands.
  * `mapId` (the picker's arena) rides along as the ?map= deep-link param main.ts
  * already reads. Loadout rides as ?gun=&heavy=&special= (omitted when all
- * default 0).
+ * default 0). The player's difficulty rides as ?difficulty=hard|easy on a local
+ * match (omitted on NORMAL, the default; an online match plays NORMAL).
  */
-export function buildModeQuery(choice: MenuChoice, mapId?: string, loadout?: Loadout): string {
+export function buildModeQuery(
+  choice: MenuChoice,
+  mapId?: string,
+  loadout?: Loadout,
+  difficulty: number = DIFFICULTY_NORMAL,
+): string {
   let query: string;
   switch (choice.mode) {
     case "solo":
@@ -58,7 +85,19 @@ export function buildModeQuery(choice: MenuChoice, mapId?: string, loadout?: Loa
   if (kit.gun !== 0 || kit.heavy !== 0 || kit.special !== 0) {
     query += `&gun=${kit.gun}&heavy=${kit.heavy}&special=${kit.special}`;
   }
+  const d = normalizeDifficulty(difficulty);
+  if (choice.mode !== "online" && choice.mode !== "p2p" && d !== DIFFICULTY_NORMAL) {
+    query += `&difficulty=${DIFFICULTY_PARAM[d]}`;
+  }
   return query;
+}
+
+/** Parse ?difficulty=hard|normal|easy (NORMAL when absent or unknown). */
+export function difficultyFromParams(params: URLSearchParams): number {
+  const i = DIFFICULTY_PARAM.indexOf(
+    (params.get("difficulty") ?? "").toLowerCase() as (typeof DIFFICULTY_PARAM)[number],
+  );
+  return i >= 0 ? i : DIFFICULTY_NORMAL;
 }
 
 /** Parse ?gun=&heavy=&special= from a URLSearchParams (defaults on garbage). */

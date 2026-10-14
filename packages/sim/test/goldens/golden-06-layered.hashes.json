@@ -1,10 +1,14 @@
 {
-  "simVersion": 71,
+  "simVersion": 75,
   "mapId": "layered-test",
   "seed": 12648430,
   "tickCount": 600,
   "wardenPlayer": -1,
   "wardenDifficulty": 0,
+  "difficulties": [
+    1,
+    1
+  ],
   "hashes": [
     560306400,
     3530697799,

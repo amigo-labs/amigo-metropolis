@@ -319,11 +319,17 @@ multiply). Steady speed = push / 0.375:
 - **Water** (`player_order` code 1, `player.c:796-811`, and the tick, `player.c:1937-1947`):
   - On **HARD** (the slot's difficulty word == 0), in walker form: byte_de = 1
     and the invulnerability timer is cleared. **The walker sinks**: its ground
-    becomes position − 0xc0 every step, so it sinks at about 0.0234 m/step =
-    **0.625 m/s**, and the vertical velocity is zeroed. Once the water surface
-    is more than **0x3800 (1.75 m)** above it, the tick deals `health + 1`
-    with no credit, which **drowns it after about 2.8 s**. The respawn then
-    takes 0.5 s, with no wreck and nobody credited.
+    becomes position − 0xc0 every step, so it sinks 0.0234 m a step, at 37.5
+    steps a second **0.879 m/s**, and the vertical velocity is zeroed. Once the
+    water surface is more than **0x3800 (1.75 m)** above it, the tick deals
+    `health + 1` with no credit, which **drowns it after 75 steps, about
+    2.0 s**. The respawn then takes 0.5 s, with no wreck and nobody credited.
+    (Corrected in Metropolis, SIM_VERSION 72: this read 0.625 m/s and 2.8 s,
+    0.0234 m multiplied by the step's 26.7 ms instead of divided by it. The
+    RE's `camera-and-movement.md` "Water, for the walker" carries the same
+    slip.) While the marker is set the button word keeps only Map and Camera
+    (`PLAYER_FORM_BITS_KEEP` 0x000c0000, 0x0044245a) and no transform is asked
+    for (0x004421c9): the sinking mech neither moves, fires nor transforms.
   - On **NORMAL/EASY**, in walker form: **an automatic transform to hover is
     requested** (byte_2fd = 1).
   - Either form: byte_146, so no transforming on water.
@@ -346,8 +352,8 @@ multiply). Steady speed = push / 0.375:
 > about 1.37 m in the high jump, and only when the step was about 0.34 m or
 > more higher 1 m ahead. A running "leap" gives 0.93 m, a "hop" 0.71 m.
 > Airborne horizontal drag k = 0.95/s and no air control. Steep above 38.7°
-> (normal tilt 0.625). Deep water on HARD sinks at 0.63 m/s and drowns at
-> 1.75 m depth; on NORMAL/EASY the walker auto-transforms to hover.
+> (normal tilt 0.625). Deep water on HARD sinks at 0.88 m/s and drowns at
+> 1.75 m depth (2.0 s); on NORMAL/EASY the walker auto-transforms to hover.
 
 ---
 

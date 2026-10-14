@@ -7,7 +7,13 @@
 // the values live in state and the panels are a function of it, so switching
 // away and back is free.
 
-import { type Loadout, MAP_REGISTRY, normalizeLoadout } from "@metropolis/sim";
+import {
+  DIFFICULTY_NORMAL,
+  type Loadout,
+  MAP_REGISTRY,
+  normalizeDifficulty,
+  normalizeLoadout,
+} from "@metropolis/sim";
 
 export type MenuMode = "solo" | "online" | null;
 /** Console drawers: how-to, the controls, and preferences (sound + graphics). */
@@ -22,6 +28,11 @@ export interface MenuState {
   drawer: MenuDrawer;
   /** Warden skill. Survives leaving and re-entering the solo panel. */
   difficulty: number;
+  /**
+   * The player's own difficulty, the original's HARD / NORMAL / EASY word
+   * (0 / 1 / 2; DIFFICULTY_PLATES). NORMAL by default, as the original's.
+   */
+  playerDifficulty: number;
   roomCode: string;
   roomError: string;
   lobbyName: string;
@@ -42,13 +53,18 @@ export function mapIdFromParams(params: URLSearchParams): string {
   return MAP_REGISTRY.some((m) => m.id === id) ? (id as string) : MAP_REGISTRY[0].id;
 }
 
-export function initialMenuState(initialLoadout?: Loadout, mapId?: string): MenuState {
+export function initialMenuState(
+  initialLoadout?: Loadout,
+  mapId?: string,
+  playerDifficulty: number = DIFFICULTY_NORMAL,
+): MenuState {
   return {
     mapId: mapId ?? MAP_REGISTRY[0].id,
     loadout: normalizeLoadout(initialLoadout),
     mode: null,
     drawer: null,
     difficulty: 4,
+    playerDifficulty: normalizeDifficulty(playerDifficulty),
     roomCode: "",
     roomError: "",
     lobbyName: "",

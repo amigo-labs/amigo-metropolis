@@ -1,5 +1,11 @@
 // Original arena scenery (#28): draws the DynamicProp placements the map
-// carries in `props` — for la-cantina, 36 of them across 8 original Cobj models.
+// carries in `props` — on every imported arena, 36 of them across 8 original
+// Cobj models, each the arena's own mission's (public/models/props/<mapId>/,
+// tools/generators/units/manifest.ts ARENA_SCENERY). A placement's `model` is a
+// Cobj id in that mission's numbering, so the folder is the arena's: the same id
+// is another model elsewhere (urban-jungle's 36 and 41 are kiosks, not Mp's
+// Dreadnought hull and Flying Fortress), and even a payload Mp shares wears the
+// mission's own texture pages.
 //
 // Render-only, and one-way: the sim never reads `props`
 // (packages/sim/test/determinismGuard.test.ts enforces that), and nothing here
@@ -24,21 +30,14 @@ const loader = new GLTFLoader();
 /** Sim yaw is left-handed about +Y relative to three's, as in main.ts. */
 const UP = new THREE.Vector3(0, 1, 0);
 
-/** tools/generators/units/manifest.ts PROP_MODELS keys are `prop-<cobj>`. */
-function modelKey(cobj: number): string {
-  return `prop-${String(cobj).padStart(3, "0")}`;
-}
-
 /**
- * Cobj ids the maps place but no committed model covers — their extraction
- * lives in the private RE repo. Literal copy of UNAVAILABLE_PROP_COBJS in
- * tools/generators/units/manifest.ts (the client must not import tools/ at
- * runtime); propAllowlist.test.ts pins this copy to the manifest's list, and
- * propModels.test.ts keeps that list honest against the maps. Skipping here
- * avoids a guaranteed 404 per arena load, which the verify:arenas harness
- * counts as a broken asset.
+ * The arena's model for a Cobj id: tools/generators/units/manifest.ts
+ * PROP_MODELS writes `props/<mapId>/prop-<cobj>.glb`, and propModels.test.ts
+ * holds every placement of every map to a committed file there.
  */
-export const UNAVAILABLE_PROP_COBJS: ReadonlySet<number> = new Set([31, 38]);
+export function propModelUrl(mapId: string, cobj: number): string {
+  return `/models/props/${mapId}/prop-${String(cobj).padStart(3, "0")}.glb`;
+}
 
 /**
  * Kicks off one async load per distinct prop model. Fire and forget: each
@@ -53,10 +52,6 @@ export function loadProps(map: MapData, group: THREE.Object3D, cancelled?: () =>
     else byModel.set(prop.model, [prop]);
   }
   for (const [cobj, placements] of byModel) {
-    if (UNAVAILABLE_PROP_COBJS.has(cobj)) {
-      console.info(`[props] no committed model for Cobj ${cobj} yet, skipping its placements`);
-      continue;
-    }
     addPropMesh(map, group, cobj, placements, cancelled);
   }
 }
@@ -68,7 +63,7 @@ function addPropMesh(
   placements: readonly MapProp[],
   cancelled?: () => boolean,
 ): void {
-  const url = `/models/props/${modelKey(cobj)}.glb`;
+  const url = propModelUrl(map.id, cobj);
   loader.loadAsync(url).then(
     (gltf) => {
       // Stale (the arena was swapped while this loaded): free the loader's

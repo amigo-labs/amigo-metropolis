@@ -4,10 +4,13 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  DEFAULT_DIFFICULTIES,
+  decodeMessage,
   ERR_BAD_REJOIN,
   ERR_PROTOCOL,
   ERR_ROOM_FULL,
   ERR_VERSION_MISMATCH,
+  encodeMessage,
   type MatchConfig,
   MSG_DESYNC,
   MSG_ERROR,
@@ -32,6 +35,7 @@ const CONFIG: MatchConfig = {
   mapId: "la-cantina",
   wardenPlayer: -1,
   wardenDifficulty: 0,
+  difficulties: DEFAULT_DIFFICULTIES,
 };
 
 const hello = (config = CONFIG): NetMessage => ({
@@ -99,6 +103,18 @@ describe("RoomLogic handshake", () => {
       config: CONFIG,
     });
     expect(find(out, MSG_ERROR)).toEqual({ type: MSG_ERROR, code: ERR_VERSION_MISMATCH });
+  });
+
+  it("welcomes both players with the host's difficulties (protocol 3)", () => {
+    const room = new RoomLogic();
+    const picked: MatchConfig = { ...CONFIG, difficulties: [0, 2] };
+    room.handleMessage("a", hello(picked));
+    // The joiner's own config is checked for its simVersion only.
+    const out = room.handleMessage("b", hello());
+    const welcome = find(out, MSG_WELCOME);
+    expect(welcome).toMatchObject({ slot: 1, config: { difficulties: [0, 2] } });
+    // ...and it goes out on the wire as it came in.
+    expect(decodeMessage(encodeMessage(welcome as NetMessage))).toEqual(welcome as NetMessage);
   });
 
   it("treats a duplicate HELLO from an admitted conn as a protocol error", () => {
@@ -226,6 +242,22 @@ describe("RoomLogic reconnect", () => {
     const frame = find(out, MSG_FRAME);
     expect(frame).toMatchObject({ type: MSG_FRAME, tick: 3 });
     expect(room.sequencedTicks).toBe(4);
+  });
+
+  it("hydrates a config stored before protocol 3 as both players NORMAL", () => {
+    const { difficulties: _, ...stored } = CONFIG;
+    const room = new RoomLogic();
+    room.hydrate(stored as unknown as MatchConfig, true, []);
+    const out = room.handleMessage("a", {
+      type: MSG_REJOIN,
+      protocol: PROTOCOL_VERSION,
+      simVersion: SIM_VERSION,
+      slot: 0,
+      fromTick: 0,
+    });
+    const welcome = find(out, MSG_WELCOME) as NetMessage;
+    expect(welcome).toMatchObject({ config: { difficulties: [1, 1] } });
+    expect(() => encodeMessage(welcome)).not.toThrow();
   });
 
   it("trusts only the contiguous prefix when hydrated history is sparse", () => {
