@@ -16,6 +16,10 @@ import {
   ORIGINAL_BUY_HALF_W,
   ORIGINAL_CAPTURE_RANGE,
   ORIGINAL_JET_QUEUE_TICKS,
+  ORIGINAL_PICKUP_HALF_H,
+  ORIGINAL_PICKUP_HALF_L,
+  ORIGINAL_PICKUP_HALF_W,
+  ORIGINAL_PICKUP_LIFT,
   ORIGINAL_TANK_QUEUE_TICKS,
   ORIGINAL_TURRET_HP,
   ORIGINAL_UNIT_PROFILES,
@@ -316,6 +320,18 @@ export interface MapPickup {
   /** Ticks before the spot re-arms after being taken. */
   readonly respawnTicks: number;
   readonly layer: number;
+  /**
+   * The collection box's half extents in metres (fcop-fidelity.md P9): x, y and
+   * height about the pickup, which stands `lift` above the ground. A mech
+   * collects strictly inside on every axis (`cact_pickup_box_touch`; no radius).
+   */
+  readonly halfW: number;
+  readonly halfL: number;
+  readonly halfH: number;
+  readonly lift: number;
+  /** Render-only: the original Cobj model and its spin rate (4096ths a 300 Hz tick). */
+  readonly model: number;
+  readonly spin: number;
 }
 
 /**
@@ -821,7 +837,20 @@ export interface MapJson {
     nextHopB: number[][];
     entry: number[];
   };
-  pickups?: { x: number; y: number; kind: number; respawnTicks: number; layer?: number }[];
+  /** OPTIONAL box, lift, model and spin per pickup (MapPickup); absent -> Mp's box, no model. */
+  pickups?: {
+    x: number;
+    y: number;
+    kind: number;
+    respawnTicks: number;
+    layer?: number;
+    halfW?: number;
+    halfL?: number;
+    halfH?: number;
+    lift?: number;
+    model?: number;
+    spin?: number;
+  }[];
   triggerVolumes?: {
     x: number;
     y: number;
@@ -1518,12 +1547,24 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (!Number.isInteger(p.respawnTicks) || p.respawnTicks < 0) {
       fail(id, `pickup ${k} bad respawnTicks ${p.respawnTicks}`);
     }
+    const half = (v: number | undefined, fallback: number, what: string): number => {
+      if (v === undefined) return fallback;
+      const n = num(v, `pickup ${k} ${what}`);
+      if (!(n > 0)) fail(id, `pickup ${k} needs a positive ${what}`);
+      return n;
+    };
     return {
       x,
       y,
       kind: p.kind,
       respawnTicks: p.respawnTicks,
       layer: layerOf(p.layer, `pickup ${k}`),
+      halfW: half(p.halfW, ORIGINAL_PICKUP_HALF_W, "halfW"),
+      halfL: half(p.halfL, ORIGINAL_PICKUP_HALF_L, "halfL"),
+      halfH: half(p.halfH, ORIGINAL_PICKUP_HALF_H, "halfH"),
+      lift: p.lift === undefined ? ORIGINAL_PICKUP_LIFT : num(p.lift, `pickup ${k} lift`),
+      model: p.model ?? -1,
+      spin: p.spin ?? 0,
     };
   });
 

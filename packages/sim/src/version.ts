@@ -966,4 +966,12 @@
 //     The Sky Captain's requests use the same queues (CaptainState.queue and
 //     its own timers are gone); a queue now runs from a random phase and keeps
 //     its period between purchases (was: a fresh 0 countdown).
-export const SIM_VERSION = 61;
+// v62: a pickup is collected as the original's is (fcop-fidelity.md P9): a
+//     mech strictly inside the record's box, 4.0 m along x, 1.6 m along y and
+//     1.6 m in height about the pickup standing 0.16 m above the ground
+//     (MapPickup.halfW/halfL/halfH/lift; was a 2.5 m circle at any height);
+//     the Sky Captain by the pickup's own flat 1.5 m octagonal touch, which
+//     heals it at a health pickup and spends any other for nothing (was: any
+//     kind within 2.5 m, granted). MATCH_PICKUPS reports the standing pickups
+//     (renderer only; no hash).
+export const SIM_VERSION = 62;

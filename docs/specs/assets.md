@@ -120,6 +120,16 @@ forever as a debug render mode (`?render=greybox`).
   The mesh swap point is NOT `ANIM_HOVER`: the sim flips the mode byte on the
   first tick of the lock, so the snapshot reads as the destination for the whole
   window. `render/morph.ts` owns which half of the morph draws which form.
+- **Pickups and lifts wear each arena's own pack** (`packages/client/public/models/pa-props/<mapId>/obj_<cobj>.glb`,
+  copied by `bun run gen:paprops` from the RE repo's
+  `extracted/findings/pa_props/<Mission>/`). The same Cobj id is a different
+  file on every arena — the geometry is shared, the textures are that arena's
+  pages — so they are not run through `gen:units` and not keyed by Cobj alone.
+  Each is one mesh with one textured material, loaded as exported (the
+  original's own frame, origin at the record's position; a pickup's model
+  floats about 0.6 m above it). `render/pickups.ts` draws one `InstancedMesh`
+  per model, an instance per pickup, shown and turned per frame from the match
+  snapshot (`MATCH_PICKUPS`) at the record's spin rate.
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
 - Materials: single atlas texture, `flatShading: true`, no PBR maps.
 

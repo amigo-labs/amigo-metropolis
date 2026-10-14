@@ -1173,6 +1173,13 @@ export const SKY_STANDOFF = 1;
 export const SKY_RETREAT_JITTER = 0x40;
 export const SKY_HOME_RADIUS = 0x4000 / 8192;
 export const SKY_PICKUP_RADIUS = 0x1000 / 8192;
+/**
+ * A pickup's own touch on the Sky Captain (`cact_pickup_sky_touch` 0x0041eb10):
+ * within 0x3000 world units (1.5 m) flat by the octagonal estimate, no height
+ * and no box, a health pickup restores it — and any pickup it touches is spent,
+ * every PA pickup being a consumed one (fcop-fidelity.md P9). In world units.
+ */
+export const SKY_PICKUP_TOUCH_WU = 0x3000;
 
 /**
  * Its three weapons, ids 7 / 8 / 9 of every PA arena's type-98 catalogue
@@ -1548,8 +1555,17 @@ export const PICKUP_KIND_COUNT = 9;
  * EV_LOW_AMMO).
  */
 export const LOW_AMMO_WARNING = 5;
-/** Avatar must be within this of a pickup spot to take it. */
-export const PICKUP_RADIUS = 2.5;
+/**
+ * A pickup's collection box where the arena imports none: every PA pickup's
+ * record halfwords 819 / 819 / 2048 << 4 world units, i.e. 4.0 m along x, 1.6 m
+ * along y and 1.6 m in height about the pickup, which stands 81 << 4 wu (0.16 m)
+ * above the ground (`cact_pickup_box_touch` 0x0041e8a0; fcop-fidelity.md P9).
+ * Was Metropolis' 2.5 m circle (PICKUP_RADIUS).
+ */
+export const ORIGINAL_PICKUP_HALF_W = (2048 * 16) / 8192;
+export const ORIGINAL_PICKUP_HALF_L = (819 * 16) / 8192;
+export const ORIGINAL_PICKUP_HALF_H = (819 * 16) / 8192;
+export const ORIGINAL_PICKUP_LIFT = (81 * 16) / 8192;
 // A health pickup refills to the maximum (grant bit 0x20000 passes amount -1,
 // "fill": fcop-re/player-and-weapons.md §6). Was +100. No constant: it is AVATAR_HP.
 /**

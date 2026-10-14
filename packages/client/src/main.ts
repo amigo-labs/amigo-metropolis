@@ -120,6 +120,7 @@ import {
   MORPH_SPIN,
 } from "./render/morph";
 import { ATMOSPHERE_HEX } from "./render/palette";
+import { loadPickups, updatePickups } from "./render/pickups";
 import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
 import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
 import { loadProps } from "./render/props";
@@ -706,6 +707,9 @@ function buildArenaGroup(m: typeof map): THREE.Group {
     buildGreyboxTerrain();
     buildGreyboxStructures();
   }
+  // The pickups wear the original's models on either path: they are gameplay,
+  // not scenery (render/pickups.ts).
+  loadPickups(m, group, stale);
   return group;
 }
 let arenaGroup = buildArenaGroup(map);
@@ -1614,6 +1618,7 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
   // the entity pass runs, however many views the frame ends up drawing. On the
   // SIM's clock, not the frame's — see advanceSimClock.
   avatarMorph.advance(simDtSec);
+  updatePickups(matchSnap, alpha);
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }

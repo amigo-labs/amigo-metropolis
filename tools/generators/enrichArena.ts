@@ -147,7 +147,14 @@ interface Logic {
   aircraft: { id: number; team: number; health: number; shooter: Shooter }[];
   turrets: Turret[];
   neutrals: Turret[];
-  pickups: { id: number; x: number; z: number; grants: string[]; spawnTicks: number }[];
+  pickups: {
+    id: number;
+    x: number;
+    z: number;
+    grants: string[];
+    spawnTicks: number;
+    rotationalSpeed: number;
+  }[];
   triggers: {
     id: number;
     x: number;
@@ -532,6 +539,20 @@ function heavyOf(
     },
     fortressSpawn: [round4(sx(f.x)), round4(sz(f.z))],
   };
+}
+
+/** A rules-artifact pickup's kind as the sim's PICKUP_* (the grant's reading). */
+function RULES_PICKUP_KIND(p: FcopRules["pickups"][number]): number {
+  if (p.kind === "health") return PICKUP_KIND.restore_health;
+  if (p.kind === "cloak") return PICKUP_KIND.invisibility;
+  const slot = p.kind === "ammo" ? p.ammoSlots[0] : p.powerUpSlots[0];
+  const names =
+    p.kind === "ammo"
+      ? ["reload_gun", "reload_heavy", "reload_special"]
+      : ["power_up_gun", "power_up_heavy", "power_up_special"];
+  const kind = PICKUP_KIND[names[slot] ?? ""];
+  if (kind === undefined) throw new Error(`${p.template}: no kind for ${p.kind} slot ${slot}`);
+  return kind;
 }
 
 /** A spawner's position in sim coordinates, by its Csac template. */
@@ -1685,13 +1706,32 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       const grant = p.grants.find((g) => g !== "is_set" && g !== "pickup_consume") ?? "";
       const kind = PICKUP_KIND[grant];
       if (kind === undefined) throw new Error(`pickup ${p.id} has unmapped grant "${grant}"`);
+      // The rules artifact's reading of the same record (fcop-fidelity.md P9):
+      // its kind must agree with the grant's, and it carries the box.
+      const r = rules.pickups.find((q) => q.template === p.id);
+      if (!r) throw new Error(`${mapId}: pickup ${p.id} is not in the rules artifact`);
+      if (RULES_PICKUP_KIND(r) !== kind) {
+        throw new Error(`${mapId}: pickup ${p.id} is kind ${kind} by its grant, not ${r.kind}`);
+      }
       return {
         x: round4(sx(p.x)),
         y: round4(sz(p.z)),
         kind,
         respawnTicks: toSimTicks(p.spawnTicks, TICK_HZ),
+        // Record halfwords << 4 wu: +0x2a bounds runtime axis 2 (actors x, the
+        // sim's x), +0x26 axis 0 (actors z, the sim's y), +0x28 the height.
+        halfW: round4(rangeToCells(r.halfRaw[2])),
+        halfL: round4(rangeToCells(r.halfRaw[0])),
+        halfH: round4(rangeToCells(r.halfRaw[1])),
+        lift: round4(rangeToCells(r.heightOffsetRaw)),
+        model: r.cobj,
+        // `((spin << 4) / 218) >> 4` 4096ths a 300 Hz tick (pickup.c 0x0041e85a).
+        spin: Math.trunc((p.rotationalSpeed * 16) / 218) >> 4,
       };
     });
+  if (rules.pickups.length !== pickups.length) {
+    throw new Error(`${mapId}: ${rules.pickups.length} rules pickups, ${pickups.length} records`);
+  }
 
   // Intrusion volumes: the original wraps each base in a cluster that watches
   // the enemy X1Alpha and the enemy units separately, so many volumes repeat the

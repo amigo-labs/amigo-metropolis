@@ -74,7 +74,6 @@ import {
   PICKUP_POWER_GUN,
   PICKUP_POWER_HEAVY,
   PICKUP_POWER_SPECIAL,
-  PICKUP_RADIUS,
   PICKUP_SPECIAL_AMMO,
   POINTS_AVATAR_DOWN,
   POINTS_CAPTURE_TURRET,
@@ -89,6 +88,7 @@ import {
   SKY_BOMB_DAMAGE,
   SKY_MISSILE_DAMAGE,
   SKY_MISSILE_FLIGHT,
+  SKY_PICKUP_TOUCH_WU,
   SPECIAL_MINE_ARM_TICKS,
   SPECIAL_MINE_FUSE_TICKS,
   SPECIAL_MINE_TTL_TICKS,
@@ -3581,21 +3581,51 @@ function systemPickups(state: SimState): void {
     if (state.buffInvuln[p] > 0) state.buffInvuln[p] -= 1;
     if (state.buffInvis[p] > 0) state.buffInvis[p] -= 1;
   }
-  const r2 = PICKUP_RADIUS * PICKUP_RADIUS;
   for (let k = 0; k < spots.length; k++) {
     if (state.pickupCooldown[k] > 0) {
       state.pickupCooldown[k] -= 1;
       continue;
     }
-    // Player slot order is the tie-break when both stand on a spot: arbitrary,
-    // but identical on every peer, which is what matters.
+    const spot = spots[k];
+    // The pickup stands `lift` above the ground under it (water included).
+    const ground =
+      spot.layer === 0
+        ? rideHeight(state.map, spot.x, spot.y, true)
+        : resolveHeight(state.map, spot.x, spot.y, spot.layer);
+    const z = ground + spot.lift;
+    // Player slot order is the tie-break when both stand in a box: arbitrary,
+    // but identical on every peer, which is what matters. A mech collects inside
+    // the box (`cact_pickup_box_touch`); the Sky Captain by the pickup's own
+    // flat 1.5 m touch (`cact_pickup_sky_touch`), which heals it at a health
+    // pickup and spends any other for nothing.
     for (let p = 0; p < MAX_PLAYERS; p++) {
       const a = state.avatarId[p];
       if (a < 0) continue;
-      const dx = ent.posX[a] - spots[k].x;
-      const dy = ent.posY[a] - spots[k].y;
-      if (dx * dx + dy * dy > r2) continue;
-      const kind = spots[k].kind;
+      const dx = ent.posX[a] - spot.x;
+      const dy = ent.posY[a] - spot.y;
+      if (ent.archetype[a] === ARCHETYPE.WARDEN) {
+        const flat = octagonalLength(
+          Math.trunc(dx * CAPTURE_WU_PER_METRE),
+          Math.trunc(dy * CAPTURE_WU_PER_METRE),
+        );
+        if (flat >= SKY_PICKUP_TOUCH_WU) continue;
+        if (spot.kind === PICKUP_HEALTH) captainRestore(state, a);
+        state.pickupCooldown[k] = spot.respawnTicks;
+        pushEvent(
+          state.events,
+          EV_PICKUP,
+          Math.round(spot.x * 16),
+          Math.round(spot.y * 16),
+          spot.kind,
+        );
+        break;
+      }
+      if (ent.archetype[a] !== ARCHETYPE.AVATAR) continue;
+      const dz = ent.height[a] - z;
+      if (dx >= spot.halfW || dx <= -spot.halfW) continue;
+      if (dy >= spot.halfL || dy <= -spot.halfL) continue;
+      if (dz >= spot.halfH || dz <= -spot.halfH) continue;
+      const kind = spot.kind;
       // An ammo pickup fills that slot's A magazine to its ceiling
       // (`cact_type99_ammo_add(slot, -1)`; fcop-re/player-and-weapons.md §6).
       if (kind === PICKUP_GUN_AMMO) {
@@ -3605,10 +3635,8 @@ function systemPickups(state: SimState): void {
       } else if (kind === PICKUP_SPECIAL_AMMO) {
         ent.ammoB[a] = weaponInSlot(2, state.loadoutSpecial[p]).a.ammoCap;
       } else if (kind === PICKUP_HEALTH) {
-        // Full heal: the grant passes amount -1, "fill" (fcop-fidelity.md P6) —
-        // to the taker's own maximum (it set the Warden to the X1-Alpha's).
-        if (p === state.wardenPlayer) captainRestore(state, a);
-        else ent.hp[a] = AVATAR_HP;
+        // Full heal: the grant passes amount -1, "fill" (fcop-fidelity.md P6).
+        ent.hp[a] = AVATAR_HP;
       } else if (kind === PICKUP_INVULN) state.buffInvuln[p] = PICKUP_INVULN_TICKS;
       else if (kind === PICKUP_INVIS) state.buffInvis[p] = PICKUP_INVIS_TICKS;
       else if (kind === PICKUP_POWER_GUN) powerUp(state, p, 0);
@@ -3936,7 +3964,7 @@ export function hash(state: SimState): number {
  * mutates state and is invisible to hashState, so adding a field here cannot
  * move a golden hash. Adding a field to SimState still can.
  */
-export const MATCH_SNAPSHOT_HEADER = 6;
+export const MATCH_SNAPSHOT_HEADER = 7;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
 export const MATCH_SNAPSHOT_SLOT_STRIDE = 12;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
@@ -3950,6 +3978,12 @@ export const MATCH_WARDEN_DIFFICULTY = 3;
 export const MATCH_OUTRO_LEFT = 4;
 /** Team whose breach started the running outro, -1 when none is running. */
 export const MATCH_OUTRO_WINNER = 5;
+/**
+ * The pickups standing now: bit k set while `map.pickups[k]` is up (its
+ * re-arm countdown at 0). Every PA arena has 8-12, well inside a float's 24
+ * exact bits; a map with more than 24 reports the first 24.
+ */
+export const MATCH_PICKUPS = 6;
 
 /** Offsets within a slot block. */
 export const MATCH_SLOT_POINTS = 0;
@@ -3995,6 +4029,10 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
   out[MATCH_WARDEN_DIFFICULTY] = state.wardenDifficulty;
   out[MATCH_OUTRO_LEFT] = state.outroTimer;
   out[MATCH_OUTRO_WINNER] = state.outroTimer > 0 ? state.outroWinner : -1;
+  let up = 0;
+  const nPickups = state.pickupCooldown.length < 24 ? state.pickupCooldown.length : 24;
+  for (let k = 0; k < nPickups; k++) if (state.pickupCooldown[k] === 0) up |= 1 << k;
+  out[MATCH_PICKUPS] = up;
 
   let live = 0;
   for (let slot = 0; slot < MAX_PLAYERS; slot++) {

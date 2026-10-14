@@ -319,6 +319,8 @@ describe("power-ups (fcop-fidelity.md P6, P7, P9)", () => {
     ent.hp[avatar] = 50;
     ent.posX[avatar] = spot.x;
     ent.posY[avatar] = spot.y;
+    // Inside the box in height too: the mech on the ground under the pickup.
+    ent.height[avatar] = resolveHeight(map, spot.x, spot.y, 0);
     step(state, idle);
     // The original's grant passes amount -1, "fill" (player-and-weapons.md §6):
     // full health, not +100. Pickups run after damage in the tick, so whatever
@@ -366,6 +368,7 @@ describe("power-ups (fcop-fidelity.md P6, P7, P9)", () => {
     const avatar = state.avatarId[0];
     ent.posX[avatar] = map.pickups[k].x;
     ent.posY[avatar] = map.pickups[k].y;
+    ent.height[avatar] = resolveHeight(map, map.pickups[k].x, map.pickups[k].y, 0);
     step(state, idle);
     expect(state.buffInvis[0]).toBe(PICKUP_INVIS_TICKS);
     expect(PICKUP_INVIS_TICKS).toBe(1350); // 0x34bc = 13500 units at 300 Hz

@@ -27,7 +27,13 @@ import {
   weaponShotPayload,
 } from "../src/events";
 import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_FIRE3, createTickInputs } from "../src/inputs";
-import { getMapById, LA_CANTINA_ID, loadMapFromJson, type MapJson } from "../src/map";
+import {
+  getMapById,
+  LA_CANTINA_ID,
+  loadMapFromJson,
+  type MapJson,
+  resolveHeight,
+} from "../src/map";
 import { createSim, type SimState, step } from "../src/sim";
 import {
   DEFAULT_LOADOUT,
@@ -580,6 +586,7 @@ describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
     const a0 = sim.avatarId[0];
     sim.ent.posX[a0] = map.pickups[k].x;
     sim.ent.posY[a0] = map.pickups[k].y;
+    sim.ent.height[a0] = resolveHeight(map, map.pickups[k].x, map.pickups[k].y, 0);
     return { sim, a0, inputs: createTickInputs() };
   }
 
