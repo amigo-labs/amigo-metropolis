@@ -18,6 +18,7 @@ import {
   EV_PURCHASE_REFUSED,
   EV_ROUND_IMPACT,
   EV_SHOT,
+  EV_SUNK,
   EV_TRANSFORM_REFUSED,
   EV_TURRET_LOST,
   EV_TURRET_UNDER_FIRE,
@@ -172,6 +173,23 @@ describe("the mech's own sounds", () => {
   });
   test("a refused transform plays 42", () => {
     expect(run([[EV_TRANSFORM_REFUSED, AVATAR0, 0, 0]])).toEqual(["script 42"]);
+  });
+  test("a downed mech's wreck plays 65; a sunk one (HARD's water) plays nothing", () => {
+    const down = run([[EV_DEATH, AVATAR0, 1, ARCHETYPE.AVATAR]]);
+    expect(down).toContain("script 65");
+    expect(
+      run([
+        [EV_SUNK, AVATAR0, 0, 0],
+        [EV_DEATH, AVATAR0, -1, ARCHETYPE.AVATAR],
+      ]),
+    ).toEqual([]);
+    // The marker is the named mech's, and this tick's only.
+    expect(
+      run([
+        [EV_SUNK, AVATAR1, 1, 0],
+        [EV_DEATH, AVATAR0, 1, ARCHETYPE.AVATAR],
+      ]),
+    ).toContain("script 65");
   });
   test("the health gauge sounds once under a third, once more at zero", () => {
     const ctx = context();

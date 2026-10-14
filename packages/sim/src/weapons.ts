@@ -8,8 +8,12 @@
 // fcop-fidelity.md W1, P8; fcop-re/player-and-weapons.md §7). They replace the
 // rate/damage scaled off the front-end panel bars and the ranges, speeds and
 // magazines Metropolis had invented. The conversions below are the loader's.
+// The magazines are the records' own, HARD's: a player's difficulty scales them
+// where they are filled (`difficultyAmmo`, SIM_VERSION 72).
 
 import {
+  DIFFICULTY_EASY,
+  DIFFICULTY_NORMAL,
   FLAME_PULSE_TICKS,
   WEAPON_RECORDS,
   WEAPON_UNITS_PER_TICK,
@@ -93,9 +97,12 @@ export interface WeaponBlock {
   /** The original's kind byte (the launcher). */
   readonly kind: number;
   readonly flags: number;
-  /** Starting ammunition on NORMAL (x1.25, truncated). 0 for a block B. */
+  /**
+   * Starting ammunition as the record holds it, HARD's (0 for a block B); a
+   * player's is `difficultyAmmo(ammo, difficulty)`.
+   */
   readonly ammo: number;
-  /** Ammunition ceiling on NORMAL: a refill fills to this. */
+  /** The ammunition ceiling as the record holds it, HARD's: see `difficultyAmmo`. */
   readonly ammoCap: number;
   readonly rounds: number;
   /** Gaps in engine units (1/300 s). */
@@ -142,7 +149,7 @@ export interface WeaponDef {
   readonly cooldownTicks: number;
   /** Hitscan reach, flight distance, or (arced) the flat reach of the lob, m. */
   readonly range: number;
-  /** Starting magazine on NORMAL. */
+  /** Starting magazine as the record holds it (HARD's; `difficultyAmmo`). */
   readonly ammo: number;
 }
 
@@ -162,9 +169,19 @@ export function gapUnits(raw: number): number {
   return ((raw * 4096) / 218) | 0;
 }
 
-/** Ammunition on NORMAL: x1.25, truncated. */
-function normalAmmo(raw: number): number {
-  return ((raw * 5) / 4) | 0;
+/**
+ * A magazine on difficulty `difficulty` (balance.ts DIFFICULTY_*): the record's
+ * own on HARD, `raw + (raw >> 2)` on NORMAL (x1.25) and `raw + (raw >> 1)` on
+ * EASY (x1.5) — the same table, with signed shifts, in the stock at construct
+ * (`cact_type99_stock_player` 0x00458de6/0x00458df6, the starting ammunition +2)
+ * and in every ceiling (`cact_type99_ammo_cap` 0x00459ea1/0x00459ea9, cap +4),
+ * which the respawn's, a pickup's and the power-up's fills read. Integer, and
+ * it allocates nothing.
+ */
+export function difficultyAmmo(raw: number, difficulty: number): number {
+  if (difficulty === DIFFICULTY_NORMAL) return raw + (raw >> 2);
+  if (difficulty === DIFFICULTY_EASY) return raw + (raw >> 1);
+  return raw;
 }
 
 /** A length: raw << 4 world units, 8192 wu = 1 m. */
@@ -202,8 +219,8 @@ function block(r: WeaponRecord): WeaponBlock {
   return {
     kind: r.kind,
     flags: r.flags,
-    ammo: normalAmmo(r.ammo),
-    ammoCap: normalAmmo(r.cap),
+    ammo: r.ammo,
+    ammoCap: r.cap,
     rounds: r.rounds,
     burstGap: gapUnits(r.burstGap),
     roundGap: gapUnits(r.roundGap),

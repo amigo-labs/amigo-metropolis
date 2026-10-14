@@ -251,3 +251,11 @@ export function pushEvent(buf: EventBuffer, type: number, a: number, b: number, 
 export const EV_LIFT_START = 25; // a=lift index (map.lifts), b=the stop it heads for
 /** A lift reaches a stop: its arrival sound (71) plays at the lift. */
 export const EV_LIFT_ARRIVE = 26; // a=lift index (map.lifts), b=the stop it reached
+/**
+ * A mech goes down with the original's "does not count" marker set — HARD's
+ * deep water (fcop-fidelity.md P13): pushed just before its EV_DEATH, in the same
+ * tick. `player_op4` reads and clears block +0xde first, and with it set raises
+ * no wreck, no death effects and no wreck sound (0x00447650), and sets the short
+ * 0.5 s respawn. The client draws and plays nothing for that EV_DEATH.
+ */
+export const EV_SUNK = 27; // a=avatar id, b=player

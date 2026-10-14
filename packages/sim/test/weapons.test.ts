@@ -10,6 +10,9 @@ import { ARCHETYPE } from "../src/archetypes";
 import {
   AVATAR_HP,
   AVATAR_LOCK_RANGE,
+  DIFFICULTY_EASY,
+  DIFFICULTY_HARD,
+  DIFFICULTY_NORMAL,
   PICKUP_POWER_GUN,
   PICKUP_POWER_HEAVY,
   PICKUP_POWER_SPECIAL,
@@ -37,6 +40,7 @@ import {
 import { createSim, type SimState, step } from "../src/sim";
 import {
   DEFAULT_LOADOUT,
+  difficultyAmmo,
   GUNS,
   gapUnits,
   HEAVIES,
@@ -58,6 +62,9 @@ const EVIDENCE = JSON.parse(
     "utf8",
   ),
 ) as { weapons: Record<string, Record<string, Record<string, unknown>>> };
+
+/** A record's magazine on the default NORMAL pick. */
+const normal = (raw: number) => difficultyAmmo(raw, DIFFICULTY_NORMAL);
 
 const ALL: readonly WeaponDef[] = [...GUNS, ...HEAVIES, ...SPECIALS];
 
@@ -220,7 +227,7 @@ describe("weapon catalog", () => {
  * halfwords the way the loader does, and the two must agree.
  */
 describe("the original's records (fcop-fidelity.md W1)", () => {
-  test("damage, NORMAL ammunition and gaps", () => {
+  test("damage, ammunition on every difficulty, and gaps", () => {
     for (const w of ALL) {
       for (const [blk, ev] of [
         [w.a, evidence(w, "A_normal")],
@@ -228,8 +235,20 @@ describe("the original's records (fcop-fidelity.md W1)", () => {
       ] as const) {
         const raw = ev.raw as Record<string, number>;
         expect(blk.damage).toBe(ev.damage as number);
-        expect(blk.ammo).toBe((ev.ammo_start as Record<string, number>).normal);
-        expect(blk.ammoCap).toBe((ev.ammo_cap as Record<string, number>).normal);
+        // The tables hold the record's own magazines, HARD's; each difficulty
+        // scales them the way the stock and the ceiling do.
+        const start = ev.ammo_start as Record<string, number>;
+        const cap = ev.ammo_cap as Record<string, number>;
+        expect(blk.ammo).toBe(start.hard);
+        expect(blk.ammoCap).toBe(cap.hard);
+        for (const [d, key] of [
+          [DIFFICULTY_HARD, "hard"],
+          [DIFFICULTY_NORMAL, "normal"],
+          [DIFFICULTY_EASY, "easy"],
+        ] as const) {
+          expect(difficultyAmmo(blk.ammo, d)).toBe(start[key]);
+          expect(difficultyAmmo(blk.ammoCap, d)).toBe(cap[key]);
+        }
         expect(blk.rounds).toBe(raw.rounds_per_burst);
         const units = ev.gap_units_1_300s as Record<string, number>;
         expect(blk.burstGap).toBe(units.burst);
@@ -299,7 +318,7 @@ describe("the cooldown machine (`player_fire_slot`)", () => {
     inputs.players[0].buttons = BTN_GUN;
     for (let t = 0; t < TICK_HZ; t++) step(sim, inputs);
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - TICK_HZ);
-    expect(sim.gunAmmo[0]).toBe(GUNS[0].a.ammoCap - TICK_HZ);
+    expect(sim.gunAmmo[0]).toBe(normal(GUNS[0].a.ammoCap) - TICK_HZ);
   });
 
   test("the Electric Gun's 18-unit gap fires on every other tick", () => {
@@ -319,7 +338,7 @@ describe("the cooldown machine (`player_fire_slot`)", () => {
     }
     // 450 - 3 * 37 = 339 units after the fourth: 34 ticks, so a 37-tick cycle.
     expect(fired.slice(0, 8)).toEqual([0, 1, 2, 3, 37, 38, 39, 40]);
-    expect(sim.ent.ammoA[a0]).toBe(HEAVIES[2].a.ammoCap - fired.length);
+    expect(sim.ent.ammoA[a0]).toBe(normal(HEAVIES[2].a.ammoCap) - fired.length);
   });
 
   test("the Mortar's 601-unit gap is 61 ticks: the cooldown floors at zero", () => {
@@ -654,10 +673,10 @@ describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
     ] as const) {
       const { sim, inputs } = onPickup(kind);
       step(sim, inputs);
-      expect(sim.powerAmmo[slot]).toBe(w.b.ammoCap);
+      expect(sim.powerAmmo[slot]).toBe(normal(w.b.ammoCap));
       for (let s = 0; s < 3; s++) if (s !== slot) expect(sim.powerAmmo[s]).toBe(0);
     }
-    expect(HEAVIES[0].b.ammoCap).toBe(18); // Hell Fire B: 15 x 1.25
+    expect(normal(HEAVIES[0].b.ammoCap)).toBe(18); // Hell Fire B: 15 x 1.25
   });
 
   test("a powered Hell Fire fires its B block — three missiles — until empty, then A", () => {

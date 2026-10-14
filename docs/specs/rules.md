@@ -37,10 +37,15 @@ Design pillars, in priority order:
   "X1-Alpha movement"): every step `v += push - drag * v`, gravity 26.1 m/s² to a
   14.06 m/s terminal fall in both forms, and a landing over 10.78 m/s costs
   health (the original's absolute 1000 f(x) HP).
-- **Health: 1250** (`AVATAR_HP`, SIM_VERSION 41; `fcop-fidelity.md` P1), the
-  original's NORMAL mech: every PA X1Alpha record stores 1000 and the default
-  NORMAL pick scales it by 125 % (HARD 1000, EASY 1500; Metropolis has no
-  difficulty pick and models NORMAL). No regeneration in the original, and none
+- **Difficulty** (SIM_VERSION 72; `fcop-fidelity.md` P1, P2, P13, W1): each
+  player picks the original's **HARD, NORMAL or EASY** (`SimOptions.difficulties`,
+  NORMAL by default, the original's default pick). It sets the mech's
+  health, its magazines and what deep water does to the walker (below). The
+  Warden's slot has none: its difficulty is its level (§7).
+- **Health: 1000 / 1250 / 1500** on HARD / NORMAL / EASY
+  (`AVATAR_HP_BY_DIFFICULTY`; 1250 for everyone from SIM_VERSION 41 to 71;
+  `fcop-fidelity.md` P1): every PA X1Alpha record stores 1000, and the pick
+  scales it by 100, 125 or 150 %. No regeneration in the original, and none
   here: the own base pad's 15 hp/s repair, Metropolis' own, went in SIM_VERSION 53
   (`fcop-fidelity.md` P1; health comes back from the health pickup and a respawn).
   It was 300 HP until v41.
@@ -121,11 +126,15 @@ Design pillars, in priority order:
 - **Water** (SIM_VERSION 59, `fcop-fidelity.md` P13): hollywood-keys and
   venice-beach carry the original's water, each cell at its own level (Hk's main
   water at −0.97 m, Ovmp's at −2.5 m); the other four arenas have none. The hover
-  rides on it. A walker that enters it changes to hover on its own (the
-  original's NORMAL rule), and on water a transform is refused in either form.
-  Tanks drive through it: only the mech's own movement reads it. HARD's sinking
-  and drowning are not modelled — Metropolis has no player difficulty and models
-  NORMAL. (Until v59 no imported arena had water.)
+  rides on it. On NORMAL and EASY a walker that enters it changes to hover on
+  its own, and on water a transform is refused in either form. **On HARD the
+  walker sinks** (SIM_VERSION 72): from the tick after it reaches the water its
+  buttons do nothing, its invulnerability is gone and it sinks 0.88 m/s
+  (the original's 0xc0 wu a movement step) through whatever lies under it; more
+  than 1.75 m under the surface it drowns, 61 ticks (2.03 s) after it reached
+  the water, credited to nobody, with no wreck, and comes back **0.5 s** later.
+  Tanks drive through it: only the mech's own movement reads it. (Until v59 no
+  imported arena had water.)
 - **Lifts** (SIM_VERSION 64, `fcop-fidelity.md` P12): a lift moves only its
   height between its stops. It rests at the bottom until the mech standing on
   it presses the Action Key, rises at its own speed, waits 1.5 s at the top and
@@ -173,8 +182,10 @@ Design pillars, in priority order:
   | Mortar Launcher | lobbed shell, 200 in a 3.2 m blast, every 2.03 s, 31 rounds, 7.6 m/s under 6 m/s² (reach 9.7 m) |
   | Pop-Up Mines | dropped charge, sprung by an enemy within 2 m + its radius, 600 in a 5.6 m blast 1 s later, every 1.0 s, 37 |
   | Shockwave Generator | self-centred pulse, 300 within 6 m, every 3.03 s, 25 |
-  Ammunition is the record's NORMAL value (×1.25) and every slot has a
-  magazine, the Gun's included (it was infinite). Ammo pickups fill a slot to its
+  The rounds above are NORMAL's: the records hold HARD's magazines, NORMAL adds
+  a quarter and EASY a half (truncated, the loader's shifts; SIM_VERSION 72 —
+  NORMAL for everyone before), and every slot has a magazine, the Gun's included
+  (it was infinite). Ammo pickups fill a slot to its
   ceiling, and so does a respawn; no pad does (SIM_VERSION 53, below).
 - **The trigger** (`player_fire_slot`): Gun and Heavy fire on every tick they
   are held; each round ADDS its gap (raw × 4096/218 engine units) to the slot's
@@ -220,7 +231,8 @@ Design pillars, in priority order:
   (§9). Metropolis' pads (the own base pad's 15 hp/s repair, the 4 m outpost ammo
   refill) are gone.
 - Death: the avatar respawns **4 s** after going down (`RESPAWN_TICKS` 120, the
-  original's `player_op4` countdown; SIM_VERSION 37, `fcop-fidelity.md` P2) at its
+  original's `player_op4` countdown; SIM_VERSION 37, `fcop-fidelity.md` P2) — 0.5 s
+  after HARD's water drowned it (`RESPAWN_SUNK_TICKS`, SIM_VERSION 72) — at its
   team's fixed spawn, **facing as its X1Alpha record says** (SIM_VERSION 57, P10;
   it was the field axis toward the enemy base, which the record agrees with on
   four arenas — only urban-jungle and hollywood-keys moved), in the spawn's form
@@ -439,7 +451,7 @@ fly at 4.0 and 4.8 m/s. Avatar 1250 HP (§2); walker 4.69 m/s, hover 9.38 m/s.
 
 - Logical playfield: 2D plane + heightfield (see architecture.md). Water areas
   (hollywood-keys, venice-beach; §2): the hover rides them, a walker that enters
-  turns hover, tanks drive through. Jump-only ledges: walker shortcuts.
+  turns hover (sinks and drowns on HARD), tanks drive through. Jump-only ledges: walker shortcuts.
 - 2–3 ground lanes between the bases; lane graph is authored per map
   (waypoint polylines, no runtime pathfinding in v1). **Amended (§9, §4):** an
   arena may instead carry the original's waypoint *graph*, one directed net per
@@ -713,8 +725,8 @@ only what Metropolis adopts from it.
     (SIM_VERSION 41, the original's missile);
   - **invulnerability** lasts 20 s; no PA pickup carries it (I8);
   - a **power-up** is the original's, per slot (SIM_VERSION 43, P8): the Gun's,
-    Heavy's or Special's pickup fills that slot's block-B magazine to its NORMAL
-    ceiling, and the slot fires its **block B** — the record's powered weapon
+    Heavy's or Special's pickup fills that slot's block-B magazine to its
+    ceiling on the collector's difficulty, and the slot fires its **block B** — the record's powered weapon
     (§2) — until that magazine is empty, then block A again. Block B is, for
     example, the Mini-Gun's 2 damage with a 1 m splash (750 rounds), Hell Fire's
     three homing missiles a shot (18), the Hyper Velocity Rocket's 8-round burst,

@@ -95,8 +95,9 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** The catalogue's magazine is the record's, HARD's; the label shows HARD's. */
 function weaponLabel(w: WeaponDef): string {
-  const ammo = w.ammo > 0 ? `${w.ammo} ammo` : "inf";
+  const ammo = w.ammo > 0 ? `${w.ammo} ammo (HARD)` : "inf";
   return `${w.damage} dmg · ${w.cooldownTicks}t · ${ammo} · ${w.vfx}`;
 }
 

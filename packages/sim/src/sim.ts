@@ -16,7 +16,7 @@ import {
   ARCHETYPE_MAX_HP,
   ARCHETYPE_RADIUS,
   AVATAR_HOVER_MAX_SLOPE,
-  AVATAR_HP,
+  AVATAR_HP_BY_DIFFICULTY,
   AVATAR_LOCK_ACQUIRE_COS,
   AVATAR_LOCK_HOLD_COS,
   AVATAR_LOCK_RANGE,
@@ -28,6 +28,10 @@ import {
   COST_JUGGERNAUT,
   COST_OUTPOST_CLAIM,
   COST_RUNNER,
+  DIFFICULTY_HARD,
+  DIFFICULTY_NORMAL,
+  DIFFICULTY_ROWS,
+  DROWN_DEPTH,
   DUMMY_RESPAWN_TICKS,
   FLAME_PULSE_TICKS,
   FLOOR_DAMAGE_PER_STEP,
@@ -85,6 +89,7 @@ import {
   POINTS_HEAVY_DIES,
   POINTS_TURRET_DIES,
   POINTS_UNIT_DIES,
+  RESPAWN_SUNK_TICKS,
   RESPAWN_TICKS,
   RUNNER_ALIVE_LIMIT,
   retentionPerTick,
@@ -130,6 +135,7 @@ import {
   WALKER_PUSH_FORE,
   WALKER_PUSH_SLOW,
   WALKER_PUSH_STRAFE,
+  WALKER_SINK_PER_TICK,
   WALKER_SLOPE_GAIN,
   WALKER_SLOPE_KNEE,
   WALKER_STEEP_TILT,
@@ -173,6 +179,7 @@ import {
   EV_RESPAWN,
   EV_ROUND_IMPACT,
   EV_SHOT,
+  EV_SUNK,
   EV_TRANSFORM,
   EV_TRANSFORM_REFUSED,
   EV_TURRET_LOST,
@@ -250,6 +257,7 @@ import {
 } from "./warden";
 import {
   DEFAULT_LOADOUT,
+  difficultyAmmo,
   type Loadout,
   normalizeLoadout,
   PROJ_BEAM,
@@ -302,6 +310,26 @@ export interface SimOptions {
    * MAX_PLAYERS; missing slots use the default historic kit.
    */
   loadouts?: readonly (Partial<Loadout> | undefined)[];
+  /**
+   * Per-player difficulty, the original's HARD / NORMAL / EASY pick (balance.ts
+   * DIFFICULTY_*), slot-indexed. A missing, fractional or out-of-range entry
+   * degrades to the nearest row (NORMAL when missing or NaN); the Warden's slot
+   * ignores it. Part of the replay header (format 4) and the online handshake.
+   */
+  difficulties?: readonly number[];
+}
+
+/** A difficulty value as the sim takes it: an integer row 0..2, NORMAL when unusable. */
+export function normalizeDifficulty(raw: number | undefined): number {
+  if (raw === undefined || !Number.isFinite(raw)) return DIFFICULTY_NORMAL;
+  const d = Math.floor(raw);
+  if (d < 0) return 0;
+  return d >= DIFFICULTY_ROWS ? DIFFICULTY_ROWS - 1 : d;
+}
+
+/** The X1-Alpha's maximum health for `player`'s difficulty (balance.ts AVATAR_HP_BY_DIFFICULTY). */
+export function avatarMaxHp(state: SimState, player: number): number {
+  return AVATAR_HP_BY_DIFFICULTY[state.difficulty[player]];
 }
 
 export interface SimState {
@@ -419,6 +447,22 @@ export interface SimState {
   readonly loadoutGun: Uint8Array;
   readonly loadoutHeavy: Uint8Array;
   readonly loadoutSpecial: Uint8Array;
+  /**
+   * Each player's difficulty, DIFFICULTY_HARD / _NORMAL / _EASY (config, like the
+   * loadouts; SimOptions.difficulties). The mech's health, its magazines and what
+   * deep water does to the walker follow it. The Warden's slot holds NORMAL and
+   * reads none of it.
+   */
+  readonly difficulty: Uint8Array;
+  /**
+   * HARD's sinking marker per player, the original's block +0xde: set when a HARD
+   * walker's ground is water, held until it goes down and read by that down (the
+   * 0.5 s respawn, no wreck, nobody credited), cleared at the respawn. While it
+   * is set the mech sinks, its buttons are cut and the drowning check runs
+   * (balance.ts WALKER_SINK_PER_TICK, DROWN_DEPTH; fcop-fidelity.md P13). Hashed
+   * only in a match with a HARD player.
+   */
+  readonly avatarSinking: Uint8Array;
   /** Player slot the Warden AI drives, -1 for a match without one (config). */
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
@@ -520,7 +564,7 @@ export function spawnAvatar(state: SimState, player: number): number {
   ent.yaw[id] = s.yaw;
   ent.aimX[id] = cosLUT(s.yaw);
   ent.aimY[id] = sinLUT(s.yaw);
-  ent.hp[id] = warden ? captainMaxHp(state) : AVATAR_HP;
+  ent.hp[id] = warden ? captainMaxHp(state) : avatarMaxHp(state, player);
   // Spawn form (fcop-fidelity.md P2): every respawn comes back in the form the
   // spawn record asks for, as `player_respawn` resets the row from the record.
   const hover = !warden && s.hover;
@@ -552,6 +596,7 @@ export function spawnAvatar(state: SimState, player: number): number {
   state.avatarIdle[player] = 0;
   state.avatarLunge[player] = 0;
   state.avatarMode[player] = 0;
+  state.avatarSinking[player] = 0;
   return id;
 }
 
@@ -826,6 +871,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
       ? Math.min(Math.max(rawDifficulty >= 1 ? Math.floor(rawDifficulty) : 1, 1), 10)
       : 0;
   const loadouts = options?.loadouts;
+  const difficulties = options?.difficulties;
   const state: SimState = {
     tick: 0,
     prng: seed | 0,
@@ -862,6 +908,8 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     loadoutGun: new Uint8Array(MAX_PLAYERS),
     loadoutHeavy: new Uint8Array(MAX_PLAYERS),
     loadoutSpecial: new Uint8Array(MAX_PLAYERS),
+    difficulty: new Uint8Array(MAX_PLAYERS).fill(DIFFICULTY_NORMAL),
+    avatarSinking: new Uint8Array(MAX_PLAYERS),
     wardenPlayer,
     wardenDifficulty,
     captain: createCaptainState(),
@@ -892,6 +940,9 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     state.loadoutGun[p] = kit.gun;
     state.loadoutHeavy[p] = kit.heavy;
     state.loadoutSpecial[p] = kit.special;
+    // An X1-Alpha's difficulty; the Warden's slot is the Sky Captain's, whose
+    // difficulty is its level.
+    if (p !== wardenPlayer) state.difficulty[p] = normalizeDifficulty(difficulties?.[p]);
   }
   // A polled mission function's first poll falls at a random moment inside its
   // first period (`cfun_load`: countdown = rand % period).
@@ -1127,6 +1178,15 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     }
     const yaw0 = ent.yaw[id];
 
+    // HARD's deep water (balance.ts WALKER_SINK_PER_TICK, DROWN_DEPTH): the
+    // original's frame checks a sinking mech before its movement steps, and more
+    // than 1.75 m under the surface over it the mech takes its health + 1,
+    // credited to nobody (player.c 0x00446e3e).
+    const sinking = state.avatarSinking[p] !== 0;
+    if (sinking && surfaceOver(map, ent.posX[id], ent.posY[id]) - ent.height[id] > DROWN_DEPTH) {
+      applyDamage(state, id, ent.hp[id] + 1, -1);
+    }
+
     const locked = ent.timerA[id] > 0;
     if (locked) ent.timerA[id] -= 1;
 
@@ -1140,7 +1200,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // runs; on water in either form refused with a sound, on every tick the
     // chord is held (the original's byte_146, set by surface material 1). In the
     // air too: the original does not ask.
-    if ((word & TRANSFORM_CHORD) === TRANSFORM_CHORD && !locked) {
+    // A sinking mech asks for nothing (the request's gate reads block +0xde).
+    if ((word & TRANSFORM_CHORD) === TRANSFORM_CHORD && !locked && !sinking) {
       if (!inWater(state, id, x, y)) {
         hover = !hover;
         startTransform(state, id, hover);
@@ -1154,8 +1215,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // registers neither half's press — and runs the HOVER tick for the whole
     // ramp in both directions, so the hull coasts on hover drag while its ride
     // height ramps (fcop-re/player-and-weapons.md §2).
+    // A sinking mech keeps only Map and Camera (`PLAYER_FORM_BITS_KEEP`,
+    // 0x0044245a), which the sim never reads: nothing at all.
     const nowLocked = ent.timerA[id] > 0;
-    let bits = locked || nowLocked ? word & TRANSFORM_KEEPS : word;
+    let bits = sinking ? 0 : locked || nowLocked ? word & TRANSFORM_KEEPS : word;
     // The latches see the filtered word, as the original's button trackers do.
     const prev = state.lastButtons[p];
     const pressed = bits & ~prev;
@@ -1362,7 +1425,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       }
       let sp = slopePush(WALKER_SLOPE_KNEE, WALKER_SLOPE_GAIN);
       if (mode !== 0) sp *= 1 + (4 - mode) / 4;
-      if (sp > 0) {
+      // A sinking walker's normal is the water's, flat (its probe still finds
+      // the water over it): no downhill push from what lies under it.
+      if (sp > 0 && !sinking) {
         const g = Math.sqrt(t.gx * t.gx + t.gy * t.gy);
         pushX -= (sp * t.gx) / g;
         pushY -= (sp * t.gy) / g;
@@ -1446,13 +1511,19 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     ent.posX[id] = x;
     ent.posY[id] = y;
 
-    // A walker in water transforms to hover on its own: the NORMAL/EASY rule
-    // (`player_order` code 1). HARD's sinking and drowning are not modelled —
-    // Metropolis has no difficulty for the player and models NORMAL.
+    // Deep water under a walker (`player_order` code 1, player.c:796-811): on
+    // NORMAL and EASY it asks for the hover on its own; on HARD it takes the
+    // sinking marker and loses its invulnerability timer, every tick it is in
+    // the water, and sinks from the next tick on (balance.ts WALKER_SINK_PER_TICK).
     if (!hoverPhys && inWater(state, id, x, y)) {
-      hover = true;
-      hoverPhys = true;
-      startTransform(state, id, true);
+      if (state.difficulty[p] === DIFFICULTY_HARD) {
+        state.avatarSinking[p] = 1;
+        if (state.buffInvuln.length > 0) state.buffInvuln[p] = 0;
+      } else {
+        hover = true;
+        hoverPhys = true;
+        startTransform(state, id, true);
+      }
     }
 
     // Vertical: gravity 26.1 m/s² to a 14.06 m/s terminal fall in both forms,
@@ -1477,6 +1548,16 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         h = ride;
         vz = 0;
       }
+      lunge = 0;
+    } else if (sinking) {
+      // HARD's sinking walker: its ground is its own height less 0xc0 wu a step
+      // and its vertical velocity is zeroed, whatever lies under it
+      // (`player_walk_tick` 0x0044496c) — through the water, the bed and on.
+      const wr = avatarSurface(state, x, y, h, false);
+      ent.entLayer[id] = wr.layer;
+      ride = wr.height;
+      h -= WALKER_SINK_PER_TICK;
+      vz = 0;
       lunge = 0;
     } else {
       // The walker snaps to step-sized height changes (STEP_SNAP, Metropolis'
@@ -2102,6 +2183,18 @@ function inWater(state: SimState, id: number, x: number, y: number): boolean {
   return state.ent.height[id] - waterHeightAt(map, x, y) < SURFACE_REACH;
 }
 
+/**
+ * The surface over (x, y) as the drowning check asks for it
+ * (`terrain_surface_at` from the mech's own position, player.c 0x00446e5d):
+ * the cell's water where it is water, else the ground.
+ */
+function surfaceOver(map: MapData, x: number, y: number): number {
+  const g = sampleHeight(map, x, y);
+  if (!isWater(map, x, y)) return g;
+  const w = waterHeightAt(map, x, y);
+  return w > g ? w : g;
+}
+
 /** The A-block magazine of `slot` (0 gun, 1 heavy, 2 special) for avatar `id`. */
 function slotAmmo(state: SimState, player: number, id: number, slot: number): number {
   if (slot === 0) return state.gunAmmo[player];
@@ -2114,12 +2207,16 @@ function setSlotAmmo(state: SimState, player: number, id: number, slot: number, 
   else state.ent.ammoB[id] = v;
 }
 
-/** Fill all three A magazines to their ceilings (`cact_type99_ammo_add(slot, -1)`). */
+/**
+ * Fill all three A magazines to their ceilings on the player's difficulty
+ * (`cact_type99_ammo_add(slot, -1)`, the ceiling `cact_type99_ammo_cap`).
+ */
 function refillAmmo(state: SimState, player: number, id: number): void {
   const kit = loadoutOf(state, player);
-  state.gunAmmo[player] = kit.gun.a.ammoCap;
-  state.ent.ammoA[id] = kit.heavy.a.ammoCap;
-  state.ent.ammoB[id] = kit.special.a.ammoCap;
+  const d = state.difficulty[player];
+  state.gunAmmo[player] = difficultyAmmo(kit.gun.a.ammoCap, d);
+  state.ent.ammoA[id] = difficultyAmmo(kit.heavy.a.ammoCap, d);
+  state.ent.ammoB[id] = difficultyAmmo(kit.special.a.ammoCap, d);
 }
 
 function loadoutOf(state: SimState, player: number) {
@@ -2218,7 +2315,8 @@ function fireSlot(state: SimState, player: number, id: number, slot: number, w: 
 
 /**
  * A slot's power-up (`cact_pickup_grant` bits 0x10/0x20/0x40; fcop-re/player-and-
- * weapons.md §6): block B's magazine to its NORMAL ceiling. A slot that was not
+ * weapons.md §6): block B's magazine to its ceiling on the player's difficulty
+ * (`cact_type99_fill_b` -> `cact_type99_ammo_cap(.., 1)`). A slot that was not
  * powered also takes its burst counter from block B.
  */
 function powerUp(state: SimState, player: number, slot: number): void {
@@ -2232,7 +2330,7 @@ function powerUp(state: SimState, player: number, slot: number): void {
         : state.loadoutSpecial[player],
   );
   if (state.powerAmmo[k] === 0) state.burstLeft[k] = w.b.rounds;
-  state.powerAmmo[k] = w.b.ammoCap;
+  state.powerAmmo[k] = difficultyAmmo(w.b.ammoCap, state.difficulty[player]);
 }
 
 /**
@@ -3497,6 +3595,16 @@ function systemDamageDeath(state: SimState): void {
     if (ent.archetype[id] === ARCHETYPE.PROJECTILE) continue;
     const killer = ent.aux[id] - 1; // -1 = environment/dummy
     const archetype = ent.archetype[id];
+    // A mech down with HARD's sinking marker (`player_op4` reads block +0xde
+    // first): no wreck and no death effects, and the short respawn below.
+    const owner = ent.ownerId[id];
+    const sunk =
+      archetype === ARCHETYPE.AVATAR &&
+      owner >= 0 &&
+      owner < MAX_PLAYERS &&
+      state.avatarId[owner] === id &&
+      state.avatarSinking[owner] !== 0;
+    if (sunk) pushEvent(state.events, EV_SUNK, id, owner, 0);
     pushEvent(state.events, EV_DEATH, id, killer, archetype);
     // Earn table (rules.md §3, fcop-fidelity.md R4-R7): a death pays the OTHER
     // side whoever caused it, because the original pays from the dying actor's
@@ -3522,7 +3630,13 @@ function systemDamageDeath(state: SimState): void {
       state.respawnTimer[player] =
         archetype === ARCHETYPE.WARDEN
           ? skyRespawnTicks(wardenLevel(state.wardenDifficulty))
-          : RESPAWN_TICKS;
+          : sunk
+            ? RESPAWN_SUNK_TICKS
+            : RESPAWN_TICKS;
+      // The marker is consumed by the down. Kept only when nobody is credited
+      // (the drowning's "credit 0"), so the respawn below pays the points and
+      // gives the Sky Captain no credit (`player_op4` 0x00447784).
+      if (sunk && killer >= 0) state.avatarSinking[player] = 0;
       // Power-ups are lost when the avatar goes down (`player_respawn` clears the
       // block-B ammunition; fcop-fidelity.md P2, P8). The cloak and invulnerability
       // timers are NOT cleared: the original keeps counting them down while the
@@ -3588,10 +3702,11 @@ function systemDamageDeath(state: SimState): void {
  * An avatar went down (fcop-fidelity.md R4): the other side gains
  * POINTS_AVATAR_DOWN and `team` loses as many, never below 0.
  */
-function avatarDown(state: SimState, team: number): void {
+function avatarDown(state: SimState, team: number, credited = true): void {
   state.points[team ^ 1] += POINTS_AVATAR_DOWN;
-  // The player's kill credit zeroes the captain's rethink (0x004477ea).
-  captainCredit(state, team ^ 1);
+  // The player's kill credit zeroes the captain's rethink (0x004477ea); a sunk
+  // mech's down credits nobody (`player_op4` 0x00447784).
+  if (credited) captainCredit(state, team ^ 1);
   const left = state.points[team];
   state.points[team] = left > POINTS_AVATAR_DOWN ? left - POINTS_AVATAR_DOWN : 0;
 }
@@ -3608,7 +3723,9 @@ function systemSpawning(state: SimState): void {
         // A player's going-down is paid by its own script when it respawns
         // (`player_respawn` runs pool@136, fcop-re/ai-and-rules.md §1.8). The
         // Warden paid when it fell.
-        if (p !== state.wardenPlayer) avatarDown(state, p);
+        // A sunk mech's down still pays the points (its script runs at the
+        // respawn whoever caused it) and credits nobody.
+        if (p !== state.wardenPlayer) avatarDown(state, p, state.avatarSinking[p] === 0);
         const id = spawnAvatar(state, p);
         if (p === state.wardenPlayer) captainRespawn(state);
         if (id >= 0) pushEvent(state.events, EV_RESPAWN, id, p, 0);
@@ -3849,17 +3966,19 @@ function systemPickups(state: SimState): void {
       if (dy >= spot.halfL || dy <= -spot.halfL) continue;
       if (dz >= spot.halfH || dz <= -spot.halfH) continue;
       const kind = spot.kind;
-      // An ammo pickup fills that slot's A magazine to its ceiling
-      // (`cact_type99_ammo_add(slot, -1)`; fcop-re/player-and-weapons.md §6).
+      // An ammo pickup fills that slot's A magazine to its ceiling on the
+      // collector's difficulty (`cact_type99_ammo_add(slot, -1)`;
+      // fcop-re/player-and-weapons.md §6).
+      const d = state.difficulty[p];
       if (kind === PICKUP_GUN_AMMO) {
-        state.gunAmmo[p] = weaponInSlot(0, state.loadoutGun[p]).a.ammoCap;
+        state.gunAmmo[p] = difficultyAmmo(weaponInSlot(0, state.loadoutGun[p]).a.ammoCap, d);
       } else if (kind === PICKUP_HEAVY_AMMO) {
-        ent.ammoA[a] = weaponInSlot(1, state.loadoutHeavy[p]).a.ammoCap;
+        ent.ammoA[a] = difficultyAmmo(weaponInSlot(1, state.loadoutHeavy[p]).a.ammoCap, d);
       } else if (kind === PICKUP_SPECIAL_AMMO) {
-        ent.ammoB[a] = weaponInSlot(2, state.loadoutSpecial[p]).a.ammoCap;
+        ent.ammoB[a] = difficultyAmmo(weaponInSlot(2, state.loadoutSpecial[p]).a.ammoCap, d);
       } else if (kind === PICKUP_HEALTH) {
         // Full heal: the grant passes amount -1, "fill" (fcop-fidelity.md P6).
-        ent.hp[a] = AVATAR_HP;
+        ent.hp[a] = avatarMaxHp(state, p);
       } else if (kind === PICKUP_INVULN) state.buffInvuln[p] = PICKUP_INVULN_TICKS;
       else if (kind === PICKUP_INVIS) state.buffInvis[p] = PICKUP_INVIS_TICKS;
       else if (kind === PICKUP_POWER_GUN) powerUp(state, p, 0);
@@ -4235,6 +4354,17 @@ export function hash(state: SimState): number {
   for (let id = 0; id < ent.high; id++) {
     if (ent.alive[id]) h = fnv1aU32(h, ent.weaponProfile[id] >>> 0);
   }
+  // Appended at SIM_VERSION 72, only in a match with a player off NORMAL: the
+  // difficulties and HARD's sinking markers. A NORMAL match hashes as before.
+  let offNormal = false;
+  for (let p = 0; p < MAX_PLAYERS; p++)
+    if (state.difficulty[p] !== DIFFICULTY_NORMAL) offNormal = true;
+  if (offNormal) {
+    for (let p = 0; p < MAX_PLAYERS; p++) {
+      h = fnv1aU32(h, state.difficulty[p]);
+      h = fnv1aU32(h, state.avatarSinking[p]);
+    }
+  }
   // Warden decision state is hashed only when a Warden exists: matches
   // without one keep their exact pre-Phase-4 hash sequences (goldens 1–3
   // stay valid). The flag itself is match config, identical on every peer.
@@ -4369,7 +4499,7 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     const a = state.avatarId[slot];
     out[o + MATCH_SLOT_POINTS] = state.points[slot];
     out[o + MATCH_SLOT_AVATAR_ID] = a;
-    const maxHp = slot === state.wardenPlayer ? captainMaxHp(state) : AVATAR_HP;
+    const maxHp = slot === state.wardenPlayer ? captainMaxHp(state) : avatarMaxHp(state, slot);
     out[o + MATCH_SLOT_HP_FRAC] = a >= 0 ? ent.hp[a] / maxHp : 0;
     // The magazine each slot fires from: block B while powered, else block A.
     const pk = slot * 3;
@@ -4418,6 +4548,10 @@ function maxHpOf(state: SimState, id: number): number {
   const ent = state.ent;
   const arch = ent.archetype[id];
   const team = ent.team[id];
+  if (arch === ARCHETYPE.AVATAR) {
+    const owner = ent.ownerId[id];
+    if (owner >= 0 && owner < MAX_PLAYERS) return avatarMaxHp(state, owner);
+  }
   if (team === 0 || team === 1) {
     const base = state.map.bases[team];
     const p =

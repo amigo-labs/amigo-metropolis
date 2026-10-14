@@ -23,7 +23,6 @@
 
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
-  AVATAR_HP,
   COST_FORTRESS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -104,6 +103,7 @@ import {
 import { sampleHeight, worldExtent } from "./map";
 import {
   ANIM_MOVING,
+  avatarMaxHp,
   claimOutpostSlot,
   fireWardenMissile,
   hitscan,
@@ -714,8 +714,12 @@ function decide(state: SimState, id: number, level: number): void {
     }
   }
   if (c.mode === SKY_MODE_ROAM) {
+    // "Below a quarter of what it started with": its own maximum, by its
+    // difficulty (dispatch.c's mode-0 pick, 0x00421fc3: `word_1c < word_1e >> 2`).
     const hurt =
-      s.own1 >= 0 && s.own1D < SKY_HURT_PLAYER && ent.hp[s.own1] < Math.floor(AVATAR_HP / 4);
+      s.own1 >= 0 &&
+      s.own1D < SKY_HURT_PLAYER &&
+      ent.hp[s.own1] < Math.floor(avatarMaxHp(state, ent.ownerId[s.own1]) / 4);
     if (hurt) {
       // Word 56 := 3 (0x00422098).
       pushEvent(state.events, EV_CAPTAIN_EVENT, id, CAPTAIN_EVENT_HUNTS_HURT, 0);

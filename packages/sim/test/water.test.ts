@@ -1,8 +1,8 @@
 // The original's water (fcop-fidelity.md P13): surface code 1 on Hk and Ovmp,
-// imported per cell with each cell's own surface. Metropolis plays NORMAL: a
+// imported per cell with each cell's own surface. On NORMAL, the default, a
 // walker that enters water changes to hover on its own, a hover rides on the
-// water, and on water a transform is refused in either form. HARD's sinking
-// and drowning are not modelled.
+// water, and on water a transform is refused in either form. HARD's sinking and
+// drowning are difficulty.test.ts's.
 
 import { describe, expect, it } from "bun:test";
 import { HOVER_CLEARANCE, TRANSFORM_LOCK_TICKS } from "../src/balance";

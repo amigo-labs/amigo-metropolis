@@ -1084,4 +1084,20 @@
 //     venice-beach (Ovmp) has any: 14 cells of code 4 in four patches beside its
 //     bases. The hover reads no mode. SimState.avatarMode, hashed on such an
 //     arena only.
-export const SIM_VERSION = 71;
+// v72: the original's per-player difficulty (fcop-fidelity.md P1, P2, P13, W1):
+//     SimOptions.difficulties, HARD / NORMAL / EASY per player (NORMAL by
+//     default; the Warden's slot has none). Health 1000 / 1250 / 1500
+//     (`player_construct`), the restore, the health pickup and the snapshot's
+//     maximum with it; the weapon tables carry the records' own magazines
+//     (HARD's) and every fill scales them, raw + raw >> 2 on NORMAL and
+//     raw + raw >> 1 on EASY (the stock, `cact_type99_ammo_cap`). On HARD a
+//     walker in deep water sinks instead of changing to hover: the +0xde
+//     marker, its invulnerability cleared, its buttons cut, its ground 0xc0 wu
+//     under it a step (0.879 m/s), and 1.75 m under the surface it takes its
+//     health + 1 credited to nobody (61 ticks after it reached the water); its
+//     down raises no wreck (EV_SUNK), gives the Sky Captain no credit and
+//     comes back after 0.5 s. The Warden's "badly hurt" test reads the mech's
+//     own maximum. The difficulties and the markers are hashed only in a match
+//     with a player off NORMAL, so every NORMAL replay's hash sequence is
+//     unchanged: the goldens are re-recorded for the header alone.
+export const SIM_VERSION = 72;

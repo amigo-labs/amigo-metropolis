@@ -34,17 +34,41 @@ export const ONLINE_INPUT_DELAY_TICKS = 3;
 export const P2P_INPUT_REDUNDANCY_TICKS = ONLINE_INPUT_DELAY_TICKS + 2;
 
 // Avatar (rules.md §2, §4).
+// --- Difficulty (fcop-fidelity.md P1, P2, P13, W1) ---------------------------
 /**
- * The X1-Alpha's health: 1250, the original's NORMAL mech (fcop-fidelity.md P1).
- * Every PA X1Alpha record stores a base of 1000; `player_construct` scales it by
- * the per-player difficulty word, 100/125/150 % (`imul ecx,ecx,0x64` at
- * 0x00446c3c), and NORMAL is the default pick (fcop-re/player-and-weapons.md §5).
- * Metropolis has no difficulty choice and models NORMAL, as it does for the
- * walker's water rule and the ammunition (x1.25). No regeneration: health comes
- * back only from a pickup or the restore at going down. Every damage number in
- * this file is absolute HP against it, as the original's are. Was 300.
+ * The original's per-player difficulty word (mission-state word 2 for slot 0,
+ * 0x26 for slot 1): the front end's HARD / NORMAL / EASY plates, in that order
+ * (`launch.c:258-259`; `config.c:76`, default NORMAL; fcop-re/player-and-
+ * weapons.md §5). It sets the mech's health, its magazines' starting ammunition
+ * and ceilings, and what deep water does to the walker. Row 3 is a debug row
+ * (32767 health, infinite ammunition, no damage) the front end does not offer;
+ * Metropolis does not take it. It applies to an X1-Alpha only: the Warden's slot
+ * is the Sky Captain, whose difficulty is its level. SimOptions.difficulties
+ * carries it per player (SIM_VERSION 72); NORMAL is the default.
  */
-export const AVATAR_HP = 1250;
+export const DIFFICULTY_HARD = 0;
+export const DIFFICULTY_NORMAL = 1;
+export const DIFFICULTY_EASY = 2;
+/** The rows Metropolis takes, 0..DIFFICULTY_ROWS - 1 (not the debug row 3). */
+export const DIFFICULTY_ROWS = 3;
+/** Every PA X1Alpha record's base health: the u16 at record +20 (both slots). */
+export const X1_RECORD_HP = 1000;
+/**
+ * The X1-Alpha's health per difficulty: `player_construct` (player.c:1094-1118)
+ * multiplies the record's 1000 by 100, 125 or 150 (`imul ecx,ecx,0x64` at
+ * 0x00446c3c) and divides by 100: HARD 1000, NORMAL 1250, EASY 1500 (fcop-re/
+ * player-and-weapons.md §5). No regeneration: health comes back only from a
+ * pickup (a "fill" to this) or the restore at going down. Every damage number in
+ * this file is absolute HP against it, as the original's are. Was 300 until
+ * SIM_VERSION 41, and NORMAL's 1250 for every player until SIM_VERSION 72.
+ */
+export const AVATAR_HP_BY_DIFFICULTY: readonly number[] = [
+  (X1_RECORD_HP * 100) / 100,
+  (X1_RECORD_HP * 125) / 100,
+  (X1_RECORD_HP * 150) / 100,
+];
+/** NORMAL's health, the default pick's: 1250 (ARCHETYPE_MAX_HP's avatar row). */
+export const AVATAR_HP = AVATAR_HP_BY_DIFFICULTY[DIFFICULTY_NORMAL];
 
 // Slope limits as rise/run: the steepest ground each form's hard gate lets it
 // climb (sim.ts `slopeBlocks`). Hover stays stricter, because it rides
@@ -344,8 +368,9 @@ export const AVATAR_JUMP_SPEED = WALKER_HIGH_LIFT;
 // them the way the loader does:
 //   - gaps (`burstGap`, `roundGap`, `fuse`): raw * 4096 / 218, C-truncated, in
 //     engine units of 1/300 s (~raw * 0.0626 s); the X1 spends 10 a sim tick;
-//   - ammunition (`ammo`, `cap`): x1.25 on NORMAL, truncated (the per-player
-//     difficulty pick; Metropolis models NORMAL, as AVATAR_HP does);
+//   - ammunition (`ammo`, `cap`): the records hold HARD's; NORMAL adds raw >> 2
+//     (x1.25) and EASY raw >> 1 (x1.5), per player at every fill
+//     (weapons.ts `difficultyAmmo`; SIM_VERSION 72, NORMAL for everyone before);
 //   - lengths (`w0e` blast, `w10` reach, `range`): raw << 4 wu = raw / 512 m;
 //     for arced and dropped rounds `range` is their GRAVITY in wu/s², raw / 512
 //     m/s² (type7.h:50);
@@ -909,6 +934,29 @@ export const ORIGINAL_BUY_HALF_L = 614 / 1024;
  */
 export const SURFACE_REACH = 0.54;
 /**
+ * HARD's deep water (fcop-fidelity.md P13; fcop-re/player-and-weapons.md §4). A
+ * HARD walker whose ground is water (`player_order` code 1, player.c:796-811)
+ * gets the block's +0xde marker and loses its invulnerability timer; from the
+ * next movement step on its ground is its own position less 0xc0 wu and its
+ * vertical velocity is zeroed (`player_walk_tick` 0x0044496c,
+ * `WALK_WADE_DEPTH`), and the marker cuts its buttons to the two the sim never
+ * reads (0x0044245a, `PLAYER_FORM_BITS_KEEP` 0x000c0000: Map and Camera): no
+ * drive, no fire, no transform. 0xc0 wu a step at 37.5 steps a second is 0.879
+ * m/s; a sim tick is X1_STEPS_PER_TICK steps, 240 wu = 2.93 cm, exact in binary.
+ * (The RE's "0.625 m/s" multiplied 0.0234 m a step by the step's 26.7 ms
+ * instead of dividing by it.)
+ */
+export const WALKER_SINK_PER_TICK = (0xc0 / 8192) * X1_STEPS_PER_TICK;
+/**
+ * The sinking mech drowns once the surface over it is more than 0x3800 wu =
+ * 1.75 m above it: the frame's tick deals `health + 1` credited to nobody
+ * (player.c 0x00446e3e-0x00446e79, `PLAYER_SUBMERGE_DEPTH`), before that frame's
+ * movement steps. At WALKER_SINK_PER_TICK that is the 60th tick of sinking
+ * (14,400 wu), so the down comes 61 ticks = 2.03 s after the walker reached
+ * the water — the original's 75 steps, 2.0 s, plus the frame that reads it.
+ */
+export const DROWN_DEPTH = 0x3800 / 8192;
+/**
  * A base floor's damage to the enemy mech per movement step, walker and hover
  * alike: codes 14/15 of player_order's table (fcop-fidelity.md P11). At
  * X1_STEPS_PER_TICK that is 37.5 a second.
@@ -1113,12 +1161,16 @@ export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tic
  * A player's avatar comes back 4.0 s after it goes down: `player_op4` sets the
  * countdown to 0x4b0 = 1200 engine units at 300 Hz (fcop-re/player-and-weapons.md
  * §1, retail 0x004476e3). Was 240 (8 s).
- *
- * The original's other countdown, 0x96 = 150 units (0.5 s) after a drowned or
- * sunk walker, has no path here: drowning is the HARD difficulty's (§4), and the
- * NORMAL walker Metropolis models transforms to hover in deep water instead.
  */
 export const RESPAWN_TICKS = 120;
+/**
+ * The original's other countdown: 0x96 = 150 engine units, 0.5 s, when the
+ * mech went down with its "does not count" marker set (block +0xde,
+ * `player_op4` 0x004476df: `0x96 + (flag & 0x41a)`) — the marker HARD's deep
+ * water sets (WALKER_SINK_PER_TICK). That down raises no wreck and no death
+ * effects and credits nobody (fcop-fidelity.md P2, P13; SIM_VERSION 72).
+ */
+export const RESPAWN_SUNK_TICKS = 0x96 / X1_UNITS_PER_TICK;
 // --- The Warden: the original's Sky Captain (fcop-fidelity.md U3) ----------
 // fcop-re/ai-and-rules.md §1 (dispatch.c, aircraft.c in the RE repo). The
 // Warden is actor type 37: an aircraft with the commander's decision pass on
@@ -1634,7 +1686,8 @@ export const ORIGINAL_PICKUP_HALF_L = (819 * 16) / 8192;
 export const ORIGINAL_PICKUP_HALF_H = (819 * 16) / 8192;
 export const ORIGINAL_PICKUP_LIFT = (81 * 16) / 8192;
 // A health pickup refills to the maximum (grant bit 0x20000 passes amount -1,
-// "fill": fcop-re/player-and-weapons.md §6). Was +100. No constant: it is AVATAR_HP.
+// "fill": fcop-re/player-and-weapons.md §6). Was +100. No constant: it is the
+// collector's AVATAR_HP_BY_DIFFICULTY row.
 /**
  * Invulnerability: block+0x326 = 0x1770 = 6000 engine units = 20 s
  * (player-and-weapons.md §6). Was 300 (10 s). No PA pickup carries the grant
