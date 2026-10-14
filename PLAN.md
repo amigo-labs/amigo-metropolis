@@ -281,6 +281,13 @@ live deploy ships them too. Spec + plan:
 
 ## Phase 11 — Touch / mobile controls (pulled forward from backlog)
 
+> **Removed in Phase 14, wave 3** (the owner's rule: only the original counts;
+> "touch waits for the modernisation"). Its sticks produced the stick-and-aim
+> input the original's button word replaced; the code is in git history
+> (`input/touch.ts`, `touchMapping.ts`, `touchControls.ts` before the wave-3
+> commit "Drive the X1-Alpha by the original's button word") for when the
+> modernisation brings touch back on the word.
+
 Client-only (`docs/plans/touch-controls.md`): a new `LocalInputSource` + DOM
 overlay — the deterministic sim is untouched, so no golden regeneration.
 Entry: `?touch=1`/`?touch=0` override, else coarse-pointer auto-detect; the
@@ -687,9 +694,32 @@ commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
 - [x] The lifts drawn with their original models; travel and arrival sounds
 - [ ] Kerbs and spilled walls on la-cantina, Hk and Ovmp: each opens when it is
       re-imported (`FcopArena.kerbs`, P15)
-- [ ] Ovmp's slippery patches (surface code 4) — with the controls wave (3)
+- [x] Ovmp's slippery patches (surface code 4) — with the controls wave (3;
+      v71)
 - [ ] HARD (sinking and drowning, 1000 HP, its ceilings) — with a difficulty
       setting
+
+### Wave 3 — Controls 1:1
+
+The original's controls from the RE (`docs/behavior/camera-and-movement.md`
+"Input"); one commit and one SIM_VERSION per sim change, goldens re-recorded.
+
+- [x] RE: the fourteen binding slots named, with the presets and the per-axis
+      dead zone; the hover's slow-row ledge rule corrected (RE PR #82)
+- [x] A lift's top carries a mech across Conft's 0.145 m gap to its platform
+      (v68; found converting the lift tests)
+- [x] The tick input is the original's button word: turn buttons, jinks,
+      the diagonal, the brake, the transform chord, Special from its held
+      latch; the lock no longer steers; protocol v2, replay format 3; the
+      keypad preset; the chase camera follows the hull; no mouse, no touch
+      (C1; v69)
+- [x] The slow row on the Action Key held: half the push, the crouch, the
+      walker's ledge hold (P4/P5; v70)
+- [x] Bindings, presets, the bindings file, the gamepad with the 25 % per-axis
+      dead zone, the controls screen; the Map Key pauses (C2-C4)
+- [ ] The Camera Key's seven presets and the Map Key's map screen — with
+      wave 6
+- [ ] The controls screen's original look — with wave 7
 
 ## Backlog (post-v1, do not start)
 

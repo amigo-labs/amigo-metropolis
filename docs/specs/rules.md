@@ -54,11 +54,13 @@ Design pillars, in priority order:
   | turn | 105°/s at rest, falling linearly to 0 at 18.75 m/s (79°/s running); none in the air | 158°/s after a ~0.26 s ramp; also in the air |
   | ride | on the ground or the deck within a step | 0.5 m over the surface its probe finds 0.4 m above it — ground, water or a deck (SIM_VERSION 63, P14); off a ledge it falls |
   | slope | pushed downhill above 17.5°, climbs to a 1.04 gradient | pushed downhill above 14.5° |
-  A diagonal (fore/aft + strafe) pushes as hard as straight ahead, at 45°. The
-  stick is read as the original's digital input — eight 45° sectors around the
-  hull's facing — and its length scales the push, as the original's stick path
-  does; there is no slow modifier (the original's halves the speeds and holds a
-  hover at ledges), so a half-pushed stick is the slow row.
+  | slow row (Action held) | 1.95 m/s fore and sideways; no jump (Jump alone crouches); stops at a 0.1 m drop on slow forward, back and Jink Left | 4.69 m/s fore, 1.47 m/s sideways |
+  A diagonal (fore/aft + a jink) pushes as hard as straight ahead, at 45°. All
+  input is digital, the original's button word (`input.spec.md`; SIM_VERSION 69):
+  forward over back, Jink Right over Jink Left, both jinks cancel, the hover's
+  brake over every direction. On Ovmp's code-4 patches the walker's movement
+  mode makes the ground slippery: the same top speed, reached over seconds, and
+  a glide when let go (SIM_VERSION 71, `fcop-fidelity.md` P11).
 - The change (`TRANSFORM_LOCK_TICKS`, **41 ticks = 1.365 s**, the original's
   `player_transform_step`; SIM_VERSION 38, `fcop-fidelity.md` P3) is a
   **commitment**: no driving, no turning, no jumping and no lock cycling for its
@@ -68,15 +70,14 @@ Design pillars, in priority order:
   refused while a change is running and **on water in either form**. It was 15
   ticks while the change was a one-frame mesh swap and 24 while it was sized to
   the morph (`assets.md` §4); the morph now plays over the original's length.
-  The original triggers it with a two-button chord; the toggle key is our
-  control choice.
-- **Drive and strafe relative to the facing**, as the original does: the stick's
-  component along the facing drives fore/aft, its component across strafes
-  (since SIM_VERSION 39; it was a throttle along the facing only, and sideways
-  stick did nothing). **Turn by aiming**: the aim (or the soft-lock, or the
-  stick when nothing aims) is the heading the hull TURNS to, at its form's rate
-  — the original turns with buttons, Metropolis steers by an absolute heading
-  (`input.spec.md` §4.1), so the rate is applied toward it.
+  It is the original's **chord**: Change Target and Action held together, read
+  as a level — held through a change it starts the next (SIM_VERSION 69).
+- **Drive and strafe relative to the facing**, as the original does: Move
+  Forward / Backward along it, Jink Left / Right across it. **Turn with the turn
+  buttons** at the form's rate — Turn Right turns clockwise seen from above. The
+  guns point where the hull points, or at the lock; the lock never turns the
+  hull (SIM_VERSION 69; until then Metropolis steered by an absolute heading from
+  the mouse or a stick).
 - The slope asymmetry is **deliberate**: `AVATAR_HOVER_MAX_SLOPE` (0.5) is
   stricter than `AVATAR_WALKER_MAX_SLOPE` (1.04), because hover rides clearance
   and trades terrain for speed and water. Each form has ground the other cannot

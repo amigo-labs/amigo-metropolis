@@ -45,10 +45,10 @@ writeSnapshot(state: SimState, out: Float32Array): number // returns entity coun
   the replay header and the online handshake; every peer must pass the same
   options or the sims diverge by construction.
 
-- **Inputs** (`TickInputs`): per player `{ moveX, moveY, aimX, aimY, buttons }`
-  with axes quantized to int8 (-127..127) — quantization is part of determinism
-  (no raw floats from gamepads enter the sim). `buttons` bitfield: fire1, fire2,
-  fire3, transform, jump, interact.
+- **Inputs** (`TickInputs`): per player `{ buttons }`, the original's button
+  word, a u16 (`input.spec.md` §3): move forward/back, turn right/left, jink
+  left/right, gun, heavy, special, jump, action, change target. All digital: no
+  float enters the sim. Transform is the change-target + action chord.
 - **Systems order is fixed** (order is behavior — document any change):
   input → avatar movement → unit lane-following → targeting → projectiles →
   damage/death → capture → economy → spawning → win check.
@@ -87,9 +87,9 @@ Flat `Float32Array`, stride 10 per entity:
   Greybox archetypes until Phase 6 (see assets.md).
 - Frame loop: accumulate real time → run 0..n sim steps → write snapshot →
   interpolate → render. Zero allocations (CLAUDE.md rules).
-- **Input**: keyboard/mouse, sampled per tick, quantized, pushed into the
-  input queue. (Gamepad input shipped with the removed couch splitscreen mode;
-  its camera-relative mapping helpers remain shared with the keyboard path.)
+- **Input**: keyboard and gamepad through the original's bindings, sampled per
+  tick into the button word and pushed into the input queue (`input.spec.md`
+  §5). No mouse, no touch in a match.
 - **Multi-view rendering**: same scene, N cameras, `setScissor`/`setViewport`
   rects (render-only work; kept for post-v1 2v2 even though the couch mode
   that introduced it was removed).
