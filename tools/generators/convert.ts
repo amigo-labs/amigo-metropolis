@@ -339,9 +339,14 @@ const RIM_DUMMY_SPOTS: P[] = [
   [115.5, 159.5],
 ];
 
+// LAYERED since SIM_VERSION 65 (fcop-fidelity.md P12): each spawn stands at the
+// foot of a shaft whose lift rises onto a 2 m platform. Flattened to one storey,
+// the platform and the ramp down from it were gone and the shaft held the mech.
+// Joke (bug-hunt) shares this terrain.
 const PROVING_GROUND: ArenaSpec = {
   id: "proving-ground",
   mission: "Slim",
+  layered: true,
   spawns: RIM_SPAWNS,
   basePlots: RIM_BASE_PLOTS,
   bases: RIM_BASES,
@@ -524,6 +529,7 @@ const LA_CANTINA: ArenaSpec = {
 const BUG_HUNT: ArenaSpec = {
   id: "bug-hunt",
   mission: "Joke",
+  layered: true,
   spawns: RIM_SPAWNS,
   basePlots: RIM_BASE_PLOTS,
   bases: RIM_BASES,

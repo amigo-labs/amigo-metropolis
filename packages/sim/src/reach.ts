@@ -21,6 +21,13 @@
 // standing on, and on arrival it asks `resolveWalker` which surface it ends up on
 // — the same rule the movers use, rather than a second opinion about it.
 //
+// A LIFT (fcop-fidelity.md P12) connects its stops. A flood that reaches a cell
+// under a lift's face, at a height its lowest stop's top is within a step of
+// (or below — the flood takes drops), can ride it: every footprint cell at
+// every stop joins the flood, on the surface the lift's rider counts as
+// standing on there, at that stop's top. On a map without lifts nothing
+// changes.
+//
 // SINGLE-LAYER MAPS ARE UNCHANGED. With no extra decks, `resolveWalker` returns
 // layer 0 everywhere and every node is (cell, 0), which is node-for-node the old
 // flood. This module is authoring/test machinery and is never called from the
@@ -29,6 +36,7 @@
 import { SURFACE_REACH } from "./balance";
 import { crossesWallX, crossesWallY } from "./collision";
 import { isWater, type MapData, resolveHeight, waterHeightAt, worldExtent } from "./map";
+import { STEP_SNAP } from "./sim";
 import { resolveWalker } from "./units";
 
 export interface ReachOptions {
@@ -122,11 +130,37 @@ export function reachableFrom(
     [0, -cell],
   ] as const;
 
+  const visit = (nx: number, ny: number, layer: number, h: number): void => {
+    const k = nodeKey(cellIndex(map, nx), cellIndex(map, ny), layer);
+    if (seen.has(k)) return;
+    seen.add(k);
+    cellsSeen.add(cellIndex(map, nx) * size + cellIndex(map, ny));
+    qx.push(nx);
+    qy.push(ny);
+    qL.push(layer);
+    qH.push(h);
+  };
+  const boarded = new Uint8Array(map.lifts.length);
+
   for (let qi = 0; qi < qx.length; qi++) {
     const x = qx[qi];
     const y = qy[qi];
     const layer = qL[qi];
     const h = qH[qi];
+    for (let k = 0; k < map.lifts.length; k++) {
+      const l = map.lifts[k];
+      if (boarded[k] !== 0 || x < l.x0 || x > l.x1 || y < l.y0 || y > l.y1) continue;
+      if (l.ground + l.stops[0] / 8192 + l.top > h + STEP_SNAP) continue;
+      boarded[k] = 1;
+      for (let s = 0; s < l.stops.length; s++) {
+        const top = l.ground + l.stops[s] / 8192 + l.top;
+        for (let i = Math.ceil(l.x0 / cell - 0.5); (i + 0.5) * cell <= l.x1; i++) {
+          for (let j = Math.ceil(l.y0 / cell - 0.5); (j + 0.5) * cell <= l.y1; j++) {
+            visit((i + 0.5) * cell, (j + 0.5) * cell, l.layers[s], top);
+          }
+        }
+      }
+    }
     for (const [dx, dy] of dirs) {
       const nx = x + dx;
       const ny = y + dy;
@@ -144,14 +178,7 @@ export function reachableFrom(
         wr.height - waterHeightAt(map, nx, ny) < SURFACE_REACH
       )
         continue;
-      const k = nodeKey(cellIndex(map, nx), cellIndex(map, ny), wr.layer);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      cellsSeen.add(cellIndex(map, nx) * size + cellIndex(map, ny));
-      qx.push(nx);
-      qy.push(ny);
-      qL.push(wr.layer);
-      qH.push(wr.height);
+      visit(nx, ny, wr.layer, wr.height);
     }
   }
 

@@ -9,7 +9,13 @@ import { describe, expect, it } from "bun:test";
 import { FLOOR_DAMAGE_PER_STEP, HOVER_CLEARANCE } from "../src/balance";
 import { EV_HIT, EV_LIFT_ARRIVE, EV_LIFT_START, EVENT_STRIDE } from "../src/events";
 import { BUTTON_INTERACT, createTickInputs, type TickInputs } from "../src/inputs";
-import { loadMapFromJson, type MapJson } from "../src/map";
+import {
+  BUG_HUNT_ID,
+  getMapById,
+  loadMapFromJson,
+  type MapJson,
+  PROVING_GROUND_ID,
+} from "../src/map";
 import {
   createSim,
   hash,
@@ -295,4 +301,83 @@ describe("lifts (fcop-fidelity.md P12)", () => {
     bad.lifts = [{ ...(bad.lifts ?? [])[0], stops: [STOP_TOP, 0] }];
     expect(() => loadMapFromJson(bad)).toThrow(/ascending/);
   });
+});
+
+describe("the spawn lifts of Slim and Joke (fcop-fidelity.md P12)", () => {
+  // Each mech spawns at the foot of a shaft on its lift. The way out is the
+  // original's: press, ride up to the base's platform, and walk down the ramp
+  // to the consoles and through the gate. Driven here as a player would, by
+  // the stick toward each waypoint in turn.
+  type Waypoint = [number, number] | "ride";
+  const ROUTES: Waypoint[][] = [
+    [
+      "ride",
+      [104, 66.5],
+      [104, 67.5],
+      [104, 68.5],
+      [104, 69.5],
+      [104, 70.5],
+      [104, 71.5],
+      [103, 73.5],
+      [105.7, 76.5],
+    ],
+    [
+      "ride",
+      [136, 173.5],
+      [136, 172.5],
+      [136, 171.5],
+      [136, 170.5],
+      [136, 169.5],
+      [136, 168.5],
+      [137, 166.5],
+      [134.7, 164.5],
+    ],
+  ];
+
+  function drivesOut(mapId: string, player: number): string {
+    const map = getMapById(mapId);
+    const state = createSim(map, 1);
+    const a = state.avatarId[player];
+    const input = createTickInputs();
+    const route = ROUTES[player];
+    let w = 0;
+    for (let t = 0; t < 30 * 40 && w < route.length; t++) {
+      const wp = route[w];
+      const pi = input.players[player];
+      pi.moveX = 0;
+      pi.moveY = 0;
+      pi.buttons = 0;
+      if (wp === "ride") {
+        pi.buttons = t % 2 === 0 ? BUTTON_INTERACT : 0;
+        step(state, input);
+        if (events(state, EV_LIFT_ARRIVE).some((e) => e[1] > 0)) w++;
+        continue;
+      }
+      const dx = wp[0] - state.ent.posX[a];
+      const dy = wp[1] - state.ent.posY[a];
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < 0.35) {
+        w++;
+        continue;
+      }
+      pi.moveX = Math.round((dx / d) * 127);
+      pi.moveY = Math.round((dy / d) * 127);
+      step(state, input);
+    }
+    if (w >= route.length) return "out";
+    return `stuck before ${JSON.stringify(route[w])} at (${state.ent.posX[a].toFixed(2)}, ${state.ent.posY[a].toFixed(2)})`;
+  }
+
+  for (const mapId of [PROVING_GROUND_ID, BUG_HUNT_ID]) {
+    it(`${mapId}: both mechs ride up and walk down to their gate`, () => {
+      const map = getMapById(mapId);
+      expect(map.lifts.length).toBe(2);
+      for (const l of map.lifts) {
+        expect(l.stops).toEqual([0, 921 << 4]);
+        expect([l.up, l.down, l.dwell[1]]).toEqual([UP, DOWN, DWELL]);
+      }
+      expect(drivesOut(mapId, 0)).toBe("out");
+      expect(drivesOut(mapId, 1)).toBe("out");
+    });
+  }
 });

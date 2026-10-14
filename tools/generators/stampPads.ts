@@ -93,6 +93,16 @@ function stampArena(id: string, check: boolean): boolean {
   // Requiring the neighbour's art to sit within STEP_SNAP of the pad centre's
   // art keeps the stamp on one flat surface: walls are far above it, and the
   // channel beside the plate, which is genuinely that low, is far below.
+  // A deck within a step of the art already carries the pad: on a layered arena
+  // the plate is that deck's, not a sunk ground cell to lift.
+  const standable = (k: number, art: number): boolean => {
+    if (art - map.heights[k] <= STEP_SNAP) return true;
+    for (let L = 0; L < map.layerHeights.length; L++) {
+      if (map.layerMask[L][k] !== 0 && Math.abs(art - map.layerHeights[L][k]) <= STEP_SNAP)
+        return true;
+    }
+    return false;
+  };
   const changed: Change[] = [];
   const seen = new Set<number>();
   for (const [sx, sy] of spots) {
@@ -101,7 +111,7 @@ function stampArena(id: string, check: boolean): boolean {
     if (ci < 0 || ci >= map.size || cj < 0 || cj >= map.size) continue;
     const plate = top[cj * map.size + ci];
     if (!Number.isFinite(plate)) continue;
-    if (plate - map.heights[cj * map.size + ci] <= STEP_SNAP) continue; // pad is fine
+    if (standable(cj * map.size + ci, plate)) continue; // pad is fine
 
     const i0 = Math.floor(sx);
     const j0 = Math.floor(sy);
@@ -115,7 +125,7 @@ function stampArena(id: string, check: boolean): boolean {
         const art = top[k];
         if (!Number.isFinite(art)) continue;
         if (Math.abs(art - plate) > STEP_SNAP) continue; // not this plate
-        if (art - map.heights[k] <= STEP_SNAP) continue; // already standable
+        if (standable(k, art)) continue; // already standable
         seen.add(k);
         const q = Math.round(art / HEIGHT_SCALE);
         if (json.heights[j][i] === q) continue;

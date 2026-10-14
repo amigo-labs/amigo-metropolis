@@ -131,6 +131,12 @@ Design pillars, in priority order:
   comes back down by itself, faster. Its top is ground: the mech rides it and
   steps off at the top onto the deck it serves. A lift under a base's spawn
   (Slim, Joke) is that base's floor and hurts the enemy mech standing on it.
+  On proving-ground and bug-hunt each mech spawns on one (SIM_VERSION 65): it
+  rides up onto its base's platform and walks down the ramp to the consoles.
+- **Kerbs are steps** (SIM_VERSION 65, `fcop-fidelity.md` P15): a face between
+  two floors at most 0.46 m apart, with nothing standing above it, is walked
+  over as the original's walker steps up onto it — on the arenas re-imported
+  so far (proving-ground, bug-hunt). Taller faces stay walls both ways.
 - Same three weapon slots in both modes: Gun, Heavy, Special.
 - **The weapon catalog is the original Precinct Assault set only** (SIM_VERSION
   26): **ten weapons**, four Guns / three Heavies / three Specials. Default kit

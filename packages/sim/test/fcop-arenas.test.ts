@@ -234,14 +234,19 @@ const ARENAS: ArenaExpectation[] = [
     // spawn straddled a 2 m shelf and a 0 m floor, and the bilinear sampler
     // averaged them to exactly 1. There is no 1 m shelf on this arena.
     groundHeight: 0,
-    // Moved by the pad stamp (gen:pads): the 4 cells of the turret pad at
-    // (86-87, 135-136), lifted from -3.97 m onto its -2.00 m plate.
-    heightsPin: 3889076703,
-    // 308 bits carved + 20 to reconnect, of 6330 (5.2%) — Slim's road network
-    // is the densest of the four, at 640 edges. Neither team could leave its own
-    // base before the road carve learned about the console leg (issue #30).
-    wallsVPin: 3839074122,
-    wallsHPin: 3427479675,
+    // Layered since SIM_VERSION 65 (fcop-fidelity.md P12): the turret pad at
+    // (86-87, 135-136) stands on its -2.00 m deck, so the pad stamp that lifted
+    // those 4 ground cells from -3.97 m is gone; no other height moved.
+    heightsPin: 1261122911,
+    // GROUND-DECK walls since SIM_VERSION 65, as la-cantina's: the union of
+    // ground and decks is the old single-storey lattice bit for bit
+    // (fcopWalls.test.ts). On it stage 2 opens 27 bits in the two lift shafts,
+    // 424 kerbs over all three lattices (fcop-fidelity.md P15), carves 139 for the
+    // roads (was 308) and opens 9 to reconnect.
+    wallsVPin: 3700276744,
+    wallsHPin: 2077084268,
+    // Slim's decks, less the lift shafts: the spawns' platforms and the bridges.
+    layerCells: [1847, 98],
     turretSpots: 29,
     outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0,
@@ -263,12 +268,15 @@ const ARENAS: ArenaExpectation[] = [
     // and its jumps climb nothing more (was 0.6 / 1.4): 43 -> 36 steep, 13 -> 36
     // walls — the 1.04-1.4 m steps the old air-steered jump cleared are walls
     // for the original's walker. The road is still escortable (asserted above).
-    steepLaneEdges: 36,
-    hardWallLaneEdges: 36, // of 640 edges; smallest blocking rise 0.85 m
+    // 36 -> 33 at SIM_VERSION 65: the turret pad at (86-87, 135-136) is no
+    // longer stamped into the ground (its deck carries it), and the 3 edges
+    // across its rim are gone with the stamp.
+    steepLaneEdges: 33,
+    hardWallLaneEdges: 33, // of 640 edges; smallest blocking rise 0.85 m
     steepLaneSteps: 3,
     hardWallLaneSteps: 3,
     hoverBlockedEdges: 42,
-    walkerOnlyEdges: 12,
+    walkerOnlyEdges: 15,
     hoverOnlyEdges: 6,
     hoverBlockedLaneSteps: 5,
     hoverDrivableTeams: 1,
@@ -332,14 +340,15 @@ const ARENAS: ArenaExpectation[] = [
     size: 257,
     laneCount: 1,
     groundHeight: 0,
-    // Moved by the pad stamp (gen:pads): the same pad as proving-ground, at
-    // (86-87, 135-136) — Joke and Slim share that corner of their terrain.
-    heightsPin: 398785895,
-    // 312 bits carved + 23 to reconnect, of 6225 (5.4%). Moved when the ground
-    // and air consoles were un-swapped: the carve opens the ground console's leg
-    // to the road, and that leg now starts at the other console.
-    wallsVPin: 3983085979,
-    wallsHPin: 16700859,
+    // Layered since SIM_VERSION 65, as proving-ground: the same pad at
+    // (86-87, 135-136) stands on its deck and is no longer stamped.
+    heightsPin: 3837183847,
+    // Ground-deck walls since SIM_VERSION 65 (as proving-ground): 27 bits in the
+    // lift shafts, 424 kerbs, 139 carved for the roads (was 312), 11 to
+    // reconnect.
+    wallsVPin: 1693058243,
+    wallsHPin: 1220730748,
+    layerCells: [1839, 98],
     turretSpots: 29,
     outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0,
@@ -359,12 +368,13 @@ const ARENAS: ArenaExpectation[] = [
     flatPlots: true,
     // SIM_VERSION 39: as proving-ground (the same terrain): 43 -> 37 steep,
     // 13 -> 37 walls.
-    steepLaneEdges: 37,
-    hardWallLaneEdges: 37, // of 661 edges; smallest blocking rise 0.85 m
+    // 37 -> 34 at SIM_VERSION 65, as proving-ground (the pad stamp is gone).
+    steepLaneEdges: 34,
+    hardWallLaneEdges: 34, // of 661 edges; smallest blocking rise 0.85 m
     steepLaneSteps: 3,
     hardWallLaneSteps: 3,
     hoverBlockedEdges: 43,
-    walkerOnlyEdges: 13,
+    walkerOnlyEdges: 16,
     hoverOnlyEdges: 7,
     hoverBlockedLaneSteps: 5,
     hoverDrivableTeams: 2,

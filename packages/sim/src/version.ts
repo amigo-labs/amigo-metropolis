@@ -1005,4 +1005,18 @@
 //     (was: the drop, a cliff of gradient that pushed walker and hover off
 //     every deck edge and kept a hover off a deck its probe reaches). Moves
 //     the layered goldens (03 on la-cantina, 06); single-surface arenas stay.
-export const SIM_VERSION = 64;
+// v65: proving-ground (Slim) and bug-hunt (Joke) as the multi-deck arenas they
+//     are, with their spawn lifts (fcop-fidelity.md P12) and their kerbs
+//     (P15). Stage 1 emits both decks and the ground's own lattice (the union
+//     of ground and decks is the old single-storey lattice bit for bit); the
+//     turret pad at (86-87, 135-136) stands on its deck, so its ground stamp is
+//     gone (stampPads reads decks). Stage 2 imports the two lifts under the
+//     spawns from the rules artifact (stops 0 / 1.80 m, 130 / 210 wu a tick,
+//     45 ticks at the top, tags 15 / 14), opens their shafts (the cells between
+//     the lift's own, and at the top the edges onto the platform), and opens
+//     424 kerb bits: faces between two floors at most KERB_STEP apart with
+//     nothing standing above them in the original's mesh. A mech now leaves its
+//     spawn as the original's does: up the lift onto the base's platform and
+//     down the ramp to the consoles (until now the shaft held it). reach.ts'
+//     flood rides lifts. No golden plays these arenas; their hashes stay.
+export const SIM_VERSION = 65;

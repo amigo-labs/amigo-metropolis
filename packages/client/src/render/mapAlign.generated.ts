@@ -48,7 +48,7 @@ export const MAP_ALIGN: Readonly<Record<string, MapAlign>> = {
     maxX: 103.5,
     maxY: 3.96875,
     maxZ: 103.5,
-    match: 0.952,
+    match: 0.989,
   },
   "la-cantina": {
     x: 112.5,
@@ -72,7 +72,7 @@ export const MAP_ALIGN: Readonly<Record<string, MapAlign>> = {
     maxX: 103.5,
     maxY: 3.96875,
     maxZ: 103.5,
-    match: 0.955,
+    match: 0.99,
   },
   "hollywood-keys": {
     x: 152.5,

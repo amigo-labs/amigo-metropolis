@@ -900,6 +900,18 @@ export const FLOOR_DAMAGE_PER_STEP = 1;
  * (fcop-fidelity.md P12).
  */
 export const LIFT_RIM_SLACK = 0x400 / 8192;
+/**
+ * The import's kerb rule (tools/generators/kerbs.ts; fcop-fidelity.md P15): a
+ * wall face between two floors that differ by at most this is a step, not a
+ * wall. The original's walker probes the ground 0x0ccc above its feet and steps
+ * onto a rise of about 0.46 m in one step (RE camera-and-movement.md
+ * "Step-up"). Authoring only; the sim never reads it.
+ */
+export const KERB_STEP = 0.46;
+/** Floors closer than this on either side of a face are one floor: a fence, not a kerb. */
+export const KERB_SLIVER = 0.05;
+/** A face standing more than this above the higher floor is a wall, whatever the floors. */
+export const KERB_CLEARANCE = 0.15;
 /** One Dreadnought and one Fortress alive per side (spawner limit 1, ai-and-rules.md §3). */
 export const JUGGERNAUT_ALIVE_LIMIT = 1;
 export const FORTRESS_ALIVE_LIMIT = 1;

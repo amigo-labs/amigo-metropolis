@@ -52,9 +52,11 @@ import {
   openLine,
   reachableFrom,
   resolveHeight,
+  resolveWalker,
   roadProbes,
   roundSpeed,
   SHOOTER_FRONT_ARC_COS,
+  STEP_SNAP,
   sampleHeight,
   segmentWalkable,
   type WallHit,
@@ -78,6 +80,7 @@ import {
   turnSpeedToRadPerTick,
 } from "./fcopLogic";
 import type { FcopRules } from "./fcopRules";
+import { type Lattice, openKerbs, readGlbTriangles } from "./kerbs";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const TICK_HZ = 30; // packages/sim/src/balance.ts
@@ -375,6 +378,153 @@ function out0Spawns(
       ...(rec.hover ? { hover: true } : {}),
     };
   });
+}
+
+/** One sim tick is this many of the original's 300 Hz engine ticks. */
+const ENGINE_TICKS_PER_TICK = 300 / TICK_HZ;
+
+type LiftJson = NonNullable<MapJson["lifts"]>[number];
+
+/** The cells whose centres lie on a lift's face: the shaft it moves in. */
+function liftCells(l: { x0: number; x1: number; y0: number; y1: number }): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = Math.ceil(l.x0 - 0.5); i + 0.5 <= l.x1; i++) {
+    for (let j = Math.ceil(l.y0 - 0.5); j + 0.5 <= l.y1; j++) out.push([i, j]);
+  }
+  return out;
+}
+
+/** The four neighbours of a cell, with the lattice bit between them. */
+function edgesOf(
+  i: number,
+  j: number,
+): { ni: number; nj: number; axis: "V" | "H"; r: number; c: number }[] {
+  return [
+    { ni: i + 1, nj: j, axis: "V", r: j, c: i + 1 },
+    { ni: i - 1, nj: j, axis: "V", r: j, c: i },
+    { ni: i, nj: j + 1, axis: "H", r: j + 1, c: i },
+    { ni: i, nj: j - 1, axis: "H", r: j, c: i },
+  ];
+}
+
+/**
+ * The lifts (fcop-fidelity.md P12) in the sim's frame, from the rules artifact:
+ * the face's rectangle (already turned by the record's yaw), the stops in world
+ * units (raw << 4), the speeds per sim tick, the dwell per stop in sim ticks.
+ * The surface a rider counts as standing on at a stop is the one most of the
+ * floors around the shaft at that stop's height belong to (their walls are the
+ * ones it then reads); the ground's where none meets it.
+ */
+function liftsOf(
+  rules: FcopRules,
+  terrain: MapData,
+  teamOfSlot: (slot: number) => number,
+): LiftJson[] {
+  return rules.lifts.map((l) => {
+    const x = sx(l.x);
+    const y = sz(l.z);
+    const face = {
+      x0: round4(x + l.footprint.x0),
+      x1: round4(x + l.footprint.x1),
+      y0: round4(y + l.footprint.z0),
+      y1: round4(y + l.footprint.z1),
+    };
+    const stops = l.stopsRaw.map((r) => r << 4);
+    const cells = liftCells(face);
+    const inShaft = new Set(cells.map(([i, j]) => i * terrain.size + j));
+    const layers = stops.map((wu) => {
+      const top = l.groundM + wu / 8192 + l.footprint.topM;
+      const count = new Map<number, number>();
+      for (const [i, j] of cells) {
+        for (const e of edgesOf(i, j)) {
+          if (inShaft.has(e.ni * terrain.size + e.nj)) continue;
+          const wr = resolveWalker(terrain, e.ni + 0.5, e.nj + 0.5, top);
+          if (Math.abs(wr.height - top) > STEP_SNAP) continue;
+          count.set(wr.layer, (count.get(wr.layer) ?? 0) + 1);
+        }
+      }
+      let best = 0;
+      let bestN = 0;
+      for (const [layer, n] of [...count].sort((a, b) => a[0] - b[0])) {
+        if (n > bestN) {
+          best = layer;
+          bestN = n;
+        }
+      }
+      return best;
+    });
+    return {
+      x: round4(x),
+      y: round4(y),
+      ...face,
+      ground: l.groundM,
+      top: l.footprint.topM,
+      stops,
+      up: l.speedWuPerTick.forward * ENGINE_TICKS_PER_TICK,
+      down: l.speedWuPerTick.backward * ENGINE_TICKS_PER_TICK,
+      dwell: l.dwellTicks.map((t) => Math.floor(t / ENGINE_TICKS_PER_TICK)),
+      start: l.startsAt,
+      hurtsTeam: l.hurtsSlot === null ? -1 : teamOfSlot(l.hurtsSlot),
+      layers,
+      model: l.cobj,
+      yaw: round4((l.yawRaw * Math.PI) / (ROTATION_TURN / 2)),
+    };
+  });
+}
+
+/**
+ * Opens the shaft a lift moves in (fcop-fidelity.md P12), in place.
+ *
+ * The extractor turns every near-vertical polygon into the edge of the tile it
+ * lies in, so a shaft arrives walled on every side and through its middle, on
+ * every surface's lattice: the shaft's own faces, from its floor up to the
+ * floors it serves. The original's mech stands on the lift's top above them.
+ * So:
+ * - the edges between the shaft's own cells open on every lattice (the lift is
+ *   one platform at every height);
+ * - at every stop above the lowest, an edge from the shaft to a floor at that
+ *   stop's height (within STEP_SNAP of its top) opens on the rider's lattice
+ *   there and on that floor's own — the rider steps off over the shaft's wall;
+ * - at the lowest stop the shaft's walls stand: they are walls at that height;
+ * - no deck lies inside the shaft: the extractor's plates on its cells (a
+ *   sample on the shaft's rim) would catch the lift's rider mid-travel.
+ * Returns the bits opened.
+ */
+function openLiftShafts(
+  lifts: readonly LiftJson[],
+  terrain: MapData,
+  lattices: { v: string[][]; h: string[][] }[],
+  masks: string[][][],
+): number {
+  let opened = 0;
+  const open = (layer: number, axis: "V" | "H", r: number, c: number): void => {
+    const lat = lattices[layer] ?? lattices[0];
+    const grid = axis === "V" ? lat.v : lat.h;
+    if (grid[r]?.[c] !== "1") return;
+    grid[r][c] = "0";
+    opened++;
+  };
+  for (const l of lifts) {
+    const cells = liftCells(l);
+    const inShaft = new Set(cells.map(([i, j]) => i * terrain.size + j));
+    for (const [i, j] of cells) {
+      for (const m of masks) if (m[j]?.[i] === "1") m[j][i] = "0";
+      for (const e of edgesOf(i, j)) {
+        if (inShaft.has(e.ni * terrain.size + e.nj)) {
+          for (let layer = 0; layer < lattices.length; layer++) open(layer, e.axis, e.r, e.c);
+          continue;
+        }
+        for (let s = 1; s < l.stops.length; s++) {
+          const top = l.ground + l.stops[s] / 8192 + l.top;
+          const wr = resolveWalker(terrain, e.ni + 0.5, e.nj + 0.5, top);
+          if (Math.abs(wr.height - top) > STEP_SNAP) continue;
+          open(l.layers[s], e.axis, e.r, e.c);
+          open(wr.layer, e.axis, e.r, e.c);
+        }
+      }
+    }
+  }
+  return opened;
 }
 
 /**
@@ -1435,7 +1585,9 @@ function terrainOnly(raw: MapJson): MapJson {
     void defence;
     return rest;
   });
-  return { ...raw, bases };
+  // A fresh stage-1 terrain still carries convert.ts's hand outpost spots but no
+  // outposts, which the loader refuses; every feature list is rebuilt below.
+  return raw.outposts === undefined ? { ...raw, bases, outpostSpots: [] } : { ...raw, bases };
 }
 
 // ---------------------------------------------------------------------------
@@ -1819,12 +1971,58 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // inputs alone.
   const pristine = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", wallsFile(arena)), "utf8"),
-  ) as { size: number; wallsV: string[]; wallsH: string[] };
+  ) as {
+    size: number;
+    wallsV: string[];
+    wallsH: string[];
+    layers?: { wallsV: string[]; wallsH: string[] }[];
+  };
   if (pristine.size !== raw.size) {
     throw new Error(`${wallsFile(arena)} is size ${pristine.size}, map is ${raw.size}`);
   }
   const wallsV = [...pristine.wallsV];
   const wallsH = [...pristine.wallsH];
+  // The lifts and the shafts they move in (fcop-fidelity.md P12), then the
+  // kerbs (P15). Both edit the deck lattices too, from the snapshot's pristine
+  // copies, so the output stays a function of committed inputs; an arena with
+  // neither keeps its decks as stage 1 wrote them.
+  // A lift comes with the decks it serves: an arena still imported as one storey
+  // has no platform for it to reach.
+  const lifts = arena.layered ? liftsOf(rules, terrain, teamOfSlot) : [];
+  let layers = raw.layers;
+  let shaftBits = 0;
+  let kerbBits = 0;
+  if (lifts.length > 0 || arena.kerbs === true) {
+    const decks = pristine.layers ?? [];
+    const lattices: Lattice[] = [
+      { v: wallsV.map((r) => r.split("")), h: wallsH.map((r) => r.split("")) },
+      ...decks.map((d) => ({
+        v: d.wallsV.map((r) => r.split("")),
+        h: d.wallsH.map((r) => r.split("")),
+      })),
+    ];
+    const masks = (raw.layers ?? []).map((L) => L.mask.map((r) => r.split("")));
+    shaftBits = openLiftShafts(lifts, terrain, lattices, masks);
+    if (arena.kerbs === true) {
+      const align = MAP_ALIGN[mapId];
+      const glb = join(REPO_ROOT, "packages", "client", "public", "models", mapId, `${mapId}.glb`);
+      kerbBits = openKerbs(terrain, readGlbTriangles(glb, align.x, align.z), lattices);
+    }
+    for (let j = 0; j < wallsV.length; j++) {
+      wallsV[j] = lattices[0].v[j].join("");
+      wallsH[j] = lattices[0].h[j].join("");
+    }
+    layers = (raw.layers ?? []).map((L, k) => ({
+      ...L,
+      mask: masks[k].map((r) => r.join("")),
+      ...(lattices[k + 1]
+        ? {
+            wallsV: lattices[k + 1].v.map((r) => r.join("")),
+            wallsH: lattices[k + 1].h.map((r) => r.join("")),
+          }
+        : {}),
+    }));
+  }
   let carved = 0;
   let repaired = 0;
   let repairedFor = new Map<string, number>();
@@ -1850,7 +2048,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // which is what leaves the outer ring's capture pads unreachable.
     const spawns = out0Spawns(teamSpawns, rules);
     const repair = repairReachability(
-      { ...raw, spawns, wallsV, wallsH },
+      { ...raw, layers, lifts: lifts.length > 0 ? lifts : undefined, spawns, wallsV, wallsH },
       wallsV,
       wallsH,
       [
@@ -1933,6 +2131,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     triggerVolumes,
     floors: floorMasks(terrain, rules, teamOfSlot),
     spawnGuards: spawnGuards.length > 0 ? spawnGuards : undefined,
+    lifts: lifts.length > 0 ? lifts : undefined,
+    layers,
     props,
   };
 
@@ -1945,6 +2145,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     graph,
     stats: {
       carved,
+      shaftBits,
+      kerbBits,
       repaired,
       repairedFor,
       entries,
@@ -2112,6 +2314,10 @@ function probeOffsets(arena: FcopArena): boolean {
 /** Everything the report prints, so buildArena stays free of console output. */
 interface EnrichStats {
   carved: number;
+  /** Wall bits opened in the lifts' shafts (openLiftShafts). */
+  shaftBits: number;
+  /** Wall bits opened as kerbs (kerbs.ts openKerbs). */
+  kerbBits: number;
   repaired: number;
   /** Bits the repair opened, per target kind — so a residual says what it bought. */
   repairedFor: Map<string, number>;
@@ -2151,6 +2357,17 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   console.log(
     `  wall bits carved to open the original roads: ${carved}/${arena.carveLimit} allowed`,
   );
+  if (stats.kerbBits > 0) console.log(`  wall bits opened as kerbs: ${stats.kerbBits}`);
+  if (map.lifts.length > 0) {
+    console.log(
+      `  lifts ${map.lifts.length}: ${stats.shaftBits} wall bits opened in their shafts; ` +
+        map.lifts
+          .map(
+            (l) => `(${l.x}, ${l.y}) stops ${l.stops.join("/")} on surfaces ${l.layers.join("/")}`,
+          )
+          .join(", "),
+    );
+  }
   const repairDetail =
     repaired > 0
       ? ` (${[...stats.repairedFor].map(([k, n]) => `${n} for a ${k}`).join(", ")})`

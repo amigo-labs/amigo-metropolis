@@ -19,6 +19,12 @@ export interface FcopArena {
   /** Stage 1 emitted stacked decks for this arena (convert.ts `layered`). */
   readonly layered: boolean;
   /**
+   * Stage 2 opens the kerbs (tools/generators/kerbs.ts, fcop-fidelity.md P15):
+   * wall bits that stand for a step the original walks over. Arena by arena,
+   * as each is re-imported.
+   */
+  readonly kerbs?: boolean;
+  /**
    * Wall bits stage 2 may clear to open the original roads, and to reconnect
    * anything the flattening sealed off. Per arena because the cost of flattening
    * a bridged mission to one storey is per arena; a number here is a measurement
@@ -51,7 +57,8 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
   {
     mapId: "proving-ground",
     mission: "Slim",
-    layered: false,
+    layered: true,
+    kerbs: true,
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1638,
@@ -59,7 +66,7 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
   {
     mapId: "la-cantina",
     mission: "Mp",
-    layered: false,
+    layered: true,
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1024,
@@ -67,7 +74,8 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
   {
     mapId: "bug-hunt",
     mission: "Joke",
-    layered: false,
+    layered: true,
+    kerbs: true,
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1638,
