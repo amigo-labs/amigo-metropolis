@@ -39,7 +39,10 @@ Design pillars, in priority order:
   health (the original's absolute 1000 f(x) HP).
 - **Difficulty** (SIM_VERSION 72; `fcop-fidelity.md` P1, P2, P13, W1): each
   player picks the original's **HARD, NORMAL or EASY** (`SimOptions.difficulties`,
-  NORMAL by default, the original's default pick). It sets the mech's
+  NORMAL by default, the original's default pick): the solo menu offers the
+  three plates in the original's order (`?difficulty=hard|easy` in a deep
+  link); an online match plays NORMAL for both until its lobby offers the
+  pick. It sets the mech's
   health, its magazines and what deep water does to the walker (below). The
   Warden's slot has none: its difficulty is its level (§7).
 - **Health: 1000 / 1250 / 1500** on HARD / NORMAL / EASY

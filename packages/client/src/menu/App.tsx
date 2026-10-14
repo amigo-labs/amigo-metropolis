@@ -18,7 +18,7 @@ import {
   type HardpointSpec,
   weaponBarFractions,
 } from "./hardpoints";
-import type { MenuChoice } from "./routing";
+import { DIFFICULTY_PLATES, type MenuChoice } from "./routing";
 import { ArenaPicker } from "./screens/ArenaPicker";
 import { Drawer } from "./screens/Drawer";
 import { OnlinePanel } from "./screens/OnlinePanel";
@@ -45,9 +45,36 @@ export interface AppProps {
 function SoloPanel({ state, update }: Pick<AppProps, "state" | "update">) {
   return (
     <>
+      {/* The original front end's per-player pick: HARD, NORMAL, EASY plates. */}
+      <div class="menu-row">
+        <span class="menu-label" id="menu-player-difficulty-label">
+          Difficulty
+        </span>
+        <fieldset
+          class="menu-plates"
+          id="menu-player-difficulty"
+          aria-labelledby="menu-player-difficulty-label"
+        >
+          {DIFFICULTY_PLATES.map((plate) => (
+            <button
+              type="button"
+              key={plate.name}
+              class={`menu-plate${plate.value === state.playerDifficulty ? " is-active" : ""}`}
+              aria-pressed={plate.value === state.playerDifficulty}
+              onClick={() => update({ playerDifficulty: plate.value })}
+            >
+              {plate.name}
+            </button>
+          ))}
+        </fieldset>
+      </div>
+      <p class="menu-hint">
+        Your X1-Alpha: HARD 1000 health, the bare magazines, and deep water drowns it; NORMAL 1250
+        and a quarter more rounds; EASY 1500 and half more.
+      </p>
       <div class="menu-row">
         <label class="menu-label" for="menu-difficulty">
-          Difficulty
+          Captain
         </label>
         <input
           id="menu-difficulty"

@@ -91,6 +91,7 @@ import { isTextEntryTarget } from "./input/textEntry";
 import type { LocalInputSource } from "./input/types";
 import {
   buildModeQuery,
+  difficultyFromParams,
   loadoutFromParams,
   type MenuChoice,
   type MenuHandle,
@@ -211,6 +212,11 @@ const explicitMode =
   params.has("debug");
 /** Loadout for the local human (menu pick or ?gun=&heavy=&special= deep link). */
 let playerLoadout: Loadout = loadoutFromParams(params);
+/**
+ * The local human's difficulty, HARD / NORMAL / EASY (0 / 1 / 2): the menu's
+ * plates or ?difficulty=hard|easy. Solo only — a net match plays NORMAL.
+ */
+let playerDifficulty: number = difficultyFromParams(params);
 // Offline match modes build the sim now; a net mode defers — to the server's
 // authoritative config (arrives in MSG_WELCOME) or the lobby-brokered P2P
 // session — so both peers build a byte-identical sim. The menu instead shows
@@ -222,6 +228,7 @@ let sim: SimState = netMode
     ? createSim(map, seed, {
         ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
         loadouts: [playerLoadout],
+        difficulties: [playerDifficulty],
       })
     : createDemoSim(map);
 
@@ -983,6 +990,7 @@ function rematchSolo(): void {
     createSim(map, matchSeed, {
       ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
       loadouts: [playerLoadout],
+      difficulties: [playerDifficulty],
     }),
   );
   startMatch([{ slot: 0, input: localInput }]);
@@ -1086,6 +1094,7 @@ function returnToMenu(): void {
       onChoice: handleMenuChoice,
       onSelect: previewArena,
       initialLoadout: playerLoadout,
+      initialDifficulty: playerDifficulty,
       onTexPref: (pref) => {
         texPref = pref;
         texSwitcher?.setVariant(variantOfPref(pref));
@@ -2269,9 +2278,15 @@ function previewArena(mapId: string): void {
  * deep link (carrying a ?relay override), so it stays shareable and a refresh
  * re-enters through the deep-link path exactly as before.
  */
-function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): void {
+function handleMenuChoice(
+  choice: MenuChoice,
+  mapId: string,
+  loadout: Loadout,
+  difficulty: number,
+): void {
   playerLoadout = loadout;
-  const query = buildModeQuery(choice, mapId, loadout);
+  playerDifficulty = difficulty;
+  const query = buildModeQuery(choice, mapId, loadout, difficulty);
   const relay = params.get("relay");
   history.pushState(null, "", relay ? `${query}&relay=${encodeURIComponent(relay)}` : query);
   menuHandle?.dismiss();
@@ -2288,6 +2303,7 @@ function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): 
         createSim(map, seed, {
           ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
           loadouts: [playerLoadout],
+          difficulties: [playerDifficulty],
         }),
       );
       // The flagship transition: one continuous shot from flyover to chase rig.
@@ -2302,7 +2318,9 @@ function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): 
       flyMode = true;
       warden = false;
       wardenDifficulty = 0;
-      resetForMatch(createSim(map, seed, { loadouts: [playerLoadout] }));
+      resetForMatch(
+        createSim(map, seed, { loadouts: [playerLoadout], difficulties: [playerDifficulty] }),
+      );
       // No flyover→chase blend — fly cam owns posing from the first frame.
       startMatch([{ slot: 0, input: localInput }]);
       break;
@@ -2316,7 +2334,9 @@ function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): 
       opponentMode = "idle";
       warden = false;
       wardenDifficulty = 0;
-      resetForMatch(createSim(map, seed, { loadouts: [playerLoadout] }));
+      resetForMatch(
+        createSim(map, seed, { loadouts: [playerLoadout], difficulties: [playerDifficulty] }),
+      );
       startMatch([{ slot: 0, input: localInput }]);
       break;
     }
@@ -2351,6 +2371,7 @@ if (online) {
     onChoice: handleMenuChoice,
     onSelect: previewArena,
     initialLoadout: playerLoadout,
+    initialDifficulty: playerDifficulty,
     // Graphics drawer: apply a texture-preference change immediately to the
     // (possibly already loaded) backdrop arena; persisting is menu.ts's job.
     onTexPref: (pref) => {

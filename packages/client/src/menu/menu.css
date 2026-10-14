@@ -599,6 +599,46 @@
   accent-color: var(--ck-line-bright);
 }
 
+/* The difficulty plates: three buttons, one pressed (the original's HARD /
+   NORMAL / EASY plates). */
+.menu-plates {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.menu-plate {
+  flex: 1;
+  padding: 8px 6px;
+  border: 1px solid var(--ck-line-dim);
+  border-radius: var(--ck-radius);
+  background: var(--ck-screen);
+  color: var(--ck-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition:
+    border-color 0.14s,
+    color 0.14s;
+}
+
+.menu-plate:hover {
+  border-color: var(--ck-line);
+  color: var(--ck-text-bright);
+}
+
+.menu-plate.is-active {
+  border-color: var(--ck-line-bright);
+  color: var(--ck-text-bright);
+  box-shadow: 0 0 12px rgba(80, 200, 255, 0.25);
+}
+
 .menu-select {
   flex: 1;
   padding: 9px 11px;

@@ -34,6 +34,8 @@ import { initialMenuState, type MenuState, mapIdFromParams } from "./state";
 export {
   apiBase,
   buildModeQuery,
+  DIFFICULTY_PLATES,
+  difficultyFromParams,
   isLocalhost,
   loadoutFromParams,
   type MenuChoice,
@@ -45,8 +47,9 @@ export interface MenuOptions {
   audio: AudioEngine;
   /** Called once when the player picks a mode; main.ts starts it in-process.
    *  `mapId` is the arena picked in the menu's persistent arena gallery.
-   *  `loadout` is the gun/heavy/special kit from the console strip. */
-  onChoice(choice: MenuChoice, mapId: string, loadout: Loadout): void;
+   *  `loadout` is the gun/heavy/special kit from the console strip.
+   *  `difficulty` is the player's HARD / NORMAL / EASY plate (0 / 1 / 2). */
+  onChoice(choice: MenuChoice, mapId: string, loadout: Loadout, difficulty: number): void;
   /** Called whenever the arena selection changes so the live 3D backdrop can
    *  preview the picked arena. `mapId` is the newly selected arena. */
   onSelect(mapId: string): void;
@@ -59,6 +62,8 @@ export interface MenuOptions {
   onControls(table: Binding[]): void;
   /** Optional initial loadout (e.g. from ?gun= URL). */
   initialLoadout?: Loadout;
+  /** Optional initial difficulty plate (e.g. from ?difficulty= URL); NORMAL. */
+  initialDifficulty?: number;
 }
 
 /** Handle returned by runMenu so a late `beforeinstallprompt` can add Install. */
@@ -78,12 +83,13 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   let state: MenuState = initialMenuState(
     opts.initialLoadout,
     mapIdFromParams(new URLSearchParams(location.search)),
+    opts.initialDifficulty,
   );
   let installPrompt: (() => void) | undefined;
   let nav: NavFocusHandle | undefined;
 
   const go = (choice: MenuChoice): void => {
-    opts.onChoice(choice, state.mapId, { ...state.loadout });
+    opts.onChoice(choice, state.mapId, { ...state.loadout }, state.playerDifficulty);
   };
 
   const selectArena = (mapId: string): void => {
