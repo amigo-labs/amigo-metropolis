@@ -15,6 +15,10 @@ import { join } from "node:path";
 import { ANIM_HOVER, ARCHETYPE, getMapById, worldExtent } from "@metropolis/sim";
 import type { Page } from "playwright-core";
 import {
+  ARENA_UNITS,
+  type ArenaUnits,
+} from "../../../packages/client/src/render/arenaUnits.generated";
+import {
   launchBrowser,
   newHarnessContext,
   ROOT,
@@ -35,18 +39,27 @@ const MAP_ID = "test-128";
 const UNIT_GLBS = [
   "avatar-walker",
   "avatar-hover",
-  "runner",
-  "guardian",
-  "juggernaut",
-  "fortress",
-  // The two turret modes are two models and two buckets; "turret" has not been
-  // a shipped key since the Standard/Defense split, so this list asked for a
-  // file that cannot 200 and the verifier failed on every run.
-  "turret-standard",
-  "turret-defense",
-  "console",
-  "warden",
+  // A map of no mission draws la-cantina's (Mp's) units, one file per role
+  // and turret part (render/arenaUnits.ts). The Sky Captain's is level 0's.
+  ...arenaUnitFiles(ARENA_UNITS["la-cantina"]),
 ];
+
+/** Every file an arena's table names for the lineup's roles, once each. */
+function arenaUnitFiles(u: ArenaUnits): string[] {
+  const files = [
+    u.tank.model,
+    u.jet.model,
+    u.fortress.model,
+    u.dreadnought.hull,
+    u.baseTurret.gun,
+    u.baseTurret.base,
+    u.neutralTurrets[0].gun,
+    u.neutralTurrets[0].base,
+    u.console,
+    u.skyCaptain.byLevel[0],
+  ];
+  return [...new Set(files)];
+}
 
 /**
  * Projectile / weapon-effect models (docs/specs/fcop-fx.md). Loaded at boot
@@ -108,7 +121,7 @@ async function main(): Promise<void> {
       const u = r.url();
       if (u.includes("/models/")) {
         if (r.status() >= 400) badAssets.push(`${r.status()} ${u}`);
-        const asset = u.match(/\/models\/(units|fx)\/([a-z0-9-]+)\.glb$/);
+        const asset = u.match(/\/models\/(units|fx)\/((?:[a-z0-9-]+\/)?[a-z0-9_-]+)\.glb$/);
         if (asset && r.ok()) glbsLoaded.push(asset[2]);
       }
     });

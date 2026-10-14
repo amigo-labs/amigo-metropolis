@@ -276,7 +276,8 @@ export const MODE_WALKER = 0;
 export const MODE_HOVER = 1;
 
 // Turret kinds (EntityStore.mode on TURRET entities).
-// Visual mesh modes: DEFENSE → turret-defense.glb, DUMMY/CAPTURABLE → turret-standard.glb.
+// Visual mesh modes: DEFENSE → the arena's type-8 turret (gun + base, Mp Cobj 20/21),
+// DUMMY/CAPTURABLE → its NeutralTurret (Mp 31/32) — client render/arenaUnits.ts.
 export const TURRET_DEFENSE = 0; //     base ring: full targeting (mesh mode "Defense")
 /** @deprecated Use TURRET_DEFENSE — same value (0). */
 export const TURRET_BASE = TURRET_DEFENSE;

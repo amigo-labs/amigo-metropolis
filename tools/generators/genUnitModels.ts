@@ -46,7 +46,7 @@ import {
 } from "@gltf-transform/functions";
 import { MeshoptSimplifier } from "meshoptimizer";
 import { type DecodedImage, decodePng, encodePng } from "./png";
-import { FX_MODELS, PROP_MODELS, UNIT_MODELS } from "./units/manifest";
+import { ARENA_UNIT_MODELS, FX_MODELS, PROP_MODELS, UNIT_MODELS } from "./units/manifest";
 
 const RAW_DIR = join(import.meta.dir, "units", "raw");
 const MODELS_DIR = join(import.meta.dir, "..", "..", "packages", "client", "public", "models");
@@ -93,6 +93,12 @@ interface ModelPass {
    * Projectiles keep them — there the beam *is* the model.
    */
   readonly dropFxAttachments?: boolean;
+  /**
+   * Also drop the zero-thickness cards that share the body's page (see
+   * dropPlanarBillboards). Not for a `part`: its origin and bounds are the
+   * raw's, and attach points are measured from them.
+   */
+  readonly dropBillboards?: boolean;
 }
 
 const PASSES: readonly ModelPass[] = [
@@ -109,6 +115,24 @@ const PASSES: readonly ModelPass[] = [
     centreXZ: true,
     groundY: true,
     dropFxAttachments: true,
+    dropBillboards: true,
+  })),
+  // Each arena's own units (fcop-fidelity.md G1). A `part` keeps the raw's
+  // origin and bounds: the gun stands on the base's attach point, the
+  // Dreadnought's guns on the hull's, and both turn about their own origin.
+  ...ARENA_UNIT_MODELS.map((spec) => ({
+    key: spec.file.slice(spec.file.indexOf("/") + 1),
+    label: spec.file,
+    raw: spec.raw,
+    outDir: join(OUT_UNITS, spec.file.slice(0, spec.file.indexOf("/"))),
+    rotateQuarterY: spec.treatment === "console" ? (2 as const) : (0 as const),
+    maxTris: spec.maxTris,
+    nativeScale: true,
+    neutralizeColors: spec.neutralizeColors,
+    centreXZ: spec.treatment !== "part",
+    groundY: spec.treatment !== "part",
+    dropFxAttachments: true,
+    dropBillboards: spec.treatment !== "part",
   })),
   ...PROP_MODELS.map((spec) => ({
     key: spec.key,
@@ -865,7 +889,7 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
     transformMesh(mesh, m as unknown as Parameters<typeof transformMesh>[1]);
   apply(quarterYMatrix(spec.rotateQuarterY));
 
-  if (spec.dropFxAttachments) dropPlanarBillboards(document, mesh);
+  if (spec.dropBillboards) dropPlanarBillboards(document, mesh);
 
   let bounds = getBounds(scene);
   // FCOP Cobj assemblies are already in map meters — only orient + ground.

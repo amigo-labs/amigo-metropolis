@@ -62,16 +62,21 @@ function bucketSize(mesh: THREE.InstancedMesh): { footprint: number; height: num
   };
 }
 
-/** Bucket name -> model key, for every archetype that has both. */
+/**
+ * Bucket name -> model key, for every archetype that has both. The arena's own
+ * units load per arena (render/arenaUnits.ts) and differ by mission (Joke's
+ * are other models altogether); the stand-ins are la-cantina's, Mp's, which is
+ * also what a map with no mission draws.
+ */
 const PAIRS: readonly (readonly [keyof GreyboxMeshes, string])[] = [
   ["avatarWalker", "avatar-walker"],
   ["avatarHover", "avatar-hover"],
-  ["runner", "runner"],
-  ["guardian", "guardian"],
-  ["juggernaut", "juggernaut"],
-  ["fortress", "fortress"],
-  ["console", "console"],
-  ["warden", "warden"],
+  ["runner", "la-cantina/obj_030"],
+  ["guardian", "la-cantina/obj_022"],
+  ["juggernaut", "la-cantina/obj_036"],
+  ["fortress", "la-cantina/obj_041"],
+  ["console", "la-cantina/obj_029"],
+  ["warden", "la-cantina/obj_054"],
 ];
 
 describe("greybox stand-ins match the models they stand in for", () => {

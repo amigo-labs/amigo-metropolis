@@ -2,9 +2,13 @@
 //
 // Single source of truth for the model pass: genUnitModels.ts consumes it to
 // build packages/client/public/models/units/<key>.glb from the committed raw
-// downloads, and packages/client/test/unitModels.test.ts asserts the committed
+// downloads, and tools/generators/test/unitModels.test.ts asserts the committed
 // output still matches it. Swapping a model = changing one entry here, dropping
 // the raw file next to it, and re-running `bun run gen:units`.
+//
+// UNIT_MODELS are the models every arena shares (the X1-Alpha's two forms).
+// Each arena's own units — its mission's Cobjs for every role — are
+// ARENA_UNIT_MODELS below, listed by `bun run gen:paunits` rather than by hand.
 //
 // Two arrays, ONE scale. Every model here and in PROP_MODELS keeps the size the
 // original authored it at, because the arena around them does: the FCOP terrain
@@ -33,6 +37,11 @@
 // - `footprint` is the max horizontal extent in world units; `ARCHETYPE_RADIUS`
 //   in packages/sim/src/balance.ts is half of it, so the two stay in step
 // - `maxTris` per assets.md §4: ~1500 standard, ~5000 Juggernaut/Fortress/Avatar
+
+import {
+  UNIT_MODEL_FILES,
+  type UnitTreatment,
+} from "../../../packages/client/src/render/arenaUnits.generated";
 
 export interface UnitModelSource {
   /** Human-readable model title on the source site. */
@@ -144,174 +153,6 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     maxHeight: 0.48,
     nativeScale: true,
     maxTris: 5000,
-    neutralizeColors: true,
-  },
-  {
-    key: "runner",
-    raw: "fcop/mp-obj030-hovertank.glb",
-    source: {
-      title: "Hovertank (Mp Cobj 30)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    // 0 like every other Cobj: the extraction already puts the nose on +Z.
-    rotateQuarterY: 0,
-    // Native 1.05 x 0.40 x 1.52 — longer than the X1 and half its height.
-    footprint: 1.53,
-    maxHeight: 0.4,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: true,
-  },
-  {
-    // The Precinct Assault jet: every jet spawner of every PA mission names
-    // Cobj 22 (RE extracted/logic/<Mission>/pa_rules.json `spawners`, kind
-    // "jet"). This entry used to carry Cobj 41, the Flying Fortress — the
-    // `fortress` entry below — so the jet flew as a 3.15 m bomber. Mp's
-    // payload is also Conft's, Slim's and Hk's; Ovmp's samples page 4, and
-    // Joke's is a model of its own (every arena draws Mp's: open).
-    //
-    // Cobj 22 is a 3-frame morph (extract_objects.py anim_kind "morph"): its
-    // rotor, the 54 vertices of the top hub and blades at y 0.11-0.16, turns
-    // about the hub from frame to frame. One InstancedMesh per archetype
-    // cannot drive per-instance morph weights through this pipeline, so
-    // gen:units keeps frame 0 and the rotor stands still (open: assets.md §4).
-    key: "guardian",
-    raw: "fcop/mp-obj022-jet.glb",
-    source: {
-      title: "Jet (Mp Cobj 22, morph frame 0)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 0,
-    // Native 1.40 x 0.42 x 1.50: rotor and stub wings 1.40 m across, the cabin
-    // nose on +Z and the tail boom on -Z.
-    footprint: 1.51,
-    maxHeight: 0.43,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: true,
-    // The rotor has no mast: its hub (y 0.113) floats 5.1 cm over the cabin
-    // roof (y 0.063) in every frame, as authored.
-    authoredGap: 0.051,
-  },
-  {
-    key: "juggernaut",
-    raw: "fcop/mp-obj036-heavy-gunship.glb",
-    source: {
-      title: "Heavy gunship (Mp Cobj 36)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 0,
-    // Native 1.20 x 0.63 x 2.22 — was stretched 1.85x.
-    footprint: 2.22,
-    maxHeight: 0.63,
-    nativeScale: true,
-    maxTris: 5000,
-    neutralizeColors: true,
-  },
-  {
-    // The Flying Fortress: the spawners of kind "flying_fortress" name Cobj 41
-    // (Mp, Hk, Joke, Ovmp) or 42 (Conft, Slim) — Mp's payload on Mp, Conft,
-    // Slim and Hk; Ovmp's samples page 4, Joke's is a model of its own (every
-    // arena draws Mp's: open). This entry used to carry Cobj 57, one of the four
-    // Sky Captain models (Mp actors 287/295/296/297 = Cobj 54/56/57/58, one
-    // loaded per difficulty level), while the Fortress's own model stood in
-    // for the jet above.
-    key: "fortress",
-    raw: "fcop/mp-obj041-flying-fortress.glb",
-    source: {
-      title: "Flying Fortress (Mp Cobj 41)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 0,
-    // Native 3.15 x 0.68 x 2.14 — a flying wing, the widest thing on the
-    // field; the pointed nose on +Z, the raised wing tips aft.
-    footprint: 3.15,
-    maxHeight: 0.69,
-    nativeScale: true,
-    maxTris: 5000,
-    neutralizeColors: true,
-  },
-  {
-    // Mode "Standard": capturable/dummy. FCOP Mp base 32 + gun 31 (assembly C).
-    // nativeScale: raw assembly is already in map meters (~1.4×1.6).
-    key: "turret-standard",
-    raw: "custom/turret-standard.glb",
-    source: {
-      title: "Turret Standard (Mp Cobj 32 base + 31 gun)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 2,
-    footprint: 1.5,
-    maxHeight: 1.7,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: true,
-  },
-  {
-    // Mode "Defense": base-ring. FCOP Mp base 21 + gun 20 (assembly E).
-    // nativeScale: raw is smaller (~0.95 m) — keep FCOP relative size.
-    key: "turret-defense",
-    raw: "custom/turret-defense.glb",
-    source: {
-      title: "Turret Defense (Mp Cobj 21 base + 20 gun)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 2,
-    footprint: 1.0,
-    maxHeight: 1.0,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: true,
-  },
-  {
-    key: "console",
-    // la-cantina's own scenery raw for Cobj 29: one file for both treatments.
-    raw: "fcop-props/Mp/obj_029.glb",
-    source: {
-      title: "Outpost flag console (Mp Cobj 29)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 2,
-    // Native 1.00 x 1.47 x 1.12 — the size la-cantina's prop-029 ships at. Fitting
-    // drew this at 3.20 m next to its own 1.47 m twin, in the same arena.
-    footprint: 1.12,
-    maxHeight: 1.48,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: false,
-  },
-  {
-    key: "warden",
-    raw: "fcop/mp-obj054-skycaptain-jet.glb",
-    source: {
-      title: "Sky Captain jet (Mp Cobj 54)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    // 0 like every other Cobj: the extraction already puts the nose on +Z.
-    rotateQuarterY: 0,
-    // Hull-only 1.49 x 0.42 x 1.13. The raw's second primitive is a 1 m
-    // tex10 searchlight pair (combined 1.49 x 0.71 x 2.04); gen:units drops
-    // it so the beams do not bake into the dark cones in warden-iso.png.
-    footprint: 1.5,
-    maxHeight: 0.42,
-    nativeScale: true,
-    maxTris: 1500,
     neutralizeColors: true,
   },
 ];
@@ -502,6 +343,63 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     neutralizeColors: true,
   },
 ];
+
+/**
+ * One arena unit file: the Cobj an arena's role draws, in that arena's own
+ * mission numbering and with its own texture pages
+ * (packages/client/src/render/arenaUnits.generated.ts, `bun run gen:paunits`).
+ * Output: packages/client/public/models/units/<file>.glb, where `file` is
+ * `<mapId of the first arena that draws it>/obj_NNN`; every other arena whose
+ * payload and sampled texels are identical points at the same file.
+ */
+export interface ArenaUnitModelSpec {
+  /** Under models/units/, without `.glb`. */
+  readonly file: string;
+  readonly mission: string;
+  readonly cobj: number;
+  /** Raw extraction, relative to tools/generators/units/raw/ (copied unchanged). */
+  readonly raw: string;
+  readonly treatment: UnitTreatment;
+  readonly usedBy: readonly string[];
+  readonly source: UnitModelSource;
+  readonly maxTris: number;
+  /** Metropolis' own: see UnitModelSpec.neutralizeColors (fcop-fidelity.md G4, open). */
+  readonly neutralizeColors: boolean;
+}
+
+/**
+ * Every unit of every arena, the arena's own model (fcop-fidelity.md G1). Until
+ * Phase 14 wave 5 all six arenas drew Mp's files under fixed keys (`runner`,
+ * `guardian`, `juggernaut`, `fortress`, `warden`, `console`) and two turret
+ * assemblies glued together by hand (`raw/custom/`); Hk's tank, Ovmp's page-4
+ * units and every one of Joke's are models of their own, so those arenas drew
+ * another mission's units.
+ *
+ * The treatment is the role's (`gen:paunits` names it):
+ * - `unit` (tank, jet, Flying Fortress, Sky Captain): grounded and XZ-centred
+ *   like every unit before, FX attachments dropped;
+ * - `console`: the outpost console, the same, turned half a turn as before;
+ * - `part` (a turret's gun and base, the Dreadnought's hull and guns): the
+ *   original's own origin kept, because the gun stands on the base's attach
+ *   point 0, the Dreadnought's guns on the hull's attach points 0-3, and each
+ *   turns about its own origin. Those points are in the raw's frame.
+ */
+export const ARENA_UNIT_MODELS: readonly ArenaUnitModelSpec[] = UNIT_MODEL_FILES.map((f) => ({
+  file: f.file,
+  mission: f.mission,
+  cobj: f.cobj,
+  raw: f.raw,
+  treatment: f.treatment,
+  usedBy: f.usedBy,
+  source: {
+    title: `${f.mission} Cobj ${f.cobj} (${f.treatment}; ${f.usedBy.join(", ")})`,
+    author: EA,
+    url: RE_REPO,
+    license: FCOP_LICENSE,
+  },
+  maxTris: 5000,
+  neutralizeColors: f.treatment !== "console",
+}));
 
 export interface PropModelSpec {
   /**

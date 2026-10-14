@@ -24,6 +24,7 @@
     "gen:parules": "bun run tools/generators/fcopRules.ts",
     "gen:paprops": "bun run tools/generators/fcopPaProps.ts",
     "gen:scenery": "bun run tools/generators/fcopScenery.ts",
+    "gen:paunits": "bun run tools/generators/fcopUnits.ts",
     "gen:walls": "bun run tools/generators/fcopWalls.ts",
     "gen:arena": "bun run tools/generators/enrichArena.ts",
     "gen:presentation": "bun run tools/generators/importFcopPresentation.ts",

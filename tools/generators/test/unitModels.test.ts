@@ -6,9 +6,10 @@
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { getBounds, NodeIO, type Primitive } from "@gltf-transform/core";
+import { type Document, getBounds, NodeIO, type Primitive } from "@gltf-transform/core";
 import { ARCHETYPE, ARCHETYPE_RADIUS } from "@metropolis/sim";
-import { FX_MODELS, UNIT_MODELS } from "../units/manifest";
+import { ARENA_UNITS } from "../../../packages/client/src/render/arenaUnits.generated";
+import { ARENA_UNIT_MODELS, FX_MODELS, UNIT_MODELS } from "../units/manifest";
 
 const MODELS_DIR = join(
   import.meta.dir,
@@ -208,14 +209,15 @@ describe("committed FX models match the manifest contract", () => {
 // the model drawn: the halfword at +12 of its 3DBB box, the box's half-diagonal
 // (balance.ts ARCHETYPE_RADIUS; fcop-fidelity.md G1). The drawn mesh's own box
 // lands within the 1/512 quantisation of it, so a model swapped for another
-// without its radius following fails here.
+// without its radius following fails here. The radius is one value, Mp's: it is
+// la-cantina's models that it follows (Joke's are other models; open, G1).
 describe("aircraft hit radii follow the models drawn", () => {
-  for (const [unit, archetype] of [
-    ["guardian", ARCHETYPE.GUARDIAN],
-    ["fortress", ARCHETYPE.FORTRESS],
+  for (const [unit, file, archetype] of [
+    ["guardian", ARENA_UNITS["la-cantina"].jet.model, ARCHETYPE.GUARDIAN],
+    ["fortress", ARENA_UNITS["la-cantina"].fortress.model, ARCHETYPE.FORTRESS],
   ] as const) {
     test(`${unit}: radius is its box's half-diagonal`, async () => {
-      const document = await io.read(join(OUT_DIR, `${unit}.glb`));
+      const document = await io.read(join(OUT_DIR, `${file}.glb`));
       const root = document.getRoot();
       const { min, max } = getBounds(root.getDefaultScene() ?? root.listScenes()[0]);
       const hx = (max[0] - min[0]) / 2;
@@ -228,29 +230,133 @@ describe("aircraft hit radii follow the models drawn", () => {
   }
 });
 
-// The Sky Captain's models (Cobj 54/56/57/58, one per difficulty band) ship a
-// tex10 searchlight volume, and 57 also six facer lines and two 4-tri exhaust
-// cards. Those stay on the raw; the committed unit must be hull-only, or the
-// beams bake into the opaque cones on docs/renders/units/warden-iso.png. (The
-// `fortress` unit carried Cobj 57 until it was given the Flying Fortress's own
-// Cobj 41, which has none of these.)
-describe("Sky Captain units drop FCOP FX attachments", () => {
-  test("warden output has no leftover COLOR_0 mix and stays hull-sized", async () => {
-    const document = await io.read(join(OUT_DIR, "warden.glb"));
-    const root = document.getRoot();
-    const prim = root.listMeshes()[0].listPrimitives()[0];
-    expect(root.listTextures().length).toBe(1);
-    expect(prim.getAttribute("COLOR_0")).toBeNull();
+// Each arena's own units (fcop-fidelity.md G1): the files gen:paunits names in
+// arenaUnits.generated.ts, built by gen:units. Same one-mesh / one-material
+// contract; the size is the raw's own, measured over what the pipeline keeps
+// (FX attachments go), and a `part` keeps the raw's origin and bounds exactly,
+// because its attach points and its pivot are measured in that frame.
+describe("committed arena unit models match the table", () => {
+  for (const spec of ARENA_UNIT_MODELS) {
+    test(spec.file, async () => {
+      const document = await io.read(join(OUT_DIR, `${spec.file}.glb`));
+      const root = document.getRoot();
+      expect(root.listMaterials().length).toBe(1);
+      expect(root.listAnimations().length).toBe(0);
+      expect(root.listSkins().length).toBe(0);
+      const meshes = root.listMeshes();
+      expect(meshes.length).toBe(1);
+      const prims = meshes[0].listPrimitives();
+      expect(prims.length).toBe(1);
+      expect(root.listTextures().length).toBe(1);
+      expect(prims[0].getAttribute("TEXCOORD_0")).not.toBeNull();
+      // FX attachments are gone, so no facer colour rides along.
+      expect(prims[0].getAttribute("COLOR_0")).toBeNull();
 
-    const scene = root.getDefaultScene() ?? root.listScenes()[0];
-    const { min, max } = getBounds(scene);
-    // The beams add ~1 m of +Z on the Sky Captain's craft.
-    expect(max[2] - min[2]).toBeLessThan(1.3);
+      // The raw is the mission's own export of that Cobj.
+      const rawDoc = await io.read(join(RAW_DIR, spec.raw));
+      const rawRoot = rawDoc.getRoot();
+      const names = rawRoot.listNodes().map((n) => n.getName());
+      expect(names).toContain(`${spec.mission}_obj_${String(spec.cobj).padStart(3, "0")}`);
 
-    // No zero-thickness card survives the planar-billboard drop.
-    expect(thinnestComponent(prim)).toBeGreaterThan(0.02);
+      const kept = keptBounds(rawDoc);
+      const scene = root.getDefaultScene() ?? root.listScenes()[0];
+      const out = getBounds(scene);
+      const tris = triangles(prims[0]);
+      expect(tris).toBeGreaterThan(0);
+      expect(tris).toBeLessThanOrEqual(spec.maxTris);
+      if (spec.treatment === "part") {
+        // Origin and bounds are the raw's, triangle for triangle.
+        for (const axis of [0, 1, 2]) {
+          expect(Math.abs(out.min[axis] - kept.min[axis])).toBeLessThanOrEqual(0.002);
+          expect(Math.abs(out.max[axis] - kept.max[axis])).toBeLessThanOrEqual(0.002);
+        }
+        expect(tris).toBe(kept.tris);
+      } else {
+        // Grounded and centred; never larger than what the raw keeps (the Sky
+        // Captain's exhaust cards are dropped too), and the same height or
+        // footprint where nothing is dropped.
+        expect(Math.abs(out.min[1])).toBeLessThanOrEqual(0.02);
+        expect(Math.abs(out.min[0] + out.max[0])).toBeLessThanOrEqual(0.04);
+        expect(Math.abs(out.min[2] + out.max[2])).toBeLessThanOrEqual(0.04);
+        const turned = spec.treatment === "console";
+        // The console is the one model turned half a turn (manifest.ts).
+        expect(turned).toBe(spec.cobj === 29);
+        // No zero-thickness card survives the planar-billboard drop.
+        expect(thinnestComponent(prims[0])).toBeGreaterThan(0.02 - 1e-6);
+        // A skinned raw (Joke's jet) holds its bind pose; gen:units bakes the
+        // rest pose, so its vertices are not the raw's to measure against.
+        if (rawRoot.listSkins().length > 0) return;
+        const size = [0, 1, 2].map((a) => out.max[a] - out.min[a]);
+        const rawSize = [0, 1, 2].map((a) => kept.max[a] - kept.min[a]);
+        expect(size[1]).toBeLessThanOrEqual(rawSize[1] + 0.002);
+        expect(Math.max(size[0], size[2])).toBeLessThanOrEqual(
+          Math.max(rawSize[0], rawSize[2]) + 0.002,
+        );
+        if (tris === kept.tris) {
+          // Nothing dropped: the same box (a half turn keeps the axes).
+          for (const axis of [0, 1, 2]) {
+            expect(Math.abs(size[axis] - rawSize[axis])).toBeLessThanOrEqual(0.002);
+          }
+        }
+      }
+    });
+  }
+
+  test("every role of every arena names a committed file", () => {
+    const files = new Set(ARENA_UNIT_MODELS.map((s) => s.file));
+    for (const [mapId, u] of Object.entries(ARENA_UNITS)) {
+      const refs = [
+        u.tank.model,
+        u.jet.model,
+        u.fortress.model,
+        u.dreadnought.hull,
+        ...u.dreadnought.guns.map((g) => g.model),
+        u.baseTurret.gun,
+        u.baseTurret.base,
+        ...u.neutralTurrets.flatMap((t) => [t.gun, t.base]),
+        ...u.skyCaptain.byLevel,
+        u.console,
+      ];
+      for (const ref of refs) {
+        expect({ mapId, ref, known: files.has(ref) }).toEqual({ mapId, ref, known: true });
+        const spec = ARENA_UNIT_MODELS.find((s) => s.file === ref);
+        expect(spec?.usedBy).toContain(mapId);
+      }
+    }
   });
 });
+
+/** Bounds and triangle count over what the pipeline keeps (no tex10 / facer). */
+function keptBounds(document: Document): { min: number[]; max: number[]; tris: number } {
+  const min = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+  const max = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  let tris = 0;
+  const el = [0, 0, 0];
+  for (const node of document.getRoot().listNodes()) {
+    const mesh = node.getMesh();
+    if (!mesh) continue;
+    for (const prim of mesh.listPrimitives()) {
+      const name = prim.getMaterial()?.getName() ?? "";
+      if (name === "tex10" || name === "facer") continue;
+      tris += triangles(prim);
+      const pos = prim.getAttribute("POSITION");
+      if (!pos) continue;
+      for (let i = 0; i < pos.getCount(); i++) {
+        pos.getElement(i, el);
+        for (let a = 0; a < 3; a++) {
+          if (el[a] < min[a]) min[a] = el[a];
+          if (el[a] > max[a]) max[a] = el[a];
+        }
+      }
+    }
+  }
+  return { min, max, tris };
+}
+
+function triangles(prim: Primitive): number {
+  const indices = prim.getIndices();
+  return (indices ? indices.getCount() : (prim.getAttribute("POSITION")?.getCount() ?? 0)) / 3;
+}
 
 /** Smallest AABB dimension across position-welded connected components. */
 function thinnestComponent(prim: Primitive): number {

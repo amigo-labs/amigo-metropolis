@@ -104,6 +104,7 @@ import { NetLockstep } from "./net/lockstep";
 import { P2pLockstep } from "./net/p2pLockstep";
 import { openP2pSession, readP2pBootstrap } from "./net/p2pSession";
 import { WsTransport } from "./net/wsTransport";
+import { type ArenaUnitsRenderer, createArenaUnits } from "./render/arenaUnits";
 import { type AvatarRig, createAvatarRig } from "./render/avatarRig";
 import {
   CAMERA_VFOV_DEG,
@@ -116,7 +117,7 @@ import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend"
 import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx } from "./render/fx";
-import { bucketFor, createGreyboxMeshes, tintFor } from "./render/greybox";
+import { bucketFor, createGreyboxMeshes } from "./render/greybox";
 import { type CameraCaption, createCameraCaption } from "./render/hud/caption";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
 import { snapshotIndexOf } from "./render/hud/hudRules";
@@ -719,6 +720,8 @@ scene.add(fillLight);
 // already removed and disposed — the stale load must throw its parse away
 // (and must not re-arm texSwitcher for the wrong map).
 let arenaEpoch = 0;
+/** The arena's own unit models (render/arenaUnits.ts); set once the buckets exist. */
+let arenaUnits: ArenaUnitsRenderer | null = null;
 function buildArenaGroup(m: typeof map): THREE.Group {
   const epoch = ++arenaEpoch;
   const stale = () => epoch !== arenaEpoch;
@@ -772,6 +775,10 @@ function buildArenaGroup(m: typeof map): THREE.Group {
     // art, so they belong with the textured terrain and not on top of greybox
     // blocks (render/props.ts). No-op on arenas that carry no `props`.
     loadProps(m, group, stale);
+    // The arena's own units: its mission's Cobjs and texture pages, swapped
+    // into the unit buckets (render/arenaUnits.ts). Null on the first build,
+    // which runs before the buckets exist; boot loads that arena below.
+    arenaUnits?.load(m, stale);
     if (showGreyboxStructures) buildGreyboxStructures();
   } else {
     buildGreyboxTerrain();
@@ -793,8 +800,16 @@ const fx = createFx(scene);
 // targets are the cost, and a SwiftShader run never pays it.
 if (bloomOn) setBloom(true);
 // Stage B unit models upgrade the greybox buckets in place as they load;
-// missing assets keep their greybox mesh (render/unitMeshes.ts).
+// missing assets keep their greybox mesh (render/unitMeshes.ts). The X1 and the
+// projectiles at boot, the arena's own units with the arena.
 if (renderMode === "mesh") loadUnitMeshes(greybox);
+arenaUnits = createArenaUnits(scene, greybox);
+if (renderMode === "mesh") {
+  const bootEpoch = arenaEpoch;
+  arenaUnits.load(map, () => arenaEpoch !== bootEpoch);
+}
+/** Non-null from here on: the frame loop's handle on the arena's units. */
+const units: ArenaUnitsRenderer = arenaUnits;
 // Walking avatars come off the greybox bucket and onto the three-part rig once
 // avatar-walker.glb has loaded and split (render/avatarRig.ts). Until then — and
 // forever in ?render=greybox — the bucket keeps drawing them.
@@ -865,7 +880,6 @@ const MAX_STEPS_PER_FRAME = 5;
 // counter), so slow motion cannot change what the sim computes — only when.
 let timeScale = 1;
 
-const scratchMatrix = new THREE.Matrix4();
 const scratchQuat = new THREE.Quaternion();
 const scratchPitch = new THREE.Quaternion();
 const scratchPos = new THREE.Vector3();
@@ -1686,6 +1700,7 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }
+  units.begin();
   if (avatarRig) avatarRig.begin();
   // Readiness cannot change mid-frame, so resolve it once instead of per entity.
   const readyRig = avatarRig?.ready ? avatarRig : null;
@@ -1728,8 +1743,8 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
     // still loading). Hand it the form actually being drawn, or the fallback
     // would swap meshes half a morph before the rig path does.
     const bucketAnim = drawHover ? animState | ANIM_HOVER : animState & ~ANIM_HOVER;
-    const bucket = rig ? undefined : bucketFor(greybox, archetype, bucketAnim, aux);
-    if (!rig && !bucket) continue;
+    const greyboxBucket = rig ? undefined : bucketFor(greybox, archetype, bucketAnim, aux);
+    if (!rig && !greyboxBucket) continue;
 
     let x = snapCurr[o + 3];
     let y = snapCurr[o + 4];
@@ -1741,6 +1756,11 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
       height = snapPrev[po + 5] + (height - snapPrev[po + 5]) * alpha;
       yaw = snapPrev[po + 6] + wrapAngleDelta(yaw - snapPrev[po + 6]) * alpha;
     }
+    // A turret is found by where it stands (render/arenaUnits.ts spotKey): the
+    // snapshot's own position, not an interpolation of it.
+    const spotX = snapCurr[o + 3];
+    const spotY = snapCurr[o + 4];
+    const bucket = greyboxBucket && units.route(greyboxBucket, archetype, aux, spotX, spotY);
 
     // Player avatars (archetype AVATAR, team === player slot) feed that
     // player's chase camera and HUD.
@@ -1802,14 +1822,18 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
           scratchQuat.multiply(scratchPitch);
         }
       }
-      scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
-      bucket.mesh.setMatrixAt(slot, scratchMatrix);
-
-      if (bucket.tintCache[slot] !== team) {
-        bucket.tintCache[slot] = team;
-        bucket.mesh.setColorAt(slot, tintFor(team));
-        if (bucket.mesh.instanceColor) bucket.mesh.instanceColor.needsUpdate = true;
-      }
+      // Matrix, parts (a turret's base) and team colour (render/arenaUnits.ts).
+      units.place(
+        bucket,
+        slot,
+        archetype,
+        team,
+        spotX,
+        spotY,
+        scratchPos,
+        scratchQuat,
+        scratchScale,
+      );
     }
   }
   for (let i = 0; i < greybox.all.length; i++) {
@@ -1817,6 +1841,7 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
     b.mesh.count = b.count;
     b.mesh.instanceMatrix.needsUpdate = true;
   }
+  units.end();
   if (avatarRig) avatarRig.end();
 }
 
@@ -2497,8 +2522,8 @@ function handleMenuChoice(
     }
     case "fly": {
       // Localhost debug: sandbox sim (base + capturable turrets on the map) +
-      // free-fly cam. Unit GLBs (incl. turret-standard / turret-defense) already
-      // load via loadUnitMeshes when renderMode is mesh (the default).
+      // free-fly cam. The arena's unit models (turrets included) already load
+      // with the arena when renderMode is mesh (render/arenaUnits.ts).
       flyMode = true;
       warden = false;
       wardenDifficulty = 0;

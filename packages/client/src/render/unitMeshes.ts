@@ -4,6 +4,11 @@
 // any archetype whose asset is missing or broken simply keeps its greybox —
 // so the rollout can happen model by model and ?render=greybox stays whole.
 //
+// Boot-time only, and only what every arena shares: the X1-Alpha's two forms
+// and the projectiles. The arena's own units (tank, jet, Fortress, Dreadnought,
+// turrets, console, Sky Captain) are its mission's Cobjs and load with the
+// arena (render/arenaUnits.ts).
+//
 // The swap replaces only geometry + material on each bucket's InstancedMesh;
 // instanceMatrix/instanceColor live on the mesh and carry over, so the frame
 // loop (main.ts renderEntities), the bucket capacities, and the whole-unit
@@ -17,18 +22,10 @@ import type { Bucket, GreyboxMeshes } from "./greybox";
 
 const loader = new GLTFLoader();
 
-/** Model key under /models/units/ per bucket. */
+/** Model key under /models/units/ per bucket: the ones no arena owns. */
 const UNIT_MODEL_KEYS = [
   ["avatarWalker", "avatar-walker"],
   ["avatarHover", "avatar-hover"],
-  ["runner", "runner"],
-  ["guardian", "guardian"],
-  ["juggernaut", "juggernaut"],
-  ["fortress", "fortress"],
-  ["turretStandard", "turret-standard"],
-  ["turretDefense", "turret-defense"],
-  ["console", "console"],
-  ["warden", "warden"],
 ] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
 
 /**
@@ -74,6 +71,7 @@ export interface UnitAsset {
 
 /**
  * Loads `/models/units/<key>.glb` and flattens it to one geometry + material.
+ * `key` may name a subfolder (`la-cantina/obj_030`, render/arenaUnits.ts).
  *
  * Model space, deliberately: `avatarRig.ts` splits the geometry into limbs and
  * hinges them, which is a rotation about the model's own left-right axis. Baking

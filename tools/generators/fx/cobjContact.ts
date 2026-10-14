@@ -12,7 +12,8 @@
 // off a filename, and `docs/specs/fcop-fx.md` has to answer it in writing.
 //
 // So this draws them. A real triangle rasterizer rather than the point cloud
-// `tools/determinism/src/turretPreviewPng.ts` uses: at 24 vertices a beam is
+// the old turret previews used (`turretPreviewPng.ts`, retired with the
+// hand-glued turret assemblies in Phase 14 wave 5): at 24 vertices a beam is
 // four dots in a point cloud and unreadable, while its silhouette is obvious.
 // Textures are deliberately NOT sampled — the atlas pages live in the RE repo,
 // not here, and a silhouette settles "rocket vs shell vs glow" on its own.
@@ -58,8 +59,8 @@ interface Model {
  * Triangle soup out of a .glb, flagging every primitive whose material is the
  * exporter's emissive `facer`.
  *
- * Reads POSITION through its accessor/bufferView the same way
- * `turretPreviewPng.ts` does; unindexed primitives (which is what the FCOP
+ * Reads POSITION through its accessor/bufferView, the way the retired
+ * `turretPreviewPng.ts` did; unindexed primitives (which is what the FCOP
  * export emits) walk vertices in order.
  */
 function loadModel(path: string, name: string): Model {
