@@ -12,6 +12,8 @@ import provingGroundJson from "../maps/proving-ground.json";
 import urbanJungleJson from "../maps/urban-jungle.json";
 import veniceBeachJson from "../maps/venice-beach.json";
 import {
+  ORIGINAL_BUY_HALF_L,
+  ORIGINAL_BUY_HALF_W,
   ORIGINAL_CAPTURE_RANGE,
   ORIGINAL_TURRET_HP,
   ORIGINAL_UNIT_PROFILES,
@@ -51,6 +53,15 @@ export interface MapPlot {
   readonly y: number;
   readonly radius: number;
   readonly layer: number;
+}
+
+/**
+ * A purchase spot's type-95 trigger box about its console point: half extents
+ * along x and y in metres, before the intruder's own radius widens it.
+ */
+export interface MapBuyBox {
+  readonly halfW: number;
+  readonly halfL: number;
 }
 
 /**
@@ -202,8 +213,12 @@ export interface MapBase {
   readonly core: MapPoint;
   /** Build console for ground units (Runner/Juggernaut). */
   readonly groundConsole: MapPoint;
+  /** The ground console's trigger box, half extents x / y in metres. */
+  readonly groundBuy: MapBuyBox;
   /** Build console for air units (Guardian/Fortress). */
   readonly airConsole: MapPoint;
+  /** The air console's trigger box, half extents x / y in metres. */
+  readonly airBuy: MapBuyBox;
   /** Ring turrets; each respawns `turretRespawnTicks` after destruction. */
   readonly turrets: readonly MapBaseTurret[];
   /**
@@ -712,6 +727,12 @@ export interface MapBaseJson {
   groundConsole: number[] | { x: number; y: number; layer?: number };
   airConsole: number[] | { x: number; y: number; layer?: number };
   /**
+   * OPTIONAL: each console's type-95 trigger box (half extents x / y, metres);
+   * absent -> the original's Mp box (balance.ts ORIGINAL_BUY_HALF_W/L).
+   */
+  groundBuy?: { halfW: number; halfL: number };
+  airBuy?: { halfW: number; halfL: number };
+  /**
    * Retired: Metropolis' ammo/repair pad, which the original does not have
    * (fcop-fidelity.md P1). Ignored where a stage-1 authoring file still carries it.
    */
@@ -899,6 +920,14 @@ export function loadMapFromJson(raw: MapJson): MapData {
   }
   const points = (list: unknown[], what: string): MapPoint[] =>
     list.map((p, i) => point(p, `${what} ${i}`));
+  const buyBox = (b: { halfW: number; halfL: number } | undefined, what: string): MapBuyBox => {
+    if (b === undefined) return { halfW: ORIGINAL_BUY_HALF_W, halfL: ORIGINAL_BUY_HALF_L };
+    if (!b || typeof b !== "object") fail(id, `${what} is not a {halfW, halfL} box`);
+    const halfW = num(b.halfW, `${what} halfW`);
+    const halfL = num(b.halfL, `${what} halfL`);
+    if (!(halfW > 0) || !(halfL > 0)) fail(id, `${what} needs positive half extents`);
+    return { halfW, halfL };
+  };
 
   const plot = (
     p: { x: number; y: number; radius: number; layer?: number },
@@ -1095,7 +1124,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
       gate: { ...gatePlot, halfW, halfL },
       core: point(b.core, `base ${team} core`),
       groundConsole: point(b.groundConsole, `base ${team} ground console`),
+      groundBuy: buyBox(b.groundBuy, `base ${team} ground console box`),
       airConsole: point(b.airConsole, `base ${team} air console`),
+      airBuy: buyBox(b.airBuy, `base ${team} air console box`),
       turrets: b.turrets.map((t, k) => {
         const what = `base ${team} ring turret ${k}`;
         // Bare pair: the pre-PA authoring form (district-01). It is the
@@ -1150,6 +1181,11 @@ export function loadMapFromJson(raw: MapJson): MapData {
   const outpostSpots = points(raw.outpostSpots, "outpost spot");
   const outposts: MapOutpost[] = [];
   const outpostPlates: MapOutpostPlate[] = [];
+  // Every outpost is the original's: a claim zone, a tank pad and a jet pad.
+  // district-01's consoles-as-a-menu went with it (fcop-fidelity.md D2).
+  if (outpostSpots.length > 0 && raw.outposts === undefined) {
+    fail(id, `${outpostSpots.length} outpost spots without their outposts`);
+  }
   if (raw.outposts !== undefined) {
     if (!Array.isArray(raw.outposts) || raw.outposts.length !== outpostSpots.length) {
       fail(id, `outposts has ${raw.outposts?.length} entries for ${outpostSpots.length} spots`);
@@ -1396,7 +1432,9 @@ export function createTestMap(): MapData {
     },
     core: { x: center + (team === 0 ? -6 : 6), y: center, layer: 0 },
     groundConsole: { x: center + (team === 0 ? -12 : 12), y: center, layer: 0 },
+    groundBuy: { halfW: ORIGINAL_BUY_HALF_W, halfL: ORIGINAL_BUY_HALF_L },
     airConsole: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
+    airBuy: { halfW: ORIGINAL_BUY_HALF_W, halfL: ORIGINAL_BUY_HALF_L },
     turrets: [],
     turretRespawnTicks: 0,
     // The original's units on their default profiles; the Dreadnought rolls

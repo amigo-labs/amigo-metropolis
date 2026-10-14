@@ -913,4 +913,10 @@
 //     R12, `turret_op10` 0x0041c920): in world units with its octagonal
 //     estimate, flat first, then once more with the height difference folded in
 //     (flat only for the Sky Captain). Was: the Euclidean distance.
-export const SIM_VERSION = 55;
+// v56: a base purchase spot is its type-95 trigger box (fcop-fidelity.md R17):
+//     the trigger's half extents about the console (Mp: 1.6 x 1.2 m), widened by
+//     the buyer's radius, imported per console (MapBase.groundBuy / airBuy). Was
+//     Metropolis' 3 m circle (CONSOLE_RADIUS). district-01's consoles-as-a-menu
+//     purchase path is gone with it: an arena with outpost spots must carry the
+//     original's outposts.
+export const SIM_VERSION = 56;

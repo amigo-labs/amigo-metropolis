@@ -23,7 +23,6 @@ import {
   AVATAR_WALKER_MAX_SLOPE,
   BASE_TURRET_RESPAWN_TICKS,
   CLOAK_DISARM_RADIUS,
-  CONSOLE_RADIUS,
   COST_FORTRESS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -62,7 +61,6 @@ import {
   NEUTRAL_TURRET_RESPAWN_TICKS,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_TURRET_RESPAWN_TICKS,
-  OUTPOST_ZONE_RADIUS,
   PICKUP_GUN_AMMO,
   PICKUP_HEALTH,
   PICKUP_HEAVY_AMMO,
@@ -186,7 +184,9 @@ import {
   insideGate,
   isWater,
   type MapBaseTurret,
+  type MapBuyBox,
   type MapData,
+  type MapPoint,
   type MapTriggerVolume,
   type MapWeapon,
   resolveHeight,
@@ -1519,8 +1519,7 @@ export function claimOutpost(state: SimState, player: number, id: number): boole
   const spots = map.outpostSpots;
   for (let k = 0; k < spots.length; k++) {
     if (state.outpostOwner[k] !== -1 || state.outpostConsole[k] < 0) continue;
-    // The record's radius; the same 1.2 m where the arena has no records.
-    const zone = map.outposts.length > 0 ? map.outposts[k].zone : OUTPOST_ZONE_RADIUS;
+    const zone = map.outposts[k].zone;
     if (!touchesZone(state, id, spots[k].x, spots[k].y, spots[k].layer, zone)) continue;
     if (state.points[player] < COST_OUTPOST_CLAIM) {
       // "With fewer, the press is refused" (fcop-re/outposts.md Q3): the refuse
@@ -1599,7 +1598,6 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
   const map = state.map;
   if (state.capturePress[player] !== 1) return;
   if (claimOutpost(state, player, id)) return;
-  const r2 = CONSOLE_RADIUS * CONSOLE_RADIUS;
   const heavy = (buttons & BUTTON_FIRE2) !== 0 ? 1 : 0;
   const x = ent.posX[id];
   const y = ent.posY[id];
@@ -1613,11 +1611,8 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
   let forward = false;
 
   const base = map.bases[player];
-  const gdx = x - base.groundConsole.x;
-  const gdy = y - base.groundConsole.y;
-  const adx = x - base.airConsole.x;
-  const ady = y - base.airConsole.y;
-  if (gdx * gdx + gdy * gdy <= r2) {
+  const r = ARCHETYPE_RADIUS[ent.archetype[id]];
+  if (inBuyBox(x, y, r, base.groundConsole, base.groundBuy)) {
     archetype = heavy ? ARCHETYPE.JUGGERNAUT : ARCHETYPE.RUNNER;
     cost = heavy ? COST_JUGGERNAUT : COST_RUNNER;
     spawnX = base.groundConsole.x;
@@ -1632,13 +1627,13 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
       spawnY = dread.y;
       spawnLayer = dread.layer;
     }
-  } else if (adx * adx + ady * ady <= r2) {
+  } else if (inBuyBox(x, y, r, base.airConsole, base.airBuy)) {
     archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
     cost = heavy ? COST_FORTRESS : COST_GUARDIAN;
     spawnX = base.airConsole.x;
     spawnY = base.airConsole.y;
     spawnLayer = base.airConsole.layer;
-  } else if (map.outposts.length > 0) {
+  } else {
     // The original's outpost pads (fcop-re/outposts.md Q3): a tank pad and a jet
     // pad per outpost, its owner's only, 2 points a unit. The unit leaves from
     // the pad; a jet patrols the outpost it was built at (mode 1 + k).
@@ -1657,27 +1652,6 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
       spawnLayer = pad.layer;
       mode = jet ? UNIT_MODE_OUTPOST + k : UNIT_MODE_PATROL;
       forward = true;
-      break;
-    }
-  } else {
-    for (let k = 0; k < map.outpostSpots.length; k++) {
-      const s = map.outpostSpots[k];
-      const dx = x - s.x;
-      const dy = y - s.y;
-      if (dx * dx + dy * dy > r2) continue;
-      const owner = state.outpostOwner[k];
-      if (owner === player) {
-        // Forward spawn at 2× cost (rules.md §3). A Guardian is the original's
-        // jet and patrols the spawner it was built at: UNIT_MODE_OUTPOST + k
-        // names outpost k (units.ts moveAircraft).
-        archetype = heavy ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
-        cost = (heavy ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
-        spawnX = s.x;
-        spawnY = s.y;
-        spawnLayer = s.layer;
-        mode = heavy ? UNIT_MODE_OUTPOST + k : UNIT_MODE_PATROL;
-        forward = true;
-      }
       break;
     }
   }
@@ -1703,6 +1677,19 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
     state.points[player] += cost; // entity cap hit: refund, nothing spawned
     pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
   }
+}
+
+/**
+ * Inside a purchase spot's trigger box: the type-95 box about its console, its
+ * half extents widened by the intruder's radius (as insideVolume measures a
+ * gate; fcop-fidelity.md R17).
+ */
+function inBuyBox(x: number, y: number, r: number, c: MapPoint, box: MapBuyBox): boolean {
+  const dx = x - c.x;
+  const dy = y - c.y;
+  const hw = box.halfW + r;
+  const hl = box.halfL + r;
+  return dx <= hw && dx >= -hw && dy <= hl && dy >= -hl;
 }
 
 /** Per-side alive cap of a purchasable unit archetype (fcop-fidelity.md R9). */

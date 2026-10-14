@@ -245,6 +245,10 @@ function driveTo(
     push(out, dx, dy);
     return d;
   }
+  if (d < 1.5) {
+    push(out, dx, dy); // the last stretch: straight at the goal itself
+    return d;
+  }
   let wx = r.path[r.at * 2] - ax;
   let wy = r.path[r.at * 2 + 1] - ay;
   if (r.at < cells - 1 && wx * wx + wy * wy < 0.6 * 0.6) {
@@ -511,58 +515,67 @@ export function layered01(tick: number, out: TickInputs): void {
 
 /**
  * Golden #7 (Precinct Assault): 120 s on la-cantina, the arena rebuilt from the
- * original Mp logic (rules.md §9). Covers what no other golden touches — bought
- * units on the original Cnet graph, per-turret weapon profiles with gun slew,
- * capture on an authentic pad, a power-up pickup, a base-intrusion alarm and the
- * original's gate-box win with its outro.
+ * original Mp logic (rules.md §9), against the Sky Captain (difficulty 8).
+ * Covers what no other golden touches — bought units on the original Cnet graph,
+ * per-turret weapon profiles with gun slew, capture on an authentic pad, a
+ * base-intrusion alarm and the original's gate-box win with its outro.
  *
- * Played against the Warden, because that is what a solo match on this arena
- * actually is: nothing is produced for free (SIM_VERSION 32), so an unattended
- * recording would exercise nothing at all.
- *
- * Route: spawn (112.1, 69.1) on the north base platform, press INTERACT at the
- * console for a bought wave, then drive south-west to the pad at (94.8, 91.7) and
- * tap the action key there: the original captures on a press, instantly
- * (SIM_VERSION 34). The route used to run east along row 69 to the pad at
- * (137.6, 68.6) and stand there for a 3 s capture, but a wall on x = 115 has
- * stopped the avatar at (115.0, 73.0) since the arena's walls were rebuilt, so
- * every capture in this golden was the Warden's. Then push south down the
- * central spine, firing, as far as the enemy line allows.
+ * Player 0 walks to its ground console and buys five tanks, one per press; then
+ * to the nearest neutral pad and captures it on a press (the original captures
+ * on a press, instantly); then pushes south down the central spine, firing, as
+ * far as the enemy line allows. Closed loop since SIM_VERSION 56: it steers by
+ * the live state at recording time, so it finds the console's trigger box (Mp:
+ * 1.2 x 1.2 m) wherever the walk ends.
  */
-export function pa01(tick: number, out: TickInputs): void {
+let paBought = 0;
+let paPad = -1;
+let paPhase = 0;
+let paFrom = 0;
+export function pa01(tick: number, out: TickInputs, sim: Readonly<SimState>): void {
   clearTickInputs(out);
   const p = out.players[0];
   const t = tick / TICK_HZ;
-  if (t < 3) {
-    p.moveX = 90; // spawn -> ground console at (114.1, 74.6)
-    p.moveY = 110;
-  } else if (t < 12) {
-    // Runners onto the graph: one per press, a press every 0.5 s.
-    p.buttons = tick % 15 === 0 ? BUTTON_INTERACT : 0;
-  } else if (t < 18.5) {
-    p.moveX = -100; // south-west to the pad at (94.8, 91.7)
-    p.moveY = 78;
-  } else if (t < 46) {
-    // By the pad: tap the action key (a press captures; holding does not). The
-    // first press lands on the tick it arrives (555): the Sky Captain chases the
-    // player and flies over this pad two ticks later (SIM_VERSION 46).
-    p.buttons = Math.floor(tick / 15) % 2 === 1 ? BUTTON_INTERACT : 0;
-  } else if (t < 62) {
-    p.moveX = -127; // back west across the base platform
-    p.moveY = 30;
-  } else if (t < 84) {
-    p.moveY = 127; // push south down the spine, firing into the enemy line
-    p.buttons = BUTTON_FIRE1;
-    p.aimY = 110;
-  } else if (t < 100) {
-    p.moveX = -60;
-    p.moveY = 100;
-    p.buttons = BUTTON_FIRE1;
-    p.aimX = -50;
-    p.aimY = 100;
-  } else {
-    p.moveY = -110; // withdraw north up the spine until the recording ends
+  if (tick === 0) {
+    resetRoutes();
+    paBought = 0;
+    paPad = -1;
+    paPhase = 0;
   }
+  if (paPhase === 0) {
+    // Tanks onto the graph: one per press at the ground console.
+    const c = sim.map.bases[0].groundConsole;
+    const d = driveTo(sim, 0, c.x, c.y, 0.4, p);
+    if (d >= 0 && d <= 0.4 && tick % 15 === 0) {
+      p.buttons = BUTTON_INTERACT;
+      paBought += 1;
+      if (paBought === 5) paPhase = 1;
+    }
+    return;
+  }
+  if (paPhase === 1) {
+    // The nearest pad still neutral: walk up and tap the action key by it.
+    if (paPad < 0 || !sim.ent.alive[paPad] || sim.ent.team[paPad] !== TEAM_NEUTRAL) {
+      paPad = nearestTo(sim, 0, (id) => isNeutralTurret(sim, id));
+    }
+    if (paPad < 0 || t > 50) {
+      paPhase = 2;
+      paFrom = t;
+      return;
+    }
+    const d = driveTo(sim, 0, sim.ent.posX[paPad], sim.ent.posY[paPad], 2.5, p);
+    if (d >= 0 && d <= 2.5) {
+      p.buttons = Math.floor(tick / 15) % 2 === 1 ? BUTTON_INTERACT : 0;
+      if (sim.ent.team[paPad] === 0) {
+        paPhase = 2;
+        paFrom = t;
+      }
+    }
+    return;
+  }
+  // Push south toward the enemy gate, firing into the line.
+  const g = sim.map.bases[1].gate;
+  driveTo(sim, 0, g.x, g.y, 6, p);
+  p.buttons = t - paFrom > 2 ? allWeapons(tick) : 0;
 }
 
 export const SCRIPTS: Record<

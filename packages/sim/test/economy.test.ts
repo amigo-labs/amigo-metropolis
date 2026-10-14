@@ -93,6 +93,9 @@ function battleground(): MapJson {
     ],
     turretSpots: [[30, 30]],
     outpostSpots: [[30, 46]],
+    // The original's outpost: its claim zone at the spot, a tank pad and a jet
+    // pad beside it, no turret plates.
+    outposts: [{ zone: OUTPOST_ZONE_RADIUS, tankPad: [26, 46], jetPad: [34, 46], plates: [] }],
     dummySpots: [],
   };
 }
@@ -487,16 +490,16 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     expect(sim.points[0]).toBe(0);
   });
 
-  it("an owned outpost forward-spawns runners and guardians leashed to it at 2×", () => {
+  it("an owned outpost sells a tank at its tank pad and a jet at its jet pad, at 2×", () => {
     reset();
     const sim = freshSim();
     sim.points[0] = 60;
     claim(sim, 0);
     const afterClaim = sim.points[0];
-    // Runner at 2× cost, spawned AT the outpost, joining the nearest lane: one
-    // press, one unit (the claim's press was its own: a press that claims buys
-    // nothing, so this is the next one).
+    // A tank at 2× cost on a press at the tank pad, spawned there.
     step(sim, inputs); // released
+    sim.ent.posX[0] = 26;
+    sim.ent.posY[0] = 46;
     inputs.players[0].buttons = BUTTON_INTERACT;
     step(sim, inputs);
     let bought = findEvents(sim, EV_PURCHASE);
@@ -504,12 +507,14 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     expect(bought[0][2]).toBe(ARCHETYPE.RUNNER);
     expect(sim.points[0]).toBe(afterClaim - COST_RUNNER * OUTPOST_COST_MULTIPLIER);
     const rid = bought[0][0];
-    expect(Math.hypot(sim.ent.posX[rid] - 30, sim.ent.posY[rid] - 46)).toBeLessThan(8);
-    // FIRE2 orders the air unit — the original's jet, leashed to this outpost
-    // (mode 1 + k; Metropolis' ASSAULT run until SIM_VERSION 52).
+    expect(Math.hypot(sim.ent.posX[rid] - 26, sim.ent.posY[rid] - 46)).toBeLessThan(8);
+    // A jet at the jet pad — the original's jet, leashed to this outpost
+    // (mode 1 + k).
     inputs.players[0].buttons = 0;
     step(sim, inputs);
-    inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2;
+    sim.ent.posX[0] = 34;
+    sim.ent.posY[0] = 46;
+    inputs.players[0].buttons = BUTTON_INTERACT;
     step(sim, inputs);
     bought = findEvents(sim, EV_PURCHASE);
     expect(bought.length).toBe(1);

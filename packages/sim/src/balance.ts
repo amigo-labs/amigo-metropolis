@@ -855,12 +855,19 @@ export const HEAVY_UNLOCK_POINTS = 50;
 /** Units bought at an owned outpost (forward spawn) cost this multiple. */
 export const OUTPOST_COST_MULTIPLIER = 2;
 
-// Purchases: stand on the console pad and PRESS interact — one unit per press,
-// on the frame the key goes down, as the original's purchase triggers answer
-// its Action Key (fcop-fidelity.md R17; fcop-re/ai-and-rules.md §2). The FIRE2
-// modifier orders the heavy variant at base consoles and the air unit at
+// Purchases: stand in the console's trigger box and PRESS interact — one unit per
+// press, on the frame the key goes down, as the original's purchase triggers
+// answer its Action Key (fcop-fidelity.md R17; fcop-re/ai-and-rules.md §2). The
+// FIRE2 modifier orders the heavy variant at base consoles and the air unit at
 // Metropolis' outpost consoles. Was a 0.5 s hold per unit (CONSOLE_HOLD_TICKS).
-export const CONSOLE_RADIUS = 3;
+/**
+ * A base purchase spot's half extents (x, y) where the arena imports none: Mp's
+ * type-95 triggers 106-109, 819 x 614 raw at TRIGGER_SCALE 1024 — a 1.6 x 1.2 m
+ * box the intruder's radius widens (fcop-re/actors-and-orders.md; fcop-fidelity
+ * R17). Was Metropolis' 3 m circle (CONSOLE_RADIUS) until SIM_VERSION 56.
+ */
+export const ORIGINAL_BUY_HALF_W = 819 / 1024;
+export const ORIGINAL_BUY_HALF_L = 614 / 1024;
 /** One Dreadnought and one Fortress alive per side (spawner limit 1, ai-and-rules.md §3). */
 export const JUGGERNAUT_ALIVE_LIMIT = 1;
 export const FORTRESS_ALIVE_LIMIT = 1;

@@ -1213,6 +1213,12 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     const gcy = round4(sz(buttons[0].z));
     const acx = round4(sx(buttons[1].x));
     const acy = round4(sz(buttons[1].z));
+    // Each console's trigger box: a purchase answers inside it, widened by the
+    // buyer's radius (fcop-fidelity.md R17), as the gates are measured.
+    const buyBox = (t: (typeof buttons)[number]) => ({
+      halfW: round4(triggerHalfExtent(t.widthRaw)),
+      halfL: round4(triggerHalfExtent(t.lengthRaw)),
+    });
     // Permanent base ring = the type-8 records that belong to no outpost. The
     // original lists 16 (or 14) type-8 records per side, but only 8 (6 on
     // Slim/Joke/Hk) are base guns, live from t = 0: the rest stand on the
@@ -1266,7 +1272,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       // original has no destructible core (fcop-fidelity.md I6/R1).
       core: [coreX, coreY],
       groundConsole: [gcx, gcy],
+      groundBuy: buyBox(buttons[0]),
       airConsole: [acx, acy],
+      airBuy: buyBox(buttons[1]),
       // The ring carries each Turret actor's OWN shooter block, not just its
       // position. Dropping it once left the ring on the then-global 28 m TURRET_RANGE
       // against an imported engage_range of 12 m — see spawnBaseTurret in sim.ts.

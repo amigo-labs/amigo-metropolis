@@ -83,6 +83,7 @@ function range(): MapJson {
     ],
     turretSpots: [[30, 30]],
     outpostSpots: [[30, 40]],
+    outposts: [{ zone: 1.2, tankPad: [26, 40], jetPad: [34, 40], plates: [] }],
     dummySpots: [[30, 20]],
   };
 }
