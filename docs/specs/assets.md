@@ -240,3 +240,18 @@ which also writes the screen and dialog data the menu draws from
 `dialogs.json` and `ui_sounds.json`). `--check` rebuilds it all in memory and fails on
 any difference. Nothing is redrawn or re-encoded; the dialogs are the system's own
 chrome, rebuilt in CSS (`menu/win9x/`), not pictures.
+
+## 7. Weapon effects
+
+Since Phase 14 wave 4 (`fcop-fidelity.md`, "Weapon effects") the effects are the
+original's effect records, not a Metropolis design:
+
+- The records (types 87–94) a weapon, a death or the mech's transform raises on
+  the six arenas, from the RE's effect export (`extracted/effects/`), folded into
+  `packages/client/src/effects/fcopEffects.generated.ts` by `bun run gen:fx`
+  (`tools/generators/fcopEffects.ts`, `--check` to verify).
+- The particle atlas (`public/fx/particles.png`, `particles.json`) is the RE's page
+  0 with each sprite through its own palette, unchanged; `public/fx/trails.png` is
+  each arena's own trail rect and the Mini Gun ribbon's frames, cropped from its
+  `tex10`. No sprite, ring or tracer colour is authored here.
+- Drawn by `render/fx.ts` from the sim's events and the snapshot interface only.

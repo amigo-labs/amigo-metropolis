@@ -19,7 +19,7 @@
     "gen:frontend": "bun run tools/generators/importFcopFrontend.ts",
     "gen:results": "bun run tools/generators/importFcopResults.ts",
     "gen:fxsheet": "bun run tools/generators/fx/particleSheet.ts",
-    "gen:fxkey": "bun run tools/generators/fx/keyAtlas.ts",
+    "gen:fx": "bun run tools/generators/fcopEffects.ts",
     "gen:fxcobj": "bun run tools/generators/fx/cobjContact.ts",
     "gen:mapalign": "bun run tools/generators/genMapAlign.ts",
     "gen:palogic": "bun run tools/generators/fcopLogic.ts",

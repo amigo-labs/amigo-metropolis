@@ -199,8 +199,9 @@ interface ParticleSpriteRect {
   h: number;
 }
 
+/** The RE's particles.json (extracted/particles/), copied unchanged by gen:fx. */
 interface ParticleMeta {
-  size: [number, number];
+  pages: Array<{ size: [number, number] }>;
   particles: Array<{ id: number; sprites: ParticleSpriteRect[] }>;
 }
 
@@ -1064,7 +1065,7 @@ async function loadCpyrAtlas(): Promise<LoadedAtlas | null> {
     const metaRes = await fetch(ATLAS_META_URL);
     if (!metaRes.ok) return null;
     const meta = (await metaRes.json()) as ParticleMeta;
-    const [atlasW, atlasH] = meta.size;
+    const [atlasW, atlasH] = meta.pages[0].size;
 
     const expRect = findSprite(meta, PARTICLE_ID.explosion);
     const expLateRect = findSprite(meta, PARTICLE_ID.explosionAlt);
