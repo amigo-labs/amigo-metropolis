@@ -11,7 +11,9 @@ keep their packed 256px texture pages as one atlas, untextured sources carry
 baked vertex colors — so the runtime (`src/render/unitMeshes.ts`) can swap it
 into the archetype's one InstancedMesh; the whole-unit team tint comes from
 instance colors, exactly as in greybox mode (team units are desaturated by the
-pipeline so the tint owns the hue, like FCOP's own grey team variants). The
+pipeline so the tint owns the hue — Metropolis' stand-in: the original offsets
+each actor's UVs onto its team's half of the page, `docs/specs/fcop-fidelity.md`
+G4). The
 projectile stays procedural (payload-colored sphere).
 
 Every unit is an ORIGINAL Precinct Assault model from the `Mp` container

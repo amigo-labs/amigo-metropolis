@@ -734,7 +734,8 @@ no golden moves.
 - [ ] The jet's rotor and the barrier's animation (morph frames; G1)
 - [ ] Each mission's own unit models: Ovmp's page 4, Hk's tank, Joke's units (G1)
 - [ ] The Dreadnought's guns; the Sky Captain's model by level
-- [ ] Team variants by the original's UV offsets
+- [ ] Team variants by the original's UV offsets, in place of the invented
+      desaturate-and-tint (G4)
 - [ ] The X1's animations
 
 ## Backlog (post-v1, do not start)

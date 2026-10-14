@@ -74,9 +74,14 @@ export interface UnitModelSpec {
   /**
    * Desaturate the model's colors (baked vertex colors, or the packed atlas
    * texture) toward luminance so the whole-unit instanceColor team tint
-   * (render/greybox.ts tintFor) reads cleanly — the equivalent of FCOP's own
-   * grey team-variant textures. Off for models whose own colors should
-   * survive the neutral/team tint (turret, console).
+   * (render/greybox.ts tintFor) reads cleanly. Off for models whose own
+   * colors should survive the neutral/team tint (turret, console).
+   *
+   * Metropolis' own, not the original's way (fcop-fidelity.md G4, open): the
+   * original keeps the art twice on one page, one half per team, and gives
+   * each actor a UV offset onto its team's half (BaseEntity uv_offset; RE
+   * docs/formats/x1-alpha.md "Team color"). Stays until that offset table is
+   * exported; the desaturation and the tint then go.
    */
   readonly neutralizeColors: boolean;
   /**
