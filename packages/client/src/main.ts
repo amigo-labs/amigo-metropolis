@@ -84,6 +84,7 @@ import {
 } from "./debug/pinSession";
 import type { PinEntity } from "./debug/pinTypes";
 import { createSandboxPanel, type SandboxPanel } from "./debug/sandboxPanel";
+import { loadControls } from "./input/controlsStore";
 import { PlayerOneInput } from "./input/keyboard";
 import { isTextEntryTarget } from "./input/textEntry";
 import type { LocalInputSource } from "./input/types";
@@ -470,6 +471,14 @@ function sizeLiftSnapshots(lifts: number): boolean {
 // The original's controls: the keyboard on its bindings (input.spec.md). The
 // mouse plays no part in a match, and touch waits for the modernisation.
 const keyboard = new PlayerOneInput(window);
+// The stored bindings (the original's controls.txt; input/controlsStore.ts).
+keyboard.setTable(loadControls()[0]);
+// The Map Key pauses a solo match, as the original's does in a one-viewport
+// game; online it pauses nothing (the original only parks that player's
+// camera). Its map screen comes with the presentation wave.
+keyboard.onMap = () => {
+  if (!net && phase === "match" && !matchEndShown) setMatchPaused(!matchPaused);
+};
 const localInput: LocalInputSource = keyboard;
 const audio = new AudioEngine();
 // Browsers gate audio behind a gesture; the first pointer/key/touch unlocks it.
@@ -1076,6 +1085,7 @@ function returnToMenu(): void {
         refreshDebugLabel();
       },
       onBloomPref: setBloom,
+      onControls: (table) => keyboard.setTable(table),
     });
   }
   refreshDebugLabel();
@@ -1846,6 +1856,8 @@ function advanceSimClock(alpha: number): number {
 }
 
 function frame(now: number): void {
+  // A pad's Map Key, polled per frame so it can also resume a paused match.
+  keyboard.pollPad();
   const dtMs = Math.min(now - last, 250);
   // timeScale is 1 everywhere except sandbox slow motion; net matches never see
   // it (the panel is solo-only), so lockstep pacing is unchanged.
@@ -2339,6 +2351,8 @@ if (online) {
     },
     // Bloom applies live to the backdrop; persistence is the drawer's job.
     onBloomPref: setBloom,
+    // The controls screen saves the bindings; they apply at once.
+    onControls: (table) => keyboard.setTable(table),
   });
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {

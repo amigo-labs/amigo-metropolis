@@ -19,6 +19,7 @@
 import type { Loadout } from "@metropolis/sim";
 import { render } from "preact";
 import type { AudioEngine } from "../audio/engine";
+import type { Binding } from "../input/bindings";
 import type { TexPref } from "../render/texVariants";
 import { attachNavFocus, type NavFocusHandle } from "../ui/navFocus";
 import "../ui/cockpit.css";
@@ -54,6 +55,8 @@ export interface MenuOptions {
   onTexPref(pref: TexPref): void;
   /** Called when the Graphics drawer toggles bloom (persisted by the drawer). */
   onBloomPref(enabled: boolean): void;
+  /** Called when the Controls drawer saves player 1's bindings (persisted there). */
+  onControls(table: Binding[]): void;
   /** Optional initial loadout (e.g. from ?gun= URL). */
   initialLoadout?: Loadout;
 }
@@ -121,6 +124,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         onSelect: selectArena,
         onTexPref: opts.onTexPref,
         onBloomPref: opts.onBloomPref,
+        onControls: opts.onControls,
       }),
       root,
     );

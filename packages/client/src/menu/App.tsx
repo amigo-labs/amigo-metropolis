@@ -9,6 +9,7 @@
 
 import { MAP_REGISTRY } from "@metropolis/sim";
 import type { AudioEngine } from "../audio/engine";
+import type { Binding } from "../input/bindings";
 import type { TexPref } from "../render/texVariants";
 import {
   cycleHardpoint,
@@ -37,6 +38,8 @@ export interface AppProps {
   onSelect(mapId: string): void;
   onTexPref(pref: TexPref): void;
   onBloomPref(enabled: boolean): void;
+  /** The Controls drawer saved player 1's bindings. Optional for the tests. */
+  onControls?(table: Binding[]): void;
 }
 
 function SoloPanel({ state, update }: Pick<AppProps, "state" | "update">) {
@@ -156,6 +159,7 @@ export function App(props: AppProps) {
     onSelect,
     onTexPref,
     onBloomPref,
+    onControls,
   } = props;
 
   // Clicking the active pill closes the panel again — disclosure pattern.
@@ -218,6 +222,13 @@ export function App(props: AppProps) {
               onClick={() => toggleDrawer("prefs")}
             >
               Preferences
+            </button>
+            <button
+              type="button"
+              class={`menu-pill${state.drawer === "controls" ? " is-active" : ""}`}
+              onClick={() => toggleDrawer("controls")}
+            >
+              Controls
             </button>
             <button
               type="button"
@@ -291,6 +302,7 @@ export function App(props: AppProps) {
               audio={audio}
               onTexPref={onTexPref}
               onBloomPref={onBloomPref}
+              onControls={onControls}
             />
 
             <div class="menu-start-row">

@@ -5,9 +5,21 @@
 // are read from the engine on mount rather than mirrored into MenuState,
 // because the engine is the source of truth and is also changed from elsewhere.
 
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import type { AudioEngine, LevelKind } from "../../audio/engine";
-import { bindingName, presetTable, SLOT_NAMES, SLOT_ROW_ORDER } from "../../input/bindings";
+import {
+  type Binding,
+  bindingName,
+  DEVICE_JOYSTICK,
+  DEVICE_KEYBOARD,
+  keyOfCode,
+  PRESET_NAMES,
+  presetTable,
+  SLOT_NAMES,
+  SLOT_ROW_ORDER,
+} from "../../input/bindings";
+import { loadControls, saveControls } from "../../input/controlsStore";
+import { firstJoyControl, firstPad } from "../../input/gamepad";
 import {
   loadBloomPref,
   loadTexPref,
@@ -23,6 +35,7 @@ interface Props {
   audio: AudioEngine;
   onTexPref(pref: TexPref): void;
   onBloomPref(enabled: boolean): void;
+  onControls?(table: Binding[]): void;
 }
 
 /** What each slot does, beside its name (the original's controls, input.spec.md). */
@@ -43,16 +56,150 @@ const SLOT_USE: readonly string[] = [
   "the next target in front",
 ];
 
+/** A binding as the screens show it: the key, or the pad's control. */
+function shownBinding(b: Binding): string {
+  return b.device === DEVICE_JOYSTICK ? `Pad ${bindingName(b)}` : bindingName(b);
+}
+
 /** Player 1's keys in the controls screen's order, then the chord and Escape. */
 function controlRows(): (readonly [string, string])[] {
-  const table = presetTable(0, 0);
+  const table = loadControls()[0];
   const rows: (readonly [string, string])[] = SLOT_ROW_ORDER.map((s) => {
     const use = SLOT_USE[s];
-    return [bindingName(table[s]), use ? `${SLOT_NAMES[s]} — ${use}` : SLOT_NAMES[s]] as const;
+    return [shownBinding(table[s]), use ? `${SLOT_NAMES[s]} — ${use}` : SLOT_NAMES[s]] as const;
   });
-  rows.push([`${bindingName(table[13])} + ${bindingName(table[5])}`, "transform (walker ⇄ hover)"]);
+  rows.push([
+    `${shownBinding(table[13])} + ${shownBinding(table[5])}`,
+    "transform (walker ⇄ hover)",
+  ]);
   rows.push(["Escape", "pause"]);
   return rows;
+}
+
+/**
+ * The original's controls screen (`controls_dialog.c`): a row per binding slot,
+ * in its order; pick a row, then press the key or the pad button, or push the
+ * stick, that should do it. "Select Default Profile" puts back one of the three
+ * shipped presets — the keyboard's, the Sidewinder's or the Gravis' — and OK
+ * saves (input/controlsStore.ts). Player 1's column only: Metropolis has no
+ * second local player. Its look is the menu's until the front end is the
+ * original's.
+ */
+function Controls({ onControls }: { onControls?(table: Binding[]): void }) {
+  const [tables, setTables] = useState<Binding[][]>(() => loadControls());
+  const [capturing, setCapturing] = useState(-1);
+  const table = tables[0];
+
+  const bind = (slot: number, b: Binding): void => {
+    const next = tables.map((t) => t.map((x) => ({ ...x })));
+    next[0][slot] = b;
+    setTables(next);
+    setCapturing(-1);
+  };
+
+  useEffect(() => {
+    if (capturing < 0) return;
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code === "Escape") {
+        setCapturing(-1); // the fixed binding: cancels, binds nothing
+        return;
+      }
+      const vk = keyOfCode(e.code);
+      if (vk >= 0) bind(capturing, { device: DEVICE_KEYBOARD, code: vk });
+    };
+    // A pad's control binds once everything has been let go first, so the
+    // button that picked the row is not taken for its binding.
+    let released = false;
+    let raf = 0;
+    const poll = (): void => {
+      const pad = firstPad();
+      const down = pad ? firstJoyControl(pad) : -1;
+      if (down < 0) released = true;
+      else if (released) {
+        bind(capturing, { device: DEVICE_JOYSTICK, code: down });
+        return;
+      }
+      raf = requestAnimationFrame(poll);
+    };
+    window.addEventListener("keydown", onKey, true);
+    raf = requestAnimationFrame(poll);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      cancelAnimationFrame(raf);
+    };
+  });
+
+  return (
+    <>
+      <h2 class="menu-h2">Controls</h2>
+      <div class="menu-keys">
+        {SLOT_ROW_ORDER.map((s) => (
+          <div class="menu-key-row" key={s}>
+            <span>{SLOT_NAMES[s]}</span>
+            <button
+              type="button"
+              class={`menu-key-bind${capturing === s ? " is-active" : ""}`}
+              onClick={() => setCapturing(capturing === s ? -1 : s)}
+            >
+              {capturing === s ? "press a key…" : shownBinding(table[s])}
+            </button>
+          </div>
+        ))}
+      </div>
+      <div class="menu-row">
+        <label class="menu-label" for="menu-controls-profile">
+          Select Default Profile
+        </label>
+        <select
+          id="menu-controls-profile"
+          class="menu-select"
+          value=""
+          onChange={(e) => {
+            const i = Number((e.currentTarget as HTMLSelectElement).value);
+            if (!(i >= 0 && i < PRESET_NAMES.length)) return;
+            setTables([presetTable(0, i), tables[1]]);
+            setCapturing(-1);
+          }}
+        >
+          <option value="">Choose Controller Profile…</option>
+          {PRESET_NAMES.map((name, i) => (
+            <option value={String(i)} key={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div class="menu-row">
+        <button
+          type="button"
+          class="menu-pill"
+          onClick={() => {
+            saveControls(tables);
+            onControls?.(tables[0]);
+          }}
+        >
+          OK
+        </button>
+        <button
+          type="button"
+          class="menu-pill"
+          onClick={() => {
+            setTables(loadControls());
+            setCapturing(-1);
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+      <p class="menu-hint">
+        Transform: {shownBinding(table[13])} + {shownBinding(table[5])}. A gamepad plays once its
+        profile is chosen or a row is bound to it. Without a numeric keypad, bind the movement keys
+        here. Escape stays the pause.
+      </p>
+    </>
+  );
 }
 
 /**
@@ -194,11 +341,12 @@ function Preferences({
   );
 }
 
-export function Drawer({ kind, audio, onTexPref, onBloomPref }: Props) {
+export function Drawer({ kind, audio, onTexPref, onBloomPref, onControls }: Props) {
   if (!kind) return null;
   return (
     <div class="menu-drawer ck-panel">
       {kind === "how" ? <HowTo /> : null}
+      {kind === "controls" ? <Controls onControls={onControls} /> : null}
       {kind === "prefs" ? (
         <Preferences audio={audio} onTexPref={onTexPref} onBloomPref={onBloomPref} />
       ) : null}

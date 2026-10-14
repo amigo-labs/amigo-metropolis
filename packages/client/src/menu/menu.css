@@ -789,6 +789,25 @@
   font-size: 13px;
 }
 
+/* The Controls drawer: the slot's name, then its binding as a button. */
+.menu-key-bind {
+  margin-left: auto;
+  min-width: 140px;
+  padding: 2px 8px;
+  border: 1px solid var(--ck-text-dim);
+  background: transparent;
+  color: var(--ck-text-bright);
+  font:
+    12px / 1.6 ui-monospace,
+    monospace;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-key-bind.is-active {
+  border-color: var(--ck-text-bright);
+}
+
 /* --- Narrow ---------------------------------------------------------------- */
 
 @media (max-width: 720px) {
