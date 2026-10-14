@@ -812,6 +812,80 @@
       "template": 6
     }
   ],
+  "outpostShop": [
+    {
+      "outpost": 0,
+      "slot": 0,
+      "tankTemplate": 144,
+      "tankQueueFn": "fn07",
+      "tankPrice": 2,
+      "jetTemplate": 145,
+      "jetPrice": 2
+    },
+    {
+      "outpost": 0,
+      "slot": 1,
+      "tankTemplate": 154,
+      "tankQueueFn": "fn08",
+      "tankPrice": 2,
+      "jetTemplate": 155,
+      "jetPrice": 2
+    },
+    {
+      "outpost": 1,
+      "slot": 0,
+      "tankTemplate": 173,
+      "tankQueueFn": "fn11",
+      "tankPrice": 2,
+      "jetTemplate": 174,
+      "jetPrice": 2
+    },
+    {
+      "outpost": 1,
+      "slot": 1,
+      "tankTemplate": 172,
+      "tankQueueFn": "fn10",
+      "tankPrice": 2,
+      "jetTemplate": 175,
+      "jetPrice": 2
+    },
+    {
+      "outpost": 2,
+      "slot": 0,
+      "tankTemplate": 87,
+      "tankQueueFn": "fn20",
+      "tankPrice": 2,
+      "jetTemplate": 91,
+      "jetPrice": 2
+    },
+    {
+      "outpost": 2,
+      "slot": 1,
+      "tankTemplate": 185,
+      "tankQueueFn": "fn13",
+      "tankPrice": 2,
+      "jetTemplate": 99,
+      "jetPrice": 2
+    },
+    {
+      "outpost": 3,
+      "slot": 0,
+      "tankTemplate": 205,
+      "tankQueueFn": "fn15",
+      "tankPrice": 2,
+      "jetTemplate": 206,
+      "jetPrice": 2
+    },
+    {
+      "outpost": 3,
+      "slot": 1,
+      "tankTemplate": 204,
+      "tankQueueFn": "fn14",
+      "tankPrice": 2,
+      "jetTemplate": 207,
+      "jetPrice": 2
+    }
+  ],
   "heavyEnable": [
     {
       "slot": 0,
@@ -1061,6 +1135,15 @@
       "limit": 20
     },
     {
+      "template": 91,
+      "kind": "jet",
+      "slot": 0,
+      "x": 73.0012,
+      "z": 124.0312,
+      "netId": null,
+      "limit": 20
+    },
+    {
       "template": 99,
       "kind": "jet",
       "slot": 1,
@@ -1076,6 +1159,15 @@
       "x": 118.9688,
       "z": 91.875,
       "netId": 1,
+      "limit": 20
+    },
+    {
+      "template": 145,
+      "kind": "jet",
+      "slot": 0,
+      "x": 114.5015,
+      "z": 96,
+      "netId": null,
       "limit": 20
     },
     {
@@ -1115,6 +1207,15 @@
       "limit": 20
     },
     {
+      "template": 174,
+      "kind": "jet",
+      "slot": 0,
+      "x": 77.5312,
+      "z": 96.0312,
+      "netId": null,
+      "limit": 20
+    },
+    {
       "template": 175,
       "kind": "jet",
       "slot": 1,
@@ -1148,6 +1249,15 @@
       "x": 118.9375,
       "z": 132.4688,
       "netId": 1,
+      "limit": 20
+    },
+    {
+      "template": 206,
+      "kind": "jet",
+      "slot": 0,
+      "x": 114.5007,
+      "z": 128.0618,
+      "netId": null,
       "limit": 20
     },
     {

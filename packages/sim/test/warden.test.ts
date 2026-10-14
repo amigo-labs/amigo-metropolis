@@ -21,6 +21,7 @@ import {
   skyRespawnTicks,
   skySpeed,
   TICK_DT,
+  UNIT_QUEUES,
   WARDEN_ALTITUDE,
   wardenLevel,
 } from "../src/balance";
@@ -43,16 +44,6 @@ const LC = getMapById(LA_CANTINA_ID);
 
 function wardenSim(difficulty: number, seed = 0xc0ffee, mapId = LA_CANTINA_ID): SimState {
   return createSim(getMapById(mapId), seed, { wardenPlayer: 1, wardenDifficulty: difficulty });
-}
-
-/** Counts the Warden side's purchase events in one step. */
-function purchases(state: SimState): number {
-  let n = 0;
-  for (let i = 0; i < state.events.count; i++) {
-    const o = i * EVENT_STRIDE;
-    if (state.events.data[o] === EV_PURCHASE && state.events.data[o + 2] === 1) n += 1;
-  }
-  return n;
 }
 
 describe("the Warden is the Sky Captain", () => {
@@ -190,25 +181,38 @@ describe("the Warden is the Sky Captain", () => {
   });
 
   it("gets a free opening order of ten base units from level 1, none at level 0", () => {
+    const queued = (sim: SimState, q: number) => sim.unitQueue[1 * UNIT_QUEUES + q];
     const l0 = wardenSim(1, 3, LA_CANTINA_ID);
-    expect(l0.captain.queue[SKY_QUEUE_BASE_TANKS] + l0.captain.queue[SKY_QUEUE_BASE_JETS]).toBe(0);
+    expect(queued(l0, SKY_QUEUE_BASE_TANKS) + queued(l0, SKY_QUEUE_BASE_JETS)).toBe(0);
     for (let seed = 1; seed <= 20; seed++) {
       const sim = wardenSim(8, seed, LA_CANTINA_ID);
-      const tanks = sim.captain.queue[SKY_QUEUE_BASE_TANKS];
-      const jets = sim.captain.queue[SKY_QUEUE_BASE_JETS];
+      const tanks = queued(sim, SKY_QUEUE_BASE_TANKS);
+      const jets = queued(sim, SKY_QUEUE_BASE_JETS);
       expect(tanks + jets).toBe(10);
       expect(tanks).toBeGreaterThanOrEqual(9 - 7);
       expect(tanks).toBeLessThanOrEqual(9 - 7 + 3);
       expect(sim.points[1]).toBe(0); // unpaid
     }
-    // The scripts spawn them a tank per 3.4 s and a jet per 0.97 s.
+    // The scripts spawn them one a period from a random phase: on Mp a tank per
+    // 3.38 s (fn19, 203 units) and a jet per 0.97 s (fn17, 58).
     const sim = wardenSim(8, 1, LA_CANTINA_ID);
-    let spawned = 0;
-    for (let t = 0; t < 30; t++) {
+    const base = sim.map.bases[1].queueTicks;
+    expect([base.tank, base.jet]).toEqual([101, 29]);
+    const jetTicks: number[] = [];
+    let firstTank = -1;
+    for (let t = 0; t < base.tank + 1; t++) {
       step(sim, idle);
-      spawned += purchases(sim);
+      for (let i = 0; i < sim.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (sim.events.data[o] !== EV_PURCHASE) continue;
+        const arch = sim.events.data[o + 3];
+        if (arch === ARCHETYPE.GUARDIAN) jetTicks.push(t);
+        if (arch === ARCHETYPE.RUNNER && firstTank < 0) firstTank = t;
+      }
     }
-    expect(spawned).toBe(3); // tick 0: a tank and a jet; tick 29 (0.97 s): the second jet
+    expect(firstTank).toBeGreaterThanOrEqual(0); // within the first period
+    expect(jetTicks[0]).toBeLessThan(base.jet);
+    for (let n = 1; n < jetTicks.length; n++) expect(jetTicks[n] - jetTicks[n - 1]).toBe(base.jet);
   });
 });
 

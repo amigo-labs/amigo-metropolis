@@ -60,6 +60,8 @@ import {
   MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
   NEUTRAL_TURRET_RESPAWN_TICKS,
+  ORIGINAL_JET_QUEUE_TICKS,
+  ORIGINAL_TANK_QUEUE_TICKS,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_TURRET_RESPAWN_TICKS,
   PICKUP_GUN_AMMO,
@@ -101,6 +103,7 @@ import {
   TRIGGER_WATCH_ENEMY_UNITS,
   TRIGGER_WATCH_OWN_AVATAR,
   TURRET_ALERT_COOLDOWN_TICKS,
+  UNIT_QUEUES,
   WALKER_AIR_DRAG,
   WALKER_DRAG,
   WALKER_HIGH_LIFT,
@@ -327,6 +330,14 @@ export interface SimState {
   readonly heavyUnlocked: Uint8Array;
   /** Ticks to each side's next heavy-zone points poll (systemEconomy, R10). */
   readonly heavyPoll: Int32Array;
+  /**
+   * The spawn queues (fcop-fidelity.md R18), UNIT_QUEUES per team at
+   * `team * UNIT_QUEUES + q` (QUEUE_BASE_TANKS, QUEUE_BASE_JETS, then
+   * QUEUE_OUTPOST + 2k tanks and + 2k + 1 jets): units bought or requested and
+   * not yet spawned, and the ticks to each queue's next poll.
+   */
+  readonly unitQueue: Int32Array;
+  readonly unitQueueTimer: Int32Array;
   /** Next lane index per player (ground-unit round-robin). */
   readonly laneCounter: Uint8Array;
   /** Sandbox dummy turrets: entity id (-1 dead) + respawn countdown per spot. */
@@ -777,6 +788,8 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     points: new Uint32Array(MAX_PLAYERS).fill(STARTING_POINTS),
     heavyUnlocked: new Uint8Array(MAX_PLAYERS),
     heavyPoll: new Int32Array(MAX_PLAYERS),
+    unitQueue: new Int32Array(MAX_PLAYERS * UNIT_QUEUES),
+    unitQueueTimer: new Int32Array(MAX_PLAYERS * UNIT_QUEUES),
     laneCounter: new Uint8Array(MAX_PLAYERS),
     dummyEntity: new Int32Array(map.dummySpots.length).fill(-1),
     dummyRespawn: new Int32Array(map.dummySpots.length),
@@ -828,6 +841,11 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const zones = map.bases[p].heavyZones;
     if (zones !== undefined) state.heavyPoll[p] = randInt(state, zones.pollTicks);
+  }
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    for (let q = 0; q < UNIT_QUEUES; q++) {
+      state.unitQueueTimer[p * UNIT_QUEUES + q] = randInt(state, queuePeriod(map, p, q));
+    }
   }
   for (let p = 0; p < MAX_PLAYERS; p++) {
     spawnAvatar(state, p);
@@ -1632,6 +1650,8 @@ export function systemBuy(state: SimState, player: number, id: number): void {
   let spawnLayer = 0;
   let mode = UNIT_MODE_PATROL;
   let forward = false;
+  // A tank is queued, not spawned (QUEUE_BASE_TANKS or an outpost's); -1 = at once.
+  let queue = -1;
 
   const base = map.bases[player];
   const heavy = base.heavyZones;
@@ -1639,15 +1659,13 @@ export function systemBuy(state: SimState, player: number, id: number): void {
   if (inBuyBox(x, y, r, base.groundConsole, base.groundBuy)) {
     archetype = ARCHETYPE.RUNNER;
     cost = COST_RUNNER;
-    spawnX = base.groundConsole.x;
-    spawnY = base.groundConsole.y;
-    spawnLayer = base.groundConsole.layer;
+    queue = QUEUE_BASE_TANKS;
   } else if (inBuyBox(x, y, r, base.airConsole, base.airBuy)) {
     archetype = ARCHETYPE.GUARDIAN;
     cost = COST_GUARDIAN;
-    spawnX = base.airConsole.x;
-    spawnY = base.airConsole.y;
-    spawnLayer = base.airConsole.layer;
+    spawnX = base.jetSpawn.x;
+    spawnY = base.jetSpawn.y;
+    spawnLayer = base.jetSpawn.layer;
   } else if (heavy !== undefined && touchesHeavyZone(state, id, heavy.juggernaut)) {
     // The original's Dreadnought rolls out of its own spawner at node 0 of its
     // Cnet by the HQ (fcop-re/ranges-turrets-capture.md top), not at the zone.
@@ -1666,8 +1684,9 @@ export function systemBuy(state: SimState, player: number, id: number): void {
     spawnLayer = base.fortressSpawn.layer;
   } else {
     // The original's outpost pads (fcop-re/outposts.md Q3): a tank pad and a jet
-    // pad per outpost, its owner's only, 2 points a unit. The unit leaves from
-    // the pad; a jet patrols the outpost it was built at (mode 1 + k).
+    // pad per outpost, its owner's only, 2 points a unit. The tank is queued to
+    // the outpost's tank spawner; the jet leaves its jet spawner at once and
+    // patrols the outpost it was built at (mode 1 + k).
     for (let k = 0; k < map.outposts.length; k++) {
       if (state.outpostOwner[k] !== player) continue;
       const o = map.outposts[k];
@@ -1675,14 +1694,18 @@ export function systemBuy(state: SimState, player: number, id: number): void {
       if (!jet && !touchesZone(state, id, o.tankPad.x, o.tankPad.y, o.tankPad.layer, o.zone)) {
         continue;
       }
-      const pad = jet ? o.jetPad : o.tankPad;
       archetype = jet ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
       cost = (jet ? COST_GUARDIAN : COST_RUNNER) * OUTPOST_COST_MULTIPLIER;
-      spawnX = pad.x;
-      spawnY = pad.y;
-      spawnLayer = pad.layer;
-      mode = jet ? UNIT_MODE_OUTPOST + k : UNIT_MODE_PATROL;
-      forward = true;
+      if (jet) {
+        const at = o.jetSpawn[player];
+        spawnX = at.x;
+        spawnY = at.y;
+        spawnLayer = at.layer;
+        mode = UNIT_MODE_OUTPOST + k;
+        forward = true;
+      } else {
+        queue = QUEUE_OUTPOST + 2 * k;
+      }
       break;
     }
   }
@@ -1690,21 +1713,104 @@ export function systemBuy(state: SimState, player: number, id: number): void {
   if (archetype < 0) return; // not on a purchase spot: the press is not a purchase
 
   // The spot's own gates (fcop-fidelity.md R9, R10), refused out loud: the
-  // points, the 20-alive cap of tanks and jets, and a heavy zone whose unit
-  // lives (the original's latch, reopened by that unit's death script).
-  const alive = countAliveOfArchetype(state, archetype, player);
+  // points, the 20-alive cap of tanks and jets — a queued unit counts from its
+  // purchase, as the original's count word does (R18) — and a heavy zone whose
+  // unit lives (the original's latch, reopened by that unit's death script).
+  let alive = countAliveOfArchetype(state, archetype, player);
+  if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN) {
+    alive += queuedUnits(state, player, archetype === ARCHETYPE.GUARDIAN);
+  }
   if (state.points[player] < cost || alive >= aliveLimit(archetype)) {
     pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
     return;
   }
 
   state.points[player] -= cost;
+  if (queue >= 0) {
+    // Accepted at the press; the queue's next poll spawns it.
+    state.unitQueue[player * UNIT_QUEUES + queue] += 1;
+    pushEvent(state.events, EV_PURCHASE, id, player, archetype);
+    return;
+  }
   const uid = spawnUnit(state, archetype, player, spawnX, spawnY, mode, forward, spawnLayer);
   if (uid >= 0) {
     pushEvent(state.events, EV_PURCHASE, uid, player, archetype);
   } else {
     state.points[player] += cost; // entity cap hit: refund, nothing spawned
     pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
+  }
+}
+
+/** Spawn queue indices (SimState.unitQueue): per team, then per outpost k at + 2k. */
+export const QUEUE_BASE_TANKS = 0;
+export const QUEUE_BASE_JETS = 1;
+export const QUEUE_OUTPOST = 2;
+
+/** A queue's period in ticks: the arena's own, else ORIGINAL_*_QUEUE_TICKS. */
+function queuePeriod(map: MapData, team: number, q: number): number {
+  const jet = (q & 1) === 1;
+  if (q < QUEUE_OUTPOST) {
+    const t = map.bases[team].queueTicks;
+    return jet ? t.jet : t.tank;
+  }
+  const k = (q - QUEUE_OUTPOST) >> 1;
+  if (k >= map.outposts.length) return jet ? ORIGINAL_JET_QUEUE_TICKS : ORIGINAL_TANK_QUEUE_TICKS;
+  const t = map.outposts[k].queueTicks[team];
+  return jet ? t.jet : t.tank;
+}
+
+/** Jets (or tanks) `team` has bought or requested and not yet spawned. */
+export function queuedUnits(state: SimState, team: number, jet: boolean): number {
+  let n = 0;
+  for (let q = jet ? 1 : 0; q < UNIT_QUEUES; q += 2) n += state.unitQueue[team * UNIT_QUEUES + q];
+  return n;
+}
+
+/**
+ * The spawn queues (fcop-fidelity.md R18): each is the original's mission
+ * function that, once a period from a phase drawn at load, spawns one unit while
+ * its count is positive (fn18/fn19 a base's tanks, fn17 the captain's base jets,
+ * fn07..fn16/fn20/fn21 the outposts'). The unit leaves the queue's spawner; one
+ * the spawner refuses (20 of its kind alive) is spent all the same. A human's
+ * tanks and the Sky Captain's tanks and jets come this way.
+ */
+function systemQueues(state: SimState): void {
+  const map = state.map;
+  for (let team = 0; team < MAX_PLAYERS; team++) {
+    for (let q = 0; q < UNIT_QUEUES; q++) {
+      const k = team * UNIT_QUEUES + q;
+      state.unitQueueTimer[k] -= 1;
+      if (state.unitQueueTimer[k] >= 0) continue;
+      state.unitQueueTimer[k] += queuePeriod(map, team, q);
+      if (state.unitQueue[k] <= 0) continue;
+      const jet = (q & 1) === 1;
+      const archetype = jet ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
+      let at: MapPoint;
+      let mode = UNIT_MODE_PATROL;
+      let forward = false;
+      if (q < QUEUE_OUTPOST) {
+        at = jet ? map.bases[team].jetSpawn : map.bases[team].tankSpawn;
+      } else {
+        const o = (q - QUEUE_OUTPOST) >> 1;
+        if (o >= map.outposts.length) {
+          state.unitQueue[k] = 0; // no such outpost here
+          continue;
+        }
+        at = jet ? map.outposts[o].jetSpawn[team] : map.outposts[o].tankSpawn[team];
+        forward = true;
+        if (jet) mode = UNIT_MODE_OUTPOST + o;
+      }
+      state.unitQueue[k] -= 1;
+      if (countAliveOfArchetype(state, archetype, team) >= aliveLimit(archetype)) continue;
+      const uid = spawnUnit(state, archetype, team, at.x, at.y, mode, forward, at.layer);
+      if (uid < 0) {
+        state.unitQueue[k] += 1; // the entity store is full: the next poll tries again
+        continue;
+      }
+      // The captain's purchases announce themselves when they appear; a human's
+      // was answered at the press.
+      if (team === state.wardenPlayer) pushEvent(state.events, EV_PURCHASE, uid, team, archetype);
+    }
   }
 }
 
@@ -3654,6 +3760,7 @@ export function step(state: SimState, inputs: TickInputs): void {
   // advancing for replays/netcode, but no gameplay system runs anymore.
   if (state.winner === -1) {
     systemAvatarMovement(state, inputs);
+    systemQueues(state);
     // The Warden slots in directly after the human avatars: it IS the other
     // avatar (decision layer + superplane movement + weapons + buying), so it
     // observes the same pre-unit-movement world a player does.
@@ -3758,6 +3865,11 @@ export function hash(state: SimState): number {
   for (let p = 0; p < state.turretAlert.length; p++) {
     h = fnv1aU32(h, state.turretAlert[p] >>> 0);
   }
+  // Appended at SIM_VERSION 61: the spawn queues, every map.
+  for (let k = 0; k < state.unitQueue.length; k++) {
+    h = fnv1aU32(h, state.unitQueue[k] >>> 0);
+    h = fnv1aU32(h, state.unitQueueTimer[k] >>> 0);
+  }
   // Appended at SIM_VERSION 60, on arenas with heavy zones only.
   for (let p = 0; p < MAX_PLAYERS; p++) {
     if (state.map.bases[p].heavyZones !== undefined) h = fnv1aU32(h, state.heavyPoll[p] >>> 0);
@@ -3807,10 +3919,6 @@ export function hash(state: SimState): number {
     for (let k = 0; k < 3; k++) {
       h = fnv1aF32(h, c.gunClock[k]);
       h = fnv1aU32(h, c.gunPhase[k]);
-    }
-    for (let k = 0; k < c.queue.length; k++) {
-      h = fnv1aU32(h, c.queue[k] >>> 0);
-      h = fnv1aU32(h, c.queueTimer[k] >>> 0);
     }
   }
   return h;

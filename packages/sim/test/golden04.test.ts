@@ -11,9 +11,9 @@
 // and fights whatever comes within 20 m. Since the captain
 // shoots as the original's does (SIM_VERSION 54: no line of sight to pick a
 // target, but walls stop its gun and missile) its tanks no longer reach the
-// gate in these 150 s. Since SIM_VERSION 60 (the heavy-zone poll's draw at
-// createSim moves the PRNG stream) it buys seven tanks and three jets, and the
-// player goes down once and shoots the captain down once.
+// gate in these 150 s. As recorded at SIM_VERSION 61 (its requests go to the
+// shared spawn queues, which run from a phase drawn at createSim): ten tanks
+// and one jet, and the player goes down twice.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -70,11 +70,11 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    expect(bought.get(ARCHETYPE.RUNNER)).toBe(7);
-    expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(3);
+    expect(bought.get(ARCHETYPE.RUNNER)).toBe(10);
+    expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
     expect(claims).toBe(1);
-    expect(wardenDeaths).toBe(1);
-    expect(avatarDeaths).toBe(1);
+    expect(wardenDeaths).toBe(0);
+    expect(avatarDeaths).toBe(2);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);
     expect(sim.winner).toBe(-1);

@@ -534,6 +534,91 @@ function heavyOf(
   };
 }
 
+/** A spawner's position in sim coordinates, by its Csac template. */
+function spawnerAt(rules: FcopRules, template: number): number[] {
+  const s = rules.spawners.find((q) => q.template === template);
+  if (!s) throw new Error(`${rules.mapId}: no spawner for template ${template}`);
+  return [round4(sx(s.x)), round4(sz(s.z))];
+}
+
+/** A queue's period in sim ticks, by its rows in the rules artifact. */
+function queueTicksOf(rules: FcopRules, pick: (q: FcopRules["queues"][number]) => boolean): number {
+  const rows = rules.queues.filter(pick);
+  if (rows.length !== 1) throw new Error(`${rules.mapId}: ${rows.length} queues match, want 1`);
+  return toSimTicks(rows[0].periodUnits, TICK_HZ);
+}
+
+/**
+ * A base's spawn queues and spawners (fcop-fidelity.md R18): its tanks queue on
+ * the slot's base tank function (fn18/fn19) and leave the tank spawner, its jets
+ * leave the jet spawner at once; the base jet queue is the Sky Captain's (fn17),
+ * which only the second slot carries — the first slot's captain, which the
+ * original never fields, takes the same period.
+ */
+function baseQueuesOf(
+  rules: FcopRules,
+  slot: number,
+): { tankSpawn: number[]; jetSpawn: number[]; queueTicks: { tank: number; jet: number } } {
+  const shop = (kind: string) => {
+    const b = rules.buyTriggers.find((t) => t.slot === slot && t.kind === kind);
+    if (!b) throw new Error(`${rules.mapId}: slot ${slot} has no ${kind} shop`);
+    return b;
+  };
+  const tank = shop("tank");
+  const base = (q: FcopRules["queues"][number]) => q.outpost === null;
+  const ownJet = rules.queues.some((q) => base(q) && q.kind === "jet" && q.slot === slot);
+  return {
+    tankSpawn: spawnerAt(rules, tank.template),
+    jetSpawn: spawnerAt(rules, shop("jet").template),
+    queueTicks: {
+      tank: queueTicksOf(rules, (q) => q.fn === tank.queueFn),
+      jet: queueTicksOf(rules, (q) => base(q) && q.kind === "jet" && (!ownJet || q.slot === slot)),
+    },
+  };
+}
+
+/**
+ * An outpost's spawners and queues per team (fcop-fidelity.md R18): a tank
+ * bought at its activation zone queues on the slot's outpost tank function, a
+ * jet bought at its claim zone leaves the jet spawner at once; the outpost's jet
+ * queue is the captain's, carried by one slot and shared as the base's is.
+ * Asserted to be the evidence's outpost by distance.
+ */
+function outpostQueuesOf(
+  rules: FcopRules,
+  k: number,
+  slots: number[],
+  tankPad: number[],
+): {
+  tankSpawn: number[][];
+  jetSpawn: number[][];
+  queueTicks: { tank: number; jet: number }[];
+} {
+  const out = slots.map((slot) => {
+    const shop = rules.outpostShop.find((o) => o.outpost === k && o.slot === slot);
+    if (!shop) throw new Error(`${rules.mapId}: outpost ${k} has no shop for slot ${slot}`);
+    const tankSpawn = spawnerAt(rules, shop.tankTemplate);
+    if (Math.hypot(tankSpawn[0] - tankPad[0], tankSpawn[1] - tankPad[1]) > 12) {
+      throw new Error(`${rules.mapId}: outpost ${k}'s tank spawner is not by its tank pad`);
+    }
+    const jets = (q: FcopRules["queues"][number]) => q.outpost === k && q.kind === "jet";
+    const ownJet = rules.queues.some((q) => jets(q) && q.slot === slot);
+    return {
+      tankSpawn,
+      jetSpawn: spawnerAt(rules, shop.jetTemplate),
+      queueTicks: {
+        tank: queueTicksOf(rules, (q) => q.fn === shop.tankQueueFn),
+        jet: queueTicksOf(rules, (q) => jets(q) && (!ownJet || q.slot === slot)),
+      },
+    };
+  });
+  return {
+    tankSpawn: out.map((o) => o.tankSpawn),
+    jetSpawn: out.map((o) => o.jetSpawn),
+    queueTicks: out.map((o) => o.queueTicks),
+  };
+}
+
 /** Interns weapon profiles so identical originals share one index. */
 class WeaponTable {
   readonly list: Weapon[] = [];
@@ -1365,6 +1450,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     if (team < 0) throw new Error(`${mapId}: no team owns player slot ${slot}`);
     return team;
   };
+  const slotOfTeam = (team: number): number => (teamOfSlot(0) === team ? 0 : 1);
   const teamNet = [teamBases[0].netId, teamBases[1].netId];
   // Each side's gate: the trigger that watches the ENEMY's Dreadnought.
   const gates = teamBases.map((own, team) => gateOf(logic, teamBases[1 - team].id, own.id));
@@ -1492,6 +1578,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       // The tank, jet and Flying Fortress spawner records (fcop-fidelity.md W3).
       ...unitProfiles(logic, base.team, table),
       ...heavyOf(rules, team, teamOfSlot, coreX, coreY),
+      ...baseQueuesOf(rules, slotOfTeam(team)),
     };
   });
 
@@ -1558,6 +1645,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     zone: round4(o.claim_zone.radius_m),
     tankPad: padOf(o, "tank"),
     jetPad: padOf(o, "jet"),
+    ...outpostQueuesOf(rules, o.index, [slotOfTeam(0), slotOfTeam(1)], padOf(o, "tank")),
     plates: o.plates.map((plate) => {
       const neutral = plate.records.filter((r) => r.type === 36);
       if (neutral.length !== 1 || !neutralIndex.has(neutral[0].id)) {

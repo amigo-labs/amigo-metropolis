@@ -15,6 +15,8 @@ import {
   ORIGINAL_BUY_HALF_L,
   ORIGINAL_BUY_HALF_W,
   ORIGINAL_CAPTURE_RANGE,
+  ORIGINAL_JET_QUEUE_TICKS,
+  ORIGINAL_TANK_QUEUE_TICKS,
   ORIGINAL_TURRET_HP,
   ORIGINAL_UNIT_PROFILES,
   ORIGINAL_WEAPON_PROFILES,
@@ -267,6 +269,14 @@ export interface MapBase {
   readonly heavyZones: MapHeavyZones | undefined;
   /** Where a Fortress appears: its own spawner's (Csac) position; else the air console. */
   readonly fortressSpawn: MapPoint;
+  /** Where the base's tanks and jets appear: their spawners; else the consoles. */
+  readonly tankSpawn: MapPoint;
+  readonly jetSpawn: MapPoint;
+  /**
+   * The base's tank queue's period, and the jet queue's (the Sky Captain's; a
+   * human's jets come at once). ORIGINAL_*_QUEUE_TICKS where the arena imports none.
+   */
+  readonly queueTicks: MapQueueTicks;
 }
 
 /**
@@ -378,6 +388,21 @@ export interface MapOutpost {
   /** Where an owner buys a tank (Runner) and a jet (Guardian), at 2 points each. */
   readonly tankPad: MapPoint;
   readonly jetPad: MapPoint;
+  /** Per team: where its tanks and jets from this outpost appear (their spawners). */
+  readonly tankSpawn: readonly MapPoint[];
+  readonly jetSpawn: readonly MapPoint[];
+  /** Per team: this outpost's tank and jet queues' periods in ticks (MapQueueTicks). */
+  readonly queueTicks: readonly MapQueueTicks[];
+}
+
+/**
+ * A spawn queue's period in ticks (fcop-fidelity.md R18): the mission function
+ * that spawns one queued unit per poll while its count is positive, polled from a
+ * random phase drawn at load.
+ */
+export interface MapQueueTicks {
+  readonly tank: number;
+  readonly jet: number;
 }
 
 /**
@@ -749,6 +774,10 @@ export interface MapJson {
     zone: number;
     tankPad: number[] | { x: number; y: number; layer?: number };
     jetPad: number[] | { x: number; y: number; layer?: number };
+    /** OPTIONAL, per team: the spawners' positions (absent -> the pads) and queue periods. */
+    tankSpawn?: (number[] | { x: number; y: number; layer?: number })[];
+    jetSpawn?: (number[] | { x: number; y: number; layer?: number })[];
+    queueTicks?: { tank: number; jet: number }[];
     plates: {
       spot: number;
       turrets: { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number }[];
@@ -873,6 +902,11 @@ export interface MapBaseJson {
   };
   /** OPTIONAL: the Fortress spawner's position; absent -> the air console. */
   fortressSpawn?: number[] | { x: number; y: number; layer?: number };
+  /** OPTIONAL: the tank and jet spawners' positions; absent -> the consoles. */
+  tankSpawn?: number[] | { x: number; y: number; layer?: number };
+  jetSpawn?: number[] | { x: number; y: number; layer?: number };
+  /** OPTIONAL: the base's queue periods in ticks (MapQueueTicks). */
+  queueTicks?: { tank: number; jet: number };
 }
 
 function fail(id: string, reason: string): never {
@@ -1175,6 +1209,13 @@ export function loadMapFromJson(raw: MapJson): MapData {
   };
 
   if (!Array.isArray(raw.bases) || raw.bases.length !== 2) fail(id, "need exactly 2 bases");
+  const queueTicksOf = (q: { tank: number; jet: number } | undefined, what: string) => {
+    if (q === undefined) return { tank: ORIGINAL_TANK_QUEUE_TICKS, jet: ORIGINAL_JET_QUEUE_TICKS };
+    if (!Number.isInteger(q.tank) || q.tank < 1 || !Number.isInteger(q.jet) || q.jet < 1) {
+      fail(id, `${what} need positive integer periods`);
+    }
+    return { tank: q.tank, jet: q.jet };
+  };
   const bases: MapBase[] = raw.bases.map((b, team) => {
     if (!b || typeof b !== "object") fail(id, `base ${team} is not an object`);
     if (!Array.isArray(b.turrets)) fail(id, `base ${team} turrets is not a list`);
@@ -1295,6 +1336,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
       fortress: unitProfile(b.fortress, `base ${team} fortress`, ORIGINAL_UNIT_PROFILES.fortress),
       heavyZones,
       fortressSpawn: point(b.fortressSpawn ?? b.airConsole, `base ${team} fortress spawn`),
+      tankSpawn: point(b.tankSpawn ?? b.groundConsole, `base ${team} tank spawn`),
+      jetSpawn: point(b.jetSpawn ?? b.airConsole, `base ${team} jet spawn`),
+      queueTicks: queueTicksOf(b.queueTicks, `base ${team} queues`),
     };
   });
 
@@ -1341,10 +1385,27 @@ export function loadMapFromJson(raw: MapJson): MapData {
       if (!o || typeof o !== "object") fail(id, `${what} is not an object`);
       const zone = num(o.zone, `${what} zone`);
       if (!(zone > 0)) fail(id, `${what} bad zone ${zone}`);
+      const tankPad = point(o.tankPad, `${what} tank pad`);
+      const jetPad = point(o.jetPad, `${what} jet pad`);
+      const perTeam = <T>(list: T[] | undefined, what2: string): (T | undefined)[] => {
+        if (list === undefined) return [undefined, undefined];
+        if (!Array.isArray(list) || list.length !== 2)
+          fail(id, `${what} ${what2} needs one per team`);
+        return list;
+      };
       outposts.push({
         zone,
-        tankPad: point(o.tankPad, `${what} tank pad`),
-        jetPad: point(o.jetPad, `${what} jet pad`),
+        tankPad,
+        jetPad,
+        tankSpawn: perTeam(o.tankSpawn, "tankSpawn").map((p, t) =>
+          p === undefined ? tankPad : point(p, `${what} team ${t} tank spawn`),
+        ),
+        jetSpawn: perTeam(o.jetSpawn, "jetSpawn").map((p, t) =>
+          p === undefined ? jetPad : point(p, `${what} team ${t} jet spawn`),
+        ),
+        queueTicks: perTeam(o.queueTicks, "queueTicks").map((q, t) =>
+          queueTicksOf(q, `${what} team ${t} queues`),
+        ),
       });
       if (!Array.isArray(o.plates)) fail(id, `${what} plates is not a list`);
       o.plates.forEach((pl, j) => {
@@ -1651,6 +1712,9 @@ export function createTestMap(): MapData {
     fortress: { ...ORIGINAL_UNIT_PROFILES.fortress },
     heavyZones: undefined,
     fortressSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
+    tankSpawn: { x: center + (team === 0 ? -12 : 12), y: center, layer: 0 },
+    jetSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
+    queueTicks: { tank: ORIGINAL_TANK_QUEUE_TICKS, jet: ORIGINAL_JET_QUEUE_TICKS },
   });
   return {
     id: TEST_MAP_ID,

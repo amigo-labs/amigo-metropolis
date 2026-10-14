@@ -70,6 +70,9 @@ interface ReZone {
   template?: number;
   price?: number;
   radius_raw: number;
+  outpost?: number;
+  sells_tank?: { template: number; queue_fn: string; price: number };
+  sells_jet?: { template: number; price: number };
 }
 
 interface ReEnable {
@@ -234,6 +237,20 @@ export interface FcopRules {
     price: number;
     template: number;
   }[];
+  /**
+   * Each outpost's shop per slot: its activation zone queues a tank from
+   * `tankTemplate` on `tankQueueFn`, its claim zone spawns a jet from
+   * `jetTemplate` at once.
+   */
+  outpostShop: {
+    outpost: number;
+    slot: number;
+    tankTemplate: number;
+    tankQueueFn: string;
+    tankPrice: number;
+    jetTemplate: number;
+    jetPrice: number;
+  }[];
   /** The polled function that opens a slot's two heavy zones for good. */
   heavyEnable: { slot: number; pointsAtLeast: number; pollUnits: number; zones: number[] }[];
   queues: {
@@ -361,6 +378,27 @@ export function buildRules(arena: FcopArena, re: ReRules, source: FcopRules["sou
     })
     .sort((a, b) => a.slot - b.slot || a.unit.localeCompare(b.unit));
 
+  const outpostShop: FcopRules["outpostShop"] = [];
+  for (const z of re.zones) {
+    if (z.role !== "outpost_activation" || !z.sells_tank) continue;
+    const claim = re.zones.find(
+      (c) => c.role === "outpost_claim" && c.outpost === z.outpost && c.slot === z.slot,
+    );
+    if (z.outpost === undefined || z.slot === undefined || !claim?.sells_jet) {
+      throw new Error(`${arena.mapId}: outpost zone ${z.actor_id} lacks its claim zone's jet`);
+    }
+    outpostShop.push({
+      outpost: z.outpost,
+      slot: z.slot,
+      tankTemplate: z.sells_tank.template,
+      tankQueueFn: z.sells_tank.queue_fn,
+      tankPrice: z.sells_tank.price,
+      jetTemplate: claim.sells_jet.template,
+      jetPrice: claim.sells_jet.price,
+    });
+  }
+  outpostShop.sort((a, b) => a.outpost - b.outpost || a.slot - b.slot);
+
   const queues = re.queues.map((q) => ({
     fn: q.fn,
     template: q.template,
@@ -376,6 +414,7 @@ export function buildRules(arena: FcopArena, re: ReRules, source: FcopRules["sou
     ...queues.map((q) => q.template),
     ...heavyZones.map((z) => z.template),
     ...re.buy_triggers.map((b) => b.sells.template),
+    ...outpostShop.flatMap((o) => [o.tankTemplate, o.jetTemplate]),
   ]);
   const spawners = re.spawners
     .filter((s) => wanted.has(s.template))
@@ -431,6 +470,7 @@ export function buildRules(arena: FcopArena, re: ReRules, source: FcopRules["sou
       damagePerStep: f.walker_damage_per_step,
     })),
     heavyZones,
+    outpostShop,
     heavyEnable: re.heavy_zone_enable.map((e) => ({
       slot: e.slot,
       pointsAtLeast: e.points_at_least,

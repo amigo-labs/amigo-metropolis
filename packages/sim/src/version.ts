@@ -953,4 +953,17 @@
 //     Fortress, the human's and the captain's, leaves its own spawner
 //     (MapBase.fortressSpawn), not the air console. A base without zones (the
 //     test maps) sells no heavy unit.
-export const SIM_VERSION = 60;
+// v61: a tank is queued, as the original's are (fcop-fidelity.md R18): a
+//     human's base or outpost tank purchase is accepted at the press and joins
+//     its side's spawn queue (SimState.unitQueue / unitQueueTimer, hashed on
+//     every map), which spawns one unit a period from a phase drawn at
+//     createSim — the original's mission functions fn07..fn21, periods per
+//     arena and slot (MapBase / MapOutpost queueTicks: base tanks 98-102 ticks,
+//     outpost tanks 98-103, the captain's jets 23-29). Queued units count
+//     against the 20 from the purchase. Jets still come at once. Every unit
+//     leaves its spawner's Csac position (MapBase tankSpawn / jetSpawn,
+//     MapOutpost tankSpawn / jetSpawn per team), not the console or the pad.
+//     The Sky Captain's requests use the same queues (CaptainState.queue and
+//     its own timers are gone); a queue now runs from a random phase and keeps
+//     its period between purchases (was: a fresh 0 countdown).
+export const SIM_VERSION = 61;

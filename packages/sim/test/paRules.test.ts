@@ -27,6 +27,7 @@ import {
   RESPAWN_TICKS,
   TRIGGER_REARM_TICKS,
   TURRET_ALERT_COOLDOWN_TICKS,
+  UNIT_QUEUES,
 } from "../src/balance";
 import { segmentBlocked } from "../src/collision";
 import {
@@ -47,6 +48,7 @@ import {
   createSim,
   MODE_HOVER,
   MODE_WALKER,
+  QUEUE_OUTPOST,
   type SimState,
   spawnUnit,
   step,
@@ -654,10 +656,26 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
       }
       return bought;
     };
-    const tank = pressPad(o.tankPad.x, o.tankPad.y);
-    expect(tank).toBeGreaterThanOrEqual(0);
-    expect(ent.archetype[tank]).toBe(ARCHETYPE.RUNNER);
+    // The tank is accepted at the press and queued to the outpost's tank spawner
+    // (R18): it comes out at the queue's next poll.
+    expect(pressPad(o.tankPad.x, o.tankPad.y)).toBe(a);
     expect(state.points[0]).toBe(20 - COST_RUNNER * OUTPOST_COST_MULTIPLIER);
+    const q = 0 * UNIT_QUEUES + QUEUE_OUTPOST;
+    expect(state.unitQueue[q]).toBe(1);
+    let tank = -1;
+    for (let t = 0; t <= o.queueTicks[0].tank && tank < 0; t++) {
+      step(state, idle);
+      for (let id = 0; id < state.ent.high; id++) {
+        if (state.ent.alive[id] && ent.archetype[id] === ARCHETYPE.RUNNER && ent.team[id] === 0) {
+          tank = id;
+        }
+      }
+    }
+    expect(tank).toBeGreaterThanOrEqual(0);
+    expect(state.unitQueue[q]).toBe(0);
+    expect(
+      Math.hypot(ent.posX[tank] - o.tankSpawn[0].x, ent.posY[tank] - o.tankSpawn[0].y),
+    ).toBeLessThan(1);
     const jet = pressPad(o.jetPad.x, o.jetPad.y);
     expect(jet).toBeGreaterThanOrEqual(0);
     expect(ent.archetype[jet]).toBe(ARCHETYPE.GUARDIAN);

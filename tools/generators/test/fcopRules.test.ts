@@ -88,6 +88,12 @@ describe("committed rule artifacts", () => {
         for (const q of rules.queues) expect(have.has(q.template)).toBe(true);
         for (const z of rules.heavyZones) expect(have.has(z.template)).toBe(true);
         for (const b of rules.buyTriggers) expect(have.has(b.template)).toBe(true);
+        expect(rules.outpostShop.length).toBe(8); // four outposts, two slots
+        for (const o of rules.outpostShop) {
+          expect(have.has(o.tankTemplate)).toBe(true);
+          expect(have.has(o.jetTemplate)).toBe(true);
+          expect(rules.queues.some((q) => q.fn === o.tankQueueFn)).toBe(true);
+        }
       });
 
       test("has one Dreadnought and one Fortress zone a slot, 50 points each", () => {

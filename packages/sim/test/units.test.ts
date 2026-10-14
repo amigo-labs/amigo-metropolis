@@ -16,13 +16,22 @@ import {
   MATCH_OUTRO_TICKS,
   POINTS_UNIT_DIES,
   ROUTE_TOP_SPEED,
+  RUNNER_ALIVE_LIMIT,
   STARTING_POINTS,
   UNIT_SEPARATION_RADIUS,
 } from "../src/balance";
 import { EV_BREACH, EV_PURCHASE, EV_PURCHASE_REFUSED, EVENT_STRIDE } from "../src/events";
 import { BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
-import { createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
+import {
+  createSim,
+  hash,
+  QUEUE_BASE_JETS,
+  QUEUE_BASE_TANKS,
+  type SimState,
+  spawnUnit,
+  step,
+} from "../src/sim";
 
 /** Mp's fn30 poll: the heavy zones open at the first check that sees 50 points. */
 const HEAVY_POLL = 150;
@@ -198,7 +207,7 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     step(sim, inputs);
   }
 
-  it("a press at the ground console buys one Runner at once; holding buys no more", () => {
+  it("a press at the ground console buys one Runner; holding buys no more", () => {
     reset();
     const sim = openSim();
     sim.ent.posX[0] = 6;
@@ -206,10 +215,12 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     press(sim, BUTTON_INTERACT);
     const bought = findEvents(sim, EV_PURCHASE);
     expect(bought.length).toBe(1);
-    const [uid, player, archetype] = bought[0];
+    const [buyer, player, archetype] = bought[0];
+    // Accepted at the press, by the buyer; the tank itself is queued (R18).
+    expect(buyer).toBe(sim.avatarId[0]);
     expect(player).toBe(0);
     expect(archetype).toBe(ARCHETYPE.RUNNER);
-    expect(sim.ent.alive[uid]).toBe(1);
+    expect(sim.unitQueue[QUEUE_BASE_TANKS]).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS - COST_RUNNER);
     // Keeping the key down is not a press: nothing more, however long.
     for (let t = 0; t < 60; t++) {
@@ -222,6 +233,58 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     press(sim, BUTTON_INTERACT);
     expect(findEvents(sim, EV_PURCHASE).length).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS - 2 * COST_RUNNER);
+  });
+
+  it("bought tanks come out of the tank spawner one a queue period; jets at once", () => {
+    reset();
+    const sim = openSim();
+    const base = sim.map.bases[0];
+    sim.points[0] = 20;
+    sim.ent.posX[0] = 6;
+    sim.ent.posY[0] = 14;
+    for (let k = 0; k < 3; k++) {
+      press(sim, BUTTON_INTERACT);
+      release(sim);
+    }
+    expect(sim.unitQueue[QUEUE_BASE_TANKS]).toBe(3);
+    const out: number[] = [];
+    for (let t = 0; t < 4 * base.queueTicks.tank; t++) {
+      step(sim, inputs);
+      for (let id = 0; id < sim.ent.high; id++) {
+        if (!sim.ent.alive[id] || sim.ent.archetype[id] !== ARCHETYPE.RUNNER) continue;
+        if (out.includes(id)) continue;
+        out.push(id);
+        expect(sim.ent.posX[id]).toBeCloseTo(base.tankSpawn.x, 0);
+        expect(sim.ent.posY[id]).toBeCloseTo(base.tankSpawn.y, 0);
+        out.push(-t - 1); // remember when
+      }
+    }
+    const ticks = out.filter((v) => v < 0).map((v) => -v - 1);
+    expect(ticks.length).toBe(3);
+    expect(ticks[1] - ticks[0]).toBe(base.queueTicks.tank);
+    expect(ticks[2] - ticks[1]).toBe(base.queueTicks.tank);
+    expect(sim.unitQueue[QUEUE_BASE_TANKS]).toBe(0);
+    // A jet does not queue.
+    sim.ent.posX[0] = 6;
+    sim.ent.posY[0] = 22;
+    press(sim, BUTTON_INTERACT);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
+    expect(sim.unitQueue[QUEUE_BASE_JETS]).toBe(0);
+  });
+
+  it("a queued tank counts against the 20 from its purchase", () => {
+    reset();
+    const sim = openSim();
+    sim.points[0] = 100;
+    for (let k = 0; k < RUNNER_ALIVE_LIMIT - 1; k++) spawnUnit(sim, ARCHETYPE.RUNNER, 0, 6, 40);
+    sim.ent.posX[0] = 6;
+    sim.ent.posY[0] = 14;
+    press(sim, BUTTON_INTERACT); // the 20th: queued
+    expect(findEvents(sim, EV_PURCHASE).length).toBe(1);
+    release(sim);
+    press(sim, BUTTON_INTERACT); // a 21st, with only 19 alive: refused
+    expect(findEvents(sim, EV_PURCHASE_REFUSED)[0][2]).toBe(ARCHETYPE.RUNNER);
+    expect(sim.points[0]).toBe(100 - COST_RUNNER);
   });
 
   it("every press is one unit: five taps, five Runners", () => {
