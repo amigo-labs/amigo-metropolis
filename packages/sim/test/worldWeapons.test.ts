@@ -15,7 +15,7 @@ import {
 import { segmentBlocked } from "../src/collision";
 import { EV_HIT, EV_SHOT, EVENT_STRIDE, SHOT_SLOT_LAUNCH } from "../src/events";
 import { createTickInputs } from "../src/inputs";
-import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID } from "../src/map";
+import { getMapById, LA_CANTINA_ID, TEST_MAP_ID } from "../src/map";
 import { createSim, type SimState, spawnUnit, step } from "../src/sim";
 import { PROJ_ROUND } from "../src/weapons";
 
@@ -249,11 +249,10 @@ describe("PA units carry their spawner records (fcop-fidelity.md W3)", () => {
     expect(ent.ammoB[round] & 1).toBe(1);
   });
 
-  it("district-01's units carry the original's records too (SIM_VERSION 52)", () => {
-    // Until SIM_VERSION 52 district-01 kept Metropolis' own table (60/50/500 HP,
-    // instant hits, profile -1). The owner moved it onto the original's: the
-    // same records the PA arenas import, from balance.ts ORIGINAL_UNIT_PROFILES.
-    const d01 = getMapById(DISTRICT_01_ID);
+  it("an arena with no records of its own carries the original's (SIM_VERSION 52)", () => {
+    // The test map imports nothing: its units get the same records the PA arenas
+    // import, from balance.ts ORIGINAL_UNIT_PROFILES.
+    const d01 = getMapById(TEST_MAP_ID);
     const pa = getMapById("la-cantina");
     const state = createSim(d01, 1);
     const ent = state.ent;

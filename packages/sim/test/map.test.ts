@@ -6,7 +6,6 @@ import { fnv1aBytes, fnv1aInit } from "../src/hash";
 import {
   BUG_HUNT_ID,
   createTestMap,
-  DISTRICT_01_ID,
   getMapById,
   HOLLYWOOD_KEYS_ID,
   LA_CANTINA_ID,
@@ -65,9 +64,8 @@ describe("map registry", () => {
     expect(getMapById(TEST_MAP_ID).id).toBe(TEST_MAP_ID);
   });
 
-  it("retires District 01 from the picker but keeps it resolvable by id", () => {
-    expect(MAP_REGISTRY.some((m) => m.id === DISTRICT_01_ID)).toBe(false);
-    expect(getMapById(DISTRICT_01_ID).id).toBe(DISTRICT_01_ID);
+  it("no longer resolves District 01, which the original never had", () => {
+    expect(() => getMapById("district-01")).toThrow();
   });
 
   it("throws on unknown map ids", () => {

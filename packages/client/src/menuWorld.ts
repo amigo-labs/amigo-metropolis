@@ -30,8 +30,8 @@ export function zeroPlayerInput(out: PlayerInput): void {
   out.buttons = 0;
 }
 
-// Spawn → own ground console, per slot (matches district-01 authoring, which
-// mirrors the bases about x): slot 1 walks (+4,+12), slot 0 the exact mirror.
+// Spawn → own ground console, per slot (authored for bases mirrored about x):
+// slot 1 walks (+4,+12), slot 0 the exact mirror.
 const FEEDER_MOVE_X = [-40, 40];
 const FEEDER_MOVE_Y = [-120, 120];
 

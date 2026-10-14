@@ -5,7 +5,6 @@
 // and a schema test); the Phase 0 test map stays procedurally generated.
 
 import bugHuntJson from "../maps/bug-hunt.json";
-import districtJson from "../maps/district-01.json";
 import hollywoodKeysJson from "../maps/hollywood-keys.json";
 import laCantinaJson from "../maps/la-cantina.json";
 import layeredTestJson from "../maps/layered-test.json";
@@ -545,17 +544,11 @@ export function isWater(map: MapData, x: number, y: number): boolean {
 export function getMapById(id: string): MapData {
   if (id === TEST_MAP_ID) return createTestMap();
   if (id === LAYERED_TEST_ID) return loadMapFromJson(layeredTestJson as MapJson);
-  // District 01 is retired from the picker but still resolvable by id: goldens,
-  // tools and the historic replay harnesses load it directly (like the debug
-  // maps above), so it stays available without cluttering the menu.
-  if (id === DISTRICT_01_ID) return loadMapFromJson(districtJson as MapJson);
   for (const entry of REGISTRY) {
     if (entry.info.id === id) return loadMapFromJson(entry.json);
   }
   throw new Error(`unknown map id: ${id}`);
 }
-
-export const DISTRICT_01_ID = "district-01";
 
 /** FCOP "Urban Jungle" arena (mission Conft), heightfield extracted 1:1. */
 export const URBAN_JUNGLE_ID = "urban-jungle";

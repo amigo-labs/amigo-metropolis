@@ -18,12 +18,12 @@ import {
   clearTickInputs,
   createSim,
   createTickInputs,
-  DISTRICT_01_ID,
   decodeMessage,
   decodeReplay,
   encodeMessage,
   getMapById,
   hash,
+  LA_CANTINA_ID,
   type MatchConfig,
   type PlayerInput,
   SIM_VERSION,
@@ -37,7 +37,7 @@ import type { Transport } from "../src/net/transport";
 const CONFIG: MatchConfig = {
   simVersion: SIM_VERSION,
   seed: 0xc0ffee,
-  mapId: DISTRICT_01_ID,
+  mapId: LA_CANTINA_ID,
   wardenPlayer: -1,
   wardenDifficulty: 0,
 };

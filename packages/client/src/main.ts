@@ -1,5 +1,5 @@
 // Sandbox entry: a fixed 30 Hz sim under a variable-rate render loop on the
-// district-01 arena, driving the ONE local player. Frame loop contract
+// chosen arena, driving the ONE local player. Frame loop contract
 // (CLAUDE.md renderer rules): ZERO allocations — all scratch objects live at
 // module scope, snapshots rotate between two preallocated buffers, and entity
 // rendering reads sim state ONLY via writeSnapshot(). (The 1 Hz debug HUD reads
@@ -477,9 +477,8 @@ const sounds = new OriginalSounds(audio);
 // ?debug: the sound module for the console / headless audio checks (read-only).
 if (params.has("debug")) (globalThis as { metropolisAudio?: AudioEngine }).metropolisAudio = audio;
 /**
- * The arena that has no original of its own (district-01, the test maps) plays
- * La Cantina's — the Mp bank. Metropolis' choice, until those maps go
- * (fcop-fidelity.md, audio rows).
+ * The debug maps, which have no original of their own (test-128, layered-test),
+ * play La Cantina's sounds — the Mp bank (fcop-fidelity.md A20).
  */
 const FALLBACK_SOUND_ARENA = "la-cantina";
 /** The camera's right vector on the ground, for the listener's pan. */

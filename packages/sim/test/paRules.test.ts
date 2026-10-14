@@ -14,7 +14,6 @@ import {
   MATCH_OUTRO_TICKS,
   NEUTRAL_TURRET_RESPAWN_TICKS,
   ORIGINAL_CAPTURE_RANGE,
-  ORIGINAL_TURRET_HP,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_TURRET_RESPAWN_TICKS,
   PICKUP_HEALTH,
@@ -25,12 +24,11 @@ import {
   PICKUP_POWER_HEAVY,
   PICKUP_POWER_SPECIAL,
   POINTS_TURRET_DIES,
-  PROFILE_NEUTRAL_TURRET,
-  PROFILE_TEAM_TURRET,
   RESPAWN_TICKS,
   TRIGGER_REARM_TICKS,
   TURRET_ALERT_COOLDOWN_TICKS,
 } from "../src/balance";
+import { segmentBlocked } from "../src/collision";
 import {
   EV_ALARM,
   EV_BREACH,
@@ -43,7 +41,7 @@ import {
   EVENT_STRIDE,
 } from "../src/events";
 import { BUTTON_FIRE1, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
-import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID, resolveHeight } from "../src/map";
+import { getMapById, LA_CANTINA_ID, resolveHeight, TEST_MAP_ID } from "../src/map";
 import {
   claimOutpostSlot,
   createSim,
@@ -292,15 +290,14 @@ describe("the gate is the win condition (fcop-fidelity.md R1)", () => {
   });
 
   it("keeps the gate breach as the only win on the §1 arenas too", () => {
-    // district-01: a circle gate, the same win test, the same outro.
-    const legacy = getMapById(DISTRICT_01_ID);
+    // The test map: a circle gate, the same win test, the same outro.
+    const legacy = getMapById(TEST_MAP_ID);
     const state = createSim(legacy, 1);
     const gate = legacy.bases[1].gate;
     expect(gate.halfW).toBe(0);
     const unit = spawnUnit(state, ARCHETYPE.RUNNER, 0, gate.x, gate.y);
     state.ent.posX[unit] = gate.x;
     state.ent.posY[unit] = gate.y;
-    state.ent.hp[unit] = 1000; // the ring's 28 m guns would kill it before the check
     step(state, idle);
     expect(state.outroWinner).toBe(0);
     run(state, MATCH_OUTRO_TICKS);
@@ -470,7 +467,7 @@ describe("capture on the imported arenas (fcop-fidelity.md R12)", () => {
     expect(getMapById("bug-hunt").captureRange).toBeCloseTo(5.2, 2);
     expect(getMapById("hollywood-keys").captureRange).toBeCloseTo(5.6, 2);
     // None imported: the original's 4.0 m (Metropolis' 5 m until SIM_VERSION 52).
-    expect(getMapById(DISTRICT_01_ID).captureRange).toBe(ORIGINAL_CAPTURE_RANGE);
+    expect(getMapById(TEST_MAP_ID).captureRange).toBe(ORIGINAL_CAPTURE_RANGE);
   });
 
   it("takes a la-cantina pad on a press within 4.0 m + the avatar's radius", () => {
@@ -797,21 +794,38 @@ describe("base intrusion alerts", () => {
 
 describe("base turret alerts (fcop-fidelity.md R15)", () => {
   it("says a base turret is under fire at most once per side per 10 s", () => {
-    // On district-01 (no walls), so the shots land: the alert is not PA-only.
+    // From a side of the turret no wall covers, so the shots land.
     expect(TURRET_ALERT_COOLDOWN_TICKS).toBe(300);
-    const d1 = getMapById(DISTRICT_01_ID);
-    const state = createSim(d1, 1);
+    const state = createSim(map, 1);
     const ent = state.ent;
-    const tid = state.baseTurretEntity[0];
+    // The first ring turret with a wall-free line 6 m out along an axis.
+    let tid = -1;
+    let side: number[] | undefined;
+    for (let k = 0; k < state.baseTurretEntity.length && side === undefined; k++) {
+      tid = state.baseTurretEntity[k];
+      const x = ent.posX[tid];
+      const y = ent.posY[tid];
+      side = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ].find(([dx, dy]) => !segmentBlocked(map, x, y, x + 6 * dx, y + 6 * dy));
+    }
+    if (side === undefined) throw new Error("every ring turret is walled in");
     const team = ent.team[tid];
     const foe = state.avatarId[team ^ 1];
+    const tx = ent.posX[tid];
+    const ty = ent.posY[tid];
     const fire = createTickInputs();
-    fire.players[team ^ 1].aimX = -127; // west, at the turret
+    fire.players[team ^ 1].aimX = -127 * side[0]; // back at the turret
+    fire.players[team ^ 1].aimY = -127 * side[1];
     fire.players[team ^ 1].buttons = BUTTON_FIRE1;
     const fired: number[] = [];
-    for (let t = 0; t < TURRET_ALERT_COOLDOWN_TICKS + 30; t++) {
-      ent.posX[foe] = ent.posX[tid] + 8;
-      ent.posY[foe] = ent.posY[tid];
+    // The walker turns to face the turret first (~1 s), then hits every tick.
+    for (let t = 0; t < TURRET_ALERT_COOLDOWN_TICKS + 60; t++) {
+      ent.posX[foe] = tx + 6 * side[0];
+      ent.posY[foe] = ty + 6 * side[1];
       ent.hp[foe] = AVATAR_HP; // both stay alive: only the alert is under test
       ent.hp[tid] = 100;
       step(state, fire);
@@ -845,70 +859,5 @@ describe("base turret alerts (fcop-fidelity.md R15)", () => {
       }
     }
     expect(lost).toBe(1);
-  });
-});
-
-describe("district-01 on the original's rules (owner's call, SIM_VERSION 52)", () => {
-  it("loads Metropolis' geometry with the original's turrets, units and capture range", () => {
-    // Until SIM_VERSION 52 this pinned the "no-op invariant": an arena without PA
-    // data stayed on Metropolis' instant-hit TURRET_* / UNIT_* table, its 5 m
-    // capture, its flat 3 m claim zone and its destructible consoles. The owner
-    // moved district-01 onto the original's rules; only its geometry (ring of 4,
-    // six pads, two outposts, three polyline lanes, no road graph) is its own.
-    const legacy = getMapById(DISTRICT_01_ID);
-    const state = createSim(legacy, 0xc0ffee);
-    // Still no imported extras: no pickups, triggers or road graph.
-    expect(state.pickupCooldown.length).toBe(0);
-    expect(state.buffInvuln.length).toBe(0);
-    expect(state.buffInvis.length).toBe(0);
-    expect(state.triggerArm.length).toBe(0);
-    expect(legacy.laneGraph).toBeUndefined();
-    expect(legacy.outposts.length).toBe(0); // its consoles, no pads or plates
-    // The original's profiles, exactly the imported arenas' table.
-    expect(legacy.weapons).toEqual(map.weapons);
-    expect(legacy.captureRange).toBe(ORIGINAL_CAPTURE_RANGE);
-    for (const base of legacy.bases) {
-      expect(base.juggernaut.hp).toBe(3000);
-      expect(base.juggernaut.guns).toBe(4);
-      // No Dreadnought record: it rolls out at the ground console.
-      expect(base.juggernaut.x).toBe(base.groundConsole.x);
-      expect(base.juggernaut.y).toBe(base.groundConsole.y);
-      expect(base.runner).toEqual(map.bases[0].runner);
-      expect(base.guardian).toEqual(map.bases[0].guardian);
-      expect(base.fortress).toEqual(map.bases[0].fortress);
-      expect(base.turrets.length).toBe(4);
-      for (const t of base.turrets) {
-        expect(t.weapon).toBe(PROFILE_TEAM_TURRET);
-        expect(t.hp).toBe(ORIGINAL_TURRET_HP);
-      }
-    }
-    expect(legacy.turretParams).toEqual(legacy.turretSpots.map(() => PROFILE_NEUTRAL_TURRET));
-
-    // Every shooter carries a profile on the original's rate machine.
-    run(state, 60);
-    const ent = state.ent;
-    for (let id = 0; id < ent.high; id++) {
-      if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.TURRET) continue;
-      expect(ent.weaponProfile[id]).toBeGreaterThanOrEqual(0);
-      expect(legacy.weapons[ent.weaponProfile[id]].refireUnits).toBe(601);
-    }
-
-    // A ring turret fires the original's round at an enemy avatar 6 m off: a
-    // projectile, 100 damage, not an instant hit.
-    const turret = state.baseTurretEntity[0];
-    const avatar = state.avatarId[1 - (ent.team[turret] as number)];
-    expect(avatar).toBeGreaterThanOrEqual(0);
-    const hp = ent.hp[avatar];
-    let launched = false;
-    for (let t = 0; t < 120 && ent.hp[avatar] === hp; t++) {
-      ent.posX[avatar] = ent.posX[turret] + 6;
-      ent.posY[avatar] = ent.posY[turret];
-      step(state, idle);
-      for (let id = 0; id < ent.high; id++) {
-        if (ent.alive[id] && ent.archetype[id] === ARCHETYPE.PROJECTILE) launched = true;
-      }
-    }
-    expect(launched).toBe(true);
-    expect(hp - ent.hp[avatar]).toBe(100);
   });
 });

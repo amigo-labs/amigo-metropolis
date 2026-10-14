@@ -26,7 +26,7 @@ import {
 } from "../src/balance";
 import { EV_CLAIM, EV_PURCHASE, EV_SHOT, EVENT_STRIDE, SHOT_SLOT_HITSCAN } from "../src/events";
 import { createTickInputs } from "../src/inputs";
-import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID, sampleHeight } from "../src/map";
+import { getMapById, LA_CANTINA_ID, sampleHeight } from "../src/map";
 import { claimOutpostSlot, createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
 import {
   SKY_CRUISE,
@@ -41,7 +41,7 @@ import {
 const idle = createTickInputs();
 const LC = getMapById(LA_CANTINA_ID);
 
-function wardenSim(difficulty: number, seed = 0xc0ffee, mapId = DISTRICT_01_ID): SimState {
+function wardenSim(difficulty: number, seed = 0xc0ffee, mapId = LA_CANTINA_ID): SimState {
   return createSim(getMapById(mapId), seed, { wardenPlayer: 1, wardenDifficulty: difficulty });
 }
 
@@ -64,7 +64,7 @@ describe("the Warden is the Sky Captain", () => {
     const ground = sampleHeight(sim.map, sim.ent.posX[wid], sim.ent.posY[wid]);
     expect(sim.ent.height[wid]).toBeGreaterThanOrEqual(ground + WARDEN_ALTITUDE - 0.001);
     expect(sim.ent.archetype[sim.avatarId[0]]).toBe(ARCHETYPE.AVATAR);
-    const plain = createSim(getMapById(DISTRICT_01_ID), 1);
+    const plain = createSim(LC, 1);
     expect(plain.wardenPlayer).toBe(-1);
     expect(plain.ent.archetype[plain.avatarId[1]]).toBe(ARCHETYPE.AVATAR);
   });
@@ -74,7 +74,7 @@ describe("the Warden is the Sky Captain", () => {
     expect(wardenSim(99).wardenDifficulty).toBe(10);
     expect(wardenSim(7.9).wardenDifficulty).toBe(7);
     expect(wardenSim(Number.NaN).wardenDifficulty).toBe(1);
-    const fractional = createSim(getMapById(DISTRICT_01_ID), 1, {
+    const fractional = createSim(LC, 1, {
       wardenPlayer: 0.5,
       wardenDifficulty: 5,
     });
@@ -140,6 +140,13 @@ describe("the Warden is the Sky Captain", () => {
 
   it("respawns after (14 - L) * 150 engine units, whole, roaming", () => {
     const sim = wardenSim(5);
+    // Four of its eight ring turrets down (they rebuild after 37.5 s): eight
+    // parts, under the ten that keep it roaming.
+    const n0 = sim.map.bases[0].turrets.length;
+    for (let k = n0 + 4; k < sim.baseTurretEntity.length; k++) {
+      sim.ent.hp[sim.baseTurretEntity[k]] = 0;
+    }
+    step(sim, idle);
     sim.ent.hp[sim.avatarId[1]] = -10;
     step(sim, idle);
     const ticks = skyRespawnTicks(4);
@@ -150,7 +157,7 @@ describe("the Warden is the Sky Captain", () => {
     expect(reborn).toBeGreaterThanOrEqual(0);
     expect(sim.ent.hp[reborn]).toBe(skyMaxHp(4));
     // Respawn sets mode 0 and a decision on the next tick, which (fewer than ten
-    // own turrets) promotes it straight back to defend.
+    // own turret parts) promotes it straight back to defend.
     expect(sim.captain.mode).toBe(SKY_MODE_ROAM);
     expect(sim.captain.think).toBe(0);
     step(sim, idle);
@@ -238,10 +245,6 @@ describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
     step(five, idle);
     decideNow(five);
     expect(five.captain.mode).toBe(SKY_MODE_ROAM);
-    // district-01's ring is 4: it defends from the start.
-    const d01 = wardenSim(8, 5);
-    step(d01, idle);
-    expect(d01.captain.mode).toBe(SKY_MODE_DEFEND);
   });
 
   it("counts its outposts' plate turrets once they stand, never a captured neutral", () => {

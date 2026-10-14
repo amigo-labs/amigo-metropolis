@@ -1,10 +1,10 @@
 // The menu demo battle reuses the Phase 3 feeder script, generalized to either
 // slot. Slot 1 must stay byte-identical to the historic ?opponent=feeder
 // behavior (its move constants were authored for slot 1's base), and slot 0
-// must be the exact mirror (district-01 mirrors the bases about x).
+// must be the exact mirror.
 
 import { describe, expect, test } from "bun:test";
-import { BUTTON_INTERACT, DISTRICT_01_ID, getMapById, type PlayerInput } from "@metropolis/sim";
+import { BUTTON_INTERACT, getMapById, LA_CANTINA_ID, type PlayerInput } from "@metropolis/sim";
 import { createDemoSim, demoFeeder, zeroPlayerInput } from "../src/menuWorld";
 
 function freshInput(): PlayerInput {
@@ -58,7 +58,7 @@ describe("zeroPlayerInput", () => {
 
 describe("createDemoSim", () => {
   test("builds a Warden-on-slot-1 sim on the given map", () => {
-    const sim = createDemoSim(getMapById(DISTRICT_01_ID));
+    const sim = createDemoSim(getMapById(LA_CANTINA_ID));
     expect(sim.wardenPlayer).toBe(1);
     expect(sim.wardenDifficulty).toBe(5);
     expect(sim.tick).toBe(0);

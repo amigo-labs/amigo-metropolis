@@ -29,7 +29,7 @@ import { type Outgoing, RoomLogic } from "../src/room";
 const CONFIG: MatchConfig = {
   simVersion: SIM_VERSION,
   seed: 0xc0ffee,
-  mapId: "district-01",
+  mapId: "la-cantina",
   wardenPlayer: -1,
   wardenDifficulty: 0,
 };

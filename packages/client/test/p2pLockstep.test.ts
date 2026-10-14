@@ -16,11 +16,11 @@ import {
   clearTickInputs,
   createSim,
   createTickInputs,
-  DISTRICT_01_ID,
   decodeReplay,
   ERR_VERSION_MISMATCH,
   getMapById,
   hash,
+  LA_CANTINA_ID,
   type MatchConfig,
   type PlayerInput,
   SIM_VERSION,
@@ -35,7 +35,7 @@ import type { Transport } from "../src/net/transport";
 const CONFIG: MatchConfig = {
   simVersion: SIM_VERSION,
   seed: 0xbead5,
-  mapId: DISTRICT_01_ID,
+  mapId: LA_CANTINA_ID,
   wardenPlayer: -1,
   wardenDifficulty: 0,
 };

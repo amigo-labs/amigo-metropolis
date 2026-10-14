@@ -48,11 +48,11 @@ describe("replay format", () => {
   });
 
   it("round-trips the Warden config (format 2 header)", () => {
-    const replay = createReplayData("district-01", 7, 2, { player: 1, difficulty: 8 });
+    const replay = createReplayData("la-cantina", 7, 2, { player: 1, difficulty: 8 });
     const decoded = decodeReplay(encodeReplay(replay));
     expect(decoded.wardenPlayer).toBe(1);
     expect(decoded.wardenDifficulty).toBe(8);
-    expect(decoded.mapId).toBe("district-01");
+    expect(decoded.mapId).toBe("la-cantina");
     expect(decoded.tickCount).toBe(2);
   });
 

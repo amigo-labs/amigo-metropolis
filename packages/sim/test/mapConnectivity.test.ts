@@ -18,10 +18,7 @@ function floodHas(map: MapData, ax: number, ay: number): ReachSet {
   return reachableFrom(map, ax, ay, { blockWater: true });
 }
 
-const PLAYABLE_IDS = [
-  ...MAP_REGISTRY.map((m) => m.id),
-  "district-01", // retired from picker but still golden-backed
-];
+const PLAYABLE_IDS = MAP_REGISTRY.map((m) => m.id);
 
 for (const id of PLAYABLE_IDS) {
   const map = getMapById(id);

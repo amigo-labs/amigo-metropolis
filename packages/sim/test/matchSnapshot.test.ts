@@ -165,7 +165,7 @@ describe("writeMatchSnapshot", () => {
   });
 
   it("reports the avatar's movement command, which the original's sounds follow", () => {
-    const sim = createSim(getMapById("district-01"), 3);
+    const sim = createSim(getMapById("la-cantina"), 3);
     const inputs = createTickInputs();
     inputs.players[0].moveY = 1;
     step(sim, inputs);

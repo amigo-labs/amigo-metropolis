@@ -7,7 +7,7 @@
 // 05 and 06 do not (05 moved for the pad stamp, in the same version).
 // golden-05 (urban-jungle) is re-frozen when that map's features move — see
 // SIM_VERSION 12. Do NOT re-freeze 01–04 casually; a drift there means a real
-// sim regression on district-01 / test-128.
+// sim regression.
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -63,12 +63,15 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 19 (on top of v18 hover cushion): facing-aligned
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
   "golden-01-drive": { last: 732950138, count: 1800 },
-  "golden-02-combat": { last: 242052263, count: 3600 },
+  // 02-04 re-recorded at SIM_VERSION 52 when district-01 left the game (wave 2,
+  // 2026-10-14): 02 combat on urban-jungle, 03 a two-player match on la-cantina,
+  // 04 the Sky Captain (difficulty 3) on urban-jungle, 150 s.
+  "golden-02-combat": { last: 1741901833, count: 3600 },
   // Re-frozen at SIM_VERSION 50 (the original's 37.5 s ring respawn, R16): 03's
   // script was rewritten around it (player 1 is put down at the outpost, the wave
   // goes in inside the ring's window) and runs 200 s.
-  "golden-03-match": { last: 1236955133, count: 6000 },
-  "golden-04-warden": { last: 65923620, count: 9000 },
+  "golden-03-match": { last: 1319756724, count: 6000 },
+  "golden-04-warden": { last: 1197637674, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven

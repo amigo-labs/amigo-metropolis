@@ -11,13 +11,17 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import {
   createReplayData,
+  createSim,
   createTickInputs,
   decodeReplay,
   encodeReplay,
   firstDivergence,
+  getMapById,
   type ReplayData,
+  readFrame,
   SIM_VERSION,
   simulateReplayHashes,
+  step,
   TEST_MAP_ID,
   writeFrame,
 } from "@metropolis/sim";
@@ -98,9 +102,19 @@ function cmdRecord(scriptName: string, outPath: string, seedArg?: string): numbe
   const seed = seedArg ? Number(seedArg) >>> 0 : 0xc0ffee;
   const replay = createReplayData(entry.mapId ?? TEST_MAP_ID, seed, entry.ticks, entry.warden);
   const inputs = createTickInputs();
+  // The script may steer by the live state (a closed loop at recording time).
+  // The replay stores only the inputs, which the sim reads back here exactly as
+  // a verifier will, so the recording stays a plain input file.
+  const sim = createSim(getMapById(replay.mapId), replay.seed, {
+    wardenPlayer: replay.wardenPlayer,
+    wardenDifficulty: replay.wardenDifficulty,
+  });
+  const played = createTickInputs();
   for (let t = 0; t < entry.ticks; t++) {
-    entry.script(t, inputs);
+    entry.script(t, inputs, sim);
     writeFrame(replay, t, inputs);
+    readFrame(replay, t, played);
+    step(sim, played);
   }
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, encodeReplay(replay));

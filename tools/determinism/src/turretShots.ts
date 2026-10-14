@@ -25,7 +25,8 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const OUT = process.env.TURRET_SHOTS_OUT ?? join(ROOT, "docs", "verification", "stage7-units");
 
 // Open heightfield so the models read cleanly; no textured terrain needed.
-const MAP_ID = "district-01";
+// The wall-free debug map (district-01, which this used before, is gone).
+const MAP_ID = "test-128";
 
 function setPaused(page: Page, paused: boolean): Promise<void> {
   return page.evaluate((p) => {

@@ -4,7 +4,7 @@ import { ARCHETYPE } from "../src/archetypes";
 import { crossesWallX, segmentBlocked } from "../src/collision";
 import { spawn } from "../src/entities";
 import { createSim, createTickInputs, getMapById, hash, step } from "../src/index";
-import { DISTRICT_01_ID, LAYERED_TEST_ID, loadMapFromJson, type MapJson } from "../src/map";
+import { LAYERED_TEST_ID, loadMapFromJson, type MapJson, TEST_MAP_ID } from "../src/map";
 import { separateGroundUnits, snapUnitHeight } from "../src/units";
 
 function drive(
@@ -23,7 +23,7 @@ function drive(
 
 describe("entLayer state", () => {
   it("exists, sized to the entity cap, zeroed at start", () => {
-    const sim = createSim(getMapById(DISTRICT_01_ID), 1);
+    const sim = createSim(getMapById(TEST_MAP_ID), 1);
     expect(sim.ent.entLayer.length).toBeGreaterThan(0);
     let sum = 0;
     for (const v of sim.ent.entLayer) sum += v;
@@ -31,7 +31,7 @@ describe("entLayer state", () => {
   });
 
   it("does NOT change the hash on a single-story map (No-op invariant)", () => {
-    const sim = createSim(getMapById(DISTRICT_01_ID), 1);
+    const sim = createSim(getMapById(TEST_MAP_ID), 1);
     const before = hash(sim);
     sim.ent.entLayer[0] = 2; // poke a layer byte
     expect(hash(sim)).toBe(before); // single-story → entLayer not hashed
