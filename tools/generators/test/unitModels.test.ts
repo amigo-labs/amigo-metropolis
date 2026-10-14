@@ -126,8 +126,12 @@ describe("committed unit models match the manifest contract", () => {
       // must cover the full height without an empty slab. Catches assemblies
       // that ship a pose the parts were never posed in — the skinned X1 rest
       // poses came out with the cockpit sunk into the legs and the guns and
-      // beacon hovering above them (genUnitModels.ts bakeSkinRestPose).
-      expect(largestVerticalGap(prims[0])).toBeLessThanOrEqual(sizeY * 0.02);
+      // beacon hovering above them (genUnitModels.ts bakeSkinRestPose). A gap
+      // the original authored is named in the manifest, and only that one is let
+      // through (the jet's mast-less rotor).
+      expect(largestVerticalGap(prims[0])).toBeLessThanOrEqual(
+        Math.max(sizeY * 0.02, (spec.authoredGap ?? 0) + 0.001),
+      );
 
       if (!spec.nativeScale && spec.maxHeight === undefined) {
         expect(footprint).toBeGreaterThanOrEqual(spec.footprint * 0.98);
@@ -199,32 +203,28 @@ describe("committed FX models match the manifest contract", () => {
   }
 });
 
-// Cobj 54/57 ship a tex10 searchlight volume (and 57 also six facer lines).
-// Those stay on the raw; the committed unit must be hull-only, or the beams
-// bake into the opaque cones on docs/renders/units/warden-iso.png.
+// The Sky Captain's models (Cobj 54/56/57/58, one per difficulty band) ship a
+// tex10 searchlight volume, and 57 also six facer lines and two 4-tri exhaust
+// cards. Those stay on the raw; the committed unit must be hull-only, or the
+// beams bake into the opaque cones on docs/renders/units/warden-iso.png. (The
+// `fortress` unit carried Cobj 57 until it was given the Flying Fortress's own
+// Cobj 41, which has none of these.)
 describe("Sky Captain units drop FCOP FX attachments", () => {
-  for (const key of ["warden", "fortress"] as const) {
-    test(`${key} output has no leftover COLOR_0 mix and stays hull-sized`, async () => {
-      const document = await io.read(join(OUT_DIR, `${key}.glb`));
-      const root = document.getRoot();
-      const prim = root.listMeshes()[0].listPrimitives()[0];
-      expect(root.listTextures().length).toBe(1);
-      expect(prim.getAttribute("COLOR_0")).toBeNull();
+  test("warden output has no leftover COLOR_0 mix and stays hull-sized", async () => {
+    const document = await io.read(join(OUT_DIR, "warden.glb"));
+    const root = document.getRoot();
+    const prim = root.listMeshes()[0].listPrimitives()[0];
+    expect(root.listTextures().length).toBe(1);
+    expect(prim.getAttribute("COLOR_0")).toBeNull();
 
-      const scene = root.getDefaultScene() ?? root.listScenes()[0];
-      const { min, max } = getBounds(scene);
-      const sizeZ = max[2] - min[2];
-      // Beams add ~1 m of +Z on the jet and stretch the gunship to 2.67 m.
-      if (key === "warden") expect(sizeZ).toBeLessThan(1.3);
-      else expect(sizeZ).toBeLessThan(1.5);
+    const scene = root.getDefaultScene() ?? root.listScenes()[0];
+    const { min, max } = getBounds(scene);
+    // The beams add ~1 m of +Z on the Sky Captain's craft.
+    expect(max[2] - min[2]).toBeLessThan(1.3);
 
-      // Cobj 57 also hung two 4-tri exhaust cards under the nacelles (AABB
-      // thickness 0). Those must not survive the planar-billboard drop.
-      if (key === "fortress") {
-        expect(thinnestComponent(prim)).toBeGreaterThan(0.02);
-      }
-    });
-  }
+    // No zero-thickness card survives the planar-billboard drop.
+    expect(thinnestComponent(prim)).toBeGreaterThan(0.02);
+  });
 });
 
 /** Smallest AABB dimension across position-welded connected components. */

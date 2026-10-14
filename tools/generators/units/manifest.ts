@@ -79,6 +79,13 @@ export interface UnitModelSpec {
    * survive the neutral/team tint (turret, console).
    */
   readonly neutralizeColors: boolean;
+  /**
+   * The largest empty horizontal slab the original itself authored, in metres.
+   * The contract test refuses floating parts, which is how a pose the parts
+   * were never posed in shows up; a Cobj whose part floats by design names its
+   * gap here instead of loosening the test for everyone.
+   */
+  readonly authoredGap?: number;
 }
 
 // Original Future Cop: L.A.P.D. (1998) assets are explicitly permitted, incl.
@@ -153,22 +160,37 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     neutralizeColors: true,
   },
   {
+    // The Precinct Assault jet: every jet spawner of every PA mission names
+    // Cobj 22 (RE extracted/logic/<Mission>/pa_rules.json `spawners`, kind
+    // "jet"). This entry used to carry Cobj 41, the Flying Fortress — the
+    // `fortress` entry below — so the jet flew as a 3.15 m bomber. Mp's
+    // payload is also Conft's, Slim's and Hk's; Ovmp's samples page 4, and
+    // Joke's is a model of its own (every arena draws Mp's: open).
+    //
+    // Cobj 22 is a 3-frame morph (extract_objects.py anim_kind "morph"): its
+    // rotor, the 54 vertices of the top hub and blades at y 0.11-0.16, turns
+    // about the hub from frame to frame. One InstancedMesh per archetype
+    // cannot drive per-instance morph weights through this pipeline, so
+    // gen:units keeps frame 0 and the rotor stands still (open: assets.md §4).
     key: "guardian",
-    raw: "fcop/mp-obj041-flyer.glb",
+    raw: "fcop/mp-obj022-jet.glb",
     source: {
-      title: "Flyer (Mp Cobj 41)",
+      title: "Jet (Mp Cobj 22, morph frame 0)",
       author: EA,
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
-    // Native 3.15 x 0.68 x 2.14 — the widest thing on the field, and it always
-    // was: this is the only unit the old fitting barely touched (1.02x).
-    footprint: 3.15,
-    maxHeight: 0.69,
+    // Native 1.40 x 0.42 x 1.50: rotor and stub wings 1.40 m across, the cabin
+    // nose on +Z and the tail boom on -Z.
+    footprint: 1.51,
+    maxHeight: 0.43,
     nativeScale: true,
     maxTris: 1500,
     neutralizeColors: true,
+    // The rotor has no mast: its hub (y 0.113) floats 5.1 cm over the cabin
+    // roof (y 0.063) in every frame, as authored.
+    authoredGap: 0.051,
   },
   {
     key: "juggernaut",
@@ -188,21 +210,26 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     neutralizeColors: true,
   },
   {
+    // The Flying Fortress: the spawners of kind "flying_fortress" name Cobj 41
+    // (Mp, Hk, Joke, Ovmp) or 42 (Conft, Slim) — Mp's payload on Mp, Conft,
+    // Slim and Hk; Ovmp's samples page 4, Joke's is a model of its own (every
+    // arena draws Mp's: open). This entry used to carry Cobj 57, one of the four
+    // Sky Captain models (Mp actors 287/295/296/297 = Cobj 54/56/57/58, one
+    // loaded per difficulty level), while the Fortress's own model stood in
+    // for the jet above.
     key: "fortress",
-    raw: "fcop/mp-obj057-skycaptain-gunship.glb",
+    raw: "fcop/mp-obj041-flying-fortress.glb",
     source: {
-      title: "Sky Captain gunship form (Mp Cobj 57)",
+      title: "Flying Fortress (Mp Cobj 41)",
       author: EA,
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
     rotateQuarterY: 0,
-    // Hull-only ~2.10 x 1.09 x 1.35. The raw also carries a tex10 searchlight
-    // volume, six facer lines, and two 4-tri exhaust billboards under the
-    // nacelles (combined 2.10 x 1.89 x 2.67); gen:units drops those so they
-    // do not bake into opaque bars / dark jet cones.
-    footprint: 2.11,
-    maxHeight: 1.27,
+    // Native 3.15 x 0.68 x 2.14 — a flying wing, the widest thing on the
+    // field; the pointed nose on +Z, the raised wing tips aft.
+    footprint: 3.15,
+    maxHeight: 0.69,
     nativeScale: true,
     maxTris: 5000,
     neutralizeColors: true,
@@ -624,7 +651,7 @@ export const PROP_MODELS: readonly PropModelSpec[] = [
   {
     key: "prop-041",
     cobj: 41,
-    raw: "fcop/mp-obj041-flyer.glb",
+    raw: "fcop/mp-obj041-flying-fortress.glb",
     source: {
       title: "Parked flyer (Mp Cobj 41)",
       author: EA,

@@ -260,11 +260,11 @@ function bakeSkinRestPose(document: Document): void {
 }
 
 /**
- * FCOP Cobj 54/57 bolt the shared FX atlas (`tex10`: light streaks, fire,
- * smoke) and emissive `facer` lines onto the hull. Those were additive
- * billboards in the original; joining them as opaque unit geometry turns the
- * Sky Captain searchlights into the dark cones in warden-iso.png. Material
- * names are the exporter's own (`extract_objects.py`).
+ * The Sky Captain's Cobjs (54, and 56/57/58) bolt the shared FX atlas
+ * (`tex10`: light streaks, fire, smoke) and emissive `facer` lines onto the
+ * hull. Those were additive billboards in the original; joining them as opaque
+ * unit geometry turns the Sky Captain searchlights into the dark cones in
+ * warden-iso.png. Material names are the exporter's own (`extract_objects.py`).
  */
 const FX_ATTACHMENT_MATERIALS = new Set(["tex10", "facer"]);
 
@@ -322,9 +322,10 @@ function triangleCount(mesh: Mesh): number {
 
 /**
  * FCOP also bakes additive exhaust / glow as standalone billboard cards on
- * the hull page (Cobj 57's two 4-tri YZ quads under the nacelles). Material
- * drop cannot see them — they share `tex09` with the body — so after join we
- * throw away any connected component whose AABB is thinner than a centimetre.
+ * the hull page (the Sky Captain's Cobj 57: two 4-tri YZ quads under the
+ * nacelles). Material drop cannot see them — they share `tex09` with the body
+ * — so after join we throw away any connected component whose AABB is thinner
+ * than a centimetre.
  */
 const BILLBOARD_THICKNESS = 0.02;
 
@@ -626,8 +627,9 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
   // attachments above (they cannot render additively on one InstancedMesh);
   // this mix path is for FX_MODELS. This used to demand UVs on EVERY
   // primitive, so one facer dropped the whole model into the vertex-colour
-  // path and its atlas was thrown away. That is why fortress.glb used to
-  // ship untextured (Cobj 57 carries six lines plus a tex10 volume).
+  // path and its atlas was thrown away. That is why fortress.glb, when it
+  // still drew the Sky Captain's Cobj 57 (six lines plus a tex10 volume), used
+  // to ship untextured.
   //
   // So the two are packed together: real pages side by side, plus a small white
   // patch that the facers' synthesised UVs point at, which leaves their COLOR_0

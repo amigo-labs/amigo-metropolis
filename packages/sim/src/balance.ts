@@ -1321,9 +1321,13 @@ export const SKY_OPENING_ORDER = 10;
 export const ARCHETYPE_RADIUS: readonly number[] = [
   0.4, // AVATAR      0.80 m footprint
   0.76, // RUNNER     1.52
-  1.1, // GUARDIAN    3.15 wingspan; half of it, like the rest
+  // GUARDIAN and FORTRESS were set against the models they drew before the
+  // jet got its own Cobj 22 (1.50 m) and the Flying Fortress its own Cobj 41
+  // (3.15 m). A radius moves the goldens, so they follow in a sim commit
+  // (fcop-fidelity.md G1).
+  1.1, // GUARDIAN    1.50 (was drawn as Cobj 41, 3.15)
   1.1, // JUGGERNAUT  2.22
-  1.33, // FORTRESS   2.67
+  1.33, // FORTRESS   3.15 (was drawn as Cobj 57, 2.67)
   0.7, // TURRET      1.41
   0.15, // PROJECTILE
   0.56, // CONSOLE    1.12

@@ -189,6 +189,18 @@ presentation-only fields the sim gained (`moveCue`, `roundFrom`) are outside `ha
 | A20 | — | No original | keep | the debug maps (test-128, layered-test) play the Mp bank and music |
 | A21 | — | The Riot Shield's block has no fire sound | n/a | Metropolis has no Riot Shield |
 
+### Assets (`tools/generators/units/`, `packages/client/src/render/`, PLAN.md Phase 14 wave 5)
+
+Evidence: the RE's Cobj exports (`extracted/objects/<Mission>/obj_NNN.glb` with their
+`manifest.json`, `tools/gfx/extract_objects.py`), the spawners and their Cobj lists in
+`extracted/logic/<Mission>/pa_rules.json` (`tools/logic/pa_rules_data.py`) and the placed
+actors in `extracted/actors/<Mission>/actors.json`. Arenas → missions as in A1. No row here
+moves a golden: models, scenery and textures are render-only.
+
+| # | Metropolis had | Original | Decision | Status |
+|---|---|---|---|---|
+| G1 | The jet (`guardian`) drew Cobj 41 and the Flying Fortress (`fortress`) Cobj 57 | Every jet spawner names Cobj 22, a three-frame morph whose rotor turns; every Flying Fortress spawner names Cobj 41 (42 on Conft and Slim, the same payload). Cobj 54/56/57/58 are the four Sky Captains, one loaded per difficulty band (Mp actors 287, 295-297) | adopt | adopted in "Draw the jet and the Flying Fortress with their own Cobjs": `guardian.glb` is Cobj 22 at frame 0 (1.40 x 0.42 x 1.50 m), `fortress.glb` Cobj 41 (3.15 x 0.68 x 2.14 m), greybox stand-ins resized. **Not yet:** the rotor's three frames (one `InstancedMesh` per archetype drives no morph); `ARCHETYPE_RADIUS` for the two (1.1 / 1.33 m) still measured off the old models, since a radius moves the goldens; each mission's own unit payloads (Ovmp's sample page 4, Hk's tank and all of Joke's units are other models: every arena draws Mp's); the Sky Captain's model by level (`warden` is 54 on every level) |
+
 ### Still open in the RE (Metropolis keeps its value)
 
 - Projectile speed scale of Sky Captain weapons 8/9; the aircraft turn rate in °/s.

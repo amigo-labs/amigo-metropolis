@@ -721,6 +721,19 @@ The original's controls from the RE (`docs/behavior/camera-and-movement.md`
       wave 6
 - [ ] The controls screen's original look — with wave 7
 
+### Wave 5 — Assets
+
+Each mission's own models and textures, read from the RE's Cobj exports and the
+spawners that name them (`docs/specs/fcop-fidelity.md` "Assets", rows G*). Render-only:
+no golden moves.
+
+- [x] The jet and the Flying Fortress drawn with their own Cobjs, 22 and 41 (G1)
+- [ ] The jet's rotor and the barrier's animation (morph frames; G1)
+- [ ] Each mission's own unit models: Ovmp's page 4, Hk's tank, Joke's units (G1)
+- [ ] The Dreadnought's guns; the Sky Captain's model by level
+- [ ] Team variants by the original's UV offsets
+- [ ] The X1's animations
+
 ## Backlog (post-v1, do not start)
 
 More arenas · map editor · rollback netcode upgrade · 2v2 ·
