@@ -93,4 +93,24 @@ describe("water", () => {
     for (let t = 0; t < TRANSFORM_LOCK_TICKS + 30; t++) step(state, idle);
     expect(state.ent.height[a0]).toBeGreaterThan(waterHeightAt(map, x, y));
   });
+
+  it("reads the water plate, imported as deck 1, as water", () => {
+    // Hk and Ovmp carry the water surface as deck 1 at the water level; a
+    // walker that walks onto it stands on that deck. Until SIM_VERSION 63 only
+    // the ground surface counted, and a walker could walk on the water.
+    const map = getMapById(VENICE_BEACH_ID);
+    const state = createSim(map, 1);
+    const a0 = state.avatarId[0];
+    let k = 0;
+    while (!(map.waterMask[k] === 1 && map.layerMask[0][k] === 1)) k++;
+    const x = (k % map.size) + 0.5;
+    const y = Math.floor(k / map.size) + 0.5;
+    state.ent.posX[a0] = x;
+    state.ent.posY[a0] = y;
+    state.ent.height[a0] = resolveHeight(map, x, y, 1);
+    state.ent.entLayer[a0] = 1;
+    expect(state.ent.height[a0]).toBeCloseTo(waterHeightAt(map, x, y), 3);
+    step(state, idle);
+    expect(state.ent.mode[a0]).toBe(MODE_HOVER);
+  });
 });

@@ -974,4 +974,16 @@
 //     heals it at a health pickup and spends any other for nothing (was: any
 //     kind within 2.5 m, granted). MATCH_PICKUPS reports the standing pickups
 //     (renderer only; no hash).
-export const SIM_VERSION = 62;
+// v63: the hover rides the decks (fcop-fidelity.md P14): it asks for its
+//     surface from HOVER_PROBE_LIFT (0.4 m) above itself, as the original's
+//     `terrain_surface_at` is asked, and rides the highest deck at or below
+//     that point (sim.ts hoverSurface; units.ts surfaceBelow, which the
+//     walker's resolveWalker now calls at STEP_SNAP, bit-identically). Its
+//     entLayer follows the deck and its walls are that deck's (was: layer 0's
+//     surface and walls under every deck). A hover spawn on a deck starts on
+//     it. Water is read by height alone: Hk and Ovmp import the water plate as
+//     deck 1 at the water level, so a walker that walked onto it stood on a dry
+//     deck (inWater tested layer 0 only); bridges stand >= 0.59 m above it.
+//     No golden replay leaves the ground surface in hover form; their hashes
+//     stay.
+export const SIM_VERSION = 63;

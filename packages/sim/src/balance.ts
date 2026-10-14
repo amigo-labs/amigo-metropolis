@@ -238,6 +238,13 @@ export const HOVER_CLEARANCE = 0x1000 / 8192;
  * to keep the same slope at which a fast hover leaves the ground.
  */
 export const HOVER_HOLD_DOWN = (0xcc / 8192) * X1_STEPS_PER_TICK;
+/**
+ * The hover asks for the surface under it from 0xccc wu (0.4 m) above itself
+ * (`player_hover.c` HOVER_PROBE_LIFT, 0x00442c09): the highest deck at or below
+ * that point is the one it rides, so it rides up onto a deck its cushion
+ * reaches and passes under one it does not (fcop-fidelity.md P14).
+ */
+export const HOVER_PROBE_LIFT = 0xccc / 8192;
 /** The surface tilt (normal's horizontal length) where its downhill push starts: 0.25 (14.5°). */
 export const HOVER_SLOPE_KNEE = 0x4000 * FX;
 /** Downhill push = gain * (tilt - knee)³ * lift * 0.59375 per step (`shl eax, 5`). */

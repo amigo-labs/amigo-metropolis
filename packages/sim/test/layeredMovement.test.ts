@@ -3,8 +3,9 @@ import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import { crossesWallX, segmentBlocked } from "../src/collision";
 import { spawn } from "../src/entities";
-import { createSim, createTickInputs, getMapById, hash, step } from "../src/index";
+import { createSim, createTickInputs, getMapById, HOVER_CLEARANCE, hash, step } from "../src/index";
 import { LAYERED_TEST_ID, loadMapFromJson, type MapJson, TEST_MAP_ID } from "../src/map";
+import { MODE_HOVER } from "../src/sim";
 import { separateGroundUnits, snapUnitHeight } from "../src/units";
 
 function drive(
@@ -202,5 +203,112 @@ describe("per-deck wall collision (issue #29)", () => {
     const map = loadMapFromJson(twoStorey(true));
     // Only one deck exists; asking about layer 5 must not read out of bounds.
     expect(crossesWallX(map, 1.5, 2.5, 1.5, 5)).toBe(false);
+  });
+});
+
+describe("the hover rides decks (fcop-fidelity.md P14)", () => {
+  // The original asks for the surface under the hover from HOVER_PROBE_LIFT
+  // (0.4 m) above it: a deck its cushion reaches is its ground, a higher one is
+  // a roof it passes under. Until SIM_VERSION 63 the hover read the ground and
+  // the water only, under every deck.
+  function hoverAt(
+    sim: ReturnType<typeof createSim>,
+    x: number,
+    y: number,
+    ground: number,
+  ): number {
+    const id = sim.avatarId[0];
+    sim.ent.mode[id] = MODE_HOVER;
+    sim.ent.posX[id] = x;
+    sim.ent.posY[id] = y;
+    sim.ent.height[id] = ground + HOVER_CLEARANCE;
+    return id;
+  }
+
+  /** Flat ground at 0 and one flat deck at `deckQ` quanta (1/32 m) over columns 4..7. */
+  function deckMap(deckQ: number): MapJson {
+    const size = 8;
+    const flat = (v: number) =>
+      Array.from({ length: size }, () => Array.from({ length: size }, () => v));
+    const none = Array.from({ length: size }, () => "0".repeat(size));
+    return {
+      id: "t-deck",
+      size,
+      cellSize: 1,
+      waterLevel: -10,
+      heights: flat(0),
+      water: none,
+      wallsV: none,
+      wallsH: none,
+      layers: [{ heights: flat(deckQ), mask: Array.from({ length: size }, () => "00001111") }],
+      spawns: [
+        { x: 1, y: 1, yaw: 0 },
+        { x: 1, y: 6, yaw: 0 },
+      ],
+      basePlots: [
+        { x: 1, y: 1, radius: 1 },
+        { x: 1, y: 6, radius: 1 },
+      ],
+      bases: [
+        {
+          gate: { x: 1, y: 2, radius: 1 },
+          core: [1, 1],
+          groundConsole: [1, 1],
+          airConsole: [1, 1],
+          turrets: [],
+        },
+        {
+          gate: { x: 1, y: 5, radius: 1 },
+          core: [1, 6],
+          groundConsole: [1, 6],
+          airConsole: [1, 6],
+          turrets: [],
+        },
+      ],
+      lanes: [],
+      turretSpots: [],
+      outpostSpots: [],
+      dummySpots: [],
+    };
+  }
+
+  it("rides up the ramp onto the mid deck (layer 1, ~3 m)", () => {
+    const sim = createSim(getMapById(LAYERED_TEST_ID), 1);
+    const id = hoverAt(sim, 2, 2, 0);
+    drive(sim, 127, 0, 150);
+    expect(sim.ent.entLayer[id]).toBe(1);
+    expect(sim.ent.height[id]).toBeGreaterThan(2.5 + HOVER_CLEARANCE);
+  });
+
+  it("passes under a deck its probe does not reach", () => {
+    // A 1.5 m deck: 1.0 m over the hover's 0.5 m, beyond the 0.4 m probe.
+    const sim = createSim(loadMapFromJson(deckMap(48)), 1);
+    const id = hoverAt(sim, 2, 3.5, 0);
+    drive(sim, 127, 0, 30);
+    expect(sim.ent.posX[id]).toBeGreaterThan(5);
+    expect(sim.ent.entLayer[id]).toBe(0);
+    expect(sim.ent.height[id]).toBeCloseTo(HOVER_CLEARANCE, 3);
+  });
+
+  it("stands on a deck it is set down on, and drops off its edge to the ground", () => {
+    const sim = createSim(loadMapFromJson(deckMap(48)), 1);
+    const id = hoverAt(sim, 6, 3.5, 1.5);
+    step(sim, createTickInputs());
+    expect(sim.ent.entLayer[id]).toBe(1);
+    expect(sim.ent.height[id]).toBeCloseTo(1.5 + HOVER_CLEARANCE, 3);
+    drive(sim, -127, 0, 60);
+    expect(sim.ent.posX[id]).toBeLessThan(4);
+    expect(sim.ent.entLayer[id]).toBe(0);
+    expect(sim.ent.height[id]).toBeCloseTo(HOVER_CLEARANCE, 3);
+  });
+
+  it("is stopped by a deck edge its probe reaches but its cushion cannot climb", () => {
+    // A 0.8 m deck: within the probe, so it is the surface ahead, and too
+    // steep an edge for the hover's slope gate.
+    const sim = createSim(loadMapFromJson(deckMap(26)), 1);
+    const id = hoverAt(sim, 2, 3.5, 0);
+    drive(sim, 127, 0, 30);
+    expect(sim.ent.posX[id]).toBeLessThan(4);
+    expect(sim.ent.entLayer[id]).toBe(0);
   });
 });

@@ -26,8 +26,9 @@
 // flood. This module is authoring/test machinery and is never called from the
 // tick, but it stays inside the determinism rules anyway so it can be.
 
+import { SURFACE_REACH } from "./balance";
 import { crossesWallX, crossesWallY } from "./collision";
-import { isWater, type MapData, resolveHeight, worldExtent } from "./map";
+import { isWater, type MapData, resolveHeight, waterHeightAt, worldExtent } from "./map";
 import { resolveWalker } from "./units";
 
 export interface ReachOptions {
@@ -135,8 +136,14 @@ export function reachableFrom(
       if (dy !== 0 && crossesWallY(map, x, y, ny, layer)) continue;
       // Which surface do we land on? Same question the movers ask.
       const wr = resolveWalker(map, nx, ny, h);
-      // Water is the ground's: a deck over it is dry (sim.ts inWater).
-      if (opts.blockWater === true && wr.layer === 0 && isWater(map, nx, ny)) continue;
+      // Water reaches the feet within SURFACE_REACH; a deck over it is dry
+      // (sim.ts inWater).
+      if (
+        opts.blockWater === true &&
+        isWater(map, nx, ny) &&
+        wr.height - waterHeightAt(map, nx, ny) < SURFACE_REACH
+      )
+        continue;
       const k = nodeKey(cellIndex(map, nx), cellIndex(map, ny), wr.layer);
       if (seen.has(k)) continue;
       seen.add(k);

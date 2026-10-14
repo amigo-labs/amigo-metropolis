@@ -52,7 +52,7 @@ Design pillars, in priority order:
   | brake | — | the jump button: drag 0.15 a step (0.05 coasting) |
   | cap | — | 10.7 m/s horizontal |
   | turn | 105°/s at rest, falling linearly to 0 at 18.75 m/s (79°/s running); none in the air | 158°/s after a ~0.26 s ramp; also in the air |
-  | ride | on the ground | 0.5 m over ground or water; off a ledge it falls |
+  | ride | on the ground or the deck within a step | 0.5 m over the surface its probe finds 0.4 m above it — ground, water or a deck (SIM_VERSION 63, P14); off a ledge it falls |
   | slope | pushed downhill above 17.5°, climbs to a 1.04 gradient | pushed downhill above 14.5° |
   A diagonal (fore/aft + strafe) pushes as hard as straight ahead, at 45°. The
   stick is read as the original's digital input — eight 45° sectors around the

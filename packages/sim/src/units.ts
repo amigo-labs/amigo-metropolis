@@ -816,6 +816,24 @@ export function resolveWalker(
   y: number,
   h: number,
 ): { layer: number; height: number } {
+  return surfaceBelow(map, x, y, h + STEP_SNAP);
+}
+
+/**
+ * The highest surface at (x, y) at or below `top`: the base surface, or the
+ * highest extra deck present there whose surface is no higher than `top`. The
+ * base surface answers even above `top` (inside terrain there is nothing else
+ * to stand on). The walker asks from STEP_SNAP above its feet
+ * (`resolveWalker`), the hover from HOVER_PROBE_LIFT above itself (sim.ts
+ * `hoverSurface`), as the original's `terrain_surface_at` is asked from a point
+ * above the mover.
+ */
+export function surfaceBelow(
+  map: MapData,
+  x: number,
+  y: number,
+  top: number,
+): { layer: number; height: number } {
   const baseH = sampleHeight(map, x, y);
   if (map.layerHeights.length === 0) return { layer: 0, height: baseH };
   const s = map.size;
@@ -831,7 +849,7 @@ export function resolveWalker(
   for (let L = 0; L < map.layerHeights.length; L++) {
     if (map.layerMask[L][j * s + i] === 0) continue;
     const hs = sampleLayerHeight(map, L, x, y);
-    if (hs <= h + STEP_SNAP && hs > bestH) {
+    if (hs <= top && hs > bestH) {
       bestLayer = L + 1;
       bestH = hs;
     }

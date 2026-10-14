@@ -43,6 +43,7 @@ import {
   HOVER_IDLE_CEILING,
   HOVER_IDLE_KNEE,
   HOVER_IDLE_SLOPE,
+  HOVER_PROBE_LIFT,
   HOVER_PUSH_FORE,
   HOVER_PUSH_STRAFE,
   HOVER_SLOPE_GAIN,
@@ -211,6 +212,7 @@ import {
   snapUnitHeight,
   startAircraft,
   startRoute,
+  surfaceBelow,
   systemUnitMovement,
   UNIT_MODE_OUTPOST,
   UNIT_MODE_PATROL,
@@ -478,7 +480,13 @@ export function spawnAvatar(state: SimState, player: number): number {
   // spawn record asks for, as `player_respawn` resets the row from the record.
   const hover = !warden && s.hover;
   ent.mode[id] = hover ? MODE_HOVER : MODE_WALKER;
-  if (hover) ent.height[id] = rideHeight(state.map, s.x, s.y, true) + HOVER_CLEARANCE;
+  if (hover) {
+    const surface =
+      s.layer === 0
+        ? rideHeight(state.map, s.x, s.y, true)
+        : resolveHeight(state.map, s.x, s.y, s.layer);
+    ent.height[id] = surface + HOVER_CLEARANCE;
+  }
   if (warden) {
     ent.ammoA[id] = 0;
     ent.ammoB[id] = 0;
@@ -889,9 +897,10 @@ export const STEP_SNAP = 0.35;
  *   Both have to be over the limit to block. A hover rides over a step its hull
  *   spans and is stopped by ground that keeps climbing, and per-tick sampling
  *   cannot tell those apart: 0.3 m into a 0.17 m kerb the reading is a
- *   0.58-gradient wall (issue #34). The span probe is the second reading. It
- *   uses `rideHeight`, so a dip below the water surface reads as the surface
- *   the hover floats on rather than as a hole it has to climb out of.
+ *   0.58-gradient wall (issue #34). The span probe is the second reading. Both
+ *   read `hoverSurface`, so a dip below the water surface reads as the surface
+ *   the hover floats on rather than as a hole it has to climb out of, and a
+ *   deck the hover rides is its ground.
  */
 function slopeBlocks(
   map: MapData,
@@ -902,8 +911,12 @@ function slopeBlocks(
   hover: boolean,
   height: number,
 ): boolean {
-  const here = hover ? rideHeight(map, x, y, hover) : resolveWalker(map, x, y, height).height;
-  const there = hover ? rideHeight(map, nx, ny, hover) : resolveWalker(map, nx, ny, height).height;
+  const here = hover
+    ? hoverSurface(map, x, y, height).height
+    : resolveWalker(map, x, y, height).height;
+  const there = hover
+    ? hoverSurface(map, nx, ny, height).height
+    : resolveWalker(map, nx, ny, height).height;
   const rise = there - here;
   if (rise <= GROUND_EPS) return false;
   const run = Math.abs(nx - x) + Math.abs(ny - y);
@@ -917,7 +930,7 @@ function slopeBlocks(
   const extent = worldExtent(map);
   const px = Math.min(Math.max(x + ((nx - x) / run) * HOVER_CUSHION_SPAN, 0), extent);
   const py = Math.min(Math.max(y + ((ny - y) / run) * HOVER_CUSHION_SPAN, 0), extent);
-  return rideHeight(map, px, py, hover) - here > HOVER_CUSHION_SPAN * maxSlope;
+  return hoverSurface(map, px, py, height).height - here > HOVER_CUSHION_SPAN * maxSlope;
 }
 
 /** Scratch for `surfaceTilt` (the tick is synchronous and not re-entrant). */
@@ -928,13 +941,13 @@ const TILT_PROBE = 0.25;
 /**
  * The surface under a mover as the original's surface normal: the height
  * gradient (gx, gy), the normal's horizontal length `t` (its "tilt") and its
- * vertical part `lift`. The hover reads its ride surface (water is flat), the
- * walker the deck it stands on.
+ * vertical part `lift`. The hover reads its ride surface (water is flat; a
+ * deck it rides), the walker the deck it stands on.
  */
 function surfaceTilt(map: MapData, x: number, y: number, hover: boolean, h: number): typeof tilt {
   const e = TILT_PROBE;
   const at = (px: number, py: number) =>
-    hover ? rideHeight(map, px, py, true) : resolveWalker(map, px, py, h).height;
+    hover ? hoverSurface(map, px, py, h).height : resolveWalker(map, px, py, h).height;
   const gx = (at(x + e, y) - at(x - e, y)) / (2 * e);
   const gy = (at(x, y + e) - at(x, y - e)) / (2 * e);
   const g2 = gx * gx + gy * gy;
@@ -1052,10 +1065,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     let hoverPhys = hover || nowLocked;
 
     // Where it stands. The walker resolves its deck (base or an upper layer
-    // reachable within a step); the hover ignores layers and rides the base or
-    // water surface at its clearance.
+    // reachable within a step); the hover rides the surface its probe finds
+    // (`hoverSurface`: a deck, the ground or water) at its clearance.
     let ride = hoverPhys
-      ? rideHeight(map, x, y, true) + clearanceOf(ent, id)
+      ? hoverSurface(map, x, y, ent.height[id]).height + clearanceOf(ent, id)
       : resolveWalker(map, x, y, ent.height[id]).height;
     let vz = ent.timerB[id];
     const airborne = hoverPhys
@@ -1303,9 +1316,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // beyond the slope limit are blocked (slopeBlocks). Airborne walkers skip
     // the slope check so a jump can carry them onto a ledge.
     // Walls come from the deck the avatar is standing on (entLayer, set by the
-    // resolveWalker snap below on the previous tick). A hovering avatar is not on
-    // a deck, so it keeps reading layer 0's lattice.
-    const wallLayer = hoverPhys ? 0 : ent.entLayer[id];
+    // resolveWalker / hoverSurface snap below on the previous tick), in either
+    // form: a hover on a deck is bounded by that deck's walls.
+    const wallLayer = ent.entLayer[id];
     const skipSlope = !hoverPhys && inAir;
     const stepX = vx * TICK_DT;
     if (stepX !== 0) {
@@ -1341,7 +1354,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     if (hoverPhys) {
       // Snapped up to its ride height, held down within HOVER_HOLD_DOWN of it,
       // and airborne above that — off a ledge it falls.
-      ride = rideHeight(map, x, y, true) + clearanceOf(ent, id);
+      const hs = hoverSurface(map, x, y, h);
+      ent.entLayer[id] = hs.layer;
+      ride = hs.height + clearanceOf(ent, id);
       const air = h > ride + HOVER_HOLD_DOWN || vz > 0;
       if (air) {
         vz -= X1_GRAVITY * TICK_DT;
@@ -1870,14 +1885,36 @@ export function rideHeight(map: MapData, x: number, y: number, hover: boolean): 
 }
 
 /**
+ * The surface a hover rides at (x, y) when it is at height `h`: what the
+ * original's `terrain_surface_at` answers asked from HOVER_PROBE_LIFT above the
+ * hover (`player_hover.c` 0x00442c09; fcop-fidelity.md P14). The highest deck
+ * at or below that point, else the ground or the water over it (`rideHeight`)
+ * — water lies on the ground surface only, a deck over it is a deck. On a map
+ * without decks this is `rideHeight` exactly.
+ */
+export function hoverSurface(
+  map: MapData,
+  x: number,
+  y: number,
+  h: number,
+): { layer: number; height: number } {
+  const s = surfaceBelow(map, x, y, h + HOVER_PROBE_LIFT);
+  if (s.layer === 0) s.height = rideHeight(map, x, y, true);
+  return s;
+}
+
+/**
  * The mech stands in water: the original's surface code 1 reaches its feet
- * (fcop-fidelity.md P13). On the ground surface only — a deck over the water is
- * a deck — over a water cell, with the cell's surface within SURFACE_REACH below
- * the feet (a hover riding 0.5 m up is on it; a walker on the bed is under it).
+ * (fcop-fidelity.md P13). Over a water cell, with the cell's water surface
+ * within SURFACE_REACH below the feet: a hover riding 0.5 m up is on it, a
+ * walker on the plate or the bed is in it. Hk and Ovmp import the water plate
+ * as deck 1 at the water level, so the deck a mech stands on does not decide
+ * it; a deck over the water (a bridge) stands at least 0.59 m above it and is
+ * dry by the height alone.
  */
 function inWater(state: SimState, id: number, x: number, y: number): boolean {
   const map = state.map;
-  if (state.ent.entLayer[id] !== 0 || !isWater(map, x, y)) return false;
+  if (!isWater(map, x, y)) return false;
   return state.ent.height[id] - waterHeightAt(map, x, y) < SURFACE_REACH;
 }
 
