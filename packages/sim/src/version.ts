@@ -909,4 +909,8 @@
 //     put back on a blocked line whatever the target. The v24 "superplane"
 //     pierce, which let its gun and missile reach ground units through walls,
 //     is gone. The bomb is unchanged: no arc, no checks.
-export const SIM_VERSION = 54;
+// v55: a capture is measured as the original measures it (fcop-fidelity.md
+//     R12, `turret_op10` 0x0041c920): in world units with its octagonal
+//     estimate, flat first, then once more with the height difference folded in
+//     (flat only for the Sky Captain). Was: the Euclidean distance.
+export const SIM_VERSION = 55;

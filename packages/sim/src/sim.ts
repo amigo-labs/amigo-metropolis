@@ -193,7 +193,7 @@ import {
   sampleHeight,
   worldExtent,
 } from "./map";
-import { atan2Poly, cosLUT, rand01, sinLUT } from "./simMath";
+import { atan2Poly, cosLUT, octagonalLength, rand01, sinLUT } from "./simMath";
 import {
   aircraftEngaged,
   isAirUnit,
@@ -3295,13 +3295,26 @@ export function captureRange(map: MapData): number {
   return map.captureRange;
 }
 
-/** Is entity `id` inside `reach` of turret `tid`? `flat` skips the height term. */
+/**
+ * Is entity `id` inside `reach` metres of turret `tid`? The original measures in
+ * world units with its octagonal estimate: flat first, then (except for the Sky
+ * Captain, `flat`) once more with the height difference folded in
+ * (`turret_op10`, fcop-re/ranges-turrets-capture.md Q2; fcop-fidelity.md R12).
+ */
 function withinCapture(ent: EntityStore, id: number, tid: number, reach: number, flat: boolean) {
-  const dx = ent.posX[id] - ent.posX[tid];
-  const dy = ent.posY[id] - ent.posY[tid];
-  const dh = flat ? 0 : ent.height[id] - ent.height[tid];
-  return dx * dx + dy * dy + dh * dh < reach * reach;
+  const r = Math.trunc(reach * CAPTURE_WU_PER_METRE);
+  let d = octagonalLength(
+    Math.trunc((ent.posX[id] - ent.posX[tid]) * CAPTURE_WU_PER_METRE),
+    Math.trunc((ent.posY[id] - ent.posY[tid]) * CAPTURE_WU_PER_METRE),
+  );
+  if (d - r >= 0) return false;
+  if (flat) return true;
+  d = octagonalLength(d, Math.trunc((ent.height[id] - ent.height[tid]) * CAPTURE_WU_PER_METRE));
+  return d - r < 0;
 }
+
+/** The original's world units per metre (0x20000 wu = 16 m). */
+const CAPTURE_WU_PER_METRE = 8192;
 
 /**
  * Neutral turret capture (rules.md §5, fcop-fidelity.md R12), the original's

@@ -295,6 +295,15 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // player) pays it nothing more, so nothing replaces its dead tanks.
   // (SIM_VERSION 46-48 counted each turret once, so it defended all match and
   // only its opening order breached: 17-19 of 20 on these seeds.)
+  // Re-measured at SIM_VERSION 55 (captures by the original's octagonal
+  // estimate, R12), over seeds c0ffee/1/2/3/4: 22 of 30 resolve, in 68-153 s,
+  // every one on its opening order; the captain buys nothing more against an
+  // idle player. Of the seeds below, these do not.
+  const UNRESOLVED: Record<string, number[]> = {
+    [LA_CANTINA_ID]: [4],
+    [URBAN_JUNGLE_ID]: [2, 4],
+    [PROVING_GROUND_ID]: [4],
+  };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {
     it(`${id}: d8 vs idle, it roams and breaches (or measurably does not)`, () => {
@@ -310,7 +319,7 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
           if (state.captain.mode === 2) defend += 1;
         }
         expect(defend).toBe(0);
-        if (id === URBAN_JUNGLE_ID && seed === 4) {
+        if (UNRESOLVED[id]?.includes(seed)) {
           expect(state.winner).toBe(-1);
           continue;
         }

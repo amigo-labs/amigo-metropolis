@@ -3,7 +3,18 @@
 // existing replay/golden is invalid — that is a SIM_VERSION bump, not a
 // test update.
 import { describe, expect, it } from "bun:test";
-import { atan2Poly, cosLUT, HALF_PI, invLen, len, PI, rand01, sinLUT, TAU } from "../src/simMath";
+import {
+  atan2Poly,
+  cosLUT,
+  HALF_PI,
+  invLen,
+  len,
+  octagonalLength,
+  PI,
+  rand01,
+  sinLUT,
+  TAU,
+} from "../src/simMath";
 import { SIN_TABLE, SIN_TABLE_SIZE } from "../src/sinTable";
 
 describe("sin table", () => {
@@ -90,5 +101,17 @@ describe("mulberry32", () => {
     for (let i = 0; i < 100; i++) {
       expect(rand01(a)).toBe(rand01(b));
     }
+  });
+});
+
+describe("octagonalLength (the original's turret_distance)", () => {
+  it("is exact on the axes and about 2-3 % over near the diagonal", () => {
+    expect(octagonalLength(8192, 0)).toBe(8192);
+    expect(octagonalLength(0, -8192)).toBe(8192);
+    // Below the knee: max + min * (1/4 - 1/64).
+    expect(octagonalLength(8192, 4096)).toBe(8192 + 1024 - 64);
+    // Above it: (75 max + 106 min) >> 7 plus the correction on the difference.
+    expect(octagonalLength(8192, 8192)).toBe(11584);
+    expect(octagonalLength(-7, 3)).toBe(octagonalLength(7, 3));
   });
 });
