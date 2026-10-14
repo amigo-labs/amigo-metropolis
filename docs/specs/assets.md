@@ -129,7 +129,13 @@ forever as a debug render mode (`?render=greybox`).
   original's own frame, origin at the record's position; a pickup's model
   floats about 0.6 m above it). `render/pickups.ts` draws one `InstancedMesh`
   per model, an instance per pickup, shown and turned per frame from the match
-  snapshot (`MATCH_PICKUPS`) at the record's spin rate.
+  snapshot (`MATCH_PICKUPS`) at the record's spin rate. `render/lifts.ts` draws
+  one `InstancedMesh` per lift model, an instance per lift, at the height the
+  lift snapshot (`writeLiftSnapshot`) gives its top. A Cobj's own X runs along
+  the sim's y and its Z along the sim's x (the actors frame swaps the original's
+  axes, as the terrain mesh does), so a lift's model is baked through that swap
+  at load and drawn from both sides; the pickups, symmetric and spinning, are
+  not.
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
 - Materials: single atlas texture, `flatShading: true`, no PBR maps.
 

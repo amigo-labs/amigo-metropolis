@@ -674,10 +674,19 @@ commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
       (R18; v61)
 - [x] Pickups collected in the original's box, the captain's 1.5 m touch, drawn
       with the original's models (P9; v62)
-- [ ] Lifts (Conft, Slim, Joke): needs Slim, Joke and Conft imported with their
-      decks first — the spawn shafts on Slim and Joke exit onto a 2.0 m deck that
-      the single-storey import flattened away, so their mechs cannot leave the
-      spawn today
+- [x] The hover rides the decks, probed 0.4 m above itself as the original's
+      is (P14; v63)
+- [x] Lifts in the sim: stops, speeds, the rider's press, the dwell, the carry,
+      the tagged top (P12; v64)
+- [x] Slim and Joke imported with their decks, their spawn lifts and their kerbs:
+      a mech leaves its spawn up the lift and down the ramp to the consoles
+      (P12, P15; v65)
+- [x] A lift found by the walker's own probe; its landing laid where the point
+      heightfield bends it; spilled walls opened (v66)
+- [x] Conft imported with its decks, its four pit lifts and its kerbs (v67)
+- [x] The lifts drawn with their original models; travel and arrival sounds
+- [ ] Kerbs and spilled walls on la-cantina, Hk and Ovmp: each opens when it is
+      re-imported (`FcopArena.kerbs`, P15)
 - [ ] Ovmp's slippery patches (surface code 4) — with the controls wave (3)
 - [ ] HARD (sinking and drowning, 1000 HP, its ceilings) — with a difficulty
       setting
