@@ -45,6 +45,8 @@ import {
   HOVER_IDLE_SLOPE,
   HOVER_PROBE_LIFT,
   HOVER_PUSH_FORE,
+  HOVER_PUSH_SLOW_FORE,
+  HOVER_PUSH_SLOW_STRAFE,
   HOVER_PUSH_STRAFE,
   HOVER_SLOPE_GAIN,
   HOVER_SLOPE_KNEE,
@@ -115,12 +117,14 @@ import {
   WALKER_HOP_PUSH,
   WALKER_LEAP_LIFT,
   WALKER_LEAP_PUSH,
+  WALKER_LEDGE_DROP,
   WALKER_LUNGE_MAX_RISE,
   WALKER_LUNGE_PUSH,
   WALKER_LUNGE_TICKS,
   WALKER_PROBE_AHEAD,
   WALKER_PROBE_LIFT,
   WALKER_PUSH_FORE,
+  WALKER_PUSH_SLOW,
   WALKER_PUSH_STRAFE,
   WALKER_SLOPE_GAIN,
   WALKER_SLOPE_KNEE,
@@ -983,6 +987,12 @@ function slopeBlocks(
 const tilt = { gx: 0, gy: 0, t: 0, lift: 0 };
 /** Half-width of the central difference `surfaceTilt` reads the surface with, m. */
 const TILT_PROBE = 0.25;
+/**
+ * The same, for the ground right under the feet: the original's steep flag is
+ * the normal of the surface the mech stands on, which TILT_PROBE's 0.5 m span
+ * smears across an edge it has not reached (a flat deck's edge reads steep).
+ */
+const TILT_UNDERFOOT = 1 / 1024;
 
 /**
  * The surface under a mover as the original's surface normal: the height
@@ -1002,6 +1012,7 @@ function surfaceTilt(
   y: number,
   hover: boolean,
   h: number,
+  e = TILT_PROBE,
 ): typeof tilt {
   const c = avatarSurface(state, x, y, h, hover);
   if (c.lift >= 0) {
@@ -1013,7 +1024,6 @@ function surfaceTilt(
   }
   const layer = c.layer;
   const centre = c.height;
-  const e = TILT_PROBE;
   const at = (px: number, py: number) => {
     const s = avatarSurface(state, px, py, h, hover);
     return s.layer === layer && s.lift < 0 ? s.height : centre;
@@ -1171,11 +1181,16 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // no turn on their tick; the leap is the run's own state and keeps it.
     const fore = (bits & BTN_FORWARD) !== 0 ? 1 : (bits & BTN_BACK) !== 0 ? -1 : 0;
     const side = (bits & BTN_JINK_RIGHT) !== 0 ? 1 : (bits & BTN_JINK_LEFT) !== 0 ? -1 : 0;
+    // The Action Key held is the slow row (camera-and-movement.md "The walker
+    // in numbers"): half the push, no jump, and on the walker's row Jump without
+    // forward or back is the crouch — standing still, its jinks unread.
+    const slow = (bits & BTN_ACTION) !== 0;
+    const crouch = !hoverPhys && !airborne && slow && fore === 0 && (bits & BTN_JUMP) !== 0;
     let jumpLift = 0;
     let jumpPush = 0;
     let lunge = state.avatarLunge[p];
     let jumpTurns = true;
-    if (!hoverPhys && !airborne && (pressed & BTN_JUMP) !== 0) {
+    if (!hoverPhys && !airborne && !slow && (pressed & BTN_JUMP) !== 0) {
       const h = ent.height[id];
       if (surfaceTilt(state, x, y, false, h).t <= WALKER_STEEP_TILT) {
         if (fore > 0) {
@@ -1239,12 +1254,19 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // The push, from the state the bits choose, in the hull's frame: forward
     // beats back, Jink Right beats Jink Left; a fore/aft state with a jink is
     // the diagonal, 181/256 of the fore push along F ± R (the walker's not while
-    // Jump is held). The hover's brake (Jump) beats every direction.
+    // Jump is held). The hover's brake (Jump) beats every direction, the
+    // walker's crouch every jink. The slow row takes the slow pushes.
     const brake = hover && (bits & BTN_JUMP) !== 0;
     let pushX = 0;
     let pushY = 0;
     if (!brake && fore !== 0) {
-      const pf = hoverPhys ? HOVER_PUSH_FORE : WALKER_PUSH_FORE;
+      const pf = hoverPhys
+        ? slow
+          ? HOVER_PUSH_SLOW_FORE
+          : HOVER_PUSH_FORE
+        : slow
+          ? WALKER_PUSH_SLOW
+          : WALKER_PUSH_FORE;
       const diag = hoverPhys || (bits & BTN_JUMP) === 0 ? side : 0;
       if (diag !== 0) {
         const k = pf * X1_DIAGONAL_SCALE;
@@ -1254,12 +1276,18 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         pushX = pf * fore * fx;
         pushY = pf * fore * fy;
       }
-    } else if (!brake && side !== 0) {
-      const ps = hoverPhys ? HOVER_PUSH_STRAFE : WALKER_PUSH_STRAFE;
+    } else if (!brake && !crouch && side !== 0) {
+      const ps = hoverPhys
+        ? slow
+          ? HOVER_PUSH_SLOW_STRAFE
+          : HOVER_PUSH_STRAFE
+        : slow
+          ? WALKER_PUSH_SLOW
+          : WALKER_PUSH_STRAFE;
       pushX = -ps * side * fy;
       pushY = ps * side * fx;
     }
-    const commanded = !brake && (fore !== 0 || side !== 0);
+    const commanded = !brake && !crouch && (fore !== 0 || side !== 0);
     state.moveCue[p] =
       (commanded ? MOVE_CUE_DRIVE : 0) |
       (brake ? MOVE_CUE_BRAKE : 0) |
@@ -1352,6 +1380,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // form: a hover on a deck is bounded by that deck's walls.
     const wallLayer = ent.entLayer[id];
     const skipSlope = !hoverPhys && inAir;
+    const fromX = x;
+    const fromY = y;
     const stepX = vx * TICK_DT;
     if (stepX !== 0) {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
@@ -1369,6 +1399,29 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         ok = false;
       if (ok) y = ny;
       else ent.velY[id] = 0;
+    }
+    // The slow row's ledge (balance.ts WALKER_LEDGE_DROP): slow forward, back
+    // or Jink Left puts a grounded walker back from a drop of over 0.1 m. The
+    // hover's slow row holds only at drops under 0.1 m (0x00442d36), which in
+    // Metropolis' hover — no push along the surface, so every downhill tick
+    // reads as a small drop — would stop it on any slope: not modelled.
+    if (
+      !hoverPhys &&
+      !inAir &&
+      slow &&
+      !crouch &&
+      (fore !== 0 || side < 0) &&
+      (x !== fromX || y !== fromY)
+    ) {
+      const h = ent.height[id];
+      if (h - avatarSurface(state, x, y, h, false).height > WALKER_LEDGE_DROP) {
+        if (surfaceTilt(state, fromX, fromY, false, h, TILT_UNDERFOOT).t <= WALKER_STEEP_TILT) {
+          x = fromX;
+          y = fromY;
+          ent.velX[id] = 0;
+          ent.velY[id] = 0;
+        }
+      }
     }
     ent.posX[id] = x;
     ent.posY[id] = y;

@@ -45,7 +45,7 @@ export type InputScript = (tick: number, out: TickInputs, sim: Readonly<SimState
 /**
  * Golden #1 (Phase 0): 60 s of driving on the original's buttons — a sprint,
  * turning circles both ways, a figure eight, idle stretches, the diagonals with
- * jump chatter, reversing, strafing, and all three weapons. Exercises the button
+ * jump chatter, reversing, the slow row and the crouch, and all three weapons. Exercises the button
  * word, the walker's turn at speed and at rest, bound clamping and yaw updates.
  */
 export function drive01(tick: number, out: TickInputs): void {
@@ -71,9 +71,12 @@ export function drive01(tick: number, out: TickInputs): void {
   } else if (t < 53) {
     // Reversing in a circle to the left, heavy fire, then Special held.
     p.buttons = BTN_BACK | BTN_TURN_LEFT | (t < 48 ? BTN_HEAVY : BTN_SPECIAL);
+  } else if (t < 56) {
+    p.buttons = BTN_ACTION | BTN_FORWARD; // the slow row: the Action Key held
+  } else if (t < 57.5) {
+    p.buttons = BTN_ACTION | BTN_JUMP | BTN_JINK_LEFT; // the crouch: no jump, no jink
   } else {
-    // Strafe left, then back-left, into the map edge clamp.
-    p.buttons = t < 56 ? BTN_JINK_LEFT : BTN_BACK | BTN_JINK_LEFT;
+    p.buttons = BTN_BACK | BTN_JINK_LEFT; // back-left into the map edge clamp
   }
 }
 

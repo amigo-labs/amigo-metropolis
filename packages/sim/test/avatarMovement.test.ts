@@ -15,9 +15,13 @@ import {
   HOVER_CLEARANCE,
   HOVER_CUSHION_SPAN,
   HOVER_DRAG,
+  HOVER_PUSH_SLOW_FORE,
+  HOVER_PUSH_SLOW_STRAFE,
   HOVER_PUSH_STRAFE,
   TRANSFORM_LOCK_TICKS,
   WALKER_DRAG,
+  WALKER_LEDGE_DROP,
+  WALKER_PUSH_SLOW,
   WALKER_PUSH_STRAFE,
   X1_GRAVITY,
   X1_TERMINAL_FALL,
@@ -806,6 +810,101 @@ describe("hover slope gate", () => {
     inputs.players[0].buttons = 0;
     for (let i = 0; i < 40; i++) step(sim, inputs);
     expect(top(sim, 34)).toBe(false);
+  });
+});
+
+describe("the slow row: the Action Key held (camera-and-movement.md)", () => {
+  /**
+   * Steady velocity after `ticks`, the hull facing north (+Y) — open ground
+   * both ways — so fore is +Y and Jink Right is -X.
+   */
+  const steady = (hover: boolean, buttons: number, ticks: number): [number, number] => {
+    reset();
+    const sim = freshSim();
+    if (hover) toHover(sim);
+    face(sim, 0, Math.PI / 2);
+    p0.buttons = buttons;
+    for (let i = 0; i < ticks; i++) step(sim, inputs);
+    return [sim.ent.velX[0], sim.ent.velY[0]];
+  };
+
+  it("walks at 1.95 m/s, fore and sideways alike", () => {
+    expect(WALKER_PUSH_SLOW / WALKER_DRAG).toBe(1.953125);
+    expect(steady(false, BTN_ACTION | BTN_FORWARD, 30)[1]).toBeCloseTo(1.953125, 4);
+    expect(steady(false, BTN_ACTION | BTN_JINK_RIGHT, 30)[0]).toBeCloseTo(-1.953125, 4);
+    // Released, the fast row again.
+    expect(steady(false, BTN_FORWARD, 30)[1]).toBeCloseTo(AVATAR_WALKER_SPEED, 4);
+  });
+
+  it("hovers at 4.69 m/s fore and 1.47 m/s sideways, half of each", () => {
+    expect(steady(true, BTN_ACTION | BTN_FORWARD, 150)[1]).toBeCloseTo(
+      HOVER_PUSH_SLOW_FORE / HOVER_DRAG,
+      2,
+    );
+    expect(HOVER_PUSH_SLOW_FORE / HOVER_DRAG).toBeCloseTo(4.69, 2);
+    expect(steady(true, BTN_ACTION | BTN_JINK_RIGHT, 150)[0]).toBeCloseTo(
+      -HOVER_PUSH_SLOW_STRAFE / HOVER_DRAG,
+      2,
+    );
+    expect(HOVER_PUSH_SLOW_STRAFE / HOVER_DRAG).toBeCloseTo(1.465, 3);
+  });
+
+  it("crouches on Jump: no jump and no move, its jinks unread", () => {
+    reset();
+    const sim = freshSim();
+    const ground = sampleHeight(sim.map, 12, 30);
+    p0.buttons = BTN_ACTION | BTN_JUMP | BTN_JINK_LEFT;
+    for (let i = 0; i < 30; i++) {
+      step(sim, inputs);
+      expect(sim.ent.height[0]).toBe(ground);
+    }
+    expect(sim.ent.posX[0]).toBe(12);
+    expect(sim.ent.posY[0]).toBe(30);
+    // It still turns.
+    p0.buttons = BTN_ACTION | BTN_JUMP | BTN_TURN_RIGHT;
+    step(sim, inputs);
+    expect(sim.ent.yaw[0]).toBeGreaterThan(0);
+    // With forward held it walks the slow row, and the jump is not taken.
+    reset();
+    const walk = freshSim();
+    p0.buttons = BTN_ACTION | BTN_FORWARD;
+    step(walk, inputs);
+    p0.buttons = BTN_ACTION | BTN_FORWARD | BTN_JUMP;
+    for (let i = 0; i < 20; i++) {
+      step(walk, inputs);
+      expect(walk.ent.height[0]).toBe(ground);
+    }
+    expect(walk.ent.velX[0]).toBeCloseTo(1.953125, 3);
+  });
+
+  it("stops the walker at a ledge on slow forward, back and Jink Left", () => {
+    expect(WALKER_LEDGE_DROP).toBeCloseTo(0.1, 3);
+    // A 2 m drop over one metre, west of x = 9: each tick of a walk down it
+    // drops more than 0.1 m.
+    const cliff = (): SimState => {
+      const j = kerbJson();
+      j.heights = j.heights.map((row) => row.map((_, i) => (i >= 9 ? 64 : 0)));
+      return createSim(loadMapFromJson(j), 1);
+    };
+    const walkOff = (buttons: number, yaw: number): number => {
+      reset();
+      const sim = cliff();
+      sim.ent.posX[0] = 9.6;
+      sim.ent.height[0] = 2;
+      face(sim, 0, yaw);
+      p0.buttons = buttons;
+      for (let i = 0; i < 45; i++) step(sim, inputs);
+      return sim.ent.posX[0];
+    };
+    // Facing west: slow forward is held at the edge; the fast row walks off.
+    expect(walkOff(BTN_ACTION | BTN_FORWARD, Math.PI)).toBeGreaterThan(8.95);
+    expect(walkOff(BTN_FORWARD, Math.PI)).toBeLessThan(8);
+    // Facing east, slow back is held too.
+    expect(walkOff(BTN_ACTION | BTN_BACK, 0)).toBeGreaterThan(8.95);
+    // Facing north (-y), left is west: slow Jink Left is held, slow Jink Right
+    // (facing south) is not — the original's states 5 and 6.
+    expect(walkOff(BTN_ACTION | BTN_JINK_LEFT, -Math.PI / 2)).toBeGreaterThan(8.95);
+    expect(walkOff(BTN_ACTION | BTN_JINK_RIGHT, Math.PI / 2)).toBeLessThan(8);
   });
 });
 

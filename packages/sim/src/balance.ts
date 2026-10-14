@@ -195,6 +195,12 @@ export const X1_IMPACT_HP = 1000;
 export const HOVER_PUSH_FORE = 0x6666 * FX * X1_SPEED_UNIT;
 /** Strafe push 0x2000 per step (0x00442884). */
 export const HOVER_PUSH_STRAFE = 0x2000 * FX * X1_SPEED_UNIT;
+/**
+ * The slow row, the Action Key held: fore/aft push 0x3333 per step (0x0044285e),
+ * 4.69 m/s, and strafe 0x1000 (0x0044286c), 1.47 m/s — half of each.
+ */
+export const HOVER_PUSH_SLOW_FORE = 0x3333 * FX * X1_SPEED_UNIT;
+export const HOVER_PUSH_SLOW_STRAFE = 0x1000 * FX * X1_SPEED_UNIT;
 /** Drag 0x0ccc = 0.05 of the velocity per step, horizontal always (0x004427b9). */
 export const HOVER_DRAG = 0xccc * FX;
 /** Brake drag 0x2666 = 0.15 (0x004428a5): the jump button, in hover, grounded. */
@@ -245,6 +251,19 @@ export const HOVER_SLOPE_GAIN = 32;
 export const WALKER_PUSH_FORE = 0x18000 * FX * X1_SPEED_UNIT;
 /** Strafe push 0x10000 per step (0x0044465d). */
 export const WALKER_PUSH_STRAFE = 0x10000 * FX * X1_SPEED_UNIT;
+/**
+ * The slow row, the Action Key held: push 0xa000 per step fore/aft and sideways
+ * alike (0x0044460e, 0x00444630), 1.95 m/s.
+ */
+export const WALKER_PUSH_SLOW = 0xa000 * FX * X1_SPEED_UNIT;
+/**
+ * The slow row's ledge (0x00444a88): on slow forward, slow back or slow Jink
+ * Left — the original's states 1, 2 and 5, not slow Jink Right — a walker on
+ * the ground that a step would leave more than 0x333 = 0.1 m over the ground
+ * ahead is put back where it was and its horizontal velocity zeroed, unless the
+ * ground it stands on is steep.
+ */
+export const WALKER_LEDGE_DROP = 0x333 / 8192;
 /** Ground drag 0x6000 = 0.375 per step on every axis: "effectively instant". */
 export const WALKER_DRAG = 0x6000 * FX;
 /** Airborne horizontal drag 0x666 = 0.025 per step, and no push at all. */

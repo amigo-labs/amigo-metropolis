@@ -1064,4 +1064,14 @@
 //     its latch's HELD state, the second tick it is down (lastButtons holds the
 //     u16 word). The lock never turns the hull: lockSteer is gone from the
 //     state and the hash.
-export const SIM_VERSION = 69;
+// v70: the slow row (fcop-fidelity.md P4, P5): the Action Key held halves the
+//     push — the walker 0xa000 fore and sideways (1.95 m/s), the hover 0x3333
+//     fore (4.69 m/s) and 0x1000 sideways (1.47 m/s) — and takes the walker's
+//     jump away: Jump without forward or back is the crouch, standing still,
+//     its jinks unread (the lowered hit box is not modelled: what the bounds
+//     pair means is open in the RE). On slow forward, back or Jink Left a
+//     grounded walker is put back from a drop of over 0.1 m (WALKER_LEDGE_DROP)
+//     unless the ground under its feet is steep — read on the patch it stands
+//     on, not TILT_PROBE's span, which smears a deck's edge into a slope. The
+//     hover's slow-row hold (under 0.1 m) is not modelled.
+export const SIM_VERSION = 70;

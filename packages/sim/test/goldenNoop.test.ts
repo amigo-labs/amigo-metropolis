@@ -50,6 +50,8 @@ import { join } from "node:path";
 // sim freezes (breach ticks themselves are unchanged — golden03/04 pin them);
 // 05 and 07 run imported arenas with no free production and no base guns.
 const FROZEN: Record<string, { last: number; count: number }> = {
+  // 01 re-recorded at SIM_VERSION 70: its last seconds walk the slow row and
+  // crouch.
   // All seven re-recorded at SIM_VERSION 69: the tick input is the original's
   // button word (inputs.ts), so every replay's frames and scripts are new — the
   // hull turns by the turn buttons and the transform is the chord.
@@ -69,7 +71,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // units also target as the original's shooters and aircraft do.
   // Re-frozen at SIM_VERSION 19 (on top of v18 hover cushion): facing-aligned
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
-  "golden-01-drive": { last: 378971965, count: 1800 },
+  "golden-01-drive": { last: 1324771104, count: 1800 },
   // 02-04 re-recorded at SIM_VERSION 52 when district-01 left the game (wave 2,
   // 2026-10-14): 02 combat on urban-jungle, 03 a two-player match on la-cantina,
   // 04 the Sky Captain (difficulty 3) on urban-jungle, 150 s.
