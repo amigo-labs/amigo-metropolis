@@ -729,6 +729,8 @@ no golden moves.
 
 - [x] The jet and the Flying Fortress drawn with their own Cobjs, 22 and 41 (G1)
 - [x] Each arena's scenery drawn with its own mission's Cobjs and texels (G2)
+- [x] Classic textures (the original texels) by default, HD the option (G3; the
+      original's filter waits on RE)
 - [ ] The jet's rotor and the barrier's animation (morph frames; G1)
 - [ ] Each mission's own unit models: Ovmp's page 4, Hk's tank, Joke's units (G1)
 - [ ] The Dreadnought's guns; the Sky Captain's model by level

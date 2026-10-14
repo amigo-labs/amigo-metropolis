@@ -178,7 +178,8 @@ const renderMode: "mesh" | "greybox" = params.get("render") === "greybox" ? "gre
 // structures; on, it is the only way to see where the gate and pad VOLUMES
 // actually are, which matters when checking an imported layout.
 const showGreyboxStructures = params.get("structures") === "greybox";
-// Player texture preference (HD = shipped atlas, Original = 1998 texels).
+// Player texture preference: Classic (the 1998 texels, the default) or HD (the
+// upscaled atlas the .glb names).
 // ?tex=hd|original is a session override and is NOT persisted back (like ?aim=);
 // the menu's Graphics drawer writes the stored preference. Mutable: the menu
 // updates it live via onTexPref. Applied whenever a map mesh loads (see
@@ -691,7 +692,10 @@ function buildArenaGroup(m: typeof map): THREE.Group {
   if (renderMode === "mesh") {
     // Async: textured terrain mesh (incl. decks) added when loaded; maps
     // without a local asset fall back to greybox terrain instead of nothing.
-    // The materials callback arms the debug texture-variant switcher (0/1/2/3).
+    // The materials callback arms the texture-variant switcher (the Textures
+    // option, and the debug hotkeys 0/1/2). The mesh loads with the preferred
+    // atlas already in place, so a Classic player never fetches the HD one.
+    const loadedAs = variantOfPref(texPref);
     loadMapMesh(
       m,
       group,
@@ -700,13 +704,15 @@ function buildArenaGroup(m: typeof map): THREE.Group {
         buildGreyboxStructures();
       },
       (materials) => {
-        texSwitcher = createVariantSwitcher(m.id, materials);
-        // Player preference first (boot AND every map swap); the debug hotkeys
-        // 0-3 can still override it temporarily afterwards.
+        texSwitcher = createVariantSwitcher(m.id, materials, loadedAs);
+        // Player preference first (boot AND every map swap; it may have changed
+        // while the mesh loaded); the debug hotkeys can still override it
+        // temporarily afterwards.
         texSwitcher.setVariant(variantOfPref(texPref));
         refreshDebugLabel();
       },
       stale,
+      loadedAs === "original",
     );
     // Original scenery actors, on the mesh path only: they are the arena's own
     // art, so they belong with the textured terrain and not on top of greybox
@@ -1162,7 +1168,7 @@ function refreshDebugLabel(): void {
   // Title-menu backdrop also arms the switcher (Graphics drawer live preview),
   // but the hotkey legend sits over the console footer — hide it until a match.
   if (texSwitcher && phase !== "menu") {
-    parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan`);
+    parts.push(`${texSwitcher.status()}  [0]=hd [1]=original [2]=esrgan`);
   }
   if (flyMode) {
     parts.push("fly: WASD+QE move, Shift fast, click=mouse-look");
@@ -1360,7 +1366,7 @@ addEventListener("keydown", (e) => {
 // WASD/JKL, see input/keyboard.ts BUTTON_KEYS) — safe for debug bindings.
 addEventListener("keydown", (e) => {
   if (!texSwitcher) return;
-  if (e.code === "Digit0") texSwitcher.setVariant("default");
+  if (e.code === "Digit0") texSwitcher.setVariant("hd");
   else if (e.code === "Digit1") texSwitcher.setVariant("original");
   else if (e.code === "Digit2") texSwitcher.setVariant("esrgan");
   else return;

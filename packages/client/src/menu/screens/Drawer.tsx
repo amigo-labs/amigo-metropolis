@@ -21,6 +21,7 @@ import {
 import { loadControls, saveControls } from "../../input/controlsStore";
 import { firstJoyControl, firstPad } from "../../input/gamepad";
 import {
+  DEFAULT_TEX_PREF,
   loadBloomPref,
   loadTexPref,
   parseTexPref,
@@ -255,16 +256,18 @@ function Graphics({
           class="menu-select"
           value={pref}
           onChange={(e) => {
-            const next = parseTexPref((e.currentTarget as HTMLSelectElement).value) ?? "hd";
+            const next =
+              parseTexPref((e.currentTarget as HTMLSelectElement).value) ?? DEFAULT_TEX_PREF;
             setPref(next);
             saveTexPref(next);
             onTexPref(next);
           }}
         >
-          {/* HD is the shipped ESRGAN atlas; Classic is the 1998 source texels.
-              Takes effect on the textured map path; greybox ignores it. */}
-          <option value="hd">HD (upscaled)</option>
+          {/* Classic, the 1998 source texels, is the default (the owner's
+              rule: only the original counts); HD is the upscaled atlas, an
+              option. Takes effect on the textured map path; greybox ignores it. */}
           <option value="original">Classic</option>
+          <option value="hd">HD (upscaled)</option>
         </select>
       </div>
       <div class="menu-row">
