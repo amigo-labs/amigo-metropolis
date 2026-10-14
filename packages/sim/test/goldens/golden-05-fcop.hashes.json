@@ -5,6 +5,10 @@
   "tickCount": 2700,
   "wardenPlayer": -1,
   "wardenDifficulty": 0,
+  "difficulties": [
+    1,
+    1
+  ],
   "hashes": [
     3626151535,
     2943475815,

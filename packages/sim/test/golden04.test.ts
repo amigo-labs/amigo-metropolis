@@ -44,6 +44,7 @@ describe("golden-04-warden beats", () => {
     const sim = createSim(getMapById(replay.mapId), replay.seed, {
       wardenPlayer: replay.wardenPlayer,
       wardenDifficulty: replay.wardenDifficulty,
+      difficulties: replay.difficulties,
     });
     const inputs = createTickInputs();
 

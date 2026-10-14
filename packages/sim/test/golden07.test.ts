@@ -36,6 +36,7 @@ function replayBeats(): {
   const state = createSim(getMapById(replay.mapId), replay.seed, {
     wardenPlayer: replay.wardenPlayer,
     wardenDifficulty: replay.wardenDifficulty,
+    difficulties: replay.difficulties,
   });
   const inputs = createTickInputs();
   const firstAt = new Map<number, number>();

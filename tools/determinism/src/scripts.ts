@@ -591,7 +591,14 @@ export function pa01(tick: number, out: TickInputs, sim: Readonly<SimState>): vo
 
 export const SCRIPTS: Record<
   string,
-  { script: InputScript; ticks: number; mapId?: string; warden?: WardenConfig }
+  {
+    script: InputScript;
+    ticks: number;
+    mapId?: string;
+    warden?: WardenConfig;
+    /** Per-player difficulty (DIFFICULTY_*); NORMAL when absent. */
+    difficulties?: readonly number[];
+  }
 > = {
   "drive-01": { script: drive01, ticks: 60 * TICK_HZ },
   "combat-01": { script: combat01, ticks: 120 * TICK_HZ, mapId: "urban-jungle" },
