@@ -130,12 +130,13 @@ export function reachableFrom(
       const nx = x + dx;
       const ny = y + dy;
       if (nx < half || ny < half || nx > ext - half || ny > ext - half) continue;
-      if (opts.blockWater === true && isWater(map, nx, ny)) continue;
       // Cross the wall on the deck we are standing on, not on the ground below.
       if (dx !== 0 && crossesWallX(map, x, nx, y, layer)) continue;
       if (dy !== 0 && crossesWallY(map, x, y, ny, layer)) continue;
       // Which surface do we land on? Same question the movers ask.
       const wr = resolveWalker(map, nx, ny, h);
+      // Water is the ground's: a deck over it is dry (sim.ts inWater).
+      if (opts.blockWater === true && wr.layer === 0 && isWater(map, nx, ny)) continue;
       const k = nodeKey(cellIndex(map, nx), cellIndex(map, ny), wr.layer);
       if (seen.has(k)) continue;
       seen.add(k);

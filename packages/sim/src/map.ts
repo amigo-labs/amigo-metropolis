@@ -372,9 +372,18 @@ export interface MapData {
   readonly cellSize: number;
   /** Row-major heights, index = row * size + col. */
   readonly heights: Float32Array;
-  /** 1 = water (hover only). Row-major like heights, sampled per vertex. */
+  /**
+   * 1 = water, per cell (`floor(y) * size + floor(x)`): the original's surface
+   * code 1, whose sample tiles are the sim's cells (fcop-fidelity.md P13).
+   */
   readonly waterMask: Uint8Array;
-  /** Water surface height in meters — hover rides on max(terrain, this). */
+  /** Each water cell's own surface height in metres; meaningless off the mask. */
+  readonly waterHeights: Float32Array;
+  /**
+   * The arena's water surface in metres, for everything that does not ask a cell:
+   * a hover rides on max(terrain, this) off the mask too (its banks), and
+   * aircraft cruise above it.
+   */
   readonly waterLevel: number;
   /**
    * Vertical wall segments (edge blockers on grid lines): wallsV[j*size+i]=1
@@ -575,12 +584,25 @@ export function resolveHeight(map: MapData, x: number, y: number, layer: number)
   return sampleLayerHeight(map, layer - 1, x, y);
 }
 
-/** Water test at world position (x, y): nearest-vertex sample, clamped. */
+/** Water test at world position (x, y): the cell it stands in, clamped. */
 export function isWater(map: MapData, x: number, y: number): boolean {
   const max = map.size - 1;
-  const i = clamp(Math.floor(x / map.cellSize + 0.5), 0, max);
-  const j = clamp(Math.floor(y / map.cellSize + 0.5), 0, max);
+  const i = clamp(Math.floor(x / map.cellSize), 0, max);
+  const j = clamp(Math.floor(y / map.cellSize), 0, max);
   return map.waterMask[j * map.size + i] === 1;
+}
+
+/**
+ * The water surface a hover rides at (x, y): the cell's own where it is water,
+ * else the arena's `waterLevel` (so a bank whose terrain dips below the water
+ * floats a hover before the mask begins).
+ */
+export function waterHeightAt(map: MapData, x: number, y: number): number {
+  const max = map.size - 1;
+  const i = clamp(Math.floor(x / map.cellSize), 0, max);
+  const j = clamp(Math.floor(y / map.cellSize), 0, max);
+  const k = j * map.size + i;
+  return map.waterMask[k] === 1 ? map.waterHeights[k] : map.waterLevel;
 }
 
 /** Map registry: resolves the mapId stored in replays/net handshakes. */
@@ -651,10 +673,15 @@ export interface MapJson {
   cellSize: number;
   /** Rows of heights in 1/32 m integer units. */
   heights: number[][];
-  /** Rows of '0'/'1' characters, 1 = water. */
+  /**
+   * Rows of digit characters: '0' dry; with `waterLevels`, '1'..'9' a water cell
+   * at `waterLevels[digit - 1]`; without, '1' a water cell at `waterLevel`.
+   */
   water: string[];
   /** Water surface height in meters. */
   waterLevel: number;
+  /** OPTIONAL: the arena's distinct water surfaces in metres (`water` digits). */
+  waterLevels?: number[];
   /**
    * OPTIONAL wall data (both present or both absent): size rows of size
    * '0'/'1' chars each. wallsV[j][i] blocks ±x over line x = i*cellSize in
@@ -826,6 +853,10 @@ export function loadMapFromJson(raw: MapJson): MapData {
 
   const heights = new Float32Array(size * size);
   const waterMask = new Uint8Array(size * size);
+  const waterHeights = new Float32Array(size * size);
+  const levels = raw.waterLevels ?? [raw.waterLevel];
+  if (levels.length < 1 || levels.length > 9) fail(id, `waterLevels needs 1..9 entries`);
+  for (const l of levels) if (typeof l !== "number") fail(id, `bad water level ${l}`);
   for (let j = 0; j < size; j++) {
     const hRow = raw.heights[j];
     const wRow = raw.water[j];
@@ -835,9 +866,12 @@ export function loadMapFromJson(raw: MapJson): MapData {
       const q = hRow[i];
       if (!Number.isInteger(q)) fail(id, `non-integer height at (${i}, ${j})`);
       heights[j * size + i] = q * HEIGHT_SCALE;
-      const w = wRow.charCodeAt(i);
-      if (w !== 0x30 && w !== 0x31) fail(id, `water row ${j} has non-0/1 char at ${i}`);
-      waterMask[j * size + i] = w - 0x30;
+      const w = wRow.charCodeAt(i) - 0x30;
+      if (w < 0 || w > levels.length) fail(id, `water row ${j} has a bad char at ${i}`);
+      if (w > 0) {
+        waterMask[j * size + i] = 1;
+        waterHeights[j * size + i] = levels[w - 1];
+      }
     }
   }
 
@@ -1448,6 +1482,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     cellSize,
     heights,
     waterMask,
+    waterHeights,
     waterLevel: raw.waterLevel,
     wallsV,
     wallsH,
@@ -1557,6 +1592,7 @@ export function createTestMap(): MapData {
     cellSize: TEST_MAP_CELL_SIZE,
     heights,
     waterMask: new Uint8Array(size * size),
+    waterHeights: new Float32Array(size * size),
     waterLevel: -10, // below every valley: the test map has no water at all
     wallsV: new Uint8Array(0),
     wallsH: new Uint8Array(0),

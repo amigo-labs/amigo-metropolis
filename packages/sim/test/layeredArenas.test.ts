@@ -114,16 +114,19 @@ function checkArena(id: string, displayName: string): void {
       const s = map.spawns[team];
       const b = map.basePlots[team];
       expect(Math.hypot(s.x - b.x, s.y - b.y)).toBeLessThanOrEqual(b.radius);
-      expect(isWater(map, s.x, s.y)).toBe(false);
+      // A hover spawn may stand on the water (Hk's both do, as the original's).
+      if (!s.hover) expect(isWater(map, s.x, s.y)).toBe(false);
     }
   });
 
-  it("lanes are dry and walker-traversable in slope (base floor)", () => {
+  it("lanes are walker-traversable in slope (base floor)", () => {
     // Slope goes through the shared `worstUphillRise`, which is the stepper's own
     // rule: uphill only, and heights from `resolveWalker`. On the imported
     // layouts the polyline is a deck road (nodes carry layer from ground_cast);
     // a unit snaps onto that surface near each node, so measuring the polyline
-    // as if it were ground-floor is the wrong question. Dryness still applies.
+    // as if it were ground-floor is the wrong question. Lanes need not be dry:
+    // only a mech's own movement reads the water (fcop-fidelity.md P13), and the
+    // original's tanks drive Hk's and Ovmp's water like any ground.
     for (const lane of map.lanes) {
       for (let i = 0; i < lane.length - 1; i++) {
         const a = lane[i];
@@ -137,7 +140,6 @@ function checkArena(id: string, displayName: string): void {
           const y0 = a.y + (b.y - a.y) * t0;
           const x1 = a.x + (b.x - a.x) * t1;
           const y1 = a.y + (b.y - a.y) * t1;
-          expect(isWater(map, x1, y1)).toBe(false);
           if (map.laneGraph === undefined) {
             expect(worstUphillRise(map, x0, y0, x1, y1)).toBe(0);
           }

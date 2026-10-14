@@ -663,6 +663,10 @@ function buildArenaGroup(m: typeof map): THREE.Group {
     const walls = buildWallMesh(m); // null on wall-free maps
     if (walls) group.add(walls);
     for (const deck of buildDeckMeshes(m)) group.add(deck); // upper decks on layered maps
+    // The greybox's water stand-in. The textured arena carries the original's
+    // own water plates (Hk, Ovmp), so a plane at `waterLevel` over the whole
+    // extent would only fight them.
+    group.add(buildWaterPlane(m));
   };
   // Greybox structure blocks stand in for base geometry the textured arena
   // already has baked in. Drawing both puts blue boxes on top of the original
@@ -702,7 +706,6 @@ function buildArenaGroup(m: typeof map): THREE.Group {
     buildGreyboxTerrain();
     buildGreyboxStructures();
   }
-  group.add(buildWaterPlane(m));
   return group;
 }
 let arenaGroup = buildArenaGroup(map);

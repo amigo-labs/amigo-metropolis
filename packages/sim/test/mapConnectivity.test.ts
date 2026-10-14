@@ -14,8 +14,11 @@ import { ORIGINAL_CAPTURE_RANGE } from "../src/balance";
 import { getMapById, MAP_REGISTRY, type MapData } from "../src/map";
 import { type ReachSet, reachableFrom } from "../src/reach";
 
+// A walk-only path: a walker that enters water becomes a hover. On an arena
+// whose mechs start in hover form (Hk, whose spawns stand on the water) the
+// water is the way, so it is not blocked there.
 function floodHas(map: MapData, ax: number, ay: number): ReachSet {
-  return reachableFrom(map, ax, ay, { blockWater: true });
+  return reachableFrom(map, ax, ay, { blockWater: !map.spawns.some((s) => s.hover) });
 }
 
 const PLAYABLE_IDS = MAP_REGISTRY.map((m) => m.id);

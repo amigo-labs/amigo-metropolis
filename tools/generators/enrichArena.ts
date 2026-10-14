@@ -432,6 +432,55 @@ function floorMasks(
   return masks;
 }
 
+/**
+ * The arena's water (fcop-fidelity.md P13): the original's surface code 1, as
+ * the sim's per-cell mask with each cell's own surface. The rules artifact
+ * indexes every sample that carries a code-1 plate into its distinct levels (a
+ * level is that plate's corner height range); a sloped plate's level is taken
+ * at its top, so a hover never rides below it. The arena-wide `waterLevel` is
+ * the level most samples carry (its banks and its aircraft read that one).
+ * undefined on a dry arena, whose stage-1 `water` / `waterLevel` stay as they are.
+ */
+function waterOf(
+  size: number,
+  rules: FcopRules,
+): { water: string[]; waterLevel: number; waterLevels: number[] } | undefined {
+  const surf = rules.surface;
+  if (surf.waterLevels.length === 0) return undefined;
+  if (surf.waterLevels.length > 9) throw new Error(`${rules.mapId}: more than 9 water levels`);
+  const count = new Array<number>(surf.waterLevels.length).fill(0);
+  const water: string[] = [];
+  for (let j = 0; j < size; j++) {
+    let row = "";
+    for (let i = 0; i < size; i++) {
+      const x = i - LOGIC_OFFSET_X;
+      const z = j - LOGIC_OFFSET_Z;
+      const ch =
+        x >= 0 && z >= 0 && x < surf.answeredCols && z < surf.answeredRows
+          ? (surf.waterRows[z]?.[x] ?? ".")
+          : ".";
+      if (ch === ".") {
+        row += "0";
+        continue;
+      }
+      const k = Number.parseInt(ch, 10);
+      if (!(k >= 0 && k < surf.waterLevels.length)) {
+        throw new Error(`${rules.mapId}: water sample (${x}, ${z}) names level "${ch}"`);
+      }
+      count[k] += 1;
+      row += String(k + 1);
+    }
+    water.push(row);
+  }
+  let main = 0;
+  for (let k = 1; k < count.length; k++) if (count[k] > count[main]) main = k;
+  return {
+    water,
+    waterLevel: surf.waterLevels[main].maxM,
+    waterLevels: surf.waterLevels.map((l) => l.maxM),
+  };
+}
+
 /** Interns weapon profiles so identical originals share one index. */
 class WeaponTable {
   readonly list: Weapon[] = [];
@@ -1671,6 +1720,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // --- emit --------------------------------------------------------------
   const out: MapJson = {
     ...raw,
+    ...waterOf(raw.size, rules),
     wallsV,
     wallsH,
     // Where and how each X1Alpha record stands, facing included.

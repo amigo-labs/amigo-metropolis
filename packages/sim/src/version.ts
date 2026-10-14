@@ -933,4 +933,12 @@
 //     25 instead, then wait for a latch reset polled every second from a random
 //     phase (SimState.guardLatch / guardTimer, hashed off Hk only). Hk's guard
 //     boxes are no longer imported as intrusion-alert volumes.
-export const SIM_VERSION = 58;
+// v59: Hk and Ovmp carry the original's water (fcop-fidelity.md P13): surface
+//     code 1 imported per cell with each cell's own level (MapJson.waterLevels;
+//     `water` digits index them), the arena's `waterLevel` its commonest level
+//     (Hk -0.97 m, Ovmp -2.5 m). isWater reads the cell (was the nearest
+//     vertex), a hover rides on the cell's own surface, and the walker's water
+//     rules (the NORMAL auto-hover, the refused transform) apply on the ground
+//     surface within SURFACE_REACH of it, not on a deck over it. Hk's spawn
+//     guards stand on the water. No other arena has water; their hashes stay.
+export const SIM_VERSION = 59;

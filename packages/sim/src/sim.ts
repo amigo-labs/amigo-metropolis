@@ -193,6 +193,7 @@ import {
   type MapWeapon,
   resolveHeight,
   sampleHeight,
+  waterHeightAt,
   worldExtent,
 } from "./map";
 import { atan2Poly, cosLUT, octagonalLength, rand01, randInt, sinLUT } from "./simMath";
@@ -1008,7 +1009,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // already running and on water in either form (the original's byte_146,
     // set by surface material 1). In the air too: the original does not ask.
     if ((pressed & BUTTON_TRANSFORM) !== 0) {
-      if (!locked && !isWater(map, x, y)) {
+      if (!locked && !inWater(state, id, x, y)) {
         hover = !hover;
         startTransform(state, id, hover);
       } else {
@@ -1302,7 +1303,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // A walker in water transforms to hover on its own: the NORMAL/EASY rule
     // (`player_order` code 1). HARD's sinking and drowning are not modelled —
     // Metropolis has no difficulty for the player and models NORMAL.
-    if (!hoverPhys && isWater(map, x, y)) {
+    if (!hoverPhys && inWater(state, id, x, y)) {
       hover = true;
       hoverPhys = true;
       startTransform(state, id, true);
@@ -1736,8 +1737,21 @@ function countAliveOfArchetype(state: SimState, archetype: number, team: number)
  */
 export function rideHeight(map: MapData, x: number, y: number, hover: boolean): number {
   const g = sampleHeight(map, x, y);
-  if (hover && g < map.waterLevel) return map.waterLevel;
-  return g;
+  if (!hover) return g;
+  const w = waterHeightAt(map, x, y);
+  return g < w ? w : g;
+}
+
+/**
+ * The mech stands in water: the original's surface code 1 reaches its feet
+ * (fcop-fidelity.md P13). On the ground surface only — a deck over the water is
+ * a deck — over a water cell, with the cell's surface within SURFACE_REACH below
+ * the feet (a hover riding 0.5 m up is on it; a walker on the bed is under it).
+ */
+function inWater(state: SimState, id: number, x: number, y: number): boolean {
+  const map = state.map;
+  if (state.ent.entLayer[id] !== 0 || !isWater(map, x, y)) return false;
+  return state.ent.height[id] - waterHeightAt(map, x, y) < SURFACE_REACH;
 }
 
 /** The A-block magazine of `slot` (0 gun, 1 heavy, 2 special) for avatar `id`. */
@@ -3577,7 +3591,11 @@ function systemFloors(state: SimState): void {
     const r = ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
     const dx = ent.posX[id] - g.x;
     const dy = ent.posY[id] - g.y;
-    const dz = ent.height[id] - resolveHeight(map, g.x, g.y, g.layer);
+    // The box's centre stands on the surface under it at load, water included
+    // (Hk's spawns stand on the water).
+    const floor =
+      g.layer === 0 ? rideHeight(map, g.x, g.y, true) : resolveHeight(map, g.x, g.y, g.layer);
+    const dz = ent.height[id] - floor;
     if (dx >= g.halfW + r || dx <= -(g.halfW + r)) continue;
     if (dy >= g.halfL + r || dy <= -(g.halfL + r)) continue;
     if (dz >= g.halfH + r || dz <= -(g.halfH + r)) continue;
