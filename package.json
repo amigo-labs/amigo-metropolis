@@ -23,6 +23,7 @@
     "gen:palogic": "bun run tools/generators/fcopLogic.ts",
     "gen:parules": "bun run tools/generators/fcopRules.ts",
     "gen:paprops": "bun run tools/generators/fcopPaProps.ts",
+    "gen:scenery": "bun run tools/generators/fcopScenery.ts",
     "gen:walls": "bun run tools/generators/fcopWalls.ts",
     "gen:arena": "bun run tools/generators/enrichArena.ts",
     "gen:pads": "bun run tools/generators/stampPads.ts",

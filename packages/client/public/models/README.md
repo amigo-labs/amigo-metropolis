@@ -34,13 +34,22 @@ greybox mesh at runtime, so models can be swapped one at a time.
 `bun run verify:units` shoots a lineup of all archetypes (mesh + greybox pairs)
 into `docs/verification/stage7-units/`.
 
-## Arena scenery — `props/`
+## Arena scenery — `props/<map-id>/`
 
-One `.glb` per original `DynamicProp` model, named `prop-<cobj>` after the Cobj
-resource id the map's `props` entries carry, so `src/render/props.ts` maps a
-placement onto a URL with no second lookup table. la-cantina has 36 placements
-across 8 models: a hazard-striped barrier (Cobj 28, 16×) and seven small kiosks
-showing the unit-icon/digit strip (27, 29, 33, 34, 35, 39, 40).
+One `.glb` per original `DynamicProp` model, in a folder per arena and named
+`prop-<cobj>` after the Cobj resource id the map's `props` entries carry, so
+`src/render/props.ts` maps a placement onto a URL with no second lookup table.
+Every imported arena has 36 placements across 8 models: a hazard-striped barrier
+(16×), the outpost flag console and six small kiosks showing the
+unit-icon/digit strip.
+
+The id is the arena's own mission's, and the missions number their Cobjs
+differently — urban-jungle's 36 and 41 are kiosks, where Mp's are the
+Dreadnought hull and the Flying Fortress — so the folder is the arena's. Even
+where a mission shares Mp's payload, the texels are its own pages: each file is
+built from that mission's export (`tools/generators/units/raw/fcop-props/<Mission>/`,
+copied unchanged by `bun run gen:scenery`; `ARENA_SCENERY` in the manifest
+records which Mp model each one is a twin of).
 
 These come out of the same generator and manifest as the units
 (`PROP_MODELS`), but with **two contracts inverted**: they keep their source

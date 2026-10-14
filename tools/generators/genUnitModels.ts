@@ -63,6 +63,8 @@ const OUT_FX = join(MODELS_DIR, "fx");
  */
 interface ModelPass {
   readonly key: string;
+  /** Report name where `key` alone repeats (scenery: `<mapId>/<key>`). */
+  readonly label?: string;
   readonly raw: string;
   readonly outDir: string;
   readonly rotateQuarterY: 0 | 1 | 2 | 3;
@@ -110,8 +112,11 @@ const PASSES: readonly ModelPass[] = [
   })),
   ...PROP_MODELS.map((spec) => ({
     key: spec.key,
+    label: `${spec.mapId}/${spec.key}`,
     raw: spec.raw,
-    outDir: OUT_PROPS,
+    // One folder per arena: the same Cobj id is another model on another
+    // arena, and even a shared payload wears the mission's own texels.
+    outDir: join(OUT_PROPS, spec.mapId),
     // Scenery is placed in the original's own frame at the original's own
     // positions — re-orienting or rescaling it would misplace the arena.
     rotateQuarterY: 0 as const,
@@ -564,7 +569,7 @@ interface Report {
 async function processModel(spec: ModelPass): Promise<Report | null> {
   const rawPath = join(RAW_DIR, spec.raw);
   if (!(await Bun.file(rawPath).exists())) {
-    console.warn(`skip ${spec.key}: missing ${spec.raw}`);
+    console.warn(`skip ${spec.label ?? spec.key}: missing ${spec.raw}`);
     return null;
   }
   const document = await io.read(rawPath);
@@ -943,7 +948,7 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
 
   bounds = getBounds(scene);
   const dims = [0, 1, 2].map((i) => (bounds.max[i] - bounds.min[i]).toFixed(2)).join(" x ");
-  return { key: spec.key, tris, simplified, size: dims, bytes: glb.byteLength };
+  return { key: spec.label ?? spec.key, tris, simplified, size: dims, bytes: glb.byteLength };
 }
 
 const reports: Report[] = [];
@@ -951,10 +956,10 @@ for (const spec of PASSES) {
   const report = await processModel(spec);
   if (report) reports.push(report);
 }
-console.log("key            tris   simplified  dims (x y z)          KB");
+console.log(`${"key".padEnd(28)}tris   simplified  dims (x y z)          KB`);
 for (const r of reports) {
   console.log(
-    `${r.key.padEnd(15)}${String(r.tris).padEnd(7)}${String(r.simplified).padEnd(12)}` +
+    `${r.key.padEnd(28)}${String(r.tris).padEnd(7)}${String(r.simplified).padEnd(12)}` +
       `${r.size.padEnd(22)}${(r.bytes / 1024).toFixed(0)}`,
   );
 }

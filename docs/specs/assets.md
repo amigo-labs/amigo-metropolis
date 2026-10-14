@@ -136,6 +136,16 @@ forever as a debug render mode (`?render=greybox`).
   axes, as the terrain mesh does), so a lift's model is baked through that swap
   at load and drawn from both sides; the pickups, symmetric and spinning, are
   not.
+- **Scenery wears each arena's own Cobjs too** (`packages/client/public/models/props/<mapId>/prop-<cobj>.glb`).
+  A map's `props` carry Cobj ids in its own mission's numbering, which is not
+  Mp's: urban-jungle's 36 and 41 are kiosks, Mp's are the Dreadnought hull and
+  the Flying Fortress. Unlike the pickups these do run through `gen:units` (the
+  barrier samples two pages and must become one atlas), from per-mission raws
+  copied unchanged by `bun run gen:scenery` from the RE's
+  `extracted/objects/<Mission>/`. Until Phase 14 wave 5 every arena drew Mp's
+  file for the id, so urban-jungle and proving-ground parked a Dreadnought hull
+  and Flying Fortresses among their kiosks, and bug-hunt and hollywood-keys
+  dropped two and four kiosks they had no file for.
 - **Each unit wears the Cobj the original's spawners name** (RE
   `extracted/logic/<Mission>/pa_rules.json` `spawners`): the tank Cobj 30, the
   jet Cobj 22, the Dreadnought's hull Cobj 36, the Flying Fortress Cobj 41 (42
