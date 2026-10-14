@@ -55,15 +55,14 @@ function flatArena(dummies: number[][]): MapJson {
       { x: 20, y: 30, radius: 6 },
       { x: 30, y: 58, radius: 6 },
     ],
-    // Minimal bases: pads mirror the plots (ammo refill semantics), gates in
-    // far corners, no ring turrets — the dummy spot stays the only hostile.
+    // Minimal bases: gates in far corners, no ring turrets — the dummy spot
+    // stays the only hostile.
     bases: [
       {
         gate: { x: 2, y: 2, radius: 2 },
         core: [14, 30],
         groundConsole: [20, 24],
         airConsole: [20, 36],
-        pad: { x: 20, y: 30, radius: 6 },
         turrets: [],
       },
       {
@@ -71,7 +70,6 @@ function flatArena(dummies: number[][]): MapJson {
         core: [36, 58],
         groundConsole: [30, 52],
         airConsole: [24, 58],
-        pad: { x: 30, y: 58, radius: 6 },
         turrets: [],
       },
     ],
@@ -170,10 +168,10 @@ describe("heavy projectile", () => {
     p0.aimX = 127;
     p0.buttons = BUTTON_FIRE2;
     step(sim, inputs);
-    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 1); // refill ran before the shot
+    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 1);
     expect(countAlive(sim.ent)).toBe(4); // 2 avatars + dummy + projectile
     step(sim, inputs);
-    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO); // base plot refills next tick
+    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 1); // nothing refills it at a base
     // One Hell Fire (25) does not kill the 500 hp dummy; wait for impact.
     p0.buttons = 0;
     for (let i = 0; i < 60; i++) step(sim, inputs);
@@ -211,8 +209,7 @@ describe("dummy turret retaliation, death and respawn", () => {
   it("turret damages the avatar in range; avatar dies and respawns", () => {
     reset();
     const sim = simWithDummy();
-    // Step off the repairing pad (radius 6) and stand in the dummy's 12 m
-    // without firing back.
+    // Walk toward the dummy and stand in its 12 m without firing back.
     p0.moveX = 127;
     for (let i = 0; i < 45; i++) step(sim, inputs); // ~7 m east, 3 m from the dummy
     p0.moveX = 0;

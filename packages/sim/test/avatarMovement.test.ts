@@ -68,7 +68,6 @@ function arenaJson(): MapJson {
         core: [4, 30],
         groundConsole: [12, 22],
         airConsole: [12, 38],
-        pad: { x: 12, y: 30, radius: 8 },
         turrets: [],
       },
       {
@@ -76,7 +75,6 @@ function arenaJson(): MapJson {
         core: [56, 30],
         groundConsole: [50, 22],
         airConsole: [50, 38],
-        pad: { x: 50, y: 30, radius: 8 },
         turrets: [],
       },
     ],
@@ -586,7 +584,6 @@ function kerbJson(): MapJson {
         core: [2, 16],
         groundConsole: [4, 12],
         airConsole: [4, 20],
-        pad: { x: 4, y: 16, radius: 4 },
         turrets: [],
       },
       {
@@ -594,7 +591,6 @@ function kerbJson(): MapJson {
         core: [30, 16],
         groundConsole: [17, 12],
         airConsole: [17, 20],
-        pad: { x: 17, y: 16, radius: 4 },
         turrets: [],
       },
     ],

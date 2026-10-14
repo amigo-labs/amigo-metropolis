@@ -513,7 +513,6 @@ for (const arena of ARENAS) {
           base.core,
           base.groundConsole,
           base.airConsole,
-          { x: base.pad.x, y: base.pad.y },
         ];
         for (const p of pts) {
           expect(Math.hypot(p.x - plotC.x, p.y - plotC.y)).toBeLessThanOrEqual(plotC.radius);

@@ -106,7 +106,6 @@ function flatArena(): MapJson {
         core: [14, 30],
         groundConsole: [20, 24],
         airConsole: [20, 36],
-        pad: { x: 6, y: 6, radius: 2 },
         turrets: [],
       },
       {
@@ -114,7 +113,6 @@ function flatArena(): MapJson {
         core: [36, 58],
         groundConsole: [30, 52],
         airConsole: [24, 58],
-        pad: { x: 54, y: 54, radius: 2 },
         turrets: [],
       },
     ],

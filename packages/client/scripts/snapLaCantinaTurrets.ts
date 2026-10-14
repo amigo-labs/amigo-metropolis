@@ -295,7 +295,6 @@ for (const b of map.bases) {
   stampDisk(gc[0] ?? gc.x, gc[1] ?? gc.y, 1);
   const ac = b.airConsole;
   stampDisk(ac[0] ?? ac.x, ac[1] ?? ac.y, 1);
-  stampDisk(b.pad.x, b.pad.y, 1);
 }
 for (const s of map.spawns) stampDisk(s.x, s.y, 1);
 

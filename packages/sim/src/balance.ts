@@ -806,16 +806,6 @@ export const DUMMY_RESPAWN_TICKS = 450; // 15 s
  */
 export const BASE_TURRET_RESPAWN_TICKS = 1125;
 
-// Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
-/**
- * Metropolis' own, kept as it was: the original's PA has no repair pad (health
- * comes back only from the health pickup and the restore at going down,
- * fcop-re/player-and-weapons.md §5). 15 hp/s fills the 1250-HP mech in 83 s (it
- * filled the old 300 in 20 s); scaling it with AVATAR_HP would have made an X1
- * parked on its pad outheal a turret and the Warden's cannon together.
- */
-export const PAD_REPAIR_HP_PER_TICK = 0.5; // 15 hp/s
-
 // Economy (rules.md §3). One resource: points, open information. The numbers are
 // the original's (fcop-re/ai-and-rules.md §2, §8; fcop-fidelity.md R2-R10): all
 // six PA arenas run identical economy scripts, and none of the rules below reads
@@ -909,8 +899,6 @@ export const OUTPOST_ZONE_RADIUS = (614 << 4) / 8192;
  * opened by the claim and never shut again (fcop-re/outposts.md Q1, Q3).
  */
 export const OUTPOST_TURRET_RESPAWN_TICKS = 750;
-/** Owned outposts refill ammo (no repair) within this radius of the console. */
-export const OUTPOST_PAD_RADIUS = 4;
 
 // Units: every unit on every arena is the original's (fcop-fidelity.md W3,
 // U1-U4): health and weapon from the imported spawner records, or from

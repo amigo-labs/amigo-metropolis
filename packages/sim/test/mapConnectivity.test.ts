@@ -35,7 +35,6 @@ for (const id of PLAYABLE_IDS) {
           { name: "core", x: base.core.x, y: base.core.y },
           { name: "groundConsole", x: base.groundConsole.x, y: base.groundConsole.y },
           { name: "airConsole", x: base.airConsole.x, y: base.airConsole.y },
-          { name: "pad", x: base.pad.x, y: base.pad.y },
         ];
         for (const p of pts) {
           expect(f.has(p.x, p.y)).toBe(true);

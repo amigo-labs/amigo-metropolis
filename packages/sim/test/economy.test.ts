@@ -43,7 +43,6 @@ import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from ".
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, type SimState, spawnUnit, step, TURRET_CAPTURABLE } from "../src/sim";
 import { UNIT_MODE_OUTPOST } from "../src/units";
-import { HEAVIES } from "../src/weapons";
 
 // Flat 16×16 grid, 4 m cells → 60 m square. One lane along y=6, a neutral
 // turret spot mid-map and one outpost spot between lane and bases.
@@ -76,7 +75,6 @@ function battleground(): MapJson {
         core: [6, 6],
         groundConsole: [6, 14],
         airConsole: [6, 22],
-        pad: { x: 6, y: 54, radius: 4 },
         turrets: [],
       },
       {
@@ -84,7 +82,6 @@ function battleground(): MapJson {
         core: [54, 6],
         groundConsole: [54, 14],
         airConsole: [54, 22],
-        pad: { x: 54, y: 54, radius: 4 },
         turrets: [],
       },
     ],
@@ -167,7 +164,7 @@ describe("income (fcop-fidelity.md R2-R7)", () => {
     reset();
     const sim = freshSim();
     sim.points[0] = 14;
-    sim.ent.hp[sim.avatarId[0]] = -10; // below the pad's same-tick repair
+    sim.ent.hp[sim.avatarId[0]] = -10;
     step(sim, inputs);
     // Paid by the downed side's own script when it comes back, not at the kill.
     expect(sim.points[1]).toBe(STARTING_POINTS);
@@ -176,7 +173,7 @@ describe("income (fcop-fidelity.md R2-R7)", () => {
     expect(sim.points[1]).toBe(STARTING_POINTS + POINTS_AVATAR_DOWN);
     expect(sim.points[0]).toBe(14 - POINTS_AVATAR_DOWN);
     // A second fall with 4 left floors the victim at 0.
-    sim.ent.hp[sim.avatarId[0]] = -10; // below the pad's same-tick repair
+    sim.ent.hp[sim.avatarId[0]] = -10;
     step(sim, inputs);
     for (let t = 0; t < RESPAWN_TICKS && sim.avatarId[0] < 0; t++) step(sim, inputs);
     expect(sim.avatarId[0]).toBeGreaterThanOrEqual(0);
@@ -523,18 +520,14 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     );
   });
 
-  it("an owned outpost refills the owner's ammo, not the enemy's", () => {
+  it("an owned outpost refills nobody's ammo (the original's does not)", () => {
     reset();
     const sim = freshSim();
     sim.points[0] = 40;
     claim(sim, 0);
     sim.ent.ammoA[0] = 0;
-    sim.ent.ammoA[1] = 0;
-    sim.ent.posX[1] = 33;
-    sim.ent.posY[1] = 46; // enemy avatar also on the pad
     step(sim, inputs);
-    expect(sim.ent.ammoA[0]).toBe(HEAVIES[0].a.ammoCap);
-    expect(sim.ent.ammoA[1]).toBe(0);
+    expect(sim.ent.ammoA[0]).toBe(0);
   });
 
   it("a claim is permanent on an arena of our own too: the console takes no damage", () => {

@@ -153,7 +153,6 @@ describe("per-deck wall collision (issue #29)", () => {
           core: [0, 0],
           groundConsole: [0, 0],
           airConsole: [0, 0],
-          pad: { x: 0, y: 0, radius: 1 },
           turrets: [],
         },
         {
@@ -161,7 +160,6 @@ describe("per-deck wall collision (issue #29)", () => {
           core: [3, 3],
           groundConsole: [3, 3],
           airConsole: [3, 3],
-          pad: { x: 3, y: 3, radius: 1 },
           turrets: [],
         },
       ],

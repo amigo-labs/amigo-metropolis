@@ -61,10 +61,8 @@ import {
   MUZZLE_OFFSET,
   NEUTRAL_TURRET_RESPAWN_TICKS,
   OUTPOST_COST_MULTIPLIER,
-  OUTPOST_PAD_RADIUS,
   OUTPOST_TURRET_RESPAWN_TICKS,
   OUTPOST_ZONE_RADIUS,
-  PAD_REPAIR_HP_PER_TICK,
   PICKUP_GUN_AMMO,
   PICKUP_HEALTH,
   PICKUP_HEAVY_AMMO,
@@ -1787,27 +1785,9 @@ function avatarWeapons(
   decayCooldown(ent.cooldownB, id);
   decayCooldown(ent.cooldownC, id);
 
-  // Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
-  const pad = state.map.bases[player].pad;
-  const pdx = ent.posX[id] - pad.x;
-  const pdy = ent.posY[id] - pad.y;
-  if (pdx * pdx + pdy * pdy <= pad.radius * pad.radius) {
-    refillAmmo(state, player, id);
-    if (ent.hp[id] < AVATAR_HP) {
-      ent.hp[id] += PAD_REPAIR_HP_PER_TICK;
-      if (ent.hp[id] > AVATAR_HP) ent.hp[id] = AVATAR_HP;
-    }
-  }
-  // Owned outposts also refill ammo — but never repair (rules.md §5).
-  for (let k = 0; k < state.outpostOwner.length; k++) {
-    if (state.outpostOwner[k] !== player) continue;
-    const s = state.map.outpostSpots[k];
-    const odx = ent.posX[id] - s.x;
-    const ody = ent.posY[id] - s.y;
-    if (odx * odx + ody * ody <= OUTPOST_PAD_RADIUS * OUTPOST_PAD_RADIUS) {
-      refillAmmo(state, player, id);
-    }
-  }
+  // No pad refills or repairs a mech, at a base or an outpost: the original
+  // has none (fcop-fidelity.md P1, R14). Ammo comes back from the ammo pickups
+  // and at a respawn, health from the health pickup and a respawn.
 
   // `player_fire_buttons`: Gun and Heavy fire on every tick they are held,
   // paced by their cooldowns. Special is held-fire too, unless a slot's block A

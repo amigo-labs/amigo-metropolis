@@ -897,4 +897,9 @@
 //     fire until one puts it down, 90 -> 120 s), 03 (a new choreography, breach
 //     5602 -> 4610) and 04 (the captain's opening Runners breach at 2824; was no
 //     breach) change behaviour on district-01.
-export const SIM_VERSION = 52;
+// v53: no pad refills or repairs a mech (fcop-fidelity.md P1, R14): the
+//     original has neither a base pad nor an outpost refill. MapBase.pad, its
+//     15 hp/s repair (PAD_REPAIR_HP_PER_TICK) and the 4 m outpost ammo refill
+//     (OUTPOST_PAD_RADIUS) are gone; ammo comes back from the ammo pickups and a
+//     respawn, health from the health pickup and a respawn.
+export const SIM_VERSION = 53;

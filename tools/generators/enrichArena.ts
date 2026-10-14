@@ -1267,7 +1267,6 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       core: [coreX, coreY],
       groundConsole: [gcx, gcy],
       airConsole: [acx, acy],
-      pad: { x: coreX, y: coreY, radius: 3 },
       // The ring carries each Turret actor's OWN shooter block, not just its
       // position. Dropping it once left the ring on the then-global 28 m TURRET_RANGE
       // against an imported engage_range of 12 m — see spawnBaseTurret in sim.ts.

@@ -204,8 +204,6 @@ export interface MapBase {
   readonly groundConsole: MapPoint;
   /** Build console for air units (Guardian/Fortress). */
   readonly airConsole: MapPoint;
-  /** Ammo/repair pad. */
-  readonly pad: MapPlot;
   /** Ring turrets; each respawns `turretRespawnTicks` after destruction. */
   readonly turrets: readonly MapBaseTurret[];
   /**
@@ -713,7 +711,11 @@ export interface MapBaseJson {
   core: number[] | { x: number; y: number; layer?: number };
   groundConsole: number[] | { x: number; y: number; layer?: number };
   airConsole: number[] | { x: number; y: number; layer?: number };
-  pad: { x: number; y: number; radius: number; layer?: number };
+  /**
+   * Retired: Metropolis' ammo/repair pad, which the original does not have
+   * (fcop-fidelity.md P1). Ignored where a stage-1 authoring file still carries it.
+   */
+  pad?: { x: number; y: number; radius: number; layer?: number };
   /**
    * Ring turrets. Either a bare `[x, y]` pair (district-01: the original team
    * turret's defaults) or an object carrying the original Turret actor's own
@@ -1094,7 +1096,6 @@ export function loadMapFromJson(raw: MapJson): MapData {
       core: point(b.core, `base ${team} core`),
       groundConsole: point(b.groundConsole, `base ${team} ground console`),
       airConsole: point(b.airConsole, `base ${team} air console`),
-      pad: plot(b.pad, `base ${team} pad`),
       turrets: b.turrets.map((t, k) => {
         const what = `base ${team} ring turret ${k}`;
         // Bare pair: the pre-PA authoring form (district-01). It is the
@@ -1396,7 +1397,6 @@ export function createTestMap(): MapData {
     core: { x: center + (team === 0 ? -6 : 6), y: center, layer: 0 },
     groundConsole: { x: center + (team === 0 ? -12 : 12), y: center, layer: 0 },
     airConsole: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
-    pad: { x: center, y: center, radius: 20, layer: 0 },
     turrets: [],
     turretRespawnTicks: 0,
     // The original's units on their default profiles; the Dreadnought rolls

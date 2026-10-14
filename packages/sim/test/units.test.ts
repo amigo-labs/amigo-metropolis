@@ -14,7 +14,6 @@ import {
   GUARDIAN_LEASH_X,
   GUARDIAN_LEASH_Y,
   MATCH_OUTRO_TICKS,
-  PAD_REPAIR_HP_PER_TICK,
   POINTS_UNIT_DIES,
   ROUTE_TOP_SPEED,
   STARTING_POINTS,
@@ -56,7 +55,6 @@ function warzone(ringTurrets: { west: number[][]; east: number[][] }): MapJson {
         core: [6, 6],
         groundConsole: [6, 14],
         airConsole: [6, 22],
-        pad: { x: 6, y: 54, radius: 4 },
         turrets: ringTurrets.west,
       },
       {
@@ -64,7 +62,6 @@ function warzone(ringTurrets: { west: number[][]; east: number[][] }): MapJson {
         core: [54, 6],
         groundConsole: [54, 14],
         airConsole: [54, 22],
-        pad: { x: 54, y: 54, radius: 4 },
         turrets: ringTurrets.east,
       },
     ],
@@ -162,14 +159,12 @@ describe("base structures", () => {
     expect(sim.ent.hp[e]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
   });
 
-  it("the pad repairs a damaged avatar standing on it", () => {
+  it("nothing at a base repairs a damaged avatar (the original has no pad)", () => {
     reset();
-    const sim = openSim(); // avatar 0 spawns on its pad
+    const sim = openSim(); // avatar 0 spawns at its base
     sim.ent.hp[0] = AVATAR_HP - 100;
-    step(sim, inputs);
-    expect(sim.ent.hp[0]).toBe(Math.fround(AVATAR_HP - 100 + PAD_REPAIR_HP_PER_TICK));
     for (let t = 0; t < 300; t++) step(sim, inputs);
-    expect(sim.ent.hp[0]).toBe(AVATAR_HP); // clamped at max
+    expect(sim.ent.hp[0]).toBe(AVATAR_HP - 100);
   });
 });
 
