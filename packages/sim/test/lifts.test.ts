@@ -443,4 +443,40 @@ describe("Conft's pit lifts (fcop-fidelity.md P12)", () => {
       expect(state.ent.height[a]).toBeCloseTo(0.1875, 2);
     });
   }
+
+  it("lets no step off a raised lift fall into the gap before the platform", () => {
+    // The original's platform ends 0.145 m short of each lift's face (lift 0:
+    // its edge at x = 126.0, the face at 126.145), a slot the original's broad
+    // mech cannot drop into. Wherever on the lift a walk off it starts, the
+    // step that crosses the face lands on the platform, not 2 m down the slot.
+    const map = getMapById(URBAN_JUNGLE_ID);
+    for (const c of CASES) {
+      const l = map.lifts[c.lift];
+      // Toward the platform along the lift's axis, from just inside its face.
+      const ax = c.off[0] !== c.onto[0] ? Math.sign(c.off[0] - c.onto[0]) : 0;
+      const ay = c.off[1] !== c.onto[1] ? Math.sign(c.off[1] - c.onto[1]) : 0;
+      const face = ax < 0 ? l.x0 : ax > 0 ? l.x1 : ay < 0 ? l.y0 : l.y1;
+      for (let k = 0; k <= 16; k++) {
+        const state = createSim(map, 1);
+        const a = state.avatarId[0];
+        state.ent.posX[a] = c.onto[0];
+        state.ent.posY[a] = c.onto[1];
+        state.ent.height[a] = l.ground + l.stops[0] / 8192 + l.top;
+        const input = createTickInputs();
+        step(state, idle);
+        input.players[0].buttons = BUTTON_INTERACT;
+        step(state, input);
+        input.players[0].buttons = 0;
+        expect(untilEvent(state, EV_LIFT_ARRIVE, 200)).toBeGreaterThan(0);
+        // On the raised top, k cm back from its face.
+        const back = 0.2 + k * 0.01;
+        if (ax !== 0) state.ent.posX[a] = face - ax * back;
+        else state.ent.posY[a] = face - ay * back;
+        input.players[0].moveX = ax * 127;
+        input.players[0].moveY = ay * 127;
+        for (let t = 0; t < 15; t++) step(state, input);
+        expect(state.ent.height[a]).toBeCloseTo(0.1875, 2);
+      }
+    }
+  });
 });

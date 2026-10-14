@@ -1040,4 +1040,10 @@
 //     at the south and east landings (4 cells), opens their shafts and 2855
 //     kerb and spill bits. A mech in the ring now rides up onto the platform
 //     as the original's does. Moves goldens 02, 04 and 05 (urban-jungle).
-export const SIM_VERSION = 67;
+// v68: a lift's top carries a mech LIFT_RIM_SLACK = 0x500 (0.156 m) past its
+//     face (was 0x400, one walker step): Conft's platform ends 0.145 m short
+//     of each lift's face in the original's mesh, and a walk off a raised lift
+//     whose step crossed the face 2 cm past the old slack dropped the mech 2 m
+//     into that slot, where it stood against the platform's wall. The original's
+//     mech is broader than the slot (fcop-fidelity.md P12).
+export const SIM_VERSION = 68;

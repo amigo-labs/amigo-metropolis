@@ -890,16 +890,19 @@ export const SURFACE_REACH = 0.54;
  */
 export const FLOOR_DAMAGE_PER_STEP = 1;
 /**
- * How far past a lift's face its top still carries a mech: one movement step of
- * the walker at full speed (4.69 m/s / 37.5 = 0.125 m). The original's walker
- * probes the ground 0.4 m above its feet every step, so a gap narrower than a
- * step between a lift and the deck around it (Slim's: the 1.89 m lift in a
- * 2 m hole) costs it one airborne step and nothing more. Metropolis reads its
- * walls per deck, and a mech that dropped into that gap would read the
- * ground's — the shaft's wall — instead of the deck's. Metropolis' own
- * (fcop-fidelity.md P12).
+ * How far past a lift's face its top still carries a mech: past the widest gap
+ * the shipped arenas leave between a lift and the floor it serves. Conft's four
+ * lifts stand 0.145 m off the central platform's edge in the original's mesh
+ * (its edge at x = 126.0, lift 0's face at 126.145), Slim's 1.89 m lift is
+ * 0.055 m off its 2 m hole's sides. The original's mech is broader than either
+ * gap — its four footprint corners trace against the walls — so it walks
+ * across; Metropolis' mech is a point that reads its walls per deck, and one
+ * that dropped into the gap would fall 2 m into a slot narrower than itself and
+ * read the shaft's wall instead of the deck's. 0x500 = 0.156 m covers both.
+ * Metropolis' own (fcop-fidelity.md P12); was 0x400, one walker step, which
+ * left Conft's gap 2 cm open.
  */
-export const LIFT_RIM_SLACK = 0x400 / 8192;
+export const LIFT_RIM_SLACK = 0x500 / 8192;
 /**
  * How far above its feet a walker finds a lift's top: the original walker's own
  * ground probe, 0x0ccc (0.4 m; `player_walk.c` WALK_PROBE_LIFT), where the map's
