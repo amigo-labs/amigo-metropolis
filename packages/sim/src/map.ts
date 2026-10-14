@@ -588,12 +588,16 @@ export interface MapData {
   /** Base-intrusion volumes. EMPTY → no intrusion alerts. */
   readonly triggerVolumes: readonly MapTriggerVolume[];
   /**
-   * The bases' floors (fcop-fidelity.md P11), one mask per surface (index 0 the
-   * ground, L deck L), cell-indexed (`floor(y) * size + floor(x)`): 0 = none,
-   * 1 + team = this cell's floor hurts that team's mech. EMPTY on an arena whose
-   * ground carries none.
+   * The ground's codes a mech feels, one mask per surface (index 0 the ground,
+   * L deck L), cell-indexed (`floor(y) * size + floor(x)`): 0 = none; 1 + team
+   * = the bases' floors (fcop-fidelity.md P11), this cell hurts that team's
+   * mech; 3, 4, 5 = the ground codes 3, 4, 5 that set the walker's movement
+   * mode (P11; Ovmp's slippery code 4). EMPTY on an arena whose ground carries
+   * none.
    */
   readonly floorMasks: readonly Uint8Array[];
+  /** Any cell of floorMasks carries a mode code (3..5): the walker's mode is live. */
+  readonly modeFloors: boolean;
   /** Hk's spawn guards. EMPTY elsewhere. */
   readonly spawnGuards: readonly MapSpawnGuard[];
   /** The lifts (Conft, Slim, Joke). EMPTY elsewhere. */
@@ -903,8 +907,9 @@ export interface MapJson {
     layer?: number;
   }[];
   /**
-   * OPTIONAL: the bases' floors, one mask per surface (ground, then each deck):
-   * size rows of size chars, '0' none, '1' hurts team 0's mech, '2' team 1's.
+   * OPTIONAL: the ground's codes a mech feels, one mask per surface (ground,
+   * then each deck): size rows of size chars, '0' none, '1' hurts team 0's
+   * mech, '2' team 1's, '3' '4' '5' the movement-mode codes 3, 4, 5.
    */
   floors?: string[][];
   /** OPTIONAL: Hk's spawn guards (MapSpawnGuard). */
@@ -1652,6 +1657,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
   });
 
   const floorMasks: Uint8Array[] = [];
+  let modeFloors = false;
   if (raw.floors !== undefined) {
     if (raw.floors.length !== maxLayer + 1) {
       fail(id, `floors needs one mask per surface (${maxLayer + 1}), got ${raw.floors.length}`);
@@ -1665,7 +1671,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
         if (row.length !== size) fail(id, `floors ${L} row ${j} has ${row.length} chars`);
         for (let i = 0; i < size; i++) {
           const c = row.charCodeAt(i) - 0x30;
-          if (c < 0 || c > 2) fail(id, `floors ${L} row ${j} has a bad char at ${i}`);
+          if (c < 0 || c > 5) fail(id, `floors ${L} row ${j} has a bad char at ${i}`);
+          if (c >= 3) modeFloors = true;
           mask[j * size + i] = c;
         }
       }
@@ -1801,6 +1808,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     pickups,
     triggerVolumes,
     floorMasks,
+    modeFloors,
     spawnGuards,
     lifts,
     // Render-only, and deliberately not validated against bounds: props are
@@ -1917,6 +1925,7 @@ export function createTestMap(): MapData {
     pickups: [],
     triggerVolumes: [],
     floorMasks: [],
+    modeFloors: false,
     spawnGuards: [],
     lifts: [],
     props: [],

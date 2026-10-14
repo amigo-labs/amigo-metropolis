@@ -121,6 +121,10 @@ import {
   WALKER_LUNGE_MAX_RISE,
   WALKER_LUNGE_PUSH,
   WALKER_LUNGE_TICKS,
+  WALKER_MODE_DRAG,
+  WALKER_MODE_OF_CODE,
+  WALKER_MODE_PUSH,
+  WALKER_MODE_STOP,
   WALKER_PROBE_AHEAD,
   WALKER_PROBE_LIFT,
   WALKER_PUSH_FORE,
@@ -480,6 +484,12 @@ export interface SimState {
   readonly avatarIdle: Int32Array;
   /** Ticks until the high jump's lunge (byte +0xc2's countdown), 0 for none. */
   readonly avatarLunge: Int32Array;
+  /**
+   * The walker's movement mode for its next tick (balance.ts
+   * WALKER_MODE_OF_CODE): written from the ground code under it after it moves,
+   * read by the next tick's velocity. Hashed on arenas with mode floors only.
+   */
+  readonly avatarMode: Uint8Array;
 
   /** Per-tick transient events (NOT hashed). */
   readonly events: EventBuffer;
@@ -541,6 +551,7 @@ export function spawnAvatar(state: SimState, player: number): number {
   state.avatarTurnRate[player] = 0;
   state.avatarIdle[player] = 0;
   state.avatarLunge[player] = 0;
+  state.avatarMode[player] = 0;
   return id;
 }
 
@@ -871,6 +882,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     avatarTurnRate: new Float32Array(MAX_PLAYERS),
     avatarIdle: new Int32Array(MAX_PLAYERS),
     avatarLunge: new Int32Array(MAX_PLAYERS),
+    avatarMode: new Uint8Array(MAX_PLAYERS),
     events: createEventBuffer(),
   };
   // Apply loadouts before avatars spawn so ammo capacities match the kit.
@@ -1341,21 +1353,29 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       vy *= r;
     } else {
       const t = surfaceTilt(state, x, y, false, ent.height[id]);
-      const sp = slopePush(WALKER_SLOPE_KNEE, WALKER_SLOPE_GAIN);
+      // The ground's mode from the last tick (slippery ground, WALKER_MODE_*):
+      // the command push scaled first, then the slope push and the drag.
+      const mode = state.avatarMode[p];
+      if (mode !== 0) {
+        pushX *= WALKER_MODE_PUSH * mode;
+        pushY *= WALKER_MODE_PUSH * mode;
+      }
+      let sp = slopePush(WALKER_SLOPE_KNEE, WALKER_SLOPE_GAIN);
+      if (mode !== 0) sp *= 1 + (4 - mode) / 4;
       if (sp > 0) {
         const g = Math.sqrt(t.gx * t.gx + t.gy * t.gy);
         pushX -= (sp * t.gx) / g;
         pushY -= (sp * t.gy) / g;
       }
+      const drag = mode !== 0 ? WALKER_MODE_DRAG * (4 - mode) : WALKER_DRAG;
+      const stop = mode !== 0 ? WALKER_MODE_STOP * mode : WALKER_STOP_SPEED;
       // The stop test of the tick's first step, as for the hover.
-      const k = 1 - WALKER_DRAG;
+      const k = 1 - drag;
       const settle =
-        !commanded &&
-        Math.abs(vx * k + pushX) < WALKER_STOP_SPEED &&
-        Math.abs(vy * k + pushY) < WALKER_STOP_SPEED;
-      const r = retentionPerTick(WALKER_DRAG);
-      vx = settle ? 0 : (pushX / WALKER_DRAG) * (1 - r) + vx * r;
-      vy = settle ? 0 : (pushY / WALKER_DRAG) * (1 - r) + vy * r;
+        !commanded && Math.abs(vx * k + pushX) < stop && Math.abs(vy * k + pushY) < stop;
+      const r = retentionPerTick(drag);
+      vx = settle ? 0 : (pushX / drag) * (1 - r) + vx * r;
+      vy = settle ? 0 : (pushY / drag) * (1 - r) + vy * r;
     }
     if (jumpLift > 0) {
       vz = jumpLift;
@@ -1484,6 +1504,21 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     ent.height[id] = h;
     ent.timerB[id] = vz;
     state.avatarLunge[p] = lunge;
+    // The ground's code under the walker sets its next tick's mode, felt within
+    // SURFACE_REACH as the original's player_order is; a hover's step reads
+    // none, and a lift's top carries no code.
+    let mode = 0;
+    if (map.modeFloors && !hoverPhys && carrier < 0 && h - ride < SURFACE_REACH) {
+      const masks = map.floorMasks;
+      const layer = ent.entLayer[id];
+      const i = Math.floor(x / map.cellSize);
+      const j = Math.floor(y / map.cellSize);
+      if (layer < masks.length && i >= 0 && j >= 0 && i < map.size && j < map.size) {
+        const code = masks[layer][j * map.size + i];
+        if (code < WALKER_MODE_OF_CODE.length) mode = WALKER_MODE_OF_CODE[code];
+      }
+    }
+    state.avatarMode[p] = mode;
     // Standing on a lift's top: that lift is its carrier this tick.
     if (carrier >= 0 && h - ride <= GROUND_EPS) state.avatarLift[p] = carrier;
 
@@ -4178,6 +4213,10 @@ export function hash(state: SimState): number {
   if (state.liftWu.length > 0) {
     for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.avatarLift[p] >>> 0);
   }
+  // Appended at SIM_VERSION 71; only on an arena with mode floors (Ovmp).
+  if (state.map.modeFloors) {
+    for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.avatarMode[p]);
+  }
   // Appended at SIM_VERSION 39: the X1-Alpha's movement state, every map.
   for (let p = 0; p < MAX_PLAYERS; p++) {
     // The rate moves in steps of 12.5 units, so twice it is an exact integer.
@@ -4185,7 +4224,7 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.avatarIdle[p] >>> 0);
     h = fnv1aU32(h, state.avatarLunge[p] >>> 0);
   }
-  // Appended at SIM_VERSION 40: which locks steer the hull (fcop-fidelity.md W2).
+  // Appended at SIM_VERSION 40: which locks steer the hull (gone at 69, W2).
   // Appended at SIM_VERSION 43: the block-B magazines (replacing the x2 timer).
   for (let k = 0; k < state.powerAmmo.length; k++) h = fnv1aU32(h, state.powerAmmo[k]);
   // Appended at SIM_VERSION 41: the Gun magazine and the burst counters.

@@ -273,6 +273,22 @@ export const AVATAR_WALKER_SPEED = WALKER_PUSH_FORE / WALKER_DRAG;
 /** Undriven on the ground, a largest component under 0x8000 = 0.586 m/s stops dead. */
 export const WALKER_STOP_SPEED = 0x8000 * FX * X1_SPEED_UNIT;
 /**
+ * The walker's one-step movement mode (`player_velocity_delta`'s byte +0x147,
+ * camera-and-movement.md "What the player can command"): the ground codes 3,
+ * 4 and 5 write mode 2, 1 and 3 after a step, and the next step reads it. With
+ * mode m the command push is scaled by 5m/128, the slope push (the thrust's
+ * plane) by 1 + (4 - m)/4, the drag is 768(4 - m) a step instead of 0x6000,
+ * and a velocity stops dead only under (m << 13)/16 — slippery ground. Index:
+ * the ground code; 0 for every other code.
+ */
+export const WALKER_MODE_OF_CODE: readonly number[] = [0, 0, 0, 2, 1, 3];
+/** The mode's command-push scale per unit of mode: 5/128. */
+export const WALKER_MODE_PUSH = 5 / 128;
+/** The mode's drag per step for each unit of (4 - mode): 768 = 0.0117. */
+export const WALKER_MODE_DRAG = 768 * FX;
+/** The mode's stop speed per unit of mode: (1 << 13)/16 = 512 a step. */
+export const WALKER_MODE_STOP = ((1 << 13) / 16) * FX * X1_SPEED_UNIT;
+/**
  * Turn: 0x20 units a step on the ground, less (|v| >> 11) * 0x20 >> 9, i.e.
  * 105.5°/s at rest falling linearly to 0 at 18.75 m/s (79°/s at a full run).
  * No ramp, no turning in the air.

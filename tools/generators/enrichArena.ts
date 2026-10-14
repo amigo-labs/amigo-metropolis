@@ -619,15 +619,18 @@ function landLifts(
 }
 
 /**
- * The bases' floors (fcop-fidelity.md P11) as the sim's per-surface cell masks:
- * '1' where the floor hurts team 0's mech, '2' team 1's, '0' elsewhere.
+ * The ground's codes a mech feels, as the sim's per-surface cell masks: the
+ * bases' floors (fcop-fidelity.md P11), '1' where the floor hurts team 0's
+ * mech, '2' team 1's; the movement-mode codes 3, 4 and 5 as '3' '4' '5' (Ovmp's
+ * slippery code 4); '0' elsewhere.
  *
  * The rules artifact gives each terrain sample's highest plate's code, and every
  * plate of the samples whose plates disagree (a base floor under a roof, a deck
  * over a plain road). A sample tile [x, x+1) maps onto sim cell x + LOGIC_OFFSET
  * exactly, the offset being whole cells. On a stacked sample each sim surface
  * takes the plate nearest its own height at the cell's centre, so a mech on the
- * roof is not on the floor beneath it. undefined when no floor exists (Hk).
+ * roof is not on the floor beneath it. undefined when the arena has neither
+ * (Hk).
  */
 function floorMasks(
   terrain: MapData,
@@ -643,7 +646,12 @@ function floorMasks(
     }
     hurts.set(f.code, teamOfSlot(f.hurtsSlot));
   }
-  if (hurts.size === 0) return undefined;
+  const MODE_CODES = new Set([3, 4, 5]);
+  const used = (code: number): boolean => hurts.has(code) || MODE_CODES.has(code);
+  const anyUsed =
+    surf.codes.some((row) => [...row].some((ch) => used(decode(ch)))) ||
+    surf.stacked.some((st) => st.plates.some((pl) => used(pl.code)));
+  if (!anyUsed) return undefined;
   const stacked = new Map<string, FcopRules["surface"]["stacked"][number]["plates"]>();
   for (const st of surf.stacked) stacked.set(`${st.x},${st.z}`, st.plates);
   const size = terrain.size;
@@ -671,7 +679,7 @@ function floorMasks(
           }
         }
         const team = hurts.get(code);
-        row += team === undefined ? "0" : String(1 + team);
+        row += team !== undefined ? String(1 + team) : MODE_CODES.has(code) ? String(code) : "0";
       }
       rows.push(row);
     }

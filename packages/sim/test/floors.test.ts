@@ -14,9 +14,11 @@ import {
   getMapById,
   HOLLYWOOD_KEYS_ID,
   LA_CANTINA_ID,
+  MAP_REGISTRY,
   type MapData,
   resolveHeight,
   URBAN_JUNGLE_ID,
+  VENICE_BEACH_ID,
 } from "../src/map";
 import { createSim, type SimState, step } from "../src/sim";
 
@@ -121,6 +123,20 @@ describe("the bases' floors (codes 14/15)", () => {
     const hp = state.ent.hp[a0];
     step(state, idle);
     expect(state.ent.hp[a0]).toBe(hp);
+  });
+});
+
+describe("Ovmp's slippery patches (code 4)", () => {
+  it("lie in four small patches beside the bases, on venice-beach alone", () => {
+    for (const { id } of MAP_REGISTRY) {
+      const map = getMapById(id);
+      let cells = 0;
+      for (const v of map.floorMasks[0] ?? []) if (v === 4) cells++;
+      expect(map.modeFloors).toBe(id === VENICE_BEACH_ID);
+      // The original's 14 samples, each a sim cell: three patches of 2 x 2 and
+      // one of 2 x 1 (RE precinct-assault.md).
+      expect(cells).toBe(id === VENICE_BEACH_ID ? 14 : 0);
+    }
   });
 });
 

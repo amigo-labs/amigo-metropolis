@@ -1074,4 +1074,14 @@
 //     unless the ground under its feet is steep — read on the patch it stands
 //     on, not TILT_PROBE's span, which smears a deck's edge into a slope. The
 //     hover's slow-row hold (under 0.1 m) is not modelled.
-export const SIM_VERSION = 70;
+// v71: the ground codes 3, 4 and 5 set the walker's one-step movement mode
+//     (fcop-fidelity.md P11; `player_order`, `player_velocity_delta`): read
+//     from the cell under it after it moves, within SURFACE_REACH, as mode 2, 1
+//     and 3 for its next tick, which scales the command push by 5m/128 and the
+//     slope push by 1 + (4 - m)/4, takes 768(4 - m) a step as the drag and
+//     stops a velocity only under (m << 13)/16 — slippery ground. The import
+//     writes them into the floor masks as '3'..'5' (MapData.modeFloors); only
+//     venice-beach (Ovmp) has any: 14 cells of code 4 in four patches beside its
+//     bases. The hover reads no mode. SimState.avatarMode, hashed on such an
+//     arena only.
+export const SIM_VERSION = 71;

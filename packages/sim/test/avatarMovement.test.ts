@@ -21,6 +21,10 @@ import {
   TRANSFORM_LOCK_TICKS,
   WALKER_DRAG,
   WALKER_LEDGE_DROP,
+  WALKER_MODE_DRAG,
+  WALKER_MODE_OF_CODE,
+  WALKER_MODE_PUSH,
+  WALKER_PUSH_FORE,
   WALKER_PUSH_SLOW,
   WALKER_PUSH_STRAFE,
   X1_GRAVITY,
@@ -905,6 +909,67 @@ describe("the slow row: the Action Key held (camera-and-movement.md)", () => {
     // (facing south) is not — the original's states 5 and 6.
     expect(walkOff(BTN_ACTION | BTN_JINK_LEFT, -Math.PI / 2)).toBeGreaterThan(8.95);
     expect(walkOff(BTN_ACTION | BTN_JINK_RIGHT, Math.PI / 2)).toBeLessThan(8);
+  });
+});
+
+describe("slippery ground: the ground codes' movement mode (Ovmp's code 4)", () => {
+  /** The arena with a code-4 patch over cells 1-6 x 5-9 (x 4-28, y 20-40). */
+  const slipperySim = (): SimState => {
+    const j = arenaJson();
+    j.floors = [
+      Array.from({ length: 16 }, (_, row) =>
+        Array.from({ length: 16 }, (_, col) =>
+          col >= 1 && col <= 6 && row >= 5 && row <= 9 ? "4" : "0",
+        ).join(""),
+      ),
+    ];
+    return createSim(loadMapFromJson(j), 1);
+  };
+
+  it("feels the code a tick later, and slides: slow to start, slow to stop", () => {
+    expect(WALKER_MODE_OF_CODE[4]).toBe(1);
+    reset();
+    const sim = slipperySim();
+    expect(sim.map.modeFloors).toBe(true);
+    expect(sim.avatarMode[0]).toBe(0);
+    step(sim, inputs);
+    expect(sim.avatarMode[0]).toBe(1); // standing on it: mode 1 for the next tick
+    p0.buttons = BTN_FORWARD;
+    for (let i = 0; i < 30; i++) step(sim, inputs);
+    // Mode 1: push x 5/128, drag 0.035 a step — the same 1.95 m/s at the top,
+    // reached over seconds, not the dry ground's 0.17 s.
+    const v1 = sim.ent.velX[0];
+    expect(v1).toBeGreaterThan(0.5);
+    expect(v1).toBeLessThan(1.6);
+    expect((WALKER_PUSH_FORE * WALKER_MODE_PUSH) / (WALKER_MODE_DRAG * 3)).toBeCloseTo(1.953125, 4);
+    // Let go: it keeps sliding, where dry ground stops it within a few ticks.
+    p0.buttons = 0;
+    for (let i = 0; i < 15; i++) step(sim, inputs);
+    expect(sim.ent.velX[0]).toBeGreaterThan(0.3);
+    reset();
+    const dry = freshSim();
+    p0.buttons = BTN_FORWARD;
+    for (let i = 0; i < 30; i++) step(dry, inputs);
+    p0.buttons = 0;
+    for (let i = 0; i < 15; i++) step(dry, inputs);
+    expect(dry.ent.velX[0]).toBe(0);
+  });
+
+  it("leaves the hover alone: its step reads no mode", () => {
+    reset();
+    const sim = slipperySim();
+    toHover(sim);
+    face(sim, 0, Math.PI / 2);
+    p0.buttons = BTN_FORWARD;
+    for (let i = 0; i < 20; i++) step(sim, inputs);
+    expect(sim.avatarMode[0]).toBe(0);
+    const reference = freshSim();
+    reset();
+    toHover(reference);
+    face(reference, 0, Math.PI / 2);
+    p0.buttons = BTN_FORWARD;
+    for (let i = 0; i < 20; i++) step(reference, inputs);
+    expect(sim.ent.velY[0]).toBe(reference.ent.velY[0]);
   });
 });
 
