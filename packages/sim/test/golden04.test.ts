@@ -7,11 +7,13 @@
 // Since district-01 left the game (wave 2, 2026-10-14) it runs on urban-jungle
 // against the captain at difficulty 3 (level 2): its ring of eight counts 16, so
 // it roams (fcop-re/outposts.md Q2), fields its free opening order, buys tanks
-// and a jet with its own points and claims an outpost. Player 0 holds its gate
-// and fights whatever comes within 20 m, and goes down twice. Since the captain
+// and jets with its own points and claims an outpost. Player 0 holds its gate
+// and fights whatever comes within 20 m. Since the captain
 // shoots as the original's does (SIM_VERSION 54: no line of sight to pick a
 // target, but walls stop its gun and missile) its tanks no longer reach the
-// gate in these 150 s, and the player no longer shoots it down.
+// gate in these 150 s. Since SIM_VERSION 60 (the heavy-zone poll's draw at
+// createSim moves the PRNG stream) it buys seven tanks and three jets, and the
+// player goes down once and shoots the captain down once.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -68,11 +70,11 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    expect(bought.get(ARCHETYPE.RUNNER)).toBe(10);
-    expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
+    expect(bought.get(ARCHETYPE.RUNNER)).toBe(7);
+    expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(3);
     expect(claims).toBe(1);
-    expect(wardenDeaths).toBe(0);
-    expect(avatarDeaths).toBe(2);
+    expect(wardenDeaths).toBe(1);
+    expect(avatarDeaths).toBe(1);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);
     expect(sim.winner).toBe(-1);

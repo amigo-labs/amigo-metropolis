@@ -59,8 +59,8 @@ function HowTo() {
       <h2 class="menu-h2">Winning</h2>
       <p class="menu-hint">
         Earn points when enemy units, turrets and avatars fall and when you capture turrets. Spend
-        them at your base consoles to field Runners, Guardians, and heavy units, then escort a push
-        through a lane and breach the enemy gate.
+        them at your base's purchase spots to field Runners and Guardians and, once you hold 50, a
+        Juggernaut or a Fortress, then escort a push through a lane and breach the enemy gate.
       </p>
     </>
   );

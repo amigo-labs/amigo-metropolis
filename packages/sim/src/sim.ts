@@ -191,6 +191,7 @@ import {
   type MapPoint,
   type MapTriggerVolume,
   type MapWeapon,
+  type MapZone,
   resolveHeight,
   sampleHeight,
   waterHeightAt,
@@ -324,6 +325,8 @@ export interface SimState {
    * (fcop-fidelity.md R10).
    */
   readonly heavyUnlocked: Uint8Array;
+  /** Ticks to each side's next heavy-zone points poll (systemEconomy, R10). */
+  readonly heavyPoll: Int32Array;
   /** Next lane index per player (ground-unit round-robin). */
   readonly laneCounter: Uint8Array;
   /** Sandbox dummy turrets: entity id (-1 dead) + respawn countdown per spot. */
@@ -773,6 +776,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     roundFrom: new Uint8Array(MAX_ENTITIES),
     points: new Uint32Array(MAX_PLAYERS).fill(STARTING_POINTS),
     heavyUnlocked: new Uint8Array(MAX_PLAYERS),
+    heavyPoll: new Int32Array(MAX_PLAYERS),
     laneCounter: new Uint8Array(MAX_PLAYERS),
     dummyEntity: new Int32Array(map.dummySpots.length).fill(-1),
     dummyRespawn: new Int32Array(map.dummySpots.length),
@@ -820,6 +824,10 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
   // first period (`cfun_load`: countdown = rand % period).
   for (let k = 0; k < map.spawnGuards.length; k++) {
     state.guardTimer[k] = randInt(state, map.spawnGuards[k].resetTicks);
+  }
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const zones = map.bases[p].heavyZones;
+    if (zones !== undefined) state.heavyPoll[p] = randInt(state, zones.pollTicks);
   }
   for (let p = 0; p < MAX_PLAYERS; p++) {
     spawnAvatar(state, p);
@@ -1366,7 +1374,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // fire through a transformation (fcop-fidelity.md P3).
     avatarWeapons(state, p, id, input.buttons, pressed);
     // Purchases (rules.md §3): one unit per press of the action key on a spot.
-    systemBuy(state, p, id, input.buttons);
+    systemBuy(state, p, id);
   }
 }
 
@@ -1601,21 +1609,19 @@ export function claimOutpostSlot(state: SimState, player: number, k: number): bo
  * answers the action key on the frame it goes down (capturePress, the same
  * rising edge as a capture or a claim), ONE unit per press. First the outpost
  * claim zones (claimOutpost); a press that claims buys nothing more. Then the
- * spot the avatar stands on: base consoles (FIRE2 held orders the heavy variant,
- * Metropolis' stand-in for the original's separate Dreadnought and Fortress
- * zones), an imported outpost's tank and jet pads, Metropolis' outpost consoles
- * (FIRE2 for the Guardian). A press the spot refuses — the points are short, or
- * the side already has 20 of that unit alive — answers with EV_PURCHASE_REFUSED,
- * the original's refuse sound; an accepted one with EV_PURCHASE. A heavy zone
- * that is still locked (R10) or whose unit is alive is closed, as the original's
- * is, and stays silent.
+ * spot the avatar stands on: the base's tank and jet trigger boxes, its
+ * Dreadnought and Fortress zones (R10), an imported outpost's tank and jet pads.
+ * A press the spot refuses — the points are short, the side already has 20 of
+ * that unit alive, or its one heavy unit of that kind lives — answers with
+ * EV_PURCHASE_REFUSED, the original's refuse sound; an accepted one with
+ * EV_PURCHASE. A heavy zone the points check has not opened yet is disabled, as
+ * the original's is, and stays silent.
  */
-export function systemBuy(state: SimState, player: number, id: number, buttons: number): void {
+export function systemBuy(state: SimState, player: number, id: number): void {
   const ent = state.ent;
   const map = state.map;
   if (state.capturePress[player] !== 1) return;
   if (claimOutpost(state, player, id)) return;
-  const heavy = (buttons & BUTTON_FIRE2) !== 0 ? 1 : 0;
   const x = ent.posX[id];
   const y = ent.posY[id];
 
@@ -1628,28 +1634,36 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
   let forward = false;
 
   const base = map.bases[player];
+  const heavy = base.heavyZones;
   const r = ARCHETYPE_RADIUS[ent.archetype[id]];
   if (inBuyBox(x, y, r, base.groundConsole, base.groundBuy)) {
-    archetype = heavy ? ARCHETYPE.JUGGERNAUT : ARCHETYPE.RUNNER;
-    cost = heavy ? COST_JUGGERNAUT : COST_RUNNER;
+    archetype = ARCHETYPE.RUNNER;
+    cost = COST_RUNNER;
     spawnX = base.groundConsole.x;
     spawnY = base.groundConsole.y;
     spawnLayer = base.groundConsole.layer;
-    // The original's Dreadnought rolls out of its own spawner at node 0 of its
-    // Cnet by the HQ, not at the purchase pad (fcop-re/ranges-turrets-capture.md
-    // top). The console is where it is bought; this is where it appears.
-    const dread = base.juggernaut;
-    if (heavy && dread !== undefined) {
-      spawnX = dread.x;
-      spawnY = dread.y;
-      spawnLayer = dread.layer;
-    }
   } else if (inBuyBox(x, y, r, base.airConsole, base.airBuy)) {
-    archetype = heavy ? ARCHETYPE.FORTRESS : ARCHETYPE.GUARDIAN;
-    cost = heavy ? COST_FORTRESS : COST_GUARDIAN;
+    archetype = ARCHETYPE.GUARDIAN;
+    cost = COST_GUARDIAN;
     spawnX = base.airConsole.x;
     spawnY = base.airConsole.y;
     spawnLayer = base.airConsole.layer;
+  } else if (heavy !== undefined && touchesHeavyZone(state, id, heavy.juggernaut)) {
+    // The original's Dreadnought rolls out of its own spawner at node 0 of its
+    // Cnet by the HQ (fcop-re/ranges-turrets-capture.md top), not at the zone.
+    if (state.heavyUnlocked[player] === 0) return; // disabled: no answer
+    archetype = ARCHETYPE.JUGGERNAUT;
+    cost = COST_JUGGERNAUT;
+    spawnX = base.juggernaut.x;
+    spawnY = base.juggernaut.y;
+    spawnLayer = base.juggernaut.layer;
+  } else if (heavy !== undefined && touchesHeavyZone(state, id, heavy.fortress)) {
+    if (state.heavyUnlocked[player] === 0) return;
+    archetype = ARCHETYPE.FORTRESS;
+    cost = COST_FORTRESS;
+    spawnX = base.fortressSpawn.x;
+    spawnY = base.fortressSpawn.y;
+    spawnLayer = base.fortressSpawn.layer;
   } else {
     // The original's outpost pads (fcop-re/outposts.md Q3): a tank pad and a jet
     // pad per outpost, its owner's only, 2 points a unit. The unit leaves from
@@ -1675,12 +1689,10 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
 
   if (archetype < 0) return; // not on a purchase spot: the press is not a purchase
 
-  // The spot's own gates (fcop-fidelity.md R9, R10): a heavy zone opens the first
-  // time the side holds 50 and closes while its unit lives (silent); the points
-  // and the 20-alive cap of tanks and jets are refused out loud.
-  const isHeavy = archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS;
+  // The spot's own gates (fcop-fidelity.md R9, R10), refused out loud: the
+  // points, the 20-alive cap of tanks and jets, and a heavy zone whose unit
+  // lives (the original's latch, reopened by that unit's death script).
   const alive = countAliveOfArchetype(state, archetype, player);
-  if (isHeavy && (state.heavyUnlocked[player] === 0 || alive >= aliveLimit(archetype))) return;
   if (state.points[player] < cost || alive >= aliveLimit(archetype)) {
     pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
     return;
@@ -1694,6 +1706,15 @@ export function systemBuy(state: SimState, player: number, id: number, buttons: 
     state.points[player] += cost; // entity cap hit: refund, nothing spawned
     pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
   }
+}
+
+/**
+ * Touching a heavy-unit zone: the type-14 pair test, the zone's radius plus the
+ * mech's own, as an outpost pad's (the hit-box stage that may follow it was not
+ * read; fcop-fidelity.md R10).
+ */
+function touchesHeavyZone(state: SimState, id: number, z: MapZone): boolean {
+  return touchesZone(state, id, z.x, z.y, z.layer, z.radius);
 }
 
 /**
@@ -3390,12 +3411,20 @@ function systemCapture(state: SimState): void {
  * Economy bookkeeping (rules.md §3). There is no trickle: the original adds no
  * points over time (fcop-fidelity.md R3), so income is entirely the event table
  * in systemDamageDeath / systemCapture. What runs here is the heavy-unit unlock
- * (R10): the first time a side holds HEAVY_UNLOCK_POINTS, its Juggernaut and
- * Fortress purchases open for the rest of the match. Checked at the end of the
- * tick, after every credit, so a side that reaches 50 can buy from the next tick.
+ * (R10): the original's fn30/fn31, a mission function polled every
+ * `heavyZones.pollTicks` from a random phase, opens the side's Dreadnought and
+ * Fortress zones for good the first time a poll sees HEAVY_UNLOCK_POINTS, then
+ * retires. Points held only between two polls open nothing. A base without
+ * heavy zones (the test maps) polls nothing.
  */
 function systemEconomy(state: SimState): void {
+  const bases = state.map.bases;
   for (let p = 0; p < MAX_PLAYERS; p++) {
+    const zones = bases[p].heavyZones;
+    if (zones === undefined || state.heavyUnlocked[p] !== 0) continue;
+    state.heavyPoll[p] -= 1;
+    if (state.heavyPoll[p] >= 0) continue;
+    state.heavyPoll[p] += zones.pollTicks;
     if (state.points[p] >= HEAVY_UNLOCK_POINTS) state.heavyUnlocked[p] = 1;
   }
 }
@@ -3728,6 +3757,10 @@ export function hash(state: SimState): number {
   // turrets.
   for (let p = 0; p < state.turretAlert.length; p++) {
     h = fnv1aU32(h, state.turretAlert[p] >>> 0);
+  }
+  // Appended at SIM_VERSION 60, on arenas with heavy zones only.
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    if (state.map.bases[p].heavyZones !== undefined) h = fnv1aU32(h, state.heavyPoll[p] >>> 0);
   }
   // Appended at SIM_VERSION 58; empty (and so absent) off Hk.
   for (let k = 0; k < state.guardLatch.length; k++) {

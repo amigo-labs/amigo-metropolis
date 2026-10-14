@@ -986,16 +986,13 @@ function heavyNow(state: SimState, me: number, archetype: number): void {
   );
   const limit = archetype === ARCHETYPE.JUGGERNAUT ? JUGGERNAUT_ALIVE_LIMIT : FORTRESS_ALIVE_LIMIT;
   if (countTeam(state, archetype, me) >= limit) return; // spent, refused: the quirk
+  // Each from its own spawner (fn05 / fn06 request the base's Dreadnought and
+  // Fortress templates): the Dreadnought record, the Fortress spawner.
   const base = state.map.bases[me];
-  let x = base.airConsole.x;
-  let y = base.airConsole.y;
-  let layer = base.airConsole.layer;
-  if (archetype === ARCHETYPE.JUGGERNAUT) {
-    const dread = base.juggernaut;
-    x = dread !== undefined ? dread.x : base.groundConsole.x;
-    y = dread !== undefined ? dread.y : base.groundConsole.y;
-    layer = dread !== undefined ? dread.layer : base.groundConsole.layer;
-  }
+  const at = archetype === ARCHETYPE.JUGGERNAUT ? base.juggernaut : base.fortressSpawn;
+  const x = at.x;
+  const y = at.y;
+  const layer = at.layer;
   const uid = spawnUnit(state, archetype, me, x, y, UNIT_MODE_PATROL, false, layer);
   if (uid >= 0) pushEvent(state.events, EV_PURCHASE, uid, me, archetype);
 }

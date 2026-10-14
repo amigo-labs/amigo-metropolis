@@ -481,6 +481,59 @@ function waterOf(
   };
 }
 
+/**
+ * A base's Dreadnought and Fortress zones (fcop-fidelity.md R10) and the
+ * Fortress spawner, from the rules artifact: each type-14 zone's radius is the
+ * record's r << 4 world units (r / 512 m; the mech's own radius comes on top in
+ * the sim), the opening poll the slot's fn30/fn31 period. The Dreadnought's
+ * spawner is the Dreadnought record the base already carries; asserted.
+ */
+function heavyOf(
+  rules: FcopRules,
+  team: number,
+  teamOfSlot: (slot: number) => number,
+  dreadX: number,
+  dreadY: number,
+): {
+  heavyZones: {
+    juggernaut: { x: number; y: number; radius: number };
+    fortress: { x: number; y: number; radius: number };
+    pollTicks: number;
+  };
+  fortressSpawn: number[];
+} {
+  const zones = rules.heavyZones.filter((z) => teamOfSlot(z.slot) === team);
+  const enable = rules.heavyEnable.filter((e) => teamOfSlot(e.slot) === team);
+  const dread = zones.find((z) => z.unit === "dreadnought");
+  const fort = zones.find((z) => z.unit === "flying_fortress");
+  if (zones.length !== 2 || !dread || !fort || enable.length !== 1) {
+    throw new Error(`${rules.mapId}: team ${team} lacks its two heavy zones or their poll`);
+  }
+  const spawner = (template: number) => {
+    const s = rules.spawners.find((q) => q.template === template);
+    if (!s) throw new Error(`${rules.mapId}: no spawner for template ${template}`);
+    return s;
+  };
+  const d = spawner(dread.template);
+  if (Math.abs(round4(sx(d.x)) - dreadX) > 0.01 || Math.abs(round4(sz(d.z)) - dreadY) > 0.01) {
+    throw new Error(`${rules.mapId}: team ${team}'s Dreadnought spawner is not its record`);
+  }
+  const f = spawner(fort.template);
+  const zone = (z: (typeof zones)[number]) => ({
+    x: round4(sx(z.x)),
+    y: round4(sz(z.z)),
+    radius: round4(rangeToCells(z.radiusRaw)),
+  });
+  return {
+    heavyZones: {
+      juggernaut: zone(dread),
+      fortress: zone(fort),
+      pollTicks: toSimTicks(enable[0].pollUnits, TICK_HZ),
+    },
+    fortressSpawn: [round4(sx(f.x)), round4(sz(f.z))],
+  };
+}
+
 /** Interns weapon profiles so identical originals share one index. */
 class WeaponTable {
   readonly list: Weapon[] = [];
@@ -1438,6 +1491,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       },
       // The tank, jet and Flying Fortress spawner records (fcop-fidelity.md W3).
       ...unitProfiles(logic, base.team, table),
+      ...heavyOf(rules, team, teamOfSlot, coreX, coreY),
     };
   });
 

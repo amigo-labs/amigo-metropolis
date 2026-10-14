@@ -941,4 +941,16 @@
 //     rules (the NORMAL auto-hover, the refused transform) apply on the ground
 //     surface within SURFACE_REACH of it, not on a deck over it. Hk's spawn
 //     guards stand on the water. No other arena has water; their hashes stay.
-export const SIM_VERSION = 59;
+// v60: the Dreadnought and the Flying Fortress are bought at their own type-14
+//     zones (fcop-fidelity.md R10), imported per base as MapBase.heavyZones
+//     (radius r/512 m + the mech's; Conft's Dreadnought zones 1.0 m, every
+//     other 0.8 m), not by FIRE2 at the consoles. The zones open for good at
+//     the first poll of the original's fn30/fn31 that sees 50 points: every
+//     `pollTicks` (150/153, Joke/Slim 75/77) from a random phase
+//     (SimState.heavyPoll, hashed where a base has zones; its draw at
+//     createSim moves the PRNG stream of every such arena). A closed zone is
+//     silent; an open one refuses short points and a living unit out loud. The
+//     Fortress, the human's and the captain's, leaves its own spawner
+//     (MapBase.fortressSpawn), not the air console. A base without zones (the
+//     test maps) sells no heavy unit.
+export const SIM_VERSION = 60;

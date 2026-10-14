@@ -50,9 +50,9 @@ interface Push {
  * ground console for a Runner, the Dreadnought record for a Juggernaut). Nobody
  * escorts and team 0 buys nothing: this measures the defence against the push.
  */
-function push(mapId: string, archetype: number, count: number): Push {
+function push(mapId: string, archetype: number, count: number, seed = 0xc0ffee): Push {
   const map = getMapById(mapId);
-  const state = createSim(map, 0xc0ffee);
+  const state = createSim(map, seed);
   const idle = createTickInputs();
   const base = map.bases[1];
   const at =
@@ -191,8 +191,14 @@ describe("an unescorted bought push against an intact defence, per arena", () =>
   // siege unit, one alive per side and 50 points. That a tank slips through on
   // la-cantina is the original's too, as far as these rules go: Mp's gate box is
   // on the tank road just past its ring.
+  // Re-measured at SIM_VERSION 60 (the heavy-zone poll's draw at createSim moves
+  // every PA arena's PRNG stream): on la-cantina the lone Runner breaches on 3 of
+  // seeds c0ffee/1/2/3/4 (1, 2, 4; in 36-78 s) and dies 18-20 m out on the other
+  // two; on the other three arenas it breaches on none (7-17 m out), the
+  // Juggernaut on all (73-110 s). The breach is the road's, so it is pinned on
+  // seed 1, one that takes it.
   it("a lone Runner drives through la-cantina's ring and is stopped short on urban-jungle", () => {
-    const lc = push(LA_CANTINA_ID, ARCHETYPE.RUNNER, 1);
+    const lc = push(LA_CANTINA_ID, ARCHETYPE.RUNNER, 1, 1);
     expect(lc.breachAt).toBeGreaterThan(0);
     const uj = push(URBAN_JUNGLE_ID, ARCHETYPE.RUNNER, 1);
     expect(uj.breachAt).toBe(-1);
@@ -298,11 +304,13 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // Re-measured at SIM_VERSION 55 (captures by the original's octagonal
   // estimate, R12), over seeds c0ffee/1/2/3/4: 22 of 30 resolve, in 68-153 s,
   // every one on its opening order; the captain buys nothing more against an
-  // idle player. Of the seeds below, these do not.
+  // idle player. Re-measured at SIM_VERSION 60 (the heavy-zone poll's draw at
+  // createSim moves the PRNG stream): 27 of 30 resolve, in 41-133 s; la-cantina
+  // seed 4 and urban-jungle seeds c0ffee and 4 do not. Of the seeds below,
+  // these do not.
   const UNRESOLVED: Record<string, number[]> = {
     [LA_CANTINA_ID]: [4],
-    [URBAN_JUNGLE_ID]: [2, 4],
-    [PROVING_GROUND_ID]: [4],
+    [URBAN_JUNGLE_ID]: [0xc0ffee, 4],
   };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {

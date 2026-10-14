@@ -199,6 +199,29 @@ export interface MapBaseTurret {
 }
 
 /** One team's base structures (rules.md §5). Index = team id. */
+/**
+ * A type-14 purchase zone (fcop-fidelity.md R10): touched by the own mech
+ * within `radius` plus the mech's own radius (as an outpost pad is), and
+ * answering the action key's press.
+ */
+export interface MapZone {
+  readonly x: number;
+  readonly y: number;
+  readonly layer: number;
+  readonly radius: number;
+}
+
+/**
+ * A base's Dreadnought and Flying Fortress zones and the polled check that opens
+ * them for good the first time it sees the side hold HEAVY_UNLOCK_POINTS (the
+ * original's fn30/fn31: every 5 s, 2.5 s on Joke and Slim, from a random phase).
+ */
+export interface MapHeavyZones {
+  readonly juggernaut: MapZone;
+  readonly fortress: MapZone;
+  readonly pollTicks: number;
+}
+
 export interface MapBase {
   /**
    * Win trigger volume: an enemy Runner or Juggernaut inside = breach (rules.md
@@ -237,6 +260,13 @@ export interface MapBase {
   readonly runner: MapUnitProfile;
   readonly guardian: MapUnitProfile;
   readonly fortress: MapUnitProfile;
+  /**
+   * The heavy-unit zones; undefined where the arena imports none, and then no
+   * player can buy a Dreadnought or a Fortress (the test maps).
+   */
+  readonly heavyZones: MapHeavyZones | undefined;
+  /** Where a Fortress appears: its own spawner's (Csac) position; else the air console. */
+  readonly fortressSpawn: MapPoint;
 }
 
 /**
@@ -835,6 +865,14 @@ export interface MapBaseJson {
   runner?: { hp: number; weapon: number };
   guardian?: { hp: number; weapon: number };
   fortress?: { hp: number; weapon: number };
+  /** OPTIONAL: the Dreadnought and Fortress zones (MapHeavyZones). */
+  heavyZones?: {
+    juggernaut: { x: number; y: number; radius: number; layer?: number };
+    fortress: { x: number; y: number; radius: number; layer?: number };
+    pollTicks: number;
+  };
+  /** OPTIONAL: the Fortress spawner's position; absent -> the air console. */
+  fortressSpawn?: number[] | { x: number; y: number; layer?: number };
 }
 
 function fail(id: string, reason: string): never {
@@ -1190,6 +1228,30 @@ export function loadMapFromJson(raw: MapJson): MapData {
         weapon: weaponIndex(j.weapon, what),
       };
     }
+    const zone = (
+      z: { x: number; y: number; radius: number; layer?: number },
+      what: string,
+    ): MapZone => {
+      if (!z || typeof z !== "object") fail(id, `${what} is not an object`);
+      const x = num(z.x, `${what} x`);
+      const y = num(z.y, `${what} y`);
+      if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
+      const radius = num(z.radius, `${what} radius`);
+      if (!(radius > 0)) fail(id, `${what} needs a positive radius`);
+      return { x, y, layer: layerOf(z.layer, what), radius };
+    };
+    let heavyZones: MapHeavyZones | undefined;
+    if (b.heavyZones !== undefined) {
+      const hz = b.heavyZones;
+      if (!Number.isInteger(hz.pollTicks) || hz.pollTicks < 1) {
+        fail(id, `base ${team} heavy zones bad pollTicks ${String(hz.pollTicks)}`);
+      }
+      heavyZones = {
+        juggernaut: zone(hz.juggernaut, `base ${team} Dreadnought zone`),
+        fortress: zone(hz.fortress, `base ${team} Fortress zone`),
+        pollTicks: hz.pollTicks,
+      };
+    }
     const turretRespawnTicks = b.turretRespawnTicks ?? 0;
     if (!Number.isInteger(turretRespawnTicks) || turretRespawnTicks < 0) {
       fail(id, `base ${team} bad turretRespawnTicks ${String(b.turretRespawnTicks)}`);
@@ -1231,6 +1293,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
       runner: unitProfile(b.runner, `base ${team} runner`, ORIGINAL_UNIT_PROFILES.runner),
       guardian: unitProfile(b.guardian, `base ${team} guardian`, ORIGINAL_UNIT_PROFILES.guardian),
       fortress: unitProfile(b.fortress, `base ${team} fortress`, ORIGINAL_UNIT_PROFILES.fortress),
+      heavyZones,
+      fortressSpawn: point(b.fortressSpawn ?? b.airConsole, `base ${team} fortress spawn`),
     };
   });
 
@@ -1585,6 +1649,8 @@ export function createTestMap(): MapData {
     runner: { ...ORIGINAL_UNIT_PROFILES.runner },
     guardian: { ...ORIGINAL_UNIT_PROFILES.guardian },
     fortress: { ...ORIGINAL_UNIT_PROFILES.fortress },
+    heavyZones: undefined,
+    fortressSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
   });
   return {
     id: TEST_MAP_ID,

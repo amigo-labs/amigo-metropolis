@@ -44,6 +44,20 @@ import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, type SimState, spawnUnit, step, TURRET_CAPTURABLE } from "../src/sim";
 import { UNIT_MODE_OUTPOST } from "../src/units";
 
+// The original's Dreadnought and Fortress zones beside each base's consoles,
+// polled every 5 s (Mp's fn30).
+const HEAVY_POLL = 150;
+const HEAVY_ZONES_WEST = {
+  juggernaut: { x: 12, y: 14, radius: 0.8 },
+  fortress: { x: 12, y: 22, radius: 0.8 },
+  pollTicks: HEAVY_POLL,
+};
+const HEAVY_ZONES_EAST = {
+  juggernaut: { x: 48, y: 14, radius: 0.8 },
+  fortress: { x: 48, y: 22, radius: 0.8 },
+  pollTicks: HEAVY_POLL,
+};
+
 // Flat 16×16 grid, 4 m cells → 60 m square. One lane along y=6, a neutral
 // turret spot mid-map and one outpost spot between lane and bases.
 function battleground(): MapJson {
@@ -76,6 +90,8 @@ function battleground(): MapJson {
         groundConsole: [6, 14],
         airConsole: [6, 22],
         turrets: [],
+        heavyZones: HEAVY_ZONES_WEST,
+        fortressSpawn: [6, 30],
       },
       {
         gate: { x: 46, y: 6, radius: 3 },
@@ -83,6 +99,8 @@ function battleground(): MapJson {
         groundConsole: [54, 14],
         airConsole: [54, 22],
         turrets: [],
+        heavyZones: HEAVY_ZONES_EAST,
+        fortressSpawn: [54, 30],
       },
     ],
     lanes: [
@@ -220,50 +238,67 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     expect(sim.points[0]).toBe(100 - COST_GUARDIAN); // the jet cap is separate
   });
 
-  it("opens the heavy units the first time a side reaches 50, and keeps them open", () => {
+  it("opens the heavy zones at the first poll that sees 50, and keeps them open", () => {
     reset();
     const sim = freshSim();
     expect(HEAVY_UNLOCK_POINTS).toBe(50);
     expect(sim.heavyUnlocked[0]).toBe(0);
+    // The poll's first check falls inside its first period (a random phase).
+    expect(sim.heavyPoll[0]).toBeGreaterThanOrEqual(0);
+    expect(sim.heavyPoll[0]).toBeLessThan(HEAVY_POLL);
     sim.points[0] = HEAVY_UNLOCK_POINTS - 1;
-    step(sim, inputs);
+    for (let t = 0; t < HEAVY_POLL + 1; t++) step(sim, inputs);
     expect(sim.heavyUnlocked[0]).toBe(0);
     sim.points[0] = HEAVY_UNLOCK_POINTS;
-    step(sim, inputs);
-    expect(sim.heavyUnlocked[0]).toBe(1);
+    let opened = -1;
+    for (let t = 0; t < HEAVY_POLL + 1 && opened < 0; t++) {
+      step(sim, inputs);
+      if (sim.heavyUnlocked[0] === 1) opened = t;
+    }
+    expect(opened).toBeGreaterThanOrEqual(0);
     expect(sim.heavyUnlocked[1]).toBe(0); // per side
-    // Spend below 50: the purchase stays open, and a second heavy can be bought
-    // with the next 50 points.
-    press(sim, 6, 14, BUTTON_INTERACT | BUTTON_FIRE2);
+    // Spend below 50: the zones stay open, and a second heavy can be bought with
+    // the next 50 points.
+    press(sim, 12, 14, BUTTON_INTERACT);
     expect(sim.points[0]).toBe(HEAVY_UNLOCK_POINTS - COST_JUGGERNAUT);
     expect(sim.heavyUnlocked[0]).toBe(1);
     sim.points[0] = COST_FORTRESS;
-    press(sim, 6, 22, BUTTON_INTERACT | BUTTON_FIRE2);
+    press(sim, 12, 22, BUTTON_INTERACT);
     expect(sim.points[0]).toBe(0);
   });
 
-  it("refuses a heavy unit until the end of the tick the side first holds 50", () => {
+  it("opens nothing for points held only between two polls", () => {
     reset();
     const sim = freshSim();
-    // The unlock is checked after every credit, at the end of the tick, so a side
-    // whose points arrive this tick can buy from the next one.
+    // Hold 50 for the ticks before the next poll only.
+    const before = sim.heavyPoll[0];
     sim.points[0] = HEAVY_UNLOCK_POINTS;
-    sim.ent.posX[0] = 6;
+    for (let t = 0; t < before; t++) step(sim, inputs);
+    sim.points[0] = HEAVY_UNLOCK_POINTS - 1;
+    for (let t = 0; t < HEAVY_POLL + 1; t++) step(sim, inputs);
+    expect(sim.heavyUnlocked[0]).toBe(0);
+  });
+
+  it("a disabled zone is silent; an open one refuses short points out loud", () => {
+    reset();
+    const sim = freshSim();
+    sim.points[0] = HEAVY_UNLOCK_POINTS;
+    press(sim, 12, 14, BUTTON_INTERACT);
+    // Still closed before the first poll: no purchase, no refusal.
+    if (sim.heavyUnlocked[0] === 0) {
+      expect(sim.points[0]).toBe(HEAVY_UNLOCK_POINTS);
+    }
+    for (let t = 0; t < HEAVY_POLL + 1; t++) step(sim, inputs);
+    expect(sim.heavyUnlocked[0]).toBe(1);
+    sim.points[0] = COST_JUGGERNAUT - 1;
+    sim.ent.posX[0] = 12;
     sim.ent.posY[0] = 14;
-    inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2;
+    inputs.players[0].buttons = BUTTON_INTERACT;
     step(sim, inputs);
-    // The zone is still closed on the first tick: no purchase, and no refusal
-    // either (a closed zone does not answer)...
+    inputs.players[0].buttons = 0;
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
-    expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
-    expect(sim.points[0]).toBe(HEAVY_UNLOCK_POINTS);
-    expect(sim.heavyUnlocked[0]).toBe(1); // ...and open from the next
-    inputs.players[0].buttons = 0;
-    step(sim, inputs);
-    inputs.players[0].buttons = BUTTON_INTERACT | BUTTON_FIRE2;
-    step(sim, inputs);
-    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
-    inputs.players[0].buttons = 0;
+    expect(findEvents(sim, EV_PURCHASE_REFUSED)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
+    expect(sim.points[0]).toBe(COST_JUGGERNAUT - 1);
   });
 });
 

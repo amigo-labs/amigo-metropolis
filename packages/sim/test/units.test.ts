@@ -24,6 +24,9 @@ import { BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
 
+/** Mp's fn30 poll: the heavy zones open at the first check that sees 50 points. */
+const HEAVY_POLL = 150;
+
 // Flat 16×16 grid, 4 m cells → 60 m square. One straight lane along y=6
 // between the two gates; avatars/pads live at y=54.
 function warzone(ringTurrets: { west: number[][]; east: number[][] }): MapJson {
@@ -56,6 +59,12 @@ function warzone(ringTurrets: { west: number[][]; east: number[][] }): MapJson {
         groundConsole: [6, 14],
         airConsole: [6, 22],
         turrets: ringTurrets.west,
+        heavyZones: {
+          juggernaut: { x: 12, y: 14, radius: 0.8 },
+          fortress: { x: 12, y: 22, radius: 0.8 },
+          pollTicks: HEAVY_POLL,
+        },
+        fortressSpawn: [6, 30],
       },
       {
         gate: { x: 46, y: 6, radius: 3 },
@@ -63,6 +72,12 @@ function warzone(ringTurrets: { west: number[][]; east: number[][] }): MapJson {
         groundConsole: [54, 14],
         airConsole: [54, 22],
         turrets: ringTurrets.east,
+        heavyZones: {
+          juggernaut: { x: 48, y: 14, radius: 0.8 },
+          fortress: { x: 48, y: 22, radius: 0.8 },
+          pollTicks: HEAVY_POLL,
+        },
+        fortressSpawn: [54, 30],
       },
     ],
     lanes: [
@@ -241,43 +256,61 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
   });
 
-  it("interact+fire2 buys the 50-point heavy variant; its zone is closed while it lives", () => {
+  /** Runs the side's heavy-zone poll past its next check. */
+  function openHeavy(sim: SimState): void {
+    for (let t = 0; t < HEAVY_POLL + 1; t++) step(sim, inputs);
+    expect(sim.heavyUnlocked[0]).toBe(1);
+  }
+
+  it("the Dreadnought zone sells one at its record; a press while it lives is refused", () => {
     reset();
     const sim = openSim();
     sim.points[0] = 120;
-    sim.ent.posX[0] = 6;
-    sim.ent.posY[0] = 14;
-    release(sim); // the side holds 50: the heavy zones open at the end of the tick (R10)
-    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    openHeavy(sim); // the side holds 50: the poll opens the zones (R10)
+    sim.ent.posX[0] = 12;
+    sim.ent.posY[0] = 14; // in the Dreadnought zone
+    release(sim);
+    press(sim, BUTTON_INTERACT);
     const first = findEvents(sim, EV_PURCHASE);
     expect(first[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
     expect(sim.points[0]).toBe(120 - COST_JUGGERNAUT);
     const jugg = first[0][0];
-    // The one-alive limit closes the zone while it lives: a press is neither a
-    // purchase nor a refusal (the original's zone is disabled, not refusing).
+    // The latch holds while it lives: the zone answers with the refuse sound.
     release(sim);
-    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    press(sim, BUTTON_INTERACT);
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
-    expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
-    // …and killing it reopens it.
+    expect(findEvents(sim, EV_PURCHASE_REFUSED)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
+    // …and its death reopens it.
     sim.ent.hp[jugg] = 0;
     release(sim);
-    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    press(sim, BUTTON_INTERACT);
     expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
   });
 
-  it("the air console sells Guardians and Fortresses", () => {
+  it("the air console sells Guardians; the Fortress zone sells Fortresses at its spawner", () => {
     reset();
     const sim = openSim();
     sim.points[0] = 120;
+    openHeavy(sim);
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 22; // on the own air console
     release(sim);
     press(sim, BUTTON_INTERACT);
     expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
+    // Holding FIRE2 there buys nothing heavier: the heavy units have zones.
     release(sim);
     press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
-    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.FORTRESS);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
+    sim.ent.posX[0] = 12;
+    sim.ent.posY[0] = 22; // the Fortress zone
+    release(sim);
+    press(sim, BUTTON_INTERACT);
+    const bought = findEvents(sim, EV_PURCHASE);
+    expect(bought[0][2]).toBe(ARCHETYPE.FORTRESS);
+    // At its spawner (it has flown one tick since).
+    expect(
+      Math.hypot(sim.ent.posX[bought[0][0]] - 6, sim.ent.posY[bought[0][0]] - 30),
+    ).toBeLessThan(0.5);
   });
 
   it("a press away from any console buys nothing and refuses nothing", () => {

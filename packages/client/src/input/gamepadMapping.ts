@@ -24,7 +24,7 @@ export interface Vec2 {
  */
 export const GAMEPAD_BUTTON_MAP: readonly (readonly [number, number])[] = [
   [7, BUTTON_FIRE1], // RT — primary hitscan
-  [6, BUTTON_FIRE2], // LT — heavy (also the buy-heavy modifier)
+  [6, BUTTON_FIRE2], // LT — heavy
   [5, BUTTON_FIRE3], // RB — special
   [0, BUTTON_JUMP], // A
   [3, BUTTON_TRANSFORM], // Y
