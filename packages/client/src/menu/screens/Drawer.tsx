@@ -7,6 +7,7 @@
 
 import { useState } from "preact/hooks";
 import type { AudioEngine, LevelKind } from "../../audio/engine";
+import { bindingName, presetTable, SLOT_NAMES, SLOT_ROW_ORDER } from "../../input/bindings";
 import {
   loadBloomPref,
   loadTexPref,
@@ -24,14 +25,35 @@ interface Props {
   onBloomPref(enabled: boolean): void;
 }
 
-const CONTROLS: readonly (readonly [string, string])[] = [
-  ["WASD / arrows", "drive"],
-  ["Mouse", "aim"],
-  ["LMB / RMB / MMB", "primary / special / heavy"],
-  ["Q", "transform (walker ⇄ hover)"],
-  ["Space", "jump"],
-  ["E", "press: capture a turret, claim an outpost, buy one unit at a console, or ride a lift"],
+/** What each slot does, beside its name (the original's controls, input.spec.md). */
+const SLOT_USE: readonly string[] = [
+  "",
+  "",
+  "",
+  "",
+  "",
+  "press: capture a turret, claim an outpost, buy one unit, ride a lift",
+  "",
+  "hover: brake",
+  "",
+  "",
+  "strafe",
+  "strafe",
+  "",
+  "the next target in front",
 ];
+
+/** Player 1's keys in the controls screen's order, then the chord and Escape. */
+function controlRows(): (readonly [string, string])[] {
+  const table = presetTable(0, 0);
+  const rows: (readonly [string, string])[] = SLOT_ROW_ORDER.map((s) => {
+    const use = SLOT_USE[s];
+    return [bindingName(table[s]), use ? `${SLOT_NAMES[s]} — ${use}` : SLOT_NAMES[s]] as const;
+  });
+  rows.push([`${bindingName(table[13])} + ${bindingName(table[5])}`, "transform (walker ⇄ hover)"]);
+  rows.push(["Escape", "pause"]);
+  return rows;
+}
 
 /**
  * The original's "Audio Controls" dialog (retail 0x00402930): three trackbars,
@@ -49,7 +71,7 @@ function HowTo() {
     <>
       <h2 class="menu-h2">Controls</h2>
       <div class="menu-keys">
-        {CONTROLS.map(([k, v]) => (
+        {controlRows().map(([k, v]) => (
           <div class="menu-key-row" key={k}>
             <kbd>{k}</kbd>
             <span>{v}</span>

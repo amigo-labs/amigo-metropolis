@@ -8,7 +8,7 @@
 import { describe, expect, it } from "bun:test";
 import { FLOOR_DAMAGE_PER_STEP, HOVER_CLEARANCE } from "../src/balance";
 import { EV_HIT, EV_LIFT_ARRIVE, EV_LIFT_START, EVENT_STRIDE } from "../src/events";
-import { BUTTON_INTERACT, createTickInputs, type TickInputs } from "../src/inputs";
+import { BTN_ACTION, BTN_FORWARD, createTickInputs, type TickInputs } from "../src/inputs";
 import {
   BUG_HUNT_ID,
   getMapById,
@@ -32,6 +32,7 @@ import {
   step,
   writeLiftSnapshot,
 } from "../src/sim";
+import { face, faceAlong, faceToward, steer } from "./drive";
 
 /** Slim's lift 249 in sim ticks: 10 engine ticks a tick. */
 const STOP_TOP = 921 << 4;
@@ -126,13 +127,15 @@ const idle = createTickInputs();
 
 function press(): TickInputs {
   const t = createTickInputs();
-  t.players[0].buttons = BUTTON_INTERACT;
+  t.players[0].buttons = BTN_ACTION;
   return t;
 }
 
-function drive(state: SimState, moveX: number, ticks: number): void {
+/** Player 0's avatar faces +x and holds Move Forward for `ticks`. */
+function driveEast(state: SimState, ticks: number): void {
+  face(state, state.avatarId[0], 0);
   const t = createTickInputs();
-  t.players[0].moveX = moveX;
+  t.players[0].buttons = BTN_FORWARD;
   for (let i = 0; i < ticks; i++) step(state, t);
 }
 
@@ -230,7 +233,7 @@ describe("lifts (fcop-fidelity.md P12)", () => {
   it("lets its rider out onto the deck at the top, and not at the bottom", () => {
     const bottom = createSim(loadMapFromJson(shaft()), 1);
     const a = bottom.avatarId[0];
-    drive(bottom, 127, 60);
+    driveEast(bottom, 60);
     expect(bottom.ent.posX[a]).toBeLessThan(3);
     expect(bottom.ent.entLayer[a]).toBe(0);
 
@@ -239,7 +242,7 @@ describe("lifts (fcop-fidelity.md P12)", () => {
     step(top, idle);
     step(top, press());
     untilEvent(top, EV_LIFT_ARRIVE, 200);
-    drive(top, 127, 30);
+    driveEast(top, 30);
     expect(top.ent.posX[b]).toBeGreaterThan(3.5);
     expect(top.ent.entLayer[b]).toBe(1);
     expect(top.ent.height[b]).toBeCloseTo(2, 3);
@@ -253,7 +256,7 @@ describe("lifts (fcop-fidelity.md P12)", () => {
     state.ent.height[a] = 0;
     step(state, idle);
     expect(state.avatarLift[0]).toBe(-1);
-    drive(state, 127, 15);
+    driveEast(state, 15);
     expect(state.ent.posX[a]).toBeGreaterThan(1.2);
     expect(state.avatarLift[0]).toBe(0);
     expect(state.ent.height[a]).toBeCloseTo(TOP, 5);
@@ -308,7 +311,7 @@ describe("the spawn lifts of Slim and Joke (fcop-fidelity.md P12)", () => {
   // Each mech spawns at the foot of a shaft on its lift. The way out is the
   // original's: press, ride up to the base's platform, and walk down the ramp
   // to the consoles and through the gate. Driven here as a player would, by
-  // the stick toward each waypoint in turn.
+  // the turn buttons and Move Forward toward each waypoint in turn.
   type Waypoint = [number, number] | "ride";
   const ROUTES: Waypoint[][] = [
     [
@@ -345,11 +348,9 @@ describe("the spawn lifts of Slim and Joke (fcop-fidelity.md P12)", () => {
     for (let t = 0; t < 30 * 40 && w < route.length; t++) {
       const wp = route[w];
       const pi = input.players[player];
-      pi.moveX = 0;
-      pi.moveY = 0;
       pi.buttons = 0;
       if (wp === "ride") {
-        pi.buttons = t % 2 === 0 ? BUTTON_INTERACT : 0;
+        pi.buttons = t % 2 === 0 ? BTN_ACTION : 0;
         step(state, input);
         if (events(state, EV_LIFT_ARRIVE).some((e) => e[1] > 0)) w++;
         continue;
@@ -361,8 +362,7 @@ describe("the spawn lifts of Slim and Joke (fcop-fidelity.md P12)", () => {
         w++;
         continue;
       }
-      pi.moveX = Math.round((dx / d) * 127);
-      pi.moveY = Math.round((dy / d) * 127);
+      steer(state, player, dx, dy, pi);
       step(state, input);
     }
     if (w >= route.length) return "out";
@@ -416,23 +416,25 @@ describe("Conft's pit lifts (fcop-fidelity.md P12)", () => {
       state.ent.posY[a] = c.from[1];
       state.ent.height[a] = l.ground;
       const input = createTickInputs();
+      // Faced at each leg's end first (a straight leg needs no turning), then
+      // steered there on the buttons.
       const go = (to: [number, number]): void => {
+        faceToward(state, a, to[0], to[1]);
         for (let t = 0; t < 60; t++) {
           const dx = to[0] - state.ent.posX[a];
           const dy = to[1] - state.ent.posY[a];
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < 0.25) break;
-          input.players[0].moveX = Math.round((dx / d) * 127);
-          input.players[0].moveY = Math.round((dy / d) * 127);
+          input.players[0].buttons = 0;
+          steer(state, 0, dx, dy, input.players[0]);
           step(state, input);
         }
-        input.players[0].moveX = 0;
-        input.players[0].moveY = 0;
+        input.players[0].buttons = 0;
       };
       step(state, idle);
       go(c.onto);
       expect(state.avatarLift[0]).toBe(c.lift);
-      input.players[0].buttons = BUTTON_INTERACT;
+      input.players[0].buttons = BTN_ACTION;
       step(state, input);
       input.players[0].buttons = 0;
       expect(untilEvent(state, EV_LIFT_ARRIVE, 200)).toBeGreaterThan(0);
@@ -464,16 +466,16 @@ describe("Conft's pit lifts (fcop-fidelity.md P12)", () => {
         state.ent.height[a] = l.ground + l.stops[0] / 8192 + l.top;
         const input = createTickInputs();
         step(state, idle);
-        input.players[0].buttons = BUTTON_INTERACT;
+        input.players[0].buttons = BTN_ACTION;
         step(state, input);
         input.players[0].buttons = 0;
         expect(untilEvent(state, EV_LIFT_ARRIVE, 200)).toBeGreaterThan(0);
-        // On the raised top, k cm back from its face.
+        // On the raised top, k cm back from its face, facing the platform.
         const back = 0.2 + k * 0.01;
         if (ax !== 0) state.ent.posX[a] = face - ax * back;
         else state.ent.posY[a] = face - ay * back;
-        input.players[0].moveX = ax * 127;
-        input.players[0].moveY = ay * 127;
+        faceAlong(state, a, ax, ay);
+        input.players[0].buttons = BTN_FORWARD;
         for (let t = 0; t < 15; t++) step(state, input);
         expect(state.ent.height[a]).toBeCloseTo(0.1875, 2);
       }

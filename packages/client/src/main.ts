@@ -84,12 +84,8 @@ import {
 } from "./debug/pinSession";
 import type { PinEntity } from "./debug/pinTypes";
 import { createSandboxPanel, type SandboxPanel } from "./debug/sandboxPanel";
-import { aimAssist, parseAimAssistMode } from "./input/aimAssist";
 import { PlayerOneInput } from "./input/keyboard";
-import { createMouseLook, type MouseLook } from "./input/mouseLook";
 import { isTextEntryTarget } from "./input/textEntry";
-import { TouchInput, wantsTouch } from "./input/touch";
-import { TOUCH_BUTTONS } from "./input/touchMapping";
 import type { LocalInputSource } from "./input/types";
 import {
   buildModeQuery,
@@ -144,7 +140,6 @@ import {
   variantOfPref,
 } from "./render/texVariants";
 import { loadUnitMeshes } from "./render/unitMeshes";
-import { createTouchControls } from "./touchControls";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -160,12 +155,7 @@ const p2pCode = normalizeCode(params.get("p2p"));
 const online = onlineCode !== null;
 const p2p = !online && p2pCode !== null;
 const netMode = online || p2p;
-// Touch controls (?touch=1/0 override, else coarse-pointer auto-detect): the
-// local player drives via on-screen sticks instead of keyboard/mouse. Touch
-// suppresses the orbit debug cam — OrbitControls would fight the sticks for
-// the same canvas pointers.
-const touchMode = wantsTouch(params);
-const orbitMode = !netMode && !touchMode && params.get("cam") === "orbit";
+const orbitMode = !netMode && params.get("cam") === "orbit";
 // ?cam=fly: free-fly debug camera (render/flyCamera.ts) — noclip navigation for
 // inspecting map meshes / unit+turret models. Solo-only, like orbit.
 // Mutable: the menu Fly button enables it in-process without a full reload.
@@ -175,8 +165,6 @@ let flyMode = !netMode && params.get("cam") === "fly";
 // hooks are: it mutates sim state between ticks, which would desync the peer
 // that did not click. Mutable: the menu Sandbox button enables it in-process.
 let sandboxMode = !netMode && params.get("sandbox") === "1";
-// Aim assist is a LOCAL setting (input.spec §8): ?aim=off|assist|lock.
-aimAssist.mode = parseAimAssistMode(params.get("aim"));
 
 // Mesh rendering (textured Stage 4 maps + Stage B unit models) is the default
 // look since the Phase 7 model pass; ?render=greybox keeps the full Stage A
@@ -479,13 +467,10 @@ function sizeLiftSnapshots(lifts: number): boolean {
   return true;
 }
 
+// The original's controls: the keyboard on its bindings (input.spec.md). The
+// mouse plays no part in a match, and touch waits for the modernisation.
 const keyboard = new PlayerOneInput(window);
-// In touch mode the local player's device is the on-screen overlay instead;
-// the keyboard source stays constructed (harmless) so an attached keyboard on
-// a touch device still gets its window-level contextmenu/blur handling.
-const touchControls = touchMode ? createTouchControls(TOUCH_BUTTONS) : null;
-const localInput: LocalInputSource = touchControls ? new TouchInput(touchControls) : keyboard;
-if (touchMode) document.body.classList.add("touch");
+const localInput: LocalInputSource = keyboard;
 const audio = new AudioEngine();
 // Browsers gate audio behind a gesture; the first pointer/key/touch unlocks it.
 audio.armUnlock();
@@ -544,8 +529,8 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
 // `let`: the menu's Sandbox button switches modes in-process.
 let opponentMode = warden ? "idle" : (params.get("opponent") ?? (sandboxMode ? "idle" : "feeder"));
 
-function scriptOpponent(slot: number, tick: number, out: PlayerInput): void {
-  if (opponentMode === "feeder") demoFeeder(slot, tick, out);
+function scriptOpponent(sim: SimState, slot: number, out: PlayerInput): void {
+  if (opponentMode === "feeder") demoFeeder(sim, slot, out);
   else zeroPlayerInput(out);
 }
 
@@ -964,7 +949,7 @@ function showMatchEnd(winner: number): void {
   if (document.pointerLockElement) document.exitPointerLock();
   document.body.style.cursor = "default";
   reticle.style.display = "none";
-  touchControls?.hide();
+  keyboard.capture = false;
   (netMode ? endMenuBtn : endRematchBtn).focus();
 }
 
@@ -1004,13 +989,16 @@ function setMatchPaused(paused: boolean): void {
     else audio.resume();
   }
   pauseEl.classList.toggle("is-open", paused);
+  // The bound keys are the game's only while it is live and not paused: the
+  // cards' buttons take Tab and Space.
+  keyboard.capture = !paused && isMatchLive() && !matchEndShown;
   if (paused) {
     if (document.pointerLockElement) document.exitPointerLock();
     document.body.style.cursor = "default";
     flyState.keys.clear();
     pauseResumeBtn.focus();
   } else if (isMatchLive()) {
-    // Hidden cursor again; click re-engages pointer lock (mouseLook / fly).
+    // Hidden cursor again; in fly mode a click re-engages pointer lock.
     document.body.style.cursor = "";
   }
 }
@@ -1052,9 +1040,6 @@ function returnToMenu(): void {
     orbitControls.dispose();
     orbitControls = undefined;
   }
-  mouseLook.dispose();
-  mouseLook = createMouseLook(renderer.domElement);
-
   flyMode = false;
   sandboxMode = false;
   warden = false;
@@ -1065,7 +1050,7 @@ function returnToMenu(): void {
   debugPaused = false;
   setFlyCrosshairVisible(false);
   reticle.style.display = "none";
-  touchControls?.hide();
+  keyboard.capture = false;
   document.body.style.cursor = "default";
 
   phase = "menu";
@@ -1148,11 +1133,6 @@ addEventListener("keydown", (e) => {
 let texSwitcher: VariantSwitcher | null = null;
 const flyState = createFlyState();
 
-// Yaw-only mouse steering (input.spec §4.1). Pointer-locks on click; fly mode
-// installs its own listeners on the same canvas and keeps free pitch, which is
-// why this is a separate object rather than a mode of flyCamera.
-let mouseLook: MouseLook = createMouseLook(renderer.domElement);
-
 // Small fixed DOM label (overlay idiom: only write on change). Shows the fly
 // controls and the active texture variant while debugging.
 // Sits above the HUD's ammo row rather than on it: the ammo numbers are the
@@ -1180,7 +1160,7 @@ function refreshDebugLabel(): void {
   }
   if (sandboxMode) parts.push("sandbox: F2 = spawn + weapon panel");
   if (phase === "match" || phase === "connecting") {
-    parts.push("ESC: release mouse · pause · quit to menu");
+    parts.push(flyMode ? "ESC: release mouse · pause · quit to menu" : "ESC: pause · quit to menu");
   }
   const text = parts.join("\n");
   if (text === debugLabelText) return;
@@ -1389,42 +1369,15 @@ function downloadReplay(bytes: Uint8Array, name: string): void {
   URL.revokeObjectURL(url);
 }
 
-// Interpolated pose of each player's avatar (sim x,y,height,yaw in 0..3; slot
-// 4 = found), keyed by player slot. Filled by renderEntities for chase cams+HUD.
 // Per-player avatar render state, filled by renderEntities for the chase rigs:
-// [threeX, threeZ, height, found(0/1), pursuit(0/1), velX, velZ]. velX/velZ are
-// world u/s in render space, from the raw per-tick snapshot delta.
+// [threeX, threeZ, height, found(0/1), pursuit(0/1), velX, velZ, yaw]. velX/velZ
+// are world u/s in render space, from the raw per-tick snapshot delta; yaw is
+// the interpolated hull heading (sim radians).
 const avatarPoses: Float32Array[] = [];
-for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses.push(new Float32Array(7));
+for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses.push(new Float32Array(8));
 
 function wrapAngleDelta(d: number): number {
   return ((((d + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
-}
-
-// Enemy positions (packed x,y in sim coords) for "assist" aim magnetism, filled
-// per view from live sim state. Reused scratch — the input source copies it.
-const enemyScratch = new Float32Array(MAX_ENTITIES * 2);
-function fillEnemies(slot: number): number {
-  const ent = sim.ent;
-  let n = 0;
-  for (let id = 0; id < ent.high; id++) {
-    if (!ent.alive[id]) continue;
-    const team = ent.team[id];
-    if (team < 0 || team === slot) continue; // neutral or own team
-    const a = ent.archetype[id];
-    // Combat entities only: avatars, spawned units, the Warden.
-    if (
-      a !== ARCHETYPE.AVATAR &&
-      !(a >= ARCHETYPE.RUNNER && a <= ARCHETYPE.FORTRESS) &&
-      a !== ARCHETYPE.WARDEN
-    ) {
-      continue;
-    }
-    enemyScratch[n * 2] = ent.posX[id];
-    enemyScratch[n * 2 + 1] = ent.posY[id];
-    n++;
-  }
-  return n;
 }
 
 // Set once the match starts (after the lobby, if any).
@@ -1434,25 +1387,6 @@ const viewBySlot: (PlayerView | undefined)[] = new Array(MAX_PLAYERS).fill(undef
 let orbitControls: OrbitControls | undefined;
 
 function runTick(): void {
-  // Drain this tick's mouse travel into the heading before anything reads it,
-  // so aim and the camera agree within the tick.
-  mouseLook.update();
-  // Refresh aim for each local view (uses last frame's chase camera basis).
-  for (let v = 0; v < views.length; v++) {
-    const view = views[v];
-    const a = sim.avatarId[view.slot];
-    if (a >= 0) {
-      const ec = aimAssist.mode === "assist" ? fillEnemies(view.slot) : 0;
-      view.input.updateAim(
-        view.camera,
-        sim.ent.posX[a],
-        sim.ent.posY[a],
-        mouseLook.yaw,
-        enemyScratch,
-        ec,
-      );
-    }
-  }
   // Sample every slot into the delayed frame: local humans from their device,
   // the Warden slot left alone (the sim ignores it), everything else scripted.
   const futureTick = sim.tick + LOCAL_INPUT_DELAY_TICKS;
@@ -1460,7 +1394,7 @@ function runTick(): void {
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const view = viewBySlot[p];
     if (view) view.input.sample(queued.players[p]);
-    else if (p !== sim.wardenPlayer) scriptOpponent(p, futureTick, queued.players[p]);
+    else if (p !== sim.wardenPlayer) scriptOpponent(sim, p, queued.players[p]);
   }
 
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
@@ -1724,6 +1658,7 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
         pose[5] = 0;
         pose[6] = 0;
       }
+      pose[7] = yaw; // the hull's heading, which the chase camera follows
     }
 
     if (rig) {
@@ -1965,9 +1900,10 @@ function frame(now: number): void {
     // → toward ACTION). Only the pointer view takes zoom.
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
-      // Chase rig: the mouse heading drives the camera as well as the avatar,
-      // and there is nothing left for the wheel to change (camera.spec §3).
-      view.camInput.yawAbsolute = mouseLook.yaw;
+      // Chase rig: the camera follows the hull's heading, as the original's
+      // sits behind the X1; nothing is left for the wheel (camera.spec §3).
+      const pose = avatarPoses[view.slot];
+      view.camInput.yawAbsolute = pose[3] !== 0 ? pose[7] : null;
       view.camInput.zoomDelta = 0;
       if (flyMode && v === 0) {
         // Free-fly debug camera owns view 0's posing (render/flyCamera.ts) —
@@ -2067,11 +2003,8 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   phase = "match";
   setMatchPaused(false);
   beginMatchSounds();
-  views = createPlayerViews(localPlayers, map.spawns, extent);
-  // Start facing the way the rig starts: spawn -> arena centre. Otherwise the
-  // first tick snaps the avatar to yaw 0 before the player has touched anything.
-  mouseLook.dispose();
-  mouseLook = createMouseLook(renderer.domElement, { initialYaw: views[0]?.cam.yaw ?? 0 });
+  views = createPlayerViews(localPlayers, map.spawns);
+  keyboard.capture = true;
   viewBySlot.fill(undefined);
   for (let v = 0; v < views.length; v++) viewBySlot[views[v].slot] = views[v];
 
@@ -2110,11 +2043,10 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   }
   if (sandboxMode) ensureSandboxPanel();
   setFlyCrosshairVisible(flyMode && views.length === 1);
-  // The mouse reticle only makes sense for a single full-window pointer player
-  // — and not at all under touch or fly (fly uses a fixed center crosshair).
-  reticle.style.display = views.length === 1 && !touchMode && !flyMode ? "block" : "none";
-  document.body.style.cursor = ""; // back to the stylesheet crosshair (touch: none)
-  touchControls?.show();
+  // The reticle marks where the hull points for a single full-window player —
+  // not under fly (fly uses a fixed center crosshair).
+  reticle.style.display = views.length === 1 && !flyMode ? "block" : "none";
+  document.body.style.cursor = ""; // back to the stylesheet crosshair
 }
 
 // Short full-screen fade that covers hard view switches (flyover → net-match
@@ -2138,21 +2070,7 @@ function makeNetSampler(): () => PlayerInput {
   const localInput = createTickInputs().players[0];
   return () => {
     const view = views[0];
-    if (view) {
-      const a = sim.avatarId[view.slot];
-      if (a >= 0) {
-        const ec = aimAssist.mode === "assist" ? fillEnemies(view.slot) : 0;
-        view.input.updateAim(
-          view.camera,
-          sim.ent.posX[a],
-          sim.ent.posY[a],
-          mouseLook.yaw,
-          enemyScratch,
-          ec,
-        );
-      }
-      view.input.sample(localInput);
-    }
+    if (view) view.input.sample(localInput);
     return localInput;
   };
 }

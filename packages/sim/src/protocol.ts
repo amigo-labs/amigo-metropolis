@@ -22,7 +22,7 @@ import type { PlayerInput } from "./inputs";
  * rejects clients whose SIM_VERSION differs (goldens would already be broken),
  * and this guards the framing itself.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 // --- Message type tags -------------------------------------------------------
 // Client → server (1–9).
@@ -56,7 +56,8 @@ export interface MatchConfig {
   readonly wardenDifficulty: number;
 }
 
-export const PLAYER_INPUT_BYTES = 5;
+/** One player's input: the button word, u16 (inputs.ts). 5 bytes of axes before v2. */
+export const PLAYER_INPUT_BYTES = 2;
 
 export type NetMessage =
   | { readonly type: typeof MSG_HELLO; readonly protocol: number; readonly config: MatchConfig }
@@ -92,10 +93,6 @@ class Writer {
   }
   u8(v: number): void {
     this.view.setUint8(this.o, v & 0xff);
-    this.o += 1;
-  }
-  i8(v: number): void {
-    this.view.setInt8(this.o, v);
     this.o += 1;
   }
   u16(v: number): void {
@@ -135,12 +132,6 @@ class Reader {
   u8(): number {
     this.need(1);
     const v = this.view.getUint8(this.o);
-    this.o += 1;
-    return v;
-  }
-  i8(): number {
-    this.need(1);
-    const v = this.view.getInt8(this.o);
     this.o += 1;
     return v;
   }
@@ -212,15 +203,11 @@ function readConfig(r: Reader): MatchConfig {
 }
 
 function writeInput(w: Writer, input: PlayerInput): void {
-  w.i8(input.moveX);
-  w.i8(input.moveY);
-  w.i8(input.aimX);
-  w.i8(input.aimY);
-  w.u8(input.buttons);
+  w.u16(input.buttons);
 }
 
 function readInput(r: Reader): PlayerInput {
-  return { moveX: r.i8(), moveY: r.i8(), aimX: r.i8(), aimY: r.i8(), buttons: r.u8() };
+  return { buttons: r.u16() };
 }
 
 // --- Public codec ------------------------------------------------------------

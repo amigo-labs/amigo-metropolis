@@ -2,30 +2,22 @@
 // SIM_VERSION bump + golden regeneration in the same commit.
 import { describe, expect, it } from "bun:test";
 import {
+  BTN_FORWARD,
+  BTN_JINK_LEFT,
+  BTN_TURN_LEFT,
+  BTN_TURN_RIGHT,
   createSim,
   createTestMap,
   createTickInputs,
   hash,
   MAX_ENTITIES,
-  quantizeAxis,
   SNAPSHOT_STRIDE,
   step,
   writeSnapshot,
 } from "../src/index";
+import { face } from "./drive";
 
 const map = createTestMap();
-
-describe("quantizeAxis", () => {
-  it("maps [-1,1] to int8 exactly", () => {
-    expect(quantizeAxis(0)).toBe(0);
-    expect(quantizeAxis(1)).toBe(127);
-    expect(quantizeAxis(-1)).toBe(-127);
-    expect(quantizeAxis(0.5)).toBe(64);
-    expect(quantizeAxis(-0.5)).toBe(-63);
-    expect(quantizeAxis(2)).toBe(127);
-    expect(quantizeAxis(-2)).toBe(-127);
-  });
-});
 
 describe("sim tick loop", () => {
   it("pins the initial state hash", () => {
@@ -38,21 +30,22 @@ describe("sim tick loop", () => {
     // (buyTarget/buyProgress left with it). SIM_VERSION 52: the test map carries
     // the original's profiles, so weapon profiles are hashed on it too.
     // SIM_VERSION 61: and the spawn queues, whose phases are drawn at createSim.
-    expect(hash(createSim(map, 0xdead))).toBe(2734790281);
+    // SIM_VERSION 68: no longer the steer flag (the lock never turns the hull).
+    expect(hash(createSim(map, 0xdead))).toBe(4127326569);
   });
 
   it("pins hashes for idle and movement scripts", () => {
     const sim = createSim(map, 0xdead);
     const inputs = createTickInputs();
     for (let i = 0; i < 10; i++) step(sim, inputs);
-    expect(hash(sim)).toBe(1751991680);
+    expect(hash(sim)).toBe(1326632064);
     expect(sim.tick).toBe(10);
 
-    inputs.players[0].moveX = 127;
+    inputs.players[0].buttons = BTN_FORWARD; // the spawn faces +x
     for (let i = 0; i < 30; i++) step(sim, inputs);
     // The original's walker (SIM_VERSION 39): 4.69 m/s reached in ~0.2 s, and
     // slowed a little by the slope push up the test map's rise (was a flat 5 m/s).
-    expect(hash(sim)).toBe(2364055940);
+    expect(hash(sim)).toBe(3684308164);
     expect(sim.ent.posX[0]).toBe(131.49205017089844);
     expect(sim.ent.posY[0]).toBe(127);
     expect(sim.ent.height[0]).toBe(0.34852543473243713);
@@ -63,8 +56,9 @@ describe("sim tick loop", () => {
     const b = createSim(map, 42);
     const inputs = createTickInputs();
     for (let t = 0; t < 120; t++) {
-      inputs.players[0].moveX = quantizeAxis(((t % 60) - 30) / 30);
-      inputs.players[0].moveY = quantizeAxis(((t % 40) - 20) / 20);
+      inputs.players[0].buttons =
+        (t % 60 < 30 ? BTN_FORWARD : BTN_JINK_LEFT) |
+        (t % 40 < 20 ? BTN_TURN_RIGHT : BTN_TURN_LEFT);
       step(a, inputs);
       step(b, inputs);
       expect(hash(a)).toBe(hash(b));
@@ -76,7 +70,7 @@ describe("sim tick loop", () => {
     const b = createSim(map, 42);
     const inputs = createTickInputs();
     step(a, inputs);
-    inputs.players[0].moveY = 1; // smallest possible axis difference
+    inputs.players[0].buttons = BTN_TURN_LEFT; // one button for one tick
     step(b, inputs);
     expect(hash(a)).not.toBe(hash(b));
   });
@@ -88,7 +82,8 @@ describe("sim tick loop", () => {
   it("clamps the avatar to map bounds", () => {
     const sim = createSim(map, 7);
     const inputs = createTickInputs();
-    inputs.players[0].moveX = -127;
+    face(sim, sim.avatarId[0], Math.PI);
+    inputs.players[0].buttons = BTN_FORWARD;
     for (let i = 0; i < 3000; i++) step(sim, inputs); // 100 s west into the wall
     expect(sim.ent.posX[0]).toBe(0);
   });
@@ -98,7 +93,7 @@ describe("writeSnapshot", () => {
   it("writes stride-10 records for both avatars in dense id order", () => {
     const sim = createSim(map, 0xdead);
     const inputs = createTickInputs();
-    inputs.players[0].moveX = 127;
+    inputs.players[0].buttons = BTN_FORWARD;
     for (let i = 0; i < 30; i++) step(sim, inputs);
     const out = new Float32Array(MAX_ENTITIES * SNAPSHOT_STRIDE);
     const n = writeSnapshot(sim, out);

@@ -12,9 +12,13 @@
 import { describe, expect, it } from "bun:test";
 import { type Outgoing, RoomLogic } from "@metropolis/server/room";
 import {
-  BUTTON_FIRE1,
-  BUTTON_FIRE2,
-  BUTTON_INTERACT,
+  BTN_ACTION,
+  BTN_FORWARD,
+  BTN_GUN,
+  BTN_HEAVY,
+  BTN_JINK_LEFT,
+  BTN_TURN_LEFT,
+  BTN_TURN_RIGHT,
   clearTickInputs,
   createSim,
   createTickInputs,
@@ -49,14 +53,12 @@ const CONFIG: MatchConfig = {
 function refScript(tick: number, out: TickInputs): void {
   clearTickInputs(out);
   const p0 = out.players[0];
-  p0.moveY = 110;
-  p0.aimX = 70;
-  if (tick % 20 < 5) p0.buttons = BUTTON_FIRE1;
-  if (tick > 40 && tick % 30 < 6) p0.buttons |= BUTTON_INTERACT;
+  p0.buttons = BTN_FORWARD | (tick % 50 < 10 ? BTN_TURN_RIGHT : 0);
+  if (tick % 20 < 5) p0.buttons |= BTN_GUN;
+  if (tick > 40 && tick % 30 < 6) p0.buttons |= BTN_ACTION;
   const p1 = out.players[1];
-  p1.moveX = -90;
-  p1.moveY = 50;
-  if (tick % 25 < 4) p1.buttons = BUTTON_FIRE2;
+  p1.buttons = BTN_JINK_LEFT | (tick % 40 < 8 ? BTN_TURN_LEFT : 0);
+  if (tick % 25 < 4) p1.buttons |= BTN_HEAVY;
 }
 
 /** Canonical offline hashes for `refScript` — the ground truth to match. */

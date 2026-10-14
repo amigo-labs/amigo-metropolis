@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { BUTTON_FIRE1, BUTTON_JUMP, createTickInputs } from "../src/inputs";
+import {
+  BTN_BACK,
+  BTN_FORWARD,
+  BTN_GUN,
+  BTN_JUMP,
+  BTN_TURN_LEFT,
+  createTickInputs,
+} from "../src/inputs";
 import {
   createReplayData,
   decodeReplay,
@@ -15,13 +22,14 @@ describe("replay format", () => {
   it("round-trips header and frames byte-exactly", () => {
     const replay = createReplayData("test-128", 0xdeadbeef, 3);
     const inputs = createTickInputs();
-    inputs.players[0].moveX = -127;
-    inputs.players[0].moveY = 5;
-    inputs.players[0].aimX = 127;
-    inputs.players[0].aimY = -1;
-    inputs.players[0].buttons = BUTTON_FIRE1 | BUTTON_JUMP;
-    inputs.players[1].moveX = 33;
+    // Move Backward is the word's top bit: the u16 must survive whole.
+    inputs.players[0].buttons = BTN_BACK | BTN_GUN | BTN_JUMP;
+    inputs.players[1].buttons = BTN_FORWARD | BTN_TURN_LEFT;
     writeFrame(replay, 1, inputs);
+    // Little-endian, two bytes a player: 0x8c00 is 00 8c.
+    expect([...replay.frames.subarray(FRAME_BYTES, 2 * FRAME_BYTES)]).toEqual([
+      0x00, 0x8c, 0x00, 0x50,
+    ]);
 
     const decoded = decodeReplay(encodeReplay(replay));
     expect(decoded.formatVersion).toBe(REPLAY_FORMAT_VERSION);
@@ -35,19 +43,13 @@ describe("replay format", () => {
 
     const out = createTickInputs();
     readFrame(decoded, 1, out);
-    expect(out.players[0]).toEqual({
-      moveX: -127,
-      moveY: 5,
-      aimX: 127,
-      aimY: -1,
-      buttons: BUTTON_FIRE1 | BUTTON_JUMP,
-    });
-    expect(out.players[1].moveX).toBe(33);
+    expect(out.players[0]).toEqual({ buttons: BTN_BACK | BTN_GUN | BTN_JUMP });
+    expect(out.players[1].buttons).toBe(BTN_FORWARD | BTN_TURN_LEFT);
     readFrame(decoded, 0, out);
-    expect(out.players[0].moveX).toBe(0);
+    expect(out.players[0].buttons).toBe(0);
   });
 
-  it("round-trips the Warden config (format 2 header)", () => {
+  it("round-trips the Warden config (in the header since format 2)", () => {
     const replay = createReplayData("la-cantina", 7, 2, { player: 1, difficulty: 8 });
     const decoded = decodeReplay(encodeReplay(replay));
     expect(decoded.wardenPlayer).toBe(1);
@@ -82,26 +84,27 @@ describe("replay format", () => {
     expect(() => decodeReplay(bytes)).toThrow("wardenDifficulty set without");
   });
 
-  it("still decodes format 1 replays (pre-Warden header, no config bytes)", () => {
-    // The goldens were re-recorded as format 2 with the v8 bump, so build the
-    // legacy layout synthetically: encode format 2 without a Warden, strip
-    // the two config bytes (16/17) and stamp format 1.
-    const f2 = encodeReplay(createReplayData("test-128", 0xc0ffee, 3));
+  it("refuses format 1 and 2 replays (stick and aim axes, 5 bytes a player)", () => {
+    // No sim since the button word reads their axes, so both are refused rather
+    // than replayed wrong. Build the legacy layouts synthetically: a format 3
+    // header stamped 2 with three 10-byte frames, and that file with the two
+    // Warden config bytes (16/17) stripped, stamped 1.
+    const header = encodeReplay(createReplayData("test-128", 0xc0ffee, 0));
+    const f2 = new Uint8Array(header.length + 3 * 10);
+    f2.set(header, 0);
+    f2[4] = 2; // format 2
+    f2[5] = 0;
+    expect(() => decodeReplay(f2)).toThrow("unsupported replay format version 2");
     const f1 = new Uint8Array(f2.length - 2);
     f1.set(f2.subarray(0, 16), 0); // magic, format, simVersion, seed, tickCount
     f1.set(f2.subarray(18), 16); // mapId length + mapId + frames
     f1[4] = 1; // format 1
-    f1[5] = 0;
-    const decoded = decodeReplay(f1);
-    expect(decoded.formatVersion).toBe(1);
-    expect(decoded.mapId).toBe("test-128");
-    expect(decoded.wardenPlayer).toBe(-1);
-    expect(decoded.wardenDifficulty).toBe(0);
-    expect(decoded.tickCount).toBe(3);
+    expect(() => decodeReplay(f1)).toThrow("unsupported replay format version 1");
   });
 
-  it("frames are 5 bytes per player (network format contract)", () => {
-    expect(FRAME_BYTES).toBe(10);
+  it("frames are 2 bytes per player, the u16 button word (network format contract)", () => {
+    expect(REPLAY_FORMAT_VERSION).toBe(3);
+    expect(FRAME_BYTES).toBe(4);
     const replay = createReplayData("m", 1, 7);
     expect(encodeReplay(replay).length).toBe(19 + 1 + 7 * FRAME_BYTES);
   });

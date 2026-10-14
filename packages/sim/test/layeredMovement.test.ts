@@ -4,20 +4,21 @@ import { ARCHETYPE } from "../src/archetypes";
 import { crossesWallX, segmentBlocked } from "../src/collision";
 import { spawn } from "../src/entities";
 import { createSim, createTickInputs, getMapById, HOVER_CLEARANCE, hash, step } from "../src/index";
+import { BTN_FORWARD } from "../src/inputs";
 import { LAYERED_TEST_ID, loadMapFromJson, type MapJson, TEST_MAP_ID } from "../src/map";
 import { MODE_HOVER } from "../src/sim";
 import { separateGroundUnits, snapUnitHeight } from "../src/units";
+import { faceAlong } from "./drive";
 
-function drive(
-  sim: ReturnType<typeof createSim>,
-  moveX: number,
-  moveY: number,
-  ticks: number,
-): void {
+/**
+ * Faces player 0's hull along (dx, dy) and holds Move Forward for `ticks`: the
+ * original drives along the facing, so the test turns the hull first.
+ */
+function drive(sim: ReturnType<typeof createSim>, dx: number, dy: number, ticks: number): void {
+  faceAlong(sim, sim.avatarId[0], dx, dy);
   const inputs = createTickInputs();
   for (let t = 0; t < ticks; t++) {
-    inputs.players[0].moveX = moveX;
-    inputs.players[0].moveY = moveY;
+    inputs.players[0].buttons = BTN_FORWARD;
     step(sim, inputs);
   }
 }

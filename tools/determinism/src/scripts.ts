@@ -7,26 +7,30 @@
 
 import {
   ARCHETYPE,
-  BUTTON_FIRE1,
-  BUTTON_FIRE2,
-  BUTTON_FIRE3,
-  BUTTON_INTERACT,
-  BUTTON_JUMP,
-  BUTTON_TRANSFORM,
+  BTN_ACTION,
+  BTN_BACK,
+  BTN_CHANGE_TARGET,
+  BTN_FORWARD,
+  BTN_GUN,
+  BTN_HEAVY,
+  BTN_JINK_LEFT,
+  BTN_JINK_RIGHT,
+  BTN_JUMP,
+  BTN_SPECIAL,
+  BTN_TURN_LEFT,
+  BTN_TURN_RIGHT,
   clearTickInputs,
-  cosLUT,
   crossesWallX,
   crossesWallY,
   type MapData,
   type PlayerInput,
-  quantizeAxis,
   type SimState,
   sampleHeight,
   segmentBlocked,
-  sinLUT,
   TEAM_NEUTRAL,
   TICK_HZ,
   type TickInputs,
+  TRANSFORM_CHORD,
   TRANSFORM_LOCK_TICKS,
   type WardenConfig,
 } from "@metropolis/sim";
@@ -39,59 +43,54 @@ import {
 export type InputScript = (tick: number, out: TickInputs, sim: Readonly<SimState>) => void;
 
 /**
- * Golden #1 (Phase 0): 60 s of varied driving — full-stick sprints, circles,
- * a figure eight, idle stretches, diagonals with button chatter. Exercises
- * axis quantization, bound clamping and yaw updates.
+ * Golden #1 (Phase 0): 60 s of driving on the original's buttons — a sprint,
+ * turning circles both ways, a figure eight, idle stretches, the diagonals with
+ * jump chatter, reversing, strafing, and all three weapons. Exercises the button
+ * word, the walker's turn at speed and at rest, bound clamping and yaw updates.
  */
 export function drive01(tick: number, out: TickInputs): void {
   clearTickInputs(out);
   const p = out.players[0];
   const t = tick / TICK_HZ;
   if (t < 5) {
-    p.moveX = 127; // sprint east into the hills
+    p.buttons = BTN_FORWARD; // sprint ahead
   } else if (t < 12) {
-    p.moveX = quantizeAxis(cosLUT(t * 0.9)); // wide circle
-    p.moveY = quantizeAxis(sinLUT(t * 0.9));
+    p.buttons = BTN_FORWARD | BTN_TURN_RIGHT; // a circle to the right
   } else if (t < 20) {
-    p.moveY = -127; // straight south, firing
-    p.buttons = BUTTON_FIRE1;
+    // Turn about on the spot, then straight on, firing.
+    p.buttons = t < 13.7 ? BTN_TURN_LEFT : BTN_FORWARD | BTN_GUN;
   } else if (t < 30) {
-    p.moveX = quantizeAxis(sinLUT(t * 1.3)); // figure eight
-    p.moveY = quantizeAxis(sinLUT(t * 0.65));
+    // A figure eight: the turn flips every 2.5 s.
+    p.buttons = BTN_FORWARD | (Math.floor(t / 2.5) % 2 === 0 ? BTN_TURN_RIGHT : BTN_TURN_LEFT);
   } else if (t < 33) {
     // idle — hash sequence must still advance via the tick counter
   } else if (t < 43) {
-    p.moveX = 90; // diagonal with jump chatter
-    p.moveY = 90;
-    if (Math.floor(t * 2) % 2 === 0) p.buttons = BUTTON_JUMP;
+    // The diagonal forward-right with jump chatter.
+    p.buttons = BTN_FORWARD | BTN_JINK_RIGHT;
+    if (Math.floor(t * 2) % 2 === 0) p.buttons |= BTN_JUMP;
   } else if (t < 53) {
-    p.moveX = quantizeAxis(cosLUT(-t * 1.1)); // reverse circle, heavy fire
-    p.moveY = quantizeAxis(sinLUT(-t * 1.1));
-    p.buttons = BUTTON_FIRE2;
+    // Reversing in a circle to the left, heavy fire, then Special held.
+    p.buttons = BTN_BACK | BTN_TURN_LEFT | (t < 48 ? BTN_HEAVY : BTN_SPECIAL);
   } else {
-    p.moveX = -127; // full west push into the map edge clamp
+    // Strafe left, then back-left, into the map edge clamp.
+    p.buttons = t < 56 ? BTN_JINK_LEFT : BTN_BACK | BTN_JINK_LEFT;
   }
 }
 
 /**
  * Exactly one transform, however the respawn tick lands.
  *
- * The mash this replaces pressed for a whole four-second phase, which made the
- * form the avatar ended in a parity accident: a press can only land when the
- * previous lock has expired, so the toggle count was phaseLength/lockLength and
- * TRANSFORM_LOCK_TICKS 15 -> 24 turned five toggles (ending hover) into four
- * (ending walker) without a line of the script changing.
- *
- * Mashing for strictly LESS than one lock fixes that at the root. The rising
- * edges still give a respawn that drifts several chances to catch one, but only
- * the first can ever land — every later edge falls inside the lock it started.
- * The form at the end of the phase is the script's choice again, not arithmetic
- * on two constants that move independently.
+ * The transform is the original's chord, Change Target + Action, read as a
+ * level: a chord still held when a change ends starts the next one. Holding it
+ * for strictly LESS than one change therefore lands exactly one, at the first
+ * tick the avatar is up to take it — every later tick falls inside the change
+ * it started. The form at the end of the phase is the script's choice, not
+ * arithmetic on the hold and the change's length.
  */
 function transformOnce(t: number, from: number): number {
   const dt = t - from;
   if (dt < 0 || dt >= (TRANSFORM_LOCK_TICKS - 1) / TICK_HZ) return 0;
-  return Math.floor(dt * 10) % 2 === 0 ? BUTTON_TRANSFORM : 0;
+  return TRANSFORM_CHORD;
 }
 
 // --- Closed-loop helpers (recording time only) ------------------------------
@@ -100,22 +99,35 @@ function transformOnce(t: number, from: number): number {
 // point, aim at the nearest target. Plain arithmetic only (Math.sqrt is exact),
 // so a re-record is byte-identical on any machine.
 
-/** The stick and aim along (dx, dy), full push. */
-function push(out: PlayerInput, dx: number, dy: number): void {
-  const d = Math.sqrt(dx * dx + dy * dy);
-  if (d < 1e-6) return;
-  out.moveX = quantizeAxis(dx / d);
-  out.moveY = quantizeAxis(dy / d);
-  out.aimX = out.moveX;
-  out.aimY = out.moveY;
-}
+/** Off the heading by more than this (sin, about 4°), the hull turns. */
+const STEER_TURN = 0.07;
+/** Within this of the heading (cos 22.5°), it drives forward as it turns. */
+const STEER_DRIVE = 0.9238795325112867;
 
-/** Aim only, along (dx, dy). */
-function aimAlong(out: PlayerInput, dx: number, dy: number): void {
+/**
+ * Player `p` steers along (dx, dy) with the turn buttons — Turn Right when the
+ * direction lies to the hull's right — and, when `drive` and within 22.5° of it,
+ * holds Move Forward. The original has no heading to send, only the buttons.
+ */
+function head(
+  sim: Readonly<SimState>,
+  p: number,
+  dx: number,
+  dy: number,
+  out: PlayerInput,
+  drive = true,
+): void {
+  const a = sim.avatarId[p];
   const d = Math.sqrt(dx * dx + dy * dy);
-  if (d < 1e-6) return;
-  out.aimX = quantizeAxis(dx / d);
-  out.aimY = quantizeAxis(dy / d);
+  if (a < 0 || d < 1e-6) return;
+  const hx = sim.ent.aimX[a];
+  const hy = sim.ent.aimY[a];
+  const across = (hx * dy - hy * dx) / d; // + : the direction is to the right
+  const along = (hx * dx + hy * dy) / d;
+  if (along < 0 || Math.abs(across) > STEER_TURN) {
+    out.buttons |= across >= 0 ? BTN_TURN_RIGHT : BTN_TURN_LEFT;
+  }
+  if (drive && along > STEER_DRIVE) out.buttons |= BTN_FORWARD;
 }
 
 /**
@@ -242,11 +254,11 @@ function driveTo(
   }
   const cells = r.path.length / 2;
   if (cells === 0) {
-    push(out, dx, dy);
+    head(sim, p, dx, dy, out);
     return d;
   }
   if (d < 1.5) {
-    push(out, dx, dy); // the last stretch: straight at the goal itself
+    head(sim, p, dx, dy, out); // the last stretch: straight at the goal itself
     return d;
   }
   let wx = r.path[r.at * 2] - ax;
@@ -263,7 +275,7 @@ function driveTo(
     wx = r.path[k * 2] - ax;
     wy = r.path[k * 2 + 1] - ay;
   }
-  push(out, wx, wy);
+  head(sim, p, wx, wy, out);
   return d;
 }
 
@@ -306,7 +318,7 @@ function engage(
   if (dx * dx + dy * dy > range * range) {
     driveTo(sim, p, sim.ent.posX[id], sim.ent.posY[id], range, out);
   } else {
-    aimAlong(out, dx, dy);
+    head(sim, p, dx, dy, out, false); // face it: the lock takes it within 12.5°
     out.buttons |= buttons;
   }
   return true;
@@ -315,7 +327,7 @@ function engage(
 /** Cycles the three fire buttons a second each: Gun, Heavy, Special. */
 function allWeapons(tick: number): number {
   const k = Math.floor(tick / TICK_HZ) % 3;
-  return k === 0 ? BUTTON_FIRE1 : k === 1 ? BUTTON_FIRE2 : BUTTON_FIRE3;
+  return k === 0 ? BTN_GUN : k === 1 ? BTN_HEAVY : BTN_SPECIAL;
 }
 
 /** A neutral (team-less) turret: the outposts' plate guns before a claim. */
@@ -365,17 +377,16 @@ export function combat01(tick: number, out: TickInputs, sim: Readonly<SimState>)
     const cx = sim.map.outpostSpots[2].x;
     const cy = sim.map.outpostSpots[2].y;
     driveTo(sim, 0, cx, cy, 3, p);
-    p.buttons = Math.floor(tick / 15) % 2 === 0 ? BUTTON_FIRE1 : BUTTON_FIRE3;
+    p.buttons |= Math.floor(tick / 15) % 2 === 0 ? BTN_GUN : BTN_SPECIAL;
   } else if (dt < 24) {
     p.buttons = transformOnce(t, combatFrom + 20); // back to walker
   } else if (dt < 36) {
     // Walk back toward the base with jump chatter, Heavy on the way.
     const s = sim.map.spawns[0];
     driveTo(sim, 0, s.x, s.y, 3, p);
-    p.buttons = Math.floor(t * 2) % 2 === 0 ? BUTTON_JUMP : BUTTON_FIRE2;
+    p.buttons |= Math.floor(t * 2) % 2 === 0 ? BTN_JUMP : BTN_HEAVY;
   } else {
-    p.moveX = quantizeAxis(cosLUT(t * 0.9)); // wide circle until the end
-    p.moveY = quantizeAxis(sinLUT(t * 0.9));
+    p.buttons = BTN_FORWARD | BTN_TURN_RIGHT; // a circle until the end
   }
 }
 
@@ -394,7 +405,7 @@ function matchPlayer(sim: Readonly<SimState>, p: number, tick: number, out: Play
   if (matchBought[p] < 5) {
     const d = driveTo(sim, p, c.x, c.y, 1, out);
     if (d >= 0 && d <= 1 && tick % 15 === 0) {
-      out.buttons = BUTTON_INTERACT;
+      out.buttons = BTN_ACTION; // a tap: one unit
       matchBought[p] += 1;
     }
     return;
@@ -459,36 +470,33 @@ export function warden01(tick: number, out: TickInputs, sim: Readonly<SimState>)
  * the walled unit stepper + separation), then drives ENE into the vertical
  * wall band on grid line x=81 (rows ~100-102), pins against it, slides north
  * along it, and roams back — the golden's hash sequence covers wall-blocked
- * avatar movement on both axes. Probe-verified: the avatar clamps at x≈80.9.
+ * avatar movement on both axes.
  */
-export function fcop01(tick: number, out: TickInputs): void {
+export function fcop01(tick: number, out: TickInputs, sim: Readonly<SimState>): void {
   clearTickInputs(out);
   const p = out.players[0];
   const t = tick / TICK_HZ;
+  // Each leg steers along a world bearing with the turn buttons (`head`), so
+  // the walls are met as they were when this golden pushed a stick that way.
+  // urban-jungle's spawn 0 is at (106.2, 71) since the arena was rebuilt from
+  // the original Conft logic, not the (38,128) the bearings were written for.
   if (t < 4) {
-    // The script is unchanged across the issue-#30 rebuild on purpose, so the
-    // re-record is purely the map moving. Its bearings are no longer literal:
-    // urban-jungle's spawn 0 is at (106.2, 71) since the arena was rebuilt from
-    // the original Conft logic, not the (38,128) this comment was written for.
-    p.moveY = -127; // north, off the base platform toward the consoles
+    head(sim, 0, 0, -1, p); // north, off the base platform toward the consoles
   } else if (t < 20) {
-    // Runner waves onto the lanes: one per press of the action key, a press every
-    // 0.5 s (the rate the 0.5 s hold bought at until SIM_VERSION 51).
-    p.buttons = tick % 15 === 0 ? BUTTON_INTERACT : 0;
+    // Runner waves onto the lanes: one per press of the Action Key, a press
+    // every 0.5 s.
+    p.buttons = tick % 15 === 0 ? BTN_ACTION : 0;
   } else if (t < 40) {
-    p.moveX = 127; // ENE toward the wall band — pins on line x=81 around y≈115
-    p.moveY = -35;
+    head(sim, 0, 127, -35, p); // ENE toward the wall band on line x=81
   } else if (t < 52) {
-    p.moveY = -127; // slide north along the wall, still pinned
+    head(sim, 0, 0, -1, p); // slide north along the wall
   } else if (t < 64) {
-    p.moveX = 127; // due-east push against the band again, firing
-    p.buttons = BUTTON_FIRE1;
+    head(sim, 0, 1, 0, p); // due-east push against the band again, firing
+    p.buttons |= BTN_GUN;
   } else if (t < 78) {
-    p.moveX = -90; // swing back southwest across open ground
-    p.moveY = 110;
+    head(sim, 0, -90, 110, p); // swing back southwest across open ground
   } else {
-    p.moveX = 60; // drift southeast until the recording ends
-    p.moveY = 127;
+    p.buttons = BTN_JINK_RIGHT | BTN_BACK; // back off on a diagonal until the end
   }
 }
 
@@ -498,18 +506,18 @@ export function fcop01(tick: number, out: TickInputs): void {
  * back west and descends to the base layer. Pins the multi-deck movement +
  * transition + gravity path (the only golden whose hash covers entLayer).
  */
-export function layered01(tick: number, out: TickInputs): void {
+export function layered01(tick: number, out: TickInputs, sim: Readonly<SimState>): void {
   clearTickInputs(out);
   const p = out.players[0];
   const t = tick / TICK_HZ;
   if (t < 6) {
-    p.moveX = 127; // spawn (2,2) → east, up the ramp onto the 3 m deck
+    head(sim, 0, 1, 0, p); // spawn (2,2) → east, up the ramp onto the 3 m deck
   } else if (t < 12) {
-    p.moveY = 127; // cross the deck northward
+    head(sim, 0, 0, 1, p); // cross the deck northward
   } else if (t < 18) {
-    p.moveX = -127; // back west, descending the ramp to the base layer
+    head(sim, 0, -1, 0, p); // back west, descending the ramp to the base layer
   } else {
-    p.moveY = -60; // drift south on the ground until the recording ends
+    p.buttons = BTN_TURN_LEFT | BTN_CHANGE_TARGET; // turn on the spot, cycling the lock
   }
 }
 
@@ -546,7 +554,7 @@ export function pa01(tick: number, out: TickInputs, sim: Readonly<SimState>): vo
     const c = sim.map.bases[0].groundConsole;
     const d = driveTo(sim, 0, c.x, c.y, 0.4, p);
     if (d >= 0 && d <= 0.4 && tick % 15 === 0) {
-      p.buttons = BUTTON_INTERACT;
+      p.buttons = BTN_ACTION;
       paBought += 1;
       if (paBought === 5) paPhase = 1;
     }
@@ -564,7 +572,7 @@ export function pa01(tick: number, out: TickInputs, sim: Readonly<SimState>): vo
     }
     const d = driveTo(sim, 0, sim.ent.posX[paPad], sim.ent.posY[paPad], 2.5, p);
     if (d >= 0 && d <= 2.5) {
-      p.buttons = Math.floor(tick / 15) % 2 === 1 ? BUTTON_INTERACT : 0;
+      p.buttons = Math.floor(tick / 15) % 2 === 1 ? BTN_ACTION : 0;
       if (sim.ent.team[paPad] === 0) {
         paPhase = 2;
         paFrom = t;
@@ -575,7 +583,7 @@ export function pa01(tick: number, out: TickInputs, sim: Readonly<SimState>): vo
   // Push south toward the enemy gate, firing into the line.
   const g = sim.map.bases[1].gate;
   driveTo(sim, 0, g.x, g.y, 6, p);
-  p.buttons = t - paFrom > 2 ? allWeapons(tick) : 0;
+  if (t - paFrom > 2) p.buttons |= allWeapons(tick);
 }
 
 export const SCRIPTS: Record<

@@ -29,7 +29,6 @@
     "replay:record:all": "bun run tools/determinism/src/recordAll.ts",
     "replay:verify": "bun run tools/determinism/src/cli.ts verify-goldens",
     "replay:verify:browser": "bun run tools/determinism/src/browserVerify.ts",
-    "e2e:touch": "bun run tools/determinism/src/touchInput.ts",
     "verify:arenas": "bun run tools/determinism/src/arenaShots.ts",
     "verify:units": "bun run tools/determinism/src/unitShots.ts",
     "pin:serve": "bun run tools/determinism/src/pinServer.ts",

@@ -39,10 +39,11 @@ import {
   EV_PURCHASE_REFUSED,
   EVENT_STRIDE,
 } from "../src/events";
-import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
+import { BTN_ACTION, BTN_GUN, BTN_HEAVY, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, type SimState, spawnUnit, step, TURRET_CAPTURABLE } from "../src/sim";
 import { UNIT_MODE_OUTPOST } from "../src/units";
+import { faceAlong, faceToward } from "./drive";
 
 // The original's Dreadnought and Fortress zones beside each base's consoles,
 // polled every 5 s (Mp's fn30).
@@ -122,13 +123,7 @@ const freshSim = (): SimState => createSim(loadMapFromJson(battleground()), 42);
 const inputs = createTickInputs();
 
 function reset(): void {
-  for (const p of inputs.players) {
-    p.moveX = 0;
-    p.moveY = 0;
-    p.aimX = 0;
-    p.aimY = 0;
-    p.buttons = 0;
-  }
+  for (const p of inputs.players) p.buttons = 0;
 }
 
 function findEvents(sim: SimState, type: number): number[][] {
@@ -225,16 +220,16 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     sim.points[0] = 100;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
-    inputs.players[0].buttons = BUTTON_INTERACT;
+    inputs.players[0].buttons = BTN_ACTION;
     step(sim, inputs);
     inputs.players[0].buttons = 0;
     expect(sim.points[0]).toBe(100); // the ground console refuses the 21st...
     const refused = findEvents(sim, EV_PURCHASE_REFUSED);
     expect(refused.length).toBe(1); // ...out loud, as the original's spot does
     expect(refused[0][2]).toBe(ARCHETYPE.RUNNER);
-    press(sim, 6, 14, BUTTON_INTERACT, 3);
+    press(sim, 6, 14, BTN_ACTION, 3);
     expect(sim.points[0]).toBe(100);
-    press(sim, 6, 22, BUTTON_INTERACT);
+    press(sim, 6, 22, BTN_ACTION);
     expect(sim.points[0]).toBe(100 - COST_GUARDIAN); // the jet cap is separate
   });
 
@@ -259,11 +254,11 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     expect(sim.heavyUnlocked[1]).toBe(0); // per side
     // Spend below 50: the zones stay open, and a second heavy can be bought with
     // the next 50 points.
-    press(sim, 12, 14, BUTTON_INTERACT);
+    press(sim, 12, 14, BTN_ACTION);
     expect(sim.points[0]).toBe(HEAVY_UNLOCK_POINTS - COST_JUGGERNAUT);
     expect(sim.heavyUnlocked[0]).toBe(1);
     sim.points[0] = COST_FORTRESS;
-    press(sim, 12, 22, BUTTON_INTERACT);
+    press(sim, 12, 22, BTN_ACTION);
     expect(sim.points[0]).toBe(0);
   });
 
@@ -283,7 +278,7 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     reset();
     const sim = freshSim();
     sim.points[0] = HEAVY_UNLOCK_POINTS;
-    press(sim, 12, 14, BUTTON_INTERACT);
+    press(sim, 12, 14, BTN_ACTION);
     // Still closed before the first poll: no purchase, no refusal.
     if (sim.heavyUnlocked[0] === 0) {
       expect(sim.points[0]).toBe(HEAVY_UNLOCK_POINTS);
@@ -293,7 +288,7 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     sim.points[0] = COST_JUGGERNAUT - 1;
     sim.ent.posX[0] = 12;
     sim.ent.posY[0] = 14;
-    inputs.players[0].buttons = BUTTON_INTERACT;
+    inputs.players[0].buttons = BTN_ACTION;
     step(sim, inputs);
     inputs.players[0].buttons = 0;
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
@@ -331,7 +326,7 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
     expect(findEvents(sim, EV_CAPTURE).length).toBe(0);
     expect(sim.ent.ownerId[sim.neutralTurretEntity[0]]).toBe(-1);
     // One press, and it flips on that tick: no timer (fcop-fidelity.md R12).
-    at(sim, 0, 33, 30, BUTTON_INTERACT);
+    at(sim, 0, 33, 30, BTN_ACTION);
     const captured = findEvents(sim, EV_CAPTURE);
     expect(captured.length).toBe(1);
     const tid = captured[0][0];
@@ -358,30 +353,30 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
     // SIM_VERSION 52).
     expect(sim.map.captureRange).toBe(ORIGINAL_CAPTURE_RANGE);
     const reach = ORIGINAL_CAPTURE_RANGE + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
-    at(sim, 0, 30 + reach + 0.05, 30, BUTTON_INTERACT);
+    at(sim, 0, 30 + reach + 0.05, 30, BTN_ACTION);
     expect(findEvents(sim, EV_CAPTURE).length).toBe(0);
     at(sim, 0, 30 + reach + 0.05, 30, 0);
     // Close enough on the ground, but the height counts too.
     sim.ent.height[sim.avatarId[0]] = reach;
     sim.ent.posX[sim.avatarId[0]] = 31;
     sim.ent.posY[sim.avatarId[0]] = 30;
-    inputs.players[0].buttons = BUTTON_INTERACT;
+    inputs.players[0].buttons = BTN_ACTION;
     step(sim, inputs);
     expect(findEvents(sim, EV_CAPTURE).length).toBe(0);
     sim.ent.height[sim.avatarId[0]] = 0; // back on the ground
     at(sim, 0, 31, 30, 0);
-    at(sim, 0, 30 + reach - 0.05, 30, BUTTON_INTERACT);
+    at(sim, 0, 30 + reach - 0.05, 30, BTN_ACTION);
     expect(findEvents(sim, EV_CAPTURE).length).toBe(1);
   });
 
   it("counts the press, not the hold", () => {
     reset();
     const sim = freshSim();
-    at(sim, 0, 45, 30, BUTTON_INTERACT); // pressed out of range...
-    for (let t = 0; t < 30; t++) at(sim, 0, 33, 30, BUTTON_INTERACT); // ...held into it
+    at(sim, 0, 45, 30, BTN_ACTION); // pressed out of range...
+    for (let t = 0; t < 30; t++) at(sim, 0, 33, 30, BTN_ACTION); // ...held into it
     expect(sim.ent.ownerId[sim.neutralTurretEntity[0]]).toBe(-1);
     at(sim, 0, 33, 30, 0);
-    at(sim, 0, 33, 30, BUTTON_INTERACT); // a fresh press takes it
+    at(sim, 0, 33, 30, BTN_ACTION); // a fresh press takes it
     expect(sim.ent.ownerId[sim.neutralTurretEntity[0]]).toBe(0);
   });
 
@@ -391,13 +386,13 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
     // The enemy standing on it changes nothing: the first press wins.
     sim.ent.posX[sim.avatarId[1]] = 27;
     sim.ent.posY[sim.avatarId[1]] = 30;
-    at(sim, 0, 33, 30, BUTTON_INTERACT);
+    at(sim, 0, 33, 30, BTN_ACTION);
     const tid = sim.neutralTurretEntity[0];
     expect(sim.ent.ownerId[tid]).toBe(0);
     // The other side cannot press it back.
     inputs.players[0].buttons = 0;
     for (let t = 0; t < 4; t++) {
-      inputs.players[1].buttons = t % 2 === 0 ? BUTTON_INTERACT : 0;
+      inputs.players[1].buttons = t % 2 === 0 ? BTN_ACTION : 0;
       step(sim, inputs);
     }
     expect(sim.ent.ownerId[tid]).toBe(0);
@@ -436,8 +431,8 @@ describe("neutral turret capture (rules.md §5, fcop-fidelity.md R12)", () => {
     // 10 m north of it: inside the X1-Alpha's 12 m lock, which the Mini-Gun needs
     // (it hits only its lock; fcop-fidelity.md W2). The turret shoots back.
     sim.ent.posY[0] = sim.ent.posY[tid] + 10;
-    inputs.players[0].aimY = -127; // aim straight at the turret
-    inputs.players[0].buttons = BUTTON_FIRE1;
+    faceToward(sim, 0, sim.ent.posX[tid], sim.ent.posY[tid]); // straight at the turret
+    inputs.players[0].buttons = BTN_GUN;
     let died = -1;
     for (let t = 1; t < 1200 && died < 0; t++) {
       step(sim, inputs);
@@ -470,7 +465,7 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
   /** Stands there, then presses the action key (its rising edge) for one tick. */
   function claim(sim: SimState, player: number): void {
     stand(sim, player);
-    inputs.players[player].buttons = BUTTON_INTERACT;
+    inputs.players[player].buttons = BTN_ACTION;
     step(sim, inputs);
     inputs.players[player].buttons = 0;
   }
@@ -484,7 +479,7 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     sim.points[0] = 40;
     for (let t = 0; t < 30; t++) stand(sim, 0);
     expect(sim.outpostOwner[0]).toBe(-1); // entering is not enough
-    inputs.players[0].buttons = BUTTON_INTERACT;
+    inputs.players[0].buttons = BTN_ACTION;
     step(sim, inputs);
     inputs.players[0].buttons = 0;
     expect(findEvents(sim, EV_CLAIM).length).toBe(1);
@@ -500,7 +495,7 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     other.ent.posX[0] = 30 + OUTPOST_ZONE_RADIUS + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR] + 0.05;
     other.ent.posY[0] = 46;
     step(other, inputs);
-    inputs.players[0].buttons = BUTTON_INTERACT;
+    inputs.players[0].buttons = BTN_ACTION;
     step(other, inputs);
     inputs.players[0].buttons = 0;
     expect(other.outpostOwner[0]).toBe(-1);
@@ -535,7 +530,7 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     step(sim, inputs); // released
     sim.ent.posX[0] = 26;
     sim.ent.posY[0] = 46;
-    inputs.players[0].buttons = BUTTON_INTERACT;
+    inputs.players[0].buttons = BTN_ACTION;
     step(sim, inputs);
     let bought = findEvents(sim, EV_PURCHASE);
     expect(bought.length).toBe(1);
@@ -549,7 +544,7 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     step(sim, inputs);
     sim.ent.posX[0] = 34;
     sim.ent.posY[0] = 46;
-    inputs.players[0].buttons = BUTTON_INTERACT;
+    inputs.players[0].buttons = BTN_ACTION;
     step(sim, inputs);
     bought = findEvents(sim, EV_PURCHASE);
     expect(bought.length).toBe(1);
@@ -584,15 +579,14 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     const foe = sim.avatarId[1];
     sim.ent.posX[0] = 30;
     sim.ent.posY[0] = 30; // the claimer steps away
-    inputs.players[1].aimX = -127;
-    inputs.players[1].buttons = BUTTON_FIRE1 | BUTTON_FIRE2;
+    faceAlong(sim, foe, -1, 0); // west, at the console
+    inputs.players[1].buttons = BTN_GUN | BTN_HEAVY;
     for (let t = 0; t < 120; t++) {
       sim.ent.posX[foe] = 35;
       sim.ent.posY[foe] = 46;
       step(sim, inputs);
     }
     inputs.players[1].buttons = 0;
-    inputs.players[1].aimX = 0;
     expect(sim.ent.hp[cid]).toBe(hp);
     expect(sim.outpostConsole[0]).toBe(cid);
     expect(sim.outpostOwner[0]).toBe(0);

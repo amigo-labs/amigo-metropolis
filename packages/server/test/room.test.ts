@@ -39,7 +39,7 @@ const hello = (config = CONFIG): NetMessage => ({
   protocol: PROTOCOL_VERSION,
   config,
 });
-const inp = (x: number): PlayerInput => ({ moveX: x, moveY: 0, aimX: 0, aimY: 0, buttons: 0 });
+const inp = (x: number): PlayerInput => ({ buttons: x });
 const input = (tick: number, x: number): NetMessage => ({ type: MSG_INPUT, tick, input: inp(x) });
 
 /** Types of the outgoing messages, ignoring targets — handy for assertions. */
@@ -118,8 +118,8 @@ describe("RoomLogic input sequencing", () => {
     expect(frame).toBeDefined();
     if (frame?.type === MSG_FRAME) {
       expect(frame.tick).toBe(0);
-      expect(frame.inputs[0].moveX).toBe(10);
-      expect(frame.inputs[1].moveX).toBe(20);
+      expect(frame.inputs[0].buttons).toBe(10);
+      expect(frame.inputs[1].buttons).toBe(20);
     }
     expect(room.sequencedTicks).toBe(1);
   });
@@ -190,8 +190,8 @@ describe("RoomLogic reconnect", () => {
       .map((o) => o.msg as Extract<NetMessage, { type: typeof MSG_FRAME }>);
     expect(frames.map((f) => f.tick)).toEqual([3, 4]);
     // Frame history carries BOTH slots' original inputs.
-    expect(frames[0].inputs[0].moveX).toBe(3);
-    expect(frames[0].inputs[1].moveX).toBe(30);
+    expect(frames[0].inputs[0].buttons).toBe(3);
+    expect(frames[0].inputs[1].buttons).toBe(30);
     // Match continues from where it stalled.
     room.handleMessage("a", input(5, 5));
     expect(types(room.handleMessage("b2", input(5, 50)))).toContain(MSG_FRAME);

@@ -178,16 +178,6 @@ export const X1_TERMINAL_FALL = 12 * X1_SPEED_UNIT;
  */
 export const X1_DIAGONAL_SCALE = 181 / 256;
 /**
- * sin(22.5°): Metropolis' stick is analogue, the original's input digital
- * (its stick path is dead in retail). The stick, in the hull's frame, is read
- * as the original's bits: a fore/aft bit when its component along the facing
- * is over sin 22.5° of its length, a sideways bit likewise across it — the
- * eight 45° sectors of a d-pad. A keyboard's unit diagonals land on the
- * diagonals. The stick's length scales the push (the original's own stick
- * path, `push = mag * push >> 7`, at 0x004428be).
- */
-export const X1_STICK_SECTOR = 0.3826834323650898;
-/**
  * Impact (landing) damage, `player_impact_damage` (0x004438e0): none at or
  * below 0x93333 per step = 10.78 m/s of fall; above it x = (v - 10.78) * 0.3048
  * (v clamped to 56.25 m/s), f(x) = 0.6124x up to 0.5, 0.866x^1.5 up to 0.75, x²

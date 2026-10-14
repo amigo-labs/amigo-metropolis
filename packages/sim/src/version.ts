@@ -1046,4 +1046,22 @@
 //     whose step crossed the face 2 cm past the old slack dropped the mech 2 m
 //     into that slot, where it stood against the platform's wall. The original's
 //     mech is broader than the slot (fcop-fidelity.md P12).
-export const SIM_VERSION = 68;
+// v69: the original's controls (fcop-fidelity.md C1, P3, W2): the tick input is
+//     the original's button word, a u16 (inputs.ts) — Move Forward / Backward,
+//     Turn Right / Left, Jink Left / Right, Gun, Heavy, Special, Jump, Action
+//     and Change Target — replacing the stick and aim axes (protocol v2,
+//     replay format 3). The hull turns by the turn buttons at the original's
+//     rates (the walker's 0x20 a step less its speed term, on the ground; the
+//     hover's ramp), not toward a heading; Turn Right raises the facing. The
+//     push takes the state the bits choose (forward over back, Jink Right over
+//     Jink Left, a fore/aft state with a jink the diagonal — the walker's not
+//     while Jump is held — the hover's brake over all); both jinks cancel. The
+//     transform is the chord Change Target + Action read as a level (a chord
+//     held through a change starts the next), refused on water every tick it
+//     is held; while a change runs, and on the ramp's last tick, only the fire
+//     buttons survive, and the latches see that filtered word. The high jump
+//     and the hop take no turn on their tick. Special in held mode fires from
+//     its latch's HELD state, the second tick it is down (lastButtons holds the
+//     u16 word). The lock never turns the hull: lockSteer is gone from the
+//     state and the hash.
+export const SIM_VERSION = 69;

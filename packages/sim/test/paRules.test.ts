@@ -41,7 +41,7 @@ import {
   EV_TURRET_UNDER_FIRE,
   EVENT_STRIDE,
 } from "../src/events";
-import { BUTTON_FIRE1, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
+import { BTN_ACTION, BTN_GUN, createTickInputs } from "../src/inputs";
 import { getMapById, LA_CANTINA_ID, resolveHeight, TEST_MAP_ID } from "../src/map";
 import {
   claimOutpostSlot,
@@ -55,6 +55,7 @@ import {
   TURRET_DEFENSE,
 } from "../src/sim";
 import { nearestEnemyInRange } from "../src/units";
+import { faceAlong } from "./drive";
 
 const idle = createTickInputs();
 
@@ -493,7 +494,7 @@ describe("capture on the imported arenas (fcop-fidelity.md R12)", () => {
       ent.posX[a] = ent.posX[tid] - dx;
       ent.posY[a] = ent.posY[tid];
       ent.height[a] = ent.height[tid];
-      press.players[0].buttons = BUTTON_INTERACT;
+      press.players[0].buttons = BTN_ACTION;
       step(state, press);
     };
     pressAt(reach + 0.05);
@@ -514,7 +515,7 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     ent.height[a] = resolveHeight(state.map, x, y, 0);
     step(state, release);
     const press = createTickInputs();
-    press.players[p].buttons = BUTTON_INTERACT;
+    press.players[p].buttons = BTN_ACTION;
     ent.posX[a] = x;
     ent.posY[a] = y;
     step(state, press);
@@ -572,8 +573,8 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     // ...and the enemy avatar shooting it point-blank does not hurt it.
     const foe = state.avatarId[1];
     const fire = createTickInputs();
-    fire.players[1].aimX = -127;
-    fire.players[1].buttons = BUTTON_FIRE1;
+    faceAlong(state, foe, -1, 0); // facing the console, west
+    fire.players[1].buttons = BTN_GUN;
     for (let k = 0; k < 60; k++) {
       ent.posX[foe] = spot.x + 5; // an open line of fire (no wall in between)
       ent.posY[foe] = spot.y;
@@ -646,7 +647,7 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     /** One press on the pad (released, then down): the unit it bought, or -1. */
     const pressPad = (x: number, y: number): number => {
       let bought = -1;
-      for (const buttons of [0, BUTTON_INTERACT]) {
+      for (const buttons of [0, BTN_ACTION]) {
         buy.players[0].buttons = buttons;
         ent.posX[a] = x;
         ent.posY[a] = y;
@@ -692,7 +693,7 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     const b = other.avatarId[1];
     const foeBuy = createTickInputs();
     for (let t = 0; t < 30; t++) {
-      foeBuy.players[1].buttons = t % 2 === 1 ? BUTTON_INTERACT : 0; // fifteen presses
+      foeBuy.players[1].buttons = t % 2 === 1 ? BTN_ACTION : 0; // fifteen presses
       other.ent.posX[b] = o.tankPad.x;
       other.ent.posY[b] = o.tankPad.y;
       step(other, foeBuy);
@@ -839,11 +840,10 @@ describe("base turret alerts (fcop-fidelity.md R15)", () => {
     const tx = ent.posX[tid];
     const ty = ent.posY[tid];
     const fire = createTickInputs();
-    fire.players[team ^ 1].aimX = -127 * side[0]; // back at the turret
-    fire.players[team ^ 1].aimY = -127 * side[1];
-    fire.players[team ^ 1].buttons = BUTTON_FIRE1;
+    faceAlong(state, foe, -side[0], -side[1]); // back at the turret
+    fire.players[team ^ 1].buttons = BTN_GUN;
     const fired: number[] = [];
-    // The walker turns to face the turret first (~1 s), then hits every tick.
+    // Faced at the turret from the start, the walker hits it every tick.
     for (let t = 0; t < TURRET_ALERT_COOLDOWN_TICKS + 60; t++) {
       ent.posX[foe] = tx + 6 * side[0];
       ent.posY[foe] = ty + 6 * side[1];

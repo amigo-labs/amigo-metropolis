@@ -10,9 +10,13 @@
 
 import { describe, expect, it } from "bun:test";
 import {
-  BUTTON_FIRE1,
-  BUTTON_FIRE2,
-  BUTTON_INTERACT,
+  BTN_ACTION,
+  BTN_FORWARD,
+  BTN_GUN,
+  BTN_HEAVY,
+  BTN_JINK_LEFT,
+  BTN_TURN_LEFT,
+  BTN_TURN_RIGHT,
   clearTickInputs,
   createSim,
   createTickInputs,
@@ -45,14 +49,12 @@ const CONFIG: MatchConfig = {
 function refScript(tick: number, out: TickInputs): void {
   clearTickInputs(out);
   const p0 = out.players[0];
-  p0.moveY = 110;
-  p0.aimX = 70;
-  if (tick % 20 < 5) p0.buttons = BUTTON_FIRE1;
-  if (tick > 40 && tick % 30 < 6) p0.buttons |= BUTTON_INTERACT;
+  p0.buttons = BTN_FORWARD | (tick % 50 < 10 ? BTN_TURN_RIGHT : 0);
+  if (tick % 20 < 5) p0.buttons |= BTN_GUN;
+  if (tick > 40 && tick % 30 < 6) p0.buttons |= BTN_ACTION;
   const p1 = out.players[1];
-  p1.moveX = -90;
-  p1.moveY = 50;
-  if (tick % 25 < 4) p1.buttons = BUTTON_FIRE2;
+  p1.buttons = BTN_JINK_LEFT | (tick % 40 < 8 ? BTN_TURN_LEFT : 0);
+  if (tick % 25 < 4) p1.buttons |= BTN_HEAVY;
 }
 
 function referenceHashes(ticks: number): number[] {
@@ -195,8 +197,8 @@ function drive(a: P2pLockstep, b: P2pLockstep, target: number): void {
 describe("p2p input packet codec", () => {
   it("round-trips a redundancy window", () => {
     const inputs: PlayerInput[] = [
-      { moveX: -128, moveY: 127, aimX: 5, aimY: -5, buttons: 0xff },
-      { moveX: 1, moveY: 2, aimX: 3, aimY: 4, buttons: 5 },
+      { buttons: 0xffff },
+      { buttons: 0x8205 }, // the high byte too: Move Backward is 0x8000
     ];
     const decoded = decodeP2pInput(encodeP2pInput(41, inputs));
     expect(decoded).toEqual({ latestTick: 41, inputs });
@@ -205,7 +207,7 @@ describe("p2p input packet codec", () => {
   it("rejects malformed packets instead of throwing", () => {
     expect(decodeP2pInput(new Uint8Array(0))).toBeNull();
     expect(decodeP2pInput(new Uint8Array([0x99, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]))).toBeNull();
-    const good = encodeP2pInput(3, [{ moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: 0 }]);
+    const good = encodeP2pInput(3, [{ buttons: 0 }]);
     expect(decodeP2pInput(good.slice(0, good.length - 1))).toBeNull(); // truncated
     const overlong = new Uint8Array([...good, 0]); // trailing byte
     expect(decodeP2pInput(overlong)).toBeNull();

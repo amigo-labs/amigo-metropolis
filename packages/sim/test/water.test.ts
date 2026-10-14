@@ -7,7 +7,7 @@
 import { describe, expect, it } from "bun:test";
 import { HOVER_CLEARANCE, TRANSFORM_LOCK_TICKS } from "../src/balance";
 import { EV_TRANSFORM_REFUSED, EVENT_STRIDE } from "../src/events";
-import { BUTTON_TRANSFORM, createTickInputs } from "../src/inputs";
+import { createTickInputs, TRANSFORM_CHORD } from "../src/inputs";
 import {
   getMapById,
   HOLLYWOOD_KEYS_ID,
@@ -58,7 +58,7 @@ describe("water", () => {
     expect(state.ent.height[a0]).toBeCloseTo(surface + HOVER_CLEARANCE, 1);
 
     const press = createTickInputs();
-    press.players[0].buttons = BUTTON_TRANSFORM;
+    press.players[0].buttons = TRANSFORM_CHORD;
     step(state, press);
     expect(refused(state)).toBe(true);
     expect(state.ent.mode[a0]).toBe(MODE_HOVER);

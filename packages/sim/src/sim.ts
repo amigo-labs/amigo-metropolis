@@ -140,7 +140,6 @@ import {
   X1_IMPACT_SPEED,
   X1_IMPACT_SPEED_MAX,
   X1_STEPS_PER_TICK,
-  X1_STICK_SECTOR,
   X1_TERMINAL_FALL,
   X1_UNITS_PER_TICK,
 } from "./balance";
@@ -181,14 +180,23 @@ import {
 } from "./events";
 import { fnv1aBytes, fnv1aF32, fnv1aInit, fnv1aU32 } from "./hash";
 import {
-  BUTTON_FIRE1,
-  BUTTON_FIRE2,
-  BUTTON_FIRE3,
-  BUTTON_INTERACT,
-  BUTTON_JUMP,
-  BUTTON_TARGET_CYCLE,
-  BUTTON_TRANSFORM,
+  BTN_ACTION,
+  BTN_BACK,
+  BTN_CHANGE_TARGET,
+  BTN_FORWARD,
+  BTN_GUN,
+  BTN_HEAVY,
+  BTN_JINK_LEFT,
+  BTN_JINK_RIGHT,
+  BTN_JUMP,
+  BTN_SPECIAL,
+  BTN_TURN_LEFT,
+  BTN_TURN_RIGHT,
+  JINKS,
+  SIM_BUTTONS,
   type TickInputs,
+  TRANSFORM_CHORD,
+  TRANSFORM_KEEPS,
 } from "./inputs";
 import {
   insideGate,
@@ -309,8 +317,11 @@ export interface SimState {
   readonly avatarId: Int32Array;
   /** Ticks until the player's avatar respawns (0 = not pending). */
   readonly respawnTimer: Int32Array;
-  /** Previous tick's buttons per player, for edge detection. */
-  readonly lastButtons: Uint8Array;
+  /**
+   * Previous tick's button word per player (u16, inputs.ts), as the latches saw
+   * it — filtered while a transform runs — for the press and held edges.
+   */
+  readonly lastButtons: Uint16Array;
   /**
    * What each avatar was told to do this tick, as the original's movement code
    * reads its button word: MOVE_CUE_DRIVE (a fore/aft or strafe command),
@@ -367,7 +378,7 @@ export interface SimState {
   readonly plateTurretEntity: Int32Array;
   readonly plateTurretRespawn: Int32Array;
   /**
-   * 1 for a player whose avatar pressed the action key (BUTTON_INTERACT, rising
+   * 1 for a player whose avatar pressed the Action Key (BTN_ACTION, rising
    * edge) this tick. TRANSIENT and not hashed: set by systemAvatarMovement and
    * cleared by systemCapture in the same tick, so it is all-zero between ticks.
    */
@@ -384,12 +395,6 @@ export interface SimState {
    * cycled and auto-acquired in-sim (`updateLock`). Hitscan guns damage only it.
    */
   readonly lockTarget: Int32Array;
-  /**
-   * 1 while the lock was taken by the player's own cycle press: then it is the
-   * heading the hull turns to (input.spec §4.4 `lock` mode). 0 for none or an
-   * auto-acquired lock, which aims the weapons only.
-   */
-  readonly lockSteer: Uint8Array;
   /**
    * The Gun slot's block-A magazine per player (the Heavy's and the Special's
    * are the avatar entity's ammoA / ammoB). The original's guns have finite
@@ -816,7 +821,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     ent: createEntityStore(),
     avatarId: new Int32Array(MAX_PLAYERS).fill(-1),
     respawnTimer: new Int32Array(MAX_PLAYERS),
-    lastButtons: new Uint8Array(MAX_PLAYERS),
+    lastButtons: new Uint16Array(MAX_PLAYERS),
     moveCue: new Uint8Array(MAX_PLAYERS),
     roundFrom: new Uint8Array(MAX_ENTITIES),
     points: new Uint32Array(MAX_PLAYERS).fill(STARTING_POINTS),
@@ -837,7 +842,6 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     outpostOwner: new Int8Array(map.outpostSpots.length).fill(-1),
     outpostConsole: new Int32Array(map.outpostSpots.length).fill(-1),
     lockTarget: new Int32Array(MAX_PLAYERS).fill(-1),
-    lockSteer: new Uint8Array(MAX_PLAYERS),
     gunAmmo: new Uint16Array(MAX_PLAYERS),
     burstLeft: new Uint8Array(MAX_PLAYERS * 3),
     loadoutGun: new Uint8Array(MAX_PLAYERS),
@@ -916,7 +920,6 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
   return state;
 }
 
-const AXIS_SCALE = 1 / 127;
 const GROUND_EPS = 0.001;
 /** Height changes up to this snap to the terrain; larger drops become falls. */
 export const STEP_SNAP = 0.35;
@@ -1042,8 +1045,6 @@ function slopePush(knee: number, gain: number): number {
 
 /** Gravity per movement step, m/s (0x9800 per step). */
 const X1_GRAVITY_PER_STEP = X1_GRAVITY / (300 / 8);
-/** A heading error this small (rad) is on heading: the yaw is stored as float32. */
-const TURN_SETTLED = 1e-4;
 /** Engine angle units (4096 a turn) to radians. */
 const ANGLE_UNIT = (2 * Math.PI) / 4096;
 
@@ -1096,14 +1097,13 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     if (p === state.wardenPlayer) continue;
     const id = state.avatarId[p];
     state.moveCue[p] = 0;
+    // The original's button word (inputs.ts); the client's own keys are cut.
+    const word = inputs.players[p].buttons & SIM_BUTTONS;
     if (id < 0) {
-      state.lastButtons[p] = inputs.players[p].buttons;
+      state.lastButtons[p] = word;
       continue;
     }
-    const input = inputs.players[p];
     const yaw0 = ent.yaw[id];
-    const pressed = input.buttons & ~state.lastButtons[p];
-    state.lastButtons[p] = input.buttons;
 
     const locked = ent.timerA[id] > 0;
     if (locked) ent.timerA[id] -= 1;
@@ -1112,23 +1112,35 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     let y = ent.posY[id];
     let hover = ent.mode[id] === MODE_HOVER;
 
-    // Transform (edge-triggered; fcop-fidelity.md P3): refused while a change is
-    // already running and on water in either form (the original's byte_146,
-    // set by surface material 1). In the air too: the original does not ask.
-    if ((pressed & BUTTON_TRANSFORM) !== 0) {
-      if (!locked && !inWater(state, id, x, y)) {
+    // Transform (fcop-fidelity.md P3): the chord Change Target + Action, both
+    // HELD — a level, not an edge, so a chord still held when a change ends asks
+    // for the other form again (`player_transform_step`). Not while a change
+    // runs; on water in either form refused with a sound, on every tick the
+    // chord is held (the original's byte_146, set by surface material 1). In the
+    // air too: the original does not ask.
+    if ((word & TRANSFORM_CHORD) === TRANSFORM_CHORD && !locked) {
+      if (!inWater(state, id, x, y)) {
         hover = !hover;
         startTransform(state, id, hover);
       } else {
         pushEvent(state.events, EV_TRANSFORM_REFUSED, id, p, 0);
       }
     }
-    // While the change runs, the original cuts the movement tick's input to
-    // nothing — no drive, no turn, no jump, no lock cycle — and runs the HOVER
-    // tick for the whole ramp in both directions, so the hull coasts on hover
-    // drag while its ride height ramps (fcop-re/player-and-weapons.md §2). The
-    // weapons are NOT locked: all three fire buttons keep working.
+    // While the change runs, the original keeps only the three fire buttons —
+    // no drive, turn, jump, Action press or lock cycle, on the chord's own tick
+    // and on the tick the ramp ends as well, so a chord held through a change
+    // registers neither half's press — and runs the HOVER tick for the whole
+    // ramp in both directions, so the hull coasts on hover drag while its ride
+    // height ramps (fcop-re/player-and-weapons.md §2).
     const nowLocked = ent.timerA[id] > 0;
+    let bits = locked || nowLocked ? word & TRANSFORM_KEEPS : word;
+    // The latches see the filtered word, as the original's button trackers do.
+    const prev = state.lastButtons[p];
+    const pressed = bits & ~prev;
+    const held = bits & prev;
+    state.lastButtons[p] = bits;
+    // Both jinks held cancel each other, in either form.
+    if ((bits & JINKS) === JINKS) bits &= ~JINKS;
     /** Hover physics this tick: the hover form, or any transformation ramp. */
     let hoverPhys = hover || nowLocked;
 
@@ -1144,140 +1156,26 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       : ent.height[id] > ride + GROUND_EPS || vz > 0;
 
     // The lock (fcop-fidelity.md W2): hold, cycle, auto-acquire, against the
-    // facing the hull had coming into this tick. Resolved before facing/drive so
-    // a steering lock turns the hull this tick. The cycle press is dropped while
-    // transforming, as the original drops the lock-cycle bit.
-    updateLock(state, p, id, !nowLocked && (pressed & BUTTON_TARGET_CYCLE) !== 0);
-    // The capture press is an edge, like the original's button latch
-    // (fcop-re/ranges-turrets-capture.md Q2); systemCapture consumes it.
-    if ((pressed & BUTTON_INTERACT) !== 0) state.capturePress[p] = 1;
-    const lockId = state.lockSteer[p] === 1 ? state.lockTarget[p] : -1;
-
-    // The stick, unit-clamped; nothing while transforming.
-    let mx = nowLocked ? 0 : input.moveX * AXIS_SCALE;
-    let my = nowLocked ? 0 : input.moveY * AXIS_SCALE;
-    const l2 = mx * mx + my * my;
-    if (l2 > 1) {
-      const inv = 1 / Math.sqrt(l2);
-      mx *= inv;
-      my *= inv;
-    }
-
-    // The heading it wants: lock > aim > stick > none. Metropolis steers by an
-    // absolute heading (input.spec §4.1) where the original has turn buttons, so
-    // the hull TURNS toward it at the original's rate rather than snapping.
-    let wantX = 0;
-    let wantY = 0;
-    if (!nowLocked) {
-      if (lockId >= 0) {
-        wantX = ent.posX[lockId] - x;
-        wantY = ent.posY[lockId] - y;
-      } else {
-        const ax = input.aimX * AXIS_SCALE;
-        const ay = input.aimY * AXIS_SCALE;
-        if (ax * ax + ay * ay > 0.04) {
-          wantX = ax;
-          wantY = ay;
-        } else if (l2 > 0) {
-          wantX = mx;
-          wantY = my;
-        }
-      }
-    }
-    const want2 = wantX * wantX + wantY * wantY;
-    if (want2 > 1e-6) {
-      const goal = atan2Poly(wantY, wantX);
-      const err = angleDelta(ent.yaw[id], goal);
-      let reach: number;
-      if (hoverPhys) {
-        // Hover: the rate word ramps by the frame delta a step toward the side
-        // turned to, from zero on a reversal or a release, clamped at 0x60; the
-        // facing turns by half of it a step (158°/s at most).
-        // An error within TURN_SETTLED is "on heading": the turn is released and
-        // the next turn ramps from zero again, as a released button does.
-        const turning = Math.abs(err) > TURN_SETTLED;
-        let rate = state.avatarTurnRate[p];
-        if (!turning || (rate !== 0 && rate > 0 !== err > 0)) rate = 0;
-        if (turning) {
-          rate += (err > 0 ? 1 : -1) * X1_UNITS_PER_TICK * X1_STEPS_PER_TICK;
-          if (rate > HOVER_TURN_LIMIT) rate = HOVER_TURN_LIMIT;
-          else if (rate < -HOVER_TURN_LIMIT) rate = -HOVER_TURN_LIMIT;
-        }
-        state.avatarTurnRate[p] = rate;
-        reach = Math.abs(rate) * 0.5 * X1_STEPS_PER_TICK * ANGLE_UNIT;
-      } else if (airborne) {
-        reach = 0; // the walker does not turn in the air
-      } else {
-        // Walker: 0x20 a step, less in proportion to speed (105°/s at rest,
-        // nothing at 18.75 m/s). No ramp.
-        const v = Math.sqrt(ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id]);
-        const k = 1 - v / WALKER_TURN_ZERO_SPEED;
-        reach = k > 0 ? WALKER_TURN_STEP * X1_STEPS_PER_TICK * ANGLE_UNIT * k : 0;
-      }
-      if (Math.abs(err) <= reach) {
-        // On the heading: take the wanted direction exactly, not its table
-        // approximation, so a held aim is as precise as the stick that sent it.
-        const inv = 1 / Math.sqrt(want2);
-        ent.yaw[id] = goal;
-        ent.aimX[id] = wantX * inv;
-        ent.aimY[id] = wantY * inv;
-      } else {
-        let yaw = ent.yaw[id] + (err > 0 ? reach : -reach);
-        if (yaw > Math.PI) yaw -= 2 * Math.PI;
-        else if (yaw <= -Math.PI) yaw += 2 * Math.PI;
-        ent.yaw[id] = yaw;
-        ent.aimX[id] = cosLUT(yaw);
-        ent.aimY[id] = sinLUT(yaw);
-      }
-    } else {
-      state.avatarTurnRate[p] = 0;
-    }
-    const fx = ent.aimX[id];
-    const fy = ent.aimY[id];
-
-    // The stick read as the original's input bits, in the hull's frame: fore/aft
-    // along the facing, sideways across it (screen right is (-fy, fx)), each
-    // set beyond sin 22.5° of the stick's length — eight d-pad sectors. Its
-    // length scales the push, as the original's stick path does.
-    const brake = hover && !nowLocked && (input.buttons & BUTTON_JUMP) !== 0;
-    let pushX = 0;
-    let pushY = 0;
-    let fore = 0;
-    let side = 0;
-    if (l2 > 0 && !brake) {
-      const mag = Math.sqrt(l2 < 1 ? l2 : 1);
-      const f = mx * fx + my * fy;
-      const sd = -mx * fy + my * fx;
-      if (Math.abs(f) > X1_STICK_SECTOR * mag) fore = f > 0 ? 1 : -1;
-      if (Math.abs(sd) > X1_STICK_SECTOR * mag) side = sd > 0 ? 1 : -1;
-      const pf = (hoverPhys ? HOVER_PUSH_FORE : WALKER_PUSH_FORE) * mag;
-      if (fore !== 0 && side !== 0) {
-        // The diagonal: 181/256 of the fore push along (F ± R), length √2.
-        const k = pf * X1_DIAGONAL_SCALE;
-        pushX = k * (fore * fx - side * fy);
-        pushY = k * (fore * fy + side * fx);
-      } else if (fore !== 0) {
-        pushX = pf * fore * fx;
-        pushY = pf * fore * fy;
-      } else if (side !== 0) {
-        const ps = (hoverPhys ? HOVER_PUSH_STRAFE : WALKER_PUSH_STRAFE) * mag;
-        pushX = -ps * side * fy;
-        pushY = ps * side * fx;
-      }
-    }
-    const commanded = fore !== 0 || side !== 0;
-    state.moveCue[p] =
-      (commanded ? MOVE_CUE_DRIVE : 0) |
-      (brake ? MOVE_CUE_BRAKE : 0) |
-      (ent.yaw[id] !== yaw0 ? MOVE_CUE_TURN : 0);
+    // facing the hull had coming into this tick.
+    updateLock(state, p, id, (pressed & BTN_CHANGE_TARGET) !== 0);
+    // The Action Key's press is "use", an edge like the original's button latch
+    // (fcop-re/ranges-turrets-capture.md Q2): capture, claim, buy, ride a lift.
+    // systemCapture clears it.
+    if ((pressed & BTN_ACTION) !== 0) state.capturePress[p] = 1;
 
     // The walker's jump (edge-triggered; balance.ts WALKER_* jumps): on the
-    // ground, not steep, not mid-change. It leaves the ground this tick, so the
-    // velocity below takes the airborne path, as the original's launch states do.
+    // ground, not steep, not mid-change, chosen against the facing the tick
+    // starts with, as the original probes with the frame's sine and cosine. It
+    // leaves the ground this tick, so the velocity below takes the airborne
+    // path, as the original's launch states do. The high jump and the hop take
+    // no turn on their tick; the leap is the run's own state and keeps it.
+    const fore = (bits & BTN_FORWARD) !== 0 ? 1 : (bits & BTN_BACK) !== 0 ? -1 : 0;
+    const side = (bits & BTN_JINK_RIGHT) !== 0 ? 1 : (bits & BTN_JINK_LEFT) !== 0 ? -1 : 0;
     let jumpLift = 0;
     let jumpPush = 0;
     let lunge = state.avatarLunge[p];
-    if (!hoverPhys && !airborne && (pressed & BUTTON_JUMP) !== 0) {
+    let jumpTurns = true;
+    if (!hoverPhys && !airborne && (pressed & BTN_JUMP) !== 0) {
       const h = ent.height[id];
       if (surfaceTilt(state, x, y, false, h).t <= WALKER_STEEP_TILT) {
         if (fore > 0) {
@@ -1285,8 +1183,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
           jumpPush = WALKER_LEAP_PUSH;
           lunge = 0;
         } else {
-          const ax = Math.min(Math.max(x + fx * WALKER_PROBE_AHEAD, 0), extent);
-          const ay = Math.min(Math.max(y + fy * WALKER_PROBE_AHEAD, 0), extent);
+          const ax = Math.min(Math.max(x + ent.aimX[id] * WALKER_PROBE_AHEAD, 0), extent);
+          const ay = Math.min(Math.max(y + ent.aimY[id] * WALKER_PROBE_AHEAD, 0), extent);
           const rise = avatarSurface(state, ax, ay, h + WALKER_PROBE_LIFT, false).height - h;
           if (rise > WALKER_HIGH_RISE) {
             jumpLift = WALKER_HIGH_LIFT; // a step ahead: the high jump
@@ -1296,10 +1194,76 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
             jumpPush = WALKER_HOP_PUSH;
             lunge = 0;
           }
+          jumpTurns = false;
         }
       }
     }
     const inAir = airborne || jumpLift > 0;
+
+    // Turning, by the turn buttons (camera-and-movement.md "Facing"): Turn
+    // Right raises the facing — clockwise seen from above — and wins over Turn
+    // Left.
+    const turn = (bits & BTN_TURN_RIGHT) !== 0 ? 1 : (bits & BTN_TURN_LEFT) !== 0 ? -1 : 0;
+    let dYaw = 0;
+    if (hoverPhys) {
+      // Hover: the rate word grows by the frame delta a step toward the side
+      // turned to, from zero after a reversal, is zero on a release and is
+      // clamped at 0x60; the facing turns by half of it a step (158°/s at most).
+      let rate = state.avatarTurnRate[p];
+      if (turn === 0 || (rate !== 0 && rate > 0 !== turn > 0)) rate = 0;
+      if (turn !== 0) {
+        rate += turn * X1_UNITS_PER_TICK * X1_STEPS_PER_TICK;
+        if (rate > HOVER_TURN_LIMIT) rate = HOVER_TURN_LIMIT;
+        else if (rate < -HOVER_TURN_LIMIT) rate = -HOVER_TURN_LIMIT;
+      }
+      state.avatarTurnRate[p] = rate;
+      dYaw = rate * 0.5 * X1_STEPS_PER_TICK * ANGLE_UNIT;
+    } else if (turn !== 0 && !airborne && jumpTurns) {
+      // Walker: 0x20 a step, less in proportion to speed (105°/s at rest,
+      // nothing at 18.75 m/s). No ramp, and no turning in the air.
+      const v = Math.sqrt(ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id]);
+      const k = 1 - v / WALKER_TURN_ZERO_SPEED;
+      if (k > 0) dYaw = turn * WALKER_TURN_STEP * X1_STEPS_PER_TICK * ANGLE_UNIT * k;
+    }
+    if (dYaw !== 0) {
+      let yaw = ent.yaw[id] + dYaw;
+      if (yaw > Math.PI) yaw -= 2 * Math.PI;
+      else if (yaw <= -Math.PI) yaw += 2 * Math.PI;
+      ent.yaw[id] = yaw;
+      ent.aimX[id] = cosLUT(yaw);
+      ent.aimY[id] = sinLUT(yaw);
+    }
+    const fx = ent.aimX[id];
+    const fy = ent.aimY[id];
+
+    // The push, from the state the bits choose, in the hull's frame: forward
+    // beats back, Jink Right beats Jink Left; a fore/aft state with a jink is
+    // the diagonal, 181/256 of the fore push along F ± R (the walker's not while
+    // Jump is held). The hover's brake (Jump) beats every direction.
+    const brake = hover && (bits & BTN_JUMP) !== 0;
+    let pushX = 0;
+    let pushY = 0;
+    if (!brake && fore !== 0) {
+      const pf = hoverPhys ? HOVER_PUSH_FORE : WALKER_PUSH_FORE;
+      const diag = hoverPhys || (bits & BTN_JUMP) === 0 ? side : 0;
+      if (diag !== 0) {
+        const k = pf * X1_DIAGONAL_SCALE;
+        pushX = k * (fore * fx - diag * fy);
+        pushY = k * (fore * fy + diag * fx);
+      } else {
+        pushX = pf * fore * fx;
+        pushY = pf * fore * fy;
+      }
+    } else if (!brake && side !== 0) {
+      const ps = hoverPhys ? HOVER_PUSH_STRAFE : WALKER_PUSH_STRAFE;
+      pushX = -ps * side * fy;
+      pushY = ps * side * fx;
+    }
+    const commanded = !brake && (fore !== 0 || side !== 0);
+    state.moveCue[p] =
+      (commanded ? MOVE_CUE_DRIVE : 0) |
+      (brake ? MOVE_CUE_BRAKE : 0) |
+      (ent.yaw[id] !== yaw0 ? MOVE_CUE_TURN : 0);
 
     // Velocity: n = 1.25 steps of v += P - d v in closed form (balance.ts).
     let vx = ent.velX[id];
@@ -1480,7 +1444,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
 
     // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub. They
     // fire through a transformation (fcop-fidelity.md P3).
-    avatarWeapons(state, p, id, input.buttons, pressed);
+    avatarWeapons(state, p, id, bits, pressed, held);
     // Purchases (rules.md §3): one unit per press of the action key on a spot.
     systemBuy(state, p, id);
   }
@@ -1577,11 +1541,8 @@ function findLockTarget(state: SimState, player: number, selfId: number, exclude
  * No line of sight: the original's lock does not test terrain (a wall stops the
  * shot instead, `player_fire_direct`'s trace).
  *
- * Metropolis steers by an absolute heading (input.spec §4.1), and its `lock` aim
- * mode makes the lock the heading the hull turns to. Only a lock the PLAYER took
- * with the cycle press does that (`lockSteer`); an auto-acquired one aims the
- * weapons and leaves the hull to the aim, so turning away 25° drops it, as in the
- * original, where the lock never turns the mech.
+ * The lock never turns the mech: the hull turns by the turn buttons alone, so
+ * turning more than 25° away drops it.
  */
 function updateLock(state: SimState, player: number, selfId: number, cycle: boolean): void {
   const ent = state.ent;
@@ -1600,11 +1561,9 @@ function updateLock(state: SimState, player: number, selfId: number, cycle: bool
       ) >= 0;
     if (!ok) lock = -1;
   }
-  if (lock < 0) state.lockSteer[player] = 0;
   if (cycle) {
     const next = findLockTarget(state, player, selfId, lock);
     if (next >= 0) lock = next;
-    if (lock >= 0) state.lockSteer[player] = 1;
   }
   if (lock < 0) lock = findLockTarget(state, player, selfId, -1);
   state.lockTarget[player] = lock;
@@ -2097,6 +2056,7 @@ function avatarWeapons(
   id: number,
   buttons: number,
   pressed: number,
+  held: number,
 ): void {
   const ent = state.ent;
   decayCooldown(ent.cooldownA, id);
@@ -2107,16 +2067,18 @@ function avatarWeapons(
   // has none (fcop-fidelity.md P1, R14). Ammo comes back from the ammo pickups
   // and at a respawn, health from the health pickup and a respawn.
 
-  // `player_fire_buttons`: Gun and Heavy fire on every tick they are held,
-  // paced by their cooldowns. Special is held-fire too, unless a slot's block A
-  // keeps its round (flag 4: the Plasma Flare and the Grenade, neither in the
-  // catalogue), which makes it press-to-fire.
+  // `player_fire_buttons`: Gun and Heavy fire on every tick they are down,
+  // paced by their cooldowns. Special fires from its latch: in the HELD state —
+  // the second tick it is down, never the tick it goes down, so a one-tick tap
+  // fires nothing — unless a slot's block A keeps its round (flag 4: the Plasma
+  // Flare and the Grenade, neither in the catalogue), which makes it fire on
+  // the press.
   const kit = loadoutOf(state, player);
-  if ((buttons & BUTTON_FIRE1) !== 0) fireSlot(state, player, id, 0, kit.gun);
-  if ((buttons & BUTTON_FIRE2) !== 0) fireSlot(state, player, id, 1, kit.heavy);
+  if ((buttons & BTN_GUN) !== 0) fireSlot(state, player, id, 0, kit.gun);
+  if ((buttons & BTN_HEAVY) !== 0) fireSlot(state, player, id, 1, kit.heavy);
   const keeps =
     ((kit.gun.a.flags | kit.heavy.a.flags | kit.special.a.flags) & WEAPON_FLAG_KEEP) !== 0;
-  if (((keeps ? pressed : buttons) & BUTTON_FIRE3) !== 0) {
+  if (((keeps ? pressed : held) & BTN_SPECIAL) !== 0) {
     fireSlot(state, player, id, 2, kit.special);
   }
 }
@@ -3479,7 +3441,6 @@ function systemDamageDeath(state: SimState): void {
       // mech is down (fcop-re/player-and-weapons.md §1).
       for (let k = 0; k < 3; k++) state.powerAmmo[player * 3 + k] = 0;
       state.lockTarget[player] = -1; // death drops any lock
-      state.lockSteer[player] = 0;
     } else if (archetype === ARCHETYPE.TURRET) {
       let slotted = false;
       for (let k = 0; k < state.dummyEntity.length; k++) {
@@ -4172,7 +4133,6 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.avatarLunge[p] >>> 0);
   }
   // Appended at SIM_VERSION 40: which locks steer the hull (fcop-fidelity.md W2).
-  for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.lockSteer[p]);
   // Appended at SIM_VERSION 43: the block-B magazines (replacing the x2 timer).
   for (let k = 0; k < state.powerAmmo.length; k++) h = fnv1aU32(h, state.powerAmmo[k]);
   // Appended at SIM_VERSION 41: the Gun magazine and the burst counters.

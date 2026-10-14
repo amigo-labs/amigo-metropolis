@@ -21,7 +21,7 @@ import {
   UNIT_SEPARATION_RADIUS,
 } from "../src/balance";
 import { EV_BREACH, EV_PURCHASE, EV_PURCHASE_REFUSED, EVENT_STRIDE } from "../src/events";
-import { BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
+import { BTN_ACTION, BTN_FORWARD, BTN_HEAVY, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
 import {
   createSim,
@@ -123,13 +123,7 @@ const ringedSim = (): SimState =>
 const inputs = createTickInputs();
 
 function reset(): void {
-  for (const p of inputs.players) {
-    p.moveX = 0;
-    p.moveY = 0;
-    p.aimX = 0;
-    p.aimY = 0;
-    p.buttons = 0;
-  }
+  for (const p of inputs.players) p.buttons = 0;
 }
 
 function findEvents(sim: SimState, type: number): number[][] {
@@ -212,7 +206,7 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     const sim = openSim();
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14; // on the own ground console
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     const bought = findEvents(sim, EV_PURCHASE);
     expect(bought.length).toBe(1);
     const [buyer, player, archetype] = bought[0];
@@ -230,7 +224,7 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     expect(sim.points[0]).toBe(STARTING_POINTS - COST_RUNNER);
     // Release and press again: the next unit.
     release(sim);
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE).length).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS - 2 * COST_RUNNER);
   });
@@ -243,7 +237,7 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
     for (let k = 0; k < 3; k++) {
-      press(sim, BUTTON_INTERACT);
+      press(sim, BTN_ACTION);
       release(sim);
     }
     expect(sim.unitQueue[QUEUE_BASE_TANKS]).toBe(3);
@@ -267,7 +261,7 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     // A jet does not queue.
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 22;
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
     expect(sim.unitQueue[QUEUE_BASE_JETS]).toBe(0);
   });
@@ -279,10 +273,10 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     for (let k = 0; k < RUNNER_ALIVE_LIMIT - 1; k++) spawnUnit(sim, ARCHETYPE.RUNNER, 0, 6, 40);
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
-    press(sim, BUTTON_INTERACT); // the 20th: queued
+    press(sim, BTN_ACTION); // the 20th: queued
     expect(findEvents(sim, EV_PURCHASE).length).toBe(1);
     release(sim);
-    press(sim, BUTTON_INTERACT); // a 21st, with only 19 alive: refused
+    press(sim, BTN_ACTION); // a 21st, with only 19 alive: refused
     expect(findEvents(sim, EV_PURCHASE_REFUSED)[0][2]).toBe(ARCHETYPE.RUNNER);
     expect(sim.points[0]).toBe(100 - COST_RUNNER);
   });
@@ -294,7 +288,7 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     sim.ent.posY[0] = 14;
     let n = 0;
     for (let k = 0; k < 5; k++) {
-      press(sim, BUTTON_INTERACT);
+      press(sim, BTN_ACTION);
       n += findEvents(sim, EV_PURCHASE).length;
       release(sim);
     }
@@ -308,7 +302,7 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     sim.points[0] = 0;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
     const refused = findEvents(sim, EV_PURCHASE_REFUSED);
     expect(refused.length).toBe(1);
@@ -333,20 +327,20 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     sim.ent.posX[0] = 12;
     sim.ent.posY[0] = 14; // in the Dreadnought zone
     release(sim);
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     const first = findEvents(sim, EV_PURCHASE);
     expect(first[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
     expect(sim.points[0]).toBe(120 - COST_JUGGERNAUT);
     const jugg = first[0][0];
     // The latch holds while it lives: the zone answers with the refuse sound.
     release(sim);
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
     expect(findEvents(sim, EV_PURCHASE_REFUSED)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
     // …and its death reopens it.
     sim.ent.hp[jugg] = 0;
     release(sim);
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
   });
 
@@ -358,16 +352,16 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 22; // on the own air console
     release(sim);
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
-    // Holding FIRE2 there buys nothing heavier: the heavy units have zones.
+    // Holding Heavy there buys nothing heavier: the heavy units have zones.
     release(sim);
-    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    press(sim, BTN_ACTION | BTN_HEAVY);
     expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
     sim.ent.posX[0] = 12;
     sim.ent.posY[0] = 22; // the Fortress zone
     release(sim);
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     const bought = findEvents(sim, EV_PURCHASE);
     expect(bought[0][2]).toBe(ARCHETYPE.FORTRESS);
     // At its spawner (it has flown one tick since).
@@ -379,7 +373,7 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
   it("a press away from any console buys nothing and refuses nothing", () => {
     reset();
     const sim = openSim();
-    press(sim, BUTTON_INTERACT); // at spawn, far from consoles
+    press(sim, BTN_ACTION); // at spawn, far from consoles
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
     expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
     expect(sim.points[0]).toBe(STARTING_POINTS);
@@ -426,17 +420,17 @@ describe("runner lane-following and the win check", () => {
     expect(sim.winner).toBe(-1);
     expect(sim.outroTimer).toBe(MATCH_OUTRO_TICKS);
     expect(sim.outroWinner).toBe(1);
-    inputs.players[0].moveX = 127;
+    inputs.players[0].buttons = BTN_FORWARD; // the spawn faces +X
     const xBefore = sim.ent.posX[0];
     for (let t = 0; t < MATCH_OUTRO_TICKS - 1; t++) step(sim, inputs);
     expect(sim.ent.posX[0]).not.toBe(xBefore);
     expect(sim.winner).toBe(-1);
     step(sim, inputs);
     expect(sim.winner).toBe(1);
-    inputs.players[0].moveX = 0;
+    inputs.players[0].buttons = 0;
     // Frozen: avatars ignore input, only the tick advances the hash.
     const x0 = sim.ent.posX[0];
-    inputs.players[0].moveX = 127;
+    inputs.players[0].buttons = BTN_FORWARD;
     const h1 = hash(sim);
     step(sim, inputs);
     expect(sim.ent.posX[0]).toBe(x0);
@@ -562,7 +556,7 @@ describe("determinism with units in play", () => {
     for (let t = 0; t < 900; t++) {
       for (const run of [A, B]) {
         // A press every 60 ticks: real purchases, one unit each.
-        const btn = t % 60 === 0 ? BUTTON_INTERACT : 0;
+        const btn = t % 60 === 0 ? BTN_ACTION : 0;
         run.ins.players[0].buttons = btn;
         run.ins.players[1].buttons = btn;
         step(run.sim, run.ins);

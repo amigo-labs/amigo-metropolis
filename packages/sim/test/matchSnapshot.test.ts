@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { createTickInputs } from "../src/inputs";
+import { BTN_FORWARD, createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
 import {
   createSim,
@@ -167,12 +167,12 @@ describe("writeMatchSnapshot", () => {
   it("reports the avatar's movement command, which the original's sounds follow", () => {
     const sim = createSim(getMapById("la-cantina"), 3);
     const inputs = createTickInputs();
-    inputs.players[0].moveY = 1;
+    inputs.players[0].buttons = BTN_FORWARD;
     step(sim, inputs);
     const out = new Float32Array(MATCH_SNAPSHOT_LEN);
     writeMatchSnapshot(sim, out);
     expect(out[matchSlotOffset(0) + MATCH_SLOT_MOVE] & MOVE_CUE_DRIVE).toBe(MOVE_CUE_DRIVE);
-    inputs.players[0].moveY = 0;
+    inputs.players[0].buttons = 0;
     step(sim, inputs);
     writeMatchSnapshot(sim, out);
     expect(out[matchSlotOffset(0) + MATCH_SLOT_MOVE] & MOVE_CUE_DRIVE).toBe(0);
