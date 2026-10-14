@@ -36,7 +36,7 @@ export const MAP_ALIGN: Readonly<Record<string, MapAlign>> = {
     maxX: 103.5,
     maxY: 2.78125,
     maxZ: 103.5,
-    match: 0.944,
+    match: 0.984,
   },
   "proving-ground": {
     x: 120.5,

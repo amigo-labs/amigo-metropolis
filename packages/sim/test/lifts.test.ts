@@ -15,6 +15,7 @@ import {
   loadMapFromJson,
   type MapJson,
   PROVING_GROUND_ID,
+  URBAN_JUNGLE_ID,
 } from "../src/map";
 import {
   createSim,
@@ -378,6 +379,68 @@ describe("the spawn lifts of Slim and Joke (fcop-fidelity.md P12)", () => {
       }
       expect(drivesOut(mapId, 0)).toBe("out");
       expect(drivesOut(mapId, 1)).toBe("out");
+    });
+  }
+});
+
+describe("Conft's pit lifts (fcop-fidelity.md P12)", () => {
+  // Four lifts stand in the sunken ring (-1.81 m) at the four sides of the
+  // central platform (0.19 m). From the ring a mech steps onto one (its top
+  // parks 0.39 m up, within the walker's own 0.4 m probe), presses, rides up
+  // 1.64 m and walks off onto the platform.
+  const CASES: {
+    lift: number;
+    from: [number, number];
+    onto: [number, number];
+    off: [number, number];
+  }[] = [
+    { lift: 0, from: [128.5, 120], onto: [126.6, 120], off: [124.5, 120] },
+    { lift: 1, from: [111.5, 120], onto: [113.4, 120], off: [115.5, 120] },
+    { lift: 2, from: [120, 111.5], onto: [120, 113.4], off: [120, 115.5] },
+    { lift: 3, from: [120, 128.5], onto: [120, 126.6], off: [120, 124.5] },
+  ];
+  for (const c of CASES) {
+    it(`lift ${c.lift} carries a mech from the ring onto the platform`, () => {
+      const map = getMapById(URBAN_JUNGLE_ID);
+      const l = map.lifts[c.lift];
+      expect([l.stops[0], l.stops[1], l.up, l.down, l.hurtsTeam]).toEqual([
+        81 << 4,
+        921 << 4,
+        100,
+        210,
+        -1,
+      ]);
+      const state = createSim(map, 1);
+      const a = state.avatarId[0];
+      state.ent.posX[a] = c.from[0];
+      state.ent.posY[a] = c.from[1];
+      state.ent.height[a] = l.ground;
+      const input = createTickInputs();
+      const go = (to: [number, number]): void => {
+        for (let t = 0; t < 60; t++) {
+          const dx = to[0] - state.ent.posX[a];
+          const dy = to[1] - state.ent.posY[a];
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 0.25) break;
+          input.players[0].moveX = Math.round((dx / d) * 127);
+          input.players[0].moveY = Math.round((dy / d) * 127);
+          step(state, input);
+        }
+        input.players[0].moveX = 0;
+        input.players[0].moveY = 0;
+      };
+      step(state, idle);
+      go(c.onto);
+      expect(state.avatarLift[0]).toBe(c.lift);
+      input.players[0].buttons = BUTTON_INTERACT;
+      step(state, input);
+      input.players[0].buttons = 0;
+      expect(untilEvent(state, EV_LIFT_ARRIVE, 200)).toBeGreaterThan(0);
+      go(c.off);
+      expect(
+        Math.abs(state.ent.posX[a] - c.off[0]) + Math.abs(state.ent.posY[a] - c.off[1]),
+      ).toBeLessThan(0.5);
+      expect(state.ent.height[a]).toBeCloseTo(0.1875, 2);
     });
   }
 });

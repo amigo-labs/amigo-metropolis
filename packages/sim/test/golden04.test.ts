@@ -13,7 +13,10 @@
 // target, but walls stop its gun and missile) its tanks no longer reach the
 // gate in these 150 s. As recorded at SIM_VERSION 61 (its requests go to the
 // shared spawn queues, which run from a phase drawn at createSim): ten tanks
-// and one jet, and the player goes down twice.
+// and one jet, and the player goes down twice. Since SIM_VERSION 67 urban-jungle
+// is the original's multi-deck arena and its kerbs and the extractor's spilled
+// walls no longer stand on the roads (fcop-fidelity.md P15): the same ten tanks
+// reach the player's gate and breach it at 102 s, and the player goes down once.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -26,7 +29,7 @@ import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
 describe("golden-04-warden beats", () => {
-  it("the Sky Captain roams, buys and claims; the player holds its gate", () => {
+  it("the Sky Captain roams, buys and claims, and its tanks breach the player's gate", () => {
     const replay = decodeReplay(
       new Uint8Array(readFileSync(join(import.meta.dir, "goldens", "golden-04-warden.mrep"))),
     );
@@ -74,9 +77,9 @@ describe("golden-04-warden beats", () => {
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
     expect(claims).toBe(1);
     expect(wardenDeaths).toBe(0);
-    expect(avatarDeaths).toBe(2);
-    expect(breachTick).toBe(-1);
-    expect(breachTeam).toBe(-1);
-    expect(sim.winner).toBe(-1);
+    expect(avatarDeaths).toBe(1);
+    expect(breachTick).toBe(3062);
+    expect(breachTeam).toBe(1);
+    expect(sim.winner).toBe(1);
   });
 });

@@ -1030,4 +1030,14 @@
 //     lattices change (deck 1: 3364 -> 2365 bits on Slim); the ground's and
 //     every height stay. reach.ts boards a lift at LIFT_STEP_UP. No golden
 //     plays these arenas; their hashes stay.
-export const SIM_VERSION = 66;
+// v67: urban-jungle (Conft) as the multi-deck arena it is, with its four pit
+//     lifts (fcop-fidelity.md P12) and its kerbs (P15). Stage 1 emits both
+//     decks and the ground's own lattice (the union is the old lattice bit
+//     for bit); the two sunken outpost pads stand on their -2.41 m deck, so
+//     their 8 stamped ground cells are gone. Stage 2 imports the lifts around
+//     the central platform (stops 0.16 / 1.80 m above the -1.81 m ring, 100 /
+//     210 wu a tick, 45 ticks at the top, untagged), lays the platform's floor
+//     at the south and east landings (4 cells), opens their shafts and 2855
+//     kerb and spill bits. A mech in the ring now rides up onto the platform
+//     as the original's does. Moves goldens 02, 04 and 05 (urban-jungle).
+export const SIM_VERSION = 67;

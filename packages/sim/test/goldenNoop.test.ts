@@ -74,7 +74,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // as their X1Alpha records do (along x, not toward the enemy).
   // 02, 03, 04, 05 and 07 re-frozen at SIM_VERSION 60: the heavy-zone poll draws
   // its phase from the PRNG at createSim on every imported arena, and is hashed.
-  "golden-02-combat": { last: 79216843, count: 3600 },
+  // Re-frozen at SIM_VERSION 67: urban-jungle is layered, with its lifts and
+  // its kerbs and spilled walls opened (fcop-fidelity.md P12, P15).
+  "golden-02-combat": { last: 665101062, count: 3600 },
   // Re-frozen at SIM_VERSION 50 (the original's 37.5 s ring respawn, R16): 03's
   // script was rewritten around it (player 1 is put down at the outpost, the wave
   // goes in inside the ring's window) and runs 200 s.
@@ -87,7 +89,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 03 and 07 re-recorded at SIM_VERSION 56: the scripts walk the last metre
   // straight at their goal, and 07 steers by the live state and buys inside the
   // console's trigger box.
-  "golden-04-warden": { last: 184493215, count: 4500 },
+  // Re-frozen at SIM_VERSION 67: urban-jungle is layered, with its lifts and
+  // its kerbs and spilled walls opened (fcop-fidelity.md P12, P15).
+  "golden-04-warden": { last: 3900857377, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -102,7 +106,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // plate turret the half-cell pad key had leaked into it (9 -> 8).
   // Re-frozen at SIM_VERSION 48: the arena's four original outposts replace its
   // two invented consoles (two more console entities in the store).
-  "golden-05-fcop": { last: 2315500879, count: 2700 },
+  // Re-frozen at SIM_VERSION 67: urban-jungle is layered, with its lifts and
+  // its kerbs and spilled walls opened (fcop-fidelity.md P12, P15).
+  "golden-05-fcop": { last: 943303714, count: 2700 },
   "golden-06-layered": { last: 886660985, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.

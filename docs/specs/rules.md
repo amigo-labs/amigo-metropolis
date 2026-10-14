@@ -133,10 +133,13 @@ Design pillars, in priority order:
   (Slim, Joke) is that base's floor and hurts the enemy mech standing on it.
   On proving-ground and bug-hunt each mech spawns on one (SIM_VERSION 65): it
   rides up onto its base's platform and walks down the ramp to the consoles.
+  On urban-jungle four stand in the sunken ring around the central platform
+  (SIM_VERSION 67) and carry a mech up onto it.
 - **Kerbs are steps** (SIM_VERSION 65, `fcop-fidelity.md` P15): a face between
   two floors at most 0.46 m apart, with nothing standing above it, is walked
   over as the original's walker steps up onto it — on the arenas re-imported
-  so far (proving-ground, bug-hunt). Taller faces stay walls both ways.
+  so far (proving-ground, bug-hunt, urban-jungle). Taller faces stay walls
+  both ways.
 - Same three weapon slots in both modes: Gun, Heavy, Special.
 - **The weapon catalog is the original Precinct Assault set only** (SIM_VERSION
   26): **ten weapons**, four Guns / three Heavies / three Specials. Default kit

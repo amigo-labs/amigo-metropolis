@@ -172,10 +172,10 @@ const ARENAS: ArenaExpectation[] = [
     size: 257,
     laneCount: 1,
     groundHeight: 0.906,
-    // Moved by the pad stamp (gen:pads): 8 cells under the two sunken outpost
-    // pads at x 86 / 153, y 120-121, lifted from -3.19/-3.91 m onto the -2.41 m
-    // plate the terrain mesh draws there.
-    heightsPin: 1333068003,
+    // Layered since SIM_VERSION 67 (fcop-fidelity.md P12): the two sunken
+    // outpost pads at x 86 / 153, y 120-121 stand on their -2.41 m deck, so the
+    // pad stamp that lifted those 8 ground cells is gone; no other height moved.
+    heightsPin: 264067427,
     // 262 bits carved to open the original roads + 21 to reconnect the ring
     // and the base's own structures, of 4327 (6.5%). Up from 242: the carve now
     // walks each road the way a unit steps rather than in fixed 0.25 m slices,
@@ -183,8 +183,15 @@ const ARENAS: ArenaExpectation[] = [
     // SIM_VERSION 32: 256 carved + 13 reconnected. The roads now end at the
     // original's gate box rather than at the Dreadnought spot, and each
     // Juggernaut's spawn-to-road leg is validated too.
-    wallsVPin: 3397164092,
-    wallsHPin: 4095836062,
+    // GROUND-DECK walls since SIM_VERSION 67, as proving-ground's: the union of
+    // ground and decks is the old lattice bit for bit (fcopWalls.test.ts). On it
+    // stage 2 opens 32 bits in the four pit lifts' shafts, 2855 kerbs and
+    // spills over all three lattices (fcop-fidelity.md P15), carves 205 for the
+    // roads and opens 10 to reconnect.
+    wallsVPin: 3900760220,
+    wallsHPin: 496557647,
+    // Conft's decks, less the lift shafts, with the two landing patches.
+    layerCells: [2126, 17],
     turretSpots: 32,
     outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0,
@@ -205,9 +212,10 @@ const ARENAS: ArenaExpectation[] = [
     // SIM_VERSION 39 (the original's walker, fcop-fidelity.md P4): it walks
     // what its slope push climbs, up to a 1.04 gradient (was a 0.6 gate), and
     // its jumps climb nothing the walk cannot (JUMPABLE_RISE 1.4 -> 0). So
-    // 40 -> 15 steep edges, and every one is a wall (was 8).
-    steepLaneEdges: 15,
-    hardWallLaneEdges: 15, // of 518 edges; smallest blocking rise 0.89 m
+    // 40 -> 15 steep edges, and every one is a wall (was 8). 15 -> 13 at
+    // SIM_VERSION 67 with the outpost pads' stamp gone (their decks carry them).
+    steepLaneEdges: 13,
+    hardWallLaneEdges: 13, // of 518 edges; smallest blocking rise 0.89 m
     // SIM_VERSION 32: the committed route now ends at the node nearest the
     // enemy GATE (was: nearest the Dreadnought spot), three nodes shorter. Since
     // v39 one of its steps is a wall for the walker (it jumped all four before);
@@ -217,7 +225,7 @@ const ARENAS: ArenaExpectation[] = [
     // v39: the hover's tick travel follows its top speed (9 -> 9.38 m/s), which
     // moves where worstHoverRise samples: 20 -> 19.
     hoverBlockedEdges: 19,
-    walkerOnlyEdges: 6,
+    walkerOnlyEdges: 8, // 6 -> 8 at SIM_VERSION 67 (the pad stamp)
     hoverOnlyEdges: 2,
     hoverBlockedLaneSteps: 1,
     hoverDrivableTeams: 2,

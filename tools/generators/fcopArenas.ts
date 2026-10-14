@@ -49,7 +49,8 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
   {
     mapId: "urban-jungle",
     mission: "Conft",
-    layered: false,
+    layered: true,
+    kerbs: true,
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1024,
