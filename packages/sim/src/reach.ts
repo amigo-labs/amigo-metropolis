@@ -21,13 +21,21 @@
 // standing on, and on arrival it asks `resolveWalker` which surface it ends up on
 // — the same rule the movers use, rather than a second opinion about it.
 //
+// A LIFT (fcop-fidelity.md P12) connects its stops. A flood that reaches a cell
+// under a lift's face, at a height its lowest stop's top is within a step of
+// (LIFT_STEP_UP) or below it (the flood takes drops), can ride it: every footprint cell at
+// every stop joins the flood, on the surface the lift's rider counts as
+// standing on there, at that stop's top. On a map without lifts nothing
+// changes.
+//
 // SINGLE-LAYER MAPS ARE UNCHANGED. With no extra decks, `resolveWalker` returns
 // layer 0 everywhere and every node is (cell, 0), which is node-for-node the old
 // flood. This module is authoring/test machinery and is never called from the
 // tick, but it stays inside the determinism rules anyway so it can be.
 
+import { LIFT_STEP_UP, SURFACE_REACH } from "./balance";
 import { crossesWallX, crossesWallY } from "./collision";
-import { isWater, type MapData, resolveHeight, worldExtent } from "./map";
+import { isWater, type MapData, resolveHeight, waterHeightAt, worldExtent } from "./map";
 import { resolveWalker } from "./units";
 
 export interface ReachOptions {
@@ -121,29 +129,55 @@ export function reachableFrom(
     [0, -cell],
   ] as const;
 
+  const visit = (nx: number, ny: number, layer: number, h: number): void => {
+    const k = nodeKey(cellIndex(map, nx), cellIndex(map, ny), layer);
+    if (seen.has(k)) return;
+    seen.add(k);
+    cellsSeen.add(cellIndex(map, nx) * size + cellIndex(map, ny));
+    qx.push(nx);
+    qy.push(ny);
+    qL.push(layer);
+    qH.push(h);
+  };
+  const boarded = new Uint8Array(map.lifts.length);
+
   for (let qi = 0; qi < qx.length; qi++) {
     const x = qx[qi];
     const y = qy[qi];
     const layer = qL[qi];
     const h = qH[qi];
+    for (let k = 0; k < map.lifts.length; k++) {
+      const l = map.lifts[k];
+      if (boarded[k] !== 0 || x < l.x0 || x > l.x1 || y < l.y0 || y > l.y1) continue;
+      if (l.ground + l.stops[0] / 8192 + l.top > h + LIFT_STEP_UP) continue;
+      boarded[k] = 1;
+      for (let s = 0; s < l.stops.length; s++) {
+        const top = l.ground + l.stops[s] / 8192 + l.top;
+        for (let i = Math.ceil(l.x0 / cell - 0.5); (i + 0.5) * cell <= l.x1; i++) {
+          for (let j = Math.ceil(l.y0 / cell - 0.5); (j + 0.5) * cell <= l.y1; j++) {
+            visit((i + 0.5) * cell, (j + 0.5) * cell, l.layers[s], top);
+          }
+        }
+      }
+    }
     for (const [dx, dy] of dirs) {
       const nx = x + dx;
       const ny = y + dy;
       if (nx < half || ny < half || nx > ext - half || ny > ext - half) continue;
-      if (opts.blockWater === true && isWater(map, nx, ny)) continue;
       // Cross the wall on the deck we are standing on, not on the ground below.
       if (dx !== 0 && crossesWallX(map, x, nx, y, layer)) continue;
       if (dy !== 0 && crossesWallY(map, x, y, ny, layer)) continue;
       // Which surface do we land on? Same question the movers ask.
       const wr = resolveWalker(map, nx, ny, h);
-      const k = nodeKey(cellIndex(map, nx), cellIndex(map, ny), wr.layer);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      cellsSeen.add(cellIndex(map, nx) * size + cellIndex(map, ny));
-      qx.push(nx);
-      qy.push(ny);
-      qL.push(wr.layer);
-      qH.push(wr.height);
+      // Water reaches the feet within SURFACE_REACH; a deck over it is dry
+      // (sim.ts inWater).
+      if (
+        opts.blockWater === true &&
+        isWater(map, nx, ny) &&
+        wr.height - waterHeightAt(map, nx, ny) < SURFACE_REACH
+      )
+        continue;
+      visit(nx, ny, wr.layer, wr.height);
     }
   }
 

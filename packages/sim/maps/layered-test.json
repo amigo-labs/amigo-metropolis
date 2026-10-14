@@ -45,8 +45,8 @@
   "spawns": [{ "x": 2, "y": 2, "yaw": 0 }, { "x": 12, "y": 12, "yaw": 3 }],
   "basePlots": [{ "x": 2, "y": 2, "radius": 3 }, { "x": 12, "y": 12, "radius": 3 }],
   "bases": [
-    { "gate": { "x": 2, "y": 6, "radius": 2 }, "core": [2, 2], "groundConsole": [2, 2], "airConsole": [4, 2], "pad": { "x": 2, "y": 2, "radius": 2 }, "turrets": [] },
-    { "gate": { "x": 12, "y": 8, "radius": 2 }, "core": [12, 12], "groundConsole": [12, 12], "airConsole": [10, 12], "pad": { "x": 12, "y": 12, "radius": 2 }, "turrets": [] }
+    { "gate": { "x": 2, "y": 6, "radius": 2 }, "core": [2, 2], "groundConsole": [2, 2], "airConsole": [4, 2], "turrets": [] },
+    { "gate": { "x": 12, "y": 8, "radius": 2 }, "core": [12, 12], "groundConsole": [12, 12], "airConsole": [10, 12], "turrets": [] }
   ],
   "lanes": [],
   "turretSpots": [],

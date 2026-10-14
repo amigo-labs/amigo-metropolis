@@ -72,7 +72,6 @@ function roads(enemyAt: number[], ownAt: number[] = [5, 55]): MapJson {
         core: [5, 50],
         groundConsole: [10, 30],
         airConsole: [5, 45],
-        pad: { x: 5, y: 55, radius: 2 },
         turrets: [],
       },
       {
@@ -80,7 +79,6 @@ function roads(enemyAt: number[], ownAt: number[] = [5, 55]): MapJson {
         core: [55, 50],
         groundConsole: [50, 10],
         airConsole: [55, 45],
-        pad: { x: 55, y: 55, radius: 2 },
         turrets: [],
       },
     ],

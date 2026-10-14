@@ -5,6 +5,9 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  BTN_BACK,
+  BTN_GUN,
+  BTN_JINK_LEFT,
   decodeMessage,
   ERR_ROOM_FULL,
   encodeMessage,
@@ -22,6 +25,7 @@ import {
   MSG_WELCOME,
   messageType,
   type NetMessage,
+  PLAYER_INPUT_BYTES,
   type PlayerInput,
   PROTOCOL_VERSION,
   SIM_VERSION,
@@ -30,13 +34,14 @@ import {
 const CONFIG: MatchConfig = {
   simVersion: SIM_VERSION,
   seed: 0xc0ffee,
-  mapId: "district-01",
+  mapId: "la-cantina",
   wardenPlayer: -1,
   wardenDifficulty: 0,
 };
 
-const INPUT_A: PlayerInput = { moveX: -127, moveY: 127, aimX: -1, aimY: 42, buttons: 0b101010 };
-const INPUT_B: PlayerInput = { moveX: 0, moveY: -1, aimX: 100, aimY: -100, buttons: 255 };
+// The button word is a u16 (inputs.ts): Move Backward is its top bit.
+const INPUT_A: PlayerInput = { buttons: BTN_BACK | BTN_GUN | BTN_JINK_LEFT };
+const INPUT_B: PlayerInput = { buttons: 0xffff };
 
 function roundTrip(msg: NetMessage): NetMessage {
   return decodeMessage(encodeMessage(msg));
@@ -65,9 +70,20 @@ describe("protocol codec", () => {
     expect(roundTrip(msg)).toEqual(msg);
   });
 
-  it("round-trips INPUT with signed axes preserved", () => {
+  it("round-trips INPUT with the button word's high bits preserved", () => {
     const msg: NetMessage = { type: MSG_INPUT, tick: 900, input: INPUT_A };
     expect(roundTrip(msg)).toEqual(msg);
+  });
+
+  it("carries one player's input as a u16 LE word (protocol 2)", () => {
+    expect(PROTOCOL_VERSION).toBe(2);
+    expect(PLAYER_INPUT_BYTES).toBe(2);
+    const bytes = encodeMessage({ type: MSG_INPUT, tick: 900, input: INPUT_A });
+    // tag(1) + tick(4) + buttons(2): 0x8410 is 10 84.
+    expect(bytes.length).toBe(1 + 4 + PLAYER_INPUT_BYTES);
+    expect([...bytes.subarray(5)]).toEqual([0x10, 0x84]);
+    const frame = encodeMessage({ type: MSG_FRAME, tick: 7, inputs: [INPUT_A, INPUT_B] });
+    expect(frame.length).toBe(1 + 4 + MAX_PLAYERS * PLAYER_INPUT_BYTES);
   });
 
   it("round-trips HASH with a full u32 hash", () => {

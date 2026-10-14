@@ -5,9 +5,10 @@
 import { describe, expect, it } from "bun:test";
 import { crossesWallX, crossesWallY, segmentBlocked } from "../src/collision";
 import { EV_SHOT, EVENT_STRIDE, SHOT_SLOT_GUN, shotPayloadWeaponReach } from "../src/events";
-import { BUTTON_TRANSFORM, createTickInputs } from "../src/inputs";
+import { BTN_FORWARD, createTickInputs, TRANSFORM_CHORD } from "../src/inputs";
 import { createTestMap, loadMapFromJson, type MapData, type MapJson } from "../src/map";
 import { createSim, hitscan, type SimState, step } from "../src/sim";
+import { faceAlong } from "./drive";
 
 /** Minimal walled map: 4×4 points (3×3 cells), cellSize 1, flat ground. */
 function walledMap(walls: { v?: [number, number][]; h?: [number, number][] }): MapData {
@@ -212,7 +213,6 @@ function walledArenaJson(): MapJson {
         core: [4, 30],
         groundConsole: [12, 22],
         airConsole: [12, 38],
-        pad: { x: 12, y: 30, radius: 8 },
         turrets: [],
       },
       {
@@ -220,7 +220,6 @@ function walledArenaJson(): MapJson {
         core: [56, 30],
         groundConsole: [50, 22],
         airConsole: [50, 38],
-        pad: { x: 50, y: 30, radius: 8 },
         turrets: [],
       },
     ],
@@ -235,13 +234,7 @@ describe("avatar vs wall (loader + stepper end-to-end)", () => {
   const inputs = createTickInputs();
   const p0 = inputs.players[0];
   const reset = (): void => {
-    for (const p of inputs.players) {
-      p.moveX = 0;
-      p.moveY = 0;
-      p.aimX = 0;
-      p.aimY = 0;
-      p.buttons = 0;
-    }
+    for (const p of inputs.players) p.buttons = 0;
   };
 
   it("loads the wall rows into dense arrays", () => {
@@ -260,8 +253,10 @@ describe("avatar vs wall (loader + stepper end-to-end)", () => {
   it("walker is blocked by the wall on flat ground and slides along it", () => {
     reset();
     const sim = createSim(loadMapFromJson(walledArenaJson()), 1);
-    p0.moveX = 127; // due east into the wall at x=16
-    p0.moveY = 40; // plus a southward slide component
+    // Due east into the wall at x=16, plus a southward slide component: the
+    // hull faced that way and driven straight ahead.
+    faceAlong(sim, sim.avatarId[0], 127, 40);
+    p0.buttons = BTN_FORWARD;
     const startY = sim.ent.posY[0];
     for (let i = 0; i < 120; i++) step(sim, inputs); // 4 s — plenty to reach it
     expect(sim.ent.posX[0]).toBeLessThan(16); // never crosses the line
@@ -272,11 +267,11 @@ describe("avatar vs wall (loader + stepper end-to-end)", () => {
   it("hover is blocked too — walls are physical, not a terrain rule", () => {
     reset();
     const sim = createSim(loadMapFromJson(walledArenaJson()), 1);
-    p0.buttons = BUTTON_TRANSFORM;
+    p0.buttons = TRANSFORM_CHORD;
     step(sim, inputs);
     p0.buttons = 0;
     for (let i = 0; i < 60; i++) step(sim, inputs); // let the transform settle
-    p0.moveX = 127;
+    p0.buttons = BTN_FORWARD; // the spawn faces +X: due east into the wall
     for (let i = 0; i < 120; i++) step(sim, inputs);
     expect(sim.ent.posX[0]).toBeLessThan(16);
   });

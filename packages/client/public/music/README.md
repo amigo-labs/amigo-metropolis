@@ -1,25 +1,14 @@
-# Music tracks
+# Music
 
-The menu's Sound drawer offers three file-based music slots. Drop the actual
-files in here as:
+Each Precinct Assault arena's own track, as the original plays it:
+`<Mission>.wav` for Conft, Slim, Mp, Joke, Hk and Ovmp. The engine's format,
+unchanged — 8-bit unsigned PCM, stereo, 14260 Hz (`snd_music_open` 0x004324a0
+creates the buffer so; the RE repo's `extract_music.py` writes the stream's
+bytes as they are fed to it).
 
-- `track1.mp3`
-- `track2.mp3`
-- `track3.mp3`
+Copied byte for byte by `tools/generators/importFcopAudio.ts`; the arena that
+plays each is in `src/audio/fcopAudio.generated.ts`. The music starts when a
+match has loaded, loops without a fade, stops in the pause and is ducked under
+speech, as the original's does.
 
-They are fetched at runtime (`packages/client/src/audio/tracks.ts` is the
-manifest), so adding a file needs no rebuild. Until a file exists, picking its
-slot shows a "not found" hint and the selection falls back to Off.
-
-## Licensing
-
-Per `docs/specs/assets.md` §2 there is no license restriction on committed
-assets. Still record provenance:
-
-1. Add a row to `CREDITS.md` naming the track, author, source and license.
-2. Update the display name in `packages/client/src/audio/tracks.ts` to the
-   track's real title, so the Sound drawer shows something meaningful.
-
-The three shipped slots are the tracks that had been sitting unreferenced in
-`assets/audio/` — the manifest pointed at files that did not exist, so every
-file-music option silently fell back to Off.
+Provenance in `CREDITS.md`.

@@ -102,9 +102,14 @@ interface ArenaSpec {
 // Conft "Urban Jungle": spawns from original X1Alpha Cact positions inside the
 // walkable interior (NOT the outer perimeter apron). Lanes BFS-routed on the
 // wall/slope graph between those spawns. Cell-center coordinates.
+// LAYERED since SIM_VERSION 67 (fcop-fidelity.md P12): four lifts carry a mech
+// from the sunken ring up onto the central platform, and the outpost pads at
+// x 86 / 153 stand on a deck the single-storey import had to stamp into the
+// ground.
 const URBAN_JUNGLE: ArenaSpec = {
   id: "urban-jungle",
   mission: "Conft",
+  layered: true,
   spawns: [
     { x: 90.5, y: 71.5, yaw: 1.302 }, // X1Alpha N
     { x: 117.5, y: 169.5, yaw: -1.84 }, // X1Alpha S
@@ -339,9 +344,14 @@ const RIM_DUMMY_SPOTS: P[] = [
   [115.5, 159.5],
 ];
 
+// LAYERED since SIM_VERSION 65 (fcop-fidelity.md P12): each spawn stands at the
+// foot of a shaft whose lift rises onto a 2 m platform. Flattened to one storey,
+// the platform and the ramp down from it were gone and the shaft held the mech.
+// Joke (bug-hunt) shares this terrain.
 const PROVING_GROUND: ArenaSpec = {
   id: "proving-ground",
   mission: "Slim",
+  layered: true,
   spawns: RIM_SPAWNS,
   basePlots: RIM_BASE_PLOTS,
   bases: RIM_BASES,
@@ -524,6 +534,7 @@ const LA_CANTINA: ArenaSpec = {
 const BUG_HUNT: ArenaSpec = {
   id: "bug-hunt",
   mission: "Joke",
+  layered: true,
   spawns: RIM_SPAWNS,
   basePlots: RIM_BASE_PLOTS,
   bases: RIM_BASES,

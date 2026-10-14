@@ -142,7 +142,6 @@ export function findNearby(map: MapData, hitX: number, hitZ: number): PinNearby[
     pushNearby(out, "baseGate", b.gate.x, b.gate.y, hitX, hitZ, i);
     pushNearby(out, "groundConsole", b.groundConsole.x, b.groundConsole.y, hitX, hitZ, i);
     pushNearby(out, "airConsole", b.airConsole.x, b.airConsole.y, hitX, hitZ, i);
-    pushNearby(out, "pad", b.pad.x, b.pad.y, hitX, hitZ, i);
   }
   for (let li = 0; li < map.lanes.length; li++) {
     const n = nearestOnPolyline(map.lanes[li], hitX, hitZ);

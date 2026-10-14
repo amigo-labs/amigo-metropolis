@@ -1,35 +1,11 @@
-// Pure gamepad-mapping math — NO DOM, NO three, so it is unit-testable under
-// `bun test`. The stateful device polling (navigator.getGamepads, rumble)
-// lives in gamepad.ts; everything numeric that decides how a stick or button
-// becomes a quantized PlayerInput lives here.
-
-import {
-  BUTTON_FIRE1,
-  BUTTON_FIRE2,
-  BUTTON_FIRE3,
-  BUTTON_INTERACT,
-  BUTTON_JUMP,
-  BUTTON_TRANSFORM,
-} from "@metropolis/sim";
+// Pure stick math for the MENU's gamepad navigation (ui/navFocus.ts) — NO DOM,
+// NO three, so it is unit-testable under `bun test`. A match reads the pad as
+// the original does, digitally (input/gamepad.ts); none of this reaches the sim.
 
 export interface Vec2 {
   x: number;
   y: number;
 }
-
-/**
- * Standard Gamepad button index → our input bit (W3C "standard" mapping).
- * Twin-stick layout: triggers/shoulders fire, face buttons do the rest.
- *   RT primary · LT heavy · RB special · A jump (hover: brake) · Y transform · X interact.
- */
-export const GAMEPAD_BUTTON_MAP: readonly (readonly [number, number])[] = [
-  [7, BUTTON_FIRE1], // RT — primary hitscan
-  [6, BUTTON_FIRE2], // LT — heavy (also the buy-heavy modifier)
-  [5, BUTTON_FIRE3], // RB — special
-  [0, BUTTON_JUMP], // A
-  [3, BUTTON_TRANSFORM], // Y
-  [2, BUTTON_INTERACT], // X — press: capture / claim / buy one unit
-];
 
 /** Below this stick magnitude the axis reads as centered (drift rejection). */
 export const STICK_DEADZONE = 0.2;

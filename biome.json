@@ -7,7 +7,8 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "maxSize": 2097152
+    "maxSize": 2097152,
+    "includes": ["**", "!docs/specs/fcop-re/pa-audio.json", "!docs/specs/fcop-re/pa-voice.json"]
   },
   "formatter": {
     "enabled": true,

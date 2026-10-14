@@ -120,14 +120,38 @@ forever as a debug render mode (`?render=greybox`).
   The mesh swap point is NOT `ANIM_HOVER`: the sim flips the mode byte on the
   first tick of the lock, so the snapshot reads as the destination for the whole
   window. `render/morph.ts` owns which half of the morph draws which form.
+- **Pickups and lifts wear each arena's own pack** (`packages/client/public/models/pa-props/<mapId>/obj_<cobj>.glb`,
+  copied by `bun run gen:paprops` from the RE repo's
+  `extracted/findings/pa_props/<Mission>/`). The same Cobj id is a different
+  file on every arena — the geometry is shared, the textures are that arena's
+  pages — so they are not run through `gen:units` and not keyed by Cobj alone.
+  Each is one mesh with one textured material, loaded as exported (the
+  original's own frame, origin at the record's position; a pickup's model
+  floats about 0.6 m above it). `render/pickups.ts` draws one `InstancedMesh`
+  per model, an instance per pickup, shown and turned per frame from the match
+  snapshot (`MATCH_PICKUPS`) at the record's spin rate. `render/lifts.ts` draws
+  one `InstancedMesh` per lift model, an instance per lift, at the height the
+  lift snapshot (`writeLiftSnapshot`) gives its top. A Cobj's own X runs along
+  the sim's y and its Z along the sim's x (the actors frame swaps the original's
+  axes, as the terrain mesh does), so a lift's model is baked through that swap
+  at load and drawn from both sides; the pickups, symmetric and spinning, are
+  not.
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
 - Materials: single atlas texture, `flatShading: true`, no PBR maps.
 
 ## 5. Audio
 
-- SFX: jsfxr presets committed as JSON (regenerable) + rendered .ogg; plus
-  packs like Kenney where procedural doesn't cut it. Mixed through a tiny
-  WebAudio wrapper (no audio library dependency).
-- Music: any tracks for v1. (Long-term candidate: amigo-trommel —
-  explicitly out of scope until Pincel v1.0 ships.)
-- All audio triggered from the sim event ring buffer, never from render state.
+Since the owner's rule of 2026-10-13 (`fcop-fidelity.md`, audio rows A1–A21) Metropolis
+plays only the original's sound:
+
+- SFX and speech: the original's `Cwav` samples and voice bank, copied unchanged into
+  `packages/client/public/sfx/` (`tools/generators/importFcopAudio.ts` from an RE
+  checkout). No synth, no packs, no per-sound level: the original has none.
+- Which file an event plays, at which priority, polyphony and loop: the RE's run of the
+  retail loader (`docs/specs/fcop-re/pa-audio.json`) and the voice ops of the arenas'
+  scripts (`pa-voice.json`), generated into `audio/fcopAudio.generated.ts` by
+  `bun run gen:sfx`. Mixed by a WebAudio model of the original's 24-channel module
+  (`audio/mixer.ts`, `audio/engine.ts`; no audio library dependency).
+- Music: each arena's own track (`public/music/<Mission>.wav`, 8-bit stereo 14260 Hz).
+- All audio is driven from the sim's event ring and the snapshot interface, never from
+  sim internals, and nothing the audio does reaches the sim.

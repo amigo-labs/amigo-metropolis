@@ -14,16 +14,27 @@ import {
   GUARDIAN_LEASH_X,
   GUARDIAN_LEASH_Y,
   MATCH_OUTRO_TICKS,
-  PAD_REPAIR_HP_PER_TICK,
   POINTS_UNIT_DIES,
   ROUTE_TOP_SPEED,
+  RUNNER_ALIVE_LIMIT,
   STARTING_POINTS,
   UNIT_SEPARATION_RADIUS,
 } from "../src/balance";
 import { EV_BREACH, EV_PURCHASE, EV_PURCHASE_REFUSED, EVENT_STRIDE } from "../src/events";
-import { BUTTON_FIRE2, BUTTON_INTERACT, createTickInputs } from "../src/inputs";
+import { BTN_ACTION, BTN_FORWARD, BTN_HEAVY, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
-import { createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
+import {
+  createSim,
+  hash,
+  QUEUE_BASE_JETS,
+  QUEUE_BASE_TANKS,
+  type SimState,
+  spawnUnit,
+  step,
+} from "../src/sim";
+
+/** Mp's fn30 poll: the heavy zones open at the first check that sees 50 points. */
+const HEAVY_POLL = 150;
 
 // Flat 16×16 grid, 4 m cells → 60 m square. One straight lane along y=6
 // between the two gates; avatars/pads live at y=54.
@@ -56,16 +67,26 @@ function warzone(ringTurrets: { west: number[][]; east: number[][] }): MapJson {
         core: [6, 6],
         groundConsole: [6, 14],
         airConsole: [6, 22],
-        pad: { x: 6, y: 54, radius: 4 },
         turrets: ringTurrets.west,
+        heavyZones: {
+          juggernaut: { x: 12, y: 14, radius: 0.8 },
+          fortress: { x: 12, y: 22, radius: 0.8 },
+          pollTicks: HEAVY_POLL,
+        },
+        fortressSpawn: [6, 30],
       },
       {
         gate: { x: 46, y: 6, radius: 3 },
         core: [54, 6],
         groundConsole: [54, 14],
         airConsole: [54, 22],
-        pad: { x: 54, y: 54, radius: 4 },
         turrets: ringTurrets.east,
+        heavyZones: {
+          juggernaut: { x: 48, y: 14, radius: 0.8 },
+          fortress: { x: 48, y: 22, radius: 0.8 },
+          pollTicks: HEAVY_POLL,
+        },
+        fortressSpawn: [54, 30],
       },
     ],
     lanes: [
@@ -102,13 +123,7 @@ const ringedSim = (): SimState =>
 const inputs = createTickInputs();
 
 function reset(): void {
-  for (const p of inputs.players) {
-    p.moveX = 0;
-    p.moveY = 0;
-    p.aimX = 0;
-    p.aimY = 0;
-    p.buttons = 0;
-  }
+  for (const p of inputs.players) p.buttons = 0;
 }
 
 function findEvents(sim: SimState, type: number): number[][] {
@@ -162,14 +177,12 @@ describe("base structures", () => {
     expect(sim.ent.hp[e]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
   });
 
-  it("the pad repairs a damaged avatar standing on it", () => {
+  it("nothing at a base repairs a damaged avatar (the original has no pad)", () => {
     reset();
-    const sim = openSim(); // avatar 0 spawns on its pad
+    const sim = openSim(); // avatar 0 spawns at its base
     sim.ent.hp[0] = AVATAR_HP - 100;
-    step(sim, inputs);
-    expect(sim.ent.hp[0]).toBe(Math.fround(AVATAR_HP - 100 + PAD_REPAIR_HP_PER_TICK));
     for (let t = 0; t < 300; t++) step(sim, inputs);
-    expect(sim.ent.hp[0]).toBe(AVATAR_HP); // clamped at max
+    expect(sim.ent.hp[0]).toBe(AVATAR_HP - 100);
   });
 });
 
@@ -188,18 +201,20 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     step(sim, inputs);
   }
 
-  it("a press at the ground console buys one Runner at once; holding buys no more", () => {
+  it("a press at the ground console buys one Runner; holding buys no more", () => {
     reset();
     const sim = openSim();
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14; // on the own ground console
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     const bought = findEvents(sim, EV_PURCHASE);
     expect(bought.length).toBe(1);
-    const [uid, player, archetype] = bought[0];
+    const [buyer, player, archetype] = bought[0];
+    // Accepted at the press, by the buyer; the tank itself is queued (R18).
+    expect(buyer).toBe(sim.avatarId[0]);
     expect(player).toBe(0);
     expect(archetype).toBe(ARCHETYPE.RUNNER);
-    expect(sim.ent.alive[uid]).toBe(1);
+    expect(sim.unitQueue[QUEUE_BASE_TANKS]).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS - COST_RUNNER);
     // Keeping the key down is not a press: nothing more, however long.
     for (let t = 0; t < 60; t++) {
@@ -209,9 +224,61 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     expect(sim.points[0]).toBe(STARTING_POINTS - COST_RUNNER);
     // Release and press again: the next unit.
     release(sim);
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE).length).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS - 2 * COST_RUNNER);
+  });
+
+  it("bought tanks come out of the tank spawner one a queue period; jets at once", () => {
+    reset();
+    const sim = openSim();
+    const base = sim.map.bases[0];
+    sim.points[0] = 20;
+    sim.ent.posX[0] = 6;
+    sim.ent.posY[0] = 14;
+    for (let k = 0; k < 3; k++) {
+      press(sim, BTN_ACTION);
+      release(sim);
+    }
+    expect(sim.unitQueue[QUEUE_BASE_TANKS]).toBe(3);
+    const out: number[] = [];
+    for (let t = 0; t < 4 * base.queueTicks.tank; t++) {
+      step(sim, inputs);
+      for (let id = 0; id < sim.ent.high; id++) {
+        if (!sim.ent.alive[id] || sim.ent.archetype[id] !== ARCHETYPE.RUNNER) continue;
+        if (out.includes(id)) continue;
+        out.push(id);
+        expect(sim.ent.posX[id]).toBeCloseTo(base.tankSpawn.x, 0);
+        expect(sim.ent.posY[id]).toBeCloseTo(base.tankSpawn.y, 0);
+        out.push(-t - 1); // remember when
+      }
+    }
+    const ticks = out.filter((v) => v < 0).map((v) => -v - 1);
+    expect(ticks.length).toBe(3);
+    expect(ticks[1] - ticks[0]).toBe(base.queueTicks.tank);
+    expect(ticks[2] - ticks[1]).toBe(base.queueTicks.tank);
+    expect(sim.unitQueue[QUEUE_BASE_TANKS]).toBe(0);
+    // A jet does not queue.
+    sim.ent.posX[0] = 6;
+    sim.ent.posY[0] = 22;
+    press(sim, BTN_ACTION);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
+    expect(sim.unitQueue[QUEUE_BASE_JETS]).toBe(0);
+  });
+
+  it("a queued tank counts against the 20 from its purchase", () => {
+    reset();
+    const sim = openSim();
+    sim.points[0] = 100;
+    for (let k = 0; k < RUNNER_ALIVE_LIMIT - 1; k++) spawnUnit(sim, ARCHETYPE.RUNNER, 0, 6, 40);
+    sim.ent.posX[0] = 6;
+    sim.ent.posY[0] = 14;
+    press(sim, BTN_ACTION); // the 20th: queued
+    expect(findEvents(sim, EV_PURCHASE).length).toBe(1);
+    release(sim);
+    press(sim, BTN_ACTION); // a 21st, with only 19 alive: refused
+    expect(findEvents(sim, EV_PURCHASE_REFUSED)[0][2]).toBe(ARCHETYPE.RUNNER);
+    expect(sim.points[0]).toBe(100 - COST_RUNNER);
   });
 
   it("every press is one unit: five taps, five Runners", () => {
@@ -221,7 +288,7 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     sim.ent.posY[0] = 14;
     let n = 0;
     for (let k = 0; k < 5; k++) {
-      press(sim, BUTTON_INTERACT);
+      press(sim, BTN_ACTION);
       n += findEvents(sim, EV_PURCHASE).length;
       release(sim);
     }
@@ -235,7 +302,7 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     sim.points[0] = 0;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
     const refused = findEvents(sim, EV_PURCHASE_REFUSED);
     expect(refused.length).toBe(1);
@@ -246,49 +313,67 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
   });
 
-  it("interact+fire2 buys the 50-point heavy variant; its zone is closed while it lives", () => {
+  /** Runs the side's heavy-zone poll past its next check. */
+  function openHeavy(sim: SimState): void {
+    for (let t = 0; t < HEAVY_POLL + 1; t++) step(sim, inputs);
+    expect(sim.heavyUnlocked[0]).toBe(1);
+  }
+
+  it("the Dreadnought zone sells one at its record; a press while it lives is refused", () => {
     reset();
     const sim = openSim();
     sim.points[0] = 120;
-    sim.ent.posX[0] = 6;
-    sim.ent.posY[0] = 14;
-    release(sim); // the side holds 50: the heavy zones open at the end of the tick (R10)
-    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    openHeavy(sim); // the side holds 50: the poll opens the zones (R10)
+    sim.ent.posX[0] = 12;
+    sim.ent.posY[0] = 14; // in the Dreadnought zone
+    release(sim);
+    press(sim, BTN_ACTION);
     const first = findEvents(sim, EV_PURCHASE);
     expect(first[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
     expect(sim.points[0]).toBe(120 - COST_JUGGERNAUT);
     const jugg = first[0][0];
-    // The one-alive limit closes the zone while it lives: a press is neither a
-    // purchase nor a refusal (the original's zone is disabled, not refusing).
+    // The latch holds while it lives: the zone answers with the refuse sound.
     release(sim);
-    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
-    expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
-    // …and killing it reopens it.
+    expect(findEvents(sim, EV_PURCHASE_REFUSED)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
+    // …and its death reopens it.
     sim.ent.hp[jugg] = 0;
     release(sim);
-    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.JUGGERNAUT);
   });
 
-  it("the air console sells Guardians and Fortresses", () => {
+  it("the air console sells Guardians; the Fortress zone sells Fortresses at its spawner", () => {
     reset();
     const sim = openSim();
     sim.points[0] = 120;
+    openHeavy(sim);
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 22; // on the own air console
     release(sim);
-    press(sim, BUTTON_INTERACT);
+    press(sim, BTN_ACTION);
     expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
+    // Holding Heavy there buys nothing heavier: the heavy units have zones.
     release(sim);
-    press(sim, BUTTON_INTERACT | BUTTON_FIRE2);
-    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.FORTRESS);
+    press(sim, BTN_ACTION | BTN_HEAVY);
+    expect(findEvents(sim, EV_PURCHASE)[0][2]).toBe(ARCHETYPE.GUARDIAN);
+    sim.ent.posX[0] = 12;
+    sim.ent.posY[0] = 22; // the Fortress zone
+    release(sim);
+    press(sim, BTN_ACTION);
+    const bought = findEvents(sim, EV_PURCHASE);
+    expect(bought[0][2]).toBe(ARCHETYPE.FORTRESS);
+    // At its spawner (it has flown one tick since).
+    expect(
+      Math.hypot(sim.ent.posX[bought[0][0]] - 6, sim.ent.posY[bought[0][0]] - 30),
+    ).toBeLessThan(0.5);
   });
 
   it("a press away from any console buys nothing and refuses nothing", () => {
     reset();
     const sim = openSim();
-    press(sim, BUTTON_INTERACT); // at spawn, far from consoles
+    press(sim, BTN_ACTION); // at spawn, far from consoles
     expect(findEvents(sim, EV_PURCHASE).length).toBe(0);
     expect(findEvents(sim, EV_PURCHASE_REFUSED).length).toBe(0);
     expect(sim.points[0]).toBe(STARTING_POINTS);
@@ -335,17 +420,17 @@ describe("runner lane-following and the win check", () => {
     expect(sim.winner).toBe(-1);
     expect(sim.outroTimer).toBe(MATCH_OUTRO_TICKS);
     expect(sim.outroWinner).toBe(1);
-    inputs.players[0].moveX = 127;
+    inputs.players[0].buttons = BTN_FORWARD; // the spawn faces +X
     const xBefore = sim.ent.posX[0];
     for (let t = 0; t < MATCH_OUTRO_TICKS - 1; t++) step(sim, inputs);
     expect(sim.ent.posX[0]).not.toBe(xBefore);
     expect(sim.winner).toBe(-1);
     step(sim, inputs);
     expect(sim.winner).toBe(1);
-    inputs.players[0].moveX = 0;
+    inputs.players[0].buttons = 0;
     // Frozen: avatars ignore input, only the tick advances the hash.
     const x0 = sim.ent.posX[0];
-    inputs.players[0].moveX = 127;
+    inputs.players[0].buttons = BTN_FORWARD;
     const h1 = hash(sim);
     step(sim, inputs);
     expect(sim.ent.posX[0]).toBe(x0);
@@ -471,7 +556,7 @@ describe("determinism with units in play", () => {
     for (let t = 0; t < 900; t++) {
       for (const run of [A, B]) {
         // A press every 60 ticks: real purchases, one unit each.
-        const btn = t % 60 === 0 ? BUTTON_INTERACT : 0;
+        const btn = t % 60 === 0 ? BTN_ACTION : 0;
         run.ins.players[0].buttons = btn;
         run.ins.players[1].buttons = btn;
         step(run.sim, run.ins);

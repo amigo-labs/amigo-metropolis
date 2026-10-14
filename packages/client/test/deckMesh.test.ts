@@ -2,12 +2,12 @@
 // render mesh per extra deck. Pure THREE geometry (no WebGL/DOM), so it runs in
 // bun — a deterministic stand-in for the flaky headless screenshot.
 import { describe, expect, it } from "bun:test";
-import { DISTRICT_01_ID, getMapById, HOLLYWOOD_KEYS_ID, LAYERED_TEST_ID } from "@metropolis/sim";
+import { getMapById, HOLLYWOOD_KEYS_ID, LAYERED_TEST_ID, TEST_MAP_ID } from "@metropolis/sim";
 import { buildDeckMeshes } from "../src/render/terrain";
 
 describe("buildDeckMeshes", () => {
   it("returns no meshes for a single-story map", () => {
-    expect(buildDeckMeshes(getMapById(DISTRICT_01_ID)).length).toBe(0);
+    expect(buildDeckMeshes(getMapById(TEST_MAP_ID)).length).toBe(0);
   });
 
   it("builds one non-empty mesh per extra deck of a layered map", () => {

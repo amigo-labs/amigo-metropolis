@@ -39,10 +39,10 @@ export interface Outgoing {
   readonly msg: NetMessage;
 }
 
-const IDLE_INPUT: PlayerInput = { moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: 0 };
+const IDLE_INPUT: PlayerInput = { buttons: 0 };
 
 function cloneInput(i: PlayerInput): PlayerInput {
-  return { moveX: i.moveX, moveY: i.moveY, aimX: i.aimX, aimY: i.aimY, buttons: i.buttons };
+  return { buttons: i.buttons };
 }
 
 export class RoomLogic {

@@ -26,8 +26,14 @@ import {
   shotPayloadWeaponReach,
   weaponShotPayload,
 } from "../src/events";
-import { BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_FIRE3, createTickInputs } from "../src/inputs";
-import { getMapById, LA_CANTINA_ID, loadMapFromJson, type MapJson } from "../src/map";
+import { BTN_GUN, BTN_HEAVY, BTN_SPECIAL, createTickInputs } from "../src/inputs";
+import {
+  getMapById,
+  LA_CANTINA_ID,
+  loadMapFromJson,
+  type MapJson,
+  resolveHeight,
+} from "../src/map";
 import { createSim, type SimState, step } from "../src/sim";
 import {
   DEFAULT_LOADOUT,
@@ -106,7 +112,6 @@ function flatArena(): MapJson {
         core: [14, 30],
         groundConsole: [20, 24],
         airConsole: [20, 36],
-        pad: { x: 6, y: 6, radius: 2 },
         turrets: [],
       },
       {
@@ -114,7 +119,6 @@ function flatArena(): MapJson {
         core: [36, 58],
         groundConsole: [30, 52],
         airConsole: [24, 58],
-        pad: { x: 54, y: 54, radius: 2 },
         turrets: [],
       },
     ],
@@ -292,7 +296,7 @@ describe("the cooldown machine (`player_fire_slot`)", () => {
   test("a gap-0 gun fires on every tick it is held: 30 rounds a second", () => {
     expect(WEAPON_UNITS_PER_TICK).toBe(10);
     const { sim, a1, inputs } = duel({ gun: 0 }, 8);
-    inputs.players[0].buttons = BUTTON_FIRE1;
+    inputs.players[0].buttons = BTN_GUN;
     for (let t = 0; t < TICK_HZ; t++) step(sim, inputs);
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - TICK_HZ);
     expect(sim.gunAmmo[0]).toBe(GUNS[0].a.ammoCap - TICK_HZ);
@@ -300,14 +304,14 @@ describe("the cooldown machine (`player_fire_slot`)", () => {
 
   test("the Electric Gun's 18-unit gap fires on every other tick", () => {
     const { sim, a1, inputs } = duel({ gun: 3 }, 8);
-    inputs.players[0].buttons = BUTTON_FIRE1;
+    inputs.players[0].buttons = BTN_GUN;
     for (let t = 0; t < TICK_HZ; t++) step(sim, inputs);
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 15 * 3);
   });
 
   test("the Hyper Velocity Rocket fires four rounds on four ticks, then waits", () => {
     const { sim, a0, inputs } = duel({ heavy: 2 }, 30);
-    inputs.players[0].buttons = BUTTON_FIRE2;
+    inputs.players[0].buttons = BTN_HEAVY;
     const fired: number[] = [];
     for (let t = 0; t < 80; t++) {
       step(sim, inputs);
@@ -320,19 +324,69 @@ describe("the cooldown machine (`player_fire_slot`)", () => {
 
   test("the Mortar's 601-unit gap is 61 ticks: the cooldown floors at zero", () => {
     const { sim, inputs } = duel({ special: 0 }, 30);
-    inputs.players[0].buttons = BUTTON_FIRE3;
+    inputs.players[0].buttons = BTN_SPECIAL;
     const fired: number[] = [];
     for (let t = 0; t < 130; t++) {
       step(sim, inputs);
       if (firedWeaponIds(sim).includes(SPECIALS[0].id)) fired.push(t);
     }
-    expect(fired).toEqual([0, 61, 122]);
+    // Special fires from the latch's HELD state, so the first round is the
+    // second tick's; the gap after it is the same 61.
+    expect(fired).toEqual([1, 62, 123]);
+  });
+
+  test("Special fires from the second tick it is held: a one-tick tap fires nothing", () => {
+    // `player_fire_buttons` reads Special from the button latch, which reaches
+    // "held" on the second frame a button is down; Gun and Heavy fire on the
+    // first. Tapped every other tick, the Mortar never goes off.
+    const { sim, inputs } = duel({ special: 0 }, 30);
+    const fired: number[] = [];
+    for (let t = 0; t < 40; t++) {
+      inputs.players[0].buttons = t % 2 === 0 ? BTN_SPECIAL : 0;
+      step(sim, inputs);
+      if (firedWeaponIds(sim).length > 0) fired.push(t);
+    }
+    expect(fired).toEqual([]);
+    expect(sim.ent.cooldownC[sim.avatarId[0]]).toBe(0);
+    // Held, it fires on the second tick, never the first.
+    inputs.players[0].buttons = BTN_SPECIAL;
+    step(sim, inputs);
+    expect(firedWeaponIds(sim)).toEqual([]);
+    step(sim, inputs);
+    expect(firedWeaponIds(sim)).toEqual([SPECIALS[0].id]);
+    // Gun and Heavy, pressed on the same first tick, both go out at once.
+    const both = duel({ gun: 0, heavy: 0, special: 0 }, 8);
+    both.inputs.players[0].buttons = BTN_GUN | BTN_HEAVY | BTN_SPECIAL;
+    step(both.sim, both.inputs);
+    expect(firedWeaponIds(both.sim).sort()).toEqual([GUNS[0].id, HEAVIES[0].id].sort());
+  });
+
+  test("a kept-round block (flag 4) makes Special fire on the press instead", () => {
+    // Neither flag-4 record (the Plasma Flare, the Grenade) is in the catalogue,
+    // so the Mortar's block A borrows the flag for this test only.
+    for (const w of ALL) expect(w.a.flags & 4).toBe(0);
+    const a = SPECIALS[0].a as { flags: number };
+    const flags = a.flags;
+    a.flags = flags | 4;
+    try {
+      const { sim, inputs } = duel({ special: 0 }, 30);
+      inputs.players[0].buttons = BTN_SPECIAL;
+      step(sim, inputs);
+      expect(firedWeaponIds(sim)).toEqual([SPECIALS[0].id]);
+      // An edge, not a level: held on, it does not fire again.
+      for (let t = 0; t < 70; t++) {
+        step(sim, inputs);
+        expect(firedWeaponIds(sim)).toEqual([]);
+      }
+    } finally {
+      a.flags = flags;
+    }
   });
 
   test("an empty magazine fires nothing", () => {
     const { sim, a1, inputs } = duel({ gun: 0 }, 8);
     sim.gunAmmo[0] = 2;
-    inputs.players[0].buttons = BUTTON_FIRE1;
+    inputs.players[0].buttons = BTN_GUN;
     for (let t = 0; t < 10; t++) step(sim, inputs);
     expect(sim.gunAmmo[0]).toBe(0);
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 2);
@@ -342,7 +396,7 @@ describe("the cooldown machine (`player_fire_slot`)", () => {
 describe("hitscan damages only the lock (fcop-fidelity.md W2)", () => {
   test("a target ahead inside 12 m is locked and hit", () => {
     const { sim, a1, inputs } = duel({ gun: 0 }, 11.5);
-    inputs.players[0].buttons = BUTTON_FIRE1;
+    inputs.players[0].buttons = BTN_GUN;
     step(sim, inputs);
     expect(sim.lockTarget[0]).toBe(a1);
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 1);
@@ -350,7 +404,7 @@ describe("hitscan damages only the lock (fcop-fidelity.md W2)", () => {
 
   test("past 12 m nothing is locked and nothing is hit", () => {
     const { sim, a1, inputs } = duel({ gun: 0 }, AVATAR_LOCK_RANGE + 0.5);
-    inputs.players[0].buttons = BUTTON_FIRE1;
+    inputs.players[0].buttons = BTN_GUN;
     for (let t = 0; t < 10; t++) step(sim, inputs);
     expect(sim.lockTarget[0]).toBe(-1);
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP);
@@ -372,7 +426,7 @@ describe("hitscan damages only the lock (fcop-fidelity.md W2)", () => {
     sim.ent.aimX[a0] = 1;
     sim.ent.aimY[a0] = 0;
     const inputs = createTickInputs();
-    inputs.players[0].buttons = BUTTON_FIRE1;
+    inputs.players[0].buttons = BTN_GUN;
     for (let k = 0; k < 30; k++) step(sim, inputs);
     expect(sim.lockTarget[0]).toBe(-1);
     expect(sim.ent.hp[t]).toBe(hp);
@@ -380,7 +434,7 @@ describe("hitscan damages only the lock (fcop-fidelity.md W2)", () => {
 
   test("the shot's reach is the distance to the lock", () => {
     const { sim, inputs } = duel({ gun: 0 }, 7);
-    inputs.players[0].buttons = BUTTON_FIRE1;
+    inputs.players[0].buttons = BTN_GUN;
     step(sim, inputs);
     for (let i = 0; i < sim.events.count; i++) {
       const o = i * EVENT_STRIDE;
@@ -393,7 +447,7 @@ describe("hitscan damages only the lock (fcop-fidelity.md W2)", () => {
 describe("missiles", () => {
   test("Hell Fire 2000 launches slow, accelerates and homes on the lock", () => {
     const { sim, a1, inputs } = duel({ heavy: 0 }, 9, 1.5);
-    inputs.players[0].buttons = BUTTON_FIRE2;
+    inputs.players[0].buttons = BTN_HEAVY;
     step(sim, inputs);
     inputs.players[0].buttons = 0;
     const [m] = projectiles(sim, PROJ_HEAVY);
@@ -414,7 +468,7 @@ describe("missiles", () => {
 
   test("a missile without a lock flies straight and ends at its 16 m range", () => {
     const { sim, inputs } = duel({ heavy: 0 }, 0, 25);
-    inputs.players[0].buttons = BUTTON_FIRE2;
+    inputs.players[0].buttons = BTN_HEAVY;
     step(sim, inputs);
     inputs.players[0].buttons = 0;
     const [m] = projectiles(sim, PROJ_HEAVY);
@@ -431,7 +485,7 @@ describe("missiles", () => {
   test("the Hyper Velocity Rocket is lead-aimed at a moving lock", () => {
     const { sim, a1, inputs } = duel({ heavy: 2 }, 10);
     sim.ent.velY[a1] = 3; // the target is crossing at 3 m/s
-    inputs.players[0].buttons = BUTTON_FIRE2;
+    inputs.players[0].buttons = BTN_HEAVY;
     step(sim, inputs);
     const [r] = projectiles(sim, PROJ_HYPER);
     expect(sim.ent.velY[r]).toBeGreaterThan(0); // aimed ahead of it, not at it
@@ -442,8 +496,9 @@ describe("missiles", () => {
 describe("arced rounds", () => {
   test("the Mortar lobs to 8 m ahead with no lock, under its own 6 m/s² gravity", () => {
     const { sim, inputs } = duel({ special: 0 }, 0, 25);
-    inputs.players[0].buttons = BUTTON_FIRE3;
+    inputs.players[0].buttons = BTN_SPECIAL;
     step(sim, inputs);
+    step(sim, inputs); // Special goes out on the second tick it is held
     inputs.players[0].buttons = 0;
     const [s] = projectiles(sim, PROJ_MORTAR);
     const h0 = sim.ent.height[s];
@@ -462,8 +517,9 @@ describe("arced rounds", () => {
 
   test("the Mortar lands on the lock and its blast falls off with distance", () => {
     const { sim, a1, inputs } = duel({ special: 0 }, 7);
-    inputs.players[0].buttons = BUTTON_FIRE3;
+    inputs.players[0].buttons = BTN_SPECIAL;
     step(sim, inputs);
+    step(sim, inputs); // fires on the second tick held
     inputs.players[0].buttons = 0;
     for (let t = 0; t < 120; t++) step(sim, inputs);
     const lost = AVATAR_HP - sim.ent.hp[a1];
@@ -476,8 +532,9 @@ describe("arced rounds", () => {
 describe("mines and the pulse", () => {
   test("a mine springs on an enemy within 2 m + its radius and blows a second later", () => {
     const { sim, a0, a1, inputs } = duel({ special: 1 }, 30);
-    inputs.players[0].buttons = BUTTON_FIRE3;
+    inputs.players[0].buttons = BTN_SPECIAL;
     step(sim, inputs);
+    step(sim, inputs); // dropped on the second tick held
     inputs.players[0].buttons = 0;
     const [mine] = projectiles(sim, PROJ_MINE);
     expect(sim.ent.timerB[mine]).toBe(SPECIAL_MINE_ARM_TICKS - 1); // armed one tick already
@@ -499,14 +556,16 @@ describe("mines and the pulse", () => {
 
   test("the Shockwave Generator hits everything within 6 m for its full 300", () => {
     const { sim, a1, inputs } = duel({ special: 2 }, 5);
-    inputs.players[0].buttons = BUTTON_FIRE3;
+    inputs.players[0].buttons = BTN_SPECIAL;
+    step(sim, inputs);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP); // the first tick held is not yet "held"
     step(sim, inputs);
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 300);
   });
 
   test("the Concussion Beam bursts at the lock for 50", () => {
     const { sim, a1, inputs } = duel({ heavy: 1 }, 6);
-    inputs.players[0].buttons = BUTTON_FIRE2;
+    inputs.players[0].buttons = BTN_HEAVY;
     step(sim, inputs);
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 50);
   });
@@ -559,8 +618,9 @@ describe("ammunition", () => {
         [["gun", "heavy", "special"][w.slot]]: w.index,
       };
       const { sim, inputs } = duel(loadout, 8);
-      inputs.players[0].buttons = [BUTTON_FIRE1, BUTTON_FIRE2, BUTTON_FIRE3][w.slot];
+      inputs.players[0].buttons = [BTN_GUN, BTN_HEAVY, BTN_SPECIAL][w.slot];
       step(sim, inputs);
+      if (w.slot === 2) step(sim, inputs); // Special: the second tick held
       expect(firedWeaponIds(sim)).toContain(w.id);
     }
   });
@@ -582,6 +642,7 @@ describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
     const a0 = sim.avatarId[0];
     sim.ent.posX[a0] = map.pickups[k].x;
     sim.ent.posY[a0] = map.pickups[k].y;
+    sim.ent.height[a0] = resolveHeight(map, map.pickups[k].x, map.pickups[k].y, 0);
     return { sim, a0, inputs: createTickInputs() };
   }
 
@@ -604,7 +665,7 @@ describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
     step(sim, inputs);
     sim.powerAmmo[1] = 2;
     const ammoA = sim.ent.ammoA[a0];
-    inputs.players[0].buttons = BUTTON_FIRE2;
+    inputs.players[0].buttons = BTN_HEAVY;
     const volleys: number[] = [];
     for (let t = 0; t < 60; t++) {
       const before = projectiles(sim, PROJ_HEAVY).length;
@@ -625,7 +686,7 @@ describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
     const a1 = sim.avatarId[1];
     sim.ent.posX[a1] = 20 + 12.3;
     sim.ent.posY[a1] = 30;
-    inputs.players[0].buttons = BUTTON_FIRE1;
+    inputs.players[0].buttons = BTN_GUN;
     step(sim, inputs);
     expect(sim.lockTarget[0]).toBe(-1);
     // 2 * (1 - 0.3) / 1, truncated: 1.
@@ -636,8 +697,9 @@ describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
   test("a powered Mortar bursts into four fragments at its apex", () => {
     const { sim, inputs } = duel({ special: 0 }, 0, 25);
     sim.powerAmmo[2] = 12;
-    inputs.players[0].buttons = BUTTON_FIRE3;
+    inputs.players[0].buttons = BTN_SPECIAL;
     step(sim, inputs);
+    step(sim, inputs); // fires on the second tick held
     inputs.players[0].buttons = 0;
     expect(projectiles(sim, PROJ_MORTAR).length).toBe(1);
     let most = 1;

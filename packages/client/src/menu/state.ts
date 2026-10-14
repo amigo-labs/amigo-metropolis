@@ -10,8 +10,8 @@
 import { type Loadout, MAP_REGISTRY, normalizeLoadout } from "@metropolis/sim";
 
 export type MenuMode = "solo" | "online" | null;
-/** Console drawers: how-to and a combined preferences (sound + graphics). */
-export type MenuDrawer = "how" | "prefs" | null;
+/** Console drawers: how-to, the controls, and preferences (sound + graphics). */
+export type MenuDrawer = "how" | "controls" | "prefs" | null;
 /** Hardpoint index: 0 Gun, 1 Heavy, 2 Special — the original's slot order. */
 export type Hardpoint = 0 | 1 | 2;
 

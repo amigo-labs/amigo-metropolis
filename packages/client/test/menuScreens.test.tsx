@@ -51,6 +51,7 @@ describe("console rail", () => {
     expect(html).toContain("Solo");
     expect(html).toContain("Online");
     expect(html).toContain("Preferences");
+    expect(html).toContain(">Controls<");
     expect(html).toContain("How to play");
     // Weapons are fitted on the bottom strip — no separate screen entry.
     expect(html).not.toContain(">Weapons<");

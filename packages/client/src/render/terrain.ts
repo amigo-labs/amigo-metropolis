@@ -36,7 +36,7 @@ export function buildWaterPlane(map: MapData): THREE.Mesh {
 /**
  * Tier-1 wall render: one vertical quad per edge-blocker segment, built from
  * the SAME wallsV/wallsH arrays the collision reads — render and physics can
- * never drift apart. Returns null for wall-free maps (district-01, test-128).
+ * never drift apart. Returns null for wall-free maps (test-128).
  */
 export function buildWallMesh(map: MapData): THREE.Mesh | null {
   if (map.wallsV.length === 0 && map.wallsH.length === 0) return null;

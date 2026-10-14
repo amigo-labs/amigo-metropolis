@@ -29,8 +29,9 @@ const OUT = process.env.UNIT_SHOTS_OUT ?? join(ROOT, "docs", "verification", "st
 // Open heightfield arena (no city blocks) so the lineup is legible; the map
 // has no textured terrain asset, which is fine — terrain falls back to
 // greybox while the unit models still load, and units are what we verify.
-// ?warden=1 provides the WARDEN avatar, everything else is spawned.
-const MAP_ID = "district-01";
+// ?warden=1 provides the WARDEN avatar, everything else is spawned. The
+// wall-free debug map (district-01, which this used before, is gone).
+const MAP_ID = "test-128";
 const UNIT_GLBS = [
   "avatar-walker",
   "avatar-hover",

@@ -5,7 +5,6 @@
 // and a schema test); the Phase 0 test map stays procedurally generated.
 
 import bugHuntJson from "../maps/bug-hunt.json";
-import districtJson from "../maps/district-01.json";
 import hollywoodKeysJson from "../maps/hollywood-keys.json";
 import laCantinaJson from "../maps/la-cantina.json";
 import layeredTestJson from "../maps/layered-test.json";
@@ -13,7 +12,15 @@ import provingGroundJson from "../maps/proving-ground.json";
 import urbanJungleJson from "../maps/urban-jungle.json";
 import veniceBeachJson from "../maps/venice-beach.json";
 import {
+  ORIGINAL_BUY_HALF_L,
+  ORIGINAL_BUY_HALF_W,
   ORIGINAL_CAPTURE_RANGE,
+  ORIGINAL_JET_QUEUE_TICKS,
+  ORIGINAL_PICKUP_HALF_H,
+  ORIGINAL_PICKUP_HALF_L,
+  ORIGINAL_PICKUP_HALF_W,
+  ORIGINAL_PICKUP_LIFT,
+  ORIGINAL_TANK_QUEUE_TICKS,
   ORIGINAL_TURRET_HP,
   ORIGINAL_UNIT_PROFILES,
   ORIGINAL_WEAPON_PROFILES,
@@ -52,6 +59,15 @@ export interface MapPlot {
   readonly y: number;
   readonly radius: number;
   readonly layer: number;
+}
+
+/**
+ * A purchase spot's type-95 trigger box about its console point: half extents
+ * along x and y in metres, before the intruder's own radius widens it.
+ */
+export interface MapBuyBox {
+  readonly halfW: number;
+  readonly halfL: number;
 }
 
 /**
@@ -189,6 +205,29 @@ export interface MapBaseTurret {
 }
 
 /** One team's base structures (rules.md §5). Index = team id. */
+/**
+ * A type-14 purchase zone (fcop-fidelity.md R10): touched by the own mech
+ * within `radius` plus the mech's own radius (as an outpost pad is), and
+ * answering the action key's press.
+ */
+export interface MapZone {
+  readonly x: number;
+  readonly y: number;
+  readonly layer: number;
+  readonly radius: number;
+}
+
+/**
+ * A base's Dreadnought and Flying Fortress zones and the polled check that opens
+ * them for good the first time it sees the side hold HEAVY_UNLOCK_POINTS (the
+ * original's fn30/fn31: every 5 s, 2.5 s on Joke and Slim, from a random phase).
+ */
+export interface MapHeavyZones {
+  readonly juggernaut: MapZone;
+  readonly fortress: MapZone;
+  readonly pollTicks: number;
+}
+
 export interface MapBase {
   /**
    * Win trigger volume: an enemy Runner or Juggernaut inside = breach (rules.md
@@ -203,10 +242,12 @@ export interface MapBase {
   readonly core: MapPoint;
   /** Build console for ground units (Runner/Juggernaut). */
   readonly groundConsole: MapPoint;
+  /** The ground console's trigger box, half extents x / y in metres. */
+  readonly groundBuy: MapBuyBox;
   /** Build console for air units (Guardian/Fortress). */
   readonly airConsole: MapPoint;
-  /** Ammo/repair pad. */
-  readonly pad: MapPlot;
+  /** The air console's trigger box, half extents x / y in metres. */
+  readonly airBuy: MapBuyBox;
   /** Ring turrets; each respawns `turretRespawnTicks` after destruction. */
   readonly turrets: readonly MapBaseTurret[];
   /**
@@ -225,6 +266,21 @@ export interface MapBase {
   readonly runner: MapUnitProfile;
   readonly guardian: MapUnitProfile;
   readonly fortress: MapUnitProfile;
+  /**
+   * The heavy-unit zones; undefined where the arena imports none, and then no
+   * player can buy a Dreadnought or a Fortress (the test maps).
+   */
+  readonly heavyZones: MapHeavyZones | undefined;
+  /** Where a Fortress appears: its own spawner's (Csac) position; else the air console. */
+  readonly fortressSpawn: MapPoint;
+  /** Where the base's tanks and jets appear: their spawners; else the consoles. */
+  readonly tankSpawn: MapPoint;
+  readonly jetSpawn: MapPoint;
+  /**
+   * The base's tank queue's period, and the jet queue's (the Sky Captain's; a
+   * human's jets come at once). ORIGINAL_*_QUEUE_TICKS where the arena imports none.
+   */
+  readonly queueTicks: MapQueueTicks;
 }
 
 /**
@@ -264,6 +320,18 @@ export interface MapPickup {
   /** Ticks before the spot re-arms after being taken. */
   readonly respawnTicks: number;
   readonly layer: number;
+  /**
+   * The collection box's half extents in metres (fcop-fidelity.md P9): x, y and
+   * height about the pickup, which stands `lift` above the ground. A mech
+   * collects strictly inside on every axis (`cact_pickup_box_touch`; no radius).
+   */
+  readonly halfW: number;
+  readonly halfL: number;
+  readonly halfH: number;
+  readonly lift: number;
+  /** Render-only: the original Cobj model and its spin rate (4096ths a 300 Hz tick). */
+  readonly model: number;
+  readonly spin: number;
 }
 
 /**
@@ -282,6 +350,67 @@ export interface MapTriggerVolume {
   /** TRIGGER_WATCH_* bitmask (balance.ts). */
   readonly watch: number;
   readonly layer: number;
+}
+
+/**
+ * Hk's spawn guard (fcop-fidelity.md P11): a trigger box about a spawn that
+ * watches the ENEMY mech. While that mech is inside it takes `damage`, then the
+ * box waits for a latch reset the mission polls every `resetTicks` from a random
+ * phase (RE `pa_rules.json` damage_triggers; trigger.c's box test, every axis
+ * widened by the mech's radius).
+ */
+export interface MapSpawnGuard {
+  readonly x: number;
+  readonly y: number;
+  readonly halfW: number;
+  readonly halfL: number;
+  /** Half height about the terrain under the centre, sampled at load. */
+  readonly halfH: number;
+  /** Team whose mech the box hurts. */
+  readonly hurtsTeam: number;
+  readonly damage: number;
+  readonly resetTicks: number;
+  readonly layer: number;
+}
+
+/**
+ * One of the original's lifts (type-10 actor, `elevator.c`; fcop-fidelity.md
+ * P12; RE `camera-and-movement.md` "Lifts"). It moves only its height, between
+ * `stops` above the ground it was built on: from a stop whose `dwell` is 0 it
+ * leaves when a mech standing on its top presses the Action Key, from any other
+ * after `dwell` ticks; at either end of the table it turns round. Its top face
+ * is ground to a mech standing on it, and a tagged lift's top is its base's
+ * floor (`hurtsTeam`).
+ */
+export interface MapLift {
+  /** Centre, sim frame. */
+  readonly x: number;
+  readonly y: number;
+  /** The top face's rectangle, absolute sim coordinates (the record's box, turned by its yaw). */
+  readonly x0: number;
+  readonly x1: number;
+  readonly y0: number;
+  readonly y1: number;
+  /** The ground under the lift as it was built, m. */
+  readonly ground: number;
+  /** The top face above the lift's position, m. */
+  readonly top: number;
+  /** Stops in world units (1/8192 m) above `ground`, ascending (raw << 4). */
+  readonly stops: readonly number[];
+  /** World units a sim tick toward a higher stop (`up`) and a lower one (`down`). */
+  readonly up: number;
+  readonly down: number;
+  /** Per stop: sim ticks it waits there; 0 parks it until a rider's press. */
+  readonly dwell: readonly number[];
+  /** The stop it starts at; it first moves toward the next one up. */
+  readonly start: number;
+  /** Team whose mech its top hurts as that team's enemy floor does (tag 14/15), -1 none. */
+  readonly hurtsTeam: number;
+  /** Per stop: the surface a rider counts as standing on (0 ground, L deck L), for its walls. */
+  readonly layers: readonly number[];
+  /** Render only: the original Cobj and the yaw, radians. */
+  readonly model: number;
+  readonly yaw: number;
 }
 
 /**
@@ -315,6 +444,21 @@ export interface MapOutpost {
   /** Where an owner buys a tank (Runner) and a jet (Guardian), at 2 points each. */
   readonly tankPad: MapPoint;
   readonly jetPad: MapPoint;
+  /** Per team: where its tanks and jets from this outpost appear (their spawners). */
+  readonly tankSpawn: readonly MapPoint[];
+  readonly jetSpawn: readonly MapPoint[];
+  /** Per team: this outpost's tank and jet queues' periods in ticks (MapQueueTicks). */
+  readonly queueTicks: readonly MapQueueTicks[];
+}
+
+/**
+ * A spawn queue's period in ticks (fcop-fidelity.md R18): the mission function
+ * that spawns one queued unit per poll while its count is positive, polled from a
+ * random phase drawn at load.
+ */
+export interface MapQueueTicks {
+  readonly tank: number;
+  readonly jet: number;
 }
 
 /**
@@ -339,9 +483,18 @@ export interface MapData {
   readonly cellSize: number;
   /** Row-major heights, index = row * size + col. */
   readonly heights: Float32Array;
-  /** 1 = water (hover only). Row-major like heights, sampled per vertex. */
+  /**
+   * 1 = water, per cell (`floor(y) * size + floor(x)`): the original's surface
+   * code 1, whose sample tiles are the sim's cells (fcop-fidelity.md P13).
+   */
   readonly waterMask: Uint8Array;
-  /** Water surface height in meters — hover rides on max(terrain, this). */
+  /** Each water cell's own surface height in metres; meaningless off the mask. */
+  readonly waterHeights: Float32Array;
+  /**
+   * The arena's water surface in metres, for everything that does not ask a cell:
+   * a hover rides on max(terrain, this) off the mask too (its banks), and
+   * aircraft cruise above it.
+   */
   readonly waterLevel: number;
   /**
    * Vertical wall segments (edge blockers on grid lines): wallsV[j*size+i]=1
@@ -434,6 +587,21 @@ export interface MapData {
   readonly pickups: readonly MapPickup[];
   /** Base-intrusion volumes. EMPTY → no intrusion alerts. */
   readonly triggerVolumes: readonly MapTriggerVolume[];
+  /**
+   * The ground's codes a mech feels, one mask per surface (index 0 the ground,
+   * L deck L), cell-indexed (`floor(y) * size + floor(x)`): 0 = none; 1 + team
+   * = the bases' floors (fcop-fidelity.md P11), this cell hurts that team's
+   * mech; 3, 4, 5 = the ground codes 3, 4, 5 that set the walker's movement
+   * mode (P11; Ovmp's slippery code 4). EMPTY on an arena whose ground carries
+   * none.
+   */
+  readonly floorMasks: readonly Uint8Array[];
+  /** Any cell of floorMasks carries a mode code (3..5): the walker's mode is live. */
+  readonly modeFloors: boolean;
+  /** Hk's spawn guards. EMPTY elsewhere. */
+  readonly spawnGuards: readonly MapSpawnGuard[];
+  /** The lifts (Conft, Slim, Joke). EMPTY elsewhere. */
+  readonly lifts: readonly MapLift[];
   /** Render-only scenery. The sim must not read this. */
   readonly props: readonly MapProp[];
 }
@@ -533,29 +701,36 @@ export function resolveHeight(map: MapData, x: number, y: number, layer: number)
   return sampleLayerHeight(map, layer - 1, x, y);
 }
 
-/** Water test at world position (x, y): nearest-vertex sample, clamped. */
+/** Water test at world position (x, y): the cell it stands in, clamped. */
 export function isWater(map: MapData, x: number, y: number): boolean {
   const max = map.size - 1;
-  const i = clamp(Math.floor(x / map.cellSize + 0.5), 0, max);
-  const j = clamp(Math.floor(y / map.cellSize + 0.5), 0, max);
+  const i = clamp(Math.floor(x / map.cellSize), 0, max);
+  const j = clamp(Math.floor(y / map.cellSize), 0, max);
   return map.waterMask[j * map.size + i] === 1;
+}
+
+/**
+ * The water surface a hover rides at (x, y): the cell's own where it is water,
+ * else the arena's `waterLevel` (so a bank whose terrain dips below the water
+ * floats a hover before the mask begins).
+ */
+export function waterHeightAt(map: MapData, x: number, y: number): number {
+  const max = map.size - 1;
+  const i = clamp(Math.floor(x / map.cellSize), 0, max);
+  const j = clamp(Math.floor(y / map.cellSize), 0, max);
+  const k = j * map.size + i;
+  return map.waterMask[k] === 1 ? map.waterHeights[k] : map.waterLevel;
 }
 
 /** Map registry: resolves the mapId stored in replays/net handshakes. */
 export function getMapById(id: string): MapData {
   if (id === TEST_MAP_ID) return createTestMap();
   if (id === LAYERED_TEST_ID) return loadMapFromJson(layeredTestJson as MapJson);
-  // District 01 is retired from the picker but still resolvable by id: goldens,
-  // tools and the historic replay harnesses load it directly (like the debug
-  // maps above), so it stays available without cluttering the menu.
-  if (id === DISTRICT_01_ID) return loadMapFromJson(districtJson as MapJson);
   for (const entry of REGISTRY) {
     if (entry.info.id === id) return loadMapFromJson(entry.json);
   }
   throw new Error(`unknown map id: ${id}`);
 }
-
-export const DISTRICT_01_ID = "district-01";
 
 /** FCOP "Urban Jungle" arena (mission Conft), heightfield extracted 1:1. */
 export const URBAN_JUNGLE_ID = "urban-jungle";
@@ -615,10 +790,15 @@ export interface MapJson {
   cellSize: number;
   /** Rows of heights in 1/32 m integer units. */
   heights: number[][];
-  /** Rows of '0'/'1' characters, 1 = water. */
+  /**
+   * Rows of digit characters: '0' dry; with `waterLevels`, '1'..'9' a water cell
+   * at `waterLevels[digit - 1]`; without, '1' a water cell at `waterLevel`.
+   */
   water: string[];
   /** Water surface height in meters. */
   waterLevel: number;
+  /** OPTIONAL: the arena's distinct water surfaces in metres (`water` digits). */
+  waterLevels?: number[];
   /**
    * OPTIONAL wall data (both present or both absent): size rows of size
    * '0'/'1' chars each. wallsV[j][i] blocks ±x over line x = i*cellSize in
@@ -656,6 +836,10 @@ export interface MapJson {
     zone: number;
     tankPad: number[] | { x: number; y: number; layer?: number };
     jetPad: number[] | { x: number; y: number; layer?: number };
+    /** OPTIONAL, per team: the spawners' positions (absent -> the pads) and queue periods. */
+    tankSpawn?: (number[] | { x: number; y: number; layer?: number })[];
+    jetSpawn?: (number[] | { x: number; y: number; layer?: number })[];
+    queueTicks?: { tank: number; jet: number }[];
     plates: {
       spot: number;
       turrets: { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number }[];
@@ -699,7 +883,20 @@ export interface MapJson {
     nextHopB: number[][];
     entry: number[];
   };
-  pickups?: { x: number; y: number; kind: number; respawnTicks: number; layer?: number }[];
+  /** OPTIONAL box, lift, model and spin per pickup (MapPickup); absent -> Mp's box, no model. */
+  pickups?: {
+    x: number;
+    y: number;
+    kind: number;
+    respawnTicks: number;
+    layer?: number;
+    halfW?: number;
+    halfL?: number;
+    halfH?: number;
+    lift?: number;
+    model?: number;
+    spin?: number;
+  }[];
   triggerVolumes?: {
     x: number;
     y: number;
@@ -708,6 +905,44 @@ export interface MapJson {
     team: number;
     watch: number;
     layer?: number;
+  }[];
+  /**
+   * OPTIONAL: the ground's codes a mech feels, one mask per surface (ground,
+   * then each deck): size rows of size chars, '0' none, '1' hurts team 0's
+   * mech, '2' team 1's, '3' '4' '5' the movement-mode codes 3, 4, 5.
+   */
+  floors?: string[][];
+  /** OPTIONAL: Hk's spawn guards (MapSpawnGuard). */
+  spawnGuards?: {
+    x: number;
+    y: number;
+    halfW: number;
+    halfL: number;
+    halfH: number;
+    hurtsTeam: number;
+    damage: number;
+    resetTicks: number;
+    layer?: number;
+  }[];
+  /** OPTIONAL: the lifts (MapLift). */
+  lifts?: {
+    x: number;
+    y: number;
+    x0: number;
+    x1: number;
+    y0: number;
+    y1: number;
+    ground: number;
+    top: number;
+    stops: number[];
+    up: number;
+    down: number;
+    dwell: number[];
+    start: number;
+    hurtsTeam: number;
+    layers: number[];
+    model: number;
+    yaw: number;
   }[];
   /** Render-only scenery; never read by the sim. */
   props?: { x: number; y: number; height: number; yaw: number; model: number; layer?: number }[];
@@ -720,7 +955,17 @@ export interface MapBaseJson {
   core: number[] | { x: number; y: number; layer?: number };
   groundConsole: number[] | { x: number; y: number; layer?: number };
   airConsole: number[] | { x: number; y: number; layer?: number };
-  pad: { x: number; y: number; radius: number; layer?: number };
+  /**
+   * OPTIONAL: each console's type-95 trigger box (half extents x / y, metres);
+   * absent -> the original's Mp box (balance.ts ORIGINAL_BUY_HALF_W/L).
+   */
+  groundBuy?: { halfW: number; halfL: number };
+  airBuy?: { halfW: number; halfL: number };
+  /**
+   * Retired: Metropolis' ammo/repair pad, which the original does not have
+   * (fcop-fidelity.md P1). Ignored where a stage-1 authoring file still carries it.
+   */
+  pad?: { x: number; y: number; radius: number; layer?: number };
   /**
    * Ring turrets. Either a bare `[x, y]` pair (district-01: the original team
    * turret's defaults) or an object carrying the original Turret actor's own
@@ -745,6 +990,19 @@ export interface MapBaseJson {
   runner?: { hp: number; weapon: number };
   guardian?: { hp: number; weapon: number };
   fortress?: { hp: number; weapon: number };
+  /** OPTIONAL: the Dreadnought and Fortress zones (MapHeavyZones). */
+  heavyZones?: {
+    juggernaut: { x: number; y: number; radius: number; layer?: number };
+    fortress: { x: number; y: number; radius: number; layer?: number };
+    pollTicks: number;
+  };
+  /** OPTIONAL: the Fortress spawner's position; absent -> the air console. */
+  fortressSpawn?: number[] | { x: number; y: number; layer?: number };
+  /** OPTIONAL: the tank and jet spawners' positions; absent -> the consoles. */
+  tankSpawn?: number[] | { x: number; y: number; layer?: number };
+  jetSpawn?: number[] | { x: number; y: number; layer?: number };
+  /** OPTIONAL: the base's queue periods in ticks (MapQueueTicks). */
+  queueTicks?: { tank: number; jet: number };
 }
 
 function fail(id: string, reason: string): never {
@@ -763,6 +1021,10 @@ export function loadMapFromJson(raw: MapJson): MapData {
 
   const heights = new Float32Array(size * size);
   const waterMask = new Uint8Array(size * size);
+  const waterHeights = new Float32Array(size * size);
+  const levels = raw.waterLevels ?? [raw.waterLevel];
+  if (levels.length < 1 || levels.length > 9) fail(id, `waterLevels needs 1..9 entries`);
+  for (const l of levels) if (typeof l !== "number") fail(id, `bad water level ${l}`);
   for (let j = 0; j < size; j++) {
     const hRow = raw.heights[j];
     const wRow = raw.water[j];
@@ -772,9 +1034,12 @@ export function loadMapFromJson(raw: MapJson): MapData {
       const q = hRow[i];
       if (!Number.isInteger(q)) fail(id, `non-integer height at (${i}, ${j})`);
       heights[j * size + i] = q * HEIGHT_SCALE;
-      const w = wRow.charCodeAt(i);
-      if (w !== 0x30 && w !== 0x31) fail(id, `water row ${j} has non-0/1 char at ${i}`);
-      waterMask[j * size + i] = w - 0x30;
+      const w = wRow.charCodeAt(i) - 0x30;
+      if (w < 0 || w > levels.length) fail(id, `water row ${j} has a bad char at ${i}`);
+      if (w > 0) {
+        waterMask[j * size + i] = 1;
+        waterHeights[j * size + i] = levels[w - 1];
+      }
     }
   }
 
@@ -904,6 +1169,14 @@ export function loadMapFromJson(raw: MapJson): MapData {
   }
   const points = (list: unknown[], what: string): MapPoint[] =>
     list.map((p, i) => point(p, `${what} ${i}`));
+  const buyBox = (b: { halfW: number; halfL: number } | undefined, what: string): MapBuyBox => {
+    if (b === undefined) return { halfW: ORIGINAL_BUY_HALF_W, halfL: ORIGINAL_BUY_HALF_L };
+    if (!b || typeof b !== "object") fail(id, `${what} is not a {halfW, halfL} box`);
+    const halfW = num(b.halfW, `${what} halfW`);
+    const halfL = num(b.halfL, `${what} halfL`);
+    if (!(halfW > 0) || !(halfL > 0)) fail(id, `${what} needs positive half extents`);
+    return { halfW, halfL };
+  };
 
   const plot = (
     p: { x: number; y: number; radius: number; layer?: number },
@@ -1032,6 +1305,13 @@ export function loadMapFromJson(raw: MapJson): MapData {
   };
 
   if (!Array.isArray(raw.bases) || raw.bases.length !== 2) fail(id, "need exactly 2 bases");
+  const queueTicksOf = (q: { tank: number; jet: number } | undefined, what: string) => {
+    if (q === undefined) return { tank: ORIGINAL_TANK_QUEUE_TICKS, jet: ORIGINAL_JET_QUEUE_TICKS };
+    if (!Number.isInteger(q.tank) || q.tank < 1 || !Number.isInteger(q.jet) || q.jet < 1) {
+      fail(id, `${what} need positive integer periods`);
+    }
+    return { tank: q.tank, jet: q.jet };
+  };
   const bases: MapBase[] = raw.bases.map((b, team) => {
     if (!b || typeof b !== "object") fail(id, `base ${team} is not an object`);
     if (!Array.isArray(b.turrets)) fail(id, `base ${team} turrets is not a list`);
@@ -1085,6 +1365,30 @@ export function loadMapFromJson(raw: MapJson): MapData {
         weapon: weaponIndex(j.weapon, what),
       };
     }
+    const zone = (
+      z: { x: number; y: number; radius: number; layer?: number },
+      what: string,
+    ): MapZone => {
+      if (!z || typeof z !== "object") fail(id, `${what} is not an object`);
+      const x = num(z.x, `${what} x`);
+      const y = num(z.y, `${what} y`);
+      if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
+      const radius = num(z.radius, `${what} radius`);
+      if (!(radius > 0)) fail(id, `${what} needs a positive radius`);
+      return { x, y, layer: layerOf(z.layer, what), radius };
+    };
+    let heavyZones: MapHeavyZones | undefined;
+    if (b.heavyZones !== undefined) {
+      const hz = b.heavyZones;
+      if (!Number.isInteger(hz.pollTicks) || hz.pollTicks < 1) {
+        fail(id, `base ${team} heavy zones bad pollTicks ${String(hz.pollTicks)}`);
+      }
+      heavyZones = {
+        juggernaut: zone(hz.juggernaut, `base ${team} Dreadnought zone`),
+        fortress: zone(hz.fortress, `base ${team} Fortress zone`),
+        pollTicks: hz.pollTicks,
+      };
+    }
     const turretRespawnTicks = b.turretRespawnTicks ?? 0;
     if (!Number.isInteger(turretRespawnTicks) || turretRespawnTicks < 0) {
       fail(id, `base ${team} bad turretRespawnTicks ${String(b.turretRespawnTicks)}`);
@@ -1100,8 +1404,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
       gate: { ...gatePlot, halfW, halfL },
       core: point(b.core, `base ${team} core`),
       groundConsole: point(b.groundConsole, `base ${team} ground console`),
+      groundBuy: buyBox(b.groundBuy, `base ${team} ground console box`),
       airConsole: point(b.airConsole, `base ${team} air console`),
-      pad: plot(b.pad, `base ${team} pad`),
+      airBuy: buyBox(b.airBuy, `base ${team} air console box`),
       turrets: b.turrets.map((t, k) => {
         const what = `base ${team} ring turret ${k}`;
         // Bare pair: the pre-PA authoring form (district-01). It is the
@@ -1125,6 +1430,11 @@ export function loadMapFromJson(raw: MapJson): MapData {
       runner: unitProfile(b.runner, `base ${team} runner`, ORIGINAL_UNIT_PROFILES.runner),
       guardian: unitProfile(b.guardian, `base ${team} guardian`, ORIGINAL_UNIT_PROFILES.guardian),
       fortress: unitProfile(b.fortress, `base ${team} fortress`, ORIGINAL_UNIT_PROFILES.fortress),
+      heavyZones,
+      fortressSpawn: point(b.fortressSpawn ?? b.airConsole, `base ${team} fortress spawn`),
+      tankSpawn: point(b.tankSpawn ?? b.groundConsole, `base ${team} tank spawn`),
+      jetSpawn: point(b.jetSpawn ?? b.airConsole, `base ${team} jet spawn`),
+      queueTicks: queueTicksOf(b.queueTicks, `base ${team} queues`),
     };
   });
 
@@ -1156,6 +1466,11 @@ export function loadMapFromJson(raw: MapJson): MapData {
   const outpostSpots = points(raw.outpostSpots, "outpost spot");
   const outposts: MapOutpost[] = [];
   const outpostPlates: MapOutpostPlate[] = [];
+  // Every outpost is the original's: a claim zone, a tank pad and a jet pad.
+  // district-01's consoles-as-a-menu went with it (fcop-fidelity.md D2).
+  if (outpostSpots.length > 0 && raw.outposts === undefined) {
+    fail(id, `${outpostSpots.length} outpost spots without their outposts`);
+  }
   if (raw.outposts !== undefined) {
     if (!Array.isArray(raw.outposts) || raw.outposts.length !== outpostSpots.length) {
       fail(id, `outposts has ${raw.outposts?.length} entries for ${outpostSpots.length} spots`);
@@ -1166,10 +1481,27 @@ export function loadMapFromJson(raw: MapJson): MapData {
       if (!o || typeof o !== "object") fail(id, `${what} is not an object`);
       const zone = num(o.zone, `${what} zone`);
       if (!(zone > 0)) fail(id, `${what} bad zone ${zone}`);
+      const tankPad = point(o.tankPad, `${what} tank pad`);
+      const jetPad = point(o.jetPad, `${what} jet pad`);
+      const perTeam = <T>(list: T[] | undefined, what2: string): (T | undefined)[] => {
+        if (list === undefined) return [undefined, undefined];
+        if (!Array.isArray(list) || list.length !== 2)
+          fail(id, `${what} ${what2} needs one per team`);
+        return list;
+      };
       outposts.push({
         zone,
-        tankPad: point(o.tankPad, `${what} tank pad`),
-        jetPad: point(o.jetPad, `${what} jet pad`),
+        tankPad,
+        jetPad,
+        tankSpawn: perTeam(o.tankSpawn, "tankSpawn").map((p, t) =>
+          p === undefined ? tankPad : point(p, `${what} team ${t} tank spawn`),
+        ),
+        jetSpawn: perTeam(o.jetSpawn, "jetSpawn").map((p, t) =>
+          p === undefined ? jetPad : point(p, `${what} team ${t} jet spawn`),
+        ),
+        queueTicks: perTeam(o.queueTicks, "queueTicks").map((q, t) =>
+          queueTicksOf(q, `${what} team ${t} queues`),
+        ),
       });
       if (!Array.isArray(o.plates)) fail(id, `${what} plates is not a list`);
       o.plates.forEach((pl, j) => {
@@ -1282,12 +1614,24 @@ export function loadMapFromJson(raw: MapJson): MapData {
     if (!Number.isInteger(p.respawnTicks) || p.respawnTicks < 0) {
       fail(id, `pickup ${k} bad respawnTicks ${p.respawnTicks}`);
     }
+    const half = (v: number | undefined, fallback: number, what: string): number => {
+      if (v === undefined) return fallback;
+      const n = num(v, `pickup ${k} ${what}`);
+      if (!(n > 0)) fail(id, `pickup ${k} needs a positive ${what}`);
+      return n;
+    };
     return {
       x,
       y,
       kind: p.kind,
       respawnTicks: p.respawnTicks,
       layer: layerOf(p.layer, `pickup ${k}`),
+      halfW: half(p.halfW, ORIGINAL_PICKUP_HALF_W, "halfW"),
+      halfL: half(p.halfL, ORIGINAL_PICKUP_HALF_L, "halfL"),
+      halfH: half(p.halfH, ORIGINAL_PICKUP_HALF_H, "halfH"),
+      lift: p.lift === undefined ? ORIGINAL_PICKUP_LIFT : num(p.lift, `pickup ${k} lift`),
+      model: p.model ?? -1,
+      spin: p.spin ?? 0,
     };
   });
 
@@ -1312,6 +1656,117 @@ export function loadMapFromJson(raw: MapJson): MapData {
     };
   });
 
+  const floorMasks: Uint8Array[] = [];
+  let modeFloors = false;
+  if (raw.floors !== undefined) {
+    if (raw.floors.length !== maxLayer + 1) {
+      fail(id, `floors needs one mask per surface (${maxLayer + 1}), got ${raw.floors.length}`);
+    }
+    for (let L = 0; L < raw.floors.length; L++) {
+      const rows = raw.floors[L];
+      if (rows.length !== size) fail(id, `floors ${L} expected ${size} rows`);
+      const mask = new Uint8Array(size * size);
+      for (let j = 0; j < size; j++) {
+        const row = rows[j];
+        if (row.length !== size) fail(id, `floors ${L} row ${j} has ${row.length} chars`);
+        for (let i = 0; i < size; i++) {
+          const c = row.charCodeAt(i) - 0x30;
+          if (c < 0 || c > 5) fail(id, `floors ${L} row ${j} has a bad char at ${i}`);
+          if (c >= 3) modeFloors = true;
+          mask[j * size + i] = c;
+        }
+      }
+      floorMasks.push(mask);
+    }
+  }
+
+  const spawnGuards: MapSpawnGuard[] = (raw.spawnGuards ?? []).map((g, k) => {
+    if (!g || typeof g !== "object") fail(id, `spawn guard ${k} is not an object`);
+    const x = num(g.x, `spawn guard ${k} x`);
+    const y = num(g.y, `spawn guard ${k} y`);
+    if (!inBounds(x, y)) fail(id, `spawn guard ${k} out of bounds (${x}, ${y})`);
+    const halfW = num(g.halfW, `spawn guard ${k} halfW`);
+    const halfL = num(g.halfL, `spawn guard ${k} halfL`);
+    const halfH = num(g.halfH, `spawn guard ${k} halfH`);
+    if (!(halfW > 0) || !(halfL > 0) || !(halfH > 0)) {
+      fail(id, `spawn guard ${k} needs positive half extents`);
+    }
+    if (g.hurtsTeam !== 0 && g.hurtsTeam !== 1) fail(id, `spawn guard ${k} bad team`);
+    if (!Number.isInteger(g.damage) || g.damage <= 0) fail(id, `spawn guard ${k} bad damage`);
+    if (!Number.isInteger(g.resetTicks) || g.resetTicks <= 0) {
+      fail(id, `spawn guard ${k} bad resetTicks`);
+    }
+    return {
+      x,
+      y,
+      halfW,
+      halfL,
+      halfH,
+      hurtsTeam: g.hurtsTeam,
+      damage: g.damage,
+      resetTicks: g.resetTicks,
+      layer: layerOf(g.layer, `spawn guard ${k}`),
+    };
+  });
+
+  const lifts: MapLift[] = (raw.lifts ?? []).map((l, k) => {
+    if (!l || typeof l !== "object") fail(id, `lift ${k} is not an object`);
+    const what = `lift ${k}`;
+    const x = num(l.x, `${what} x`);
+    const y = num(l.y, `${what} y`);
+    if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
+    const x0 = num(l.x0, `${what} x0`);
+    const x1 = num(l.x1, `${what} x1`);
+    const y0 = num(l.y0, `${what} y0`);
+    const y1 = num(l.y1, `${what} y1`);
+    if (!(x0 <= x && x <= x1 && y0 <= y && y <= y1))
+      fail(id, `${what} footprint misses its centre`);
+    const ints = (v: unknown, label: string): number[] => {
+      if (!Array.isArray(v)) fail(id, `${what} ${label} is not an array`);
+      for (const e of v as unknown[]) {
+        if (!Number.isInteger(e) || (e as number) < 0) fail(id, `${what} ${label} has a bad entry`);
+      }
+      return v as number[];
+    };
+    const stops = ints(l.stops, "stops");
+    if (stops.length < 2) fail(id, `${what} needs two stops`);
+    for (let i = 1; i < stops.length; i++) {
+      if (stops[i] <= stops[i - 1]) fail(id, `${what} stops are not ascending`);
+    }
+    const dwell = ints(l.dwell, "dwell");
+    const layers = ints(l.layers, "layers");
+    if (dwell.length !== stops.length || layers.length !== stops.length) {
+      fail(id, `${what} needs a dwell and a layer per stop`);
+    }
+    for (let i = 0; i < layers.length; i++) layerOf(layers[i], `${what} stop ${i}`);
+    if (!Number.isInteger(l.up) || l.up <= 0 || !Number.isInteger(l.down) || l.down <= 0) {
+      fail(id, `${what} needs positive integer speeds`);
+    }
+    if (!Number.isInteger(l.start) || l.start < 0 || l.start >= stops.length) {
+      fail(id, `${what} bad start stop`);
+    }
+    if (l.hurtsTeam !== -1 && l.hurtsTeam !== 0 && l.hurtsTeam !== 1) fail(id, `${what} bad team`);
+    return {
+      x,
+      y,
+      x0,
+      x1,
+      y0,
+      y1,
+      ground: num(l.ground, `${what} ground`),
+      top: num(l.top, `${what} top`),
+      stops,
+      up: l.up,
+      down: l.down,
+      dwell,
+      start: l.start,
+      hurtsTeam: l.hurtsTeam,
+      layers,
+      model: num(l.model, `${what} model`),
+      yaw: num(l.yaw, `${what} yaw`),
+    };
+  });
+
   const dummySpots = points(raw.dummySpots, "dummy spot");
   const dummyWeapon = dummySpots.length > 0 ? original(PROFILE_NEUTRAL_TURRET) : -1;
   return {
@@ -1320,6 +1775,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     cellSize,
     heights,
     waterMask,
+    waterHeights,
     waterLevel: raw.waterLevel,
     wallsV,
     wallsH,
@@ -1351,6 +1807,10 @@ export function loadMapFromJson(raw: MapJson): MapData {
     laneGraph,
     pickups,
     triggerVolumes,
+    floorMasks,
+    modeFloors,
+    spawnGuards,
+    lifts,
     // Render-only, and deliberately not validated against bounds: props are
     // scenery, so an out-of-play prop is a cosmetic question, not a load error.
     props: (raw.props ?? []).map((p) => ({
@@ -1402,8 +1862,9 @@ export function createTestMap(): MapData {
     },
     core: { x: center + (team === 0 ? -6 : 6), y: center, layer: 0 },
     groundConsole: { x: center + (team === 0 ? -12 : 12), y: center, layer: 0 },
+    groundBuy: { halfW: ORIGINAL_BUY_HALF_W, halfL: ORIGINAL_BUY_HALF_L },
     airConsole: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
-    pad: { x: center, y: center, radius: 20, layer: 0 },
+    airBuy: { halfW: ORIGINAL_BUY_HALF_W, halfL: ORIGINAL_BUY_HALF_L },
     turrets: [],
     turretRespawnTicks: 0,
     // The original's units on their default profiles; the Dreadnought rolls
@@ -1419,6 +1880,11 @@ export function createTestMap(): MapData {
     runner: { ...ORIGINAL_UNIT_PROFILES.runner },
     guardian: { ...ORIGINAL_UNIT_PROFILES.guardian },
     fortress: { ...ORIGINAL_UNIT_PROFILES.fortress },
+    heavyZones: undefined,
+    fortressSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
+    tankSpawn: { x: center + (team === 0 ? -12 : 12), y: center, layer: 0 },
+    jetSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
+    queueTicks: { tank: ORIGINAL_TANK_QUEUE_TICKS, jet: ORIGINAL_JET_QUEUE_TICKS },
   });
   return {
     id: TEST_MAP_ID,
@@ -1426,6 +1892,7 @@ export function createTestMap(): MapData {
     cellSize: TEST_MAP_CELL_SIZE,
     heights,
     waterMask: new Uint8Array(size * size),
+    waterHeights: new Float32Array(size * size),
     waterLevel: -10, // below every valley: the test map has no water at all
     wallsV: new Uint8Array(0),
     wallsH: new Uint8Array(0),
@@ -1457,6 +1924,10 @@ export function createTestMap(): MapData {
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],
+    floorMasks: [],
+    modeFloors: false,
+    spawnGuards: [],
+    lifts: [],
     props: [],
   };
 }

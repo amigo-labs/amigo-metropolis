@@ -19,7 +19,10 @@ Design translation (**revised** — see the note below):
 - **Keep:** the camera sitting behind the machine and turning with it. Steering
   and looking are the same act in the original, and separating them turned out
   to cost more than it bought.
-- **Discard:** the `SELECT` cycle over discrete presets. One angle, not four.
+- **Discard (until wave 6):** the Camera Key's cycle over the original's seven
+  presets (Standard, Close-Up, their Side views, Sky, Crowd Control and its
+  Side; RE `view_place.c`). One angle for now; the presets come back with the
+  presentation wave (PLAN.md Phase 14), which also owns this framing.
 - **Discard:** player-controlled zoom and elevation. There is nothing to tune
   per moment; the framing is authored once.
 
@@ -76,7 +79,7 @@ Derivable parameters:
 | `pitch` | **fixed** (26° above the horizon) |
 | `distance` | **fixed** (6 m dolly) |
 | `fov` | **fixed** (58°) |
-| `yaw` | azimuth; **follows the steered heading** (`CameraInput.yawAbsolute`) |
+| `yaw` | azimuth; **follows the hull's heading** (`CameraInput.yawAbsolute`) |
 | `lookAhead: Vec3` | focus offset toward movement/aim |
 
 `t` is the player's only "view" control — the stepless replacement for the
@@ -84,10 +87,11 @@ Derivable parameters:
 easing (one control, coherent framing).
 
 ### Yaw policy
-- **Default: locked behind the avatar.** The mouse's X axis steers the hull and
-  the camera as one thing (`input.spec` §4.1); the rig takes that heading
-  absolutely via `CameraInput.yawAbsolute` rather than integrating a delta, so
-  the two cannot drift apart.
+- **Default: locked behind the avatar.** The hull turns by its turn buttons
+  (`input.spec` §4) and the camera follows its interpolated heading, taken
+  absolutely via `CameraInput.yawAbsolute` (main.ts, the avatar pose's yaw)
+  rather than integrating a delta, so the two cannot drift apart. The rig
+  starts at the spawn record's facing.
 - Damping runs through the **shortest arc**. Yaw wraps at ±π and lerping the raw
   numbers spins the camera the long way round every time the player crosses the
   seam.
@@ -132,15 +136,12 @@ easing (one control, coherent framing).
 The camera provides the input/movement layer only a **read-only basis** (yaw
 frame). It does not drive any unit movement itself.
 
-- **Movement = camera-relative:** movement input is translated against the camera
-  `yaw` into a world direction (screen-relative "up = away from the camera").
-- **Aim = facing.** The gun points where the hull points, and the mouse's X axis
-  turns both. This is the original's model and it replaces the ground-plane
-  raycast (`input.spec` §4.1). Mouse Y is read and discarded — there is no pitch
-  channel for it in the camera or in the sim.
-- The gamepad keeps its right stick (`input.spec` §4.2): two sticks are not the
-  thing that was reverted here, free *pitch* is.
-- Boundary: camera → provides `yaw`/basis. Aim & movement → belong to input+sim,
+- **Movement = hull-relative:** the original's buttons push along and across
+  the hull's facing (`input.spec` §4); the camera plays no part in what they
+  mean.
+- **Aim = facing.** The gun points where the hull points, or at the lock. There
+  is no mouse and no pitch channel, in the camera or in the sim.
+- Boundary: the camera follows the hull; aim and movement belong to input + sim,
   not to this spec.
 
 ---
@@ -251,7 +252,7 @@ geometry can occlude the unit:
 - ~~**No** automatic yaw swing behind the movement (deliberately against FC).~~
   **Reversed:** the camera now follows the steered heading. See §1's revision note.
 - No player-controlled zoom or elevation.
-- No vertical mouse look.
+- No mouse look at all: the original has no mouse in a match.
 - No split-screen (net title over the DO relay → one camera per client).
 
 ---
@@ -287,7 +288,7 @@ no imports) and wired into the render loop (`main.ts` `updateRigCamera`), one
 > deleted, because a stale status section that disagrees with the spec above it
 > is worse than none.
 
-- Yaw **follows the mouse-steered heading**, taken absolutely via
+- Yaw **follows the hull's heading**, taken absolutely via
   `CameraInput.yawAbsolute` (§3). `yawLocked:false`; `yawDelta` still integrates
   when no absolute heading is supplied, and nothing binds a rotate key.
 - `t` curve = **smoothstep**; both anchors carry the same `CHASE` values, so it
@@ -311,6 +312,6 @@ no imports) and wired into the render loop (`main.ts` `updateRigCamera`), one
 - [x] `t` curve = **smoothstep** (shipped).
 - [~] Free-look model: the rig supports `panOffset`/`recenter`; the edge-pan vs
       drag **UX is deferred to v2** (v1 keeps the focus on the unit). Still open.
-- [x] Aim model split into its own **`input.spec`** (mouse raycast primary, right
-      stick equivalent) — shipped there, not owned by this spec.
+- [x] Aim model split into its own **`input.spec`** (the original's button word
+      since wave 3) — not owned by this spec.
 - [ ] Occlusion (§8): **v2**. Deferred.

@@ -1,73 +1,52 @@
-// Golden #3 (Phase 2 DoD mini-match, replayed on the original's economy since
-// SIM_VERSION 33): beyond the hash-sequence check in golden.test.ts, assert the
-// scripted match actually plays out — the avatar walks the north lane, puts
-// player 1's avatar down three times as it walks out to the (176, 88) outpost
-// (the original pays 10 a down, at the victim's respawn, and a ring turret only
-// 1), claims the outpost with two of them, forward-buys runners at 2× with the
-// third and runs ahead of them into base East's ring, clearing its north pair:
-// they breach on the KNOWN tick, inside the 37.5 s before that pair returns
-// (SIM_VERSION 50, the original's ring respawn), on district-01 with the
-// original's turrets and units (SIM_VERSION 52).
-// If a balance retune shifts the match off these beats, this fails and the
-// script needs adjusting WITH the regenerated golden (and a new pin).
+// Golden #3 (match): beyond the hash-sequence check in golden.test.ts, assert
+// the two-player match on la-cantina plays out. Both players walk to their own
+// ground consoles and buy five tanks, one per press; then they meet in the
+// middle and fight with every weapon, each walking back out after its respawns.
+// The tanks drive the original's roads into each other and the rings, and the
+// downs are paid at the respawn (fcop-fidelity.md R4). Whether a tank slips
+// through a ring is the roads' coin flips: pinned below as recorded (the gate-box
+// win, its outro and the freeze are golden07.test's to prove).
+// Since district-01 left the game (wave 2, 2026-10-14) this replaces the
+// district-01 mini-match. The script steers by the live state at recording time.
+// If a rule change shifts the match off these beats, this fails and the script
+// needs adjusting WITH the regenerated golden (and a new pin).
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ARCHETYPE } from "../src/archetypes";
-import { COST_OUTPOST_CLAIM, POINTS_TURRET_DIES, STARTING_POINTS } from "../src/balance";
-import { EV_BREACH, EV_CLAIM, EV_DEATH, EV_PURCHASE, EVENT_STRIDE } from "../src/events";
+import { EV_BREACH, EV_DEATH, EV_PURCHASE, EV_RESPAWN, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
 import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
 // Pinned after recording; regenerate together with the golden.
-// 2956 -> 2959 at SIM_VERSION 27: hitboxes follow the models, so the scripted
-// snipes take a slightly different number of bursts to clear the ring, and the
-// forward wave leaves three ticks later.
-// 2959 -> 3716 at SIM_VERSION 33: the claim is funded by two downs of player 1's
-// avatar, which the script waits out (each pays at the victim's respawn).
-// 3716 -> 3701 at SIM_VERSION 35: the claim is taken on entering the zone, not
-// after a 0.5 s hold, so the forward wave leaves 15 ticks earlier.
-// 3701 -> 4002 at SIM_VERSION 39: the original's walker turns at 105°/s, so
-// the script turns on the spot before every leg and every snipe (~10 s over the
-// route), and player 1's measured stand moved with its own walk.
-// 4002 -> 4262 at SIM_VERSION 41: the original's weapons (12 m lock, lock-only
-// Mini-Gun) and 1250-HP mechs. Nothing is sniped from outside a turret's reach
-// any more: the script walks up to each dummy and ring turret and fires all three
-// slots on the lock, and needs ~17 s to put player 1's mech down twice.
-// 4262 -> 5640 at SIM_VERSION 50: the ring comes back after 37.5 s instead of
-// 120 s, which caught the old script's avatar in base East (it cleared the ring
-// first and fought player 1 inside it for ~40 s). Player 1 now walks out to the
-// outpost to be put down (three times, for the wave's points too), and the ring's
-// north pair is cleared just before the wave is bought.
-// 5640 -> 5602 at SIM_VERSION 51: a Runner per key press, so the wave of six is
-// bought in 26 ticks instead of 90 (one per completed 0.5 s hold).
-// 5602 -> 4610 at SIM_VERSION 52: district-01 on the original's rules. Its
-// turrets and dummies are 500-HP weapon-3 turrets, so the avatar walks past the
-// dummies instead of clearing them; player 1 buys no feeders (three 150-HP tanks
-// that never stop to fight drove through base West's ring of four and breached);
-// the wave is five Runners at 1.98 m/s, bought before the ring is attacked.
-const BREACH_TICK_PIN = 4610;
+// 3349 -> 1438 at SIM_VERSION 55: captures measured by the original's
+// octagonal estimate change which plate guns the tanks take on the way.
+// 1438 -> none at SIM_VERSION 60: the heavy-zone poll's draw at createSim moves
+// the PRNG stream, and no tank's route gets through (2 of seeds c0ffee/1-7
+// breach, both by player 0's tanks).
+// none -> 2498 at SIM_VERSION 69: both players drive on the original's
+// buttons, turning toward each route cell before they walk it, and fire Special
+// from its latch's held state, so the fight in the middle plays out
+// differently; one of player 0's tanks gets through player 1's ring at 83 s.
+const BREACH_TICK_PIN = 2498;
+const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {
-  it("avatar snipe, outpost claim, forward wave, breach on the pinned tick", () => {
+  it("purchases on both sides, fights, downs paid at the respawn, the breach as pinned", () => {
     const replay = decodeReplay(
       new Uint8Array(readFileSync(join(import.meta.dir, "goldens", "golden-03-match.mrep"))),
     );
-    expect(replay.mapId).toBe("district-01");
+    expect(replay.mapId).toBe("la-cantina");
     const sim = createSim(getMapById(replay.mapId), replay.seed);
     const inputs = createTickInputs();
-    expect(sim.points[0]).toBe(STARTING_POINTS);
 
     const purchases = [0, 0];
-    let claims = 0;
-    let claimTick = -1;
-    let turretDeaths = 0;
-    let runnerDeaths = 0;
+    const respawns = [0, 0];
     let avatarDeaths = 0;
-    let p0Down = false;
+    let runnerDeaths = 0;
     let breaches = 0;
     let breachTick = -1;
     let breachTeam = -1;
@@ -75,21 +54,19 @@ describe("golden-03-match beats", () => {
     for (let t = 0; t < replay.tickCount; t++) {
       readFrame(replay, t, inputs);
       step(sim, inputs);
-      if (sim.avatarId[0] < 0) p0Down = true;
       for (let i = 0; i < sim.events.count; i++) {
         const o = i * EVENT_STRIDE;
         const type = sim.events.data[o];
         if (type === EV_PURCHASE) {
           purchases[sim.events.data[o + 2]] += 1;
-        } else if (type === EV_CLAIM) {
-          claims += 1;
-          claimTick = t;
-          expect(sim.events.data[o + 2]).toBe(0); // player 0 claims
+          expect(sim.events.data[o + 3]).toBe(ARCHETYPE.RUNNER);
+        } else if (type === EV_RESPAWN) {
+          const p = sim.events.data[o + 2];
+          if (p >= 0) respawns[p] += 1;
         } else if (type === EV_DEATH) {
           const archetype = sim.events.data[o + 3];
-          if (archetype === ARCHETYPE.TURRET) turretDeaths += 1;
-          if (archetype === ARCHETYPE.RUNNER) runnerDeaths += 1;
           if (archetype === ARCHETYPE.AVATAR) avatarDeaths += 1;
+          if (archetype === ARCHETYPE.RUNNER) runnerDeaths += 1;
         } else if (type === EV_BREACH) {
           breaches += 1;
           breachTick = t;
@@ -98,29 +75,16 @@ describe("golden-03-match beats", () => {
       }
     }
 
-    // Player 0 clears the ring's north pair (500 HP each, one at a time) and
-    // survives; player 1's avatar goes down three times.
-    expect(turretDeaths).toBeGreaterThanOrEqual(2);
-    expect(p0Down).toBe(false);
-    expect(avatarDeaths).toBe(3);
-    // The claim is funded by the start and two downs: start + 4 ring turrets at 1
-    // each could never cover 30.
-    expect(claims).toBe(1);
-    expect(STARTING_POINTS + 4 * POINTS_TURRET_DIES).toBeLessThan(COST_OUTPOST_CLAIM);
-    // Five forward Runners bought at the outpost; player 1 buys nothing (since
-    // SIM_VERSION 52 its old feeders breached base West). The ring kills at least
-    // one of the wave on the way in.
-    expect(purchases[0]).toBe(5);
-    expect(purchases[1]).toBe(0);
-    expect(runnerDeaths).toBeGreaterThanOrEqual(1);
-    // Exactly one breach, by team 0, after the claim, on the known tick.
-    expect(breaches).toBe(1);
-    expect(breachTeam).toBe(0);
-    expect(breachTick).toBeGreaterThan(claimTick);
+    expect(purchases).toEqual([5, 5]);
+    // Both go down, and come back every time.
+    expect(avatarDeaths).toBeGreaterThanOrEqual(2);
+    expect(respawns[0]).toBeGreaterThanOrEqual(1);
+    expect(respawns[1]).toBeGreaterThanOrEqual(1);
+    expect(runnerDeaths).toBeGreaterThanOrEqual(3);
+    // The breach as recorded: player 0's tank at 83 s since SIM_VERSION 69.
+    expect(breaches).toBe(BREACH_TICK_PIN < 0 ? 0 : 1);
     expect(breachTick).toBe(BREACH_TICK_PIN);
-    expect(sim.winner).toBe(0);
-    // The replay ran well past the breach: the outro and the frozen tail are in
-    // the golden.
-    expect(replay.tickCount).toBeGreaterThan(BREACH_TICK_PIN + 300);
+    expect(breachTeam).toBe(BREACH_TICK_PIN < 0 ? -1 : BREACH_TEAM_PIN);
+    expect(sim.winner).toBe(BREACH_TICK_PIN < 0 ? -1 : BREACH_TEAM_PIN);
   });
 });

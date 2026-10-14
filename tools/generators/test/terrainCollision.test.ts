@@ -76,7 +76,15 @@ describe("collision agrees with the terrain the player sees", () => {
           const j = Math.round(y);
           const art = top[j * map.size + i];
           if (!Number.isFinite(art)) continue; // no mesh here: nothing to disagree with
-          const floor = map.heights[j * map.size + i];
+          // The surface under the art: the ground, or the deck within a step of
+          // it on a layered arena (that deck carries the pad).
+          let floor = map.heights[j * map.size + i];
+          for (let L = 0; L < map.layerHeights.length; L++) {
+            const deck = map.layerHeights[L][j * map.size + i];
+            if (map.layerMask[L][j * map.size + i] !== 0 && Math.abs(art - deck) <= STEP_SNAP) {
+              floor = deck;
+            }
+          }
           // Art ABOVE collision is the fall-through case. The reverse (collision
           // above art) makes the avatar hover, which is ugly but not a trap, and
           // is what a mis-applied stamp table would have produced.

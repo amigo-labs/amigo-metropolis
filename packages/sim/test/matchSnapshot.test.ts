@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { createTickInputs } from "../src/inputs";
+import { BTN_FORWARD, createTickInputs } from "../src/inputs";
 import { getMapById } from "../src/map";
 import {
   createSim,
@@ -19,6 +19,7 @@ import {
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_LOCK,
+  MATCH_SLOT_MOVE,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
   MATCH_SLOT_POWER,
@@ -28,6 +29,7 @@ import {
   MATCH_SNAPSHOT_SLOT_STRIDE,
   MATCH_TICK,
   MATCH_WINNER,
+  MOVE_CUE_DRIVE,
   matchSlotOffset,
   SNAPSHOT_STRIDE,
   step,
@@ -152,12 +154,28 @@ describe("writeMatchSnapshot", () => {
     // 34, and MATCH_SLOT_BUY_FRAC (field 8) the 0.5 s purchase hold until
     // SIM_VERSION 51. The original captures and sells on one key press, so there
     // is nothing to report and the slot block lost both fields; the Gun magazine,
-    // the lock and the power bits follow the units count.
+    // the lock and the power bits follow the units count, and the movement
+    // command the original's sounds are chosen from comes last.
     expect(MATCH_SLOT_UNITS).toBe(7);
     expect(MATCH_SLOT_AMMO_GUN).toBe(8);
     expect(MATCH_SLOT_LOCK).toBe(9);
     expect(MATCH_SLOT_POWER).toBe(10);
-    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(11);
+    expect(MATCH_SLOT_MOVE).toBe(11);
+    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(12);
+  });
+
+  it("reports the avatar's movement command, which the original's sounds follow", () => {
+    const sim = createSim(getMapById("la-cantina"), 3);
+    const inputs = createTickInputs();
+    inputs.players[0].buttons = BTN_FORWARD;
+    step(sim, inputs);
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_MOVE] & MOVE_CUE_DRIVE).toBe(MOVE_CUE_DRIVE);
+    inputs.players[0].buttons = 0;
+    step(sim, inputs);
+    writeMatchSnapshot(sim, out);
+    expect(out[matchSlotOffset(0) + MATCH_SLOT_MOVE] & MOVE_CUE_DRIVE).toBe(0);
   });
 
   it("reports the post-breach outro, and nothing while none runs", () => {

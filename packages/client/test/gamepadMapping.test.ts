@@ -1,22 +1,8 @@
-// Pure gamepad-mapping math (no DOM/three, so it runs under `bun test`). Guards
-// the two numeric decisions a human can't eyeball without a physical pad: the
-// radial deadzone rescale and the button table.
+// The menu's stick math (no DOM/three, so it runs under `bun test`): the radial
+// deadzone rescale the menu navigation reads a pad through.
 
 import { describe, expect, it } from "bun:test";
-import {
-  BUTTON_FIRE1,
-  BUTTON_FIRE2,
-  BUTTON_FIRE3,
-  BUTTON_INTERACT,
-  BUTTON_JUMP,
-  BUTTON_TRANSFORM,
-} from "@metropolis/sim";
-import {
-  GAMEPAD_BUTTON_MAP,
-  STICK_DEADZONE,
-  stickWithDeadzone,
-  type Vec2,
-} from "../src/input/gamepadMapping";
+import { STICK_DEADZONE, stickWithDeadzone, type Vec2 } from "../src/input/gamepadMapping";
 
 describe("stickWithDeadzone", () => {
   const out: Vec2 = { x: 0, y: 0 };
@@ -57,24 +43,5 @@ describe("stickWithDeadzone", () => {
     stickWithDeadzone(0.6, 0.8, STICK_DEADZONE, out); // input already unit-length
     // Direction (3,4)/5 preserved.
     expect(out.x / out.y).toBeCloseTo(0.6 / 0.8, 6);
-  });
-});
-
-describe("GAMEPAD_BUTTON_MAP", () => {
-  it("maps the standard layout to our input bits", () => {
-    const byIndex = new Map(GAMEPAD_BUTTON_MAP.map(([i, bit]) => [i, bit]));
-    expect(byIndex.get(7)).toBe(BUTTON_FIRE1); // RT
-    expect(byIndex.get(6)).toBe(BUTTON_FIRE2); // LT
-    expect(byIndex.get(5)).toBe(BUTTON_FIRE3); // RB
-    expect(byIndex.get(0)).toBe(BUTTON_JUMP); // A
-    expect(byIndex.get(3)).toBe(BUTTON_TRANSFORM); // Y
-    expect(byIndex.get(2)).toBe(BUTTON_INTERACT); // X
-  });
-
-  it("assigns each gamepad button and each input bit exactly once", () => {
-    const indices = GAMEPAD_BUTTON_MAP.map(([i]) => i);
-    const bits = GAMEPAD_BUTTON_MAP.map(([, b]) => b);
-    expect(new Set(indices).size).toBe(indices.length);
-    expect(new Set(bits).size).toBe(bits.length);
   });
 });

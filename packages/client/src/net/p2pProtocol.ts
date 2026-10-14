@@ -4,7 +4,7 @@
 // this file only covers the 30 Hz hot-path packet, which exists nowhere else.
 //
 // Layout (little-endian):
-//   [u8 tag=P2P_INPUT_TAG][u32 latestTick][u8 count][count × 5 B PlayerInput]
+//   [u8 tag=P2P_INPUT_TAG][u32 latestTick][u8 count][count × 2 B PlayerInput]
 // inputs[i] is the local input for tick (latestTick - count + 1 + i), i.e.
 // oldest first. Every packet re-carries the previous k−1 ticks, so any single
 // lost/reordered packet is covered by its successors — effectively guaranteed
@@ -31,11 +31,7 @@ export function encodeP2pInput(latestTick: number, inputs: PlayerInput[]): Uint8
   bytes[5] = inputs.length;
   let o = 6;
   for (const input of inputs) {
-    view.setInt8(o, input.moveX);
-    view.setInt8(o + 1, input.moveY);
-    view.setInt8(o + 2, input.aimX);
-    view.setInt8(o + 3, input.aimY);
-    view.setUint8(o + 4, input.buttons);
+    view.setUint16(o, input.buttons & 0xffff, true);
     o += PLAYER_INPUT_BYTES;
   }
   return bytes;
@@ -54,13 +50,7 @@ export function decodeP2pInput(bytes: Uint8Array): P2pInputPacket | null {
   const inputs: PlayerInput[] = [];
   let o = 6;
   for (let i = 0; i < count; i++) {
-    inputs.push({
-      moveX: view.getInt8(o),
-      moveY: view.getInt8(o + 1),
-      aimX: view.getInt8(o + 2),
-      aimY: view.getInt8(o + 3),
-      buttons: view.getUint8(o + 4),
-    });
+    inputs.push({ buttons: view.getUint16(o, true) });
     o += PLAYER_INPUT_BYTES;
   }
   return { latestTick, inputs };

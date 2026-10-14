@@ -66,12 +66,6 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
       }
     }
 
-    // Ammo/repair pad: flat disc.
-    const pad = new THREE.CylinderGeometry(base.pad.radius, base.pad.radius, 0.3, 16);
-    const ph = featureH(map, base.pad.x, base.pad.y, base.pad.layer);
-    pad.translate(base.pad.x, ph + 0.15, base.pad.y);
-    parts.push(pad);
-
     const mesh = new THREE.Mesh(
       mergeGeometries(parts),
       new THREE.MeshStandardMaterial({

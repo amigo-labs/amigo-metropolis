@@ -178,16 +178,6 @@ export const X1_TERMINAL_FALL = 12 * X1_SPEED_UNIT;
  */
 export const X1_DIAGONAL_SCALE = 181 / 256;
 /**
- * sin(22.5°): Metropolis' stick is analogue, the original's input digital
- * (its stick path is dead in retail). The stick, in the hull's frame, is read
- * as the original's bits: a fore/aft bit when its component along the facing
- * is over sin 22.5° of its length, a sideways bit likewise across it — the
- * eight 45° sectors of a d-pad. A keyboard's unit diagonals land on the
- * diagonals. The stick's length scales the push (the original's own stick
- * path, `push = mag * push >> 7`, at 0x004428be).
- */
-export const X1_STICK_SECTOR = 0.3826834323650898;
-/**
  * Impact (landing) damage, `player_impact_damage` (0x004438e0): none at or
  * below 0x93333 per step = 10.78 m/s of fall; above it x = (v - 10.78) * 0.3048
  * (v clamped to 56.25 m/s), f(x) = 0.6124x up to 0.5, 0.866x^1.5 up to 0.75, x²
@@ -205,6 +195,12 @@ export const X1_IMPACT_HP = 1000;
 export const HOVER_PUSH_FORE = 0x6666 * FX * X1_SPEED_UNIT;
 /** Strafe push 0x2000 per step (0x00442884). */
 export const HOVER_PUSH_STRAFE = 0x2000 * FX * X1_SPEED_UNIT;
+/**
+ * The slow row, the Action Key held: fore/aft push 0x3333 per step (0x0044285e),
+ * 4.69 m/s, and strafe 0x1000 (0x0044286c), 1.47 m/s — half of each.
+ */
+export const HOVER_PUSH_SLOW_FORE = 0x3333 * FX * X1_SPEED_UNIT;
+export const HOVER_PUSH_SLOW_STRAFE = 0x1000 * FX * X1_SPEED_UNIT;
 /** Drag 0x0ccc = 0.05 of the velocity per step, horizontal always (0x004427b9). */
 export const HOVER_DRAG = 0xccc * FX;
 /** Brake drag 0x2666 = 0.15 (0x004428a5): the jump button, in hover, grounded. */
@@ -238,6 +234,13 @@ export const HOVER_CLEARANCE = 0x1000 / 8192;
  * to keep the same slope at which a fast hover leaves the ground.
  */
 export const HOVER_HOLD_DOWN = (0xcc / 8192) * X1_STEPS_PER_TICK;
+/**
+ * The hover asks for the surface under it from 0xccc wu (0.4 m) above itself
+ * (`player_hover.c` HOVER_PROBE_LIFT, 0x00442c09): the highest deck at or below
+ * that point is the one it rides, so it rides up onto a deck its cushion
+ * reaches and passes under one it does not (fcop-fidelity.md P14).
+ */
+export const HOVER_PROBE_LIFT = 0xccc / 8192;
 /** The surface tilt (normal's horizontal length) where its downhill push starts: 0.25 (14.5°). */
 export const HOVER_SLOPE_KNEE = 0x4000 * FX;
 /** Downhill push = gain * (tilt - knee)³ * lift * 0.59375 per step (`shl eax, 5`). */
@@ -248,6 +251,19 @@ export const HOVER_SLOPE_GAIN = 32;
 export const WALKER_PUSH_FORE = 0x18000 * FX * X1_SPEED_UNIT;
 /** Strafe push 0x10000 per step (0x0044465d). */
 export const WALKER_PUSH_STRAFE = 0x10000 * FX * X1_SPEED_UNIT;
+/**
+ * The slow row, the Action Key held: push 0xa000 per step fore/aft and sideways
+ * alike (0x0044460e, 0x00444630), 1.95 m/s.
+ */
+export const WALKER_PUSH_SLOW = 0xa000 * FX * X1_SPEED_UNIT;
+/**
+ * The slow row's ledge (0x00444a88): on slow forward, slow back or slow Jink
+ * Left — the original's states 1, 2 and 5, not slow Jink Right — a walker on
+ * the ground that a step would leave more than 0x333 = 0.1 m over the ground
+ * ahead is put back where it was and its horizontal velocity zeroed, unless the
+ * ground it stands on is steep.
+ */
+export const WALKER_LEDGE_DROP = 0x333 / 8192;
 /** Ground drag 0x6000 = 0.375 per step on every axis: "effectively instant". */
 export const WALKER_DRAG = 0x6000 * FX;
 /** Airborne horizontal drag 0x666 = 0.025 per step, and no push at all. */
@@ -256,6 +272,22 @@ export const WALKER_AIR_DRAG = 0x666 * FX;
 export const AVATAR_WALKER_SPEED = WALKER_PUSH_FORE / WALKER_DRAG;
 /** Undriven on the ground, a largest component under 0x8000 = 0.586 m/s stops dead. */
 export const WALKER_STOP_SPEED = 0x8000 * FX * X1_SPEED_UNIT;
+/**
+ * The walker's one-step movement mode (`player_velocity_delta`'s byte +0x147,
+ * camera-and-movement.md "What the player can command"): the ground codes 3,
+ * 4 and 5 write mode 2, 1 and 3 after a step, and the next step reads it. With
+ * mode m the command push is scaled by 5m/128, the slope push (the thrust's
+ * plane) by 1 + (4 - m)/4, the drag is 768(4 - m) a step instead of 0x6000,
+ * and a velocity stops dead only under (m << 13)/16 — slippery ground. Index:
+ * the ground code; 0 for every other code.
+ */
+export const WALKER_MODE_OF_CODE: readonly number[] = [0, 0, 0, 2, 1, 3];
+/** The mode's command-push scale per unit of mode: 5/128. */
+export const WALKER_MODE_PUSH = 5 / 128;
+/** The mode's drag per step for each unit of (4 - mode): 768 = 0.0117. */
+export const WALKER_MODE_DRAG = 768 * FX;
+/** The mode's stop speed per unit of mode: (1 << 13)/16 = 512 a step. */
+export const WALKER_MODE_STOP = ((1 << 13) / 16) * FX * X1_SPEED_UNIT;
 /**
  * Turn: 0x20 units a step on the ground, less (|v| >> 11) * 0x20 >> 9, i.e.
  * 105.5°/s at rest falling linearly to 0 at 18.75 m/s (79°/s at a full run).
@@ -806,16 +838,6 @@ export const DUMMY_RESPAWN_TICKS = 450; // 15 s
  */
 export const BASE_TURRET_RESPAWN_TICKS = 1125;
 
-// Ammo/repair pad (rules.md §5): ammo refills instantly, hp regenerates.
-/**
- * Metropolis' own, kept as it was: the original's PA has no repair pad (health
- * comes back only from the health pickup and the restore at going down,
- * fcop-re/player-and-weapons.md §5). 15 hp/s fills the 1250-HP mech in 83 s (it
- * filled the old 300 in 20 s); scaling it with AVATAR_HP would have made an X1
- * parked on its pad outheal a turret and the Warden's cannon together.
- */
-export const PAD_REPAIR_HP_PER_TICK = 0.5; // 15 hp/s
-
 // Economy (rules.md §3). One resource: points, open information. The numbers are
 // the original's (fcop-re/ai-and-rules.md §2, §8; fcop-fidelity.md R2-R10): all
 // six PA arenas run identical economy scripts, and none of the rules below reads
@@ -865,12 +887,64 @@ export const HEAVY_UNLOCK_POINTS = 50;
 /** Units bought at an owned outpost (forward spawn) cost this multiple. */
 export const OUTPOST_COST_MULTIPLIER = 2;
 
-// Purchases: stand on the console pad and PRESS interact — one unit per press,
-// on the frame the key goes down, as the original's purchase triggers answer
-// its Action Key (fcop-fidelity.md R17; fcop-re/ai-and-rules.md §2). The FIRE2
-// modifier orders the heavy variant at base consoles and the air unit at
+// Purchases: stand in the console's trigger box and PRESS interact — one unit per
+// press, on the frame the key goes down, as the original's purchase triggers
+// answer its Action Key (fcop-fidelity.md R17; fcop-re/ai-and-rules.md §2). The
+// FIRE2 modifier orders the heavy variant at base consoles and the air unit at
 // Metropolis' outpost consoles. Was a 0.5 s hold per unit (CONSOLE_HOLD_TICKS).
-export const CONSOLE_RADIUS = 3;
+/**
+ * A base purchase spot's half extents (x, y) where the arena imports none: Mp's
+ * type-95 triggers 106-109, 819 x 614 raw at TRIGGER_SCALE 1024 — a 1.6 x 1.2 m
+ * box the intruder's radius widens (fcop-re/actors-and-orders.md; fcop-fidelity
+ * R17). Was Metropolis' 3 m circle (CONSOLE_RADIUS) until SIM_VERSION 56.
+ */
+export const ORIGINAL_BUY_HALF_W = 819 / 1024;
+export const ORIGINAL_BUY_HALF_L = 614 / 1024;
+/**
+ * How far below the mech's feet the ground's material still reaches it: a base
+ * floor hurts only while the surface is less than this below the feet, so a
+ * hover riding its 0.5 m just feels it and a jumping walker above it does not
+ * (RE camera-and-movement.md, "the ground is felt within reach only";
+ * fcop-fidelity.md P11).
+ */
+export const SURFACE_REACH = 0.54;
+/**
+ * A base floor's damage to the enemy mech per movement step, walker and hover
+ * alike: codes 14/15 of player_order's table (fcop-fidelity.md P11). At
+ * X1_STEPS_PER_TICK that is 37.5 a second.
+ */
+export const FLOOR_DAMAGE_PER_STEP = 1;
+/**
+ * How far past a lift's face its top still carries a mech: past the widest gap
+ * the shipped arenas leave between a lift and the floor it serves. Conft's four
+ * lifts stand 0.145 m off the central platform's edge in the original's mesh
+ * (its edge at x = 126.0, lift 0's face at 126.145), Slim's 1.89 m lift is
+ * 0.055 m off its 2 m hole's sides. The original's mech is broader than either
+ * gap — its four footprint corners trace against the walls — so it walks
+ * across; Metropolis' mech is a point that reads its walls per deck, and one
+ * that dropped into the gap would fall 2 m into a slot narrower than itself and
+ * read the shaft's wall instead of the deck's. 0x500 = 0.156 m covers both.
+ * Metropolis' own (fcop-fidelity.md P12); was 0x400, one walker step, which
+ * left Conft's gap 2 cm open.
+ */
+export const LIFT_RIM_SLACK = 0x500 / 8192;
+/**
+ * How far above its feet a walker finds a lift's top: the original walker's own
+ * ground probe, 0x0ccc (0.4 m; `player_walk.c` WALK_PROBE_LIFT), where the map's
+ * decks use Metropolis' STEP_SNAP (0.35 m). Conft's lifts park 0.39 m above
+ * their pit's floor, and the original's walker steps onto them.
+ */
+export const LIFT_STEP_UP = 0xccc / 8192;
+/**
+ * The import's kerb rule (tools/generators/kerbs.ts; fcop-fidelity.md P15): a
+ * wall bit between two floors that differ by at most this, with no face along it
+ * standing above them, is a step (or nothing), not a wall. The original's walker probes the ground 0x0ccc above its feet and steps
+ * onto a rise of about 0.46 m in one step (RE camera-and-movement.md
+ * "Step-up"). Authoring only; the sim never reads it.
+ */
+export const KERB_STEP = 0.46;
+/** A face standing more than this above the higher floor is a wall, whatever the floors. */
+export const KERB_CLEARANCE = 0.15;
 /** One Dreadnought and one Fortress alive per side (spawner limit 1, ai-and-rules.md §3). */
 export const JUGGERNAUT_ALIVE_LIMIT = 1;
 export const FORTRESS_ALIVE_LIMIT = 1;
@@ -909,8 +983,6 @@ export const OUTPOST_ZONE_RADIUS = (614 << 4) / 8192;
  * opened by the claim and never shut again (fcop-re/outposts.md Q1, Q3).
  */
 export const OUTPOST_TURRET_RESPAWN_TICKS = 750;
-/** Owned outposts refill ammo (no repair) within this radius of the console. */
-export const OUTPOST_PAD_RADIUS = 4;
 
 // Units: every unit on every arena is the original's (fcop-fidelity.md W3,
 // U1-U4): health and weapon from the imported spawner records, or from
@@ -1164,6 +1236,13 @@ export const SKY_STANDOFF = 1;
 export const SKY_RETREAT_JITTER = 0x40;
 export const SKY_HOME_RADIUS = 0x4000 / 8192;
 export const SKY_PICKUP_RADIUS = 0x1000 / 8192;
+/**
+ * A pickup's own touch on the Sky Captain (`cact_pickup_sky_touch` 0x0041eb10):
+ * within 0x3000 world units (1.5 m) flat by the octagonal estimate, no height
+ * and no box, a health pickup restores it — and any pickup it touches is spent,
+ * every PA pickup being a consumed one (fcop-fidelity.md P9). In world units.
+ */
+export const SKY_PICKUP_TOUCH_WU = 0x3000;
 
 /**
  * Its three weapons, ids 7 / 8 / 9 of every PA arena's type-98 catalogue
@@ -1214,12 +1293,15 @@ export const SKY_SPEND_HOME_PER_LEVEL = 0x10000 / 8192;
 export const SKY_FORTRESS_BUDGET = 0x41;
 export const SKY_SPARE_BUDGET = 5;
 /**
- * The scripts that turn its requests into units spawn base tanks one per 3.4 s
- * (fn19) and base jets one per 0.97 s (fn17) per queue; the outpost queues'
- * periods were not read, so they use the same.
+ * A spawn queue's period where the arena imports none (fcop-fidelity.md R18):
+ * Mp's slot-0 base tank queue, fn18's 202 units (3.37 s), and its captain's base
+ * jet queue, fn17's 58 (0.97 s). Each arena's own come from the rules artifact
+ * (MapBase.queueTicks, MapOutpost.queueTicks).
  */
-export const SKY_TANK_QUEUE_TICKS = 102;
-export const SKY_JET_QUEUE_TICKS = 29;
+export const ORIGINAL_TANK_QUEUE_TICKS = 101;
+export const ORIGINAL_JET_QUEUE_TICKS = 29;
+/** Spawn queues per team: base tanks, base jets, then a tank and a jet queue per outpost (4). */
+export const UNIT_QUEUES = 10;
 /** Free opening order (construct 0x00421476): from level 1, 10 units. */
 export const SKY_OPENING_ORDER = 10;
 
@@ -1529,8 +1611,24 @@ export const PICKUP_GUN_AMMO = 6;
 export const PICKUP_POWER_HEAVY = 7;
 export const PICKUP_POWER_SPECIAL = 8;
 export const PICKUP_KIND_COUNT = 9;
-/** Avatar must be within this of a pickup spot to take it. */
-export const PICKUP_RADIUS = 2.5;
+/**
+ * The round count at which a slot warns it is running dry: `player_fire_slot`
+ * (retail 0x00458ed0) compares the allowance it is about to spend against 5
+ * (`PLAYER_FIRE_LOW_AMMO`) and plays sound script 14 (sim.ts fireSlot,
+ * EV_LOW_AMMO).
+ */
+export const LOW_AMMO_WARNING = 5;
+/**
+ * A pickup's collection box where the arena imports none: every PA pickup's
+ * record halfwords 819 / 819 / 2048 << 4 world units, i.e. 4.0 m along x, 1.6 m
+ * along y and 1.6 m in height about the pickup, which stands 81 << 4 wu (0.16 m)
+ * above the ground (`cact_pickup_box_touch` 0x0041e8a0; fcop-fidelity.md P9).
+ * Was Metropolis' 2.5 m circle (PICKUP_RADIUS).
+ */
+export const ORIGINAL_PICKUP_HALF_W = (2048 * 16) / 8192;
+export const ORIGINAL_PICKUP_HALF_L = (819 * 16) / 8192;
+export const ORIGINAL_PICKUP_HALF_H = (819 * 16) / 8192;
+export const ORIGINAL_PICKUP_LIFT = (81 * 16) / 8192;
 // A health pickup refills to the maximum (grant bit 0x20000 passes amount -1,
 // "fill": fcop-re/player-and-weapons.md §6). Was +100. No constant: it is AVATAR_HP.
 /**

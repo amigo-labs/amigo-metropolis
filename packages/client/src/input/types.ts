@@ -1,10 +1,9 @@
-// Local-input abstraction for a human control device (keyboard/mouse today).
-// A source is sampled ONCE per sim tick and quantized at the boundary — raw
-// device state never reaches the sim (architecture.md §2). The frame loop
-// drives one of these per local player slot.
+// Local-input abstraction for a human control device. A source is sampled
+// ONCE per sim tick into the original's button word — raw device state never
+// reaches the sim (architecture.md §2). The frame loop drives one of these per
+// local player slot.
 
 import type { PlayerInput } from "@metropolis/sim";
-import type * as THREE from "three";
 
 /** A screen rectangle in CSS pixels, top-left origin (DOM / mouse convention). */
 export interface Viewport {
@@ -22,22 +21,6 @@ export interface LocalInputSource {
   readonly hint: string;
   /** Still usable? A gamepad can vanish mid-match; a keyboard never does. */
   isConnected(): boolean;
-  /**
-   * Refresh per-tick input context before sample(): the camera-relative move
-   * basis, the steered heading (`lookYaw`, sim radians — mouse/keyboard aim
-   * follows it; stick aim ignores it), and the enemy positions used by "assist"
-   * aim magnetism. `enemies` is packed `[x0,y0,x1,y1,…]` in sim coords with
-   * `enemyCount` pairs (a shared scratch the source must copy, not retain).
-   * Call once per tick before sample(). Allocation-free.
-   */
-  updateAim(
-    camera: THREE.Camera,
-    avatarX: number,
-    avatarY: number,
-    lookYaw: number,
-    enemies: Float32Array,
-    enemyCount: number,
-  ): void;
-  /** Writes the quantized input for this tick into `out`. Allocation-free. */
+  /** Writes this tick's button word into `out`. Allocation-free. */
   sample(out: PlayerInput): void;
 }

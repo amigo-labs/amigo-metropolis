@@ -64,7 +64,7 @@ export function shotPayloadToReach(payload: number): number {
  * this is a payload change and not a format change — and events are never
  * hashed, so no SIM_VERSION with it.
  */
-export function weaponShotPayload(weaponId: number, reach: number): number {
+export function weaponShotPayload(weaponId: number, reach: number, powered = false): number {
   // A POSITIVE reach never packs to zero. `reachToShotPayload` rounds, so
   // anything under 5 cm would land on 0 dm, and 0 is how the renderer spells
   // "no reach travelled with this shot" — it falls back to the weapon's nominal
@@ -74,12 +74,27 @@ export function weaponShotPayload(weaponId: number, reach: number): number {
   // shortest a real shot may report.
   let dm = reachToShotPayload(reach);
   if (dm <= 0) dm = reach > 0 ? 1 : 0;
-  return (weaponId & 0xff) | (dm << 8);
+  return (weaponId & SHOT_WEAPON_MASK) | (powered ? SHOT_POWERED : 0) | (dm << 8);
 }
+
+/** Low-byte bits of a `weaponShotPayload`: the catalog id, and the block flag. */
+const SHOT_WEAPON_MASK = 0x7f;
+/**
+ * The shot came out of the slot's block B (its power-up magazine). The block
+ * decides what the original plays — each block names its own sound and effects
+ * (fcop-re/player-and-weapons.md, `sound_1c`) — and only the tick that fired
+ * knows it: the snapshot after the last powered round already reads block A.
+ */
+const SHOT_POWERED = 0x80;
 
 /** Catalog id out of a `weaponShotPayload`. */
 export function shotPayloadWeaponId(payload: number): number {
-  return payload & 0xff;
+  return payload & SHOT_WEAPON_MASK;
+}
+
+/** True when a `weaponShotPayload` came out of block B. */
+export function shotPayloadPowered(payload: number): boolean {
+  return (payload & SHOT_POWERED) !== 0;
 }
 
 /** Reach (metres) out of a `weaponShotPayload`. */
@@ -139,6 +154,72 @@ export const EV_TURRET_LOST = 16; // a=turret id, b=its team, c=ring slot
  * accepted purchase is EV_PURCHASE. c = the refused archetype, -1 for a claim.
  */
 export const EV_PURCHASE_REFUSED = 17; // a=avatar id, b=player, c=archetype (-1 claim)
+/**
+ * A trigger pulled on an empty magazine (`player_fire_slot` 0x00458ed0: the
+ * slot's cooldown has run out, block B is empty and block A is too). The
+ * original plays sound script 13 for it, every frame the trigger is held.
+ */
+export const EV_DRY_FIRE = 18; // a=avatar id, b=player, c=slot (0 gun, 1 heavy, 2 special)
+/**
+ * A slot fired with exactly five rounds left in the block it fires from — the
+ * same function, before the shot goes out; the original plays script 14.
+ */
+export const EV_LOW_AMMO = 19; // a=avatar id, b=player, c=slot
+/**
+ * A transform press refused: a change already running, or water under the mech
+ * (`player_transform_step` 0x004421dc plays script 42 for it).
+ */
+export const EV_TRANSFORM_REFUSED = 20; // a=avatar id, b=player
+/**
+ * The Warden fired one of the Sky Captain's weapons that launch a round:
+ * `EV_SHOT` with `SHOT_SLOT_LAUNCH` and `c` = this, the captain's world-weapon
+ * row (8 the missile, 9 the bomb; its gun, row 7, is `SHOT_SLOT_HITSCAN`).
+ * Turrets and units launch with `c` = 0; their row follows from what they are.
+ */
+/**
+ * The Sky Captain's mode changed (`ai->mode`, mirrored in state word 39, which
+ * its idle-chatter script polls): from a decision pass, the respawn (roam) or
+ * the construct (defend). b = the new mode (warden.ts SKY_MODE_*).
+ */
+export const EV_CAPTAIN_MODE = 21; // a=captain id, b=new mode
+/**
+ * The Sky Captain stored an announcement into state word 56, which its event
+ * scripts poll (2: it turned its guns on the player's mech, 3: it went after a
+ * badly hurt player mech, 4: it was repaired). Events 1 (the switch to attack),
+ * 5..9 follow from EV_CAPTAIN_MODE, EV_HIT, EV_CAPTURE, EV_DEATH and EV_RESPAWN.
+ */
+export const EV_CAPTAIN_EVENT = 22; // a=captain id, b=event (2, 3, 4)
+/**
+ * The Sky Captain posted an order into a request word (its decision pass): the
+ * scripts that spawn the units also announce the order. b = CAPTAIN_ORDER_*,
+ * c = the outpost it is for, -1 its base.
+ */
+export const EV_CAPTAIN_ORDER = 23; // a=captain id, b=order kind, c=outpost (-1 base)
+export const CAPTAIN_ORDER_TANKS = 0;
+export const CAPTAIN_ORDER_JETS = 1;
+export const CAPTAIN_ORDER_DREADNOUGHT = 2;
+export const CAPTAIN_ORDER_FORTRESS = 3;
+/**
+ * A world round (`PROJ_ROUND`: a turret's, a unit's, the Dreadnought's guns',
+ * the Sky Captain's missile) struck something or a wall, beside its
+ * EV_EXPLOSION: c names what fired it, which decides the original's impact
+ * effect (each type-98 row has its own; see roundSourceArchetype/-Team).
+ */
+export const EV_ROUND_IMPACT = 24; // a=x*16, b=y*16, c=archetype | (team + 1) << 4
+/** EV_ROUND_IMPACT.c for a shooter. */
+export function roundSource(archetype: number, team: number): number {
+  return (archetype & 0xf) | ((team + 1) << 4);
+}
+/** The shooter's archetype out of EV_ROUND_IMPACT.c. */
+export function roundSourceArchetype(c: number): number {
+  return c & 0xf;
+}
+/** The shooter's team out of EV_ROUND_IMPACT.c (-1 neutral). */
+export function roundSourceTeam(c: number): number {
+  return (c >> 4) - 1;
+}
+export const SKY_WEAPON_MISSILE = 8;
+export const SKY_WEAPON_BOMB = 9;
 
 export interface EventBuffer {
   count: number;
@@ -163,3 +244,10 @@ export function pushEvent(buf: EventBuffer, type: number, a: number, b: number, 
   buf.data[o + 3] = c;
   buf.count += 1;
 }
+/**
+ * A lift leaves a stop (fcop-fidelity.md P12): a rider's press, or the end of
+ * its dwell. Its travel sound (the record's, 70) runs while it moves.
+ */
+export const EV_LIFT_START = 25; // a=lift index (map.lifts), b=the stop it heads for
+/** A lift reaches a stop: its arrival sound (71) plays at the lift. */
+export const EV_LIFT_ARRIVE = 26; // a=lift index (map.lifts), b=the stop it reached

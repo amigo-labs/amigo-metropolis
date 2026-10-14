@@ -19,6 +19,12 @@ export interface FcopArena {
   /** Stage 1 emitted stacked decks for this arena (convert.ts `layered`). */
   readonly layered: boolean;
   /**
+   * Stage 2 opens the kerbs (tools/generators/kerbs.ts, fcop-fidelity.md P15):
+   * wall bits that stand for a step the original walks over. Arena by arena,
+   * as each is re-imported.
+   */
+  readonly kerbs?: boolean;
+  /**
    * Wall bits stage 2 may clear to open the original roads, and to reconnect
    * anything the flattening sealed off. Per arena because the cost of flattening
    * a bridged mission to one storey is per arena; a number here is a measurement
@@ -36,14 +42,6 @@ export interface FcopArena {
    * Conft 32x1024, Slim 29x1638, Joke 29x1638, Hk 35x1843, Ovmp 39x1024).
    */
   readonly neutralCaptureRaw: number;
-  /**
-   * Both X1Alpha records start (and respawn) the mech in HOVER form: the original
-   * stores that as a negative spawn facing (`player_respawn` 0x004474a0,
-   * fcop-re/player-and-weapons.md §1). extract_logic does not carry the facing, so
-   * this is carried here, read from the shipped records: Hk's two are -3072 and
-   * -1024, every other PA arena's are non-negative (walker).
-   */
-  readonly spawnHover: boolean;
 }
 
 /** Ordered as convert.ts's ARENAS, so reports read the same across both stages. */
@@ -51,38 +49,37 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
   {
     mapId: "urban-jungle",
     mission: "Conft",
-    layered: false,
+    layered: true,
+    kerbs: true,
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1024,
-    spawnHover: false,
   },
   {
     mapId: "proving-ground",
     mission: "Slim",
-    layered: false,
+    layered: true,
+    kerbs: true,
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1638,
-    spawnHover: false,
   },
   {
     mapId: "la-cantina",
     mission: "Mp",
-    layered: false,
+    layered: true,
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1024,
-    spawnHover: false,
   },
   {
     mapId: "bug-hunt",
     mission: "Joke",
-    layered: false,
+    layered: true,
+    kerbs: true,
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1638,
-    spawnHover: false,
   },
   {
     mapId: "hollywood-keys",
@@ -91,7 +88,6 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1843,
-    spawnHover: true,
   },
   {
     mapId: "venice-beach",
@@ -100,7 +96,6 @@ export const FCOP_ARENAS: readonly FcopArena[] = [
     carveLimit: 400,
     repairLimit: 400,
     neutralCaptureRaw: 1024,
-    spawnHover: false,
   },
 ];
 
@@ -138,6 +133,11 @@ export function selectArenas(which: string): readonly FcopArena[] {
 /** Committed actor/Cnet extraction for this arena (tools/generators/fcop/). */
 export function logicFile(a: FcopArena): string {
   return `${a.mission.toLowerCase()}-logic.json`;
+}
+
+/** Committed Precinct Assault rule data for this arena (fcopRules.ts). */
+export function rulesFile(a: FcopArena): string {
+  return `${a.mission.toLowerCase()}-rules.json`;
 }
 
 /** Committed pristine stage-1 wall lattice for this arena. */

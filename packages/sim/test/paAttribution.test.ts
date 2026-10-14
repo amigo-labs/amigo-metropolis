@@ -50,9 +50,9 @@ interface Push {
  * ground console for a Runner, the Dreadnought record for a Juggernaut). Nobody
  * escorts and team 0 buys nothing: this measures the defence against the push.
  */
-function push(mapId: string, archetype: number, count: number): Push {
+function push(mapId: string, archetype: number, count: number, seed = 0xc0ffee): Push {
   const map = getMapById(mapId);
-  const state = createSim(map, 0xc0ffee);
+  const state = createSim(map, seed);
   const idle = createTickInputs();
   const base = map.bases[1];
   const at =
@@ -191,8 +191,14 @@ describe("an unescorted bought push against an intact defence, per arena", () =>
   // siege unit, one alive per side and 50 points. That a tank slips through on
   // la-cantina is the original's too, as far as these rules go: Mp's gate box is
   // on the tank road just past its ring.
+  // Re-measured at SIM_VERSION 61 (the heavy-zone poll's and the spawn queues'
+  // draws at createSim move every PA arena's PRNG stream): on la-cantina the lone
+  // Runner breaches on 3 of seeds c0ffee/1/2/3/4 (1, 2, 3; in 36-96 s) and dies
+  // 19-21 m out on the other two; on the other three arenas it breaches on none
+  // (7-18 m out), the Juggernaut on all (46-103 s). The breach is the road's, so
+  // it is pinned on seed 1, one that takes it.
   it("a lone Runner drives through la-cantina's ring and is stopped short on urban-jungle", () => {
-    const lc = push(LA_CANTINA_ID, ARCHETYPE.RUNNER, 1);
+    const lc = push(LA_CANTINA_ID, ARCHETYPE.RUNNER, 1, 1);
     expect(lc.breachAt).toBeGreaterThan(0);
     const uj = push(URBAN_JUNGLE_ID, ARCHETYPE.RUNNER, 1);
     expect(uj.breachAt).toBe(-1);
@@ -295,6 +301,17 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // player) pays it nothing more, so nothing replaces its dead tanks.
   // (SIM_VERSION 46-48 counted each turret once, so it defended all match and
   // only its opening order breached: 17-19 of 20 on these seeds.)
+  // Re-measured at SIM_VERSION 55 (captures by the original's octagonal
+  // estimate, R12), over seeds c0ffee/1/2/3/4: 22 of 30 resolve, in 68-153 s,
+  // every one on its opening order; the captain buys nothing more against an
+  // idle player. Re-measured at SIM_VERSION 60 (the heavy-zone poll's draw at
+  // createSim moves the PRNG stream): 27 of 30 resolve, in 41-133 s. Re-measured
+  // at SIM_VERSION 61 (its requests run through the shared spawn queues, from a
+  // phase drawn at load, and leave the original's spawners): 19 of these four
+  // arenas' 20 resolve, in 53-121 s; urban-jungle seed 2 does not.
+  const UNRESOLVED: Record<string, number[]> = {
+    [URBAN_JUNGLE_ID]: [2],
+  };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {
     it(`${id}: d8 vs idle, it roams and breaches (or measurably does not)`, () => {
@@ -310,7 +327,7 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
           if (state.captain.mode === 2) defend += 1;
         }
         expect(defend).toBe(0);
-        if (id === URBAN_JUNGLE_ID && seed === 4) {
+        if (UNRESOLVED[id]?.includes(seed)) {
           expect(state.winner).toBe(-1);
           continue;
         }

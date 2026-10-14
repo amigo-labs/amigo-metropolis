@@ -281,6 +281,13 @@ live deploy ships them too. Spec + plan:
 
 ## Phase 11 — Touch / mobile controls (pulled forward from backlog)
 
+> **Removed in Phase 14, wave 3** (the owner's rule: only the original counts;
+> "touch waits for the modernisation"). Its sticks produced the stick-and-aim
+> input the original's button word replaced; the code is in git history
+> (`input/touch.ts`, `touchMapping.ts`, `touchControls.ts` before the wave-3
+> commit "Drive the X1-Alpha by the original's button word") for when the
+> modernisation brings touch back on the word.
+
 Client-only (`docs/plans/touch-controls.md`): a new `LocalInputSource` + DOM
 overlay — the deterministic sim is untouched, so no golden regeneration.
 Entry: `?touch=1`/`?touch=0` override, else coarse-pointer auto-detect; the
@@ -583,6 +590,136 @@ whole delta traces to one produced unit spending 30 ticks on a bridge — the th
 ground lattice and the per-deck lattices are each measurably inert — so it is the
 deck movement #29 asked for, and restoring the finish is #31's balance pass. That
 moves the "ten-minute resolution" item above from two arenas to three.
+
+## Phase 14 — The original, 100 % (owner's rule 2026-10-13)
+
+**Only the original counts.** Everything Metropolis does that Future Cop:
+L.A.P.D.'s Precinct Assault does not do goes back to the original; modernising
+starts only once all of it stands. This sharpens the rule of 2026-10-11
+(`docs/specs/fcop-fidelity.md`), which let anything the original does not have
+keep Metropolis' own design. Where the RE has not answered yet, the Metropolis
+value stays and its ledger row says "waits on RE" — that gap becomes an RE target.
+
+Platform exceptions that stay: online 1v1 and its lobby (lockstep relay, PWA),
+the debug tools (fly camera, pins, `?sandbox`), and the HD textures **as an
+option** (Classic, the original texels, becomes the default). Back to the
+original explicitly: the controls 1:1 (keyboard and gamepad, digital, the
+original's bindings; the mouse is off, touch waits for the modernisation) and
+the front end (the Preact menu is replaced by the original's).
+
+Waves, in this order:
+
+1. **Audio** (below)
+2. Gameplay rules the ledger does not carry yet: spawn facing from the X1-Alpha
+   record, no base pad (no refill, no repair), no outpost refill, the tank queue
+   (one per ~3.4 s), water, pickup boxes, purchase zones as trigger volumes, no
+   Warden fire through walls, heavy units through the original's zones, lifts
+3. Controls 1:1: the original's button word (turn, strafe, slow/action on one
+   button, transform as the lock-cycle + slow chord), keypad defaults, digital
+   gamepad with the 25 % dead zone
+4. Weapon effects: the effect records (types 87–94), bolts for turrets and
+   units, the PYPL particle palettes
+5. Assets: each mission's own Cobjs, the Dreadnought's guns, team variants,
+   Classic textures by default, the X1's animations
+6. Presentation: camera presets, HUD and radar, the results page, the original's
+   names (tank, jet, Dreadnought, Flying Fortress, Sky Captain)
+7. Front end: the original's menus and UI sounds
+
+### Wave 1 — Audio
+
+The RE repo has the whole sound module decompiled (`src/game/snd/`), so which
+sound plays for which event is read from code and data, not picked by ear (#27).
+
+- [x] RE: `tools/audio/pa_sound_tables.py` — the retail loader simulated over
+      GlblData + each PA mission: script tables A / B / high, slots with priority,
+      polyphony, loop, lead-in heads, round-robin variants; weapon, ambient,
+      effect, death-chain and emitter bytes
+- [x] RE: music re-extracted in the engine's format (14260 Hz, 8-bit, stereo);
+      the nine front-end WAVE resources extracted; stale audio docs corrected
+- [x] RE: `tools/audio/pa_voice_triggers.py` — every voice line's trigger
+- [x] Mixer: level and pan curves, octagonal distance, 16 m linear falloff, the
+      24-channel pool with both ways of stealing, kind-1 key decay, the speech
+      ring (`audio/mixer.ts`, `audio/speech.ts`)
+- [x] Sim events the original sounds need: dry fire, five rounds left, transform
+      refused, the block-B bit on the avatar's shots, the Sky Captain's missile and
+      bomb rows. Events are not hashed: goldens unchanged
+- [x] Import: the tables as `docs/specs/fcop-re/pa-audio.json` and
+      `pa-voice.json`, the files copied unchanged (no trim, no normalising) into
+      `public/sfx` and `public/music` by `importFcopAudio.ts`; `gen:sfx` turns the
+      tables into `audio/fcopAudio.generated.ts`
+- [x] Engine on the original's playback model, every cue wired: weapons (cued
+      loops / launch one-shots), world weapons, effects and death chains, hover
+      loop, ambient queue and prop emitters, purchases, capture, pickups, pause,
+      speech with ducking (all 86 lines by the scripts' rules), music per arena.
+      The walker's loop waits on the X1's animations (ledger A9, wave 5)
+- [x] The three original sliders (Sound Effects, Music, Movies, 0..127) with the
+      original's defaults
+- [x] Remove the sfxr synth, the synth music and the owner's mp3s from the game
+- [x] Ledger: an Audio section with the adopted rows and the RE gaps
+- [ ] Close #27
+
+### Wave 2 — Gameplay rules
+
+Each rule read from the original's data (`tools/logic/pa_rules_data.py` in the RE
+repo → `tools/generators/fcop/<mission>-rules.json`, `bun run gen:parules`), one
+commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
+
+- [x] district-01 out of the game; goldens 02–04 re-recorded on original arenas
+      with closed-loop scripts (D2)
+- [x] No base pad, no outpost refill, no repair (P1, R14; v53)
+- [x] The Sky Captain fires as the original's: target by distance, walls stop its
+      gun and missile (U3; v54)
+- [x] Capture distance by the original's octagonal estimate (R12; v55)
+- [x] Purchase spots are the original's trigger boxes (R17; v56)
+- [x] The rule data imported from the RE (`gen:parules`)
+- [x] Spawn facing and hover form from the X1Alpha records (P10; v57)
+- [x] The bases' floors hurt the enemy mech; Hk's spawn guards (P11; v58)
+- [x] Water on Hk and Ovmp, NORMAL's auto-hover (P13; v59)
+- [x] Dreadnought and Fortress at their own zones, opened by the points poll
+      (R10; v60)
+- [x] Tanks queued, every unit from its spawner, shared with the Sky Captain
+      (R18; v61)
+- [x] Pickups collected in the original's box, the captain's 1.5 m touch, drawn
+      with the original's models (P9; v62)
+- [x] The hover rides the decks, probed 0.4 m above itself as the original's
+      is (P14; v63)
+- [x] Lifts in the sim: stops, speeds, the rider's press, the dwell, the carry,
+      the tagged top (P12; v64)
+- [x] Slim and Joke imported with their decks, their spawn lifts and their kerbs:
+      a mech leaves its spawn up the lift and down the ramp to the consoles
+      (P12, P15; v65)
+- [x] A lift found by the walker's own probe; its landing laid where the point
+      heightfield bends it; spilled walls opened (v66)
+- [x] Conft imported with its decks, its four pit lifts and its kerbs (v67)
+- [x] The lifts drawn with their original models; travel and arrival sounds
+- [ ] Kerbs and spilled walls on la-cantina, Hk and Ovmp: each opens when it is
+      re-imported (`FcopArena.kerbs`, P15)
+- [x] Ovmp's slippery patches (surface code 4) — with the controls wave (3;
+      v71)
+- [ ] HARD (sinking and drowning, 1000 HP, its ceilings) — with a difficulty
+      setting
+
+### Wave 3 — Controls 1:1
+
+The original's controls from the RE (`docs/behavior/camera-and-movement.md`
+"Input"); one commit and one SIM_VERSION per sim change, goldens re-recorded.
+
+- [x] RE: the fourteen binding slots named, with the presets and the per-axis
+      dead zone; the hover's slow-row ledge rule corrected (RE PR #82)
+- [x] A lift's top carries a mech across Conft's 0.145 m gap to its platform
+      (v68; found converting the lift tests)
+- [x] The tick input is the original's button word: turn buttons, jinks,
+      the diagonal, the brake, the transform chord, Special from its held
+      latch; the lock no longer steers; protocol v2, replay format 3; the
+      keypad preset; the chase camera follows the hull; no mouse, no touch
+      (C1; v69)
+- [x] The slow row on the Action Key held: half the push, the crouch, the
+      walker's ledge hold (P4/P5; v70)
+- [x] Bindings, presets, the bindings file, the gamepad with the 25 % per-axis
+      dead zone, the controls screen; the Map Key pauses (C2-C4)
+- [ ] The Camera Key's seven presets and the Map Key's map screen — with
+      wave 6
+- [ ] The controls screen's original look — with wave 7
 
 ## Backlog (post-v1, do not start)
 

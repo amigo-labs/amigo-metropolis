@@ -4,27 +4,27 @@
 // The per-tick frame encoding doubles as the network input-frame format (§5),
 // so this file defines it exactly once.
 //
-// Little-endian layout (format 2):
+// Little-endian layout (format 3):
 //   offset 0  u8×4  magic "MREP"
-//          4  u16   format version (2)
+//          4  u16   format version (3)
 //          6  u16   simVersion the replay was recorded against
 //          8  u32   seed
 //         12  u32   tickCount
 //         16  u8    wardenPlayer (0xff = no Warden)
 //         17  u8    wardenDifficulty (0 when no Warden)
 //         18  u8    mapId byte length, followed by that many ASCII bytes
-//   then tickCount frames of MAX_PLAYERS × 5 bytes:
-//         moveX i8, moveY i8, aimX i8, aimY i8, buttons u8
-// Format 1 (still decoded) is identical minus the two Warden bytes: the
-// mapId length sits at offset 16 and the match has no Warden.
+//   then tickCount frames of MAX_PLAYERS × 2 bytes:
+//         buttons u16 (the original's button word, inputs.ts)
+// Formats 1 and 2 carried stick and aim axes (5 bytes a player), which no sim
+// since SIM_VERSION 68 reads; they are refused.
 
 import { MAX_PLAYERS } from "./balance";
 import type { TickInputs } from "./inputs";
 import { SIM_VERSION } from "./version";
 
-export const REPLAY_FORMAT_VERSION = 2;
+export const REPLAY_FORMAT_VERSION = 3;
 const MAGIC = [0x4d, 0x52, 0x45, 0x50]; // "MREP"
-const PLAYER_BYTES = 5;
+const PLAYER_BYTES = 2;
 export const FRAME_BYTES = MAX_PLAYERS * PLAYER_BYTES;
 
 export interface ReplayData {
@@ -69,12 +69,9 @@ export function createReplayData(
 export function writeFrame(replay: ReplayData, tick: number, inputs: TickInputs): void {
   let o = tick * FRAME_BYTES;
   for (let p = 0; p < MAX_PLAYERS; p++) {
-    const input = inputs.players[p];
-    replay.frames[o] = input.moveX & 0xff;
-    replay.frames[o + 1] = input.moveY & 0xff;
-    replay.frames[o + 2] = input.aimX & 0xff;
-    replay.frames[o + 3] = input.aimY & 0xff;
-    replay.frames[o + 4] = input.buttons & 0xff;
+    const buttons = inputs.players[p].buttons;
+    replay.frames[o] = buttons & 0xff;
+    replay.frames[o + 1] = (buttons >>> 8) & 0xff;
     o += PLAYER_BYTES;
   }
 }
@@ -83,12 +80,7 @@ export function writeFrame(replay: ReplayData, tick: number, inputs: TickInputs)
 export function readFrame(replay: ReplayData, tick: number, out: TickInputs): void {
   let o = tick * FRAME_BYTES;
   for (let p = 0; p < MAX_PLAYERS; p++) {
-    const input = out.players[p];
-    input.moveX = (replay.frames[o] << 24) >> 24;
-    input.moveY = (replay.frames[o + 1] << 24) >> 24;
-    input.aimX = (replay.frames[o + 2] << 24) >> 24;
-    input.aimY = (replay.frames[o + 3] << 24) >> 24;
-    input.buttons = replay.frames[o + 4];
+    out.players[p].buttons = replay.frames[o] | (replay.frames[o + 1] << 8);
     o += PLAYER_BYTES;
   }
 }
@@ -154,29 +146,24 @@ export function decodeReplay(bytes: Uint8Array): ReplayData {
     throw new Error("not a MREP replay file");
   }
   const formatVersion = bytes[4] | (bytes[5] << 8);
-  if (formatVersion !== 1 && formatVersion !== REPLAY_FORMAT_VERSION) {
+  if (formatVersion !== REPLAY_FORMAT_VERSION) {
     throw new Error(`unsupported replay format version ${formatVersion}`);
   }
   const simVersion = bytes[6] | (bytes[7] << 8);
   const seed = readU32(bytes, 8);
   const tickCount = readU32(bytes, 12);
-  let wardenPlayer = -1;
-  let wardenDifficulty = 0;
-  let mapIdAt = 16;
-  if (formatVersion === 2) {
-    if (bytes.length < 19) throw new Error("truncated replay header");
-    wardenPlayer = bytes[16] === 0xff ? -1 : bytes[16];
-    wardenDifficulty = bytes[17];
-    mapIdAt = 18;
-    if (wardenPlayer >= MAX_PLAYERS) {
-      throw new Error(`bad wardenPlayer ${wardenPlayer}`);
-    }
-    if (wardenPlayer >= 0 && (wardenDifficulty < 1 || wardenDifficulty > 10)) {
-      throw new Error(`bad wardenDifficulty ${wardenDifficulty}`);
-    }
-    if (wardenPlayer < 0 && wardenDifficulty !== 0) {
-      throw new Error("wardenDifficulty set without a wardenPlayer");
-    }
+  if (bytes.length < 19) throw new Error("truncated replay header");
+  const wardenPlayer = bytes[16] === 0xff ? -1 : bytes[16];
+  const wardenDifficulty = bytes[17];
+  const mapIdAt = 18;
+  if (wardenPlayer >= MAX_PLAYERS) {
+    throw new Error(`bad wardenPlayer ${wardenPlayer}`);
+  }
+  if (wardenPlayer >= 0 && (wardenDifficulty < 1 || wardenDifficulty > 10)) {
+    throw new Error(`bad wardenDifficulty ${wardenDifficulty}`);
+  }
+  if (wardenPlayer < 0 && wardenDifficulty !== 0) {
+    throw new Error("wardenDifficulty set without a wardenPlayer");
   }
   const mapIdLen = bytes[mapIdAt];
   const headerBytes = mapIdAt + 1 + mapIdLen;

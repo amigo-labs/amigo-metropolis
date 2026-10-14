@@ -35,22 +35,18 @@ export interface PlayerView {
 
 /**
  * Builds a view per local player, appending each HUD element to the document.
- * Each rig starts world-fixed (camera.spec §3), oriented so "up the screen"
- * points from that player's spawn toward the arena centre (`arenaExtent`) — a
- * fixed per-client azimuth that never auto-rotates behind movement.
+ * Each rig starts behind its avatar, facing the way the spawn record faces it,
+ * and follows the hull's heading from there (camera.spec §3).
  */
 export function createPlayerViews(
   players: readonly { slot: number; input: LocalInputSource }[],
-  spawns: readonly { x: number; y: number }[],
-  arenaExtent: number,
+  spawns: readonly { x: number; y: number; yaw: number }[],
 ): PlayerView[] {
   const views: PlayerView[] = [];
-  const center = arenaExtent / 2;
   for (const p of players) {
     const spawn = spawns[p.slot] ?? spawns[0];
     const camera = new THREE.PerspectiveCamera(DEFAULT_RIG_CONFIG.action.fovDeg, 1, 0.1, 2000);
-    // Ground-forward = spawn → centre, in render (x, z). yaw = atan2(dz, dx).
-    const yaw = Math.atan2(center - spawn.y, center - spawn.x);
+    const yaw = spawn.yaw;
     const hud = document.createElement("div");
     hud.className = "hud";
     document.body.appendChild(hud);

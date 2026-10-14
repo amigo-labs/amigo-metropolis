@@ -65,7 +65,6 @@ function range(): MapJson {
         core: [6, 6],
         groundConsole: [6, 14],
         airConsole: [6, 22],
-        pad: { x: 6, y: 54, radius: 4 },
         turrets: [[10, 10]],
       },
       {
@@ -73,7 +72,6 @@ function range(): MapJson {
         core: [54, 6],
         groundConsole: [54, 14],
         airConsole: [54, 22],
-        pad: { x: 54, y: 54, radius: 4 },
         turrets: [],
       },
     ],
@@ -85,6 +83,7 @@ function range(): MapJson {
     ],
     turretSpots: [[30, 30]],
     outpostSpots: [[30, 40]],
+    outposts: [{ zone: 1.2, tankPad: [26, 40], jetPad: [34, 40], plates: [] }],
     dummySpots: [[30, 20]],
   };
 }

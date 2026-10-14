@@ -54,6 +54,26 @@ export function len(x: number, y: number): number {
   return Math.sqrt(x * x + y * y);
 }
 
+/**
+ * The original's octagonal length of (a, b) in integer world units
+ * (`turret_distance`, inline in `turret_op10` 0x0041c920; `vec2_length_approx`
+ * 0x00457b50 is the same arithmetic): the larger
+ * plus a quarter-less-a-64th of the smaller, blended near the diagonal. Integer
+ * shifts on 32-bit values, as retail does them.
+ */
+export function octagonalLength(a: number, b: number): number {
+  const x = a < 0 ? -a : a;
+  const y = b < 0 ? -b : b;
+  let min = x <= y ? x : y;
+  let max = x <= y ? y : x;
+  if (min > max >> 1) {
+    const weighted = (max * 75 + min * 106) >> 7;
+    min = max - min;
+    max = weighted;
+  }
+  return ((min >> 2) - (min >> 6) + max) | 0;
+}
+
 /** 1/length of a 2D vector, or 0 for the zero vector (multiply to normalize). */
 export function invLen(x: number, y: number): number {
   const l = Math.sqrt(x * x + y * y);

@@ -109,7 +109,8 @@ describe("the win condition is reachable on la-cantina", () => {
       }
     }
     expect(cleared).toBe(8); // the team-unique ring; no guns stand on the base
-    const c = map.bases[0].groundConsole;
+    // Where a bought tank appears: the base's tank spawner (R18).
+    const c = map.bases[0].tankSpawn;
     spawnUnit(state, ARCHETYPE.RUNNER, 0, c.x, c.y, undefined, false, c.layer);
 
     let breachAt = -1;
@@ -135,8 +136,10 @@ describe("the win condition is reachable on la-cantina", () => {
     expect(state.winner).toBe(0);
     expect(breachAt).toBeGreaterThan(0);
     expect(state.tick - breachAt).toBe(MATCH_OUTRO_TICKS);
-    // The road is ~19 s console to gate at a Runner's step (enrichArena report).
-    expect(breachAt).toBeLessThan(60 * 30);
+    // The road is ~19 s spawner to gate at a Runner's step (enrichArena report),
+    // but the original's route followers take a coin at every junction (U1/U2):
+    // 96 s at this seed since SIM_VERSION 61.
+    expect(breachAt).toBeLessThan(2 * 60 * 30);
   });
 
   it("an idle match fields nothing and never resolves itself", () => {

@@ -15,18 +15,40 @@ import {
   HOVER_CLEARANCE,
   HOVER_CUSHION_SPAN,
   HOVER_DRAG,
+  HOVER_PUSH_SLOW_FORE,
+  HOVER_PUSH_SLOW_STRAFE,
   HOVER_PUSH_STRAFE,
   TRANSFORM_LOCK_TICKS,
   WALKER_DRAG,
+  WALKER_LEDGE_DROP,
+  WALKER_MODE_DRAG,
+  WALKER_MODE_OF_CODE,
+  WALKER_MODE_PUSH,
+  WALKER_PUSH_FORE,
+  WALKER_PUSH_SLOW,
   WALKER_PUSH_STRAFE,
   X1_GRAVITY,
   X1_TERMINAL_FALL,
 } from "../src/balance";
 import { EV_SHOT, EV_TRANSFORM, EVENT_STRIDE } from "../src/events";
-import { BUTTON_FIRE1, BUTTON_JUMP, BUTTON_TRANSFORM, createTickInputs } from "../src/inputs";
+import {
+  BTN_ACTION,
+  BTN_BACK,
+  BTN_CHANGE_TARGET,
+  BTN_FORWARD,
+  BTN_GUN,
+  BTN_JINK_LEFT,
+  BTN_JINK_RIGHT,
+  BTN_JUMP,
+  BTN_TURN_LEFT,
+  BTN_TURN_RIGHT,
+  createTickInputs,
+  TRANSFORM_CHORD,
+} from "../src/inputs";
 import { loadMapFromJson, type MapJson, sampleHeight } from "../src/map";
 import { ANIM_AIRBORNE, createSim, MODE_HOVER, MODE_WALKER, type SimState, step } from "../src/sim";
 import { JUMPABLE_RISE } from "../src/units";
+import { face } from "./drive";
 
 const DEG = 180 / Math.PI;
 
@@ -68,7 +90,6 @@ function arenaJson(): MapJson {
         core: [4, 30],
         groundConsole: [12, 22],
         airConsole: [12, 38],
-        pad: { x: 12, y: 30, radius: 8 },
         turrets: [],
       },
       {
@@ -76,7 +97,6 @@ function arenaJson(): MapJson {
         core: [56, 30],
         groundConsole: [50, 22],
         airConsole: [50, 38],
-        pad: { x: 50, y: 30, radius: 8 },
         turrets: [],
       },
     ],
@@ -95,13 +115,7 @@ const inputs = createTickInputs();
 const p0 = inputs.players[0];
 
 function reset(): void {
-  for (const p of inputs.players) {
-    p.moveX = 0;
-    p.moveY = 0;
-    p.aimX = 0;
-    p.aimY = 0;
-    p.buttons = 0;
-  }
+  for (const p of inputs.players) p.buttons = 0;
 }
 
 /** Count of events of `type` emitted in the last tick. */
@@ -115,7 +129,7 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
   it("runs at 4.69 m/s, reached almost at once", () => {
     reset();
     const sim = freshSim();
-    p0.moveX = 127;
+    p0.buttons = BTN_FORWARD; // the spawn faces +X
     let t95 = -1;
     for (let i = 0; i < 30; i++) {
       step(sim, inputs);
@@ -128,7 +142,7 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
     expect(sim.ent.posX[0]).toBeGreaterThan(12 + AVATAR_WALKER_SPEED - 0.4);
     expect(sim.ent.posX[0]).toBeLessThan(12 + AVATAR_WALKER_SPEED);
     // Released, it stops within a few ticks (under 0.586 m/s it stops dead).
-    p0.moveX = 0;
+    p0.buttons = 0;
     for (let i = 0; i < 6; i++) step(sim, inputs);
     expect(sim.ent.velX[0]).toBe(0);
   });
@@ -136,35 +150,54 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
   it("strafes at 3.13 m/s across its facing, and a diagonal pushes as hard as ahead", () => {
     reset();
     const sim = freshSim();
-    // Face +X (spawn default) while the stick asks for +Y: the original strafes.
-    p0.aimX = 127;
-    p0.moveY = 127;
+    // Facing +X (the spawn's), Jink Right strafes toward +Y: the heading turned
+    // a quarter to the right.
+    p0.buttons = BTN_JINK_RIGHT;
     for (let i = 0; i < 30; i++) step(sim, inputs);
     expect(sim.ent.velX[0]).toBeCloseTo(0, 6);
     expect(sim.ent.velY[0]).toBeCloseTo(WALKER_PUSH_STRAFE / WALKER_DRAG, 4);
     expect(WALKER_PUSH_STRAFE / WALKER_DRAG).toBe(3.125);
     expect(sim.ent.yaw[0]).toBe(0);
-    // Forward + strafe: 181/256 of the fore push at 45°, as fast as straight on.
-    p0.moveX = 90;
-    p0.moveY = 90;
+    // Forward + jink: 181/256 of the fore push at 45°, as fast as straight on.
+    p0.buttons = BTN_FORWARD | BTN_JINK_RIGHT;
     for (let i = 0; i < 30; i++) step(sim, inputs);
     expect(Math.hypot(sim.ent.velX[0], sim.ent.velY[0])).toBeCloseTo(AVATAR_WALKER_SPEED, 2);
     expect(sim.ent.velX[0]).toBeCloseTo(sim.ent.velY[0], 4);
   });
 
+  it("cancels both jinks held together, in either form", () => {
+    reset();
+    const sim = freshSim();
+    p0.buttons = BTN_JINK_LEFT | BTN_JINK_RIGHT;
+    for (let i = 0; i < 20; i++) step(sim, inputs);
+    expect(sim.ent.velY[0]).toBe(0);
+    // With Move Forward they leave the plain forward push, not a diagonal.
+    p0.buttons = BTN_FORWARD | BTN_JINK_LEFT | BTN_JINK_RIGHT;
+    for (let i = 0; i < 30; i++) step(sim, inputs);
+    expect(sim.ent.velY[0]).toBeCloseTo(0, 6);
+    expect(sim.ent.velX[0]).toBeCloseTo(AVATAR_WALKER_SPEED, 4);
+  });
+
   it("turns at 105°/s standing, 79°/s at a full run", () => {
     reset();
     const sim = freshSim();
-    p0.aimY = 127; // a quarter turn left of the +X spawn facing
+    p0.buttons = BTN_TURN_RIGHT; // the facing grows: from +X toward +Y
     step(sim, inputs);
     expect(sim.ent.yaw[0] * DEG * 30).toBeCloseTo(105.47, 1);
+    // Turn Left turns it back the other way, at the same rate.
+    p0.buttons = BTN_TURN_LEFT;
+    step(sim, inputs);
+    step(sim, inputs);
+    expect(sim.ent.yaw[0] * DEG * 30).toBeCloseTo(-105.47, 1);
+    // Both held: Turn Right wins.
+    p0.buttons = BTN_TURN_RIGHT | BTN_TURN_LEFT;
+    step(sim, inputs);
+    expect(sim.ent.yaw[0]).toBeCloseTo(0, 6);
     reset();
     const run = freshSim();
-    p0.aimX = 127;
-    p0.moveX = 127;
+    p0.buttons = BTN_FORWARD;
     for (let i = 0; i < 30; i++) step(run, inputs);
-    p0.aimX = 0;
-    p0.aimY = 127;
+    p0.buttons = BTN_FORWARD | BTN_TURN_RIGHT;
     step(run, inputs);
     // 105.47 * (1 - 4.69 / 18.75): the faster it goes, the slower it turns.
     expect(run.ent.yaw[0] * DEG * 30).toBeCloseTo(79.1, 0);
@@ -175,16 +208,16 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
     const sim = freshSim();
     // Wall base at x=24: 5 m over 4 m is a 1.25 gradient, past the walker's 1.04.
     expect(AVATAR_WALKER_MAX_SLOPE).toBe(1.04);
-    p0.moveX = 127;
+    p0.buttons = BTN_FORWARD;
     for (let i = 0; i < 90; i++) step(sim, inputs);
     const blockedX = sim.ent.posX[0];
     expect(blockedX).toBeGreaterThan(23); // at the foot of the ramp...
     expect(blockedX).toBeLessThan(26); // ...and no further
     // The jump does not clear it either: 5 m is far over the 1.1 m it can.
-    p0.moveX = 0;
+    p0.buttons = 0;
     for (let i = 0; i < 10; i++) step(sim, inputs);
     for (let k = 0; k < 3; k++) {
-      p0.buttons = BUTTON_JUMP;
+      p0.buttons = BTN_JUMP;
       step(sim, inputs);
       p0.buttons = 0;
       for (let i = 0; i < 40; i++) step(sim, inputs);
@@ -201,8 +234,8 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
     // code 1); HARD's sinking is not modelled.
     const p1 = inputs.players[1];
     const id = sim.avatarId[1];
-    p1.moveX = -127;
-    p1.aimX = -127;
+    face(sim, id, Math.PI);
+    p1.buttons = BTN_FORWARD;
     let changed = -1;
     for (let i = 0; i < 150 && changed < 0; i++) {
       step(sim, inputs);
@@ -219,7 +252,7 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
     reset();
     const sim = freshSim();
     const ground = sampleHeight(sim.map, 12, 30);
-    p0.buttons = BUTTON_JUMP;
+    p0.buttons = BTN_JUMP;
     step(sim, inputs);
     p0.buttons = 0;
     let apex = 0;
@@ -239,15 +272,31 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
     expect(sim.ent.height[0]).toBe(ground);
   });
 
+  it("jumps once on a held Jump: the press, not the hold", () => {
+    reset();
+    const sim = freshSim();
+    const ground = sampleHeight(sim.map, 12, 30);
+    p0.buttons = BTN_JUMP;
+    let takeoffs = 0;
+    let wasDown = true;
+    for (let i = 0; i < 90; i++) {
+      step(sim, inputs);
+      const down = sim.ent.height[0] - ground <= 0.001;
+      if (wasDown && !down) takeoffs++;
+      wasDown = down;
+    }
+    expect(takeoffs).toBe(1);
+  });
+
   it("leaps when it jumps at a run: 7.32 m/s up on top of the run", () => {
     reset();
     const sim = freshSim();
-    p0.moveX = 127;
+    p0.buttons = BTN_FORWARD;
     for (let i = 0; i < 15; i++) step(sim, inputs);
     const ground = sampleHeight(sim.map, sim.ent.posX[0], 30);
-    p0.buttons = BUTTON_JUMP;
+    p0.buttons = BTN_FORWARD | BTN_JUMP;
     step(sim, inputs);
-    p0.buttons = 0;
+    p0.buttons = BTN_FORWARD;
     // The leap adds 1.76 m/s forward on top of the run.
     expect(sim.ent.velX[0]).toBeGreaterThan(AVATAR_WALKER_SPEED + 1.5);
     let apex = 0;
@@ -269,7 +318,7 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
     const id = sim.avatarId[0];
     sim.ent.posX[id] = 36;
     sim.ent.height[id] = sampleHeight(sim.map, 36, 30);
-    p0.moveX = 127;
+    p0.buttons = BTN_FORWARD;
     let fastest = 0;
     for (let i = 0; i < 60; i++) {
       step(sim, inputs);
@@ -286,26 +335,48 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
 });
 
 describe("transform", () => {
-  it("flips mode, locks for TRANSFORM_LOCK_TICKS, and freezes movement", () => {
+  it("flips mode on the chord, locks for TRANSFORM_LOCK_TICKS, and freezes movement", () => {
     reset();
     const sim = freshSim();
     expect(sim.ent.mode[0]).toBe(MODE_WALKER);
-    p0.buttons = BUTTON_TRANSFORM;
-    p0.moveX = 127;
+    // No key of its own: Change Target and Action together (fcop-fidelity.md P3).
+    p0.buttons = TRANSFORM_CHORD | BTN_FORWARD;
     step(sim, inputs);
     expect(sim.ent.mode[0]).toBe(MODE_HOVER);
     const xAfterFlip = sim.ent.posX[0];
-    // Held button must not re-trigger (edge detection).
+    // The chord held through the change does nothing while it runs.
     for (let i = 0; i < TRANSFORM_LOCK_TICKS - 1; i++) step(sim, inputs);
     expect(sim.ent.mode[0]).toBe(MODE_HOVER);
     // Hover drifts from zero velocity, so during the lock it barely moves.
     expect(sim.ent.posX[0] - xAfterFlip).toBeLessThan(0.5);
-    // Release and re-press → transforms back.
+    // Release and chord again → transforms back.
     p0.buttons = 0;
     step(sim, inputs);
-    p0.buttons = BUTTON_TRANSFORM;
+    p0.buttons = TRANSFORM_CHORD;
     step(sim, inputs);
     expect(sim.ent.mode[0]).toBe(MODE_WALKER);
+  });
+
+  it("reads the chord as a level: held past the change, it changes back", () => {
+    reset();
+    const sim = freshSim();
+    p0.buttons = TRANSFORM_CHORD;
+    const changes: number[] = [];
+    for (let i = 0; i < 2 * TRANSFORM_LOCK_TICKS + 4; i++) {
+      step(sim, inputs);
+      if (events(sim, EV_TRANSFORM) > 0) changes.push(i);
+    }
+    // The first change on the first tick; the next on the first tick after the
+    // ramp's own last tick — the change, then its end, then the chord again.
+    expect(changes).toEqual([0, TRANSFORM_LOCK_TICKS + 1, 2 * TRANSFORM_LOCK_TICKS + 2]);
+    // One key of the chord alone is not a transform.
+    for (const key of [BTN_CHANGE_TARGET, BTN_ACTION]) {
+      reset();
+      const one = freshSim();
+      p0.buttons = key;
+      for (let i = 0; i < 5; i++) step(one, inputs);
+      expect(one.ent.mode[0]).toBe(MODE_WALKER);
+    }
   });
 
   it("takes the original's 41 ticks, keeps the guns live and the facing frozen", () => {
@@ -316,13 +387,10 @@ describe("transform", () => {
     const sim = freshSim();
     const id = sim.avatarId[0];
     const yaw0 = sim.ent.yaw[id];
-    p0.buttons = BUTTON_TRANSFORM;
+    p0.buttons = TRANSFORM_CHORD;
     step(sim, inputs);
-    // Mid-change: the stick and the aim are ignored, the trigger is not.
-    p0.buttons = BUTTON_FIRE1;
-    p0.aimX = 0;
-    p0.aimY = 127;
-    p0.moveY = 127;
+    // Mid-change: the drive, turn and jink buttons are dropped, the trigger is not.
+    p0.buttons = BTN_GUN | BTN_TURN_RIGHT | BTN_JINK_RIGHT;
     let shots = 0;
     for (let i = 0; i < TRANSFORM_LOCK_TICKS - 1; i++) {
       step(sim, inputs);
@@ -340,9 +408,13 @@ describe("transform", () => {
         HOVER_CLEARANCE * (1 - 1 / TRANSFORM_LOCK_TICKS),
       4,
     );
+    // The ramp's last tick still drops them, as the original's does; the next
+    // one drives.
     step(sim, inputs);
     expect(sim.ent.timerA[id]).toBe(0);
-    expect(sim.ent.velY[id]).toBeGreaterThan(0); // the stick drives again
+    expect(sim.ent.velY[id]).toBe(0);
+    step(sim, inputs);
+    expect(sim.ent.velY[id]).toBeGreaterThan(0);
   });
 
   it("coasts on hover physics through the change, in both directions", () => {
@@ -350,15 +422,16 @@ describe("transform", () => {
     const sim = freshSim();
     const id = sim.avatarId[0];
     // Hover north at speed, then change back to walker: the hull keeps going.
-    p0.buttons = BUTTON_TRANSFORM;
+    p0.buttons = TRANSFORM_CHORD;
     step(sim, inputs);
     p0.buttons = 0;
     for (let i = 0; i < TRANSFORM_LOCK_TICKS; i++) step(sim, inputs);
-    p0.moveY = 127;
+    face(sim, id, Math.PI / 2);
+    p0.buttons = BTN_FORWARD;
     for (let i = 0; i < 90; i++) step(sim, inputs);
     const fast = sim.ent.velY[id];
     expect(fast).toBeGreaterThan(3);
-    p0.buttons = BUTTON_TRANSFORM;
+    p0.buttons = TRANSFORM_CHORD;
     step(sim, inputs);
     expect(sim.ent.mode[id]).toBe(MODE_WALKER);
     const y0 = sim.ent.posY[id];
@@ -371,20 +444,15 @@ describe("transform", () => {
   it("refuses to become a walker over water", () => {
     reset();
     const sim = freshSim();
-    // Hover, then drift onto the water channel.
-    p0.buttons = BUTTON_TRANSFORM;
-    step(sim, inputs);
-    p0.buttons = 0;
-    p0.moveX = 127;
-    for (let i = 0; i < 300; i++) step(sim, inputs);
-    // Wall is hover-impassable → go around? No: hover blocked by wall too.
-    // Use player 1 (east side) instead: transform and drift west onto water.
+    // Player 1 (east side, past the wall a hover cannot cross either): transform
+    // and drift west onto the water.
     const p1 = inputs.players[1];
-    reset();
-    p1.buttons = BUTTON_TRANSFORM;
+    p1.buttons = TRANSFORM_CHORD;
     step(sim, inputs);
     p1.buttons = 0;
-    p1.moveX = -127;
+    for (let i = 0; i < TRANSFORM_LOCK_TICKS + 1; i++) step(sim, inputs);
+    face(sim, sim.avatarId[1], Math.PI);
+    p1.buttons = BTN_FORWARD;
     let onWater = -1;
     for (let i = 0; i < 300; i++) {
       step(sim, inputs);
@@ -396,8 +464,7 @@ describe("transform", () => {
     expect(onWater).toBeGreaterThanOrEqual(0); // hover DID cross the bank
     // Rides the water surface (Float32-rounded, hence fround).
     expect(sim.ent.height[1]).toBe(Math.fround(-0.5 + HOVER_CLEARANCE));
-    p1.moveX = 0;
-    p1.buttons = BUTTON_TRANSFORM;
+    p1.buttons = TRANSFORM_CHORD;
     step(sim, inputs);
     expect(sim.ent.mode[1]).toBe(MODE_HOVER); // still hover — refused over water
   });
@@ -405,7 +472,7 @@ describe("transform", () => {
 
 /** Transforms player 0 into a hover and waits out the change. */
 function toHover(sim: SimState): void {
-  p0.buttons = BUTTON_TRANSFORM;
+  p0.buttons = TRANSFORM_CHORD;
   step(sim, inputs);
   p0.buttons = 0;
   for (let i = 0; i < TRANSFORM_LOCK_TICKS; i++) step(sim, inputs);
@@ -418,9 +485,8 @@ describe("hover model (the original's, fcop-fidelity.md P5)", () => {
     const sim = freshSim();
     toHover(sim);
     expect(sim.ent.height[0]).toBe(HOVER_CLEARANCE); // 0.5 m (was 0.3)
-    p0.aimY = 127;
-    for (let i = 0; i < 20; i++) step(sim, inputs); // face north first
-    p0.moveY = 127; // open ground to the north/south
+    face(sim, 0, Math.PI / 2); // north: open ground to the north/south
+    p0.buttons = BTN_FORWARD;
     let t95 = -1;
     for (let i = 0; i < 120; i++) {
       step(sim, inputs);
@@ -432,7 +498,7 @@ describe("hover model (the original's, fcop-fidelity.md P5)", () => {
     expect(t95 / 30).toBeCloseTo(1.56, 1);
     // Released: it glides, half its speed gone in ~0.36 s, and then stops dead
     // under 0.146 m/s.
-    p0.moveY = 0;
+    p0.buttons = 0;
     const v0 = sim.ent.velY[0];
     let half = -1;
     let stop = -1;
@@ -447,16 +513,14 @@ describe("hover model (the original's, fcop-fidelity.md P5)", () => {
   });
 
   it("brakes on the jump button: drag 0.15 a step instead of 0.05", () => {
-    const halfLife = (buttons: number, moveY: number): number => {
+    const halfLife = (buttons: number): number => {
       reset();
       const sim = freshSim();
       toHover(sim);
-      p0.aimY = 127;
-      for (let i = 0; i < 20; i++) step(sim, inputs);
-      p0.moveY = 127;
+      face(sim, 0, Math.PI / 2);
+      p0.buttons = BTN_FORWARD;
       for (let i = 0; i < 120; i++) step(sim, inputs);
       const v0 = sim.ent.velY[0];
-      p0.moveY = moveY;
       p0.buttons = buttons;
       for (let t = 1; t <= 120; t++) {
         step(sim, inputs);
@@ -464,9 +528,11 @@ describe("hover model (the original's, fcop-fidelity.md P5)", () => {
       }
       return 121;
     };
-    const coast = halfLife(0, 0);
-    const brake = halfLife(BUTTON_JUMP, 0);
-    const reverse = halfLife(0, -127);
+    const coast = halfLife(0);
+    const brake = halfLife(BTN_JUMP);
+    const reverse = halfLife(BTN_BACK);
+    // The brake beats every direction: held with Move Forward it still brakes.
+    expect(halfLife(BTN_JUMP | BTN_FORWARD)).toBe(brake);
     expect(brake * 2).toBeLessThan(coast); // ln 0.5 / ln 0.85 vs / ln 0.95
     expect(reverse).toBeLessThan(coast); // back thrust also bites
   });
@@ -475,8 +541,7 @@ describe("hover model (the original's, fcop-fidelity.md P5)", () => {
     reset();
     const sim = freshSim();
     toHover(sim);
-    p0.aimX = 127;
-    p0.moveY = 127;
+    p0.buttons = BTN_JINK_RIGHT;
     for (let i = 0; i < 150; i++) step(sim, inputs);
     expect(sim.ent.velY[0]).toBeCloseTo(HOVER_PUSH_STRAFE / HOVER_DRAG, 3);
     expect(sim.ent.velY[0]).toBeCloseTo(2.93, 2);
@@ -486,7 +551,7 @@ describe("hover model (the original's, fcop-fidelity.md P5)", () => {
     reset();
     const sim = freshSim();
     toHover(sim);
-    p0.aimX = -127; // half a turn
+    p0.buttons = BTN_TURN_RIGHT;
     const deltas: number[] = [];
     let last = sim.ent.yaw[0];
     for (let i = 0; i < 60; i++) {
@@ -508,13 +573,12 @@ describe("hover model (the original's, fcop-fidelity.md P5)", () => {
     const sim = kerbSim();
     // Spawn 1 stands on the 2.06 m shelf; west of x=14 the ground drops 1.31 m.
     const p1 = inputs.players[1];
-    p1.buttons = BUTTON_TRANSFORM;
+    p1.buttons = TRANSFORM_CHORD;
     step(sim, inputs);
     p1.buttons = 0;
     for (let i = 0; i < TRANSFORM_LOCK_TICKS; i++) step(sim, inputs);
-    p1.aimX = -127;
-    for (let i = 0; i < 40; i++) step(sim, inputs);
-    p1.moveX = -127;
+    face(sim, sim.avatarId[1], Math.PI);
+    p1.buttons = BTN_FORWARD;
     let air = 0;
     for (let i = 0; i < 60; i++) {
       step(sim, inputs);
@@ -528,7 +592,7 @@ describe("hover model (the original's, fcop-fidelity.md P5)", () => {
     reset();
     const sim = freshSim();
     toHover(sim);
-    p0.moveX = 127;
+    p0.buttons = BTN_FORWARD;
     for (let i = 0; i < 200; i++) step(sim, inputs);
     expect(sim.ent.posX[0]).toBeLessThan(26); // blocked like the walker
   });
@@ -586,7 +650,6 @@ function kerbJson(): MapJson {
         core: [2, 16],
         groundConsole: [4, 12],
         airConsole: [4, 20],
-        pad: { x: 4, y: 16, radius: 4 },
         turrets: [],
       },
       {
@@ -594,7 +657,6 @@ function kerbJson(): MapJson {
         core: [30, 16],
         groundConsole: [17, 12],
         airConsole: [17, 20],
-        pad: { x: 17, y: 16, radius: 4 },
         turrets: [],
       },
     ],
@@ -613,13 +675,13 @@ function kerbSim(): SimState {
 function driveEast(sim: SimState, player: number, hover: boolean, ticks: number): number {
   const p = inputs.players[player];
   if (hover) {
-    p.buttons = BUTTON_TRANSFORM;
+    p.buttons = TRANSFORM_CHORD;
     step(sim, inputs);
     p.buttons = 0;
     for (let i = 0; i < TRANSFORM_LOCK_TICKS; i++) step(sim, inputs);
     expect(sim.ent.mode[player]).toBe(MODE_HOVER);
   }
-  p.moveX = 127;
+  p.buttons = BTN_FORWARD;
   for (let i = 0; i < ticks; i++) step(sim, inputs);
   return sim.ent.posX[player];
 }
@@ -697,9 +759,9 @@ describe("hover slope gate", () => {
     const walkerKerb = driveEast(sim, 0, false, 120);
     expect(walkerKerb).toBeGreaterThan(9);
     expect(walkerKerb).toBeLessThan(14);
-    inputs.players[0].moveX = 0;
+    inputs.players[0].buttons = 0;
     for (let k = 0; k < 3; k++) {
-      inputs.players[0].buttons = BUTTON_JUMP;
+      inputs.players[0].buttons = BTN_JUMP;
       step(sim, inputs);
       inputs.players[0].buttons = 0;
       for (let i = 0; i < 40; i++) step(sim, inputs);
@@ -724,19 +786,19 @@ describe("hover slope gate", () => {
     // 1.0 m: walked.
     reset();
     let sim = ledge(32);
-    inputs.players[0].moveX = 127;
+    inputs.players[0].buttons = BTN_FORWARD;
     for (let i = 0; i < 150; i++) step(sim, inputs);
     expect(top(sim, 32)).toBe(true);
     // 1.06 m: not walked...
     reset();
     sim = ledge(34);
-    inputs.players[0].moveX = 127;
+    inputs.players[0].buttons = BTN_FORWARD;
     for (let i = 0; i < 150; i++) step(sim, inputs);
     expect(top(sim, 34)).toBe(false);
     // ...nor high-jumped from the foot...
-    inputs.players[0].moveX = 0;
+    inputs.players[0].buttons = 0;
     for (let i = 0; i < 10; i++) step(sim, inputs);
-    inputs.players[0].buttons = BUTTON_JUMP;
+    inputs.players[0].buttons = BTN_JUMP;
     step(sim, inputs);
     inputs.players[0].buttons = 0;
     for (let i = 0; i < 40; i++) step(sim, inputs);
@@ -744,15 +806,170 @@ describe("hover slope gate", () => {
     // ...nor leapt at a run (from x=4 the foot is ~0.85 s away).
     reset();
     sim = ledge(34);
-    inputs.players[0].moveX = 127;
+    inputs.players[0].buttons = BTN_FORWARD;
     for (let i = 0; i < 24; i++) step(sim, inputs);
     expect(sim.ent.posX[0]).toBeLessThan(8);
-    inputs.players[0].buttons = BUTTON_JUMP;
+    inputs.players[0].buttons = BTN_FORWARD | BTN_JUMP;
     step(sim, inputs);
     inputs.players[0].buttons = 0;
-    inputs.players[0].moveX = 0;
     for (let i = 0; i < 40; i++) step(sim, inputs);
     expect(top(sim, 34)).toBe(false);
+  });
+});
+
+describe("the slow row: the Action Key held (camera-and-movement.md)", () => {
+  /**
+   * Steady velocity after `ticks`, the hull facing north (+Y) — open ground
+   * both ways — so fore is +Y and Jink Right is -X.
+   */
+  const steady = (hover: boolean, buttons: number, ticks: number): [number, number] => {
+    reset();
+    const sim = freshSim();
+    if (hover) toHover(sim);
+    face(sim, 0, Math.PI / 2);
+    p0.buttons = buttons;
+    for (let i = 0; i < ticks; i++) step(sim, inputs);
+    return [sim.ent.velX[0], sim.ent.velY[0]];
+  };
+
+  it("walks at 1.95 m/s, fore and sideways alike", () => {
+    expect(WALKER_PUSH_SLOW / WALKER_DRAG).toBe(1.953125);
+    expect(steady(false, BTN_ACTION | BTN_FORWARD, 30)[1]).toBeCloseTo(1.953125, 4);
+    expect(steady(false, BTN_ACTION | BTN_JINK_RIGHT, 30)[0]).toBeCloseTo(-1.953125, 4);
+    // Released, the fast row again.
+    expect(steady(false, BTN_FORWARD, 30)[1]).toBeCloseTo(AVATAR_WALKER_SPEED, 4);
+  });
+
+  it("hovers at 4.69 m/s fore and 1.47 m/s sideways, half of each", () => {
+    expect(steady(true, BTN_ACTION | BTN_FORWARD, 150)[1]).toBeCloseTo(
+      HOVER_PUSH_SLOW_FORE / HOVER_DRAG,
+      2,
+    );
+    expect(HOVER_PUSH_SLOW_FORE / HOVER_DRAG).toBeCloseTo(4.69, 2);
+    expect(steady(true, BTN_ACTION | BTN_JINK_RIGHT, 150)[0]).toBeCloseTo(
+      -HOVER_PUSH_SLOW_STRAFE / HOVER_DRAG,
+      2,
+    );
+    expect(HOVER_PUSH_SLOW_STRAFE / HOVER_DRAG).toBeCloseTo(1.465, 3);
+  });
+
+  it("crouches on Jump: no jump and no move, its jinks unread", () => {
+    reset();
+    const sim = freshSim();
+    const ground = sampleHeight(sim.map, 12, 30);
+    p0.buttons = BTN_ACTION | BTN_JUMP | BTN_JINK_LEFT;
+    for (let i = 0; i < 30; i++) {
+      step(sim, inputs);
+      expect(sim.ent.height[0]).toBe(ground);
+    }
+    expect(sim.ent.posX[0]).toBe(12);
+    expect(sim.ent.posY[0]).toBe(30);
+    // It still turns.
+    p0.buttons = BTN_ACTION | BTN_JUMP | BTN_TURN_RIGHT;
+    step(sim, inputs);
+    expect(sim.ent.yaw[0]).toBeGreaterThan(0);
+    // With forward held it walks the slow row, and the jump is not taken.
+    reset();
+    const walk = freshSim();
+    p0.buttons = BTN_ACTION | BTN_FORWARD;
+    step(walk, inputs);
+    p0.buttons = BTN_ACTION | BTN_FORWARD | BTN_JUMP;
+    for (let i = 0; i < 20; i++) {
+      step(walk, inputs);
+      expect(walk.ent.height[0]).toBe(ground);
+    }
+    expect(walk.ent.velX[0]).toBeCloseTo(1.953125, 3);
+  });
+
+  it("stops the walker at a ledge on slow forward, back and Jink Left", () => {
+    expect(WALKER_LEDGE_DROP).toBeCloseTo(0.1, 3);
+    // A 2 m drop over one metre, west of x = 9: each tick of a walk down it
+    // drops more than 0.1 m.
+    const cliff = (): SimState => {
+      const j = kerbJson();
+      j.heights = j.heights.map((row) => row.map((_, i) => (i >= 9 ? 64 : 0)));
+      return createSim(loadMapFromJson(j), 1);
+    };
+    const walkOff = (buttons: number, yaw: number): number => {
+      reset();
+      const sim = cliff();
+      sim.ent.posX[0] = 9.6;
+      sim.ent.height[0] = 2;
+      face(sim, 0, yaw);
+      p0.buttons = buttons;
+      for (let i = 0; i < 45; i++) step(sim, inputs);
+      return sim.ent.posX[0];
+    };
+    // Facing west: slow forward is held at the edge; the fast row walks off.
+    expect(walkOff(BTN_ACTION | BTN_FORWARD, Math.PI)).toBeGreaterThan(8.95);
+    expect(walkOff(BTN_FORWARD, Math.PI)).toBeLessThan(8);
+    // Facing east, slow back is held too.
+    expect(walkOff(BTN_ACTION | BTN_BACK, 0)).toBeGreaterThan(8.95);
+    // Facing north (-y), left is west: slow Jink Left is held, slow Jink Right
+    // (facing south) is not — the original's states 5 and 6.
+    expect(walkOff(BTN_ACTION | BTN_JINK_LEFT, -Math.PI / 2)).toBeGreaterThan(8.95);
+    expect(walkOff(BTN_ACTION | BTN_JINK_RIGHT, Math.PI / 2)).toBeLessThan(8);
+  });
+});
+
+describe("slippery ground: the ground codes' movement mode (Ovmp's code 4)", () => {
+  /** The arena with a code-4 patch over cells 1-6 x 5-9 (x 4-28, y 20-40). */
+  const slipperySim = (): SimState => {
+    const j = arenaJson();
+    j.floors = [
+      Array.from({ length: 16 }, (_, row) =>
+        Array.from({ length: 16 }, (_, col) =>
+          col >= 1 && col <= 6 && row >= 5 && row <= 9 ? "4" : "0",
+        ).join(""),
+      ),
+    ];
+    return createSim(loadMapFromJson(j), 1);
+  };
+
+  it("feels the code a tick later, and slides: slow to start, slow to stop", () => {
+    expect(WALKER_MODE_OF_CODE[4]).toBe(1);
+    reset();
+    const sim = slipperySim();
+    expect(sim.map.modeFloors).toBe(true);
+    expect(sim.avatarMode[0]).toBe(0);
+    step(sim, inputs);
+    expect(sim.avatarMode[0]).toBe(1); // standing on it: mode 1 for the next tick
+    p0.buttons = BTN_FORWARD;
+    for (let i = 0; i < 30; i++) step(sim, inputs);
+    // Mode 1: push x 5/128, drag 0.035 a step — the same 1.95 m/s at the top,
+    // reached over seconds, not the dry ground's 0.17 s.
+    const v1 = sim.ent.velX[0];
+    expect(v1).toBeGreaterThan(0.5);
+    expect(v1).toBeLessThan(1.6);
+    expect((WALKER_PUSH_FORE * WALKER_MODE_PUSH) / (WALKER_MODE_DRAG * 3)).toBeCloseTo(1.953125, 4);
+    // Let go: it keeps sliding, where dry ground stops it within a few ticks.
+    p0.buttons = 0;
+    for (let i = 0; i < 15; i++) step(sim, inputs);
+    expect(sim.ent.velX[0]).toBeGreaterThan(0.3);
+    reset();
+    const dry = freshSim();
+    p0.buttons = BTN_FORWARD;
+    for (let i = 0; i < 30; i++) step(dry, inputs);
+    p0.buttons = 0;
+    for (let i = 0; i < 15; i++) step(dry, inputs);
+    expect(dry.ent.velX[0]).toBe(0);
+  });
+
+  it("leaves the hover alone: its step reads no mode", () => {
+    reset();
+    const sim = slipperySim();
+    toHover(sim);
+    face(sim, 0, Math.PI / 2);
+    p0.buttons = BTN_FORWARD;
+    for (let i = 0; i < 20; i++) step(sim, inputs);
+    expect(sim.avatarMode[0]).toBe(0);
+    const reference = freshSim();
+    reset();
+    toHover(reference);
+    face(reference, 0, Math.PI / 2);
+    p0.buttons = BTN_FORWARD;
+    for (let i = 0; i < 20; i++) step(reference, inputs);
+    expect(sim.ent.velY[0]).toBe(reference.ent.velY[0]);
   });
 });
 
@@ -762,11 +979,20 @@ describe("determinism of the movement model", () => {
     const a = freshSim();
     const b = freshSim();
     const ins = createTickInputs();
+    const moves = [
+      BTN_FORWARD,
+      BTN_BACK,
+      BTN_TURN_RIGHT,
+      BTN_TURN_LEFT,
+      BTN_JINK_LEFT,
+      BTN_JINK_RIGHT,
+    ];
     for (let t = 0; t < 300; t++) {
-      ins.players[0].moveX = ((t * 37) % 255) - 127;
-      ins.players[0].moveY = ((t * 53) % 255) - 127;
       ins.players[0].buttons =
-        (t % 40 === 0 ? BUTTON_TRANSFORM : 0) | (t % 17 === 0 ? BUTTON_JUMP : 0);
+        moves[(t * 37) % 6] |
+        moves[(t * 53) % 6] |
+        (t % 40 === 0 ? TRANSFORM_CHORD : 0) |
+        (t % 17 === 0 ? BTN_JUMP : 0);
       step(a, ins);
       step(b, ins);
       expect(hash(a)).toBe(hash(b));

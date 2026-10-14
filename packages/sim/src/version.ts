@@ -897,4 +897,191 @@
 //     fire until one puts it down, 90 -> 120 s), 03 (a new choreography, breach
 //     5602 -> 4610) and 04 (the captain's opening Runners breach at 2824; was no
 //     breach) change behaviour on district-01.
-export const SIM_VERSION = 52;
+// v53: no pad refills or repairs a mech (fcop-fidelity.md P1, R14): the
+//     original has neither a base pad nor an outpost refill. MapBase.pad, its
+//     15 hp/s repair (PAD_REPAIR_HP_PER_TICK) and the 4 m outpost ammo refill
+//     (OUTPOST_PAD_RADIUS) are gone; ammo comes back from the ammo pickups and a
+//     respawn, health from the health pickup and a respawn.
+// v54: the Sky Captain shoots as the original's does (fcop-fidelity.md U3,
+//     `discharge.c` / `dispatch.c`): it takes its target by distance alone, with
+//     no line of sight (was: line of sight, except to ground units); its gun
+//     fires anyway but damages only along a clear terrain line; its missile is
+//     put back on a blocked line whatever the target. The v24 "superplane"
+//     pierce, which let its gun and missile reach ground units through walls,
+//     is gone. The bomb is unchanged: no arc, no checks.
+// v55: a capture is measured as the original measures it (fcop-fidelity.md
+//     R12, `turret_op10` 0x0041c920): in world units with its octagonal
+//     estimate, flat first, then once more with the height difference folded in
+//     (flat only for the Sky Captain). Was: the Euclidean distance.
+// v56: a base purchase spot is its type-95 trigger box (fcop-fidelity.md R17):
+//     the trigger's half extents about the console (Mp: 1.6 x 1.2 m), widened by
+//     the buyer's radius, imported per console (MapBase.groundBuy / airBuy). Was
+//     Metropolis' 3 m circle (CONSOLE_RADIUS). district-01's consoles-as-a-menu
+//     purchase path is gone with it: an arena with outpost spots must carry the
+//     original's outposts.
+// v57: each mech spawns facing as its X1Alpha record says (fcop-fidelity.md
+//     P10, the record's facing at blob 44: 4096 a turn, forward (cos, sin) in
+//     the actors frame), and in hover form where that facing is negative (Hk).
+//     Was: the field axis toward the enemy base, which the record agrees with on
+//     Mp, Slim, Joke and Ovmp; urban-jungle (Conft) now starts along +x / -x,
+//     hollywood-keys (Hk) along -z / +z. Map data only; the sim is unchanged.
+// v58: the ground hurts the enemy mech where the original's does
+//     (fcop-fidelity.md P11): each base's floor (surface codes 14/15, imported
+//     per surface as MapData.floorMasks) deals 1 damage a movement step (37.5 a
+//     second) to the other team's mech within 0.54 m of its feet, walker or
+//     hover, crediting no one; Hk's two spawn guards (MapData.spawnGuards) deal
+//     25 instead, then wait for a latch reset polled every second from a random
+//     phase (SimState.guardLatch / guardTimer, hashed off Hk only). Hk's guard
+//     boxes are no longer imported as intrusion-alert volumes.
+// v59: Hk and Ovmp carry the original's water (fcop-fidelity.md P13): surface
+//     code 1 imported per cell with each cell's own level (MapJson.waterLevels;
+//     `water` digits index them), the arena's `waterLevel` its commonest level
+//     (Hk -0.97 m, Ovmp -2.5 m). isWater reads the cell (was the nearest
+//     vertex), a hover rides on the cell's own surface, and the walker's water
+//     rules (the NORMAL auto-hover, the refused transform) apply on the ground
+//     surface within SURFACE_REACH of it, not on a deck over it. Hk's spawn
+//     guards stand on the water. No other arena has water; their hashes stay.
+// v60: the Dreadnought and the Flying Fortress are bought at their own type-14
+//     zones (fcop-fidelity.md R10), imported per base as MapBase.heavyZones
+//     (radius r/512 m + the mech's; Conft's Dreadnought zones 1.0 m, every
+//     other 0.8 m), not by FIRE2 at the consoles. The zones open for good at
+//     the first poll of the original's fn30/fn31 that sees 50 points: every
+//     `pollTicks` (150/153, Joke/Slim 75/77) from a random phase
+//     (SimState.heavyPoll, hashed where a base has zones; its draw at
+//     createSim moves the PRNG stream of every such arena). A closed zone is
+//     silent; an open one refuses short points and a living unit out loud. The
+//     Fortress, the human's and the captain's, leaves its own spawner
+//     (MapBase.fortressSpawn), not the air console. A base without zones (the
+//     test maps) sells no heavy unit.
+// v61: a tank is queued, as the original's are (fcop-fidelity.md R18): a
+//     human's base or outpost tank purchase is accepted at the press and joins
+//     its side's spawn queue (SimState.unitQueue / unitQueueTimer, hashed on
+//     every map), which spawns one unit a period from a phase drawn at
+//     createSim — the original's mission functions fn07..fn21, periods per
+//     arena and slot (MapBase / MapOutpost queueTicks: base tanks 98-102 ticks,
+//     outpost tanks 98-103, the captain's jets 23-29). Queued units count
+//     against the 20 from the purchase. Jets still come at once. Every unit
+//     leaves its spawner's Csac position (MapBase tankSpawn / jetSpawn,
+//     MapOutpost tankSpawn / jetSpawn per team), not the console or the pad.
+//     The Sky Captain's requests use the same queues (CaptainState.queue and
+//     its own timers are gone); a queue now runs from a random phase and keeps
+//     its period between purchases (was: a fresh 0 countdown).
+// v62: a pickup is collected as the original's is (fcop-fidelity.md P9): a
+//     mech strictly inside the record's box, 4.0 m along x, 1.6 m along y and
+//     1.6 m in height about the pickup standing 0.16 m above the ground
+//     (MapPickup.halfW/halfL/halfH/lift; was a 2.5 m circle at any height);
+//     the Sky Captain by the pickup's own flat 1.5 m octagonal touch, which
+//     heals it at a health pickup and spends any other for nothing (was: any
+//     kind within 2.5 m, granted). MATCH_PICKUPS reports the standing pickups
+//     (renderer only; no hash).
+// v63: the hover rides the decks (fcop-fidelity.md P14): it asks for its
+//     surface from HOVER_PROBE_LIFT (0.4 m) above itself, as the original's
+//     `terrain_surface_at` is asked, and rides the highest deck at or below
+//     that point (sim.ts hoverSurface; units.ts surfaceBelow, which the
+//     walker's resolveWalker now calls at STEP_SNAP, bit-identically). Its
+//     entLayer follows the deck and its walls are that deck's (was: layer 0's
+//     surface and walls under every deck). A hover spawn on a deck starts on
+//     it. Water is read by height alone: Hk and Ovmp import the water plate as
+//     deck 1 at the water level, so a walker that walked onto it stood on a dry
+//     deck (inWater tested layer 0 only); bridges stand >= 0.59 m above it.
+//     No golden replay leaves the ground surface in hover form; their hashes
+//     stay.
+// v64: the original's lifts (fcop-fidelity.md P12): MapLift (`lifts`, no
+//     arena carries one yet) and systemLifts right after the mechs move. A
+//     lift moves only its height between its stops (raw << 4 wu above its
+//     ground) at its own speeds up and down (wu per sim tick, 10 engine
+//     ticks), parks at a stop whose dwell is 0 until a mech standing on its
+//     top presses the Action Key (capturePress), dwells at the others, and
+//     turns round at either end of its table; EV_LIFT_START / EV_LIFT_ARRIVE.
+//     Its top is ground to a mech (avatarSurface: the walker's and the
+//     hover's probes answer it within LIFT_RIM_SLACK of its face, a rim within
+//     STEP_SNAP is stepped onto), its riders move with it (SimState.avatarLift,
+//     the carrier), a rider reads the walls of its nearer stop's surface, and
+//     a tagged top hurts the enemy mech as its base's floor does. State
+//     liftWu / liftStop / liftDir / liftPhase / liftTimer and avatarLift,
+//     hashed on arenas with lifts only. writeLiftSnapshot for the renderer.
+//     The surface tilt is read on the mover's own surface: a probe over a
+//     deck's edge, into a hole or onto a lift reads as the centre's height
+//     (was: the drop, a cliff of gradient that pushed walker and hover off
+//     every deck edge and kept a hover off a deck its probe reaches). Moves
+//     the layered goldens (03 on la-cantina, 06); single-surface arenas stay.
+// v65: proving-ground (Slim) and bug-hunt (Joke) as the multi-deck arenas they
+//     are, with their spawn lifts (fcop-fidelity.md P12) and their kerbs
+//     (P15). Stage 1 emits both decks and the ground's own lattice (the union
+//     of ground and decks is the old single-storey lattice bit for bit); the
+//     turret pad at (86-87, 135-136) stands on its deck, so its ground stamp is
+//     gone (stampPads reads decks). Stage 2 imports the two lifts under the
+//     spawns from the rules artifact (stops 0 / 1.80 m, 130 / 210 wu a tick,
+//     45 ticks at the top, tags 15 / 14), opens their shafts (the cells between
+//     the lift's own, and at the top the edges onto the platform), and opens
+//     424 kerb bits: faces between two floors at most KERB_STEP apart with
+//     nothing standing above them in the original's mesh. A mech now leaves its
+//     spawn as the original's does: up the lift onto the base's platform and
+//     down the ramp to the consoles (until now the shaft held it). reach.ts'
+//     flood rides lifts. No golden plays these arenas; their hashes stay.
+// v66: a lift's top is found by the walker's own probe (LIFT_STEP_UP, 0x0ccc =
+//     0.4 m; was STEP_SNAP 0.35): Conft's lifts park 0.39 m above their pit's
+//     floor. The import (fcop-fidelity.md P12, P15) opens the walls between
+//     every cell a lift's face reaches into, lays the original's floor where a
+//     lift lands and the point heightfield bends it (landLifts), and opens a
+//     wall bit with no face of the original's mesh within half a tile of it
+//     standing above its floors (the extractor's spill onto a tile's far
+//     edge), not only kerbs. On proving-ground and bug-hunt only the decks'
+//     lattices change (deck 1: 3364 -> 2365 bits on Slim); the ground's and
+//     every height stay. reach.ts boards a lift at LIFT_STEP_UP. No golden
+//     plays these arenas; their hashes stay.
+// v67: urban-jungle (Conft) as the multi-deck arena it is, with its four pit
+//     lifts (fcop-fidelity.md P12) and its kerbs (P15). Stage 1 emits both
+//     decks and the ground's own lattice (the union is the old lattice bit
+//     for bit); the two sunken outpost pads stand on their -2.41 m deck, so
+//     their 8 stamped ground cells are gone. Stage 2 imports the lifts around
+//     the central platform (stops 0.16 / 1.80 m above the -1.81 m ring, 100 /
+//     210 wu a tick, 45 ticks at the top, untagged), lays the platform's floor
+//     at the south and east landings (4 cells), opens their shafts and 2855
+//     kerb and spill bits. A mech in the ring now rides up onto the platform
+//     as the original's does. Moves goldens 02, 04 and 05 (urban-jungle).
+// v68: a lift's top carries a mech LIFT_RIM_SLACK = 0x500 (0.156 m) past its
+//     face (was 0x400, one walker step): Conft's platform ends 0.145 m short
+//     of each lift's face in the original's mesh, and a walk off a raised lift
+//     whose step crossed the face 2 cm past the old slack dropped the mech 2 m
+//     into that slot, where it stood against the platform's wall. The original's
+//     mech is broader than the slot (fcop-fidelity.md P12).
+// v69: the original's controls (fcop-fidelity.md C1, P3, W2): the tick input is
+//     the original's button word, a u16 (inputs.ts) — Move Forward / Backward,
+//     Turn Right / Left, Jink Left / Right, Gun, Heavy, Special, Jump, Action
+//     and Change Target — replacing the stick and aim axes (protocol v2,
+//     replay format 3). The hull turns by the turn buttons at the original's
+//     rates (the walker's 0x20 a step less its speed term, on the ground; the
+//     hover's ramp), not toward a heading; Turn Right raises the facing. The
+//     push takes the state the bits choose (forward over back, Jink Right over
+//     Jink Left, a fore/aft state with a jink the diagonal — the walker's not
+//     while Jump is held — the hover's brake over all); both jinks cancel. The
+//     transform is the chord Change Target + Action read as a level (a chord
+//     held through a change starts the next), refused on water every tick it
+//     is held; while a change runs, and on the ramp's last tick, only the fire
+//     buttons survive, and the latches see that filtered word. The high jump
+//     and the hop take no turn on their tick. Special in held mode fires from
+//     its latch's HELD state, the second tick it is down (lastButtons holds the
+//     u16 word). The lock never turns the hull: lockSteer is gone from the
+//     state and the hash.
+// v70: the slow row (fcop-fidelity.md P4, P5): the Action Key held halves the
+//     push — the walker 0xa000 fore and sideways (1.95 m/s), the hover 0x3333
+//     fore (4.69 m/s) and 0x1000 sideways (1.47 m/s) — and takes the walker's
+//     jump away: Jump without forward or back is the crouch, standing still,
+//     its jinks unread (the lowered hit box is not modelled: what the bounds
+//     pair means is open in the RE). On slow forward, back or Jink Left a
+//     grounded walker is put back from a drop of over 0.1 m (WALKER_LEDGE_DROP)
+//     unless the ground under its feet is steep — read on the patch it stands
+//     on, not TILT_PROBE's span, which smears a deck's edge into a slope. The
+//     hover's slow-row hold (under 0.1 m) is not modelled.
+// v71: the ground codes 3, 4 and 5 set the walker's one-step movement mode
+//     (fcop-fidelity.md P11; `player_order`, `player_velocity_delta`): read
+//     from the cell under it after it moves, within SURFACE_REACH, as mode 2, 1
+//     and 3 for its next tick, which scales the command push by 5m/128 and the
+//     slope push by 1 + (4 - m)/4, takes 768(4 - m) a step as the drag and
+//     stops a velocity only under (m << 13)/16 — slippery ground. The import
+//     writes them into the floor masks as '3'..'5' (MapData.modeFloors); only
+//     venice-beach (Ovmp) has any: 14 cells of code 4 in four patches beside its
+//     bases. The hover reads no mode. SimState.avatarMode, hashed on such an
+//     arena only.
+export const SIM_VERSION = 71;

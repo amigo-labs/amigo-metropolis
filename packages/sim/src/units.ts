@@ -99,6 +99,12 @@ export function nearestEnemyInRange(
    * bitfield 0x40; balance.ts TARGET_PRIORITY_*).
    */
   byPriority = false,
+  /**
+   * Only targets with a terrain line of sight (walls only). The Sky Captain
+   * assigns its target by distance alone (`dispatch.c` 0x00421b70..), so it
+   * passes false; its shots are still stopped by walls (warden.ts, sim.ts).
+   */
+  lineOfSight = true,
 ): number {
   const ent = state.ent;
   // Invisible avatars are unacquirable (rules.md §9). Resolved to entity ids up
@@ -136,13 +142,7 @@ export function nearestEnemyInRange(
       ? d2 < range2 && (prio > bestPrio || (prio === bestPrio && d2 < bestD2))
       : d2 < bestD2;
     if (better) {
-      // The Warden is a superplane: walls block shots at emplacements (cover is
-      // real, issue #31 / v20), but mid-map free-production streams live behind
-      // dense city lattice the flyer sits above. Soft targets (ground units)
-      // remain acquirable so the AI can clear a lane without sniping turrets
-      // from standoff. Avatars still respect walls via the same path.
-      const flyerSoft = ent.archetype[id] === ARCHETYPE.WARDEN && isGroundUnit(archetype);
-      if (!flyerSoft && segmentBlocked(state.map, x, y, ent.posX[t], ent.posY[t])) {
+      if (lineOfSight && segmentBlocked(state.map, x, y, ent.posX[t], ent.posY[t])) {
         continue; // wall between us — invisible, so neither halt nor shot
       }
       bestD2 = d2;
@@ -816,6 +816,24 @@ export function resolveWalker(
   y: number,
   h: number,
 ): { layer: number; height: number } {
+  return surfaceBelow(map, x, y, h + STEP_SNAP);
+}
+
+/**
+ * The highest surface at (x, y) at or below `top`: the base surface, or the
+ * highest extra deck present there whose surface is no higher than `top`. The
+ * base surface answers even above `top` (inside terrain there is nothing else
+ * to stand on). The walker asks from STEP_SNAP above its feet
+ * (`resolveWalker`), the hover from HOVER_PROBE_LIFT above itself (sim.ts
+ * `hoverSurface`), as the original's `terrain_surface_at` is asked from a point
+ * above the mover.
+ */
+export function surfaceBelow(
+  map: MapData,
+  x: number,
+  y: number,
+  top: number,
+): { layer: number; height: number } {
   const baseH = sampleHeight(map, x, y);
   if (map.layerHeights.length === 0) return { layer: 0, height: baseH };
   const s = map.size;
@@ -831,7 +849,7 @@ export function resolveWalker(
   for (let L = 0; L < map.layerHeights.length; L++) {
     if (map.layerMask[L][j * s + i] === 0) continue;
     const hs = sampleLayerHeight(map, L, x, y);
-    if (hs <= h + STEP_SNAP && hs > bestH) {
+    if (hs <= top && hs > bestH) {
       bestLayer = L + 1;
       bestH = hs;
     }

@@ -37,7 +37,6 @@ function tiny(): MapJson {
         core: [0, 0],
         groundConsole: [0, 0],
         airConsole: [0, 0],
-        pad: { x: 0, y: 0, radius: 1 },
         turrets: [],
       },
       {
@@ -45,7 +44,6 @@ function tiny(): MapJson {
         core: [1, 1],
         groundConsole: [1, 1],
         airConsole: [1, 1],
-        pad: { x: 1, y: 1, radius: 1 },
         turrets: [],
       },
     ],

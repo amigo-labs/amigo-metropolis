@@ -21,12 +21,13 @@ import {
   skyRespawnTicks,
   skySpeed,
   TICK_DT,
+  UNIT_QUEUES,
   WARDEN_ALTITUDE,
   wardenLevel,
 } from "../src/balance";
 import { EV_CLAIM, EV_PURCHASE, EV_SHOT, EVENT_STRIDE, SHOT_SLOT_HITSCAN } from "../src/events";
 import { createTickInputs } from "../src/inputs";
-import { DISTRICT_01_ID, getMapById, LA_CANTINA_ID, sampleHeight } from "../src/map";
+import { getMapById, LA_CANTINA_ID, sampleHeight } from "../src/map";
 import { claimOutpostSlot, createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
 import {
   SKY_CRUISE,
@@ -41,18 +42,8 @@ import {
 const idle = createTickInputs();
 const LC = getMapById(LA_CANTINA_ID);
 
-function wardenSim(difficulty: number, seed = 0xc0ffee, mapId = DISTRICT_01_ID): SimState {
+function wardenSim(difficulty: number, seed = 0xc0ffee, mapId = LA_CANTINA_ID): SimState {
   return createSim(getMapById(mapId), seed, { wardenPlayer: 1, wardenDifficulty: difficulty });
-}
-
-/** Counts the Warden side's purchase events in one step. */
-function purchases(state: SimState): number {
-  let n = 0;
-  for (let i = 0; i < state.events.count; i++) {
-    const o = i * EVENT_STRIDE;
-    if (state.events.data[o] === EV_PURCHASE && state.events.data[o + 2] === 1) n += 1;
-  }
-  return n;
 }
 
 describe("the Warden is the Sky Captain", () => {
@@ -64,7 +55,7 @@ describe("the Warden is the Sky Captain", () => {
     const ground = sampleHeight(sim.map, sim.ent.posX[wid], sim.ent.posY[wid]);
     expect(sim.ent.height[wid]).toBeGreaterThanOrEqual(ground + WARDEN_ALTITUDE - 0.001);
     expect(sim.ent.archetype[sim.avatarId[0]]).toBe(ARCHETYPE.AVATAR);
-    const plain = createSim(getMapById(DISTRICT_01_ID), 1);
+    const plain = createSim(LC, 1);
     expect(plain.wardenPlayer).toBe(-1);
     expect(plain.ent.archetype[plain.avatarId[1]]).toBe(ARCHETYPE.AVATAR);
   });
@@ -74,7 +65,7 @@ describe("the Warden is the Sky Captain", () => {
     expect(wardenSim(99).wardenDifficulty).toBe(10);
     expect(wardenSim(7.9).wardenDifficulty).toBe(7);
     expect(wardenSim(Number.NaN).wardenDifficulty).toBe(1);
-    const fractional = createSim(getMapById(DISTRICT_01_ID), 1, {
+    const fractional = createSim(LC, 1, {
       wardenPlayer: 0.5,
       wardenDifficulty: 5,
     });
@@ -140,6 +131,13 @@ describe("the Warden is the Sky Captain", () => {
 
   it("respawns after (14 - L) * 150 engine units, whole, roaming", () => {
     const sim = wardenSim(5);
+    // Four of its eight ring turrets down (they rebuild after 37.5 s): eight
+    // parts, under the ten that keep it roaming.
+    const n0 = sim.map.bases[0].turrets.length;
+    for (let k = n0 + 4; k < sim.baseTurretEntity.length; k++) {
+      sim.ent.hp[sim.baseTurretEntity[k]] = 0;
+    }
+    step(sim, idle);
     sim.ent.hp[sim.avatarId[1]] = -10;
     step(sim, idle);
     const ticks = skyRespawnTicks(4);
@@ -150,7 +148,7 @@ describe("the Warden is the Sky Captain", () => {
     expect(reborn).toBeGreaterThanOrEqual(0);
     expect(sim.ent.hp[reborn]).toBe(skyMaxHp(4));
     // Respawn sets mode 0 and a decision on the next tick, which (fewer than ten
-    // own turrets) promotes it straight back to defend.
+    // own turret parts) promotes it straight back to defend.
     expect(sim.captain.mode).toBe(SKY_MODE_ROAM);
     expect(sim.captain.think).toBe(0);
     step(sim, idle);
@@ -183,25 +181,38 @@ describe("the Warden is the Sky Captain", () => {
   });
 
   it("gets a free opening order of ten base units from level 1, none at level 0", () => {
+    const queued = (sim: SimState, q: number) => sim.unitQueue[1 * UNIT_QUEUES + q];
     const l0 = wardenSim(1, 3, LA_CANTINA_ID);
-    expect(l0.captain.queue[SKY_QUEUE_BASE_TANKS] + l0.captain.queue[SKY_QUEUE_BASE_JETS]).toBe(0);
+    expect(queued(l0, SKY_QUEUE_BASE_TANKS) + queued(l0, SKY_QUEUE_BASE_JETS)).toBe(0);
     for (let seed = 1; seed <= 20; seed++) {
       const sim = wardenSim(8, seed, LA_CANTINA_ID);
-      const tanks = sim.captain.queue[SKY_QUEUE_BASE_TANKS];
-      const jets = sim.captain.queue[SKY_QUEUE_BASE_JETS];
+      const tanks = queued(sim, SKY_QUEUE_BASE_TANKS);
+      const jets = queued(sim, SKY_QUEUE_BASE_JETS);
       expect(tanks + jets).toBe(10);
       expect(tanks).toBeGreaterThanOrEqual(9 - 7);
       expect(tanks).toBeLessThanOrEqual(9 - 7 + 3);
       expect(sim.points[1]).toBe(0); // unpaid
     }
-    // The scripts spawn them a tank per 3.4 s and a jet per 0.97 s.
+    // The scripts spawn them one a period from a random phase: on Mp a tank per
+    // 3.38 s (fn19, 203 units) and a jet per 0.97 s (fn17, 58).
     const sim = wardenSim(8, 1, LA_CANTINA_ID);
-    let spawned = 0;
-    for (let t = 0; t < 30; t++) {
+    const base = sim.map.bases[1].queueTicks;
+    expect([base.tank, base.jet]).toEqual([101, 29]);
+    const jetTicks: number[] = [];
+    let firstTank = -1;
+    for (let t = 0; t < base.tank + 1; t++) {
       step(sim, idle);
-      spawned += purchases(sim);
+      for (let i = 0; i < sim.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (sim.events.data[o] !== EV_PURCHASE) continue;
+        const arch = sim.events.data[o + 3];
+        if (arch === ARCHETYPE.GUARDIAN) jetTicks.push(t);
+        if (arch === ARCHETYPE.RUNNER && firstTank < 0) firstTank = t;
+      }
     }
-    expect(spawned).toBe(3); // tick 0: a tank and a jet; tick 29 (0.97 s): the second jet
+    expect(firstTank).toBeGreaterThanOrEqual(0); // within the first period
+    expect(jetTicks[0]).toBeLessThan(base.jet);
+    for (let n = 1; n < jetTicks.length; n++) expect(jetTicks[n] - jetTicks[n - 1]).toBe(base.jet);
   });
 });
 
@@ -238,10 +249,6 @@ describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
     step(five, idle);
     decideNow(five);
     expect(five.captain.mode).toBe(SKY_MODE_ROAM);
-    // district-01's ring is 4: it defends from the start.
-    const d01 = wardenSim(8, 5);
-    step(d01, idle);
-    expect(d01.captain.mode).toBe(SKY_MODE_DEFEND);
   });
 
   it("counts its outposts' plate turrets once they stand, never a captured neutral", () => {

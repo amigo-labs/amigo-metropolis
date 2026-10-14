@@ -1,13 +1,25 @@
 // Console drawers: how to play, and a combined preferences (sound + graphics).
 //
 // Audio and texture preferences are persisted by the modules that own them
-// (audio/engine.ts, render/texVariants.ts) — this only drives them. Volume and
-// track are read from the engine on mount rather than mirrored into MenuState,
+// (audio/engine.ts, render/texVariants.ts) — this only drives them. The levels
+// are read from the engine on mount rather than mirrored into MenuState,
 // because the engine is the source of truth and is also changed from elsewhere.
 
-import { useState } from "preact/hooks";
-import type { AudioEngine, VolumeKind } from "../../audio/engine";
-import { MUSIC_OPTIONS, parseMusicSelection } from "../../audio/tracks";
+import { useEffect, useState } from "preact/hooks";
+import type { AudioEngine, LevelKind } from "../../audio/engine";
+import {
+  type Binding,
+  bindingName,
+  DEVICE_JOYSTICK,
+  DEVICE_KEYBOARD,
+  keyOfCode,
+  PRESET_NAMES,
+  presetTable,
+  SLOT_NAMES,
+  SLOT_ROW_ORDER,
+} from "../../input/bindings";
+import { loadControls, saveControls } from "../../input/controlsStore";
+import { firstJoyControl, firstPad } from "../../input/gamepad";
 import {
   loadBloomPref,
   loadTexPref,
@@ -23,21 +35,182 @@ interface Props {
   audio: AudioEngine;
   onTexPref(pref: TexPref): void;
   onBloomPref(enabled: boolean): void;
+  onControls?(table: Binding[]): void;
 }
 
-const CONTROLS: readonly (readonly [string, string])[] = [
-  ["WASD / arrows", "drive"],
-  ["Mouse", "aim"],
-  ["LMB / RMB / MMB", "primary / special / heavy"],
-  ["Q", "transform (walker ⇄ hover)"],
-  ["Space", "jump"],
-  ["E", "press: capture a turret, claim an outpost, or buy one unit at a console"],
+/** What each slot does, beside its name (the original's controls, input.spec.md). */
+const SLOT_USE: readonly string[] = [
+  "",
+  "",
+  "",
+  "",
+  "",
+  "press: capture a turret, claim an outpost, buy one unit, ride a lift",
+  "",
+  "hover: brake",
+  "",
+  "",
+  "strafe",
+  "strafe",
+  "",
+  "the next target in front",
 ];
 
-const VOLUMES: readonly (readonly [VolumeKind, string])[] = [
-  ["master", "Master"],
-  ["sfx", "Effects"],
-  ["music", "Music"],
+/** A binding as the screens show it: the key, or the pad's control. */
+function shownBinding(b: Binding): string {
+  return b.device === DEVICE_JOYSTICK ? `Pad ${bindingName(b)}` : bindingName(b);
+}
+
+/** Player 1's keys in the controls screen's order, then the chord and Escape. */
+function controlRows(): (readonly [string, string])[] {
+  const table = loadControls()[0];
+  const rows: (readonly [string, string])[] = SLOT_ROW_ORDER.map((s) => {
+    const use = SLOT_USE[s];
+    return [shownBinding(table[s]), use ? `${SLOT_NAMES[s]} — ${use}` : SLOT_NAMES[s]] as const;
+  });
+  rows.push([
+    `${shownBinding(table[13])} + ${shownBinding(table[5])}`,
+    "transform (walker ⇄ hover)",
+  ]);
+  rows.push(["Escape", "pause"]);
+  return rows;
+}
+
+/**
+ * The original's controls screen (`controls_dialog.c`): a row per binding slot,
+ * in its order; pick a row, then press the key or the pad button, or push the
+ * stick, that should do it. "Select Default Profile" puts back one of the three
+ * shipped presets — the keyboard's, the Sidewinder's or the Gravis' — and OK
+ * saves (input/controlsStore.ts). Player 1's column only: Metropolis has no
+ * second local player. Its look is the menu's until the front end is the
+ * original's.
+ */
+function Controls({ onControls }: { onControls?(table: Binding[]): void }) {
+  const [tables, setTables] = useState<Binding[][]>(() => loadControls());
+  const [capturing, setCapturing] = useState(-1);
+  const table = tables[0];
+
+  const bind = (slot: number, b: Binding): void => {
+    const next = tables.map((t) => t.map((x) => ({ ...x })));
+    next[0][slot] = b;
+    setTables(next);
+    setCapturing(-1);
+  };
+
+  useEffect(() => {
+    if (capturing < 0) return;
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code === "Escape") {
+        setCapturing(-1); // the fixed binding: cancels, binds nothing
+        return;
+      }
+      const vk = keyOfCode(e.code);
+      if (vk >= 0) bind(capturing, { device: DEVICE_KEYBOARD, code: vk });
+    };
+    // A pad's control binds once everything has been let go first, so the
+    // button that picked the row is not taken for its binding.
+    let released = false;
+    let raf = 0;
+    const poll = (): void => {
+      const pad = firstPad();
+      const down = pad ? firstJoyControl(pad) : -1;
+      if (down < 0) released = true;
+      else if (released) {
+        bind(capturing, { device: DEVICE_JOYSTICK, code: down });
+        return;
+      }
+      raf = requestAnimationFrame(poll);
+    };
+    window.addEventListener("keydown", onKey, true);
+    raf = requestAnimationFrame(poll);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      cancelAnimationFrame(raf);
+    };
+  });
+
+  return (
+    <>
+      <h2 class="menu-h2">Controls</h2>
+      <div class="menu-keys">
+        {SLOT_ROW_ORDER.map((s) => (
+          <div class="menu-key-row" key={s}>
+            <span>{SLOT_NAMES[s]}</span>
+            <button
+              type="button"
+              class={`menu-key-bind${capturing === s ? " is-active" : ""}`}
+              onClick={() => setCapturing(capturing === s ? -1 : s)}
+            >
+              {capturing === s ? "press a key…" : shownBinding(table[s])}
+            </button>
+          </div>
+        ))}
+      </div>
+      <div class="menu-row">
+        <label class="menu-label" for="menu-controls-profile">
+          Select Default Profile
+        </label>
+        <select
+          id="menu-controls-profile"
+          class="menu-select"
+          value=""
+          onChange={(e) => {
+            const i = Number((e.currentTarget as HTMLSelectElement).value);
+            if (!(i >= 0 && i < PRESET_NAMES.length)) return;
+            setTables([presetTable(0, i), tables[1]]);
+            setCapturing(-1);
+          }}
+        >
+          <option value="">Choose Controller Profile…</option>
+          {PRESET_NAMES.map((name, i) => (
+            <option value={String(i)} key={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div class="menu-row">
+        <button
+          type="button"
+          class="menu-pill"
+          onClick={() => {
+            saveControls(tables);
+            onControls?.(tables[0]);
+          }}
+        >
+          OK
+        </button>
+        <button
+          type="button"
+          class="menu-pill"
+          onClick={() => {
+            setTables(loadControls());
+            setCapturing(-1);
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+      <p class="menu-hint">
+        Transform: {shownBinding(table[13])} + {shownBinding(table[5])}. A gamepad plays once its
+        profile is chosen or a row is bound to it. Without a numeric keypad, bind the movement keys
+        here. Escape stays the pause.
+      </p>
+    </>
+  );
+}
+
+/**
+ * The original's "Audio Controls" dialog (retail 0x00402930): three trackbars,
+ * 0..127, in the order every arm visits them, with the dialog's own labels.
+ * There is no master level.
+ */
+const LEVELS: readonly (readonly [LevelKind, string])[] = [
+  ["sfx", "Sound Effects Volume"],
+  ["music", "Music Volume"],
+  ["movies", "Movies Volume"],
 ];
 
 function HowTo() {
@@ -45,7 +218,7 @@ function HowTo() {
     <>
       <h2 class="menu-h2">Controls</h2>
       <div class="menu-keys">
-        {CONTROLS.map(([k, v]) => (
+        {controlRows().map(([k, v]) => (
           <div class="menu-key-row" key={k}>
             <kbd>{k}</kbd>
             <span>{v}</span>
@@ -55,8 +228,8 @@ function HowTo() {
       <h2 class="menu-h2">Winning</h2>
       <p class="menu-hint">
         Earn points when enemy units, turrets and avatars fall and when you capture turrets. Spend
-        them at your base consoles to field Runners, Guardians, and heavy units, then escort a push
-        through a lane and breach the enemy gate.
+        them at your base's purchase spots to field Runners and Guardians and, once you hold 50, a
+        Juggernaut or a Fortress, then escort a push through a lane and breach the enemy gate.
       </p>
     </>
   );
@@ -118,59 +291,16 @@ function Graphics({
 }
 
 function Sound({ audio }: { audio: AudioEngine }) {
-  const [vols, setVols] = useState(() => audio.getVolumes());
-  const [track, setTrack] = useState(() => audio.getMusicTrack());
-  const [trackErr, setTrackErr] = useState("");
+  const [levels, setLevels] = useState(() => audio.getLevels());
 
-  const setVolume = (kind: VolumeKind, pct: number): void => {
-    const v = pct / 100;
-    audio.setVolume(kind, v);
-    setVols({ ...audio.getVolumes() });
-    if (kind !== "music") audio.preview(kind === "master" ? "capture" : "shot");
+  const setLevel = (kind: LevelKind, v: number): void => {
+    audio.setLevel(kind, v);
+    setLevels(audio.getLevels());
   };
 
   return (
     <>
-      {/* Track picker first — picking a track is the on/off switch; the Music
-          slider below is only its level (bumped to 60 when a pick would be
-          mute). */}
-      <div class="menu-row">
-        <label class="menu-label" for="menu-music-track">
-          Track
-        </label>
-        <select
-          id="menu-music-track"
-          class="menu-select"
-          value={track}
-          onChange={(e) => {
-            // Parse before storing: parseMusicSelection is what narrows an
-            // arbitrary option value to a MusicSelection, and it also normalizes
-            // anything unexpected instead of putting it in state.
-            const sel = parseMusicSelection((e.currentTarget as HTMLSelectElement).value);
-            setTrackErr("");
-            setTrack(sel);
-            if (sel !== "off" && audio.getVolumes().music === 0) {
-              audio.setVolume("music", 0.6);
-              setVols({ ...audio.getVolumes() });
-            }
-            void audio.setMusicTrack(sel).then((res) => {
-              if (res === "missing") {
-                setTrackErr("Track file not found — drop mp3s into /music/.");
-                setTrack(audio.getMusicTrack());
-              }
-            });
-          }}
-        >
-          {MUSIC_OPTIONS.map((opt) => (
-            <option value={opt.id} key={opt.id}>
-              {opt.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      {trackErr ? <div class="menu-err">{trackErr}</div> : null}
-
-      {VOLUMES.map(([kind, name]) => (
+      {LEVELS.map(([kind, name]) => (
         <div class="menu-row" key={kind}>
           <label class="menu-label" for={`menu-vol-${kind}`}>
             {name}
@@ -180,16 +310,14 @@ function Sound({ audio }: { audio: AudioEngine }) {
             class="menu-slider"
             type="range"
             min={0}
-            max={100}
-            value={Math.round(vols[kind] * 100)}
-            onInput={(e) => setVolume(kind, Number((e.currentTarget as HTMLInputElement).value))}
+            max={127}
+            value={levels[kind]}
+            onInput={(e) => setLevel(kind, Number((e.currentTarget as HTMLInputElement).value))}
           />
-          <span class="menu-value ck-value">{Math.round(vols[kind] * 100)}</span>
+          <span class="menu-value ck-value">{levels[kind]}</span>
         </div>
       ))}
-      <p class="menu-hint">
-        Pick a track to turn music on (off by default). Settings are saved on this device.
-      </p>
+      <p class="menu-hint">Settings are saved on this device.</p>
     </>
   );
 }
@@ -213,11 +341,12 @@ function Preferences({
   );
 }
 
-export function Drawer({ kind, audio, onTexPref, onBloomPref }: Props) {
+export function Drawer({ kind, audio, onTexPref, onBloomPref, onControls }: Props) {
   if (!kind) return null;
   return (
     <div class="menu-drawer ck-panel">
       {kind === "how" ? <HowTo /> : null}
+      {kind === "controls" ? <Controls onControls={onControls} /> : null}
       {kind === "prefs" ? (
         <Preferences audio={audio} onTexPref={onTexPref} onBloomPref={onBloomPref} />
       ) : null}

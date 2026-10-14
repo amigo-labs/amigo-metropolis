@@ -70,10 +70,6 @@ export interface P2pCallbacks {
 }
 
 function copyInput(dst: PlayerInput, src: PlayerInput): void {
-  dst.moveX = src.moveX;
-  dst.moveY = src.moveY;
-  dst.aimX = src.aimX;
-  dst.aimY = src.aimY;
   dst.buttons = src.buttons;
 }
 
@@ -173,10 +169,6 @@ export class P2pLockstep {
       this.sentUpTo++;
       const input = this.cb.sampleInput(this.sentUpTo);
       this.localInputs[this.sentUpTo] = {
-        moveX: input.moveX,
-        moveY: input.moveY,
-        aimX: input.aimX,
-        aimY: input.aimY,
         buttons: input.buttons,
       };
       pumped = true;

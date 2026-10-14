@@ -1,228 +1,190 @@
-// WebAudio wrapper (assets.md §5: "a tiny WebAudio wrapper, no audio library
-// dependency"). Drains the sim's per-tick event ring buffer and plays a
-// pre-rendered sfxr buffer per cue, mixed through master/sfx/music gains.
+// The original's sound module on WebAudio.
 //
-// Browsers block audio until a user gesture, so playback is inert until
-// unlock() runs inside one (self-armed on the first pointer/key/touch). Before
-// that — and in headless tests, which use the pure synth directly and never
-// construct this — pump() still counts cues and tracks lastCue for the debug
-// HUD, so the event pipe is observable end to end exactly like the old stub.
+// Everything that decides WHAT is heard — which slot a script id names, the
+// channel it gets or the one it steals, its level and pan, how long a cued
+// sound holds, the movement loops, the ambient queue's eight-voice budget, the
+// speech line and the ducking under it, the music — is the retail module's
+// (src/game/snd/ in the RE repo), through audio/mixer.ts, audio/speech.ts and
+// audio/bank.ts. This file only maps each of the 24 logical channels onto a
+// WebAudio voice and loads the original's files.
 //
-// Frame-loop discipline: pump() runs once per tick. A one-shot sound needs a
-// fresh AudioBufferSourceNode (WebAudio has no other way), but everything else
-// is preallocated — the onended handler is bound once, not per voice — and a
-// voice cap plus per-tick coalescing of the spammy cues keep it bounded.
+// Browsers block audio until a user gesture, so nothing plays until unlock()
+// runs inside one (self-armed on the first pointer/key/touch).
+//
+// Frame-loop discipline (CLAUDE.md renderer rule 1): a sound needs a fresh
+// AudioBufferSourceNode — WebAudio has no other way — and that is the one
+// allocation per play. Every channel's gain pair is built once at unlock, and
+// the bookkeeping is typed arrays.
 
+import { type BankSlot, type SoundBank, slotFor, TABLE_A, TABLE_B } from "./bank";
 import {
-  EV_ALARM,
-  EV_BREACH,
-  EV_CAPTURE,
-  EV_CLAIM,
-  EV_DEATH,
-  EV_EXPLOSION,
-  EV_HIT,
-  EV_PICKUP,
-  EV_PURCHASE,
-  EV_PURCHASE_REFUSED,
-  EV_RESPAWN,
-  EV_SHOT,
-  EV_TRANSFORM,
-  EV_TURRET_LOST,
-  EV_TURRET_UNDER_FIRE,
-  EVENT_STRIDE,
-  type EventBuffer,
-} from "@metropolis/sim";
-import { renderMusicLoop } from "./music";
-import { DETUNE_CUES, GLOBAL_CUES, PRESETS } from "./presets";
-import { SFX_FILES } from "./sfxFiles.generated";
-import { renderSfxr } from "./sfxr";
-import { MUSIC_OPTIONS, type MusicSelection, parseMusicSelection } from "./tracks";
+  ChannelPool,
+  channelGains,
+  KIND_CUED,
+  KIND_RESERVED,
+  KIND_SCRIPT,
+  lengthApprox,
+  NO_SLOT,
+  type PositionLevels,
+  positionLevels,
+  SND_CHANNELS,
+  SND_CUE_HOLD,
+  SND_CUES_PER_VIEWPORT,
+  SND_LEVEL_MAX,
+  SND_PAN_CENTRE,
+  SND_QUEUE_VOICES,
+  SND_RANGE,
+  speechLevel,
+  WORLD_UNITS_PER_METRE,
+} from "./mixer";
+import { SpeechQueue } from "./speech";
 
-const cueByType: string[] = [];
-cueByType[EV_SHOT] = "shot";
-cueByType[EV_EXPLOSION] = "explosion";
-cueByType[EV_HIT] = "hit";
-cueByType[EV_DEATH] = "death";
-cueByType[EV_RESPAWN] = "respawn";
-cueByType[EV_PURCHASE] = "purchase";
-// The original answers every purchase press with an accept or a refuse sound
-// (fcop-fidelity.md R17); which sound-bank entries those are is not read, so
-// both are sfxr cues.
-cueByType[EV_PURCHASE_REFUSED] = "refuse";
-cueByType[EV_BREACH] = "breach";
-cueByType[EV_CAPTURE] = "capture";
-cueByType[EV_CLAIM] = "claim";
-cueByType[EV_PICKUP] = "pickup";
-cueByType[EV_TRANSFORM] = "transform";
-
-/**
- * The cue an event plays. Most event types have one; the alert events speak the
- * original's voice line for the SIDE they concern (fcop-fidelity.md R15,
- * fcop-re/ai-and-rules.md §6): intrusion into slot 0's / slot 1's base is speech
- * id 2 / 3, its base turret under fire 4 / 5, a base turret lost 0 / 1. Played by
- * side, as the original's scripts do, not from the local player's point of view —
- * the line content is not transcribed, so a "your base" reading would be a guess.
- * Returns "" for an event with no cue. Pure, for test.
- */
-export function cueForEvent(type: number, _a: number, b: number, c: number): string {
-  if (type === EV_ALARM) return c === 1 ? "vo_intrusion_1" : "vo_intrusion_0";
-  if (type === EV_TURRET_UNDER_FIRE) return b === 1 ? "vo_turret_fire_1" : "vo_turret_fire_0";
-  if (type === EV_TURRET_LOST) return b === 1 ? "vo_turret_lost_1" : "vo_turret_lost_0";
-  return cueByType[type] ?? "";
-}
-
-/**
- * A voice line an event speaks ON TOP of its cue, or "". Only the gate: the
- * breach keeps its fanfare and adds the original's line for the gate that was
- * reached — slot 1's (speech id 6) when slot 0 wins, slot 0's (19) when slot 1
- * does. EV_BREACH's b is the winning team.
- */
-export function voiceForEvent(type: number, _a: number, b: number, _c: number): string {
-  if (type === EV_BREACH) return b === 0 ? "vo_gate_1" : "vo_gate_0";
-  return "";
-}
-
-/**
- * Distance at which a world sound is still at full volume; past it the gain rolls
- * off inversely. Roughly the radius the camera frames at the action pitch, so
- * anything the player can see stays clearly audible.
- */
-const AUDIO_REF_DISTANCE = 18;
-/** Never hard-pan: a sound fully in one ear reads as broken, not as direction. */
-const MAX_PAN = 0.9;
-
-/**
- * Index of a pan/gain slot no live source is using, or -1 if all are taken.
- *
- * Exported for test: a slot handed out while its previous source is still playing
- * retargets that sound's pan and volume mid-playback, and the engine itself needs
- * a real AudioContext to construct, so this is the piece worth pinning.
- */
-export function claimVoiceSlot(owners: readonly (unknown | null)[]): number {
-  for (let i = 0; i < owners.length; i++) {
-    if (owners[i] === null) return i;
-  }
-  return -1;
-}
-
-/**
- * Fills `out` with the world position of an event, or returns false for "no
- * position, play it centred". Supplied by the host (main.ts), which is the only
- * place that holds a snapshot to resolve entity ids against.
- */
-export type EventPositionResolver = (
-  type: number,
-  a: number,
-  b: number,
-  c: number,
-  out: Float32Array,
-) => boolean;
-
-export type VolumeKind = "master" | "sfx" | "music";
-export interface Volumes {
-  master: number;
+/** The original's three mixer levels, 0..127 ("Audio Controls", 0x00402930). */
+export interface AudioLevels {
+  /** "Sound Effects Volume" (DAT_00511e25). */
   sfx: number;
+  /** "Music Volume" (DAT_00511e26). */
   music: number;
+  /** "Movies Volume" (DAT_00511e27): the speech level. */
+  movies: number;
 }
-/** Everything persisted under STORAGE_KEY: volumes plus the music track pick. */
-export interface AudioSettings extends Volumes {
-  track: MusicSelection;
-}
+export type LevelKind = keyof AudioLevels;
 
-const STORAGE_KEY = "metropolis.audio.v1";
-const DEFAULT_VOLUMES: Volumes = { master: 0.8, sfx: 1, music: 0 };
-const MAX_VOICES = 24;
-/** Cues that can fire many times per tick and would stack into noise. */
-const COALESCE = new Set(["shot", "hit", "explosion", "vo_turret_lost_0", "vo_turret_lost_1"]);
+/** `FRONTEND_VOLUME_DEFAULT` 0x3f: what a missing registry value reads as. */
+export const DEFAULT_LEVEL = 0x3f;
+const STORAGE_KEY = "metropolis.audio.v2";
 
-/**
- * Parses the persisted settings JSON. Pure so tests can cover it without a
- * DOM. Legacy 3-field payloads (pre-track) parse to track "off", which sounds
- * identical to what those users had.
- */
-export function parseAudioSettings(raw: string | null): AudioSettings {
-  const out: AudioSettings = { ...DEFAULT_VOLUMES, track: "off" };
+/** Parses the persisted levels. Pure, for test. */
+export function parseAudioLevels(raw: string | null): AudioLevels {
+  const out: AudioLevels = { sfx: DEFAULT_LEVEL, music: DEFAULT_LEVEL, movies: DEFAULT_LEVEL };
   if (!raw) return out;
   try {
-    const p = JSON.parse(raw) as Partial<AudioSettings>;
-    out.master = clamp01(typeof p.master === "number" ? p.master : out.master);
-    out.sfx = clamp01(typeof p.sfx === "number" ? p.sfx : out.sfx);
-    out.music = clamp01(typeof p.music === "number" ? p.music : out.music);
-    out.track = parseMusicSelection(p.track);
+    const p = JSON.parse(raw) as Partial<AudioLevels>;
+    for (const k of ["sfx", "music", "movies"] as const) {
+      const v = p[k];
+      if (typeof v === "number" && Number.isFinite(v)) out[k] = clampLevel(v);
+    }
   } catch {
     // ignore malformed storage
   }
   return out;
 }
 
-function loadSettings(): AudioSettings {
-  try {
-    return parseAudioSettings(localStorage.getItem(STORAGE_KEY));
-  } catch {
-    return parseAudioSettings(null);
-  }
+/** The setters' clamp (0x004329f0): negative is silence, past 0x7f is 0x7f. */
+export function clampLevel(v: number): number {
+  if (v < 0) return 0;
+  return v > SND_LEVEL_MAX ? SND_LEVEL_MAX : Math.trunc(v);
 }
 
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
+/** What the engine plays an arena's sounds from. */
+export interface ArenaSounds {
+  readonly bank: SoundBank;
+  /** URL of every sample file the bank's slots index. */
+  readonly sampleUrls: readonly string[];
+  /** Speech line N's URL. */
+  readonly voiceUrls: readonly string[];
+  /** The arena's music, or "" for none. */
+  readonly musicUrl: string;
 }
+
+/** The samples' own rate: every Cwav is 22050 Hz mono. */
+const SAMPLE_RATE = 22050;
+/** One sim tick in the original's 300 Hz units (frame_tail's `step`). */
+export const TICK_STEP = 10;
+/** Viewports the original keeps cue and loop state for. */
+const VIEWPORTS = 2;
+/** The speech line's channel: full volume, priority 10, kind 0 (0x00432310). */
+const LINE_VOLUME = 0x7f;
+const LINE_PRIORITY = 10;
+/** The movement loop's stop / start cues are made 100 cheaper to steal (cue.c). */
+const CUE_KEY_BOOST = 100;
+/** snd_loop_set_mode: bit 5 enables, the low three bits are the mode. */
+const LOOP_ENABLE = 0x20;
+const LOOP_MODE_MASK = 7;
+const LOOP_MODE_NONE = 7;
+const LOOP_MODE_QUIET = 6;
+const LOOP_SCRIPT_BASE = 0x22;
+const LOOP_STOP_BASE = 0x32;
+const LOOP_START_BASE = 0x38;
+const LOOP_QUIET_SCRIPT = 0x3d;
+/** "No loop" for snd_loop_set_script. */
+export const LOOP_SCRIPT_NONE = 0xff;
+/** Ambient queue records the engine keeps (one per sounding actor). */
+export const QUEUE_RECORDS = 64;
 
 export class AudioEngine {
-  /** Total cues seen, indexed by EV_* type — debug HUD parity with the old stub. */
-  readonly counts = new Uint32Array(32);
-  /** Most recent non-shot cue (shots fire constantly and would drown it). */
-  lastCue = "";
-
+  /** Every play, newest last, for the debug HUD and the headless check. */
+  lastPlayed = "";
   private ctx: AudioContext | null = null;
-  private masterGain: GainNode | null = null;
-  private sfxGain: GainNode | null = null;
-  private musicGain: GainNode | null = null;
-  private readonly buffers = new Map<string, AudioBuffer>();
-  /** Decoded/rendered music, cached per selection so re-picks are instant. */
-  private readonly musicBuffers = new Map<MusicSelection, AudioBuffer>();
-  private musicSource: AudioBufferSourceNode | null = null;
-  /** Bumped per load/switch; a stale async decode must not start playback. */
-  private musicLoadGen = 0;
-  private settings: AudioSettings = loadSettings();
-  private activeVoices = 0;
-  private readonly onVoiceEnded = (ev: Event): void => {
-    if (this.activeVoices > 0) this.activeVoices--;
-    // Release this voice's pan/gain slot. Found by scanning rather than stored on
-    // the source, so ending a voice allocates nothing; 24 comparisons is free.
-    const src = ev.target;
-    for (let i = 0; i < this.slotSource.length; i++) {
-      if (this.slotSource[i] === src) {
-        this.slotSource[i] = null;
-        return;
-      }
-    }
-  };
   private unlocked = false;
   private readonly tryUnlock = (): void => this.unlock();
+  private levels: AudioLevels = loadLevels();
 
-  // Positional playback (preallocated at unlock, never per voice).
-  private readonly pan: StereoPannerNode[] = [];
-  private readonly voiceGain: GainNode[] = [];
-  /**
-   * The source currently owning each pan/gain slot, or null if free.
-   *
-   * A slot's parameters must not be touched while a source is still playing
-   * through it, or that sound's pan and volume jump to wherever the newer event
-   * happened to be. A round-robin cursor cannot guarantee that — it advances per
-   * event, not per voice lifetime — so ownership is tracked explicitly. The cue
-   * most exposed was the alarm: about a second long, and the one that must never
-   * wander mid-playback.
-   */
-  private readonly slotSource: (AudioBufferSourceNode | null)[] = [];
-  /** Listener position + right vector, written once per frame from the camera. */
+  private arena: ArenaSounds | null = null;
+  private bank: SoundBank | null = null;
+  private readonly sampleBuffers: (AudioBuffer | null)[] = [];
+  private readonly voiceBuffers: (AudioBuffer | null)[] = [];
+  private musicBuffer: AudioBuffer | null = null;
+  private loadGen = 0;
+
+  // --- the pool and its WebAudio voices --------------------------------------
+  private pool: ChannelPool | null = null;
+  private readonly source: (AudioBufferSourceNode | null)[] = new Array(SND_CHANNELS).fill(null);
+  private readonly gainL: GainNode[] = [];
+  private readonly gainR: GainNode[] = [];
+  private readonly splitter: ChannelSplitterNode[] = [];
+  private readonly gains = new Float32Array(2);
+  /** Round-robin cursor per slot (slot +0x31), stepped before use. */
+  private readonly cursor = new Uint8Array(130);
+  private readonly where: PositionLevels = { volume: 0, pan: SND_PAN_CENTRE };
+
+  // --- the listener (snd_set_listener): the mech, facing the camera's way ---
   private lx = 0;
-  private ly = 0;
   private lz = 0;
-  private rx = 1;
-  private ry = 0;
-  private rz = 0;
-  /** Scratch for the position resolver — module-level discipline, no per-event alloc. */
-  private readonly posScratch = new Float32Array(3);
+  private rightX = 1;
+  private rightZ = 0;
+
+  // --- cued sounds: three per viewport (DAT_004a14d8) -------------------------
+  private readonly cueHold = new Int32Array(VIEWPORTS * SND_CUES_PER_VIEWPORT);
+  private readonly cueHeld = new Uint8Array(VIEWPORTS * SND_CUES_PER_VIEWPORT);
+  private readonly cueSlot = new Int16Array(VIEWPORTS * SND_CUES_PER_VIEWPORT);
+  private readonly cueChannel = new Int8Array(VIEWPORTS * SND_CUES_PER_VIEWPORT).fill(-1);
+  private readonly cueGen = new Uint32Array(VIEWPORTS * SND_CUES_PER_VIEWPORT);
+
+  // --- movement loops: one reserved channel per viewport (DAT_004a1ce8) -------
+  private readonly loopChannel = new Int8Array(VIEWPORTS).fill(-1);
+  private readonly loopLive = new Uint8Array(VIEWPORTS);
+  private readonly loopMode = new Int16Array(VIEWPORTS).fill(LOOP_SCRIPT_NONE);
+  private readonly loopScript = new Int16Array(VIEWPORTS);
+  private readonly loopPlaced = new Uint8Array(VIEWPORTS);
+  private readonly loopX = new Float32Array(VIEWPORTS);
+  private readonly loopZ = new Float32Array(VIEWPORTS);
+
+  // --- the ambient queue (queue.c, frame_tail.c) ------------------------------
+  private readonly qSlot = new Int16Array(QUEUE_RECORDS).fill(-1);
+  private readonly qX = new Float32Array(QUEUE_RECORDS);
+  private readonly qZ = new Float32Array(QUEUE_RECORDS);
+  private readonly qKey = new Int32Array(QUEUE_RECORDS);
+  private readonly qChannel = new Int8Array(QUEUE_RECORDS).fill(-1);
+  private readonly qGen = new Uint32Array(QUEUE_RECORDS);
+  private readonly qOrder = new Int16Array(QUEUE_RECORDS);
+  private readonly qVolume = new Int16Array(QUEUE_RECORDS);
+  private readonly qPan = new Int16Array(QUEUE_RECORDS);
+  private readonly qMark = new Uint8Array(QUEUE_RECORDS);
+
+  // --- the pending-sound slot (*P[3], 0x00436250) -----------------------------
+  private pending = 0;
+
+  // --- speech (voice.c) and music (music.c) -----------------------------------
+  readonly speech = new SpeechQueue();
+  private lineChannel = -1;
+  private lineGen = 0;
+  private lineTicksLeft = 0;
+  private musicChannel = -1;
+  private musicWanted = false;
+  private musicOffset = 0;
+  private musicStartedAt = 0;
+  private paused = false;
 
   /** Adds one-shot gesture listeners; the first user interaction unlocks audio. */
   armUnlock(): void {
@@ -231,56 +193,26 @@ export class AudioEngine {
     }
   }
 
-  getVolumes(): Volumes {
-    const { master, sfx, music } = this.settings;
-    return { master, sfx, music };
-  }
-
-  setVolume(kind: VolumeKind, value: number): void {
-    this.settings[kind] = clamp01(value);
-    this.persist();
-    this.applyGains();
-    // Don't leave the loop running muted at 0 (wastes CPU/battery on mobile);
-    // startSelectedMusic() spins up a fresh source when it's turned back up.
-    if (this.unlocked) {
-      if (this.settings.music > 0) this.startSelectedMusic();
-      else this.stopMusic();
-    }
-  }
-
-  getMusicTrack(): MusicSelection {
-    return this.settings.track;
+  getLevels(): AudioLevels {
+    return { ...this.levels };
   }
 
   /**
-   * Persists the pick and switches playback. Resolves "missing" when a file
-   * track can't be fetched/decoded (placeholder mp3 not dropped in yet) — the
-   * selection then reverts to "off" so a reload doesn't retry a dead URL.
+   * One slider. Like the original, the sfx and speech levels apply to what
+   * starts from now on; the music level is carried to the playing stream at
+   * once (`sound_set_level_b` calls `snd_music_apply_level`).
    */
-  async setMusicTrack(sel: MusicSelection): Promise<"ok" | "missing"> {
-    // The picker interaction is itself a gesture, so unlocking here is legal
-    // (mirrors preview()). No-op when already unlocked.
-    this.unlock();
-    this.settings.track = sel;
-    this.persist();
-    this.stopMusic();
-    if (sel === "off") return "ok";
-    const gen = ++this.musicLoadGen;
-    const buf = await this.loadMusicBuffer(sel);
-    if (!buf) {
-      if (this.settings.track === sel) {
-        this.settings.track = "off";
-        this.persist();
-      }
-      return "missing";
+  setLevel(kind: LevelKind, value: number): void {
+    this.levels[kind] = clampLevel(value);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.levels));
+    } catch {
+      // ignore storage failures (private mode, quota)
     }
-    if (gen === this.musicLoadGen && this.settings.track === sel && this.settings.music > 0) {
-      this.startMusicSource(buf);
-    }
-    return "ok";
+    if (kind === "music") this.applyMusicLevel();
   }
 
-  /** Creates the context + gain graph, pre-renders every buffer. Idempotent. */
+  /** Creates the context and the 24 channel voices. Idempotent. */
   unlock(): void {
     if (this.unlocked) return;
     const Ctx =
@@ -288,61 +220,349 @@ export class AudioEngine {
       (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) return;
     this.unlocked = true;
-    this.ctx = new Ctx();
-    void this.ctx.resume();
-
-    this.masterGain = this.ctx.createGain();
-    this.sfxGain = this.ctx.createGain();
-    this.musicGain = this.ctx.createGain();
-    this.masterGain.connect(this.ctx.destination);
-    this.sfxGain.connect(this.masterGain);
-    this.musicGain.connect(this.masterGain);
-    this.applyGains();
-
-    // One pan+gain pair per voice slot, wired once. play() round-robins through
-    // them, so a one-shot only ever allocates its BufferSource.
-    for (let i = 0; i < MAX_VOICES; i++) {
-      const pan = this.ctx.createStereoPanner();
-      const gain = this.ctx.createGain();
-      pan.connect(gain);
-      gain.connect(this.sfxGain);
-      this.pan.push(pan);
-      this.voiceGain.push(gain);
-      this.slotSource.push(null);
+    const ctx = new Ctx();
+    this.ctx = ctx;
+    void ctx.resume();
+    for (let i = 0; i < SND_CHANNELS; i++) {
+      // DirectSound's volume and pan as two channel gains: mono sources feed
+      // both, the stereo music feeds them through its splitter.
+      const merger = ctx.createChannelMerger(2);
+      const l = ctx.createGain();
+      const r = ctx.createGain();
+      l.connect(merger, 0, 0);
+      r.connect(merger, 0, 1);
+      merger.connect(ctx.destination);
+      const split = ctx.createChannelSplitter(2);
+      split.connect(l, 0);
+      split.connect(r, 1);
+      this.gainL.push(l);
+      this.gainR.push(r);
+      this.splitter.push(split);
     }
-
-    const rate = this.ctx.sampleRate;
-    for (const name of Object.keys(PRESETS)) {
-      const pcm = renderSfxr(PRESETS[name], rate);
-      const audioBuf = this.ctx.createBuffer(1, pcm.length, rate);
-      audioBuf.copyToChannel(pcm, 0);
-      this.buffers.set(name, audioBuf);
-    }
-    // Then upgrade whichever cues have a real original sound committed. Additive
-    // and unawaited on purpose: the synth above is already playable, play() reads
-    // this.buffers per voice, so a cue simply starts sounding like the original
-    // the moment its file lands. A missing or undecodable file keeps the synth.
-    void this.loadSfxFiles();
-    // Music is loaded on demand (per selected track), not at unlock — see
-    // startSelectedMusic(); the synth loop renders lazily through the same path.
-    this.startSelectedMusic();
+    if (this.arena) void this.loadArena(this.arena);
   }
 
   /**
-   * Replaces cue buffers with the committed original sounds
-   * (audio/sfxFiles.generated.ts). Loudness is already baked in by gen:sfx, so
-   * there is nothing to correct here — which is what keeps this a buffer swap
-   * and leaves play() and the voice-slot logic untouched.
+   * Switches to an arena's bank: the mission load, which resets the module
+   * (0x00432b50: channels, slots, queue, cues, then the two loop channels) and
+   * loads the samples, the speech and the music.
    */
-  private async loadSfxFiles(): Promise<void> {
-    for (const [cue, url] of Object.entries(SFX_FILES)) {
-      const buf = await this.fetchDecode(url);
-      // Re-check the context: unlock() could have been torn down while fetching.
-      if (buf && this.ctx) this.buffers.set(cue, buf);
+  setArena(arena: ArenaSounds): void {
+    this.arena = arena;
+    this.bank = arena.bank;
+    this.resetModule();
+    if (this.unlocked) void this.loadArena(arena);
+  }
+
+  /** The match is under way: the music starts (`snd_set_active(1)` after load). */
+  startMatch(): void {
+    this.musicWanted = true;
+    this.musicOffset = 0;
+    this.paused = false;
+    this.startMusic();
+  }
+
+  /** Back to the menu: everything stops (`snd_set_active(0)`). */
+  stopMatch(): void {
+    this.musicWanted = false;
+    this.silenceAll(-1);
+    this.stopMusic(false);
+  }
+
+  /**
+   * The pause (0x00434530): the mission menu's sound (script 62) and then
+   * everything silenced — the music too — except a speech line on the air.
+   */
+  pause(): void {
+    if (this.paused) return;
+    this.paused = true;
+    this.silenceAll(this.lineChannel);
+    this.stopMusic(true);
+    this.playScript(62, false, 0, 0);
+  }
+
+  /** Out of the pause: the music resumes (`snd_set_active(1)`). */
+  resume(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this.startMusic();
+  }
+
+  /**
+   * The listener, once a frame (`snd_set_listener`): the local mech's position
+   * in metres, and the camera's right vector for the pan.
+   */
+  setListener(x: number, z: number, rightX: number, rightZ: number): void {
+    this.lx = x;
+    this.lz = z;
+    const len = Math.sqrt(rightX * rightX + rightZ * rightZ);
+    if (len > 1e-6) {
+      this.rightX = rightX / len;
+      this.rightZ = rightZ / len;
     }
   }
 
-  /** Fetches and decodes one audio file. Null on 404, network error or bad data. */
+  /**
+   * Whether a sound at (x, z) metres would be heard at all: inside SND_RANGE of
+   * the listener by the original's octagonal estimate. The effect install asks
+   * this before it plays an "at the player" sound flat.
+   */
+  inRange(x: number, z: number): boolean {
+    return this.within(x, z, SND_RANGE / WORLD_UNITS_PER_METRE);
+  }
+
+  /** (x, z) metres lies within `metres` of the listener (octagonal estimate). */
+  within(x: number, z: number, metres: number): boolean {
+    const dx = Math.trunc((x - this.lx) * WORLD_UNITS_PER_METRE);
+    const dz = Math.trunc((z - this.lz) * WORLD_UNITS_PER_METRE);
+    return lengthApprox(dx, dz) < metres * WORLD_UNITS_PER_METRE;
+  }
+
+  // --- the play paths ----------------------------------------------------------
+
+  /**
+   * `snd_play_script` / `snd_play_script_at` (table B, kind 1): a one-shot at
+   * (x, z) metres, or unplaced. Returns the channel, -1 when refused.
+   */
+  playScript(id: number, placed: boolean, x: number, z: number): number {
+    if (!this.bank) return -1;
+    const slot = slotFor(this.bank, TABLE_B, id);
+    if (slot < 0) return -1;
+    return this.start(slot, KIND_SCRIPT, placed, x, z, -1);
+  }
+
+  /**
+   * `snd_play_cued` (table A, kind 0): a sound that must not stack. Asked for
+   * again while it holds, its hold is refreshed; it stops 0.1 s after the last
+   * ask. Brings the slot's lead-in on a fresh start.
+   */
+  playCued(viewport: number, id: number, placed: boolean, x: number, z: number): void {
+    if (!this.bank || viewport < 0 || viewport >= VIEWPORTS) return;
+    const slot = slotFor(this.bank, TABLE_A, id);
+    if (slot < 0) return;
+    const pool = this.pool;
+    if (!pool) return;
+    const base = viewport * SND_CUES_PER_VIEWPORT;
+    let free = -1;
+    for (let i = 0; i < SND_CUES_PER_VIEWPORT; i++) {
+      const e = base + i;
+      if (this.cueHold[e] !== 0) {
+        if (this.cueSlot[e] === slot) {
+          const c = this.cueChannel[e];
+          if (c >= 0 && this.cueGen[e] === pool.generation[c]) {
+            this.cueHold[e] = SND_CUE_HOLD;
+            this.cueHeld[e] = 1;
+            return;
+          }
+          this.cueHold[e] = 0;
+        }
+        if (this.cueHold[e] !== 0) continue;
+      }
+      if (free < 0) free = e;
+    }
+    if (free < 0) return;
+    const channel = this.start(slot, KIND_CUED, placed, x, z, -1);
+    if (channel < 0 && !placed) {
+      this.cueHold[free] = 0;
+      return;
+    }
+    this.cueHold[free] = SND_CUE_HOLD;
+    this.cueHeld[free] = 1;
+    this.cueSlot[free] = slot;
+    this.cueChannel[free] = channel;
+    this.cueGen[free] = channel >= 0 ? pool.generation[channel] : 0;
+    this.leadIn(slot, placed, x, z);
+  }
+
+  /**
+   * `snd_loop_set_mode` (0x004340c0): the walker's loop by an animation event
+   * code — bit 5 enables, the low three bits are the mode. A new mode stops
+   * the old loop with its stop cue (script 0x32 + mode); the same mode again
+   * plays its repeat cue (0x38 + mode); mode 6 is the single cue 0x3d, mode 7
+   * silence.
+   */
+  loopSetMode(viewport: number, state: number, placed: boolean, x: number, z: number): void {
+    if ((state & LOOP_ENABLE) === 0 || viewport < 0 || viewport >= VIEWPORTS) return;
+    const mode = state & LOOP_MODE_MASK;
+    const pool = this.pool;
+    if (!pool) return;
+    if (this.loopLive[viewport] !== 0) {
+      const current = this.loopMode[viewport];
+      if (mode === current) {
+        const c = this.playScript(current + LOOP_START_BASE, placed, x, z);
+        if (c >= 0) pool.key[c] -= CUE_KEY_BOOST;
+      } else {
+        this.playScript(current + LOOP_STOP_BASE, placed, x, z);
+        this.dropVoice(this.loopChannel[viewport]);
+        this.loopLive[viewport] = 0;
+      }
+    }
+    if (mode === LOOP_MODE_NONE || this.loopLive[viewport] !== 0) return;
+    this.loopMode[viewport] = mode;
+    if (mode !== LOOP_MODE_QUIET) {
+      this.loopStart(viewport, mode + LOOP_SCRIPT_BASE, placed, x, z);
+      return;
+    }
+    const c = this.playScript(LOOP_QUIET_SCRIPT, placed, x, z);
+    if (c >= 0) pool.key[c] -= CUE_KEY_BOOST;
+  }
+
+  /**
+   * `snd_loop_set_script` (0x004341d0): the same register set by a script id
+   * outright, no start or stop cue; asking for the id already there does
+   * nothing, so it is safe every frame. LOOP_SCRIPT_NONE is silence.
+   */
+  loopSetScript(viewport: number, id: number, placed: boolean, x: number, z: number): void {
+    if (viewport < 0 || viewport >= VIEWPORTS) return;
+    if (id === this.loopMode[viewport]) return;
+    if (this.loopLive[viewport] !== 0) {
+      this.dropVoice(this.loopChannel[viewport]);
+      this.loopLive[viewport] = 0;
+    }
+    this.loopMode[viewport] = id;
+    if (id === LOOP_SCRIPT_NONE) return;
+    this.loopStart(viewport, id, placed, x, z);
+  }
+
+  /**
+   * `snd_loop_replace` (frame_tail.c): a loop that is heard from where it
+   * happens — the other player's mech — is re-measured every frame: stopped
+   * when it leaves range, started again when it comes back, re-levelled
+   * otherwise. Loops heard flat (the local mech's) are never re-measured.
+   */
+  loopFollow(viewport: number, x: number, z: number): void {
+    const pool = this.pool;
+    if (!pool || viewport < 0 || viewport >= VIEWPORTS) return;
+    if (this.loopLive[viewport] === 0 || this.loopPlaced[viewport] === 0) return;
+    this.loopX[viewport] = x;
+    this.loopZ[viewport] = z;
+    const c = this.loopChannel[viewport];
+    if (!this.measure(true, x, z)) {
+      this.dropVoice(c);
+      return;
+    }
+    if (!this.source[c]) {
+      if (!this.bank) return;
+      const slot = slotFor(this.bank, TABLE_A, this.loopScript[viewport]);
+      if (slot >= 0) this.start(slot, KIND_RESERVED, true, x, z, c);
+      return;
+    }
+    pool.setLevels(c, this.where.pan, this.where.volume);
+    this.applyGains(c);
+  }
+
+  /**
+   * The ambient queue (`snd_queue_add`): record `index` sounds table-A script
+   * `id` at (x, z) — every frame it is re-measured and the eight loudest get a
+   * channel. `id` 0 removes the record.
+   */
+  queueSet(index: number, id: number, x: number, z: number): void {
+    if (index < 0 || index >= QUEUE_RECORDS || !this.bank) return;
+    const slot = id > 0 ? slotFor(this.bank, TABLE_A, id) : -1;
+    if (slot !== this.qSlot[index]) {
+      this.queueDrop(index);
+      this.qSlot[index] = slot;
+    }
+    this.qX[index] = x;
+    this.qZ[index] = z;
+    this.qMark[index] = 1;
+  }
+
+  /** The pending-sound slot: the last id written in a frame is the one played. */
+  setPending(id: number): void {
+    this.pending = id;
+  }
+
+  /** Op 0x0c: queue a speech line. */
+  speak(id: number): void {
+    this.speech.queue(id);
+  }
+
+  /** Op 0x0d: interrupt with a speech line. */
+  speakNow(id: number): void {
+    if (this.speech.interrupt(id)) this.stopLine();
+  }
+
+  /**
+   * Once a sim tick (33 ms, 10 of the original's 300 Hz units): the frame
+   * tail. The pending sound, the speech pump, the cue holds, the kind-1 key
+   * decay, the queue's re-measure and its eight-voice budget.
+   */
+  frame(): void {
+    const pool = this.pool;
+    if (!pool || this.paused) return;
+    if (this.pending !== 0) {
+      this.playScript(this.pending, false, 0, 0);
+      this.pending = 0;
+    }
+    this.speechFrame();
+    for (let e = 0; e < VIEWPORTS * SND_CUES_PER_VIEWPORT; e++) {
+      if (this.cueHold[e] === 0) continue;
+      if (this.cueHeld[e] !== 0) {
+        this.cueHeld[e]--;
+        continue;
+      }
+      this.cueHold[e] -= TICK_STEP;
+      if (this.cueHold[e] >= 1) continue;
+      this.cueHold[e] = 0;
+      const c = this.cueChannel[e];
+      if (c >= 0 && this.cueGen[e] === pool.generation[c]) pool.release(c);
+    }
+    pool.decay(TICK_STEP);
+    this.queueFrame();
+  }
+
+  // --- internals -------------------------------------------------------------
+
+  private resetModule(): void {
+    if (!this.bank) return;
+    const bank = this.bank;
+    for (let c = 0; c < SND_CHANNELS; c++) this.stopVoice(c);
+    this.pool = new ChannelPool(
+      {
+        priority: (s) => bank.slots[s]?.priority ?? 1,
+        limit: (s) => bank.slots[s]?.limit ?? 0,
+      },
+      bank.slots.length,
+      (c) => this.stopVoice(c),
+    );
+    this.cursor.fill(0);
+    this.cueHold.fill(0);
+    this.cueHeld.fill(0);
+    this.cueChannel.fill(-1);
+    this.qSlot.fill(-1);
+    this.qChannel.fill(-1);
+    this.pending = 0;
+    this.speech.reset();
+    this.lineChannel = -1;
+    // The two movement loops' reserved channels, then the music's: priority
+    // 10 at full volume, the highest key there is, so nothing steals them.
+    for (let v = 0; v < VIEWPORTS; v++) {
+      this.loopChannel[v] = this.pool.alloc(SND_LEVEL_MAX, 10, KIND_RESERVED, NO_SLOT);
+      this.loopLive[v] = 0;
+      this.loopMode[v] = LOOP_SCRIPT_NONE;
+    }
+    this.musicChannel = this.pool.alloc(SND_LEVEL_MAX, 10, KIND_RESERVED, NO_SLOT);
+  }
+
+  private async loadArena(arena: ArenaSounds): Promise<void> {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const gen = ++this.loadGen;
+    this.sampleBuffers.length = 0;
+    this.voiceBuffers.length = 0;
+    const samples = await Promise.all(arena.sampleUrls.map((u) => this.fetchDecode(u)));
+    if (gen !== this.loadGen) return;
+    for (const b of samples) this.sampleBuffers.push(b);
+    const voices = await Promise.all(arena.voiceUrls.map((u) => this.fetchDecode(u)));
+    if (gen !== this.loadGen) return;
+    for (const b of voices) this.voiceBuffers.push(b);
+    this.musicBuffer = arena.musicUrl ? await this.fetchDecode(arena.musicUrl) : null;
+    if (gen !== this.loadGen) return;
+    if (this.musicWanted && !this.paused) this.startMusic();
+  }
+
+  /** Fetches and decodes one file. Null on 404, network error or bad data. */
   private async fetchDecode(url: string): Promise<AudioBuffer | null> {
     if (!this.ctx) return null;
     try {
@@ -350,173 +570,330 @@ export class AudioEngine {
       if (!res.ok) return null;
       return await this.ctx.decodeAudioData(await res.arrayBuffer());
     } catch {
-      return null; // network error or undecodable file
+      return null;
     }
-  }
-
-  pump(events: EventBuffer, resolvePosition?: EventPositionResolver): void {
-    // Track which coalesced cues already fired this tick (bitset over EV type).
-    let coalescedMask = 0;
-    for (let i = 0; i < events.count; i++) {
-      const o = i * EVENT_STRIDE;
-      const type = events.data[o];
-      if (type <= 0 || type >= this.counts.length) continue;
-      this.counts[type] += 1;
-      const a = events.data[o + 1];
-      const b = events.data[o + 2];
-      const c = events.data[o + 3];
-      const cue = cueForEvent(type, a, b, c);
-      if (!cue) continue;
-      if (type !== EV_SHOT) this.lastCue = cue;
-      if (!this.unlocked) continue;
-      if (COALESCE.has(cue)) {
-        const bit = 1 << type;
-        if (coalescedMask & bit) continue;
-        coalescedMask |= bit;
-      }
-      let positional = false;
-      if (resolvePosition !== undefined && !GLOBAL_CUES.has(cue)) {
-        positional = resolvePosition(type, a, b, c, this.posScratch);
-      }
-      this.play(cue, this.posScratch[0], this.posScratch[1], this.posScratch[2], positional);
-      const voice = voiceForEvent(type, a, b, c);
-      if (voice) this.play(voice);
-    }
-  }
-
-  /** Unlocks (if needed) and plays one cue — for the settings "test" button. */
-  preview(cue: string): void {
-    this.unlock();
-    this.play(cue);
   }
 
   /**
-   * Positions the listener. Called once per frame from the camera's world matrix:
-   * `pos` is its translation and `right` its first basis column, which is all the
-   * information a stereo pan needs.
+   * `snd_start` (0x00433ff0) with `snd_slot_start` (0x00434560): measure,
+   * allocate (or use `own`), step the round robin, play. -1 when refused.
    */
-  setListener(x: number, y: number, z: number, rx: number, ry: number, rz: number): void {
-    this.lx = x;
-    this.ly = y;
-    this.lz = z;
-    this.rx = rx;
-    this.ry = ry;
-    this.rz = rz;
+  private start(
+    slot: number,
+    kind: number,
+    placed: boolean,
+    x: number,
+    z: number,
+    own: number,
+  ): number {
+    const pool = this.pool;
+    const bank = this.bank;
+    if (!pool || !bank) return -1;
+    const s = bank.slots[slot];
+    if (!s || s.samples.length === 0) return -1;
+    if (!this.measure(placed, x, z)) return -1;
+    const channel = own >= 0 ? own : pool.alloc(this.where.volume, s.priority, kind, slot);
+    if (channel < 0) return -1;
+    let next = this.cursor[slot] + 1;
+    if (next >= s.samples.length) next = 0;
+    this.cursor[slot] = next;
+    pool.setLevels(channel, this.where.pan, this.where.volume);
+    if (!this.openVoice(channel, s, next)) {
+      if (own < 0) pool.release(channel);
+      return -1;
+    }
+    return channel;
   }
 
-  private play(cue: string, px = 0, py = 0, pz = 0, positional = false): void {
-    if (!this.ctx || !this.sfxGain || this.activeVoices >= MAX_VOICES) return;
-    const buffer = this.buffers.get(cue);
-    if (!buffer) return;
-    const src = this.ctx.createBufferSource();
-    src.buffer = buffer;
-    if (DETUNE_CUES.has(cue)) src.playbackRate.value = 0.94 + Math.random() * 0.12;
-    src.onended = this.onVoiceEnded;
-    // A StereoPannerNode pool rather than PannerNode/AudioListener: one-shots are
-    // created and destroyed constantly, HRTF panning costs real CPU on mobile,
-    // and the AudioListener.positionX-vs-setPosition split is still an iOS
-    // hazard. In a top-down arena azimuth plus distance is all the player can
-    // actually use, and swapping in true 3D later is contained to this method.
-    // Claim a slot no live source is using. The voice cap means one is always
-    // available (a voice owns at most one slot, and there are MAX_VOICES of
-    // each), but fall back to the unpanned bus rather than ever stealing one:
-    // a centred cue beats a playing cue lurching sideways.
-    const slot = claimVoiceSlot(this.slotSource);
-    const pan = slot >= 0 ? this.pan[slot] : undefined;
-    const gain = slot >= 0 ? this.voiceGain[slot] : undefined;
-    if (pan && gain) {
-      this.slotSource[slot] = src;
-      if (positional) {
-        const dx = px - this.lx;
-        const dy = py - this.ly;
-        const dz = pz - this.lz;
-        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        gain.gain.value =
-          AUDIO_REF_DISTANCE / (AUDIO_REF_DISTANCE + Math.max(0, d - AUDIO_REF_DISTANCE));
-        const inv = d > 0.001 ? 1 / d : 0;
-        const along = (dx * this.rx + dy * this.ry + dz * this.rz) * inv;
-        pan.pan.value = along < -MAX_PAN ? -MAX_PAN : along > MAX_PAN ? MAX_PAN : along;
+  /** `snd_play_lead_in` (0x00434640): the slot's head, kind 1, same place. */
+  private leadIn(slot: number, placed: boolean, x: number, z: number): void {
+    const lead = this.bank?.slots[slot]?.leadIn ?? -1;
+    if (lead >= 0) this.start(lead, KIND_SCRIPT, placed, x, z, -1);
+  }
+
+  private loopStart(viewport: number, id: number, placed: boolean, x: number, z: number): void {
+    this.loopLive[viewport] = 1;
+    this.loopScript[viewport] = id;
+    this.loopPlaced[viewport] = placed ? 1 : 0;
+    this.loopX[viewport] = x;
+    this.loopZ[viewport] = z;
+    if (!this.bank) return;
+    const slot = slotFor(this.bank, TABLE_A, id);
+    if (slot < 0) return;
+    const c = this.start(slot, KIND_RESERVED, placed, x, z, this.loopChannel[viewport]);
+    if (c >= 0) this.leadIn(slot, placed, x, z);
+  }
+
+  /** `snd_position_levels` + `_adjust` into `this.where`; false when refused. */
+  private measure(placed: boolean, x: number, z: number): boolean {
+    const dx = Math.trunc((x - this.lx) * WORLD_UNITS_PER_METRE);
+    const dz = Math.trunc((z - this.lz) * WORLD_UNITS_PER_METRE);
+    return positionLevels(!placed, dx, dz, this.rightX, this.rightZ, this.levels.sfx, this.where);
+  }
+
+  private openVoice(channel: number, slot: BankSlot, index: number): boolean {
+    const ctx = this.ctx;
+    const sample = slot.samples[index];
+    const buf = sample ? this.sampleBuffers[sample.file] : null;
+    if (!ctx || !sample || !buf) return false;
+    this.stopVoice(channel);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const t0 = sample.start / SAMPLE_RATE;
+    const len = sample.frames / SAMPLE_RATE;
+    src.connect(this.gainL[channel]);
+    src.connect(this.gainR[channel]);
+    this.applyGains(channel);
+    if (slot.loop) {
+      src.loop = true;
+      src.loopStart = t0;
+      src.loopEnd = t0 + len;
+      src.start(0, t0);
+    } else {
+      src.start(0, t0, len);
+    }
+    this.source[channel] = src;
+    this.lastPlayed = sample.file.toString();
+    return true;
+  }
+
+  private applyGains(channel: number): void {
+    const pool = this.pool;
+    if (!pool) return;
+    channelGains(pool.volume[channel], pool.pan[channel], this.gains);
+    this.gainL[channel].gain.value = this.gains[0];
+    this.gainR[channel].gain.value = this.gains[1];
+  }
+
+  /** Stops the WebAudio voice behind a channel (the pool's release callback). */
+  private stopVoice(channel: number): void {
+    const src = this.source[channel];
+    if (!src) return;
+    this.source[channel] = null;
+    try {
+      src.stop();
+    } catch {
+      // never started or already stopped
+    }
+    src.disconnect();
+  }
+
+  /** `snd_channel_drop_buffer`: the voice goes, the (reserved) channel stays. */
+  private dropVoice(channel: number): void {
+    if (channel >= 0) this.stopVoice(channel);
+  }
+
+  private queueDrop(index: number): void {
+    const c = this.qChannel[index];
+    const pool = this.pool;
+    if (c >= 0 && pool && this.qGen[index] === pool.generation[c]) pool.release(c);
+    this.qChannel[index] = -1;
+  }
+
+  /**
+   * frame_tail's queue pass: every record re-measured; records the caller did
+   * not renew this tick are dropped; then, loudest first, at most eight get a
+   * channel — anything past the budget or out of range loses the one it had.
+   */
+  private queueFrame(): void {
+    const pool = this.pool;
+    const bank = this.bank;
+    if (!pool || !bank) return;
+    let n = 0;
+    for (let i = 0; i < QUEUE_RECORDS; i++) {
+      if (this.qSlot[i] < 0) continue;
+      if (this.qMark[i] === 0) {
+        this.queueDrop(i);
+        this.qSlot[i] = -1;
+        continue;
+      }
+      this.qMark[i] = 0;
+      if (this.measure(true, this.qX[i], this.qZ[i])) {
+        const s = bank.slots[this.qSlot[i]];
+        this.qKey[i] = (s?.priority ?? 0) * 16 + this.where.volume;
+        this.qVolume[i] = this.where.volume;
+        this.qPan[i] = this.where.pan;
       } else {
-        gain.gain.value = 1;
-        pan.pan.value = 0;
+        this.qKey[i] = 0;
       }
-      src.connect(pan);
-    } else {
-      src.connect(this.sfxGain);
+      this.qOrder[n++] = i;
     }
-    src.start();
-    this.activeVoices++;
+    // Loudest first (insertion sort over at most 64, no allocation).
+    for (let a = 1; a < n; a++) {
+      const r = this.qOrder[a];
+      let b = a - 1;
+      while (b >= 0 && this.qKey[this.qOrder[b]] < this.qKey[r]) {
+        this.qOrder[b + 1] = this.qOrder[b];
+        b--;
+      }
+      this.qOrder[b + 1] = r;
+    }
+    let heard = 0;
+    for (let k = 0; k < n; k++) {
+      const r = this.qOrder[k];
+      const live = this.qChannel[r] >= 0 && this.qGen[r] === pool.generation[this.qChannel[r]];
+      if (heard < SND_QUEUE_VOICES && this.qKey[r] !== 0) {
+        if (!live) {
+          const slot = this.qSlot[r];
+          const s = bank.slots[slot];
+          if (!s) continue;
+          const c = pool.alloc(this.qVolume[r], s.priority, KIND_CUED, slot);
+          if (c < 0) continue;
+          pool.owned[c] = 1;
+          this.where.volume = this.qVolume[r];
+          this.where.pan = this.qPan[r];
+          let next = this.cursor[slot] + 1;
+          if (next >= s.samples.length) next = 0;
+          this.cursor[slot] = next;
+          pool.setLevels(c, this.qPan[r], this.qVolume[r]);
+          if (!this.openVoice(c, s, next)) {
+            pool.release(c);
+            continue;
+          }
+          this.qChannel[r] = c;
+          this.qGen[r] = pool.generation[c];
+          this.leadIn(slot, true, this.qX[r], this.qZ[r]);
+        } else {
+          const c = this.qChannel[r];
+          pool.setLevels(c, this.qPan[r], this.qVolume[r]);
+          this.applyGains(c);
+          pool.rekey(c, this.qKey[r]);
+        }
+        heard++;
+      } else if (live) {
+        this.queueDrop(r);
+      }
+    }
   }
 
-  /** Starts the persisted selection if audible and not already playing. */
-  private startSelectedMusic(): void {
-    const sel = this.settings.track;
-    if (sel === "off" || this.settings.music === 0 || this.musicSource) return;
-    const gen = ++this.musicLoadGen;
-    void this.loadMusicBuffer(sel).then((buf) => {
-      if (!buf || gen !== this.musicLoadGen || this.settings.track !== sel) return;
-      if (this.settings.music > 0 && !this.musicSource) this.startMusicSource(buf);
-    });
+  private speechFrame(): void {
+    const pool = this.pool;
+    if (!pool) return;
+    if (this.lineChannel >= 0) {
+      this.lineTicksLeft--;
+      const gone = pool.generation[this.lineChannel] !== this.lineGen;
+      if (gone || this.lineTicksLeft <= 0) this.stopLine();
+    }
+    const id = this.speech.pump();
+    if (id < 0) return;
+    const buf = this.voiceBuffers[id];
+    const ctx = this.ctx;
+    const c = pool.alloc(LINE_VOLUME, LINE_PRIORITY, KIND_CUED, NO_SLOT);
+    if (!buf || !ctx || c < 0) {
+      if (c >= 0) pool.release(c);
+      this.speech.lineEnded();
+      return;
+    }
+    this.stopVoice(c);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this.gainL[c]);
+    src.connect(this.gainR[c]);
+    // The line's own level escapes the ducking it starts (volume_raw stays -1).
+    channelGains(speechLevel(this.levels.movies), SND_PAN_CENTRE, this.gains);
+    this.gainL[c].gain.value = this.gains[0];
+    this.gainR[c].gain.value = this.gains[1];
+    src.start();
+    this.source[c] = src;
+    this.lineChannel = c;
+    this.lineGen = pool.generation[c];
+    // bytes * 300 / 22050 engine ticks, in sim ticks.
+    this.lineTicksLeft = Math.ceil(buf.duration * 30) + 1;
+    this.lastPlayed = `voice ${id}`;
+    this.setDucking(true);
+  }
+
+  private stopLine(): void {
+    const pool = this.pool;
+    if (pool && this.lineChannel >= 0 && pool.generation[this.lineChannel] === this.lineGen) {
+      pool.release(this.lineChannel);
+    }
+    this.lineChannel = -1;
+    this.speech.lineEnded();
+    this.setDucking(false);
+  }
+
+  /** `snd_duck` / `snd_unduck`: kinds 0 and 2 re-applied from their raw level. */
+  private setDucking(on: boolean): void {
+    const pool = this.pool;
+    if (!pool || pool.ducking === on) return;
+    pool.ducking = on;
+    for (const kind of [KIND_CUED, KIND_RESERVED]) {
+      for (let c = pool.head(kind); c >= 0; c = pool.after(c)) {
+        const raw = pool.volumeRaw[c];
+        if (raw < 0) continue;
+        pool.setLevels(c, pool.pan[c], raw);
+        this.applyGains(c);
+      }
+    }
   }
 
   /**
-   * Returns the cached buffer for `sel`, rendering (synth) or fetching+decoding
-   * (file tracks) on first use. Null on any failure — 404s are expected while
-   * the mp3 slots are placeholders.
+   * `snd_silence_all` (0x00434480): the movement loops off, every kind-1
+   * channel and every kind-0 one but `keep` released. Kind 2 (the reserved
+   * channels) is not walked; their voices are dropped by their owners.
    */
-  private async loadMusicBuffer(sel: MusicSelection): Promise<AudioBuffer | null> {
-    if (!this.ctx || sel === "off") return null;
-    const cached = this.musicBuffers.get(sel);
-    if (cached) return cached;
-    let buf: AudioBuffer | null = null;
-    if (sel === "synth") {
-      const rate = this.ctx.sampleRate;
-      const pcm = renderMusicLoop(rate);
-      buf = this.ctx.createBuffer(1, pcm.length, rate);
-      buf.copyToChannel(pcm, 0);
-    } else {
-      const url = MUSIC_OPTIONS.find((o) => o.id === sel)?.url;
-      if (!url) return null;
-      buf = await this.fetchDecode(url);
-      if (!buf) return null;
+  private silenceAll(keep: number): void {
+    const pool = this.pool;
+    if (!pool) return;
+    if (keep < 0 && this.lineChannel >= 0) this.stopLine();
+    for (let v = 0; v < VIEWPORTS; v++) {
+      if (this.loopLive[v] !== 0) this.dropVoice(this.loopChannel[v]);
+      this.loopLive[v] = 0;
+      this.loopMode[v] = LOOP_SCRIPT_NONE;
     }
-    this.musicBuffers.set(sel, buf);
-    return buf;
+    for (let c = pool.head(KIND_SCRIPT); c >= 0; c = pool.head(KIND_SCRIPT)) pool.release(c);
+    let c = pool.head(KIND_CUED);
+    while (c >= 0) {
+      const next = pool.after(c);
+      if (c !== keep) pool.release(c);
+      c = next;
+    }
+    this.cueHold.fill(0);
+    for (let i = 0; i < QUEUE_RECORDS; i++) this.qChannel[i] = -1;
   }
 
-  private startMusicSource(buffer: AudioBuffer): void {
-    if (!this.ctx || !this.musicGain || this.musicSource) return;
-    const src = this.ctx.createBufferSource();
-    src.buffer = buffer;
+  private startMusic(): void {
+    const ctx = this.ctx;
+    const pool = this.pool;
+    if (!ctx || !pool || !this.musicBuffer || !this.musicWanted || this.musicChannel < 0) return;
+    if (this.source[this.musicChannel]) return;
+    const c = this.musicChannel;
+    const src = ctx.createBufferSource();
+    src.buffer = this.musicBuffer;
     src.loop = true;
-    src.connect(this.musicGain);
-    src.start();
-    this.musicSource = src;
+    src.connect(this.splitter[c]);
+    pool.setLevels(c, SND_PAN_CENTRE, this.levels.music);
+    this.applyGains(c);
+    const offset = this.musicOffset % this.musicBuffer.duration;
+    src.start(0, offset);
+    this.musicStartedAt = ctx.currentTime - offset;
+    this.source[c] = src;
   }
 
-  /** A looping source can't be restarted, so stop + drop it; startSelectedMusic remakes it. */
-  private stopMusic(): void {
-    if (!this.musicSource) return;
-    try {
-      this.musicSource.stop();
-    } catch {
-      // already stopped
+  private stopMusic(keepPlace: boolean): void {
+    const ctx = this.ctx;
+    if (this.musicChannel < 0) return;
+    if (keepPlace && ctx && this.source[this.musicChannel]) {
+      this.musicOffset = ctx.currentTime - this.musicStartedAt;
+    } else if (!keepPlace) {
+      this.musicOffset = 0;
     }
-    this.musicSource.disconnect();
-    this.musicSource = null;
+    this.stopVoice(this.musicChannel);
   }
 
-  private applyGains(): void {
-    if (this.masterGain) this.masterGain.gain.value = this.settings.master;
-    if (this.sfxGain) this.sfxGain.gain.value = this.settings.sfx;
-    if (this.musicGain) this.musicGain.gain.value = this.settings.music;
+  private applyMusicLevel(): void {
+    const pool = this.pool;
+    if (!pool || this.musicChannel < 0) return;
+    pool.setLevels(this.musicChannel, SND_PAN_CENTRE, this.levels.music);
+    this.applyGains(this.musicChannel);
   }
+}
 
-  private persist(): void {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
-    } catch {
-      // ignore storage failures (private mode, quota)
-    }
+function loadLevels(): AudioLevels {
+  try {
+    return parseAudioLevels(localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return parseAudioLevels(null);
   }
 }

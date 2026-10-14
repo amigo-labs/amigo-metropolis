@@ -14,10 +14,11 @@ import {
 } from "../src/balance";
 import { countAlive } from "../src/entities";
 import { EV_DEATH, EV_RESPAWN, EVENT_STRIDE } from "../src/events";
-import { BUTTON_FIRE1, BUTTON_FIRE2, createTickInputs } from "../src/inputs";
+import { BTN_BACK, BTN_FORWARD, BTN_GUN, BTN_HEAVY, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, type SimState, step } from "../src/sim";
 import { GUNS, HEAVIES } from "../src/weapons";
+import { face } from "./drive";
 
 // The default kit's numbers (the original's records, weapons.ts): the Mini-Gun
 // hits its lock for 1 every tick; Hell Fire 2000 is a 25-damage homing missile
@@ -55,15 +56,14 @@ function flatArena(dummies: number[][]): MapJson {
       { x: 20, y: 30, radius: 6 },
       { x: 30, y: 58, radius: 6 },
     ],
-    // Minimal bases: pads mirror the plots (ammo refill semantics), gates in
-    // far corners, no ring turrets — the dummy spot stays the only hostile.
+    // Minimal bases: gates in far corners, no ring turrets — the dummy spot
+    // stays the only hostile.
     bases: [
       {
         gate: { x: 2, y: 2, radius: 2 },
         core: [14, 30],
         groundConsole: [20, 24],
         airConsole: [20, 36],
-        pad: { x: 20, y: 30, radius: 6 },
         turrets: [],
       },
       {
@@ -71,7 +71,6 @@ function flatArena(dummies: number[][]): MapJson {
         core: [36, 58],
         groundConsole: [30, 52],
         airConsole: [24, 58],
-        pad: { x: 30, y: 58, radius: 6 },
         turrets: [],
       },
     ],
@@ -86,13 +85,7 @@ const inputs = createTickInputs();
 const p0 = inputs.players[0];
 
 function reset(): void {
-  for (const p of inputs.players) {
-    p.moveX = 0;
-    p.moveY = 0;
-    p.aimX = 0;
-    p.aimY = 0;
-    p.buttons = 0;
-  }
+  for (const p of inputs.players) p.buttons = 0;
 }
 
 function simWithDummy(): SimState {
@@ -113,8 +106,8 @@ describe("primary hitscan", () => {
     const sim = simWithDummy();
     const dummy = sim.dummyEntity[0];
     expect(sim.ent.archetype[dummy]).toBe(ARCHETYPE.TURRET);
-    p0.aimX = 127; // aim due east at the dummy
-    p0.buttons = BUTTON_FIRE1;
+    // The spawn faces due east, at the dummy: the Gun fires along the facing.
+    p0.buttons = BTN_GUN;
     for (let i = 0; i < 20; i++) step(sim, inputs);
     expect(sim.lockTarget[0]).toBe(dummy);
     expect(sim.ent.hp[dummy]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET] - 20 * PRIMARY_DAMAGE);
@@ -125,11 +118,8 @@ describe("primary hitscan", () => {
     const sim = simWithDummy();
     const dummy = sim.dummyEntity[0];
     const a0 = sim.avatarId[0];
-    sim.ent.yaw[a0] = Math.PI / 2; // facing north, the dummy is east
-    sim.ent.aimX[a0] = 0;
-    sim.ent.aimY[a0] = 1;
-    p0.aimY = 127;
-    p0.buttons = BUTTON_FIRE1;
+    face(sim, a0, Math.PI / 2); // facing north, the dummy is east
+    p0.buttons = BTN_GUN;
     for (let i = 0; i < 30; i++) step(sim, inputs);
     expect(sim.lockTarget[0]).toBe(-1);
     expect(sim.ent.hp[dummy]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
@@ -138,8 +128,7 @@ describe("primary hitscan", () => {
   it("killing the neutral dummy awards nothing and schedules its respawn", () => {
     reset();
     const sim = simWithDummy();
-    p0.aimX = 127;
-    p0.buttons = BUTTON_FIRE1;
+    p0.buttons = BTN_GUN; // facing the dummy from the spawn
     const need = Math.ceil(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET] / PRIMARY_DAMAGE);
     let died = false;
     for (let i = 0; i < need + 10; i++) {
@@ -167,13 +156,12 @@ describe("heavy projectile", () => {
     reset();
     const sim = simWithDummy();
     const dummy = sim.dummyEntity[0];
-    p0.aimX = 127;
-    p0.buttons = BUTTON_FIRE2;
+    p0.buttons = BTN_HEAVY; // facing the dummy from the spawn
     step(sim, inputs);
-    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 1); // refill ran before the shot
+    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 1);
     expect(countAlive(sim.ent)).toBe(4); // 2 avatars + dummy + projectile
     step(sim, inputs);
-    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO); // base plot refills next tick
+    expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 1); // nothing refills it at a base
     // One Hell Fire (25) does not kill the 500 hp dummy; wait for impact.
     p0.buttons = 0;
     for (let i = 0; i < 60; i++) step(sim, inputs);
@@ -193,11 +181,9 @@ describe("heavy projectile", () => {
     reset();
     const sim = simWithDummy();
     // Walk off the plot first, then fire twice.
-    p0.moveX = 127;
+    p0.buttons = BTN_FORWARD; // the spawn faces east
     for (let i = 0; i < 75; i++) step(sim, inputs); // ~11.7 m east
-    p0.moveX = 0;
-    p0.aimX = 127;
-    p0.buttons = BUTTON_FIRE2;
+    p0.buttons = BTN_HEAVY;
     step(sim, inputs);
     expect(sim.ent.ammoA[0]).toBe(HEAVY_AMMO - 1);
     step(sim, inputs); // cooldown blocks the second shot
@@ -211,11 +197,10 @@ describe("dummy turret retaliation, death and respawn", () => {
   it("turret damages the avatar in range; avatar dies and respawns", () => {
     reset();
     const sim = simWithDummy();
-    // Step off the repairing pad (radius 6) and stand in the dummy's 12 m
-    // without firing back.
-    p0.moveX = 127;
+    // Walk toward the dummy and stand in its 12 m without firing back.
+    p0.buttons = BTN_FORWARD; // the spawn faces east
     for (let i = 0; i < 45; i++) step(sim, inputs); // ~7 m east, 3 m from the dummy
-    p0.moveX = 0;
+    p0.buttons = 0;
     let sawDamage = false;
     let deathTick = -1;
     // The dummy's gun: the original neutral turret's, 100 a round every 61 ticks.
@@ -263,9 +248,11 @@ describe("combat determinism", () => {
     const b = simWithDummy();
     const ins = createTickInputs();
     for (let t = 0; t < 900; t++) {
-      ins.players[0].moveX = t % 90 < 45 ? 127 : -40;
-      ins.players[0].aimX = 127;
-      ins.players[0].buttons = (t % 3 === 0 ? BUTTON_FIRE1 : 0) | (t % 50 === 0 ? BUTTON_FIRE2 : 0);
+      // East toward the dummy and back west, hull facing it throughout.
+      ins.players[0].buttons =
+        (t % 90 < 45 ? BTN_FORWARD : BTN_BACK) |
+        (t % 3 === 0 ? BTN_GUN : 0) |
+        (t % 50 === 0 ? BTN_HEAVY : 0);
       step(a, ins);
       step(b, ins);
       expect(hash(a)).toBe(hash(b));

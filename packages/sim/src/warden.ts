@@ -46,7 +46,6 @@ import {
   SKY_GUN_REFIRE_UNITS,
   SKY_HOME_RADIUS,
   SKY_HURT_PLAYER,
-  SKY_JET_QUEUE_TICKS,
   SKY_L9_DREAD,
   SKY_L9_TANK,
   SKY_LEVEL_PENALTY,
@@ -74,7 +73,6 @@ import {
   SKY_SPEND_HOME,
   SKY_SPEND_HOME_PER_LEVEL,
   SKY_STANDOFF,
-  SKY_TANK_QUEUE_TICKS,
   SKY_TURRET_COUNT,
   SKY_TURRET_PARTS,
   SKY_TURRETS_SAFE,
@@ -82,18 +80,34 @@ import {
   skyMaxHp,
   skySpeed,
   TICK_DT,
+  UNIT_QUEUES,
   WARDEN_ALTITUDE,
   WEAPON_UNITS_PER_TICK,
   wardenLevel,
 } from "./balance";
 import { segmentBlocked } from "./collision";
-import { EV_PURCHASE, EV_SHOT, pushEvent, SHOT_SLOT_HITSCAN, SHOT_SLOT_LAUNCH } from "./events";
+import {
+  CAPTAIN_ORDER_DREADNOUGHT,
+  CAPTAIN_ORDER_FORTRESS,
+  CAPTAIN_ORDER_JETS,
+  CAPTAIN_ORDER_TANKS,
+  EV_CAPTAIN_EVENT,
+  EV_CAPTAIN_MODE,
+  EV_CAPTAIN_ORDER,
+  EV_PURCHASE,
+  EV_SHOT,
+  pushEvent,
+  SHOT_SLOT_HITSCAN,
+  SHOT_SLOT_LAUNCH,
+  SKY_WEAPON_BOMB,
+} from "./events";
 import { sampleHeight, worldExtent } from "./map";
 import {
   ANIM_MOVING,
   claimOutpostSlot,
   fireWardenMissile,
   hitscan,
+  queuedUnits,
   type SimState,
   spawnUnit,
   spawnWardenBomb,
@@ -101,7 +115,12 @@ import {
   TURRET_DEFENSE,
 } from "./sim";
 import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
-import { isGroundUnit, nearestEnemyInRange, UNIT_MODE_OUTPOST, UNIT_MODE_PATROL } from "./units";
+import { nearestEnemyInRange, UNIT_MODE_PATROL } from "./units";
+
+/** Word 56's announcements the sim raises (EV_CAPTAIN_EVENT). */
+export const CAPTAIN_EVENT_FIRES_ON_PLAYER = 2;
+export const CAPTAIN_EVENT_HUNTS_HURT = 3;
+export const CAPTAIN_EVENT_REPAIRED = 4;
 
 /** The captain's modes (`ai->mode`, mirrored in state word 39). */
 export const SKY_MODE_ROAM = 0; //   the opportunist (mode 0)
@@ -112,12 +131,14 @@ export const SKY_MODE_DEFEND = 2; // defend home, or go after the player (mode 2
 export const SKY_ENGAGE = 0;
 export const SKY_CRUISE = 1;
 
-/** Request queues: 0 base tanks, 1 base jets, then per outpost k: 2 + 2k tanks, 3 + 2k jets. */
+/**
+ * Its requests go to its side's spawn queues (sim.ts systemQueues): 0 base
+ * tanks, 1 base jets, then per outpost k: 2 + 2k tanks, 3 + 2k jets.
+ */
 export const SKY_QUEUE_BASE_TANKS = 0;
 export const SKY_QUEUE_BASE_JETS = 1;
 /** The original's four outposts (state words 40..43, request words 48..55). */
 export const SKY_OUTPOSTS = 4;
-export const SKY_QUEUES = 2 + 2 * SKY_OUTPOSTS;
 
 /**
  * The captain's state, the original's `sky_ai` block plus the aircraft fields it
@@ -148,9 +169,6 @@ export interface CaptainState {
   /** Rate machines of weapons 7, 8, 9: clock (engine units) and phase. */
   readonly gunClock: Float64Array;
   readonly gunPhase: Uint8Array;
-  /** Units requested and not yet spawned, and each queue's countdown (ticks). */
-  readonly queue: Int32Array;
-  readonly queueTimer: Int32Array;
 }
 
 export function createCaptainState(): CaptainState {
@@ -168,8 +186,6 @@ export function createCaptainState(): CaptainState {
     search: 0,
     gunClock: new Float64Array(3),
     gunPhase: new Uint8Array(3),
-    queue: new Int32Array(SKY_QUEUES),
-    queueTimer: new Int32Array(SKY_QUEUES),
   };
 }
 
@@ -265,8 +281,8 @@ export function captainConstruct(state: SimState): void {
   if (level >= 1) {
     let tanks = randInt(state, 4) + 9 - level;
     if (tanks > SKY_OPENING_ORDER) tanks = SKY_OPENING_ORDER;
-    c.queue[SKY_QUEUE_BASE_TANKS] += tanks;
-    c.queue[SKY_QUEUE_BASE_JETS] += SKY_OPENING_ORDER - tanks;
+    state.unitQueue[me * UNIT_QUEUES + SKY_QUEUE_BASE_TANKS] += tanks;
+    state.unitQueue[me * UNIT_QUEUES + SKY_QUEUE_BASE_JETS] += SKY_OPENING_ORDER - tanks;
   }
 }
 
@@ -285,7 +301,7 @@ export function captainRespawn(state: SimState): void {
   c.think = 0;
   c.aim = -1;
   c.move = -1;
-  c.mode = SKY_MODE_ROAM;
+  setMode(state, id, SKY_MODE_ROAM);
   c.fly = SKY_ENGAGE;
   refreshDestination(state);
   const yaw = (randInt(state, 4096) / 4096) * TAU;
@@ -306,6 +322,7 @@ export function captainRestore(state: SimState, id: number): void {
 
 function restore(state: SimState, id: number): void {
   const c = state.captain;
+  pushEvent(state.events, EV_CAPTAIN_EVENT, id, CAPTAIN_EVENT_REPAIRED, 0);
   state.ent.hp[id] = captainMaxHp(state);
   redrawThreshold(state);
   c.fly = SKY_ENGAGE;
@@ -323,11 +340,10 @@ export function captainCredit(state: SimState, team: number): void {
   if (state.wardenPlayer >= 0 && team === state.wardenPlayer) state.captain.think = 0;
 }
 
-/** Warden system: retreat → rethink → weapons → flight; then its queues. */
+/** Warden system: retreat → rethink → weapons → flight (its queues are systemQueues'). */
 export function systemWarden(state: SimState): void {
   const me = state.wardenPlayer;
   if (me < 0) return;
-  captainQueues(state, me);
   const id = state.avatarId[me];
   if (id < 0) return; // down: systemSpawning brings it back
   // Below zero it is going down this tick (systemDamageDeath): the original's
@@ -701,6 +717,8 @@ function decide(state: SimState, id: number, level: number): void {
     const hurt =
       s.own1 >= 0 && s.own1D < SKY_HURT_PLAYER && ent.hp[s.own1] < Math.floor(AVATAR_HP / 4);
     if (hurt) {
+      // Word 56 := 3 (0x00422098).
+      pushEvent(state.events, EV_CAPTAIN_EVENT, id, CAPTAIN_EVENT_HUNTS_HURT, 0);
       if (!(c.move === s.own1 && c.aim === s.own1)) {
         if (c.aim !== s.own1 && inWeaponRange(state, id, s.own1)) c.aim = s.own1;
         if (c.move !== s.own1) setMove(state, s.own1);
@@ -735,10 +753,17 @@ function decide(state: SimState, id: number, level: number): void {
   if (s.own1 >= 0 && c.aim !== s.own1) {
     const held = c.aim;
     if (held < 0 || (held !== s.own28 && held !== s.own5)) {
-      if (inWeaponRange(state, id, s.own1)) c.aim = s.own1;
+      if (inWeaponRange(state, id, s.own1)) {
+        c.aim = s.own1;
+        // Word 56 := 2 (0x004223b0): its guns turned on the player's mech.
+        pushEvent(state.events, EV_CAPTAIN_EVENT, id, CAPTAIN_EVENT_FIRES_ON_PLAYER, 0);
+      }
     }
   }
-  if (entryMode !== c.mode) refreshDestination(state);
+  if (entryMode !== c.mode) {
+    pushEvent(state.events, EV_CAPTAIN_MODE, id, c.mode, 0);
+    refreshDestination(state);
+  }
   spend(state, id, level);
 }
 
@@ -755,18 +780,12 @@ function countTeam(state: SimState, archetype: number, team: number): number {
 
 /** Word 29: its tanks, alive or requested. */
 function tankCount(state: SimState, me: number): number {
-  const q = state.captain.queue;
-  let n = countTeam(state, ARCHETYPE.RUNNER, me) + q[SKY_QUEUE_BASE_TANKS];
-  for (let k = 0; k < SKY_OUTPOSTS; k++) n += q[2 + 2 * k];
-  return n;
+  return countTeam(state, ARCHETYPE.RUNNER, me) + queuedUnits(state, me, false);
 }
 
 /** Word 30: its jets, alive or requested. */
 function jetCount(state: SimState, me: number): number {
-  const q = state.captain.queue;
-  let n = countTeam(state, ARCHETYPE.GUARDIAN, me) + q[SKY_QUEUE_BASE_JETS];
-  for (let k = 0; k < SKY_OUTPOSTS; k++) n += q[3 + 2 * k];
-  return n;
+  return countTeam(state, ARCHETYPE.GUARDIAN, me) + queuedUnits(state, me, true);
 }
 
 /**
@@ -777,9 +796,23 @@ function owns(state: SimState, k: number, team: number): boolean {
   return k < state.outpostOwner.length && state.outpostOwner[k] === team;
 }
 
+/** A mode change outside the decision pass, reported like the pass's own. */
+function setMode(state: SimState, id: number, mode: number): void {
+  if (state.captain.mode !== mode) pushEvent(state.events, EV_CAPTAIN_MODE, id, mode, 0);
+  state.captain.mode = mode;
+}
+
 /** Pay `cost` and queue `n` units on queue `q`. */
 function request(state: SimState, me: number, q: number, n: number, cost: number): void {
-  state.captain.queue[q] += n;
+  state.unitQueue[me * UNIT_QUEUES + q] += n;
+  // The request word the order scripts poll (words 44/45, 48..55).
+  pushEvent(
+    state.events,
+    EV_CAPTAIN_ORDER,
+    state.avatarId[me],
+    q % 2 === 0 ? CAPTAIN_ORDER_TANKS : CAPTAIN_ORDER_JETS,
+    q < 2 ? -1 : (q - 2) >> 1,
+  );
   const left = state.points[me] - cost;
   state.points[me] = left > 0 ? left : 0;
 }
@@ -932,76 +965,26 @@ function ownedCount(state: SimState, team: number): number {
 
 /** A Dreadnought or Fortress request: the script spawns it at once if its limit allows. */
 function heavyNow(state: SimState, me: number, archetype: number): void {
+  // Words 46 / 47: the scripts (fn05 / fn06) announce the order whether or not
+  // the spawner's limit then refuses it.
+  pushEvent(
+    state.events,
+    EV_CAPTAIN_ORDER,
+    state.avatarId[me],
+    archetype === ARCHETYPE.JUGGERNAUT ? CAPTAIN_ORDER_DREADNOUGHT : CAPTAIN_ORDER_FORTRESS,
+    -1,
+  );
   const limit = archetype === ARCHETYPE.JUGGERNAUT ? JUGGERNAUT_ALIVE_LIMIT : FORTRESS_ALIVE_LIMIT;
   if (countTeam(state, archetype, me) >= limit) return; // spent, refused: the quirk
+  // Each from its own spawner (fn05 / fn06 request the base's Dreadnought and
+  // Fortress templates): the Dreadnought record, the Fortress spawner.
   const base = state.map.bases[me];
-  let x = base.airConsole.x;
-  let y = base.airConsole.y;
-  let layer = base.airConsole.layer;
-  if (archetype === ARCHETYPE.JUGGERNAUT) {
-    const dread = base.juggernaut;
-    x = dread !== undefined ? dread.x : base.groundConsole.x;
-    y = dread !== undefined ? dread.y : base.groundConsole.y;
-    layer = dread !== undefined ? dread.layer : base.groundConsole.layer;
-  }
+  const at = archetype === ARCHETYPE.JUGGERNAUT ? base.juggernaut : base.fortressSpawn;
+  const x = at.x;
+  const y = at.y;
+  const layer = at.layer;
   const uid = spawnUnit(state, archetype, me, x, y, UNIT_MODE_PATROL, false, layer);
   if (uid >= 0) pushEvent(state.events, EV_PURCHASE, uid, me, archetype);
-}
-
-/**
- * The scripts that turn its requests into units (fn17/fn19 and the outpost
- * queues): one unit per queue per period, tanks every 3.4 s, jets every 0.97 s,
- * at the base consoles or the outpost (a forward spawn), while the side is
- * under its cap of 20 alive.
- */
-function captainQueues(state: SimState, me: number): void {
-  const c = state.captain;
-  const map = state.map;
-  for (let q = 0; q < SKY_QUEUES; q++) {
-    if (c.queue[q] <= 0) {
-      c.queueTimer[q] = 0;
-      continue;
-    }
-    if (c.queueTimer[q] > 0) {
-      c.queueTimer[q] -= 1;
-      continue;
-    }
-    const jet = (q & 1) === 1;
-    const archetype = jet ? ARCHETYPE.GUARDIAN : ARCHETYPE.RUNNER;
-    if (countTeam(state, archetype, me) >= SKY_UNIT_CAP) continue;
-    let x: number;
-    let y: number;
-    let layer: number;
-    let forward = false;
-    let mode = UNIT_MODE_PATROL;
-    if (q < 2) {
-      const at = jet ? map.bases[me].airConsole : map.bases[me].groundConsole;
-      x = at.x;
-      y = at.y;
-      layer = at.layer;
-    } else {
-      const k = (q - 2) >> 1;
-      if (k >= map.outpostSpots.length) {
-        c.queue[q] = 0;
-        continue;
-      }
-      // The original's outposts have a tank pad and a jet pad; Metropolis' own
-      // sell both at the console.
-      const o = map.outposts.length > 0 ? map.outposts[k] : undefined;
-      const at = o === undefined ? map.outpostSpots[k] : jet ? o.jetPad : o.tankPad;
-      x = at.x;
-      y = at.y;
-      layer = at.layer;
-      forward = true;
-      if (jet) mode = UNIT_MODE_OUTPOST + k;
-    }
-    const uid = spawnUnit(state, archetype, me, x, y, mode, forward, layer);
-    if (uid < 0) continue; // the entity store is full: try again next tick
-    c.queue[q] -= 1;
-    // The next one SKY_*_QUEUE_TICKS later (the countdown runs out the tick before).
-    c.queueTimer[q] = (jet ? SKY_JET_QUEUE_TICKS : SKY_TANK_QUEUE_TICKS) - 1;
-    pushEvent(state.events, EV_PURCHASE, uid, me, archetype);
-  }
 }
 
 // --- Weapons -----------------------------------------------------------------
@@ -1052,20 +1035,26 @@ function aimValid(state: SimState, id: number, t: number): boolean {
   return inWeaponRange(state, id, t);
 }
 
-/** A line the captain can shoot along: walls stop it, except at ground units it flies over. */
+/**
+ * A line the captain's missile can fly along: the default launch arm's trace,
+ * which walls stop whatever the target is (`discharge.c` 0x0044de23,
+ * fcop-fidelity.md U3). Metropolis let it fly over ground units until
+ * SIM_VERSION 54 (the v24 "superplane" pierce).
+ */
 function clearLine(state: SimState, id: number, t: number): boolean {
   const ent = state.ent;
-  if (isGroundUnit(ent.archetype[t])) return true;
   return !segmentBlocked(state.map, ent.posX[id], ent.posY[id], ent.posX[t], ent.posY[t]);
 }
 
 /**
  * Its three weapons share one target (`sky_aim`). A due round drops a target
  * that died, stopped being an enemy or left the 12 m engage range; with no
- * target the shooters search by team every 1.0 s for the nearest enemy in reach
- * with a line of sight. A round goes out only inside the weapon's arc about its
- * heading — and the missile only with a line of sight — else it is put back and
- * tried 0-0.85 s later.
+ * target the shooters search by team every 1.0 s for the nearest enemy in reach,
+ * by distance alone (`dispatch.c`: no line-of-sight test). A round goes out only
+ * inside the weapon's arc about its heading — and the missile only with a line
+ * of sight — else it is put back and tried 0-0.85 s later. The gun fires anyway
+ * and walls stop its damage (sim.ts hitscan); the bomb skips the arc and every
+ * check (`discharge.c` 0x0044dfd9).
  */
 function captainWeapons(state: SimState, id: number, me: number, level: number): void {
   const ent = state.ent;
@@ -1081,7 +1070,8 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
     c.search -= WEAPON_UNITS_PER_TICK;
     if (c.search < 0) {
       c.search = SKY_SEARCH_UNITS;
-      c.aim = nearestEnemyInRange(state, id, SKY_AIM_RANGE);
+      // By distance alone: the captain's target needs no line of sight.
+      c.aim = nearestEnemyInRange(state, id, SKY_AIM_RANGE, false, false, false);
     }
   }
   const t = c.aim;
@@ -1108,7 +1098,7 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
     } else if (k === 1) {
       fireWardenMissile(state, id, t, ux, uy);
     } else {
-      pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, 0);
+      pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, SKY_WEAPON_BOMB);
       spawnWardenBomb(state, id, me, ux, uy);
     }
     c.gunPhase[k] = PHASE_BETWEEN;

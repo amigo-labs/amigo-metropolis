@@ -1,83 +1,84 @@
-// Keyboard + mouse fallback input (player 1). Sampled once per sim tick and
-// quantized at the boundary — raw input state never reaches the sim
-// (architecture.md §2). Mouse aim: the cursor is projected onto the avatar's
-// ground plane each tick; the direction avatar→hit becomes the aim axes.
+// Player 1's controls, read as the original reads them: each binding slot whose
+// key or joystick control is down sets its bit of the button word
+// (input/bindings.ts, inputs.ts). The table is the original's keyboard preset
+// until the controls screen changes it (input/controlsStore.ts); a gamepad
+// plays only once a slot is bound to it, as in the original, where its profile
+// has to be chosen. Sampled once per sim tick; raw device state never reaches
+// the sim (architecture.md §2). The mouse plays no part in a match — the
+// original has none.
 
+import { BTN_ESCAPE, type PlayerInput } from "@metropolis/sim";
 import {
-  BUTTON_FIRE1,
-  BUTTON_FIRE2,
-  BUTTON_FIRE3,
-  BUTTON_INTERACT,
-  BUTTON_JUMP,
-  BUTTON_TARGET_CYCLE,
-  BUTTON_TRANSFORM,
-  MAX_ENTITIES,
-  type PlayerInput,
-  quantizeAxis,
-} from "@metropolis/sim";
-import type * as THREE from "three";
-import { ASSIST_CONE_COS, ASSIST_STRENGTH, aimAssist, applyAimAssist } from "./aimAssist";
-import type { Vec2 } from "./gamepadMapping";
-import { cameraGroundForward, cameraRelativeMove } from "./movement";
+  type Binding,
+  bindingName,
+  codesOfKey,
+  DEVICE_JOYSTICK,
+  DEVICE_KEYBOARD,
+  presetTable,
+  SLOT_BITS,
+  SLOT_COUNT,
+  SLOT_NAMES,
+} from "./bindings";
+import { firstPad, joyControlDown, type PadState } from "./gamepad";
 import { isTextEntryTarget } from "./textEntry";
 import type { LocalInputSource } from "./types";
 
-const BUTTON_KEYS: readonly [string, number][] = [
-  ["KeyQ", BUTTON_TRANSFORM],
-  ["Space", BUTTON_JUMP],
-  ["KeyE", BUTTON_INTERACT],
-  ["KeyJ", BUTTON_FIRE1],
-  ["KeyK", BUTTON_FIRE2],
-  ["KeyL", BUTTON_FIRE3],
-];
+/** The Map Key's slot: the client's pause. */
+const SLOT_MAP = 8;
 
-const MOUSE_BUTTON_BITS: readonly number[] = [BUTTON_FIRE1, BUTTON_FIRE3, BUTTON_FIRE2];
-
-// Module-scope scratch (sample runs inside the tick loop — no allocations).
-const moveScratch: Vec2 = { x: 0, y: 0 };
+/** The legend for a table: each slot's name and its key, in slot order. */
+export function controlsHint(table: readonly Binding[]): string {
+  const parts: string[] = [];
+  for (let s = 0; s < SLOT_COUNT; s++) parts.push(`${SLOT_NAMES[s]} ${bindingName(table[s])}`);
+  return `${parts.join(" · ")} · transform: ${bindingName(table[13])} + ${bindingName(table[5])}`;
+}
 
 export class PlayerOneInput implements LocalInputSource {
-  readonly label = "Keyboard / Mouse";
-  readonly hint =
-    "WASD drive / strafe · mouse steers left/right · LMB/RMB/MMB fire · Q transform · Space jump (hover: brake) · E: press to capture, claim or buy (one unit a press)";
+  readonly label = "Keyboard / Gamepad";
+  hint: string;
+  /** Player 1's bindings: the original's keyboard preset until changed. */
+  private table: Binding[] = presetTable(0, 0);
+  /** Any slot bound to the joystick: only then is the pad polled. */
+  private usesPad = false;
   private readonly down = new Set<string>();
-  private mouseButtons = 0;
-  private aimX = 0;
-  private aimY = 0;
-  // Camera ground-forward (sim coords) used as the camera-relative move basis;
-  // refreshed each tick in updateAim. Defaults to +x before the camera is ready.
-  private readonly moveBasis: Vec2 = { x: 1, y: 0 };
-  // Per-tick aim-assist context, stashed in updateAim: own position and a copy
-  // of the enemy positions (packed x,y) used by "assist" magnetism in sample().
-  private selfX = 0;
-  private selfY = 0;
-  private enemyCount = 0;
-  private readonly enemies = new Float32Array(MAX_ENTITIES * 2);
-  private readonly assistOut: Vec2 = { x: 0, y: 0 };
+  private mapWasDown = false;
+  /**
+   * While a match runs, the bound keys belong to the game: Tab, Alt and Space
+   * would otherwise move focus, open the browser's menu or scroll the page.
+   */
+  capture = false;
+  /** The Map Key's press, while capturing: the original pauses (solo) on it. */
+  onMap: (() => void) | null = null;
 
   constructor(target: Window) {
+    this.hint = controlsHint(this.table);
     target.addEventListener("keydown", (e) => {
-      // Don't steal Space (or any key) from pin-modal / menu text fields.
+      // Don't steal a key from the pin modal's or the menu's text fields.
       if (isTextEntryTarget(e.target)) return;
       this.down.add(e.code);
-      // Prevent page scroll on Space while driving — not while typing.
-      if (e.code === "Space") e.preventDefault();
+      if (!this.capture || !this.isBound(e.code)) return;
+      e.preventDefault();
+      if (!e.repeat && this.isKeyOf(SLOT_MAP, e.code)) this.onMap?.();
     });
     target.addEventListener("keyup", (e) => {
       if (isTextEntryTarget(e.target)) return;
       this.down.delete(e.code);
+      // Alt's release is what opens the browser's menu bar.
+      if (this.capture && this.isBound(e.code)) e.preventDefault();
     });
-    target.addEventListener("blur", () => {
-      this.down.clear();
-      this.mouseButtons = 0;
-    });
-    target.addEventListener("mousedown", (e) => {
-      this.mouseButtons |= 1 << e.button;
-    });
-    target.addEventListener("mouseup", (e) => {
-      this.mouseButtons &= ~(1 << e.button);
-    });
-    target.addEventListener("contextmenu", (e) => e.preventDefault());
+    target.addEventListener("blur", () => this.down.clear());
+  }
+
+  /** Player 1's current bindings (a copy). */
+  getTable(): Binding[] {
+    return this.table.map((b) => ({ device: b.device, code: b.code }));
+  }
+
+  /** Replaces the bindings (the controls screen, a profile). */
+  setTable(table: readonly Binding[]): void {
+    this.table = table.map((b) => ({ device: b.device, code: b.code }));
+    this.usesPad = this.table.some((b) => b.device === DEVICE_JOYSTICK);
+    this.hint = controlsHint(this.table);
   }
 
   /** A keyboard is always present. */
@@ -85,83 +86,54 @@ export class PlayerOneInput implements LocalInputSource {
     return true;
   }
 
-  /**
-   * Stores the world-space aim direction for this tick. Call once per tick
-   * before sample(). Allocation-free.
-   *
-   * Aim is the heading the mouse has steered to (input/mouseLook.ts), not a
-   * cursor projection — the original couples the gun to the hull and this
-   * follows it (input.spec §4.1). The cursor raycast this used to do had a
-   * failure mode worth remembering: it intersected a plane at the avatar's
-   * height, bailed when the ray was near-parallel to it, and then silently kept
-   * the previous aim. At a shallow camera pitch that is most of the upper
-   * screen, so aim froze rather than reporting anything.
-   */
-  updateAim(
-    camera: THREE.Camera,
-    avatarX: number,
-    avatarY: number,
-    lookYaw: number,
-    enemies: Float32Array,
-    enemyCount: number,
-  ): void {
-    // Movement basis = the camera's ground-forward (camera.spec §5). With the
-    // chase camera locked behind the avatar this is the heading too, but it is
-    // still read from the camera so that whatever is on screen is what "forward"
-    // means — including during the menu→match blend, when the two differ.
-    cameraGroundForward(camera, this.moveBasis);
-    // Stash aim-assist context (own position + a copy of the enemy list) for
-    // sample(); the caller's `enemies` scratch is reused across views.
-    this.selfX = avatarX;
-    this.selfY = avatarY;
-    this.enemyCount = Math.min(enemyCount, MAX_ENTITIES);
-    this.enemies.set(enemies.subarray(0, this.enemyCount * 2));
-    this.aimX = Math.cos(lookYaw);
-    this.aimY = Math.sin(lookYaw);
+  private isKeyOf(slot: number, code: string): boolean {
+    const b = this.table[slot];
+    return b.device === DEVICE_KEYBOARD && codesOfKey(b.code).includes(code);
   }
 
-  /** Writes the current input state, quantized, into `out`. Allocation-free. */
+  private isBound(code: string): boolean {
+    if (code === "Escape") return false; // the pause card's
+    for (let s = 0; s < SLOT_COUNT; s++) if (this.isKeyOf(s, code)) return true;
+    return false;
+  }
+
+  /**
+   * The pad's Map Key, once a frame while capturing: the keyboard's arrives as
+   * an event, a pad's has to be polled — also while the sim is paused, so it
+   * can resume it.
+   */
+  pollPad(): void {
+    if (!this.usesPad || !this.capture) {
+      this.mapWasDown = false;
+      return;
+    }
+    const pad = firstPad();
+    const b = this.table[SLOT_MAP];
+    const down = pad !== null && b.device === DEVICE_JOYSTICK && joyControlDown(pad, b.code);
+    if (down && !this.mapWasDown) this.onMap?.();
+    this.mapWasDown = down;
+  }
+
+  /** Writes the button word for this tick into `out`. */
   sample(out: PlayerInput): void {
-    let x = 0;
-    let y = 0;
-    if (this.down.has("KeyA") || this.down.has("ArrowLeft")) x -= 1;
-    if (this.down.has("KeyD") || this.down.has("ArrowRight")) x += 1;
-    if (this.down.has("KeyW") || this.down.has("ArrowUp")) y += 1;
-    if (this.down.has("KeyS") || this.down.has("ArrowDown")) y -= 1;
-    // Camera-relative: rotate the screen-frame WASD axes by the camera's
-    // ground-forward so W always drives into the screen — decoupled from aim.
-    cameraRelativeMove(x, y, this.moveBasis.x, this.moveBasis.y, moveScratch);
-    out.moveX = quantizeAxis(moveScratch.x);
-    out.moveY = quantizeAxis(moveScratch.y);
-    // "assist" magnetism shapes the free aim locally, before quantization.
-    let aimX = this.aimX;
-    let aimY = this.aimY;
-    if (aimAssist.mode === "assist") {
-      applyAimAssist(
-        aimX,
-        aimY,
-        this.selfX,
-        this.selfY,
-        this.enemies,
-        this.enemyCount,
-        ASSIST_CONE_COS,
-        ASSIST_STRENGTH,
-        this.assistOut,
-      );
-      aimX = this.assistOut.x;
-      aimY = this.assistOut.y;
-    }
-    out.aimX = quantizeAxis(aimX);
-    out.aimY = quantizeAxis(aimY);
+    const pad: PadState | null = this.usesPad ? firstPad() : null;
     let buttons = 0;
-    for (let i = 0; i < BUTTON_KEYS.length; i++) {
-      if (this.down.has(BUTTON_KEYS[i][0])) buttons |= BUTTON_KEYS[i][1];
+    for (let s = 0; s < SLOT_COUNT; s++) {
+      const b = this.table[s];
+      if (b.device === DEVICE_KEYBOARD) {
+        const codes = codesOfKey(b.code);
+        for (let c = 0; c < codes.length; c++) {
+          if (this.down.has(codes[c])) {
+            buttons |= SLOT_BITS[s];
+            break;
+          }
+        }
+      } else if (pad !== null && b.device === DEVICE_JOYSTICK && joyControlDown(pad, b.code)) {
+        buttons |= SLOT_BITS[s];
+      }
     }
-    for (let i = 0; i < MOUSE_BUTTON_BITS.length; i++) {
-      if ((this.mouseButtons & (1 << i)) !== 0) buttons |= MOUSE_BUTTON_BITS[i];
-    }
-    // Target-cycle (T) only emits in "lock" mode; the sim owns the tracking.
-    if (aimAssist.mode === "lock" && this.down.has("KeyT")) buttons |= BUTTON_TARGET_CYCLE;
+    // The fixed Escape binding (the sim cuts it; the pause card reads its key).
+    if (this.down.has("Escape")) buttons |= BTN_ESCAPE;
     out.buttons = buttons;
   }
 }

@@ -14,14 +14,15 @@ import { ORIGINAL_CAPTURE_RANGE } from "../src/balance";
 import { getMapById, MAP_REGISTRY, type MapData } from "../src/map";
 import { type ReachSet, reachableFrom } from "../src/reach";
 
+// Water is not blocked: on NORMAL a walker that enters it becomes a hover and
+// crosses it (fcop-fidelity.md P13), and on Hk the spawns stand on it. Ovmp's
+// neutral pad at (173, 193.5) is reached only across it. (Until the water plate
+// was read as water on deck 1 too, the walk-only flood stepped over it there.)
 function floodHas(map: MapData, ax: number, ay: number): ReachSet {
-  return reachableFrom(map, ax, ay, { blockWater: true });
+  return reachableFrom(map, ax, ay);
 }
 
-const PLAYABLE_IDS = [
-  ...MAP_REGISTRY.map((m) => m.id),
-  "district-01", // retired from picker but still golden-backed
-];
+const PLAYABLE_IDS = MAP_REGISTRY.map((m) => m.id);
 
 for (const id of PLAYABLE_IDS) {
   const map = getMapById(id);
@@ -38,7 +39,6 @@ for (const id of PLAYABLE_IDS) {
           { name: "core", x: base.core.x, y: base.core.y },
           { name: "groundConsole", x: base.groundConsole.x, y: base.groundConsole.y },
           { name: "airConsole", x: base.airConsole.x, y: base.airConsole.y },
-          { name: "pad", x: base.pad.x, y: base.pad.y },
         ];
         for (const p of pts) {
           expect(f.has(p.x, p.y)).toBe(true);

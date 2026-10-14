@@ -1,64 +1,75 @@
-// The menu demo battle reuses the Phase 3 feeder script, generalized to either
-// slot. Slot 1 must stay byte-identical to the historic ?opponent=feeder
-// behavior (its move constants were authored for slot 1's base), and slot 0
-// must be the exact mirror (district-01 mirrors the bases about x).
+// The menu demo battle reuses the Phase 3 feeder script, for either slot: it
+// walks to its ground console on the original's buttons and buys runners there.
 
 import { describe, expect, test } from "bun:test";
-import { BUTTON_INTERACT, DISTRICT_01_ID, getMapById, type PlayerInput } from "@metropolis/sim";
+import {
+  BTN_ACTION,
+  BTN_FORWARD,
+  BTN_TURN_LEFT,
+  BTN_TURN_RIGHT,
+  createSim,
+  getMapById,
+  LA_CANTINA_ID,
+  type PlayerInput,
+  type SimState,
+} from "@metropolis/sim";
 import { createDemoSim, demoFeeder, zeroPlayerInput } from "../src/menuWorld";
 
-function freshInput(): PlayerInput {
-  return { moveX: 9, moveY: 9, aimX: 9, aimY: 9, buttons: 9 };
-}
-
 describe("demoFeeder", () => {
-  test("slot 1 reproduces the historic feeder pattern", () => {
-    const out = freshInput();
-    demoFeeder(1, 0, out);
-    expect(out).toEqual({ moveX: 40, moveY: 120, aimX: 0, aimY: 0, buttons: 0 });
-    demoFeeder(1, 75, out);
-    expect(out.moveX).toBe(40);
-    expect(out.moveY).toBe(120);
-    // After the walk: 10 s bursts of one press every 0.5 s (a purchase is a
-    // press, not a hold), 20 s pauses (900-tick cycle).
-    demoFeeder(1, 76, out);
-    expect(out).toEqual({ moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: 0 });
-    demoFeeder(1, 90, out);
-    expect(out).toEqual({ moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: BUTTON_INTERACT });
-    demoFeeder(1, 91, out);
+  test("turns toward its ground console, walks once facing it, then buys", () => {
+    const sim = createSim(getMapById(LA_CANTINA_ID), 1);
+    const out: PlayerInput = { buttons: 9 };
+    const a = sim.avatarId[0];
+    const c = sim.map.bases[0].groundConsole;
+    // Facing away from the console: it turns, and does not walk yet.
+    faceAway(sim, a, c.x, c.y);
+    demoFeeder(sim, 0, out);
+    expect(out.buttons & (BTN_TURN_LEFT | BTN_TURN_RIGHT)).not.toBe(0);
+    expect(out.buttons & BTN_FORWARD).toBe(0);
+    // Facing it: straight on.
+    faceAt(sim, a, c.x, c.y);
+    demoFeeder(sim, 0, out);
+    expect(out.buttons).toBe(BTN_FORWARD);
+    // On it: one press of the Action Key every 0.5 s in a burst, then a pause.
+    sim.ent.posX[a] = c.x;
+    sim.ent.posY[a] = c.y;
+    (sim as { tick: number }).tick = 15;
+    demoFeeder(sim, 0, out);
+    expect(out.buttons).toBe(BTN_ACTION);
+    (sim as { tick: number }).tick = 16;
+    demoFeeder(sim, 0, out);
     expect(out.buttons).toBe(0); // released: the next press is a new edge
-    demoFeeder(1, 900 + 285, out);
-    expect(out.buttons).toBe(BUTTON_INTERACT);
-    demoFeeder(1, 900 + 300, out);
-    expect(out.buttons).toBe(0);
-  });
-
-  test("slot 0 mirrors the walk and keeps the button schedule", () => {
-    const a = freshInput();
-    const b = freshInput();
-    for (const tick of [0, 40, 75, 76, 300, 899, 900, 1200]) {
-      demoFeeder(0, tick, a);
-      demoFeeder(1, tick, b);
-      expect(a.moveX + b.moveX).toBe(0); // exact mirror (sum form avoids -0)
-      expect(a.moveY + b.moveY).toBe(0);
-      expect(a.buttons).toBe(b.buttons);
-      expect(a.aimX).toBe(0);
-      expect(a.aimY).toBe(0);
-    }
+    (sim as { tick: number }).tick = 300;
+    demoFeeder(sim, 0, out);
+    expect(out.buttons).toBe(0); // the 20 s pause
   });
 });
 
+function faceAt(sim: SimState, id: number, x: number, y: number): void {
+  const dx = x - sim.ent.posX[id];
+  const dy = y - sim.ent.posY[id];
+  const d = Math.hypot(dx, dy);
+  sim.ent.aimX[id] = dx / d;
+  sim.ent.aimY[id] = dy / d;
+}
+
+function faceAway(sim: SimState, id: number, x: number, y: number): void {
+  faceAt(sim, id, x, y);
+  sim.ent.aimX[id] = -sim.ent.aimX[id];
+  sim.ent.aimY[id] = -sim.ent.aimY[id];
+}
+
 describe("zeroPlayerInput", () => {
-  test("clears every field", () => {
-    const out = freshInput();
+  test("clears the word", () => {
+    const out: PlayerInput = { buttons: 0xffff };
     zeroPlayerInput(out);
-    expect(out).toEqual({ moveX: 0, moveY: 0, aimX: 0, aimY: 0, buttons: 0 });
+    expect(out).toEqual({ buttons: 0 });
   });
 });
 
 describe("createDemoSim", () => {
   test("builds a Warden-on-slot-1 sim on the given map", () => {
-    const sim = createDemoSim(getMapById(DISTRICT_01_ID));
+    const sim = createDemoSim(getMapById(LA_CANTINA_ID));
     expect(sim.wardenPlayer).toBe(1);
     expect(sim.wardenDifficulty).toBe(5);
     expect(sim.tick).toBe(0);

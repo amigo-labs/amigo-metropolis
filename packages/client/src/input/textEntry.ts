@@ -7,7 +7,8 @@
 
 /** True when the event target is a text field (pin modal, menu inputs, …). */
 export function isTextEntryTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
+  // No DOM at all (a test's EventTarget window): nothing is a text field.
+  if (typeof HTMLElement === "undefined" || !(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
 }

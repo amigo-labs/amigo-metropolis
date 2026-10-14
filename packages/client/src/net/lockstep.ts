@@ -73,10 +73,6 @@ export interface NetCallbacks {
 export type NetEnded = "desync" | "closed" | null;
 
 function copyInput(dst: PlayerInput, src: PlayerInput): void {
-  dst.moveX = src.moveX;
-  dst.moveY = src.moveY;
-  dst.aimX = src.aimX;
-  dst.aimY = src.aimY;
   dst.buttons = src.buttons;
 }
 

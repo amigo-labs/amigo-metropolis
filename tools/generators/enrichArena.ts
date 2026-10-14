@@ -41,6 +41,7 @@ import { join } from "node:path";
 import {
   crossesWallX,
   crossesWallY,
+  FLOOR_DAMAGE_PER_STEP,
   GROUND_STEPS,
   gapUnits,
   JUMPABLE_RISE,
@@ -51,9 +52,11 @@ import {
   openLine,
   reachableFrom,
   resolveHeight,
+  resolveWalker,
   roadProbes,
   roundSpeed,
   SHOOTER_FRONT_ARC_COS,
+  STEP_SNAP,
   sampleHeight,
   segmentWalkable,
   type WallHit,
@@ -65,16 +68,19 @@ import {
   worstUphillRise,
 } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
-import { type FcopArena, logicFile, selectArenas, wallsFile } from "./fcopArenas";
+import { type FcopArena, logicFile, rulesFile, selectArenas, wallsFile } from "./fcopArenas";
 import {
   captureRangeToCells,
   fovToCos,
+  ROTATION_TURN,
   rangeToCells,
   rotToYaw,
   toSimTicks,
   triggerHalfExtent,
   turnSpeedToRadPerTick,
 } from "./fcopLogic";
+import type { FcopRules } from "./fcopRules";
+import { type Lattice, openKerbs, readGlbTriangles, TerrainMesh } from "./kerbs";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const TICK_HZ = 30; // packages/sim/src/balance.ts
@@ -144,7 +150,14 @@ interface Logic {
   aircraft: { id: number; team: number; health: number; shooter: Shooter }[];
   turrets: Turret[];
   neutrals: Turret[];
-  pickups: { id: number; x: number; z: number; grants: string[]; spawnTicks: number }[];
+  pickups: {
+    id: number;
+    x: number;
+    z: number;
+    grants: string[];
+    spawnTicks: number;
+    rotationalSpeed: number;
+  }[];
   triggers: {
     id: number;
     x: number;
@@ -338,25 +351,542 @@ function teamsOf<
 /**
  * Spawn list in sim coordinates, team 0 first — the reachability flood's origin.
  *
- * Facing is the cardinal direction of the field axis toward the enemy base rather
- * than the true bearing: "look down your own lane" is the symmetric answer, and
- * the original's stored X1Alpha rotation is not it.
+ * Facing and form are the X1Alpha record's (the rules artifact, read by
+ * pa_rules_data.py): raw 4096 = one turn, forward = (cos f, sin f) in the actors
+ * frame, so +x is 0 and +z is +pi/2 — the sim's own yaw convention, the frame
+ * offset being a translation. A negative facing is the hover flag; the record
+ * stores the direction as its magnitude (view_place.c, player_respawn). Until
+ * SIM_VERSION 57 the facing was "the field axis toward the enemy base", which the
+ * record agrees with on Mp only.
  */
 function out0Spawns(
-  spawns: readonly { x: number; z: number }[],
-  field: Field,
-  hover: boolean,
+  spawns: readonly { id: number; x: number; z: number }[],
+  rules: FcopRules,
 ): { x: number; y: number; yaw: number; layer?: number; hover?: boolean }[] {
-  // yaw is atan2(dy, dx) in sim convention, so +z is +pi/2 and +x is 0.
-  const toward = field.axis === "z" ? [Math.PI / 2, -Math.PI / 2] : [0, Math.PI];
-  // The spawn form (FcopArena.spawnHover) is written only where it is hover, so a
-  // walker arena's JSON is byte-identical to before the field existed.
-  return spawns.map((s, team) => ({
-    x: round4(sx(s.x)),
-    y: round4(sz(s.z)),
-    yaw: toward[team],
-    ...(hover ? { hover: true } : {}),
-  }));
+  return spawns.map((s) => {
+    const rec = rules.x1alpha.find((r) => r.id === s.id);
+    if (!rec) throw new Error(`${rules.mapId}: no X1Alpha ${s.id} in the rules artifact`);
+    // In raw units first, so a quarter turn lands on an exact multiple of pi.
+    let raw = Math.abs(rec.facingRaw) % ROTATION_TURN;
+    if (raw > ROTATION_TURN / 2) raw -= ROTATION_TURN;
+    // The form is written only where it is hover, so a walker arena's JSON
+    // carries no field it does not need.
+    return {
+      x: round4(sx(s.x)),
+      y: round4(sz(s.z)),
+      yaw: (raw * Math.PI) / (ROTATION_TURN / 2),
+      ...(rec.hover ? { hover: true } : {}),
+    };
+  });
+}
+
+/** One sim tick is this many of the original's 300 Hz engine ticks. */
+const ENGINE_TICKS_PER_TICK = 300 / TICK_HZ;
+
+type LiftJson = NonNullable<MapJson["lifts"]>[number];
+
+/** The cells whose centres lie on a lift's face: the shaft it moves in. */
+function liftCells(l: { x0: number; x1: number; y0: number; y1: number }): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = Math.ceil(l.x0 - 0.5); i + 0.5 <= l.x1; i++) {
+    for (let j = Math.ceil(l.y0 - 0.5); j + 0.5 <= l.y1; j++) out.push([i, j]);
+  }
+  return out;
+}
+
+/** How far a lift's face must reach into a cell for its rider to stand there. */
+const FACE_OVERLAP = 0.1;
+
+/**
+ * Every cell the lift's face reaches into by more than FACE_OVERLAP on both
+ * axes: where its rider can stand. A shaft cell, and the cell a face's edge
+ * crosses into (Conft's 1.1 m lifts reach 0.22 m past a cell line).
+ */
+function faceCells(l: { x0: number; x1: number; y0: number; y1: number }): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = Math.floor(l.x0); i < l.x1; i++) {
+    if (Math.min(i + 1, l.x1) - Math.max(i, l.x0) <= FACE_OVERLAP) continue;
+    for (let j = Math.floor(l.y0); j < l.y1; j++) {
+      if (Math.min(j + 1, l.y1) - Math.max(j, l.y0) <= FACE_OVERLAP) continue;
+      out.push([i, j]);
+    }
+  }
+  return out;
+}
+
+/** The four neighbours of a cell, with the lattice bit between them. */
+function edgesOf(
+  i: number,
+  j: number,
+): { ni: number; nj: number; axis: "V" | "H"; r: number; c: number }[] {
+  return [
+    { ni: i + 1, nj: j, axis: "V", r: j, c: i + 1 },
+    { ni: i - 1, nj: j, axis: "V", r: j, c: i },
+    { ni: i, nj: j + 1, axis: "H", r: j + 1, c: i },
+    { ni: i, nj: j - 1, axis: "H", r: j, c: i },
+  ];
+}
+
+/**
+ * The lifts (fcop-fidelity.md P12) in the sim's frame, from the rules artifact:
+ * the face's rectangle (already turned by the record's yaw), the stops in world
+ * units (raw << 4), the speeds per sim tick, the dwell per stop in sim ticks.
+ * The surface a rider counts as standing on at a stop is the one most of the
+ * floors around the shaft at that stop's height belong to (their walls are the
+ * ones it then reads); the ground's where none meets it.
+ */
+function liftsOf(
+  rules: FcopRules,
+  terrain: MapData,
+  teamOfSlot: (slot: number) => number,
+): LiftJson[] {
+  return rules.lifts.map((l) => {
+    const x = sx(l.x);
+    const y = sz(l.z);
+    const face = {
+      x0: round4(x + l.footprint.x0),
+      x1: round4(x + l.footprint.x1),
+      y0: round4(y + l.footprint.z0),
+      y1: round4(y + l.footprint.z1),
+    };
+    const stops = l.stopsRaw.map((r) => r << 4);
+    const cells = liftCells(face);
+    const inShaft = new Set(cells.map(([i, j]) => i * terrain.size + j));
+    const layers = stops.map((wu) => {
+      const top = l.groundM + wu / 8192 + l.footprint.topM;
+      const count = new Map<number, number>();
+      for (const [i, j] of cells) {
+        for (const e of edgesOf(i, j)) {
+          if (inShaft.has(e.ni * terrain.size + e.nj)) continue;
+          const wr = resolveWalker(terrain, e.ni + 0.5, e.nj + 0.5, top);
+          if (Math.abs(wr.height - top) > STEP_SNAP) continue;
+          count.set(wr.layer, (count.get(wr.layer) ?? 0) + 1);
+        }
+      }
+      let best = 0;
+      let bestN = 0;
+      for (const [layer, n] of [...count].sort((a, b) => a[0] - b[0])) {
+        if (n > bestN) {
+          best = layer;
+          bestN = n;
+        }
+      }
+      return best;
+    });
+    return {
+      x: round4(x),
+      y: round4(y),
+      ...face,
+      ground: l.groundM,
+      top: l.footprint.topM,
+      stops,
+      up: l.speedWuPerTick.forward * ENGINE_TICKS_PER_TICK,
+      down: l.speedWuPerTick.backward * ENGINE_TICKS_PER_TICK,
+      dwell: l.dwellTicks.map((t) => Math.floor(t / ENGINE_TICKS_PER_TICK)),
+      start: l.startsAt,
+      hurtsTeam: l.hurtsSlot === null ? -1 : teamOfSlot(l.hurtsSlot),
+      layers,
+      model: l.cobj,
+      yaw: round4((l.yawRaw * Math.PI) / (ROTATION_TURN / 2)),
+    };
+  });
+}
+
+/**
+ * Opens the shaft a lift moves in (fcop-fidelity.md P12), in place.
+ *
+ * The extractor turns every near-vertical polygon into the edge of the tile it
+ * lies in, so a shaft arrives walled on every side and through its middle, on
+ * every surface's lattice: the shaft's own faces, from its floor up to the
+ * floors it serves. The original's mech stands on the lift's top above them.
+ * So:
+ * - the edges between the cells its face reaches into open on every lattice
+ *   (the lift is one platform at every height);
+ * - at every stop above the lowest, an edge from the shaft to a floor at that
+ *   stop's height (within STEP_SNAP of its top) opens on the rider's lattice
+ *   there and on that floor's own — the rider steps off over the shaft's wall;
+ * - at the lowest stop the shaft's walls stand: they are walls at that height;
+ * - no deck lies inside the shaft: the extractor's plates on its cells (a
+ *   sample on the shaft's rim) would catch the lift's rider mid-travel.
+ * Returns the bits opened.
+ */
+function openLiftShafts(
+  lifts: readonly LiftJson[],
+  terrain: MapData,
+  lattices: { v: string[][]; h: string[][] }[],
+  masks: string[][][],
+): number {
+  let opened = 0;
+  const open = (layer: number, axis: "V" | "H", r: number, c: number): void => {
+    const lat = lattices[layer] ?? lattices[0];
+    const grid = axis === "V" ? lat.v : lat.h;
+    if (grid[r]?.[c] !== "1") return;
+    grid[r][c] = "0";
+    opened++;
+  };
+  for (const l of lifts) {
+    const cells = liftCells(l);
+    const inShaft = new Set(cells.map(([i, j]) => i * terrain.size + j));
+    // The lift is one platform wherever its face reaches.
+    const face = faceCells(l);
+    const onFace = new Set(face.map(([i, j]) => i * terrain.size + j));
+    for (const [i, j] of face) {
+      for (const e of edgesOf(i, j)) {
+        if (!onFace.has(e.ni * terrain.size + e.nj)) continue;
+        for (let layer = 0; layer < lattices.length; layer++) open(layer, e.axis, e.r, e.c);
+      }
+    }
+    for (const [i, j] of cells) {
+      for (const m of masks) if (m[j]?.[i] === "1") m[j][i] = "0";
+      for (const e of edgesOf(i, j)) {
+        if (inShaft.has(e.ni * terrain.size + e.nj)) continue;
+        for (let s = 1; s < l.stops.length; s++) {
+          const top = l.ground + l.stops[s] / 8192 + l.top;
+          const wr = resolveWalker(terrain, e.ni + 0.5, e.nj + 0.5, top);
+          if (Math.abs(wr.height - top) > STEP_SNAP) continue;
+          open(l.layers[s], e.axis, e.r, e.c);
+          open(wr.layer, e.axis, e.r, e.c);
+        }
+      }
+    }
+  }
+  return opened;
+}
+
+/**
+ * Lays the original's floor where a lift lands and the heightfield cannot carry
+ * it (fcop-fidelity.md P12), in place; returns the cells patched.
+ *
+ * The sim's heights sit on the grid's points and a deck's presence on its cells,
+ * so the last cell of a platform beside a shaft shares its far corners with the
+ * shaft's floor and slopes down into it: Conft's central platform is flat to
+ * its edge in the original's mesh, and on its south and east sides the cell
+ * between it and the lift's top stop reads as a 2 m slope. Where the mesh has a
+ * floor beside a shaft within STEP_SNAP of a stop above the lowest and the sim's
+ * surface there is not, the cell gets a deck patch at the mesh's height — on a
+ * deck that is absent there and whose corners no present cell of it holds at
+ * another height.
+ */
+function landLifts(
+  lifts: readonly LiftJson[],
+  terrain: MapData,
+  mesh: TerrainMesh,
+  heights: number[][][],
+  masks: string[][][],
+): number {
+  let patched = 0;
+  const size = terrain.size;
+  const present = (L: number, i: number, j: number): boolean =>
+    i >= 0 && j >= 0 && i < size && j < size && masks[L][j][i] === "1";
+  for (const l of lifts) {
+    const cells = liftCells(l);
+    const inShaft = new Set(cells.map(([i, j]) => i * size + j));
+    for (let s = 1; s < l.stops.length; s++) {
+      const top = l.ground + l.stops[s] / 8192 + l.top;
+      for (const [i, j] of cells) {
+        for (const e of edgesOf(i, j)) {
+          if (inShaft.has(e.ni * size + e.nj)) continue;
+          const art = mesh.floorNear(e.ni + 0.5, e.nj + 0.5, top);
+          if (art === undefined || Math.abs(art - top) > STEP_SNAP) continue;
+          const sim = resolveWalker(terrain, e.ni + 0.5, e.nj + 0.5, top).height;
+          if (Math.abs(sim - top) <= STEP_SNAP) continue;
+          const q = Math.round(art * 32);
+          for (let L = 0; L < masks.length; L++) {
+            if (present(L, e.ni, e.nj)) continue;
+            let clash = false;
+            for (let vj = e.nj; vj <= e.nj + 1; vj++) {
+              for (let vi = e.ni; vi <= e.ni + 1; vi++) {
+                for (let cj = vj - 1; cj <= vj; cj++) {
+                  for (let ci = vi - 1; ci <= vi; ci++) {
+                    if (present(L, ci, cj) && heights[L][vj][vi] !== q) clash = true;
+                  }
+                }
+              }
+            }
+            if (clash) continue;
+            for (let vj = e.nj; vj <= e.nj + 1; vj++) {
+              for (let vi = e.ni; vi <= e.ni + 1; vi++) heights[L][vj][vi] = q;
+            }
+            masks[L][e.nj][e.ni] = "1";
+            patched++;
+            break;
+          }
+        }
+      }
+    }
+  }
+  return patched;
+}
+
+/**
+ * The ground's codes a mech feels, as the sim's per-surface cell masks: the
+ * bases' floors (fcop-fidelity.md P11), '1' where the floor hurts team 0's
+ * mech, '2' team 1's; the movement-mode codes 3, 4 and 5 as '3' '4' '5' (Ovmp's
+ * slippery code 4); '0' elsewhere.
+ *
+ * The rules artifact gives each terrain sample's highest plate's code, and every
+ * plate of the samples whose plates disagree (a base floor under a roof, a deck
+ * over a plain road). A sample tile [x, x+1) maps onto sim cell x + LOGIC_OFFSET
+ * exactly, the offset being whole cells. On a stacked sample each sim surface
+ * takes the plate nearest its own height at the cell's centre, so a mech on the
+ * roof is not on the floor beneath it. undefined when the arena has neither
+ * (Hk).
+ */
+function floorMasks(
+  terrain: MapData,
+  rules: FcopRules,
+  teamOfSlot: (slot: number) => number,
+): string[][] | undefined {
+  const surf = rules.surface;
+  const decode = (ch: string): number => (ch === "." ? -1 : surf.alphabet.indexOf(ch));
+  const hurts = new Map<number, number>();
+  for (const f of rules.damageFloors) {
+    if (f.damagePerStep !== FLOOR_DAMAGE_PER_STEP) {
+      throw new Error(`${rules.mapId}: floor ${f.code} deals ${f.damagePerStep} a step`);
+    }
+    hurts.set(f.code, teamOfSlot(f.hurtsSlot));
+  }
+  const MODE_CODES = new Set([3, 4, 5]);
+  const used = (code: number): boolean => hurts.has(code) || MODE_CODES.has(code);
+  const anyUsed =
+    surf.codes.some((row) => [...row].some((ch) => used(decode(ch)))) ||
+    surf.stacked.some((st) => st.plates.some((pl) => used(pl.code)));
+  if (!anyUsed) return undefined;
+  const stacked = new Map<string, FcopRules["surface"]["stacked"][number]["plates"]>();
+  for (const st of surf.stacked) stacked.set(`${st.x},${st.z}`, st.plates);
+  const size = terrain.size;
+  const cs = terrain.cellSize;
+  const masks: string[][] = [];
+  for (let L = 0; L <= terrain.layerHeights.length; L++) {
+    const rows: string[] = [];
+    for (let j = 0; j < size; j++) {
+      let row = "";
+      for (let i = 0; i < size; i++) {
+        const x = i - LOGIC_OFFSET_X;
+        const z = j - LOGIC_OFFSET_Z;
+        let code = -1;
+        if (x >= 0 && z >= 0 && x < surf.answeredCols && z < surf.answeredRows) {
+          const plates = stacked.get(`${x},${z}`);
+          if (plates) {
+            const h = resolveHeight(terrain, (i + 0.5) * cs, (j + 0.5) * cs, L);
+            let best = plates[0];
+            for (const pl of plates) {
+              if (Math.abs(pl.heightM - h) < Math.abs(best.heightM - h)) best = pl;
+            }
+            code = best.code;
+          } else {
+            code = decode(surf.codes[z][x]);
+          }
+        }
+        const team = hurts.get(code);
+        row += team !== undefined ? String(1 + team) : MODE_CODES.has(code) ? String(code) : "0";
+      }
+      rows.push(row);
+    }
+    masks.push(rows);
+  }
+  return masks;
+}
+
+/**
+ * The arena's water (fcop-fidelity.md P13): the original's surface code 1, as
+ * the sim's per-cell mask with each cell's own surface. The rules artifact
+ * indexes every sample that carries a code-1 plate into its distinct levels (a
+ * level is that plate's corner height range); a sloped plate's level is taken
+ * at its top, so a hover never rides below it. The arena-wide `waterLevel` is
+ * the level most samples carry (its banks and its aircraft read that one).
+ * undefined on a dry arena, whose stage-1 `water` / `waterLevel` stay as they are.
+ */
+function waterOf(
+  size: number,
+  rules: FcopRules,
+): { water: string[]; waterLevel: number; waterLevels: number[] } | undefined {
+  const surf = rules.surface;
+  if (surf.waterLevels.length === 0) return undefined;
+  if (surf.waterLevels.length > 9) throw new Error(`${rules.mapId}: more than 9 water levels`);
+  const count = new Array<number>(surf.waterLevels.length).fill(0);
+  const water: string[] = [];
+  for (let j = 0; j < size; j++) {
+    let row = "";
+    for (let i = 0; i < size; i++) {
+      const x = i - LOGIC_OFFSET_X;
+      const z = j - LOGIC_OFFSET_Z;
+      const ch =
+        x >= 0 && z >= 0 && x < surf.answeredCols && z < surf.answeredRows
+          ? (surf.waterRows[z]?.[x] ?? ".")
+          : ".";
+      if (ch === ".") {
+        row += "0";
+        continue;
+      }
+      const k = Number.parseInt(ch, 10);
+      if (!(k >= 0 && k < surf.waterLevels.length)) {
+        throw new Error(`${rules.mapId}: water sample (${x}, ${z}) names level "${ch}"`);
+      }
+      count[k] += 1;
+      row += String(k + 1);
+    }
+    water.push(row);
+  }
+  let main = 0;
+  for (let k = 1; k < count.length; k++) if (count[k] > count[main]) main = k;
+  return {
+    water,
+    waterLevel: surf.waterLevels[main].maxM,
+    waterLevels: surf.waterLevels.map((l) => l.maxM),
+  };
+}
+
+/**
+ * A base's Dreadnought and Fortress zones (fcop-fidelity.md R10) and the
+ * Fortress spawner, from the rules artifact: each type-14 zone's radius is the
+ * record's r << 4 world units (r / 512 m; the mech's own radius comes on top in
+ * the sim), the opening poll the slot's fn30/fn31 period. The Dreadnought's
+ * spawner is the Dreadnought record the base already carries; asserted.
+ */
+function heavyOf(
+  rules: FcopRules,
+  team: number,
+  teamOfSlot: (slot: number) => number,
+  dreadX: number,
+  dreadY: number,
+): {
+  heavyZones: {
+    juggernaut: { x: number; y: number; radius: number };
+    fortress: { x: number; y: number; radius: number };
+    pollTicks: number;
+  };
+  fortressSpawn: number[];
+} {
+  const zones = rules.heavyZones.filter((z) => teamOfSlot(z.slot) === team);
+  const enable = rules.heavyEnable.filter((e) => teamOfSlot(e.slot) === team);
+  const dread = zones.find((z) => z.unit === "dreadnought");
+  const fort = zones.find((z) => z.unit === "flying_fortress");
+  if (zones.length !== 2 || !dread || !fort || enable.length !== 1) {
+    throw new Error(`${rules.mapId}: team ${team} lacks its two heavy zones or their poll`);
+  }
+  const spawner = (template: number) => {
+    const s = rules.spawners.find((q) => q.template === template);
+    if (!s) throw new Error(`${rules.mapId}: no spawner for template ${template}`);
+    return s;
+  };
+  const d = spawner(dread.template);
+  if (Math.abs(round4(sx(d.x)) - dreadX) > 0.01 || Math.abs(round4(sz(d.z)) - dreadY) > 0.01) {
+    throw new Error(`${rules.mapId}: team ${team}'s Dreadnought spawner is not its record`);
+  }
+  const f = spawner(fort.template);
+  const zone = (z: (typeof zones)[number]) => ({
+    x: round4(sx(z.x)),
+    y: round4(sz(z.z)),
+    radius: round4(rangeToCells(z.radiusRaw)),
+  });
+  return {
+    heavyZones: {
+      juggernaut: zone(dread),
+      fortress: zone(fort),
+      pollTicks: toSimTicks(enable[0].pollUnits, TICK_HZ),
+    },
+    fortressSpawn: [round4(sx(f.x)), round4(sz(f.z))],
+  };
+}
+
+/** A rules-artifact pickup's kind as the sim's PICKUP_* (the grant's reading). */
+function RULES_PICKUP_KIND(p: FcopRules["pickups"][number]): number {
+  if (p.kind === "health") return PICKUP_KIND.restore_health;
+  if (p.kind === "cloak") return PICKUP_KIND.invisibility;
+  const slot = p.kind === "ammo" ? p.ammoSlots[0] : p.powerUpSlots[0];
+  const names =
+    p.kind === "ammo"
+      ? ["reload_gun", "reload_heavy", "reload_special"]
+      : ["power_up_gun", "power_up_heavy", "power_up_special"];
+  const kind = PICKUP_KIND[names[slot] ?? ""];
+  if (kind === undefined) throw new Error(`${p.template}: no kind for ${p.kind} slot ${slot}`);
+  return kind;
+}
+
+/** A spawner's position in sim coordinates, by its Csac template. */
+function spawnerAt(rules: FcopRules, template: number): number[] {
+  const s = rules.spawners.find((q) => q.template === template);
+  if (!s) throw new Error(`${rules.mapId}: no spawner for template ${template}`);
+  return [round4(sx(s.x)), round4(sz(s.z))];
+}
+
+/** A queue's period in sim ticks, by its rows in the rules artifact. */
+function queueTicksOf(rules: FcopRules, pick: (q: FcopRules["queues"][number]) => boolean): number {
+  const rows = rules.queues.filter(pick);
+  if (rows.length !== 1) throw new Error(`${rules.mapId}: ${rows.length} queues match, want 1`);
+  return toSimTicks(rows[0].periodUnits, TICK_HZ);
+}
+
+/**
+ * A base's spawn queues and spawners (fcop-fidelity.md R18): its tanks queue on
+ * the slot's base tank function (fn18/fn19) and leave the tank spawner, its jets
+ * leave the jet spawner at once; the base jet queue is the Sky Captain's (fn17),
+ * which only the second slot carries — the first slot's captain, which the
+ * original never fields, takes the same period.
+ */
+function baseQueuesOf(
+  rules: FcopRules,
+  slot: number,
+): { tankSpawn: number[]; jetSpawn: number[]; queueTicks: { tank: number; jet: number } } {
+  const shop = (kind: string) => {
+    const b = rules.buyTriggers.find((t) => t.slot === slot && t.kind === kind);
+    if (!b) throw new Error(`${rules.mapId}: slot ${slot} has no ${kind} shop`);
+    return b;
+  };
+  const tank = shop("tank");
+  const base = (q: FcopRules["queues"][number]) => q.outpost === null;
+  const ownJet = rules.queues.some((q) => base(q) && q.kind === "jet" && q.slot === slot);
+  return {
+    tankSpawn: spawnerAt(rules, tank.template),
+    jetSpawn: spawnerAt(rules, shop("jet").template),
+    queueTicks: {
+      tank: queueTicksOf(rules, (q) => q.fn === tank.queueFn),
+      jet: queueTicksOf(rules, (q) => base(q) && q.kind === "jet" && (!ownJet || q.slot === slot)),
+    },
+  };
+}
+
+/**
+ * An outpost's spawners and queues per team (fcop-fidelity.md R18): a tank
+ * bought at its activation zone queues on the slot's outpost tank function, a
+ * jet bought at its claim zone leaves the jet spawner at once; the outpost's jet
+ * queue is the captain's, carried by one slot and shared as the base's is.
+ * Asserted to be the evidence's outpost by distance.
+ */
+function outpostQueuesOf(
+  rules: FcopRules,
+  k: number,
+  slots: number[],
+  tankPad: number[],
+): {
+  tankSpawn: number[][];
+  jetSpawn: number[][];
+  queueTicks: { tank: number; jet: number }[];
+} {
+  const out = slots.map((slot) => {
+    const shop = rules.outpostShop.find((o) => o.outpost === k && o.slot === slot);
+    if (!shop) throw new Error(`${rules.mapId}: outpost ${k} has no shop for slot ${slot}`);
+    const tankSpawn = spawnerAt(rules, shop.tankTemplate);
+    if (Math.hypot(tankSpawn[0] - tankPad[0], tankSpawn[1] - tankPad[1]) > 12) {
+      throw new Error(`${rules.mapId}: outpost ${k}'s tank spawner is not by its tank pad`);
+    }
+    const jets = (q: FcopRules["queues"][number]) => q.outpost === k && q.kind === "jet";
+    const ownJet = rules.queues.some((q) => jets(q) && q.slot === slot);
+    return {
+      tankSpawn,
+      jetSpawn: spawnerAt(rules, shop.jetTemplate),
+      queueTicks: {
+        tank: queueTicksOf(rules, (q) => q.fn === shop.tankQueueFn),
+        jet: queueTicksOf(rules, (q) => jets(q) && (!ownJet || q.slot === slot)),
+      },
+    };
+  });
+  return {
+    tankSpawn: out.map((o) => o.tankSpawn),
+    jetSpawn: out.map((o) => o.jetSpawn),
+    queueTicks: out.map((o) => o.queueTicks),
+  };
 }
 
 /** Interns weapon profiles so identical originals share one index. */
@@ -1154,7 +1684,9 @@ function terrainOnly(raw: MapJson): MapJson {
     void defence;
     return rest;
   });
-  return { ...raw, bases };
+  // A fresh stage-1 terrain still carries convert.ts's hand outpost spots but no
+  // outposts, which the loader refuses; every feature list is rebuilt below.
+  return raw.outposts === undefined ? { ...raw, bases, outpostSpots: [] } : { ...raw, bases };
 }
 
 // ---------------------------------------------------------------------------
@@ -1171,6 +1703,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const logic = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
   ) as Logic;
+  const rules = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", rulesFile(arena)), "utf8"),
+  ) as FcopRules;
 
   // Team 0 is the low end of the field axis; each side's Dreadnought drives its
   // own Cnet (fcop-logic.md §8.1) and the side owns the nearer X1Alpha. The
@@ -1179,6 +1714,15 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const teams = teamsOf(logic.dreadnoughts, logic.spawns, field);
   const teamBases = teams.map((t) => t.base);
   const teamSpawns = teams.map((t) => t.spawn);
+  // The original's player slot 0 is X1Alpha 12, slot 1 X1Alpha 16 (the rules
+  // artifact's x1alpha); which team that is falls out of the base pairing.
+  const teamOfSlot = (slot: number): number => {
+    const rec = rules.x1alpha.find((x) => x.slot === slot);
+    const team = rec ? teamSpawns.findIndex((sp) => sp.id === rec.id) : -1;
+    if (team < 0) throw new Error(`${mapId}: no team owns player slot ${slot}`);
+    return team;
+  };
+  const slotOfTeam = (team: number): number => (teamOfSlot(0) === team ? 0 : 1);
   const teamNet = [teamBases[0].netId, teamBases[1].netId];
   // Each side's gate: the trigger that watches the ENEMY's Dreadnought.
   const gates = teamBases.map((own, team) => gateOf(logic, teamBases[1 - team].id, own.id));
@@ -1213,6 +1757,12 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     const gcy = round4(sz(buttons[0].z));
     const acx = round4(sx(buttons[1].x));
     const acy = round4(sz(buttons[1].z));
+    // Each console's trigger box: a purchase answers inside it, widened by the
+    // buyer's radius (fcop-fidelity.md R17), as the gates are measured.
+    const buyBox = (t: (typeof buttons)[number]) => ({
+      halfW: round4(triggerHalfExtent(t.widthRaw)),
+      halfL: round4(triggerHalfExtent(t.lengthRaw)),
+    });
     // Permanent base ring = the type-8 records that belong to no outpost. The
     // original lists 16 (or 14) type-8 records per side, but only 8 (6 on
     // Slim/Joke/Hk) are base guns, live from t = 0: the rest stand on the
@@ -1266,8 +1816,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       // original has no destructible core (fcop-fidelity.md I6/R1).
       core: [coreX, coreY],
       groundConsole: [gcx, gcy],
+      groundBuy: buyBox(buttons[0]),
       airConsole: [acx, acy],
-      pad: { x: coreX, y: coreY, radius: 3 },
+      airBuy: buyBox(buttons[1]),
       // The ring carries each Turret actor's OWN shooter block, not just its
       // position. Dropping it once left the ring on the then-global 28 m TURRET_RANGE
       // against an imported engage_range of 12 m — see spawnBaseTurret in sim.ts.
@@ -1298,6 +1849,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       },
       // The tank, jet and Flying Fortress spawner records (fcop-fidelity.md W3).
       ...unitProfiles(logic, base.team, table),
+      ...heavyOf(rules, team, teamOfSlot, coreX, coreY),
+      ...baseQueuesOf(rules, slotOfTeam(team)),
     };
   });
 
@@ -1364,6 +1917,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     zone: round4(o.claim_zone.radius_m),
     tankPad: padOf(o, "tank"),
     jetPad: padOf(o, "jet"),
+    ...outpostQueuesOf(rules, o.index, [slotOfTeam(0), slotOfTeam(1)], padOf(o, "tank")),
     plates: o.plates.map((plate) => {
       const neutral = plate.records.filter((r) => r.type === 36);
       if (neutral.length !== 1 || !neutralIndex.has(neutral[0].id)) {
@@ -1403,13 +1957,32 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       const grant = p.grants.find((g) => g !== "is_set" && g !== "pickup_consume") ?? "";
       const kind = PICKUP_KIND[grant];
       if (kind === undefined) throw new Error(`pickup ${p.id} has unmapped grant "${grant}"`);
+      // The rules artifact's reading of the same record (fcop-fidelity.md P9):
+      // its kind must agree with the grant's, and it carries the box.
+      const r = rules.pickups.find((q) => q.template === p.id);
+      if (!r) throw new Error(`${mapId}: pickup ${p.id} is not in the rules artifact`);
+      if (RULES_PICKUP_KIND(r) !== kind) {
+        throw new Error(`${mapId}: pickup ${p.id} is kind ${kind} by its grant, not ${r.kind}`);
+      }
       return {
         x: round4(sx(p.x)),
         y: round4(sz(p.z)),
         kind,
         respawnTicks: toSimTicks(p.spawnTicks, TICK_HZ),
+        // Record halfwords << 4 wu: +0x2a bounds runtime axis 2 (actors x, the
+        // sim's x), +0x26 axis 0 (actors z, the sim's y), +0x28 the height.
+        halfW: round4(rangeToCells(r.halfRaw[2])),
+        halfL: round4(rangeToCells(r.halfRaw[0])),
+        halfH: round4(rangeToCells(r.halfRaw[1])),
+        lift: round4(rangeToCells(r.heightOffsetRaw)),
+        model: r.cobj,
+        // `((spin << 4) / 218) >> 4` 4096ths a 300 Hz tick (pickup.c 0x0041e85a).
+        spin: Math.trunc((p.rotationalSpeed * 16) / 218) >> 4,
       };
     });
+  if (rules.pickups.length !== pickups.length) {
+    throw new Error(`${mapId}: ${rules.pickups.length} rules pickups, ${pickups.length} records`);
+  }
 
   // Intrusion volumes: the original wraps each base in a cluster that watches
   // the enemy X1Alpha and the enemy units separately, so many volumes repeat the
@@ -1427,6 +2000,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   for (const t of [...logic.triggers].sort((a, b) => a.id - b.id)) {
     if (t.flags.includes("action_button")) continue; // those are the consoles
     if (isGateTrigger(t)) continue; // those are the gates (gateOf)
+    // Hk's spawn guards hurt the mech; they do not raise the base's alert.
+    if (rules.spawnGuards.some((g) => g.id === t.id)) continue;
     const x = round4(sx(t.x));
     const y = round4(sz(t.z));
     // Half-extent raw/1024 m (fcopLogic.ts TRIGGER_SCALE); the intruder's own
@@ -1449,6 +2024,19 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       watch: WATCH_ENEMY_AVATAR | WATCH_ENEMY_UNITS,
     });
   }
+
+  // Hk's spawn guards (fcop-fidelity.md P11): each trigger box watches the enemy
+  // mech; the first box halfword bounds actors x (the sim's x), the second z.
+  const spawnGuards = rules.spawnGuards.map((g) => ({
+    x: round4(sx(g.x)),
+    y: round4(sz(g.z)),
+    halfW: round4(triggerHalfExtent(g.widthRaw)),
+    halfL: round4(triggerHalfExtent(g.lengthRaw)),
+    halfH: round4(triggerHalfExtent(g.heightRaw)),
+    hurtsTeam: teamOfSlot(g.hurtsSlot),
+    damage: g.damage,
+    resetTicks: toSimTicks(g.resetUnits, TICK_HZ),
+  }));
 
   // Icon consoles and outpost kiosks: face the nearer base core so their
   // unit-type screens read toward the pad (player stands on the apron and
@@ -1482,12 +2070,69 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // inputs alone.
   const pristine = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", wallsFile(arena)), "utf8"),
-  ) as { size: number; wallsV: string[]; wallsH: string[] };
+  ) as {
+    size: number;
+    wallsV: string[];
+    wallsH: string[];
+    layers?: { wallsV: string[]; wallsH: string[] }[];
+  };
   if (pristine.size !== raw.size) {
     throw new Error(`${wallsFile(arena)} is size ${pristine.size}, map is ${raw.size}`);
   }
   const wallsV = [...pristine.wallsV];
   const wallsH = [...pristine.wallsH];
+  // The lifts and the shafts they move in (fcop-fidelity.md P12), then the
+  // kerbs (P15). Both edit the deck lattices too, from the snapshot's pristine
+  // copies, so the output stays a function of committed inputs; an arena with
+  // neither keeps its decks as stage 1 wrote them.
+  // A lift comes with the decks it serves: an arena still imported as one storey
+  // has no platform for it to reach.
+  let lifts = arena.layered ? liftsOf(rules, terrain, teamOfSlot) : [];
+  let layers = raw.layers;
+  let shaftBits = 0;
+  let kerbBits = 0;
+  let landingCells = 0;
+  if (lifts.length > 0 || arena.kerbs === true) {
+    const align = MAP_ALIGN[mapId];
+    const glb = join(REPO_ROOT, "packages", "client", "public", "models", mapId, `${mapId}.glb`);
+    const mesh = new TerrainMesh(readGlbTriangles(glb, align.x, align.z), raw.size);
+    const decks = pristine.layers ?? [];
+    const lattices: Lattice[] = [
+      { v: wallsV.map((r) => r.split("")), h: wallsH.map((r) => r.split("")) },
+      ...decks.map((d) => ({
+        v: d.wallsV.map((r) => r.split("")),
+        h: d.wallsH.map((r) => r.split("")),
+      })),
+    ];
+    const masks = (raw.layers ?? []).map((L) => L.mask.map((r) => r.split("")));
+    const heights = (raw.layers ?? []).map((L) => L.heights.map((r) => [...r]));
+    landingCells = landLifts(lifts, terrain, mesh, heights, masks);
+    const patched = (raw.layers ?? []).map((L, k) => ({
+      ...L,
+      heights: heights[k],
+      mask: masks[k].map((r) => r.join("")),
+    }));
+    // The lifts and the shafts read the terrain with their landings.
+    const landed = landingCells > 0 ? loadMapFromJson({ ...raw, layers: patched }) : terrain;
+    if (landingCells > 0) lifts = liftsOf(rules, landed, teamOfSlot);
+    shaftBits = openLiftShafts(lifts, landed, lattices, masks);
+    if (arena.kerbs === true) kerbBits = openKerbs(landed, mesh, lattices);
+    for (let j = 0; j < wallsV.length; j++) {
+      wallsV[j] = lattices[0].v[j].join("");
+      wallsH[j] = lattices[0].h[j].join("");
+    }
+    layers = (raw.layers ?? []).map((L, k) => ({
+      ...L,
+      heights: heights[k],
+      mask: masks[k].map((r) => r.join("")),
+      ...(lattices[k + 1]
+        ? {
+            wallsV: lattices[k + 1].v.map((r) => r.join("")),
+            wallsH: lattices[k + 1].h.map((r) => r.join("")),
+          }
+        : {}),
+    }));
+  }
   let carved = 0;
   let repaired = 0;
   let repairedFor = new Map<string, number>();
@@ -1511,9 +2156,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // Opening the lane edges is not enough on its own: a corridor can be
     // drivable end to end and still be sealed off from the rest of the arena,
     // which is what leaves the outer ring's capture pads unreachable.
-    const spawns = out0Spawns(teamSpawns, field, arena.spawnHover);
+    const spawns = out0Spawns(teamSpawns, rules);
     const repair = repairReachability(
-      { ...raw, spawns, wallsV, wallsH },
+      { ...raw, layers, lifts: lifts.length > 0 ? lifts : undefined, spawns, wallsV, wallsH },
       wallsV,
       wallsH,
       [
@@ -1565,11 +2210,11 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // --- emit --------------------------------------------------------------
   const out: MapJson = {
     ...raw,
+    ...waterOf(raw.size, rules),
     wallsV,
     wallsH,
-    // Face the enemy base: the original stores an X1Alpha rotation, but the
-    // useful, symmetric answer is "look down your own lane".
-    spawns: out0Spawns(teamSpawns, field, arena.spawnHover),
+    // Where and how each X1Alpha record stands, facing included.
+    spawns: out0Spawns(teamSpawns, rules),
     basePlots,
     bases: bases as MapJson["bases"],
     lanes,
@@ -1594,6 +2239,10 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     },
     pickups,
     triggerVolumes,
+    floors: floorMasks(terrain, rules, teamOfSlot),
+    spawnGuards: spawnGuards.length > 0 ? spawnGuards : undefined,
+    lifts: lifts.length > 0 ? lifts : undefined,
+    layers,
     props,
   };
 
@@ -1606,6 +2255,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     graph,
     stats: {
       carved,
+      shaftBits,
+      kerbBits,
+      landingCells,
       repaired,
       repairedFor,
       entries,
@@ -1773,6 +2425,12 @@ function probeOffsets(arena: FcopArena): boolean {
 /** Everything the report prints, so buildArena stays free of console output. */
 interface EnrichStats {
   carved: number;
+  /** Wall bits opened in the lifts' shafts (openLiftShafts). */
+  shaftBits: number;
+  /** Wall bits opened as kerbs (kerbs.ts openKerbs). */
+  kerbBits: number;
+  /** Cells given a deck at a lift's landing (landLifts). */
+  landingCells: number;
   repaired: number;
   /** Bits the repair opened, per target kind — so a residual says what it bought. */
   repairedFor: Map<string, number>;
@@ -1812,6 +2470,18 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   console.log(
     `  wall bits carved to open the original roads: ${carved}/${arena.carveLimit} allowed`,
   );
+  if (stats.kerbBits > 0) console.log(`  wall bits opened as kerbs: ${stats.kerbBits}`);
+  if (map.lifts.length > 0) {
+    console.log(
+      `  lifts ${map.lifts.length}: ${stats.landingCells} landing cells laid, ` +
+        `${stats.shaftBits} wall bits opened in their shafts; ` +
+        map.lifts
+          .map(
+            (l) => `(${l.x}, ${l.y}) stops ${l.stops.join("/")} on surfaces ${l.layers.join("/")}`,
+          )
+          .join(", "),
+    );
+  }
   const repairDetail =
     repaired > 0
       ? ` (${[...stats.repairedFor].map(([k, n]) => `${n} for a ${k}`).join(", ")})`
