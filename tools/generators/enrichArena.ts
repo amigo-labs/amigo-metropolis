@@ -901,71 +901,47 @@ class WeaponTable {
   }
 }
 
-/**
- * Which unit a build console sells, read off the Cobj parked on it.
- *
- * The original labels its consoles with an icon rather than a field, and the
- * icon is a UV window into the shared 256x256 base atlas. Measured on the raw
- * assemblies in tools/generators/units/raw/fcop/, the icon face of each
- * console model samples one of two windows:
- *
- *   y 0..28  -> a yellow jet silhouette   -> AIR   (obj 33, obj 39)
- *   y 28..56 -> a yellow tank silhouette  -> GROUND (obj 27, obj 40)
- *
- * Conft and Slim mark the air console with obj 41 — the flyer model itself —
- * instead of an icon pillar. Same meaning.
- *
- * This replaces a footprint-width heuristic. On Mp the wider trigger (819) is
- * the one wearing the JET, so calling the wider one "ground" sold Runners at
- * the aircraft console and Guardians at the tank console. Joke, Hk and Ovmp
- * were wrong the same way; Conft and Slim happened to come out right.
- */
-const CONSOLE_ICON_AIR = new Set([33, 39, 41]);
-const CONSOLE_ICON_GROUND = new Set([27, 40]);
-
 type ConsoleTrigger = Logic["triggers"][number];
 
-function consoleRole(trigger: ConsoleTrigger, props: Logic["props"]): "ground" | "air" | "unknown" {
-  let best: Logic["props"][number] | null = null;
-  let bestD = Infinity;
-  for (const p of props) {
-    const d = Math.hypot(p.x - trigger.x, p.z - trigger.z);
-    if (d < bestD) {
-      bestD = d;
-      best = p;
-    }
-  }
-  // The console Cobj sits ON the trigger: measured 0.07-0.42 cells on all six
-  // missions. Anything further away is some other piece of scenery.
-  if (!best || bestD > 1.5) return "unknown";
-  if (CONSOLE_ICON_AIR.has(best.objId)) return "air";
-  if (CONSOLE_ICON_GROUND.has(best.objId)) return "ground";
-  return "unknown";
-}
-
-/** [ground, air] triggers for one base, keyed off their console icons. */
+/**
+ * [ground, air] triggers for one base: what each of its two shop triggers
+ * sells, as the rules artifact reads it off the trigger's own script
+ * (`buy_triggers[].sells`, RE tools/logic/pa_rules_data.py: a spawn request
+ * 0x47 for a jet template is the jet shop, a queue flag whose queue builds a
+ * tank is the tank shop), paired with the logic record by id.
+ *
+ * This replaces an icon reading that took the Cobj parked on each trigger and
+ * looked its id up in one table for all six missions (27/40 a tank kiosk,
+ * 33/39/41 a jet). Cobj ids are per mission (fcop-fidelity.md G2): Conft's and
+ * Slim's 40 is Mp's 39, the jet kiosk, and their 41 is Mp's 40, the tank kiosk
+ * (the same payloads), so on urban-jungle and proving-ground the table sold
+ * tanks at the jet shop and jets at the tank shop. Before the icons it was the
+ * footprint width, wrong on the other four.
+ */
 function assignConsoles(
   triggers: readonly ConsoleTrigger[],
-  props: Logic["props"],
+  rules: FcopRules,
+  slot: number,
   team: number,
 ): [ConsoleTrigger, ConsoleTrigger] {
-  if (triggers.length < 2) {
-    throw new Error(`base ${team} has ${triggers.length} action-button triggers, need 2`);
-  }
-  const byId = [...triggers].sort((a, b) => a.id - b.id);
-  const ground = byId.filter((t) => consoleRole(t, props) === "ground");
-  const air = byId.filter((t) => consoleRole(t, props) === "air");
-  if (ground.length !== 1 || air.length !== 1) {
-    // Refuse to guess. A mission whose consoles carry an icon this table does
-    // not know is a data question, and getting it backwards is invisible in
-    // every screenshot — you only notice when the wrong unit rolls out.
-    const seen = byId.map((t) => `${t.id}:${consoleRole(t, props)}`).join(" ");
-    throw new Error(
-      `base ${team}: cannot tell the build consoles apart from their icons (${seen}). ` +
-        `Add the console Cobj id to CONSOLE_ICON_AIR / CONSOLE_ICON_GROUND.`,
-    );
-  }
-  return [ground[0], air[0]];
+  const shop = (kind: "tank" | "jet"): ConsoleTrigger => {
+    const sells = rules.buyTriggers.filter((b) => b.slot === slot && b.kind === kind);
+    if (sells.length !== 1) {
+      throw new Error(`${rules.mapId}: slot ${slot} has ${sells.length} ${kind} shops, want 1`);
+    }
+    const t = triggers.find((x) => x.id === sells[0].id);
+    if (!t) {
+      throw new Error(
+        `${rules.mapId}: base ${team}'s ${kind} shop ${sells[0].id} is not one of its ` +
+          `action-button triggers (${triggers.map((x) => x.id).join(", ")})`,
+      );
+    }
+    if (t.x !== sells[0].x || t.z !== sells[0].z) {
+      throw new Error(`${rules.mapId}: shop ${t.id} stands elsewhere in the two artifacts`);
+    }
+    return t;
+  };
+  return [shop("tank"), shop("jet")];
 }
 
 // ---------------------------------------------------------------------------
@@ -1737,10 +1713,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // --- bases -------------------------------------------------------------
   // The two `action_button` triggers per base are the base's own interaction
   // points (fcop-logic.md §8.6: they watch that base's own X1Alpha), so they are
-  // the build consoles. Which is which comes from the Cobj standing on each one
-  // — see consoleRole(). This used to be "the wider footprint is the ground
-  // console", which was a guess, and on four of six missions it was the wrong
-  // way round.
+  // the build consoles. Which is which is what each one's script sells — see
+  // assignConsoles(); two guesses before it (the wider footprint, then the
+  // kiosk's Cobj id) were each backwards on some missions.
   const evidence = evidenceOf(arena);
   const members = outpostMembers(evidence);
   let ringDropped = 0;
@@ -1748,7 +1723,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     const own = teamSpawns[team];
     const buttons = assignConsoles(
       logic.triggers.filter((t) => t.flags.includes("action_button") && t.watchesActor === own.id),
-      logic.props,
+      rules,
+      slotOfTeam(team),
       team,
     );
     const coreX = round4(sx(base.x));

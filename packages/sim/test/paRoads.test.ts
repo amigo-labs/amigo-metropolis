@@ -73,27 +73,29 @@ const ROADS: RoadExpectation[] = [
     // Both legs shortened from 8.3/8.1 m when the ground console stopped being
     // the aircraft one: the tank console is the one the original parks on the
     // road, which is what you would expect of the pad that rolls ground units
-    // out. Corroborates the icon reading in enrichArena's consoleRole().
+    // out. Corroborates the shop reading in enrichArena's assignConsoles().
     entry: [143, 6],
     entryDistance: [3.3, 3.1],
     driveLimit: 40, // 18.9 s / 30.2 s measured to the gate box (Runner / Juggernaut step)
   },
   {
     id: URBAN_JUNGLE_ID,
-    // Team 0's console leg is the one place on any arena where no chain node at
-    // all is walkable from the console, so stage 2 carves that leg open and keeps
-    // the Cnet's own node.
-    entry: [0, 237],
-    entryDistance: [6.6, 6.6],
-    driveLimit: 70, // 31.4 s / 50.3 s measured to the gate box
+    // 6.6/6.6 m, and team 0's leg carved open, while the ground console was the
+    // jet shop (a kiosk Cobj id read as if Conft numbered its Cobjs as Mp does).
+    // From the tank shop team 0 walks to #1 (#0 is walled off) and team 1 to the
+    // Cnet's own node.
+    entry: [1, 237],
+    entryDistance: [4.3, 3.6],
+    driveLimit: 70, // 30.1 s / 48.2 s (team 1, the slower) as the generator reports it
   },
   {
     id: PROVING_GROUND_ID,
-    // #292 sits inside the base structure's own walls; #294 is 5.5 m out on the
-    // same chain and reachable.
-    entry: [0, 294],
-    entryDistance: [7.6, 5.5],
-    driveLimit: 70, // 38.4 s / 61.4 s measured to the gate box
+    // Slim's bases are Joke's, and since the ground console is the tank shop
+    // (it was the jet shop, 7.6/5.5 m out, for the same reason as urban-jungle)
+    // its entries and legs are bug-hunt's, one node index apart on team 1.
+    entry: [1, 293],
+    entryDistance: [3.2, 3.0],
+    driveLimit: 70, // 36.4 s / 58.1 s (team 0, the slower) as the generator reports it
   },
   {
     id: BUG_HUNT_ID,

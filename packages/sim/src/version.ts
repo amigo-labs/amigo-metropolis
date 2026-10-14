@@ -1100,4 +1100,12 @@
 //     own maximum. The difficulties and the markers are hashed only in a match
 //     with a player off NORMAL, so every NORMAL replay's hash sequence is
 //     unchanged: the goldens are re-recorded for the header alone.
-export const SIM_VERSION = 72;
+// v73: urban-jungle's and proving-ground's ground and air consoles un-swapped
+//     (fcop-fidelity.md R17): the ground console stands on the shop trigger
+//     whose script queues a tank, the air console on the one whose script
+//     requests a jet (RE pa_rules.json `buy_triggers[].sells`), as the other
+//     four arenas already had it. The import had read the kiosk's Cobj id as if
+//     every mission numbered its Cobjs as Mp does; Conft's and Slim's 40 is Mp's
+//     39, the jet kiosk. Map data only: the console legs, their carved and
+//     reconnecting wall bits and the road entry nodes move with it.
+export const SIM_VERSION = 73;

@@ -308,9 +308,15 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // createSim moves the PRNG stream): 27 of 30 resolve, in 41-133 s. Re-measured
   // at SIM_VERSION 61 (its requests run through the shared spawn queues, from a
   // phase drawn at load, and leave the original's spawners): 19 of these four
-  // arenas' 20 resolve, in 53-121 s; urban-jungle seed 2 does not.
+  // arenas' 20 resolve, in 53-121 s; urban-jungle seed 2 does not. Re-measured
+  // at SIM_VERSION 73 (urban-jungle's and proving-ground's ground console moved
+  // onto the tank shop, so their tanks join the road at another node and the
+  // walls about both shops changed): 17 of 20 resolve, in 53-117 s; urban-jungle
+  // seeds 2 and 4 and proving-ground seed 2 do not, their opening order dying at
+  // the ring as above.
   const UNRESOLVED: Record<string, number[]> = {
-    [URBAN_JUNGLE_ID]: [2],
+    [URBAN_JUNGLE_ID]: [2, 4],
+    [PROVING_GROUND_ID]: [2],
   };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {

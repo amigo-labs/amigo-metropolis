@@ -186,10 +186,11 @@ const ARENAS: ArenaExpectation[] = [
     // GROUND-DECK walls since SIM_VERSION 67, as proving-ground's: the union of
     // ground and decks is the old lattice bit for bit (fcopWalls.test.ts). On it
     // stage 2 opens 32 bits in the four pit lifts' shafts, 2855 kerbs and
-    // spills over all three lattices (fcop-fidelity.md P15), carves 205 for the
-    // roads and opens 10 to reconnect.
-    wallsVPin: 3900760220,
-    wallsHPin: 496557647,
+    // spills over all three lattices (fcop-fidelity.md P15), carves 199 for the
+    // roads and opens 11 to reconnect (was 205 and 10 while the ground console
+    // stood on the jet shop; one of the 11 now opens the tank shop's leg).
+    wallsVPin: 338467895,
+    wallsHPin: 3590047211,
     // Conft's decks, less the lift shafts, with the two landing patches.
     layerCells: [2126, 17],
     turretSpots: 32,
@@ -249,10 +250,11 @@ const ARENAS: ArenaExpectation[] = [
     // GROUND-DECK walls since SIM_VERSION 65, as la-cantina's: the union of
     // ground and decks is the old single-storey lattice bit for bit
     // (fcopWalls.test.ts). On it stage 2 opens 27 bits in the two lift shafts,
-    // 424 kerbs over all three lattices (fcop-fidelity.md P15), carves 139 for the
-    // roads (was 308) and opens 9 to reconnect.
-    wallsVPin: 3700276744,
-    wallsHPin: 2077084268,
+    // 424 kerbs over all three lattices (fcop-fidelity.md P15), carves 135 for the
+    // roads (was 308, then 139 while the ground console stood on the jet shop)
+    // and opens 10 to reconnect, one of them the tank shop's leg.
+    wallsVPin: 4113043016,
+    wallsHPin: 957207801,
     // Slim's decks, less the lift shafts: the spawns' platforms and the bridges.
     layerCells: [1847, 98],
     turretSpots: 29,
