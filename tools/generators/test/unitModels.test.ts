@@ -7,6 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { getBounds, NodeIO, type Primitive } from "@gltf-transform/core";
+import { ARCHETYPE, ARCHETYPE_RADIUS } from "@metropolis/sim";
 import { FX_MODELS, UNIT_MODELS } from "../units/manifest";
 
 const MODELS_DIR = join(
@@ -199,6 +200,30 @@ describe("committed FX models match the manifest contract", () => {
       expect(sizeY).toBeLessThanOrEqual(spec.maxHeight * 1.05);
       // And not collapsed: a model that lost its scale would pass the bound above.
       expect(Math.max(sizeX, sizeY, sizeZ)).toBeGreaterThan(0.05);
+    });
+  }
+});
+
+// The jet's and the Flying Fortress's hit radius is the original's radius_68 of
+// the model drawn: the halfword at +12 of its 3DBB box, the box's half-diagonal
+// (balance.ts ARCHETYPE_RADIUS; fcop-fidelity.md G1). The drawn mesh's own box
+// lands within the 1/512 quantisation of it, so a model swapped for another
+// without its radius following fails here.
+describe("aircraft hit radii follow the models drawn", () => {
+  for (const [unit, archetype] of [
+    ["guardian", ARCHETYPE.GUARDIAN],
+    ["fortress", ARCHETYPE.FORTRESS],
+  ] as const) {
+    test(`${unit}: radius is its box's half-diagonal`, async () => {
+      const document = await io.read(join(OUT_DIR, `${unit}.glb`));
+      const root = document.getRoot();
+      const { min, max } = getBounds(root.getDefaultScene() ?? root.listScenes()[0]);
+      const hx = (max[0] - min[0]) / 2;
+      const hy = (max[1] - min[1]) / 2;
+      const hz = (max[2] - min[2]) / 2;
+      expect(
+        Math.abs(Math.sqrt(hx * hx + hy * hy + hz * hz) - ARCHETYPE_RADIUS[archetype]),
+      ).toBeLessThan(0.01);
     });
   }
 });

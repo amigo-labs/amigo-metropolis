@@ -1360,11 +1360,18 @@ export const SKY_OPENING_ORDER = 10;
 /**
  * 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP.
  *
- * HALF THE MODEL'S FOOTPRINT, which is the convention these already followed —
- * against models that were stretched 1.02x-2.87x off the FCOP originals. The
- * models now carry the size the original authored (assets.md §4), so these
- * follow: the avatar's disc was 2.4 m across against a 0.80 m mech, wider than
- * the catwalks it walks and wider than its own base mouth.
+ * Most are HALF THE MODEL'S FOOTPRINT, which is the convention these already
+ * followed — against models that were stretched 1.02x-2.87x off the FCOP
+ * originals. The models now carry the size the original authored (assets.md
+ * §4), so these follow: the avatar's disc was 2.4 m across against a 0.80 m
+ * mech, wider than the catwalks it walks and wider than its own base mouth.
+ *
+ * The jet and the Flying Fortress carry the original's own radius instead
+ * (fcop-fidelity.md G1): an actor's `radius_68`, which its collision sweep
+ * sums for the sphere test and every trigger, capture and gate test adds as the
+ * intruder's own, is the halfword at +12 of its model's 3DBB box for the
+ * current frame, << 4 world units (`cact_model_block_init` 0x00426e00,
+ * `cact_pair_test` 0x00450190): the box's half-diagonal, raw / 512 m.
  *
  * Only hit detection reads these — AoE, projectile contact, mine triggers.
  * Wall collision treats every mover as a point (collision.ts), so shrinking
@@ -1373,13 +1380,15 @@ export const SKY_OPENING_ORDER = 10;
 export const ARCHETYPE_RADIUS: readonly number[] = [
   0.4, // AVATAR      0.80 m footprint
   0.76, // RUNNER     1.52
-  // GUARDIAN and FORTRESS were set against the models they drew before the
-  // jet got its own Cobj 22 (1.50 m) and the Flying Fortress its own Cobj 41
-  // (3.15 m). A radius moves the goldens, so they follow in a sim commit
-  // (fcop-fidelity.md G1).
-  1.1, // GUARDIAN    1.50 (was drawn as Cobj 41, 3.15)
+  // Cobj 22's 3DBB radius, 537 in all three frames (1.40 x 0.42 x 1.50 m;
+  // Ovmp's copy 531, Joke's own jet 286-317 by frame). Was 1.1, sized for
+  // Cobj 41.
+  537 / 512, // GUARDIAN    1.0488 m
   1.1, // JUGGERNAUT  2.22
-  1.33, // FORTRESS   3.15 (was drawn as Cobj 57, 2.67)
+  // Cobj 41's 3DBB radius, 989 (3.15 x 0.68 x 2.14 m; Conft's and Slim's 42 is
+  // the same payload, Joke's own Fortress 603-711 by frame). Was 1.33, sized
+  // for Cobj 57.
+  989 / 512, // FORTRESS   1.9316 m
   0.7, // TURRET      1.41
   0.15, // PROJECTILE
   0.56, // CONSOLE    1.12

@@ -1108,4 +1108,11 @@
 //     every mission numbered its Cobjs as Mp does; Conft's and Slim's 40 is Mp's
 //     39, the jet kiosk. Map data only: the console legs, their carved and
 //     reconnecting wall bits and the road entry nodes move with it.
-export const SIM_VERSION = 73;
+// v74: the jet's and the Flying Fortress's hit radius is the original's
+//     (fcop-fidelity.md G1): an actor's radius_68, the halfword at +12 of its
+//     model's 3DBB box << 4 wu (cact_model_block_init 0x00426e00, summed by
+//     cact_pair_test 0x00450190), Cobj 22's 537 = 1.0488 m and Cobj 41's 989 =
+//     1.9316 m; were 1.1 and 1.33 m, sized for the models drawn before them.
+//     Hit tests only (hitscan, contact, blasts, mines). No golden's hash
+//     sequence moves: the goldens are re-recorded for the header alone.
+export const SIM_VERSION = 74;
