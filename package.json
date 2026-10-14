@@ -21,6 +21,7 @@
     "gen:fxcobj": "bun run tools/generators/fx/cobjContact.ts",
     "gen:mapalign": "bun run tools/generators/genMapAlign.ts",
     "gen:palogic": "bun run tools/generators/fcopLogic.ts",
+    "gen:parules": "bun run tools/generators/fcopRules.ts",
     "gen:walls": "bun run tools/generators/fcopWalls.ts",
     "gen:arena": "bun run tools/generators/enrichArena.ts",
     "gen:pads": "bun run tools/generators/stampPads.ts",

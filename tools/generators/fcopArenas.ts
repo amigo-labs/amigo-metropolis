@@ -140,6 +140,11 @@ export function logicFile(a: FcopArena): string {
   return `${a.mission.toLowerCase()}-logic.json`;
 }
 
+/** Committed Precinct Assault rule data for this arena (fcopRules.ts). */
+export function rulesFile(a: FcopArena): string {
+  return `${a.mission.toLowerCase()}-rules.json`;
+}
+
 /** Committed pristine stage-1 wall lattice for this arena. */
 export function wallsFile(a: FcopArena): string {
   return `${a.mission.toLowerCase()}-walls.json`;
