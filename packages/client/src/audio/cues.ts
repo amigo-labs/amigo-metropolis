@@ -44,6 +44,7 @@ import {
   EV_DRY_FIRE,
   EV_EXPLOSION,
   EV_HIT,
+  EV_LIFT_ARRIVE,
   EV_LOW_AMMO,
   EV_PICKUP,
   EV_PURCHASE,
@@ -57,6 +58,8 @@ import {
   EV_TURRET_UNDER_FIRE,
   EVENT_STRIDE,
   type EventBuffer,
+  LIFT_SNAP_MOVING,
+  LIFT_SNAP_STRIDE,
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_MOVE,
@@ -121,6 +124,15 @@ const MAX_PENDING_EFFECTS = 64;
 /** An ambient queue record nobody owns; emitters own keys from EMITTER_KEY down. */
 const FREE = -1;
 const EMITTER_KEY = -2;
+/** Lifts own ambient keys from LIFT_KEY down, clear of the emitters'. */
+const LIFT_KEY = -1000;
+/**
+ * Every Precinct Assault lift's sounds (RE pa_rules.json `lifts`): the travel
+ * script, held in the ambient queue while it moves, and the arrival script,
+ * played once at the lift as it reaches a stop (`elevator.c`).
+ */
+const LIFT_TRAVEL_SCRIPT = 70;
+const LIFT_ARRIVAL_SCRIPT = 71;
 /** The death mask's bits (cact_base_op11): hit kinds 2, 4, 8, 16 -> groups 1..4. */
 const MASK_BITS = 0x1e;
 /** The captain's chatter cooldown: 180 of the scripts' 1/60 s = 3 s. */
@@ -155,6 +167,8 @@ export interface CueContext {
   readonly captainSlot: number;
   /** The Sky Captain's level (0..9), for the announcement and its class. */
   readonly captainLevel: number;
+  /** The lifts' snapshot (writeLiftSnapshot), LIFT_SNAP_STRIDE per lift. */
+  readonly lifts: Float32Array;
 }
 
 /** One voice rule's state: armed by an event, polled on its own period. */
@@ -166,6 +180,7 @@ interface VoiceState {
 
 export class OriginalSounds {
   private data: ArenaAudio | null = null;
+  private lifts: readonly { x: number; y: number }[] = [];
   private weapons: Readonly<Record<number, PlayerWeaponSounds>> = {};
   /** Per slot: the health gauge's state (2 full, 1 spending, 0 empty). */
   private readonly gauge = new Uint8Array(MAX_PLAYERS).fill(2);
@@ -202,10 +217,15 @@ export class OriginalSounds {
 
   constructor(private readonly engine: AudioEngine) {}
 
-  /** A new match on `data`'s arena. */
-  begin(data: ArenaAudio, weapons: Readonly<Record<number, PlayerWeaponSounds>>): void {
+  /** A new match on `data`'s arena, with its lifts (map.lifts: where each stands). */
+  begin(
+    data: ArenaAudio,
+    weapons: Readonly<Record<number, PlayerWeaponSounds>>,
+    lifts: readonly { x: number; y: number }[],
+  ): void {
     this.data = data;
     this.weapons = weapons;
+    this.lifts = lifts;
     this.gauge.fill(2);
     this.gaugeAvatar.fill(-1);
     this.form.fill(-1);
@@ -297,6 +317,11 @@ export class OriginalSounds {
         engine.setPending(PENDING_ACCEPT);
         if (b === ctx.captainSlot) this.word56 = 6; // 0x0041cbdd
         return;
+      case EV_LIFT_ARRIVE: {
+        const l = this.lifts[a];
+        if (l) engine.playScript(LIFT_ARRIVAL_SCRIPT, true, l.x, l.y);
+        return;
+      }
       case EV_PICKUP:
         // The ItemPickup's death script.
         engine.setPending(PENDING_PICKUP);
@@ -757,6 +782,14 @@ export class OriginalSounds {
       const e = data.emitters[k];
       if (!this.engine.within(e.x, e.z, AMBIENT_RANGE_M)) continue;
       this.queueAmbient(EMITTER_KEY - k, e.sound, e.x, e.z);
+    }
+    // A moving lift holds its travel script, as a moving actor's does.
+    for (let k = 0; k < this.lifts.length; k++) {
+      const o = k * LIFT_SNAP_STRIDE + LIFT_SNAP_MOVING;
+      if (o >= ctx.lifts.length || ctx.lifts[o] !== 1) continue;
+      const l = this.lifts[k];
+      if (!this.engine.within(l.x, l.y, AMBIENT_RANGE_M)) continue;
+      this.queueAmbient(LIFT_KEY - k, LIFT_TRAVEL_SCRIPT, l.x, l.y);
     }
     for (let r = 0; r < QUEUE_RECORDS; r++) {
       if (this.ambientOwner[r] !== FREE && this.ambientSeen[r] === 0) this.ambientOwner[r] = FREE;

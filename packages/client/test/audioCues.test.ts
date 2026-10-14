@@ -11,6 +11,7 @@ import {
   EV_CLAIM,
   EV_DEATH,
   EV_DRY_FIRE,
+  EV_LIFT_ARRIVE,
   EV_LOW_AMMO,
   EV_PICKUP,
   EV_PURCHASE,
@@ -20,6 +21,8 @@ import {
   EV_TRANSFORM_REFUSED,
   EV_TURRET_LOST,
   EV_TURRET_UNDER_FIRE,
+  LIFT_SNAP_MOVING,
+  LIFT_SNAP_STRIDE,
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_HP_FRAC,
   MATCH_SLOT_MOVE,
@@ -95,6 +98,7 @@ function context(over: Partial<CueContext> = {}): CueContext {
     localSlot: 0,
     captainSlot: -1,
     captainLevel: 0,
+    lifts: new Float32Array(0),
     ...over,
   };
 }
@@ -113,7 +117,7 @@ function run(
   const sounds = new OriginalSounds(rec as unknown as AudioEngine);
   const data = FCOP_ARENA_AUDIO[mapId];
   if (!data) throw new Error(mapId);
-  sounds.begin(data, FCOP_PLAYER_WEAPONS);
+  sounds.begin(data, FCOP_PLAYER_WEAPONS, []);
   const buf = createEventBuffer();
   for (const [t, a, b, c] of events) pushEvent(buf, t, a, b, c);
   sounds.tick(buf, ctx);
@@ -175,7 +179,7 @@ describe("the mech's own sounds", () => {
     const sounds = new OriginalSounds(rec as unknown as AudioEngine);
     const data = FCOP_ARENA_AUDIO["la-cantina"];
     if (!data) throw new Error("la-cantina");
-    sounds.begin(data, FCOP_PLAYER_WEAPONS);
+    sounds.begin(data, FCOP_PLAYER_WEAPONS, []);
     const empty = createEventBuffer();
     const hp = matchSlotOffset(0) + MATCH_SLOT_HP_FRAC;
     for (const frac of [1, 0.5, 0.3, 0.2, 0, 0]) {
@@ -281,7 +285,7 @@ describe("the hover loop", () => {
       const sounds = new OriginalSounds(rec as unknown as AudioEngine);
       const data = FCOP_ARENA_AUDIO["la-cantina"];
       if (!data) throw new Error("la-cantina");
-      sounds.begin(data, FCOP_PLAYER_WEAPONS);
+      sounds.begin(data, FCOP_PLAYER_WEAPONS, []);
       sounds.tick(createEventBuffer(), ctx);
       return rec.calls.filter((c) => c.startsWith("loop 0"));
     };
@@ -303,5 +307,34 @@ describe("the three sliders", () => {
       movies: 12,
     });
     expect(parseAudioLevels("not json")).toEqual({ sfx: 63, music: 63, movies: 63 });
+  });
+});
+
+describe("lifts (fcop-fidelity.md P12)", () => {
+  // Every PA lift's record names travel script 70 and arrival script 71.
+  function lifted(moving: number, events: [number, number, number, number][]): string[] {
+    const rec = new Recorder();
+    const sounds = new OriginalSounds(rec as unknown as AudioEngine);
+    const data = FCOP_ARENA_AUDIO["proving-ground"];
+    if (!data) throw new Error("proving-ground");
+    sounds.begin(data, FCOP_PLAYER_WEAPONS, [
+      { x: 104, y: 65 },
+      { x: 136, y: 175 },
+    ]);
+    const lifts = new Float32Array(2 * LIFT_SNAP_STRIDE);
+    lifts[LIFT_SNAP_STRIDE + LIFT_SNAP_MOVING] = moving;
+    const buf = createEventBuffer();
+    for (const [t, a, b, c] of events) pushEvent(buf, t, a, b, c);
+    sounds.tick(buf, context({ lifts }));
+    return rec.calls.filter((c) => !c.startsWith("loop"));
+  }
+
+  test("a moving lift holds its travel script in the ambient queue", () => {
+    expect(lifted(1, [])).toContain("queue 70");
+    expect(lifted(0, [])).not.toContain("queue 70");
+  });
+
+  test("a lift reaching a stop plays its arrival script at the lift", () => {
+    expect(lifted(0, [[EV_LIFT_ARRIVE, 1, 1, 0]])).toContain("script 71 placed");
   });
 });

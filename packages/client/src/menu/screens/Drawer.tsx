@@ -30,7 +30,7 @@ const CONTROLS: readonly (readonly [string, string])[] = [
   ["LMB / RMB / MMB", "primary / special / heavy"],
   ["Q", "transform (walker ⇄ hover)"],
   ["Space", "jump"],
-  ["E", "press: capture a turret, claim an outpost, or buy one unit at a console"],
+  ["E", "press: capture a turret, claim an outpost, buy one unit at a console, or ride a lift"],
 ];
 
 /**

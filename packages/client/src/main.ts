@@ -35,6 +35,7 @@ import {
   GUNS,
   getMapById,
   HEAVIES,
+  LIFT_SNAP_STRIDE,
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
   MATCH_SLOT_AVATAR_ID,
@@ -58,6 +59,7 @@ import {
   type TickInputs,
   URBAN_JUNGLE_ID,
   worldExtent,
+  writeLiftSnapshot,
   writeMatchSnapshot,
   writeSnapshot,
 } from "@metropolis/sim";
@@ -108,6 +110,7 @@ import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./r
 import { createFx } from "./render/fx";
 import { bucketFor, createGreyboxMeshes, tintFor } from "./render/greybox";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
+import { loadLifts, updateLifts } from "./render/lifts";
 import { matchClock, matchEndText } from "./render/matchEnd";
 import { loadMapMesh } from "./render/meshMap";
 import {
@@ -462,6 +465,19 @@ const matchSnap = new Float32Array(MATCH_SNAPSHOT_LEN);
 // index 1, and 0 is a valid team) until the first rotateSnapshot writes it —
 // the match-end detection must never see that boot frame.
 matchSnap[MATCH_WINNER] = -1;
+// The lifts' tops, two ticks for interpolation (writeLiftSnapshot). Sized by the
+// arena's lift count when a match starts (sizeLiftSnapshots), never per frame.
+let liftPrev = new Float32Array(0);
+let liftCurr = new Float32Array(0);
+
+/** (Re)sizes the lift snapshots for `lifts` lifts; false (a no-op) when they fit. */
+function sizeLiftSnapshots(lifts: number): boolean {
+  const len = lifts * LIFT_SNAP_STRIDE;
+  if (liftCurr.length === len) return false;
+  liftPrev = new Float32Array(len);
+  liftCurr = new Float32Array(len);
+  return true;
+}
 
 const keyboard = new PlayerOneInput(window);
 // In touch mode the local player's device is the on-screen overlay instead;
@@ -503,7 +519,7 @@ function beginMatchSounds(): void {
     voiceUrls: FCOP_VOICE_FILES,
     musicUrl: data.music,
   });
-  sounds.begin(data, FCOP_PLAYER_WEAPONS);
+  sounds.begin(data, FCOP_PLAYER_WEAPONS, map.lifts);
   audio.startMatch();
 }
 
@@ -707,9 +723,10 @@ function buildArenaGroup(m: typeof map): THREE.Group {
     buildGreyboxTerrain();
     buildGreyboxStructures();
   }
-  // The pickups wear the original's models on either path: they are gameplay,
-  // not scenery (render/pickups.ts).
+  // The pickups and the lifts wear the original's models on either path: they
+  // are gameplay, not scenery (render/pickups.ts, render/lifts.ts).
   loadPickups(m, group, stale);
+  loadLifts(m, group, stale);
   return group;
 }
 let arenaGroup = buildArenaGroup(map);
@@ -1581,6 +1598,7 @@ function pumpSounds(events: typeof sim.events): void {
     localSlot,
     captainSlot: sim.wardenPlayer,
     captainLevel: level > 0 ? level : 0,
+    lifts: liftCurr,
   });
 }
 
@@ -1611,6 +1629,15 @@ function rotateSnapshot(): void {
   // right beside the entity snapshot so the HUD reads only the snapshot
   // interface (renderer rule 4), never sim internals.
   writeMatchSnapshot(sim, matchSnap);
+  // The demo battles and the menu's arena previews swap the arena without a
+  // match start, so the lift snapshots size themselves here (a no-op when they
+  // fit; it allocates only when the arena's lift count changes).
+  const fresh = sizeLiftSnapshots(map.lifts.length);
+  const liftSwap = liftPrev;
+  liftPrev = liftCurr;
+  liftCurr = liftSwap;
+  writeLiftSnapshot(sim, liftCurr);
+  if (fresh) liftPrev.set(liftCurr);
 }
 
 function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
@@ -1619,6 +1646,7 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
   // SIM's clock, not the frame's — see advanceSimClock.
   avatarMorph.advance(simDtSec);
   updatePickups(matchSnap, alpha);
+  updateLifts(liftPrev, liftCurr, alpha);
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }
@@ -2029,6 +2057,9 @@ function resetForMatch(newSim: SimState): void {
   // Refresh the match scalars immediately: the 10 Hz consumer (HUD + match-end
   // detection) must never read the previous sim's winner against the new one.
   writeMatchSnapshot(sim, matchSnap);
+  sizeLiftSnapshots(map.lifts.length);
+  writeLiftSnapshot(sim, liftCurr);
+  liftPrev.set(liftCurr);
   if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
 }
 
