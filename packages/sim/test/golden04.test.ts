@@ -7,9 +7,11 @@
 // Since district-01 left the game (wave 2, 2026-10-14) it runs on urban-jungle
 // against the captain at difficulty 3 (level 2): its ring of eight counts 16, so
 // it roams (fcop-re/outposts.md Q2), fields its free opening order, buys tanks
-// and a jet with its own points, claims an outpost, and its tanks breach base 0
-// on the pinned tick. Player 0 holds its gate and fights whatever comes within
-// 20 m: it goes down once and shoots the captain down once.
+// and a jet with its own points and claims an outpost. Player 0 holds its gate
+// and fights whatever comes within 20 m, and goes down twice. Since the captain
+// shoots as the original's does (SIM_VERSION 54: no line of sight to pick a
+// target, but walls stop its gun and missile) its tanks no longer reach the
+// gate in these 150 s, and the player no longer shoots it down.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -21,11 +23,8 @@ import { getMapById } from "../src/map";
 import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
-// Pinned after recording; regenerate together with the golden.
-const BREACH_TICK_PIN = 3356;
-
 describe("golden-04-warden beats", () => {
-  it("the Sky Captain roams, buys, claims, and its tanks breach on the pinned tick", () => {
+  it("the Sky Captain roams, buys and claims; the player holds its gate", () => {
     const replay = decodeReplay(
       new Uint8Array(readFileSync(join(import.meta.dir, "goldens", "golden-04-warden.mrep"))),
     );
@@ -72,10 +71,10 @@ describe("golden-04-warden beats", () => {
     expect(bought.get(ARCHETYPE.RUNNER)).toBe(10);
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
     expect(claims).toBe(1);
-    expect(wardenDeaths).toBe(1);
-    expect(avatarDeaths).toBe(1);
-    expect(breachTeam).toBe(1);
-    expect(breachTick).toBe(BREACH_TICK_PIN);
-    expect(sim.winner).toBe(1);
+    expect(wardenDeaths).toBe(0);
+    expect(avatarDeaths).toBe(2);
+    expect(breachTick).toBe(-1);
+    expect(breachTeam).toBe(-1);
+    expect(sim.winner).toBe(-1);
   });
 });

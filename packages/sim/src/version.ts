@@ -902,4 +902,11 @@
 //     15 hp/s repair (PAD_REPAIR_HP_PER_TICK) and the 4 m outpost ammo refill
 //     (OUTPOST_PAD_RADIUS) are gone; ammo comes back from the ammo pickups and a
 //     respawn, health from the health pickup and a respawn.
-export const SIM_VERSION = 53;
+// v54: the Sky Captain shoots as the original's does (fcop-fidelity.md U3,
+//     `discharge.c` / `dispatch.c`): it takes its target by distance alone, with
+//     no line of sight (was: line of sight, except to ground units); its gun
+//     fires anyway but damages only along a clear terrain line; its missile is
+//     put back on a blocked line whatever the target. The v24 "superplane"
+//     pierce, which let its gun and missile reach ground units through walls,
+//     is gone. The bomb is unchanged: no arc, no checks.
+export const SIM_VERSION = 54;

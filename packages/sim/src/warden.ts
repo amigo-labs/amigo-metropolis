@@ -115,7 +115,7 @@ import {
   TURRET_DEFENSE,
 } from "./sim";
 import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
-import { isGroundUnit, nearestEnemyInRange, UNIT_MODE_OUTPOST, UNIT_MODE_PATROL } from "./units";
+import { nearestEnemyInRange, UNIT_MODE_OUTPOST, UNIT_MODE_PATROL } from "./units";
 
 /** Word 56's announcements the sim raises (EV_CAPTAIN_EVENT). */
 export const CAPTAIN_EVENT_FIRES_ON_PLAYER = 2;
@@ -1104,20 +1104,26 @@ function aimValid(state: SimState, id: number, t: number): boolean {
   return inWeaponRange(state, id, t);
 }
 
-/** A line the captain can shoot along: walls stop it, except at ground units it flies over. */
+/**
+ * A line the captain's missile can fly along: the default launch arm's trace,
+ * which walls stop whatever the target is (`discharge.c` 0x0044de23,
+ * fcop-fidelity.md U3). Metropolis let it fly over ground units until
+ * SIM_VERSION 54 (the v24 "superplane" pierce).
+ */
 function clearLine(state: SimState, id: number, t: number): boolean {
   const ent = state.ent;
-  if (isGroundUnit(ent.archetype[t])) return true;
   return !segmentBlocked(state.map, ent.posX[id], ent.posY[id], ent.posX[t], ent.posY[t]);
 }
 
 /**
  * Its three weapons share one target (`sky_aim`). A due round drops a target
  * that died, stopped being an enemy or left the 12 m engage range; with no
- * target the shooters search by team every 1.0 s for the nearest enemy in reach
- * with a line of sight. A round goes out only inside the weapon's arc about its
- * heading — and the missile only with a line of sight — else it is put back and
- * tried 0-0.85 s later.
+ * target the shooters search by team every 1.0 s for the nearest enemy in reach,
+ * by distance alone (`dispatch.c`: no line-of-sight test). A round goes out only
+ * inside the weapon's arc about its heading — and the missile only with a line
+ * of sight — else it is put back and tried 0-0.85 s later. The gun fires anyway
+ * and walls stop its damage (sim.ts hitscan); the bomb skips the arc and every
+ * check (`discharge.c` 0x0044dfd9).
  */
 function captainWeapons(state: SimState, id: number, me: number, level: number): void {
   const ent = state.ent;
@@ -1133,7 +1139,8 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
     c.search -= WEAPON_UNITS_PER_TICK;
     if (c.search < 0) {
       c.search = SKY_SEARCH_UNITS;
-      c.aim = nearestEnemyInRange(state, id, SKY_AIM_RANGE);
+      // By distance alone: the captain's target needs no line of sight.
+      c.aim = nearestEnemyInRange(state, id, SKY_AIM_RANGE, false, false, false);
     }
   }
   const t = c.aim;

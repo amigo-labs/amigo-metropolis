@@ -71,7 +71,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // script was rewritten around it (player 1 is put down at the outpost, the wave
   // goes in inside the ring's window) and runs 200 s.
   "golden-03-match": { last: 1319756724, count: 6000 },
-  "golden-04-warden": { last: 1197637674, count: 4500 },
+  // 04 and 07 re-frozen at SIM_VERSION 54: the captain takes its target without
+  // a line of sight and walls stop its gun and missile at ground units too.
+  "golden-04-warden": { last: 85205629, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -94,7 +96,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // units drive la-cantina's Cnet by the step chooser at 1.98 m/s.
   // Re-frozen at SIM_VERSION 48: la-cantina's four original outposts.
   // Re-frozen at SIM_VERSION 49: its captain counts each turret twice and roams.
-  "golden-07-pa": { last: 3275971503, count: 3600 },
+  "golden-07-pa": { last: 102344201, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

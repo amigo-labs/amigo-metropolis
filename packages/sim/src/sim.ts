@@ -2408,16 +2408,11 @@ export function hitscan(
   }
   if (bestId >= 0) {
     // Walls stop the ray: bestId is the CLOSEST body hit, so a wall on the
-    // way to it means the shot hits the wall and nothing else.
-    // Exception: the Warden superplane may hit enemy ground units through the
-    // lattice (it flies above it). Emplacements still need line of sight — that
-    // is the arenas' cover model for anything that can answer a standoff shot
-    // (issue #31 urban-jungle mid-map stream).
-    const flyerSoft =
-      ent.archetype[shooter] === ARCHETYPE.WARDEN &&
-      ent.archetype[bestId] >= ARCHETYPE.RUNNER &&
-      ent.archetype[bestId] <= ARCHETYPE.FORTRESS;
-    if (!flyerSoft && segmentBlocked(state.map, ox, oy, ox + dx * bestT, oy + dy * bestT)) {
+    // way to it means the shot hits the wall and nothing else. The Sky
+    // Captain's gun too: it fires and draws its tracer anyway, but sends
+    // damage only along a clear terrain line (`discharge.c` 0x0044dbed). Its
+    // v24 pierce at ground units went in SIM_VERSION 54.
+    if (segmentBlocked(state.map, ox, oy, ox + dx * bestT, oy + dy * bestT)) {
       return;
     }
     applyDamage(state, bestId, damage, player);
