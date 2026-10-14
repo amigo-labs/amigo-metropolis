@@ -65,16 +65,18 @@ import {
   worstUphillRise,
 } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
-import { type FcopArena, logicFile, selectArenas, wallsFile } from "./fcopArenas";
+import { type FcopArena, logicFile, rulesFile, selectArenas, wallsFile } from "./fcopArenas";
 import {
   captureRangeToCells,
   fovToCos,
+  ROTATION_TURN,
   rangeToCells,
   rotToYaw,
   toSimTicks,
   triggerHalfExtent,
   turnSpeedToRadPerTick,
 } from "./fcopLogic";
+import type { FcopRules } from "./fcopRules";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const TICK_HZ = 30; // packages/sim/src/balance.ts
@@ -338,25 +340,33 @@ function teamsOf<
 /**
  * Spawn list in sim coordinates, team 0 first — the reachability flood's origin.
  *
- * Facing is the cardinal direction of the field axis toward the enemy base rather
- * than the true bearing: "look down your own lane" is the symmetric answer, and
- * the original's stored X1Alpha rotation is not it.
+ * Facing and form are the X1Alpha record's (the rules artifact, read by
+ * pa_rules_data.py): raw 4096 = one turn, forward = (cos f, sin f) in the actors
+ * frame, so +x is 0 and +z is +pi/2 — the sim's own yaw convention, the frame
+ * offset being a translation. A negative facing is the hover flag; the record
+ * stores the direction as its magnitude (view_place.c, player_respawn). Until
+ * SIM_VERSION 57 the facing was "the field axis toward the enemy base", which the
+ * record agrees with on Mp only.
  */
 function out0Spawns(
-  spawns: readonly { x: number; z: number }[],
-  field: Field,
-  hover: boolean,
+  spawns: readonly { id: number; x: number; z: number }[],
+  rules: FcopRules,
 ): { x: number; y: number; yaw: number; layer?: number; hover?: boolean }[] {
-  // yaw is atan2(dy, dx) in sim convention, so +z is +pi/2 and +x is 0.
-  const toward = field.axis === "z" ? [Math.PI / 2, -Math.PI / 2] : [0, Math.PI];
-  // The spawn form (FcopArena.spawnHover) is written only where it is hover, so a
-  // walker arena's JSON is byte-identical to before the field existed.
-  return spawns.map((s, team) => ({
-    x: round4(sx(s.x)),
-    y: round4(sz(s.z)),
-    yaw: toward[team],
-    ...(hover ? { hover: true } : {}),
-  }));
+  return spawns.map((s) => {
+    const rec = rules.x1alpha.find((r) => r.id === s.id);
+    if (!rec) throw new Error(`${rules.mapId}: no X1Alpha ${s.id} in the rules artifact`);
+    // In raw units first, so a quarter turn lands on an exact multiple of pi.
+    let raw = Math.abs(rec.facingRaw) % ROTATION_TURN;
+    if (raw > ROTATION_TURN / 2) raw -= ROTATION_TURN;
+    // The form is written only where it is hover, so a walker arena's JSON
+    // carries no field it does not need.
+    return {
+      x: round4(sx(s.x)),
+      y: round4(sz(s.z)),
+      yaw: (raw * Math.PI) / (ROTATION_TURN / 2),
+      ...(rec.hover ? { hover: true } : {}),
+    };
+  });
 }
 
 /** Interns weapon profiles so identical originals share one index. */
@@ -1171,6 +1181,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const logic = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
   ) as Logic;
+  const rules = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", rulesFile(arena)), "utf8"),
+  ) as FcopRules;
 
   // Team 0 is the low end of the field axis; each side's Dreadnought drives its
   // own Cnet (fcop-logic.md §8.1) and the side owns the nearer X1Alpha. The
@@ -1518,7 +1531,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // Opening the lane edges is not enough on its own: a corridor can be
     // drivable end to end and still be sealed off from the rest of the arena,
     // which is what leaves the outer ring's capture pads unreachable.
-    const spawns = out0Spawns(teamSpawns, field, arena.spawnHover);
+    const spawns = out0Spawns(teamSpawns, rules);
     const repair = repairReachability(
       { ...raw, spawns, wallsV, wallsH },
       wallsV,
@@ -1574,9 +1587,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     ...raw,
     wallsV,
     wallsH,
-    // Face the enemy base: the original stores an X1Alpha rotation, but the
-    // useful, symmetric answer is "look down your own lane".
-    spawns: out0Spawns(teamSpawns, field, arena.spawnHover),
+    // Where and how each X1Alpha record stands, facing included.
+    spawns: out0Spawns(teamSpawns, rules),
     basePlots,
     bases: bases as MapJson["bases"],
     lanes,

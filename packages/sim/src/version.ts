@@ -919,4 +919,10 @@
 //     Metropolis' 3 m circle (CONSOLE_RADIUS). district-01's consoles-as-a-menu
 //     purchase path is gone with it: an arena with outpost spots must carry the
 //     original's outposts.
-export const SIM_VERSION = 56;
+// v57: each mech spawns facing as its X1Alpha record says (fcop-fidelity.md
+//     P10, the record's facing at blob 44: 4096 a turn, forward (cos, sin) in
+//     the actors frame), and in hover form where that facing is negative (Hk).
+//     Was: the field axis toward the enemy base, which the record agrees with on
+//     Mp, Slim, Joke and Ovmp; urban-jungle (Conft) now starts along +x / -x,
+//     hollywood-keys (Hk) along -z / +z. Map data only; the sim is unchanged.
+export const SIM_VERSION = 57;

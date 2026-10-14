@@ -66,7 +66,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 02-04 re-recorded at SIM_VERSION 52 when district-01 left the game (wave 2,
   // 2026-10-14): 02 combat on urban-jungle, 03 a two-player match on la-cantina,
   // 04 the Sky Captain (difficulty 3) on urban-jungle, 150 s.
-  "golden-02-combat": { last: 1741901833, count: 3600 },
+  // 02, 04 and 05 re-frozen at SIM_VERSION 57: urban-jungle's mechs start facing
+  // as their X1Alpha records do (along x, not toward the enemy).
+  "golden-02-combat": { last: 2115869321, count: 3600 },
   // Re-frozen at SIM_VERSION 50 (the original's 37.5 s ring respawn, R16): 03's
   // script was rewritten around it (player 1 is put down at the outpost, the wave
   // goes in inside the ring's window) and runs 200 s.
@@ -77,7 +79,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 03 and 07 re-recorded at SIM_VERSION 56: the scripts walk the last metre
   // straight at their goal, and 07 steers by the live state and buys inside the
   // console's trigger box.
-  "golden-04-warden": { last: 2101385387, count: 4500 },
+  "golden-04-warden": { last: 2834025160, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -92,7 +94,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // plate turret the half-cell pad key had leaked into it (9 -> 8).
   // Re-frozen at SIM_VERSION 48: the arena's four original outposts replace its
   // two invented consoles (two more console entities in the store).
-  "golden-05-fcop": { last: 2709464640, count: 2700 },
+  "golden-05-fcop": { last: 3047475624, count: 2700 },
   "golden-06-layered": { last: 233556689, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
