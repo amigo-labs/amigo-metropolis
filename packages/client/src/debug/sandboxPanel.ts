@@ -70,7 +70,12 @@ export interface SandboxPanelDeps {
   readonly setTimeScale: (scale: number) => void;
   readonly getTimeScale: () => number;
   /** Walk-rig readout, or null when the rig has not loaded. */
-  readonly rigInfo: () => { legL: number; legR: number; stride: number } | null;
+  readonly rigInfo: () => {
+    legsFrame: number;
+    cockpitFrame: number;
+    state: number;
+    track: number;
+  } | null;
 }
 
 export interface SandboxPanel {
@@ -456,7 +461,7 @@ export function createSandboxPanel(deps: SandboxPanelDeps): SandboxPanel {
     const rig = deps.rigInfo();
     if (rig) {
       lines.push(
-        `rig legs ${rig.legL.toFixed(2)} / ${rig.legR.toFixed(2)}  stride ${rig.stride.toFixed(2)}`,
+        `x1 legs ${rig.legsFrame} cockpit ${rig.cockpitFrame}  state ${rig.state} track ${rig.track}`,
       );
     }
     const text = lines.join("\n");

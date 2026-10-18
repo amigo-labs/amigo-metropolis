@@ -88,11 +88,18 @@ const SIDE_COLORS: readonly THREE.Color[] = SIDE_RAMPS.map((r) => new THREE.Colo
 /**
  * Writes an X1-Alpha slot's offset (render/avatarRig.ts): u 128 for side 1,
  * none for side 2 (RE pa_models.json `x1alpha`), on the mesh's own atlas.
+ * `cloakV` (texels, -1 for none) replaces the side's v while the cloak runs:
+ * the frame clock `>> 2 & 0x3f` (RE player_partner.c 289-293).
  */
-export function writeX1Uv(mesh: THREE.InstancedMesh, slot: number, side: number): void {
+export function writeX1Uv(
+  mesh: THREE.InstancedMesh,
+  slot: number,
+  side: number,
+  cloakV = -1,
+): void {
   const o = current.x1.uv[side];
   const map = (mesh.material as THREE.MeshStandardMaterial).map;
-  atlasOffset(map, o.u, o.v, scratchUv, 0);
+  atlasOffset(map, o.u, cloakV >= 0 ? cloakV : o.v, scratchUv, 0);
   writeTeamUv(mesh, slot, scratchUv[0], scratchUv[1]);
 }
 

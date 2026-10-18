@@ -305,6 +305,9 @@ export interface X1Walk {
   /** This tick's codes for the movement loop, X1_CODES_PER_TICK a slot. */
   readonly codes: Uint8Array;
   readonly codeCount: Uint8Array;
+  /** The cockpit's aim off the facing toward the lock, 4096 a turn (the mech's +0xc6 / +0xc4). */
+  readonly aimYaw: Int16Array;
+  readonly aimPitch: Int16Array;
 }
 
 export function createX1Walk(slots = MAX_PLAYERS): X1Walk {
@@ -324,6 +327,8 @@ export function createX1Walk(slots = MAX_PLAYERS): X1Walk {
     lastVz: new Float32Array(slots),
     codes: new Uint8Array(slots * X1_CODES_PER_TICK),
     codeCount: new Uint8Array(slots),
+    aimYaw: new Int16Array(slots),
+    aimPitch: new Int16Array(slots),
   };
 }
 
@@ -601,6 +606,8 @@ export function tickX1Walk(w: X1Walk, snap: Float32Array): void {
       else resetWalker(w, s);
       w.wasAirborne[s] = airborne ? 1 : 0;
       w.lastVz[s] = vz;
+      w.aimYaw[s] = 0;
+      w.aimPitch[s] = 0;
     }
 
     if (lock > 0) {
@@ -659,4 +666,66 @@ export function tickX1Walk(w: X1Walk, snap: Float32Array): void {
     w.legsFrame[s] = w.legs.frame[s];
     w.cockpitFrame[s] = w.cockpit.frame[s];
   }
+}
+
+// --- the cockpit's aim (player_partner_tick, player.c 1611-1690) -----------------
+
+/** A step of the aim a partner tick (PLAYER_AIM_STEP) and its limits, 4096 a turn. */
+export const AIM_STEP = 0x18;
+export const AIM_PITCH_LIMIT = 0x190;
+export const AIM_YAW_LIMIT = 0x80;
+const TAU = Math.PI * 2;
+const TURN = 4096;
+
+/** `aim_step`: toward `target`, at most AIM_STEP a tick. */
+function aimStep(current: number, target: number): number {
+  const d = target - current;
+  if (d < 0) return d > -AIM_STEP ? target : current - AIM_STEP;
+  return d < AIM_STEP ? target : current + AIM_STEP;
+}
+
+/**
+ * One partner tick of the cockpit's aim for slot `s`: toward the lock, if
+ * `locked`, at (dx, dy) on the ground and dz up from the cockpit's mount, the
+ * hull facing `yaw` (sim radians); back to straight ahead without one. The
+ * pitch is minus the elevation (a target above pitches the cockpit up), the yaw
+ * the bearing off the facing, each clamped and stepped AIM_STEP a tick.
+ */
+export function aimX1(
+  w: X1Walk,
+  s: number,
+  locked: boolean,
+  dx: number,
+  dy: number,
+  dz: number,
+  yaw: number,
+): void {
+  let pitch = 0;
+  let turn = 0;
+  if (locked) {
+    // `(-math_angle_of(horizontal, dy)) >> 12`: the negated angle rounded down.
+    pitch = Math.floor((-Math.atan2(dz, Math.sqrt(dx * dx + dy * dy)) * TURN) / TAU);
+    if (pitch < -AIM_PITCH_LIMIT) pitch = -AIM_PITCH_LIMIT;
+    else if (pitch > AIM_PITCH_LIMIT) pitch = AIM_PITCH_LIMIT;
+    // The bearing less the facing, to the nearest turn (above 0x800 loses one).
+    turn = Math.floor(((Math.atan2(dy, dx) - yaw) * TURN) / TAU) & 0xfff;
+    if (turn > 0x800) turn -= 0x1000;
+    if (turn < -AIM_YAW_LIMIT) turn = -AIM_YAW_LIMIT;
+    else if (turn > AIM_YAW_LIMIT) turn = AIM_YAW_LIMIT;
+  }
+  w.aimPitch[s] = aimStep(w.aimPitch[s], pitch);
+  w.aimYaw[s] = aimStep(w.aimYaw[s], turn);
+}
+
+/**
+ * The aim as the model-space turns render/x1Pose.ts applies: the yaw about +y
+ * against the facing's sense (the rig turns the hull by MODEL_YAW - yaw), the
+ * pitch about +x as the original's matrix has it (row-vector Mx = column Rx).
+ */
+export function aimYawModel(aim: number): number {
+  return (-aim * TAU) / TURN;
+}
+
+export function aimPitchModel(aim: number): number {
+  return (aim * TAU) / TURN;
 }

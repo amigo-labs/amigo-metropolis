@@ -19,8 +19,10 @@
 
 import {
   ANIM_HOVER,
-  ANIM_TRANSFORMING,
   ARCHETYPE,
+  AVATAR_SNAP_CLOAK,
+  AVATAR_SNAP_STRIDE,
+  AVATAR_SNAPSHOT_LEN,
   createSim,
   createTickInputs,
   DEFAULT_DIFFICULTIES,
@@ -33,7 +35,6 @@ import {
   EV_RESPAWN,
   EV_SHOT,
   EV_TRANSFORM,
-  EVENT_STRIDE,
   GUN_SNAPSHOT_LEN,
   GUNS,
   getMapById,
@@ -65,6 +66,7 @@ import {
   URBAN_JUNGLE_ID,
   wardenLevel,
   worldExtent,
+  writeAvatarSnapshot,
   writeGunSnapshot,
   writeLiftSnapshot,
   writeMatchSnapshot,
@@ -138,15 +140,6 @@ import {
   toggleMapScreen,
 } from "./render/mapScreen";
 import { loadMapMesh } from "./render/meshMap";
-import {
-  createAvatarMorph,
-  MORPH_DRAW_HOVER,
-  MORPH_FOLD,
-  MORPH_OUT_LEN,
-  MORPH_SCALE_XZ,
-  MORPH_SCALE_Y,
-  MORPH_SPIN,
-} from "./render/morph";
 import { ATMOSPHERE_HEX } from "./render/palette";
 import { loadPickups, updatePickups } from "./render/pickups";
 import {
@@ -176,6 +169,7 @@ import {
   variantOfPref,
 } from "./render/texVariants";
 import { loadUnitMeshes } from "./render/unitMeshes";
+import { aimPitchModel, aimX1, aimYawModel, createX1Walk, tickX1Walk } from "./render/x1Walk";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -301,24 +295,16 @@ if (params.has("debug") && !netMode) {
       notes?: string;
       parentId?: string | null;
     }) => Promise<{ id: string; message: string }>;
-    metropolisRig?: () => {
+    metropolisRig?: (slot?: number) => {
       ready: boolean;
-      legL: number;
-      legR: number;
-      stride: number;
-      components: number;
-      legVertices: number;
+      legsFrame: number;
+      cockpitFrame: number;
+      state: number;
+      track: number;
+      form: number;
+      aimYaw: number;
+      aimPitch: number;
     } | null;
-    metropolisMorph?: (id: number) => {
-      morphing: boolean;
-      scaleXZ: number;
-      scaleY: number;
-      spin: number;
-      fold: number;
-      drawingHover: boolean;
-      arcs: number;
-      emitters: number;
-    };
   };
   dbg.metropolisSim = sim;
   // Debug-only spawner + freeze + snapshot for the verify:units screenshot
@@ -398,40 +384,21 @@ if (params.has("debug") && !netMode) {
   // The agent's equivalent of pressing P.
   dbg.metropolisPin = (opts) => capturePinNow(opts?.notes ?? "", opts?.parentId ?? null);
 
-  // Walk-rig readout. A screenshot shows legs; only this shows them SWINGING,
-  // so the harness checks the angles rather than the pixels.
-  dbg.metropolisRig = () =>
+  // X1 readout (render/x1Walk.ts): a screenshot shows a pose; this says which
+  // walker state, leg track and frames the original's machine is on.
+  dbg.metropolisRig = (slot = 0) =>
     avatarRig === null
       ? null
       : {
           ready: avatarRig.ready,
-          legL: avatarRig.angleAt(0, 0),
-          legR: avatarRig.angleAt(0, 1),
-          stride: avatarRig.stride,
-          components: avatarRig.split?.componentCount ?? 0,
-          legVertices: avatarRig.split?.legVertexCount ?? 0,
+          legsFrame: x1Walk.legsFrame[slot],
+          cockpitFrame: x1Walk.cockpitFrame[slot],
+          state: x1Walk.state[slot],
+          track: x1Walk.legs.index[slot],
+          form: x1Walk.form[slot],
+          aimYaw: x1Walk.aimYaw[slot],
+          aimPitch: x1Walk.aimPitch[slot],
         };
-
-  // Transformation readout, same reasoning as the rig hook above: a single
-  // screenshot of a morph always looks plausible, so the harness reads the
-  // curve it is being posed by rather than trusting the picture. Sampled off a
-  // scratch buffer of its own — the frame loop's is mid-sweep whenever this is
-  // called from a pin.
-  const morphProbe = new Float32Array(MORPH_OUT_LEN);
-  dbg.metropolisMorph = (id) => {
-    const counts = fx.debugCounts();
-    const morphing = avatarMorph.sample(id, morphProbe);
-    return {
-      morphing,
-      scaleXZ: morphing ? morphProbe[MORPH_SCALE_XZ] : 1,
-      scaleY: morphing ? morphProbe[MORPH_SCALE_Y] : 1,
-      spin: morphing ? morphProbe[MORPH_SPIN] : 0,
-      fold: morphing ? morphProbe[MORPH_FOLD] : 0,
-      drawingHover: morphing && morphProbe[MORPH_DRAW_HOVER] === 1,
-      arcs: counts.arcs,
-      emitters: counts.arcEmitters,
-    };
-  };
 }
 
 // --- Online helpers (no-ops unless ?online) ----------------------------------
@@ -827,15 +794,16 @@ arenaUnits = createArenaUnits(scene, greybox);
 }
 /** Non-null from here on: the frame loop's handle on the arena's units. */
 const units: ArenaUnitsRenderer = arenaUnits;
-// Walking avatars come off the greybox bucket and onto the three-part rig once
-// avatar-walker.glb has loaded and split (render/avatarRig.ts). Until then — and
-// forever in ?render=greybox — the bucket keeps drawing them.
+// The X1s come off the greybox buckets and onto the rig once avatar-x1.glb and
+// its bone table have loaded (render/avatarRig.ts): one mesh, posed by the
+// original's frames, walker, transform and hover alike. Until then — and
+// forever in ?render=greybox — the buckets keep drawing them.
 const avatarRig: AvatarRig | null = renderMode === "mesh" ? createAvatarRig(scene) : null;
-// Walker <-> hover transformation (render/morph.ts). Client-local clock started
-// by EV_TRANSFORM; drives which of the two forms is on screen and how squashed.
-const avatarMorph = createAvatarMorph();
-/** Preallocated sample buffer — one avatar is posed at a time in the sweep. */
-const morphScratch = new Float32Array(MORPH_OUT_LEN);
+// The original's walker animation per player slot (render/x1Walk.ts), stepped
+// once a sim tick off the avatar snapshot (animateAvatars).
+const x1Walk = createX1Walk();
+/** The X1's per-slot snapshot (sim avatarSnapshot.ts), refilled every tick. */
+const avatarSnap = new Float32Array(AVATAR_SNAPSHOT_LEN);
 
 let extent = worldExtent(map);
 /** The chase cameras' line-of-sight test over the arena's ground and decks. */
@@ -1410,9 +1378,10 @@ function ensureSandboxPanel(): void {
       avatarRig === null || !avatarRig.ready
         ? null
         : {
-            legL: avatarRig.angleAt(0, 0),
-            legR: avatarRig.angleAt(0, 1),
-            stride: avatarRig.stride,
+            legsFrame: avatarRig.legsAt(0),
+            cockpitFrame: avatarRig.cockpitAt(0),
+            state: x1Walk.state[views[0]?.slot ?? 0],
+            track: x1Walk.legs.index[views[0]?.slot ?? 0],
           },
   });
 }
@@ -1484,6 +1453,7 @@ function runTick(): void {
   // so the tick itself never sees them — same host-side contract as
   // metropolisSpawn. Null unless ?sandbox=1, so a normal match pays nothing.
   sandboxPanel?.afterTick();
+  animateAvatars(sim);
   // The demo battle stays calm — music only, no SFX/VFX.
   if (phase === "match") pumpCosmetics(sim.events);
   rotateSnapshot();
@@ -1580,7 +1550,6 @@ function pumpCosmetics(events: typeof sim.events): void {
   buildAudioIndex();
   pumpSounds(events);
   fx.pump(events, resolveEventPosition);
-  startMorphs(events);
 }
 
 /** Scratch for the listener's position (the local mech, `snd_set_listener`). */
@@ -1611,19 +1580,36 @@ function pumpSounds(events: typeof sim.events): void {
 }
 
 /**
- * Starts a mesh morph for every avatar that just changed form.
- *
- * Separate from fx.pump because the two want different things out of the same
- * event: the arcs need a world position and nothing else, while the morph needs
- * the entity id and the form being entered, and would have to resolve a pose it
- * never uses to get them through the fx resolver.
+ * One sim tick of the X1s' animation (render/x1Walk.ts): the avatar snapshot,
+ * then the walker's steps, the transform's frames and the cockpit's aim. Runs
+ * after every sim step and before the sounds, which play the legs' codes the
+ * same tick (audio/cues.ts).
  */
-function startMorphs(events: typeof sim.events): void {
-  const data = events.data;
-  for (let i = 0; i < events.count; i++) {
-    const o = i * EVENT_STRIDE;
-    if (data[o] !== EV_TRANSFORM) continue;
-    avatarMorph.start(data[o + 1], data[o + 2] === 1);
+function animateAvatars(stepped: SimState): void {
+  writeAvatarSnapshot(stepped, avatarSnap);
+  tickX1Walk(x1Walk, avatarSnap);
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const avatar = matchSnap[matchSlotOffset(p) + MATCH_SLOT_AVATAR_ID] | 0;
+    const lock = matchSnap[matchSlotOffset(p) + MATCH_SLOT_LOCK] | 0;
+    const a = avatar >= 0 ? snapshotIndexOf(snapCurr, countCurr, avatar) : -1;
+    const t = lock >= 0 && a >= 0 ? snapshotIndexOf(snapCurr, countCurr, lock) : -1;
+    if (a < 0 || t < 0) {
+      aimX1(x1Walk, p, false, 0, 0, 0, 0);
+      continue;
+    }
+    const ao = a * SNAPSHOT_STRIDE;
+    const to = t * SNAPSHOT_STRIDE;
+    // From the cockpit's mount to the target's middle (the lock beam's end).
+    const mount = avatarRig ? avatarRig.mountHeight(x1Walk.legsFrame[p]) : 0;
+    aimX1(
+      x1Walk,
+      p,
+      true,
+      snapCurr[to + 3] - snapCurr[ao + 3],
+      snapCurr[to + 4] - snapCurr[ao + 4],
+      snapCurr[to + 5] + LOCK_TO_LIFT - (snapCurr[ao + 5] + mount),
+      snapCurr[ao + 6],
+    );
   }
 }
 
@@ -1652,11 +1638,10 @@ function rotateSnapshot(): void {
   writeGunSnapshot(sim, gunCurr);
 }
 
-function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
+function renderEntities(alpha: number, simDtSec: number): void {
   // Once per frame, ahead of the sweep that samples it. This is the one place
   // the entity pass runs, however many views the frame ends up drawing. On the
   // SIM's clock, not the frame's — see advanceSimClock.
-  avatarMorph.advance(simDtSec);
   updatePickups(matchSnap, alpha);
   updateLifts(liftPrev, liftCurr, alpha);
   for (let i = 0; i < greybox.all.length; i++) {
@@ -1668,6 +1653,9 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
   if (avatarRig) avatarRig.begin();
   // Readiness cannot change mid-frame, so resolve it once instead of per entity.
   const readyRig = avatarRig?.ready ? avatarRig : null;
+  // The cloak's v offset: the frame clock (300 Hz units) >> 2 & 0x3f
+  // (RE player_partner.c 289-293), on the sim's clock as the original's is.
+  const cloakV = (Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ)) >> 2) & 0x3f;
   for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses[p][3] = 0;
   let p = 0;
   for (let c = 0; c < countCurr; c++) {
@@ -1682,32 +1670,11 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
     const animState = snapCurr[o + 7];
     const aux = snapCurr[o + 9];
 
-    // Mid-transformation the form on screen is NOT the one in ANIM_HOVER: the
-    // sim flips the mode byte on the first tick of the lock, so the snapshot
-    // already reads as the destination while the mech is still collapsing out of
-    // the form it is leaving. render/morph.ts owns that half-and-half decision.
-    let morph: Float32Array | null = null;
-    if (archetype === ARCHETYPE.AVATAR) {
-      if ((animState & ANIM_TRANSFORMING) === 0) {
-        // The lock ended (or was cut short by a death or a rollback) before the
-        // client's own clock ran out. The sim is the authority on that.
-        avatarMorph.release(id);
-      } else if (avatarMorph.sample(id, morphScratch)) {
-        morph = morphScratch;
-      }
-    }
-    const drawHover = morph ? morph[MORPH_DRAW_HOVER] === 1 : (animState & ANIM_HOVER) !== 0;
-
-    // Walking avatars go to the three-part walk rig instead of a single bucket
-    // instance (render/avatarRig.ts). Hovering ones, and every avatar before the
-    // rig's asset lands, keep their bucket.
-    const rig = archetype === ARCHETYPE.AVATAR && !drawHover ? readyRig : null;
-    // The bucket picks walker vs hover off ANIM_HOVER too, and it is what draws
-    // the avatar whenever the rig is unavailable (?render=greybox, or the asset
-    // still loading). Hand it the form actually being drawn, or the fallback
-    // would swap meshes half a morph before the rig path does.
-    const bucketAnim = drawHover ? animState | ANIM_HOVER : animState & ~ANIM_HOVER;
-    const greyboxBucket = rig ? undefined : bucketFor(greybox, archetype, bucketAnim, aux);
+    // Every X1 — walking, transforming or hovering — goes to the rig, posed by
+    // its slot's frames (render/avatarRig.ts, render/x1Walk.ts). Before the
+    // rig's asset lands, and in ?render=greybox, the buckets draw it by form.
+    const rig = archetype === ARCHETYPE.AVATAR ? readyRig : null;
+    const greyboxBucket = rig ? undefined : bucketFor(greybox, archetype, animState, aux);
     if (!rig && !greyboxBucket) continue;
 
     let x = snapCurr[o + 3];
@@ -1740,9 +1707,25 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
     }
 
     if (rig) {
-      // The rig poses all three of its parts and keeps its own gait state; a
-      // false return means it is out of capacity and has already said so.
-      rig.place(id, x, height, y, yaw, animState, team, dtSec, morph);
+      // The slot's frames once its machine has seen this X1, else the reset's
+      // pose by form (a spawn this frame). A false return is the rig out of
+      // capacity, which has already said so.
+      const slot = team >= 0 && team < MAX_PLAYERS ? team : -1;
+      const known = slot >= 0 && x1Walk.owner[slot] === id;
+      const hovering = (animState & ANIM_HOVER) !== 0;
+      const cloaked = slot >= 0 && avatarSnap[slot * AVATAR_SNAP_STRIDE + AVATAR_SNAP_CLOAK] > 0;
+      rig.place(
+        x,
+        height,
+        y,
+        yaw,
+        team,
+        known ? x1Walk.legsFrame[slot] : hovering ? 359 : 0,
+        known ? x1Walk.cockpitFrame[slot] : hovering ? 29 : 0,
+        known ? aimYawModel(x1Walk.aimYaw[slot]) : 0,
+        known ? aimPitchModel(x1Walk.aimPitch[slot]) : 0,
+        cloaked ? cloakV : -1,
+      );
     } else if (bucket) {
       const slot = bucket.count;
       if (slot >= bucket.tintCache.length) {
@@ -1761,21 +1744,13 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
 
       // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
       scratchPos.set(x, height, y);
-      scratchQuat.setFromAxisAngle(UP, -yaw - (morph ? morph[MORPH_SPIN] : 0));
-      if (morph) {
-        scratchScale.set(morph[MORPH_SCALE_XZ], morph[MORPH_SCALE_Y], morph[MORPH_SCALE_XZ]);
-      } else {
-        // Shared module scratch: a morphing avatar earlier in the sweep left its
-        // squash in here, and every later instance would inherit it.
-        scratchScale.set(1, 1, 1);
-      }
+      scratchQuat.setFromAxisAngle(UP, -yaw);
       // A shell points where it is going, in the vertical too. The snapshot
       // carries no vertical velocity, but the two ticks being interpolated
       // between do: rise over run across that step IS the flight angle. Costs
       // nothing while projectiles fly flat (the delta is zero, atan2 gives
       // zero) and turns the mortar's arc into a shell that noses over at the
-      // top of it. No allocation — both quaternions are module scratch. Never
-      // collides with the morph above: a projectile is not an avatar.
+      // top of it. No allocation — both quaternions are module scratch.
       if (archetype === ARCHETYPE.PROJECTILE && hasPrev) {
         const dh = snapCurr[o + 5] - snapPrev[po + 5];
         const dx = snapCurr[o + 3] - snapPrev[po + 3];
@@ -2108,12 +2083,10 @@ function frame(now: number): void {
     countCurr = writeSnapshot(sim, snapCurr);
   }
 
-  // dtSec before renderEntities: the walk rig fades its swing in and out in real
-  // seconds (the stride itself is distance-driven — render/avatarRig.ts).
   const dtSec = dtMs / 1000;
   const alpha = accumulator / TICK_MS;
   const simDtSec = advanceSimClock(alpha);
-  renderEntities(alpha, dtSec, simDtSec);
+  renderEntities(alpha, simDtSec);
   if (views.length === 0) {
     // A match with no views yet (the menu and the connecting card return
     // above): the flyover.
@@ -2208,6 +2181,8 @@ function frame(now: number): void {
  */
 function resetForMatch(newSim: SimState): void {
   sim = newSim;
+  // A new match's X1s start from their reset, whatever ids they reuse.
+  x1Walk.owner.fill(-1);
   // A rematch must not inherit the previous match's in-flight effects.
   fx.reset();
   resetMatchEnd();
@@ -2332,6 +2307,7 @@ function connectOnline(code: string): void {
   net = new NetLockstep(new WsTransport(relayUrl(code)), {
     sampleInput: makeNetSampler(),
     onStep: (_tick, stepped) => {
+      animateAvatars(stepped);
       pumpCosmetics(stepped.events);
       rotateSnapshot();
     },
@@ -2415,6 +2391,7 @@ function connectP2pMode(code: string): void {
         {
           sampleInput: makeNetSampler(),
           onStep: (_tick, stepped) => {
+            animateAvatars(stepped);
             pumpCosmetics(stepped.events);
             rotateSnapshot();
           },
