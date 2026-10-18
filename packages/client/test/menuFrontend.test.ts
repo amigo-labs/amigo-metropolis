@@ -289,13 +289,38 @@ describe("the loadout column", () => {
     expect(s.config.difficulty[0]).toBe(2); // NORMAL -> EASY
   });
 
-  test("online the columns show the defaults and offer nothing to press", () => {
+  test("online this side edits its own column and sees the peer's, whose arrows refuse", () => {
     const s = createScreen(newGameConfig());
     s.config.loadout[0] = [1, 1, 1];
-    enterSet(s, "net_pa", { hosting: true, peer: "x", extraWeapons: 0 });
-    const g = groupOf(s, "left");
-    expect(menuSelection(s, g, 0)).toBe(0);
-    expect(panelFlags(s, g, 0) & FLAG_DISABLED).toBe(FLAG_DISABLED);
+    enterSet(s, "net_pa", {
+      hosting: true,
+      peer: "x",
+      extraWeapons: 0,
+      peerPicks: { loadout: [3, 2, 3], difficulty: 0 },
+    });
+    const left = groupOf(s, "left");
+    const right = groupOf(s, "right");
+    expect(menuSelection(s, left, 0)).toBe(1);
+    expect(menuSelection(s, right, 0)).toBe(3);
+    expect(menuSelection(s, right, 6)).toBe(0); // HARD
+    expect(panelFlags(s, left, 0) & (FLAG_HIDDEN | FLAG_DISABLED)).toBe(0);
+    // 0x0040c430: the other column's rows and chevrons hidden -- drawn, refused.
+    expect(panelFlags(s, right, 0) & FLAG_HIDDEN).toBe(FLAG_HIDDEN);
+    expect(panelFlags(s, right, 7) & FLAG_HIDDEN).toBe(FLAG_HIDDEN);
+    expect(click(s, 154, 334).actions).toEqual(["net_loadout"]);
+    expect(s.config.loadout[0][0]).toBe(2);
+    const before = s.config.loadout[1].slice();
+    expect(click(s, 480, 334).actions).toEqual([]);
+    expect(s.config.loadout[1]).toEqual(before);
+    expect(click(s, 4, 454).actions).toEqual(["net_difficulty"]);
+  });
+
+  test("the joiner edits the right column (player 2), the host's map is not its to press", () => {
+    const s = createScreen(newGameConfig());
+    enterSet(s, "net_pa", { hosting: false, peer: "x", extraWeapons: 0 });
+    expect(click(s, 480, 334).actions).toEqual(["net_loadout"]);
+    expect(s.config.loadout[1][0]).toBe(1);
+    expect(panelFlags(s, groupOf(s, "left"), 0) & FLAG_HIDDEN).toBe(FLAG_HIDDEN);
   });
 });
 
@@ -427,6 +452,59 @@ describe("the Sky Captain's level and the maps' progress", () => {
     expect(c.subpick.slice(0, 2)).toEqual([9, 3]);
     expect(c.loadout[0]).toEqual([0, 0, 0]);
     expect(c.difficulty).toEqual([1, 1]);
+  });
+});
+
+describe("the networked lobby's screen", () => {
+  const net = (hosting: boolean): FeScreen => {
+    const s = createScreen(newGameConfig());
+    enterSet(s, "net_pa", { hosting, peer: "x", extraWeapons: 0 });
+    return s;
+  };
+  const startPanel = (s: FeScreen) => {
+    const g = groupOf(s, "main");
+    return { g, i: g.panels.findIndex((p) => p.callback === "frontend_panel_start") };
+  };
+
+  test("START is off while this side is ready; any button takes the ready back first", () => {
+    const s = net(true);
+    const { g, i } = startPanel(s);
+    const p = g.panels[i];
+    expect(click(s, p.x, p.y).actions).toEqual(["start"]);
+    s.ready[0] = true; // the lobby's answer
+    expect(panelFlags(s, g, i) & FLAG_DISABLED).toBe(FLAG_DISABLED);
+    // 0x0040bbe0: the press anywhere un-readies before it is walked.
+    const r = pointerButton(s, 600, 10, 1, true);
+    expect(r.actions).toEqual(["unready"]);
+    expect(s.ready[0]).toBe(false);
+    expect(panelFlags(s, g, i) & FLAG_DISABLED).toBe(0);
+    // The peer's ready bit is not ours to take back.
+    pointerButton(s, 600, 10, 1, false);
+    s.ready[1] = true;
+    expect(pointerButton(s, 600, 10, 1, true).actions).toEqual([]);
+  });
+
+  test("WAITING over a ready player, either column", () => {
+    const s = net(false);
+    s.ready[0] = true;
+    expect(menuSelection(s, groupOf(s, "left"), 10)).toBe(0);
+    expect(menuSelection(s, groupOf(s, "right"), 10)).toBe(-1);
+  });
+
+  test("2 PLAYER on the plate, the mode button the host's alone", () => {
+    for (const hosting of [true, false]) {
+      const s = net(hosting);
+      const g = groupOf(s, "main");
+      expect(menuSelection(s, g, 1)).toBe(1);
+      const mode = g.panels.findIndex((p) => p.callback === "frontend_panel_game_mode");
+      expect((panelFlags(s, g, mode) & FLAG_DISABLED) !== 0).toBe(!hosting);
+    }
+  });
+
+  test("the host's map press goes to the joiner", () => {
+    const s = net(true);
+    pointerMove(s, 485, 98);
+    expect(pointerButton(s, 485, 98, 1, true).actions).toEqual(["net_map"]);
   });
 });
 

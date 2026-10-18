@@ -13,6 +13,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { render } from "preact-render-to-string";
 import { App, type AppProps } from "../src/menu/App";
+import { FE_GROUPS } from "../src/menu/frontend/frontendData.generated";
 import { createScreen, enterSet, newGameConfig } from "../src/menu/frontend/model";
 import type { MenuState } from "../src/menu/state";
 
@@ -107,6 +108,26 @@ describe("the main screen", () => {
     expect(pics).not.toContain("bmp081.png"); // no NEW GAME
     expect(html).toContain("Connected To:");
     expect(html).toContain("  Room ABCDE");
+  });
+
+  test("the networked lobby: the peer's picks in its column, WAITING over a ready player", () => {
+    const s = createScreen(newGameConfig());
+    enterSet(s, "net_pa", {
+      hosting: true,
+      peer: "Jurgen",
+      extraWeapons: 0,
+      peerPicks: { loadout: [3, 0, 0], difficulty: 0 },
+    });
+    const idle = renderApp(baseState({ screen: s }));
+    expect(idle).toContain("  Jurgen");
+    expect(pictures(idle)).not.toContain("bmp143.png");
+    // The peer's gun entry 3 at its column's first menu.
+    const peerGun = FE_GROUPS.column_right.menus[0].entries[3].file;
+    expect(idle).toContain(`src="/ui/frontend/${peerGun}"`);
+    s.ready[1] = true;
+    expect(pictures(renderApp(baseState({ screen: s })))).toContain("bmp143.png");
+    // The peer's arrows are drawn, as retail draws a hidden panel.
+    expect(idle).toContain('data-fe="column_right:0"');
   });
 
   test("the stage is scaled and the bitmaps pixelated", () => {

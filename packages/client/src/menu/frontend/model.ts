@@ -312,6 +312,13 @@ export interface FeNet {
   peer: string;
   /** The host's extra-weapons switches, which the lobby shows on both sides. */
   extraWeapons: number;
+  /** The peer's column as its messages left it (the defaults until it speaks). */
+  peerPicks?: { loadout: number[]; difficulty: number };
+}
+
+/** This side's player slot in the lobby: the host is player 1 (slot 0). */
+export function netSlotOf(net: FeNet): number {
+  return net.hosting ? 0 : 1;
 }
 
 export interface FeScreen {
@@ -382,14 +389,17 @@ function columnOf(group: FeGroup): number {
 }
 
 /**
- * The loadout and difficulty a column shows. On the networked set they are the
- * defaults: Metropolis' online handshake carries neither (fcop-fidelity.md F9).
+ * The loadout and difficulty a column shows. On the networked set this side's
+ * own column is its config's (the host edits player 1's, the joiner player
+ * 2's, as the original's), the other the peer's as the lobby received it.
  */
 export function columnPicks(
   screen: FeScreen,
   which: number,
 ): { loadout: number[]; difficulty: number } {
-  if (screen.net) return { loadout: [0, 0, 0], difficulty: 1 };
+  if (screen.net && which !== netSlotOf(screen.net)) {
+    return screen.net.peerPicks ?? { loadout: [0, 0, 0], difficulty: 1 };
+  }
   return { loadout: screen.config.loadout[which], difficulty: screen.config.difficulty[which] };
 }
 
@@ -411,9 +421,17 @@ export function panelFlags(screen: FeScreen, group: FeGroup, index: number): num
     if (screen.net || !mapFinished(c)) f |= FLAG_DISABLED;
   }
   if (p.callback === "frontend_panel_briefing") f |= FLAG_DISABLED; // PA: always
-  // Metropolis: the online handshake carries no loadout or difficulty, so the
-  // lobby's columns offer nothing to press (fcop-fidelity.md F9).
-  if (screen.net && columnOf(group) >= 0) f |= FLAG_DISABLED;
+  const net = screen.net;
+  if (net) {
+    const own = netSlotOf(net);
+    // 0x0040c430: the other side's six rows and both chevrons are hidden --
+    // drawn, but a press is refused -- the session panel (the mode button)
+    // is off unless hosting, and START is off while this side is ready.
+    const col = columnOf(group);
+    if (col >= 0 && col !== own) f |= FLAG_HIDDEN;
+    if (p.callback === "frontend_panel_game_mode" && !net.hosting) f |= FLAG_DISABLED;
+    if (p.callback === "frontend_panel_start" && screen.ready[own]) f |= FLAG_DISABLED;
+  }
   return f;
 }
 
@@ -444,7 +462,10 @@ export function menuSelection(screen: FeScreen, group: FeGroup, index: number): 
     if (index === 0) return c.pick0; // the title plates, in row order
     return mapFinished(c) ? 0 : -1; // COMPLETED
   }
-  // The mode and players plates: PRECINCT ASSAULT, 1 PLAYER.
+  // The mode and players plates: PRECINCT ASSAULT, and 1 PLAYER -- or, with
+  // the link up, 2 PLAYER: 0x0040c430 seats both players menus from the two
+  // viewports it forces.
+  if (screen.net && group.key === "main_network" && index === 1) return 1;
   return m.animated ? screen.anim[group.key][index] : m.selected;
 }
 
@@ -491,7 +512,12 @@ export type FeAction =
   | "refused_players"
   | "refused_mode"
   | "refused_briefing"
-  | "refused_replay";
+  | "refused_replay"
+  // The networked lobby: what goes to the peer (netLobby.ts).
+  | "unready"
+  | "net_loadout"
+  | "net_difficulty"
+  | "net_map";
 
 export interface FeResult {
   /** UI sound slots, in the order the original plays them. */
@@ -597,6 +623,13 @@ export function pointerButton(
   screen.pointerY = y;
   const buttons = down ? screen.buttons | mask : screen.buttons & ~mask;
   if (buttons === screen.buttons) return out;
+  // 0x0040bc17: any button while this side is ready takes the ready back
+  // first (and tells the peer), then the press is walked as usual.
+  if (screen.net && screen.ready[netSlotOf(screen.net)]) {
+    screen.ready[netSlotOf(screen.net)] = false;
+    out.actions.push("unready");
+    out.redraw = true;
+  }
   screen.buttons = buttons;
   const pressed = walk(screen, out);
   if (down && !pressed) out.sounds.push(SND_REFUSED);
@@ -672,6 +705,8 @@ function runCallback(screen: FeScreen, panel: FePanel, out: FeResult): void {
       const now = stepLoadout(slot, before, panel.ordinal < 3, extraRule(screen));
       c.loadout[which][slot] = now;
       out.sounds.push(now !== before ? SND_LOADOUT : SND_LOADOUT_REFUSED);
+      // panel_callbacks.c: with the link up a moved arrow sends 0x0d / 0x0e.
+      if (screen.net && now !== before) out.actions.push("net_loadout");
       out.redraw = true;
       return;
     }
@@ -680,6 +715,8 @@ function runCallback(screen: FeScreen, panel: FePanel, out: FeResult): void {
       const which = panel.callback.endsWith("1") ? 1 : 0;
       c.difficulty[which] = stepDifficulty(c.difficulty[which], panel.ordinal);
       out.sounds.push(SND_DIFFICULTY);
+      // ... and a chevron 0x0b / 0x0c.
+      if (screen.net) out.actions.push("net_difficulty");
       out.redraw = true;
       return;
     }
@@ -688,6 +725,8 @@ function runCallback(screen: FeScreen, panel: FePanel, out: FeResult): void {
       // the level picker (from the map's saved level), the gate and the stamp
       // follow from it.
       c.pick0 = panel.ordinal;
+      // 0x0040a7f0: the host's press goes to the joiner as setup choice 0.
+      if (screen.net) out.actions.push("net_map");
       out.redraw = true;
       return;
     case "frontend_panel_level": {

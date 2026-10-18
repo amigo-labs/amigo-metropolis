@@ -116,6 +116,8 @@ import {
   runMenu,
 } from "./menu";
 import type { GameRules } from "./menu/dialogs/OptionsDialog";
+import { entriesOfLoadout, rowOfMap } from "./menu/frontend/model";
+import { type LobbyLink, loadPlayerName, NetLobby } from "./menu/frontend/netLobby";
 import { createDemoSim, demoFeeder, updateFlyoverCamera, zeroPlayerInput } from "./menuWorld";
 import { NetLockstep } from "./net/lockstep";
 import { P2pLockstep } from "./net/p2pLockstep";
@@ -2533,25 +2535,83 @@ function netConfig(matchSeed: number): MatchConfig {
     mapId: map.id,
     wardenPlayer: -1,
     wardenDifficulty: 0,
-    // The online lobby offers no difficulty pick yet: both players NORMAL.
+    // The HELLO's config; the lobby's agreed one comes with START.
     difficulties: DEFAULT_DIFFICULTIES,
     loadouts: DEFAULT_LOADOUTS,
     extraWeapons: 0,
   };
 }
 
-/**
- * Online 1v1: connect to the relay, then let the netcode drive. The local
- * device samples for whichever slot the server assigns; the sim it builds from
- * the authoritative MSG_WELCOME config replaces the (deferred) module sim, and
- * the frame loop steps it through net.tryStep(). Everything else — render,
- * chase cam, HUD — is unchanged from solo, since only the input source differs.
- */
-function connectOnline(code: string): void {
-  const config = netConfig(seedFromCode(code));
-  let welcomedSlot = -1;
+/** This side's slot in the net session (0 the host), once seated. */
+let netSlot = -1;
 
-  net = new NetLockstep(new WsTransport(relayUrl(code)), {
+/**
+ * A deep link's lobby (?online= / ?p2p=, no menu): its picks are the URL's,
+ * and with nobody to press START it is ready the moment it is linked.
+ */
+function deepLinkLobby(): NetLobby {
+  const own = { loadout: entriesOfLoadout(playerLoadout), difficulty: playerDifficulty };
+  return new NetLobby({
+    name: loadPlayerName(),
+    picks: [own, own],
+    mapRow: rowOfMap(map.id),
+    mapId: map.id,
+    extraWeapons: playerExtraWeapons,
+    autoReady: true,
+  });
+}
+
+/**
+ * Where a session's news goes: the menu's lobby (the dialog's status line,
+ * the networked screen) or, on a deep link, the overlay card.
+ */
+interface NetUi {
+  readonly fromMenu: boolean;
+  readonly lobby: NetLobby;
+}
+
+function netStatusText(ui: NetUi, text: string): void {
+  if (ui.fromMenu) {
+    ui.lobby.setStatus(text);
+    return;
+  }
+  netStatus = text;
+  refreshOverlay();
+}
+
+/** The session could not open, or died before START. */
+function netFailed(ui: NetUi, text: string): void {
+  if (ui.fromMenu) {
+    if (ui.lobby.phase === "linked") ui.lobby.peerGone();
+    else ui.lobby.fail(text);
+    net = undefined;
+    return;
+  }
+  netStatus = text;
+  refreshOverlay();
+}
+
+/** START: the menu shows its loading screen first; a deep link goes straight in. */
+function netStarted(ui: NetUi, config: MatchConfig, matchSim: SimState): void {
+  ui.lobby.started(config);
+  if (ui.fromMenu) return;
+  netStatus = null;
+  refreshOverlay();
+  enterNetMatch(config.mapId, matchSim, netSlot);
+}
+
+/**
+ * Online 1v1 through the relay: connect, sit in the networked lobby (the
+ * original's exchange, menu/frontend/netLobby.ts), and once the host's agreed
+ * config comes back as START, let the netcode drive. The local device samples
+ * for whichever slot the relay assigns; the frame loop steps the sim through
+ * net.tryStep(). Everything else — render, chase cam, HUD — is unchanged from
+ * solo, since only the input source differs.
+ */
+function connectOnline(code: string, ui: NetUi): void {
+  const config = netConfig(seedFromCode(code));
+  const lobby = ui.lobby;
+  const relay: NetLockstep = new NetLockstep(new WsTransport(relayUrl(code)), {
     sampleInput: makeNetSampler(),
     onStep: (_tick, stepped) => {
       animateAvatars(stepped);
@@ -2559,17 +2619,23 @@ function connectOnline(code: string): void {
       rotateSnapshot();
     },
     onWelcome: (slotIdx) => {
-      welcomedSlot = slotIdx;
+      netSlot = slotIdx;
+      lobby.attach(lobbyLink(relay), slotIdx, config.seed);
+      // host_dialog.c / join_dialog.c: "Waiting for someone to join" while
+      // hosting, "Waiting for confirmation..." while joining.
+      netStatusText(
+        ui,
+        slotIdx === 0 ? "Waiting for someone to join" : "Waiting for confirmation...",
+      );
     },
-    onStart: (started, startedConfig) => {
-      netStatus = null;
-      refreshOverlay();
-      enterNetMatch(startedConfig.mapId, started, welcomedSlot);
-    },
-    onPeer: (_slot, present) => {
-      // Protocol 4: a full room is a lobby; the host seals the setup.
-      if (present && welcomedSlot === 0 && net && !net.isStarted) {
-        (net as NetLockstep).begin(config);
+    onLobby: (m) => lobby.receive(m),
+    onStart: (started, startedConfig) => netStarted(ui, startedConfig, started),
+    onPeer: (slot, present) => {
+      if (slot === netSlot) return;
+      if (!relay.isStarted) {
+        if (present) lobby.linked();
+        else lobby.peerGone();
+        return;
       }
       netStatus = present ? null : "Opponent disconnected — waiting to reconnect…";
       refreshOverlay();
@@ -2580,37 +2646,71 @@ function connectOnline(code: string): void {
       downloadReplay(replay, `desync-${code}-t${tick}.mrep`);
     },
     onError: (errCode) => {
-      netStatus = `Cannot join room ${code}: ${NET_ERROR_TEXT[errCode] ?? "unknown error"}`;
-      refreshOverlay();
+      netFailed(ui, netErrorText(errCode, `room ${code}`));
     },
     onClose: () => {
       // A desync already sets its own final status; don't overwrite it.
-      if (net?.isEnded === "desync") return;
+      if (relay.isEnded === "desync") return;
+      if (!relay.isStarted) {
+        netFailed(ui, "Connection lost");
+        return;
+      }
       netStatus = `Connection lost — reload to rejoin room ${code}.`;
       refreshOverlay();
     },
   });
+  net = relay;
+  lobby.preLink(lobbyLink(relay));
+  netStatusText(ui, `Room ${code} — connecting…`);
+  relay.start(config);
+}
 
-  netStatus = `Room ${code} — waiting for opponent…`;
-  setOverlay(netStatus);
-  net.start(config);
+/** The lockstep under a lobby: its sends, the host's begin, and leaving. */
+function lobbyLink(l: NetLockstep | P2pLockstep): LobbyLink {
+  return {
+    send: (m) => l.sendLobby(m),
+    begin: (c) => l.begin(c),
+    close: () => {
+      if (net === l) net = undefined;
+      l.close();
+    },
+  };
+}
+
+/**
+ * The original's refusals all read "Connection Denied!" (join_dialog.c,
+ * the 0x13 arm): a version mismatch and a second joiner alike.
+ */
+function netErrorText(errCode: number, where: string): string {
+  if (errCode === 1 || errCode === 2) return "Connection Denied!";
+  return `Cannot join ${where}: ${NET_ERROR_TEXT[errCode] ?? "unknown error"}`;
 }
 
 /**
  * P2P 1v1 (hosting.spec.md §5): open/join the lobby by code, run WebRTC
- * signaling through it, then hand the open channel pair to P2pLockstep. The
+ * signaling through it, then hand the open channel pair to P2pLockstep, whose
+ * control channel carries the networked lobby until the host's START. The
  * role and lobby options ride sessionStorage from the menu; a bare pasted
- * ?p2p link joins passwordless. Unlike the relay mode there is no WELCOME —
- * the sim exists as soon as the session resolves.
+ * ?p2p link joins passwordless.
  */
-function connectP2pMode(code: string): void {
+function connectP2pMode(code: string, ui: NetUi): void {
   const boot = readP2pBootstrap(code);
-  netStatus = `Lobby ${code} — connecting…`;
-  setOverlay(netStatus);
+  const lobby = ui.lobby;
+  const config = netConfig(seedFromCode(code));
+  netStatusText(ui, `Lobby ${code} — connecting…`);
+  let dropped = false;
+  // The dialog's Cancel before the channels open: nothing to attach to yet.
+  lobby.preLink({
+    send: () => {},
+    begin: () => {},
+    close: () => {
+      dropped = true;
+    },
+  });
   openP2pSession({
     url: lobbyUrl(code),
     role: boot.role,
-    config: netConfig(seedFromCode(code)),
+    config,
     hostSetup:
       boot.role === "host"
         ? {
@@ -2621,12 +2721,16 @@ function connectP2pMode(code: string): void {
         : undefined,
     joinPasswordHash: boot.role === "join" ? boot.passwordHash : undefined,
     onStatus: (text) => {
-      netStatus = text;
-      refreshOverlay();
+      netStatusText(ui, text.startsWith("Lobby open") ? "Waiting for someone to join" : text);
     },
   })
     .then((session) => {
-      const p2pNet = new P2pLockstep(
+      if (dropped) {
+        session.channels.close();
+        return;
+      }
+      netSlot = session.slot;
+      const p2pNet: P2pLockstep = new P2pLockstep(
         session.slot,
         session.config,
         session.channels.control,
@@ -2638,37 +2742,33 @@ function connectP2pMode(code: string): void {
             pumpCosmetics(stepped.events);
             rotateSnapshot();
           },
-          onLinked: () => {
-            // Protocol 4: the host seals the setup once linked.
-            if (session.slot === 0) p2pNet.begin(session.config);
-          },
-          onStart: (started, startedConfig) => {
-            netStatus = null;
-            refreshOverlay();
-            enterNetMatch(startedConfig.mapId, started, session.slot);
-          },
+          onLinked: () => lobby.linked(),
+          onLobby: (m) => lobby.receive(m),
+          onStart: (started, startedConfig) => netStarted(ui, startedConfig, started),
           onDesync: (tick, replay) => {
             netStatus = `Desync detected at tick ${tick} — match ended. Replay downloaded.`;
             refreshOverlay();
             downloadReplay(replay, `desync-${code}-t${tick}.mrep`);
           },
-          onError: (errCode) => {
-            netStatus = `Lobby ${code}: ${NET_ERROR_TEXT[errCode] ?? "unknown error"}`;
-            refreshOverlay();
-          },
+          onError: (errCode) => netFailed(ui, netErrorText(errCode, `lobby ${code}`)),
           onClose: () => {
-            if (net?.isEnded === "desync") return;
+            if (p2pNet.isEnded === "desync") return;
+            if (!p2pNet.isStarted) {
+              netFailed(ui, "Connection lost");
+              return;
+            }
             netStatus = `Connection to opponent lost — match over. Return to the menu to rematch.`;
             refreshOverlay();
           },
         },
       );
       net = p2pNet;
+      lobby.attach(lobbyLink(p2pNet), session.slot, session.config.seed);
       p2pNet.start();
     })
     .catch((err: unknown) => {
-      netStatus = `Lobby ${code}: ${err instanceof Error ? err.message : "connection failed"}`;
-      refreshOverlay();
+      if (dropped) return;
+      netFailed(ui, `Lobby ${code}: ${err instanceof Error ? err.message : "connection failed"}`);
     });
 }
 
@@ -2696,6 +2796,7 @@ function menuOptions(): Parameters<typeof runMenu>[0] {
   return {
     audio,
     onChoice: handleMenuChoice,
+    openNet,
     // START: the arena loads under the loading screen.
     onSelect: previewArena,
     // PREFERENCES' HD textures option applies at once to a loaded arena;
@@ -2803,24 +2904,40 @@ function handleMenuChoice(
       break;
     }
     case "online":
+    case "p2p": {
+      // The menu's lobby has run its course: the lockstep it opened holds the
+      // match the host's START agreed (openNet below).
       flyMode = false;
-      phase = "connecting"; // demo battle keeps running under the net overlay,
-      resetForMatch(createDemoSim(map)); // re-seated on the picked arena
-      connectOnline(choice.code);
+      const live = net;
+      if (live?.isStarted) {
+        const startedSim = live.simState;
+        if (startedSim) enterNetMatch(mapId, startedSim, netSlot);
+      }
       break;
-    case "p2p":
-      flyMode = false;
-      phase = "connecting"; // ditto — the P2P lobby handshake runs on top
-      resetForMatch(createDemoSim(map));
-      connectP2pMode(choice.code);
-      break;
+    }
   }
 }
 
+/**
+ * HOST / JOIN accepted in the menu: open the session the dialog chose, under
+ * the lobby the menu holds (menu/index.ts). The dialog shows its progress; the
+ * networked screen its exchange; START's loading screen ends in onChoice.
+ */
+function openNet(choice: MenuChoice, lobby: NetLobby): void {
+  if (net) {
+    net.close();
+    net = undefined;
+  }
+  netSlot = -1;
+  const ui: NetUi = { fromMenu: true, lobby };
+  if (choice.mode === "online") connectOnline(choice.code, ui);
+  else if (choice.mode === "p2p") connectP2pMode(choice.code, ui);
+}
+
 if (online) {
-  connectOnline(onlineCode as string);
+  connectOnline(onlineCode as string, { fromMenu: false, lobby: deepLinkLobby() });
 } else if (p2p) {
-  connectP2pMode(p2pCode as string);
+  connectP2pMode(p2pCode as string, { fromMenu: false, lobby: deepLinkLobby() });
 } else if (explicitMode) {
   startMatch([{ slot: 0, input: localInput }]);
 } else {

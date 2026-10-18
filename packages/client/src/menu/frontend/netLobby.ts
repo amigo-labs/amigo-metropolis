@@ -77,6 +77,25 @@ export const DEFAULT_NAMES: readonly string[] = ["Player1", "Player2"];
 /** The dialogs' Player Name edit limit (EM_LIMITTEXT 0xf, host_dialog.c / join_dialog.c). */
 export const NAME_LIMIT = 15;
 
+/** Where the dialogs keep the Player Name (as the original keeps it in its settings). */
+export const PLAYER_NAME_KEY = "metropolis.playerName";
+
+export function loadPlayerName(): string {
+  try {
+    return localStorage.getItem(PLAYER_NAME_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function storePlayerName(name: string): void {
+  try {
+    localStorage.setItem(PLAYER_NAME_KEY, name);
+  } catch {
+    // a private window: the name lives for this lobby only
+  }
+}
+
 /** The text that goes out as a name: 15 characters, single-byte as the original's ANSI. */
 export function lobbyName(raw: string): string {
   let out = "";
@@ -167,6 +186,11 @@ export class NetLobby {
   }
 
   // --- the transport's side ------------------------------------------------------
+
+  /** The session is opening but not seated yet: CANCEL still has something to close. */
+  preLink(link: LobbyLink): void {
+    if (this.slot < 0) this.link = link;
+  }
 
   /** Seated: the slot the transport gave us (the relay's first arrival hosts) and the host's seed. */
   attach(link: LobbyLink, slot: number, seed: number): void {
@@ -268,7 +292,7 @@ export class NetLobby {
 
   /** The session could not open (the dialog's status says why). */
   fail(text: string): void {
-    if (this.phase === "started") return;
+    if (this.phase === "started" || this.phase === "gone") return;
     this.phase = "failed";
     this.status = text;
     this.changed();

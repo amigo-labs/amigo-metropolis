@@ -3,7 +3,9 @@
 // runMenu (index.ts) owns it and re-renders on change; App is a pure function
 // of it, which is what lets `bun test` render the screen to a string.
 
+import type { MatchConfig } from "@metropolis/sim";
 import type { FeScreen } from "./frontend/model";
+import type { NetLobby } from "./frontend/netLobby";
 import type { MenuChoice } from "./routing";
 import type { W9Box } from "./win9x/Win9x";
 
@@ -36,4 +38,8 @@ export interface MenuState {
   loading: MenuLoading | null;
   /** The networked lobby's START: the session the HOST / JOIN dialog set up. */
   netChoice: MenuChoice | null;
+  /** The networked lobby's exchange (netLobby.ts), while the networked set is up. */
+  lobby: NetLobby | null;
+  /** The agreed config the loading screen is on its way to (online). */
+  netStart: MatchConfig | null;
 }

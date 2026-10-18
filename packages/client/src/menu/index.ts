@@ -34,8 +34,10 @@ import {
   newGameConfig,
   pointerButton,
   pointerMove,
+  rowOfMap,
   tickMenus,
 } from "./frontend/model";
+import { NetLobby } from "./frontend/netLobby";
 import { loadConfig, storeConfig } from "./frontend/progress";
 import { stageScale, toScreen } from "./frontend/stage";
 import { uiSounds } from "./frontend/uiSound";
@@ -71,6 +73,11 @@ export interface MenuOptions {
     difficulty: number,
     rules: GameRules,
   ): void;
+  /**
+   * HOST / JOIN pressed: open the chosen session under `lobby`, which then
+   * reports its progress and the peer's messages (main.ts wires the lockstep).
+   */
+  openNet(choice: MenuChoice, lobby: NetLobby): void;
   /** START was pressed on `mapId`: the loading screen is up, the arena may load under it. */
   onSelect(mapId: string): void;
   /** PREFERENCES changed the texture option (persisted already). */
@@ -115,6 +122,8 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     dialog: null,
     loading: null,
     netChoice: null,
+    lobby: null,
+    netStart: null,
   };
   let installPrompt: (() => void) | undefined;
   let raf = 0;
@@ -138,11 +147,74 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     draw();
   };
 
+  /** HOST / JOIN pressed: a lobby on the local config's picks, and main.ts opens it. */
+  const connect = (choice: MenuChoice, name: string): NetLobby => {
+    const c = config();
+    const lobby = new NetLobby({
+      name,
+      picks: [0, 1].map((p) => ({ loadout: [...c.loadout[p]], difficulty: c.difficulty[p] })),
+      mapRow: c.pick0,
+      extraWeapons: c.extraWeapons,
+    });
+    opts.openNet(choice, lobby);
+    return lobby;
+  };
+
+  /** CANCEL, or the peer gone: frontend_begin(1), back to the offline set. */
+  const leaveLobby = (): void => {
+    state.lobby?.close();
+    state.lobby = null;
+    state.netChoice = null;
+    enterSet(state.screen, "pa_1p", null);
+  };
+
+  /** The lobby's news onto the networked screen (and the two ways out of it). */
+  const syncLobby = (): void => {
+    const lobby = state.lobby;
+    const net = state.screen.net;
+    if (!lobby || !net) return;
+    const own = lobby.slot;
+    const peer = lobby.picks[lobby.peerSlot];
+    net.hosting = lobby.hosting;
+    net.peer = lobby.peerName;
+    net.extraWeapons = lobby.extraWeapons;
+    net.peerPicks = { loadout: [...peer.loadout], difficulty: peer.difficulty };
+    state.screen.ready = [lobby.ready[0], lobby.ready[1]];
+    config().loadout[own] = [...lobby.picks[own].loadout];
+    // input.c 0x09: setup choice 0 writes the joiner's pick 0.
+    if (!lobby.hosting && lobby.mapRow >= 0 && lobby.mapRow < FE_PA_MAPS.length) {
+      config().pick0 = lobby.mapRow;
+    }
+    if (lobby.phase === "gone" && state.dialog?.kind !== "box") {
+      // 0x18: "The other player has dissconnected." (retail's typo), then
+      // frontend_begin(1).
+      open({
+        kind: "box",
+        text: "The other player has dissconnected.",
+        caption: "Network",
+        icon: "stop",
+        buttons: ["OK"],
+        after: leaveLobby,
+      });
+      return;
+    }
+    if (lobby.phase === "started" && lobby.config && !state.netStart) {
+      // Both ready: the original's next state 4, the loading screen.
+      const cfg = lobby.config;
+      state.netStart = cfg;
+      const row = rowOfMap(cfg.mapId);
+      state.loading = { file: FE_PA_MAPS[row >= 0 ? row : config().pick0].loading, fill: 0 };
+      loadingStart = performance.now();
+      opts.onSelect(cfg.mapId);
+    }
+    draw();
+  };
+
   const start = (): void => {
-    if (state.screen.net && state.netChoice) {
-      // The lobby's START: Metropolis connects here (the original's ready
-      // exchange is not modelled, fcop-fidelity.md F9). The host's map wins.
-      go(state.netChoice, pickedMap(), loadoutOfEntries([0, 0, 0]), 1);
+    if (state.screen.net && state.lobby) {
+      // The lobby's START (0x00409f60): this side's ready bit, to the peer;
+      // both set is the start (the host's begin, netLobby.ts).
+      state.lobby.setReady(true);
       return;
     }
     const row = config().pick0;
@@ -190,8 +262,19 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         start();
         return;
       case "cancel":
-        enterSet(state.screen, "pa_1p", null);
-        state.netChoice = null;
+        leaveLobby();
+        return;
+      case "unready":
+        state.lobby?.setReady(false);
+        return;
+      case "net_loadout":
+        if (state.lobby) state.lobby.setLoadout(config().loadout[state.lobby.slot]);
+        return;
+      case "net_difficulty":
+        if (state.lobby) state.lobby.setDifficulty(config().difficulty[state.lobby.slot]);
+        return;
+      case "net_map":
+        state.lobby?.setMapRow(config().pick0);
         return;
       default:
         // The refused buttons have played their sound (model.ts).
@@ -214,7 +297,13 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     const r = stage.getBoundingClientRect();
     return toScreen(e.clientX, e.clientY, r.left, r.top, state.scale);
   };
-  const blocked = (): boolean => state.dialog !== null || state.loading !== null || gone;
+  // Both ready is the start: the screen takes no more clicks while the host's
+  // START is on its way (the original's next state 4).
+  const blocked = (): boolean =>
+    state.dialog !== null ||
+    state.loading !== null ||
+    gone ||
+    (state.screen.net !== null && !!state.lobby?.bothReady);
   const MASKS = [1, 2, 4];
 
   const onMove = (e: PointerEvent): void => {
@@ -265,6 +354,12 @@ export function runMenu(opts: MenuOptions): MenuHandle {
       }
       if (elapsed >= LOADING_MS + LOADING_HOLD_MS) {
         state.loading = { ...state.loading, fill: 200 };
+        const agreed = state.netStart;
+        if (agreed && state.netChoice && state.lobby) {
+          const own = state.lobby.slot;
+          go(state.netChoice, agreed.mapId, agreed.loadouts[own], agreed.difficulties[own]);
+          return;
+        }
         const c = config();
         const row = c.pick0;
         go(
@@ -293,8 +388,14 @@ export function runMenu(opts: MenuOptions): MenuHandle {
           onClose: close,
           onTexPref: opts.onTexPref,
           onControls: (t: Binding[][]) => opts.onControls(t[0]),
-          rules: { extraWeapons: config().extraWeapons },
+          // In the networked lobby the rules are the host's, the joiner's greyed.
+          rules: { extraWeapons: state.lobby ? state.lobby.extraWeapons : config().extraWeapons },
+          rulesLocked: !!state.lobby && !state.lobby.hosting,
           onRules: (r: GameRules) => {
+            if (state.lobby) {
+              state.lobby.setExtraWeapons(r.extraWeapons);
+              return;
+            }
             const c = config();
             c.extraWeapons = r.extraWeapons;
             // A weapon whose switch went off goes back to entry 0.
@@ -319,14 +420,22 @@ export function runMenu(opts: MenuOptions): MenuHandle {
       case "host":
       case "join":
         return h(d.kind === "host" ? HostDialog : JoinDialog, {
+          onConnect: connect,
           onDone: (r) => {
             if (r) {
+              // EndDialog(1) once linked: the networked set, the peer named.
               state.netChoice = r.choice;
+              state.lobby = r.lobby;
+              state.netStart = null;
               enterSet(state.screen, "net_pa", {
-                hosting: r.hosting,
-                peer: r.peer,
-                extraWeapons: 0,
+                hosting: r.lobby.hosting,
+                peer: r.lobby.peerName,
+                extraWeapons: r.lobby.extraWeapons,
               });
+              r.lobby.onChange = syncLobby;
+              state.dialog = null;
+              syncLobby();
+              return;
             }
             open(null);
           },

@@ -9,7 +9,6 @@ import { FE_CONNECTED_TO, FE_LOADING_SCREEN, FE_PORTRAITS } from "./frontendData
 import {
   type FeScreen,
   FLAG_DISABLED,
-  FLAG_HIDDEN,
   groupOf,
   menuSelection,
   panelFlags,
@@ -80,7 +79,9 @@ export function FrontScreen({ screen }: { screen: FeScreen }) {
     }
     for (let i = 0; i < g.panels.length; i++) {
       const f = panelFlags(screen, g, i);
-      if (f & (FLAG_DISABLED | FLAG_HIDDEN)) continue;
+      // 0x0040aa87: only the disabled bit keeps a panel off the screen; a
+      // hidden one is drawn and refuses the click (the peer's arrows online).
+      if (f & FLAG_DISABLED) continue;
       const p = g.panels[i];
       const pic = panelPicture(p, f);
       if (pic)
