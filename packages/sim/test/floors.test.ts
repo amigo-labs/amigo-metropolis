@@ -105,6 +105,34 @@ describe("the bases' floors (codes 14/15)", () => {
     });
   }
 
+  it("count each mech's own steps, by its carry of the clock's eighths", () => {
+    // A down stops the mech's steps until it is back (walker.ts walkerEighths
+    // runs for a live mech only), so its carry returns out of phase with the
+    // tick: the floor hurts it by its own 1, 1, 1, 2, not the tick's.
+    const map = getMapById(LA_CANTINA_ID);
+    const state = createSim(map, 1);
+    state.ent.hp[state.avatarId[0]] = 0;
+    step(state, idle);
+    while (state.avatarId[0] < 0) step(state, idle);
+    const a0 = state.avatarId[0];
+    const s1 = map.spawns[1];
+    const cell = floorCell(map, 1, s1.x + 3, s1.y);
+    const took: number[] = [];
+    const own: number[] = [];
+    const byTick: number[] = [];
+    for (let k = 0; k < 8; k++) {
+      standAt(state, a0, cell.x, cell.y);
+      const t = state.tick;
+      byTick.push(Math.floor(((t + 1) * 10) / 8) - Math.floor((t * 10) / 8));
+      step(state, idle);
+      took.push(groundDamage(state, a0));
+      own.push(state.walker.steps[0]);
+    }
+    expect(own.reduce((x, y) => x + y, 0)).toBe(10); // 1.25 a tick
+    expect(took).toEqual(own);
+    expect(took).not.toEqual(byTick);
+  });
+
   it("reach the feet only within SURFACE_REACH", () => {
     const map = getMapById(LA_CANTINA_ID);
     const state = createSim(map, 1);

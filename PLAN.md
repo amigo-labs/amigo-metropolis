@@ -676,6 +676,8 @@ commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
 - [x] The rule data imported from the RE (`gen:parules`)
 - [x] Spawn facing and hover form from the X1Alpha records (P10; v57)
 - [x] The bases' floors hurt the enemy mech; Hk's spawn guards (P11; v58)
+- [x] The floors and the lifts' tagged tops count each mech's own steps, its
+      carry of the clock's eighths, not the tick's (P11, P4; v89)
 - [x] Water on Hk and Ovmp, NORMAL's auto-hover (P13; v59)
 - [x] Dreadnought and Fortress at their own zones, opened by the points poll
       (R10; v60)

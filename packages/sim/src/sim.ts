@@ -1351,6 +1351,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // by systemWarden, deterministically on every peer.
     state.avatarLift[p] = -1;
     state.walker.codeCount[p] = 0;
+    state.walker.steps[p] = 0;
     if (p === state.wardenPlayer) continue;
     const id = state.avatarId[p];
     state.moveCue[p] = 0;
@@ -4705,12 +4706,13 @@ function systemFloors(state: SimState): void {
   const ent = state.ent;
   const masks = map.floorMasks;
   if (masks.length > 0 || map.lifts.length > 0) {
-    // The movement steps that fall in this tick: 1, 1, 1, 2 at 1.25 a tick.
-    const t = state.tick;
-    const steps = Math.floor((t + 1) * X1_STEPS_PER_TICK) - Math.floor(t * X1_STEPS_PER_TICK);
     for (let p = 0; p < MAX_PLAYERS; p++) {
       const id = state.avatarId[p];
       if (id < 0 || ent.archetype[id] !== ARCHETYPE.AVATAR) continue;
+      // The movement steps this mech took this tick, by its own carry of the
+      // clock's eighths (walker.ts walkerEighths: 1, 1, 1, 2 from wherever its
+      // carry stands), as the original's floor check runs in each of its steps.
+      const steps = state.walker.steps[p];
       // On a lift its top is the surface, in place of the floor under it: a
       // tagged lift hurts like its base's floor (fcop-fidelity.md P12).
       const carrier = state.avatarLift[p];

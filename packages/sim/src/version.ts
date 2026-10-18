@@ -1316,4 +1316,16 @@
 //     answers the walk's frame. Was frame 0's 757 on every frame. Only
 //     bug-hunt's hull walks and no golden fields a Dreadnought there: every
 //     golden's hashes hold, re-recorded for the header.
-export const SIM_VERSION = 88;
+// v89: the bases' floors and the lifts' tagged tops hurt a mech by its own
+//     movement steps (fcop-fidelity.md P11, P4; RE player.c 1971-1978: the
+//     floor check runs in each step, one per 8 units of the clock over the
+//     mech's own carry, byte_b6). systemFloors counted the tick's steps from
+//     the tick number (floor((t + 1) * 1.25) - floor(t * 1.25)); it reads the
+//     walker's count now (WalkerState.steps, walkerEighths' answer, transient).
+//     The two part where a mech's carry is out of phase with the tick: a down
+//     stops its steps until it is back, 119 ticks, so its carry returns three
+//     ticks behind the tick's and a respawned mech on the enemy's floor took
+//     its 2 on the wrong tick.
+//     No golden stands a respawned mech on an enemy floor: every golden's
+//     hashes hold, re-recorded for the header.
+export const SIM_VERSION = 89;

@@ -258,6 +258,12 @@ export interface WalkerState {
   /** The legs' AnmD block (`player_actor::anim`) and the cockpit's (the partner's). */
   readonly legs: AnimPlayer;
   readonly cockpit: AnimPlayer;
+  /**
+   * This tick's movement steps, `walkerEighths`' answer (transient: 0 for a slot
+   * whose mech did not step this tick). The floors and the lifts' tags hurt by
+   * it, as the original's floor check runs in each step (sim.ts systemFloors).
+   */
+  readonly steps: Uint8Array;
   /** This tick's codes for the movement loop, WALK_CODES_PER_TICK a slot (transient). */
   readonly codes: Uint8Array;
   readonly codeCount: Uint8Array;
@@ -277,6 +283,7 @@ export function createWalkerState(slots: number): WalkerState {
     form: new Uint8Array(slots),
     legs: createAnimPlayer(X1_LEG_TRACKS, slots),
     cockpit: createAnimPlayer(X1_COCKPIT_TRACKS, slots),
+    steps: new Uint8Array(slots),
     codes: new Uint8Array(slots * WALK_CODES_PER_TICK),
     codeCount: new Uint8Array(slots),
     stepTrack: new Uint8Array(slots),
@@ -306,10 +313,14 @@ export function walkerReset(w: WalkerState, s: number, hover: boolean): void {
   animSetTrack(w.cockpit, s, hover ? X1_HOVER_COCKPIT_TRACK : 0, 1, 0);
 }
 
-/** This tick's movement steps (player.c 1971-1978): the clock's 10 units over the carry, in eighths. */
+/**
+ * This tick's movement steps (player.c 1971-1978): the clock's 10 units over the
+ * carry, in eighths; kept in `steps` for the tick's later systems.
+ */
 export function walkerEighths(w: WalkerState, s: number): number {
   const units = w.carry[s] + X1_UNITS_PER_TICK;
   w.carry[s] = units & 7;
+  w.steps[s] = units >> 3;
   return units >> 3;
 }
 
