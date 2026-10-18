@@ -22,7 +22,7 @@ const CFG: MatchConfig = {
   wardenDifficulty: 0,
   difficulties: [1, 1],
   loadouts: DEFAULT_LOADOUTS,
-  campaignWeapons: false,
+  extraWeapons: 0,
 };
 
 /** Executes effects the way lobbyDo.ts does, with invariant checks. */

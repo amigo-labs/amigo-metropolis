@@ -52,7 +52,7 @@ const CONFIG: MatchConfig = {
   wardenDifficulty: 0,
   difficulties: DEFAULT_DIFFICULTIES,
   loadouts: DEFAULT_LOADOUTS,
-  campaignWeapons: false,
+  extraWeapons: 0,
 };
 
 // A scripted 1v1: both avatars move and shoot so the hash stream is non-trivial

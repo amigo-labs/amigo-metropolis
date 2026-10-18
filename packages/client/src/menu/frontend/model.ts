@@ -72,12 +72,11 @@ export interface FeConfig {
   /** 0x00511e24: Bug Hunt shown (every other map finished). */
   bugHunt: boolean;
   /**
-   * Metropolis' "Kampagnenwaffen" game rule (the owner's decision, not the
-   * original's): the loadout columns offer each slot's fifth weapon, as the
-   * original's do once Crime War sets its option bytes. Off by default, the
-   * original's Precinct Assault. A preference: NEW GAME keeps it.
+   * Metropolis' "Spielregeln" (the owner's decision, not the original's): a
+   * mask of the five extra weapons the loadout columns offer (EXTRA_*). 0 by
+   * default, the original's Precinct Assault. A preference: NEW GAME keeps it.
    */
-  campaignWeapons: boolean;
+  extraWeapons: number;
 }
 
 /** NEW GAME's config (config.c:97-123), Precinct Assault: Metropolis has no Crime War. */
@@ -92,7 +91,7 @@ export function newGameConfig(): FeConfig {
       [0, 0, 0],
     ],
     bugHunt: false,
-    campaignWeapons: false,
+    extraWeapons: 0,
   };
 }
 
@@ -117,13 +116,13 @@ export function normalizeConfig(raw: unknown): FeConfig {
   }
   const df = arr(r.difficulty, 2);
   for (let p = 0; p < 2; p++) out.difficulty[p] = clampInt(df[p], 0, 2, 1);
-  out.campaignWeapons = r.campaignWeapons === true;
+  out.extraWeapons = clampInt(r.extraWeapons, 0, EXTRA_ALL, 0);
   const lo = arr(r.loadout, 2);
   for (let p = 0; p < 2; p++) {
     const row = arr(lo[p], 3);
     for (let s = 0; s < 3; s++) {
       const e = clampInt(row[s], 0, 4, 0);
-      out.loadout[p][s] = entryAllowed(s, e, out.campaignWeapons) ? e : 0;
+      out.loadout[p][s] = entryAllowed(s, e, out.extraWeapons) ? e : 0;
     }
   }
   out.bugHunt = bugHuntUnlocked(out.paLevel);
@@ -134,22 +133,50 @@ export function normalizeConfig(raw: unknown): FeConfig {
 // --- the loadout --------------------------------------------------------------
 
 /**
- * The option bytes 0x00511e04..06, which only the Crime War campaign's
- * scripts set (each slot's fifth weapon). Metropolis has no campaign: zero,
- * unless the "Kampagnenwaffen" rule is on, which sets all three -- the
- * original's rule with the bytes a finished campaign leaves.
+ * The owner's "Spielregeln": one switch an extra weapon, the bits of
+ * MatchConfig.extraWeapons / SimOptions.extraWeapons. They are the five
+ * entries the original's Precinct Assault never offers: each slot's fifth,
+ * which only a Crime War script's option byte (0x00511e04..06) opens, and the
+ * two its availability row DAT_00487610 turns off
+ * (`frontend_loadout_avail_default`, panel_callbacks.c).
  */
-export function optionBytes(campaign: boolean): readonly number[] {
-  return campaign ? [1, 1, 1] : [0, 0, 0];
+export const EXTRA_RIOT_SHIELD = 1 << 0;
+export const EXTRA_K9_DRONE = 1 << 1;
+export const EXTRA_GRENADE_LAUNCHER = 1 << 2;
+export const EXTRA_FUSION_TORPEDO = 1 << 3;
+export const EXTRA_PLASMA_FLARE = 1 << 4;
+export const EXTRA_ALL = 0x1f;
+
+/** The five switches in the order Preferences lists them, with their entries. */
+export const EXTRA_WEAPONS: readonly {
+  readonly bit: number;
+  readonly slot: number;
+  readonly entry: number;
+  readonly name: string;
+}[] = [
+  { bit: EXTRA_RIOT_SHIELD, slot: 0, entry: 4, name: "Riot Shield" },
+  { bit: EXTRA_K9_DRONE, slot: 1, entry: 4, name: "K-9 Drone" },
+  { bit: EXTRA_GRENADE_LAUNCHER, slot: 2, entry: 4, name: "Grenade Launcher" },
+  { bit: EXTRA_FUSION_TORPEDO, slot: 1, entry: 3, name: "Fusion Torpedo" },
+  { bit: EXTRA_PLASMA_FLARE, slot: 2, entry: 2, name: "Plasma Flare" },
+];
+
+/** The rule bit an entry hangs on, or 0 for one the original's rule decides alone. */
+export function extraBitOf(slot: number, entry: number): number {
+  for (const x of EXTRA_WEAPONS) if (x.slot === slot && x.entry === entry) return x.bit;
+  return 0;
 }
 
 /**
- * Whether the original's arrows may land on an entry (panel_callbacks.c:483-563):
- * the availability row outside the campaign, and entry 4 skipped while the
- * slot's option byte is zero.
+ * Whether the arrows may land on an entry: the original's rule
+ * (panel_callbacks.c:483-563 -- the availability row outside the campaign,
+ * and entry 4 skipped while the slot's option byte is zero, which in Precinct
+ * Assault it always is), except that each of the five extra entries is offered
+ * exactly while its switch in `extra` is on.
  */
-export function originalAllows(slot: number, entry: number, campaign = false): boolean {
-  if (entry === 4 && optionBytes(campaign)[slot] === 0) return false;
+export function originalAllows(slot: number, entry: number, extra = 0): boolean {
+  const bit = extraBitOf(slot, entry);
+  if (bit !== 0) return (extra & bit) !== 0;
   return FE_LOADOUT.availabilityOutsideCampaign[slot * 5 + entry] === 1;
 }
 
@@ -175,17 +202,17 @@ export function entryOfSim(slot: number, index: number): number {
 
 /**
  * Whether Metropolis offers an entry: the original's rule, and a weapon the
- * sim has. With no campaign the two agree on all ten (menuFrontend.test.ts);
- * under the "Kampagnenwaffen" rule the fifth entries join once the sim's
- * catalogue carries them by name.
+ * sim has. With every switch off the two agree on all ten
+ * (menuFrontend.test.ts); a switched-on extra weapon joins once the sim's
+ * catalogue carries it by name.
  */
-export function entryAllowed(slot: number, entry: number, campaign = false): boolean {
-  return originalAllows(slot, entry, campaign) && simIndexOf(slot, entry) >= 0;
+export function entryAllowed(slot: number, entry: number, extra = 0): boolean {
+  return originalAllows(slot, entry, extra) && simIndexOf(slot, entry) >= 0;
 }
 
 /** A column's entries with anything the rule no longer offers back on entry 0. */
-export function allowedEntries(entries: readonly number[], campaign: boolean): number[] {
-  return entries.map((e, slot) => (entryAllowed(slot, e, campaign) ? e : 0));
+export function allowedEntries(entries: readonly number[], extra: number): number[] {
+  return entries.map((e, slot) => (entryAllowed(slot, e, extra) ? e : 0));
 }
 
 /** A column's three entries as the sim's loadout. */
@@ -204,17 +231,12 @@ export function entriesOfLoadout(l: Loadout): number[] {
  * lands on an allowed entry. Answers the new entry; equal to `entry` when
  * nothing else is allowed (UI sound 8 then, 5 when it moved).
  */
-export function stepLoadout(
-  slot: number,
-  entry: number,
-  forward: boolean,
-  campaign = false,
-): number {
+export function stepLoadout(slot: number, entry: number, forward: boolean, extra = 0): number {
   let e = entry;
   // Retail loops until it lands; five steps reach every entry once.
   for (let i = 0; i < 5; i++) {
     e = forward ? (e + 1) % 5 : (e + 4) % 5;
-    if (entryAllowed(slot, e, campaign)) return e;
+    if (entryAllowed(slot, e, extra)) return e;
   }
   return entry;
 }
@@ -288,8 +310,8 @@ export interface FeNet {
   hosting: boolean;
   /** The "Connected To:" second line. */
   peer: string;
-  /** The host's "Kampagnenwaffen" rule, which the lobby shows on both sides. */
-  campaignWeapons: boolean;
+  /** The host's extra-weapons switches, which the lobby shows on both sides. */
+  extraWeapons: number;
 }
 
 export interface FeScreen {
@@ -311,11 +333,11 @@ export interface FeScreen {
 }
 
 /**
- * Whether the "Kampagnenwaffen" rule is on for this screen: the config's
- * offline, the host's in the networked lobby.
+ * The extra-weapons switches for this screen: the config's offline, the
+ * host's in the networked lobby.
  */
-export function campaignRule(screen: FeScreen): boolean {
-  return screen.net ? screen.net.campaignWeapons : screen.config.campaignWeapons;
+export function extraRule(screen: FeScreen): number {
+  return screen.net ? screen.net.extraWeapons : screen.config.extraWeapons;
 }
 
 export function groupOf(screen: FeScreen, role: GroupRole): FeGroup {
@@ -647,7 +669,7 @@ function runCallback(screen: FeScreen, panel: FePanel, out: FeResult): void {
       if (panel.ordinal > 5) return;
       const slot = panel.ordinal % 3;
       const before = c.loadout[which][slot];
-      const now = stepLoadout(slot, before, panel.ordinal < 3, campaignRule(screen));
+      const now = stepLoadout(slot, before, panel.ordinal < 3, extraRule(screen));
       c.loadout[which][slot] = now;
       out.sounds.push(now !== before ? SND_LOADOUT : SND_LOADOUT_REFUSED);
       out.redraw = true;

@@ -5,9 +5,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildModeQuery,
-  campaignFromParams,
   DIFFICULTY_PLATES,
   difficultyFromParams,
+  extraFromParams,
   isLocalhost,
   loadoutFromParams,
   normalizeRoomCode,
@@ -15,16 +15,18 @@ import {
 } from "../src/menu";
 
 describe("buildModeQuery", () => {
-  test("carries the Kampagnenwaffen rule on a local match only, when on", () => {
+  test("carries the extra-weapons switches on a local match only, when any is on", () => {
     expect(buildModeQuery({ mode: "warden", difficulty: 2 })).toBe("?warden=2");
-    expect(buildModeQuery({ mode: "warden", difficulty: 2 }, undefined, undefined, 1, true)).toBe(
-      "?warden=2&campaign=1",
-    );
-    expect(buildModeQuery({ mode: "online", code: "ABCDE" }, undefined, undefined, 1, true)).toBe(
+    expect(
+      buildModeQuery({ mode: "warden", difficulty: 2 }, undefined, undefined, 1, 0b10001),
+    ).toBe("?warden=2&extra=17");
+    expect(buildModeQuery({ mode: "online", code: "ABCDE" }, undefined, undefined, 1, 31)).toBe(
       "?online=ABCDE",
     );
-    expect(campaignFromParams(new URLSearchParams("campaign=1"))).toBe(true);
-    expect(campaignFromParams(new URLSearchParams(""))).toBe(false);
+    expect(extraFromParams(new URLSearchParams("extra=17"))).toBe(17);
+    expect(extraFromParams(new URLSearchParams("extra=255"))).toBe(31);
+    expect(extraFromParams(new URLSearchParams("extra=x"))).toBe(0);
+    expect(extraFromParams(new URLSearchParams(""))).toBe(0);
   });
 
   test("solo sandbox uses the ?play marker", () => {

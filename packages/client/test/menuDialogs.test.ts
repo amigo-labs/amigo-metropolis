@@ -10,7 +10,7 @@ import { AUDIO_ROWS } from "../src/menu/dialogs/AudioDialog";
 import { bindingOfKey, CONTROLS_FIELD_IDS } from "../src/menu/dialogs/ControlsDialog";
 import { INGAME_ABORT, INGAME_RESUME } from "../src/menu/dialogs/InGameDialog";
 import {
-  CAMPAIGN_WEAPONS_DLU,
+  extraSwitchDlu,
   HD_TEXTURES_DLU,
   RULES_GROUP_DLU,
 } from "../src/menu/dialogs/OptionsDialog";
@@ -101,10 +101,10 @@ describe("dialog units", () => {
     expect(y + h).toBeLessThanOrEqual(ok[1]);
   });
 
-  test("the Spielregeln group sits clear of every control, the check box inside it", () => {
+  test("the Spielregeln group sits under the template's rows, its five switches inside it", () => {
     const d = FE_DIALOGS.options;
     const [gx, gy, gw, gh] = RULES_GROUP_DLU;
-    const [cx, cy, cw, ch] = CAMPAIGN_WEAPONS_DLU;
+    expect(gy).toBeGreaterThanOrEqual(d.dlu[3]);
     const overlaps = (a: readonly number[], b: readonly number[]): boolean =>
       a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
     // The combo boxes' rects include their drop-down lists, which open over the dialog.
@@ -112,10 +112,15 @@ describe("dialog units", () => {
       expect(overlaps(RULES_GROUP_DLU, c.dlu)).toBe(false);
     }
     expect(overlaps(RULES_GROUP_DLU, HD_TEXTURES_DLU)).toBe(false);
-    expect(cx).toBeGreaterThan(gx);
-    expect(cy).toBeGreaterThan(gy);
-    expect(cx + cw).toBeLessThanOrEqual(gx + gw);
-    expect(cy + ch).toBeLessThanOrEqual(gy + gh);
+    for (let i = 0; i < 5; i++) {
+      const [cx, cy, cw, ch] = extraSwitchDlu(i);
+      expect(cx).toBeGreaterThan(gx);
+      expect(cy).toBeGreaterThan(gy);
+      expect(cx + cw).toBeLessThanOrEqual(gx + gw);
+      expect(cy + ch).toBeLessThanOrEqual(gy + gh);
+      for (let k = 0; k < i; k++)
+        expect(overlaps(extraSwitchDlu(i), extraSwitchDlu(k))).toBe(false);
+    }
     expect(gx + gw).toBeLessThanOrEqual(d.dlu[2]);
   });
 });

@@ -160,12 +160,13 @@ host and join dialogs (0xa8 / 0xa7) dressing Metropolis' lobby.
 Outside the 640 x 480 screen, in the page's bottom-right corner, small links:
 Install (the PWA, once the browser offers it) and, on localhost only, Fly and
 Sandbox. In the options dialog the HD textures check box, marked "(Metropolis)",
-and the "Spielregeln (Metropolis)" group with the owner's "Kampagnenwaffen"
-rule (`fcop-fidelity.md` F23): off by default, the original's Precinct Assault;
-on, the loadout arrows also land on each slot's fifth weapon, the original's
-rule with Crime War's option bytes set. Solo it is kept with the front end's
-config; in the networked lobby it is the host's, sent to the joiner, whose box
-shows it greyed.
+and the "Spielregeln (Metropolis)" group under the template's last row: the
+owner's five extra-weapon switches (`fcop-fidelity.md` F23) -- Riot Shield,
+K-9 Drone, Grenade Launcher, Fusion Torpedo, Plasma Flare -- all off by
+default, the original's Precinct Assault. Each on lets the loadout arrows land
+on its entry, the original's skip rule otherwise. Solo they are kept with the
+front end's config; in the networked lobby they are the host's, sent to the
+joiner, whose boxes show them greyed.
 In the host and join dialogs the lobby's password and listing, and the room
 code, marked the same way.
 

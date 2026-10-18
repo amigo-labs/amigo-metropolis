@@ -19,7 +19,7 @@ import {
   encodeMessage,
   getMapById,
   hash,
-  LOBBY_CAMPAIGN_WEAPONS,
+  LOBBY_EXTRA_WEAPONS,
   LOBBY_NAME,
   LOBBY_P1_LOADOUT,
   LOBBY_P1_SELECTION,
@@ -58,7 +58,7 @@ const HELLO_CONFIG: MatchConfig = {
   wardenDifficulty: 0,
   difficulties: DEFAULT_DIFFICULTIES,
   loadouts: DEFAULT_LOADOUTS,
-  campaignWeapons: false,
+  extraWeapons: 0,
 };
 
 /** A local config's two columns: the host edits 0, the joiner 1. */
@@ -68,7 +68,7 @@ function opts(name: string, own: number, loadout: number[], difficulty: number):
     { loadout: [0, 0, 0], difficulty: DIFFICULTY_NORMAL },
   ];
   picks[own] = { loadout, difficulty };
-  return { name, picks, mapRow: own === 0 ? 4 : 2, campaignWeapons: false };
+  return { name, picks, mapRow: own === 0 ? 4 : 2, extraWeapons: 0 };
 }
 
 /** Both locksteps carry the lobby the same way. */
@@ -219,7 +219,7 @@ describe("the networked lobby through the relay", () => {
       { id: LOBBY_NAME, name: "Ryan" },
       { id: LOBBY_P1_SELECTION, selection: DIFFICULTY_HARD },
       { id: LOBBY_P1_LOADOUT, codes: [0x01, 0x12, 0x20] },
-      { id: LOBBY_CAMPAIGN_WEAPONS, on: false },
+      { id: LOBBY_EXTRA_WEAPONS, mask: 0 },
     ]);
     // The joiner's, as the ack's arm sends it.
     expect(hub.lobbyTo.h).toEqual([
@@ -279,7 +279,7 @@ describe("the networked lobby through the relay", () => {
       wardenDifficulty: 0,
       difficulties: [DIFFICULTY_HARD, DIFFICULTY_EASY],
       loadouts: [loadoutOfEntries([1, 2, 3]), loadoutOfEntries([3, 1, 1])],
-      campaignWeapons: false,
+      extraWeapons: 0,
     });
     drive(h.net, j.net, 90);
     const ref = referenceHashes(agreed, 90);
@@ -299,18 +299,18 @@ describe("the networked lobby through the relay", () => {
     expect(j.lobby.config?.loadouts[1]).toEqual(loadoutOfEntries([1, 0, 0]));
   });
 
-  it("carries the host's Kampagnenwaffen rule; the joiner cannot change it", () => {
+  it("carries the host's extra-weapon switches; the joiner cannot change them", () => {
     const hub = new Hub();
-    const h = relaySide(hub, "h", { ...opts("Ryan", 0, [0, 0, 0], 1), campaignWeapons: true }, 0);
+    const h = relaySide(hub, "h", { ...opts("Ryan", 0, [0, 0, 0], 1), extraWeapons: 0b11 }, 0);
     const j = relaySide(hub, "j", opts("Jurgen", 1, [0, 0, 0], 1), 1);
-    expect(j.lobby.campaignWeapons).toBe(true);
-    j.lobby.setCampaignWeapons(false);
-    expect(h.lobby.campaignWeapons).toBe(true);
-    h.lobby.setCampaignWeapons(false);
-    expect(j.lobby.campaignWeapons).toBe(false);
+    expect(j.lobby.extraWeapons).toBe(0b11);
+    j.lobby.setExtraWeapons(0);
+    expect(h.lobby.extraWeapons).toBe(0b11);
+    h.lobby.setExtraWeapons(0b10);
+    expect(j.lobby.extraWeapons).toBe(0b10);
     h.lobby.setReady(true);
     j.lobby.setReady(true);
-    expect(j.lobby.config?.campaignWeapons).toBe(false);
+    expect(j.lobby.config?.extraWeapons).toBe(0b10);
   });
 
   it("the peer's CANCEL reads as gone on both sides", () => {

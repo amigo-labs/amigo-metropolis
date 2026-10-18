@@ -14,11 +14,17 @@ import {
   allowedEntries,
   BUG_HUNT_ROW,
   bugHuntUnlocked,
-  campaignRule,
   createScreen,
+  EXTRA_ALL,
+  EXTRA_K9_DRONE,
+  EXTRA_PLASMA_FLARE,
+  EXTRA_WEAPONS,
   enterSet,
   entriesOfLoadout,
   entryAllowed,
+  entryWeapon,
+  extraBitOf,
+  extraRule,
   type FeScreen,
   FLAG_DISABLED,
   FLAG_HELD,
@@ -218,14 +224,14 @@ describe("the pointer", () => {
 
   test("on the networked set a joiner's map press is refused, a host's is not", () => {
     const s = createScreen(newGameConfig());
-    enterSet(s, "net_pa", { hosting: false, peer: "x", campaignWeapons: false });
+    enterSet(s, "net_pa", { hosting: false, peer: "x", extraWeapons: 0 });
     pointerMove(s, 485, 98);
     // The refusal answers "not pressed", so the press is also over nothing:
     // sound 3 twice, as retail's 0x0040b92a and 0x0040bccc both play it.
     expect(pointerButton(s, 485, 98, 1, true).sounds).toEqual([SND_REFUSED, SND_REFUSED]);
     expect(s.config.pick0).toBe(1);
     const h = createScreen(newGameConfig());
-    enterSet(h, "net_pa", { hosting: true, peer: "x", campaignWeapons: false });
+    enterSet(h, "net_pa", { hosting: true, peer: "x", extraWeapons: 0 });
     pointerMove(h, 485, 98);
     pointerButton(h, 485, 98, 1, true);
     expect(h.config.pick0).toBe(4);
@@ -286,52 +292,61 @@ describe("the loadout column", () => {
   test("online the columns show the defaults and offer nothing to press", () => {
     const s = createScreen(newGameConfig());
     s.config.loadout[0] = [1, 1, 1];
-    enterSet(s, "net_pa", { hosting: true, peer: "x", campaignWeapons: false });
+    enterSet(s, "net_pa", { hosting: true, peer: "x", extraWeapons: 0 });
     const g = groupOf(s, "left");
     expect(menuSelection(s, g, 0)).toBe(0);
     expect(panelFlags(s, g, 0) & FLAG_DISABLED).toBe(FLAG_DISABLED);
   });
 });
 
-describe("the Kampagnenwaffen rule (the owner's, off by default)", () => {
-  test("on, the original's rule offers each slot's fifth entry, as Crime War's option bytes do", () => {
-    expect(newGameConfig().campaignWeapons).toBe(false);
-    for (let slot = 0; slot < 3; slot++) {
-      expect(originalAllows(slot, 4)).toBe(false);
-      expect(originalAllows(slot, 4, true)).toBe(true);
-      // Offered once the sim's catalogue carries the weapon by its name.
-      expect(entryAllowed(slot, 4, true)).toBe(simIndexOf(slot, 4) >= 0);
-      // The rest of the row is the rule's either way.
-      for (let e = 0; e < 4; e++)
-        expect(originalAllows(slot, e, true)).toBe(originalAllows(slot, e));
-    }
-    expect(FE_LOADOUT.slots.map((s) => s.entries[4].weapon)).toEqual([
-      "Riot Shield",
-      "K-9 Drone",
-      "Grenade Launcher",
+describe("the Spielregeln: five extra-weapon switches (the owner's, all off)", () => {
+  test("each extra entry is offered exactly while its switch is on", () => {
+    expect(newGameConfig().extraWeapons).toBe(0);
+    expect(EXTRA_WEAPONS.map((x) => [x.slot, x.entry, entryWeapon(x.slot, x.entry)])).toEqual([
+      [0, 4, "Riot Shield"],
+      [1, 4, "K-9 Drone"],
+      [2, 4, "Grenade Launcher"],
+      [1, 3, "Fusion Torpedo"],
+      [2, 2, "Plasma Flare"],
     ]);
+    for (const x of EXTRA_WEAPONS) {
+      expect(originalAllows(x.slot, x.entry)).toBe(false);
+      expect(originalAllows(x.slot, x.entry, x.bit)).toBe(true);
+      expect(originalAllows(x.slot, x.entry, EXTRA_ALL & ~x.bit)).toBe(false);
+      // Offered once the sim's catalogue carries the weapon by its name.
+      expect(entryAllowed(x.slot, x.entry, x.bit)).toBe(simIndexOf(x.slot, x.entry) >= 0);
+    }
+    // Every other entry is the original's rule, whatever the switches.
+    for (let slot = 0; slot < 3; slot++) {
+      for (let e = 0; e < 5; e++) {
+        if (extraBitOf(slot, e) !== 0) continue;
+        expect(originalAllows(slot, e, EXTRA_ALL)).toBe(originalAllows(slot, e));
+      }
+    }
+    // The two the original's PA row turns off (DAT_00487610).
+    expect(FE_LOADOUT.availabilityOutsideCampaign[1 * 5 + 3]).toBe(0);
+    expect(FE_LOADOUT.availabilityOutsideCampaign[2 * 5 + 2]).toBe(0);
   });
 
-  test("off, the arrows keep skipping the fifth entries", () => {
+  test("off, the arrows keep the original's skip rule", () => {
     expect(stepLoadout(0, 3, true)).toBe(0);
-    expect(stepLoadout(0, 3, true, true)).toBe(simIndexOf(0, 4) >= 0 ? 4 : 0);
+    expect(stepLoadout(2, 1, true)).toBe(3); // past Plasma Flare
+    expect(stepLoadout(1, 2, true, EXTRA_K9_DRONE)).toBe(simIndexOf(1, 4) >= 0 ? 4 : 0);
   });
 
-  test("the rule is kept with the config, and an entry it does not offer goes back to 0", () => {
-    const on = normalizeConfig({ ...newGameConfig(), campaignWeapons: true });
-    expect(on.campaignWeapons).toBe(true);
-    expect(normalizeConfig({ ...newGameConfig(), campaignWeapons: "yes" }).campaignWeapons).toBe(
-      false,
-    );
-    expect(allowedEntries([4, 4, 4], false)).toEqual([0, 0, 0]);
-    expect(allowedEntries([1, 2, 3], false)).toEqual([1, 2, 3]);
+  test("the switches are kept with the config; an entry whose switch is off goes back to 0", () => {
+    expect(normalizeConfig({ ...newGameConfig(), extraWeapons: 0b10101 }).extraWeapons).toBe(21);
+    expect(normalizeConfig({ ...newGameConfig(), extraWeapons: 99 }).extraWeapons).toBe(0);
+    expect(normalizeConfig({ ...newGameConfig(), extraWeapons: "on" }).extraWeapons).toBe(0);
+    expect(allowedEntries([4, 3, 2], 0)).toEqual([0, 0, 0]);
+    expect(allowedEntries([1, 2, 3], 0)).toEqual([1, 2, 3]);
   });
 
-  test("the networked screen reads the host's rule, offline the config's", () => {
-    const s = createScreen({ ...newGameConfig(), campaignWeapons: true });
-    expect(campaignRule(s)).toBe(true);
-    enterSet(s, "net_pa", { hosting: false, peer: "x", campaignWeapons: false });
-    expect(campaignRule(s)).toBe(false);
+  test("the networked screen reads the host's switches, offline the config's", () => {
+    const s = createScreen({ ...newGameConfig(), extraWeapons: EXTRA_PLASMA_FLARE });
+    expect(extraRule(s)).toBe(EXTRA_PLASMA_FLARE);
+    enterSet(s, "net_pa", { hosting: false, peer: "x", extraWeapons: 0 });
+    expect(extraRule(s)).toBe(0);
   });
 });
 

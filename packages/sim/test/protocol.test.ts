@@ -16,7 +16,7 @@ import {
   ERR_ROOM_FULL,
   encodeMessage,
   GUNS,
-  LOBBY_CAMPAIGN_WEAPONS,
+  LOBBY_EXTRA_WEAPONS,
   LOBBY_NAME,
   LOBBY_NAME_BYTES,
   LOBBY_P1_LOADOUT,
@@ -58,7 +58,7 @@ const CONFIG: MatchConfig = {
   wardenDifficulty: 0,
   difficulties: [DIFFICULTY_NORMAL, DIFFICULTY_NORMAL],
   loadouts: DEFAULT_LOADOUTS,
-  campaignWeapons: false,
+  extraWeapons: 0,
 };
 
 // The button word is a u16 (inputs.ts): Move Backward is its top bit.
@@ -137,16 +137,19 @@ describe("protocol codec", () => {
     const bytes = encodeMessage({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config: kit });
     const at = 1 + 1 + 2 + 4 + 1 + 1 + MAX_PLAYERS + 1 + CONFIG.mapId.length;
     expect([...bytes.subarray(at)]).toEqual([2, 1, 2, GUNS.length - 1, 0, 1, 0]);
-    // The campaign-weapons rule is the last byte.
+    // The extra-weapons mask is the last byte, five bits.
     const on = encodeMessage({
       type: MSG_HELLO,
       protocol: PROTOCOL_VERSION,
-      config: { ...kit, campaignWeapons: true },
+      config: { ...kit, extraWeapons: 0b11001 },
     });
-    expect(on[on.length - 1]).toBe(1);
-    expect(decodeMessage(on)).toMatchObject({ config: { campaignWeapons: true } });
-    on[on.length - 1] = 2;
-    expect(() => decodeMessage(on)).toThrow(/campaignWeapons/);
+    expect(on[on.length - 1]).toBe(0b11001);
+    expect(decodeMessage(on)).toMatchObject({ config: { extraWeapons: 0b11001 } });
+    on[on.length - 1] = 0x20;
+    expect(() => decodeMessage(on)).toThrow(/extraWeapons/);
+    expect(() =>
+      encodeMessage({ type: MSG_BEGIN, config: { ...kit, extraWeapons: 0x40 } }),
+    ).toThrow(/extraWeapons/);
   });
 
   it("refuses a loadout off the catalogue, on encode and on decode", () => {
@@ -192,7 +195,7 @@ describe("protocol codec", () => {
       { id: LOBBY_P2_LOADOUT, codes: [0x03, 0x12, 0x23] },
       { id: LOBBY_P1_READY, ready: true },
       { id: LOBBY_P2_READY, ready: false },
-      { id: LOBBY_CAMPAIGN_WEAPONS, on: true },
+      { id: LOBBY_EXTRA_WEAPONS, mask: 0b10110 },
     ];
     for (const lobby of all) {
       expect(roundTrip({ type: MSG_LOBBY, lobby })).toEqual({ type: MSG_LOBBY, lobby });

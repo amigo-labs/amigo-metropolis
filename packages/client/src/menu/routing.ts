@@ -51,7 +51,7 @@ export function buildModeQuery(
   mapId?: string,
   loadout?: Loadout,
   difficulty: number = DIFFICULTY_NORMAL,
-  campaignWeapons = false,
+  extraWeapons = 0,
 ): string {
   let query: string;
   switch (choice.mode) {
@@ -90,17 +90,19 @@ export function buildModeQuery(
   if (choice.mode !== "online" && choice.mode !== "p2p" && d !== DIFFICULTY_NORMAL) {
     query += `&difficulty=${DIFFICULTY_PARAM[d]}`;
   }
-  // The "Kampagnenwaffen" rule (omitted when off, the default); online the
-  // host's lobby sets it.
-  if (campaignWeapons && choice.mode !== "online" && choice.mode !== "p2p") {
-    query += "&campaign=1";
+  // The "Spielregeln" extra-weapons mask (omitted when 0, the default);
+  // online the host's lobby sets it.
+  const extra = Math.trunc(extraWeapons) & 0x1f;
+  if (extra !== 0 && choice.mode !== "online" && choice.mode !== "p2p") {
+    query += `&extra=${extra}`;
   }
   return query;
 }
 
-/** Parse ?campaign=1, the "Kampagnenwaffen" rule (off when absent). */
-export function campaignFromParams(params: URLSearchParams): boolean {
-  return params.get("campaign") === "1";
+/** Parse ?extra=<mask>, the "Spielregeln" extra weapons (0 when absent or bad). */
+export function extraFromParams(params: URLSearchParams): number {
+  const v = Number(params.get("extra") ?? 0);
+  return Number.isInteger(v) && v >= 0 ? v & 0x1f : 0;
 }
 
 /** Parse ?difficulty=hard|normal|easy (NORMAL when absent or unknown). */

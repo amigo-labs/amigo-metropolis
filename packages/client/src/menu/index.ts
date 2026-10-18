@@ -51,9 +51,9 @@ export { createInGameMenu, type InGameMenu } from "./inGame";
 export {
   apiBase,
   buildModeQuery,
-  campaignFromParams,
   DIFFICULTY_PLATES,
   difficultyFromParams,
+  extraFromParams,
   isLocalhost,
   loadoutFromParams,
   type MenuChoice,
@@ -127,7 +127,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   const go = (choice: MenuChoice, mapId: string, loadout: Loadout, difficulty: number): void => {
     if (gone) return;
     opts.onChoice(choice, mapId, loadout, difficulty, {
-      campaignWeapons: config().campaignWeapons,
+      extraWeapons: config().extraWeapons,
     });
   };
 
@@ -164,9 +164,9 @@ export function runMenu(opts: MenuOptions): MenuHandle {
           after: (answer) => {
             if (answer !== "Yes") return;
             // The game rules are a preference, not a game: NEW GAME keeps them.
-            const rule = config().campaignWeapons;
+            const rule = config().extraWeapons;
             state.screen.config = newGameConfig();
-            state.screen.config.campaignWeapons = rule;
+            state.screen.config.extraWeapons = rule;
             storeConfig(state.screen.config);
           },
         });
@@ -293,13 +293,12 @@ export function runMenu(opts: MenuOptions): MenuHandle {
           onClose: close,
           onTexPref: opts.onTexPref,
           onControls: (t: Binding[][]) => opts.onControls(t[0]),
-          rules: { campaignWeapons: config().campaignWeapons },
+          rules: { extraWeapons: config().extraWeapons },
           onRules: (r: GameRules) => {
             const c = config();
-            c.campaignWeapons = r.campaignWeapons;
-            // A fifth weapon the rule no longer offers goes back to entry 0.
-            for (let p = 0; p < 2; p++)
-              c.loadout[p] = allowedEntries(c.loadout[p], r.campaignWeapons);
+            c.extraWeapons = r.extraWeapons;
+            // A weapon whose switch went off goes back to entry 0.
+            for (let p = 0; p < 2; p++) c.loadout[p] = allowedEntries(c.loadout[p], r.extraWeapons);
             storeConfig(c);
             draw();
           },
@@ -326,7 +325,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
               enterSet(state.screen, "net_pa", {
                 hosting: r.hosting,
                 peer: r.peer,
-                campaignWeapons: false,
+                extraWeapons: 0,
               });
             }
             open(null);

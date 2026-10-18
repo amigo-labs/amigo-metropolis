@@ -98,7 +98,7 @@ describe("the main screen", () => {
 
   test("the networked set: CANCEL, both columns, the Connected To caption", () => {
     const s = createScreen(newGameConfig());
-    enterSet(s, "net_pa", { hosting: true, peer: "Room ABCDE", campaignWeapons: false });
+    enterSet(s, "net_pa", { hosting: true, peer: "Room ABCDE", extraWeapons: 0 });
     const html = renderApp(baseState({ screen: s }));
     const pics = pictures(html);
     expect(pics).toContain("bmp173.png"); // CANCEL
@@ -168,7 +168,7 @@ describe("escaping", () => {
     enterSet(s, "net_pa", {
       hosting: false,
       peer: '"><script>alert(1)</script>',
-      campaignWeapons: false,
+      extraWeapons: 0,
     });
     expect(renderApp(baseState({ screen: s }))).not.toContain("<script>");
   });

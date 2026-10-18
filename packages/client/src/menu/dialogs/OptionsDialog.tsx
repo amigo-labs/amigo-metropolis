@@ -5,9 +5,10 @@
 // drawn as the original draws them and greyed (fcop-fidelity.md F12). Two
 // Metropolis additions, marked as such: the HD textures option (a platform
 // exception; Classic, the original texels, stays the default) and the
-// "Spielregeln" group with the owner's "Kampagnenwaffen" rule (F23; off by
-// default, the original's Precinct Assault; in the networked lobby only the
-// host may change it).
+// "Spielregeln" group with the owner's five extra-weapon switches (F23; all
+// off by default, the original's Precinct Assault; in the networked lobby
+// only the host may change them). The group sits under Ok / Cancel, in rows
+// the template does not have.
 //
 // As the original's: Ok writes the pending choices, Cancel and Escape leave.
 
@@ -16,6 +17,7 @@ import type { AudioEngine } from "../../audio/engine";
 import type { Binding } from "../../input/bindings";
 import { loadTexPref, saveTexPref, type TexPref } from "../../render/texVariants";
 import { FE_DIALOGS } from "../frontend/frontendData.generated";
+import { EXTRA_WEAPONS } from "../frontend/model";
 import {
   dialogLayout,
   W9Button,
@@ -51,14 +53,19 @@ export const PROCESSORS: readonly string[] = ["AutoDetect", "Pentium", "Pentium 
 /** Where the Metropolis addition sits: the free row under Audio, in the dialog's units. */
 export const HD_TEXTURES_DLU: readonly number[] = [7, 121, 120, 10];
 export const HD_TEXTURES_TEXT = "HD Textures (Metropolis)";
-/** The game rules: the free corner right of HD textures, above Cancel. */
-export const RULES_GROUP_DLU: readonly number[] = [132, 117, 137, 20];
+/** The game rules: a group under the template's last row, three switches a row. */
+export const RULES_GROUP_DLU: readonly number[] = [7, 158, 262, 38];
 export const RULES_GROUP_TEXT = "Spielregeln (Metropolis)";
-export const CAMPAIGN_WEAPONS_DLU: readonly number[] = [138, 126, 125, 9];
-export const CAMPAIGN_WEAPONS_TEXT = "Kampagnenwaffen";
+/** Where switch `i` (EXTRA_WEAPONS order) sits, in the dialog's units. */
+export function extraSwitchDlu(i: number): readonly number[] {
+  return [14 + (i % 3) * 86, 170 + Math.floor(i / 3) * 13, 80, 10];
+}
+/** The dialog's height in units with the group under it. */
+export const RULES_EXTRA_DLU = 40;
 
 export interface GameRules {
-  readonly campaignWeapons: boolean;
+  /** The extra-weapons mask (EXTRA_*). */
+  readonly extraWeapons: number;
 }
 
 export function OptionsDialog(props: {
@@ -74,7 +81,7 @@ export function OptionsDialog(props: {
   onRules?(rules: GameRules): void;
 }) {
   const L = dialogLayout(D);
-  const [campaign, setCampaign] = useState<boolean>(() => props.rules?.campaignWeapons ?? false);
+  const [extra, setExtra] = useState<number>(() => props.rules?.extraWeapons ?? 0);
   const [full, setFull] = useState<boolean>(() => !!document.fullscreenElement);
   const [hd, setHd] = useState<boolean>(() => loadTexPref() === "hd");
   const [sub, setSub] = useState<"controls" | "audio" | null>(null);
@@ -92,8 +99,8 @@ export function OptionsDialog(props: {
       saveTexPref(pref);
       props.onTexPref(pref);
     }
-    if (props.rules && !props.rulesLocked && campaign !== props.rules.campaignWeapons) {
-      props.onRules?.({ campaignWeapons: campaign });
+    if (props.rules && !props.rulesLocked && extra !== props.rules.extraWeapons) {
+      props.onRules?.({ extraWeapons: extra });
     }
     props.onClose();
   };
@@ -103,6 +110,7 @@ export function OptionsDialog(props: {
       <W9Window
         layout={L}
         label="Preferences"
+        extraHeight={props.rules ? L.at([0, 0, 0, RULES_EXTRA_DLU]).height : 0}
         onKeyDown={(e) => {
           if (e.key === "Escape") props.onClose();
         }}
@@ -154,13 +162,19 @@ export function OptionsDialog(props: {
         {props.rules ? (
           <>
             <W9Group rect={L.at(RULES_GROUP_DLU)} text={RULES_GROUP_TEXT} />
-            <W9Check
-              rect={L.at(CAMPAIGN_WEAPONS_DLU)}
-              text={CAMPAIGN_WEAPONS_TEXT}
-              checked={props.rulesLocked ? props.rules.campaignWeapons : campaign}
-              disabled={props.rulesLocked}
-              onChange={setCampaign}
-            />
+            {EXTRA_WEAPONS.map((x, i) => {
+              const mask = props.rulesLocked ? (props.rules?.extraWeapons ?? 0) : extra;
+              return (
+                <W9Check
+                  key={x.bit}
+                  rect={L.at(extraSwitchDlu(i))}
+                  text={x.name}
+                  checked={(mask & x.bit) !== 0}
+                  disabled={props.rulesLocked}
+                  onChange={(on) => setExtra(on ? extra | x.bit : extra & ~x.bit)}
+                />
+              );
+            })}
           </>
         ) : null}
         <W9Button rect={L.rect(1001)} text={L.text(1001)} isDefault autoFocus onClick={ok} />

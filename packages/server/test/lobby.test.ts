@@ -24,7 +24,7 @@ const CFG: MatchConfig = {
   wardenDifficulty: 0,
   difficulties: [1, 1],
   loadouts: DEFAULT_LOADOUTS,
-  campaignWeapons: false,
+  extraWeapons: 0,
 };
 const P = PROTOCOL_VERSION;
 
@@ -347,6 +347,20 @@ describe("parseLobbyClientMsg", () => {
       "kit",
     ]) {
       expect(parseLobbyClientMsg({ ...goodCreate, config: { ...CFG, loadouts: bad } })).toBeNull();
+    }
+  });
+
+  test("carries the extra-weapons mask, none when the config names it not", () => {
+    const on = { ...goodCreate, config: { ...CFG, extraWeapons: 0b11000 } };
+    expect(parseLobbyClientMsg(on)).toMatchObject({ config: { extraWeapons: 24 } });
+    const { extraWeapons: _, ...bare } = CFG;
+    expect(parseLobbyClientMsg({ ...goodCreate, config: bare })).toMatchObject({
+      config: { extraWeapons: 0 },
+    });
+    for (const bad of [32, -1, 1.5, true, "3"]) {
+      expect(
+        parseLobbyClientMsg({ ...goodCreate, config: { ...CFG, extraWeapons: bad } }),
+      ).toBeNull();
     }
   });
 

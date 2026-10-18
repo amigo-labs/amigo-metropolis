@@ -106,9 +106,9 @@ import { isTextEntryTarget } from "./input/textEntry";
 import type { LocalInputSource } from "./input/types";
 import {
   buildModeQuery,
-  campaignFromParams,
   createInGameMenu,
   difficultyFromParams,
+  extraFromParams,
   loadoutFromParams,
   type MenuChoice,
   type MenuHandle,
@@ -264,16 +264,16 @@ let playerLoadout: Loadout = loadoutFromParams(params);
  */
 let playerDifficulty: number = difficultyFromParams(params);
 /**
- * The "Kampagnenwaffen" game rule for a local match (the front end's
- * Preferences, or ?campaign=1). Online the host's lobby agrees it.
+ * The "Spielregeln" extra-weapons mask for a local match (the front end's
+ * Preferences, or ?extra=<mask>). Online the host's lobby agrees it.
  */
-let playerCampaignWeapons: boolean = campaignFromParams(params);
+let playerExtraWeapons: number = extraFromParams(params);
 /**
- * SimOptions.campaignWeapons (the campaign weapons' own wave adds it to the
- * sim): spread into createSim, so it rides along by that name before and after.
+ * SimOptions.extraWeapons (the extra weapons' own wave adds it to the sim):
+ * spread into createSim, so it rides along by that name before and after.
  */
-function ruleOptions(campaignWeapons: boolean): { campaignWeapons: boolean } {
-  return { campaignWeapons };
+function ruleOptions(extraWeapons: number): { extraWeapons: number } {
+  return { extraWeapons };
 }
 // Offline match modes build the sim now; a net mode defers — to the server's
 // authoritative config (arrives in MSG_WELCOME) or the lobby-brokered P2P
@@ -287,7 +287,7 @@ let sim: SimState = netMode
         ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
         loadouts: [playerLoadout],
         difficulties: [playerDifficulty],
-        ...ruleOptions(playerCampaignWeapons),
+        ...ruleOptions(playerExtraWeapons),
       })
     : createDemoSim(map);
 
@@ -1174,7 +1174,7 @@ function rematchSolo(): void {
       ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
       loadouts: [playerLoadout],
       difficulties: [playerDifficulty],
-      ...ruleOptions(playerCampaignWeapons),
+      ...ruleOptions(playerExtraWeapons),
     }),
   );
   startMatch([{ slot: 0, input: localInput }]);
@@ -2536,7 +2536,7 @@ function netConfig(matchSeed: number): MatchConfig {
     // The online lobby offers no difficulty pick yet: both players NORMAL.
     difficulties: DEFAULT_DIFFICULTIES,
     loadouts: DEFAULT_LOADOUTS,
-    campaignWeapons: false,
+    extraWeapons: 0,
   };
 }
 
@@ -2740,8 +2740,8 @@ function handleMenuChoice(
 ): void {
   playerLoadout = loadout;
   playerDifficulty = difficulty;
-  playerCampaignWeapons = rules.campaignWeapons;
-  const query = buildModeQuery(choice, mapId, loadout, difficulty, rules.campaignWeapons);
+  playerExtraWeapons = rules.extraWeapons;
+  const query = buildModeQuery(choice, mapId, loadout, difficulty, rules.extraWeapons);
   const relay = params.get("relay");
   history.pushState(null, "", relay ? `${query}&relay=${encodeURIComponent(relay)}` : query);
   menuHandle?.dismiss();
@@ -2759,7 +2759,7 @@ function handleMenuChoice(
           ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
           loadouts: [playerLoadout],
           difficulties: [playerDifficulty],
-          ...ruleOptions(playerCampaignWeapons),
+          ...ruleOptions(playerExtraWeapons),
         }),
       );
       startMatch([{ slot: 0, input: localInput }]);
@@ -2776,7 +2776,7 @@ function handleMenuChoice(
         createSim(map, seed, {
           loadouts: [playerLoadout],
           difficulties: [playerDifficulty],
-          ...ruleOptions(playerCampaignWeapons),
+          ...ruleOptions(playerExtraWeapons),
         }),
       );
       // No flyover→chase blend — fly cam owns posing from the first frame.
@@ -2796,7 +2796,7 @@ function handleMenuChoice(
         createSim(map, seed, {
           loadouts: [playerLoadout],
           difficulties: [playerDifficulty],
-          ...ruleOptions(playerCampaignWeapons),
+          ...ruleOptions(playerExtraWeapons),
         }),
       );
       startMatch([{ slot: 0, input: localInput }]);

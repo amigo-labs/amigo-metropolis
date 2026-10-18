@@ -42,14 +42,14 @@ const CONFIG: MatchConfig = {
   wardenDifficulty: 0,
   difficulties: DEFAULT_DIFFICULTIES,
   loadouts: DEFAULT_LOADOUTS,
-  campaignWeapons: false,
+  extraWeapons: 0,
 };
 /** What the host's lobby agreed: both players' own picks. */
 const AGREED: MatchConfig = {
   ...CONFIG,
   mapId: "urban-jungle",
   difficulties: [0, 2],
-  campaignWeapons: true,
+  extraWeapons: 0b00101,
   loadouts: [
     { gun: 2, heavy: 1, special: 0 },
     { gun: 1, heavy: 0, special: 2 },
@@ -129,7 +129,7 @@ describe("RoomLogic handshake", () => {
   it("refuses a protocol-3 HELLO that does not decode as a version mismatch", () => {
     const room = new RoomLogic();
     const bytes = encodeMessage(hello());
-    const old = bytes.slice(0, bytes.length - 7); // protocol 3: no loadouts, no rule
+    const old = bytes.slice(0, bytes.length - 7); // protocol 3: no loadouts, no rules
     old[1] = 3;
     expect(() => decodeMessage(old)).toThrow();
     expect(room.handleUndecodable("a", old)).toEqual([
@@ -369,7 +369,7 @@ describe("RoomLogic reconnect", () => {
   });
 
   it("hydrates a config stored before protocol 3 as both players NORMAL", () => {
-    const { difficulties: _, loadouts: __, campaignWeapons: ___, ...stored } = CONFIG;
+    const { difficulties: _, loadouts: __, extraWeapons: ___, ...stored } = CONFIG;
     const room = new RoomLogic();
     room.hydrate(stored as unknown as MatchConfig, true, []);
     const out = room.handleMessage("a", {
@@ -381,7 +381,7 @@ describe("RoomLogic reconnect", () => {
     });
     const welcome = find(out, MSG_WELCOME) as NetMessage;
     expect(welcome).toMatchObject({
-      config: { difficulties: [1, 1], loadouts: DEFAULT_LOADOUTS, campaignWeapons: false },
+      config: { difficulties: [1, 1], loadouts: DEFAULT_LOADOUTS, extraWeapons: 0 },
     });
     expect(() => encodeMessage(welcome)).not.toThrow();
   });

@@ -306,13 +306,13 @@ export class RoomLogic {
   hydrate(config: MatchConfig, started: boolean, frames: PlayerInput[][]): void {
     // A config persisted before protocol 3 carries no difficulties: its match
     // played both players NORMAL, the original's default. One persisted before
-    // protocol 4 carries no loadouts and no rule: its match played the default
-    // kit without the campaign weapons.
+    // protocol 4 carries no loadouts and no rules: its match played the
+    // default kit without the extra weapons.
     this.config = {
       ...config,
       difficulties: config.difficulties ?? DEFAULT_DIFFICULTIES,
       loadouts: config.loadouts ?? DEFAULT_LOADOUTS,
-      campaignWeapons: config.campaignWeapons ?? false,
+      extraWeapons: config.extraWeapons ?? 0,
     };
     this.started = started;
     let next = 0;

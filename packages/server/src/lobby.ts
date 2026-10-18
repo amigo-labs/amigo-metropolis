@@ -18,6 +18,7 @@
 import {
   DEFAULT_DIFFICULTIES,
   DEFAULT_LOADOUTS,
+  EXTRA_WEAPONS_MASK,
   GUNS,
   HEAVIES,
   isDifficulty,
@@ -138,8 +139,8 @@ function parseLoadout(v: unknown): Loadout | null {
 
 /**
  * Accepts only online-1v1 configs (no Warden slot — hosting.spec.md §1). The
- * players' difficulties and loadouts are optional (NORMAL and the default kit
- * when absent: the host's own picks reach the joiner in the networked lobby,
+ * players' difficulties, loadouts and the extra-weapons rules are optional
+ * (NORMAL, the default kit and none when absent: the host's own picks reach the joiner in the networked lobby,
  * and the agreed config in its START); when present, one a player.
  */
 function parseConfig(v: unknown): MatchConfig | null {
@@ -152,7 +153,7 @@ function parseConfig(v: unknown): MatchConfig | null {
     wardenDifficulty,
     difficulties,
     loadouts,
-    campaignWeapons,
+    extraWeapons,
   } = v;
   if (
     !Number.isInteger(simVersion) ||
@@ -177,7 +178,11 @@ function parseConfig(v: unknown): MatchConfig | null {
     if (parsed.some((l) => l === null)) return null;
     kits = parsed as Loadout[];
   }
-  if (campaignWeapons !== undefined && typeof campaignWeapons !== "boolean") return null;
+  if (
+    extraWeapons !== undefined &&
+    (!Number.isInteger(extraWeapons) || ((extraWeapons as number) & ~EXTRA_WEAPONS_MASK) !== 0)
+  )
+    return null;
   return {
     simVersion: simVersion as number,
     seed: seed as number,
@@ -186,7 +191,7 @@ function parseConfig(v: unknown): MatchConfig | null {
     wardenDifficulty: 0,
     difficulties: picked,
     loadouts: kits,
-    campaignWeapons: campaignWeapons === true,
+    extraWeapons: (extraWeapons as number | undefined) ?? 0,
   };
 }
 

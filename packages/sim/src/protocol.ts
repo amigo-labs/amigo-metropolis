@@ -82,14 +82,18 @@ export interface MatchConfig {
    */
   readonly loadouts: readonly Loadout[];
   /**
-   * The owner's "Kampagnenwaffen" game rule (since protocol 4; a Metropolis
-   * decision, not the original's): the loadout columns offer each slot's fifth
-   * weapon (Riot Shield, K-9 Drone, Grenade Launcher), as the original's do
-   * once a Crime War script sets their option bytes. The host sets it; off is
-   * the original's Precinct Assault. Maps onto SimOptions.campaignWeapons.
+   * The owner's "Spielregeln" (since protocol 4; a Metropolis decision, not
+   * the original's): a u8 mask of the extra weapons the loadout columns offer,
+   * bit 0 Riot Shield, 1 K-9 Drone, 2 Grenade Launcher, 3 Fusion Torpedo,
+   * 4 Plasma Flare -- the five entries the original's Precinct Assault never
+   * offers. The host sets it; 0 is the original's PA. Maps onto
+   * SimOptions.extraWeapons.
    */
-  readonly campaignWeapons: boolean;
+  readonly extraWeapons: number;
 }
+
+/** The extra-weapons mask's five bits (MatchConfig.extraWeapons). */
+export const EXTRA_WEAPONS_MASK = 0x1f;
 
 /** Both players on the default kit (the front end's NEW GAME columns). */
 export const DEFAULT_LOADOUTS: readonly Loadout[] = new Array(MAX_PLAYERS).fill(DEFAULT_LOADOUT);
@@ -121,11 +125,11 @@ export const LOBBY_P1_READY = 0x10;
 export const LOBBY_P2_READY = 0x15;
 
 /**
- * Host -> joiner: the "Kampagnenwaffen" rule (0 / 1). Not the original's: the
- * owner's game rule (MatchConfig.campaignWeapons), given an id past the
+ * Host -> joiner: the "Spielregeln" extra-weapons mask. Not the original's:
+ * the owner's game rules (MatchConfig.extraWeapons), given an id past the
  * original's 0x09..0x18 so it can never be taken for one of them.
  */
-export const LOBBY_CAMPAIGN_WEAPONS = 0x20;
+export const LOBBY_EXTRA_WEAPONS = 0x20;
 
 /**
  * A name's bytes on the wire: the original's 0x20-byte message less its id
@@ -148,7 +152,7 @@ export type LobbyMessage =
       readonly codes: readonly number[];
     }
   | { readonly id: typeof LOBBY_P1_READY | typeof LOBBY_P2_READY; readonly ready: boolean }
-  | { readonly id: typeof LOBBY_CAMPAIGN_WEAPONS; readonly on: boolean };
+  | { readonly id: typeof LOBBY_EXTRA_WEAPONS; readonly mask: number };
 
 /** One player's input: the button word, u16 (inputs.ts). 5 bytes of axes before v2. */
 export const PLAYER_INPUT_BYTES = 2;
@@ -287,13 +291,17 @@ class Reader {
 // Bytes: simVersion u16, seed u32, wardenPlayer u8 (0xff = -1),
 // wardenDifficulty u8, difficulty u8 × MAX_PLAYERS, mapIdLen u8, mapId ASCII
 // (replay.ts offsets 6→), then since protocol 4 each player's loadout as
-// gun / heavy / special u8, MAX_PLAYERS × 3, and the campaign-weapons rule u8
-// (0 / 1).
+// gun / heavy / special u8, MAX_PLAYERS × 3, and the extra-weapons mask u8
+// (EXTRA_WEAPONS_MASK).
 
 const LOADOUT_LISTS = [GUNS, HEAVIES, SPECIALS] as const;
 
 function loadoutIndexOk(slot: number, v: unknown): boolean {
   return Number.isInteger(v) && (v as number) >= 0 && (v as number) < LOADOUT_LISTS[slot].length;
+}
+
+function extraOk(v: unknown): boolean {
+  return Number.isInteger(v) && ((v as number) & ~EXTRA_WEAPONS_MASK) === 0;
 }
 
 function configBytes(config: MatchConfig): number {
@@ -333,7 +341,8 @@ function writeConfig(w: Writer, config: MatchConfig): void {
     w.u8(l.heavy);
     w.u8(l.special);
   }
-  w.u8(config.campaignWeapons ? 1 : 0);
+  if (!extraOk(config.extraWeapons)) throw new Error(`bad extraWeapons ${config.extraWeapons}`);
+  w.u8(config.extraWeapons);
 }
 
 function readConfig(r: Reader): MatchConfig {
@@ -356,8 +365,8 @@ function readConfig(r: Reader): MatchConfig {
     }
     loadouts.push({ gun, heavy, special });
   }
-  const rule = r.u8();
-  if (rule > 1) throw new Error(`bad campaignWeapons ${rule}`);
+  const extraWeapons = r.u8();
+  if (!extraOk(extraWeapons)) throw new Error(`bad extraWeapons ${extraWeapons}`);
   if (wardenPlayer >= MAX_PLAYERS) throw new Error(`bad wardenPlayer ${wardenPlayer}`);
   if (wardenPlayer >= 0 && (wardenDifficulty < 1 || wardenDifficulty > 10)) {
     throw new Error(`bad wardenDifficulty ${wardenDifficulty}`);
@@ -376,7 +385,7 @@ function readConfig(r: Reader): MatchConfig {
     wardenDifficulty,
     difficulties,
     loadouts,
-    campaignWeapons: rule === 1,
+    extraWeapons,
   };
 }
 
@@ -399,7 +408,7 @@ function lobbyBytes(m: LobbyMessage): number {
     case LOBBY_P2_SELECTION:
     case LOBBY_P1_READY:
     case LOBBY_P2_READY:
-    case LOBBY_CAMPAIGN_WEAPONS:
+    case LOBBY_EXTRA_WEAPONS:
       return 1 + 1;
     case LOBBY_P1_LOADOUT:
     case LOBBY_P2_LOADOUT:
@@ -435,8 +444,9 @@ function writeLobby(w: Writer, m: LobbyMessage): void {
     case LOBBY_P2_READY:
       w.u8(m.ready ? 1 : 0);
       return;
-    case LOBBY_CAMPAIGN_WEAPONS:
-      w.u8(m.on ? 1 : 0);
+    case LOBBY_EXTRA_WEAPONS:
+      if (!extraOk(m.mask)) throw new Error(`bad extraWeapons ${m.mask}`);
+      w.u8(m.mask);
       return;
   }
 }
@@ -475,10 +485,10 @@ function readLobby(r: Reader): LobbyMessage {
       if (bit > 1) throw new Error(`bad ready bit ${bit}`);
       return { id, ready: bit === 1 };
     }
-    case LOBBY_CAMPAIGN_WEAPONS: {
-      const bit = r.u8();
-      if (bit > 1) throw new Error(`bad campaignWeapons ${bit}`);
-      return { id, on: bit === 1 };
+    case LOBBY_EXTRA_WEAPONS: {
+      const mask = r.u8();
+      if (!extraOk(mask)) throw new Error(`bad extraWeapons ${mask}`);
+      return { id, mask };
     }
     default:
       throw new Error(`unknown lobby message 0x${id.toString(16)}`);

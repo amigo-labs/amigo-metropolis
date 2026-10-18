@@ -276,8 +276,8 @@ export class NetLockstep {
         : {}),
       difficulties: config.difficulties,
       loadouts: config.loadouts,
-      // SimOptions.campaignWeapons, the campaign weapons' rule (by name).
-      ...{ campaignWeapons: config.campaignWeapons },
+      // SimOptions.extraWeapons, the extra weapons' switches (by name).
+      ...{ extraWeapons: config.extraWeapons },
     });
   }
 

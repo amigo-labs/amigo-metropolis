@@ -33,12 +33,13 @@
 //
 // Not carried, because Metropolis has none of them: the Crime War pick
 // (setup choice 1), the Split Screen byte (0x16), the game mode (0x17). The
-// owner's "Kampagnenwaffen" rule (F23) rides on 0x20, host to joiner.
+// owner's "Spielregeln", the five extra-weapon switches (F23), ride on 0x20,
+// host to joiner.
 
 import {
   DIFFICULTY_NORMAL,
   isDifficulty,
-  LOBBY_CAMPAIGN_WEAPONS,
+  LOBBY_EXTRA_WEAPONS,
   LOBBY_NAME,
   LOBBY_NAME_BYTES,
   LOBBY_P1_LOADOUT,
@@ -107,8 +108,8 @@ export interface NetLobbyOptions {
   readonly picks: readonly LobbyPicks[];
   /** The local config's map row (the host's pick 0). */
   readonly mapRow: number;
-  /** The local config's "Kampagnenwaffen" rule (the host's is the lobby's). */
-  readonly campaignWeapons: boolean;
+  /** The local config's extra-weapons switches (the host's are the lobby's). */
+  readonly extraWeapons: number;
   /** The arena when the row names none (a deep link onto a non-PA arena). */
   readonly mapId?: string;
   /** A deep link has nobody to press START: ready as soon as linked. */
@@ -129,8 +130,8 @@ export class NetLobby {
   readonly ready: [boolean, boolean] = [false, false];
   /** The Precinct Assault map row, the host's. */
   mapRow: number;
-  /** The host's "Kampagnenwaffen" rule. */
-  campaignWeapons: boolean;
+  /** The host's extra-weapons switches (EXTRA_* mask). */
+  extraWeapons: number;
   /** The agreed config, once START has it. */
   config: MatchConfig | null = null;
   /** Anything a reader draws from changed. */
@@ -148,7 +149,7 @@ export class NetLobby {
     this.ownName = lobbyName(opts.name);
     this.picks = opts.picks.map((p) => ({ loadout: [...p.loadout], difficulty: p.difficulty }));
     this.mapRow = opts.mapRow;
-    this.campaignWeapons = opts.campaignWeapons;
+    this.extraWeapons = opts.extraWeapons;
   }
 
   get hosting(): boolean {
@@ -200,7 +201,7 @@ export class NetLobby {
       this.send({ id: LOBBY_NAME, name: this.ownName });
       this.send({ id: SELECTION[s], selection: this.picks[s].difficulty });
       this.send({ id: LOADOUT[s], codes: loadoutCodes(this.picks[s].loadout) });
-      this.send({ id: LOBBY_CAMPAIGN_WEAPONS, on: this.campaignWeapons });
+      this.send({ id: LOBBY_EXTRA_WEAPONS, mask: this.extraWeapons });
       if (this.ready[s]) this.send({ id: READY[s], ready: true });
     } else {
       // The ack's arm: name, selection, loadout.
@@ -249,9 +250,9 @@ export class NetLobby {
         this.ready[peer] = m.ready;
         this.maybeBegin();
         break;
-      case LOBBY_CAMPAIGN_WEAPONS:
+      case LOBBY_EXTRA_WEAPONS:
         if (!joiner) return;
-        this.campaignWeapons = m.on;
+        this.extraWeapons = m.mask;
         this.reconcileRule();
         break;
     }
@@ -322,11 +323,11 @@ export class NetLobby {
     this.changed();
   }
 
-  /** The host's "Kampagnenwaffen" box. */
-  setCampaignWeapons(on: boolean): void {
-    if (!this.mayEdit() || !this.hosting || this.campaignWeapons === on) return;
-    this.campaignWeapons = on;
-    this.send({ id: LOBBY_CAMPAIGN_WEAPONS, on });
+  /** The host's "Spielregeln" switches. */
+  setExtraWeapons(mask: number): void {
+    if (!this.mayEdit() || !this.hosting || this.extraWeapons === mask) return;
+    this.extraWeapons = mask;
+    this.send({ id: LOBBY_EXTRA_WEAPONS, mask });
     this.reconcileRule();
     this.changed();
   }
@@ -345,10 +346,10 @@ export class NetLobby {
     this.onChange?.();
   }
 
-  /** The rule went off: this side's fifth weapons go back to entry 0, and the peer is told. */
+  /** A switch went off: this side's weapon it hung on goes back to entry 0, and the peer is told. */
   private reconcileRule(): void {
     const own = this.picks[this.slot];
-    const kept = allowedEntries(own.loadout, this.campaignWeapons);
+    const kept = allowedEntries(own.loadout, this.extraWeapons);
     if (kept.some((e, i) => e !== own.loadout[i])) this.setLoadout(kept);
   }
 
@@ -359,7 +360,7 @@ export class NetLobby {
     this.link.begin(this.agreedConfig());
   }
 
-  /** What the host holds, as the match: its map and seed, each column's picks, its rule. */
+  /** What the host holds, as the match: its map and seed, each column's picks, its switches. */
   agreedConfig(): MatchConfig {
     const row = this.mapRow >= 0 && this.mapRow < PA_ROWS ? FE_PA_MAPS[this.mapRow] : undefined;
     return {
@@ -370,7 +371,7 @@ export class NetLobby {
       wardenDifficulty: 0,
       difficulties: [this.picks[0].difficulty, this.picks[1].difficulty],
       loadouts: [loadoutOfEntries(this.picks[0].loadout), loadoutOfEntries(this.picks[1].loadout)],
-      campaignWeapons: this.campaignWeapons,
+      extraWeapons: this.extraWeapons,
     };
   }
 }

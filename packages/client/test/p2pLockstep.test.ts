@@ -53,7 +53,7 @@ const CONFIG: MatchConfig = {
   wardenDifficulty: 0,
   difficulties: DEFAULT_DIFFICULTIES,
   loadouts: DEFAULT_LOADOUTS,
-  campaignWeapons: false,
+  extraWeapons: 0,
 };
 
 // Same scripted-1v1 approach as netLockstep.test.ts: one function authors BOTH
