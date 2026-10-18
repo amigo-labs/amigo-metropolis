@@ -8,7 +8,7 @@ The original *Future Cop: L.A.P.D.*'s own effect art, imported from
 | --- | --- |
 | `particles.png` | the `Cpyr` atlas page 0 (`extracted/particles/particles_page0.png`, unchanged): all eight particles, 256×256 RGBA, **each sprite drawn through its own `PYPL` palette** at the level the drawer binds (0x20). Alpha 0 is palette word 0, the colour key |
 | `particles.json` | the RE's `extracted/particles/particles.json`, unchanged: per particle its rect, cell size and 256-word A1R5G5B5 palette, the 64-level rule, and the drawer's blend modes |
-| `trails.png` | 64×384: one 64-texel row per arena (`FX_TRAIL_ATLAS`), its own `tex10`'s trail rect (row 0 of the exe's table at `0x0048c568`, 19×64 at (144, 84)) at x 0 and the Mini Gun ribbon's three frames (`0x0048c540`, (215..254, 22..52)) at x 20 |
+| `trails.png` | 128×384: one 64-texel row per arena (`FX_TRAIL_ATLAS`), its own `tex10`'s trail rect (row 0 of the exe's table at `0x0048c568`, 19×64 at (144, 84)) at x 0, the Mini Gun ribbon's three frames (`0x0048c540`, (215..254, 22..52)) at x 20, and the bolts' texels (u 162..225, v 54..83, the faces of Cobj 12, 14 and 53; `FX_BOLTS`) at x 64 |
 
 ## What the previous atlas got wrong
 

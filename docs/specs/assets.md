@@ -252,6 +252,10 @@ original's effect records, not a Metropolis design:
   (`tools/generators/fcopEffects.ts`, `--check` to verify).
 - The particle atlas (`public/fx/particles.png`, `particles.json`) is the RE's page
   0 with each sprite through its own palette, unchanged; `public/fx/trails.png` is
-  each arena's own trail rect and the Mini Gun ribbon's frames, cropped from its
-  `tex10`. No sprite, ring or tracer colour is authored here.
+  each arena's own trail rect, the Mini Gun ribbon's frames and the bolts' texels,
+  cropped from its `tex10`. No sprite, ring, tracer or bolt colour is authored here.
+- The bolts of world rows 1, 3 and 6 are not models: their Cobjs (Mp 12, 14, 53) are
+  line facers, read from Mp's container by `gen:fx` into `FX_BOLTS` and drawn as
+  screen-facing quads (`fcop-fidelity.md` E13). Rows 4, 8 and 9 ship as `gen:units`
+  models (`public/models/fx/round-row4/8/9.glb`).
 - Drawn by `render/fx.ts` from the sim's events and the snapshot interface only.

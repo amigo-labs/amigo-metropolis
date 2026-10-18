@@ -12,6 +12,16 @@ under `tools/generators/units/raw/fcop-fx/`.
 
 ## 1. The effects are meshes, not sprites
 
+> **Overtaken by Phase 14 wave 4** (`fcop-fidelity.md` E1–E13). What is right here:
+> the *projectiles* are `Cobj`s, and `SLFX` / `canm` hold no weapon effects. What is
+> not: the effects themselves are **effect records** (types 87–94, RE
+> `extracted/effects/`) — trails, links, flashes, shatters, shells, Cpyr particles and
+> node bursts — and the Cpyr atlas is drawn **per particle through its own `PYPL`
+> palette**, not one palette for all. The facer primitives are not the 8-triangle
+> stand-ins the object export writes: a `Line` is a screen-facing quad textured from
+> the arena's `tex10` (`cobj_prim_emit` 0x004289cc), which is how the client draws the
+> bolts of rows 1, 3 and 6 (`FX_BOLTS`). Kept below as the record of the first pass.
+
 The reflex is to look for the effects in `Cpyr`, the particle atlas. That is
 wrong, and the mistake is worth recording because it cost a round of guessing:
 
@@ -137,6 +147,13 @@ presumably campaign weapons sharing the bank.
 | 9 | 9 | 49 — shares the Mortar shell | (unused on PA) |
 
 ## 5. Consequences for the client
+
+> **Overtaken by Phase 14 wave 4.** The bolts fly and the turret / unit split holds
+> (the twin bolt is a white core in a blue halo, the single one red for side 1 and blue
+> for side 2: `fcop-fidelity.md` E13, E17). There *is* an explosion: no mesh, but a
+> death class's chain of records — a 92 ring, an 89 flash, a 90 shatter of the dying
+> model, 87 trails, 93 particles and 94 sparks (E1, E6–E10) — not a scaled Cpyr
+> fireball. `render/fx.ts` draws those records now.
 
 - **A bolt is an object that flies**, ~1 m long, not an instant streak over the
   weapon's whole reach. `render/fx.ts` drew a cylinder the full length of the

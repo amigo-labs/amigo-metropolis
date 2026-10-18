@@ -725,6 +725,40 @@ The original's controls from the RE (`docs/behavior/camera-and-movement.md`
       wave 6 (V1, V4)
 - [x] The controls screen's original look — with wave 7 (C2, F13)
 
+### Wave 4 — Weapon effects
+
+The original's effect records and what the executable draws without one, from the
+RE's effect export (`extracted/effects/`, `docs/formats/effects.md`); render-only,
+no golden moves (`docs/specs/fcop-fidelity.md` E1–E22).
+
+- [x] Import: `gen:fx` folds the records a raise can reach on the six arenas
+      (973 → 160), copies the particle atlas drawn through each particle's own
+      `PYPL` palette, crops each arena's trail rect, ribbon frames and bolt texels
+      from its `tex10`; `--check` (E1, E9)
+- [x] One effect chain for the sounds and the picture: successors, spawn delays,
+      repeats, bit 11, the range gate, timers that outlive the record (E2)
+- [x] Each class drawn as the RE reads its drawer: 87 trails, 88 links, 89
+      flashes (at their sort depth), 90 shatters (the dying model, its side's
+      texels), 92 shells, 93 particles, 94 node bursts; fixed pools, no
+      allocation in the frame loop (E3-E10)
+- [x] The executable's own: the tracers (world hitscan, the Laser's two) and the
+      Mini Gun's ribbon (E11, E12)
+- [x] The world rounds: rows 1, 3 and 6 as their Cobjs' line facers, rows 4, 8
+      and 9 as their Cobjs in their own colours; the launch effect rides the
+      round; `PROJECTILE_HEX`, the cylinder and `BOLT_SPEED` gone (E13-E15)
+- [x] The raise sites as the original's: muzzle, the actor's middle and radius,
+      the round, the impact scale, the transform's effect 4, the sustains held,
+      the hitscan's impact at the line's end; rows and death classes by side
+      (E16, E17)
+- [x] The effects' colours as the original's values on screen (E18)
+- [x] The outpost console on a claim: checked in the RE, nothing to raise (E21)
+- [ ] The camera shake and the screen flash (header flags 0x10 / 0x2000 / 0x20;
+      waits on RE, E19)
+- [ ] The shatter's speed units, the shell sphere's half flags, the node burst's
+      radial walk (waits on RE, E7, E8, E10)
+- [ ] The arced and dropped rounds' impacts are the export's candidates (empty
+      class rows on every arena, E20)
+
 ### Wave 5 — Assets
 
 Each mission's own models and textures, read from the RE's Cobj exports and the
