@@ -37,6 +37,16 @@ export function gaugeDimmed(frac: number, clock: number): boolean {
 }
 
 /**
+ * The invulnerable arm (draw.c `hud_draw_player`, 0x00434cd9): while the view's
+ * +0x326 is positive and the clock's bit 7 is set, the gauge is drawn at x 2 in
+ * place of 5 (4 px left of its place at 640 x 480) in the flat blue (0, 0x40,
+ * 0x7f), whatever the health; the third's dimming still applies.
+ */
+export function gaugeInvulnerable(invulnTicks: number, clock: number): boolean {
+  return invulnTicks > 0 && (clock & 0x80) !== 0;
+}
+
+/**
  * The score's colour: the slot's own, or 9 (yellow) while it can afford an
  * outpost — 30 or more points, outposts left to claim — on the half of the clock
  * where bit 7 is set (hud.json score.alarm_rule).

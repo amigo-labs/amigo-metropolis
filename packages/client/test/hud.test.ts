@@ -8,6 +8,7 @@ import { hudScale, type PlacedRect, pixelMultiple, placeRect } from "../src/rend
 import {
   countTanksJets,
   gaugeDimmed,
+  gaugeInvulnerable,
   gaugeRgb,
   gaugeValue,
   iconLit,
@@ -81,6 +82,17 @@ describe("the armour gauge (draw.c:803-866)", () => {
     expect(rgb).toEqual([254, 62, 0]);
     gaugeRgb(1, rgb);
     expect(rgb).toEqual([128, 254, 128]);
+  });
+
+  test("invulnerable, it takes the flat blue arm at x 2 on the clock's bit 7", () => {
+    expect(gaugeInvulnerable(1, 0x80)).toBe(true);
+    expect(gaugeInvulnerable(1, 0x7f)).toBe(false);
+    expect(gaugeInvulnerable(1, 0x180)).toBe(true);
+    expect(gaugeInvulnerable(0, 0x80)).toBe(false);
+    // 640-space: two units of the flat rects left of the normal arm's five.
+    expect(HUD.gauge.invulnerable.backing[0]).toBe(4);
+    expect(HUD.gauge.own.backing[0]).toBe(10);
+    expect([...HUD.gauge.invulnerableRgb]).toEqual([0, 128, 254]);
   });
 
   test("below a third it blinks on the clock's low byte", () => {

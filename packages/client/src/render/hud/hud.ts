@@ -22,6 +22,7 @@ import {
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_HP_FRAC,
+  MATCH_SLOT_INVULN,
   MATCH_SLOT_ISSUED_GUN,
   MATCH_SLOT_ISSUED_HEAVY,
   MATCH_SLOT_ISSUED_SPECIAL,
@@ -42,6 +43,7 @@ import {
   countTanksJets,
   GAUGE_PX,
   gaugeDimmed,
+  gaugeInvulnerable,
   gaugeRgb,
   gaugeValue,
   iconLit,
@@ -140,6 +142,9 @@ const GAUGE_STYLES: string[] = [];
     pushStrips(rgb, GAUGE_STYLES);
   }
 }
+/** The invulnerable arm's flat blue (0, 0x40, 0x7f) doubled, for every value. */
+const INVULNERABLE_STYLES: string[] = [];
+pushStrips(HUD.gauge.invulnerableRgb, INVULNERABLE_STYLES);
 
 type Rect = readonly [number, number, number, number];
 interface Gauge {
@@ -147,8 +152,17 @@ interface Gauge {
   readonly ticks: readonly Rect[];
 }
 
-/** One gauge (draw.c:803-866): backing, fill from the bottom, ticks. */
-function drawGauge(ctx: CanvasRenderingContext2D, g: Gauge, frac: number, dim: boolean): void {
+/**
+ * One gauge (draw.c:803-866): backing, fill from the bottom, ticks. `blue` is
+ * the invulnerable arm's flat colour in place of the ramp.
+ */
+function drawGauge(
+  ctx: CanvasRenderingContext2D,
+  g: Gauge,
+  frac: number,
+  dim: boolean,
+  blue = false,
+): void {
   const b = g.backing;
   const x = b[0];
   const y = b[1];
@@ -157,9 +171,10 @@ function drawGauge(ctx: CanvasRenderingContext2D, g: Gauge, frac: number, dim: b
   ctx.fillRect(x, y, b[2], h);
   const v = gaugeValue(frac);
   if (v > 0) {
-    const base = (v * 2 + (dim ? 1 : 0)) * STRIPS;
+    const styles = blue ? INVULNERABLE_STYLES : GAUGE_STYLES;
+    const base = ((blue ? 0 : v * 2) + (dim ? 1 : 0)) * STRIPS;
     for (let k = 0; k < STRIPS; k++) {
-      ctx.fillStyle = GAUGE_STYLES[base + k];
+      ctx.fillStyle = styles[base + k];
       ctx.fillRect(x + k, y + h - v, 1, v);
     }
   }
@@ -293,6 +308,8 @@ export function createMatchHud(
         d = changed(leftKey, 1, gaugeValue(hp), d) || d;
         d = changed(leftKey, 2, gaugeDimmed(hp, clock) ? 1 : 0, d) || d;
         d = changed(leftKey, 3, upperCountColour(clock), d) || d;
+        const blue = !down && gaugeInvulnerable(match[mine + MATCH_SLOT_INVULN], clock);
+        d = changed(leftKey, 13, blue ? 1 : 0, d) || d;
         for (let w = 0; w < 3; w++) {
           const powered = (power & (1 << w)) !== 0;
           // Lower: the issued magazine, block A; upper: block B while it holds
@@ -307,7 +324,11 @@ export function createMatchHud(
           left.dirty = false;
           const ctx = left.ctx;
           left.begin();
-          drawGauge(ctx, HUD.gauge.own, hp, leftKey[2] === 1);
+          if (leftKey[13] === 1) {
+            drawGauge(ctx, HUD.gauge.invulnerable, hp, leftKey[2] === 1, true);
+          } else {
+            drawGauge(ctx, HUD.gauge.own, hp, leftKey[2] === 1);
+          }
           drawIcon(ctx, page, HUD.badge.icon, HUD.badge.own, false);
           for (let w = 0; w < 3; w++) {
             const s = HUD.weapons[w];
