@@ -44,10 +44,12 @@ writeSnapshot(state: SimState, out: Float32Array): number // returns entity coun
   `{wardenPlayer, wardenDifficulty}` (rules.md §7) and each player's
   difficulty, `difficulties` (HARD / NORMAL / EASY, rules.md §2; SIM_VERSION
   72). Both travel in the replay header and the online handshake (the
-  difficulties since replay format 4 and protocol 3; the online lobby offers no
-  pick yet, so a net match plays both NORMAL); every peer must pass the same
-  options or the sims diverge by construction. (The loadouts do too, but neither header carries
-  them yet: replays and online matches play the default kit.)
+  difficulties since replay format 4 and protocol 3, picked in the networked
+  lobby); every peer must pass the same options or the sims diverge by
+  construction. The loadouts and the extra-weapons rules travel in the online
+  handshake since protocol 4 (the lobby's agreed config in START, netcode.spec
+  §4); the replay header does not carry them yet, so replays play the default
+  kit.
 
 - **Inputs** (`TickInputs`): per player `{ buttons }`, the original's button
   word, a u16 (`input.spec.md` §3): move forward/back, turn right/left, jink

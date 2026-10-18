@@ -126,7 +126,18 @@ backdrop at its origin, its extra, its panels, then its menus.
   the red walker, HARD / NORMAL / EASY), the Sky Captain (level 1-10 and its
   taunt) and the Precinct Assault map.
 - **Online:** the set `net_pa` — CANCEL, PREFERENCES, the mode plate, START, the
-  "Connected To:" caption, both players' columns and the map.
+  "Connected To:" caption, both players' columns and the map. It opens once the
+  HOST / JOIN dialog has linked the peer ("Waiting for someone to join" /
+  "Waiting for confirmation..." until then) and runs the original's lobby
+  (`menu/frontend/netLobby.ts`, netcode.spec §4): "Connected To:" the peer's
+  name; this side edits its own column (the host player 1's, the joiner player
+  2's) and the host the map, each change sent at once; the peer's column shows
+  its picks live, its arrows drawn but refusing a press; the plate reads
+  2 PLAYER and the mode button is the host's. START sets this side's ready bit
+  and goes off while it is set, any mouse button takes it back, WAITING blinks
+  over a ready player, and both ready is the map's loading screen and the
+  match on the host's agreed config. The peer leaving puts up "The other
+  player has dissconnected." (the original's spelling) and goes back offline.
 
 Everything on it is the model in `menu/frontend/model.ts`, pure and tested
 without a DOM: the panels' kinds (0 lights while held and fires on the release

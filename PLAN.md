@@ -934,8 +934,11 @@ rows F*; `docs/specs/ui.md` §3). Menu-only: no golden moves.
       second player), HELP and the film strip (no movies), QUIT (F8, F10, F11)
 - [ ] The three campaign weapons (Riot Shield, K-9 Drone, Grenade Launcher;
       F7) — with the weapons
-- [ ] The lobby's loadout, difficulty and ready exchange, WAITING (F9) — with
-      a protocol change
+- [x] The lobby's loadout, difficulty and ready exchange, WAITING (F9) — with
+      a protocol change (protocol 4: the original's lobby messages, the
+      host's agreed config in START; netcode.spec §4)
+- [x] The owner's "Spielregeln": five extra-weapon switches, off by default
+      (F23; the weapons themselves are the extra weapons' wave)
 - [ ] The movies: HELP / BRIEFING's `multibrf.mpg`, the film strip's
       `po_*.mpg` (F10)
 
