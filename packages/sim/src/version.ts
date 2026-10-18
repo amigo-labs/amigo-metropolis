@@ -1216,4 +1216,30 @@
 //     `if (block->stamp == 0)` does. Goldens 03, 04 and 07 (a down or an
 //     outpost in each) move at their first stamp; nothing in the tick reads
 //     the stamps, so none plays differently.
-export const SIM_VERSION = 82;
+// v83: the X1's jumps leave the ground as the original's do, off one walker
+//     state machine in the sim (fcop-fidelity.md G11, P4; RE player_walk.c
+//     171-744, block.c 133-363, player.c 1394-1500, 1971-1978): walker.ts runs
+//     `player_walk_tick`'s state byte, flags byte, last-asked track, idle count
+//     and lunge countdown and the legs' AnmD block (track, frame, clock,
+//     direction, target, STARTED) per player, integer, one step per 8 units of
+//     the 300 Hz clock (the eighths' carry: 1, 1, 1, 2 steps a tick). The
+//     command becomes the state unless the playing leg track holds it (HOLD);
+//     the state's arm drives the movement: its push (so a wind-up, a landing
+//     or a leap's HOLD track keeps the walker still, and another move first
+//     finishes the step), its stop test and its turn (0x20 less speed * 0x20
+//     >> 9, the integer speed word). The high jump winds up in state 0x0a on
+//     legs track 4 and the hop in 0x0f on 0x11 until the track reaching one
+//     with LAUNCH (0x1b, 0x3a) moves them to 0x0b / 0x10, whose arms lift
+//     (12 / 6 ticks after the press); the leap only from the run (state 3),
+//     its legs on 0x36 / 0x37 at the press and its lift the step after; the
+//     lunge on the lunge countdown's 1. Jump is a level: held, the walker
+//     jumps again. A take-off in a tick's second step goes into the velocity
+//     the next tick integrates. The reset's flags (no control until the first
+//     step lands) and the hover's shared bytes (its command state, its landing)
+//     are the original's; the transform's ramp steps both AnmD blocks in the
+//     sim. Was: the jump launched on the press, edge-triggered, leapt whenever
+//     forward was held, and the client ran its own copy of the animation off
+//     the snapshot. New hashed per-player state (SimState.walker); the lunge
+//     tick countdown (avatarLunge) is gone. writeAvatarSnapshot exposes the
+//     machine (stride 9 -> 41). Every golden's hashes move from tick 0.
+export const SIM_VERSION = 83;

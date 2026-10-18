@@ -1,31 +1,26 @@
 // Node harness for x1Alloc.test.ts (bundled by the test, run under
 // `node --expose-gc`): the X1's per-tick and per-frame paths -- tickX1Walk and
-// aimX1 once a tick, the rig's placeX1 once a frame -- run through a scripted
-// match (stand, walk, run, turn, the three jumps and their landings, the
-// transform both ways, the hover, the cloak) and report how much the JS heap
-// grew while they did. V8's heapUsed counts a young-generation allocation the
-// moment it is made, so with the semi-space large enough that no scavenge runs,
-// any `new`, literal or closure on these paths shows up.
+// aimX1 once a tick, the rig's placeX1 once a frame -- run through a recorded
+// match (stand, walk, run, turn, the crouch, the three jumps and their
+// landings, the transform both ways, the hover, the idle fidget) and report
+// how much the JS heap grew while they did. V8's heapUsed counts a
+// young-generation allocation the moment it is made, so with the semi-space
+// large enough that no scavenge runs, any `new`, literal or closure on these
+// paths shows up.
 
 import {
-  ANIM_AIRBORNE,
-  ANIM_HOVER,
-  ANIM_MOVING,
-  AVATAR_SNAP_ANIM,
-  AVATAR_SNAP_BUTTONS,
-  AVATAR_SNAP_ID,
-  AVATAR_SNAP_LOCK,
-  AVATAR_SNAP_STRIDE,
-  AVATAR_SNAP_VX,
-  AVATAR_SNAP_VZ,
   AVATAR_SNAPSHOT_LEN,
   BTN_ACTION,
   BTN_FORWARD,
   BTN_JUMP,
   BTN_TURN_LEFT,
+  createSim,
+  createTickInputs,
+  getMapById,
+  step,
+  TRANSFORM_CHORD,
   TRANSFORM_LOCK_TICKS,
-  WALKER_HIGH_LIFT,
-  WALKER_HOP_LIFT,
+  writeAvatarSnapshot,
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { buildX1Rig, placeX1 } from "../src/render/avatarRig";
@@ -36,37 +31,39 @@ import { aimX1, createX1Walk, tickX1Walk } from "../src/render/x1Walk";
 const gc = (globalThis as { gc?: () => void }).gc;
 if (!gc) throw new Error("run with --expose-gc");
 
-// --- the script: one avatar snapshot per tick, built up front ------------------
-const script: number[][] = [];
-function hold(ticks: number, buttons: number, vx: number, vz: number, anim: number, lock = 0) {
-  for (let t = 0; t < ticks; t++) script.push([buttons, vx, vz, anim, lock]);
+// --- the script: the sim's avatar snapshot per tick, recorded up front ----------
+const plan: [number, number][] = [
+  [20, 0],
+  [60, BTN_ACTION | BTN_FORWARD],
+  [60, BTN_FORWARD],
+  [1, BTN_FORWARD | BTN_JUMP],
+  [40, BTN_FORWARD],
+  [20, BTN_TURN_LEFT],
+  [30, BTN_ACTION | BTN_JUMP],
+  [60, BTN_JUMP],
+  [30, 0],
+  [1, TRANSFORM_CHORD],
+  [TRANSFORM_LOCK_TICKS + 30, BTN_FORWARD],
+  [1, TRANSFORM_CHORD],
+  [TRANSFORM_LOCK_TICKS + 300, 0], // long enough for the idle fidget
+];
+let ticks = 0;
+for (const [n] of plan) ticks += n;
+const frames = new Float32Array(ticks * AVATAR_SNAPSHOT_LEN);
+{
+  const sim = createSim(getMapById("urban-jungle"), 1);
+  const inputs = createTickInputs();
+  let t = 0;
+  for (const [n, buttons] of plan) {
+    for (let k = 0; k < n; k++) {
+      inputs.players[0].buttons = buttons;
+      step(sim, inputs);
+      writeAvatarSnapshot(sim, frames.subarray(t * AVATAR_SNAPSHOT_LEN));
+      t++;
+    }
+  }
 }
-hold(20, 0, 0, 0, 0);
-hold(60, BTN_ACTION | BTN_FORWARD, 1.95, 0, ANIM_MOVING);
-hold(60, BTN_FORWARD, 4.69, 0, ANIM_MOVING);
-hold(20, BTN_TURN_LEFT, 0, 0, 0);
-hold(30, BTN_ACTION | BTN_JUMP, 0, 0, 0);
-hold(1, 0, 0, WALKER_HIGH_LIFT - 0.87, ANIM_AIRBORNE);
-hold(18, 0, 0, -6, ANIM_AIRBORNE);
-hold(20, 0, 0, 0, 0);
-hold(1, 0, 0, WALKER_HOP_LIFT - 0.87, ANIM_AIRBORNE);
-hold(12, 0, 0, -11, ANIM_AIRBORNE);
-hold(30, 0, 0, 0, 0);
-for (let lock = TRANSFORM_LOCK_TICKS; lock >= 1; lock--) hold(1, 0, 0, 0, ANIM_HOVER, lock);
-hold(30, BTN_FORWARD, 9, 0, ANIM_HOVER | ANIM_MOVING);
-for (let lock = TRANSFORM_LOCK_TICKS; lock >= 1; lock--) hold(1, 0, 0, 0, 0, lock);
-hold(300, 0, 0, 0, 0); // long enough for the idle fidget
-const frames = new Float32Array(script.length * AVATAR_SNAPSHOT_LEN);
-script.forEach((row, t) => {
-  const o = t * AVATAR_SNAPSHOT_LEN;
-  frames[o + AVATAR_SNAP_ID] = 3;
-  frames[o + AVATAR_SNAP_BUTTONS] = row[0];
-  frames[o + AVATAR_SNAP_VX] = row[1];
-  frames[o + AVATAR_SNAP_VZ] = row[2];
-  frames[o + AVATAR_SNAP_ANIM] = row[3];
-  frames[o + AVATAR_SNAP_LOCK] = row[4];
-  frames[o + AVATAR_SNAP_STRIDE + AVATAR_SNAP_ID] = -1;
-});
+const scriptLength = ticks;
 
 // --- the rig, on a stand-in geometry (place's cost is the same) -----------------
 const geometry = new THREE.BufferGeometry();
@@ -88,7 +85,7 @@ const walk = createX1Walk();
 const snap = new Float32Array(AVATAR_SNAPSHOT_LEN);
 
 function tick(t: number): void {
-  const o = (t % script.length) * AVATAR_SNAPSHOT_LEN;
+  const o = (t % scriptLength) * AVATAR_SNAPSHOT_LEN;
   for (let k = 0; k < AVATAR_SNAPSHOT_LEN; k++) snap[k] = frames[o + k];
   tickX1Walk(walk, snap);
   aimX1(walk, 0, (t & 64) !== 0, 3, 1, 0.5, 0.2);
@@ -141,8 +138,8 @@ for (let i = 0; i < 400; i++) {
 // Per tick, from the slope between a short and a long run (the least of three
 // each): heapUsed moves in allocation-buffer steps, which a slope cancels.
 function perTick(leak: boolean): number {
-  const short = script.length * 4;
-  const long = script.length * 16;
+  const short = scriptLength * 4;
+  const long = scriptLength * 16;
   let a = Number.POSITIVE_INFINITY;
   let b = Number.POSITIVE_INFINITY;
   for (let i = 0; i < 3; i++) {

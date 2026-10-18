@@ -325,18 +325,23 @@ export const WALKER_SLOPE_GAIN = 40;
 /** Steep (no jump, no leap): the surface normal's horizontal part over 0.625 (38.7°). */
 export const WALKER_STEEP_TILT = 0xa000 * FX;
 /**
- * The jumps (`player_walk_tick` 0x004444e9 jump table). One button, three jumps,
- * chosen the way the original chooses them:
- * - running forward: the LEAP, lift 0x64000 = 7.32 m/s plus a forward push of
- *   1.5 (+1.76 m/s) on top of the run;
+ * The jumps (`player_walk_tick` 0x004444e9 jump table; the walker's state
+ * machine, walker.ts). One button, three jumps, chosen the way the original
+ * chooses them, each leaving the ground in its state's arm:
+ * - jumping while running (state 3): the LEAP — the legs take track 0x36 or
+ *   0x37 at once (state 0x0d), and the next step's arm lifts 0x64000 = 7.32 m/s
+ *   with a forward push of 1.5 (+1.76 m/s) on top of the run;
  * - otherwise, if the ground 1 m ahead rises more than 0xae1 (0.34 m): the HIGH
- *   jump, lift 0x78000 = 8.79 m/s straight up, and 9 steps (0.24 s) later a
- *   one-off forward LUNGE of 0x1cccc = +2.11 m/s — unless the rise ahead is over
- *   0x2333 (1.1 m), when there is no lunge;
- * - otherwise the HOP: lift 0x58000 = 6.45 m/s plus a forward push of 4.0
- *   (+4.69 m/s).
- * The crouch before the high jump and the hop is animation data the RE has not
- * read (player-and-weapons.md §9.6), so they launch at once. No air control.
+ *   jump — state 0x0a winds up on legs track 4 until the track reaching one
+ *   with LAUNCH (0x1b) moves it to 0x0b, whose arm lifts 0x78000 = 8.79 m/s
+ *   straight up (~0.4 s after the press), and 9 steps (0.24 s) later a one-off
+ *   forward LUNGE of 0x1cccc = +2.11 m/s — unless the rise ahead was over 0x2333
+ *   (1.1 m), when there is none;
+ * - otherwise the HOP — state 0x0f winds up on track 0x11 until 0x3a (LAUNCH)
+ *   moves it to 0x10, whose arm lifts 0x58000 = 6.45 m/s with a forward push
+ *   of 4.0 (+4.69 m/s), ~0.21 s after the press.
+ * The jump bit is a level: held, the walker jumps again once its legs are back
+ * on track 0. No air control.
  */
 export const WALKER_LEAP_LIFT = 0x64000 * FX * X1_SPEED_UNIT;
 export const WALKER_LEAP_PUSH = 0x18000 * FX * X1_SPEED_UNIT;
@@ -344,8 +349,6 @@ export const WALKER_HIGH_LIFT = 0x78000 * FX * X1_SPEED_UNIT;
 export const WALKER_HOP_LIFT = 0x58000 * FX * X1_SPEED_UNIT;
 export const WALKER_HOP_PUSH = 0x40000 * FX * X1_SPEED_UNIT;
 export const WALKER_LUNGE_PUSH = 0x1cccc * FX * X1_SPEED_UNIT;
-/** 9 steps after take-off = 0.24 s = 7.2 ticks. */
-export const WALKER_LUNGE_TICKS = 7;
 /** Where the high-jump probe looks: 1 m ahead (sine >> 3), from 8 m up. */
 export const WALKER_PROBE_AHEAD = 1;
 export const WALKER_PROBE_LIFT = 8;
@@ -355,6 +358,104 @@ export const WALKER_HIGH_RISE = 0xae1 / 8192;
 export const WALKER_LUNGE_MAX_RISE = 0x2333 / 8192;
 /** Jump take-off speed of the high jump (kept under its old name for its readers). */
 export const AVATAR_JUMP_SPEED = WALKER_HIGH_LIFT;
+/** A 16.16 velocity a movement step (the walker machine's integers) in m/s. */
+export const X1_STEP_SPEED = FX * X1_SPEED_UNIT;
+
+// --- The walker's state machine (walker.ts; fcop-fidelity.md G11, P4) --------
+//
+// `player_walk_tick` (RE player_walk.c 171-744), integer as the original's:
+// one step per 8 units of the 300 Hz clock (`byte_b6`'s eighths, player.c
+// 1971-1978), the state byte `state_bb`, the flags byte `flags_b9`, the leg
+// track last asked `byte_ba`, the idle count `byte_c3` and the lunge countdown
+// `byte_c2`, and the legs' AnmD player (block.c 133-363).
+
+/** The leg track's flags byte (actor_player_walk.h 96-106). */
+export const WALK_TRACK_HOLD = 0x02;
+export const WALK_TRACK_LAUNCH = 0x04;
+export const WALK_TRACK_TOUGH = 0x10;
+/** The legs' rate (0x00444c84..0x00444cb6): fixed in seven states, else floored. */
+export const WALK_RATE_FIXED = 0xa0;
+export const WALK_RATE_LEAP = 0x300;
+export const WALK_RATE_RUN = 0x100;
+export const WALK_RATE_MIN = 0x1e;
+/** A landing faster than this, 16.16 a step, is an impact (0x00444a1f): state 0x12. */
+export const WALK_IMPACT_SOFT = 0x50000;
+/** ... and on a TOUGH track (flag 0x10). */
+export const WALK_IMPACT_TOUGH = 0x80000;
+/** The hover's landing (player_hover.c 0x00442cb1): over this, state 0x12. */
+export const HOVER_IMPACT_HARD = 0x50000;
+/** The turn track is asked while the turn the speed leaves is not 0 (0x00444414). */
+export const WALK_TURN_SPEED_SHIFT = 9;
+/** The high jump's lunge countdown (0x00444529): it pushes at 1, 9 steps later. */
+export const WALK_LUNGE_COUNT = 10;
+/** The fidget: track 0x10 when the idle count wraps to 0 (0x004446a8), 256 steps. */
+export const WALK_IDLE_TRACK = 0x10;
+/** The leap's two tracks (0x00444cf4): 0x37 from these leg frames, 0x36 from any other. */
+export const WALK_LEAP_TRACK = 0x36;
+export const WALK_LEAP_TRACK_B = 0x37;
+export const WALK_LEAP_FRAMES_B: readonly (readonly [number, number])[] = [
+  [2, 5],
+  [0x12, 0x1f],
+];
+/**
+ * The jump table at 0x00444eb0 (player_walk.c 362-465), per walker state: the
+ * push (16.16 a step; along the heading, or across it where `sideways`), the
+ * leg track it asks for (-1 none: the step's own ask stands), the lift its arm
+ * applies and the state the arm moves it to (-1 none), and whether the stop
+ * test runs (`settle`).
+ */
+export interface WalkArm {
+  readonly push: number;
+  readonly sideways: boolean;
+  readonly track: number;
+  readonly lift: number;
+  readonly becomes: number;
+  readonly settle: boolean;
+}
+const arm = (
+  push: number,
+  sideways: boolean,
+  track: number,
+  lift = 0,
+  becomes = -1,
+  settle = false,
+): WalkArm => ({ push, sideways, track, lift, becomes, settle });
+export const WALK_ARMS: readonly WalkArm[] = [
+  arm(0, false, -1, 0, -1, true), // 0 stand (the idle's 0x10: walker.ts)
+  arm(0xa000, false, 6), // 1 slow forward
+  arm(-0xa000, false, 7), // 2 slow back
+  arm(0x18000, false, 8), // 3 run
+  arm(-0x18000, false, 9), // 4 back
+  arm(-0xa000, true, 1), // 5 slow Jink Left
+  arm(0xa000, true, 2), // 6 slow Jink Right
+  arm(-0x10000, true, 0x0a), // 7 Jink Left
+  arm(0x10000, true, 0x0b), // 8 Jink Right
+  arm(0, false, 3, 0, -1, true), // 9 the crouch (the bounds' lowered pair)
+  arm(0, false, 4), // 0x0a the high jump's wind-up
+  arm(0, false, 4, 0x78000, 0x0c), // 0x0b the high jump's take-off
+  arm(0, false, -1), // 0x0c the high jump, airborne (the default arm)
+  arm(0x18000, false, 8, 0x64000, 0x0e), // 0x0d the leap's take-off
+  arm(0, false, 8), // 0x0e the leap
+  arm(0, false, 0x11), // 0x0f the hop's wind-up
+  arm(0x40000, false, 0x11, 0x58000, 0x11), // 0x10 the hop's take-off
+  arm(0, false, 0x11), // 0x11 the hop
+  arm(0, false, 5, 0, -1, true), // 0x12 a hard landing
+];
+/** The four states `player_velocity_delta` runs on its short tail, airborne or not (player_move.c 238-242). */
+export const WALK_SHORT_TAIL: readonly number[] = [0x0b, 0x0c, 0x0e, 0x10];
+/** The legs' track while the transform runs (mode 3, 330 -> 359), and the hover's hold (359). */
+export const X1_TRANSFORM_LEG_TRACK = 0x0c;
+export const X1_HOVER_LEG_TRACK = 0x0d;
+/** The cockpit's: the transform's (0 -> 29) and the hover's hold (29). */
+export const X1_TRANSFORM_COCKPIT_TRACK = 2;
+export const X1_HOVER_COCKPIT_TRACK = 1;
+/** The ramp: 160 a clock unit (PLAYER_FORM_RAMP_RATE) to 0x10000 (PLAYER_TRANSFORM_FULL). */
+export const X1_RAMP_RATE = 160;
+export const X1_RAMP_FULL = 0x10000;
+/** The movement loop's "stop" code: a state that ends on track 0 sends it (0x00444de0). */
+export const WALK_LOOP_STOP = 0x27;
+/** At most this many codes a slot a tick (two steps of five, and the ends). */
+export const WALK_CODES_PER_TICK = 16;
 
 // --- The X1-Alpha's weapons (rules.md §2; fcop-fidelity.md W1, W2, W4) -------
 //

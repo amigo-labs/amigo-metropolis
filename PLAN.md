@@ -835,10 +835,11 @@ no golden moves.
       the cockpit on its mount and aiming at the lock, one InstancedMesh posed in
       the vertex shader (`gen:x1`; G11); the walker's loop off the legs' codes (A9)
 - [x] The X1's cloak offset: the frame clock's v while the cloak runs (G4)
-- [ ] The jumps' wind-ups: the original leaves the ground when the wind-up track
-      reaches its LAUNCH flag (~0.38 s high jump, ~0.2 s hop), Metropolis on the
-      press — a sim change, the walker's state and leg track in hashed state
-      (G11, P4)
+- [x] The jumps' wind-ups: the walker's state machine and its legs in the sim,
+      hashed — the take-off in the launch state's arm once the wind-up track
+      reaches LAUNCH (0.4 s high jump, 0.2 s hop), the leap only from the run,
+      the push by the state (HOLD), Jump held repeats; the client reads the
+      machine off the avatar snapshot (G11, P4; v83)
 
 ### Wave 6 — Presentation
 

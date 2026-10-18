@@ -35,7 +35,11 @@
 // original's (the player's mech 0.553 m walking, was 0.4; the captain's tanks
 // 0.943, was 0.76; the route followers keep their traffic gaps by the same
 // radii): the player goes down once, at 133 s, and the captain's ten tanks do
-// not breach in the 150 s (the nearest dies 7.5 m short).
+// not breach in the 150 s (the nearest dies 7.5 m short). Since SIM_VERSION 83
+// the player's walker runs the original's state machine (the reset's step
+// without control, each move finishing the legs' step before the next, a
+// jump after its wind-up): it goes down twice, at 109 s and 137 s, and the
+// captain's tanks still do not breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -97,7 +101,7 @@ describe("golden-04-warden beats", () => {
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
     expect(claims).toBe(1);
     expect(wardenDeaths).toBe(0);
-    expect(avatarDeaths).toBe(1);
+    expect(avatarDeaths).toBe(2);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);
     expect(sim.winner).toBe(-1);

@@ -120,32 +120,18 @@ import {
   UNIT_QUEUES,
   WALKER_AIR_DRAG,
   WALKER_DRAG,
-  WALKER_HIGH_LIFT,
-  WALKER_HIGH_RISE,
-  WALKER_HOP_LIFT,
-  WALKER_HOP_PUSH,
-  WALKER_LEAP_LIFT,
-  WALKER_LEAP_PUSH,
   WALKER_LEDGE_DROP,
-  WALKER_LUNGE_MAX_RISE,
-  WALKER_LUNGE_PUSH,
-  WALKER_LUNGE_TICKS,
   WALKER_MODE_DRAG,
   WALKER_MODE_OF_CODE,
   WALKER_MODE_PUSH,
   WALKER_MODE_STOP,
   WALKER_PROBE_AHEAD,
   WALKER_PROBE_LIFT,
-  WALKER_PUSH_FORE,
-  WALKER_PUSH_SLOW,
-  WALKER_PUSH_STRAFE,
   WALKER_SINK_PER_TICK,
   WALKER_SLOPE_GAIN,
   WALKER_SLOPE_KNEE,
   WALKER_STEEP_TILT,
   WALKER_STOP_SPEED,
-  WALKER_TURN_STEP,
-  WALKER_TURN_ZERO_SPEED,
   WARDEN_ALTITUDE,
   WARDEN_HEAVY_SPEED,
   WARDEN_HEAVY_TTL_TICKS,
@@ -157,6 +143,7 @@ import {
   X1_IMPACT_SCALE,
   X1_IMPACT_SPEED,
   X1_IMPACT_SPEED_MAX,
+  X1_STEP_SPEED,
   X1_STEPS_PER_TICK,
   X1_TERMINAL_FALL,
   X1_UNITS_PER_TICK,
@@ -263,6 +250,21 @@ import {
   UNIT_MODE_PATROL,
   unitRange,
 } from "./units";
+import {
+  createWalkerState,
+  WALK_ARM,
+  type WalkerState,
+  walkerArm,
+  walkerCommand,
+  walkerEighths,
+  walkerHover,
+  walkerLand,
+  walkerLegs,
+  walkerProbes,
+  walkerRamp,
+  walkerReset,
+  walkerShortTail,
+} from "./walker";
 import {
   type CaptainState,
   captainConstruct,
@@ -605,8 +607,14 @@ export interface SimState {
   readonly avatarTurnRate: Float32Array;
   /** The hover's idle timer (block +0xdc), engine units, capped at 0x800. */
   readonly avatarIdle: Int32Array;
-  /** Ticks until the high jump's lunge (byte +0xc2's countdown), 0 for none. */
-  readonly avatarLunge: Int32Array;
+  /**
+   * The walker's state machine and its legs (walker.ts; fcop-fidelity.md G11,
+   * P4): `state_bb`, `flags_b9`, `byte_ba`, the idle count, the lunge
+   * countdown, the eighths' carry, the form whose tick runs, and the legs'
+   * AnmD block -- hashed; the cockpit's block (presentation, a function of the
+   * ramp) and the tick's codes are not.
+   */
+  readonly walker: WalkerState;
   /**
    * The walker's movement mode for its next tick (balance.ts
    * WALKER_MODE_OF_CODE): written from the ground code under it after it moves,
@@ -676,7 +684,7 @@ export function spawnAvatar(state: SimState, player: number): number {
   state.avatarId[player] = id;
   state.avatarTurnRate[player] = 0;
   state.avatarIdle[player] = 0;
-  state.avatarLunge[player] = 0;
+  if (!warden) walkerReset(state.walker, player, hover);
   state.avatarMode[player] = 0;
   state.avatarSinking[player] = 0;
   state.rivalHit[player] = 0;
@@ -1050,7 +1058,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     avatarLift: new Int8Array(MAX_PLAYERS).fill(-1),
     avatarTurnRate: new Float32Array(MAX_PLAYERS),
     avatarIdle: new Int32Array(MAX_PLAYERS),
-    avatarLunge: new Int32Array(MAX_PLAYERS),
+    walker: createWalkerState(MAX_PLAYERS),
     avatarMode: new Uint8Array(MAX_PLAYERS),
     events: createEventBuffer(),
   };
@@ -1245,6 +1253,15 @@ const X1_GRAVITY_PER_STEP = X1_GRAVITY / (300 / 8);
 const ANGLE_UNIT = (2 * Math.PI) / 4096;
 
 /**
+ * A velocity's length as the walker's integers have it: 16.16 a movement step,
+ * to the nearest unit -- the closed form approaches a steady speed the
+ * original's integer steps reach exactly (a full run's 0x40000).
+ */
+function stepSpeed(vx: number, vy: number, vz: number): number {
+  return Math.floor(Math.sqrt(vx * vx + vy * vy + vz * vz) / X1_STEP_SPEED + 0.5);
+}
+
+/**
  * Landing damage (`player_impact_damage`, fcop-fidelity.md P4/P5): above a
  * 10.78 m/s landing, the original's absolute 1000 * f(x) HP against the 1250-HP
  * mech (P1). Credited to nobody, as the original credits the mech itself.
@@ -1290,6 +1307,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // The Warden's slot ignores TickInputs entirely: its superplane is moved
     // by systemWarden, deterministically on every peer.
     state.avatarLift[p] = -1;
+    state.walker.codeCount[p] = 0;
     if (p === state.wardenPlayer) continue;
     const id = state.avatarId[p];
     state.moveCue[p] = 0;
@@ -1371,47 +1389,41 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // systemCapture clears it.
     if ((pressed & BTN_ACTION) !== 0) state.capturePress[p] = 1;
 
-    // The walker's jump (edge-triggered; balance.ts WALKER_* jumps): on the
-    // ground, not steep, not mid-change, chosen against the facing the tick
-    // starts with, as the original probes with the frame's sine and cosine. It
-    // leaves the ground this tick, so the velocity below takes the airborne
-    // path, as the original's launch states do. The high jump and the hop take
-    // no turn on their tick; the leap is the run's own state and keeps it.
+    // The Action Key held is the slow row (camera-and-movement.md "The walker
+    // in numbers"), and both rows' directions as the button word has them; the
+    // walker's state machine below decides what of it drives the walker.
     const fore = (bits & BTN_FORWARD) !== 0 ? 1 : (bits & BTN_BACK) !== 0 ? -1 : 0;
     const side = (bits & BTN_JINK_RIGHT) !== 0 ? 1 : (bits & BTN_JINK_LEFT) !== 0 ? -1 : 0;
-    // The Action Key held is the slow row (camera-and-movement.md "The walker
-    // in numbers"): half the push, no jump, and on the walker's row Jump without
-    // forward or back is the crouch — standing still, its jinks unread.
     const slow = (bits & BTN_ACTION) !== 0;
     const crouch = !hoverPhys && !airborne && slow && fore === 0 && (bits & BTN_JUMP) !== 0;
-    let jumpLift = 0;
-    let jumpPush = 0;
-    let lunge = state.avatarLunge[p];
-    let jumpTurns = true;
-    if (!hoverPhys && !airborne && !slow && (pressed & BTN_JUMP) !== 0) {
-      const h = ent.height[id];
-      if (surfaceTilt(state, x, y, false, h).t <= WALKER_STEEP_TILT) {
-        if (fore > 0) {
-          jumpLift = WALKER_LEAP_LIFT; // running forward: the leap
-          jumpPush = WALKER_LEAP_PUSH;
-          lunge = 0;
-        } else {
-          const ax = Math.min(Math.max(x + ent.aimX[id] * WALKER_PROBE_AHEAD, 0), extent);
-          const ay = Math.min(Math.max(y + ent.aimY[id] * WALKER_PROBE_AHEAD, 0), extent);
-          const rise = avatarSurface(state, ax, ay, h + WALKER_PROBE_LIFT, false).height - h;
-          if (rise > WALKER_HIGH_RISE) {
-            jumpLift = WALKER_HIGH_LIFT; // a step ahead: the high jump
-            lunge = rise > WALKER_LUNGE_MAX_RISE ? 0 : WALKER_LUNGE_TICKS;
-          } else {
-            jumpLift = WALKER_HOP_LIFT; // open ground: the hop
-            jumpPush = WALKER_HOP_PUSH;
-            lunge = 0;
-          }
-          jumpTurns = false;
-        }
+
+    // The walker's state machine (walker.ts; fcop-fidelity.md G11, P4): the
+    // tick's steps on the clock's eighths, in either form; on the walker the
+    // tick's command -- the fast row's jump by the probe of the ground ahead,
+    // against the facing the tick starts with, as the original probes with the
+    // frame's sine and cosine -- and its first step's arm, which drives the
+    // movement below: the push its state asks for (none while a HOLD track
+    // keeps a wind-up, a landing or a leap), a take-off's lift and push, the
+    // lunge, the stop test and the turn. A jump leaves the ground in its
+    // take-off state's arm, after its wind-up; Jump held jumps again.
+    const walk = state.walker;
+    const steps = walkerEighths(walk, p);
+    const walkerTick = !hoverPhys;
+    const arm = WALK_ARM;
+    let command = 0;
+    if (walkerTick) {
+      let rise = 0;
+      if (walkerProbes(walk, p, bits)) {
+        const h = ent.height[id];
+        const ax = Math.min(Math.max(x + ent.aimX[id] * WALKER_PROBE_AHEAD, 0), extent);
+        const ay = Math.min(Math.max(y + ent.aimY[id] * WALKER_PROBE_AHEAD, 0), extent);
+        rise = avatarSurface(state, ax, ay, h + WALKER_PROBE_LIFT, false).height - h;
       }
+      command = walkerCommand(walk, p, bits, rise);
+      walkerArm(walk, p, command, bits, stepSpeed(ent.velX[id], ent.velY[id], vz) >> 11);
     }
-    const inAir = airborne || jumpLift > 0;
+    const liftOff = walkerTick && arm.lift > 0;
+    const inAir = airborne || liftOff;
 
     // Turning, by the turn buttons (camera-and-movement.md "Facing"): Turn
     // Right raises the facing — clockwise seen from above — and wins over Turn
@@ -1431,12 +1443,11 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       }
       state.avatarTurnRate[p] = rate;
       dYaw = rate * 0.5 * X1_STEPS_PER_TICK * ANGLE_UNIT;
-    } else if (turn !== 0 && !airborne && jumpTurns) {
-      // Walker: 0x20 a step, less in proportion to speed (105°/s at rest,
-      // nothing at 18.75 m/s). No ramp, and no turning in the air.
-      const v = Math.sqrt(ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id]);
-      const k = 1 - v / WALKER_TURN_ZERO_SPEED;
-      if (k > 0) dYaw = turn * WALKER_TURN_STEP * X1_STEPS_PER_TICK * ANGLE_UNIT * k;
+    } else if (arm.turn !== 0) {
+      // Walker: the arm's turn, 0x20 a step less speed * 0x20 >> 9 (105°/s at
+      // rest, nothing at 18.75 m/s), on the ground only and not on a jump's
+      // command. No ramp.
+      dYaw = arm.turn * X1_STEPS_PER_TICK * ANGLE_UNIT;
     }
     if (dYaw !== 0) {
       let yaw = ent.yaw[id] + dYaw;
@@ -1449,41 +1460,45 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     const fx = ent.aimX[id];
     const fy = ent.aimY[id];
 
-    // The push, from the state the bits choose, in the hull's frame: forward
-    // beats back, Jink Right beats Jink Left; a fore/aft state with a jink is
-    // the diagonal, 181/256 of the fore push along F ± R (the walker's not while
-    // Jump is held). The hover's brake (Jump) beats every direction, the
-    // walker's crouch every jink. The slow row takes the slow pushes.
+    // The push, in the hull's frame. The hover's from its rows: forward beats
+    // back, Jink Right beats Jink Left, a fore/aft state with a jink is the
+    // diagonal, 181/256 of the fore push along F ± R, and the brake (Jump)
+    // beats every direction; the slow row takes the slow pushes. The walker's
+    // from its arm: the state's push along the heading or across it, the
+    // diagonal in states 1-4 with a jink and no Jump.
     const brake = hover && (bits & BTN_JUMP) !== 0;
     let pushX = 0;
     let pushY = 0;
-    if (!brake && fore !== 0) {
-      const pf = hoverPhys
-        ? slow
-          ? HOVER_PUSH_SLOW_FORE
-          : HOVER_PUSH_FORE
-        : slow
-          ? WALKER_PUSH_SLOW
-          : WALKER_PUSH_FORE;
-      const diag = hoverPhys || (bits & BTN_JUMP) === 0 ? side : 0;
-      if (diag !== 0) {
-        const k = pf * X1_DIAGONAL_SCALE;
-        pushX = k * (fore * fx - diag * fy);
-        pushY = k * (fore * fy + diag * fx);
-      } else {
-        pushX = pf * fore * fx;
-        pushY = pf * fore * fy;
+    if (hoverPhys) {
+      if (!brake && fore !== 0) {
+        const pf = slow ? HOVER_PUSH_SLOW_FORE : HOVER_PUSH_FORE;
+        if (side !== 0) {
+          const k = pf * X1_DIAGONAL_SCALE;
+          pushX = k * (fore * fx - side * fy);
+          pushY = k * (fore * fy + side * fx);
+        } else {
+          pushX = pf * fore * fx;
+          pushY = pf * fore * fy;
+        }
+      } else if (!brake && side !== 0) {
+        const ps = slow ? HOVER_PUSH_SLOW_STRAFE : HOVER_PUSH_STRAFE;
+        pushX = -ps * side * fy;
+        pushY = ps * side * fx;
       }
-    } else if (!brake && !crouch && side !== 0) {
-      const ps = hoverPhys
-        ? slow
-          ? HOVER_PUSH_SLOW_STRAFE
-          : HOVER_PUSH_STRAFE
-        : slow
-          ? WALKER_PUSH_SLOW
-          : WALKER_PUSH_STRAFE;
-      pushX = -ps * side * fy;
-      pushY = ps * side * fx;
+    } else if (!arm.impulse && arm.push !== 0) {
+      const pf = arm.push * X1_STEP_SPEED;
+      if (arm.sideways) {
+        pushX = -pf * fy;
+        pushY = pf * fx;
+      } else if (arm.diagonal !== 0) {
+        const k = Math.abs(pf) * X1_DIAGONAL_SCALE;
+        const f = pf > 0 ? 1 : -1;
+        pushX = k * (f * fx - arm.diagonal * fy);
+        pushY = k * (f * fy + arm.diagonal * fx);
+      } else {
+        pushX = pf * fx;
+        pushY = pf * fy;
+      }
     }
     const commanded = !brake && !crouch && (fore !== 0 || side !== 0);
     state.moveCue[p] =
@@ -1532,8 +1547,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         vx *= k;
         vy *= k;
       }
-    } else if (inAir) {
-      // Airborne walker: no push, no steering, a light horizontal drag.
+    } else if (airborne || walkerShortTail(walk.state[p])) {
+      // Airborne walker, or one its arm left on the short tail (the high jump's
+      // and the leap's take-off, their landing's first step): no push, no
+      // steering, a light horizontal drag.
       const r = retentionPerTick(WALKER_AIR_DRAG);
       vx *= r;
       vy *= r;
@@ -1557,25 +1574,22 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       }
       const drag = mode !== 0 ? WALKER_MODE_DRAG * (4 - mode) : WALKER_DRAG;
       const stop = mode !== 0 ? WALKER_MODE_STOP * mode : WALKER_STOP_SPEED;
-      // The stop test of the tick's first step, as for the hover.
+      // The stop test of the tick's first step, as for the hover, in the
+      // states whose arm runs it (0, 9, 0x12).
       const k = 1 - drag;
       const settle =
-        !commanded && Math.abs(vx * k + pushX) < stop && Math.abs(vy * k + pushY) < stop;
+        arm.settle && Math.abs(vx * k + pushX) < stop && Math.abs(vy * k + pushY) < stop;
       const r = retentionPerTick(drag);
       vx = settle ? 0 : (pushX / drag) * (1 - r) + vx * r;
       vy = settle ? 0 : (pushY / drag) * (1 - r) + vy * r;
     }
-    if (jumpLift > 0) {
-      vz = jumpLift;
-      vx += jumpPush * fx;
-      vy += jumpPush * fy;
-    } else if (!hoverPhys && airborne && lunge > 0) {
-      // The high jump's lunge, 9 steps after take-off.
-      lunge -= 1;
-      if (lunge === 0) {
-        vx += WALKER_LUNGE_PUSH * fx;
-        vy += WALKER_LUNGE_PUSH * fy;
-      }
+    if (walkerTick && arm.impulse) {
+      // The arm's one step of push: a take-off's, with its lift, or the high
+      // jump's lunge 9 steps after it.
+      const pi = arm.push * X1_STEP_SPEED;
+      vx += pi * fx;
+      vy += pi * fy;
+      if (arm.lift > 0) vz = arm.lift * X1_STEP_SPEED;
     }
     ent.velX[id] = vx;
     ent.velY[id] = vy;
@@ -1608,17 +1622,19 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       if (ok) y = ny;
       else ent.velY[id] = 0;
     }
-    // The slow row's ledge (balance.ts WALKER_LEDGE_DROP): slow forward, back
-    // or Jink Left puts a grounded walker back from a drop of over 0.1 m. The
+    // The slow row's ledge (balance.ts WALKER_LEDGE_DROP): the walker in state
+    // 1, 2 or 5 (slow forward, back or Jink Left) on the ground is put back from
+    // a drop of over 0.1 m, and its state is 0 again (walkerLand). The
     // hover's slow row holds only at drops under 0.1 m (0x00442d36), which in
     // Metropolis' hover — no push along the surface, so every downhill tick
     // reads as a small drop — would stop it on any slope: not modelled.
+    let ledge = false;
+    const ws = walk.state[p];
     if (
-      !hoverPhys &&
+      walkerTick &&
       !inAir &&
-      slow &&
-      !crouch &&
-      (fore !== 0 || side < 0) &&
+      !sinking &&
+      (ws === 1 || ws === 2 || ws === 5) &&
       (x !== fromX || y !== fromY)
     ) {
       const h = ent.height[id];
@@ -1628,6 +1644,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
           y = fromY;
           ent.velX[id] = 0;
           ent.velY[id] = 0;
+          ledge = true;
         }
       }
     }
@@ -1653,6 +1670,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // and a landing over 10.78 m/s hurts.
     let h = ent.height[id];
     let carrier = -1;
+    /** The landing's fall speed, m/s, 0 for none. */
+    let fall = 0;
     if (hoverPhys) {
       // Snapped up to its ride height, held down within HOVER_HOLD_DOWN of it,
       // and airborne above that — off a ledge it falls.
@@ -1667,11 +1686,13 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         h += vz * TICK_DT;
       }
       if (!air || h <= ride) {
-        if (air && vz < 0) landingImpact(state, id, -vz);
+        if (air && vz < 0) {
+          landingImpact(state, id, -vz);
+          fall = -vz;
+        }
         h = ride;
         vz = 0;
       }
-      lunge = 0;
     } else if (sinking) {
       // HARD's sinking walker: its ground is its own height less 0xc0 wu a step
       // and its vertical velocity is zeroed, whatever lies under it
@@ -1681,7 +1702,6 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       ride = wr.height;
       h -= WALKER_SINK_PER_TICK;
       vz = 0;
-      lunge = 0;
     } else {
       // The walker snaps to step-sized height changes (STEP_SNAP, Metropolis'
       // deck rule) and falls past them.
@@ -1694,20 +1714,20 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         if (vz < -X1_TERMINAL_FALL) vz = -X1_TERMINAL_FALL;
         h += vz * TICK_DT;
         if (h <= ride) {
-          if (vz < 0) landingImpact(state, id, -vz);
+          if (vz < 0) {
+            landingImpact(state, id, -vz);
+            fall = -vz;
+          }
           h = ride;
           vz = 0;
-          lunge = 0;
         }
       } else {
         h = ride;
         vz = 0;
-        lunge = 0;
       }
     }
     ent.height[id] = h;
     ent.timerB[id] = vz;
-    state.avatarLunge[p] = lunge;
     // The ground's code under the walker sets its next tick's mode, felt within
     // SURFACE_REACH as the original's player_order is; a hover's step reads
     // none, and a lift's top carries no code.
@@ -1725,6 +1745,38 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     state.avatarMode[p] = mode;
     // Standing on a lift's top: that lift is its carrier this tick.
     if (carrier >= 0 && h - ride <= GROUND_EPS) state.avatarLift[p] = carrier;
+
+    // The machine after the movement: the first step's surface and legs, then
+    // the tick's second step whole, its lift and push into the velocity the
+    // next tick integrates (walker.ts). The hover's tick writes the bytes it
+    // shares with the walker's; the ramp steps both blocks.
+    if (walkerTick) {
+      const up = h > ride + GROUND_EPS;
+      const steep = surfaceTilt(state, x, y, false, h).t > WALKER_STEEP_TILT;
+      const lean = state.avatarMode[p];
+      if (!sinking) walkerLand(walk, p, up, fall / X1_STEP_SPEED, ledge);
+      walkerLegs(walk, p, stepSpeed(ent.velX[id], ent.velY[id], ent.timerB[id]), lean, steep);
+      for (let e = 1; e < steps; e++) {
+        walkerArm(
+          walk,
+          p,
+          command,
+          bits,
+          stepSpeed(ent.velX[id], ent.velY[id], ent.timerB[id]) >> 11,
+        );
+        if (arm.impulse) {
+          const pi = arm.push * X1_STEP_SPEED;
+          ent.velX[id] += pi * ent.aimX[id];
+          ent.velY[id] += pi * ent.aimY[id];
+          if (arm.lift > 0) ent.timerB[id] = arm.lift * X1_STEP_SPEED;
+        }
+        if (!sinking) walkerLand(walk, p, up || arm.lift > 0, 0, false);
+        walkerLegs(walk, p, stepSpeed(ent.velX[id], ent.velY[id], ent.timerB[id]), lean, steep);
+      }
+    } else {
+      walkerHover(walk, p, bits, h <= ride, h > ride + HOVER_HOLD_DOWN, fall / X1_STEP_SPEED);
+    }
+    if (ent.timerA[id] > 0) walkerRamp(walk, p, ent.mode[id] === MODE_HOVER, ent.timerA[id]);
 
     ent.animState[id] =
       (commanded || ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id] > 1e-6
@@ -4825,7 +4877,6 @@ export function hash(state: SimState): number {
     // The rate moves in steps of 12.5 units, so twice it is an exact integer.
     h = fnv1aU32(h, (state.avatarTurnRate[p] * 2) >>> 0);
     h = fnv1aU32(h, state.avatarIdle[p] >>> 0);
-    h = fnv1aU32(h, state.avatarLunge[p] >>> 0);
   }
   // Appended at SIM_VERSION 40: which locks steer the hull (gone at 69, W2).
   // Appended at SIM_VERSION 43: the block-B magazines (replacing the x2 timer).
@@ -4894,6 +4945,17 @@ export function hash(state: SimState): number {
       h = fnv1aU32(h, state.gunTarget[k]);
       h = fnv1aU32(h, state.gunSearch[k] >>> 0);
     }
+  }
+  // Appended at SIM_VERSION 83, every map: the walker's state machine and its
+  // legs (walker.ts), which replace v39's lunge countdown.
+  const w = state.walker;
+  const legs = w.legs;
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    h = fnv1aU32(h, w.state[p] | (w.flags[p] << 8) | (w.asked[p] << 16) | (w.idle[p] << 24));
+    h = fnv1aU32(h, w.lunge[p] | (w.carry[p] << 8) | (w.form[p] << 16) | (legs.index[p] << 24));
+    h = fnv1aU32(h, (legs.frame[p] & 0xffff) | (legs.target[p] << 16));
+    h = fnv1aU32(h, legs.clock[p] >>> 0);
+    h = fnv1aU32(h, (legs.direction[p] & 0xff) | (legs.flags[p] << 8));
   }
   return h;
 }

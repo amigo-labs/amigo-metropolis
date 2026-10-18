@@ -63,7 +63,7 @@ Design pillars, in priority order:
   |---|---|---|
   | fore/aft | **4.69 m/s**, 95 % in 0.17 s | **9.38 m/s**, 95 % in 1.56 s |
   | strafe | 3.13 m/s | 2.93 m/s |
-  | released | stops dead under 0.59 m/s (~0.1 s) | coasts, half-life 0.36 s, stops under 0.15 m/s; after ~6 s idle the drag ramps up |
+  | released | stops dead under 0.59 m/s (~0.1 s), once its legs' step lets the state go | coasts, half-life 0.36 s, stops under 0.15 m/s; after ~6 s idle the drag ramps up |
   | brake | — | the jump button: drag 0.15 a step (0.05 coasting) |
   | cap | — | 10.7 m/s horizontal |
   | turn | 105°/s at rest, falling linearly to 0 at 18.75 m/s (79°/s running); none in the air | 158°/s after a ~0.26 s ramp; also in the air |
@@ -76,6 +76,15 @@ Design pillars, in priority order:
   brake over every direction. On Ovmp's code-4 patches the walker's movement
   mode makes the ground slippery: the same top speed, reached over seconds, and
   a glide when let go (SIM_VERSION 71, `fcop-fidelity.md` P11).
+- The **walker** moves by the original's **state machine** (`walker.ts`,
+  SIM_VERSION 83; `fcop-fidelity.md` G11, P4): one step per 8 units of the
+  300 Hz clock, the button word decoded into a command each tick, the command
+  taken into the walker's state unless the leg track playing holds it, and the
+  state's arm — not the buttons — giving the push. So a move finishes the legs'
+  step before another is taken (back while walking forward walks on until the
+  stride ends), a landing, the crouch's stand-up and a jump's wind-up hold the
+  walker where it is, and a mech fresh from its spawn has no control for its
+  first step. Released, a moving state stops at once.
 - The change (`TRANSFORM_LOCK_TICKS`, **41 ticks = 1.365 s**, the original's
   `player_transform_step`; SIM_VERSION 38, `fcop-fidelity.md` P3) is a
   **commitment**: no driving, no turning, no jumping and no lock cycling for its
@@ -121,12 +130,20 @@ Design pillars, in priority order:
   (7 of 8, and la-cantina is clean in both forms). A climb-free walking path to
   the enemy base exists on every arena.
 - The **jumps** are the original's three, chosen by one button the way it
-  chooses them (SIM_VERSION 39): at a run, the **leap** (7.32 m/s up, +1.76 m/s
-  forward on top of the run, apex 0.91 m); otherwise, with ground rising over
-  0.34 m within a metre ahead, the **high jump** (8.79 m/s straight up, apex
-  1.37 m, and a +2.11 m/s forward lunge at 0.24 s unless that rise is over
-  1.1 m); otherwise the **hop** (6.45 m/s up and +4.69 m/s forward). No air
-  control, no turning in the air, and no jumping off ground steeper than 38.7°.
+  chooses them (SIM_VERSION 39; their timing the state machine's since
+  SIM_VERSION 83): already running (the walker's run state), the **leap** —
+  the legs take its track at the press and the next step leaves the ground,
+  7.32 m/s up, +1.76 m/s forward on top of the run, apex 0.91 m; otherwise,
+  with ground rising over 0.34 m within a metre ahead, the **high jump** — a
+  wind-up on the ground, **0.4 s** after the press, then 8.79 m/s straight up,
+  apex 1.37 m, and a +2.11 m/s forward lunge 0.24 s later unless that rise is
+  over 1.1 m; otherwise the **hop** — a **0.2 s** wind-up, then 6.45 m/s up and
+  +4.69 m/s forward. Forward and Jump pressed together from standing hop. The
+  wind-up leaves the ground when the legs' wind-up track reaches the one the
+  original flags LAUNCH; until then the walker does not move. Jump is a
+  **level**: held, the walker jumps again once its landing has run back to the
+  stand. No air control, no turning in the air, and no jumping off ground
+  steeper than 38.7°.
   The original made the high jump for ledges with vertical faces; on a
   heightfield every step is a one-cell ramp, and the jumps climb nothing the
   walk does not (`units.ts` JUMPABLE_RISE 0, was 1.4 with an air-steered jump),

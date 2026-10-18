@@ -40,8 +40,13 @@ import { createSim, step } from "../src/sim";
 // slots, so each player starts, buys and fights from the other base; the mechs
 // go down 5 times, nine tanks die, and one of player 1's gets through player 0's
 // ring into the gate box at 82.8 s (player 0's nearest came to 21.4 m).
-const BREACH_TICK_PIN = 2483;
-const BREACH_TEAM_PIN = 1;
+// 2483 -> 2289 at SIM_VERSION 83: the mechs walk on the original's walker state
+// machine (the reset's step without control, each move finishing the legs' step
+// before the next, the jumps after their wind-ups), so the fight in the middle
+// plays out differently: the mechs go down 4 times, and one of player 0's tanks
+// gets through player 1's ring into the gate box at 76.3 s.
+const BREACH_TICK_PIN = 2289;
+const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {
   it("purchases on both sides, fights, downs paid at the respawn, the breach as pinned", () => {

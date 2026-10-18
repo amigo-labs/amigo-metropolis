@@ -83,8 +83,10 @@ Flat `Float32Array`, stride 10 per entity:
   and audio), `writeLiftSnapshot` (each lift's top) and `writeAvatarSnapshot`
   (`avatarSnapshot.ts`: per player slot the X1's button word as the movement
   read it, its velocity, ANIM bits, the transform's lock, the ground's movement
-  mode and the cloak — what the client's copy of the original's walker
-  animation runs off, `render/x1Walk.ts`).
+  mode and the cloak, and the walker's state machine — its state, flags and
+  last-asked track, the legs' and the cockpit's AnmD blocks and the codes the
+  legs passed this tick — which `render/x1Walk.ts` reads; the machine itself is
+  the sim's, `walker.ts`).
 - Events that don't interpolate (shots fired, deaths, captures, purchases, UI
   pings) go through a per-tick **event ring buffer** `(tick, type, a, b, c)`
   consumed by renderer/audio/UI. Client cosmetics (SFX + shot VFX tracers /

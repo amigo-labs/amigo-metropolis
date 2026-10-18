@@ -16,11 +16,11 @@ import {
   X1_ANIM_HEIGHT,
   X1_ANIM_WIDTH,
   X1_COCKPIT_FRAMES,
-  X1_LEG_TRACKS,
   X1_LEGS_FRAMES,
   X1_SLOTS,
 } from "../../../packages/client/src/render/x1Rig.generated";
-import { buildX1, X1_OUT_BIN, X1_OUT_GLB, X1_OUT_TS, X1_RAW_DIR } from "../fcopX1";
+import { X1_LEG_TRACKS } from "../../../packages/sim/src/x1Tracks.generated";
+import { buildX1, X1_OUT_BIN, X1_OUT_GLB, X1_OUT_SIM_TS, X1_OUT_TS, X1_RAW_DIR } from "../fcopX1";
 
 const io = new NodeIO();
 const RAW_FCOP = join(import.meta.dir, "..", "units", "raw", "fcop");
@@ -220,6 +220,7 @@ describe("the X1's rig", () => {
     expect(Buffer.compare(Buffer.from(built.glb), readFileSync(X1_OUT_GLB))).toBe(0);
     expect(Buffer.compare(Buffer.from(built.bin), readFileSync(X1_OUT_BIN))).toBe(0);
     expect(built.ts).toBe(readFileSync(X1_OUT_TS, "utf8"));
+    expect(built.simTs).toBe(readFileSync(X1_OUT_SIM_TS, "utf8"));
   });
 
   test("is one primitive over a table of both timelines", () => {
@@ -254,7 +255,7 @@ describe("the X1's rig", () => {
     for (const i of [0, 7, 14, 21, 29]) await expectPose(file, 330 + i, i, i);
   });
 
-  test("carries the legs' 62 AnmD tracks, the transform's at 0x0c", () => {
+  test("hands the sim the legs' 62 AnmD tracks, the transform's at 0x0c", () => {
     expect(X1_LEG_TRACKS.length).toBe(62);
     // Track 0x0c: frames 330 -> 359, mode 3 (frame = from + (to - from) * progress >> 16).
     expect(X1_LEG_TRACKS[0x0c].slice(0, 3)).toEqual([330, 359, 3]);

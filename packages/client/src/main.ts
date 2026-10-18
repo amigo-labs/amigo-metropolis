@@ -406,7 +406,7 @@ if (params.has("debug") && !netMode) {
   dbg.metropolisPin = (opts) => capturePinNow(opts?.notes ?? "", opts?.parentId ?? null);
 
   // X1 readout (render/x1Walk.ts): a screenshot shows a pose; this says which
-  // walker state, leg track and frames the original's machine is on.
+  // walker state, leg track and frames the sim's machine is on.
   dbg.metropolisRig = (slot = 0) =>
     avatarRig === null
       ? null
@@ -415,7 +415,7 @@ if (params.has("debug") && !netMode) {
           legsFrame: x1Walk.legsFrame[slot],
           cockpitFrame: x1Walk.cockpitFrame[slot],
           state: x1Walk.state[slot],
-          track: x1Walk.legs.index[slot],
+          track: x1Walk.legsTrack[slot],
           form: x1Walk.form[slot],
           aimYaw: x1Walk.aimYaw[slot],
           aimPitch: x1Walk.aimPitch[slot],
@@ -864,8 +864,8 @@ const units: ArenaUnitsRenderer = arenaUnits;
 // `?x1rig=off` keeps them there, the RE's two rest poses, for a side-by-side.
 const avatarRig: AvatarRig | null =
   renderMode === "mesh" && params.get("x1rig") !== "off" ? createAvatarRig(scene) : null;
-// The original's walker animation per player slot (render/x1Walk.ts), stepped
-// once a sim tick off the avatar snapshot (animateAvatars).
+// The X1s' frames and codes per player slot (render/x1Walk.ts): the sim's
+// walker machine, read once a sim tick off the avatar snapshot (animateAvatars).
 const x1Walk = createX1Walk();
 /** The X1's per-slot snapshot (sim avatarSnapshot.ts), refilled every tick. */
 const avatarSnap = new Float32Array(AVATAR_SNAPSHOT_LEN);
@@ -1446,7 +1446,7 @@ function ensureSandboxPanel(): void {
             legsFrame: avatarRig.legsAt(0),
             cockpitFrame: avatarRig.cockpitAt(0),
             state: x1Walk.state[views[0]?.slot ?? 0],
-            track: x1Walk.legs.index[views[0]?.slot ?? 0],
+            track: x1Walk.legsTrack[views[0]?.slot ?? 0],
           },
   });
 }
@@ -1653,7 +1653,7 @@ function groundUnder(x: number, z: number): number {
 
 /**
  * One sim tick of the X1s' animation (render/x1Walk.ts): the avatar snapshot,
- * then the walker's steps, the transform's frames and the cockpit's aim. Runs
+ * the sim machine's frames, form and codes off it, then the cockpit's aim. Runs
  * after every sim step and before the sounds, which play the legs' codes the
  * same tick (audio/cues.ts).
  */
@@ -1807,9 +1807,9 @@ function renderEntities(alpha: number, simDtSec: number): void {
     }
 
     if (rig) {
-      // The slot's frames once its machine has seen this X1, else the reset's
-      // pose by form (a spawn this frame). A false return is the rig out of
-      // capacity, which has already said so.
+      // The slot's frames once the snapshot has carried this X1, else the
+      // reset's pose by form (a spawn this frame). A false return is the rig
+      // out of capacity, which has already said so.
       const slot = team >= 0 && team < MAX_PLAYERS ? team : -1;
       const known = slot >= 0 && x1Walk.owner[slot] === id;
       const hovering = (animState & ANIM_HOVER) !== 0;

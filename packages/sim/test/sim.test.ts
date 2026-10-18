@@ -32,21 +32,23 @@ describe("sim tick loop", () => {
     // SIM_VERSION 61: and the spawn queues, whose phases are drawn at createSim.
     // SIM_VERSION 68: no longer the steer flag (the lock never turns the hull).
     // SIM_VERSION 76: and the results page's figures and the rival-hit flags.
-    expect(hash(createSim(map, 0xdead))).toBe(2872201129);
+    // SIM_VERSION 83: and the walker's state machine and its legs (walker.ts),
+    // in place of the lunge countdown.
+    expect(hash(createSim(map, 0xdead))).toBe(1570355733);
   });
 
   it("pins hashes for idle and movement scripts", () => {
     const sim = createSim(map, 0xdead);
     const inputs = createTickInputs();
     for (let i = 0; i < 10; i++) step(sim, inputs);
-    expect(hash(sim)).toBe(425043200);
+    expect(hash(sim)).toBe(868258496);
     expect(sim.tick).toBe(10);
 
     inputs.players[0].buttons = BTN_FORWARD; // the spawn faces +x
     for (let i = 0; i < 30; i++) step(sim, inputs);
     // The original's walker (SIM_VERSION 39): 4.69 m/s reached in ~0.2 s, and
     // slowed a little by the slope push up the test map's rise (was a flat 5 m/s).
-    expect(hash(sim)).toBe(3014311748);
+    expect(hash(sim)).toBe(245346276);
     expect(sim.ent.posX[0]).toBe(131.49205017089844);
     expect(sim.ent.posY[0]).toBe(127);
     expect(sim.ent.height[0]).toBe(0.34852543473243713);
@@ -103,9 +105,10 @@ describe("writeSnapshot", () => {
       0, // id
       0, // archetype AVATAR
       0, // team
-      131.49205017089844, // x
+      // A tick short of 30 of push: the reset's step has no control (SIM_VERSION 83).
+      131.33580017089844, // x
       127, // y
-      0.34852543473243713, // height
+      0.3140789270401001, // height
       0, // yaw (moving +x)
       1, // animState: moving
       1, // hpFrac

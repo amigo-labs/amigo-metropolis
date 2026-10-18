@@ -11,8 +11,9 @@
 // render/x1Pose.ts does on the CPU: a legs vertex is its joint's matrix of the
 // legs frame; a cockpit, gun or beacon vertex is its matrix of the cockpit
 // frame, turned by the cockpit's aim and set on the mount. The frames come from
-// the original's walker state machine (render/x1Walk.ts); walker, transform and
-// hover are all the same mesh at other frames, so nothing swaps.
+// the original's walker state machine, the sim's (walker.ts), read off the
+// avatar snapshot (render/x1Walk.ts); walker, transform and hover are all the
+// same mesh at other frames, so nothing swaps.
 //
 // Renderer rules: one InstancedMesh for the archetype (no exception any more:
 // the three-part hip-swing rig this replaced was one), capacity 4,

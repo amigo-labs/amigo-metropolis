@@ -135,10 +135,11 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
       step(sim, inputs);
       if (t95 < 0 && sim.ent.velX[0] > 0.95 * AVATAR_WALKER_SPEED) t95 = i + 1;
     }
-    // push 0x18000 against drag 0x6000 a step: 4.6875 m/s; 95 % after 0.17 s.
+    // push 0x18000 against drag 0x6000 a step: 4.6875 m/s; 95 % after 0.2 s,
+    // the first tick the reset's (no control until its first step lands).
     expect(AVATAR_WALKER_SPEED).toBe(4.6875);
     expect(sim.ent.velX[0]).toBeCloseTo(AVATAR_WALKER_SPEED, 4);
-    expect(t95).toBeLessThanOrEqual(6);
+    expect(t95).toBeLessThanOrEqual(7);
     expect(sim.ent.posX[0]).toBeGreaterThan(12 + AVATAR_WALKER_SPEED - 0.4);
     expect(sim.ent.posX[0]).toBeLessThan(12 + AVATAR_WALKER_SPEED);
     // Released, it stops within a few ticks (under 0.586 m/s it stops dead).
@@ -158,9 +159,10 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
     expect(sim.ent.velY[0]).toBeCloseTo(WALKER_PUSH_STRAFE / WALKER_DRAG, 4);
     expect(WALKER_PUSH_STRAFE / WALKER_DRAG).toBe(3.125);
     expect(sim.ent.yaw[0]).toBe(0);
-    // Forward + jink: 181/256 of the fore push at 45°, as fast as straight on.
+    // Forward + jink: 181/256 of the fore push at 45°, as fast as straight on --
+    // once the strafe's step has run out (another move finishes it first).
     p0.buttons = BTN_FORWARD | BTN_JINK_RIGHT;
-    for (let i = 0; i < 30; i++) step(sim, inputs);
+    for (let i = 0; i < 60; i++) step(sim, inputs);
     expect(Math.hypot(sim.ent.velX[0], sim.ent.velY[0])).toBeCloseTo(AVATAR_WALKER_SPEED, 2);
     expect(sim.ent.velX[0]).toBeCloseTo(sim.ent.velY[0], 4);
   });
@@ -181,6 +183,8 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
   it("turns at 105°/s standing, 79°/s at a full run", () => {
     reset();
     const sim = freshSim();
+    // The reset's step has no control: it turns from the next.
+    step(sim, inputs);
     p0.buttons = BTN_TURN_RIGHT; // the facing grows: from +X toward +Y
     step(sim, inputs);
     expect(sim.ent.yaw[0] * DEG * 30).toBeCloseTo(105.47, 1);
@@ -248,22 +252,27 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
     expect(sim.ent.height[id]).toBeGreaterThanOrEqual(Math.fround(-0.5 + HOVER_CLEARANCE) - 1e-6);
   });
 
-  it("hops on open ground: 6.45 m/s up and 4.69 m/s forward", () => {
+  it("hops on open ground: 6.45 m/s up and 4.69 m/s forward, after its wind-up", () => {
     reset();
     const sim = freshSim();
     const ground = sampleHeight(sim.map, 12, 30);
+    for (let i = 0; i < 3; i++) step(sim, inputs);
     p0.buttons = BTN_JUMP;
     step(sim, inputs);
     p0.buttons = 0;
     let apex = 0;
     let airTicks = 0;
+    let windUp = 0;
     for (let i = 0; i < 60; i++) {
       step(sim, inputs);
       const h = sim.ent.height[0] - ground;
       if (h > apex) apex = h;
       if (h > 0.001) airTicks++;
-      if (i > 5 && h <= 0.001) break;
+      else if (airTicks === 0) windUp++;
+      if (airTicks > 0 && h <= 0.001) break;
     }
+    // On the ground ~0.2 s first: the wind-up's track 0x11 until its LAUNCH link.
+    expect(windUp).toBe(5);
     // The original's apex is 0.71 m; 30 Hz semi-implicit steps land it at 0.69.
     expect(apex).toBeGreaterThan(0.65);
     expect(apex).toBeLessThan(0.75);
@@ -272,7 +281,7 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
     expect(sim.ent.height[0]).toBe(ground);
   });
 
-  it("jumps once on a held Jump: the press, not the hold", () => {
+  it("jumps again on a held Jump: the level, not the press", () => {
     reset();
     const sim = freshSim();
     const ground = sampleHeight(sim.map, 12, 30);
@@ -285,7 +294,8 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
       if (wasDown && !down) takeoffs++;
       wasDown = down;
     }
-    expect(takeoffs).toBe(1);
+    // Each one once its landing's tracks have run back to track 0.
+    expect(takeoffs).toBe(3);
   });
 
   it("leaps when it jumps at a run: 7.32 m/s up on top of the run", () => {
@@ -297,6 +307,8 @@ describe("walker movement (the original's, fcop-fidelity.md P4)", () => {
     p0.buttons = BTN_FORWARD | BTN_JUMP;
     step(sim, inputs);
     p0.buttons = BTN_FORWARD;
+    // The press starts the leap's legs; the step after lifts it.
+    if (sim.ent.timerB[0] <= 0) step(sim, inputs);
     // The leap adds 1.76 m/s forward on top of the run.
     expect(sim.ent.velX[0]).toBeGreaterThan(AVATAR_WALKER_SPEED + 1.5);
     let apex = 0;

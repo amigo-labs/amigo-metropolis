@@ -106,12 +106,13 @@ forever as a debug render mode (`?render=greybox`).
   assembled walker, hover and transform. Walker, transformation and hover are
   the same mesh at other frames, so nothing swaps and nothing is split: the
   one-mesh-per-archetype rule holds for the X1 again.
-- **The frames are the original's state machine's** (`render/x1Walk.ts`): the
-  animation half of the walker's tick, the transform's mode-3 ramp (legs track
-  0x0c 330 -> 359, cockpit track 2 0 -> 29, 160 a unit of the 300 Hz clock) and
-  the AnmD player, stepped once a sim tick off the avatar snapshot
-  (`writeAvatarSnapshot`). The legs' tracks also carry the walker's movement-loop
-  codes, which `audio/cues.ts` plays. The RE manifest's clip seconds are not
+- **The frames are the original's state machine's**, which runs in the sim
+  (`packages/sim/src/walker.ts`, SIM_VERSION 83): the walker's tick, the
+  transform's mode-3 ramp (legs track 0x0c 330 -> 359, cockpit track 2 0 -> 29,
+  160 a unit of the 300 Hz clock) and the AnmD player; `render/x1Walk.ts` reads
+  both blocks' frames off the avatar snapshot (`writeAvatarSnapshot`) once a sim
+  tick. The legs' tracks also carry the walker's movement-loop codes, which
+  `audio/cues.ts` plays. The RE manifest's clip seconds are not
   used; the clips' `full` timeline is read as an index of frames.
 - The greybox buckets keep the two rest poses (`avatar-walker`,
   `avatar-hover`, the RE's assembled walker and hover through `gen:units`) as
