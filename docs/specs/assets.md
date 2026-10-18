@@ -209,3 +209,18 @@ plays only the original's sound:
 - Music: each arena's own track (`public/music/<Mission>.wav`, 8-bit stereo 14260 Hz).
 - All audio is driven from the sim's event ring and the snapshot interface, never from
   sim internals, and nothing the audio does reaches the sim.
+- The front end's UI sounds: the exe's nine WAVE slots (`public/sfx/ui/`), played as
+  the original's PlaySoundA plays them — one at a time, outside the game's mixer
+  (`menu/frontend/uiSound.ts`; `fcop-fidelity.md` F17).
+
+## 6. Front end
+
+The menu is the original's bitmap front end (`docs/specs/ui.md` §3, PLAN.md Phase 14
+wave 7). Its pictures, loading screens and UI sounds are the original's, copied
+unchanged into `packages/client/public/ui/frontend/` and `public/sfx/ui/` by
+`bun run gen:frontend` (`tools/generators/importFcopFrontend.ts`) from an RE checkout,
+which also writes the screen and dialog data the menu draws from
+(`menu/frontend/frontendData.generated.ts`, from `extracted/frontend/screens.json`,
+`dialogs.json` and `ui_sounds.json`). `--check` rebuilds it all in memory and fails on
+any difference. Nothing is redrawn or re-encoded; the dialogs are the system's own
+chrome, rebuilt in CSS (`menu/win9x/`), not pictures.

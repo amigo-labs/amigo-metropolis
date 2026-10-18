@@ -16,6 +16,7 @@
     "dev": "bun run --filter @metropolis/client dev",
     "gen:units": "bun run tools/generators/genUnitModels.ts",
     "gen:sfx": "bun run tools/generators/genSfx.ts",
+    "gen:frontend": "bun run tools/generators/importFcopFrontend.ts",
     "gen:fxsheet": "bun run tools/generators/fx/particleSheet.ts",
     "gen:fxkey": "bun run tools/generators/fx/keyAtlas.ts",
     "gen:fxcobj": "bun run tools/generators/fx/cobjContact.ts",
