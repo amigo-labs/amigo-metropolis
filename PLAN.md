@@ -786,6 +786,8 @@ no golden moves.
       the turret bases at their own record's yaw (+0x42, not the gun's), the
       lifts unmirrored, the pickups' spin; the kiosks' screens held to their
       zones (G6, G12)
+- [x] `gen:units` byte-reproducible: a committed atlas's PNG bytes kept where a
+      rebuild's pixels agree; `gen:units --check`
 - [ ] The turret guns' rest yaw: the record's a, where the sim has pi/2 - a
       (`rotToYaw` with the -1024 bias; a SIM_VERSION change, v83) (G12)
 - [x] Team colour by the original's texture offsets in place of the invented

@@ -224,6 +224,12 @@ forever as a debug render mode (`?render=greybox`).
   actor's construct (`render/unitTracks.ts`, which also measures the travel from
   the interpolated positions); the flags all start with the arena. The X1's
   skeletons play by their own rig (above).
+- **`gen:units` is byte-reproducible** across environments: a rebuild that
+  decodes an atlas to the committed file's pixels keeps the committed PNG bytes
+  (the deflate stream is the encoder's: another zlib gave La Cantina's kiosks
+  and five FX models other bytes for the same texels), so an unchanged model
+  rebuilds to its committed file. `bun run gen:units --check` builds every model
+  in memory and fails on any difference.
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
 - Materials: single atlas texture, `flatShading: true`, no PBR maps.
 

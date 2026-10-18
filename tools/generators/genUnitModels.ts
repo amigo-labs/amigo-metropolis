@@ -24,7 +24,16 @@
 // Authoring-time tooling like genBrand.py / genDistrict01.ts: never imported
 // by the game; only its committed output ships.
 //
-// Usage: bun run gen:units   (from the repo root)
+// Reproducible across environments: the one thing a rebuild does not
+// reproduce byte for byte is a PNG's deflate stream (the same pixels encode to
+// other bytes under another zlib or encoder). So an atlas whose decoded pixels
+// equal the committed file's keeps the committed file's PNG bytes
+// (`keepCommittedImages`), and an unchanged model rebuilds to the same bytes.
+//
+// Usage: bun run gen:units [--check]   (from the repo root)
+//
+// `--check` builds every model in memory and exits 1 if any differs from the
+// committed file (by its pixels for the atlas, by its bytes for the rest).
 
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -50,7 +59,7 @@ import {
   weld,
 } from "@gltf-transform/functions";
 import { MeshoptSimplifier } from "meshoptimizer";
-import { type DecodedImage, decodePng, encodePng } from "./png";
+import { type DecodedImage, decodePng, encodePng, samePixels } from "./png";
 import { ARENA_UNIT_MODELS, FX_MODELS, PROP_MODELS, UNIT_MODELS } from "./units/manifest";
 
 const RAW_DIR = join(import.meta.dir, "units", "raw");
@@ -192,6 +201,26 @@ const PASSES: readonly ModelPass[] = [
 ];
 
 const io = new NodeIO();
+const CHECK = process.argv.includes("--check");
+
+/**
+ * Gives each texture of `document` the committed file's PNG bytes where both
+ * decode to the same pixels: the deflate stream is the encoder's, not the
+ * model's, and differs between environments for identical pixels.
+ */
+async function keepCommittedImages(document: Document, outPath: string): Promise<void> {
+  if (!(await Bun.file(outPath).exists())) return;
+  const committed = (await io.read(outPath)).getRoot().listTextures();
+  document
+    .getRoot()
+    .listTextures()
+    .forEach((texture, i) => {
+      const now = texture.getImage();
+      const then = committed[i]?.getImage();
+      if (!now || !then || committed[i].getMimeType() !== texture.getMimeType()) return;
+      if (texture.getMimeType() === "image/png" && samePixels(now, then)) texture.setImage(then);
+    });
+}
 
 const IDENTITY_MATRIX: readonly number[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
@@ -1267,10 +1296,19 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
   }
   root.getAsset().generator = "amigo-metropolis gen:units";
 
-  const glb = await io.writeBinary(document);
   const outPath = join(spec.outDir, `${spec.key}.glb`);
-  await mkdir(dirname(outPath), { recursive: true });
-  await Bun.write(outPath, glb);
+  await keepCommittedImages(document, outPath);
+  const glb = await io.writeBinary(document);
+  if (CHECK) {
+    const file = Bun.file(outPath);
+    const committed = (await file.exists()) ? await file.bytes() : null;
+    if (!committed || !Buffer.from(glb).equals(Buffer.from(committed))) {
+      stale.push(spec.label ?? spec.key);
+    }
+  } else {
+    await mkdir(dirname(outPath), { recursive: true });
+    await Bun.write(outPath, glb);
+  }
 
   bounds = getBounds(scene);
   const dims = [0, 1, 2].map((i) => (bounds.max[i] - bounds.min[i]).toFixed(2)).join(" x ");
@@ -1278,6 +1316,7 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
 }
 
 const reports: Report[] = [];
+const stale: string[] = [];
 for (const spec of PASSES) {
   const report = await processModel(spec);
   if (report) reports.push(report);
@@ -1288,4 +1327,11 @@ for (const r of reports) {
     `${r.key.padEnd(28)}${String(r.tris).padEnd(7)}${String(r.simplified).padEnd(12)}` +
       `${r.size.padEnd(22)}${(r.bytes / 1024).toFixed(0)}`,
   );
+}
+if (CHECK) {
+  if (stale.length > 0) {
+    console.error(`gen:units --check: ${stale.length} stale: ${stale.join(", ")}`);
+    process.exit(1);
+  }
+  console.log(`gen:units --check: ${reports.length} models match`);
 }
