@@ -78,6 +78,13 @@ Flat `Float32Array`, stride 10 per entity:
 - Written once per tick into one of two rotating buffers (current/previous).
 - Renderer interpolates previous→current by render-frame alpha. Never
   extrapolate; never read sim internals.
+- Beside it, three per-tick buffers that are pure reads too, never hashed:
+  `writeMatchSnapshot` (per-match scalars and each player slot, for the HUD
+  and audio), `writeLiftSnapshot` (each lift's top) and `writeAvatarSnapshot`
+  (`avatarSnapshot.ts`: per player slot the X1's button word as the movement
+  read it, its velocity, ANIM bits, the transform's lock, the ground's movement
+  mode and the cloak — what the client's copy of the original's walker
+  animation runs off, `render/x1Walk.ts`).
 - Events that don't interpolate (shots fired, deaths, captures, purchases, UI
   pings) go through a per-tick **event ring buffer** `(tick, type, a, b, c)`
   consumed by renderer/audio/UI. Client cosmetics (SFX + shot VFX tracers /
