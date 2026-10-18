@@ -49,6 +49,13 @@ const MAX_WEDGES = 20;
 /** `CACT_EFX89_DRAW_CULL`: beyond 0x20000 of the eye (plus the radius) nothing draws. */
 const CULL_M = 0x20000 / WORLD_UNITS_PER_METRE;
 
+/**
+ * `CACT_EFX89_DRAW_DEPTH_BIAS` (`push 0x200`, 0x0043cd30 / 0x0043cd59): both
+ * drawers hand the display list one sort key, the centre's depth less 0x200 of
+ * the projection's sixteenths (1 m). The whole disc is drawn at that depth.
+ */
+const DEPTH_BIAS_M = (0x200 * 16) / WORLD_UNITS_PER_METRE;
+
 const VERTEX = /* glsl */ `
 attribute float aIndex;
 attribute float aCorner;
@@ -81,6 +88,12 @@ void main() {
     vColour = iRim;
   }
   gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(p, 1.0);
+  // One depth for the disc: its centre's, pulled toward the eye by the bias
+  // (and kept in front of the near plane).
+  vec4 c = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  c.z = min(c.z + ${DEPTH_BIAS_M.toFixed(4)}, -0.11);
+  vec4 cc = projectionMatrix * c;
+  gl_Position.z = cc.z / cc.w * gl_Position.w;
 }`;
 
 const FRAGMENT = /* glsl */ `
