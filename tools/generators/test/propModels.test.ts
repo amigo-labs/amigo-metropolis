@@ -15,7 +15,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { type Document, getBounds, NodeIO } from "@gltf-transform/core";
 import { SCENERY_PLACEMENTS } from "../../../packages/client/src/render/arenaScenery.generated";
-import { ARENA_SCENERY, PROP_MODELS, sceneryRaw } from "../units/manifest";
+import { ARENA_SCENERY, EMITTER_PROP_MODELS, PROP_MODELS, sceneryRaw } from "../units/manifest";
 
 const REPO = join(import.meta.dir, "..", "..", "..");
 const OUT_DIR = join(REPO, "packages", "client", "public", "models", "props");
@@ -142,6 +142,46 @@ describe("committed prop models match the manifest contract", () => {
         const spec = PROP_MODELS.find((s) => s.mapId === mapId && s.cobj === Number(cobj));
         expect(spec?.morph).toEqual(morph);
       }
+    }
+  });
+});
+
+// The type-96 Props' models (fcop-fidelity.md G13): each arena's own export,
+// its origin kept on every axis — `snd_emit_build` stands the model's origin
+// at the record's height, and a lamp hangs below its own.
+describe("committed Prop models keep the raw's frame", () => {
+  for (const spec of EMITTER_PROP_MODELS) {
+    test(`${spec.mapId}/${spec.key}`, async () => {
+      expect(spec.keepOrigin).toBe(true);
+      const document = await io.read(join(OUT_DIR, spec.mapId, `${spec.key}.glb`));
+      const root = document.getRoot();
+      expect(root.listMaterials().length).toBe(1);
+      const prims = root.listMeshes()[0].listPrimitives();
+      expect(prims.length).toBe(1);
+      expect(prims[0].listTargets().length).toBe((spec.morph?.frames ?? 1) - 1);
+      const out = getBounds(root.getDefaultScene() ?? root.listScenes()[0]);
+      const rawDoc = await io.read(join(RAW_DIR, spec.raw));
+      const rawRoot = rawDoc.getRoot();
+      const raw = getBounds(rawRoot.getDefaultScene() ?? rawRoot.listScenes()[0]);
+      for (const axis of [0, 1, 2]) {
+        expect(Math.abs(out.min[axis] - raw.min[axis])).toBeLessThanOrEqual(0.01);
+        expect(Math.abs(out.max[axis] - raw.max[axis])).toBeLessThanOrEqual(0.01);
+      }
+      const names = rawRoot.listNodes().map((n) => n.getName());
+      expect(names).toContain(`${spec.mission}_obj_${String(spec.cobj).padStart(3, "0")}`);
+    });
+  }
+
+  test("are every drawn model of every arena's Props, and only those", () => {
+    for (const [mapId, scenery] of Object.entries(SCENERY_PLACEMENTS)) {
+      const drawn = Object.entries(scenery.propModels)
+        .filter(([, m]) => m.drawn)
+        .map(([c]) => Number(c));
+      const carried = EMITTER_PROP_MODELS.filter((s) => s.mapId === mapId).map((s) => s.cobj);
+      expect({ mapId, ids: carried.sort((a, b) => a - b) }).toEqual({
+        mapId,
+        ids: drawn.sort((a, b) => a - b),
+      });
     }
   });
 });

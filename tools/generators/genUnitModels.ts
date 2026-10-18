@@ -60,7 +60,13 @@ import {
 } from "@gltf-transform/functions";
 import { MeshoptSimplifier } from "meshoptimizer";
 import { type DecodedImage, decodePng, encodePng, samePixels } from "./png";
-import { ARENA_UNIT_MODELS, FX_MODELS, PROP_MODELS, UNIT_MODELS } from "./units/manifest";
+import {
+  ARENA_UNIT_MODELS,
+  EMITTER_PROP_MODELS,
+  FX_MODELS,
+  PROP_MODELS,
+  UNIT_MODELS,
+} from "./units/manifest";
 
 const RAW_DIR = join(import.meta.dir, "units", "raw");
 const MODELS_DIR = join(import.meta.dir, "..", "..", "packages", "client", "public", "models");
@@ -164,7 +170,7 @@ const PASSES: readonly ModelPass[] = [
     keepMorph: spec.morph?.source,
     morphFrames: spec.morph?.frames,
   })),
-  ...PROP_MODELS.map((spec) => ({
+  ...[...PROP_MODELS, ...EMITTER_PROP_MODELS].map((spec) => ({
     key: spec.key,
     label: `${spec.mapId}/${spec.key}`,
     raw: spec.raw,
@@ -177,8 +183,9 @@ const PASSES: readonly ModelPass[] = [
     maxTris: spec.maxTris,
     neutralizeColors: false,
     centreXZ: false,
-    groundY: true,
-    // The flag's cloth (render/props.ts plays it).
+    // A Prop's origin is the record's point, whatever hangs below it.
+    groundY: !spec.keepOrigin,
+    // The flag's cloth and the Props' frames (render/props.ts plays them).
     keepMorph: spec.morph ? ("morph" as const) : undefined,
     morphFrames: spec.morph?.frames,
   })),

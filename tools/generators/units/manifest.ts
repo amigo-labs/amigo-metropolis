@@ -496,6 +496,12 @@ export interface PropModelSpec {
    * scenery table (render/arenaScenery.generated.ts, `bun run gen:scenery`).
    */
   readonly morph: SceneryMorph | null;
+  /**
+   * Keep the raw's own origin (a type-96 Prop): `snd_emit_build` stands the
+   * model's origin at the record's height, and a lamp or a sign hangs below
+   * its origin. The type-11 models stand on theirs (their min y is 0).
+   */
+  readonly keepOrigin: boolean;
   readonly source: UnitModelSource;
   readonly maxTris: number;
 }
@@ -683,6 +689,7 @@ export const PROP_MODELS: readonly PropModelSpec[] = ARENA_SCENERY.flatMap((aren
       mpTwin,
       raw: sceneryRaw(arena.mission, cobj),
       morph: SCENERY_PLACEMENTS[arena.mapId]?.morphs[cobj] ?? null,
+      keepOrigin: false,
       source: {
         title: `${kind} (${arena.mission} Cobj ${cobj})`,
         author: EA,
@@ -692,4 +699,43 @@ export const PROP_MODELS: readonly PropModelSpec[] = ARENA_SCENERY.flatMap((aren
       maxTris: 1500,
     };
   }),
+);
+
+// The type-96 Props (fcop-fidelity.md G13): every model a Prop record of the
+// arena's mission names, as the RE exports it (raw/fcop-props/<Mission>/,
+// copied by `bun run gen:scenery`), into the same folder as the type-11
+// scenery under the same `prop-<cobj>` name (one mission's Cobj ids are one
+// namespace; gen:scenery refuses a Cobj that is both). The original builds a
+// Prop as a sound emitter around its model (RE snd/emitter.c), not as an
+// actor: what each one is the records and their models say, not a role. A
+// model some record steps through its frames keeps them as morph targets
+// (render/props.ts plays them); one of camera-facing facers only (Hk 65, Slim
+// 63 and 83, Joke 62 and 82) is not built (gen:scenery `drawn`).
+export const EMITTER_PROP_MODELS: readonly PropModelSpec[] = Object.entries(
+  SCENERY_PLACEMENTS,
+).flatMap(([mapId, scenery]) =>
+  Object.entries(scenery.propModels)
+    .filter(([, m]) => m.drawn)
+    .map(([id, m]) => {
+      const cobj = Number(id);
+      const records = scenery.props.filter((p) => p.cobj === cobj);
+      const animated = records.some((p) => p.anim !== "none");
+      return {
+        key: `prop-${String(cobj).padStart(3, "0")}`,
+        mapId,
+        mission: scenery.mission,
+        cobj,
+        mpTwin: null,
+        raw: sceneryRaw(scenery.mission, cobj),
+        morph: animated ? { frames: m.frames, period: 0 } : null,
+        keepOrigin: true,
+        source: {
+          title: `Prop (${scenery.mission} Cobj ${cobj}, ${records.length} placement${records.length === 1 ? "" : "s"})`,
+          author: EA,
+          url: RE_REPO,
+          license: FCOP_LICENSE,
+        },
+        maxTris: 1500,
+      };
+    }),
 );

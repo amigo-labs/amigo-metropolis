@@ -51,10 +51,20 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { join } from "node:path";
 import { FCOP_ARENAS, type FcopArena, selectArenas } from "./fcopArenas";
 import { argOf } from "./fcopLogic";
+import {
+  type DecalRect,
+  type PropRecord as EmitterRecord,
+  GameRand,
+  type QuadRecord,
+  RETAIL_SEED,
+  resolveProp,
+  resolveQuad,
+} from "./sceneryProps";
 import { ARENA_SCENERY, sceneryRaw } from "./units/manifest";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const RAW_DIR = join(import.meta.dir, "units", "raw");
+const DECAL_DIR = join(REPO_ROOT, "packages", "client", "public", "models", "decals");
 const OUT_TS = join(REPO_ROOT, "packages", "client", "src", "render", "arenaScenery.generated.ts");
 /** enrichArena.ts LOGIC_OFFSET_X / _Z: the actor frame's shift onto the sim grid. */
 const LOGIC_OFFSET_X = 16;
@@ -63,6 +73,10 @@ const LOGIC_OFFSET_Z = 0;
 const WU_PER_M = 8192;
 /** The DynamicProp. */
 const TYPE_DYNAMIC_PROP = 11;
+/** The Prop: a model the original builds as a permanent sound emitter. */
+const TYPE_PROP = 96;
+/** The DCSQuad: one decal quad, a pyro block that never expires. */
+const TYPE_DCS_QUAD = 97;
 /** The turret types that build a base part (turret_construct's 8, 33 and 36 arm). */
 const TURRET_TYPES = [8, 33, 36];
 /** Order 0x3c: damage of max(health + 1, 0) when the parameter is 0 or 1 (a kill). */
@@ -101,6 +115,18 @@ from fcop import extract, parse
 import surface_model as sm
 
 LAYER_LOWEST, LAYER_HIGHEST = -2, -1
+
+def arsl(p):
+    # The aRSL list's Cobj ids, in order.
+    out = []
+    at = p.find(b"LSRa")
+    if at >= 0:
+        n = (struct.unpack_from("<I", p, at + 4)[0] - 12) // 8
+        for i in range(n):
+            tag, rid = struct.unpack_from("<II", p, at + 12 + 8 * i)
+            if tag == 0x436F626A:
+                out.append(rid)
+    return out
 
 def terrain_height_at(world, point, layer):
     # RE src/game/world/height.c 0x004545d0.
@@ -150,7 +176,17 @@ for mission in sys.argv[2:]:
     blob, resources = parse(path)
     recs = []
     turrets = []
-    for r in resources:
+    props96 = []
+    quads = []
+    rects = []
+    for seq, r in enumerate(resources):
+        if r["type"] == "Cdcs":
+            # The decal rects (tools/gfx/extract_decals.py parse_cdcs): u, v,
+            # w, h, the Cbmp page, two pads, the id a DCSQuad names.
+            c = extract(blob, r)
+            for i in range(struct.unpack_from("<I", c, 8)[0]):
+                e = c[12 + 8 * i: 20 + 8 * i]
+                rects.append({"res": r["id"], "u": e[0], "v": e[1], "w": e[2], "h": e[3], "page": e[4], "id": e[7]})
         if r["type"] not in ("Cact", "Csac"):
             continue
         p = extract(blob, r)
@@ -166,6 +202,46 @@ for mission in sys.argv[2:]:
                 "pos": list(struct.unpack_from("<3i", pay, 4)),
                 "base": struct.unpack_from("<h", pay, 0x42)[0],
                 "gun": struct.unpack_from("<h", pay, 0x34)[0],
+            })
+            continue
+        rec = p[8:]  # the record the loaders hand on: the payload less four
+        if p[12] == ${TYPE_PROP}:
+            # cact_load_type96 (0x0042fc80) -> snd_emit_build (0x0042f6c0):
+            # snd_emit_record, every field the build reads.
+            sel = struct.unpack_from("<b", rec, 0x1c)[0]
+            # 0x0042f80e: -99 no ground; 0 -> highest, 1 -> lowest, n -> n - 2.
+            layer = None if sel == -99 else (LAYER_HIGHEST if sel == 0 else (LAYER_LOWEST if sel == 1 else sel - 2))
+            pos = list(struct.unpack_from("<3i", rec, 8))
+            props96.append({
+                "seq": seq, "res": r["type"], "id": r["id"], "cobjs": arsl(p), "pos": pos,
+                "angleY": struct.unpack_from("<h", rec, 0x14)[0],
+                "angleZ": struct.unpack_from("<h", rec, 0x16)[0],
+                "angleX": struct.unpack_from("<h", rec, 0x18)[0],
+                "height": struct.unpack_from("<h", rec, 0x1a)[0],
+                "layer": sel, "flags": rec[0x1d], "rate": rec[0x1e],
+                "scale": list(struct.unpack_from("<3b", rec, 0x1f)),
+                "spin": struct.unpack_from("<b", rec, 0x22)[0], "heading": rec[0x23],
+                "ground": None if layer is None else terrain_height_at(world, pos, layer),
+            })
+            continue
+        if p[12] == ${TYPE_DCS_QUAD}:
+            # cact_load_type97 (0x004372d0) -> pyro_spawn (0x00437050): the
+            # PYRO_REC_* fields of the record.
+            sel = struct.unpack_from("<b", rec, 0x22)[0]
+            # 0x00437135: -3 no ground; 0 -> highest, 1 -> lowest, n -> n - 2.
+            layer = None if sel == -3 else (LAYER_HIGHEST if sel == 0 else (LAYER_LOWEST if sel == 1 else sel - 2))
+            pos = list(struct.unpack_from("<3i", rec, 8))
+            quads.append({
+                "seq": seq, "res": r["type"], "id": r["id"], "pos": pos,
+                "flags": rec[0x14], "kind": struct.unpack_from("<b", rec, 0x15)[0],
+                "lift": struct.unpack_from("<h", rec, 0x16)[0],
+                "spanZ": struct.unpack_from("<h", rec, 0x18)[0],
+                "spanX": struct.unpack_from("<h", rec, 0x1a)[0],
+                "angleY": struct.unpack_from("<h", rec, 0x1c)[0],
+                "angleX": struct.unpack_from("<h", rec, 0x1e)[0],
+                "angleZ": struct.unpack_from("<h", rec, 0x20)[0],
+                "layer": sel, "colour": list(rec[0x23:0x26]),
+                "ground": 0 if layer is None else terrain_height_at(world, pos, layer),
             })
             continue
         if p[12] != ${TYPE_DYNAMIC_PROP}:
@@ -188,7 +264,7 @@ for mission in sys.argv[2:]:
             "heightOffset": struct.unpack_from("<i", pay, 0x24)[0], "group": pay[25],
             "terrain": terrain_height_at(world, pos, layer),
         })
-    out[mission] = {"props": recs, "turrets": turrets}
+    out[mission] = {"props": recs, "turrets": turrets, "props96": props96, "quads": quads, "rects": rects}
 print(json.dumps(out))
 `;
 
@@ -209,6 +285,10 @@ interface TurretRecord {
 interface MissionRecords {
   readonly props: PropRecord[];
   readonly turrets: TurretRecord[];
+  /** The type-96 Props and type-97 DCSQuads, and the Cdcs rects they name. */
+  readonly props96: EmitterRecord[];
+  readonly quads: QuadRecord[];
+  readonly rects: DecalRect[];
 }
 
 function readRecords(reRepo: string, missions: readonly string[]): Record<string, MissionRecords> {
@@ -412,11 +492,189 @@ interface TurretBase {
   yaw: number;
 }
 
+interface PropRow {
+  record: string;
+  cobj: number;
+  x: number;
+  y: number;
+  h: number;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  scale: readonly number[];
+  spin: number;
+  swing: number;
+  park: number;
+  anim: string;
+  period: number;
+  sound: number;
+}
+
+interface QuadRow {
+  record: string;
+  decal: number;
+  x: number;
+  y: number;
+  h: number;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  halfX: number;
+  halfZ: number;
+  tint: readonly number[];
+  blend: number;
+  twoSided: boolean;
+}
+
+interface DecalFile {
+  /** Under public/models/decals/<mapId>/. */
+  file: string;
+  /** The RE's crop it is copied from, under extracted/decals/. */
+  from: string;
+  w: number;
+  h: number;
+}
+
 interface ArenaTable {
   mission: string;
   placements: Placement[];
   morphs: [number, Morph][];
   turretBases: TurretBase[];
+  props: PropRow[];
+  /** By Cobj: its frame count and whether it is drawn (see emitterTables). */
+  propModels: [number, { frames: number; drawn: boolean }][];
+  quads: QuadRow[];
+  decals: [number, DecalFile][];
+}
+
+interface ObjectManifest {
+  readonly objects?: readonly {
+    id: number;
+    glb: string | null;
+    frames_actual: number;
+    tris: number;
+    quads: number;
+  }[];
+}
+
+interface DecalManifest {
+  readonly decals: readonly {
+    container: string;
+    dcs_id: number;
+    sprite_id: number;
+    file?: string;
+    w: number;
+    h: number;
+  }[];
+}
+
+/**
+ * The arena's type-96 Props and type-97 DCSQuads, built in the order the
+ * mission loads them, their random angles and scales drawn from one
+ * `game_rand` stream. The stream's seed is a guess: the original reseeds from
+ * the wall clock at every mission load (RE mission/session.c 0x004060ba) and
+ * other loads draw from it in between; the image's own fixed seed 0x457 (the
+ * maths init's) stands in, so every load of an arena is one of the original's.
+ */
+function emitterTables(
+  mapId: string,
+  mission: string,
+  own: MissionRecords,
+  reRepo: string,
+): Pick<ArenaTable, "props" | "propModels" | "quads" | "decals"> {
+  const objects = JSON.parse(
+    readFileSync(join(reRepo, "extracted", "objects", mission, "manifest.json"), "utf8"),
+  ) as ObjectManifest | NonNullable<ObjectManifest["objects"]>;
+  const list = (Array.isArray(objects) ? objects : (objects as ObjectManifest).objects) ?? [];
+  const byId = new Map(list.map((o) => [o.id, o]));
+  const frames = (cobj: number): number => byId.get(cobj)?.frames_actual ?? 1;
+  const rand = new GameRand(RETAIL_SEED);
+  const loads = [
+    ...own.props96.map((r) => ({ seq: r.seq, prop: r, quad: null })),
+    ...own.quads.map((r) => ({ seq: r.seq, prop: null, quad: r })),
+  ].sort((a, b) => a.seq - b.seq);
+  const props: PropRow[] = [];
+  const quads: QuadRow[] = [];
+  for (const load of loads) {
+    if (load.prop) {
+      const p = resolveProp(load.prop, rand, frames);
+      if (!byId.has(p.cobj)) throw new Error(`${mapId} ${p.record}: Cobj ${p.cobj} not exported`);
+      props.push({
+        record: p.record,
+        cobj: p.cobj,
+        x: round4(p.pos[2] / WU_PER_M + LOGIC_OFFSET_X),
+        y: round4(p.pos[0] / WU_PER_M + LOGIC_OFFSET_Z),
+        h: round4(p.pos[1] / WU_PER_M),
+        yaw: p.yaw,
+        pitch: p.pitch,
+        roll: p.roll,
+        scale: p.scale,
+        spin: p.spin,
+        swing: p.swing,
+        park: p.park,
+        anim: p.anim,
+        period: p.period,
+        sound: p.sound,
+      });
+    } else if (load.quad) {
+      const q = resolveQuad(load.quad, rand, own.rects);
+      if (!q) continue;
+      quads.push({
+        record: q.record,
+        decal: q.decal,
+        x: round4(q.pos[2] / WU_PER_M + LOGIC_OFFSET_X),
+        y: round4(q.pos[0] / WU_PER_M + LOGIC_OFFSET_Z),
+        h: round4(q.pos[1] / WU_PER_M),
+        yaw: q.yaw,
+        pitch: q.pitch,
+        roll: q.roll,
+        halfX: round4(q.halfX / WU_PER_M),
+        halfZ: round4(q.halfZ / WU_PER_M),
+        tint: q.tint,
+        blend: q.blend,
+        twoSided: q.twoSided,
+      });
+    }
+  }
+  props.sort(byRecord);
+  quads.sort(byRecord);
+  // A model is drawn where the RE exports it with faces of its own. One of
+  // Star / Billboard / Line facers only is not: the original faces them to
+  // the camera, and the RE's glb stands them in as static crossed quads, its
+  // billboards and lines white (tools/gfx/obj_mesh.py _build_facers) — Hk 65,
+  // Slim 63, Joke 62; Slim 83 and Joke 82, lines only, it does not export.
+  const propModels: [number, { frames: number; drawn: boolean }][] = [
+    ...new Set(props.map((p) => p.cobj)),
+  ]
+    .sort((a, b) => a - b)
+    .map((cobj) => {
+      const o = byId.get(cobj);
+      return [cobj, { frames: frames(cobj), drawn: !!o?.glb && o.tris + o.quads > 0 }];
+    });
+  const manifest = JSON.parse(
+    readFileSync(join(reRepo, "extracted", "decals", "manifest.json"), "utf8"),
+  ) as DecalManifest;
+  const decals: [number, DecalFile][] = [...new Set(quads.map((q) => q.decal))]
+    .sort((a, b) => a - b)
+    .map((id) => {
+      const rect = own.rects.find((r) => r.id === id);
+      const crop = manifest.decals.find(
+        (d) => d.container === mission && d.dcs_id === rect?.res && d.sprite_id === id,
+      );
+      if (!rect || !crop?.file) throw new Error(`${mapId}: no crop of Cdcs rect ${id}`);
+      if (crop.w !== rect.w || crop.h !== rect.h) {
+        throw new Error(
+          `${mapId}: Cdcs rect ${id} is ${rect.w}x${rect.h}, its crop ${crop.w}x${crop.h}`,
+        );
+      }
+      return [id, { file: decalFile(id), from: crop.file, w: rect.w, h: rect.h }];
+    });
+  return { props, propModels, quads, decals };
+}
+
+/** A decal's file name in the arena's folder. */
+function decalFile(id: number): string {
+  return `dcs-${String(id).padStart(2, "0")}.png`;
 }
 
 /** Records in resource order: Cact before Csac, each by id. */
@@ -499,7 +757,10 @@ function arenaTable(arena: FcopArena, own: MissionRecords, reRepo: string): Aren
       yaw: t.base,
     }))
     .sort(byRecord);
-  return { mission, placements, morphs, turretBases };
+  const emitters = emitterTables(mapId, mission, own, reRepo);
+  const overlap = emitters.props.filter((p) => placements.some((q) => q.cobj === p.cobj));
+  if (overlap.length > 0) throw new Error(`${mapId}: a Cobj both a DynamicProp and a Prop`);
+  return { mission, placements, morphs, turretBases, ...emitters };
 }
 
 function format(tables: readonly [string, ArenaTable][], reCommit: string): string {
@@ -512,8 +773,12 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     "// an outpost's console until the outpost is claimed, its two terminals from",
     "// then on (the activation script, RE docs/behavior/precinct-assault.md",
     '// "Outposts"). And the yaw of every turret\'s base part, which its construct',
-    "// reads off the turret's record (RE turret_part.c 0x0041cf70). Read from the",
-    `// mission bytes, the outposts' scripts and pa_models.json at RE ${reCommit}.`,
+    "// reads off the turret's record (RE turret_part.c 0x0041cf70); every type-96",
+    "// Prop as `snd_emit_build` stands it (RE snd/emitter.c) and every type-97",
+    "// DCSQuad as `pyro_spawn` does (RE world/pyro_chain.c), their random angles",
+    "// drawn from `game_rand` seeded 0x457 (a stand-in for the original's wall",
+    "// clock). Read from the mission bytes, the outposts' scripts, pa_models.json",
+    `// and the object and decal manifests at RE ${reCommit}.`,
     "",
     "/** When a placement stands: always, until its outpost is claimed, or from then on. */",
     'export type SceneryShow = "always" | "unclaimed" | "claimed";',
@@ -554,12 +819,92 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     "  readonly yaw: number;",
     "}",
     "",
+    "/** How a Prop steps its model's frames: not, looping, or there and back. */",
+    'export type SceneryPropAnim = "none" | "loop" | "boomerang";',
+    "",
+    "/**",
+    " * A type-96 Prop: a model the original builds as a permanent sound emitter",
+    " * (RE snd/emitter.c `cact_load_type96` -> `snd_emit_build`).",
+    " */",
+    "export interface SceneryProp {",
+    "  readonly record: string;",
+    "  /** The model, a Cobj id in the arena's own mission (its first aRSL entry). */",
+    "  readonly cobj: number;",
+    "  /** The model's origin in the sim frame, metres; `h` is its height. */",
+    "  readonly x: number;",
+    "  readonly y: number;",
+    "  readonly h: number;",
+    "  /** `math_matrix_from_angles(yaw, pitch, roll)`, 4096 a turn, random ones drawn. */",
+    "  readonly yaw: number;",
+    "  readonly pitch: number;",
+    "  readonly roll: number;",
+    "  /** The orientation's three rows scaled by these / 64. */",
+    "  readonly scale: readonly [number, number, number];",
+    "  /** A turn of `clock * spin` (12-bit) every frame; 0 keeps the built orientation. */",
+    "  readonly spin: number;",
+    "  /** With a spin: the swing's amplitude about `park` (12-bit); 0 a plain spin. */",
+    "  readonly swing: number;",
+    "  readonly park: number;",
+    "  readonly anim: SceneryPropAnim;",
+    "  /** Engine ticks (1/300 s) a frame. */",
+    "  readonly period: number;",
+    "  /** The table-A sound the emitter plays where it stands, 0 none. */",
+    "  readonly sound: number;",
+    "}",
+    "",
+    "/**",
+    " * A Prop model: its frame count, and whether it is drawn — not where it is",
+    " * Star / Billboard / Line facers only, which the original faces to the camera",
+    " * and the RE stands in as static geometry (or does not export).",
+    " */",
+    "export interface SceneryPropModel {",
+    "  readonly frames: number;",
+    "  readonly drawn: boolean;",
+    "}",
+    "",
+    "/**",
+    " * A type-97 DCSQuad: one decal quad, its corners (+-halfX, 0, +-halfZ) turned",
+    " * by `math_matrix_from_angles(yaw, pitch, roll)` (RE world/pyro_chain.c).",
+    " */",
+    "export interface SceneryQuad {",
+    "  readonly record: string;",
+    "  /** The Cdcs rect drawn (`decals`). */",
+    "  readonly decal: number;",
+    "  /** The quad's centre in the sim frame, metres. */",
+    "  readonly x: number;",
+    "  readonly y: number;",
+    "  readonly h: number;",
+    "  readonly yaw: number;",
+    "  readonly pitch: number;",
+    "  readonly roll: number;",
+    "  /** Half extents along the quad's own x and z, metres. */",
+    "  readonly halfX: number;",
+    "  readonly halfZ: number;",
+    "  /** The colour the texture is modulated by, 0..255 a channel. */",
+    "  readonly tint: readonly [number, number, number];",
+    "  /** The driver's blend: 1 the default, 2 additive, 3 the third pair. */",
+    "  readonly blend: 1 | 2 | 3;",
+    "  readonly twoSided: boolean;",
+    "}",
+    "",
+    "/** A Cdcs rect's crop, copied to public/models/decals/<mapId>/<file>. */",
+    "export interface SceneryDecal {",
+    "  readonly file: string;",
+    "  readonly w: number;",
+    "  readonly h: number;",
+    "}",
+    "",
     "export interface ArenaScenery {",
     "  readonly mission: string;",
     "  readonly placements: readonly SceneryPlacement[];",
     "  /** By Cobj: the models that move. */",
     "  readonly morphs: Readonly<Record<number, SceneryMorph>>;",
     "  readonly turretBases: readonly SceneryTurretBase[];",
+    "  /** The type-96 Props, their models, the type-97 DCSQuads and their decals. */",
+    "  readonly props: readonly SceneryProp[];",
+    "  readonly propModels: Readonly<Record<number, SceneryPropModel>>;",
+    "  readonly quads: readonly SceneryQuad[];",
+    "  readonly decals: Readonly<Record<number, SceneryDecal>>;",
     "}",
     "",
     "export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {",
@@ -583,6 +928,26 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
       );
     }
     lines.push("    ],");
+    lines.push("    props: [");
+    for (const p of t.props) {
+      lines.push(
+        `      { record: ${JSON.stringify(p.record)}, cobj: ${p.cobj}, x: ${p.x}, y: ${p.y}, h: ${p.h}, yaw: ${p.yaw}, pitch: ${p.pitch}, roll: ${p.roll}, scale: [${p.scale.join(", ")}], spin: ${p.spin}, swing: ${p.swing}, park: ${p.park}, anim: ${JSON.stringify(p.anim)}, period: ${p.period}, sound: ${p.sound} },`,
+      );
+    }
+    lines.push("    ],");
+    lines.push(
+      `    propModels: { ${t.propModels.map(([c, m]) => `${c}: { frames: ${m.frames}, drawn: ${m.drawn} }`).join(", ")} },`,
+    );
+    lines.push("    quads: [");
+    for (const q of t.quads) {
+      lines.push(
+        `      { record: ${JSON.stringify(q.record)}, decal: ${q.decal}, x: ${q.x}, y: ${q.y}, h: ${q.h}, yaw: ${q.yaw}, pitch: ${q.pitch}, roll: ${q.roll}, halfX: ${q.halfX}, halfZ: ${q.halfZ}, tint: [${q.tint.join(", ")}], blend: ${q.blend}, twoSided: ${q.twoSided} },`,
+      );
+    }
+    lines.push("    ],");
+    lines.push(
+      `    decals: { ${t.decals.map(([id, d]) => `${id}: { file: ${JSON.stringify(d.file)}, w: ${d.w}, h: ${d.h} }`).join(", ")} },`,
+    );
     lines.push("  },");
   }
   lines.push("};", "");
@@ -607,6 +972,23 @@ function main(): void {
   const check = process.argv.includes("--check");
   const positional = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "";
   let stale = 0;
+  const records = readRecords(
+    reRepo,
+    FCOP_ARENAS.map((a) => a.mission),
+  );
+  const empty: MissionRecords = { props: [], turrets: [], props96: [], quads: [], rects: [] };
+  const own = (mission: string): MissionRecords => records[mission] ?? empty;
+  /** Copies `from` to `to`, or under --check counts it stale where they differ. */
+  const copy = (from: string, to: string): void => {
+    if (!check) {
+      copyFileSync(from, to);
+      return;
+    }
+    if (!existsSync(to) || !readFileSync(to).equals(readFileSync(from))) {
+      console.log(`${to} is not ${from}`);
+      stale++;
+    }
+  };
   for (const arena of selectArenas(positional || "all")) {
     const scenery = ARENA_SCENERY.find((a) => a.mapId === arena.mapId);
     if (!scenery) throw new Error(`${arena.mapId}: no ARENA_SCENERY entry`);
@@ -615,41 +997,34 @@ function main(): void {
     }
     const src = join(reRepo, "extracted", "objects", arena.mission);
     const out = join(RAW_DIR, "fcop-props", arena.mission);
+    const decals = join(DECAL_DIR, arena.mapId);
     if (!check) {
-      rmSync(out, { recursive: true, force: true });
-      mkdirSync(out, { recursive: true });
+      for (const dir of [out, decals]) {
+        rmSync(dir, { recursive: true, force: true });
+        mkdirSync(dir, { recursive: true });
+      }
     }
-    for (const [cobj] of scenery.props) {
+    // The type-11 models ARENA_SCENERY lists, and every type-96 model drawn.
+    const t = arenaTable(arena, own(arena.mission), reRepo);
+    const props96 = t.propModels.filter(([, m]) => m.drawn).map(([c]) => c);
+    for (const cobj of [...scenery.props.map(([c]) => c), ...props96]) {
       const name = `obj_${String(cobj).padStart(3, "0")}.glb`;
-      const from = join(src, name);
-      const to = join(RAW_DIR, sceneryRaw(arena.mission, cobj));
-      if (!check) {
-        copyFileSync(from, to);
-        continue;
-      }
-      if (!existsSync(to) || !readFileSync(to).equals(readFileSync(from))) {
-        console.log(`${to} is not ${from}`);
-        stale++;
-      }
+      copy(join(src, name), join(RAW_DIR, sceneryRaw(arena.mission, cobj)));
+    }
+    for (const [, d] of t.decals) {
+      copy(join(reRepo, "extracted", "decals", d.from), join(decals, d.file));
     }
     console.log(
-      `${arena.mapId} (${arena.mission}): ${scenery.props.map(([c]) => c).join(", ")}` +
+      `${arena.mapId} (${arena.mission}): ${scenery.props.map(([c]) => c).join(", ")}; ` +
+        `Props ${props96.join(", ") || "none"}; decals ${t.decals.map(([id]) => id).join(", ") || "none"}` +
         (check ? " checked" : " copied"),
     );
   }
 
-  const records = readRecords(
-    reRepo,
-    FCOP_ARENAS.map((a) => a.mission),
-  );
   const commit = Bun.spawnSync(["git", "-C", reRepo, "rev-parse", "--short", "HEAD"]);
   const reCommit = commit.exitCode === 0 ? commit.stdout.toString().trim() : "unknown";
   const tables = FCOP_ARENAS.map(
-    (a) =>
-      [a.mapId, arenaTable(a, records[a.mission] ?? { props: [], turrets: [] }, reRepo)] as [
-        string,
-        ArenaTable,
-      ],
+    (a) => [a.mapId, arenaTable(a, own(a.mission), reRepo)] as [string, ArenaTable],
   );
   for (const [mapId, t] of tables) {
     const scenery = ARENA_SCENERY.find((a) => a.mapId === mapId);
@@ -662,7 +1037,7 @@ function main(): void {
     console.log(
       `${mapId}: ${t.placements.length} placements (${shows("unclaimed")} until claimed, ` +
         `${shows("claimed")} once claimed), morphs ${t.morphs.map(([c]) => c).join(", ") || "none"}, ` +
-        `${t.turretBases.length} turret bases`,
+        `${t.turretBases.length} turret bases, ${t.props.length} Props, ${t.quads.length} DCSQuads`,
     );
   }
   const text = biomeFormat(format(tables, reCommit));
