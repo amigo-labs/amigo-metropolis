@@ -60,9 +60,16 @@ export function resultsSlotOffset(slot: number): number {
   return slot * STAT_KEYS;
 }
 
-/** The frame clock at the end of the running tick: tick n's events stamp n + 1 ticks. */
+/**
+ * The frame clock (DAT_00511ee4) as the running tick reads it: tick n's events
+ * stamp n ticks. The mission's frame loop zeroes it before its first pass
+ * (`mission_frame_loop` 0x00406826..0x00406858: `mission_clock_reset(0)`, the
+ * start at -8, DAT_00511ee4 = 0), and `frame_step` writes it at the top of each
+ * frame (0x00406a56), before anything the frame stamps reads it — so the first
+ * frame reads 0 and frame n, at lockstep's 30 fps, n frame deltas.
+ */
 export function statClock(state: SimState): number {
-  return (state.tick + 1) * FRAME_CLOCK_PER_TICK;
+  return state.tick * FRAME_CLOCK_PER_TICK;
 }
 
 /** One more of halfword `key` for side `team`; a halfword, so it wraps as the original's. */

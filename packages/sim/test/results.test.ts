@@ -42,6 +42,7 @@ import {
   STAT_TURRETS_DESTROYED,
   STAT_WALKER_DEATHS,
   STAT_WALKER_KILLS,
+  statClock,
   unitStatKey,
   writeResultsSnapshot,
 } from "../src/stats";
@@ -210,14 +211,14 @@ describe("Walker Deaths, Walker Kills and First Death (player.c player_op4)", ()
     step(state, idle);
     expect(state.avatarId[0]).toBe(-1);
     expect(stat(state, 0, STAT_WALKER_DEATHS)).toBe(1);
-    expect(stat(state, 0, STAT_FIRST_DEATH)).toBe((tick + 1) * FRAME_CLOCK_PER_TICK);
+    expect(stat(state, 0, STAT_FIRST_DEATH)).toBe(tick * FRAME_CLOCK_PER_TICK);
     // Nobody's hit: nobody's kill.
     expect(stat(state, 1, STAT_WALKER_KILLS)).toBe(0);
     while (state.avatarId[0] < 0) step(state, idle);
     state.ent.hp[state.avatarId[0]] = 0;
     step(state, idle);
     expect(stat(state, 0, STAT_WALKER_DEATHS)).toBe(2);
-    expect(stat(state, 0, STAT_FIRST_DEATH)).toBe((tick + 1) * FRAME_CLOCK_PER_TICK);
+    expect(stat(state, 0, STAT_FIRST_DEATH)).toBe(tick * FRAME_CLOCK_PER_TICK);
   });
 
   it("credits the other slot's Walker Kills when its own mech's fire put the mech down", () => {
@@ -267,7 +268,7 @@ describe("Walker Deaths, Walker Kills and First Death (player.c player_op4)", ()
     const tick = state.tick;
     step(state, idle);
     expect(stat(state, 1, STAT_WALKER_DEATHS)).toBe(1);
-    expect(stat(state, 1, STAT_FIRST_DEATH)).toBe((tick + 1) * FRAME_CLOCK_PER_TICK);
+    expect(stat(state, 1, STAT_FIRST_DEATH)).toBe(tick * FRAME_CLOCK_PER_TICK);
     expect(stat(state, 0, STAT_WALKER_KILLS)).toBe(0);
   });
 
@@ -340,6 +341,33 @@ describe("Points Scored (state word 31)", () => {
   });
 });
 
+describe("the frame clock the stamps read (DAT_00511ee4)", () => {
+  it("reads 0 on the match's first tick and a frame delta more each tick", () => {
+    // mission_frame_loop zeroes it before its first pass and frame_step writes
+    // it at the top of each frame, before the frame's stamps read it.
+    const state = createSim(map, 3);
+    expect(statClock(state)).toBe(0);
+    step(state, idle);
+    expect(statClock(state)).toBe(FRAME_CLOCK_PER_TICK);
+  });
+
+  it("stamps a down on the first tick at 0, which leaves it free for the next", () => {
+    // `if (block->stamp == 0) block->stamp = frame_now()` (0x00447764): a stamp
+    // of 0 reads as none, as the original's does.
+    const state = createSim(map, 3);
+    standAt(state, 0, X, Y);
+    state.ent.hp[state.avatarId[0]] = 0;
+    step(state, idle);
+    expect(stat(state, 0, STAT_WALKER_DEATHS)).toBe(1);
+    expect(stat(state, 0, STAT_FIRST_DEATH)).toBe(0);
+    while (state.avatarId[0] < 0) step(state, idle);
+    state.ent.hp[state.avatarId[0]] = 0;
+    const tick = state.tick;
+    step(state, idle);
+    expect(stat(state, 0, STAT_FIRST_DEATH)).toBe(tick * FRAME_CLOCK_PER_TICK);
+  });
+});
+
 describe("Outposts Claimed and First Outpost (state word 33; view +0x24, sky_ai +0x4c)", () => {
   it("counts a player's outposts and stamps its first on its next live tick", () => {
     const state = createSim(map, 3);
@@ -350,11 +378,11 @@ describe("Outposts Claimed and First Outpost (state word 33; view +0x24, sky_ai 
     expect(stat(state, 0, STAT_FIRST_OUTPOST)).toBe(0);
     const tick = state.tick;
     step(state, idle);
-    expect(stat(state, 0, STAT_FIRST_OUTPOST)).toBe((tick + 1) * FRAME_CLOCK_PER_TICK);
+    expect(stat(state, 0, STAT_FIRST_OUTPOST)).toBe(tick * FRAME_CLOCK_PER_TICK);
     claimOutpostSlot(state, 0, 3);
     step(state, idle);
     expect(stat(state, 0, STAT_OUTPOSTS_CLAIMED)).toBe(2);
-    expect(stat(state, 0, STAT_FIRST_OUTPOST)).toBe((tick + 1) * FRAME_CLOCK_PER_TICK);
+    expect(stat(state, 0, STAT_FIRST_OUTPOST)).toBe(tick * FRAME_CLOCK_PER_TICK);
   });
 
   it("stamps the Sky Captain's at its first claim", () => {
@@ -362,7 +390,8 @@ describe("Outposts Claimed and First Outpost (state word 33; view +0x24, sky_ai 
     for (let t = 0; t < 4; t++) step(state, idle);
     state.points[1] = 100;
     expect(claimOutpostSlot(state, 1, 0)).toBe(true);
-    const at = (state.tick + 1) * FRAME_CLOCK_PER_TICK;
+    // Outside a step: the claim is the next tick's, which reads its clock.
+    const at = state.tick * FRAME_CLOCK_PER_TICK;
     expect(stat(state, 1, STAT_FIRST_OUTPOST)).toBe(at);
     step(state, idle);
     claimOutpostSlot(state, 1, 1);

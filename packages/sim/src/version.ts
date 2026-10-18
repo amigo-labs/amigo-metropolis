@@ -1207,4 +1207,13 @@
 //     the player's own Walker Kills stayed 0 in a solo match. Goldens 04 and 07
 //     (the captain's) re-record: the X1 hits the captain and never brings it
 //     down there, so neither plays differently (07's last hash holds).
-export const SIM_VERSION = 81;
+// v82: the results page's stamps read the frame clock as the original's frame
+//     does (fcop-fidelity.md V7; RE mission_frame_loop 0x00406826..0x00406858
+//     zeroes DAT_00511ee4 before the first pass, frame_step writes it at the
+//     top of each frame, 0x00406a56): tick n's First Death and First Outpost
+//     stamp n frame deltas (stats.ts statClock), the first tick 0 — was n + 1,
+//     the clock taken at the tick's end. A stamp of 0 reads as none, as
+//     `if (block->stamp == 0)` does. Goldens 03, 04 and 07 (a down or an
+//     outpost in each) move at their first stamp; nothing in the tick reads
+//     the stamps, so none plays differently.
+export const SIM_VERSION = 82;

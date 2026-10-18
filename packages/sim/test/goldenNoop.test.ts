@@ -102,7 +102,10 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 02, 03, 04, 05 and 07 re-frozen at SIM_VERSION 80: the heavy-zone poll's
   // hashed countdown is cfun_tick's, in engine ticks from u32 % period (the same
   // PRNG step); no golden's side reaches 50 points, so none plays differently.
-  "golden-03-match": { last: 1105658574, count: 6000 },
+  // 03, 04 and 07 re-frozen at SIM_VERSION 82: the hashed First Death and
+  // First Outpost stamps read the frame clock from 0 on the first tick (one
+  // frame delta earlier); nothing in the tick reads them.
+  "golden-03-match": { last: 2492213022, count: 6000 },
   // 04 and 07 re-frozen at SIM_VERSION 54: the captain takes its target without
   // a line of sight and walls stop its gun and missile at ground units too.
   // 03, 04 and 07 re-frozen at SIM_VERSION 55: captures by the octagonal estimate.
@@ -125,7 +128,10 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // captain's slot follows the X1's hits on the captain (its death reads it for
   // the X1's Walker Kills); the X1 hits it and never brings it down, so neither
   // plays differently, and 07's last tick is back to the same state.
-  "golden-04-warden": { last: 1172562161, count: 4500 },
+  // 03, 04 and 07 re-frozen at SIM_VERSION 82: the hashed First Death and
+  // First Outpost stamps read the frame clock from 0 on the first tick (one
+  // frame delta earlier); nothing in the tick reads them.
+  "golden-04-warden": { last: 1997393597, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -160,7 +166,10 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 02, 03, 04, 05 and 07 re-frozen at SIM_VERSION 80: the heavy-zone poll's
   // hashed countdown is cfun_tick's, in engine ticks from u32 % period (the same
   // PRNG step); no golden's side reaches 50 points, so none plays differently.
-  "golden-07-pa": { last: 3630865788, count: 3600 },
+  // 03, 04 and 07 re-frozen at SIM_VERSION 82: the hashed First Death and
+  // First Outpost stamps read the frame clock from 0 on the first tick (one
+  // frame delta earlier); nothing in the tick reads them.
+  "golden-07-pa": { last: 3277831112, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };
