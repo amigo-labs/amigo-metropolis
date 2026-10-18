@@ -5097,7 +5097,7 @@ export function hash(state: SimState): number {
  */
 export const MATCH_SNAPSHOT_HEADER = 7;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
-export const MATCH_SNAPSHOT_SLOT_STRIDE = 13;
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 18;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
 
 /** Header fields. */
@@ -5144,6 +5144,27 @@ export const MATCH_SLOT_MOVE = 11;
  * (fcop-fidelity.md R10, G2). Always 0 on a base without heavy zones.
  */
 export const MATCH_SLOT_TERMINALS = 12;
+/**
+ * The issued magazines, block A of each slot (gun, heavy, special), whether or
+ * not the slot is powered: the HUD's lower count is block A always, the upper
+ * one block B while it holds rounds (RE hud_weapons.c, hud.json weapons). The
+ * ammo fields above count the magazine the slot fires from. 0 while down.
+ */
+export const MATCH_SLOT_ISSUED_GUN = 13;
+export const MATCH_SLOT_ISSUED_HEAVY = 14;
+export const MATCH_SLOT_ISSUED_SPECIAL = 15;
+/**
+ * The health MATCH_SLOT_HP_FRAC is a fraction of: the slot's difficulty row for
+ * an X1-Alpha, the level's for the Sky Captain. The camera's damage share is
+ * the hit's amount against it (RE `player_take_amount` 0x00446720).
+ */
+export const MATCH_SLOT_HP_MAX = 16;
+/**
+ * Sim ticks of invulnerability left (SimState.buffInvuln, the original's block
+ * +0x326; PICKUP_INVULN), 0 for none: the armour gauge's blue blink (RE draw.c
+ * `hud_draw_player`). No Precinct Assault pickup grants it (fcop-fidelity.md I8).
+ */
+export const MATCH_SLOT_INVULN = 17;
 // Slot field 9 was MATCH_SLOT_CAPTURE_FRAC, retired with the 3 s capture timer
 // (SIM_VERSION 34): the original captures instantly on a key press. Slot field 10
 // was MATCH_SLOT_CORE_FRAC, retired with the destructible core (SIM_VERSION 32).
@@ -5248,6 +5269,11 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     out[o + MATCH_SLOT_LOCK] = a >= 0 ? state.lockTarget[slot] : -1;
     out[o + MATCH_SLOT_MOVE] = a >= 0 ? state.moveCue[slot] : 0;
     out[o + MATCH_SLOT_TERMINALS] = state.heavyTerminals[slot];
+    out[o + MATCH_SLOT_ISSUED_GUN] = a >= 0 ? state.gunAmmo[slot] : 0;
+    out[o + MATCH_SLOT_ISSUED_HEAVY] = a >= 0 ? ent.ammoA[a] : 0;
+    out[o + MATCH_SLOT_ISSUED_SPECIAL] = a >= 0 ? ent.ammoB[a] : 0;
+    out[o + MATCH_SLOT_HP_MAX] = maxHp;
+    out[o + MATCH_SLOT_INVULN] = state.buffInvuln.length > slot ? state.buffInvuln[slot] : 0;
   }
   for (let k = 0; k < state.outpostOwner.length; k++) {
     const owner = state.outpostOwner[k];

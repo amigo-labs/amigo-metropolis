@@ -18,6 +18,11 @@ import {
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_HP_FRAC,
+  MATCH_SLOT_HP_MAX,
+  MATCH_SLOT_INVULN,
+  MATCH_SLOT_ISSUED_GUN,
+  MATCH_SLOT_ISSUED_HEAVY,
+  MATCH_SLOT_ISSUED_SPECIAL,
   MATCH_SLOT_LOCK,
   MATCH_SLOT_MOVE,
   MATCH_SLOT_OUTPOSTS,
@@ -157,14 +162,20 @@ describe("writeMatchSnapshot", () => {
     // is nothing to report and the slot block lost both fields; the Gun magazine,
     // the lock and the power bits follow the units count, then the movement
     // command the original's sounds are chosen from, and last (SIM_VERSION 80)
-    // whether the base's heavy terminals stand.
+    // whether the base's heavy terminals stand; then the issued magazines, the
+    // health the fraction is of and the invulnerability left (pure reads).
     expect(MATCH_SLOT_UNITS).toBe(7);
     expect(MATCH_SLOT_AMMO_GUN).toBe(8);
     expect(MATCH_SLOT_LOCK).toBe(9);
     expect(MATCH_SLOT_POWER).toBe(10);
     expect(MATCH_SLOT_MOVE).toBe(11);
     expect(MATCH_SLOT_TERMINALS).toBe(12);
-    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(13);
+    expect(MATCH_SLOT_ISSUED_GUN).toBe(13);
+    expect(MATCH_SLOT_ISSUED_HEAVY).toBe(14);
+    expect(MATCH_SLOT_ISSUED_SPECIAL).toBe(15);
+    expect(MATCH_SLOT_HP_MAX).toBe(16);
+    expect(MATCH_SLOT_INVULN).toBe(17);
+    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(18);
   });
 
   it("reports the avatar's movement command, which the original's sounds follow", () => {
@@ -220,6 +231,41 @@ describe("writeMatchSnapshot", () => {
     writeMatchSnapshot(sim, out);
     expect(out[matchSlotOffset(0) + MATCH_SLOT_POWER]).toBe(2);
     expect(out[matchSlotOffset(0) + MATCH_SLOT_AMMO_HEAVY]).toBe(18);
+  });
+
+  it("reports the issued magazines while a slot fires its block B (hud_weapons.c)", () => {
+    // The HUD's lower count is block A always; the ammo fields count the
+    // magazine the slot fires from, which is block B while powered.
+    const sim = freshSim();
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+    const a = sim.avatarId[0];
+    sim.gunAmmo[0] = 400;
+    sim.ent.ammoA[a] = 12;
+    sim.ent.ammoB[a] = 3;
+    sim.powerAmmo[0] = 90;
+    sim.powerAmmo[1] = 18;
+    writeMatchSnapshot(sim, out);
+    const o = matchSlotOffset(0);
+    expect(out[o + MATCH_SLOT_AMMO_GUN]).toBe(90);
+    expect(out[o + MATCH_SLOT_ISSUED_GUN]).toBe(400);
+    expect(out[o + MATCH_SLOT_AMMO_HEAVY]).toBe(18);
+    expect(out[o + MATCH_SLOT_ISSUED_HEAVY]).toBe(12);
+    expect(out[o + MATCH_SLOT_AMMO_SPECIAL]).toBe(3);
+    expect(out[o + MATCH_SLOT_ISSUED_SPECIAL]).toBe(3);
+  });
+
+  it("reports the health the fraction is of and the invulnerability left", () => {
+    const sim = freshSim();
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+    writeMatchSnapshot(sim, out);
+    const o = matchSlotOffset(0);
+    const a = sim.avatarId[0];
+    expect(out[o + MATCH_SLOT_HP_MAX]).toBeGreaterThan(0);
+    expect(out[o + MATCH_SLOT_HP_FRAC]).toBeCloseTo(sim.ent.hp[a] / out[o + MATCH_SLOT_HP_MAX], 6);
+    expect(out[o + MATCH_SLOT_INVULN]).toBe(0);
+    sim.buffInvuln[0] = 321;
+    writeMatchSnapshot(sim, out);
+    expect(out[o + MATCH_SLOT_INVULN]).toBe(321);
   });
 
   it("overwrites every field, so a reused buffer never shows a stale value", () => {
