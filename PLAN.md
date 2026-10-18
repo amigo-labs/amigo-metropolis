@@ -885,8 +885,12 @@ moves.
       whose own fire brought it down (V7; v81)
 - [x] The results page's stamps on the frame clock from 0, as the original's
       frame loop zeroes it (V7; v82)
-- [ ] The damage shake; the invulnerable gauge's blink; the radar's near-camera
-      registry; arrows for the placed actors on the map screen (V1-V4)
+- [x] The damage shake: the second damage meter off the hits and the shaking
+      effects, the eye jittered along the camera's up and right rows (V1, E19)
+- [x] The invulnerable gauge's blink: the flat blue arm at x 2 off the sim's
+      invulnerability (V2; no PA pickup grants it)
+- [ ] The radar's near-camera registry (V3)
+- [ ] Arrows for the placed actors on the map screen (V4)
 - [x] The issued magazine under each weapon while it is powered: block A off the
       match snapshot, block B above it (V2)
 - [x] La Cantina's solo start on side 1's base, as the original's: the teams

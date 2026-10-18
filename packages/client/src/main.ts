@@ -35,6 +35,7 @@ import {
   EV_RESPAWN,
   EV_SHOT,
   EV_TRANSFORM,
+  EVENT_STRIDE,
   GUN_SNAP_STRIDE,
   GUN_SNAPSHOT_LEN,
   GUNS,
@@ -44,6 +45,7 @@ import {
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
   MATCH_SLOT_AVATAR_ID,
+  MATCH_SLOT_HP_MAX,
   MATCH_SLOT_LOCK,
   MATCH_SLOT_RESPAWN_TICKS,
   MATCH_SNAPSHOT_LEN,
@@ -126,6 +128,7 @@ import {
   stepChaseCamera,
 } from "./render/camera";
 import { applyBlend, createCameraBlend } from "./render/cameraBlend";
+import { applyCameraShake, resetCameraShake, shakeDamage, shakeEffect } from "./render/cameraShake";
 import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
 import { lerpGunYaws } from "./render/dreadnoughtGuns";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
@@ -1613,9 +1616,62 @@ function resolveEventPosition(
 /** Audio + VFX share the event buffer; VFX resolves positions here. */
 function pumpCosmetics(events: typeof sim.events): void {
   buildAudioIndex();
+  pumpShake(events);
   pumpSounds(events);
   fx.pump(events, resolveEventPosition);
 }
+
+/**
+ * The camera shake's damage half (render/cameraShake.ts): a new avatar is a
+ * `player_reset`, and every hit on a view's X1 is `player_take_amount`'s share
+ * against the X1's health, halved by Precinct Assault's team-game word.
+ */
+function pumpShake(events: typeof sim.events): void {
+  const d = events.data;
+  for (let v = 0; v < views.length; v++) {
+    const view = views[v];
+    const o = matchSlotOffset(view.slot);
+    const avatar = matchSnap[o + MATCH_SLOT_AVATAR_ID] | 0;
+    if (avatar !== view.shake.avatar) resetCameraShake(view.shake, avatar);
+    if (avatar < 0) continue;
+    const maxHp = matchSnap[o + MATCH_SLOT_HP_MAX];
+    for (let i = 0; i < events.count; i++) {
+      const e = i * EVENT_STRIDE;
+      if (d[e] !== EV_HIT || d[e + 1] !== avatar) continue;
+      shakeDamage(view.shake, d[e + 3], maxHp, PA_TEAM_GAME);
+    }
+  }
+}
+
+/**
+ * Mission-state word 23, which every Precinct Assault mission sets: it halves
+ * the damage share (`player_take_amount`) and keeps damage off the other slot.
+ */
+const PA_TEAM_GAME = true;
+/** Scratch for the shake's X1 position (an effect install within 0x20000 of it). */
+const shakePose = new Float32Array(3);
+/**
+ * The camera shake's effect half (`cact_effect_install` 0x0042d248): an install
+ * whose record carries +0x32 bit 4 or 13 shakes team slot 0's X1 and, in the
+ * two-viewport network game, slot 1's — so every local view here.
+ */
+sounds.effects.addListener({
+  install(_bank, _id, rec, at) {
+    if (!rec) return;
+    for (let v = 0; v < views.length; v++) {
+      const view = views[v];
+      const avatar = view.shake.avatar;
+      if (avatar < 0 || !entityPose(avatar, shakePose)) continue;
+      shakeEffect(
+        view.shake,
+        rec.flags,
+        at.x - shakePose[0],
+        at.y - shakePose[1],
+        at.z - shakePose[2],
+      );
+    }
+  },
+});
 
 /** Scratch for the listener's position (the local mech, `snd_set_listener`). */
 const listenerPose = new Float32Array(3);
@@ -1916,6 +1972,9 @@ function updateChaseCamera(view: PlayerView, dtSec: number): void {
   gateCrowdControl(view.cam, false);
   const ticks = matchPaused ? 0 : dtSec * ENGINE_HZ;
   stepChaseCamera(view.cam, subject, ticks, chaseTrace, CHASE_ANCHOR_LIFT, view.pose);
+  // The shake moves the eye only after the trace and the occlusion machine,
+  // as the camera tick's last arm does (view_place.c 0x00445d10).
+  applyCameraShake(view.shake, ticks, view.pose);
   applyChasePose(view.camera, view.pose);
   // The menu blend animates the fov; the chase owns it again afterwards.
   if (view.camera.fov !== CAMERA_VFOV_DEG) {

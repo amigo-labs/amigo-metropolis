@@ -111,8 +111,15 @@ presets (the primary, then the fallbacks).
    For a walker at height 0 this gives the converged eyes camera.json lists
    (Standard: 6.75 m up, 8.57 m behind; Close-Up 4.81 / 6.87; Sky 11.64 / 11.78).
 
-Not modelled: the damage shake (`meter_2`, a quarter of incoming damage shares —
-the snapshot carries no damage share), the transform's random shoulder camera
+8. **Shake** (`render/cameraShake.ts`, ledger V1): while the view's second damage
+   meter (`meter_2`) is non-zero, the eye moves along the camera's up and then its
+   right row by `((rand & (span − 1)) − span/2) << 3` world units, `span` the top
+   bit of min(meter, 0xff), and the frame's ticks are spent from the meter. A hit
+   adds a quarter of its share (`amount·5 << 10 / max` plus the first meter,
+   clamped to 0x200, halved in Precinct Assault), an effect with +0x32 bit 4 or 13
+   a quarter of 300 or 1000 within 16 m; nothing once the meter is above 0xff.
+
+Not modelled: the transform's random shoulder camera
 (word 23 is 1 in Precinct Assault, so it never fires), the locker's forced
 preset 17 (no type-32 locker in a PA arena), the demo anchor.
 

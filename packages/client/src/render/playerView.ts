@@ -18,6 +18,7 @@ import {
   createChasePose,
   stepChaseCamera,
 } from "./camera";
+import { type CameraShake, createCameraShake } from "./cameraShake";
 
 export type SplitOrientation = "v" | "h";
 
@@ -35,6 +36,8 @@ export interface PlayerView {
   readonly subject: ChaseSubject;
   /** The chase camera's last placement. */
   readonly pose: ChasePose;
+  /** The damage meter that shakes the camera (render/cameraShake.ts). */
+  readonly shake: CameraShake;
 }
 
 /**
@@ -75,6 +78,7 @@ export function createPlayerViews(
       cam,
       subject,
       pose,
+      shake: createCameraShake(0x5eed + p.slot),
     });
   }
   return views;
