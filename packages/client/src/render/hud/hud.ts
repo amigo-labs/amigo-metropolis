@@ -22,6 +22,9 @@ import {
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_HP_FRAC,
+  MATCH_SLOT_ISSUED_GUN,
+  MATCH_SLOT_ISSUED_HEAVY,
+  MATCH_SLOT_ISSUED_SPECIAL,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
   MATCH_SLOT_POWER,
@@ -43,6 +46,7 @@ import {
   gaugeValue,
   iconLit,
   scoreColour,
+  upperCount,
   upperCountColour,
 } from "./hudRules";
 import { createMapOverlay, type MapOverlay } from "./mapOverlay";
@@ -116,20 +120,24 @@ const BEAM = css(HUD.beamRgb, 0.5);
  * middle (two Gouraud quads, 8 px each).
  */
 const STRIPS = 16;
+/** One colour's strips, plain then dimmed, appended to `out`. */
+function pushStrips(rgb: readonly number[], out: string[]): void {
+  for (let dim = 0; dim < 2; dim++) {
+    for (let k = 0; k < STRIPS; k++) {
+      const half = k < STRIPS / 2 ? k : STRIPS - 1 - k; // 0 at the edge, 7 at the seam
+      const shade = (0.25 + (0.75 * (half + 0.5)) / (STRIPS / 2)) * (dim ? 0.5 : 1);
+      out.push(
+        css([Math.round(rgb[0] * shade), Math.round(rgb[1] * shade), Math.round(rgb[2] * shade)]),
+      );
+    }
+  }
+}
 const GAUGE_STYLES: string[] = [];
 {
   const rgb = [0, 0, 0];
   for (let v = 0; v <= GAUGE_PX; v++) {
     gaugeRgb(v / GAUGE_PX, rgb);
-    for (let dim = 0; dim < 2; dim++) {
-      for (let k = 0; k < STRIPS; k++) {
-        const half = k < STRIPS / 2 ? k : STRIPS - 1 - k; // 0 at the edge, 7 at the seam
-        const shade = (0.25 + (0.75 * (half + 0.5)) / (STRIPS / 2)) * (dim ? 0.5 : 1);
-        GAUGE_STYLES.push(
-          css([Math.round(rgb[0] * shade), Math.round(rgb[1] * shade), Math.round(rgb[2] * shade)]),
-        );
-      }
-    }
+    pushStrips(rgb, GAUGE_STYLES);
   }
 }
 
@@ -212,7 +220,10 @@ function drawCounts(
   drawNumber(ctx, font, jets, 2, x, pen[1], colour);
 }
 
+/** The magazine each slot fires from: block B while powered, else block A. */
 const AMMO_FIELDS = [MATCH_SLOT_AMMO_GUN, MATCH_SLOT_AMMO_HEAVY, MATCH_SLOT_AMMO_SPECIAL];
+/** The issued magazine, block A, whether or not the slot is powered. */
+const ISSUED_FIELDS = [MATCH_SLOT_ISSUED_GUN, MATCH_SLOT_ISSUED_HEAVY, MATCH_SLOT_ISSUED_SPECIAL];
 
 /** Builds the HUD for one player slot. */
 export function createMatchHud(
@@ -256,10 +267,6 @@ export function createMatchHud(
   const rightKey = new Float64Array(6).fill(Number.NaN);
   const topKey = new Float64Array(8).fill(Number.NaN);
   const counts = new Int32Array(2);
-  // The issued magazine (block A) per weapon slot. While a slot is powered the
-  // snapshot's field counts block B and A does not move (the slot fires B), so
-  // the last unpowered value is A (hud.json weapons.lower_count / upper_count).
-  const magazineA = new Float64Array(3);
 
   const changed = (key: Float64Array, i: number, v: number, dirty: boolean): boolean => {
     if (key[i] === v && !dirty) return false;
@@ -288,10 +295,12 @@ export function createMatchHud(
         d = changed(leftKey, 3, upperCountColour(clock), d) || d;
         for (let w = 0; w < 3; w++) {
           const powered = (power & (1 << w)) !== 0;
-          const ammo = match[mine + AMMO_FIELDS[w]] | 0;
-          if (!powered) magazineA[w] = ammo;
-          d = changed(leftKey, 4 + w * 3, magazineA[w], d) || d;
-          d = changed(leftKey, 5 + w * 3, powered ? ammo : -1, d) || d;
+          // Lower: the issued magazine, block A; upper: block B while it holds
+          // rounds (hud.json weapons.lower_count / upper_count).
+          d = changed(leftKey, 4 + w * 3, match[mine + ISSUED_FIELDS[w]] | 0, d) || d;
+          d =
+            changed(leftKey, 5 + w * 3, upperCount(powered, match[mine + AMMO_FIELDS[w]] | 0), d) ||
+            d;
           d = changed(leftKey, 6 + w * 3, iconLit(powered, clock) ? 1 : 0, d) || d;
         }
         if (d) {
@@ -303,7 +312,15 @@ export function createMatchHud(
           for (let w = 0; w < 3; w++) {
             const s = HUD.weapons[w];
             drawIcon(ctx, page, s.icon, s.box, leftKey[6 + w * 3] === 1);
-            drawNumber(ctx, font, magazineA[w], 0, s.lower[0], s.lower[1], HUD.lowerCountColour);
+            drawNumber(
+              ctx,
+              font,
+              leftKey[4 + w * 3],
+              0,
+              s.lower[0],
+              s.lower[1],
+              HUD.lowerCountColour,
+            );
             const b = leftKey[5 + w * 3];
             if (b > 0) drawNumber(ctx, font, b, 0, s.upper[0], s.upper[1], leftKey[3]);
           }

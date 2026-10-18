@@ -45,6 +45,14 @@ export function scoreColour(score: number, own: number, claimed: number, clock: 
   return score >= OUTPOST_PRICE && claimed < OUTPOSTS && (clock & 0x80) !== 0 ? 9 : own;
 }
 
+/**
+ * The power-up magazine's count above the icon (hud_weapons.c): drawn while
+ * block B holds rounds, so the number to draw, or -1 for none.
+ */
+export function upperCount(powered: boolean, blockB: number): number {
+  return powered && blockB > 0 ? blockB : -1;
+}
+
 /** The power-up magazine's count blinks 9 / 12 on clock bit 6 (hud_weapons.c). */
 export function upperCountColour(clock: number): number {
   return (clock & 0x40) !== 0 ? 9 : 12;

@@ -887,6 +887,8 @@ moves.
       frame loop zeroes it (V7; v82)
 - [ ] The damage shake; the invulnerable gauge's blink; the radar's near-camera
       registry; arrows for the placed actors on the map screen (V1-V4)
+- [x] The issued magazine under each weapon while it is powered: block A off the
+      match snapshot, block B above it (V2)
 - [x] La Cantina's solo start on side 1's base, as the original's: the teams
       are the original's player slots (V6; v79)
 - [ ] The owner's side-by-side look against the original

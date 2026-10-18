@@ -13,6 +13,7 @@ import {
   iconLit,
   scoreColour,
   snapshotIndexOf,
+  upperCount,
   upperCountColour,
 } from "../src/render/hud/hudRules";
 
@@ -95,6 +96,12 @@ describe("the readouts", () => {
     expect(scoreColour(30, 1, 0, 0x7f)).toBe(1);
     expect(scoreColour(29, 1, 0, 0x80)).toBe(1);
     expect(scoreColour(99, 3, 4, 0x80)).toBe(3);
+  });
+
+  test("the upper count is block B while it holds rounds, else none", () => {
+    expect(upperCount(true, 18)).toBe(18);
+    expect(upperCount(true, 0)).toBe(-1);
+    expect(upperCount(false, 40)).toBe(-1);
   });
 
   test("a power-up count blinks 9 / 12 and its icon lights on bit 6", () => {
