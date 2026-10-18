@@ -826,7 +826,9 @@ no golden moves.
       loaders build them, the spins, swings and frames stepped, the DCSQuads'
       additive haze (G13; the random yaws' seed a stand-in)
 - [ ] The Props' camera-facing facers (Hk 65, Slim 63 / 83, Joke 62 / 82; RE: the
-      export stands them in as static white geometry) and their sounds (audio) (G13)
+      export stands them in as static white geometry), their semi-transparent faces
+      (RE: the export drops the face type; every model draws them opaque) and their
+      sounds (audio) (G13)
 - [x] Per-arena hit radii for the models each arena draws (G1, G7; v78)
 - [x] The X1's animations: the legs' and the cockpit's AnmD tracks by the
       original's walker state machine and the transform's ramp, the hover's hold,
