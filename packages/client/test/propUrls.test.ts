@@ -8,8 +8,9 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { PROP_MODELS } from "../../../tools/generators/units/manifest";
+import { EMITTER_PROP_MODELS, PROP_MODELS } from "../../../tools/generators/units/manifest";
 import { SCENERY_PLACEMENTS } from "../src/render/arenaScenery.generated";
+import { decalUrl } from "../src/render/decals";
 import { propModelUrl, sceneryOf } from "../src/render/props";
 
 const PUBLIC = join(import.meta.dir, "..", "public");
@@ -30,8 +31,20 @@ describe("scenery model URLs", () => {
     expect(sceneryOf("test-128")).toBeNull();
   });
 
+  test("every drawn Prop and every DCSQuad resolves to a committed file of its arena", () => {
+    for (const [mapId, scenery] of Object.entries(SCENERY_PLACEMENTS)) {
+      for (const p of scenery.props) {
+        if (!scenery.propModels[p.cobj]?.drawn) continue;
+        expect(existsSync(join(PUBLIC, propModelUrl(mapId, p.cobj)))).toBe(true);
+      }
+      for (const q of scenery.quads) {
+        expect(existsSync(join(PUBLIC, decalUrl(mapId, scenery.decals[q.decal])))).toBe(true);
+      }
+    }
+  });
+
   test("the URL builder names the file each manifest entry is written to", () => {
-    for (const spec of PROP_MODELS) {
+    for (const spec of [...PROP_MODELS, ...EMITTER_PROP_MODELS]) {
       expect(propModelUrl(spec.mapId, spec.cobj)).toBe(
         `/models/props/${spec.mapId}/${spec.key}.glb`,
       );

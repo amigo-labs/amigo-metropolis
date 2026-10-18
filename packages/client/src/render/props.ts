@@ -45,7 +45,6 @@
 import { MATCH_SLOT_TERMINALS, type MapData, matchSlotOffset } from "@metropolis/sim";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   type ArenaScenery,
   SCENERY_PLACEMENTS,
@@ -53,7 +52,10 @@ import {
   type SceneryPlacement,
 } from "./arenaScenery.generated";
 import { arenaUnitsFor } from "./arenaUnits";
+import { loadDecals } from "./decals";
+import { loadEmitters, updateEmitters } from "./emitterProps";
 import { disposeSubtree } from "./meshMap";
+import { mergePropAsset } from "./propAsset";
 import { recordTurn } from "./recordYaw";
 import {
   atlasOffset,
@@ -164,6 +166,8 @@ export function updateProps(
   simDtSec: number,
 ): void {
   clock += simDtSec;
+  // The type-96 Props on the same clock (render/emitterProps.ts).
+  updateEmitters(Math.floor(clock * ENGINE_HZ));
   for (let m = 0; m < meshes.length; m++) {
     const pm = meshes[m];
     let matricesDirty = false;
@@ -237,6 +241,10 @@ export function loadProps(map: MapData, group: THREE.Object3D, cancelled?: () =>
   for (const [cobj, placements] of byModel) {
     addPropMesh(map, scenery, group, cobj, placements, cancelled);
   }
+  // The type-96 Props and the type-97 DCSQuads (render/emitterProps.ts,
+  // render/decals.ts).
+  loadEmitters(scenery, group, (cobj) => propModelUrl(map.id, cobj), cancelled);
+  loadDecals(map, scenery, group, cancelled);
 }
 
 /** The standing matrix of each placement, in placement order. */
@@ -274,36 +282,9 @@ function addPropMesh(
         disposeSubtree(gltf.scene);
         return;
       }
-      // Init-time: allocations here are fine (same call as meshMap.ts's Box3).
-      gltf.scene.updateMatrixWorld(true);
-      const geometries: THREE.BufferGeometry[] = [];
-      // The pipeline emits ONE material per prop, its colour entirely in a
-      // single packed atlas. Keep that texture, drop the loader's material.
-      let atlas: THREE.Texture | null = null;
-      gltf.scene.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        const geometry = mesh.geometry.clone();
-        // gen:units writes the one node with the identity matrix, which is
-        // what keeps a morph's deltas (applyMatrix4 leaves them alone) right.
-        geometry.applyMatrix4(mesh.matrixWorld);
-        geometries.push(geometry);
-        const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        for (const material of list) {
-          const std = material as THREE.MeshStandardMaterial;
-          if (std.isMeshStandardMaterial && std.map && !atlas) atlas = std.map;
-          material.dispose(); // material only — the kept map texture survives
-        }
-      });
-      if (geometries.length === 0) {
-        console.warn(`[props] empty prop asset at ${url}, skipping`);
-        return;
-      }
-      const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries);
-      if (!merged) {
-        console.warn(`[props] unmergeable prop asset at ${url}, skipping`);
-        return;
-      }
+      const asset = mergePropAsset(gltf, url, "props");
+      if (!asset) return;
+      const { geometry: merged, atlas } = asset;
       // No quarter-turn bake into the geometry, unlike unitMeshes.ts: the turn
       // is each record's own (recordTurn), in the instance matrix.
 
