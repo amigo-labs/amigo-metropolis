@@ -1622,6 +1622,8 @@ function rotateSnapshot(): void {
   snapCurr = swap;
   countPrev = countCurr;
   countCurr = writeSnapshot(sim, snapCurr);
+  // The tick's launches meet the rounds they spawned (effects/rounds.ts).
+  sounds.effects.rounds.bind(snapCurr, countCurr, SNAPSHOT_STRIDE);
   // Per-match scalars for the graphical HUD. Written into a preallocated buffer
   // right beside the entity snapshot so the HUD reads only the snapshot
   // interface (renderer rule 4), never sim internals.
@@ -1677,7 +1679,10 @@ function renderEntities(alpha: number, simDtSec: number): void {
     // its slot's frames (render/avatarRig.ts, render/x1Walk.ts). Before the
     // rig's asset lands, and in ?render=greybox, the buckets draw it by form.
     const rig = archetype === ARCHETYPE.AVATAR ? readyRig : null;
-    const greyboxBucket = rig ? undefined : bucketFor(greybox, archetype, animState, aux);
+    // A world round wears its row's model: which launch it came from is the
+    // effect chain's round tracker's (effects/rounds.ts).
+    const row = archetype === ARCHETYPE.PROJECTILE ? sounds.effects.rounds.row[id] : 0;
+    const greyboxBucket = rig ? undefined : bucketFor(greybox, archetype, animState, aux, row);
     if (!rig && !greyboxBucket) continue;
 
     let x = snapCurr[o + 3];

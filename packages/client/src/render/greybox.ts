@@ -14,6 +14,7 @@ import {
   PROJ_HYPER,
   PROJ_MINE,
   PROJ_MORTAR,
+  PROJ_ROUND,
   PROJ_SPECIAL,
   PROJ_WARDEN,
   TURRET_DEFENSE,
@@ -36,6 +37,11 @@ export interface Bucket {
   count: number;
   /** Set once if an instance was ever dropped for lack of capacity (see main.ts). */
   overflowed?: boolean;
+  /**
+   * Drawn in the model's own colours: no team tint (the world rows' rounds,
+   * whose rows name one Cobj with no team variant).
+   */
+  untinted?: boolean;
 }
 
 export interface GreyboxMeshes {
@@ -55,7 +61,18 @@ export interface GreyboxMeshes {
   readonly projMortar: Bucket;
   readonly projMine: Bucket;
   readonly projWarden: Bucket;
-  /** Kinds with no mesh of their own (the shockwave pulse). */
+  /**
+   * A world shooter's round (PROJ_ROUND), by the type-98 row that fired it:
+   * row 1 the first side's tanks and jets, 3 turrets and the Dreadnought's
+   * guns, 4 the Flying Fortress, 6 the second side's tanks and jets, 8 the Sky
+   * Captain's missile (its bomb, row 9, is PROJ_WARDEN's).
+   */
+  readonly roundRow1: Bucket;
+  readonly roundRow3: Bucket;
+  readonly roundRow4: Bucket;
+  readonly roundRow6: Bucket;
+  readonly roundRow8: Bucket;
+  /** Kinds with no mesh of their own (the shockwave pulse; a round whose row is unknown). */
   readonly projectile: Bucket;
   readonly console: Bucket;
   readonly warden: Bucket;
@@ -157,9 +174,14 @@ const NATIVE: Record<string, { footprint: number; height: number }> = {
   projHyper: { footprint: 0.23, height: 0.09 },
   projMortar: { footprint: 0.35, height: 0.19 },
   projMine: { footprint: 0.37, height: 0.22 },
-  projWarden: { footprint: 0.54, height: 0.2 },
-  boltSingle: { footprint: 1.03, height: 0.22 },
-  boltTwin: { footprint: 1.09, height: 0.31 },
+  // The Sky Captain's bomb: world row 9, Cobj 49 (the mortar shell's payload).
+  projWarden: { footprint: 0.35, height: 0.19 },
+  // The world rows' rounds: Cobj 12 / 53 (one bolt, two colours), 14, 42, 43.
+  roundRow1: { footprint: 1.03, height: 0.22 },
+  roundRow3: { footprint: 1.09, height: 0.31 },
+  roundRow4: { footprint: 0.54, height: 0.2 },
+  roundRow6: { footprint: 1.03, height: 0.22 },
+  roundRow8: { footprint: 0.39, height: 0.15 },
 };
 
 /**
@@ -281,7 +303,15 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   };
   const projHeavyGeometry = rocket("projHeavy");
   const projHyperGeometry = rocket("projHyper");
-  const projWardenGeometry = rocket("projWarden");
+  // The bomb is round like the mortar shell whose payload it shares.
+  const projWardenGeometry = fitNative(new THREE.SphereGeometry(0.18, 8, 6), "projWarden", false);
+  /** A bolt: the original's ~1 m beam as a thin box along +X. */
+  const bolt = (key: string) => fitNative(new THREE.BoxGeometry(1.02, 0.12, 0.12), key, false);
+  const roundRow1Geometry = bolt("roundRow1");
+  const roundRow3Geometry = bolt("roundRow3");
+  const roundRow4Geometry = rocket("roundRow4");
+  const roundRow6Geometry = bolt("roundRow6");
+  const roundRow8Geometry = rocket("roundRow8");
   // Mortar: round where the rockets are pointed — that is the silhouette
   // difference in the original too (Cobj 49 against Cobj 43/44).
   const projMortarGeometry = fitNative(new THREE.SphereGeometry(0.18, 8, 6), "projMortar", false);
@@ -342,8 +372,16 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const projMortar = bucket(scene, projMortarGeometry, 32, true);
   const projMine = bucket(scene, projMineGeometry, 32, true);
   const projWarden = bucket(scene, projWardenGeometry, 16, true);
-  // The generic bolt, which is also every PA shooter's round since SIM_VERSION 42
-  // (PROJ_ROUND: 64 turrets and up to 80 units each with a 1.6 s round in the air).
+  projWarden.untinted = true;
+  // Every PA shooter's round since SIM_VERSION 42 (PROJ_ROUND): 64 turrets and
+  // up to 80 units each with a 1.6 s round in the air, split by row.
+  const roundRow1 = bucket(scene, roundRow1Geometry, 128, true);
+  const roundRow3 = bucket(scene, roundRow3Geometry, 192, true);
+  const roundRow4 = bucket(scene, roundRow4Geometry, 32, true);
+  const roundRow6 = bucket(scene, roundRow6Geometry, 128, true);
+  const roundRow8 = bucket(scene, roundRow8Geometry, 16, true);
+  for (const b of [roundRow1, roundRow3, roundRow4, roundRow6, roundRow8]) b.untinted = true;
+  // A round whose row the client did not see launch, and the shockwave pulse.
   const projectile = bucket(scene, projectileGeometry, 192, true);
   const consoleBucket = bucket(scene, consoleGeometry, consoleCapacity());
   const warden = bucket(scene, wardenGeometry, 2);
@@ -361,6 +399,11 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     projMortar,
     projMine,
     projWarden,
+    roundRow1,
+    roundRow3,
+    roundRow4,
+    roundRow6,
+    roundRow8,
     projectile,
     console: consoleBucket,
     warden,
@@ -378,6 +421,11 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
       projMortar,
       projMine,
       projWarden,
+      roundRow1,
+      roundRow3,
+      roundRow4,
+      roundRow6,
+      roundRow8,
       projectile,
       consoleBucket,
       warden,
@@ -392,6 +440,8 @@ export function bucketFor(
   animState: number,
   /** Snapshot aux: projectile kind, or turret mode (DEFENSE / DUMMY / CAPTURABLE→Standard). */
   aux = 0,
+  /** A PROJ_ROUND's world row (effects/rounds.ts), 0 unknown. */
+  row = 0,
 ): Bucket | undefined {
   if (archetype === ARCHETYPE.AVATAR) {
     return (animState & ANIM_HOVER) !== 0 ? greybox.avatarHover : greybox.avatarWalker;
@@ -418,6 +468,18 @@ export function bucketFor(
         return greybox.projMine;
       case PROJ_WARDEN:
         return greybox.projWarden;
+      case PROJ_ROUND:
+        return row === 1
+          ? greybox.roundRow1
+          : row === 3
+            ? greybox.roundRow3
+            : row === 4
+              ? greybox.roundRow4
+              : row === 6
+                ? greybox.roundRow6
+                : row === 8
+                  ? greybox.roundRow8
+                  : greybox.projectile;
       default:
         return greybox.projectile;
     }

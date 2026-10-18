@@ -20,6 +20,7 @@ import {
   PROJ_HYPER,
   PROJ_MINE,
   PROJ_MORTAR,
+  PROJ_ROUND,
   PROJ_SHOCKWAVE,
   PROJ_SPECIAL,
   PROJ_WARDEN,
@@ -111,19 +112,29 @@ describe("greybox stand-ins match the models they stand in for", () => {
   });
 });
 
-/** Bucket name -> FX model key, for the projectile kinds that have a mesh. */
-const FX_PAIRS: readonly (readonly [keyof GreyboxMeshes, string, number])[] = [
-  ["projHeavy", "rocket-helfire", PROJ_HEAVY],
-  ["projHyper", "rocket-hyper", PROJ_HYPER],
-  ["projMortar", "shell-mortar", PROJ_MORTAR],
-  ["projMine", "mine", PROJ_MINE],
-  ["projWarden", "rocket-heavy", PROJ_WARDEN],
+/**
+ * Bucket name -> FX model key, for the projectile kinds that have a mesh, and
+ * the world row a PROJ_ROUND came from (0 for the other kinds).
+ */
+const FX_PAIRS: readonly (readonly [keyof GreyboxMeshes, string, number, number])[] = [
+  ["projHeavy", "rocket-helfire", PROJ_HEAVY, 0],
+  ["projHyper", "rocket-hyper", PROJ_HYPER, 0],
+  ["projMortar", "shell-mortar", PROJ_MORTAR, 0],
+  ["projMine", "mine", PROJ_MINE, 0],
+  // The Sky Captain's bomb is world row 9: Cobj 49.
+  ["projWarden", "round-row9", PROJ_WARDEN, 0],
+  // The world rows' rounds, by the row that fired them.
+  ["roundRow1", "round-row1", PROJ_ROUND, 1],
+  ["roundRow3", "round-row3", PROJ_ROUND, 3],
+  ["roundRow4", "round-row4", PROJ_ROUND, 4],
+  ["roundRow6", "round-row6", PROJ_ROUND, 6],
+  ["roundRow8", "round-row8", PROJ_ROUND, 8],
 ];
 
 describe("projectile stand-ins match the FX models they stand in for", () => {
   const meshes = createGreyboxMeshes(new THREE.Scene());
 
-  for (const [bucketName, key, kind] of FX_PAIRS) {
+  for (const [bucketName, key, kind, row] of FX_PAIRS) {
     test(`${key}`, async () => {
       const model = await modelSize(key, "fx");
       const grey = bucketSize((meshes[bucketName] as { mesh: THREE.InstancedMesh }).mesh);
@@ -136,7 +147,7 @@ describe("projectile stand-ins match the FX models they stand in for", () => {
       expect(grey.height).toBeLessThanOrEqual(model.height + 0.02);
       // Each kind routes to its OWN bucket — that is the whole point of the
       // split, and the reason the tint no longer has to carry the kind.
-      expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, kind)).toBe(meshes[bucketName]);
+      expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, kind, row)).toBe(meshes[bucketName]);
     });
   }
 
@@ -160,5 +171,21 @@ describe("projectile stand-ins match the FX models they stand in for", () => {
 
   test("a kind with no mesh of its own falls back rather than vanishing", () => {
     expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, PROJ_SHOCKWAVE)).toBe(meshes.projectile);
+    // A round whose launch the client never saw (row 0) still draws.
+    expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, PROJ_ROUND, 0)).toBe(meshes.projectile);
+  });
+
+  test("the world rounds wear the original's own colours: no team tint", () => {
+    for (const b of [
+      meshes.roundRow1,
+      meshes.roundRow3,
+      meshes.roundRow4,
+      meshes.roundRow6,
+      meshes.roundRow8,
+      meshes.projWarden,
+    ]) {
+      expect(b.untinted).toBe(true);
+    }
+    expect(meshes.projHeavy.untinted).toBeUndefined();
   });
 });

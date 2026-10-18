@@ -84,6 +84,8 @@ export function teamSide(team: number): number {
 
 /** The greybox stand-ins' tint by side: neutral, red, blue (palette.ts). */
 const SIDE_COLORS: readonly THREE.Color[] = SIDE_RAMPS.map((r) => new THREE.Color(r.base));
+/** The instance colour of a bucket drawn in its model's own colours. */
+const UNTINTED = new THREE.Color(1, 1, 1);
 
 /**
  * Writes an X1-Alpha slot's offset (render/avatarRig.ts): u 128 for side 1,
@@ -316,7 +318,8 @@ function colour(bucket: Bucket, binding: UvBinding | undefined, slot: number, te
     binding.attr.needsUpdate = true;
     return;
   }
-  bucket.mesh.setColorAt(slot, SIDE_COLORS[side]);
+  // A model drawn in its own colours (a world round, Bucket.untinted) has no side.
+  bucket.mesh.setColorAt(slot, bucket.untinted ? UNTINTED : SIDE_COLORS[side]);
   if (bucket.mesh.instanceColor) bucket.mesh.instanceColor.needsUpdate = true;
 }
 

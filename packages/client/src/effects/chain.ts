@@ -29,6 +29,7 @@ import {
   type FxArena,
   type FxRecord,
 } from "./records";
+import { RoundTracker } from "./rounds";
 
 /** Where and how a raise happens: the original's placement context, in the client's frame. */
 export interface RaiseAt {
@@ -44,6 +45,12 @@ export interface RaiseAt {
    * until `rebind` names the entity.
    */
   attach: number;
+  /**
+   * The raise point in the attached entity's frame: metres along its facing
+   * and up. A record that follows its reference (+0x32 bit 8) is drawn there.
+   */
+  attachForward: number;
+  attachUp: number;
   /** A context scale (the impact's 0x80), 0 for the record's own field. */
   scale: number;
   /** The raiser's scale, x16: an actor's radius >> 4, 0x100 for none. */
@@ -65,6 +72,8 @@ export function makeRaiseAt(): RaiseAt {
     z: 0,
     yaw: 0,
     attach: -1,
+    attachForward: 0,
+    attachUp: 0,
     scale: 0,
     raiserScale: 0x100,
     endX: Number.NaN,
@@ -81,6 +90,8 @@ export function copyRaiseAt(from: Readonly<RaiseAt>, to: RaiseAt): void {
   to.z = from.z;
   to.yaw = from.yaw;
   to.attach = from.attach;
+  to.attachForward = from.attachForward;
+  to.attachUp = from.attachUp;
   to.scale = from.scale;
   to.raiserScale = from.raiserScale;
   to.endX = from.endX;
@@ -96,8 +107,7 @@ export function fxArenaFor(mission: string): FxArena | null {
   return null;
 }
 
-/** The first pending-round token; launch n of a tick is `ROUND_TOKEN - n`. */
-export const ROUND_TOKEN = -2;
+export { ROUND_TOKEN } from "./rounds";
 
 export interface EffectListener {
   /**
@@ -105,6 +115,14 @@ export interface EffectListener {
    * arena leaves empty. `at` is only valid during the call.
    */
   install(bank: number, id: number, rec: FxRecord | undefined, at: Readonly<RaiseAt>): void;
+  /**
+   * A sustained weapon fired again while its effect lives (the sustain's
+   * refresh, `sustain_attached_find` / `sustain_aimed_find`): the instance of
+   * (bank, id) riding `attach` is held for `ticks` more engine ticks.
+   */
+  hold?(bank: number, id: number, attach: number, ticks: number): void;
+  /** A launch's round is known (`entity`), or never came (-1). */
+  rebind?(token: number, entity: number): void;
 }
 
 /** Timers waiting at once: a chain's successors and repeats. */
@@ -145,9 +163,12 @@ export class EffectChain {
   private readonly publish = makeRaiseAt();
   /** A re-raise's at-once successor, which is no repeat itself. */
   private readonly child = makeRaiseAt();
+  /** The rounds the launches ride (effects/rounds.ts). */
+  readonly rounds = new RoundTracker();
 
   constructor() {
     for (let i = 0; i < MAX_TIMERS; i++) this.where.push(makeRaiseAt());
+    this.rounds.addListener((token, entity) => this.rebind(token, entity));
   }
 
   addListener(l: EffectListener): void {
@@ -162,6 +183,13 @@ export class EffectChain {
 
   reset(): void {
     this.live.fill(0);
+    this.rounds.reset();
+  }
+
+  /** The sustain's refresh, passed to every listener that keeps instances. */
+  hold(bank: number, id: number, attach: number, ticks: number): void {
+    for (let i = 0; i < this.listeners.length; i++)
+      this.listeners[i].hold?.(bank, id, attach, ticks);
   }
 
   /** The record (bank, id) names on this arena, if any. */
@@ -308,6 +336,7 @@ export class EffectChain {
     for (let t = 0; t < MAX_TIMERS; t++) {
       if (this.live[t] !== 0 && this.where[t].attach === token) this.where[t].attach = entity;
     }
+    for (let i = 0; i < this.listeners.length; i++) this.listeners[i].rebind?.(token, entity);
   }
 
   private free(): number {

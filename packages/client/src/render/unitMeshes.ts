@@ -26,18 +26,26 @@ const loader = new GLTFLoader();
  * Model key under /models/fx/ per projectile bucket — the mesh the original
  * fires for that kind, per the type-99 weapon table (docs/specs/fcop-fx.md §3).
  *
- * The Warden's bomb takes the AI aircraft's rocket (type-98 row 4, the only
- * weapon flown by aircraft and nothing else), which is a derivation and marked
- * as one in the manifest; the other four come straight off the player table.
- * The shockwave has no entry because the original has none either — its row is
- * one of the seven empty ones.
+ * The player's four come straight off the player table. The world rounds come
+ * off the type-98 rows the RE's effect export names (`projectile_cobj`): the
+ * Sky Captain's bomb is row 9's Cobj 49, the rounds of the other rows are by
+ * row (effects/rounds.ts matches each round to its launch). The shockwave has
+ * no entry because the original has none either — its row is one of the seven
+ * empty ones.
  */
 const FX_MODEL_KEYS = [
   ["projHeavy", "rocket-helfire"],
   ["projHyper", "rocket-hyper"],
   ["projMortar", "shell-mortar"],
   ["projMine", "mine"],
-  ["projWarden", "rocket-heavy"],
+  // The Sky Captain's bomb is world row 9: Cobj 49 (the mortar shell's payload).
+  ["projWarden", "round-row9"],
+  // The world rows' rounds, in the original's own colours (effects/rounds.ts).
+  ["roundRow1", "round-row1"],
+  ["roundRow3", "round-row3"],
+  ["roundRow4", "round-row4"],
+  ["roundRow6", "round-row6"],
+  ["roundRow8", "round-row8"],
 ] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
 
 /**

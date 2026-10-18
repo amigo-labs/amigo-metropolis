@@ -69,6 +69,7 @@ import {
   MOVE_CUE_BRAKE,
   MOVE_CUE_DRIVE,
   MOVE_CUE_TURN,
+  MUZZLE_OFFSET,
   matchSlotOffset,
   roundSourceArchetype,
   roundSourceTeam,
@@ -126,6 +127,13 @@ function ownViewOnly(id: number): boolean {
 /** Direct-path kinds (0x00458f93): Mini Gun, Electric, Laser, Flame. */
 function directKind(kind: number): boolean {
   return (kind >= 0x0a && kind <= 0x0c) || kind === 0x0e;
+}
+/**
+ * Kinds that launch a round (0x004590d0): every one but the direct path, the
+ * sphere (0x0d), the shockwave on the mech (0x0f) and the aimed sustain (0x11).
+ */
+function roundKind(kind: number): boolean {
+  return !directKind(kind) && kind !== 0x0d && kind !== 0x0f && kind !== 0x11;
 }
 /** `cact_registry_build`'s reach for the ambient queue: 0x22000 world units. */
 const AMBIENT_RANGE_M = 0x22000 / 8192;
@@ -427,7 +435,11 @@ export class OriginalSounds implements EffectListener {
       const direct = directKind(blk.kind);
       if (direct) this.engine.playCued(placed ? 1 : 0, blk.sound, placed, x, z);
       else this.engine.playScript(blk.sound, placed, x, z);
-      this.installEffect(1, blk.launchFx, x, z);
+      // A kind that launches a round raises its +0x1b on the round
+      // (player_fire_launch 0x004593ec); the round is matched to the launch
+      // when it shows in the next snapshot (effects/rounds.ts).
+      const token = roundKind(blk.kind) ? this.launchToken(shooter, 0, ctx) : -1;
+      this.installEffect(1, blk.launchFx, x, z, token);
       if (player >= 0 && player < MAX_PLAYERS) {
         this.shotKind[player] = blk.hitKind;
         this.shotImpact[player] = direct ? blk.impactFx : -1;
@@ -448,7 +460,24 @@ export class OriginalSounds implements EffectListener {
     const w = data.world[row];
     if (!w || row === 0) return;
     if (w.sound !== 0) this.engine.playScript(w.sound, true, x, z);
-    this.installEffect(0, w.launchFx, x, z);
+    // The launch effect rides the new round (0x0044df29), which also wears
+    // the row's projectile model.
+    const token = slot === SHOT_SLOT_LAUNCH ? this.launchToken(shooter, row, ctx) : -1;
+    this.installEffect(0, w.launchFx, x, z, token);
+  }
+
+  /**
+   * Notes a launch from the shooter's muzzle (sim `spawnStraight`: MUZZLE_OFFSET
+   * along its facing) for the next snapshot's new round, and returns the token
+   * its launch effects ride until then.
+   */
+  private launchToken(shooter: number, row: number, ctx: CueContext): number {
+    const o = this.offsetOf(shooter);
+    if (o < 0) return -1;
+    const yaw = ctx.snapshot[o + S_YAW];
+    const x = ctx.snapshot[o + S_X] + Math.cos(yaw) * MUZZLE_OFFSET;
+    const z = ctx.snapshot[o + S_Y] + Math.sin(yaw) * MUZZLE_OFFSET;
+    return this.effects.rounds.launch(x, z, row);
   }
 
   /**
@@ -606,13 +635,15 @@ export class OriginalSounds implements EffectListener {
    * sound below, its picture in render/fx.ts — and runs its successors and
    * repeats.
    */
-  private installEffect(bank: number, id: number, x: number, z: number): void {
+  private installEffect(bank: number, id: number, x: number, z: number, attach = -1): void {
     const at = this.at;
     at.x = x;
     at.y = 0;
     at.z = z;
     at.yaw = 0;
-    at.attach = -1;
+    at.attach = attach;
+    at.attachForward = 0;
+    at.attachUp = 0;
     at.scale = 0;
     at.raiserScale = DEFAULT_SCALE;
     at.endX = Number.NaN;
