@@ -29,7 +29,42 @@
 import type { MapData } from "@metropolis/sim";
 import * as THREE from "three";
 import type { ArenaScenery, SceneryDecal, SceneryQuad } from "./arenaScenery.generated";
+import { cellXOf, cellZOf, type DrawWindow, inDrawWindow } from "./drawWindow";
 import { RECORD_TURN } from "./recordYaw";
+
+/** The arena's quads as drawn: per mesh each instance's cell, drawn state and matrix. */
+interface QuadMesh {
+  readonly mesh: THREE.InstancedMesh;
+  readonly cellZ: Int16Array;
+  readonly cellX: Int16Array;
+  readonly shown: Uint8Array;
+  readonly rest: Float32Array;
+}
+let quadMeshes: QuadMesh[] = [];
+let lastWindow: DrawWindow | null = null;
+
+/**
+ * The viewer's block moved (render/drawWindow.ts): a DCSQuad is drawn only in
+ * it (`pyro_draw_block` 0x00437310), elsewhere at a zero matrix. Writes only
+ * what changed.
+ */
+export function setDecalWindow(win: DrawWindow): void {
+  lastWindow = win;
+  for (let m = 0; m < quadMeshes.length; m++) {
+    const qm = quadMeshes[m];
+    const a = qm.mesh.instanceMatrix.array as Float32Array;
+    let dirty = false;
+    for (let i = 0; i < qm.shown.length; i++) {
+      const want = inDrawWindow(win, qm.cellZ[i], qm.cellX[i]) ? 1 : 0;
+      if (want === qm.shown[i]) continue;
+      qm.shown[i] = want;
+      dirty = true;
+      if (want === 0) a.fill(0, i * 16, i * 16 + 16);
+      else a.set(qm.rest.subarray(i * 16, i * 16 + 16), i * 16);
+    }
+    if (dirty) qm.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
 
 /** The arena's decal image for a Cdcs rect id. */
 export function decalUrl(mapId: string, decal: SceneryDecal): string {
@@ -130,6 +165,7 @@ export function loadDecals(
   group: THREE.Object3D,
   cancelled?: () => boolean,
 ): void {
+  quadMeshes = [];
   const byDecal = new Map<string, SceneryQuad[]>();
   for (const q of scenery.quads) {
     // One mesh per image and blend: the blend is the material's.
@@ -178,6 +214,15 @@ export function loadDecals(
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         group.add(mesh);
+        // A quad hangs in the cell of its centre (`pyro_place`).
+        quadMeshes.push({
+          mesh,
+          cellZ: Int16Array.from(quads, (q) => cellZOf(q.x)),
+          cellX: Int16Array.from(quads, (q) => cellXOf(q.y)),
+          shown: new Uint8Array(quads.length).fill(1),
+          rest: Float32Array.from(mesh.instanceMatrix.array),
+        });
+        if (lastWindow) setDecalWindow(lastWindow);
       },
       () => {
         console.warn(`[decals] no decal image at ${url}, skipping`);

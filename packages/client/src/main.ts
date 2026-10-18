@@ -130,7 +130,10 @@ import {
 import { applyBlend, createCameraBlend } from "./render/cameraBlend";
 import { applyCameraShake, resetCameraShake, shakeDamage, shakeEffect } from "./render/cameraShake";
 import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
+import { setDecalWindow } from "./render/decals";
+import { createDrawWindow, placeDrawWindow } from "./render/drawWindow";
 import { lerpGunYaws } from "./render/dreadnoughtGuns";
+import { setEmitterWindow } from "./render/emitterProps";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx, createFxPoses, POSE_STRIDE } from "./render/fx";
 import { bucketFor, createGreyboxMeshes } from "./render/greybox";
@@ -1953,6 +1956,22 @@ function renderEntities(alpha: number, simDtSec: number): void {
   if (avatarRig) avatarRig.end();
 }
 
+/** The local eye's 5 x 5 block of cells (render/drawWindow.ts). */
+const drawWindow = createDrawWindow();
+
+/**
+ * `world_view_focus` for the local view: the block about the ground focus of
+ * its camera over its X1's height; the Props and DCSQuads follow it.
+ */
+function placeViewWindow(view: PlayerView): void {
+  view.camera.updateMatrixWorld();
+  const height = avatarPoses[view.slot][2];
+  if (placeDrawWindow(drawWindow, view.camera.matrixWorld.elements, height)) {
+    setEmitterWindow(drawWindow);
+    setDecalWindow(drawWindow);
+  }
+}
+
 /**
  * The original's chase camera for one view (camera.spec, render/camera.ts): the
  * interpolated avatar is its subject, the frame's real time its clock in the
@@ -2276,6 +2295,8 @@ function frame(now: number): void {
       // Billboards face the local view's camera (view 0); update once after
       // that camera is posed, before any scissored draw.
       if (v === 0 && phase === "match") fx.update(dtSec, view.camera, simDtSec);
+      // The Props and DCSQuads in the eye's 5 x 5 block of cells only.
+      if (v === 0 && phase === "match") placeViewWindow(view);
       const vp = view.viewport;
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);

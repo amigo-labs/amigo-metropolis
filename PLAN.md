@@ -834,6 +834,8 @@ no golden moves.
       and Hk (89 / 75 / 75 / 151 Props, 0 / 56 / 51 / 134 DCSQuads): built as the
       loaders build them, the spins, swings and frames stepped, the DCSQuads'
       additive haze (G13; the random yaws' seed a stand-in)
+- [x] The Props and DCSQuads drawn only in the eye's 5 x 5 block of 16 m cells
+      about its ground focus (G13)
 - [ ] The Props' camera-facing facers (Hk 65, Slim 63 / 83, Joke 62 / 82; RE: the
       export stands them in as static white geometry), their semi-transparent faces
       (RE: the export drops the face type; every model draws them opaque) and their

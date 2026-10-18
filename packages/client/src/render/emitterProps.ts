@@ -25,14 +25,19 @@
 // instance per record; the per-frame work writes only the spinning instances'
 // matrices and the frames that changed, and allocates nothing.
 //
-// Not modelled: the sound a Prop plays where it stands (`sound`, the table-A
-// script `snd_emit_voice_follow` queues; the audio's); the draw only within the
-// viewer's 5x5 block of cells (Metropolis draws the arena whole); the facers
-// (stars, billboards) facing the camera — they draw as the RE exports them.
+// Only the Props hung in the viewer's 5 x 5 block of cells are drawn
+// (`setEmitterWindow`, render/drawWindow.ts): the others stand at a zero
+// matrix until the block reaches them. A Prop hangs in the cell of its model's
+// origin (the original's of its box's placed centre, a few centimetres off).
+// The sound a Prop plays is the audio's (audio/cues.ts).
+//
+// Not modelled: the facers (stars, billboards) facing the camera — they draw as
+// the RE exports them.
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { ArenaScenery, SceneryProp } from "./arenaScenery.generated";
+import { cellXOf, cellZOf, type DrawWindow, inDrawWindow } from "./drawWindow";
 import { disposeSubtree } from "./meshMap";
 import { mergePropAsset } from "./propAsset";
 import { RECORD_TURN, recordTurn } from "./recordYaw";
@@ -170,6 +175,11 @@ interface EmitterMesh {
   readonly frames: number;
   /** The instances that turn every frame. */
   readonly spinning: Int16Array;
+  /** Each instance's cell (render/drawWindow.ts), whether it is drawn, its standing matrix. */
+  readonly cellZ: Int16Array;
+  readonly cellX: Int16Array;
+  readonly shown: Uint8Array;
+  readonly rest: Float32Array;
   /** The morph texture and the frame each instance shows (-1 unwritten). */
   readonly morph: {
     readonly texture: THREE.DataTexture;
@@ -245,9 +255,21 @@ export function loadEmitters(
           }
         }
         group.add(mesh);
-        meshes.push({ mesh, props, frames, spinning: Int16Array.from(spinning), morph });
-        // A model that arrives late stands at the clock it arrives on.
+        meshes.push({
+          mesh,
+          props,
+          frames,
+          spinning: Int16Array.from(spinning),
+          cellZ: Int16Array.from(props, (p) => cellZOf(p.x)),
+          cellX: Int16Array.from(props, (p) => cellXOf(p.y)),
+          shown: new Uint8Array(props.length).fill(1),
+          rest: Float32Array.from(mesh.instanceMatrix.array),
+          morph,
+        });
+        // A model that arrives late stands at the clock it arrives on, in the
+        // block the viewer has.
         updateEmitters(lastNow);
+        if (lastWindow) setEmitterWindow(lastWindow);
       },
       () => {
         console.warn(`[props] no prop asset at ${at}, skipping`);
@@ -257,6 +279,38 @@ export function loadEmitters(
 }
 
 let lastNow = 0;
+let lastWindow: DrawWindow | null = null;
+
+/** The spinning instance `i` of `em` at `now`, into its matrix. */
+function spinAt(em: EmitterMesh, i: number, now: number): void {
+  const p = em.props[i];
+  scratchPosition.set(p.x, p.h, p.y);
+  scratchQuat.setFromAxisAngle(UP, recordTurn(emitterYaw(p.spin, p.swing, p.park, now)));
+  em.mesh.setMatrixAt(i, scratchMatrix.compose(scratchPosition, scratchQuat, UNIT));
+}
+
+/**
+ * The viewer's block moved (render/drawWindow.ts): every Prop outside it stands
+ * at a zero matrix, every one inside at its own. Writes only what changed.
+ */
+export function setEmitterWindow(win: DrawWindow): void {
+  lastWindow = win;
+  for (let m = 0; m < meshes.length; m++) {
+    const em = meshes[m];
+    const a = em.mesh.instanceMatrix.array as Float32Array;
+    let dirty = false;
+    for (let i = 0; i < em.props.length; i++) {
+      const want = inDrawWindow(win, em.cellZ[i], em.cellX[i]) ? 1 : 0;
+      if (want === em.shown[i]) continue;
+      em.shown[i] = want;
+      dirty = true;
+      if (want === 0) a.fill(0, i * 16, i * 16 + 16);
+      else if (em.props[i].spin !== 0) spinAt(em, i, lastNow);
+      else a.set(em.rest.subarray(i * 16, i * 16 + 16), i * 16);
+    }
+    if (dirty) em.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
 
 /** Per frame: `now` engine ticks since the arena's load. Turns and steps. */
 export function updateEmitters(now: number): void {
@@ -266,10 +320,7 @@ export function updateEmitters(now: number): void {
     const spinning = em.spinning;
     for (let k = 0; k < spinning.length; k++) {
       const i = spinning[k];
-      const p = em.props[i];
-      scratchPosition.set(p.x, p.h, p.y);
-      scratchQuat.setFromAxisAngle(UP, recordTurn(emitterYaw(p.spin, p.swing, p.park, now)));
-      em.mesh.setMatrixAt(i, scratchMatrix.compose(scratchPosition, scratchQuat, UNIT));
+      if (em.shown[i] !== 0) spinAt(em, i, now);
     }
     if (spinning.length > 0) em.mesh.instanceMatrix.needsUpdate = true;
     const morph = em.morph;
