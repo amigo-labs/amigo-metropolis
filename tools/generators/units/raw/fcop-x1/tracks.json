@@ -1,0 +1,3225 @@
+{
+ "_tool": "tools/gfx/extract_x1.py",
+ "_conventions": {
+  "clock": "300 ticks a second (fcop/clock.h)",
+  "frame": "an index into the part's timeline. The glb's 'full' clip shows frame f at t = f / 15 s; a track's clip shows frames first..last (last < first plays backwards) at clip.sec_per_frame (manifest.json clip_timing). A hold track (from == to) has no clip: pose hold_frame",
+  "step": "cact_anim_step (src/game/actor/block.c 221-363): mode 0 holds and offers its frame to the event channel every step; modes 1 and 2 add the delta to a clock and step one frame each time it passes `period` (the walker hands it `rate`, see walker.rate); mode 3 sets frame = from + (to - from) * delta >> 16. One past the end: end 0 follows link / link_b / link_c for continuation 0 / 1 / 2 (a self link loops), 1 ping-pongs, 2 stops on the last frame, 0xff does nothing",
+  "event": "a track whose frame reaches event.frame -- by a step, or by being started with the STARTED bit, which the walker always sets (player_walk.c 629) -- reports event.code; up to five codes a step (block.c 82-95). The walker hands each one to snd_loop_set_mode (player_walk.c 704-706): event.loop",
+  "flags": "byte 3: HOLD 0x02 a new command is taken only on the step after a landing; LAUNCH 0x04 moves state 0x0a -> 0x0b and 0x0f -> 0x10; TOUGH 0x10 a landing hurts only above 0x80000, not 0x50000 (actor_player_walk.h 96-106, player_walk.c 277, 564, 709). 0x01 and 0x08 are read by nothing decompiled; JITTER 0x20 and RANDOM_LINK 0x40 (block.c 300-318) are set by no shipped track",
+  "states": "walker states (player_walk.c 362-465). `tracks` is what the arm asks the legs for; `becomes` the state it switches to in the same step, whose rate then applies; labels are ours, from the command",
+  "rate_ref": "the state (and rate) a leg clip is timed at in x1_legs.glb: the first state of 1-8, 0, 9, 0x0a, 0x0c, 0x0f, 0x11, 0x12, 0x0e that plays it (`states`: the arms that ask for it and every track their links reach on continuations 0 and 1), at its flat-ground rate"
+ },
+ "parts": {
+  "legs": {
+   "slot": 0,
+   "glb": "x1_legs.glb",
+   "frames": 371,
+   "cobj_by_map": {
+    "Conft": 15,
+    "Hk": 15,
+    "Joke": 15,
+    "Lax1": 12,
+    "Lax2": 82,
+    "M1a1": 11,
+    "M2c": 18,
+    "M3a": 12,
+    "M3b": 33,
+    "M4a1": 75,
+    "Mp": 15,
+    "Ov": 12,
+    "Ovmp": 15,
+    "Slim": 15,
+    "Un": 12
+   },
+   "tracks": [
+    {
+     "track": 0,
+     "hex": "0x00",
+     "from": 0,
+     "to": 0,
+     "mode": 0,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 1,
+     "flag_names": [
+      "unread(0x01)"
+     ],
+     "period": 400,
+     "event": {
+      "frame": 0,
+      "code": 39,
+      "code_hex": "0x27",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": null,
+     "hold_frame": 0,
+     "states": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      12,
+      14,
+      15,
+      17,
+      18
+     ],
+     "rate_ref": null
+    },
+    {
+     "track": 1,
+     "hex": "0x01",
+     "from": 191,
+     "to": 193,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 20,
+     "link_b": 19,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 330,
+     "event": {
+      "frame": 191,
+      "code": 33,
+      "code_hex": "0x21",
+      "loop": {
+       "enable": true,
+       "mode": 1,
+       "loop": "A35",
+       "repeat_cue": "B57",
+       "does": "loop A35 on the viewport's reserved channel; while it is live the same code plays B57 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip00_191-193",
+      "first": 191,
+      "last": 193,
+      "sec_per_frame": 0.020657
+     },
+     "hold_frame": null,
+     "states": [
+      5
+     ],
+     "rate_ref": {
+      "state": 5,
+      "rate": 426
+     }
+    },
+    {
+     "track": 2,
+     "hex": "0x02",
+     "from": 171,
+     "to": 173,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 23,
+     "link_b": 22,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 330,
+     "event": {
+      "frame": 171,
+      "code": 33,
+      "code_hex": "0x21",
+      "loop": {
+       "enable": true,
+       "mode": 1,
+       "loop": "A35",
+       "repeat_cue": "B57",
+       "does": "loop A35 on the viewport's reserved channel; while it is live the same code plays B57 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip01_171-173",
+      "first": 171,
+      "last": 173,
+      "sec_per_frame": 0.020657
+     },
+     "hold_frame": null,
+     "states": [
+      6
+     ],
+     "rate_ref": {
+      "state": 6,
+      "rate": 426
+     }
+    },
+    {
+     "track": 3,
+     "hex": "0x03",
+     "from": 212,
+     "to": 225,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 25,
+     "link_b": 25,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 100,
+     "event": {
+      "frame": 212,
+      "code": 37,
+      "code_hex": "0x25",
+      "loop": {
+       "enable": true,
+       "mode": 5,
+       "loop": "A39",
+       "repeat_cue": "B61",
+       "does": "loop A39 on the viewport's reserved channel; while it is live the same code plays B61 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip02_212-225",
+      "first": 212,
+      "last": 225,
+      "sec_per_frame": 0.016667
+     },
+     "hold_frame": null,
+     "states": [
+      9
+     ],
+     "rate_ref": {
+      "state": 9,
+      "rate": 160
+     }
+    },
+    {
+     "track": 4,
+     "hex": "0x04",
+     "from": 212,
+     "to": 230,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 27,
+     "link_b": 27,
+     "link_c": 0,
+     "flags": 2,
+     "flag_names": [
+      "HOLD(0x02)"
+     ],
+     "period": 120,
+     "event": {
+      "frame": 212,
+      "code": 36,
+      "code_hex": "0x24",
+      "loop": {
+       "enable": true,
+       "mode": 4,
+       "loop": "A38",
+       "repeat_cue": "B60",
+       "does": "loop A38 on the viewport's reserved channel; while it is live the same code plays B60 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip03_212-230",
+      "first": 212,
+      "last": 230,
+      "sec_per_frame": 0.02
+     },
+     "hold_frame": null,
+     "states": [
+      10,
+      12
+     ],
+     "rate_ref": {
+      "state": 10,
+      "rate": 160
+     }
+    },
+    {
+     "track": 5,
+     "hex": "0x05",
+     "from": 212,
+     "to": 225,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 29,
+     "link_b": 29,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 100,
+     "event": {
+      "frame": 215,
+      "code": 38,
+      "code_hex": "0x26",
+      "loop": {
+       "enable": true,
+       "mode": 6,
+       "does": "quiet: a live loop of another mode stops (B(50 + old)); then B61 plays once and no loop starts"
+      }
+     },
+     "clip": {
+      "name": "clip02_212-225",
+      "first": 212,
+      "last": 225,
+      "sec_per_frame": 0.016667
+     },
+     "hold_frame": null,
+     "states": [
+      10,
+      12,
+      15,
+      17,
+      18
+     ],
+     "rate_ref": {
+      "state": 10,
+      "rate": 160
+     }
+    },
+    {
+     "track": 6,
+     "hex": "0x06",
+     "from": 316,
+     "to": 325,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 30,
+     "link_b": 33,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 263,
+     "event": {
+      "frame": 316,
+      "code": 35,
+      "code_hex": "0x23",
+      "loop": {
+       "enable": true,
+       "mode": 3,
+       "loop": "A37",
+       "repeat_cue": "B59",
+       "does": "loop A37 on the viewport's reserved channel; while it is live the same code plays B59 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip04_316-325",
+      "first": 316,
+      "last": 325,
+      "sec_per_frame": 0.016463
+     },
+     "hold_frame": null,
+     "states": [
+      1
+     ],
+     "rate_ref": {
+      "state": 1,
+      "rate": 426
+     }
+    },
+    {
+     "track": 7,
+     "hex": "0x07",
+     "from": 118,
+     "to": 111,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 34,
+     "link_b": 36,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 330,
+     "event": {
+      "frame": 118,
+      "code": 34,
+      "code_hex": "0x22",
+      "loop": {
+       "enable": true,
+       "mode": 2,
+       "loop": "A36",
+       "repeat_cue": "B58",
+       "does": "loop A36 on the viewport's reserved channel; while it is live the same code plays B58 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip05_118-111",
+      "first": 118,
+      "last": 111,
+      "sec_per_frame": 0.020657
+     },
+     "hold_frame": null,
+     "states": [
+      2
+     ],
+     "rate_ref": {
+      "state": 2,
+      "rate": 426
+     }
+    },
+    {
+     "track": 8,
+     "hex": "0x08",
+     "from": 2,
+     "to": 10,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 38,
+     "link_b": 42,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 338,
+     "event": {
+      "frame": 2,
+      "code": 32,
+      "code_hex": "0x20",
+      "loop": {
+       "enable": true,
+       "mode": 0,
+       "loop": "A34",
+       "repeat_cue": "B56",
+       "does": "loop A34 on the viewport's reserved channel; while it is live the same code plays B56 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip06_2-10",
+      "first": 2,
+      "last": 10,
+      "sec_per_frame": 0.008802
+     },
+     "hold_frame": null,
+     "states": [
+      3,
+      14
+     ],
+     "rate_ref": {
+      "state": 3,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 9,
+     "hex": "0x09",
+     "from": 255,
+     "to": 251,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 44,
+     "link_b": 46,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 400,
+     "event": {
+      "frame": 255,
+      "code": 34,
+      "code_hex": "0x22",
+      "loop": {
+       "enable": true,
+       "mode": 2,
+       "loop": "A36",
+       "repeat_cue": "B58",
+       "does": "loop A36 on the viewport's reserved channel; while it is live the same code plays B58 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip07_255-251",
+      "first": 255,
+      "last": 251,
+      "sec_per_frame": 0.010417
+     },
+     "hold_frame": null,
+     "states": [
+      4
+     ],
+     "rate_ref": {
+      "state": 4,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 10,
+     "hex": "0x0a",
+     "from": 151,
+     "to": 154,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 49,
+     "link_b": 48,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 750,
+     "event": {
+      "frame": 151,
+      "code": 33,
+      "code_hex": "0x21",
+      "loop": {
+       "enable": true,
+       "mode": 1,
+       "loop": "A35",
+       "repeat_cue": "B57",
+       "does": "loop A35 on the viewport's reserved channel; while it is live the same code plays B57 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip08_151-154",
+      "first": 151,
+      "last": 154,
+      "sec_per_frame": 0.029326
+     },
+     "hold_frame": null,
+     "states": [
+      7
+     ],
+     "rate_ref": {
+      "state": 7,
+      "rate": 682
+     }
+    },
+    {
+     "track": 11,
+     "hex": "0x0b",
+     "from": 131,
+     "to": 134,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 52,
+     "link_b": 51,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 750,
+     "event": {
+      "frame": 131,
+      "code": 33,
+      "code_hex": "0x21",
+      "loop": {
+       "enable": true,
+       "mode": 1,
+       "loop": "A35",
+       "repeat_cue": "B57",
+       "does": "loop A35 on the viewport's reserved channel; while it is live the same code plays B57 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip09_131-134",
+      "first": 131,
+      "last": 134,
+      "sec_per_frame": 0.029326
+     },
+     "hold_frame": null,
+     "states": [
+      8
+     ],
+     "rate_ref": {
+      "state": 8,
+      "rate": 682
+     }
+    },
+    {
+     "track": 12,
+     "hex": "0x0c",
+     "from": 330,
+     "to": 359,
+     "mode": 3,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 10000,
+     "event": null,
+     "clip": {
+      "name": "clip10_330-359",
+      "first": 330,
+      "last": 359,
+      "sec_per_frame": 0.04708
+     },
+     "hold_frame": null,
+     "states": [],
+     "rate_ref": null
+    },
+    {
+     "track": 13,
+     "hex": "0x0d",
+     "from": 359,
+     "to": 359,
+     "mode": 0,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 400,
+     "event": null,
+     "clip": null,
+     "hold_frame": 359,
+     "states": [],
+     "rate_ref": null
+    },
+    {
+     "track": 14,
+     "hex": "0x0e",
+     "from": 41,
+     "to": 59,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 14,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 1,
+     "flag_names": [
+      "unread(0x01)"
+     ],
+     "period": 30,
+     "event": {
+      "frame": 41,
+      "code": 35,
+      "code_hex": "0x23",
+      "loop": {
+       "enable": true,
+       "mode": 3,
+       "loop": "A37",
+       "repeat_cue": "B59",
+       "does": "loop A37 on the viewport's reserved channel; while it is live the same code plays B59 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip11_41-59",
+      "first": 41,
+      "last": 59,
+      "sec_per_frame": 0.026667
+     },
+     "hold_frame": null,
+     "states": [
+      0
+     ],
+     "rate_ref": {
+      "state": 0,
+      "rate": 30
+     }
+    },
+    {
+     "track": 15,
+     "hex": "0x0f",
+     "from": 61,
+     "to": 79,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 15,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 1,
+     "flag_names": [
+      "unread(0x01)"
+     ],
+     "period": 30,
+     "event": {
+      "frame": 61,
+      "code": 35,
+      "code_hex": "0x23",
+      "loop": {
+       "enable": true,
+       "mode": 3,
+       "loop": "A37",
+       "repeat_cue": "B59",
+       "does": "loop A37 on the viewport's reserved channel; while it is live the same code plays B59 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip12_61-79",
+      "first": 61,
+      "last": 79,
+      "sec_per_frame": 0.026667
+     },
+     "hold_frame": null,
+     "states": [
+      0
+     ],
+     "rate_ref": {
+      "state": 0,
+      "rate": 30
+     }
+    },
+    {
+     "track": 16,
+     "hex": "0x10",
+     "from": 361,
+     "to": 370,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 61,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 1,
+     "flag_names": [
+      "unread(0x01)"
+     ],
+     "period": 60,
+     "event": null,
+     "clip": {
+      "name": "clip13_361-370",
+      "first": 361,
+      "last": 370,
+      "sec_per_frame": 0.053333
+     },
+     "hold_frame": null,
+     "states": [
+      0
+     ],
+     "rate_ref": {
+      "state": 0,
+      "rate": 30
+     }
+    },
+    {
+     "track": 17,
+     "hex": "0x11",
+     "from": 236,
+     "to": 239,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 58,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 2,
+     "flag_names": [
+      "HOLD(0x02)"
+     ],
+     "period": 300,
+     "event": {
+      "frame": 236,
+      "code": 36,
+      "code_hex": "0x24",
+      "loop": {
+       "enable": true,
+       "mode": 4,
+       "loop": "A38",
+       "repeat_cue": "B60",
+       "does": "loop A38 on the viewport's reserved channel; while it is live the same code plays B60 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip14_236-239",
+      "first": 236,
+      "last": 239,
+      "sec_per_frame": 0.05
+     },
+     "hold_frame": null,
+     "states": [
+      15,
+      17
+     ],
+     "rate_ref": {
+      "state": 15,
+      "rate": 160
+     }
+    },
+    {
+     "track": 18,
+     "hex": "0x12",
+     "from": 0,
+     "to": 0,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 0,
+     "event": null,
+     "clip": null,
+     "hold_frame": 0,
+     "states": [],
+     "rate_ref": null
+    },
+    {
+     "track": 19,
+     "hex": "0x13",
+     "from": 194,
+     "to": 191,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 330,
+     "event": {
+      "frame": 193,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip15_194-191",
+      "first": 194,
+      "last": 191,
+      "sec_per_frame": 0.020657
+     },
+     "hold_frame": null,
+     "states": [
+      5
+     ],
+     "rate_ref": {
+      "state": 5,
+      "rate": 426
+     }
+    },
+    {
+     "track": 20,
+     "hex": "0x14",
+     "from": 194,
+     "to": 209,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 21,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 330,
+     "event": {
+      "frame": 207,
+      "code": 17,
+      "code_hex": "0x11",
+      "loop": {
+       "enable": false,
+       "does": "nothing: bit 5 clear, snd_loop_set_mode returns"
+      }
+     },
+     "clip": {
+      "name": "clip16_194-209",
+      "first": 194,
+      "last": 209,
+      "sec_per_frame": 0.020657
+     },
+     "hold_frame": null,
+     "states": [
+      5
+     ],
+     "rate_ref": {
+      "state": 5,
+      "rate": 426
+     }
+    },
+    {
+     "track": 21,
+     "hex": "0x15",
+     "from": 191,
+     "to": 193,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 20,
+     "link_b": 20,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 330,
+     "event": {
+      "frame": 191,
+      "code": 33,
+      "code_hex": "0x21",
+      "loop": {
+       "enable": true,
+       "mode": 1,
+       "loop": "A35",
+       "repeat_cue": "B57",
+       "does": "loop A35 on the viewport's reserved channel; while it is live the same code plays B57 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip00_191-193",
+      "first": 191,
+      "last": 193,
+      "sec_per_frame": 0.020657
+     },
+     "hold_frame": null,
+     "states": [
+      5
+     ],
+     "rate_ref": {
+      "state": 5,
+      "rate": 426
+     }
+    },
+    {
+     "track": 22,
+     "hex": "0x16",
+     "from": 174,
+     "to": 171,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 330,
+     "event": {
+      "frame": 173,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip17_174-171",
+      "first": 174,
+      "last": 171,
+      "sec_per_frame": 0.020657
+     },
+     "hold_frame": null,
+     "states": [
+      6
+     ],
+     "rate_ref": {
+      "state": 6,
+      "rate": 426
+     }
+    },
+    {
+     "track": 23,
+     "hex": "0x17",
+     "from": 174,
+     "to": 189,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 24,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 330,
+     "event": {
+      "frame": 187,
+      "code": 17,
+      "code_hex": "0x11",
+      "loop": {
+       "enable": false,
+       "does": "nothing: bit 5 clear, snd_loop_set_mode returns"
+      }
+     },
+     "clip": {
+      "name": "clip18_174-189",
+      "first": 174,
+      "last": 189,
+      "sec_per_frame": 0.020657
+     },
+     "hold_frame": null,
+     "states": [
+      6
+     ],
+     "rate_ref": {
+      "state": 6,
+      "rate": 426
+     }
+    },
+    {
+     "track": 24,
+     "hex": "0x18",
+     "from": 171,
+     "to": 173,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 23,
+     "link_b": 23,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 330,
+     "event": {
+      "frame": 171,
+      "code": 33,
+      "code_hex": "0x21",
+      "loop": {
+       "enable": true,
+       "mode": 1,
+       "loop": "A35",
+       "repeat_cue": "B57",
+       "does": "loop A35 on the viewport's reserved channel; while it is live the same code plays B57 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip01_171-173",
+      "first": 171,
+      "last": 173,
+      "sec_per_frame": 0.020657
+     },
+     "hold_frame": null,
+     "states": [
+      6
+     ],
+     "rate_ref": {
+      "state": 6,
+      "rate": 426
+     }
+    },
+    {
+     "track": 25,
+     "hex": "0x19",
+     "from": 225,
+     "to": 225,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 25,
+     "link_b": 26,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 300,
+     "event": {
+      "frame": 225,
+      "code": 39,
+      "code_hex": "0x27",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": null,
+     "hold_frame": 225,
+     "states": [
+      9
+     ],
+     "rate_ref": {
+      "state": 9,
+      "rate": 160
+     }
+    },
+    {
+     "track": 26,
+     "hex": "0x1a",
+     "from": 225,
+     "to": 212,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 133,
+     "event": {
+      "frame": 225,
+      "code": 37,
+      "code_hex": "0x25",
+      "loop": {
+       "enable": true,
+       "mode": 5,
+       "loop": "A39",
+       "repeat_cue": "B61",
+       "does": "loop A39 on the viewport's reserved channel; while it is live the same code plays B61 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip19_225-212",
+      "first": 225,
+      "last": 212,
+      "sec_per_frame": 0.022167
+     },
+     "hold_frame": null,
+     "states": [
+      9
+     ],
+     "rate_ref": {
+      "state": 9,
+      "rate": 160
+     }
+    },
+    {
+     "track": 27,
+     "hex": "0x1b",
+     "from": 231,
+     "to": 227,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 28,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 6,
+     "flag_names": [
+      "HOLD(0x02)",
+      "LAUNCH(0x04)"
+     ],
+     "period": 120,
+     "event": {
+      "frame": 213,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip20_231-227",
+      "first": 231,
+      "last": 227,
+      "sec_per_frame": 0.02
+     },
+     "hold_frame": null,
+     "states": [
+      10,
+      12
+     ],
+     "rate_ref": {
+      "state": 10,
+      "rate": 160
+     }
+    },
+    {
+     "track": 28,
+     "hex": "0x1c",
+     "from": 0,
+     "to": 0,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 28,
+     "link_b": 5,
+     "link_c": 0,
+     "flags": 2,
+     "flag_names": [
+      "HOLD(0x02)"
+     ],
+     "period": 120,
+     "event": null,
+     "clip": null,
+     "hold_frame": 0,
+     "states": [
+      10,
+      12
+     ],
+     "rate_ref": {
+      "state": 10,
+      "rate": 160
+     }
+    },
+    {
+     "track": 29,
+     "hex": "0x1d",
+     "from": 224,
+     "to": 212,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 100,
+     "event": {
+      "frame": 217,
+      "code": 23,
+      "code_hex": "0x17",
+      "loop": {
+       "enable": false,
+       "does": "nothing: bit 5 clear, snd_loop_set_mode returns"
+      }
+     },
+     "clip": {
+      "name": "clip21_224-212",
+      "first": 224,
+      "last": 212,
+      "sec_per_frame": 0.016667
+     },
+     "hold_frame": null,
+     "states": [
+      10,
+      12,
+      15,
+      17,
+      18
+     ],
+     "rate_ref": {
+      "state": 10,
+      "rate": 160
+     }
+    },
+    {
+     "track": 30,
+     "hex": "0x1e",
+     "from": 81,
+     "to": 95,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 31,
+     "link_b": 32,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 280,
+     "event": {
+      "frame": 94,
+      "code": 51,
+      "code_hex": "0x33",
+      "loop": {
+       "enable": true,
+       "mode": 3,
+       "loop": "A37",
+       "repeat_cue": "B59",
+       "does": "loop A37 on the viewport's reserved channel; while it is live the same code plays B59 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip22_81-95",
+      "first": 81,
+      "last": 95,
+      "sec_per_frame": 0.017527
+     },
+     "hold_frame": null,
+     "states": [
+      1
+     ],
+     "rate_ref": {
+      "state": 1,
+      "rate": 426
+     }
+    },
+    {
+     "track": 31,
+     "hex": "0x1f",
+     "from": 96,
+     "to": 110,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 30,
+     "link_b": 33,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 280,
+     "event": {
+      "frame": 109,
+      "code": 35,
+      "code_hex": "0x23",
+      "loop": {
+       "enable": true,
+       "mode": 3,
+       "loop": "A37",
+       "repeat_cue": "B59",
+       "does": "loop A37 on the viewport's reserved channel; while it is live the same code plays B59 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip23_96-110",
+      "first": 96,
+      "last": 110,
+      "sec_per_frame": 0.017527
+     },
+     "hold_frame": null,
+     "states": [
+      1
+     ],
+     "rate_ref": {
+      "state": 1,
+      "rate": 426
+     }
+    },
+    {
+     "track": 32,
+     "hex": "0x20",
+     "from": 123,
+     "to": 128,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 340,
+     "event": {
+      "frame": 126,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip24_123-128",
+      "first": 123,
+      "last": 128,
+      "sec_per_frame": 0.021283
+     },
+     "hold_frame": null,
+     "states": [
+      1
+     ],
+     "rate_ref": {
+      "state": 1,
+      "rate": 426
+     }
+    },
+    {
+     "track": 33,
+     "hex": "0x21",
+     "from": 111,
+     "to": 118,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 245,
+     "event": {
+      "frame": 116,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip25_111-118",
+      "first": 111,
+      "last": 118,
+      "sec_per_frame": 0.015336
+     },
+     "hold_frame": null,
+     "states": [
+      1
+     ],
+     "rate_ref": {
+      "state": 1,
+      "rate": 426
+     }
+    },
+    {
+     "track": 34,
+     "hex": "0x22",
+     "from": 110,
+     "to": 96,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 35,
+     "link_b": 37,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 280,
+     "event": {
+      "frame": 97,
+      "code": 51,
+      "code_hex": "0x33",
+      "loop": {
+       "enable": true,
+       "mode": 3,
+       "loop": "A37",
+       "repeat_cue": "B59",
+       "does": "loop A37 on the viewport's reserved channel; while it is live the same code plays B59 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip26_110-96",
+      "first": 110,
+      "last": 96,
+      "sec_per_frame": 0.017527
+     },
+     "hold_frame": null,
+     "states": [
+      2
+     ],
+     "rate_ref": {
+      "state": 2,
+      "rate": 426
+     }
+    },
+    {
+     "track": 35,
+     "hex": "0x23",
+     "from": 95,
+     "to": 81,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 34,
+     "link_b": 36,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 280,
+     "event": {
+      "frame": 82,
+      "code": 35,
+      "code_hex": "0x23",
+      "loop": {
+       "enable": true,
+       "mode": 3,
+       "loop": "A37",
+       "repeat_cue": "B59",
+       "does": "loop A37 on the viewport's reserved channel; while it is live the same code plays B59 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip27_95-81",
+      "first": 95,
+      "last": 81,
+      "sec_per_frame": 0.017527
+     },
+     "hold_frame": null,
+     "states": [
+      2
+     ],
+     "rate_ref": {
+      "state": 2,
+      "rate": 426
+     }
+    },
+    {
+     "track": 36,
+     "hex": "0x24",
+     "from": 323,
+     "to": 317,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 280,
+     "event": {
+      "frame": 319,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip28_323-317",
+      "first": 323,
+      "last": 317,
+      "sec_per_frame": 0.017527
+     },
+     "hold_frame": null,
+     "states": [
+      2
+     ],
+     "rate_ref": {
+      "state": 2,
+      "rate": 426
+     }
+    },
+    {
+     "track": 37,
+     "hex": "0x25",
+     "from": 315,
+     "to": 306,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 204,
+     "event": {
+      "frame": 308,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip29_315-306",
+      "first": 315,
+      "last": 306,
+      "sec_per_frame": 0.01277
+     },
+     "hold_frame": null,
+     "states": [
+      2
+     ],
+     "rate_ref": {
+      "state": 2,
+      "rate": 426
+     }
+    },
+    {
+     "track": 38,
+     "hex": "0x26",
+     "from": 11,
+     "to": 14,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 39,
+     "link_b": 39,
+     "link_c": 54,
+     "flags": 8,
+     "flag_names": [
+      "unread(0x08)"
+     ],
+     "period": 900,
+     "event": {
+      "frame": 12,
+      "code": 23,
+      "code_hex": "0x17",
+      "loop": {
+       "enable": false,
+       "does": "nothing: bit 5 clear, snd_loop_set_mode returns"
+      }
+     },
+     "clip": {
+      "name": "clip30_11-14",
+      "first": 11,
+      "last": 14,
+      "sec_per_frame": 0.023438
+     },
+     "hold_frame": null,
+     "states": [
+      3,
+      14
+     ],
+     "rate_ref": {
+      "state": 3,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 39,
+     "hex": "0x27",
+     "from": 15,
+     "to": 24,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 40,
+     "link_b": 43,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 900,
+     "event": {
+      "frame": 15,
+      "code": 32,
+      "code_hex": "0x20",
+      "loop": {
+       "enable": true,
+       "mode": 0,
+       "loop": "A34",
+       "repeat_cue": "B56",
+       "does": "loop A34 on the viewport's reserved channel; while it is live the same code plays B56 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip31_15-24",
+      "first": 15,
+      "last": 24,
+      "sec_per_frame": 0.023438
+     },
+     "hold_frame": null,
+     "states": [
+      3,
+      14
+     ],
+     "rate_ref": {
+      "state": 3,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 40,
+     "hex": "0x28",
+     "from": 25,
+     "to": 28,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 41,
+     "link_b": 41,
+     "link_c": 55,
+     "flags": 8,
+     "flag_names": [
+      "unread(0x08)"
+     ],
+     "period": 900,
+     "event": {
+      "frame": 26,
+      "code": 23,
+      "code_hex": "0x17",
+      "loop": {
+       "enable": false,
+       "does": "nothing: bit 5 clear, snd_loop_set_mode returns"
+      }
+     },
+     "clip": {
+      "name": "clip32_25-28",
+      "first": 25,
+      "last": 28,
+      "sec_per_frame": 0.023438
+     },
+     "hold_frame": null,
+     "states": [
+      3,
+      14
+     ],
+     "rate_ref": {
+      "state": 3,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 41,
+     "hex": "0x29",
+     "from": 29,
+     "to": 39,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 38,
+     "link_b": 42,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 900,
+     "event": {
+      "frame": 29,
+      "code": 32,
+      "code_hex": "0x20",
+      "loop": {
+       "enable": true,
+       "mode": 0,
+       "loop": "A34",
+       "repeat_cue": "B56",
+       "does": "loop A34 on the viewport's reserved channel; while it is live the same code plays B56 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip33_29-39",
+      "first": 29,
+      "last": 39,
+      "sec_per_frame": 0.023438
+     },
+     "hold_frame": null,
+     "states": [
+      3,
+      14
+     ],
+     "rate_ref": {
+      "state": 3,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 42,
+     "hex": "0x2a",
+     "from": 247,
+     "to": 250,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 350,
+     "event": {
+      "frame": 248,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip34_247-250",
+      "first": 247,
+      "last": 250,
+      "sec_per_frame": 0.009115
+     },
+     "hold_frame": null,
+     "states": [
+      3,
+      14
+     ],
+     "rate_ref": {
+      "state": 3,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 43,
+     "hex": "0x2b",
+     "from": 251,
+     "to": 255,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 350,
+     "event": {
+      "frame": 253,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip35_251-255",
+      "first": 251,
+      "last": 255,
+      "sec_per_frame": 0.009115
+     },
+     "hold_frame": null,
+     "states": [
+      3,
+      14
+     ],
+     "rate_ref": {
+      "state": 3,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 44,
+     "hex": "0x2c",
+     "from": 24,
+     "to": 11,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 45,
+     "link_b": 47,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 900,
+     "event": {
+      "frame": 12,
+      "code": 50,
+      "code_hex": "0x32",
+      "loop": {
+       "enable": true,
+       "mode": 2,
+       "loop": "A36",
+       "repeat_cue": "B58",
+       "does": "loop A36 on the viewport's reserved channel; while it is live the same code plays B58 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip36_24-11",
+      "first": 24,
+      "last": 11,
+      "sec_per_frame": 0.023438
+     },
+     "hold_frame": null,
+     "states": [
+      4
+     ],
+     "rate_ref": {
+      "state": 4,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 45,
+     "hex": "0x2d",
+     "from": 39,
+     "to": 25,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 44,
+     "link_b": 46,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 900,
+     "event": {
+      "frame": 26,
+      "code": 34,
+      "code_hex": "0x22",
+      "loop": {
+       "enable": true,
+       "mode": 2,
+       "loop": "A36",
+       "repeat_cue": "B58",
+       "does": "loop A36 on the viewport's reserved channel; while it is live the same code plays B58 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip37_39-25",
+      "first": 39,
+      "last": 25,
+      "sec_per_frame": 0.023438
+     },
+     "hold_frame": null,
+     "states": [
+      4
+     ],
+     "rate_ref": {
+      "state": 4,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 46,
+     "hex": "0x2e",
+     "from": 323,
+     "to": 317,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 350,
+     "event": {
+      "frame": 319,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip28_323-317",
+      "first": 323,
+      "last": 317,
+      "sec_per_frame": 0.017527
+     },
+     "hold_frame": null,
+     "states": [
+      4
+     ],
+     "rate_ref": {
+      "state": 4,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 47,
+     "hex": "0x2f",
+     "from": 315,
+     "to": 306,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 280,
+     "event": {
+      "frame": 308,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip29_315-306",
+      "first": 315,
+      "last": 306,
+      "sec_per_frame": 0.01277
+     },
+     "hold_frame": null,
+     "states": [
+      4
+     ],
+     "rate_ref": {
+      "state": 4,
+      "rate": 1024
+     }
+    },
+    {
+     "track": 48,
+     "hex": "0x30",
+     "from": 153,
+     "to": 151,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 750,
+     "event": {
+      "frame": 152,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip38_153-151",
+      "first": 153,
+      "last": 151,
+      "sec_per_frame": 0.029326
+     },
+     "hold_frame": null,
+     "states": [
+      7
+     ],
+     "rate_ref": {
+      "state": 7,
+      "rate": 682
+     }
+    },
+    {
+     "track": 49,
+     "hex": "0x31",
+     "from": 155,
+     "to": 169,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 50,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 900,
+     "event": {
+      "frame": 167,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip39_155-169",
+      "first": 155,
+      "last": 169,
+      "sec_per_frame": 0.035191
+     },
+     "hold_frame": null,
+     "states": [
+      7
+     ],
+     "rate_ref": {
+      "state": 7,
+      "rate": 682
+     }
+    },
+    {
+     "track": 50,
+     "hex": "0x32",
+     "from": 151,
+     "to": 154,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 49,
+     "link_b": 49,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 900,
+     "event": {
+      "frame": 151,
+      "code": 33,
+      "code_hex": "0x21",
+      "loop": {
+       "enable": true,
+       "mode": 1,
+       "loop": "A35",
+       "repeat_cue": "B57",
+       "does": "loop A35 on the viewport's reserved channel; while it is live the same code plays B57 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip08_151-154",
+      "first": 151,
+      "last": 154,
+      "sec_per_frame": 0.029326
+     },
+     "hold_frame": null,
+     "states": [
+      7
+     ],
+     "rate_ref": {
+      "state": 7,
+      "rate": 682
+     }
+    },
+    {
+     "track": 51,
+     "hex": "0x33",
+     "from": 133,
+     "to": 131,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 750,
+     "event": {
+      "frame": 132,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip40_133-131",
+      "first": 133,
+      "last": 131,
+      "sec_per_frame": 0.029326
+     },
+     "hold_frame": null,
+     "states": [
+      8
+     ],
+     "rate_ref": {
+      "state": 8,
+      "rate": 682
+     }
+    },
+    {
+     "track": 52,
+     "hex": "0x34",
+     "from": 135,
+     "to": 149,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 53,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 900,
+     "event": {
+      "frame": 147,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": {
+      "name": "clip41_135-149",
+      "first": 135,
+      "last": 149,
+      "sec_per_frame": 0.035191
+     },
+     "hold_frame": null,
+     "states": [
+      8
+     ],
+     "rate_ref": {
+      "state": 8,
+      "rate": 682
+     }
+    },
+    {
+     "track": 53,
+     "hex": "0x35",
+     "from": 131,
+     "to": 134,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 52,
+     "link_b": 52,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 900,
+     "event": {
+      "frame": 131,
+      "code": 33,
+      "code_hex": "0x21",
+      "loop": {
+       "enable": true,
+       "mode": 1,
+       "loop": "A35",
+       "repeat_cue": "B57",
+       "does": "loop A35 on the viewport's reserved channel; while it is live the same code plays B57 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip09_131-134",
+      "first": 131,
+      "last": 134,
+      "sec_per_frame": 0.029326
+     },
+     "hold_frame": null,
+     "states": [
+      8
+     ],
+     "rate_ref": {
+      "state": 8,
+      "rate": 682
+     }
+    },
+    {
+     "track": 54,
+     "hex": "0x36",
+     "from": 256,
+     "to": 274,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 56,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 2,
+     "flag_names": [
+      "HOLD(0x02)"
+     ],
+     "period": 1000,
+     "event": {
+      "frame": 256,
+      "code": 36,
+      "code_hex": "0x24",
+      "loop": {
+       "enable": true,
+       "mode": 4,
+       "loop": "A38",
+       "repeat_cue": "B60",
+       "does": "loop A38 on the viewport's reserved channel; while it is live the same code plays B60 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip42_256-274",
+      "first": 256,
+      "last": 274,
+      "sec_per_frame": 0.034722
+     },
+     "hold_frame": null,
+     "states": [
+      14
+     ],
+     "rate_ref": {
+      "state": 14,
+      "rate": 768
+     }
+    },
+    {
+     "track": 55,
+     "hex": "0x37",
+     "from": 276,
+     "to": 294,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 57,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 2,
+     "flag_names": [
+      "HOLD(0x02)"
+     ],
+     "period": 1000,
+     "event": {
+      "frame": 276,
+      "code": 36,
+      "code_hex": "0x24",
+      "loop": {
+       "enable": true,
+       "mode": 4,
+       "loop": "A38",
+       "repeat_cue": "B60",
+       "does": "loop A38 on the viewport's reserved channel; while it is live the same code plays B60 once (key -100); a live loop of another mode first stops with its stop cue B(50 + old mode)"
+      }
+     },
+     "clip": {
+      "name": "clip43_276-294",
+      "first": 276,
+      "last": 294,
+      "sec_per_frame": 0.034722
+     },
+     "hold_frame": null,
+     "states": [
+      14
+     ],
+     "rate_ref": {
+      "state": 14,
+      "rate": 768
+     }
+    },
+    {
+     "track": 56,
+     "hex": "0x38",
+     "from": 275,
+     "to": 275,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 56,
+     "link_b": 40,
+     "link_c": 0,
+     "flags": 18,
+     "flag_names": [
+      "HOLD(0x02)",
+      "TOUGH(0x10)"
+     ],
+     "period": 30,
+     "event": null,
+     "clip": null,
+     "hold_frame": 275,
+     "states": [
+      14
+     ],
+     "rate_ref": {
+      "state": 14,
+      "rate": 768
+     }
+    },
+    {
+     "track": 57,
+     "hex": "0x39",
+     "from": 295,
+     "to": 295,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 57,
+     "link_b": 38,
+     "link_c": 0,
+     "flags": 18,
+     "flag_names": [
+      "HOLD(0x02)",
+      "TOUGH(0x10)"
+     ],
+     "period": 30,
+     "event": null,
+     "clip": null,
+     "hold_frame": 295,
+     "states": [
+      14
+     ],
+     "rate_ref": {
+      "state": 14,
+      "rate": 768
+     }
+    },
+    {
+     "track": 58,
+     "hex": "0x3a",
+     "from": 240,
+     "to": 240,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 59,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 6,
+     "flag_names": [
+      "HOLD(0x02)",
+      "LAUNCH(0x04)"
+     ],
+     "period": 500,
+     "event": {
+      "frame": 240,
+      "code": 55,
+      "code_hex": "0x37",
+      "loop": {
+       "enable": true,
+       "mode": 7,
+       "does": "stop: a live loop of another mode stops with its stop cue B(50 + old mode); nothing starts"
+      }
+     },
+     "clip": null,
+     "hold_frame": 240,
+     "states": [
+      15,
+      17
+     ],
+     "rate_ref": {
+      "state": 15,
+      "rate": 160
+     }
+    },
+    {
+     "track": 59,
+     "hex": "0x3b",
+     "from": 241,
+     "to": 244,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 60,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 2,
+     "flag_names": [
+      "HOLD(0x02)"
+     ],
+     "period": 500,
+     "event": null,
+     "clip": {
+      "name": "clip44_241-244",
+      "first": 241,
+      "last": 244,
+      "sec_per_frame": 0.083333
+     },
+     "hold_frame": null,
+     "states": [
+      15,
+      17
+     ],
+     "rate_ref": {
+      "state": 15,
+      "rate": 160
+     }
+    },
+    {
+     "track": 60,
+     "hex": "0x3c",
+     "from": 245,
+     "to": 245,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 60,
+     "link_b": 5,
+     "link_c": 0,
+     "flags": 2,
+     "flag_names": [
+      "HOLD(0x02)"
+     ],
+     "period": 50,
+     "event": null,
+     "clip": null,
+     "hold_frame": 245,
+     "states": [
+      15,
+      17
+     ],
+     "rate_ref": {
+      "state": 15,
+      "rate": 160
+     }
+    },
+    {
+     "track": 61,
+     "hex": "0x3d",
+     "from": 361,
+     "to": 370,
+     "mode": 2,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 1,
+     "flag_names": [
+      "unread(0x01)"
+     ],
+     "period": 60,
+     "event": null,
+     "clip": {
+      "name": "clip13_361-370",
+      "first": 361,
+      "last": 370,
+      "sec_per_frame": 0.053333
+     },
+     "hold_frame": null,
+     "states": [
+      0
+     ],
+     "rate_ref": {
+      "state": 0,
+      "rate": 30
+     }
+    }
+   ]
+  },
+  "cockpit": {
+   "slot": 2,
+   "glb": "x1_cockpit.glb",
+   "frames": 30,
+   "cobj_by_map": {
+    "Conft": 16,
+    "Hk": 16,
+    "Joke": 16,
+    "Lax1": 13,
+    "Lax2": 83,
+    "M1a1": 12,
+    "M2c": 19,
+    "M3a": 13,
+    "M3b": 34,
+    "M4a1": 76,
+    "Mp": 16,
+    "Ov": 13,
+    "Ovmp": 16,
+    "Slim": 16,
+    "Un": 13
+   },
+   "tracks": [
+    {
+     "track": 0,
+     "hex": "0x00",
+     "from": 0,
+     "to": 0,
+     "mode": 0,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 1000,
+     "event": null,
+     "clip": null,
+     "hold_frame": 0
+    },
+    {
+     "track": 1,
+     "hex": "0x01",
+     "from": 29,
+     "to": 29,
+     "mode": 0,
+     "end": 0,
+     "end_name": "link",
+     "link": 1,
+     "link_b": 1,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 1000,
+     "event": null,
+     "clip": null,
+     "hold_frame": 29
+    },
+    {
+     "track": 2,
+     "hex": "0x02",
+     "from": 0,
+     "to": 29,
+     "mode": 3,
+     "end": 0,
+     "end_name": "link",
+     "link": 0,
+     "link_b": 0,
+     "link_c": 0,
+     "flags": 0,
+     "flag_names": [],
+     "period": 1000,
+     "event": null,
+     "clip": {
+      "name": "clip00_0-29",
+      "first": 0,
+      "last": 29,
+      "sec_per_frame": 0.04708
+     },
+     "hold_frame": null
+    }
+   ],
+   "stepped": "only by the transform (player.c 1515-1521); no decompiled tick steps it otherwise"
+  }
+ },
+ "walker": {
+  "tick": "player_walk_tick (player_walk.c 171-744): eighths = (frame delta + carry) >> 3 steps a call (player.c 1971-1978), one leg step each",
+  "input_bits": {
+   "slow": 33554432,
+   "jump": 134217728,
+   "forward": 1073741824,
+   "back": 2147483648,
+   "side_a": 2097152,
+   "side_b": 1048576,
+   "turn_a": 536870912,
+   "turn_b": 268435456
+  },
+  "commands": {
+   "slow_row": [
+    [
+     "forward",
+     1
+    ],
+    [
+     "back",
+     2
+    ],
+    [
+     "jump",
+     9
+    ],
+    [
+     "side_a",
+     6
+    ],
+    [
+     "side_b",
+     5
+    ]
+   ],
+   "fast_row": [
+    [
+     "forward",
+     3
+    ],
+    [
+     "back",
+     4
+    ],
+    [
+     "side_a",
+     8
+    ],
+    [
+     "side_b",
+     7
+    ]
+   ],
+   "jump_fast": "jump without slow, unless in state 3, 0x0d or 0x0e or on a steep slope: the ground an eighth of the heading ahead, probed from 1.0 up, higher by more than 0xae1 -> 0x0a, else 0x0f (player_walk.c 186-207); takes no turn bit",
+   "jump_while_running": "jump held in state 3 asks for continuation 2 (player_walk.c 275-276): on the ground and not steep the legs take track 0x37 from frames 2..5 or 0x12..0x1f, else 0x36, and the state becomes 0x0d (672-691)",
+   "turn": "turn_a / turn_b turn the facing by +-0x20 a step less speed * turn >> 9, on the ground only; the step then asks the legs for 0x0f (turning one way) or 0x0e, which only state 0 keeps (296-312)",
+   "taking": "rows are tested top to bottom. On the ground a moving state with nothing commanded drops to 0 (288-291). A command becomes the state at once while the playing track lacks HOLD and either equals the state or the legs are back on track 0; otherwise the track is finished on continuation 1 (link_b). With HOLD it is taken only on the step after a landing (273-292)"
+  },
+  "states": [
+   {
+    "state": 0,
+    "hex": "0x00",
+    "label": "stand / turn on the spot",
+    "command": null,
+    "push": 0,
+    "sideways": false,
+    "tracks": [
+     16,
+     14,
+     15
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "speed_floor": 30,
+     "flat_full_push": 30
+    },
+    "code": "src/game/actor/player_walk.c:364"
+   },
+   {
+    "state": 1,
+    "hex": "0x01",
+    "label": "walk forward",
+    "command": "slow + forward",
+    "push": 40960,
+    "sideways": false,
+    "tracks": [
+     6
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "speed_floor": 256,
+     "flat_full_push": 426
+    },
+    "code": "src/game/actor/player_walk.c:382"
+   },
+   {
+    "state": 2,
+    "hex": "0x02",
+    "label": "walk backward",
+    "command": "slow + back",
+    "push": -40960,
+    "sideways": false,
+    "tracks": [
+     7
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "speed_floor": 256,
+     "flat_full_push": 426
+    },
+    "code": "src/game/actor/player_walk.c:386"
+   },
+   {
+    "state": 3,
+    "hex": "0x03",
+    "label": "run forward",
+    "command": "forward",
+    "push": 98304,
+    "sideways": false,
+    "tracks": [
+     8
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "speed_floor": 256,
+     "flat_full_push": 1024
+    },
+    "code": "src/game/actor/player_walk.c:390"
+   },
+   {
+    "state": 4,
+    "hex": "0x04",
+    "label": "run backward",
+    "command": "back",
+    "push": -98304,
+    "sideways": false,
+    "tracks": [
+     9
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "speed_floor": 256,
+     "flat_full_push": 1024
+    },
+    "code": "src/game/actor/player_walk.c:394"
+   },
+   {
+    "state": 5,
+    "hex": "0x05",
+    "label": "sidestep (side B)",
+    "command": "slow + side B",
+    "push": -40960,
+    "sideways": true,
+    "tracks": [
+     1
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "speed_floor": 30,
+     "flat_full_push": 426
+    },
+    "code": "src/game/actor/player_walk.c:398"
+   },
+   {
+    "state": 6,
+    "hex": "0x06",
+    "label": "sidestep (side A)",
+    "command": "slow + side A",
+    "push": 40960,
+    "sideways": true,
+    "tracks": [
+     2
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "speed_floor": 30,
+     "flat_full_push": 426
+    },
+    "code": "src/game/actor/player_walk.c:403"
+   },
+   {
+    "state": 7,
+    "hex": "0x07",
+    "label": "strafe (side B)",
+    "command": "side B",
+    "push": -65536,
+    "sideways": true,
+    "tracks": [
+     10
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "speed_floor": 30,
+     "flat_full_push": 682
+    },
+    "code": "src/game/actor/player_walk.c:408"
+   },
+   {
+    "state": 8,
+    "hex": "0x08",
+    "label": "strafe (side A)",
+    "command": "side A",
+    "push": 65536,
+    "sideways": true,
+    "tracks": [
+     11
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "speed_floor": 30,
+     "flat_full_push": 682
+    },
+    "code": "src/game/actor/player_walk.c:413"
+   },
+   {
+    "state": 9,
+    "hex": "0x09",
+    "label": "crouch",
+    "command": "slow + jump",
+    "push": 0,
+    "sideways": false,
+    "tracks": [
+     3
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "fixed": 160
+    },
+    "code": "src/game/actor/player_walk.c:418"
+   },
+   {
+    "state": 10,
+    "hex": "0x0a",
+    "label": "high jump: wind-up",
+    "command": "jump, ground ahead > 0xae1 up",
+    "push": 0,
+    "sideways": false,
+    "tracks": [
+     4
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "fixed": 160
+    },
+    "code": "src/game/actor/player_walk.c:427"
+   },
+   {
+    "state": 11,
+    "hex": "0x0b",
+    "label": "high jump: take-off",
+    "command": "0x0a when its track has flag 0x04",
+    "push": 0,
+    "sideways": false,
+    "tracks": [
+     4
+    ],
+    "becomes": 12,
+    "lift": {
+     "raw": 491520,
+     "df_bit0": 655360
+    },
+    "rate": {
+     "fixed": 160
+    },
+    "code": "src/game/actor/player_walk.c:430"
+   },
+   {
+    "state": 12,
+    "hex": "0x0c",
+    "label": "high jump: airborne",
+    "command": null,
+    "push": 0,
+    "sideways": false,
+    "tracks": [],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "fixed": 160
+    },
+    "code": "src/game/actor/player_walk.c:462"
+   },
+   {
+    "state": 13,
+    "hex": "0x0d",
+    "label": "leap: take-off",
+    "command": "jump held while running (state 3)",
+    "push": 98304,
+    "sideways": false,
+    "tracks": [
+     8,
+     54,
+     55
+    ],
+    "becomes": 14,
+    "lift": {
+     "raw": 409600,
+     "df_bit0": 546133
+    },
+    "rate": {
+     "speed_floor": 768,
+     "flat_full_push": 1024
+    },
+    "code": "src/game/actor/player_walk.c:437"
+   },
+   {
+    "state": 14,
+    "hex": "0x0e",
+    "label": "leap: airborne",
+    "command": null,
+    "push": 0,
+    "sideways": false,
+    "tracks": [
+     8
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "speed_floor": 768,
+     "flat_full_push": 768
+    },
+    "code": "src/game/actor/player_walk.c:444"
+   },
+   {
+    "state": 15,
+    "hex": "0x0f",
+    "label": "hop: wind-up",
+    "command": "jump, ground ahead <= 0xae1 up",
+    "push": 0,
+    "sideways": false,
+    "tracks": [
+     17
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "fixed": 160
+    },
+    "code": "src/game/actor/player_walk.c:447"
+   },
+   {
+    "state": 16,
+    "hex": "0x10",
+    "label": "hop: take-off",
+    "command": "0x0f when its track has flag 0x04",
+    "push": 262144,
+    "sideways": false,
+    "tracks": [
+     17
+    ],
+    "becomes": 17,
+    "lift": {
+     "raw": 360448,
+     "df_bit0": 480597
+    },
+    "rate": {
+     "fixed": 160
+    },
+    "code": "src/game/actor/player_walk.c:451"
+   },
+   {
+    "state": 17,
+    "hex": "0x11",
+    "label": "hop: airborne",
+    "command": null,
+    "push": 0,
+    "sideways": false,
+    "tracks": [
+     17
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "fixed": 160
+    },
+    "code": "src/game/actor/player_walk.c:447"
+   },
+   {
+    "state": 18,
+    "hex": "0x12",
+    "label": "hard landing",
+    "command": "a landing faster than 0x50000 (0x80000 on a track with flag 0x10)",
+    "push": 0,
+    "sideways": false,
+    "tracks": [
+     5
+    ],
+    "becomes": null,
+    "lift": null,
+    "rate": {
+     "fixed": 160
+    },
+    "code": "src/game/actor/player_walk.c:458"
+   }
+  ],
+  "track_choice": "a step asks for its state's track; one different from the last asked (byte_ba), or any non-zero one while the legs are back on track 0, is started forward with STARTED (627-631). In the air the legs keep their track (352). A track ending on track 0 ends the state: state 0 and snd_loop_set_mode(0x27) (718-721)",
+  "rate": {
+   "fixed": 160,
+   "fixed_states": [
+    9,
+    10,
+    11,
+    12,
+    15,
+    17,
+    18
+   ],
+   "speed": "sqrt(vx^2 + vy^2 + vz^2) of the 16.16 velocity >> 8, x (4 - lean) with the block's +0x147 set",
+   "floors": {
+    "0x0e": 768,
+    "1-4": 256,
+    "others": 30
+   },
+   "settled_speed": "on flat ground a push settles at |v| = push / 0.375 (player_move.c 270-331): rate 426 at 0xa000, 682 at 0x10000, 1024 at 0x18000",
+   "code": "src/game/actor/player_walk.c:633-663"
+  }
+ },
+ "transform": {
+  "request": "both form keys (input 0x00800000 and 0x02000000), no ramp running, no view anchor and +0xde clear; refused with sound script 0x2a while +0x146 is set (player.c 1427-1438)",
+  "to_hover": {
+   "legs_track": 12,
+   "legs_frames": [
+    330,
+    359
+   ],
+   "cockpit_track": 2,
+   "cockpit_frames": [
+    0,
+    29
+   ],
+   "code": "player.c 1442-1452"
+  },
+  "to_walker": {
+   "legs_track": 12,
+   "legs_frames": [
+    359,
+    330
+   ],
+   "cockpit_track": 2,
+   "cockpit_frames": [
+    29,
+    0
+   ],
+   "note": "the same two tracks started backward (-1)",
+   "code": "player.c 1453-1461"
+  },
+  "progress": {
+   "per_tick": 160,
+   "full": 65536,
+   "duration_s": 1.365333,
+   "frame": "from + (to - from) * progress >> 16 (block.c 291-297)",
+   "code": "player.c 1464-1500; actor_player_transform.h 279"
+  },
+  "ends": {
+   "walker": {
+    "legs_track": 0,
+    "cockpit_track": 0,
+    "loop": "snd_loop_set_script(0xff): the movement loop stops",
+    "code": "player.c 1470-1483"
+   },
+   "hover": {
+    "legs_track": 13,
+    "legs_frame": 359,
+    "cockpit_track": 1,
+    "cockpit_frame": 29,
+    "code": "player.c 1484-1500"
+   }
+  },
+  "ride_height": "position y moves with progress << 12 >> 16: 0 to 0x1000 world units (0.5 m) higher as a hover (player.c 1506-1513)",
+  "form": "row (the form the mech is) turns hover at the start of walker -> hover and back to walker only at the end of hover -> walker, so the hover's tick runs through both ramps (player.c 1442-1461, 1555-1559)",
+  "glb": "x1_alpha_transform.glb: transform_to_hover / transform_to_walker"
+ },
+ "hover": {
+  "legs": {
+   "track": 13,
+   "hold_frame": 359
+  },
+  "cockpit": {
+   "track": 1,
+   "hold_frame": 29
+  },
+  "note": "the hover's tick steps neither block (player_hover.c has no cact_anim_step); a mech spawned or reset as a hover starts on these (player_transform.c 344-359)",
+  "loop": "snd_loop_set_script every step: A40 idle, A41 move, A42 brake (player_hover.c 107-172, actor_player_hover.h 59-64)"
+ },
+ "sound": {
+  "cells": {
+   "A34": {
+    "slot": 0,
+    "loop": true,
+    "files": [
+     "extracted/sfx_v2/s021.wav"
+    ]
+   },
+   "A35": {
+    "slot": 2,
+    "loop": true,
+    "files": [
+     "extracted/sfx_v2/s022.wav"
+    ]
+   },
+   "A36": {
+    "slot": 4,
+    "loop": true,
+    "files": [
+     "extracted/sfx_v2/s023.wav"
+    ]
+   },
+   "A37": {
+    "slot": 6,
+    "loop": true,
+    "files": [
+     "extracted/sfx_v2/s024.wav"
+    ]
+   },
+   "A38": {
+    "slot": 8,
+    "loop": true,
+    "files": [
+     "extracted/sfx_v2/s025.wav"
+    ]
+   },
+   "A39": {
+    "slot": 10,
+    "loop": true,
+    "files": [
+     "extracted/sfx_v2/s024.wav"
+    ]
+   },
+   "B50": {
+    "slot": 18,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s032.wav"
+    ]
+   },
+   "B51": {
+    "slot": 19,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s033.wav"
+    ]
+   },
+   "B52": {
+    "slot": 20,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s034.wav"
+    ]
+   },
+   "B53": {
+    "slot": 21,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s035.wav"
+    ]
+   },
+   "B54": {
+    "slot": 22,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s036.wav"
+    ]
+   },
+   "B55": {
+    "slot": 23,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s037.wav"
+    ]
+   },
+   "B56": {
+    "slot": 13,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s027.wav"
+    ]
+   },
+   "B57": {
+    "slot": 14,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s028.wav"
+    ]
+   },
+   "B58": {
+    "slot": 15,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s029.wav"
+    ]
+   },
+   "B59": {
+    "slot": 16,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s030.wav"
+    ]
+   },
+   "B60": {
+    "slot": 17,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s031.wav"
+    ]
+   },
+   "B61": {
+    "slot": 12,
+    "loop": false,
+    "files": [
+     "extracted/sfx_v2/s026.wav"
+    ]
+   }
+  },
+  "same_in_maps": [
+   "Mp",
+   "Conft",
+   "Hk",
+   "Joke",
+   "Ovmp",
+   "Slim"
+  ],
+  "source": "extracted/audio/pa_sound_tables.json (maps.<Map>.table_a / table_b -> slots); lead-in and loop window: its _rules.lead_in"
+ },
+ "assembly": {
+  "cockpit": "aRSL entry 2, the partner: stands on the legs' model point 0 = 3DHS channel 0 of the legs' frame (player.c 1621)",
+  "weapons": "aRSL entry 3, bound twice (player.c 1027-1028): model_1c4 on the cockpit skeleton's record 2, model_178 on record 4, each composed with the cockpit's placement (player_bone.c, actor_player_bone.h), then pushed back along its own forward by the recoil (player.c 1707-1730)",
+  "beacon_lights": "aRSL entry 4: the cockpit's orientation, at the cockpit's model point 2 = 3DHS channel 2 (player.c 1736-1739)",
+  "pilot": "aRSL entry 5: not drawn with the mech; at death launched as a ballistic round from the cockpit toward the player's camera (player.c 2258-2300, 2680)",
+  "positions": "manifest.json assembled.walker / assembled.hover mounts"
+ },
+ "team_uv": {
+  "by_map_side": {
+   "Mp": {
+    "1": {
+     "u": 128,
+     "v": 0
+    },
+    "2": {
+     "u": 0,
+     "v": 0
+    }
+   },
+   "Conft": {
+    "1": {
+     "u": 128,
+     "v": 0
+    },
+    "2": {
+     "u": 0,
+     "v": 0
+    }
+   },
+   "Hk": {
+    "1": {
+     "u": 128,
+     "v": 0
+    },
+    "2": {
+     "u": 0,
+     "v": 0
+    }
+   },
+   "Joke": {
+    "1": {
+     "u": 128,
+     "v": 0
+    },
+    "2": {
+     "u": 0,
+     "v": 0
+    }
+   },
+   "Ovmp": {
+    "1": {
+     "u": 128,
+     "v": 0
+    },
+    "2": {
+     "u": 0,
+     "v": 0
+    }
+   },
+   "Slim": {
+    "1": {
+     "u": 128,
+     "v": 0
+    },
+    "2": {
+     "u": 0,
+     "v": 0
+    }
+   }
+  },
+  "applies_to": [
+   "legs",
+   "cockpit",
+   "weapon"
+  ],
+  "rule": "texels of the 256-wide page added to every corner of the legs, cockpit and both weapons (player_partner.c 285-320); v is the frame clock >> 2 & 0x3f instead while the cloak pickup runs (289-293)"
+ }
+}

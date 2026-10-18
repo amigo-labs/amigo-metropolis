@@ -8,8 +8,16 @@ authored**, one one-material primitive per file with the original's 256px
 texture pages packed as one atlas, so the runtime can swap it into its bucket's
 InstancedMesh. Provenance in `CREDITS.md`.
 
-- `avatar-walker`, `avatar-hover`: the X1-Alpha's two forms, assembled by the
-  RE's `extract_x1.py`; every arena draws these two.
+- `avatar-x1.glb` + `avatar-x1.anim.bin`: the X1-Alpha as the original
+  animates it — its five parts merged into one bind-pose primitive whose
+  `_X1BONE` attribute names each vertex's matrix in the bone table (the legs'
+  371 frames by 8 joints and the cockpit mount, the cockpit's 30 frames by 7
+  joints, the two guns and the beacon). Built by `bun run gen:x1`
+  (`tools/generators/fcopX1.ts`) from the RE's `extracted/x1/` parts and the
+  3DHS mount points; posed per instance in the vertex shader
+  (`src/render/avatarRig.ts`), walker, transform and hover alike.
+- `avatar-walker`, `avatar-hover`: the X1-Alpha's two rest poses, assembled by
+  the RE's `extract_x1.py`; the stand-ins while the rig loads.
 - `<map-id>/obj_NNN`: each arena's own units — the Cobj its own mission names
   for the tank, the jet, the Flying Fortress, the Dreadnought's hull and guns,
   the type-8 turret's and the NeutralTurret's gun and base (Hk has two

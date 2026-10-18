@@ -41,7 +41,8 @@
         "packages/sim/src/sinTable.ts",
         "packages/sim/maps/*.json",
         "packages/sim/test/goldens/*.hashes.json",
-        "docs/renders/fcop-viz/*.json"
+        "docs/renders/fcop-viz/*.json",
+        "tools/generators/units/raw/fcop-x1/*.json"
       ],
       "formatter": {
         "enabled": false
