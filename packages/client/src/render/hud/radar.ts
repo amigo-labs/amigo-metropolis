@@ -170,8 +170,33 @@ export function radarRegistry(
   }
 }
 
+/**
+ * The side (0 nobody's, SIDE_RED, SIDE_BLUE) holding each of `spots` (the map's
+ * outpost spots): its console's team in the snapshot, set at the claim.
+ */
+export function outpostSidesOf(
+  snapshot: Float32Array,
+  count: number,
+  spots: readonly { readonly x: number; readonly y: number }[],
+  mapId: string,
+  out: Int32Array,
+): void {
+  out.fill(0);
+  for (let i = 0; i < count; i++) {
+    const o = i * SNAPSHOT_STRIDE;
+    if (snapshot[o + 1] !== ARCHETYPE.CONSOLE) continue;
+    const team = snapshot[o + 2];
+    if (team !== 0 && team !== 1) continue;
+    for (let j = 0; j < spots.length; j++) {
+      const dx = spots[j].x - snapshot[o + 3];
+      const dy = spots[j].y - snapshot[o + 4];
+      if (dx * dx + dy * dy < 1) out[j] = sideOfTeam(mapId, team);
+    }
+  }
+}
+
 /** Whether a placement with `show` stands while its outpost is claimed (or not). */
-function standsAt(show: SceneryShow, claimed: boolean): boolean {
+export function standsAt(show: SceneryShow, claimed: boolean): boolean {
   return show === "always" || (show === "claimed") === claimed;
 }
 
@@ -446,18 +471,7 @@ export function createRadar(
       frame.blink = (clock & BLIP_BLINK) !== 0;
 
       // --- the outposts' owners: their consoles' teams.
-      spotSide.fill(0);
-      for (let i = 0; i < count; i++) {
-        const o = i * SNAPSHOT_STRIDE;
-        if (snapshot[o + 1] !== ARCHETYPE.CONSOLE) continue;
-        const team = snapshot[o + 2];
-        if (team !== 0 && team !== 1) continue;
-        for (let j = 0; j < spots.length; j++) {
-          const ddx = spots[j].x - snapshot[o + 3];
-          const ddy = spots[j].y - snapshot[o + 4];
-          if (ddx * ddx + ddy * ddy < 1) spotSide[j] = sideOfTeam(mapId, team);
-        }
-      }
+      outpostSidesOf(snapshot, count, spots, mapId, spotSide);
 
       // --- the registry: every live actor, newest first, by distance.
       let n = 0;

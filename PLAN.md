@@ -892,7 +892,9 @@ moves.
 - [x] The radar's near-camera registry: the live list culled from the X1s by the
       widening search, 0xfe at most; the consoles' diamonds gone at the claim, the
       type-96 Props (no actors) off the radar (V3)
-- [ ] Arrows for the placed actors on the map screen (V4)
+- [x] Arrows for the placed actors on the map screen: the consoles until the
+      claim, the claim posts after it, the standing pickups, on their models'
+      3DBB boxes (V4; the Props are no actors)
 - [x] The issued magazine under each weapon while it is powered: block A off the
       match snapshot, block B above it (V2)
 - [x] La Cantina's solo start on side 1's base, as the original's: the teams

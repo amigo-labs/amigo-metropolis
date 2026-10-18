@@ -2054,6 +2054,7 @@ function refreshMatchHud(view: PlayerView, alpha: number): void {
   hud.refresh(matchSnap, snapCurr, countCurr, clock, pose[0], pose[1], pose[5]);
   hud.map.draw(
     mapScreen.open,
+    matchSnap,
     snapCurr,
     countCurr,
     clock,
