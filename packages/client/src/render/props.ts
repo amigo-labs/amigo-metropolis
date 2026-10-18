@@ -21,12 +21,15 @@
 // The outpost flags (Cobj 28 on all six arenas; RE pa_models.json
 // `outpost_flag`): the claim script sets every flag of the outpost's group to the
 // claimer's texture offset (v 25 for side 1, 51 for side 2; RE mission_frame.c
-// 1102-1107), the per-instance offset the units wear (render/teamUv.ts).
+// 1102-1107), the per-instance offset the units wear (render/teamUv.ts), and
+// their cloth is the model's six-frame morph, track 0 stepped by the frame
+// delta from the mission's start (RE turret_part.c 0x0041cee2): every flag of
+// the arena on the same frame, a frame each 20/300 s.
 //
 // Render-only, and one-way: nothing here feeds the sim. Each model is one
 // InstancedMesh with an instance per record, its matrix written at load;
 // `updateProps` runs per frame, allocates nothing and writes only what changed —
-// an instance shown or hidden by a claim, a flag's offset.
+// an instance shown or hidden by a claim, a flag's offset, the cloth's frame.
 //
 // Same tolerance as the unit and map loaders: an absent or broken .glb costs
 // that model's scenery and nothing else. There is no greybox stand-in on
@@ -41,6 +44,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   type ArenaScenery,
   SCENERY_PLACEMENTS,
+  type SceneryMorph,
   type SceneryPlacement,
 } from "./arenaScenery.generated";
 import { arenaUnitsFor } from "./arenaUnits";
@@ -58,6 +62,8 @@ const loader = new GLTFLoader();
 const UP = new THREE.Vector3(0, 1, 0);
 /** The original's angle unit: 4096 a turn. */
 const TURN = 4096;
+/** The engine clock a frame delta is counted in (RE fcop/clock.h). */
+const ENGINE_HZ = 300;
 
 /**
  * The arena's model for a Cobj id: tools/generators/units/manifest.ts
@@ -91,6 +97,15 @@ export function propShown(p: SceneryPlacement, claimed: boolean): boolean {
   return (p.show === "claimed") === claimed;
 }
 
+/**
+ * The frame a looping morph shows `seconds` into the mission: track 0 starts
+ * at frame 0 and steps a frame per `period` / 300 s (RE `cact_anim_step`).
+ */
+export function propMorphFrame(morph: SceneryMorph, seconds: number): number {
+  const frames = Math.floor((seconds * ENGINE_HZ) / morph.period);
+  return frames % morph.frames;
+}
+
 /** One model of the arena, once loaded. */
 interface PropMesh {
   readonly mesh: THREE.InstancedMesh;
@@ -108,19 +123,35 @@ interface PropMesh {
     /** [unclaimed, side 1, side 2] as u, v pairs, atlas units. */
     readonly bySide: Float32Array;
   } | null;
+  /**
+   * The cloth: the morph, the frame shown (-1 unwritten), and the mesh's morph
+   * texture — a row per instance, the base influence then one per target. An
+   * InstancedMesh morphs only through its texture (three's InstancedMesh keeps
+   * no shared influences), so every row holds the same frame.
+   */
+  readonly morph: {
+    readonly track: SceneryMorph;
+    readonly texture: THREE.DataTexture;
+    readonly len: number;
+    frame: number;
+  } | null;
 }
 
 let meshes: PropMesh[] = [];
+/** Seconds of sim time since the arena's scenery loaded: the morphs' clock. */
+let clock = 0;
 /** A zero-scale matrix: how an instance that does not stand is drawn. */
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 const scratch = new THREE.Matrix4();
 
 /**
  * Per frame, after the entity sweep: `sideOf[k]` is the side (0 nobody's, 1,
- * 2) holding outpost k. Shows and hides what a claim changes and colours the
- * flags. Writes only on a change.
+ * 2) holding outpost k; `simDtSec` the sim time the frame advanced (0 while
+ * paused). Shows and hides what a claim changes, colours the flags, steps the
+ * cloth. Writes only on a change.
  */
-export function updateProps(sideOf: ArrayLike<number>): void {
+export function updateProps(sideOf: ArrayLike<number>, simDtSec: number): void {
+  clock += simDtSec;
   for (let m = 0; m < meshes.length; m++) {
     const pm = meshes[m];
     let matricesDirty = false;
@@ -152,6 +183,22 @@ export function updateProps(sideOf: ArrayLike<number>): void {
       }
       if (dirty) f.attr.needsUpdate = true;
     }
+    const morph = pm.morph;
+    if (morph) {
+      const frame = propMorphFrame(morph.track, clock);
+      if (frame !== morph.frame) {
+        morph.frame = frame;
+        // Frame k + 1 is target k at weight 1 (gen:units); frame 0 is the base,
+        // which relative targets always count in full.
+        const a = morph.texture.image.data as Float32Array;
+        for (let i = 0; i < pm.placements.length; i++) {
+          const row = i * morph.len;
+          a[row] = 1;
+          for (let k = 1; k < morph.len; k++) a[row + k] = k === frame ? 1 : 0;
+        }
+        morph.texture.needsUpdate = true;
+      }
+    }
   }
 }
 
@@ -163,6 +210,7 @@ export function updateProps(sideOf: ArrayLike<number>): void {
  */
 export function loadProps(map: MapData, group: THREE.Object3D, cancelled?: () => boolean): void {
   meshes = [];
+  clock = 0;
   const scenery = sceneryOf(map.id);
   if (!scenery) return;
   const byModel = new Map<number, SceneryPlacement[]>();
@@ -172,7 +220,7 @@ export function loadProps(map: MapData, group: THREE.Object3D, cancelled?: () =>
     else byModel.set(p.cobj, [p]);
   }
   for (const [cobj, placements] of byModel) {
-    addPropMesh(map, group, cobj, placements, cancelled);
+    addPropMesh(map, scenery, group, cobj, placements, cancelled);
   }
 }
 
@@ -196,6 +244,7 @@ export function propMatrices(placements: readonly SceneryPlacement[]): Float32Ar
 
 function addPropMesh(
   map: MapData,
+  scenery: ArenaScenery,
   group: THREE.Object3D,
   cobj: number,
   placements: readonly SceneryPlacement[],
@@ -220,6 +269,8 @@ function addPropMesh(
         const mesh = obj as THREE.Mesh;
         if (!mesh.isMesh) return;
         const geometry = mesh.geometry.clone();
+        // gen:units writes the one node with the identity matrix, which is
+        // what keeps a morph's deltas (applyMatrix4 leaves them alone) right.
         geometry.applyMatrix4(mesh.matrixWorld);
         geometries.push(geometry);
         const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -276,6 +327,24 @@ function addPropMesh(
       }
       mesh.instanceMatrix.needsUpdate = true;
 
+      const track = scenery.morphs[cobj];
+      const targets = merged.morphAttributes.position?.length ?? 0;
+      let morph: PropMesh["morph"] = null;
+      if (track && targets === track.frames - 1) {
+        const len = targets + 1;
+        const texture = new THREE.DataTexture(
+          new Float32Array(len * placements.length),
+          len,
+          placements.length,
+          THREE.RedFormat,
+          THREE.FloatType,
+        );
+        texture.needsUpdate = true;
+        mesh.morphTexture = texture;
+        morph = { track, texture, len, frame: -1 };
+      } else if (track) {
+        console.warn(`[props] ${url}: ${targets} morph targets for ${track.frames} frames`);
+      }
       group.add(mesh);
       meshes.push({
         mesh,
@@ -284,6 +353,7 @@ function addPropMesh(
         shown: new Int8Array(placements.length).fill(stateful ? -1 : 1),
         stateful,
         flags,
+        morph,
       });
     },
     () => {

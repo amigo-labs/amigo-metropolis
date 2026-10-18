@@ -106,11 +106,13 @@ interface ModelPass {
   /** Write `_TEAMUV`: 0 on these nodes' faces, 1 elsewhere (manifest.ts). */
   readonly teamUvExclude?: readonly string[];
   /**
-   * Keep the morph frames (the jet's rotor): a time-driven morph the client
-   * plays (packages/client/src/render/arenaUnits.ts). Every other model ships
-   * frame 0 and no targets.
+   * Keep the morph frames: the track the client plays
+   * (packages/client/src/render/arenaUnits.ts, render/props.ts). Every other
+   * model ships frame 0 and no targets.
    */
-  readonly keepMorph?: boolean;
+  readonly keepMorph?: "morph";
+  /** The frames a kept morph has, base included: what the targets must number. */
+  readonly morphFrames?: number;
 }
 
 const PASSES: readonly ModelPass[] = [
@@ -148,7 +150,8 @@ const PASSES: readonly ModelPass[] = [
     groundY: spec.treatment !== "part",
     dropFxAttachments: true,
     dropBillboards: spec.treatment !== "part",
-    keepMorph: spec.morph !== null,
+    keepMorph: spec.morph ? ("morph" as const) : undefined,
+    morphFrames: spec.morph?.frames,
   })),
   ...PROP_MODELS.map((spec) => ({
     key: spec.key,
@@ -164,6 +167,9 @@ const PASSES: readonly ModelPass[] = [
     neutralizeColors: false,
     centreXZ: false,
     groundY: true,
+    // The flag's cloth (render/props.ts plays it).
+    keepMorph: spec.morph ? ("morph" as const) : undefined,
+    morphFrames: spec.morph?.frames,
   })),
   ...FX_MODELS.map((spec) => ({
     key: spec.key,
@@ -363,7 +369,7 @@ const MORPH_PREFIX = "_MORPH";
  * with zero weights: frame k + 1 is target k at weight 1, as the RE's glb
  * animates it.
  */
-function restoreMorphTargets(document: Document, mesh: Mesh, key: string): void {
+function restoreMorphTargets(document: Document, mesh: Mesh, key: string, frames: number): void {
   const prims = mesh.listPrimitives();
   if (prims.length !== 1) throw new Error(`${key}: a kept morph on ${prims.length} primitives`);
   const prim = prims[0];
@@ -371,7 +377,9 @@ function restoreMorphTargets(document: Document, mesh: Mesh, key: string): void 
     .listSemantics()
     .filter((s) => s.startsWith(MORPH_PREFIX))
     .sort((a, b) => Number(a.slice(MORPH_PREFIX.length)) - Number(b.slice(MORPH_PREFIX.length)));
-  if (names.length === 0) throw new Error(`${key}: a kept morph without targets`);
+  if (names.length !== frames - 1) {
+    throw new Error(`${key}: ${names.length} morph targets for ${frames} frames`);
+  }
   for (const name of names) {
     const stash = prim.getAttribute(name);
     const delta = stash?.getArray();
@@ -1063,7 +1071,7 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
     for (const prim of mesh.listPrimitives()) neutralizeColors(prim);
   }
 
-  if (spec.keepMorph) restoreMorphTargets(document, mesh, spec.key);
+  if (spec.keepMorph) restoreMorphTargets(document, mesh, spec.key, spec.morphFrames ?? 0);
 
   // Exact weld: identical position/normal/color tuples share one index —
   // pure size/VRAM win, flat shading is untouched.

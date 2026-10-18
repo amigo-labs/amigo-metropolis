@@ -9,7 +9,7 @@ import { getMapById, resolveHeight } from "@metropolis/sim";
 import * as THREE from "three";
 import { SCENERY_PLACEMENTS, type SceneryPlacement } from "../src/render/arenaScenery.generated";
 import { ARENA_UNITS } from "../src/render/arenaUnits.generated";
-import { propMatrices, propShown, propTurn } from "../src/render/props";
+import { propMatrices, propMorphFrame, propShown, propTurn } from "../src/render/props";
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -198,5 +198,23 @@ describe("an outpost before and after its claim", () => {
     expect(propShown(p("unclaimed"), true)).toBe(false);
     expect(propShown(p("claimed"), false)).toBe(false);
     expect(propShown(p("claimed"), true)).toBe(true);
+  });
+});
+
+describe("the flags' cloth", () => {
+  test("every arena's flag plays its six frames, a frame per 20/300 s", () => {
+    for (const scenery of Object.values(SCENERY_PLACEMENTS)) {
+      expect(scenery.morphs).toEqual({ 28: { frames: 6, period: 20 } });
+    }
+  });
+
+  test("frame 0 at the mission's start, looping, every flag on the same frame", () => {
+    const cloth = { frames: 6, period: 20 };
+    expect(propMorphFrame(cloth, 0)).toBe(0);
+    expect(propMorphFrame(cloth, 0.066)).toBe(0);
+    expect(propMorphFrame(cloth, 0.067)).toBe(1);
+    expect(propMorphFrame(cloth, 0.34)).toBe(5);
+    expect(propMorphFrame(cloth, 0.4)).toBe(0);
+    expect(propMorphFrame(cloth, 0.4 + 0.2)).toBe(3);
   });
 });

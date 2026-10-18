@@ -41,6 +41,10 @@
 // - `maxTris` per assets.md §4: ~1500 standard, ~5000 Juggernaut/Fortress/Avatar
 
 import {
+  SCENERY_PLACEMENTS,
+  type SceneryMorph,
+} from "../../../packages/client/src/render/arenaScenery.generated";
+import {
   UNIT_MODEL_FILES,
   type UnitTreatment,
 } from "../../../packages/client/src/render/arenaUnits.generated";
@@ -422,6 +426,12 @@ export interface PropModelSpec {
   readonly mpTwin: number | null;
   /** Raw extraction, relative to tools/generators/units/raw/. */
   readonly raw: string;
+  /**
+   * The morph its records play (the outpost flag's cloth), which gen:units
+   * keeps and render/props.ts steps; null ships frame 0. From the arena's
+   * scenery table (render/arenaScenery.generated.ts, `bun run gen:scenery`).
+   */
+  readonly morph: SceneryMorph | null;
   readonly source: UnitModelSource;
   readonly maxTris: number;
 }
@@ -462,8 +472,8 @@ export interface PropModelSpec {
 //   diagonals — read as a "striped barrier" until the RE named it: the outpost
 //   flag, four per outpost (pa_models.json `outpost_flag`, groups 11-14). The
 //   claim script sets the claimer's offset on it (v 25 / 51, the red and blue
-//   flag on the same page; render/props.ts). A 6-frame morph, the cloth; the
-//   pipeline keeps frame 0.
+//   flag on the same page; render/props.ts). A 6-frame morph, the cloth, which
+//   gen:units keeps and render/props.ts plays.
 // - Mp 29 (4 placements): the outpost's console on its pad, the one a mech
 //   buys the outpost at; the activation destroys it (order 0x3c).
 // - Mp 27 and 33 (4 each): the outpost's two terminals, at its activation and
@@ -608,6 +618,7 @@ export const PROP_MODELS: readonly PropModelSpec[] = ARENA_SCENERY.flatMap((aren
       cobj,
       mpTwin,
       raw: sceneryRaw(arena.mission, cobj),
+      morph: SCENERY_PLACEMENTS[arena.mapId]?.morphs[cobj] ?? null,
       source: {
         title: `${kind} (${arena.mission} Cobj ${cobj})`,
         author: EA,

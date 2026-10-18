@@ -53,10 +53,13 @@ describe("committed prop models match the manifest contract", () => {
       expect(meshes.length).toBe(1);
       const prims = meshes[0].listPrimitives();
       expect(prims.length).toBe(1);
-      // Cobj 28 is morph-animated; the pipeline keeps frame 0 and must not
-      // leave the morph deltas behind for a renderer that never drives them.
-      expect(prims[0].listTargets().length).toBe(0);
-      expect(meshes[0].getWeights().length).toBe(0);
+      // Cobj 28 is morph-animated, its cloth: the pipeline keeps its targets
+      // (frame k + 1 is target k, render/props.ts steps them). Everything
+      // else ships frame 0 and no deltas a renderer would never drive.
+      const frames = spec.morph?.frames ?? 1;
+      expect(spec.morph === null).toBe(spec.cobj !== 28);
+      expect(prims[0].listTargets().length).toBe(frames - 1);
+      expect(meshes[0].getWeights().length).toBe(frames - 1);
       expect(root.listTextures().length).toBe(1);
       expect(root.listMaterials()[0].getBaseColorTexture()).not.toBeNull();
       expect(prims[0].getAttribute("TEXCOORD_0")).not.toBeNull();
@@ -128,6 +131,17 @@ describe("committed prop models match the manifest contract", () => {
         .sort((a, b) => a - b);
       expect({ map: mapId, ids: carried }).toEqual({ map: mapId, ids: placed });
       expect(scenery.mission).toBe(ARENA_SCENERY.find((a) => a.mapId === mapId)?.mission ?? "");
+    }
+  });
+
+  // The morph each model plays is its own: gen:units kept as many targets as
+  // the table's track has frames, less the base.
+  test("the scenery table's morphs are the committed models' targets", async () => {
+    for (const [mapId, scenery] of Object.entries(SCENERY_PLACEMENTS)) {
+      for (const [cobj, morph] of Object.entries(scenery.morphs)) {
+        const spec = PROP_MODELS.find((s) => s.mapId === mapId && s.cobj === Number(cobj));
+        expect(spec?.morph).toEqual(morph);
+      }
     }
   });
 });

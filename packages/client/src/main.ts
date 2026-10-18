@@ -1816,8 +1816,9 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
   }
   units.end();
   // The scenery by its outpost's claim: the console until then, the terminals
-  // after, the flags in the claimer's half of the page (render/props.ts).
-  updateProps(units.outpostSides);
+  // after, the flags in the claimer's half of the page; the cloth's frame on
+  // the sim's clock (render/props.ts).
+  updateProps(units.outpostSides, simDtSec);
   if (avatarRig) avatarRig.end();
 }
 
