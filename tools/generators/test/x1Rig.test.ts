@@ -48,12 +48,57 @@ const rig = await (async () => {
   };
 })();
 
-/** The RE's static assembly, skinned with its own node pose, part by part. */
-async function assembled(file: string): Promise<Map<string, Float32Array>> {
-  const doc = await io.read(join(RAW_FCOP, file));
+/**
+ * The RE's assembly, skinned with its own node pose, part by part: the static
+ * walker and hover, or sample `sample` of the transform glb's
+ * `transform_to_hover` clip.
+ */
+async function assembled(path: string, sample = -1): Promise<Map<string, Float32Array>> {
+  const doc = await io.read(path);
   const out = new Map<string, Float32Array>();
+  const keyed = new Map<Node, { t?: ArrayLike<number>; r?: ArrayLike<number> }>();
+  if (sample >= 0) {
+    const clip = doc
+      .getRoot()
+      .listAnimations()
+      .find((a) => a.getName() === "transform_to_hover");
+    for (const ch of clip?.listChannels() ?? []) {
+      const node = ch.getTargetNode();
+      const out = ch.getSampler()?.getOutput()?.getArray();
+      if (!node || !out) continue;
+      const e = keyed.get(node) ?? {};
+      if (ch.getTargetPath() === "translation") e.t = out.slice(sample * 3, sample * 3 + 3);
+      if (ch.getTargetPath() === "rotation") e.r = out.slice(sample * 4, sample * 4 + 4);
+      keyed.set(node, e);
+    }
+  }
+  const localOf = (n: Node): ArrayLike<number> => {
+    const k = keyed.get(n);
+    if (!k) return n.getMatrix();
+    const [x, y, z, w] = (k.r ?? n.getRotation()) as number[];
+    const t = (k.t ?? n.getTranslation()) as number[];
+    const s = n.getScale();
+    return [
+      (1 - 2 * (y * y + z * z)) * s[0],
+      2 * (x * y + z * w) * s[0],
+      2 * (x * z - y * w) * s[0],
+      0,
+      2 * (x * y - z * w) * s[1],
+      (1 - 2 * (x * x + z * z)) * s[1],
+      2 * (y * z + x * w) * s[1],
+      0,
+      2 * (x * z + y * w) * s[2],
+      2 * (y * z - x * w) * s[2],
+      (1 - 2 * (x * x + y * y)) * s[2],
+      0,
+      t[0],
+      t[1],
+      t[2],
+      1,
+    ];
+  };
   const worldOf = (n: Node): Float64Array => {
-    const m = n.getMatrix();
+    const m = localOf(n);
     const parent = n.getParentNode();
     if (!parent) return Float64Array.from(m);
     const p = worldOf(parent);
@@ -135,13 +180,18 @@ const PART_ORDER = [
   "beacon_lights_mesh",
 ];
 
-async function expectPose(file: string, legsFrame: number, cockpitFrame: number): Promise<void> {
-  const ref = await assembled(file);
+async function expectPose(
+  path: string,
+  legsFrame: number,
+  cockpitFrame: number,
+  sample = -1,
+): Promise<void> {
+  const ref = await assembled(path, sample);
   const posed = new Float32Array(3);
   let at = 0;
   for (const name of PART_ORDER) {
     const want = ref.get(name);
-    if (!want) throw new Error(`${file}: no ${name}`);
+    if (!want) throw new Error(`${path}: no ${name}`);
     let worst = 0;
     for (let i = 0; i < want.length / 3; i++, at++) {
       poseX1Vertex(
@@ -189,11 +239,19 @@ describe("the X1's rig", () => {
   });
 
   test("stands as the RE's assembled walker at legs 0 / cockpit 0", async () => {
-    await expectPose("x1-alpha-walker.glb", 0, 0);
+    await expectPose(join(RAW_FCOP, "x1-alpha-walker.glb"), 0, 0);
   });
 
   test("folds into the RE's assembled hover at legs 359 / cockpit 29", async () => {
-    await expectPose("x1-alpha-hover.glb", 359, 29);
+    await expectPose(join(RAW_FCOP, "x1-alpha-hover.glb"), 359, 29);
+  });
+
+  test("passes through the RE's assembled transform: legs 330 + i with cockpit i", async () => {
+    // The RE's transform glb keys both tracks on one 30-sample timeline, the
+    // cockpit's frame equal to the legs' offset from 330 -- as the mode-3 ramp
+    // has them, both `from + (to - from) * progress >> 16` over 29 frames.
+    const file = join(X1_RAW_DIR, "x1_alpha_transform.glb");
+    for (const i of [0, 7, 14, 21, 29]) await expectPose(file, 330 + i, i, i);
   });
 
   test("carries the legs' 62 AnmD tracks, the transform's at 0x0c", () => {

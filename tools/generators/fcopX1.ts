@@ -5,6 +5,8 @@
 //
 //   <RE>/extracted/x1/x1_{legs,cockpit,weapon,beacon_lights}.glb, tracks.json
 //     -> tools/generators/units/raw/fcop-x1/                      (unchanged)
+//   (and x1_alpha_transform.glb, the RE's assembled transform, which only the
+//   test reads: tools/generators/test/x1Rig.test.ts)
 //   <RE>/fixtures/missions/Mp, Cobj 15 and 16 (the legs and the cockpit), 3DHS
 //     -> tools/generators/units/raw/fcop-x1/channels.json         (the mount points)
 //   raws
@@ -617,7 +619,10 @@ function readChannels(
 function importRaws(reRepo: string): void {
   const x1 = join(reRepo, "extracted", "x1");
   mkdirSync(X1_RAW_DIR, { recursive: true });
-  for (const f of [...PART_FILES, "tracks.json"]) copyFileSync(join(x1, f), join(X1_RAW_DIR, f));
+  // The RE's own assembled transform rides along for the test, not the build.
+  for (const f of [...PART_FILES, "tracks.json", "x1_alpha_transform.glb"]) {
+    copyFileSync(join(x1, f), join(X1_RAW_DIR, f));
+  }
   const manifest = JSON.parse(readFileSync(join(x1, "manifest.json"), "utf8")) as {
     parts: {
       role: string;
