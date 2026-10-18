@@ -40,7 +40,9 @@ import {
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
   MATCH_SLOT_AVATAR_ID,
+  MATCH_SLOT_LOCK,
   MATCH_SLOT_POINTS,
+  MATCH_SLOT_RESPAWN_TICKS,
   MATCH_SNAPSHOT_LEN,
   MATCH_TICK,
   MATCH_WARDEN_DIFFICULTY,
@@ -111,12 +113,13 @@ import {
   stepChaseCamera,
 } from "./render/camera";
 import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
-import { makeTerrainTrace } from "./render/cameraTrace";
+import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx } from "./render/fx";
 import { bucketFor, createGreyboxMeshes, tintFor } from "./render/greybox";
 import { type CameraCaption, createCameraCaption } from "./render/hud/caption";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
+import { snapshotIndexOf } from "./render/hud/hudRules";
 import { loadLifts, updateLifts } from "./render/lifts";
 import { matchClock, matchEndText } from "./render/matchEnd";
 import { loadMapMesh } from "./render/meshMap";
@@ -782,6 +785,8 @@ const morphScratch = new Float32Array(MORPH_OUT_LEN);
 let extent = worldExtent(map);
 /** The chase cameras' line-of-sight test over the arena's ground and decks. */
 let chaseTrace = makeTerrainTrace(map);
+/** The lock beam's first terrain hit toward its target (hud_draw_lock_beam). */
+let lockHit = makeTerrainHit(map);
 
 /**
  * Online only: the server's MSG_WELCOME config is authoritative. If it names a
@@ -793,6 +798,7 @@ function rebuildArena(mapId: string): void {
   map = getMapById(mapId);
   extent = worldExtent(map);
   chaseTrace = makeTerrainTrace(map);
+  lockHit = makeTerrainHit(map);
   // Debug variant textures are per-map: free them before the arena they
   // belong to goes away (the switcher is re-armed by buildArenaGroup's
   // onMaterials callback once the new mesh loads).
@@ -859,10 +865,6 @@ const CHASE_ANCHOR_LIFT = 0.5;
 /** The camera caption (render/hud/caption.ts), present while a chase camera is. */
 let cameraCaption: CameraCaption | undefined;
 
-// The chase rig has no zoom to give the wheel (camera.spec §3), and under
-// pointer lock there is no cursor for the reticle to follow — it sits in the
-// middle of the view, where the gun points, and CSS keeps it there.
-const reticle = document.getElementById("reticle") as HTMLDivElement;
 const unitCounts = new Int32Array(2);
 
 // Full-screen status overlay for online mode (connecting / waiting / desync).
@@ -1000,7 +1002,6 @@ function showMatchEnd(winner: number): void {
   endEl.classList.add("is-open");
   if (document.pointerLockElement) document.exitPointerLock();
   document.body.style.cursor = "default";
-  reticle.style.display = "none";
   keyboard.capture = false;
   (netMode ? endMenuBtn : endRematchBtn).focus();
 }
@@ -1104,7 +1105,6 @@ function returnToMenu(): void {
   timeScale = 1;
   debugPaused = false;
   setFlyCrosshairVisible(false);
-  reticle.style.display = "none";
   keyboard.capture = false;
   document.body.style.cursor = "default";
 
@@ -1192,11 +1192,11 @@ const flyState = createFlyState();
 
 // Small fixed DOM label (overlay idiom: only write on change). Shows the fly
 // controls and the active texture variant while debugging.
-// Sits above the HUD's ammo row rather than on it: the ammo numbers are the
-// game, this is scaffolding, so the scaffolding is what moves.
+// Top centre, which the original's HUD leaves empty: the HUD is the game, this
+// is scaffolding, so the scaffolding is what moves.
 const debugLabelEl = document.createElement("div");
 debugLabelEl.style.cssText =
-  "position:fixed;left:8px;bottom:56px;z-index:30;padding:4px 8px;" +
+  "position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:30;padding:4px 8px;" +
   "font:12px/1.4 monospace;color:#cfd8e3;background:rgba(10,14,20,.7);" +
   "border-radius:4px;pointer-events:none;display:none;white-space:pre";
 document.body.appendChild(debugLabelEl);
@@ -1555,7 +1555,6 @@ function pumpCosmetics(events: typeof sim.events): void {
   pumpSounds(events);
   fx.pump(events, resolveEventPosition);
   startMorphs(events);
-  matchHud?.pumpEvents(events, performance.now());
   // Kills credited to the local player, for the match-end stats row.
   // EV_DEATH.b is the killer's player slot (-1 for unowned deaths).
   const localSlot = views[0]?.slot ?? 0;
@@ -1801,6 +1800,48 @@ function updateChaseCamera(view: PlayerView, dtSec: number): void {
   }
 }
 
+/** The lock's two ends above the entities' feet, m: the X1's gun, the target's middle. */
+const LOCK_FROM_LIFT = 0.6;
+const LOCK_TO_LIFT = 0.5;
+
+/**
+ * The graphical HUD for the local view: the snapshots, the 300 Hz frame clock
+ * (sim tick x 10, interpolated) and the X1's interpolated pose for the radar;
+ * then the lock beam and reticle onto the posed camera.
+ */
+function refreshMatchHud(view: PlayerView, alpha: number): void {
+  const hud = matchHud;
+  if (!hud) return;
+  const pose = avatarPoses[view.slot];
+  const clock = Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ));
+  hud.refresh(matchSnap, snapCurr, countCurr, clock, pose[0], pose[1], pose[5]);
+  const mine = matchSlotOffset(view.slot);
+  const lock = matchSnap[mine + MATCH_SLOT_LOCK] | 0;
+  const down = (matchSnap[mine + MATCH_SLOT_RESPAWN_TICKS] | 0) > 0;
+  const c = lock >= 0 && !down && pose[3] !== 0 ? snapshotIndexOf(snapCurr, countCurr, lock) : -1;
+  if (c < 0) {
+    hud.drawLock(view.camera, false, 0, 0, 0, 0, 0, 0, 1);
+    return;
+  }
+  const o = c * SNAPSHOT_STRIDE;
+  let tx = snapCurr[o + 3];
+  let ty = snapCurr[o + 5];
+  let tz = snapCurr[o + 4];
+  const p = snapshotIndexOf(snapPrev, countPrev, lock);
+  if (p >= 0) {
+    const po = p * SNAPSHOT_STRIDE;
+    tx = snapPrev[po + 3] + (tx - snapPrev[po + 3]) * alpha;
+    ty = snapPrev[po + 5] + (ty - snapPrev[po + 5]) * alpha;
+    tz = snapPrev[po + 4] + (tz - snapPrev[po + 4]) * alpha;
+  }
+  ty += LOCK_TO_LIFT;
+  const fx = pose[0];
+  const fy = pose[2] + LOCK_FROM_LIFT;
+  const fz = pose[1];
+  const hit = lockHit(fx, fy, fz, tx, ty, tz);
+  hud.drawLock(view.camera, true, fx, fy, fz, tx, ty, tz, hit);
+}
+
 // --- HUD (1 Hz, host-side debug UI; reads sim directly) ----------------------
 
 let hudFrames = 0;
@@ -1984,17 +2025,16 @@ function frame(now: number): void {
     }
   }
 
-  // Graphical HUD at 10 Hz. It writes only on change and allocates nothing, but
-  // the radar still clears and redraws a canvas, so it gets its own cadence
-  // rather than riding the frame. 100 ms is under the health bar's 0.18 s
-  // transition, so damage still reads as a smooth drain.
+  // The original's HUD, every frame: each of its canvases redraws only when a
+  // value it shows changed (render/hud/hud.ts), the radar and the lock follow
+  // the interpolated poses.
+  if (matchHud && views.length > 0) refreshMatchHud(views[0], alpha);
   if (matchHud && now - matchHudLastUpdate > 100) {
     matchHudLastUpdate = now;
-    matchHud.refresh(matchSnap, snapCurr, countCurr, extent);
-    // Match end rides the same cadence: once the sim freezes on a winner, give
-    // the banner and the death FX a beat, then put up the end card. Debug
-    // camera modes skip it — they exist to look at the world (matchHud is
-    // undefined there anyway, which is why this lives inside the guard).
+    // Match end on a 10 Hz cadence: once the sim freezes on a winner, give the
+    // death FX a beat, then put up the end card. Debug camera modes skip it —
+    // they exist to look at the world (matchHud is undefined there anyway,
+    // which is why this lives inside the guard).
     const endWinner = matchSnap[MATCH_WINNER] | 0;
     if (endWinner < 0) {
       winSeenAtMs = -1; // no winner (or a fresh sim): the clock re-arms
@@ -2067,9 +2107,8 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   matchHud =
     flyMode || orbitMode
       ? undefined
-      : createMatchHud(views[0]?.slot ?? 0, {
-          outpostTotal: map.outpostSpots.length,
-        });
+      : createMatchHud(views[0]?.slot ?? 0, { mapId: map.id, online: netMode });
+  matchHud?.layout(innerWidth, innerHeight);
   layoutViews(views, "v", innerWidth, innerHeight, textHudInset());
   // The camera caption rides with the chase camera: not under fly or orbit.
   cameraCaption?.destroy();
@@ -2096,9 +2135,6 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   }
   if (sandboxMode) ensureSandboxPanel();
   setFlyCrosshairVisible(flyMode && views.length === 1);
-  // The reticle marks where the hull points for a single full-window player —
-  // not under fly (fly uses a fixed center crosshair).
-  reticle.style.display = views.length === 1 && !flyMode ? "block" : "none";
   document.body.style.cursor = ""; // back to the stylesheet crosshair
 }
 
@@ -2388,8 +2424,7 @@ if (online) {
   startMatch([{ slot: 0, input: localInput }]);
 } else {
   // Bare URL: title screen over the live demo world; a choice starts its mode
-  // in-process. The reticle/crosshair only makes sense in a live match.
-  reticle.style.display = "none";
+  // in-process.
   document.body.style.cursor = "default";
   menuHandle = runMenu({
     audio,
@@ -2428,6 +2463,7 @@ addEventListener("resize", () => {
   flyCam.updateProjectionMatrix();
   if (views.length > 0) layoutViews(views, "v", innerWidth, innerHeight, textHudInset());
   cameraCaption?.layout(innerWidth, innerHeight);
+  matchHud?.layout(innerWidth, innerHeight);
 });
 
 // The single persistent frame loop — every phase renders through it.

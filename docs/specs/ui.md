@@ -72,6 +72,27 @@ contract, not a detail. It survives the graphical HUD as a hidden element and
 **must not be reformatted** casually — a change there is a tooling change and
 belongs in the same commit as the harness updates it forces.
 
+### The in-match HUD is the original's
+
+`render/hud/` draws Future Cop: L.A.P.D.'s Precinct Assault HUD from the RE's
+`hud.json` (`bun run gen:presentation`): the radar top left, the camera caption
+under it, the armour gauge, the FUTURE COP badge and the three weapon icons with
+their magazine counts bottom left, the score and tanks/jets plates and the
+opponent's row top right, the opponent's (or the Sky Captain's) gauge, badge and
+`L%02d` level bottom right, the lock beam and reticle over the view. Its art is the
+original's atlas page 11, its text font 3 in the original's text colours.
+
+**Layout.** The original lays it out on a 640 x 480 screen. Metropolis scales that
+by `s = min(width / 640, height / 480)`, the 4:3 box that fits, and anchors the
+left half of the 640 space to the left edge and the right half to the right edge
+(likewise top and bottom), so a wide window keeps the HUD's height and moves its
+two columns out with the view instead of stretching it (`hudLayout.ts`). Each
+group is a canvas drawn at a whole multiple of the original's pixels with
+smoothing off.
+
+There is no centre crosshair (the original has none: the gun fires at the lock),
+no objective ticker and no breach banner; those were Metropolis' own.
+
 ## 3. Visual language
 
 Modelled on the original's cockpit console. Reference shots live in

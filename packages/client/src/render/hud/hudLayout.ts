@@ -73,8 +73,10 @@ export interface HudCanvas {
   dirty: boolean;
   /** Re-places the canvas for a viewport (CSS px, origin the viewport's). */
   place(vw: number, vh: number): void;
-  /** Clears the whole canvas (640 units). */
+  /** Clears the whole canvas, drawing at its own origin (0, 0 = the rect's corner). */
   clear(): void;
+  /** Clears the whole canvas, drawing in the 640 space (x, y as the original's). */
+  begin(): void;
 }
 
 const scratch: PlacedRect = { left: 0, top: 0, width: 0, height: 0 };
@@ -121,7 +123,12 @@ export function hudCanvas(
       ctx.imageSmoothingEnabled = false;
     },
     clear() {
+      ctx.setTransform(c.k, 0, 0, c.k, 0, 0);
       ctx.clearRect(0, 0, w, h);
+    },
+    begin() {
+      ctx.setTransform(c.k, 0, 0, c.k, -x * c.k, -y * c.k);
+      ctx.clearRect(x, y, w, h);
     },
   };
   return c;

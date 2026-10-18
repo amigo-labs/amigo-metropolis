@@ -17,8 +17,20 @@ const SAMPLES_PER_M = 4;
 /** Slack under the surface before a sample counts as inside it, m. */
 const SKIN = 0.05;
 
-/** A trace over `map`'s ground and decks, three frame (x, height, sim y), metres. */
-export function makeTerrainTrace(map: MapData): ChaseTrace {
+/**
+ * The first blocked point on a segment over `map`'s ground and decks, as the
+ * fraction of the segment (1 = clear). Three frame (x, height, sim y), metres.
+ */
+export type TerrainHit = (
+  ax: number,
+  ah: number,
+  ay: number,
+  ex: number,
+  eh: number,
+  ey: number,
+) => number;
+
+export function makeTerrainHit(map: MapData): TerrainHit {
   const decks = map.layerHeights.length;
   const size = map.size;
   const cell = map.cellSize;
@@ -45,18 +57,24 @@ export function makeTerrainTrace(map: MapData): ChaseTrace {
       const x = ax + dx * t;
       const h = ah + dh * t;
       const y = ay + dy * t;
-      if (h < sampleHeight(map, x, y) - SKIN) return true;
+      if (h < sampleHeight(map, x, y) - SKIN) return (s - 1) / n;
       // A deck blocks a segment that passes through it between two samples.
       for (let k = 0; k < decks; k++) {
         if (!deckAt(k, x, y) || !deckAt(k, prevX, prevY)) continue;
         const d0 = prevH - sampleLayerHeight(map, k, prevX, prevY);
         const d1 = h - sampleLayerHeight(map, k, x, y);
-        if ((d0 < 0 && d1 > 0) || (d0 > 0 && d1 < 0)) return true;
+        if ((d0 < 0 && d1 > 0) || (d0 > 0 && d1 < 0)) return (s - 1) / n;
       }
       prevX = x;
       prevY = y;
       prevH = h;
     }
-    return false;
+    return 1;
   };
+}
+
+/** The chase camera's trace: blocked anywhere along the segment. */
+export function makeTerrainTrace(map: MapData): ChaseTrace {
+  const hit = makeTerrainHit(map);
+  return (ax, ah, ay, ex, eh, ey) => hit(ax, ah, ay, ex, eh, ey) < 1;
 }
