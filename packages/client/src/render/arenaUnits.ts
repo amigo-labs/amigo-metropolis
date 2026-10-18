@@ -157,6 +157,13 @@ export interface ArenaUnitsRenderer {
   /** Publishes the part buckets' counts and matrices. Call after the sweep. */
   end(): void;
   /**
+   * Draws the Sky Captain of `level` (0-9, the match's Warden difficulty - 1):
+   * one model per level band, as the original loads one record per band (RE
+   * pa_models.json `sky_captain` levels; Mp 54 / 56 / 57 / 58). Per frame; a
+   * swap only when the level changes.
+   */
+  setCaptainLevel(level: number): void;
+  /**
    * The side (0 nobody's, 1, 2) holding each outpost, by map.outpostSpots
    * index, as the sweep last saw its console. For render/props.ts' flags.
    */
@@ -301,6 +308,23 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
   /** Outpost index by where its console stands (spotKey). */
   let consoles = new Map<number, number>();
   let outpostSides = new Int8Array(0);
+  /** The Sky Captain level on screen, and the latest arena load's guard. */
+  let captainLevel = 0;
+  let captainEpoch = 0;
+  let arenaCancelled: () => boolean = () => false;
+  let loadedOnce = false;
+
+  function swapCaptain(): void {
+    const epoch = ++captainEpoch;
+    const stale = arenaCancelled;
+    const level = Math.min(9, Math.max(0, captainLevel));
+    swap(
+      greybox.warden,
+      current.skyCaptain.byLevel[level],
+      current.skyCaptain.uv,
+      () => epoch !== captainEpoch || stale(),
+    );
+  }
 
   /** The model each bucket shows, so a swap to the same file is a no-op. */
   const showing = new Map<Bucket, string>();
@@ -390,7 +414,9 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       swap(greybox.guardian, units.jet.model, units.jet.uv, cancelled);
       swap(greybox.fortress, units.fortress.model, units.fortress.uv, cancelled);
       swap(greybox.juggernaut, units.dreadnought.hull, units.dreadnought.uv, cancelled);
-      swap(greybox.warden, units.skyCaptain.byLevel[0], units.skyCaptain.uv, cancelled);
+      arenaCancelled = cancelled;
+      loadedOnce = true;
+      swapCaptain();
       swap(greybox.console, units.console, NO_UV, cancelled);
       swapTurret(defense, units.baseTurret, cancelled);
       swapTurret(neutral, units.neutralTurrets[0], cancelled);
@@ -407,6 +433,13 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
     },
     get outpostSides() {
       return outpostSides;
+    },
+    setCaptainLevel(level) {
+      if (level === captainLevel) return;
+      captainLevel = level;
+      // Models only once an arena has loaded them (never on ?render=greybox);
+      // a load swaps the current level in itself.
+      if (loadedOnce) swapCaptain();
     },
     place(bucket, slot, archetype, team, x, y, pos, quat, scale) {
       if (archetype === ARCHETYPE.CONSOLE) {

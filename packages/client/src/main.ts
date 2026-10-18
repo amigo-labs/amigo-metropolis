@@ -61,6 +61,7 @@ import {
   TICK_HZ,
   type TickInputs,
   URBAN_JUNGLE_ID,
+  wardenLevel,
   worldExtent,
   writeLiftSnapshot,
   writeMatchSnapshot,
@@ -1700,6 +1701,8 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }
+  // The Sky Captain's model is its level's (match config, via the snapshot).
+  units.setCaptainLevel(wardenLevel(matchSnap[MATCH_WARDEN_DIFFICULTY]));
   units.begin();
   if (avatarRig) avatarRig.begin();
   // Readiness cannot change mid-frame, so resolve it once instead of per entity.

@@ -4,7 +4,7 @@
 // each Metropolis team plays, and the turret lookups the frame loop makes.
 
 import { describe, expect, test } from "bun:test";
-import { getMapById } from "@metropolis/sim";
+import { getMapById, wardenLevel } from "@metropolis/sim";
 import * as THREE from "three";
 import { arenaUnitsFor, bakedPoint, spotKey, turretSpotsOf } from "../src/render/arenaUnits";
 import { ARENA_UNITS, UNIT_MODEL_FILES } from "../src/render/arenaUnits.generated";
@@ -328,5 +328,21 @@ describe("team colour by the original's texture offset", () => {
       const counts = map.outpostSpots.map((_, k) => of.filter((o) => o === k).length);
       expect({ id, counts }).toEqual({ id, counts: map.outpostSpots.map(() => 4) });
     }
+  });
+});
+
+describe("the Sky Captain by level", () => {
+  test("the match's Warden difficulty picks the level band's model", () => {
+    const byLevel = ARENA_UNITS["la-cantina"].skyCaptain.byLevel;
+    const file = (d: number) => byLevel[wardenLevel(d)];
+    // Difficulty 1-3 is levels 0-2 (Cobj 54), 10 is level 9 (Cobj 58).
+    expect(file(1)).toBe("la-cantina/obj_054");
+    expect(file(3)).toBe("la-cantina/obj_054");
+    expect(file(4)).toBe("la-cantina/obj_056");
+    expect(file(7)).toBe("la-cantina/obj_057");
+    expect(file(10)).toBe("la-cantina/obj_058");
+    // Joke draws one model for levels 0-8 and another for 9.
+    expect(new Set(ARENA_UNITS["bug-hunt"].skyCaptain.byLevel.slice(0, 9)).size).toBe(1);
+    expect(ARENA_UNITS["bug-hunt"].skyCaptain.byLevel[9]).toBe("bug-hunt/obj_084");
   });
 });
