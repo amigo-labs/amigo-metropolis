@@ -105,6 +105,12 @@ interface ModelPass {
   readonly dropBillboards?: boolean;
   /** Write `_TEAMUV`: 0 on these nodes' faces, 1 elsewhere (manifest.ts). */
   readonly teamUvExclude?: readonly string[];
+  /**
+   * Keep the morph frames (the jet's rotor): a time-driven morph the client
+   * plays (packages/client/src/render/arenaUnits.ts). Every other model ships
+   * frame 0 and no targets.
+   */
+  readonly keepMorph?: boolean;
 }
 
 const PASSES: readonly ModelPass[] = [
@@ -142,6 +148,7 @@ const PASSES: readonly ModelPass[] = [
     groundY: spec.treatment !== "part",
     dropFxAttachments: true,
     dropBillboards: spec.treatment !== "part",
+    keepMorph: spec.morph !== null,
   })),
   ...PROP_MODELS.map((spec) => ({
     key: spec.key,
@@ -348,6 +355,43 @@ function assertUnsharedVertexData(document: Document, key: string): void {
   }
 }
 
+/** Stash name of a kept morph target's POSITION delta (see processModel). */
+const MORPH_PREFIX = "_MORPH";
+
+/**
+ * Turns the stashed `_MORPHk` attributes back into morph targets, in order,
+ * with zero weights: frame k + 1 is target k at weight 1, as the RE's glb
+ * animates it.
+ */
+function restoreMorphTargets(document: Document, mesh: Mesh, key: string): void {
+  const prims = mesh.listPrimitives();
+  if (prims.length !== 1) throw new Error(`${key}: a kept morph on ${prims.length} primitives`);
+  const prim = prims[0];
+  const names = prim
+    .listSemantics()
+    .filter((s) => s.startsWith(MORPH_PREFIX))
+    .sort((a, b) => Number(a.slice(MORPH_PREFIX.length)) - Number(b.slice(MORPH_PREFIX.length)));
+  if (names.length === 0) throw new Error(`${key}: a kept morph without targets`);
+  for (const name of names) {
+    const stash = prim.getAttribute(name);
+    const delta = stash?.getArray();
+    if (!stash || !delta) throw new Error(`${key}: ${name} lost`);
+    const target = document
+      .createPrimitiveTarget()
+      .setAttribute(
+        "POSITION",
+        document
+          .createAccessor()
+          .setType("VEC3")
+          .setArray(new Float32Array(delta))
+          .setBuffer(document.getRoot().listBuffers()[0]),
+      );
+    prim.setAttribute(name, null);
+    prim.addTarget(target);
+  }
+  mesh.setWeights(names.map(() => 0));
+}
+
 /**
  * Marks which faces take the team texture offset (render/teamUv.ts): a 0/1
  * `_TEAMUV` per vertex, 0 on the meshes of the named nodes. Every primitive
@@ -487,9 +531,12 @@ function dropPlanarBillboardPrim(document: Document, prim: Primitive): void {
     }
   }
 
+  // Once per accessor: dedup() may have merged two equal attributes into one.
+  const remapped = new Set<unknown>();
   for (const semantic of prim.listSemantics()) {
     const attr = prim.getAttribute(semantic);
-    if (!attr) continue;
+    if (!attr || remapped.has(attr)) continue;
+    remapped.add(attr);
     const src = attr.getArray();
     if (!src) continue;
     const dim = attr.getElementSize();
@@ -653,6 +700,24 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
     // will never drive.
     mesh.setWeights([]);
     for (const prim of mesh.listPrimitives()) {
+      // A kept morph rides the pipeline as plain vertex attributes, so every
+      // vertex edit below (FX drop, billboard drop, merge) carries it along,
+      // and becomes targets again just before the write. The deltas need no
+      // translation, which is all the grounding does.
+      if (spec.keepMorph) {
+        prim.listTargets().forEach((target, k) => {
+          const delta = target.getAttribute("POSITION")?.getArray();
+          if (!delta) throw new Error(`${spec.key}: morph target ${k} without POSITION`);
+          prim.setAttribute(
+            `${MORPH_PREFIX}${k}`,
+            document
+              .createAccessor()
+              .setType("VEC3")
+              .setArray(new Float32Array(delta))
+              .setBuffer(root.listBuffers()[0]),
+          );
+        });
+      }
       for (const target of prim.listTargets()) {
         prim.removeTarget(target);
         target.dispose();
@@ -889,6 +954,8 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
     const m = n.getMatrix();
     const isIdentity = m.every((v, i) => Math.abs(v - IDENTITY_MATRIX[i]) < 1e-6);
     if (!isIdentity) {
+      // The stashed deltas are not transformed with the mesh.
+      if (spec.keepMorph) throw new Error(`${spec.key}: a kept morph on a transformed node`);
       transformMesh(nodeMesh, m as unknown as Parameters<typeof transformMesh>[1]);
       n.setMatrix(IDENTITY_MATRIX as unknown as Parameters<typeof n.setMatrix>[0]);
     }
@@ -926,6 +993,9 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
 
   const apply = (m: number[]) =>
     transformMesh(mesh, m as unknown as Parameters<typeof transformMesh>[1]);
+  if (spec.keepMorph && spec.rotateQuarterY !== 0) {
+    throw new Error(`${spec.key}: a kept morph on a turned model`);
+  }
   apply(quarterYMatrix(spec.rotateQuarterY));
 
   if (spec.dropBillboards) dropPlanarBillboards(document, mesh);
@@ -992,6 +1062,8 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
   if (spec.neutralizeColors && !textured) {
     for (const prim of mesh.listPrimitives()) neutralizeColors(prim);
   }
+
+  if (spec.keepMorph) restoreMorphTargets(document, mesh, spec.key);
 
   // Exact weld: identical position/normal/color tuples share one index —
   // pure size/VRAM win, flat shading is untouched.

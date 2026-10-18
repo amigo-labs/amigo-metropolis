@@ -41,6 +41,7 @@ import {
   type ModelPoint,
   type SideUv,
   type TurretModels,
+  UNIT_MODEL_FILES,
 } from "./arenaUnits.generated";
 import { type Bucket, type GreyboxMeshes, tintFor } from "./greybox";
 import { atlasOffset, createTeamUvAttribute, TEAM_UV_ATTR, writeTeamUv } from "./teamUv";
@@ -152,8 +153,11 @@ interface TurretSet {
 export interface ArenaUnitsRenderer {
   /** Points every unit bucket at `map`'s own models. Async, fire and forget. */
   load(map: MapData, cancelled: () => boolean): void;
-  /** Zeroes the part buckets. Call before the entity sweep. */
-  begin(): void;
+  /**
+   * Zeroes the part buckets and advances the morph clock by the sim's own
+   * time (a paused match stops the rotor). Call before the entity sweep.
+   */
+  begin(simDtSec: number): void;
   /** The bucket an entity draws in: Hk's second neutral set has its own. */
   route(bucket: Bucket, archetype: number, aux: number, x: number, y: number): Bucket;
   /**
@@ -164,6 +168,8 @@ export interface ArenaUnitsRenderer {
   place(
     bucket: Bucket,
     slot: number,
+    /** The entity id: a morph's phase, so two jets' rotors do not turn as one. */
+    id: number,
     archetype: number,
     team: number,
     x: number,
@@ -197,6 +203,23 @@ interface UvBinding {
   readonly bySide: Float32Array;
 }
 
+/**
+ * A bucket showing a time-driven morph (the jet's rotor, RE pa_models.json
+ * `anim`): per instance a row of the mesh's morph texture, frame k + 1 being
+ * target k at weight 1 (the original steps frames, it does not blend them).
+ */
+interface MorphBinding {
+  readonly texture: THREE.DataTexture;
+  /** Floats per row: the base influence, then one per target. */
+  readonly len: number;
+  readonly frames: number;
+  readonly secPerFrame: number;
+  dirty: boolean;
+}
+
+/** The kept morph of each file, from the table. */
+const MORPH_OF = new Map(UNIT_MODEL_FILES.map((f) => [f.file, f.morph]));
+
 // Frame-loop scratch (renderer rule 1).
 const scratchUv = new Float32Array(2);
 const scratchGun = new THREE.Matrix4();
@@ -221,8 +244,11 @@ function assetOf(file: string): Promise<UnitAsset> {
   if (!pending) {
     pending = loadUnitAsset(file).then((asset) => {
       // Models are authored +Z forward (assets.md §4); the sim/greybox frame
-      // is +X forward, so bake the quarter turn into the geometry once.
+      // is +X forward, so bake the quarter turn into the geometry once — and
+      // into a morph's deltas, which BufferGeometry.rotateY leaves alone.
       asset.geometry.rotateY(Math.PI / 2);
+      const turn = new THREE.Matrix4().makeRotationY(Math.PI / 2);
+      for (const delta of asset.geometry.morphAttributes.position ?? []) delta.applyMatrix4(turn);
       return asset;
     });
     // A failed file may be retried on the next arena build.
@@ -358,6 +384,11 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
   const showing = new Map<Bucket, string>();
   /** Set once a bucket shows a model; the frame loop's colour lookup. */
   const bindings = new Map<Bucket, UvBinding>();
+  /** Morphs by bucket, and the same as a list for the frame loop. */
+  const morphs = new Map<Bucket, MorphBinding>();
+  const morphList: MorphBinding[] = [];
+  /** Seconds of sim time, the morphs' clock. */
+  let clock = 0;
   /** Per bucket, the wrapped geometry of every file it has shown. */
   const wrapped = new Map<Bucket, Map<string, THREE.BufferGeometry>>();
 
@@ -388,6 +419,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
           bucket.mesh.material = asset.material;
           // A greybox tint must not multiply into the texels.
           bucket.mesh.instanceColor = null;
+          bindMorph(bucket, file, asset.geometry);
           showing.set(bucket, file);
           binding = binding ?? { attr, bySide: new Float32Array(6) };
           bindings.set(bucket, binding);
@@ -418,6 +450,43 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       bakedPoint(models.gunPoint, set.point);
       set.ready = true;
     });
+  }
+
+  /** Points the bucket's morph texture at the file's morph, or clears it. */
+  function bindMorph(bucket: Bucket, file: string, geometry: THREE.BufferGeometry): void {
+    const morph = MORPH_OF.get(file) ?? null;
+    const targets = geometry.morphAttributes.position?.length ?? 0;
+    const old = morphs.get(bucket);
+    if (!morph || targets !== morph.frames - 1) {
+      bucket.mesh.morphTexture = null;
+      if (old) morphList.splice(morphList.indexOf(old), 1);
+      morphs.delete(bucket);
+      return;
+    }
+    const len = targets + 1;
+    const capacity = bucket.tintCache.length;
+    let texture = old && old.len === len ? old.texture : null;
+    if (!texture) {
+      texture = new THREE.DataTexture(
+        new Float32Array(len * capacity),
+        len,
+        capacity,
+        THREE.RedFormat,
+        THREE.FloatType,
+      );
+      texture.needsUpdate = true;
+    }
+    bucket.mesh.morphTexture = texture;
+    const binding: MorphBinding = {
+      texture,
+      len,
+      frames: morph.frames,
+      secPerFrame: morph.secPerFrame,
+      dirty: true,
+    };
+    if (old) morphList.splice(morphList.indexOf(old), 1);
+    morphs.set(bucket, binding);
+    morphList.push(binding);
   }
 
   function swapGuns(units: ArenaUnits, cancelled: () => boolean): void {
@@ -475,7 +544,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       neutralB.ready = false;
       if (units.neutralTurrets[1]) swapTurret(neutralB, units.neutralTurrets[1], cancelled);
     },
-    begin() {
+    begin(simDtSec) {
+      clock += simDtSec;
       for (let i = 0; i < parts.length; i++) parts[i].count = 0;
     },
     route(bucket, archetype, aux, x, y) {
@@ -493,7 +563,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       // a load swaps the current level in itself.
       if (loadedOnce) swapCaptain();
     },
-    place(bucket, slot, archetype, team, x, y, pos, quat, scale) {
+    place(bucket, slot, id, archetype, team, x, y, pos, quat, scale) {
       if (archetype === ARCHETYPE.CONSOLE) {
         // The console's team is its outpost's owner (sim claimOutpostSlot).
         const k = consoles.get(spotKey(x, y));
@@ -520,6 +590,17 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       }
       bucket.mesh.setMatrixAt(slot, scratchMatrix);
       colour(bucket, bindings.get(bucket), slot, team);
+      const morph = morphs.get(bucket);
+      if (morph) {
+        // Frame by frame at the track's period (RE `cact_anim_step`, mode 1:
+        // 10 / 300 s a frame for the rotor), each instance a frame apart.
+        const frame = (Math.floor(clock / morph.secPerFrame) + id) % morph.frames;
+        const a = morph.texture.image.data as Float32Array;
+        const row = slot * morph.len;
+        a[row] = 1; // relative targets: the base always counts in full
+        for (let k = 1; k < morph.len; k++) a[row + k] = k === frame ? 1 : 0;
+        morph.dirty = true;
+      }
       if (archetype === ARCHETYPE.JUGGERNAUT && gunsReady && bucket === greybox.juggernaut) {
         // The guns wear the hull's offset (RE mount.c 714-715).
         for (let i = 0; i < 4; i++) {
@@ -536,6 +617,12 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
         const b = parts[i];
         b.mesh.count = b.count;
         b.mesh.instanceMatrix.needsUpdate = true;
+      }
+      for (let i = 0; i < morphList.length; i++) {
+        const m = morphList[i];
+        if (!m.dirty) continue;
+        m.texture.needsUpdate = true;
+        m.dirty = false;
       }
     },
   };

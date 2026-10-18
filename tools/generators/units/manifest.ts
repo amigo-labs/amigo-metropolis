@@ -360,6 +360,8 @@ export interface ArenaUnitModelSpec {
   readonly raw: string;
   readonly treatment: UnitTreatment;
   readonly usedBy: readonly string[];
+  /** A time-driven morph gen:units keeps and the client plays (the jet's rotor). */
+  readonly morph: { readonly frames: number; readonly secPerFrame: number } | null;
   readonly source: UnitModelSource;
   readonly maxTris: number;
 }
@@ -388,6 +390,7 @@ export const ARENA_UNIT_MODELS: readonly ArenaUnitModelSpec[] = UNIT_MODEL_FILES
   raw: f.raw,
   treatment: f.treatment,
   usedBy: f.usedBy,
+  morph: f.morph,
   source: {
     title: `${f.mission} Cobj ${f.cobj} (${f.treatment}; ${f.usedBy.join(", ")})`,
     author: EA,

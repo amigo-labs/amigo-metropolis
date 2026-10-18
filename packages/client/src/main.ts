@@ -1703,7 +1703,7 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
   }
   // The Sky Captain's model is its level's (match config, via the snapshot).
   units.setCaptainLevel(wardenLevel(matchSnap[MATCH_WARDEN_DIFFICULTY]));
-  units.begin();
+  units.begin(simDtSec);
   if (avatarRig) avatarRig.begin();
   // Readiness cannot change mid-frame, so resolve it once instead of per entity.
   const readyRig = avatarRig?.ready ? avatarRig : null;
@@ -1829,6 +1829,7 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
       units.place(
         bucket,
         slot,
+        id,
         archetype,
         team,
         spotX,

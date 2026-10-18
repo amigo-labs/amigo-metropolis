@@ -302,6 +302,61 @@ describe("committed arena unit models match the table", () => {
     });
   }
 
+  // A kept morph (the jet's rotor) must be the raw's frames, moved only by the
+  // grounding: frame k + 1 is target k at weight 1. Every other file ships
+  // frame 0 alone.
+  test("the morphs kept are the raw's frames; nothing else keeps targets", async () => {
+    for (const spec of ARENA_UNIT_MODELS) {
+      const doc = await io.read(join(OUT_DIR, `${spec.file}.glb`));
+      const prim = doc.getRoot().listMeshes()[0].listPrimitives()[0];
+      if (!spec.morph) {
+        expect({ file: spec.file, targets: prim.listTargets().length }).toEqual({
+          file: spec.file,
+          targets: 0,
+        });
+        continue;
+      }
+      const targets = prim.listTargets();
+      expect(targets.length).toBe(spec.morph.frames - 1);
+      const raw = await io.read(join(RAW_DIR, spec.raw));
+      const rawPrims = raw
+        .getRoot()
+        .listMeshes()
+        .flatMap((m) => m.listPrimitives())
+        .filter((p) => !["tex10", "facer"].includes(p.getMaterial()?.getName() ?? ""));
+      // Match each output vertex to its raw vertex by frame-0 position (the
+      // output is the raw shifted by the grounding offset).
+      const out = prim.getAttribute("POSITION");
+      const rawBase = rawPrims[0].getAttribute("POSITION");
+      if (!out || !rawBase) throw new Error("no positions");
+      const shift = [0, 1, 2].map(
+        (a) => (out.getMin([0, 0, 0])[a] as number) - keptBounds(raw).min[a],
+      );
+      const key = (p: number[]) => p.map((v) => Math.round(v * 1000)).join(",");
+      const rawIndex = new Map<string, number>();
+      const e = [0, 0, 0];
+      for (let i = 0; i < rawBase.getCount(); i++) {
+        rawBase.getElement(i, e);
+        rawIndex.set(key([e[0] + shift[0], e[1] + shift[1], e[2] + shift[2]]), i);
+      }
+      const d = [0, 0, 0];
+      const rd = [0, 0, 0];
+      let matched = 0;
+      for (let i = 0; i < out.getCount(); i++) {
+        out.getElement(i, e);
+        const r = rawIndex.get(key(e));
+        if (r === undefined) continue;
+        matched++;
+        targets.forEach((t, k) => {
+          t.getAttribute("POSITION")?.getElement(i, d);
+          rawPrims[0].listTargets()[k].getAttribute("POSITION")?.getElement(r, rd);
+          for (let a = 0; a < 3; a++) expect(Math.abs(d[a] - rd[a])).toBeLessThan(1e-5);
+        });
+      }
+      expect(matched).toBe(out.getCount());
+    }
+  });
+
   // The guns' attach points are hull vertices outside every face (RE
   // cact_model_point), measured in the hull's raw frame; the hull keeps that
   // frame (`part`), so each point must sit on the committed hull's box.
