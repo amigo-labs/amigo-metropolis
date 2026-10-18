@@ -228,9 +228,10 @@ function HowTo() {
       </div>
       <h2 class="menu-h2">Winning</h2>
       <p class="menu-hint">
-        Earn points when enemy units, turrets and avatars fall and when you capture turrets. Spend
-        them at your base's purchase spots to field Runners and Guardians and, once you hold 50, a
-        Juggernaut or a Fortress, then escort a push through a lane and breach the enemy gate.
+        Earn points when enemy units, turrets and X1-Alphas fall and when you capture turrets. Spend
+        them at your base's purchase spots to field tanks and jets and, once you hold 50, a
+        Dreadnought or a Flying Fortress, then escort a push through a lane and breach the enemy
+        gate.
       </p>
     </>
   );

@@ -136,8 +136,8 @@ export function createSandboxPanel(deps: SandboxPanelDeps): SandboxPanel {
   // disabled, so team 0/1 stay pickable (see refresh()).
   let neutralOption: HTMLOptionElement | null = null;
   for (const [label, value] of [
-    ["Team 0 (blue)", "0"],
-    ["Team 1 (red)", "1"],
+    ["Team 0", "0"],
+    ["Team 1", "1"],
     ["Neutral", "-1"],
   ] as const) {
     const opt = el("option", undefined, label);

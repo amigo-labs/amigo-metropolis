@@ -86,7 +86,15 @@ map panel, START, bottom loadout strip with rate/damage bars).
 - Thin cyan panel borders; cyan text in a chunky rounded techno face
 - Lavender reserved for the confirming action ("Ready" / "Start") — one accent,
   one meaning
-- Red and blue are **team colours** and are never used for chrome
+- Red and blue are **team colours** and are never used for chrome. They are
+  the original's sides: side 1 red, side 2 blue (its radar markers 0x31 / 0x32
+  and HUD text colours 1 / 3). A Metropolis team takes the side of the base it
+  stands on, which is a property of the arena (`render/sides.ts`): team 0 is red
+  on five arenas and blue on La Cantina
+- What a player reads names things as the original does: the **X1-Alpha**, the
+  **tank**, the **jet**, the **Dreadnought**, the **Flying Fortress**, the **Sky
+  Captain**. The code's identifiers keep the older names (`RUNNER`, `GUARDIAN`,
+  `JUGGERNAUT`, `FORTRESS`, `WARDEN`, `AVATAR`; rules.md opens with the map)
 - Loadout strip bars: **green = rate**, **red = damage**, scaled within each
   hardpoint's catalog (same relative idea as the original's front-end panels)
 

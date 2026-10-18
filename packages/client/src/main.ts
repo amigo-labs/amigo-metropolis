@@ -139,6 +139,7 @@ import {
 } from "./render/playerView";
 import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
 import { loadProps } from "./render/props";
+import { sideName, sideOfTeam } from "./render/sides";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
   buildDeckMeshes,
@@ -1825,7 +1826,9 @@ function refreshHud(fps: number): void {
     if (archetype >= 1 && archetype <= 4 && (team === 0 || team === 1)) unitCounts[team] += 1;
   }
   const banner =
-    sim.winner >= 0 ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} BREACHED THE GATE` : "";
+    sim.winner >= 0
+      ? `\nMATCH OVER — ${sideName(sideOfTeam(map.id, sim.winner))} BREACHED THE GATE`
+      : "";
   for (let v = 0; v < views.length; v++) {
     views[v].hud.textContent = hudText(views[v], fps, banner);
   }
@@ -1845,7 +1848,8 @@ function hudText(view: PlayerView, fps: number, banner: string): string {
     if (sim.outpostOwner[k] === slot) ownOutposts += 1;
   }
   if (ownOutposts > 0) progress += `  outposts ${ownOutposts}`;
-  const tag = slot === 0 ? "BLUE" : "RED";
+  // The original's side colour of the team (render/sides.ts).
+  const tag = sideName(sideOfTeam(map.id, slot));
   return (
     `P${slot + 1} ${tag}  ${status}  points ${sim.points[slot]}  units ${unitCounts[0]}v${unitCounts[1]}${progress}\n` +
     `tick ${sim.tick}  fps ${fps}  entities ${countCurr}  sfx ${audio.lastPlayed || "-"}  map ${map.id}` +

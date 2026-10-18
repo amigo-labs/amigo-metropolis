@@ -6,7 +6,8 @@
 // version of the live 3D backdrop.
 
 import type { MapData } from "@metropolis/sim";
-import { TEAM_RAMPS, TERRAIN_HEX } from "./palette";
+import { sideRamp, TERRAIN_HEX } from "./palette";
+import { sideOfTeam } from "./sides";
 
 interface Rgb {
   r: number;
@@ -80,7 +81,8 @@ export function drawArenaThumbnail(canvas: HTMLCanvasElement, map: MapData): voi
     const core = map.bases[team].core;
     const px = (core.x / extent) * W;
     const py = (core.y / extent) * H;
-    const ramp = TEAM_RAMPS[team] ?? TEAM_RAMPS[0];
+    // The original's side colours: side 1 red, side 2 blue (render/sides.ts).
+    const ramp = sideRamp(sideOfTeam(map.id, team));
     ctx.beginPath();
     ctx.arc(px, py, r, 0, Math.PI * 2);
     ctx.fillStyle = hexCss(ramp.base);

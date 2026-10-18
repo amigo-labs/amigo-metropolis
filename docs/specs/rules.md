@@ -2,6 +2,13 @@
 
 Status: v1 (initial balance values are placeholders — tune via playtesting)
 
+**Names.** This spec uses the original's: the **X1-Alpha** (the player's mech),
+the **tank**, the **jet**, the **Dreadnought**, the **Flying Fortress** and the
+**Sky Captain** (the solo opponent), as Future Cop: L.A.P.D.'s results page and
+voice lines name them. The code keeps Metropolis' older identifiers: X1-Alpha
+(`AVATAR`), tank (`RUNNER`), jet (`GUARDIAN`), Dreadnought (`JUGGERNAUT`),
+Flying Fortress (`FORTRESS`), Sky Captain (`WARDEN`).
+
 Design pillars, in priority order:
 
 1. **The player is escort and disruptor, never the win condition.** You cannot win
@@ -17,8 +24,8 @@ Design pillars, in priority order:
 
 - 1v1. Each side: one **Base**, one **Avatar** (player- or AI-controlled).
 - Arena contains neutral **Turrets** and neutral **Outposts**.
-- **Win condition: a friendly ground unit (Runner or Juggernaut) physically enters
-  the enemy Base gate.** Nothing else decides the match — not a Guardian, not an
+- **Win condition: a friendly ground unit (tank or Dreadnought) physically enters
+  the enemy Base gate.** Nothing else decides the match — not a jet, not an
   avatar. The breach decides it; the match then plays on for a 5.83 s outro
   (`MATCH_OUTRO_TICKS`, the original's 1750-tick countdown) and ends. A second
   breach during the outro changes nothing. This is also the original Precinct
@@ -44,7 +51,7 @@ Design pillars, in priority order:
   link); an online match plays NORMAL for both until its lobby offers the
   pick. It sets the mech's
   health, its magazines and what deep water does to the walker (below). The
-  Warden's slot has none: its difficulty is its level (§7).
+  Sky Captain's slot has none: its difficulty is its level (§7).
 - **Health: 1000 / 1250 / 1500** on HARD / NORMAL / EASY
   (`AVATAR_HP_BY_DIFFICULTY`; 1250 for everyone from SIM_VERSION 41 to 71;
   `fcop-fidelity.md` P1): every PA X1Alpha record stores 1000, and the pick
@@ -245,14 +252,14 @@ Design pillars, in priority order:
   drawn and cannot be hit, because it is not there. There are no lives. Going
   down pays the **other side 10 pts and costs the downed side 10** (never below 0),
   whoever did it, settled when the avatar respawns (the original's rule, §3).
-  The Warden comes back after the Sky Captain's (14 − level) × 0.5 s (§7).
+  The Sky Captain comes back after (14 − level) × 0.5 s (§7).
 - The Base core is indestructible on every arena (pillar 1, and the original has
   no destructible core — §9). Base *turrets* are attackable by anyone.
 
 ## 3. Economy
 
 One resource: **Points**. Both players start with `STARTING_POINTS` = **10**
-(the Warden on 0 and a free opening order, §7).
+(the Sky Captain on 0 and a free opening order, §7).
 These are the original Precinct Assault's numbers (SIM_VERSION 33;
 `fcop-fidelity.md` R2-R10, `fcop-re/ai-and-rules.md` §2). None of them reads
 arena-specific data, so they apply on every arena.
@@ -264,12 +271,12 @@ fire or the terrain still pays the enemy:
 
 | Event                                              | Points |
 |----------------------------------------------------|--------|
-| An enemy Runner or Guardian dies                   | +1     |
-| An enemy Juggernaut or Fortress dies               | +5     |
+| An enemy tank or jet dies                   | +1     |
+| An enemy Dreadnought or Flying Fortress dies               | +5     |
 | An enemy base turret dies                          | +1     |
 | A turret the enemy captured dies                   | +1     |
 | You capture a neutral turret                       | +1     |
-| The enemy avatar goes down (paid at its respawn; the Warden's when it falls) | +10 |
+| The enemy avatar goes down (paid at its respawn; the Sky Captain's when it falls) | +10 |
 | Your own avatar goes down (same timing)            | −10, never below 0 |
 
 This replaced an invented table (start 20, 1 point every 10 s, capture 3, a
@@ -279,14 +286,14 @@ Spending (at the Base's shop spots / Outpost pads / the heavy zones, below):
 
 | Purchase        | At Base | At Outpost | Limit (alive, per side) |
 |-----------------|---------|------------|--------------|
-| Runner (tank)   | 1       | 2          | 20           |
-| Guardian (plane)| 1       | 2          | 20           |
+| tank            | 1       | 2          | 20           |
+| jet             | 1       | 2          | 20           |
 | Claim Outpost   | 30 (action key in its claim zone) | —  | per outpost  |
-| Juggernaut      | 50      | not available | 1          |
-| Fortress        | 50      | not available | 1          |
+| Dreadnought     | 50      | not available | 1          |
+| Flying Fortress | 50      | not available | 1          |
 
-The Runner and Guardian caps count base and outpost purchases together, and a
-tank counts from the purchase, queued or not (below). The Juggernaut and Fortress
+The tank and jet caps count base and outpost purchases together, and a
+tank counts from the purchase, queued or not (below). The Dreadnought and Flying Fortress
 are one alive of each per side.
 
 Buying = drive the Avatar onto the unit's spot and **press interact: one unit per
@@ -317,7 +324,7 @@ for its first tank, then a period each, and queued tanks count against the
 20-alive cap from the purchase. A **jet comes at once**. Every unit leaves its
 spawner's position (the original's Csac template), not the console or the pad:
 the base's tank or jet spawner, an outpost's own for each side. The Dreadnought
-appears at its record (§9), the Fortress at its own spawner (the Sky Captain's
+appears at its record (§9), the Flying Fortress at its own spawner (the Sky Captain's
 too). Before v61 a tank appeared at once, at the console or the pad.
 
 A press the spot refuses — the points are short, or 20 of that unit are alive —
@@ -332,28 +339,28 @@ Points are visible to both players (open information, like the original).
 
 All units are unarmored-by-cleverness: no retreating, no plan.
 
-- **Runner** — ground drone. Spawns at the tank spawner of the structure that
+- **Tank** — ground drone. Spawns at the tank spawner of the structure that
   built it (§3), follows the roads toward the enemy Base. Fragile. **Reaching the
   enemy gate = victory.**
-- **Guardian** — air drone. Built at Base: patrols a radius around own Base and
+- **Jet** — air drone. Built at Base: patrols a radius around own Base and
   engages enemy air/ground that enters. Built at Outpost: flies toward the enemy
   Base and attacks it and its defenders (offensive mode). Same stats, spawn
   location decides behavior — this asymmetry is a core strategic choice.
-- **Juggernaut** — heavy Runner. Slow, high HP, same dumb pathing. Also wins by
+- **Dreadnought** — heavy tank. Slow, high HP, same dumb pathing. Also wins by
   entering the gate. The classic play: save 50, escort it personally.
-- **Fortress** — heavy Guardian, defensive only, large patrol radius, homing
+- **Flying Fortress** — heavy jet, defensive only, large patrol radius, homing
   shots, long lifetime. The anti-rush insurance.
 
 **On the imported arenas the ground units are the original's route followers**
 (SIM_VERSION 44; `fcop-fidelity.md` U1/U2, `fcop-re/ai-and-rules.md` §4). Each
-side's Runners and Juggernaut drive that side's own original road net, a directed
+side's tanks and Dreadnought drive that side's own original road net, a directed
 graph, and choose their way at every node:
-- a **Runner** (the PA tank) seeks: on 60 % of its steps it looks for the nearest
-  enemy (any enemy actor — avatar, unit, turret, the Warden; not a cloaked
+- a **tank** seeks: on 60 % of its steps it looks for the nearest
+  enemy (any enemy actor — avatar, unit, turret, the Sky Captain; not a cloaked
   avatar) within **16 m** and takes the link whose step points most toward it,
   judged by octaves of the dot product, so two links within a factor of two are a
   tie; with nobody that close, and on the other 40 % of steps, it steps at random;
-- a **Juggernaut** (the Dreadnought) always steps at random;
+- a **Dreadnought** always steps at random;
 - a link already taken by a friendly follower counts an octave less per follower
   (the original's traffic avoidance); a follower **never steps straight back**,
   and takes the node before last only from a dead end; ties are a coin flip;
@@ -361,21 +368,21 @@ graph, and choose their way at every node:
   itself, and **never stop to fight**: their guns fire on the move. Traffic only
   slows them, for 1 s at a time: behind a friendly follower heading for the same
   node they take half its speed, a non-follower within 2 m dead ahead stops
-  them, a slightly further one slows them; the Juggernaut ignores traffic.
+  them, a slightly further one slows them; the Dreadnought ignores traffic.
 The original's nets are built so that this walk always reaches the enemy gate —
 measured over 400 random walks per side on all six arenas, every one gets there,
 along 150–220 m of road on average (about 75–110 s unopposed). This replaced
 Metropolis' committed next-hop signposts with a seeded coin at forks, 4 m/s
-Runners and 2.5 m/s Juggernauts that halted for anything in reach.
+tanks and 2.5 m/s Dreadnoughts that halted for anything in reach.
 
 **Targeting on the imported arenas is the original's too** (SIM_VERSION 45,
 `fcop-fidelity.md` U4): a unit keeps its target while it lives, stays hostile
 and stays within its 12 m reach, and looks for another only on its targeting
-delay — 2.0 s for a Runner or Guardian, 1.0 s for the Juggernaut's guns and the
-Fortress — so it does not switch to whatever comes nearer. A **Guardian or
-Fortress** is the original's aircraft: every 3.0–4.7 s it looks for the nearest
-enemy within **56 m** (Fortress **63.2 m**), flies at it while it stays inside a
-patrol leash around the spawner it was built at (±24 × ±20 m, Fortress ±30 ×
+delay — 2.0 s for a tank or jet, 1.0 s for the Dreadnought's guns and the
+Flying Fortress — so it does not switch to whatever comes nearer. A **jet or
+Flying Fortress** is the original's aircraft: every 3.0–4.7 s it looks for the nearest
+enemy within **56 m** (Flying Fortress **63.2 m**), flies at it while it stays inside a
+patrol leash around the spawner it was built at (±24 × ±20 m, Flying Fortress ±30 ×
 ±28 m: the base, or the outpost it was bought at) and fires only then; pulled off
 the leash it cruises back for 4–11 s with its gun silent. It never stops: inside
 1 m of its target it reverses, so it circles and jitters about it.
@@ -385,22 +392,22 @@ district-01, the other one, is gone — `fcop-fidelity.md` D2) the ground units
 follow authored lane polylines toward the enemy gate — but as the original's
 units (SIM_VERSION 52, owner's call): at 1.98 m/s, **never stopping to fight**
 (their guns fire on the move; they used to halt for anything in reach), with the
-original's targeting; Guardians and Fortresses are the original's aircraft there
+original's targeting; jets and Flying Fortresses are the original's aircraft there
 too, leashed to the spawner they were bought at.
 
 Unit stats are the original's on every arena (§9; `balance.ts`
-ORIGINAL_UNIT_PROFILES where an arena imports none): tank (Runner) and jet
-(Guardian) 150 HP with 50-damage rounds every second, Fortress 2000 HP with guided
-100-damage rounds every 0.5 s, Juggernaut 3000 HP with four 100-damage guns every
-2 s, all at 12 m; the ground units drive at 1.98 m/s, the jet and Flying Fortress
+ORIGINAL_UNIT_PROFILES where an arena imports none): tank and jet 150 HP with
+50-damage rounds every second, Flying Fortress 2000 HP with guided 100-damage
+rounds every 0.5 s, Dreadnought 3000 HP with four 100-damage guns every 2 s, all at
+12 m; the ground units drive at 1.98 m/s, the jet and Flying Fortress
 fly at 4.0 and 4.8 m/s. Avatar 1250 HP (§2); walker 4.69 m/s, hover 9.38 m/s.
-(Metropolis' placeholder table — Runner 60 HP / 8 dps / 4 m/s, Guardian 50 / 10
-/ 7, Juggernaut 600 / 20 / 2.5, Fortress 500 / 25 / 6 — is gone.)
+(Metropolis' placeholder table — tank 60 HP / 8 dps / 4 m/s, jet 50 / 10
+/ 7, Dreadnought 600 / 20 / 2.5, Flying Fortress 500 / 25 / 6 — is gone.)
 
 ## 5. Structures
 
 - **Base**: gate (win trigger volume), its shop — 2 build consoles (ground/air),
-  a tank spot and a jet spot, with the Dreadnought and Fortress zones beside them
+  a tank spot and a jet spot, with the Dreadnought and Flying Fortress zones beside them
   (§3) — a floor that hurts the enemy mech (§9), and a ring of **Base turrets**
   (the original's 6 or 8, §9). There is no ammo/repair pad (SIM_VERSION 53; the
   original has none). Base turrets respawn
@@ -416,13 +423,13 @@ fly at 4.0 and 4.8 m/s. Avatar 1250 HP (§2); walker 4.69 m/s, hover 9.38 m/s.
   `fcop-fidelity.md` R12, `fcop-re/ranges-turrets-capture.md` Q2):
   - an avatar **pressing the action key** (Interact, rising edge) within the
     turret's capture range plus its own radius (measured as below);
-  - a **Runner** (tank) simply coming that close, measured the same way;
-  - the **Warden** flying over it (flat distance, no button), as the original's
+  - a **tank** simply coming that close, measured the same way;
+  - the **Sky Captain** flying over it (flat distance, no button), as the original's
     Sky Captain does.
-  Guardians, Juggernauts and Fortresses never capture. The distance is the
+  jets, Dreadnoughts and Flying Fortresses never capture. The distance is the
   original's own estimate (SIM_VERSION 55, R12; `turret_op10`): an octagonal
   length in world units, taken flat first and then once more with the height
-  difference folded in — flat only for the Warden. (It was the Euclidean
+  difference folded in — flat only for the Sky Captain. (It was the Euclidean
   distance.) The range is the original's `(range + 1024) / 512` m on the imported
   arenas — 4.0 m on la-cantina, urban-jungle and venice-beach, 5.2 m on
   proving-ground and bug-hunt, 5.6 m on hollywood-keys — and Mp's 4.0 m
@@ -438,9 +445,9 @@ fly at 4.0 and 4.8 m/s. Avatar 1250 HP (§2); walker 4.69 m/s, hover 9.38 m/s.
   type-14 zone whose op-10 gate bit 0x04 refuses a player that has not pressed
   the button this frame (`fcop-re/outposts.md` Q3), so entering it is not
   enough; SIM_VERSION 35-47 claimed on entry, a misreading. A player's avatar
-  claims; the Warden claims only when it has decided to (the original's Sky
+  claims; the Sky Captain claims only when it has decided to (the original's Sky
   Captain claims by a script decision, from wherever it is). Grants: forward spawn
-  for Runners/Guardians (at 2× cost). There is no outpost ammo pad: it was
+  for tanks/jets (at 2× cost). There is no outpost ammo pad: it was
   Metropolis', not the original's, and went in SIM_VERSION 53.
   - Every arena has the original's four outposts, each with its claim zone (1.2 m
     + the avatar's radius, in 3D), a tank pad and a jet pad (the owner's only, 2
@@ -475,9 +482,9 @@ fly at 4.0 and 4.8 m/s. Avatar 1250 HP (§2); walker 4.69 m/s, hover 9.38 m/s.
   the game on the owner's call of 2026-10-14 (`fcop-fidelity.md` D2: only the
   original counts).
 
-## 7. Solo opponent ("Warden")
+## 7. Solo opponent (the Sky Captain)
 
-**The Warden is the original's Sky Captain** (SIM_VERSION 46;
+**The solo opponent is the original's Sky Captain** (SIM_VERSION 46;
 `fcop-fidelity.md` U3, `fcop-re/ai-and-rules.md` §1): an aircraft with a
 commander's decision pass, playing the second side by the human economy's rules.
 It replaced Metropolis' own superplane (450 HP, 10 m/s, a 42 m cannon and a goal
@@ -505,57 +512,57 @@ ladder of defend / buy / push / suppress / capture / escort / harass).
   25 m/s, the bomb flat.
 - **Deciding.** On every rethink it scans the field from three places — its home
   (its spawn), the player's base, itself — and picks a mode:
-  - **defend** (it is built in this mode) whenever an enemy tank or Juggernaut is
+  - **defend** (it is built in this mode) whenever an enemy tank or Dreadnought is
     near home (64 / 72 m), or while it owns fewer than **five team turrets**: its
     scan counts each live team turret within 256 m of home (the whole arena)
     **twice** — the original's turret is two type-8 actors, the turret and its
     base part (`fcop-re/outposts.md` Q2) — against a threshold of ten. Its ring
     and its outposts' plate turrets count; neutral turrets it captured never do.
     It engages that unit, or with none it flies at the player;
-  - **attack** with its own Juggernaut (or tank) near the player's base: it escorts it;
-  - **roam** otherwise: a badly hurt player within 40 m, then an enemy Juggernaut
+  - **attack** with its own Dreadnought (or tank) near the player's base: it escorts it;
+  - **roam** otherwise: a badly hurt player within 40 m, then an enemy Dreadnought
     (40 m), tank (32 m), a neutral turret to capture (48 m), a jet (24 m), a turret
-    the player captured (40 m), a Fortress (24 m), then the nearest neutral or
+    the player captured (40 m), a Flying Fortress (24 m), then the nearest neutral or
     player-held turret anywhere, else the midpoint between the bases.
   Whatever the mode it shoots the player's mech when it comes within 12 m and it
-  is not busy with the Juggernaut or tank it chose. It never patrols; inside 1 m
+  is not busy with the Dreadnought or tank it chose. It never patrols; inside 1 m
   of what it flies at it reverses, so it circles and jitters about it.
 - **Retreat.** Below half its health less a random 0–63 (a quarter while
   defending or attacking) it breaks off for home, faster, and is restored to full
   within 2 m of it; cruising home it diverts to a nearer health pickup.
 - **Economy.** Its budget **is** its side's Current Points (§3), but it starts on
   **0**, not 10 (a one-viewport game's), and from level 1 gets a **free opening
-  order** of ten base units, 9 − level + 0–3 of them Runners and the rest
-  Guardians. It earns exactly as a player does, and each credit makes it rethink
+  order** of ten base units, 9 − level + 0–3 of them tanks and the rest
+  jets. It earns exactly as a player does, and each credit makes it rethink
   at once; its fall costs it 10. It buys by request at the player's prices: base
-  Runners/Guardians 1, outpost ones 2, an outpost claim 30 (from wherever it is,
-  in a fixed order picked at the start), a Juggernaut or Fortress 50 (a second
-  Juggernaut while one lives spends the 50 and is refused — the original's quirk).
+  tanks/jets 1, outpost ones 2, an outpost claim 30 (from wherever it is,
+  in a fixed order picked at the start), a Dreadnought or Flying Fortress 50 (a second
+  Dreadnought while one lives spends the 50 and is refused — the original's quirk).
   Its requests go to the same shared spawn queues as a human's (§3; SIM_VERSION
   61, R18), each from its random phase and at its arena's own periods: base
-  Runners about 3.3–3.4 s, base Guardians 0.8–0.97 s. (It had queues of its own,
+  tanks about 3.3–3.4 s, base jets 0.8–0.97 s. (It had queues of its own,
   a fresh countdown at each request.)
-  What it buys depends on the mode: defending, Guardians and a Fortress near home
-  (and at level 9 a base Runner against a threat at home); roaming or attacking,
-  outpost claims; attacking, outpost Runners and Guardians; roaming, a Juggernaut
-  and Runners at its outposts and its base.
+  What it buys depends on the mode: defending, jets and a Flying Fortress near home
+  (and at level 9 a base tank against a threat at home); roaming or attacking,
+  outpost claims; attacking, outpost tanks and jets; roaming, a Dreadnought
+  and tanks at its outposts and its base.
 
 **What this means on Metropolis' arenas (measured, SIM_VERSION 49).** On the
 imported arenas its ring of 8 (6) counts 16 (12), so it leaves defend at its first
 decision and roams: it captures pads, claims outposts (their plate turrets then
-add 4 each), buys a Juggernaut with 50 and stocks Runners at its outposts and base,
+add 4 each), buys a Dreadnought with 50 and stocks tanks at its outposts and base,
 and attacks behind them once they near the player's base. It falls back to defend
 when an enemy tank comes near home or its turrets fall below five. Against an idle
 player (4 arenas × 5 seeds, 15 min) every match resolves at difficulties 1 and 5,
 17 of 20 at 8 (urban-jungle 2 of 5) and 7 of 20 at 10 (level 9 stocks no
-Runners): an idle player is never downed, so once the pads in reach are taken and
+tanks): an idle player is never downed, so once the pads in reach are taken and
 an outpost is claimed its income stops (`tools/balance/src/paResolve.ts`; the
 numbers are in the ledger's U3 row). SIM_VERSION 46-48 counted each turret once
 (the earlier "8 base + 2 per outpost" reading), which kept it in defend on every
 arena. (district-01, whose ring of 4 counted 8 and kept it defending all match,
 is gone, D2.)
 
-The Warden flies over terrain and walls. Its gun damages only along a clear
+The Sky Captain flies over terrain and walls. Its gun damages only along a clear
 terrain line and its missile is put back on a blocked one; its bomb has no
 checks (SIM_VERSION 54, U3). Metropolis' old "superplane pierce" — a gun and
 missile that reached ground units through walls — is gone.
@@ -604,17 +611,17 @@ only what Metropolis adopts from it.
   objective with a 3000 HP core; the decompiled executable says otherwise
   (`fcop-re/ranges-turrets-capture.md` top + Q4, `ai-and-rules.md` §0/§5): actor
   type 28, extracted as "TeamBase?", is the **Dreadnought**, and the 3000 HP was
-  its own. The original wins when an enemy **tank or Dreadnought** — a Runner or
-  Juggernaut — enters the base's gate trigger, then counts 1750 ticks (5.83 s)
+  its own. The original wins when an enemy **tank or Dreadnought** enters the
+  base's gate trigger, then counts 1750 ticks (5.83 s)
   down to the results page, which is §1's rule and outro. Each base's gate is the
   imported gate trigger box (Mp 2457 × 1843 raw = 4.8 × 3.6 m; half-extent
   raw/1024 m, grown by the intruder's own radius). Jets and avatars never breach,
   so pillar 1 survives exactly as in §1.
 - **No free production.** The original's tank, jet and Dreadnought spawners are
   shut in PA; units appear only when bought (§3), and then leave their spawner's
-  position, as the original's do (the queue is §3's). The "1 Runner per 5 s" this
+  position, as the original's do (the queue is §3's). The "1 tank per 5 s" this
   section used to adopt was the Dreadnought spawner's period.
-- **The Juggernaut is the original Dreadnought.** It is bought at its own zone
+- **The Dreadnought (JUGGERNAUT) is the original type 28.** It is bought at its own zone
   beside the base's shop (§3, SIM_VERSION 60) and rolls out at the type-28
   record (node 0 of its Cnet, beside the HQ) rather than at the console or the
   zone, with 3000 HP and four hull guns of weapon 3. The guns are modelled
@@ -633,14 +640,14 @@ only what Metropolis adopts from it.
   |---|---|---|---|---|---|
   | team turret, neutral turret | 500 | 3 | 100 | 2.03 s | 7.62 m/s, lead-aimed, flies 12 m |
   | Dreadnought gun (×4) | 3000 (hull) | 3 | 100 | 2.03 s | the same |
-  | tank (Runner), jet (Guardian) | 150 | 1 / 6 | 50 | 1.0 s | 7.62 m/s, lead-aimed, flies 12 m |
+  | tank, jet | 150 | 1 / 6 | 50 | 1.0 s | 7.62 m/s, lead-aimed, flies 12 m |
   | Flying Fortress | 2000 | 4 | 100 | 0.5 s | 7.62 m/s, guided, flies 24 m |
   All engage at 12 m, horizontal and centre to centre. The rounds are entities
   that fly — they used to be instant hits — and damage only what they strike
   (none has a blast); the wall lattice stops them, the heightfield does not (a
   lobbed shell is the only round that meets the ground). The rate machine is the
   original's (`cact_shooter_step`): the reload clamps the leftover clock, so a
-  2.0 s entry fires every 61 ticks. The tanks', jets' and Fortress' HP and
+  2.0 s entry fires every 61 ticks. The tanks', jets' and Flying Fortress' HP and
   weapons come from their spawner records (`MapBase.runner/guardian/fortress`);
   their routing, speeds and targeting are the original's (§4, SIM_VERSION
   44-45).
@@ -658,7 +665,7 @@ only what Metropolis adopts from it.
     2 s to find the next;
   - picks the nearest enemy in reach with a line of sight; a **team turret holds
     its target**, re-scanning every 2.0 s, and **prefers the higher priority** —
-    a Juggernaut over a Runner over an X1-Alpha (neutral turrets do neither);
+    a Dreadnought over a tank over an X1-Alpha (neutral turrets do neither);
   - fires only when its aim lies within **±22.5° of the barrel**, which slews at
     290°/s, and with a clear line; a refused round is put back and tried again
     0-0.85 s later (the sim's PRNG).
@@ -675,10 +682,10 @@ only what Metropolis adopts from it.
   - a **claim zone** (the type-14 record's 1.2 m, plus the claimer's radius) with
     the console marker at its centre — §5's press with 30 points claims it;
   - a **tank pad** and a **jet pad**, the owner's only: a press of interact on one
-    buys a Runner or a Guardian at 2 points (one per press, §3). The tank is
+    buys a tank or a jet at 2 points (one per press, §3). The tank is
     queued to the outpost's tank spawner (SIM_VERSION 61); the jet comes at once
     from the outpost's jet spawner. The unit leaves that spawner's position, not
-    the pad; a Guardian patrols that outpost;
+    the pad; a jet patrols that outpost;
   - two **turret plates**. Each holds a capturable neutral turret, live from the
     start (one of the arena's capture spots), and a team turret record per side,
     shut. A claim **kills both plates' neutral turrets for good** — whoever held
@@ -723,7 +730,7 @@ only what Metropolis adopts from it.
     (the Gun's has its own pickup since SIM_VERSION 41, when its magazine became
     finite; it was imported as a heavy refill);
   - **health** refills to the maximum (P6);
-  - **cloak** lasts **45 s**: turrets, units and the Warden skip the cloaked
+  - **cloak** lasts **45 s**: turrets, units and the Sky Captain skip the cloaked
     avatar (P7), and a homing missile within 4 m of it drops its lock
     (SIM_VERSION 41, the original's missile);
   - **invulnerability** lasts 20 s; no PA pickup carries it (I8);

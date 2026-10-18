@@ -3,8 +3,9 @@
 // renderer, base structures and terrain all pull from here instead of inlining
 // hex literals, so a palette change ripples everywhere at once.
 //
-// Team colors are a swap-able ramp of three shades (dark / base / light) per
-// team, exactly as the spec calls for. Pure data — no Three, no DOM — so unit
+// Team colors are a ramp of three shades (dark / base / light) per side of the
+// original — side 1 red, side 2 blue — and a team takes its arena's side
+// (render/sides.ts). Pure data — no Three, no DOM — so unit
 // tests import it directly.
 
 export interface PaletteEntry {
@@ -23,11 +24,11 @@ export const PALETTE: readonly PaletteEntry[] = [
   { name: "field_dark", hex: 0x0b1524 },
   { name: "field_mid", hex: 0x131a2a },
   { name: "ink", hex: 0x1b2333 },
-  // Team A ramp (blue): dark / base / light.
+  // Side 2 ramp (blue): dark / base / light.
   { name: "blue_dark", hex: 0x1e40af },
   { name: "blue", hex: 0x3b82f6 },
   { name: "blue_light", hex: 0x93c5fd },
-  // Team B ramp (red): dark / base / light.
+  // Side 1 ramp (red): dark / base / light.
   { name: "red_dark", hex: 0x991b1b },
   { name: "red", hex: 0xef4444 },
   { name: "red_light", hex: 0xfca5a5 },
@@ -90,11 +91,19 @@ export interface Ramp {
   readonly light: number;
 }
 
-/** Team ramps, indexed by team id (0 = blue, 1 = red). */
-export const TEAM_RAMPS: readonly Ramp[] = [
-  { dark: paletteHex("blue_dark"), base: paletteHex("blue"), light: paletteHex("blue_light") },
-  { dark: paletteHex("red_dark"), base: paletteHex("red"), light: paletteHex("red_light") },
-];
+/** The original's side 1. */
+export const RED_RAMP: Ramp = {
+  dark: paletteHex("red_dark"),
+  base: paletteHex("red"),
+  light: paletteHex("red_light"),
+};
+
+/** The original's side 2. */
+export const BLUE_RAMP: Ramp = {
+  dark: paletteHex("blue_dark"),
+  base: paletteHex("blue"),
+  light: paletteHex("blue_light"),
+};
 
 /** Ramp for unowned / neutral things. */
 export const NEUTRAL_RAMP: Ramp = {
@@ -103,7 +112,27 @@ export const NEUTRAL_RAMP: Ramp = {
   light: paletteHex("neutral_light"),
 };
 
-/** Ramp for a team id, falling back to the neutral ramp for out-of-range ids. */
+/**
+ * Ramps by the original's side (render/sides.ts): 0 neutral, 1 red, 2 blue. In
+ * Future Cop: L.A.P.D. side 1 is red and side 2 blue (radar markers 0x31 / 0x32,
+ * HUD text colours 1 / 3).
+ */
+export const SIDE_RAMPS: readonly Ramp[] = [NEUTRAL_RAMP, RED_RAMP, BLUE_RAMP];
+
+/** Ramp for a side, neutral for anything but 1 and 2. */
+export function sideRamp(side: number): Ramp {
+  return side === 1 || side === 2 ? SIDE_RAMPS[side] : NEUTRAL_RAMP;
+}
+
+/**
+ * Team ramps for an arena whose team 0 holds side 1 — five of the six (team 0
+ * is the low end of each field axis, render/sides.ts). Code that knows its map
+ * colours by `sideRamp(sideOfTeam(map.id, team))` instead, which also gets La
+ * Cantina, where team 0 holds side 2, right.
+ */
+export const TEAM_RAMPS: readonly Ramp[] = [RED_RAMP, BLUE_RAMP];
+
+/** Ramp for a team id (TEAM_RAMPS' orientation), neutral for out-of-range ids. */
 export function teamRamp(team: number): Ramp {
   return TEAM_RAMPS[team] ?? NEUTRAL_RAMP;
 }

@@ -91,8 +91,8 @@ function SoloPanel({ state, update }: Pick<AppProps, "state" | "update">) {
       </div>
       <p class="menu-hint">
         The Sky Captain's level ({state.difficulty - 1} of 0-9): tougher, faster and quicker to
-        decide as it rises, and from level 1 it opens with ten free units. START fields the Warden
-        AI.
+        decide as it rises, and from level 1 it opens with ten free units. START fields the Sky
+        Captain.
       </p>
     </>
   );
@@ -340,7 +340,7 @@ export function App(props: AppProps) {
                 title={
                   state.mode === "online"
                     ? "Host or join from the panel above"
-                    : "Start solo match vs the Warden"
+                    : "Start solo match vs the Sky Captain"
                 }
                 onClick={startMatch}
               >
