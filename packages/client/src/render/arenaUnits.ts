@@ -16,9 +16,12 @@
 // record's rest yaw and the gun stands on the base's attach point 0 and turns
 // (RE turret.c 769-792, 913-918). One greybox bucket per turret mode keeps
 // drawing the gun, and a part bucket per mode draws the base. Hk's 43/44 set is
-// a second neutral turret model, with a gun and a base bucket of its own. These
-// are declared exceptions to "one InstancedMesh per archetype" (assets.md §4):
-// the two parts have two transforms in the original too.
+// a second neutral turret model, with a gun and a base bucket of its own. The
+// Dreadnought carries four guns on its hull's attach points 0-3 (RE mount.c
+// 526-546), each its own actor in the original; they draw from a part bucket
+// per gun model. These are declared exceptions to "one InstancedMesh per
+// archetype" (assets.md §4): the parts have their own transforms in the
+// original too.
 //
 // Team colour is the original's: a texture offset per instance onto the side's
 // half of the page (render/teamUv.ts, fcop-fidelity.md G4), from the arena's
@@ -123,6 +126,21 @@ export function turretSpotsOf(map: MapData, units: ArenaUnits): TurretSpots {
   return { restYaw, neutralSet };
 }
 
+/**
+ * Gun i's matrix on its hull: the hull's instance matrix times a translation
+ * to the hull's attach point (the gun's pivot is its own origin, RE mount.c
+ * 526-546). The gun faces the hull's forward: the sim does not model the
+ * mounts' slew yet (fcop-fidelity.md I6), and the snapshot carries no aim.
+ */
+export function gunMatrix(
+  hull: THREE.Matrix4,
+  point: THREE.Vector3,
+  out: THREE.Matrix4,
+): THREE.Matrix4 {
+  scratchGun.makeTranslation(point.x, point.y, point.z);
+  return out.multiplyMatrices(hull, scratchGun);
+}
+
 interface TurretSet {
   readonly gun: Bucket;
   readonly base: Bucket;
@@ -181,6 +199,8 @@ interface UvBinding {
 
 // Frame-loop scratch (renderer rule 1).
 const scratchUv = new Float32Array(2);
+const scratchGun = new THREE.Matrix4();
+const scratchGunOut = new THREE.Matrix4();
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchMatrix = new THREE.Matrix4();
 const scratchRest = new THREE.Quaternion();
@@ -303,7 +323,15 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
     point: new THREE.Vector3(),
     ready: false,
   };
-  const parts: Bucket[] = [defense.base, neutral.base, neutralB.gun, neutralB.base];
+  // The Dreadnought's guns: one bucket per distinct gun model (two on every
+  // arena, guns 0/1 and 2/3), each with room for every gun of every hull.
+  const hullCap = greybox.juggernaut.tintCache.length;
+  const gunBuckets: Bucket[] = [0, 1, 2, 3].map(() => partBucket(scene, hullCap * 4));
+  /** Per gun: its bucket, and its attach point in the baked frame. */
+  const gunOf = new Int8Array(4).fill(-1);
+  const gunPoints = [0, 1, 2, 3].map(() => new THREE.Vector3());
+  let gunsReady = false;
+  const parts: Bucket[] = [defense.base, neutral.base, neutralB.gun, neutralB.base, ...gunBuckets];
   let spots: TurretSpots = { restYaw: new Map(), neutralSet: new Map() };
   /** Outpost index by where its console stands (spotKey). */
   let consoles = new Map<number, number>();
@@ -392,6 +420,29 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
     });
   }
 
+  function swapGuns(units: ArenaUnits, cancelled: () => boolean): void {
+    gunsReady = false;
+    const guns = units.dreadnought.guns;
+    const models: string[] = [];
+    for (let i = 0; i < guns.length && i < 4; i++) {
+      let b = models.indexOf(guns[i].model);
+      if (b < 0) {
+        b = models.length;
+        models.push(guns[i].model);
+      }
+      gunOf[i] = b;
+      bakedPoint(guns[i].point, gunPoints[i]);
+    }
+    Promise.all(models.map((m, b) => swap(gunBuckets[b], m, units.dreadnought.uv, cancelled))).then(
+      () => {
+        if (cancelled()) return;
+        if (models.some((m, b) => showing.get(gunBuckets[b]) !== m)) return;
+        if (showing.get(greybox.juggernaut) !== units.dreadnought.hull) return;
+        gunsReady = true;
+      },
+    );
+  }
+
   function turretSet(bucket: Bucket): TurretSet | null {
     if (bucket === defense.gun) return defense;
     if (bucket === neutral.gun) return neutral;
@@ -414,6 +465,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       swap(greybox.guardian, units.jet.model, units.jet.uv, cancelled);
       swap(greybox.fortress, units.fortress.model, units.fortress.uv, cancelled);
       swap(greybox.juggernaut, units.dreadnought.hull, units.dreadnought.uv, cancelled);
+      swapGuns(units, cancelled);
       arenaCancelled = cancelled;
       loadedOnce = true;
       swapCaptain();
@@ -468,6 +520,16 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       }
       bucket.mesh.setMatrixAt(slot, scratchMatrix);
       colour(bucket, bindings.get(bucket), slot, team);
+      if (archetype === ARCHETYPE.JUGGERNAUT && gunsReady && bucket === greybox.juggernaut) {
+        // The guns wear the hull's offset (RE mount.c 714-715).
+        for (let i = 0; i < 4; i++) {
+          const gb = gunBuckets[gunOf[i]];
+          const gs = claim(gb, "Dreadnought gun");
+          if (gs < 0) continue;
+          gb.mesh.setMatrixAt(gs, gunMatrix(scratchMatrix, gunPoints[i], scratchGunOut));
+          colour(gb, bindings.get(gb), gs, team);
+        }
+      }
     },
     end() {
       for (let i = 0; i < parts.length; i++) {

@@ -6,7 +6,13 @@
 import { describe, expect, test } from "bun:test";
 import { getMapById, wardenLevel } from "@metropolis/sim";
 import * as THREE from "three";
-import { arenaUnitsFor, bakedPoint, spotKey, turretSpotsOf } from "../src/render/arenaUnits";
+import {
+  arenaUnitsFor,
+  bakedPoint,
+  gunMatrix,
+  spotKey,
+  turretSpotsOf,
+} from "../src/render/arenaUnits";
 import { ARENA_UNITS, UNIT_MODEL_FILES } from "../src/render/arenaUnits.generated";
 import { outpostOfPlacements } from "../src/render/props";
 import {
@@ -344,5 +350,57 @@ describe("the Sky Captain by level", () => {
     // Joke draws one model for levels 0-8 and another for 9.
     expect(new Set(ARENA_UNITS["bug-hunt"].skyCaptain.byLevel.slice(0, 9)).size).toBe(1);
     expect(ARENA_UNITS["bug-hunt"].skyCaptain.byLevel[9]).toBe("bug-hunt/obj_084");
+  });
+});
+
+describe("the Dreadnought's guns on their hull points", () => {
+  test("Mp's four guns stand on hull vertices 36, 37, 35 and 34 (RE mount.c 526-546)", () => {
+    const d = ARENA_UNITS["la-cantina"].dreadnought;
+    expect(d.guns.map((g) => g.point)).toEqual([
+      [-0.267578, 0.486328, 0.283203],
+      [0.257812, 0.486328, 0.283203],
+      [-0.263672, 0.794922, -0.404297],
+      [0.253906, 0.794922, -0.404297],
+    ]);
+    // Guns 0/1 are one model, 2/3 the other, on every arena.
+    for (const u of Object.values(ARENA_UNITS)) {
+      const m = u.dreadnought.guns.map((g) => g.model);
+      expect(m[0]).toBe(m[1]);
+      expect(m[2]).toBe(m[3]);
+      expect(m[0]).not.toBe(m[2]);
+    }
+  });
+
+  test("a gun's matrix is the hull's moved to the point, in the hull's turn", () => {
+    const point = bakedPoint([-0.267578, 0.486328, 0.283203], new THREE.Vector3());
+    const hullPos = new THREE.Vector3(100, 2, 50);
+    const yaw = 0.7; // sim yaw; three turns by -yaw about +y
+    const hull = new THREE.Matrix4().compose(
+      hullPos,
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw),
+      new THREE.Vector3(1, 1, 1),
+    );
+    const out = gunMatrix(hull, point, new THREE.Matrix4());
+    const at = new THREE.Vector3().setFromMatrixPosition(out);
+    const want = point
+      .clone()
+      .applyAxisAngle(new THREE.Vector3(0, 1, 0), -yaw)
+      .add(hullPos);
+    expect(at.distanceTo(want)).toBeLessThan(1e-9);
+    // Facing the hull's forward: the same rotation as the hull.
+    const q = new THREE.Quaternion().setFromRotationMatrix(out);
+    const qh = new THREE.Quaternion().setFromRotationMatrix(hull);
+    expect(Math.abs(q.dot(qh))).toBeCloseTo(1, 9);
+    // At yaw 0 the glb's +z forward is the sim's +x, so gun 0 (glb z +0.283,
+    // forward of the hull's middle) lands at sim +x of the hull.
+    const flat = gunMatrix(
+      new THREE.Matrix4().makeTranslation(0, 0, 0),
+      point,
+      new THREE.Matrix4(),
+    );
+    const p0 = new THREE.Vector3().setFromMatrixPosition(flat);
+    expect(p0.x).toBeCloseTo(0.283203, 6);
+    expect(p0.y).toBeCloseTo(0.486328, 6);
+    expect(p0.z).toBeCloseTo(0.267578, 6);
   });
 });

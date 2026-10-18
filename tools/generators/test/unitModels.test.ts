@@ -302,6 +302,22 @@ describe("committed arena unit models match the table", () => {
     });
   }
 
+  // The guns' attach points are hull vertices outside every face (RE
+  // cact_model_point), measured in the hull's raw frame; the hull keeps that
+  // frame (`part`), so each point must sit on the committed hull's box.
+  test("every Dreadnought gun stands on its hull", async () => {
+    for (const [mapId, u] of Object.entries(ARENA_UNITS)) {
+      const hull = await io.read(join(OUT_DIR, `${u.dreadnought.hull}.glb`));
+      const { min, max } = getBounds(hull.getRoot().listScenes()[0]);
+      for (const g of u.dreadnought.guns) {
+        for (const axis of [0, 1, 2]) {
+          const inside = g.point[axis] >= min[axis] - 0.01 && g.point[axis] <= max[axis] + 0.01;
+          expect({ mapId, axis, inside }).toEqual({ mapId, axis, inside: true });
+        }
+      }
+    }
+  });
+
   test("every role of every arena names a committed file", () => {
     const files = new Set(ARENA_UNIT_MODELS.map((s) => s.file));
     for (const [mapId, u] of Object.entries(ARENA_UNITS)) {
