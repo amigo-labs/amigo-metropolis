@@ -85,6 +85,7 @@ import {
   TURRET_CAPTURABLE,
   weaponById,
 } from "@metropolis/sim";
+import { X1_CODES_PER_TICK } from "../render/x1Walk";
 import type {
   ArenaAudio,
   DeathClass,
@@ -170,6 +171,20 @@ export interface CueContext {
   readonly captainLevel: number;
   /** The lifts' snapshot (writeLiftSnapshot), LIFT_SNAP_STRIDE per lift. */
   readonly lifts: Float32Array;
+  /**
+   * The X1s' animation this tick (render/x1Walk.ts): each slot's form -- the
+   * hover's tick runs through both ramps -- and the event codes its legs
+   * passed, which drive the walker's movement loop (`snd_loop_set_mode`).
+   */
+  readonly walker?: WalkerLoops;
+}
+
+/** What the movement loop reads off the X1's animation, per player slot. */
+export interface WalkerLoops {
+  readonly owner: Int32Array;
+  readonly form: Uint8Array;
+  readonly codes: Uint8Array;
+  readonly codeCount: Uint8Array;
 }
 
 /** One voice rule's state: armed by an event, polled on its own period. */
@@ -730,7 +745,10 @@ export class OriginalSounds {
       const x = this.pos[0];
       const z = this.pos[2];
       this.gaugeTick(p, avatar, ctx.match[o + MATCH_SLOT_HP_FRAC], placed);
-      const hover = (this.animOf(avatar, ctx) & ANIM_HOVER) !== 0;
+      // The form whose tick runs: the animation's, which keeps the hover through
+      // the ramp back (the sim's mode byte flips on the ramp's first tick).
+      const walker = ctx.walker && ctx.walker.owner[p] === avatar ? ctx.walker : null;
+      const hover = walker ? walker.form[p] === 1 : (this.animOf(avatar, ctx) & ANIM_HOVER) !== 0;
       const move = ctx.match[o + MATCH_SLOT_MOVE];
       if (hover) {
         let script = HOVER_IDLE;
@@ -738,10 +756,17 @@ export class OriginalSounds {
         if ((move & (MOVE_CUE_DRIVE | MOVE_CUE_TURN)) !== 0) script = HOVER_MOVE;
         this.engine.loopSetScript(viewport, script, placed, x, z);
       } else if (this.form[p] === 1) {
-        // The walker end of a transform: `snd_loop_set_script(0xff)`. The
-        // walker's own loop follows its leg animation's event codes, which
-        // waits on the X1's animations (fcop-fidelity.md, audio rows).
+        // The walker end of a transform: `snd_loop_set_script(0xff)`.
         this.engine.loopSetScript(viewport, LOOP_SCRIPT_NONE, placed, x, z);
+      }
+      if (!hover && walker) {
+        // The walker's loop: every code its legs' tracks passed this tick, in
+        // order (player_walk.c 704-706, 718-721; fcop-fidelity.md A9).
+        const n = walker.codeCount[p];
+        const at = p * X1_CODES_PER_TICK;
+        for (let k = 0; k < n; k++) {
+          this.engine.loopSetMode(viewport, walker.codes[at + k], placed, x, z);
+        }
       }
       this.form[p] = hover ? 1 : 0;
       if (placed) this.engine.loopFollow(viewport, x, z);

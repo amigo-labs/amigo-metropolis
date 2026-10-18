@@ -1576,6 +1576,7 @@ function pumpSounds(events: typeof sim.events): void {
     captainSlot: sim.wardenPlayer,
     captainLevel: level > 0 ? level : 0,
     lifts: liftCurr,
+    walker: x1Walk,
   });
 }
 

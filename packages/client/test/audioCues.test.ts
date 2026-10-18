@@ -40,9 +40,10 @@ import {
   weaponShotPayload,
 } from "@metropolis/sim";
 import { loadedBank, slotFor, TABLE_A, TABLE_B } from "../src/audio/bank";
-import { type CueContext, OriginalSounds } from "../src/audio/cues";
+import { type CueContext, OriginalSounds, type WalkerLoops } from "../src/audio/cues";
 import { type AudioEngine, DEFAULT_LEVEL, parseAudioLevels } from "../src/audio/engine";
 import { FCOP_ARENA_AUDIO, FCOP_PLAYER_WEAPONS } from "../src/audio/fcopAudio.generated";
+import { createX1Walk } from "../src/render/x1Walk";
 
 class Recorder {
   calls: string[] = [];
@@ -56,7 +57,9 @@ class Recorder {
   loopSetScript(viewport: number, id: number): void {
     this.calls.push(`loop ${viewport} ${id}`);
   }
-  loopSetMode(): void {}
+  loopSetMode(viewport: number, state: number): void {
+    this.calls.push(`mode ${viewport} 0x${state.toString(16)}`);
+  }
   loopFollow(): void {}
   queueSet(_r: number, id: number): void {
     this.calls.push(`queue ${id}`);
@@ -124,7 +127,9 @@ function run(
   sounds.tick(buf, ctx);
   const quiet = createEventBuffer();
   for (let i = 0; i < after; i++) sounds.tick(quiet, ctx);
-  return rec.calls.filter((c) => !c.startsWith("loop") && !c.startsWith("queue"));
+  return rec.calls.filter(
+    (c) => !c.startsWith("loop") && !c.startsWith("queue") && !c.startsWith("mode"),
+  );
 }
 
 /** Runs `fn` with Math.random fixed at `value`. */
@@ -310,6 +315,49 @@ describe("the hover loop", () => {
     expect(loops(0)).toEqual(["loop 0 40"]);
     expect(loops(MOVE_CUE_DRIVE)).toEqual(["loop 0 41"]);
     expect(loops(MOVE_CUE_BRAKE)).toEqual(["loop 0 42"]);
+  });
+});
+
+describe("the walker loop (fcop-fidelity.md A9)", () => {
+  /** A slot-0 X1 animation with `codes` passed this tick, in `form`. */
+  function walker(form: number, codes: number[]): WalkerLoops {
+    const w = createX1Walk();
+    w.owner[0] = AVATAR0;
+    w.owner[1] = -1;
+    w.form[0] = form;
+    codes.forEach((c, k) => {
+      w.codes[k] = c;
+    });
+    w.codeCount[0] = codes.length;
+    return w;
+  }
+  function heard(ticks: WalkerLoops[], local = 0): string[] {
+    const rec = new Recorder();
+    const sounds = new OriginalSounds(rec as unknown as AudioEngine);
+    const data = FCOP_ARENA_AUDIO["la-cantina"];
+    if (!data) throw new Error("la-cantina");
+    sounds.begin(data, FCOP_PLAYER_WEAPONS, []);
+    for (const w of ticks)
+      sounds.tick(createEventBuffer(), context({ walker: w, localSlot: local }));
+    return rec.calls.filter((c) => c.startsWith("mode") || c.startsWith("loop 0"));
+  }
+
+  test("hands every code the legs passed to snd_loop_set_mode, in order", () => {
+    expect(heard([walker(0, [0x23, 0x27])])).toEqual(["mode 0 0x23", "mode 0 0x27"]);
+  });
+
+  test("the other player's mech is its own viewport, heard from where it walks", () => {
+    expect(heard([walker(0, [0x21])], 1)).toEqual(["mode 1 0x21"]);
+  });
+
+  test("while the hover's tick runs -- the ramp back included -- the hover loop plays", () => {
+    // ANIM_HOVER is clear (the sim's mode flips on the ramp's first tick), but
+    // the hover form runs until the walker end, then the register goes to 0xff.
+    expect(heard([walker(1, [0x23]), walker(0, [0x27])])).toEqual([
+      "loop 0 40",
+      "loop 0 255",
+      "mode 0 0x27",
+    ]);
   });
 });
 
