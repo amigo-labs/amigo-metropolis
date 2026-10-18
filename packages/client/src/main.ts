@@ -98,6 +98,7 @@ import {
   loadoutFromParams,
   type MenuChoice,
   type MenuHandle,
+  recordSoloWin,
   runMenu,
 } from "./menu";
 import { createDemoSim, demoFeeder, updateFlyoverCamera, zeroPlayerInput } from "./menuWorld";
@@ -114,7 +115,7 @@ import {
   pressCameraKey,
   stepChaseCamera,
 } from "./render/camera";
-import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
+import { applyBlend, createCameraBlend } from "./render/cameraBlend";
 import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx } from "./render/fx";
@@ -1046,6 +1047,8 @@ function showMatchEnd(winner: number): void {
   setMatchPaused(false); // the end card replaces the pause card, never stacks
   mapScreen.open = false;
   const slot = views[0]?.slot ?? 0;
+  // A solo win over the Sky Captain moves the map's progress (0x00409630).
+  if (warden && !net && winner === slot) recordSoloWin(map.id, wardenDifficulty);
   // Every arena ends at a gate since SIM_VERSION 32 (the original has no core).
   const text = matchEndText(winner, slot);
   endTitle.textContent = text.title;
@@ -1180,22 +1183,7 @@ function returnToMenu(): void {
   // Drop mode query so refresh lands on the title screen, not back into the match.
   history.pushState(null, "", location.pathname + location.hash);
 
-  if (!document.querySelector(".menu-root")) {
-    menuHandle = runMenu({
-      audio,
-      onChoice: handleMenuChoice,
-      onSelect: previewArena,
-      initialLoadout: playerLoadout,
-      initialDifficulty: playerDifficulty,
-      onTexPref: (pref) => {
-        texPref = pref;
-        texSwitcher?.setVariant(variantOfPref(pref));
-        refreshDebugLabel();
-      },
-      onBloomPref: setBloom,
-      onControls: (table) => keyboard.setTable(table),
-    });
-  }
+  if (!document.querySelector(".menu-root")) menuHandle = runMenu(menuOptions());
   refreshDebugLabel();
 }
 
@@ -2090,6 +2078,18 @@ function advanceSimClock(alpha: number): number {
 function frame(now: number): void {
   // A pad's Map Key, polled per frame so it can also resume a paused match.
   keyboard.pollPad();
+  // The original's front end has no world behind it: while the menu (or a
+  // connecting lobby's status card) is up, nothing is stepped or drawn.
+  if (phase !== "match" && views.length === 0) {
+    last = now;
+    accumulator = 0;
+    if (net) refreshOverlay();
+    renderer.setViewport(0, 0, innerWidth, innerHeight);
+    renderer.setScissor(0, 0, innerWidth, innerHeight);
+    renderer.clear();
+    requestAnimationFrame(frame);
+    return;
+  }
   const dtMs = Math.min(now - last, 250);
   // timeScale is 1 everywhere except sandbox slow motion; net matches never see
   // it (the panel is solo-only), so lockstep pacing is unchanged.
@@ -2134,7 +2134,8 @@ function frame(now: number): void {
   const simDtSec = advanceSimClock(alpha);
   renderEntities(alpha, dtSec, simDtSec);
   if (views.length === 0) {
-    // No views yet: menu / lobby / waiting-for-opponent — flyover over the demo.
+    // A match with no views yet (the menu and the connecting card return
+    // above): the flyover.
     updateFlyoverCamera(flyCam, now / 1000, extent);
     if (phase === "match") fx.update(dtSec, flyCam, simDtSec);
     renderer.setViewport(0, 0, innerWidth, innerHeight);
@@ -2474,6 +2475,25 @@ function connectP2pMode(code: string): void {
 
 let menuHandle: MenuHandle | undefined;
 
+/** The front end's hooks into the client (menu/index.ts). */
+function menuOptions(): Parameters<typeof runMenu>[0] {
+  return {
+    audio,
+    onChoice: handleMenuChoice,
+    // START: the arena loads under the loading screen.
+    onSelect: previewArena,
+    // PREFERENCES' HD textures option applies at once to a loaded arena;
+    // persisting is the dialog's job.
+    onTexPref: (pref) => {
+      texPref = pref;
+      texSwitcher?.setVariant(variantOfPref(pref));
+      refreshDebugLabel();
+    },
+    // The controls screen saves the bindings; they apply at once.
+    onControls: (table) => keyboard.setTable(table),
+  };
+}
+
 /**
  * Menu arena preview: swap the live backdrop world to the picked arena so the
  * picker doubles as a full-3D preview. Menu-only — once a match or connection
@@ -2523,8 +2543,6 @@ function handleMenuChoice(
           difficulties: [playerDifficulty],
         }),
       );
-      // The flagship transition: one continuous shot from flyover to chase rig.
-      if (!orbitMode) beginBlend(blend, flyCam, 1.2);
       startMatch([{ slot: 0, input: localInput }]);
       break;
     }
@@ -2579,27 +2597,9 @@ if (online) {
 } else if (explicitMode) {
   startMatch([{ slot: 0, input: localInput }]);
 } else {
-  // Bare URL: title screen over the live demo world; a choice starts its mode
-  // in-process.
+  // Bare URL: the original's front end; a choice starts its mode in-process.
   document.body.style.cursor = "default";
-  menuHandle = runMenu({
-    audio,
-    onChoice: handleMenuChoice,
-    onSelect: previewArena,
-    initialLoadout: playerLoadout,
-    initialDifficulty: playerDifficulty,
-    // Graphics drawer: apply a texture-preference change immediately to the
-    // (possibly already loaded) backdrop arena; persisting is menu.ts's job.
-    onTexPref: (pref) => {
-      texPref = pref;
-      texSwitcher?.setVariant(variantOfPref(pref));
-      refreshDebugLabel();
-    },
-    // Bloom applies live to the backdrop; persistence is the drawer's job.
-    onBloomPref: setBloom,
-    // The controls screen saves the bindings; they apply at once.
-    onControls: (table) => keyboard.setTable(table),
-  });
+  menuHandle = runMenu(menuOptions());
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();

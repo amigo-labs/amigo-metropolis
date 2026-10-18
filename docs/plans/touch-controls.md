@@ -134,6 +134,9 @@ existing single-player boot path.
   (documented, like `replay:verify:browser`, as needing a Chromium binary).
 
 ### Reuse (paths)
+> Since Phase 14 wave 7 `input/gamepadMapping.ts` is gone with the menu's navigation
+> layer; its radial dead zone is in the history (`git show 7645721:packages/client/src/input/gamepadMapping.ts`).
+
 - `stickWithDeadzone`, `STICK_DEADZONE`, `Vec2` — `input/gamepadMapping.ts`.
 - `quantizeAxis`, `BUTTON_FIRE1/2/3`, `BUTTON_TRANSFORM/JUMP/INTERACT`,
   `PlayerInput` — `@metropolis/sim` (`packages/sim/src/inputs.ts`).

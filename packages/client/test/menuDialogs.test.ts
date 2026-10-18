@@ -1,5 +1,5 @@
 // The original's Win32 dialogs rebuilt in HTML: the DLU geometry, the
-// controls screen's fields, the profile preview. Pure parts only (the dialogs
+// controls screen's fields, the profile preview, the save worker. Pure parts only (the dialogs
 // themselves use hooks; see menuScreens.test.tsx's note).
 
 import { describe, expect, test } from "bun:test";
@@ -9,7 +9,10 @@ import { AUDIO_ROWS } from "../src/menu/dialogs/AudioDialog";
 import { bindingOfKey, CONTROLS_FIELD_IDS } from "../src/menu/dialogs/ControlsDialog";
 import { HD_TEXTURES_DLU } from "../src/menu/dialogs/OptionsDialog";
 import { PROFILE_ROW_SLOT, profileLine, profileLines } from "../src/menu/dialogs/ProfileDialog";
+import { runSaveLoad } from "../src/menu/dialogs/SaveLoadDialog";
 import { FE_DIALOGS } from "../src/menu/frontend/frontendData.generated";
+import { newGameConfig } from "../src/menu/frontend/model";
+import { emptySaveFile } from "../src/menu/frontend/progress";
 import {
   baseUnitsOf,
   CAPTION_HEIGHT,
@@ -145,5 +148,19 @@ describe("the audio dialog", () => {
     expect(
       AUDIO_ROWS.map(([, label]) => FE_DIALOGS.audio.controls.find((c) => c.id === label)?.text),
     ).toEqual(["Sound Effects Volume", "Music Volume", "Movies Volume"]);
+  });
+});
+
+describe("the save dialog's workers", () => {
+  test("the boxes the openers show", () => {
+    const f = emptySaveFile();
+    const c = newGameConfig();
+    expect(runSaveLoad("load", f, 0, "", c).box?.text).toBe("Not a valid save.");
+    expect(runSaveLoad("save", f, 0, "", c).box?.text).toBe("Must enter a name.");
+    const saved = runSaveLoad("save", f, 0, "Precinct", c);
+    expect([saved.box?.text, saved.box?.icon]).toEqual(["Game Saved Successfully.", "info"]);
+    const loaded = runSaveLoad("load", f, 0, "", c);
+    expect(loaded.box?.text).toBe("Game Loaded Successfully");
+    expect(loaded.loaded).not.toBeNull();
   });
 });

@@ -1,136 +1,149 @@
-// Menu screens rendered to a string. No jsdom: App is a pure function of
-// (state, callbacks) precisely so this is possible.
+// The front end rendered to a string. No jsdom: App and the screen are pure
+// functions of the state precisely so this is possible.
 //
-// Scope note. `preact-render-to-string` cannot render the hook-using screens
+// Scope note. `preact-render-to-string` cannot render the hook-using dialogs
 // here, because bun's workspace resolution gives it its own preact instance
 // (three copies land in node_modules/.bun, and hook state lives on the client
-// copy's vnodes). That is why App and ArenaPicker are deliberately hook-free —
-// and why OnlinePanel and the Preferences drawer, which are genuinely stateful,
-// are exercised in a browser instead of here.
+// copy's vnodes). That is why App and the screen are hook-free -- and why the
+// dialogs' pure parts are tested in menuDialogs.test.ts and the dialogs
+// themselves in a browser.
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { render } from "preact-render-to-string";
 import { App, type AppProps } from "../src/menu/App";
-import { initialMenuState, type MenuState } from "../src/menu/state";
+import { createScreen, enterSet, newGameConfig } from "../src/menu/frontend/model";
+import type { MenuState } from "../src/menu/state";
 
 function baseState(patch: Partial<MenuState> = {}): MenuState {
-  return { ...initialMenuState(), ...patch };
+  return {
+    screen: createScreen(newGameConfig()),
+    scale: 2,
+    dialog: null,
+    loading: null,
+    netChoice: null,
+    ...patch,
+  };
 }
-
-const noop = () => {};
-// Only reached by the drawers, which these tests never open.
-const audio = {} as unknown as AppProps["audio"];
 
 function renderApp(state: MenuState, extra: Partial<AppProps> = {}): string {
-  return render(
-    <App
-      state={state}
-      audio={audio}
-      update={noop}
-      go={noop}
-      onSelect={noop}
-      onTexPref={noop}
-      {...extra}
-    />,
-  );
+  return render(<App state={state} {...extra} />);
 }
 
-describe("console rail", () => {
-  test("shows the PA title, arena name and every arena card", () => {
-    const html = renderApp(baseState());
-    expect(html).toContain("PRECINCT ASSAULT");
-    expect(html).toContain("METROPOLIS");
-    expect(html).toContain("Urban Jungle");
-    expect(html).toContain("Start");
+/** The pictures drawn, in draw order. */
+function pictures(html: string): string[] {
+  return [...html.matchAll(/src="\/ui\/frontend\/([^"]+)"/g)].map((m) => m[1]);
+}
+
+describe("the main screen", () => {
+  test("draws the PA one-player set's four groups in order, backdrops first", () => {
+    const pics = pictures(renderApp(baseState()));
+    expect(pics[0]).toBe("bmp064.png"); // the dossier frame
+    expect(pics).toContain("bmp065.png"); // the left column
+    expect(pics).toContain("bmp067.png"); // SKY CAPTAIN / LEVEL
+    expect(pics.indexOf("bmp071.png")).toBeGreaterThan(pics.indexOf("bmp067.png")); // the map last
+    expect(pics).not.toContain("bmp066.png"); // no right player column in 1P
   });
 
-  test("lists left-column pills for modes and drawers", () => {
-    const html = renderApp(baseState());
-    expect(html).toContain("Solo");
-    expect(html).toContain("Online");
-    expect(html).toContain("Preferences");
-    expect(html).toContain(">Controls<");
-    expect(html).toContain("How to play");
-    // Weapons are fitted on the bottom strip — no separate screen entry.
-    expect(html).not.toContain(">Weapons<");
+  test("the left column of eight buttons, the plates, START; BRIEFING is not drawn", () => {
+    const pics = pictures(renderApp(baseState()));
+    for (const f of [
+      "bmp081.png", // NEW GAME
+      "bmp062.png", // LOAD GAME
+      "bmp134.png", // SAVE GAME
+      "bmp042.png", // HOST GAME
+      "bmp049.png", // JOIN GAME
+      "bmp091.png", // PREFERENCES
+      "bmp034.png", // HELP
+      "bmp097.png", // QUIT
+      "bmp085.png", // PRECINCT ASSAULT
+      "bmp000.png", // 1 PLAYER
+      "bmp129.png", // START
+    ]) {
+      expect(pics).toContain(f);
+    }
+    expect(pics).not.toContain("bmp006.png"); // BRIEFING, disabled in PA
   });
 
-  test("summarises the fitted loadout on the bottom strip with cycle arrows", () => {
-    const html = renderApp(baseState());
-    expect(html).toContain("Powered Mini-Gun");
-    expect(html).toContain("menu-bar--rate");
-    expect(html).toContain("menu-bar--damage");
-    expect(html).toContain("menu-loadout-arrow");
-    expect(html).toContain("Previous Gun");
-    expect(html).toContain("Next Special");
+  test("the picked map lit, its title plate; Bug Hunt and COMPLETED hidden on a new game", () => {
+    const pics = pictures(renderApp(baseState()));
+    expect(pics).toContain("bmp138.png"); // Urban Jungle lit
+    expect(pics).toContain("bmp137.png"); // its title plate
+    expect(pics).not.toContain("bmp089.png"); // Proving Ground unlit
+    expect(pics).not.toContain("bmp009.png"); // Bug Hunt
+    expect(pics).not.toContain("bmp017.png"); // COMPLETED
   });
 
-  test("the mode panel appears only once a mode is picked", () => {
-    expect(renderApp(baseState())).not.toContain("menu-panel");
-    expect(renderApp(baseState({ mode: "solo" }))).toContain("menu-panel");
+  test("the loadout column, NORMAL, the red walker, level 1 and its taunt", () => {
+    const pics = pictures(renderApp(baseState()));
+    expect(pics).toContain("bmp073.png"); // Powered Mini-Gun icon
+    expect(pics).toContain("bmp074.png"); // its panel
+    expect(pics).toContain("bmp039.png"); // Hell Fire 2000
+    expect(pics).toContain("bmp078.png"); // Mortar Launcher
+    expect(pics).toContain("bmp083.png"); // NORMAL
+    expect(pics).toContain("bmp148.png"); // the red walker
+    expect(pics).toContain("bmp102.png"); // level 1
+    expect(pics).toContain("bmp112.png"); // "Come out, come out wherever you are..."
+    expect(pics).not.toContain("bmp143.png"); // WAITING is locked offline
   });
 
-  test("debug modes are off unless the caller asks for them", () => {
-    expect(renderApp(baseState())).not.toContain("menu-pill--debug");
-    expect(renderApp(baseState(), { showDebugModes: true })).toContain("menu-pill--debug");
+  test("a finished map shows COMPLETED and the film strip", () => {
+    const c = newGameConfig();
+    c.paLevel[1] = 10;
+    const pics = pictures(renderApp(baseState({ screen: createScreen(c) })));
+    expect(pics).toContain("bmp017.png");
+    expect(pics).toContain("bmp079.png");
   });
 
-  test("Install appears only once beforeinstallprompt has fired", () => {
+  test("the networked set: CANCEL, both columns, the Connected To caption", () => {
+    const s = createScreen(newGameConfig());
+    enterSet(s, "net_pa", { hosting: true, peer: "Room ABCDE" });
+    const html = renderApp(baseState({ screen: s }));
+    const pics = pictures(html);
+    expect(pics).toContain("bmp173.png"); // CANCEL
+    expect(pics).toContain("bmp066.png"); // the right player column
+    expect(pics).toContain("bmp147.png"); // the blue walker
+    expect(pics).not.toContain("bmp081.png"); // no NEW GAME
+    expect(html).toContain("Connected To:");
+    expect(html).toContain("  Room ABCDE");
+  });
+
+  test("the stage is scaled and the bitmaps pixelated", () => {
+    const html = renderApp(baseState({ scale: 3 }));
+    expect(html).toContain("scale(3)");
+    expect(html).toContain('class="fe-pic"');
+  });
+
+  test("the loading screen: the row's bitmap and the bar's fill", () => {
+    const html = renderApp(baseState({ loading: { file: "LdConF.png", fill: 120 } }));
+    expect(html).toContain("/ui/frontend/loading/LdConF.png");
+    expect(html).toContain("bmp175.png");
+    expect(html).toMatch(/left:220px;top:274px;width:120px;height:12px/);
+  });
+});
+
+describe("the platform's links", () => {
+  test("debug modes only when asked for, Install only once offered", () => {
+    expect(renderApp(baseState())).not.toContain(">Fly<");
+    expect(renderApp(baseState(), { showDebugModes: true })).toContain(">Fly<");
+    expect(renderApp(baseState(), { showDebugModes: true })).toContain(">Sandbox<");
     expect(renderApp(baseState())).not.toContain(">Install<");
-    expect(renderApp(baseState(), { installPrompt: noop })).toContain(">Install<");
+    expect(renderApp(baseState(), { installPrompt: () => {} })).toContain(">Install<");
   });
 
-  test("START is the confirming action on the console (enabled for solo)", () => {
-    // OnlinePanel uses hooks and cannot be string-rendered (see file header),
-    // so the disabled-in-online branch is browser-only. Solo path stays pure.
-    const html = renderApp(baseState({ mode: "solo" }));
-    expect(html).toContain("menu-start");
-    expect(html).not.toMatch(/menu-start[^>]*disabled/);
-  });
-});
-
-describe("the difficulty plates", () => {
-  test("offer HARD, NORMAL, EASY with NORMAL pressed by default", () => {
-    const html = renderApp(baseState({ mode: "solo" }));
-    const plates = [...html.matchAll(/<button[^>]*class="menu-plate[^"]*"[^>]*>([A-Z]+)</g)];
-    expect(plates.map((m) => m[1])).toEqual(["HARD", "NORMAL", "EASY"]);
-    expect(html).toMatch(/aria-pressed="true"[^>]*>NORMAL</);
-    expect(html).not.toMatch(/aria-pressed="true"[^>]*>HARD</);
-  });
-
-  test("press the state's pick, which survives a panel switch", () => {
-    const hard = baseState({ mode: "solo", playerDifficulty: 0 });
-    expect(renderApp(hard)).toMatch(/aria-pressed="true"[^>]*>HARD</);
-    expect(renderApp({ ...hard, mode: null })).not.toContain("menu-plate");
-    expect(renderApp({ ...hard, mode: "solo" })).toMatch(/aria-pressed="true"[^>]*>HARD</);
-    expect(initialMenuState().playerDifficulty).toBe(1);
-  });
-});
-
-describe("state survives a panel switch", () => {
-  // The bug the port exists to fix: difficulty used to live only in a DOM node
-  // that replaceChildren() threw away when the panel was toggled.
-  test("difficulty renders from state, not from the slider's own value", () => {
-    expect(renderApp(baseState({ mode: "solo", difficulty: 9 }))).toContain('value="9"');
-    expect(renderApp(baseState({ mode: "solo", difficulty: 2 }))).toContain('value="2"');
-  });
-
-  test("leaving the panel and returning renders the same value again", () => {
-    const chosen = baseState({ mode: "solo", difficulty: 7 });
-    expect(renderApp(chosen)).toContain('value="7"');
-    const away = { ...chosen, mode: null };
-    expect(renderApp(away)).not.toContain("menu-difficulty");
-    expect(renderApp({ ...away, mode: "solo" as const })).toContain('value="7"');
+  test("none of the invented menu is left: no title, pills or How to play", () => {
+    const html = renderApp(baseState(), { showDebugModes: true });
+    expect(html).not.toContain("METROPOLIS");
+    expect(html).not.toContain("How to play");
+    expect(html).not.toContain("menu-pill");
   });
 });
 
 describe("escaping", () => {
   // Lobby names are other players' text (docs/specs/ui.md §1). JSX escapes
   // children, and preactToolchain.test.tsx pins that mechanism. What this adds
-  // is the guarantee that no screen opts out of it — stronger than checking one
-  // rendered string, because it covers every file including ones added later.
+  // is the guarantee that no screen opts out of it.
   test("no menu or HUD source uses dangerouslySetInnerHTML", () => {
     const roots = ["src/menu", "src/ui", "src/render/hud"];
     const offenders: string[] = [];
@@ -138,8 +151,6 @@ describe("escaping", () => {
       for (const name of readdirSync(dir)) {
         const full = join(dir, name);
         if (statSync(full).isDirectory()) walk(full);
-        // The attribute form only: these files talk *about* the rule in their
-        // comments, and a bare substring match would flag the documentation.
         else if (
           /\.tsx?$/.test(name) &&
           /dangerouslySetInnerHTML\s*=/.test(readFileSync(full, "utf8"))
@@ -152,8 +163,9 @@ describe("escaping", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("text rendered into a screen is escaped", () => {
-    const html = renderApp(baseState({ mapId: '"><script>alert(1)</script>' }));
-    expect(html).not.toContain("<script>");
+  test("a session name is escaped on the Connected To line", () => {
+    const s = createScreen(newGameConfig());
+    enterSet(s, "net_pa", { hosting: false, peer: '"><script>alert(1)</script>' });
+    expect(renderApp(baseState({ screen: s }))).not.toContain("<script>");
   });
 });
