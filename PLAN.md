@@ -836,10 +836,11 @@ no golden moves.
       additive haze (G13; the random yaws' seed a stand-in)
 - [x] The Props and DCSQuads drawn only in the eye's 5 x 5 block of 16 m cells
       about its ground focus (G13)
+- [x] The Props' sounds: claimed by the draw in the eye's block, held on the
+      emitter voice table's countdowns while the queue hears them (G13, A10)
 - [ ] The Props' camera-facing facers (Hk 65, Slim 63 / 83, Joke 62 / 82; RE: the
-      export stands them in as static white geometry), their semi-transparent faces
-      (RE: the export drops the face type; every model draws them opaque) and their
-      sounds (audio) (G13)
+      export stands them in as static white geometry) and their semi-transparent
+      faces (RE: the export drops the face type; every model draws them opaque) (G13)
 - [x] Per-arena hit radii for the models each arena draws (G1, G7; v78)
 - [x] Joke's Dreadnought hit at the radius of the frame its hull's walk shows:
       `gen:pamodels` reads the hull's 3DBB box per frame (757 -> 548) (I6; v88)

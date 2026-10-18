@@ -474,10 +474,22 @@ export class AudioEngine {
     if (slot !== this.qSlot[index]) {
       this.queueDrop(index);
       this.qSlot[index] = slot;
+      // `snd_queue_add` links a record with a key of zero: it is heard only
+      // once the next frame measures it.
+      this.qKey[index] = 0;
     }
     this.qX[index] = x;
     this.qZ[index] = z;
     this.qMark[index] = 1;
+  }
+
+  /**
+   * `snd_queue_live` (0x00432d80): record `index` holds a sound and the last
+   * frame measured it in range (a non-zero key).
+   */
+  queueLive(index: number): boolean {
+    if (index < 0 || index >= QUEUE_RECORDS) return false;
+    return this.qSlot[index] >= 0 && this.qKey[index] !== 0;
   }
 
   /** The pending-sound slot: the last id written in a frame is the one played. */

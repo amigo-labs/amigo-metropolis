@@ -64,6 +64,10 @@ class Recorder {
   queueSet(_r: number, id: number): void {
     this.calls.push(`queue ${id}`);
   }
+  live = false;
+  queueLive(): boolean {
+    return this.live;
+  }
   setPending(id: number): void {
     this.calls.push(`pending ${id}`);
   }
@@ -432,5 +436,45 @@ describe("lifts (fcop-fidelity.md P12)", () => {
 
   test("a lift reaching a stop plays its arrival script at the lift", () => {
     expect(lifted(0, [[EV_LIFT_ARRIVE, 1, 1, 0]])).toContain("script 71 placed");
+  });
+});
+
+describe("the prop emitters (snd_emit_draw_block, snd_emit_voice_follow, snd_emit_tick)", () => {
+  const data = FCOP_ARENA_AUDIO["urban-jungle"];
+  const n = data?.emitters.length ?? 0;
+  function ticks(rec: Recorder, sounds: OriginalSounds, drawn: Uint8Array, count: number): number {
+    let queued = 0;
+    const quiet = createEventBuffer();
+    for (let i = 0; i < count; i++) {
+      rec.calls = [];
+      sounds.tick(quiet, context({ emitterDrawn: drawn }));
+      queued = rec.calls.filter((c) => c.startsWith("queue")).length;
+    }
+    return queued;
+  }
+
+  test("only a drawn emitter claims; it holds 900 ticks undrawn, then while the queue hears it", () => {
+    expect(n).toBeGreaterThan(0);
+    if (!data) return;
+    const rec = new Recorder();
+    const sounds = new OriginalSounds(rec as unknown as AudioEngine);
+    sounds.begin(data, FCOP_PLAYER_WEAPONS, [], "urban-jungle");
+    const none = new Uint8Array(n);
+    const all = new Uint8Array(n).fill(1);
+    expect(ticks(rec, sounds, none, 1)).toBe(0);
+    expect(ticks(rec, sounds, all, 1)).toBe(2 * n); // claimed (300), then kept
+    expect(ticks(rec, sounds, all, 1)).toBe(n); // drawn again: 900
+    // Undrawn: 900 engine ticks of the last refresh, 10 a sim tick.
+    expect(ticks(rec, sounds, none, 90)).toBe(n);
+    // Spent and out of the queue's hearing: let go.
+    expect(ticks(rec, sounds, none, 1)).toBe(0);
+    // Claimed once more and left at once: 300 ticks, then 300 at a time while
+    // the queue still hears it.
+    ticks(rec, sounds, all, 1);
+    expect(ticks(rec, sounds, none, 30)).toBe(n);
+    rec.live = true;
+    expect(ticks(rec, sounds, none, 200)).toBe(n);
+    rec.live = false;
+    expect(ticks(rec, sounds, none, 31)).toBe(0);
   });
 });

@@ -131,7 +131,14 @@ import { applyBlend, createCameraBlend } from "./render/cameraBlend";
 import { applyCameraShake, resetCameraShake, shakeDamage, shakeEffect } from "./render/cameraShake";
 import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
 import { setDecalWindow } from "./render/decals";
-import { createDrawWindow, placeDrawWindow } from "./render/drawWindow";
+import {
+  cellXOf,
+  cellZOf,
+  createDrawWindow,
+  inDrawWindow,
+  inView,
+  placeDrawWindow,
+} from "./render/drawWindow";
 import { lerpGunYaws } from "./render/dreadnoughtGuns";
 import { setEmitterWindow } from "./render/emitterProps";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
@@ -570,6 +577,41 @@ if (params.has("debug")) (globalThis as { metropolisAudio?: AudioEngine }).metro
  * play La Cantina's sounds — the Mp bank (fcop-fidelity.md A20).
  */
 const FALLBACK_SOUND_ARENA = "la-cantina";
+/** The local eye's 5 x 5 block of cells (render/drawWindow.ts). */
+const drawWindow = createDrawWindow();
+/** The prop emitters' cells, ground and whether the eye draws them (audio/cues.ts). */
+let emitterCellZ = new Int16Array(0);
+let emitterCellX = new Int16Array(0);
+let emitterHeight = new Float32Array(0);
+let emitterDrawn = new Uint8Array(0);
+/** A leaf of the block's visibility quadtree is 4 m square: its half diagonal. */
+const EMITTER_LEAF_RADIUS = 2.83;
+const emitterViewProj = new THREE.Matrix4();
+
+/**
+ * `snd_emit_draw_block`'s test, a tick at a time: an emitter is drawn when it
+ * hangs in the eye's 5 x 5 block and its leaf is on screen. Null before the
+ * block is placed (the listener's range stands in).
+ */
+function drawnEmitters(): Uint8Array | undefined {
+  const view = views[0];
+  if (!view || !drawWindow.placed) return undefined;
+  const cam = view.camera;
+  emitterViewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+  const m = emitterViewProj.elements;
+  const data = FCOP_ARENA_AUDIO[map.id] ?? FCOP_ARENA_AUDIO[FALLBACK_SOUND_ARENA];
+  const emitters = data?.emitters ?? [];
+  for (let k = 0; k < emitterDrawn.length && k < emitters.length; k++) {
+    const e = emitters[k];
+    emitterDrawn[k] =
+      inDrawWindow(drawWindow, emitterCellZ[k], emitterCellX[k]) &&
+      inView(m, e.x, emitterHeight[k], e.z, EMITTER_LEAF_RADIUS)
+        ? 1
+        : 0;
+  }
+  return emitterDrawn;
+}
+
 /** The camera's right vector on the ground, for the listener's pan. */
 let listenerRightX = 1;
 let listenerRightZ = 0;
@@ -592,6 +634,12 @@ function beginMatchSounds(): void {
     musicUrl: data.music,
   });
   sounds.begin(data, FCOP_PLAYER_WEAPONS, map.lifts, map.id);
+  // Where each prop emitter hangs, for `snd_emit_draw_block`'s claim.
+  const n = data.emitters.length;
+  emitterCellZ = Int16Array.from(data.emitters, (e) => cellZOf(e.x));
+  emitterCellX = Int16Array.from(data.emitters, (e) => cellXOf(e.z));
+  emitterHeight = Float32Array.from(data.emitters, (e) => sampleHeight(map, e.x, e.z));
+  emitterDrawn = new Uint8Array(n);
   // The effects' trail texels are the arena's own tex10 (render/fx.ts).
   fx.begin(map.id);
   audio.startMatch();
@@ -1702,6 +1750,7 @@ function pumpSounds(events: typeof sim.events): void {
     lifts: liftCurr,
     walker: x1Walk,
     ground: groundUnder,
+    emitterDrawn: drawnEmitters(),
   });
 }
 
@@ -1955,9 +2004,6 @@ function renderEntities(alpha: number, simDtSec: number): void {
   updateProps(units.outpostSides, matchSnap, simDtSec);
   if (avatarRig) avatarRig.end();
 }
-
-/** The local eye's 5 x 5 block of cells (render/drawWindow.ts). */
-const drawWindow = createDrawWindow();
 
 /**
  * `world_view_focus` for the local view: the block about the ground focus of

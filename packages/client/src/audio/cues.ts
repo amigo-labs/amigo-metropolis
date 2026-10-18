@@ -145,6 +145,18 @@ const AMBIENT_RANGE_M = 0x22000 / 8192;
 /** An ambient queue record nobody owns; emitters own keys from EMITTER_KEY down. */
 const FREE = -1;
 const EMITTER_KEY = -2;
+/**
+ * The emitters' voice table (snd/emitter.c): 32 slots; a claim holds its slot
+ * 300 engine ticks, each frame it is drawn again 900; past that, a sound still
+ * live in the queue is held 300 more, else let go (`snd_emit_tick` 0x0042f550,
+ * `snd_emit_voice_follow` 0x00430100).
+ */
+const EMITTER_SLOTS = 32;
+const EMITTER_HOLD_CLAIM = 300;
+const EMITTER_HOLD_DRAWN = 900;
+const EMITTER_HOLD_LIVE = 300;
+/** Engine ticks a sim tick: the emitters' frame delta. */
+const EMITTER_TICK_STEP = 10;
 /** Lifts own ambient keys from LIFT_KEY down, clear of the emitters'. */
 const LIFT_KEY = -1000;
 /**
@@ -217,6 +229,12 @@ export interface CueContext {
    * passed, which drive the walker's movement loop (`snd_loop_set_mode`).
    */
   readonly walker?: WalkerLoops;
+  /**
+   * Per prop emitter (ArenaAudio.emitters), 1 where `snd_emit_draw_block` draws
+   * it this tick: in the eye's 5 x 5 block of cells and on screen
+   * (render/drawWindow.ts). Absent, the listener's 0x22000 stands in.
+   */
+  readonly emitterDrawn?: Uint8Array;
 }
 
 /** What the movement loop reads off the X1's animation, per player slot. */
@@ -248,6 +266,10 @@ export class OriginalSounds implements EffectListener {
   /** Ambient queue record -> owner (entity id, or an emitter key). */
   private readonly ambientOwner = new Int32Array(QUEUE_RECORDS).fill(FREE);
   private readonly ambientSeen = new Uint8Array(QUEUE_RECORDS);
+  /** Per prop emitter: its voice slot held, its countdown, its queue record. */
+  private emitHeld = new Uint8Array(0);
+  private emitCountdown = new Float64Array(0);
+  private emitRecord = new Int16Array(0);
   /** Delayed effects: bank, id, x, z, ticks left (0 = free). */
   /** The placement of the raise being made (filled per call, never kept). */
   private readonly at = makeRaiseAt();
@@ -313,6 +335,9 @@ export class OriginalSounds implements EffectListener {
     this.gaugeAvatar.fill(-1);
     this.form.fill(-1);
     this.ambientOwner.fill(FREE);
+    this.emitHeld = new Uint8Array(data.emitters.length);
+    this.emitCountdown = new Float64Array(data.emitters.length);
+    this.emitRecord = new Int16Array(data.emitters.length).fill(-1);
     this.effects.begin(fxArenaFor(data.mission));
     this.sustainFx.fill(0);
     this.sustainLeft.fill(-1);
@@ -1053,11 +1078,7 @@ export class OriginalSounds implements EffectListener {
       if (!this.engine.within(x, z, AMBIENT_RANGE_M)) continue;
       this.queueAmbient(ctx.snapshot[o + S_ID], sound, x, z);
     }
-    for (let k = 0; k < data.emitters.length; k++) {
-      const e = data.emitters[k];
-      if (!this.engine.within(e.x, e.z, AMBIENT_RANGE_M)) continue;
-      this.queueAmbient(EMITTER_KEY - k, e.sound, e.x, e.z);
-    }
+    this.emitters(ctx, data);
     // A moving lift holds its travel script, as a moving actor's does.
     for (let k = 0; k < this.lifts.length; k++) {
       const o = k * LIFT_SNAP_STRIDE + LIFT_SNAP_MOVING;
@@ -1071,8 +1092,53 @@ export class OriginalSounds implements EffectListener {
     }
   }
 
-  /** One sounding source into its queue record (found by owner, else a free one). */
-  private queueAmbient(owner: number, sound: number, x: number, z: number): void {
+  /**
+   * The prop emitters' voices (`snd_emit_tick`, then `snd_emit_draw_block` with
+   * `snd_emit_voice_follow`): a drawn emitter claims one of the 32 slots and
+   * queues its sound where it stands, or refreshes the slot it holds; a slot's
+   * countdown runs on the frame delta, and once it is spent the voice is held
+   * on while the queue still hears it, else let go. Only a drawn emitter
+   * claims, so one that the eye has left keeps sounding while it is in range.
+   */
+  private emitters(ctx: CueContext, data: ArenaAudio): void {
+    const drawn = ctx.emitterDrawn;
+    let held = 0;
+    for (let k = 0; k < data.emitters.length; k++) held += this.emitHeld[k];
+    for (let k = 0; k < data.emitters.length; k++) {
+      const e = data.emitters[k];
+      if (this.emitHeld[k] !== 0) {
+        this.emitCountdown[k] -= EMITTER_TICK_STEP;
+        if (this.emitCountdown[k] < 0) {
+          if (this.engine.queueLive(this.emitRecord[k])) {
+            this.emitCountdown[k] = EMITTER_HOLD_LIVE;
+          } else {
+            this.emitHeld[k] = 0;
+            this.emitRecord[k] = -1;
+            held--;
+          }
+        }
+      }
+      const isDrawn = drawn ? drawn[k] !== 0 : this.engine.within(e.x, e.z, AMBIENT_RANGE_M);
+      if (isDrawn) {
+        if (this.emitHeld[k] !== 0) {
+          this.emitCountdown[k] = EMITTER_HOLD_DRAWN;
+        } else if (held < EMITTER_SLOTS) {
+          const rec = this.queueAmbient(EMITTER_KEY - k, e.sound, e.x, e.z);
+          if (rec >= 0) {
+            this.emitHeld[k] = 1;
+            this.emitCountdown[k] = EMITTER_HOLD_CLAIM;
+            this.emitRecord[k] = rec;
+            held++;
+          }
+        }
+      }
+      // A held voice keeps its queue record.
+      if (this.emitHeld[k] !== 0) this.queueAmbient(EMITTER_KEY - k, e.sound, e.x, e.z);
+    }
+  }
+
+  /** One sounding source into its queue record (found by owner, else a free one); -1 none. */
+  private queueAmbient(owner: number, sound: number, x: number, z: number): number {
     let rec = -1;
     let free = -1;
     for (let r = 0; r < QUEUE_RECORDS; r++) {
@@ -1083,10 +1149,11 @@ export class OriginalSounds implements EffectListener {
       if (free < 0 && this.ambientOwner[r] === FREE) free = r;
     }
     if (rec < 0) rec = free;
-    if (rec < 0) return;
+    if (rec < 0) return -1;
     this.ambientOwner[rec] = owner;
     this.ambientSeen[rec] = 1;
     this.engine.queueSet(rec, sound, x, z);
+    return rec;
   }
 
   // --- snapshot lookups -------------------------------------------------------
