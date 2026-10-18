@@ -16,6 +16,7 @@ export * from "./runner";
 export * from "./sandbox";
 export * from "./sim";
 export * from "./simMath";
+export * from "./stats";
 export * from "./units";
 export * from "./version";
 export * from "./warden";

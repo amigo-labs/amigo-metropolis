@@ -31,21 +31,22 @@ describe("sim tick loop", () => {
     // the original's profiles, so weapon profiles are hashed on it too.
     // SIM_VERSION 61: and the spawn queues, whose phases are drawn at createSim.
     // SIM_VERSION 68: no longer the steer flag (the lock never turns the hull).
-    expect(hash(createSim(map, 0xdead))).toBe(4127326569);
+    // SIM_VERSION 76: and the results page's figures and the rival-hit flags.
+    expect(hash(createSim(map, 0xdead))).toBe(2872201129);
   });
 
   it("pins hashes for idle and movement scripts", () => {
     const sim = createSim(map, 0xdead);
     const inputs = createTickInputs();
     for (let i = 0; i < 10; i++) step(sim, inputs);
-    expect(hash(sim)).toBe(1326632064);
+    expect(hash(sim)).toBe(425043200);
     expect(sim.tick).toBe(10);
 
     inputs.players[0].buttons = BTN_FORWARD; // the spawn faces +x
     for (let i = 0; i < 30; i++) step(sim, inputs);
     // The original's walker (SIM_VERSION 39): 4.69 m/s reached in ~0.2 s, and
     // slowed a little by the slope push up the test map's rise (was a flat 5 m/s).
-    expect(hash(sim)).toBe(3684308164);
+    expect(hash(sim)).toBe(3014311748);
     expect(sim.ent.posX[0]).toBe(131.49205017089844);
     expect(sim.ent.posY[0]).toBe(127);
     expect(sim.ent.height[0]).toBe(0.34852543473243713);

@@ -892,6 +892,13 @@ export const POINTS_CAPTURE_TURRET = 1;
  * 0x004475e9, pool@136); the Sky Captain's death script pays when it is shot down.
  */
 export const POINTS_AVATAR_DOWN = 10;
+/**
+ * The results page's time figures (stats.ts) run on the original's frame clock,
+ * DAT_00511ee4, which counts 300 units a second; lockstep's 30 Hz tick is 10 of
+ * them. The page prints a time v as minutes and seconds of (v + 150) / 300
+ * (RE `mission/results.c` 0x00408536).
+ */
+export const FRAME_CLOCK_PER_TICK = 300 / TICK_HZ;
 export const COST_RUNNER = 1;
 export const COST_GUARDIAN = 1;
 export const COST_JUGGERNAUT = 50;

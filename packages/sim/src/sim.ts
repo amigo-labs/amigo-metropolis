@@ -230,6 +230,18 @@ import {
 } from "./map";
 import { atan2Poly, cosLUT, octagonalLength, rand01, randInt, sinLUT } from "./simMath";
 import {
+  bumpStat,
+  noteDown,
+  outpostsHeld,
+  STAT_HALVES,
+  STAT_TURRETS_CLAIMED,
+  STAT_TURRETS_DESTROYED,
+  STAT_WALKER_KILLS,
+  statClock,
+  systemStats,
+  unitStatKey,
+} from "./stats";
+import {
   aircraftEngaged,
   isAirUnit,
   isGroundUnit,
@@ -465,15 +477,38 @@ export interface SimState {
    */
   readonly avatarSinking: Uint8Array;
   /**
-   * Per player: 1 when the last hit on its mech came from the Sky Captain's own
-   * craft — its gun, or a missile or bomb it fired — 0 for anyone else's (its
-   * tanks, jets and turrets included) or nobody's. The original remembers the
+   * Per player: 1 when the last hit on its mech came from the rival's own craft
+   * — the Sky Captain's gun, or a missile or bomb it fired; in a match without
+   * one, the other X1-Alpha's weapons and their rounds — 0 for anyone else's
+   * (tanks, jets and turrets included) or nobody's. The original remembers the
    * actor whose hit took the mech below zero (+0x8c) and, at the down, credits
-   * the captain and zeroes its rethink only when that actor, or the owner a
-   * round's id carries, is the captain (`player_op4` 0x004477ab..0x004477ea).
-   * Cleared at the respawn; hashed only when a Warden exists.
+   * the captain (its tally, its rethink zeroed) or, with two viewports, the
+   * other slot's Walker Kills, only when that actor, or the owner a round's id
+   * carries, is the captain or the other mech (`player_op4`
+   * 0x004477ab..0x00447821). Cleared at the respawn.
    */
-  readonly captainHit: Uint8Array;
+  readonly rivalHit: Uint8Array;
+  /**
+   * The results page's twelve halfwords per side (stats.ts STAT_*, keys 0..11)
+   * at `team * STAT_HALVES + key`: a player's view block +0x00, the Sky
+   * Captain's `sky_ai` +0x28. Hashed (SIM_VERSION 76).
+   */
+  readonly statHalves: Uint16Array;
+  /**
+   * Points Scored per side, the original's state word 31 + slot: every point
+   * earned, never spent or lost (fcop-re/ai-and-rules.md §2). Hashed.
+   */
+  readonly pointsScored: Uint32Array;
+  /** First Death per side on the frame clock, 0 until the first down (stats.ts). Hashed. */
+  readonly firstDeath: Uint32Array;
+  /** First Outpost per side on the frame clock, 0 until the side holds one. Hashed. */
+  readonly firstOutpost: Uint32Array;
+  /**
+   * Time as Walker / Time as Hovercraft per player on the frame clock, at
+   * `player * 2 + form` (view block +0x28 / +0x2c): a live mech's ticks by its
+   * form. The Sky Captain's stay 0. Hashed.
+   */
+  readonly formTime: Uint32Array;
   /** Player slot the Warden AI drives, -1 for a match without one (config). */
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
@@ -608,7 +643,7 @@ export function spawnAvatar(state: SimState, player: number): number {
   state.avatarLunge[player] = 0;
   state.avatarMode[player] = 0;
   state.avatarSinking[player] = 0;
-  state.captainHit[player] = 0;
+  state.rivalHit[player] = 0;
   return id;
 }
 
@@ -775,6 +810,10 @@ export function spawnUnit(
   const ent = state.ent;
   const id = spawn(ent, archetype as 1 | 2 | 3 | 4, team);
   if (id < 0) return -1;
+  // The spawn's credit: one more "Created" of its class for the side it joins
+  // (`csac_credit_spawn`, spawn.c 0x0044f4b6..0x0044f563).
+  const created = unitStatKey(archetype, true);
+  if (created >= 0) bumpStat(state, team, created);
   ent.posX[id] = x;
   ent.posY[id] = y;
   // Seed height/layer before snapUnitHeight: resolveWalker picks surfaces within
@@ -922,7 +961,12 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     loadoutSpecial: new Uint8Array(MAX_PLAYERS),
     difficulty: new Uint8Array(MAX_PLAYERS).fill(DIFFICULTY_NORMAL),
     avatarSinking: new Uint8Array(MAX_PLAYERS),
-    captainHit: new Uint8Array(MAX_PLAYERS),
+    rivalHit: new Uint8Array(MAX_PLAYERS),
+    statHalves: new Uint16Array(MAX_PLAYERS * STAT_HALVES),
+    pointsScored: new Uint32Array(MAX_PLAYERS),
+    firstDeath: new Uint32Array(MAX_PLAYERS),
+    firstOutpost: new Uint32Array(MAX_PLAYERS),
+    formTime: new Uint32Array(MAX_PLAYERS * 2),
     wardenPlayer,
     wardenDifficulty,
     captain: createCaptainState(),
@@ -1827,6 +1871,12 @@ export function claimOutpostSlot(state: SimState, player: number, k: number): bo
   if (state.points[player] < COST_OUTPOST_CLAIM) return false;
   if (state.outpostOwner[k] !== -1 || state.outpostConsole[k] < 0) return false;
   const ent = state.ent;
+  // The Sky Captain's First Outpost is its decision's: the claim loop stamps
+  // sky_ai +0x4c while its side holds none (dispatch.c 0x00421910, state word
+  // 34). A player's is its tick's (stats.ts systemStats).
+  if (player === state.wardenPlayer && outpostsHeld(state, player) === 0) {
+    state.firstOutpost[player] = statClock(state);
+  }
   state.points[player] -= COST_OUTPOST_CLAIM;
   state.outpostOwner[k] = player;
   const cid = state.outpostConsole[k];
@@ -2383,7 +2433,7 @@ function deliver(
         blk.damage,
         blk.blast,
         w.projKind,
-        BLAST_FLAT,
+        BLAST_FLAT | BLAST_RIVAL,
       );
       return true;
     }
@@ -2408,7 +2458,8 @@ function deliver(
         ty = y + fy * ARC_FREE_AIM_DISTANCE;
         th = h;
       }
-      const flags = blk.kind === KIND_ARCED_CLUSTER ? ROUND_ARC | ROUND_CLUSTER : ROUND_ARC;
+      const flags =
+        (blk.kind === KIND_ARCED_CLUSTER ? ROUND_ARC | ROUND_CLUSTER : ROUND_ARC) | ROUND_RIVAL;
       const id = spawnArced(state, x, y, h, tx, ty, th, blk.launchSpeed, blk.gravity);
       if (id < 0) return false;
       armRound(state, id, shooter, player, w.projKind, blk, flags, -1);
@@ -2443,7 +2494,8 @@ function deliver(
         }
         const id = spawnStraight(state, shooter, ux, uy, homing ? lock : -1, lock);
         if (id < 0) break;
-        armRound(state, id, shooter, player, w.projKind, blk, homing ? ROUND_HOMING : 0, lock);
+        const flags = (homing ? ROUND_HOMING : 0) | ROUND_RIVAL;
+        armRound(state, id, shooter, player, w.projKind, blk, flags, lock);
         any = true;
       }
       if (!any) return false;
@@ -2499,9 +2551,19 @@ function directShot(
   pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, reach, powered));
   if (blocked) return;
   if (powered && blk.blast > 0 && w.delivery === "hitscan") {
-    blastAt(state, ex, ey, ent.team[shooter], player, blk.damage, blk.blast, PROJ_SPLASH, 0);
+    blastAt(
+      state,
+      ex,
+      ey,
+      ent.team[shooter],
+      player,
+      blk.damage,
+      blk.blast,
+      PROJ_SPLASH,
+      BLAST_RIVAL,
+    );
   } else if (lock >= 0) {
-    applyDamage(state, lock, blk.damage, player);
+    applyDamage(state, lock, blk.damage, player, true);
   }
 }
 
@@ -2548,15 +2610,28 @@ function beamShot(
     ey = oy + uy * len;
   }
   pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, len, powered));
-  blastAt(state, ex, ey, ent.team[shooter], player, blk.damage, blk.blast, PROJ_BEAM, BLAST_EMIT);
+  blastAt(
+    state,
+    ex,
+    ey,
+    ent.team[shooter],
+    player,
+    blk.damage,
+    blk.blast,
+    PROJ_BEAM,
+    BLAST_EMIT | BLAST_RIVAL,
+  );
 }
 
 /** blastAt options. */
 const BLAST_EMIT = 1;
 /** Metropolis' flat pulse (radius + the target's own) instead of the original's falloff. */
 const BLAST_FLAT = 2 | BLAST_EMIT;
-/** The blast is the Sky Captain's own (its bomb): see applyDamage's `byCaptain`. */
-const BLAST_CAPTAIN = 4;
+/**
+ * The blast is an avatar's own craft's (the Sky Captain's bomb, an X1-Alpha's
+ * weapon or round): see applyDamage's `byRival`.
+ */
+const BLAST_RIVAL = 4;
 
 /**
  * Area damage at a point. The original's blast (`cact_area_damage`, damage.c
@@ -2584,7 +2659,7 @@ function blastAt(
   }
   if (!(radius > 0)) return;
   const flat = (opts & BLAST_FLAT) === BLAST_FLAT;
-  const byCaptain = (opts & BLAST_CAPTAIN) !== 0;
+  const byRival = (opts & BLAST_RIVAL) !== 0;
   for (let t = 0; t < ent.high; t++) {
     if (!ent.alive[t]) continue;
     if (ent.team[t] === team) continue;
@@ -2594,10 +2669,10 @@ function blastAt(
     const d2 = dx * dx + dy * dy;
     if (flat) {
       const r = radius + ARCHETYPE_RADIUS[ent.archetype[t]];
-      if (d2 <= r * r) applyDamage(state, t, damage, owner, byCaptain);
+      if (d2 <= r * r) applyDamage(state, t, damage, owner, byRival);
     } else if (d2 < radius * radius) {
       const dmg = Math.floor((damage * (radius - Math.sqrt(d2))) / radius);
-      if (dmg > 0) applyDamage(state, t, dmg, owner, byCaptain);
+      if (dmg > 0) applyDamage(state, t, dmg, owner, byRival);
     }
   }
 }
@@ -2609,10 +2684,11 @@ const ROUND_CLUSTER = 4;
 /** The Warden's bomb: Metropolis' flat blast. */
 const ROUND_FLAT_BLAST = 8;
 /**
- * Fired by the Sky Captain itself (its missile and bomb): the original's round
- * carries its owner's id (`round_spawn.c`), which is what its down credit reads.
+ * Fired by an avatar's own craft — the Sky Captain's missile and bomb, an
+ * X1-Alpha's rounds and mines: the original's round carries its owner's id
+ * (`round_spawn.c`), which is what the down's credit reads (SimState.rivalHit).
  */
-const ROUND_CAPTAIN = 16;
+const ROUND_RIVAL = 16;
 
 /**
  * A projectile's fields (the PROJECTILE archetype reuses the store):
@@ -2822,6 +2898,7 @@ function spawnMine(
   ent.cooldownC[id] = blk.reach; // trigger radius
   ent.ammoA[id] = blk.damage;
   ent.aux[id] = blk.blast;
+  ent.ammoB[id] = ROUND_RIVAL; // the mech's own, for the down's credit
   ent.ownerId[id] = player;
   return true;
 }
@@ -2902,7 +2979,14 @@ export function hitscan(
     if (segmentBlocked(state.map, ox, oy, ox + dx * bestT, oy + dy * bestT)) {
       return;
     }
-    applyDamage(state, bestId, damage, player, ent.archetype[shooter] === ARCHETYPE.WARDEN);
+    const arch = ent.archetype[shooter];
+    applyDamage(
+      state,
+      bestId,
+      damage,
+      player,
+      arch === ARCHETYPE.WARDEN || arch === ARCHETYPE.AVATAR,
+    );
   }
 }
 
@@ -2926,7 +3010,7 @@ export function spawnWardenBomb(
   ent.ownerId[id] = player;
   ent.ammoA[id] = SKY_BOMB_DAMAGE;
   ent.aux[id] = SKY_BOMB_BLAST;
-  ent.ammoB[id] = ROUND_CAPTAIN; // linear falloff, as the original's area damage
+  ent.ammoB[id] = ROUND_RIVAL; // linear falloff, as the original's area damage
   ent.timerA[id] = WARDEN_HEAVY_TTL_TICKS;
   ent.cooldownA[id] = WARDEN_HEAVY_SPEED;
   ent.velX[id] = dx * WARDEN_HEAVY_SPEED;
@@ -2957,7 +3041,7 @@ export function fireWardenMissile(
   ent.ownerId[p] = ent.ownerId[shooter];
   ent.ammoA[p] = SKY_MISSILE_DAMAGE;
   ent.aux[p] = 0;
-  ent.ammoB[p] = ROUND_HOMING | ROUND_CAPTAIN;
+  ent.ammoB[p] = ROUND_HOMING | ROUND_RIVAL;
   ent.timerA[p] = Math.ceil((SKY_MISSILE_FLIGHT / speed) * TICK_HZ) + 1;
   ent.cooldownA[p] = speed;
   ent.velX[p] = dx * speed;
@@ -2970,15 +3054,16 @@ export function fireWardenMissile(
 
 /**
  * Damage bookkeeping; deaths are collected by systemDamageDeath afterwards.
- * `byCaptain` says the hit is the Sky Captain's own (its gun, missile or bomb),
- * which a player's mech remembers for its down (SimState.captainHit).
+ * `byRival` says the hit is an avatar's own craft's — the Sky Captain's gun,
+ * missile or bomb, or an X1-Alpha's weapons and their rounds — which a player's
+ * mech remembers for its down (SimState.rivalHit).
  */
 function applyDamage(
   state: SimState,
   target: number,
   damage: number,
   attacker: number,
-  byCaptain = false,
+  byRival = false,
 ): void {
   const ent = state.ent;
   // Power-up effects (rules.md §9). Both are gated on a non-empty buff array, so
@@ -2999,7 +3084,7 @@ function applyDamage(
   if (ent.archetype[target] === ARCHETYPE.AVATAR) {
     const p = ent.ownerId[target];
     if (p >= 0 && p < MAX_PLAYERS && state.avatarId[p] === target) {
-      state.captainHit[p] = byCaptain ? 1 : 0;
+      state.rivalHit[p] = byRival ? 1 : 0;
     }
   }
   pushEvent(state.events, EV_HIT, target, attacker, damage);
@@ -3582,7 +3667,7 @@ function burstCluster(state: SimState, id: number): void {
     ent.ownerId[f] = ent.ownerId[id];
     ent.ammoA[f] = ent.ammoA[id];
     ent.aux[f] = ent.aux[id];
-    ent.ammoB[f] = ROUND_ARC;
+    ent.ammoB[f] = ROUND_ARC | (ent.ammoB[id] & ROUND_RIVAL);
     ent.timerA[f] = ent.timerA[id];
     ent.cooldownC[f] = -1;
     ent.aimX[f] = ent.aimX[id];
@@ -3601,7 +3686,7 @@ function explode(state: SimState, id: number, struck = -1): void {
   const damage = ent.ammoA[id];
   const radius = ent.aux[id];
   const flat = (ent.ammoB[id] & ROUND_FLAT_BLAST) !== 0;
-  const byCaptain = (ent.ammoB[id] & ROUND_CAPTAIN) !== 0;
+  const byRival = (ent.ammoB[id] & ROUND_RIVAL) !== 0;
   const x = ent.posX[id];
   const y = ent.posY[id];
   const team = ent.team[id];
@@ -3609,7 +3694,7 @@ function explode(state: SimState, id: number, struck = -1): void {
   // Despawn first so the blast loop never re-hits the shell itself.
   despawn(ent, id);
   if (radius > 0) {
-    const opts = (flat ? BLAST_FLAT : BLAST_EMIT) | (byCaptain ? BLAST_CAPTAIN : 0);
+    const opts = (flat ? BLAST_FLAT : BLAST_EMIT) | (byRival ? BLAST_RIVAL : 0);
     blastAt(state, x, y, team, owner, damage, radius, kind, opts);
   } else {
     pushEvent(state.events, EV_EXPLOSION, Math.floor(x * 16), Math.floor(y * 16), kind);
@@ -3622,7 +3707,7 @@ function explode(state: SimState, id: number, struck = -1): void {
         state.roundFrom[id],
       );
     }
-    if (struck >= 0) applyDamage(state, struck, damage, owner, byCaptain);
+    if (struck >= 0) applyDamage(state, struck, damage, owner, byRival);
   }
 }
 
@@ -3653,15 +3738,30 @@ function systemDamageDeath(state: SimState): void {
     const team = ent.team[id];
     if (team === 0 || team === 1) {
       const other = team ^ 1;
-      if (archetype === ARCHETYPE.WARDEN) avatarDown(state, team);
-      else if (archetype === ARCHETYPE.TURRET) {
-        state.points[other] += POINTS_TURRET_DIES;
-        // A captured neutral turret destroyed is an engine credit (turret.c).
-        if (ent.mode[id] === TURRET_CAPTURABLE) captainCredit(state, other);
+      if (archetype === ARCHETYPE.WARDEN) {
+        avatarDown(state, team);
+        // The commander's death: First Death stamped once and its deaths, sky_ai
+        // +0x48 and +0x3e (aircraft.c 0x00420df9; at the crash's end there,
+        // which Metropolis does not model).
+        noteDown(state, team);
+      } else if (archetype === ARCHETYPE.TURRET) {
+        earn(state, other, POINTS_TURRET_DIES);
+        if (ent.mode[id] === TURRET_CAPTURABLE) {
+          // A captured neutral turret destroyed is an engine credit (turret.c),
+          // and one more "Turrets Destroyed" for the side that held it, never
+          // for the side that scores (`turret_score_death` 0x0041be31,
+          // 0x0041befa, 0x0041bf21). One a claim kills is neutral by then.
+          captainCredit(state, other);
+          bumpStat(state, team, STAT_TURRETS_DESTROYED);
+        }
       } else if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN)
-        state.points[other] += POINTS_UNIT_DIES;
+        earn(state, other, POINTS_UNIT_DIES);
       else if (archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS)
-        state.points[other] += POINTS_HEAVY_DIES;
+        earn(state, other, POINTS_HEAVY_DIES);
+      // A unit's death: one more "Destroyed" of its class for the side that
+      // lost it, whoever killed it (`csac_on_spawned_death` 0x0044f16d).
+      const lost = unitStatKey(archetype, false);
+      if (lost >= 0) bumpStat(state, team, lost);
     }
     if (archetype === ARCHETYPE.AVATAR || archetype === ARCHETYPE.WARDEN) {
       const player = ent.ownerId[id];
@@ -3675,13 +3775,24 @@ function systemDamageDeath(state: SimState): void {
       // The marker is consumed by the down (`player_op4` reads and clears it,
       // 0x0044761e).
       state.avatarSinking[player] = 0;
-      // The Sky Captain's credit is taken at the down, and only when the hit
-      // that put the mech down was the captain's own: its tally of mechs put
-      // down (not modelled) and its rethink zeroed, so its next tick decides
-      // (`player_op4` 0x004477ab..0x004477ea; fcop-fidelity.md U3). A tank,
-      // jet or turret of its side, a fall or the water credits it nothing.
-      if (archetype === ARCHETYPE.AVATAR && state.captainHit[player] !== 0) {
-        captainCredit(state, state.wardenPlayer);
+      if (archetype === ARCHETYPE.AVATAR) {
+        // The mech's down, any cause: First Death stamped once, its deaths
+        // (`player_op4` 0x00447764, 0x00447780).
+        noteDown(state, player);
+        // The credit is taken at the down, and only when the hit that put the
+        // mech down was the rival's own craft (`player_op4`
+        // 0x004477ab..0x00447821; fcop-fidelity.md U3, V7). With the Sky
+        // Captain: its tally of mechs put down and its rethink zeroed, so its
+        // next tick decides. Without one: the other slot's Walker Kills. A tank,
+        // jet or turret, a fall or the water credits nobody.
+        if (state.rivalHit[player] !== 0) {
+          if (state.wardenPlayer >= 0) {
+            captainCredit(state, state.wardenPlayer);
+            bumpStat(state, state.wardenPlayer, STAT_WALKER_KILLS);
+          } else {
+            bumpStat(state, player ^ 1, STAT_WALKER_KILLS);
+          }
+        }
       }
       // Power-ups are lost when the avatar goes down (`player_respawn` clears the
       // block-B ammunition; fcop-fidelity.md P2, P8). The cloak and invulnerability
@@ -3745,13 +3856,23 @@ function systemDamageDeath(state: SimState): void {
 }
 
 /**
+ * Income for side `team`: its Current Points (state word 25 + slot) and its
+ * Points Scored (31 + slot), which a purchase or a down never takes back
+ * (fcop-re/ai-and-rules.md §2).
+ */
+function earn(state: SimState, team: number, n: number): void {
+  state.points[team] += n;
+  state.pointsScored[team] += n;
+}
+
+/**
  * An avatar went down (fcop-fidelity.md R4): the other side gains
  * POINTS_AVATAR_DOWN and `team` loses as many, never below 0. Points only: the
  * Sky Captain's credit for a player's down is taken at the down itself
  * (systemDamageDeath), not here at the respawn.
  */
 function avatarDown(state: SimState, team: number): void {
-  state.points[team ^ 1] += POINTS_AVATAR_DOWN;
+  earn(state, team ^ 1, POINTS_AVATAR_DOWN);
   const left = state.points[team];
   state.points[team] = left > POINTS_AVATAR_DOWN ? left - POINTS_AVATAR_DOWN : 0;
 }
@@ -3891,8 +4012,11 @@ function systemCapture(state: SimState): void {
     if (team < 0) continue;
     ent.team[tid] = team;
     ent.ownerId[tid] = team;
-    state.points[team] += POINTS_CAPTURE_TURRET;
+    earn(state, team, POINTS_CAPTURE_TURRET);
     captainCredit(state, team); // an engine credit: the captain rethinks at once
+    // "Turrets Claimed" of the capturing side, its mech's, its tank's or the
+    // captain's (`turret_score_capture` 0x0041cba5, 0x0041cc41).
+    bumpStat(state, team, STAT_TURRETS_CLAIMED);
     pushEvent(state.events, EV_CAPTURE, tid, team, k);
   }
   for (let p = 0; p < MAX_PLAYERS; p++) state.capturePress[p] = 0;
@@ -4266,6 +4390,9 @@ export function step(state: SimState, inputs: TickInputs): void {
     systemTriggers(state);
     systemEconomy(state);
     systemSpawning(state);
+    // The results page's form timers and First Outpost, on the tick's final
+    // state (stats.ts).
+    systemStats(state);
     systemWinCheck(state);
   }
   state.tick += 1;
@@ -4432,8 +4559,17 @@ export function hash(state: SimState): number {
       h = fnv1aF32(h, c.gunClock[k]);
       h = fnv1aU32(h, c.gunPhase[k]);
     }
-    for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.captainHit[p]);
   }
+  // Appended at SIM_VERSION 76, every map: the rival-hit flags (hashed in a
+  // Warden match only from 75) and the results page's figures (stats.ts).
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    h = fnv1aU32(h, state.rivalHit[p]);
+    h = fnv1aU32(h, state.pointsScored[p]);
+    h = fnv1aU32(h, state.firstDeath[p]);
+    h = fnv1aU32(h, state.firstOutpost[p]);
+  }
+  for (let k = 0; k < state.statHalves.length; k++) h = fnv1aU32(h, state.statHalves[k]);
+  for (let k = 0; k < state.formTime.length; k++) h = fnv1aU32(h, state.formTime[k]);
   return h;
 }
 

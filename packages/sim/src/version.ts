@@ -1127,4 +1127,20 @@
 //     hashed in a Warden match only. HARD's sinking marker is now consumed at
 //     every down (it was kept for a down nobody was credited for, to tell the
 //     respawn not to credit the captain).
-export const SIM_VERSION = 75;
+// v76: the results page's statistics in the sim (fcop-fidelity.md V7): the
+//     original's twenty player_stat keys per side (RE results.json stats[],
+//     player_stat.c 0x004480d0), as hashed state on every map —
+//     SimState.statHalves (the twelve halfwords: Created at a unit's spawn,
+//     Destroyed at its death for the side that lost it, Turrets Destroyed for
+//     the side that held a captured neutral, Turrets Claimed for the capturer,
+//     Walker Kills for the rival whose own craft put a mech down, Walker
+//     Deaths at every down), pointsScored (state word 31: every point earned),
+//     firstDeath / firstOutpost (frame-clock stamps) and formTime (the live
+//     mech's walker and hover time, 300 units a second). captainHit becomes
+//     rivalHit, set by the other X1's weapons too in a match without a Sky
+//     Captain, and is hashed on every map (ROUND_CAPTAIN / BLAST_CAPTAIN become
+//     ROUND_RIVAL / BLAST_RIVAL, also on an X1's rounds and mines). Nothing
+//     reads the figures in the tick: play is unchanged, every golden's hashes
+//     move from tick 0 for the new hashed state. writeResultsSnapshot exposes
+//     them (stats.ts).
+export const SIM_VERSION = 76;
