@@ -750,9 +750,22 @@ no golden moves.
 - [x] The jet's rotor; Joke's Fortress and Sky Captain morphs (G9)
 - [x] The Dreadnought's guns aiming and slewing: their mounts are in the sim since
       v77 (I6), each gun's yaw in `writeGunSnapshot`; drawing them by it (G8)
-- [ ] Distance-driven morphs (Joke's tank and Dreadnought), the skinned Joke jet,
-      the flags' cloth; the X1's cloak offset (G4, G9, G10)
-- [ ] The outpost flags on La Cantina's decks (props are placed on layer 0; G10)
+- [x] Distance-driven morphs (Joke's tank and Dreadnought hull, a frame per 575 /
+      775 world units travelled), the skinned Joke jet (its skeleton's 15 frames
+      baked into morph targets), the flags' cloth (six frames at 20/300 s); every
+      unit's track from where it was built, not by its entity id (G9, G10)
+- [ ] The X1's cloak offset (G4)
+- [x] The outpost flags on La Cantina's decks: every type-11 record at the height
+      its construct takes on its layer (the topmost surface but for three flags an
+      arena) and at its own yaw — Hk's flags and base kiosks, Slim's and Joke's
+      flags were hidden too (G2, G10)
+- [x] The outpost console as the original's: Cobj 29 on the pad until the claim,
+      the two terminals (Mp 27 and 33, the tank and jet shops) from it; no unit
+      model for the console entity (G5, G10)
+- [ ] Joke's Dreadnought guns on the points of the hull's current frame (RE:
+      `pa_models.json` carries frame 0's attach vertices) (G8)
+- [ ] The scenery the type-96 Props and type-97 DCSQuads place on Conft, Slim, Joke
+      and Hk (89 / 75 / 75 / 151 Props, 0 / 56 / 51 / 134 DCSQuads), not drawn (G2)
 - [x] Per-arena hit radii for the models each arena draws (G1, G7; v78)
 - [ ] The X1's animations
 

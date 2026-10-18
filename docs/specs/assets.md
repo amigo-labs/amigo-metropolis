@@ -137,7 +137,7 @@ forever as a debug render mode (`?render=greybox`).
   at load and drawn from both sides; the pickups, symmetric and spinning, are
   not.
 - **Scenery wears each arena's own Cobjs too** (`packages/client/public/models/props/<mapId>/prop-<cobj>.glb`).
-  A map's `props` carry Cobj ids in its own mission's numbering, which is not
+  A scenery record's Cobj id is in its own mission's numbering, which is not
   Mp's: urban-jungle's 36 and 41 are kiosks, Mp's are the Dreadnought hull and
   the Flying Fortress. Unlike the pickups these do run through `gen:units` (the
   outpost flag samples two pages and must become one atlas), from per-mission raws
@@ -146,13 +146,26 @@ forever as a debug render mode (`?render=greybox`).
   file for the id, so urban-jungle and proving-ground parked a Dreadnought hull
   and Flying Fortresses among their kiosks, and bug-hunt and hollywood-keys
   dropped two and four kiosks they had no file for.
+- **Scenery stands where the original's records stand it**
+  (`render/arenaScenery.generated.ts`, written by `bun run gen:scenery`;
+  fcop-fidelity.md G2, G10). Every type-11 record (DynamicProp) of the mission,
+  placed or spawned by a script, read out of the mission's bytes through the RE's
+  container walker: its model, its height as its construct takes it
+  (`terrain_height_at` on the record's layer, computed over the RE's plate model
+  of the mission's own terrain, so a flag on a deck stands on the deck), its yaw,
+  and when it stands — an outpost's console until the claim, its two terminals
+  from it, read off the outposts' activation scripts. `render/props.ts` draws the
+  table (one InstancedMesh per model, an instance per record; one hidden by its
+  outpost's claim is drawn at zero scale), the model's +z turned onto the sim's
+  (cos yaw, sin yaw) as a unit's is. The map's `props` are not read. The
+  outpost's console entity therefore has no unit model of its own.
 - **Each arena's units are its own mission's Cobjs** (`packages/client/public/models/units/<mapId>/obj_NNN.glb`).
   `bun run gen:paunits` reads every role off the RE's
   `extracted/logic/<Mission>/pa_models.json` — the records that place or spawn
   it: tank, jet, Flying Fortress, the Dreadnought's hull and four guns, the
   type-8 turret's and the NeutralTurret's gun and base (Hk has a second
-  NeutralTurret set, 43/44, on seven spots), the Sky Captain per level band, and
-  the outpost console (the scenery Cobj 29) — into
+  NeutralTurret set, 43/44, on seven spots) and the Sky Captain per level band —
+  into
   `render/arenaUnits.generated.ts`, and copies the arena's exports unchanged into
   `tools/generators/units/raw/fcop-units/<Mission>/`. A Cobj id is its own
   container's (Hk's tank 30 is another model than Mp's, Joke's units are bugs),
@@ -184,13 +197,19 @@ forever as a debug render mode (`?render=greybox`).
   tint), and the X1's file marks its beacon, which keeps its texels, in a 0/1
   `_TEAMUV` vertex attribute. The outpost flags (scenery Cobj 28) take the
   claimer's offset the same way. Only the greybox stand-ins are tinted.
-- **Time-driven morphs play; the rest ship frame 0.** The jet's rotor (Cobj
-  22, three frames at 10/300 s) and Joke's Fortress and Sky Captain step through
-  their frames: `gen:units` keeps those morph targets, and the client writes a
-  one-hot frame per instance into the bucket's morph texture on the sim's clock,
-  each entity a phase of its own. Distance-driven tracks (Joke's tank and
-  Dreadnought), the skinned Joke jet, the outpost flags' cloth and the X1's
-  clips still show one frame.
+- **Every animated model plays its track 0** (fcop-fidelity.md G9, G10), stepped
+  frame by frame as `cact_anim_step` steps it: by time — the jet's rotor (Cobj
+  22, three frames at 10/300 s), Joke's Fortress and Sky Captain, the outpost
+  flags' cloth (six frames at 20/300 s) — or by the distance travelled — Joke's
+  tank and Dreadnought hull, a frame per 575 / 775 world units. `gen:units` keeps
+  those morph targets and bakes a skeleton's frames into targets (Joke's jet, 15
+  frames of four bones: frame k is the skin at keyframe k), so every one is a
+  morph: the client writes a one-hot frame per instance into the bucket's morph
+  texture (an InstancedMesh morphs only through it) on the sim's clock. A unit's
+  track starts where the client first draws it, as the original's starts at its
+  actor's construct (`render/unitTracks.ts`, which also measures the travel from
+  the interpolated positions); the flags all start with the arena. The X1's clips
+  still show one frame (render/avatarRig.ts).
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
 - Materials: single atlas texture, `flatShading: true`, no PBR maps.
 
