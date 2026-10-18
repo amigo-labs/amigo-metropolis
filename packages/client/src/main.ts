@@ -41,7 +41,6 @@ import {
   type Loadout,
   MATCH_SLOT_AVATAR_ID,
   MATCH_SLOT_LOCK,
-  MATCH_SLOT_POINTS,
   MATCH_SLOT_RESPAWN_TICKS,
   MATCH_SNAPSHOT_LEN,
   MATCH_TICK,
@@ -52,6 +51,7 @@ import {
   type MatchConfig,
   matchSlotOffset,
   type PlayerInput,
+  RESULTS_SNAPSHOT_LEN,
   SIM_VERSION,
   type SimState,
   SNAPSHOT_STRIDE,
@@ -65,6 +65,7 @@ import {
   worldExtent,
   writeLiftSnapshot,
   writeMatchSnapshot,
+  writeResultsSnapshot,
   writeSnapshot,
 } from "@metropolis/sim";
 import * as THREE from "three";
@@ -132,7 +133,6 @@ import {
   panMapScreen,
   toggleMapScreen,
 } from "./render/mapScreen";
-import { matchClock, matchEndText } from "./render/matchEnd";
 import { loadMapMesh } from "./render/meshMap";
 import {
   createAvatarMorph,
@@ -153,6 +153,7 @@ import {
 } from "./render/playerView";
 import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
 import { loadProps, updateOutpostFlags } from "./render/props";
+import { createResultsPage } from "./render/results/resultsPage";
 import { sideName, sideOfTeam } from "./render/sides";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
@@ -997,81 +998,50 @@ function refreshCapture(): void {
   if (keyboard.capture) document.body.style.cursor = "";
 }
 
-// --- Match-end screen ----------------------------------------------------------
-// Shown a beat after the sim freezes on a winner (the banner and death FX get
-// their moment first). Raw DOM like the pause card; Rematch is offline-only —
-// online peers each return to the menu, there is no rematch handshake.
-const endEl = document.createElement("div");
-endEl.id = "match-end";
-endEl.setAttribute("role", "dialog");
-endEl.setAttribute("aria-modal", "true");
-endEl.setAttribute("aria-label", "Match over");
-const endCard = document.createElement("div");
-endCard.className = "pause-card";
-const endTitle = document.createElement("h1");
-const endSubtitle = document.createElement("p");
-const endStats = document.createElement("div");
-endStats.className = "end-stats";
-const endStatTime = document.createElement("div");
-const endStatPoints = document.createElement("div");
-const endStatKills = document.createElement("div");
-endStats.append(endStatTime, endStatPoints, endStatKills);
-const endActions = document.createElement("div");
-endActions.className = "pause-actions";
-const endRematchBtn = document.createElement("button");
-endRematchBtn.type = "button";
-endRematchBtn.className = "pause-btn pause-btn--primary";
-endRematchBtn.textContent = "Rematch";
-const endMenuBtn = document.createElement("button");
-endMenuBtn.type = "button";
-endMenuBtn.className = "pause-btn";
-endMenuBtn.textContent = "Return to menu";
-endActions.append(endRematchBtn, endMenuBtn);
-endCard.append(endTitle, endSubtitle, endStats, endActions);
-endEl.appendChild(endCard);
-document.body.appendChild(endEl);
+// --- The results page -----------------------------------------------------------
+// The original's page (render/results/resultsPage.ts; fcop-fidelity.md V7),
+// opened as the sim freezes on a winner — the outro was the original's
+// countdown — on the figures of that moment. Its two keys are the way out: the
+// Map Key plays again (the next level after a solo win against the Sky
+// Captain), the Camera Key quits; online only the Camera Key.
+const results = createResultsPage({
+  bindings: () => keyboard.getTable(),
+  onAgain: () => rematchSolo(),
+  onQuit: () => returnToMenu(),
+});
+/** The results page's figures, read once when it opens (writeResultsSnapshot). */
+const resultsSnap = new Float32Array(RESULTS_SNAPSHOT_LEN);
 
 /** -1 until a winner is first seen; then the wall-clock ms it was seen at. */
 let winSeenAtMs = -1;
 let matchEndShown = false;
-/** EV_DEATH events credited to the local slot this match (pumpCosmetics). */
-let localKills = 0;
-/** Delay between the sim freezing and the card appearing. */
-const MATCH_END_DELAY_MS = 2500;
+/** The original opens its page on the frame the countdown runs out. */
+const MATCH_END_DELAY_MS = 0;
 
 function resetMatchEnd(): void {
   winSeenAtMs = -1;
-  localKills = 0;
   matchEndShown = false;
-  endEl.classList.remove("is-open");
+  results.close();
 }
 
 function showMatchEnd(winner: number): void {
   matchEndShown = true;
   inGameMenu.close();
-  setMatchPaused(false); // the end card replaces the in-game menu, never stacks
+  setMatchPaused(false); // the page replaces the in-game menu, never stacks
   mapScreen.open = false;
   const slot = views[0]?.slot ?? 0;
   // A solo win over the Sky Captain moves the map's progress (0x00409630).
   if (warden && !net && winner === slot) recordSoloWin(map.id, wardenDifficulty);
-  // Every arena ends at a gate since SIM_VERSION 32 (the original has no core).
-  const text = matchEndText(winner, slot);
-  endTitle.textContent = text.title;
-  endCard.classList.toggle("is-victory", winner === slot);
-  endSubtitle.textContent = text.subtitle;
-  const mine = matchSlotOffset(slot);
-  const other = matchSlotOffset(slot === 0 ? 1 : 0);
-  endStatTime.textContent = `Time ${matchClock(matchSnap[MATCH_TICK] | 0, TICK_HZ)}`;
-  endStatPoints.textContent = `Points ${matchSnap[mine + MATCH_SLOT_POINTS] | 0} — ${
-    matchSnap[other + MATCH_SLOT_POINTS] | 0
-  }`;
-  endStatKills.textContent = `Kills ${localKills}`;
-  endRematchBtn.style.display = netMode ? "none" : "";
-  endEl.classList.add("is-open");
+  writeResultsSnapshot(sim, resultsSnap);
+  // LEVEL is the Sky Captain's, one viewport only; the next round after a win
+  // plays the level above it (results.c 0x00408121).
+  const level = warden && !netMode ? matchSnap[MATCH_WARDEN_DIFFICULTY] | 0 : 0;
+  if (level > 0 && winner === 0) wardenDifficulty = wardenLevel(level + 1) + 1;
+  const sides: [number, number] = [sideOfTeam(map.id, 0), sideOfTeam(map.id, 1)];
+  results.open({ figures: resultsSnap, winner, online: netMode, level, sides });
   if (document.pointerLockElement) document.exitPointerLock();
   document.body.style.cursor = "default";
   keyboard.capture = false;
-  (netMode ? endMenuBtn : endRematchBtn).focus();
 }
 
 /** Seed of the running local match; each rematch derives the next from it. */
@@ -1079,6 +1049,7 @@ let matchSeed = seed;
 
 /** Offline rematch: same arena, same opponent, a fresh derived seed. */
 function rematchSolo(): void {
+  if (netMode) return;
   resetMatchEnd();
   // Derived from the PREVIOUS match's seed, not the boot constant: seeding
   // from (bootSeed + tick) alone has a fixed point — two matches of equal
@@ -1093,9 +1064,6 @@ function rematchSolo(): void {
   );
   startMatch([{ slot: 0, input: localInput }]);
 }
-
-endRematchBtn.addEventListener("click", () => rematchSolo());
-endMenuBtn.addEventListener("click", () => returnToMenu());
 
 function isMatchLive(): boolean {
   return phase === "match" || phase === "connecting";
@@ -1220,12 +1188,8 @@ addEventListener("keydown", (e) => {
     return;
   }
   e.preventDefault();
-  // The end card owns ESC once it is up: the match is over, so "pause" has
-  // nothing left to pause — ESC means leave.
-  if (matchEndShown) {
-    returnToMenu();
-    return;
-  }
+  // The results page answers only its two keys (render/results/resultsPage.ts).
+  if (matchEndShown) return;
   // The in-game menu's procedure ignores IDCANCEL: Escape opens it, and only
   // Resume Game closes it.
   openInGameMenu();
@@ -1606,13 +1570,6 @@ function pumpCosmetics(events: typeof sim.events): void {
   pumpSounds(events);
   fx.pump(events, resolveEventPosition);
   startMorphs(events);
-  // Kills credited to the local player, for the match-end stats row.
-  // EV_DEATH.b is the killer's player slot (-1 for unowned deaths).
-  const localSlot = views[0]?.slot ?? 0;
-  for (let i = 0; i < events.count; i++) {
-    const o = i * EVENT_STRIDE;
-    if (events.data[o] === EV_DEATH && events.data[o + 2] === localSlot) localKills += 1;
-  }
 }
 
 /** Scratch for the listener's position (the local mech, `snd_set_listener`). */
@@ -2183,8 +2140,9 @@ function frame(now: number): void {
   if (matchHud && views.length > 0) refreshMatchHud(views[0], alpha);
   if (matchHud && now - matchHudLastUpdate > 100) {
     matchHudLastUpdate = now;
-    // Match end on a 10 Hz cadence: once the sim freezes on a winner, give the
-    // death FX a beat, then put up the end card. Debug camera modes skip it —
+    // Match end on a 10 Hz cadence: once the sim freezes on a winner the
+    // results page opens, as the original's does when its countdown runs out
+    // (render/results/resultsPage.ts). Debug camera modes skip it —
     // they exist to look at the world (matchHud is undefined there anyway,
     // which is why this lives inside the guard).
     const endWinner = matchSnap[MATCH_WINNER] | 0;
@@ -2193,10 +2151,12 @@ function frame(now: number): void {
     } else if (winSeenAtMs < 0) {
       winSeenAtMs = now;
     }
-    if (winSeenAtMs >= 0 && !matchEndShown && now - winSeenAtMs > MATCH_END_DELAY_MS) {
+    if (winSeenAtMs >= 0 && !matchEndShown && now - winSeenAtMs >= MATCH_END_DELAY_MS) {
       showMatchEnd(endWinner);
     }
   }
+
+  results.frame(now);
 
   hudFrames++;
   if (now - hudLastUpdate > 1000) {

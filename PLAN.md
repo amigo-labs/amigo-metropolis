@@ -782,7 +782,8 @@ moves.
       arrows, blips by marker (V3)
 - [x] The Map Key's map screen: the top-down window, the pan, arrows, rings, the
       54-cell overview; solo pauses, online parks the view (V4)
-- [ ] The results page with its counters (the sim's statistics; a later task)
+- [x] The results page: the original's twenty figures per side in the sim (V7;
+      v76) and its page, layout, font, colours and two keys
 - [ ] The damage shake; the invulnerable gauge's blink; the radar's near-camera
       registry; arrows for the placed actors on the map screen (V1-V4)
 - [ ] La Cantina's solo start on side 2's base (V6: a map-import question)
