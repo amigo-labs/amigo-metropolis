@@ -50,6 +50,10 @@ import { join } from "node:path";
 // sim freezes (breach ticks themselves are unchanged — golden03/04 pin them);
 // 05 and 07 run imported arenas with no free production and no base guns.
 const FROZEN: Record<string, { last: number; count: number }> = {
+  // 03, 04 and 07 re-frozen at SIM_VERSION 87: a turret gun whose target is
+  // gone turns back to its rest yaw, and a target's death clears the turrets'
+  // hashed target at once (03 and 04 move at a tank's down, 07 at its first gun
+  // turning back); 01, 02, 05 and 06 hold.
   // 02, 03, 04, 05 and 07 re-frozen at SIM_VERSION 86: every PA turret stands
   // at its record's yaw (was pi/2 - a), which its gun points along until it
   // acquires a target; 01 and 06 carry no imported turret.
@@ -116,7 +120,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 03, 04 and 07 re-frozen at SIM_VERSION 82: the hashed First Death and
   // First Outpost stamps read the frame clock from 0 on the first tick (one
   // frame delta earlier); nothing in the tick reads them.
-  "golden-03-match": { last: 1911280253, count: 6000 },
+  "golden-03-match": { last: 2972253947, count: 6000 },
   // 04 and 07 re-frozen at SIM_VERSION 54: the captain takes its target without
   // a line of sight and walls stop its gun and missile at ground units too.
   // 03, 04 and 07 re-frozen at SIM_VERSION 55: captures by the octagonal estimate.
@@ -142,7 +146,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 03, 04 and 07 re-frozen at SIM_VERSION 82: the hashed First Death and
   // First Outpost stamps read the frame clock from 0 on the first tick (one
   // frame delta earlier); nothing in the tick reads them.
-  "golden-04-warden": { last: 3690343244, count: 4500 },
+  "golden-04-warden": { last: 4172189360, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -180,7 +184,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 03, 04 and 07 re-frozen at SIM_VERSION 82: the hashed First Death and
   // First Outpost stamps read the frame clock from 0 on the first tick (one
   // frame delta earlier); nothing in the tick reads them.
-  "golden-07-pa": { last: 3494686724, count: 3600 },
+  "golden-07-pa": { last: 3718343247, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

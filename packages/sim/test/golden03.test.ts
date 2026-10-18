@@ -53,6 +53,10 @@ import { createSim, step } from "../src/sim";
 // none as before at SIM_VERSION 86: the turrets stand at their record's yaw
 // (pi/2 - a until then); the mechs still go down 12 times, the ten tanks die
 // short (player 0's nearest now 29.4 m off, player 1's 31.6 m).
+// none as before at SIM_VERSION 87: a turret gun whose target is gone turns
+// back to its rest yaw (it kept its last aim); the mechs still go down 12
+// times, the ten tanks die short (player 0's nearest 27.4 m off, player 1's
+// 31.7 m), and one ring turret falls (none did).
 const BREACH_TICK_PIN = -1;
 const BREACH_TEAM_PIN = 0;
 

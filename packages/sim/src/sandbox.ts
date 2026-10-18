@@ -41,6 +41,7 @@ import { despawn, spawn } from "./entities";
 import { sampleHeight, worldExtent } from "./map";
 import {
   avatarMaxHp,
+  forgetTurretTarget,
   MODE_HOVER,
   MODE_WALKER,
   type SimState,
@@ -272,6 +273,8 @@ export function spawnSandbox(
   ent.yaw[id] = yaw;
   ent.aimX[id] = cosLUT(yaw);
   ent.aimY[id] = sinLUT(yaw);
+  // A turret's gun turns back here once its target is gone (sim.ts shooterTurret).
+  if (def.archetype === ARCHETYPE.TURRET) ent.restYaw[id] = yaw;
   if (def.archetype === ARCHETYPE.AVATAR) {
     // A stand-in avatar should be able to take and return fire, so give it the
     // kit capacity of the slot it nominally belongs to, on that slot's difficulty.
@@ -297,6 +300,7 @@ export function despawnSandbox(state: SimState, id: number): boolean {
   if (!Number.isInteger(id) || id < 0 || id >= ent.cap) return false;
   if (!ent.alive[id]) return false;
   if (isBookkept(state, id)) return false;
+  forgetTurretTarget(ent, id);
   despawn(ent, id);
   return true;
 }
@@ -330,6 +334,7 @@ export function clearSandboxSpawns(state: SimState): number {
     if (!ent.alive[id]) continue;
     if (ent.archetype[id] === ARCHETYPE.PROJECTILE) continue;
     if (isBookkept(state, id)) continue;
+    forgetTurretTarget(ent, id);
     despawn(ent, id);
     n++;
   }

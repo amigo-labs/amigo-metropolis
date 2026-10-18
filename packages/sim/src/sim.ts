@@ -726,6 +726,7 @@ function spawnDummy(state: SimState, k: number): number {
   // avatar-only targeting and its 15 s respawn are Metropolis'.
   ent.weaponProfile[id] = state.map.dummyWeapon;
   ent.radius[id] = NEUTRAL_TURRET_RADIUS; // drawn as a neutral; no original of its own
+  ent.restYaw[id] = ent.yaw[id];
   state.dummyEntity[k] = id;
   return id;
 }
@@ -750,6 +751,7 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   // The rest yaw. A turret's aimX/aimY are its shooter state (systemTargeting),
   // so they start at zero.
   if (state.map.turretYaw.length > 0) ent.yaw[id] = state.map.turretYaw[k];
+  ent.restYaw[id] = ent.yaw[id];
   state.neutralTurretEntity[k] = id;
   return id;
 }
@@ -777,6 +779,7 @@ function spawnPlateTurret(state: SimState, j: number): number {
   ent.weaponProfile[id] = spot.weapon;
   ent.radius[id] = state.map.radii.baseTurret;
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
+  ent.restYaw[id] = ent.yaw[id];
   state.plateTurretEntity[j] = id;
   return id;
 }
@@ -847,6 +850,7 @@ function spawnBaseTurret(state: SimState, k: number): number {
   ent.radius[id] = state.map.radii.baseTurret;
   // Rest yaw only: aimX/aimY are the shooter's state (systemTargeting).
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
+  ent.restYaw[id] = ent.yaw[id];
   state.baseTurretEntity[k] = id;
   return id;
 }
@@ -3424,7 +3428,9 @@ function shooterDue(ent: EntityStore, id: number, w: MapWeapon): boolean {
  *   but only when the countdown has run out, which reloads it with the
  *   targeting delay (2.0 s): the nearest enemy in reach with a line of sight,
  *   a team turret preferring the higher priority (Dreadnought > tank > X1);
- * - the gun slews toward its target at the original's turn rate every tick;
+ * - the gun slews toward its target at the original's turn rate every tick,
+ *   and with none — dropped by its due round, or dead (forgetTurretTarget) —
+ *   back toward its rest yaw at the same rate (turretRest);
  * - the round goes out only if its (lead-)aim lies within 22.5° of the barrel
  *   and the line is clear; otherwise it is put back and the clock pushed back
  *   0-0.85 s at random (the sim PRNG).
@@ -3442,6 +3448,7 @@ function shooterTurret(state: SimState, id: number, w: MapWeapon): void {
       ent.cooldownB[id] = search;
     }
     if (target >= 0 && ent.alive[target]) turretSlew(state, id, target, w);
+    else turretRest(ent, id, w);
     return;
   }
   if (target >= 0 && !shooterTargetValid(state, id, target, w.range)) target = -1;
@@ -3460,7 +3467,11 @@ function shooterTurret(state: SimState, id: number, w: MapWeapon): void {
   }
   ent.cooldownB[id] = search;
   ent.cooldownC[id] = target + 1;
-  if (target < 0) return; // the round waits, the clock stopped
+  if (target < 0) {
+    // The round waits, the clock stopped, and the gun turns back to rest.
+    turretRest(ent, id, w);
+    return;
+  }
   turretSlew(state, id, target, w);
   if (!aimRound(state, id, target, w)) return;
   const fx = cosLUT(ent.yaw[id]);
@@ -3487,6 +3498,39 @@ function turretSlew(state: SimState, id: number, target: number, w: MapWeapon): 
   const bearing = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
   if (w.turnSpeed > 0) slewTo(ent, id, bearing, w.turnSpeed);
   else ent.yaw[id] = bearing;
+}
+
+/**
+ * A turret's gun whose target is gone turns back to its rest yaw, the record's
+ * angle it was built at (EntityStore.restYaw), at the same rate it aims by
+ * (`turret_tick` 0x0041c680, RE turret.c 1157-1175: with its shooter's target
+ * null or its serial changed the yaw wanted is `rest_yaw`, no pitch; the turn
+ * `turret_turn`, at most `turn_rate * dt` and never past it). Every PA record
+ * aims by its shooter's target (record flag 0x01, TURRET_DF_SHOOTER_TARGET) and
+ * none sets 0x20, the 3/16-turn hold about the rest yaw (TURRET_DF_ARC), so
+ * neither the search's sweep nor the hold is reachable (fcop-fidelity.md G12).
+ */
+function turretRest(ent: EntityStore, id: number, w: MapWeapon): void {
+  const rest = ent.restYaw[id];
+  if (w.turnSpeed > 0) slewTo(ent, id, rest, w.turnSpeed);
+  else ent.yaw[id] = rest;
+}
+
+/**
+ * A death as every turret sees it: the original's turret checks its shooter's
+ * target against the serial it took every tick (`turret_tick` 0x0041c4bb), and
+ * `cact_kill` zeroes the dead actor's serial, so from the next tick no turret
+ * aims at it — even where the sim has reused its id by then (the free-list is
+ * LIFO, and a round usually takes it). Clears each turret's target naming `id`;
+ * its next due round searches, as the original's does on the serial's mismatch.
+ */
+export function forgetTurretTarget(ent: EntityStore, id: number): void {
+  const ref = id + 1;
+  for (let t = 0; t < ent.high; t++) {
+    if (ent.alive[t] && ent.archetype[t] === ARCHETYPE.TURRET && ent.cooldownC[t] === ref) {
+      ent.cooldownC[t] = 0;
+    }
+  }
 }
 
 /** The shooter's own keep-target test: alive, still an enemy, inside reach. */
@@ -4263,6 +4307,7 @@ function systemDamageDeath(state: SimState): void {
         }
       }
     }
+    forgetTurretTarget(ent, id);
     despawn(ent, id);
   }
 }

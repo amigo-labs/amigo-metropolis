@@ -41,7 +41,10 @@
 // jump after its wind-up): it goes down twice, at 109 s and 137 s, and the
 // captain's tanks still do not breach. Since SIM_VERSION 84 the captain's
 // queues poll on the original's engine-tick countdowns: the same ten tanks and
-// a jet, the claim, and the player down twice (98 s, 122 s); no breach.
+// a jet, the claim, and the player down twice (98 s, 122 s); no breach. Since
+// SIM_VERSION 87 a turret gun whose target is gone turns back to its rest yaw:
+// the same ten tanks, the jet and the claim, the player down twice (96 s,
+// 134 s); no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";

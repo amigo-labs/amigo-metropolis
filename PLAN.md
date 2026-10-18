@@ -793,9 +793,9 @@ no golden moves.
       rebuild's pixels agree; `gen:units --check`
 - [x] The turret guns' rest yaw: the record's a, where the sim had pi/2 - a
       (`rotToYaw` with the -1024 bias); the six maps regenerated (G12; v86)
-- [ ] A turret gun whose target is gone turns back to its rest yaw (RE turret.c
-      1157-1175), and holds within 3/16 of a turn of it where the record says
-      (G12, W3)
+- [x] A turret gun whose target is gone turns back to its rest yaw (RE turret.c
+      1157-1175), and holds within 3/16 of a turn of it where the record says:
+      no PA record says so (all 376 carry flag byte 0x07, no 0x20) (G12, W3; v87)
 - [x] Team colour by the original's texture offsets in place of the invented
       desaturate-and-tint: per side, per capture state, the X1's beacon kept;
       the side from `render/sides.ts` (G4)

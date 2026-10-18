@@ -1287,4 +1287,21 @@
 //     regenerated. A turret's yaw is where its gun points until it acquires a
 //     target; nothing else moves. Every golden on a PA arena (02, 03, 04, 05,
 //     07) moves from tick 0 for the turrets' yaws; 01 and 06 re-header only.
-export const SIM_VERSION = 86;
+// v87: a turret gun whose target is gone turns back to its rest yaw
+//     (fcop-fidelity.md G12, W3; RE turret.c 1157-1175, `turret_tick`
+//     0x0041c680): with its shooter's target null or its serial changed the yaw
+//     wanted is `rest_yaw`, turned at the rate it aims by (`turret_turn`, at most
+//     turn_rate * dt, never past it: 110 units, 0.1687 rad, a tick). The rest
+//     yaw is the yaw a turret is built at (EntityStore.restYaw, a side array set
+//     at the spawn like radius, not hashed). The gun kept the yaw it last aimed
+//     at. A death is the serial's change: systemDamageDeath clears every
+//     turret's target naming the dead id (forgetTurretTarget), so from the next
+//     tick no gun aims at whatever takes the id; it was dropped by the next due
+//     round only, and the gun meanwhile followed the id's new holder (a round,
+//     as a rule). No PA record sets the 3/16-turn hold (record flag 0x20,
+//     TURRET_DF_ARC) and every one aims by its shooter's target (flag 0x01): all
+//     376 type-8/36 records carry flag byte 0x07. 03 and 04 move at the first
+//     down of a turret's target (a tank: its target forgotten, cooldownC
+//     hashed), 07 at its first gun turning back (tick 812); 01, 02, 05 and 06
+//     hold.
+export const SIM_VERSION = 87;
