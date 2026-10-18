@@ -21,7 +21,11 @@
 //   every arena (SIM_VERSION 79; Mp's team 0 was side 2 before). Read off the
 //   Dreadnought records here and checked against the map's base cores;
 // - the turret's gun on its base's attach point 0, the Dreadnought's four guns
-//   on its hull's attach points 0-3 (the glb frame, metres);
+//   on its hull's attach points 0-3 (the glb frame, metres). The mount reads
+//   the hull's point in the hull's current frame every tick, so a hull that
+//   animates (Joke's) gives each gun its point per frame (`hull_point.by_frame`,
+//   RE mount.c 526-530); the construct places a turret's gun once, on frame 0
+//   (RE `gun_point_frame`, turret.c 913-918), and no base animates anyway;
 // - Hk's two neutral turret sets (32/33 and 43/44), by the spot's record;
 // - the Sky Captain's model by level (one record per level band);
 // - each model's AnmD track 0 the client plays: the jet's rotor and Joke's
@@ -89,7 +93,11 @@ interface PaRole {
   readonly guns?: readonly {
     readonly gun: number;
     readonly cobj: number;
-    readonly hull_point: { readonly glb_xyz: readonly number[] };
+    readonly hull_point: {
+      readonly glb_xyz: readonly number[];
+      /** The point in each of the hull's frames (RE `cact_model_point`), frames > 1. */
+      readonly by_frame?: readonly (readonly number[] | null)[];
+    };
   }[];
   readonly capture?: readonly {
     readonly uv_after_capture: Readonly<Record<string, Uv>>;
@@ -186,7 +194,11 @@ interface ArenaUnits {
   tank: { model: string; uv: SideUv };
   jet: { model: string; uv: SideUv };
   fortress: { model: string; uv: SideUv };
-  dreadnought: { hull: string; uv: SideUv; guns: { model: string; point: Vec3 }[] };
+  dreadnought: {
+    hull: string;
+    uv: SideUv;
+    guns: { model: string; point: Vec3; byFrame: Vec3[] | null }[];
+  };
   baseTurret: Turret;
   neutralTurrets: (Turret & { spots: number[] })[];
   skyCaptain: { byLevel: string[]; uv: SideUv };
@@ -485,12 +497,27 @@ function readArena(arena: FcopArena, reRepo: string): ArenaRead {
   const fortress = sided("flying_fortress");
   const dread = sided("dreadnought");
   const hull = partCobj(dread.role, "hull", `${mapId} dreadnought`);
+  // The hull's frames, as its track counts them (morphOf): by_frame[k] is the
+  // point while the hull shows frame k, k the client's morph frame.
+  const hullFrames = pa.models[String(hull)]?.anim?.frames ?? 1;
   const guns = (dread.role.guns ?? []).map((g, i) => {
     if (g.gun !== i) throw new Error(`${mapId}: Dreadnought gun ${g.gun} out of order`);
-    return {
-      model: use(g.cobj, "part", dread.uv),
-      point: vec3(g.hull_point.glb_xyz, `${mapId} gun ${i}`),
-    };
+    const what = `${mapId} gun ${i}`;
+    const point = vec3(g.hull_point.glb_xyz, what);
+    const frames = g.hull_point.by_frame;
+    if ((frames?.length ?? 1) !== hullFrames) {
+      throw new Error(`${what}: ${frames?.length ?? 1} point frames, the hull has ${hullFrames}`);
+    }
+    const byFrame = frames
+      ? frames.map((p, k) => {
+          if (!p) throw new Error(`${what}: no point in hull frame ${k}`);
+          return vec3(p, `${what} frame ${k}`);
+        })
+      : null;
+    if (byFrame?.[0].some((c, j) => c !== point[j])) {
+      throw new Error(`${what}: frame 0 is not the point`);
+    }
+    return { model: use(g.cobj, "part", dread.uv), point, byFrame };
   });
   if (guns.length !== 4) throw new Error(`${mapId}: ${guns.length} Dreadnought guns`);
 
@@ -643,8 +670,16 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
     "  readonly dreadnought: {",
     "    readonly hull: string;",
     "    readonly uv: SideUv;",
-    "    /** Gun i on the hull's attach point i (RE mount.c 526-546). */",
-    "    readonly guns: readonly { readonly model: string; readonly point: ModelPoint }[];",
+    "    /**",
+    "     * Gun i on the hull's attach point i (RE mount.c 526-546), read in the",
+    "     * hull's current frame every tick: `byFrame[k]` while the hull shows",
+    "     * frame k of its track, `point` (frame 0) when it has one frame (null).",
+    "     */",
+    "    readonly guns: readonly {",
+    "      readonly model: string;",
+    "      readonly point: ModelPoint;",
+    "      readonly byFrame: readonly ModelPoint[] | null;",
+    "    }[];",
     "  };",
     "  readonly baseTurret: TurretModels;",
     "  /** By capture state: [neutral, taken by side 1, taken by side 2] (RE turret.c 1319-1342). */",
@@ -686,7 +721,10 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
       `      uv: ${uvs(u.dreadnought.uv)},`,
       "      guns: [",
       ...u.dreadnought.guns.map(
-        (g) => `        { model: ${json(g.model)}, point: ${vec(g.point)} },`,
+        (g) =>
+          `        { model: ${json(g.model)}, point: ${vec(g.point)}, byFrame: ${
+            g.byFrame ? `[${g.byFrame.map(vec).join(", ")}]` : "null"
+          } },`,
       ),
       "      ],",
       "    },",

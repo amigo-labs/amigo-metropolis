@@ -10,6 +10,8 @@ import {
   arenaUnitsFor,
   bakedPoint,
   gunMatrix,
+  gunPointOf,
+  gunPointTable,
   spotKey,
   turretSpotsOf,
 } from "../src/render/arenaUnits";
@@ -401,6 +403,78 @@ describe("the Dreadnought's guns on their hull points", () => {
     expect(p0.x).toBeCloseTo(0.283203, 6);
     expect(p0.y).toBeCloseTo(0.486328, 6);
     expect(p0.z).toBeCloseTo(0.267578, 6);
+  });
+});
+
+describe("the guns ride the hull's frame (RE cact_mount_step -> cact_model_point)", () => {
+  const joke = ARENA_UNITS["bug-hunt"].dreadnought;
+  const hullTrack = UNIT_MODEL_FILES.find((f) => f.file === joke.hull)?.morph;
+
+  test("Joke's hull gives every gun its point in each of its 20 frames", () => {
+    expect(hullTrack?.frames).toBe(20);
+    for (const g of joke.guns) {
+      expect(g.byFrame?.length).toBe(20);
+      expect(g.byFrame?.[0]).toEqual(g.point);
+    }
+    // RE pa_models.json, hull 35 vertex 99 (gun 0): frame 0 and frame 12,
+    // where the walk has carried it 0.56 m up and 0.35 m aft.
+    expect(joke.guns[0].byFrame?.[0]).toEqual([-0.277344, 1.103516, 0.554688]);
+    expect(joke.guns[0].byFrame?.[12]).toEqual([-0.277344, 1.662109, 0.207031]);
+    // The walk moves the points in y and z only, and every gun moves.
+    for (const g of joke.guns) {
+      const rows = g.byFrame ?? [];
+      expect(new Set(rows.map((p) => p[0])).size).toBe(1);
+      expect(new Set(rows.map((p) => `${p[1]},${p[2]}`)).size).toBeGreaterThan(10);
+    }
+    // Every other hull has one frame, so its guns have one point.
+    for (const [mapId, u] of Object.entries(ARENA_UNITS)) {
+      if (mapId === "bug-hunt") continue;
+      for (const g of u.dreadnought.guns) expect(g.byFrame).toBeNull();
+    }
+  });
+
+  test("a gun stands on the point of the frame the hull shows, baked like the hull", () => {
+    const table = gunPointTable(joke.guns);
+    expect(table.frames).toBe(20);
+    const at = new THREE.Vector3();
+    const want = new THREE.Vector3();
+    for (let i = 0; i < 4; i++) {
+      for (let k = 0; k < 20; k++) {
+        bakedPoint(joke.guns[i].byFrame?.[k] ?? joke.guns[i].point, want);
+        expect(gunPointOf(table, i, k, at).distanceTo(want)).toBeLessThan(1e-6);
+      }
+    }
+    // Frame 0 and frame 12 are not one place: the table is not frame 0 again.
+    const f0 = gunPointOf(table, 0, 0, new THREE.Vector3());
+    expect(gunPointOf(table, 0, 12, at).distanceTo(f0)).toBeGreaterThan(0.5);
+    // A frame past the track is frame 0's, as a frame-0 hull's would be.
+    expect(gunPointOf(table, 0, 20, at).distanceTo(f0)).toBe(0);
+    // A one-frame hull (Mp's) has one row: every frame is the guns' point.
+    const mp = ARENA_UNITS["la-cantina"].dreadnought;
+    const one = gunPointTable(mp.guns);
+    expect(one.frames).toBe(1);
+    bakedPoint(mp.guns[2].point, want);
+    expect(gunPointOf(one, 2, 7, at).distanceTo(want)).toBeLessThan(1e-6);
+  });
+
+  test("walked twelve periods, the hull shows frame 12 and gun 0 stands on its point", () => {
+    if (!hullTrack) throw new Error("no hull track");
+    const t = new TrackClock();
+    t.advance(0);
+    // place() steps the hull's track by the distance it moved, then reads the
+    // guns' points at the frame it returned.
+    const metres = (12.5 * hullTrack.period) / 8192;
+    let frame = t.frameOf(9, 3, hullTrack, 0, 0, 0);
+    for (let x = 0.02; x <= metres; x += 0.02) {
+      t.advance(1 / 60);
+      frame = t.frameOf(9, 3, hullTrack, x, 0, 0);
+    }
+    expect(frame).toBe(12);
+    const at = gunPointOf(gunPointTable(joke.guns), 0, frame, new THREE.Vector3());
+    // The glb's (x, y, z) baked onto the sim's +x forward: (z, y, -x).
+    expect(at.x).toBeCloseTo(0.207031, 6);
+    expect(at.y).toBeCloseTo(1.662109, 6);
+    expect(at.z).toBeCloseTo(0.277344, 6);
   });
 });
 

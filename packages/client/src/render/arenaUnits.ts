@@ -20,7 +20,10 @@
 // Dreadnought carries four guns on its hull's attach points 0-3 (RE mount.c
 // 526-546), each its own actor in the original, turning on its point by its
 // own yaw (the sim's gun snapshot); they draw from a part bucket per gun
-// model. These are declared exceptions to "one InstancedMesh per archetype"
+// model. The mount reads the point in the hull's current frame every tick, so
+// on Joke's walking hull each gun rides the frame the hull shows (gunPointOf).
+// A turret's gun is placed once, on frame 0 (RE turret.c 913-918), and no
+// base animates. These are declared exceptions to "one InstancedMesh per archetype"
 // (assets.md §4): the parts have their own transforms in the original too.
 //
 // Team colour is the original's: a texture offset per instance onto the side's
@@ -168,6 +171,47 @@ export function gunMatrix(
   return out.multiplyMatrices(hull, scratchGun);
 }
 
+/**
+ * Every gun's point in every frame of its hull's track, in the baked frame
+ * (bakedPoint): `[frame][gun][x, y, z]`, frame k at row k. A hull of one frame
+ * is one row, the guns' `point`. Built at arena load.
+ */
+export interface GunPointTable {
+  readonly frames: number;
+  readonly xyz: Float32Array;
+}
+
+export function gunPointTable(guns: ArenaUnits["dreadnought"]["guns"]): GunPointTable {
+  const frames = guns[0]?.byFrame?.length ?? 1;
+  const xyz = new Float32Array(frames * 4 * 3);
+  const at = new THREE.Vector3();
+  for (let i = 0; i < guns.length && i < 4; i++) {
+    const rows = guns[i].byFrame;
+    if ((rows?.length ?? 1) !== frames) throw new Error(`gun ${i}: not ${frames} frames`);
+    for (let k = 0; k < frames; k++) {
+      bakedPoint(rows ? rows[k] : guns[i].point, at);
+      at.toArray(xyz, (k * 4 + i) * 3);
+    }
+  }
+  return { frames, xyz };
+}
+
+/**
+ * Gun `gun`'s point while its hull shows `frame` (RE `cact_model_point` on the
+ * hull's +0x70, read by `cact_mount_step` every tick). The morph steps whole
+ * frames, so the point does too; a frame past the table is frame 0's.
+ */
+export function gunPointOf(
+  table: GunPointTable,
+  gun: number,
+  frame: number,
+  out: THREE.Vector3,
+): THREE.Vector3 {
+  const k = frame >= 0 && frame < table.frames ? frame : 0;
+  const o = (k * 4 + gun) * 3;
+  return out.set(table.xyz[o], table.xyz[o + 1], table.xyz[o + 2]);
+}
+
 interface TurretSet {
   readonly gun: Bucket;
   readonly base: Bucket;
@@ -269,6 +313,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const scratchMatrix = new THREE.Matrix4();
 const scratchRest = new THREE.Quaternion();
 const scratchAt = new THREE.Vector3();
+const scratchGunPoint = new THREE.Vector3();
 
 /** One file per session: its geometry is already turned onto the sim's +x. */
 const assets = new Map<string, Promise<UnitAsset>>();
@@ -386,9 +431,9 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
   // arena, guns 0/1 and 2/3), each with room for every gun of every hull.
   const hullCap = greybox.juggernaut.tintCache.length;
   const gunBuckets: Bucket[] = [0, 1, 2, 3].map(() => partBucket(scene, hullCap * 4));
-  /** Per gun: its bucket, and its attach point in the baked frame. */
+  /** Per gun: its bucket; and every gun's attach point by hull frame. */
   const gunOf = new Int8Array(4).fill(-1);
-  const gunPoints = [0, 1, 2, 3].map(() => new THREE.Vector3());
+  let gunPoints: GunPointTable = { frames: 1, xyz: new Float32Array(12) };
   let gunsReady = false;
   const parts: Bucket[] = [defense.base, neutral.base, neutralB.gun, neutralB.base, ...gunBuckets];
   let spots: TurretSpots = { restYaw: new Map(), neutralSet: new Map() };
@@ -527,8 +572,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
         models.push(guns[i].model);
       }
       gunOf[i] = b;
-      bakedPoint(guns[i].point, gunPoints[i]);
     }
+    gunPoints = gunPointTable(guns);
     Promise.all(models.map((m, b) => swap(gunBuckets[b], m, units.dreadnought.uv, cancelled))).then(
       () => {
         if (cancelled()) return;
@@ -631,10 +676,11 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       bucket.mesh.setMatrixAt(slot, scratchMatrix);
       colour(bucket, bindings.get(bucket), slot, team);
       const morph = morphs.get(bucket);
+      let frame = 0;
       if (morph) {
         // Frame by frame at the track's period (RE `cact_anim_step`): 10 / 300 s
         // a frame for the rotor, 575 world units walked for Joke's tank.
-        const frame = tracks.frameOf(id, archetype, morph.track, pos.x, pos.y, pos.z);
+        frame = tracks.frameOf(id, archetype, morph.track, pos.x, pos.y, pos.z);
         const a = morph.texture.image.data as Float32Array;
         const row = slot * morph.len;
         a[row] = 1; // relative targets: the base always counts in full
@@ -642,13 +688,17 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
         morph.dirty = true;
       }
       if (archetype === ARCHETYPE.JUGGERNAUT && gunsReady && bucket === greybox.juggernaut) {
-        // Each gun at its own yaw on its point; the guns wear the hull's
-        // offset (RE mount.c 714-715).
+        // Each gun at its own yaw on its point in the frame the hull shows;
+        // the guns wear the hull's offset (RE mount.c 714-715).
         for (let i = 0; i < 4; i++) {
           const gb = gunBuckets[gunOf[i]];
           const gs = claim(gb, "Dreadnought gun");
           if (gs < 0) continue;
-          gb.mesh.setMatrixAt(gs, gunMatrix(scratchMatrix, gunPoints[i], guns[i], scratchGunOut));
+          gunPointOf(gunPoints, i, frame, scratchGunPoint);
+          gb.mesh.setMatrixAt(
+            gs,
+            gunMatrix(scratchMatrix, scratchGunPoint, guns[i], scratchGunOut),
+          );
           colour(gb, bindings.get(gb), gs, team);
         }
       }

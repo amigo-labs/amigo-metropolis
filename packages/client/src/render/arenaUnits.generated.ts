@@ -74,8 +74,16 @@ export interface ArenaUnits {
   readonly dreadnought: {
     readonly hull: string;
     readonly uv: SideUv;
-    /** Gun i on the hull's attach point i (RE mount.c 526-546). */
-    readonly guns: readonly { readonly model: string; readonly point: ModelPoint }[];
+    /**
+     * Gun i on the hull's attach point i (RE mount.c 526-546), read in the
+     * hull's current frame every tick: `byFrame[k]` while the hull shows
+     * frame k of its track, `point` (frame 0) when it has one frame (null).
+     */
+    readonly guns: readonly {
+      readonly model: string;
+      readonly point: ModelPoint;
+      readonly byFrame: readonly ModelPoint[] | null;
+    }[];
   };
   readonly baseTurret: TurretModels;
   /** By capture state: [neutral, taken by side 1, taken by side 2] (RE turret.c 1319-1342). */
@@ -719,10 +727,10 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 78 },
       ],
       guns: [
-        { model: "la-cantina/obj_037", point: [-0.267578, 0.486328, 0.283203] },
-        { model: "la-cantina/obj_037", point: [0.257812, 0.486328, 0.283203] },
-        { model: "la-cantina/obj_038", point: [-0.263672, 0.794922, -0.404297] },
-        { model: "la-cantina/obj_038", point: [0.253906, 0.794922, -0.404297] },
+        { model: "la-cantina/obj_037", point: [-0.267578, 0.486328, 0.283203], byFrame: null },
+        { model: "la-cantina/obj_037", point: [0.257812, 0.486328, 0.283203], byFrame: null },
+        { model: "la-cantina/obj_038", point: [-0.263672, 0.794922, -0.404297], byFrame: null },
+        { model: "la-cantina/obj_038", point: [0.253906, 0.794922, -0.404297], byFrame: null },
       ],
     },
     baseTurret: {
@@ -821,10 +829,10 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 78 },
       ],
       guns: [
-        { model: "urban-jungle/obj_038", point: [-0.267578, 0.486328, 0.283203] },
-        { model: "urban-jungle/obj_038", point: [0.257812, 0.486328, 0.283203] },
-        { model: "urban-jungle/obj_039", point: [-0.263672, 0.794922, -0.404297] },
-        { model: "urban-jungle/obj_039", point: [0.253906, 0.794922, -0.404297] },
+        { model: "urban-jungle/obj_038", point: [-0.267578, 0.486328, 0.283203], byFrame: null },
+        { model: "urban-jungle/obj_038", point: [0.257812, 0.486328, 0.283203], byFrame: null },
+        { model: "urban-jungle/obj_039", point: [-0.263672, 0.794922, -0.404297], byFrame: null },
+        { model: "urban-jungle/obj_039", point: [0.253906, 0.794922, -0.404297], byFrame: null },
       ],
     },
     baseTurret: {
@@ -923,10 +931,10 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 78 },
       ],
       guns: [
-        { model: "proving-ground/obj_037", point: [-0.267578, 0.486328, 0.283203] },
-        { model: "proving-ground/obj_037", point: [0.257812, 0.486328, 0.283203] },
-        { model: "proving-ground/obj_038", point: [-0.263672, 0.794922, -0.404297] },
-        { model: "proving-ground/obj_038", point: [0.253906, 0.794922, -0.404297] },
+        { model: "proving-ground/obj_037", point: [-0.267578, 0.486328, 0.283203], byFrame: null },
+        { model: "proving-ground/obj_037", point: [0.257812, 0.486328, 0.283203], byFrame: null },
+        { model: "proving-ground/obj_038", point: [-0.263672, 0.794922, -0.404297], byFrame: null },
+        { model: "proving-ground/obj_038", point: [0.253906, 0.794922, -0.404297], byFrame: null },
       ],
     },
     baseTurret: {
@@ -1025,10 +1033,10 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 78 },
       ],
       guns: [
-        { model: "hollywood-keys/obj_037", point: [-0.267578, 0.486328, 0.283203] },
-        { model: "hollywood-keys/obj_037", point: [0.257812, 0.486328, 0.283203] },
-        { model: "hollywood-keys/obj_038", point: [-0.263672, 0.794922, -0.404297] },
-        { model: "hollywood-keys/obj_038", point: [0.253906, 0.794922, -0.404297] },
+        { model: "hollywood-keys/obj_037", point: [-0.267578, 0.486328, 0.283203], byFrame: null },
+        { model: "hollywood-keys/obj_037", point: [0.257812, 0.486328, 0.283203], byFrame: null },
+        { model: "hollywood-keys/obj_038", point: [-0.263672, 0.794922, -0.404297], byFrame: null },
+        { model: "hollywood-keys/obj_038", point: [0.253906, 0.794922, -0.404297], byFrame: null },
       ],
     },
     baseTurret: {
@@ -1138,10 +1146,10 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 78 },
       ],
       guns: [
-        { model: "venice-beach/obj_037", point: [-0.267578, 0.486328, 0.283203] },
-        { model: "venice-beach/obj_037", point: [0.257812, 0.486328, 0.283203] },
-        { model: "venice-beach/obj_038", point: [-0.263672, 0.794922, -0.404297] },
-        { model: "venice-beach/obj_038", point: [0.253906, 0.794922, -0.404297] },
+        { model: "venice-beach/obj_037", point: [-0.267578, 0.486328, 0.283203], byFrame: null },
+        { model: "venice-beach/obj_037", point: [0.257812, 0.486328, 0.283203], byFrame: null },
+        { model: "venice-beach/obj_038", point: [-0.263672, 0.794922, -0.404297], byFrame: null },
+        { model: "venice-beach/obj_038", point: [0.253906, 0.794922, -0.404297], byFrame: null },
       ],
     },
     baseTurret: {
@@ -1240,10 +1248,110 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 39 },
       ],
       guns: [
-        { model: "bug-hunt/obj_036", point: [-0.277344, 1.103516, 0.554688] },
-        { model: "bug-hunt/obj_036", point: [0.273438, 1.095703, 0.544922] },
-        { model: "bug-hunt/obj_037", point: [0.28125, 1.085938, -0.568359] },
-        { model: "bug-hunt/obj_037", point: [-0.271484, 1.085938, -0.570312] },
+        {
+          model: "bug-hunt/obj_036",
+          point: [-0.277344, 1.103516, 0.554688],
+          byFrame: [
+            [-0.277344, 1.103516, 0.554688],
+            [-0.277344, 1.189453, 0.564453],
+            [-0.277344, 1.277344, 0.621094],
+            [-0.277344, 1.349609, 0.705078],
+            [-0.277344, 1.390625, 0.794922],
+            [-0.277344, 1.404297, 0.867188],
+            [-0.277344, 1.400391, 0.914062],
+            [-0.277344, 1.390625, 0.931641],
+            [-0.277344, 1.396484, 0.867188],
+            [-0.277344, 1.433594, 0.666016],
+            [-0.277344, 1.558594, 0.410156],
+            [-0.277344, 1.628906, 0.261719],
+            [-0.277344, 1.662109, 0.207031],
+            [-0.277344, 1.664062, 0.214844],
+            [-0.277344, 1.644531, 0.248047],
+            [-0.277344, 1.597656, 0.300781],
+            [-0.277344, 1.527344, 0.373047],
+            [-0.277344, 1.433594, 0.443359],
+            [-0.277344, 1.326172, 0.505859],
+            [-0.277344, 1.210938, 0.542969],
+          ],
+        },
+        {
+          model: "bug-hunt/obj_036",
+          point: [0.273438, 1.095703, 0.544922],
+          byFrame: [
+            [0.273438, 1.095703, 0.544922],
+            [0.273438, 1.181641, 0.554688],
+            [0.273438, 1.271484, 0.609375],
+            [0.273438, 1.34375, 0.693359],
+            [0.273438, 1.386719, 0.785156],
+            [0.273438, 1.400391, 0.855469],
+            [0.273438, 1.396484, 0.902344],
+            [0.273438, 1.386719, 0.919922],
+            [0.273438, 1.392578, 0.855469],
+            [0.273438, 1.429688, 0.654297],
+            [0.273438, 1.552734, 0.398438],
+            [0.273438, 1.621094, 0.251953],
+            [0.273438, 1.652344, 0.197266],
+            [0.273438, 1.65625, 0.205078],
+            [0.273438, 1.634766, 0.238281],
+            [0.273438, 1.589844, 0.291016],
+            [0.273438, 1.517578, 0.363281],
+            [0.273438, 1.425781, 0.435547],
+            [0.273438, 1.318359, 0.496094],
+            [0.273438, 1.203125, 0.535156],
+          ],
+        },
+        {
+          model: "bug-hunt/obj_037",
+          point: [0.28125, 1.085938, -0.568359],
+          byFrame: [
+            [0.28125, 1.085938, -0.568359],
+            [0.28125, 1.193359, -0.572266],
+            [0.28125, 1.308594, -0.53125],
+            [0.28125, 1.40625, -0.460938],
+            [0.28125, 1.478516, -0.376953],
+            [0.28125, 1.515625, -0.308594],
+            [0.28125, 1.511719, -0.263672],
+            [0.28125, 1.462891, -0.25],
+            [0.28125, 1.382812, -0.314453],
+            [0.28125, 1.267578, -0.503906],
+            [0.28125, 1.234375, -0.726562],
+            [0.28125, 1.21875, -0.847656],
+            [0.28125, 1.226562, -0.894531],
+            [0.28125, 1.244141, -0.892578],
+            [0.28125, 1.259766, -0.869141],
+            [0.28125, 1.267578, -0.828125],
+            [0.28125, 1.261719, -0.767578],
+            [0.28125, 1.238281, -0.699219],
+            [0.28125, 1.195312, -0.634766],
+            [0.28125, 1.142578, -0.587891],
+          ],
+        },
+        {
+          model: "bug-hunt/obj_037",
+          point: [-0.271484, 1.085938, -0.570312],
+          byFrame: [
+            [-0.271484, 1.085938, -0.570312],
+            [-0.271484, 1.195312, -0.574219],
+            [-0.271484, 1.308594, -0.535156],
+            [-0.271484, 1.408203, -0.464844],
+            [-0.271484, 1.480469, -0.380859],
+            [-0.271484, 1.517578, -0.310547],
+            [-0.271484, 1.511719, -0.267578],
+            [-0.271484, 1.464844, -0.251953],
+            [-0.271484, 1.382812, -0.316406],
+            [-0.271484, 1.267578, -0.505859],
+            [-0.271484, 1.232422, -0.728516],
+            [-0.271484, 1.216797, -0.851562],
+            [-0.271484, 1.224609, -0.898438],
+            [-0.271484, 1.244141, -0.894531],
+            [-0.271484, 1.259766, -0.873047],
+            [-0.271484, 1.267578, -0.832031],
+            [-0.271484, 1.261719, -0.769531],
+            [-0.271484, 1.238281, -0.703125],
+            [-0.271484, 1.197266, -0.638672],
+            [-0.271484, 1.142578, -0.591797],
+          ],
+        },
       ],
     },
     baseTurret: {
