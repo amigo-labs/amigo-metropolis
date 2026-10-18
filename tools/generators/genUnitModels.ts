@@ -32,6 +32,7 @@ import {
   type Document,
   getBounds,
   type Mesh,
+  type Node,
   NodeIO,
   type Primitive,
   PropertyType,
@@ -107,11 +108,12 @@ interface ModelPass {
   readonly teamUvExclude?: readonly string[];
   /**
    * Keep the morph frames: the track the client plays
-   * (packages/client/src/render/arenaUnits.ts, render/props.ts). Every other
-   * model ships frame 0 and no targets.
+   * (packages/client/src/render/arenaUnits.ts, render/props.ts). A `skeleton`
+   * model's frames are its joint poses, baked here into morph targets. Every
+   * other model ships frame 0 and no targets.
    */
-  readonly keepMorph?: "morph";
-  /** The frames a kept morph has, base included: what the targets must number. */
+  readonly keepMorph?: "morph" | "skeleton";
+  /** The frames a kept morph has, base included: what the bake must produce. */
   readonly morphFrames?: number;
 }
 
@@ -150,7 +152,7 @@ const PASSES: readonly ModelPass[] = [
     groundY: spec.treatment !== "part",
     dropFxAttachments: true,
     dropBillboards: spec.treatment !== "part",
-    keepMorph: spec.morph ? ("morph" as const) : undefined,
+    keepMorph: spec.morph?.source,
     morphFrames: spec.morph?.frames,
   })),
   ...PROP_MODELS.map((spec) => ({
@@ -236,6 +238,189 @@ function transformDirection(m: readonly number[], v: readonly number[]): number[
   const z = m[2] * v[0] + m[6] * v[1] + m[10] * v[2];
   const len = Math.sqrt(x * x + y * y + z * z);
   return len > 0 ? [x / len, y / len, z / len] : [0, 1, 0];
+}
+
+/** Stash name of a kept morph target's POSITION delta (see processModel). */
+const MORPH_PREFIX = "_MORPH";
+
+/** Column-major TRS matrix, as glTF composes a node's local transform. */
+function composeTrs(t: readonly number[], q: readonly number[], s: readonly number[]): number[] {
+  const [x, y, z, w] = q;
+  const x2 = x + x;
+  const y2 = y + y;
+  const z2 = z + z;
+  const xx = x * x2;
+  const xy = x * y2;
+  const xz = x * z2;
+  const yy = y * y2;
+  const yz = y * z2;
+  const zz = z * z2;
+  const wx = w * x2;
+  const wy = w * y2;
+  const wz = w * z2;
+  return [
+    (1 - (yy + zz)) * s[0],
+    (xy + wz) * s[0],
+    (xz - wy) * s[0],
+    0,
+    (xy - wz) * s[1],
+    (1 - (xx + zz)) * s[1],
+    (yz + wx) * s[1],
+    0,
+    (xz + wy) * s[2],
+    (yz - wx) * s[2],
+    (1 - (xx + yy)) * s[2],
+    0,
+    t[0],
+    t[1],
+    t[2],
+    1,
+  ];
+}
+
+/**
+ * A skeleton's frames as morph targets: Joke's jet is a skinned bug whose wing
+ * beat is its AnmD track over the skeleton (RE pa_models.json `anim.kind`
+ * `skeleton`), which an InstancedMesh cannot play bone by bone. The original
+ * steps frames, it does not blend them (`cact_anim_step` hands the model an
+ * integer frame), so each frame is one rigid pose: the RE's `full` clip holds
+ * one keyframe per frame, and frame k is every joint at keyframe k. The skin is
+ * evaluated at each (jointWorld * inverseBind, blended by weight, as
+ * bakeSkinRestPose does for one pose); POSITION and NORMAL become frame 0 and
+ * frame k's POSITION, less frame 0's, is stashed as `_MORPH{k - 1}` for the
+ * pipeline to carry and restore. The skin is then dropped.
+ */
+function bakeSkinFrames(document: Document, frames: number, key: string): void {
+  const root = document.getRoot();
+  const clip = root.listAnimations().find((a) => a.getName() === "full");
+  if (!clip) throw new Error(`${key}: a skeleton without its full clip`);
+  /** Per joint node: its local TRS at each frame. */
+  const local = new Map<Node, { t: number[][]; r: number[][]; s: number[][] }>();
+  const at = (node: Node) => {
+    let entry = local.get(node);
+    if (!entry) {
+      const t = node.getTranslation();
+      const r = node.getRotation();
+      const sc = node.getScale();
+      entry = {
+        t: Array.from({ length: frames }, () => [...t]),
+        r: Array.from({ length: frames }, () => [...r]),
+        s: Array.from({ length: frames }, () => [...sc]),
+      };
+      local.set(node, entry);
+    }
+    return entry;
+  };
+  for (const channel of clip.listChannels()) {
+    const node = channel.getTargetNode();
+    const sampler = channel.getSampler();
+    const path = channel.getTargetPath();
+    if (!node || !sampler || (path !== "translation" && path !== "rotation" && path !== "scale")) {
+      throw new Error(`${key}: a skeleton channel on ${path}`);
+    }
+    const input = sampler.getInput();
+    const output = sampler.getOutput();
+    if (sampler.getInterpolation() === "CUBICSPLINE" || !input || !output) {
+      throw new Error(`${key}: a skeleton channel that is not one key a frame`);
+    }
+    if (input.getCount() !== frames || output.getCount() !== frames) {
+      throw new Error(`${key}: ${input.getCount()} keys for ${frames} frames`);
+    }
+    const entry = at(node);
+    const list = path === "translation" ? entry.t : path === "rotation" ? entry.r : entry.s;
+    for (let f = 0; f < frames; f++) output.getElement(f, list[f]);
+  }
+  /** World matrix of a node at frame f, from the per-frame locals. */
+  const world = (node: Node, f: number): number[] => {
+    const entry = local.get(node);
+    const m = entry ? composeTrs(entry.t[f], entry.r[f], entry.s[f]) : Array.from(node.getMatrix());
+    const parent = node.getParentNode();
+    return parent ? multiply4(world(parent, f), m) : m;
+  };
+  for (const node of root.listNodes()) {
+    const skin = node.getSkin();
+    const mesh = node.getMesh();
+    if (!skin || !mesh) continue;
+    if (node.getParentNode() !== null) {
+      throw new Error(`skinned mesh node "${node.getName()}" is not a scene child`);
+    }
+    const inverseBind = skin.getInverseBindMatrices();
+    const joints = skin.listJoints();
+    const perFrame = Array.from({ length: frames }, (_, f) =>
+      joints.map((joint, index) => {
+        const w = world(joint, f);
+        return inverseBind ? multiply4(w, inverseBind.getElement(index, new Array<number>(16))) : w;
+      }),
+    );
+    for (const prim of mesh.listPrimitives()) {
+      const position = prim.getAttribute("POSITION");
+      const jointIds = prim.getAttribute("JOINTS_0");
+      const weights = prim.getAttribute("WEIGHTS_0");
+      if (!position || !jointIds || !weights) continue;
+      const normal = prim.getAttribute("NORMAL");
+      const count = position.getCount();
+      const posed = Array.from({ length: frames }, () => new Float32Array(count * 3));
+      const p = [0, 0, 0];
+      const n = [0, 0, 0];
+      const ids = [0, 0, 0, 0];
+      const w = [0, 0, 0, 0];
+      const skinMatrix = new Array<number>(16);
+      const normals = normal ? new Float32Array(count * 3) : null;
+      for (let i = 0; i < count; i++) {
+        jointIds.getElement(i, ids);
+        weights.getElement(i, w);
+        position.getElement(i, p);
+        for (let f = 0; f < frames; f++) {
+          skinMatrix.fill(0);
+          let total = 0;
+          for (let k = 0; k < 4; k++) {
+            if (w[k] === 0) continue;
+            const jm = perFrame[f][ids[k]];
+            if (!jm) throw new Error(`vertex references joint ${ids[k]} outside the skin`);
+            for (let e = 0; e < 16; e++) skinMatrix[e] += jm[e] * w[k];
+            total += w[k];
+          }
+          const q =
+            total === 0
+              ? p
+              : transformPoint(
+                  skinMatrix.map((v) => v / total),
+                  p,
+                );
+          posed[f].set(q, i * 3);
+          if (f === 0 && normals && normal) {
+            normal.getElement(i, n);
+            const m =
+              total === 0
+                ? null
+                : transformDirection(
+                    skinMatrix.map((v) => v / total),
+                    n,
+                  );
+            normals.set(m ?? n, i * 3);
+          }
+        }
+      }
+      position.setArray(posed[0]);
+      if (normal && normals) normal.setArray(normals);
+      for (let f = 1; f < frames; f++) {
+        const delta = new Float32Array(count * 3);
+        for (let e = 0; e < delta.length; e++) delta[e] = posed[f][e] - posed[0][e];
+        prim.setAttribute(
+          `${MORPH_PREFIX}${f - 1}`,
+          document
+            .createAccessor()
+            .setType("VEC3")
+            .setArray(delta)
+            .setBuffer(root.listBuffers()[0]),
+        );
+      }
+    }
+    // The vertices are absolute and posed now: no skin to apply, no node
+    // transform to apply twice (glTF ignores a skinned node's own).
+    node.setSkin(null);
+    node.setMatrix(IDENTITY_MATRIX as unknown as Parameters<typeof node.setMatrix>[0]);
+  }
 }
 
 /**
@@ -360,9 +545,6 @@ function assertUnsharedVertexData(document: Document, key: string): void {
     if (count > 1) throw new Error(`${key}: a vertex attribute is shared by ${count} primitives`);
   }
 }
-
-/** Stash name of a kept morph target's POSITION delta (see processModel). */
-const MORPH_PREFIX = "_MORPH";
 
 /**
  * Turns the stashed `_MORPHk` attributes back into morph targets, in order,
@@ -697,6 +879,7 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
   // The pose has to be baked into the vertices first — a skinned source keeps it
   // in its joints, and the bind pose it would otherwise ship is not a pose the
   // parts were ever meant to be seen in.
+  if (spec.keepMorph === "skeleton") bakeSkinFrames(document, spec.morphFrames ?? 0, spec.key);
   for (const anim of root.listAnimations()) anim.dispose();
   bakeSkinRestPose(document);
   for (const skin of root.listSkins()) skin.dispose();
@@ -712,7 +895,7 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
       // vertex edit below (FX drop, billboard drop, merge) carries it along,
       // and becomes targets again just before the write. The deltas need no
       // translation, which is all the grounding does.
-      if (spec.keepMorph) {
+      if (spec.keepMorph === "morph") {
         prim.listTargets().forEach((target, k) => {
           const delta = target.getAttribute("POSITION")?.getArray();
           if (!delta) throw new Error(`${spec.key}: morph target ${k} without POSITION`);

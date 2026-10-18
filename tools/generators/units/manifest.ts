@@ -46,6 +46,7 @@ import {
 } from "../../../packages/client/src/render/arenaScenery.generated";
 import {
   UNIT_MODEL_FILES,
+  type UnitMorph,
   type UnitTreatment,
 } from "../../../packages/client/src/render/arenaUnits.generated";
 
@@ -366,8 +367,12 @@ export interface ArenaUnitModelSpec {
   readonly raw: string;
   readonly treatment: UnitTreatment;
   readonly usedBy: readonly string[];
-  /** A time-driven morph gen:units keeps and the client plays (the jet's rotor). */
-  readonly morph: { readonly frames: number; readonly secPerFrame: number } | null;
+  /**
+   * The track the client plays (render/arenaUnits.ts): gen:units keeps a
+   * morph's targets, and bakes a skeleton's frames into targets; null ships
+   * frame 0.
+   */
+  readonly morph: UnitMorph | null;
   readonly source: UnitModelSource;
   readonly maxTris: number;
 }

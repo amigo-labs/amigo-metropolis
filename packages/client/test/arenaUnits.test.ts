@@ -22,6 +22,7 @@ import {
   TEAM_UV_ATTR,
   TEAM_UV_MASK,
 } from "../src/render/teamUv";
+import { TrackClock } from "../src/render/unitTracks";
 
 /** The mission and Cobj a file is, checking that the arena may draw it. */
 function ownCobj(mapId: string, file: string): { mission: string; cobj: number } {
@@ -400,5 +401,113 @@ describe("the Dreadnought's guns on their hull points", () => {
     expect(p0.x).toBeCloseTo(0.283203, 6);
     expect(p0.y).toBeCloseTo(0.486328, 6);
     expect(p0.z).toBeCloseTo(0.267578, 6);
+  });
+});
+
+describe("the tracks the units play (RE cact_anim_step)", () => {
+  test("the table's tracks: Joke's wing beat, its tank and hull by distance", () => {
+    const morph = (mapId: string, file: string) =>
+      UNIT_MODEL_FILES.find((f) => f.file === file && f.usedBy.includes(mapId))?.morph;
+    const joke = ARENA_UNITS["bug-hunt"];
+    // Joke's jet is a skeleton: 15 frames at 10/300 s, baked to targets.
+    expect(morph("bug-hunt", joke.jet.model)).toEqual({
+      frames: 15,
+      period: 10,
+      drivenBy: "time",
+      source: "skeleton",
+    });
+    // Its tank (Cobj 31) a frame per 575 world units, its hull (35) per 775.
+    expect(morph("bug-hunt", joke.tank.model)).toEqual({
+      frames: 14,
+      period: 575,
+      drivenBy: "distance",
+      source: "morph",
+    });
+    expect(morph("bug-hunt", joke.dreadnought.hull)).toEqual({
+      frames: 20,
+      period: 775,
+      drivenBy: "distance",
+      source: "morph",
+    });
+    // Mp's rotor: tracks 0 and 1 link to each other over the same frames.
+    expect(morph("la-cantina", ARENA_UNITS["la-cantina"].jet.model)).toEqual({
+      frames: 3,
+      period: 10,
+      drivenBy: "time",
+      source: "morph",
+    });
+    // Every other arena's tank and hull stand still: their models have one frame.
+    for (const [mapId, u] of Object.entries(ARENA_UNITS)) {
+      if (mapId === "bug-hunt") continue;
+      expect(morph(mapId, u.tank.model) ?? null).toBeNull();
+      expect(morph(mapId, u.dreadnought.hull) ?? null).toBeNull();
+    }
+  });
+
+  const rotor = { frames: 3, period: 10, drivenBy: "time", source: "morph" } as const;
+  const tread = { frames: 14, period: 575, drivenBy: "distance", source: "morph" } as const;
+
+  test("a time track starts at frame 0 where the actor is first drawn", () => {
+    const t = new TrackClock();
+    t.advance(1); // a second of sim time before the jet appears
+    expect(t.frameOf(7, 2, rotor, 0, 0, 0)).toBe(0);
+    // 10/300 s a frame: 0.05 s is frame 1, 0.07 s frame 2, 0.1 s back to 0.
+    t.advance(0.05);
+    expect(t.frameOf(7, 2, rotor, 0, 0, 0)).toBe(1);
+    t.advance(0.02);
+    expect(t.frameOf(7, 2, rotor, 0, 0, 0)).toBe(2);
+    t.advance(0.03);
+    expect(t.frameOf(7, 2, rotor, 0, 0, 0)).toBe(0);
+    // A second jet built now starts its own track at frame 0.
+    expect(t.frameOf(8, 2, rotor, 5, 0, 5)).toBe(0);
+    // A paused match stops the clock.
+    t.advance(0);
+    expect(t.frameOf(7, 2, rotor, 0, 0, 0)).toBe(0);
+  });
+
+  test("a distance track steps a frame per period travelled, not per second", () => {
+    const t = new TrackClock();
+    t.advance(0);
+    expect(t.frameOf(3, 1, tread, 0, 0, 0)).toBe(0);
+    // Standing still for a while: no frame passes.
+    for (let i = 0; i < 30; i++) {
+      t.advance(1 / 30);
+      expect(t.frameOf(3, 1, tread, 0, 0, 0)).toBe(0);
+    }
+    // 575 world units is 0.0702 m: 0.1 m is one frame, past it.
+    t.advance(1 / 30);
+    expect(t.frameOf(3, 1, tread, 0.1, 0, 0)).toBe(1);
+    // 14 frames are 0.983 m; a metre more, in 5 cm steps, wraps to frame 1 again.
+    let x = 0.1;
+    let frame = 1;
+    for (let i = 0; i < 20; i++) {
+      x += 0.05;
+      t.advance(1 / 30);
+      frame = t.frameOf(3, 1, tread, x, 0, 0);
+    }
+    const travelled = (x * 8192) / 575;
+    expect(frame).toBe(Math.floor(travelled - 1e-9) % 14);
+  });
+
+  test("an id drawn again after a gap, or as another unit, is a new actor", () => {
+    const t = new TrackClock();
+    t.advance(0);
+    t.frameOf(5, 1, tread, 0, 0, 0);
+    t.advance(0.1);
+    expect(t.frameOf(5, 1, tread, 0.2, 0, 0)).toBe(2);
+    // Not drawn for a frame (it died), then drawn again: the track starts over.
+    t.advance(0.1);
+    t.advance(0.1);
+    expect(t.frameOf(5, 1, tread, 0.4, 0, 0)).toBe(0);
+    // The same id drawn as another archetype is another actor too.
+    t.advance(0.1);
+    expect(t.frameOf(5, 2, rotor, 0.4, 0, 0)).toBe(0);
+    // A jump of metres in one frame is a respawn, not travel.
+    t.advance(0.1);
+    t.frameOf(5, 2, rotor, 0.4, 0, 0);
+    t.advance(0.1);
+    t.frameOf(5, 1, tread, 0.4, 0, 0);
+    t.advance(0.1);
+    expect(t.frameOf(5, 1, tread, 30, 0, 0)).toBe(0);
   });
 });

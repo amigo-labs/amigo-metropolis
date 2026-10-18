@@ -30,9 +30,11 @@
 // its capture state. The greybox stand-ins (?render=greybox, or a model still
 // loading) keep the team tint, which is all a box can show.
 //
-// The outpost's console has no model here: it is scenery the claim destroys
-// (render/props.ts); its entity still reports the outpost's owner
-// (`outpostSides`), and its bucket draws only the greybox box.
+// The models move as the original's do (fcop-fidelity.md G9): each plays its
+// AnmD track 0 from where it was built, by time or by the distance it travels
+// (render/unitTracks.ts). The outpost's console has no model here: it is
+// scenery the claim destroys (render/props.ts); its entity still reports the
+// outpost's owner (`outpostSides`), and its bucket draws only the greybox box.
 //
 // Renderer rules: `place` runs per entity per frame and allocates nothing; the
 // loaders run at arena build and may.
@@ -46,12 +48,14 @@ import {
   type SideUv,
   type TurretModels,
   UNIT_MODEL_FILES,
+  type UnitMorph,
 } from "./arenaUnits.generated";
 import type { Bucket, GreyboxMeshes } from "./greybox";
 import { SIDE_RAMPS } from "./palette";
 import { sideOfTeam } from "./sides";
 import { atlasOffset, createTeamUvAttribute, TEAM_UV_ATTR, writeTeamUv } from "./teamUv";
 import { loadUnitAsset, type UnitAsset } from "./unitMeshes";
+import { TrackClock } from "./unitTracks";
 
 /** The arena whose units a map without an original mission draws (test-128). */
 const FALLBACK_ARENA = "la-cantina";
@@ -172,7 +176,7 @@ export interface ArenaUnitsRenderer {
   load(map: MapData, cancelled: () => boolean, models: boolean): void;
   /**
    * Zeroes the part buckets and advances the morph clock by the sim's own
-   * time (a paused match stops the rotor). Call before the entity sweep.
+   * time (a paused match stops every morph). Call before the entity sweep.
    */
   begin(simDtSec: number): void;
   /** The bucket an entity draws in: Hk's second neutral set has its own. */
@@ -185,7 +189,7 @@ export interface ArenaUnitsRenderer {
   place(
     bucket: Bucket,
     slot: number,
-    /** The entity id: a morph's phase, so two jets' rotors do not turn as one. */
+    /** The entity id: whose track this is (each starts where it was built). */
     id: number,
     archetype: number,
     team: number,
@@ -227,16 +231,15 @@ interface UvBinding {
 }
 
 /**
- * A bucket showing a time-driven morph (the jet's rotor, RE pa_models.json
- * `anim`): per instance a row of the mesh's morph texture, frame k + 1 being
- * target k at weight 1 (the original steps frames, it does not blend them).
+ * A bucket showing a morph (RE pa_models.json `anim`): per instance a row of
+ * the mesh's morph texture, frame k + 1 being target k at weight 1 (the
+ * original steps frames, it does not blend them).
  */
 interface MorphBinding {
   readonly texture: THREE.DataTexture;
   /** Floats per row: the base influence, then one per target. */
   readonly len: number;
-  readonly frames: number;
-  readonly secPerFrame: number;
+  readonly track: UnitMorph;
   dirty: boolean;
 }
 
@@ -401,8 +404,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
   /** Morphs by bucket, and the same as a list for the frame loop. */
   const morphs = new Map<Bucket, MorphBinding>();
   const morphList: MorphBinding[] = [];
-  /** Seconds of sim time, the morphs' clock. */
-  let clock = 0;
+  /** Every entity's track: the morphs' clock. */
+  const tracks = new TrackClock();
   /** Per bucket, the wrapped geometry of every file it has shown. */
   const wrapped = new Map<Bucket, Map<string, THREE.BufferGeometry>>();
 
@@ -491,13 +494,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       texture.needsUpdate = true;
     }
     bucket.mesh.morphTexture = texture;
-    const binding: MorphBinding = {
-      texture,
-      len,
-      frames: morph.frames,
-      secPerFrame: morph.secPerFrame,
-      dirty: true,
-    };
+    const binding: MorphBinding = { texture, len, track: morph, dirty: true };
     if (old) morphList.splice(morphList.indexOf(old), 1);
     morphs.set(bucket, binding);
     morphList.push(binding);
@@ -564,7 +561,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       if (units.neutralTurrets[1]) swapTurret(neutralB, units.neutralTurrets[1], cancelled);
     },
     begin(simDtSec) {
-      clock += simDtSec;
+      tracks.advance(simDtSec);
       for (let i = 0; i < parts.length; i++) parts[i].count = 0;
     },
     route(bucket, archetype, aux, x, y) {
@@ -611,9 +608,9 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       colour(bucket, bindings.get(bucket), slot, team);
       const morph = morphs.get(bucket);
       if (morph) {
-        // Frame by frame at the track's period (RE `cact_anim_step`, mode 1:
-        // 10 / 300 s a frame for the rotor), each instance a frame apart.
-        const frame = (Math.floor(clock / morph.secPerFrame) + id) % morph.frames;
+        // Frame by frame at the track's period (RE `cact_anim_step`): 10 / 300 s
+        // a frame for the rotor, 575 world units walked for Joke's tank.
+        const frame = tracks.frameOf(id, archetype, morph.track, pos.x, pos.y, pos.z);
         const a = morph.texture.image.data as Float32Array;
         const row = slot * morph.len;
         a[row] = 1; // relative targets: the base always counts in full

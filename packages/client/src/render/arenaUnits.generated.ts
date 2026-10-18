@@ -4,8 +4,8 @@
 // the RE's extracted/logic/<Mission>/pa_models.json (RE docs/formats/pa-models.md):
 // the arena's own Cobj for every role, the team-colour offsets, the attach
 // points, Hk's second neutral turret set, the Sky Captain by level and the
-// rotor's frame time. Files live under /models/units/<file>.glb (gen:units);
-// arenas whose model and sampled texels are identical share one.
+// AnmD track each model plays. Files live under /models/units/<file>.glb
+// (gen:units); arenas whose model and sampled texels are identical share one.
 
 /** A texture offset in texels of the 256 x 256 page (RE `draw_set_uv_offset`). */
 export interface TexelUv {
@@ -26,6 +26,20 @@ export type ModelPoint = readonly [number, number, number];
  */
 export type UnitTreatment = "unit" | "part";
 
+/**
+ * Track 0 of the model's AnmD, looping over every frame (RE `cact_anim_step`):
+ * one frame per `period` units of the delta the actor steps it by — 1/300 s
+ * when `time`, one world unit (1/8192 m) travelled when `distance` (RE type5.c
+ * 469-472). A `skeleton` model's frames are joint poses gen:units bakes into
+ * morph targets; a `morph` model's are its own targets. Frame k + 1 is target k.
+ */
+export interface UnitMorph {
+  readonly frames: number;
+  readonly period: number;
+  readonly drivenBy: "time" | "distance";
+  readonly source: "morph" | "skeleton";
+}
+
 export interface UnitModelFile {
   /** Under /models/units/, without `.glb`: `<mapId of its first arena>/obj_NNN`. */
   readonly file: string;
@@ -36,8 +50,8 @@ export interface UnitModelFile {
   readonly raw: string;
   /** The RE's payload hash (`sha256_16`). */
   readonly payload: string;
-  /** A time-driven morph the client plays (the jet's rotor), else null. */
-  readonly morph: { readonly frames: number; readonly secPerFrame: number } | null;
+  /** The track the client plays, else null (frame 0). */
+  readonly morph: UnitMorph | null;
   /** The arenas that draw it. */
   readonly usedBy: readonly string[];
 }
@@ -104,7 +118,7 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     treatment: "unit",
     raw: "fcop-units/Mp/obj_022.glb",
     payload: "aaa6ccd8082569c2",
-    morph: { frames: 3, secPerFrame: 0.03333 },
+    morph: { frames: 3, period: 10, drivenBy: "time", source: "morph" },
     usedBy: ["la-cantina", "urban-jungle", "proving-ground"],
   },
   {
@@ -334,7 +348,7 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     treatment: "unit",
     raw: "fcop-units/Hk/obj_022.glb",
     payload: "aaa6ccd8082569c2",
-    morph: { frames: 3, secPerFrame: 0.03333 },
+    morph: { frames: 3, period: 10, drivenBy: "time", source: "morph" },
     usedBy: ["hollywood-keys"],
   },
   {
@@ -484,7 +498,7 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     treatment: "unit",
     raw: "fcop-units/Ovmp/obj_022.glb",
     payload: "d5381f74d6a96fac",
-    morph: { frames: 3, secPerFrame: 0.03333 },
+    morph: { frames: 3, period: 10, drivenBy: "time", source: "morph" },
     usedBy: ["venice-beach"],
   },
   {
@@ -584,7 +598,7 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     treatment: "unit",
     raw: "fcop-units/Joke/obj_022.glb",
     payload: "c1522551d5994ef7",
-    morph: null,
+    morph: { frames: 15, period: 10, drivenBy: "time", source: "skeleton" },
     usedBy: ["bug-hunt"],
   },
   {
@@ -594,7 +608,7 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     treatment: "unit",
     raw: "fcop-units/Joke/obj_031.glb",
     payload: "884b71e218d3bc2e",
-    morph: null,
+    morph: { frames: 14, period: 575, drivenBy: "distance", source: "morph" },
     usedBy: ["bug-hunt"],
   },
   {
@@ -614,7 +628,7 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     treatment: "part",
     raw: "fcop-units/Joke/obj_035.glb",
     payload: "d4ddecfae3ba8680",
-    morph: null,
+    morph: { frames: 20, period: 775, drivenBy: "distance", source: "morph" },
     usedBy: ["bug-hunt"],
   },
   {
@@ -644,7 +658,7 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     treatment: "unit",
     raw: "fcop-units/Joke/obj_041.glb",
     payload: "f76c0e048c9d4151",
-    morph: { frames: 12, secPerFrame: 0.06667 },
+    morph: { frames: 12, period: 20, drivenBy: "time", source: "morph" },
     usedBy: ["bug-hunt"],
   },
   {
@@ -654,7 +668,7 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     treatment: "unit",
     raw: "fcop-units/Joke/obj_063.glb",
     payload: "5154137e7a9774e4",
-    morph: { frames: 7, secPerFrame: 0.01667 },
+    morph: { frames: 7, period: 5, drivenBy: "time", source: "morph" },
     usedBy: ["bug-hunt"],
   },
   {

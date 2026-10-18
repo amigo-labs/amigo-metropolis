@@ -24,7 +24,10 @@
 //   on its hull's attach points 0-3 (the glb frame, metres);
 // - Hk's two neutral turret sets (32/33 and 43/44), by the spot's record;
 // - the Sky Captain's model by level (one record per level band);
-// - the jet's rotor: a time-driven morph and its frame time.
+// - each model's AnmD track 0 the client plays: the jet's rotor and Joke's
+//   Fortress and Sky Captain step by time, Joke's tank and Dreadnought hull by
+//   the distance they travel (RE type5.c 469-472), and Joke's jet is a skeleton
+//   whose frames gen:units bakes into morph targets.
 //
 // Sharing. Every mission embeds its own texture pages, and the pages differ,
 // so a file is shared between arenas only where the payload is identical
@@ -99,10 +102,14 @@ interface PaModel {
     readonly kind: string;
     readonly frames: number;
     readonly tracks?: readonly {
+      readonly track: number;
       readonly from: number;
       readonly to: number;
+      readonly mode: number;
+      readonly end: number;
+      readonly link: number;
+      readonly period: number;
       readonly driven_by: string | null;
-      readonly sec_per_frame: number | null;
     }[];
   } | null;
 }
@@ -141,6 +148,19 @@ type SideUv = readonly [Uv, Uv, Uv];
  */
 type Treatment = "unit" | "part";
 
+/**
+ * Track 0 of the model's AnmD, looping over every frame: one frame per
+ * `period` units of the delta its actor hands `cact_anim_step` — 1/300 s for
+ * `time`, a world unit (1/8192 m) travelled for `distance`. A `skeleton` model's
+ * frames are joint poses, which gen:units bakes into morph targets.
+ */
+interface Morph {
+  frames: number;
+  period: number;
+  drivenBy: "time" | "distance";
+  source: "morph" | "skeleton";
+}
+
 interface ModelFile {
   file: string;
   mission: string;
@@ -148,7 +168,7 @@ interface ModelFile {
   treatment: Treatment;
   raw: string;
   payload: string;
-  morph: { frames: number; secPerFrame: number } | null;
+  morph: Morph | null;
   /** Arenas that draw this file. */
   usedBy: string[];
 }
@@ -301,14 +321,43 @@ function outpostFlagOf(pa: PaModels, mapId: string): { cobj: number; uv: SideUv 
   return { cobj: [...cobjs][0], uv: [neutral, after["1"] ?? ZERO, after["2"] ?? ZERO] };
 }
 
-/** A time-driven morph the client can play (the jet's rotor), else null. */
-function morphOf(model: PaModel): { frames: number; secPerFrame: number } | null {
+/**
+ * The track the actor plays, which the client plays too, else null. Units
+ * start track 0 at construct and loop it; who passes which delta is the RE's
+ * `driven_by` (time on aircraft, turrets and mounts; distance on a type-5 or
+ * type-28 actor's mode-2 track). A track that holds, or a model whose track 0
+ * is not a loop over every frame (the X1's), keeps frame 0.
+ */
+function morphOf(model: PaModel, what: string): Morph | null {
   const a = model.anim;
-  if (a?.kind !== "morph") return null;
+  if (!a || (a.kind !== "morph" && a.kind !== "skeleton")) return null;
   const track = a.tracks?.[0];
-  if (track?.driven_by !== "time" || !track.sec_per_frame) return null;
+  if (!track || (track.mode !== 1 && track.mode !== 2)) return null;
   if (track.from !== 0 || track.to !== a.frames - 1) return null;
-  return { frames: a.frames, secPerFrame: track.sec_per_frame };
+  // End action 0 follows the link; a chain of like tracks back to track 0 (Mp's
+  // rotor is 0 -> 1 -> 0, both frames 0-2 at period 10) is one loop, since a
+  // link keeps the clock and starts the next track at its first frame.
+  const tracks = a.tracks ?? [];
+  let at = track;
+  for (let hops = 0; ; hops++) {
+    const same =
+      at.from === track.from &&
+      at.to === track.to &&
+      at.mode === track.mode &&
+      at.period === track.period &&
+      at.end === 0;
+    if (!same || hops > tracks.length) {
+      throw new Error(`${what}: track 0 runs over every frame but does not loop`);
+    }
+    const next = tracks.find((t) => t.track === at.link);
+    if (!next) throw new Error(`${what}: track ${at.track} links to a missing track`);
+    if (next.track === track.track) break;
+    at = next;
+  }
+  if (track.driven_by !== "time" && track.driven_by !== "distance") {
+    throw new Error(`${what}: nobody says what steps track 0`);
+  }
+  return { frames: a.frames, period: track.period, drivenBy: track.driven_by, source: a.kind };
 }
 
 function cobjName(cobj: number): string {
@@ -524,8 +573,8 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
     "// the RE's extracted/logic/<Mission>/pa_models.json (RE docs/formats/pa-models.md):",
     "// the arena's own Cobj for every role, the team-colour offsets, the attach",
     "// points, Hk's second neutral turret set, the Sky Captain by level and the",
-    "// rotor's frame time. Files live under /models/units/<file>.glb (gen:units);",
-    "// arenas whose model and sampled texels are identical share one.",
+    "// AnmD track each model plays. Files live under /models/units/<file>.glb",
+    "// (gen:units); arenas whose model and sampled texels are identical share one.",
     "",
     "/** A texture offset in texels of the 256 x 256 page (RE `draw_set_uv_offset`). */",
     "export interface TexelUv {",
@@ -546,6 +595,20 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
     " */",
     'export type UnitTreatment = "unit" | "part";',
     "",
+    "/**",
+    " * Track 0 of the model's AnmD, looping over every frame (RE `cact_anim_step`):",
+    " * one frame per `period` units of the delta the actor steps it by — 1/300 s",
+    " * when `time`, one world unit (1/8192 m) travelled when `distance` (RE type5.c",
+    " * 469-472). A `skeleton` model's frames are joint poses gen:units bakes into",
+    " * morph targets; a `morph` model's are its own targets. Frame k + 1 is target k.",
+    " */",
+    "export interface UnitMorph {",
+    "  readonly frames: number;",
+    "  readonly period: number;",
+    '  readonly drivenBy: "time" | "distance";',
+    '  readonly source: "morph" | "skeleton";',
+    "}",
+    "",
     "export interface UnitModelFile {",
     "  /** Under /models/units/, without `.glb`: `<mapId of its first arena>/obj_NNN`. */",
     "  readonly file: string;",
@@ -556,8 +619,8 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
     "  readonly raw: string;",
     "  /** The RE's payload hash (`sha256_16`). */",
     "  readonly payload: string;",
-    "  /** A time-driven morph the client plays (the jet's rotor), else null. */",
-    "  readonly morph: { readonly frames: number; readonly secPerFrame: number } | null;",
+    "  /** The track the client plays, else null (frame 0). */",
+    "  readonly morph: UnitMorph | null;",
     "  /** The arenas that draw it. */",
     "  readonly usedBy: readonly string[];",
     "}",
@@ -601,7 +664,9 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
   for (const f of files) {
     lines.push(
       `  { file: ${json(f.file)}, mission: ${json(f.mission)}, cobj: ${f.cobj}, treatment: ${json(f.treatment)}, raw: ${json(f.raw)}, payload: ${json(f.payload)}, morph: ${
-        f.morph ? `{ frames: ${f.morph.frames}, secPerFrame: ${f.morph.secPerFrame} }` : "null"
+        f.morph
+          ? `{ frames: ${f.morph.frames}, period: ${f.morph.period}, drivenBy: ${json(f.morph.drivenBy)}, source: ${json(f.morph.source)} }`
+          : "null"
       }, usedBy: ${json(f.usedBy)} },`,
     );
   }
@@ -689,7 +754,7 @@ async function main(): Promise<void> {
           treatment: use.treatment,
           raw: `fcop-units/${mission}/${cobjName(use.cobj)}.glb`,
           payload: model.sha256_16,
-          morph: morphOf(model),
+          morph: morphOf(model, `${mapId} Cobj ${use.cobj}`),
           usedBy: [],
         };
         byKey.set(key, file);
