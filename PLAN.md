@@ -753,7 +753,7 @@ no golden moves.
 - [ ] Distance-driven morphs (Joke's tank and Dreadnought), the skinned Joke jet,
       the flags' cloth; the X1's cloak offset (G4, G9, G10)
 - [ ] The outpost flags on La Cantina's decks (props are placed on layer 0; G10)
-- [ ] Per-arena hit radii for the models each arena draws (G1, G7; a sim change)
+- [x] Per-arena hit radii for the models each arena draws (G1, G7; v78)
 - [ ] The X1's animations
 
 ### Wave 6 — Presentation

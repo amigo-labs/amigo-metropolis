@@ -11,10 +11,14 @@ import layeredTestJson from "../maps/layered-test.json";
 import provingGroundJson from "../maps/proving-ground.json";
 import urbanJungleJson from "../maps/urban-jungle.json";
 import veniceBeachJson from "../maps/venice-beach.json";
+import { ARCHETYPE } from "./archetypes";
 import {
+  ARCHETYPE_RADIUS,
+  AVATAR_HOVER_RADIUS,
   DREADNOUGHT_GUN_TURN,
   DREADNOUGHT_GUNS,
   DREADNOUGHT_MOUNTS,
+  NEUTRAL_TURRET_RADIUS,
   ORIGINAL_BUY_HALF_L,
   ORIGINAL_BUY_HALF_W,
   ORIGINAL_CAPTURE_RANGE,
@@ -29,6 +33,7 @@ import {
   ORIGINAL_WEAPON_PROFILES,
   PROFILE_NEUTRAL_TURRET,
   PROFILE_TEAM_TURRET,
+  SKY_RADIUS,
 } from "./balance";
 import { clamp, cosLUT, lerp, sinLUT } from "./simMath";
 
@@ -133,6 +138,30 @@ export interface MapUnitProfile {
   readonly hp: number;
   /** Index into MapData.weapons. */
   readonly weapon: number;
+}
+
+/**
+ * The hit radius of each body on this arena, metres: the original's `radius_68`
+ * of the model its own mission draws there, at the frame it holds (the 3DBB box's
+ * halfword at +12 << 4 wu; fcop-fidelity.md G1). Mp, Conft, Slim and Ovmp share
+ * most; Joke's units and Sky Captains, Hk's tank, second neutral set and Sky
+ * Captains are their own (tools/generators/fcop/<mission>-models.json).
+ */
+export interface MapRadii {
+  /** The mech's legs at the walker's pose (frame 0) and the hover's (359). */
+  readonly walker: number;
+  readonly hover: number;
+  readonly tank: number;
+  readonly jet: number;
+  readonly fortress: number;
+  /** The Dreadnought's hull. */
+  readonly dreadnought: number;
+  /** A ring or outpost plate (type 8) turret's gun. */
+  readonly baseTurret: number;
+  /** A neutral (type 36) turret's gun, per `turretSpots` entry. */
+  readonly neutral: readonly number[];
+  /** The Sky Captain's model by level 0..9 (balance.ts wardenLevel). */
+  readonly skyCaptain: readonly number[];
 }
 
 /**
@@ -608,6 +637,11 @@ export interface MapData {
    * imports none gets ORIGINAL_CAPTURE_RANGE, the 4.0 m.
    */
   readonly captureRange: number;
+  /**
+   * The arena's hit radii, its own mission's models (MapRadii; balance.ts
+   * ARCHETYPE_RADIUS's Mp values where it imports none).
+   */
+  readonly radii: MapRadii;
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
   readonly laneGraph: MapLaneGraph | undefined;
   /** Power-up spots. EMPTY → no pickups on this arena. */
@@ -902,6 +936,18 @@ export interface MapJson {
   turretHp?: number[];
   /** Capture range of the turret spots in metres, before the capturer's radius. */
   captureRange?: number;
+  /** OPTIONAL: the arena's hit radii (MapRadii); `neutral` parallel to turretSpots. */
+  radii?: {
+    walker: number;
+    hover: number;
+    tank: number;
+    jet: number;
+    fortress: number;
+    dreadnought: number;
+    baseTurret: number;
+    neutral: number[];
+    skyCaptain: number[];
+  };
   /** Original Cnet graph. `edges` is one 4-tuple per node, -1 = no edge. */
   laneGraph?: {
     nodes: (number[] | { x: number; y: number; layer?: number })[];
@@ -1041,6 +1087,47 @@ function fail(id: string, reason: string): never {
 }
 
 /** Parses + validates a map JSON. Throws with a precise reason if malformed. */
+/** Mp's radii, for an arena that imports none (balance.ts ARCHETYPE_RADIUS). */
+function defaultRadii(spots: number): MapRadii {
+  return {
+    walker: ARCHETYPE_RADIUS[ARCHETYPE.AVATAR],
+    hover: AVATAR_HOVER_RADIUS,
+    tank: ARCHETYPE_RADIUS[ARCHETYPE.RUNNER],
+    jet: ARCHETYPE_RADIUS[ARCHETYPE.GUARDIAN],
+    fortress: ARCHETYPE_RADIUS[ARCHETYPE.FORTRESS],
+    dreadnought: ARCHETYPE_RADIUS[ARCHETYPE.JUGGERNAUT],
+    baseTurret: ARCHETYPE_RADIUS[ARCHETYPE.TURRET],
+    neutral: new Array<number>(spots).fill(NEUTRAL_TURRET_RADIUS),
+    skyCaptain: SKY_RADIUS,
+  };
+}
+
+/** The arena's radii, strictly: every one a positive finite number, the lists their lengths. */
+function parseRadii(raw: MapJson["radii"], spots: number, id: string): MapRadii {
+  if (raw === undefined) return defaultRadii(spots);
+  const r = (v: unknown, what: string): number => {
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
+      fail(id, `radii ${what} is not a positive number (got ${String(v)})`);
+    }
+    return v;
+  };
+  const list = (v: unknown, n: number, what: string): number[] => {
+    if (!Array.isArray(v) || v.length !== n) fail(id, `radii ${what} needs ${n} entries`);
+    return v.map((x, i) => r(x, `${what}[${i}]`));
+  };
+  return {
+    walker: r(raw.walker, "walker"),
+    hover: r(raw.hover, "hover"),
+    tank: r(raw.tank, "tank"),
+    jet: r(raw.jet, "jet"),
+    fortress: r(raw.fortress, "fortress"),
+    dreadnought: r(raw.dreadnought, "dreadnought"),
+    baseTurret: r(raw.baseTurret, "baseTurret"),
+    neutral: list(raw.neutral, spots, "neutral"),
+    skyCaptain: list(raw.skyCaptain, 10, "skyCaptain"),
+  };
+}
+
 export function loadMapFromJson(raw: MapJson): MapData {
   const { id, size, cellSize } = raw;
   if (!id || typeof id !== "string") fail("?", "missing id");
@@ -1576,6 +1663,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
   }
 
   // Without one, the original's 4.0 m (Mp/Conft/Ovmp; ORIGINAL_CAPTURE_RANGE).
+  const radii = parseRadii(raw.radii, turretSpots.length, id);
   const captureRange = raw.captureRange ?? ORIGINAL_CAPTURE_RANGE;
   if (!Number.isFinite(captureRange) || captureRange <= 0) {
     fail(id, `bad captureRange ${raw.captureRange}`);
@@ -1856,6 +1944,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     turretYaw,
     turretHp,
     captureRange,
+    radii,
     laneGraph,
     pickups,
     triggerVolumes,
@@ -1975,6 +2064,7 @@ export function createTestMap(): MapData {
     turretYaw: [],
     turretHp: [],
     captureRange: ORIGINAL_CAPTURE_RANGE,
+    radii: defaultRadii(0),
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],

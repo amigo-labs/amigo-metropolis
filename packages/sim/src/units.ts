@@ -34,7 +34,6 @@ import {
   AIRCRAFT_SEARCH_JITTER,
   AIRCRAFT_SEARCH_TICKS,
   AIRCRAFT_STANDOFF,
-  ARCHETYPE_RADIUS,
   AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HOVER_SPEED,
   AVATAR_WALKER_MAX_SLOPE,
@@ -70,7 +69,7 @@ import {
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
 import { type MapData, resolveHeight, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
-import { ANIM_MOVING, rideHeight, type SimState, STEP_SNAP } from "./sim";
+import { ANIM_MOVING, entityRadius, rideHeight, type SimState, STEP_SNAP } from "./sim";
 import { atan2Poly, cosLUT, rand01, randInt, sinLUT } from "./simMath";
 
 /**
@@ -593,7 +592,7 @@ function routeTraffic(state: SimState, id: number, hx: number, hy: number): void
   const x = ent.posX[id];
   const y = ent.posY[id];
   const h = ent.height[id];
-  const r = ARCHETYPE_RADIUS[ent.archetype[id]];
+  const r = entityRadius(state, id);
   let near = -1;
   let nearGap = ROUTE_NEAR_GAP;
   for (let t = 0; t < ent.high; t++) {
@@ -604,7 +603,7 @@ function routeTraffic(state: SimState, id: number, hx: number, hy: number): void
     if (dz > ROUTE_NEAR_RISE || dz < -ROUTE_NEAR_RISE) continue;
     const dx = ent.posX[t] - x;
     const dy = ent.posY[t] - y;
-    const gap = Math.sqrt(dx * dx + dy * dy) - r - ARCHETYPE_RADIUS[a];
+    const gap = Math.sqrt(dx * dx + dy * dy) - r - entityRadius(state, t);
     if (gap < nearGap) {
       nearGap = gap;
       near = t;

@@ -31,7 +31,11 @@
 // breach the player's gate at tick 3357 (112 s). Since SIM_VERSION 75 the
 // captain rethinks at the player's down, not 4 s later at the respawn (both
 // downs are its own fire): the second down comes at 109 s and its tanks do not
-// breach in these 150 s.
+// breach in these 150 s. Since SIM_VERSION 78 every hit radius is the
+// original's (the player's mech 0.553 m walking, was 0.4; the captain's tanks
+// 0.943, was 0.76; the route followers keep their traffic gaps by the same
+// radii): the player goes down once, at 133 s, and the captain's ten tanks do
+// not breach in the 150 s (the nearest dies 7.5 m short).
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -44,7 +48,7 @@ import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
 describe("golden-04-warden beats", () => {
-  it("the Sky Captain roams, buys and claims, and downs the player holding its gate twice", () => {
+  it("the Sky Captain roams, buys and claims, and downs the player holding its gate", () => {
     const replay = decodeReplay(
       new Uint8Array(readFileSync(join(import.meta.dir, "goldens", "golden-04-warden.mrep"))),
     );
@@ -93,7 +97,7 @@ describe("golden-04-warden beats", () => {
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
     expect(claims).toBe(1);
     expect(wardenDeaths).toBe(0);
-    expect(avatarDeaths).toBe(2);
+    expect(avatarDeaths).toBe(1);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);
     expect(sim.winner).toBe(-1);

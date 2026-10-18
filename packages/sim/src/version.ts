@@ -1155,4 +1155,18 @@
 //     turned at once to face its target. Hashed for live Juggernauts only;
 //     writeGunSnapshot exposes the yaws. No golden fields a Dreadnought: every
 //     hash sequence holds, the goldens are re-recorded for the header.
-export const SIM_VERSION = 77;
+// v78: every body's hit radius is the original's (fcop-fidelity.md G1, G7): an
+//     actor's radius_68, its own model's 3DBB box for the frame it holds, raw /
+//     512 m, per arena from its own mission's shipped Cobjs (gen:pamodels ->
+//     MapData.radii; ARCHETYPE_RADIUS keeps Mp's as the default). The mech 283
+//     (0.553 m, the legs at the walker's pose; was 0.4) and 232 in hover
+//     (0.453); the tank 483 (Hk 646, Joke 369; was 0.76); the jet 537 (Ovmp
+//     531, Joke 286) and the Fortress 989 (Joke 603), Mp's since v74 on every
+//     arena; the Dreadnought's hull 663 (Joke 757; was 1.1); a ring or plate
+//     turret's gun 333 (Joke 367; was 0.7), a neutral's 463 (Hk's second set
+//     443, Joke 482; was 0.7); the Sky Captain by its level's model, Mp 671 /
+//     952 / 994 / 1155, Hk 812 / 1009 / 994, Joke 903 / 755 (was 1.0). Set at
+//     each spawn into EntityStore.radius (not hashed: a function of the spawn);
+//     sim.ts entityRadius answers every hit, capture, zone, guard, trigger, gate
+//     and route-traffic test.
+export const SIM_VERSION = 78;

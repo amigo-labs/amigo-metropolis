@@ -31,7 +31,12 @@ import { createSim, step } from "../src/sim";
 // buttons, turning toward each route cell before they walk it, and fire Special
 // from its latch's held state, so the fight in the middle plays out
 // differently; one of player 0's tanks gets through player 1's ring at 83 s.
-const BREACH_TICK_PIN = 2498;
+// 2498 -> none at SIM_VERSION 78: every hit radius is the original's (the mech
+// 0.553 m walking, was 0.4; the tank 0.943, was 0.76), so the fight's and the
+// rings' rounds find more: the mechs go down 11 times in the 200 s (were 5), both
+// rings lose a turret, and all ten tanks die short of the gates (the nearest 19 m
+// off; player 0's breaching tank was killed at 25.6 m).
+const BREACH_TICK_PIN = -1;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {
@@ -81,7 +86,8 @@ describe("golden-03-match beats", () => {
     expect(respawns[0]).toBeGreaterThanOrEqual(1);
     expect(respawns[1]).toBeGreaterThanOrEqual(1);
     expect(runnerDeaths).toBeGreaterThanOrEqual(3);
-    // The breach as recorded: player 0's tank at 83 s since SIM_VERSION 69.
+    // The breach as recorded: none since SIM_VERSION 78 (player 0's tank at 83 s
+    // from 69).
     expect(breaches).toBe(BREACH_TICK_PIN < 0 ? 0 : 1);
     expect(breachTick).toBe(BREACH_TICK_PIN);
     expect(breachTeam).toBe(BREACH_TICK_PIN < 0 ? -1 : BREACH_TEAM_PIN);

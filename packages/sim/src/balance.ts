@@ -1365,41 +1365,76 @@ export const UNIT_QUEUES = 10;
 export const SKY_OPENING_ORDER = 10;
 
 /**
- * 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP.
- *
- * Most are HALF THE MODEL'S FOOTPRINT, which is the convention these already
- * followed — against models that were stretched 1.02x-2.87x off the FCOP
- * originals. The models now carry the size the original authored (assets.md
- * §4), so these follow: the avatar's disc was 2.4 m across against a 0.80 m
- * mech, wider than the catwalks it walks and wider than its own base mouth.
- *
- * The jet and the Flying Fortress carry the original's own radius instead
- * (fcop-fidelity.md G1): an actor's `radius_68`, which its collision sweep
+ * 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP: the original's
+ * own (fcop-fidelity.md G1). An actor's `radius_68`, which its collision sweep
  * sums for the sphere test and every trigger, capture and gate test adds as the
  * intruder's own, is the halfword at +12 of its model's 3DBB box for the
  * current frame, << 4 world units (`cact_model_block_init` 0x00426e00,
- * `cact_pair_test` 0x00450190): the box's half-diagonal, raw / 512 m.
+ * `cact_model_select` 0x004297e0, `cact_pair_test` 0x00450190): the box's
+ * half-diagonal, raw / 512 m. Each imported arena carries its own mission's
+ * (MapData.radii, `gen:pamodels`: Joke's units and Sky Captains, Hk's tank,
+ * second neutral set and Sky Captains are their own); this table is Mp's, the
+ * default for an arena that imports none, and sim.ts `entityRadius` picks the
+ * mech's form.
  *
- * Only hit detection reads these — AoE, projectile contact, mine triggers.
- * Wall collision treats every mover as a point (collision.ts), so shrinking
- * them opens no geometry that was closed.
+ * Only hit detection reads these — hitscan, AoE, projectile contact, mines,
+ * captures, the zones and the gate. Wall collision treats every mover as a
+ * point (collision.ts).
  */
 export const ARCHETYPE_RADIUS: readonly number[] = [
-  0.4, // AVATAR      0.80 m footprint
-  0.76, // RUNNER     1.52
-  // Cobj 22's 3DBB radius, 537 in all three frames (1.40 x 0.42 x 1.50 m;
-  // Ovmp's copy 531, Joke's own jet 286-317 by frame). Was 1.1, sized for
-  // Cobj 41.
+  // The mech's legs (Cobj 15, the type-1 actor's own model; the cockpit is its
+  // partner) at the walker's pose, frame 0: 283. Its 371 frames run 232-365
+  // (0.45-0.71 m), which Metropolis, without the animation, does not follow.
+  // Was 0.4, half the assembled model's footprint.
+  283 / 512, // AVATAR      0.5527 m
+  // Cobj 30's 483 (Hk's own tank 646, Joke's 369: MapData.radii). Was 0.76.
+  483 / 512, // RUNNER      0.9434 m
+  // Cobj 22's 537 in all three frames (Ovmp's copy 531, Joke's own jet 286).
+  // Was 1.1, sized for Cobj 41.
   537 / 512, // GUARDIAN    1.0488 m
-  1.1, // JUGGERNAUT  2.22
-  // Cobj 41's 3DBB radius, 989 (3.15 x 0.68 x 2.14 m; Conft's and Slim's 42 is
-  // the same payload, Joke's own Fortress 603-711 by frame). Was 1.33, sized
-  // for Cobj 57.
-  989 / 512, // FORTRESS   1.9316 m
-  0.7, // TURRET      1.41
-  0.15, // PROJECTILE
-  0.56, // CONSOLE    1.12
-  1.0, // WARDEN      2.04 — the Sky Captain's craft
+  // The hull, Cobj 36's 663 (Joke's hull 35: 757). Was 1.1.
+  663 / 512, // JUGGERNAUT  1.2949 m
+  // Cobj 41's 989 (Conft's and Slim's 42 is the same payload, Joke's own
+  // Fortress 603). Was 1.33, sized for Cobj 57.
+  989 / 512, // FORTRESS    1.9316 m
+  // A type-8 (ring and plate) turret's gun, Cobj 20: 333; its base part 21 is
+  // 331. A neutral's is NEUTRAL_TURRET_RADIUS. Was 0.7.
+  333 / 512, // TURRET      0.6504 m
+  0.15, // PROJECTILE (no hit test reads it: a round's contact reach is its own)
+  0.56, // CONSOLE (Metropolis' outpost marker; the original's claim zone is no body)
+  // The Sky Captain at levels 0-2, Cobj 54's box 0: 671; SKY_RADIUS by level.
+  671 / 512, // WARDEN      1.3105 m
+];
+
+/**
+ * The hover's radius: the legs folded, frame 359 (the hover's held pose), 232,
+ * on every arena. The transform's frames between are not followed (sim.ts
+ * entityRadius).
+ */
+export const AVATAR_HOVER_RADIUS = 232 / 512;
+/**
+ * A neutral (type 36) turret's gun, Mp's Cobj 31: 463 (its base, 32: 401); Hk's
+ * second set 443, Joke's 482 (MapData.radii.neutral). Was 0.7.
+ */
+export const NEUTRAL_TURRET_RADIUS = 463 / 512;
+/**
+ * The Sky Captain's radius by level 0..9 (balance.ts wardenLevel): each band
+ * loads its own model, on Mp Cobj 54 (levels 0-2), 56 (3-5), 57 (6-8) and 58 (9),
+ * whose 3DBB box 0 is 671, 952, 994 and 1155 (their box 1 is a hit box the
+ * oriented test reads, not modelled); Hk's 812 / 1009 / 994, Joke's 903 to level
+ * 8 and 755 at 9 (MapData.radii.skyCaptain). Was 1.0 on every level.
+ */
+export const SKY_RADIUS: readonly number[] = [
+  671 / 512,
+  671 / 512,
+  671 / 512,
+  952 / 512,
+  952 / 512,
+  952 / 512,
+  994 / 512,
+  994 / 512,
+  994 / 512,
+  1155 / 512,
 ];
 
 // Max HP per archetype, indexed by ARCHETYPE value: the original's records

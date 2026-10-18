@@ -70,6 +70,7 @@ import {
   MORTAR_FRAGMENT_SPREAD,
   MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
+  NEUTRAL_TURRET_RADIUS,
   NEUTRAL_TURRET_RESPAWN_TICKS,
   ORIGINAL_JET_QUEUE_TICKS,
   ORIGINAL_TANK_QUEUE_TICKS,
@@ -629,6 +630,9 @@ export function spawnAvatar(state: SimState, player: number): number {
   ent.aimX[id] = cosLUT(s.yaw);
   ent.aimY[id] = sinLUT(s.yaw);
   ent.hp[id] = warden ? captainMaxHp(state) : avatarMaxHp(state, player);
+  // The Sky Captain's level's model; the mech's radius follows its form
+  // (entityRadius).
+  if (warden) ent.radius[id] = state.map.radii.skyCaptain[wardenLevel(state.wardenDifficulty)];
   // Spawn form (fcop-fidelity.md P2): every respawn comes back in the form the
   // spawn record asks for, as `player_respawn` resets the row from the record.
   const hover = !warden && s.hover;
@@ -685,6 +689,7 @@ function spawnDummy(state: SimState, k: number): number {
   // Its gun is the original neutral turret's (SIM_VERSION 52); the dummy, its
   // avatar-only targeting and its 15 s respawn are Metropolis'.
   ent.weaponProfile[id] = state.map.dummyWeapon;
+  ent.radius[id] = NEUTRAL_TURRET_RADIUS; // drawn as a neutral; no original of its own
   state.dummyEntity[k] = id;
   return id;
 }
@@ -705,6 +710,7 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   // Per-spot original parameters (rules.md §9; the defaults where the arena
   // imports none).
   ent.weaponProfile[id] = state.map.turretParams[k];
+  ent.radius[id] = state.map.radii.neutral[k];
   // The rest yaw. A turret's aimX/aimY are its shooter state (systemTargeting),
   // so they start at zero.
   if (state.map.turretYaw.length > 0) ent.yaw[id] = state.map.turretYaw[k];
@@ -733,6 +739,7 @@ function spawnPlateTurret(state: SimState, j: number): number {
   ent.ownerId[id] = team;
   ent.mode[id] = TURRET_DEFENSE;
   ent.weaponProfile[id] = spot.weapon;
+  ent.radius[id] = state.map.radii.baseTurret;
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   state.plateTurretEntity[j] = id;
   return id;
@@ -801,6 +808,7 @@ function spawnBaseTurret(state: SimState, k: number): number {
   ent.ownerId[id] = team;
   ent.mode[id] = TURRET_DEFENSE;
   ent.weaponProfile[id] = spot.weapon;
+  ent.radius[id] = state.map.radii.baseTurret;
   // Rest yaw only: aimX/aimY are the shooter's state (systemTargeting).
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   state.baseTurretEntity[k] = id;
@@ -847,6 +855,15 @@ export function spawnUnit(
   // has none); the tank, jet and Flying Fortress their spawner records' health
   // and weapon (fcop-fidelity.md W3): 150 / 150 / 2000 HP, on every arena.
   const base = state.map.bases[team];
+  const radii = state.map.radii;
+  ent.radius[id] =
+    archetype === ARCHETYPE.RUNNER
+      ? radii.tank
+      : archetype === ARCHETYPE.GUARDIAN
+        ? radii.jet
+        : archetype === ARCHETYPE.JUGGERNAUT
+          ? radii.dreadnought
+          : radii.fortress;
   if (archetype === ARCHETYPE.JUGGERNAUT) {
     ent.hp[id] = base.juggernaut.hp;
     ent.weaponProfile[id] = base.juggernaut.weapon;
@@ -1845,7 +1862,7 @@ function touchesZone(
   const dx = ent.posX[id] - x;
   const dy = ent.posY[id] - y;
   const dh = ent.height[id] - resolveHeight(state.map, x, y, layer);
-  const reach = zone + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
+  const reach = zone + entityRadius(state, id);
   return dx * dx + dy * dy + dh * dh < reach * reach;
 }
 
@@ -1968,7 +1985,7 @@ export function systemBuy(state: SimState, player: number, id: number): void {
 
   const base = map.bases[player];
   const heavy = base.heavyZones;
-  const r = ARCHETYPE_RADIUS[ent.archetype[id]];
+  const r = entityRadius(state, id);
   if (inBuyBox(x, y, r, base.groundConsole, base.groundBuy)) {
     archetype = ARCHETYPE.RUNNER;
     cost = COST_RUNNER;
@@ -2700,7 +2717,7 @@ function blastAt(
     const dy = ent.posY[t] - y;
     const d2 = dx * dx + dy * dy;
     if (flat) {
-      const r = radius + ARCHETYPE_RADIUS[ent.archetype[t]];
+      const r = radius + entityRadius(state, t);
       if (d2 <= r * r) applyDamage(state, t, damage, owner, byRival);
     } else if (d2 < radius * radius) {
       const dmg = Math.floor((damage * (radius - Math.sqrt(d2))) / radius);
@@ -3009,7 +3026,7 @@ export function hitscan(
     if (t <= 0 || t >= bestT) continue;
     const px = rx - dx * t;
     const py = ry - dy * t;
-    const r = ARCHETYPE_RADIUS[ent.archetype[id]];
+    const r = entityRadius(state, id);
     if (px * px + py * py <= r * r) {
       bestT = t;
       bestId = id;
@@ -3116,6 +3133,26 @@ export function fireWardenMissile(
   ent.aimX[p] = speed;
   ent.aimY[p] = 0;
   pushEvent(state.events, EV_SHOT, shooter, SHOT_SLOT_LAUNCH, SKY_WEAPON_MISSILE);
+}
+
+/**
+ * Entity `id`'s hit radius, the original's `radius_68` of the model and frame it
+ * is on (balance.ts ARCHETYPE_RADIUS, MapData.radii; fcop-fidelity.md G1): the
+ * mech by its form (the legs at the walker's pose, folded in hover); every other
+ * body as it was spawned — its arena's own model for its role, a neutral turret
+ * by its spot's set, the Sky Captain by its level's model; the archetype's
+ * default for anything spawned without one (projectiles, consoles, the sandbox).
+ */
+export function entityRadius(state: SimState, id: number): number {
+  const ent = state.ent;
+  const arch = ent.archetype[id];
+  if (arch === ARCHETYPE.AVATAR) {
+    return ent.mode[id] === MODE_HOVER ? state.map.radii.hover : state.map.radii.walker;
+  }
+  const r = ent.radius[id];
+  if (r > 0) return r;
+  if (arch === ARCHETYPE.TURRET && ent.mode[id] !== TURRET_DEFENSE) return NEUTRAL_TURRET_RADIUS;
+  return ARCHETYPE_RADIUS[arch];
 }
 
 /**
@@ -3726,7 +3763,7 @@ function systemProjectiles(state: SimState): void {
         if (!ent.alive[t] || t === id) continue;
         if (ent.team[t] === team) continue;
         if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-        const r = reach + ARCHETYPE_RADIUS[ent.archetype[t]];
+        const r = reach + entityRadius(state, t);
         const dx = ent.posX[t] - mx;
         const dy = ent.posY[t] - my;
         if (dx * dx + dy * dy <= r * r) {
@@ -3839,7 +3876,7 @@ function systemProjectiles(state: SimState): void {
         if (!ent.alive[t] || t === id) continue;
         if (ent.team[t] === ent.team[id]) continue;
         if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-        const r = ARCHETYPE_RADIUS[ent.archetype[t]] + 0.5;
+        const r = entityRadius(state, t) + 0.5;
         const dx = ent.posX[t] - ent.posX[id];
         const dy = ent.posY[t] - ent.posY[id];
         if (dx * dx + dy * dy <= r * r) {
@@ -4234,9 +4271,9 @@ function systemCapture(state: SimState): void {
       const a = state.avatarId[p];
       if (a < 0) continue;
       if (p === state.wardenPlayer) {
-        if (withinCapture(ent, a, tid, range + ARCHETYPE_RADIUS[ARCHETYPE.WARDEN], true)) team = p;
+        if (withinCapture(ent, a, tid, range + entityRadius(state, a), true)) team = p;
       } else if (state.capturePress[p] === 1) {
-        if (withinCapture(ent, a, tid, range + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR], false)) team = p;
+        if (withinCapture(ent, a, tid, range + entityRadius(state, a), false)) team = p;
       }
     }
     if (team < 0) {
@@ -4309,7 +4346,7 @@ function systemWinCheck(state: SimState): void {
     const team = ent.team[id];
     if (team !== 0 && team !== 1) continue;
     const gate = state.map.bases[team ^ 1].gate;
-    if (insideGate(gate, ent.posX[id], ent.posY[id], ARCHETYPE_RADIUS[ent.archetype[id]])) {
+    if (insideGate(gate, ent.posX[id], ent.posY[id], entityRadius(state, id))) {
       state.outroWinner = team;
       state.outroTimer = MATCH_OUTRO_TICKS;
       pushEvent(state.events, EV_BREACH, id, team, 0);
@@ -4434,12 +4471,12 @@ function systemTriggers(state: SimState): void {
     let intruder = -1;
     if ((vol.watch & TRIGGER_WATCH_ENEMY_AVATAR) !== 0) {
       const a = state.avatarId[foe];
-      if (a >= 0 && insideVolume(ent, a, vol)) intruder = a;
+      if (a >= 0 && insideVolume(state, a, vol)) intruder = a;
     }
     if (intruder < 0 && (vol.watch & TRIGGER_WATCH_ENEMY_UNITS) !== 0) {
       for (let id = 0; id < ent.high; id++) {
         if (!ent.alive[id] || ent.team[id] !== foe || !isGroundUnit(ent.archetype[id])) continue;
-        if (insideVolume(ent, id, vol)) {
+        if (insideVolume(state, id, vol)) {
           intruder = id;
           break;
         }
@@ -4447,7 +4484,7 @@ function systemTriggers(state: SimState): void {
     }
     if (intruder < 0 && (vol.watch & TRIGGER_WATCH_OWN_AVATAR) !== 0) {
       const a = state.avatarId[vol.team];
-      if (a >= 0 && insideVolume(ent, a, vol)) intruder = a;
+      if (a >= 0 && insideVolume(state, a, vol)) intruder = a;
     }
     if (intruder < 0) continue;
     // One alert per base per cooldown: every volume guarding this base re-arms.
@@ -4512,7 +4549,7 @@ function systemFloors(state: SimState): void {
     if (state.guardLatch[k] !== 0) continue;
     const id = state.avatarId[g.hurtsTeam];
     if (id < 0 || ent.archetype[id] !== ARCHETYPE.AVATAR) continue;
-    const r = ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
+    const r = entityRadius(state, id);
     const dx = ent.posX[id] - g.x;
     const dy = ent.posY[id] - g.y;
     // The box's centre stands on the surface under it at load, water included
@@ -4533,10 +4570,11 @@ function systemFloors(state: SimState): void {
  * own hit radius — the original's test is `|centre - pos| - halfExtent - radius < 0`
  * (fcop-re/ranges-turrets-capture.md Q1, retail 0x00420150..0x0042017f).
  */
-function insideVolume(ent: EntityStore, id: number, vol: MapTriggerVolume): boolean {
+function insideVolume(state: SimState, id: number, vol: MapTriggerVolume): boolean {
+  const ent = state.ent;
   const dx = ent.posX[id] - vol.x;
   const dy = ent.posY[id] - vol.y;
-  const r = ARCHETYPE_RADIUS[ent.archetype[id]];
+  const r = entityRadius(state, id);
   const hw = vol.halfW + r;
   const hl = vol.halfL + r;
   return dx <= hw && dx >= -hw && dy <= hl && dy >= -hl;

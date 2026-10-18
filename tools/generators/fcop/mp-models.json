@@ -3,7 +3,24 @@
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
     "commit": "43105fbca860f782b33d7d7de42131398a6d5a41",
-    "tool": "tools/gfx/pa_models.py"
+    "tool": "tools/gfx/pa_models.py; fixtures/missions (3DBB)"
+  },
+  "radii": {
+    "x1": {
+      "cobj": 15,
+      "walker": 283,
+      "hover": 232
+    },
+    "tank": 483,
+    "jet": 537,
+    "fortress": 989,
+    "dreadnought": 663,
+    "baseTurret": 333,
+    "neutral": [
+      463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463,
+      463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463
+    ],
+    "skyCaptain": [671, 671, 671, 952, 952, 952, 994, 994, 994, 1155]
   },
   "dreadnought": {
     "hull": 36,

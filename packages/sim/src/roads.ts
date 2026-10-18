@@ -29,14 +29,7 @@
 // is asserted at every step length a ground unit uses, and across a narrow
 // lateral band rather than on the centre line alone.
 
-import { ARCHETYPE } from "./archetypes";
-import {
-  ARCHETYPE_RADIUS,
-  GRAPH_WAYPOINT_RADIUS,
-  JUGGERNAUT_SPEED,
-  RUNNER_SPEED,
-  TICK_DT,
-} from "./balance";
+import { GRAPH_WAYPOINT_RADIUS, JUGGERNAUT_SPEED, RUNNER_SPEED, TICK_DT } from "./balance";
 import { crossesWallX, crossesWallY } from "./collision";
 import { insideGate, type MapData, worldExtent } from "./map";
 
@@ -301,7 +294,7 @@ export interface RoadWalk extends WalkResult {
 export function walkRoad(map: MapData, team: number, step: number): RoadWalk {
   const g = map.laneGraph;
   const gate = map.bases[team ^ 1].gate;
-  const radius = ARCHETYPE_RADIUS[ARCHETYPE.RUNNER];
+  const radius = map.radii.tank;
   const start = map.bases[team].groundConsole;
   if (g === undefined) {
     const w = walkLine(map, start.x, start.y, gate.x, gate.y, step);

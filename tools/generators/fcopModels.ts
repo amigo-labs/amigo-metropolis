@@ -11,6 +11,12 @@
 // (`mount.c` 1136) and fires only inside its front sector (`discharge.c`
 // 949-977); its round leaves from the gun model's own point 0.
 //
+// And every role's hit radius: an actor's `radius_68` is the halfword at +12 of
+// its model's 3DBB box for the frame it is on, << 4 world units
+// (`cact_model_block_init` 0x00426e00, `cact_model_select` 0x004297e0), read
+// here from the shipped Cobjs in the RE's fixtures/missions/<Mission> (no export
+// carries the halfword; the bbox the exports give is the box's half extents).
+//
 //   bun run gen:pamodels [all | <mapId> | <Mission>] [--re-repo <path>]
 //
 // FRAME: every point is in its model's glb frame as the RE writes it (Cobj i16 /
@@ -20,7 +26,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type FcopArena, modelsFile, selectArenas } from "./fcopArenas";
+import { type FcopArena, logicFile, modelsFile, selectArenas } from "./fcopArenas";
 import { argOf } from "./fcopLogic";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
@@ -39,9 +45,25 @@ interface ReGun {
   hull_point: { index: number; vertex: number; glb_xyz: number[] };
   by_side: Record<string, ReGunSide>;
 }
+interface RePart {
+  part: string;
+  cobj: number;
+}
+interface ReRole {
+  parts: RePart[];
+  templates?: { res: string; id: number }[];
+  levels?: number[];
+}
 interface ReModels {
   roles: {
-    dreadnought: { parts: { part: string; cobj: number }[]; guns: ReGun[] }[];
+    dreadnought: { parts: RePart[]; guns: ReGun[] }[];
+    x1alpha: ReRole[];
+    tank: ReRole[];
+    jet: ReRole[];
+    flying_fortress: ReRole[];
+    base_turret: ReRole[];
+    neutral_turret: ReRole[];
+    sky_captain: ReRole[];
   };
   models: Record<
     string,
@@ -62,9 +84,28 @@ export interface ModelsGun {
   readonly frontSectorOnly: boolean;
 }
 
+/**
+ * Each role's `radius_68`, raw (/ 512 m): the Cobj and frame it is read at. The
+ * mech's legs (the type-1 actor's own model) at the walker's pose and the
+ * hover's; a turret's gun (the actor that aims; its base is the part at +0x104);
+ * a neutral per turret spot, in the record order enrichArena keeps; the Sky
+ * Captain per level 0..9.
+ */
+export interface ModelsRadii {
+  readonly x1: { readonly cobj: number; readonly walker: number; readonly hover: number };
+  readonly tank: number;
+  readonly jet: number;
+  readonly fortress: number;
+  readonly dreadnought: number;
+  readonly baseTurret: number;
+  readonly neutral: readonly number[];
+  readonly skyCaptain: readonly number[];
+}
+
 export interface ModelsArtifact {
   readonly mission: string;
   readonly source: { readonly repo: string; readonly commit: string; readonly tool: string };
+  readonly radii: ModelsRadii;
   readonly dreadnought: {
     readonly hull: number;
     readonly hullSha: string;
@@ -72,7 +113,183 @@ export interface ModelsArtifact {
   };
 }
 
-function buildModels(arena: FcopArena, re: ReModels, source: ModelsArtifact["source"]) {
+// --- the shipped Cobjs (RE tools/gfx/fcop.py parse / extract, obj_mesh.py) ----------
+
+/** The container's write block: no chunk crosses a 0x6000 boundary. */
+const BLOCK = 0x6000;
+
+function u32(b: Uint8Array, o: number): number {
+  return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+}
+
+function tagAt(b: Uint8Array, o: number): string {
+  return String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
+}
+
+function lettersAt(b: Uint8Array, o: number): boolean {
+  for (let i = 0; i < 4; i++) {
+    const c = b[o + i];
+    if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122))) return false;
+  }
+  return true;
+}
+
+/** fcop.py `parse`: every Cobj's header chunk, by id. */
+function cobjIndex(b: Uint8Array): Map<number, { pos: number; size: number; total: number }> {
+  const out = new Map<number, { pos: number; size: number; total: number }>();
+  let pos = 0;
+  while (pos < b.length) {
+    const rem = BLOCK - (pos % BLOCK);
+    if (rem < 8 || pos + 8 > b.length) {
+      pos += rem;
+      continue;
+    }
+    const size = u32(b, pos + 4);
+    if (size < 8 || size > rem || !lettersAt(b, pos)) {
+      pos += rem;
+      continue;
+    }
+    if (
+      tagAt(b, pos) === "COHS" &&
+      tagAt(b, pos + 16) === "RDHS" &&
+      tagAt(b, pos + 24) === "jboC"
+    ) {
+      out.set(u32(b, pos + 28), { pos, size, total: u32(b, pos + 32) });
+    }
+    pos += size;
+  }
+  return out;
+}
+
+/** fcop.py `extract`: the resource's TADS fragments, concatenated. */
+function extractCobj(b: Uint8Array, at: { pos: number; size: number; total: number }): Uint8Array {
+  const out = new Uint8Array(at.total);
+  let len = 0;
+  let pos = at.pos + at.size;
+  while (pos < b.length && len < at.total) {
+    const rem = BLOCK - (pos % BLOCK);
+    if (rem < 8 || pos + 8 > b.length) {
+      pos += rem;
+      continue;
+    }
+    const size = u32(b, pos + 4);
+    if (size < 8 || size > rem || !lettersAt(b, pos)) {
+      pos += rem;
+      continue;
+    }
+    if (tagAt(b, pos) === "COHS") {
+      const sub = tagAt(b, pos + 16);
+      if (sub === "RDHS") break;
+      if (sub === "TADS") {
+        const piece = b.subarray(pos + 20, Math.min(pos + size, pos + 20 + at.total - len));
+        out.set(piece, len);
+        len += piece.length;
+      }
+    }
+    pos += size;
+  }
+  return out.subarray(0, len);
+}
+
+/**
+ * The model's `radius_68` at `frame`: the i16 at +12 of 3DBB box `frame`
+ * (`bbox_at`, object/model.c: header 8, a box every 16 bytes).
+ */
+function radiusRaw(cobj: Uint8Array, frame: number, what: string): number {
+  let pos = 0;
+  while (pos + 8 <= cobj.length) {
+    const size = u32(cobj, pos + 4);
+    if (size < 8 || pos + size > cobj.length) break;
+    const tag = String.fromCharCode(cobj[pos + 3], cobj[pos + 2], cobj[pos + 1], cobj[pos]);
+    if (tag === "3DBB") {
+      const box = pos + 8 + 8 + frame * 16;
+      if (box + 16 > pos + size) throw new Error(`${what}: no 3DBB box for frame ${frame}`);
+      const v = cobj[box + 12] | (cobj[box + 13] << 8);
+      return v >= 0x8000 ? v - 0x10000 : v;
+    }
+    pos += size;
+  }
+  throw new Error(`${what}: no 3DBB chunk`);
+}
+
+function buildRadii(arena: FcopArena, re: ReModels, reRepo: string): ModelsRadii {
+  const container = new Uint8Array(
+    readFileSync(join(reRepo, "fixtures", "missions", arena.mission)),
+  );
+  const index = cobjIndex(container);
+  const at = (cobj: number, frame: number, what: string): number => {
+    const entry = index.get(cobj);
+    if (!entry) throw new Error(`${arena.mission}: no Cobj ${cobj} (${what})`);
+    return radiusRaw(extractCobj(container, entry), frame, `${arena.mission} Cobj ${cobj}`);
+  };
+  const one = (roles: ReRole[], part: string, what: string): number => {
+    if (roles.length !== 1) throw new Error(`${arena.mission}: ${roles.length} ${what} model sets`);
+    const p = roles[0].parts.find((x) => x.part === part);
+    if (!p) throw new Error(`${arena.mission}: the ${what} has no ${part}`);
+    return at(p.cobj, 0, what);
+  };
+  // The mech's two poses (RE extracted/x1/tracks.json): the walker ends on legs
+  // track 0, the hover holds legs frame `hover.legs.hold_frame`.
+  const tracks = JSON.parse(
+    readFileSync(join(reRepo, "extracted", "x1", "tracks.json"), "utf8"),
+  ) as {
+    parts: { legs: { tracks: { track: number; from: number }[] } };
+    hover: { legs: { hold_frame: number } };
+  };
+  const walkerFrame = tracks.parts.legs.tracks.find((t) => t.track === 0)?.from;
+  if (walkerFrame === undefined) throw new Error("tracks.json: no legs track 0");
+  const legs = re.roles.x1alpha[0]?.parts.find((p) => p.part === "legs");
+  if (!legs) throw new Error(`${arena.mission}: the X1 has no legs part`);
+  // A neutral per spot: the spots are the NeutralTurret records in order.
+  const logic = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
+  ) as { neutrals: { id: number }[] };
+  const neutralSets = re.roles.neutral_turret.map((role) => {
+    const gun = role.parts.find((p) => p.part === "gun");
+    if (!gun) throw new Error(`${arena.mission}: a neutral turret with no gun`);
+    const ids = new Set((role.templates ?? []).filter((t) => t.res === "Csac").map((t) => t.id));
+    return { ids, radius: at(gun.cobj, 0, "neutral turret") };
+  });
+  const neutral = logic.neutrals.map((rec) => {
+    const set = neutralSets.find((n) => n.ids.has(rec.id));
+    if (!set) throw new Error(`${arena.mission}: NeutralTurret ${rec.id} is in no model set`);
+    return set.radius;
+  });
+  const skyCaptain: number[] = [];
+  for (const role of re.roles.sky_captain) {
+    const body = role.parts.find((p) => p.part === "body");
+    if (!body) throw new Error(`${arena.mission}: a Sky Captain with no body`);
+    for (const level of role.levels ?? []) skyCaptain[level] = at(body.cobj, 0, "Sky Captain");
+  }
+  for (let level = 0; level < 10; level++) {
+    if (skyCaptain[level] === undefined) {
+      throw new Error(`${arena.mission}: no Sky Captain for level ${level}`);
+    }
+  }
+  const hull = re.roles.dreadnought[0]?.parts.find((p) => p.part === "hull");
+  if (!hull) throw new Error(`${arena.mission}: the Dreadnought has no hull`);
+  return {
+    x1: {
+      cobj: legs.cobj,
+      walker: at(legs.cobj, walkerFrame, "X1 walker"),
+      hover: at(legs.cobj, tracks.hover.legs.hold_frame, "X1 hover"),
+    },
+    tank: one(re.roles.tank, "body", "tank"),
+    jet: one(re.roles.jet, "body", "jet"),
+    fortress: one(re.roles.flying_fortress, "body", "Flying Fortress"),
+    dreadnought: at(hull.cobj, 0, "Dreadnought hull"),
+    baseTurret: one(re.roles.base_turret, "gun", "base turret"),
+    neutral,
+    skyCaptain,
+  };
+}
+
+function buildModels(
+  arena: FcopArena,
+  re: ReModels,
+  source: ModelsArtifact["source"],
+  reRepo: string,
+) {
   const roles = re.roles.dreadnought;
   if (roles.length !== 1)
     throw new Error(`${arena.mission}: ${roles.length} Dreadnought model sets`);
@@ -119,6 +336,7 @@ function buildModels(arena: FcopArena, re: ReModels, source: ModelsArtifact["sou
   const artifact: ModelsArtifact = {
     mission: arena.mission,
     source,
+    radii: buildRadii(arena, re, reRepo),
     dreadnought: { hull: hull.cobj, hullSha: re.models[String(hull.cobj)].sha256_16, guns },
   };
   return artifact;
@@ -140,11 +358,16 @@ function main(): void {
   for (const arena of selectArenas(named)) {
     const src = join(reRepo, "extracted", "logic", arena.mission, "pa_models.json");
     const re = JSON.parse(readFileSync(src, "utf8")) as ReModels;
-    const models = buildModels(arena, re, {
-      repo: "amigo-labs/fcop-reverse-engineering",
-      commit,
-      tool: "tools/gfx/pa_models.py",
-    });
+    const models = buildModels(
+      arena,
+      re,
+      {
+        repo: "amigo-labs/fcop-reverse-engineering",
+        commit,
+        tool: "tools/gfx/pa_models.py; fixtures/missions (3DBB)",
+      },
+      reRepo,
+    );
     const out = join(REPO_ROOT, "tools", "generators", "fcop", modelsFile(arena));
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, `${JSON.stringify(models, null, 2)}\n`);

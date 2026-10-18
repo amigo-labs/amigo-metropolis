@@ -7,8 +7,11 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { type Document, getBounds, NodeIO, type Primitive } from "@gltf-transform/core";
-import { ARCHETYPE, ARCHETYPE_RADIUS } from "@metropolis/sim";
-import { ARENA_UNITS } from "../../../packages/client/src/render/arenaUnits.generated";
+import { getMapById } from "@metropolis/sim";
+import {
+  ARENA_UNITS,
+  UNIT_MODEL_FILES,
+} from "../../../packages/client/src/render/arenaUnits.generated";
 import { ARENA_UNIT_MODELS, FX_MODELS, UNIT_MODELS } from "../units/manifest";
 
 const MODELS_DIR = join(
@@ -205,28 +208,54 @@ describe("committed FX models match the manifest contract", () => {
   }
 });
 
-// The jet's and the Flying Fortress's hit radius is the original's radius_68 of
-// the model drawn: the halfword at +12 of its 3DBB box, the box's half-diagonal
-// (balance.ts ARCHETYPE_RADIUS; fcop-fidelity.md G1). The drawn mesh's own box
-// lands within the 1/512 quantisation of it, so a model swapped for another
-// without its radius following fails here. The radius is one value, Mp's: it is
-// la-cantina's models that it follows (Joke's are other models; open, G1).
-describe("aircraft hit radii follow the models drawn", () => {
-  for (const [unit, file, archetype] of [
-    ["guardian", ARENA_UNITS["la-cantina"].jet.model, ARCHETYPE.GUARDIAN],
-    ["fortress", ARENA_UNITS["la-cantina"].fortress.model, ARCHETYPE.FORTRESS],
-  ] as const) {
-    test(`${unit}: radius is its box's half-diagonal`, async () => {
-      const document = await io.read(join(OUT_DIR, `${file}.glb`));
-      const root = document.getRoot();
-      const { min, max } = getBounds(root.getDefaultScene() ?? root.listScenes()[0]);
-      const hx = (max[0] - min[0]) / 2;
-      const hy = (max[1] - min[1]) / 2;
-      const hz = (max[2] - min[2]) / 2;
-      expect(
-        Math.abs(Math.sqrt(hx * hx + hy * hy + hz * hz) - ARCHETYPE_RADIUS[archetype]),
-      ).toBeLessThan(0.01);
-    });
+// Every body's hit radius is the original's radius_68 of the model its arena
+// draws: the halfword at +12 of its 3DBB box, the box's half-diagonal (sim
+// MapData.radii from tools/generators/fcop/<mission>-models.json;
+// fcop-fidelity.md G1). The drawn mesh's own box lands within the 1/512
+// quantisation of it, so a model swapped for another without its radius
+// following fails here. The Sky Captain's box holds its searchlight volume,
+// which the drawn unit leaves out (see the hull-only test below): it is held to
+// its raw, the Cobj as shipped.
+describe("hit radii follow the models each arena draws", () => {
+  const rawOf = (file: string): string => {
+    const spec = UNIT_MODEL_FILES.find((f) => f.file === file);
+    if (!spec) throw new Error(`${file} is not in UNIT_MODEL_FILES`);
+    return join(RAW_DIR, spec.raw);
+  };
+  const halfDiagonal = async (file: string, raw = false): Promise<number> => {
+    const document = await io.read(raw ? rawOf(file) : join(OUT_DIR, `${file}.glb`));
+    const root = document.getRoot();
+    const { min, max } = getBounds(root.getDefaultScene() ?? root.listScenes()[0]);
+    const hx = (max[0] - min[0]) / 2;
+    const hy = (max[1] - min[1]) / 2;
+    const hz = (max[2] - min[2]) / 2;
+    return Math.sqrt(hx * hx + hy * hy + hz * hz);
+  };
+  for (const [mapId, units] of Object.entries(ARENA_UNITS)) {
+    const radii = getMapById(mapId).radii;
+    const bodies: [string, string, number, boolean?][] = [
+      ["tank", units.tank.model, radii.tank],
+      ["jet", units.jet.model, radii.jet],
+      ["fortress", units.fortress.model, radii.fortress],
+      ["dreadnought hull", units.dreadnought.hull, radii.dreadnought],
+      ["base turret gun", units.baseTurret.gun, radii.baseTurret],
+      ...units.neutralTurrets.map((t, i): [string, string, number] => [
+        `neutral gun ${i}`,
+        t.gun,
+        radii.neutral[t.spots[0]],
+      ]),
+      ...units.skyCaptain.byLevel.map((file, level): [string, string, number, boolean] => [
+        `Sky Captain level ${level}`,
+        file,
+        radii.skyCaptain[level],
+        true,
+      ]),
+    ];
+    for (const [what, file, radius, raw] of bodies) {
+      test(`${mapId} ${what}: its radius is its box's half-diagonal`, async () => {
+        expect(Math.abs((await halfDiagonal(file, raw)) - radius)).toBeLessThan(0.01);
+      });
+    }
   }
 });
 

@@ -1042,6 +1042,32 @@ function dreadnoughtMounts(models: ModelsArtifact): {
   };
 }
 
+/** Raw `radius_68` halfwords -> metres (<< 4 wu, 8192 wu a metre: raw / 512, exact). */
+const RADIUS_UNIT = 512;
+
+/**
+ * The arena's hit radii (sim map.ts MapRadii) from its models' 3DBB boxes
+ * (fcopModels.ts): the neutral list must be its turret spots, in order.
+ */
+function radiiOf(models: ModelsArtifact, spots: number, mapId: string) {
+  const r = models.radii;
+  if (r.neutral.length !== spots) {
+    throw new Error(`${mapId}: ${r.neutral.length} neutral radii for ${spots} turret spots`);
+  }
+  const m = (raw: number) => raw / RADIUS_UNIT;
+  return {
+    walker: m(r.x1.walker),
+    hover: m(r.x1.hover),
+    tank: m(r.tank),
+    jet: m(r.jet),
+    fortress: m(r.fortress),
+    dreadnought: m(r.dreadnought),
+    baseTurret: m(r.baseTurret),
+    neutral: r.neutral.map(m),
+    skyCaptain: r.skyCaptain.map(m),
+  };
+}
+
 /** The record's gun count, which must be the hull's mount count. */
 function gunsOnMounts(guns: number, mounts: number, mapId: string): number {
   if (guns !== mounts) throw new Error(`${mapId}: ${guns} Dreadnought guns on ${mounts} mounts`);
@@ -2255,6 +2281,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // The NeutralTurrets' capture range (fcop-re/ranges-turrets-capture.md Q2),
     // uniform per arena; the sim adds the capturer's own radius.
     captureRange: round4(captureRangeToCells(arena.neutralCaptureRaw)),
+    // Every body's hit radius, the arena's own mission's models (fcop-fidelity.md G1).
+    radii: radiiOf(models, turretSpots.length, mapId),
     laneGraph: {
       nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,

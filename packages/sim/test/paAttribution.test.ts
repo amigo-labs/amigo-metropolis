@@ -313,10 +313,18 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // onto the tank shop, so their tanks join the road at another node and the
   // walls about both shops changed): 17 of 20 resolve, in 53-117 s; urban-jungle
   // seeds 2 and 4 and proving-ground seed 2 do not, their opening order dying at
-  // the ring as above.
+  // the ring as above. Re-measured at SIM_VERSION 78 (every hit radius the
+  // original's, each arena's own models: La Cantina's, Urban Jungle's and Proving
+  // Ground's tank 0.943 m against 0.76, Bug Hunt's 0.721; the gate box a tank
+  // must touch grows or shrinks by as much, and the rounds find it sooner or
+  // later): 18 of 20 resolve, in 45-112 s. urban-jungle seed 4 and
+  // proving-ground seed 2 now breach (resolved at 93 s and 97 s); bug-hunt seed 2
+  // does not: both its opening tanks die, the nearer 13.6 m short of the gate,
+  // and it stays on 29 points from 29 captures, one short of an outpost.
+  // urban-jungle seed 2 as before (its two tanks die 11.8 m short).
   const UNRESOLVED: Record<string, number[]> = {
-    [URBAN_JUNGLE_ID]: [2, 4],
-    [PROVING_GROUND_ID]: [2],
+    [URBAN_JUNGLE_ID]: [2],
+    [BUG_HUNT_ID]: [2],
   };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {
