@@ -623,7 +623,7 @@ Waves, in this order:
    Classic textures by default, the X1's animations
 6. Presentation: camera presets, HUD and radar, the results page, the original's
    names (tank, jet, Dreadnought, Flying Fortress, Sky Captain)
-7. Front end: the original's menus and UI sounds
+7. Front end: the original's menus and UI sounds (below)
 
 ### Wave 1 — Audio
 
@@ -721,7 +721,7 @@ The original's controls from the RE (`docs/behavior/camera-and-movement.md`
       dead zone, the controls screen; the Map Key pauses (C2-C4)
 - [x] The Camera Key's seven presets and the Map Key's map screen — with
       wave 6 (V1, V4)
-- [ ] The controls screen's original look — with wave 7
+- [x] The controls screen's original look — with wave 7 (C2, F13)
 
 ### Wave 5 — Assets
 
@@ -787,6 +787,41 @@ moves.
       registry; arrows for the placed actors on the map screen (V1-V4)
 - [ ] La Cantina's solo start on side 2's base (V6: a map-import question)
 - [ ] The owner's side-by-side look against the original
+
+### Wave 7 — Front end
+
+The original's front end from the RE (`extracted/frontend/screens.json`,
+`dialogs.json`, `ui_sounds.json`; `docs/specs/fcop-fidelity.md` "Front end",
+rows F*; `docs/specs/ui.md` §3). Menu-only: no golden moves.
+
+- [x] Import: the febmp pictures the two screen sets show, the six PA loading
+      screens and the UI WAVs, unchanged, with the screen and dialog data
+      (`bun run gen:frontend`, `--check`)
+- [x] The main screen: the 640 x 480 bitmap screen on a scaled, letterboxed
+      stage, the PA one-player set solo and the networked set online; panels
+      by kind (0 on the release, 4 radio), the map buttons, title plates,
+      COMPLETED, Bug Hunt's unlock, the Sky Captain's level limited to the
+      map's progress, the difficulty chevrons, the loadout columns with the
+      original's availability, the portraits and the animated strips; mouse
+      only (F1-F6, F22)
+- [x] START → the map's loading screen with the bar → the match (F18); no live
+      arena behind the menu
+- [x] SAVE GAME / LOAD GAME on the twenty slots; NEW GAME's box (F4, F21)
+- [x] HOST / JOIN: Metropolis' lobby in the host and join dialogs and the
+      networked set's "Connected To:" (F9)
+- [x] The dialogs in the Windows 9x look from their templates: PREFERENCES
+      (options), the controls screen with both players, the profile dialog,
+      Audio applied on Ok (F12-F15)
+- [x] Escape opens the in-game menu 0xa6 in place of the pause card (F16)
+- [x] The nine UI sounds on the original's slots and call sites (F17)
+- [x] Refused, as the ledger says: PA/CW and 1P/2P (no Crime War, no local
+      second player), HELP and the film strip (no movies), QUIT (F8, F10, F11)
+- [ ] The three campaign weapons (Riot Shield, K-9 Drone, Grenade Launcher;
+      F7) — with the weapons
+- [ ] The lobby's loadout, difficulty and ready exchange, WAITING (F9) — with
+      a protocol change
+- [ ] The movies: HELP / BRIEFING's `multibrf.mpg`, the film strip's
+      `po_*.mpg` (F10)
 
 ## Backlog (post-v1, do not start)
 

@@ -70,7 +70,7 @@ refused).
 | 0x0020 | `BTN_JINK_RIGHT` | 11 Jink Right | strafe right |
 | 0x0040 | `BTN_HEAVY` | 12 Heavy Weapon | weapon slot 1, held |
 | 0x0080 | `BTN_CHANGE_TARGET` | 13 Change Target | press: the next target in front |
-| 0x0001 | `BTN_ESCAPE` | fixed | client: the pause card |
+| 0x0001 | `BTN_ESCAPE` | fixed | client: the in-game menu (dialog 0xa6) |
 
 Map, Camera and Escape stay in the client; the sim masks them off
 (`SIM_BUTTONS`).
@@ -125,9 +125,11 @@ Map, Camera and Escape stay in the client; the sim masks them off
   of its own travel, read for the sign (Left / Right / Up / Down); buttons
   0..16; no second stick, no hat, nothing analogue. A standard pad's d-pad reads
   as the four directions — the original's gamepads reported their pad as X/Y.
-- **The controls screen** (Menu > Controls): a row per slot in the original's
-  order, pick one and press the key or pad control; "Select Default Profile";
-  OK saves. Player 1's column only (no second local player).
+- **The controls screen** (PREFERENCES > Controller Configuration, or the
+  in-game menu's Controller): the original's dialog 0x71, both players'
+  fourteen fields beside the action labels; click a field and press the key or
+  pad control (the selected field is drawn inverted; an unnameable key beeps);
+  "Select Default Profile" per player; Ok saves both tables, Cancel discards.
 - **The bindings file**: localStorage, in the original's `controls.txt` form —
   fourteen lines per player, `<Device>: <name>` — under its rules: an unknown key
   name binds its first character, an unknown joystick name or a mouse line is
@@ -138,8 +140,9 @@ Map, Camera and Escape stay in the client; the sim masks them off
   belong to the browser and the OS and cannot be kept. Without a numeric
   keypad, rebind the movement keys.
 
-The menu itself keeps its own navigation (mouse, Tab, a pad's d-pad); only a
-match reads the bindings. The menu's front end becomes the original's in wave 7.
+The front end is the original's (wave 7, `ui.md` §4): mouse-driven, with the
+dialogs taking the keyboard as Windows dialogs do; only a match reads the
+bindings.
 
 ---
 
@@ -166,6 +169,7 @@ match reads the bindings. The menu's front end becomes the original's in wave 7.
 - [x] The Camera Key's seven presets and the Map Key's map screen (wave 6;
       fcop-fidelity.md V1, V4). While the map screen is open the movement bits
       pan it and the X1 reads no buttons, as the original's parked view.
-- [ ] The controls screen's original look, and player 2's column (wave 7 / with
-      a local second player).
+- [x] The controls screen's original look, and player 2's column (wave 7,
+      fcop-fidelity.md F13): player 2's table is edited and stored, and is
+      driven once there is a local second player.
 - [ ] Touch, mouse, analogue sticks: modernisation, after the original stands.
