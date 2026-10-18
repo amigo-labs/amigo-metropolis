@@ -1954,7 +1954,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         y: round4(sz(t.z)),
         weapon: turretWeapon(t, table, true),
         hp: t.health,
-        yaw: round4(rotToYaw(t.gunRotationRaw, true)),
+        yaw: round4(rotToYaw(t.gunRotationRaw)),
       })),
       turretRespawnTicks,
       // The type-28 record IS the Dreadnought (fcop-re/ranges-turrets-capture.md
@@ -2006,7 +2006,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const neutrals = [...logic.neutrals].sort((a, b) => a.id - b.id);
   const turretSpots = neutrals.map((t) => [round4(sx(t.x)), round4(sz(t.z))] as number[]);
   const turretParams = neutrals.map((t) => turretWeapon(t, table, false));
-  const turretYaw = neutrals.map((t) => round4(rotToYaw(t.gunRotationRaw, true)));
+  const turretYaw = neutrals.map((t) => round4(rotToYaw(t.gunRotationRaw)));
   // The original's Turret health, rather than the Phase-1 ARCHETYPE_MAX_HP
   // placeholder. Same value the ring turrets carry — they are the same actor kind.
   const turretHp = neutrals.map((t) => t.health);
@@ -2065,7 +2065,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
             y: round4(sz(t.z)),
             weapon: turretWeapon(t, table, true),
             hp: t.health,
-            yaw: round4(rotToYaw(t.gunRotationRaw, true)),
+            yaw: round4(rotToYaw(t.gunRotationRaw)),
           };
         }),
       };

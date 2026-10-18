@@ -50,6 +50,9 @@ import { createSim, step } from "../src/sim";
 // sim ticks), so each side's five tanks leave on other ticks and meet the fight
 // and the rings otherwise: all ten die short of the gates (player 0's nearest
 // came to 20.7 m, player 1's to 31.8 m), and the mechs go down 12 times.
+// none as before at SIM_VERSION 86: the turrets stand at their record's yaw
+// (pi/2 - a until then); the mechs still go down 12 times, the ten tanks die
+// short (player 0's nearest now 29.4 m off, player 1's 31.6 m).
 const BREACH_TICK_PIN = -1;
 const BREACH_TEAM_PIN = 0;
 

@@ -49,8 +49,6 @@ export const ORIGINAL_TICK_HZ = 60;
 export const ENGINE_TICK_HZ = 300;
 /** docs/specs/fcop-logic.md §3.2 — 4096 raw = 360°. */
 export const ROTATION_TURN = 4096;
-/** Turret rotations are stored offset by a quarter turn (fcop-logic.md §3.2). */
-export const TURRET_ROTATION_BIAS = 1024;
 
 /**
  * Raw-to-metres divisor for distance parameters (engage_range,
@@ -154,10 +152,23 @@ export function turnSpeedToUnitsPerEngineTick(raw: number): number {
   return Math.trunc((raw * 16) / 218) >> 4;
 }
 
-/** Actor rotation (raw) to a yaw in radians, matching the original's sign. */
-export function rotToYaw(raw: number, turretBias = false): number {
-  const v = turretBias ? raw - TURRET_ROTATION_BIAS : raw;
-  return (-Math.PI / (ROTATION_TURN / 2)) * v;
+/**
+ * A record angle (4096 a turn) to the sim's yaw: the angle itself
+ * (fcop-fidelity.md G12; client render/recordYaw.ts). The construct builds
+ * `My(a)` from the halfword and the engine is row-vector, so a carries the
+ * model's +z to the game's (sin a, cos a), which the actors frame's x/z swap
+ * makes the sim's (cos a, sin a). A turret gun's halfword at +0x34 is no
+ * exception: `turret_construct` (0x0041c222) builds its matrix and stores its
+ * `rest_yaw` and `yaw` from it as it stands (RE turret.c 879-883). Until
+ * SIM_VERSION 86 this read pi/2 - a for the turrets (FC:MIT's -1024 bias, the
+ * fcop-logic.md §3.2 reading) and -a otherwise. In (-PI, PI], as the X1's
+ * spawn facing is (enrichArena.ts out0Spawns).
+ */
+export function rotToYaw(raw: number): number {
+  let v = raw % ROTATION_TURN;
+  if (v > ROTATION_TURN / 2) v -= ROTATION_TURN;
+  else if (v <= -ROTATION_TURN / 2) v += ROTATION_TURN;
+  return (Math.PI / (ROTATION_TURN / 2)) * v;
 }
 
 /**

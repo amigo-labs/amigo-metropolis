@@ -1275,4 +1275,16 @@
 //     guns now read instead of tracking the hull's distance themselves. Only
 //     bug-hunt's hull walks and no golden fields a Dreadnought there: every
 //     golden's hashes hold, re-recorded for the header.
-export const SIM_VERSION = 85;
+// v86: a turret gun's rest yaw is its record angle (fcop-fidelity.md G12, W3;
+//     RE turret.c 879-883, `turret_construct` 0x0041c222: `rest_yaw` and `yaw`
+//     the record's +0x34 halfword unchanged, its matrix My(a)). The record
+//     angle a carries the model's +z to sim yaw a, as the X1's spawn facing and
+//     every other record angle do (render/recordYaw.ts). gen:arena read the gun
+//     through FC:MIT's -1024 bias, pi/2 - a (tools/generators/fcopLogic.ts
+//     rotToYaw), for MapBase.turrets[].yaw, MapData.turretYaw and the outposts'
+//     plate turrets: 62 of Mp's 64 turrets stood at another yaw (all but those
+//     at a = pi/4 mod pi). rotToYaw is now a, in (-PI, PI]; the six maps are
+//     regenerated. A turret's yaw is where its gun points until it acquires a
+//     target; nothing else moves. Every golden on a PA arena (02, 03, 04, 05,
+//     07) moves from tick 0 for the turrets' yaws; 01 and 06 re-header only.
+export const SIM_VERSION = 86;
