@@ -43,7 +43,9 @@ import {
   type TurretModels,
   UNIT_MODEL_FILES,
 } from "./arenaUnits.generated";
-import { type Bucket, type GreyboxMeshes, tintFor } from "./greybox";
+import type { Bucket, GreyboxMeshes } from "./greybox";
+import { SIDE_RAMPS } from "./palette";
+import { sideOfTeam } from "./sides";
 import { atlasOffset, createTeamUvAttribute, TEAM_UV_ATTR, writeTeamUv } from "./teamUv";
 import { loadUnitAsset, type UnitAsset } from "./unitMeshes";
 
@@ -59,16 +61,21 @@ export function arenaUnitsFor(mapId: string): ArenaUnits {
   return { ...fallback, sides: [1, 2] };
 }
 
-/** The arena whose units are on screen; the X1 rig reads its sides. */
+/** The arena whose units are on screen, and its map id. */
 let current: ArenaUnits = arenaUnitsFor(FALLBACK_ARENA);
+let currentMap = FALLBACK_ARENA;
 
 /**
- * The original's side a snapshot team plays on the current arena: 1 or 2 for
- * a team, 0 (nobody's) for anything neutral. This is the team-colour key.
+ * The original's side a snapshot team plays on the arena on screen: 1 or 2 for
+ * a team, 0 (nobody's) for anything neutral (render/sides.ts: team 0 is side 2
+ * on La Cantina, side 1 elsewhere). This is the team-colour key.
  */
-export function sideOfTeam(team: number): number {
-  return team === 0 || team === 1 ? current.sides[team] : 0;
+export function teamSide(team: number): number {
+  return sideOfTeam(currentMap, team);
 }
+
+/** The greybox stand-ins' tint by side: neutral, red, blue (palette.ts). */
+const SIDE_COLORS: readonly THREE.Color[] = SIDE_RAMPS.map((r) => new THREE.Color(r.base));
 
 /**
  * Writes an X1-Alpha slot's offset (render/avatarRig.ts): u 128 for side 1,
@@ -151,8 +158,12 @@ interface TurretSet {
 }
 
 export interface ArenaUnitsRenderer {
-  /** Points every unit bucket at `map`'s own models. Async, fire and forget. */
-  load(map: MapData, cancelled: () => boolean): void;
+  /**
+   * Takes `map` as the arena on screen (its sides, turret and outpost spots)
+   * and, with `models`, points every unit bucket at its own models: async,
+   * fire and forget. Without (?render=greybox) the stand-ins stay.
+   */
+  load(map: MapData, cancelled: () => boolean, models: boolean): void;
   /**
    * Zeroes the part buckets and advances the morph clock by the sim's own
    * time (a paused match stops the rotor). Call before the entity sweep.
@@ -275,24 +286,22 @@ function partBucket(scene: THREE.Scene, capacity: number): Bucket {
 }
 
 /**
- * Team colour for one slot, written only when its key changes (the tint
- * cache's job): with a model, the side's texture offset, keyed by side; on a
- * greybox stand-in, the team tint, keyed by team. A swap clears the cache.
+ * Team colour for one slot, written only when its side changes (the tint
+ * cache's job): with a model, the side's texture offset; on a greybox
+ * stand-in, the side's tint. A swap clears the cache.
  */
 function colour(bucket: Bucket, binding: UvBinding | undefined, slot: number, team: number): void {
+  const side = teamSide(team);
+  if (bucket.tintCache[slot] === side) return;
+  bucket.tintCache[slot] = side;
   if (binding) {
-    const side = sideOfTeam(team);
-    if (bucket.tintCache[slot] === side) return;
-    bucket.tintCache[slot] = side;
     const a = binding.attr.array as Float32Array;
     a[slot * 2] = binding.bySide[side * 2];
     a[slot * 2 + 1] = binding.bySide[side * 2 + 1];
     binding.attr.needsUpdate = true;
     return;
   }
-  if (bucket.tintCache[slot] === team) return;
-  bucket.tintCache[slot] = team;
-  bucket.mesh.setColorAt(slot, tintFor(team));
+  bucket.mesh.setColorAt(slot, SIDE_COLORS[side]);
   if (bucket.mesh.instanceColor) bucket.mesh.instanceColor.needsUpdate = true;
 }
 
@@ -520,12 +529,16 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
   }
 
   return {
-    load(map, cancelled) {
+    load(map, cancelled, models) {
       const units = arenaUnitsFor(map.id);
       current = units;
+      currentMap = map.id;
       spots = turretSpotsOf(map, units);
       consoles = new Map(map.outpostSpots.map((s, k) => [spotKey(s.x, s.y), k]));
       outpostSides = new Int8Array(map.outpostSpots.length);
+      // A side may be another team now: every stand-in's tint is re-keyed.
+      for (const b of greybox.all) b.tintCache.fill(-2);
+      if (!models) return;
       // The X1's two forms are every arena's; their offsets are the arena's
       // sides. The rig re-keys on the side too (render/avatarRig.ts).
       swap(greybox.avatarWalker, "avatar-walker", units.x1.uv, cancelled);
@@ -567,7 +580,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       if (archetype === ARCHETYPE.CONSOLE) {
         // The console's team is its outpost's owner (sim claimOutpostSlot).
         const k = consoles.get(spotKey(x, y));
-        if (k !== undefined) outpostSides[k] = sideOfTeam(team);
+        if (k !== undefined) outpostSides[k] = teamSide(team);
       }
       const set = archetype === ARCHETYPE.TURRET ? turretSet(bucket) : null;
       if (set?.ready) {

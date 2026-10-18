@@ -15,6 +15,7 @@ import {
 } from "../src/render/arenaUnits";
 import { ARENA_UNITS, UNIT_MODEL_FILES } from "../src/render/arenaUnits.generated";
 import { outpostOfPlacements } from "../src/render/props";
+import { sideOfTeam } from "../src/render/sides";
 import {
   atlasOffset,
   patchTeamUv,
@@ -197,6 +198,14 @@ describe("the side each Metropolis team plays", () => {
       "venice-beach",
     ]) {
       expect(ARENA_UNITS[mapId].sides).toEqual([1, 2]);
+    }
+  });
+
+  test("gen:paunits' Dreadnought pairing agrees with render/sides.ts' X1Alpha record", () => {
+    // Two readings of one fact: the client colours by sides.ts; the table's
+    // own `sides` is the generator's cross-check.
+    for (const [mapId, u] of Object.entries(ARENA_UNITS)) {
+      expect([sideOfTeam(mapId, 0), sideOfTeam(mapId, 1)]).toEqual([...u.sides]);
     }
   });
 

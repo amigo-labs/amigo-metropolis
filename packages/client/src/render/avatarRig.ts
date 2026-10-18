@@ -30,7 +30,7 @@
 
 import { ANIM_AIRBORNE, ANIM_MOVING } from "@metropolis/sim";
 import * as THREE from "three";
-import { sideOfTeam, writeX1Uv } from "./arenaUnits";
+import { teamSide, writeX1Uv } from "./arenaUnits";
 import { MORPH_FOLD, MORPH_SCALE_XZ, MORPH_SCALE_Y, MORPH_SPIN } from "./morph";
 import { createTeamUvAttribute, TEAM_UV_ATTR, TEAM_UV_MASK } from "./teamUv";
 import { loadUnitAsset } from "./unitMeshes";
@@ -523,7 +523,7 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
         // The original's team colour: the side's half of the page, keyed by
         // side so an arena that pairs the teams the other way re-writes it
         // (render/teamUv.ts, render/arenaUnits.ts).
-        const side = sideOfTeam(team);
+        const side = teamSide(team);
         if (part.tintCache[slot] !== side) {
           part.tintCache[slot] = side;
           writeX1Uv(part.mesh, slot, side);

@@ -779,9 +779,11 @@ function buildArenaGroup(m: typeof map): THREE.Group {
     // The arena's own units: its mission's Cobjs and texture pages, swapped
     // into the unit buckets (render/arenaUnits.ts). Null on the first build,
     // which runs before the buckets exist; boot loads that arena below.
-    arenaUnits?.load(m, stale);
+    arenaUnits?.load(m, stale, true);
     if (showGreyboxStructures) buildGreyboxStructures();
   } else {
+    // The stand-ins keep their boxes but take the arena's sides.
+    arenaUnits?.load(m, stale, false);
     buildGreyboxTerrain();
     buildGreyboxStructures();
   }
@@ -805,9 +807,9 @@ if (bloomOn) setBloom(true);
 // projectiles at boot, the arena's own units with the arena.
 if (renderMode === "mesh") loadUnitMeshes(greybox);
 arenaUnits = createArenaUnits(scene, greybox);
-if (renderMode === "mesh") {
+{
   const bootEpoch = arenaEpoch;
-  arenaUnits.load(map, () => arenaEpoch !== bootEpoch);
+  arenaUnits.load(map, () => arenaEpoch !== bootEpoch, renderMode === "mesh");
 }
 /** Non-null from here on: the frame loop's handle on the arena's units. */
 const units: ArenaUnitsRenderer = arenaUnits;
