@@ -24,6 +24,7 @@ import {
   type MapData,
   SNAPSHOT_STRIDE,
   TURRET_CAPTURABLE,
+  worldExtent,
 } from "@metropolis/sim";
 import {
   ARENA_PRESENTATION,
@@ -32,11 +33,27 @@ import {
   RADAR_PALETTE,
   UNIT_MARKERS,
 } from "../fcopPresentation.generated";
+import { mapCell } from "../mapScreen";
 import { SIDE_BLUE, SIDE_RED, sideOfTeam } from "../sides";
 import { hudPage11 } from "./hudArt";
 import { type HudCanvas, hudCanvas } from "./hudLayout";
 
+/**
+ * The map screen's state as the radar needs it: while open the 54-cell overview
+ * takes the disc's place (hud_draw_radar, the view paused), with the terrain
+ * window's extent marked on it. Map frame metres.
+ */
+export interface RadarOverview {
+  open: boolean;
+  cx: number;
+  cy: number;
+  halfX: number;
+  halfY: number;
+}
+
 export interface Radar {
+  /** Written by the map screen; read by refresh(). */
+  readonly overview: RadarOverview;
   /** Draws the radar for this frame (the local X1's interpolated pose, sim frame). */
   refresh(
     match: Float32Array,
@@ -69,6 +86,13 @@ const UNIT_RAD = (Math.PI * 2) / TURN;
 const PALETTE_CSS: readonly string[] = RADAR_PALETTE.map((c) =>
   c ? `rgb(${c[0]},${c[1]},${c[2]})` : "rgba(0,0,0,0)",
 );
+const half = (rgb: readonly number[]): string => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.5)`;
+/** The overview's frame and fill (op 0x3d, half alpha); its window frame, dim. */
+const OVERVIEW_BORDER = half(HUD.pauseMap.borderRgb);
+const OVERVIEW_FILL = half(HUD.pauseMap.fillRgb);
+const OVERVIEW_WINDOW = half(HUD.pauseMap.windowRgb);
+/** The team slots' and the Sky Captain's blips: 0x7fff, white. */
+const OVERVIEW_WHITE = "rgb(248,248,248)";
 const TICK_CSS = `rgb(${HUD.radar.tickRgb[0]},${HUD.radar.tickRgb[1]},${HUD.radar.tickRgb[2]})`;
 
 /**
@@ -266,12 +290,19 @@ export function createRadar(parent: HTMLElement, mapId: string, _slot: number): 
   }
   /** The side owning each outpost spot this frame (its console's team). */
   const spotSide = new Int32Array(spots.length);
+  const extent = map ? worldExtent(map) : 1;
+  const overview: RadarOverview = { open: false, cx: 0, cy: 0, halfX: 16, halfY: 12 };
 
   return {
+    overview,
     refresh(match, snapshot, count, clock, selfX, selfY, facing, _down) {
       const ctx = canvas.ctx;
       canvas.dirty = false;
       canvas.begin();
+      if (overview.open) {
+        drawOverview(ctx, snapshot, count, arena, extent, overview, mapId);
+        return;
+      }
       drawDisc(ctx, page.image, page.ready);
       const facingU = facing / UNIT_RAD;
 
@@ -354,4 +385,55 @@ export function createRadar(parent: HTMLElement, mapId: string, _slot: number): 
       canvas.place(vw, vh);
     },
   };
+}
+
+/** A 4 x 4 overview blip at a world point (2 x cell + 6, 640 units). */
+function overviewBlip(ctx: CanvasRenderingContext2D, x: number, y: number, extent: number): void {
+  ctx.fillRect(2 * mapCell(x, extent) + 6, 2 * mapCell(y, extent) + 6, 4, 4);
+}
+
+/**
+ * The paused radar (hud_radar.c:268-378): the frame and fill, the terrain
+ * window's extent, then white blips for the team slots and the Sky Captain,
+ * the contacts with bit 1 and the Dreadnoughts (marker kind 0x40) in their
+ * palette colours.
+ */
+function drawOverview(
+  ctx: CanvasRenderingContext2D,
+  snapshot: Float32Array,
+  count: number,
+  arena: ArenaPresentation,
+  extent: number,
+  ov: RadarOverview,
+  mapId: string,
+): void {
+  const frame = HUD.pauseMap.frame;
+  for (let i = 0; i < frame.length; i++) {
+    ctx.fillStyle = i === frame.length - 1 ? OVERVIEW_FILL : OVERVIEW_BORDER;
+    ctx.fillRect(frame[i][0], frame[i][1], frame[i][2], frame[i][3]);
+  }
+  const c0 = mapCell(ov.cx - ov.halfX, extent);
+  const c1 = Math.min(0x35, mapCell(ov.cx + ov.halfX, extent));
+  const r0 = mapCell(ov.cy - ov.halfY, extent);
+  const r1 = Math.min(0x35, mapCell(ov.cy + ov.halfY, extent));
+  ctx.fillStyle = OVERVIEW_WINDOW;
+  ctx.fillRect(2 * c0 + 6, 2 * r0 + 6, 2 * (c1 - c0) + 4, 2 * (r1 - r0) + 4);
+  for (let i = 0; i < count; i++) {
+    const o = i * SNAPSHOT_STRIDE;
+    const a = snapshot[o + 1];
+    if (a === ARCHETYPE.AVATAR || a === ARCHETYPE.WARDEN) {
+      ctx.fillStyle = OVERVIEW_WHITE;
+      overviewBlip(ctx, snapshot[o + 3], snapshot[o + 4], extent);
+    } else if (a === ARCHETYPE.JUGGERNAUT) {
+      const side = sideOfTeam(mapId, snapshot[o + 2]);
+      ctx.fillStyle = PALETTE_CSS[markerOf(a, side, 0) & 0x1f];
+      overviewBlip(ctx, snapshot[o + 3], snapshot[o + 4], extent);
+    }
+  }
+  for (let k = 0; k < arena.contacts.length; k++) {
+    const c = arena.contacts[k];
+    if ((c.shown & 2) === 0) continue;
+    ctx.fillStyle = PALETTE_CSS[c.colour];
+    overviewBlip(ctx, c.x, c.y, extent);
+  }
 }

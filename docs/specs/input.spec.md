@@ -64,8 +64,8 @@ refused).
 | 0x0200 | `BTN_ACTION` | 5 Action Key | held: the slow row; pressed: use |
 | 0x0100 | `BTN_SPECIAL` | 6 Special Weapon | weapon slot 2, from its HELD latch |
 | 0x0800 | `BTN_JUMP` | 7 Jump | the walker's jumps; the hover's brake |
-| 0x0008 | `BTN_MAP` | 8 Map Key | client: pause (solo) |
-| 0x0004 | `BTN_CAMERA` | 9 Camera Key | client: the camera presets (wave 6) |
+| 0x0008 | `BTN_MAP` | 8 Map Key | client: the map screen (solo: with the pause; `render/mapScreen.ts`) |
+| 0x0004 | `BTN_CAMERA` | 9 Camera Key | client: the next chase camera (`render/camera.ts`) |
 | 0x0010 | `BTN_JINK_LEFT` | 10 Jink Left | strafe left |
 | 0x0020 | `BTN_JINK_RIGHT` | 11 Jink Right | strafe right |
 | 0x0040 | `BTN_HEAVY` | 12 Heavy Weapon | weapon slot 1, held |
@@ -163,7 +163,9 @@ match reads the bindings. The menu's front end becomes the original's in wave 7.
       screen.
 - [x] Transform as the chord; the slow row; Special from the held latch.
 - [x] Ovmp's slippery ground (the walker's movement mode, SIM_VERSION 71).
-- [ ] The Camera Key's seven presets and the Map Key's map screen (wave 6).
+- [x] The Camera Key's seven presets and the Map Key's map screen (wave 6;
+      fcop-fidelity.md V1, V4). While the map screen is open the movement bits
+      pan it and the X1 reads no buttons, as the original's parked view.
 - [ ] The controls screen's original look, and player 2's column (wave 7 / with
       a local second player).
 - [ ] Touch, mouse, analogue sticks: modernisation, after the original stands.

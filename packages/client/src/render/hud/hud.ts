@@ -45,6 +45,7 @@ import {
   scoreColour,
   upperCountColour,
 } from "./hudRules";
+import { createMapOverlay, type MapOverlay } from "./mapOverlay";
 import { createRadar, type Radar } from "./radar";
 
 export interface MatchHudOptions {
@@ -88,8 +89,10 @@ export interface MatchHud {
     tz: number,
     hit: number,
   ): void;
-  /** The radar paused (the map screen's overview takes its place, radar.ts). */
+  /** The radar; the map screen writes its overview state (radar.ts). */
   readonly radar: Radar;
+  /** The map screen's arrows and rings over the top-down window (mapOverlay.ts). */
+  readonly map: MapOverlay;
   /** Re-places every element for a viewport (CSS px). */
   layout(vw: number, vh: number): void;
   destroy(): void;
@@ -220,6 +223,8 @@ export function createMatchHud(
   const root = document.createElement("div");
   root.className = "mhud";
   parent.appendChild(root);
+  // First, so the HUD draws over the map screen's marks, as the original's does.
+  const map = createMapOverlay(opts.mapId, root);
   const font = hudFont();
   const page = hudPage11();
   const reticles = hudReticles();
@@ -264,6 +269,7 @@ export function createMatchHud(
 
   return {
     radar,
+    map,
     refresh(match, snapshot, count, clock, selfX, selfY, facing) {
       const mine = matchSlotOffset(slot);
       const theirs = matchSlotOffset(other);
@@ -426,6 +432,7 @@ export function createMatchHud(
       viewH = vh;
       for (let i = 0; i < canvases.length; i++) canvases[i].place(vw, vh);
       radar.layout(vw, vh);
+      map.layout(vw, vh);
       lockEl.width = Math.max(1, Math.round(vw));
       lockEl.height = Math.max(1, Math.round(vh));
       lockEl.style.width = `${vw}px`;

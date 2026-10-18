@@ -121,6 +121,13 @@ import { type CameraCaption, createCameraCaption } from "./render/hud/caption";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
 import { snapshotIndexOf } from "./render/hud/hudRules";
 import { loadLifts, updateLifts } from "./render/lifts";
+import {
+  createMapScreen,
+  mapBounds,
+  mapWindow,
+  panMapScreen,
+  toggleMapScreen,
+} from "./render/mapScreen";
 import { matchClock, matchEndText } from "./render/matchEnd";
 import { loadMapMesh } from "./render/meshMap";
 import {
@@ -499,17 +506,33 @@ function sizeLiftSnapshots(lifts: number): boolean {
 const keyboard = new PlayerOneInput(window);
 // The stored bindings (the original's controls.txt; input/controlsStore.ts).
 keyboard.setTable(loadControls()[0]);
-// The Map Key pauses a solo match, as the original's does in a one-viewport
-// game; online it pauses nothing (the original only parks that player's
-// camera). Its map screen comes with the presentation wave.
+// The Map Key opens the map screen (render/mapScreen.ts): in a solo match the
+// sim pauses with it, as the original's one-viewport game does; online the
+// match runs on and only this player's view is parked, its X1 reading no
+// buttons, as the original's two-player game parks one view. Under the debug
+// cameras (no HUD, no map screen) it pauses a solo match as before.
 keyboard.onMap = () => {
-  if (!net && phase === "match" && !matchEndShown) setMatchPaused(!matchPaused);
+  if (phase !== "match" || matchEndShown) return;
+  const view = views[0];
+  if (!matchHud || !view) {
+    if (!net) setMatchPaused(!matchPaused);
+    return;
+  }
+  const pose = avatarPoses[view.slot];
+  toggleMapScreen(mapScreen, pose[0], pose[1]);
+  if (mapScreen.open) mapBounds(map, mapBox);
+  // The original's pause silences everything (0x00434530); online the match
+  // and its sound run on.
+  if (!net && !matchPaused) {
+    if (mapScreen.open) audio.pause();
+    else audio.resume();
+  }
 };
 // The Camera Key cycles the local view's chase camera (render/camera.ts). A
 // client-local choice like the original's: the bit never reaches the sim.
 keyboard.onCamera = () => {
   const view = views[0];
-  if (phase === "match" && view && cameraCaption) pressCameraKey(view.cam, false);
+  if (phase === "match" && view && cameraCaption) pressCameraKey(view.cam, mapScreen.open);
 };
 const localInput: LocalInputSource = keyboard;
 const audio = new AudioEngine();
@@ -865,6 +888,25 @@ const CHASE_ANCHOR_LIFT = 0.5;
 /** The camera caption (render/hud/caption.ts), present while a chase camera is. */
 let cameraCaption: CameraCaption | undefined;
 
+/** The Map Key's map screen (render/mapScreen.ts): client-local view state. */
+const mapScreen = createMapScreen();
+/** [half width m, half height m, CSS px a sample] of the map window. */
+const mapWin = new Float64Array(3);
+/** The world the window stays inside, [minX, maxX, minY, maxY] (mapBounds). */
+const mapBox = new Float64Array(4);
+/** The keyboard's word for the map screen's pan, sampled per frame. */
+const panInput = createTickInputs().players[0];
+/** Straight down onto the window: screen right is +x, screen down +y (three +z). */
+const mapCam = new THREE.OrthographicCamera(-16, 16, 12, -12, 1, 1000);
+mapCam.up.set(0, 0, -1);
+mapCam.matrixAutoUpdate = true;
+/** The map camera's height over the arena, m: above every deck. */
+const MAP_CAM_HEIGHT = 400;
+/** Scene children hidden for the top-down render (reused; no per-frame growth). */
+const mapHidden: THREE.Object3D[] = [];
+const MAP_CLEAR = new THREE.Color(0, 0, 0);
+const savedClear = new THREE.Color();
+
 const unitCounts = new Int32Array(2);
 
 // Full-screen status overlay for online mode (connecting / waiting / desync).
@@ -985,6 +1027,7 @@ function resetMatchEnd(): void {
 function showMatchEnd(winner: number): void {
   matchEndShown = true;
   setMatchPaused(false); // the end card replaces the pause card, never stacks
+  mapScreen.open = false;
   const slot = views[0]?.slot ?? 0;
   // Every arena ends at a gate since SIM_VERSION 32 (the original has no core).
   const text = matchEndText(winner, slot);
@@ -1040,7 +1083,7 @@ function setMatchPaused(paused: boolean): void {
   // Online the match runs on behind the card, and so does its sound.
   if (!net && phase === "match") {
     if (paused) audio.pause();
-    else audio.resume();
+    else if (!mapScreen.open) audio.resume(); // the map screen keeps its pause
   }
   pauseEl.classList.toggle("is-open", paused);
   // The bound keys are the game's only while it is live and not paused: the
@@ -1063,6 +1106,7 @@ function setMatchPaused(paused: boolean): void {
  */
 function returnToMenu(): void {
   setMatchPaused(false);
+  mapScreen.open = false;
   audio.stopMatch();
   if (document.pointerLockElement) document.exitPointerLock();
 
@@ -1449,8 +1493,11 @@ function runTick(): void {
   const queued = inputQueue[futureTick % QUEUE_SIZE];
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const view = viewBySlot[p];
-    if (view) view.input.sample(queued.players[p]);
-    else if (p !== sim.wardenPlayer) scriptOpponent(sim, p, queued.players[p]);
+    if (view) {
+      view.input.sample(queued.players[p]);
+      // A parked view's X1 reads no buttons (player.c:1420, player_fire.c:864).
+      if (mapScreen.open && view === views[0]) queued.players[p].buttons = 0;
+    } else if (p !== sim.wardenPlayer) scriptOpponent(sim, p, queued.players[p]);
   }
 
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
@@ -1800,6 +1847,51 @@ function updateChaseCamera(view: PlayerView, dtSec: number): void {
   }
 }
 
+/**
+ * The map screen's frame: the pan from the keyboard's word, then the terrain
+ * window drawn from straight above (the arena alone: units, effects and the sky
+ * are left out, as the original's `draw_pause_map_cell` draws only terrain).
+ */
+function renderMapScreen(dtSec: number): void {
+  const view = views[0];
+  if (!view) return;
+  mapWindow(innerWidth, innerHeight, mapWin);
+  const pose = avatarPoses[view.slot];
+  keyboard.sample(panInput);
+  const ticks = Math.min(dtSec * ENGINE_HZ, 60);
+  panMapScreen(mapScreen, panInput.buttons, ticks, pose[0], pose[1], mapBox, mapWin[0], mapWin[1]);
+  mapCam.left = -mapWin[0];
+  mapCam.right = mapWin[0];
+  mapCam.top = mapWin[1];
+  mapCam.bottom = -mapWin[1];
+  mapCam.updateProjectionMatrix();
+  mapCam.position.set(mapScreen.cx, MAP_CAM_HEIGHT, mapScreen.cy);
+  mapCam.lookAt(mapScreen.cx, 0, mapScreen.cy);
+  mapCam.updateMatrixWorld();
+  mapHidden.length = 0;
+  const children = scene.children;
+  for (let i = 0; i < children.length; i++) {
+    const c = children[i];
+    if (c === arenaGroup || (c as THREE.Light).isLight || !c.visible) continue;
+    c.visible = false;
+    mapHidden.push(c);
+  }
+  const fog = scene.fog;
+  const background = scene.background;
+  scene.fog = null;
+  scene.background = null;
+  renderer.getClearColor(savedClear);
+  const clearAlpha = renderer.getClearAlpha();
+  renderer.setClearColor(MAP_CLEAR, 1);
+  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  renderer.setScissor(0, 0, innerWidth, innerHeight);
+  renderer.render(scene, mapCam);
+  renderer.setClearColor(savedClear, clearAlpha);
+  scene.fog = fog;
+  scene.background = background;
+  for (let i = 0; i < mapHidden.length; i++) mapHidden[i].visible = true;
+}
+
 /** The lock's two ends above the entities' feet, m: the X1's gun, the target's middle. */
 const LOCK_FROM_LIFT = 0.6;
 const LOCK_TO_LIFT = 0.5;
@@ -1813,8 +1905,31 @@ function refreshMatchHud(view: PlayerView, alpha: number): void {
   const hud = matchHud;
   if (!hud) return;
   const pose = avatarPoses[view.slot];
-  const clock = Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ));
+  // The frame clock runs on through the map screen's pause (its rings pulse).
+  const clock = mapScreen.open
+    ? Math.floor(performance.now() * (ENGINE_HZ / 1000))
+    : Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ));
+  const ov = hud.radar.overview;
+  ov.open = mapScreen.open;
+  ov.cx = mapScreen.cx;
+  ov.cy = mapScreen.cy;
+  ov.halfX = mapWin[0];
+  ov.halfY = mapWin[1];
   hud.refresh(matchSnap, snapCurr, countCurr, clock, pose[0], pose[1], pose[5]);
+  hud.map.draw(
+    mapScreen.open,
+    snapCurr,
+    countCurr,
+    clock,
+    mapScreen.cx,
+    mapScreen.cy,
+    mapWin[2],
+    view.slot,
+  );
+  if (mapScreen.open) {
+    hud.drawLock(view.camera, false, 0, 0, 0, 0, 0, 0, 1);
+    return;
+  }
   const mine = matchSlotOffset(view.slot);
   const lock = matchSnap[mine + MATCH_SLOT_LOCK] | 0;
   const down = (matchSnap[mine + MATCH_SLOT_RESPAWN_TICKS] | 0) > 0;
@@ -1960,6 +2075,7 @@ function frame(now: number): void {
     } else if (sim) {
       if (debugPaused) break; // ?debug harness freeze (metropolisPause)
       if (matchPaused) break; // ESC pause freezes offline / fly / sandbox
+      if (mapScreen.open) break; // the Map Key's pause, one viewport
       runTick();
     } else {
       break; // online deep link: no sim at all until MSG_WELCOME
@@ -1991,6 +2107,9 @@ function frame(now: number): void {
     renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.setScissor(0, 0, innerWidth, innerHeight);
     renderScene(flyCam);
+  } else if (mapScreen.open && matchHud) {
+    // The map screen in place of the view (view 0 only: one local player).
+    renderMapScreen(dtSec);
   } else {
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
@@ -2091,6 +2210,7 @@ function resetForMatch(newSim: SimState): void {
 function startMatch(localPlayers: readonly { slot: number; input: LocalInputSource }[]): void {
   phase = "match";
   setMatchPaused(false);
+  mapScreen.open = false;
   beginMatchSounds();
   views = createPlayerViews(localPlayers, map.spawns);
   keyboard.capture = true;
@@ -2159,7 +2279,10 @@ function makeNetSampler(): () => PlayerInput {
   const localInput = createTickInputs().players[0];
   return () => {
     const view = views[0];
-    if (view) view.input.sample(localInput);
+    if (view) {
+      view.input.sample(localInput);
+      if (mapScreen.open) localInput.buttons = 0; // the parked view (see runTick)
+    }
     return localInput;
   };
 }
