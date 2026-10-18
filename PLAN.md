@@ -799,6 +799,9 @@ no golden moves.
       its construct takes on its layer (the topmost surface but for three flags an
       arena) and at its own yaw — Hk's flags and base kiosks, Slim's and Joke's
       flags were hidden too (G2, G10)
+- [x] The maps' render-only `props` and their invented yaws ("face the nearer
+      base core") dropped from enrichArena, the map JSONs and `MapData`; nothing
+      read them (G2; no hash moves)
 - [x] The outpost console as the original's: Cobj 29 on the pad until the claim,
       the two terminals (Mp 27 and 33, the tank and jet shops) from it; no unit
       model for the console entity (G5, G10)

@@ -52,8 +52,9 @@ archetypes (mesh + greybox pairs) into `docs/verification/stage7-units/`.
 ## Arena scenery — `props/<map-id>/`
 
 One `.glb` per original `DynamicProp` model, in a folder per arena and named
-`prop-<cobj>` after the Cobj resource id the map's `props` entries carry, so
-`src/render/props.ts` maps a placement onto a URL with no second lookup table.
+`prop-<cobj>` after the Cobj resource id each placement of
+`src/render/arenaScenery.generated.ts` carries, so `src/render/props.ts` maps a
+placement onto a URL with no second lookup table.
 Every imported arena has 36 placements across 8 models: the outpost flags
 (16×, hazard stripes until the outpost is claimed, then the claimer's flag —
 the same per-instance texture offset as the units), the outpost console and six

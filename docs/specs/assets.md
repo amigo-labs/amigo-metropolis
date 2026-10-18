@@ -157,8 +157,9 @@ forever as a debug render mode (`?render=greybox`).
   `render/props.ts` draws the table (one InstancedMesh per model, an instance
   per record; one hidden by its outpost's claim or its base's poll is drawn at
   zero scale), the model's +z turned onto the sim's
-  (cos yaw, sin yaw) as a unit's is. The map's `props` are not read. The
-  outpost's console entity therefore has no unit model of its own.
+  (cos yaw, sin yaw) as a unit's is. The map JSONs carry no scenery: their
+  `props`, with yaws of Metropolis' own, are gone. The outpost's console entity
+  has no unit model of its own.
 - **Each arena's units are its own mission's Cobjs** (`packages/client/public/models/units/<mapId>/obj_NNN.glb`).
   `bun run gen:paunits` reads every role off the RE's
   `extracted/logic/<Mission>/pa_models.json` — the records that place or spawn

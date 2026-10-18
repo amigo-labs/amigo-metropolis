@@ -5,10 +5,13 @@
 // and which model stands at an outpost before and after its claim.
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { getMapById, resolveHeight } from "@metropolis/sim";
 import * as THREE from "three";
 import { SCENERY_PLACEMENTS, type SceneryPlacement } from "../src/render/arenaScenery.generated";
 import { ARENA_UNITS } from "../src/render/arenaUnits.generated";
+import { MAP_ALIGN } from "../src/render/mapAlign.generated";
 import {
   propMatrices,
   propMorphFrame,
@@ -18,6 +21,8 @@ import {
 } from "../src/render/props";
 
 const UP = new THREE.Vector3(0, 1, 0);
+/** The arena import's committed RE artifacts (gen:palogic, gen:parules). */
+const FCOP_DIR = join(import.meta.dir, "..", "..", "..", "tools", "generators", "fcop");
 
 /** Where three puts the model's +z for a record's yaw, as a sim (x, y) heading. */
 function heading(yaw: number): [number, number] {
@@ -77,14 +82,27 @@ describe("a record's yaw", () => {
 });
 
 describe("where the records stand", () => {
-  test("every placement stands where its map's import put the same model", () => {
-    // Two readings of the same records: enrichArena's `props` and gen:scenery's
-    // table must agree on where every model is, record for record.
+  test("every placement stands where the arena import's actors put the same model", () => {
+    // Two readings of the same records: the RE's actor extraction that the arena
+    // import reads (gen:palogic, tools/generators/fcop/<mission>-logic.json, its
+    // type-11 `props`, moved into the sim's frame by the terrain's measured
+    // shift) and gen:scenery's own read of the mission bytes must agree on where
+    // every model is, record for record.
     for (const [mapId, scenery] of Object.entries(SCENERY_PLACEMENTS)) {
-      const map = getMapById(mapId);
-      expect(scenery.placements.length).toBe(map.props.length);
+      const align = MAP_ALIGN[mapId];
+      const shiftX = align.x + align.minX;
+      const shiftY = align.z + align.minZ;
+      const logic = JSON.parse(
+        readFileSync(join(FCOP_DIR, `${scenery.mission.toLowerCase()}-logic.json`), "utf8"),
+      ) as { props: { x: number; z: number; objId: number }[] };
+      const records = logic.props.map((q) => ({
+        model: q.objId,
+        x: q.x + shiftX,
+        y: q.z + shiftY,
+      }));
+      expect(scenery.placements.length).toBe(records.length);
       for (const p of scenery.placements) {
-        const same = map.props.filter(
+        const same = records.filter(
           (q) => q.model === p.cobj && Math.hypot(q.x - p.x, q.y - p.y) < 0.001,
         );
         expect({ mapId, record: p.record, found: same.length }).toEqual({

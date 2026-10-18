@@ -471,15 +471,16 @@ export const ARENA_UNIT_MODELS: readonly ArenaUnitModelSpec[] = UNIT_MODEL_FILES
 export interface PropModelSpec {
   /**
    * Output name: packages/client/public/models/props/<mapId>/<key>.glb.
-   * Always `prop-<cobj>` so render/props.ts can map a MapProp.model straight
-   * onto a URL in the arena's folder without a second lookup table.
+   * Always `prop-<cobj>` so render/props.ts can map a scenery placement's
+   * `cobj` (render/arenaScenery.generated.ts) straight onto a URL in the
+   * arena's folder without a second lookup table.
    */
   readonly key: string;
-  /** The arena (packages/sim/maps/<mapId>.json) whose `props` place it. */
+  /** The arena whose scenery places it (render/arenaScenery.generated.ts). */
   readonly mapId: string;
   /** The arena's mission container: the Cobj id and its texels are this one's. */
   readonly mission: string;
-  /** Original Cobj resource id in that mission, as carried by MapProp.model. */
+  /** Original Cobj resource id in that mission, as a scenery placement carries it. */
   readonly cobj: number;
   /**
    * The Mp Cobj with the same payload (the same geometry and UVs), or null for

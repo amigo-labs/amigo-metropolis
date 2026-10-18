@@ -85,8 +85,6 @@ interface ArenaExpectation {
   juggernautHp: number;
   /** The gate box's half-extents [x, y] in metres (raw/1024). */
   gateHalf: readonly [number, number];
-  /** Original scenery placements. Render-only — determinismGuard.test.ts enforces it. */
-  props: number;
   /**
    * Grid line the arena's terrain is mirror-symmetric about, in BOTH axes.
    *
@@ -207,7 +205,6 @@ const ARENAS: ArenaExpectation[] = [
     triggerVolumes: 7, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
     gateHalf: [2.3994, 1.7998], // gate trigger 2457 x 1843 raw
-    props: 36,
     mirrorAxis: 120,
     flatPlots: false, // spawn platform above the base floor
     // SIM_VERSION 39 (the original's walker, fcop-fidelity.md P4): it walks
@@ -271,7 +268,6 @@ const ARENAS: ArenaExpectation[] = [
     triggerVolumes: 8, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
     gateHalf: [1.7998, 2.0996], // gate trigger 1843 x 2150 raw
-    props: 36,
     mirrorAxis: 120,
     flatPlots: true, // spawn and base share the 0 m floor here
     // SIM_VERSION 39 (fcop-fidelity.md P4): the walker walks gradients to 1.04
@@ -330,7 +326,6 @@ const ARENAS: ArenaExpectation[] = [
     triggerVolumes: 7, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
     gateHalf: [2.3994, 1.7998], // gate trigger 2457 x 1843 raw
-    props: 36,
     mirrorAxis: 112,
     flatPlots: false,
     // Mp is the clean one: since SIM_VERSION 39 the walker walks every edge of
@@ -375,7 +370,6 @@ const ARENAS: ArenaExpectation[] = [
     triggerVolumes: 8, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
     gateHalf: [1.7998, 2.0996], // gate trigger 1843 x 2150 raw
-    props: 36,
     mirrorAxis: 120,
     flatPlots: true,
     // SIM_VERSION 39: as proving-ground (the same terrain): 43 -> 37 steep,
@@ -412,7 +406,6 @@ for (const arena of ARENAS) {
       expect(map.pickups.length).toBe(arena.pickups);
       expect(map.triggerVolumes.length).toBe(arena.triggerVolumes);
       expect(map.laneGraph?.nodes.length ?? 0).toBe(arena.graphNodes);
-      expect(map.props.length).toBe(arena.props);
       for (let team = 0; team < map.bases.length; team++) {
         const base = map.bases[team];
         const ringWant = Array.isArray(arena.ringTurrets)

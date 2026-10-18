@@ -479,27 +479,6 @@ export interface MapLift {
 }
 
 /**
- * A render-only scenery placement (original DynamicProp and friends).
- *
- * The SIM MUST NOT READ THIS. It rides along in the map so the client can place
- * original props without a second data file; packages/sim/test/map.test.ts
- * asserts no sim source file references it.
- */
-export interface MapProp {
-  readonly x: number;
-  readonly y: number;
-  readonly height: number;
-  readonly yaw: number;
-  /**
-   * Original Cobj resource id in this arena's own mission container, so the
-   * renderer can pick the model. The missions number their Cobjs differently:
-   * the same id is another model on another arena.
-   */
-  readonly model: number;
-  readonly layer: number;
-}
-
-/**
  * One of the original's outposts (fcop-re/outposts.md Q3), parallel to
  * `MapData.outpostSpots` (the claim zone's centre, where the console marker
  * stands). Precinct Assault arenas only.
@@ -676,8 +655,6 @@ export interface MapData {
   readonly spawnGuards: readonly MapSpawnGuard[];
   /** The lifts (Conft, Slim, Joke). EMPTY elsewhere. */
   readonly lifts: readonly MapLift[];
-  /** Render-only scenery. The sim must not read this. */
-  readonly props: readonly MapProp[];
 }
 
 /**
@@ -1030,8 +1007,6 @@ export interface MapJson {
     model: number;
     yaw: number;
   }[];
-  /** Render-only scenery; never read by the sim. */
-  props?: { x: number; y: number; height: number; yaw: number; model: number; layer?: number }[];
 }
 
 /** JSON shape of one base; point lists are [x, y] pairs or {x,y,layer?} objects. */
@@ -1971,16 +1946,6 @@ export function loadMapFromJson(raw: MapJson): MapData {
     modeFloors,
     spawnGuards,
     lifts,
-    // Render-only, and deliberately not validated against bounds: props are
-    // scenery, so an out-of-play prop is a cosmetic question, not a load error.
-    props: (raw.props ?? []).map((p) => ({
-      x: p.x,
-      y: p.y,
-      height: p.height,
-      yaw: p.yaw,
-      model: p.model,
-      layer: typeof p.layer === "number" && Number.isInteger(p.layer) && p.layer >= 0 ? p.layer : 0,
-    })),
   };
 }
 
@@ -2091,6 +2056,5 @@ export function createTestMap(): MapData {
     modeFloors: false,
     spawnGuards: [],
     lifts: [],
-    props: [],
   };
 }

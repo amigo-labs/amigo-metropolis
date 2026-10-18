@@ -176,7 +176,6 @@ interface Logic {
     flags: string[];
     watchesActor: number;
   }[];
-  props: { id: number; x: number; z: number; height: number; objId: number }[];
   nets: {
     netId: number;
     nodes: { x: number; z: number; neighbours: number[]; groundCast?: number }[];
@@ -259,7 +258,7 @@ function surfacesAt(map: MapData, x: number, y: number): { layer: number; h: num
  * Surface selected by a Cnet node's ground_cast (fcop-logic.md §3.1).
  * LOW = bottom of the stack, HIGH = top, MIDDLE = the one between when present.
  *
- * Non-Cnet features (bases, turrets, pickups, props) stay on layer 0 for now.
+ * Non-Cnet features (bases, turrets, pickups) stay on layer 0 for now.
  * RE's actors.layered.json `layer_top` would place some of them on decks, but
  * sampling the topmost surface at every cell is the wrong default — la-cantina's
  * cores sit under bridges and must stay on the ground. Until that side-file is
@@ -1768,9 +1767,14 @@ function terrainOnly(raw: MapJson): MapJson {
     void heavyZones;
     return rest;
   });
+  // The render-only `props` this stage used to write (their yaws Metropolis'
+  // own, "face the nearer base core") are dropped: the client draws the scenery
+  // from render/arenaScenery.generated.ts, and nothing read them.
+  const { props, ...kept } = raw as MapJson & { props?: unknown };
+  void props;
   // A fresh stage-1 terrain still carries convert.ts's hand outpost spots but no
   // outposts, which the loader refuses; every feature list is rebuilt below.
-  return raw.outposts === undefined ? { ...raw, bases, outpostSpots: [] } : { ...raw, bases };
+  return kept.outposts === undefined ? { ...kept, bases, outpostSpots: [] } : { ...kept, bases };
 }
 
 // ---------------------------------------------------------------------------
@@ -2041,7 +2045,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const lanes = [graphRoute(graph, 0)];
   if (lanes[0].length < 2) throw new Error("team 0's committed route is shorter than 2 waypoints");
 
-  // --- pickups / triggers / props ----------------------------------------
+  // --- pickups / triggers -----------------------------------------------
   const pickups = [...logic.pickups]
     .sort((a, b) => a.id - b.id)
     .map((p) => {
@@ -2128,30 +2132,6 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     damage: g.damage,
     resetTicks: toSimTicks(g.resetUnits, TICK_HZ),
   }));
-
-  // Icon consoles and outpost kiosks: face the nearer base core so their
-  // unit-type screens read toward the pad (player stands on the apron and
-  // looks at the console). Hazard barriers (Cobj 28) share the same rule —
-  // striping still reads; yaw 0 left every kiosk facing world +X.
-  const props = [...logic.props]
-    .sort((a, b) => a.id - b.id)
-    .map((p) => {
-      const x = round4(sx(p.x));
-      const y = round4(sz(p.z));
-      const c0 = bases[0].core as number[];
-      const c1 = bases[1].core as number[];
-      const d0 = (x - c0[0]) * (x - c0[0]) + (y - c0[1]) * (y - c0[1]);
-      const d1 = (x - c1[0]) * (x - c1[0]) + (y - c1[1]) * (y - c1[1]);
-      const cx = d0 <= d1 ? c0[0] : c1[0];
-      const cy = d0 <= d1 ? c0[1] : c1[1];
-      return {
-        x,
-        y,
-        height: round4(p.height),
-        yaw: round4(Math.atan2(cy - y, cx - x)),
-        model: p.objId,
-      };
-    });
 
   // --- walls -------------------------------------------------------------
   // Start from the PRISTINE stage-1 lattice, never from the map on disk. This
@@ -2336,7 +2316,6 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     spawnGuards: spawnGuards.length > 0 ? spawnGuards : undefined,
     lifts: lifts.length > 0 ? lifts : undefined,
     layers,
-    props,
   };
 
   // Load it back through the real validator before returning: an arena that only
@@ -2553,7 +2532,7 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   );
   console.log(
     `  weapons ${map.weapons.length}  pickups ${map.pickups.length}` +
-      `  intrusion volumes ${map.triggerVolumes.length}  props ${map.props.length}`,
+      `  intrusion volumes ${map.triggerVolumes.length}`,
   );
   console.log(
     `  lane graph ${graph.nodes.length} nodes, polyline route ${map.lanes[0].length} waypoints`,
