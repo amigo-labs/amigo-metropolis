@@ -55,12 +55,14 @@ async function hold(page: Page, keys: string[], ticks: number): Promise<void> {
 async function reset(page: Page): Promise<void> {
   await page.evaluate(() => {
     const w = globalThis as unknown as {
-      __x1home?: [number, number];
+      __x1home?: [number, number, number];
       metropolisSim: {
         avatarId: Int32Array;
         ent: {
           posX: Float32Array;
           posY: Float32Array;
+          height: Float32Array;
+          timerB: Float32Array;
           yaw: Float32Array;
           aimX: Float32Array;
           aimY: Float32Array;
@@ -71,9 +73,11 @@ async function reset(page: Page): Promise<void> {
     };
     const a = w.metropolisSim.avatarId[0];
     const e = w.metropolisSim.ent;
-    if (!w.__x1home) w.__x1home = [e.posX[a], e.posY[a]];
+    if (!w.__x1home) w.__x1home = [e.posX[a], e.posY[a], e.height[a]];
     e.posX[a] = w.__x1home[0];
     e.posY[a] = w.__x1home[1];
+    e.height[a] = w.__x1home[2];
+    e.timerB[a] = 0;
     e.yaw[a] = 0;
     e.aimX[a] = 1;
     e.aimY[a] = 0;
