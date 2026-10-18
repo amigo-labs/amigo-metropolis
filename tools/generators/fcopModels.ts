@@ -124,7 +124,14 @@ export interface ModelsRadii {
   readonly tank: number;
   readonly jet: number;
   readonly fortress: number;
+  /** The hull at frame 0, where the construct leaves it. */
   readonly dreadnought: number;
+  /**
+   * A hull that walks (Joke's): its radius in each frame of the walk, frame k at
+   * row k (`cact_model_select` re-reads the box each frame the walk shows,
+   * `type5_model_select`, type5.c 137-145). Absent on a static hull.
+   */
+  readonly dreadnoughtByFrame?: readonly number[];
   readonly baseTurret: number;
   readonly neutral: readonly number[];
   readonly skyCaptain: readonly number[];
@@ -260,7 +267,12 @@ function radiusRaw(cobj: Uint8Array, frame: number, what: string): number {
   throw new Error(`${what}: no 3DBB chunk`);
 }
 
-function buildRadii(arena: FcopArena, re: ReModels, reRepo: string): ModelsRadii {
+function buildRadii(
+  arena: FcopArena,
+  re: ReModels,
+  reRepo: string,
+  hullFrames: number,
+): ModelsRadii {
   const container = new Uint8Array(
     readFileSync(join(reRepo, "fixtures", "missions", arena.mission)),
   );
@@ -316,6 +328,10 @@ function buildRadii(arena: FcopArena, re: ReModels, reRepo: string): ModelsRadii
   }
   const hull = re.roles.dreadnought[0]?.parts.find((p) => p.part === "hull");
   if (!hull) throw new Error(`${arena.mission}: the Dreadnought has no hull`);
+  const hullByFrame: number[] = [];
+  for (let k = 0; k < hullFrames && hullFrames > 1; k++) {
+    hullByFrame.push(at(hull.cobj, k, `Dreadnought hull frame ${k}`));
+  }
   return {
     x1: {
       cobj: legs.cobj,
@@ -326,6 +342,7 @@ function buildRadii(arena: FcopArena, re: ReModels, reRepo: string): ModelsRadii
     jet: one(re.roles.jet, "body", "jet"),
     fortress: one(re.roles.flying_fortress, "body", "Flying Fortress"),
     dreadnought: at(hull.cobj, 0, "Dreadnought hull"),
+    ...(hullByFrame.length > 0 ? { dreadnoughtByFrame: hullByFrame } : {}),
     baseTurret: one(re.roles.base_turret, "gun", "base turret"),
     neutral,
     skyCaptain,
@@ -439,7 +456,7 @@ function buildModels(
   const artifact: ModelsArtifact = {
     mission: arena.mission,
     source,
-    radii: buildRadii(arena, re, reRepo),
+    radii: buildRadii(arena, re, reRepo, walkFrames),
     dreadnought: {
       hull: hull.cobj,
       hullSha: re.models[String(hull.cobj)].sha256_16,

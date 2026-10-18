@@ -837,6 +837,8 @@ no golden moves.
       (RE: the export drops the face type; every model draws them opaque) and their
       sounds (audio) (G13)
 - [x] Per-arena hit radii for the models each arena draws (G1, G7; v78)
+- [x] Joke's Dreadnought hit at the radius of the frame its hull's walk shows:
+      `gen:pamodels` reads the hull's 3DBB box per frame (757 -> 548) (I6; v88)
 - [x] The X1's animations: the legs' and the cockpit's AnmD tracks by the
       original's walker state machine and the transform's ramp, the hover's hold,
       the cockpit on its mount and aiming at the lock, one InstancedMesh posed in

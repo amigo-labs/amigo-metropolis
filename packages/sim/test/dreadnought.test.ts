@@ -24,11 +24,13 @@ import { createTickInputs } from "../src/inputs";
 import { BUG_HUNT_ID, getMapById, LA_CANTINA_ID, sampleHeight } from "../src/map";
 import {
   createSim,
+  entityRadius,
   GUN_SNAP_HULL_FRAME,
   GUN_SNAP_STRIDE,
   GUN_SNAPSHOT_LEN,
   gunYawRadians,
   hash,
+  hitscan,
   type SimState,
   spawnUnit,
   step,
@@ -285,6 +287,58 @@ describe("Joke's walking hull (bug-hunt)", () => {
     const before = hash(state);
     walk.clock[id] += 1;
     expect(hash(state)).not.toBe(before);
+  });
+
+  it("is hit at the radius of the frame its walk shows (SIM_VERSION 88)", () => {
+    // Cobj 35's 3DBB box per frame, the halfword at +12, raw / 512 m: the
+    // stride's mid-frame (9) is the narrowest, 548 against frame 0's 757.
+    const raw = [
+      757, 745, 727, 702, 673, 648, 624, 605, 580, 548, 566, 587, 611, 628, 650, 672, 694, 716, 735,
+      748,
+    ];
+    expect(joke.radii.dreadnoughtByFrame).toEqual(raw.map((v) => v / 512));
+    expect(joke.radii.dreadnoughtByFrame[0]).toBe(joke.radii.dreadnought);
+    const node = joke.laneGraph?.nodes[80];
+    if (!node) throw new Error("no node");
+    // A ray `off` m to the side of the hull's centre, from 6 m out along a
+    // bearing with a clear line at every offset tried.
+    const from = (a: number, off: number): [number, number] => [
+      node.x - 6 * Math.cos(a) - off * Math.sin(a),
+      node.y - 6 * Math.sin(a) + off * Math.cos(a),
+    ];
+    let a = 0;
+    for (let k = 0; k < 16; k++) {
+      a = (k * Math.PI) / 8;
+      const clear = [0, 1, 1.25].every((off) => {
+        const [sx, sy] = from(a, off);
+        return !segmentBlocked(joke, sx, sy, sx + 6 * Math.cos(a), sy + 6 * Math.sin(a));
+      });
+      if (clear) break;
+    }
+    const at = (frame: number, off: number) => {
+      const state = createSim(joke, 1);
+      const { id } = parked(state, 0, node.x, node.y);
+      const walk = state.hullWalk[0];
+      if (!walk) throw new Error("no walk");
+      walk.frame[id] = frame;
+      expect(entityRadius(state, id)).toBe(raw[frame] / 512);
+      const me = state.avatarId[1];
+      [state.ent.posX[me], state.ent.posY[me]] = from(a, off);
+      const hp = state.ent.hp[id];
+      hitscan(state, me, 1, Math.cos(a), Math.sin(a), 12, 10);
+      return state.ent.hp[id] < hp;
+    };
+    expect(at(9, 0)).toBe(true);
+    // 1.25 m off: inside frame 0's 1.479 m, outside frame 9's 1.070 m.
+    expect(at(0, 1.25)).toBe(true);
+    expect(at(9, 1.25)).toBe(false);
+    expect(at(9, 1.0)).toBe(true);
+    // A static hull keeps its one radius.
+    const lc = createSim(map, 1);
+    const { id } = parked(lc);
+    expect(lc.hullWalk[0]).toBeNull();
+    expect(map.radii.dreadnoughtByFrame).toEqual([]);
+    expect(entityRadius(lc, id)).toBe(map.radii.dreadnought);
   });
 
   it("fires each gun from its point in the frame the hull shows", () => {

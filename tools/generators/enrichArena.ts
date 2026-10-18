@@ -1115,6 +1115,8 @@ function radiiOf(models: ModelsArtifact, spots: number, mapId: string) {
     jet: m(r.jet),
     fortress: m(r.fortress),
     dreadnought: m(r.dreadnought),
+    // A walking hull's (Joke's): its radius in each frame its walk shows.
+    ...(r.dreadnoughtByFrame ? { dreadnoughtByFrame: r.dreadnoughtByFrame.map(m) } : {}),
     baseTurret: m(r.baseTurret),
     neutral: r.neutral.map(m),
     skyCaptain: r.skyCaptain.map(m),

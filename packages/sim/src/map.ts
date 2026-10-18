@@ -154,8 +154,16 @@ export interface MapRadii {
   readonly tank: number;
   readonly jet: number;
   readonly fortress: number;
-  /** The Dreadnought's hull. */
+  /** The Dreadnought's hull, at frame 0. */
   readonly dreadnought: number;
+  /**
+   * A hull that walks (MapJuggernaut.walk, Joke's): its radius in each frame,
+   * frame k at index k (frame 0 is `dreadnought`). The type-28 tick re-reads the
+   * hull's box each frame its walk shows (`type5_model_select`, RE type5.c
+   * 137-145, `cact_model_select` 0x004297e0), and every hit and zone test adds
+   * the `radius_68` that leaves. Empty on a static hull.
+   */
+  readonly dreadnoughtByFrame: readonly number[];
   /** A ring or outpost plate (type 8) turret's gun. */
   readonly baseTurret: number;
   /** A neutral (type 36) turret's gun, per `turretSpots` entry. */
@@ -969,6 +977,8 @@ export interface MapJson {
     jet: number;
     fortress: number;
     dreadnought: number;
+    /** OPTIONAL: a walking hull's radius per frame (MapRadii.dreadnoughtByFrame). */
+    dreadnoughtByFrame?: number[];
     baseTurret: number;
     neutral: number[];
     skyCaptain: number[];
@@ -1141,6 +1151,7 @@ function defaultRadii(spots: number): MapRadii {
     jet: ARCHETYPE_RADIUS[ARCHETYPE.GUARDIAN],
     fortress: ARCHETYPE_RADIUS[ARCHETYPE.FORTRESS],
     dreadnought: ARCHETYPE_RADIUS[ARCHETYPE.JUGGERNAUT],
+    dreadnoughtByFrame: [],
     baseTurret: ARCHETYPE_RADIUS[ARCHETYPE.TURRET],
     neutral: new Array<number>(spots).fill(NEUTRAL_TURRET_RADIUS),
     skyCaptain: SKY_RADIUS,
@@ -1167,6 +1178,10 @@ function parseRadii(raw: MapJson["radii"], spots: number, id: string): MapRadii 
     jet: r(raw.jet, "jet"),
     fortress: r(raw.fortress, "fortress"),
     dreadnought: r(raw.dreadnought, "dreadnought"),
+    dreadnoughtByFrame:
+      raw.dreadnoughtByFrame === undefined
+        ? []
+        : list(raw.dreadnoughtByFrame, raw.dreadnoughtByFrame.length, "dreadnoughtByFrame"),
     baseTurret: r(raw.baseTurret, "baseTurret"),
     neutral: list(raw.neutral, spots, "neutral"),
     skyCaptain: list(raw.skyCaptain, 10, "skyCaptain"),
@@ -1773,6 +1788,19 @@ export function loadMapFromJson(raw: MapJson): MapData {
 
   // Without one, the original's 4.0 m (Mp/Conft/Ovmp; ORIGINAL_CAPTURE_RANGE).
   const radii = parseRadii(raw.radii, turretSpots.length, id);
+  // A walking hull's radii, where the arena imports them, cover its walk's
+  // frames, frame 0 its own radius (without them it keeps frame 0's); a static
+  // hull has none.
+  const byFrame = radii.dreadnoughtByFrame.length;
+  for (const b of bases) {
+    const walk = b.juggernaut.walk;
+    if (byFrame === 0) continue;
+    if (walk === undefined) fail(id, "radii dreadnoughtByFrame on a hull that does not walk");
+    if (byFrame !== walk.to + 1) fail(id, `radii dreadnoughtByFrame not ${walk.to + 1} long`);
+    if (radii.dreadnoughtByFrame[0] !== radii.dreadnought) {
+      fail(id, "radii dreadnoughtByFrame[0] is not the hull's radius");
+    }
+  }
   const captureRange = raw.captureRange ?? ORIGINAL_CAPTURE_RANGE;
   if (!Number.isFinite(captureRange) || captureRange <= 0) {
     fail(id, `bad captureRange ${raw.captureRange}`);

@@ -3253,16 +3253,24 @@ export function fireWardenMissile(
 /**
  * Entity `id`'s hit radius, the original's `radius_68` of the model and frame it
  * is on (balance.ts ARCHETYPE_RADIUS, MapData.radii; fcop-fidelity.md G1): the
- * mech by its form (the legs at the walker's pose, folded in hover); every other
- * body as it was spawned — its arena's own model for its role, a neutral turret
- * by its spot's set, the Sky Captain by its level's model; the archetype's
- * default for anything spawned without one (projectiles, consoles, the sandbox).
+ * mech by its form (the legs at the walker's pose, folded in hover); a
+ * Dreadnought on a hull that walks by the frame its walk shows (I6: the type-28
+ * tick re-reads the box each frame, `type5_model_select`); every other body as
+ * it was spawned — its arena's own model for its role, a neutral turret by its
+ * spot's set, the Sky Captain by its level's model; the archetype's default for
+ * anything spawned without one (projectiles, consoles, the sandbox).
  */
 export function entityRadius(state: SimState, id: number): number {
   const ent = state.ent;
   const arch = ent.archetype[id];
   if (arch === ARCHETYPE.AVATAR) {
     return ent.mode[id] === MODE_HOVER ? state.map.radii.hover : state.map.radii.walker;
+  }
+  if (arch === ARCHETYPE.JUGGERNAUT) {
+    const byFrame = state.map.radii.dreadnoughtByFrame;
+    const team = ent.team[id];
+    const walk = team === 0 || team === 1 ? state.hullWalk[team] : null;
+    if (walk && byFrame.length > 0) return byFrame[walk.frame[id]];
   }
   const r = ent.radius[id];
   if (r > 0) return r;

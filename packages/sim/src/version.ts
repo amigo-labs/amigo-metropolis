@@ -1304,4 +1304,16 @@
 //     down of a turret's target (a tank: its target forgotten, cooldownC
 //     hashed), 07 at its first gun turning back (tick 812); 01, 02, 05 and 06
 //     hold.
-export const SIM_VERSION = 87;
+// v88: Joke's Dreadnought is hit at the radius of the frame its hull's walk
+//     shows (fcop-fidelity.md I6; RE type5.c 137-145 and 469-480,
+//     `type5_model_select` after each `cact_anim_step`: `cact_model_select`
+//     0x004297e0 re-reads the hull's 3DBB box for the frame into radius_68,
+//     which `cact_pair_test` 0x00450190 and every zone and gate test add). Cobj
+//     35's radius runs 757 at frame 0 down to 548 at frame 9 (raw / 512 m:
+//     1.479 -> 1.070 m); gen:pamodels reads the 20 out of the shipped Cobj
+//     (<mission>-models.json radii.dreadnoughtByFrame), gen:arena carries them
+//     (MapRadii.dreadnoughtByFrame, empty on a static hull) and entityRadius
+//     answers the walk's frame. Was frame 0's 757 on every frame. Only
+//     bug-hunt's hull walks and no golden fields a Dreadnought there: every
+//     golden's hashes hold, re-recorded for the header.
+export const SIM_VERSION = 88;
