@@ -79,6 +79,7 @@ import {
 import {
   captureRangeToCells,
   fovToCos,
+  ORIGINAL_TICK_HZ,
   ROTATION_TURN,
   rangeToCells,
   rotToYaw,
@@ -413,6 +414,11 @@ function out0Spawns(
 
 /** One sim tick is this many of the original's 300 Hz engine ticks. */
 const ENGINE_TICKS_PER_TICK = 300 / TICK_HZ;
+/**
+ * An authored time unit (a tFUN period, 1/60 s) in engine ticks: `cfun_load`
+ * (RE cfun/load.c 0x00436b10) stores period = time_units * 5.
+ */
+const CFUN_TICKS_PER_UNIT = 300 / ORIGINAL_TICK_HZ;
 
 type LiftJson = NonNullable<MapJson["lifts"]>[number];
 
@@ -772,8 +778,11 @@ function waterOf(
  * A base's Dreadnought and Fortress zones (fcop-fidelity.md R10) and the
  * Fortress spawner, from the rules artifact: each type-14 zone's radius is the
  * record's r << 4 world units (r / 512 m; the mech's own radius comes on top in
- * the sim), the opening poll the slot's fn30/fn31 period. The Dreadnought's
- * spawner is the Dreadnought record the base already carries; asserted.
+ * the sim), the opening poll the slot's fn30/fn31, its period in engine ticks
+ * as `cfun_load` stores it (time units × 5) and the two terminals its code
+ * requests when it opens the zones (their Csac templates, which the client's
+ * scenery table names). The Dreadnought's spawner is the Dreadnought record the
+ * base already carries; asserted.
  */
 function heavyOf(
   rules: FcopRules,
@@ -785,7 +794,8 @@ function heavyOf(
   heavyZones: {
     juggernaut: { x: number; y: number; radius: number };
     fortress: { x: number; y: number; radius: number };
-    pollTicks: number;
+    pollPeriod: number;
+    terminals: number[];
   };
   fortressSpawn: number[];
 } {
@@ -815,7 +825,8 @@ function heavyOf(
     heavyZones: {
       juggernaut: zone(dread),
       fortress: zone(fort),
-      pollTicks: toSimTicks(enable[0].pollUnits, TICK_HZ),
+      pollPeriod: enable[0].pollUnits * CFUN_TICKS_PER_UNIT,
+      terminals: [...enable[0].terminals],
     },
     fortressSpawn: [round4(sx(f.x)), round4(sz(f.z))],
   };
@@ -1740,17 +1751,21 @@ function gateOf(
  * the terrain input. Every base field is rebuilt below anyway.
  */
 function terrainOnly(raw: MapJson): MapJson {
+  // The heavy zones are rebuilt below as well; dropped here so a map committed
+  // in an older shape (their pollTicks before SIM_VERSION 80) still loads.
   const bases = raw.bases.map((b) => {
-    const { coreHp, productionTicks, productionLimit, defence, ...rest } = b as typeof b & {
-      coreHp?: unknown;
-      productionTicks?: unknown;
-      productionLimit?: unknown;
-      defence?: unknown;
-    };
+    const { coreHp, productionTicks, productionLimit, defence, heavyZones, ...rest } =
+      b as typeof b & {
+        coreHp?: unknown;
+        productionTicks?: unknown;
+        productionLimit?: unknown;
+        defence?: unknown;
+      };
     void coreHp;
     void productionTicks;
     void productionLimit;
     void defence;
+    void heavyZones;
     return rest;
   });
   // A fresh stage-1 terrain still carries convert.ts's hand outpost spots but no

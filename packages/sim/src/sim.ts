@@ -22,6 +22,7 @@ import {
   AVATAR_LOCK_RANGE,
   AVATAR_WALKER_MAX_SLOPE,
   BASE_TURRET_RESPAWN_TICKS,
+  CFUN_DELTA_PER_TICK,
   CLOAK_DISARM_RADIUS,
   COST_FORTRESS,
   COST_GUARDIAN,
@@ -232,7 +233,7 @@ import {
   waterHeightAt,
   worldExtent,
 } from "./map";
-import { atan2Poly, cosLUT, octagonalLength, rand01, randInt, sinLUT } from "./simMath";
+import { atan2Poly, cosLUT, octagonalLength, rand01, randInt, randU32, sinLUT } from "./simMath";
 import {
   bumpStat,
   noteDown,
@@ -394,13 +395,23 @@ export interface SimState {
   /** Current Points per player: what a side spends (rules.md §3). */
   readonly points: Uint32Array;
   /**
-   * 1 once the side has reached HEAVY_UNLOCK_POINTS: the Juggernaut/Fortress
-   * purchase opens the first time a side reaches 50 points and stays open
-   * (fcop-fidelity.md R10).
+   * 1 once a poll saw the side hold HEAVY_UNLOCK_POINTS: the Juggernaut/Fortress
+   * zones open then and stay open (fcop-fidelity.md R10).
    */
   readonly heavyUnlocked: Uint8Array;
-  /** Ticks to each side's next heavy-zone points poll (systemEconomy, R10). */
+  /**
+   * Each side's heavy-zone poll countdown in engine ticks (`cfun_tick`'s, R10):
+   * drawn as `game_rand() % pollPeriod`, less CFUN_DELTA_PER_TICK a tick.
+   */
   readonly heavyPoll: Int32Array;
+  /**
+   * 1 while the base's two heavy terminals stand: the run that opened its zones
+   * requested them, and the spawner pass of the next tick builds them (the
+   * original's `csac_tick` runs before `cfun_tick` in a frame). Presentation
+   * only — a function of heavyUnlocked's history, nothing in the tick reads it —
+   * read by the match snapshot (MATCH_SLOT_TERMINALS) and NOT hashed.
+   */
+  readonly heavyTerminals: Uint8Array;
   /**
    * The spawn queues (fcop-fidelity.md R18), UNIT_QUEUES per team at
    * `team * UNIT_QUEUES + q` (QUEUE_BASE_TANKS, QUEUE_BASE_JETS, then
@@ -983,6 +994,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     points: new Uint32Array(MAX_PLAYERS).fill(STARTING_POINTS),
     heavyUnlocked: new Uint8Array(MAX_PLAYERS),
     heavyPoll: new Int32Array(MAX_PLAYERS),
+    heavyTerminals: new Uint8Array(MAX_PLAYERS),
     unitQueue: new Int32Array(MAX_PLAYERS * UNIT_QUEUES),
     unitQueueTimer: new Int32Array(MAX_PLAYERS * UNIT_QUEUES),
     laneCounter: new Uint8Array(MAX_PLAYERS),
@@ -1055,9 +1067,11 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
   for (let k = 0; k < map.spawnGuards.length; k++) {
     state.guardTimer[k] = randInt(state, map.spawnGuards[k].resetTicks);
   }
+  // fn30 / fn31 in the original's form: an engine-tick countdown from
+  // `(u32)game_rand() % (u32)period` (cfun/load.c 0x00436b10).
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const zones = map.bases[p].heavyZones;
-    if (zones !== undefined) state.heavyPoll[p] = randInt(state, zones.pollTicks);
+    if (zones !== undefined) state.heavyPoll[p] = randU32(state) % zones.pollPeriod;
   }
   for (let p = 0; p < MAX_PLAYERS; p++) {
     for (let q = 0; q < UNIT_QUEUES; q++) {
@@ -4304,20 +4318,28 @@ function systemCapture(state: SimState): void {
  * Economy bookkeeping (rules.md §3). There is no trickle: the original adds no
  * points over time (fcop-fidelity.md R3), so income is entirely the event table
  * in systemDamageDeath / systemCapture. What runs here is the heavy-unit unlock
- * (R10): the original's fn30/fn31, a mission function polled every
- * `heavyZones.pollTicks` from a random phase, opens the side's Dreadnought and
- * Fortress zones for good the first time a poll sees HEAVY_UNLOCK_POINTS, then
- * retires. Points held only between two polls open nothing. A base without
- * heavy zones (the test maps) polls nothing.
+ * (R10): the original's fn30/fn31, a mission function `cfun_tick` polls every
+ * `heavyZones.pollPeriod` engine ticks from the phase `cfun_load` drew, the
+ * frame delta off its countdown each tick. The first poll that sees the side
+ * hold HEAVY_UNLOCK_POINTS opens its Dreadnought and Fortress zones for good
+ * (order 0x7a) and requests the base's two terminals, then retires (repeat 1).
+ * Points held only between two polls open nothing. The terminals stand from the
+ * next tick: the original's spawner pass (`csac_tick`) precedes `cfun_tick` in
+ * a frame, so it serves the request one frame on. A base without heavy zones
+ * (the test maps) polls nothing.
  */
 function systemEconomy(state: SimState): void {
   const bases = state.map.bases;
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const zones = bases[p].heavyZones;
-    if (zones === undefined || state.heavyUnlocked[p] !== 0) continue;
-    state.heavyPoll[p] -= 1;
+    if (zones === undefined) continue;
+    if (state.heavyUnlocked[p] !== 0) {
+      state.heavyTerminals[p] = 1; // the spawner pass serves the last run's request
+      continue;
+    }
+    state.heavyPoll[p] -= CFUN_DELTA_PER_TICK;
     if (state.heavyPoll[p] >= 0) continue;
-    state.heavyPoll[p] += zones.pollTicks;
+    state.heavyPoll[p] += zones.pollPeriod;
     if (state.points[p] >= HEAVY_UNLOCK_POINTS) state.heavyUnlocked[p] = 1;
   }
 }
@@ -4879,7 +4901,7 @@ export function hash(state: SimState): number {
  */
 export const MATCH_SNAPSHOT_HEADER = 7;
 /** Per-slot block length; MAX_PLAYERS blocks follow the header. */
-export const MATCH_SNAPSHOT_SLOT_STRIDE = 12;
+export const MATCH_SNAPSHOT_SLOT_STRIDE = 13;
 export const MATCH_SNAPSHOT_LEN = MATCH_SNAPSHOT_HEADER + MAX_PLAYERS * MATCH_SNAPSHOT_SLOT_STRIDE;
 
 /** Header fields. */
@@ -4919,6 +4941,13 @@ export const MATCH_SLOT_LOCK = 9;
 export const MATCH_SLOT_POWER = 10;
 /** The avatar's movement command this tick: MOVE_CUE_* bits (SimState.moveCue). */
 export const MATCH_SLOT_MOVE = 11;
+/**
+ * 1 while this slot's base's two heavy terminals stand (SimState.heavyTerminals),
+ * else 0: the Csac templates `map.bases[slot].heavyZones.terminals`, spawned the
+ * tick after the poll that opened the base's Dreadnought and Fortress zones
+ * (fcop-fidelity.md R10, G2). Always 0 on a base without heavy zones.
+ */
+export const MATCH_SLOT_TERMINALS = 12;
 // Slot field 9 was MATCH_SLOT_CAPTURE_FRAC, retired with the 3 s capture timer
 // (SIM_VERSION 34): the original captures instantly on a key press. Slot field 10
 // was MATCH_SLOT_CORE_FRAC, retired with the destructible core (SIM_VERSION 32).
@@ -5016,6 +5045,7 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
         : 0;
     out[o + MATCH_SLOT_LOCK] = a >= 0 ? state.lockTarget[slot] : -1;
     out[o + MATCH_SLOT_MOVE] = a >= 0 ? state.moveCue[slot] : 0;
+    out[o + MATCH_SLOT_TERMINALS] = state.heavyTerminals[slot];
   }
   for (let k = 0; k < state.outpostOwner.length; k++) {
     const owner = state.outpostOwner[k];

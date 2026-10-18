@@ -3,7 +3,7 @@
   "mapId": "hollywood-keys",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "9884141cb2c3831d63c53e78fabeb6cb97c56335",
+    "commit": "43105fbca860f782b33d7d7de42131398a6d5a41",
     "tool": "tools/logic/pa_rules_data.py"
   },
   "frame": "actors.json: x = runtime position[2] / 8192, z = runtime position[0] / 8192 (metres); raw words as the records store them",
@@ -5684,13 +5684,15 @@
       "slot": 0,
       "pointsAtLeast": 50,
       "pollUnits": 300,
-      "zones": [47, 51]
+      "zones": [47, 51],
+      "terminals": [50, 52]
     },
     {
       "slot": 1,
       "pointsAtLeast": 50,
       "pollUnits": 305,
-      "zones": [53, 55]
+      "zones": [53, 55],
+      "terminals": [54, 56]
     }
   ],
   "queues": [

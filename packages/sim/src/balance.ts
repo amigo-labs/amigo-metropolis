@@ -912,10 +912,19 @@ export const COST_OUTPOST_CLAIM = 30;
 export const RUNNER_ALIVE_LIMIT = 20;
 export const GUARDIAN_ALIVE_LIMIT = 20;
 /**
- * The Dreadnought and Fortress zones open the first time a side reaches 50 points
- * (fn30, ai-and-rules.md §2), and stay open. Sticky per side.
+ * The Dreadnought and Fortress zones open the first time a poll of fn30 / fn31
+ * sees a side hold more than 49 points (its gate `49 < word 25` / `word 26`, RE
+ * extracted/data/<Mission>/fun_code.txt; ai-and-rules.md §2), and stay open.
+ * Sticky per side.
  */
 export const HEAVY_UNLOCK_POINTS = 50;
+/**
+ * The mission functions' scheduler (`cfun_tick`, RE cfun/load.c 0x00436be0)
+ * takes the frame delta off each countdown, in engine ticks; lockstep's frame
+ * is 10 of them (the original's 30 fps). A countdown starts at
+ * `game_rand() % period` (`cfun_load` 0x00436b10).
+ */
+export const CFUN_DELTA_PER_TICK = 300 / TICK_HZ;
 /** Units bought at an owned outpost (forward spawn) cost this multiple. */
 export const OUTPOST_COST_MULTIPLIER = 2;
 

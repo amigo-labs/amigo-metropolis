@@ -24,6 +24,7 @@ import {
   MATCH_SLOT_POINTS,
   MATCH_SLOT_POWER,
   MATCH_SLOT_RESPAWN_TICKS,
+  MATCH_SLOT_TERMINALS,
   MATCH_SLOT_UNITS,
   MATCH_SNAPSHOT_LEN,
   MATCH_SNAPSHOT_SLOT_STRIDE,
@@ -154,14 +155,16 @@ describe("writeMatchSnapshot", () => {
     // 34, and MATCH_SLOT_BUY_FRAC (field 8) the 0.5 s purchase hold until
     // SIM_VERSION 51. The original captures and sells on one key press, so there
     // is nothing to report and the slot block lost both fields; the Gun magazine,
-    // the lock and the power bits follow the units count, and the movement
-    // command the original's sounds are chosen from comes last.
+    // the lock and the power bits follow the units count, then the movement
+    // command the original's sounds are chosen from, and last (SIM_VERSION 80)
+    // whether the base's heavy terminals stand.
     expect(MATCH_SLOT_UNITS).toBe(7);
     expect(MATCH_SLOT_AMMO_GUN).toBe(8);
     expect(MATCH_SLOT_LOCK).toBe(9);
     expect(MATCH_SLOT_POWER).toBe(10);
     expect(MATCH_SLOT_MOVE).toBe(11);
-    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(12);
+    expect(MATCH_SLOT_TERMINALS).toBe(12);
+    expect(MATCH_SNAPSHOT_SLOT_STRIDE).toBe(13);
   });
 
   it("reports the avatar's movement command, which the original's sounds follow", () => {

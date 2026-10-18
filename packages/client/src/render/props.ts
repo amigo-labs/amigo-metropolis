@@ -16,7 +16,12 @@
 //   claim brings up its two terminals (27 and 33 on Mp) — the activation script
 //   destroys the one and spawns the others (RE docs/behavior/precinct-assault.md
 //   "Outposts"). The outpost's owner is the side of its console in the snapshot
-//   (render/arenaUnits.ts `outpostSides`), which is also what colours its flags.
+//   (render/arenaUnits.ts `outpostSides`), which is also what colours its flags;
+// - a base's two heavy terminals (the Dreadnought's and the Flying Fortress's,
+//   Cobj 34 / 35 on Mp) stand once the poll that opens the base's heavy zones
+//   has requested them (fn30 / fn31, at the first 50 points it sees): the
+//   placements the sim's map names `heavyZones.terminals`, shown while the
+//   match snapshot's MATCH_SLOT_TERMINALS for that base is 1.
 //
 // The outpost flags (Cobj 28 on all six arenas; RE pa_models.json
 // `outpost_flag`): the claim script sets every flag of the outpost's group to the
@@ -37,7 +42,7 @@
 // these are the separate actors on top of it, so their absence reads as a
 // plainer arena rather than a broken one.
 
-import type { MapData } from "@metropolis/sim";
+import { MATCH_SLOT_TERMINALS, type MapData, matchSlotOffset } from "@metropolis/sim";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
@@ -98,6 +103,19 @@ export function propShown(p: SceneryPlacement, claimed: boolean): boolean {
 }
 
 /**
+ * The base (team) whose heavy terminals a placement is — one of the Csac
+ * templates its heavy poll requests, `map.bases[t].heavyZones.terminals` — or
+ * -1 for any other placement.
+ */
+export function terminalBaseOf(map: MapData, p: SceneryPlacement): number {
+  for (let t = 0; t < map.bases.length; t++) {
+    const terminals = map.bases[t].heavyZones?.terminals ?? [];
+    if (terminals.some((id) => p.record === `Csac ${id}`)) return t;
+  }
+  return -1;
+}
+
+/**
  * The frame a looping morph shows `seconds` into the mission: track 0 starts
  * at frame 0 and steps a frame per `period` / 300 s (RE `cact_anim_step`).
  */
@@ -114,7 +132,9 @@ interface PropMesh {
   readonly matrices: Float32Array;
   /** Per instance: 1 shown, 0 hidden, -1 unwritten. */
   readonly shown: Int8Array;
-  /** Some instance stands by its outpost's claim. */
+  /** Per instance: the base whose heavy terminal it is (terminalBaseOf), or -1. */
+  readonly base: Int8Array;
+  /** Some instance stands by its outpost's claim or its base's terminals. */
   readonly stateful: boolean;
   /** The outpost flags: per instance the side shown, and the offset per side. */
   readonly flags: {
@@ -146,11 +166,16 @@ const scratch = new THREE.Matrix4();
 
 /**
  * Per frame, after the entity sweep: `sideOf[k]` is the side (0 nobody's, 1,
- * 2) holding outpost k; `simDtSec` the sim time the frame advanced (0 while
- * paused). Shows and hides what a claim changes, colours the flags, steps the
+ * 2) holding outpost k; `match` the match snapshot (its MATCH_SLOT_TERMINALS);
+ * `simDtSec` the sim time the frame advanced (0 while paused). Shows and hides
+ * what a claim or a base's heavy poll changes, colours the flags, steps the
  * cloth. Writes only on a change.
  */
-export function updateProps(sideOf: ArrayLike<number>, simDtSec: number): void {
+export function updateProps(
+  sideOf: ArrayLike<number>,
+  match: ArrayLike<number>,
+  simDtSec: number,
+): void {
   clock += simDtSec;
   for (let m = 0; m < meshes.length; m++) {
     const pm = meshes[m];
@@ -158,8 +183,11 @@ export function updateProps(sideOf: ArrayLike<number>, simDtSec: number): void {
     if (pm.stateful) {
       for (let i = 0; i < pm.placements.length; i++) {
         const p = pm.placements[i];
+        const b = pm.base[i];
         const claimed = p.outpost >= 0 && (sideOf[p.outpost] ?? 0) !== 0;
-        const shown = propShown(p, claimed) ? 1 : 0;
+        const up =
+          b >= 0 ? match[matchSlotOffset(b) + MATCH_SLOT_TERMINALS] === 1 : propShown(p, claimed);
+        const shown = up ? 1 : 0;
         if (pm.shown[i] === shown) continue;
         pm.shown[i] = shown;
         if (shown === 1) scratch.fromArray(pm.matrices, i * 16);
@@ -319,10 +347,12 @@ function addPropMesh(
       mesh.updateMatrix();
 
       const matrices = propMatrices(placements);
-      const stateful = placements.some((p) => p.show !== "always");
+      const base = Int8Array.from(placements, (p) => terminalBaseOf(map, p));
+      const bound = (i: number) => placements[i].show !== "always" || base[i] >= 0;
+      const stateful = placements.some((_, i) => bound(i));
       for (let i = 0; i < placements.length; i++) {
-        // A claim-bound instance is written by the first updateProps.
-        if (stateful && placements[i].show !== "always") mesh.setMatrixAt(i, HIDDEN);
+        // A claim- or poll-bound instance is written by the first updateProps.
+        if (bound(i)) mesh.setMatrixAt(i, HIDDEN);
         else mesh.setMatrixAt(i, scratch.fromArray(matrices, i * 16));
       }
       mesh.instanceMatrix.needsUpdate = true;
@@ -351,6 +381,7 @@ function addPropMesh(
         placements,
         matrices,
         shown: new Int8Array(placements.length).fill(stateful ? -1 : 1),
+        base,
         stateful,
         flags,
         morph,

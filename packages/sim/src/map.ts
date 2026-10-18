@@ -272,12 +272,25 @@ export interface MapZone {
 /**
  * A base's Dreadnought and Flying Fortress zones and the polled check that opens
  * them for good the first time it sees the side hold HEAVY_UNLOCK_POINTS (the
- * original's fn30/fn31: every 5 s, 2.5 s on Joke and Slim, from a random phase).
+ * original's fn30/fn31: every 5 s, 2.5 s on Joke and Slim, from a random phase),
+ * and in the same run requests the base's two terminals.
  */
 export interface MapHeavyZones {
   readonly juggernaut: MapZone;
   readonly fortress: MapZone;
-  readonly pollTicks: number;
+  /**
+   * The poll's period in the original's engine ticks (300 Hz): the function's
+   * time units × 5, as `cfun_load` stores it (Mp 1500 / 1525, Joke and Slim
+   * 750 / 765). Counted down by the frame delta, CFUN_DELTA_PER_TICK a tick.
+   */
+  readonly pollPeriod: number;
+  /**
+   * The Csac templates the opening run requests: the Dreadnought's and the
+   * Flying Fortress's terminals (type-11 props; Mp 50 / 52 and 54 / 56). The
+   * sim only reports whether they stand (MATCH_SLOT_TERMINALS); the client's
+   * scenery table names them "Csac <template>".
+   */
+  readonly terminals: readonly number[];
 }
 
 export interface MapBase {
@@ -1071,7 +1084,8 @@ export interface MapBaseJson {
   heavyZones?: {
     juggernaut: { x: number; y: number; radius: number; layer?: number };
     fortress: { x: number; y: number; radius: number; layer?: number };
-    pollTicks: number;
+    pollPeriod: number;
+    terminals?: number[];
   };
   /** OPTIONAL: the Fortress spawner's position; absent -> the air console. */
   fortressSpawn?: number[] | { x: number; y: number; layer?: number };
@@ -1519,13 +1533,18 @@ export function loadMapFromJson(raw: MapJson): MapData {
     let heavyZones: MapHeavyZones | undefined;
     if (b.heavyZones !== undefined) {
       const hz = b.heavyZones;
-      if (!Number.isInteger(hz.pollTicks) || hz.pollTicks < 1) {
-        fail(id, `base ${team} heavy zones bad pollTicks ${String(hz.pollTicks)}`);
+      if (!Number.isInteger(hz.pollPeriod) || hz.pollPeriod < 1) {
+        fail(id, `base ${team} heavy zones bad pollPeriod ${String(hz.pollPeriod)}`);
+      }
+      const terminals = hz.terminals ?? [];
+      for (const t of terminals) {
+        if (!Number.isInteger(t) || t < 0) fail(id, `base ${team} bad heavy terminal ${String(t)}`);
       }
       heavyZones = {
         juggernaut: zone(hz.juggernaut, `base ${team} Dreadnought zone`),
         fortress: zone(hz.fortress, `base ${team} Fortress zone`),
-        pollTicks: hz.pollTicks,
+        pollPeriod: hz.pollPeriod,
+        terminals: [...terminals],
       };
     }
     const turretRespawnTicks = b.turretRespawnTicks ?? 0;

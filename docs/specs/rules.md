@@ -311,10 +311,17 @@ unit). The spots are the original's:
   shop, 50 points, one alive of each per side (SIM_VERSION 60, R10). FIRE2 no
   longer orders a heavy variant at the console. A zone is the record's radius
   (0.8 m, Conft's Dreadnought zones 1.0 m) plus the mech's. The zones open **for
-  good** at the first points poll that sees 50 points: the original polls every
-  5 s (2.5 s on Joke and Slim), from a random phase drawn at load, so points held
-  only between two polls open nothing. Closed, a zone is silent; open, it refuses
-  short points or a living unit of its kind out loud.
+  good** at the first points poll that sees 50 points: the original's fn30 /
+  fn31 poll every 5 s (2.5 s on Joke and Slim) from a random phase drawn at load,
+  so points held only between two polls open nothing. Since SIM_VERSION 80 the
+  poll counts as the original's scheduler does, in engine ticks (1500 / 1525 on
+  Mp, 750 / 765 on Joke and Slim) from `rand % period`, 10 a tick, so an odd
+  period's polls fall 152 and 153 ticks apart. Closed, a zone is silent; open, it
+  refuses short points or a living unit of its kind out loud. The run that opens
+  the zones also requests the base's **two terminals** (the Dreadnought's and the
+  Flying Fortress's kiosks by the zones, Cobj 34 / 35 on Mp), which stand from
+  the next tick on (`MATCH_SLOT_TERMINALS`): until a side has held 50 points at a
+  poll its base shows neither the terminals nor an answering zone.
 
 A **tank is queued** (SIM_VERSION 61, R18): the press is accepted at once, with
 the purchase sound, and the tank joins its side's spawn queue, which spawns one

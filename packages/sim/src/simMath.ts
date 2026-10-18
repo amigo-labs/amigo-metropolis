@@ -94,15 +94,22 @@ export interface PrngState {
 }
 
 /**
- * mulberry32: advances state.prng and returns a float in [0, 1).
- * The ONLY randomness allowed in sim code — the built-in random is banned.
+ * mulberry32: advances state.prng and returns the unsigned 32-bit word. The
+ * ONLY randomness allowed in sim code — the built-in random is banned. Taken
+ * raw for a draw the original writes as `(u32)game_rand() % (u32)n`
+ * (`cfun_load`'s phases), modulo n as it does.
  */
-export function rand01(state: PrngState): number {
+export function randU32(state: PrngState): number {
   state.prng = (state.prng + 0x6d2b79f5) | 0;
   let t = state.prng;
   t = Math.imul(t ^ (t >>> 15), t | 1);
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  return (t ^ (t >>> 14)) >>> 0;
+}
+
+/** One mulberry32 step (randU32) as a float in [0, 1). */
+export function rand01(state: PrngState): number {
+  return randU32(state) / 4294967296;
 }
 
 /** rand01 scaled to an integer in [0, n). */

@@ -9,6 +9,7 @@ import {
   ARCHETYPE_MAX_HP,
   AVATAR_HP,
   BASE_TURRET_RESPAWN_TICKS,
+  CFUN_DELTA_PER_TICK,
   COST_JUGGERNAUT,
   COST_RUNNER,
   GUARDIAN_LEASH_X,
@@ -33,7 +34,7 @@ import {
   step,
 } from "../src/sim";
 
-/** Mp's fn30 poll: the heavy zones open at the first check that sees 50 points. */
+/** Mp's fn30 poll, in ticks: the heavy zones open at the first check that sees 50 points. */
 const HEAVY_POLL = 150;
 
 // Flat 16×16 grid, 4 m cells → 60 m square. One straight lane along y=6
@@ -71,7 +72,7 @@ function warzone(ringTurrets: { west: number[][]; east: number[][] }): MapJson {
         heavyZones: {
           juggernaut: { x: 12, y: 14, radius: 0.8 },
           fortress: { x: 12, y: 22, radius: 0.8 },
-          pollTicks: HEAVY_POLL,
+          pollPeriod: HEAVY_POLL * CFUN_DELTA_PER_TICK,
         },
         fortressSpawn: [6, 30],
       },
@@ -84,7 +85,7 @@ function warzone(ringTurrets: { west: number[][]; east: number[][] }): MapJson {
         heavyZones: {
           juggernaut: { x: 48, y: 14, radius: 0.8 },
           fortress: { x: 48, y: 22, radius: 0.8 },
-          pollTicks: HEAVY_POLL,
+          pollPeriod: HEAVY_POLL * CFUN_DELTA_PER_TICK,
         },
         fortressSpawn: [54, 30],
       },

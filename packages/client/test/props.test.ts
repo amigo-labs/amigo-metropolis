@@ -9,7 +9,13 @@ import { getMapById, resolveHeight } from "@metropolis/sim";
 import * as THREE from "three";
 import { SCENERY_PLACEMENTS, type SceneryPlacement } from "../src/render/arenaScenery.generated";
 import { ARENA_UNITS } from "../src/render/arenaUnits.generated";
-import { propMatrices, propMorphFrame, propShown, propTurn } from "../src/render/props";
+import {
+  propMatrices,
+  propMorphFrame,
+  propShown,
+  propTurn,
+  terminalBaseOf,
+} from "../src/render/props";
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -198,6 +204,54 @@ describe("an outpost before and after its claim", () => {
     expect(propShown(p("unclaimed"), true)).toBe(false);
     expect(propShown(p("claimed"), false)).toBe(false);
     expect(propShown(p("claimed"), true)).toBe(true);
+  });
+});
+
+describe("a base's heavy terminals", () => {
+  // fn30 / fn31 request two type-11 terminals when they open the base's
+  // Dreadnought and Fortress zones (RE extracted/data/<Mission>/fun_code.txt):
+  // the scenery table's always-standing records the sim's map names, drawn
+  // only while MATCH_SLOT_TERMINALS says they stand.
+  test("each base's two terminals, one by each of its heavy zones", () => {
+    for (const [mapId, scenery] of Object.entries(SCENERY_PLACEMENTS)) {
+      const map = getMapById(mapId);
+      map.bases.forEach((b, t) => {
+        const hz = b.heavyZones;
+        if (!hz) throw new Error(`${mapId}: base ${t} has no heavy zones`);
+        const mine = scenery.placements.filter((p) => terminalBaseOf(map, p) === t);
+        expect({ mapId, t, n: mine.length }).toEqual({ mapId, t, n: 2 });
+        expect(mine.map((p) => p.record).sort()).toEqual(
+          hz.terminals.map((id) => `Csac ${id}`).sort(),
+        );
+        // Neither claim-bound nor an outpost's: the poll alone stands them.
+        expect(mine.every((p) => p.show === "always" && p.outpost === -1)).toBe(true);
+        for (const zone of [hz.juggernaut, hz.fortress]) {
+          const near = mine.filter((p) => Math.hypot(p.x - zone.x, p.y - zone.y) < 0.6);
+          expect({ mapId, t, near: near.length }).toEqual({ mapId, t, near: 1 });
+        }
+      });
+    }
+  });
+
+  test("on Mp they are Cobj 34 (the Dreadnought's) and 35 (the Fortress's)", () => {
+    const map = getMapById("la-cantina");
+    const p = SCENERY_PLACEMENTS["la-cantina"].placements;
+    for (let t = 0; t < 2; t++) {
+      const hz = map.bases[t].heavyZones;
+      if (!hz) throw new Error("no heavy zones");
+      const at = (zone: { x: number; y: number }) =>
+        p.find((q) => terminalBaseOf(map, q) === t && Math.hypot(q.x - zone.x, q.y - zone.y) < 0.6);
+      expect(at(hz.juggernaut)?.cobj).toBe(34);
+      expect(at(hz.fortress)?.cobj).toBe(35);
+    }
+  });
+
+  test("nothing else is a base terminal", () => {
+    const map = getMapById("la-cantina");
+    const others = SCENERY_PLACEMENTS["la-cantina"].placements.filter(
+      (p) => terminalBaseOf(map, p) < 0,
+    );
+    expect(others.some((p) => p.cobj === 34 || p.cobj === 35)).toBe(false);
   });
 });
 

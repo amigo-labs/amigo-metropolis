@@ -1181,4 +1181,20 @@
 //     the lane graph), and two wall bits the reachability repair opens for a ring
 //     turret move one cell each (it floods from spawn 0). Goldens 03 and 07 (La
 //     Cantina) re-record with new hashes; the others re-header only.
-export const SIM_VERSION = 79;
+// v80: the heavy zones' poll and the base terminals are the original's
+//     (fcop-fidelity.md R10, G2; RE cfun/load.c 0x00436b10 / 0x00436be0,
+//     extracted/data/<Mission>/fun_code.txt fn30 / fn31). fn30 / fn31's
+//     countdown is cfun_tick's: in engine ticks (MapBase.heavyZones.pollPeriod,
+//     the function's time units × 5: Mp 1500 / 1525, Joke and Slim 750 / 765;
+//     was pollTicks, rounded to sim ticks, 150 / 153 and 75 / 77), drawn at
+//     createSim as `(u32)rand % period` (simMath randU32: the same one mulberry32
+//     step randInt took), less CFUN_DELTA_PER_TICK (10) a tick, so an odd
+//     period polls 152 and 153 ticks apart as the original's 30 fps frames do.
+//     The run that opens the zones also requests the base's two terminals
+//     (MapBase.heavyZones.terminals, the Csac templates of the Dreadnought's and
+//     the Fortress's type-11 terminals), which the next tick's spawner pass
+//     builds: SimState.heavyTerminals (presentation only, not hashed),
+//     MATCH_SLOT_TERMINALS (slot stride 12 -> 13). The client stood them from
+//     tick 0. Every PA golden's hashes move from tick 0 for the countdown's new
+//     units; no golden's side reaches 50 points, so none plays differently.
+export const SIM_VERSION = 80;

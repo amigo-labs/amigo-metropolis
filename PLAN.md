@@ -702,6 +702,11 @@ commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
       setting: HARD / NORMAL / EASY per player in the sim, replay format 4 and
       protocol 3; the solo menu's three plates (the online lobby's pick and the
       original front end's screen wait for the front end) (P1, P2, P13, W1; v72)
+- [x] The base terminals (the Dreadnought's and the Fortress's kiosks) stand only
+      once fn30 / fn31 open their base's heavy zones, at a side's first 50 points
+      at a poll; the poll on `cfun_tick`'s engine-tick countdown from
+      `rand % period`; `MATCH_SLOT_TERMINALS`, drawn by `render/props.ts`
+      (R10, G2; v80)
 
 ### Wave 3 — Controls 1:1
 

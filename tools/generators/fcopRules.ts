@@ -80,6 +80,7 @@ interface ReEnable {
   points_at_least: number;
   poll_units: number;
   enables: number[];
+  also_requests: number[];
 }
 
 interface ReFed {
@@ -251,8 +252,18 @@ export interface FcopRules {
     jetTemplate: number;
     jetPrice: number;
   }[];
-  /** The polled function that opens a slot's two heavy zones for good. */
-  heavyEnable: { slot: number; pointsAtLeast: number; pollUnits: number; zones: number[] }[];
+  /**
+   * The polled function that opens a slot's two heavy zones for good (fn30 /
+   * fn31), and the Csac templates its code requests in the same run: the two
+   * type-11 terminals that stand by the zones from then on.
+   */
+  heavyEnable: {
+    slot: number;
+    pointsAtLeast: number;
+    pollUnits: number;
+    zones: number[];
+    terminals: number[];
+  }[];
   queues: {
     fn: string;
     template: number;
@@ -349,6 +360,25 @@ const slotOfSide = (side: number): number => {
   if (side !== 1 && side !== 2) throw new Error(`side ${side} is neither 1 nor 2`);
   return side - 1;
 };
+
+/**
+ * The Csac templates a heavy-zone poll requests (`spawn_actor(t, 0x47, 0)` in
+ * fn30 / fn31's code, RE `also_requests`): on every PA mission two type-11
+ * DynamicProps, the Dreadnought's and the Flying Fortress's terminals.
+ */
+function terminalsOf(arena: FcopArena, re: ReRules, e: ReEnable): number[] {
+  const out = [...e.also_requests].sort((a, b) => a - b);
+  for (const t of out) {
+    const s = re.spawners.find((q) => q.template === t);
+    if (s?.kind !== "dynamic_prop") {
+      throw new Error(`${arena.mapId}: slot ${e.slot}'s heavy poll requests ${t}, no terminal`);
+    }
+  }
+  if (out.length !== 2) {
+    throw new Error(`${arena.mapId}: slot ${e.slot}'s heavy poll requests ${out.length}, want 2`);
+  }
+  return out;
+}
 
 /** The RE file's rows, trimmed to what the enrich stage reads. */
 export function buildRules(arena: FcopArena, re: ReRules, source: FcopRules["source"]): FcopRules {
@@ -476,6 +506,7 @@ export function buildRules(arena: FcopArena, re: ReRules, source: FcopRules["sou
       pointsAtLeast: e.points_at_least,
       pollUnits: e.poll_units,
       zones: [...e.enables].sort((a, b) => a - b),
+      terminals: terminalsOf(arena, re, e),
     })),
     queues,
     spawners,

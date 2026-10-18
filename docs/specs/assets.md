@@ -150,9 +150,13 @@ forever as a debug render mode (`?render=greybox`).
   (`terrain_height_at` on the record's layer, computed over the RE's plate model
   of the mission's own terrain, so a flag on a deck stands on the deck), its yaw,
   and when it stands — an outpost's console until the claim, its two terminals
-  from it, read off the outposts' activation scripts. `render/props.ts` draws the
-  table (one InstancedMesh per model, an instance per record; one hidden by its
-  outpost's claim is drawn at zero scale), the model's +z turned onto the sim's
+  from it, read off the outposts' activation scripts; a base's two heavy
+  terminals (the Dreadnought's and the Flying Fortress's) once the poll that
+  opens its heavy zones has requested them, which the sim reports
+  (`MapBase.heavyZones.terminals`, `MATCH_SLOT_TERMINALS`, SIM_VERSION 80).
+  `render/props.ts` draws the table (one InstancedMesh per model, an instance
+  per record; one hidden by its outpost's claim or its base's poll is drawn at
+  zero scale), the model's +z turned onto the sim's
   (cos yaw, sin yaw) as a unit's is. The map's `props` are not read. The
   outpost's console entity therefore has no unit model of its own.
 - **Each arena's units are its own mission's Cobjs** (`packages/client/public/models/units/<mapId>/obj_NNN.glb`).
