@@ -9,9 +9,9 @@
 //   `terrain_height_at` on the record's layer, the topmost surface for all but
 //   three flags of each arena, so a flag on a deck stands on the deck instead
 //   of inside it;
-// - the yaw is the record's `My(yaw)`, which carries the model's +z toward the
-//   game's +x: with the actors frame's axis swap (the sim's x is the game's z)
-//   and the glb's negated x, three turns the model by pi/2 - yaw about +y;
+// - the yaw is the record's `My(yaw)`, which three draws as a turn of
+//   pi/2 - yaw about +y on the glb, not mirrored (render/recordYaw.ts, the one
+//   mapping every record angle takes);
 // - an outpost's console (Cobj 29) stands until the outpost is claimed, and the
 //   claim brings up its two terminals (27 and 33 on Mp) — the activation script
 //   destroys the one and spawns the others (RE docs/behavior/precinct-assault.md
@@ -54,6 +54,7 @@ import {
 } from "./arenaScenery.generated";
 import { arenaUnitsFor } from "./arenaUnits";
 import { disposeSubtree } from "./meshMap";
+import { recordTurn } from "./recordYaw";
 import {
   atlasOffset,
   createTeamUvAttribute,
@@ -65,8 +66,6 @@ import {
 const loader = new GLTFLoader();
 
 const UP = new THREE.Vector3(0, 1, 0);
-/** The original's angle unit: 4096 a turn. */
-const TURN = 4096;
 /** The engine clock a frame delta is counted in (RE fcop/clock.h). */
 const ENGINE_HZ = 300;
 
@@ -82,18 +81,6 @@ export function propModelUrl(mapId: string, cobj: number): string {
 /** The arena's scenery, or null for a map the RE has no mission for (test-128). */
 export function sceneryOf(mapId: string): ArenaScenery | null {
   return SCENERY_PLACEMENTS[mapId] ?? null;
-}
-
-/**
- * Three's turn about +y for a record's yaw (4096 a turn). The record's matrix
- * `My(yaw)` carries the model's +z to the game's (sin, 0, cos); the sim's x is
- * the game's z and its y the game's x, and the glb's x is the game's negated:
- * the model's +z lands on the sim's (cos yaw, sin yaw), which in three is a
- * turn of pi/2 - yaw — the same as a unit, whose geometry carries the quarter
- * turn baked and whose sim yaw is the record's.
- */
-export function propTurn(yaw: number): number {
-  return Math.PI / 2 - (yaw * 2 * Math.PI) / TURN;
 }
 
 /** Whether a placement stands while its outpost is (or is not) claimed. */
@@ -263,7 +250,7 @@ export function propMatrices(placements: readonly SceneryPlacement[]): Float32Ar
     // Sim (x, y) is the ground plane and three's Y is up; the model's own
     // origin is its contact point, and `h` is the height the record stands at.
     position.set(p.x, p.h, p.y);
-    quaternion.setFromAxisAngle(UP, propTurn(p.yaw));
+    quaternion.setFromAxisAngle(UP, recordTurn(p.yaw));
     matrix.compose(position, quaternion, scale);
     matrix.toArray(out, i * 16);
   });
@@ -318,7 +305,7 @@ function addPropMesh(
         return;
       }
       // No quarter-turn bake into the geometry, unlike unitMeshes.ts: the turn
-      // is each record's own (propTurn), in the instance matrix.
+      // is each record's own (recordTurn), in the instance matrix.
 
       // One material per model, never shared: rebuildArena disposes materials
       // and their maps by traversal, so a texture shared between two prop

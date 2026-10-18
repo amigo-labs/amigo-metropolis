@@ -12,13 +12,8 @@ import * as THREE from "three";
 import { SCENERY_PLACEMENTS, type SceneryPlacement } from "../src/render/arenaScenery.generated";
 import { ARENA_UNITS } from "../src/render/arenaUnits.generated";
 import { MAP_ALIGN } from "../src/render/mapAlign.generated";
-import {
-  propMatrices,
-  propMorphFrame,
-  propShown,
-  propTurn,
-  terminalBaseOf,
-} from "../src/render/props";
+import { propMatrices, propMorphFrame, propShown, terminalBaseOf } from "../src/render/props";
+import { recordTurn } from "../src/render/recordYaw";
 
 const UP = new THREE.Vector3(0, 1, 0);
 /** The arena import's committed RE artifacts (gen:palogic, gen:parules). */
@@ -26,36 +21,13 @@ const FCOP_DIR = join(import.meta.dir, "..", "..", "..", "tools", "generators", 
 
 /** Where three puts the model's +z for a record's yaw, as a sim (x, y) heading. */
 function heading(yaw: number): [number, number] {
-  const v = new THREE.Vector3(0, 0, 1).applyAxisAngle(UP, propTurn(yaw));
+  const v = new THREE.Vector3(0, 0, 1).applyAxisAngle(UP, recordTurn(yaw));
   return [v.x, v.z];
 }
 
+// The yaw convention itself is pinned in recordYaw.test.ts and the screens'
+// facing in tools/generators/test/kioskFacing.test.ts.
 describe("a record's yaw", () => {
-  test("carries the model's +z onto the sim's (cos yaw, sin yaw), as My(yaw) does", () => {
-    // RE fcop/matrix.h: My(a) carries +Z toward +X, the game's x is the sim's
-    // y and its z the sim's x. 4096 a turn.
-    for (const yaw of [0, 512, 1024, 1536, 2048, 2560, 3072, 3584]) {
-      const a = (yaw * 2 * Math.PI) / 4096;
-      const [x, y] = heading(yaw);
-      expect(x).toBeCloseTo(Math.cos(a), 9);
-      expect(y).toBeCloseTo(Math.sin(a), 9);
-    }
-  });
-
-  test("is the turn a unit of the same sim yaw is drawn with", () => {
-    // A unit bakes a quarter turn into its geometry and turns by -yaw
-    // (unitMeshes.ts, main.ts): the same rotation, so a prop and a unit of one
-    // heading face one way.
-    for (const yaw of [0, 1024, 2048, 3072, 700]) {
-      const a = (yaw * 2 * Math.PI) / 4096;
-      const unit = new THREE.Quaternion()
-        .setFromAxisAngle(UP, -a)
-        .multiply(new THREE.Quaternion().setFromAxisAngle(UP, Math.PI / 2));
-      const prop = new THREE.Quaternion().setFromAxisAngle(UP, propTurn(yaw));
-      expect(Math.abs(unit.dot(prop))).toBeCloseTo(1, 9);
-    }
-  });
-
   test("the base terminals stand mirror images about the base's middle", () => {
     // Mp's Dreadnought and Flying Fortress terminals (Csac 50/52 and 54/56)
     // flank each base's lane: mirrored positions, mirrored headings.
@@ -159,7 +131,7 @@ describe("where the records stand", () => {
     p.forEach((r, i) => {
       matrix.fromArray(m, i * 16).decompose(pos, q, s);
       expect([pos.x, pos.y, pos.z]).toEqual([Math.fround(r.x), Math.fround(r.h), Math.fround(r.y)]);
-      const want = new THREE.Quaternion().setFromAxisAngle(UP, propTurn(r.yaw));
+      const want = new THREE.Quaternion().setFromAxisAngle(UP, recordTurn(r.yaw));
       expect(Math.abs(q.dot(want))).toBeCloseTo(1, 6);
     });
   });
