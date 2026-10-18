@@ -748,8 +748,8 @@ no golden moves.
 - [x] The Sky Captain's model by level (G7)
 - [x] The Dreadnought's four guns on their hull points (G8)
 - [x] The jet's rotor; Joke's Fortress and Sky Captain morphs (G9)
-- [ ] The Dreadnought's guns aiming and slewing: their mounts are in the sim since
-      v77 (I6), each gun's yaw in `writeGunSnapshot`; drawing them by it
+- [x] The Dreadnought's guns aiming and slewing: their mounts are in the sim since
+      v77 (I6), each gun's yaw in `writeGunSnapshot`; drawing them by it (G8)
 - [ ] Distance-driven morphs (Joke's tank and Dreadnought), the skinned Joke jet,
       the flags' cloth; the X1's cloak offset (G4, G9, G10)
 - [ ] The outpost flags on La Cantina's decks (props are placed on layer 0; G10)

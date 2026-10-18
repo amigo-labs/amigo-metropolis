@@ -24,6 +24,7 @@ import {
   createSim,
   createTickInputs,
   DEFAULT_DIFFICULTIES,
+  DREADNOUGHT_GUNS,
   EV_CAPTURE,
   EV_DEATH,
   EV_EXPLOSION,
@@ -33,6 +34,7 @@ import {
   EV_SHOT,
   EV_TRANSFORM,
   EVENT_STRIDE,
+  GUN_SNAPSHOT_LEN,
   GUNS,
   getMapById,
   HEAVIES,
@@ -63,6 +65,7 @@ import {
   URBAN_JUNGLE_ID,
   wardenLevel,
   worldExtent,
+  writeGunSnapshot,
   writeLiftSnapshot,
   writeMatchSnapshot,
   writeResultsSnapshot,
@@ -119,6 +122,7 @@ import {
 } from "./render/camera";
 import { applyBlend, createCameraBlend } from "./render/cameraBlend";
 import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
+import { lerpGunYaws } from "./render/dreadnoughtGuns";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx } from "./render/fx";
 import { bucketFor, createGreyboxMeshes } from "./render/greybox";
@@ -505,6 +509,13 @@ function sizeLiftSnapshots(lifts: number): boolean {
   liftCurr = new Float32Array(len);
   return true;
 }
+
+// The Dreadnought guns' yaws, two ticks for interpolation (writeGunSnapshot):
+// per entity id, the hull's guns relative to it. Read for a Juggernaut only.
+let gunPrev = new Float32Array(GUN_SNAPSHOT_LEN);
+let gunCurr = new Float32Array(GUN_SNAPSHOT_LEN);
+/** One Juggernaut's gun yaws this frame, between the two ticks (renderEntities). */
+const gunYaws = new Float32Array(DREADNOUGHT_GUNS);
 
 // The original's controls: the keyboard on its bindings (input.spec.md). The
 // mouse plays no part in a match, and touch waits for the modernisation.
@@ -1635,6 +1646,10 @@ function rotateSnapshot(): void {
   liftCurr = liftSwap;
   writeLiftSnapshot(sim, liftCurr);
   if (fresh) liftPrev.set(liftCurr);
+  const gunSwap = gunPrev;
+  gunPrev = gunCurr;
+  gunCurr = gunSwap;
+  writeGunSnapshot(sim, gunCurr);
 }
 
 function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
@@ -1771,7 +1786,14 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
           scratchQuat.multiply(scratchPitch);
         }
       }
-      // Matrix, parts (a turret's base) and team colour (render/arenaUnits.ts).
+      // A Dreadnought's guns turn on their mounts, between the two ticks on the
+      // shortest arc like the hull's own yaw (render/dreadnoughtGuns.ts).
+      if (archetype === ARCHETYPE.JUGGERNAUT) {
+        const gunsPrev = hasPrev && snapPrev[po + 1] === archetype;
+        lerpGunYaws(gunPrev, gunCurr, id, alpha, gunsPrev, gunYaws);
+      }
+      // Matrix, parts (a turret's base and a Dreadnought's guns) and team
+      // colour (render/arenaUnits.ts).
       units.place(
         bucket,
         slot,
@@ -1783,6 +1805,7 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
         scratchPos,
         scratchQuat,
         scratchScale,
+        gunYaws,
       );
     }
   }
@@ -2197,6 +2220,7 @@ function resetForMatch(newSim: SimState): void {
   sizeLiftSnapshots(map.lifts.length);
   writeLiftSnapshot(sim, liftCurr);
   liftPrev.set(liftCurr);
+  writeGunSnapshot(sim, gunCurr);
   if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
 }
 

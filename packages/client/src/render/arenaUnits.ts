@@ -18,10 +18,10 @@
 // drawing the gun, and a part bucket per mode draws the base. Hk's 43/44 set is
 // a second neutral turret model, with a gun and a base bucket of its own. The
 // Dreadnought carries four guns on its hull's attach points 0-3 (RE mount.c
-// 526-546), each its own actor in the original; they draw from a part bucket
-// per gun model. These are declared exceptions to "one InstancedMesh per
-// archetype" (assets.md §4): the parts have their own transforms in the
-// original too.
+// 526-546), each its own actor in the original, turning on its point by its
+// own yaw (the sim's gun snapshot); they draw from a part bucket per gun
+// model. These are declared exceptions to "one InstancedMesh per archetype"
+// (assets.md §4): the parts have their own transforms in the original too.
 //
 // Team colour is the original's: a texture offset per instance onto the side's
 // half of the page (render/teamUv.ts, fcop-fidelity.md G4), from the arena's
@@ -136,16 +136,18 @@ export function turretSpotsOf(map: MapData, units: ArenaUnits): TurretSpots {
 
 /**
  * Gun i's matrix on its hull: the hull's instance matrix times a translation
- * to the hull's attach point (the gun's pivot is its own origin, RE mount.c
- * 526-546). The gun faces the hull's forward: the sim does not model the
- * mounts' slew yet (fcop-fidelity.md I6), and the snapshot carries no aim.
+ * to the hull's attach point times the gun's `yaw` about +y, so the gun turns
+ * about its own origin on the point (RE mount.c 526-546). `yaw` is relative to
+ * the hull, radians in the entity yaw's sense (writeGunSnapshot; three turns
+ * by -yaw, as main.ts turns the hull). No pitch: render/dreadnoughtGuns.ts.
  */
 export function gunMatrix(
   hull: THREE.Matrix4,
   point: THREE.Vector3,
+  yaw: number,
   out: THREE.Matrix4,
 ): THREE.Matrix4 {
-  scratchGun.makeTranslation(point.x, point.y, point.z);
+  scratchGun.makeRotationY(-yaw).setPosition(point.x, point.y, point.z);
   return out.multiplyMatrices(hull, scratchGun);
 }
 
@@ -188,6 +190,12 @@ export interface ArenaUnitsRenderer {
     pos: THREE.Vector3,
     quat: THREE.Quaternion,
     scale: THREE.Vector3,
+    /**
+     * A Juggernaut's gun yaws relative to its hull, one per gun (main.ts
+     * interpolates writeGunSnapshot, render/dreadnoughtGuns.ts). Read for a
+     * Juggernaut only.
+     */
+    guns: Float32Array,
   ): void;
   /** Publishes the part buckets' counts and matrices. Call after the sweep. */
   end(): void;
@@ -576,7 +584,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       // a load swaps the current level in itself.
       if (loadedOnce) swapCaptain();
     },
-    place(bucket, slot, id, archetype, team, x, y, pos, quat, scale) {
+    place(bucket, slot, id, archetype, team, x, y, pos, quat, scale, guns) {
       if (archetype === ARCHETYPE.CONSOLE) {
         // The console's team is its outpost's owner (sim claimOutpostSlot).
         const k = consoles.get(spotKey(x, y));
@@ -615,12 +623,13 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
         morph.dirty = true;
       }
       if (archetype === ARCHETYPE.JUGGERNAUT && gunsReady && bucket === greybox.juggernaut) {
-        // The guns wear the hull's offset (RE mount.c 714-715).
+        // Each gun at its own yaw on its point; the guns wear the hull's
+        // offset (RE mount.c 714-715).
         for (let i = 0; i < 4; i++) {
           const gb = gunBuckets[gunOf[i]];
           const gs = claim(gb, "Dreadnought gun");
           if (gs < 0) continue;
-          gb.mesh.setMatrixAt(gs, gunMatrix(scratchMatrix, gunPoints[i], scratchGunOut));
+          gb.mesh.setMatrixAt(gs, gunMatrix(scratchMatrix, gunPoints[i], guns[i], scratchGunOut));
           colour(gb, bindings.get(gb), gs, team);
         }
       }

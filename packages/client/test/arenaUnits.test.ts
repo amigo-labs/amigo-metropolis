@@ -380,7 +380,7 @@ describe("the Dreadnought's guns on their hull points", () => {
     }
   });
 
-  test("a gun's matrix is the hull's moved to the point, in the hull's turn", () => {
+  test("a gun at yaw 0 is the hull's matrix moved to the point, in the hull's turn", () => {
     const point = bakedPoint([-0.267578, 0.486328, 0.283203], new THREE.Vector3());
     const hullPos = new THREE.Vector3(100, 2, 50);
     const yaw = 0.7; // sim yaw; three turns by -yaw about +y
@@ -389,7 +389,7 @@ describe("the Dreadnought's guns on their hull points", () => {
       new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw),
       new THREE.Vector3(1, 1, 1),
     );
-    const out = gunMatrix(hull, point, new THREE.Matrix4());
+    const out = gunMatrix(hull, point, 0, new THREE.Matrix4());
     const at = new THREE.Vector3().setFromMatrixPosition(out);
     const want = point
       .clone()
@@ -405,6 +405,7 @@ describe("the Dreadnought's guns on their hull points", () => {
     const flat = gunMatrix(
       new THREE.Matrix4().makeTranslation(0, 0, 0),
       point,
+      0,
       new THREE.Matrix4(),
     );
     const p0 = new THREE.Vector3().setFromMatrixPosition(flat);
