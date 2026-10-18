@@ -98,6 +98,7 @@ import {
   type RaiseAt,
 } from "../effects/chain";
 import { DEFAULT_SCALE, type FxRecord, IMPACT_SCALE } from "../effects/records";
+import { SIDE_BLUE, sideOfTeam } from "../render/sides";
 import { X1_CODES_PER_TICK } from "../render/x1Walk";
 import type {
   ArenaAudio,
@@ -235,6 +236,8 @@ interface VoiceState {
 
 export class OriginalSounds implements EffectListener {
   private data: ArenaAudio | null = null;
+  /** The Metropolis map id, for the side each team holds (render/sides.ts). */
+  private mapId = "";
   private lifts: readonly { x: number; y: number }[] = [];
   private weapons: Readonly<Record<number, PlayerWeaponSounds>> = {};
   /** Per slot: the health gauge's state (2 full, 1 spending, 0 empty). */
@@ -291,13 +294,19 @@ export class OriginalSounds implements EffectListener {
     this.effects.gate = (x, z) => this.engine.inRange(x, z);
   }
 
-  /** A new match on `data`'s arena, with its lifts (map.lifts: where each stands). */
+  /**
+   * A new match on `data`'s arena, with its lifts (map.lifts: where each
+   * stands). `mapId` is the map render/sides.ts reads a team's original side
+   * from, which picks the side's world rows and death classes.
+   */
   begin(
     data: ArenaAudio,
     weapons: Readonly<Record<number, PlayerWeaponSounds>>,
     lifts: readonly { x: number; y: number }[],
+    mapId = "",
   ): void {
     this.data = data;
+    this.mapId = mapId;
     this.weapons = weapons;
     this.lifts = lifts;
     this.gauge.fill(2);
@@ -438,7 +447,8 @@ export class OriginalSounds implements EffectListener {
       case EV_ROUND_IMPACT: {
         // The round's death raises its class byte, the row's +0x1a, with the
         // round as the raiser (cact_effect_emit 0x0042b938).
-        const w = this.data?.world[worldRow(roundSourceArchetype(c), roundSourceTeam(c))];
+        const side = sideOfTeam(this.mapId, roundSourceTeam(c));
+        const w = this.data?.world[worldRow(roundSourceArchetype(c), side)];
         if (w) {
           this.atRound(a / 16, b / 16, ctx);
           this.raise(0, w.impactFx);
@@ -489,7 +499,7 @@ export class OriginalSounds implements EffectListener {
       else if (c === SKY_WEAPON_MISSILE) row = 8;
       else if (c === SKY_WEAPON_BOMB) row = 9;
     } else if (slot === SHOT_SLOT_LAUNCH) {
-      row = worldRow(arch, this.teamOf(shooter, ctx));
+      row = worldRow(arch, sideOfTeam(this.mapId, this.teamOf(shooter, ctx)));
     }
     const w = data.world[row];
     if (!w || row === 0) return;
@@ -672,7 +682,11 @@ export class OriginalSounds implements EffectListener {
         this.emitDeath(d.jet[0], mask);
         return;
       case ARCHETYPE.JUGGERNAUT:
-        this.emitDeath(d.dreadnought[team === 1 ? 1 : 0] ?? d.dreadnought[0], mask);
+        // Class 202 (flash 61, orange) is side 1's, 203 (flash 68, blue) side 2's.
+        this.emitDeath(
+          d.dreadnought[sideOfTeam(this.mapId, team) === SIDE_BLUE ? 1 : 0] ?? d.dreadnought[0],
+          mask,
+        );
         this.arm("dreadnought_destroyed", team, -1, 1);
         return;
       case ARCHETYPE.FORTRESS:
@@ -1148,14 +1162,16 @@ const CAPTAIN_EVENT_RULES: Readonly<Record<string, number>> = {
  * the Dreadnought's guns 3, the first side's tanks and jets 1, the second's 6,
  * the Flying Fortress 4, the captain's missile 8.
  */
-function worldRow(archetype: number, team: number): number {
+/** The type-98 row a world shooter fires: `side` is the original's (1 red, 2 blue). */
+function worldRow(archetype: number, side: number): number {
   switch (archetype) {
     case ARCHETYPE.TURRET:
     case ARCHETYPE.JUGGERNAUT:
       return 3;
     case ARCHETYPE.RUNNER:
     case ARCHETYPE.GUARDIAN:
-      return team === 1 ? 6 : 1;
+      // Side 1's tanks and jets fire row 1, side 2's row 6 (RE weapons.world users).
+      return side === SIDE_BLUE ? 6 : 1;
     case ARCHETYPE.FORTRESS:
       return 4;
     case ARCHETYPE.WARDEN:

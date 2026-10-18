@@ -555,7 +555,7 @@ function beginMatchSounds(): void {
     voiceUrls: FCOP_VOICE_FILES,
     musicUrl: data.music,
   });
-  sounds.begin(data, FCOP_PLAYER_WEAPONS, map.lifts);
+  sounds.begin(data, FCOP_PLAYER_WEAPONS, map.lifts, map.id);
   // The effects' trail texels are the arena's own tex10 (render/fx.ts).
   fx.begin(map.id);
   audio.startMatch();
