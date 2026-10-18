@@ -43,6 +43,7 @@ import type { MenuDialog, MenuState } from "./state";
 import { W9MessageBox } from "./win9x/Win9x";
 
 export { recordSoloWin } from "./frontend/progress";
+export { createInGameMenu, type InGameMenu } from "./inGame";
 // Re-exported so `import { buildModeQuery } from "./menu"` keeps working for
 // main.ts and the routing tests. The implementations are pure and live apart
 // from the DOM on purpose (docs/specs/ui.md §5).

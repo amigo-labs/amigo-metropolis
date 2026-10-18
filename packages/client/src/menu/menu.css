@@ -92,3 +92,23 @@
 .fe-link--debug {
   color: #6b5a3a;
 }
+
+/* The in-game menu's island over the match (menu/inGame.tsx). The original
+   drops to the desktop at 640 x 480 and clears the screen to 0x8410 (5-6-5
+   grey) before the dialog (0x00407d70), so the match is not seen behind it;
+   the dialog sits on the 640 x 480 screen's frame, scaled as the menu's. */
+.ig-host {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  cursor: default;
+  background: #808080;
+}
+.ig-root {
+  position: absolute;
+  inset: 0;
+}
+.fe-stage.ig-stage {
+  background: transparent;
+  overflow: visible;
+}

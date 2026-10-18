@@ -8,6 +8,7 @@ import { presetTable, SLOT_NAMES } from "../src/input/bindings";
 import { formatBinding } from "../src/input/controlsStore";
 import { AUDIO_ROWS } from "../src/menu/dialogs/AudioDialog";
 import { bindingOfKey, CONTROLS_FIELD_IDS } from "../src/menu/dialogs/ControlsDialog";
+import { INGAME_ABORT, INGAME_RESUME } from "../src/menu/dialogs/InGameDialog";
 import { HD_TEXTURES_DLU } from "../src/menu/dialogs/OptionsDialog";
 import { PROFILE_ROW_SLOT, profileLine, profileLines } from "../src/menu/dialogs/ProfileDialog";
 import { runSaveLoad } from "../src/menu/dialogs/SaveLoadDialog";
@@ -145,11 +146,20 @@ describe("the controls screen", () => {
   });
 });
 
-describe("the audio dialog", () => {
+describe("the audio and in-game dialogs", () => {
   test("three trackbars in the original's order", () => {
     expect(
       AUDIO_ROWS.map(([, label]) => FE_DIALOGS.audio.controls.find((c) => c.id === label)?.text),
     ).toEqual(["Sound Effects Volume", "Music Volume", "Movies Volume"]);
+  });
+
+  test("Resume Game, Abort Game (its trailing space is the image's), Audio, Controller", () => {
+    const d = FE_DIALOGS.in_game;
+    const byX = [...d.controls].sort((a, b) => a.dlu[0] - b.dlu[0]).map((c) => c.text);
+    expect(byX).toEqual(["Resume Game", "Abort Game ", "Audio", "Controller"]);
+    expect(d.controls.find((c) => c.id === INGAME_RESUME)?.text).toBe("Resume Game");
+    expect(d.controls.find((c) => c.id === INGAME_ABORT)?.text).toBe("Abort Game ");
+    expect(d.styles).not.toContain("WS_CAPTION");
   });
 });
 

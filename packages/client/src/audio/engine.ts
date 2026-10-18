@@ -281,6 +281,18 @@ export class AudioEngine {
     this.playScript(62, false, 0, 0);
   }
 
+  /**
+   * The in-game menu opening (0x00407d70): the speech line interrupted
+   * (0x00417280 with 0) and the sound silenced (0x00434450 with 0) -- no sound
+   * of its own, unlike the pause. `resume` brings it back.
+   */
+  suspend(): void {
+    if (this.paused) return;
+    this.paused = true;
+    this.silenceAll(-1);
+    this.stopMusic(true);
+  }
+
   /** Out of the pause: the music resumes (`snd_set_active(1)`). */
   resume(): void {
     if (!this.paused) return;

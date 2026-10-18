@@ -94,6 +94,7 @@ import { isTextEntryTarget } from "./input/textEntry";
 import type { LocalInputSource } from "./input/types";
 import {
   buildModeQuery,
+  createInGameMenu,
   difficultyFromParams,
   loadoutFromParams,
   type MenuChoice,
@@ -515,7 +516,7 @@ keyboard.setTable(loadControls()[0]);
 // buttons, as the original's two-player game parks one view. Under the debug
 // cameras (no HUD, no map screen) it pauses a solo match as before.
 keyboard.onMap = () => {
-  if (phase !== "match" || matchEndShown) return;
+  if (phase !== "match" || matchEndShown || inGameMenu.isOpen()) return;
   const view = views[0];
   if (!matchHud || !view) {
     if (!net) setMatchPaused(!matchPaused);
@@ -958,40 +959,43 @@ function refreshOverlay(): void {
   setOverlay(text);
 }
 
-// --- In-match pause (ESC) + quit to title menu --------------------------------
-// Solo / fly / sandbox / online all need a way to release the pointer and leave.
-// Browser ESC already exits pointer lock; a second ESC (or ESC while unlocked)
-// opens this overlay. Offline freezes ticks; online keeps lockstep running so
-// the peer is not starved, and Leave disconnects cleanly.
+// --- In-match pause (ESC) and the original's in-game menu --------------------
+// Escape opens the original's in-game menu, dialog 0xa6 (menu/inGame.tsx): a
+// Preact island outside the frame loop (docs/specs/ui.md §1). Solo it freezes
+// the sim and silences the sound, as the original's step before its modal
+// dialog does (0x00407d70); online the lockstep runs on behind it so the peer
+// is not starved (fcop-fidelity.md F16).
 let matchPaused = false;
-/** Suppresses opening the pause card on the same ESC that released pointer lock. */
+/** Suppresses opening the in-game menu on the same ESC that released pointer lock. */
 let suppressPauseForUnlock = false;
 
-const pauseEl = document.createElement("div");
-pauseEl.id = "pause-menu";
-pauseEl.setAttribute("role", "dialog");
-pauseEl.setAttribute("aria-modal", "true");
-pauseEl.setAttribute("aria-label", "Paused");
-const pauseCard = document.createElement("div");
-pauseCard.className = "pause-card";
-const pauseTitle = document.createElement("h1");
-pauseTitle.textContent = "Paused";
-const pauseHint = document.createElement("p");
-pauseHint.textContent = "ESC resumes · click canvas to recapture the mouse";
-const pauseActions = document.createElement("div");
-pauseActions.className = "pause-actions";
-const pauseResumeBtn = document.createElement("button");
-pauseResumeBtn.type = "button";
-pauseResumeBtn.className = "pause-btn pause-btn--primary";
-pauseResumeBtn.textContent = "Resume";
-const pauseQuitBtn = document.createElement("button");
-pauseQuitBtn.type = "button";
-pauseQuitBtn.className = "pause-btn";
-pauseQuitBtn.textContent = "Quit to menu";
-pauseActions.append(pauseResumeBtn, pauseQuitBtn);
-pauseCard.append(pauseTitle, pauseHint, pauseActions);
-pauseEl.appendChild(pauseCard);
-document.body.appendChild(pauseEl);
+const inGameMenu = createInGameMenu({
+  audio,
+  onResume: () => {
+    setMatchPaused(false);
+    refreshCapture();
+  },
+  onAbort: () => returnToMenu(),
+  // The controls screen saved; player 1's table applies at once.
+  onControls: (tables) => keyboard.setTable(tables[0]),
+});
+
+/** Opens the in-game menu; solo, the match stops under it. */
+function openInGameMenu(): void {
+  if (inGameMenu.isOpen()) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  document.body.style.cursor = "default";
+  flyState.keys.clear();
+  inGameMenu.open();
+  if (!net) setMatchPaused(true, true);
+  refreshCapture();
+}
+
+/** The bound keys are the game's only while it is live, not paused and no menu is up. */
+function refreshCapture(): void {
+  keyboard.capture = !matchPaused && !inGameMenu.isOpen() && isMatchLive() && !matchEndShown;
+  if (keyboard.capture) document.body.style.cursor = "";
+}
 
 // --- Match-end screen ----------------------------------------------------------
 // Shown a beat after the sim freezes on a winner (the banner and death FX get
@@ -1044,7 +1048,8 @@ function resetMatchEnd(): void {
 
 function showMatchEnd(winner: number): void {
   matchEndShown = true;
-  setMatchPaused(false); // the end card replaces the pause card, never stacks
+  inGameMenu.close();
+  setMatchPaused(false); // the end card replaces the in-game menu, never stacks
   mapScreen.open = false;
   const slot = views[0]?.slot ?? 0;
   // A solo win over the Sky Captain moves the map's progress (0x00409630).
@@ -1096,28 +1101,22 @@ function isMatchLive(): boolean {
   return phase === "match" || phase === "connecting";
 }
 
-function setMatchPaused(paused: boolean): void {
+function setMatchPaused(paused: boolean, menu = false): void {
   if (paused === matchPaused) return;
   matchPaused = paused;
-  // The original's pause (0x00434530): everything silenced, the menu's sound.
-  // Online the match runs on behind the card, and so does its sound.
+  // The pause (0x00434530): everything silenced, the pause's sound. The
+  // in-game menu (0x00407d70) silences without one. Online the match runs on
+  // behind the dialog, and so does its sound.
   if (!net && phase === "match") {
-    if (paused) audio.pause();
+    if (paused && menu) audio.suspend();
+    else if (paused) audio.pause();
     else if (!mapScreen.open) audio.resume(); // the map screen keeps its pause
   }
-  pauseEl.classList.toggle("is-open", paused);
-  // The bound keys are the game's only while it is live and not paused: the
-  // cards' buttons take Tab and Space.
-  keyboard.capture = !paused && isMatchLive() && !matchEndShown;
   if (paused) {
     if (document.pointerLockElement) document.exitPointerLock();
-    document.body.style.cursor = "default";
     flyState.keys.clear();
-    pauseResumeBtn.focus();
-  } else if (isMatchLive()) {
-    // Hidden cursor again; in fly mode a click re-engages pointer lock.
-    document.body.style.cursor = "";
   }
+  refreshCapture();
 }
 
 /**
@@ -1125,6 +1124,7 @@ function setMatchPaused(paused: boolean): void {
  * a fresh demo backdrop. Works for solo, online, fly and sandbox.
  */
 function returnToMenu(): void {
+  inGameMenu.close();
   setMatchPaused(false);
   mapScreen.open = false;
   audio.stopMatch();
@@ -1187,16 +1187,13 @@ function returnToMenu(): void {
   refreshDebugLabel();
 }
 
-pauseResumeBtn.addEventListener("click", () => setMatchPaused(false));
-pauseQuitBtn.addEventListener("click", () => returnToMenu());
-
 document.addEventListener("pointerlockchange", () => {
   if (document.pointerLockElement) {
     // Canvas recaptured — hide the system cursor again.
-    if (isMatchLive() && !matchPaused) document.body.style.cursor = "";
+    if (isMatchLive() && !matchPaused && !inGameMenu.isOpen()) document.body.style.cursor = "";
     return;
   }
-  if (!isMatchLive() || matchPaused) return;
+  if (!isMatchLive() || matchPaused || inGameMenu.isOpen()) return;
   // Browser ESC (and our own exitPointerLock) both land here. Mark the unlock
   // so the same keypress does not immediately open the pause card.
   suppressPauseForUnlock = true;
@@ -1229,7 +1226,9 @@ addEventListener("keydown", (e) => {
     returnToMenu();
     return;
   }
-  setMatchPaused(!matchPaused);
+  // The in-game menu's procedure ignores IDCANCEL: Escape opens it, and only
+  // Resume Game closes it.
+  openInGameMenu();
 });
 
 // --- Debug tooling: texture-variant switcher + fly-cam label -------------------
@@ -1266,7 +1265,7 @@ function refreshDebugLabel(): void {
   }
   if (sandboxMode) parts.push("sandbox: F2 = spawn + weapon panel");
   if (phase === "match" || phase === "connecting") {
-    parts.push(flyMode ? "ESC: release mouse · pause · quit to menu" : "ESC: pause · quit to menu");
+    parts.push(flyMode ? "ESC: release mouse · game menu" : "ESC: game menu");
   }
   const text = parts.join("\n");
   if (text === debugLabelText) return;

@@ -79,20 +79,7 @@
         cursor: none;
       }
 
-      /* --- In-match pause (ESC; main.ts) — raw DOM, frame-loop world -------- */
-      #pause-menu {
-        position: fixed;
-        inset: 0;
-        z-index: 40;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        background: rgba(4, 10, 18, 0.72);
-        cursor: default;
-      }
-      #pause-menu.is-open {
-        display: flex;
-      }
+      /* --- The match-end card (main.ts) — raw DOM, frame-loop world -------- */
       .pause-card {
         min-width: min(360px, 90vw);
         padding: 28px 32px;
@@ -151,8 +138,7 @@
         color: #fff;
       }
 
-      /* --- Match-end card (main.ts) — same world and skin as the pause card,
-         its own element so the two can never stack. z-index above #pause-menu
+      /* --- Match-end card (main.ts). z-index above the in-game menu's island
          (40): once the match is decided, the end card owns the screen. ------ */
       #match-end {
         position: fixed;
