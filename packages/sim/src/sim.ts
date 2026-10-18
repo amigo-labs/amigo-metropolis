@@ -251,6 +251,10 @@ import {
   unitRange,
 } from "./units";
 import {
+  type AnimPlayer,
+  type AnmdTrack,
+  animSetTrack,
+  createAnimPlayer,
   createWalkerState,
   WALK_ARM,
   type WalkerState,
@@ -541,6 +545,15 @@ export interface SimState {
    * their spawn.
    */
   readonly gunYaw: Int16Array;
+  /**
+   * The Dreadnought hull's walk per side (fcop-fidelity.md G8, I6; RE type5.c
+   * 469-472): an AnmD block per entity id on the side's `juggernaut.walk` track,
+   * null where the hull is static (every arena but bug-hunt). `cact_anim_init`
+   * at the spawn, then a step a tick by the speed word times the frame delta;
+   * the guns stand on the frame it shows. Read and hashed for live Juggernauts
+   * only.
+   */
+  readonly hullWalk: readonly (AnimPlayer | null)[];
   readonly gunClock: Int32Array;
   readonly gunPhase: Uint8Array;
   readonly gunTarget: Int16Array;
@@ -890,6 +903,13 @@ export function spawnUnit(
   if (archetype === ARCHETYPE.JUGGERNAUT) {
     ent.hp[id] = base.juggernaut.hp;
     ent.weaponProfile[id] = base.juggernaut.weapon;
+    // A walking hull starts its track (`cact_anim_init`): track 0 forward at
+    // its first frame, the clock and the flags zeroed.
+    const walk = state.hullWalk[team];
+    if (walk) {
+      walk.flags[id] = 0;
+      animSetTrack(walk, id, 0, 1, 0);
+    }
     // Its guns come up at home (the hull's forward), their shooters fresh.
     for (let g = 0; g < DREADNOUGHT_GUNS; g++) {
       const k = id * DREADNOUGHT_GUNS + g;
@@ -1040,6 +1060,23 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     gunPhase: new Uint8Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     gunTarget: new Int16Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     gunSearch: new Int32Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
+    hullWalk: map.bases.map((b) => {
+      const w = b.juggernaut.walk;
+      if (w === undefined) return null;
+      const track: AnmdTrack = [
+        w.from,
+        w.to,
+        w.mode,
+        w.end,
+        w.link,
+        w.linkB,
+        w.linkC,
+        w.flags,
+        w.period,
+        w.event,
+      ];
+      return createAnimPlayer([track], MAX_ENTITIES);
+    }),
     wardenPlayer,
     wardenDifficulty,
     captain: createCaptainState(),
@@ -3596,15 +3633,25 @@ const gunScratch = { x: 0, y: 0, h: 0, mx: 0, my: 0, mh: 0 };
 /**
  * Places Juggernaut `id`'s mount `m` in the world — a hull-frame point at hull +
  * z * forward + x * (sin yaw, -cos yaw), the frame the client draws the hull's
- * glb in (`cact_model_point`, turret.c 241-335) — and its muzzle, the gun model's
- * point 0, turned by the gun's world yaw `gunYaw`, into gunScratch.
+ * glb in (`cact_model_point`, turret.c 241-335), the point of the hull's
+ * `frame` where it walks (the model's 3DRF of +0x70) — and its muzzle, the gun
+ * model's point 0, turned by the gun's world yaw `gunYaw`, into gunScratch.
  */
-function placeGun(ent: EntityStore, id: number, m: MapGunMount, gunYaw: number): void {
+function placeGun(
+  ent: EntityStore,
+  id: number,
+  m: MapGunMount,
+  frame: number,
+  gunYaw: number,
+): void {
   const c = cosLUT(ent.yaw[id]);
   const s = sinLUT(ent.yaw[id]);
-  gunScratch.x = ent.posX[id] + m.z * c + m.x * s;
-  gunScratch.y = ent.posY[id] + m.z * s - m.x * c;
-  gunScratch.h = ent.height[id] + m.y;
+  // The hull's point in the frame it shows (a walking hull's), else its one.
+  const f = m.frames;
+  const p = f !== undefined && frame >= 0 && frame < f.length ? f[frame] : m;
+  gunScratch.x = ent.posX[id] + p.z * c + p.x * s;
+  gunScratch.y = ent.posY[id] + p.z * s - p.x * c;
+  gunScratch.h = ent.height[id] + p.y;
   const gc = cosLUT(gunYaw);
   const gs = sinLUT(gunYaw);
   gunScratch.mx = gunScratch.x + m.mz * gc + m.mx * gs;
@@ -3660,7 +3707,9 @@ function gunDue(state: SimState, k: number, w: MapWeapon): boolean {
  * The Dreadnought's guns (fcop-fidelity.md I6): four mounts, each its own
  * `cact_mount_step` (mount.c 0x004258d0) and its own shooter on the hull's
  * weapon profile, in gun order:
- * - the mount stands on its hull point and turns toward its target — the bearing
+ * - the mount stands on its hull point — the point of the frame the hull's walk
+ *   shows, on a hull that walks (Joke's; op 6 runs the hull's type-5 tick first,
+ *   mount.c 1019-1030) — and turns toward its target — the bearing
  *   from the mount less the hull's yaw — or home, the hull's forward, with none,
  *   at `gunTurn` angle units per 1/300 s (237.3°/s; mount.c 0x00425ad4, 1136);
  * - then its shooter (`cact_shooter_step`): the rate machine; a due round drops
@@ -3676,13 +3725,16 @@ function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
   if (team !== 0 && team !== 1) return;
   const dread = state.map.bases[team].juggernaut;
   const turn = dread.gunTurn * FRAME_CLOCK_PER_TICK;
+  // The frame the hull's walk shows this tick (cact_model_point reads +0x70).
+  const walk = state.hullWalk[team];
+  const frame = walk ? walk.frame[id] : 0;
   for (let g = 0; g < dread.guns; g++) {
     const k = id * DREADNOUGHT_GUNS + g;
     const m = dread.mounts[g];
     let target = state.gunTarget[k] - 1;
     if (target >= 0 && !ent.alive[target]) target = -1;
     // The mount: on its point, turned toward its target or home.
-    placeGun(ent, id, m, ent.yaw[id] + state.gunYaw[k] * ANGLE_UNIT);
+    placeGun(ent, id, m, frame, ent.yaw[id] + state.gunYaw[k] * ANGLE_UNIT);
     let desired = 0;
     if (target >= 0) {
       const bearing = atan2Poly(ent.posY[target] - gunScratch.y, ent.posX[target] - gunScratch.x);
@@ -3708,7 +3760,7 @@ function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
     state.gunTarget[k] = target + 1;
     if (target < 0) continue; // the round waits, the clock stopped
     const yaw = ent.yaw[id] + state.gunYaw[k] * ANGLE_UNIT;
-    placeGun(ent, id, m, yaw);
+    placeGun(ent, id, m, frame, yaw);
     if (!aimFrom(state, gunScratch.mx, gunScratch.my, target, w)) continue;
     const blocked = segmentBlocked(
       state.map,
@@ -4952,6 +5004,16 @@ export function hash(state: SimState): number {
       h = fnv1aU32(h, state.gunSearch[k] >>> 0);
     }
   }
+  // Appended at SIM_VERSION 85: the Dreadnought hull's walk, live Juggernauts on
+  // a hull that walks only (bug-hunt's).
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.JUGGERNAUT) continue;
+    const hw = state.hullWalk[ent.team[id]];
+    if (!hw) continue;
+    h = fnv1aU32(h, hw.index[id] | ((hw.direction[id] & 0xff) << 8) | (hw.flags[id] << 16));
+    h = fnv1aU32(h, (hw.frame[id] & 0xffff) | (hw.target[id] << 16));
+    h = fnv1aU32(h, hw.clock[id] >>> 0);
+  }
   // Appended at SIM_VERSION 83, every map: the walker's state machine and its
   // legs (walker.ts), which replace v39's lunge countdown.
   const w = state.walker;
@@ -5060,24 +5122,30 @@ export function writeLiftSnapshot(state: SimState, out: Float32Array): void {
 }
 
 /**
- * The Dreadnought guns' snapshot (renderer rule 4; fcop-fidelity.md I6): per
- * entity id, DREADNOUGHT_GUNS floats at `id * DREADNOUGHT_GUNS + gun` — gun i's
- * yaw relative to its hull, radians in (-PI, PI] and in the entity snapshot's
- * yaw sense, so the gun's world yaw is the hull's plus it (0 = the hull's
- * forward). Gun i stands on the hull model's attach point i. Written for live
- * Juggernauts only; a pure read, never hashed.
+ * The Dreadnought guns' snapshot (renderer rule 4; fcop-fidelity.md I6, G8): per
+ * entity id, GUN_SNAP_STRIDE floats at `id * GUN_SNAP_STRIDE` — gun i's yaw
+ * relative to its hull at `+ i`, radians in (-PI, PI] and in the entity
+ * snapshot's yaw sense, so the gun's world yaw is the hull's plus it (0 = the
+ * hull's forward), and at `+ GUN_SNAP_HULL_FRAME` the frame the hull's walk
+ * shows (sim hullWalk; 0 for a static hull). Gun i stands on the hull model's
+ * attach point i of that frame. Written for live Juggernauts only; a pure read,
+ * never hashed.
  */
-export const GUN_SNAPSHOT_LEN = MAX_ENTITIES * DREADNOUGHT_GUNS;
+export const GUN_SNAP_STRIDE = DREADNOUGHT_GUNS + 1;
+export const GUN_SNAP_HULL_FRAME = DREADNOUGHT_GUNS;
+export const GUN_SNAPSHOT_LEN = MAX_ENTITIES * GUN_SNAP_STRIDE;
 
-/** Writes each live Juggernaut's gun yaws into `out` (length GUN_SNAPSHOT_LEN). */
+/** Writes each live Juggernaut's gun yaws and hull frame into `out` (length GUN_SNAPSHOT_LEN). */
 export function writeGunSnapshot(state: SimState, out: Float32Array): void {
   const ent = state.ent;
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.JUGGERNAUT) continue;
+    const o = id * GUN_SNAP_STRIDE;
     for (let g = 0; g < DREADNOUGHT_GUNS; g++) {
-      const k = id * DREADNOUGHT_GUNS + g;
-      out[k] = gunYawRadians(state.gunYaw[k]);
+      out[o + g] = gunYawRadians(state.gunYaw[id * DREADNOUGHT_GUNS + g]);
     }
+    const walk = state.hullWalk[ent.team[id]];
+    out[o + GUN_SNAP_HULL_FRAME] = walk ? walk.frame[id] : 0;
   }
 }
 

@@ -1199,6 +1199,12 @@ export const GRAPH_WAYPOINT_RADIUS = 0.5;
  * JUGGERNAUT_SPEED 2.5 on these arenas.
  */
 export const ROUTE_TOP_SPEED = (54 * 300) / 8192;
+/**
+ * A route follower's speed word (`velocity_84`: world units per 300 Hz tick) in
+ * m/s: what the Dreadnought hull's walk counts its distance in (type5.c
+ * 469-472, `velocity_84 * dt`).
+ */
+export const ROUTE_SPEED_UNIT = 300 / 8192;
 /** A tank's wander: 1638 of 4096 steps (40 %) are random (`cnet_route_next`). */
 export const ROUTE_WANDER = 1638;
 /** A tank's seek search: the nearest enemy-team actor within 8192 << 4 wu = 16 m. */

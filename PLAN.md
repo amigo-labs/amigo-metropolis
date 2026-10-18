@@ -821,9 +821,10 @@ no golden moves.
       `by_frame`), `gen:paunits` writes the hull's as each gun's `byFrame`, and each
       gun stands on the frame the hull's morph shows; the guns wait for the hull's
       model whichever lands last (G8, G9)
-- [ ] The sim fires Joke's Dreadnought guns from the hull's current-frame points,
-      not frame 0's mounts — the hull's walk stepped in the sim, a hashed-state
-      change (G8)
+- [x] The sim fires Joke's Dreadnought guns from the hull's current-frame points,
+      not frame 0's mounts — the hull's walk stepped in the sim (hashed), the
+      frames carried by `gen:pamodels` / `gen:arena`, the client's hull frame off
+      the gun snapshot (G8, I6; v85)
 - [x] The scenery the type-96 Props and type-97 DCSQuads place on Conft, Slim, Joke
       and Hk (89 / 75 / 75 / 151 Props, 0 / 56 / 51 / 134 DCSQuads): built as the
       loaders build them, the spins, swings and frames stepped, the DCSQuads'

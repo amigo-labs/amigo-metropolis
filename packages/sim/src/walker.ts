@@ -87,6 +87,9 @@ export const T_FLAGS = 7;
 export const T_PERIOD = 8;
 export const T_EVENT = 9;
 
+/** Any actor's AnmD track (the X1's, the Dreadnought hull's): block.c `anmd_track`. */
+export type AnmdTrack = X1Track;
+
 /** A new track's first step offers its frame to the event channel (CACT_ANIM_STARTED). */
 export const ANIM_STARTED = 1;
 
@@ -96,7 +99,7 @@ export const ANIM_STARTED = 1;
  * waits for, and the flags byte (STARTED).
  */
 export interface AnimPlayer {
-  readonly tracks: readonly X1Track[];
+  readonly tracks: readonly AnmdTrack[];
   readonly index: Uint8Array;
   readonly frame: Int16Array;
   readonly clock: Int32Array;
@@ -105,7 +108,7 @@ export interface AnimPlayer {
   readonly flags: Uint8Array;
 }
 
-export function createAnimPlayer(tracks: readonly X1Track[], slots: number): AnimPlayer {
+export function createAnimPlayer(tracks: readonly AnmdTrack[], slots: number): AnimPlayer {
   return {
     tracks,
     index: new Uint8Array(slots),

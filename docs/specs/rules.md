@@ -653,12 +653,14 @@ only what Metropolis adopts from it.
 - **The Dreadnought (JUGGERNAUT) is the original type 28.** It is bought at its own zone
   beside the base's shop (§3, SIM_VERSION 60) and rolls out at the type-28
   record (node 0 of its Cnet, beside the HQ) rather than at the console or the
-  zone, with 3000 HP and four hull guns of weapon 3. The guns are modelled
-  as four shooters at the hull's position sharing one target, each firing its own
-  round: the original mounts them at the hull model's points (under 0.9 m off
-  centre) with their own 237°/s slew relative to the hull, which is not modelled —
-  so neither is their ±22.5° firing arc. The "four built-in base guns" the core
-  used to carry were these guns. On a map without the record (the test maps) it
+  zone, with 3000 HP and four hull guns of weapon 3. Each gun is the original's
+  mount (SIM_VERSION 77, `fcop-fidelity.md` I6): it stands on its attach point
+  of the hull's model, turns 237°/s relative to the hull toward its own target,
+  and fires its own round from its muzzle only inside ±22.5° of its own yaw. On
+  bug-hunt the hull walks (Joke's model, 20 frames, one per 775 world units
+  travelled) and each gun stands on, and fires from, its point in the frame the
+  hull shows (SIM_VERSION 85). The "four built-in base guns" the core used to
+  carry were these guns. On a map without the record (the test maps) it
   has the same 3000 HP and four guns and rolls out at the ground console; those
   maps have no heavy zones, so they sell none (SIM_VERSION 60).
 - **Every shooter fires the original's catalogue weapon** (SIM_VERSION 42;

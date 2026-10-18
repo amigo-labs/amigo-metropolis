@@ -4,8 +4,10 @@
 // delta its handler hands the step: the frame delta on the aircraft, turrets and
 // mounts (the jet's rotor, Joke's wing beat, its Fortress and Sky Captain), and
 // `velocity_84 * dt` on a type-5 or type-28 actor's mode-2 track (RE type5.c
-// 469-472) — Joke's tank and Dreadnought hull, whose legs walk with the ground
-// they cover.
+// 469-472) — Joke's tank, whose legs walk with the ground it covers. (Joke's
+// Dreadnought hull walks the same way, but its guns stand on the frame it
+// shows, so its walk is the sim's since SIM_VERSION 85: render/arenaUnits.ts
+// reads the frame off the gun snapshot.)
 //
 // The snapshot carries no velocity and no spawn tick, so the client keeps both
 // per entity id: when it first drew the entity, and how far its interpolated

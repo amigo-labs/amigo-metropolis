@@ -9,7 +9,10 @@
 // stands on its hull's attach point i (vertex 4DGI[0x30 + i], `mount.c`
 // 526-546), turns `((word_48 << 8) / 218) >> 4` angle units per 1/300 s
 // (`mount.c` 1136) and fires only inside its front sector (`discharge.c`
-// 949-977); its round leaves from the gun model's own point 0.
+// 949-977); its round leaves from the gun model's own point 0. A hull that
+// walks (Joke's, Cobj 35: 20 frames, one per 775 world units) carries its AnmD
+// track and each point frame by frame: the gun stands on the point of the frame
+// the hull shows (`mount.c` 1019-1030, `cact_model_point` on +0x70).
 //
 // And every role's hit radius: an actor's `radius_68` is the halfword at +12 of
 // its model's 3DBB box for the frame it is on, << 4 world units
@@ -42,7 +45,7 @@ interface ReGun {
   gun: number;
   cobj: number;
   point_index: number;
-  hull_point: { index: number; vertex: number; glb_xyz: number[] };
+  hull_point: { index: number; vertex: number; glb_xyz: number[]; by_frame?: number[][] };
   by_side: Record<string, ReGunSide>;
 }
 interface RePart {
@@ -67,16 +70,41 @@ interface ReModels {
   };
   models: Record<
     string,
-    { sha256_16: string; attach?: { points: { index: number; glb_xyz: number[] }[] } }
+    {
+      sha256_16: string;
+      attach?: { frames?: number; points: { index: number; glb_xyz: number[] }[] };
+      anim?: { kind: string; frames: number; tracks?: number | ReTrack[] };
+    }
   >;
+}
+/** One AnmD track as pa_models.json lists it (`models.<cobj>.anim.tracks`). */
+interface ReTrack {
+  track: number;
+  from: number;
+  to: number;
+  mode: number;
+  end: number;
+  link: number;
+  link_b: number;
+  link_c: number;
+  flags: number;
+  period: number;
+  event_code: number;
+  event_frame: number;
+  driven_by: string;
 }
 
 /** One gun as the sim reads it. */
 export interface ModelsGun {
   readonly gun: number;
   readonly cobj: number;
-  /** The hull's attach point the gun stands on, hull glb frame. */
+  /** The hull's attach point the gun stands on, hull glb frame (its frame 0). */
   readonly point: readonly number[];
+  /**
+   * The same point in each frame of a hull that walks, frame k at row k; absent
+   * for a static hull.
+   */
+  readonly pointByFrame?: readonly (readonly number[])[];
   /** The gun model's point 0, its muzzle, gun glb frame. */
   readonly muzzle: readonly number[];
   /** Angle units (4096 a turn) per 1/300 s. */
@@ -109,8 +137,28 @@ export interface ModelsArtifact {
   readonly dreadnought: {
     readonly hull: number;
     readonly hullSha: string;
+    /**
+     * The hull's AnmD track 0 when its model animates (Joke's), else absent: the
+     * walk `cact_handler_type5` op 6 steps by `velocity_84 * dt` (type5.c
+     * 469-472), the record pa_models.json lists.
+     */
+    readonly walk?: ModelsTrack;
     readonly guns: readonly ModelsGun[];
   };
+}
+
+/** An AnmD track: the block.c fields, the event packed `code << 10 | frame`. */
+export interface ModelsTrack {
+  readonly from: number;
+  readonly to: number;
+  readonly mode: number;
+  readonly end: number;
+  readonly link: number;
+  readonly linkB: number;
+  readonly linkC: number;
+  readonly flags: number;
+  readonly period: number;
+  readonly event: number;
 }
 
 // --- the shipped Cobjs (RE tools/gfx/fcop.py parse / extract, obj_mesh.py) ----------
@@ -284,6 +332,52 @@ function buildRadii(arena: FcopArena, re: ReModels, reRepo: string): ModelsRadii
   };
 }
 
+/**
+ * The hull's walk: its model's one AnmD track when the model animates. The sim
+ * plays it as `cact_anim_step` does, so it must be closed -- one track whose
+ * links are itself -- and step by distance (mode 2: `velocity_84 * dt`), over
+ * exactly the model's frames, all of which carry the attach points.
+ */
+function hullWalk(
+  arena: FcopArena,
+  re: ReModels,
+  cobj: number,
+): { walk: ModelsTrack | undefined; frames: number } {
+  const model = re.models[String(cobj)];
+  const anim = model?.anim;
+  if (!anim || anim.kind === "static") return { walk: undefined, frames: 1 };
+  const tracks = anim.tracks;
+  if (!Array.isArray(tracks) || tracks.length !== 1) {
+    throw new Error(`${arena.mission}: hull ${cobj} has ${String(tracks)} tracks, want one`);
+  }
+  const t = tracks[0];
+  if (
+    t.link !== 0 ||
+    t.link_b !== 0 ||
+    t.link_c !== 0 ||
+    t.mode !== 2 ||
+    t.driven_by !== "distance"
+  ) {
+    throw new Error(`${arena.mission}: hull ${cobj}'s track is not a closed distance walk`);
+  }
+  if (t.from !== 0 || t.to !== anim.frames - 1 || model.attach?.frames !== anim.frames) {
+    throw new Error(`${arena.mission}: hull ${cobj}'s track does not cover its frames`);
+  }
+  const walk: ModelsTrack = {
+    from: t.from,
+    to: t.to,
+    mode: t.mode,
+    end: t.end,
+    link: t.link,
+    linkB: t.link_b,
+    linkC: t.link_c,
+    flags: t.flags,
+    period: t.period,
+    event: t.event_code !== 0 ? (t.event_code << 10) | t.event_frame : 0,
+  };
+  return { walk, frames: anim.frames };
+}
+
 function buildModels(
   arena: FcopArena,
   re: ReModels,
@@ -296,6 +390,7 @@ function buildModels(
   const role = roles[0];
   const hull = role.parts.find((p) => p.part === "hull");
   if (!hull) throw new Error(`${arena.mission}: the Dreadnought has no hull part`);
+  const { walk, frames: walkFrames } = hullWalk(arena, re, hull.cobj);
   const guns = role.guns.map((g, i): ModelsGun => {
     if (g.gun !== i || g.point_index !== i || g.hull_point.index !== i) {
       throw new Error(`${arena.mission}: gun ${i} does not stand on hull point ${i}`);
@@ -324,10 +419,18 @@ function buildModels(
     }
     const muzzle = re.models[String(g.cobj)]?.attach?.points.find((p) => p.index === 0);
     if (!muzzle) throw new Error(`${arena.mission}: gun model ${g.cobj} has no point 0`);
+    const byFrame = walk ? g.hull_point.by_frame : undefined;
+    if (walk && byFrame?.length !== walkFrames) {
+      throw new Error(`${arena.mission}: gun ${i}'s point is not carried over the hull's frames`);
+    }
+    if (byFrame && JSON.stringify(byFrame[0]) !== JSON.stringify(g.hull_point.glb_xyz)) {
+      throw new Error(`${arena.mission}: gun ${i}'s frame-0 point is not its point`);
+    }
     return {
       gun: i,
       cobj: g.cobj,
       point: g.hull_point.glb_xyz,
+      ...(byFrame ? { pointByFrame: byFrame } : {}),
       muzzle: muzzle.glb_xyz,
       turnPerTick: s.turn_rate_per_tick,
       frontSectorOnly: s.shooter.front_sector_only,
@@ -337,7 +440,12 @@ function buildModels(
     mission: arena.mission,
     source,
     radii: buildRadii(arena, re, reRepo),
-    dreadnought: { hull: hull.cobj, hullSha: re.models[String(hull.cobj)].sha256_16, guns },
+    dreadnought: {
+      hull: hull.cobj,
+      hullSha: re.models[String(hull.cobj)].sha256_16,
+      ...(walk ? { walk } : {}),
+      guns,
+    },
   };
   return artifact;
 }

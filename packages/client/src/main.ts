@@ -27,7 +27,6 @@ import {
   createSim,
   createTickInputs,
   DEFAULT_DIFFICULTIES,
-  DREADNOUGHT_GUNS,
   EV_CAPTURE,
   EV_DEATH,
   EV_EXPLOSION,
@@ -36,6 +35,7 @@ import {
   EV_RESPAWN,
   EV_SHOT,
   EV_TRANSFORM,
+  GUN_SNAP_STRIDE,
   GUN_SNAPSHOT_LEN,
   GUNS,
   getMapById,
@@ -516,7 +516,7 @@ function sizeLiftSnapshots(lifts: number): boolean {
 let gunPrev = new Float32Array(GUN_SNAPSHOT_LEN);
 let gunCurr = new Float32Array(GUN_SNAPSHOT_LEN);
 /** One Juggernaut's gun yaws this frame, between the two ticks (renderEntities). */
-const gunYaws = new Float32Array(DREADNOUGHT_GUNS);
+const gunYaws = new Float32Array(GUN_SNAP_STRIDE);
 
 // The original's controls: the keyboard on its bindings (input.spec.md). The
 // mouse plays no part in a match, and touch waits for the modernisation.

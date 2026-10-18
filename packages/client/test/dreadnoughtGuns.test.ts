@@ -3,10 +3,18 @@
 // (writeGunSnapshot); the client draws each gun at that yaw about its own
 // mount point (render/arenaUnits.ts gunMatrix), between the two ticks on the
 // shortest arc (render/dreadnoughtGuns.ts lerpGunYaws), from the frame loop
-// without allocating (renderer rule 1).
+// without allocating (renderer rule 1); on Joke's walking hull on the frame
+// the sim's walk shows (the snapshot's GUN_SNAP_HULL_FRAME, SIM_VERSION 85).
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { ARCHETYPE, DREADNOUGHT_GUNS, DREADNOUGHT_MOUNTS, getMapById } from "@metropolis/sim";
+import {
+  ARCHETYPE,
+  DREADNOUGHT_GUNS,
+  DREADNOUGHT_MOUNTS,
+  GUN_SNAP_HULL_FRAME,
+  GUN_SNAP_STRIDE,
+  getMapById,
+} from "@metropolis/sim";
 import * as THREE from "three";
 import {
   type ArenaUnitsRenderer,
@@ -105,10 +113,10 @@ describe("a gun turns by its own yaw about its mount", () => {
 
 describe("the gun yaws between two ticks", () => {
   const ID = 7;
-  const prev = new Float32Array(16 * DREADNOUGHT_GUNS);
-  const curr = new Float32Array(16 * DREADNOUGHT_GUNS);
-  const out = new Float32Array(DREADNOUGHT_GUNS);
-  const o = ID * DREADNOUGHT_GUNS;
+  const prev = new Float32Array(16 * GUN_SNAP_STRIDE);
+  const curr = new Float32Array(16 * GUN_SNAP_STRIDE);
+  const out = new Float32Array(GUN_SNAP_STRIDE);
+  const o = ID * GUN_SNAP_STRIDE;
 
   test("across the ±PI wrap they take the short way round", () => {
     prev.set([Math.PI - 0.1, -Math.PI + 0.1, 0.2, -3.0], o);
@@ -140,7 +148,18 @@ describe("the gun yaws between two ticks", () => {
     curr.fill(-9);
     curr.set([0.5, 0.6, 0.7, 0.8], o);
     lerpGunYaws(prev, curr, ID, 0.5, false, out);
-    expect(Array.from(out)).toEqual(Array.from(curr.subarray(o, o + DREADNOUGHT_GUNS)));
+    expect(Array.from(out.subarray(0, DREADNOUGHT_GUNS))).toEqual(
+      Array.from(curr.subarray(o, o + DREADNOUGHT_GUNS)),
+    );
+  });
+
+  test("carries the hull's frame, the current tick's, with the yaws", () => {
+    prev.fill(0);
+    curr.fill(0);
+    prev[o + GUN_SNAP_HULL_FRAME] = 11;
+    curr[o + GUN_SNAP_HULL_FRAME] = 12;
+    lerpGunYaws(prev, curr, ID, 0.25, true, out);
+    expect(out[GUN_SNAP_HULL_FRAME]).toBe(12);
   });
 });
 
@@ -165,7 +184,7 @@ describe("the frame path", () => {
   const hullPos = new THREE.Vector3(60, 1, 45);
   const hullQuat = new THREE.Quaternion();
   const one = new THREE.Vector3(1, 1, 1);
-  const yaws = new Float32Array(DREADNOUGHT_GUNS);
+  const yaws = new Float32Array(GUN_SNAP_STRIDE);
   const HULL_YAW = 0.4;
 
   /** One frame with one Dreadnought: what main.ts renderEntities does for it. */
@@ -225,7 +244,7 @@ describe("the frame path", () => {
     units.load(getMapById("la-cantina"), () => false, true);
     hullQuat.setFromAxisAngle(UP, -HULL_YAW);
     // The guns draw once the hull and both gun models have landed.
-    const none = new Float32Array(16 * DREADNOUGHT_GUNS);
+    const none = new Float32Array(16 * GUN_SNAP_STRIDE);
     for (let i = 0; i < 400 && drawnParts().length === 0; i++) {
       await Bun.sleep(5);
       frame(none, none, 0);
@@ -242,10 +261,10 @@ describe("the frame path", () => {
   });
 
   test("draws each of the four guns at its own yaw on its own point", () => {
-    const prev = new Float32Array(16 * DREADNOUGHT_GUNS);
-    const curr = new Float32Array(16 * DREADNOUGHT_GUNS);
-    prev.set([0.2, -0.3, 1.4, -3.0], HULL_ID * DREADNOUGHT_GUNS);
-    curr.set([0.4, -0.5, 1.2, 3.1], HULL_ID * DREADNOUGHT_GUNS);
+    const prev = new Float32Array(16 * GUN_SNAP_STRIDE);
+    const curr = new Float32Array(16 * GUN_SNAP_STRIDE);
+    prev.set([0.2, -0.3, 1.4, -3.0], HULL_ID * GUN_SNAP_STRIDE);
+    curr.set([0.4, -0.5, 1.2, 3.1], HULL_ID * GUN_SNAP_STRIDE);
     frame(prev, curr, 0.5);
     const want = [0.3, -0.4, 1.3, -3.0 - (Math.PI * 2 - 6.1) * 0.5];
     // Guns 0/1 are one model and 2/3 the other (Mp 37, 38): two buckets, two each.
@@ -264,8 +283,8 @@ describe("the frame path", () => {
   });
 
   test("constructs no three.js object over a thousand frames", () => {
-    const prev = new Float32Array(16 * DREADNOUGHT_GUNS);
-    const curr = new Float32Array(16 * DREADNOUGHT_GUNS);
+    const prev = new Float32Array(16 * GUN_SNAP_STRIDE);
+    const curr = new Float32Array(16 * GUN_SNAP_STRIDE);
     curr.fill(1.5);
     let made = 0;
     // A constructor's first field write, caught on the prototype: the setter
@@ -325,7 +344,7 @@ describe("Joke's guns ride the hull's walk (RE cact_mount_step reads the hull's 
   const hullPos = new THREE.Vector3(80, 0, 80);
   const hullQuat = new THREE.Quaternion().setFromAxisAngle(UP, -0.4);
   const one = new THREE.Vector3(1, 1, 1);
-  const yaws = new Float32Array(DREADNOUGHT_GUNS);
+  const yaws = new Float32Array(GUN_SNAP_STRIDE);
   const joke = arenaUnitsFor("bug-hunt").dreadnought;
   const track = UNIT_MODEL_FILES.find((f) => f.file === joke.hull)?.morph;
 
@@ -423,29 +442,27 @@ describe("Joke's guns ride the hull's walk (RE cact_mount_step reads the hull's 
     expect(drawnParts().map((p) => p.count)).toEqual([2, 2]);
   });
 
-  test("walked twelve periods, the hull shows frame 12 and every gun stands on its point", () => {
+  test("shows the frame the sim's walk is on, and every gun stands on its point", () => {
     if (!track) throw new Error("Joke's hull has no track");
     expect(track).toMatchObject({ frames: 20, period: 775, drivenBy: "distance" });
     // Frame 0 and frame 12 are metres apart, so standing on the right one shows.
     const a = joke.guns[0].byFrame?.[0] ?? [0, 0, 0];
     const b = joke.guns[0].byFrame?.[12] ?? [0, 0, 0];
     expect(Math.hypot(a[1] - b[1], a[2] - b[2])).toBeGreaterThan(0.5);
-    // Away by more than a step and back: the track starts over at frame 0.
-    hullPos.set(80, 0, 120);
-    frame();
-    hullPos.set(80, 0, 80);
+    // The gun snapshot's frame (sim hullWalk, SIM_VERSION 85), not the distance
+    // the client sees the hull cover.
+    yaws[GUN_SNAP_HULL_FRAME] = 0;
     frame();
     expectGunsOn(0);
-    // 59 steps of 2 cm along the hull's way: 9,667 world units, frame 12
-    // (past 12 x 775 = 9,300, short of 13 x 775).
+    yaws[GUN_SNAP_HULL_FRAME] = 12;
+    frame();
+    expectGunsOn(12);
+    // Moving the hull by itself changes nothing: the walk is the sim's.
     for (let s = 0; s < 59; s++) {
       hullPos.x += 0.02 * Math.cos(0.4);
       hullPos.z += 0.02 * Math.sin(0.4);
       frame();
     }
-    expectGunsOn(12);
-    // Standing still keeps the frame, guns and all.
-    frame();
     expectGunsOn(12);
   });
 });

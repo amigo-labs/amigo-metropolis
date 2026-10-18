@@ -178,6 +178,34 @@ export interface MapGunMount {
   readonly mx: number;
   readonly my: number;
   readonly mz: number;
+  /**
+   * On a hull that walks (MapJuggernaut.walk): the attach point in each of its
+   * frames, frame k at index k, the hull's glb frame as x, y, z are (frame 0 is
+   * x, y, z). The gun stands on, and fires from, the point of the frame the hull
+   * shows (RE mount.c 1019-1030, `cact_model_point` on the hull's +0x70).
+   * Absent on a static hull.
+   */
+  readonly frames?: readonly { readonly x: number; readonly y: number; readonly z: number }[];
+}
+
+/**
+ * The Dreadnought hull's walk where its model animates (Joke's Cobj 35, 20
+ * frames): the model's one AnmD track (block.c `anmd_track`), stepped as
+ * `cact_handler_type5` op 6 steps it, by `velocity_84 * dt` -- a frame per
+ * `period` world units travelled (type5.c 469-472) -- its links the track
+ * itself. The event is packed `code << 10 | frame`, 0 for none.
+ */
+export interface MapHullWalk {
+  readonly from: number;
+  readonly to: number;
+  readonly mode: number;
+  readonly end: number;
+  readonly link: number;
+  readonly linkB: number;
+  readonly linkC: number;
+  readonly flags: number;
+  readonly period: number;
+  readonly event: number;
 }
 
 /**
@@ -206,6 +234,8 @@ export interface MapJuggernaut {
   readonly mounts: readonly MapGunMount[];
   /** The guns' turn, angle units (4096 a turn) per 1/300 s (DREADNOUGHT_GUN_TURN). */
   readonly gunTurn: number;
+  /** The hull's walk where its model animates (Joke's), else undefined: a static hull. */
+  readonly walk: MapHullWalk | undefined;
 }
 
 /**
@@ -1052,7 +1082,28 @@ export interface MapBaseJson {
     weapon: number;
     layer?: number;
     /** OPTIONAL: the gun mounts (MapGunMount); balance.ts DREADNOUGHT_MOUNTS when absent. */
-    mounts?: { x: number; y: number; z: number; mx: number; my: number; mz: number }[];
+    mounts?: {
+      x: number;
+      y: number;
+      z: number;
+      mx: number;
+      my: number;
+      mz: number;
+      frames?: number[][];
+    }[];
+    /** OPTIONAL: the hull's walk (MapHullWalk); absent for a static hull. */
+    walk?: {
+      from: number;
+      to: number;
+      mode: number;
+      end: number;
+      link: number;
+      linkB: number;
+      linkC: number;
+      flags: number;
+      period: number;
+      event: number;
+    };
     /** OPTIONAL: the guns' turn (MapJuggernaut.gunTurn); DREADNOUGHT_GUN_TURN when absent. */
     gunTurn?: number;
   };
@@ -1461,6 +1512,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
         weapon: original(d.weapon),
         mounts: DREADNOUGHT_MOUNTS,
         gunTurn: DREADNOUGHT_GUN_TURN,
+        walk: undefined,
       };
     } else {
       const j = b.juggernaut;
@@ -1473,17 +1525,73 @@ export function loadMapFromJson(raw: MapJson): MapData {
       if (!Number.isInteger(j.guns) || j.guns < 1 || j.guns > DREADNOUGHT_GUNS) {
         fail(id, `${what} bad guns ${j.guns}`);
       }
+      let walk: MapHullWalk | undefined;
+      if (j.walk !== undefined) {
+        const w = j.walk;
+        const int = (v: unknown, f: string) => {
+          if (!Number.isInteger(v)) fail(id, `${what} walk ${f} is not an integer`);
+          return v as number;
+        };
+        walk = {
+          from: int(w.from, "from"),
+          to: int(w.to, "to"),
+          mode: int(w.mode, "mode"),
+          end: int(w.end, "end"),
+          link: int(w.link, "link"),
+          linkB: int(w.linkB, "linkB"),
+          linkC: int(w.linkC, "linkC"),
+          flags: int(w.flags, "flags"),
+          period: int(w.period, "period"),
+          event: int(w.event, "event"),
+        };
+        // One closed track: its links are itself, and it steps.
+        if (walk.link !== 0 || walk.linkB !== 0 || walk.linkC !== 0) {
+          fail(id, `${what} walk links another track`);
+        }
+        if (walk.period < 1 || walk.from < 0 || walk.to < walk.from) {
+          fail(id, `${what} walk bad frames or period`);
+        }
+      }
+      const frameCount = walk ? walk.to + 1 : 0;
       let mounts: readonly MapGunMount[] = DREADNOUGHT_MOUNTS;
       if (j.mounts !== undefined) {
         if (!Array.isArray(j.mounts)) fail(id, `${what} mounts is not an array`);
-        mounts = j.mounts.map((m, i) => ({
-          x: num(m?.x, `${what} mount ${i} x`),
-          y: num(m?.y, `${what} mount ${i} y`),
-          z: num(m?.z, `${what} mount ${i} z`),
-          mx: num(m?.mx, `${what} mount ${i} mx`),
-          my: num(m?.my, `${what} mount ${i} my`),
-          mz: num(m?.mz, `${what} mount ${i} mz`),
-        }));
+        mounts = j.mounts.map((m, i) => {
+          const at = `${what} mount ${i}`;
+          const x = num(m?.x, `${at} x`);
+          const y = num(m?.y, `${at} y`);
+          const z = num(m?.z, `${at} z`);
+          const mount = {
+            x,
+            y,
+            z,
+            mx: num(m?.mx, `${at} mx`),
+            my: num(m?.my, `${at} my`),
+            mz: num(m?.mz, `${at} mz`),
+          };
+          if (m.frames === undefined) {
+            if (walk) fail(id, `${at}: a walking hull's mount needs its frames`);
+            return mount;
+          }
+          if (!walk) fail(id, `${at}: frames on a hull that does not walk`);
+          if (!Array.isArray(m.frames) || m.frames.length !== frameCount) {
+            fail(id, `${at}: frames not ${frameCount} long`);
+          }
+          const frames = m.frames.map((f, k) => {
+            if (!Array.isArray(f) || f.length !== 3) fail(id, `${at} frame ${k} is not [x, y, z]`);
+            return {
+              x: num(f[0], `${at} frame ${k} x`),
+              y: num(f[1], `${at} frame ${k} y`),
+              z: num(f[2], `${at} frame ${k} z`),
+            };
+          });
+          if (frames[0].x !== x || frames[0].y !== y || frames[0].z !== z) {
+            fail(id, `${at}: frame 0 is not the mount's point`);
+          }
+          return { ...mount, frames };
+        });
+      } else if (walk) {
+        fail(id, `${what}: a walking hull needs its own mounts`);
       }
       if (mounts.length !== j.guns) fail(id, `${what}: ${j.guns} guns on ${mounts.length} mounts`);
       const gunTurn = j.gunTurn ?? DREADNOUGHT_GUN_TURN;
@@ -1497,6 +1605,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
         weapon: weaponIndex(j.weapon, what),
         mounts,
         gunTurn,
+        walk,
       };
     }
     const zone = (
@@ -2009,6 +2118,7 @@ export function createTestMap(): MapData {
       weapon: ORIGINAL_UNIT_PROFILES.juggernaut.weapon,
       mounts: DREADNOUGHT_MOUNTS,
       gunTurn: DREADNOUGHT_GUN_TURN,
+      walk: undefined,
     },
     runner: { ...ORIGINAL_UNIT_PROFILES.runner },
     guardian: { ...ORIGINAL_UNIT_PROFILES.guardian },

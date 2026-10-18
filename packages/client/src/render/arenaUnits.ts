@@ -23,7 +23,9 @@
 // 526-546), each its own actor in the original, turning on its point by its
 // own yaw (the sim's gun snapshot); they draw from a part bucket per gun
 // model. The mount reads the point in the hull's current frame every tick, so
-// on Joke's walking hull each gun rides the frame the hull shows (gunPointOf).
+// on Joke's walking hull each gun rides the frame the hull shows (gunPointOf):
+// the sim's, which steps the walk and fires from that frame's points (gun
+// snapshot GUN_SNAP_HULL_FRAME, SIM_VERSION 85).
 // A turret's gun is placed once, on frame 0 (RE turret.c 913-918), and no
 // base animates. These are declared exceptions to "one InstancedMesh per archetype"
 // (assets.md §4): the parts have their own transforms in the original too.
@@ -37,14 +39,15 @@
 //
 // The models move as the original's do (fcop-fidelity.md G9): each plays its
 // AnmD track 0 from where it was built, by time or by the distance it travels
-// (render/unitTracks.ts). The outpost's console has no model here: it is
+// (render/unitTracks.ts) -- but for the Dreadnought's hull, whose walk is the
+// sim's (its frame off the gun snapshot). The outpost's console has no model here: it is
 // scenery the claim destroys (render/props.ts); its entity still reports the
 // outpost's owner (`outpostSides`), and its bucket draws only the greybox box.
 //
 // Renderer rules: `place` runs per entity per frame and allocates nothing; the
 // loaders run at arena build and may.
 
-import { ARCHETYPE, type MapData, TURRET_DEFENSE } from "@metropolis/sim";
+import { ARCHETYPE, GUN_SNAP_HULL_FRAME, type MapData, TURRET_DEFENSE } from "@metropolis/sim";
 import * as THREE from "three";
 import { SCENERY_PLACEMENTS, type SceneryTurretBase } from "./arenaScenery.generated";
 import {
@@ -308,9 +311,9 @@ export interface ArenaUnitsRenderer {
     quat: THREE.Quaternion,
     scale: THREE.Vector3,
     /**
-     * A Juggernaut's gun yaws relative to its hull, one per gun (main.ts
-     * interpolates writeGunSnapshot, render/dreadnoughtGuns.ts). Read for a
-     * Juggernaut only.
+     * A Juggernaut's gun yaws relative to its hull, one per gun, then at
+     * GUN_SNAP_HULL_FRAME the frame its hull's walk shows (main.ts interpolates
+     * writeGunSnapshot, render/dreadnoughtGuns.ts). Read for a Juggernaut only.
      */
     guns: Float32Array,
   ): void;
@@ -745,8 +748,12 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       let frame = 0;
       if (morph) {
         // Frame by frame at the track's period (RE `cact_anim_step`): 10 / 300 s
-        // a frame for the rotor, 575 world units walked for Joke's tank.
-        frame = tracks.frameOf(id, archetype, morph.track, pos.x, pos.y, pos.z);
+        // a frame for the rotor, 575 world units walked for Joke's tank; the
+        // Dreadnought's hull shows the frame the sim's walk is on (775 a frame).
+        frame =
+          archetype === ARCHETYPE.JUGGERNAUT
+            ? guns[GUN_SNAP_HULL_FRAME]
+            : tracks.frameOf(id, archetype, morph.track, pos.x, pos.y, pos.z);
         const a = morph.texture.image.data as Float32Array;
         const row = slot * morph.len;
         a[row] = 1; // relative targets: the base always counts in full

@@ -1054,12 +1054,22 @@ function outpostMembers(ev: EvidenceMap): Set<number> {
 /**
  * The Dreadnought's gun mounts from the arena's own hull and gun models
  * (fcopModels.ts): per gun the hull's attach point and the gun's muzzle, both in
- * their glb frames, and the one turn rate all four share. Every gun fires only
+ * their glb frames -- on a hull that walks the point in each of its frames, and
+ * the walk itself -- and the one turn rate all four share. Every gun fires only
  * inside its front sector, which is what `shooterWeapon`'s arc applies.
  */
 function dreadnoughtMounts(models: ModelsArtifact): {
-  mounts: { x: number; y: number; z: number; mx: number; my: number; mz: number }[];
+  mounts: {
+    x: number;
+    y: number;
+    z: number;
+    mx: number;
+    my: number;
+    mz: number;
+    frames?: number[][];
+  }[];
   turn: number;
+  walk: ModelsArtifact["dreadnought"]["walk"];
 } {
   const guns = models.dreadnought.guns;
   const turn = guns[0]?.turnPerTick;
@@ -1076,8 +1086,12 @@ function dreadnoughtMounts(models: ModelsArtifact): {
       mx: g.muzzle[0],
       my: g.muzzle[1],
       mz: g.muzzle[2],
+      // A walking hull's (Joke's): the point in each frame, which the gun
+      // stands on while the hull shows it.
+      ...(g.pointByFrame ? { frames: g.pointByFrame.map((p) => [p[0], p[1], p[2]]) } : {}),
     })),
     turn,
+    walk: models.dreadnought.walk,
   };
 }
 
@@ -1958,6 +1972,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         ),
         mounts: mounts.mounts,
         gunTurn: mounts.turn,
+        ...(mounts.walk ? { walk: { ...mounts.walk } } : {}),
       },
       // The tank, jet and Flying Fortress spawner records (fcop-fidelity.md W3).
       ...unitProfiles(logic, base.team, table),

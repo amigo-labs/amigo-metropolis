@@ -1258,4 +1258,21 @@
 //     golden's hashes move from tick 0 for the countdowns' new units; the
 //     queues' phases and periods move, so every golden that buys a tank or
 //     fields the captain plays differently.
-export const SIM_VERSION = 84;
+// v85: Joke's Dreadnought fires from the gun mounts of the frame its hull
+//     shows (fcop-fidelity.md I6, G8; RE mount.c 1019-1030 op 6, type5.c
+//     469-472, pa_models.json guns[].hull_point.by_frame): the hull's walk is
+//     in the sim. Its model's one AnmD track (MapJuggernaut.walk, gen:pamodels
+//     -> <mission>-models.json -> gen:arena; Joke's hull 35: frames 0-19, mode
+//     2, a loop, period 775) runs per Juggernaut on the walker's AnmD player
+//     (SimState.hullWalk): cact_anim_init at the spawn, then each tick, before
+//     the move, a step of velocity_84 * dt -- the speed word the last move
+//     left, world units per engine tick (54 at the top speed), times the frame
+//     delta (10) -- so a frame per 775 world units travelled. Each gun stands
+//     on, and fires from, its attach point in that frame (MapGunMount.frames,
+//     20 a gun). Was frame 0's mount on every tick. Hashed for live
+//     Juggernauts on a walking hull only; the gun snapshot carries the frame
+//     (stride 4 -> 5, GUN_SNAP_HULL_FRAME), which the client's hull morph and
+//     guns now read instead of tracking the hull's distance themselves. Only
+//     bug-hunt's hull walks and no golden fields a Dreadnought there: every
+//     golden's hashes hold, re-recorded for the header.
+export const SIM_VERSION = 85;

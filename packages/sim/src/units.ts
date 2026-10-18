@@ -41,6 +41,7 @@ import {
   FORTRESS_DETECT_RANGE,
   FORTRESS_LEASH_X,
   FORTRESS_LEASH_Y,
+  FRAME_CLOCK_PER_TICK,
   GUARDIAN_AIRCRAFT_SPEED,
   GUARDIAN_DETECT_RANGE,
   GUARDIAN_LEASH_X,
@@ -57,6 +58,7 @@ import {
   ROUTE_SCORE_PREV,
   ROUTE_SCORE_PREV2,
   ROUTE_SEEK_RANGE,
+  ROUTE_SPEED_UNIT,
   ROUTE_TOP_SPEED,
   ROUTE_WANDER,
   TARGET_PRIORITY_AVATAR,
@@ -71,6 +73,7 @@ import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
 import { type MapData, resolveHeight, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
 import { ANIM_MOVING, entityRadius, rideHeight, type SimState, STEP_SNAP } from "./sim";
 import { atan2Poly, cosLUT, rand01, randInt, sinLUT } from "./simMath";
+import { animStep, T_MODE } from "./walker";
 
 /**
  * An aircraft's anchor, the spawner it was built at (moveAircraft): 0 the base
@@ -209,7 +212,13 @@ export function systemUnitMovement(state: SimState): void {
     if (!ent.alive[id]) continue;
     switch (ent.archetype[id]) {
       case ARCHETYPE.RUNNER:
+        if (routes) moveRouteFollower(state, id);
+        else moveGroundUnit(state, id, ROUTE_TOP_SPEED);
+        break;
       case ARCHETYPE.JUGGERNAUT:
+        // The type-5 tick's order (type5.c 469-494): the hull's walk by the
+        // speed the last move left, then the move.
+        stepHullWalk(state, id);
         if (routes) moveRouteFollower(state, id);
         else moveGroundUnit(state, id, ROUTE_TOP_SPEED);
         break;
@@ -222,6 +231,25 @@ export function systemUnitMovement(state: SimState): void {
     }
   }
   if (!routes) separateGroundUnits(state);
+}
+
+/**
+ * The Dreadnought hull's walk where its model animates (Joke's; sim.ts
+ * hullWalk): `cact_anim_step` on its block by `dt` for a track in mode 1, else
+ * by `velocity_84 * dt` (RE type5.c 469-472) -- the speed word the last move
+ * left, world units per engine tick (ROUTE_SPEED_UNIT: 54 at the top speed),
+ * times the frame delta -- so a frame passes each `period` world units the hull
+ * has travelled (775 on Joke). A halted hull steps nothing.
+ */
+function stepHullWalk(state: SimState, id: number): void {
+  const ent = state.ent;
+  const walk = state.hullWalk[ent.team[id]];
+  if (!walk) return;
+  const v = Math.sqrt(ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id]);
+  const speed = Math.floor(v / ROUTE_SPEED_UNIT + 0.5);
+  const track = walk.tracks[walk.index[id]];
+  const step = track[T_MODE] === 1 ? FRAME_CLOCK_PER_TICK : speed * FRAME_CLOCK_PER_TICK;
+  animStep(walk, id, step, 0);
 }
 
 /**

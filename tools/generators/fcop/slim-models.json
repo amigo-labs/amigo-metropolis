@@ -2,7 +2,7 @@
   "mission": "Slim",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "43105fbca860f782b33d7d7de42131398a6d5a41",
+    "commit": "4f5418716c356fa80aa2e36f9ee53272fa069b91",
     "tool": "tools/gfx/pa_models.py; fixtures/missions (3DBB)"
   },
   "radii": {

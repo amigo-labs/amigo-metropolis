@@ -2,7 +2,9 @@
 // fcop-fidelity.md I6; RE mount.c 0x004258d0, discharge.c 949-977,
 // pa_models.json `guns[]`): gun i on hull attach point i, its own yaw relative
 // to the hull turning 9 angle units per 1/300 s, its own shooter and target,
-// firing from its muzzle inside ±22.5° of its own forward.
+// firing from its muzzle inside ±22.5° of its own forward. On Joke's walking
+// hull (SIM_VERSION 85; mount.c 1019-1030, type5.c 469-472) the point is the
+// one of the frame the hull's walk shows, a frame per 775 world units.
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
@@ -11,14 +13,19 @@ import {
   DREADNOUGHT_GUNS,
   DREADNOUGHT_MOUNTS,
   FRAME_CLOCK_PER_TICK,
+  ROUTE_SPEED_UNIT,
+  ROUTE_TOP_SPEED,
   SHOOTER_FRONT_ARC_COS,
   TICK_DT,
 } from "../src/balance";
-import { EV_SHOT, EVENT_STRIDE } from "../src/events";
+import { segmentBlocked } from "../src/collision";
+import { EV_SHOT, EVENT_STRIDE, roundSource } from "../src/events";
 import { createTickInputs } from "../src/inputs";
-import { getMapById, LA_CANTINA_ID, sampleHeight } from "../src/map";
+import { BUG_HUNT_ID, getMapById, LA_CANTINA_ID, sampleHeight } from "../src/map";
 import {
   createSim,
+  GUN_SNAP_HULL_FRAME,
+  GUN_SNAP_STRIDE,
   GUN_SNAPSHOT_LEN,
   gunYawRadians,
   hash,
@@ -37,15 +44,15 @@ const TURN = DREADNOUGHT_GUN_TURN * FRAME_CLOCK_PER_TICK; // 90 units a tick
 const UNIT = (2 * Math.PI) / 4096;
 
 /** A Dreadnought of team 0 parked at (X, Y) facing `yaw`, re-parked by `park()`. */
-function parked(state: SimState, yaw = 0): { id: number; park: () => void } {
-  const id = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 0, X, Y);
+function parked(state: SimState, yaw = 0, x = X, y = Y): { id: number; park: () => void } {
+  const id = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 0, x, y);
   const park = () => {
-    state.ent.posX[id] = X;
-    state.ent.posY[id] = Y;
+    state.ent.posX[id] = x;
+    state.ent.posY[id] = y;
     state.ent.yaw[id] = yaw;
     state.ent.velX[id] = 0;
     state.ent.velY[id] = 0;
-    state.ent.height[id] = sampleHeight(state.map, X, Y);
+    state.ent.height[id] = sampleHeight(state.map, x, y);
     state.ent.timerA[id] = -1; // off its road: the route follower halts it
   };
   park();
@@ -203,11 +210,145 @@ describe("the Dreadnought's mounts", () => {
     writeGunSnapshot(state, out);
     for (let g = 0; g < DREADNOUGHT_GUNS; g++) {
       const k = id * DREADNOUGHT_GUNS + g;
-      expect(out[k]).toBeCloseTo(state.gunYaw[k] * UNIT, 5);
-      expect(out[k]).toBeGreaterThan(0); // turning left, toward +y
+      expect(out[id * GUN_SNAP_STRIDE + g]).toBeCloseTo(state.gunYaw[k] * UNIT, 5);
+      expect(out[id * GUN_SNAP_STRIDE + g]).toBeGreaterThan(0); // turning left, toward +y
     }
+    // La Cantina's hull does not walk: frame 0.
+    expect(state.hullWalk[0]).toBeNull();
+    expect(out[id * GUN_SNAP_STRIDE + GUN_SNAP_HULL_FRAME]).toBe(0);
     const before = hash(state);
     state.gunYaw[id * DREADNOUGHT_GUNS + 2] += 1;
     expect(hash(state)).not.toBe(before);
+  });
+});
+
+describe("Joke's walking hull (bug-hunt)", () => {
+  const joke = getMapById(BUG_HUNT_ID);
+
+  it("imports the hull's walk and every mount's point frame by frame", () => {
+    for (const team of [0, 1]) {
+      const j = joke.bases[team].juggernaut;
+      expect(j.walk).toEqual({
+        from: 0,
+        to: 19,
+        mode: 2,
+        end: 0,
+        link: 0,
+        linkB: 0,
+        linkC: 0,
+        flags: 0,
+        period: 775,
+        event: 0,
+      });
+      for (const m of j.mounts) {
+        expect(m.frames?.length).toBe(20);
+        expect(m.frames?.[0]).toEqual({ x: m.x, y: m.y, z: m.z });
+      }
+    }
+    // Gun 0's point rises and draws back over the stride (pa_models.json by_frame).
+    const f = joke.bases[0].juggernaut.mounts[0].frames ?? [];
+    expect(f[12].y).toBeCloseTo(1.6621, 3);
+    expect(f[12].z).toBeCloseTo(0.207, 3);
+  });
+
+  it("walks a frame per 775 world units, by the speed the last move left", () => {
+    const state = createSim(joke, 1);
+    const j = joke.bases[0].juggernaut;
+    const id = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 0, j.x, j.y);
+    const walk = state.hullWalk[0];
+    if (!walk) throw new Error("no walk");
+    expect(walk.index[id]).toBe(0);
+    expect(walk.frame[id]).toBe(0);
+    expect(walk.clock[id]).toBe(0);
+    // 54 world units an engine tick at the top speed, 540 a sim tick.
+    const word = Math.floor(ROUTE_TOP_SPEED / ROUTE_SPEED_UNIT + 0.5);
+    expect(word).toBe(54);
+    // A mirror of cact_anim_step on a looping 0..19 track of period 775.
+    let frame = 0;
+    let clock = 0;
+    let moving = false;
+    for (let t = 0; t < 60; t++) {
+      step(state, idle);
+      clock += moving ? word * FRAME_CLOCK_PER_TICK : 0;
+      while (clock > 775) {
+        clock -= 775;
+        frame = frame === 19 ? 0 : frame + 1;
+      }
+      moving = Math.hypot(state.ent.velX[id], state.ent.velY[id]) > 0;
+      expect(`${t}:${walk.frame[id]}:${walk.clock[id]}`).toBe(`${t}:${frame}:${clock}`);
+    }
+    // It has walked: 59 ticks of 540 is 41 frames, twice round and one on.
+    expect(walk.frame[id]).toBe(41 % 20);
+    const out = new Float32Array(GUN_SNAPSHOT_LEN);
+    writeGunSnapshot(state, out);
+    expect(out[id * GUN_SNAP_STRIDE + GUN_SNAP_HULL_FRAME]).toBe(walk.frame[id]);
+    const before = hash(state);
+    walk.clock[id] += 1;
+    expect(hash(state)).not.toBe(before);
+  });
+
+  it("fires each gun from its point in the frame the hull shows", () => {
+    const j = joke.bases[0].juggernaut;
+    // On the road (a Cnet node in the open), facing a clear 6 m.
+    const node = joke.laneGraph?.nodes[80];
+    if (!node) throw new Error("no node");
+    const hx = node.x;
+    const hy = node.y;
+    let yaw = 0;
+    for (let a = 0; a < 8; a++) {
+      yaw = (a * Math.PI) / 4;
+      if (!segmentBlocked(joke, hx, hy, hx + 6 * Math.cos(yaw), hy + 6 * Math.sin(yaw))) break;
+    }
+    const at = (frame: number) => {
+      const state = createSim(joke, 1);
+      const { id, park } = parked(state, yaw, hx, hy);
+      const walk = state.hullWalk[0];
+      if (!walk) throw new Error("no walk");
+      walk.frame[id] = frame; // parked, the walk stays on it
+      const fx = hx + 6 * Math.cos(yaw);
+      const fy = hy + 6 * Math.sin(yaw);
+      const was = new Uint8Array(state.ent.cap);
+      for (let t = 0; t < 60; t++) {
+        park();
+        const a = state.avatarId[1];
+        state.ent.posX[a] = fx;
+        state.ent.posY[a] = fy;
+        state.ent.height[a] = sampleHeight(state.map, fx, fy);
+        state.ent.hp[a] = 1e6;
+        for (let p = 0; p < state.ent.high; p++) was[p] = state.ent.alive[p];
+        step(state, idle);
+        expect(walk.frame[id]).toBe(frame);
+        for (let p = 0; p < state.ent.high; p++) {
+          if (was[p] || !state.ent.alive[p] || state.ent.archetype[p] !== ARCHETYPE.PROJECTILE) {
+            continue;
+          }
+          // The hull's own (the base ring's turrets stand by its spawn too).
+          if (state.roundFrom[p] !== roundSource(ARCHETYPE.JUGGERNAUT, 0)) continue;
+          // The round, taken back over its tick of flight, against each gun's
+          // muzzle on the frame's point at the gun's yaw.
+          const x = state.ent.posX[p] - state.ent.velX[p] * TICK_DT;
+          const y = state.ent.posY[p] - state.ent.velY[p] * TICK_DT;
+          let best = Number.POSITIVE_INFINITY;
+          for (let g = 0; g < DREADNOUGHT_GUNS; g++) {
+            const m = j.mounts[g];
+            const pt = m.frames?.[frame] ?? m;
+            const gy = yaw + gunYawRadians(state.gunYaw[id * DREADNOUGHT_GUNS + g]);
+            const px = hx + pt.z * Math.cos(yaw) + pt.x * Math.sin(yaw);
+            const py = hy + pt.z * Math.sin(yaw) - pt.x * Math.cos(yaw);
+            const mx = px + m.mz * Math.cos(gy) + m.mx * Math.sin(gy);
+            const my = py + m.mz * Math.sin(gy) - m.mx * Math.cos(gy);
+            best = Math.min(best, Math.hypot(x - mx, y - my));
+          }
+          return best;
+        }
+      }
+      return -1;
+    };
+    // Frame 12 stands the front guns 0.35 m further back than frame 0.
+    for (const frame of [0, 12]) {
+      const d = at(frame);
+      expect(d).toBeGreaterThanOrEqual(0);
+      expect(d).toBeLessThan(0.01);
+    }
   });
 });
