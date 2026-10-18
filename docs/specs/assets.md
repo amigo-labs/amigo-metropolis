@@ -91,35 +91,31 @@ forever as a debug render mode (`?render=greybox`).
   `fortress.glb` ship untextured for six line facers' sake.
 - Named nodes for code-driven animation (rigid transforms, no skinning):
   `root, hull, turret_yaw, barrel_pitch, leg_l, leg_r, fx_muzzle, fx_thruster`.
-- **Reality check, avatar walk (v20):** the pipeline emits ONE node per unit —
-  `joinMeshes` merges everything and `bakeSkinRestPose` folds the original's two
-  skins into the vertices — so no unit ships with named part nodes today. The
-  walk animation gets its parts by labelling connected components at load time
-  instead (`packages/client/src/render/avatarRig.ts`): position-welded, the
-  walker falls into nine islands and the largest one is exactly the original's
-  legs mesh. That yields hip swing only; knee bend needs the generator to emit
-  the joints, which waits on `gen:units` becoming byte-reproducible.
-- The avatar therefore draws as **three** `InstancedMesh`es (body, `leg_l`,
-  `leg_r`) rather than one — a deliberate, bounded exception to the
-  one-mesh-per-archetype rule in `CLAUDE.md`, capped at four instances. Still no
-  `Object3D` tree and no per-limb matrix update.
-- **Walker ↔ hover transformation** (`render/morph.ts`): three beats over the
-  sim's transform lock (41 ticks, 1.37 s — the original's), driven by a client-local clock that one
-  `EV_TRANSFORM` event starts.
-  1. **Collapse** — the form being LEFT squashes to a third of its height,
-     spreads sideways, tucks both hips to the same angle (not the gait's
-     antiphase swing) and turns a full circle on the spot.
-  2. **Discharge** — arcs in the Electric Gun's palette (`0xe8ffff` core,
-     `0x40c0ff` glow) crackle over a metre-high cage around the mech, densest at
-     the halfway point, where a flash and a ground ring cover the mesh swap.
-  3. **Unfold** — the form being ENTERED runs the collapse backwards.
-  The two forms are never on screen together. A cross-fade would need
-  per-instance opacity, i.e. a `ShaderMaterial`; the client has none and is not
-  getting one for this, so the swap hides inside the flash instead. That also
-  means neither the rig nor the hover bucket needs extra capacity.
-  The mesh swap point is NOT `ANIM_HOVER`: the sim flips the mode byte on the
-  first tick of the lock, so the snapshot reads as the destination for the whole
-  window. `render/morph.ts` owns which half of the morph draws which form.
+- **The X1-Alpha is the original's rig, one InstancedMesh** (`bun run gen:x1`,
+  `tools/generators/fcopX1.ts`; `render/avatarRig.ts`; fcop-fidelity.md G11).
+  The RE exports the legs (8 joints, 371 frames) and the cockpit (7 joints, 30
+  frames) as rigidly skinned glbs; the generator bakes each joint's skin matrix
+  per frame, with the cockpit's mount (the legs' 3DHS point 0 of the frame), the
+  two guns (the cockpit skeleton's records 2 and 4) and the beacon (its point 2),
+  into a bone table, `avatar-x1.anim.bin` (30 x 401 RGBA float texels, a 3x4
+  matrix per slot per frame), and merges the five parts into one bind-pose
+  primitive, `avatar-x1.glb`, whose `_X1BONE` names each vertex's slot. The
+  vertex shader fetches the slot's matrix by the instance's legs and cockpit
+  frames (`instanceX1`: legs frame, cockpit frame, the cockpit's aim yaw and
+  pitch) — `render/x1Pose.ts` is its CPU twin, held against the RE's own
+  assembled walker, hover and transform. Walker, transformation and hover are
+  the same mesh at other frames, so nothing swaps and nothing is split: the
+  one-mesh-per-archetype rule holds for the X1 again.
+- **The frames are the original's state machine's** (`render/x1Walk.ts`): the
+  animation half of the walker's tick, the transform's mode-3 ramp (legs track
+  0x0c 330 -> 359, cockpit track 2 0 -> 29, 160 a unit of the 300 Hz clock) and
+  the AnmD player, stepped once a sim tick off the avatar snapshot
+  (`writeAvatarSnapshot`). The legs' tracks also carry the walker's movement-loop
+  codes, which `audio/cues.ts` plays. The RE manifest's clip seconds are not
+  used; the clips' `full` timeline is read as an index of frames.
+- The greybox buckets keep the two rest poses (`avatar-walker`,
+  `avatar-hover`, the RE's assembled walker and hover through `gen:units`) as
+  the stand-ins while the rig loads, and in `?x1rig=off`.
 - **Pickups and lifts wear each arena's own pack** (`packages/client/public/models/pa-props/<mapId>/obj_<cobj>.glb`,
   copied by `bun run gen:paprops` from the RE repo's
   `extracted/findings/pa_props/<Mission>/`). The same Cobj id is a different
@@ -184,10 +180,10 @@ forever as a debug render mode (`?render=greybox`).
   rest yaw and its gun turning on it (a part bucket per turret set; Hk's second
   set has a gun bucket of its own), the Dreadnought's four guns on the hull (a
   part bucket per gun model, capacity four guns of every Dreadnought). Further
-  bounded exceptions to the one-mesh-per-archetype rule, beside the avatar's;
-  still no `Object3D` tree, every matrix written straight into its slot. Each
-  gun turns about its own origin on its point by the sim's gun snapshot
-  (`writeGunSnapshot`), between two ticks on the shortest arc.
+  bounded exceptions to the one-mesh-per-archetype rule (the only ones: the X1
+  is one mesh); still no `Object3D` tree, every matrix written straight into its
+  slot. Each gun turns about its own origin on its point by the sim's gun
+  snapshot (`writeGunSnapshot`), between two ticks on the shortest arc.
 - **Team colour is a texture offset, not a tint** (`render/teamUv.ts`;
   fcop-fidelity.md G4). The original holds the art twice on a page and gives
   each actor an offset onto its side's half; the client adds it per instance to
@@ -208,8 +204,8 @@ forever as a debug render mode (`?render=greybox`).
   texture (an InstancedMesh morphs only through it) on the sim's clock. A unit's
   track starts where the client first draws it, as the original's starts at its
   actor's construct (`render/unitTracks.ts`, which also measures the travel from
-  the interpolated positions); the flags all start with the arena. The X1's clips
-  still show one frame (render/avatarRig.ts).
+  the interpolated positions); the flags all start with the arena. The X1's
+  skeletons play by their own rig (above).
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
 - Materials: single atlas texture, `flatShading: true`, no PBR maps.
 

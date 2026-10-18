@@ -171,7 +171,9 @@ avatar is the one exception: `render/avatarRig.ts` recovers its parts by
 labelling connected components in the shipped glb (the largest island is exactly
 the original's 648-vertex legs mesh) and swings the hips from distance
 travelled — client-only, no asset change. Knee bend still wants the generator to
-emit joints, which waits on `gen:units` becoming byte-reproducible.
+emit joints, which waits on `gen:units` becoming byte-reproducible. (Phase 14
+wave 5 replaced the swing and the morph below with the original's own
+animation: `bun run gen:x1`, `render/avatarRig.ts`, `render/x1Walk.ts`.)
 The transformation itself is no longer a one-frame mesh swap: `render/morph.ts`
 plays it as collapse → discharge → unfold over the sim's lock, off a single
 `EV_TRANSFORM` event, with arc streaks in the Electric Gun's palette
@@ -651,7 +653,7 @@ sound plays for which event is read from code and data, not picked by ear (#27).
       loops / launch one-shots), world weapons, effects and death chains, hover
       loop, ambient queue and prop emitters, purchases, capture, pickups, pause,
       speech with ducking (all 86 lines by the scripts' rules), music per arena.
-      The walker's loop waits on the X1's animations (ledger A9, wave 5)
+      The walker's loop plays off the X1's leg tracks since wave 5 (ledger A9)
 - [x] The three original sliders (Sound Effects, Music, Movies, 0..127) with the
       original's defaults
 - [x] Remove the sfxr synth, the synth music and the owner's mp3s from the game
@@ -754,7 +756,6 @@ no golden moves.
       775 world units travelled), the skinned Joke jet (its skeleton's 15 frames
       baked into morph targets), the flags' cloth (six frames at 20/300 s); every
       unit's track from where it was built, not by its entity id (G9, G10)
-- [ ] The X1's cloak offset (G4)
 - [x] The outpost flags on La Cantina's decks: every type-11 record at the height
       its construct takes on its layer (the topmost surface but for three flags an
       arena) and at its own yaw — Hk's flags and base kiosks, Slim's and Joke's
@@ -767,7 +768,15 @@ no golden moves.
 - [ ] The scenery the type-96 Props and type-97 DCSQuads place on Conft, Slim, Joke
       and Hk (89 / 75 / 75 / 151 Props, 0 / 56 / 51 / 134 DCSQuads), not drawn (G2)
 - [x] Per-arena hit radii for the models each arena draws (G1, G7; v78)
-- [ ] The X1's animations
+- [x] The X1's animations: the legs' and the cockpit's AnmD tracks by the
+      original's walker state machine and the transform's ramp, the hover's hold,
+      the cockpit on its mount and aiming at the lock, one InstancedMesh posed in
+      the vertex shader (`gen:x1`; G11); the walker's loop off the legs' codes (A9)
+- [x] The X1's cloak offset: the frame clock's v while the cloak runs (G4)
+- [ ] The jumps' wind-ups: the original leaves the ground when the wind-up track
+      reaches its LAUNCH flag (~0.38 s high jump, ~0.2 s hop), Metropolis on the
+      press — a sim change, the walker's state and leg track in hashed state
+      (G11, P4)
 
 ### Wave 6 — Presentation
 
