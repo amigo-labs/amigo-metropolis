@@ -33,6 +33,7 @@ import {
   type Anchors,
   additive,
   copyAnchor,
+  FX_OUTPUT,
   type FxPoses,
   type FxView,
   followAnchor,
@@ -86,6 +87,7 @@ const FRAGMENT = /* glsl */ `
 varying vec3 vColour;
 void main() {
   gl_FragColor = vec4(vColour, 1.0);
+  ${FX_OUTPUT}
 }`;
 
 function fanGeometry(): THREE.BufferGeometry {

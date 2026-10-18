@@ -37,6 +37,7 @@ import {
   type Anchors,
   additive,
   copyAnchor,
+  FX_OUTPUT,
   type FxPoses,
   type FxView,
   followAnchor,
@@ -90,6 +91,7 @@ void main() {
   vec4 t = uReady > 0.5 ? texture2D(uAtlas, vUv) : vec4(1.0);
   if (t.a < 0.5) discard;
   gl_FragColor = vec4(t.rgb * vColour.rgb, vColour.a);
+  ${FX_OUTPUT}
 }`;
 
 /** A unit quad in its own xy plane, uv with v = 0 at the top (the atlas's rows). */
@@ -200,7 +202,7 @@ export class Particles {
     texture.minFilter = THREE.NearestFilter;
     texture.generateMipmaps = false;
     texture.flipY = false;
-    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.colorSpace = THREE.NoColorSpace;
     texture.needsUpdate = true;
     this.uniforms.uAtlas.value = texture;
     this.uniforms.uReady.value = 1;

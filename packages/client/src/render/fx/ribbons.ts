@@ -42,6 +42,7 @@ import {
 import {
   type Anchors,
   copyAnchor,
+  FX_OUTPUT,
   type FxPoses,
   type FxView,
   followAnchor,
@@ -84,12 +85,14 @@ void main() {
   vec4 t = uReady > 0.5 ? texture2D(uMap, vUv) : vec4(0.5);
   if (t.a < 0.5) discard;
   gl_FragColor = vec4(t.rgb * vColour, 1.0);
+  ${FX_OUTPUT}
 }`;
 
 const PLAIN_FRAGMENT = /* glsl */ `
 varying vec3 vColour;
 void main() {
   gl_FragColor = vec4(vColour, 1.0);
+  ${FX_OUTPUT}
 }`;
 
 /** A ribbon mesh's buffers, filled from scratch every frame. */
@@ -449,7 +452,7 @@ export class Ribbons {
     texture.minFilter = THREE.NearestFilter;
     texture.generateMipmaps = false;
     texture.flipY = false;
-    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.colorSpace = THREE.NoColorSpace;
     texture.needsUpdate = true;
     this.uniforms.uMap.value = texture;
     this.uniforms.uReady.value = 1;

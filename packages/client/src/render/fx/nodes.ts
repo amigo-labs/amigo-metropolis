@@ -30,7 +30,7 @@ import {
   WALK_HALF_ALPHA,
   WALK_SUBTRACTIVE,
 } from "../../effects/records";
-import { type FxPoses, type FxView, makeAnchors, placeAnchor } from "./common";
+import { FX_OUTPUT, type FxPoses, type FxView, makeAnchors, placeAnchor } from "./common";
 
 /** Sixteenths of a world unit to metres. */
 const X16_M = 16 / 8192;
@@ -56,6 +56,7 @@ const FRAGMENT = /* glsl */ `
 varying vec4 vColour;
 void main() {
   gl_FragColor = vColour;
+  ${FX_OUTPUT}
 }`;
 
 interface Layer {

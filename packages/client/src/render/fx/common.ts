@@ -230,6 +230,17 @@ export function halfAlpha(material: THREE.ShaderMaterial): THREE.ShaderMaterial 
   return material;
 }
 
+/**
+ * The last line of every effect fragment shader. The drawers compute in the
+ * original's own colour values (texels and record bytes as the hardware took
+ * them, on an sRGB screen); this hands three linear light, so a frame drawn
+ * straight to the canvas shows those values unchanged, and one drawn through
+ * the bloom composer (render/post.ts) gets them back from its output pass, as
+ * every sRGB texture of the arena does. The atlases are loaded raw
+ * (NoColorSpace) for the same reason.
+ */
+export const FX_OUTPUT = "gl_FragColor = linearToOutputTexel(sRGBTransferEOTF(gl_FragColor));";
+
 /** Common InstancedMesh setup: no culling, no auto matrices, drawn after units. */
 export function prepareMesh<T extends THREE.Object3D>(mesh: T, scene: THREE.Scene): T {
   mesh.frustumCulled = false;

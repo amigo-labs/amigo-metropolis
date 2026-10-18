@@ -37,6 +37,7 @@ import {
   type Anchors,
   additive,
   copyAnchor,
+  FX_OUTPUT,
   type FxPoses,
   type FxView,
   followAnchor,
@@ -87,6 +88,7 @@ void main() {
     if (abs(a) > 0.78539816) discard;
   }
   gl_FragColor = vec4(vColour, 1.0);
+  ${FX_OUTPUT}
 }`;
 
 const SPHERE_VERTEX = /* glsl */ `
@@ -105,6 +107,7 @@ const SPHERE_FRAGMENT = /* glsl */ `
 varying vec3 vColour;
 void main() {
   gl_FragColor = vec4(vColour, 1.0);
+  ${FX_OUTPUT}
 }`;
 
 function ringGeometry(): THREE.BufferGeometry {
