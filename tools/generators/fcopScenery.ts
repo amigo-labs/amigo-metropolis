@@ -63,6 +63,8 @@ const LOGIC_OFFSET_Z = 0;
 const WU_PER_M = 8192;
 /** The DynamicProp. */
 const TYPE_DYNAMIC_PROP = 11;
+/** The turret types that build a base part (turret_construct's 8, 33 and 36 arm). */
+const TURRET_TYPES = [8, 33, 36];
 /** Order 0x3c: damage of max(health + 1, 0) when the parameter is 0 or 1 (a kill). */
 const ORDER_OP14 = 0x3c;
 /** Order 0x44: set the texture offset bytes, the flags' recolouring. */
@@ -147,13 +149,27 @@ for mission in sys.argv[2:]:
     world = sm.World(pathlib.Path(path))
     blob, resources = parse(path)
     recs = []
+    turrets = []
     for r in resources:
         if r["type"] not in ("Cact", "Csac"):
             continue
         p = extract(blob, r)
-        if p[0:4] != b"TCAt" or p[12] != ${TYPE_DYNAMIC_PROP}:
+        if p[0:4] != b"TCAt":
             continue
         pay = p[12:]
+        if p[12] in (${TURRET_TYPES.join(", ")}):
+            # turret_construct's base part (aRSL 2) is built from the same
+            # record by turret_part_construct, whose turret layout reads its
+            # yaw at +0x42 (0x0041cfed); the gun's own is +0x34 (0x0041c222).
+            turrets.append({
+                "res": r["type"], "id": r["id"], "type": p[12], "team": pay[0x18],
+                "pos": list(struct.unpack_from("<3i", pay, 4)),
+                "base": struct.unpack_from("<h", pay, 0x42)[0],
+                "gun": struct.unpack_from("<h", pay, 0x34)[0],
+            })
+            continue
+        if p[12] != ${TYPE_DYNAMIC_PROP}:
+            continue
         pos = list(struct.unpack_from("<3i", pay, 4))
         sel = struct.unpack_from("<b", pay, 0x20)[0]
         # turret_part_construct's remap: 0 -> -1, 1 -> -2, n -> n - 2.
@@ -172,14 +188,33 @@ for mission in sys.argv[2:]:
             "heightOffset": struct.unpack_from("<i", pay, 0x24)[0], "group": pay[25],
             "terrain": terrain_height_at(world, pos, layer),
         })
-    out[mission] = recs
+    out[mission] = {"props": recs, "turrets": turrets}
 print(json.dumps(out))
 `;
 
-function readRecords(reRepo: string, missions: readonly string[]): Record<string, PropRecord[]> {
+/** A turret record (types 8, 33 and 36): its gun, and the base part built from it. */
+interface TurretRecord {
+  readonly res: "Cact" | "Csac";
+  readonly id: number;
+  readonly type: number;
+  /** The base entity's team byte (payload +0x18): the side, 0 for a NeutralTurret. */
+  readonly team: number;
+  readonly pos: readonly [number, number, number];
+  /** The base part's yaw, payload +0x42 (turret_part_construct's turret layout). */
+  readonly base: number;
+  /** The gun's own yaw, payload +0x34 (turret_construct, the turret's rest yaw). */
+  readonly gun: number;
+}
+
+interface MissionRecords {
+  readonly props: PropRecord[];
+  readonly turrets: TurretRecord[];
+}
+
+function readRecords(reRepo: string, missions: readonly string[]): Record<string, MissionRecords> {
   const r = Bun.spawnSync(["python3", "-I", "-B", "-c", READER, reRepo, ...missions]);
   if (r.exitCode !== 0) throw new Error(`reading the type-11 records failed: ${r.stderr}`);
-  return JSON.parse(r.stdout.toString()) as Record<string, PropRecord[]>;
+  return JSON.parse(r.stdout.toString()) as Record<string, MissionRecords>;
 }
 
 // --- the scripts ------------------------------------------------------------
@@ -368,17 +403,35 @@ interface Placement {
   outpost: number;
 }
 
+interface TurretBase {
+  record: string;
+  type: number;
+  side: number;
+  x: number;
+  y: number;
+  yaw: number;
+}
+
 interface ArenaTable {
   mission: string;
   placements: Placement[];
   morphs: [number, Morph][];
+  turretBases: TurretBase[];
+}
+
+/** Records in resource order: Cact before Csac, each by id. */
+function byRecord(a: { record: string }, b: { record: string }): number {
+  const [ra, ia] = a.record.split(" ");
+  const [rb, ib] = b.record.split(" ");
+  return ra === rb ? Number(ia) - Number(ib) : ra < rb ? -1 : 1;
 }
 
 function round4(v: number): number {
   return Math.round(v * 10000) / 10000;
 }
 
-function arenaTable(arena: FcopArena, records: readonly PropRecord[], reRepo: string): ArenaTable {
+function arenaTable(arena: FcopArena, own: MissionRecords, reRepo: string): ArenaTable {
+  const records = own.props;
   const { mapId, mission } = arena;
   const readRe = <T>(...p: string[]): T =>
     JSON.parse(readFileSync(join(reRepo, ...p), "utf8")) as T;
@@ -430,17 +483,23 @@ function arenaTable(arena: FcopArena, records: readonly PropRecord[], reRepo: st
       outpost,
     });
   }
-  placements.sort((a, b) => {
-    const [ra, ia] = a.record.split(" ");
-    const [rb, ib] = b.record.split(" ");
-    return ra === rb ? Number(ia) - Number(ib) : ra < rb ? -1 : 1;
-  });
+  placements.sort(byRecord);
   const morphs: [number, Morph][] = [];
   for (const cobj of [...new Set(placements.map((p) => p.cobj))].sort((a, b) => a - b)) {
     const m = morphOf(pa, cobj, mapId);
     if (m) morphs.push([cobj, m]);
   }
-  return { mission, placements, morphs };
+  const turretBases = own.turrets
+    .map((t) => ({
+      record: `${t.res} ${t.id}`,
+      type: t.type,
+      side: t.team,
+      x: round4(t.pos[2] / WU_PER_M + LOGIC_OFFSET_X),
+      y: round4(t.pos[0] / WU_PER_M + LOGIC_OFFSET_Z),
+      yaw: t.base,
+    }))
+    .sort(byRecord);
+  return { mission, placements, morphs, turretBases };
 }
 
 function format(tables: readonly [string, ArenaTable][], reCommit: string): string {
@@ -452,8 +511,9 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     "// record's layer (RE turret_part.c 0x0041cf70), its yaw, and when it stands —",
     "// an outpost's console until the outpost is claimed, its two terminals from",
     "// then on (the activation script, RE docs/behavior/precinct-assault.md",
-    '// "Outposts"). Read from the mission bytes, the outposts\' scripts and',
-    `// pa_models.json at RE ${reCommit}.`,
+    '// "Outposts"). And the yaw of every turret\'s base part, which its construct',
+    "// reads off the turret's record (RE turret_part.c 0x0041cf70). Read from the",
+    `// mission bytes, the outposts' scripts and pa_models.json at RE ${reCommit}.`,
     "",
     "/** When a placement stands: always, until its outpost is claimed, or from then on. */",
     'export type SceneryShow = "always" | "unclaimed" | "claimed";',
@@ -480,11 +540,26 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     "  readonly period: number;",
     "}",
     "",
+    "/** A turret record's base part (types 8, 33, 36): where it stands and its own yaw. */",
+    "export interface SceneryTurretBase {",
+    "  readonly record: string;",
+    "  /** The actor type: 8 a team's Turret, 36 a NeutralTurret. */",
+    "  readonly type: number;",
+    "  /** The record's side (its team byte): 1 or 2, 0 for a NeutralTurret. */",
+    "  readonly side: number;",
+    "  /** The record's position in the sim frame, metres. */",
+    "  readonly x: number;",
+    "  readonly y: number;",
+    "  /** The base part's yaw (payload +0x42, not the gun's +0x34), 4096 a turn. */",
+    "  readonly yaw: number;",
+    "}",
+    "",
     "export interface ArenaScenery {",
     "  readonly mission: string;",
     "  readonly placements: readonly SceneryPlacement[];",
     "  /** By Cobj: the models that move. */",
     "  readonly morphs: Readonly<Record<number, SceneryMorph>>;",
+    "  readonly turretBases: readonly SceneryTurretBase[];",
     "}",
     "",
     "export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {",
@@ -501,6 +576,13 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     lines.push(
       `    morphs: { ${t.morphs.map(([c, m]) => `${c}: { frames: ${m.frames}, period: ${m.period} }`).join(", ")} },`,
     );
+    lines.push("    turretBases: [");
+    for (const b of t.turretBases) {
+      lines.push(
+        `      { record: ${JSON.stringify(b.record)}, type: ${b.type}, side: ${b.side}, x: ${b.x}, y: ${b.y}, yaw: ${b.yaw} },`,
+      );
+    }
+    lines.push("    ],");
     lines.push("  },");
   }
   lines.push("};", "");
@@ -563,7 +645,11 @@ function main(): void {
   const commit = Bun.spawnSync(["git", "-C", reRepo, "rev-parse", "--short", "HEAD"]);
   const reCommit = commit.exitCode === 0 ? commit.stdout.toString().trim() : "unknown";
   const tables = FCOP_ARENAS.map(
-    (a) => [a.mapId, arenaTable(a, records[a.mission] ?? [], reRepo)] as [string, ArenaTable],
+    (a) =>
+      [a.mapId, arenaTable(a, records[a.mission] ?? { props: [], turrets: [] }, reRepo)] as [
+        string,
+        ArenaTable,
+      ],
   );
   for (const [mapId, t] of tables) {
     const scenery = ARENA_SCENERY.find((a) => a.mapId === mapId);
@@ -575,7 +661,8 @@ function main(): void {
     const shows = (s: Show) => t.placements.filter((p) => p.show === s).length;
     console.log(
       `${mapId}: ${t.placements.length} placements (${shows("unclaimed")} until claimed, ` +
-        `${shows("claimed")} once claimed), morphs ${t.morphs.map(([c]) => c).join(", ") || "none"}`,
+        `${shows("claimed")} once claimed), morphs ${t.morphs.map(([c]) => c).join(", ") || "none"}, ` +
+        `${t.turretBases.length} turret bases`,
     );
   }
   const text = biomeFormat(format(tables, reCommit));

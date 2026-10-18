@@ -6,16 +6,19 @@
 import { describe, expect, test } from "bun:test";
 import { getMapById, wardenLevel } from "@metropolis/sim";
 import * as THREE from "three";
+import { SCENERY_PLACEMENTS } from "../src/render/arenaScenery.generated";
 import {
   arenaUnitsFor,
   bakedPoint,
   gunMatrix,
   gunPointOf,
   gunPointTable,
+  restKey,
   spotKey,
   turretSpotsOf,
 } from "../src/render/arenaUnits";
 import { ARENA_UNITS, UNIT_MODEL_FILES } from "../src/render/arenaUnits.generated";
+import { recordYaw } from "../src/render/recordYaw";
 import { sideOfTeam } from "../src/render/sides";
 import {
   atlasOffset,
@@ -229,20 +232,50 @@ describe("turret lookups", () => {
     });
   });
 
-  test("every placed turret finds its rest yaw by where it stands", () => {
+  test("every placed turret finds its base's own yaw by where it stands and whose it is", () => {
+    // RE turret_part.c 0x0041cf70: the base part reads its yaw off the
+    // turret's record at +0x42 (0x0041cfed), not the gun's +0x34. Every turret
+    // the map places is a record of its kind and side within 0.1 m.
     for (const id of Object.keys(ARENA_UNITS)) {
       const map = getMapById(id);
       const spots = turretSpotsOf(map, ARENA_UNITS[id]);
-      for (const base of map.bases) {
-        for (const t of base.turrets) {
-          // As the snapshot carries it: float32.
-          expect(spots.restYaw.get(spotKey(Math.fround(t.x), Math.fround(t.y)))).toBe(t.yaw);
-        }
+      const records = SCENERY_PLACEMENTS[id].turretBases;
+      const placed = [
+        ...map.bases.flatMap((b, team) => b.turrets.map((t) => ({ t, team, neutral: false }))),
+        ...map.outpostPlates.flatMap((p) =>
+          p.turrets.map((t, team) => ({ t, team, neutral: false })),
+        ),
+        ...map.turretSpots.map((t) => ({ t, team: 0, neutral: true })),
+      ];
+      const keys = new Set<number>();
+      for (const { t, team, neutral } of placed) {
+        const side = neutral ? 0 : sideOfTeam(id, team);
+        const own = records.filter(
+          (r) =>
+            (neutral ? r.type === 36 : r.type === 8 && r.side === side) &&
+            Math.hypot(r.x - t.x, r.y - t.y) < 0.1,
+        );
+        expect({ id, at: [t.x, t.y], neutral, records: own.length }).toEqual({
+          id,
+          at: [t.x, t.y],
+          neutral,
+          records: 1,
+        });
+        // As the snapshot carries it: float32.
+        const key = restKey(Math.fround(t.x), Math.fround(t.y), neutral, team);
+        expect(keys.has(key)).toBe(false);
+        keys.add(key);
+        expect(spots.restYaw.get(key)).toBe(recordYaw(own[0].yaw));
       }
-      map.turretSpots.forEach((s, k) => {
-        expect(spots.restYaw.get(spotKey(s.x, s.y))).toBe(map.turretYaw[k]);
-      });
     }
+  });
+
+  test("a map of no mission keeps its own turret yaw", () => {
+    const map = getMapById("test-128");
+    const spots = turretSpotsOf(map, ARENA_UNITS["la-cantina"]);
+    map.turretSpots.forEach((s, k) => {
+      expect(spots.restYaw.get(restKey(s.x, s.y, true, 0))).toBe(map.turretYaw[k] ?? 0);
+    });
   });
 
   test("a model point turns with the quarter turn every unit's geometry is baked with", () => {

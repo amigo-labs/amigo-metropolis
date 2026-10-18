@@ -12,8 +12,10 @@
 // one (gen:paunits shares where payload and sampled texels are identical), and
 // the whole set is 64 small files.
 //
-// The turrets are two parts, as the original's are: the base stands at the
-// record's rest yaw and the gun stands on the base's attach point 0 and turns
+// The turrets are two parts, as the original's are: the base stands at its own
+// yaw, which its construct reads off the turret's record at +0x42 (RE
+// turret_part.c 0x0041cf70; arenaScenery.generated.ts `turretBases`, not the
+// gun's +0x34), and the gun stands on the base's attach point 0 and turns
 // (RE turret.c 769-792, 913-918). One greybox bucket per turret mode keeps
 // drawing the gun, and a part bucket per mode draws the base. Hk's 43/44 set is
 // a second neutral turret model, with a gun and a base bucket of its own. The
@@ -44,6 +46,7 @@
 
 import { ARCHETYPE, type MapData, TURRET_DEFENSE } from "@metropolis/sim";
 import * as THREE from "three";
+import { SCENERY_PLACEMENTS, type SceneryTurretBase } from "./arenaScenery.generated";
 import {
   ARENA_UNITS,
   type ArenaUnits,
@@ -55,10 +58,14 @@ import {
 } from "./arenaUnits.generated";
 import type { Bucket, GreyboxMeshes } from "./greybox";
 import { SIDE_RAMPS } from "./palette";
+import { BAKED_TURN, recordYaw, yawTurn } from "./recordYaw";
 import { sideOfTeam } from "./sides";
 import { atlasOffset, createTeamUvAttribute, TEAM_UV_ATTR, writeTeamUv } from "./teamUv";
 import { loadUnitAsset, type UnitAsset } from "./unitMeshes";
 import { TrackClock } from "./unitTracks";
+
+/** The NeutralTurret's actor type (a team's Turret is 8). */
+const NEUTRAL_TURRET_TYPE = 36;
 
 /** The arena whose units a map without an original mission draws (test-128). */
 const FALLBACK_ARENA = "la-cantina";
@@ -127,23 +134,72 @@ export function spotKey(x: number, y: number): number {
   return Math.round(Math.fround(x) * 16) * 65536 + Math.round(Math.fround(y) * 16);
 }
 
-/** The arena's turret placements: rest yaw and neutral model set by spotKey. */
+/**
+ * The key a turret's base yaw is found by: where it stands, and whose it is. A
+ * plate's NeutralTurret and its team turrets stand on one spot with bases of
+ * their own (La Cantina's Csac 277 and 45: 3072 and 2048), so the spot alone
+ * does not say which base it is.
+ */
+export function restKey(x: number, y: number, neutral: boolean, team: number): number {
+  return spotKey(x, y) * 4 + (neutral ? 3 : team & 1);
+}
+
+/** The arena's turret placements: the base's sim yaw by restKey, the neutral model set by spotKey. */
 export interface TurretSpots {
   readonly restYaw: Map<number, number>;
   readonly neutralSet: Map<number, number>;
 }
 
+/** How far a map's turret may stand from its record (plates' team turrets: 6 cm). */
+const RECORD_REACH = 0.1;
+
+/**
+ * The record of a placed turret: the nearest of its kind (a NeutralTurret, or a
+ * team's Turret of its side) within RECORD_REACH.
+ */
+function turretRecord(
+  records: readonly SceneryTurretBase[],
+  x: number,
+  y: number,
+  side: number,
+): SceneryTurretBase | undefined {
+  let best: SceneryTurretBase | undefined;
+  let reach = RECORD_REACH;
+  for (const r of records) {
+    if (side === 0 ? r.type !== NEUTRAL_TURRET_TYPE : r.side !== side) continue;
+    const d = Math.hypot(r.x - x, r.y - y);
+    if (d < reach) {
+      reach = d;
+      best = r;
+    }
+  }
+  return best;
+}
+
+/**
+ * Where the arena's turrets stand, and the yaw each one's base part stands at:
+ * its record's own (payload +0x42, `turret_part_construct`) on an arena of the
+ * original; the map's turret yaw where no record matches (a map the RE has no
+ * mission for).
+ */
 export function turretSpotsOf(map: MapData, units: ArenaUnits): TurretSpots {
   const restYaw = new Map<number, number>();
   const neutralSet = new Map<number, number>();
-  for (const base of map.bases) {
-    for (const t of base.turrets) restYaw.set(spotKey(t.x, t.y), t.yaw);
-  }
+  const records = SCENERY_PLACEMENTS[map.id]?.turretBases ?? [];
+  const place = (x: number, y: number, neutral: boolean, team: number, yaw: number) => {
+    const own = turretRecord(records, x, y, neutral ? 0 : sideOfTeam(map.id, team));
+    restYaw.set(restKey(x, y, neutral, team), own ? recordYaw(own.yaw) : yaw);
+  };
+  map.bases.forEach((base, team) => {
+    for (const t of base.turrets) place(t.x, t.y, false, team, t.yaw);
+  });
   for (const plate of map.outpostPlates) {
-    for (const t of plate.turrets) restYaw.set(spotKey(t.x, t.y), t.yaw);
+    plate.turrets.forEach((t, team) => {
+      place(t.x, t.y, false, team, t.yaw);
+    });
   }
   map.turretSpots.forEach((s, k) => {
-    restYaw.set(spotKey(s.x, s.y), map.turretYaw[k] ?? 0);
+    place(s.x, s.y, true, 0, map.turretYaw[k] ?? 0);
   });
   units.neutralTurrets.forEach((set, i) => {
     for (const k of set.spots) {
@@ -665,12 +721,13 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       }
       const set = archetype === ARCHETYPE.TURRET ? turretSet(bucket) : null;
       if (set?.ready) {
-        // The base keeps the record's rest yaw; the gun stands on the base's
+        // The base keeps its record's yaw; the gun stands on the base's
         // attach point 0 and turns with the entity. A turret the map does not
-        // place (a sandbox spawn) turns as one piece.
-        const rest = spots.restYaw.get(spotKey(x, y));
+        // place (a sandbox spawn) turns as one piece. The part's geometry
+        // carries the units' quarter turn baked (render/recordYaw.ts).
+        const rest = spots.restYaw.get(restKey(x, y, set !== defense, team));
         if (rest === undefined) scratchRest.copy(quat);
-        else scratchRest.setFromAxisAngle(UP, -rest);
+        else scratchRest.setFromAxisAngle(UP, yawTurn(rest) - BAKED_TURN);
         const baseSlot = claim(set.base, "turret base");
         if (baseSlot >= 0) {
           scratchMatrix.compose(pos, scratchRest, scale);
