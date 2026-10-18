@@ -7,24 +7,26 @@
 // slot 0 is X1Alpha 12, side 1, in every mission (RE radar_markers.json,
 // hud.json score.colour).
 //
-// Metropolis numbers its teams along each arena's field axis
-// (tools/generators/enrichArena.ts: team 0 is the low end), not by the original's
-// player slot. On five arenas team 0 stands on side 1's spawn; on La Cantina (Mp)
-// it stands on side 2's. So a team's colour is a property of the arena, read
-// from the X1Alpha record on the map's spawn 0 (ARENA_PRESENTATION.team0Side,
-// `bun run gen:presentation`). The debug maps have no original: team 0 is side 1.
-
-import { ARENA_PRESENTATION } from "./fcopPresentation.generated";
+// Metropolis numbers its teams by the original's player slot
+// (tools/generators/enrichArena.ts, SIM_VERSION 79): team 0 is slot 0, side 1,
+// on every arena, and team 1 side 2, so a team's side is team + 1. Until 79 the
+// teams ran along each arena's field axis, and La Cantina (Mp)'s team 0 stood on
+// side 2's spawn. The generated tables still carry what they read from the
+// original -- ARENA_PRESENTATION.team0Side (the X1Alpha on spawn 0) and
+// ARENA_UNITS.sides (the Dreadnought records) -- as the check of this, and their
+// generators refuse anything else. The debug maps have no original: the same.
 
 export const SIDE_NONE = 0;
 export const SIDE_RED = 1;
 export const SIDE_BLUE = 2;
 
-/** The original side (1 red, 2 blue) team `team` holds on `mapId`; 0 for neutral. */
-export function sideOfTeam(mapId: string, team: number): number {
+/**
+ * The original side (1 red, 2 blue) team `team` holds; 0 for neutral. The same
+ * on every arena: `_mapId` stays so each caller still names the arena it colours.
+ */
+export function sideOfTeam(_mapId: string, team: number): number {
   if (team !== 0 && team !== 1) return SIDE_NONE;
-  const side0 = ARENA_PRESENTATION[mapId]?.team0Side ?? SIDE_RED;
-  return team === 0 ? side0 : 3 - side0;
+  return team === 0 ? SIDE_RED : SIDE_BLUE;
 }
 
 /** The text colour of a side's readouts (hud.json score.colour: 1 light red, 3 light blue). */

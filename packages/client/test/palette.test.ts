@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ARENA_PRESENTATION } from "../src/render/fcopPresentation.generated";
 import { NEUTRAL_COLOR, TEAM_COLORS } from "../src/render/greybox";
 import {
   BLUE_RAMP,
@@ -98,8 +99,9 @@ describe("greybox colors derive from the palette", () => {
 });
 
 describe("team colour by the original's side (render/sides.ts)", () => {
-  test("team 0 holds side 1 (red) on five arenas, side 2 (blue) on La Cantina", () => {
+  test("team 0 holds side 1 (red), team 1 side 2 (blue), on every arena", () => {
     for (const id of [
+      "la-cantina",
       "urban-jungle",
       "proving-ground",
       "bug-hunt",
@@ -108,9 +110,9 @@ describe("team colour by the original's side (render/sides.ts)", () => {
     ]) {
       expect(sideOfTeam(id, 0)).toBe(SIDE_RED);
       expect(sideOfTeam(id, 1)).toBe(SIDE_BLUE);
+      // What gen:presentation read off the X1Alpha on the map's spawn 0.
+      expect(ARENA_PRESENTATION[id].team0Side).toBe(SIDE_RED);
     }
-    expect(sideOfTeam("la-cantina", 0)).toBe(SIDE_BLUE);
-    expect(sideOfTeam("la-cantina", 1)).toBe(SIDE_RED);
   });
 
   test("the debug maps take team 0 as side 1; neutral has no side", () => {

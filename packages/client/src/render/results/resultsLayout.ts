@@ -164,8 +164,8 @@ export function layoutText(
 
 /**
  * The page for `input`: the page rect, each head in its slot's side colour (the
- * original's slot 0 is always side 1, red; Metropolis' slot 0 is side 2 on La
- * Cantina, V6), the footer bar; then the heads, the level, the eleven columns
+ * original's slot 0 is always side 1, red, and so is Metropolis' since
+ * SIM_VERSION 79), the footer bar; then the heads, the level, the eleven columns
  * and the footer.
  */
 export function layoutPage(input: ResultsInput): PageLayout {

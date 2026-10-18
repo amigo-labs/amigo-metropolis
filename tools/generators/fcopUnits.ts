@@ -17,9 +17,9 @@
 //   capture (`capture[].uv_after_capture`); the RE checks that no unit's offset
 //   carries or wraps, so it is a plain (+du/256, +dv/256) in glTF texcoords;
 // - which original side (1 = red, 2 = blue on all six) each Metropolis team is:
-//   enrichArena.ts makes team 0 the low end of the field axis between the two
-//   Dreadnought records, so it is side 2 on Mp and side 1 elsewhere. Read off
-//   the same records here and checked against the map's base cores;
+//   enrichArena.ts makes team N the original's player slot N, side N + 1, on
+//   every arena (SIM_VERSION 79; Mp's team 0 was side 2 before). Read off the
+//   Dreadnought records here and checked against the map's base cores;
 // - the turret's gun on its base's attach point 0, the Dreadnought's four guns
 //   on its hull's attach points 0-3 (the glb frame, metres);
 // - Hk's two neutral turret sets (32/33 and 43/44), by the spot's record;
@@ -223,17 +223,17 @@ function vec3(xyz: readonly number[], what: string): Vec3 {
 }
 
 /**
- * Metropolis team -> original side. enrichArena.ts orders the two bases along
- * the field axis (the larger of the Dreadnought records' |dx|, |dz|, ties to z)
- * and makes the low end team 0; the side is that record's team byte.
+ * Metropolis team -> original side. enrichArena.ts makes team N the original's
+ * player slot N (SIM_VERSION 79), whose Dreadnought record carries side N + 1:
+ * [1, 2] on every arena, which the map's own cores are held to below. (Until 79
+ * the teams ran along the field axis, and La Cantina read [2, 1].)
  */
 function sidesOf(arena: FcopArena, logic: Logic, map: MapBits): readonly [number, number] {
   const d = logic.dreadnoughts;
   if (d.length !== 2) throw new Error(`${arena.mapId}: ${d.length} Dreadnought records`);
-  const axis = Math.abs(d[0].x - d[1].x) > Math.abs(d[0].z - d[1].z) ? "x" : "z";
-  const sorted = [...d].sort((p, q) => p[axis] - q[axis]);
+  const sorted = [...d].sort((p, q) => (p.team ?? 0) - (q.team ?? 0));
   const sides = [sorted[0].team ?? 0, sorted[1].team ?? 0] as const;
-  if (sides[0] + sides[1] !== 3 || sides[0] * sides[1] !== 2) {
+  if (sides[0] !== 1 || sides[1] !== 2) {
     throw new Error(`${arena.mapId}: Dreadnought sides ${sides.join("/")} are not 1 and 2`);
   }
   // The map's own word for it: each team's core stands on its Dreadnought record.

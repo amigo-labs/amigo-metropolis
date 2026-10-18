@@ -93,7 +93,10 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // goes in inside the ring's window) and runs 200 s.
   // Re-frozen at SIM_VERSION 64: la-cantina has decks, and the surface tilt is
   // read on the mover's own surface (a deck's edge is no longer a cliff slope).
-  "golden-03-match": { last: 1102520746, count: 6000 },
+  // 03 and 07 re-recorded at SIM_VERSION 79: la-cantina's teams take the
+  // original's player slots (team 0 is side 1's base, X1Alpha 12), so each
+  // script's player starts and buys at the other base.
+  "golden-03-match": { last: 3546285074, count: 6000 },
   // 04 and 07 re-frozen at SIM_VERSION 54: the captain takes its target without
   // a line of sight and walls stop its gun and missile at ground units too.
   // 03, 04 and 07 re-frozen at SIM_VERSION 55: captures by the octagonal estimate.
@@ -138,7 +141,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 49: its captain counts each turret twice and roams.
   // Re-frozen at SIM_VERSION 75: the captain's down credit is hashed; its
   // player is never put down here, so nothing plays differently.
-  "golden-07-pa": { last: 3191998722, count: 3600 },
+  "golden-07-pa": { last: 331358569, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

@@ -68,8 +68,10 @@ describe("golden-07 exercises the Precinct Assault mechanics", () => {
   it("captures an authentic turret pad", () => {
     expect(counts.get(EV_CAPTURE) ?? 0).toBeGreaterThan(0);
     // ...and the player's capture is the action-key press (fcop-fidelity.md R12):
-    // the script taps it by the (94.8, 91.7) pad. Until SIM_VERSION 34 every
-    // capture here was the Warden's — the scripted avatar was stuck on a wall.
+    // the script taps it by the (107.5, 129.6) pad, the nearest to side 1's base
+    // since SIM_VERSION 79 (it was (94.8, 91.7) from the other base). Until
+    // SIM_VERSION 34 every capture here was the Warden's — the scripted avatar
+    // was stuck on a wall.
     expect(playerCaptures).toBeGreaterThan(0);
   });
 

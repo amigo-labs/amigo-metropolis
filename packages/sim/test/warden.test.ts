@@ -202,10 +202,12 @@ describe("the Warden is the Sky Captain", () => {
       expect(sim.points[1]).toBe(0); // unpaid
     }
     // The scripts spawn them one a period from a random phase: on Mp a tank per
-    // 3.38 s (fn19, 203 units) and a jet per 0.97 s (fn17, 58).
+    // 3.38 s (fn19, 203 units, 101.5 ticks) and a jet per 0.97 s (fn17, 58).
+    // Until SIM_VERSION 79 the captain's team on Mp held slot 0's base and its
+    // fn18 (202 units, 101), a queue the original never feeds the captain.
     const sim = wardenSim(8, 1, LA_CANTINA_ID);
     const base = sim.map.bases[1].queueTicks;
-    expect([base.tank, base.jet]).toEqual([101, 29]);
+    expect([base.tank, base.jet]).toEqual([102, 29]);
     const jetTicks: number[] = [];
     let firstTank = -1;
     for (let t = 0; t < base.tank + 1; t++) {

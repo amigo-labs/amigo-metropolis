@@ -310,9 +310,11 @@ const ARENAS: ArenaExpectation[] = [
     // On top of that ground lattice, stage 2 carves 37 bits to open the original
     // roads (was 56) and opens 2 more for a ring turret (was 10). 39 of 4009,
     // 1.0%, down from 66. 36 carved since SIM_VERSION 32 (the roads end at the
-    // original's gate box, not at the Dreadnought spot).
+    // original's gate box, not at the Dreadnought spot). The ring turret's two
+    // moved one cell each at SIM_VERSION 79: the repair floods from spawn 0,
+    // which became the other base's when the teams took the player slots.
     wallsVPin: 1495349930,
-    wallsHPin: 4066112243,
+    wallsHPin: 3669756659,
     // Mp's two bridge decks: 2398 cells over the roads, and 108 above those.
     layerCells: [2398, 108],
     turretSpots: 32, // every original NeutralTurret pad

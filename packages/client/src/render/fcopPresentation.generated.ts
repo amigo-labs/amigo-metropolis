@@ -435,7 +435,7 @@ export const UNIT_MARKERS = {
 export interface ArenaPresentation {
   /** The original mission. */
   readonly mission: string;
-  /** The original side (1 red, 2 blue) whose X1-Alpha stands on the map's spawn 0. */
+  /** The original side (1 red, 2 blue) whose X1-Alpha stands on the map's spawn 0: 1 on every arena. */
   readonly team0Side: 1 | 2;
   /** Column of reticles.png (16 px each). */
   readonly reticle: number;
@@ -537,7 +537,7 @@ export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = {
   },
   "la-cantina": {
     mission: "Mp",
-    team0Side: 2,
+    team0Side: 1,
     reticle: 2,
     contacts: [
       { shown: 1, colour: 1, x: 111.9375, y: 149.1875 },

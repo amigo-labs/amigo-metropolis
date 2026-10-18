@@ -188,9 +188,9 @@ describe("each arena draws its own mission's Cobjs", () => {
 });
 
 describe("the side each Metropolis team plays", () => {
-  test("team 0 is the low end of the field: side 2 on Mp, side 1 elsewhere", () => {
-    expect(ARENA_UNITS["la-cantina"].sides).toEqual([2, 1]);
+  test("team N is the original's player slot N: side 1, then side 2, on every arena", () => {
     for (const mapId of [
+      "la-cantina",
       "urban-jungle",
       "proving-ground",
       "bug-hunt",
@@ -201,7 +201,7 @@ describe("the side each Metropolis team plays", () => {
     }
   });
 
-  test("gen:paunits' Dreadnought pairing agrees with render/sides.ts' X1Alpha record", () => {
+  test("gen:paunits' Dreadnought pairing agrees with render/sides.ts", () => {
     // Two readings of one fact: the client colours by sides.ts; the table's
     // own `sides` is the generator's cross-check.
     for (const [mapId, u] of Object.entries(ARENA_UNITS)) {

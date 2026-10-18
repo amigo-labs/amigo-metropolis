@@ -787,7 +787,8 @@ moves.
       v76) and its page, layout, font, colours and two keys
 - [ ] The damage shake; the invulnerable gauge's blink; the radar's near-camera
       registry; arrows for the placed actors on the map screen (V1-V4)
-- [ ] La Cantina's solo start on side 2's base (V6: a map-import question)
+- [x] La Cantina's solo start on side 1's base, as the original's: the teams
+      are the original's player slots (V6; v79)
 - [ ] The owner's side-by-side look against the original
 
 ### Wave 7 — Front end

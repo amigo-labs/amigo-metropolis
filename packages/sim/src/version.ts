@@ -1169,4 +1169,16 @@
 //     each spawn into EntityStore.radius (not hashed: a function of the spawn);
 //     sim.ts entityRadius answers every hit, capture, zone, guard, trigger, gate
 //     and route-traffic test.
-export const SIM_VERSION = 78;
+// v79: team N is the original's player slot N on every arena (fcop-fidelity.md
+//     V6): enrichArena orders the two bases by their X1Alpha's slot (slot 0 is
+//     X1Alpha 12, side 1, the single-player human's), no longer along the field
+//     axis. Only La Cantina (Mp) changes: its teams trade bases, spawns, base
+//     plots, consoles, queues, gates, trigger volumes and outpost pads, so the
+//     solo human now starts at side 1's base as in the original, and the Sky
+//     Captain holds slot 1's (its tank queue fn19, 203 units, 102 ticks: the one
+//     the original feeds the captain; was fn18's 101). The committed polyline
+//     route is now the other team's road (20 waypoints, was 18; unused beside
+//     the lane graph), and two wall bits the reachability repair opens for a ring
+//     turret move one cell each (it floods from spawn 0). Goldens 03 and 07 (La
+//     Cantina) re-record with new hashes; the others re-header only.
+export const SIM_VERSION = 79;

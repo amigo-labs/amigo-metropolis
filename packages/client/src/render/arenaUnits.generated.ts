@@ -723,7 +723,7 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
 export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
   "la-cantina": {
     mission: "Mp",
-    sides: [2, 1],
+    sides: [1, 2],
     tank: {
       model: "la-cantina/obj_030",
       uv: [

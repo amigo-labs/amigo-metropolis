@@ -125,10 +125,9 @@ export function sideRamp(side: number): Ramp {
 }
 
 /**
- * Team ramps for an arena whose team 0 holds side 1 — five of the six (team 0
- * is the low end of each field axis, render/sides.ts). Code that knows its map
- * colours by `sideRamp(sideOfTeam(map.id, team))` instead, which also gets La
- * Cantina, where team 0 holds side 2, right.
+ * Team ramps: team 0 holds side 1 on every arena (render/sides.ts; La Cantina's
+ * team 0 held side 2 until SIM_VERSION 79), so these are the side ramps by team.
+ * Code that knows its map colours by `sideRamp(sideOfTeam(map.id, team))`.
  */
 export const TEAM_RAMPS: readonly Ramp[] = [RED_RAMP, BLUE_RAMP];
 

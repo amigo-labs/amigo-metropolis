@@ -26,7 +26,7 @@
 // Team colour is the original's: a texture offset per instance onto the side's
 // half of the page (render/teamUv.ts, fcop-fidelity.md G4), from the arena's
 // table — by the original's side, which gen:paunits pairs with each Metropolis
-// team (side 2 is team 0 on Mp, side 1 elsewhere), and for a NeutralTurret by
+// team (team N is side N + 1 on every arena, render/sides.ts), and for a NeutralTurret by
 // its capture state. The greybox stand-ins (?render=greybox, or a model still
 // loading) keep the team tint, which is all a box can show.
 //
@@ -57,7 +57,7 @@ export function arenaUnitsFor(mapId: string): ArenaUnits {
   const own = ARENA_UNITS[mapId];
   if (own) return own;
   const fallback = ARENA_UNITS[FALLBACK_ARENA];
-  // Team 0 is side 1 everywhere but Mp, so a map of no mission reads that way.
+  // Team 0 is side 1 on every arena (render/sides.ts), a map of no mission too.
   return { ...fallback, sides: [1, 2] };
 }
 
@@ -67,8 +67,8 @@ let currentMap = FALLBACK_ARENA;
 
 /**
  * The original's side a snapshot team plays on the arena on screen: 1 or 2 for
- * a team, 0 (nobody's) for anything neutral (render/sides.ts: team 0 is side 2
- * on La Cantina, side 1 elsewhere). This is the team-colour key.
+ * a team, 0 (nobody's) for anything neutral (render/sides.ts: team 0 is side 1
+ * on every arena). This is the team-colour key.
  */
 export function teamSide(team: number): number {
   return sideOfTeam(currentMap, team);

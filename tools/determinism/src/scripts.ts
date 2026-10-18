@@ -533,8 +533,9 @@ export function layered01(tick: number, out: TickInputs, sim: Readonly<SimState>
  *
  * Player 0 walks to its ground console and buys five tanks, one per press; then
  * to the nearest neutral pad and captures it on a press (the original captures
- * on a press, instantly); then pushes south down the central spine, firing, as
- * far as the enemy line allows. Closed loop since SIM_VERSION 56: it steers by
+ * on a press, instantly); then pushes up the central spine toward the enemy
+ * gate (north since SIM_VERSION 79: team 0 holds side 1's base, by the original's
+ * player slot), firing, as far as the enemy line allows. Closed loop since SIM_VERSION 56: it steers by
  * the live state at recording time, so it finds the console's trigger box (Mp:
  * 1.2 x 1.2 m) wherever the walk ends.
  */
@@ -583,7 +584,7 @@ export function pa01(tick: number, out: TickInputs, sim: Readonly<SimState>): vo
     }
     return;
   }
-  // Push south toward the enemy gate, firing into the line.
+  // Push toward the enemy gate, firing into the line.
   const g = sim.map.bases[1].gate;
   driveTo(sim, 0, g.x, g.y, 6, p);
   if (t - paFrom > 2) p.buttons |= allWeapons(tick);

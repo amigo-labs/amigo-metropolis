@@ -137,7 +137,8 @@ describe("the page", () => {
     const red = layoutPage({ figures, winner: 0, online: false, level: 4, sides: [1, 2] });
     expect(red.rects[1].rgb).toEqual(RESULTS_RECTS[1].rgb);
     expect(red.rects[2].rgb).toEqual(RESULTS_RECTS[2].rgb);
-    // La Cantina: Metropolis' slot 0 holds side 2 (render/sides.ts).
+    // The heads follow the sides given, not the slot: La Cantina's slot 0 held
+    // side 2 until SIM_VERSION 79 (render/sides.ts).
     const blue = layoutPage({
       figures,
       winner: 0,

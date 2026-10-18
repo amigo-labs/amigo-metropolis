@@ -74,8 +74,9 @@ const ROADS: RoadExpectation[] = [
     // the aircraft one: the tank console is the one the original parks on the
     // road, which is what you would expect of the pad that rolls ground units
     // out. Corroborates the shop reading in enrichArena's assignConsoles().
-    entry: [143, 6],
-    entryDistance: [3.3, 3.1],
+    // Team 0 is the player slot 0's side since SIM_VERSION 79 (it was team 1).
+    entry: [6, 143],
+    entryDistance: [3.1, 3.3],
     driveLimit: 40, // 18.9 s / 30.2 s measured to the gate box (Runner / Juggernaut step)
   },
   {

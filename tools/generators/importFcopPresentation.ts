@@ -337,8 +337,10 @@ FCOP_ARENAS.forEach((arena, reticleIndex) => {
   }
 
   // Which original side Metropolis' team 0 holds: the X1Alpha record standing on
-  // the map's spawn 0 (enrichArena.ts orders the teams along the field axis, not
-  // by the original's player slot).
+  // the map's spawn 0. Side 1 on every arena since SIM_VERSION 79, when
+  // enrichArena.ts began ordering the teams by the original's player slot rather
+  // than along the field axis (La Cantina's team 0 was side 2); render/sides.ts
+  // is the identity on that, and this is the generator's check of it.
   const map = JSON.parse(
     readFileSync(join(ROOT, "packages", "sim", "maps", `${arena.mapId}.json`), "utf8"),
   ) as { spawns: { x: number; y: number }[] };
@@ -354,6 +356,9 @@ FCOP_ARENAS.forEach((arena, reticleIndex) => {
     }
   }
   if (bestD > 0.5) throw new Error(`${arena.mapId}: no X1Alpha on spawn 0 (nearest ${bestD} m)`);
+  if (best.side_byte24 !== 1) {
+    throw new Error(`${arena.mapId}: spawn 0's X1Alpha is side ${best.side_byte24}, not 1`);
+  }
 
   // Placed actors that carry a marker and live, which Metropolis draws as no
   // entity: the outposts' green diamonds, Hk's / Joke's / Slim's marked props.
@@ -652,7 +657,7 @@ export const UNIT_MARKERS = {
 export interface ArenaPresentation {
   /** The original mission. */
   readonly mission: string;
-  /** The original side (1 red, 2 blue) whose X1-Alpha stands on the map's spawn 0. */
+  /** The original side (1 red, 2 blue) whose X1-Alpha stands on the map's spawn 0: 1 on every arena. */
   readonly team0Side: 1 | 2;
   /** Column of reticles.png (16 px each). */
   readonly reticle: number;

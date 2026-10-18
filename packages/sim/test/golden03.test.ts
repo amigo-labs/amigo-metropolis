@@ -36,8 +36,12 @@ import { createSim, step } from "../src/sim";
 // rings' rounds find more: the mechs go down 11 times in the 200 s (were 5), both
 // rings lose a turret, and all ten tanks die short of the gates (the nearest 19 m
 // off; player 0's breaching tank was killed at 25.6 m).
-const BREACH_TICK_PIN = -1;
-const BREACH_TEAM_PIN = 0;
+// none -> 2483 at SIM_VERSION 79: la-cantina's teams take the original's player
+// slots, so each player starts, buys and fights from the other base; the mechs
+// go down 5 times, nine tanks die, and one of player 1's gets through player 0's
+// ring into the gate box at 82.8 s (player 0's nearest came to 21.4 m).
+const BREACH_TICK_PIN = 2483;
+const BREACH_TEAM_PIN = 1;
 
 describe("golden-03-match beats", () => {
   it("purchases on both sides, fights, downs paid at the respawn, the breach as pinned", () => {
@@ -86,8 +90,8 @@ describe("golden-03-match beats", () => {
     expect(respawns[0]).toBeGreaterThanOrEqual(1);
     expect(respawns[1]).toBeGreaterThanOrEqual(1);
     expect(runnerDeaths).toBeGreaterThanOrEqual(3);
-    // The breach as recorded: none since SIM_VERSION 78 (player 0's tank at 83 s
-    // from 69).
+    // The breach as recorded: player 1's tank at 82.8 s since SIM_VERSION 79
+    // (none at 78; player 0's at 83 s from 69).
     expect(breaches).toBe(BREACH_TICK_PIN < 0 ? 0 : 1);
     expect(breachTick).toBe(BREACH_TICK_PIN);
     expect(breachTeam).toBe(BREACH_TICK_PIN < 0 ? -1 : BREACH_TEAM_PIN);

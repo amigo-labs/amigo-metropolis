@@ -325,8 +325,8 @@ interface Field {
 function fieldOf(bases: readonly { x: number; z: number }[]): Field {
   const dx = Math.abs(bases[0].x - bases[1].x);
   const dz = Math.abs(bases[0].z - bases[1].z);
-  // Tie goes to z: the five north-south arenas keep their historical ordering
-  // even if a future mission happens to be exactly diagonal.
+  // Tie goes to z. Only the build report reads the axis since SIM_VERSION 79:
+  // the teams follow the player slot (teamsOf).
   const axis = dx > dz ? "x" : "z";
   const a = bases[0][axis];
   const b = bases[1][axis];
@@ -335,15 +335,25 @@ function fieldOf(bases: readonly { x: number; z: number }[]): Field {
 
 /**
  * Pairs each base with its OWN X1Alpha — the nearest one — then orders the pairs
- * along the field axis so team 0 is the low end.
+ * by the original's player slot, so team N is slot N: slot 0 is X1Alpha 12, the
+ * single-player human's, on side 1 in every mission (the rules artifact's
+ * x1alpha; RE radar_markers.json). The pair's Dreadnought record must carry that
+ * side (its team byte, slot + 1).
  *
- * The two lists used to be sorted independently and paired by index, which is
- * only correct while both happen to order the same way.
+ * Until SIM_VERSION 79 the pairs were ordered along the field axis, team 0 the
+ * low end: slot 0 on five arenas, slot 1 on La Cantina (Mp), whose solo human
+ * therefore started at side 2's base. The two lists before that were sorted
+ * independently and paired by index, which is only correct while both happen to
+ * order the same way.
  */
 function teamsOf<
-  B extends { x: number; z: number },
+  B extends { x: number; z: number; team: number },
   S extends { id: number; x: number; z: number },
->(bases: readonly B[], spawns: readonly S[], field: Field): { base: B; spawn: S }[] {
+>(
+  bases: readonly B[],
+  spawns: readonly S[],
+  x1alpha: readonly { id: number; slot: number }[],
+): { base: B; spawn: S }[] {
   const d = (p: { x: number; z: number }, q: { x: number; z: number }): number =>
     Math.hypot(p.x - q.x, p.z - q.z);
   const pairs = bases.map((base) => {
@@ -353,7 +363,20 @@ function teamsOf<
   if (new Set(pairs.map((p) => p.spawn.id)).size !== pairs.length) {
     throw new Error("two bases claim the same X1Alpha — the spawn/base pairing is ambiguous");
   }
-  return pairs.sort((p, q) => p.base[field.axis] - q.base[field.axis]);
+  const slotOf = (spawn: S): number => {
+    const rec = x1alpha.find((x) => x.id === spawn.id);
+    if (!rec) throw new Error(`no X1Alpha ${spawn.id} in the rules artifact`);
+    return rec.slot;
+  };
+  const sorted = pairs.sort((p, q) => slotOf(p.spawn) - slotOf(q.spawn));
+  sorted.forEach((p, team) => {
+    if (slotOf(p.spawn) !== team || p.base.team !== team + 1) {
+      throw new Error(
+        `team ${team}: X1Alpha ${p.spawn.id} (slot ${slotOf(p.spawn)}) pairs with a side ${p.base.team} Dreadnought`,
+      );
+    }
+  });
+  return sorted;
 }
 
 /**
@@ -1757,15 +1780,17 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   ) as ModelsArtifact;
   const mounts = dreadnoughtMounts(models);
 
-  // Team 0 is the low end of the field axis; each side's Dreadnought drives its
-  // own Cnet (fcop-logic.md §8.1) and the side owns the nearer X1Alpha. The
-  // Dreadnought records stand next to each HQ, so they are what locates a base.
+  // Team N is the original's player slot N (side N + 1); each side's Dreadnought
+  // drives its own Cnet (fcop-logic.md §8.1) and the side owns the nearer
+  // X1Alpha. The Dreadnought records stand next to each HQ, so they are what
+  // locates a base. The field axis only reports the arena's shape now.
   const field = fieldOf(logic.dreadnoughts);
-  const teams = teamsOf(logic.dreadnoughts, logic.spawns, field);
+  const teams = teamsOf(logic.dreadnoughts, logic.spawns, rules.x1alpha);
   const teamBases = teams.map((t) => t.base);
   const teamSpawns = teams.map((t) => t.spawn);
   // The original's player slot 0 is X1Alpha 12, slot 1 X1Alpha 16 (the rules
-  // artifact's x1alpha); which team that is falls out of the base pairing.
+  // artifact's x1alpha); teamsOf makes slot N team N, which this re-reads from
+  // the pairing so a slot-keyed record can never land on the other team.
   const teamOfSlot = (slot: number): number => {
     const rec = rules.x1alpha.find((x) => x.slot === slot);
     const team = rec ? teamSpawns.findIndex((sp) => sp.id === rec.id) : -1;
@@ -2394,8 +2419,10 @@ function probeOffsets(arena: FcopArena): boolean {
   ) as { wallsV: string[]; wallsH: string[] };
   const map = loadMapFromJson({ ...raw, wallsV: pristine.wallsV, wallsH: pristine.wallsH });
 
-  const field = fieldOf(logic.dreadnoughts);
-  const teamNet = teamsOf(logic.dreadnoughts, logic.spawns, field).map((t) => t.base.netId);
+  const rules = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", rulesFile(arena)), "utf8"),
+  ) as FcopRules;
+  const teamNet = teamsOf(logic.dreadnoughts, logic.spawns, rules.x1alpha).map((t) => t.base.netId);
   const nets = ownedNets(logic, teamNet);
 
   // Every directed Cnet edge, in the raw actor frame.
