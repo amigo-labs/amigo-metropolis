@@ -733,11 +733,26 @@ no golden moves.
 - [x] Each arena's scenery drawn with its own mission's Cobjs and texels (G2)
 - [x] Classic textures (the original texels) by default, HD the option (G3; the
       original's filter waits on RE)
-- [ ] The jet's rotor and the barrier's animation (morph frames; G1)
-- [ ] Each mission's own unit models: Ovmp's page 4, Hk's tank, Joke's units (G1)
-- [ ] The Dreadnought's guns; the Sky Captain's model by level
-- [ ] Team variants by the original's UV offsets, in place of the invented
-      desaturate-and-tint (G4)
+- [x] RE: the units by role per arena, with the team-colour offsets, the attach
+      points and the morph timing (`pa_models.json`, RE docs/formats/pa-models.md);
+      imported by `gen:paunits` into `render/arenaUnits.generated.ts`
+- [x] Each mission's own unit models for every role, loaded with the arena:
+      Ovmp's page 4, Hk's tank and second NeutralTurret set, Joke's units; a file
+      shared only where payload and sampled texels agree (G5)
+- [x] The turrets as the original's two parts: the base at its rest yaw, the gun
+      on its attach point (G6)
+- [x] Team colour by the original's texture offsets in place of the invented
+      desaturate-and-tint: per side, per capture state, the X1's beacon kept;
+      the side from `render/sides.ts` (G4)
+- [x] The outpost flags: hazard stripes until claimed, then the claimer's (G10)
+- [x] The Sky Captain's model by level (G7)
+- [x] The Dreadnought's four guns on their hull points (G8)
+- [x] The jet's rotor; Joke's Fortress and Sky Captain morphs (G9)
+- [ ] The Dreadnought's guns aiming and slewing (needs the mounts in the sim, I6)
+- [ ] Distance-driven morphs (Joke's tank and Dreadnought), the skinned Joke jet,
+      the flags' cloth; the X1's cloak offset (G4, G9, G10)
+- [ ] The outpost flags on La Cantina's decks (props are placed on layer 0; G10)
+- [ ] Per-arena hit radii for the models each arena draws (G1, G7; a sim change)
 - [ ] The X1's animations
 
 ### Wave 6 — Presentation

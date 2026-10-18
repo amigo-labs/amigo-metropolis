@@ -140,26 +140,56 @@ forever as a debug render mode (`?render=greybox`).
   A map's `props` carry Cobj ids in its own mission's numbering, which is not
   Mp's: urban-jungle's 36 and 41 are kiosks, Mp's are the Dreadnought hull and
   the Flying Fortress. Unlike the pickups these do run through `gen:units` (the
-  barrier samples two pages and must become one atlas), from per-mission raws
+  outpost flag samples two pages and must become one atlas), from per-mission raws
   copied unchanged by `bun run gen:scenery` from the RE's
   `extracted/objects/<Mission>/`. Until Phase 14 wave 5 every arena drew Mp's
   file for the id, so urban-jungle and proving-ground parked a Dreadnought hull
   and Flying Fortresses among their kiosks, and bug-hunt and hollywood-keys
   dropped two and four kiosks they had no file for.
-- **Each unit wears the Cobj the original's spawners name** (RE
-  `extracted/logic/<Mission>/pa_rules.json` `spawners`): the tank Cobj 30, the
-  jet Cobj 22, the Dreadnought's hull Cobj 36, the Flying Fortress Cobj 41 (42
-  on Conft and Slim, the same payload); the Sky Captain is one of four models
-  (Cobj 54/56/57/58), one loaded per difficulty band, and `warden` draws 54.
-  Until Phase 14 wave 5 the jet drew the Fortress's Cobj 41 and the Fortress the
-  Sky Captain's Cobj 57. Every arena draws Mp's files: Conft, Slim and Hk share
-  most of those payloads, but Ovmp's units sample its own page 4, Hk's tank is a
-  model of its own and Joke's units all are (open).
-- **Morph Cobjs ship frame 0.** The jet turns its rotor through three morph
-  frames (Cobj 22) and the scenery barrier animates through six (Cobj 28);
-  `gen:units` keeps frame 0 of both, because one `InstancedMesh` per archetype
-  has no per-instance morph weights in this pipeline. The rotor stands still
-  until that exists (open, Phase 14 wave 5).
+- **Each arena's units are its own mission's Cobjs** (`packages/client/public/models/units/<mapId>/obj_NNN.glb`).
+  `bun run gen:paunits` reads every role off the RE's
+  `extracted/logic/<Mission>/pa_models.json` — the records that place or spawn
+  it: tank, jet, Flying Fortress, the Dreadnought's hull and four guns, the
+  type-8 turret's and the NeutralTurret's gun and base (Hk has a second
+  NeutralTurret set, 43/44, on seven spots), the Sky Captain per level band, and
+  the outpost console (the scenery Cobj 29) — into
+  `render/arenaUnits.generated.ts`, and copies the arena's exports unchanged into
+  `tools/generators/units/raw/fcop-units/<Mission>/`. A Cobj id is its own
+  container's (Hk's tank 30 is another model than Mp's, Joke's units are bugs),
+  and every mission embeds its own pages, so a file is shared between arenas only
+  where the payload and every texel it can sample under its role's offsets are
+  identical. `render/arenaUnits.ts` loads the arena's files with the arena (boot
+  and every arena swap), a file once a session. Until Phase 14 wave 5 every arena
+  drew Mp's units from fixed files loaded at boot.
+- **A part keeps the original's origin.** Units are grounded and XZ-centred; a
+  turret's gun and base and the Dreadnought's hull and guns are not, because the
+  gun stands on the base's attach point 0 and the Dreadnought's guns on the
+  hull's attach points 0-3, points in the raw's frame (the helper vertices the
+  glb export drops, carried by `pa_models.json`).
+- **The turret and the Dreadnought draw as parts**, as the original's are
+  separate actors with their own transforms: the turret's base at the record's
+  rest yaw and its gun turning on it (a part bucket per turret set; Hk's second
+  set has a gun bucket of its own), the Dreadnought's four guns on the hull (a
+  part bucket per gun model, capacity four guns of every Dreadnought). Further
+  bounded exceptions to the one-mesh-per-archetype rule, beside the avatar's;
+  still no `Object3D` tree, every matrix written straight into its slot. The
+  guns face the hull's forward until the sim models the mounts.
+- **Team colour is a texture offset, not a tint** (`render/teamUv.ts`;
+  fcop-fidelity.md G4). The original holds the art twice on a page and gives
+  each actor an offset onto its side's half; the client adds it per instance to
+  the map lookup in the vertex shader, by the side `render/sides.ts` gives the
+  team, and a NeutralTurret by its capture state. The texels stay the
+  original's: `gen:units` no longer desaturates units (projectiles keep their
+  tint), and the X1's file marks its beacon, which keeps its texels, in a 0/1
+  `_TEAMUV` vertex attribute. The outpost flags (scenery Cobj 28) take the
+  claimer's offset the same way. Only the greybox stand-ins are tinted.
+- **Time-driven morphs play; the rest ship frame 0.** The jet's rotor (Cobj
+  22, three frames at 10/300 s) and Joke's Fortress and Sky Captain step through
+  their frames: `gen:units` keeps those morph targets, and the client writes a
+  one-hot frame per instance into the bucket's morph texture on the sim's clock,
+  each entity a phase of its own. Distance-driven tracks (Joke's tank and
+  Dreadnought), the skinned Joke jet, the outpost flags' cloth and the X1's
+  clips still show one frame.
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
 - Materials: single atlas texture, `flatShading: true`, no PBR maps.
 
