@@ -265,7 +265,7 @@ export function createMatchHud(
   const right = hudCanvas(root, 560, 336, 80, 144);
   const top = hudCanvas(root, 552, 0, 88, 100);
   const canvases: HudCanvas[] = [left, right, top];
-  const radar = createRadar(root, opts.mapId, slot);
+  const radar = createRadar(root, opts.mapId, slot, opts.online);
 
   // The lock: a full-viewport overlay, cleared and drawn per frame while a lock
   // stands (the target moves every frame), in CSS px.

@@ -889,7 +889,9 @@ moves.
       effects, the eye jittered along the camera's up and right rows (V1, E19)
 - [x] The invulnerable gauge's blink: the flat blue arm at x 2 off the sim's
       invulnerability (V2; no PA pickup grants it)
-- [ ] The radar's near-camera registry (V3)
+- [x] The radar's near-camera registry: the live list culled from the X1s by the
+      widening search, 0xfe at most; the consoles' diamonds gone at the claim, the
+      type-96 Props (no actors) off the radar (V3)
 - [ ] Arrows for the placed actors on the map screen (V4)
 - [x] The issued magazine under each weapon while it is powered: block A off the
       match snapshot, block B above it (V2)

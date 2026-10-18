@@ -17,6 +17,9 @@
 //                                        the lock reticle (16 x 16 at 0,210)
 //   fixtures/missions/<Mission>          the type-35 objective record's eight
 //                                        radar contacts (no export carries them yet)
+//   extracted/objects/<Mission>/manifest.json
+//                                        the 3DBB box 0 of the models the map
+//                                        screen draws an arrow for (frame 0)
 //
 //     -> packages/client/public/hud/{font3.png,tex11.png,reticles.png}
 //     -> packages/client/src/render/fcopPresentation.generated.ts
@@ -30,6 +33,7 @@
 
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { SCENERY_PLACEMENTS } from "../../packages/client/src/render/arenaScenery.generated";
 import { FCOP_ARENAS } from "./fcopArenas";
 import { decodePng, encodePng } from "./png";
 
@@ -321,8 +325,40 @@ interface ArenaOut {
   team0Side: number;
   reticle: number;
   contacts: Contact[];
-  staticMarkers: { marker: number; x: number; y: number }[];
-  claimMarkers: { x: number; y: number; markers: [number, number] }[];
+  staticMarkers: { record: string; marker: number; x: number; y: number }[];
+  claimMarkers: { record: string; x: number; y: number; markers: [number, number] }[];
+  boxes: Record<number, [number, number, number, number]>;
+}
+
+interface ObjectManifestEntry {
+  id: number;
+  bbox: { center: [number, number, number]; half: [number, number, number] } | null;
+}
+
+/**
+ * The 3DBB box 0 of frame 0 of each model in `cobjs`, as the pause map reads it
+ * (pause_map.c 0x004516e0): [cx, cz, lx, lz] in metres, the Cobj's own x (the
+ * manifest's glb x is negated, tools/gfx/obj_mesh.py parse_3dbb).
+ */
+function modelBoxes(mission: string, cobjs: Iterable<number>): ArenaOut["boxes"] {
+  const manifest = readJson<ObjectManifestEntry[]>(
+    "extracted",
+    "objects",
+    mission,
+    "manifest.json",
+  );
+  const out: ArenaOut["boxes"] = {};
+  for (const id of [...new Set(cobjs)].sort((a, b) => a - b)) {
+    const bb = manifest.find((o) => o.id === id)?.bbox;
+    if (!bb) throw new Error(`${mission}: Cobj ${id} has no 3DBB box in the manifest`);
+    out[id] = [
+      round4(-bb.center[0] + 0),
+      round4(bb.center[2]),
+      round4(bb.half[0]),
+      round4(bb.half[2]),
+    ];
+  }
+  return out;
 }
 
 let unitMarkers: UnitMarkers | null = null;
@@ -361,16 +397,22 @@ FCOP_ARENAS.forEach((arena, reticleIndex) => {
   }
 
   // Placed actors that carry a marker and live, which Metropolis draws as no
-  // entity: the outposts' green diamonds, Hk's / Joke's / Slim's marked props.
+  // entity: the outposts' green diamonds (their consoles). Not the type-96
+  // Props radar_markers.json lists (Hk 45, Joke 4, Slim 4): `cact_load` hands a
+  // type 96 to `cact_load_type96` and returns (RE game/actor/load.c:68), which
+  // builds a sound emitter and no actor, so no registry or live-list walk ever
+  // sees its byte 26.
   const staticMarkers = m.actors
     .filter(
       (a) =>
         a.resource === "Cact" &&
         a.on_radar_when_live &&
         a.type !== 1 && // the X1-Alpha: an entity
-        a.type !== 37, // the Sky Captain: an entity
+        a.type !== 37 && // the Sky Captain: an entity
+        a.type !== 96, // a Prop: a sound emitter, not an actor
     )
     .map((a) => ({
+      record: `Cact ${a.actor_id}`,
       marker: a.marker,
       x: round4(a.x + LOGIC_OFFSET_X),
       y: round4(a.z + LOGIC_OFFSET_Z),
@@ -387,11 +429,25 @@ FCOP_ARENAS.forEach((arena, reticleIndex) => {
     if (posted.length === 0) continue;
     if (posted.length !== 2) throw new Error(`${arena.mission} group ${a.group_byte25}: ${posted}`);
     claimMarkers.push({
+      record: `Cact ${a.actor_id}`,
       x: round4(a.x + LOGIC_OFFSET_X),
       y: round4(a.z + LOGIC_OFFSET_Z),
       markers: [posted[0], posted[1]],
     });
   }
+
+  // The models the map screen draws an arrow for: the marked placed actors'
+  // (by their scenery record) and the pickups'.
+  const placements = SCENERY_PLACEMENTS[arena.mapId]?.placements ?? [];
+  const cobjs: number[] = [];
+  for (const r of [...staticMarkers, ...claimMarkers]) {
+    const p = placements.find((q) => q.record === r.record);
+    if (!p)
+      throw new Error(`${arena.mapId}: ${r.record} carries a marker and is no scenery record`);
+    cobjs.push(p.cobj);
+  }
+  const pickups = (map as unknown as { pickups?: { model?: number }[] }).pickups ?? [];
+  for (const k of pickups) if (typeof k.model === "number" && k.model >= 0) cobjs.push(k.model);
 
   arenas[arena.mapId] = {
     mission: arena.mission,
@@ -400,6 +456,7 @@ FCOP_ARENAS.forEach((arena, reticleIndex) => {
     contacts: contactsOf(arena.mission),
     staticMarkers,
     claimMarkers,
+    boxes: modelBoxes(arena.mission, cobjs),
   };
 });
 
@@ -663,10 +720,18 @@ export interface ArenaPresentation {
   readonly reticle: number;
   /** The type-35 record's contacts: shown bits (0 rim arrow, 1 map ring, 2 radar blip), palette index, m. */
   readonly contacts: readonly { readonly shown: number; readonly colour: number; readonly x: number; readonly y: number }[];
-  /** Placed actors with a marker that Metropolis has no entity for. */
-  readonly staticMarkers: readonly { readonly marker: number; readonly x: number; readonly y: number }[];
+  /**
+   * Placed actors with a marker that Metropolis has no entity for (the outposts'
+   * consoles); \`record\` names their scenery placement (arenaScenery.generated.ts).
+   */
+  readonly staticMarkers: readonly { readonly record: string; readonly marker: number; readonly x: number; readonly y: number }[];
   /** The outposts' corner posts: [side 1's, side 2's] marker once claimed. */
-  readonly claimMarkers: readonly { readonly x: number; readonly y: number; readonly markers: P }[];
+  readonly claimMarkers: readonly { readonly record: string; readonly x: number; readonly y: number; readonly markers: P }[];
+  /**
+   * By Cobj, the 3DBB box 0 (frame 0) the map screen's arrow is built on: centre x
+   * and z, half x and z, metres in the model's own frame (pause_map.c 0x004516e0).
+   */
+  readonly boxes: Readonly<Record<number, readonly [number, number, number, number]>>;
 }
 
 export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = ${j(arenas)} as unknown as Readonly<Record<string, ArenaPresentation>>;

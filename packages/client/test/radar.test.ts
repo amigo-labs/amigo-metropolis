@@ -4,13 +4,21 @@
 
 import { describe, expect, test } from "bun:test";
 import { ARCHETYPE, TURRET_CAPTURABLE, TURRET_DEFENSE } from "@metropolis/sim";
+import { SCENERY_PLACEMENTS } from "../src/render/arenaScenery.generated";
 import {
   ARENA_PRESENTATION,
   HUD,
   RADAR_PALETTE,
   UNIT_MARKERS,
 } from "../src/render/fcopPresentation.generated";
-import { markerOf, radarInRange, radarPlace } from "../src/render/hud/radar";
+import {
+  markerOf,
+  REGISTRY_LIMIT_TEAM_GAME,
+  radarInRange,
+  radarPlace,
+  radarRegistry,
+  registryDistance,
+} from "../src/render/hud/radar";
 import { SIDE_BLUE, SIDE_RED } from "../src/render/sides";
 
 const R = 0x25555;
@@ -103,5 +111,69 @@ describe("markers (radar_markers.json)", () => {
   test("palette entries from 23 blink (and 0 has no colour)", () => {
     expect(RADAR_PALETTE[0]).toBeNull();
     expect(RADAR_PALETTE.length).toBe(32);
+  });
+});
+
+describe("the registry (cact_registry_build 0x0043b520, _mp 0x0043b7a0)", () => {
+  const WU = 8192;
+  const vx = new Float64Array([100, 0]);
+  const vy = new Float64Array([100, 0]);
+
+  test("the octagonal distance is |dx| + |dz| - min / 2", () => {
+    expect(registryDistance(0x10000, 0)).toBe(0x10000);
+    expect(registryDistance(-0x10000, 0x10000)).toBe(0x18000);
+  });
+
+  test("everything within 0x38000 while it fits, in live-list order", () => {
+    const xs = new Float64Array([100, 100 + 0x37fff / WU, 100 + 0x38000 / WU, Number.NaN]);
+    const ys = new Float64Array([100, 100, 100, 100]);
+    const member = new Uint8Array(4);
+    expect(radarRegistry(xs, ys, 4, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member)).toBe(2);
+    expect([...member]).toEqual([1, 1, 0, 0]);
+  });
+
+  test("overflowing, it tightens by 0x4000 and gives up after 0x24000", () => {
+    // 300 actors: 200 within 0x30000 and 100 more out at 0x33000.
+    const n = 300;
+    const xs = new Float64Array(n);
+    const ys = new Float64Array(n).fill(100);
+    for (let k = 0; k < n; k++) xs[k] = 100 + (k < 100 ? 0x33000 : 0x10000) / WU;
+    const member = new Uint8Array(n);
+    expect(radarRegistry(xs, ys, n, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member)).toBe(200);
+    expect(member[0]).toBe(0);
+    expect(member[299]).toBe(1);
+    // Everything in reach: the last pass (0x24000) keeps the first 0xfe.
+    xs.fill(100);
+    expect(radarRegistry(xs, ys, n, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member)).toBe(0xfe);
+    expect(member[0xfd]).toBe(1);
+    expect(member[0xfe]).toBe(0);
+  });
+
+  test("two viewpoints: the nearer X1 decides", () => {
+    const two = { x: new Float64Array([100, 200]), y: new Float64Array([100, 100]) };
+    const xs = new Float64Array([200 + 1, 150]);
+    const ys = new Float64Array([100, 100]);
+    const member = new Uint8Array(2);
+    expect(radarRegistry(xs, ys, 2, two.x, two.y, 1, 0xfe, member)).toBe(0);
+    expect(radarRegistry(xs, ys, 2, two.x, two.y, 2, 0xfe, member)).toBe(1);
+    expect([...member]).toEqual([1, 0]);
+  });
+});
+
+describe("the placed actors' markers", () => {
+  test("only live actors: no type-96 Prop (a sound emitter) carries one", () => {
+    for (const [id, a] of Object.entries(ARENA_PRESENTATION)) {
+      const placements = SCENERY_PLACEMENTS[id]?.placements ?? [];
+      for (const m of [...a.staticMarkers, ...a.claimMarkers]) {
+        const p = placements.find((q) => q.record === m.record);
+        expect(p, `${id} ${m.record}`).toBeDefined();
+        expect(a.boxes[p?.cobj ?? -1], `${id} ${m.record}`).toBeDefined();
+      }
+      // The consoles are killed at the claim: their placement stands until then.
+      for (const m of a.staticMarkers) {
+        expect(placements.find((q) => q.record === m.record)?.show).toBe("unclaimed");
+      }
+      expect(a.staticMarkers.length, id).toBe(4);
+    }
   });
 });

@@ -8,11 +8,20 @@
 // sprite 6 x 6 (kind 0), triangle (1) or diamond (2+), coloured from the
 // 32-entry palette, blinking from index 23 on clock bit 7.
 //
+// Only actors in the registry get a blip (hud_radar_draw_contacts walks it):
+// the live list filtered by octagonal distance from the viewpoints — team slot
+// 0's X1 alone in one viewport (`cact_registry_build` 0x0043b520), the nearer
+// of both X1s in the two-viewport network game (`cact_registry_build_mp`
+// 0x0043b7a0) — at the widest of 0x38000, 0x34000 .. 0x24000 world units that
+// holds at most 0xfe actors (the team game's limit), newest actor first
+// (`radarRegistry`).
+//
 // Markers come from radar_markers.json by unit kind and the team's original
 // side (render/sides.ts); the placed actors Metropolis has no entity for — the
-// outposts' green diamonds, Hk's / Joke's / Slim's marked props — and the
-// outposts' claim posts are drawn from the imported per-arena lists. Pickups
-// carry the item marker while standing (MATCH_PICKUPS).
+// outposts' green diamonds (their consoles, until the claim kills them) and
+// their claim posts — are drawn from the imported per-arena lists. Pickups
+// carry the item marker while standing (MATCH_PICKUPS). The type-96 Props are
+// no actors (RE game/actor/load.c:68) and carry none.
 //
 // Raw DOM: one canvas in the 640 space, redrawn every frame (the heading turns
 // every frame) without allocating: colours are strings built once.
@@ -21,11 +30,15 @@ import {
   ARCHETYPE,
   getMapById,
   MATCH_PICKUPS,
+  MATCH_SLOT_AVATAR_ID,
+  MAX_ENTITIES,
   type MapData,
+  matchSlotOffset,
   SNAPSHOT_STRIDE,
   TURRET_CAPTURABLE,
   worldExtent,
 } from "@metropolis/sim";
+import { SCENERY_PLACEMENTS, type SceneryShow } from "../arenaScenery.generated";
 import {
   ARENA_PRESENTATION,
   type ArenaPresentation,
@@ -37,6 +50,7 @@ import { mapCell } from "../mapScreen";
 import { SIDE_BLUE, SIDE_RED, sideOfTeam } from "../sides";
 import { hudPage11 } from "./hudArt";
 import { type HudCanvas, hudCanvas } from "./hudLayout";
+import { snapshotIndexOf } from "./hudRules";
 
 /**
  * The map screen's state as the radar needs it: while open the 54-cell overview
@@ -94,6 +108,72 @@ const OVERVIEW_WINDOW = half(HUD.pauseMap.windowRgb);
 /** The team slots' and the Sky Captain's blips: 0x7fff, white. */
 const OVERVIEW_WHITE = "rgb(248,248,248)";
 const TICK_CSS = `rgb(${HUD.radar.tickRgb[0]},${HUD.radar.tickRgb[1]},${HUD.radar.tickRgb[2]})`;
+
+/** The registry's widening search (mission_frame.c MISSION_BAND_*), world units. */
+export const REGISTRY_BAND_START = 0x38000;
+export const REGISTRY_BAND_STEP = 0x4000;
+export const REGISTRY_BAND_MIN = 0x20000;
+/** The registry's limit while mission-state word 23 is 1, every PA match (0xfe). */
+export const REGISTRY_LIMIT_TEAM_GAME = 0xfe;
+
+/** The registry's distance, `|dx| + |dz| - min / 2` (mission_octagonal), world units. */
+export function registryDistance(dx: number, dz: number): number {
+  const a = Math.abs(Math.trunc(dx));
+  const b = Math.abs(Math.trunc(dz));
+  return a + b - ((a < b ? a : b) >> 1);
+}
+
+/**
+ * `cact_registry_build`'s cull over `n` candidates in live-list order (map frame
+ * metres `xs`, `ys`; NaN for one that is not alive): each is measured against
+ * the nearest of `nv` viewpoints; the walk starts at 0x38000 and, whenever more
+ * than `limit` are inside, is thrown away and run again 0x4000 tighter, giving
+ * up after 0x24000 with what that pass held. Writes 1 into `member` for every
+ * candidate the registry keeps and answers how many. A flag-8 actor (never
+ * culled) has no Metropolis entity, so none is exempt.
+ */
+export function radarRegistry(
+  xs: Float64Array,
+  ys: Float64Array,
+  n: number,
+  vx: Float64Array,
+  vy: Float64Array,
+  nv: number,
+  limit: number,
+  member: Uint8Array,
+): number {
+  let radius = REGISTRY_BAND_START;
+  for (;;) {
+    let count = 0;
+    let overflowed = false;
+    member.fill(0, 0, n);
+    for (let k = 0; k < n; k++) {
+      const x = xs[k];
+      if (Number.isNaN(x)) continue;
+      let d = Number.POSITIVE_INFINITY;
+      for (let v = 0; v < nv; v++) {
+        // position[2] is the map's x, position[0] its y.
+        const e = registryDistance((ys[k] - vy[v]) * WU, (x - vx[v]) * WU);
+        if (e < d) d = e;
+      }
+      if (d >= radius) continue;
+      if (count >= limit) {
+        overflowed = true;
+        break;
+      }
+      member[k] = 1;
+      count++;
+    }
+    if (!overflowed) return count;
+    radius -= REGISTRY_BAND_STEP;
+    if (radius <= REGISTRY_BAND_MIN) return count;
+  }
+}
+
+/** Whether a placement with `show` stands while its outpost is claimed (or not). */
+function standsAt(show: SceneryShow, claimed: boolean): boolean {
+  return show === "always" || (show === "claimed") === claimed;
+}
 
 /**
  * hud_radar_place_contact's range test (0x0044a950): each axis within the range,
@@ -261,9 +341,19 @@ const EMPTY_ARENA: ArenaPresentation = {
   contacts: [],
   staticMarkers: [],
   claimMarkers: [],
+  boxes: {},
 };
 
-export function createRadar(parent: HTMLElement, mapId: string, _slot: number): Radar {
+/**
+ * The radar of player `slot`. `online` is the two-viewport network game, whose
+ * registry measures from both X1s.
+ */
+export function createRadar(
+  parent: HTMLElement,
+  mapId: string,
+  slot: number,
+  online = false,
+): Radar {
   const page = hudPage11();
   const canvas: HudCanvas = hudCanvas(parent, 0, 0, AREA, AREA);
   const arena = ARENA_PRESENTATION[mapId] ?? EMPTY_ARENA;
@@ -291,6 +381,33 @@ export function createRadar(parent: HTMLElement, mapId: string, _slot: number): 
   /** The side owning each outpost spot this frame (its console's team). */
   const spotSide = new Int32Array(spots.length);
   const extent = map ? worldExtent(map) : 1;
+
+  // The registry's candidates, in live-list order: the entities newest first
+  // (descending id stands in for the order they were made), then the placed
+  // actors — the pickups, then every type-11 record from the last loaded.
+  const placements = SCENERY_PLACEMENTS[mapId]?.placements ?? [];
+  const pickups = map?.pickups ?? [];
+  const nPickups = pickups.length < 24 ? pickups.length : 24;
+  const placedOrder = placements
+    .map((p, k) => ({
+      k,
+      id: Number(p.record.split(" ")[1]) || 0,
+      csac: p.record.startsWith("Csac"),
+    }))
+    .sort((a, b) => Number(a.csac) - Number(b.csac) || b.id - a.id)
+    .map((e) => e.k);
+  const recordIndex = (record: string): number => placements.findIndex((p) => p.record === record);
+  const staticPlaced = Int32Array.from(arena.staticMarkers, (m) => recordIndex(m.record));
+  const claimPlaced = Int32Array.from(arena.claimMarkers, (m) => recordIndex(m.record));
+  const maxCandidates = MAX_ENTITIES + nPickups + placements.length;
+  const candX = new Float64Array(maxCandidates);
+  const candY = new Float64Array(maxCandidates);
+  const member = new Uint8Array(maxCandidates);
+  /** Where each placement and pickup sits among this frame's candidates. */
+  const placedAt = new Int32Array(placements.length);
+  const pickupAt = new Int32Array(nPickups);
+  const viewX = new Float64Array(2);
+  const viewY = new Float64Array(2);
   const overview: RadarOverview = { open: false, cx: 0, cy: 0, halfX: 16, halfY: 12 };
 
   return {
@@ -328,31 +445,80 @@ export function createRadar(parent: HTMLElement, mapId: string, _slot: number): 
       frame.facing = facing;
       frame.blink = (clock & BLIP_BLINK) !== 0;
 
-      // --- the placed actors Metropolis has no entity for.
-      for (let k = 0; k < arena.staticMarkers.length; k++) {
-        const m = arena.staticMarkers[k];
-        blipAt(m.marker, m.x, m.y);
-      }
-
-      // --- the entities (dense id order, the registry's order).
+      // --- the outposts' owners: their consoles' teams.
       spotSide.fill(0);
       for (let i = 0; i < count; i++) {
         const o = i * SNAPSHOT_STRIDE;
-        const archetype = snapshot[o + 1];
+        if (snapshot[o + 1] !== ARCHETYPE.CONSOLE) continue;
         const team = snapshot[o + 2];
-        const x = snapshot[o + 3];
-        const y = snapshot[o + 4];
-        if (archetype === ARCHETYPE.CONSOLE) {
-          if (team === 0 || team === 1) {
-            for (let j = 0; j < spots.length; j++) {
-              const ddx = spots[j].x - x;
-              const ddy = spots[j].y - y;
-              if (ddx * ddx + ddy * ddy < 1) spotSide[j] = sideOfTeam(mapId, team);
-            }
-          }
-          continue;
+        if (team !== 0 && team !== 1) continue;
+        for (let j = 0; j < spots.length; j++) {
+          const ddx = spots[j].x - snapshot[o + 3];
+          const ddy = spots[j].y - snapshot[o + 4];
+          if (ddx * ddx + ddy * ddy < 1) spotSide[j] = sideOfTeam(mapId, team);
         }
-        blipAt(markerOf(archetype, sideOfTeam(mapId, team), snapshot[o + 9]), x, y);
+      }
+
+      // --- the registry: every live actor, newest first, by distance.
+      let n = 0;
+      for (let i = count - 1; i >= 0; i--) {
+        const o = i * SNAPSHOT_STRIDE;
+        candX[n] = snapshot[o + 3];
+        candY[n] = snapshot[o + 4];
+        n++;
+      }
+      const up = match[MATCH_PICKUPS] | 0;
+      for (let k = 0; k < nPickups; k++) {
+        pickupAt[k] = n;
+        const standing = (up & (1 << k)) !== 0;
+        candX[n] = standing ? pickups[k].x : Number.NaN;
+        candY[n] = pickups[k].y;
+        n++;
+      }
+      for (let q = 0; q < placedOrder.length; q++) {
+        const k = placedOrder[q];
+        const p = placements[k];
+        placedAt[k] = n;
+        const claimed = p.outpost >= 0 && (spotSide[p.outpost] ?? 0) !== 0;
+        candX[n] = standsAt(p.show, claimed) ? p.x : Number.NaN;
+        candY[n] = p.y;
+        n++;
+      }
+      viewX[0] = selfX;
+      viewY[0] = selfY;
+      let nv = 1;
+      if (online) {
+        // The two-viewport registry: the nearer of both team slots' X1s.
+        const otherAvatar = match[matchSlotOffset(slot === 0 ? 1 : 0) + MATCH_SLOT_AVATAR_ID] | 0;
+        const c = otherAvatar >= 0 ? snapshotIndexOf(snapshot, count, otherAvatar) : -1;
+        if (c >= 0) {
+          viewX[1] = snapshot[c * SNAPSHOT_STRIDE + 3];
+          viewY[1] = snapshot[c * SNAPSHOT_STRIDE + 4];
+          nv = 2;
+        }
+      }
+      radarRegistry(candX, candY, n, viewX, viewY, nv, REGISTRY_LIMIT_TEAM_GAME, member);
+
+      // --- the entities in the registry.
+      for (let i = 0; i < count; i++) {
+        if (member[count - 1 - i] === 0) continue;
+        const o = i * SNAPSHOT_STRIDE;
+        const archetype = snapshot[o + 1];
+        if (archetype === ARCHETYPE.CONSOLE) continue; // the console's marker is placed
+        const team = snapshot[o + 2];
+        blipAt(
+          markerOf(archetype, sideOfTeam(mapId, team), snapshot[o + 9]),
+          snapshot[o + 3],
+          snapshot[o + 4],
+        );
+      }
+
+      // --- the outposts' consoles, until the claim kills them.
+      for (let k = 0; k < arena.staticMarkers.length; k++) {
+        const pk = staticPlaced[k];
+        if (pk < 0 || member[placedAt[pk]] === 0) continue;
+        const m = arena.staticMarkers[k];
+        blipAt(m.marker, m.x, m.y);
       }
 
       // --- an outpost's claim posts carry its claimer's marker.
@@ -361,18 +527,16 @@ export function createRadar(parent: HTMLElement, mapId: string, _slot: number): 
         if (j < 0) continue;
         const side = spotSide[j];
         if (side !== SIDE_RED && side !== SIDE_BLUE) continue;
+        const pk = claimPlaced[k];
+        if (pk >= 0 && member[placedAt[pk]] === 0) continue;
         const m = arena.claimMarkers[k];
         blipAt(m.markers[side - 1], m.x, m.y);
       }
 
       // --- the standing pickups carry the item marker.
-      if (map) {
-        const up = match[MATCH_PICKUPS] | 0;
-        const n = map.pickups.length < 24 ? map.pickups.length : 24;
-        for (let k = 0; k < n; k++) {
-          if ((up & (1 << k)) === 0) continue;
-          blipAt(UNIT_MARKERS.pickup, map.pickups[k].x, map.pickups[k].y);
-        }
+      for (let k = 0; k < nPickups; k++) {
+        if (member[pickupAt[k]] === 0) continue;
+        blipAt(UNIT_MARKERS.pickup, pickups[k].x, pickups[k].y);
       }
 
       // --- the contacts whose bit 2 asks for a blip (none on the PA arenas).
