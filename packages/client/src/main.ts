@@ -308,6 +308,8 @@ if (params.has("debug") && !netMode) {
     } | null;
     /** Live effect instances per class (render/fx.ts). */
     metropolisFx?: () => ReturnType<typeof fx.debugCounts>;
+    /** The world row a round was matched to (effects/rounds.ts), 0 unknown. */
+    metropolisRoundRow?: (id: number) => number;
   };
   dbg.metropolisSim = sim;
   // Debug-only spawner + freeze + snapshot for the verify:units screenshot
@@ -403,6 +405,7 @@ if (params.has("debug") && !netMode) {
           aimPitch: x1Walk.aimPitch[slot],
         };
   dbg.metropolisFx = () => fx.debugCounts();
+  dbg.metropolisRoundRow = (id) => sounds.effects.rounds.row[id] ?? 0;
 }
 
 // --- Online helpers (no-ops unless ?online) ----------------------------------
@@ -1733,6 +1736,19 @@ function renderEntities(alpha: number, simDtSec: number): void {
       fxPoses.table[f + 2] = y;
       fxPoses.table[f + 3] = yaw;
       fxPoses.live[id] = 1;
+    }
+    // A bolt row's round is its Cobj's line facers (rows 1, 3 and 6), drawn by
+    // the effects between the two ticks' positions' heading, not as a mesh.
+    if (archetype === ARCHETYPE.PROJECTILE && row > 0) {
+      let pitch = 0;
+      if (hasPrev) {
+        const dh = snapCurr[o + 5] - snapPrev[po + 5];
+        const dx = snapCurr[o + 3] - snapPrev[po + 3];
+        const dy = snapCurr[o + 4] - snapPrev[po + 4];
+        const run = Math.sqrt(dx * dx + dy * dy);
+        if (dh !== 0 || run !== 0) pitch = Math.atan2(dh, run);
+      }
+      if (fx.bolt(row, x, height, y, yaw, pitch)) continue;
     }
     if (!rig && !greyboxBucket) continue;
     // A turret is found by where it stands (render/arenaUnits.ts spotKey): the

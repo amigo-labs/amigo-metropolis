@@ -138,6 +138,21 @@ describe("the executable's own drawings", () => {
   });
 });
 
+describe("the bolts", () => {
+  test("a bolt row's round is drawn as its facers for the frame; a model row is not", () => {
+    const { fx, camera } = rig();
+    expect(fx.bolt(3, 0, 0.6, 0, 0, 0)).toBe(true);
+    expect(fx.bolt(1, 2, 0.6, 0, Math.PI / 2, 0.1)).toBe(true);
+    expect(fx.bolt(4, 0, 0.6, 0, 0, 0)).toBe(false);
+    expect(fx.bolt(0, 0, 0.6, 0, 0, 0)).toBe(false);
+    fx.update(1 / 60, camera, 1 / 60);
+    expect(fx.debugCounts().bolts).toBe(2);
+    // Queued per frame: the next frame draws only what the entity pass hands it.
+    fx.update(1 / 60, camera, 1 / 60);
+    expect(fx.debugCounts().bolts).toBe(0);
+  });
+});
+
 describe("riding a round", () => {
   test("the launch's trail follows its round, and stops when the round is gone", () => {
     const { chain, fx, poses, at, tick } = rig();
@@ -210,7 +225,7 @@ describe("pools", () => {
     const dir = join(import.meta.dir, "..", "src", "render", "fx");
     const files = [...readdirSync(dir).map((f) => join(dir, f)), join(dir, "..", "fx.ts")];
     const header =
-      /^\s*(?:private |export )?(?:function )?(update|draw\w*|tick\w*|put|flush|followAnchor|sides|plainStrip|texturedStrip|ramp|drawNode|pump)\(/;
+      /^\s*(?:private |export )?(?:function )?(update|draw\w*|tick\w*|put|flush|followAnchor|sides|plainStrip|texturedStrip|cornerQuad|bolt|ramp|drawNode|pump)\(/;
     let bodies = 0;
     for (const file of files) {
       const lines = readFileSync(file, "utf8").split("\n");

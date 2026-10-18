@@ -348,44 +348,13 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     maxTris: 1500,
     neutralizeColors: true,
   },
-  // The world rows' rounds (Phase 14 wave 4): each type-98 row names its
-  // projectile Cobj once — no team variant — so these keep the original's own
-  // colours and are drawn untinted. One payload on all six arenas (gen:fx
-  // checks the RE's sha256_16 per row), so Mp's raw stands for every arena.
-  {
-    key: "round-row1",
-    cobj: 12,
-    raw: "fcop-fx/mp-obj012-bolt-single.glb",
-    source: {
-      title: "Single bolt (Mp Cobj 12, world weapon row 1)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    role: "world row 1 — the first side's tanks and jets; the original's own colours, untinted",
-    rotateQuarterY: 0,
-    footprint: 1.03,
-    maxHeight: 0.22,
-    maxTris: 1500,
-    neutralizeColors: false,
-  },
-  {
-    key: "round-row3",
-    cobj: 14,
-    raw: "fcop-fx/mp-obj014-bolt-twin.glb",
-    source: {
-      title: "Twin bolt (Mp Cobj 14, world weapon row 3)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    role: "world row 3 — turrets, neutral turrets and the Dreadnought's guns; the original's own colours, untinted",
-    rotateQuarterY: 0,
-    footprint: 1.1,
-    maxHeight: 0.32,
-    maxTris: 1500,
-    neutralizeColors: false,
-  },
+  // The world rows' rounds that are models (Phase 14 wave 4): each type-98 row
+  // names its projectile Cobj once — no team variant — so these keep the
+  // original's own colours and are drawn untinted. One payload on all six
+  // arenas (gen:fx checks the RE's sha256_16 per row), so Mp's raw stands for
+  // every arena. Rows 1, 3 and 6 are bolts, Cobjs of line facers that this
+  // export turns into white stand-in beams: render/fx.ts draws them from the
+  // Cobjs themselves (gen:fx FX_BOLTS), so they have no model here.
   {
     key: "round-row4",
     cobj: 42,
@@ -400,23 +369,6 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     rotateQuarterY: 0,
     footprint: 0.55,
     maxHeight: 0.2,
-    maxTris: 1500,
-    neutralizeColors: false,
-  },
-  {
-    key: "round-row6",
-    cobj: 53,
-    raw: "fcop-fx/mp-obj053-bolt-single-b.glb",
-    source: {
-      title: "Single bolt, second side (Mp Cobj 53, world weapon row 6)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    role: "world row 6 — the second side's tanks and jets; the original's own colours, untinted",
-    rotateQuarterY: 0,
-    footprint: 1.03,
-    maxHeight: 0.22,
     maxTris: 1500,
     neutralizeColors: false,
   },

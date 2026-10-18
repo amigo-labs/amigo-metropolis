@@ -288,6 +288,28 @@ export interface FxArena {
   readonly trailRow: number;
 }
 
+/**
+ * One line facer of a bolt Cobj (3DQL type 7, `cobj_prim_emit` 0x004289cc): a
+ * camera-facing quad from z0 to z1 along the round's heading, `half0` and
+ * `half1` wide at its ends, textured from tex10 (trails.png), coloured by its
+ * face (doubled), drawn additive (material 6: blend 2).
+ */
+export interface FxBoltLine {
+  /** The ends along the model's +z (forward), metres. */
+  readonly z0: number;
+  readonly z1: number;
+  /** The half-widths at each end (3DRL), metres. */
+  readonly half0: number;
+  readonly half1: number;
+  /** The face's colour bytes. */
+  readonly rgb: readonly number[];
+  /**
+   * The four corners' (u, v), texels of the arena's trails.png row, in the
+   * line arm's order: out and in at end 0, in and out at end 1.
+   */
+  readonly uv: readonly number[];
+}
+
 // --- arithmetic ---------------------------------------------------------------
 
 /** x16 field -> metres. */

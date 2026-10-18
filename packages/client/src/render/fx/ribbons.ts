@@ -1,7 +1,9 @@
 // Everything the original draws as a camera-facing ribbon: type 87 trails
 // (`effect_type87.c`, the tick 0x00449430, the draw 0x00448970), type 88
 // links (`effect_link*.c`), the tracers (`tracer_spawn` 0x0043c120, the quad
-// 0x0043c680) and the Mini Gun's ribbon (`player_draw_gun_ribbon` 0x00448010).
+// 0x0043c680), the Mini Gun's ribbon (`player_draw_gun_ribbon` 0x00448010)
+// and the bolts: the world rounds whose Cobj is line facers (`cobj_prim_emit`'s
+// line arm 0x004289cc), a textured quad between two points.
 //
 // Two dynamic meshes, rebuilt every frame into preallocated buffers: the
 // textured one (a trail with its rect, the ribbon) and the gouraud one (the
@@ -10,7 +12,7 @@
 
 import * as THREE from "three";
 import type { RaiseAt } from "../../effects/chain";
-import { FX_EXE, FX_TRAIL_ATLAS } from "../../effects/fcopEffects.generated";
+import { FX_BOLTS, FX_EXE, FX_TRAIL_ATLAS } from "../../effects/fcopEffects.generated";
 import {
   DEFAULT_SCALE,
   directionOf,
@@ -263,6 +265,64 @@ function texturedStrip(
   }
 }
 
+/**
+ * The line arm's quad (0x00428b44): out and in at end 0, in and out at end 1,
+ * each corner with its own (u, v) from `uv` (texels of the arena's row).
+ */
+function cornerQuad(
+  buf: RibbonBuffer,
+  view: FxView,
+  uv: readonly number[],
+  rowV: number,
+  w: number,
+  h: number,
+): void {
+  if (!buf.room(4, 2)) return;
+  sides(2, view, 0);
+  const a = buf.vertex(
+    px[0] + sx[0],
+    py[0] + sy[0],
+    pz[0] + sz[0],
+    cr[0],
+    cg[0],
+    cb[0],
+    uv[0] / w,
+    (rowV + uv[1]) / h,
+  );
+  const b = buf.vertex(
+    px[0] - sx[0],
+    py[0] - sy[0],
+    pz[0] - sz[0],
+    cr[0],
+    cg[0],
+    cb[0],
+    uv[2] / w,
+    (rowV + uv[3]) / h,
+  );
+  const c = buf.vertex(
+    px[1] - sx[1],
+    py[1] - sy[1],
+    pz[1] - sz[1],
+    cr[1],
+    cg[1],
+    cb[1],
+    uv[4] / w,
+    (rowV + uv[5]) / h,
+  );
+  const d = buf.vertex(
+    px[1] + sx[1],
+    py[1] + sy[1],
+    pz[1] + sz[1],
+    cr[1],
+    cg[1],
+    cb[1],
+    uv[6] / w,
+    (rowV + uv[7]) / h,
+  );
+  buf.tri(a, b, c);
+  buf.tri(a, c, d);
+}
+
 // --- the classes -------------------------------------------------------------------
 
 const TRAILS = 48;
@@ -271,6 +331,8 @@ const LINK_POINTS = 33 * 10;
 const TRACERS = 16;
 /** One per player slot that can be firing a Mini Gun. */
 const RIBBONS = 4;
+/** Bolts drawn a frame: the round buckets' capacity (render/greybox.ts) and more. */
+const BOLTS = 512;
 
 export class Ribbons {
   private readonly textured: RibbonBuffer;
@@ -347,6 +409,17 @@ export class Ribbons {
   private readonly ribbonZ = new Float32Array(RIBBONS);
   private readonly ribbonYaw = new Float32Array(RIBBONS);
 
+  // the bolts queued this frame (main.ts's entity pass), and how many the last drew
+  bolts = 0;
+  boltsDrawn = 0;
+  private readonly bRow = new Uint8Array(BOLTS);
+  private readonly bx = new Float32Array(BOLTS);
+  private readonly by = new Float32Array(BOLTS);
+  private readonly bz = new Float32Array(BOLTS);
+  private readonly bdx = new Float32Array(BOLTS);
+  private readonly bdy = new Float32Array(BOLTS);
+  private readonly bdz = new Float32Array(BOLTS);
+
   /** The ground under (x, z), for the trails' GROUND bit; null none. */
   groundAt: ((x: number, z: number) => number) | null = null;
 
@@ -393,6 +466,8 @@ export class Ribbons {
     this.tracers = 0;
     this.ribbonLeft.fill(0);
     this.ribbonEntity.fill(-1);
+    this.bolts = 0;
+    this.boltsDrawn = 0;
     this.textured.begin();
     this.plain.begin();
     this.textured.end();
@@ -1020,11 +1095,77 @@ export class Ribbons {
     }
   }
 
+  // --- the bolts --------------------------------------------------------------------
+
+  /**
+   * A world round of a bolt row at (x, y, z) heading along the unit (dx, dy,
+   * dz), drawn this frame. False when the row is not a bolt (it wears a model).
+   */
+  bolt(row: number, x: number, y: number, z: number, dx: number, dy: number, dz: number): boolean {
+    if (FX_BOLTS[row] === undefined) return false;
+    const i = this.bolts;
+    if (i >= BOLTS) return true;
+    this.bolts++;
+    this.bRow[i] = row;
+    this.bx[i] = x;
+    this.by[i] = y;
+    this.bz[i] = z;
+    this.bdx[i] = dx;
+    this.bdy[i] = dy;
+    this.bdz[i] = dz;
+    return true;
+  }
+
+  private drawBolts(view: FxView): void {
+    const atlas = FX_TRAIL_ATLAS;
+    const rowV = this.trailRow * atlas.rowHeight;
+    for (let i = 0; i < this.bolts; i++) {
+      const lines = FX_BOLTS[this.bRow[i]];
+      if (!lines) continue;
+      for (let k = 0; k < lines.length; k++) {
+        const l = lines[k];
+        px[0] = this.bx[i] + this.bdx[i] * l.z0;
+        py[0] = this.by[i] + this.bdy[i] * l.z0;
+        pz[0] = this.bz[i] + this.bdz[i] * l.z0;
+        px[1] = this.bx[i] + this.bdx[i] * l.z1;
+        py[1] = this.by[i] + this.bdy[i] * l.z1;
+        pz[1] = this.bz[i] + this.bdz[i] * l.z1;
+        hw[0] = l.half0;
+        hw[1] = l.half1;
+        // Colour mode 0x30: the face's bytes doubled (draw_submit 0x00456a49).
+        const r = vertexColour(l.rgb[0]);
+        const g = vertexColour(l.rgb[1]);
+        const b = vertexColour(l.rgb[2]);
+        cr[0] = r;
+        cg[0] = g;
+        cb[0] = b;
+        cr[1] = r;
+        cg[1] = g;
+        cb[1] = b;
+        cornerQuad(this.textured, view, l.uv, rowV, atlas.width, atlas.height);
+      }
+    }
+    this.boltsDrawn = this.bolts;
+    this.bolts = 0;
+  }
+
   /** Ribbons drawn this frame (tests): live trails, links, tracers. */
-  counts(): { trails: number; links: number; tracers: number; ribbons: number } {
+  counts(): {
+    trails: number;
+    links: number;
+    tracers: number;
+    ribbons: number;
+    bolts: number;
+  } {
     let ribbons = 0;
     for (let k = 0; k < RIBBONS; k++) if (this.ribbonLeft[k] > 0) ribbons++;
-    return { trails: this.trails, links: this.links, tracers: this.tracers, ribbons };
+    return {
+      trails: this.trails,
+      links: this.links,
+      tracers: this.tracers,
+      ribbons,
+      bolts: this.boltsDrawn,
+    };
   }
 
   update(
@@ -1044,6 +1185,7 @@ export class Ribbons {
     this.drawLinks(view);
     this.drawTracers(view);
     this.drawRibbons(dt, poses, view, muzzleF, muzzleU);
+    this.drawBolts(view);
     this.textured.end();
     this.plain.end();
   }

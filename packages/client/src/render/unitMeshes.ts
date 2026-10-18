@@ -40,11 +40,9 @@ const FX_MODEL_KEYS = [
   ["projMine", "mine"],
   // The Sky Captain's bomb is world row 9: Cobj 49 (the mortar shell's payload).
   ["projWarden", "round-row9"],
-  // The world rows' rounds, in the original's own colours (effects/rounds.ts).
-  ["roundRow1", "round-row1"],
-  ["roundRow3", "round-row3"],
+  // The world rows' rounds that are models, in the original's own colours
+  // (effects/rounds.ts); the bolts of rows 1, 3 and 6 are render/fx.ts's.
   ["roundRow4", "round-row4"],
-  ["roundRow6", "round-row6"],
   ["roundRow8", "round-row8"],
 ] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
 

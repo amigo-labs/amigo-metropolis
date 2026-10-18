@@ -17,7 +17,8 @@
 //
 // What the executable draws without a record comes from the sim's events
 // here (`pump`): the tracers (the Laser's two, the Sky Captain's gun) and the
-// Mini Gun's ribbon (tables.json exe).
+// Mini Gun's ribbon (tables.json exe). The world rounds whose Cobj is line
+// facers (rows 1, 3 and 6) are drawn here too, from the entity pass (`bolt`).
 //
 // Everything runs on the sim's clock in the original's engine ticks (300 a
 // second), so effects freeze with a paused sim. Pools are fixed-size and
@@ -88,6 +89,12 @@ export interface ShotFx {
   /** The executable's own drawings off this tick's events (tracers, the ribbon). */
   pump(events: EventBuffer, resolve: FxPoseResolver): void;
   /**
+   * A world round of `row` drawn this frame at (x, y, z) metres, heading `yaw`
+   * and climbing at `pitch` radians: its Cobj's line facers. False when the
+   * row's round is a model instead (the caller draws its bucket).
+   */
+  bolt(row: number, x: number, y: number, z: number, yaw: number, pitch: number): boolean;
+  /**
    * Age live effects and rewrite their buffers (once per frame). `simDtSec`
    * is how far the sim moved this frame: the effects run on the sim's clock.
    * Without it they fall back to the frame's own delta.
@@ -107,6 +114,8 @@ export interface ShotFx {
     links: number;
     tracers: number;
     ribbons: number;
+    /** Bolts the last frame drew. */
+    bolts: number;
     shatter: number;
   };
   /** True once the original's particle atlas is bound. */
@@ -241,8 +250,14 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
     shatter.reset();
   }
 
+  function bolt(row: number, x: number, y: number, z: number, yaw: number, pitch: number): boolean {
+    const c = Math.cos(pitch);
+    return ribbons.bolt(row, x, y, z, Math.cos(yaw) * c, Math.sin(pitch), Math.sin(yaw) * c);
+  }
+
   return {
     pump,
+    bolt,
     update,
     reset,
     begin(mapId: string): void {
@@ -263,6 +278,7 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
         links: r.links,
         tracers: r.tracers,
         ribbons: r.ribbons,
+        bolts: r.bolts,
         shatter: shatter.faces(),
       };
     },

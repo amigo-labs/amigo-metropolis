@@ -6,7 +6,7 @@
 // identical records of different arenas are one entry. Units and field
 // meanings: effects/records.ts and the RE's docs/formats/effects.md.
 
-import type { FxArena, FxParticle, FxRecord } from "./records";
+import type { FxArena, FxBoltLine, FxParticle, FxRecord } from "./records";
 
 /** Every distinct record, by the index the arenas' banks name. */
 export const FX_RECORDS: readonly FxRecord[] = [
@@ -194,19 +194,27 @@ export const FX_PARTICLES: readonly FxParticle[] = [
   { id: 10, sizePow2: 64, x: 126, y: 126, w: 63, h: 64, offX: 0, offY: 0 },
 ];
 
-/** The model the client draws for each world row's round (one payload on all six arenas). */
+/** The model the client draws for each world row's round that is not a bolt (one payload on all six arenas). */
 export const FX_ROW_MODELS: Readonly<Record<number, string>> = {
-  1: "round-row1",
-  3: "round-row3",
   4: "round-row4",
-  6: "round-row6",
   8: "round-row8",
   9: "round-row9",
 };
 
-/** trails.png: one row per arena (FxArena.trailRow), its trail rect and the ribbon's frames. */
+/**
+ * The bolts: the world rows whose round is a Cobj of line facers (Mp's 12, 14
+ * and 53; one payload on all six arenas), each line from z0 to z1 along the
+ * round's heading, its corners' (u, v) in the arena's row of trails.png.
+ */
+export const FX_BOLTS: Readonly<Record<number, readonly FxBoltLine[]>> = {
+  1: [{ z0: -0.5078125, z1: 0.517578125, half0: 0.109375, half1: 0.109375, rgb: [128,128,128], uv: [127,29,127,20,64,20,64,29] }],
+  3: [{ z0: -0.404296875, z1: 0.408203125, half0: 0.02734375, half1: 0.091796875, rgb: [128,128,128], uv: [87,8,87,0,127,0,127,8] }, { z0: -0.587890625, z1: 0.505859375, half0: 0.08203125, half1: 0.15625, rgb: [0,0,96], uv: [127,0,127,8,87,8,87,0] }],
+  6: [{ z0: -0.5078125, z1: 0.517578125, half0: 0.109375, half1: 0.109375, rgb: [128,128,128], uv: [127,19,127,9,64,9,64,19] }],
+};
+
+/** trails.png: one row per arena (FxArena.trailRow), its trail rect, the ribbon's frames and the bolts' texels. */
 export const FX_TRAIL_ATLAS = {
-  width: 64,
+  width: 128,
   height: 384,
   rowHeight: 64,
   /** Trail rect row 0 (exe 0x0048c568), at the row's x 0. */

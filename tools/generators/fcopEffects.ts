@@ -8,13 +8,18 @@
 //                                           Gun ribbon, tracers)
 //   <RE>/extracted/particles/particles.json the Cpyr atlas: per particle its
 //   <RE>/extracted/particles/particles_page0.png  own A1R5G5B5 palette
-//   <RE>/extracted/textures/<Mission>/tex10.png   the trail rect, the ribbon
+//   <RE>/extracted/textures/<Mission>/tex10.png   the trail rect, the ribbon,
+//                                           the bolts' texels
+//   <RE>/fixtures/missions/Mp               the bolts' Cobjs (12, 14, 53): their
+//                                           line facers, read through the RE's
+//                                           own container walker (tools/gfx/fcop.py)
 //   ->
 //   packages/client/src/effects/fcopEffects.generated.ts
 //   packages/client/public/fx/particles.png   (the RE's page 0, unchanged)
 //   packages/client/public/fx/particles.json  (the RE's, unchanged)
-//   packages/client/public/fx/trails.png      (each arena's trail rect and
-//                                              the ribbon's frames, cropped)
+//   packages/client/public/fx/trails.png      (each arena's trail rect, the
+//                                              ribbon's frames and the bolts'
+//                                              texels, cropped)
 //
 // Nothing here decides anything. It keeps the records a raise can reach — the
 // world rows, the fifteen loadout records' blocks (the candidate impacts of the
@@ -25,6 +30,7 @@
 // Usage: bun run gen:fx [--re <RE checkout>] [--check]
 //   --check regenerates in memory and fails when a committed file differs.
 
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { FCOP_ARENAS } from "./fcopArenas";
@@ -34,12 +40,17 @@ const ROOT = join(import.meta.dir, "..", "..");
 const OUT_TS = join(ROOT, "packages", "client", "src", "effects", "fcopEffects.generated.ts");
 const PUBLIC_FX = join(ROOT, "packages", "client", "public", "fx");
 
-/** trails.png's width: the trail rect (19) and the ribbon's frames (40) side by side. */
-const TRAIL_ATLAS_W = 64;
+/**
+ * trails.png's width: the trail rect (19) and the ribbon's frames (40) side by
+ * side, then the bolts' texels (64) at BOLT_DST_X.
+ */
+const TRAIL_ATLAS_W = 128;
 /** One arena's row in trails.png: the trail rect is 64 texels tall. */
 const TRAIL_ATLAS_ROW_H = 64;
 /** Where the ribbon's frames go in each row (they sit at (215, 22) on tex10). */
 const RIBBON_DST_X = 20;
+/** Where the bolts' texels go in each row. */
+const BOLT_DST_X = 64;
 
 function argValue(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -377,17 +388,128 @@ function visual(r: RawRecord): Record<string, unknown> {
 
 /**
  * Each world row's projectile, by payload: the six arenas number their Cobjs
- * differently, so a row's id is checked against Mp's by `sha256_16` and the
- * row names the one model the client ships for it.
+ * differently, so a row's id is checked against Mp's by `sha256_16`. A Cobj of
+ * line primitives only is a bolt, drawn as its facers (FX_BOLTS); any other is
+ * a model the client ships (gen:units).
  */
+const ROUND_ROWS: readonly number[] = [1, 3, 4, 6, 8, 9];
 const ROW_MODEL: Readonly<Record<number, string>> = {
-  1: "round-row1",
-  3: "round-row3",
   4: "round-row4",
-  6: "round-row6",
   8: "round-row8",
   9: "round-row9",
 };
+
+// --- the bolts: a Cobj of line facers ------------------------------------------
+
+interface RawCobj {
+  prims: { op0: number; type: number; ft: number; v: number[]; n: number[] }[];
+  /** The 3DTL chunk's body, bytes. */
+  faces: number[];
+  /** The first 4DVL frame: x, y, z per vertex. */
+  verts: number[][];
+  /** The 3DRL lengths. */
+  lengths: number[];
+}
+
+/** 3DQL type nibble 7, `COBJ_PRIM_LINE` (RE src/include/fcop/cobj_prim.h). */
+const PRIM_LINE = 7;
+/** Material 6 (op bits 4..6): the face's dword unlit, half alpha, blend 2 (model_shade.h). */
+const MATERIAL_TRANSLUCENT = 6;
+/** The page every bolt face names: bmp 9, tex10. */
+const BOLT_PAGE = 9;
+/** Model units a metre: the RE's `int16 / 512` (docs/formats/objects.md). */
+const MODEL_UNITS_PER_METRE = 512;
+
+/** The Cobjs' chunks, through the RE's own container walker (tools/gfx/fcop.py). */
+function readCobjs(re: string, mission: string, ids: readonly number[]): Map<number, RawCobj> {
+  const script = [
+    "import sys, struct, json",
+    `sys.path.insert(0, ${JSON.stringify(join(re, "tools", "gfx"))})`,
+    "from fcop import extract, parse",
+    `b, res = parse(${JSON.stringify(join(re, "fixtures", "missions", mission))})`,
+    `want = set(${JSON.stringify(ids)})`,
+    "out = {}",
+    "for r in res:",
+    "    if r['type'] != 'Cobj' or r.get('id') not in want: continue",
+    "    p = extract(b, r)",
+    "    o = {'prims': [], 'faces': [], 'verts': [], 'lengths': []}",
+    "    off = 0",
+    "    while off + 8 <= len(p):",
+    "        tag = p[off:off + 4][::-1].decode('latin1')",
+    "        size = struct.unpack_from('<I', p, off + 4)[0]",
+    "        body = p[off + 8:off + size]",
+    "        if tag == '3DQL':",
+    "            n = struct.unpack_from('<I', body, 4)[0]",
+    "            for k in range(n):",
+    "                q = body[8 + 12 * k:20 + 12 * k]",
+    "                o['prims'].append({'op0': q[0], 'type': q[1] & 0xf, 'ft': struct.unpack_from('<H', q, 2)[0], 'v': list(q[4:8]), 'n': list(q[8:12])})",
+    "        elif tag == '3DTL':",
+    "            o['faces'] = list(body)",
+    "        elif tag == '4DVL' and not o['verts']:",
+    "            n = struct.unpack_from('<I', body, 4)[0]",
+    "            o['verts'] = [list(struct.unpack_from('<3h', body, 8 + 8 * k)) for k in range(n)]",
+    "        elif tag == '3DRL':",
+    "            n = struct.unpack_from('<I', body, 4)[0]",
+    "            o['lengths'] = list(struct.unpack_from('<%dh' % n, body, 8))",
+    "        if size <= 0: break",
+    "        off += size",
+    "    out[r['id']] = o",
+    "print(json.dumps(out))",
+  ].join("\n");
+  const r = spawnSync("python3", ["-I", "-c", script], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`${mission}: Cobj read failed: ${r.stderr}`);
+  const parsed = JSON.parse(r.stdout) as Record<string, RawCobj>;
+  return new Map(Object.entries(parsed).map(([k, v]) => [Number(k), v]));
+}
+
+/** One line facer of a bolt, as the client draws it. */
+interface BoltLine {
+  /** The two ends along the model's +z (forward), metres. */
+  z0: number;
+  z1: number;
+  /** Half-widths at each end (3DRL), metres. */
+  half0: number;
+  half1: number;
+  /** The face's colour bytes (doubled by the submitter). */
+  rgb: number[];
+  /** The face's four (u, v), tex10 texels, in the line arm's corner order. */
+  uv: number[];
+}
+
+/** A Cobj's lines, or null when it holds any other primitive. */
+function boltLines(c: RawCobj, what: string): BoltLine[] | null {
+  if (c.prims.length === 0 || c.prims.some((q) => q.type !== PRIM_LINE)) return null;
+  return c.prims.map((q, k) => {
+    const material = (q.op0 >> 4) & 7;
+    if ((q.op0 & 0x80) === 0 || material !== MATERIAL_TRANSLUCENT) {
+      throw new Error(
+        `${what} line ${k}: op ${q.op0.toString(16)} is not a textured translucent face`,
+      );
+    }
+    // The 3DTL entry at the face offset + 4 (the chunk's 4-byte prefix):
+    // op, three colour bytes, four (u, v), the page.
+    const e = 4 + q.ft;
+    const f = c.faces;
+    if (f[e] !== 2 && f[e] !== 3)
+      throw new Error(`${what} line ${k}: face op ${f[e]} is not textured`);
+    const page = f[e + 12] | (f[e + 13] << 8) | (f[e + 14] << 16) | (f[e + 15] << 24);
+    if (page !== BOLT_PAGE)
+      throw new Error(`${what} line ${k}: page ${page}, expected ${BOLT_PAGE}`);
+    const a = c.verts[q.v[0]];
+    const b = c.verts[q.v[1]];
+    if (!a || !b || a[0] !== 0 || a[1] !== 0 || b[0] !== 0 || b[1] !== 0) {
+      throw new Error(`${what} line ${k}: not on the model's z axis`);
+    }
+    return {
+      z0: a[2] / MODEL_UNITS_PER_METRE,
+      z1: b[2] / MODEL_UNITS_PER_METRE,
+      half0: (c.lengths[q.v[2]] ?? 0) / MODEL_UNITS_PER_METRE,
+      half1: (c.lengths[q.v[3]] ?? 0) / MODEL_UNITS_PER_METRE,
+      rgb: [f[e + 1], f[e + 2], f[e + 3]],
+      uv: f.slice(e + 4, e + 12),
+    };
+  });
+}
 
 // --- the run -------------------------------------------------------------------
 
@@ -407,6 +529,8 @@ export function generate(re: string): FxOutputs {
   const index = new Map<string, number>();
   const arenas: string[] = [];
   const rowPayload = new Map<number, string>();
+  /** Mp's Cobj id per round row: the payload every arena shares. */
+  const rowCobj = new Map<number, number>();
   const trailRows: DecodedImage[] = [];
   let reachable = 0;
 
@@ -446,7 +570,7 @@ export function generate(re: string): FxOutputs {
     // The rows' projectiles must be one payload on every arena.
     const manifest = read<Manifest[]>("extracted", "objects", arena.mission, "manifest.json");
     for (const [row, w] of Object.entries(m.weapons.world)) {
-      if (!ROW_MODEL[Number(row)] || w.projectile_cobj === null) continue;
+      if (!ROUND_ROWS.includes(Number(row)) || w.projectile_cobj === null) continue;
       const sha = manifest.find((o) => o.id === w.projectile_cobj)?.sha256_16;
       if (!sha)
         throw new Error(`${arena.mission} row ${row}: Cobj ${w.projectile_cobj} not exported`);
@@ -457,6 +581,7 @@ export function generate(re: string): FxOutputs {
         );
       }
       rowPayload.set(Number(row), sha);
+      if (arena.mission === "Mp") rowCobj.set(Number(row), w.projectile_cobj);
     }
 
     // This arena's trail rect and the ribbon's frames, from its own tex10.
@@ -476,6 +601,32 @@ export function generate(re: string): FxOutputs {
   const ry0 = Math.min(...ribbon.uv_frames.map((f) => f[1]));
   const rx1 = Math.max(...ribbon.uv_frames.map((f) => f[2]));
   const ry1 = Math.max(...ribbon.uv_frames.map((f) => f[3]));
+  // The bolts: the rows whose Cobj is line facers only, read from Mp (one
+  // payload on every arena, checked above).
+  const cobjs = readCobjs(re, "Mp", [...rowCobj.values()]);
+  const bolts = new Map<number, BoltLine[]>();
+  for (const [row, id] of [...rowCobj.entries()].sort((a, b) => a[0] - b[0])) {
+    const c = cobjs.get(id);
+    if (!c) throw new Error(`Mp row ${row}: Cobj ${id} not in the container`);
+    const lines = boltLines(c, `Mp row ${row} Cobj ${id}`);
+    if (lines) bolts.set(row, lines);
+    else if (!ROW_MODEL[row]) throw new Error(`Mp row ${row}: Cobj ${id} is a model and has none`);
+  }
+  // Their texels: the union of every face's (u, v), one crop per arena.
+  const us = [...bolts.values()].flatMap((ls) =>
+    ls.flatMap((l) => l.uv.filter((_, i) => i % 2 === 0)),
+  );
+  const vs = [...bolts.values()].flatMap((ls) =>
+    ls.flatMap((l) => l.uv.filter((_, i) => i % 2 === 1)),
+  );
+  const bx0 = Math.min(...us);
+  const by0 = Math.min(...vs);
+  const bw = Math.max(...us) - bx0 + 1;
+  const bh = Math.max(...vs) - by0 + 1;
+  if (BOLT_DST_X + bw > TRAIL_ATLAS_W || bh > TRAIL_ATLAS_ROW_H) {
+    throw new Error(`the bolts' texels (${bw}x${bh}) do not fit trails.png's row`);
+  }
+
   const atlasH = TRAIL_ATLAS_ROW_H * trailRows.length;
   const atlas = new Uint8Array(TRAIL_ATLAS_W * atlasH * 4);
   const blit = (
@@ -501,7 +652,15 @@ export function generate(re: string): FxOutputs {
   for (const [i, tex] of trailRows.entries()) {
     blit(tex, tx, ty, tw, th, 0, i * TRAIL_ATLAS_ROW_H);
     blit(tex, rx0, ry0, rx1 - rx0 + 1, ry1 - ry0 + 1, RIBBON_DST_X, i * TRAIL_ATLAS_ROW_H);
+    blit(tex, bx0, by0, bw, bh, BOLT_DST_X, i * TRAIL_ATLAS_ROW_H);
   }
+  const boltRows = [...bolts.entries()].map(([row, lines]) => {
+    const ls = lines.map((l) => {
+      const uv = l.uv.map((t, i) => (i % 2 === 0 ? t - bx0 + BOLT_DST_X : t - by0));
+      return `{ z0: ${l.z0}, z1: ${l.z1}, half0: ${l.half0}, half1: ${l.half1}, rgb: ${JSON.stringify(l.rgb)}, uv: ${JSON.stringify(uv)} }`;
+    });
+    return `  ${row}: [${ls.join(", ")}],`;
+  });
   const trailsPng = encodePng({ width: TRAIL_ATLAS_W, height: atlasH, pixels: atlas });
 
   const parts = particles.particles.map((p) => {
@@ -517,7 +676,7 @@ export function generate(re: string): FxOutputs {
     const spread = typeof t.speed === "number" ? 0 : 0x1f000;
     return `{ rgb: ${JSON.stringify(t.rgb)}, length: ${t.length}, width: ${t.width}, speed: ${speed}, speedSpread: ${spread} }`;
   };
-  const rows = [...rowPayload.keys()].sort((a, b) => a - b);
+  const rows = [...rowPayload.keys()].filter((r) => !bolts.has(r)).sort((a, b) => a - b);
 
   const ts = `// GENERATED by tools/generators/fcopEffects.ts from the RE repo's effect export
 // (extracted/effects/<Mission>.json, tables.json, extracted/particles/) — do not
@@ -527,7 +686,7 @@ export function generate(re: string): FxOutputs {
 // identical records of different arenas are one entry. Units and field
 // meanings: effects/records.ts and the RE's docs/formats/effects.md.
 
-import type { FxArena, FxParticle, FxRecord } from "./records";
+import type { FxArena, FxBoltLine, FxParticle, FxRecord } from "./records";
 
 /** Every distinct record, by the index the arenas' banks name. */
 export const FX_RECORDS: readonly FxRecord[] = [
@@ -544,12 +703,21 @@ export const FX_PARTICLES: readonly FxParticle[] = [
 ${parts.join("\n")}
 ];
 
-/** The model the client draws for each world row's round (one payload on all six arenas). */
+/** The model the client draws for each world row's round that is not a bolt (one payload on all six arenas). */
 export const FX_ROW_MODELS: Readonly<Record<number, string>> = {
 ${rows.map((r) => `  ${r}: ${JSON.stringify(ROW_MODEL[r])},`).join("\n")}
 };
 
-/** trails.png: one row per arena (FxArena.trailRow), its trail rect and the ribbon's frames. */
+/**
+ * The bolts: the world rows whose round is a Cobj of line facers (Mp's 12, 14
+ * and 53; one payload on all six arenas), each line from z0 to z1 along the
+ * round's heading, its corners' (u, v) in the arena's row of trails.png.
+ */
+export const FX_BOLTS: Readonly<Record<number, readonly FxBoltLine[]>> = {
+${boltRows.join("\n")}
+};
+
+/** trails.png: one row per arena (FxArena.trailRow), its trail rect, the ribbon's frames and the bolts' texels. */
 export const FX_TRAIL_ATLAS = {
   width: ${TRAIL_ATLAS_W},
   height: ${atlasH},
@@ -583,7 +751,7 @@ export const FX_EXE = {
     { path: join(PUBLIC_FX, "particles.json"), bytes: new Uint8Array(particlesJson) },
     { path: join(PUBLIC_FX, "trails.png"), bytes: trailsPng },
   ];
-  const report = `gen:fx: ${FCOP_ARENAS.length} arenas, ${reachable} reachable records -> ${records.length} distinct; ${particles.particles.length} particles; trails.png ${TRAIL_ATLAS_W}x${atlasH}`;
+  const report = `gen:fx: ${FCOP_ARENAS.length} arenas, ${reachable} reachable records -> ${records.length} distinct; ${particles.particles.length} particles; bolts on rows ${[...bolts.keys()].join(", ")}; trails.png ${TRAIL_ATLAS_W}x${atlasH}`;
   return { ts, files, report };
 }
 

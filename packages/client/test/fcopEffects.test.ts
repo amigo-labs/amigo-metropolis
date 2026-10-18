@@ -11,8 +11,10 @@ import { decodePng } from "../../../tools/generators/png";
 import { FCOP_ARENA_AUDIO, FCOP_PLAYER_WEAPONS } from "../src/audio/fcopAudio.generated";
 import {
   FX_ARENAS,
+  FX_BOLTS,
   FX_PARTICLES,
   FX_RECORDS,
+  FX_ROW_MODELS,
   FX_TRAIL_ATLAS,
 } from "../src/effects/fcopEffects.generated";
 import { FXF_SUCCESSOR_AT_REPEAT_END, paletteLevel, widenWord } from "../src/effects/records";
@@ -213,6 +215,54 @@ describe("trails.png", () => {
       const x = Math.floor(FX_TRAIL_ATLAS.trail.w / 2);
       const o = ((arena.trailRow * FX_TRAIL_ATLAS.rowHeight + 32) * image.width + x) * 4;
       expect(image.pixels[o] + image.pixels[o + 1] + image.pixels[o + 2]).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("the bolts", () => {
+  test("rows 1, 3 and 6 are line facers; 4, 8 and 9 wear models", () => {
+    expect(Object.keys(FX_BOLTS).map(Number)).toEqual([1, 3, 6]);
+    expect(Object.keys(FX_ROW_MODELS).map(Number)).toEqual([4, 8, 9]);
+    // Cobj 12 and 53: one line, 0x38 model units wide each side, 1.025 m long.
+    for (const row of [1, 6]) {
+      const [line] = FX_BOLTS[row];
+      expect(FX_BOLTS[row].length).toBe(1);
+      expect(line.half0).toBe(0x38 / 512);
+      expect(line.half1).toBe(0x38 / 512);
+      expect(line.z1 - line.z0).toBeCloseTo(1.025, 3);
+      expect(line.rgb).toEqual([0x80, 0x80, 0x80]);
+    }
+    // Cobj 14: a white core and a blue halo (face colour 0, 0, 0x60), tapered.
+    const [core, halo] = FX_BOLTS[3];
+    expect(core.rgb).toEqual([0x80, 0x80, 0x80]);
+    expect(halo.rgb).toEqual([0, 0, 0x60]);
+    expect(core.half1).toBeGreaterThan(core.half0);
+    expect(halo.half0).toBeGreaterThan(core.half0);
+  });
+
+  test("each face's texels sit in the row's bolt crop, and the head is bright", () => {
+    const image = decodePng(new Uint8Array(readFileSync(join(PUBLIC_FX, "trails.png"))));
+    const texel = (row: number, u: number, v: number) => {
+      const o = ((row * FX_TRAIL_ATLAS.rowHeight + v) * image.width + u) * 4;
+      return image.pixels[o] + image.pixels[o + 1] + image.pixels[o + 2];
+    };
+    for (const lines of Object.values(FX_BOLTS)) {
+      for (const l of lines) {
+        for (let i = 0; i < 8; i += 2) {
+          expect(l.uv[i]).toBeGreaterThanOrEqual(64);
+          expect(l.uv[i]).toBeLessThan(FX_TRAIL_ATLAS.width);
+          expect(l.uv[i + 1]).toBeLessThan(FX_TRAIL_ATLAS.rowHeight);
+        }
+      }
+    }
+    // The red bolt (row 1): end 1, the round's nose, is the bright head on every
+    // arena's tex10; end 0 its fading tail.
+    const [red] = FX_BOLTS[1];
+    const midV = (red.uv[1] + red.uv[3]) >> 1;
+    for (const arena of Object.values(FX_ARENAS)) {
+      const head = texel(arena.trailRow, red.uv[6] + 4, midV);
+      const tail = texel(arena.trailRow, red.uv[0] - 4, midV);
+      expect(head).toBeGreaterThan(tail);
     }
   });
 });

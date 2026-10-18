@@ -123,11 +123,9 @@ const FX_PAIRS: readonly (readonly [keyof GreyboxMeshes, string, number, number]
   ["projMine", "mine", PROJ_MINE, 0],
   // The Sky Captain's bomb is world row 9: Cobj 49.
   ["projWarden", "round-row9", PROJ_WARDEN, 0],
-  // The world rows' rounds, by the row that fired them.
-  ["roundRow1", "round-row1", PROJ_ROUND, 1],
-  ["roundRow3", "round-row3", PROJ_ROUND, 3],
+  // The world rows' rounds that are models, by the row that fired them (the
+  // bolts of rows 1, 3 and 6 are render/fx.ts's line facers).
   ["roundRow4", "round-row4", PROJ_ROUND, 4],
-  ["roundRow6", "round-row6", PROJ_ROUND, 6],
   ["roundRow8", "round-row8", PROJ_ROUND, 8],
 ];
 
@@ -176,14 +174,7 @@ describe("projectile stand-ins match the FX models they stand in for", () => {
   });
 
   test("the world rounds wear the original's own colours: no team tint", () => {
-    for (const b of [
-      meshes.roundRow1,
-      meshes.roundRow3,
-      meshes.roundRow4,
-      meshes.roundRow6,
-      meshes.roundRow8,
-      meshes.projWarden,
-    ]) {
+    for (const b of [meshes.roundRow4, meshes.roundRow8, meshes.projWarden]) {
       expect(b.untinted).toBe(true);
     }
     expect(meshes.projHeavy.untinted).toBeUndefined();
