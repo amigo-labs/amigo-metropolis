@@ -8,6 +8,14 @@ import { getMapById } from "@metropolis/sim";
 import * as THREE from "three";
 import { arenaUnitsFor, bakedPoint, spotKey, turretSpotsOf } from "../src/render/arenaUnits";
 import { ARENA_UNITS, UNIT_MODEL_FILES } from "../src/render/arenaUnits.generated";
+import { outpostOfPlacements } from "../src/render/props";
+import {
+  atlasOffset,
+  patchTeamUv,
+  prepareTeamUvMask,
+  TEAM_UV_ATTR,
+  TEAM_UV_MASK,
+} from "../src/render/teamUv";
 
 /** The mission and Cobj a file is, checking that the arena may draw it. */
 function ownCobj(mapId: string, file: string): { mission: string; cobj: number } {
@@ -230,5 +238,95 @@ describe("turret lookups", () => {
     expect(got.x).toBeCloseTo(want.x, 6);
     expect(got.y).toBeCloseTo(want.y, 6);
     expect(got.z).toBeCloseTo(want.z, 6);
+  });
+});
+
+describe("team colour by the original's texture offset", () => {
+  test("each side's offset lands on the other half of the page, in atlas units", () => {
+    const out = new Float32Array(2);
+    const map = new THREE.Texture({ width: 256, height: 256 });
+    // Mp's tank: side 2 is v + 76 texels.
+    const tank = ARENA_UNITS["la-cantina"].tank.uv;
+    expect(tank[1]).toEqual({ u: 0, v: 0 });
+    expect(tank[2]).toEqual({ u: 0, v: 76 });
+    atlasOffset(map, tank[2].u, tank[2].v, out, 0);
+    expect(out[0]).toBe(0);
+    expect(out[1]).toBeCloseTo(76 / 256, 9);
+    // The X1: side 1 is u + 128 — half the page.
+    const x1 = ARENA_UNITS["la-cantina"].x1.uv;
+    expect(x1[1]).toEqual({ u: 128, v: 0 });
+    expect(x1[2]).toEqual({ u: 0, v: 0 });
+    atlasOffset(map, x1[1].u, x1[1].v, out, 0);
+    expect(out[0]).toBe(0.5);
+    // A wider atlas (two pages side by side) halves a texel's width.
+    atlasOffset(new THREE.Texture({ width: 512, height: 256 }), 128, 25, out, 0);
+    expect(out[0]).toBe(0.25);
+    expect(out[1]).toBeCloseTo(25 / 256, 9);
+  });
+
+  test("the RE's per-arena offsets: Hk's tank, Joke's turrets, the neutral capture states", () => {
+    expect(ARENA_UNITS["hollywood-keys"].tank.uv[2]).toEqual({ u: 0, v: 102 });
+    expect(ARENA_UNITS["bug-hunt"].jet.uv[2]).toEqual({ u: 0, v: 78 });
+    expect(ARENA_UNITS["bug-hunt"].baseTurret.uv.slice(1)).toEqual([
+      { u: 50, v: 0 },
+      { u: 100, v: 0 },
+    ]);
+    // A NeutralTurret adds (fa, fb) x state: [neutral, taken by side 1, by side 2].
+    expect(ARENA_UNITS["la-cantina"].neutralTurrets[0].uv).toEqual([
+      { u: 0, v: 0 },
+      { u: 60, v: 0 },
+      { u: 120, v: 0 },
+    ]);
+    expect(ARENA_UNITS["hollywood-keys"].neutralTurrets[1].uv).toEqual([
+      { u: 0, v: 0 },
+      { u: 0, v: 33 },
+      { u: 0, v: 66 },
+    ]);
+    // The Dreadnought's guns wear the hull's offset (RE mount.c 714-715).
+    expect(ARENA_UNITS["la-cantina"].dreadnought.uv[2]).toEqual({ u: 0, v: 78 });
+    expect(ARENA_UNITS["bug-hunt"].dreadnought.uv[2]).toEqual({ u: 0, v: 39 });
+    for (const u of Object.values(ARENA_UNITS)) {
+      expect(u.outpostFlag.cobj).toBe(28);
+      expect(u.outpostFlag.uv).toEqual([
+        { u: 0, v: 0 },
+        { u: 0, v: 25 },
+        { u: 0, v: 51 },
+      ]);
+    }
+  });
+
+  test("the vertex shader adds the instance's offset to the map lookup, masked", () => {
+    const material = new THREE.MeshStandardMaterial();
+    patchTeamUv(material);
+    const shader = {
+      vertexShader: "#include <common>\nvoid main() {\n#include <uv_vertex>\n}",
+    } as unknown as THREE.WebGLProgramParametersWithUniforms;
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    expect(shader.vertexShader).toContain(`attribute vec2 ${TEAM_UV_ATTR};`);
+    expect(shader.vertexShader).toContain(`vMapUv += ${TEAM_UV_ATTR} * ${TEAM_UV_MASK};`);
+    expect(material.customProgramCacheKey()).toBe("teamUv");
+  });
+
+  test("the X1's beacon is masked off the offset; other units take it everywhere", () => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    prepareTeamUvMask(g);
+    expect(Array.from(g.getAttribute(TEAM_UV_MASK).array)).toEqual([1, 1, 1]);
+    const x1 = new THREE.BufferGeometry();
+    x1.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
+    x1.setAttribute("_teamuv", new THREE.BufferAttribute(new Float32Array([1, 0]), 1));
+    prepareTeamUvMask(x1);
+    expect(Array.from(x1.getAttribute(TEAM_UV_MASK).array)).toEqual([1, 0]);
+    expect(x1.getAttribute("_teamuv")).toBeUndefined();
+  });
+
+  test("every outpost has four flags by nearness, on every arena", () => {
+    for (const id of Object.keys(ARENA_UNITS)) {
+      const map = getMapById(id);
+      const flags = map.props.filter((p) => p.model === ARENA_UNITS[id].outpostFlag.cobj);
+      const of = outpostOfPlacements(map, flags);
+      const counts = map.outpostSpots.map((_, k) => of.filter((o) => o === k).length);
+      expect({ id, counts }).toEqual({ id, counts: map.outpostSpots.map(() => 4) });
+    }
   });
 });

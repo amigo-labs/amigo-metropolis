@@ -7,7 +7,11 @@
 //   raw glb -> strip animations/skins -> bake node transforms into one
 //   primitive -> orient +Z forward -> scale to the greybox footprint ->
 //   ground-contact origin -> tri-budget check (meshopt simplify as rescue)
-//   -> optional color neutralization for the whole-unit instanceColor tint.
+//   -> optional color neutralization (projectiles only, for their tint).
+//
+// Units keep the original's texels: their team colour is the original's
+// per-instance texture offset (packages/client/src/render/teamUv.ts), and the
+// X1's beacon, which the offset skips, is marked in a `_TEAMUV` attribute.
 //
 // Every output is ONE mesh with ONE material, colored one of two ways:
 // - textured sources (the FCOP originals): all referenced 256x256 pages are
@@ -99,6 +103,8 @@ interface ModelPass {
    * raw's, and attach points are measured from them.
    */
   readonly dropBillboards?: boolean;
+  /** Write `_TEAMUV`: 0 on these nodes' faces, 1 elsewhere (manifest.ts). */
+  readonly teamUvExclude?: readonly string[];
 }
 
 const PASSES: readonly ModelPass[] = [
@@ -111,7 +117,10 @@ const PASSES: readonly ModelPass[] = [
     footprint: spec.footprint,
     maxHeight: spec.maxHeight,
     nativeScale: spec.nativeScale,
-    neutralizeColors: spec.neutralizeColors,
+    // The original's team colour is a texture offset (render/teamUv.ts): the
+    // texels stay the original's.
+    neutralizeColors: false,
+    teamUvExclude: spec.teamUvExclude,
     centreXZ: true,
     groundY: true,
     dropFxAttachments: true,
@@ -128,7 +137,7 @@ const PASSES: readonly ModelPass[] = [
     rotateQuarterY: spec.treatment === "console" ? (2 as const) : (0 as const),
     maxTris: spec.maxTris,
     nativeScale: true,
-    neutralizeColors: spec.neutralizeColors,
+    neutralizeColors: false,
     centreXZ: spec.treatment !== "part",
     groundY: spec.treatment !== "part",
     dropFxAttachments: true,
@@ -336,6 +345,36 @@ function assertUnsharedVertexData(document: Document, key: string): void {
   }
   for (const count of attributeUsers.values()) {
     if (count > 1) throw new Error(`${key}: a vertex attribute is shared by ${count} primitives`);
+  }
+}
+
+/**
+ * Marks which faces take the team texture offset (render/teamUv.ts): a 0/1
+ * `_TEAMUV` per vertex, 0 on the meshes of the named nodes. Every primitive
+ * gets one, so the merge below keeps a single attribute set.
+ */
+function writeTeamUvMask(document: Document, exclude: readonly string[], key: string): void {
+  const root = document.getRoot();
+  const excluded = new Set<Mesh>();
+  for (const name of exclude) {
+    const node = root.listNodes().find((n) => n.getName() === name);
+    const mesh = node?.getMesh();
+    if (!mesh) throw new Error(`${key}: no mesh node "${name}" to keep off the team offset`);
+    excluded.add(mesh);
+  }
+  for (const mesh of root.listMeshes()) {
+    const value = excluded.has(mesh) ? 0 : 1;
+    for (const prim of mesh.listPrimitives()) {
+      const count = prim.getAttribute("POSITION")?.getCount() ?? 0;
+      prim.setAttribute(
+        "_TEAMUV",
+        document
+          .createAccessor("_TEAMUV")
+          .setType("SCALAR")
+          .setArray(new Float32Array(count).fill(value))
+          .setBuffer(root.listBuffers()[0]),
+      );
+    }
   }
 }
 
@@ -645,6 +684,7 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
     await document.transform(prune());
   }
   assertUnsharedVertexData(document, spec.key);
+  if (spec.teamUvExclude) writeTeamUvMask(document, spec.teamUvExclude, spec.key);
 
   const prims = root.listMeshes().flatMap((m) => m.listPrimitives());
   const unitMat = document.createMaterial("unit").setBaseColorFactor([1, 1, 1, 1]);
@@ -672,9 +712,8 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
   if (textured) {
     // Textured path (the FCOP originals): pack all referenced 256x256 pages
     // side by side into ONE atlas and remap each primitive's U into its page's
-    // column. Optional desaturation keeps the panel detail while letting the
-    // whole-unit instanceColor team tint own the hue (like FCOP's own grey
-    // unit variants).
+    // column. Optional desaturation (projectiles only) keeps the panel detail
+    // while letting their per-instance tint own the hue.
     const pages: DecodedImage[] = [];
     const pageIndex = new Map<unknown, number>();
     for (const prim of texturedPrims) {

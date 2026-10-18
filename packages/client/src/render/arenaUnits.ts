@@ -20,6 +20,13 @@
 // are declared exceptions to "one InstancedMesh per archetype" (assets.md §4):
 // the two parts have two transforms in the original too.
 //
+// Team colour is the original's: a texture offset per instance onto the side's
+// half of the page (render/teamUv.ts, fcop-fidelity.md G4), from the arena's
+// table — by the original's side, which gen:paunits pairs with each Metropolis
+// team (side 2 is team 0 on Mp, side 1 elsewhere), and for a NeutralTurret by
+// its capture state. The greybox stand-ins (?render=greybox, or a model still
+// loading) keep the team tint, which is all a box can show.
+//
 // Renderer rules: `place` runs per entity per frame and allocates nothing; the
 // loaders run at arena build and may.
 
@@ -29,9 +36,11 @@ import {
   ARENA_UNITS,
   type ArenaUnits,
   type ModelPoint,
+  type SideUv,
   type TurretModels,
 } from "./arenaUnits.generated";
 import { type Bucket, type GreyboxMeshes, tintFor } from "./greybox";
+import { atlasOffset, createTeamUvAttribute, TEAM_UV_ATTR, writeTeamUv } from "./teamUv";
 import { loadUnitAsset, type UnitAsset } from "./unitMeshes";
 
 /** The arena whose units a map without an original mission draws (test-128). */
@@ -44,6 +53,28 @@ export function arenaUnitsFor(mapId: string): ArenaUnits {
   const fallback = ARENA_UNITS[FALLBACK_ARENA];
   // Team 0 is side 1 everywhere but Mp, so a map of no mission reads that way.
   return { ...fallback, sides: [1, 2] };
+}
+
+/** The arena whose units are on screen; the X1 rig reads its sides. */
+let current: ArenaUnits = arenaUnitsFor(FALLBACK_ARENA);
+
+/**
+ * The original's side a snapshot team plays on the current arena: 1 or 2 for
+ * a team, 0 (nobody's) for anything neutral. This is the team-colour key.
+ */
+export function sideOfTeam(team: number): number {
+  return team === 0 || team === 1 ? current.sides[team] : 0;
+}
+
+/**
+ * Writes an X1-Alpha slot's offset (render/avatarRig.ts): u 128 for side 1,
+ * none for side 2 (RE pa_models.json `x1alpha`), on the mesh's own atlas.
+ */
+export function writeX1Uv(mesh: THREE.InstancedMesh, slot: number, side: number): void {
+  const o = current.x1.uv[side];
+  const map = (mesh.material as THREE.MeshStandardMaterial).map;
+  atlasOffset(map, o.u, o.v, scratchUv, 0);
+  writeTeamUv(mesh, slot, scratchUv[0], scratchUv[1]);
 }
 
 /**
@@ -125,13 +156,35 @@ export interface ArenaUnitsRenderer {
   ): void;
   /** Publishes the part buckets' counts and matrices. Call after the sweep. */
   end(): void;
+  /**
+   * The side (0 nobody's, 1, 2) holding each outpost, by map.outpostSpots
+   * index, as the sweep last saw its console. For render/props.ts' flags.
+   */
+  readonly outpostSides: Int8Array;
+}
+
+/**
+ * A bucket showing a model: its per-instance offset attribute and the offset
+ * per side in atlas units, [nobody's, side 1, side 2] as u, v pairs.
+ */
+interface UvBinding {
+  readonly attr: THREE.InstancedBufferAttribute;
+  readonly bySide: Float32Array;
 }
 
 // Frame-loop scratch (renderer rule 1).
+const scratchUv = new Float32Array(2);
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchMatrix = new THREE.Matrix4();
 const scratchRest = new THREE.Quaternion();
 const scratchAt = new THREE.Vector3();
+
+/** The console has no team half: Metropolis' outpost console is the scenery Cobj 29. */
+const NO_UV: SideUv = [
+  { u: 0, v: 0 },
+  { u: 0, v: 0 },
+  { u: 0, v: 0 },
+];
 
 /** One file per session: its geometry is already turned onto the sim's +x. */
 const assets = new Map<string, Promise<UnitAsset>>();
@@ -168,12 +221,44 @@ function partBucket(scene: THREE.Scene, capacity: number): Bucket {
   return { mesh, tintCache: new Int8Array(capacity).fill(-2), count: 0 };
 }
 
-/** Writes the slot's tint when its team changed (the tint cache's job). */
-function colour(bucket: Bucket, slot: number, team: number): void {
+/**
+ * Team colour for one slot, written only when its key changes (the tint
+ * cache's job): with a model, the side's texture offset, keyed by side; on a
+ * greybox stand-in, the team tint, keyed by team. A swap clears the cache.
+ */
+function colour(bucket: Bucket, binding: UvBinding | undefined, slot: number, team: number): void {
+  if (binding) {
+    const side = sideOfTeam(team);
+    if (bucket.tintCache[slot] === side) return;
+    bucket.tintCache[slot] = side;
+    const a = binding.attr.array as Float32Array;
+    a[slot * 2] = binding.bySide[side * 2];
+    a[slot * 2 + 1] = binding.bySide[side * 2 + 1];
+    binding.attr.needsUpdate = true;
+    return;
+  }
   if (bucket.tintCache[slot] === team) return;
   bucket.tintCache[slot] = team;
   bucket.mesh.setColorAt(slot, tintFor(team));
   if (bucket.mesh.instanceColor) bucket.mesh.instanceColor.needsUpdate = true;
+}
+
+/**
+ * The model's geometry for one bucket: the cached attributes shared, plus the
+ * bucket's own per-instance offset. Two buckets may show one file (Joke's
+ * Cobj 21 is both turrets' base), and an instanced attribute is per mesh.
+ */
+function wrapGeometry(
+  source: THREE.BufferGeometry,
+  attr: THREE.InstancedBufferAttribute,
+): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  for (const name of Object.keys(source.attributes)) g.setAttribute(name, source.attributes[name]);
+  g.setIndex(source.index);
+  g.morphAttributes = source.morphAttributes;
+  g.morphTargetsRelative = source.morphTargetsRelative;
+  g.setAttribute(TEAM_UV_ATTR, attr);
+  return g;
 }
 
 /** Claims the next slot of a part bucket, or -1 when it is full (said once). */
@@ -213,25 +298,55 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
   };
   const parts: Bucket[] = [defense.base, neutral.base, neutralB.gun, neutralB.base];
   let spots: TurretSpots = { restYaw: new Map(), neutralSet: new Map() };
+  /** Outpost index by where its console stands (spotKey). */
+  let consoles = new Map<number, number>();
+  let outpostSides = new Int8Array(0);
 
   /** The model each bucket shows, so a swap to the same file is a no-op. */
   const showing = new Map<Bucket, string>();
+  /** Set once a bucket shows a model; the frame loop's colour lookup. */
+  const bindings = new Map<Bucket, UvBinding>();
+  /** Per bucket, the wrapped geometry of every file it has shown. */
+  const wrapped = new Map<Bucket, Map<string, THREE.BufferGeometry>>();
 
-  function swap(bucket: Bucket, file: string, cancelled: () => boolean): Promise<void> {
+  function swap(bucket: Bucket, file: string, uv: SideUv, cancelled: () => boolean): Promise<void> {
     return assetOf(file).then(
       (asset) => {
-        if (cancelled() || showing.get(bucket) === file) return;
-        const previous = showing.get(bucket);
-        // The greybox stand-in is the bucket's own and goes; a model is shared
-        // with the session cache and stays.
-        if (previous === undefined) {
-          bucket.mesh.geometry.dispose();
-          (bucket.mesh.material as THREE.Material).dispose();
+        if (cancelled()) return;
+        let binding = bindings.get(bucket);
+        if (showing.get(bucket) !== file) {
+          // The greybox stand-in is the bucket's own and goes; a model is
+          // shared with the session cache and stays.
+          if (!showing.has(bucket)) {
+            bucket.mesh.geometry.dispose();
+            (bucket.mesh.material as THREE.Material).dispose();
+          }
+          const attr = binding?.attr ?? createTeamUvAttribute(bucket.tintCache.length);
+          let byFile = wrapped.get(bucket);
+          if (!byFile) {
+            byFile = new Map();
+            wrapped.set(bucket, byFile);
+          }
+          let geometry = byFile.get(file);
+          if (!geometry) {
+            geometry = wrapGeometry(asset.geometry, attr);
+            byFile.set(file, geometry);
+          }
+          bucket.mesh.geometry = geometry;
+          bucket.mesh.material = asset.material;
+          // A greybox tint must not multiply into the texels.
+          bucket.mesh.instanceColor = null;
+          showing.set(bucket, file);
+          binding = binding ?? { attr, bySide: new Float32Array(6) };
+          bindings.set(bucket, binding);
         }
-        bucket.mesh.geometry = asset.geometry;
-        bucket.mesh.material = asset.material;
-        showing.set(bucket, file);
-        // Re-write every instance tint on the next frame.
+        // Every swap restates the offsets: the same file may sit under another
+        // arena's table, and a side may be another team now.
+        if (binding) {
+          for (let side = 0; side < 3; side++) {
+            atlasOffset(asset.material.map, uv[side].u, uv[side].v, binding.bySide, side * 2);
+          }
+        }
         bucket.tintCache.fill(-2);
       },
       (err) => {
@@ -243,8 +358,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
   function swapTurret(set: TurretSet, models: TurretModels, cancelled: () => boolean): void {
     set.ready = false;
     Promise.all([
-      swap(set.gun, models.gun, cancelled),
-      swap(set.base, models.base, cancelled),
+      swap(set.gun, models.gun, models.uv, cancelled),
+      swap(set.base, models.base, models.uv, cancelled),
     ]).then(() => {
       if (cancelled()) return;
       if (showing.get(set.gun) !== models.gun || showing.get(set.base) !== models.base) return;
@@ -263,13 +378,20 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
   return {
     load(map, cancelled) {
       const units = arenaUnitsFor(map.id);
+      current = units;
       spots = turretSpotsOf(map, units);
-      swap(greybox.runner, units.tank.model, cancelled);
-      swap(greybox.guardian, units.jet.model, cancelled);
-      swap(greybox.fortress, units.fortress.model, cancelled);
-      swap(greybox.juggernaut, units.dreadnought.hull, cancelled);
-      swap(greybox.warden, units.skyCaptain.byLevel[0], cancelled);
-      swap(greybox.console, units.console, cancelled);
+      consoles = new Map(map.outpostSpots.map((s, k) => [spotKey(s.x, s.y), k]));
+      outpostSides = new Int8Array(map.outpostSpots.length);
+      // The X1's two forms are every arena's; their offsets are the arena's
+      // sides. The rig re-keys on the side too (render/avatarRig.ts).
+      swap(greybox.avatarWalker, "avatar-walker", units.x1.uv, cancelled);
+      swap(greybox.avatarHover, "avatar-hover", units.x1.uv, cancelled);
+      swap(greybox.runner, units.tank.model, units.tank.uv, cancelled);
+      swap(greybox.guardian, units.jet.model, units.jet.uv, cancelled);
+      swap(greybox.fortress, units.fortress.model, units.fortress.uv, cancelled);
+      swap(greybox.juggernaut, units.dreadnought.hull, units.dreadnought.uv, cancelled);
+      swap(greybox.warden, units.skyCaptain.byLevel[0], units.skyCaptain.uv, cancelled);
+      swap(greybox.console, units.console, NO_UV, cancelled);
       swapTurret(defense, units.baseTurret, cancelled);
       swapTurret(neutral, units.neutralTurrets[0], cancelled);
       neutralB.ready = false;
@@ -283,7 +405,15 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
         return bucket;
       return spots.neutralSet.get(spotKey(x, y)) === 1 ? neutralB.gun : bucket;
     },
+    get outpostSides() {
+      return outpostSides;
+    },
     place(bucket, slot, archetype, team, x, y, pos, quat, scale) {
+      if (archetype === ARCHETYPE.CONSOLE) {
+        // The console's team is its outpost's owner (sim claimOutpostSlot).
+        const k = consoles.get(spotKey(x, y));
+        if (k !== undefined) outpostSides[k] = sideOfTeam(team);
+      }
       const set = archetype === ARCHETYPE.TURRET ? turretSet(bucket) : null;
       if (set?.ready) {
         // The base keeps the record's rest yaw; the gun stands on the base's
@@ -296,7 +426,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
         if (baseSlot >= 0) {
           scratchMatrix.compose(pos, scratchRest, scale);
           set.base.mesh.setMatrixAt(baseSlot, scratchMatrix);
-          colour(set.base, baseSlot, team);
+          colour(set.base, bindings.get(set.base), baseSlot, team);
         }
         scratchAt.copy(set.point).multiply(scale).applyQuaternion(scratchRest).add(pos);
         scratchMatrix.compose(scratchAt, quat, scale);
@@ -304,7 +434,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
         scratchMatrix.compose(pos, quat, scale);
       }
       bucket.mesh.setMatrixAt(slot, scratchMatrix);
-      colour(bucket, slot, team);
+      colour(bucket, bindings.get(bucket), slot, team);
     },
     end() {
       for (let i = 0; i < parts.length; i++) {

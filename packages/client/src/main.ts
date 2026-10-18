@@ -149,7 +149,7 @@ import {
   type PlayerView,
 } from "./render/playerView";
 import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
-import { loadProps } from "./render/props";
+import { loadProps, updateOutpostFlags } from "./render/props";
 import { sideName, sideOfTeam } from "./render/sides";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
@@ -1842,6 +1842,8 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
     b.mesh.instanceMatrix.needsUpdate = true;
   }
   units.end();
+  // The outpost flags show their claimer's half of the page (render/props.ts).
+  updateOutpostFlags(units.outpostSides);
   if (avatarRig) avatarRig.end();
 }
 

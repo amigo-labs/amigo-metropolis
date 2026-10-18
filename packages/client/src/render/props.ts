@@ -13,6 +13,14 @@
 // and `matrixAutoUpdate` stays off — nothing in this file runs per frame, which
 // is what the renderer's zero-allocation rule asks of it.
 //
+// One exception to "nothing runs per frame": the outpost flags (Cobj 28 on all
+// six arenas; RE pa_models.json `outpost_flag`). The claim script sets every
+// flag of the outpost to the claimer's texture offset (v 25 for side 1, 51 for
+// side 2; RE mission_frame.c 1102-1107), the same per-instance offset the units
+// wear (render/teamUv.ts). updateOutpostFlags writes it when an outpost's owner
+// changes, from the console entity the snapshot carries for it, and writes
+// nothing otherwise.
+//
 // Same tolerance as the unit and map loaders: an absent or broken .glb costs
 // that model's scenery and nothing else. There is no greybox stand-in on
 // purpose — the textured terrain already carries the arena's buildings, and
@@ -23,7 +31,15 @@ import { type MapData, type MapProp, sampleHeight } from "@metropolis/sim";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { arenaUnitsFor } from "./arenaUnits";
 import { disposeSubtree } from "./meshMap";
+import {
+  atlasOffset,
+  createTeamUvAttribute,
+  patchTeamUv,
+  prepareTeamUvMask,
+  TEAM_UV_ATTR,
+} from "./teamUv";
 
 const loader = new GLTFLoader();
 
@@ -39,11 +55,62 @@ export function propModelUrl(mapId: string, cobj: number): string {
   return `/models/props/${mapId}/prop-${String(cobj).padStart(3, "0")}.glb`;
 }
 
+/** The arena's outpost flags once loaded: per instance its outpost and side. */
+interface Flags {
+  readonly attr: THREE.InstancedBufferAttribute;
+  /** Index into map.outpostSpots of each instance (the nearest outpost). */
+  readonly outpostOf: Int16Array;
+  /** The side each instance shows; -1 until written. */
+  readonly shown: Int8Array;
+  /** Offset per side in atlas units: [unclaimed, side 1, side 2] as u, v pairs. */
+  readonly bySide: Float32Array;
+}
+let flags: Flags | null = null;
+
+/**
+ * Shows each outpost's flags in its owner's colour: `sideOf[k]` is the side
+ * (0 nobody's, 1, 2) holding outpost k. Per frame; writes only on a change.
+ */
+export function updateOutpostFlags(sideOf: ArrayLike<number>): void {
+  const f = flags;
+  if (!f) return;
+  const a = f.attr.array as Float32Array;
+  let dirty = false;
+  for (let i = 0; i < f.outpostOf.length; i++) {
+    const side = sideOf[f.outpostOf[i]] ?? 0;
+    if (f.shown[i] === side) continue;
+    f.shown[i] = side;
+    a[i * 2] = f.bySide[side * 2];
+    a[i * 2 + 1] = f.bySide[side * 2 + 1];
+    dirty = true;
+  }
+  if (dirty) f.attr.needsUpdate = true;
+}
+
+/** The nearest outpost spot to each placement (the flags stand at its corners). */
+export function outpostOfPlacements(map: MapData, placements: readonly MapProp[]): Int16Array {
+  const out = new Int16Array(placements.length);
+  placements.forEach((p, i) => {
+    let best = -1;
+    let bestD = Number.POSITIVE_INFINITY;
+    map.outpostSpots.forEach((s, k) => {
+      const d = (s.x - p.x) * (s.x - p.x) + (s.y - p.y) * (s.y - p.y);
+      if (d < bestD) {
+        bestD = d;
+        best = k;
+      }
+    });
+    out[i] = best;
+  });
+  return out;
+}
+
 /**
  * Kicks off one async load per distinct prop model. Fire and forget: each
  * model's InstancedMesh joins the arena group when its .glb arrives.
  */
 export function loadProps(map: MapData, group: THREE.Object3D, cancelled?: () => boolean): void {
+  flags = null;
   if (map.props.length === 0) return;
   const byModel = new Map<number, MapProp[]>();
   for (const prop of map.props) {
@@ -115,6 +182,23 @@ function addPropMesh(
         vertexColors: merged.hasAttribute("color"),
         map: atlas,
       });
+      const flag = arenaUnitsFor(map.id).outpostFlag;
+      if (cobj === flag.cobj && map.outpostSpots.length > 0) {
+        patchTeamUv(material);
+        prepareTeamUvMask(merged);
+        const attr = createTeamUvAttribute(placements.length);
+        merged.setAttribute(TEAM_UV_ATTR, attr);
+        const bySide = new Float32Array(6);
+        for (let side = 0; side < 3; side++) {
+          atlasOffset(atlas, flag.uv[side].u, flag.uv[side].v, bySide, side * 2);
+        }
+        flags = {
+          attr,
+          outpostOf: outpostOfPlacements(map, placements),
+          shown: new Int8Array(placements.length).fill(-1),
+          bySide,
+        };
+      }
       const mesh = new THREE.InstancedMesh(merged, material, placements.length);
       mesh.frustumCulled = false;
       mesh.matrixAutoUpdate = false;

@@ -4,29 +4,23 @@
 // any archetype whose asset is missing or broken simply keeps its greybox —
 // so the rollout can happen model by model and ?render=greybox stays whole.
 //
-// Boot-time only, and only what every arena shares: the X1-Alpha's two forms
-// and the projectiles. The arena's own units (tank, jet, Fortress, Dreadnought,
-// turrets, console, Sky Captain) are its mission's Cobjs and load with the
-// arena (render/arenaUnits.ts).
+// Boot-time only, and only the projectiles. The units — the X1-Alpha's two
+// forms and the arena's own tank, jet, Fortress, Dreadnought, turrets, console
+// and Sky Captain — load with the arena (render/arenaUnits.ts), through
+// loadUnitAsset below, which gives every unit material the original's team
+// colour: a per-instance texture offset (render/teamUv.ts), not a tint.
 //
 // The swap replaces only geometry + material on each bucket's InstancedMesh;
-// instanceMatrix/instanceColor live on the mesh and carry over, so the frame
-// loop (main.ts renderEntities), the bucket capacities, and the whole-unit
-// instanceColor team tint (greybox.ts tintFor) are untouched — one
-// InstancedMesh per archetype, zero frame-loop changes.
+// instanceMatrix lives on the mesh and carries over, so the bucket capacities
+// are untouched — one InstancedMesh per archetype.
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Bucket, GreyboxMeshes } from "./greybox";
+import { patchTeamUv, prepareTeamUvMask } from "./teamUv";
 
 const loader = new GLTFLoader();
-
-/** Model key under /models/units/ per bucket: the ones no arena owns. */
-const UNIT_MODEL_KEYS = [
-  ["avatarWalker", "avatar-walker"],
-  ["avatarHover", "avatar-hover"],
-] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
 
 /**
  * Model key under /models/fx/ per projectile bucket — the mesh the original
@@ -51,9 +45,6 @@ const FX_MODEL_KEYS = [
  * forget: buckets upgrade in place as their .glb arrives.
  */
 export function loadUnitMeshes(buckets: GreyboxMeshes): void {
-  for (const [bucketName, key] of UNIT_MODEL_KEYS) {
-    swapBucketMesh(buckets[bucketName], key);
-  }
   // Projectiles keep the unlit material their bucket was built with: a bolt or
   // a shell reads as a light source, not as a lit surface, which is also why
   // the original drew their glows as emissive facer geometry.
@@ -129,15 +120,16 @@ export async function loadUnitAsset(
   const material = unlit
     ? new THREE.MeshBasicMaterial({ vertexColors, map, toneMapped: false })
     : new THREE.MeshStandardMaterial({ flatShading: true, vertexColors, map });
+  // A unit's team is a texture offset per instance (render/teamUv.ts); the
+  // projectiles keep their tint (render/fx.ts, docs/specs/fcop-fx.md).
+  if (dir === "units") {
+    patchTeamUv(material);
+    prepareTeamUvMask(merged);
+  }
   return { geometry: merged, material };
 }
 
-function swapBucketMesh(
-  bucket: Bucket,
-  key: string,
-  dir: "units" | "fx" = "units",
-  unlit = false,
-): void {
+function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean): void {
   loadUnitAsset(key, dir, unlit).then(
     ({ geometry, material }) => {
       // Models are authored +Z forward (assets.md §4); the sim/greybox frame

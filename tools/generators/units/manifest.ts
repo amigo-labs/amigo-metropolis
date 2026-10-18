@@ -81,18 +81,17 @@ export interface UnitModelSpec {
   readonly nativeScale?: boolean;
   readonly maxTris: number;
   /**
-   * Desaturate the model's colors (baked vertex colors, or the packed atlas
-   * texture) toward luminance so the whole-unit instanceColor team tint
-   * (render/greybox.ts tintFor) reads cleanly. Off for models whose own
-   * colors should survive the neutral/team tint (turret, console).
+   * Node names whose faces keep their texels under the team offset. The
+   * original's team colour is a per-actor texture offset onto the side's half
+   * of the page (render/teamUv.ts); the X1's partner draws it over the legs,
+   * cockpit and both weapons but not the beacon lights (RE player_partner.c
+   * 285-320). gen:units writes a 0/1 `_TEAMUV` vertex attribute when this is
+   * set; a model without it takes the offset on every face.
    *
-   * Metropolis' own, not the original's way (fcop-fidelity.md G4, open): the
-   * original keeps the art twice on one page, one half per team, and gives
-   * each actor a UV offset onto its team's half (BaseEntity uv_offset; RE
-   * docs/formats/x1-alpha.md "Team color"). Stays until that offset table is
-   * exported; the desaturation and the tint then go.
+   * This replaced `neutralizeColors`, the desaturated atlas the per-instance
+   * red / blue tint used to colour (Metropolis' own, fcop-fidelity.md G4).
    */
-  readonly neutralizeColors: boolean;
+  readonly teamUvExclude?: readonly string[];
   /**
    * The largest empty horizontal slab the original itself authored, in metres.
    * The contract test refuses floating parts, which is how a pose the parts
@@ -133,7 +132,7 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     maxHeight: 0.98,
     nativeScale: true,
     maxTris: 5000,
-    neutralizeColors: true,
+    teamUvExclude: ["beacon_lights_mesh"],
   },
   {
     // Full hover assembly (same parts, hover rest pose) — not only the cockpit
@@ -153,7 +152,7 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     maxHeight: 0.48,
     nativeScale: true,
     maxTris: 5000,
-    neutralizeColors: true,
+    teamUvExclude: ["beacon_lights_mesh"],
   },
 ];
 
@@ -363,8 +362,6 @@ export interface ArenaUnitModelSpec {
   readonly usedBy: readonly string[];
   readonly source: UnitModelSource;
   readonly maxTris: number;
-  /** Metropolis' own: see UnitModelSpec.neutralizeColors (fcop-fidelity.md G4, open). */
-  readonly neutralizeColors: boolean;
 }
 
 /**
@@ -398,7 +395,6 @@ export const ARENA_UNIT_MODELS: readonly ArenaUnitModelSpec[] = UNIT_MODEL_FILES
     license: FCOP_LICENSE,
   },
   maxTris: 5000,
-  neutralizeColors: f.treatment !== "console",
 }));
 
 export interface PropModelSpec {
@@ -455,9 +451,13 @@ export interface PropModelSpec {
 // `neutralizeColors` either — nothing tints scenery.
 //
 // What the models are, from their geometry and the texture region each samples
-// (named by Mp's ids; page tex05 for the consoles, tex01/tex03 for the barrier):
+// (named by Mp's ids; page tex05 for the consoles, tex01/tex03 for the flags):
 // - Mp 28 (16 placements): thin (5 cm), 1.5 m tall, yellow/black hazard
-//   diagonals — a striped barrier. A 6-frame morph; the pipeline keeps frame 0.
+//   diagonals — read as a "striped barrier" until the RE named it: the outpost
+//   flag, four per outpost (pa_models.json `outpost_flag`, groups 11-14). The
+//   claim script sets the claimer's offset on it (v 25 / 51, the red and blue
+//   flag on the same page; render/props.ts). A 6-frame morph, the cloth; the
+//   pipeline keeps frame 0.
 // - Mp 27/33/34/35/39/40 (2-4 each): small kiosks sampling the same atlas
 //   strip as Cobj 29 — yellow unit-type icons (jet, tank, turret) and the 0-9
 //   digit row. Siblings of the outpost console, differing in which part of
@@ -465,10 +465,10 @@ export interface PropModelSpec {
 // - Mp 29 (4 placements): the outpost flag console, the same bytes as the
 //   `console` unit's raw.
 // Ovmp's console and kiosks are payloads of its own (pages 4 and 8, the kiosks
-// a little larger); only its barrier is Mp's.
+// a little larger); only its flag is Mp's.
 const SCENERY_KINDS: Readonly<Record<number, string>> = {
   27: "Scenery kiosk, unit-icon console variant",
-  28: "Hazard-striped barrier",
+  28: "Outpost flag",
   29: "Outpost flag console",
   33: "Scenery kiosk, unit-icon console variant",
   34: "Scenery kiosk, unit-icon console variant",

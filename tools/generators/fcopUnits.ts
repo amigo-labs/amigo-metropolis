@@ -78,6 +78,8 @@ interface PaRole {
   readonly team_uv?: {
     readonly by_side: Readonly<Record<string, readonly Uv[]>>;
     readonly per_model?: Readonly<Record<string, Readonly<Record<string, Wrap>>>>;
+    /** The outpost flags: the offset order 0x44 sets once a side claims. */
+    readonly after_claim?: Readonly<Record<string, Uv>>;
   } | null;
   readonly levels?: readonly number[];
   readonly gun_point?: { readonly glb_xyz: readonly number[] };
@@ -170,6 +172,7 @@ interface ArenaUnits {
   skyCaptain: { byLevel: string[]; uv: SideUv };
   console: string;
   x1: { uv: SideUv };
+  outpostFlag: { cobj: number; uv: SideUv };
 }
 
 /** One use of a Cobj by a role: how it is treated and every offset it is drawn under. */
@@ -266,6 +269,37 @@ function neutralSpots(arena: FcopArena, role: PaRole, logic: Logic, map: MapBits
     if (ids.has(rec.id)) spots.push(k);
   });
   return spots;
+}
+
+/**
+ * The outpost flags (type 11, groups 11-14): drawn as scenery by
+ * render/props.ts, and set to the claimer's offset by order 0x44 from the claim
+ * zone's script (RE mission_frame.c 1102-1107). One model and one pair of
+ * offsets on every flag of the arena.
+ */
+function outpostFlagOf(pa: PaModels, mapId: string): { cobj: number; uv: SideUv } {
+  const roles = pa.roles.outpost_flag ?? [];
+  if (roles.length === 0) throw new Error(`${mapId}: no outpost flags`);
+  const cobjs = new Set(roles.map((r) => partCobj(r, "flag", `${mapId} outpost flag`)));
+  // Each group's entry also names the script that posts it; the offsets agree.
+  const claims = new Set(
+    roles.map((r) =>
+      ["1", "2"]
+        .map((side) => {
+          const o = r.team_uv?.after_claim?.[side];
+          return o ? `${o.u},${o.v}` : "-";
+        })
+        .join("|"),
+    ),
+  );
+  if (cobjs.size !== 1 || claims.size !== 1) {
+    throw new Error(`${mapId}: the outpost flags differ in model or claim offset`);
+  }
+  const role = roles[0];
+  const neutral = sideUv(role, `${mapId} outpost flag`)[0];
+  const after = role.team_uv?.after_claim;
+  if (!after) throw new Error(`${mapId}: outpost flag without after_claim`);
+  return { cobj: [...cobjs][0], uv: [neutral, after["1"] ?? ZERO, after["2"] ?? ZERO] };
 }
 
 /** A time-driven morph the client can play (the jet's rotor), else null. */
@@ -480,6 +514,7 @@ function readArena(arena: FcopArena, reRepo: string): ArenaRead {
     skyCaptain: { byLevel, uv: captainUv ?? [ZERO, ZERO, ZERO] },
     console: use(29, "console", [ZERO, ZERO, ZERO]),
     x1: { uv: sideUv(only(pa.roles.x1alpha, `${mapId} x1alpha`), `${mapId} x1alpha`) },
+    outpostFlag: outpostFlagOf(pa, mapId),
   };
   return { arena, pa, units, uses };
 }
@@ -562,6 +597,11 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
     "  readonly skyCaptain: { readonly byLevel: readonly string[]; readonly uv: SideUv };",
     "  readonly console: string;",
     "  readonly x1: { readonly uv: SideUv };",
+    "  /**",
+    "   * The outpost flags (scenery, render/props.ts): [unclaimed, claimed by side 1,",
+    "   * claimed by side 2] — set, not added, by the claim script (RE mission_frame.c 1102-1107).",
+    "   */",
+    "  readonly outpostFlag: { readonly cobj: number; readonly uv: SideUv };",
     "}",
     "",
     "export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [",
@@ -600,6 +640,7 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
       `    skyCaptain: { byLevel: ${json(u.skyCaptain.byLevel)}, uv: ${uvs(u.skyCaptain.uv)} },`,
       `    console: ${json(u.console)},`,
       `    x1: { uv: ${uvs(u.x1.uv)} },`,
+      `    outpostFlag: { cobj: ${u.outpostFlag.cobj}, uv: ${uvs(u.outpostFlag.uv)} },`,
       "  },",
     );
   }

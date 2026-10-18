@@ -70,6 +70,11 @@ export interface ArenaUnits {
   readonly skyCaptain: { readonly byLevel: readonly string[]; readonly uv: SideUv };
   readonly console: string;
   readonly x1: { readonly uv: SideUv };
+  /**
+   * The outpost flags (scenery, render/props.ts): [unclaimed, claimed by side 1,
+   * claimed by side 2] — set, not added, by the claim script (RE mission_frame.c 1102-1107).
+   */
+  readonly outpostFlag: { readonly cobj: number; readonly uv: SideUv };
 }
 
 export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
@@ -810,6 +815,14 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
       ],
     },
+    outpostFlag: {
+      cobj: 28,
+      uv: [
+        { u: 0, v: 0 },
+        { u: 0, v: 25 },
+        { u: 0, v: 51 },
+      ],
+    },
   },
   "urban-jungle": {
     mission: "Conft",
@@ -905,6 +918,14 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
       ],
     },
+    outpostFlag: {
+      cobj: 28,
+      uv: [
+        { u: 0, v: 0 },
+        { u: 0, v: 25 },
+        { u: 0, v: 51 },
+      ],
+    },
   },
   "proving-ground": {
     mission: "Slim",
@@ -998,6 +1019,14 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
         { u: 128, v: 0 },
         { u: 0, v: 0 },
+      ],
+    },
+    outpostFlag: {
+      cobj: 28,
+      uv: [
+        { u: 0, v: 0 },
+        { u: 0, v: 25 },
+        { u: 0, v: 51 },
       ],
     },
   },
@@ -1106,6 +1135,14 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
       ],
     },
+    outpostFlag: {
+      cobj: 28,
+      uv: [
+        { u: 0, v: 0 },
+        { u: 0, v: 25 },
+        { u: 0, v: 51 },
+      ],
+    },
   },
   "venice-beach": {
     mission: "Ovmp",
@@ -1201,6 +1238,14 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
       ],
     },
+    outpostFlag: {
+      cobj: 28,
+      uv: [
+        { u: 0, v: 0 },
+        { u: 0, v: 25 },
+        { u: 0, v: 51 },
+      ],
+    },
   },
   "bug-hunt": {
     mission: "Joke",
@@ -1294,6 +1339,14 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
         { u: 128, v: 0 },
         { u: 0, v: 0 },
+      ],
+    },
+    outpostFlag: {
+      cobj: 28,
+      uv: [
+        { u: 0, v: 0 },
+        { u: 0, v: 25 },
+        { u: 0, v: 51 },
       ],
     },
   },

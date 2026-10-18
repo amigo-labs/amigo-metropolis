@@ -30,8 +30,9 @@
 
 import { ANIM_AIRBORNE, ANIM_MOVING } from "@metropolis/sim";
 import * as THREE from "three";
-import { tintFor } from "./greybox";
+import { sideOfTeam, writeX1Uv } from "./arenaUnits";
 import { MORPH_FOLD, MORPH_SCALE_XZ, MORPH_SCALE_Y, MORPH_SPIN } from "./morph";
+import { createTeamUvAttribute, TEAM_UV_ATTR, TEAM_UV_MASK } from "./teamUv";
 import { loadUnitAsset } from "./unitMeshes";
 
 /**
@@ -519,10 +520,13 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
         } else {
           part.mesh.setMatrixAt(slot, scratchBase);
         }
-        if (part.tintCache[slot] !== team) {
-          part.tintCache[slot] = team;
-          part.mesh.setColorAt(slot, tintFor(team));
-          if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
+        // The original's team colour: the side's half of the page, keyed by
+        // side so an arena that pairs the teams the other way re-writes it
+        // (render/teamUv.ts, render/arenaUnits.ts).
+        const side = sideOfTeam(team);
+        if (part.tintCache[slot] !== side) {
+          part.tintCache[slot] = side;
+          writeX1Uv(part.mesh, slot, side);
         }
       }
       return true;
@@ -555,10 +559,11 @@ function buildPart(
   angle: number,
 ): RigPart {
   const geometry = new THREE.BufferGeometry();
-  for (const name of ["position", "normal", "uv", "color"]) {
+  for (const name of ["position", "normal", "uv", "color", TEAM_UV_MASK]) {
     const attr = source.getAttribute(name);
     if (attr) geometry.setAttribute(name, attr);
   }
+  geometry.setAttribute(TEAM_UV_ATTR, createTeamUvAttribute(RIG_CAPACITY));
   geometry.setIndex(new THREE.BufferAttribute(triangles, 1));
   const mesh = new THREE.InstancedMesh(geometry, material, RIG_CAPACITY);
   mesh.count = 0;
