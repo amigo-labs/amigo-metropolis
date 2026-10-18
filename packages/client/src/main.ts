@@ -798,7 +798,9 @@ const units: ArenaUnitsRenderer = arenaUnits;
 // its bone table have loaded (render/avatarRig.ts): one mesh, posed by the
 // original's frames, walker, transform and hover alike. Until then — and
 // forever in ?render=greybox — the buckets keep drawing them.
-const avatarRig: AvatarRig | null = renderMode === "mesh" ? createAvatarRig(scene) : null;
+// `?x1rig=off` keeps them there, the RE's two rest poses, for a side-by-side.
+const avatarRig: AvatarRig | null =
+  renderMode === "mesh" && params.get("x1rig") !== "off" ? createAvatarRig(scene) : null;
 // The original's walker animation per player slot (render/x1Walk.ts), stepped
 // once a sim tick off the avatar snapshot (animateAvatars).
 const x1Walk = createX1Walk();
