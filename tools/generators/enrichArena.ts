@@ -68,7 +68,14 @@ import {
   worstUphillRise,
 } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
-import { type FcopArena, logicFile, rulesFile, selectArenas, wallsFile } from "./fcopArenas";
+import {
+  type FcopArena,
+  logicFile,
+  modelsFile,
+  rulesFile,
+  selectArenas,
+  wallsFile,
+} from "./fcopArenas";
 import {
   captureRangeToCells,
   fovToCos,
@@ -79,6 +86,7 @@ import {
   triggerHalfExtent,
   turnSpeedToRadPerTick,
 } from "./fcopLogic";
+import type { ModelsArtifact } from "./fcopModels";
 import type { FcopRules } from "./fcopRules";
 import { type Lattice, openKerbs, readGlbTriangles, TerrainMesh } from "./kerbs";
 
@@ -1004,6 +1012,42 @@ function outpostMembers(ev: EvidenceMap): Set<number> {
  * PA turret); `hold` + `priority`: HOLD_TARGET and the priority preference
  * (0x4000 and 0x40, the team turrets' bitfield 0x4246).
  */
+/**
+ * The Dreadnought's gun mounts from the arena's own hull and gun models
+ * (fcopModels.ts): per gun the hull's attach point and the gun's muzzle, both in
+ * their glb frames, and the one turn rate all four share. Every gun fires only
+ * inside its front sector, which is what `shooterWeapon`'s arc applies.
+ */
+function dreadnoughtMounts(models: ModelsArtifact): {
+  mounts: { x: number; y: number; z: number; mx: number; my: number; mz: number }[];
+  turn: number;
+} {
+  const guns = models.dreadnought.guns;
+  const turn = guns[0]?.turnPerTick;
+  if (turn === undefined) throw new Error(`${models.mission}: the Dreadnought has no guns`);
+  for (const g of guns) {
+    if (g.turnPerTick !== turn) throw new Error(`${models.mission}: its guns turn apart`);
+    if (!g.frontSectorOnly) throw new Error(`${models.mission}: gun ${g.gun} fires all round`);
+  }
+  return {
+    mounts: guns.map((g) => ({
+      x: g.point[0],
+      y: g.point[1],
+      z: g.point[2],
+      mx: g.muzzle[0],
+      my: g.muzzle[1],
+      mz: g.muzzle[2],
+    })),
+    turn,
+  };
+}
+
+/** The record's gun count, which must be the hull's mount count. */
+function gunsOnMounts(guns: number, mounts: number, mapId: string): number {
+  if (guns !== mounts) throw new Error(`${mapId}: ${guns} Dreadnought guns on ${mounts} mounts`);
+  return guns;
+}
+
 function shooterWeapon(
   sh: Shooter,
   turnSpeed: number,
@@ -1682,6 +1726,10 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const rules = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", rulesFile(arena)), "utf8"),
   ) as FcopRules;
+  const models = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", modelsFile(arena)), "utf8"),
+  ) as ModelsArtifact;
+  const mounts = dreadnoughtMounts(models);
 
   // Team 0 is the low end of the field axis; each side's Dreadnought drives its
   // own Cnet (fcop-logic.md §8.1) and the side owns the nearer X1Alpha. The
@@ -1810,18 +1858,19 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       turretRespawnTicks,
       // The type-28 record IS the Dreadnought (fcop-re/ranges-turrets-capture.md
       // top + Q4): the Juggernaut spawns where it stands, with its 3000 HP and its
-      // four hull guns, each its record's shooter on catalogue weapon 3. The
-      // mounts' own yaw (237°/s, relative to the hull) is not modelled — the guns
-      // stand at the hull and aim at their target — so their ±22.5° arc is not
-      // applied either.
+      // four hull guns, each its record's shooter on catalogue weapon 3, standing
+      // on its own mount of the arena's hull model with its own yaw, firing inside
+      // its ±22.5° front sector (<mission>-models.json; fcop-fidelity.md I6).
       juggernaut: {
         x: coreX,
         y: coreY,
         hp: base.health,
-        guns: base.gunCount,
+        guns: gunsOnMounts(base.gunCount, mounts.mounts.length, mapId),
         weapon: table.intern(
-          shooterWeapon(base.gun, 0, { arc: false, hold: false, priority: false }),
+          shooterWeapon(base.gun, 0, { arc: true, hold: false, priority: false }),
         ),
+        mounts: mounts.mounts,
+        gunTurn: mounts.turn,
       },
       // The tank, jet and Flying Fortress spawner records (fcop-fidelity.md W3).
       ...unitProfiles(logic, base.team, table),

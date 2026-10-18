@@ -1544,8 +1544,8 @@ export const TARGET_PRIORITY_AVATAR = 5;
  *     7.62 m/s lead round flying 12 m; slews 290°/s (0.1687 rad a tick);
  *     ±22.5° firing arc; re-searches every 2.0 s; holds its target and prefers
  *     priority (bitfield 0x4246);
- *   1 Dreadnought hull gun: weapon 3, re-search 1.0 s, no arc (mounts not
- *     modelled), no hold;
+ *   1 Dreadnought hull gun: weapon 3, re-search 1.0 s, ±22.5° firing arc about
+ *     its own mount's yaw (the mounts since SIM_VERSION 77), no hold;
  *   2 tank and jet: weapon 1/6 — 50 dmg every 300 units (1.0 s), 12 m, re-search
  *     2.0 s;
  *   3 Flying Fortress: weapon 4 — guided 100 dmg every 150 units (0.5 s), flies
@@ -1581,7 +1581,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     flight: 12,
     guided: 0,
     lead: 1,
-    arcCos: -1,
+    arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 0,
     priority: 0,
   },
@@ -1654,6 +1654,40 @@ export const ORIGINAL_UNIT_PROFILES = {
   fortress: { hp: 2000, weapon: PROFILE_FORTRESS },
   juggernaut: { hp: 3000, guns: 4, weapon: PROFILE_DREAD_GUN },
 } as const;
+
+/**
+ * The Dreadnought's guns (fcop-fidelity.md I6): four mounts, gun i on its hull's
+ * attach point i (vertex 4DGI[0x30 + i], RE `mount.c` 526-546), each with its
+ * own yaw relative to the hull, its own shooter and its own target.
+ */
+export const DREADNOUGHT_GUNS = 4;
+/**
+ * A gun's turn: `((word_48 << 8) / 218) >> 4` = 9 angle units (4096 a turn) per
+ * 1/300 s, word_48 being 128 in every record (`mount.c` 1136): 237.3°/s, 90
+ * units a sim tick. The imported arenas carry it per Dreadnought
+ * (MapJuggernaut.gunTurn); this is the value for one that imports none.
+ */
+export const DREADNOUGHT_GUN_TURN = 9;
+/**
+ * Mp's Dreadnought (hull Cobj 36, guns 37 / 38; Conft, Slim, Hk and Ovmp carry
+ * the same points, Joke's hull 35 its own), for an arena that imports none: per
+ * gun the hull's attach point (x, y, z) and the gun model's point 0, its muzzle
+ * (mx, my, mz), in the glb frame of each model (metres, +z forward, y up, x
+ * negated from the Cobj; RE pa_models.json `guns[]`).
+ */
+export const DREADNOUGHT_MOUNTS: readonly {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly mx: number;
+  readonly my: number;
+  readonly mz: number;
+}[] = [
+  { x: -0.267578, y: 0.486328, z: 0.283203, mx: 0.001953, my: 0.042969, mz: 0.050781 },
+  { x: 0.257812, y: 0.486328, z: 0.283203, mx: 0.001953, my: 0.042969, mz: 0.050781 },
+  { x: -0.263672, y: 0.794922, z: -0.404297, mx: 0.001953, my: 0.042969, mz: 0.044922 },
+  { x: 0.253906, y: 0.794922, z: -0.404297, mx: 0.001953, my: 0.042969, mz: 0.044922 },
+];
 
 /**
  * The Dreadnought's hull guns: weapon 3 (above). Kept as names for the readers

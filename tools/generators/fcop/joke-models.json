@@ -1,0 +1,46 @@
+{
+  "mission": "Joke",
+  "source": {
+    "repo": "amigo-labs/fcop-reverse-engineering",
+    "commit": "43105fbca860f782b33d7d7de42131398a6d5a41",
+    "tool": "tools/gfx/pa_models.py"
+  },
+  "dreadnought": {
+    "hull": 35,
+    "hullSha": "d4ddecfae3ba8680",
+    "guns": [
+      {
+        "gun": 0,
+        "cobj": 36,
+        "point": [-0.277344, 1.103516, 0.554688],
+        "muzzle": [0.001953, 0.072266, 0.171875],
+        "turnPerTick": 9,
+        "frontSectorOnly": true
+      },
+      {
+        "gun": 1,
+        "cobj": 36,
+        "point": [0.273438, 1.095703, 0.544922],
+        "muzzle": [0.001953, 0.072266, 0.171875],
+        "turnPerTick": 9,
+        "frontSectorOnly": true
+      },
+      {
+        "gun": 2,
+        "cobj": 37,
+        "point": [0.28125, 1.085938, -0.568359],
+        "muzzle": [0.001953, 0.072266, 0.166016],
+        "turnPerTick": 9,
+        "frontSectorOnly": true
+      },
+      {
+        "gun": 3,
+        "cobj": 37,
+        "point": [-0.271484, 1.085938, -0.570312],
+        "muzzle": [0.001953, 0.072266, 0.166016],
+        "turnPerTick": 9,
+        "frontSectorOnly": true
+      }
+    ]
+  }
+}

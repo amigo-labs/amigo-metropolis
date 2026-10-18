@@ -193,7 +193,7 @@ describe("the Juggernaut is the original Dreadnought", () => {
     expect(state.ent.weaponProfile[id]).toBe(j.weapon);
   });
 
-  it("fires a volley of four 100-damage shots, then waits the refire", () => {
+  it("fires four 100-damage rounds, one a gun, then waits the refire", () => {
     const state = createSim(map, 1);
     const ent = state.ent;
     const j = map.bases[0].juggernaut;
@@ -218,7 +218,8 @@ describe("the Juggernaut is the original Dreadnought", () => {
         if (type === EV_HIT && state.events.data[o + 1] === foe) damage += state.events.data[o + 3];
       }
     }
-    // One volley inside one refire window: four guns, 100 each.
+    // Inside one refire window each of the four guns fires once, as its own
+    // mount comes round onto the target (dreadnought.test.ts), 100 each.
     expect(shots).toBe(4);
     expect(damage).toBeGreaterThanOrEqual(4 * DREADNOUGHT_GUN_DAMAGE);
   });

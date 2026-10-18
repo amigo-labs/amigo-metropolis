@@ -24,6 +24,7 @@
     "gen:mapalign": "bun run tools/generators/genMapAlign.ts",
     "gen:palogic": "bun run tools/generators/fcopLogic.ts",
     "gen:parules": "bun run tools/generators/fcopRules.ts",
+    "gen:pamodels": "bun run tools/generators/fcopModels.ts",
     "gen:paprops": "bun run tools/generators/fcopPaProps.ts",
     "gen:scenery": "bun run tools/generators/fcopScenery.ts",
     "gen:paunits": "bun run tools/generators/fcopUnits.ts",

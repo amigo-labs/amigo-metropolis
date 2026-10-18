@@ -140,6 +140,11 @@ export function rulesFile(a: FcopArena): string {
   return `${a.mission.toLowerCase()}-rules.json`;
 }
 
+/** Committed model data the sim reads for this arena (fcopModels.ts). */
+export function modelsFile(a: FcopArena): string {
+  return `${a.mission.toLowerCase()}-models.json`;
+}
+
 /** Committed pristine stage-1 wall lattice for this arena. */
 export function wallsFile(a: FcopArena): string {
   return `${a.mission.toLowerCase()}-walls.json`;

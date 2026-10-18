@@ -12,6 +12,9 @@ import provingGroundJson from "../maps/proving-ground.json";
 import urbanJungleJson from "../maps/urban-jungle.json";
 import veniceBeachJson from "../maps/venice-beach.json";
 import {
+  DREADNOUGHT_GUN_TURN,
+  DREADNOUGHT_GUNS,
+  DREADNOUGHT_MOUNTS,
   ORIGINAL_BUY_HALF_L,
   ORIGINAL_BUY_HALF_W,
   ORIGINAL_CAPTURE_RANGE,
@@ -133,15 +136,31 @@ export interface MapUnitProfile {
 }
 
 /**
+ * One of the Dreadnought's gun mounts, in its models' glb frames (metres, +z
+ * forward, y up; RE docs/formats/pa-models.md): the hull's attach point the gun
+ * stands on (x, y, z) and the gun model's point 0, its muzzle (mx, my, mz). The
+ * sim places a hull-frame point at hull + z * forward + x * (sin yaw, -cos yaw),
+ * the frame the client draws the hull's glb in.
+ */
+export interface MapGunMount {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly mx: number;
+  readonly my: number;
+  readonly mz: number;
+}
+
+/**
  * A side's Juggernaut as the original arena defines it: the Dreadnought record
  * (act_type 28, extracted as "TeamBase?" — fcop-re/ranges-turrets-capture.md top
  * + Q4). Precinct Assault arenas only; absent on the §1 arenas, whose Juggernaut
  * keeps balance.ts's own stats and spawns at the ground console.
  *
- * The four hull guns are modelled as `guns` independent shooters standing at the
- * hull's position, all on one weapon profile: the original mounts them at the
- * hull model's points 0..3 (offsets under 0.9 m) with their own yaw, which at a
- * 12 m reach changes nothing a player can see.
+ * Its `guns` are the original's mounts (SIM_VERSION 77, fcop-fidelity.md I6):
+ * gun i on `mounts[i]`, each with its own yaw relative to the hull, turning
+ * `gunTurn` angle units per 1/300 s toward its own target, firing from its muzzle
+ * inside its front sector, all on one weapon profile.
  */
 export interface MapJuggernaut {
   /** Spawn point: the type-28 record's position, node 0 of its Cnet by the HQ. */
@@ -150,10 +169,14 @@ export interface MapJuggernaut {
   readonly layer: number;
   /** Max HP (the original's 3000). */
   readonly hp: number;
-  /** Hull guns that fire per volley (4). */
+  /** Hull guns (4): the length of `mounts`. */
   readonly guns: number;
   /** Index into MapData.weapons: one gun's profile. */
   readonly weapon: number;
+  /** Gun i's mount (balance.ts DREADNOUGHT_MOUNTS where the arena imports none). */
+  readonly mounts: readonly MapGunMount[];
+  /** The guns' turn, angle units (4096 a turn) per 1/300 s (DREADNOUGHT_GUN_TURN). */
+  readonly gunTurn: number;
 }
 
 /**
@@ -989,6 +1012,10 @@ export interface MapBaseJson {
     guns: number;
     weapon: number;
     layer?: number;
+    /** OPTIONAL: the gun mounts (MapGunMount); balance.ts DREADNOUGHT_MOUNTS when absent. */
+    mounts?: { x: number; y: number; z: number; mx: number; my: number; mz: number }[];
+    /** OPTIONAL: the guns' turn (MapJuggernaut.gunTurn); DREADNOUGHT_GUN_TURN when absent. */
+    gunTurn?: number;
   };
   /** OPTIONAL PA extras: the original tank, jet and Flying Fortress (MapUnitProfile). */
   runner?: { hp: number; weapon: number };
@@ -1350,6 +1377,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
         hp: d.hp,
         guns: d.guns,
         weapon: original(d.weapon),
+        mounts: DREADNOUGHT_MOUNTS,
+        gunTurn: DREADNOUGHT_GUN_TURN,
       };
     } else {
       const j = b.juggernaut;
@@ -1359,7 +1388,24 @@ export function loadMapFromJson(raw: MapJson): MapData {
       const y = num(j.y, `${what} y`);
       if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
       if (!Number.isInteger(j.hp) || j.hp < 1) fail(id, `${what} bad hp ${j.hp}`);
-      if (!Number.isInteger(j.guns) || j.guns < 1) fail(id, `${what} bad guns ${j.guns}`);
+      if (!Number.isInteger(j.guns) || j.guns < 1 || j.guns > DREADNOUGHT_GUNS) {
+        fail(id, `${what} bad guns ${j.guns}`);
+      }
+      let mounts: readonly MapGunMount[] = DREADNOUGHT_MOUNTS;
+      if (j.mounts !== undefined) {
+        if (!Array.isArray(j.mounts)) fail(id, `${what} mounts is not an array`);
+        mounts = j.mounts.map((m, i) => ({
+          x: num(m?.x, `${what} mount ${i} x`),
+          y: num(m?.y, `${what} mount ${i} y`),
+          z: num(m?.z, `${what} mount ${i} z`),
+          mx: num(m?.mx, `${what} mount ${i} mx`),
+          my: num(m?.my, `${what} mount ${i} my`),
+          mz: num(m?.mz, `${what} mount ${i} mz`),
+        }));
+      }
+      if (mounts.length !== j.guns) fail(id, `${what}: ${j.guns} guns on ${mounts.length} mounts`);
+      const gunTurn = j.gunTurn ?? DREADNOUGHT_GUN_TURN;
+      if (!Number.isInteger(gunTurn) || gunTurn < 1) fail(id, `${what} bad gunTurn ${gunTurn}`);
       juggernaut = {
         x,
         y,
@@ -1367,6 +1413,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
         hp: j.hp,
         guns: j.guns,
         weapon: weaponIndex(j.weapon, what),
+        mounts,
+        gunTurn,
       };
     }
     const zone = (
@@ -1880,6 +1928,8 @@ export function createTestMap(): MapData {
       hp: ORIGINAL_UNIT_PROFILES.juggernaut.hp,
       guns: ORIGINAL_UNIT_PROFILES.juggernaut.guns,
       weapon: ORIGINAL_UNIT_PROFILES.juggernaut.weapon,
+      mounts: DREADNOUGHT_MOUNTS,
+      gunTurn: DREADNOUGHT_GUN_TURN,
     },
     runner: { ...ORIGINAL_UNIT_PROFILES.runner },
     guardian: { ...ORIGINAL_UNIT_PROFILES.guardian },

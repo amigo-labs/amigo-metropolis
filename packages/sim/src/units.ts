@@ -107,6 +107,33 @@ export function nearestEnemyInRange(
   lineOfSight = true,
 ): number {
   const ent = state.ent;
+  return nearestEnemyFrom(
+    state,
+    id,
+    ent.posX[id],
+    ent.posY[id],
+    range,
+    skipStructures,
+    byPriority,
+    lineOfSight,
+  );
+}
+
+/**
+ * nearestEnemyInRange measured from (x, y) for `id`'s team: the Dreadnought's
+ * guns search from their own mounts (sim.ts shooterDreadnought).
+ */
+export function nearestEnemyFrom(
+  state: SimState,
+  id: number,
+  x: number,
+  y: number,
+  range: number,
+  skipStructures = false,
+  byPriority = false,
+  lineOfSight = true,
+): number {
+  const ent = state.ent;
   // Invisible avatars are unacquirable (rules.md §9). Resolved to entity ids up
   // front so the hot loop stays a plain comparison; -1 when the arena has no
   // pickups, which never matches a live id.
@@ -116,8 +143,6 @@ export function nearestEnemyInRange(
     if (state.buffInvis[0] > 0) hidden0 = state.avatarId[0];
     if (state.buffInvis[1] > 0) hidden1 = state.avatarId[1];
   }
-  const x = ent.posX[id];
-  const y = ent.posY[id];
   const team = ent.team[id];
   // Outpost consoles cannot be destroyed on any arena (fcop-fidelity.md R14,
   // sim.ts applyDamage), so nothing shoots at one.

@@ -1143,4 +1143,16 @@
 //     reads the figures in the tick: play is unchanged, every golden's hashes
 //     move from tick 0 for the new hashed state. writeResultsSnapshot exposes
 //     them (stats.ts).
-export const SIM_VERSION = 76;
+// v77: the Dreadnought's guns are the original's mounts (fcop-fidelity.md I6;
+//     RE mount.c 0x004258d0, discharge.c 949-977, pa_models.json guns[]): gun i
+//     stands on its hull's attach point i (MapJuggernaut.mounts, imported per
+//     arena: Joke's hull is its own), keeps its own yaw relative to the hull
+//     (SimState.gunYaw, 12-bit units) turning 9 units per 1/300 s (237.3°/s)
+//     toward its own target or home, runs its own shooter (rate clock, phase,
+//     target, re-search, searched from the mount) and fires one round from its
+//     muzzle only inside ±22.5° of its own yaw along a clear line. Was: four
+//     rounds at once from the hull's centre on the hull's one shooter, the hull
+//     turned at once to face its target. Hashed for live Juggernauts only;
+//     writeGunSnapshot exposes the yaws. No golden fields a Dreadnought: every
+//     hash sequence holds, the goldens are re-recorded for the header.
+export const SIM_VERSION = 77;

@@ -31,11 +31,13 @@ import {
   DIFFICULTY_HARD,
   DIFFICULTY_NORMAL,
   DIFFICULTY_ROWS,
+  DREADNOUGHT_GUNS,
   DROWN_DEPTH,
   DUMMY_RESPAWN_TICKS,
   FLAME_PULSE_TICKS,
   FLOOR_DAMAGE_PER_STEP,
   FORTRESS_ALIVE_LIMIT,
+  FRAME_CLOCK_PER_TICK,
   GUARDIAN_ALIVE_LIMIT,
   HEAVY_UNLOCK_POINTS,
   HELLFIRE_SPLIT_FAN,
@@ -219,6 +221,7 @@ import {
   type MapBaseTurret,
   type MapBuyBox,
   type MapData,
+  type MapGunMount,
   type MapPoint,
   type MapTriggerVolume,
   type MapWeapon,
@@ -246,6 +249,7 @@ import {
   isAirUnit,
   isGroundUnit,
   isUnit,
+  nearestEnemyFrom,
   nearestEnemyInRange,
   resolveWalker,
   snapUnitHeight,
@@ -509,6 +513,20 @@ export interface SimState {
    * form. The Sky Captain's stay 0. Hashed.
    */
   readonly formTime: Uint32Array;
+  /**
+   * The Dreadnought's four gun mounts per Juggernaut (fcop-fidelity.md I6;
+   * `mount.c` 0x004258d0), at `id * DREADNOUGHT_GUNS + gun`: the gun's yaw
+   * relative to its hull in angle units (4096 a turn, the entity yaw's sense, 0 =
+   * the hull's forward), its own shooter's rate clock (engine units) and phase,
+   * its target (id + 1, 0 none) and its re-search countdown. Outside the entity
+   * store like weaponProfile; read and hashed for live Juggernauts only, reset at
+   * their spawn.
+   */
+  readonly gunYaw: Int16Array;
+  readonly gunClock: Int32Array;
+  readonly gunPhase: Uint8Array;
+  readonly gunTarget: Int16Array;
+  readonly gunSearch: Int32Array;
   /** Player slot the Warden AI drives, -1 for a match without one (config). */
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
@@ -832,6 +850,15 @@ export function spawnUnit(
   if (archetype === ARCHETYPE.JUGGERNAUT) {
     ent.hp[id] = base.juggernaut.hp;
     ent.weaponProfile[id] = base.juggernaut.weapon;
+    // Its guns come up at home (the hull's forward), their shooters fresh.
+    for (let g = 0; g < DREADNOUGHT_GUNS; g++) {
+      const k = id * DREADNOUGHT_GUNS + g;
+      state.gunYaw[k] = 0;
+      state.gunClock[k] = 0;
+      state.gunPhase[k] = 0;
+      state.gunTarget[k] = 0;
+      state.gunSearch[k] = 0;
+    }
   } else {
     const unit =
       archetype === ARCHETYPE.RUNNER
@@ -967,6 +994,11 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     firstDeath: new Uint32Array(MAX_PLAYERS),
     firstOutpost: new Uint32Array(MAX_PLAYERS),
     formTime: new Uint32Array(MAX_PLAYERS * 2),
+    gunYaw: new Int16Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
+    gunClock: new Int32Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
+    gunPhase: new Uint8Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
+    gunTarget: new Int16Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
+    gunSearch: new Int32Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     wardenPlayer,
     wardenDifficulty,
     captain: createCaptainState(),
@@ -2713,11 +2745,34 @@ function spawnStraight(
   aimAt: number,
 ): number {
   const ent = state.ent;
-  const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
+  return spawnStraightAt(
+    state,
+    ent.team[shooter],
+    ent.posX[shooter] + dx * MUZZLE_OFFSET,
+    ent.posY[shooter] + dy * MUZZLE_OFFSET,
+    ent.height[shooter] + MUZZLE_HEIGHT,
+    dx,
+    dy,
+    homeOn,
+    aimAt,
+  );
+}
+
+/** spawnStraight from the muzzle point (x, y, h) for `team`. */
+function spawnStraightAt(
+  state: SimState,
+  team: number,
+  x: number,
+  y: number,
+  h: number,
+  dx: number,
+  dy: number,
+  homeOn: number,
+  aimAt: number,
+): number {
+  const ent = state.ent;
+  const id = spawn(ent, ARCHETYPE.PROJECTILE, team);
   if (id < 0) return -1;
-  const x = ent.posX[shooter] + dx * MUZZLE_OFFSET;
-  const y = ent.posY[shooter] + dy * MUZZLE_OFFSET;
-  const h = ent.height[shooter] + MUZZLE_HEIGHT;
   ent.posX[id] = x;
   ent.posY[id] = y;
   ent.height[id] = h;
@@ -2836,9 +2891,20 @@ const leadScratch = { x: 0, y: 0 };
  * established (fcop-re/player-and-weapons.md §9.3); this is the plain solution.
  */
 function leadAim(state: SimState, shooter: number, target: number, speed: number): boolean {
+  return leadAimFrom(state, state.ent.posX[shooter], state.ent.posY[shooter], target, speed);
+}
+
+/** leadAim from the point (x, y). */
+function leadAimFrom(
+  state: SimState,
+  x: number,
+  y: number,
+  target: number,
+  speed: number,
+): boolean {
   const ent = state.ent;
-  const px = ent.posX[target] - ent.posX[shooter];
-  const py = ent.posY[target] - ent.posY[shooter];
+  const px = ent.posX[target] - x;
+  const py = ent.posY[target] - y;
   const vx = ent.velX[target];
   const vy = ent.velY[target];
   // |P + V t| = s t  ->  (V.V - s²) t² + 2 P.V t + P.P = 0
@@ -3144,6 +3210,8 @@ function systemTargeting(state: SimState): void {
       // (rules.md §5 "fires at enemies of its owner").
       if (ent.mode[id] === TURRET_CAPTURABLE && ent.ownerId[id] < 0) continue;
       shooterTurret(state, id, w);
+    } else if (archetype === ARCHETYPE.JUGGERNAUT) {
+      shooterDreadnought(state, id, w);
     } else if (isUnit(archetype)) {
       shooterUnit(state, id, w);
     }
@@ -3260,7 +3328,7 @@ function shooterTurret(state: SimState, id: number, w: MapWeapon): void {
     ent.cooldownA[id] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
     return;
   }
-  fireRound(state, id, target, w, 1);
+  fireRound(state, id, target, w);
 }
 
 /** A turret's gun follows its target at the record's turn rate (instant without one). */
@@ -3300,8 +3368,7 @@ function shooterTargetValid(state: SimState, id: number, t: number, range: numbe
  *   tried 0-0.85 s later (the sim PRNG); units have no firing arc.
  * An aircraft fires only while it is engaging (a move target held, units.ts
  * `moveAircraft`): the original steps an aircraft's shooter in STATE_ENGAGE
- * only. A Juggernaut's due round is a volley, one round from each of its hull
- * guns.
+ * only. The Juggernaut's guns are its mounts' own (shooterDreadnought).
  * Until SIM_VERSION 45 a unit re-picked the nearest enemy in reach every tick.
  */
 function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
@@ -3337,12 +3404,7 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
     ent.cooldownA[id] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
     return;
   }
-  let rounds = 1;
-  if (ent.archetype[id] === ARCHETYPE.JUGGERNAUT) {
-    const dread = state.map.bases[ent.team[id]].juggernaut;
-    if (dread !== undefined) rounds = dread.guns;
-  }
-  fireRound(state, id, target, w, rounds);
+  fireRound(state, id, target, w);
 }
 
 /** A unit's hull (or gun) turns to its target at once. */
@@ -3375,49 +3437,228 @@ function aimRound(state: SimState, id: number, target: number, w: MapWeapon): bo
 }
 
 /**
- * Discharges `rounds` rounds along aimScratch: projectile entities at the entry's
- * speed (no acceleration), flying its range, homing on `target` when guided, and
- * damaging only what they strike (no PA world weapon has a blast). Each round's
- * EV_SHOT is a muzzle flash — the round renders as its own entity. The rate machine goes
- * between bursts once anything went out; a full entity store fires nothing and
- * leaves the round due.
+ * Discharges a round along aimScratch: a projectile entity at the entry's speed
+ * (no acceleration), flying its range, homing on `target` when guided, and
+ * damaging only what it strikes (no PA world weapon has a blast). Its EV_SHOT is
+ * a muzzle flash — the round renders as its own entity. The rate machine goes
+ * between bursts once it went out; a full entity store fires nothing and leaves
+ * the round due.
  */
-function fireRound(
-  state: SimState,
-  id: number,
-  target: number,
-  w: MapWeapon,
-  rounds: number,
-): void {
+function fireRound(state: SimState, id: number, target: number, w: MapWeapon): void {
+  const p = spawnStraight(
+    state,
+    id,
+    aimScratch.x,
+    aimScratch.y,
+    w.guided === 1 ? target : -1,
+    target,
+  );
+  if (p < 0) return;
+  armWorldRound(state, id, p, w);
+  state.ent.aimY[id] = PHASE_BETWEEN;
+}
+
+/** Stamps world round `p`, fired by `id` along aimScratch, with entry `w`. */
+function armWorldRound(state: SimState, id: number, p: number, w: MapWeapon): void {
   const ent = state.ent;
-  let fired = false;
-  for (let r = 0; r < rounds; r++) {
-    const p = spawnStraight(
+  ent.mode[p] = PROJ_ROUND;
+  state.roundFrom[p] = roundSource(ent.archetype[id], ent.team[id]);
+  ent.ownerId[p] = ent.ownerId[id];
+  ent.ammoA[p] = w.damage;
+  ent.aux[p] = 0;
+  ent.ammoB[p] = w.guided === 1 ? ROUND_HOMING : 0;
+  ent.timerA[p] = Math.ceil((w.flight / w.speed) * TICK_HZ) + 1;
+  ent.cooldownA[p] = w.speed;
+  ent.velX[p] = aimScratch.x * w.speed;
+  ent.velY[p] = aimScratch.y * w.speed;
+  ent.cooldownB[p] = w.flight;
+  ent.aimX[p] = w.speed;
+  ent.aimY[p] = 0;
+  pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, 0);
+}
+
+/** Scratch: a gun's mount and muzzle in the world (module scope, no allocation per tick). */
+const gunScratch = { x: 0, y: 0, h: 0, mx: 0, my: 0, mh: 0 };
+
+/**
+ * Places Juggernaut `id`'s mount `m` in the world — a hull-frame point at hull +
+ * z * forward + x * (sin yaw, -cos yaw), the frame the client draws the hull's
+ * glb in (`cact_model_point`, turret.c 241-335) — and its muzzle, the gun model's
+ * point 0, turned by the gun's world yaw `gunYaw`, into gunScratch.
+ */
+function placeGun(ent: EntityStore, id: number, m: MapGunMount, gunYaw: number): void {
+  const c = cosLUT(ent.yaw[id]);
+  const s = sinLUT(ent.yaw[id]);
+  gunScratch.x = ent.posX[id] + m.z * c + m.x * s;
+  gunScratch.y = ent.posY[id] + m.z * s - m.x * c;
+  gunScratch.h = ent.height[id] + m.y;
+  const gc = cosLUT(gunYaw);
+  const gs = sinLUT(gunYaw);
+  gunScratch.mx = gunScratch.x + m.mz * gc + m.mx * gs;
+  gunScratch.my = gunScratch.y + m.mz * gs - m.mx * gc;
+  gunScratch.mh = gunScratch.h + m.my;
+}
+
+/** An angle in radians as the original's 12-bit angle units, 0..4095. */
+function angleUnits(rad: number): number {
+  return Math.floor(rad / ANGLE_UNIT) & 4095;
+}
+
+/** A gun's relative yaw in radians, (-PI, PI], the entity yaw's sense. */
+export function gunYawRadians(units: number): number {
+  return (units > 2048 ? units - 4096 : units) * ANGLE_UNIT;
+}
+
+/**
+ * `cact_mount_turn_toward` (mount.c 0x00425a85): from `current` toward `desired`
+ * by at most `limit` units on the shorter arc, in 12-bit angle units.
+ */
+function mountTurnToward(current: number, desired: number, limit: number): number {
+  if (current === desired) return current;
+  let gap = (desired - current) & 4095;
+  if (gap > 2048) gap -= 4096;
+  const magnitude = gap < 0 ? -gap : gap;
+  let step = limit > magnitude ? magnitude : limit;
+  if (gap < 0) step = -step;
+  return (step + current) & 4095;
+}
+
+/** The rate machine (shooterDue) on gun `k`'s own clock and phase. */
+function gunDue(state: SimState, k: number, w: MapWeapon): boolean {
+  let phase = state.gunPhase[k];
+  let clock = state.gunClock[k];
+  if (phase === PHASE_INSIDE) {
+    clock += WEAPON_UNITS_PER_TICK;
+    if (clock >= 0) phase = PHASE_DUE;
+  } else if (phase === PHASE_BETWEEN) {
+    clock += WEAPON_UNITS_PER_TICK;
+    if (clock >= w.refireUnits) {
+      clock -= w.refireUnits;
+      if (clock > 0) clock = 0;
+      phase = PHASE_INSIDE;
+    }
+  }
+  state.gunPhase[k] = phase;
+  state.gunClock[k] = clock;
+  return phase === PHASE_DUE;
+}
+
+/**
+ * The Dreadnought's guns (fcop-fidelity.md I6): four mounts, each its own
+ * `cact_mount_step` (mount.c 0x004258d0) and its own shooter on the hull's
+ * weapon profile, in gun order:
+ * - the mount stands on its hull point and turns toward its target — the bearing
+ *   from the mount less the hull's yaw — or home, the hull's forward, with none,
+ *   at `gunTurn` angle units per 1/300 s (237.3°/s; mount.c 0x00425ad4, 1136);
+ * - then its shooter (`cact_shooter_step`): the rate machine; a due round drops
+ *   a dead, no-longer-hostile or out-of-reach target, searching from the mount
+ *   on the countdown when it has none; it goes out from the gun's muzzle only
+ *   inside the gun's front sector, ±22.5° about its own yaw (`discharge.c`
+ *   949-977), along a clear line, else it is put back and tried 0-0.85 s later.
+ * The hull itself carries no gun and never turns to a target.
+ */
+function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
+  const ent = state.ent;
+  const team = ent.team[id];
+  if (team !== 0 && team !== 1) return;
+  const dread = state.map.bases[team].juggernaut;
+  const turn = dread.gunTurn * FRAME_CLOCK_PER_TICK;
+  for (let g = 0; g < dread.guns; g++) {
+    const k = id * DREADNOUGHT_GUNS + g;
+    const m = dread.mounts[g];
+    let target = state.gunTarget[k] - 1;
+    if (target >= 0 && !ent.alive[target]) target = -1;
+    // The mount: on its point, turned toward its target or home.
+    placeGun(ent, id, m, ent.yaw[id] + state.gunYaw[k] * ANGLE_UNIT);
+    let desired = 0;
+    if (target >= 0) {
+      const bearing = atan2Poly(ent.posY[target] - gunScratch.y, ent.posX[target] - gunScratch.x);
+      desired = angleUnits(bearing - ent.yaw[id]);
+    }
+    state.gunYaw[k] = mountTurnToward(state.gunYaw[k], desired, turn);
+    // Its shooter.
+    if (!gunDue(state, k, w)) {
+      state.gunTarget[k] = target + 1;
+      continue;
+    }
+    if (target >= 0 && !targetValidFrom(state, team, gunScratch.x, gunScratch.y, target, w.range)) {
+      target = -1;
+    }
+    if (target < 0) {
+      let search = state.gunSearch[k] - WEAPON_UNITS_PER_TICK;
+      if (search < 0) {
+        search = w.searchUnits;
+        target = nearestEnemyFrom(state, id, gunScratch.x, gunScratch.y, w.range);
+      }
+      state.gunSearch[k] = search;
+    }
+    state.gunTarget[k] = target + 1;
+    if (target < 0) continue; // the round waits, the clock stopped
+    const yaw = ent.yaw[id] + state.gunYaw[k] * ANGLE_UNIT;
+    placeGun(ent, id, m, yaw);
+    if (!aimFrom(state, gunScratch.mx, gunScratch.my, target, w)) continue;
+    const blocked = segmentBlocked(
+      state.map,
+      gunScratch.mx,
+      gunScratch.my,
+      ent.posX[target],
+      ent.posY[target],
+    );
+    if (blocked || aimScratch.x * cosLUT(yaw) + aimScratch.y * sinLUT(yaw) < w.arcCos) {
+      state.gunPhase[k] = PHASE_INSIDE;
+      state.gunClock[k] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
+      continue;
+    }
+    const p = spawnStraightAt(
       state,
-      id,
+      team,
+      gunScratch.mx,
+      gunScratch.my,
+      gunScratch.mh,
       aimScratch.x,
       aimScratch.y,
       w.guided === 1 ? target : -1,
       target,
     );
-    if (p < 0) break;
-    ent.mode[p] = PROJ_ROUND;
-    state.roundFrom[p] = roundSource(ent.archetype[id], ent.team[id]);
-    ent.ownerId[p] = ent.ownerId[id];
-    ent.ammoA[p] = w.damage;
-    ent.aux[p] = 0;
-    ent.ammoB[p] = w.guided === 1 ? ROUND_HOMING : 0;
-    ent.timerA[p] = Math.ceil((w.flight / w.speed) * TICK_HZ) + 1;
-    ent.cooldownA[p] = w.speed;
-    ent.velX[p] = aimScratch.x * w.speed;
-    ent.velY[p] = aimScratch.y * w.speed;
-    ent.cooldownB[p] = w.flight;
-    ent.aimX[p] = w.speed;
-    ent.aimY[p] = 0;
-    pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, 0);
-    fired = true;
+    if (p < 0) continue;
+    armWorldRound(state, id, p, w);
+    state.gunPhase[k] = PHASE_BETWEEN;
   }
-  if (fired) ent.aimY[id] = PHASE_BETWEEN;
+}
+
+/** shooterTargetValid measured from (x, y): alive, still an enemy, inside reach. */
+function targetValidFrom(
+  state: SimState,
+  team: number,
+  x: number,
+  y: number,
+  t: number,
+  range: number,
+): boolean {
+  const ent = state.ent;
+  if (!ent.alive[t] || ent.hp[t] <= 0 || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
+  const tt = ent.team[t];
+  if (tt === team || tt === TEAM_NEUTRAL) return false;
+  const dx = ent.posX[t] - x;
+  const dy = ent.posY[t] - y;
+  return dx * dx + dy * dy < range * range;
+}
+
+/** aimRound measured from (x, y). */
+function aimFrom(state: SimState, x: number, y: number, target: number, w: MapWeapon): boolean {
+  if (w.lead === 1 && leadAimFrom(state, x, y, target, w.speed)) {
+    aimScratch.x = leadScratch.x;
+    aimScratch.y = leadScratch.y;
+    return true;
+  }
+  const ent = state.ent;
+  const dx = ent.posX[target] - x;
+  const dy = ent.posY[target] - y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1e-6) return false;
+  aimScratch.x = dx / len;
+  aimScratch.y = dy / len;
+  return true;
 }
 
 /** Phase 1 dummy-turret targeting: nearest VISIBLE enemy avatar in range. */
@@ -4570,6 +4811,19 @@ export function hash(state: SimState): number {
   }
   for (let k = 0; k < state.statHalves.length; k++) h = fnv1aU32(h, state.statHalves[k]);
   for (let k = 0; k < state.formTime.length; k++) h = fnv1aU32(h, state.formTime[k]);
+  // Appended at SIM_VERSION 77: the Dreadnought's gun mounts, live Juggernauts
+  // only, in id order.
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.JUGGERNAUT) continue;
+    for (let g = 0; g < DREADNOUGHT_GUNS; g++) {
+      const k = id * DREADNOUGHT_GUNS + g;
+      h = fnv1aU32(h, state.gunYaw[k]);
+      h = fnv1aU32(h, state.gunClock[k] >>> 0);
+      h = fnv1aU32(h, state.gunPhase[k]);
+      h = fnv1aU32(h, state.gunTarget[k]);
+      h = fnv1aU32(h, state.gunSearch[k] >>> 0);
+    }
+  }
   return h;
 }
 
@@ -4656,6 +4910,28 @@ export function writeLiftSnapshot(state: SimState, out: Float32Array): void {
     const o = k * LIFT_SNAP_STRIDE;
     out[o + LIFT_SNAP_TOP] = liftTopHeight(state, k);
     out[o + LIFT_SNAP_MOVING] = state.liftPhase[k] === LIFT_MOVING ? 1 : 0;
+  }
+}
+
+/**
+ * The Dreadnought guns' snapshot (renderer rule 4; fcop-fidelity.md I6): per
+ * entity id, DREADNOUGHT_GUNS floats at `id * DREADNOUGHT_GUNS + gun` — gun i's
+ * yaw relative to its hull, radians in (-PI, PI] and in the entity snapshot's
+ * yaw sense, so the gun's world yaw is the hull's plus it (0 = the hull's
+ * forward). Gun i stands on the hull model's attach point i. Written for live
+ * Juggernauts only; a pure read, never hashed.
+ */
+export const GUN_SNAPSHOT_LEN = MAX_ENTITIES * DREADNOUGHT_GUNS;
+
+/** Writes each live Juggernaut's gun yaws into `out` (length GUN_SNAPSHOT_LEN). */
+export function writeGunSnapshot(state: SimState, out: Float32Array): void {
+  const ent = state.ent;
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.JUGGERNAUT) continue;
+    for (let g = 0; g < DREADNOUGHT_GUNS; g++) {
+      const k = id * DREADNOUGHT_GUNS + g;
+      out[k] = gunYawRadians(state.gunYaw[k]);
+    }
   }
 }
 
