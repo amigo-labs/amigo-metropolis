@@ -2664,6 +2664,7 @@ function connectP2pMode(code: string): void {
         },
       );
       net = p2pNet;
+      p2pNet.start();
     })
     .catch((err: unknown) => {
       netStatus = `Lobby ${code}: ${err instanceof Error ? err.message : "connection failed"}`;

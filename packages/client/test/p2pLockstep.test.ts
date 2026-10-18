@@ -248,6 +248,8 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
         h1[t] = hash(sim);
       },
     });
+    pa.start();
+    pb.start();
     expect(pa.isLinked).toBe(true); // reliable HELLOs crossed synchronously
     expect(pb.isLinked).toBe(true);
     // Protocol 4: linked is the lobby; the host's START is the match.
@@ -294,6 +296,8 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
         h1[t] = hash(sim);
       },
     });
+    pa.start();
+    pb.start();
     pb.begin(picked); // only the host seals the setup
     expect(pb.isStarted).toBe(false);
     pa.begin(picked);
@@ -324,6 +328,8 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
       },
       onDesync,
     });
+    pa.start();
+    pb.start();
     pa.begin(CONFIG);
 
     drive(pa, pb, 33);
@@ -353,6 +359,8 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
       },
     });
     const pb = new P2pLockstep(1, CONFIG, wb.control, wb.inputs, { sampleInput: sampler(1) });
+    pa.start();
+    pb.start();
     pa.begin(CONFIG);
     drive(pa, pb, 20);
 
@@ -386,6 +394,8 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
         },
       },
     );
+    pa.start();
+    pb.start();
     expect(errA).toBe(ERR_VERSION_MISMATCH);
     expect(errB).toBe(ERR_VERSION_MISMATCH);
     expect(pa.tryStep()).toBe(false);
@@ -401,6 +411,7 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
         err = code;
       },
     });
+    pa.start();
     const hello = encodeMessage({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config: CONFIG });
     const old = hello.slice(0, hello.length - 7); // protocol 3: no loadouts, no rule
     old[1] = 3;
@@ -421,6 +432,8 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
       sampleInput: sampler(1),
       onLobby: (m) => got[1].push(m),
     });
+    pa.start();
+    pb.start();
     pa.sendLobby({ id: LOBBY_P1_READY, ready: true });
     pb.sendLobby({ id: LOBBY_NAME, name: "Sky" });
     expect(got).toEqual([[{ id: LOBBY_NAME, name: "Sky" }], [{ id: LOBBY_P1_READY, ready: true }]]);

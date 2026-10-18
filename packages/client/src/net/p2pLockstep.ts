@@ -115,13 +115,22 @@ export class P2pLockstep {
     private readonly control: Transport,
     private readonly inputs: Transport,
     private readonly cb: P2pCallbacks,
-  ) {
-    control.onMessage((bytes) => this.onControl(bytes));
-    inputs.onMessage((bytes) => this.onInputPacket(bytes));
-    control.onClose(() => this.handleClose());
-    inputs.onClose(() => this.handleClose());
-    // Handshake: both peers introduce themselves; a valid peer HELLO starts us.
-    control.send(encodeMessage({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config }));
+  ) {}
+
+  /**
+   * Opens the handshake: our HELLO goes out first, then the channels are
+   * listened to, so nothing we answer a buffered peer HELLO with can overtake
+   * it. Separate from the constructor so the caller holds the lockstep before
+   * any callback runs.
+   */
+  start(): void {
+    this.control.send(
+      encodeMessage({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config: this.config }),
+    );
+    this.control.onMessage((bytes) => this.onControl(bytes));
+    this.inputs.onMessage((bytes) => this.onInputPacket(bytes));
+    this.control.onClose(() => this.handleClose());
+    this.inputs.onClose(() => this.handleClose());
   }
 
   get simTick(): number {
