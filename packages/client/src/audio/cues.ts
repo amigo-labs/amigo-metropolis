@@ -29,6 +29,7 @@
 
 import {
   ARCHETYPE,
+  ARCHETYPE_RADIUS,
   CAPTAIN_ORDER_DREADNOUGHT,
   CAPTAIN_ORDER_FORTRESS,
   CAPTAIN_ORDER_JETS,
@@ -69,8 +70,10 @@ import {
   MOVE_CUE_BRAKE,
   MOVE_CUE_DRIVE,
   MOVE_CUE_TURN,
+  MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
   matchSlotOffset,
+  PROJ_ROUND,
   roundSourceArchetype,
   roundSourceTeam,
   SHOT_SLOT_HITSCAN,
@@ -81,6 +84,7 @@ import {
   SKY_WEAPON_BOMB,
   SKY_WEAPON_MISSILE,
   shotPayloadPowered,
+  shotPayloadToReach,
   shotPayloadWeaponId,
   shotPayloadWeaponReach,
   TURRET_CAPTURABLE,
@@ -93,7 +97,7 @@ import {
   makeRaiseAt,
   type RaiseAt,
 } from "../effects/chain";
-import { DEFAULT_SCALE, type FxRecord } from "../effects/records";
+import { DEFAULT_SCALE, type FxRecord, IMPACT_SCALE } from "../effects/records";
 import { X1_CODES_PER_TICK } from "../render/x1Walk";
 import type {
   ArenaAudio,
@@ -149,6 +153,24 @@ const LIFT_KEY = -1000;
  */
 const LIFT_TRAVEL_SCRIPT = 70;
 const LIFT_ARRIVAL_SCRIPT = 71;
+/** The loadout kinds whose +0x1b is not a round's (tables.json rules.kinds). */
+const KIND_DIRECT_ELECTRIC = 0x0b;
+const KIND_ATTACHED_SUSTAIN = 0x0e;
+const KIND_SHOCKWAVE = 0x0f;
+const KIND_AIMED_SUSTAIN = 0x11;
+/** The sustains' countdowns, engine ticks (fcop/sustain.h: 0x32 attached, 0x96 aimed). */
+const SUSTAIN_ATTACHED_TICKS = 0x32;
+const SUSTAIN_AIMED_TICKS = 0x96;
+/** Engine ticks a sim tick: the sustains count down by it. */
+const ENGINE_TICKS_A_TICK = 10;
+/**
+ * The middle of each archetype's model above its snapshot height, metres
+ * (half the native heights, render/greybox.ts): where a death's or an
+ * entity's effect stands. Indexed like ARCHETYPE.
+ */
+const CENTRE_UP: readonly number[] = [0.5, 0.2, 0.2, 0.32, 0.34, 0.7, 0, 0.7, 0.2];
+/** A round as a raiser: ARCHETYPE_RADIUS[PROJECTILE] (0.15 m) >> 4 in x16. */
+const ROUND_SCALE = Math.round(0.15 * 512);
 /** The death mask's bits (cact_base_op11): hit kinds 2, 4, 8, 16 -> groups 1..4. */
 const MASK_BITS = 0x1e;
 /** The captain's chatter cooldown: 180 of the scripts' 1/60 s = 3 s. */
@@ -166,6 +188,7 @@ const S_ARCH = 1;
 const S_TEAM = 2;
 const S_X = 3;
 const S_Y = 4;
+const S_HEIGHT = 5;
 const S_YAW = 6;
 const S_ANIM = 7;
 const S_AUX = 9;
@@ -185,6 +208,8 @@ export interface CueContext {
   readonly captainLevel: number;
   /** The lifts' snapshot (writeLiftSnapshot), LIFT_SNAP_STRIDE per lift. */
   readonly lifts: Float32Array;
+  /** The ground under (x, z), metres, for an effect with no height of its own. */
+  readonly ground?: (x: number, z: number) => number;
   /**
    * The X1s' animation this tick (render/x1Walk.ts): each slot's form -- the
    * hover's tick runs through both ramps -- and the event codes its legs
@@ -223,6 +248,9 @@ export class OriginalSounds implements EffectListener {
   /** Delayed effects: bank, id, x, z, ticks left (0 = free). */
   /** The placement of the raise being made (filled per call, never kept). */
   private readonly at = makeRaiseAt();
+  /** Per player slot: the sustained effect alive (a flame's, a beam's) and its countdown. */
+  private readonly sustainFx = new Int16Array(MAX_PLAYERS);
+  private readonly sustainLeft = new Float32Array(MAX_PLAYERS).fill(-1);
   /** Each actor's death mask: OR of the hit kinds its op-0x0e hits carried. */
   private readonly mask = new Uint8Array(MAX_ENTITIES);
   /**
@@ -277,6 +305,8 @@ export class OriginalSounds implements EffectListener {
     this.form.fill(-1);
     this.ambientOwner.fill(FREE);
     this.effects.begin(fxArenaFor(data.mission));
+    this.sustainFx.fill(0);
+    this.sustainLeft.fill(-1);
     this.mask.fill(0);
     this.voice = data.voice.map((v) => ({ pending: false, countdown: v.poll, spent: false }));
     this.chatterTimer = 0;
@@ -314,6 +344,8 @@ export class OriginalSounds implements EffectListener {
     }
     this.avatars(ctx);
     this.ambient(ctx);
+    // The sustain nodes count down by the frame's delta (fcop/sustain.h).
+    for (let p = 0; p < MAX_PLAYERS; p++) this.sustainLeft[p] -= ENGINE_TICKS_A_TICK;
     this.effects.tick();
     this.voiceTick(ctx);
     this.engine.frame();
@@ -338,7 +370,8 @@ export class OriginalSounds implements EffectListener {
         return;
       case EV_TRANSFORM:
         this.playerScript(SCRIPT_TRANSFORM, this.slotOfAvatar(a, ctx), a, ctx);
-        if (this.locate(a)) this.installEffect(1, TRANSFORM_EFFECT, this.pos[0], this.pos[2]);
+        // Effect 4 (link 88 -> flash 89, bank 1) on the mech itself.
+        if (this.atEntity(a, ctx, true)) this.raise(1, TRANSFORM_EFFECT);
         return;
       case EV_TRANSFORM_REFUSED:
         this.playerScript(SCRIPT_TRANSFORM_REFUSED, b, a, ctx);
@@ -400,11 +433,16 @@ export class OriginalSounds implements EffectListener {
         this.respawn(b, ctx);
         return;
       case EV_EXPLOSION:
-        this.explosion(a / 16, b / 16, c);
+        this.explosion(a / 16, b / 16, c, ctx);
         return;
       case EV_ROUND_IMPACT: {
+        // The round's death raises its class byte, the row's +0x1a, with the
+        // round as the raiser (cact_effect_emit 0x0042b938).
         const w = this.data?.world[worldRow(roundSourceArchetype(c), roundSourceTeam(c))];
-        if (w) this.installEffect(0, w.impactFx, a / 16, b / 16);
+        if (w) {
+          this.atRound(a / 16, b / 16, ctx);
+          this.raise(0, w.impactFx);
+        }
         return;
       }
       case EV_CAPTAIN_MODE:
@@ -435,11 +473,7 @@ export class OriginalSounds implements EffectListener {
       const direct = directKind(blk.kind);
       if (direct) this.engine.playCued(placed ? 1 : 0, blk.sound, placed, x, z);
       else this.engine.playScript(blk.sound, placed, x, z);
-      // A kind that launches a round raises its +0x1b on the round
-      // (player_fire_launch 0x004593ec); the round is matched to the launch
-      // when it shows in the next snapshot (effects/rounds.ts).
-      const token = roundKind(blk.kind) ? this.launchToken(shooter, 0, ctx) : -1;
-      this.installEffect(1, blk.launchFx, x, z, token);
+      this.launchEffect(shooter, player, blk, shotPayloadWeaponReach(c) || w.range, ctx);
       if (player >= 0 && player < MAX_PLAYERS) {
         this.shotKind[player] = blk.hitKind;
         this.shotImpact[player] = direct ? blk.impactFx : -1;
@@ -460,10 +494,75 @@ export class OriginalSounds implements EffectListener {
     const w = data.world[row];
     if (!w || row === 0) return;
     if (w.sound !== 0) this.engine.playScript(w.sound, true, x, z);
+    if (slot === SHOT_SLOT_HITSCAN) {
+      // A hitscan (kind 0x0c) cancels the launch effect and raises the impact
+      // where the line ends, at the impact's scale (cact_weapon_discharge
+      // 0x0044dc86); its tracer is render/fx.ts's.
+      if (!this.atMuzzle(shooter, ctx, false)) return;
+      const reach = shotPayloadToReach(c);
+      this.at.x += Math.cos(this.at.yaw) * reach;
+      this.at.z += Math.sin(this.at.yaw) * reach;
+      this.at.scale = IMPACT_SCALE;
+      this.raise(0, w.impactFx);
+      return;
+    }
     // The launch effect rides the new round (0x0044df29), which also wears
     // the row's projectile model.
-    const token = slot === SHOT_SLOT_LAUNCH ? this.launchToken(shooter, row, ctx) : -1;
-    this.installEffect(0, w.launchFx, x, z, token);
+    if (!this.atMuzzle(shooter, ctx, false)) return;
+    this.at.attach = slot === SHOT_SLOT_LAUNCH ? this.launchToken(shooter, row, ctx) : -1;
+    this.raise(0, w.launchFx);
+  }
+
+  /**
+   * A loadout block's +0x1b (player_fire 0x00458ed0): the direct path's
+   * muzzle flash on the gun (the Electric Gun's a link to the line's end); the
+   * flame's and the beam's sustained effect, raised once and held while the
+   * weapon keeps firing (`sustain_attached_find` / `sustain_aimed_find`); the
+   * shockwave's on the mech itself; every other kind's on the round it
+   * launches (0x004593ec).
+   */
+  private launchEffect(
+    shooter: number,
+    player: number,
+    blk: WeaponBlockSounds,
+    reach: number,
+    ctx: CueContext,
+  ): void {
+    const id = blk.launchFx;
+    if (id <= 0) return;
+    if (blk.kind === KIND_SHOCKWAVE) {
+      if (this.atEntity(shooter, ctx, true)) this.raise(1, id);
+      return;
+    }
+    if (!this.atMuzzle(shooter, ctx, true)) return;
+    const hold =
+      blk.kind === KIND_ATTACHED_SUSTAIN
+        ? SUSTAIN_ATTACHED_TICKS
+        : blk.kind === KIND_AIMED_SUSTAIN
+          ? SUSTAIN_AIMED_TICKS
+          : 0;
+    if (hold > 0 && player >= 0 && player < MAX_PLAYERS) {
+      // A live sustain is refreshed, not raised again.
+      if (this.sustainFx[player] === id && this.sustainLeft[player] >= 0) {
+        this.sustainLeft[player] = hold;
+        this.effects.hold(1, id, shooter, hold);
+        return;
+      }
+      this.sustainFx[player] = id;
+      this.sustainLeft[player] = hold;
+      this.at.hold = hold;
+    }
+    if (blk.kind === KIND_DIRECT_ELECTRIC) {
+      this.at.endX = this.at.x + Math.cos(this.at.yaw) * reach;
+      this.at.endY = this.at.y;
+      this.at.endZ = this.at.z + Math.sin(this.at.yaw) * reach;
+    }
+    if (roundKind(blk.kind)) {
+      this.at.attach = this.launchToken(shooter, 0, ctx);
+      this.at.attachForward = 0;
+      this.at.attachUp = 0;
+    }
+    this.raise(1, id);
   }
 
   /**
@@ -494,14 +593,14 @@ export class OriginalSounds implements EffectListener {
     ctx: CueContext,
   ): void {
     if (reach <= 0 || reach >= range - 0.05) return;
-    const o = this.offsetOf(shooter);
-    if (o < 0) return;
-    const yaw = ctx.snapshot[o + S_YAW];
-    const x = ctx.snapshot[o + S_X] + Math.cos(yaw) * reach;
-    const z = ctx.snapshot[o + S_Y] + Math.sin(yaw) * reach;
+    if (!this.atMuzzle(shooter, ctx, false)) return;
+    this.at.x += Math.cos(this.at.yaw) * reach;
+    this.at.z += Math.sin(this.at.yaw) * reach;
+    // Context kind 5, scale word 0x800: the impact's 0x80 whatever the record says.
+    this.at.scale = IMPACT_SCALE;
     // Raised here once; a body the same line hit adds nothing more.
     this.shotImpact[player] = -1;
-    this.installEffect(1, blk.impactFx, x, z);
+    this.raise(1, blk.impactFx);
   }
 
   /** A damage message: the target's death mask, a direct line's impact, event 5. */
@@ -510,9 +609,10 @@ export class OriginalSounds implements EffectListener {
     const k = this.shotKind[attacker];
     if (k > 1 && target >= 0 && target < MAX_ENTITIES) this.mask[target] |= k & MASK_BITS;
     const fx = this.shotImpact[attacker];
-    if (fx > 0 && this.locate(target)) {
+    if (fx > 0 && this.atEntity(target, ctx, false)) {
       this.shotImpact[attacker] = -1;
-      this.installEffect(1, fx, this.pos[0], this.pos[2]);
+      this.at.scale = IMPACT_SCALE;
+      this.raise(1, fx);
     }
     // Every hit by player slot 0 on the captain rewrites word 56 (0x00421164).
     if (attacker === 0 && this.archetypeOf(target, ctx) === ARCHETYPE.WARDEN) this.word56 = 5;
@@ -535,29 +635,29 @@ export class OriginalSounds implements EffectListener {
       mask = this.mask[victim];
       this.mask[victim] = 0;
     }
-    if (!this.locate(victim)) return;
-    const x = this.pos[0];
-    const z = this.pos[2];
+    // The death's raiser is the dying actor: its place, facing, model (the
+    // shatter's) and scale (its radius >> 4).
+    if (!this.atEntity(victim, ctx, false)) return;
     const d = data.deaths;
     switch (archetype) {
       case ARCHETYPE.AVATAR: {
         // A sunk mech (HARD's deep water) goes down with no wreck, no death
         // effects and no wreck sound (fcop-fidelity.md P13).
         if (victim === this.sunk) return;
-        this.emitDeath(d.mech[0], mask, x, z);
-        for (const id of MECH_WRECK_EFFECTS) this.installEffect(1, id, x, z);
+        this.emitDeath(d.mech[0], mask);
+        for (const id of MECH_WRECK_EFFECTS) this.raise(1, id);
         this.playerScript(SCRIPT_WRECK, this.slotOfAvatar(victim, ctx), victim, ctx);
         return;
       }
       case ARCHETYPE.WARDEN:
-        this.emitDeath(d.captain[captainClassIndex(ctx.captainLevel)], mask, x, z);
+        this.emitDeath(d.captain[captainClassIndex(ctx.captainLevel)], mask);
         // Its death script: flag 27 (the shot-down line) and the chatter cooldown.
         this.arm("captain_shot_down", -1, -1);
         this.chatterTimer = CHATTER_COOLDOWN_TICKS;
         return;
       case ARCHETYPE.TURRET: {
         const neutral = this.auxOf(victim) === TURRET_CAPTURABLE;
-        this.emitDeath(neutral ? d.neutralTurret[0] : d.turret[0], mask, x, z);
+        this.emitDeath(neutral ? d.neutralTurret[0] : d.turret[0], mask);
         if (neutral && ctx.captainSlot >= 0 && team >= 0) {
           // Taken-turret death scoring: events 8 and 7 (0x0041bf03, 0x0041be82).
           if (team === ctx.captainSlot) this.word56 = 8;
@@ -566,17 +666,17 @@ export class OriginalSounds implements EffectListener {
         return;
       }
       case ARCHETYPE.RUNNER:
-        this.emitDeath(d.tank[0], mask, x, z);
+        this.emitDeath(d.tank[0], mask);
         return;
       case ARCHETYPE.GUARDIAN:
-        this.emitDeath(d.jet[0], mask, x, z);
+        this.emitDeath(d.jet[0], mask);
         return;
       case ARCHETYPE.JUGGERNAUT:
-        this.emitDeath(d.dreadnought[team === 1 ? 1 : 0] ?? d.dreadnought[0], mask, x, z);
+        this.emitDeath(d.dreadnought[team === 1 ? 1 : 0] ?? d.dreadnought[0], mask);
         this.arm("dreadnought_destroyed", team, -1, 1);
         return;
       case ARCHETYPE.FORTRESS:
-        this.emitDeath(d.fortress[0], mask, x, z);
+        this.emitDeath(d.fortress[0], mask);
         this.arm("flying_fortress_destroyed", team, -1, 1);
         return;
       default:
@@ -589,20 +689,20 @@ export class OriginalSounds implements EffectListener {
    * mask carries raises its id; none raised falls back to group 0, which draws
    * the class's fallback instead on an odd coin when its flags allow.
    */
-  private emitDeath(row: DeathClass | undefined, mask: number, x: number, z: number): void {
+  private emitDeath(row: DeathClass | undefined, mask: number): void {
     if (!row) return;
     let raised = false;
     for (let g = 1; g <= 4; g++) {
       if ((mask & (1 << g)) === 0) continue;
       const id = row.groups[g] ?? 0;
       if (id === 0) continue;
-      this.installEffect(row.bank, id, x, z);
+      this.raise(row.bank, id);
       raised = true;
     }
     if (raised) return;
     let id = row.groups[0] ?? 0;
     if (row.alternate && Math.random() < 0.5) id = row.fallback;
-    if (id !== 0) this.installEffect(row.bank, id, x, z);
+    if (id !== 0) this.raise(row.bank, id);
   }
 
   private respawn(player: number, ctx: CueContext): void {
@@ -616,32 +716,43 @@ export class OriginalSounds implements EffectListener {
     }
   }
 
-  private explosion(x: number, z: number, kind: number): void {
+  /**
+   * A player's round's end: its block's +0x1a, the round as the raiser. The
+   * arced and dropped rounds' class rows are empty in every arena (RE
+   * docs/formats/effects.md, Open), so their records are the export's
+   * candidates — fcop-fidelity.md marks them so.
+   */
+  private explosion(x: number, z: number, kind: number, ctx: CueContext): void {
     const data = this.data;
     if (!data) return;
     const code = PROJ_CODE[kind];
     if (code !== undefined) {
       const w = this.weapons[code];
-      if (w) this.installEffect(1, w.a.impactFx, x, z);
+      if (!w) return;
+      this.atRound(x, z, ctx);
+      this.raise(1, w.a.impactFx);
       return;
     }
-    // The captain's bomb (row 9); world rounds come with EV_ROUND_IMPACT.
-    if (kind === PROJ_WARDEN) this.installEffect(0, data.world[9]?.impactFx ?? 0, x, z);
+    // The captain's bomb (row 9: candidate 43); world rounds come with EV_ROUND_IMPACT.
+    if (kind === PROJ_WARDEN) {
+      this.atRound(x, z, ctx);
+      this.raise(0, data.world[9]?.impactFx ?? 0);
+    } else if (kind === PROJ_ROUND) {
+      // Forget the round now, so an id it frees this tick reads as new.
+      this.effects.rounds.impact(x, z, ctx.snapshot, ctx.count, ctx.stride);
+    }
   }
 
-  /**
-   * `cact_effect_install` (0x0042d020) at (x, z): the chain (effects/chain.ts)
-   * drops it when no viewer is within 0x20000, installs it — the record's
-   * sound below, its picture in render/fx.ts — and runs its successors and
-   * repeats.
-   */
-  private installEffect(bank: number, id: number, x: number, z: number, attach = -1): void {
+  // --- the raise's placement ----------------------------------------------------
+
+  /** `this.at` at a point (metres: x, height, z), riding nothing. */
+  private atPoint(x: number, y: number, z: number): RaiseAt {
     const at = this.at;
     at.x = x;
-    at.y = 0;
+    at.y = y;
     at.z = z;
     at.yaw = 0;
-    at.attach = attach;
+    at.attach = -1;
     at.attachForward = 0;
     at.attachUp = 0;
     at.scale = 0;
@@ -651,7 +762,74 @@ export class OriginalSounds implements EffectListener {
     at.endZ = Number.NaN;
     at.archetype = -1;
     at.repeat = false;
-    this.effects.raise(bank, id, at);
+    at.hold = 0;
+    return at;
+  }
+
+  /**
+   * `this.at` on an entity: the middle of its model, its facing, its
+   * archetype and its scale (radius >> 4, x16) — riding it when `ride`.
+   */
+  private atEntity(id: number, ctx: CueContext, ride: boolean): boolean {
+    const o = this.offsetOf(id);
+    if (o < 0 || !this.locate(id)) return false;
+    const snap = ctx.snapshot;
+    const arch = snap[o + S_ARCH];
+    const up = CENTRE_UP[arch] ?? 0;
+    const at = this.atPoint(snap[o + S_X], snap[o + S_HEIGHT] + up, snap[o + S_Y]);
+    at.yaw = snap[o + S_YAW];
+    at.archetype = arch;
+    at.raiserScale = Math.round((ARCHETYPE_RADIUS[arch] ?? 0.25) * 512) || DEFAULT_SCALE;
+    if (ride) {
+      at.attach = id;
+      at.attachUp = up;
+    }
+    return true;
+  }
+
+  /**
+   * `this.at` at an entity's muzzle: MUZZLE_OFFSET along its facing and
+   * MUZZLE_HEIGHT up, where the sim launches its rounds — riding it when
+   * `ride` (the gun block's point, context 0x60).
+   */
+  private atMuzzle(id: number, ctx: CueContext, ride: boolean): boolean {
+    const o = this.offsetOf(id);
+    if (o < 0 || !this.locate(id)) return false;
+    const snap = ctx.snapshot;
+    const yaw = snap[o + S_YAW];
+    const at = this.atPoint(
+      snap[o + S_X] + Math.cos(yaw) * MUZZLE_OFFSET,
+      snap[o + S_HEIGHT] + MUZZLE_HEIGHT,
+      snap[o + S_Y] + Math.sin(yaw) * MUZZLE_OFFSET,
+    );
+    at.yaw = yaw;
+    if (ride) {
+      at.attach = id;
+      at.attachForward = MUZZLE_OFFSET;
+      at.attachUp = MUZZLE_HEIGHT;
+    }
+    return true;
+  }
+
+  /**
+   * `this.at` where a round died at (x, z): at the round's own height (the
+   * tick's snapshot still holds it), the round the raiser.
+   */
+  private atRound(x: number, z: number, ctx: CueContext): void {
+    const h = this.effects.rounds.impact(x, z, ctx.snapshot, ctx.count, ctx.stride);
+    const ground = ctx.ground ? ctx.ground(x, z) : 0;
+    this.atPoint(x, Number.isNaN(h) ? ground + MUZZLE_HEIGHT : h, z);
+    this.at.raiserScale = ROUND_SCALE;
+  }
+
+  /**
+   * `cact_effect_install` (0x0042d020) at `this.at`: the chain
+   * (effects/chain.ts) drops it when no viewer is within 0x20000, installs it
+   * — the record's sound below, its picture in render/fx.ts — and runs its
+   * successors and repeats.
+   */
+  private raise(bank: number, id: number): void {
+    this.effects.raise(bank, id, this.at);
   }
 
   /**

@@ -6,7 +6,6 @@ import {
   NEUTRAL_RAMP,
   PALETTE,
   PALETTE_HEX,
-  PROJECTILE_HEX,
   paletteHex,
   paletteIndex,
   RED_RAMP,
@@ -71,21 +70,6 @@ describe("team ramps", () => {
     expect(teamRamp(1)).toBe(TEAM_RAMPS[1]);
     expect(teamRamp(2)).toBe(NEUTRAL_RAMP);
     expect(teamRamp(-1)).toBe(NEUTRAL_RAMP);
-  });
-});
-
-describe("projectile tints", () => {
-  test("projectile kind table covers the live PROJ_* ids", () => {
-    // Sparse table aligned with weapons.ts PROJ_* numbers.
-    expect(PROJECTILE_HEX.length).toBe(12);
-    expect(PROJECTILE_HEX[0]).toBe(paletteHex("muzzle"));
-    expect(PROJECTILE_HEX[0]).toBe(0xffffff);
-    expect(PROJECTILE_HEX[1]).toBe(paletteHex("heavy"));
-    expect(PROJECTILE_HEX[3]).toBe(paletteHex("warden_bomb"));
-    expect(PROJECTILE_HEX[6]).toBe(0xffa060); // mortar
-    expect(PROJECTILE_HEX[7]).toBe(0xffe8a0); // hyper
-    expect(PROJECTILE_HEX[10]).toBe(0xff9040); // mine
-    expect(PROJECTILE_HEX[11]).toBe(0xa0d8ff); // shockwave
   });
 });
 

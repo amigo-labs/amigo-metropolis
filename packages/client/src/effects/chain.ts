@@ -63,6 +63,11 @@ export interface RaiseAt {
   archetype: number;
   /** A re-raise of the record's own id by its repeats: a one-shot. */
   repeat: boolean;
+  /**
+   * A sustained weapon's effect (the flame's attached sustain, the beam's
+   * aimed one): engine ticks it is held without another shot; 0 for none.
+   */
+  hold: number;
 }
 
 export function makeRaiseAt(): RaiseAt {
@@ -81,6 +86,7 @@ export function makeRaiseAt(): RaiseAt {
     endZ: Number.NaN,
     archetype: -1,
     repeat: false,
+    hold: 0,
   };
 }
 
@@ -99,6 +105,7 @@ export function copyRaiseAt(from: Readonly<RaiseAt>, to: RaiseAt): void {
   to.endZ = from.endZ;
   to.archetype = from.archetype;
   to.repeat = from.repeat;
+  to.hold = from.hold;
 }
 
 /** The effect banks of the arena whose mission is `mission` (e.g. "Mp"), or null. */

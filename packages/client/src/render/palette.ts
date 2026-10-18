@@ -136,27 +136,6 @@ export function teamRamp(team: number): Ramp {
   return TEAM_RAMPS[team] ?? NEUTRAL_RAMP;
 }
 
-/**
- * Projectile tint by payload kind (entity.mode / snapshot aux).
- * Indexed by PROJ_* constants in weapons.ts — sparse by design (never renumber):
- * 0 muzzle, 1 hellfire, 2 special(=mortar blast), 3 warden,
- * 6 mortar, 7 hyper, 10 mine, 11 shockwave.
- */
-export const PROJECTILE_HEX: readonly number[] = [
-  paletteHex("muzzle"), // 0
-  paletteHex("heavy"), // 1 PROJ_HEAVY
-  paletteHex("special"), // 2 PROJ_SPECIAL
-  paletteHex("warden_bomb"), // 3 PROJ_WARDEN
-  0xffffff, // 4 unused
-  0xffffff, // 5 unused
-  0xffa060, // 6 PROJ_MORTAR
-  0xffe8a0, // 7 PROJ_HYPER
-  0xffffff, // 8 unused
-  0xffffff, // 9 unused
-  0xff9040, // 10 PROJ_MINE
-  0xa0d8ff, // 11 PROJ_SHOCKWAVE
-];
-
 /** Terrain / water colors consumed by the heightfield mesh builder. */
 export const TERRAIN_HEX = {
   low: paletteHex("terrain_low"),

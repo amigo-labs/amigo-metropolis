@@ -59,6 +59,7 @@ import {
   type SimState,
   SNAPSHOT_STRIDE,
   SPECIALS,
+  sampleHeight,
   spawnUnit,
   step,
   TICK_HZ,
@@ -126,7 +127,7 @@ import { applyBlend, createCameraBlend } from "./render/cameraBlend";
 import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
 import { lerpGunYaws } from "./render/dreadnoughtGuns";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
-import { createFx } from "./render/fx";
+import { createFx, createFxPoses, POSE_STRIDE } from "./render/fx";
 import { bucketFor, createGreyboxMeshes } from "./render/greybox";
 import { type CameraCaption, createCameraCaption } from "./render/hud/caption";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
@@ -305,6 +306,8 @@ if (params.has("debug") && !netMode) {
       aimYaw: number;
       aimPitch: number;
     } | null;
+    /** Live effect instances per class (render/fx.ts). */
+    metropolisFx?: () => ReturnType<typeof fx.debugCounts>;
   };
   dbg.metropolisSim = sim;
   // Debug-only spawner + freeze + snapshot for the verify:units screenshot
@@ -399,6 +402,7 @@ if (params.has("debug") && !netMode) {
           aimYaw: x1Walk.aimYaw[slot],
           aimPitch: x1Walk.aimPitch[slot],
         };
+  dbg.metropolisFx = () => fx.debugCounts();
 }
 
 // --- Online helpers (no-ops unless ?online) ----------------------------------
@@ -552,6 +556,8 @@ function beginMatchSounds(): void {
     musicUrl: data.music,
   });
   sounds.begin(data, FCOP_PLAYER_WEAPONS, map.lifts);
+  // The effects' trail texels are the arena's own tex10 (render/fx.ts).
+  fx.begin(map.id);
   audio.startMatch();
 }
 
@@ -777,9 +783,27 @@ function buildArenaGroup(m: typeof map): THREE.Group {
 let arenaGroup = buildArenaGroup(map);
 scene.add(arenaGroup);
 const greybox = createGreyboxMeshes(scene);
-// Client-only shot VFX (tracers, muzzle flashes, explosions) — same event
-// buffer as audio, independent of sim hash.
-const fx = createFx(scene);
+// The original's weapon effects (render/fx.ts): the effect chain's other
+// listener, beside the sounds (audio/cues.ts raises every install once for
+// both). Render-only — nothing reaches the sim.
+const fxPoses = createFxPoses();
+/** A dying archetype's model for the shatter: its greybox bucket's current mesh. */
+const shatterModel = {
+  geometry: new THREE.BufferGeometry(),
+  material: null as unknown as THREE.Material,
+};
+const fx = createFx(scene, sounds.effects, {
+  poses: fxPoses,
+  ground: (x, z) => sampleHeight(map, x, z),
+  shatter: (archetype) => {
+    const b = bucketFor(greybox, archetype, 0, 0);
+    if (!b) return null;
+    shatterModel.geometry = b.mesh.geometry;
+    shatterModel.material = b.mesh.material as THREE.Material;
+    return shatterModel;
+  },
+  viewportHeight: () => renderer.domElement.height,
+});
 // Instantiate the composer only when bloom actually starts on — its render
 // targets are the cost, and a SwiftShader run never pays it.
 if (bloomOn) setBloom(true);
@@ -1579,7 +1603,13 @@ function pumpSounds(events: typeof sim.events): void {
     captainLevel: level > 0 ? level : 0,
     lifts: liftCurr,
     walker: x1Walk,
+    ground: groundUnder,
   });
+}
+
+/** The ground under (x, z) on the arena in play (an effect with no height of its own). */
+function groundUnder(x: number, z: number): number {
+  return sampleHeight(map, x, z);
 }
 
 /**
@@ -1662,6 +1692,7 @@ function renderEntities(alpha: number, simDtSec: number): void {
   // (RE player_partner.c 289-293), on the sim's clock as the original's is.
   const cloakV = (Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ)) >> 2) & 0x3f;
   for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses[p][3] = 0;
+  fxPoses.live.fill(0);
   let p = 0;
   for (let c = 0; c < countCurr; c++) {
     const o = c * SNAPSHOT_STRIDE;
@@ -1683,7 +1714,6 @@ function renderEntities(alpha: number, simDtSec: number): void {
     // effect chain's round tracker's (effects/rounds.ts).
     const row = archetype === ARCHETYPE.PROJECTILE ? sounds.effects.rounds.row[id] : 0;
     const greyboxBucket = rig ? undefined : bucketFor(greybox, archetype, animState, aux, row);
-    if (!rig && !greyboxBucket) continue;
 
     let x = snapCurr[o + 3];
     let y = snapCurr[o + 4];
@@ -1695,6 +1725,16 @@ function renderEntities(alpha: number, simDtSec: number): void {
       height = snapPrev[po + 5] + (height - snapPrev[po + 5]) * alpha;
       yaw = snapPrev[po + 6] + wrapAngleDelta(yaw - snapPrev[po + 6]) * alpha;
     }
+    // Where it is drawn, for the effects that ride it (render/fx.ts).
+    if (id >= 0 && id < MAX_ENTITIES) {
+      const f = id * POSE_STRIDE;
+      fxPoses.table[f] = x;
+      fxPoses.table[f + 1] = height;
+      fxPoses.table[f + 2] = y;
+      fxPoses.table[f + 3] = yaw;
+      fxPoses.live[id] = 1;
+    }
+    if (!rig && !greyboxBucket) continue;
     // A turret is found by where it stands (render/arenaUnits.ts spotKey): the
     // snapshot's own position, not an interpolation of it.
     const spotX = snapCurr[o + 3];

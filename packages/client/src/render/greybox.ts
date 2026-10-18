@@ -497,9 +497,9 @@ export function bucketFor(
  * telling a rocket from a mortar shell. Now each kind has the mesh the original
  * gave it, so the shape says what it is and the colour is free to say whose it
  * is — which is what the original did too: every row of its weapon table names
- * its mesh twice, once per team (docs/specs/fcop-fx.md §2). PROJECTILE_HEX
- * survives as the explosion tint in render/fx.ts, where a blast really is
- * identified by kind and not by owner.
+ * its mesh twice, once per team (docs/specs/fcop-fx.md §2). The world rows'
+ * rounds name theirs once, with no team variant, and are drawn untinted
+ * (Bucket.untinted).
  *
  * The team IS the cache key, so there is no separate tintKey any more.
  */
