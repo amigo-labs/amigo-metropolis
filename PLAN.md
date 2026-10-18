@@ -849,6 +849,8 @@ moves.
       54-cell overview; solo pauses, online parks the view (V4)
 - [x] The results page: the original's twenty figures per side in the sim (V7;
       v76) and its page, layout, font, colours and two keys
+- [x] The player's own Walker Kills: the Sky Captain's death credits the X1
+      whose own fire brought it down (V7; v81)
 - [ ] The damage shake; the invulnerable gauge's blink; the radar's near-camera
       registry; arrows for the placed actors on the map screen (V1-V4)
 - [x] La Cantina's solo start on side 1's base, as the original's: the teams

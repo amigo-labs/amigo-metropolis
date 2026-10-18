@@ -121,7 +121,11 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 02, 03, 04, 05 and 07 re-frozen at SIM_VERSION 80: the heavy-zone poll's
   // hashed countdown is cfun_tick's, in engine ticks from u32 % period (the same
   // PRNG step); no golden's side reaches 50 points, so none plays differently.
-  "golden-04-warden": { last: 3866494712, count: 4500 },
+  // 04 and 07 re-recorded at SIM_VERSION 81: the hashed rivalHit of the
+  // captain's slot follows the X1's hits on the captain (its death reads it for
+  // the X1's Walker Kills); the X1 hits it and never brings it down, so neither
+  // plays differently, and 07's last tick is back to the same state.
+  "golden-04-warden": { last: 1172562161, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven

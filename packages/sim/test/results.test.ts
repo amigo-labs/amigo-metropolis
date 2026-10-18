@@ -259,15 +259,62 @@ describe("Walker Deaths, Walker Kills and First Death (player.c player_op4)", ()
     });
     expect(state.avatarId[0]).toBe(-1);
     expect(stat(state, 1, STAT_WALKER_KILLS)).toBe(1);
-    // In one viewport nothing raises the player's own (results.json open item).
     expect(stat(state, 0, STAT_WALKER_KILLS)).toBe(0);
-    // The captain goes down: its deaths and its First Death.
+    // The captain goes down, by no one's hit: its deaths and its First Death,
+    // and no kill for the player.
     const w = state.avatarId[1];
     state.ent.hp[w] = 0;
     const tick = state.tick;
     step(state, idle);
     expect(stat(state, 1, STAT_WALKER_DEATHS)).toBe(1);
     expect(stat(state, 1, STAT_FIRST_DEATH)).toBe((tick + 1) * FRAME_CLOCK_PER_TICK);
+    expect(stat(state, 0, STAT_WALKER_KILLS)).toBe(0);
+  });
+
+  /** A Sky Captain match with the captain at (x, y) on 1 health. */
+  function captainAt(x: number, y: number): SimState {
+    const state = createSim(map, 5, { wardenPlayer: 1, wardenDifficulty: 1 });
+    const w = state.avatarId[1];
+    state.ent.posX[w] = x;
+    state.ent.posY[w] = y;
+    state.ent.hp[w] = 1;
+    return state;
+  }
+
+  it("credits the player's Walker Kills when its own fire brings the Sky Captain down", () => {
+    // aircraft.c 0x00420e1c..0x00420e57: the captain's remembered killer (+0x8c)
+    // resolves to team slot 0's mech, and that mech's block +0x14 rises.
+    const state = captainAt(X, Y);
+    const me = standAt(state, 0, X - 6, Y);
+    hitscan(state, me, 0, 1, 0, 12, 10);
+    step(state, idle);
+    expect(state.avatarId[1]).toBe(-1);
+    expect(stat(state, 0, STAT_WALKER_KILLS)).toBe(1);
+    expect(stat(state, 1, STAT_WALKER_DEATHS)).toBe(1);
+    expect(stat(state, 1, STAT_WALKER_KILLS)).toBe(0);
+  });
+
+  it("credits nobody when the player's tank brings the Sky Captain down", () => {
+    const state = captainAt(X, Y);
+    standAt(state, 0, 20, 20);
+    const tank = spawnUnit(state, ARCHETYPE.RUNNER, 0, X - 6, Y);
+    hitscan(state, tank, 0, 1, 0, 12, 10);
+    step(state, idle);
+    expect(state.avatarId[1]).toBe(-1);
+    expect(stat(state, 1, STAT_WALKER_DEATHS)).toBe(1);
+    expect(stat(state, 0, STAT_WALKER_KILLS)).toBe(0);
+  });
+
+  it("forgets the player's hits on the Sky Captain when it comes back", () => {
+    const state = captainAt(X, Y);
+    const me = standAt(state, 0, X - 6, Y);
+    state.ent.hp[state.avatarId[1]] = 100;
+    hitscan(state, me, 0, 1, 0, 12, 10); // a hit that does not bring it down
+    expect(state.rivalHit[1]).toBe(1);
+    state.ent.hp[state.avatarId[1]] = 0;
+    step(state, idle);
+    while (state.avatarId[1] < 0) step(state, idle);
+    expect(state.rivalHit[1]).toBe(0);
   });
 });
 

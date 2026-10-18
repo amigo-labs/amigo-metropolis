@@ -1197,4 +1197,14 @@
 //     MATCH_SLOT_TERMINALS (slot stride 12 -> 13). The client stood them from
 //     tick 0. Every PA golden's hashes move from tick 0 for the countdown's new
 //     units; no golden's side reaches 50 points, so none plays differently.
-export const SIM_VERSION = 80;
+// v81: the Sky Captain's death credits the player's Walker Kills
+//     (fcop-fidelity.md V7; RE aircraft.c 0x00420e1c..0x00420e57, the
+//     commander's death bookkeeping): when the hit that brought it down was
+//     the X1's own craft — its weapons, or a round or mine it fired — team slot
+//     0's block +0x14 rises. SimState.rivalHit's captain slot now holds the
+//     same for the hits on the captain as a mech's does for the hits on it
+//     (set by every hit, cleared at the respawn; hashed as before). Until now
+//     the player's own Walker Kills stayed 0 in a solo match. Goldens 04 and 07
+//     (the captain's) re-record: the X1 hits the captain and never brings it
+//     down there, so neither plays differently (07's last hash holds).
+export const SIM_VERSION = 81;

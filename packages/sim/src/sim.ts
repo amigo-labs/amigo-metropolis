@@ -501,7 +501,10 @@ export interface SimState {
    * the captain (its tally, its rethink zeroed) or, with two viewports, the
    * other slot's Walker Kills, only when that actor, or the owner a round's id
    * carries, is the captain or the other mech (`player_op4`
-   * 0x004477ab..0x00447821). Cleared at the respawn.
+   * 0x004477ab..0x00447821). The Sky Captain's slot holds the same for the hits
+   * on the captain — 1 when the last was the X1's own craft — which its death
+   * reads for the X1's Walker Kills (aircraft.c 0x00420e1c..0x00420e57).
+   * Cleared at the respawn.
    */
   readonly rivalHit: Uint8Array;
   /**
@@ -3198,7 +3201,9 @@ function applyDamage(
   ent.hp[target] -= damage;
   // aux stores 1 + last attacking player for kill attribution (0 = none).
   ent.aux[target] = attacker + 1;
-  if (ent.archetype[target] === ARCHETYPE.AVATAR) {
+  // The Sky Captain remembers its killing hit too (+0x8c, `cact_base_op9`
+  // 0x0041a707), which its death reads for the X1's Walker Kills.
+  if (ent.archetype[target] === ARCHETYPE.AVATAR || ent.archetype[target] === ARCHETYPE.WARDEN) {
     const p = ent.ownerId[target];
     if (p >= 0 && p < MAX_PLAYERS && state.avatarId[p] === target) {
       state.rivalHit[p] = byRival ? 1 : 0;
@@ -4036,6 +4041,12 @@ function systemDamageDeath(state: SimState): void {
         // +0x48 and +0x3e (aircraft.c 0x00420df9; at the crash's end there,
         // which Metropolis does not model).
         noteDown(state, team);
+        // ...and one more Walker Kill for the player's side when the hit that
+        // brought it down was that X1's own (its weapons, or a round or mine it
+        // fired): the remembered serial resolves to team slot 0's mech, whose
+        // block's +0x14 rises (aircraft.c 0x00420e1c..0x00420e57; slot 0 is
+        // always the human against the captain).
+        if (state.rivalHit[team] !== 0) bumpStat(state, other, STAT_WALKER_KILLS);
       } else if (archetype === ARCHETYPE.TURRET) {
         earn(state, other, POINTS_TURRET_DIES);
         if (ent.mode[id] === TURRET_CAPTURABLE) {
