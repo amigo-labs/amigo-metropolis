@@ -719,8 +719,8 @@ The original's controls from the RE (`docs/behavior/camera-and-movement.md`
       walker's ledge hold (P4/P5; v70)
 - [x] Bindings, presets, the bindings file, the gamepad with the 25 % per-axis
       dead zone, the controls screen; the Map Key pauses (C2-C4)
-- [ ] The Camera Key's seven presets and the Map Key's map screen — with
-      wave 6
+- [x] The Camera Key's seven presets and the Map Key's map screen — with
+      wave 6 (V1, V4)
 - [ ] The controls screen's original look — with wave 7
 
 ### Wave 5 — Assets
@@ -739,6 +739,39 @@ no golden moves.
 - [ ] Team variants by the original's UV offsets, in place of the invented
       desaturate-and-tint (G4)
 - [ ] The X1's animations
+
+### Wave 6 — Presentation
+
+The original's cameras, HUD, radar and map screen, read from the RE's
+presentation exports (`extracted/presentation/camera.json`, `hud.json`,
+`radar_markers.json`) and imported by `bun run gen:presentation`
+(`docs/specs/fcop-fidelity.md` "Presentation", rows V*). Client-local: no golden
+moves.
+
+- [x] Import: the camera tables, the HUD's layout, palettes and font, the radar
+      markers by unit kind and side, each mission's objective contacts, the
+      HUD's atlas page, font and reticles (`public/hud/`)
+- [x] The seven chase cameras and the Camera Key: presets, follow and caps,
+      retract, offset walk, height follower, sink, occlusion fallbacks, the name
+      caption; the original's vertical FOV; Crowd Control unreachable in PA, as
+      in the original (V1; camera.spec.md v2)
+- [x] The original's names in the UI and the specs: tank, jet, Dreadnought,
+      Flying Fortress, Sky Captain, X1-Alpha (V5)
+- [x] Team colours by the original's sides, side 1 red and side 2 blue, per
+      arena (V6)
+- [x] The HUD on the original's 640 x 480 layout, scaled to the 4:3 box and
+      anchored to the edges: armour gauge, badge, weapon icons and counts, score
+      and tanks/jets plates, the opponent's row and gauge, `L%02d`, the lock beam
+      and reticle; the ticker, banners and crosshair gone (V2)
+- [x] The running radar: heading-up disc, octagonal range, rim tick and base
+      arrows, blips by marker (V3)
+- [x] The Map Key's map screen: the top-down window, the pan, arrows, rings, the
+      54-cell overview; solo pauses, online parks the view (V4)
+- [ ] The results page with its counters (the sim's statistics; a later task)
+- [ ] The damage shake; the invulnerable gauge's blink; the radar's near-camera
+      registry; arrows for the placed actors on the map screen (V1-V4)
+- [ ] La Cantina's solo start on side 2's base (V6: a map-import question)
+- [ ] The owner's side-by-side look against the original
 
 ## Backlog (post-v1, do not start)
 
