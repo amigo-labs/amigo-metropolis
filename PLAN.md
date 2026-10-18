@@ -782,6 +782,12 @@ no golden moves.
       shared only where payload and sampled texels agree (G5)
 - [x] The turrets as the original's two parts: the base at its rest yaw, the gun
       on its attach point (G6)
+- [x] One record angle, one turn (`render/recordYaw.ts`): the scenery as it was,
+      the turret bases at their own record's yaw (+0x42, not the gun's), the
+      lifts unmirrored, the pickups' spin; the kiosks' screens held to their
+      zones (G6, G12)
+- [ ] The turret guns' rest yaw: the record's a, where the sim has pi/2 - a
+      (`rotToYaw` with the -1024 bias; a SIM_VERSION change, v83) (G12)
 - [x] Team colour by the original's texture offsets in place of the invented
       desaturate-and-tint: per side, per capture state, the X1's beacon kept;
       the side from `render/sides.ts` (G4)

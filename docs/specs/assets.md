@@ -127,11 +127,22 @@ forever as a debug render mode (`?render=greybox`).
   per model, an instance per pickup, shown and turned per frame from the match
   snapshot (`MATCH_PICKUPS`) at the record's spin rate. `render/lifts.ts` draws
   one `InstancedMesh` per lift model, an instance per lift, at the height the
-  lift snapshot (`writeLiftSnapshot`) gives its top. A Cobj's own X runs along
-  the sim's y and its Z along the sim's x (the actors frame swaps the original's
-  axes, as the terrain mesh does), so a lift's model is baked through that swap
-  at load and drawn from both sides; the pickups, symmetric and spinning, are
-  not.
+  lift snapshot (`writeLiftSnapshot`) gives its top. Both turn as every record
+  angle does (below): the lift by its record's yaw, the pickup by its spin
+  angle. Until "Stand every record angle through one mapping" a lift's model was
+  baked through the actors frame's axis swap a second time and drawn from both
+  sides — a mirror in the model's own x, since the RE's glb already carries the
+  Cobj's x negated.
+- **One record angle, one turn** (`render/recordYaw.ts`; fcop-fidelity.md G12).
+  A record's angle a (4096 a turn) is the construct's `My(a)`, and the engine
+  draws a vertex at `v * M + position` (row-vector, `camera_place_to_view`
+  carrying the placement's rows through the view): the model's +z heads the
+  game's (sin a, 0, cos a), the sim's (cos a, sin a). So the record angle is the
+  sim's yaw (`recordYaw`), and an RE glb — the Cobj with its x negated — turns
+  in three by pi/2 - a about +y (`recordTurn`, `yawTurn`), not mirrored: the
+  actors frame's swap of x and z and the export's negation cancel. A geometry
+  with the units' quarter turn baked turns by -a. Scenery, turret bases, lifts
+  and pickups take this one function; the units and the X1 already turn so.
 - **Scenery wears each arena's own Cobjs too** (`packages/client/public/models/props/<mapId>/prop-<cobj>.glb`).
   A scenery record's Cobj id is in its own mission's numbering, which is not
   Mp's: urban-jungle's 36 and 41 are kiosks, Mp's are the Dreadnought hull and
@@ -181,8 +192,10 @@ forever as a debug render mode (`?render=greybox`).
   hull's attach points 0-3, points in the raw's frame (the helper vertices the
   glb export drops, carried by `pa_models.json`).
 - **The turret and the Dreadnought draw as parts**, as the original's are
-  separate actors with their own transforms: the turret's base at the record's
-  rest yaw and its gun turning on it (a part bucket per turret set; Hk's second
+  separate actors with their own transforms: the turret's base at its own
+  yaw — the one its construct reads off the turret's record at +0x42, not the
+  gun's +0x34 (`turretBases` in `render/arenaScenery.generated.ts`, keyed by
+  spot, kind and team) — and its gun turning on it (a part bucket per turret set; Hk's second
   set has a gun bucket of its own), the Dreadnought's four guns on the hull (a
   part bucket per gun model, capacity four guns of every Dreadnought). Further
   bounded exceptions to the one-mesh-per-archetype rule (the only ones: the X1
