@@ -22,12 +22,12 @@ import {
   ORIGINAL_BUY_HALF_L,
   ORIGINAL_BUY_HALF_W,
   ORIGINAL_CAPTURE_RANGE,
-  ORIGINAL_JET_QUEUE_TICKS,
+  ORIGINAL_JET_QUEUE_PERIOD,
   ORIGINAL_PICKUP_HALF_H,
   ORIGINAL_PICKUP_HALF_L,
   ORIGINAL_PICKUP_HALF_W,
   ORIGINAL_PICKUP_LIFT,
-  ORIGINAL_TANK_QUEUE_TICKS,
+  ORIGINAL_TANK_QUEUE_PERIOD,
   ORIGINAL_TURRET_HP,
   ORIGINAL_UNIT_PROFILES,
   ORIGINAL_WEAPON_PROFILES,
@@ -343,9 +343,10 @@ export interface MapBase {
   readonly jetSpawn: MapPoint;
   /**
    * The base's tank queue's period, and the jet queue's (the Sky Captain's; a
-   * human's jets come at once). ORIGINAL_*_QUEUE_TICKS where the arena imports none.
+   * human's jets come at once), in engine ticks (MapQueuePeriods).
+   * ORIGINAL_*_QUEUE_PERIOD where the arena imports none.
    */
-  readonly queueTicks: MapQueueTicks;
+  readonly queuePeriod: MapQueuePeriods;
 }
 
 /**
@@ -420,9 +421,10 @@ export interface MapTriggerVolume {
 /**
  * Hk's spawn guard (fcop-fidelity.md P11): a trigger box about a spawn that
  * watches the ENEMY mech. While that mech is inside it takes `damage`, then the
- * box waits for a latch reset the mission polls every `resetTicks` from a random
- * phase (RE `pa_rules.json` damage_triggers; trigger.c's box test, every axis
- * widened by the mech's radius).
+ * box waits for a latch reset the mission polls every `resetPeriod` engine
+ * ticks from a random phase (fn45 / fn46's 60 time units × 5 = 300, as
+ * `cfun_load` stores it; RE `pa_rules.json` damage_triggers; trigger.c's box
+ * test, every axis widened by the mech's radius).
  */
 export interface MapSpawnGuard {
   readonly x: number;
@@ -434,7 +436,7 @@ export interface MapSpawnGuard {
   /** Team whose mech the box hurts. */
   readonly hurtsTeam: number;
   readonly damage: number;
-  readonly resetTicks: number;
+  readonly resetPeriod: number;
   readonly layer: number;
 }
 
@@ -495,16 +497,19 @@ export interface MapOutpost {
   /** Per team: where its tanks and jets from this outpost appear (their spawners). */
   readonly tankSpawn: readonly MapPoint[];
   readonly jetSpawn: readonly MapPoint[];
-  /** Per team: this outpost's tank and jet queues' periods in ticks (MapQueueTicks). */
-  readonly queueTicks: readonly MapQueueTicks[];
+  /** Per team: this outpost's tank and jet queues' periods in engine ticks (MapQueuePeriods). */
+  readonly queuePeriod: readonly MapQueuePeriods[];
 }
 
 /**
- * A spawn queue's period in ticks (fcop-fidelity.md R18): the mission function
- * that spawns one queued unit per poll while its count is positive, polled from a
- * random phase drawn at load.
+ * A spawn queue pair's periods (fcop-fidelity.md R18): each queue is the
+ * mission function that spawns one queued unit per poll while its count is
+ * positive, polled by `cfun_tick` from a random phase drawn at load; its period
+ * in the original's engine ticks (300 Hz), the function's time units × 5 as
+ * `cfun_load` stores it, counted down by the frame delta, CFUN_DELTA_PER_TICK a
+ * tick.
  */
-export interface MapQueueTicks {
+export interface MapQueuePeriods {
   readonly tank: number;
   readonly jet: number;
 }
@@ -890,7 +895,7 @@ export interface MapJson {
     /** OPTIONAL, per team: the spawners' positions (absent -> the pads) and queue periods. */
     tankSpawn?: (number[] | { x: number; y: number; layer?: number })[];
     jetSpawn?: (number[] | { x: number; y: number; layer?: number })[];
-    queueTicks?: { tank: number; jet: number }[];
+    queuePeriod?: { tank: number; jet: number }[];
     plates: {
       spot: number;
       turrets: { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number }[];
@@ -984,7 +989,7 @@ export interface MapJson {
     halfH: number;
     hurtsTeam: number;
     damage: number;
-    resetTicks: number;
+    resetPeriod: number;
     layer?: number;
   }[];
   /** OPTIONAL: the lifts (MapLift). */
@@ -1067,8 +1072,8 @@ export interface MapBaseJson {
   /** OPTIONAL: the tank and jet spawners' positions; absent -> the consoles. */
   tankSpawn?: number[] | { x: number; y: number; layer?: number };
   jetSpawn?: number[] | { x: number; y: number; layer?: number };
-  /** OPTIONAL: the base's queue periods in ticks (MapQueueTicks). */
-  queueTicks?: { tank: number; jet: number };
+  /** OPTIONAL: the base's queue periods in engine ticks (MapQueuePeriods). */
+  queuePeriod?: { tank: number; jet: number };
 }
 
 function fail(id: string, reason: string): never {
@@ -1412,8 +1417,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
   };
 
   if (!Array.isArray(raw.bases) || raw.bases.length !== 2) fail(id, "need exactly 2 bases");
-  const queueTicksOf = (q: { tank: number; jet: number } | undefined, what: string) => {
-    if (q === undefined) return { tank: ORIGINAL_TANK_QUEUE_TICKS, jet: ORIGINAL_JET_QUEUE_TICKS };
+  const queuePeriodOf = (q: { tank: number; jet: number } | undefined, what: string) => {
+    if (q === undefined)
+      return { tank: ORIGINAL_TANK_QUEUE_PERIOD, jet: ORIGINAL_JET_QUEUE_PERIOD };
     if (!Number.isInteger(q.tank) || q.tank < 1 || !Number.isInteger(q.jet) || q.jet < 1) {
       fail(id, `${what} need positive integer periods`);
     }
@@ -1567,7 +1573,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
       fortressSpawn: point(b.fortressSpawn ?? b.airConsole, `base ${team} fortress spawn`),
       tankSpawn: point(b.tankSpawn ?? b.groundConsole, `base ${team} tank spawn`),
       jetSpawn: point(b.jetSpawn ?? b.airConsole, `base ${team} jet spawn`),
-      queueTicks: queueTicksOf(b.queueTicks, `base ${team} queues`),
+      queuePeriod: queuePeriodOf(b.queuePeriod, `base ${team} queues`),
     };
   });
 
@@ -1632,8 +1638,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
         jetSpawn: perTeam(o.jetSpawn, "jetSpawn").map((p, t) =>
           p === undefined ? jetPad : point(p, `${what} team ${t} jet spawn`),
         ),
-        queueTicks: perTeam(o.queueTicks, "queueTicks").map((q, t) =>
-          queueTicksOf(q, `${what} team ${t} queues`),
+        queuePeriod: perTeam(o.queuePeriod, "queuePeriod").map((q, t) =>
+          queuePeriodOf(q, `${what} team ${t} queues`),
         ),
       });
       if (!Array.isArray(o.plates)) fail(id, `${what} plates is not a list`);
@@ -1827,8 +1833,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
     }
     if (g.hurtsTeam !== 0 && g.hurtsTeam !== 1) fail(id, `spawn guard ${k} bad team`);
     if (!Number.isInteger(g.damage) || g.damage <= 0) fail(id, `spawn guard ${k} bad damage`);
-    if (!Number.isInteger(g.resetTicks) || g.resetTicks <= 0) {
-      fail(id, `spawn guard ${k} bad resetTicks`);
+    if (!Number.isInteger(g.resetPeriod) || g.resetPeriod <= 0) {
+      fail(id, `spawn guard ${k} bad resetPeriod`);
     }
     return {
       x,
@@ -1838,7 +1844,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
       halfH,
       hurtsTeam: g.hurtsTeam,
       damage: g.damage,
-      resetTicks: g.resetTicks,
+      resetPeriod: g.resetPeriod,
       layer: layerOf(g.layer, `spawn guard ${k}`),
     };
   });
@@ -2011,7 +2017,7 @@ export function createTestMap(): MapData {
     fortressSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
     tankSpawn: { x: center + (team === 0 ? -12 : 12), y: center, layer: 0 },
     jetSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
-    queueTicks: { tank: ORIGINAL_TANK_QUEUE_TICKS, jet: ORIGINAL_JET_QUEUE_TICKS },
+    queuePeriod: { tank: ORIGINAL_TANK_QUEUE_PERIOD, jet: ORIGINAL_JET_QUEUE_PERIOD },
   });
   return {
     id: TEST_MAP_ID,

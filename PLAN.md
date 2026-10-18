@@ -707,6 +707,9 @@ commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
       at a poll; the poll on `cfun_tick`'s engine-tick countdown from
       `rand % period`; `MATCH_SLOT_TERMINALS`, drawn by `render/props.ts`
       (R10, G2; v80)
+- [x] The spawn queues and Hk's guard resets on the same scheduler: engine-tick
+      countdowns from `rand % period`, the functions' time units × 5, 10 a tick
+      (R18, P11; v84)
 
 ### Wave 3 — Controls 1:1
 

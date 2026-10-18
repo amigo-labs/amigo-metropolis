@@ -73,8 +73,8 @@ import {
   MUZZLE_OFFSET,
   NEUTRAL_TURRET_RADIUS,
   NEUTRAL_TURRET_RESPAWN_TICKS,
-  ORIGINAL_JET_QUEUE_TICKS,
-  ORIGINAL_TANK_QUEUE_TICKS,
+  ORIGINAL_JET_QUEUE_PERIOD,
+  ORIGINAL_TANK_QUEUE_PERIOD,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_TURRET_RESPAWN_TICKS,
   PICKUP_GUN_AMMO,
@@ -220,7 +220,7 @@ import {
   waterHeightAt,
   worldExtent,
 } from "./map";
-import { atan2Poly, cosLUT, octagonalLength, rand01, randInt, randU32, sinLUT } from "./simMath";
+import { atan2Poly, cosLUT, octagonalLength, rand01, randU32, sinLUT } from "./simMath";
 import {
   bumpStat,
   noteDown,
@@ -418,7 +418,8 @@ export interface SimState {
    * The spawn queues (fcop-fidelity.md R18), UNIT_QUEUES per team at
    * `team * UNIT_QUEUES + q` (QUEUE_BASE_TANKS, QUEUE_BASE_JETS, then
    * QUEUE_OUTPOST + 2k tanks and + 2k + 1 jets): units bought or requested and
-   * not yet spawned, and the ticks to each queue's next poll.
+   * not yet spawned, and the engine ticks to each queue's next poll
+   * (`cfun_tick`'s countdown, CFUN_DELTA_PER_TICK less a tick).
    */
   readonly unitQueue: Int32Array;
   readonly unitQueueTimer: Int32Array;
@@ -575,8 +576,8 @@ export interface SimState {
   readonly turretAlert: Int32Array;
   /**
    * Hk's spawn guards (fcop-fidelity.md P11), per `map.spawnGuards` entry: the
-   * box's latch (1 = it has hurt and waits for the reset) and the countdown to
-   * the mission's next reset poll. Length 0 on every other arena.
+   * box's latch (1 = it has hurt and waits for the reset) and the engine-tick
+   * countdown to the mission's next reset poll. Length 0 on every other arena.
    */
   readonly guardLatch: Uint8Array;
   readonly guardTimer: Int32Array;
@@ -1074,9 +1075,10 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     if (p !== wardenPlayer) state.difficulty[p] = normalizeDifficulty(difficulties?.[p]);
   }
   // A polled mission function's first poll falls at a random moment inside its
-  // first period (`cfun_load`: countdown = rand % period).
+  // first period: `cfun_load`'s countdown, `(u32)game_rand() % (u32)period` in
+  // engine ticks (cfun/load.c 0x00436b10), here the sim's mulberry32 word.
   for (let k = 0; k < map.spawnGuards.length; k++) {
-    state.guardTimer[k] = randInt(state, map.spawnGuards[k].resetTicks);
+    state.guardTimer[k] = randU32(state) % map.spawnGuards[k].resetPeriod;
   }
   // fn30 / fn31 in the original's form: an engine-tick countdown from
   // `(u32)game_rand() % (u32)period` (cfun/load.c 0x00436b10).
@@ -1086,7 +1088,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
   }
   for (let p = 0; p < MAX_PLAYERS; p++) {
     for (let q = 0; q < UNIT_QUEUES; q++) {
-      state.unitQueueTimer[p * UNIT_QUEUES + q] = randInt(state, queuePeriod(map, p, q));
+      state.unitQueueTimer[p * UNIT_QUEUES + q] = randU32(state) % queuePeriod(map, p, q);
     }
   }
   // Each lift at its record's stop, parked or dwelling as that stop says,
@@ -2145,16 +2147,16 @@ export const QUEUE_BASE_TANKS = 0;
 export const QUEUE_BASE_JETS = 1;
 export const QUEUE_OUTPOST = 2;
 
-/** A queue's period in ticks: the arena's own, else ORIGINAL_*_QUEUE_TICKS. */
+/** A queue's period in engine ticks: the arena's own, else ORIGINAL_*_QUEUE_PERIOD. */
 function queuePeriod(map: MapData, team: number, q: number): number {
   const jet = (q & 1) === 1;
   if (q < QUEUE_OUTPOST) {
-    const t = map.bases[team].queueTicks;
+    const t = map.bases[team].queuePeriod;
     return jet ? t.jet : t.tank;
   }
   const k = (q - QUEUE_OUTPOST) >> 1;
-  if (k >= map.outposts.length) return jet ? ORIGINAL_JET_QUEUE_TICKS : ORIGINAL_TANK_QUEUE_TICKS;
-  const t = map.outposts[k].queueTicks[team];
+  if (k >= map.outposts.length) return jet ? ORIGINAL_JET_QUEUE_PERIOD : ORIGINAL_TANK_QUEUE_PERIOD;
+  const t = map.outposts[k].queuePeriod[team];
   return jet ? t.jet : t.tank;
 }
 
@@ -2169,16 +2171,19 @@ export function queuedUnits(state: SimState, team: number, jet: boolean): number
  * The spawn queues (fcop-fidelity.md R18): each is the original's mission
  * function that, once a period from a phase drawn at load, spawns one unit while
  * its count is positive (fn18/fn19 a base's tanks, fn17 the captain's base jets,
- * fn07..fn16/fn20/fn21 the outposts'). The unit leaves the queue's spawner; one
- * the spawner refuses (20 of its kind alive) is spent all the same. A human's
- * tanks and the Sky Captain's tanks and jets come this way.
+ * fn07..fn16/fn20/fn21 the outposts'). They run on `cfun_tick`'s countdowns
+ * (cfun/load.c 0x00436be0): the frame delta, CFUN_DELTA_PER_TICK engine ticks
+ * a tick, off each; one gone negative takes its period back and polls. The
+ * unit leaves the queue's spawner; one the spawner refuses (20 of its kind
+ * alive) is spent all the same. A human's tanks and the Sky Captain's tanks
+ * and jets come this way.
  */
 function systemQueues(state: SimState): void {
   const map = state.map;
   for (let team = 0; team < MAX_PLAYERS; team++) {
     for (let q = 0; q < UNIT_QUEUES; q++) {
       const k = team * UNIT_QUEUES + q;
-      state.unitQueueTimer[k] -= 1;
+      state.unitQueueTimer[k] -= CFUN_DELTA_PER_TICK;
       if (state.unitQueueTimer[k] >= 0) continue;
       state.unitQueueTimer[k] += queuePeriod(map, team, q);
       if (state.unitQueue[k] <= 0) continue;
@@ -4625,10 +4630,11 @@ function systemFloors(state: SimState): void {
   const guards = map.spawnGuards;
   for (let k = 0; k < guards.length; k++) {
     const g = guards[k];
-    // The reset function's poll (`cfun_tick`): it clears a set latch.
-    state.guardTimer[k] -= 1;
+    // The reset function's poll (`cfun_tick`, its engine-tick countdown less
+    // the frame delta): it clears a set latch.
+    state.guardTimer[k] -= CFUN_DELTA_PER_TICK;
     if (state.guardTimer[k] < 0) {
-      state.guardTimer[k] += g.resetTicks;
+      state.guardTimer[k] += g.resetPeriod;
       state.guardLatch[k] = 0;
     }
     if (state.guardLatch[k] !== 0) continue;

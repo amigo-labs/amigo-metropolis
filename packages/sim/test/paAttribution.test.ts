@@ -322,9 +322,13 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // does not: both its opening tanks die, the nearer 13.6 m short of the gate,
   // and it stays on 29 points from 29 captures, one short of an outpost.
   // urban-jungle seed 2 as before (its two tanks die 11.8 m short).
+  // Re-measured at SIM_VERSION 84 (the spawn queues poll on cfun_tick's
+  // engine-tick countdowns from `rand % period`, the periods no longer rounded to
+  // sim ticks): 19 of 20 resolve, in 40-110 s; urban-jungle seed 2 and bug-hunt
+  // seed 2 now breach (86 s, 71 s), urban-jungle seed 4 does not: its opening
+  // order dies at the ring and it stays on 2 points.
   const UNRESOLVED: Record<string, number[]> = {
-    [URBAN_JUNGLE_ID]: [2],
-    [BUG_HUNT_ID]: [2],
+    [URBAN_JUNGLE_ID]: [4],
   };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {

@@ -342,8 +342,12 @@ unit). The spots are the original's:
 
 A **tank is queued** (SIM_VERSION 61, R18): the press is accepted at once, with
 the purchase sound, and the tank joins its side's spawn queue, which spawns one
-unit a period — base tanks about 3.3–3.4 s (98–102 ticks), outpost tanks 98–103
-ticks — from a random phase drawn at load. So a purchase waits 0 to one period
+unit a period — base tanks about 3.3–3.4 s (980–1020 engine ticks), outpost
+tanks 975–1025 — from a random phase drawn at load. The queues run on the
+original's scheduler (SIM_VERSION 84): each countdown in engine ticks, the
+function's time units × 5, drawn as `rand % period` and taken down 10 a tick, so
+a period of 1015 polls 101 and 102 ticks apart (until v84 they counted sim
+ticks, rounded). So a purchase waits 0 to one period
 for its first tank, then a period each, and queued tanks count against the
 20-alive cap from the purchase. A **jet comes at once**. Every unit leaves its
 spawner's position (the original's Csac template), not the console or the pad:
@@ -564,8 +568,9 @@ ladder of defend / buy / push / suppress / capture / escort / harass).
   Dreadnought while one lives spends the 50 and is refused — the original's quirk).
   Its requests go to the same shared spawn queues as a human's (§3; SIM_VERSION
   61, R18), each from its random phase and at its arena's own periods: base
-  tanks about 3.3–3.4 s, base jets 0.8–0.97 s. (It had queues of its own,
-  a fresh countdown at each request.)
+  tanks about 3.3–3.4 s, base jets 0.8–0.97 s, on the original's engine-tick
+  countdowns (SIM_VERSION 84). (It had queues of its own, a fresh countdown at
+  each request.)
   What it buys depends on the mode: defending, jets and a Flying Fortress near home
   (and at level 9 a base tank against a threat at home); roaming or attacking,
   outpost claims; attacking, outpost tanks and jets; roaming, a Dreadnought
@@ -733,8 +738,9 @@ only what Metropolis adopts from it.
   feet), walker or hover, crediting no one. The own mech is safe; units and the
   Sky Captain are untouched. Mp, Conft, Slim, Joke and Ovmp have it. Hollywood-keys
   has no such floor: each spawn has a guard box (12 × 14.4 × 4 m) that deals **25**
-  to the enemy mech, then waits for a latch reset polled once a second (from a
-  random first poll); those boxes no longer sound as intrusion alerts. Nothing
+  to the enemy mech, then waits for a latch reset polled once a second (fn45 /
+  fn46, 300 engine ticks on the original's scheduler since SIM_VERSION 84, from
+  a random first poll); those boxes no longer sound as intrusion alerts. Nothing
   else in a base hurts an intruder, and no pad heals the own mech there (§2).
 - **Power-ups.** `ItemPickup` spots grant ammo, health, a cloak or a
   slot's power-up. **All stand from the start of the match** and re-arm on the

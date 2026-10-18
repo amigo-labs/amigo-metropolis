@@ -243,7 +243,10 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     }
     expect(sim.unitQueue[QUEUE_BASE_TANKS]).toBe(3);
     const out: number[] = [];
-    for (let t = 0; t < 4 * base.queueTicks.tank; t++) {
+    // The test map's queue: Mp's fn18, 1010 engine ticks, 101 ticks of 10.
+    expect(base.queuePeriod.tank).toBe(1010);
+    const period = base.queuePeriod.tank / CFUN_DELTA_PER_TICK;
+    for (let t = 0; t < 4 * period; t++) {
       step(sim, inputs);
       for (let id = 0; id < sim.ent.high; id++) {
         if (!sim.ent.alive[id] || sim.ent.archetype[id] !== ARCHETYPE.RUNNER) continue;
@@ -256,8 +259,8 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     }
     const ticks = out.filter((v) => v < 0).map((v) => -v - 1);
     expect(ticks.length).toBe(3);
-    expect(ticks[1] - ticks[0]).toBe(base.queueTicks.tank);
-    expect(ticks[2] - ticks[1]).toBe(base.queueTicks.tank);
+    expect(ticks[1] - ticks[0]).toBe(period);
+    expect(ticks[2] - ticks[1]).toBe(period);
     expect(sim.unitQueue[QUEUE_BASE_TANKS]).toBe(0);
     // A jet does not queue.
     sim.ent.posX[0] = 6;

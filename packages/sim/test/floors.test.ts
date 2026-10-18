@@ -7,7 +7,12 @@
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { ARCHETYPE_RADIUS, STARTING_POINTS, SURFACE_REACH } from "../src/balance";
+import {
+  ARCHETYPE_RADIUS,
+  CFUN_DELTA_PER_TICK,
+  STARTING_POINTS,
+  SURFACE_REACH,
+} from "../src/balance";
 import { EV_HIT, EVENT_STRIDE } from "../src/events";
 import { createTickInputs } from "../src/inputs";
 import {
@@ -157,9 +162,12 @@ describe("Hk's spawn guards", () => {
     const state = createSim(map, 1);
     const k = map.spawnGuards.findIndex((g) => g.hurtsTeam === 0);
     const g = map.spawnGuards[k];
+    // fn45 / fn46: 60 time units, 300 engine ticks, 30 sim ticks of 10.
+    expect(g.resetPeriod).toBe(300);
+    const period = g.resetPeriod / CFUN_DELTA_PER_TICK;
     const a0 = state.avatarId[0];
     const hits: number[] = [];
-    for (let t = 0; t < 3 * g.resetTicks + 1; t++) {
+    for (let t = 0; t < 3 * period + 1; t++) {
       // Hold it inside the box (the guard's own corner, clear of the spawn).
       standAt(state, a0, g.x + g.halfW - 1, g.y);
       state.ent.hp[a0] = 1000;
@@ -173,7 +181,7 @@ describe("Hk's spawn guards", () => {
     expect(hits[0]).toBe(0);
     expect(hits.length).toBeGreaterThanOrEqual(3);
     expect(hits.length).toBeLessThanOrEqual(4);
-    for (let n = 2; n < hits.length; n++) expect(hits[n] - hits[n - 1]).toBe(g.resetTicks);
+    for (let n = 2; n < hits.length; n++) expect(hits[n] - hits[n - 1]).toBe(period);
   });
 
   it("leaves the base's own mech alone, and one outside the box", () => {

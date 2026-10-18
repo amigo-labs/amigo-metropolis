@@ -1462,13 +1462,14 @@ export const SKY_SPEND_HOME_PER_LEVEL = 0x10000 / 8192;
 export const SKY_FORTRESS_BUDGET = 0x41;
 export const SKY_SPARE_BUDGET = 5;
 /**
- * A spawn queue's period where the arena imports none (fcop-fidelity.md R18):
- * Mp's slot-0 base tank queue, fn18's 202 units (3.37 s), and its captain's base
- * jet queue, fn17's 58 (0.97 s). Each arena's own come from the rules artifact
- * (MapBase.queueTicks, MapOutpost.queueTicks).
+ * A spawn queue's period where the arena imports none (fcop-fidelity.md R18),
+ * in engine ticks as `cfun_load` stores it (time units × 5): Mp's slot-0 base
+ * tank queue, fn18's 202 units (1010, 3.37 s), and its captain's base jet
+ * queue, fn17's 58 (290, 0.97 s). Each arena's own come from the rules artifact
+ * (MapBase.queuePeriod, MapOutpost.queuePeriod).
  */
-export const ORIGINAL_TANK_QUEUE_TICKS = 101;
-export const ORIGINAL_JET_QUEUE_TICKS = 29;
+export const ORIGINAL_TANK_QUEUE_PERIOD = 202 * 5;
+export const ORIGINAL_JET_QUEUE_PERIOD = 58 * 5;
 /** Spawn queues per team: base tanks, base jets, then a tank and a jet queue per outpost (4). */
 export const UNIT_QUEUES = 10;
 /** Free opening order (construct 0x00421476): from level 1, 10 units. */

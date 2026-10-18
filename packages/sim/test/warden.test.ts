@@ -10,6 +10,7 @@
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
+  CFUN_DELTA_PER_TICK,
   COST_OUTPOST_CLAIM,
   POINTS_AVATAR_DOWN,
   SKY_RETHINK_BASE,
@@ -202,15 +203,19 @@ describe("the Warden is the Sky Captain", () => {
       expect(sim.points[1]).toBe(0); // unpaid
     }
     // The scripts spawn them one a period from a random phase: on Mp a tank per
-    // 3.38 s (fn19, 203 units, 101.5 ticks) and a jet per 0.97 s (fn17, 58).
-    // Until SIM_VERSION 79 the captain's team on Mp held slot 0's base and its
-    // fn18 (202 units, 101), a queue the original never feeds the captain.
+    // 3.38 s (fn19, 203 units, 1015 engine ticks: 101 and 102 ticks apart) and a
+    // jet per 0.97 s (fn17, 58 units, 290: 29 ticks). Until SIM_VERSION 79 the
+    // captain's team on Mp held slot 0's base and its fn18 (202 units, 1010), a
+    // queue the original never feeds the captain; until 84 the periods were
+    // rounded to sim ticks (102, 29).
     const sim = wardenSim(8, 1, LA_CANTINA_ID);
-    const base = sim.map.bases[1].queueTicks;
-    expect([base.tank, base.jet]).toEqual([102, 29]);
+    const base = sim.map.bases[1].queuePeriod;
+    expect([base.tank, base.jet]).toEqual([1015, 290]);
+    const tankTicks = Math.ceil(base.tank / CFUN_DELTA_PER_TICK);
+    const jetPeriod = base.jet / CFUN_DELTA_PER_TICK;
     const jetTicks: number[] = [];
     let firstTank = -1;
-    for (let t = 0; t < base.tank + 1; t++) {
+    for (let t = 0; t < tankTicks + 1; t++) {
       step(sim, idle);
       for (let i = 0; i < sim.events.count; i++) {
         const o = i * EVENT_STRIDE;
@@ -221,8 +226,8 @@ describe("the Warden is the Sky Captain", () => {
       }
     }
     expect(firstTank).toBeGreaterThanOrEqual(0); // within the first period
-    expect(jetTicks[0]).toBeLessThan(base.jet);
-    for (let n = 1; n < jetTicks.length; n++) expect(jetTicks[n] - jetTicks[n - 1]).toBe(base.jet);
+    expect(jetTicks[0]).toBeLessThan(jetPeriod);
+    for (let n = 1; n < jetTicks.length; n++) expect(jetTicks[n] - jetTicks[n - 1]).toBe(jetPeriod);
   });
 });
 

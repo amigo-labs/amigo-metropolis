@@ -1242,4 +1242,20 @@
 //     the snapshot. New hashed per-player state (SimState.walker); the lunge
 //     tick countdown (avatarLunge) is gone. writeAvatarSnapshot exposes the
 //     machine (stride 9 -> 41). Every golden's hashes move from tick 0.
-export const SIM_VERSION = 83;
+// v84: the spawn queues (fcop-fidelity.md R18) and Hk's spawn guards' reset
+//     polls (P11) run on the original's scheduler, as v80 put the heavy-zone
+//     poll (RE cfun/load.c 0x00436b10 / 0x00436be0; extracted/data/<Mission>/
+//     fun.json fn07..fn21, fn45 / fn46: positive time units, repeat -1): each
+//     countdown is cfun_tick's, in engine ticks (MapBase / MapOutpost
+//     queuePeriod, MapSpawnGuard.resetPeriod: the function's time units × 5,
+//     e.g. Mp's base tanks 1010 / 1015, its captain's jets 290, Hk's guard
+//     resets 300; was queueTicks / resetTicks, rounded to sim ticks, 101 / 102,
+//     29 and 30), drawn at createSim as `(u32)rand % period` (randU32, the
+//     same one mulberry32 step randInt took), less CFUN_DELTA_PER_TICK (10) a
+//     tick, so a period of 1015 polls 101 and 102 ticks apart.
+//     ORIGINAL_TANK_QUEUE_TICKS / ORIGINAL_JET_QUEUE_TICKS become
+//     ORIGINAL_TANK_QUEUE_PERIOD 1010 / ORIGINAL_JET_QUEUE_PERIOD 290. Every
+//     golden's hashes move from tick 0 for the countdowns' new units; the
+//     queues' phases and periods move, so every golden that buys a tank or
+//     fields the captain plays differently.
+export const SIM_VERSION = 84;

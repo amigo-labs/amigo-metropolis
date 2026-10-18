@@ -852,11 +852,17 @@ function spawnerAt(rules: FcopRules, template: number): number[] {
   return [round4(sx(s.x)), round4(sz(s.z))];
 }
 
-/** A queue's period in sim ticks, by its rows in the rules artifact. */
-function queueTicksOf(rules: FcopRules, pick: (q: FcopRules["queues"][number]) => boolean): number {
+/**
+ * A queue's period in engine ticks as `cfun_load` stores it (time units × 5),
+ * by its rows in the rules artifact.
+ */
+function queuePeriodOf(
+  rules: FcopRules,
+  pick: (q: FcopRules["queues"][number]) => boolean,
+): number {
   const rows = rules.queues.filter(pick);
   if (rows.length !== 1) throw new Error(`${rules.mapId}: ${rows.length} queues match, want 1`);
-  return toSimTicks(rows[0].periodUnits, TICK_HZ);
+  return rows[0].periodUnits * CFUN_TICKS_PER_UNIT;
 }
 
 /**
@@ -869,7 +875,7 @@ function queueTicksOf(rules: FcopRules, pick: (q: FcopRules["queues"][number]) =
 function baseQueuesOf(
   rules: FcopRules,
   slot: number,
-): { tankSpawn: number[]; jetSpawn: number[]; queueTicks: { tank: number; jet: number } } {
+): { tankSpawn: number[]; jetSpawn: number[]; queuePeriod: { tank: number; jet: number } } {
   const shop = (kind: string) => {
     const b = rules.buyTriggers.find((t) => t.slot === slot && t.kind === kind);
     if (!b) throw new Error(`${rules.mapId}: slot ${slot} has no ${kind} shop`);
@@ -881,9 +887,9 @@ function baseQueuesOf(
   return {
     tankSpawn: spawnerAt(rules, tank.template),
     jetSpawn: spawnerAt(rules, shop("jet").template),
-    queueTicks: {
-      tank: queueTicksOf(rules, (q) => q.fn === tank.queueFn),
-      jet: queueTicksOf(rules, (q) => base(q) && q.kind === "jet" && (!ownJet || q.slot === slot)),
+    queuePeriod: {
+      tank: queuePeriodOf(rules, (q) => q.fn === tank.queueFn),
+      jet: queuePeriodOf(rules, (q) => base(q) && q.kind === "jet" && (!ownJet || q.slot === slot)),
     },
   };
 }
@@ -903,7 +909,7 @@ function outpostQueuesOf(
 ): {
   tankSpawn: number[][];
   jetSpawn: number[][];
-  queueTicks: { tank: number; jet: number }[];
+  queuePeriod: { tank: number; jet: number }[];
 } {
   const out = slots.map((slot) => {
     const shop = rules.outpostShop.find((o) => o.outpost === k && o.slot === slot);
@@ -917,16 +923,16 @@ function outpostQueuesOf(
     return {
       tankSpawn,
       jetSpawn: spawnerAt(rules, shop.jetTemplate),
-      queueTicks: {
-        tank: queueTicksOf(rules, (q) => q.fn === shop.tankQueueFn),
-        jet: queueTicksOf(rules, (q) => jets(q) && (!ownJet || q.slot === slot)),
+      queuePeriod: {
+        tank: queuePeriodOf(rules, (q) => q.fn === shop.tankQueueFn),
+        jet: queuePeriodOf(rules, (q) => jets(q) && (!ownJet || q.slot === slot)),
       },
     };
   });
   return {
     tankSpawn: out.map((o) => o.tankSpawn),
     jetSpawn: out.map((o) => o.jetSpawn),
-    queueTicks: out.map((o) => o.queueTicks),
+    queuePeriod: out.map((o) => o.queuePeriod),
   };
 }
 
@@ -1750,31 +1756,42 @@ function gateOf(
  * the terrain input. Every base field is rebuilt below anyway.
  */
 function terrainOnly(raw: MapJson): MapJson {
-  // The heavy zones are rebuilt below as well; dropped here so a map committed
-  // in an older shape (their pollTicks before SIM_VERSION 80) still loads.
+  // The heavy zones, the queues and the spawn guards are rebuilt below as well;
+  // dropped here so a map committed in an older shape (their pollTicks before
+  // SIM_VERSION 80, queueTicks and resetTicks before 84) still loads.
   const bases = raw.bases.map((b) => {
-    const { coreHp, productionTicks, productionLimit, defence, heavyZones, ...rest } =
+    const { coreHp, productionTicks, productionLimit, defence, heavyZones, queueTicks, ...rest } =
       b as typeof b & {
         coreHp?: unknown;
         productionTicks?: unknown;
         productionLimit?: unknown;
         defence?: unknown;
+        queueTicks?: unknown;
       };
     void coreHp;
     void productionTicks;
     void productionLimit;
     void defence;
     void heavyZones;
+    void queueTicks;
+    return rest;
+  });
+  const outposts = raw.outposts?.map((o) => {
+    const { queueTicks, ...rest } = o as typeof o & { queueTicks?: unknown };
+    void queueTicks;
     return rest;
   });
   // The render-only `props` this stage used to write (their yaws Metropolis'
   // own, "face the nearer base core") are dropped: the client draws the scenery
   // from render/arenaScenery.generated.ts, and nothing read them.
-  const { props, ...kept } = raw as MapJson & { props?: unknown };
+  const { props, spawnGuards, ...kept } = raw as MapJson & { props?: unknown };
   void props;
+  void spawnGuards;
   // A fresh stage-1 terrain still carries convert.ts's hand outpost spots but no
   // outposts, which the loader refuses; every feature list is rebuilt below.
-  return kept.outposts === undefined ? { ...kept, bases, outpostSpots: [] } : { ...kept, bases };
+  return outposts === undefined
+    ? { ...kept, bases, outpostSpots: [] }
+    : { ...kept, bases, outposts };
 }
 
 // ---------------------------------------------------------------------------
@@ -2130,7 +2147,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     halfH: round4(triggerHalfExtent(g.heightRaw)),
     hurtsTeam: teamOfSlot(g.hurtsSlot),
     damage: g.damage,
-    resetTicks: toSimTicks(g.resetUnits, TICK_HZ),
+    resetPeriod: g.resetUnits * CFUN_TICKS_PER_UNIT,
   }));
 
   // --- walls -------------------------------------------------------------

@@ -45,7 +45,12 @@ import { createSim, step } from "../src/sim";
 // before the next, the jumps after their wind-ups), so the fight in the middle
 // plays out differently: the mechs go down 4 times, and one of player 0's tanks
 // gets through player 1's ring into the gate box at 76.3 s.
-const BREACH_TICK_PIN = 2289;
+// 2289 -> none at SIM_VERSION 84: the spawn queues poll on the original's
+// engine-tick countdowns (from `rand % period`, periods no longer rounded to
+// sim ticks), so each side's five tanks leave on other ticks and meet the fight
+// and the rings otherwise: all ten die short of the gates (player 0's nearest
+// came to 20.7 m, player 1's to 31.8 m), and the mechs go down 12 times.
+const BREACH_TICK_PIN = -1;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {

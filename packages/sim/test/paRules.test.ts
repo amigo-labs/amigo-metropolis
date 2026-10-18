@@ -9,6 +9,7 @@ import { ARCHETYPE } from "../src/archetypes";
 import {
   ARCHETYPE_RADIUS,
   AVATAR_HP,
+  CFUN_DELTA_PER_TICK,
   COST_RUNNER,
   DREADNOUGHT_GUN_DAMAGE,
   MATCH_OUTRO_TICKS,
@@ -668,7 +669,7 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     const q = 0 * UNIT_QUEUES + QUEUE_OUTPOST;
     expect(state.unitQueue[q]).toBe(1);
     let tank = -1;
-    for (let t = 0; t <= o.queueTicks[0].tank && tank < 0; t++) {
+    for (let t = 0; t <= o.queuePeriod[0].tank / CFUN_DELTA_PER_TICK && tank < 0; t++) {
       step(state, idle);
       for (let id = 0; id < state.ent.high; id++) {
         if (state.ent.alive[id] && ent.archetype[id] === ARCHETYPE.RUNNER && ent.team[id] === 0) {

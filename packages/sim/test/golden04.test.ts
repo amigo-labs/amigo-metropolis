@@ -39,7 +39,9 @@
 // the player's walker runs the original's state machine (the reset's step
 // without control, each move finishing the legs' step before the next, a
 // jump after its wind-up): it goes down twice, at 109 s and 137 s, and the
-// captain's tanks still do not breach.
+// captain's tanks still do not breach. Since SIM_VERSION 84 the captain's
+// queues poll on the original's engine-tick countdowns: the same ten tanks and
+// a jet, the claim, and the player down twice (98 s, 122 s); no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
