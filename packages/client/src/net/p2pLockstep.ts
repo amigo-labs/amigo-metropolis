@@ -210,6 +210,8 @@ export class P2pLockstep {
     this.sim = createSim(getMapById(config.mapId), config.seed, {
       difficulties: config.difficulties,
       loadouts: config.loadouts,
+      // SimOptions.campaignWeapons, the campaign weapons' rule (by name).
+      ...{ campaignWeapons: config.campaignWeapons },
     });
     this.started = true;
     this.cb.onStart?.(this.sim, config);

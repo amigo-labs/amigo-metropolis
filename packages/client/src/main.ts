@@ -106,6 +106,7 @@ import { isTextEntryTarget } from "./input/textEntry";
 import type { LocalInputSource } from "./input/types";
 import {
   buildModeQuery,
+  campaignFromParams,
   createInGameMenu,
   difficultyFromParams,
   loadoutFromParams,
@@ -114,6 +115,7 @@ import {
   recordSoloWin,
   runMenu,
 } from "./menu";
+import type { GameRules } from "./menu/dialogs/OptionsDialog";
 import { createDemoSim, demoFeeder, updateFlyoverCamera, zeroPlayerInput } from "./menuWorld";
 import { NetLockstep } from "./net/lockstep";
 import { P2pLockstep } from "./net/p2pLockstep";
@@ -261,6 +263,18 @@ let playerLoadout: Loadout = loadoutFromParams(params);
  * plates or ?difficulty=hard|easy. Solo only — a net match plays NORMAL.
  */
 let playerDifficulty: number = difficultyFromParams(params);
+/**
+ * The "Kampagnenwaffen" game rule for a local match (the front end's
+ * Preferences, or ?campaign=1). Online the host's lobby agrees it.
+ */
+let playerCampaignWeapons: boolean = campaignFromParams(params);
+/**
+ * SimOptions.campaignWeapons (the campaign weapons' own wave adds it to the
+ * sim): spread into createSim, so it rides along by that name before and after.
+ */
+function ruleOptions(campaignWeapons: boolean): { campaignWeapons: boolean } {
+  return { campaignWeapons };
+}
 // Offline match modes build the sim now; a net mode defers — to the server's
 // authoritative config (arrives in MSG_WELCOME) or the lobby-brokered P2P
 // session — so both peers build a byte-identical sim. The menu instead shows
@@ -273,6 +287,7 @@ let sim: SimState = netMode
         ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
         loadouts: [playerLoadout],
         difficulties: [playerDifficulty],
+        ...ruleOptions(playerCampaignWeapons),
       })
     : createDemoSim(map);
 
@@ -1159,6 +1174,7 @@ function rematchSolo(): void {
       ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
       loadouts: [playerLoadout],
       difficulties: [playerDifficulty],
+      ...ruleOptions(playerCampaignWeapons),
     }),
   );
   startMatch([{ slot: 0, input: localInput }]);
@@ -2719,10 +2735,12 @@ function handleMenuChoice(
   mapId: string,
   loadout: Loadout,
   difficulty: number,
+  rules: GameRules,
 ): void {
   playerLoadout = loadout;
   playerDifficulty = difficulty;
-  const query = buildModeQuery(choice, mapId, loadout, difficulty);
+  playerCampaignWeapons = rules.campaignWeapons;
+  const query = buildModeQuery(choice, mapId, loadout, difficulty, rules.campaignWeapons);
   const relay = params.get("relay");
   history.pushState(null, "", relay ? `${query}&relay=${encodeURIComponent(relay)}` : query);
   menuHandle?.dismiss();
@@ -2740,6 +2758,7 @@ function handleMenuChoice(
           ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
           loadouts: [playerLoadout],
           difficulties: [playerDifficulty],
+          ...ruleOptions(playerCampaignWeapons),
         }),
       );
       startMatch([{ slot: 0, input: localInput }]);
@@ -2753,7 +2772,11 @@ function handleMenuChoice(
       warden = false;
       wardenDifficulty = 0;
       resetForMatch(
-        createSim(map, seed, { loadouts: [playerLoadout], difficulties: [playerDifficulty] }),
+        createSim(map, seed, {
+          loadouts: [playerLoadout],
+          difficulties: [playerDifficulty],
+          ...ruleOptions(playerCampaignWeapons),
+        }),
       );
       // No flyover→chase blend — fly cam owns posing from the first frame.
       startMatch([{ slot: 0, input: localInput }]);
@@ -2769,7 +2792,11 @@ function handleMenuChoice(
       warden = false;
       wardenDifficulty = 0;
       resetForMatch(
-        createSim(map, seed, { loadouts: [playerLoadout], difficulties: [playerDifficulty] }),
+        createSim(map, seed, {
+          loadouts: [playerLoadout],
+          difficulties: [playerDifficulty],
+          ...ruleOptions(playerCampaignWeapons),
+        }),
       );
       startMatch([{ slot: 0, input: localInput }]);
       break;

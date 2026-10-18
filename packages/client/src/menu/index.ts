@@ -21,10 +21,11 @@ import "../ui/cockpit.css";
 import "./menu.css";
 import { App } from "./App";
 import { HostDialog, JoinDialog } from "./dialogs/NetDialogs";
-import { OptionsDialog } from "./dialogs/OptionsDialog";
+import { type GameRules, OptionsDialog } from "./dialogs/OptionsDialog";
 import { SaveLoadDialog } from "./dialogs/SaveLoadDialog";
 import { FE_PA_MAPS } from "./frontend/frontendData.generated";
 import {
+  allowedEntries,
   createScreen,
   enterSet,
   type FeAction,
@@ -50,6 +51,7 @@ export { createInGameMenu, type InGameMenu } from "./inGame";
 export {
   apiBase,
   buildModeQuery,
+  campaignFromParams,
   DIFFICULTY_PLATES,
   difficultyFromParams,
   isLocalhost,
@@ -62,7 +64,13 @@ export {
 export interface MenuOptions {
   audio: AudioEngine;
   /** A START (or a localhost debug link): main.ts starts the mode in-process. */
-  onChoice(choice: MenuChoice, mapId: string, loadout: Loadout, difficulty: number): void;
+  onChoice(
+    choice: MenuChoice,
+    mapId: string,
+    loadout: Loadout,
+    difficulty: number,
+    rules: GameRules,
+  ): void;
   /** START was pressed on `mapId`: the loading screen is up, the arena may load under it. */
   onSelect(mapId: string): void;
   /** PREFERENCES changed the texture option (persisted already). */
@@ -118,7 +126,9 @@ export function runMenu(opts: MenuOptions): MenuHandle {
 
   const go = (choice: MenuChoice, mapId: string, loadout: Loadout, difficulty: number): void => {
     if (gone) return;
-    opts.onChoice(choice, mapId, loadout, difficulty);
+    opts.onChoice(choice, mapId, loadout, difficulty, {
+      campaignWeapons: config().campaignWeapons,
+    });
   };
 
   const pickedMap = (): string => FE_PA_MAPS[config().pick0].mapId;
@@ -153,7 +163,10 @@ export function runMenu(opts: MenuOptions): MenuHandle {
           buttons: ["Yes", "No"],
           after: (answer) => {
             if (answer !== "Yes") return;
+            // The game rules are a preference, not a game: NEW GAME keeps them.
+            const rule = config().campaignWeapons;
             state.screen.config = newGameConfig();
+            state.screen.config.campaignWeapons = rule;
             storeConfig(state.screen.config);
           },
         });
@@ -280,6 +293,16 @@ export function runMenu(opts: MenuOptions): MenuHandle {
           onClose: close,
           onTexPref: opts.onTexPref,
           onControls: (t: Binding[][]) => opts.onControls(t[0]),
+          rules: { campaignWeapons: config().campaignWeapons },
+          onRules: (r: GameRules) => {
+            const c = config();
+            c.campaignWeapons = r.campaignWeapons;
+            // A fifth weapon the rule no longer offers goes back to entry 0.
+            for (let p = 0; p < 2; p++)
+              c.loadout[p] = allowedEntries(c.loadout[p], r.campaignWeapons);
+            storeConfig(c);
+            draw();
+          },
         });
       case "save":
       case "load":
@@ -300,7 +323,11 @@ export function runMenu(opts: MenuOptions): MenuHandle {
           onDone: (r) => {
             if (r) {
               state.netChoice = r.choice;
-              enterSet(state.screen, "net_pa", { hosting: r.hosting, peer: r.peer });
+              enterSet(state.screen, "net_pa", {
+                hosting: r.hosting,
+                peer: r.peer,
+                campaignWeapons: false,
+              });
             }
             open(null);
           },

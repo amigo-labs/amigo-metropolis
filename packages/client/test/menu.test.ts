@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildModeQuery,
+  campaignFromParams,
   DIFFICULTY_PLATES,
   difficultyFromParams,
   isLocalhost,
@@ -14,6 +15,18 @@ import {
 } from "../src/menu";
 
 describe("buildModeQuery", () => {
+  test("carries the Kampagnenwaffen rule on a local match only, when on", () => {
+    expect(buildModeQuery({ mode: "warden", difficulty: 2 })).toBe("?warden=2");
+    expect(buildModeQuery({ mode: "warden", difficulty: 2 }, undefined, undefined, 1, true)).toBe(
+      "?warden=2&campaign=1",
+    );
+    expect(buildModeQuery({ mode: "online", code: "ABCDE" }, undefined, undefined, 1, true)).toBe(
+      "?online=ABCDE",
+    );
+    expect(campaignFromParams(new URLSearchParams("campaign=1"))).toBe(true);
+    expect(campaignFromParams(new URLSearchParams(""))).toBe(false);
+  });
+
   test("solo sandbox uses the ?play marker", () => {
     expect(buildModeQuery({ mode: "solo" })).toBe("?play=1");
   });

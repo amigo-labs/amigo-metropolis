@@ -2,9 +2,12 @@
 // options_dialog.c 0x00402030). Only what means something in a browser is
 // live: FullScreen (the Fullscreen API), Controller Configuration and Audio.
 // Display Mode, Texture Coloring, Processor Select and the 3DFX options are
-// drawn as the original draws them and greyed (fcop-fidelity.md F12). One
-// Metropolis addition, marked as such: the HD textures option (a platform
-// exception; Classic, the original texels, stays the default).
+// drawn as the original draws them and greyed (fcop-fidelity.md F12). Two
+// Metropolis additions, marked as such: the HD textures option (a platform
+// exception; Classic, the original texels, stays the default) and the
+// "Spielregeln" group with the owner's "Kampagnenwaffen" rule (F23; off by
+// default, the original's Precinct Assault; in the networked lobby only the
+// host may change it).
 //
 // As the original's: Ok writes the pending choices, Cancel and Escape leave.
 
@@ -48,14 +51,30 @@ export const PROCESSORS: readonly string[] = ["AutoDetect", "Pentium", "Pentium 
 /** Where the Metropolis addition sits: the free row under Audio, in the dialog's units. */
 export const HD_TEXTURES_DLU: readonly number[] = [7, 121, 120, 10];
 export const HD_TEXTURES_TEXT = "HD Textures (Metropolis)";
+/** The game rules: the free corner right of HD textures, above Cancel. */
+export const RULES_GROUP_DLU: readonly number[] = [132, 117, 137, 20];
+export const RULES_GROUP_TEXT = "Spielregeln (Metropolis)";
+export const CAMPAIGN_WEAPONS_DLU: readonly number[] = [138, 126, 125, 9];
+export const CAMPAIGN_WEAPONS_TEXT = "Kampagnenwaffen";
+
+export interface GameRules {
+  readonly campaignWeapons: boolean;
+}
 
 export function OptionsDialog(props: {
   audio: AudioEngine;
   onClose(): void;
   onTexPref(pref: TexPref): void;
   onControls?(tables: Binding[][]): void;
+  /** The game rules as they stand; absent hides the group. */
+  rules?: GameRules;
+  /** The joiner's lobby: shown, not changed (the host sets the rules). */
+  rulesLocked?: boolean;
+  /** Ok with changed rules. */
+  onRules?(rules: GameRules): void;
 }) {
   const L = dialogLayout(D);
+  const [campaign, setCampaign] = useState<boolean>(() => props.rules?.campaignWeapons ?? false);
   const [full, setFull] = useState<boolean>(() => !!document.fullscreenElement);
   const [hd, setHd] = useState<boolean>(() => loadTexPref() === "hd");
   const [sub, setSub] = useState<"controls" | "audio" | null>(null);
@@ -72,6 +91,9 @@ export function OptionsDialog(props: {
     if (pref !== loadTexPref()) {
       saveTexPref(pref);
       props.onTexPref(pref);
+    }
+    if (props.rules && !props.rulesLocked && campaign !== props.rules.campaignWeapons) {
+      props.onRules?.({ campaignWeapons: campaign });
     }
     props.onClose();
   };
@@ -129,6 +151,18 @@ export function OptionsDialog(props: {
           checked={hd}
           onChange={setHd}
         />
+        {props.rules ? (
+          <>
+            <W9Group rect={L.at(RULES_GROUP_DLU)} text={RULES_GROUP_TEXT} />
+            <W9Check
+              rect={L.at(CAMPAIGN_WEAPONS_DLU)}
+              text={CAMPAIGN_WEAPONS_TEXT}
+              checked={props.rulesLocked ? props.rules.campaignWeapons : campaign}
+              disabled={props.rulesLocked}
+              onChange={setCampaign}
+            />
+          </>
+        ) : null}
         <W9Button rect={L.rect(1001)} text={L.text(1001)} isDefault autoFocus onClick={ok} />
         <W9Button rect={L.rect(1002)} text={L.text(1002)} onClick={props.onClose} />
       </W9Window>

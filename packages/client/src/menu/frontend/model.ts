@@ -71,6 +71,13 @@ export interface FeConfig {
   loadout: number[][];
   /** 0x00511e24: Bug Hunt shown (every other map finished). */
   bugHunt: boolean;
+  /**
+   * Metropolis' "Kampagnenwaffen" game rule (the owner's decision, not the
+   * original's): the loadout columns offer each slot's fifth weapon, as the
+   * original's do once Crime War sets its option bytes. Off by default, the
+   * original's Precinct Assault. A preference: NEW GAME keeps it.
+   */
+  campaignWeapons: boolean;
 }
 
 /** NEW GAME's config (config.c:97-123), Precinct Assault: Metropolis has no Crime War. */
@@ -85,6 +92,7 @@ export function newGameConfig(): FeConfig {
       [0, 0, 0],
     ],
     bugHunt: false,
+    campaignWeapons: false,
   };
 }
 
@@ -109,12 +117,13 @@ export function normalizeConfig(raw: unknown): FeConfig {
   }
   const df = arr(r.difficulty, 2);
   for (let p = 0; p < 2; p++) out.difficulty[p] = clampInt(df[p], 0, 2, 1);
+  out.campaignWeapons = r.campaignWeapons === true;
   const lo = arr(r.loadout, 2);
   for (let p = 0; p < 2; p++) {
     const row = arr(lo[p], 3);
     for (let s = 0; s < 3; s++) {
       const e = clampInt(row[s], 0, 4, 0);
-      out.loadout[p][s] = entryAllowed(s, e) ? e : 0;
+      out.loadout[p][s] = entryAllowed(s, e, out.campaignWeapons) ? e : 0;
     }
   }
   out.bugHunt = bugHuntUnlocked(out.paLevel);
@@ -126,17 +135,21 @@ export function normalizeConfig(raw: unknown): FeConfig {
 
 /**
  * The option bytes 0x00511e04..06, which only the Crime War campaign's
- * scripts set (each slot's fifth weapon). Metropolis has no campaign: zero.
+ * scripts set (each slot's fifth weapon). Metropolis has no campaign: zero,
+ * unless the "Kampagnenwaffen" rule is on, which sets all three -- the
+ * original's rule with the bytes a finished campaign leaves.
  */
-export const OPTION_BYTES: readonly number[] = [0, 0, 0];
+export function optionBytes(campaign: boolean): readonly number[] {
+  return campaign ? [1, 1, 1] : [0, 0, 0];
+}
 
 /**
  * Whether the original's arrows may land on an entry (panel_callbacks.c:483-563):
  * the availability row outside the campaign, and entry 4 skipped while the
  * slot's option byte is zero.
  */
-export function originalAllows(slot: number, entry: number): boolean {
-  if (entry === 4 && OPTION_BYTES[slot] === 0) return false;
+export function originalAllows(slot: number, entry: number, campaign = false): boolean {
+  if (entry === 4 && optionBytes(campaign)[slot] === 0) return false;
   return FE_LOADOUT.availabilityOutsideCampaign[slot * 5 + entry] === 1;
 }
 
@@ -162,10 +175,17 @@ export function entryOfSim(slot: number, index: number): number {
 
 /**
  * Whether Metropolis offers an entry: the original's rule, and a weapon the
- * sim has. With no campaign the two agree on all ten (menuFrontend.test.ts).
+ * sim has. With no campaign the two agree on all ten (menuFrontend.test.ts);
+ * under the "Kampagnenwaffen" rule the fifth entries join once the sim's
+ * catalogue carries them by name.
  */
-export function entryAllowed(slot: number, entry: number): boolean {
-  return originalAllows(slot, entry) && simIndexOf(slot, entry) >= 0;
+export function entryAllowed(slot: number, entry: number, campaign = false): boolean {
+  return originalAllows(slot, entry, campaign) && simIndexOf(slot, entry) >= 0;
+}
+
+/** A column's entries with anything the rule no longer offers back on entry 0. */
+export function allowedEntries(entries: readonly number[], campaign: boolean): number[] {
+  return entries.map((e, slot) => (entryAllowed(slot, e, campaign) ? e : 0));
 }
 
 /** A column's three entries as the sim's loadout. */
@@ -184,12 +204,17 @@ export function entriesOfLoadout(l: Loadout): number[] {
  * lands on an allowed entry. Answers the new entry; equal to `entry` when
  * nothing else is allowed (UI sound 8 then, 5 when it moved).
  */
-export function stepLoadout(slot: number, entry: number, forward: boolean): number {
+export function stepLoadout(
+  slot: number,
+  entry: number,
+  forward: boolean,
+  campaign = false,
+): number {
   let e = entry;
   // Retail loops until it lands; five steps reach every entry once.
   for (let i = 0; i < 5; i++) {
     e = forward ? (e + 1) % 5 : (e + 4) % 5;
-    if (entryAllowed(slot, e)) return e;
+    if (entryAllowed(slot, e, campaign)) return e;
   }
   return entry;
 }
@@ -263,6 +288,8 @@ export interface FeNet {
   hosting: boolean;
   /** The "Connected To:" second line. */
   peer: string;
+  /** The host's "Kampagnenwaffen" rule, which the lobby shows on both sides. */
+  campaignWeapons: boolean;
 }
 
 export interface FeScreen {
@@ -281,6 +308,14 @@ export interface FeScreen {
   net: FeNet | null;
   /** The lobby's ready bits, which unlock the WAITING plates. */
   ready: [boolean, boolean];
+}
+
+/**
+ * Whether the "Kampagnenwaffen" rule is on for this screen: the config's
+ * offline, the host's in the networked lobby.
+ */
+export function campaignRule(screen: FeScreen): boolean {
+  return screen.net ? screen.net.campaignWeapons : screen.config.campaignWeapons;
 }
 
 export function groupOf(screen: FeScreen, role: GroupRole): FeGroup {
@@ -612,7 +647,7 @@ function runCallback(screen: FeScreen, panel: FePanel, out: FeResult): void {
       if (panel.ordinal > 5) return;
       const slot = panel.ordinal % 3;
       const before = c.loadout[which][slot];
-      const now = stepLoadout(slot, before, panel.ordinal < 3);
+      const now = stepLoadout(slot, before, panel.ordinal < 3, campaignRule(screen));
       c.loadout[which][slot] = now;
       out.sounds.push(now !== before ? SND_LOADOUT : SND_LOADOUT_REFUSED);
       out.redraw = true;

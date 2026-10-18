@@ -98,7 +98,7 @@ describe("the main screen", () => {
 
   test("the networked set: CANCEL, both columns, the Connected To caption", () => {
     const s = createScreen(newGameConfig());
-    enterSet(s, "net_pa", { hosting: true, peer: "Room ABCDE" });
+    enterSet(s, "net_pa", { hosting: true, peer: "Room ABCDE", campaignWeapons: false });
     const html = renderApp(baseState({ screen: s }));
     const pics = pictures(html);
     expect(pics).toContain("bmp173.png"); // CANCEL
@@ -165,7 +165,11 @@ describe("escaping", () => {
 
   test("a session name is escaped on the Connected To line", () => {
     const s = createScreen(newGameConfig());
-    enterSet(s, "net_pa", { hosting: false, peer: '"><script>alert(1)</script>' });
+    enterSet(s, "net_pa", {
+      hosting: false,
+      peer: '"><script>alert(1)</script>',
+      campaignWeapons: false,
+    });
     expect(renderApp(baseState({ screen: s }))).not.toContain("<script>");
   });
 });

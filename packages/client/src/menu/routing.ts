@@ -51,6 +51,7 @@ export function buildModeQuery(
   mapId?: string,
   loadout?: Loadout,
   difficulty: number = DIFFICULTY_NORMAL,
+  campaignWeapons = false,
 ): string {
   let query: string;
   switch (choice.mode) {
@@ -89,7 +90,17 @@ export function buildModeQuery(
   if (choice.mode !== "online" && choice.mode !== "p2p" && d !== DIFFICULTY_NORMAL) {
     query += `&difficulty=${DIFFICULTY_PARAM[d]}`;
   }
+  // The "Kampagnenwaffen" rule (omitted when off, the default); online the
+  // host's lobby sets it.
+  if (campaignWeapons && choice.mode !== "online" && choice.mode !== "p2p") {
+    query += "&campaign=1";
+  }
   return query;
+}
+
+/** Parse ?campaign=1, the "Kampagnenwaffen" rule (off when absent). */
+export function campaignFromParams(params: URLSearchParams): boolean {
+  return params.get("campaign") === "1";
 }
 
 /** Parse ?difficulty=hard|normal|easy (NORMAL when absent or unknown). */

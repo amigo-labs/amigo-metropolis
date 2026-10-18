@@ -11,8 +11,10 @@ import {
 } from "../src/menu/frontend/frontendData.generated";
 import {
   ANIMATE_RELOAD,
+  allowedEntries,
   BUG_HUNT_ROW,
   bugHuntUnlocked,
+  campaignRule,
   createScreen,
   enterSet,
   entriesOfLoadout,
@@ -216,14 +218,14 @@ describe("the pointer", () => {
 
   test("on the networked set a joiner's map press is refused, a host's is not", () => {
     const s = createScreen(newGameConfig());
-    enterSet(s, "net_pa", { hosting: false, peer: "x" });
+    enterSet(s, "net_pa", { hosting: false, peer: "x", campaignWeapons: false });
     pointerMove(s, 485, 98);
     // The refusal answers "not pressed", so the press is also over nothing:
     // sound 3 twice, as retail's 0x0040b92a and 0x0040bccc both play it.
     expect(pointerButton(s, 485, 98, 1, true).sounds).toEqual([SND_REFUSED, SND_REFUSED]);
     expect(s.config.pick0).toBe(1);
     const h = createScreen(newGameConfig());
-    enterSet(h, "net_pa", { hosting: true, peer: "x" });
+    enterSet(h, "net_pa", { hosting: true, peer: "x", campaignWeapons: false });
     pointerMove(h, 485, 98);
     pointerButton(h, 485, 98, 1, true);
     expect(h.config.pick0).toBe(4);
@@ -284,10 +286,52 @@ describe("the loadout column", () => {
   test("online the columns show the defaults and offer nothing to press", () => {
     const s = createScreen(newGameConfig());
     s.config.loadout[0] = [1, 1, 1];
-    enterSet(s, "net_pa", { hosting: true, peer: "x" });
+    enterSet(s, "net_pa", { hosting: true, peer: "x", campaignWeapons: false });
     const g = groupOf(s, "left");
     expect(menuSelection(s, g, 0)).toBe(0);
     expect(panelFlags(s, g, 0) & FLAG_DISABLED).toBe(FLAG_DISABLED);
+  });
+});
+
+describe("the Kampagnenwaffen rule (the owner's, off by default)", () => {
+  test("on, the original's rule offers each slot's fifth entry, as Crime War's option bytes do", () => {
+    expect(newGameConfig().campaignWeapons).toBe(false);
+    for (let slot = 0; slot < 3; slot++) {
+      expect(originalAllows(slot, 4)).toBe(false);
+      expect(originalAllows(slot, 4, true)).toBe(true);
+      // Offered once the sim's catalogue carries the weapon by its name.
+      expect(entryAllowed(slot, 4, true)).toBe(simIndexOf(slot, 4) >= 0);
+      // The rest of the row is the rule's either way.
+      for (let e = 0; e < 4; e++)
+        expect(originalAllows(slot, e, true)).toBe(originalAllows(slot, e));
+    }
+    expect(FE_LOADOUT.slots.map((s) => s.entries[4].weapon)).toEqual([
+      "Riot Shield",
+      "K-9 Drone",
+      "Grenade Launcher",
+    ]);
+  });
+
+  test("off, the arrows keep skipping the fifth entries", () => {
+    expect(stepLoadout(0, 3, true)).toBe(0);
+    expect(stepLoadout(0, 3, true, true)).toBe(simIndexOf(0, 4) >= 0 ? 4 : 0);
+  });
+
+  test("the rule is kept with the config, and an entry it does not offer goes back to 0", () => {
+    const on = normalizeConfig({ ...newGameConfig(), campaignWeapons: true });
+    expect(on.campaignWeapons).toBe(true);
+    expect(normalizeConfig({ ...newGameConfig(), campaignWeapons: "yes" }).campaignWeapons).toBe(
+      false,
+    );
+    expect(allowedEntries([4, 4, 4], false)).toEqual([0, 0, 0]);
+    expect(allowedEntries([1, 2, 3], false)).toEqual([1, 2, 3]);
+  });
+
+  test("the networked screen reads the host's rule, offline the config's", () => {
+    const s = createScreen({ ...newGameConfig(), campaignWeapons: true });
+    expect(campaignRule(s)).toBe(true);
+    enterSet(s, "net_pa", { hosting: false, peer: "x", campaignWeapons: false });
+    expect(campaignRule(s)).toBe(false);
   });
 });
 

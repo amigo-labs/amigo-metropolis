@@ -9,7 +9,11 @@ import { formatBinding } from "../src/input/controlsStore";
 import { AUDIO_ROWS } from "../src/menu/dialogs/AudioDialog";
 import { bindingOfKey, CONTROLS_FIELD_IDS } from "../src/menu/dialogs/ControlsDialog";
 import { INGAME_ABORT, INGAME_RESUME } from "../src/menu/dialogs/InGameDialog";
-import { HD_TEXTURES_DLU } from "../src/menu/dialogs/OptionsDialog";
+import {
+  CAMPAIGN_WEAPONS_DLU,
+  HD_TEXTURES_DLU,
+  RULES_GROUP_DLU,
+} from "../src/menu/dialogs/OptionsDialog";
 import { PROFILE_ROW_SLOT, profileLine, profileLines } from "../src/menu/dialogs/ProfileDialog";
 import { runSaveLoad } from "../src/menu/dialogs/SaveLoadDialog";
 import { FE_DIALOGS, FE_UI_SOUNDS } from "../src/menu/frontend/frontendData.generated";
@@ -95,6 +99,24 @@ describe("dialog units", () => {
     expect(x).toBe(7);
     expect(y).toBeGreaterThanOrEqual(audio[1] + audio[3]);
     expect(y + h).toBeLessThanOrEqual(ok[1]);
+  });
+
+  test("the Spielregeln group sits clear of every control, the check box inside it", () => {
+    const d = FE_DIALOGS.options;
+    const [gx, gy, gw, gh] = RULES_GROUP_DLU;
+    const [cx, cy, cw, ch] = CAMPAIGN_WEAPONS_DLU;
+    const overlaps = (a: readonly number[], b: readonly number[]): boolean =>
+      a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+    // The combo boxes' rects include their drop-down lists, which open over the dialog.
+    for (const c of d.controls.filter((c) => c.cls !== "ComboBox")) {
+      expect(overlaps(RULES_GROUP_DLU, c.dlu)).toBe(false);
+    }
+    expect(overlaps(RULES_GROUP_DLU, HD_TEXTURES_DLU)).toBe(false);
+    expect(cx).toBeGreaterThan(gx);
+    expect(cy).toBeGreaterThan(gy);
+    expect(cx + cw).toBeLessThanOrEqual(gx + gw);
+    expect(cy + ch).toBeLessThanOrEqual(gy + gh);
+    expect(gx + gw).toBeLessThanOrEqual(d.dlu[2]);
   });
 });
 
