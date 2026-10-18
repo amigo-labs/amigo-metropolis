@@ -16,12 +16,23 @@
 import * as THREE from "three";
 import type { RaiseAt } from "../../effects/chain";
 import { directionOf, type Fx90, TURN } from "../../effects/records";
+import { TEAM_UV_ATTR, TEAM_UV_MASK } from "../teamUv";
 import { prepareMesh } from "./common";
 
-/** The model a dying archetype is drawn with: main.ts hands the greybox bucket's. */
+/**
+ * The model a dying archetype of `team` is drawn with: main.ts hands the
+ * greybox bucket's, and the texture offset that team's instances carry (atlas
+ * units, render/teamUv.ts), so a face keeps its side's texels.
+ */
 export type ShatterSource = (
   archetype: number,
-) => { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] } | null;
+  team: number,
+) => {
+  geometry: THREE.BufferGeometry;
+  material: THREE.Material | THREE.Material[];
+  teamU: number;
+  teamV: number;
+} | null;
 
 const FACES_MAX = 50;
 /** Faces in flight per archetype at once. */
@@ -38,6 +49,9 @@ interface Kind {
   readonly uv: Float32Array;
   readonly normal: Float32Array;
   readonly colour: Float32Array;
+  /** Per vertex: the team's texture offset times the model's mask (render/teamUv.ts). */
+  readonly teamUv: Float32Array;
+  readonly teamMask: Float32Array;
   /** Per face: its three vertices about its centroid, model space turned to the world's yaw. */
   readonly local: Float32Array;
   readonly cx: Float32Array;
@@ -73,11 +87,15 @@ export class Shatter {
       const uv = new Float32Array(n * 2);
       const normal = new Float32Array(n * 3);
       const colour = new Float32Array(n * 3).fill(1);
+      const teamUv = new Float32Array(n * 2);
+      const teamMask = new Float32Array(n);
       for (const [name, a, size] of [
         ["position", pos, 3],
         ["uv", uv, 2],
         ["normal", normal, 3],
         ["color", colour, 3],
+        [TEAM_UV_ATTR, teamUv, 2],
+        [TEAM_UV_MASK, teamMask, 1],
       ] as const) {
         const attr = new THREE.BufferAttribute(a, size);
         attr.setUsage(THREE.DynamicDrawUsage);
@@ -94,6 +112,8 @@ export class Shatter {
         uv,
         normal,
         colour,
+        teamUv,
+        teamMask,
         local: new Float32Array(f * 9),
         cx: new Float32Array(f),
         cy: new Float32Array(f),
@@ -115,7 +135,7 @@ export class Shatter {
   /** The filler 0x004388a0 on the raiser's model. False with no model to break. */
   spawn(rec: Fx90, at: Readonly<RaiseAt>): boolean {
     const kind = this.kinds[at.archetype];
-    const src = at.archetype >= 0 && this.source ? this.source(at.archetype) : null;
+    const src = at.archetype >= 0 && this.source ? this.source(at.archetype, at.team) : null;
     if (!kind || !src) return false;
     const g = src.geometry;
     const position = g.getAttribute("position") as THREE.BufferAttribute | undefined;
@@ -123,6 +143,7 @@ export class Shatter {
     const uv = g.getAttribute("uv") as THREE.BufferAttribute | undefined;
     const normal = g.getAttribute("normal") as THREE.BufferAttribute | undefined;
     const colour = g.getAttribute("color") as THREE.BufferAttribute | undefined;
+    const mask = g.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute | undefined;
     const index = g.getIndex();
     const tris = Math.floor((index ? index.count : position.count) / 3);
     if (tris === 0) return false;
@@ -168,6 +189,10 @@ export class Shatter {
         kind.colour[o] = colour ? colour.getX(vi) : 1;
         kind.colour[o + 1] = colour ? colour.getY(vi) : 1;
         kind.colour[o + 2] = colour ? colour.getZ(vi) : 1;
+        const m = mask ? mask.getX(vi) : 1;
+        kind.teamMask[f * 3 + k] = m;
+        kind.teamUv[o2] = src.teamU;
+        kind.teamUv[o2 + 1] = src.teamV;
       }
       for (let k = 0; k < 3; k++) {
         kind.local[f * 9 + k * 3] -= mx;
@@ -257,6 +282,8 @@ export class Shatter {
       (kind.geometry.getAttribute("uv") as THREE.BufferAttribute).needsUpdate = true;
       (kind.geometry.getAttribute("normal") as THREE.BufferAttribute).needsUpdate = true;
       (kind.geometry.getAttribute("color") as THREE.BufferAttribute).needsUpdate = true;
+      (kind.geometry.getAttribute(TEAM_UV_ATTR) as THREE.BufferAttribute).needsUpdate = true;
+      (kind.geometry.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute).needsUpdate = true;
       if (kind.count === 0) kind.mesh.visible = false;
     }
   }
@@ -269,7 +296,11 @@ export class Shatter {
         kind.normal[f * 9 + k] = kind.normal[last * 9 + k];
         kind.colour[f * 9 + k] = kind.colour[last * 9 + k];
       }
-      for (let k = 0; k < 6; k++) kind.uv[f * 6 + k] = kind.uv[last * 6 + k];
+      for (let k = 0; k < 6; k++) {
+        kind.uv[f * 6 + k] = kind.uv[last * 6 + k];
+        kind.teamUv[f * 6 + k] = kind.teamUv[last * 6 + k];
+      }
+      for (let k = 0; k < 3; k++) kind.teamMask[f * 3 + k] = kind.teamMask[last * 3 + k];
       kind.cx[f] = kind.cx[last];
       kind.cy[f] = kind.cy[last];
       kind.cz[f] = kind.cz[last];

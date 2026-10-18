@@ -217,6 +217,12 @@ export interface ArenaUnitsRenderer {
   /** Publishes the part buckets' counts and matrices. Call after the sweep. */
   end(): void;
   /**
+   * The texture offset `bucket`'s model draws `team` with, atlas units, into
+   * `out` (u, v): what a face of it carries when it leaves the model (the
+   * shatter, render/fx/shatter.ts). False for a stand-in with no model.
+   */
+  teamUv(bucket: Bucket, team: number, out: Float32Array): boolean;
+  /**
    * Draws the Sky Captain of `level` (0-9, the match's Warden difficulty - 1):
    * one model per level band, as the original loads one record per band (RE
    * pa_models.json `sky_captain` levels; Mp 54 / 56 / 57 / 58). Per frame; a
@@ -588,6 +594,14 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       // Models only once an arena has loaded them (never on ?render=greybox);
       // a load swaps the current level in itself.
       if (loadedOnce) swapCaptain();
+    },
+    teamUv(bucket, team, out) {
+      const binding = bindings.get(bucket);
+      if (!binding) return false;
+      const side = teamSide(team);
+      out[0] = binding.bySide[side * 2];
+      out[1] = binding.bySide[side * 2 + 1];
+      return true;
     },
     place(bucket, slot, id, archetype, team, x, y, pos, quat, scale, guns) {
       if (archetype === ARCHETYPE.CONSOLE) {

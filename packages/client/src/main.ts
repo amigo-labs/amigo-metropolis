@@ -790,19 +790,28 @@ const greybox = createGreyboxMeshes(scene);
 // listener, beside the sounds (audio/cues.ts raises every install once for
 // both). Render-only — nothing reaches the sim.
 const fxPoses = createFxPoses();
-/** A dying archetype's model for the shatter: its greybox bucket's current mesh. */
+/**
+ * A dying archetype's model for the shatter: its greybox bucket's current mesh
+ * and the texture offset its team's instances carry (render/arenaUnits.ts).
+ */
 const shatterModel = {
   geometry: new THREE.BufferGeometry(),
   material: null as unknown as THREE.Material,
+  teamU: 0,
+  teamV: 0,
 };
+const shatterUv = new Float32Array(2);
 const fx = createFx(scene, sounds.effects, {
   poses: fxPoses,
   ground: (x, z) => sampleHeight(map, x, z),
-  shatter: (archetype) => {
+  shatter: (archetype, team) => {
     const b = bucketFor(greybox, archetype, 0, 0);
     if (!b) return null;
     shatterModel.geometry = b.mesh.geometry;
     shatterModel.material = b.mesh.material as THREE.Material;
+    const offset = units.teamUv(b, team, shatterUv);
+    shatterModel.teamU = offset ? shatterUv[0] : 0;
+    shatterModel.teamV = offset ? shatterUv[1] : 0;
     return shatterModel;
   },
   viewportHeight: () => renderer.domElement.height,

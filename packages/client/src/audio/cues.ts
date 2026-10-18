@@ -775,6 +775,7 @@ export class OriginalSounds implements EffectListener {
     at.endY = Number.NaN;
     at.endZ = Number.NaN;
     at.archetype = -1;
+    at.team = -1;
     at.repeat = false;
     at.hold = 0;
     return at;
@@ -782,7 +783,7 @@ export class OriginalSounds implements EffectListener {
 
   /**
    * `this.at` on an entity: the middle of its model, its facing, its
-   * archetype and its scale (radius >> 4, x16) — riding it when `ride`.
+   * archetype, team and scale (radius >> 4, x16) — riding it when `ride`.
    */
   private atEntity(id: number, ctx: CueContext, ride: boolean): boolean {
     const o = this.offsetOf(id);
@@ -793,6 +794,7 @@ export class OriginalSounds implements EffectListener {
     const at = this.atPoint(snap[o + S_X], snap[o + S_HEIGHT] + up, snap[o + S_Y]);
     at.yaw = snap[o + S_YAW];
     at.archetype = arch;
+    at.team = snap[o + S_TEAM];
     at.raiserScale = Math.round((ARCHETYPE_RADIUS[arch] ?? 0.25) * 512) || DEFAULT_SCALE;
     if (ride) {
       at.attach = id;

@@ -18,6 +18,7 @@ import * as THREE from "three";
 import { EffectChain, fxArenaFor, makeRaiseAt, ROUND_TOKEN } from "../src/effects/chain";
 import { IMPACT_SCALE } from "../src/effects/records";
 import { createFx, createFxPoses, type FxPoseResolver, POSE_STRIDE } from "../src/render/fx";
+import { TEAM_UV_ATTR } from "../src/render/teamUv";
 
 function rig() {
   const scene = new THREE.Scene();
@@ -105,6 +106,40 @@ describe("each record draws as its class", () => {
     tick();
     tick(); // 108's delay publishes trail 102
     expect(fx.debugCounts().trails).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("the shatter", () => {
+  test("a dying model's faces fly with its own texels, its side's offset and all", () => {
+    const scene = new THREE.Scene();
+    const chain = new EffectChain();
+    chain.begin(fxArenaFor("Mp"));
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshBasicMaterial();
+    let asked = -2;
+    const fx = createFx(scene, chain, {
+      shatter: (_archetype, team) => {
+        asked = team;
+        return { geometry, material, teamU: 0.5, teamV: 0.25 };
+      },
+    });
+    fx.begin("la-cantina");
+    const at = makeRaiseAt();
+    at.archetype = 5;
+    at.team = 1;
+    chain.raise(0, 107, at); // the turret's shatter, 50 of the box's 12 triangles: 12
+    expect(asked).toBe(1);
+    expect(fx.debugCounts().shatter).toBe(12);
+    let offsets: ArrayLike<number> | null = null;
+    scene.traverse((o) => {
+      const g = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+      const a = g?.getAttribute(TEAM_UV_ATTR);
+      if (a && (o as THREE.Mesh).material === material) offsets = a.array;
+    });
+    expect(offsets).not.toBeNull();
+    const uv = offsets as unknown as Float32Array;
+    expect(uv[0]).toBe(0.5);
+    expect(uv[1]).toBe(0.25);
   });
 });
 
