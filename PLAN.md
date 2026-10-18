@@ -805,8 +805,14 @@ no golden moves.
 - [x] The outpost console as the original's: Cobj 29 on the pad until the claim,
       the two terminals (Mp 27 and 33, the tank and jet shops) from it; no unit
       model for the console entity (G5, G10)
-- [ ] Joke's Dreadnought guns on the points of the hull's current frame (RE:
-      `pa_models.json` carries frame 0's attach vertices) (G8)
+- [x] Joke's Dreadnought guns on the points of the hull's current frame: the RE
+      exports every animated model's attach points per frame (`pa_models.json`
+      `by_frame`), `gen:paunits` writes the hull's as each gun's `byFrame`, and each
+      gun stands on the frame the hull's morph shows; the guns wait for the hull's
+      model whichever lands last (G8, G9)
+- [ ] The sim fires Joke's Dreadnought guns from the hull's current-frame points,
+      not frame 0's mounts — the hull's walk stepped in the sim, a hashed-state
+      change (G8)
 - [ ] The scenery the type-96 Props and type-97 DCSQuads place on Conft, Slim, Joke
       and Hk (89 / 75 / 75 / 151 Props, 0 / 56 / 51 / 134 DCSQuads), not drawn (G2)
 - [x] Per-arena hit radii for the models each arena draws (G1, G7; v78)
