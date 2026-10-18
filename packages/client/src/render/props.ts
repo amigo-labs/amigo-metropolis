@@ -1,25 +1,32 @@
-// Original arena scenery (#28): draws the DynamicProp placements the map
-// carries in `props` — on every imported arena, 36 of them across 8 original
-// Cobj models, each the arena's own mission's (public/models/props/<mapId>/,
-// tools/generators/units/manifest.ts ARENA_SCENERY). A placement's `model` is a
-// Cobj id in that mission's numbering, so the folder is the arena's: the same id
-// is another model elsewhere (urban-jungle's 36 and 41 are kiosks, not Mp's
-// Dreadnought hull and Flying Fortress), and even a payload Mp shares wears the
-// mission's own texture pages.
+// Original arena scenery (fcop-fidelity.md G2, G10): every type-11 record
+// (DynamicProp) of the arena's own mission, drawn with that mission's own Cobjs
+// (public/models/props/<mapId>/, tools/generators/units/manifest.ts
+// ARENA_SCENERY) where, how high, which way and when the original stands it —
+// render/arenaScenery.generated.ts, which `bun run gen:scenery` reads out of the
+// mission's bytes and scripts:
 //
-// Render-only, and one-way: the sim never reads `props`
-// (packages/sim/test/determinismGuard.test.ts enforces that), and nothing here
-// feeds anything back. Purely static, so every matrix is written once at init
-// and `matrixAutoUpdate` stays off — nothing in this file runs per frame, which
-// is what the renderer's zero-allocation rule asks of it.
+// - the height is the record construct's own (RE turret_part.c 0x0041cf70):
+//   `terrain_height_at` on the record's layer, the topmost surface for all but
+//   three flags of each arena, so a flag on a deck stands on the deck instead
+//   of inside it;
+// - the yaw is the record's `My(yaw)`, which carries the model's +z toward the
+//   game's +x: with the actors frame's axis swap (the sim's x is the game's z)
+//   and the glb's negated x, three turns the model by pi/2 - yaw about +y;
+// - an outpost's console (Cobj 29) stands until the outpost is claimed, and the
+//   claim brings up its two terminals (27 and 33 on Mp) — the activation script
+//   destroys the one and spawns the others (RE docs/behavior/precinct-assault.md
+//   "Outposts"). The outpost's owner is the side of its console in the snapshot
+//   (render/arenaUnits.ts `outpostSides`), which is also what colours its flags.
 //
-// One exception to "nothing runs per frame": the outpost flags (Cobj 28 on all
-// six arenas; RE pa_models.json `outpost_flag`). The claim script sets every
-// flag of the outpost to the claimer's texture offset (v 25 for side 1, 51 for
-// side 2; RE mission_frame.c 1102-1107), the same per-instance offset the units
-// wear (render/teamUv.ts). updateOutpostFlags writes it when an outpost's owner
-// changes, from the console entity the snapshot carries for it, and writes
-// nothing otherwise.
+// The outpost flags (Cobj 28 on all six arenas; RE pa_models.json
+// `outpost_flag`): the claim script sets every flag of the outpost's group to the
+// claimer's texture offset (v 25 for side 1, 51 for side 2; RE mission_frame.c
+// 1102-1107), the per-instance offset the units wear (render/teamUv.ts).
+//
+// Render-only, and one-way: nothing here feeds the sim. Each model is one
+// InstancedMesh with an instance per record, its matrix written at load;
+// `updateProps` runs per frame, allocates nothing and writes only what changed —
+// an instance shown or hidden by a claim, a flag's offset.
 //
 // Same tolerance as the unit and map loaders: an absent or broken .glb costs
 // that model's scenery and nothing else. There is no greybox stand-in on
@@ -27,10 +34,15 @@
 // these are the separate actors on top of it, so their absence reads as a
 // plainer arena rather than a broken one.
 
-import { type MapData, type MapProp, sampleHeight } from "@metropolis/sim";
+import type { MapData } from "@metropolis/sim";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import {
+  type ArenaScenery,
+  SCENERY_PLACEMENTS,
+  type SceneryPlacement,
+} from "./arenaScenery.generated";
 import { arenaUnitsFor } from "./arenaUnits";
 import { disposeSubtree } from "./meshMap";
 import {
@@ -43,91 +55,150 @@ import {
 
 const loader = new GLTFLoader();
 
-/** Sim yaw is left-handed about +Y relative to three's, as in main.ts. */
 const UP = new THREE.Vector3(0, 1, 0);
+/** The original's angle unit: 4096 a turn. */
+const TURN = 4096;
 
 /**
  * The arena's model for a Cobj id: tools/generators/units/manifest.ts
- * PROP_MODELS writes `props/<mapId>/prop-<cobj>.glb`, and propModels.test.ts
- * holds every placement of every map to a committed file there.
+ * PROP_MODELS writes `props/<mapId>/prop-<cobj>.glb`, and propUrls.test.ts
+ * holds every placement of every arena to a committed file there.
  */
 export function propModelUrl(mapId: string, cobj: number): string {
   return `/models/props/${mapId}/prop-${String(cobj).padStart(3, "0")}.glb`;
 }
 
-/** The arena's outpost flags once loaded: per instance its outpost and side. */
-interface Flags {
-  readonly attr: THREE.InstancedBufferAttribute;
-  /** Index into map.outpostSpots of each instance (the nearest outpost). */
-  readonly outpostOf: Int16Array;
-  /** The side each instance shows; -1 until written. */
-  readonly shown: Int8Array;
-  /** Offset per side in atlas units: [unclaimed, side 1, side 2] as u, v pairs. */
-  readonly bySide: Float32Array;
+/** The arena's scenery, or null for a map the RE has no mission for (test-128). */
+export function sceneryOf(mapId: string): ArenaScenery | null {
+  return SCENERY_PLACEMENTS[mapId] ?? null;
 }
-let flags: Flags | null = null;
 
 /**
- * Shows each outpost's flags in its owner's colour: `sideOf[k]` is the side
- * (0 nobody's, 1, 2) holding outpost k. Per frame; writes only on a change.
+ * Three's turn about +y for a record's yaw (4096 a turn). The record's matrix
+ * `My(yaw)` carries the model's +z to the game's (sin, 0, cos); the sim's x is
+ * the game's z and its y the game's x, and the glb's x is the game's negated:
+ * the model's +z lands on the sim's (cos yaw, sin yaw), which in three is a
+ * turn of pi/2 - yaw — the same as a unit, whose geometry carries the quarter
+ * turn baked and whose sim yaw is the record's.
  */
-export function updateOutpostFlags(sideOf: ArrayLike<number>): void {
-  const f = flags;
-  if (!f) return;
-  const a = f.attr.array as Float32Array;
-  let dirty = false;
-  for (let i = 0; i < f.outpostOf.length; i++) {
-    const side = sideOf[f.outpostOf[i]] ?? 0;
-    if (f.shown[i] === side) continue;
-    f.shown[i] = side;
-    a[i * 2] = f.bySide[side * 2];
-    a[i * 2 + 1] = f.bySide[side * 2 + 1];
-    dirty = true;
-  }
-  if (dirty) f.attr.needsUpdate = true;
+export function propTurn(yaw: number): number {
+  return Math.PI / 2 - (yaw * 2 * Math.PI) / TURN;
 }
 
-/** The nearest outpost spot to each placement (the flags stand at its corners). */
-export function outpostOfPlacements(map: MapData, placements: readonly MapProp[]): Int16Array {
-  const out = new Int16Array(placements.length);
-  placements.forEach((p, i) => {
-    let best = -1;
-    let bestD = Number.POSITIVE_INFINITY;
-    map.outpostSpots.forEach((s, k) => {
-      const d = (s.x - p.x) * (s.x - p.x) + (s.y - p.y) * (s.y - p.y);
-      if (d < bestD) {
-        bestD = d;
-        best = k;
+/** Whether a placement stands while its outpost is (or is not) claimed. */
+export function propShown(p: SceneryPlacement, claimed: boolean): boolean {
+  if (p.show === "always") return true;
+  return (p.show === "claimed") === claimed;
+}
+
+/** One model of the arena, once loaded. */
+interface PropMesh {
+  readonly mesh: THREE.InstancedMesh;
+  readonly placements: readonly SceneryPlacement[];
+  /** Per instance: its standing matrix, written back when it is shown. */
+  readonly matrices: Float32Array;
+  /** Per instance: 1 shown, 0 hidden, -1 unwritten. */
+  readonly shown: Int8Array;
+  /** Some instance stands by its outpost's claim. */
+  readonly stateful: boolean;
+  /** The outpost flags: per instance the side shown, and the offset per side. */
+  readonly flags: {
+    readonly attr: THREE.InstancedBufferAttribute;
+    readonly side: Int8Array;
+    /** [unclaimed, side 1, side 2] as u, v pairs, atlas units. */
+    readonly bySide: Float32Array;
+  } | null;
+}
+
+let meshes: PropMesh[] = [];
+/** A zero-scale matrix: how an instance that does not stand is drawn. */
+const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+const scratch = new THREE.Matrix4();
+
+/**
+ * Per frame, after the entity sweep: `sideOf[k]` is the side (0 nobody's, 1,
+ * 2) holding outpost k. Shows and hides what a claim changes and colours the
+ * flags. Writes only on a change.
+ */
+export function updateProps(sideOf: ArrayLike<number>): void {
+  for (let m = 0; m < meshes.length; m++) {
+    const pm = meshes[m];
+    let matricesDirty = false;
+    if (pm.stateful) {
+      for (let i = 0; i < pm.placements.length; i++) {
+        const p = pm.placements[i];
+        const claimed = p.outpost >= 0 && (sideOf[p.outpost] ?? 0) !== 0;
+        const shown = propShown(p, claimed) ? 1 : 0;
+        if (pm.shown[i] === shown) continue;
+        pm.shown[i] = shown;
+        if (shown === 1) scratch.fromArray(pm.matrices, i * 16);
+        pm.mesh.setMatrixAt(i, shown === 1 ? scratch : HIDDEN);
+        matricesDirty = true;
       }
-    });
-    out[i] = best;
-  });
-  return out;
+    }
+    if (matricesDirty) pm.mesh.instanceMatrix.needsUpdate = true;
+    const f = pm.flags;
+    if (f) {
+      const a = f.attr.array as Float32Array;
+      let dirty = false;
+      for (let i = 0; i < pm.placements.length; i++) {
+        const k = pm.placements[i].outpost;
+        const side = k >= 0 ? (sideOf[k] ?? 0) : 0;
+        if (f.side[i] === side) continue;
+        f.side[i] = side;
+        a[i * 2] = f.bySide[side * 2];
+        a[i * 2 + 1] = f.bySide[side * 2 + 1];
+        dirty = true;
+      }
+      if (dirty) f.attr.needsUpdate = true;
+    }
+  }
 }
 
 /**
- * Kicks off one async load per distinct prop model. Fire and forget: each
- * model's InstancedMesh joins the arena group when its .glb arrives.
+ * Kicks off one async load per distinct model of the arena's scenery. Fire and
+ * forget: each model's InstancedMesh joins the arena group when its .glb
+ * arrives. Forgets the previous arena's meshes (their group is disposed by the
+ * caller).
  */
 export function loadProps(map: MapData, group: THREE.Object3D, cancelled?: () => boolean): void {
-  flags = null;
-  if (map.props.length === 0) return;
-  const byModel = new Map<number, MapProp[]>();
-  for (const prop of map.props) {
-    const list = byModel.get(prop.model);
-    if (list) list.push(prop);
-    else byModel.set(prop.model, [prop]);
+  meshes = [];
+  const scenery = sceneryOf(map.id);
+  if (!scenery) return;
+  const byModel = new Map<number, SceneryPlacement[]>();
+  for (const p of scenery.placements) {
+    const list = byModel.get(p.cobj);
+    if (list) list.push(p);
+    else byModel.set(p.cobj, [p]);
   }
   for (const [cobj, placements] of byModel) {
     addPropMesh(map, group, cobj, placements, cancelled);
   }
 }
 
+/** The standing matrix of each placement, in placement order. */
+export function propMatrices(placements: readonly SceneryPlacement[]): Float32Array {
+  const out = new Float32Array(placements.length * 16);
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const scale = new THREE.Vector3(1, 1, 1);
+  const matrix = new THREE.Matrix4();
+  placements.forEach((p, i) => {
+    // Sim (x, y) is the ground plane and three's Y is up; the model's own
+    // origin is its contact point, and `h` is the height the record stands at.
+    position.set(p.x, p.h, p.y);
+    quaternion.setFromAxisAngle(UP, propTurn(p.yaw));
+    matrix.compose(position, quaternion, scale);
+    matrix.toArray(out, i * 16);
+  });
+  return out;
+}
+
 function addPropMesh(
   map: MapData,
   group: THREE.Object3D,
   cobj: number,
-  placements: readonly MapProp[],
+  placements: readonly SceneryPlacement[],
   cancelled?: () => boolean,
 ): void {
   const url = propModelUrl(map.id, cobj);
@@ -167,12 +238,8 @@ function addPropMesh(
         console.warn(`[props] unmergeable prop asset at ${url}, skipping`);
         return;
       }
-      // No quarter-turn bake here, unlike unitMeshes.ts: scenery is not
-      // authored +Z-forward against the sim's +X-forward convention. These are
-      // the original Cobjs in the original's own axes, placed at the original's
-      // own coordinates, and the terrain mesh they stand on is loaded in that
-      // same frame (mapAlign is a translation only) — so any rotation here
-      // would be a rotation away from where the arena was authored.
+      // No quarter-turn bake into the geometry, unlike unitMeshes.ts: the turn
+      // is each record's own (propTurn), in the instance matrix.
 
       // One material per model, never shared: rebuildArena disposes materials
       // and their maps by traversal, so a texture shared between two prop
@@ -183,7 +250,8 @@ function addPropMesh(
         map: atlas,
       });
       const flag = arenaUnitsFor(map.id).outpostFlag;
-      if (cobj === flag.cobj && map.outpostSpots.length > 0) {
+      let flags: PropMesh["flags"] = null;
+      if (cobj === flag.cobj) {
         patchTeamUv(material);
         prepareTeamUvMask(merged);
         const attr = createTeamUvAttribute(placements.length);
@@ -192,33 +260,31 @@ function addPropMesh(
         for (let side = 0; side < 3; side++) {
           atlasOffset(atlas, flag.uv[side].u, flag.uv[side].v, bySide, side * 2);
         }
-        flags = {
-          attr,
-          outpostOf: outpostOfPlacements(map, placements),
-          shown: new Int8Array(placements.length).fill(-1),
-          bySide,
-        };
+        flags = { attr, side: new Int8Array(placements.length).fill(-1), bySide };
       }
       const mesh = new THREE.InstancedMesh(merged, material, placements.length);
       mesh.frustumCulled = false;
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
 
-      const position = new THREE.Vector3();
-      const quaternion = new THREE.Quaternion();
-      const scale = new THREE.Vector3(1, 1, 1);
-      const matrix = new THREE.Matrix4();
+      const matrices = propMatrices(placements);
+      const stateful = placements.some((p) => p.show !== "always");
       for (let i = 0; i < placements.length; i++) {
-        const prop = placements[i];
-        // Sim (x, y) is the ground plane and three's Y is up; the model's own
-        // origin is already its ground contact, so terrain height carries it.
-        position.set(prop.x, sampleHeight(map, prop.x, prop.y) + prop.height, prop.y);
-        quaternion.setFromAxisAngle(UP, -prop.yaw);
-        matrix.compose(position, quaternion, scale);
-        mesh.setMatrixAt(i, matrix);
+        // A claim-bound instance is written by the first updateProps.
+        if (stateful && placements[i].show !== "always") mesh.setMatrixAt(i, HIDDEN);
+        else mesh.setMatrixAt(i, scratch.fromArray(matrices, i * 16));
       }
       mesh.instanceMatrix.needsUpdate = true;
+
       group.add(mesh);
+      meshes.push({
+        mesh,
+        placements,
+        matrices,
+        shown: new Int8Array(placements.length).fill(stateful ? -1 : 1),
+        stateful,
+        flags,
+      });
     },
     () => {
       console.warn(`[props] no prop asset at ${url}, skipping`);

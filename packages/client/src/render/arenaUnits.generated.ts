@@ -20,11 +20,11 @@ export type SideUv = readonly [TexelUv, TexelUv, TexelUv];
 export type ModelPoint = readonly [number, number, number];
 
 /**
- * How gen:units builds the file: `unit` and `console` are grounded and
- * XZ-centred; a `part` keeps the original's origin, which is what its attach
- * points and its pivot are measured from.
+ * How gen:units builds the file: a `unit` is grounded and XZ-centred; a
+ * `part` keeps the original's origin, which is what its attach points and its
+ * pivot are measured from.
  */
-export type UnitTreatment = "unit" | "console" | "part";
+export type UnitTreatment = "unit" | "part";
 
 export interface UnitModelFile {
   /** Under /models/units/, without `.glb`: `<mapId of its first arena>/obj_NNN`. */
@@ -68,7 +68,6 @@ export interface ArenaUnits {
   readonly neutralTurrets: readonly (TurretModels & { readonly spots: readonly number[] })[];
   /** The model per level 0-9 (one record per level band). */
   readonly skyCaptain: { readonly byLevel: readonly string[]; readonly uv: SideUv };
-  readonly console: string;
   readonly x1: { readonly uv: SideUv };
   /**
    * The outpost flags (scenery, render/props.ts): [unclaimed, claimed by side 1,
@@ -107,16 +106,6 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     payload: "aaa6ccd8082569c2",
     morph: { frames: 3, secPerFrame: 0.03333 },
     usedBy: ["la-cantina", "urban-jungle", "proving-ground"],
-  },
-  {
-    file: "la-cantina/obj_029",
-    mission: "Mp",
-    cobj: 29,
-    treatment: "console",
-    raw: "fcop-units/Mp/obj_029.glb",
-    payload: "114724e9c9e1a5cd",
-    morph: null,
-    usedBy: ["la-cantina", "proving-ground"],
   },
   {
     file: "la-cantina/obj_030",
@@ -239,16 +228,6 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     usedBy: ["urban-jungle"],
   },
   {
-    file: "urban-jungle/obj_029",
-    mission: "Conft",
-    cobj: 29,
-    treatment: "console",
-    raw: "fcop-units/Conft/obj_029.glb",
-    payload: "114724e9c9e1a5cd",
-    morph: null,
-    usedBy: ["urban-jungle"],
-  },
-  {
     file: "urban-jungle/obj_030",
     mission: "Conft",
     cobj: 30,
@@ -356,16 +335,6 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     raw: "fcop-units/Hk/obj_022.glb",
     payload: "aaa6ccd8082569c2",
     morph: { frames: 3, secPerFrame: 0.03333 },
-    usedBy: ["hollywood-keys"],
-  },
-  {
-    file: "hollywood-keys/obj_029",
-    mission: "Hk",
-    cobj: 29,
-    treatment: "console",
-    raw: "fcop-units/Hk/obj_029.glb",
-    payload: "114724e9c9e1a5cd",
-    morph: null,
     usedBy: ["hollywood-keys"],
   },
   {
@@ -519,16 +488,6 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     usedBy: ["venice-beach"],
   },
   {
-    file: "venice-beach/obj_029",
-    mission: "Ovmp",
-    cobj: 29,
-    treatment: "console",
-    raw: "fcop-units/Ovmp/obj_029.glb",
-    payload: "ef58a13b4956908e",
-    morph: null,
-    usedBy: ["venice-beach"],
-  },
-  {
     file: "venice-beach/obj_030",
     mission: "Ovmp",
     cobj: 30,
@@ -625,16 +584,6 @@ export const UNIT_MODEL_FILES: readonly UnitModelFile[] = [
     treatment: "unit",
     raw: "fcop-units/Joke/obj_022.glb",
     payload: "c1522551d5994ef7",
-    morph: null,
-    usedBy: ["bug-hunt"],
-  },
-  {
-    file: "bug-hunt/obj_029",
-    mission: "Joke",
-    cobj: 29,
-    treatment: "console",
-    raw: "fcop-units/Joke/obj_029.glb",
-    payload: "114724e9c9e1a5cd",
     morph: null,
     usedBy: ["bug-hunt"],
   },
@@ -807,7 +756,6 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
       ],
     },
-    console: "la-cantina/obj_029",
     x1: {
       uv: [
         { u: 0, v: 0 },
@@ -910,7 +858,6 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
       ],
     },
-    console: "urban-jungle/obj_029",
     x1: {
       uv: [
         { u: 0, v: 0 },
@@ -1013,7 +960,6 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
       ],
     },
-    console: "la-cantina/obj_029",
     x1: {
       uv: [
         { u: 0, v: 0 },
@@ -1127,7 +1073,6 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
       ],
     },
-    console: "hollywood-keys/obj_029",
     x1: {
       uv: [
         { u: 0, v: 0 },
@@ -1230,7 +1175,6 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
       ],
     },
-    console: "venice-beach/obj_029",
     x1: {
       uv: [
         { u: 0, v: 0 },
@@ -1333,7 +1277,6 @@ export const ARENA_UNITS: Readonly<Record<string, ArenaUnits>> = {
         { u: 0, v: 0 },
       ],
     },
-    console: "bug-hunt/obj_029",
     x1: {
       uv: [
         { u: 0, v: 0 },

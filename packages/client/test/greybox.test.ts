@@ -30,7 +30,7 @@ import { bucketFor, createGreyboxMeshes, type GreyboxMeshes } from "../src/rende
 /** Max horizontal extent and height of a committed model, in metres. */
 async function modelSize(
   key: string,
-  dir: "units" | "fx" = "units",
+  dir: "units" | "fx" | "props" = "units",
 ): Promise<{ footprint: number; height: number }> {
   const path = new URL(`../public/models/${dir}/${key}.glb`, import.meta.url).pathname;
   const doc = await new NodeIO().read(path);
@@ -66,25 +66,26 @@ function bucketSize(mesh: THREE.InstancedMesh): { footprint: number; height: num
  * Bucket name -> model key, for every archetype that has both. The arena's own
  * units load per arena (render/arenaUnits.ts) and differ by mission (Joke's
  * are other models altogether); the stand-ins are la-cantina's, Mp's, which is
- * also what a map with no mission draws.
+ * also what a map with no mission draws. The outpost console is scenery
+ * (render/props.ts): its box stands in for Mp's Cobj 29.
  */
-const PAIRS: readonly (readonly [keyof GreyboxMeshes, string])[] = [
+const PAIRS: readonly (readonly [keyof GreyboxMeshes, string, ("units" | "props")?])[] = [
   ["avatarWalker", "avatar-walker"],
   ["avatarHover", "avatar-hover"],
   ["runner", "la-cantina/obj_030"],
   ["guardian", "la-cantina/obj_022"],
   ["juggernaut", "la-cantina/obj_036"],
   ["fortress", "la-cantina/obj_041"],
-  ["console", "la-cantina/obj_029"],
+  ["console", "la-cantina/prop-029", "props"],
   ["warden", "la-cantina/obj_054"],
 ];
 
 describe("greybox stand-ins match the models they stand in for", () => {
   const meshes = createGreyboxMeshes(new THREE.Scene());
 
-  for (const [bucketName, key] of PAIRS) {
+  for (const [bucketName, key, dir] of PAIRS) {
     test(`${key}`, async () => {
-      const model = await modelSize(key);
+      const model = await modelSize(key, dir);
       const grey = bucketSize((meshes[bucketName] as { mesh: THREE.InstancedMesh }).mesh);
       // One axis is fitted exactly and the other is whatever the authored
       // silhouette's aspect gives, so only the BINDING dimension can be tight.

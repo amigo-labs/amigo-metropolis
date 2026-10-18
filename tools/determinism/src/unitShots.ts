@@ -55,7 +55,6 @@ function arenaUnitFiles(u: ArenaUnits): string[] {
     u.baseTurret.base,
     u.neutralTurrets[0].gun,
     u.neutralTurrets[0].base,
-    u.console,
     u.skyCaptain.byLevel[0],
   ];
   return [...new Set(files)];

@@ -12,10 +12,10 @@
 // If PROP_MODELS changes, `bun run gen:units` must be re-run in the same commit.
 
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Document, getBounds, NodeIO } from "@gltf-transform/core";
-import { PROP_MODELS, sceneryRaw } from "../units/manifest";
+import { SCENERY_PLACEMENTS } from "../../../packages/client/src/render/arenaScenery.generated";
+import { ARENA_SCENERY, PROP_MODELS, sceneryRaw } from "../units/manifest";
 
 const REPO = join(import.meta.dir, "..", "..", "..");
 const OUT_DIR = join(REPO, "packages", "client", "public", "models", "props");
@@ -71,8 +71,8 @@ describe("committed prop models match the manifest contract", () => {
       const scene = root.getDefaultScene() ?? root.listScenes()[0];
       const out = getBounds(scene);
 
-      // Ground-contact origin: Y only. render/props.ts adds sampleHeight, so
-      // minY must be the contact point.
+      // Ground-contact origin: Y only. render/props.ts stands the origin at the
+      // record's height, so minY must be the contact point.
       expect(Math.abs(out.min[1])).toBeLessThanOrEqual(0.02);
 
       // Original scale kept: the output measures what the raw measures on every
@@ -118,21 +118,16 @@ describe("committed prop models match the manifest contract", () => {
   // replaced (urban-jungle drew Mp's Dreadnought hull and Flying Fortress for
   // its own kiosks 36 and 41).
   test("every arena's placed Cobj ids are exactly its models", () => {
-    const mapsDir = join(REPO, "packages", "sim", "maps");
-    let arenas = 0;
-    for (const file of readdirSync(mapsDir)) {
-      if (!file.endsWith(".json")) continue;
-      const data = JSON.parse(readFileSync(join(mapsDir, file), "utf8")) as {
-        id: string;
-        props?: { model: number }[];
-      };
-      const placed = [...new Set((data.props ?? []).map((p) => p.model))].sort((a, b) => a - b);
-      const carried = PROP_MODELS.filter((s) => s.mapId === data.id)
+    expect(Object.keys(SCENERY_PLACEMENTS).sort()).toEqual(
+      ARENA_SCENERY.map((a) => a.mapId).sort(),
+    );
+    for (const [mapId, scenery] of Object.entries(SCENERY_PLACEMENTS)) {
+      const placed = [...new Set(scenery.placements.map((p) => p.cobj))].sort((a, b) => a - b);
+      const carried = PROP_MODELS.filter((s) => s.mapId === mapId)
         .map((s) => s.cobj)
         .sort((a, b) => a - b);
-      expect({ map: data.id, ids: carried }).toEqual({ map: data.id, ids: placed });
-      if (placed.length > 0) arenas++;
+      expect({ map: mapId, ids: carried }).toEqual({ map: mapId, ids: placed });
+      expect(scenery.mission).toBe(ARENA_SCENERY.find((a) => a.mapId === mapId)?.mission ?? "");
     }
-    expect(arenas).toBe(6);
   });
 });

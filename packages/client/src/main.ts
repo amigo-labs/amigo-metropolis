@@ -156,7 +156,7 @@ import {
   type PlayerView,
 } from "./render/playerView";
 import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
-import { loadProps, updateOutpostFlags } from "./render/props";
+import { loadProps, updateProps } from "./render/props";
 import { createResultsPage } from "./render/results/resultsPage";
 import { sideName, sideOfTeam } from "./render/sides";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
@@ -788,7 +788,7 @@ function buildArenaGroup(m: typeof map): THREE.Group {
     );
     // Original scenery actors, on the mesh path only: they are the arena's own
     // art, so they belong with the textured terrain and not on top of greybox
-    // blocks (render/props.ts). No-op on arenas that carry no `props`.
+    // blocks (render/props.ts). No-op on a map of no mission (test-128).
     loadProps(m, group, stale);
     // The arena's own units: its mission's Cobjs and texture pages, swapped
     // into the unit buckets (render/arenaUnits.ts). Null on the first build,
@@ -1815,8 +1815,9 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
     b.mesh.instanceMatrix.needsUpdate = true;
   }
   units.end();
-  // The outpost flags show their claimer's half of the page (render/props.ts).
-  updateOutpostFlags(units.outpostSides);
+  // The scenery by its outpost's claim: the console until then, the terminals
+  // after, the flags in the claimer's half of the page (render/props.ts).
+  updateProps(units.outpostSides);
   if (avatarRig) avatarRig.end();
 }
 

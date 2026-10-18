@@ -135,11 +135,11 @@ type Vec3 = readonly [number, number, number];
 /** Offset per original side: [nobody's (0), side 1, side 2], in page texels. */
 type SideUv = readonly [Uv, Uv, Uv];
 /**
- * How gen:units treats the file. `unit` and `console` are grounded and centred
- * like every unit before them; a `part` keeps the origin the original authored,
- * because something stands on its attach points or it pivots about it.
+ * How gen:units treats the file. A `unit` is grounded and centred like every
+ * unit before it; a `part` keeps the origin the original authored, because
+ * something stands on its attach points or it pivots about it.
  */
-type Treatment = "unit" | "console" | "part";
+type Treatment = "unit" | "part";
 
 interface ModelFile {
   file: string;
@@ -170,7 +170,6 @@ interface ArenaUnits {
   baseTurret: Turret;
   neutralTurrets: (Turret & { spots: number[] })[];
   skyCaptain: { byLevel: string[]; uv: SideUv };
-  console: string;
   x1: { uv: SideUv };
   outpostFlag: { cobj: number; uv: SideUv };
 }
@@ -494,11 +493,6 @@ function readArena(arena: FcopArena, reRepo: string): ArenaRead {
     if (!byLevel[level]) throw new Error(`${mapId}: no Sky Captain for level ${level}`);
   }
 
-  // Metropolis' outpost console draws the arena's Cobj 29, the scenery console
-  // standing at each outpost (render/props.ts draws the same model in place).
-  const scenery = (pa.roles.scenery ?? []).flatMap((r) => r.parts.map((p) => p.cobj));
-  if (!scenery.includes(29)) throw new Error(`${mapId}: no scenery Cobj 29 for the console`);
-
   const units: ArenaUnits = {
     mission,
     sides: sidesOf(arena, logic, map),
@@ -512,7 +506,6 @@ function readArena(arena: FcopArena, reRepo: string): ArenaRead {
     baseTurret: turret(base.role, base.uv, `${mapId} base turret`),
     neutralTurrets,
     skyCaptain: { byLevel, uv: captainUv ?? [ZERO, ZERO, ZERO] },
-    console: use(29, "console", [ZERO, ZERO, ZERO]),
     x1: { uv: sideUv(only(pa.roles.x1alpha, `${mapId} x1alpha`), `${mapId} x1alpha`) },
     outpostFlag: outpostFlagOf(pa, mapId),
   };
@@ -547,11 +540,11 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
     "export type ModelPoint = readonly [number, number, number];",
     "",
     "/**",
-    " * How gen:units builds the file: `unit` and `console` are grounded and",
-    " * XZ-centred; a `part` keeps the original's origin, which is what its attach",
-    " * points and its pivot are measured from.",
+    " * How gen:units builds the file: a `unit` is grounded and XZ-centred; a",
+    " * `part` keeps the original's origin, which is what its attach points and its",
+    " * pivot are measured from.",
     " */",
-    'export type UnitTreatment = "unit" | "console" | "part";',
+    'export type UnitTreatment = "unit" | "part";',
     "",
     "export interface UnitModelFile {",
     "  /** Under /models/units/, without `.glb`: `<mapId of its first arena>/obj_NNN`. */",
@@ -595,7 +588,6 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
     "  readonly neutralTurrets: readonly (TurretModels & { readonly spots: readonly number[] })[];",
     "  /** The model per level 0-9 (one record per level band). */",
     "  readonly skyCaptain: { readonly byLevel: readonly string[]; readonly uv: SideUv };",
-    "  readonly console: string;",
     "  readonly x1: { readonly uv: SideUv };",
     "  /**",
     "   * The outpost flags (scenery, render/props.ts): [unclaimed, claimed by side 1,",
@@ -638,7 +630,6 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
       ...u.neutralTurrets.map((t) => `      { ${turret(t)}, spots: ${json(t.spots)} },`),
       "    ],",
       `    skyCaptain: { byLevel: ${json(u.skyCaptain.byLevel)}, uv: ${uvs(u.skyCaptain.uv)} },`,
-      `    console: ${json(u.console)},`,
       `    x1: { uv: ${uvs(u.x1.uv)} },`,
       `    outpostFlag: { cobj: ${u.outpostFlag.cobj}, uv: ${uvs(u.outpostFlag.uv)} },`,
       "  },",
@@ -726,7 +717,6 @@ async function main(): Promise<void> {
       t.base = resolve(t.base);
     }
     u.skyCaptain.byLevel = u.skyCaptain.byLevel.map(resolve);
-    u.console = resolve(u.console);
   }
 
   const text = biomeFormat(format(files, reads));

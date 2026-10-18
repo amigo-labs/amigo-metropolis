@@ -20,10 +20,12 @@
 // the mistake. It stretched every unit by a different factor — 1.02x for the
 // Flyer, 1.85x for the heavy gunship, 2.87x for the X1-Alpha walker — so the
 // unit set was not even internally consistent, let alone consistent with the
-// arena. The proof sits inside this file: Cobj 29 is BOTH the `console` unit and
+// arena. The proof was in this file: Cobj 29 was BOTH the `console` unit and
 // the `prop-029` scenery, one raw file, and la-cantina drew it at 3.20 m and
-// 1.47 m simultaneously. The original's own base-mouth trigger volumes are
-// 2.5 x 1.5 m, which the fitted 2.31 m-deep walker could not drive through.
+// 1.47 m simultaneously. (Since Phase 14 wave 5 it is scenery alone: the
+// outpost's console is the type-11 record the activation destroys.) The
+// original's own base-mouth trigger volumes are 2.5 x 1.5 m, which the fitted
+// 2.31 m-deep walker could not drive through.
 //
 // So `nativeScale` is on everywhere, and `footprint`/`maxHeight` are what they
 // already were for the two turrets: SOFT UPPER BOUNDS the client test checks
@@ -377,7 +379,6 @@ export interface ArenaUnitModelSpec {
  * The treatment is the role's (`gen:paunits` names it):
  * - `unit` (tank, jet, Flying Fortress, Sky Captain): grounded and XZ-centred
  *   like every unit before, FX attachments dropped;
- * - `console`: the outpost console, the same, turned half a turn as before;
  * - `part` (a turret's gun and base, the Dreadnought's hull and guns): the
  *   original's own origin kept, because the gun stands on the base's attach
  *   point 0, the Dreadnought's guns on the hull's attach points 0-3, and each
@@ -425,10 +426,10 @@ export interface PropModelSpec {
   readonly maxTris: number;
 }
 
-// Original scenery: the DynamicProp (act_type 11) placements every imported
-// arena carries in packages/sim/maps/<mapId>.json `props` — 36 per arena, 8
-// models each. Render-only — the sim never reads them (determinismGuard.test.ts
-// enforces that).
+// Original scenery: the DynamicProp (act_type 11) records of every imported
+// arena's mission — 36 per arena, 8 models each — which `bun run gen:scenery`
+// reads out of the mission into render/arenaScenery.generated.ts with the
+// height, yaw and claim state the original gives each one. Render-only.
 //
 // A placement's `model` is a Cobj id IN THAT ARENA'S OWN MISSION. The same id
 // is a different model on another arena: the six missions number their Cobjs
@@ -453,43 +454,49 @@ export interface PropModelSpec {
 // `footprint`, no `maxHeight` and no `rotateQuarterY` for that reason, and no
 // `neutralizeColors` either — nothing tints scenery.
 //
-// What the models are, from their geometry and the texture region each samples
-// (named by Mp's ids; page tex05 for the consoles, tex01/tex03 for the flags):
+// What the models are, from their geometry, the texture region each samples
+// (named by Mp's ids; page tex05 for the consoles, tex01/tex03 for the flags)
+// and the records and scripts that place them (RE pa_models.json `terminal`
+// and `scenery`, the outposts' activation scripts):
 // - Mp 28 (16 placements): thin (5 cm), 1.5 m tall, yellow/black hazard
 //   diagonals — read as a "striped barrier" until the RE named it: the outpost
 //   flag, four per outpost (pa_models.json `outpost_flag`, groups 11-14). The
 //   claim script sets the claimer's offset on it (v 25 / 51, the red and blue
 //   flag on the same page; render/props.ts). A 6-frame morph, the cloth; the
 //   pipeline keeps frame 0.
-// - Mp 27/33/34/35/39/40 (2-4 each): small kiosks sampling the same atlas
-//   strip as Cobj 29 — yellow unit-type icons (jet, tank, turret) and the 0-9
-//   digit row. Siblings of the outpost console, differing in which part of
-//   that strip they show.
-// - Mp 29 (4 placements): the outpost flag console, the same bytes as the
-//   `console` unit's raw.
+// - Mp 29 (4 placements): the outpost's console on its pad, the one a mech
+//   buys the outpost at; the activation destroys it (order 0x3c).
+// - Mp 27 and 33 (4 each): the outpost's two terminals, at its activation and
+//   claim spots (the tank and jet shop), spawned by the activation.
+// - Mp 34 and 35 (2 each): the base terminals at the Dreadnought and Flying
+//   Fortress purchase spots (spawned by tFUN 30 / 31).
+// - Mp 39 and 40 (2 each): placed kiosks at the bases, by the triggers that
+//   buy a jet (39) and a tank (40).
+// All but the flag sample the same atlas strip — yellow unit-type icons (jet,
+// tank, turret) and the 0-9 digit row — differing in which part they show.
 // Ovmp's console and kiosks are payloads of its own (pages 4 and 8, the kiosks
 // a little larger); only its flag is Mp's.
 const SCENERY_KINDS: Readonly<Record<number, string>> = {
-  27: "Scenery kiosk, unit-icon console variant",
+  27: "Outpost terminal at the activation spot",
   28: "Outpost flag",
-  29: "Outpost flag console",
-  33: "Scenery kiosk, unit-icon console variant",
-  34: "Scenery kiosk, unit-icon console variant",
-  35: "Scenery kiosk, unit-icon console variant",
-  39: "Scenery kiosk, unit-icon console variant",
-  40: "Scenery kiosk, unit-icon console variant",
+  29: "Outpost console",
+  33: "Outpost terminal at the claim spot",
+  34: "Base terminal, Dreadnought purchase",
+  35: "Base terminal, Flying Fortress purchase",
+  39: "Base kiosk, jet purchase",
+  40: "Base kiosk, tank purchase",
 };
 
 /** Ovmp's own payloads: what each is, by its geometry and its place in the set. */
 const OWN_KINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   Ovmp: {
-    27: "Scenery kiosk (Ovmp's own)",
-    29: "Outpost flag console (Ovmp's own)",
-    33: "Scenery kiosk (Ovmp's own)",
-    34: "Scenery kiosk (Ovmp's own)",
-    35: "Scenery kiosk (Ovmp's own)",
-    39: "Scenery kiosk (Ovmp's own)",
-    40: "Scenery kiosk (Ovmp's own)",
+    27: "Outpost terminal at the activation spot (Ovmp's own)",
+    29: "Outpost console (Ovmp's own)",
+    33: "Outpost terminal at the claim spot (Ovmp's own)",
+    34: "Base terminal, Dreadnought purchase (Ovmp's own)",
+    35: "Base terminal, Flying Fortress purchase (Ovmp's own)",
+    39: "Base kiosk, jet purchase (Ovmp's own)",
+    40: "Base kiosk, tank purchase (Ovmp's own)",
   },
 };
 

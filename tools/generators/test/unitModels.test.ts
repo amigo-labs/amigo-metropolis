@@ -307,9 +307,6 @@ describe("committed arena unit models match the table", () => {
         expect(Math.abs(out.min[1])).toBeLessThanOrEqual(0.02);
         expect(Math.abs(out.min[0] + out.max[0])).toBeLessThanOrEqual(0.04);
         expect(Math.abs(out.min[2] + out.max[2])).toBeLessThanOrEqual(0.04);
-        const turned = spec.treatment === "console";
-        // The console is the one model turned half a turn (manifest.ts).
-        expect(turned).toBe(spec.cobj === 29);
         // No zero-thickness card survives the planar-billboard drop.
         expect(thinnestComponent(prims[0])).toBeGreaterThan(0.02 - 1e-6);
         // A skinned raw (Joke's jet) holds its bind pose; gen:units bakes the
@@ -415,7 +412,6 @@ describe("committed arena unit models match the table", () => {
         u.baseTurret.base,
         ...u.neutralTurrets.flatMap((t) => [t.gun, t.base]),
         ...u.skyCaptain.byLevel,
-        u.console,
       ];
       for (const ref of refs) {
         expect({ mapId, ref, known: files.has(ref) }).toEqual({ mapId, ref, known: true });

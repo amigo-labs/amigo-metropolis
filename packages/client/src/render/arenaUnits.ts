@@ -30,6 +30,10 @@
 // its capture state. The greybox stand-ins (?render=greybox, or a model still
 // loading) keep the team tint, which is all a box can show.
 //
+// The outpost's console has no model here: it is scenery the claim destroys
+// (render/props.ts); its entity still reports the outpost's owner
+// (`outpostSides`), and its bucket draws only the greybox box.
+//
 // Renderer rules: `place` runs per entity per frame and allocates nothing; the
 // loaders run at arena build and may.
 
@@ -247,13 +251,6 @@ const UP = new THREE.Vector3(0, 1, 0);
 const scratchMatrix = new THREE.Matrix4();
 const scratchRest = new THREE.Quaternion();
 const scratchAt = new THREE.Vector3();
-
-/** The console has no team half: Metropolis' outpost console is the scenery Cobj 29. */
-const NO_UV: SideUv = [
-  { u: 0, v: 0 },
-  { u: 0, v: 0 },
-  { u: 0, v: 0 },
-];
 
 /** One file per session: its geometry is already turned onto the sim's +x. */
 const assets = new Map<string, Promise<UnitAsset>>();
@@ -546,6 +543,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       outpostSides = new Int8Array(map.outpostSpots.length);
       // A side may be another team now: every stand-in's tint is re-keyed.
       for (const b of greybox.all) b.tintCache.fill(-2);
+      // The console is scenery with the models (render/props.ts), a box without.
+      greybox.console.mesh.visible = !models;
       if (!models) return;
       // The X1's two forms are every arena's; their offsets are the arena's
       // sides. The rig re-keys on the side too (render/avatarRig.ts).
@@ -559,7 +558,6 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       arenaCancelled = cancelled;
       loadedOnce = true;
       swapCaptain();
-      swap(greybox.console, units.console, NO_UV, cancelled);
       swapTurret(defense, units.baseTurret, cancelled);
       swapTurret(neutral, units.neutralTurrets[0], cancelled);
       neutralB.ready = false;

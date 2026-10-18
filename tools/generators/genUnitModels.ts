@@ -140,7 +140,7 @@ const PASSES: readonly ModelPass[] = [
     label: spec.file,
     raw: spec.raw,
     outDir: join(OUT_UNITS, spec.file.slice(0, spec.file.indexOf("/"))),
-    rotateQuarterY: spec.treatment === "console" ? (2 as const) : (0 as const),
+    rotateQuarterY: 0 as const,
     maxTris: spec.maxTris,
     nativeScale: true,
     neutralizeColors: false,

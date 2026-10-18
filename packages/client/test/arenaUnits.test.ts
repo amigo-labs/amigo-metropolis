@@ -14,7 +14,6 @@ import {
   turretSpotsOf,
 } from "../src/render/arenaUnits";
 import { ARENA_UNITS, UNIT_MODEL_FILES } from "../src/render/arenaUnits.generated";
-import { outpostOfPlacements } from "../src/render/props";
 import { sideOfTeam } from "../src/render/sides";
 import {
   atlasOffset,
@@ -170,7 +169,6 @@ describe("each arena draws its own mission's Cobjs", () => {
         want.neutral,
       );
       expect(u.skyCaptain.byLevel.map((f) => idHere(mapId, f))).toEqual(want.captain);
-      expect(idHere(mapId, u.console)).toBe(29);
     });
   }
 
@@ -333,16 +331,6 @@ describe("team colour by the original's texture offset", () => {
     prepareTeamUvMask(x1);
     expect(Array.from(x1.getAttribute(TEAM_UV_MASK).array)).toEqual([1, 0]);
     expect(x1.getAttribute("_teamuv")).toBeUndefined();
-  });
-
-  test("every outpost has four flags by nearness, on every arena", () => {
-    for (const id of Object.keys(ARENA_UNITS)) {
-      const map = getMapById(id);
-      const flags = map.props.filter((p) => p.model === ARENA_UNITS[id].outpostFlag.cobj);
-      const of = outpostOfPlacements(map, flags);
-      const counts = map.outpostSpots.map((_, k) => of.filter((o) => o === k).length);
-      expect({ id, counts }).toEqual({ id, counts: map.outpostSpots.map(() => 4) });
-    }
   });
 });
 
