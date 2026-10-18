@@ -15,7 +15,18 @@
 // JSON (not the binary protocol) is deliberate: signaling is a handful of
 // SDP-sized text blobs, not the 30 Hz hot path.
 
-import { DEFAULT_DIFFICULTIES, isDifficulty, MAX_PLAYERS, type MatchConfig } from "@metropolis/sim";
+import {
+  DEFAULT_DIFFICULTIES,
+  DEFAULT_LOADOUTS,
+  GUNS,
+  HEAVIES,
+  isDifficulty,
+  type Loadout,
+  MAX_PLAYERS,
+  type MatchConfig,
+  PROTOCOL_VERSION,
+  SPECIALS,
+} from "@metropolis/sim";
 import type { LobbyIceConfig } from "./turn";
 
 // --- Lifecycle timeouts (wall-clock ms; server-side, not gameplay) -----------
@@ -36,13 +47,20 @@ export type LobbyVisibility = "public" | "private";
 export type LobbyClientMsg =
   | {
       readonly t: "create";
+      /** The client's PROTOCOL_VERSION (since 4; absent from older clients). */
+      readonly protocol?: number;
       readonly name: string;
       readonly visibility: LobbyVisibility;
       readonly config: MatchConfig;
       /** SHA-256 hex of the lobby password (hashed client-side); absent = open. */
       readonly passwordHash?: string;
     }
-  | { readonly t: "join"; readonly simVersion: number; readonly passwordHash?: string }
+  | {
+      readonly t: "join";
+      readonly protocol?: number;
+      readonly simVersion: number;
+      readonly passwordHash?: string;
+    }
   | { readonly t: "signal"; readonly data: unknown }
   | { readonly t: "matchStarted" };
 
@@ -52,7 +70,7 @@ export type LobbyErrorCode =
   | "protocol" // malformed / out-of-order message
   | "closed" // lobby is not (or no longer) joinable
   | "full" // both seats taken
-  | "versionMismatch" // joiner runs a different SIM_VERSION
+  | "versionMismatch" // a different SIM_VERSION, or PROTOCOL_VERSION
   | "badPassword" // wrong (or missing) password hash
   | "noPeer" // signal sent while alone
   | "soldOut"; // budget gate closed (issued by the DO adapter, not this logic)
@@ -104,14 +122,38 @@ function isAscii(s: string): boolean {
   return true;
 }
 
+const LOADOUT_LISTS = [GUNS, HEAVIES, SPECIALS] as const;
+
+function isIndex(v: unknown, slot: number): v is number {
+  return Number.isInteger(v) && (v as number) >= 0 && (v as number) < LOADOUT_LISTS[slot].length;
+}
+
+/** One player's loadout: three catalogue indices, or null. */
+function parseLoadout(v: unknown): Loadout | null {
+  if (!isRecord(v)) return null;
+  const { gun, heavy, special } = v;
+  if (!isIndex(gun, 0) || !isIndex(heavy, 1) || !isIndex(special, 2)) return null;
+  return { gun, heavy, special };
+}
+
 /**
  * Accepts only online-1v1 configs (no Warden slot — hosting.spec.md §1). The
- * players' difficulties are optional (both NORMAL when absent: the lobby offers
- * no pick yet); when present, one row 0..2 a player.
+ * players' difficulties and loadouts are optional (NORMAL and the default kit
+ * when absent: the host's own picks reach the joiner in the networked lobby,
+ * and the agreed config in its START); when present, one a player.
  */
 function parseConfig(v: unknown): MatchConfig | null {
   if (!isRecord(v)) return null;
-  const { simVersion, seed, mapId, wardenPlayer, wardenDifficulty, difficulties } = v;
+  const {
+    simVersion,
+    seed,
+    mapId,
+    wardenPlayer,
+    wardenDifficulty,
+    difficulties,
+    loadouts,
+    campaignWeapons,
+  } = v;
   if (
     !Number.isInteger(simVersion) ||
     (simVersion as number) < 0 ||
@@ -128,6 +170,14 @@ function parseConfig(v: unknown): MatchConfig | null {
     if (!difficulties.every(isDifficulty)) return null;
     picked = difficulties.slice();
   }
+  let kits: readonly Loadout[] = DEFAULT_LOADOUTS;
+  if (loadouts !== undefined) {
+    if (!Array.isArray(loadouts) || loadouts.length !== MAX_PLAYERS) return null;
+    const parsed = loadouts.map(parseLoadout);
+    if (parsed.some((l) => l === null)) return null;
+    kits = parsed as Loadout[];
+  }
+  if (campaignWeapons !== undefined && typeof campaignWeapons !== "boolean") return null;
   return {
     simVersion: simVersion as number,
     seed: seed as number,
@@ -135,6 +185,8 @@ function parseConfig(v: unknown): MatchConfig | null {
     wardenPlayer: -1,
     wardenDifficulty: 0,
     difficulties: picked,
+    loadouts: kits,
+    campaignWeapons: campaignWeapons === true,
   };
 }
 
@@ -153,13 +205,25 @@ export function parseLobbyClientMsg(v: unknown): LobbyClientMsg | null {
       const config = parseConfig(v.config);
       if (!config) return null;
       if (v.passwordHash !== undefined && !isPasswordHash(v.passwordHash)) return null;
-      const base = { t: "create", name: v.name, visibility: v.visibility, config } as const;
+      if (v.protocol !== undefined && !Number.isInteger(v.protocol)) return null;
+      const base = {
+        t: "create",
+        name: v.name,
+        visibility: v.visibility,
+        config,
+        ...(v.protocol !== undefined ? { protocol: v.protocol as number } : {}),
+      } as const;
       return v.passwordHash === undefined ? base : { ...base, passwordHash: v.passwordHash };
     }
     case "join": {
       if (!Number.isInteger(v.simVersion)) return null;
       if (v.passwordHash !== undefined && !isPasswordHash(v.passwordHash)) return null;
-      const base = { t: "join", simVersion: v.simVersion as number } as const;
+      if (v.protocol !== undefined && !Number.isInteger(v.protocol)) return null;
+      const base = {
+        t: "join",
+        simVersion: v.simVersion as number,
+        ...(v.protocol !== undefined ? { protocol: v.protocol as number } : {}),
+      } as const;
       return v.passwordHash === undefined ? base : { ...base, passwordHash: v.passwordHash };
     }
     case "signal":
@@ -273,6 +337,10 @@ export class LobbyLogic {
     if (this.state !== "idle" || !this.pending.has(connId)) {
       return this.errTo(connId, "protocol", true);
     }
+    // The peers' lobby runs on PROTOCOL_VERSION's messages once they are
+    // connected; a client from before protocol 4 sends none and is refused
+    // here, before any signaling, rather than stalling in the lobby.
+    if (msg.protocol !== PROTOCOL_VERSION) return this.errTo(connId, "versionMismatch", true);
     this.pending.delete(connId);
     this.state = "open";
     this.hostConn = connId;
@@ -301,7 +369,7 @@ export class LobbyLogic {
     if (this.state === "idle") return this.errTo(connId, "closed", true);
     if (this.state !== "open") return this.errTo(connId, "full", true);
     const config = this.config as MatchConfig;
-    if (msg.simVersion !== config.simVersion) {
+    if (msg.simVersion !== config.simVersion || msg.protocol !== PROTOCOL_VERSION) {
       return this.errTo(connId, "versionMismatch", true);
     }
     // Server-side password gate (hosting.spec.md §3.2): nothing about the host

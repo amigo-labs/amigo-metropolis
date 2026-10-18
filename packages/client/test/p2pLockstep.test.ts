@@ -21,15 +21,21 @@ import {
   createSim,
   createTickInputs,
   DEFAULT_DIFFICULTIES,
+  DEFAULT_LOADOUTS,
   DIFFICULTY_EASY,
   DIFFICULTY_HARD,
   decodeReplay,
   ERR_VERSION_MISMATCH,
+  encodeMessage,
   getMapById,
   hash,
   LA_CANTINA_ID,
+  LOBBY_NAME,
+  LOBBY_P1_READY,
   type MatchConfig,
+  MSG_HELLO,
   type PlayerInput,
+  PROTOCOL_VERSION,
   SIM_VERSION,
   type SimState,
   step,
@@ -46,6 +52,8 @@ const CONFIG: MatchConfig = {
   wardenPlayer: -1,
   wardenDifficulty: 0,
   difficulties: DEFAULT_DIFFICULTIES,
+  loadouts: DEFAULT_LOADOUTS,
+  campaignWeapons: false,
 };
 
 // Same scripted-1v1 approach as netLockstep.test.ts: one function authors BOTH
@@ -61,8 +69,12 @@ function refScript(tick: number, out: TickInputs): void {
   if (tick % 25 < 4) p1.buttons |= BTN_HEAVY;
 }
 
-function referenceHashes(ticks: number, difficulties?: readonly number[]): number[] {
-  const sim = createSim(getMapById(CONFIG.mapId), CONFIG.seed, { difficulties });
+function referenceHashes(
+  ticks: number,
+  difficulties?: readonly number[],
+  loadouts?: MatchConfig["loadouts"],
+): number[] {
+  const sim = createSim(getMapById(CONFIG.mapId), CONFIG.seed, { difficulties, loadouts });
   const inputs = createTickInputs();
   const out: number[] = [];
   for (let t = 0; t < ticks; t++) {
@@ -236,7 +248,12 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
         h1[t] = hash(sim);
       },
     });
-    expect(pa.isStarted).toBe(true); // reliable HELLOs crossed synchronously
+    expect(pa.isLinked).toBe(true); // reliable HELLOs crossed synchronously
+    expect(pb.isLinked).toBe(true);
+    // Protocol 4: linked is the lobby; the host's START is the match.
+    expect(pa.isStarted || pb.isStarted).toBe(false);
+    pa.begin(CONFIG);
+    expect(pa.isStarted).toBe(true);
     expect(pb.isStarted).toBe(true);
 
     drive(pa, pb, TICKS);
@@ -252,28 +269,40 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
     expect(pb.isEnded).toBe(null);
   });
 
-  it("plays the lobby config's difficulties on both peers, and dumps them", () => {
-    const picked: MatchConfig = { ...CONFIG, difficulties: [DIFFICULTY_EASY, DIFFICULTY_HARD] };
+  it("plays the host's agreed difficulties and loadouts on both peers", () => {
+    const picked: MatchConfig = {
+      ...CONFIG,
+      difficulties: [DIFFICULTY_EASY, DIFFICULTY_HARD],
+      loadouts: [
+        { gun: 3, heavy: 2, special: 1 },
+        { gun: 2, heavy: 0, special: 2 },
+      ],
+    };
     const TICKS = 60;
     const [wa, wb] = channelPairs(0xbeef, HOSTILE);
     const h0: number[] = [];
     const h1: number[] = [];
-    const pa = new P2pLockstep(0, picked, wa.control, wa.inputs, {
+    const pa = new P2pLockstep(0, CONFIG, wa.control, wa.inputs, {
       sampleInput: sampler(0),
       onStep: (t, sim) => {
         h0[t] = hash(sim);
       },
     });
-    const pb = new P2pLockstep(1, picked, wb.control, wb.inputs, {
+    const pb = new P2pLockstep(1, CONFIG, wb.control, wb.inputs, {
       sampleInput: sampler(1),
       onStep: (t, sim) => {
         h1[t] = hash(sim);
       },
     });
+    pb.begin(picked); // only the host seals the setup
+    expect(pb.isStarted).toBe(false);
+    pa.begin(picked);
+    expect(pb.matchConfig).toEqual(picked);
     expect(pb.simState.ent.hp[pb.simState.avatarId[0]]).toBe(1500);
     expect(pb.simState.ent.hp[pb.simState.avatarId[1]]).toBe(1000);
+    expect(pb.simState.loadoutGun[0]).toBe(3);
     drive(pa, pb, TICKS);
-    const ref = referenceHashes(TICKS, picked.difficulties);
+    const ref = referenceHashes(TICKS, picked.difficulties, picked.loadouts);
     expect(h0.slice(0, TICKS)).toEqual(ref);
     expect(h1.slice(0, TICKS)).toEqual(ref);
     expect(decodeReplay(pa.dumpReplay()).difficulties).toEqual([DIFFICULTY_EASY, DIFFICULTY_HARD]);
@@ -295,6 +324,7 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
       },
       onDesync,
     });
+    pa.begin(CONFIG);
 
     drive(pa, pb, 33);
     expect(dumps).toHaveLength(0); // tick-30 exchange matched
@@ -323,6 +353,7 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
       },
     });
     const pb = new P2pLockstep(1, CONFIG, wb.control, wb.inputs, { sampleInput: sampler(1) });
+    pa.begin(CONFIG);
     drive(pa, pb, 20);
 
     wa.inputs.drop(); // the unreliable channel dies on peer A
@@ -359,5 +390,42 @@ describe("p2p lockstep (lossy in-memory channels)", () => {
     expect(errB).toBe(ERR_VERSION_MISMATCH);
     expect(pa.tryStep()).toBe(false);
     expect(pb.tryStep()).toBe(false);
+  });
+
+  it("refuses a protocol-3 peer whose HELLO does not decode", () => {
+    const [wa, wb] = channelPairs(0xabc, HOSTILE);
+    let err = -1;
+    const pa = new P2pLockstep(0, CONFIG, wa.control, wa.inputs, {
+      sampleInput: sampler(0),
+      onError: (code) => {
+        err = code;
+      },
+    });
+    const hello = encodeMessage({ type: MSG_HELLO, protocol: PROTOCOL_VERSION, config: CONFIG });
+    const old = hello.slice(0, hello.length - 7); // protocol 3: no loadouts, no rule
+    old[1] = 3;
+    wb.control.send(old);
+    expect(err).toBe(ERR_VERSION_MISMATCH);
+    expect(pa.isLinked).toBe(false);
+    expect(pa.isEnded).toBe("closed");
+  });
+
+  it("carries the lobby both ways while linked, and not once started", () => {
+    const [wa, wb] = channelPairs(0x10b, HOSTILE);
+    const got: unknown[][] = [[], []];
+    const pa = new P2pLockstep(0, CONFIG, wa.control, wa.inputs, {
+      sampleInput: sampler(0),
+      onLobby: (m) => got[0].push(m),
+    });
+    const pb = new P2pLockstep(1, CONFIG, wb.control, wb.inputs, {
+      sampleInput: sampler(1),
+      onLobby: (m) => got[1].push(m),
+    });
+    pa.sendLobby({ id: LOBBY_P1_READY, ready: true });
+    pb.sendLobby({ id: LOBBY_NAME, name: "Sky" });
+    expect(got).toEqual([[{ id: LOBBY_NAME, name: "Sky" }], [{ id: LOBBY_P1_READY, ready: true }]]);
+    pa.begin(CONFIG);
+    pb.sendLobby({ id: LOBBY_NAME, name: "late" });
+    expect(got[0]).toHaveLength(1);
   });
 });

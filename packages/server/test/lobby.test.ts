@@ -13,7 +13,7 @@ import {
   type LobbyResult,
   parseLobbyClientMsg,
 } from "@metropolis/server/lobby";
-import type { MatchConfig } from "@metropolis/sim";
+import { DEFAULT_LOADOUTS, type MatchConfig, PROTOCOL_VERSION } from "@metropolis/sim";
 
 const T0 = 1_000_000;
 const CFG: MatchConfig = {
@@ -23,10 +23,13 @@ const CFG: MatchConfig = {
   wardenPlayer: -1,
   wardenDifficulty: 0,
   difficulties: [1, 1],
+  loadouts: DEFAULT_LOADOUTS,
+  campaignWeapons: false,
 };
+const P = PROTOCOL_VERSION;
 
 function createMsg(visibility: "public" | "private" = "public"): unknown {
-  return { t: "create", name: "Test Arena", visibility, config: CFG };
+  return { t: "create", protocol: P, name: "Test Arena", visibility, config: CFG };
 }
 
 /** Opens a lobby with host "h"; returns the create result. */
@@ -38,7 +41,7 @@ function openLobby(logic: LobbyLogic, visibility: "public" | "private" = "public
 /** Seats joiner "j"; returns the join result. */
 function seatJoiner(logic: LobbyLogic): LobbyResult {
   logic.handleOpen("j", "ABCDE", T0 + 1000);
-  return logic.handleMessage("j", { t: "join", simVersion: 7 }, T0 + 1000);
+  return logic.handleMessage("j", { t: "join", protocol: P, simVersion: 7 }, T0 + 1000);
 }
 
 function msgsTo(out: LobbyOutgoing[], connId: string): LobbyOutgoing[] {
@@ -91,7 +94,7 @@ describe("LobbyLogic lifecycle", () => {
     const logic = new LobbyLogic();
     openLobby(logic);
     logic.handleOpen("j", "ABCDE", T0);
-    const r = logic.handleMessage("j", { t: "join", simVersion: 8 }, T0);
+    const r = logic.handleMessage("j", { t: "join", protocol: P, simVersion: 8 }, T0);
     expect(r.out).toEqual([
       { connId: "j", msg: { t: "error", code: "versionMismatch" }, close: true },
     ]);
@@ -101,19 +104,44 @@ describe("LobbyLogic lifecycle", () => {
     expect(seatJoiner(logic).out.length).toBe(2);
   });
 
+  test("a client on another protocol is refused before any signaling (protocol 4)", () => {
+    // An old host sends no protocol at all: refused, nothing opens.
+    const old = new LobbyLogic();
+    old.handleOpen("h", "ABCDE", T0);
+    const { protocol: _, ...bare } = createMsg() as Record<string, unknown>;
+    expect(old.handleMessage("h", bare, T0).out).toEqual([
+      { connId: "h", msg: { t: "error", code: "versionMismatch" }, close: true },
+    ]);
+    expect(old.status).toBe("idle");
+    // An old joiner at a new host's lobby: refused, the lobby stays open.
+    const logic = new LobbyLogic();
+    openLobby(logic);
+    for (const join of [
+      { t: "join", simVersion: 7 },
+      { t: "join", protocol: P - 1, simVersion: 7 },
+    ]) {
+      logic.handleOpen("j", "ABCDE", T0);
+      expect(logic.handleMessage("j", join, T0).out).toEqual([
+        { connId: "j", msg: { t: "error", code: "versionMismatch" }, close: true },
+      ]);
+      logic.handleDisconnect("j", T0);
+    }
+    expect(logic.status).toBe("open");
+  });
+
   test("a third peer is turned away with 'full'", () => {
     const logic = new LobbyLogic();
     openLobby(logic);
     seatJoiner(logic);
     logic.handleOpen("x", "ABCDE", T0);
-    const r = logic.handleMessage("x", { t: "join", simVersion: 7 }, T0);
+    const r = logic.handleMessage("x", { t: "join", protocol: P, simVersion: 7 }, T0);
     expect(r.out).toEqual([{ connId: "x", msg: { t: "error", code: "full" }, close: true }]);
   });
 
   test("join before create reads as 'closed' (nothing here)", () => {
     const logic = new LobbyLogic();
     logic.handleOpen("j", "ABCDE", T0);
-    const r = logic.handleMessage("j", { t: "join", simVersion: 7 }, T0);
+    const r = logic.handleMessage("j", { t: "join", protocol: P, simVersion: 7 }, T0);
     expect(r.out[0].msg).toEqual({ t: "error", code: "closed" });
   });
 
@@ -256,6 +284,11 @@ describe("parseLobbyClientMsg", () => {
       t: "join",
       simVersion: 7,
     });
+    expect(parseLobbyClientMsg({ t: "join", protocol: P, simVersion: 7 })).toEqual({
+      t: "join",
+      protocol: P,
+      simVersion: 7,
+    });
     expect(parseLobbyClientMsg({ t: "signal", data: { x: 1 } })).toEqual({
       t: "signal",
       data: { x: 1 },
@@ -268,6 +301,7 @@ describe("parseLobbyClientMsg", () => {
     expect(parseLobbyClientMsg("create")).toBeNull();
     expect(parseLobbyClientMsg({ t: "create" })).toBeNull();
     expect(parseLobbyClientMsg({ t: "join", simVersion: "7" })).toBeNull();
+    expect(parseLobbyClientMsg({ t: "join", protocol: "4", simVersion: 7 })).toBeNull();
     expect(parseLobbyClientMsg({ t: "signal" })).toBeNull();
   });
 
@@ -295,6 +329,27 @@ describe("parseLobbyClientMsg", () => {
     }
   });
 
+  test("carries the players' loadouts, the default kit when the config names none", () => {
+    const kit = [
+      { gun: 2, heavy: 1, special: 0 },
+      { gun: 0, heavy: 2, special: 2 },
+    ];
+    const picked = { ...goodCreate, config: { ...CFG, loadouts: kit } };
+    expect(parseLobbyClientMsg(picked)).toMatchObject({ config: { loadouts: kit } });
+    const { loadouts: _, ...bare } = CFG;
+    expect(parseLobbyClientMsg({ ...goodCreate, config: bare })).toMatchObject({
+      config: { loadouts: DEFAULT_LOADOUTS },
+    });
+    for (const bad of [
+      [kit[0]],
+      [kit[0], { gun: 9, heavy: 0, special: 0 }],
+      [kit[0], { gun: 0, heavy: 0 }],
+      "kit",
+    ]) {
+      expect(parseLobbyClientMsg({ ...goodCreate, config: { ...CFG, loadouts: bad } })).toBeNull();
+    }
+  });
+
   test("rejects an over-long lobby name", () => {
     const longName = { ...goodCreate, name: "x".repeat(41) };
     expect(parseLobbyClientMsg(longName)).toBeNull();
@@ -309,7 +364,14 @@ describe("LobbyLogic passwords (server-side gate)", () => {
     logic.handleOpen("h", "ABCDE", T0);
     logic.handleMessage(
       "h",
-      { t: "create", name: "Locked", visibility: "public", config: CFG, passwordHash: HASH_A },
+      {
+        t: "create",
+        protocol: P,
+        name: "Locked",
+        visibility: "public",
+        config: CFG,
+        passwordHash: HASH_A,
+      },
       T0,
     );
   }
@@ -319,7 +381,14 @@ describe("LobbyLogic passwords (server-side gate)", () => {
     logic.handleOpen("h", "ABCDE", T0);
     const r = logic.handleMessage(
       "h",
-      { t: "create", name: "Locked", visibility: "public", config: CFG, passwordHash: HASH_A },
+      {
+        t: "create",
+        protocol: P,
+        name: "Locked",
+        visibility: "public",
+        config: CFG,
+        passwordHash: HASH_A,
+      },
       T0,
     );
     expect(r.effects).toContainEqual({
@@ -334,12 +403,20 @@ describe("LobbyLogic passwords (server-side gate)", () => {
     const logic = new LobbyLogic();
     openLocked(logic);
     logic.handleOpen("j", "ABCDE", T0);
-    const missing = logic.handleMessage("j", { t: "join", simVersion: 7 }, T0);
+    const missing = logic.handleMessage("j", { t: "join", protocol: P, simVersion: 7 }, T0);
     expect(missing.out).toEqual([{ connId: "j", msg: { t: "error", code: "badPassword" } }]);
-    const wrong = logic.handleMessage("j", { t: "join", simVersion: 7, passwordHash: HASH_B }, T0);
+    const wrong = logic.handleMessage(
+      "j",
+      { t: "join", protocol: P, simVersion: 7, passwordHash: HASH_B },
+      T0,
+    );
     expect(wrong.out).toEqual([{ connId: "j", msg: { t: "error", code: "badPassword" } }]);
     expect(logic.status).toBe("open"); // nothing about the host was released
-    const right = logic.handleMessage("j", { t: "join", simVersion: 7, passwordHash: HASH_A }, T0);
+    const right = logic.handleMessage(
+      "j",
+      { t: "join", protocol: P, simVersion: 7, passwordHash: HASH_A },
+      T0,
+    );
     expect(right.out.map((o) => o.msg.t).sort()).toEqual(["joined", "peerJoined"]);
     expect(logic.status).toBe("signaling");
   });
@@ -348,7 +425,11 @@ describe("LobbyLogic passwords (server-side gate)", () => {
     const logic = new LobbyLogic();
     openLobby(logic);
     logic.handleOpen("j", "ABCDE", T0);
-    const r = logic.handleMessage("j", { t: "join", simVersion: 7, passwordHash: HASH_B }, T0);
+    const r = logic.handleMessage(
+      "j",
+      { t: "join", protocol: P, simVersion: 7, passwordHash: HASH_B },
+      T0,
+    );
     expect(r.out.map((o) => o.msg.t).sort()).toEqual(["joined", "peerJoined"]);
   });
 
@@ -356,7 +437,11 @@ describe("LobbyLogic passwords (server-side gate)", () => {
     const logic = new LobbyLogic();
     openLocked(logic);
     logic.handleOpen("j", "ABCDE", T0);
-    const r = logic.handleMessage("j", { t: "join", simVersion: 7, passwordHash: "HUNTER2" }, T0);
+    const r = logic.handleMessage(
+      "j",
+      { t: "join", protocol: P, simVersion: 7, passwordHash: "HUNTER2" },
+      T0,
+    );
     expect(r.out).toEqual([{ connId: "j", msg: { t: "error", code: "protocol" }, close: true }]);
     expect(
       parseLobbyClientMsg({ t: "join", simVersion: 7, passwordHash: "A".repeat(64) }),

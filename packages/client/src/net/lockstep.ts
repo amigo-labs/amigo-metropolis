@@ -11,6 +11,12 @@
 // exchange, replay capture, stall/desync signalling). The host frame loop drives
 // it by calling tryStep() repeatedly — one confirmed tick per call — which also
 // gives reconnect fast-forward for free (call it until it stops returning true).
+//
+// Since protocol 4 a room opens on the networked lobby: WELCOME seats this
+// client, the relay forwards the original's lobby messages between the slots
+// (sendLobby / onLobby), and the host's begin() sends the agreed config, which
+// the relay seals and broadcasts as START. The sim is built from START's
+// config on both clients.
 
 import {
   createReplayData,
@@ -21,13 +27,16 @@ import {
   encodeReplay,
   getMapById,
   hash,
+  type LobbyMessage,
   type MatchConfig,
+  MSG_BEGIN,
   MSG_DESYNC,
   MSG_ERROR,
   MSG_FRAME,
   MSG_HASH,
   MSG_HELLO,
   MSG_INPUT,
+  MSG_LOBBY,
   MSG_PEER,
   MSG_REJOIN,
   MSG_START,
@@ -52,10 +61,12 @@ export interface NetCallbacks {
   sampleInput(tick: number): PlayerInput;
   /** After a confirmed tick is applied to the sim (drive render/HUD from here). */
   onStep?(tick: number, sim: SimState): void;
-  /** Slot assigned + authoritative config received; the sim now exists. */
-  onWelcome?(slot: number, sim: SimState, config: MatchConfig): void;
-  /** Both slots filled — the match is live. */
-  onStart?(): void;
+  /** Slot assigned + the host's config received (the lobby, protocol 4). */
+  onWelcome?(slot: number, config: MatchConfig): void;
+  /** One of the peer's lobby messages, relayed (protocol 4). */
+  onLobby?(msg: LobbyMessage): void;
+  /** START with the agreed config: the sim now exists and the match is live. */
+  onStart?(sim: SimState, config: MatchConfig): void;
   /** A peer connected (true) or dropped (false) — drives the stall overlay. */
   onPeer?(slot: number, present: boolean): void;
   /** Hash mismatch at `tick`; `replay` is this client's dumped .mrep bytes. */
@@ -122,6 +133,31 @@ export class NetLockstep {
   }
   get isEnded(): NetEnded {
     return this.ended;
+  }
+  /** The live sim, from START on (null before). */
+  get simState(): SimState | null {
+    return this.sim;
+  }
+  /** The agreed config once started; the host's from WELCOME before. */
+  get matchConfig(): MatchConfig | null {
+    return this.config;
+  }
+
+  /** One lobby message to the peer, through the relay, while the lobby is up. */
+  sendLobby(msg: LobbyMessage): void {
+    if (this.slotIdx < 0 || this.started || this.ended) return;
+    this.send({ type: MSG_LOBBY, lobby: msg });
+  }
+
+  /**
+   * The host's half of the start (slot 0): both players are ready, so the
+   * agreed config goes to the relay, which answers both with START carrying
+   * it. This side starts on that START too, not here, so both clients build
+   * from the bytes the relay sealed.
+   */
+  begin(config: MatchConfig): void {
+    if (this.slotIdx !== 0 || this.started || this.ended) return;
+    this.send({ type: MSG_BEGIN, config });
   }
 
   /** Opens the session: HELLO for a fresh join, REJOIN to reclaim a slot. */
@@ -197,13 +233,19 @@ export class NetLockstep {
     const msg = decodeMessage(bytes);
     switch (msg.type) {
       case MSG_WELCOME:
-        if (!this.sim) this.buildSim(msg.slot, msg.config);
+        // A rejoin built its sim in start(); a fresh join waits for START.
         this.slotIdx = msg.slot;
-        this.cb.onWelcome?.(msg.slot, this.sim as SimState, msg.config);
+        if (!this.sim) this.config = msg.config;
+        this.cb.onWelcome?.(msg.slot, msg.config);
+        break;
+      case MSG_LOBBY:
+        if (!this.started && !this.ended) this.cb.onLobby?.(msg.lobby);
         break;
       case MSG_START:
+        if (this.started) break;
+        if (!this.sim) this.buildSim(this.slotIdx, msg.config);
         this.started = true;
-        this.cb.onStart?.();
+        this.cb.onStart?.(this.sim as SimState, msg.config);
         break;
       case MSG_FRAME:
         this.confirmed[msg.tick] = msg.inputs;
@@ -233,10 +275,15 @@ export class NetLockstep {
         ? { wardenPlayer: config.wardenPlayer, wardenDifficulty: config.wardenDifficulty }
         : {}),
       difficulties: config.difficulties,
+      loadouts: config.loadouts,
     });
   }
 
-  /** Builds an .mrep from the confirmed frames simulated so far (§6). */
+  /**
+   * Builds an .mrep from the confirmed frames simulated so far (§6). The
+   * replay header carries no loadouts yet (format 4): it replays the default
+   * kit.
+   */
   dumpReplay(): Uint8Array {
     const config = this.config;
     const tickCount = this.sim ? this.sim.tick : 0;

@@ -27,6 +27,7 @@ import {
   createSim,
   createTickInputs,
   DEFAULT_DIFFICULTIES,
+  DEFAULT_LOADOUTS,
   EV_CAPTURE,
   EV_DEATH,
   EV_EXPLOSION,
@@ -2518,6 +2519,8 @@ function netConfig(matchSeed: number): MatchConfig {
     wardenDifficulty: 0,
     // The online lobby offers no difficulty pick yet: both players NORMAL.
     difficulties: DEFAULT_DIFFICULTIES,
+    loadouts: DEFAULT_LOADOUTS,
+    campaignWeapons: false,
   };
 }
 
@@ -2530,6 +2533,7 @@ function netConfig(matchSeed: number): MatchConfig {
  */
 function connectOnline(code: string): void {
   const config = netConfig(seedFromCode(code));
+  let welcomedSlot = -1;
 
   net = new NetLockstep(new WsTransport(relayUrl(code)), {
     sampleInput: makeNetSampler(),
@@ -2538,23 +2542,19 @@ function connectOnline(code: string): void {
       pumpCosmetics(stepped.events);
       rotateSnapshot();
     },
-    onWelcome: (slotIdx, welcomed, welcomedConfig) => {
-      if (views.length === 0) {
-        fadeCover(() => {
-          rebuildArena(welcomedConfig.mapId); // host map wins; joiner ?map is moot
-          resetForMatch(welcomed);
-          startMatch([{ slot: slotIdx, input: localInput }]);
-        });
-      } else {
-        rebuildArena(welcomedConfig.mapId);
-        resetForMatch(welcomed);
-      }
+    onWelcome: (slotIdx) => {
+      welcomedSlot = slotIdx;
     },
-    onStart: () => {
+    onStart: (started, startedConfig) => {
       netStatus = null;
       refreshOverlay();
+      enterNetMatch(startedConfig.mapId, started, welcomedSlot);
     },
     onPeer: (_slot, present) => {
+      // Protocol 4: a full room is a lobby; the host seals the setup.
+      if (present && welcomedSlot === 0 && net && !net.isStarted) {
+        (net as NetLockstep).begin(config);
+      }
       netStatus = present ? null : "Opponent disconnected — waiting to reconnect…";
       refreshOverlay();
     },
@@ -2622,9 +2622,14 @@ function connectP2pMode(code: string): void {
             pumpCosmetics(stepped.events);
             rotateSnapshot();
           },
-          onStart: () => {
+          onLinked: () => {
+            // Protocol 4: the host seals the setup once linked.
+            if (session.slot === 0) p2pNet.begin(session.config);
+          },
+          onStart: (started, startedConfig) => {
             netStatus = null;
             refreshOverlay();
+            enterNetMatch(startedConfig.mapId, started, session.slot);
           },
           onDesync: (tick, replay) => {
             netStatus = `Desync detected at tick ${tick} — match ended. Replay downloaded.`;
@@ -2643,23 +2648,28 @@ function connectP2pMode(code: string): void {
         },
       );
       net = p2pNet;
-      // Same swap the relay path does on WELCOME: fade the (demo) world into
-      // the real match sim the lockstep just built — on the host's arena.
-      if (views.length === 0) {
-        fadeCover(() => {
-          rebuildArena(session.config.mapId);
-          resetForMatch(p2pNet.simState);
-          startMatch([{ slot: session.slot, input: localInput }]);
-        });
-      } else {
-        rebuildArena(session.config.mapId);
-        resetForMatch(p2pNet.simState);
-      }
     })
     .catch((err: unknown) => {
       netStatus = `Lobby ${code}: ${err instanceof Error ? err.message : "connection failed"}`;
       refreshOverlay();
     });
+}
+
+/**
+ * The agreed config's START: fade the (demo) world into the match sim the
+ * lockstep just built, on the host's arena.
+ */
+function enterNetMatch(mapId: string, matchSim: SimState, slot: number): void {
+  if (views.length === 0) {
+    fadeCover(() => {
+      rebuildArena(mapId);
+      resetForMatch(matchSim);
+      startMatch([{ slot, input: localInput }]);
+    });
+  } else {
+    rebuildArena(mapId);
+    resetForMatch(matchSim);
+  }
 }
 
 let menuHandle: MenuHandle | undefined;

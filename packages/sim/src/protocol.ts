@@ -12,11 +12,19 @@
 // The MatchConfig header (seed / warden / difficulties / mapId) mirrors the
 // replay header body (replay.ts) field-for-field: an online match and its
 // recorded replay carry the exact same match parameters, so the two definitions
-// stay in lock-step.
+// stay in lock-step. The loadouts follow the mapId (protocol 4); the replay
+// header does not carry them yet (format 4), so a desync dump of an online
+// match replays the default kit.
+//
+// Since protocol 4 a match starts in the original's networked lobby: the two
+// peers exchange their names, picks and ready bits as the original's front end
+// does (MSG_LOBBY, its message ids), and the host seals the agreed setup once
+// both are ready (MSG_BEGIN through the relay, which answers MSG_START with it).
 
 import { MAX_PLAYERS } from "./balance";
 import type { PlayerInput } from "./inputs";
 import { isDifficulty } from "./replay";
+import { DEFAULT_LOADOUT, GUNS, HEAVIES, type Loadout, SPECIALS } from "./weapons";
 
 /**
  * Wire framing version, independent of SIM_VERSION. Bumped only when the byte
@@ -24,7 +32,7 @@ import { isDifficulty } from "./replay";
  * rejects clients whose SIM_VERSION differs (goldens would already be broken),
  * and this guards the framing itself.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 // --- Message type tags -------------------------------------------------------
 // Client → server (1–9).
@@ -32,13 +40,17 @@ export const MSG_HELLO = 1; // fresh join: carries the match config
 export const MSG_REJOIN = 2; // reconnect: reclaim a slot, ask for history
 export const MSG_INPUT = 3; // this client's input for one (future) tick
 export const MSG_HASH = 4; // this client's state hash at one tick
+export const MSG_BEGIN = 5; // the host: both ready — the agreed config (protocol 4)
 // Server → client (10+).
-export const MSG_WELCOME = 10; // slot assignment + authoritative config
-export const MSG_START = 11; // both slots filled — begin stepping
+export const MSG_WELCOME = 10; // slot assignment + the host's config
+export const MSG_START = 11; // the agreed config — begin stepping (protocol 4: carries it)
 export const MSG_FRAME = 12; // confirmed inputs for one tick (all players)
 export const MSG_PEER = 13; // a peer connected / disconnected
 export const MSG_DESYNC = 14; // hash mismatch — end match, dump replays
 export const MSG_ERROR = 15; // join rejected
+// Peer → peer (20+): the relay forwards it to the other slot unread; P2P sends
+// it on the control channel.
+export const MSG_LOBBY = 20; // one of the original's lobby messages (protocol 4)
 
 // --- Error codes (MSG_ERROR body) --------------------------------------------
 export const ERR_VERSION_MISMATCH = 1; // simVersion (or protocol) differs
@@ -63,7 +75,80 @@ export interface MatchConfig {
    * DEFAULT_DIFFICULTIES).
    */
   readonly difficulties: readonly number[];
+  /**
+   * Each player's loadout (indices into GUNS / HEAVIES / SPECIALS),
+   * MAX_PLAYERS entries, slot-indexed (since protocol 4): the picks the
+   * networked lobby agreed.
+   */
+  readonly loadouts: readonly Loadout[];
+  /**
+   * The owner's "Kampagnenwaffen" game rule (since protocol 4; a Metropolis
+   * decision, not the original's): the loadout columns offer each slot's fifth
+   * weapon (Riot Shield, K-9 Drone, Grenade Launcher), as the original's do
+   * once a Crime War script sets their option bytes. The host sets it; off is
+   * the original's Precinct Assault. Maps onto SimOptions.campaignWeapons.
+   */
+  readonly campaignWeapons: boolean;
 }
+
+/** Both players on the default kit (the front end's NEW GAME columns). */
+export const DEFAULT_LOADOUTS: readonly Loadout[] = new Array(MAX_PLAYERS).fill(DEFAULT_LOADOUT);
+
+// --- The networked lobby's messages (protocol 4) -----------------------------
+// The original's front end runs its two-player lobby as a DirectPlay message
+// exchange (RE `src/game/frontend/input.c`, 0x00401990, ids in
+// `fcop/frontend_input.h`). MSG_LOBBY carries the ones Metropolis has a use
+// for under their original ids: the host's map, each side's name, its
+// HARD / NORMAL / EASY "selection", its loadout and its ready bit. "P1" is the
+// host (slot 0), "P2" the joiner (slot 1). Not carried: the Crime War pick
+// (setup choice 1), the host's Split Screen byte (0x16) and the game mode
+// (0x17) -- Metropolis has no Crime War and no split screen; the original's
+// hello / ack / refusal (0x11..0x13) and "peer gone" (0x18) are the
+// transports' own HELLO / WELCOME / ERROR and PEER / close.
+
+/** Host -> joiner: setup byte `index` (0 the Precinct Assault map row) = value. */
+export const LOBBY_SETUP_CHOICE = 0x09;
+/** Either way: the sender's player name. */
+export const LOBBY_NAME = 0x0a;
+/** Host -> joiner / joiner -> host: the sender's HARD / NORMAL / EASY entry. */
+export const LOBBY_P1_SELECTION = 0x0b;
+export const LOBBY_P2_SELECTION = 0x0c;
+/** The sender's three loadout codes, `slot << 4 | entry` (0x00, 0x10, 0x20 the defaults). */
+export const LOBBY_P1_LOADOUT = 0x0d;
+export const LOBBY_P2_LOADOUT = 0x0e;
+/** The sender's ready bit: lobby flag bit 0 (host) or bit 1 (joiner). */
+export const LOBBY_P1_READY = 0x10;
+export const LOBBY_P2_READY = 0x15;
+
+/**
+ * Host -> joiner: the "Kampagnenwaffen" rule (0 / 1). Not the original's: the
+ * owner's game rule (MatchConfig.campaignWeapons), given an id past the
+ * original's 0x09..0x18 so it can never be taken for one of them.
+ */
+export const LOBBY_CAMPAIGN_WEAPONS = 0x20;
+
+/**
+ * A name's bytes on the wire: the original's 0x20-byte message less its id
+ * word. Its dialogs cap the edit at 15 characters (EM_LIMITTEXT 0xf); the
+ * characters are the original's single-byte ANSI, so a code point above 0xff
+ * does not go out.
+ */
+export const LOBBY_NAME_BYTES = 28;
+
+export type LobbyMessage =
+  | { readonly id: typeof LOBBY_SETUP_CHOICE; readonly index: number; readonly value: number }
+  | { readonly id: typeof LOBBY_NAME; readonly name: string }
+  | {
+      readonly id: typeof LOBBY_P1_SELECTION | typeof LOBBY_P2_SELECTION;
+      readonly selection: number;
+    }
+  | {
+      readonly id: typeof LOBBY_P1_LOADOUT | typeof LOBBY_P2_LOADOUT;
+      /** Three codes, slot order: `slot << 4 | entry`, entry 0..4. */
+      readonly codes: readonly number[];
+    }
+  | { readonly id: typeof LOBBY_P1_READY | typeof LOBBY_P2_READY; readonly ready: boolean }
+  | { readonly id: typeof LOBBY_CAMPAIGN_WEAPONS; readonly on: boolean };
 
 /** One player's input: the button word, u16 (inputs.ts). 5 bytes of axes before v2. */
 export const PLAYER_INPUT_BYTES = 2;
@@ -80,8 +165,14 @@ export type NetMessage =
     }
   | { readonly type: typeof MSG_INPUT; readonly tick: number; readonly input: PlayerInput }
   | { readonly type: typeof MSG_HASH; readonly tick: number; readonly hash: number }
+  | { readonly type: typeof MSG_BEGIN; readonly config: MatchConfig }
   | { readonly type: typeof MSG_WELCOME; readonly slot: number; readonly config: MatchConfig }
-  | { readonly type: typeof MSG_START; readonly startTick: number }
+  | {
+      readonly type: typeof MSG_START;
+      readonly startTick: number;
+      /** The agreed setup both peers build their sim from. */
+      readonly config: MatchConfig;
+    }
   | {
       readonly type: typeof MSG_FRAME;
       readonly tick: number;
@@ -90,7 +181,8 @@ export type NetMessage =
     }
   | { readonly type: typeof MSG_PEER; readonly slot: number; readonly present: boolean }
   | { readonly type: typeof MSG_DESYNC; readonly tick: number }
-  | { readonly type: typeof MSG_ERROR; readonly code: number };
+  | { readonly type: typeof MSG_ERROR; readonly code: number }
+  | { readonly type: typeof MSG_LOBBY; readonly lobby: LobbyMessage };
 
 // --- Cursor helpers (little-endian) ------------------------------------------
 
@@ -118,6 +210,15 @@ class Writer {
     for (let i = 0; i < s.length; i++) {
       const c = s.charCodeAt(i);
       if (c > 0x7f) throw new Error("string must be ASCII");
+      this.u8(c);
+    }
+  }
+  /** A length byte, then one byte a character (code points above 0xff refused). */
+  latin1(s: string): void {
+    this.u8(s.length);
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c > 0xff) throw new Error("name must be single-byte characters");
       this.u8(c);
     }
   }
@@ -167,6 +268,13 @@ class Reader {
     this.o += len;
     return s;
   }
+  latin1(len: number): string {
+    this.need(len);
+    let s = "";
+    for (let i = 0; i < len; i++) s += String.fromCharCode(this.buf[this.o + i]);
+    this.o += len;
+    return s;
+  }
   /** Rejects a buffer with bytes left over after the message body (§ untrusted). */
   expectEnd(): void {
     if (this.o !== this.view.byteLength) {
@@ -175,14 +283,22 @@ class Reader {
   }
 }
 
-// --- Config header (shared by HELLO / WELCOME) -------------------------------
+// --- Config header (shared by HELLO / WELCOME / BEGIN / START) ----------------
 // Bytes: simVersion u16, seed u32, wardenPlayer u8 (0xff = -1),
-// wardenDifficulty u8, difficulty u8 × MAX_PLAYERS, mapIdLen u8, mapId ASCII.
-// Matches replay.ts offsets 6→.
+// wardenDifficulty u8, difficulty u8 × MAX_PLAYERS, mapIdLen u8, mapId ASCII
+// (replay.ts offsets 6→), then since protocol 4 each player's loadout as
+// gun / heavy / special u8, MAX_PLAYERS × 3, and the campaign-weapons rule u8
+// (0 / 1).
+
+const LOADOUT_LISTS = [GUNS, HEAVIES, SPECIALS] as const;
+
+function loadoutIndexOk(slot: number, v: unknown): boolean {
+  return Number.isInteger(v) && (v as number) >= 0 && (v as number) < LOADOUT_LISTS[slot].length;
+}
 
 function configBytes(config: MatchConfig): number {
   if (config.mapId.length > 255) throw new Error("mapId too long");
-  return 2 + 4 + 1 + 1 + MAX_PLAYERS + 1 + config.mapId.length;
+  return 2 + 4 + 1 + 1 + MAX_PLAYERS + 1 + config.mapId.length + 3 * MAX_PLAYERS + 1;
 }
 
 function writeConfig(w: Writer, config: MatchConfig): void {
@@ -195,6 +311,15 @@ function writeConfig(w: Writer, config: MatchConfig): void {
       throw new Error(`bad difficulty ${config.difficulties[p]}`);
     }
   }
+  if (config.loadouts.length !== MAX_PLAYERS) {
+    throw new Error(`loadouts needs ${MAX_PLAYERS} entries`);
+  }
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const l = config.loadouts[p];
+    if (!loadoutIndexOk(0, l.gun) || !loadoutIndexOk(1, l.heavy) || !loadoutIndexOk(2, l.special)) {
+      throw new Error(`bad loadout ${l.gun}/${l.heavy}/${l.special}`);
+    }
+  }
   w.u16(config.simVersion);
   w.u32(config.seed);
   w.u8(config.wardenPlayer >= 0 ? config.wardenPlayer : 0xff);
@@ -202,6 +327,13 @@ function writeConfig(w: Writer, config: MatchConfig): void {
   for (let p = 0; p < MAX_PLAYERS; p++) w.u8(config.difficulties[p]);
   w.u8(config.mapId.length);
   w.ascii(config.mapId);
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const l = config.loadouts[p];
+    w.u8(l.gun);
+    w.u8(l.heavy);
+    w.u8(l.special);
+  }
+  w.u8(config.campaignWeapons ? 1 : 0);
 }
 
 function readConfig(r: Reader): MatchConfig {
@@ -214,6 +346,18 @@ function readConfig(r: Reader): MatchConfig {
   for (let p = 0; p < MAX_PLAYERS; p++) difficulties.push(r.u8());
   const mapIdLen = r.u8();
   const mapId = r.ascii(mapIdLen);
+  const loadouts: Loadout[] = [];
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const gun = r.u8();
+    const heavy = r.u8();
+    const special = r.u8();
+    if (!loadoutIndexOk(0, gun) || !loadoutIndexOk(1, heavy) || !loadoutIndexOk(2, special)) {
+      throw new Error(`bad loadout ${gun}/${heavy}/${special}`);
+    }
+    loadouts.push({ gun, heavy, special });
+  }
+  const rule = r.u8();
+  if (rule > 1) throw new Error(`bad campaignWeapons ${rule}`);
   if (wardenPlayer >= MAX_PLAYERS) throw new Error(`bad wardenPlayer ${wardenPlayer}`);
   if (wardenPlayer >= 0 && (wardenDifficulty < 1 || wardenDifficulty > 10)) {
     throw new Error(`bad wardenDifficulty ${wardenDifficulty}`);
@@ -224,7 +368,121 @@ function readConfig(r: Reader): MatchConfig {
   for (let p = 0; p < MAX_PLAYERS; p++) {
     if (!isDifficulty(difficulties[p])) throw new Error(`bad difficulty ${difficulties[p]}`);
   }
-  return { simVersion, seed, mapId, wardenPlayer, wardenDifficulty, difficulties };
+  return {
+    simVersion,
+    seed,
+    mapId,
+    wardenPlayer,
+    wardenDifficulty,
+    difficulties,
+    loadouts,
+    campaignWeapons: rule === 1,
+  };
+}
+
+// --- The lobby body (MSG_LOBBY) ----------------------------------------------
+// [u8 id][payload]: SETUP_CHOICE index u8, value u8 · NAME len u8, len bytes
+// (single-byte characters) · SELECTION u8 · LOADOUT three u8 codes · READY u8.
+
+/** Whether a code is entry 0..4 of `slot`, as the original's ids are. */
+function loadoutCodeOk(slot: number, code: unknown): boolean {
+  return Number.isInteger(code) && (code as number) >> 4 === slot && ((code as number) & 15) < 5;
+}
+
+function lobbyBytes(m: LobbyMessage): number {
+  switch (m.id) {
+    case LOBBY_SETUP_CHOICE:
+      return 1 + 2;
+    case LOBBY_NAME:
+      return 1 + 1 + m.name.length;
+    case LOBBY_P1_SELECTION:
+    case LOBBY_P2_SELECTION:
+    case LOBBY_P1_READY:
+    case LOBBY_P2_READY:
+    case LOBBY_CAMPAIGN_WEAPONS:
+      return 1 + 1;
+    case LOBBY_P1_LOADOUT:
+    case LOBBY_P2_LOADOUT:
+      return 1 + 3;
+  }
+}
+
+function writeLobby(w: Writer, m: LobbyMessage): void {
+  w.u8(m.id);
+  switch (m.id) {
+    case LOBBY_SETUP_CHOICE:
+      if (m.index !== 0 && m.index !== 1) throw new Error(`bad setup index ${m.index}`);
+      w.u8(m.index);
+      w.u8(m.value);
+      return;
+    case LOBBY_NAME:
+      if (m.name.length > LOBBY_NAME_BYTES) throw new Error("name too long");
+      w.latin1(m.name);
+      return;
+    case LOBBY_P1_SELECTION:
+    case LOBBY_P2_SELECTION:
+      if (!isDifficulty(m.selection)) throw new Error(`bad selection ${m.selection}`);
+      w.u8(m.selection);
+      return;
+    case LOBBY_P1_LOADOUT:
+    case LOBBY_P2_LOADOUT:
+      for (let s = 0; s < 3; s++) {
+        if (!loadoutCodeOk(s, m.codes[s])) throw new Error(`bad loadout code ${m.codes[s]}`);
+        w.u8(m.codes[s]);
+      }
+      return;
+    case LOBBY_P1_READY:
+    case LOBBY_P2_READY:
+      w.u8(m.ready ? 1 : 0);
+      return;
+    case LOBBY_CAMPAIGN_WEAPONS:
+      w.u8(m.on ? 1 : 0);
+      return;
+  }
+}
+
+function readLobby(r: Reader): LobbyMessage {
+  const id = r.u8();
+  switch (id) {
+    case LOBBY_SETUP_CHOICE: {
+      const index = r.u8();
+      const value = r.u8();
+      if (index > 1) throw new Error(`bad setup index ${index}`);
+      return { id, index, value };
+    }
+    case LOBBY_NAME: {
+      const len = r.u8();
+      if (len > LOBBY_NAME_BYTES) throw new Error("name too long");
+      return { id, name: r.latin1(len) };
+    }
+    case LOBBY_P1_SELECTION:
+    case LOBBY_P2_SELECTION: {
+      const selection = r.u8();
+      if (!isDifficulty(selection)) throw new Error(`bad selection ${selection}`);
+      return { id, selection };
+    }
+    case LOBBY_P1_LOADOUT:
+    case LOBBY_P2_LOADOUT: {
+      const codes = [r.u8(), r.u8(), r.u8()];
+      for (let s = 0; s < 3; s++) {
+        if (!loadoutCodeOk(s, codes[s])) throw new Error(`bad loadout code ${codes[s]}`);
+      }
+      return { id, codes };
+    }
+    case LOBBY_P1_READY:
+    case LOBBY_P2_READY: {
+      const bit = r.u8();
+      if (bit > 1) throw new Error(`bad ready bit ${bit}`);
+      return { id, ready: bit === 1 };
+    }
+    case LOBBY_CAMPAIGN_WEAPONS: {
+      const bit = r.u8();
+      if (bit > 1) throw new Error(`bad campaignWeapons ${bit}`);
+      return { id, on: bit === 1 };
+    }
+    default:
+      throw new Error(`unknown lobby message 0x${id.toString(16)}`);
+  }
 }
 
 function writeInput(w: Writer, input: PlayerInput): void {
@@ -240,6 +498,17 @@ function readInput(r: Reader): PlayerInput {
 /** Reads just the type tag without decoding the body (0 for an empty buffer). */
 export function messageType(bytes: Uint8Array): number {
   return bytes.length > 0 ? bytes[0] : 0;
+}
+
+/**
+ * The protocol byte of a HELLO or REJOIN, read without decoding the body, or
+ * null for any other frame. A peer on another protocol frames its config
+ * differently, so its HELLO may not decode at all; this is what lets the relay
+ * (and a P2P peer) refuse it as a version mismatch rather than as noise.
+ */
+export function peekProtocol(bytes: Uint8Array): number | null {
+  if (bytes.length < 2) return null;
+  return bytes[0] === MSG_HELLO || bytes[0] === MSG_REJOIN ? bytes[1] : null;
 }
 
 export function encodeMessage(msg: NetMessage): Uint8Array {
@@ -274,6 +543,12 @@ export function encodeMessage(msg: NetMessage): Uint8Array {
       w.u32(msg.hash);
       return w.bytes();
     }
+    case MSG_BEGIN: {
+      const w = new Writer(1 + configBytes(msg.config));
+      w.u8(MSG_BEGIN);
+      writeConfig(w, msg.config);
+      return w.bytes();
+    }
     case MSG_WELCOME: {
       const w = new Writer(1 + 1 + configBytes(msg.config));
       w.u8(MSG_WELCOME);
@@ -282,9 +557,10 @@ export function encodeMessage(msg: NetMessage): Uint8Array {
       return w.bytes();
     }
     case MSG_START: {
-      const w = new Writer(1 + 4);
+      const w = new Writer(1 + 4 + configBytes(msg.config));
       w.u8(MSG_START);
       w.u32(msg.startTick);
+      writeConfig(w, msg.config);
       return w.bytes();
     }
     case MSG_FRAME: {
@@ -312,6 +588,12 @@ export function encodeMessage(msg: NetMessage): Uint8Array {
       const w = new Writer(1 + 1);
       w.u8(MSG_ERROR);
       w.u8(msg.code);
+      return w.bytes();
+    }
+    case MSG_LOBBY: {
+      const w = new Writer(1 + lobbyBytes(msg.lobby));
+      w.u8(MSG_LOBBY);
+      writeLobby(w, msg.lobby);
       return w.bytes();
     }
     default: {
@@ -346,10 +628,12 @@ function decodeBody(r: Reader, type: number): NetMessage {
       return { type: MSG_INPUT, tick: r.u32(), input: readInput(r) };
     case MSG_HASH:
       return { type: MSG_HASH, tick: r.u32(), hash: r.u32() };
+    case MSG_BEGIN:
+      return { type: MSG_BEGIN, config: readConfig(r) };
     case MSG_WELCOME:
       return { type: MSG_WELCOME, slot: r.u8(), config: readConfig(r) };
     case MSG_START:
-      return { type: MSG_START, startTick: r.u32() };
+      return { type: MSG_START, startTick: r.u32(), config: readConfig(r) };
     case MSG_FRAME: {
       const tick = r.u32();
       const inputs: PlayerInput[] = [];
@@ -362,6 +646,8 @@ function decodeBody(r: Reader, type: number): NetMessage {
       return { type: MSG_DESYNC, tick: r.u32() };
     case MSG_ERROR:
       return { type: MSG_ERROR, code: r.u8() };
+    case MSG_LOBBY:
+      return { type: MSG_LOBBY, lobby: readLobby(r) };
     default:
       throw new Error(`unknown message tag ${type}`);
   }

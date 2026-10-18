@@ -7,7 +7,7 @@
 // The lobby socket closes itself once the match starts (the DO's job is done);
 // from then on the match runs peer-to-peer and this module is out of the loop.
 
-import type { MatchConfig } from "@metropolis/sim";
+import { type MatchConfig, PROTOCOL_VERSION } from "@metropolis/sim";
 import { connectP2p, type P2pChannels } from "./rtc";
 
 export interface P2pIceConfig {
@@ -167,6 +167,7 @@ export function openP2pSession(opts: P2pSessionOptions): Promise<P2pSession> {
         const setup = opts.hostSetup ?? { name: "Metropolis lobby", visibility: "private" };
         send({
           t: "create",
+          protocol: PROTOCOL_VERSION,
           name: setup.name,
           visibility: setup.visibility,
           config: opts.config,
@@ -175,6 +176,7 @@ export function openP2pSession(opts: P2pSessionOptions): Promise<P2pSession> {
       } else {
         send({
           t: "join",
+          protocol: PROTOCOL_VERSION,
           simVersion: opts.config.simVersion,
           ...(opts.joinPasswordHash ? { passwordHash: opts.joinPasswordHash } : {}),
         });

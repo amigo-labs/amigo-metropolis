@@ -11,7 +11,16 @@
 //  - `inputs`: unreliable/unordered. Carries only P2pInputPackets, each with
 //    the last k ticks of local input — a lost packet is covered by the next.
 //  - `control`: reliable/ordered. Carries binary NetMessages: HELLO (config /
-//    version handshake), HASH (periodic state hash), DESYNC (mismatch verdict).
+//    version handshake), LOBBY (the original's lobby messages, protocol 4),
+//    START (the host's agreed config), HASH (periodic state hash), DESYNC
+//    (mismatch verdict).
+//
+// Since protocol 4 the session opens on the networked lobby, not the match:
+// a valid peer HELLO links the two (onLinked), the lobby's messages go back and
+// forth over `control` (sendLobby / onLobby), and the host, once both players
+// are ready, sends START with the agreed config (begin). Each peer builds its
+// sim from that one config, the joiner from the host's bytes — there is no
+// relay to seal it, so the host does.
 //
 // Desync detection is symmetric: both peers exchange hashes every
 // HASH_INTERVAL_TICKS and compare locally; whoever sees a mismatch ends the
@@ -27,14 +36,18 @@ import {
   encodeReplay,
   getMapById,
   hash,
+  type LobbyMessage,
   type MatchConfig,
   MSG_DESYNC,
   MSG_HASH,
   MSG_HELLO,
+  MSG_LOBBY,
+  MSG_START,
   ONLINE_INPUT_DELAY_TICKS,
   P2P_INPUT_REDUNDANCY_TICKS,
   type PlayerInput,
   PROTOCOL_VERSION,
+  peekProtocol,
   type ReplayData,
   type SimState,
   step,
@@ -59,8 +72,12 @@ export interface P2pCallbacks {
   sampleInput(tick: number): PlayerInput;
   /** After a confirmed tick is applied to the sim (drive render/HUD from here). */
   onStep?(tick: number, sim: SimState): void;
-  /** Handshake complete — both peers verified and stepping. */
-  onStart?(): void;
+  /** Handshake complete — both peers verified; the lobby is up. */
+  onLinked?(): void;
+  /** One of the peer's lobby messages (protocol 4). */
+  onLobby?(msg: LobbyMessage): void;
+  /** The agreed config is in: the sim exists and stepping begins. */
+  onStart?(sim: SimState, config: MatchConfig): void;
   /** Hash mismatch at `tick`; `replay` is this client's dumped .mrep bytes. */
   onDesync?(tick: number, replay: Uint8Array): void;
   /** Peer runs an incompatible protocol/sim (should be caught in the lobby). */
@@ -76,7 +93,8 @@ function copyInput(dst: PlayerInput, src: PlayerInput): void {
 export class P2pLockstep {
   private readonly delay = ONLINE_INPUT_DELAY_TICKS;
   private readonly redundancy = P2P_INPUT_REDUNDANCY_TICKS;
-  private readonly sim: SimState;
+  private sim: SimState | null = null;
+  private linked = false;
   private started = false;
   private waitingForPeer = false;
   private ended: NetEnded = null;
@@ -92,14 +110,12 @@ export class P2pLockstep {
   constructor(
     /** 0 = lobby host, 1 = joiner — fixed slot assignment, both peers agree. */
     readonly slot: number,
-    private readonly config: MatchConfig,
+    /** This side's config for the HELLO's version check; START's replaces it. */
+    private config: MatchConfig,
     private readonly control: Transport,
     private readonly inputs: Transport,
     private readonly cb: P2pCallbacks,
   ) {
-    this.sim = createSim(getMapById(config.mapId), config.seed, {
-      difficulties: config.difficulties,
-    });
     control.onMessage((bytes) => this.onControl(bytes));
     inputs.onMessage((bytes) => this.onInputPacket(bytes));
     control.onClose(() => this.handleClose());
@@ -109,14 +125,23 @@ export class P2pLockstep {
   }
 
   get simTick(): number {
-    return this.sim.tick;
+    return this.sim ? this.sim.tick : 0;
   }
-  /** The live sim this lockstep owns (render/HUD read it via snapshots). */
+  /** The live sim this lockstep owns (render/HUD read it via snapshots); from START on. */
   get simState(): SimState {
+    if (!this.sim) throw new Error("P2pLockstep: no sim before START");
     return this.sim;
+  }
+  /** The agreed config once started (the local one before). */
+  get matchConfig(): MatchConfig {
+    return this.config;
   }
   get isWaiting(): boolean {
     return this.waitingForPeer;
+  }
+  /** The peer's HELLO checked out: the lobby is up. */
+  get isLinked(): boolean {
+    return this.linked;
   }
   get isStarted(): boolean {
     return this.started;
@@ -131,8 +156,8 @@ export class P2pLockstep {
    * newest packet while stalled (see P2P_RESEND_EVERY_TRIES). Call in a loop.
    */
   tryStep(): boolean {
-    if (!this.started || this.ended) return false;
     const sim = this.sim;
+    if (!sim || !this.started || this.ended) return false;
     this.pumpInput(sim.tick);
     const tick = sim.tick;
     const local = this.localInputs[tick];
@@ -161,7 +186,34 @@ export class P2pLockstep {
     this.inputs.close();
   }
 
+  /** One lobby message to the peer, while the lobby is up. */
+  sendLobby(msg: LobbyMessage): void {
+    if (!this.linked || this.started || this.ended) return;
+    this.control.send(encodeMessage({ type: MSG_LOBBY, lobby: msg }));
+  }
+
+  /**
+   * The host's half of the start (slot 0 only, once): both players are ready,
+   * so START goes to the joiner with the agreed config and this side starts on
+   * it at once — the joiner starts on the same bytes when they arrive.
+   */
+  begin(config: MatchConfig): void {
+    if (this.slot !== 0 || !this.linked || this.started || this.ended) return;
+    this.control.send(encodeMessage({ type: MSG_START, startTick: 0, config }));
+    this.startWith(config);
+  }
+
   // --- internals -------------------------------------------------------------
+
+  private startWith(config: MatchConfig): void {
+    this.config = config;
+    this.sim = createSim(getMapById(config.mapId), config.seed, {
+      difficulties: config.difficulties,
+      loadouts: config.loadouts,
+    });
+    this.started = true;
+    this.cb.onStart?.(this.sim, config);
+  }
 
   /** Samples and sends local input for every tick up to sim tick + delay. */
   private pumpInput(simTick: number): void {
@@ -186,7 +238,7 @@ export class P2pLockstep {
    * plain trailing-k window can deadlock when one side runs ahead.
    */
   private sendWindow(): void {
-    if (this.sentUpTo < 0) return;
+    if (this.sentUpTo < 0 || !this.sim) return;
     const from = Math.max(
       0,
       Math.min(this.sentUpTo - this.redundancy + 1, this.sim.tick - this.delay - 1),
@@ -209,23 +261,39 @@ export class P2pLockstep {
     }
   }
 
+  private refuse(): void {
+    this.ended = "closed";
+    this.cb.onError?.(ERR_VERSION_MISMATCH);
+  }
+
   private onControl(bytes: Uint8Array): void {
     let msg: ReturnType<typeof decodeMessage>;
     try {
       msg = decodeMessage(bytes);
     } catch {
+      // A HELLO from another protocol frames its config differently and may
+      // not decode at all: that is a version mismatch, not noise.
+      const protocol = peekProtocol(bytes);
+      if (!this.linked && protocol !== null && protocol !== PROTOCOL_VERSION) this.refuse();
       return; // a garbled control message can't be actioned; hashes still guard
     }
     switch (msg.type) {
       case MSG_HELLO:
-        if (this.started) return;
+        if (this.linked || this.ended) return;
         if (msg.protocol !== PROTOCOL_VERSION || msg.config.simVersion !== this.config.simVersion) {
-          this.ended = "closed";
-          this.cb.onError?.(ERR_VERSION_MISMATCH);
+          this.refuse();
           return;
         }
-        this.started = true;
-        this.cb.onStart?.();
+        this.linked = true;
+        this.cb.onLinked?.();
+        break;
+      case MSG_LOBBY:
+        if (this.linked && !this.started && !this.ended) this.cb.onLobby?.(msg.lobby);
+        break;
+      case MSG_START:
+        // Only the host seals the setup; the joiner takes its bytes as they are.
+        if (this.slot !== 1 || !this.linked || this.started || this.ended) return;
+        this.startWith(msg.config);
         break;
       case MSG_HASH:
         this.recordHash(msg.tick, /*own*/ false, msg.hash);
@@ -266,9 +334,13 @@ export class P2pLockstep {
     this.cb.onClose?.();
   }
 
-  /** Builds an .mrep from the frames simulated so far (netcode.spec §7). */
+  /**
+   * Builds an .mrep from the frames simulated so far (netcode.spec §7). The
+   * replay header carries no loadouts yet (format 4), so it replays the
+   * default kit.
+   */
   dumpReplay(): Uint8Array {
-    const tickCount = this.sim.tick;
+    const tickCount = this.sim ? this.sim.tick : 0;
     const replay: ReplayData = createReplayData(
       this.config.mapId,
       this.config.seed,
