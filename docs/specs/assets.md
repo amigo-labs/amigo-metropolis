@@ -171,6 +171,21 @@ forever as a debug render mode (`?render=greybox`).
   (cos yaw, sin yaw) as a unit's is. The map JSONs carry no scenery: their
   `props`, with yaws of Metropolis' own, are gone. The outpost's console entity
   has no unit model of its own.
+- **The Props and the DCSQuads** (fcop-fidelity.md G13). A type-96 Prop is a
+  model the original builds as a sound emitter, not an actor: gen:scenery reads
+  every one with the type-11 records (`props`, `propModels` in
+  `render/arenaScenery.generated.ts`), as `snd_emit_build` stands it — layer and
+  height, `Mz Mx My` with its random angles drawn from the RE's `game_rand`
+  (seed 0x457, a stand-in for the original's wall clock), the rows' scales, the
+  spin, swing and frame period — and copies its model into the scenery raws;
+  `gen:units` builds it into the arena's `props/` folder with the raw's origin
+  kept (`keepOrigin`: a lamp hangs below its origin) and the frames a record
+  steps as morph targets. `render/emitterProps.ts` draws them, one InstancedMesh
+  per model, turning the spinning ones and stepping the frames per frame. A
+  model of camera-facing facers only is not built (`drawn: false`). A type-97
+  DCSQuad is a decal quad: its Cdcs rect's crop is copied unchanged into
+  `public/models/decals/<mapId>/`, and `render/decals.ts` draws the quads, one
+  InstancedMesh per image, additively with the record's doubled tint.
 - **Each arena's units are its own mission's Cobjs** (`packages/client/public/models/units/<mapId>/obj_NNN.glb`).
   `bun run gen:paunits` reads every role off the RE's
   `extracted/logic/<Mission>/pa_models.json` — the records that place or spawn
