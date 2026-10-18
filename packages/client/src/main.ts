@@ -20,6 +20,7 @@
 import {
   ANIM_HOVER,
   ARCHETYPE,
+  ARCHETYPE_RADIUS,
   AVATAR_SNAP_CLOAK,
   AVATAR_SNAP_STRIDE,
   AVATAR_SNAPSHOT_LEN,
@@ -95,6 +96,7 @@ import {
 } from "./debug/pinSession";
 import type { PinEntity } from "./debug/pinTypes";
 import { createSandboxPanel, type SandboxPanel } from "./debug/sandboxPanel";
+import { makeRaiseAt } from "./effects/chain";
 import { loadControls } from "./input/controlsStore";
 import { PlayerOneInput } from "./input/keyboard";
 import { isTextEntryTarget } from "./input/textEntry";
@@ -310,6 +312,20 @@ if (params.has("debug") && !netMode) {
     metropolisFx?: () => ReturnType<typeof fx.debugCounts>;
     /** The world row a round was matched to (effects/rounds.ts), 0 unknown. */
     metropolisRoundRow?: (id: number) => number;
+    /**
+     * Raises effect (bank, id) at (x, height, z) through the same chain the
+     * cues raise through, as a death of `archetype` / `team` would: a
+     * screenshot of one record without staging its event. Presentation only.
+     */
+    metropolisFxRaise?: (
+      bank: number,
+      id: number,
+      x: number,
+      height: number,
+      z: number,
+      archetype: number,
+      team: number,
+    ) => void;
   };
   dbg.metropolisSim = sim;
   // Debug-only spawner + freeze + snapshot for the verify:units screenshot
@@ -406,6 +422,17 @@ if (params.has("debug") && !netMode) {
         };
   dbg.metropolisFx = () => fx.debugCounts();
   dbg.metropolisRoundRow = (id) => sounds.effects.rounds.row[id] ?? 0;
+  const debugRaise = makeRaiseAt();
+  dbg.metropolisFxRaise = (bank, id, x, height, z, archetype, team) => {
+    const at = debugRaise;
+    at.x = x;
+    at.y = height;
+    at.z = z;
+    at.archetype = archetype;
+    at.team = team;
+    at.raiserScale = Math.round((ARCHETYPE_RADIUS[archetype] ?? 0.25) * 512) || 0x100;
+    sounds.effects.raise(bank, id, at);
+  };
 }
 
 // --- Online helpers (no-ops unless ?online) ----------------------------------
