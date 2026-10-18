@@ -14,7 +14,9 @@ import {
   bakedPoint,
   createArenaUnits,
   gunMatrix,
+  gunPointOf,
 } from "../src/render/arenaUnits";
+import { UNIT_MODEL_FILES } from "../src/render/arenaUnits.generated";
 import { lerpGunYaws } from "../src/render/dreadnoughtGuns";
 import { createGreyboxMeshes, type GreyboxMeshes } from "../src/render/greybox";
 
@@ -302,12 +304,148 @@ describe("the frame path", () => {
 
   test("allocates in none of its source: no new, closure, literal or spread", () => {
     const allocates = /\bnew\b|=>|\bfunction\b|[=(,:?]\s*[[{]|\breturn\s*[[{]|\.\.\./;
-    for (const fn of [lerpGunYaws, gunMatrix, units.place, units.begin, units.end]) {
+    for (const fn of [lerpGunYaws, gunMatrix, gunPointOf, units.place, units.begin, units.end]) {
       const body = fn.toString();
       expect({ fn: fn.name, allocates: allocates.test(body.slice(body.indexOf("{"))) }).toEqual({
         fn: fn.name,
         allocates: false,
       });
     }
+  });
+});
+
+describe("Joke's guns ride the hull's walk (RE cact_mount_step reads the hull's frame)", () => {
+  const realFetch = globalThis.fetch;
+  const g = globalThis as { createImageBitmap?: unknown; ProgressEvent?: unknown };
+  const bitmap = g.createImageBitmap;
+  const progress = g.ProgressEvent;
+  let scene: THREE.Scene;
+  let greybox: GreyboxMeshes;
+  let units: ArenaUnitsRenderer;
+  const hullPos = new THREE.Vector3(80, 0, 80);
+  const hullQuat = new THREE.Quaternion().setFromAxisAngle(UP, -0.4);
+  const one = new THREE.Vector3(1, 1, 1);
+  const yaws = new Float32Array(DREADNOUGHT_GUNS);
+  const joke = arenaUnitsFor("bug-hunt").dreadnought;
+  const track = UNIT_MODEL_FILES.find((f) => f.file === joke.hull)?.morph;
+
+  /** One frame with Joke's hull at hullPos, its guns at yaw 0. */
+  function frame(): void {
+    units.begin(0);
+    greybox.juggernaut.count = 1;
+    units.place(
+      greybox.juggernaut,
+      0,
+      HULL_ID,
+      ARCHETYPE.JUGGERNAUT,
+      0,
+      hullPos.x,
+      hullPos.z,
+      hullPos,
+      hullQuat,
+      one,
+      yaws,
+    );
+    units.end();
+  }
+
+  function drawnParts(): THREE.InstancedMesh[] {
+    return scene.children.filter(
+      (c): c is THREE.InstancedMesh =>
+        (c as THREE.InstancedMesh).isInstancedMesh &&
+        c !== greybox.juggernaut.mesh &&
+        (c as THREE.InstancedMesh).count > 0,
+    );
+  }
+
+  /** Every gun's pivot as drawn, against hull frame k's points placed by the hull. */
+  function expectGunsOn(k: number): void {
+    const parts = drawnParts();
+    expect(parts.map((p) => p.count)).toEqual([2, 2]);
+    const hull = new THREE.Matrix4().compose(hullPos, hullQuat, one);
+    const got = new THREE.Matrix4();
+    for (let i = 0; i < 4; i++) {
+      parts[i >> 1].getMatrixAt(i & 1, got);
+      const p = joke.guns[i].byFrame?.[k];
+      if (!p) throw new Error(`gun ${i} has no frame ${k}`);
+      const want = bakedPoint(p, new THREE.Vector3()).applyMatrix4(hull);
+      expect(new THREE.Vector3().setFromMatrixPosition(got).distanceTo(want)).toBeLessThan(1e-5);
+    }
+    // The hull's own morph row shows the same frame (target k - 1 at weight 1).
+    const row = greybox.juggernaut.mesh.morphTexture?.image.data as Float32Array;
+    const len = row.length / greybox.juggernaut.tintCache.length;
+    for (let t = 1; t < len; t++) expect(row[t]).toBe(t === k ? 1 : 0);
+  }
+
+  beforeAll(async () => {
+    g.createImageBitmap = async () => ({ width: 256, height: 256, close() {} });
+    g.ProgressEvent ??= class extends Event {
+      constructor(type: string, init: object) {
+        super(type);
+        Object.assign(this, init);
+      }
+    };
+    THREE.DefaultLoadingManager.setURLModifier((url) =>
+      url.startsWith("/models/") ? ORIGIN + url : url,
+    );
+    // The hull's file lands well after its guns': the guns wait for it (they
+    // stood unready for the session when the hull came last).
+    globalThis.fetch = Object.assign(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (!url.startsWith(`${ORIGIN}/`)) return realFetch(input, init);
+        if (url.endsWith(`/${joke.hull}.glb`)) await Bun.sleep(150);
+        return new Response(Bun.file(PUBLIC + url.slice(ORIGIN.length)));
+      },
+      { preconnect: realFetch.preconnect },
+    );
+    scene = new THREE.Scene();
+    greybox = createGreyboxMeshes(scene);
+    units = createArenaUnits(scene, greybox);
+    units.load(getMapById("bug-hunt"), () => false, true);
+    for (let i = 0; i < 600 && drawnParts().length === 0; i++) {
+      await Bun.sleep(5);
+      frame();
+    }
+  });
+
+  afterAll(() => {
+    globalThis.fetch = realFetch;
+    THREE.DefaultLoadingManager.setURLModifier(undefined);
+    g.createImageBitmap = bitmap;
+    g.ProgressEvent = progress;
+    if (bitmap === undefined) delete g.createImageBitmap;
+    if (progress === undefined) delete g.ProgressEvent;
+  });
+
+  test("the guns draw although the hull's model landed after theirs", () => {
+    expect(drawnParts().map((p) => p.count)).toEqual([2, 2]);
+  });
+
+  test("walked twelve periods, the hull shows frame 12 and every gun stands on its point", () => {
+    if (!track) throw new Error("Joke's hull has no track");
+    expect(track).toMatchObject({ frames: 20, period: 775, drivenBy: "distance" });
+    // Frame 0 and frame 12 are metres apart, so standing on the right one shows.
+    const a = joke.guns[0].byFrame?.[0] ?? [0, 0, 0];
+    const b = joke.guns[0].byFrame?.[12] ?? [0, 0, 0];
+    expect(Math.hypot(a[1] - b[1], a[2] - b[2])).toBeGreaterThan(0.5);
+    // Away by more than a step and back: the track starts over at frame 0.
+    hullPos.set(80, 0, 120);
+    frame();
+    hullPos.set(80, 0, 80);
+    frame();
+    expectGunsOn(0);
+    // 59 steps of 2 cm along the hull's way: 9,667 world units, frame 12
+    // (past 12 x 775 = 9,300, short of 13 x 775).
+    for (let s = 0; s < 59; s++) {
+      hullPos.x += 0.02 * Math.cos(0.4);
+      hullPos.z += 0.02 * Math.sin(0.4);
+      frame();
+    }
+    expectGunsOn(12);
+    // Standing still keeps the frame, guns and all.
+    frame();
+    expectGunsOn(12);
   });
 });

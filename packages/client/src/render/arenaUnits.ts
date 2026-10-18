@@ -561,7 +561,12 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
     morphList.push(binding);
   }
 
-  function swapGuns(units: ArenaUnits, cancelled: () => boolean): void {
+  /**
+   * Points the gun buckets at the arena's gun models. The guns stand on the
+   * hull, so they are ready once both the guns' swaps and `hull`, the hull's
+   * own swap, have landed, in whichever order they do.
+   */
+  function swapGuns(units: ArenaUnits, hull: Promise<void>, cancelled: () => boolean): void {
     gunsReady = false;
     const guns = units.dreadnought.guns;
     const models: string[] = [];
@@ -574,14 +579,15 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       gunOf[i] = b;
     }
     gunPoints = gunPointTable(guns);
-    Promise.all(models.map((m, b) => swap(gunBuckets[b], m, units.dreadnought.uv, cancelled))).then(
-      () => {
-        if (cancelled()) return;
-        if (models.some((m, b) => showing.get(gunBuckets[b]) !== m)) return;
-        if (showing.get(greybox.juggernaut) !== units.dreadnought.hull) return;
-        gunsReady = true;
-      },
-    );
+    Promise.all([
+      hull,
+      ...models.map((m, b) => swap(gunBuckets[b], m, units.dreadnought.uv, cancelled)),
+    ]).then(() => {
+      if (cancelled()) return;
+      if (models.some((m, b) => showing.get(gunBuckets[b]) !== m)) return;
+      if (showing.get(greybox.juggernaut) !== units.dreadnought.hull) return;
+      gunsReady = true;
+    });
   }
 
   function turretSet(bucket: Bucket): TurretSet | null {
@@ -611,8 +617,11 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       swap(greybox.runner, units.tank.model, units.tank.uv, cancelled);
       swap(greybox.guardian, units.jet.model, units.jet.uv, cancelled);
       swap(greybox.fortress, units.fortress.model, units.fortress.uv, cancelled);
-      swap(greybox.juggernaut, units.dreadnought.hull, units.dreadnought.uv, cancelled);
-      swapGuns(units, cancelled);
+      swapGuns(
+        units,
+        swap(greybox.juggernaut, units.dreadnought.hull, units.dreadnought.uv, cancelled),
+        cancelled,
+      );
       arenaCancelled = cancelled;
       loadedOnce = true;
       swapCaptain();
