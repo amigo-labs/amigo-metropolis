@@ -1,6 +1,7 @@
 // The original's Win32 dialogs rebuilt in HTML: the DLU geometry, the
-// controls screen's fields, the profile preview, the save worker. Pure parts only (the dialogs
-// themselves use hooks; see menuScreens.test.tsx's note).
+// controls screen's fields, the profile preview, the save worker, the UI sound
+// slots. Pure parts only (the dialogs themselves use hooks; see
+// menuScreens.test.tsx's note).
 
 import { describe, expect, test } from "bun:test";
 import { presetTable, SLOT_NAMES } from "../src/input/bindings";
@@ -10,9 +11,10 @@ import { bindingOfKey, CONTROLS_FIELD_IDS } from "../src/menu/dialogs/ControlsDi
 import { HD_TEXTURES_DLU } from "../src/menu/dialogs/OptionsDialog";
 import { PROFILE_ROW_SLOT, profileLine, profileLines } from "../src/menu/dialogs/ProfileDialog";
 import { runSaveLoad } from "../src/menu/dialogs/SaveLoadDialog";
-import { FE_DIALOGS } from "../src/menu/frontend/frontendData.generated";
+import { FE_DIALOGS, FE_UI_SOUNDS } from "../src/menu/frontend/frontendData.generated";
 import { newGameConfig } from "../src/menu/frontend/model";
 import { emptySaveFile } from "../src/menu/frontend/progress";
+import { uiSoundFiles, uiSoundUrl } from "../src/menu/frontend/uiSound";
 import {
   baseUnitsOf,
   CAPTION_HEIGHT,
@@ -162,5 +164,31 @@ describe("the save dialog's workers", () => {
     const loaded = runSaveLoad("load", f, 0, "", c);
     expect(loaded.box?.text).toBe("Game Loaded Successfully");
     expect(loaded.loaded).not.toBeNull();
+  });
+});
+
+describe("the UI sounds", () => {
+  test("nine slots on the exe's waves; 0 and 7 are the same; 0x9e is never played", () => {
+    expect(FE_UI_SOUNDS.map((s) => s.wave)).toEqual([
+      "0x9a",
+      "0x9d",
+      "0xa1",
+      "0x9b",
+      "0x9c",
+      "0xa2",
+      "0x9f",
+      "0x9a",
+      "0xa0",
+    ]);
+    expect(uiSoundUrl(0)).toBe(uiSoundUrl(7));
+    expect(uiSoundUrl(9)).toBeNull();
+    expect(uiSoundFiles()).toHaveLength(8);
+    expect(uiSoundFiles().some((f) => f.includes("0x9e"))).toBe(false);
+  });
+
+  test("every slot's file is committed", async () => {
+    for (const url of uiSoundFiles()) {
+      expect(await Bun.file(`${import.meta.dir}/../public${url}`).exists()).toBe(true);
+    }
   });
 });

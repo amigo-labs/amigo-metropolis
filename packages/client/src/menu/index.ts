@@ -37,6 +37,7 @@ import {
 } from "./frontend/model";
 import { loadConfig, storeConfig } from "./frontend/progress";
 import { stageScale, toScreen } from "./frontend/stage";
+import { uiSounds } from "./frontend/uiSound";
 import { isLocalhost, type MenuChoice } from "./routing";
 import type { MenuDialog, MenuState } from "./state";
 import { W9MessageBox } from "./win9x/Win9x";
@@ -97,6 +98,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   const root = document.createElement("div");
   root.className = "menu-root";
   document.body.appendChild(root);
+  uiSounds.preload();
 
   const state: MenuState = {
     screen: createScreen(loadConfig()),
@@ -184,6 +186,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   };
 
   const handle = (r: FeResult): void => {
+    uiSounds.playAll(r.sounds);
     for (const a of r.actions) act(a);
     if (r.redraw || r.actions.length > 0) {
       if (!state.screen.net) storeConfig(state.screen.config);

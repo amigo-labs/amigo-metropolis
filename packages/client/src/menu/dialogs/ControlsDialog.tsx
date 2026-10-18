@@ -23,6 +23,7 @@ import {
 import { formatBinding, loadControls, saveControls } from "../../input/controlsStore";
 import { firstJoyControl, firstPad } from "../../input/gamepad";
 import { FE_DIALOGS } from "../frontend/frontendData.generated";
+import { uiSounds } from "../frontend/uiSound";
 import { dialogLayout, W9Button, W9Static, W9Window } from "../win9x/Win9x";
 import { ProfileDialog } from "./ProfileDialog";
 
@@ -83,7 +84,10 @@ export function ControlsDialog(props: {
     const onKey = (e: KeyboardEvent): void => {
       if (e.repeat) return;
       const b = bindingOfKey(e.code);
-      if (!b) return; // passed on
+      if (!b) {
+        uiSounds.beep(400, 500);
+        return; // passed on
+      }
       e.preventDefault();
       e.stopPropagation();
       write(b);
