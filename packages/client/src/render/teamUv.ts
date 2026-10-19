@@ -16,6 +16,7 @@
 // only when the slot's side changes; nothing here allocates per frame.
 
 import * as THREE from "three";
+import { chainPatch } from "./fcopModel";
 
 /** Per-instance offset in atlas UV units. */
 export const TEAM_UV_ATTR = "instanceTeamUv";
@@ -32,14 +33,16 @@ const VERTEX_UV = `#include <uv_vertex>
 	vMapUv += ${TEAM_UV_ATTR} * ${TEAM_UV_MASK};
 #endif`;
 
-/** Adds the per-instance offset to a unit material's map lookup. */
+/**
+ * Adds the per-instance offset to a unit material's map lookup, after any
+ * patch the material already has (a draw mode's, render/fcopModel.ts).
+ */
 export function patchTeamUv(material: THREE.Material): void {
-  material.onBeforeCompile = (shader) => {
+  chainPatch(material, "teamUv", (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", VERTEX_DECL)
       .replace("#include <uv_vertex>", VERTEX_UV);
-  };
-  material.customProgramCacheKey = () => "teamUv";
+  });
 }
 
 /**

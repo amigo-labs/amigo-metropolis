@@ -168,31 +168,35 @@ const NATIVE: Record<string, { footprint: number; height: number }> = {
   walker: { footprint: 0.8, height: 0.98 },
   hover: { footprint: 1.24, height: 0.48 },
   runner: { footprint: 1.52, height: 0.4 },
-  // The PA jet, Cobj 22 (frame 0): 1.40 x 0.42 x 1.50.
-  guardian: { footprint: 1.5, height: 0.42 },
+  // The PA jet, Cobj 22 (frame 0): 1.40 x 0.42 x 1.50, of which the top 5 cm
+  // is the rotor's disc, an additive face (light, not body).
+  guardian: { footprint: 1.5, height: 0.37 },
   juggernaut: { footprint: 2.22, height: 0.63 },
   // The Flying Fortress, Cobj 41: 3.15 x 0.68 x 2.14.
   fortress: { footprint: 3.15, height: 0.68 },
   console: { footprint: 1.12, height: 1.47 },
-  // Hull-only: Cobj 54's 1 m tex10 searchlights are dropped (raw 2.04 x 0.71).
+  // The hull: Cobj 54's 1 m tex10 searchlights are additive light, not body
+  // (raw 2.04 x 0.71).
   warden: { footprint: 1.49, height: 0.42 },
   // Projectiles and bolts, from FX_MODELS (docs/specs/fcop-fx.md). Same rule as
   // above: the stand-in is drawn at whatever proportions read best and then
   // scaled onto the original's size, so swapping the .glb in changes the shape
-  // and never the scale.
-  projHeavy: { footprint: 0.39, height: 0.15 },
-  projHyper: { footprint: 0.23, height: 0.09 },
-  projMortar: { footprint: 0.35, height: 0.19 },
-  projMine: { footprint: 0.37, height: 0.22 },
+  // and never the scale. The bodies alone: each one's glow is a star facer
+  // (render/facers.ts), no longer the RE's stand-in geometry around it.
+  projHeavy: { footprint: 0.28, height: 0.06 },
+  projHyper: { footprint: 0.17, height: 0.04 },
+  projMortar: { footprint: 0.2, height: 0.15 },
+  projMine: { footprint: 0.37, height: 0.14 },
   // The Sky Captain's bomb: world row 9, Cobj 49 (the mortar shell's payload).
-  projWarden: { footprint: 0.35, height: 0.19 },
+  projWarden: { footprint: 0.2, height: 0.15 },
   // The world rows' rounds that are models: Cobj 42 and 43. Rows 1, 3 and 6
   // are bolts, their Cobjs' line facers, drawn by render/fx.ts.
-  roundRow4: { footprint: 0.54, height: 0.2 },
-  roundRow8: { footprint: 0.39, height: 0.15 },
-  // The extra weapons' rounds: Cobj 48 (the K-9 Drone) and 52 (the grenade).
-  projK9: { footprint: 0.72, height: 0.46 },
-  projGrenade: { footprint: 0.24, height: 0.24 },
+  roundRow4: { footprint: 0.4, height: 0.08 },
+  roundRow8: { footprint: 0.28, height: 0.06 },
+  // The extra weapons' rounds: Cobj 48 (the K-9 Drone) and 52 (the grenade),
+  // their bodies: 0.22 x 0.37 x 0.72 and 0.21 x 0.24 x 0.18.
+  projK9: { footprint: 0.72, height: 0.37 },
+  projGrenade: { footprint: 0.21, height: 0.24 },
 };
 
 /**

@@ -152,6 +152,7 @@ import {
 } from "./render/drawWindow";
 import { lerpGunYaws } from "./render/dreadnoughtGuns";
 import { setEmitterWindow } from "./render/emitterProps";
+import { materialList } from "./render/fcopModel";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx, createFxPoses, POSE_STRIDE } from "./render/fx";
 import { bucketFor, createGreyboxMeshes } from "./render/greybox";
@@ -972,9 +973,11 @@ function rebuildArena(mapId: string): void {
     const mesh = obj as THREE.Mesh;
     if (mesh.isMesh) {
       mesh.geometry.dispose();
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-      mat.map?.dispose(); // free loaded textures on map swap (mesh render path)
-      mat.dispose();
+      // A model's draw modes are several materials on one atlas (render/fcopModel.ts).
+      for (const m of materialList(mesh.material)) {
+        (m as THREE.MeshStandardMaterial).map?.dispose(); // free loaded textures on map swap
+        m.dispose();
+      }
     }
   });
   arenaGroup = buildArenaGroup(map);

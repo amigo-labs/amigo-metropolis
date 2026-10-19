@@ -16,7 +16,7 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { faceMaterials, materialList, mergeFcopModel } from "./fcopModel";
 import type { Bucket, GreyboxMeshes } from "./greybox";
 import { patchTeamUv, prepareTeamUvMask } from "./teamUv";
 
@@ -62,16 +62,23 @@ export function loadUnitMeshes(buckets: GreyboxMeshes): void {
   }
 }
 
-/** One merged geometry plus the single material every unit asset carries. */
+/**
+ * One merged geometry and its materials: one per face draw mode, the
+ * geometry's groups pointing at them (render/fcopModel.ts), or a single one for
+ * a model whose faces are all opaque.
+ */
 export interface UnitAsset {
   /** Model space, i.e. still +Z forward — the caller decides on the bake. */
   readonly geometry: THREE.BufferGeometry;
-  readonly material: THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
+  readonly material: THREE.Material | THREE.Material[];
+  /** The atlas every face samples: the team offset is measured on it. */
+  readonly map: THREE.Texture | null;
 }
 
 /**
- * Loads `/models/units/<key>.glb` and flattens it to one geometry + material.
- * `key` may name a subfolder (`la-cantina/obj_030`, render/arenaUnits.ts).
+ * Loads `/models/<dir>/<key>.glb` and flattens it to one geometry with its
+ * draw modes' materials. `key` may name a subfolder (`la-cantina/obj_030`,
+ * render/arenaUnits.ts).
  *
  * Model space, deliberately: `avatarRig.ts` splits the geometry into limbs and
  * hinges them, which is a rotation about the model's own left-right axis. Baking
@@ -79,8 +86,8 @@ export interface UnitAsset {
  * each caller — the bucket path bakes it into the geometry, the rig folds it
  * into the per-instance yaw.
  *
- * Rejects with the loader's error when the asset is missing or unmergeable, so
- * every caller can fall back to its greybox.
+ * Rejects with the loader's error when the asset is missing, unmergeable or
+ * has no faces, so every caller can fall back to its greybox.
  */
 export async function loadUnitAsset(
   key: string,
@@ -88,36 +95,13 @@ export async function loadUnitAsset(
   unlit = false,
 ): Promise<UnitAsset> {
   const url = `/models/${dir}/${key}.glb`;
-  const gltf = await loader.loadAsync(url);
-  // Init-time, so allocations and Box3-free traversal are fine here.
-  gltf.scene.updateMatrixWorld(true);
-  const geometries: THREE.BufferGeometry[] = [];
-  // The pipeline emits ONE material per unit: either a single packed
-  // atlas texture (FCOP originals) or vertex colors (untextured packs).
-  // Keep the atlas, dispose the loader's material shells.
-  // Boxed rather than a plain `let`: the assignment happens inside the
-  // traverse callback, which control-flow analysis does not follow, so a
-  // `let` reads as still-null afterwards and narrows to `never` inside
-  // `if (map)`. The box has nothing to narrow.
-  const atlas: { texture: THREE.Texture | null } = { texture: null };
-  gltf.scene.traverse((obj) => {
-    const mesh = obj as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const geometry = mesh.geometry.clone();
-    geometry.applyMatrix4(mesh.matrixWorld);
-    geometries.push(geometry);
-    const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    for (const material of list) {
-      const std = material as THREE.MeshStandardMaterial;
-      if (std.isMeshStandardMaterial && std.map && !atlas.texture) atlas.texture = std.map;
-      material.dispose(); // material only — the kept map texture survives
-    }
-  });
-  if (geometries.length === 0) throw new Error(`empty unit asset at ${url}`);
-  const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries);
-  if (!merged) throw new Error(`unmergeable unit asset at ${url}`);
-  // PS1-era atlas sampling (assets.md §3): hard pixels, no mips.
-  const map = atlas.texture;
+  // Init-time, so allocations are fine here.
+  const model = await mergeFcopModel(await loader.loadAsync(url));
+  const geometry = model.geometry;
+  if (!geometry) throw new Error(`no faces in unit asset at ${url}`);
+  // PS1-era atlas sampling (assets.md §3): hard pixels, no mips. One atlas
+  // for every group (gen:units).
+  const map = model.map;
   if (map) {
     map.magFilter = THREE.NearestFilter;
     map.minFilter = THREE.NearestFilter;
@@ -125,17 +109,12 @@ export async function loadUnitAsset(
     map.colorSpace = THREE.SRGBColorSpace;
     map.needsUpdate = true;
   }
-  const vertexColors = merged.hasAttribute("color");
-  const material = unlit
-    ? new THREE.MeshBasicMaterial({ vertexColors, map, toneMapped: false })
-    : new THREE.MeshStandardMaterial({ flatShading: true, vertexColors, map });
   // A unit's team is a texture offset per instance (render/teamUv.ts); the
   // projectiles keep their tint (render/fx.ts, docs/specs/fcop-fx.md).
-  if (dir === "units") {
-    patchTeamUv(material);
-    prepareTeamUvMask(merged);
-  }
-  return { geometry: merged, material };
+  const team = dir === "units";
+  const material = faceMaterials(model, { unlit, patch: team ? patchTeamUv : undefined });
+  if (team) prepareTeamUvMask(geometry);
+  return { geometry, material, map };
 }
 
 function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean): void {
@@ -146,7 +125,7 @@ function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean):
       geometry.rotateY(Math.PI / 2);
       bucket.mesh.geometry.dispose();
       bucket.mesh.geometry = geometry;
-      (bucket.mesh.material as THREE.Material).dispose();
+      for (const m of materialList(bucket.mesh.material)) m.dispose();
       bucket.mesh.material = material;
       // Belt and braces: re-write every instance tint on the next frame so no
       // slot can carry a stale cache entry across the swap.

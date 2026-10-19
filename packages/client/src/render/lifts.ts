@@ -18,6 +18,7 @@
 import { LIFT_SNAP_STRIDE, LIFT_SNAP_TOP, type MapData } from "@metropolis/sim";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { faceMaterials, mergeFcopModel } from "./fcopModel";
 import { disposeSubtree } from "./meshMap";
 import { yawTurn } from "./recordYaw";
 
@@ -74,25 +75,20 @@ export function loadLifts(map: MapData, group: THREE.Object3D, cancelled?: () =>
   for (const [cobj, lifts] of byModel) {
     const url = modelUrl(map.id, cobj);
     loader.loadAsync(url).then(
-      (gltf) => {
+      async (gltf) => {
         if (cancelled?.()) {
           disposeSubtree(gltf.scene);
           return;
         }
-        gltf.scene.updateMatrixWorld(true);
-        let source: THREE.Mesh | null = null;
-        gltf.scene.traverse((obj) => {
-          const m = obj as THREE.Mesh;
-          if (m.isMesh && !source) source = m;
-        });
-        const found = source as THREE.Mesh | null;
-        if (!found) {
+        // Every primitive of the pack's model, a material per draw mode
+        // (render/fcopModel.ts): some carry two pages, some half faces.
+        const model = await mergeFcopModel(gltf);
+        const geometry = model.geometry;
+        if (!geometry) {
           console.warn(`[lifts] empty lift asset at ${url}, skipping`);
           return;
         }
-        const geometry = found.geometry.clone();
-        geometry.applyMatrix4(found.matrixWorld);
-        const material = found.material as THREE.Material;
+        const material = faceMaterials(model);
         const mesh = new THREE.InstancedMesh(geometry, material, lifts.length);
         mesh.frustumCulled = false;
         mesh.matrixAutoUpdate = false;

@@ -59,6 +59,7 @@ import {
   UNIT_MODEL_FILES,
   type UnitMorph,
 } from "./arenaUnits.generated";
+import { materialList, materialMap } from "./fcopModel";
 import type { Bucket, GreyboxMeshes } from "./greybox";
 import { SIDE_RAMPS } from "./palette";
 import { BAKED_TURN, recordYaw, yawTurn } from "./recordYaw";
@@ -113,7 +114,7 @@ export function writeX1Uv(
   cloakV = -1,
 ): void {
   const o = current.x1.uv[side];
-  const map = (mesh.material as THREE.MeshStandardMaterial).map;
+  const map = materialMap(mesh.material);
   atlasOffset(map, o.u, cloakV >= 0 ? cloakV : o.v, scratchUv, 0);
   writeTeamUv(mesh, slot, scratchUv[0], scratchUv[1]);
 }
@@ -445,6 +446,8 @@ function wrapGeometry(
   const g = new THREE.BufferGeometry();
   for (const name of Object.keys(source.attributes)) g.setAttribute(name, source.attributes[name]);
   g.setIndex(source.index);
+  // The draw modes' groups (render/fcopModel.ts), one material each.
+  for (const group of source.groups) g.addGroup(group.start, group.count, group.materialIndex);
   g.morphAttributes = source.morphAttributes;
   g.morphTargetsRelative = source.morphTargetsRelative;
   g.setAttribute(TEAM_UV_ATTR, attr);
@@ -539,7 +542,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
           // shared with the session cache and stays.
           if (!showing.has(bucket)) {
             bucket.mesh.geometry.dispose();
-            (bucket.mesh.material as THREE.Material).dispose();
+            for (const m of materialList(bucket.mesh.material)) m.dispose();
           }
           const attr = binding?.attr ?? createTeamUvAttribute(bucket.tintCache.length);
           let byFile = wrapped.get(bucket);
@@ -565,7 +568,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
         // arena's table, and a side may be another team now.
         if (binding) {
           for (let side = 0; side < 3; side++) {
-            atlasOffset(asset.material.map, uv[side].u, uv[side].v, binding.bySide, side * 2);
+            atlasOffset(asset.map, uv[side].u, uv[side].v, binding.bySide, side * 2);
           }
         }
         bucket.tintCache.fill(-2);

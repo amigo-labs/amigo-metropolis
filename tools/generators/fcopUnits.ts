@@ -58,7 +58,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { NodeIO } from "@gltf-transform/core";
+import { NodeIO, type Texture } from "@gltf-transform/core";
 import { FCOP_ARENAS, type FcopArena, logicFile } from "./fcopArenas";
 import { argOf } from "./fcopLogic";
 import { decodePng } from "./png";
@@ -78,8 +78,6 @@ const SHARE_ORDER = [
   "venice-beach",
   "bug-hunt",
 ];
-/** The pipeline drops these before the merge (genUnitModels.ts), so they sample nothing. */
-const FX_MATERIALS = new Set(["tex10", "facer"]);
 
 // --- pa_models.json (the fields read here) -------------------------------
 
@@ -397,6 +395,12 @@ const io = new NodeIO();
  * texel box its UVs span (one texel of margin), shifted by each offset, on each
  * page it samples. Conservative — a box covers at least the triangle — so two
  * models that hash equal draw identically under every offset of the role.
+ *
+ * Every face counts, in whatever mode it draws (genUnitModels.ts keeps them
+ * all), and so does every textured facer, whose corners take the same offset
+ * (`cact_model_shade_face` adds it to every (u, v), RE model_shade.c
+ * 0x00427f0d); only the RE's stand-ins for the facers (`extras.fcop.standin`)
+ * sample nothing, since the pipeline drops them.
  */
 async function texelFingerprint(path: string, offsets: readonly Uv[]): Promise<string> {
   const document = await io.read(path);
@@ -405,49 +409,72 @@ async function texelFingerprint(path: string, offsets: readonly Uv[]): Promise<s
     unknown,
     { pixels: Uint8Array; width: number; height: number; mask: Uint8Array }
   >();
+  const pageOf = (texture: Texture) => {
+    let page = pages.get(texture);
+    if (!page) {
+      const image = texture.getImage();
+      if (!image) throw new Error(`${path}: texture without image`);
+      const decoded = decodePng(new Uint8Array(image));
+      page = { ...decoded, mask: new Uint8Array(decoded.width * decoded.height) };
+      pages.set(texture, page);
+    }
+    return page;
+  };
+  /** Marks the texel box of the (u, v) corners, under every offset. */
+  const mark = (page: ReturnType<typeof pageOf>, corners: readonly (readonly number[])[]) => {
+    let u0 = Number.POSITIVE_INFINITY;
+    let u1 = Number.NEGATIVE_INFINITY;
+    let v0 = Number.POSITIVE_INFINITY;
+    let v1 = Number.NEGATIVE_INFINITY;
+    for (const t of corners) {
+      // obj_mesh writes (texel + 0.5) / 256.
+      const tu = t[0] * page.width - 0.5;
+      const tv = t[1] * page.height - 0.5;
+      u0 = Math.min(u0, tu);
+      u1 = Math.max(u1, tu);
+      v0 = Math.min(v0, tv);
+      v1 = Math.max(v1, tv);
+    }
+    for (const o of offsets) {
+      const x0 = Math.max(0, Math.floor(u0) - 1 + o.u);
+      const x1 = Math.min(page.width - 1, Math.ceil(u1) + 1 + o.u);
+      const y0 = Math.max(0, Math.floor(v0) - 1 + o.v);
+      const y1 = Math.min(page.height - 1, Math.ceil(v1) + 1 + o.v);
+      for (let y = y0; y <= y1; y++)
+        page.mask.fill(1, y * page.width + x0, y * page.width + x1 + 1);
+    }
+  };
   for (const mesh of document.getRoot().listMeshes()) {
     for (const prim of mesh.listPrimitives()) {
       const material = prim.getMaterial();
-      if (FX_MATERIALS.has(material?.getName() ?? "")) continue;
+      const fcop = (material?.getExtras() as { fcop?: { standin?: boolean } } | undefined)?.fcop;
+      if (fcop?.standin) continue;
       const texture = material?.getBaseColorTexture();
       const uv = prim.getAttribute("TEXCOORD_0");
       if (!texture || !uv) continue;
-      let page = pages.get(texture);
-      if (!page) {
-        const image = texture.getImage();
-        if (!image) throw new Error(`${path}: texture without image`);
-        const decoded = decodePng(new Uint8Array(image));
-        page = { ...decoded, mask: new Uint8Array(decoded.width * decoded.height) };
-        pages.set(texture, page);
-      }
+      const page = pageOf(texture);
       const indices = prim.getIndices();
       const count = indices ? indices.getCount() : uv.getCount();
-      const t = [0, 0];
       for (let i = 0; i + 2 < count; i += 3) {
-        let u0 = Number.POSITIVE_INFINITY;
-        let u1 = Number.NEGATIVE_INFINITY;
-        let v0 = Number.POSITIVE_INFINITY;
-        let v1 = Number.NEGATIVE_INFINITY;
-        for (let k = 0; k < 3; k++) {
+        const corners = [0, 1, 2].map((k) => {
+          const t = [0, 0];
           uv.getElement(indices ? indices.getScalar(i + k) : i + k, t);
-          // obj_mesh writes (texel + 0.5) / 256.
-          const tu = t[0] * page.width - 0.5;
-          const tv = t[1] * page.height - 0.5;
-          u0 = Math.min(u0, tu);
-          u1 = Math.max(u1, tu);
-          v0 = Math.min(v0, tv);
-          v1 = Math.max(v1, tv);
-        }
-        for (const o of offsets) {
-          const x0 = Math.max(0, Math.floor(u0) - 1 + o.u);
-          const x1 = Math.min(page.width - 1, Math.ceil(u1) + 1 + o.u);
-          const y0 = Math.max(0, Math.floor(v0) - 1 + o.v);
-          const y1 = Math.min(page.height - 1, Math.ceil(v1) + 1 + o.v);
-          for (let y = y0; y <= y1; y++)
-            page.mask.fill(1, y * page.width + x0, y * page.width + x1 + 1);
-        }
+          return t;
+        });
+        mark(page, corners);
       }
     }
+  }
+  const node = document.getRoot().listNodes()[0];
+  const facers =
+    (node?.getExtras() as { fcop?: { facers?: { texture?: number | null; uv?: number[][] }[] } })
+      ?.fcop?.facers ?? [];
+  const textures = document.getRoot().listTextures();
+  for (const f of facers) {
+    if (f.texture === null || f.texture === undefined || !f.uv) continue;
+    const texture = textures[f.texture];
+    if (!texture) throw new Error(`${path}: a facer names texture ${f.texture}`);
+    mark(pageOf(texture), f.uv);
   }
   for (const page of pages.values()) {
     hasher.update(`${page.width}x${page.height}|`);

@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { type Document, getBounds, NodeIO } from "@gltf-transform/core";
 import { SCENERY_PLACEMENTS } from "../../../packages/client/src/render/arenaScenery.generated";
 import { ARENA_SCENERY, EMITTER_PROP_MODELS, PROP_MODELS, sceneryRaw } from "../units/manifest";
+import { expectFaceModes, faceBounds, triangles } from "./faceModes";
 
 const REPO = join(import.meta.dir, "..", "..", "..");
 const OUT_DIR = join(REPO, "packages", "client", "public", "models", "props");
@@ -44,30 +45,24 @@ describe("committed prop models match the manifest contract", () => {
       const document = await io.read(join(OUT_DIR, spec.mapId, `${spec.key}.glb`));
       const root = document.getRoot();
 
-      // One single-material primitive, the shape render/props.ts swaps into the
-      // model's InstancedMesh. The scenery Cobjs are all textured.
-      expect(root.listMaterials().length).toBe(1);
+      // One mesh, a primitive per face mode, the shape render/props.ts swaps
+      // into the model's InstancedMesh. The scenery Cobjs are all textured.
+      const prims = expectFaceModes(document);
       expect(root.listAnimations().length).toBe(0);
       expect(root.listSkins().length).toBe(0);
-      const meshes = root.listMeshes();
-      expect(meshes.length).toBe(1);
-      const prims = meshes[0].listPrimitives();
-      expect(prims.length).toBe(1);
       // Cobj 28 is morph-animated, its cloth: the pipeline keeps its targets
       // (frame k + 1 is target k, render/props.ts steps them). Everything
       // else ships frame 0 and no deltas a renderer would never drive.
       const frames = spec.morph?.frames ?? 1;
       expect(spec.morph === null).toBe(spec.cobj !== 28);
-      expect(prims[0].listTargets().length).toBe(frames - 1);
-      expect(meshes[0].getWeights().length).toBe(frames - 1);
-      expect(root.listTextures().length).toBe(1);
-      expect(root.listMaterials()[0].getBaseColorTexture()).not.toBeNull();
-      expect(prims[0].getAttribute("TEXCOORD_0")).not.toBeNull();
-      expect(prims[0].getAttribute("NORMAL")).not.toBeNull();
+      expect(root.listMeshes()[0].getWeights().length).toBe(frames - 1);
+      for (const prim of prims) {
+        expect(prim.listTargets().length).toBe(frames - 1);
+        expect(prim.getAttribute("TEXCOORD_0")).not.toBeNull();
+        expect(prim.getAttribute("NORMAL")).not.toBeNull();
+      }
 
-      const indices = prims[0].getIndices();
-      const tris =
-        (indices ? indices.getCount() : (prims[0].getAttribute("POSITION")?.getCount() ?? 0)) / 3;
+      const tris = prims.reduce((n, p) => n + triangles(p), 0);
       expect(tris).toBeGreaterThan(0);
       expect(tris).toBeLessThanOrEqual(spec.maxTris);
 
@@ -83,7 +78,8 @@ describe("committed prop models match the manifest contract", () => {
       // props by accident.
       const rawDoc = await io.read(join(RAW_DIR, spec.raw));
       const rawRoot = rawDoc.getRoot();
-      const raw = getBounds(rawRoot.getDefaultScene() ?? rawRoot.listScenes()[0]);
+      const raw = faceBounds(rawDoc);
+      expect(tris).toBe(raw.tris);
       for (const axis of [0, 1, 2]) {
         const outSize = out.max[axis] - out.min[axis];
         const rawSize = raw.max[axis] - raw.min[axis];
@@ -154,21 +150,23 @@ describe("committed Prop models keep the raw's frame", () => {
     test(`${spec.mapId}/${spec.key}`, async () => {
       expect(spec.keepOrigin).toBe(true);
       const document = await io.read(join(OUT_DIR, spec.mapId, `${spec.key}.glb`));
-      const root = document.getRoot();
-      expect(root.listMaterials().length).toBe(1);
-      const prims = root.listMeshes()[0].listPrimitives();
-      expect(prims.length).toBe(1);
-      expect(prims[0].listTargets().length).toBe((spec.morph?.frames ?? 1) - 1);
-      const out = getBounds(root.getDefaultScene() ?? root.listScenes()[0]);
+      const prims = expectFaceModes(document);
       const rawDoc = await io.read(join(RAW_DIR, spec.raw));
       const rawRoot = rawDoc.getRoot();
-      const raw = getBounds(rawRoot.getDefaultScene() ?? rawRoot.listScenes()[0]);
+      const raw = faceBounds(rawDoc);
+      expect(prims.reduce((n, p) => n + triangles(p), 0)).toBe(raw.tris);
+      const names = rawRoot.listNodes().map((n) => n.getName());
+      expect(names).toContain(`${spec.mission}_obj_${String(spec.cobj).padStart(3, "0")}`);
+      // A model of facers only (render/facers.ts draws them) has no faces.
+      if (prims.length === 0) return;
+      for (const prim of prims) {
+        expect(prim.listTargets().length).toBe((spec.morph?.frames ?? 1) - 1);
+      }
+      const out = faceBounds(document);
       for (const axis of [0, 1, 2]) {
         expect(Math.abs(out.min[axis] - raw.min[axis])).toBeLessThanOrEqual(0.01);
         expect(Math.abs(out.max[axis] - raw.max[axis])).toBeLessThanOrEqual(0.01);
       }
-      const names = rawRoot.listNodes().map((n) => n.getName());
-      expect(names).toContain(`${spec.mission}_obj_${String(spec.cobj).padStart(3, "0")}`);
     });
   }
 

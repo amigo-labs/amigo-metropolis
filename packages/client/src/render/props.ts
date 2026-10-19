@@ -54,8 +54,8 @@ import {
 import { arenaUnitsFor } from "./arenaUnits";
 import { loadDecals } from "./decals";
 import { loadEmitters, updateEmitters } from "./emitterProps";
+import { faceMaterials, mergeFcopModel } from "./fcopModel";
 import { disposeSubtree } from "./meshMap";
-import { mergePropAsset } from "./propAsset";
 import { recordTurn } from "./recordYaw";
 import {
   atlasOffset,
@@ -275,31 +275,32 @@ function addPropMesh(
 ): void {
   const url = propModelUrl(map.id, cobj);
   loader.loadAsync(url).then(
-    (gltf) => {
+    async (gltf) => {
       // Stale (the arena was swapped while this loaded): free the loader's
       // resources instead of merging into a group that already left the scene.
       if (cancelled?.()) {
         disposeSubtree(gltf.scene);
         return;
       }
-      const asset = mergePropAsset(gltf, url, "props");
-      if (!asset) return;
-      const { geometry: merged, atlas } = asset;
+      const model = await mergeFcopModel(gltf);
+      const merged = model.geometry;
+      if (!merged) {
+        console.warn(`[props] no faces in ${url}, skipping`);
+        return;
+      }
+      const atlas = model.map;
       // No quarter-turn bake into the geometry, unlike unitMeshes.ts: the turn
       // is each record's own (recordTurn), in the instance matrix.
 
-      // One material per model, never shared: rebuildArena disposes materials
-      // and their maps by traversal, so a texture shared between two prop
-      // meshes would be disposed twice.
-      const material = new THREE.MeshStandardMaterial({
-        flatShading: true,
-        vertexColors: merged.hasAttribute("color"),
-        map: atlas,
-      });
+      // Materials per model and draw mode (render/fcopModel.ts), never shared
+      // between models: rebuildArena disposes materials and their maps by
+      // traversal. The flag's cloth wears the claimer's texture offset.
       const flag = arenaUnitsFor(map.id).outpostFlag;
+      const material = faceMaterials(model, {
+        patch: cobj === flag.cobj ? patchTeamUv : undefined,
+      });
       let flags: PropMesh["flags"] = null;
       if (cobj === flag.cobj) {
-        patchTeamUv(material);
         prepareTeamUvMask(merged);
         const attr = createTeamUvAttribute(placements.length);
         merged.setAttribute(TEAM_UV_ATTR, attr);

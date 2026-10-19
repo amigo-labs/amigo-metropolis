@@ -6,13 +6,14 @@
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { type Document, getBounds, NodeIO, type Primitive } from "@gltf-transform/core";
+import { getBounds, NodeIO, type Primitive } from "@gltf-transform/core";
 import { getMapById } from "@metropolis/sim";
 import {
   ARENA_UNITS,
   UNIT_MODEL_FILES,
 } from "../../../packages/client/src/render/arenaUnits.generated";
 import { ARENA_UNIT_MODELS, FX_MODELS, UNIT_MODELS } from "../units/manifest";
+import { expectFaceModes, faceBounds, fcopOf, triangles } from "./faceModes";
 
 const MODELS_DIR = join(
   import.meta.dir,
@@ -68,28 +69,21 @@ describe("committed unit models match the manifest contract", () => {
       const document = await io.read(join(OUT_DIR, `${spec.key}.glb`));
       const root = document.getRoot();
 
-      // One single-material primitive under a "root" node — the shape
-      // render/unitMeshes.ts swaps into the archetype's InstancedMesh. Color
+      // One primitive under a "root" node — the shape render/unitMeshes.ts
+      // swaps into the archetype's InstancedMesh: the X1's parts come through
+      // the RE's old path, opaque throughout (fcop-fidelity.md G13). Color
       // comes either from ONE packed atlas texture (FCOP originals) or from
       // baked vertex colors (untextured packs) — never both, never several.
-      const material = root.listMaterials()[0];
-      expect(root.listMaterials().length).toBe(1);
-      expect(material.getMetallicFactor()).toBe(0);
-      expect(material.getRoughnessFactor()).toBe(1);
+      const texCount = root.listTextures().length;
+      const prims = expectFaceModes(document, texCount > 0);
+      expect(prims.length).toBe(1);
       expect(root.listAnimations().length).toBe(0);
       expect(root.listSkins().length).toBe(0);
-      const meshes = root.listMeshes();
-      expect(meshes.length).toBe(1);
-      const prims = meshes[0].listPrimitives();
-      expect(prims.length).toBe(1);
-      const texCount = root.listTextures().length;
       if (texCount > 0) {
-        expect(texCount).toBe(1);
-        expect(material.getBaseColorTexture()).not.toBeNull();
         expect(prims[0].getAttribute("TEXCOORD_0")).not.toBeNull();
-        // COLOR_0 alongside the atlas means leftover facer verts (FX_MODELS
-        // keep them; units drop tex10/facer before the merge). Where it is
-        // present it must cover every vertex, or the two would drift apart.
+        // COLOR_0 alongside the atlas means vertex-coloured faces (the white
+        // patch). Where it is present it must cover every vertex, or the two
+        // would drift apart.
         const mixed = prims[0].getAttribute("COLOR_0");
         if (mixed) {
           expect(mixed.getType()).toBe("VEC4");
@@ -162,21 +156,27 @@ describe("committed FX models match the manifest contract", () => {
       const document = await io.read(join(FX_DIR, `${spec.key}.glb`));
       const root = document.getRoot();
 
-      expect(root.listMaterials().length).toBe(1);
       expect(root.listAnimations().length).toBe(0);
       expect(root.listSkins().length).toBe(0);
-      const meshes = root.listMeshes();
-      expect(meshes.length).toBe(1);
-      const prims = meshes[0].listPrimitives();
-      expect(prims.length).toBe(1);
-      expect(prims[0].getAttribute("NORMAL")).not.toBeNull();
       expect(root.listTextures().length).toBeLessThanOrEqual(1);
-
-      const indices = prims[0].getIndices();
-      const tris =
-        (indices ? indices.getCount() : (prims[0].getAttribute("POSITION")?.getCount() ?? 0)) / 3;
+      // The bolts are line facers only (render/fx/ribbons.ts draws them): no
+      // mesh, the records on the root node, the atlas their page is on.
+      const prims = expectFaceModes(document);
+      const facers = (root.listNodes()[0].getExtras() as { fcop?: { facers?: { kind: string }[] } })
+        .fcop?.facers;
+      const rawDoc = await io.read(join(RAW_DIR, spec.raw));
+      if (prims.length === 0) {
+        expect(facers?.length).toBeGreaterThan(0);
+        expect(facers?.every((f) => f.kind === "line")).toBe(true);
+        expect(faceBounds(rawDoc).tris).toBe(0);
+        return;
+      }
+      for (const prim of prims) expect(prim.getAttribute("NORMAL")).not.toBeNull();
+      const tris = prims.reduce((n, p) => n + triangles(p), 0);
       expect(tris).toBeGreaterThan(0);
       expect(tris).toBeLessThanOrEqual(spec.maxTris);
+      // Every face of the raw but the facers' stand-ins.
+      expect(tris).toBe(faceBounds(rawDoc).tris);
 
       const scene = root.getDefaultScene() ?? root.listScenes()[0];
       const { min, max } = getBounds(scene);
@@ -187,9 +187,7 @@ describe("committed FX models match the manifest contract", () => {
       // body, and that is the original's choice, not damage. Grounding a
       // projectile (minY -> 0) would lift every bolt off the line it travels
       // along, which is why FX_MODELS opts out of it in the generator.
-      const rawDoc = await io.read(join(RAW_DIR, spec.raw));
-      const rawScene = rawDoc.getRoot().getDefaultScene() ?? rawDoc.getRoot().listScenes()[0];
-      const raw = getBounds(rawScene);
+      const raw = faceBounds(rawDoc);
       for (const axis of [0, 1, 2]) {
         expect(Math.abs(min[axis] - raw.min[axis])).toBeLessThanOrEqual(0.002);
         expect(Math.abs(max[axis] - raw.max[axis])).toBeLessThanOrEqual(0.002);
@@ -269,17 +267,14 @@ describe("committed arena unit models match the table", () => {
     test(spec.file, async () => {
       const document = await io.read(join(OUT_DIR, `${spec.file}.glb`));
       const root = document.getRoot();
-      expect(root.listMaterials().length).toBe(1);
+      const prims = expectFaceModes(document);
       expect(root.listAnimations().length).toBe(0);
       expect(root.listSkins().length).toBe(0);
-      const meshes = root.listMeshes();
-      expect(meshes.length).toBe(1);
-      const prims = meshes[0].listPrimitives();
-      expect(prims.length).toBe(1);
-      expect(root.listTextures().length).toBe(1);
-      expect(prims[0].getAttribute("TEXCOORD_0")).not.toBeNull();
-      // FX attachments are gone, so no facer colour rides along.
-      expect(prims[0].getAttribute("COLOR_0")).toBeNull();
+      for (const prim of prims) {
+        expect(prim.getAttribute("TEXCOORD_0")).not.toBeNull();
+        // Every unit face is textured: no vertex colour rides along.
+        expect(prim.getAttribute("COLOR_0")).toBeNull();
+      }
 
       // The raw is the mission's own export of that Cobj.
       const rawDoc = await io.read(join(RAW_DIR, spec.raw));
@@ -287,42 +282,31 @@ describe("committed arena unit models match the table", () => {
       const names = rawRoot.listNodes().map((n) => n.getName());
       expect(names).toContain(`${spec.mission}_obj_${String(spec.cobj).padStart(3, "0")}`);
 
-      const kept = keptBounds(rawDoc);
-      const scene = root.getDefaultScene() ?? root.listScenes()[0];
-      const out = getBounds(scene);
-      const tris = triangles(prims[0]);
+      // Every face of the raw but the facers' stand-ins, and the body (all
+      // but the additive faces) placed as the raw's.
+      const kept = faceBounds(rawDoc, true);
+      const out = faceBounds(document, true);
+      const tris = prims.reduce((n, p) => n + triangles(p), 0);
       expect(tris).toBeGreaterThan(0);
       expect(tris).toBeLessThanOrEqual(spec.maxTris);
+      expect(tris).toBe(kept.tris);
       if (spec.treatment === "part") {
         // Origin and bounds are the raw's, triangle for triangle.
         for (const axis of [0, 1, 2]) {
           expect(Math.abs(out.min[axis] - kept.min[axis])).toBeLessThanOrEqual(0.002);
           expect(Math.abs(out.max[axis] - kept.max[axis])).toBeLessThanOrEqual(0.002);
         }
-        expect(tris).toBe(kept.tris);
       } else {
-        // Grounded and centred; never larger than what the raw keeps (the Sky
-        // Captain's exhaust cards are dropped too), and the same height or
-        // footprint where nothing is dropped.
+        // The body grounded and centred, at the raw's own size.
         expect(Math.abs(out.min[1])).toBeLessThanOrEqual(0.02);
         expect(Math.abs(out.min[0] + out.max[0])).toBeLessThanOrEqual(0.04);
         expect(Math.abs(out.min[2] + out.max[2])).toBeLessThanOrEqual(0.04);
-        // No zero-thickness card survives the planar-billboard drop.
-        expect(thinnestComponent(prims[0])).toBeGreaterThan(0.02 - 1e-6);
         // A skinned raw (Joke's jet) holds its bind pose; gen:units bakes its
         // frame 0, so its vertices are not the raw's to measure against.
         if (rawRoot.listSkins().length > 0) return;
-        const size = [0, 1, 2].map((a) => out.max[a] - out.min[a]);
-        const rawSize = [0, 1, 2].map((a) => kept.max[a] - kept.min[a]);
-        expect(size[1]).toBeLessThanOrEqual(rawSize[1] + 0.002);
-        expect(Math.max(size[0], size[2])).toBeLessThanOrEqual(
-          Math.max(rawSize[0], rawSize[2]) + 0.002,
-        );
-        if (tris === kept.tris) {
-          // Nothing dropped: the same box (a half turn keeps the axes).
-          for (const axis of [0, 1, 2]) {
-            expect(Math.abs(size[axis] - rawSize[axis])).toBeLessThanOrEqual(0.002);
-          }
+        for (const axis of [0, 1, 2]) {
+          const size = out.max[axis] - out.min[axis];
+          expect(Math.abs(size - (kept.max[axis] - kept.min[axis]))).toBeLessThanOrEqual(0.002);
         }
       }
     });
@@ -351,40 +335,55 @@ describe("committed arena unit models match the table", () => {
         .getRoot()
         .listMeshes()
         .flatMap((m) => m.listPrimitives())
-        .filter((p) => !["tex10", "facer"].includes(p.getMaterial()?.getName() ?? ""));
+        .filter((p) => !fcopOf(p.getMaterial()).standin);
       // Match each output vertex to its raw vertex by frame-0 position (the
       // output is the raw shifted by the grounding offset), over every
       // primitive on both sides: a model's faces come in one per draw mode.
       const outMin = [0, 1, 2].map((a) =>
         Math.min(...prims.map((p) => p.getAttribute("POSITION")?.getMin([0, 0, 0])[a] as number)),
       );
-      const shift = [0, 1, 2].map((a) => outMin[a] - keptBounds(raw).min[a]);
+      const shift = [0, 1, 2].map((a) => outMin[a] - faceBounds(raw).min[a]);
       const key = (p: number[]) => p.map((v) => Math.round(v * 1000)).join(",");
-      const rawIndex = new Map<string, [Primitive, number]>();
+      // Within one face key: a face of another mode may share a position.
+      const modeOf = (p: Primitive) => {
+        const f = fcopOf(p.getMaterial());
+        return `${f.mode ?? "opaque"}:${f.tint?.join(",") ?? ""}|`;
+      };
+      // Two vertices may share a position and not a motion: any of them will do.
+      const rawIndex = new Map<string, [Primitive, number][]>();
       const e = [0, 0, 0];
       for (const rp of rawPrims) {
         const rawBase = rp.getAttribute("POSITION");
         if (!rawBase) throw new Error("no positions");
         for (let i = 0; i < rawBase.getCount(); i++) {
           rawBase.getElement(i, e);
-          rawIndex.set(key([e[0] + shift[0], e[1] + shift[1], e[2] + shift[2]]), [rp, i]);
+          const at = modeOf(rp) + key([e[0] + shift[0], e[1] + shift[1], e[2] + shift[2]]);
+          const list = rawIndex.get(at);
+          if (list) list.push([rp, i]);
+          else rawIndex.set(at, [[rp, i]]);
         }
       }
       const d = [0, 0, 0];
       const rd = [0, 0, 0];
+      const moves = (prim: Primitive, i: number, [rp, r]: [Primitive, number]) =>
+        prim.listTargets().every((t, k) => {
+          t.getAttribute("POSITION")?.getElement(i, d);
+          rp.listTargets()[k].getAttribute("POSITION")?.getElement(r, rd);
+          return [0, 1, 2].every((a) => Math.abs(d[a] - rd[a]) < 1e-5);
+        });
       for (const prim of prims) {
         const out = prim.getAttribute("POSITION");
         if (!out) throw new Error("no positions");
         let matched = 0;
         for (let i = 0; i < out.getCount(); i++) {
           out.getElement(i, e);
-          const hit = rawIndex.get(key(e));
-          if (hit === undefined) continue;
+          const hits = rawIndex.get(modeOf(prim) + key(e));
+          if (hits === undefined) continue;
           matched++;
-          prim.listTargets().forEach((t, k) => {
-            t.getAttribute("POSITION")?.getElement(i, d);
-            hit[0].listTargets()[k].getAttribute("POSITION")?.getElement(hit[1], rd);
-            for (let a = 0; a < 3; a++) expect(Math.abs(d[a] - rd[a])).toBeLessThan(1e-5);
+          expect({ file: spec.file, i, moves: hits.some((h) => moves(prim, i, h)) }).toEqual({
+            file: spec.file,
+            i,
+            moves: true,
           });
         }
         expect(matched).toBe(out.getCount());
@@ -549,103 +548,4 @@ function mul4(a: readonly number[], b: readonly number[]): number[] {
     }
   }
   return out;
-}
-
-/** Bounds and triangle count over what the pipeline keeps (no tex10 / facer). */
-function keptBounds(document: Document): { min: number[]; max: number[]; tris: number } {
-  const min = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
-  const max = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
-  let tris = 0;
-  const el = [0, 0, 0];
-  for (const node of document.getRoot().listNodes()) {
-    const mesh = node.getMesh();
-    if (!mesh) continue;
-    for (const prim of mesh.listPrimitives()) {
-      const name = prim.getMaterial()?.getName() ?? "";
-      if (name === "tex10" || name === "facer") continue;
-      tris += triangles(prim);
-      const pos = prim.getAttribute("POSITION");
-      if (!pos) continue;
-      for (let i = 0; i < pos.getCount(); i++) {
-        pos.getElement(i, el);
-        for (let a = 0; a < 3; a++) {
-          if (el[a] < min[a]) min[a] = el[a];
-          if (el[a] > max[a]) max[a] = el[a];
-        }
-      }
-    }
-  }
-  return { min, max, tris };
-}
-
-function triangles(prim: Primitive): number {
-  const indices = prim.getIndices();
-  return (indices ? indices.getCount() : (prim.getAttribute("POSITION")?.getCount() ?? 0)) / 3;
-}
-
-/** Smallest AABB dimension across position-welded connected components. */
-function thinnestComponent(prim: Primitive): number {
-  const pos = prim.getAttribute("POSITION");
-  const indices = prim.getIndices();
-  if (!pos) return 0;
-  const triCount = (indices ? indices.getCount() : pos.getCount()) / 3;
-  const vertAt = (t: number, k: number): number =>
-    indices ? indices.getScalar(t * 3 + k) : t * 3 + k;
-  const parent = Array.from({ length: pos.getCount() }, (_, i) => i);
-  const find = (x: number): number => {
-    let i = x;
-    while (parent[i] !== i) i = parent[i];
-    let j = x;
-    while (j !== i) {
-      const next = parent[j];
-      parent[j] = i;
-      j = next;
-    }
-    return i;
-  };
-  const union = (a: number, b: number): void => {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra !== rb) parent[rb] = ra;
-  };
-  const quant = (i: number): string => {
-    const e = [0, 0, 0];
-    pos.getElement(i, e);
-    return `${Math.round(e[0] * 1000)},${Math.round(e[1] * 1000)},${Math.round(e[2] * 1000)}`;
-  };
-  const firstAt = new Map<string, number>();
-  for (let i = 0; i < pos.getCount(); i++) {
-    const key = quant(i);
-    const seen = firstAt.get(key);
-    if (seen === undefined) firstAt.set(key, i);
-    else union(i, seen);
-  }
-  for (let t = 0; t < triCount; t++) {
-    union(vertAt(t, 0), vertAt(t, 1));
-    union(vertAt(t, 1), vertAt(t, 2));
-  }
-  const comps = new Map<number, number[]>();
-  for (let t = 0; t < triCount; t++) {
-    const root = find(vertAt(t, 0));
-    const list = comps.get(root);
-    if (list) list.push(t);
-    else comps.set(root, [t]);
-  }
-  let thin = Number.POSITIVE_INFINITY;
-  const el = [0, 0, 0];
-  for (const tris of comps.values()) {
-    const min = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
-    const max = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
-    for (const t of tris) {
-      for (let k = 0; k < 3; k++) {
-        pos.getElement(vertAt(t, k), el);
-        for (let a = 0; a < 3; a++) {
-          if (el[a] < min[a]) min[a] = el[a];
-          if (el[a] > max[a]) max[a] = el[a];
-        }
-      }
-    }
-    thin = Math.min(thin, max[0] - min[0], max[1] - min[1], max[2] - min[2]);
-  }
-  return thin;
 }

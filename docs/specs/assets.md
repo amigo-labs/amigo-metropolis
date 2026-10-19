@@ -82,13 +82,22 @@ forever as a debug render mode (`?render=greybox`).
   about the centre the original authored it on, and dropping `minY` to 0 would
   lift every bolt off the line it travels. `docs/specs/fcop-fx.md` records which
   mesh belongs to which weapon and how that was established.
-- **Facer geometry may mix with textured geometry in one model.** The original's
-  `Star` / `Billboard` / `Line` primitives carry colour in `COLOR_0` and no UVs,
-  while bodies carry UVs and no colour; a model can have both — every FCOP
-  projectile does, and so does the Sky Captain gunship. The pipeline packs the
-  real pages plus a small white patch that the facers' synthesised UVs point at,
-  so one primitive carries both. Demanding UVs on *every* primitive is what made
-  `fortress.glb` ship untextured for six line facers' sake.
+- **A model's faces keep the original's draw modes** (fcop-fidelity.md G13; RE
+  `docs/formats/objects.md` "Face draw modes"). The RE keys every Cobj's faces
+  by the mode `cact_model_shade_face` gives them — `opaque`, `half` (op bit 3:
+  the bit-15 texels average with the frame buffer) and `add` (material 6,
+  Glide `ONE / ONE`, tinted) — and gen:units keeps one atlas and one primitive
+  and material per (mode, tint), opaque first. The client merges them into the
+  archetype's one InstancedMesh with a geometry group per material
+  (`render/fcopModel.ts`): an opaque group cut at alpha 0.25, a half group drawn
+  twice (its solid texels with the opaque faces, its bit-15 texels blended
+  50/50 without a depth write), an add group `CustomBlending` ONE / ONE with the
+  tint doubled. Groups are draw calls of the same mesh, not a split: the
+  instance matrices, morph texture and team offset are the mesh's. The few
+  vertex-coloured faces (Joke 75 / Slim 76's `untextured`) sample a small white
+  patch packed beside the pages, so one atlas still serves the model. Units are
+  grounded and sized on their body, the faces that do not add: the Sky
+  Captain's searchlight cones are light.
 - Named nodes for code-driven animation (rigid transforms, no skinning):
   `root, hull, turret_yaw, barrel_pitch, leg_l, leg_r, fx_muzzle, fx_thruster`.
 - **The X1-Alpha is the original's rig, one InstancedMesh** (`bun run gen:x1`,

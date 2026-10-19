@@ -28,7 +28,11 @@ import {
 import * as THREE from "three";
 import { bucketFor, createGreyboxMeshes, type GreyboxMeshes } from "../src/render/greybox";
 
-/** Max horizontal extent and height of a committed model, in metres. */
+/**
+ * Max horizontal extent and height of a committed model's body, in metres: its
+ * additive faces are light, not body (the Sky Captain's searchlight cones),
+ * and gen:units grounds and sizes without them.
+ */
 async function modelSize(
   key: string,
   dir: "units" | "fx" | "props" = "units",
@@ -39,6 +43,9 @@ async function modelSize(
   const hi = [-Infinity, -Infinity, -Infinity];
   for (const mesh of doc.getRoot().listMeshes()) {
     for (const prim of mesh.listPrimitives()) {
+      const extras = prim.getMaterial()?.getExtras() as { fcop?: { mode?: string } } | undefined;
+      const fcop = extras?.fcop;
+      if (fcop?.mode === "add") continue;
       const pos = prim.getAttribute("POSITION");
       if (!pos) continue;
       const min = pos.getMin([0, 0, 0]);

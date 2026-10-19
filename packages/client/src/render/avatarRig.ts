@@ -263,6 +263,8 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
   ]).then(
     ([{ geometry, material }, bin]) => {
       try {
+        // gen:x1's parts come through the RE's old path: all opaque, one material.
+        if (Array.isArray(material)) throw new Error("avatar-x1.glb has several draw modes");
         core = buildX1Rig(scene, geometry, material, new Float32Array(bin));
       } catch (err) {
         console.warn(`[avatarRig] unusable avatar-x1 asset, keeping greybox: ${err}`);

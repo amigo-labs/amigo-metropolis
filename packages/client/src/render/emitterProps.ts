@@ -38,8 +38,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { ArenaScenery, SceneryProp } from "./arenaScenery.generated";
 import { cellXOf, cellZOf, type DrawWindow, inDrawWindow } from "./drawWindow";
+import { faceMaterials, mergeFcopModel } from "./fcopModel";
 import { disposeSubtree } from "./meshMap";
-import { mergePropAsset } from "./propAsset";
 import { RECORD_TURN, recordTurn } from "./recordYaw";
 
 const loader = new GLTFLoader();
@@ -212,19 +212,19 @@ export function loadEmitters(
   for (const [cobj, props] of byModel) {
     const at = url(cobj);
     loader.loadAsync(at).then(
-      (gltf) => {
+      async (gltf) => {
         if (cancelled?.()) {
           disposeSubtree(gltf.scene);
           return;
         }
-        const asset = mergePropAsset(gltf, at, "props");
-        if (!asset) return;
-        const material = new THREE.MeshStandardMaterial({
-          flatShading: true,
-          vertexColors: asset.geometry.hasAttribute("color"),
-          map: asset.atlas,
-        });
-        const mesh = new THREE.InstancedMesh(asset.geometry, material, props.length);
+        const model = await mergeFcopModel(gltf);
+        const geometry = model.geometry;
+        if (!geometry) {
+          console.warn(`[props] no faces in ${at}, skipping`);
+          return;
+        }
+        // A material per draw mode (render/fcopModel.ts).
+        const mesh = new THREE.InstancedMesh(geometry, faceMaterials(model), props.length);
         mesh.frustumCulled = false;
         mesh.matrixAutoUpdate = false;
         mesh.updateMatrix();
@@ -235,7 +235,7 @@ export function loadEmitters(
         });
         mesh.instanceMatrix.needsUpdate = true;
         const frames = scenery.propModels[cobj]?.frames ?? 1;
-        const targets = asset.geometry.morphAttributes.position?.length ?? 0;
+        const targets = geometry.morphAttributes.position?.length ?? 0;
         let morph: EmitterMesh["morph"] = null;
         if (props.some((p) => p.anim !== "none")) {
           if (targets === frames - 1) {

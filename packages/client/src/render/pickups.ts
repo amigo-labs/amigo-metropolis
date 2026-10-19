@@ -23,6 +23,7 @@ import {
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { faceMaterials, mergeFcopModel } from "./fcopModel";
 import { disposeSubtree } from "./meshMap";
 import { RECORD_TURN, recordTurn } from "./recordYaw";
 
@@ -86,27 +87,20 @@ export function loadPickups(map: MapData, group: THREE.Object3D, cancelled?: () 
   for (const [cobj, spots] of byModel) {
     const url = modelUrl(map.id, cobj);
     loader.loadAsync(url).then(
-      (gltf) => {
+      async (gltf) => {
         if (cancelled?.()) {
           disposeSubtree(gltf.scene);
           return;
         }
-        gltf.scene.updateMatrixWorld(true);
-        let source: THREE.Mesh | null = null;
-        gltf.scene.traverse((obj) => {
-          const m = obj as THREE.Mesh;
-          if (m.isMesh && !source) source = m;
-        });
-        const found = source as THREE.Mesh | null;
-        if (!found) {
+        // Every primitive of the pack's model, a material per draw mode
+        // (render/fcopModel.ts): some carry two pages, some half faces.
+        const model = await mergeFcopModel(gltf);
+        const geometry = model.geometry;
+        if (!geometry) {
           console.warn(`[pickups] empty pickup asset at ${url}, skipping`);
           return;
         }
-        // The pack's model is one mesh with one textured material (pa_props
-        // manifest); its node transform is baked in, the material kept.
-        const geometry = found.geometry.clone();
-        geometry.applyMatrix4(found.matrixWorld);
-        const material = found.material as THREE.Material;
+        const material = faceMaterials(model);
         const mesh = new THREE.InstancedMesh(geometry, material, spots.length);
         mesh.frustumCulled = false;
         mesh.matrixAutoUpdate = false;
