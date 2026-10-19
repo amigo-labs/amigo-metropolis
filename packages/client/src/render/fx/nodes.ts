@@ -6,14 +6,26 @@
 // [pitch_lo, pitch_hi) about the emitter's own y axis (row 1 of the node's
 // frame; the emitter's frame is (orient_yaw, 0x400 - orient_pitch)), at a
 // speed rolled in [speed_lo, speed_hi), from `spawn_radius` out along that
-// direction. Each node is pulled toward the wind velocity by its drag, falls
-// by the gravity `(v << 12) / -100`, ramps colour_a -> colour_b (ramp300), is
-// retired under the ground (unless +0x32 bit 1) and after `lifetime` ticks, and
-// is drawn as a `size` x `size` rectangle of the original's 640x480 screen in
-// its colour doubled. The walks integrate per second: positions and
-// velocities in sixteenths of a world unit, `elapsed / 300` a frame. A repeat
-// is another burst from the same emitter (its handler claims operation 1).
-// All nodes share the original's budget of 700.
+// direction. Each node is pulled toward the wind velocity by its drag and, on
+// the linear walk (walk bit 0 clear, 0x0042a150), falls by the gravity
+// `(v << 12) / -100`; on the radial walk (walk bit 0, 0x0042a6d0) that same
+// factor multiplies the node's own offset from the emitter on every axis — a
+// spring of factor / -4096 a second squared, no fall. It is retired under the
+// ground (unless +0x32 bit 1) and after `lifetime` ticks (masked to 13 bits; 0
+// never counts down), and is drawn as a `size` x `size` rectangle of the
+// original's 640x480 screen in its colour doubled. The walks integrate per
+// second: positions and velocities in sixteenths of a world unit, `elapsed /
+// 300` a frame. A repeat is another burst from the same emitter (its handler
+// claims operation 1). All nodes share the original's budget of 700.
+//
+// The colour (0x0042b090 / 0x0042a550 / 0x0042a4d0) moves by the record's
+// step a second (`derived.ramp`): with ramp bit 0 one budget, `(r + g + b of
+// colour_a) << 12 / |ramp|`, is spent from blue down to 0, then green, then
+// red, and nothing moves once red is 0 — a drain to black that never reads
+// colour_b; otherwise each channel walks from colour_a toward colour_b and
+// stops there, or with bit 1 turns back at either end. The original applies
+// it on one frame in four with four frames' delta; here every frame with its
+// own.
 
 import * as THREE from "three";
 import type { RaiseAt } from "../../effects/chain";
@@ -24,10 +36,12 @@ import {
   type Fx94,
   localToThree,
   NODES_MAX,
-  ramp300Ticks,
+  RAMP_BOUNCE,
+  RAMP_SINGLE_BUDGET,
   TURN,
   WALK_ADDITIVE,
   WALK_HALF_ALPHA,
+  WALK_RADIAL,
   WALK_SUBTRACTIVE,
 } from "../../effects/records";
 import { FX_OUTPUT, type FxPoses, type FxView, makeAnchors, placeAnchor } from "./common";
@@ -40,6 +54,66 @@ const BLEND_OPAQUE = 0;
 const BLEND_HALF = 1;
 const BLEND_ADD = 2;
 const BLEND_SUB = 3;
+
+/** How a node's colour moves (ramp_flags). */
+const RAMP_TOWARD = 0;
+const RAMP_BUDGET = 1;
+const RAMP_PINGPONG = 2;
+
+/**
+ * One node's colour after `s` seconds of its ramp, in place: `rgb` its three
+ * bytes, `step` its step a second (one budget in [0], or one per channel),
+ * `from` / `to` colour_a and colour_b; a bounce turns its steps in place.
+ */
+export function rampNode(
+  mode: number,
+  rgb: Float32Array,
+  o: number,
+  step: Float32Array,
+  from: Float32Array,
+  to: Float32Array,
+  s: number,
+): void {
+  if (mode === RAMP_BUDGET) {
+    // 0x0042a4d0: red gates; blue, then green, then red, each down to 0.
+    if (rgb[o] <= 0) return;
+    let left = step[o] * s;
+    for (let c = 2; c >= 0 && left > 0; c--) {
+      const v = rgb[o + c];
+      if (v >= left) {
+        rgb[o + c] = v - left;
+        left = 0;
+      } else {
+        rgb[o + c] = 0;
+        left -= v;
+      }
+    }
+    return;
+  }
+  for (let c = 0; c < 3; c++) {
+    const k = o + c;
+    const d = step[k];
+    if (d === 0) continue;
+    let v = rgb[k] + d * s;
+    const a = from[k];
+    const b = to[k];
+    const lo = a < b ? a : b;
+    const hi = a < b ? b : a;
+    if (mode === RAMP_PINGPONG) {
+      // 0x0042a550 with bit 1: at either end the step turns back.
+      if (v > hi) {
+        v = hi;
+        step[k] = -d;
+      } else if (v < lo) {
+        v = lo;
+        step[k] = -d;
+      }
+    } else if ((d > 0 && v > b) || (d < 0 && v < b)) {
+      v = b;
+    }
+    rgb[k] = v;
+  }
+}
 
 const VERTEX = /* glsl */ `
 attribute vec4 aColour;
@@ -119,7 +193,9 @@ export class Nodes {
   private readonly rgb = new Float32Array(NODES_MAX * 3);
   private readonly from = new Float32Array(NODES_MAX * 3);
   private readonly to = new Float32Array(NODES_MAX * 3);
-  private readonly ramp = new Float32Array(NODES_MAX);
+  /** The colour's step a second: the budget in [i * 3], or one per channel. */
+  private readonly step = new Float32Array(NODES_MAX * 3);
+  private readonly rampMode = new Uint8Array(NODES_MAX);
   private readonly age = new Float32Array(NODES_MAX);
   private readonly life = new Float32Array(NODES_MAX);
   private readonly size = new Uint8Array(NODES_MAX);
@@ -182,8 +258,14 @@ export class Nodes {
     const lo = rec.speedLo === -1 ? rec.speedHi : rec.speedLo;
     const cap = Math.min(rec.nodeCap > 0 ? rec.nodeCap : rec.nodeCount, NODES_MAX);
     const n = Math.min(rec.nodeCount, cap);
-    const life = (rec.life & 0x1fff) > 0 ? rec.life & 0x1fff : 600;
-    const ramp = ramp300Ticks(Math.abs(rec.rampTicks));
+    // Masked to 13 bits; 0 never counts down (tables.json type_rules.94 life).
+    const life = (rec.life & 0x1fff) > 0 ? rec.life & 0x1fff : Number.POSITIVE_INFINITY;
+    const rampMode =
+      (rec.rampFlags & RAMP_SINGLE_BUDGET) !== 0
+        ? RAMP_BUDGET
+        : (rec.rampFlags & RAMP_BOUNCE) !== 0
+          ? RAMP_PINGPONG
+          : RAMP_TOWARD;
     const blend =
       (rec.walkFlags & WALK_ADDITIVE) !== 0
         ? BLEND_ADD
@@ -208,7 +290,10 @@ export class Nodes {
     const windX = world[0] * X16_M;
     const windY = world[1] * X16_M;
     const windZ = world[2] * X16_M;
-    const gravity = ((rec.gravity * 4096) / -100) * X16_M;
+    // +0x72: `(v << 12) / -100`, truncated (0x0042b008): x16 world units a
+    // second squared on the linear walk, the spring's factor on the radial.
+    const factor = Math.trunc((rec.gravity * 4096) / -100);
+    const gravity = factor * X16_M;
     let made = 0;
     for (let k = 0; k < n; k++) {
       const i = this.count;
@@ -241,8 +326,8 @@ export class Nodes {
       if (divisor < 0) divisor = Math.max(1, Math.floor(Math.random() * -divisor));
       const coef = divisor > 0 ? (rec.drag * Math.floor(0x1000000 / divisor)) / 4096 : 0;
       this.drag[i] = coef / 4096;
-      this.radial[i] = (rec.walkFlags & 0x01) !== 0 ? 1 : 0;
-      this.gravity[i] = this.radial[i] !== 0 ? (rec.gravity * 4096) / -100 / 4096 : gravity;
+      this.radial[i] = (rec.walkFlags & WALK_RADIAL) !== 0 ? 1 : 0;
+      this.gravity[i] = this.radial[i] !== 0 ? factor / 4096 : gravity;
       this.ox[i] = cx;
       this.oy[i] = cy;
       this.oz[i] = cz;
@@ -250,8 +335,11 @@ export class Nodes {
         this.from[i * 3 + c] = rec.colourA[c];
         this.to[i * 3 + c] = rec.colourB[c];
         this.rgb[i * 3 + c] = rec.colourA[c];
+        // The budget is one number; it rides in the first channel's slot.
+        this.step[i * 3 + c] =
+          rampMode === RAMP_BUDGET ? (c === 0 ? rec.rampStep[0] : 0) : rec.rampStep[c];
       }
-      this.ramp[i] = ramp;
+      this.rampMode[i] = rampMode;
       this.age[i] = 0;
       this.life[i] = life;
       let size = rec.rectSize;
@@ -300,12 +388,7 @@ export class Nodes {
       this.x[i] += this.vx[i] * s;
       this.y[i] += this.vy[i] * s;
       this.z[i] += this.vz[i] * s;
-      const ramp = this.ramp[i];
-      const f = ramp > 0 ? Math.min(1, this.age[i] / ramp) : 0;
-      for (let c = 0; c < 3; c++) {
-        const a = this.from[i * 3 + c];
-        this.rgb[i * 3 + c] = a + (this.to[i * 3 + c] - a) * f;
-      }
+      rampNode(this.rampMode[i], this.rgb, i * 3, this.step, this.from, this.to, s);
       // The floor, one frame in eight, for a falling node.
       if (
         this.ground[i] !== 0 &&
@@ -344,8 +427,9 @@ export class Nodes {
         this.rgb[i * 3 + c] = this.rgb[last * 3 + c];
         this.from[i * 3 + c] = this.from[last * 3 + c];
         this.to[i * 3 + c] = this.to[last * 3 + c];
+        this.step[i * 3 + c] = this.step[last * 3 + c];
       }
-      this.ramp[i] = this.ramp[last];
+      this.rampMode[i] = this.rampMode[last];
       this.age[i] = this.age[last];
       this.life[i] = this.life[last];
       this.size[i] = this.size[last];

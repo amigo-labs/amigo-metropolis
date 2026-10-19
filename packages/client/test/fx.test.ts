@@ -19,6 +19,7 @@ import { EffectChain, fxArenaFor, makeRaiseAt, ROUND_TOKEN } from "../src/effect
 import { FX_EXE, FX_RECORDS } from "../src/effects/fcopEffects.generated";
 import { IMPACT_SCALE, SHELL_SPHERE } from "../src/effects/records";
 import { createFx, createFxPoses, type FxPoseResolver, POSE_STRIDE } from "../src/render/fx";
+import { rampNode } from "../src/render/fx/nodes";
 import { domeRingColour } from "../src/render/fx/shells";
 import { TEAM_UV_ATTR } from "../src/render/teamUv";
 
@@ -179,6 +180,61 @@ describe("the dome", () => {
     // Conft 1:143, open at the top: near (0, 0, 0) to far (127, 96, 0) over two.
     expect([2, 3, 4].map((k) => domeRingColour(0, 127, k, 2))).toEqual([0, 63, 127]);
     expect([2, 3, 4].map((k) => domeRingColour(0, 96, k, 2))).toEqual([0, 48, 96]);
+  });
+});
+
+describe("the node ramp (0x0042b090 / 0x0042a550 / 0x0042a4d0)", () => {
+  const rgb = new Float32Array(3);
+  const step = new Float32Array(3);
+  const from = new Float32Array(3);
+  const to = new Float32Array(3);
+  const set = (t: Float32Array, v: readonly number[]) => t.set(v);
+
+  test("one budget drains blue, then green, then red, and never reads colour_b", () => {
+    set(rgb, [96, 96, 96]);
+    set(from, [96, 96, 96]);
+    set(to, [48, 96, 96]); // Mp 0:5's colour_b, unread
+    set(step, [144, 0, 0]); // (96 * 3 << 12) / 8192, a second
+    rampNode(1, rgb, 0, step, from, to, 0.5);
+    expect([...rgb]).toEqual([96, 96, 24]);
+    rampNode(1, rgb, 0, step, from, to, 0.5);
+    expect([...rgb]).toEqual([96, 48, 0]);
+    rampNode(1, rgb, 0, step, from, to, 1);
+    expect([...rgb]).toEqual([0, 0, 0]);
+  });
+
+  test("red gates the budget: with red at 0 nothing moves", () => {
+    set(rgb, [0, 75, 16]);
+    set(step, [90, 0, 0]);
+    rampNode(1, rgb, 0, step, from, to, 1);
+    expect([...rgb]).toEqual([0, 75, 16]);
+  });
+
+  test("each channel walks toward colour_b and stops there; a bounce turns back", () => {
+    set(rgb, [16, 75, 0]);
+    set(from, [16, 75, 0]);
+    set(to, [0, 0, 0]);
+    set(step, [-10, -50, 0]); // Conft 0:15, 1.5 s
+    rampNode(0, rgb, 0, step, from, to, 1);
+    expect([...rgb]).toEqual([6, 25, 0]);
+    rampNode(0, rgb, 0, step, from, to, 1);
+    expect([...rgb]).toEqual([0, 0, 0]);
+    set(rgb, [64, 96, 127]);
+    set(from, [64, 96, 127]);
+    set(to, [127, 127, 127]);
+    set(step, [63, 31, 0]); // Conft 0:32, a bounce
+    rampNode(2, rgb, 0, step, from, to, 1.5);
+    expect(rgb[0]).toBe(127);
+    expect(step[0]).toBe(-63);
+    rampNode(2, rgb, 0, step, from, to, 0.5);
+    expect(rgb[0]).toBeCloseTo(95.5, 5);
+  });
+
+  test("the reachable records carry the export's step: a budget one number, else three", () => {
+    for (const rec of FX_RECORDS) {
+      if (rec.type !== 94) continue;
+      expect(rec.rampStep.length).toBe((rec.rampFlags & 1) !== 0 ? 1 : 3);
+    }
   });
 });
 
