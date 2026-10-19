@@ -11,7 +11,7 @@
 // DCSQuad as `pyro_spawn` does (RE world/pyro_chain.c), their random angles
 // drawn from `game_rand` seeded 0x457 (a stand-in for the original's wall
 // clock). Read from the mission bytes, the outposts' scripts, pa_models.json
-// and the object and decal manifests at RE 4f54187.
+// and the object and decal manifests at RE b344262.
 
 /** When a placement stands: always, until its outpost is claimed, or from then on. */
 export type SceneryShow = "always" | "unclaimed" | "claimed";

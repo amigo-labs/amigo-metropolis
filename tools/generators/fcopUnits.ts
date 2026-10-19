@@ -39,12 +39,24 @@
 // texel boxes, under every offset its role applies. The first arena in
 // SHARE_ORDER that has a model keeps the file; the others point at it.
 //
+// The weapons' models ride along: every `raw/fcop-fx/mp-objNNN-<what>.glb`
+// (units/manifest.ts FX_MODELS and the evidence raws beside them) is Mp's
+// export of Cobj NNN, copied unchanged.
+//
 //   bun run gen:paunits [--check] [--re-repo <path>]
 //
 // `--check` re-derives everything from the RE and exits 1 if a committed raw
 // or the generated table differs. Authoring-time only.
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { NodeIO } from "@gltf-transform/core";
 import { FCOP_ARENAS, type FcopArena, logicFile } from "./fcopArenas";
@@ -845,6 +857,20 @@ async function main(): Promise<void> {
       stale++;
     }
   }
+  // The weapons' models: Mp's exports under the names manifest.ts gives them.
+  let weapons = 0;
+  for (const name of readdirSync(join(RAW_DIR, "fcop-fx")).sort()) {
+    const m = /^mp-obj(\d{3})-.+\.glb$/.exec(name);
+    if (!m) continue;
+    weapons++;
+    const from = join(reRepo, "extracted", "objects", "Mp", `obj_${m[1]}.glb`);
+    const to = join(RAW_DIR, "fcop-fx", name);
+    if (!check) copyFileSync(from, to);
+    else if (!readFileSync(to).equals(readFileSync(from))) {
+      console.log(`${to} is not ${from}`);
+      stale++;
+    }
+  }
   for (const { arena, units: u } of reads) {
     console.log(
       `${arena.mapId} (${arena.mission}): sides ${u.sides.join("/")}, ` +
@@ -852,7 +878,9 @@ async function main(): Promise<void> {
         `${files.filter((f) => f.usedBy.includes(arena.mapId) && f.usedBy[0] !== arena.mapId).length} shared`,
     );
   }
-  console.log(`${files.length} unit model files${check ? " checked" : " written"}`);
+  console.log(
+    `${files.length} unit model files and ${weapons} weapon models${check ? " checked" : " written"}`,
+  );
   if (stale > 0) {
     console.error(`${stale} stale unit raw(s) or table: run bun run gen:paunits`);
     process.exit(1);

@@ -334,16 +334,17 @@ describe("committed arena unit models match the table", () => {
   test("the morphs kept are the raw's frames; nothing else keeps targets", async () => {
     for (const spec of ARENA_UNIT_MODELS) {
       const doc = await io.read(join(OUT_DIR, `${spec.file}.glb`));
-      const prim = doc.getRoot().listMeshes()[0].listPrimitives()[0];
+      const prims = doc.getRoot().listMeshes()[0].listPrimitives();
       if (!spec.morph) {
-        expect({ file: spec.file, targets: prim.listTargets().length }).toEqual({
-          file: spec.file,
-          targets: 0,
-        });
+        for (const prim of prims) {
+          expect({ file: spec.file, targets: prim.listTargets().length }).toEqual({
+            file: spec.file,
+            targets: 0,
+          });
+        }
         continue;
       }
-      const targets = prim.listTargets();
-      expect(targets.length).toBe(spec.morph.frames - 1);
+      for (const prim of prims) expect(prim.listTargets().length).toBe(spec.morph.frames - 1);
       if (spec.morph.source === "skeleton") continue;
       const raw = await io.read(join(RAW_DIR, spec.raw));
       const rawPrims = raw
@@ -352,35 +353,42 @@ describe("committed arena unit models match the table", () => {
         .flatMap((m) => m.listPrimitives())
         .filter((p) => !["tex10", "facer"].includes(p.getMaterial()?.getName() ?? ""));
       // Match each output vertex to its raw vertex by frame-0 position (the
-      // output is the raw shifted by the grounding offset).
-      const out = prim.getAttribute("POSITION");
-      const rawBase = rawPrims[0].getAttribute("POSITION");
-      if (!out || !rawBase) throw new Error("no positions");
-      const shift = [0, 1, 2].map(
-        (a) => (out.getMin([0, 0, 0])[a] as number) - keptBounds(raw).min[a],
+      // output is the raw shifted by the grounding offset), over every
+      // primitive on both sides: a model's faces come in one per draw mode.
+      const outMin = [0, 1, 2].map((a) =>
+        Math.min(...prims.map((p) => p.getAttribute("POSITION")?.getMin([0, 0, 0])[a] as number)),
       );
+      const shift = [0, 1, 2].map((a) => outMin[a] - keptBounds(raw).min[a]);
       const key = (p: number[]) => p.map((v) => Math.round(v * 1000)).join(",");
-      const rawIndex = new Map<string, number>();
+      const rawIndex = new Map<string, [Primitive, number]>();
       const e = [0, 0, 0];
-      for (let i = 0; i < rawBase.getCount(); i++) {
-        rawBase.getElement(i, e);
-        rawIndex.set(key([e[0] + shift[0], e[1] + shift[1], e[2] + shift[2]]), i);
+      for (const rp of rawPrims) {
+        const rawBase = rp.getAttribute("POSITION");
+        if (!rawBase) throw new Error("no positions");
+        for (let i = 0; i < rawBase.getCount(); i++) {
+          rawBase.getElement(i, e);
+          rawIndex.set(key([e[0] + shift[0], e[1] + shift[1], e[2] + shift[2]]), [rp, i]);
+        }
       }
       const d = [0, 0, 0];
       const rd = [0, 0, 0];
-      let matched = 0;
-      for (let i = 0; i < out.getCount(); i++) {
-        out.getElement(i, e);
-        const r = rawIndex.get(key(e));
-        if (r === undefined) continue;
-        matched++;
-        targets.forEach((t, k) => {
-          t.getAttribute("POSITION")?.getElement(i, d);
-          rawPrims[0].listTargets()[k].getAttribute("POSITION")?.getElement(r, rd);
-          for (let a = 0; a < 3; a++) expect(Math.abs(d[a] - rd[a])).toBeLessThan(1e-5);
-        });
+      for (const prim of prims) {
+        const out = prim.getAttribute("POSITION");
+        if (!out) throw new Error("no positions");
+        let matched = 0;
+        for (let i = 0; i < out.getCount(); i++) {
+          out.getElement(i, e);
+          const hit = rawIndex.get(key(e));
+          if (hit === undefined) continue;
+          matched++;
+          prim.listTargets().forEach((t, k) => {
+            t.getAttribute("POSITION")?.getElement(i, d);
+            hit[0].listTargets()[k].getAttribute("POSITION")?.getElement(hit[1], rd);
+            for (let a = 0; a < 3; a++) expect(Math.abs(d[a] - rd[a])).toBeLessThan(1e-5);
+          });
+        }
+        expect(matched).toBe(out.getCount());
       }
-      expect(matched).toBe(out.getCount());
     }
   });
 
@@ -395,26 +403,22 @@ describe("committed arena unit models match the table", () => {
     for (const spec of skeletons) {
       const frames = spec.morph?.frames ?? 0;
       const out = await io.read(join(OUT_DIR, `${spec.file}.glb`));
-      const prim = out.getRoot().listMeshes()[0].listPrimitives()[0];
-      const base = prim.getAttribute("POSITION");
-      if (!base) throw new Error("no positions");
+      const prims = out.getRoot().listMeshes()[0].listPrimitives();
       const raw = await io.read(join(RAW_DIR, spec.raw));
       const node = raw
         .getRoot()
         .listNodes()
         .find((n) => n.getSkin());
       const skin = node?.getSkin();
-      const rawPrim = node?.getMesh()?.listPrimitives()[0];
+      // A model's faces come in one primitive per draw mode, on both sides.
+      const rawPrims = node?.getMesh()?.listPrimitives() ?? [];
       const clip = raw
         .getRoot()
         .listAnimations()
         .find((a) => a.getName() === "full");
-      if (!skin || !rawPrim || !clip) throw new Error("not a skeleton");
+      if (!skin || rawPrims.length === 0 || !clip) throw new Error("not a skeleton");
       const ibm = skin.getInverseBindMatrices();
-      const pos = rawPrim.getAttribute("POSITION");
-      const ids = rawPrim.getAttribute("JOINTS_0");
-      const wts = rawPrim.getAttribute("WEIGHTS_0");
-      if (!ibm || !pos || !ids || !wts) throw new Error("no skin data");
+      if (!ibm) throw new Error("no skin data");
       const posed: number[][][] = [];
       for (let f = 0; f < frames; f++) {
         for (const ch of clip.listChannels()) {
@@ -434,51 +438,64 @@ describe("committed arena unit models match the table", () => {
         const p = [0, 0, 0];
         const id = [0, 0, 0, 0];
         const w = [0, 0, 0, 0];
-        for (let i = 0; i < pos.getCount(); i++) {
-          pos.getElement(i, p);
-          ids.getElement(i, id);
-          wts.getElement(i, w);
-          const q = [0, 0, 0];
-          let total = 0;
-          for (let k = 0; k < 4; k++) {
-            if (w[k] === 0) continue;
-            const m = joints[id[k]];
-            for (let a = 0; a < 3; a++) {
-              q[a] += w[k] * (m[a] * p[0] + m[4 + a] * p[1] + m[8 + a] * p[2] + m[12 + a]);
+        for (const rawPrim of rawPrims) {
+          const pos = rawPrim.getAttribute("POSITION");
+          const ids = rawPrim.getAttribute("JOINTS_0");
+          const wts = rawPrim.getAttribute("WEIGHTS_0");
+          if (!pos || !ids || !wts) throw new Error("no skin data");
+          for (let i = 0; i < pos.getCount(); i++) {
+            pos.getElement(i, p);
+            ids.getElement(i, id);
+            wts.getElement(i, w);
+            const q = [0, 0, 0];
+            let total = 0;
+            for (let k = 0; k < 4; k++) {
+              if (w[k] === 0) continue;
+              const m = joints[id[k]];
+              for (let a = 0; a < 3; a++) {
+                q[a] += w[k] * (m[a] * p[0] + m[4 + a] * p[1] + m[8 + a] * p[2] + m[12 + a]);
+              }
+              total += w[k];
             }
-            total += w[k];
+            frame.push(q.map((v) => v / total));
           }
-          frame.push(q.map((v) => v / total));
         }
         posed.push(frame);
       }
       // The grounding shift: frame 0's box against the output's.
       const lo = [0, 1, 2].map((a) => Math.min(...posed[0].map((v) => v[a])));
-      const shift = [0, 1, 2].map((a) => (base.getMin([0, 0, 0])[a] as number) - lo[a]);
+      const outLo = [0, 1, 2].map((a) =>
+        Math.min(...prims.map((q) => q.getAttribute("POSITION")?.getMin([0, 0, 0])[a] as number)),
+      );
+      const shift = [0, 1, 2].map((a) => outLo[a] - lo[a]);
       const key = (v: number[]) => v.map((c) => Math.round(c * 1000)).join(",");
       const rawAt = new Map(posed[0].map((v, i) => [key(v.map((c, a) => c + shift[a])), i]));
-      const targets = prim.listTargets();
       const e = [0, 0, 0];
       const d = [0, 0, 0];
-      let matched = 0;
-      for (let i = 0; i < base.getCount(); i++) {
-        base.getElement(i, e);
-        const r = rawAt.get(key(e));
-        if (r === undefined) continue;
-        matched++;
-        for (let f = 1; f < frames; f++) {
-          targets[f - 1].getAttribute("POSITION")?.getElement(i, d);
-          for (let a = 0; a < 3; a++) {
-            expect(Math.abs(d[a] - (posed[f][r][a] - posed[0][r][a]))).toBeLessThan(1e-4);
+      let most = 0;
+      for (const prim of prims) {
+        const base = prim.getAttribute("POSITION");
+        if (!base) throw new Error("no positions");
+        const targets = prim.listTargets();
+        let matched = 0;
+        for (let i = 0; i < base.getCount(); i++) {
+          base.getElement(i, e);
+          const r = rawAt.get(key(e));
+          if (r === undefined) continue;
+          matched++;
+          for (let f = 1; f < frames; f++) {
+            targets[f - 1].getAttribute("POSITION")?.getElement(i, d);
+            for (let a = 0; a < 3; a++) {
+              expect(Math.abs(d[a] - (posed[f][r][a] - posed[0][r][a]))).toBeLessThan(1e-4);
+            }
           }
         }
-      }
-      expect(matched).toBe(base.getCount());
-      // The wings beat: some vertex moves a hand's breadth or more.
-      let most = 0;
-      for (const t of targets) {
-        const a = t.getAttribute("POSITION")?.getArray() ?? [];
-        for (const v of a) most = Math.max(most, Math.abs(v));
+        expect(matched).toBe(base.getCount());
+        // The wings beat: some vertex moves a hand's breadth or more.
+        for (const t of targets) {
+          const a = t.getAttribute("POSITION")?.getArray() ?? [];
+          for (const v of a) most = Math.max(most, Math.abs(v));
+        }
       }
       expect(most).toBeGreaterThan(0.1);
     }
