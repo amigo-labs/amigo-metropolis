@@ -554,6 +554,8 @@ interface ObjectManifest {
     frames_actual: number;
     tris: number;
     quads: number;
+    /** Its camera-facing billboards, lines and stars (RE objects.md "Facers"). */
+    facers?: number;
   }[];
 }
 
@@ -638,18 +640,19 @@ function emitterTables(
   }
   props.sort(byRecord);
   quads.sort(byRecord);
-  // A model is drawn where the RE exports it with faces of its own. One of
-  // Star / Billboard / Line facers only is not: the original faces them to
-  // the camera, and the RE's glb stands them in as static crossed quads, its
-  // billboards and lines white (tools/gfx/obj_mesh.py _build_facers) — Hk 65,
-  // Slim 63, Joke 62; Slim 83 and Joke 82, lines only, it does not export.
+  // A model is drawn where the RE exports it with faces or facers of its own:
+  // the camera-facing billboards, lines and stars are the glb's records now
+  // (RE objects.md "Facers"), which render/facers.ts turns to the camera, so
+  // the five Props of facers only (Hk 65, Slim 63 / 83, Joke 62 / 82) draw
+  // too. The RE's static white stand-ins for them are dropped by gen:units.
   const propModels: [number, { frames: number; drawn: boolean }][] = [
     ...new Set(props.map((p) => p.cobj)),
   ]
     .sort((a, b) => a - b)
     .map((cobj) => {
       const o = byId.get(cobj);
-      return [cobj, { frames: frames(cobj), drawn: !!o?.glb && o.tris + o.quads > 0 }];
+      const drawn = !!o?.glb && (o.tris + o.quads > 0 || (o.facers ?? 0) > 0);
+      return [cobj, { frames: frames(cobj), drawn }];
     });
   const manifest = JSON.parse(
     readFileSync(join(reRepo, "extracted", "decals", "manifest.json"), "utf8"),
@@ -853,9 +856,8 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     "}",
     "",
     "/**",
-    " * A Prop model: its frame count, and whether it is drawn — not where it is",
-    " * Star / Billboard / Line facers only, which the original faces to the camera",
-    " * and the RE stands in as static geometry (or does not export).",
+    " * A Prop model: its frame count, and whether it is drawn — every model the",
+    " * RE exports with faces or camera-facing facers (render/facers.ts).",
     " */",
     "export interface SceneryPropModel {",
     "  readonly frames: number;",

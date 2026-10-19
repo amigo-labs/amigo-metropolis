@@ -31,13 +31,15 @@
 // origin (the original's of its box's placed centre, a few centimetres off).
 // The sound a Prop plays is the audio's (audio/cues.ts).
 //
-// Not modelled: the facers (stars, billboards) facing the camera — they draw as
-// the RE exports them.
+// The camera-facing facers (stars, billboards, lines) of a model draw from its
+// records on the instance's matrix and frame (render/facers.ts), a model of
+// facers only included.
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { ArenaScenery, SceneryProp } from "./arenaScenery.generated";
 import { cellXOf, cellZOf, type DrawWindow, inDrawWindow } from "./drawWindow";
+import { parseFacers, registerFacers } from "./facers";
 import { faceMaterials, mergeFcopModel } from "./fcopModel";
 import { disposeSubtree } from "./meshMap";
 import { RECORD_TURN, recordTurn } from "./recordYaw";
@@ -180,11 +182,14 @@ interface EmitterMesh {
   readonly cellX: Int16Array;
   readonly shown: Uint8Array;
   readonly rest: Float32Array;
-  /** The morph texture and the frame each instance shows (-1 unwritten). */
+  /** Some record steps the model's frames. */
+  readonly animated: boolean;
+  /** The frame each instance shows (-1 unwritten): its morph's and its facers'. */
+  readonly frame: Int16Array;
+  /** The morph texture, a row per instance. */
   readonly morph: {
     readonly texture: THREE.DataTexture;
     readonly len: number;
-    readonly shown: Int16Array;
   } | null;
 }
 
@@ -218,13 +223,21 @@ export function loadEmitters(
           return;
         }
         const model = await mergeFcopModel(gltf);
-        const geometry = model.geometry;
-        if (!geometry) {
-          console.warn(`[props] no faces in ${at}, skipping`);
+        const facers = parseFacers(model.extras);
+        if (!model.geometry && !facers) {
+          console.warn(`[props] nothing to draw in ${at}, skipping`);
           return;
         }
-        // A material per draw mode (render/fcopModel.ts).
-        const mesh = new THREE.InstancedMesh(geometry, faceMaterials(model), props.length);
+        // A material per draw mode (render/fcopModel.ts). A model of facers
+        // only (Hk 65, Slim 63 / 83, Joke 62 / 82) has no faces: its mesh
+        // draws nothing and holds the instances' matrices its facers ride.
+        const geometry = model.geometry ?? new THREE.BufferGeometry();
+        const mesh = new THREE.InstancedMesh(
+          geometry,
+          model.geometry ? faceMaterials(model) : new THREE.MeshBasicMaterial(),
+          props.length,
+        );
+        if (!model.geometry) mesh.visible = false;
         mesh.frustumCulled = false;
         mesh.matrixAutoUpdate = false;
         mesh.updateMatrix();
@@ -237,7 +250,8 @@ export function loadEmitters(
         const frames = scenery.propModels[cobj]?.frames ?? 1;
         const targets = geometry.morphAttributes.position?.length ?? 0;
         let morph: EmitterMesh["morph"] = null;
-        if (props.some((p) => p.anim !== "none")) {
+        const animated = props.some((p) => p.anim !== "none");
+        if (animated && model.geometry) {
           if (targets === frames - 1) {
             const len = targets + 1;
             const texture = new THREE.DataTexture(
@@ -249,12 +263,15 @@ export function loadEmitters(
             );
             texture.needsUpdate = true;
             mesh.morphTexture = texture;
-            morph = { texture, len, shown: new Int16Array(props.length).fill(-1) };
+            morph = { texture, len };
           } else {
             console.warn(`[props] ${at}: ${targets} morph targets for ${frames} frames`);
           }
         }
         group.add(mesh);
+        const frame = new Int16Array(props.length).fill(-1);
+        // The facers ride each instance's matrix on its frame (render/facers.ts).
+        registerFacers(mesh, facers, model.map, { frames: frame });
         meshes.push({
           mesh,
           props,
@@ -264,6 +281,8 @@ export function loadEmitters(
           cellX: Int16Array.from(props, (p) => cellXOf(p.y)),
           shown: new Uint8Array(props.length).fill(1),
           rest: Float32Array.from(mesh.instanceMatrix.array),
+          animated,
+          frame,
           morph,
         });
         // A model that arrives late stands at the clock it arrives on, in the
@@ -323,21 +342,21 @@ export function updateEmitters(now: number): void {
       if (em.shown[i] !== 0) spinAt(em, i, now);
     }
     if (spinning.length > 0) em.mesh.instanceMatrix.needsUpdate = true;
+    if (!em.animated) continue;
     const morph = em.morph;
-    if (morph) {
-      const a = morph.texture.image.data as Float32Array;
-      let dirty = false;
-      for (let i = 0; i < em.props.length; i++) {
-        const frame = emitterFrame(em.props[i], em.frames, now);
-        if (morph.shown[i] === frame) continue;
-        morph.shown[i] = frame;
-        // Frame k + 1 is target k at weight 1 (gen:units); the base counts in full.
-        const row = i * morph.len;
-        a[row] = 1;
-        for (let k = 1; k < morph.len; k++) a[row + k] = k === frame ? 1 : 0;
-        dirty = true;
-      }
-      if (dirty) morph.texture.needsUpdate = true;
+    const a = morph ? (morph.texture.image.data as Float32Array) : null;
+    let dirty = false;
+    for (let i = 0; i < em.props.length; i++) {
+      const frame = emitterFrame(em.props[i], em.frames, now);
+      if (em.frame[i] === frame) continue;
+      em.frame[i] = frame;
+      if (!morph || !a) continue;
+      // Frame k + 1 is target k at weight 1 (gen:units); the base counts in full.
+      const row = i * morph.len;
+      a[row] = 1;
+      for (let k = 1; k < morph.len; k++) a[row + k] = k === frame ? 1 : 0;
+      dirty = true;
     }
+    if (morph && dirty) morph.texture.needsUpdate = true;
   }
 }

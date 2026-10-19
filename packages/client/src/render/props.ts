@@ -54,6 +54,7 @@ import {
 import { arenaUnitsFor } from "./arenaUnits";
 import { loadDecals } from "./decals";
 import { loadEmitters, updateEmitters } from "./emitterProps";
+import { parseFacers, registerFacers } from "./facers";
 import { faceMaterials, mergeFcopModel } from "./fcopModel";
 import { disposeSubtree } from "./meshMap";
 import { recordTurn } from "./recordYaw";
@@ -345,6 +346,8 @@ function addPropMesh(
         console.warn(`[props] ${url}: ${targets} morph targets for ${track.frames} frames`);
       }
       group.add(mesh);
+      // Its camera-facing facers, if it has any (render/facers.ts).
+      registerFacers(mesh, parseFacers(model.extras), atlas);
       meshes.push({
         mesh,
         placements,

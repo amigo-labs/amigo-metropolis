@@ -748,8 +748,9 @@ export const PROP_MODELS: readonly PropModelSpec[] = ARENA_SCENERY.flatMap((aren
 // Prop as a sound emitter around its model (RE snd/emitter.c), not as an
 // actor: what each one is the records and their models say, not a role. A
 // model some record steps through its frames keeps them as morph targets
-// (render/props.ts plays them); one of camera-facing facers only (Hk 65, Slim
-// 63 and 83, Joke 62 and 82) is not built (gen:scenery `drawn`).
+// (render/props.ts plays them). One of camera-facing facers only (Hk 65, Slim
+// 63 and 83, Joke 62 and 82) is built too: a glb of its facers' records and
+// the atlas they sample, no mesh (render/facers.ts draws them).
 export const EMITTER_PROP_MODELS: readonly PropModelSpec[] = Object.entries(
   SCENERY_PLACEMENTS,
 ).flatMap(([mapId, scenery]) =>

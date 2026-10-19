@@ -33,6 +33,7 @@ function model(groups: Omit<FaceGroup, "start" | "count" | "map">[]): FcopModel 
     geometry,
     map,
     groups: groups.map((g, i) => ({ ...g, map, start: i * 6, count: 6 })),
+    extras: undefined,
   };
 }
 

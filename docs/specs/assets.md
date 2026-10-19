@@ -98,6 +98,21 @@ forever as a debug render mode (`?render=greybox`).
   patch packed beside the pages, so one atlas still serves the model. Units are
   grounded and sized on their body, the faces that do not add: the Sky
   Captain's searchlight cones are light.
+- **The camera-facing facers are screen geometry, drawn from their records**
+  (`render/facers.ts`; RE `docs/formats/objects.md` "Facers"). `cobj_prim_emit`
+  builds a billboard, rect, line or star on the screen every frame; the glb
+  carries them as records in its root extras (gen:units moves them with the
+  mesh and puts their (u, v) on the atlas) and keeps no geometry for them.
+  The declared split: each model with facers gets, beside its InstancedMesh,
+  one dynamic batch per blend (textured add, half, opaque; the stars), rebuilt
+  every frame into preallocated buffers from that InstancedMesh's own instance
+  matrices — `render/fx/ribbons.ts`' RibbonBuffer, the same path the bolts take.
+  Not an InstancedMesh per facer kind: a facer's corners depend on the camera
+  and on each end's depth (a line's normal is its on-screen direction turned
+  90 degrees, a star's wedge count its on-screen radius), which is the
+  original's CPU work per frame, and the batch reads the archetype's matrices
+  rather than holding a second set. No Object3D tree, `matrixAutoUpdate` off,
+  nothing allocated in the frame loop.
 - Named nodes for code-driven animation (rigid transforms, no skinning):
   `root, hull, turret_yaw, barrel_pitch, leg_l, leg_r, fx_muzzle, fx_thruster`.
 - **The X1-Alpha is the original's rig, one InstancedMesh** (`bun run gen:x1`,
@@ -192,7 +207,9 @@ forever as a debug render mode (`?render=greybox`).
   kept (`keepOrigin`: a lamp hangs below its origin) and the frames a record
   steps as morph targets. `render/emitterProps.ts` draws them, one InstancedMesh
   per model, turning the spinning ones and stepping the frames per frame. A
-  model of camera-facing facers only is not built (`drawn: false`). A type-97
+  model of camera-facing facers only (Hk 65, Slim 63 / 83, Joke 62 / 82) is
+  built as its facers' records and their atlas, and its InstancedMesh, empty
+  and hidden, holds the matrices they ride (render/facers.ts). A type-97
   DCSQuad is a decal quad: its Cdcs rect's crop is copied unchanged into
   `public/models/decals/<mapId>/`, and `render/decals.ts` draws the quads, one
   InstancedMesh per image, additively with the record's doubled tint.

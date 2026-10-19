@@ -11,7 +11,7 @@
 // DCSQuad as `pyro_spawn` does (RE world/pyro_chain.c), their random angles
 // drawn from `game_rand` seeded 0x457 (a stand-in for the original's wall
 // clock). Read from the mission bytes, the outposts' scripts, pa_models.json
-// and the object and decal manifests at RE b344262.
+// and the object and decal manifests at RE 04711ef.
 
 /** When a placement stands: always, until its outpost is claimed, or from then on. */
 export type SceneryShow = "always" | "unclaimed" | "claimed";
@@ -86,9 +86,8 @@ export interface SceneryProp {
 }
 
 /**
- * A Prop model: its frame count, and whether it is drawn — not where it is
- * Star / Billboard / Line facers only, which the original faces to the camera
- * and the RE stands in as static geometry (or does not export).
+ * A Prop model: its frame count, and whether it is drawn — every model the
+ * RE exports with faces or camera-facing facers (render/facers.ts).
  */
 export interface SceneryPropModel {
   readonly frames: number;
@@ -3809,7 +3808,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       60: { frames: 1, drawn: true },
       61: { frames: 15, drawn: true },
       62: { frames: 1, drawn: true },
-      63: { frames: 1, drawn: false },
+      63: { frames: 1, drawn: true },
       65: { frames: 1, drawn: true },
       66: { frames: 1, drawn: true },
       67: { frames: 1, drawn: true },
@@ -3827,7 +3826,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       80: { frames: 1, drawn: true },
       81: { frames: 1, drawn: true },
       82: { frames: 1, drawn: true },
-      83: { frames: 10, drawn: false },
+      83: { frames: 10, drawn: true },
     },
     quads: [
       {
@@ -6819,7 +6818,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       59: { frames: 1, drawn: true },
       60: { frames: 15, drawn: true },
       61: { frames: 1, drawn: true },
-      62: { frames: 1, drawn: false },
+      62: { frames: 1, drawn: true },
       64: { frames: 1, drawn: true },
       65: { frames: 1, drawn: true },
       66: { frames: 1, drawn: true },
@@ -6837,7 +6836,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       79: { frames: 1, drawn: true },
       80: { frames: 1, drawn: true },
       81: { frames: 1, drawn: true },
-      82: { frames: 10, drawn: false },
+      82: { frames: 10, drawn: true },
     },
     quads: [
       {
@@ -10612,7 +10611,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       62: { frames: 9, drawn: true },
       63: { frames: 1, drawn: true },
       64: { frames: 1, drawn: true },
-      65: { frames: 1, drawn: false },
+      65: { frames: 1, drawn: true },
       66: { frames: 1, drawn: true },
       67: { frames: 1, drawn: true },
       68: { frames: 1, drawn: true },

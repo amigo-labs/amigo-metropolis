@@ -58,6 +58,8 @@ export interface FcopModel {
   readonly groups: readonly FaceGroup[];
   /** The texture its faces and facers sample: the first group's, or the glb's first. */
   readonly map: THREE.Texture | null;
+  /** The root node's extras: the facers' records (render/facers.ts parseFacers). */
+  readonly extras: unknown;
 }
 
 interface FcopExtras {
@@ -80,6 +82,7 @@ function modeOf(material: THREE.Material): { mode: FaceMode; tint: readonly numb
  * texture 0, the atlas its facers sample.
  */
 export async function mergeFcopModel(gltf: GLTF): Promise<FcopModel> {
+  const extras = (gltf.parser.json as { nodes?: { extras?: unknown }[] }).nodes?.[0]?.extras;
   gltf.scene.updateMatrixWorld(true);
   const geometries: THREE.BufferGeometry[] = [];
   const keys: { mode: FaceMode; tint: readonly number[] | null; map: THREE.Texture | null }[] = [];
@@ -99,12 +102,23 @@ export async function mergeFcopModel(gltf: GLTF): Promise<FcopModel> {
     material.dispose(); // material only — the kept map texture survives
   });
   if (geometries.length === 0) {
-    const textures = (gltf.parser.json as { textures?: unknown[] }).textures ?? [];
+    // No material names the atlas, so the glb lists it as an image alone.
+    const parser = gltf.parser as unknown as {
+      json: { images?: unknown[] };
+      textureLoader: THREE.Loader;
+      loadImageSource(index: number, loader: THREE.Loader): Promise<THREE.Texture>;
+    };
     const map =
-      textures.length > 0
-        ? ((await gltf.parser.getDependency("texture", 0)) as THREE.Texture)
+      (parser.json.images?.length ?? 0) > 0
+        ? await parser.loadImageSource(0, parser.textureLoader)
         : null;
-    return { geometry: null, groups: [], map };
+    // As GLTFLoader sets a texture's: glTF's (u, v) are not flipped. Left raw
+    // (no colour space): render/facers.ts reads its bytes as they are.
+    if (map) {
+      map.flipY = false;
+      map.needsUpdate = true;
+    }
+    return { geometry: null, groups: [], map, extras };
   }
   const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries, true);
   if (!merged) throw new Error("unmergeable model");
@@ -117,7 +131,7 @@ export async function mergeFcopModel(gltf: GLTF): Promise<FcopModel> {
     start += n;
     return group;
   });
-  return { geometry: merged, groups, map: keys[0].map };
+  return { geometry: merged, groups, map: keys[0].map, extras };
 }
 
 /** How a loader draws the faces it does not blend: lit, or unlit (the weapons). */

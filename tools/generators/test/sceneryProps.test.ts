@@ -191,21 +191,15 @@ describe("every arena's Props and DCSQuads", () => {
     }
   });
 
-  test("leave only the camera-facing facer models undrawn", () => {
+  // The five of camera-facing facers only draw too: their records are the
+  // glbs' (render/facers.ts), no longer the RE's static white stand-ins.
+  test("draw every Prop model, the facer-only ones included", () => {
     const undrawn = Object.entries(SCENERY_PLACEMENTS).flatMap(([mapId, s]) =>
       Object.entries(s.propModels)
         .filter(([, m]) => !m.drawn)
         .map(([cobj]) => `${mapId}/${cobj}`),
     );
-    expect(undrawn.sort()).toEqual(
-      [
-        "bug-hunt/62",
-        "bug-hunt/82",
-        "hollywood-keys/65",
-        "proving-ground/63",
-        "proving-ground/83",
-      ].sort(),
-    );
+    expect(undrawn).toEqual([]);
   });
 
   test("draw Hk's 44 random yaws from the one stream, every one in 12 bits", () => {

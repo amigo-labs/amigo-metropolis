@@ -730,6 +730,7 @@ function placeFacers(
     }
     const s = slot(f.texture);
     out.uv = f.uv.map(([u, v]) => [round6((s.offset + u * s.width) / s.atlasWidth), v]);
+    // The atlas: the glb's one image (its one texture, where a face samples it).
     out.texture = 0;
     return out;
   });
@@ -1414,7 +1415,8 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
     (t) => t !== PropertyType.TEXTURE && t !== PropertyType.BUFFER,
   );
   if (!textured) {
-    await document.transform(weld(), prune());
+    // A node of facers alone is a leaf, and kept for its records.
+    await document.transform(weld(), prune({ keepLeaves: prims.length === 0 }));
   } else {
     // A node of facers alone is a leaf, and kept for its records.
     await document.transform(prune({ propertyTypes: keep, keepLeaves: prims.length === 0 }));

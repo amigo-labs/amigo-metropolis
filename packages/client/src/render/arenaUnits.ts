@@ -59,6 +59,7 @@ import {
   UNIT_MODEL_FILES,
   type UnitMorph,
 } from "./arenaUnits.generated";
+import { type FacerSet, parseFacers, registerFacers } from "./facers";
 import { materialList, materialMap } from "./fcopModel";
 import type { Bucket, GreyboxMeshes } from "./greybox";
 import { SIDE_RAMPS } from "./palette";
@@ -375,20 +376,26 @@ const scratchRest = new THREE.Quaternion();
 const scratchAt = new THREE.Vector3();
 const scratchGunPoint = new THREE.Vector3();
 
-/** One file per session: its geometry is already turned onto the sim's +x. */
-const assets = new Map<string, Promise<UnitAsset>>();
+/** A unit file once loaded: its geometry and facers turned onto the sim's +x. */
+interface TurnedAsset extends UnitAsset {
+  readonly facers: FacerSet | null;
+}
 
-function assetOf(file: string): Promise<UnitAsset> {
+/** One file per session. */
+const assets = new Map<string, Promise<TurnedAsset>>();
+
+function assetOf(file: string): Promise<TurnedAsset> {
   let pending = assets.get(file);
   if (!pending) {
     pending = loadUnitAsset(file).then((asset) => {
       // Models are authored +Z forward (assets.md §4); the sim/greybox frame
       // is +X forward, so bake the quarter turn into the geometry once — and
-      // into a morph's deltas, which BufferGeometry.rotateY leaves alone.
+      // into a morph's deltas, which BufferGeometry.rotateY leaves alone, and
+      // the facers' points (the Sky Captain's line facers, render/facers.ts).
       asset.geometry.rotateY(Math.PI / 2);
       const turn = new THREE.Matrix4().makeRotationY(Math.PI / 2);
       for (const delta of asset.geometry.morphAttributes.position ?? []) delta.applyMatrix4(turn);
-      return asset;
+      return { ...asset, facers: parseFacers(asset.extras, true) };
     });
     // A failed file may be retried on the next arena build.
     pending.catch(() => assets.delete(file));
@@ -557,6 +564,10 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
           }
           bucket.mesh.geometry = geometry;
           bucket.mesh.material = asset.material;
+          // Its facers, with the slot's team offset (RE model_shade.c
+          // 0x00427f0d adds it to a facer's (u, v) as to a face's). Frame 0:
+          // no unit with facers keeps a morph.
+          registerFacers(bucket.mesh, asset.facers, asset.map, { teamUv: true });
           // A greybox tint must not multiply into the texels.
           bucket.mesh.instanceColor = null;
           bindMorph(bucket, file, asset.geometry);

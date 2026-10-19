@@ -95,8 +95,11 @@ void main() {
   ${FX_OUTPUT}
 }`;
 
-/** A ribbon mesh's buffers, filled from scratch every frame. */
-class RibbonBuffer {
+/**
+ * A ribbon mesh's buffers, filled from scratch every frame. The models' own
+ * camera-facing facers fill theirs the same way (render/facers.ts).
+ */
+export class RibbonBuffer {
   readonly mesh: THREE.Mesh;
   readonly pos: Float32Array;
   readonly colour: Float32Array;
@@ -168,6 +171,13 @@ class RibbonBuffer {
   end(): void {
     this.g.setDrawRange(0, this.n);
     for (let k = 0; k < this.attrs.length; k++) this.attrs[k].needsUpdate = true;
+  }
+
+  /** Takes the mesh out of its scene and frees its buffers and material. */
+  dispose(): void {
+    this.mesh.removeFromParent();
+    this.g.dispose();
+    (this.mesh.material as THREE.Material).dispose();
   }
 }
 

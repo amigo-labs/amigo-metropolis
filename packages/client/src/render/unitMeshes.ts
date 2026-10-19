@@ -16,6 +16,7 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { parseFacers, registerFacers } from "./facers";
 import { faceMaterials, materialList, mergeFcopModel } from "./fcopModel";
 import type { Bucket, GreyboxMeshes } from "./greybox";
 import { patchTeamUv, prepareTeamUvMask } from "./teamUv";
@@ -73,6 +74,8 @@ export interface UnitAsset {
   readonly material: THREE.Material | THREE.Material[];
   /** The atlas every face samples: the team offset is measured on it. */
   readonly map: THREE.Texture | null;
+  /** The root node's extras: the facers' records, model space (render/facers.ts). */
+  readonly extras: unknown;
 }
 
 /**
@@ -114,15 +117,17 @@ export async function loadUnitAsset(
   const team = dir === "units";
   const material = faceMaterials(model, { unlit, patch: team ? patchTeamUv : undefined });
   if (team) prepareTeamUvMask(geometry);
-  return { geometry, material, map };
+  return { geometry, material, map, extras: model.extras };
 }
 
 function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean): void {
   loadUnitAsset(key, dir, unlit).then(
-    ({ geometry, material }) => {
+    ({ geometry, material, map, extras }) => {
       // Models are authored +Z forward (assets.md §4); the sim/greybox frame
-      // is +X forward, so bake the quarter turn into the geometry once.
+      // is +X forward, so bake the quarter turn into the geometry once — and
+      // into the facers (the rockets' glows are stars: render/facers.ts).
       geometry.rotateY(Math.PI / 2);
+      registerFacers(bucket.mesh, parseFacers(extras, true), map);
       bucket.mesh.geometry.dispose();
       bucket.mesh.geometry = geometry;
       for (const m of materialList(bucket.mesh.material)) m.dispose();

@@ -152,6 +152,7 @@ import {
 } from "./render/drawWindow";
 import { lerpGunYaws } from "./render/dreadnoughtGuns";
 import { setEmitterWindow } from "./render/emitterProps";
+import { drawFacers, initFacers } from "./render/facers";
 import { materialList } from "./render/fcopModel";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx, createFxPoses, POSE_STRIDE } from "./render/fx";
@@ -778,6 +779,8 @@ function makeSkyTexture(): THREE.Texture {
 }
 
 const scene = new THREE.Scene();
+// The models' camera-facing facers join it as their models load (render/facers.ts).
+initFacers(scene);
 scene.background = makeSkyTexture();
 // Distance fog fades the far ground into the dusk haze before the arena edge /
 // void can be framed (at the ACTION pitch the camera sees ~170u past its focus).
@@ -2343,6 +2346,7 @@ function frame(now: number): void {
     // above): the flyover.
     updateFlyoverCamera(flyCam, now / 1000, extent);
     if (phase === "match") fx.update(dtSec, flyCam, simDtSec);
+    drawFacers(flyCam, renderer.domElement.height);
     renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.setScissor(0, 0, innerWidth, innerHeight);
     renderScene(flyCam);
@@ -2369,6 +2373,9 @@ function frame(now: number): void {
       if (v === 0 && phase === "match") fx.update(dtSec, view.camera, simDtSec);
       // The Props and DCSQuads in the eye's 5 x 5 block of cells only.
       if (v === 0 && phase === "match") placeViewWindow(view);
+      // The models' camera-facing facers, on every instance matrix written
+      // this frame (render/facers.ts), turned to the local view's camera.
+      if (v === 0) drawFacers(view.camera, renderer.domElement.height);
       const vp = view.viewport;
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
