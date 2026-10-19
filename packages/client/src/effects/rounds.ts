@@ -10,6 +10,15 @@
 // projectiles are matched to the launches of that tick by where they spawned
 // (the shooter's muzzle: `spawnStraight`). Presentation only: nothing here is
 // read back by the sim.
+//
+// A round also carries the impact its death raises: every launched round has
+// the direct flag 0x40000 (the type-7 and type-0x0f constructs' `or ecx,
+// 0x840002`, 0x00423d50 / 0x004242d5; the missile's 0x00422fc6), so
+// `cact_effect_emit` 0x0042b910 starts its +0x20 — the weapon block's +0x1a —
+// as the effect id itself (0x0042b92e), in the bank of its owner
+// (`cact_effect_bank` 0x0042bf50: 1 for the player's partner, which launches
+// every player round, else 0). So the launch notes the block's impact and its
+// bank, and the round's death reads them back (`impact`).
 
 import { MAX_ENTITIES } from "@metropolis/sim";
 
@@ -36,11 +45,19 @@ export type BindListener = (token: number, entity: number) => void;
 export class RoundTracker {
   /** Per entity: the world row its round came from (0 unknown or a player's). */
   readonly row = new Uint8Array(MAX_ENTITIES);
+  /** Per entity: the impact its death raises (0 none known) and that impact's bank. */
+  readonly impactId = new Uint16Array(MAX_ENTITIES);
+  readonly impactBank = new Uint8Array(MAX_ENTITIES);
+  /** The last `impact`'s round: its impact id (0 none known) and bank. */
+  lastImpactId = 0;
+  lastImpactBank = 0;
   /** Per entity: its projectile kind in the last snapshot, -1 not a projectile. */
   private readonly kind = new Int16Array(MAX_ENTITIES).fill(-1);
   private readonly launchX = new Float32Array(MAX_LAUNCHES);
   private readonly launchZ = new Float32Array(MAX_LAUNCHES);
   private readonly launchRow = new Uint8Array(MAX_LAUNCHES);
+  private readonly launchImpact = new Uint16Array(MAX_LAUNCHES);
+  private readonly launchBank = new Uint8Array(MAX_LAUNCHES);
   private launches = 0;
   private readonly listeners: BindListener[] = [];
 
@@ -51,21 +68,26 @@ export class RoundTracker {
   /** A new match: nothing in flight is known. */
   reset(): void {
     this.row.fill(0);
+    this.impactId.fill(0);
+    this.impactBank.fill(0);
     this.kind.fill(-1);
     this.launches = 0;
   }
 
   /**
-   * A shot launched a round from (x, z) — the muzzle — this tick. Returns the
+   * A shot launched a round from (x, z) — the muzzle — this tick, of world row
+   * `row` (0 a player's), whose death raises `impact` in `bank`. Returns the
    * token its launch effects ride until the round is known, or -1 when the
    * tick is full.
    */
-  launch(x: number, z: number, row: number): number {
+  launch(x: number, z: number, row: number, bank = 0, impact = 0): number {
     if (this.launches >= MAX_LAUNCHES) return -1;
     const n = this.launches++;
     this.launchX[n] = x;
     this.launchZ[n] = z;
     this.launchRow[n] = row;
+    this.launchBank[n] = bank;
+    this.launchImpact[n] = impact;
     return ROUND_TOKEN - n;
   }
 
@@ -73,9 +95,12 @@ export class RoundTracker {
    * A round died at (x, z) this tick (EV_ROUND_IMPACT / EV_EXPLOSION): the
    * nearest projectile in `snap` (the tick's own, before it ran). Its id is
    * forgotten, so a round that takes the id in the same tick reads as new.
-   * Returns its height, or NaN when there is none within reach.
+   * Returns its height, or NaN when there is none within reach; its impact
+   * and bank are left in `lastImpactId` / `lastImpactBank`.
    */
   impact(x: number, z: number, snap: Float32Array, count: number, stride: number): number {
+    this.lastImpactId = 0;
+    this.lastImpactBank = 0;
     let best = -1;
     let bestD = 4;
     for (let c = 0; c < count; c++) {
@@ -91,7 +116,11 @@ export class RoundTracker {
     }
     if (best < 0) return Number.NaN;
     const id = snap[best + S_ID];
-    if (id >= 0 && id < MAX_ENTITIES) this.kind[id] = -1;
+    if (id >= 0 && id < MAX_ENTITIES) {
+      this.kind[id] = -1;
+      this.lastImpactId = this.impactId[id];
+      this.lastImpactBank = this.impactBank[id];
+    }
     return snap[best + S_HEIGHT];
   }
 
@@ -116,6 +145,8 @@ export class RoundTracker {
       this.kind[id] = k;
       if (!fresh) continue;
       this.row[id] = 0;
+      this.impactId[id] = 0;
+      this.impactBank[id] = 0;
       if (open === 0) continue;
       let best = -1;
       let bestD = BIND_RADIUS_M * BIND_RADIUS_M;
@@ -131,6 +162,8 @@ export class RoundTracker {
       }
       if (best < 0) continue;
       this.row[id] = this.launchRow[best];
+      this.impactId[id] = this.launchImpact[best];
+      this.impactBank[id] = this.launchBank[best];
       this.launchRow[best] = 255;
       open--;
       for (let i = 0; i < this.listeners.length; i++) this.listeners[i](ROUND_TOKEN - best, id);

@@ -273,6 +273,8 @@ export class OriginalSounds implements EffectListener {
   /** Delayed effects: bank, id, x, z, ticks left (0 = free). */
   /** The placement of the raise being made (filled per call, never kept). */
   private readonly at = makeRaiseAt();
+  /** The token the current shot's round rides until it is known (-1: no round). */
+  private roundToken = -1;
   /** Per player slot: the sustained effect alive (a flame's, a beam's) and its countdown. */
   private readonly sustainFx = new Int16Array(MAX_PLAYERS);
   private readonly sustainLeft = new Float32Array(MAX_PLAYERS).fill(-1);
@@ -504,6 +506,11 @@ export class OriginalSounds implements EffectListener {
       const rec = w ? this.weapons[w.code] : undefined;
       if (!w || !rec) return;
       const blk = shotPayloadPowered(c) ? rec.b : rec.a;
+      // A round the block launches carries its impact (+0x1a), raised in the
+      // partner's bank, 1, at its death (effects/rounds.ts).
+      this.roundToken = roundKind(blk.kind)
+        ? this.launchToken(shooter, 0, ctx, BANK_PLAYER, blk.impactFx)
+        : -1;
       const placed = player !== ctx.localSlot;
       const direct = directKind(blk.kind);
       if (direct) this.engine.playCued(placed ? 1 : 0, blk.sound, placed, x, z);
@@ -544,7 +551,8 @@ export class OriginalSounds implements EffectListener {
     // The launch effect rides the new round (0x0044df29), which also wears
     // the row's projectile model.
     if (!this.atMuzzle(shooter, ctx, false)) return;
-    this.at.attach = slot === SHOT_SLOT_LAUNCH ? this.launchToken(shooter, row, ctx) : -1;
+    this.at.attach =
+      slot === SHOT_SLOT_LAUNCH ? this.launchToken(shooter, row, ctx, BANK_WORLD, w.impactFx) : -1;
     this.raise(0, w.launchFx);
   }
 
@@ -593,7 +601,7 @@ export class OriginalSounds implements EffectListener {
       this.at.endZ = this.at.z + Math.sin(this.at.yaw) * reach;
     }
     if (roundKind(blk.kind)) {
-      this.at.attach = this.launchToken(shooter, 0, ctx);
+      this.at.attach = this.roundToken;
       this.at.attachForward = 0;
       this.at.attachUp = 0;
     }
@@ -605,13 +613,19 @@ export class OriginalSounds implements EffectListener {
    * along its facing) for the next snapshot's new round, and returns the token
    * its launch effects ride until then.
    */
-  private launchToken(shooter: number, row: number, ctx: CueContext): number {
+  private launchToken(
+    shooter: number,
+    row: number,
+    ctx: CueContext,
+    bank: number,
+    impact: number,
+  ): number {
     const o = this.offsetOf(shooter);
     if (o < 0) return -1;
     const yaw = ctx.snapshot[o + S_YAW];
     const x = ctx.snapshot[o + S_X] + Math.cos(yaw) * MUZZLE_OFFSET;
     const z = ctx.snapshot[o + S_Y] + Math.sin(yaw) * MUZZLE_OFFSET;
-    return this.effects.rounds.launch(x, z, row);
+    return this.effects.rounds.launch(x, z, row, bank, impact);
   }
 
   /**
@@ -756,27 +770,34 @@ export class OriginalSounds implements EffectListener {
   }
 
   /**
-   * A player's round's end: its block's +0x1a, the round as the raiser. The
-   * arced and dropped rounds' class rows are empty in every arena (RE
-   * docs/formats/effects.md, Open), so their records are the export's
-   * candidates — fcop-fidelity.md marks them so.
+   * A launched round's death (`cact_base_op4` -> `cact_effect_emit`
+   * 0x0042b910): every launched round carries the direct flag 0x40000, so its
+   * +0x20 — its block's +0x1a — is raised as the effect id itself (0x0042b92e),
+   * no class row read, in its owner's bank (0x0042bf50: 1 for the player's
+   * partner, 0 the Sky Captain's bomb). The round as the raiser. The id and
+   * bank come with the round from its launch (effects/rounds.ts); a round
+   * whose launch the client did not see (a burst's fragments, which are copies)
+   * takes its kind's block A, or the bomb's row 9.
    */
   private explosion(x: number, z: number, kind: number, ctx: CueContext): void {
     const data = this.data;
     if (!data) return;
     const code = PROJ_CODE[kind];
-    if (code !== undefined) {
-      const w = this.weapons[code];
-      if (!w) return;
+    if (code !== undefined || kind === PROJ_WARDEN) {
       this.atRound(x, z, ctx);
-      this.raise(1, w.a.impactFx);
+      const rounds = this.effects.rounds;
+      if (rounds.lastImpactId > 0) {
+        this.raise(rounds.lastImpactBank, rounds.lastImpactId);
+      } else if (code !== undefined) {
+        const w = this.weapons[code];
+        if (w) this.raise(BANK_PLAYER, w.a.impactFx);
+      } else {
+        this.raise(BANK_WORLD, data.world[9]?.impactFx ?? 0);
+      }
       return;
     }
-    // The captain's bomb (row 9: candidate 43); world rounds come with EV_ROUND_IMPACT.
-    if (kind === PROJ_WARDEN) {
-      this.atRound(x, z, ctx);
-      this.raise(0, data.world[9]?.impactFx ?? 0);
-    } else if (kind === PROJ_ROUND) {
+    // World rounds come with EV_ROUND_IMPACT.
+    if (kind === PROJ_ROUND) {
       // Forget the round now, so an id it frees this tick reads as new.
       this.effects.rounds.impact(x, z, ctx.snapshot, ctx.count, ctx.stride);
     }
@@ -1282,5 +1303,8 @@ const PROJ_CODE: Readonly<Record<number, number>> = {
   17: 0x14, // PROJ_TORPEDO: the Fusion Torpedo
   18: 0x21, // PROJ_PLASMA: the Plasma Flare
 };
+/** `cact_effect_bank` 0x0042bf50: the player's partner's bank, and every other owner's. */
+const BANK_PLAYER = 1;
+const BANK_WORLD = 0;
 /** weapons.ts PROJ_WARDEN: the captain's bomb. */
 const PROJ_WARDEN = 3;

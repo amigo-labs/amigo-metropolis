@@ -38,6 +38,27 @@ describe("the round tracker", () => {
     expect(bound).toContainEqual([turret, 41]);
   });
 
+  test("a round carries its block's impact and its owner's bank to its death (0x0042b910)", () => {
+    const { t } = tracker();
+    // The powered Plasma Flare's round: 158 in the partner's bank; the bomb's 43 in 0.
+    t.launch(10, 10, 0, 1, 158);
+    t.launch(30, 10, 9, 0, 43);
+    const s = snapshot([
+      [40, ARCHETYPE.PROJECTILE, 10.2, 10, 0.6, 18],
+      [41, ARCHETYPE.PROJECTILE, 30.1, 10, 9, 3],
+    ]);
+    t.bind(s, 2, SNAPSHOT_STRIDE);
+    t.impact(10.2, 10, s, 2, SNAPSHOT_STRIDE);
+    expect([t.lastImpactBank, t.lastImpactId]).toEqual([1, 158]);
+    t.impact(30.1, 10, s, 2, SNAPSHOT_STRIDE);
+    expect([t.lastImpactBank, t.lastImpactId]).toEqual([0, 43]);
+    // A round no launch named (a burst's fragment) carries none.
+    const f = snapshot([[42, ARCHETYPE.PROJECTILE, 50, 50, 1, 6]]);
+    t.bind(f, 1, SNAPSHOT_STRIDE);
+    t.impact(50, 50, f, 1, SNAPSHOT_STRIDE);
+    expect(t.lastImpactId).toBe(0);
+  });
+
   test("a launch whose round never shows is answered with -1", () => {
     const { t, bound } = tracker();
     const token = t.launch(10, 10, 3);
