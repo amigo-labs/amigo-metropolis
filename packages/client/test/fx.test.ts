@@ -16,8 +16,10 @@ import {
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { EffectChain, fxArenaFor, makeRaiseAt, ROUND_TOKEN } from "../src/effects/chain";
-import { IMPACT_SCALE } from "../src/effects/records";
+import { FX_EXE, FX_RECORDS } from "../src/effects/fcopEffects.generated";
+import { IMPACT_SCALE, SHELL_SPHERE } from "../src/effects/records";
 import { createFx, createFxPoses, type FxPoseResolver, POSE_STRIDE } from "../src/render/fx";
+import { domeRingColour } from "../src/render/fx/shells";
 import { TEAM_UV_ATTR } from "../src/render/teamUv";
 
 function rig() {
@@ -140,6 +142,43 @@ describe("the shatter", () => {
     const uv = offsets as unknown as Float32Array;
     expect(uv[0]).toBe(0.5);
     expect(uv[1]).toBe(0.25);
+  });
+});
+
+describe("the dome", () => {
+  test("a type-92 sphere is a dome: the export's dome on every sphere record, none on a ring", () => {
+    let domes = 0;
+    for (const rec of FX_RECORDS) {
+      if (rec.type !== 92) continue;
+      if ((rec.shellFlags & SHELL_SPHERE) === 0) {
+        expect(rec.dome).toBeNull();
+        continue;
+      }
+      domes++;
+      const dome = rec.dome as NonNullable<typeof rec.dome>;
+      // 0x100 the flattened meridian, 0x80 open from 45 degrees, 0x104 oriented.
+      expect(dome.profile).toBe((rec.shellFlags & 0x100) !== 0 ? 1 : 0);
+      expect(dome.fromTheta).toBe((rec.shellFlags & 0x80) !== 0 ? 0x200 : 0);
+      expect(dome.oriented).toBe((rec.flags & 0x104) !== 0 ? 1 : 0);
+    }
+    expect(domes).toBeGreaterThan(0);
+  });
+
+  test("the meridians are the image's: the pole at 0x1000, the rim at r 0x1000, the flat top", () => {
+    const { unit, radial } = FX_EXE.spherePatch;
+    expect(unit[0]).toEqual([4096, 0]);
+    expect(unit[4]).toEqual([0, 4096]);
+    expect(radial[0]).toEqual([2048, 0]);
+    expect(radial[4]).toEqual([0, 4096]);
+  });
+
+  test("the colour steps ring by ring in 12.4, as derived.sphere.band_colours has it", () => {
+    // Conft 1:106: near (0, 0, 127) to far (96, 96, 0) over four rings.
+    expect([0, 1, 2, 3, 4].map((k) => domeRingColour(0, 96, k, 0))).toEqual([0, 24, 48, 72, 96]);
+    expect([0, 1, 2, 3, 4].map((k) => domeRingColour(127, 0, k, 0))).toEqual([127, 95, 63, 31, 0]);
+    // Conft 1:143, open at the top: near (0, 0, 0) to far (127, 96, 0) over two.
+    expect([2, 3, 4].map((k) => domeRingColour(0, 127, k, 2))).toEqual([0, 63, 127]);
+    expect([2, 3, 4].map((k) => domeRingColour(0, 96, k, 2))).toEqual([0, 48, 96]);
   });
 });
 
