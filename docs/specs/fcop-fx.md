@@ -20,7 +20,10 @@ under `tools/generators/units/raw/fcop-fx/`.
 > palette**, not one palette for all. The facer primitives are not the 8-triangle
 > stand-ins the object export writes: a `Line` is a screen-facing quad textured from
 > the arena's `tex10` (`cobj_prim_emit` 0x004289cc), which is how the client draws the
-> bolts of rows 1, 3 and 6 (`FX_BOLTS`). Kept below as the record of the first pass.
+> bolts of rows 1, 3 and 6 (`FX_BOLTS`). Since the RE's glbs carry every facer as a
+> record (RE `docs/formats/objects.md` "Facers"), the stand-ins are dropped and every
+> model's facers — the rockets', shell's and mine's star glows among them — are drawn
+> from those records (`render/facers.ts`). Kept below as the record of the first pass.
 
 The reflex is to look for the effects in `Cpyr`, the particle atlas. That is
 wrong, and the mistake is worth recording because it cost a round of guessing:

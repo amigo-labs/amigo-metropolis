@@ -211,9 +211,9 @@ describe("committed FX models match the manifest contract", () => {
 // MapData.radii from tools/generators/fcop/<mission>-models.json;
 // fcop-fidelity.md G1). The drawn mesh's own box lands within the 1/512
 // quantisation of it, so a model swapped for another without its radius
-// following fails here. The Sky Captain's box holds its searchlight volume,
-// which the drawn unit leaves out (see the hull-only test below): it is held to
-// its raw, the Cobj as shipped.
+// following fails here. The Sky Captain's box holds its searchlight volume, an
+// additive face the drawn unit is grounded without: it is held to its raw, the
+// Cobj as shipped.
 describe("hit radii follow the models each arena draws", () => {
   const rawOf = (file: string): string => {
     const spec = UNIT_MODEL_FILES.find((f) => f.file === file);
