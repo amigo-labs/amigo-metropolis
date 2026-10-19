@@ -61,6 +61,11 @@ export interface RaiseAt {
   endZ: number;
   /** The raiser's archetype (what a shatter breaks), -1 none. */
   archetype: number;
+  /**
+   * The height of the raiser's model origin (where its mesh stands), metres;
+   * NaN when the raise is not on an actor. A shatter's faces leave from there.
+   */
+  modelY: number;
   /** The raiser's team (the side whose texels a shatter's faces carry), -1 none. */
   team: number;
   /** A re-raise of the record's own id by its repeats: a one-shot. */
@@ -87,6 +92,7 @@ export function makeRaiseAt(): RaiseAt {
     endY: Number.NaN,
     endZ: Number.NaN,
     archetype: -1,
+    modelY: Number.NaN,
     team: -1,
     repeat: false,
     hold: 0,
@@ -107,6 +113,7 @@ export function copyRaiseAt(from: Readonly<RaiseAt>, to: RaiseAt): void {
   to.endY = from.endY;
   to.endZ = from.endZ;
   to.archetype = from.archetype;
+  to.modelY = from.modelY;
   to.team = from.team;
   to.repeat = from.repeat;
   to.hold = from.hold;

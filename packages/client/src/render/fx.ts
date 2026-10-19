@@ -50,7 +50,7 @@ import { Flashes } from "./fx/flashes";
 import { Nodes } from "./fx/nodes";
 import { PARTICLE_ATLAS_URL, Particles } from "./fx/particles";
 import { Ribbons } from "./fx/ribbons";
-import { Shatter, type ShatterSource } from "./fx/shatter";
+import { FACE_REFS, Shatter, type ShatterSource } from "./fx/shatter";
 import { Shells } from "./fx/shells";
 
 export type { FxPoses } from "./fx/common";
@@ -167,8 +167,13 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
   if (options.ground) {
     nodes.groundAt = options.ground;
     ribbons.groundAt = options.ground;
+    shatter.groundAt = options.ground;
   }
   if (options.shatter) shatter.source = options.shatter;
+  // A shatter's reap and reference effects go through the chain like any
+  // install; its faces and whole objects are references in the pose table.
+  shatter.setPoses(poses);
+  shatter.raise = (bank, id, at) => chain.raise(bank, id, at);
 
   const listener: EffectListener = {
     install(bank: number, id: number, rec: FxRecord | undefined, at: Readonly<RaiseAt>): void {
@@ -186,7 +191,7 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
           flashes.spawn(rec, at);
           return;
         case 90:
-          shatter.spawn(rec, at);
+          shatter.spawn(rec, at, bank);
           return;
         case 92:
           shells.spawn(rec, at);
@@ -287,13 +292,14 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
   function update(dtSec: number, camera?: THREE.Camera, simDtSec?: number): void {
     const dt = Math.max(0, (simDtSec ?? dtSec) * ENGINE_HZ);
     view.set(camera, options.viewportHeight ? options.viewportHeight() : 480);
+    // First: the faces publish their reference poses for what rides them.
+    shatter.update(dt);
     flashes.update(dt, poses, view);
     shells.update(dt, poses, view);
     particles.update(dt, poses, view);
     ribbons.update(dt, poses, view, particles, MUZZLE_OFFSET, MUZZLE_HEIGHT);
     particles.flush();
     nodes.update(dt, poses, view);
-    shatter.update(dt);
   }
 
   function reset(): void {
@@ -340,10 +346,13 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
   };
 }
 
-/** The pose table main.ts fills for the effects that ride an entity. */
+/**
+ * The pose table main.ts fills for the effects that ride an entity, and after
+ * the sim's ids the shatter's references (its peered faces, its whole objects).
+ */
 export function createFxPoses(): FxPoses {
   return {
-    table: new Float32Array(MAX_ENTITIES * POSE_STRIDE),
-    live: new Uint8Array(MAX_ENTITIES),
+    table: new Float32Array((MAX_ENTITIES + FACE_REFS) * POSE_STRIDE),
+    live: new Uint8Array(MAX_ENTITIES + FACE_REFS),
   };
 }

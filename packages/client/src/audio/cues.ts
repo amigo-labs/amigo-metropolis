@@ -800,6 +800,7 @@ export class OriginalSounds implements EffectListener {
     at.endY = Number.NaN;
     at.endZ = Number.NaN;
     at.archetype = -1;
+    at.modelY = Number.NaN;
     at.team = -1;
     at.repeat = false;
     at.hold = 0;
@@ -819,6 +820,7 @@ export class OriginalSounds implements EffectListener {
     const at = this.atPoint(snap[o + S_X], snap[o + S_HEIGHT] + up, snap[o + S_Y]);
     at.yaw = snap[o + S_YAW];
     at.archetype = arch;
+    at.modelY = snap[o + S_HEIGHT];
     at.team = snap[o + S_TEAM];
     at.raiserScale = Math.round((ARCHETYPE_RADIUS[arch] ?? 0.25) * 512) || DEFAULT_SCALE;
     if (ride) {

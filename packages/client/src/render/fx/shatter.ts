@@ -1,23 +1,56 @@
-// Type 90: the raiser's model broken into flying faces (`effect_type90.c`,
-// the filler 0x004388a0, the draw 0x00438140: "the reference's model broken
-// into up to `count` of its triangles and quads, each flying and turning on
-// its own and drawn with the model's own face").
+// Type 90: the raiser's model broken into flying faces, or flown whole
+// (`effect_type90.c`: the factory 0x004383b0, the handler 0x004384c0, the
+// filler 0x004388a0, the whole-object init 0x00438610; `effect_type90_tick.c`:
+// the steps 0x00437d00 / 0x00437e30, the reapers 0x00438010 / 0x00437f80; the
+// roll 0x00437b20). The rules are tables.json type_rules.90:
 //
-// Drawn here with the dying unit's own mesh and material: `count` of its
-// triangles (0..50, 20 with flag 0x08, 50 when out of range), each leaving
-// its place on the model at a speed rolled in the record's magnitude range
-// plus the drift (drift scale range along the drift direction), turning about
-// an axis of its own, falling. What is approximated: the RE has transcribed
-// the filler but not named the units of the magnitude and drift words; they
-// are read here as sixteenths of a world unit a second, and the fall is the
-// original's mortar gravity (6 m/s², docs/behavior/combat.md). One mesh per
-// archetype, preallocated.
+// - **Faces** (neither 0x08 nor 0x10, or 0x10 on a model that is no skeleton):
+//   up to `count` distinct primitives of the model (0 all, outside 0..50
+//   fifty), cut to what the 200-record pool has left, each leaving from the
+//   model's place at its centre (the four-corner mean, a triangle's corner 0
+//   twice) with `magnitude` (drawn in [hi, 2 hi - lo), hi when hi <= lo) along
+//   origin -> centre, y made non-negative, plus `drift` (drawn in [lo, hi))
+//   along (drift_angle_y, drift_angle_x), y zeroed with 0x04; all x16 world
+//   units a SECOND (the step's 218 = 65536 / 300). Each face falls by its own
+//   `((rand & 0x1f) * 8 + 0x500) * scale / -100 << 4` world units a second
+//   squared (added before the move), turns by two spins drawn in [spin_lo,
+//   spin_hi) (`angle += (spin * delta) >> 8`, 4096 a turn), and lives the
+//   instance's lifetime + (rand & 0xff) ticks, or without one until the ground:
+//   one face in eight a frame asks the terrain. A given-back face starts the
+//   reap effect (+0x34) at its point, its corner-0 length the scale, when the
+//   pool's count after the release has bit 1 set — about half of them — and
+//   the first `peered_faces` faces (0xff all) carry the reference effect
+//   (+0x35), riding them.
+// - **Whole** (0x08): the model flies as one: the drift (turned by the
+//   raiser's frame with header flags 0x104), the fall, two spins, the lifetime
+//   or none; when it lands the reap effect starts at the instance's reference
+//   (where it was raised). Its reference effect rides it.
+//
+// Drawn with the dying unit's own mesh and material (main.ts hands the greybox
+// bucket's) and its side's texture offset (0x004381e8). Metropolis' meshes are
+// triangles, so a quad of the original flies as its two triangles. Not drawn:
+// the killer's push (`mission_record_spawn_push` 0x00437aa0: the death event
+// names no killer round), the skeleton shatter 0x004298c0 that flag 0x10 hands
+// the X1's skeleton to (its pieces fly as faces here), and the fragmented
+// arena's halving. The rolls draw from the client's stream, not `game_rand`
+// (fcop-fidelity.md E7, A18). One mesh per archetype, preallocated; nothing
+// allocates once a match runs.
 
+import { MAX_ENTITIES } from "@metropolis/sim";
 import * as THREE from "three";
-import type { RaiseAt } from "../../effects/chain";
-import { directionOf, type Fx90, TURN } from "../../effects/records";
+import { makeRaiseAt, type RaiseAt } from "../../effects/chain";
+import {
+  directionOf,
+  FXF_IN_FRAME,
+  FXF_LOCAL_SPACE,
+  type Fx90,
+  SHATTER_FLAT_Y,
+  SHATTER_WHOLE,
+  TURN,
+  WORLD_UNITS_PER_METRE,
+} from "../../effects/records";
 import { TEAM_UV_ATTR, TEAM_UV_MASK } from "../teamUv";
-import { prepareMesh } from "./common";
+import { type FxPoses, POSE_STRIDE, prepareMesh } from "./common";
 
 /**
  * The model a dying archetype of `team` is drawn with: main.ts hands the
@@ -34,13 +67,40 @@ export type ShatterSource = (
   teamV: number;
 } | null;
 
+/** Raises an effect for the shatter (the reap and the reference effects): the chain's. */
+export type ShatterRaise = (bank: number, id: number, at: Readonly<RaiseAt>) => void;
+
+/** `count` outside 0..50 is fifty (0x004388a0). */
 const FACES_MAX = 50;
-/** Faces in flight per archetype at once. */
-const FACES_PER_KIND = 150;
+/** The mission's record pool every type-90 face comes from (`mission_record_pool_create`). */
+const RECORD_POOL = 200;
+/** Triangles in flight per archetype at once: faces plus whole objects. */
+const TRIS_PER_KIND = 512;
 const KINDS = 9;
-const GRAVITY = 6;
-const X16_M = 16 / 8192;
+/** A model's triangles the pick can walk (the scratch is preallocated). */
+const PICK_MAX = 16384;
+/** Whole objects and shatter instances in flight at once. */
+const INSTANCES = 64;
+/**
+ * Pseudo-entity references a face or a whole object carries for the effect it
+ * rides, after the sim's ids in the pose table (createFxPoses), handed out in
+ * turn so a slot is not reused while anything plausibly still rides it.
+ */
+export const FACE_REFS = 1024;
+/** The first reference slot. */
+export const FACE_REF_BASE = MAX_ENTITIES;
+/** `peered_faces` 0xff: every face. */
+const PEER_ALL = 0xff;
+/** Reaped pieces waiting for the end of the update. */
+const PENDING_MAX = 64;
+/** Metres per x16 unit, and per world unit. */
+const X16_M = 16 / WORLD_UNITS_PER_METRE;
+const WU_M = 1 / WORLD_UNITS_PER_METRE;
+/** 4096 a turn, per 256 engine ticks: radians a second per spin unit. */
+const SPIN_RAD_S = ((2 * Math.PI) / TURN) * (300 / 256);
 const TO_RAD = (2 * Math.PI) / TURN;
+/** The ground test's floor when no terrain sampler is set (tests). */
+const NO_GROUND = -100;
 
 interface Kind {
   readonly mesh: THREE.Mesh;
@@ -52,36 +112,106 @@ interface Kind {
   /** Per vertex: the team's texture offset times the model's mask (render/teamUv.ts). */
   readonly teamUv: Float32Array;
   readonly teamMask: Float32Array;
-  /** Per face: its three vertices about its centroid, model space turned to the world's yaw. */
+  /** Per triangle: its three corners about its centre, world-aligned at the raise. */
   readonly local: Float32Array;
   readonly cx: Float32Array;
   readonly cy: Float32Array;
   readonly cz: Float32Array;
+  /** Metres a second. */
   readonly vx: Float32Array;
   readonly vy: Float32Array;
   readonly vz: Float32Array;
-  readonly ax: Float32Array;
-  readonly ay: Float32Array;
-  readonly az: Float32Array;
-  readonly spin: Float32Array;
-  readonly age: Float32Array;
-  readonly life: Float32Array;
+  /** The fall, metres a second squared (negative). */
+  readonly fall: Float32Array;
+  /** The two angles (radians) and their spins (radians a second). */
+  readonly angY: Float32Array;
+  readonly angX: Float32Array;
+  readonly spinY: Float32Array;
+  readonly spinX: Float32Array;
+  /** Engine ticks left; +Infinity without a lifetime. */
+  readonly timer: Float32Array;
+  /** The instance it belongs to (`inst*`), and its reference slot (-1 none). */
+  readonly inst: Int16Array;
+  readonly ref: Int16Array;
+  /** Its corner-0 length, x16: the reap's scale. */
+  readonly scale: Float32Array;
+  /** 1 for a triangle of a whole object (its group's state), 0 a face of the pool. */
+  readonly whole: Uint8Array;
+  /** Its place in the ground test's eight-frame round (stable as faces are swapped out). */
+  readonly seq: Uint8Array;
   count: number;
 }
 
-const q = new THREE.Quaternion();
-const axis = new THREE.Vector3();
+const rot = new THREE.Matrix3();
 const v = new THREE.Vector3();
 const dir = new Float32Array(3);
+const raiseAt = makeRaiseAt();
+
+/** A uniform draw in [lo, hi), or `hi` when the range is empty (the roll's idiom). */
+function draw(lo: number, hi: number): number {
+  return hi > lo ? lo + Math.floor(Math.random() * (hi - lo)) : hi;
+}
+
+/** The fall a face draws (the roll 0x00437b7b..0x00437bb0), world units a second squared. */
+export function shatterFall(scale: number, rand: number): number {
+  const raw = (rand & 0x1f) * 8 + 0x500;
+  return Math.trunc((scale * raw) / -100) * 16 + 0;
+}
+
+/** The magnitude draw (0x00437bde): [hi, 2 hi - lo), hi when hi <= lo. */
+export function shatterMagnitude(lo: number, hi: number, fraction: number): number {
+  if (hi <= lo) return hi;
+  return hi + Math.floor(fraction * (hi - lo));
+}
+
+/** How many faces a record breaks a model of `prims` into, with `left` records in the pool. */
+export function shatterFaceCount(count: number, prims: number, left: number): number {
+  let n = prims;
+  const cap = count < 0 || count > FACES_MAX ? FACES_MAX : count;
+  if (cap > 0 && cap < n) n = cap;
+  return n < left ? n : left;
+}
 
 export class Shatter {
   private readonly kinds: Kind[] = [];
   /** Where the dying models come from (main.ts); null draws nothing. */
   source: ShatterSource | null = null;
+  /** The chain's raise, for the reap and reference effects; null raises none. */
+  raise: ShatterRaise | null = null;
+  /** The terrain under (x, z), metres: the faces' ground test. */
+  groundAt: ((x: number, z: number) => number) | null = null;
+  /** DAT_0050e8d8: the faces out of the record pool. */
+  private out = 0;
+  private frames = 0;
+  private nextRef = 0;
+  private seq = 0;
+  private readonly pick = new Int32Array(PICK_MAX);
+  // --- instances: the reap's bank and id, the reference, whole objects' state ---
+  private readonly instLive = new Uint8Array(INSTANCES);
+  private readonly instBank = new Uint8Array(INSTANCES);
+  private readonly instReap = new Uint16Array(INSTANCES);
+  private readonly instX = new Float32Array(INSTANCES);
+  private readonly instY = new Float32Array(INSTANCES);
+  private readonly instZ = new Float32Array(INSTANCES);
+  /** Triangles left per instance. */
+  private readonly instTris = new Int32Array(INSTANCES);
+  /** A whole object's: landed this frame (1), and its reference slot. */
+  private readonly instLanded = new Uint8Array(INSTANCES);
+  private readonly instRef = new Int16Array(INSTANCES);
+  private readonly instWhole = new Uint8Array(INSTANCES);
+  // --- reaps waiting for the end of the update ---
+  private pending = 0;
+  private readonly pendBank = new Uint8Array(PENDING_MAX);
+  private readonly pendId = new Uint16Array(PENDING_MAX);
+  private readonly pendX = new Float32Array(PENDING_MAX);
+  private readonly pendY = new Float32Array(PENDING_MAX);
+  private readonly pendZ = new Float32Array(PENDING_MAX);
+  private readonly pendScale = new Float32Array(PENDING_MAX);
+  private poses: FxPoses | null = null;
 
   constructor(scene: THREE.Scene) {
     for (let k = 0; k < KINDS; k++) {
-      const n = FACES_PER_KIND * 3;
+      const n = TRIS_PER_KIND * 3;
       const geometry = new THREE.BufferGeometry();
       const pos = new Float32Array(n * 3);
       const uv = new Float32Array(n * 2);
@@ -104,7 +234,7 @@ export class Shatter {
       geometry.setDrawRange(0, 0);
       const mesh = prepareMesh(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()), scene);
       mesh.visible = false;
-      const f = FACES_PER_KIND;
+      const f = TRIS_PER_KIND;
       this.kinds.push({
         mesh,
         geometry,
@@ -121,46 +251,101 @@ export class Shatter {
         vx: new Float32Array(f),
         vy: new Float32Array(f),
         vz: new Float32Array(f),
-        ax: new Float32Array(f),
-        ay: new Float32Array(f),
-        az: new Float32Array(f),
-        spin: new Float32Array(f),
-        age: new Float32Array(f),
-        life: new Float32Array(f),
+        fall: new Float32Array(f),
+        angY: new Float32Array(f),
+        angX: new Float32Array(f),
+        spinY: new Float32Array(f),
+        spinX: new Float32Array(f),
+        timer: new Float32Array(f),
+        inst: new Int16Array(f),
+        ref: new Int16Array(f),
+        scale: new Float32Array(f),
+        whole: new Uint8Array(f),
+        seq: new Uint8Array(f),
         count: 0,
       });
     }
   }
 
-  /** The filler 0x004388a0 on the raiser's model. False with no model to break. */
-  spawn(rec: Fx90, at: Readonly<RaiseAt>): boolean {
-    const kind = this.kinds[at.archetype];
-    const src = at.archetype >= 0 && this.source ? this.source(at.archetype, at.team) : null;
+  /** The pose table the reference slots are published in (fx.ts's). */
+  setPoses(poses: FxPoses | null): void {
+    this.poses = poses;
+  }
+
+  /** The filler 0x004388a0, or the whole-object init 0x00438610. False with no model. */
+  spawn(rec: Fx90, at: Readonly<RaiseAt>, bank: number): boolean {
+    const kind = at.archetype >= 0 ? this.kinds[at.archetype] : undefined;
+    const src = kind && this.source ? this.source(at.archetype, at.team) : null;
     if (!kind || !src) return false;
     const g = src.geometry;
     const position = g.getAttribute("position") as THREE.BufferAttribute | undefined;
     if (!position) return false;
+    const index = g.getIndex();
+    const tris = Math.floor((index ? index.count : position.count) / 3);
+    if (tris === 0) return false;
+    const whole = (rec.shatterFlags & SHATTER_WHOLE) !== 0;
+    const n = whole
+      ? Math.min(tris, TRIS_PER_KIND - kind.count)
+      : shatterFaceCount(rec.count, tris, RECORD_POOL - this.out);
+    if (n <= 0) return false;
+    const inst = this.freeInstance();
+    if (inst < 0) return false;
+    kind.mesh.material = src.material;
+    kind.mesh.visible = true;
+    const originY = Number.isFinite(at.modelY) ? at.modelY : at.y;
+    this.instLive[inst] = 1;
+    this.instBank[inst] = bank;
+    this.instReap[inst] = rec.reapEffect;
+    this.instX[inst] = at.x;
+    this.instY[inst] = at.y;
+    this.instZ[inst] = at.z;
+    this.instTris[inst] = 0;
+    this.instLanded[inst] = 0;
+    this.instWhole[inst] = whole ? 1 : 0;
+    this.instRef[inst] = -1;
+    const life = rec.life > 0 ? rec.life : Number.POSITIVE_INFINITY;
+
+    // The whole object's one state: the drift (the raiser's frame with 0x104),
+    // the fall, the spins, the timer.
+    let wvx = 0;
+    let wvy = 0;
+    let wvz = 0;
+    if (whole) {
+      const inFrame = (rec.flags & (FXF_IN_FRAME | FXF_LOCAL_SPACE)) !== 0;
+      directionOf(rec.driftAngleY * TO_RAD, rec.driftAngleX * TO_RAD, inFrame ? at.yaw : 0, dir);
+      const drift = draw(rec.driftScaleLo, rec.driftScaleHi) * X16_M;
+      wvx = dir[0] * drift;
+      wvy = dir[1] * drift;
+      wvz = dir[2] * drift;
+      if ((rec.shatterFlags & SHATTER_FLAT_Y) !== 0) wvy = 0;
+      this.instRef[inst] = this.takeRef(at.x, originY, at.z);
+    }
+    const wFall = shatterFall(rec.fallScale, Math.floor(Math.random() * 0x20)) * WU_M;
+    const wSpinY = draw(rec.spinLo, rec.spinHi) * SPIN_RAD_S;
+    const wSpinX = draw(rec.spinLo, rec.spinHi) * SPIN_RAD_S;
+
+    // n distinct triangles (a partial shuffle), or every one for a whole object.
+    const pickable = tris < PICK_MAX ? tris : PICK_MAX;
+    for (let t = 0; t < pickable; t++) this.pick[t] = t;
+    const c = Math.cos(-at.yaw);
+    const s = Math.sin(-at.yaw);
     const uv = g.getAttribute("uv") as THREE.BufferAttribute | undefined;
     const normal = g.getAttribute("normal") as THREE.BufferAttribute | undefined;
     const colour = g.getAttribute("color") as THREE.BufferAttribute | undefined;
     const mask = g.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute | undefined;
-    const index = g.getIndex();
-    const tris = Math.floor((index ? index.count : position.count) / 3);
-    if (tris === 0) return false;
-    kind.mesh.material = src.material;
-    kind.mesh.visible = true;
-    let count = rec.count;
-    if ((rec.shatterFlags & 0x08) !== 0) count = 20;
-    if (count < 0 || count > FACES_MAX) count = FACES_MAX;
-    count = Math.min(count, tris);
-    const c = Math.cos(-at.yaw);
-    const s = Math.sin(-at.yaw);
-    const life = rec.life > 0 ? rec.life / 300 : 1;
-    for (let n = 0; n < count; n++) {
+    const peers = rec.peeredFaces === PEER_ALL ? n : rec.peeredFaces;
+    for (let m = 0; m < n; m++) {
       const f = kind.count;
-      if (f >= FACES_PER_KIND) break;
+      if (f >= TRIS_PER_KIND) break;
+      let t = m;
+      if (!whole) {
+        const r = m + Math.floor(Math.random() * (pickable - m));
+        t = this.pick[r];
+        this.pick[r] = this.pick[m];
+        this.pick[m] = t;
+      }
       kind.count++;
-      const t = Math.floor(Math.random() * tris);
+      this.instTris[inst]++;
       let mx = 0;
       let my = 0;
       let mz = 0;
@@ -176,9 +361,11 @@ export class Shatter {
         kind.local[f * 9 + k * 3] = wx;
         kind.local[f * 9 + k * 3 + 1] = ly;
         kind.local[f * 9 + k * 3 + 2] = wz;
-        mx += wx / 3;
-        my += ly / 3;
-        mz += wz / 3;
+        // The four-corner mean: a triangle weighs corner 0 twice.
+        const w = k === 0 ? 0.5 : 0.25;
+        mx += wx * w;
+        my += ly * w;
+        mz += wz * w;
         const o = (f * 3 + k) * 3;
         const o2 = (f * 3 + k) * 2;
         kind.uv[o2] = uv ? uv.getX(vi) : 0;
@@ -189,88 +376,158 @@ export class Shatter {
         kind.colour[o] = colour ? colour.getX(vi) : 1;
         kind.colour[o + 1] = colour ? colour.getY(vi) : 1;
         kind.colour[o + 2] = colour ? colour.getZ(vi) : 1;
-        const m = mask ? mask.getX(vi) : 1;
-        kind.teamMask[f * 3 + k] = m;
+        kind.teamMask[f * 3 + k] = mask ? mask.getX(vi) : 1;
         kind.teamUv[o2] = src.teamU;
         kind.teamUv[o2 + 1] = src.teamV;
       }
-      for (let k = 0; k < 3; k++) {
-        kind.local[f * 9 + k * 3] -= mx;
-        kind.local[f * 9 + k * 3 + 1] -= my;
-        kind.local[f * 9 + k * 3 + 2] -= mz;
+      kind.inst[f] = inst;
+      kind.whole[f] = whole ? 1 : 0;
+      kind.seq[f] = this.seq++ & 7;
+      if (whole) {
+        // One rigid body about the model's origin: every triangle the same state.
+        kind.cx[f] = at.x;
+        kind.cy[f] = originY;
+        kind.cz[f] = at.z;
+        kind.vx[f] = wvx;
+        kind.vy[f] = wvy;
+        kind.vz[f] = wvz;
+        kind.fall[f] = wFall;
+        kind.spinY[f] = wSpinY;
+        kind.spinX[f] = wSpinX;
+        kind.ref[f] = -1;
+        kind.scale[f] = 0;
+      } else {
+        for (let k = 0; k < 3; k++) {
+          kind.local[f * 9 + k * 3] -= mx;
+          kind.local[f * 9 + k * 3 + 1] -= my;
+          kind.local[f * 9 + k * 3 + 2] -= mz;
+        }
+        kind.cx[f] = at.x + mx;
+        kind.cy[f] = originY + my;
+        kind.cz[f] = at.z + mz;
+        // The roll: the magnitude along origin -> centre, y made non-negative,
+        // then the drift, then y zeroed with flag 0x04.
+        const len = Math.sqrt(mx * mx + my * my + mz * mz);
+        const speed = shatterMagnitude(rec.magnitudeLo, rec.magnitudeHi, Math.random()) * X16_M;
+        let vx = len > 0 ? (mx / len) * speed : 0;
+        let vy = len > 0 ? Math.abs(my / len) * speed : 0;
+        let vz = len > 0 ? (mz / len) * speed : 0;
+        directionOf(rec.driftAngleY * TO_RAD, rec.driftAngleX * TO_RAD, 0, dir);
+        const drift = draw(rec.driftScaleLo, rec.driftScaleHi) * X16_M;
+        vx += dir[0] * drift;
+        vy += dir[1] * drift;
+        vz += dir[2] * drift;
+        if ((rec.shatterFlags & SHATTER_FLAT_Y) !== 0) vy = 0;
+        kind.vx[f] = vx;
+        kind.vy[f] = vy;
+        kind.vz[f] = vz;
+        kind.fall[f] = shatterFall(rec.fallScale, Math.floor(Math.random() * 0x20)) * WU_M;
+        kind.spinY[f] = draw(rec.spinLo, rec.spinHi) * SPIN_RAD_S;
+        kind.spinX[f] = draw(rec.spinLo, rec.spinHi) * SPIN_RAD_S;
+        const l0x = kind.local[f * 9];
+        const l0y = kind.local[f * 9 + 1];
+        const l0z = kind.local[f * 9 + 2];
+        kind.scale[f] = Math.sqrt(l0x * l0x + l0y * l0y + l0z * l0z) / X16_M;
+        kind.ref[f] = m < peers ? this.takeRef(kind.cx[f], kind.cy[f], kind.cz[f]) : -1;
+        this.out++;
       }
-      kind.cx[f] = at.x + mx;
-      kind.cy[f] = at.y + my;
-      kind.cz[f] = at.z + mz;
-      // Outward from the model's middle at the rolled magnitude, plus the drift.
-      let ox = mx;
-      let oy = my + 0.3;
-      let oz = mz;
-      const len = Math.sqrt(ox * ox + oy * oy + oz * oz) || 1;
-      ox /= len;
-      oy /= len;
-      oz /= len;
-      const speed = (rec.magnitudeLo + Math.random() * (rec.magnitudeHi - rec.magnitudeLo)) * X16_M;
-      const drift =
-        (rec.driftScaleLo + Math.random() * (rec.driftScaleHi - rec.driftScaleLo)) * X16_M;
-      directionOf(rec.driftAngleY * TO_RAD, rec.driftAngleX * TO_RAD, 0, dir);
-      kind.vx[f] = ox * speed + dir[0] * drift;
-      kind.vy[f] = oy * speed + dir[1] * drift;
-      kind.vz[f] = oz * speed + dir[2] * drift;
-      axis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
-      kind.ax[f] = axis.x;
-      kind.ay[f] = axis.y;
-      kind.az[f] = axis.z;
-      kind.spin[f] = (Math.random() * 2 - 1) * 8;
-      kind.age[f] = 0;
-      kind.life[f] = life;
+      kind.angY[f] = 0;
+      kind.angX[f] = 0;
+      kind.timer[f] =
+        Number.isFinite(life) && !whole ? life + Math.floor(Math.random() * 256) : life;
+      if (kind.ref[f] >= 0) this.raiseOn(bank, rec.effectOnReference, kind.ref[f], f, kind);
     }
+    if (whole && this.instRef[inst] >= 0) {
+      this.raiseOnPoint(bank, rec.effectOnReference, this.instRef[inst], at.x, originY, at.z);
+    }
+    if (this.instTris[inst] === 0) this.instLive[inst] = 0;
     return true;
   }
 
   reset(): void {
     for (let k = 0; k < this.kinds.length; k++) {
-      this.kinds[k].count = 0;
-      this.kinds[k].geometry.setDrawRange(0, 0);
-      this.kinds[k].mesh.visible = false;
+      const kind = this.kinds[k];
+      for (let f = 0; f < kind.count; f++) this.dropRef(kind.ref[f]);
+      kind.count = 0;
+      kind.geometry.setDrawRange(0, 0);
+      kind.mesh.visible = false;
     }
+    for (let i = 0; i < INSTANCES; i++) {
+      if (this.instLive[i] !== 0) this.dropRef(this.instRef[i]);
+      this.instLive[i] = 0;
+    }
+    this.out = 0;
+    this.pending = 0;
   }
 
-  /** Faces in flight (tests). */
+  /** Triangles in flight (tests). */
   faces(): number {
     let n = 0;
     for (let k = 0; k < this.kinds.length; k++) n += this.kinds[k].count;
     return n;
   }
 
+  /** Faces out of the record pool (tests). */
+  poolOut(): number {
+    return this.out;
+  }
+
+  /** The steps 0x00437e30 / 0x00437d00 for `dtTicks` engine ticks, the reapers, the draw. */
   update(dtTicks: number): void {
     const dt = dtTicks / 300;
+    this.frames++;
     for (let k = 0; k < this.kinds.length; k++) {
       const kind = this.kinds[k];
       if (kind.count === 0) continue;
       let f = 0;
       while (f < kind.count) {
-        kind.age[f] += dt;
-        if (kind.age[f] >= kind.life[f]) {
-          this.kill(kind, f);
-          continue;
-        }
-        kind.vy[f] -= GRAVITY * dt;
+        // The fall into the velocity, then the move, then the spins.
+        kind.vy[f] += kind.fall[f] * dt;
         kind.cx[f] += kind.vx[f] * dt;
         kind.cy[f] += kind.vy[f] * dt;
         kind.cz[f] += kind.vz[f] * dt;
+        kind.angY[f] += kind.spinY[f] * dt;
+        kind.angX[f] += kind.spinX[f] * dt;
+        if (kind.timer[f] > 0) {
+          kind.timer[f] -= dtTicks;
+          if (kind.timer[f] <= 0) kind.timer[f] = -1;
+        }
+        // The ground: a whole object every frame, a face one frame in eight.
+        if (
+          kind.timer[f] >= 0 &&
+          (kind.whole[f] !== 0 || ((this.frames ^ kind.seq[f]) & 7) === 0) &&
+          kind.cy[f] <= (this.groundAt ? this.groundAt(kind.cx[f], kind.cz[f]) : NO_GROUND)
+        ) {
+          kind.timer[f] = -1;
+        }
+        const inst = kind.inst[f];
+        if (kind.whole[f] !== 0 && kind.timer[f] < 0) this.instLanded[inst] = 1;
+        if (kind.whole[f] !== 0 ? this.instLanded[inst] !== 0 : kind.timer[f] < 0) {
+          this.giveBack(kind, f);
+          continue;
+        }
+        if (kind.ref[f] >= 0) this.publish(kind.ref[f], kind.cx[f], kind.cy[f], kind.cz[f]);
+        else if (kind.whole[f] !== 0 && this.instRef[inst] >= 0) {
+          this.publish(this.instRef[inst], kind.cx[f], kind.cy[f], kind.cz[f]);
+        }
         f++;
       }
       for (let i = 0; i < kind.count; i++) {
-        axis.set(kind.ax[i], kind.ay[i], kind.az[i]);
-        q.setFromAxisAngle(axis, kind.spin[i] * kind.age[i]);
+        // The face's matrix: its x angle, then its y angle (math/matrix.c from_angles).
+        const ay = kind.angY[i];
+        const ax = kind.angX[i];
+        const cy = Math.cos(ay);
+        const sy = Math.sin(ay);
+        const cx = Math.cos(ax);
+        const sx = Math.sin(ax);
+        rot.set(cy, sy * sx, sy * cx, 0, cx, -sx, -sy, cy * sx, cy * cx);
         for (let c = 0; c < 3; c++) {
           v.set(
             kind.local[i * 9 + c * 3],
             kind.local[i * 9 + c * 3 + 1],
             kind.local[i * 9 + c * 3 + 2],
           );
-          v.applyQuaternion(q);
+          v.applyMatrix3(rot);
           const o = (i * 3 + c) * 3;
           kind.pos[o] = kind.cx[i] + v.x;
           kind.pos[o + 1] = kind.cy[i] + v.y;
@@ -286,13 +543,136 @@ export class Shatter {
       (kind.geometry.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute).needsUpdate = true;
       if (kind.count === 0) kind.mesh.visible = false;
     }
+    this.flushReaps();
+  }
+
+  /** The reapers: a face back to the pool (and maybe its reap), a whole object's landing. */
+  private giveBack(kind: Kind, f: number): void {
+    const inst = kind.inst[f];
+    this.dropRef(kind.ref[f]);
+    if (kind.whole[f] === 0) {
+      // 0x00438010: the count goes down first; bits 2 or 3 of what is left raise.
+      this.out--;
+      if ((this.out & 3) > 1 && this.instReap[inst] !== 0) {
+        this.queueReap(inst, kind.cx[f], kind.cy[f], kind.cz[f], kind.scale[f]);
+      }
+    }
+    this.instTris[inst]--;
+    if (this.instTris[inst] <= 0) {
+      if (this.instWhole[inst] !== 0) {
+        // 0x00437f80: one reap, at the instance's own reference.
+        if (this.instReap[inst] !== 0) {
+          this.queueReap(inst, this.instX[inst], this.instY[inst], this.instZ[inst], 0);
+        }
+        this.dropRef(this.instRef[inst]);
+      }
+      this.instLive[inst] = 0;
+    }
+    this.kill(kind, f);
+  }
+
+  private queueReap(inst: number, x: number, y: number, z: number, scale: number): void {
+    const p = this.pending;
+    if (p >= PENDING_MAX) return;
+    this.pending++;
+    this.pendBank[p] = this.instBank[inst];
+    this.pendId[p] = this.instReap[inst];
+    this.pendX[p] = x;
+    this.pendY[p] = y;
+    this.pendZ[p] = z;
+    this.pendScale[p] = scale;
+  }
+
+  /** The reaps of this update, raised once every face has moved (a reap may shatter again). */
+  private flushReaps(): void {
+    const n = this.pending;
+    this.pending = 0;
+    if (!this.raise) return;
+    for (let p = 0; p < n; p++) {
+      const at = this.pointAt(this.pendX[p], this.pendY[p], this.pendZ[p]);
+      // Kind 5: the point and the scale; a whole object's reap takes its record's.
+      at.scale = this.pendScale[p];
+      this.raise(this.pendBank[p], this.pendId[p], at);
+    }
+  }
+
+  /** The reference effect (+0x35) on a face's own reference, riding it. */
+  private raiseOn(bank: number, id: number, ref: number, f: number, kind: Kind): void {
+    this.raiseOnPoint(bank, id, ref, kind.cx[f], kind.cy[f], kind.cz[f]);
+  }
+
+  private raiseOnPoint(
+    bank: number,
+    id: number,
+    ref: number,
+    x: number,
+    y: number,
+    z: number,
+  ): void {
+    if (id === 0 || !this.raise) return;
+    const at = this.pointAt(x, y, z);
+    at.attach = FACE_REF_BASE + ref;
+    this.raise(bank, id, at);
+  }
+
+  private pointAt(x: number, y: number, z: number): RaiseAt {
+    const at = raiseAt;
+    at.x = x;
+    at.y = y;
+    at.z = z;
+    at.yaw = 0;
+    at.attach = -1;
+    at.attachForward = 0;
+    at.attachUp = 0;
+    at.scale = 0;
+    at.raiserScale = 0x100;
+    at.endX = Number.NaN;
+    at.endY = Number.NaN;
+    at.endZ = Number.NaN;
+    at.archetype = -1;
+    at.modelY = Number.NaN;
+    at.team = -1;
+    at.repeat = false;
+    at.hold = 0;
+    return at;
+  }
+
+  /** A reference slot, published at (x, y, z); -1 without a pose table. */
+  private takeRef(x: number, y: number, z: number): number {
+    if (!this.poses) return -1;
+    const r = this.nextRef;
+    this.nextRef = (r + 1) % FACE_REFS;
+    this.publish(r, x, y, z);
+    return r;
+  }
+
+  private publish(ref: number, x: number, y: number, z: number): void {
+    const poses = this.poses;
+    if (!poses) return;
+    const e = FACE_REF_BASE + ref;
+    const o = e * POSE_STRIDE;
+    poses.table[o] = x;
+    poses.table[o + 1] = y;
+    poses.table[o + 2] = z;
+    poses.table[o + 3] = 0;
+    poses.live[e] = 1;
+  }
+
+  private dropRef(ref: number): void {
+    if (ref < 0 || !this.poses) return;
+    this.poses.live[FACE_REF_BASE + ref] = 0;
+  }
+
+  private freeInstance(): number {
+    for (let i = 0; i < INSTANCES; i++) if (this.instLive[i] === 0) return i;
+    return -1;
   }
 
   private kill(kind: Kind, f: number): void {
     const last = kind.count - 1;
     if (f !== last) {
-      for (let k = 0; k < 9; k++) kind.local[f * 9 + k] = kind.local[last * 9 + k];
       for (let k = 0; k < 9; k++) {
+        kind.local[f * 9 + k] = kind.local[last * 9 + k];
         kind.normal[f * 9 + k] = kind.normal[last * 9 + k];
         kind.colour[f * 9 + k] = kind.colour[last * 9 + k];
       }
@@ -307,12 +687,17 @@ export class Shatter {
       kind.vx[f] = kind.vx[last];
       kind.vy[f] = kind.vy[last];
       kind.vz[f] = kind.vz[last];
-      kind.ax[f] = kind.ax[last];
-      kind.ay[f] = kind.ay[last];
-      kind.az[f] = kind.az[last];
-      kind.spin[f] = kind.spin[last];
-      kind.age[f] = kind.age[last];
-      kind.life[f] = kind.life[last];
+      kind.fall[f] = kind.fall[last];
+      kind.angY[f] = kind.angY[last];
+      kind.angX[f] = kind.angX[last];
+      kind.spinY[f] = kind.spinY[last];
+      kind.spinX[f] = kind.spinX[last];
+      kind.timer[f] = kind.timer[last];
+      kind.inst[f] = kind.inst[last];
+      kind.ref[f] = kind.ref[last];
+      kind.scale[f] = kind.scale[last];
+      kind.whole[f] = kind.whole[last];
+      kind.seq[f] = kind.seq[last];
     }
     kind.count = last;
   }
