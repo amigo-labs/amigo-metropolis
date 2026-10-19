@@ -34,6 +34,7 @@ interface Shot {
 }
 
 const SHOTS: readonly Shot[] = [
+  { name: "riot-shield-up", loadout: "gun=4", key: KEY.gun, hold: 14, after: 0, ahead: 8 },
   { name: "riot-shield", loadout: "gun=4", key: KEY.gun, hold: 14, after: 0, ahead: 2.2 },
   {
     name: "riot-shield-powered",

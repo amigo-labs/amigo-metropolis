@@ -25,12 +25,14 @@
 // filled in place; nothing allocates once a match runs.
 
 import {
+  EV_SHIELD_ARC,
   EV_SHOT,
   EVENT_STRIDE,
   type EventBuffer,
   MAX_ENTITIES,
   MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
+  SHIELD_CENTRE_RAISE,
   SHOT_SLOT_HITSCAN,
   SHOT_SLOT_SPECIAL,
   shotPayloadPowered,
@@ -40,9 +42,9 @@ import {
   weaponById,
 } from "@metropolis/sim";
 import * as THREE from "three";
-import type { EffectChain, EffectListener, RaiseAt } from "../effects/chain";
+import { type EffectChain, type EffectListener, makeRaiseAt, type RaiseAt } from "../effects/chain";
 import { FX_ARENAS } from "../effects/fcopEffects.generated";
-import { ENGINE_HZ, type FxRecord } from "../effects/records";
+import { ENGINE_HZ, type Fx88, type FxRecord } from "../effects/records";
 import { type FxPoses, FxView, POSE_STRIDE } from "./fx/common";
 import { Flashes } from "./fx/flashes";
 import { Nodes } from "./fx/nodes";
@@ -124,6 +126,35 @@ export interface ShotFx {
 
 const pose = new Float32Array(5);
 
+/**
+ * The Riot Shield's strike (EV_SHIELD_ARC): `sustain_sphere_tick`'s link from a
+ * charged arc to the body (0x0044c8d1..0x0044c91f) — 32 segments, one strand,
+ * (0x7f, 0x7f, 0xff), fade 0x2aa, amplitude 0x4000, both ends 0x18 wide. The
+ * event names no arc point, so it starts at the sphere's centre.
+ */
+const SHIELD_LINK: Fx88 = {
+  type: 88,
+  next: 0,
+  delay: 0,
+  repeats: -1,
+  period: 0,
+  life: 0,
+  flags: 0,
+  offset: 0,
+  placeY: 0,
+  placeX: 0,
+  attach: 255,
+  scatter: 0,
+  segments: 0x20,
+  strands: 1,
+  rgb: [0x7f, 0x7f, 0xff],
+  fadeTicks: 0x2aa,
+  amplitude: 0x4000,
+  endHalfWidth: 0x18,
+  linkFlags: 1,
+};
+const shieldAt = makeRaiseAt();
+
 export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOptions = {}): ShotFx {
   const flashes = new Flashes(scene);
   const shells = new Shells(scene);
@@ -192,6 +223,30 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
     const data = events.data;
     for (let i = 0; i < events.count; i++) {
       const o = i * EVENT_STRIDE;
+      if (data[o] === EV_SHIELD_ARC && poses) {
+        const a = data[o + 1];
+        const t = data[o + 2];
+        if (
+          a >= 0 &&
+          a < MAX_ENTITIES &&
+          t >= 0 &&
+          t < MAX_ENTITIES &&
+          poses.live[a] &&
+          poses.live[t]
+        ) {
+          const fa = a * POSE_STRIDE;
+          const ft = t * POSE_STRIDE;
+          shieldAt.x = poses.table[fa];
+          shieldAt.y = poses.table[fa + 1] + SHIELD_CENTRE_RAISE;
+          shieldAt.z = poses.table[fa + 2];
+          shieldAt.yaw = poses.table[fa + 3];
+          shieldAt.endX = poses.table[ft];
+          shieldAt.endY = poses.table[ft + 1] + SHIELD_CENTRE_RAISE;
+          shieldAt.endZ = poses.table[ft + 2];
+          ribbons.link(SHIELD_LINK, shieldAt);
+        }
+        continue;
+      }
       if (data[o] !== EV_SHOT) continue;
       const shooter = data[o + 1];
       const slot = data[o + 2];
