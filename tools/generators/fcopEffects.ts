@@ -58,9 +58,9 @@ function argValue(flag: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-/** The RE checkout: --re, FCOP_RE, or a sibling of this tree or its parent. */
+/** The RE checkout: --re, FCOP_RE (or FCOP_RE_REPO, as the other importers read it), or a sibling of this tree or its parent. */
 export function findRe(): string | null {
-  const given = argValue("--re") ?? process.env.FCOP_RE;
+  const given = argValue("--re") ?? process.env.FCOP_RE ?? process.env.FCOP_RE_REPO;
   if (given) return resolve(given);
   for (const up of ["..", join("..", ".."), join("..", "..", "..")]) {
     const p = resolve(ROOT, up, "fcop-reverse-engineering");
