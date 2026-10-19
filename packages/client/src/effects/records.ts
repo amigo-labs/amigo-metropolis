@@ -42,6 +42,30 @@ export const FXF_SUCCESSOR_AT_REPEAT_END = 0x0800;
 export const FXF_DIE_WITH_REFERENCE = 0x1000;
 export const FXF_HARD_SHAKE = 0x2000;
 
+/**
+ * The camera shake an install starts (docs/formats/effects.md "Screen
+ * effects"; the record's +0x32 bit 4 or 13, `cact_effect_install`
+ * 0x0042d24c): `amount` 300 or 1000, handed to `player_damage_meter`, which
+ * adds `add` (min(amount / 4, 0xff)); each viewport's player within `range`
+ * world units, octagonally, takes it.
+ */
+export interface FxShake {
+  readonly amount: number;
+  readonly add: number;
+  readonly range: number;
+}
+
+/**
+ * The screen flash an install starts (+0x32 bit 5, `mission_flash_near`
+ * 0x00405c40): each viewport's level set to `level` within `fullWithin` world
+ * units of its player, one less per 0x100 beyond, 0 from `zeroAt` on.
+ */
+export interface FxFlash {
+  readonly level: number;
+  readonly fullWithin: number;
+  readonly zeroAt: number;
+}
+
 /** What every record carries, already in engine ticks. */
 export interface FxHeader {
   readonly type: number;
@@ -64,6 +88,10 @@ export interface FxHeader {
   readonly placeX: number;
   /** +0x1e: the raiser's model point, 255 none. */
   readonly attach: number;
+  /** The shake its install starts (the export's `screen.shake`), absent none. */
+  readonly shake?: FxShake;
+  /** The flash its install starts (the export's `screen.flash`), absent none. */
+  readonly flash?: FxFlash;
 }
 
 /** Type 87: a ribbon through up to 40 nodes. */
@@ -151,18 +179,43 @@ export const FLASH_BOUNCE = 0x1;
 export const FLASH_PHASED = 0x2;
 export const FLASH_STAR = 0x4;
 
-/** Type 90: the raiser's model broken into flying faces. */
+/**
+ * Type 90: the raiser's model broken into flying faces, or flown whole
+ * (tables.json type_rules.90). Speeds are x16 world units a second.
+ */
 export interface Fx90 extends FxHeader {
   readonly type: 90;
+  /** +0x34: started where a given-back face was (about half), or where a whole object lands. */
+  readonly reapEffect: number;
+  /** +0x35: installed on each of the first `peeredFaces` faces, riding it (or on a whole object's reference). */
+  readonly effectOnReference: number;
+  /** +0x36: how many faces get a reference of their own; 0xff all. */
+  readonly peeredFaces: number;
+  /** +0x38 / +0x3a: speed along origin -> face centre, drawn in [hi, 2 hi - lo), hi when hi <= lo. */
   readonly magnitudeLo: number;
   readonly magnitudeHi: number;
+  /** +0x3c / +0x3e: the drift's speed, [lo, hi). */
   readonly driftScaleLo: number;
   readonly driftScaleHi: number;
   readonly driftAngleY: number;
   readonly driftAngleX: number;
+  /** +0x44 / +0x46: each face's two spins, [lo, hi); `angle += (spin * delta) >> 8`. */
+  readonly spinLo: number;
+  readonly spinHi: number;
+  /** +0x48: the fall, `((rand & 0x1f) * 8 + 0x500) * v / -100 << 4` world units a second squared. */
+  readonly fallScale: number;
+  /** +0x49: faces at most; 0 all, outside 0..50 fifty. */
   readonly count: number;
   readonly shatterFlags: number;
 }
+
+/** shatter_flags (+0x4a). */
+export const SHATTER_FLAT_Y = 0x04;
+export const SHATTER_WHOLE = 0x08;
+export const SHATTER_SKELETON = 0x10;
+/** Header flags +0x32 bits 9 and 10: the killer's push refused, reversed. */
+export const FXF_NO_PUSH = 0x0200;
+export const FXF_PUSH_REVERSED = 0x0400;
 
 /** Type 92: an expanding ring or sphere. */
 export interface Fx92 extends FxHeader {
@@ -184,6 +237,21 @@ export interface Fx92 extends FxHeader {
   readonly spinY: number;
   readonly spinX: number;
   readonly shellFlags: number;
+  /** The sphere's dome (`derived.sphere`), null for a ring. */
+  readonly dome: FxDome | null;
+}
+
+/**
+ * A type-92 sphere is always a dome above its frame's y = 0 (the handler
+ * 0x00419880 builds it with SPHERE_FLAG_HALF_Y, 0x00419908).
+ */
+export interface FxDome {
+  /** 0: FX_EXE.spherePatch.unit; 1: `.radial`, shell flag 0x100's flattened top. */
+  readonly profile: number;
+  /** The latitude it is drawn from: 0 the pole, 0x200 open at the top (shell flag 0x80). */
+  readonly fromTheta: number;
+  /** 1 with header flags 0x104: it turns with the effect's frame; else upright in world axes. */
+  readonly oriented: number;
 }
 
 export const SHELL_SWAP = 0x0001;
@@ -252,12 +320,23 @@ export interface Fx94 extends FxHeader {
   /** ramp300 raw (absolute). */
   readonly rampTicks: number;
   readonly rampFlags: number;
+  /**
+   * The colour's step a second (`derived.ramp`): ramp bit 0's one budget,
+   * `(r + g + b of colour_a) << 12 / |ramp|`, as one number; else each
+   * channel's `((b - a) << 12) / |ramp|`.
+   */
+  readonly rampStep: readonly number[];
   readonly walkFlags: number;
   readonly spawnRadius: number;
   readonly velocityJitter: number;
   readonly positionJitter: number;
 }
 
+/** ramp_flags (+0x5a): one budget drained blue, green, red; a bounce. */
+export const RAMP_SINGLE_BUDGET = 0x01;
+export const RAMP_BOUNCE = 0x02;
+/** walk_flags (+0x5b) bit 0: the gravity field a spring on the node's offset. */
+export const WALK_RADIAL = 0x01;
 export const WALK_HALF_ALPHA = 0x08;
 export const WALK_ADDITIVE = 0x10;
 export const WALK_SUBTRACTIVE = 0x20;

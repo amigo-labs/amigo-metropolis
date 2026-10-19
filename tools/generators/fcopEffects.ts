@@ -22,9 +22,10 @@
 //                                              texels, cropped)
 //
 // Nothing here decides anything. It keeps the records a raise can reach — the
-// world rows, the fifteen loadout records' blocks (the candidate impacts of the
-// arced and dropped rounds included), the death classes, the mech's own wreck
-// and transform — with their successors, folds identical records of the six
+// world rows, the fifteen loadout records' blocks (the arced and dropped
+// rounds' impacts, which each round raises itself), the death classes, the
+// mech's own wreck and transform — with their successors and a shatter's reap
+// and reference effects, folds identical records of the six
 // arenas into one list, and writes the fields each class's drawer reads.
 //
 // Usage: bun run gen:fx [--re <RE checkout>] [--check]
@@ -86,19 +87,24 @@ interface RawDerivedHeader {
   spawn_delay_ticks: number;
   repeat_period_ticks: number;
 }
+/** A record's screen effects at install (`cact_effect_install` 0x0042d020). */
+interface RawScreen {
+  shake: { amount: number; meter_add: number; range: number } | null;
+  flash: { level: number; full_within: number; zero_at: number } | null;
+}
 interface RawRecord {
   bank: number;
   id: number;
   type: number;
   header: RawHeader;
   header_derived: RawDerivedHeader;
+  screen: RawScreen | null;
   fields: Record<string, number | number[] | number[][] | string[]>;
   derived: Record<string, unknown>;
 }
 interface RawRaise {
   id?: number;
   raises?: { bank: number; id: number } | null;
-  candidate?: { bank: number; id: number };
   chain?: { id: number }[];
   bank?: number;
 }
@@ -148,8 +154,14 @@ interface RawParticle {
     off_y: number;
   }[];
 }
+interface RawPatchRow {
+  theta: number;
+  y: number;
+  r: number;
+}
 interface RawTables {
   exe: {
+    sphere_patch: { unit: RawPatchRow[]; radial: RawPatchRow[] };
     trail_rects: { rows: { row: number; rect: number[] }[] };
     mini_gun_ribbon: {
       colour_from: number[];
@@ -182,7 +194,6 @@ function roots(m: RawMap): [number, number][] {
     if (!e) return;
     add(bank, e.id);
     if (e.raises) add(e.raises.bank, e.raises.id);
-    if (e.candidate) add(e.candidate.bank, e.candidate.id);
   };
   for (const row of Object.values(m.weapons.world)) {
     raise(0, row.launch_effect);
@@ -238,7 +249,7 @@ function visual(r: RawRecord): Record<string, unknown> {
   const hd = r.header_derived;
   const f = r.fields;
   const d = r.derived;
-  const head = {
+  const head: Record<string, unknown> = {
     type: r.type,
     next: h.successor,
     delay: hd.spawn_delay_ticks,
@@ -251,6 +262,18 @@ function visual(r: RawRecord): Record<string, unknown> {
     placeX: h.angle_x,
     attach: h.attach_point,
   };
+  // The install's screen effects (docs/formats/effects.md "Screen effects"):
+  // only on the records that have them, so the rest fold as before.
+  const sh = r.screen?.shake;
+  if (sh) head.shake = { amount: num(sh.amount), add: num(sh.meter_add), range: num(sh.range) };
+  const fl = r.screen?.flash;
+  if (fl) {
+    head.flash = {
+      level: num(fl.level),
+      fullWithin: num(fl.full_within),
+      zeroAt: num(fl.zero_at),
+    };
+  }
   switch (r.type) {
     case 87: {
       const tex = d.texture as { rows: number[] } | null;
@@ -303,18 +326,32 @@ function visual(r: RawRecord): Record<string, unknown> {
         startAngle: num(f.start_angle),
         flashFlags: num(f.flash_flags),
       };
-    case 90:
+    case 90: {
+      // tables.json type_rules.90: the speeds are x16 world units a second,
+      // the fall world units a second squared; derived.speed_wu_s is checked
+      // against the field so a unit change in the export stops the run.
+      const speed = d.speed_wu_s as number[];
+      if (speed[0] !== num(f.magnitude_hi) * 16) {
+        throw new Error(`record (${r.bank}, ${r.id}): speed_wu_s ${speed} is not magnitude x16`);
+      }
       return {
         ...head,
+        reapEffect: num(f.reap_effect),
+        effectOnReference: num(f.effect_on_reference),
+        peeredFaces: num(f.peered_faces),
         magnitudeLo: num(f.magnitude_lo),
         magnitudeHi: num(f.magnitude_hi),
         driftScaleLo: num(f.drift_scale_lo),
         driftScaleHi: num(f.drift_scale_hi),
         driftAngleY: num(f.drift_angle_y),
         driftAngleX: num(f.drift_angle_x),
+        spinLo: num(f.spin_lo),
+        spinHi: num(f.spin_hi),
+        fallScale: num(f.scale),
         count: num(f.count),
         shatterFlags: num(f.shatter_flags),
       };
+    }
     case 92:
       return {
         ...head,
@@ -332,6 +369,7 @@ function visual(r: RawRecord): Record<string, unknown> {
         spinY: num(f.spin_y),
         spinX: num(f.spin_x),
         shellFlags: num(f.shell_flags),
+        dome: dome(d.sphere),
       };
     case 93:
       return {
@@ -376,6 +414,7 @@ function visual(r: RawRecord): Record<string, unknown> {
         colourB: rgb(f.colour_b),
         rampTicks: num(f.ramp_ticks),
         rampFlags: num(f.ramp_flags),
+        rampStep: rampStep(d.ramp),
         walkFlags: num(f.walk_flags),
         spawnRadius: num(f.spawn_radius),
         velocityJitter: num(f.velocity_jitter),
@@ -384,6 +423,37 @@ function visual(r: RawRecord): Record<string, unknown> {
     default:
       throw new Error(`record (${r.bank}, ${r.id}) has type ${r.type}, which no class draws`);
   }
+}
+
+/**
+ * Type 92's dome (`derived.sphere`, tables.json type_rules.92): which of the
+ * two meridians of `exe.sphere_patch` it is drawn through (0 unit, 1 the
+ * flattened radial one), the latitude it is drawn from (0 the pole, 0x200 open
+ * at the top) and whether it turns with the effect's frame. Null for a ring.
+ */
+function dome(v: unknown): { profile: number; fromTheta: number; oriented: number } | null {
+  if (v === null || v === undefined) return null;
+  const s = v as {
+    dome: boolean;
+    profile: string;
+    drawn_from_theta: number;
+    oriented: boolean;
+  };
+  if (!s.dome) throw new Error("a type-92 sphere that is not a dome");
+  const profile = s.profile.endsWith(".radial") ? 1 : s.profile.endsWith(".unit") ? 0 : -1;
+  if (profile < 0) throw new Error(`unknown sphere profile ${s.profile}`);
+  return { profile, fromTheta: num(s.drawn_from_theta), oriented: s.oriented ? 1 : 0 };
+}
+
+/**
+ * Type 94's colour step (`derived.ramp`): one budget a second for ramp bit 0
+ * (`single_budget`), else each channel's step a second toward colour_b.
+ */
+function rampStep(v: unknown): number[] {
+  const r = v as { kind: string; step: number | number[] };
+  if (r.kind === "single_budget") return [num(r.step)];
+  if (r.kind === "per_channel" || r.kind === "bounce") return rgb(r.step);
+  throw new Error(`unknown type-94 ramp kind ${r.kind}`);
 }
 
 /**
@@ -556,6 +626,15 @@ export function generate(re: string): FxOutputs {
       banks[bank][id] = i;
       reachable++;
       if (r.header.successor > 0) queue.push([bank, r.header.successor]);
+      // A shatter starts two more of its bank: the reap effect where a piece
+      // is given back, and the one each peered face (or the whole object's
+      // reference) carries (docs/formats/effects.md, type 90).
+      if (r.type === 90) {
+        for (const k of ["reap_effect", "effect_on_reference"]) {
+          const e = num(r.fields[k]);
+          if (e > 0) queue.push([bank, e]);
+        }
+      }
     }
     const sorted = (b: Record<number, number>) =>
       `{ ${Object.keys(b)
@@ -677,6 +756,14 @@ export function generate(re: string): FxOutputs {
     return `{ rgb: ${JSON.stringify(t.rgb)}, length: ${t.length}, width: ${t.width}, speed: ${speed}, speedSpread: ${spread} }`;
   };
   const rows = [...rowPayload.keys()].filter((r) => !bolts.has(r)).sort((a, b) => a - b);
+  const patch = (rs: RawPatchRow[]) => {
+    if (rs.length !== 5 || rs.some((p, k) => p.theta !== k * 0x100)) {
+      throw new Error(
+        "tables.json exe.sphere_patch: expected five rows, theta 0..0x400 step 0x100",
+      );
+    }
+    return JSON.stringify(rs.map((p) => [p.y, p.r]));
+  };
 
   const ts = `// GENERATED by tools/generators/fcopEffects.ts from the RE repo's effect export
 // (extracted/effects/<Mission>.json, tables.json, extracted/particles/) — do not
@@ -738,6 +825,13 @@ export const FX_EXE = {
     laserA: ${tracer("laser_block_a")},
     laserB: ${tracer("laser_block_b")},
   },
+  /**
+   * The type-92 dome's quarter meridian (\`sphere_patch_verts\` 0x00417e10 at step
+   * 0x100, through the image's sine table 0x0048b8c8): (y, r) at theta 0, 0x100
+   * .. 0x400 from the pole to the rim, 0x1000 the shell's radius. \`radial\` is
+   * shell flag 0x100's flattened one.
+   */
+  spherePatch: { unit: ${patch(tables.exe.sphere_patch.unit)}, radial: ${patch(tables.exe.sphere_patch.radial)} },
 } as const;
 `;
 
