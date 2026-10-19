@@ -742,7 +742,7 @@ RE's effect export (`extracted/effects/`, `docs/formats/effects.md`); render-onl
 no golden moves (`docs/specs/fcop-fidelity.md` E1–E22).
 
 - [x] Import: `gen:fx` folds the records a raise can reach on the six arenas
-      (973 → 160), copies the particle atlas drawn through each particle's own
+      (1,021 → 168 with the shatters' reap and reference effects), copies the particle atlas drawn through each particle's own
       `PYPL` palette, crops each arena's trail rect, ribbon frames and bolt texels
       from its `tex10`; `--check` (E1, E9)
 - [x] One effect chain for the sounds and the picture: successors, spawn delays,
@@ -762,12 +762,13 @@ no golden moves (`docs/specs/fcop-fidelity.md` E1–E22).
       (E16, E17)
 - [x] The effects' colours as the original's values on screen (E18)
 - [x] The outpost console on a claim: checked in the RE, nothing to raise (E21)
-- [ ] The camera shake and the screen flash (header flags 0x10 / 0x2000 / 0x20;
-      waits on RE, E19)
-- [ ] The shatter's speed units, the shell sphere's half flags, the node burst's
-      radial walk (waits on RE, E7, E8, E10)
-- [ ] The arced and dropped rounds' impacts are the export's candidates (empty
-      class rows on every arena, E20)
+- [x] The camera shake off each record's exported shake, and the screen flash as
+      the HUD's grey strip (header flags 0x10 / 0x2000 / 0x20; RE M3-OK, E19)
+- [x] The shatter in seconds with its fall, spins, pool, reaps, peered faces and
+      whole objects; the shell's sphere as the original's dome; the node burst's
+      spring walk and one-budget ramp (RE M3-OK, E7, E8, E10)
+- [x] Every launched round raises its block's own impact in its owner's bank
+      (RE M3-OK, E20)
 
 ### Wave 5 — Assets
 
@@ -888,6 +889,7 @@ moves.
       whose own fire brought it down (V7; v81)
 - [x] The results page's stamps on the frame clock from 0, as the original's
       frame loop zeroes it (V7; v82)
+- [x] A kill by a round's contact alone credits nobody (V7; v91)
 - [x] The damage shake: the second damage meter off the hits and the shaking
       effects, the eye jittered along the camera's up and right rows (V1, E19)
 - [x] The invulnerable gauge's blink: the flat blue arm at x 2 off the sim's
