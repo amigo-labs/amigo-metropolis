@@ -2,45 +2,71 @@
 
 ## Unit models (Stage B) — `units/`
 
-One `.glb` per entity archetype (`avatar-walker`, `avatar-hover`, `runner`,
-`guardian`, `juggernaut`, `fortress`, `turret`, `console`, `warden`), following
-`docs/specs/assets.md` §4: Y-up, meters, +Z forward, origin at the
-ground-contact center, **the size the original authored**, tri budgets
-1500/5000. Each file is a single one-material primitive — the FCOP originals
-keep their packed 256px texture pages as one atlas, untextured sources carry
-baked vertex colors — so the runtime (`src/render/unitMeshes.ts`) can swap it
-into the archetype's one InstancedMesh; the whole-unit team tint comes from
-instance colors, exactly as in greybox mode (team units are desaturated by the
-pipeline so the tint owns the hue, like FCOP's own grey team variants). The
-projectile stays procedural (payload-colored sphere).
+Every unit is an ORIGINAL Precinct Assault model, following
+`docs/specs/assets.md` §4: Y-up, metres, +Z forward, **the size the original
+authored**, one one-material primitive per file with the original's 256px
+texture pages packed as one atlas, so the runtime can swap it into its bucket's
+InstancedMesh. Provenance in `CREDITS.md`.
 
-Every unit is an ORIGINAL Precinct Assault model from the `Mp` container
-(extracted in `amigo-labs/fcop-reverse-engineering`), including the X1-Alpha
-walker and hover forms assembled by `extract_x1.py`. This used to note the
-avatar-walker as a CC0 stand-in "because the X1-Alpha walker's rig does not
-survive extraction cleanly" — the assembly landed in `4a57b3e` and the note was
-left behind. Provenance in `CREDITS.md`.
+- `avatar-x1.glb` + `avatar-x1.anim.bin`: the X1-Alpha as the original
+  animates it — its five parts merged into one bind-pose primitive whose
+  `_X1BONE` attribute names each vertex's matrix in the bone table (the legs'
+  371 frames by 8 joints and the cockpit mount, the cockpit's 30 frames by 7
+  joints, the two guns and the beacon). Built by `bun run gen:x1`
+  (`tools/generators/fcopX1.ts`) from the RE's `extracted/x1/` parts and the
+  3DHS mount points; posed per instance in the vertex shader
+  (`src/render/avatarRig.ts`), walker, transform and hover alike.
+- `avatar-walker`, `avatar-hover`: the X1-Alpha's two rest poses, assembled by
+  the RE's `extract_x1.py`; the stand-ins while the rig loads.
+- `<map-id>/obj_NNN`: each arena's own units — the Cobj its own mission names
+  for the tank, the jet, the Flying Fortress, the Dreadnought's hull and guns,
+  the type-8 turret's and the NeutralTurret's gun and base (Hk has two
+  NeutralTurret sets), the Sky Captain per level band and the outpost console.
+  `NNN` is that mission's Cobj id, which means another model on another arena.
+  `bun run gen:paunits` reads the roles off the RE's
+  `extracted/logic/<Mission>/pa_models.json` into
+  `src/render/arenaUnits.generated.ts` and copies the raws unchanged; a file
+  is shared by arenas whose payload and sampled texels are identical, and lives
+  in the folder of the first. Loaded with the arena (`src/render/arenaUnits.ts`).
+
+Units are grounded and XZ-centred; a turret part and the Dreadnought's parts
+keep the original's origin, because the gun stands on the base's attach point
+and the Dreadnought's guns on the hull's.
+
+**Team colour is the original's:** the texels are never recoloured. Each page
+holds the art twice and every actor carries a texture offset onto its side's
+half (`docs/specs/fcop-fidelity.md` G4); the client adds it per instance in the
+vertex shader (`src/render/teamUv.ts`). The X1's file marks its beacon, which
+keeps its texels, in a `_TEAMUV` vertex attribute. Until Phase 14 wave 5 the
+pipeline desaturated the units and the client tinted them red and blue.
 
 The raws are already in map metres, the same frame the FCOP terrain imports at
-(one grid cell per metre), so `nativeScale` is on for all of them and nothing is
-stretched to a target footprint. The arena scenery below is the same bytes for
-Cobj 29 as the `console` unit — when the two disagreed on size, the fitting was
-the thing that was wrong.
+(one grid cell per metre), so nothing is stretched to a target footprint.
 Regenerate with `bun run gen:units` (`tools/generators/genUnitModels.ts`, driven
 by `tools/generators/units/manifest.ts`);
 `tools/generators/test/unitModels.test.ts` asserts the committed output matches
-the manifest. Any archetype whose file is missing or fails to load keeps its
-greybox mesh at runtime, so models can be swapped one at a time.
-`bun run verify:units` shoots a lineup of all archetypes (mesh + greybox pairs)
-into `docs/verification/stage7-units/`.
+the manifest and the table. A unit whose file is missing or fails to load keeps
+its greybox mesh at runtime. `bun run verify:units` shoots a lineup of all
+archetypes (mesh + greybox pairs) into `docs/verification/stage7-units/`.
 
-## Arena scenery — `props/`
+## Arena scenery — `props/<map-id>/`
 
-One `.glb` per original `DynamicProp` model, named `prop-<cobj>` after the Cobj
-resource id the map's `props` entries carry, so `src/render/props.ts` maps a
-placement onto a URL with no second lookup table. la-cantina has 36 placements
-across 8 models: a hazard-striped barrier (Cobj 28, 16×) and seven small kiosks
-showing the unit-icon/digit strip (27, 29, 33, 34, 35, 39, 40).
+One `.glb` per original `DynamicProp` model, in a folder per arena and named
+`prop-<cobj>` after the Cobj resource id each placement of
+`src/render/arenaScenery.generated.ts` carries, so `src/render/props.ts` maps a
+placement onto a URL with no second lookup table.
+Every imported arena has 36 placements across 8 models: the outpost flags
+(16×, hazard stripes until the outpost is claimed, then the claimer's flag —
+the same per-instance texture offset as the units), the outpost console and six
+small kiosks showing the unit-icon/digit strip.
+
+The id is the arena's own mission's, and the missions number their Cobjs
+differently — urban-jungle's 36 and 41 are kiosks, where Mp's are the
+Dreadnought hull and the Flying Fortress — so the folder is the arena's. Even
+where a mission shares Mp's payload, the texels are its own pages: each file is
+built from that mission's export (`tools/generators/units/raw/fcop-props/<Mission>/`,
+copied unchanged by `bun run gen:scenery`; `ARENA_SCENERY` in the manifest
+records which Mp model each one is a twin of).
 
 These come out of the same generator and manifest as the units
 (`PROP_MODELS`), but with **two contracts inverted**: they keep their source

@@ -4,17 +4,25 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  DEFAULT_DIFFICULTIES,
+  DEFAULT_LOADOUTS,
+  decodeMessage,
   ERR_BAD_REJOIN,
   ERR_PROTOCOL,
   ERR_ROOM_FULL,
   ERR_VERSION_MISMATCH,
+  encodeMessage,
+  LOBBY_NAME,
+  LOBBY_P1_READY,
   type MatchConfig,
+  MSG_BEGIN,
   MSG_DESYNC,
   MSG_ERROR,
   MSG_FRAME,
   MSG_HASH,
   MSG_HELLO,
   MSG_INPUT,
+  MSG_LOBBY,
   MSG_PEER,
   MSG_REJOIN,
   MSG_START,
@@ -32,6 +40,20 @@ const CONFIG: MatchConfig = {
   mapId: "la-cantina",
   wardenPlayer: -1,
   wardenDifficulty: 0,
+  difficulties: DEFAULT_DIFFICULTIES,
+  loadouts: DEFAULT_LOADOUTS,
+  extraWeapons: 0,
+};
+/** What the host's lobby agreed: both players' own picks. */
+const AGREED: MatchConfig = {
+  ...CONFIG,
+  mapId: "urban-jungle",
+  difficulties: [0, 2],
+  extraWeapons: 0b00101,
+  loadouts: [
+    { gun: 2, heavy: 1, special: 0 },
+    { gun: 1, heavy: 0, special: 2 },
+  ],
 };
 
 const hello = (config = CONFIG): NetMessage => ({
@@ -47,13 +69,22 @@ const types = (out: Outgoing[]): number[] => out.map((o) => o.msg.type);
 const find = (out: Outgoing[], type: number): NetMessage | undefined =>
   out.find((o) => o.msg.type === type)?.msg;
 
-/** Seats two players and returns the room ready to relay from tick 0. */
-function startedRoom(): RoomLogic {
+/** Seats two players in the lobby (protocol 4: not started). */
+function fullLobby(): RoomLogic {
   const room = new RoomLogic();
   room.handleMessage("a", hello());
   room.handleMessage("b", hello());
   return room;
 }
+
+/** Seats two players, the host begins, and the room relays from tick 0. */
+function startedRoom(): RoomLogic {
+  const room = fullLobby();
+  room.handleMessage("a", { type: MSG_BEGIN, config: CONFIG });
+  return room;
+}
+
+const lobbyMsg: NetMessage = { type: MSG_LOBBY, lobby: { id: LOBBY_NAME, name: "Ryan" } };
 
 describe("RoomLogic handshake", () => {
   it("welcomes the host into slot 0 and does not start alone", () => {
@@ -66,16 +97,20 @@ describe("RoomLogic handshake", () => {
     expect(room.isStarted).toBe(false);
   });
 
-  it("welcomes a joiner into slot 1 and starts the match", () => {
+  it("welcomes a joiner into slot 1 and opens the lobby, not the match (protocol 4)", () => {
     const room = new RoomLogic();
     room.handleMessage("a", hello());
     const out = room.handleMessage("b", hello());
     expect(find(out, MSG_WELCOME)).toMatchObject({ slot: 1 });
-    // Joiner is told the host is present, and START goes to both.
+    // Joiner is told the host is present, the host that the joiner is.
     expect(out.some((o) => o.msg.type === MSG_PEER && o.connId === "b")).toBe(true);
-    const start = out.find((o) => o.msg.type === MSG_START);
-    expect(start?.connId).toBe(null); // broadcast
-    expect(room.isStarted).toBe(true);
+    expect(out.find((o) => o.msg.type === MSG_PEER && o.connId === null)?.msg).toEqual({
+      type: MSG_PEER,
+      slot: 1,
+      present: true,
+    });
+    expect(types(out)).not.toContain(MSG_START);
+    expect(room.isStarted).toBe(false);
   });
 
   it("rejects a third player as ROOM_FULL", () => {
@@ -91,6 +126,22 @@ describe("RoomLogic handshake", () => {
     expect(find(out, MSG_ERROR)).toEqual({ type: MSG_ERROR, code: ERR_VERSION_MISMATCH });
   });
 
+  it("refuses a protocol-3 HELLO that does not decode as a version mismatch", () => {
+    const room = new RoomLogic();
+    const bytes = encodeMessage(hello());
+    const old = bytes.slice(0, bytes.length - 7); // protocol 3: no loadouts, no rules
+    old[1] = 3;
+    expect(() => decodeMessage(old)).toThrow();
+    expect(room.handleUndecodable("a", old)).toEqual([
+      { connId: "a", msg: { type: MSG_ERROR, code: ERR_VERSION_MISMATCH } },
+    ]);
+    // Anything else that does not decode is noise.
+    expect(room.handleUndecodable("a", new Uint8Array([MSG_INPUT, 1]))).toEqual([
+      { connId: "a", msg: { type: MSG_ERROR, code: ERR_PROTOCOL } },
+    ]);
+    expect(room.isStarted).toBe(false);
+  });
+
   it("rejects a mismatched protocol version", () => {
     const room = new RoomLogic();
     const out = room.handleMessage("a", {
@@ -101,11 +152,100 @@ describe("RoomLogic handshake", () => {
     expect(find(out, MSG_ERROR)).toEqual({ type: MSG_ERROR, code: ERR_VERSION_MISMATCH });
   });
 
+  it("welcomes both players with the host's difficulties (protocol 3)", () => {
+    const room = new RoomLogic();
+    const picked: MatchConfig = { ...CONFIG, difficulties: [0, 2] };
+    room.handleMessage("a", hello(picked));
+    // The joiner's own config is checked for its simVersion only.
+    const out = room.handleMessage("b", hello());
+    const welcome = find(out, MSG_WELCOME);
+    expect(welcome).toMatchObject({ slot: 1, config: { difficulties: [0, 2] } });
+    // ...and it goes out on the wire as it came in.
+    expect(decodeMessage(encodeMessage(welcome as NetMessage))).toEqual(welcome as NetMessage);
+  });
+
+  it("takes no fresh HELLO into a running match", () => {
+    const room = startedRoom();
+    room.handleDisconnect("b");
+    const out = room.handleMessage("c", hello());
+    expect(find(out, MSG_ERROR)).toEqual({ type: MSG_ERROR, code: ERR_ROOM_FULL });
+  });
+
+  it("forgets an emptied lobby's host, so the next HELLO opens it afresh", () => {
+    const room = new RoomLogic();
+    room.handleMessage("a", hello());
+    room.handleDisconnect("a");
+    const out = room.handleMessage("c", hello(AGREED));
+    expect(find(out, MSG_WELCOME)).toMatchObject({ slot: 0, config: AGREED });
+  });
+
   it("treats a duplicate HELLO from an admitted conn as a protocol error", () => {
     const room = new RoomLogic();
     room.handleMessage("a", hello());
     const out = room.handleMessage("a", hello());
     expect(find(out, MSG_ERROR)).toEqual({ type: MSG_ERROR, code: ERR_PROTOCOL });
+  });
+});
+
+describe("RoomLogic networked lobby (protocol 4)", () => {
+  it("forwards a lobby message to the other slot only, unread", () => {
+    const room = fullLobby();
+    expect(room.handleMessage("a", lobbyMsg)).toEqual([{ connId: "b", msg: lobbyMsg }]);
+    const ready: NetMessage = { type: MSG_LOBBY, lobby: { id: LOBBY_P1_READY, ready: true } };
+    expect(room.handleMessage("b", ready)).toEqual([{ connId: "a", msg: ready }]);
+  });
+
+  it("has nobody to tell while alone or once the match is on", () => {
+    const room = new RoomLogic();
+    room.handleMessage("a", hello());
+    expect(room.handleMessage("a", lobbyMsg)).toEqual([]);
+    const started = startedRoom();
+    expect(started.handleMessage("b", lobbyMsg)).toEqual([]);
+    expect(find(room.handleMessage("ghost", lobbyMsg), MSG_ERROR)).toEqual({
+      type: MSG_ERROR,
+      code: ERR_PROTOCOL,
+    });
+  });
+
+  it("seals the host's BEGIN and starts both on the agreed config", () => {
+    const room = fullLobby();
+    const out = room.handleMessage("a", { type: MSG_BEGIN, config: AGREED });
+    expect(out).toEqual([{ connId: null, msg: { type: MSG_START, startTick: 0, config: AGREED } }]);
+    expect(room.isStarted).toBe(true);
+    // A rejoin is welcomed with the agreed config, not the host's HELLO.
+    room.handleDisconnect("b");
+    const back = room.handleMessage("b2", {
+      type: MSG_REJOIN,
+      protocol: PROTOCOL_VERSION,
+      simVersion: SIM_VERSION,
+      slot: 1,
+      fromTick: 0,
+    });
+    expect(find(back, MSG_WELCOME)).toMatchObject({ slot: 1, config: AGREED });
+  });
+
+  it("refuses a BEGIN from the joiner, from a host alone, twice, or on another sim", () => {
+    const err = (out: Outgoing[]) => find(out, MSG_ERROR);
+    const room = fullLobby();
+    expect(err(room.handleMessage("b", { type: MSG_BEGIN, config: AGREED }))).toEqual({
+      type: MSG_ERROR,
+      code: ERR_PROTOCOL,
+    });
+    expect(
+      err(room.handleMessage("a", { type: MSG_BEGIN, config: { ...AGREED, simVersion: 0 } })),
+    ).toEqual({ type: MSG_ERROR, code: ERR_VERSION_MISMATCH });
+    expect(room.isStarted).toBe(false);
+    room.handleMessage("a", { type: MSG_BEGIN, config: AGREED });
+    expect(err(room.handleMessage("a", { type: MSG_BEGIN, config: AGREED }))).toEqual({
+      type: MSG_ERROR,
+      code: ERR_PROTOCOL,
+    });
+    const alone = new RoomLogic();
+    alone.handleMessage("a", hello());
+    expect(err(alone.handleMessage("a", { type: MSG_BEGIN, config: AGREED }))).toEqual({
+      type: MSG_ERROR,
+      code: ERR_PROTOCOL,
+    });
   });
 });
 
@@ -226,6 +366,24 @@ describe("RoomLogic reconnect", () => {
     const frame = find(out, MSG_FRAME);
     expect(frame).toMatchObject({ type: MSG_FRAME, tick: 3 });
     expect(room.sequencedTicks).toBe(4);
+  });
+
+  it("hydrates a config stored before protocol 3 as both players NORMAL", () => {
+    const { difficulties: _, loadouts: __, extraWeapons: ___, ...stored } = CONFIG;
+    const room = new RoomLogic();
+    room.hydrate(stored as unknown as MatchConfig, true, []);
+    const out = room.handleMessage("a", {
+      type: MSG_REJOIN,
+      protocol: PROTOCOL_VERSION,
+      simVersion: SIM_VERSION,
+      slot: 0,
+      fromTick: 0,
+    });
+    const welcome = find(out, MSG_WELCOME) as NetMessage;
+    expect(welcome).toMatchObject({
+      config: { difficulties: [1, 1], loadouts: DEFAULT_LOADOUTS, extraWeapons: 0 },
+    });
+    expect(() => encodeMessage(welcome)).not.toThrow();
   });
 
   it("trusts only the contiguous prefix when hydrated history is sparse", () => {

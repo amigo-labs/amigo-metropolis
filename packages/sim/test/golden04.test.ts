@@ -21,7 +21,30 @@
 // toward each route cell, forward once within 22.5° of it) and its Special fires
 // from the latch's held state: holding its gate, it shoots the captain down once
 // (at 89 s), so the captain claims nothing and its tanks — eighteen now, and the
-// jet — do not breach in these 150 s; the player goes down once.
+// jet — do not breach in these 150 s; the player goes down once. Since
+// SIM_VERSION 73 urban-jungle's consoles are the original's way round: the
+// captain's jet patrols from the jet shop, its tanks join the road from the tank
+// shop, and the walls about the player's shops are the extracted ones (the old
+// carve for the misplaced ground console's leg closed, one bit by the tank shop
+// opened). Player 0 is downed twice (87 s, 110 s) and never shoots the captain
+// down; the captain buys ten tanks and the jet, claims an outpost, and its tanks
+// breach the player's gate at tick 3357 (112 s). Since SIM_VERSION 75 the
+// captain rethinks at the player's down, not 4 s later at the respawn (both
+// downs are its own fire): the second down comes at 109 s and its tanks do not
+// breach in these 150 s. Since SIM_VERSION 78 every hit radius is the
+// original's (the player's mech 0.553 m walking, was 0.4; the captain's tanks
+// 0.943, was 0.76; the route followers keep their traffic gaps by the same
+// radii): the player goes down once, at 133 s, and the captain's ten tanks do
+// not breach in the 150 s (the nearest dies 7.5 m short). Since SIM_VERSION 83
+// the player's walker runs the original's state machine (the reset's step
+// without control, each move finishing the legs' step before the next, a
+// jump after its wind-up): it goes down twice, at 109 s and 137 s, and the
+// captain's tanks still do not breach. Since SIM_VERSION 84 the captain's
+// queues poll on the original's engine-tick countdowns: the same ten tanks and
+// a jet, the claim, and the player down twice (98 s, 122 s); no breach. Since
+// SIM_VERSION 87 a turret gun whose target is gone turns back to its rest yaw:
+// the same ten tanks, the jet and the claim, the player down twice (96 s,
+// 134 s); no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -34,7 +57,7 @@ import { decodeReplay, readFrame } from "../src/replay";
 import { createSim, step } from "../src/sim";
 
 describe("golden-04-warden beats", () => {
-  it("the Sky Captain roams and buys, and the player holding its gate shoots it down", () => {
+  it("the Sky Captain roams, buys and claims, and downs the player holding its gate", () => {
     const replay = decodeReplay(
       new Uint8Array(readFileSync(join(import.meta.dir, "goldens", "golden-04-warden.mrep"))),
     );
@@ -44,6 +67,7 @@ describe("golden-04-warden beats", () => {
     const sim = createSim(getMapById(replay.mapId), replay.seed, {
       wardenPlayer: replay.wardenPlayer,
       wardenDifficulty: replay.wardenDifficulty,
+      difficulties: replay.difficulties,
     });
     const inputs = createTickInputs();
 
@@ -78,11 +102,11 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    expect(bought.get(ARCHETYPE.RUNNER)).toBe(18);
+    expect(bought.get(ARCHETYPE.RUNNER)).toBe(10);
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
-    expect(claims).toBe(0);
-    expect(wardenDeaths).toBe(1);
-    expect(avatarDeaths).toBe(1);
+    expect(claims).toBe(1);
+    expect(wardenDeaths).toBe(0);
+    expect(avatarDeaths).toBe(2);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);
     expect(sim.winner).toBe(-1);

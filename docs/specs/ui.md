@@ -1,15 +1,17 @@
 # ui.md — Menu, HUD and overlay architecture
 
-Status: v1
+Status: v2 (PLAN.md Phase 14 wave 7: the original's front end)
 
 ## 0. One paragraph
 
 The client has **two UI worlds, and they never mix**. The menu is an
-application: screens, forms, lobby lists, settings — it renders declaratively
-with Preact and may allocate freely, because no sim is being drawn while it is
-up. The HUD and the in-match overlays are part of the frame loop's budget: raw
-DOM, written only when a value changes, zero allocations per frame. Putting a
-diffing renderer on the second one would trade a real frame-time guarantee for
+application: the original's front-end screen, its dialogs, the lobby — it
+renders declaratively with Preact and may allocate freely, because no sim is
+being drawn while it is up. The HUD and the in-match overlays are part of the
+frame loop's budget: raw DOM, written only when a value changes, zero
+allocations per frame. The one in-match dialog, the original's in-game menu, is
+a Preact island that the frame loop never calls (§1). Putting a diffing
+renderer on the frame loop would trade a real frame-time guarantee for
 convenience the menu already has.
 
 ## 1. The boundary
@@ -17,14 +19,22 @@ convenience the menu already has.
 | | Menu world | Frame-loop world |
 |---|---|---|
 | Renders with | Preact (`.tsx`) | `document.createElement`, raw |
-| Lives in | `src/menu/`, `src/ui/` | `src/render/hud/`, `src/*.ts` |
+| Lives in | `src/menu/` | `src/render/hud/`, `src/*.ts` |
 | Allocation | free | **zero per frame** |
 | Update model | state → re-render | write-on-change |
 | Active when | no match running | match running |
 
 Frame-loop world, exhaustively: `render/hud/`, `touchControls.ts`,
-`debug/sandboxPanel.ts`, `debug/pinModal.ts`, the net-status card, the debug
-label, the fly crosshair, the fade cover and the reticle.
+`debug/sandboxPanel.ts`, `debug/pinModal.ts`, the net-status card, the
+match-end card, the debug label, the fly crosshair, the fade cover and the
+reticle.
+
+**The in-game menu is a Preact island** (`menu/inGame.tsx`). Escape mounts it,
+it renders only on its own input events, and closing it unmounts it; nothing in
+it runs per frame and the frame loop never calls into it, so rule 1 of the
+renderer is untouched. It is the original's dialog 0xa6 and it reuses the
+menu's Audio and Controller dialogs, which is why it is not raw DOM: two copies
+of the controls screen would drift.
 
 **Forbidden, and why:**
 
@@ -72,71 +82,138 @@ contract, not a detail. It survives the graphical HUD as a hidden element and
 **must not be reformatted** casually — a change there is a tooling change and
 belongs in the same commit as the harness updates it forces.
 
-## 3. Visual language
+### The in-match HUD is the original's
 
-Modelled on the original's cockpit console. Reference shots live in
-`docs/renders/fcop-ui/` (`weapons-screen.png`, `load-zone-screen.png`,
-`hud-in-match.png`); provenance is in `CREDITS.md`. The title menu also
-tracks the Precinct Assault main-console layout (left pill column, centre
-map panel, START, bottom loadout strip with rate/damage bars).
+`render/hud/` draws Future Cop: L.A.P.D.'s Precinct Assault HUD from the RE's
+`hud.json` (`bun run gen:presentation`): the radar top left, the camera caption
+under it, the armour gauge, the FUTURE COP badge and the three weapon icons with
+their magazine counts bottom left, the score and tanks/jets plates and the
+opponent's row top right, the opponent's (or the Sky Captain's) gauge, badge and
+`L%02d` level bottom right, the lock beam and reticle over the view. Its art is the
+original's atlas page 11, its text font 3 in the original's text colours.
 
-- Heavy metal/circuit bezel framing a dark screen
-- Faint green grid on near-black, drawn as a `repeating-linear-gradient` — a
-  gradient, never an image, so it costs nothing to ship and scales cleanly
-- Thin cyan panel borders; cyan text in a chunky rounded techno face
-- Lavender reserved for the confirming action ("Ready" / "Start") — one accent,
-  one meaning
-- Red and blue are **team colours** and are never used for chrome
-- Loadout strip bars: **green = rate**, **red = damage**, scaled within each
-  hardpoint's catalog (same relative idea as the original's front-end panels)
+**Layout.** The original lays it out on a 640 x 480 screen. Metropolis scales that
+by `s = min(width / 640, height / 480)`, the 4:3 box that fits, and anchors the
+left half of the 640 space to the left edge and the right half to the right edge
+(likewise top and bottom), so a wide window keeps the HUD's height and moves its
+two columns out with the view instead of stretching it (`hudLayout.ts`). Each
+group is a canvas drawn at a whole multiple of the original's pixels with
+smoothing off.
 
-### Title menu layout
+There is no centre crosshair (the original has none: the gun fires at the lock),
+no objective ticker and no breach banner; those were Metropolis' own.
 
-The title screen is a **console frame** over the live 3D arena backdrop (the
-arena still previews the picked map). Inside the frame:
+## 3. The front end: the original's
 
-| Zone | Content |
-|------|---------|
-| Left | Pill buttons: Solo, Online, Preferences, How to play (+ Install / debug) |
-| Centre | Mode title, large arena preview, arena strip, mode panel / drawer, **Start** |
-| Bottom | Three hardpoints stacked with ◀ ▶ to cycle weapons and rate/damage bars |
+The owner's rule (PLAN.md Phase 14): only the original counts. The menu is
+Future Cop's own front end, read from the RE repo's `extracted/frontend/`
+(`screens.json`, `dialogs.json`, `ui_sounds.json`; every block cites the
+decompiled C in `src/game/frontend/`) and imported unchanged by
+`bun run gen:frontend` (`assets.md` §6). The ledger's "Front end" rows
+(`fcop-fidelity.md` F1–F22) say what is adopted, refused and open.
 
-There is **no separate weapons screen** — the loadout is fitted on the console
-strip. Preferences combines Sound and Graphics (one drawer). Online uses
-Host/Join in its panel — Start is disabled there because a net match is not a
-single button.
+### The screen
 
-Tokens live in `src/ui/cockpit.css` as custom properties and are the only thing
-the two UI worlds share. The font is self-hosted: the PWA has to work offline.
+A 640 x 480 bitmap screen (`menu/frontend/`), drawn on a stage scaled to the
+viewport — a whole-number scale when that keeps 80 % of the fit, letterboxed in
+black, the bitmaps pixelated. It is composed exactly as `frontend_first_frame`
+draws it: one **screen set** of four groups (main, left, right, radio), each its
+backdrop at its origin, its extra, its panels, then its menus.
 
-## 4. Navigation (keyboard and gamepad)
+- **Solo:** the set `pa_1p` — the dossier (NEW GAME, LOAD GAME, SAVE GAME, HOST
+  GAME, JOIN GAME, PREFERENCES, HELP, QUIT; PRECINCT ASSAULT and 1 PLAYER with
+  their buttons; START), player 1's column (three weapon slots with rank arrows,
+  the red walker, HARD / NORMAL / EASY), the Sky Captain (level 1-10 and its
+  taunt) and the Precinct Assault map.
+- **Online:** the set `net_pa` — CANCEL, PREFERENCES, the mode plate, START, the
+  "Connected To:" caption, both players' columns and the map. It opens once the
+  HOST / JOIN dialog has linked the peer ("Waiting for someone to join" /
+  "Waiting for confirmation..." until then) and runs the original's lobby
+  (`menu/frontend/netLobby.ts`, netcode.spec §4): "Connected To:" the peer's
+  name; this side edits its own column (the host player 1's, the joiner player
+  2's) and the host the map, each change sent at once; the peer's column shows
+  its picks live, its arrows drawn but refusing a press; the plate reads
+  2 PLAYER and the mode button is the host's. START sets this side's ready bit
+  and goes off while it is set, any mouse button takes it back, WAITING blinks
+  over a ready player, and both ready is the map's loading screen and the
+  match on the host's agreed config. The peer leaving puts up "The other
+  player has dissconnected." (the original's spelling) and goes back offline.
 
-`src/ui/navFocus.ts`, deliberately framework-free so the raw-DOM overlays can
-use it later.
+Everything on it is the model in `menu/frontend/model.ts`, pure and tested
+without a DOM: the panels' kinds (0 lights while held and fires on the release
+over it, 4 is a radio button firing on the press), the hover/held/hidden/
+disabled bits, the gate (BRIEFING disabled in PA, the film strip and COMPLETED
+on a finished map, Bug Hunt once the first five are finished), the menus and
+the one shared countdown (0x42 ms) that steps the animated strips, the loadout
+arrows' skip rule, the chevrons, the level limit, and a won level's progress
+(`frame_step_game`, 0x00409630). The config (picks, levels, loadouts) is kept in
+localStorage (`menu/frontend/progress.ts`), and SAVE GAME / LOAD GAME are the
+original's twenty named slots.
 
-The menu is a **one-dimensional** column, and so is the original's weapons
-screen (its own footer reads `Select Hardpoint: ↑↓`). Up/down therefore walks
-the focusable elements in DOM order. Only inside a `[data-grid]` container (the
-arena picker) does it group elements into visual rows via
-`getBoundingClientRect()` and hold the column index across rows — that handles
-`repeat(auto-fill, …)` changing its column count on resize, which DOM order
-alone cannot.
+START shows the map's loading screen with the bar (`launch.c`) and then hands
+the deep link to `main.ts`. There is no live arena behind the menu: the frame
+loop draws nothing while it is up.
 
-This is why there is **no spatial-navigation dependency**. `@bbc/tv-lrud-spatial`
-and `@noriginmedia/norigin-spatial-navigation-core` both solve geometric
-neighbour search in free-form 2D layouts, plus container grouping and focus
-memory for deep TV menu trees. A single column has neither problem, and both
-libraries still need their conventions in the markup. If a genuinely
-two-dimensional screen ever lands, the resolver is one file behind one
-interface — swap it there.
+### The dialogs
 
-Gamepad input is nobody's framework feature: `navigator.getGamepads()` polled
-on `requestAnimationFrame`, with deadzone and repeat-delay, reusing the axis
-math in `input/gamepadMapping.ts`. Arrow keys and stick directions converge on
-the same handler.
+The original's dialogs are native Win32 templates, so Metropolis rebuilds them
+in HTML/CSS with the Windows 9x chrome (`menu/win9x/`): every control at its
+template rectangle, converted from dialog units with the dialog font's base
+units as `MapDialogRect` does (`win9x/dlu.ts`), the modal frame, the caption bar
+for WS_CAPTION, the client edge for WS_EX_CLIENTEDGE, the system grey 3D look.
+PREFERENCES → options (0x65), Controller Configuration → the controls screen
+(0x71, both players), Select Default Profile → 0xa5, Audio → 0x98 (applied on
+Ok), LOAD / SAVE GAME → 0xa3, NEW GAME → its MessageBox, HOST / JOIN → the
+host and join dialogs (0xa8 / 0xa7) dressing Metropolis' lobby.
 
-A visible `:focus-visible` ring is a functional requirement here, not styling.
-Without it, gamepad navigation is unusable.
+### Platform exceptions on the screen
+
+Outside the 640 x 480 screen, in the page's bottom-right corner, small links:
+Install (the PWA, once the browser offers it) and, on localhost only, Fly and
+Sandbox. In the options dialog the HD textures check box, marked "(Metropolis)",
+and the "Spielregeln (Metropolis)" group under the template's last row: the
+owner's five extra-weapon switches (`fcop-fidelity.md` F23) -- Riot Shield,
+K-9 Drone, Grenade Launcher, Fusion Torpedo, Plasma Flare -- all off by
+default, the original's Precinct Assault. Each on lets the loadout arrows land
+on its entry, the original's skip rule otherwise. Solo they are kept with the
+front end's config; in the networked lobby they are the host's, sent to the
+joiner, whose boxes show them greyed.
+In the host and join dialogs the lobby's password and listing, and the room
+code, marked the same way.
+
+### UI sounds
+
+The nine slots of `ui_sounds.json` on the original's call sites
+(`menu/frontend/uiSound.ts`): every fired panel plays slot 0 before its
+callback, START slot 1, the level chevrons 2, a refused or empty press 3, the
+difficulty chevrons 4, a loadout arrow 5 (8 when nothing else is allowed).
+PlaySound is one sound at a time, so a new one cuts the last; there is no back
+sound.
+
+### Colours and names
+
+Red and blue are **team colours**. They are the original's sides: side 1 red,
+side 2 blue (its radar markers 0x31 / 0x32 and HUD text colours 1 / 3). A
+Metropolis team takes the side of the base it stands on, which is a property of
+the arena (`render/sides.ts`): team 0 is red on five arenas and blue on La
+Cantina. What a player reads names things as the original does: the
+**X1-Alpha**, the **tank**, the **jet**, the **Dreadnought**, the **Flying
+Fortress**, the **Sky Captain**. The code's identifiers keep the older names
+(`RUNNER`, `GUARDIAN`, `JUGGERNAUT`, `FORTRESS`, `WARDEN`, `AVATAR`; rules.md
+opens with the map).
+
+## 4. Input: the mouse
+
+The original's front end is mouse-driven and so is this one: a pointer move
+walks every panel (hover), a press and a release act on the panel under them,
+and that is all. The keyboard and gamepad navigation layer the invented menu
+had (`ui/navFocus.ts`) is gone. Dialogs take the keyboard as Windows dialogs
+do (Tab between controls, Enter on a focused button); the controls screen's
+keyboard hook writes every key into the selected field.
+
+In a match, Escape opens the in-game menu (Resume Game, Abort Game, Audio,
+Controller). Its procedure ignores IDCANCEL, so Escape does not close it. Solo
+the sim stops under it; online the lockstep runs on (`fcop-fidelity.md` F16).
 
 ## 5. Deep links stay authoritative
 

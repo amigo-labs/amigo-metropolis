@@ -5,6 +5,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildModeQuery,
+  DIFFICULTY_PLATES,
+  difficultyFromParams,
+  extraFromParams,
   isLocalhost,
   loadoutFromParams,
   normalizeRoomCode,
@@ -12,6 +15,20 @@ import {
 } from "../src/menu";
 
 describe("buildModeQuery", () => {
+  test("carries the extra-weapons switches on a local match only, when any is on", () => {
+    expect(buildModeQuery({ mode: "warden", difficulty: 2 })).toBe("?warden=2");
+    expect(
+      buildModeQuery({ mode: "warden", difficulty: 2 }, undefined, undefined, 1, 0b10001),
+    ).toBe("?warden=2&extra=17");
+    expect(buildModeQuery({ mode: "online", code: "ABCDE" }, undefined, undefined, 1, 31)).toBe(
+      "?online=ABCDE",
+    );
+    expect(extraFromParams(new URLSearchParams("extra=17"))).toBe(17);
+    expect(extraFromParams(new URLSearchParams("extra=255"))).toBe(31);
+    expect(extraFromParams(new URLSearchParams("extra=x"))).toBe(0);
+    expect(extraFromParams(new URLSearchParams(""))).toBe(0);
+  });
+
   test("solo sandbox uses the ?play marker", () => {
     expect(buildModeQuery({ mode: "solo" })).toBe("?play=1");
   });
@@ -44,6 +61,20 @@ describe("buildModeQuery", () => {
     expect(buildModeQuery({ mode: "warden", difficulty: 99 })).toBe("?warden=10");
     expect(buildModeQuery({ mode: "warden", difficulty: 3.9 })).toBe("?warden=3");
     expect(buildModeQuery({ mode: "warden", difficulty: Number.NaN })).toBe("?warden=1");
+  });
+
+  test("a local match carries the player's difficulty; NORMAL and online omit it", () => {
+    expect(buildModeQuery({ mode: "warden", difficulty: 4 }, "la-cantina", undefined, 0)).toBe(
+      "?warden=4&map=la-cantina&difficulty=hard",
+    );
+    expect(buildModeQuery({ mode: "solo" }, undefined, undefined, 2)).toBe(
+      "?play=1&difficulty=easy",
+    );
+    expect(buildModeQuery({ mode: "solo" }, undefined, undefined, 1)).toBe("?play=1");
+    // An online match plays NORMAL: its lobby offers no pick yet.
+    expect(buildModeQuery({ mode: "online", code: "abcde" }, undefined, undefined, 0)).toBe(
+      "?online=ABCDE",
+    );
   });
 
   test("p2p routes to the lobby-brokered mode", () => {
@@ -130,5 +161,24 @@ describe("randomRoomCode", () => {
       expect(normalizeRoomCode(code)).toBe(code);
       expect(code).not.toMatch(/[OI01]/); // dropped ambiguous glyphs
     }
+  });
+});
+
+describe("difficulty", () => {
+  test("the plates are the original's, in its order: HARD, NORMAL, EASY", () => {
+    expect(DIFFICULTY_PLATES.map((p) => [p.value, p.name])).toEqual([
+      [0, "HARD"],
+      [1, "NORMAL"],
+      [2, "EASY"],
+    ]);
+  });
+
+  test("?difficulty= parses the three names, NORMAL otherwise", () => {
+    const of = (q: string) => difficultyFromParams(new URLSearchParams(q));
+    expect(of("?difficulty=hard")).toBe(0);
+    expect(of("?difficulty=NORMAL")).toBe(1);
+    expect(of("?difficulty=easy")).toBe(2);
+    expect(of("")).toBe(1);
+    expect(of("?difficulty=3")).toBe(1);
   });
 });

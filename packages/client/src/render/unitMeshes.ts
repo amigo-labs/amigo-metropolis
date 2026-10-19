@@ -4,49 +4,53 @@
 // any archetype whose asset is missing or broken simply keeps its greybox —
 // so the rollout can happen model by model and ?render=greybox stays whole.
 //
+// Boot-time only, and only the projectiles. The units — the X1-Alpha's two
+// forms and the arena's own tank, jet, Fortress, Dreadnought, turrets, console
+// and Sky Captain — load with the arena (render/arenaUnits.ts), through
+// loadUnitAsset below, which gives every unit material the original's team
+// colour: a per-instance texture offset (render/teamUv.ts), not a tint.
+//
 // The swap replaces only geometry + material on each bucket's InstancedMesh;
-// instanceMatrix/instanceColor live on the mesh and carry over, so the frame
-// loop (main.ts renderEntities), the bucket capacities, and the whole-unit
-// instanceColor team tint (greybox.ts tintFor) are untouched — one
-// InstancedMesh per archetype, zero frame-loop changes.
+// instanceMatrix lives on the mesh and carries over, so the bucket capacities
+// are untouched — one InstancedMesh per archetype.
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { parseFacers, registerFacers } from "./facers";
+import { type FcopModel, faceMaterials, materialList, mergeFcopModel } from "./fcopModel";
 import type { Bucket, GreyboxMeshes } from "./greybox";
+import { patchTeamUv, prepareTeamUvMask } from "./teamUv";
 
 const loader = new GLTFLoader();
-
-/** Model key under /models/units/ per bucket. */
-const UNIT_MODEL_KEYS = [
-  ["avatarWalker", "avatar-walker"],
-  ["avatarHover", "avatar-hover"],
-  ["runner", "runner"],
-  ["guardian", "guardian"],
-  ["juggernaut", "juggernaut"],
-  ["fortress", "fortress"],
-  ["turretStandard", "turret-standard"],
-  ["turretDefense", "turret-defense"],
-  ["console", "console"],
-  ["warden", "warden"],
-] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
 
 /**
  * Model key under /models/fx/ per projectile bucket — the mesh the original
  * fires for that kind, per the type-99 weapon table (docs/specs/fcop-fx.md §3).
  *
- * The Warden's bomb takes the AI aircraft's rocket (type-98 row 4, the only
- * weapon flown by aircraft and nothing else), which is a derivation and marked
- * as one in the manifest; the other four come straight off the player table.
- * The shockwave has no entry because the original has none either — its row is
- * one of the seven empty ones.
+ * The player's four come straight off the player table. The world rounds come
+ * off the type-98 rows the RE's effect export names (`projectile_cobj`): the
+ * Sky Captain's bomb is row 9's Cobj 49, the rounds of the other rows are by
+ * row (effects/rounds.ts matches each round to its launch). The shockwave has
+ * no entry because the original has none either — its row is one of the seven
+ * empty ones.
  */
 const FX_MODEL_KEYS = [
   ["projHeavy", "rocket-helfire"],
   ["projHyper", "rocket-hyper"],
   ["projMortar", "shell-mortar"],
   ["projMine", "mine"],
-  ["projWarden", "rocket-heavy"],
+  // The extra weapons' (SimOptions.extraWeapons): Cobj 48 and 52.
+  ["projK9", "drone-k9"],
+  ["projGrenade", "grenade"],
+  // The Fusion Torpedo's and the Plasma Flare's: Cobj 46, a star facer alone.
+  ["projTorpedo", "star-46"],
+  ["projPlasma", "star-46"],
+  // The Sky Captain's bomb is world row 9: Cobj 49 (the mortar shell's payload).
+  ["projWarden", "round-row9"],
+  // The world rows' rounds that are models, in the original's own colours
+  // (effects/rounds.ts); the bolts of rows 1, 3 and 6 are render/fx.ts's.
+  ["roundRow4", "round-row4"],
+  ["roundRow8", "round-row8"],
 ] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
 
 /**
@@ -54,9 +58,6 @@ const FX_MODEL_KEYS = [
  * forget: buckets upgrade in place as their .glb arrives.
  */
 export function loadUnitMeshes(buckets: GreyboxMeshes): void {
-  for (const [bucketName, key] of UNIT_MODEL_KEYS) {
-    swapBucketMesh(buckets[bucketName], key);
-  }
   // Projectiles keep the unlit material their bucket was built with: a bolt or
   // a shell reads as a light source, not as a lit surface, which is also why
   // the original drew their glows as emissive facer geometry.
@@ -65,15 +66,25 @@ export function loadUnitMeshes(buckets: GreyboxMeshes): void {
   }
 }
 
-/** One merged geometry plus the single material every unit asset carries. */
+/**
+ * One merged geometry and its materials: one per face draw mode, the
+ * geometry's groups pointing at them (render/fcopModel.ts), or a single one for
+ * a model whose faces are all opaque.
+ */
 export interface UnitAsset {
   /** Model space, i.e. still +Z forward — the caller decides on the bake. */
   readonly geometry: THREE.BufferGeometry;
-  readonly material: THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
+  readonly material: THREE.Material | THREE.Material[];
+  /** The atlas every face samples: the team offset is measured on it. */
+  readonly map: THREE.Texture | null;
+  /** The root node's extras: the facers' records, model space (render/facers.ts). */
+  readonly extras: unknown;
 }
 
 /**
- * Loads `/models/units/<key>.glb` and flattens it to one geometry + material.
+ * Loads `/models/<dir>/<key>.glb` and flattens it to one geometry with its
+ * draw modes' materials. `key` may name a subfolder (`la-cantina/obj_030`,
+ * render/arenaUnits.ts).
  *
  * Model space, deliberately: `avatarRig.ts` splits the geometry into limbs and
  * hinges them, which is a rotation about the model's own left-right axis. Baking
@@ -81,8 +92,8 @@ export interface UnitAsset {
  * each caller — the bucket path bakes it into the geometry, the rig folds it
  * into the per-instance yaw.
  *
- * Rejects with the loader's error when the asset is missing or unmergeable, so
- * every caller can fall back to its greybox.
+ * Rejects with the loader's error when the asset is missing, unmergeable or
+ * has no faces, so every caller can fall back to its greybox.
  */
 export async function loadUnitAsset(
   key: string,
@@ -90,36 +101,22 @@ export async function loadUnitAsset(
   unlit = false,
 ): Promise<UnitAsset> {
   const url = `/models/${dir}/${key}.glb`;
-  const gltf = await loader.loadAsync(url);
-  // Init-time, so allocations and Box3-free traversal are fine here.
-  gltf.scene.updateMatrixWorld(true);
-  const geometries: THREE.BufferGeometry[] = [];
-  // The pipeline emits ONE material per unit: either a single packed
-  // atlas texture (FCOP originals) or vertex colors (untextured packs).
-  // Keep the atlas, dispose the loader's material shells.
-  // Boxed rather than a plain `let`: the assignment happens inside the
-  // traverse callback, which control-flow analysis does not follow, so a
-  // `let` reads as still-null afterwards and narrows to `never` inside
-  // `if (map)`. The box has nothing to narrow.
-  const atlas: { texture: THREE.Texture | null } = { texture: null };
-  gltf.scene.traverse((obj) => {
-    const mesh = obj as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const geometry = mesh.geometry.clone();
-    geometry.applyMatrix4(mesh.matrixWorld);
-    geometries.push(geometry);
-    const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    for (const material of list) {
-      const std = material as THREE.MeshStandardMaterial;
-      if (std.isMeshStandardMaterial && std.map && !atlas.texture) atlas.texture = std.map;
-      material.dispose(); // material only — the kept map texture survives
-    }
-  });
-  if (geometries.length === 0) throw new Error(`empty unit asset at ${url}`);
-  const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries);
-  if (!merged) throw new Error(`unmergeable unit asset at ${url}`);
-  // PS1-era atlas sampling (assets.md §3): hard pixels, no mips.
-  const map = atlas.texture;
+  // Init-time, so allocations are fine here.
+  return unitAssetOf(await mergeFcopModel(await loader.loadAsync(url)), url, dir, unlit);
+}
+
+/** A loaded model as a unit asset; throws when it has no faces. */
+function unitAssetOf(
+  model: FcopModel,
+  url: string,
+  dir: "units" | "fx",
+  unlit: boolean,
+): UnitAsset {
+  const geometry = model.geometry;
+  if (!geometry) throw new Error(`no faces in unit asset at ${url}`);
+  // PS1-era atlas sampling (assets.md §3): hard pixels, no mips. One atlas
+  // for every group (gen:units).
+  const map = model.map;
   if (map) {
     map.magFilter = THREE.NearestFilter;
     map.minFilter = THREE.NearestFilter;
@@ -127,34 +124,44 @@ export async function loadUnitAsset(
     map.colorSpace = THREE.SRGBColorSpace;
     map.needsUpdate = true;
   }
-  const vertexColors = merged.hasAttribute("color");
-  const material = unlit
-    ? new THREE.MeshBasicMaterial({ vertexColors, map, toneMapped: false })
-    : new THREE.MeshStandardMaterial({ flatShading: true, vertexColors, map });
-  return { geometry: merged, material };
+  // A unit's team is a texture offset per instance (render/teamUv.ts); the
+  // projectiles keep their tint (render/fx.ts, docs/specs/fcop-fx.md).
+  const team = dir === "units";
+  const material = faceMaterials(model, { unlit, patch: team ? patchTeamUv : undefined });
+  if (team) prepareTeamUvMask(geometry);
+  return { geometry, material, map, extras: model.extras };
 }
 
-function swapBucketMesh(
-  bucket: Bucket,
-  key: string,
-  dir: "units" | "fx" = "units",
-  unlit = false,
-): void {
-  loadUnitAsset(key, dir, unlit).then(
-    ({ geometry, material }) => {
+function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean): void {
+  const url = `/models/${dir}/${key}.glb`;
+  loader
+    .loadAsync(url)
+    .then(mergeFcopModel)
+    .then((model) => {
+      if (!model.geometry) {
+        // A model of facers alone (Cobj 46's star): its records ride the
+        // bucket's instance matrices (render/facers.ts), its stand-in hidden.
+        const facers = parseFacers(model.extras, true);
+        if (!facers) throw new Error(`nothing to draw in ${url}`);
+        registerFacers(bucket.mesh, facers, model.map);
+        bucket.mesh.visible = false;
+        return;
+      }
+      const { geometry, material, map, extras } = unitAssetOf(model, url, dir, unlit);
       // Models are authored +Z forward (assets.md §4); the sim/greybox frame
-      // is +X forward, so bake the quarter turn into the geometry once.
+      // is +X forward, so bake the quarter turn into the geometry once — and
+      // into the facers (the rockets' glows are stars: render/facers.ts).
       geometry.rotateY(Math.PI / 2);
+      registerFacers(bucket.mesh, parseFacers(extras, true), map);
       bucket.mesh.geometry.dispose();
       bucket.mesh.geometry = geometry;
-      (bucket.mesh.material as THREE.Material).dispose();
+      for (const m of materialList(bucket.mesh.material)) m.dispose();
       bucket.mesh.material = material;
       // Belt and braces: re-write every instance tint on the next frame so no
       // slot can carry a stale cache entry across the swap.
       bucket.tintCache.fill(-2);
-    },
-    (err) => {
+    })
+    .catch((err) => {
       console.warn(`[unitMeshes] no usable unit asset for ${key}, keeping greybox: ${err}`);
-    },
-  );
+    });
 }

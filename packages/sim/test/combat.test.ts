@@ -5,6 +5,7 @@ import { ARCHETYPE } from "../src/archetypes";
 import {
   ARCHETYPE_MAX_HP,
   AVATAR_HP,
+  DIFFICULTY_NORMAL,
   DUMMY_RESPAWN_TICKS,
   ORIGINAL_WEAPON_PROFILES,
   POINTS_AVATAR_DOWN,
@@ -17,7 +18,7 @@ import { EV_DEATH, EV_RESPAWN, EVENT_STRIDE } from "../src/events";
 import { BTN_BACK, BTN_FORWARD, BTN_GUN, BTN_HEAVY, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
 import { createSim, type SimState, step } from "../src/sim";
-import { GUNS, HEAVIES } from "../src/weapons";
+import { difficultyAmmo, GUNS, HEAVIES } from "../src/weapons";
 import { face } from "./drive";
 
 // The default kit's numbers (the original's records, weapons.ts): the Mini-Gun
@@ -25,7 +26,7 @@ import { face } from "./drive";
 // every 15 ticks.
 const PRIMARY_DAMAGE = GUNS[0].a.damage;
 const HEAVY_DAMAGE = HEAVIES[0].a.damage;
-const HEAVY_AMMO = HEAVIES[0].a.ammoCap;
+const HEAVY_AMMO = difficultyAmmo(HEAVIES[0].a.ammoCap, DIFFICULTY_NORMAL);
 const HEAVY_COOLDOWN_TICKS = HEAVIES[0].cooldownTicks;
 
 // Flat 16×16 grid, 4 m cells. P0 spawns at (20,30) facing east; the dummy spot

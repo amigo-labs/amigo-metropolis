@@ -10,11 +10,16 @@ import {
   ARCHETYPE,
   getMapById,
   MAP_REGISTRY,
+  PROJ_GRENADE,
   PROJ_HEAVY,
   PROJ_HYPER,
+  PROJ_K9,
   PROJ_MINE,
   PROJ_MORTAR,
+  PROJ_PLASMA,
+  PROJ_ROUND,
   PROJ_SPECIAL,
+  PROJ_TORPEDO,
   PROJ_WARDEN,
   TURRET_DEFENSE,
 } from "@metropolis/sim";
@@ -36,6 +41,11 @@ export interface Bucket {
   count: number;
   /** Set once if an instance was ever dropped for lack of capacity (see main.ts). */
   overflowed?: boolean;
+  /**
+   * Drawn in the model's own colours: no team tint (the world rows' rounds,
+   * whose rows name one Cobj with no team variant).
+   */
+  untinted?: boolean;
 }
 
 export interface GreyboxMeshes {
@@ -55,7 +65,25 @@ export interface GreyboxMeshes {
   readonly projMortar: Bucket;
   readonly projMine: Bucket;
   readonly projWarden: Bucket;
-  /** Kinds with no mesh of their own (the shockwave pulse). */
+  /** The extra weapons' rounds: the K-9 Drone (Cobj 48) and the grenade (Cobj 52). */
+  readonly projK9: Bucket;
+  readonly projGrenade: Bucket;
+  /**
+   * The Fusion Torpedo's and the Plasma Flare's: Cobj 46, a star facer — an
+   * additive disc of radius 0.074 m, red (128, 17, 12) doubled to a black rim,
+   * drawn from its record (render/facers.ts) once `star-46.glb` lands.
+   */
+  readonly projTorpedo: Bucket;
+  readonly projPlasma: Bucket;
+  /**
+   * A world shooter's round (PROJ_ROUND), by the type-98 row that fired it:
+   * row 1 the first side's tanks and jets, 3 turrets and the Dreadnought's
+   * guns, 4 the Flying Fortress, 6 the second side's tanks and jets, 8 the Sky
+   * Captain's missile (its bomb, row 9, is PROJ_WARDEN's).
+   */
+  readonly roundRow4: Bucket;
+  readonly roundRow8: Bucket;
+  /** Kinds with no mesh of their own (the shockwave pulse; a round whose row is unknown). */
   readonly projectile: Bucket;
   readonly console: Bucket;
   readonly warden: Bucket;
@@ -141,26 +169,62 @@ const NATIVE: Record<string, { footprint: number; height: number }> = {
   walker: { footprint: 0.8, height: 0.98 },
   hover: { footprint: 1.24, height: 0.48 },
   runner: { footprint: 1.52, height: 0.4 },
-  guardian: { footprint: 3.15, height: 0.68 },
+  // The PA jet, Cobj 22 (frame 0): 1.40 x 0.42 x 1.50, of which the top 5 cm
+  // is the rotor's disc, an additive face (light, not body).
+  guardian: { footprint: 1.5, height: 0.37 },
   juggernaut: { footprint: 2.22, height: 0.63 },
-  // Hull-only: gen:units drops Cobj 57's tex10/facer volumes and the two
-  // exhaust billboards, so this is 2.10 x 1.09 rather than the raw 2.67 x 1.89.
-  fortress: { footprint: 2.1, height: 1.09 },
+  // The Flying Fortress, Cobj 41: 3.15 x 0.68 x 2.14.
+  fortress: { footprint: 3.15, height: 0.68 },
   console: { footprint: 1.12, height: 1.47 },
-  // Hull-only: Cobj 54's 1 m tex10 searchlights are dropped (raw 2.04 x 0.71).
+  // The hull: Cobj 54's 1 m tex10 searchlights are additive light, not body
+  // (raw 2.04 x 0.71).
   warden: { footprint: 1.49, height: 0.42 },
   // Projectiles and bolts, from FX_MODELS (docs/specs/fcop-fx.md). Same rule as
   // above: the stand-in is drawn at whatever proportions read best and then
   // scaled onto the original's size, so swapping the .glb in changes the shape
-  // and never the scale.
-  projHeavy: { footprint: 0.39, height: 0.15 },
-  projHyper: { footprint: 0.23, height: 0.09 },
-  projMortar: { footprint: 0.35, height: 0.19 },
-  projMine: { footprint: 0.37, height: 0.22 },
-  projWarden: { footprint: 0.54, height: 0.2 },
-  boltSingle: { footprint: 1.03, height: 0.22 },
-  boltTwin: { footprint: 1.09, height: 0.31 },
+  // and never the scale. The bodies alone: each one's glow is a star facer
+  // (render/facers.ts), no longer the RE's stand-in geometry around it.
+  projHeavy: { footprint: 0.28, height: 0.06 },
+  projHyper: { footprint: 0.17, height: 0.04 },
+  projMortar: { footprint: 0.2, height: 0.15 },
+  projMine: { footprint: 0.37, height: 0.14 },
+  // The Sky Captain's bomb: world row 9, Cobj 49 (the mortar shell's payload).
+  projWarden: { footprint: 0.2, height: 0.15 },
+  // The world rows' rounds that are models: Cobj 42 and 43. Rows 1, 3 and 6
+  // are bolts, their Cobjs' line facers, drawn by render/fx.ts.
+  roundRow4: { footprint: 0.4, height: 0.08 },
+  roundRow8: { footprint: 0.28, height: 0.06 },
+  // The extra weapons' rounds: Cobj 48 (the K-9 Drone) and 52 (the grenade),
+  // their bodies: 0.22 x 0.37 x 0.72 and 0.21 x 0.24 x 0.18.
+  projK9: { footprint: 0.72, height: 0.37 },
+  projGrenade: { footprint: 0.21, height: 0.24 },
 };
+
+/**
+ * Cobj 46's star (the Fusion Torpedo's and the Plasma Flare's round): `at`
+ * (0, 0.008, 0), radius 0.074 m, centre (128, 17, 12) to a black rim, each
+ * colour doubled. The star itself is a camera-facing facer that
+ * render/facers.ts builds from `fx/star-46.glb`'s record, on this bucket's
+ * instance matrices (the bucket's own geometry is then hidden); until then,
+ * and in ?render=greybox, a plain sphere of its radius in the centre's colour
+ * stands in, as every greybox stand-in is a plain shape.
+ */
+const STAR_RADIUS = 0.07421875;
+const STAR_COLOUR = new THREE.Color().setRGB(
+  Math.min(1, (128 * 2) / 255),
+  (17 * 2) / 255,
+  (12 * 2) / 255,
+  THREE.SRGBColorSpace,
+);
+
+function starBucket(scene: THREE.Scene, capacity: number): Bucket {
+  const geometry = new THREE.SphereGeometry(STAR_RADIUS, 8, 6);
+  geometry.translate(0, 0.0078125, 0);
+  const b = bucket(scene, geometry, capacity, true);
+  (b.mesh.material as THREE.MeshBasicMaterial).color.copy(STAR_COLOUR);
+  b.untinted = true;
+  return b;
+}
 
 /**
  * Scales an authored silhouette onto its native size and grounds it, applying
@@ -222,12 +286,14 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     ]),
     "runner",
   );
-  // Guardian: small plane — fuselage, straight wing, tail fin. +X forward.
+  // Guardian: the PA jet, a rotorcraft — cabin, tail boom, stub wings, and a
+  // rotor floating over the cabin as the original's does. +X forward.
   const guardianGeometry = fitNative(
     mergeGeometries([
-      box(2.2, 0.5, 0.7, 0, 0, 0), // fuselage
-      box(0.7, 0.12, 3.2, -0.1, 0.1, 0), // wing
-      box(0.5, 0.7, 0.12, -0.95, 0.35, 0), // tail fin
+      box(0.95, 0.3, 0.45, 0.27, 0, 0), // cabin
+      box(0.6, 0.1, 0.1, -0.45, 0.05, 0), // tail boom
+      box(0.25, 0.04, 1.4, 0.1, -0.13, 0), // stub wings
+      box(1.3, 0.03, 1.3, 0.05, 0.25, 0), // rotor
     ]),
     "guardian",
   );
@@ -279,7 +345,10 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   };
   const projHeavyGeometry = rocket("projHeavy");
   const projHyperGeometry = rocket("projHyper");
-  const projWardenGeometry = rocket("projWarden");
+  // The bomb is round like the mortar shell whose payload it shares.
+  const projWardenGeometry = fitNative(new THREE.SphereGeometry(0.18, 8, 6), "projWarden", false);
+  const roundRow4Geometry = rocket("roundRow4");
+  const roundRow8Geometry = rocket("roundRow8");
   // Mortar: round where the rockets are pointed — that is the silhouette
   // difference in the original too (Cobj 49 against Cobj 43/44).
   const projMortarGeometry = fitNative(new THREE.SphereGeometry(0.18, 8, 6), "projMortar", false);
@@ -340,8 +409,31 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const projMortar = bucket(scene, projMortarGeometry, 32, true);
   const projMine = bucket(scene, projMineGeometry, 32, true);
   const projWarden = bucket(scene, projWardenGeometry, 16, true);
-  // The generic bolt, which is also every PA shooter's round since SIM_VERSION 42
-  // (PROJ_ROUND: 64 turrets and up to 80 units each with a 1.6 s round in the air).
+  projWarden.untinted = true;
+  // The extra weapons' rounds (SimOptions.extraWeapons): a dog and a grenade
+  // until their .glb lands, then the original's Cobjs; the two stars.
+  const projK9 = bucket(
+    scene,
+    fitNative(new THREE.BoxGeometry(0.22, 0.37, 0.72), "projK9", false),
+    32,
+    true,
+  );
+  const projGrenade = bucket(
+    scene,
+    fitNative(new THREE.SphereGeometry(0.12, 8, 6), "projGrenade", false),
+    32,
+    true,
+  );
+  const projTorpedo = starBucket(scene, 32);
+  const projPlasma = starBucket(scene, 32);
+  // Every PA shooter's round since SIM_VERSION 42 (PROJ_ROUND), by row: the
+  // Fortress's (4) and the Sky Captain's missile (8) are models; the bolts of
+  // the turrets and the tanks and jets (rows 3, 1, 6) are render/fx.ts's.
+  const roundRow4 = bucket(scene, roundRow4Geometry, 32, true);
+  const roundRow8 = bucket(scene, roundRow8Geometry, 16, true);
+  roundRow4.untinted = true;
+  roundRow8.untinted = true;
+  // A round whose row the client did not see launch, and the shockwave pulse.
   const projectile = bucket(scene, projectileGeometry, 192, true);
   const consoleBucket = bucket(scene, consoleGeometry, consoleCapacity());
   const warden = bucket(scene, wardenGeometry, 2);
@@ -359,6 +451,12 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     projMortar,
     projMine,
     projWarden,
+    projK9,
+    projGrenade,
+    projTorpedo,
+    projPlasma,
+    roundRow4,
+    roundRow8,
     projectile,
     console: consoleBucket,
     warden,
@@ -376,6 +474,12 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
       projMortar,
       projMine,
       projWarden,
+      projK9,
+      projGrenade,
+      projTorpedo,
+      projPlasma,
+      roundRow4,
+      roundRow8,
       projectile,
       consoleBucket,
       warden,
@@ -390,6 +494,8 @@ export function bucketFor(
   animState: number,
   /** Snapshot aux: projectile kind, or turret mode (DEFENSE / DUMMY / CAPTURABLE→Standard). */
   aux = 0,
+  /** A PROJ_ROUND's world row (effects/rounds.ts), 0 unknown. */
+  row = 0,
 ): Bucket | undefined {
   if (archetype === ARCHETYPE.AVATAR) {
     return (animState & ANIM_HOVER) !== 0 ? greybox.avatarHover : greybox.avatarWalker;
@@ -416,6 +522,17 @@ export function bucketFor(
         return greybox.projMine;
       case PROJ_WARDEN:
         return greybox.projWarden;
+      case PROJ_K9:
+        return greybox.projK9;
+      case PROJ_GRENADE:
+        return greybox.projGrenade;
+      case PROJ_TORPEDO:
+        return greybox.projTorpedo;
+      case PROJ_PLASMA:
+        return greybox.projPlasma;
+      case PROJ_ROUND:
+        // Rows 1, 3 and 6 never get here: their bolts are render/fx.ts's.
+        return row === 4 ? greybox.roundRow4 : row === 8 ? greybox.roundRow8 : greybox.projectile;
       default:
         return greybox.projectile;
     }
@@ -433,9 +550,9 @@ export function bucketFor(
  * telling a rocket from a mortar shell. Now each kind has the mesh the original
  * gave it, so the shape says what it is and the colour is free to say whose it
  * is — which is what the original did too: every row of its weapon table names
- * its mesh twice, once per team (docs/specs/fcop-fx.md §2). PROJECTILE_HEX
- * survives as the explosion tint in render/fx.ts, where a blast really is
- * identified by kind and not by owner.
+ * its mesh twice, once per team (docs/specs/fcop-fx.md §2). The world rows'
+ * rounds name theirs once, with no team variant, and are drawn untinted
+ * (Bucket.untinted).
  *
  * The team IS the cache key, so there is no separate tintKey any more.
  */

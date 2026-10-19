@@ -1,0 +1,449 @@
+/* Windows 95/98 system chrome for the original's dialogs (Win9x.tsx).
+   The four system colours of the 3D look: face #c0c0c0, highlight #fff,
+   light #dfdfdf, shadow #808080, dark shadow #000; the caption's navy. Sizes
+   are the 640 x 480 screen's pixels -- the stage scales the whole screen. */
+
+.w9 {
+  --w9-face: #c0c0c0;
+  --w9-hi: #fff;
+  --w9-light: #dfdfdf;
+  --w9-shadow: #808080;
+  --w9-dark: #000;
+  --w9-sel: #000080;
+  color: #000;
+  -webkit-font-smoothing: none;
+  user-select: none;
+  cursor: default;
+}
+
+.w9-modal {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+}
+
+.w9-window {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 3px;
+  background: var(--w9-face);
+  /* DS_MODALFRAME: light / white outside-in on the top-left, black / grey on
+     the bottom-right. */
+  box-shadow:
+    inset -1px -1px var(--w9-dark),
+    inset 1px 1px var(--w9-light),
+    inset -2px -2px var(--w9-shadow),
+    inset 2px 2px var(--w9-hi);
+  display: flex;
+  flex-direction: column;
+}
+
+.w9-caption {
+  flex: 0 0 18px;
+  height: 18px;
+  margin-bottom: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 0 3px;
+  background: linear-gradient(90deg, #000080, #1084d0);
+  color: #fff;
+  /* The caption is the system's caption font, not the dialog's. */
+  font:
+    bold 11px "MS Sans Serif",
+    "Microsoft Sans Serif",
+    Tahoma,
+    Arial,
+    sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.w9-caption-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.w9-close {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  background: var(--w9-face);
+  box-shadow:
+    inset -1px -1px var(--w9-dark),
+    inset 1px 1px var(--w9-hi),
+    inset -2px -2px var(--w9-shadow),
+    inset 2px 2px var(--w9-light);
+  position: relative;
+}
+.w9-close::before,
+.w9-close::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 6px;
+  width: 8px;
+  height: 2px;
+  background: #000;
+  transform: rotate(45deg);
+}
+.w9-close::after {
+  transform: rotate(-45deg);
+}
+
+.w9-client {
+  flex: 1 1 auto;
+  position: relative;
+}
+.w9-client--edge {
+  padding: 2px;
+  box-shadow:
+    inset 1px 1px var(--w9-shadow),
+    inset -1px -1px var(--w9-hi),
+    inset 2px 2px var(--w9-dark),
+    inset -2px -2px var(--w9-light);
+}
+.w9-client-in {
+  position: relative;
+  overflow: visible;
+}
+
+/* --- push buttons --------------------------------------------------------- */
+.w9-btn {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: var(--w9-face);
+  color: #000;
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  box-shadow:
+    inset -1px -1px var(--w9-dark),
+    inset 1px 1px var(--w9-hi),
+    inset -2px -2px var(--w9-shadow),
+    inset 2px 2px var(--w9-light);
+}
+.w9-btn.is-default {
+  box-shadow:
+    inset 0 0 0 1px var(--w9-dark),
+    inset -2px -2px var(--w9-dark),
+    inset 2px 2px var(--w9-hi),
+    inset -3px -3px var(--w9-shadow),
+    inset 3px 3px var(--w9-light);
+}
+.w9-btn:active:not(:disabled) {
+  padding: 1px 3px 0 5px;
+  box-shadow:
+    inset 0 0 0 1px var(--w9-dark),
+    inset 0 0 0 2px var(--w9-shadow);
+}
+.w9-btn:focus {
+  outline: none;
+}
+.w9-btn:focus-visible .w9-btn-text,
+.w9-btn:focus .w9-btn-text {
+  outline: 1px dotted #000;
+  outline-offset: 0;
+}
+.w9-btn:disabled {
+  color: var(--w9-shadow);
+  text-shadow: 1px 1px var(--w9-hi);
+}
+
+/* --- statics, group boxes ------------------------------------------------- */
+.w9-static {
+  position: absolute;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  line-height: 1.15;
+}
+.w9-static.is-center {
+  text-align: center;
+}
+.w9-static.is-middle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+.w9-static.is-middle.is-center {
+  justify-content: center;
+}
+.w9-static.is-border {
+  border: 1px solid #000;
+}
+.w9-static.is-inverted {
+  background: #3f3f3f;
+  color: #fff;
+}
+.w9-static.is-disabled {
+  color: var(--w9-shadow);
+  text-shadow: 1px 1px var(--w9-hi);
+}
+
+.w9-group {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  /* The etched line: grey with a white line inside it. */
+  border: 1px solid var(--w9-shadow);
+  box-shadow:
+    inset 1px 1px var(--w9-hi),
+    1px 1px var(--w9-hi);
+  pointer-events: none;
+}
+.w9-group legend {
+  position: relative;
+  margin-left: 6px;
+  padding: 0 1px;
+  line-height: 1;
+  /* Covers the etched line's inner white under the caption. */
+  background: var(--w9-face);
+  box-shadow:
+    0 -1px var(--w9-face),
+    0 1px var(--w9-face);
+}
+.w9-group.is-disabled legend {
+  color: var(--w9-shadow);
+  text-shadow: 1px 1px var(--w9-hi);
+}
+
+/* --- check boxes ------------------------------------------------------------ */
+.w9-check {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.w9-check input {
+  position: absolute;
+  opacity: 0;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+}
+.w9-check-box {
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
+  box-sizing: border-box;
+  background: #fff;
+  box-shadow:
+    inset 1px 1px var(--w9-shadow),
+    inset -1px -1px var(--w9-hi),
+    inset 2px 2px var(--w9-dark),
+    inset -2px -2px var(--w9-light);
+  position: relative;
+}
+.w9-check input:checked + .w9-check-box::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 7px;
+  height: 7px;
+  background:
+    no-repeat center / 7px 7px
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='7' shape-rendering='crispEdges'%3E%3Cpath d='M6 0h1v3h-1zM5 1h1v3h-1zM4 2h1v3h-1zM3 3h1v3h-1zM2 4h1v3h-1zM1 3h1v3h-1zM0 2h1v3h-1z'/%3E%3C/svg%3E");
+}
+.w9-check.is-disabled .w9-check-box {
+  background: var(--w9-face);
+}
+.w9-check.is-disabled input:checked + .w9-check-box::after {
+  opacity: 0.45;
+}
+.w9-check.is-disabled .w9-check-text {
+  color: var(--w9-shadow);
+  text-shadow: 1px 1px var(--w9-hi);
+}
+.w9-check input:focus-visible ~ .w9-check-text {
+  outline: 1px dotted #000;
+}
+
+/* --- edits, lists, combos --------------------------------------------------- */
+.w9-edit,
+.w9-list,
+.w9-combo {
+  box-shadow:
+    inset 1px 1px var(--w9-shadow),
+    inset -1px -1px var(--w9-hi),
+    inset 2px 2px var(--w9-dark),
+    inset -2px -2px var(--w9-light);
+  background: #fff;
+}
+.w9-edit {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 2px 3px;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  color: #000;
+  outline: none;
+  user-select: text;
+}
+.w9-edit:disabled,
+.w9-edit:read-only {
+  background: var(--w9-face);
+}
+.w9-list {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 2px;
+  overflow: auto;
+}
+.w9-list.is-disabled {
+  color: var(--w9-shadow);
+}
+.w9-item {
+  white-space: pre;
+  line-height: 13px;
+  padding: 0 2px;
+  min-height: 13px;
+}
+.w9-item.is-selected {
+  background: var(--w9-sel);
+  color: #fff;
+}
+.w9-combo {
+  position: absolute;
+  box-sizing: border-box;
+}
+.w9-combo.is-disabled {
+  background: var(--w9-face);
+  color: var(--w9-shadow);
+}
+.w9-combo-shown,
+.w9-combo-edit {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  right: 18px;
+  bottom: 2px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 1px 2px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  outline: none;
+}
+.w9-combo-shown:focus {
+  background: var(--w9-sel);
+  color: #fff;
+}
+.w9-combo-drop {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  bottom: 2px;
+  width: 16px;
+  padding: 0;
+  border: 0;
+  background: var(--w9-face);
+  box-shadow:
+    inset -1px -1px var(--w9-dark),
+    inset 1px 1px var(--w9-light),
+    inset -2px -2px var(--w9-shadow),
+    inset 2px 2px var(--w9-hi);
+}
+.w9-combo-drop::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  margin-top: -2px;
+  border: 4px solid transparent;
+  border-top-color: #000;
+  border-bottom: 0;
+}
+.w9-combo-drop:disabled::after {
+  border-top-color: var(--w9-shadow);
+}
+.w9-combo-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #000;
+}
+
+/* --- trackbars ----------------------------------------------------------------- */
+.w9-track {
+  position: absolute;
+  box-sizing: border-box;
+  outline: none;
+}
+.w9-track-channel {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  height: 4px;
+  box-shadow:
+    inset 1px 1px var(--w9-shadow),
+    inset -1px -1px var(--w9-hi),
+    inset 2px 2px var(--w9-dark),
+    inset -2px -2px var(--w9-light);
+  background: var(--w9-face);
+}
+.w9-track-tick {
+  position: absolute;
+  top: 21px;
+  width: 1px;
+  height: 4px;
+  background: #000;
+}
+.w9-track-thumb {
+  position: absolute;
+  top: 2px;
+  width: 11px;
+  height: 18px;
+  background: var(--w9-face);
+  clip-path: polygon(0 0, 100% 0, 100% 72%, 50% 100%, 0 72%);
+  box-shadow:
+    inset 1px 1px var(--w9-hi),
+    inset -1px -1px var(--w9-dark),
+    inset -2px -2px var(--w9-shadow);
+}
+.w9-track:focus-visible .w9-track-channel {
+  outline: 1px dotted #000;
+  outline-offset: 3px;
+}
+.w9-track.is-disabled .w9-track-thumb {
+  background: repeating-conic-gradient(var(--w9-face) 0 25%, var(--w9-hi) 0 50%) 0 0 / 2px 2px;
+}
+
+/* --- message boxes -------------------------------------------------------------- */
+.w9-box-text {
+  position: absolute;
+  white-space: pre-wrap;
+}
+.w9-icon {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  background: no-repeat center / 32px 32px;
+}
+.w9-icon--info {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2C8 2 3 7 3 13s4 10 10 11l-3 6 9-6c6-1 10-5 10-11S24 2 16 2z' fill='%23fff' stroke='%23000'/%3E%3Ccircle cx='16' cy='8' r='2' fill='%230000ff'/%3E%3Crect x='14' y='12' width='4' height='9' fill='%230000ff'/%3E%3C/svg%3E");
+}
+.w9-icon--stop {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23f00' stroke='%23800000'/%3E%3Cpath d='M10 10l12 12M22 10L10 22' stroke='%23fff' stroke-width='3'/%3E%3C/svg%3E");
+}

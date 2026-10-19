@@ -1,308 +1,531 @@
-// In-match HUD, after the original's cockpit readouts
-// (docs/renders/fcop-ui/hud-in-match.png): round radar top-left, per-team score
-// and unit columns top-right, a health bar and the three ammo counters along
-// the bottom.
+// The in-match HUD on the original's layout (RE hud.json; src/game/frame/draw.c
+// 1340-1542, hud_weapons.c): the armour gauge with its colour ramp and blink,
+// the FUTURE COP badge, the three weapon icons with their magazine counts, the
+// score plate ("%03ld", flashing while an outpost is affordable), the tanks/jets
+// counts ("%02ld/%02ld"), the opponent's row and gauge, the Sky Captain's level
+// ("L%02d"), the lock beam and reticle. The radar is render/hud/radar.ts; the
+// camera caption render/hud/caption.ts.
 //
-// Raw DOM on purpose (docs/specs/ui.md §1). This is drawn while a match runs,
-// so renderer rule 1 applies: nothing here allocates per frame. Every element
-// is built once; refresh() compares against the last value written and touches
-// the DOM only on a change, and the radar draws into a preallocated canvas with
-// module-scope scratch.
+// Laid out in the original's 640 x 480 space and placed by hudLayout.ts (4:3
+// box, left/right halves anchored to the edges). Drawn with the original's
+// atlas page 11 and font 3 into a few canvases, each redrawn only when one of the
+// values it shows changes (blinks change on the 300 Hz frame clock's bits 6 and
+// 7, so at most every 64 ticks). Raw DOM, no allocation per frame: every colour
+// string is built once below, numbers are drawn digit by digit (docs/specs/ui.md
+// §1, CLAUDE.md renderer rule 1).
 //
-// It reads the snapshots and nothing else (renderer rule 4). The old text HUD
-// reached into sim internals as an acknowledged debug exception; that exception
-// is retired here, and the text itself lives on in hudText.ts purely as the
-// harness hook.
+// It reads the snapshots and nothing else (renderer rule 4).
 
-// Both imported here rather than relying on the menu bundle: a deep link like
-// ?play=1 never mounts the menu, and the HUD must not depend on someone else
-// having pulled in the tokens it uses. The bundler dedupes.
-import "../../ui/cockpit.css";
 import "./hud.css";
 import {
-  EVENT_STRIDE,
-  type EventBuffer,
-  MATCH_OUTRO_WINNER,
   MATCH_SLOT_AMMO_GUN,
   MATCH_SLOT_AMMO_HEAVY,
   MATCH_SLOT_AMMO_SPECIAL,
   MATCH_SLOT_HP_FRAC,
-  MATCH_SLOT_LOCK,
+  MATCH_SLOT_INVULN,
+  MATCH_SLOT_ISSUED_GUN,
+  MATCH_SLOT_ISSUED_HEAVY,
+  MATCH_SLOT_ISSUED_SPECIAL,
   MATCH_SLOT_OUTPOSTS,
   MATCH_SLOT_POINTS,
   MATCH_SLOT_POWER,
   MATCH_SLOT_RESPAWN_TICKS,
-  MATCH_SLOT_UNITS,
-  MATCH_WINNER,
+  MATCH_WARDEN_DIFFICULTY,
   matchSlotOffset,
-  SNAPSHOT_STRIDE,
-  TICK_HZ,
 } from "@metropolis/sim";
-
-import { classifyTickerEvent, TICKER_KINDS, TICKER_TEXT } from "./ticker";
-
-const RADAR_PX = 132;
-/** Blip radii, in canvas px. The avatar reads larger so it is findable. */
-const BLIP_R = 2;
-const BLIP_R_SELF = 3.5;
-
-/** Ticker geometry: fixed rows, newest at the bottom. */
-const TICKER_ROWS = 4;
-const TICKER_ROW_MS = 5000;
-/** Per-(type, team) repeat suppression: alarms fire in bursts. */
-const TICKER_REPEAT_MS = 5000;
-
-/** Pre-built banner strings (renderer rule 1: refresh() builds no strings). */
-const BANNER_OVER = ["MATCH OVER — BLUE BREACHED THE GATE", "MATCH OVER — RED BREACHED THE GATE"];
-const BANNER_BREACH = ["BLUE BREACHED THE GATE", "RED BREACHED THE GATE"];
+import type * as THREE from "three";
+import type { FxFlash } from "../../effects/records";
+import { ARENA_PRESENTATION, HUD } from "../fcopPresentation.generated";
+import { sideOfTeam, sideTextColour } from "../sides";
+import { type BitmapFont, drawChar, drawNumber, hudFont } from "./bitmapText";
+import { type HudImage, hudPage11, hudReticles } from "./hudArt";
+import { type HudCanvas, hudCanvas, hudScale } from "./hudLayout";
+import {
+  countTanksJets,
+  GAUGE_PX,
+  gaugeDimmed,
+  gaugeInvulnerable,
+  gaugeRgb,
+  gaugeValue,
+  iconLit,
+  scoreColour,
+  upperCount,
+  upperCountColour,
+} from "./hudRules";
+import { createMapOverlay, type MapOverlay } from "./mapOverlay";
+import { createRadar, type Radar } from "./radar";
+import { armScreenFlash, createScreenFlash, stepScreenFlash } from "./screenFlash";
 
 export interface MatchHudOptions {
-  /** Number of outpost spots on the arena; 0 hides the outpost readout. */
-  outpostTotal?: number;
+  /** The arena: its sides, its reticle, its radar markers. */
+  readonly mapId: string;
+  /**
+   * Whether the opponent is a second player over the network (the original's
+   * two-player game): then the other player's gauge stands where the Sky
+   * Captain's would, and no level caption is drawn.
+   */
+  readonly online: boolean;
 }
 
 export interface MatchHud {
-  /** Writes changed values only. Safe to call every frame; cheap when idle. */
-  refresh(match: Float32Array, snapshot: Float32Array, count: number, arenaExtent: number): void;
   /**
-   * Drains this tick's objective events (capture/claim/alarm/breach) into
-   * the ticker. Call once per sim step, like the audio pump; allocation-free.
+   * Draws what changed. `clock` is the 300 Hz frame clock (sim tick x 10); the
+   * radar takes the local X1-Alpha's interpolated pose (sim frame, radians).
    */
-  pumpEvents(events: EventBuffer, nowMs: number): void;
-  /** Removes the HUD from the DOM. */
+  refresh(
+    match: Float32Array,
+    snapshot: Float32Array,
+    count: number,
+    clock: number,
+    selfX: number,
+    selfY: number,
+    facing: number,
+  ): void;
+  /**
+   * The lock beam and reticle (hud_draw_lock_beam): from the X1's model point to
+   * the first terrain hit toward the target (`hit` in 0..1 of the segment), the
+   * reticle on the target. Three frame, metres. `active` false clears it.
+   */
+  drawLock(
+    camera: THREE.PerspectiveCamera,
+    active: boolean,
+    fx: number,
+    fy: number,
+    fz: number,
+    tx: number,
+    ty: number,
+    tz: number,
+    hit: number,
+  ): void;
+  /**
+   * `mission_flash_near` for this viewport (screenFlash.ts): an install with a
+   * `flash` at `distWu` world units (octagonal) from this view's player.
+   */
+  flash(flash: FxFlash, distWu: number): void;
+  /** The radar; the map screen writes its overview state (radar.ts). */
+  readonly radar: Radar;
+  /** The map screen's arrows and rings over the top-down window (mapOverlay.ts). */
+  readonly map: MapOverlay;
+  /** Re-places every element for a viewport (CSS px). */
+  layout(vw: number, vh: number): void;
   destroy(): void;
 }
 
-/** One text node plus the value last written to it, so we can skip no-op writes. */
-interface Cell {
-  readonly node: HTMLElement;
-  last: string;
-}
+const css = (rgb: readonly number[], a = 1): string =>
+  a === 1 ? `rgb(${rgb[0]},${rgb[1]},${rgb[2]})` : `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`;
 
-function cell(parent: HTMLElement, className: string): Cell {
-  const node = document.createElement("div");
-  node.className = className;
-  parent.appendChild(node);
-  return { node, last: "\u0000" };
-}
+// --- colour strings, built once ----------------------------------------------
 
-function write(c: Cell, value: string): void {
-  if (c.last === value) return;
-  c.last = value;
-  c.node.textContent = value;
-}
+/** "dim 1" draws a flat rect at half alpha (op 0x3d). */
+const BACKING = css(HUD.gauge.backingRgb, 0.5);
+const TICKS = css(HUD.gauge.tickRgb);
+const PLATE = css(HUD.score.plateRgb, 0.5);
+const UNLIT = "rgba(0,0,0,0.247)"; // the icons' unlit tint 192/255
+const BEAM = css(HUD.beamRgb, 0.5);
 
-function div(parent: HTMLElement, className: string): HTMLDivElement {
-  const node = document.createElement("div");
-  node.className = className;
-  parent.appendChild(node);
-  return node;
+/**
+ * The gauge's fill, a column of 1-px strips per gauge value and blink state: a
+ * quarter of each channel at the outer edges, the full colour at the seam in the
+ * middle (two Gouraud quads, 8 px each).
+ */
+const STRIPS = 16;
+/** One colour's strips, plain then dimmed, appended to `out`. */
+function pushStrips(rgb: readonly number[], out: string[]): void {
+  for (let dim = 0; dim < 2; dim++) {
+    for (let k = 0; k < STRIPS; k++) {
+      const half = k < STRIPS / 2 ? k : STRIPS - 1 - k; // 0 at the edge, 7 at the seam
+      const shade = (0.25 + (0.75 * (half + 0.5)) / (STRIPS / 2)) * (dim ? 0.5 : 1);
+      out.push(
+        css([Math.round(rgb[0] * shade), Math.round(rgb[1] * shade), Math.round(rgb[2] * shade)]),
+      );
+    }
+  }
+}
+const GAUGE_STYLES: string[] = [];
+{
+  const rgb = [0, 0, 0];
+  for (let v = 0; v <= GAUGE_PX; v++) {
+    gaugeRgb(v / GAUGE_PX, rgb);
+    pushStrips(rgb, GAUGE_STYLES);
+  }
+}
+/** The invulnerable arm's flat blue (0, 0x40, 0x7f) doubled, for every value. */
+const INVULNERABLE_STYLES: string[] = [];
+pushStrips(HUD.gauge.invulnerableRgb, INVULNERABLE_STYLES);
+
+type Rect = readonly [number, number, number, number];
+interface Gauge {
+  readonly backing: Rect;
+  readonly ticks: readonly Rect[];
 }
 
 /**
- * Builds the HUD for one player slot and returns its updater.
- * `arenaExtent` scales world coordinates onto the radar.
+ * One gauge (draw.c:803-866): backing, fill from the bottom, ticks. `blue` is
+ * the invulnerable arm's flat colour in place of the ramp.
  */
+function drawGauge(
+  ctx: CanvasRenderingContext2D,
+  g: Gauge,
+  frac: number,
+  dim: boolean,
+  blue = false,
+): void {
+  const b = g.backing;
+  const x = b[0];
+  const y = b[1];
+  const h = b[3];
+  ctx.fillStyle = BACKING;
+  ctx.fillRect(x, y, b[2], h);
+  const v = gaugeValue(frac);
+  if (v > 0) {
+    const styles = blue ? INVULNERABLE_STYLES : GAUGE_STYLES;
+    const base = ((blue ? 0 : v * 2) + (dim ? 1 : 0)) * STRIPS;
+    for (let k = 0; k < STRIPS; k++) {
+      ctx.fillStyle = styles[base + k];
+      ctx.fillRect(x + k, y + h - v, 1, v);
+    }
+  }
+  ctx.fillStyle = TICKS;
+  for (let i = 0; i < g.ticks.length; i++) {
+    const t = g.ticks[i];
+    ctx.fillRect(t[0], t[1], t[2], t[3]);
+  }
+}
+
+/** An icon from page 11, unlit (grey) unless `lit`. */
+function drawIcon(
+  ctx: CanvasRenderingContext2D,
+  page: HudImage,
+  icon: Rect,
+  box: Rect,
+  lit: boolean,
+): void {
+  if (!page.ready) return;
+  ctx.drawImage(page.image, icon[0], icon[1], icon[2], icon[3], box[0], box[1], box[2], box[3]);
+  if (lit) return;
+  ctx.globalCompositeOperation = "source-atop";
+  ctx.fillStyle = UNLIT;
+  ctx.fillRect(box[0], box[1], box[2], box[3]);
+  ctx.globalCompositeOperation = "source-over";
+}
+
+/** A score: the four-digit plate and pen from 1000 up (hud.json score). */
+function drawScore(
+  ctx: CanvasRenderingContext2D,
+  font: BitmapFont,
+  score: number,
+  dy: number,
+  colour: number,
+): void {
+  const wide = score >= 1000;
+  const plate = wide ? HUD.score.plate4 : HUD.score.plate;
+  const pen = wide ? HUD.score.text4 : HUD.score.text;
+  ctx.fillStyle = PLATE;
+  ctx.fillRect(plate[0], plate[1] + dy, plate[2], plate[3]);
+  drawNumber(ctx, font, score, 3, pen[0], pen[1] + dy, colour);
+}
+
+/** "%02ld/%02ld" on its plate. */
+function drawCounts(
+  ctx: CanvasRenderingContext2D,
+  font: BitmapFont,
+  plate: Rect,
+  pen: readonly [number, number],
+  tanks: number,
+  jets: number,
+  colour: number,
+): void {
+  ctx.fillStyle = PLATE;
+  ctx.fillRect(plate[0], plate[1], plate[2], plate[3]);
+  let x = drawNumber(ctx, font, tanks, 2, pen[0], pen[1], colour);
+  x = drawChar(ctx, font, 47, x, pen[1], colour);
+  drawNumber(ctx, font, jets, 2, x, pen[1], colour);
+}
+
+/** The magazine each slot fires from: block B while powered, else block A. */
+const AMMO_FIELDS = [MATCH_SLOT_AMMO_GUN, MATCH_SLOT_AMMO_HEAVY, MATCH_SLOT_AMMO_SPECIAL];
+/** The issued magazine, block A, whether or not the slot is powered. */
+const ISSUED_FIELDS = [MATCH_SLOT_ISSUED_GUN, MATCH_SLOT_ISSUED_HEAVY, MATCH_SLOT_ISSUED_SPECIAL];
+
+/** Builds the HUD for one player slot. */
 export function createMatchHud(
   slot: number,
-  opts: MatchHudOptions = {},
+  opts: MatchHudOptions,
   parent: HTMLElement = document.body,
 ): MatchHud {
-  const outpostTotal = opts.outpostTotal ?? 0;
-  const root = div(parent, "mhud");
+  // The screen flash's strip: a sibling under the HUD, so its additive blend
+  // reaches the frame (a child of the HUD's stacking context would blend with
+  // the HUD's own transparent layer only).
+  const screenFlash = createScreenFlash(parent);
+  const root = document.createElement("div");
+  root.className = "mhud";
+  parent.appendChild(root);
+  // First, so the HUD draws over the map screen's marks, as the original's does.
+  const map = createMapOverlay(opts.mapId, root);
+  const font = hudFont();
+  const page = hudPage11();
+  const reticles = hudReticles();
+  const other = slot === 0 ? 1 : 0;
+  const ownColour = sideTextColour(sideOfTeam(opts.mapId, slot));
+  const otherColour = sideTextColour(sideOfTeam(opts.mapId, other));
+  const reticleCol = ARENA_PRESENTATION[opts.mapId]?.reticle ?? 0;
 
-  // --- Radar ---------------------------------------------------------------
-  const radarWrap = div(root, "mhud-radar");
-  const canvas = document.createElement("canvas");
-  canvas.className = "mhud-radar-canvas";
-  canvas.width = RADAR_PX;
-  canvas.height = RADAR_PX;
-  radarWrap.appendChild(canvas);
-  const ctx = canvas.getContext("2d");
-  const radarLabel = cell(radarWrap, "mhud-radar-label");
-  write(radarLabel, "Sky Camera");
+  // Bottom-left: gauge, badge, weapons. Bottom-right: opponent gauge, badge,
+  // level. Top-right: the score and counts rows. (640 units.)
+  const left = hudCanvas(root, 0, 336, 304, 144);
+  const right = hudCanvas(root, 560, 336, 80, 144);
+  const top = hudCanvas(root, 552, 0, 88, 100);
+  const canvases: HudCanvas[] = [left, right, top];
+  const radar = createRadar(root, opts.mapId, slot, opts.online);
 
-  // --- Score column --------------------------------------------------------
-  // Own team first, enemy below, matching the original's stacked readouts.
-  const scores = div(root, "mhud-scores");
-  const own = div(scores, "mhud-score mhud-score--own");
-  const ownPoints = cell(own, "mhud-points");
-  const ownUnits = cell(own, "mhud-units");
-  const ownOutposts = outpostTotal > 0 ? cell(own, "mhud-units mhud-outposts") : null;
-  const foe = div(scores, "mhud-score mhud-score--foe");
-  const foePoints = cell(foe, "mhud-points");
-  const foeUnits = cell(foe, "mhud-units");
-  const foeOutposts = outpostTotal > 0 ? cell(foe, "mhud-units mhud-outposts") : null;
+  // The lock: a full-viewport overlay, cleared and drawn per frame while a lock
+  // stands (the target moves every frame), in CSS px.
+  const lockEl = document.createElement("canvas");
+  lockEl.className = "mhud-lock";
+  root.appendChild(lockEl);
+  const lockCtx = lockEl.getContext("2d") as CanvasRenderingContext2D;
+  let lockDrawn = false;
+  let viewW = 1;
+  let viewH = 1;
 
-  // --- Objective ticker ------------------------------------------------------
-  // Four fixed rows top-centre; rows expire in refresh(). Built once, text
-  // rewritten in place — the pump allocates nothing.
-  const tickerWrap = div(root, "mhud-ticker");
-  const tickerCells: Cell[] = [];
-  const tickerText: string[] = [];
-  const tickerUntil: number[] = [];
-  for (let i = 0; i < TICKER_ROWS; i++) {
-    tickerCells.push(cell(tickerWrap, "mhud-ticker-row"));
-    tickerText.push("");
-    tickerUntil.push(0);
-  }
-  /** Next allowed show time per (kind, team). */
-  const tickerNextAt = new Float64Array(TICKER_KINDS * 2);
+  // Last-drawn keys per canvas; NaN forces the first draw.
+  const leftKey = new Float64Array(16).fill(Number.NaN);
+  const rightKey = new Float64Array(6).fill(Number.NaN);
+  const topKey = new Float64Array(8).fill(Number.NaN);
+  const counts = new Int32Array(2);
 
-  // --- Bottom bar ----------------------------------------------------------
-  const bottom = div(root, "mhud-bottom");
-  const healthWrap = div(bottom, "mhud-health");
-  const healthFill = div(healthWrap, "mhud-health-fill");
-  const ammo = div(bottom, "mhud-ammo");
-  const ammoGun = cell(ammo, "mhud-ammo-cell mhud-ammo-cell--gun");
-  const ammoHeavy = cell(ammo, "mhud-ammo-cell mhud-ammo-cell--heavy");
-  const ammoSpecial = cell(ammo, "mhud-ammo-cell mhud-ammo-cell--special");
-  // The lock (fcop-fidelity.md W2): the guns hit nothing else, so the HUD says
-  // whether there is one.
-  const lockCell = cell(bottom, "mhud-lock");
-  const banner = cell(root, "mhud-banner");
-
-  // Scratch: last written values for things that are not text cells.
-  let lastHpPct = -1;
-  let lastRespawn = -1;
-  let lastBanner = "";
-  let lastPower = -1;
-
-  const pushTickerRow = (text: string, nowMs: number): void => {
-    // Shift up, newest last — fixed-size, no allocation.
-    for (let i = 0; i < TICKER_ROWS - 1; i++) {
-      tickerText[i] = tickerText[i + 1];
-      tickerUntil[i] = tickerUntil[i + 1];
-    }
-    tickerText[TICKER_ROWS - 1] = text;
-    tickerUntil[TICKER_ROWS - 1] = nowMs + TICKER_ROW_MS;
+  const changed = (key: Float64Array, i: number, v: number, dirty: boolean): boolean => {
+    if (key[i] === v && !dirty) return false;
+    key[i] = v;
+    return true;
   };
 
   return {
-    refresh(match, snapshot, count, arenaExtent): void {
+    radar,
+    map,
+    flash(flash, distWu) {
+      armScreenFlash(screenFlash, flash, distWu);
+    },
+    refresh(match, snapshot, count, clock, selfX, selfY, facing) {
       const mine = matchSlotOffset(slot);
-      const other = matchSlotOffset(slot === 0 ? 1 : 0);
-
-      write(ownPoints, String(match[mine + MATCH_SLOT_POINTS] | 0));
-      write(ownUnits, `${match[mine + MATCH_SLOT_UNITS] | 0} units`);
-      write(foePoints, String(match[other + MATCH_SLOT_POINTS] | 0));
-      write(foeUnits, `${match[other + MATCH_SLOT_UNITS] | 0} units`);
-      if (ownOutposts && foeOutposts) {
-        write(ownOutposts, `outposts ${match[mine + MATCH_SLOT_OUTPOSTS] | 0}/${outpostTotal}`);
-        write(foeOutposts, `outposts ${match[other + MATCH_SLOT_OUTPOSTS] | 0}/${outpostTotal}`);
-      }
-
-      // Expire ticker rows. performance.now() matches the pump's clock.
-      const nowMs = performance.now();
-      for (let i = 0; i < TICKER_ROWS; i++) {
-        write(tickerCells[i], nowMs < tickerUntil[i] ? tickerText[i] : "");
-      }
-
-      // Health: percent-quantized so a bar that moves by a fraction of a pixel
-      // does not cost a style write every frame.
+      const theirs = matchSlotOffset(other);
+      const ready = (font.ready ? 1 : 0) + (page.ready ? 2 : 0);
       const respawn = match[mine + MATCH_SLOT_RESPAWN_TICKS] | 0;
-      const hpPct = respawn > 0 ? 0 : Math.round(match[mine + MATCH_SLOT_HP_FRAC] * 100);
-      if (hpPct !== lastHpPct) {
-        lastHpPct = hpPct;
-        healthFill.style.height = `${hpPct}%`;
-      }
-      if (respawn !== lastRespawn) {
-        lastRespawn = respawn;
-        healthWrap.classList.toggle("is-down", respawn > 0);
+      const down = respawn > 0;
+      // mission_draw_hud's flash arm: frozen while the down timer runs.
+      stepScreenFlash(screenFlash, clock, down);
+      const hp = down ? 0 : match[mine + MATCH_SLOT_HP_FRAC];
+      const power = match[mine + MATCH_SLOT_POWER] | 0;
+
+      // --- bottom left -----------------------------------------------------
+      {
+        const dirty = left.dirty;
+        let d = changed(leftKey, 0, ready, dirty);
+        d = changed(leftKey, 1, gaugeValue(hp), d) || d;
+        d = changed(leftKey, 2, gaugeDimmed(hp, clock) ? 1 : 0, d) || d;
+        d = changed(leftKey, 3, upperCountColour(clock), d) || d;
+        const blue = !down && gaugeInvulnerable(match[mine + MATCH_SLOT_INVULN], clock);
+        d = changed(leftKey, 13, blue ? 1 : 0, d) || d;
+        for (let w = 0; w < 3; w++) {
+          const powered = (power & (1 << w)) !== 0;
+          // Lower: the issued magazine, block A; upper: block B while it holds
+          // rounds (hud.json weapons.lower_count / upper_count).
+          d = changed(leftKey, 4 + w * 3, match[mine + ISSUED_FIELDS[w]] | 0, d) || d;
+          d =
+            changed(leftKey, 5 + w * 3, upperCount(powered, match[mine + AMMO_FIELDS[w]] | 0), d) ||
+            d;
+          d = changed(leftKey, 6 + w * 3, iconLit(powered, clock) ? 1 : 0, d) || d;
+        }
+        if (d) {
+          left.dirty = false;
+          const ctx = left.ctx;
+          left.begin();
+          if (leftKey[13] === 1) {
+            drawGauge(ctx, HUD.gauge.invulnerable, hp, leftKey[2] === 1, true);
+          } else {
+            drawGauge(ctx, HUD.gauge.own, hp, leftKey[2] === 1);
+          }
+          drawIcon(ctx, page, HUD.badge.icon, HUD.badge.own, false);
+          for (let w = 0; w < 3; w++) {
+            const s = HUD.weapons[w];
+            drawIcon(ctx, page, s.icon, s.box, leftKey[6 + w * 3] === 1);
+            drawNumber(
+              ctx,
+              font,
+              leftKey[4 + w * 3],
+              0,
+              s.lower[0],
+              s.lower[1],
+              HUD.lowerCountColour,
+            );
+            const b = leftKey[5 + w * 3];
+            if (b > 0) drawNumber(ctx, font, b, 0, s.upper[0], s.upper[1], leftKey[3]);
+          }
+        }
       }
 
-      if (respawn > 0) {
-        write(ammoGun, `respawn ${Math.ceil(respawn / TICK_HZ)}s`);
-        write(ammoHeavy, "");
-        write(ammoSpecial, "");
-        write(lockCell, "");
-      } else {
-        // The gun has a magazine since SIM_VERSION 41 (the Mini-Gun's 7500 on
-        // NORMAL, the original's record).
-        write(ammoGun, String(match[mine + MATCH_SLOT_AMMO_GUN] | 0));
-        write(ammoHeavy, String(match[mine + MATCH_SLOT_AMMO_HEAVY] | 0));
-        write(ammoSpecial, String(match[mine + MATCH_SLOT_AMMO_SPECIAL] | 0));
-        write(lockCell, match[mine + MATCH_SLOT_LOCK] >= 0 ? "LOCK" : "");
-      }
-      // A powered slot fires its block B (fcop-fidelity.md P8): its count is the
-      // B magazine, and the cell says so. Write-on-change.
-      const power = respawn > 0 ? 0 : match[mine + MATCH_SLOT_POWER] | 0;
-      if (power !== lastPower) {
-        lastPower = power;
-        ammoGun.node.classList.toggle("is-powered", (power & 1) !== 0);
-        ammoHeavy.node.classList.toggle("is-powered", (power & 2) !== 0);
-        ammoSpecial.node.classList.toggle("is-powered", (power & 4) !== 0);
-      }
-
-      const winner = match[MATCH_WINNER] | 0;
-      // A breach decides the match and starts the outro (rules.md §1); the
-      // banner says so for the outro's length, then that the match is over.
-      const breacher = match[MATCH_OUTRO_WINNER] | 0;
-      const text =
-        winner >= 0
-          ? BANNER_OVER[winner === 0 ? 0 : 1]
-          : breacher >= 0
-            ? BANNER_BREACH[breacher === 0 ? 0 : 1]
-            : "";
-      if (text !== lastBanner) {
-        lastBanner = text;
-        write(banner, text);
-        banner.node.classList.toggle("is-on", text !== "");
+      // --- bottom right ----------------------------------------------------
+      {
+        const level = opts.online ? 0 : match[MATCH_WARDEN_DIFFICULTY] | 0;
+        const theirDown = (match[theirs + MATCH_SLOT_RESPAWN_TICKS] | 0) > 0;
+        const theirHp = theirDown ? 0 : match[theirs + MATCH_SLOT_HP_FRAC];
+        const dirty = right.dirty;
+        let d = changed(rightKey, 0, ready, dirty);
+        d = changed(rightKey, 1, gaugeValue(theirHp), d) || d;
+        d = changed(rightKey, 2, gaugeDimmed(theirHp, clock) ? 1 : 0, d) || d;
+        d = changed(rightKey, 3, level, d) || d;
+        if (d) {
+          right.dirty = false;
+          const ctx = right.ctx;
+          right.begin();
+          // Not drawn while its X1 (or the Sky Captain) is down: hp <= 0.
+          if (theirHp > 0) drawGauge(ctx, HUD.gauge.opponent, theirHp, rightKey[2] === 1);
+          drawIcon(ctx, page, HUD.badge.icon, HUD.badge.opponent, false);
+          if (level > 0) {
+            const pen = HUD.level.text;
+            const x = drawChar(ctx, font, 76, pen[0], pen[1], HUD.level.colour);
+            drawNumber(ctx, font, level, 2, x, pen[1], HUD.level.colour);
+          }
+        }
       }
 
-      drawRadar(ctx, snapshot, count, arenaExtent, slot);
+      // --- top right -------------------------------------------------------
+      {
+        const ownScore = match[mine + MATCH_SLOT_POINTS] | 0;
+        const theirScore = match[theirs + MATCH_SLOT_POINTS] | 0;
+        const claimed =
+          (match[mine + MATCH_SLOT_OUTPOSTS] | 0) + (match[theirs + MATCH_SLOT_OUTPOSTS] | 0);
+        const dirty = top.dirty;
+        let d = changed(topKey, 0, ready, dirty);
+        d = changed(topKey, 1, ownScore, d) || d;
+        d = changed(topKey, 2, scoreColour(ownScore, ownColour, claimed, clock), d) || d;
+        countTanksJets(snapshot, count, slot, counts);
+        d = changed(topKey, 3, counts[0], d) || d;
+        d = changed(topKey, 4, counts[1], d) || d;
+        d = changed(topKey, 5, theirScore, d) || d;
+        countTanksJets(snapshot, count, other, counts);
+        d = changed(topKey, 6, counts[0], d) || d;
+        d = changed(topKey, 7, counts[1], d) || d;
+        if (d) {
+          top.dirty = false;
+          const ctx = top.ctx;
+          top.begin();
+          drawScore(ctx, font, ownScore, 0, topKey[2]);
+          drawCounts(ctx, font, HUD.counts.plate, HUD.counts.text, topKey[3], topKey[4], ownColour);
+          // The opponent's row, one viewport always (draw.c:1460): its score is
+          // in its own colour and never flashes.
+          const dy = HUD.opponent.scorePlate[1] - HUD.score.plate[1];
+          drawScore(ctx, font, theirScore, dy, otherColour);
+          drawCounts(
+            ctx,
+            font,
+            HUD.opponent.countsPlate,
+            HUD.opponent.countsText,
+            topKey[6],
+            topKey[7],
+            otherColour,
+          );
+        }
+      }
+
+      radar.refresh(match, snapshot, count, clock, selfX, selfY, facing, down);
     },
-    pumpEvents(events, nowMs): void {
-      for (let i = 0; i < events.count; i++) {
-        const o = i * EVENT_STRIDE;
-        const key = classifyTickerEvent(events.data[o], events.data[o + 2], events.data[o + 3]);
-        if (key < 0) continue;
-        if (nowMs < tickerNextAt[key]) continue;
-        tickerNextAt[key] = nowMs + TICKER_REPEAT_MS;
-        pushTickerRow(TICKER_TEXT[key >> 1][key & 1], nowMs);
+
+    drawLock(camera, active, fx, fy, fz, tx, ty, tz, hit) {
+      if (lockDrawn) {
+        lockCtx.setTransform(1, 0, 0, 1, 0, 0);
+        lockCtx.clearRect(0, 0, lockEl.width, lockEl.height);
+        lockDrawn = false;
       }
+      if (!active) return;
+      // The target's point projected; behind the camera nothing is drawn.
+      if (!project(camera, tx, ty, tz, viewW, viewH, scratchPx)) return;
+      const cx = scratchPx[0];
+      const cy = scratchPx[1];
+      const s = hudScale(viewW, viewH);
+      // The beam: from the mech to the first terrain hit, half alpha.
+      const hx = fx + (tx - fx) * hit;
+      const hy = fy + (ty - fy) * hit;
+      const hz = fz + (tz - fz) * hit;
+      if (project(camera, fx, fy, fz, viewW, viewH, scratchPx)) {
+        const ax = scratchPx[0];
+        const ay = scratchPx[1];
+        if (project(camera, hx, hy, hz, viewW, viewH, scratchPx)) {
+          lockCtx.strokeStyle = BEAM;
+          lockCtx.lineWidth = Math.max(1, s);
+          lockCtx.beginPath();
+          lockCtx.moveTo(ax, ay);
+          lockCtx.lineTo(scratchPx[0], scratchPx[1]);
+          lockCtx.stroke();
+        }
+      }
+      // The reticle: 16 x 16 texels drawn 32 x 32 (640 units), half alpha.
+      if (reticles.ready) {
+        const size = HUD.reticle.size * s;
+        const t = HUD.reticle.texels;
+        lockCtx.imageSmoothingEnabled = false;
+        lockCtx.globalAlpha = 0.5;
+        lockCtx.drawImage(
+          reticles.image,
+          reticleCol * t,
+          0,
+          t,
+          t,
+          cx - size / 2,
+          cy - size / 2,
+          size,
+          size,
+        );
+        lockCtx.globalAlpha = 1;
+      }
+      lockDrawn = true;
     },
-    destroy(): void {
+
+    layout(vw, vh) {
+      viewW = vw;
+      viewH = vh;
+      for (let i = 0; i < canvases.length; i++) canvases[i].place(vw, vh);
+      radar.layout(vw, vh);
+      map.layout(vw, vh);
+      lockEl.width = Math.max(1, Math.round(vw));
+      lockEl.height = Math.max(1, Math.round(vh));
+      lockEl.style.width = `${vw}px`;
+      lockEl.style.height = `${vh}px`;
+      lockDrawn = false;
+    },
+
+    destroy() {
       root.remove();
+      screenFlash.el?.remove();
     },
   };
 }
 
-/**
- * Top-down blips scaled to the arena. Reads the entity snapshot directly —
- * positions are per-entity, so this is exactly what writeSnapshot is for.
- * Allocation-free: no arrays, no closures, no Vector3.
- */
-function drawRadar(
-  ctx: CanvasRenderingContext2D | null,
-  snapshot: Float32Array,
-  count: number,
-  arenaExtent: number,
-  slot: number,
-): void {
-  if (!ctx) return;
-  ctx.clearRect(0, 0, RADAR_PX, RADAR_PX);
-  const scale = arenaExtent > 0 ? RADAR_PX / arenaExtent : 0;
-  if (scale === 0) return;
+// Projection scratch (renderer rule 1).
+const scratchPx = new Float64Array(2);
+const ndc = { x: 0, y: 0, z: 0 };
 
-  for (let i = 0; i < count; i++) {
-    const o = i * SNAPSHOT_STRIDE;
-    const archetype = snapshot[o + 1];
-    // Projectiles would swamp the display and tell the player nothing.
-    if (archetype === 6) continue;
-    const team = snapshot[o + 2];
-    const x = snapshot[o + 3] * scale;
-    const y = snapshot[o + 4] * scale;
-    const isSelf = archetype === 0 && team === slot;
-    ctx.fillStyle = isSelf
-      ? "#dcf2ff"
-      : team === slot
-        ? "#5b8dd9"
-        : team < 0
-          ? "#4c6070"
-          : "#d95b5b";
-    ctx.beginPath();
-    ctx.arc(x, y, isSelf ? BLIP_R_SELF : BLIP_R, 0, Math.PI * 2);
-    ctx.fill();
-  }
+/** World point -> CSS px of a `vw` x `vh` view; false behind the camera. */
+function project(
+  camera: THREE.PerspectiveCamera,
+  x: number,
+  y: number,
+  z: number,
+  vw: number,
+  vh: number,
+  out: Float64Array,
+): boolean {
+  // view = inverse(world) * p, then the projection; by hand to stay allocation-free.
+  const m = camera.matrixWorldInverse.elements;
+  const vx = m[0] * x + m[4] * y + m[8] * z + m[12];
+  const vy = m[1] * x + m[5] * y + m[9] * z + m[13];
+  const vz = m[2] * x + m[6] * y + m[10] * z + m[14];
+  if (vz > -camera.near) return false;
+  const p = camera.projectionMatrix.elements;
+  const cw = p[3] * vx + p[7] * vy + p[11] * vz + p[15];
+  ndc.x = (p[0] * vx + p[4] * vy + p[8] * vz + p[12]) / cw;
+  ndc.y = (p[1] * vx + p[5] * vy + p[9] * vz + p[13]) / cw;
+  out[0] = ((ndc.x + 1) / 2) * vw;
+  out[1] = ((1 - ndc.y) / 2) * vh;
+  return true;
 }

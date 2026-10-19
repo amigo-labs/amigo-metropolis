@@ -77,6 +77,23 @@ export interface EntityStore {
    * slot cleared to zero would silently inherit the first profile.
    */
   readonly weaponProfile: Int16Array;
+
+  /**
+   * Hit radius per entity, metres, set at its spawn from the arena's models
+   * (MapData.radii; sim.ts entityRadius reads it, and the mech's form, instead of
+   * the archetype's default). A side array outside the hashable region: it is a
+   * function of what spawned and where, never changed after. 0 = the default.
+   */
+  readonly radius: Float32Array;
+
+  /**
+   * A turret's rest yaw, radians, set at its spawn: the yaw it was built at (its
+   * record's angle, `turret_construct`'s `rest_yaw`; RE turret.c 879-883), which
+   * its gun turns back to once its target is gone (sim.ts shooterTurret). A side
+   * array outside the hashable region like `radius`: a function of what spawned
+   * and where, never changed after. 0 for everything else.
+   */
+  readonly restYaw: Float32Array;
 }
 
 const FLOAT_FIELDS = 16;
@@ -130,6 +147,8 @@ export function createEntityStore(cap: number = MAX_ENTITIES): EntityStore {
     // buffer). weaponProfile starts at -1 = "no profile" everywhere.
     entLayer: new Uint8Array(cap),
     weaponProfile: new Int16Array(cap).fill(-1),
+    radius: new Float32Array(cap),
+    restYaw: new Float32Array(cap),
   };
 }
 
@@ -185,6 +204,8 @@ export function despawn(store: EntityStore, id: number): void {
   store.ownerId[id] = 0;
   store.entLayer[id] = 0;
   store.weaponProfile[id] = -1; // -1, not 0: see the field comment
+  store.radius[id] = 0;
+  store.restYaw[id] = 0;
   store.freeList[store.freeCount] = id;
   store.freeCount += 1;
 }

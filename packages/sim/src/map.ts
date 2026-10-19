@@ -11,21 +11,29 @@ import layeredTestJson from "../maps/layered-test.json";
 import provingGroundJson from "../maps/proving-ground.json";
 import urbanJungleJson from "../maps/urban-jungle.json";
 import veniceBeachJson from "../maps/venice-beach.json";
+import { ARCHETYPE } from "./archetypes";
 import {
+  ARCHETYPE_RADIUS,
+  AVATAR_HOVER_RADIUS,
+  DREADNOUGHT_GUN_TURN,
+  DREADNOUGHT_GUNS,
+  DREADNOUGHT_MOUNTS,
+  NEUTRAL_TURRET_RADIUS,
   ORIGINAL_BUY_HALF_L,
   ORIGINAL_BUY_HALF_W,
   ORIGINAL_CAPTURE_RANGE,
-  ORIGINAL_JET_QUEUE_TICKS,
+  ORIGINAL_JET_QUEUE_PERIOD,
   ORIGINAL_PICKUP_HALF_H,
   ORIGINAL_PICKUP_HALF_L,
   ORIGINAL_PICKUP_HALF_W,
   ORIGINAL_PICKUP_LIFT,
-  ORIGINAL_TANK_QUEUE_TICKS,
+  ORIGINAL_TANK_QUEUE_PERIOD,
   ORIGINAL_TURRET_HP,
   ORIGINAL_UNIT_PROFILES,
   ORIGINAL_WEAPON_PROFILES,
   PROFILE_NEUTRAL_TURRET,
   PROFILE_TEAM_TURRET,
+  SKY_RADIUS,
 } from "./balance";
 import { clamp, cosLUT, lerp, sinLUT } from "./simMath";
 
@@ -133,15 +141,91 @@ export interface MapUnitProfile {
 }
 
 /**
+ * The hit radius of each body on this arena, metres: the original's `radius_68`
+ * of the model its own mission draws there, at the frame it holds (the 3DBB box's
+ * halfword at +12 << 4 wu; fcop-fidelity.md G1). Mp, Conft, Slim and Ovmp share
+ * most; Joke's units and Sky Captains, Hk's tank, second neutral set and Sky
+ * Captains are their own (tools/generators/fcop/<mission>-models.json).
+ */
+export interface MapRadii {
+  /** The mech's legs at the walker's pose (frame 0) and the hover's (359). */
+  readonly walker: number;
+  readonly hover: number;
+  readonly tank: number;
+  readonly jet: number;
+  readonly fortress: number;
+  /** The Dreadnought's hull, at frame 0. */
+  readonly dreadnought: number;
+  /**
+   * A hull that walks (MapJuggernaut.walk, Joke's): its radius in each frame,
+   * frame k at index k (frame 0 is `dreadnought`). The type-28 tick re-reads the
+   * hull's box each frame its walk shows (`type5_model_select`, RE type5.c
+   * 137-145, `cact_model_select` 0x004297e0), and every hit and zone test adds
+   * the `radius_68` that leaves. Empty on a static hull.
+   */
+  readonly dreadnoughtByFrame: readonly number[];
+  /** A ring or outpost plate (type 8) turret's gun. */
+  readonly baseTurret: number;
+  /** A neutral (type 36) turret's gun, per `turretSpots` entry. */
+  readonly neutral: readonly number[];
+  /** The Sky Captain's model by level 0..9 (balance.ts wardenLevel). */
+  readonly skyCaptain: readonly number[];
+}
+
+/**
+ * One of the Dreadnought's gun mounts, in its models' glb frames (metres, +z
+ * forward, y up; RE docs/formats/pa-models.md): the hull's attach point the gun
+ * stands on (x, y, z) and the gun model's point 0, its muzzle (mx, my, mz). The
+ * sim places a hull-frame point at hull + z * forward + x * (sin yaw, -cos yaw),
+ * the frame the client draws the hull's glb in.
+ */
+export interface MapGunMount {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly mx: number;
+  readonly my: number;
+  readonly mz: number;
+  /**
+   * On a hull that walks (MapJuggernaut.walk): the attach point in each of its
+   * frames, frame k at index k, the hull's glb frame as x, y, z are (frame 0 is
+   * x, y, z). The gun stands on, and fires from, the point of the frame the hull
+   * shows (RE mount.c 1019-1030, `cact_model_point` on the hull's +0x70).
+   * Absent on a static hull.
+   */
+  readonly frames?: readonly { readonly x: number; readonly y: number; readonly z: number }[];
+}
+
+/**
+ * The Dreadnought hull's walk where its model animates (Joke's Cobj 35, 20
+ * frames): the model's one AnmD track (block.c `anmd_track`), stepped as
+ * `cact_handler_type5` op 6 steps it, by `velocity_84 * dt` -- a frame per
+ * `period` world units travelled (type5.c 469-472) -- its links the track
+ * itself. The event is packed `code << 10 | frame`, 0 for none.
+ */
+export interface MapHullWalk {
+  readonly from: number;
+  readonly to: number;
+  readonly mode: number;
+  readonly end: number;
+  readonly link: number;
+  readonly linkB: number;
+  readonly linkC: number;
+  readonly flags: number;
+  readonly period: number;
+  readonly event: number;
+}
+
+/**
  * A side's Juggernaut as the original arena defines it: the Dreadnought record
  * (act_type 28, extracted as "TeamBase?" — fcop-re/ranges-turrets-capture.md top
  * + Q4). Precinct Assault arenas only; absent on the §1 arenas, whose Juggernaut
  * keeps balance.ts's own stats and spawns at the ground console.
  *
- * The four hull guns are modelled as `guns` independent shooters standing at the
- * hull's position, all on one weapon profile: the original mounts them at the
- * hull model's points 0..3 (offsets under 0.9 m) with their own yaw, which at a
- * 12 m reach changes nothing a player can see.
+ * Its `guns` are the original's mounts (SIM_VERSION 77, fcop-fidelity.md I6):
+ * gun i on `mounts[i]`, each with its own yaw relative to the hull, turning
+ * `gunTurn` angle units per 1/300 s toward its own target, firing from its muzzle
+ * inside its front sector, all on one weapon profile.
  */
 export interface MapJuggernaut {
   /** Spawn point: the type-28 record's position, node 0 of its Cnet by the HQ. */
@@ -150,10 +234,16 @@ export interface MapJuggernaut {
   readonly layer: number;
   /** Max HP (the original's 3000). */
   readonly hp: number;
-  /** Hull guns that fire per volley (4). */
+  /** Hull guns (4): the length of `mounts`. */
   readonly guns: number;
   /** Index into MapData.weapons: one gun's profile. */
   readonly weapon: number;
+  /** Gun i's mount (balance.ts DREADNOUGHT_MOUNTS where the arena imports none). */
+  readonly mounts: readonly MapGunMount[];
+  /** The guns' turn, angle units (4096 a turn) per 1/300 s (DREADNOUGHT_GUN_TURN). */
+  readonly gunTurn: number;
+  /** The hull's walk where its model animates (Joke's), else undefined: a static hull. */
+  readonly walk: MapHullWalk | undefined;
 }
 
 /**
@@ -220,12 +310,25 @@ export interface MapZone {
 /**
  * A base's Dreadnought and Flying Fortress zones and the polled check that opens
  * them for good the first time it sees the side hold HEAVY_UNLOCK_POINTS (the
- * original's fn30/fn31: every 5 s, 2.5 s on Joke and Slim, from a random phase).
+ * original's fn30/fn31: every 5 s, 2.5 s on Joke and Slim, from a random phase),
+ * and in the same run requests the base's two terminals.
  */
 export interface MapHeavyZones {
   readonly juggernaut: MapZone;
   readonly fortress: MapZone;
-  readonly pollTicks: number;
+  /**
+   * The poll's period in the original's engine ticks (300 Hz): the function's
+   * time units × 5, as `cfun_load` stores it (Mp 1500 / 1525, Joke and Slim
+   * 750 / 765). Counted down by the frame delta, CFUN_DELTA_PER_TICK a tick.
+   */
+  readonly pollPeriod: number;
+  /**
+   * The Csac templates the opening run requests: the Dreadnought's and the
+   * Flying Fortress's terminals (type-11 props; Mp 50 / 52 and 54 / 56). The
+   * sim only reports whether they stand (MATCH_SLOT_TERMINALS); the client's
+   * scenery table names them "Csac <template>".
+   */
+  readonly terminals: readonly number[];
 }
 
 export interface MapBase {
@@ -278,9 +381,10 @@ export interface MapBase {
   readonly jetSpawn: MapPoint;
   /**
    * The base's tank queue's period, and the jet queue's (the Sky Captain's; a
-   * human's jets come at once). ORIGINAL_*_QUEUE_TICKS where the arena imports none.
+   * human's jets come at once), in engine ticks (MapQueuePeriods).
+   * ORIGINAL_*_QUEUE_PERIOD where the arena imports none.
    */
-  readonly queueTicks: MapQueueTicks;
+  readonly queuePeriod: MapQueuePeriods;
 }
 
 /**
@@ -355,9 +459,10 @@ export interface MapTriggerVolume {
 /**
  * Hk's spawn guard (fcop-fidelity.md P11): a trigger box about a spawn that
  * watches the ENEMY mech. While that mech is inside it takes `damage`, then the
- * box waits for a latch reset the mission polls every `resetTicks` from a random
- * phase (RE `pa_rules.json` damage_triggers; trigger.c's box test, every axis
- * widened by the mech's radius).
+ * box waits for a latch reset the mission polls every `resetPeriod` engine
+ * ticks from a random phase (fn45 / fn46's 60 time units × 5 = 300, as
+ * `cfun_load` stores it; RE `pa_rules.json` damage_triggers; trigger.c's box
+ * test, every axis widened by the mech's radius).
  */
 export interface MapSpawnGuard {
   readonly x: number;
@@ -369,7 +474,7 @@ export interface MapSpawnGuard {
   /** Team whose mech the box hurts. */
   readonly hurtsTeam: number;
   readonly damage: number;
-  readonly resetTicks: number;
+  readonly resetPeriod: number;
   readonly layer: number;
 }
 
@@ -414,23 +519,6 @@ export interface MapLift {
 }
 
 /**
- * A render-only scenery placement (original DynamicProp and friends).
- *
- * The SIM MUST NOT READ THIS. It rides along in the map so the client can place
- * original props without a second data file; packages/sim/test/map.test.ts
- * asserts no sim source file references it.
- */
-export interface MapProp {
-  readonly x: number;
-  readonly y: number;
-  readonly height: number;
-  readonly yaw: number;
-  /** Original Cobj resource id, so the renderer can pick the model. */
-  readonly model: number;
-  readonly layer: number;
-}
-
-/**
  * One of the original's outposts (fcop-re/outposts.md Q3), parallel to
  * `MapData.outpostSpots` (the claim zone's centre, where the console marker
  * stands). Precinct Assault arenas only.
@@ -447,16 +535,19 @@ export interface MapOutpost {
   /** Per team: where its tanks and jets from this outpost appear (their spawners). */
   readonly tankSpawn: readonly MapPoint[];
   readonly jetSpawn: readonly MapPoint[];
-  /** Per team: this outpost's tank and jet queues' periods in ticks (MapQueueTicks). */
-  readonly queueTicks: readonly MapQueueTicks[];
+  /** Per team: this outpost's tank and jet queues' periods in engine ticks (MapQueuePeriods). */
+  readonly queuePeriod: readonly MapQueuePeriods[];
 }
 
 /**
- * A spawn queue's period in ticks (fcop-fidelity.md R18): the mission function
- * that spawns one queued unit per poll while its count is positive, polled from a
- * random phase drawn at load.
+ * A spawn queue pair's periods (fcop-fidelity.md R18): each queue is the
+ * mission function that spawns one queued unit per poll while its count is
+ * positive, polled by `cfun_tick` from a random phase drawn at load; its period
+ * in the original's engine ticks (300 Hz), the function's time units × 5 as
+ * `cfun_load` stores it, counted down by the frame delta, CFUN_DELTA_PER_TICK a
+ * tick.
  */
-export interface MapQueueTicks {
+export interface MapQueuePeriods {
   readonly tank: number;
   readonly jet: number;
 }
@@ -581,6 +672,11 @@ export interface MapData {
    * imports none gets ORIGINAL_CAPTURE_RANGE, the 4.0 m.
    */
   readonly captureRange: number;
+  /**
+   * The arena's hit radii, its own mission's models (MapRadii; balance.ts
+   * ARCHETYPE_RADIUS's Mp values where it imports none).
+   */
+  readonly radii: MapRadii;
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
   readonly laneGraph: MapLaneGraph | undefined;
   /** Power-up spots. EMPTY → no pickups on this arena. */
@@ -602,8 +698,6 @@ export interface MapData {
   readonly spawnGuards: readonly MapSpawnGuard[];
   /** The lifts (Conft, Slim, Joke). EMPTY elsewhere. */
   readonly lifts: readonly MapLift[];
-  /** Render-only scenery. The sim must not read this. */
-  readonly props: readonly MapProp[];
 }
 
 /**
@@ -839,7 +933,7 @@ export interface MapJson {
     /** OPTIONAL, per team: the spawners' positions (absent -> the pads) and queue periods. */
     tankSpawn?: (number[] | { x: number; y: number; layer?: number })[];
     jetSpawn?: (number[] | { x: number; y: number; layer?: number })[];
-    queueTicks?: { tank: number; jet: number }[];
+    queuePeriod?: { tank: number; jet: number }[];
     plates: {
       spot: number;
       turrets: { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number }[];
@@ -875,6 +969,20 @@ export interface MapJson {
   turretHp?: number[];
   /** Capture range of the turret spots in metres, before the capturer's radius. */
   captureRange?: number;
+  /** OPTIONAL: the arena's hit radii (MapRadii); `neutral` parallel to turretSpots. */
+  radii?: {
+    walker: number;
+    hover: number;
+    tank: number;
+    jet: number;
+    fortress: number;
+    dreadnought: number;
+    /** OPTIONAL: a walking hull's radius per frame (MapRadii.dreadnoughtByFrame). */
+    dreadnoughtByFrame?: number[];
+    baseTurret: number;
+    neutral: number[];
+    skyCaptain: number[];
+  };
   /** Original Cnet graph. `edges` is one 4-tuple per node, -1 = no edge. */
   laneGraph?: {
     nodes: (number[] | { x: number; y: number; layer?: number })[];
@@ -921,7 +1029,7 @@ export interface MapJson {
     halfH: number;
     hurtsTeam: number;
     damage: number;
-    resetTicks: number;
+    resetPeriod: number;
     layer?: number;
   }[];
   /** OPTIONAL: the lifts (MapLift). */
@@ -944,8 +1052,6 @@ export interface MapJson {
     model: number;
     yaw: number;
   }[];
-  /** Render-only scenery; never read by the sim. */
-  props?: { x: number; y: number; height: number; yaw: number; model: number; layer?: number }[];
 }
 
 /** JSON shape of one base; point lists are [x, y] pairs or {x,y,layer?} objects. */
@@ -985,6 +1091,31 @@ export interface MapBaseJson {
     guns: number;
     weapon: number;
     layer?: number;
+    /** OPTIONAL: the gun mounts (MapGunMount); balance.ts DREADNOUGHT_MOUNTS when absent. */
+    mounts?: {
+      x: number;
+      y: number;
+      z: number;
+      mx: number;
+      my: number;
+      mz: number;
+      frames?: number[][];
+    }[];
+    /** OPTIONAL: the hull's walk (MapHullWalk); absent for a static hull. */
+    walk?: {
+      from: number;
+      to: number;
+      mode: number;
+      end: number;
+      link: number;
+      linkB: number;
+      linkC: number;
+      flags: number;
+      period: number;
+      event: number;
+    };
+    /** OPTIONAL: the guns' turn (MapJuggernaut.gunTurn); DREADNOUGHT_GUN_TURN when absent. */
+    gunTurn?: number;
   };
   /** OPTIONAL PA extras: the original tank, jet and Flying Fortress (MapUnitProfile). */
   runner?: { hp: number; weapon: number };
@@ -994,15 +1125,16 @@ export interface MapBaseJson {
   heavyZones?: {
     juggernaut: { x: number; y: number; radius: number; layer?: number };
     fortress: { x: number; y: number; radius: number; layer?: number };
-    pollTicks: number;
+    pollPeriod: number;
+    terminals?: number[];
   };
   /** OPTIONAL: the Fortress spawner's position; absent -> the air console. */
   fortressSpawn?: number[] | { x: number; y: number; layer?: number };
   /** OPTIONAL: the tank and jet spawners' positions; absent -> the consoles. */
   tankSpawn?: number[] | { x: number; y: number; layer?: number };
   jetSpawn?: number[] | { x: number; y: number; layer?: number };
-  /** OPTIONAL: the base's queue periods in ticks (MapQueueTicks). */
-  queueTicks?: { tank: number; jet: number };
+  /** OPTIONAL: the base's queue periods in engine ticks (MapQueuePeriods). */
+  queuePeriod?: { tank: number; jet: number };
 }
 
 function fail(id: string, reason: string): never {
@@ -1010,6 +1142,52 @@ function fail(id: string, reason: string): never {
 }
 
 /** Parses + validates a map JSON. Throws with a precise reason if malformed. */
+/** Mp's radii, for an arena that imports none (balance.ts ARCHETYPE_RADIUS). */
+function defaultRadii(spots: number): MapRadii {
+  return {
+    walker: ARCHETYPE_RADIUS[ARCHETYPE.AVATAR],
+    hover: AVATAR_HOVER_RADIUS,
+    tank: ARCHETYPE_RADIUS[ARCHETYPE.RUNNER],
+    jet: ARCHETYPE_RADIUS[ARCHETYPE.GUARDIAN],
+    fortress: ARCHETYPE_RADIUS[ARCHETYPE.FORTRESS],
+    dreadnought: ARCHETYPE_RADIUS[ARCHETYPE.JUGGERNAUT],
+    dreadnoughtByFrame: [],
+    baseTurret: ARCHETYPE_RADIUS[ARCHETYPE.TURRET],
+    neutral: new Array<number>(spots).fill(NEUTRAL_TURRET_RADIUS),
+    skyCaptain: SKY_RADIUS,
+  };
+}
+
+/** The arena's radii, strictly: every one a positive finite number, the lists their lengths. */
+function parseRadii(raw: MapJson["radii"], spots: number, id: string): MapRadii {
+  if (raw === undefined) return defaultRadii(spots);
+  const r = (v: unknown, what: string): number => {
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
+      fail(id, `radii ${what} is not a positive number (got ${String(v)})`);
+    }
+    return v;
+  };
+  const list = (v: unknown, n: number, what: string): number[] => {
+    if (!Array.isArray(v) || v.length !== n) fail(id, `radii ${what} needs ${n} entries`);
+    return v.map((x, i) => r(x, `${what}[${i}]`));
+  };
+  return {
+    walker: r(raw.walker, "walker"),
+    hover: r(raw.hover, "hover"),
+    tank: r(raw.tank, "tank"),
+    jet: r(raw.jet, "jet"),
+    fortress: r(raw.fortress, "fortress"),
+    dreadnought: r(raw.dreadnought, "dreadnought"),
+    dreadnoughtByFrame:
+      raw.dreadnoughtByFrame === undefined
+        ? []
+        : list(raw.dreadnoughtByFrame, raw.dreadnoughtByFrame.length, "dreadnoughtByFrame"),
+    baseTurret: r(raw.baseTurret, "baseTurret"),
+    neutral: list(raw.neutral, spots, "neutral"),
+    skyCaptain: list(raw.skyCaptain, 10, "skyCaptain"),
+  };
+}
+
 export function loadMapFromJson(raw: MapJson): MapData {
   const { id, size, cellSize } = raw;
   if (!id || typeof id !== "string") fail("?", "missing id");
@@ -1305,8 +1483,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
   };
 
   if (!Array.isArray(raw.bases) || raw.bases.length !== 2) fail(id, "need exactly 2 bases");
-  const queueTicksOf = (q: { tank: number; jet: number } | undefined, what: string) => {
-    if (q === undefined) return { tank: ORIGINAL_TANK_QUEUE_TICKS, jet: ORIGINAL_JET_QUEUE_TICKS };
+  const queuePeriodOf = (q: { tank: number; jet: number } | undefined, what: string) => {
+    if (q === undefined)
+      return { tank: ORIGINAL_TANK_QUEUE_PERIOD, jet: ORIGINAL_JET_QUEUE_PERIOD };
     if (!Number.isInteger(q.tank) || q.tank < 1 || !Number.isInteger(q.jet) || q.jet < 1) {
       fail(id, `${what} need positive integer periods`);
     }
@@ -1346,6 +1525,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
         hp: d.hp,
         guns: d.guns,
         weapon: original(d.weapon),
+        mounts: DREADNOUGHT_MOUNTS,
+        gunTurn: DREADNOUGHT_GUN_TURN,
+        walk: undefined,
       };
     } else {
       const j = b.juggernaut;
@@ -1355,7 +1537,80 @@ export function loadMapFromJson(raw: MapJson): MapData {
       const y = num(j.y, `${what} y`);
       if (!inBounds(x, y)) fail(id, `${what} out of bounds (${x}, ${y})`);
       if (!Number.isInteger(j.hp) || j.hp < 1) fail(id, `${what} bad hp ${j.hp}`);
-      if (!Number.isInteger(j.guns) || j.guns < 1) fail(id, `${what} bad guns ${j.guns}`);
+      if (!Number.isInteger(j.guns) || j.guns < 1 || j.guns > DREADNOUGHT_GUNS) {
+        fail(id, `${what} bad guns ${j.guns}`);
+      }
+      let walk: MapHullWalk | undefined;
+      if (j.walk !== undefined) {
+        const w = j.walk;
+        const int = (v: unknown, f: string) => {
+          if (!Number.isInteger(v)) fail(id, `${what} walk ${f} is not an integer`);
+          return v as number;
+        };
+        walk = {
+          from: int(w.from, "from"),
+          to: int(w.to, "to"),
+          mode: int(w.mode, "mode"),
+          end: int(w.end, "end"),
+          link: int(w.link, "link"),
+          linkB: int(w.linkB, "linkB"),
+          linkC: int(w.linkC, "linkC"),
+          flags: int(w.flags, "flags"),
+          period: int(w.period, "period"),
+          event: int(w.event, "event"),
+        };
+        // One closed track: its links are itself, and it steps.
+        if (walk.link !== 0 || walk.linkB !== 0 || walk.linkC !== 0) {
+          fail(id, `${what} walk links another track`);
+        }
+        if (walk.period < 1 || walk.from < 0 || walk.to < walk.from) {
+          fail(id, `${what} walk bad frames or period`);
+        }
+      }
+      const frameCount = walk ? walk.to + 1 : 0;
+      let mounts: readonly MapGunMount[] = DREADNOUGHT_MOUNTS;
+      if (j.mounts !== undefined) {
+        if (!Array.isArray(j.mounts)) fail(id, `${what} mounts is not an array`);
+        mounts = j.mounts.map((m, i) => {
+          const at = `${what} mount ${i}`;
+          const x = num(m?.x, `${at} x`);
+          const y = num(m?.y, `${at} y`);
+          const z = num(m?.z, `${at} z`);
+          const mount = {
+            x,
+            y,
+            z,
+            mx: num(m?.mx, `${at} mx`),
+            my: num(m?.my, `${at} my`),
+            mz: num(m?.mz, `${at} mz`),
+          };
+          if (m.frames === undefined) {
+            if (walk) fail(id, `${at}: a walking hull's mount needs its frames`);
+            return mount;
+          }
+          if (!walk) fail(id, `${at}: frames on a hull that does not walk`);
+          if (!Array.isArray(m.frames) || m.frames.length !== frameCount) {
+            fail(id, `${at}: frames not ${frameCount} long`);
+          }
+          const frames = m.frames.map((f, k) => {
+            if (!Array.isArray(f) || f.length !== 3) fail(id, `${at} frame ${k} is not [x, y, z]`);
+            return {
+              x: num(f[0], `${at} frame ${k} x`),
+              y: num(f[1], `${at} frame ${k} y`),
+              z: num(f[2], `${at} frame ${k} z`),
+            };
+          });
+          if (frames[0].x !== x || frames[0].y !== y || frames[0].z !== z) {
+            fail(id, `${at}: frame 0 is not the mount's point`);
+          }
+          return { ...mount, frames };
+        });
+      } else if (walk) {
+        fail(id, `${what}: a walking hull needs its own mounts`);
+      }
+      if (mounts.length !== j.guns) fail(id, `${what}: ${j.guns} guns on ${mounts.length} mounts`);
+      const gunTurn = j.gunTurn ?? DREADNOUGHT_GUN_TURN;
+      if (!Number.isInteger(gunTurn) || gunTurn < 1) fail(id, `${what} bad gunTurn ${gunTurn}`);
       juggernaut = {
         x,
         y,
@@ -1363,6 +1618,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
         hp: j.hp,
         guns: j.guns,
         weapon: weaponIndex(j.weapon, what),
+        mounts,
+        gunTurn,
+        walk,
       };
     }
     const zone = (
@@ -1380,13 +1638,18 @@ export function loadMapFromJson(raw: MapJson): MapData {
     let heavyZones: MapHeavyZones | undefined;
     if (b.heavyZones !== undefined) {
       const hz = b.heavyZones;
-      if (!Number.isInteger(hz.pollTicks) || hz.pollTicks < 1) {
-        fail(id, `base ${team} heavy zones bad pollTicks ${String(hz.pollTicks)}`);
+      if (!Number.isInteger(hz.pollPeriod) || hz.pollPeriod < 1) {
+        fail(id, `base ${team} heavy zones bad pollPeriod ${String(hz.pollPeriod)}`);
+      }
+      const terminals = hz.terminals ?? [];
+      for (const t of terminals) {
+        if (!Number.isInteger(t) || t < 0) fail(id, `base ${team} bad heavy terminal ${String(t)}`);
       }
       heavyZones = {
         juggernaut: zone(hz.juggernaut, `base ${team} Dreadnought zone`),
         fortress: zone(hz.fortress, `base ${team} Fortress zone`),
-        pollTicks: hz.pollTicks,
+        pollPeriod: hz.pollPeriod,
+        terminals: [...terminals],
       };
     }
     const turretRespawnTicks = b.turretRespawnTicks ?? 0;
@@ -1434,7 +1697,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
       fortressSpawn: point(b.fortressSpawn ?? b.airConsole, `base ${team} fortress spawn`),
       tankSpawn: point(b.tankSpawn ?? b.groundConsole, `base ${team} tank spawn`),
       jetSpawn: point(b.jetSpawn ?? b.airConsole, `base ${team} jet spawn`),
-      queueTicks: queueTicksOf(b.queueTicks, `base ${team} queues`),
+      queuePeriod: queuePeriodOf(b.queuePeriod, `base ${team} queues`),
     };
   });
 
@@ -1499,8 +1762,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
         jetSpawn: perTeam(o.jetSpawn, "jetSpawn").map((p, t) =>
           p === undefined ? jetPad : point(p, `${what} team ${t} jet spawn`),
         ),
-        queueTicks: perTeam(o.queueTicks, "queueTicks").map((q, t) =>
-          queueTicksOf(q, `${what} team ${t} queues`),
+        queuePeriod: perTeam(o.queuePeriod, "queuePeriod").map((q, t) =>
+          queuePeriodOf(q, `${what} team ${t} queues`),
         ),
       });
       if (!Array.isArray(o.plates)) fail(id, `${what} plates is not a list`);
@@ -1524,6 +1787,20 @@ export function loadMapFromJson(raw: MapJson): MapData {
   }
 
   // Without one, the original's 4.0 m (Mp/Conft/Ovmp; ORIGINAL_CAPTURE_RANGE).
+  const radii = parseRadii(raw.radii, turretSpots.length, id);
+  // A walking hull's radii, where the arena imports them, cover its walk's
+  // frames, frame 0 its own radius (without them it keeps frame 0's); a static
+  // hull has none.
+  const byFrame = radii.dreadnoughtByFrame.length;
+  for (const b of bases) {
+    const walk = b.juggernaut.walk;
+    if (byFrame === 0) continue;
+    if (walk === undefined) fail(id, "radii dreadnoughtByFrame on a hull that does not walk");
+    if (byFrame !== walk.to + 1) fail(id, `radii dreadnoughtByFrame not ${walk.to + 1} long`);
+    if (radii.dreadnoughtByFrame[0] !== radii.dreadnought) {
+      fail(id, "radii dreadnoughtByFrame[0] is not the hull's radius");
+    }
+  }
   const captureRange = raw.captureRange ?? ORIGINAL_CAPTURE_RANGE;
   if (!Number.isFinite(captureRange) || captureRange <= 0) {
     fail(id, `bad captureRange ${raw.captureRange}`);
@@ -1693,8 +1970,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
     }
     if (g.hurtsTeam !== 0 && g.hurtsTeam !== 1) fail(id, `spawn guard ${k} bad team`);
     if (!Number.isInteger(g.damage) || g.damage <= 0) fail(id, `spawn guard ${k} bad damage`);
-    if (!Number.isInteger(g.resetTicks) || g.resetTicks <= 0) {
-      fail(id, `spawn guard ${k} bad resetTicks`);
+    if (!Number.isInteger(g.resetPeriod) || g.resetPeriod <= 0) {
+      fail(id, `spawn guard ${k} bad resetPeriod`);
     }
     return {
       x,
@@ -1704,7 +1981,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
       halfH,
       hurtsTeam: g.hurtsTeam,
       damage: g.damage,
-      resetTicks: g.resetTicks,
+      resetPeriod: g.resetPeriod,
       layer: layerOf(g.layer, `spawn guard ${k}`),
     };
   });
@@ -1804,6 +2081,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     turretYaw,
     turretHp,
     captureRange,
+    radii,
     laneGraph,
     pickups,
     triggerVolumes,
@@ -1811,16 +2089,6 @@ export function loadMapFromJson(raw: MapJson): MapData {
     modeFloors,
     spawnGuards,
     lifts,
-    // Render-only, and deliberately not validated against bounds: props are
-    // scenery, so an out-of-play prop is a cosmetic question, not a load error.
-    props: (raw.props ?? []).map((p) => ({
-      x: p.x,
-      y: p.y,
-      height: p.height,
-      yaw: p.yaw,
-      model: p.model,
-      layer: typeof p.layer === "number" && Number.isInteger(p.layer) && p.layer >= 0 ? p.layer : 0,
-    })),
   };
 }
 
@@ -1876,6 +2144,9 @@ export function createTestMap(): MapData {
       hp: ORIGINAL_UNIT_PROFILES.juggernaut.hp,
       guns: ORIGINAL_UNIT_PROFILES.juggernaut.guns,
       weapon: ORIGINAL_UNIT_PROFILES.juggernaut.weapon,
+      mounts: DREADNOUGHT_MOUNTS,
+      gunTurn: DREADNOUGHT_GUN_TURN,
+      walk: undefined,
     },
     runner: { ...ORIGINAL_UNIT_PROFILES.runner },
     guardian: { ...ORIGINAL_UNIT_PROFILES.guardian },
@@ -1884,7 +2155,7 @@ export function createTestMap(): MapData {
     fortressSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
     tankSpawn: { x: center + (team === 0 ? -12 : 12), y: center, layer: 0 },
     jetSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
-    queueTicks: { tank: ORIGINAL_TANK_QUEUE_TICKS, jet: ORIGINAL_JET_QUEUE_TICKS },
+    queuePeriod: { tank: ORIGINAL_TANK_QUEUE_PERIOD, jet: ORIGINAL_JET_QUEUE_PERIOD },
   });
   return {
     id: TEST_MAP_ID,
@@ -1921,6 +2192,7 @@ export function createTestMap(): MapData {
     turretYaw: [],
     turretHp: [],
     captureRange: ORIGINAL_CAPTURE_RANGE,
+    radii: defaultRadii(0),
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],
@@ -1928,6 +2200,5 @@ export function createTestMap(): MapData {
     modeFloors: false,
     spawnGuards: [],
     lifts: [],
-    props: [],
   };
 }

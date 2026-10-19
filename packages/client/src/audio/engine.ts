@@ -281,6 +281,18 @@ export class AudioEngine {
     this.playScript(62, false, 0, 0);
   }
 
+  /**
+   * The in-game menu opening (0x00407d70): the speech line interrupted
+   * (0x00417280 with 0) and the sound silenced (0x00434450 with 0) -- no sound
+   * of its own, unlike the pause. `resume` brings it back.
+   */
+  suspend(): void {
+    if (this.paused) return;
+    this.paused = true;
+    this.silenceAll(-1);
+    this.stopMusic(true);
+  }
+
   /** Out of the pause: the music resumes (`snd_set_active(1)`). */
   resume(): void {
     if (!this.paused) return;
@@ -462,10 +474,22 @@ export class AudioEngine {
     if (slot !== this.qSlot[index]) {
       this.queueDrop(index);
       this.qSlot[index] = slot;
+      // `snd_queue_add` links a record with a key of zero: it is heard only
+      // once the next frame measures it.
+      this.qKey[index] = 0;
     }
     this.qX[index] = x;
     this.qZ[index] = z;
     this.qMark[index] = 1;
+  }
+
+  /**
+   * `snd_queue_live` (0x00432d80): record `index` holds a sound and the last
+   * frame measured it in range (a non-zero key).
+   */
+  queueLive(index: number): boolean {
+    if (index < 0 || index >= QUEUE_RECORDS) return false;
+    return this.qSlot[index] >= 0 && this.qKey[index] !== 0;
   }
 
   /** The pending-sound slot: the last id written in a frame is the one played. */

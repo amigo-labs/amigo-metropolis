@@ -201,6 +201,119 @@ describe("PA turrets fire the original's weapon 3 (fcop-fidelity.md W3)", () => 
   });
 });
 
+/** a - b folded into (-PI, PI]. */
+function angleOff(a: number, b: number): number {
+  let d = a - b;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d <= -Math.PI) d += 2 * Math.PI;
+  return d;
+}
+
+/**
+ * A team-0 ring turret with the enemy avatar parked 6 m off its rest yaw by at
+ * least a quarter turn, in the open: the gun has a long way back.
+ */
+function offRestDuel() {
+  const state = createSim(map, 1);
+  const ent = state.ent;
+  for (let k = 0; k < state.baseTurretEntity.length; k++) {
+    const t = state.baseTurretEntity[k];
+    if (ent.team[t] !== 0) continue;
+    const rest = ent.restYaw[t];
+    for (let i = 4; i <= 12; i++) {
+      const a = rest + (i * Math.PI) / 8;
+      const fx = ent.posX[t] + 6 * Math.cos(a);
+      const fy = ent.posY[t] + 6 * Math.sin(a);
+      if (segmentBlocked(state.map, ent.posX[t], ent.posY[t], fx, fy)) continue;
+      const foe = state.avatarId[1];
+      ent.hp[foe] = 1e6;
+      ent.posX[foe] = fx;
+      ent.posY[foe] = fy;
+      ent.yaw[t] = Math.atan2(fy - ent.posY[t], fx - ent.posX[t]); // on it
+      return { state, ent, t, foe, rest, fx, fy };
+    }
+  }
+  throw new Error("no team-0 ring turret with a clear line off its rest yaw");
+}
+
+describe("a turret gun whose target is gone turns back to rest (fcop-fidelity.md G12)", () => {
+  it("every turret is built at its rest yaw, the record's angle", () => {
+    const state = createSim(map, 1);
+    const ent = state.ent;
+    const ids = [...state.baseTurretEntity, ...state.neutralTurretEntity].filter((id) => id >= 0);
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) expect(ent.restYaw[id]).toBe(ent.yaw[id]);
+    for (let k = 0; k < state.neutralTurretEntity.length; k++) {
+      expect(ent.restYaw[state.neutralTurretEntity[k]]).toBeCloseTo(map.turretYaw[k], 5);
+    }
+  });
+
+  it("turns back at its turn rate once its due round drops the target, and stops on it", () => {
+    const { state, ent, t, foe, rest, fx, fy } = offRestDuel();
+    const w = map.weapons[ent.weaponProfile[t]];
+    step(state, idle); // tick 0: found, on it, fired
+    expect(ent.cooldownC[t] - 1).toBe(foe);
+    // Out of reach along the same bearing: the gun keeps aiming at it until the
+    // round due at tick 61 drops it (the original aims at its shooter's target
+    // until the shooter lets it go), then turns back.
+    const far = () => {
+      ent.posX[foe] = ent.posX[t] + (fx - ent.posX[t]) * 5;
+      ent.posY[foe] = ent.posY[t] + (fy - ent.posY[t]) * 5;
+    };
+    const aim = ent.yaw[t];
+    for (let k = 1; k <= 60; k++) {
+      far();
+      step(state, idle);
+    }
+    expect(ent.cooldownC[t] - 1).toBe(foe);
+    expect(Math.abs(angleOff(ent.yaw[t], aim))).toBeLessThan(0.02);
+    let off = Math.abs(angleOff(ent.yaw[t], rest));
+    expect(off).toBeGreaterThan(Math.PI / 2 - 0.05);
+    const ticks = Math.ceil(off / w.turnSpeed);
+    for (let k = 61; k <= 60 + ticks; k++) {
+      far();
+      step(state, idle);
+      expect(ent.cooldownC[t]).toBe(0);
+      const now = Math.abs(angleOff(ent.yaw[t], rest));
+      expect(off - now).toBeCloseTo(Math.min(w.turnSpeed, off), 4); // 110 units a tick
+      off = now;
+    }
+    expect(ent.yaw[t]).toBe(rest); // on it, not past it
+    for (let k = 0; k < 10; k++) {
+      far();
+      step(state, idle);
+    }
+    expect(ent.yaw[t]).toBe(rest); // and it stays
+  });
+
+  it("turns back from the tick after its target dies, though the id is reused", () => {
+    const { state, ent, t, foe, rest } = offRestDuel();
+    step(state, idle);
+    expect(ent.cooldownC[t] - 1).toBe(foe);
+    ent.hp[foe] = 0;
+    step(state, idle); // the down: despawned, the turret's target forgotten
+    expect(ent.alive[foe]).toBe(0);
+    expect(ent.cooldownC[t]).toBe(0);
+    // An enemy tank takes the freed id at once (the free-list is LIFO), out of
+    // reach: the gun does not take it for its old target.
+    const away = ent.posX[t] + 25;
+    const r = spawnUnit(state, ARCHETYPE.RUNNER, 1, away, ent.posY[t]);
+    expect(r).toBe(foe);
+    const aim = ent.yaw[t];
+    const w = map.weapons[ent.weaponProfile[t]];
+    step(state, idle);
+    const now = Math.abs(angleOff(ent.yaw[t], rest));
+    expect(Math.abs(angleOff(aim, rest)) - now).toBeCloseTo(w.turnSpeed, 4);
+    for (let k = 0; k < 30; k++) {
+      ent.posX[r] = away;
+      ent.posY[r] = ent.posY[t];
+      step(state, idle);
+    }
+    expect(ent.cooldownC[t]).toBe(0);
+    expect(ent.yaw[t]).toBe(rest);
+  });
+});
+
 describe("PA units carry their spawner records (fcop-fidelity.md W3)", () => {
   it("tank 150 HP / weapon 1, jet 150 / weapon 6-or-1, Fortress 2000 / weapon 4", () => {
     const state = createSim(map, 1);

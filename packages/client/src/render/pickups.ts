@@ -7,7 +7,8 @@
 // frame a pickup is drawn where the match snapshot says it stands
 // (MATCH_PICKUPS, renderer rule 4) and hidden (scale 0) while it waits to
 // re-arm; it turns at its record's spin rate, 4096ths of a turn per 300 Hz
-// engine tick (`pickup.c` 0x0041e532), on the sim's clock. Placement is static,
+// engine tick (`pickup.c` 0x0041e532), on the sim's clock, the angle standing
+// the model as every record angle does (render/recordYaw.ts). Placement is static,
 // so the per-frame work is a matrix write per instance and nothing is allocated.
 //
 // Same tolerance as the prop loader: a missing .glb costs that model's
@@ -22,14 +23,14 @@ import {
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { faceMaterials, mergeFcopModel } from "./fcopModel";
 import { disposeSubtree } from "./meshMap";
+import { RECORD_TURN, recordTurn } from "./recordYaw";
 
 const loader = new GLTFLoader();
 
 /** Engine ticks (300 Hz) per sim tick (30 Hz): the spin's clock. */
 const ENGINE_TICKS_PER_SIM_TICK = 10;
-/** 4096 engine angle units are one turn. */
-const ANGLE_TO_RAD = (2 * Math.PI) / 4096;
 
 interface PickupMesh {
   readonly mesh: THREE.InstancedMesh;
@@ -86,27 +87,20 @@ export function loadPickups(map: MapData, group: THREE.Object3D, cancelled?: () 
   for (const [cobj, spots] of byModel) {
     const url = modelUrl(map.id, cobj);
     loader.loadAsync(url).then(
-      (gltf) => {
+      async (gltf) => {
         if (cancelled?.()) {
           disposeSubtree(gltf.scene);
           return;
         }
-        gltf.scene.updateMatrixWorld(true);
-        let source: THREE.Mesh | null = null;
-        gltf.scene.traverse((obj) => {
-          const m = obj as THREE.Mesh;
-          if (m.isMesh && !source) source = m;
-        });
-        const found = source as THREE.Mesh | null;
-        if (!found) {
+        // Every primitive of the pack's model, a material per draw mode
+        // (render/fcopModel.ts): some carry two pages, some half faces.
+        const model = await mergeFcopModel(gltf);
+        const geometry = model.geometry;
+        if (!geometry) {
           console.warn(`[pickups] empty pickup asset at ${url}, skipping`);
           return;
         }
-        // The pack's model is one mesh with one textured material (pa_props
-        // manifest); its node transform is baked in, the material kept.
-        const geometry = found.geometry.clone();
-        geometry.applyMatrix4(found.matrixWorld);
-        const material = found.material as THREE.Material;
+        const material = faceMaterials(model);
         const mesh = new THREE.InstancedMesh(geometry, material, spots.length);
         mesh.frustumCulled = false;
         mesh.matrixAutoUpdate = false;
@@ -148,7 +142,7 @@ export function updatePickups(matchSnap: Float32Array, alpha: number): void {
       const shown = k < 24 && (up & (1 << k)) !== 0;
       const s = shown ? 1 : 0;
       scale.set(s, s, s);
-      quaternion.setFromAxisAngle(UP, -((engineTicks * spinRate[k]) % 4096) * ANGLE_TO_RAD);
+      quaternion.setFromAxisAngle(UP, recordTurn((engineTicks * spinRate[k]) % RECORD_TURN));
       position.set(baseX[k], baseZ[k], baseY[k]);
       matrix.compose(position, quaternion, scale);
       mesh.setMatrixAt(i, matrix);

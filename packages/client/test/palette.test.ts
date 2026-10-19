@@ -1,15 +1,20 @@
 import { describe, expect, test } from "bun:test";
+import { ARENA_PRESENTATION } from "../src/render/fcopPresentation.generated";
 import { NEUTRAL_COLOR, TEAM_COLORS } from "../src/render/greybox";
 import {
+  BLUE_RAMP,
   NEUTRAL_RAMP,
   PALETTE,
   PALETTE_HEX,
-  PROJECTILE_HEX,
   paletteHex,
   paletteIndex,
+  RED_RAMP,
+  SIDE_RAMPS,
+  sideRamp,
   TEAM_RAMPS,
   teamRamp,
 } from "../src/render/palette";
+import { SIDE_BLUE, SIDE_RED, sideOfTeam, sideTextColour } from "../src/render/sides";
 
 describe("palette data", () => {
   test("is ~32 well-formed sRGB entries", () => {
@@ -41,18 +46,20 @@ describe("palette data", () => {
 });
 
 describe("team ramps", () => {
-  test("two teams, each a 3-shade ramp keyed to named colors", () => {
-    expect(TEAM_RAMPS.length).toBe(2);
-    expect(TEAM_RAMPS[0]).toEqual({
-      dark: paletteHex("blue_dark"),
-      base: paletteHex("blue"),
-      light: paletteHex("blue_light"),
-    });
-    expect(TEAM_RAMPS[1]).toEqual({
+  test("the original's sides: 1 red, 2 blue, each a 3-shade ramp keyed to named colors", () => {
+    expect(SIDE_RAMPS[SIDE_RED]).toEqual({
       dark: paletteHex("red_dark"),
       base: paletteHex("red"),
       light: paletteHex("red_light"),
     });
+    expect(SIDE_RAMPS[SIDE_BLUE]).toEqual({
+      dark: paletteHex("blue_dark"),
+      base: paletteHex("blue"),
+      light: paletteHex("blue_light"),
+    });
+    expect(sideRamp(0)).toBe(NEUTRAL_RAMP);
+    // TEAM_RAMPS is the orientation of the five arenas whose team 0 holds side 1.
+    expect(TEAM_RAMPS).toEqual([RED_RAMP, BLUE_RAMP]);
     for (const ramp of [...TEAM_RAMPS, NEUTRAL_RAMP]) {
       expect(new Set([ramp.dark, ramp.base, ramp.light]).size).toBe(3);
     }
@@ -66,26 +73,40 @@ describe("team ramps", () => {
   });
 });
 
-describe("projectile tints", () => {
-  test("projectile kind table covers the live PROJ_* ids", () => {
-    // Sparse table aligned with weapons.ts PROJ_* numbers.
-    expect(PROJECTILE_HEX.length).toBe(12);
-    expect(PROJECTILE_HEX[0]).toBe(paletteHex("muzzle"));
-    expect(PROJECTILE_HEX[0]).toBe(0xffffff);
-    expect(PROJECTILE_HEX[1]).toBe(paletteHex("heavy"));
-    expect(PROJECTILE_HEX[3]).toBe(paletteHex("warden_bomb"));
-    expect(PROJECTILE_HEX[6]).toBe(0xffa060); // mortar
-    expect(PROJECTILE_HEX[7]).toBe(0xffe8a0); // hyper
-    expect(PROJECTILE_HEX[10]).toBe(0xff9040); // mine
-    expect(PROJECTILE_HEX[11]).toBe(0xa0d8ff); // shockwave
-  });
-});
-
 describe("greybox colors derive from the palette", () => {
   test("team + neutral Three colors round-trip to the palette hex", () => {
     expect(TEAM_COLORS.length).toBe(2);
-    expect(TEAM_COLORS[0].getHex()).toBe(paletteHex("blue"));
-    expect(TEAM_COLORS[1].getHex()).toBe(paletteHex("red"));
+    expect(TEAM_COLORS[0].getHex()).toBe(paletteHex("red"));
+    expect(TEAM_COLORS[1].getHex()).toBe(paletteHex("blue"));
     expect(NEUTRAL_COLOR.getHex()).toBe(paletteHex("neutral"));
+  });
+});
+
+describe("team colour by the original's side (render/sides.ts)", () => {
+  test("team 0 holds side 1 (red), team 1 side 2 (blue), on every arena", () => {
+    for (const id of [
+      "la-cantina",
+      "urban-jungle",
+      "proving-ground",
+      "bug-hunt",
+      "hollywood-keys",
+      "venice-beach",
+    ]) {
+      expect(sideOfTeam(id, 0)).toBe(SIDE_RED);
+      expect(sideOfTeam(id, 1)).toBe(SIDE_BLUE);
+      // What gen:presentation read off the X1Alpha on the map's spawn 0.
+      expect(ARENA_PRESENTATION[id].team0Side).toBe(SIDE_RED);
+    }
+  });
+
+  test("the debug maps take team 0 as side 1; neutral has no side", () => {
+    expect(sideOfTeam("test-128", 0)).toBe(SIDE_RED);
+    expect(sideOfTeam("layered-test", 1)).toBe(SIDE_BLUE);
+    expect(sideOfTeam("urban-jungle", -1)).toBe(0);
+  });
+
+  test("HUD text colours: side 1 light red (1), side 2 light blue (3)", () => {
+    expect(sideTextColour(SIDE_RED)).toBe(1);
+    expect(sideTextColour(SIDE_BLUE)).toBe(3);
   });
 });

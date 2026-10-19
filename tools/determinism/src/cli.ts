@@ -13,6 +13,7 @@ import {
   createReplayData,
   createSim,
   createTickInputs,
+  DEFAULT_DIFFICULTIES,
   decodeReplay,
   encodeReplay,
   firstDivergence,
@@ -37,6 +38,8 @@ interface HashFile {
   /** Absent in pre-Phase-4 hash files — treated as "no Warden". */
   wardenPlayer?: number;
   wardenDifficulty?: number;
+  /** Per-player difficulty (replay format 4); absent = every player NORMAL. */
+  difficulties?: number[];
   hashes: number[];
 }
 
@@ -48,6 +51,7 @@ function hashFileFor(replay: ReplayData, hashes: Uint32Array): HashFile {
     tickCount: replay.tickCount,
     wardenPlayer: replay.wardenPlayer,
     wardenDifficulty: replay.wardenDifficulty,
+    difficulties: Array.from(replay.difficulties),
     hashes: Array.from(hashes),
   };
 }
@@ -70,6 +74,8 @@ function verifyReplay(replayPath: string, hashesPath: string): boolean {
     expected.tickCount !== replay.tickCount ||
     (expected.wardenPlayer ?? -1) !== replay.wardenPlayer ||
     (expected.wardenDifficulty ?? 0) !== replay.wardenDifficulty ||
+    JSON.stringify(expected.difficulties ?? DEFAULT_DIFFICULTIES) !==
+      JSON.stringify(replay.difficulties) ||
     expected.hashes.length !== replay.tickCount
   ) {
     console.error(
@@ -100,7 +106,13 @@ function cmdRecord(scriptName: string, outPath: string, seedArg?: string): numbe
     return 1;
   }
   const seed = seedArg ? Number(seedArg) >>> 0 : 0xc0ffee;
-  const replay = createReplayData(entry.mapId ?? TEST_MAP_ID, seed, entry.ticks, entry.warden);
+  const replay = createReplayData(
+    entry.mapId ?? TEST_MAP_ID,
+    seed,
+    entry.ticks,
+    entry.warden,
+    entry.difficulties,
+  );
   const inputs = createTickInputs();
   // The script may steer by the live state (a closed loop at recording time).
   // The replay stores only the inputs, which the sim reads back here exactly as
@@ -108,6 +120,7 @@ function cmdRecord(scriptName: string, outPath: string, seedArg?: string): numbe
   const sim = createSim(getMapById(replay.mapId), replay.seed, {
     wardenPlayer: replay.wardenPlayer,
     wardenDifficulty: replay.wardenDifficulty,
+    difficulties: replay.difficulties,
   });
   const played = createTickInputs();
   for (let t = 0; t < entry.ticks; t++) {

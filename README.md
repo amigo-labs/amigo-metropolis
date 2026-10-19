@@ -12,7 +12,7 @@ touching code. Work follows `PLAN.md` phase by phase.
 ```sh
 bun install
 bun test               # sim tests + golden replays (must pass before any commit)
-bun run dev            # opens the "Metropolis" title menu (solo / online).
+bun run dev            # opens the original's front end (solo / HOST / JOIN).
                        #   Deep links skip it: ?warden=1-10 vs the AI;
                        #   ?online=<CODE> for 1v1 lockstep (see below); ?play or
                        #   ?debug boot the solo sandbox directly;

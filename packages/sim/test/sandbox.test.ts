@@ -7,7 +7,13 @@
 // goldens (replay:verify) must be untouched by this module existing.
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE, TEAM_NEUTRAL } from "../src/archetypes";
-import { ARCHETYPE_MAX_HP, AVATAR_HP, SKY_RECORD_HP, WARDEN_ALTITUDE } from "../src/balance";
+import {
+  ARCHETYPE_MAX_HP,
+  AVATAR_HP,
+  DIFFICULTY_NORMAL,
+  SKY_RECORD_HP,
+  WARDEN_ALTITUDE,
+} from "../src/balance";
 import { createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson, sampleHeight } from "../src/map";
 import {
@@ -32,7 +38,17 @@ import {
   TURRET_DUMMY,
 } from "../src/sim";
 import { UNIT_MODE_OUTPOST } from "../src/units";
-import { GUNS, HEAVIES, resolveLoadout, SPECIALS } from "../src/weapons";
+import {
+  difficultyAmmo,
+  EXTRA_WEAPONS_ALL,
+  GUNS,
+  HEAVIES,
+  resolveLoadout,
+  SPECIALS,
+} from "../src/weapons";
+
+/** A record's magazine on the default NORMAL pick. */
+const normal = (raw: number) => difficultyAmmo(raw, DIFFICULTY_NORMAL);
 
 // Flat 16×16 grid at 4 m cells → 60 m square, one straight lane, one turret
 // spot and one outpost spot so the bookkeeping guards have something to guard.
@@ -252,8 +268,8 @@ describe("spawnSandbox", () => {
     });
     const id = spawnSandbox(sim, "avatar-walker", 1, 30, 30);
     const kit = resolveLoadout({ gun: 0, heavy: 1, special: 1 });
-    expect(sim.ent.ammoA[id]).toBe(kit.heavy.ammo);
-    expect(sim.ent.ammoB[id]).toBe(kit.special.ammo);
+    expect(sim.ent.ammoA[id]).toBe(normal(kit.heavy.ammo));
+    expect(sim.ent.ammoB[id]).toBe(normal(kit.special.ammo));
   });
 
   it("survives a full entity store by returning -1", () => {
@@ -364,8 +380,8 @@ describe("setSandboxLoadout", () => {
     sim.ent.cooldownA[id] = 99;
     setSandboxLoadout(sim, 0, { gun: 1, heavy: 2, special: 1 });
     const kit = resolveLoadout({ gun: 1, heavy: 2, special: 1 });
-    expect(sim.ent.ammoA[id]).toBe(kit.heavy.ammo);
-    expect(sim.ent.ammoB[id]).toBe(kit.special.ammo);
+    expect(sim.ent.ammoA[id]).toBe(normal(kit.heavy.ammo));
+    expect(sim.ent.ammoB[id]).toBe(normal(kit.special.ammo));
     expect(sim.ent.cooldownA[id]).toBe(0);
   });
 
@@ -374,7 +390,11 @@ describe("setSandboxLoadout", () => {
     // Player 99 clamps to the last slot; over-high indices clamp to the last
     // weapon in the slot, negatives to the first.
     setSandboxLoadout(sim, 99, { gun: 99, heavy: -3, special: 99 });
-    expect(sandboxLoadout(sim, 1)).toEqual({
+    // Without the extra weapons: the slot's last Precinct Assault weapon.
+    expect(sandboxLoadout(sim, 1)).toEqual({ gun: 3, heavy: 0, special: 2 });
+    const all = createSim(loadMapFromJson(range()), 42, { extraWeapons: EXTRA_WEAPONS_ALL });
+    setSandboxLoadout(all, 99, { gun: 99, heavy: -3, special: 99 });
+    expect(sandboxLoadout(all, 1)).toEqual({
       gun: GUNS.length - 1,
       heavy: 0,
       special: SPECIALS.length - 1,
@@ -382,7 +402,7 @@ describe("setSandboxLoadout", () => {
   });
 
   it("reaches every weapon in the catalog", () => {
-    const sim = rangeSim();
+    const sim = createSim(loadMapFromJson(range()), 42, { extraWeapons: EXTRA_WEAPONS_ALL });
     for (let g = 0; g < GUNS.length; g++) {
       for (let h = 0; h < HEAVIES.length; h++) {
         for (let s = 0; s < SPECIALS.length; s++) {
@@ -409,8 +429,8 @@ describe("cheat helpers", () => {
     sim.ent.ammoB[id] = 0;
     refillSandboxAmmo(sim, 0);
     const kit = resolveLoadout({ gun: 0, heavy: 0, special: 0 });
-    expect(sim.ent.ammoA[id]).toBe(kit.heavy.ammo);
-    expect(sim.ent.ammoB[id]).toBe(kit.special.ammo);
+    expect(sim.ent.ammoA[id]).toBe(normal(kit.heavy.ammo));
+    expect(sim.ent.ammoB[id]).toBe(normal(kit.special.ammo));
   });
 
   it("restores avatar HP", () => {

@@ -85,8 +85,6 @@ interface ArenaExpectation {
   juggernautHp: number;
   /** The gate box's half-extents [x, y] in metres (raw/1024). */
   gateHalf: readonly [number, number];
-  /** Original scenery placements. Render-only — determinismGuard.test.ts enforces it. */
-  props: number;
   /**
    * Grid line the arena's terrain is mirror-symmetric about, in BOTH axes.
    *
@@ -186,10 +184,11 @@ const ARENAS: ArenaExpectation[] = [
     // GROUND-DECK walls since SIM_VERSION 67, as proving-ground's: the union of
     // ground and decks is the old lattice bit for bit (fcopWalls.test.ts). On it
     // stage 2 opens 32 bits in the four pit lifts' shafts, 2855 kerbs and
-    // spills over all three lattices (fcop-fidelity.md P15), carves 205 for the
-    // roads and opens 10 to reconnect.
-    wallsVPin: 3900760220,
-    wallsHPin: 496557647,
+    // spills over all three lattices (fcop-fidelity.md P15), carves 199 for the
+    // roads and opens 11 to reconnect (was 205 and 10 while the ground console
+    // stood on the jet shop; one of the 11 now opens the tank shop's leg).
+    wallsVPin: 338467895,
+    wallsHPin: 3590047211,
     // Conft's decks, less the lift shafts, with the two landing patches.
     layerCells: [2126, 17],
     turretSpots: 32,
@@ -206,7 +205,6 @@ const ARENAS: ArenaExpectation[] = [
     triggerVolumes: 7, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
     gateHalf: [2.3994, 1.7998], // gate trigger 2457 x 1843 raw
-    props: 36,
     mirrorAxis: 120,
     flatPlots: false, // spawn platform above the base floor
     // SIM_VERSION 39 (the original's walker, fcop-fidelity.md P4): it walks
@@ -249,10 +247,11 @@ const ARENAS: ArenaExpectation[] = [
     // GROUND-DECK walls since SIM_VERSION 65, as la-cantina's: the union of
     // ground and decks is the old single-storey lattice bit for bit
     // (fcopWalls.test.ts). On it stage 2 opens 27 bits in the two lift shafts,
-    // 424 kerbs over all three lattices (fcop-fidelity.md P15), carves 139 for the
-    // roads (was 308) and opens 9 to reconnect.
-    wallsVPin: 3700276744,
-    wallsHPin: 2077084268,
+    // 424 kerbs over all three lattices (fcop-fidelity.md P15), carves 135 for the
+    // roads (was 308, then 139 while the ground console stood on the jet shop)
+    // and opens 10 to reconnect, one of them the tank shop's leg.
+    wallsVPin: 4113043016,
+    wallsHPin: 957207801,
     // Slim's decks, less the lift shafts: the spawns' platforms and the bridges.
     layerCells: [1847, 98],
     turretSpots: 29,
@@ -269,7 +268,6 @@ const ARENAS: ArenaExpectation[] = [
     triggerVolumes: 8, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
     gateHalf: [1.7998, 2.0996], // gate trigger 1843 x 2150 raw
-    props: 36,
     mirrorAxis: 120,
     flatPlots: true, // spawn and base share the 0 m floor here
     // SIM_VERSION 39 (fcop-fidelity.md P4): the walker walks gradients to 1.04
@@ -308,9 +306,11 @@ const ARENAS: ArenaExpectation[] = [
     // On top of that ground lattice, stage 2 carves 37 bits to open the original
     // roads (was 56) and opens 2 more for a ring turret (was 10). 39 of 4009,
     // 1.0%, down from 66. 36 carved since SIM_VERSION 32 (the roads end at the
-    // original's gate box, not at the Dreadnought spot).
+    // original's gate box, not at the Dreadnought spot). The ring turret's two
+    // moved one cell each at SIM_VERSION 79: the repair floods from spawn 0,
+    // which became the other base's when the teams took the player slots.
     wallsVPin: 1495349930,
-    wallsHPin: 4066112243,
+    wallsHPin: 3669756659,
     // Mp's two bridge decks: 2398 cells over the roads, and 108 above those.
     layerCells: [2398, 108],
     turretSpots: 32, // every original NeutralTurret pad
@@ -326,7 +326,6 @@ const ARENAS: ArenaExpectation[] = [
     triggerVolumes: 7, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
     gateHalf: [2.3994, 1.7998], // gate trigger 2457 x 1843 raw
-    props: 36,
     mirrorAxis: 112,
     flatPlots: false,
     // Mp is the clean one: since SIM_VERSION 39 the walker walks every edge of
@@ -371,7 +370,6 @@ const ARENAS: ArenaExpectation[] = [
     triggerVolumes: 8, // base zones; the gate boxes are the gates now
     juggernautHp: 3000,
     gateHalf: [1.7998, 2.0996], // gate trigger 1843 x 2150 raw
-    props: 36,
     mirrorAxis: 120,
     flatPlots: true,
     // SIM_VERSION 39: as proving-ground (the same terrain): 43 -> 37 steep,
@@ -408,7 +406,6 @@ for (const arena of ARENAS) {
       expect(map.pickups.length).toBe(arena.pickups);
       expect(map.triggerVolumes.length).toBe(arena.triggerVolumes);
       expect(map.laneGraph?.nodes.length ?? 0).toBe(arena.graphNodes);
-      expect(map.props.length).toBe(arena.props);
       for (let team = 0; team < map.bases.length; team++) {
         const base = map.bases[team];
         const ringWant = Array.isArray(arena.ringTurrets)

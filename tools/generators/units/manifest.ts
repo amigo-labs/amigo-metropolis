@@ -2,9 +2,13 @@
 //
 // Single source of truth for the model pass: genUnitModels.ts consumes it to
 // build packages/client/public/models/units/<key>.glb from the committed raw
-// downloads, and packages/client/test/unitModels.test.ts asserts the committed
+// downloads, and tools/generators/test/unitModels.test.ts asserts the committed
 // output still matches it. Swapping a model = changing one entry here, dropping
 // the raw file next to it, and re-running `bun run gen:units`.
+//
+// UNIT_MODELS are the models every arena shares (the X1-Alpha's two forms).
+// Each arena's own units — its mission's Cobjs for every role — are
+// ARENA_UNIT_MODELS below, listed by `bun run gen:paunits` rather than by hand.
 //
 // Two arrays, ONE scale. Every model here and in PROP_MODELS keeps the size the
 // original authored it at, because the arena around them does: the FCOP terrain
@@ -16,10 +20,12 @@
 // the mistake. It stretched every unit by a different factor — 1.02x for the
 // Flyer, 1.85x for the heavy gunship, 2.87x for the X1-Alpha walker — so the
 // unit set was not even internally consistent, let alone consistent with the
-// arena. The proof sits inside this file: Cobj 29 is BOTH the `console` unit and
+// arena. The proof was in this file: Cobj 29 was BOTH the `console` unit and
 // the `prop-029` scenery, one raw file, and la-cantina drew it at 3.20 m and
-// 1.47 m simultaneously. The original's own base-mouth trigger volumes are
-// 2.5 x 1.5 m, which the fitted 2.31 m-deep walker could not drive through.
+// 1.47 m simultaneously. (Since Phase 14 wave 5 it is scenery alone: the
+// outpost's console is the type-11 record the activation destroys.) The
+// original's own base-mouth trigger volumes are 2.5 x 1.5 m, which the fitted
+// 2.31 m-deep walker could not drive through.
 //
 // So `nativeScale` is on everywhere, and `footprint`/`maxHeight` are what they
 // already were for the two turrets: SOFT UPPER BOUNDS the client test checks
@@ -33,6 +39,16 @@
 // - `footprint` is the max horizontal extent in world units; `ARCHETYPE_RADIUS`
 //   in packages/sim/src/balance.ts is half of it, so the two stay in step
 // - `maxTris` per assets.md §4: ~1500 standard, ~5000 Juggernaut/Fortress/Avatar
+
+import {
+  SCENERY_PLACEMENTS,
+  type SceneryMorph,
+} from "../../../packages/client/src/render/arenaScenery.generated";
+import {
+  UNIT_MODEL_FILES,
+  type UnitMorph,
+  type UnitTreatment,
+} from "../../../packages/client/src/render/arenaUnits.generated";
 
 export interface UnitModelSource {
   /** Human-readable model title on the source site. */
@@ -72,13 +88,24 @@ export interface UnitModelSpec {
   readonly nativeScale?: boolean;
   readonly maxTris: number;
   /**
-   * Desaturate the model's colors (baked vertex colors, or the packed atlas
-   * texture) toward luminance so the whole-unit instanceColor team tint
-   * (render/greybox.ts tintFor) reads cleanly — the equivalent of FCOP's own
-   * grey team-variant textures. Off for models whose own colors should
-   * survive the neutral/team tint (turret, console).
+   * Node names whose faces keep their texels under the team offset. The
+   * original's team colour is a per-actor texture offset onto the side's half
+   * of the page (render/teamUv.ts); the X1's partner draws it over the legs,
+   * cockpit and both weapons but not the beacon lights (RE player_partner.c
+   * 285-320). gen:units writes a 0/1 `_TEAMUV` vertex attribute when this is
+   * set; a model without it takes the offset on every face.
+   *
+   * This replaced `neutralizeColors`, the desaturated atlas the per-instance
+   * red / blue tint used to colour (Metropolis' own, fcop-fidelity.md G4).
    */
-  readonly neutralizeColors: boolean;
+  readonly teamUvExclude?: readonly string[];
+  /**
+   * The largest empty horizontal slab the original itself authored, in metres.
+   * The contract test refuses floating parts, which is how a pose the parts
+   * were never posed in shows up; a Cobj whose part floats by design names its
+   * gap here instead of loosening the test for everyone.
+   */
+  readonly authoredGap?: number;
 }
 
 // Original Future Cop: L.A.P.D. (1998) assets are explicitly permitted, incl.
@@ -112,7 +139,7 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     maxHeight: 0.98,
     nativeScale: true,
     maxTris: 5000,
-    neutralizeColors: true,
+    teamUvExclude: ["beacon_lights_mesh"],
   },
   {
     // Full hover assembly (same parts, hover rest pose) — not only the cockpit
@@ -132,154 +159,7 @@ export const UNIT_MODELS: readonly UnitModelSpec[] = [
     maxHeight: 0.48,
     nativeScale: true,
     maxTris: 5000,
-    neutralizeColors: true,
-  },
-  {
-    key: "runner",
-    raw: "fcop/mp-obj030-hovertank.glb",
-    source: {
-      title: "Hovertank (Mp Cobj 30)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    // 0 like every other Cobj: the extraction already puts the nose on +Z.
-    rotateQuarterY: 0,
-    // Native 1.05 x 0.40 x 1.52 — longer than the X1 and half its height.
-    footprint: 1.53,
-    maxHeight: 0.4,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: true,
-  },
-  {
-    key: "guardian",
-    raw: "fcop/mp-obj041-flyer.glb",
-    source: {
-      title: "Flyer (Mp Cobj 41)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 0,
-    // Native 3.15 x 0.68 x 2.14 — the widest thing on the field, and it always
-    // was: this is the only unit the old fitting barely touched (1.02x).
-    footprint: 3.15,
-    maxHeight: 0.69,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: true,
-  },
-  {
-    key: "juggernaut",
-    raw: "fcop/mp-obj036-heavy-gunship.glb",
-    source: {
-      title: "Heavy gunship (Mp Cobj 36)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 0,
-    // Native 1.20 x 0.63 x 2.22 — was stretched 1.85x.
-    footprint: 2.22,
-    maxHeight: 0.63,
-    nativeScale: true,
-    maxTris: 5000,
-    neutralizeColors: true,
-  },
-  {
-    key: "fortress",
-    raw: "fcop/mp-obj057-skycaptain-gunship.glb",
-    source: {
-      title: "Sky Captain gunship form (Mp Cobj 57)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 0,
-    // Hull-only ~2.10 x 1.09 x 1.35. The raw also carries a tex10 searchlight
-    // volume, six facer lines, and two 4-tri exhaust billboards under the
-    // nacelles (combined 2.10 x 1.89 x 2.67); gen:units drops those so they
-    // do not bake into opaque bars / dark jet cones.
-    footprint: 2.11,
-    maxHeight: 1.27,
-    nativeScale: true,
-    maxTris: 5000,
-    neutralizeColors: true,
-  },
-  {
-    // Mode "Standard": capturable/dummy. FCOP Mp base 32 + gun 31 (assembly C).
-    // nativeScale: raw assembly is already in map meters (~1.4×1.6).
-    key: "turret-standard",
-    raw: "custom/turret-standard.glb",
-    source: {
-      title: "Turret Standard (Mp Cobj 32 base + 31 gun)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 2,
-    footprint: 1.5,
-    maxHeight: 1.7,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: true,
-  },
-  {
-    // Mode "Defense": base-ring. FCOP Mp base 21 + gun 20 (assembly E).
-    // nativeScale: raw is smaller (~0.95 m) — keep FCOP relative size.
-    key: "turret-defense",
-    raw: "custom/turret-defense.glb",
-    source: {
-      title: "Turret Defense (Mp Cobj 21 base + 20 gun)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 2,
-    footprint: 1.0,
-    maxHeight: 1.0,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: true,
-  },
-  {
-    key: "console",
-    raw: "fcop/mp-obj029-outpost-console.glb",
-    source: {
-      title: "Outpost flag console (Mp Cobj 29)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    rotateQuarterY: 2,
-    // Native 1.00 x 1.47 x 1.12 — the same bytes prop-029 ships at. Fitting
-    // drew this at 3.20 m next to its own 1.47 m twin, in the same arena.
-    footprint: 1.12,
-    maxHeight: 1.48,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: false,
-  },
-  {
-    key: "warden",
-    raw: "fcop/mp-obj054-skycaptain-jet.glb",
-    source: {
-      title: "Sky Captain jet (Mp Cobj 54)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    // 0 like every other Cobj: the extraction already puts the nose on +Z.
-    rotateQuarterY: 0,
-    // Hull-only 1.49 x 0.42 x 1.13. The raw's second primitive is a 1 m
-    // tex10 searchlight pair (combined 1.49 x 0.71 x 2.04); gen:units drops
-    // it so the beams do not bake into the dark cones in warden-iso.png.
-    footprint: 1.5,
-    maxHeight: 0.42,
-    nativeScale: true,
-    maxTris: 1500,
-    neutralizeColors: true,
+    teamUvExclude: ["beacon_lights_mesh"],
   },
 ];
 
@@ -468,26 +348,245 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     maxTris: 1500,
     neutralizeColors: true,
   },
+  // The extra weapons' rounds (SimOptions.extraWeapons, SIM_VERSION 90): each
+  // player row names its Cobj for both blocks (player-weapons.json `models`).
+  {
+    key: "drone-k9",
+    cobj: 48,
+    raw: "fcop-fx/mp-obj048-robodog.glb",
+    source: {
+      title: "K-9 Drone (Mp Cobj 48, the executable's Robo Dog, player weapon 0x15)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    // A morph of eleven frames in the original (its run); frame 0 here.
+    role: "player K-9 Drone — PROJ_K9",
+    rotateQuarterY: 0,
+    // Native 0.223 x 0.367 x 0.715, standing on its origin.
+    footprint: 0.72,
+    maxHeight: 0.46,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
+  {
+    key: "grenade",
+    cobj: 52,
+    raw: "fcop-fx/mp-obj052-grenade.glb",
+    source: {
+      title: "Grenade (Mp Cobj 52, player weapon 0x24)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "player Grenade Launcher — PROJ_GRENADE",
+    rotateQuarterY: 0,
+    // Native 0.207 x 0.238 x 0.180.
+    footprint: 0.24,
+    maxHeight: 0.24,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
+  // The Fusion Torpedo's and the Plasma Flare's round: Cobj 46, one star facer
+  // and no faces, so the glb is its record (render/facers.ts draws it on the
+  // rounds' buckets, render/greybox.ts projTorpedo / projPlasma).
+  {
+    key: "star-46",
+    cobj: 46,
+    raw: "fcop-fx/mp-obj046-glow-a.glb",
+    source: {
+      title: "Star glow (Mp Cobj 46, player weapons 0x14 and 0x21)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "player Fusion Torpedo and Plasma Flare — PROJ_TORPEDO, PROJ_PLASMA",
+    rotateQuarterY: 0,
+    // A star of radius 0.074 m at (0, 0.008, 0): its size is the facer's.
+    footprint: 0.15,
+    maxHeight: 0.15,
+    maxTris: 1500,
+    neutralizeColors: false,
+  },
+  // The world rows' rounds that are models (Phase 14 wave 4): each type-98 row
+  // names its projectile Cobj once — no team variant — so these keep the
+  // original's own colours and are drawn untinted. One payload on all six
+  // arenas (gen:fx checks the RE's sha256_16 per row), so Mp's raw stands for
+  // every arena. Rows 1, 3 and 6 are bolts, Cobjs of line facers that this
+  // export turns into white stand-in beams: render/fx.ts draws them from the
+  // Cobjs themselves (gen:fx FX_BOLTS), so they have no model here.
+  {
+    key: "round-row4",
+    cobj: 42,
+    raw: "fcop-fx/mp-obj042-rocket-heavy.glb",
+    source: {
+      title: "Heavy rocket (Mp Cobj 42, world weapon row 4)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "world row 4 — the Flying Fortress; the original's own colours, untinted",
+    rotateQuarterY: 0,
+    footprint: 0.55,
+    maxHeight: 0.2,
+    maxTris: 1500,
+    neutralizeColors: false,
+  },
+  {
+    key: "round-row8",
+    cobj: 43,
+    raw: "fcop-fx/mp-obj043-rocket-helfire.glb",
+    source: {
+      title: "Helfire rocket (Mp Cobj 43, world weapon row 8)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "world row 8 — the Sky Captain's missile; the original's own colours, untinted",
+    rotateQuarterY: 0,
+    footprint: 0.4,
+    maxHeight: 0.15,
+    maxTris: 1500,
+    neutralizeColors: false,
+  },
+  {
+    key: "round-row9",
+    cobj: 49,
+    raw: "fcop-fx/mp-obj049-shell-mortar.glb",
+    source: {
+      title: "Mortar shell (Mp Cobj 49, world weapon row 9)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "world row 9 — the Sky Captain's bomb; the original's own colours, untinted",
+    rotateQuarterY: 0,
+    footprint: 0.36,
+    maxHeight: 0.19,
+    maxTris: 1500,
+    neutralizeColors: false,
+  },
 ];
 
-export interface PropModelSpec {
-  /**
-   * Output name: packages/client/public/models/props/<key>.glb.
-   * Always `prop-<cobj>` so render/props.ts can map a MapProp.model straight
-   * onto a URL without a second lookup table.
-   */
-  readonly key: string;
-  /** Original Cobj resource id, as carried by MapProp.model. */
+/**
+ * One arena unit file: the Cobj an arena's role draws, in that arena's own
+ * mission numbering and with its own texture pages
+ * (packages/client/src/render/arenaUnits.generated.ts, `bun run gen:paunits`).
+ * Output: packages/client/public/models/units/<file>.glb, where `file` is
+ * `<mapId of the first arena that draws it>/obj_NNN`; every other arena whose
+ * payload and sampled texels are identical points at the same file.
+ */
+export interface ArenaUnitModelSpec {
+  /** Under models/units/, without `.glb`. */
+  readonly file: string;
+  readonly mission: string;
   readonly cobj: number;
-  /** Raw extraction, relative to tools/generators/units/raw/. */
+  /** Raw extraction, relative to tools/generators/units/raw/ (copied unchanged). */
   readonly raw: string;
+  readonly treatment: UnitTreatment;
+  readonly usedBy: readonly string[];
+  /**
+   * The track the client plays (render/arenaUnits.ts): gen:units keeps a
+   * morph's targets, and bakes a skeleton's frames into targets; null ships
+   * frame 0.
+   */
+  readonly morph: UnitMorph | null;
   readonly source: UnitModelSource;
   readonly maxTris: number;
 }
 
-// Original la-cantina (Mp) scenery: the DynamicProp (act_type 11) placements
-// carried in packages/sim/maps/la-cantina.json `props`. Render-only — the sim
-// never reads them (determinismGuard.test.ts enforces that).
+/**
+ * Every unit of every arena, the arena's own model (fcop-fidelity.md G1). Until
+ * Phase 14 wave 5 all six arenas drew Mp's files under fixed keys (`runner`,
+ * `guardian`, `juggernaut`, `fortress`, `warden`, `console`) and two turret
+ * assemblies glued together by hand (`raw/custom/`); Hk's tank, Ovmp's page-4
+ * units and every one of Joke's are models of their own, so those arenas drew
+ * another mission's units.
+ *
+ * The treatment is the role's (`gen:paunits` names it):
+ * - `unit` (tank, jet, Flying Fortress, Sky Captain): grounded and XZ-centred
+ *   like every unit before, FX attachments dropped;
+ * - `part` (a turret's gun and base, the Dreadnought's hull and guns): the
+ *   original's own origin kept, because the gun stands on the base's attach
+ *   point 0, the Dreadnought's guns on the hull's attach points 0-3, and each
+ *   turns about its own origin. Those points are in the raw's frame.
+ */
+export const ARENA_UNIT_MODELS: readonly ArenaUnitModelSpec[] = UNIT_MODEL_FILES.map((f) => ({
+  file: f.file,
+  mission: f.mission,
+  cobj: f.cobj,
+  raw: f.raw,
+  treatment: f.treatment,
+  usedBy: f.usedBy,
+  morph: f.morph,
+  source: {
+    title: `${f.mission} Cobj ${f.cobj} (${f.treatment}; ${f.usedBy.join(", ")})`,
+    author: EA,
+    url: RE_REPO,
+    license: FCOP_LICENSE,
+  },
+  maxTris: 5000,
+}));
+
+export interface PropModelSpec {
+  /**
+   * Output name: packages/client/public/models/props/<mapId>/<key>.glb.
+   * Always `prop-<cobj>` so render/props.ts can map a scenery placement's
+   * `cobj` (render/arenaScenery.generated.ts) straight onto a URL in the
+   * arena's folder without a second lookup table.
+   */
+  readonly key: string;
+  /** The arena whose scenery places it (render/arenaScenery.generated.ts). */
+  readonly mapId: string;
+  /** The arena's mission container: the Cobj id and its texels are this one's. */
+  readonly mission: string;
+  /** Original Cobj resource id in that mission, as a scenery placement carries it. */
+  readonly cobj: number;
+  /**
+   * The Mp Cobj with the same payload (the same geometry and UVs), or null for
+   * a model of the mission's own. Evidence, not a lookup: the texels still come
+   * from the mission's own pages, so the file is never Mp's.
+   */
+  readonly mpTwin: number | null;
+  /** Raw extraction, relative to tools/generators/units/raw/. */
+  readonly raw: string;
+  /**
+   * The morph its records play (the outpost flag's cloth), which gen:units
+   * keeps and render/props.ts steps; null ships frame 0. From the arena's
+   * scenery table (render/arenaScenery.generated.ts, `bun run gen:scenery`).
+   */
+  readonly morph: SceneryMorph | null;
+  /**
+   * Keep the raw's own origin (a type-96 Prop): `snd_emit_build` stands the
+   * model's origin at the record's height, and a lamp or a sign hangs below
+   * its origin. The type-11 models stand on theirs (their min y is 0).
+   */
+  readonly keepOrigin: boolean;
+  readonly source: UnitModelSource;
+  readonly maxTris: number;
+}
+
+// Original scenery: the DynamicProp (act_type 11) records of every imported
+// arena's mission — 36 per arena, 8 models each — which `bun run gen:scenery`
+// reads out of the mission into render/arenaScenery.generated.ts with the
+// height, yaw and claim state the original gives each one. Render-only.
+//
+// A placement's `model` is a Cobj id IN THAT ARENA'S OWN MISSION. The same id
+// is a different model on another arena: the six missions number their Cobjs
+// differently (Conft's Dreadnought hull is 37, its Fortress 42), so Conft 41 is
+// a kiosk and not Mp's Flying Fortress. These all drew Mp's file for the id
+// until Phase 14 wave 5, which put a Dreadnought hull (36) and a Flying
+// Fortress (41) on urban-jungle and a Fortress on proving-ground as "parked
+// vehicles", and left bug-hunt's 38 and hollywood-keys' 31 undrawn. Matching
+// the payload hashes of the RE's exports (extracted/objects/<Mission>/
+// manifest.json `sha256_16`) against Mp's gives every id its twin, below.
+//
+// The texels are each mission's own even where the payload is Mp's: an
+// identical payload samples the mission's own texture pages, and every one of
+// the 48 exports differs from every other. So each arena gets its own raws
+// (raw/fcop-props/<Mission>/obj_NNN.glb, copied unchanged from the RE by
+// `bun run gen:scenery`) and its own outputs, as the pickups and lifts do
+// (`models/pa-props/<mapId>/`).
 //
 // Unlike UNIT_MODELS these keep their source scale and orientation: they are
 // placed in the original's own frame at the original's own positions, so any
@@ -495,153 +594,209 @@ export interface PropModelSpec {
 // `footprint`, no `maxHeight` and no `rotateQuarterY` for that reason, and no
 // `neutralizeColors` either — nothing tints scenery.
 //
-// What the eight are, from their geometry and the texture region each samples
-// (page tex05 for the consoles, tex01/tex03 for the barrier):
-// - Cobj 28 (16 placements): thin (5 cm), 1.5 m tall, yellow/black hazard
-//   diagonals — a striped barrier. The only animated one; the pipeline keeps
-//   frame 0.
-// - Cobj 27/33/34/35/39/40 (2-4 each): small kiosks sampling the same atlas
-//   strip as Cobj 29 — yellow unit-type icons (jet, tank, turret) and the
-//   0-9 digit row. Siblings of the outpost console, differing in which part of
-//   that strip they show.
-// - Cobj 29 (4 placements): the outpost flag console. Its raw is already
-//   committed for the `console` unit model above and is reused here rather
-//   than duplicated — same bytes, different treatment (unfitted).
-export const PROP_MODELS: readonly PropModelSpec[] = [
+// What the models are, from their geometry, the texture region each samples
+// (named by Mp's ids; page tex05 for the consoles, tex01/tex03 for the flags)
+// and the records and scripts that place them (RE pa_models.json `terminal`
+// and `scenery`, the outposts' activation scripts):
+// - Mp 28 (16 placements): thin (5 cm), 1.5 m tall, yellow/black hazard
+//   diagonals — read as a "striped barrier" until the RE named it: the outpost
+//   flag, four per outpost (pa_models.json `outpost_flag`, groups 11-14). The
+//   claim script sets the claimer's offset on it (v 25 / 51, the red and blue
+//   flag on the same page; render/props.ts). A 6-frame morph, the cloth, which
+//   gen:units keeps and render/props.ts plays.
+// - Mp 29 (4 placements): the outpost's console on its pad, the one a mech
+//   buys the outpost at; the activation destroys it (order 0x3c).
+// - Mp 27 and 33 (4 each): the outpost's two terminals, at its activation and
+//   claim spots (the tank and jet shop), spawned by the activation.
+// - Mp 34 and 35 (2 each): the base terminals at the Dreadnought and Flying
+//   Fortress purchase spots (spawned by tFUN 30 / 31).
+// - Mp 39 and 40 (2 each): placed kiosks at the bases, by the triggers that
+//   buy a jet (39) and a tank (40).
+// All but the flag sample the same atlas strip — yellow unit-type icons (jet,
+// tank, turret) and the 0-9 digit row — differing in which part they show.
+// Ovmp's console and kiosks are payloads of its own (pages 4 and 8, the kiosks
+// a little larger); only its flag is Mp's.
+const SCENERY_KINDS: Readonly<Record<number, string>> = {
+  27: "Outpost terminal at the activation spot",
+  28: "Outpost flag",
+  29: "Outpost console",
+  33: "Outpost terminal at the claim spot",
+  34: "Base terminal, Dreadnought purchase",
+  35: "Base terminal, Flying Fortress purchase",
+  39: "Base kiosk, jet purchase",
+  40: "Base kiosk, tank purchase",
+};
+
+/** Ovmp's own payloads: what each is, by its geometry and its place in the set. */
+const OWN_KINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
+  Ovmp: {
+    27: "Outpost terminal at the activation spot (Ovmp's own)",
+    29: "Outpost console (Ovmp's own)",
+    33: "Outpost terminal at the claim spot (Ovmp's own)",
+    34: "Base terminal, Dreadnought purchase (Ovmp's own)",
+    35: "Base terminal, Flying Fortress purchase (Ovmp's own)",
+    39: "Base kiosk, jet purchase (Ovmp's own)",
+    40: "Base kiosk, tank purchase (Ovmp's own)",
+  },
+};
+
+/** Each arena's scenery: [the mission's Cobj id, its Mp twin or null]. */
+export const ARENA_SCENERY: readonly {
+  readonly mapId: string;
+  readonly mission: string;
+  readonly props: readonly (readonly [cobj: number, mpTwin: number | null])[];
+}[] = [
   {
-    key: "prop-027",
-    cobj: 27,
-    raw: "fcop/mp-obj027-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 27)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "la-cantina",
+    mission: "Mp",
+    props: [
+      [27, 27],
+      [28, 28],
+      [29, 29],
+      [33, 33],
+      [34, 34],
+      [35, 35],
+      [39, 39],
+      [40, 40],
+    ],
   },
   {
-    key: "prop-028",
-    cobj: 28,
-    raw: "fcop/mp-obj028-hazard-barrier.glb",
-    source: {
-      title: "Hazard-striped barrier (Mp Cobj 28)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "urban-jungle",
+    mission: "Conft",
+    props: [
+      [27, 27],
+      [28, 28],
+      [29, 29],
+      [33, 33],
+      [35, 34],
+      [36, 35],
+      [40, 39],
+      [41, 40],
+    ],
   },
   {
-    key: "prop-029",
-    cobj: 29,
-    raw: "fcop/mp-obj029-outpost-console.glb",
-    source: {
-      title: "Outpost flag console (Mp Cobj 29)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "proving-ground",
+    mission: "Slim",
+    props: [
+      [27, 27],
+      [28, 28],
+      [29, 29],
+      [34, 33],
+      [35, 34],
+      [39, 35],
+      [40, 39],
+      [41, 40],
+    ],
   },
   {
-    key: "prop-033",
-    cobj: 33,
-    raw: "fcop/mp-obj033-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 33)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "bug-hunt",
+    mission: "Joke",
+    props: [
+      [27, 27],
+      [28, 28],
+      [29, 29],
+      [33, 33],
+      [34, 34],
+      [38, 35],
+      [39, 39],
+      [40, 40],
+    ],
   },
   {
-    key: "prop-034",
-    cobj: 34,
-    raw: "fcop/mp-obj034-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 34)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "hollywood-keys",
+    mission: "Hk",
+    props: [
+      [27, 27],
+      [28, 28],
+      [29, 29],
+      [31, 33],
+      [34, 34],
+      [35, 35],
+      [39, 39],
+      [40, 40],
+    ],
   },
   {
-    key: "prop-035",
-    cobj: 35,
-    raw: "fcop/mp-obj035-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 35)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
-  },
-  {
-    key: "prop-039",
-    cobj: 39,
-    raw: "fcop/mp-obj039-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 39)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
-  },
-  {
-    key: "prop-040",
-    cobj: 40,
-    raw: "fcop/mp-obj040-icon-console.glb",
-    source: {
-      title: "Scenery kiosk, unit-icon console variant (Mp Cobj 40)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
-  },
-  // Cobj 36/41: parked vehicles — the heavy gunship and the flyer as static
-  // scenery. Placed by the OTHER §9 arenas (36+41 on urban-jungle, 41 on
-  // proving-ground), not by la-cantina; the raws were in the Mp handoff pack
-  // all along, they were just never carried here, so those arenas dropped
-  // 2-4 placements each with a 404 (issue #28's coverage gap).
-  {
-    key: "prop-036",
-    cobj: 36,
-    raw: "fcop/mp-obj036-heavy-gunship.glb",
-    source: {
-      title: "Parked heavy gunship (Mp Cobj 36)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
-  },
-  {
-    key: "prop-041",
-    cobj: 41,
-    raw: "fcop/mp-obj041-flyer.glb",
-    source: {
-      title: "Parked flyer (Mp Cobj 41)",
-      author: EA,
-      url: RE_REPO,
-      license: FCOP_LICENSE,
-    },
-    maxTris: 1500,
+    mapId: "venice-beach",
+    mission: "Ovmp",
+    props: [
+      [27, null],
+      [28, 28],
+      [29, null],
+      [33, null],
+      [34, null],
+      [35, null],
+      [39, null],
+      [40, null],
+    ],
   },
 ];
 
-/**
- * Cobj ids the maps place but no committed raw covers: their extraction lives
- * in the private RE repo and has not been handed off. The client skips these
- * (render/props.ts keeps its own literal copy — it must not import tools/),
- * and propModels.test.ts asserts the list stays minimal: an id leaves this
- * set the moment its raw lands in PROP_MODELS.
- * - 31: hollywood-keys scenery (4 placements)
- * - 38: bug-hunt scenery (2 placements)
- */
-export const UNAVAILABLE_PROP_COBJS: readonly number[] = [31, 38];
+/** Where an arena's scenery raw lives, relative to tools/generators/units/raw/. */
+export function sceneryRaw(mission: string, cobj: number): string {
+  return `fcop-props/${mission}/obj_${String(cobj).padStart(3, "0")}.glb`;
+}
+
+export const PROP_MODELS: readonly PropModelSpec[] = ARENA_SCENERY.flatMap((arena) =>
+  arena.props.map(([cobj, mpTwin]) => {
+    const kind = mpTwin === null ? OWN_KINDS[arena.mission]?.[cobj] : SCENERY_KINDS[mpTwin];
+    if (!kind) throw new Error(`${arena.mission} Cobj ${cobj}: no scenery kind`);
+    return {
+      key: `prop-${String(cobj).padStart(3, "0")}`,
+      mapId: arena.mapId,
+      mission: arena.mission,
+      cobj,
+      mpTwin,
+      raw: sceneryRaw(arena.mission, cobj),
+      morph: SCENERY_PLACEMENTS[arena.mapId]?.morphs[cobj] ?? null,
+      keepOrigin: false,
+      source: {
+        title: `${kind} (${arena.mission} Cobj ${cobj})`,
+        author: EA,
+        url: RE_REPO,
+        license: FCOP_LICENSE,
+      },
+      maxTris: 1500,
+    };
+  }),
+);
+
+// The type-96 Props (fcop-fidelity.md G13): every model a Prop record of the
+// arena's mission names, as the RE exports it (raw/fcop-props/<Mission>/,
+// copied by `bun run gen:scenery`), into the same folder as the type-11
+// scenery under the same `prop-<cobj>` name (one mission's Cobj ids are one
+// namespace; gen:scenery refuses a Cobj that is both). The original builds a
+// Prop as a sound emitter around its model (RE snd/emitter.c), not as an
+// actor: what each one is the records and their models say, not a role. A
+// model some record steps through its frames keeps them as morph targets
+// (render/props.ts plays them). One of camera-facing facers only (Hk 65, Slim
+// 63 and 83, Joke 62 and 82) is built too: a glb of its facers' records and
+// the atlas they sample, no mesh (render/facers.ts draws them).
+export const EMITTER_PROP_MODELS: readonly PropModelSpec[] = Object.entries(
+  SCENERY_PLACEMENTS,
+).flatMap(([mapId, scenery]) =>
+  Object.entries(scenery.propModels)
+    .filter(([, m]) => m.drawn)
+    .map(([id, m]) => {
+      const cobj = Number(id);
+      const records = scenery.props.filter((p) => p.cobj === cobj);
+      const animated = records.some((p) => p.anim !== "none");
+      return {
+        key: `prop-${String(cobj).padStart(3, "0")}`,
+        mapId,
+        mission: scenery.mission,
+        cobj,
+        mpTwin: null,
+        raw: sceneryRaw(scenery.mission, cobj),
+        morph: animated ? { frames: m.frames, period: 0 } : null,
+        keepOrigin: true,
+        source: {
+          title: `Prop (${scenery.mission} Cobj ${cobj}, ${records.length} placement${records.length === 1 ? "" : "s"})`,
+          author: EA,
+          url: RE_REPO,
+          license: FCOP_LICENSE,
+        },
+        maxTris: 1500,
+      };
+    }),
+);

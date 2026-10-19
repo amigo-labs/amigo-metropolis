@@ -5,7 +5,12 @@
 // nothing and only touches the projection matrix when the fov actually moves.
 
 import * as THREE from "three";
-import { smoothstep } from "./camera";
+
+/** Hermite smoothstep on [0,1], clamped: the blend's ease. */
+export function smoothstep(x: number): number {
+  const c = x < 0 ? 0 : x > 1 ? 1 : x;
+  return c * c * (3 - 2 * c);
+}
 
 export interface CameraBlend {
   active: boolean;

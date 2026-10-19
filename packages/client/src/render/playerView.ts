@@ -10,12 +10,15 @@
 import * as THREE from "three";
 import type { LocalInputSource, Viewport } from "../input/types";
 import {
-  type CameraInput,
-  type CameraState,
-  createCameraState,
-  DEFAULT_RIG_CONFIG,
-  deriveCameraPose,
+  CAMERA_VFOV_DEG,
+  type ChaseCamera,
+  type ChasePose,
+  type ChaseSubject,
+  createChaseCamera,
+  createChasePose,
+  stepChaseCamera,
 } from "./camera";
+import { type CameraShake, createCameraShake } from "./cameraShake";
 
 export type SplitOrientation = "v" | "h";
 
@@ -27,37 +30,45 @@ export interface PlayerView {
   readonly hud: HTMLDivElement;
   /** Screen rectangle in CSS px, top-left origin (recomputed on resize). */
   readonly viewport: Viewport;
-  /** Orbit-follow rig state (camera.spec) — client-local, mutated per frame. */
-  readonly cam: CameraState;
-  /** Per-frame rig input, reused (zeroed then filled) to stay allocation-free. */
-  readonly camInput: CameraInput;
+  /** The original's chase camera (camera.spec) — client-local, mutated per frame. */
+  readonly cam: ChaseCamera;
+  /** The chase camera's subject, refilled per frame from the interpolated avatar. */
+  readonly subject: ChaseSubject;
+  /** The chase camera's last placement. */
+  readonly pose: ChasePose;
+  /** The damage meter that shakes the camera (render/cameraShake.ts). */
+  readonly shake: CameraShake;
 }
 
 /**
  * Builds a view per local player, appending each HUD element to the document.
- * Each rig starts behind its avatar, facing the way the spawn record faces it,
- * and follows the hull's heading from there (camera.spec §3).
+ * Each chase camera is seated behind its avatar at the spawn record's facing,
+ * and follows the hull from there (camera.spec §3).
  */
 export function createPlayerViews(
   players: readonly { slot: number; input: LocalInputSource }[],
-  spawns: readonly { x: number; y: number; yaw: number }[],
+  spawns: readonly { x: number; y: number; yaw: number; hover?: boolean }[],
 ): PlayerView[] {
   const views: PlayerView[] = [];
   for (const p of players) {
     const spawn = spawns[p.slot] ?? spawns[0];
-    const camera = new THREE.PerspectiveCamera(DEFAULT_RIG_CONFIG.action.fovDeg, 1, 0.1, 2000);
-    const yaw = spawn.yaw;
+    const camera = new THREE.PerspectiveCamera(CAMERA_VFOV_DEG, 1, 0.1, 2000);
     const hud = document.createElement("div");
     hud.className = "hud";
     document.body.appendChild(hud);
-    const cam = createCameraState({ x: spawn.x, y: 0, z: spawn.y }, yaw);
-    // Seed the first-frame pose so aim/movement have a sensible camera basis on
-    // tick 1 (before the frame loop's first rig update). Allocation is fine here
-    // — this runs once at match start, not in the frame loop.
-    const target = new THREE.Vector3();
-    deriveCameraPose(cam, DEFAULT_RIG_CONFIG, camera.position, target);
-    camera.lookAt(target);
-    camera.updateMatrixWorld();
+    const cam = createChaseCamera();
+    const subject: ChaseSubject = {
+      x: spawn.x,
+      y: spawn.y,
+      height: 0,
+      facing: spawn.yaw,
+      hover: spawn.hover === true,
+    };
+    const pose = createChasePose();
+    // Seat the camera so the first frame has a sensible basis before the frame
+    // loop's first update. Allocation is fine here — once per match start.
+    stepChaseCamera(cam, subject, 0, null, 0, pose);
+    applyChasePose(camera, pose);
     views.push({
       slot: p.slot,
       input: p.input,
@@ -65,17 +76,27 @@ export function createPlayerViews(
       hud,
       viewport: { left: 0, top: 0, width: 1, height: 1 },
       cam,
-      camInput: {
-        zoomDelta: 0,
-        yawAbsolute: null,
-        yawDelta: 0,
-        panDelta: { x: 0, y: 0, z: 0 },
-        recenter: false,
-        snapTarget: null,
-      },
+      subject,
+      pose,
+      shake: createCameraShake(0x5eed + p.slot),
     });
   }
   return views;
+}
+
+/**
+ * Writes a chase pose onto a three camera: the eye, and a look along the view
+ * axis — (cos p cos yaw, -sin p, cos p sin yaw) in three's frame. Allocation-free.
+ */
+export function applyChasePose(camera: THREE.PerspectiveCamera, pose: ChasePose): void {
+  const cp = Math.cos(pose.pitch);
+  camera.position.set(pose.eyeX, pose.eyeY, pose.eyeZ);
+  camera.lookAt(
+    pose.eyeX + cp * Math.cos(pose.yaw),
+    pose.eyeY - Math.sin(pose.pitch),
+    pose.eyeZ + cp * Math.sin(pose.yaw),
+  );
+  camera.updateMatrixWorld();
 }
 
 /**

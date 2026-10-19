@@ -171,11 +171,13 @@ export class Room implements DurableObject {
       this.sendTo(ws, { type: MSG_ERROR, code: ERR_PROTOCOL });
       return;
     }
+    const bytes = new Uint8Array(data);
     let msg: NetMessage;
     try {
-      msg = decodeMessage(new Uint8Array(data));
+      msg = decodeMessage(bytes);
     } catch {
-      this.sendTo(ws, { type: MSG_ERROR, code: ERR_PROTOCOL });
+      // An old client's HELLO does not decode: refused as a version mismatch.
+      await this.dispatch(this.room.handleUndecodable(att.connId, bytes), ws, att);
       return;
     }
     await this.dispatch(this.room.handleMessage(att.connId, msg), ws, att);
@@ -218,6 +220,9 @@ export class Room implements DurableObject {
       this.configPersisted = true;
       await this.ctx.storage.put("config", msg.config);
     } else if (msg.type === MSG_START) {
+      // The agreed config replaces the host's HELLO config (protocol 4).
+      this.configPersisted = true;
+      await this.ctx.storage.put("config", msg.config);
       await this.ctx.storage.put("started", 1);
     } else if (msg.type === MSG_FRAME) {
       // One put per confirmed tick; the DO output gate coalesces writes. A

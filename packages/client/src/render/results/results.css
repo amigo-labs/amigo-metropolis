@@ -1,0 +1,21 @@
+/* The results page (render/results/resultsPage.ts): the original's 640 x 480
+   page in the HUD's 4:3 box (its size is set when the page opens), centred,
+   its texels kept square. Above the pause card (40): once the match is
+   decided, the page owns the screen. The world stays visible behind its
+   half-alpha rects. */
+#results-page {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  pointer-events: none;
+}
+#results-page.is-open {
+  display: flex;
+}
+#results-page canvas {
+  image-rendering: pixelated;
+}

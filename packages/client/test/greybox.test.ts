@@ -20,6 +20,7 @@ import {
   PROJ_HYPER,
   PROJ_MINE,
   PROJ_MORTAR,
+  PROJ_ROUND,
   PROJ_SHOCKWAVE,
   PROJ_SPECIAL,
   PROJ_WARDEN,
@@ -27,10 +28,14 @@ import {
 import * as THREE from "three";
 import { bucketFor, createGreyboxMeshes, type GreyboxMeshes } from "../src/render/greybox";
 
-/** Max horizontal extent and height of a committed model, in metres. */
+/**
+ * Max horizontal extent and height of a committed model's body, in metres: its
+ * additive faces are light, not body (the Sky Captain's searchlight cones),
+ * and gen:units grounds and sizes without them.
+ */
 async function modelSize(
   key: string,
-  dir: "units" | "fx" = "units",
+  dir: "units" | "fx" | "props" = "units",
 ): Promise<{ footprint: number; height: number }> {
   const path = new URL(`../public/models/${dir}/${key}.glb`, import.meta.url).pathname;
   const doc = await new NodeIO().read(path);
@@ -38,6 +43,9 @@ async function modelSize(
   const hi = [-Infinity, -Infinity, -Infinity];
   for (const mesh of doc.getRoot().listMeshes()) {
     for (const prim of mesh.listPrimitives()) {
+      const extras = prim.getMaterial()?.getExtras() as { fcop?: { mode?: string } } | undefined;
+      const fcop = extras?.fcop;
+      if (fcop?.mode === "add") continue;
       const pos = prim.getAttribute("POSITION");
       if (!pos) continue;
       const min = pos.getMin([0, 0, 0]);
@@ -62,24 +70,30 @@ function bucketSize(mesh: THREE.InstancedMesh): { footprint: number; height: num
   };
 }
 
-/** Bucket name -> model key, for every archetype that has both. */
-const PAIRS: readonly (readonly [keyof GreyboxMeshes, string])[] = [
+/**
+ * Bucket name -> model key, for every archetype that has both. The arena's own
+ * units load per arena (render/arenaUnits.ts) and differ by mission (Joke's
+ * are other models altogether); the stand-ins are la-cantina's, Mp's, which is
+ * also what a map with no mission draws. The outpost console is scenery
+ * (render/props.ts): its box stands in for Mp's Cobj 29.
+ */
+const PAIRS: readonly (readonly [keyof GreyboxMeshes, string, ("units" | "props")?])[] = [
   ["avatarWalker", "avatar-walker"],
   ["avatarHover", "avatar-hover"],
-  ["runner", "runner"],
-  ["guardian", "guardian"],
-  ["juggernaut", "juggernaut"],
-  ["fortress", "fortress"],
-  ["console", "console"],
-  ["warden", "warden"],
+  ["runner", "la-cantina/obj_030"],
+  ["guardian", "la-cantina/obj_022"],
+  ["juggernaut", "la-cantina/obj_036"],
+  ["fortress", "la-cantina/obj_041"],
+  ["console", "la-cantina/prop-029", "props"],
+  ["warden", "la-cantina/obj_054"],
 ];
 
 describe("greybox stand-ins match the models they stand in for", () => {
   const meshes = createGreyboxMeshes(new THREE.Scene());
 
-  for (const [bucketName, key] of PAIRS) {
+  for (const [bucketName, key, dir] of PAIRS) {
     test(`${key}`, async () => {
-      const model = await modelSize(key);
+      const model = await modelSize(key, dir);
       const grey = bucketSize((meshes[bucketName] as { mesh: THREE.InstancedMesh }).mesh);
       // One axis is fitted exactly and the other is whatever the authored
       // silhouette's aspect gives, so only the BINDING dimension can be tight.
@@ -105,19 +119,27 @@ describe("greybox stand-ins match the models they stand in for", () => {
   });
 });
 
-/** Bucket name -> FX model key, for the projectile kinds that have a mesh. */
-const FX_PAIRS: readonly (readonly [keyof GreyboxMeshes, string, number])[] = [
-  ["projHeavy", "rocket-helfire", PROJ_HEAVY],
-  ["projHyper", "rocket-hyper", PROJ_HYPER],
-  ["projMortar", "shell-mortar", PROJ_MORTAR],
-  ["projMine", "mine", PROJ_MINE],
-  ["projWarden", "rocket-heavy", PROJ_WARDEN],
+/**
+ * Bucket name -> FX model key, for the projectile kinds that have a mesh, and
+ * the world row a PROJ_ROUND came from (0 for the other kinds).
+ */
+const FX_PAIRS: readonly (readonly [keyof GreyboxMeshes, string, number, number])[] = [
+  ["projHeavy", "rocket-helfire", PROJ_HEAVY, 0],
+  ["projHyper", "rocket-hyper", PROJ_HYPER, 0],
+  ["projMortar", "shell-mortar", PROJ_MORTAR, 0],
+  ["projMine", "mine", PROJ_MINE, 0],
+  // The Sky Captain's bomb is world row 9: Cobj 49.
+  ["projWarden", "round-row9", PROJ_WARDEN, 0],
+  // The world rows' rounds that are models, by the row that fired them (the
+  // bolts of rows 1, 3 and 6 are render/fx.ts's line facers).
+  ["roundRow4", "round-row4", PROJ_ROUND, 4],
+  ["roundRow8", "round-row8", PROJ_ROUND, 8],
 ];
 
 describe("projectile stand-ins match the FX models they stand in for", () => {
   const meshes = createGreyboxMeshes(new THREE.Scene());
 
-  for (const [bucketName, key, kind] of FX_PAIRS) {
+  for (const [bucketName, key, kind, row] of FX_PAIRS) {
     test(`${key}`, async () => {
       const model = await modelSize(key, "fx");
       const grey = bucketSize((meshes[bucketName] as { mesh: THREE.InstancedMesh }).mesh);
@@ -130,7 +152,7 @@ describe("projectile stand-ins match the FX models they stand in for", () => {
       expect(grey.height).toBeLessThanOrEqual(model.height + 0.02);
       // Each kind routes to its OWN bucket — that is the whole point of the
       // split, and the reason the tint no longer has to carry the kind.
-      expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, kind)).toBe(meshes[bucketName]);
+      expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, kind, row)).toBe(meshes[bucketName]);
     });
   }
 
@@ -154,5 +176,14 @@ describe("projectile stand-ins match the FX models they stand in for", () => {
 
   test("a kind with no mesh of its own falls back rather than vanishing", () => {
     expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, PROJ_SHOCKWAVE)).toBe(meshes.projectile);
+    // A round whose launch the client never saw (row 0) still draws.
+    expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, PROJ_ROUND, 0)).toBe(meshes.projectile);
+  });
+
+  test("the world rounds wear the original's own colours: no team tint", () => {
+    for (const b of [meshes.roundRow4, meshes.roundRow8, meshes.projWarden]) {
+      expect(b.untinted).toBe(true);
+    }
+    expect(meshes.projHeavy.untinted).toBeUndefined();
   });
 });

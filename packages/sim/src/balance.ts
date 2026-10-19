@@ -34,17 +34,41 @@ export const ONLINE_INPUT_DELAY_TICKS = 3;
 export const P2P_INPUT_REDUNDANCY_TICKS = ONLINE_INPUT_DELAY_TICKS + 2;
 
 // Avatar (rules.md §2, §4).
+// --- Difficulty (fcop-fidelity.md P1, P2, P13, W1) ---------------------------
 /**
- * The X1-Alpha's health: 1250, the original's NORMAL mech (fcop-fidelity.md P1).
- * Every PA X1Alpha record stores a base of 1000; `player_construct` scales it by
- * the per-player difficulty word, 100/125/150 % (`imul ecx,ecx,0x64` at
- * 0x00446c3c), and NORMAL is the default pick (fcop-re/player-and-weapons.md §5).
- * Metropolis has no difficulty choice and models NORMAL, as it does for the
- * walker's water rule and the ammunition (x1.25). No regeneration: health comes
- * back only from a pickup or the restore at going down. Every damage number in
- * this file is absolute HP against it, as the original's are. Was 300.
+ * The original's per-player difficulty word (mission-state word 2 for slot 0,
+ * 0x26 for slot 1): the front end's HARD / NORMAL / EASY plates, in that order
+ * (`launch.c:258-259`; `config.c:76`, default NORMAL; fcop-re/player-and-
+ * weapons.md §5). It sets the mech's health, its magazines' starting ammunition
+ * and ceilings, and what deep water does to the walker. Row 3 is a debug row
+ * (32767 health, infinite ammunition, no damage) the front end does not offer;
+ * Metropolis does not take it. It applies to an X1-Alpha only: the Warden's slot
+ * is the Sky Captain, whose difficulty is its level. SimOptions.difficulties
+ * carries it per player (SIM_VERSION 72); NORMAL is the default.
  */
-export const AVATAR_HP = 1250;
+export const DIFFICULTY_HARD = 0;
+export const DIFFICULTY_NORMAL = 1;
+export const DIFFICULTY_EASY = 2;
+/** The rows Metropolis takes, 0..DIFFICULTY_ROWS - 1 (not the debug row 3). */
+export const DIFFICULTY_ROWS = 3;
+/** Every PA X1Alpha record's base health: the u16 at record +20 (both slots). */
+export const X1_RECORD_HP = 1000;
+/**
+ * The X1-Alpha's health per difficulty: `player_construct` (player.c:1094-1118)
+ * multiplies the record's 1000 by 100, 125 or 150 (`imul ecx,ecx,0x64` at
+ * 0x00446c3c) and divides by 100: HARD 1000, NORMAL 1250, EASY 1500 (fcop-re/
+ * player-and-weapons.md §5). No regeneration: health comes back only from a
+ * pickup (a "fill" to this) or the restore at going down. Every damage number in
+ * this file is absolute HP against it, as the original's are. Was 300 until
+ * SIM_VERSION 41, and NORMAL's 1250 for every player until SIM_VERSION 72.
+ */
+export const AVATAR_HP_BY_DIFFICULTY: readonly number[] = [
+  (X1_RECORD_HP * 100) / 100,
+  (X1_RECORD_HP * 125) / 100,
+  (X1_RECORD_HP * 150) / 100,
+];
+/** NORMAL's health, the default pick's: 1250 (ARCHETYPE_MAX_HP's avatar row). */
+export const AVATAR_HP = AVATAR_HP_BY_DIFFICULTY[DIFFICULTY_NORMAL];
 
 // Slope limits as rise/run: the steepest ground each form's hard gate lets it
 // climb (sim.ts `slopeBlocks`). Hover stays stricter, because it rides
@@ -301,18 +325,23 @@ export const WALKER_SLOPE_GAIN = 40;
 /** Steep (no jump, no leap): the surface normal's horizontal part over 0.625 (38.7°). */
 export const WALKER_STEEP_TILT = 0xa000 * FX;
 /**
- * The jumps (`player_walk_tick` 0x004444e9 jump table). One button, three jumps,
- * chosen the way the original chooses them:
- * - running forward: the LEAP, lift 0x64000 = 7.32 m/s plus a forward push of
- *   1.5 (+1.76 m/s) on top of the run;
+ * The jumps (`player_walk_tick` 0x004444e9 jump table; the walker's state
+ * machine, walker.ts). One button, three jumps, chosen the way the original
+ * chooses them, each leaving the ground in its state's arm:
+ * - jumping while running (state 3): the LEAP — the legs take track 0x36 or
+ *   0x37 at once (state 0x0d), and the next step's arm lifts 0x64000 = 7.32 m/s
+ *   with a forward push of 1.5 (+1.76 m/s) on top of the run;
  * - otherwise, if the ground 1 m ahead rises more than 0xae1 (0.34 m): the HIGH
- *   jump, lift 0x78000 = 8.79 m/s straight up, and 9 steps (0.24 s) later a
- *   one-off forward LUNGE of 0x1cccc = +2.11 m/s — unless the rise ahead is over
- *   0x2333 (1.1 m), when there is no lunge;
- * - otherwise the HOP: lift 0x58000 = 6.45 m/s plus a forward push of 4.0
- *   (+4.69 m/s).
- * The crouch before the high jump and the hop is animation data the RE has not
- * read (player-and-weapons.md §9.6), so they launch at once. No air control.
+ *   jump — state 0x0a winds up on legs track 4 until the track reaching one
+ *   with LAUNCH (0x1b) moves it to 0x0b, whose arm lifts 0x78000 = 8.79 m/s
+ *   straight up (~0.4 s after the press), and 9 steps (0.24 s) later a one-off
+ *   forward LUNGE of 0x1cccc = +2.11 m/s — unless the rise ahead was over 0x2333
+ *   (1.1 m), when there is none;
+ * - otherwise the HOP — state 0x0f winds up on track 0x11 until 0x3a (LAUNCH)
+ *   moves it to 0x10, whose arm lifts 0x58000 = 6.45 m/s with a forward push
+ *   of 4.0 (+4.69 m/s), ~0.21 s after the press.
+ * The jump bit is a level: held, the walker jumps again once its legs are back
+ * on track 0. No air control.
  */
 export const WALKER_LEAP_LIFT = 0x64000 * FX * X1_SPEED_UNIT;
 export const WALKER_LEAP_PUSH = 0x18000 * FX * X1_SPEED_UNIT;
@@ -320,8 +349,6 @@ export const WALKER_HIGH_LIFT = 0x78000 * FX * X1_SPEED_UNIT;
 export const WALKER_HOP_LIFT = 0x58000 * FX * X1_SPEED_UNIT;
 export const WALKER_HOP_PUSH = 0x40000 * FX * X1_SPEED_UNIT;
 export const WALKER_LUNGE_PUSH = 0x1cccc * FX * X1_SPEED_UNIT;
-/** 9 steps after take-off = 0.24 s = 7.2 ticks. */
-export const WALKER_LUNGE_TICKS = 7;
 /** Where the high-jump probe looks: 1 m ahead (sine >> 3), from 8 m up. */
 export const WALKER_PROBE_AHEAD = 1;
 export const WALKER_PROBE_LIFT = 8;
@@ -331,6 +358,104 @@ export const WALKER_HIGH_RISE = 0xae1 / 8192;
 export const WALKER_LUNGE_MAX_RISE = 0x2333 / 8192;
 /** Jump take-off speed of the high jump (kept under its old name for its readers). */
 export const AVATAR_JUMP_SPEED = WALKER_HIGH_LIFT;
+/** A 16.16 velocity a movement step (the walker machine's integers) in m/s. */
+export const X1_STEP_SPEED = FX * X1_SPEED_UNIT;
+
+// --- The walker's state machine (walker.ts; fcop-fidelity.md G11, P4) --------
+//
+// `player_walk_tick` (RE player_walk.c 171-744), integer as the original's:
+// one step per 8 units of the 300 Hz clock (`byte_b6`'s eighths, player.c
+// 1971-1978), the state byte `state_bb`, the flags byte `flags_b9`, the leg
+// track last asked `byte_ba`, the idle count `byte_c3` and the lunge countdown
+// `byte_c2`, and the legs' AnmD player (block.c 133-363).
+
+/** The leg track's flags byte (actor_player_walk.h 96-106). */
+export const WALK_TRACK_HOLD = 0x02;
+export const WALK_TRACK_LAUNCH = 0x04;
+export const WALK_TRACK_TOUGH = 0x10;
+/** The legs' rate (0x00444c84..0x00444cb6): fixed in seven states, else floored. */
+export const WALK_RATE_FIXED = 0xa0;
+export const WALK_RATE_LEAP = 0x300;
+export const WALK_RATE_RUN = 0x100;
+export const WALK_RATE_MIN = 0x1e;
+/** A landing faster than this, 16.16 a step, is an impact (0x00444a1f): state 0x12. */
+export const WALK_IMPACT_SOFT = 0x50000;
+/** ... and on a TOUGH track (flag 0x10). */
+export const WALK_IMPACT_TOUGH = 0x80000;
+/** The hover's landing (player_hover.c 0x00442cb1): over this, state 0x12. */
+export const HOVER_IMPACT_HARD = 0x50000;
+/** The turn track is asked while the turn the speed leaves is not 0 (0x00444414). */
+export const WALK_TURN_SPEED_SHIFT = 9;
+/** The high jump's lunge countdown (0x00444529): it pushes at 1, 9 steps later. */
+export const WALK_LUNGE_COUNT = 10;
+/** The fidget: track 0x10 when the idle count wraps to 0 (0x004446a8), 256 steps. */
+export const WALK_IDLE_TRACK = 0x10;
+/** The leap's two tracks (0x00444cf4): 0x37 from these leg frames, 0x36 from any other. */
+export const WALK_LEAP_TRACK = 0x36;
+export const WALK_LEAP_TRACK_B = 0x37;
+export const WALK_LEAP_FRAMES_B: readonly (readonly [number, number])[] = [
+  [2, 5],
+  [0x12, 0x1f],
+];
+/**
+ * The jump table at 0x00444eb0 (player_walk.c 362-465), per walker state: the
+ * push (16.16 a step; along the heading, or across it where `sideways`), the
+ * leg track it asks for (-1 none: the step's own ask stands), the lift its arm
+ * applies and the state the arm moves it to (-1 none), and whether the stop
+ * test runs (`settle`).
+ */
+export interface WalkArm {
+  readonly push: number;
+  readonly sideways: boolean;
+  readonly track: number;
+  readonly lift: number;
+  readonly becomes: number;
+  readonly settle: boolean;
+}
+const arm = (
+  push: number,
+  sideways: boolean,
+  track: number,
+  lift = 0,
+  becomes = -1,
+  settle = false,
+): WalkArm => ({ push, sideways, track, lift, becomes, settle });
+export const WALK_ARMS: readonly WalkArm[] = [
+  arm(0, false, -1, 0, -1, true), // 0 stand (the idle's 0x10: walker.ts)
+  arm(0xa000, false, 6), // 1 slow forward
+  arm(-0xa000, false, 7), // 2 slow back
+  arm(0x18000, false, 8), // 3 run
+  arm(-0x18000, false, 9), // 4 back
+  arm(-0xa000, true, 1), // 5 slow Jink Left
+  arm(0xa000, true, 2), // 6 slow Jink Right
+  arm(-0x10000, true, 0x0a), // 7 Jink Left
+  arm(0x10000, true, 0x0b), // 8 Jink Right
+  arm(0, false, 3, 0, -1, true), // 9 the crouch (the bounds' lowered pair)
+  arm(0, false, 4), // 0x0a the high jump's wind-up
+  arm(0, false, 4, 0x78000, 0x0c), // 0x0b the high jump's take-off
+  arm(0, false, -1), // 0x0c the high jump, airborne (the default arm)
+  arm(0x18000, false, 8, 0x64000, 0x0e), // 0x0d the leap's take-off
+  arm(0, false, 8), // 0x0e the leap
+  arm(0, false, 0x11), // 0x0f the hop's wind-up
+  arm(0x40000, false, 0x11, 0x58000, 0x11), // 0x10 the hop's take-off
+  arm(0, false, 0x11), // 0x11 the hop
+  arm(0, false, 5, 0, -1, true), // 0x12 a hard landing
+];
+/** The four states `player_velocity_delta` runs on its short tail, airborne or not (player_move.c 238-242). */
+export const WALK_SHORT_TAIL: readonly number[] = [0x0b, 0x0c, 0x0e, 0x10];
+/** The legs' track while the transform runs (mode 3, 330 -> 359), and the hover's hold (359). */
+export const X1_TRANSFORM_LEG_TRACK = 0x0c;
+export const X1_HOVER_LEG_TRACK = 0x0d;
+/** The cockpit's: the transform's (0 -> 29) and the hover's hold (29). */
+export const X1_TRANSFORM_COCKPIT_TRACK = 2;
+export const X1_HOVER_COCKPIT_TRACK = 1;
+/** The ramp: 160 a clock unit (PLAYER_FORM_RAMP_RATE) to 0x10000 (PLAYER_TRANSFORM_FULL). */
+export const X1_RAMP_RATE = 160;
+export const X1_RAMP_FULL = 0x10000;
+/** The movement loop's "stop" code: a state that ends on track 0 sends it (0x00444de0). */
+export const WALK_LOOP_STOP = 0x27;
+/** At most this many codes a slot a tick (two steps of five, and the ends). */
+export const WALK_CODES_PER_TICK = 16;
 
 // --- The X1-Alpha's weapons (rules.md §2; fcop-fidelity.md W1, W2, W4) -------
 //
@@ -339,13 +464,15 @@ export const AVATAR_JUMP_SPEED = WALKER_HIGH_LIFT;
 // including the six PA maps: `{key, key >> 4, 0, 0, block A[0x20], block B[0x20]}`,
 // A the weapon as issued and B the weapon after that slot's power-up
 // (fcop-re/player-and-weapons.md §7, player-weapons.json; loader 0x00458c60, the
-// rescale helpers 0x00458d30 / 0x0044eb10). These are the raw halfwords of the ten
-// Metropolis offers (weapons.ts maps them to its catalogue); weapons.ts converts
+// rescale helpers 0x00458d30 / 0x0044eb10). These are the raw halfwords of all
+// fifteen: the ten Precinct Assault offers and, since SIM_VERSION 90, the five
+// behind SimOptions.extraWeapons (weapons.ts maps them to its catalogue); weapons.ts converts
 // them the way the loader does:
 //   - gaps (`burstGap`, `roundGap`, `fuse`): raw * 4096 / 218, C-truncated, in
 //     engine units of 1/300 s (~raw * 0.0626 s); the X1 spends 10 a sim tick;
-//   - ammunition (`ammo`, `cap`): x1.25 on NORMAL, truncated (the per-player
-//     difficulty pick; Metropolis models NORMAL, as AVATAR_HP does);
+//   - ammunition (`ammo`, `cap`): the records hold HARD's; NORMAL adds raw >> 2
+//     (x1.25) and EASY raw >> 1 (x1.5), per player at every fill
+//     (weapons.ts `difficultyAmmo`; SIM_VERSION 72, NORMAL for everyone before);
 //   - lengths (`w0e` blast, `w10` reach, `range`): raw << 4 wu = raw / 512 m;
 //     for arced and dropped rounds `range` is their GRAVITY in wu/s², raw / 512
 //     m/s² (type7.h:50);
@@ -513,6 +640,41 @@ export const WEAPON_RECORDS: Readonly<Record<number, { a: WeaponRecord; b: Weapo
       fuse: 80,
     },
   },
+  // Riot Shield (the executable's "Riot Shield") — an extra weapon (SimOptions.extraWeapons)
+  5: {
+    a: {
+      kind: 13,
+      flags: 0,
+      ammo: 600,
+      cap: 600,
+      rounds: 1,
+      burstGap: 1,
+      roundGap: 1,
+      damage: 20,
+      w0e: 819,
+      w10: 0,
+      speed: 8192,
+      accel: 0,
+      range: 12288,
+      fuse: 80,
+    },
+    b: {
+      kind: 13,
+      flags: 0,
+      ammo: 0,
+      cap: 300,
+      rounds: 1,
+      burstGap: 1,
+      roundGap: 1,
+      damage: 40,
+      w0e: 1228,
+      w10: 2048,
+      speed: 8192,
+      accel: 0,
+      range: 12288,
+      fuse: 80,
+    },
+  },
   // Hell Fire 2000 (the executable's "Helfire")
   16: {
     a: {
@@ -618,6 +780,76 @@ export const WEAPON_RECORDS: Readonly<Record<number, { a: WeaponRecord; b: Weapo
       fuse: 48,
     },
   },
+  // Fusion Torpedo (the executable's "Fusion Torpedo") — an extra weapon (SimOptions.extraWeapons)
+  20: {
+    a: {
+      kind: 3,
+      flags: 3,
+      ammo: 40,
+      cap: 40,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 16,
+      damage: 100,
+      w0e: 512,
+      w10: 0,
+      speed: 6144,
+      accel: 24,
+      range: 8192,
+      fuse: 120,
+    },
+    b: {
+      kind: 3,
+      flags: 3,
+      ammo: 0,
+      cap: 10,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 16,
+      damage: 150,
+      w0e: 1024,
+      w10: 0,
+      speed: 6144,
+      accel: 24,
+      range: 8192,
+      fuse: 120,
+    },
+  },
+  // K-9 Drone (the executable's "Robo Dog") — an extra weapon (SimOptions.extraWeapons)
+  21: {
+    a: {
+      kind: 21,
+      flags: 1,
+      ammo: 25,
+      cap: 25,
+      rounds: 1,
+      burstGap: 48,
+      roundGap: 0,
+      damage: 150,
+      w0e: 0,
+      w10: 0,
+      speed: 2457,
+      accel: 40,
+      range: 8192,
+      fuse: 48,
+    },
+    b: {
+      kind: 21,
+      flags: 1,
+      ammo: 0,
+      cap: 18,
+      rounds: 3,
+      burstGap: 64,
+      roundGap: 0,
+      damage: 200,
+      w0e: 0,
+      w10: 0,
+      speed: 2457,
+      accel: 40,
+      range: 8192,
+      fuse: 48,
+    },
+  },
   // Mortar Launcher (the executable's "Mortar")
   32: {
     a: {
@@ -650,6 +882,41 @@ export const WEAPON_RECORDS: Readonly<Record<number, { a: WeaponRecord; b: Weapo
       speed: 4096,
       accel: 0,
       range: 3072,
+      fuse: 48,
+    },
+  },
+  // Plasma Flare (the executable's "Plasma Flare") — an extra weapon (SimOptions.extraWeapons)
+  33: {
+    a: {
+      kind: 4,
+      flags: 13,
+      ammo: 30,
+      cap: 30,
+      rounds: 1,
+      burstGap: 32,
+      roundGap: 32,
+      damage: 250,
+      w0e: 3072,
+      w10: 0,
+      speed: 4096,
+      accel: 0,
+      range: 2662,
+      fuse: 48,
+    },
+    b: {
+      kind: 20,
+      flags: 13,
+      ammo: 0,
+      cap: 15,
+      rounds: 1,
+      burstGap: 48,
+      roundGap: 0,
+      damage: 200,
+      w0e: 3072,
+      w10: 0,
+      speed: 4096,
+      accel: 0,
+      range: 2662,
       fuse: 48,
     },
   },
@@ -719,6 +986,41 @@ export const WEAPON_RECORDS: Readonly<Record<number, { a: WeaponRecord; b: Weapo
       w10: 0,
       speed: 4096,
       accel: 0,
+      range: 4096,
+      fuse: 48,
+    },
+  },
+  // Grenade Launcher (the executable's "Grenade") — an extra weapon (SimOptions.extraWeapons)
+  36: {
+    a: {
+      kind: 9,
+      flags: 13,
+      ammo: 30,
+      cap: 30,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 0,
+      damage: 400,
+      w0e: 2150,
+      w10: 0,
+      speed: 4096,
+      accel: 4096,
+      range: 4096,
+      fuse: 48,
+    },
+    b: {
+      kind: 9,
+      flags: 13,
+      ammo: 0,
+      cap: 16,
+      rounds: 2,
+      burstGap: 16,
+      roundGap: 1,
+      damage: 600,
+      w0e: 2150,
+      w10: 0,
+      speed: 4096,
+      accel: 4096,
       range: 4096,
       fuse: 48,
     },
@@ -802,6 +1104,71 @@ export const SPECIAL_MINE_ARM_TICKS = 15; // 0.5 s
 /** Sprung -> blast: 1.0 s (player-weapons.json `mine.sprung_fuse_s`). */
 export const SPECIAL_MINE_FUSE_TICKS = 30;
 
+// --- The five extra weapons (SimOptions.extraWeapons, SIM_VERSION 90) --------
+// Their records are WEAPON_RECORDS 0x05, 0x14, 0x15, 0x21 and 0x24; these are the
+// engine's own numbers the code that runs them uses, each from the RE's
+// decompilation (fcop-reverse-engineering src/game/actor/…). Lengths stay in
+// the original's units where the arithmetic is integer: world units (8192 a
+// metre), the records' raw words (512 a metre, the `<< 4` the loader applies),
+// engine units of the 300 Hz clock (10 a sim tick).
+
+/** World units a metre. */
+export const WU_PER_METRE = 8192;
+/** A record's raw length words a metre (the loader's `<< 4` of 8192). */
+export const RAW_PER_METRE = 512;
+/** A guided round's health, CACT_ROUND_HEALTH (the K-9 Drone's is twice its damage). */
+export const MISSILE_ROUND_HEALTH = 40;
+
+// The Riot Shield: the sustained sphere (`sustain_sphere.c`).
+/** The toggle flips only past this hold, renewed by every trigger call: 0x3c units (0x0044c2c5). */
+export const SHIELD_HOLD_UNITS = 0x3c;
+/** A player's sphere is centred 0x1000 wu above its position (0x0044c66e). */
+export const SHIELD_CENTRE_RAISE = 0x1000 / WU_PER_METRE;
+/** The spring's rate on contact: -0x50 in block B, -0x10 in A (0x0044c88f / 0x0044c89a). */
+export const SHIELD_RECOIL_B = -0x50;
+export const SHIELD_RECOIL_A = -0x10;
+/** What it does to a round (actor types 2, 7, 0x0f): 1000 in B (0x0044c94b) ... */
+export const SHIELD_ROUND_DAMAGE_B = 1000;
+/** ... and in A 300 one draw in eight (`(rand & 7) == 7`), else nothing (0x0044c954). */
+export const SHIELD_ROUND_DAMAGE_A = 300;
+/** The sphere's twelve arcs (`cmp eax, 0xc` at 0x0044ca08). */
+export const SHIELD_ARCS = 12;
+/** An arc waits `rand & 0x7f` plus 0x3f units between steps (0x0044cb23). */
+export const SHIELD_ARC_WAIT_MASK = 0x7f;
+export const SHIELD_ARC_WAIT_BASE = 0x3f;
+/** The flash after a contact lasts four draws (`byte_1ae` = 4, 0x0044c885). */
+export const SHIELD_FLASH_DRAWS = 4;
+
+// The K-9 Drone and the Fusion Torpedo: the guided ordnance actor (`missile.c`).
+/** The homing fuse: 0x5dc units, renewed by 0x12c each time it runs out (actor_missile.h). */
+export const MISSILE_FUSE_UNITS = 0x5dc;
+export const MISSILE_FUSE_RENEW = 0x12c;
+/** Below 0x10 wu a unit after a halving the missile expires. */
+export const MISSILE_MIN_SPEED = 0x10;
+/** The K-9's clearance: 0x800 wu over the ground, lifted 0x200 at a time (0x004238f9). */
+export const K9_CLEARANCE = 0x800 / WU_PER_METRE;
+export const K9_CLEARANCE_LIFT = 0x200 / WU_PER_METRE;
+/** Within 0x300 wu of its target, horizontally, it stops caring about the ground. */
+export const K9_CLEARANCE_RANGE = 0x300 / WU_PER_METRE;
+/** AVOID's upward bias on the 16.16 unit steering vector: 0xa000 (0x004237e5). */
+export const K9_AVOID_BIAS = 0xa000 / 65536;
+/** Homing gives up on arrival when the target is under 8 wu away. */
+export const MISSILE_ARRIVAL_WU = 8;
+
+// The Grenade Launcher: the bouncing round (`type15.c`, `round_spawn.c`).
+/** Its lifetime is `s + s * (rand & 0x1f) / 64` of the record's fuse (0x0044d8a0). */
+export const GRENADE_FUSE_JITTER_MASK = 0x1f;
+export const GRENADE_FUSE_JITTER_DIV = 64;
+/** At the ground a round slower than 0x1800 wu/s on every axis comes to rest (and goes off). */
+export const GRENADE_REST_SPEED = 0x1800;
+/** A bounce keeps 5/8 of the vertical speed, reversed, and 7/8 of the horizontal. */
+export const GRENADE_BOUNCE_VERTICAL = 5;
+export const GRENADE_BOUNCE_HORIZONTAL = 7;
+/** Its move: velocity (wu/s) times 218 x the frame delta, factored as `vec_mac` (0x00424708). */
+export const GRENADE_MOVE_SCALE = 218;
+/** Its fall: gravity times the delta over 300, truncated (0x00424771). */
+export const GRENADE_TIME_DIVISOR = 300;
+
 // Muzzle geometry, shared by the sim and by the renderer's muzzle flash. They
 // lived in sim.ts, where render/fx.ts could only keep a hand-copied duplicate
 // and a comment asking the next reader to keep the two in lockstep.
@@ -867,6 +1234,13 @@ export const POINTS_CAPTURE_TURRET = 1;
  * 0x004475e9, pool@136); the Sky Captain's death script pays when it is shot down.
  */
 export const POINTS_AVATAR_DOWN = 10;
+/**
+ * The results page's time figures (stats.ts) run on the original's frame clock,
+ * DAT_00511ee4, which counts 300 units a second; lockstep's 30 Hz tick is 10 of
+ * them. The page prints a time v as minutes and seconds of (v + 150) / 300
+ * (RE `mission/results.c` 0x00408536).
+ */
+export const FRAME_CLOCK_PER_TICK = 300 / TICK_HZ;
 export const COST_RUNNER = 1;
 export const COST_GUARDIAN = 1;
 export const COST_JUGGERNAUT = 50;
@@ -880,10 +1254,19 @@ export const COST_OUTPOST_CLAIM = 30;
 export const RUNNER_ALIVE_LIMIT = 20;
 export const GUARDIAN_ALIVE_LIMIT = 20;
 /**
- * The Dreadnought and Fortress zones open the first time a side reaches 50 points
- * (fn30, ai-and-rules.md §2), and stay open. Sticky per side.
+ * The Dreadnought and Fortress zones open the first time a poll of fn30 / fn31
+ * sees a side hold more than 49 points (its gate `49 < word 25` / `word 26`, RE
+ * extracted/data/<Mission>/fun_code.txt; ai-and-rules.md §2), and stay open.
+ * Sticky per side.
  */
 export const HEAVY_UNLOCK_POINTS = 50;
+/**
+ * The mission functions' scheduler (`cfun_tick`, RE cfun/load.c 0x00436be0)
+ * takes the frame delta off each countdown, in engine ticks; lockstep's frame
+ * is 10 of them (the original's 30 fps). A countdown starts at
+ * `game_rand() % period` (`cfun_load` 0x00436b10).
+ */
+export const CFUN_DELTA_PER_TICK = 300 / TICK_HZ;
 /** Units bought at an owned outpost (forward spawn) cost this multiple. */
 export const OUTPOST_COST_MULTIPLIER = 2;
 
@@ -908,6 +1291,29 @@ export const ORIGINAL_BUY_HALF_L = 614 / 1024;
  * fcop-fidelity.md P11).
  */
 export const SURFACE_REACH = 0.54;
+/**
+ * HARD's deep water (fcop-fidelity.md P13; fcop-re/player-and-weapons.md §4). A
+ * HARD walker whose ground is water (`player_order` code 1, player.c:796-811)
+ * gets the block's +0xde marker and loses its invulnerability timer; from the
+ * next movement step on its ground is its own position less 0xc0 wu and its
+ * vertical velocity is zeroed (`player_walk_tick` 0x0044496c,
+ * `WALK_WADE_DEPTH`), and the marker cuts its buttons to the two the sim never
+ * reads (0x0044245a, `PLAYER_FORM_BITS_KEEP` 0x000c0000: Map and Camera): no
+ * drive, no fire, no transform. 0xc0 wu a step at 37.5 steps a second is 0.879
+ * m/s; a sim tick is X1_STEPS_PER_TICK steps, 240 wu = 2.93 cm, exact in binary.
+ * (The RE's "0.625 m/s" multiplied 0.0234 m a step by the step's 26.7 ms
+ * instead of dividing by it.)
+ */
+export const WALKER_SINK_PER_TICK = (0xc0 / 8192) * X1_STEPS_PER_TICK;
+/**
+ * The sinking mech drowns once the surface over it is more than 0x3800 wu =
+ * 1.75 m above it: the frame's tick deals `health + 1` credited to nobody
+ * (player.c 0x00446e3e-0x00446e79, `PLAYER_SUBMERGE_DEPTH`), before that frame's
+ * movement steps. At WALKER_SINK_PER_TICK that is the 60th tick of sinking
+ * (14,400 wu), so the down comes 61 ticks = 2.03 s after the walker reached
+ * the water — the original's 75 steps, 2.0 s, plus the frame that reads it.
+ */
+export const DROWN_DEPTH = 0x3800 / 8192;
 /**
  * A base floor's damage to the enemy mech per movement step, walker and hover
  * alike: codes 14/15 of player_order's table (fcop-fidelity.md P11). At
@@ -1034,6 +1440,12 @@ export const GRAPH_WAYPOINT_RADIUS = 0.5;
  * JUGGERNAUT_SPEED 2.5 on these arenas.
  */
 export const ROUTE_TOP_SPEED = (54 * 300) / 8192;
+/**
+ * A route follower's speed word (`velocity_84`: world units per 300 Hz tick) in
+ * m/s: what the Dreadnought hull's walk counts its distance in (type5.c
+ * 469-472, `velocity_84 * dt`).
+ */
+export const ROUTE_SPEED_UNIT = 300 / 8192;
 /** A tank's wander: 1638 of 4096 steps (40 %) are random (`cnet_route_next`). */
 export const ROUTE_WANDER = 1638;
 /** A tank's seek search: the nearest enemy-team actor within 8192 << 4 wu = 16 m. */
@@ -1113,12 +1525,16 @@ export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tic
  * A player's avatar comes back 4.0 s after it goes down: `player_op4` sets the
  * countdown to 0x4b0 = 1200 engine units at 300 Hz (fcop-re/player-and-weapons.md
  * §1, retail 0x004476e3). Was 240 (8 s).
- *
- * The original's other countdown, 0x96 = 150 units (0.5 s) after a drowned or
- * sunk walker, has no path here: drowning is the HARD difficulty's (§4), and the
- * NORMAL walker Metropolis models transforms to hover in deep water instead.
  */
 export const RESPAWN_TICKS = 120;
+/**
+ * The original's other countdown: 0x96 = 150 engine units, 0.5 s, when the
+ * mech went down with its "does not count" marker set (block +0xde,
+ * `player_op4` 0x004476df: `0x96 + (flag & 0x41a)`) — the marker HARD's deep
+ * water sets (WALKER_SINK_PER_TICK). That down raises no wreck and no death
+ * effects and credits nobody (fcop-fidelity.md P2, P13; SIM_VERSION 72).
+ */
+export const RESPAWN_SUNK_TICKS = 0x96 / X1_UNITS_PER_TICK;
 // --- The Warden: the original's Sky Captain (fcop-fidelity.md U3) ----------
 // fcop-re/ai-and-rules.md §1 (dispatch.c, aircraft.c in the RE repo). The
 // Warden is actor type 37: an aircraft with the commander's decision pass on
@@ -1293,41 +1709,90 @@ export const SKY_SPEND_HOME_PER_LEVEL = 0x10000 / 8192;
 export const SKY_FORTRESS_BUDGET = 0x41;
 export const SKY_SPARE_BUDGET = 5;
 /**
- * A spawn queue's period where the arena imports none (fcop-fidelity.md R18):
- * Mp's slot-0 base tank queue, fn18's 202 units (3.37 s), and its captain's base
- * jet queue, fn17's 58 (0.97 s). Each arena's own come from the rules artifact
- * (MapBase.queueTicks, MapOutpost.queueTicks).
+ * A spawn queue's period where the arena imports none (fcop-fidelity.md R18),
+ * in engine ticks as `cfun_load` stores it (time units × 5): Mp's slot-0 base
+ * tank queue, fn18's 202 units (1010, 3.37 s), and its captain's base jet
+ * queue, fn17's 58 (290, 0.97 s). Each arena's own come from the rules artifact
+ * (MapBase.queuePeriod, MapOutpost.queuePeriod).
  */
-export const ORIGINAL_TANK_QUEUE_TICKS = 101;
-export const ORIGINAL_JET_QUEUE_TICKS = 29;
+export const ORIGINAL_TANK_QUEUE_PERIOD = 202 * 5;
+export const ORIGINAL_JET_QUEUE_PERIOD = 58 * 5;
 /** Spawn queues per team: base tanks, base jets, then a tank and a jet queue per outpost (4). */
 export const UNIT_QUEUES = 10;
 /** Free opening order (construct 0x00421476): from level 1, 10 units. */
 export const SKY_OPENING_ORDER = 10;
 
 /**
- * 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP.
+ * 2D hit radius per archetype, indexed like ARCHETYPE_MAX_HP: the original's
+ * own (fcop-fidelity.md G1). An actor's `radius_68`, which its collision sweep
+ * sums for the sphere test and every trigger, capture and gate test adds as the
+ * intruder's own, is the halfword at +12 of its model's 3DBB box for the
+ * current frame, << 4 world units (`cact_model_block_init` 0x00426e00,
+ * `cact_model_select` 0x004297e0, `cact_pair_test` 0x00450190): the box's
+ * half-diagonal, raw / 512 m. Each imported arena carries its own mission's
+ * (MapData.radii, `gen:pamodels`: Joke's units and Sky Captains, Hk's tank,
+ * second neutral set and Sky Captains are their own); this table is Mp's, the
+ * default for an arena that imports none, and sim.ts `entityRadius` picks the
+ * mech's form.
  *
- * HALF THE MODEL'S FOOTPRINT, which is the convention these already followed —
- * against models that were stretched 1.02x-2.87x off the FCOP originals. The
- * models now carry the size the original authored (assets.md §4), so these
- * follow: the avatar's disc was 2.4 m across against a 0.80 m mech, wider than
- * the catwalks it walks and wider than its own base mouth.
- *
- * Only hit detection reads these — AoE, projectile contact, mine triggers.
- * Wall collision treats every mover as a point (collision.ts), so shrinking
- * them opens no geometry that was closed.
+ * Only hit detection reads these — hitscan, AoE, projectile contact, mines,
+ * captures, the zones and the gate. Wall collision treats every mover as a
+ * point (collision.ts).
  */
 export const ARCHETYPE_RADIUS: readonly number[] = [
-  0.4, // AVATAR      0.80 m footprint
-  0.76, // RUNNER     1.52
-  1.1, // GUARDIAN    3.15 wingspan; half of it, like the rest
-  1.1, // JUGGERNAUT  2.22
-  1.33, // FORTRESS   2.67
-  0.7, // TURRET      1.41
-  0.15, // PROJECTILE
-  0.56, // CONSOLE    1.12
-  1.0, // WARDEN      2.04 — the Sky Captain's craft
+  // The mech's legs (Cobj 15, the type-1 actor's own model; the cockpit is its
+  // partner) at the walker's pose, frame 0: 283. Its 371 frames run 232-365
+  // (0.45-0.71 m), which Metropolis, without the animation, does not follow.
+  // Was 0.4, half the assembled model's footprint.
+  283 / 512, // AVATAR      0.5527 m
+  // Cobj 30's 483 (Hk's own tank 646, Joke's 369: MapData.radii). Was 0.76.
+  483 / 512, // RUNNER      0.9434 m
+  // Cobj 22's 537 in all three frames (Ovmp's copy 531, Joke's own jet 286).
+  // Was 1.1, sized for Cobj 41.
+  537 / 512, // GUARDIAN    1.0488 m
+  // The hull, Cobj 36's 663 (Joke's hull 35: 757). Was 1.1.
+  663 / 512, // JUGGERNAUT  1.2949 m
+  // Cobj 41's 989 (Conft's and Slim's 42 is the same payload, Joke's own
+  // Fortress 603). Was 1.33, sized for Cobj 57.
+  989 / 512, // FORTRESS    1.9316 m
+  // A type-8 (ring and plate) turret's gun, Cobj 20: 333; its base part 21 is
+  // 331. A neutral's is NEUTRAL_TURRET_RADIUS. Was 0.7.
+  333 / 512, // TURRET      0.6504 m
+  0.15, // PROJECTILE (no hit test reads it: a round's contact reach is its own)
+  0.56, // CONSOLE (Metropolis' outpost marker; the original's claim zone is no body)
+  // The Sky Captain at levels 0-2, Cobj 54's box 0: 671; SKY_RADIUS by level.
+  671 / 512, // WARDEN      1.3105 m
+];
+
+/**
+ * The hover's radius: the legs folded, frame 359 (the hover's held pose), 232,
+ * on every arena. The transform's frames between are not followed (sim.ts
+ * entityRadius).
+ */
+export const AVATAR_HOVER_RADIUS = 232 / 512;
+/**
+ * A neutral (type 36) turret's gun, Mp's Cobj 31: 463 (its base, 32: 401); Hk's
+ * second set 443, Joke's 482 (MapData.radii.neutral). Was 0.7.
+ */
+export const NEUTRAL_TURRET_RADIUS = 463 / 512;
+/**
+ * The Sky Captain's radius by level 0..9 (balance.ts wardenLevel): each band
+ * loads its own model, on Mp Cobj 54 (levels 0-2), 56 (3-5), 57 (6-8) and 58 (9),
+ * whose 3DBB box 0 is 671, 952, 994 and 1155 (their box 1 is a hit box the
+ * oriented test reads, not modelled); Hk's 812 / 1009 / 994, Joke's 903 to level
+ * 8 and 755 at 9 (MapData.radii.skyCaptain). Was 1.0 on every level.
+ */
+export const SKY_RADIUS: readonly number[] = [
+  671 / 512,
+  671 / 512,
+  671 / 512,
+  952 / 512,
+  952 / 512,
+  952 / 512,
+  994 / 512,
+  994 / 512,
+  994 / 512,
+  1155 / 512,
 ];
 
 // Max HP per archetype, indexed by ARCHETYPE value: the original's records
@@ -1472,8 +1937,8 @@ export const TARGET_PRIORITY_AVATAR = 5;
  *     7.62 m/s lead round flying 12 m; slews 290°/s (0.1687 rad a tick);
  *     ±22.5° firing arc; re-searches every 2.0 s; holds its target and prefers
  *     priority (bitfield 0x4246);
- *   1 Dreadnought hull gun: weapon 3, re-search 1.0 s, no arc (mounts not
- *     modelled), no hold;
+ *   1 Dreadnought hull gun: weapon 3, re-search 1.0 s, ±22.5° firing arc about
+ *     its own mount's yaw (the mounts since SIM_VERSION 77), no hold;
  *   2 tank and jet: weapon 1/6 — 50 dmg every 300 units (1.0 s), 12 m, re-search
  *     2.0 s;
  *   3 Flying Fortress: weapon 4 — guided 100 dmg every 150 units (0.5 s), flies
@@ -1509,7 +1974,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     flight: 12,
     guided: 0,
     lead: 1,
-    arcCos: -1,
+    arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 0,
     priority: 0,
   },
@@ -1584,6 +2049,40 @@ export const ORIGINAL_UNIT_PROFILES = {
 } as const;
 
 /**
+ * The Dreadnought's guns (fcop-fidelity.md I6): four mounts, gun i on its hull's
+ * attach point i (vertex 4DGI[0x30 + i], RE `mount.c` 526-546), each with its
+ * own yaw relative to the hull, its own shooter and its own target.
+ */
+export const DREADNOUGHT_GUNS = 4;
+/**
+ * A gun's turn: `((word_48 << 8) / 218) >> 4` = 9 angle units (4096 a turn) per
+ * 1/300 s, word_48 being 128 in every record (`mount.c` 1136): 237.3°/s, 90
+ * units a sim tick. The imported arenas carry it per Dreadnought
+ * (MapJuggernaut.gunTurn); this is the value for one that imports none.
+ */
+export const DREADNOUGHT_GUN_TURN = 9;
+/**
+ * Mp's Dreadnought (hull Cobj 36, guns 37 / 38; Conft, Slim, Hk and Ovmp carry
+ * the same points, Joke's hull 35 its own), for an arena that imports none: per
+ * gun the hull's attach point (x, y, z) and the gun model's point 0, its muzzle
+ * (mx, my, mz), in the glb frame of each model (metres, +z forward, y up, x
+ * negated from the Cobj; RE pa_models.json `guns[]`).
+ */
+export const DREADNOUGHT_MOUNTS: readonly {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly mx: number;
+  readonly my: number;
+  readonly mz: number;
+}[] = [
+  { x: -0.267578, y: 0.486328, z: 0.283203, mx: 0.001953, my: 0.042969, mz: 0.050781 },
+  { x: 0.257812, y: 0.486328, z: 0.283203, mx: 0.001953, my: 0.042969, mz: 0.050781 },
+  { x: -0.263672, y: 0.794922, z: -0.404297, mx: 0.001953, my: 0.042969, mz: 0.044922 },
+  { x: 0.253906, y: 0.794922, z: -0.404297, mx: 0.001953, my: 0.042969, mz: 0.044922 },
+];
+
+/**
  * The Dreadnought's hull guns: weapon 3 (above). Kept as names for the readers
  * that pin them; the arena generator builds every profile from WORLD_WEAPONS.
  */
@@ -1630,7 +2129,8 @@ export const ORIGINAL_PICKUP_HALF_L = (819 * 16) / 8192;
 export const ORIGINAL_PICKUP_HALF_H = (819 * 16) / 8192;
 export const ORIGINAL_PICKUP_LIFT = (81 * 16) / 8192;
 // A health pickup refills to the maximum (grant bit 0x20000 passes amount -1,
-// "fill": fcop-re/player-and-weapons.md §6). Was +100. No constant: it is AVATAR_HP.
+// "fill": fcop-re/player-and-weapons.md §6). Was +100. No constant: it is the
+// collector's AVATAR_HP_BY_DIFFICULTY row.
 /**
  * Invulnerability: block+0x326 = 0x1770 = 6000 engine units = 20 s
  * (player-and-weapons.md §6). Was 300 (10 s). No PA pickup carries the grant

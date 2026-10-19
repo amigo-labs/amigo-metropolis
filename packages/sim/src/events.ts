@@ -251,3 +251,18 @@ export function pushEvent(buf: EventBuffer, type: number, a: number, b: number, 
 export const EV_LIFT_START = 25; // a=lift index (map.lifts), b=the stop it heads for
 /** A lift reaches a stop: its arrival sound (71) plays at the lift. */
 export const EV_LIFT_ARRIVE = 26; // a=lift index (map.lifts), b=the stop it reached
+/**
+ * A mech goes down with the original's "does not count" marker set — HARD's
+ * deep water (fcop-fidelity.md P13): pushed just before its EV_DEATH, in the same
+ * tick. `player_op4` reads and clears block +0xde first, and with it set raises
+ * no wreck, no death effects and no wreck sound (0x00447650), and sets the short
+ * 0.5 s respawn. The client draws and plays nothing for that EV_DEATH.
+ */
+export const EV_SUNK = 27; // a=avatar id, b=player
+/**
+ * The Riot Shield's powered sphere strikes a body with a charged arc
+ * (`sustain_sphere_tick` 0x0044c8c1..0x0044c91f): a link of 32 segments, one
+ * strand, (0x7f, 0x7f, 0xff), from the arc's point on the sphere to the body.
+ * Pushed before the hurt's EV_HIT.
+ */
+export const EV_SHIELD_ARC = 28; // a=avatar id, b=struck entity id, c=player

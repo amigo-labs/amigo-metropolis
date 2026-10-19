@@ -6,7 +6,8 @@
 import { type MapData, resolveHeight } from "@metropolis/sim";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { teamRamp } from "./palette";
+import { sideRamp } from "./palette";
+import { sideOfTeam } from "./sides";
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number) {
   const g = new THREE.BoxGeometry(w, h, d);
@@ -71,10 +72,10 @@ export function buildBaseStructures(scene: THREE.Object3D, map: MapData): void {
       new THREE.MeshStandardMaterial({
         // Structures sit a shade darker than units — the ramp's dark tone,
         // with a faint team-colored glow so bases read at a distance.
-        color: new THREE.Color(teamRamp(team).dark),
+        color: new THREE.Color(sideRamp(sideOfTeam(map.id, team)).dark),
         metalness: 0.3,
         roughness: 0.55,
-        emissive: new THREE.Color(teamRamp(team).base),
+        emissive: new THREE.Color(sideRamp(sideOfTeam(map.id, team)).base),
         emissiveIntensity: 0.25,
       }),
     );

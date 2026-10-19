@@ -31,7 +31,6 @@
 import { ARCHETYPE, type Archetype, TEAM_NEUTRAL } from "./archetypes";
 import {
   ARCHETYPE_MAX_HP,
-  AVATAR_HP,
   MAX_PLAYERS,
   PROFILE_NEUTRAL_TURRET,
   PROFILE_TEAM_TURRET,
@@ -41,6 +40,8 @@ import {
 import { despawn, spawn } from "./entities";
 import { sampleHeight, worldExtent } from "./map";
 import {
+  avatarMaxHp,
+  forgetTurretTarget,
   MODE_HOVER,
   MODE_WALKER,
   type SimState,
@@ -51,7 +52,7 @@ import {
 } from "./sim";
 import { atan2Poly, cosLUT, sinLUT } from "./simMath";
 import { UNIT_MODE_PATROL } from "./units";
-import { type Loadout, normalizeLoadout, resolveLoadout } from "./weapons";
+import { difficultyAmmo, type Loadout, normalizeLoadout, resolveLoadout } from "./weapons";
 
 /** One entry per thing the sandbox panel can place. */
 export interface SandboxSpawnable {
@@ -255,7 +256,7 @@ export function spawnSandbox(
     def.archetype === ARCHETYPE.WARDEN
       ? Math.max(ground, state.map.waterLevel) + WARDEN_ALTITUDE
       : ground;
-  ent.hp[id] = maxHpFor(def.archetype);
+  ent.hp[id] = maxHpFor(state, def.archetype, t < 0 ? 0 : t);
   ent.ownerId[id] = t;
   ent.mode[id] = def.mode;
   // A turret is the original's (SIM_VERSION 52): the team turret's profile for a
@@ -272,12 +273,16 @@ export function spawnSandbox(
   ent.yaw[id] = yaw;
   ent.aimX[id] = cosLUT(yaw);
   ent.aimY[id] = sinLUT(yaw);
+  // A turret's gun turns back here once its target is gone (sim.ts shooterTurret).
+  if (def.archetype === ARCHETYPE.TURRET) ent.restYaw[id] = yaw;
   if (def.archetype === ARCHETYPE.AVATAR) {
     // A stand-in avatar should be able to take and return fire, so give it the
-    // kit capacity of the slot it nominally belongs to.
-    const kit = kitFor(state, t < 0 ? 0 : t);
-    ent.ammoA[id] = kit.heavy.ammo;
-    ent.ammoB[id] = kit.special.ammo;
+    // kit capacity of the slot it nominally belongs to, on that slot's difficulty.
+    const slot = t < 0 ? 0 : t;
+    const kit = kitFor(state, slot);
+    const d = state.difficulty[slot];
+    ent.ammoA[id] = difficultyAmmo(kit.heavy.ammo, d);
+    ent.ammoB[id] = difficultyAmmo(kit.special.ammo, d);
   }
   return id;
 }
@@ -295,6 +300,7 @@ export function despawnSandbox(state: SimState, id: number): boolean {
   if (!Number.isInteger(id) || id < 0 || id >= ent.cap) return false;
   if (!ent.alive[id]) return false;
   if (isBookkept(state, id)) return false;
+  forgetTurretTarget(ent, id);
   despawn(ent, id);
   return true;
 }
@@ -328,6 +334,7 @@ export function clearSandboxSpawns(state: SimState): number {
     if (!ent.alive[id]) continue;
     if (ent.archetype[id] === ARCHETYPE.PROJECTILE) continue;
     if (isBookkept(state, id)) continue;
+    forgetTurretTarget(ent, id);
     despawn(ent, id);
     n++;
   }
@@ -349,16 +356,17 @@ export function setSandboxLoadout(
   loadout: Partial<Loadout>,
 ): void {
   const p = clampPlayer(player);
-  const kit = normalizeLoadout(loadout);
+  const kit = normalizeLoadout(loadout, state.extraWeapons);
   state.loadoutGun[p] = kit.gun;
   state.loadoutHeavy[p] = kit.heavy;
   state.loadoutSpecial[p] = kit.special;
   const id = state.avatarId[p];
   if (id < 0 || !state.ent.alive[id]) return;
-  const resolved = resolveLoadout(kit);
-  state.gunAmmo[p] = resolved.gun.ammo;
-  state.ent.ammoA[id] = resolved.heavy.ammo;
-  state.ent.ammoB[id] = resolved.special.ammo;
+  const resolved = resolveLoadout(kit, state.extraWeapons);
+  const d = state.difficulty[p];
+  state.gunAmmo[p] = difficultyAmmo(resolved.gun.ammo, d);
+  state.ent.ammoA[id] = difficultyAmmo(resolved.heavy.ammo, d);
+  state.ent.ammoB[id] = difficultyAmmo(resolved.special.ammo, d);
   state.burstLeft[p * 3] = resolved.gun.a.rounds;
   state.burstLeft[p * 3 + 1] = resolved.heavy.a.rounds;
   state.burstLeft[p * 3 + 2] = resolved.special.a.rounds;
@@ -383,9 +391,10 @@ export function refillSandboxAmmo(state: SimState, player: number): void {
   const id = state.avatarId[p];
   if (id < 0 || !state.ent.alive[id]) return;
   const kit = kitFor(state, p);
-  state.gunAmmo[p] = kit.gun.ammo;
-  state.ent.ammoA[id] = kit.heavy.ammo;
-  state.ent.ammoB[id] = kit.special.ammo;
+  const d = state.difficulty[p];
+  state.gunAmmo[p] = difficultyAmmo(kit.gun.ammo, d);
+  state.ent.ammoA[id] = difficultyAmmo(kit.heavy.ammo, d);
+  state.ent.ammoB[id] = difficultyAmmo(kit.special.ammo, d);
 }
 
 /** Restores `player`'s avatar to full HP — the panel's invulnerable tick. */
@@ -393,20 +402,24 @@ export function reassertSandboxHp(state: SimState, player: number): void {
   const p = clampPlayer(player);
   const id = state.avatarId[p];
   if (id < 0 || !state.ent.alive[id]) return;
-  state.ent.hp[id] = maxHpFor(state.ent.archetype[id]);
+  state.ent.hp[id] = maxHpFor(state, state.ent.archetype[id], p);
 }
 
 function kitFor(state: SimState, player: number) {
-  return resolveLoadout({
-    gun: state.loadoutGun[player],
-    heavy: state.loadoutHeavy[player],
-    special: state.loadoutSpecial[player],
-  });
+  return resolveLoadout(
+    {
+      gun: state.loadoutGun[player],
+      heavy: state.loadoutHeavy[player],
+      special: state.loadoutSpecial[player],
+    },
+    state.extraWeapons,
+  );
 }
 
-function maxHpFor(archetype: number): number {
+/** Full health of `archetype`; an avatar's is its slot's on that slot's difficulty. */
+function maxHpFor(state: SimState, archetype: number, slot: number): number {
   if (archetype === ARCHETYPE.WARDEN) return SKY_RECORD_HP; // the record's, no level here
-  if (archetype === ARCHETYPE.AVATAR) return AVATAR_HP;
+  if (archetype === ARCHETYPE.AVATAR) return avatarMaxHp(state, slot);
   return ARCHETYPE_MAX_HP[archetype];
 }
 

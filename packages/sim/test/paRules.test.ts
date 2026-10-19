@@ -9,6 +9,7 @@ import { ARCHETYPE } from "../src/archetypes";
 import {
   ARCHETYPE_RADIUS,
   AVATAR_HP,
+  CFUN_DELTA_PER_TICK,
   COST_RUNNER,
   DREADNOUGHT_GUN_DAMAGE,
   MATCH_OUTRO_TICKS,
@@ -193,7 +194,7 @@ describe("the Juggernaut is the original Dreadnought", () => {
     expect(state.ent.weaponProfile[id]).toBe(j.weapon);
   });
 
-  it("fires a volley of four 100-damage shots, then waits the refire", () => {
+  it("fires four 100-damage rounds, one a gun, then waits the refire", () => {
     const state = createSim(map, 1);
     const ent = state.ent;
     const j = map.bases[0].juggernaut;
@@ -218,7 +219,8 @@ describe("the Juggernaut is the original Dreadnought", () => {
         if (type === EV_HIT && state.events.data[o + 1] === foe) damage += state.events.data[o + 3];
       }
     }
-    // One volley inside one refire window: four guns, 100 each.
+    // Inside one refire window each of the four guns fires once, as its own
+    // mount comes round onto the target (dreadnought.test.ts), 100 each.
     expect(shots).toBe(4);
     expect(damage).toBeGreaterThanOrEqual(4 * DREADNOUGHT_GUN_DAMAGE);
   });
@@ -667,7 +669,7 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     const q = 0 * UNIT_QUEUES + QUEUE_OUTPOST;
     expect(state.unitQueue[q]).toBe(1);
     let tank = -1;
-    for (let t = 0; t <= o.queueTicks[0].tank && tank < 0; t++) {
+    for (let t = 0; t <= o.queuePeriod[0].tank / CFUN_DELTA_PER_TICK && tank < 0; t++) {
       step(state, idle);
       for (let id = 0; id < state.ent.high; id++) {
         if (state.ent.alive[id] && ent.archetype[id] === ARCHETYPE.RUNNER && ent.team[id] === 0) {

@@ -1084,4 +1084,284 @@
 //     venice-beach (Ovmp) has any: 14 cells of code 4 in four patches beside its
 //     bases. The hover reads no mode. SimState.avatarMode, hashed on such an
 //     arena only.
-export const SIM_VERSION = 71;
+// v72: the original's per-player difficulty (fcop-fidelity.md P1, P2, P13, W1):
+//     SimOptions.difficulties, HARD / NORMAL / EASY per player (NORMAL by
+//     default; the Warden's slot has none). Health 1000 / 1250 / 1500
+//     (`player_construct`), the restore, the health pickup and the snapshot's
+//     maximum with it; the weapon tables carry the records' own magazines
+//     (HARD's) and every fill scales them, raw + raw >> 2 on NORMAL and
+//     raw + raw >> 1 on EASY (the stock, `cact_type99_ammo_cap`). On HARD a
+//     walker in deep water sinks instead of changing to hover: the +0xde
+//     marker, its invulnerability cleared, its buttons cut, its ground 0xc0 wu
+//     under it a step (0.879 m/s), and 1.75 m under the surface it takes its
+//     health + 1 credited to nobody (61 ticks after it reached the water); its
+//     down raises no wreck (EV_SUNK), gives the Sky Captain no credit and
+//     comes back after 0.5 s. The Warden's "badly hurt" test reads the mech's
+//     own maximum. The difficulties and the markers are hashed only in a match
+//     with a player off NORMAL, so every NORMAL replay's hash sequence is
+//     unchanged: the goldens are re-recorded for the header alone.
+// v73: urban-jungle's and proving-ground's ground and air consoles un-swapped
+//     (fcop-fidelity.md R17): the ground console stands on the shop trigger
+//     whose script queues a tank, the air console on the one whose script
+//     requests a jet (RE pa_rules.json `buy_triggers[].sells`), as the other
+//     four arenas already had it. The import had read the kiosk's Cobj id as if
+//     every mission numbered its Cobjs as Mp does; Conft's and Slim's 40 is Mp's
+//     39, the jet kiosk. Map data only: the console legs, their carved and
+//     reconnecting wall bits and the road entry nodes move with it.
+// v74: the jet's and the Flying Fortress's hit radius is the original's
+//     (fcop-fidelity.md G1): an actor's radius_68, the halfword at +12 of its
+//     model's 3DBB box << 4 wu (cact_model_block_init 0x00426e00, summed by
+//     cact_pair_test 0x00450190), Cobj 22's 537 = 1.0488 m and Cobj 41's 989 =
+//     1.9316 m; were 1.1 and 1.33 m, sized for the models drawn before them.
+//     Hit tests only (hitscan, contact, blasts, mines). No golden's hash
+//     sequence moves: the goldens are re-recorded for the header alone.
+// v75: the Sky Captain's credit for a player's down (fcop-fidelity.md U3) is
+//     taken at the down, not at the respawn, and only when the hit that put
+//     the mech down was the captain's own — its gun, or a missile or bomb it
+//     fired — as `player_op4` (0x004477ab..0x004477ea) bumps its tally and
+//     zeroes its rethink only when the remembered attacker, or the owner a
+//     round's id carries, is the captain. Its tanks', jets' and turrets' kills,
+//     a fall and the water no longer make it rethink; the points still change
+//     hands at the respawn. SimState.captainHit per player (set by every hit
+//     on a mech, cleared at the respawn) and the rounds' ROUND_CAPTAIN bit,
+//     hashed in a Warden match only. HARD's sinking marker is now consumed at
+//     every down (it was kept for a down nobody was credited for, to tell the
+//     respawn not to credit the captain).
+// v76: the results page's statistics in the sim (fcop-fidelity.md V7): the
+//     original's twenty player_stat keys per side (RE results.json stats[],
+//     player_stat.c 0x004480d0), as hashed state on every map —
+//     SimState.statHalves (the twelve halfwords: Created at a unit's spawn,
+//     Destroyed at its death for the side that lost it, Turrets Destroyed for
+//     the side that held a captured neutral, Turrets Claimed for the capturer,
+//     Walker Kills for the rival whose own craft put a mech down, Walker
+//     Deaths at every down), pointsScored (state word 31: every point earned),
+//     firstDeath / firstOutpost (frame-clock stamps) and formTime (the live
+//     mech's walker and hover time, 300 units a second). captainHit becomes
+//     rivalHit, set by the other X1's weapons too in a match without a Sky
+//     Captain, and is hashed on every map (ROUND_CAPTAIN / BLAST_CAPTAIN become
+//     ROUND_RIVAL / BLAST_RIVAL, also on an X1's rounds and mines). Nothing
+//     reads the figures in the tick: play is unchanged, every golden's hashes
+//     move from tick 0 for the new hashed state. writeResultsSnapshot exposes
+//     them (stats.ts).
+// v77: the Dreadnought's guns are the original's mounts (fcop-fidelity.md I6;
+//     RE mount.c 0x004258d0, discharge.c 949-977, pa_models.json guns[]): gun i
+//     stands on its hull's attach point i (MapJuggernaut.mounts, imported per
+//     arena: Joke's hull is its own), keeps its own yaw relative to the hull
+//     (SimState.gunYaw, 12-bit units) turning 9 units per 1/300 s (237.3°/s)
+//     toward its own target or home, runs its own shooter (rate clock, phase,
+//     target, re-search, searched from the mount) and fires one round from its
+//     muzzle only inside ±22.5° of its own yaw along a clear line. Was: four
+//     rounds at once from the hull's centre on the hull's one shooter, the hull
+//     turned at once to face its target. Hashed for live Juggernauts only;
+//     writeGunSnapshot exposes the yaws. No golden fields a Dreadnought: every
+//     hash sequence holds, the goldens are re-recorded for the header.
+// v78: every body's hit radius is the original's (fcop-fidelity.md G1, G7): an
+//     actor's radius_68, its own model's 3DBB box for the frame it holds, raw /
+//     512 m, per arena from its own mission's shipped Cobjs (gen:pamodels ->
+//     MapData.radii; ARCHETYPE_RADIUS keeps Mp's as the default). The mech 283
+//     (0.553 m, the legs at the walker's pose; was 0.4) and 232 in hover
+//     (0.453); the tank 483 (Hk 646, Joke 369; was 0.76); the jet 537 (Ovmp
+//     531, Joke 286) and the Fortress 989 (Joke 603), Mp's since v74 on every
+//     arena; the Dreadnought's hull 663 (Joke 757; was 1.1); a ring or plate
+//     turret's gun 333 (Joke 367; was 0.7), a neutral's 463 (Hk's second set
+//     443, Joke 482; was 0.7); the Sky Captain by its level's model, Mp 671 /
+//     952 / 994 / 1155, Hk 812 / 1009 / 994, Joke 903 / 755 (was 1.0). Set at
+//     each spawn into EntityStore.radius (not hashed: a function of the spawn);
+//     sim.ts entityRadius answers every hit, capture, zone, guard, trigger, gate
+//     and route-traffic test.
+// v79: team N is the original's player slot N on every arena (fcop-fidelity.md
+//     V6): enrichArena orders the two bases by their X1Alpha's slot (slot 0 is
+//     X1Alpha 12, side 1, the single-player human's), no longer along the field
+//     axis. Only La Cantina (Mp) changes: its teams trade bases, spawns, base
+//     plots, consoles, queues, gates, trigger volumes and outpost pads, so the
+//     solo human now starts at side 1's base as in the original, and the Sky
+//     Captain holds slot 1's (its tank queue fn19, 203 units, 102 ticks: the one
+//     the original feeds the captain; was fn18's 101). The committed polyline
+//     route is now the other team's road (20 waypoints, was 18; unused beside
+//     the lane graph), and two wall bits the reachability repair opens for a ring
+//     turret move one cell each (it floods from spawn 0). Goldens 03 and 07 (La
+//     Cantina) re-record with new hashes; the others re-header only.
+// v80: the heavy zones' poll and the base terminals are the original's
+//     (fcop-fidelity.md R10, G2; RE cfun/load.c 0x00436b10 / 0x00436be0,
+//     extracted/data/<Mission>/fun_code.txt fn30 / fn31). fn30 / fn31's
+//     countdown is cfun_tick's: in engine ticks (MapBase.heavyZones.pollPeriod,
+//     the function's time units × 5: Mp 1500 / 1525, Joke and Slim 750 / 765;
+//     was pollTicks, rounded to sim ticks, 150 / 153 and 75 / 77), drawn at
+//     createSim as `(u32)rand % period` (simMath randU32: the same one mulberry32
+//     step randInt took), less CFUN_DELTA_PER_TICK (10) a tick, so an odd
+//     period polls 152 and 153 ticks apart as the original's 30 fps frames do.
+//     The run that opens the zones also requests the base's two terminals
+//     (MapBase.heavyZones.terminals, the Csac templates of the Dreadnought's and
+//     the Fortress's type-11 terminals), which the next tick's spawner pass
+//     builds: SimState.heavyTerminals (presentation only, not hashed),
+//     MATCH_SLOT_TERMINALS (slot stride 12 -> 13). The client stood them from
+//     tick 0. Every PA golden's hashes move from tick 0 for the countdown's new
+//     units; no golden's side reaches 50 points, so none plays differently.
+// v81: the Sky Captain's death credits the player's Walker Kills
+//     (fcop-fidelity.md V7; RE aircraft.c 0x00420e1c..0x00420e57, the
+//     commander's death bookkeeping): when the hit that brought it down was
+//     the X1's own craft — its weapons, or a round or mine it fired — team slot
+//     0's block +0x14 rises. SimState.rivalHit's captain slot now holds the
+//     same for the hits on the captain as a mech's does for the hits on it
+//     (set by every hit, cleared at the respawn; hashed as before). Until now
+//     the player's own Walker Kills stayed 0 in a solo match. Goldens 04 and 07
+//     (the captain's) re-record: the X1 hits the captain and never brings it
+//     down there, so neither plays differently (07's last hash holds).
+// v82: the results page's stamps read the frame clock as the original's frame
+//     does (fcop-fidelity.md V7; RE mission_frame_loop 0x00406826..0x00406858
+//     zeroes DAT_00511ee4 before the first pass, frame_step writes it at the
+//     top of each frame, 0x00406a56): tick n's First Death and First Outpost
+//     stamp n frame deltas (stats.ts statClock), the first tick 0 — was n + 1,
+//     the clock taken at the tick's end. A stamp of 0 reads as none, as
+//     `if (block->stamp == 0)` does. Goldens 03, 04 and 07 (a down or an
+//     outpost in each) move at their first stamp; nothing in the tick reads
+//     the stamps, so none plays differently.
+// v83: the X1's jumps leave the ground as the original's do, off one walker
+//     state machine in the sim (fcop-fidelity.md G11, P4; RE player_walk.c
+//     171-744, block.c 133-363, player.c 1394-1500, 1971-1978): walker.ts runs
+//     `player_walk_tick`'s state byte, flags byte, last-asked track, idle count
+//     and lunge countdown and the legs' AnmD block (track, frame, clock,
+//     direction, target, STARTED) per player, integer, one step per 8 units of
+//     the 300 Hz clock (the eighths' carry: 1, 1, 1, 2 steps a tick). The
+//     command becomes the state unless the playing leg track holds it (HOLD);
+//     the state's arm drives the movement: its push (so a wind-up, a landing
+//     or a leap's HOLD track keeps the walker still, and another move first
+//     finishes the step), its stop test and its turn (0x20 less speed * 0x20
+//     >> 9, the integer speed word). The high jump winds up in state 0x0a on
+//     legs track 4 and the hop in 0x0f on 0x11 until the track reaching one
+//     with LAUNCH (0x1b, 0x3a) moves them to 0x0b / 0x10, whose arms lift
+//     (12 / 6 ticks after the press); the leap only from the run (state 3),
+//     its legs on 0x36 / 0x37 at the press and its lift the step after; the
+//     lunge on the lunge countdown's 1. Jump is a level: held, the walker
+//     jumps again. A take-off in a tick's second step goes into the velocity
+//     the next tick integrates. The reset's flags (no control until the first
+//     step lands) and the hover's shared bytes (its command state, its landing)
+//     are the original's; the transform's ramp steps both AnmD blocks in the
+//     sim. Was: the jump launched on the press, edge-triggered, leapt whenever
+//     forward was held, and the client ran its own copy of the animation off
+//     the snapshot. New hashed per-player state (SimState.walker); the lunge
+//     tick countdown (avatarLunge) is gone. writeAvatarSnapshot exposes the
+//     machine (stride 9 -> 41). Every golden's hashes move from tick 0.
+// v84: the spawn queues (fcop-fidelity.md R18) and Hk's spawn guards' reset
+//     polls (P11) run on the original's scheduler, as v80 put the heavy-zone
+//     poll (RE cfun/load.c 0x00436b10 / 0x00436be0; extracted/data/<Mission>/
+//     fun.json fn07..fn21, fn45 / fn46: positive time units, repeat -1): each
+//     countdown is cfun_tick's, in engine ticks (MapBase / MapOutpost
+//     queuePeriod, MapSpawnGuard.resetPeriod: the function's time units × 5,
+//     e.g. Mp's base tanks 1010 / 1015, its captain's jets 290, Hk's guard
+//     resets 300; was queueTicks / resetTicks, rounded to sim ticks, 101 / 102,
+//     29 and 30), drawn at createSim as `(u32)rand % period` (randU32, the
+//     same one mulberry32 step randInt took), less CFUN_DELTA_PER_TICK (10) a
+//     tick, so a period of 1015 polls 101 and 102 ticks apart.
+//     ORIGINAL_TANK_QUEUE_TICKS / ORIGINAL_JET_QUEUE_TICKS become
+//     ORIGINAL_TANK_QUEUE_PERIOD 1010 / ORIGINAL_JET_QUEUE_PERIOD 290. Every
+//     golden's hashes move from tick 0 for the countdowns' new units; the
+//     queues' phases and periods move, so every golden that buys a tank or
+//     fields the captain plays differently.
+// v85: Joke's Dreadnought fires from the gun mounts of the frame its hull
+//     shows (fcop-fidelity.md I6, G8; RE mount.c 1019-1030 op 6, type5.c
+//     469-472, pa_models.json guns[].hull_point.by_frame): the hull's walk is
+//     in the sim. Its model's one AnmD track (MapJuggernaut.walk, gen:pamodels
+//     -> <mission>-models.json -> gen:arena; Joke's hull 35: frames 0-19, mode
+//     2, a loop, period 775) runs per Juggernaut on the walker's AnmD player
+//     (SimState.hullWalk): cact_anim_init at the spawn, then each tick, before
+//     the move, a step of velocity_84 * dt -- the speed word the last move
+//     left, world units per engine tick (54 at the top speed), times the frame
+//     delta (10) -- so a frame per 775 world units travelled. Each gun stands
+//     on, and fires from, its attach point in that frame (MapGunMount.frames,
+//     20 a gun). Was frame 0's mount on every tick. Hashed for live
+//     Juggernauts on a walking hull only; the gun snapshot carries the frame
+//     (stride 4 -> 5, GUN_SNAP_HULL_FRAME), which the client's hull morph and
+//     guns now read instead of tracking the hull's distance themselves. Only
+//     bug-hunt's hull walks and no golden fields a Dreadnought there: every
+//     golden's hashes hold, re-recorded for the header.
+// v86: a turret gun's rest yaw is its record angle (fcop-fidelity.md G12, W3;
+//     RE turret.c 879-883, `turret_construct` 0x0041c222: `rest_yaw` and `yaw`
+//     the record's +0x34 halfword unchanged, its matrix My(a)). The record
+//     angle a carries the model's +z to sim yaw a, as the X1's spawn facing and
+//     every other record angle do (render/recordYaw.ts). gen:arena read the gun
+//     through FC:MIT's -1024 bias, pi/2 - a (tools/generators/fcopLogic.ts
+//     rotToYaw), for MapBase.turrets[].yaw, MapData.turretYaw and the outposts'
+//     plate turrets: 62 of Mp's 64 turrets stood at another yaw (all but those
+//     at a = pi/4 mod pi). rotToYaw is now a, in (-PI, PI]; the six maps are
+//     regenerated. A turret's yaw is where its gun points until it acquires a
+//     target; nothing else moves. Every golden on a PA arena (02, 03, 04, 05,
+//     07) moves from tick 0 for the turrets' yaws; 01 and 06 re-header only.
+// v87: a turret gun whose target is gone turns back to its rest yaw
+//     (fcop-fidelity.md G12, W3; RE turret.c 1157-1175, `turret_tick`
+//     0x0041c680): with its shooter's target null or its serial changed the yaw
+//     wanted is `rest_yaw`, turned at the rate it aims by (`turret_turn`, at most
+//     turn_rate * dt, never past it: 110 units, 0.1687 rad, a tick). The rest
+//     yaw is the yaw a turret is built at (EntityStore.restYaw, a side array set
+//     at the spawn like radius, not hashed). The gun kept the yaw it last aimed
+//     at. A death is the serial's change: systemDamageDeath clears every
+//     turret's target naming the dead id (forgetTurretTarget), so from the next
+//     tick no gun aims at whatever takes the id; it was dropped by the next due
+//     round only, and the gun meanwhile followed the id's new holder (a round,
+//     as a rule). No PA record sets the 3/16-turn hold (record flag 0x20,
+//     TURRET_DF_ARC) and every one aims by its shooter's target (flag 0x01): all
+//     376 type-8/36 records carry flag byte 0x07. 03 and 04 move at the first
+//     down of a turret's target (a tank: its target forgotten, cooldownC
+//     hashed), 07 at its first gun turning back (tick 812); 01, 02, 05 and 06
+//     hold.
+// v88: Joke's Dreadnought is hit at the radius of the frame its hull's walk
+//     shows (fcop-fidelity.md I6; RE type5.c 137-145 and 469-480,
+//     `type5_model_select` after each `cact_anim_step`: `cact_model_select`
+//     0x004297e0 re-reads the hull's 3DBB box for the frame into radius_68,
+//     which `cact_pair_test` 0x00450190 and every zone and gate test add). Cobj
+//     35's radius runs 757 at frame 0 down to 548 at frame 9 (raw / 512 m:
+//     1.479 -> 1.070 m); gen:pamodels reads the 20 out of the shipped Cobj
+//     (<mission>-models.json radii.dreadnoughtByFrame), gen:arena carries them
+//     (MapRadii.dreadnoughtByFrame, empty on a static hull) and entityRadius
+//     answers the walk's frame. Was frame 0's 757 on every frame. Only
+//     bug-hunt's hull walks and no golden fields a Dreadnought there: every
+//     golden's hashes hold, re-recorded for the header.
+// v89: the bases' floors and the lifts' tagged tops hurt a mech by its own
+//     movement steps (fcop-fidelity.md P11, P4; RE player.c 1971-1978: the
+//     floor check runs in each step, one per 8 units of the clock over the
+//     mech's own carry, byte_b6). systemFloors counted the tick's steps from
+//     the tick number (floor((t + 1) * 1.25) - floor(t * 1.25)); it reads the
+//     walker's count now (WalkerState.steps, walkerEighths' answer, transient).
+//     The two part where a mech's carry is out of phase with the tick: a down
+//     stops its steps until it is back, 119 ticks, so its carry returns three
+//     ticks behind the tick's and a respawned mech on the enemy's floor took
+//     its 2 on the wrong tick.
+//     No golden stands a respawned mech on an enemy floor: every golden's
+//     hashes hold, re-recorded for the header.
+// v90: the original's five weapons Precinct Assault never offers, each behind
+//     its own bit of the "Spielregeln" switch (the owner's decision;
+//     fcop-fidelity.md W5): SimOptions.extraWeapons (weapons.ts EXTRA_WEAPON_*,
+//     0 by default, the original's PA), the host's online and the preferences'
+//     solo. Appended to their slots so every index holds: Riot Shield (Gun 4),
+//     K-9 Drone and Fusion Torpedo (Heavy 3, 4), Grenade Launcher and Plasma
+//     Flare (Special 3, 4), on their records (WEAPON_RECORDS 0x05, 0x15, 0x14,
+//     0x24, 0x21; fcop-re/player-weapons.json). Each runs the original's code
+//     for its kind (RE src/game/actor/): the Riot Shield the sustained sphere
+//     (sustain_sphere.c: the trigger's toggle with its 0x3c hold, the radius
+//     spring, the front half in block A and the whole sphere with its twelve
+//     arcs in B, the hurt every tick and the spend every round gap); the K-9
+//     Drone and the Fusion Torpedo the guided ordnance actor (missile.c: the
+//     launch at an eighth, the fuse's halving, the quarter-step homing, AVOID's
+//     bias, the drone's ground clearance and doubled health, re-acquiring after
+//     a hit; the torpedo's blast cut by the distance flown); the Grenade
+//     Launcher the bouncing round (type15.c, round_spawn.c: the random fuse,
+//     5/8 and 7/8 per bounce, rest below 0x1800, collision); the Plasma Flare
+//     the Mortar's arced shell; both kept for the second press. normalizeLoadout
+//     refuses a weapon whose bit is clear (onto the slot's last PA weapon, where
+//     an out-of-range index always landed). New state — the kept rounds, the
+//     spheres, the guided rounds' launch points — is hashed only in a match that
+//     offers one; the replay header (format 5) carries the byte and the
+//     loadouts. Nothing runs without the bits: every golden's hashes hold,
+//     re-recorded for the header.
+// v91: a kill by a round's contact alone credits nobody (fcop-fidelity.md V7;
+//     RE M3-OK: +0x8c is the last below-zero hit's credit — a blast its
+//     owner's serial (base.c 0x0041a707), a damage message its source's
+//     (0x0041a800), a contact the other actor's own (0x0041a811), a round's,
+//     which no longer resolves once the round has died; aircraft.c
+//     0x00420e1c..0x00420e57, player.c 0x004477ab..0x00447821). A round with no
+//     blast that strikes a body (explode's struck path) and the guided round's
+//     contact (the K-9 Drone's and the Fusion Torpedo's hit) now leave
+//     SimState.rivalHit 0, so neither the Sky Captain's death nor a mech's
+//     down credits the shooter's Walker Kills, or the captain's tally, for
+//     them; blasts and direct weapons credit as before.
+export const SIM_VERSION = 91;

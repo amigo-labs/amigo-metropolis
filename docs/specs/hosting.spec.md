@@ -80,7 +80,9 @@ over a WebRTC DataChannel, relayed through TURN. The DOs see only the handshake.
   ```
   Unreliable/unordered (UDP-like, no head-of-line blocking). A second,
   reliable/ordered `"control"` channel carries the low-rate control plane
-  (hello/start, periodic state hashes, desync notice).
+  (hello, the networked lobby's messages and the host's START with the agreed
+  config — `netcode.spec` §4 —, periodic state hashes, desync notice). The
+  lobby DO refuses a create / join from another protocol before signaling.
 - **Input redundancy:** every packet carries the last `k` ticks of input
   (small, ~60 B). A lost packet is covered by the next one → effectively
   guaranteed delivery without reliable-mode latency. Fits lockstep (every tick

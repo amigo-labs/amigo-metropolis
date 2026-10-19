@@ -1,317 +1,154 @@
 # SPEC — Camera System (amigo-metropolis)
 
 > Target repo: `amigo-metropolis` · Location: `docs/specs/camera.spec.md`
-> Status: v1 — core rig shipped; §11 Go-Gate resolved, free-look UX + occlusion deferred to v2
-> Related: `rules`, `architecture`, `input` (owns aim + camera-relative movement)
+> Status: v2 — the original's seven chase cameras and the Camera Key (PLAN.md
+> Phase 14, wave 6; ledger `fcop-fidelity.md` V1)
+> Related: `rules`, `architecture`, `input` (owns the button word), `ui` (the caption)
 
 ---
 
-## 1. Goal & guiding idea
+## 1. Goal
 
-A modern, readable camera for a Precinct-Assault successor. The reference is the
-**vertical view change** of *Future Cop: L.A.P.D.* (there a `SELECT` cycle over
-fixed presets: standard → close-up → side → sky).
+The camera is Future Cop: L.A.P.D.'s Precinct Assault chase camera, number for
+number. The RE reads it out of `view_player_camera_tick` (0x004456a0) and its
+helpers in `src/game/frame/view_place.c`; `extracted/presentation/camera.json`
+carries every table and rule with its source line, and
+`bun run gen:presentation` copies the tables into
+`packages/client/src/render/fcopPresentation.generated.ts`. The rules live in
+`packages/client/src/render/camera.ts`.
 
-Design translation (**revised** — see the note below):
-- **Keep:** one fixed chase framing behind the X1, at a constant elevation. That
-  IS the Precinct Assault camera, and it is what makes the arena legible at a
-  glance: the same angle every time you look up.
-- **Keep:** the camera sitting behind the machine and turning with it. Steering
-  and looking are the same act in the original, and separating them turned out
-  to cost more than it bought.
-- **Discard (until wave 6):** the Camera Key's cycle over the original's seven
-  presets (Standard, Close-Up, their Side views, Sky, Crowd Control and its
-  Side; RE `view_place.c`). One angle for now; the presets come back with the
-  presentation wave (PLAN.md Phase 14), which also owns this framing.
-- **Discard:** player-controlled zoom and elevation. There is nothing to tune
-  per moment; the framing is authored once.
-
-> **Revision note.** Until this rewrite the section above said the opposite: it
-> called the movement-coupled camera "the PS1 compromise and the main weakness"
-> and specified a *stepless pitch-and-zoom rig* with world-fixed yaw. That rig
-> shipped and worked. It was reversed by an explicit owner decision in favour of
-> the original's feel, not because it failed. The rig's plumbing is still in
-> `render/camera.ts` — the `t` continuum, the damping, the free-look gate — with
-> both view anchors collapsed onto one, so restoring the old behaviour is a data
-> change rather than a rewrite. Kept as history because "why is `t` still here"
-> is otherwise a fair question.
-
----
+> **Revision note.** v1 shipped one invented framing — 26° pitch, a 6 m dolly,
+> a 58° FOV — under exponential damping with velocity look-ahead and a dead
+> zone, on the plumbing of an earlier stepless pitch-and-zoom rig (`t`, two
+> anchors, free-look pan). The owner's rule of 2026-10-13 (only the original
+> counts) retired all of it: none of those numbers or behaviours is the
+> original's.
 
 ## 2. Architectural principle (non-negotiable)
 
 **The camera is 100 % client-local render state.**
 
-- [x] Not part of the simulation. The camera never reads from the sim state and
-      never writes into it. (`render/camera.ts` imports neither `@metropolis/sim`
-      nor three; it reads only the interpolated `avatarPoses`.)
-- [x] Not in lockstep. Camera state is **never** serialized, **never** sent over
-      the Durable-Object relay, **never** included in snapshots/inputs.
-- [x] Determinism-neutral: two clients with completely different camera state
-      (zoom, pan, pitch) must produce a **byte-identical** simulation. The camera
-      touches no RNG, no tick, no ordering. (Golden replays still pass; the rig
-      feeds nothing back into the sim.)
-- [x] No camera-driven gameplay: no visibility/fog, no aim-assist, no hit logic
-      that depends on the camera angle. Everything is sim-authoritative.
+- Not part of the simulation: it never reads the sim and never writes into it.
+  It reads the interpolated avatar pose (`main.ts` `avatarPoses`) and the
+  arena's static heightfield (`render/cameraTrace.ts`), nothing else.
+- Not in lockstep: never serialized, never sent, never in a snapshot or input.
+  The Camera Key's bit (`BTN_CAMERA`, `inputs.ts`) is cut before the sim sees
+  the word, exactly as the Map Key's.
+- Determinism-neutral: two clients on different cameras produce byte-identical
+  simulations; the golden replays pass unchanged.
+- No camera-driven gameplay.
 
-### Sim/render cadence
-- Simulation: fixed **30 Hz tick** (lockstep).
-- Render: `requestAnimationFrame`, variable `dt`.
-- The camera follows the **interpolated** render transform of the target unit
-  (alpha blend between the two most recent sim snapshots) — **never** the raw
-  sim position (otherwise 30 Hz stutter).
-- The camera update runs per render frame with real `dt`. All damping is
-  **framerate-stable** (exponential/spring with `dt`, not a fixed lerp per frame).
+### Time
 
----
+The engine runs the camera once a frame with `dt` = the frame's 300 Hz ticks (at
+least 8, at most 60) and `half_dt` = `(dt + carry) >> 1`. Metropolis runs it once a
+render frame with the frame's real ticks (`dtSec × 300`, capped at 60), every
+rule written as its continuous equivalent: the 1/32 turn per half tick composes
+to `(31/32)^(ticks/2)` however the time is cut, and the rate caps, the retract,
+the offset walk and the sink are linear in ticks. The subject is the
+interpolated avatar, so 30 Hz sim steps never show.
 
-## 3. Camera model
+## 3. The seven cameras
 
-Orbit-follow rig around a focus point (`focus`), rendered via a
-`THREE.PerspectiveCamera`.
+The Camera Key (binding slot 9, default Tab) steps `camera_name` by one on a
+fresh press; 7 wraps to 0. Each name is a camera entry: a flag word and a row of
+presets (the primary, then the fallbacks).
 
-Derivable parameters:
+| # | Name | Flags | Presets | Pitch | Plane (wu) | Offset (wu) |
+|---|---|---|---|---|---|---|
+| 0 | Standard Camera | occlude | 0; 1, 2 | 330 (29.0°) | 55296 | (0, 16384, 0) |
+| 1 | Close-Up Camera | close, occlude | 0; 1, 2 | 330 | 55296 | × 0.5 at the retract cap |
+| 2 | Standard Side Camera | side, occlude | 0; 1, 2 | 330 | 55296 | (0, 16384, 0) |
+| 3 | Close-Up Side Camera | close, side, occlude | 0; 1, 2 | 330 | 55296 | × 0.5 |
+| 4 | Sky Camera | occlude | 5; 2 | 430 (37.8°) | 95344 | (0, 20480, 0) |
+| 5 | Crowd Control Camera | closer | 18 | 255 (22.4°) | 36864 | (0, 22528, 0) × 0.414 |
+| 6 | Crowd Control Side Camera | closer, side | 18 | 255 | 36864 | × 0.414 |
 
-| Parameter | Meaning |
-| --- | --- |
-| `focus: Vec3` | Target point on the ground (interpolated unit position + `focusHeight`) |
-| `t: number ∈ [0,1]` | View continuum. **Inert**: both anchors carry the same values, so nothing it feeds can move |
-| `pitch` | **fixed** (26° above the horizon) |
-| `distance` | **fixed** (6 m dolly) |
-| `fov` | **fixed** (58°) |
-| `yaw` | azimuth; **follows the hull's heading** (`CameraInput.yawAbsolute`) |
-| `lookAhead: Vec3` | focus offset toward movement/aim |
+- **Side**: the base yaw is the fixed world yaw −0x400 (looking along map −y),
+  whatever the mech faces; otherwise it is the hull's facing.
+- **Close / closer**: the retract grows a unit a tick to 0x100 (close) or
+  0x12c (closer), else shrinks to 0. It scales the offset by
+  `(256 − retract/2)/256` and pulls the eye `retract × 128` wu along the view axis.
+- **Crowd Control** holds only inside a type-95 trigger with the volume bit;
+  anywhere else the name drops to 0 in the same frame, so the caption reads
+  "Standard Camera". No Precinct Assault arena has such a trigger
+  (camera.json `pa_volume_triggers`), so in Metropolis the key cycles
+  Standard → Close-Up → Standard Side → Close-Up Side → Sky → Standard. Both
+  Crowd Control cameras are defined and tested; they are unreachable by design.
+- **Caption**: a press (and the view's construct) shows the camera's name for
+  900 ticks (3 s), pen at text (2, 60) = (4, 120) at 640 × 480, font 3, text
+  colour 8 (`render/hud/caption.ts`). A press while the view is paused (the map
+  screen) does nothing.
 
-`t` is the player's only "view" control — the stepless replacement for the
-`SELECT` cycle. `pitch`, `distance`, `fov` are pulled together from `t` via
-easing (one control, coherent framing).
+## 4. A frame (`stepChaseCamera`)
 
-### Yaw policy
-- **Default: locked behind the avatar.** The hull turns by its turn buttons
-  (`input.spec` §4) and the camera follows its interpolated heading, taken
-  absolutely via `CameraInput.yawAbsolute` (main.ts, the avatar pose's yaw)
-  rather than integrating a delta, so the two cannot drift apart. The rig
-  starts at the spawn record's facing.
-- Damping runs through the **shortest arc**. Yaw wraps at ±π and lerping the raw
-  numbers spins the camera the long way round every time the player crosses the
-  seam.
-- `yawDelta` still integrates when no absolute heading is supplied. That is the
-  path a rotate key would use; nothing binds one today.
+1. **Sink**: the transform's progress, 0 walker … 0x10000 hover, ramped 160 a
+   tick toward the form being entered; it lowers the aim point by `sink·21/256`
+   (5376 wu on the hover).
+2. **Height follower** (`view_track_height`): a cubic spring on the subject's
+   height — `accel = Δ³ / 2^26`, the rate cleared when its sign disagrees,
+   `rate += accel · half_dt`, a step of `(rate >> 14) · dt`, dropped under 256 wu
+   a frame (held here as under 32 wu a tick, the engine's 8-tick frame), never
+   past the gap. Small bumps are ignored; a storey is followed.
+3. **Retract** and **caption** as above.
+4. **Occlusion** (entries with the occlude bit): the live preset's eye is traced
+   from the mech to the eye (`view_trace`: an anchor below 4 m pulls a higher
+   eye toward it by midpoints first, then a terrain segment test with floors).
+   Blocked, or a fallback live, for more than 120 ticks: a live fallback retries
+   the primary first; otherwise the next fallback is probed (past the row's end,
+   back to the first fallback) and goes live if clear. Metropolis traces the
+   map's heightfield and decks (`render/cameraTrace.ts`) from 0.5 m above the
+   feet; the original's see-through material bit has no counterpart.
+5. **Turn**: yaw toward base + the preset's yaw delta, pitch toward the preset's
+   pitch, each `half_dt` steps of `(31·from + to)/32` the short way round, with
+   the original's linear unit-a-step guarantee for small gaps; pitch capped at 2
+   units a tick, yaw at 4. Time constant 63 ticks (0.21 s).
+6. **Offset walk**: the smoothed offset moves 80 wu a tick toward the preset's.
+7. **Place** (`view_chase_position`): the plane is `pitch_curve(turned pitch)` plus
+   **half** the subject's (followed) height; the eye stands on it, pulled back
+   from the aim point (the offset turned by the base yaw) along the turned yaw by
+   `|cot(pitch)| × (plane − aim height)`, then pulled in by the retract.
+   For a walker at height 0 this gives the converged eyes camera.json lists
+   (Standard: 6.75 m up, 8.57 m behind; Close-Up 4.81 / 6.87; Sky 11.64 / 11.78).
 
----
+8. **Shake** (`render/cameraShake.ts`, ledger V1): while the view's second damage
+   meter (`meter_2`) is non-zero, the eye moves along the camera's up and then its
+   right row by `((rand & (span − 1)) − span/2) << 3` world units, `span` the top
+   bit of min(meter, 0xff), and the frame's ticks are spent from the meter. A hit
+   adds a quarter of its share (`amount·5 << 10 / max` plus the first meter,
+   clamped to 0x200, halved in Precinct Assault), an effect with +0x32 bit 4 or 13
+   a quarter of 300 or 1000 within 16 m; nothing once the meter is above 0xff.
 
-## 4. Behavior
+Not modelled: the transform's random shoulder camera
+(word 23 is 1 in Precinct Assault, so it never fires), the locker's forced
+preset 17 (no type-32 locker in a PA arena), the demo anchor.
 
-### 4.1 Follow & damping
-- `focus` follows the interpolated unit point via a **critically damped spring**
-  (or exponential smoothing), `dt`-based.
-- `t`, `yaw` are likewise damped toward their target values (`tTarget`,
-  `yawTarget`).
-- Small **deadzone** around `focus` to avoid micro-jitter while standing still.
+## 5. Projection
 
-### 4.2 Look-ahead
-- Offset of the focus toward the unit velocity (from two interpolated positions)
-  and/or aim direction, scaled up to `lookAheadMax` at top speed. Gives the
-  player more visibility in the direction of travel.
+The original projects in software with a focal of 1024 px at 640 × 480:
+34.708° × 26.381° (tan = 5/16 × 15/64). Metropolis keeps the **vertical** field
+of view, 26.381°, on every aspect ratio (three's `fov` is vertical): a 4:3
+window sees exactly the original's frame, a wider one sees more to the sides,
+never less height.
 
-### 4.3 Transform awareness (walker vs pursuit)
-- Additive **bias** on `tTarget`, not an override:
-  - **Pursuit/Hover (fast):** slightly toward TACTICAL + more look-ahead
-    (speed framing).
-  - **Walker (precise):** slightly toward ACTION (nearer, for melee accuracy).
-- Player input on `t` always wins against the bias (the bias only shifts the
-  resting point).
+## 6. The debug cameras
 
-### 4.4 Tactical free-look (MOBA)
-- In the upper `t` range (`t ≥ tFreeLookThreshold`): the focus may be
-  **decoupled from the unit** — RTS-style edge-pan / drag / keys, to survey
-  lanes, towers and bases (purchases, deploys).
-- A **recenter** key snaps `focus` back onto the unit (damped).
-- Below the threshold the focus stays hard on the unit.
+`?cam=fly` (the free-fly camera, `render/flyCamera.ts`) and `?cam=orbit` stay:
+they are debug tools (PLAN.md Phase 14's platform exceptions). Neither has a
+caption.
 
----
+## 7. Test / DoD
 
-## 5. Input coupling
-
-The camera provides the input/movement layer only a **read-only basis** (yaw
-frame). It does not drive any unit movement itself.
-
-- **Movement = hull-relative:** the original's buttons push along and across
-  the hull's facing (`input.spec` §4); the camera plays no part in what they
-  mean.
-- **Aim = facing.** The gun points where the hull points, or at the lock. There
-  is no mouse and no pitch channel, in the camera or in the sim.
-- Boundary: the camera follows the hull; aim and movement belong to input + sim,
-  not to this spec.
-
----
-
-## 6. Data types (contract)
-
-```ts
-// docs/specs/camera — reference types (render layer, NOT in the sim module)
-export type Vec3 = { x: number; y: number; z: number };
-
-/** Anchor of one view end; ACTION = t0, TACTICAL = t1. */
-export interface ViewAnchor {
-  readonly pitchDeg: number;   // elevation above horizon
-  readonly distance: number;   // world meters dolly
-  readonly fovDeg: number;
-}
-
-export interface CameraRigConfig {
-  readonly action: ViewAnchor;        // t = 0
-  readonly tactical: ViewAnchor;      // t = 1
-  readonly focusHeight: number;       // raise of the focus above ground
-  readonly yawLocked: boolean;        // default true (north-up)
-  readonly followSmoothTime: number;  // s, spring time constant for focus
-  readonly paramSmoothTime: number;   // s, for t/pitch/distance/fov
-  readonly yawSmoothTime: number;     // s
-  readonly lookAheadMax: number;      // world meters at top speed
-  readonly tFreeLookThreshold: number;// edge-pan allowed from here up
-  readonly transformBias: number;     // +/- on tTarget per mode
-  readonly deadzone: number;          // world meters
-}
-
-export interface CameraState {
-  readonly focus: Vec3;      // damped focus (world)
-  readonly t: number;        // current view value [0,1]
-  readonly yaw: number;      // rad
-  readonly panOffset: Vec3;  // free-look offset from the unit (tactical only)
-}
-
-export interface CameraInput {
-  readonly zoomDelta: number;    // wheel/pinch → shifts tTarget
-  readonly yawDelta: number;     // optional, only when !yawLocked
-  readonly panDelta: Vec3;       // edge/drag (tactical only)
-  readonly recenter: boolean;    // snaps panOffset → 0
-  readonly snapPreset: number | null; // optional tTarget snap
-}
-
-/**
- * Per render frame. Reads INTERPOLATED target values (render layer),
- * never raw sim state. No effect on simulation/determinism.
- */
-export function updateCamera(
-  prev: CameraState,
-  input: CameraInput,
-  followTargetInterpolated: Vec3,
-  followVelocity: Vec3,
-  isPursuitMode: boolean,
-  cfg: CameraRigConfig,
-  dt: number,
-): CameraState;
-```
-
-The rig output (camera position/rotation) is computed deterministically from
-`CameraState` + `cfg` for the renderer and written to the `PerspectiveCamera`.
-
----
-
-## 7. Default parameters (starting values, to be tuned in playtest)
-
-| Field | Value | Note |
-| --- | --- | --- |
-| `CHASE.pitchDeg` | 26 | the one angle; low enough to sit behind the machine, high enough to read the road |
-| `CHASE.distance` | 6 | dolly. Was 15, framing a 2.8 m avatar; the models now carry the original's own size (~0.98 m walker) and the dolly came in with them |
-| `CHASE.fovDeg` | 58 | |
-| `action.pitchDeg` | 30 | *superseded — both anchors are now `CHASE`* |
-| `action.distance` | 14 | near |
-| `action.fovDeg` | 55 | |
-| `tactical.pitchDeg` | 62 | high overview, not quite top-down (readability) |
-| `tactical.distance` | 34 | far |
-| `tactical.fovDeg` | 50 | |
-| `focusHeight` | 0.6 | ~unit center. Was 1.0, for the same reason as the dolly |
-| `followSmoothTime` | 0.12 | s |
-| `paramSmoothTime` | 0.18 | s |
-| `yawSmoothTime` | 0.15 | s |
-| `lookAheadMax` | 1.6 | world meters. Scaled with the avatar, not with the arena |
-| `tFreeLookThreshold` | 0.7 | |
-| `transformBias` | 0.15 | Pursuit +, Walker − |
-| `deadzone` | 0.06 | world meters. Scaled with the avatar |
-
-> The numbers are deliberately starting values. Tune `pitch`/`distance`
-> together; the `t` curve may use easing (e.g. smoothstep) instead of linear.
-
----
-
-## 8. Occlusion / collision (later, optional)
-
-With mostly top-down-leaning framing this is secondary. At low `t` (ACTION)
-geometry can occlude the unit:
-- Option A: soft dolly-in on an occluder raycast camera→unit.
-- Option B: fade/dither the occluder.
-- Deferred for v1; track as its own ticket.
-
----
-
-## 9. Non-goals (v1)
-
-- No scripted/cinematic camera.
-- No first-person/cockpit view.
-- ~~**No** automatic yaw swing behind the movement (deliberately against FC).~~
-  **Reversed:** the camera now follows the steered heading. See §1's revision note.
-- No player-controlled zoom or elevation.
-- No mouse look at all: the original has no mouse in a match.
-- No split-screen (net title over the DO relay → one camera per client).
-
----
-
-## 10. Test / DoD
-
-- [x] `updateCamera` unit-tested: damping at 30/60/144 fps `dt` converges the
-      same (framerate-stable). (`packages/client/test/camera.test.ts` — the
-      exponential factor `1-e^(-dt/τ)` composes, so a fixed span subdivided at
-      any framerate reaches the same value; matched against the closed form.)
-- [x] Determinism test: identical sim inputs → identical sim hash, independent of
-      the camera actions of two clients. (Structural: the rig writes nothing into
-      the sim and the four golden replays still pass unchanged.)
-- [x] No import from the sim module into the camera module (lint boundary /
-      dependency rule). (`camera.ts` imports nothing at all.)
-- [x] The camera reads exclusively interpolated render transforms. (Fed from the
-      interpolated `avatarPoses`; velocity is the per-tick snapshot delta.)
-- [ ] Free-look recenter, zoom, transform bias verified visually. (Zoom + bias
-      are wired and unit-tested; the visual/feel pass stays open, like the other
-      playtest passes. Wheel zooms the pointer view; free-look edge-pan/drag UX
-      is deferred pending the §11 Go-Gate.)
-
-## 12. Implementation status
-
-The rig core is implemented in `packages/client/src/render/camera.ts` (pure,
-no imports) and wired into the render loop (`main.ts` `updateRigCamera`), one
-`CameraState` per `PlayerView`.
-
-> **This section described the pre-reversal rig** — "movement is camera-relative
-> to the **world-fixed** yaw basis … the decoupling this spec calls for" — which
-> §1's revision note, §3's yaw policy and §9 all contradict. Yaw follows the
-> steered heading and has since the owner's reversal. Corrected here rather than
-> deleted, because a stale status section that disagrees with the spec above it
-> is worse than none.
-
-- Yaw **follows the hull's heading**, taken absolutely via
-  `CameraInput.yawAbsolute` (§3). `yawLocked:false`; `yawDelta` still integrates
-  when no absolute heading is supplied, and nothing binds a rotate key.
-- `t` curve = **smoothstep**; both anchors carry the same `CHASE` values, so it
-  is inert (§1).
-- Free-look: the pure function supports `panOffset`/`recenter`; the edge-pan vs
-  drag UX is **not yet bound** (open question) — v1 keeps the focus on the unit.
-- Aim = facing, from the same heading (§5, input.spec §4.1).
-- Occlusion (§8): deferred to v2.
-- Framing tracks the models' scale. `distance` and `focusHeight` were authored
-  against a 2.8 m avatar; the units now carry the size the original authored
-  (assets.md), so §7's defaults moved with them — 6 m dolly, 0.6 m focus height.
-  Pitch and FOV are angles and did not.
-
----
-
-## 11. Go-Gate — resolved for v1
-
-- [x] Yaw default **world-fixed** (shipped, per-client oriented spawn→centre).
-      Manual rotation is supported by the rig (`yawLocked:false`) but no rotate
-      key is bound in v1.
-- [x] `t` curve = **smoothstep** (shipped).
-- [~] Free-look model: the rig supports `panOffset`/`recenter`; the edge-pan vs
-      drag **UX is deferred to v2** (v1 keeps the focus on the unit). Still open.
-- [x] Aim model split into its own **`input.spec`** (the original's button word
-      since wave 3) — not owned by this spec.
-- [ ] Occlusion (§8): **v2**. Deferred.
+- [x] `packages/client/test/camera.test.ts`: the pitch curve against
+      camera.json's table; the converged eye of all seven cameras against
+      camera.json's `steady_state_walker_subject_y0` (within 8 wu); the plane's
+      half-height rule; the sink; the vertical FOV.
+- [x] The Camera Key cycles five cameras in Precinct Assault (Crowd Control
+      drops to Standard), reaches seven inside a volume trigger, arms the caption
+      for 900 ticks, does nothing while paused.
+- [x] The turn: short way round, the 63-tick time constant, the 4/2-unit caps;
+      30, 60 and 144 fps arrive at the same camera.
+- [x] The occlusion machine: a blocked primary hands over to its first fallback
+      after 120 ticks and comes back once clear.
+- [x] Determinism: the golden replays pass unchanged.
+- [ ] The owner's look against the original, side by side.

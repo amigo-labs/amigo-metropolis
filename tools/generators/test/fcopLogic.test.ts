@@ -258,13 +258,22 @@ describe("raw-unit conversions read from the retail code", () => {
     expect(targetingDelayToSimTicks(0, TICK_HZ)).toBe(1);
   });
 
-  test("rotation follows the documented 4096 = 360 degrees", () => {
+  test("a record angle is the sim yaw, 4096 = 360 degrees, a turret gun's too", () => {
     expect(ROTATION_TURN).toBe(4096);
-    expect(rotToYaw(0)).toBeCloseTo(0, 10); // negative factor yields -0
-    expect(rotToYaw(1024)).toBeCloseTo(-Math.PI / 2, 10);
-    expect(rotToYaw(2048)).toBeCloseTo(-Math.PI, 10);
-    // Turret rotations are biased by a quarter turn before conversion.
-    expect(rotToYaw(1024, true)).toBeCloseTo(0, 10);
+    // The one mapping (fcop-fidelity.md G12; render/recordYaw.ts): sim yaw = a.
+    expect(rotToYaw(0)).toBe(0);
+    expect(rotToYaw(1024)).toBeCloseTo(Math.PI / 2, 10);
+    expect(rotToYaw(2048)).toBeCloseTo(Math.PI, 10);
+    expect(rotToYaw(-1024)).toBeCloseTo(-Math.PI / 2, 10);
+    // In (-PI, PI]: three quarters of a turn is a quarter the other way.
+    expect(rotToYaw(3072)).toBeCloseTo(-Math.PI / 2, 10);
+    expect(rotToYaw(-2048)).toBeCloseTo(Math.PI, 10);
+    // No quarter-turn bias for a turret gun: turret_construct (0x0041c222)
+    // stores the record's +0x34 as its rest yaw unchanged.
+    for (const raw of [0, 512, 1024, 3072, 4095]) {
+      const d = rotToYaw(raw) - (raw * 2 * Math.PI) / 4096;
+      expect(Math.abs(Math.sin(d / 2))).toBeLessThan(1e-12);
+    }
   });
 
   test("fov 4096 means omnidirectional", () => {

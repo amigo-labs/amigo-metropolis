@@ -70,7 +70,12 @@ export interface SandboxPanelDeps {
   readonly setTimeScale: (scale: number) => void;
   readonly getTimeScale: () => number;
   /** Walk-rig readout, or null when the rig has not loaded. */
-  readonly rigInfo: () => { legL: number; legR: number; stride: number } | null;
+  readonly rigInfo: () => {
+    legsFrame: number;
+    cockpitFrame: number;
+    state: number;
+    track: number;
+  } | null;
 }
 
 export interface SandboxPanel {
@@ -95,8 +100,9 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** The catalogue's magazine is the record's, HARD's; the label shows HARD's. */
 function weaponLabel(w: WeaponDef): string {
-  const ammo = w.ammo > 0 ? `${w.ammo} ammo` : "inf";
+  const ammo = w.ammo > 0 ? `${w.ammo} ammo (HARD)` : "inf";
   return `${w.damage} dmg · ${w.cooldownTicks}t · ${ammo} · ${w.vfx}`;
 }
 
@@ -135,8 +141,8 @@ export function createSandboxPanel(deps: SandboxPanelDeps): SandboxPanel {
   // disabled, so team 0/1 stay pickable (see refresh()).
   let neutralOption: HTMLOptionElement | null = null;
   for (const [label, value] of [
-    ["Team 0 (blue)", "0"],
-    ["Team 1 (red)", "1"],
+    ["Team 0", "0"],
+    ["Team 1", "1"],
     ["Neutral", "-1"],
   ] as const) {
     const opt = el("option", undefined, label);
@@ -455,7 +461,7 @@ export function createSandboxPanel(deps: SandboxPanelDeps): SandboxPanel {
     const rig = deps.rigInfo();
     if (rig) {
       lines.push(
-        `rig legs ${rig.legL.toFixed(2)} / ${rig.legR.toFixed(2)}  stride ${rig.stride.toFixed(2)}`,
+        `x1 legs ${rig.legsFrame} cockpit ${rig.cockpitFrame}  state ${rig.state} track ${rig.track}`,
       );
     }
     const text = lines.join("\n");

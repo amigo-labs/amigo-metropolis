@@ -3,14 +3,15 @@
 //   bun run gen:fxsheet
 //
 // WHY THIS EXISTS
-// render/fx.ts binds three of the eight extracted sprites to roles — explosion,
-// muzzle, spark — and its own header admits how: "Semantic particle-id mapping
-// is by-eye (PYDT has no labels)." Guessing is defensible when nobody can see
-// the sprites; this makes them visible, so the mapping can be argued from the
-// pixels instead.
+// The effect records name their particle by id (type 93's +0x34; a trail node
+// spawns id 10), so no role is picked here any more. The sheet stays as the
+// picture of what each id is: the atlas is the RE's page 0, every sprite drawn
+// through its own A1R5G5B5 palette (bun run gen:fx), and an earlier copy decoded
+// every sprite through palette 0 — which is how a cyan ring came to be taken for
+// a red muzzle flash.
 //
 // It writes docs/renders/fx/particles-contact.png: every id at 2x on a
-// checkerboard, so alpha-0 dither reads as a pattern rather than as black, and
+// checkerboard, so alpha-0 texels read as a pattern rather than as black, and
 // prints per-id size, opaque coverage and dominant colours.
 //
 // Authoring-time only.
@@ -24,9 +25,6 @@ const ATLAS = join(ROOT, "packages", "client", "public", "fx", "particles.png");
 const META = join(ROOT, "packages", "client", "public", "fx", "particles.json");
 const OUT = join(ROOT, "docs", "renders", "fx", "particles-contact.png");
 
-/** The extractor left palette-0's background index opaque; see keyAtlas.ts. */
-const KEY = [0xd5, 0xac, 0x00] as const;
-
 const SCALE = 2;
 const PAD = 8;
 const CHECKER = 8;
@@ -37,8 +35,8 @@ interface Rect {
   w: number;
   h: number;
 }
+/** The RE's particles.json (extracted/particles/), copied unchanged by gen:fx. */
 interface Meta {
-  size: [number, number];
   particles: { id: number; sprites: Rect[] }[];
 }
 
@@ -76,7 +74,6 @@ function main(): void {
   cells.forEach((cell, i) => {
     const cx = (i % cols) * cellW + PAD;
     const cy = Math.floor(i / cols) * cellH + PAD;
-    let key = 0;
     let clear = 0;
     let solid = 0;
     const colours = new Map<string, number>();
@@ -89,16 +86,12 @@ function main(): void {
           atlas.pixels[s + 2],
           atlas.pixels[s + 3],
         ];
-        const isKey = a !== 0 && r === KEY[0] && g === KEY[1] && b === KEY[2];
         if (a === 0) clear++;
-        else if (isKey) key++;
         else {
           solid++;
           const k = `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
           colours.set(k, (colours.get(k) ?? 0) + 1);
         }
-        // Key pixels are drawn as-is on purpose: this sheet is also the evidence
-        // that they are there. keyAtlas.ts is what removes them.
         for (let sy = 0; sy < SCALE; sy++) {
           for (let sx = 0; sx < SCALE; sx++) {
             const dx = cx + x * SCALE + sx;
@@ -122,7 +115,6 @@ function main(): void {
     console.log(
       `  id ${String(cell.id).padStart(2)} frame ${cell.frame}  ${cell.r.w}x${cell.r.h}` +
         `  clear ${Math.round((clear / total) * 100)}%` +
-        `  key ${Math.round((key / total) * 100)}%` +
         `  paint ${Math.round((solid / total) * 100)}%   ${top}`,
     );
   });

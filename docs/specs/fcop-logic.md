@@ -118,8 +118,14 @@ The resource payload is a sub-chunk container: **`tACT` → `aRSL` → `tSAC`**.
   → world cell = value `/8192` (**note order Y, height, X**)
 - `0x1C…` type-specific parameter block, length `chunk_size − 28` (= `getSize()`)
 
-Rotation is per-type (in the payload), converted by `angle = −π/2048 · v`
-(4096 = 360°); turret rotations are offset by `−1024` first.
+Rotation is per-type (in the payload), 4096 = 360°, and the record angle is the
+sim's yaw: `yaw = π/2048 · v` (`fcop-fidelity.md` G12; client
+`render/recordYaw.ts`). The construct builds `My(v)` and the engine is
+row-vector, so the model's +z goes to the game's (sin v, cos v), which the
+actors frame's x/z swap makes the sim's (cos v, sin v). Turret guns are no
+exception: `turret_construct` (0x0041c222) stores the halfword at payload +0x34
+as its `rest_yaw` unchanged. (This section said `−π/2048 · v` with turret
+rotations offset by `−1024`, FC:MIT's reading, until SIM_VERSION 86.)
 
 `aRSL` = resource links, `(size−12)/8` entries of `[u32 type4cc][u32 id]`. Link
 semantics are positional per type: e.g. `PathedActor` → `rsl[0]` = alive `Cobj`

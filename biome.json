@@ -8,7 +8,12 @@
   "files": {
     "ignoreUnknown": false,
     "maxSize": 2097152,
-    "includes": ["**", "!docs/specs/fcop-re/pa-audio.json", "!docs/specs/fcop-re/pa-voice.json"]
+    "includes": [
+      "**",
+      "!docs/specs/fcop-re/pa-audio.json",
+      "!docs/specs/fcop-re/pa-voice.json",
+      "!packages/client/public/fx/particles.json"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -39,9 +44,11 @@
     {
       "includes": [
         "packages/sim/src/sinTable.ts",
+        "packages/client/src/effects/fcopEffects.generated.ts",
         "packages/sim/maps/*.json",
         "packages/sim/test/goldens/*.hashes.json",
-        "docs/renders/fcop-viz/*.json"
+        "docs/renders/fcop-viz/*.json",
+        "tools/generators/units/raw/fcop-x1/*.json"
       ],
       "formatter": {
         "enabled": false

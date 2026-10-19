@@ -1,0 +1,63 @@
+{
+  "mission": "Conft",
+  "source": {
+    "repo": "amigo-labs/fcop-reverse-engineering",
+    "commit": "4f5418716c356fa80aa2e36f9ee53272fa069b91",
+    "tool": "tools/gfx/pa_models.py; fixtures/missions (3DBB)"
+  },
+  "radii": {
+    "x1": {
+      "cobj": 15,
+      "walker": 283,
+      "hover": 232
+    },
+    "tank": 483,
+    "jet": 537,
+    "fortress": 989,
+    "dreadnought": 663,
+    "baseTurret": 333,
+    "neutral": [
+      463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463,
+      463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463, 463
+    ],
+    "skyCaptain": [671, 671, 671, 952, 952, 952, 994, 994, 994, 1155]
+  },
+  "dreadnought": {
+    "hull": 37,
+    "hullSha": "2413db4f188f7a39",
+    "guns": [
+      {
+        "gun": 0,
+        "cobj": 38,
+        "point": [-0.267578, 0.486328, 0.283203],
+        "muzzle": [0.001953, 0.042969, 0.050781],
+        "turnPerTick": 9,
+        "frontSectorOnly": true
+      },
+      {
+        "gun": 1,
+        "cobj": 38,
+        "point": [0.257812, 0.486328, 0.283203],
+        "muzzle": [0.001953, 0.042969, 0.050781],
+        "turnPerTick": 9,
+        "frontSectorOnly": true
+      },
+      {
+        "gun": 2,
+        "cobj": 39,
+        "point": [-0.263672, 0.794922, -0.404297],
+        "muzzle": [0.001953, 0.042969, 0.044922],
+        "turnPerTick": 9,
+        "frontSectorOnly": true
+      },
+      {
+        "gun": 3,
+        "cobj": 39,
+        "point": [0.253906, 0.794922, -0.404297],
+        "muzzle": [0.001953, 0.042969, 0.044922],
+        "turnPerTick": 9,
+        "frontSectorOnly": true
+      }
+    ]
+  }
+}

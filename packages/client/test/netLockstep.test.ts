@@ -22,12 +22,18 @@ import {
   clearTickInputs,
   createSim,
   createTickInputs,
+  DEFAULT_DIFFICULTIES,
+  DEFAULT_LOADOUTS,
+  DIFFICULTY_EASY,
+  DIFFICULTY_HARD,
   decodeMessage,
   decodeReplay,
   encodeMessage,
   getMapById,
   hash,
   LA_CANTINA_ID,
+  LOBBY_NAME,
+  LOBBY_P2_READY,
   type MatchConfig,
   type PlayerInput,
   SIM_VERSION,
@@ -44,6 +50,9 @@ const CONFIG: MatchConfig = {
   mapId: LA_CANTINA_ID,
   wardenPlayer: -1,
   wardenDifficulty: 0,
+  difficulties: DEFAULT_DIFFICULTIES,
+  loadouts: DEFAULT_LOADOUTS,
+  extraWeapons: 0,
 };
 
 // A scripted 1v1: both avatars move and shoot so the hash stream is non-trivial
@@ -62,8 +71,12 @@ function refScript(tick: number, out: TickInputs): void {
 }
 
 /** Canonical offline hashes for `refScript` — the ground truth to match. */
-function referenceHashes(ticks: number): number[] {
-  const sim = createSim(getMapById(CONFIG.mapId), CONFIG.seed);
+function referenceHashes(
+  ticks: number,
+  difficulties?: readonly number[],
+  loadouts?: MatchConfig["loadouts"],
+): number[] {
+  const sim = createSim(getMapById(CONFIG.mapId), CONFIG.seed, { difficulties, loadouts });
   const inputs = createTickInputs();
   const out: number[] = [];
   for (let t = 0; t < ticks; t++) {
@@ -153,6 +166,34 @@ function drive(a: NetLockstep, b: NetLockstep, target: number): void {
 }
 
 describe("online lockstep (in-memory relay)", () => {
+  it("relays the lobby between the clients and lets only the host begin", () => {
+    const hub = new TestHub();
+    const got: unknown[][] = [[], []];
+    const net0 = new NetLockstep(hub.newClient("c0"), {
+      sampleInput: sampler(0),
+      onLobby: (m) => got[0].push(m),
+    });
+    const net1 = new NetLockstep(hub.newClient("c1"), {
+      sampleInput: sampler(1),
+      onLobby: (m) => got[1].push(m),
+    });
+    net0.start(CONFIG);
+    net1.start(CONFIG);
+    net0.sendLobby({ id: LOBBY_NAME, name: "Ryan" });
+    net1.sendLobby({ id: LOBBY_P2_READY, ready: true });
+    expect(got).toEqual([
+      [{ id: LOBBY_P2_READY, ready: true }],
+      [{ id: LOBBY_NAME, name: "Ryan" }],
+    ]);
+    net1.begin(CONFIG); // the joiner cannot
+    expect(net0.isStarted || net1.isStarted).toBe(false);
+    net0.begin(CONFIG);
+    expect(net0.isStarted && net1.isStarted).toBe(true);
+    // The lobby is over: nothing more goes out or comes in.
+    net1.sendLobby({ id: LOBBY_P2_READY, ready: false });
+    expect(got[0]).toHaveLength(1);
+  });
+
   it("keeps two clients bit-identical and equal to the offline sim", () => {
     const TICKS = 150;
     const hub = new TestHub();
@@ -174,6 +215,11 @@ describe("online lockstep (in-memory relay)", () => {
     net1.start(CONFIG);
     expect(net0.slot).toBe(0);
     expect(net1.slot).toBe(1);
+    // Protocol 4: a full room is a lobby until the host begins.
+    expect(net0.isStarted).toBe(false);
+    expect(net1.isStarted).toBe(false);
+    net0.begin(CONFIG);
+    expect(net1.isStarted).toBe(true);
 
     drive(net0, net1, TICKS);
 
@@ -184,6 +230,58 @@ describe("online lockstep (in-memory relay)", () => {
     expect(h1.slice(0, TICKS)).toEqual(ref);
   });
 
+  it("plays the agreed difficulties and loadouts on both clients, and dumps the difficulties", () => {
+    // The host's BEGIN is the match (protocol 4): the joiner's own HELLO
+    // config is ignored, as its seed and arena are.
+    const picked: MatchConfig = {
+      ...CONFIG,
+      difficulties: [DIFFICULTY_HARD, DIFFICULTY_EASY],
+      loadouts: [
+        { gun: 2, heavy: 1, special: 2 },
+        { gun: 1, heavy: 2, special: 1 },
+      ],
+    };
+    const TICKS = 60;
+    const hub = new TestHub();
+    const h0: number[] = [];
+    const h1: number[] = [];
+    let sim1: SimState | null = null;
+    const net0 = new NetLockstep(hub.newClient("c0"), {
+      sampleInput: sampler(0),
+      onStep: (t, sim) => {
+        h0[t] = hash(sim);
+      },
+    });
+    const net1 = new NetLockstep(hub.newClient("c1"), {
+      sampleInput: sampler(1),
+      onStart: (sim) => {
+        sim1 = sim;
+      },
+      onStep: (t, sim) => {
+        h1[t] = hash(sim);
+      },
+    });
+    net0.start(CONFIG);
+    net1.start(CONFIG);
+    net0.begin(picked);
+    const joined = sim1 as unknown as SimState;
+    expect(Array.from(joined.difficulty)).toEqual([DIFFICULTY_HARD, DIFFICULTY_EASY]);
+    expect(joined.ent.hp[joined.avatarId[0]]).toBe(1000);
+    expect(joined.ent.hp[joined.avatarId[1]]).toBe(1500);
+    expect([joined.loadoutGun[0], joined.loadoutHeavy[1], joined.loadoutSpecial[0]]).toEqual([
+      2, 2, 2,
+    ]);
+    expect(net1.matchConfig).toEqual(picked);
+    drive(net0, net1, TICKS);
+    const ref = referenceHashes(TICKS, picked.difficulties, picked.loadouts);
+    expect(h0.slice(0, TICKS)).toEqual(ref);
+    expect(h1.slice(0, TICKS)).toEqual(ref);
+    expect(decodeReplay(net1.dumpReplay()).difficulties).toEqual([
+      DIFFICULTY_HARD,
+      DIFFICULTY_EASY,
+    ]);
+  });
+
   it("flags a desync within 30 ticks and dumps both replays", () => {
     const hub = new TestHub();
     let sim1: SimState | null = null;
@@ -192,13 +290,14 @@ describe("online lockstep (in-memory relay)", () => {
     const net0 = new NetLockstep(hub.newClient("c0"), { sampleInput: sampler(0), onDesync });
     const net1 = new NetLockstep(hub.newClient("c1"), {
       sampleInput: sampler(1),
-      onWelcome: (_slot, sim) => {
+      onStart: (sim) => {
         sim1 = sim;
       },
       onDesync,
     });
     net0.start(CONFIG);
     net1.start(CONFIG);
+    net0.begin(CONFIG);
 
     // Run past the tick-30 exchange (which matches), then corrupt client 1 so
     // the next exchange (tick 60) disagrees.
@@ -232,6 +331,7 @@ describe("online lockstep (in-memory relay)", () => {
     const net1 = new NetLockstep(c1, { sampleInput: sampler(1) });
     net0.start(CONFIG);
     net1.start(CONFIG);
+    net0.begin(CONFIG);
     drive(net0, net1, 50);
     const droppedAt = net1.simTick;
     expect(droppedAt).toBeGreaterThanOrEqual(49);

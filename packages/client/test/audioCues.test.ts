@@ -18,6 +18,7 @@ import {
   EV_PURCHASE_REFUSED,
   EV_ROUND_IMPACT,
   EV_SHOT,
+  EV_SUNK,
   EV_TRANSFORM_REFUSED,
   EV_TURRET_LOST,
   EV_TURRET_UNDER_FIRE,
@@ -39,9 +40,10 @@ import {
   weaponShotPayload,
 } from "@metropolis/sim";
 import { loadedBank, slotFor, TABLE_A, TABLE_B } from "../src/audio/bank";
-import { type CueContext, OriginalSounds } from "../src/audio/cues";
+import { type CueContext, OriginalSounds, type WalkerLoops } from "../src/audio/cues";
 import { type AudioEngine, DEFAULT_LEVEL, parseAudioLevels } from "../src/audio/engine";
 import { FCOP_ARENA_AUDIO, FCOP_PLAYER_WEAPONS } from "../src/audio/fcopAudio.generated";
+import { createX1Walk } from "../src/render/x1Walk";
 
 class Recorder {
   calls: string[] = [];
@@ -55,10 +57,16 @@ class Recorder {
   loopSetScript(viewport: number, id: number): void {
     this.calls.push(`loop ${viewport} ${id}`);
   }
-  loopSetMode(): void {}
+  loopSetMode(viewport: number, state: number): void {
+    this.calls.push(`mode ${viewport} 0x${state.toString(16)}`);
+  }
   loopFollow(): void {}
   queueSet(_r: number, id: number): void {
     this.calls.push(`queue ${id}`);
+  }
+  live = false;
+  queueLive(): boolean {
+    return this.live;
   }
   setPending(id: number): void {
     this.calls.push(`pending ${id}`);
@@ -117,13 +125,15 @@ function run(
   const sounds = new OriginalSounds(rec as unknown as AudioEngine);
   const data = FCOP_ARENA_AUDIO[mapId];
   if (!data) throw new Error(mapId);
-  sounds.begin(data, FCOP_PLAYER_WEAPONS, []);
+  sounds.begin(data, FCOP_PLAYER_WEAPONS, [], mapId);
   const buf = createEventBuffer();
   for (const [t, a, b, c] of events) pushEvent(buf, t, a, b, c);
   sounds.tick(buf, ctx);
   const quiet = createEventBuffer();
   for (let i = 0; i < after; i++) sounds.tick(quiet, ctx);
-  return rec.calls.filter((c) => !c.startsWith("loop") && !c.startsWith("queue"));
+  return rec.calls.filter(
+    (c) => !c.startsWith("loop") && !c.startsWith("queue") && !c.startsWith("mode"),
+  );
 }
 
 /** Runs `fn` with Math.random fixed at `value`. */
@@ -172,6 +182,23 @@ describe("the mech's own sounds", () => {
   });
   test("a refused transform plays 42", () => {
     expect(run([[EV_TRANSFORM_REFUSED, AVATAR0, 0, 0]])).toEqual(["script 42"]);
+  });
+  test("a downed mech's wreck plays 65; a sunk one (HARD's water) plays nothing", () => {
+    const down = run([[EV_DEATH, AVATAR0, 1, ARCHETYPE.AVATAR]]);
+    expect(down).toContain("script 65");
+    expect(
+      run([
+        [EV_SUNK, AVATAR0, 0, 0],
+        [EV_DEATH, AVATAR0, -1, ARCHETYPE.AVATAR],
+      ]),
+    ).toEqual([]);
+    // The marker is the named mech's, and this tick's only.
+    expect(
+      run([
+        [EV_SUNK, AVATAR1, 1, 0],
+        [EV_DEATH, AVATAR0, 1, ARCHETYPE.AVATAR],
+      ]),
+    ).toContain("script 65");
   });
   test("the health gauge sounds once under a third, once more at zero", () => {
     const ctx = context();
@@ -243,9 +270,39 @@ describe("effects", () => {
     // A turret's (row 3) impact effect plays script 30, positioned.
     const turret = roundSource(ARCHETYPE.TURRET, 1);
     expect(run([[EV_ROUND_IMPACT, 5 * 16, 5 * 16, turret]])).toEqual(["script 30 placed"]);
-    // The second side's tanks fire row 6, whose impact is silent.
-    const tank = roundSource(ARCHETYPE.RUNNER, 1);
-    expect(run([[EV_ROUND_IMPACT, 5 * 16, 5 * 16, tank]])).toEqual([]);
+    // Side 2's tanks fire row 6, whose impact is silent; side 1's fire row 1,
+    // whose impact plays script 32. A team holds the side of its player slot
+    // (render/sides.ts): team 1 side 2, team 0 side 1, on every arena.
+    for (const arena of ["la-cantina", "urban-jungle"]) {
+      const blue = run(
+        [[EV_ROUND_IMPACT, 5 * 16, 5 * 16, roundSource(ARCHETYPE.RUNNER, 1)]],
+        context(),
+        0,
+        arena,
+      );
+      expect(blue).toEqual([]);
+    }
+    const red = run([[EV_ROUND_IMPACT, 5 * 16, 5 * 16, roundSource(ARCHETYPE.RUNNER, 0)]]);
+    expect(red).toEqual(["script 32 placed"]);
+  });
+
+  test("an effect's repeats install it again, sound and all", () => {
+    // The Dreadnought's death flash 61 (script 35) carries 20 repeats every 29
+    // ticks: each repeat period re-raises the record through the install
+    // (0x0042dc3d), so the bang is heard 20 times, not once — flat, as ids
+    // 0x3d..0x44 are. 61 is side 1's (class 202), team 0's; side 2's, team
+    // 1's, is class 203's blue flash 68 (script 36).
+    const ctx = context();
+    const dies = (team: number) => {
+      const snapshot = new Float32Array(SNAPSHOT_STRIDE * 3);
+      snapshot.set(ctx.snapshot);
+      snapshot.set([81, ARCHETYPE.JUGGERNAUT, team, 5, 5, 0, 0, 0, 0, 0], SNAPSHOT_STRIDE * 2);
+      return withRandom(0.9, () =>
+        run([[EV_DEATH, 81, -1, ARCHETYPE.JUGGERNAUT]], { ...ctx, snapshot, count: 3 }, 90),
+      );
+    };
+    expect(dies(0).filter((c) => c === "script 35").length).toBe(20);
+    expect(dies(1).filter((c) => c === "script 36").length).toBe(20);
   });
 
   test("a death emits its class's group 0, or the fallback on the coin", () => {
@@ -295,6 +352,49 @@ describe("the hover loop", () => {
   });
 });
 
+describe("the walker loop (fcop-fidelity.md A9)", () => {
+  /** A slot-0 X1 animation with `codes` passed this tick, in `form`. */
+  function walker(form: number, codes: number[]): WalkerLoops {
+    const w = createX1Walk();
+    w.owner[0] = AVATAR0;
+    w.owner[1] = -1;
+    w.form[0] = form;
+    codes.forEach((c, k) => {
+      w.codes[k] = c;
+    });
+    w.codeCount[0] = codes.length;
+    return w;
+  }
+  function heard(ticks: WalkerLoops[], local = 0): string[] {
+    const rec = new Recorder();
+    const sounds = new OriginalSounds(rec as unknown as AudioEngine);
+    const data = FCOP_ARENA_AUDIO["la-cantina"];
+    if (!data) throw new Error("la-cantina");
+    sounds.begin(data, FCOP_PLAYER_WEAPONS, []);
+    for (const w of ticks)
+      sounds.tick(createEventBuffer(), context({ walker: w, localSlot: local }));
+    return rec.calls.filter((c) => c.startsWith("mode") || c.startsWith("loop 0"));
+  }
+
+  test("hands every code the legs passed to snd_loop_set_mode, in order", () => {
+    expect(heard([walker(0, [0x23, 0x27])])).toEqual(["mode 0 0x23", "mode 0 0x27"]);
+  });
+
+  test("the other player's mech is its own viewport, heard from where it walks", () => {
+    expect(heard([walker(0, [0x21])], 1)).toEqual(["mode 1 0x21"]);
+  });
+
+  test("while the hover's tick runs -- the ramp back included -- the hover loop plays", () => {
+    // ANIM_HOVER is clear (the sim's mode flips on the ramp's first tick), but
+    // the hover form runs until the walker end, then the register goes to 0xff.
+    expect(heard([walker(1, [0x23]), walker(0, [0x27])])).toEqual([
+      "loop 0 40",
+      "loop 0 255",
+      "mode 0 0x27",
+    ]);
+  });
+});
+
 describe("the three sliders", () => {
   test("default to 0x3f, the original's missing-registry value", () => {
     expect(DEFAULT_LEVEL).toBe(0x3f);
@@ -336,5 +436,45 @@ describe("lifts (fcop-fidelity.md P12)", () => {
 
   test("a lift reaching a stop plays its arrival script at the lift", () => {
     expect(lifted(0, [[EV_LIFT_ARRIVE, 1, 1, 0]])).toContain("script 71 placed");
+  });
+});
+
+describe("the prop emitters (snd_emit_draw_block, snd_emit_voice_follow, snd_emit_tick)", () => {
+  const data = FCOP_ARENA_AUDIO["urban-jungle"];
+  const n = data?.emitters.length ?? 0;
+  function ticks(rec: Recorder, sounds: OriginalSounds, drawn: Uint8Array, count: number): number {
+    let queued = 0;
+    const quiet = createEventBuffer();
+    for (let i = 0; i < count; i++) {
+      rec.calls = [];
+      sounds.tick(quiet, context({ emitterDrawn: drawn }));
+      queued = rec.calls.filter((c) => c.startsWith("queue")).length;
+    }
+    return queued;
+  }
+
+  test("only a drawn emitter claims; it holds 900 ticks undrawn, then while the queue hears it", () => {
+    expect(n).toBeGreaterThan(0);
+    if (!data) return;
+    const rec = new Recorder();
+    const sounds = new OriginalSounds(rec as unknown as AudioEngine);
+    sounds.begin(data, FCOP_PLAYER_WEAPONS, [], "urban-jungle");
+    const none = new Uint8Array(n);
+    const all = new Uint8Array(n).fill(1);
+    expect(ticks(rec, sounds, none, 1)).toBe(0);
+    expect(ticks(rec, sounds, all, 1)).toBe(2 * n); // claimed (300), then kept
+    expect(ticks(rec, sounds, all, 1)).toBe(n); // drawn again: 900
+    // Undrawn: 900 engine ticks of the last refresh, 10 a sim tick.
+    expect(ticks(rec, sounds, none, 90)).toBe(n);
+    // Spent and out of the queue's hearing: let go.
+    expect(ticks(rec, sounds, none, 1)).toBe(0);
+    // Claimed once more and left at once: 300 ticks, then 300 at a time while
+    // the queue still hears it.
+    ticks(rec, sounds, all, 1);
+    expect(ticks(rec, sounds, none, 30)).toBe(n);
+    rec.live = true;
+    expect(ticks(rec, sounds, none, 200)).toBe(n);
+    rec.live = false;
+    expect(ticks(rec, sounds, none, 31)).toBe(0);
   });
 });

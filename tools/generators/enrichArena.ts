@@ -68,10 +68,18 @@ import {
   worstUphillRise,
 } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
-import { type FcopArena, logicFile, rulesFile, selectArenas, wallsFile } from "./fcopArenas";
+import {
+  type FcopArena,
+  logicFile,
+  modelsFile,
+  rulesFile,
+  selectArenas,
+  wallsFile,
+} from "./fcopArenas";
 import {
   captureRangeToCells,
   fovToCos,
+  ORIGINAL_TICK_HZ,
   ROTATION_TURN,
   rangeToCells,
   rotToYaw,
@@ -79,6 +87,7 @@ import {
   triggerHalfExtent,
   turnSpeedToRadPerTick,
 } from "./fcopLogic";
+import type { ModelsArtifact } from "./fcopModels";
 import type { FcopRules } from "./fcopRules";
 import { type Lattice, openKerbs, readGlbTriangles, TerrainMesh } from "./kerbs";
 
@@ -167,7 +176,6 @@ interface Logic {
     flags: string[];
     watchesActor: number;
   }[];
-  props: { id: number; x: number; z: number; height: number; objId: number }[];
   nets: {
     netId: number;
     nodes: { x: number; z: number; neighbours: number[]; groundCast?: number }[];
@@ -250,7 +258,7 @@ function surfacesAt(map: MapData, x: number, y: number): { layer: number; h: num
  * Surface selected by a Cnet node's ground_cast (fcop-logic.md §3.1).
  * LOW = bottom of the stack, HIGH = top, MIDDLE = the one between when present.
  *
- * Non-Cnet features (bases, turrets, pickups, props) stay on layer 0 for now.
+ * Non-Cnet features (bases, turrets, pickups) stay on layer 0 for now.
  * RE's actors.layered.json `layer_top` would place some of them on decks, but
  * sampling the topmost surface at every cell is the wrong default — la-cantina's
  * cores sit under bridges and must stay on the ground. Until that side-file is
@@ -317,8 +325,8 @@ interface Field {
 function fieldOf(bases: readonly { x: number; z: number }[]): Field {
   const dx = Math.abs(bases[0].x - bases[1].x);
   const dz = Math.abs(bases[0].z - bases[1].z);
-  // Tie goes to z: the five north-south arenas keep their historical ordering
-  // even if a future mission happens to be exactly diagonal.
+  // Tie goes to z. Only the build report reads the axis since SIM_VERSION 79:
+  // the teams follow the player slot (teamsOf).
   const axis = dx > dz ? "x" : "z";
   const a = bases[0][axis];
   const b = bases[1][axis];
@@ -327,15 +335,25 @@ function fieldOf(bases: readonly { x: number; z: number }[]): Field {
 
 /**
  * Pairs each base with its OWN X1Alpha — the nearest one — then orders the pairs
- * along the field axis so team 0 is the low end.
+ * by the original's player slot, so team N is slot N: slot 0 is X1Alpha 12, the
+ * single-player human's, on side 1 in every mission (the rules artifact's
+ * x1alpha; RE radar_markers.json). The pair's Dreadnought record must carry that
+ * side (its team byte, slot + 1).
  *
- * The two lists used to be sorted independently and paired by index, which is
- * only correct while both happen to order the same way.
+ * Until SIM_VERSION 79 the pairs were ordered along the field axis, team 0 the
+ * low end: slot 0 on five arenas, slot 1 on La Cantina (Mp), whose solo human
+ * therefore started at side 2's base. The two lists before that were sorted
+ * independently and paired by index, which is only correct while both happen to
+ * order the same way.
  */
 function teamsOf<
-  B extends { x: number; z: number },
+  B extends { x: number; z: number; team: number },
   S extends { id: number; x: number; z: number },
->(bases: readonly B[], spawns: readonly S[], field: Field): { base: B; spawn: S }[] {
+>(
+  bases: readonly B[],
+  spawns: readonly S[],
+  x1alpha: readonly { id: number; slot: number }[],
+): { base: B; spawn: S }[] {
   const d = (p: { x: number; z: number }, q: { x: number; z: number }): number =>
     Math.hypot(p.x - q.x, p.z - q.z);
   const pairs = bases.map((base) => {
@@ -345,7 +363,20 @@ function teamsOf<
   if (new Set(pairs.map((p) => p.spawn.id)).size !== pairs.length) {
     throw new Error("two bases claim the same X1Alpha — the spawn/base pairing is ambiguous");
   }
-  return pairs.sort((p, q) => p.base[field.axis] - q.base[field.axis]);
+  const slotOf = (spawn: S): number => {
+    const rec = x1alpha.find((x) => x.id === spawn.id);
+    if (!rec) throw new Error(`no X1Alpha ${spawn.id} in the rules artifact`);
+    return rec.slot;
+  };
+  const sorted = pairs.sort((p, q) => slotOf(p.spawn) - slotOf(q.spawn));
+  sorted.forEach((p, team) => {
+    if (slotOf(p.spawn) !== team || p.base.team !== team + 1) {
+      throw new Error(
+        `team ${team}: X1Alpha ${p.spawn.id} (slot ${slotOf(p.spawn)}) pairs with a side ${p.base.team} Dreadnought`,
+      );
+    }
+  });
+  return sorted;
 }
 
 /**
@@ -382,6 +413,11 @@ function out0Spawns(
 
 /** One sim tick is this many of the original's 300 Hz engine ticks. */
 const ENGINE_TICKS_PER_TICK = 300 / TICK_HZ;
+/**
+ * An authored time unit (a tFUN period, 1/60 s) in engine ticks: `cfun_load`
+ * (RE cfun/load.c 0x00436b10) stores period = time_units * 5.
+ */
+const CFUN_TICKS_PER_UNIT = 300 / ORIGINAL_TICK_HZ;
 
 type LiftJson = NonNullable<MapJson["lifts"]>[number];
 
@@ -741,8 +777,11 @@ function waterOf(
  * A base's Dreadnought and Fortress zones (fcop-fidelity.md R10) and the
  * Fortress spawner, from the rules artifact: each type-14 zone's radius is the
  * record's r << 4 world units (r / 512 m; the mech's own radius comes on top in
- * the sim), the opening poll the slot's fn30/fn31 period. The Dreadnought's
- * spawner is the Dreadnought record the base already carries; asserted.
+ * the sim), the opening poll the slot's fn30/fn31, its period in engine ticks
+ * as `cfun_load` stores it (time units × 5) and the two terminals its code
+ * requests when it opens the zones (their Csac templates, which the client's
+ * scenery table names). The Dreadnought's spawner is the Dreadnought record the
+ * base already carries; asserted.
  */
 function heavyOf(
   rules: FcopRules,
@@ -754,7 +793,8 @@ function heavyOf(
   heavyZones: {
     juggernaut: { x: number; y: number; radius: number };
     fortress: { x: number; y: number; radius: number };
-    pollTicks: number;
+    pollPeriod: number;
+    terminals: number[];
   };
   fortressSpawn: number[];
 } {
@@ -784,7 +824,8 @@ function heavyOf(
     heavyZones: {
       juggernaut: zone(dread),
       fortress: zone(fort),
-      pollTicks: toSimTicks(enable[0].pollUnits, TICK_HZ),
+      pollPeriod: enable[0].pollUnits * CFUN_TICKS_PER_UNIT,
+      terminals: [...enable[0].terminals],
     },
     fortressSpawn: [round4(sx(f.x)), round4(sz(f.z))],
   };
@@ -811,11 +852,17 @@ function spawnerAt(rules: FcopRules, template: number): number[] {
   return [round4(sx(s.x)), round4(sz(s.z))];
 }
 
-/** A queue's period in sim ticks, by its rows in the rules artifact. */
-function queueTicksOf(rules: FcopRules, pick: (q: FcopRules["queues"][number]) => boolean): number {
+/**
+ * A queue's period in engine ticks as `cfun_load` stores it (time units × 5),
+ * by its rows in the rules artifact.
+ */
+function queuePeriodOf(
+  rules: FcopRules,
+  pick: (q: FcopRules["queues"][number]) => boolean,
+): number {
   const rows = rules.queues.filter(pick);
   if (rows.length !== 1) throw new Error(`${rules.mapId}: ${rows.length} queues match, want 1`);
-  return toSimTicks(rows[0].periodUnits, TICK_HZ);
+  return rows[0].periodUnits * CFUN_TICKS_PER_UNIT;
 }
 
 /**
@@ -828,7 +875,7 @@ function queueTicksOf(rules: FcopRules, pick: (q: FcopRules["queues"][number]) =
 function baseQueuesOf(
   rules: FcopRules,
   slot: number,
-): { tankSpawn: number[]; jetSpawn: number[]; queueTicks: { tank: number; jet: number } } {
+): { tankSpawn: number[]; jetSpawn: number[]; queuePeriod: { tank: number; jet: number } } {
   const shop = (kind: string) => {
     const b = rules.buyTriggers.find((t) => t.slot === slot && t.kind === kind);
     if (!b) throw new Error(`${rules.mapId}: slot ${slot} has no ${kind} shop`);
@@ -840,9 +887,9 @@ function baseQueuesOf(
   return {
     tankSpawn: spawnerAt(rules, tank.template),
     jetSpawn: spawnerAt(rules, shop("jet").template),
-    queueTicks: {
-      tank: queueTicksOf(rules, (q) => q.fn === tank.queueFn),
-      jet: queueTicksOf(rules, (q) => base(q) && q.kind === "jet" && (!ownJet || q.slot === slot)),
+    queuePeriod: {
+      tank: queuePeriodOf(rules, (q) => q.fn === tank.queueFn),
+      jet: queuePeriodOf(rules, (q) => base(q) && q.kind === "jet" && (!ownJet || q.slot === slot)),
     },
   };
 }
@@ -862,7 +909,7 @@ function outpostQueuesOf(
 ): {
   tankSpawn: number[][];
   jetSpawn: number[][];
-  queueTicks: { tank: number; jet: number }[];
+  queuePeriod: { tank: number; jet: number }[];
 } {
   const out = slots.map((slot) => {
     const shop = rules.outpostShop.find((o) => o.outpost === k && o.slot === slot);
@@ -876,16 +923,16 @@ function outpostQueuesOf(
     return {
       tankSpawn,
       jetSpawn: spawnerAt(rules, shop.jetTemplate),
-      queueTicks: {
-        tank: queueTicksOf(rules, (q) => q.fn === shop.tankQueueFn),
-        jet: queueTicksOf(rules, (q) => jets(q) && (!ownJet || q.slot === slot)),
+      queuePeriod: {
+        tank: queuePeriodOf(rules, (q) => q.fn === shop.tankQueueFn),
+        jet: queuePeriodOf(rules, (q) => jets(q) && (!ownJet || q.slot === slot)),
       },
     };
   });
   return {
     tankSpawn: out.map((o) => o.tankSpawn),
     jetSpawn: out.map((o) => o.jetSpawn),
-    queueTicks: out.map((o) => o.queueTicks),
+    queuePeriod: out.map((o) => o.queuePeriod),
   };
 }
 
@@ -901,71 +948,47 @@ class WeaponTable {
   }
 }
 
-/**
- * Which unit a build console sells, read off the Cobj parked on it.
- *
- * The original labels its consoles with an icon rather than a field, and the
- * icon is a UV window into the shared 256x256 base atlas. Measured on the raw
- * assemblies in tools/generators/units/raw/fcop/, the icon face of each
- * console model samples one of two windows:
- *
- *   y 0..28  -> a yellow jet silhouette   -> AIR   (obj 33, obj 39)
- *   y 28..56 -> a yellow tank silhouette  -> GROUND (obj 27, obj 40)
- *
- * Conft and Slim mark the air console with obj 41 — the flyer model itself —
- * instead of an icon pillar. Same meaning.
- *
- * This replaces a footprint-width heuristic. On Mp the wider trigger (819) is
- * the one wearing the JET, so calling the wider one "ground" sold Runners at
- * the aircraft console and Guardians at the tank console. Joke, Hk and Ovmp
- * were wrong the same way; Conft and Slim happened to come out right.
- */
-const CONSOLE_ICON_AIR = new Set([33, 39, 41]);
-const CONSOLE_ICON_GROUND = new Set([27, 40]);
-
 type ConsoleTrigger = Logic["triggers"][number];
 
-function consoleRole(trigger: ConsoleTrigger, props: Logic["props"]): "ground" | "air" | "unknown" {
-  let best: Logic["props"][number] | null = null;
-  let bestD = Infinity;
-  for (const p of props) {
-    const d = Math.hypot(p.x - trigger.x, p.z - trigger.z);
-    if (d < bestD) {
-      bestD = d;
-      best = p;
-    }
-  }
-  // The console Cobj sits ON the trigger: measured 0.07-0.42 cells on all six
-  // missions. Anything further away is some other piece of scenery.
-  if (!best || bestD > 1.5) return "unknown";
-  if (CONSOLE_ICON_AIR.has(best.objId)) return "air";
-  if (CONSOLE_ICON_GROUND.has(best.objId)) return "ground";
-  return "unknown";
-}
-
-/** [ground, air] triggers for one base, keyed off their console icons. */
+/**
+ * [ground, air] triggers for one base: what each of its two shop triggers
+ * sells, as the rules artifact reads it off the trigger's own script
+ * (`buy_triggers[].sells`, RE tools/logic/pa_rules_data.py: a spawn request
+ * 0x47 for a jet template is the jet shop, a queue flag whose queue builds a
+ * tank is the tank shop), paired with the logic record by id.
+ *
+ * This replaces an icon reading that took the Cobj parked on each trigger and
+ * looked its id up in one table for all six missions (27/40 a tank kiosk,
+ * 33/39/41 a jet). Cobj ids are per mission (fcop-fidelity.md G2): Conft's and
+ * Slim's 40 is Mp's 39, the jet kiosk, and their 41 is Mp's 40, the tank kiosk
+ * (the same payloads), so on urban-jungle and proving-ground the table sold
+ * tanks at the jet shop and jets at the tank shop. Before the icons it was the
+ * footprint width, wrong on the other four.
+ */
 function assignConsoles(
   triggers: readonly ConsoleTrigger[],
-  props: Logic["props"],
+  rules: FcopRules,
+  slot: number,
   team: number,
 ): [ConsoleTrigger, ConsoleTrigger] {
-  if (triggers.length < 2) {
-    throw new Error(`base ${team} has ${triggers.length} action-button triggers, need 2`);
-  }
-  const byId = [...triggers].sort((a, b) => a.id - b.id);
-  const ground = byId.filter((t) => consoleRole(t, props) === "ground");
-  const air = byId.filter((t) => consoleRole(t, props) === "air");
-  if (ground.length !== 1 || air.length !== 1) {
-    // Refuse to guess. A mission whose consoles carry an icon this table does
-    // not know is a data question, and getting it backwards is invisible in
-    // every screenshot — you only notice when the wrong unit rolls out.
-    const seen = byId.map((t) => `${t.id}:${consoleRole(t, props)}`).join(" ");
-    throw new Error(
-      `base ${team}: cannot tell the build consoles apart from their icons (${seen}). ` +
-        `Add the console Cobj id to CONSOLE_ICON_AIR / CONSOLE_ICON_GROUND.`,
-    );
-  }
-  return [ground[0], air[0]];
+  const shop = (kind: "tank" | "jet"): ConsoleTrigger => {
+    const sells = rules.buyTriggers.filter((b) => b.slot === slot && b.kind === kind);
+    if (sells.length !== 1) {
+      throw new Error(`${rules.mapId}: slot ${slot} has ${sells.length} ${kind} shops, want 1`);
+    }
+    const t = triggers.find((x) => x.id === sells[0].id);
+    if (!t) {
+      throw new Error(
+        `${rules.mapId}: base ${team}'s ${kind} shop ${sells[0].id} is not one of its ` +
+          `action-button triggers (${triggers.map((x) => x.id).join(", ")})`,
+      );
+    }
+    if (t.x !== sells[0].x || t.z !== sells[0].z) {
+      throw new Error(`${rules.mapId}: shop ${t.id} stands elsewhere in the two artifacts`);
+    }
+    return t;
+  };
+  return [shop("tank"), shop("jet")];
 }
 
 // ---------------------------------------------------------------------------
@@ -1028,6 +1051,84 @@ function outpostMembers(ev: EvidenceMap): Set<number> {
  * PA turret); `hold` + `priority`: HOLD_TARGET and the priority preference
  * (0x4000 and 0x40, the team turrets' bitfield 0x4246).
  */
+/**
+ * The Dreadnought's gun mounts from the arena's own hull and gun models
+ * (fcopModels.ts): per gun the hull's attach point and the gun's muzzle, both in
+ * their glb frames -- on a hull that walks the point in each of its frames, and
+ * the walk itself -- and the one turn rate all four share. Every gun fires only
+ * inside its front sector, which is what `shooterWeapon`'s arc applies.
+ */
+function dreadnoughtMounts(models: ModelsArtifact): {
+  mounts: {
+    x: number;
+    y: number;
+    z: number;
+    mx: number;
+    my: number;
+    mz: number;
+    frames?: number[][];
+  }[];
+  turn: number;
+  walk: ModelsArtifact["dreadnought"]["walk"];
+} {
+  const guns = models.dreadnought.guns;
+  const turn = guns[0]?.turnPerTick;
+  if (turn === undefined) throw new Error(`${models.mission}: the Dreadnought has no guns`);
+  for (const g of guns) {
+    if (g.turnPerTick !== turn) throw new Error(`${models.mission}: its guns turn apart`);
+    if (!g.frontSectorOnly) throw new Error(`${models.mission}: gun ${g.gun} fires all round`);
+  }
+  return {
+    mounts: guns.map((g) => ({
+      x: g.point[0],
+      y: g.point[1],
+      z: g.point[2],
+      mx: g.muzzle[0],
+      my: g.muzzle[1],
+      mz: g.muzzle[2],
+      // A walking hull's (Joke's): the point in each frame, which the gun
+      // stands on while the hull shows it.
+      ...(g.pointByFrame ? { frames: g.pointByFrame.map((p) => [p[0], p[1], p[2]]) } : {}),
+    })),
+    turn,
+    walk: models.dreadnought.walk,
+  };
+}
+
+/** Raw `radius_68` halfwords -> metres (<< 4 wu, 8192 wu a metre: raw / 512, exact). */
+const RADIUS_UNIT = 512;
+
+/**
+ * The arena's hit radii (sim map.ts MapRadii) from its models' 3DBB boxes
+ * (fcopModels.ts): the neutral list must be its turret spots, in order.
+ */
+function radiiOf(models: ModelsArtifact, spots: number, mapId: string) {
+  const r = models.radii;
+  if (r.neutral.length !== spots) {
+    throw new Error(`${mapId}: ${r.neutral.length} neutral radii for ${spots} turret spots`);
+  }
+  const m = (raw: number) => raw / RADIUS_UNIT;
+  return {
+    walker: m(r.x1.walker),
+    hover: m(r.x1.hover),
+    tank: m(r.tank),
+    jet: m(r.jet),
+    fortress: m(r.fortress),
+    dreadnought: m(r.dreadnought),
+    // A walking hull's (Joke's): its radius in each frame its walk shows.
+    ...(r.dreadnoughtByFrame ? { dreadnoughtByFrame: r.dreadnoughtByFrame.map(m) } : {}),
+    baseTurret: m(r.baseTurret),
+    neutral: r.neutral.map(m),
+    skyCaptain: r.skyCaptain.map(m),
+  };
+}
+
+/** The record's gun count, which must be the hull's mount count. */
+function gunsOnMounts(guns: number, mounts: number, mapId: string): number {
+  if (guns !== mounts) throw new Error(`${mapId}: ${guns} Dreadnought guns on ${mounts} mounts`);
+  return guns;
+}
+
 function shooterWeapon(
   sh: Shooter,
   turnSpeed: number,
@@ -1671,22 +1772,42 @@ function gateOf(
  * the terrain input. Every base field is rebuilt below anyway.
  */
 function terrainOnly(raw: MapJson): MapJson {
+  // The heavy zones, the queues and the spawn guards are rebuilt below as well;
+  // dropped here so a map committed in an older shape (their pollTicks before
+  // SIM_VERSION 80, queueTicks and resetTicks before 84) still loads.
   const bases = raw.bases.map((b) => {
-    const { coreHp, productionTicks, productionLimit, defence, ...rest } = b as typeof b & {
-      coreHp?: unknown;
-      productionTicks?: unknown;
-      productionLimit?: unknown;
-      defence?: unknown;
-    };
+    const { coreHp, productionTicks, productionLimit, defence, heavyZones, queueTicks, ...rest } =
+      b as typeof b & {
+        coreHp?: unknown;
+        productionTicks?: unknown;
+        productionLimit?: unknown;
+        defence?: unknown;
+        queueTicks?: unknown;
+      };
     void coreHp;
     void productionTicks;
     void productionLimit;
     void defence;
+    void heavyZones;
+    void queueTicks;
     return rest;
   });
+  const outposts = raw.outposts?.map((o) => {
+    const { queueTicks, ...rest } = o as typeof o & { queueTicks?: unknown };
+    void queueTicks;
+    return rest;
+  });
+  // The render-only `props` this stage used to write (their yaws Metropolis'
+  // own, "face the nearer base core") are dropped: the client draws the scenery
+  // from render/arenaScenery.generated.ts, and nothing read them.
+  const { props, spawnGuards, ...kept } = raw as MapJson & { props?: unknown };
+  void props;
+  void spawnGuards;
   // A fresh stage-1 terrain still carries convert.ts's hand outpost spots but no
   // outposts, which the loader refuses; every feature list is rebuilt below.
-  return raw.outposts === undefined ? { ...raw, bases, outpostSpots: [] } : { ...raw, bases };
+  return outposts === undefined
+    ? { ...kept, bases, outpostSpots: [] }
+    : { ...kept, bases, outposts };
 }
 
 // ---------------------------------------------------------------------------
@@ -1706,16 +1827,22 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const rules = JSON.parse(
     readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", rulesFile(arena)), "utf8"),
   ) as FcopRules;
+  const models = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", modelsFile(arena)), "utf8"),
+  ) as ModelsArtifact;
+  const mounts = dreadnoughtMounts(models);
 
-  // Team 0 is the low end of the field axis; each side's Dreadnought drives its
-  // own Cnet (fcop-logic.md §8.1) and the side owns the nearer X1Alpha. The
-  // Dreadnought records stand next to each HQ, so they are what locates a base.
+  // Team N is the original's player slot N (side N + 1); each side's Dreadnought
+  // drives its own Cnet (fcop-logic.md §8.1) and the side owns the nearer
+  // X1Alpha. The Dreadnought records stand next to each HQ, so they are what
+  // locates a base. The field axis only reports the arena's shape now.
   const field = fieldOf(logic.dreadnoughts);
-  const teams = teamsOf(logic.dreadnoughts, logic.spawns, field);
+  const teams = teamsOf(logic.dreadnoughts, logic.spawns, rules.x1alpha);
   const teamBases = teams.map((t) => t.base);
   const teamSpawns = teams.map((t) => t.spawn);
   // The original's player slot 0 is X1Alpha 12, slot 1 X1Alpha 16 (the rules
-  // artifact's x1alpha); which team that is falls out of the base pairing.
+  // artifact's x1alpha); teamsOf makes slot N team N, which this re-reads from
+  // the pairing so a slot-keyed record can never land on the other team.
   const teamOfSlot = (slot: number): number => {
     const rec = rules.x1alpha.find((x) => x.slot === slot);
     const team = rec ? teamSpawns.findIndex((sp) => sp.id === rec.id) : -1;
@@ -1737,10 +1864,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // --- bases -------------------------------------------------------------
   // The two `action_button` triggers per base are the base's own interaction
   // points (fcop-logic.md §8.6: they watch that base's own X1Alpha), so they are
-  // the build consoles. Which is which comes from the Cobj standing on each one
-  // — see consoleRole(). This used to be "the wider footprint is the ground
-  // console", which was a guess, and on four of six missions it was the wrong
-  // way round.
+  // the build consoles. Which is which is what each one's script sells — see
+  // assignConsoles(); two guesses before it (the wider footprint, then the
+  // kiosk's Cobj id) were each backwards on some missions.
   const evidence = evidenceOf(arena);
   const members = outpostMembers(evidence);
   let ringDropped = 0;
@@ -1748,7 +1874,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     const own = teamSpawns[team];
     const buttons = assignConsoles(
       logic.triggers.filter((t) => t.flags.includes("action_button") && t.watchesActor === own.id),
-      logic.props,
+      rules,
+      slotOfTeam(team),
       team,
     );
     const coreX = round4(sx(base.x));
@@ -1829,23 +1956,25 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         y: round4(sz(t.z)),
         weapon: turretWeapon(t, table, true),
         hp: t.health,
-        yaw: round4(rotToYaw(t.gunRotationRaw, true)),
+        yaw: round4(rotToYaw(t.gunRotationRaw)),
       })),
       turretRespawnTicks,
       // The type-28 record IS the Dreadnought (fcop-re/ranges-turrets-capture.md
       // top + Q4): the Juggernaut spawns where it stands, with its 3000 HP and its
-      // four hull guns, each its record's shooter on catalogue weapon 3. The
-      // mounts' own yaw (237°/s, relative to the hull) is not modelled — the guns
-      // stand at the hull and aim at their target — so their ±22.5° arc is not
-      // applied either.
+      // four hull guns, each its record's shooter on catalogue weapon 3, standing
+      // on its own mount of the arena's hull model with its own yaw, firing inside
+      // its ±22.5° front sector (<mission>-models.json; fcop-fidelity.md I6).
       juggernaut: {
         x: coreX,
         y: coreY,
         hp: base.health,
-        guns: base.gunCount,
+        guns: gunsOnMounts(base.gunCount, mounts.mounts.length, mapId),
         weapon: table.intern(
-          shooterWeapon(base.gun, 0, { arc: false, hold: false, priority: false }),
+          shooterWeapon(base.gun, 0, { arc: true, hold: false, priority: false }),
         ),
+        mounts: mounts.mounts,
+        gunTurn: mounts.turn,
+        ...(mounts.walk ? { walk: { ...mounts.walk } } : {}),
       },
       // The tank, jet and Flying Fortress spawner records (fcop-fidelity.md W3).
       ...unitProfiles(logic, base.team, table),
@@ -1879,7 +2008,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const neutrals = [...logic.neutrals].sort((a, b) => a.id - b.id);
   const turretSpots = neutrals.map((t) => [round4(sx(t.x)), round4(sz(t.z))] as number[]);
   const turretParams = neutrals.map((t) => turretWeapon(t, table, false));
-  const turretYaw = neutrals.map((t) => round4(rotToYaw(t.gunRotationRaw, true)));
+  const turretYaw = neutrals.map((t) => round4(rotToYaw(t.gunRotationRaw)));
   // The original's Turret health, rather than the Phase-1 ARCHETYPE_MAX_HP
   // placeholder. Same value the ring turrets carry — they are the same actor kind.
   const turretHp = neutrals.map((t) => t.health);
@@ -1938,7 +2067,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
             y: round4(sz(t.z)),
             weapon: turretWeapon(t, table, true),
             hp: t.health,
-            yaw: round4(rotToYaw(t.gunRotationRaw, true)),
+            yaw: round4(rotToYaw(t.gunRotationRaw)),
           };
         }),
       };
@@ -1950,7 +2079,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const lanes = [graphRoute(graph, 0)];
   if (lanes[0].length < 2) throw new Error("team 0's committed route is shorter than 2 waypoints");
 
-  // --- pickups / triggers / props ----------------------------------------
+  // --- pickups / triggers -----------------------------------------------
   const pickups = [...logic.pickups]
     .sort((a, b) => a.id - b.id)
     .map((p) => {
@@ -2035,32 +2164,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     halfH: round4(triggerHalfExtent(g.heightRaw)),
     hurtsTeam: teamOfSlot(g.hurtsSlot),
     damage: g.damage,
-    resetTicks: toSimTicks(g.resetUnits, TICK_HZ),
+    resetPeriod: g.resetUnits * CFUN_TICKS_PER_UNIT,
   }));
-
-  // Icon consoles and outpost kiosks: face the nearer base core so their
-  // unit-type screens read toward the pad (player stands on the apron and
-  // looks at the console). Hazard barriers (Cobj 28) share the same rule —
-  // striping still reads; yaw 0 left every kiosk facing world +X.
-  const props = [...logic.props]
-    .sort((a, b) => a.id - b.id)
-    .map((p) => {
-      const x = round4(sx(p.x));
-      const y = round4(sz(p.z));
-      const c0 = bases[0].core as number[];
-      const c1 = bases[1].core as number[];
-      const d0 = (x - c0[0]) * (x - c0[0]) + (y - c0[1]) * (y - c0[1]);
-      const d1 = (x - c1[0]) * (x - c1[0]) + (y - c1[1]) * (y - c1[1]);
-      const cx = d0 <= d1 ? c0[0] : c1[0];
-      const cy = d0 <= d1 ? c0[1] : c1[1];
-      return {
-        x,
-        y,
-        height: round4(p.height),
-        yaw: round4(Math.atan2(cy - y, cx - x)),
-        model: p.objId,
-      };
-    });
 
   // --- walls -------------------------------------------------------------
   // Start from the PRISTINE stage-1 lattice, never from the map on disk. This
@@ -2230,6 +2335,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // The NeutralTurrets' capture range (fcop-re/ranges-turrets-capture.md Q2),
     // uniform per arena; the sim adds the capturer's own radius.
     captureRange: round4(captureRangeToCells(arena.neutralCaptureRaw)),
+    // Every body's hit radius, the arena's own mission's models (fcop-fidelity.md G1).
+    radii: radiiOf(models, turretSpots.length, mapId),
     laneGraph: {
       nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,
@@ -2243,7 +2350,6 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     spawnGuards: spawnGuards.length > 0 ? spawnGuards : undefined,
     lifts: lifts.length > 0 ? lifts : undefined,
     layers,
-    props,
   };
 
   // Load it back through the real validator before returning: an arena that only
@@ -2341,8 +2447,10 @@ function probeOffsets(arena: FcopArena): boolean {
   ) as { wallsV: string[]; wallsH: string[] };
   const map = loadMapFromJson({ ...raw, wallsV: pristine.wallsV, wallsH: pristine.wallsH });
 
-  const field = fieldOf(logic.dreadnoughts);
-  const teamNet = teamsOf(logic.dreadnoughts, logic.spawns, field).map((t) => t.base.netId);
+  const rules = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", rulesFile(arena)), "utf8"),
+  ) as FcopRules;
+  const teamNet = teamsOf(logic.dreadnoughts, logic.spawns, rules.x1alpha).map((t) => t.base.netId);
   const nets = ownedNets(logic, teamNet);
 
   // Every directed Cnet edge, in the raw actor frame.
@@ -2458,7 +2566,7 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
   );
   console.log(
     `  weapons ${map.weapons.length}  pickups ${map.pickups.length}` +
-      `  intrusion volumes ${map.triggerVolumes.length}  props ${map.props.length}`,
+      `  intrusion volumes ${map.triggerVolumes.length}`,
   );
   console.log(
     `  lane graph ${graph.nodes.length} nodes, polyline route ${map.lanes[0].length} waypoints`,

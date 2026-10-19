@@ -10,6 +10,7 @@
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
+  CFUN_DELTA_PER_TICK,
   COST_OUTPOST_CLAIM,
   POINTS_AVATAR_DOWN,
   SKY_RETHINK_BASE,
@@ -23,9 +24,17 @@ import {
   TICK_DT,
   UNIT_QUEUES,
   WARDEN_ALTITUDE,
+  WEAPON_UNITS_PER_TICK,
   wardenLevel,
 } from "../src/balance";
-import { EV_CLAIM, EV_PURCHASE, EV_SHOT, EVENT_STRIDE, SHOT_SLOT_HITSCAN } from "../src/events";
+import {
+  EV_CLAIM,
+  EV_DEATH,
+  EV_PURCHASE,
+  EV_SHOT,
+  EVENT_STRIDE,
+  SHOT_SLOT_HITSCAN,
+} from "../src/events";
 import { createTickInputs } from "../src/inputs";
 import { getMapById, LA_CANTINA_ID, sampleHeight } from "../src/map";
 import { claimOutpostSlot, createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
@@ -194,13 +203,19 @@ describe("the Warden is the Sky Captain", () => {
       expect(sim.points[1]).toBe(0); // unpaid
     }
     // The scripts spawn them one a period from a random phase: on Mp a tank per
-    // 3.38 s (fn19, 203 units) and a jet per 0.97 s (fn17, 58).
+    // 3.38 s (fn19, 203 units, 1015 engine ticks: 101 and 102 ticks apart) and a
+    // jet per 0.97 s (fn17, 58 units, 290: 29 ticks). Until SIM_VERSION 79 the
+    // captain's team on Mp held slot 0's base and its fn18 (202 units, 1010), a
+    // queue the original never feeds the captain; until 84 the periods were
+    // rounded to sim ticks (102, 29).
     const sim = wardenSim(8, 1, LA_CANTINA_ID);
-    const base = sim.map.bases[1].queueTicks;
-    expect([base.tank, base.jet]).toEqual([101, 29]);
+    const base = sim.map.bases[1].queuePeriod;
+    expect([base.tank, base.jet]).toEqual([1015, 290]);
+    const tankTicks = Math.ceil(base.tank / CFUN_DELTA_PER_TICK);
+    const jetPeriod = base.jet / CFUN_DELTA_PER_TICK;
     const jetTicks: number[] = [];
     let firstTank = -1;
-    for (let t = 0; t < base.tank + 1; t++) {
+    for (let t = 0; t < tankTicks + 1; t++) {
       step(sim, idle);
       for (let i = 0; i < sim.events.count; i++) {
         const o = i * EVENT_STRIDE;
@@ -211,8 +226,8 @@ describe("the Warden is the Sky Captain", () => {
       }
     }
     expect(firstTank).toBeGreaterThanOrEqual(0); // within the first period
-    expect(jetTicks[0]).toBeLessThan(base.jet);
-    for (let n = 1; n < jetTicks.length; n++) expect(jetTicks[n] - jetTicks[n - 1]).toBe(base.jet);
+    expect(jetTicks[0]).toBeLessThan(jetPeriod);
+    for (let n = 1; n < jetTicks.length; n++) expect(jetTicks[n] - jetTicks[n - 1]).toBe(jetPeriod);
   });
 });
 
@@ -428,5 +443,89 @@ describe("the captain's weapons (fcop-re/ai-and-rules.md §1.4)", () => {
       step(front.sim, idle);
     }
     expect(front.ent.hp[front.foe]).toBeLessThan(1e6);
+  });
+});
+
+describe("a player's down (fcop-re/ai-and-rules.md §1.8; player_op4 0x004477ea)", () => {
+  // Open ground with no neutral turret, outpost or base within 10 m: a capture
+  // is an engine credit too, and would zero the rethink on its own.
+  const X = 152;
+  const Y = 128;
+
+  /** The player's mech parked at (X, Y), one hit from down. */
+  function frail(sim: SimState): number {
+    const foe = sim.avatarId[0];
+    sim.ent.posX[foe] = X;
+    sim.ent.posY[foe] = Y;
+    sim.ent.height[foe] = sampleHeight(sim.map, X, Y);
+    sim.ent.entLayer[foe] = 0;
+    sim.ent.hp[foe] = 1;
+    return foe;
+  }
+
+  /** The tick's EV_DEATH killer for `id`, or undefined. */
+  function killerOf(sim: SimState, id: number): number | undefined {
+    for (let i = 0; i < sim.events.count; i++) {
+      const o = i * EVENT_STRIDE;
+      if (sim.events.data[o] === EV_DEATH && sim.events.data[o + 1] === id) {
+        return sim.events.data[o + 2];
+      }
+    }
+    return undefined;
+  }
+
+  it("zeroes the captain's rethink at the down when its own fire put the mech down", () => {
+    const sim = wardenSim(10, 5, LA_CANTINA_ID);
+    const wid = sim.avatarId[1];
+    const foe = frail(sim);
+    let killer: number | undefined;
+    for (let t = 0; t < 60 && killer === undefined; t++) {
+      sim.ent.posX[wid] = X - 6;
+      sim.ent.posY[wid] = Y;
+      sim.captain.move = -1;
+      sim.captain.destX = X + 1;
+      sim.captain.destY = Y;
+      sim.captain.think = 1e6;
+      step(sim, idle);
+      killer = killerOf(sim, foe);
+    }
+    expect(killer).toBe(1);
+    // Zeroed by the down itself, the tick it happened: the next tick decides.
+    expect(sim.captain.think).toBe(0);
+  });
+
+  it("leaves it alone when its tank did it, and at the respawn", () => {
+    const sim = wardenSim(10, 5, LA_CANTINA_ID);
+    const wid = sim.avatarId[1];
+    const foe = frail(sim);
+    spawnUnit(sim, ARCHETYPE.RUNNER, 1, X + 5, Y);
+    const away = () => {
+      // The captain far off, not deciding: only its tank is near the mech.
+      sim.ent.posX[wid] = 20;
+      sim.ent.posY[wid] = 20;
+      sim.captain.move = -1;
+      sim.captain.destX = 20;
+      sim.captain.destY = 20;
+    };
+    let killer: number | undefined;
+    for (let t = 0; t < 150 && killer === undefined; t++) {
+      away();
+      sim.captain.think = 1e6;
+      step(sim, idle);
+      killer = killerOf(sim, foe);
+    }
+    // The captain's side put it down, so the points go its way at the respawn,
+    // but the hit was not the captain's: no credit, no rethink.
+    expect(killer).toBe(1);
+    expect(sim.captain.think).toBe(1e6 - WEAPON_UNITS_PER_TICK);
+    while (sim.respawnTimer[0] > 1) {
+      away();
+      step(sim, idle);
+    }
+    const before = sim.captain.think;
+    away();
+    step(sim, idle);
+    expect(sim.avatarId[0]).toBeGreaterThanOrEqual(0);
+    expect(sim.captain.think).toBe(before - WEAPON_UNITS_PER_TICK);
   });
 });

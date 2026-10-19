@@ -27,6 +27,8 @@ const OUT = process.env.TURRET_SHOTS_OUT ?? join(ROOT, "docs", "verification", "
 // Open heightfield so the models read cleanly; no textured terrain needed.
 // The wall-free debug map (district-01, which this used before, is gone).
 const MAP_ID = "test-128";
+/** The two turrets' guns and bases (Mp 31/32 neutral, 20/21 base ring). */
+const TURRET_GLBS = ["obj_031", "obj_032", "obj_020", "obj_021"];
 
 function setPaused(page: Page, paused: boolean): Promise<void> {
   return page.evaluate((p) => {
@@ -58,7 +60,8 @@ async function main(): Promise<void> {
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("response", (r) => {
       const u = r.url();
-      const match = u.match(/\/models\/units\/(turret-[a-z]+)\.glb$/);
+      // test-128 draws la-cantina's (Mp's) units: render/arenaUnits.ts.
+      const match = u.match(/\/models\/units\/la-cantina\/(obj_0(?:20|21|31|32))\.glb$/);
       if (match && r.ok()) glbs.push(match[1]);
     });
 
@@ -84,10 +87,7 @@ async function main(): Promise<void> {
 
     if (mode === "mesh") {
       const deadline = Date.now() + 15000;
-      while (
-        Date.now() < deadline &&
-        !(glbs.includes("turret-standard") && glbs.includes("turret-defense"))
-      ) {
+      while (Date.now() < deadline && !TURRET_GLBS.every((g) => glbs.includes(g))) {
         await page.waitForTimeout(200);
       }
     }
@@ -229,8 +229,8 @@ async function main(): Promise<void> {
   await browser.close();
   await dev.stop();
 
-  const ok = meshGlbs.includes("turret-standard") && meshGlbs.includes("turret-defense");
-  console.log(ok ? "OK: both turret GLBs loaded" : "FAIL: missing turret GLB load");
+  const ok = TURRET_GLBS.every((g) => meshGlbs.includes(g));
+  console.log(ok ? "OK: every turret part GLB loaded" : "FAIL: missing turret GLB load");
   console.log(`screenshots → ${OUT}`);
   process.exit(ok ? 0 : 1);
 }

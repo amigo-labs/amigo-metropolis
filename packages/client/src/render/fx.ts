@@ -1,208 +1,67 @@
-// Client-only shot cosmetics (architecture.md §3 event buffer). Driven like
-// audio: pump per tick, update per frame. Never touches sim state; zero
-// allocations in the hot path (pools preallocated at createFx).
+// The original's weapon effects, drawn (Phase 14 wave 4).
 //
-// Hybrid visual language (as much original FCOP as the assets allow):
-//   Cobj meshes (public/models/fx/)                   → emplacement/unit bolts
-//   Cpyr particle sprites (public/fx/particles.png)   → muzzle, explosion, hit
-//   Procedural geometry                               → the avatar's own tracer,
-//                                                       shockwave rings
+// Every effect is one of the original's records (types 87..94), installed by
+// the effect chain (effects/chain.ts) from the raise sites the sound cues
+// already keep (audio/cues.ts: a shot's muzzle or launch, a line's or a
+// round's impact, a death's class row, the mech's wreck and transform). This
+// module is the chain's other listener: each install becomes an instance of
+// its record's class, drawn the way the RE reads that class's drawer:
 //
-// The split is not a matter of taste — it is where the original has an asset
-// and where it does not (docs/specs/fcop-fx.md):
-// - Turrets and units throw a real object, ~1 m of facer beam, twin for turrets
-//   and single for ground units. That IS the original's tracer.
-// - The avatar's four hitscan guns spawn nothing in the original's weapon
-//   table: their rows are empty. The streak drawn for them is ours, and stays
-//   marked as ours.
-// - The particle atlas is only fireballs/puffs, and it is static — 8 sprites,
-//   one frame each. PYDT carries no labels, so the id->role mapping is read off
-//   the contact sheet (`bun run gen:fxsheet`) rather than guessed; fx.test.ts
-//   records what each sprite actually looks like.
-// - No ring sprite and no explosion mesh exist anywhere, so the shockwave ring
-//   and the fireball's scale-and-fade are procedural.
+//   87 trail      render/fx/ribbons.ts   a camera-facing ribbon through its nodes
+//   88 link       render/fx/ribbons.ts   jagged strands between two ends
+//   89 flash      render/fx/flashes.ts   a disc fan or a spike star
+//   90 shatter    render/fx/shatter.ts   the dying model's faces flying apart
+//   92 shell      render/fx/shells.ts    an expanding ring or sphere
+//   93 particle   render/fx/particles.ts a Cpyr particle at the record's colour
+//   94 nodes      render/fx/nodes.ts     a burst of flat screen rectangles
+//
+// What the executable draws without a record comes from the sim's events
+// here (`pump`): the tracers (the Laser's two, the Sky Captain's gun) and the
+// Mini Gun's ribbon (tables.json exe). The world rounds whose Cobj is line
+// facers (rows 1, 3 and 6) are drawn here too, from the entity pass (`bolt`).
+//
+// Everything runs on the sim's clock in the original's engine ticks (300 a
+// second), so effects freeze with a paused sim. Pools are fixed-size and
+// filled in place; nothing allocates once a match runs.
 
 import {
-  ARCHETYPE,
-  AVATAR_LOCK_RANGE,
-  EV_EXPLOSION,
-  EV_HIT,
+  EV_SHIELD_ARC,
   EV_SHOT,
-  EV_TRANSFORM,
   EVENT_STRIDE,
   type EventBuffer,
+  MAX_ENTITIES,
   MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
-  PROJ_HYPER,
-  PROJ_MINE,
-  PROJ_MORTAR,
-  PROJ_SHOCKWAVE,
-  PROJ_SPECIAL,
-  PROJ_WARDEN,
+  SHIELD_CENTRE_RAISE,
   SHOT_SLOT_HITSCAN,
   SHOT_SLOT_SPECIAL,
+  shotPayloadPowered,
   shotPayloadToReach,
   shotPayloadWeaponId,
   shotPayloadWeaponReach,
-  TICK_HZ,
-  type WeaponDef,
   weaponById,
 } from "@metropolis/sim";
 import * as THREE from "three";
-import { PROJECTILE_HEX, paletteHex } from "./palette";
-import { loadUnitAsset } from "./unitMeshes";
+import { type EffectChain, type EffectListener, makeRaiseAt, type RaiseAt } from "../effects/chain";
+import { FX_ARENAS } from "../effects/fcopEffects.generated";
+import { ENGINE_HZ, type Fx88, type FxRecord } from "../effects/records";
+import { type FxPoses, FxView, POSE_STRIDE } from "./fx/common";
+import { Flashes } from "./fx/flashes";
+import { Nodes } from "./fx/nodes";
+import { PARTICLE_ATLAS_URL, Particles } from "./fx/particles";
+import { Ribbons } from "./fx/ribbons";
+import { FACE_REFS, Shatter, type ShatterSource } from "./fx/shatter";
+import { Shells } from "./fx/shells";
 
-/**
- * Flight speed of an emplacement bolt, m/s.
- *
- * The original's bolt is an OBJECT that travels (Cobj 12/14, ~1 m of facer
- * beam), not a streak drawn over the shot's whole reach — see
- * docs/specs/fcop-fx.md §5. The sim stays hitscan, so damage still lands the
- * instant the shot is fired and this is pure cosmetics; the speed is picked so
- * the visual arrives without a noticeable lag at the ranges emplacements
- * actually fire at (the PA arenas import engage_range 12 m, so ~0.13 s).
- *
- * A bolt's lifetime is exactly the time to cover its reach at this speed, with
- * no upper cap. There was one, and it was wrong: capping the LIFE while the
- * distance stayed the full reach made the bolt travel faster than BOLT_SPEED on
- * any shot past ~22 m, so the constant quietly stopped being the speed. The
- * longest shot the catalog can produce is 40 m, i.e. 0.44 s of flight — a real
- * object covering real ground, which is the point.
- */
-const BOLT_SPEED = 90;
-const BOLT_CAP = 128;
+export type { FxPoses } from "./fx/common";
+export { POSE_STRIDE } from "./fx/common";
 
-const TRACER_CAP = 128;
-const MUZZLE_CAP = 64;
-const EXPLOSION_CAP = 48;
-const SPARK_CAP = 64;
-const SHOCKWAVE_CAP = 48;
-/** One per avatar that can be transforming at once (render/morph.ts slots). */
-const ARC_EMITTERS = 4;
-
-const TRACER_LIFE = 0.09;
-const MUZZLE_LIFE = 0.06;
-const EXPLOSION_LIFE = 0.32;
-const EXPLOSION_LATE_LIFE = 0.5;
-const SPARK_LIFE = 0.1;
-const SHOCKWAVE_LIFE = 0.28;
-
-const TRACER_CORE_THICK = 0.1;
-const TRACER_HALO_THICK = 0.28;
-const MUZZLE_SCALE = 1.4;
-const SPARK_SCALE = 0.9;
-const EXPLOSION_START = 1.2;
-const EXPLOSION_END = 6.5;
-const SHOCKWAVE_END = 8;
-
-/**
- * Transformation discharge (rules.md §2) — the arcs that crawl over the mech
- * while it changes form.
- *
- * Sized against the unit, not against the explosions: the avatar is 0.80 m
- * across (ARCHETYPE_RADIUS 0.4) and about a metre tall, so the whole cage these
- * live in is roughly a metre cube. Explosion numbers here would swallow it.
- *
- * Each arc is a short camera-facing streak at a random point on that cage,
- * lasting about three frames, rather than a connected polyline. A real bolt
- * would need a per-segment 3D direction, which the shared Pool has no room for
- * — and at this scale, with this lifetime, a scatter of bright angled streaks
- * and a connected chain are the same picture. Core plus glow in the palette the
- * Electric Gun already established (hitscanLook).
- */
-const ARC_LIFE = 0.09;
-const ARC_RADIUS = 0.45;
-const ARC_HEIGHT = 0.95;
-const ARC_LEN_MIN = 0.13;
-const ARC_LEN_SPAN = 0.2;
-/**
- * Thin. Measured off the first pass, which had these at 0.035/0.11: against a
- * 0.8 m mech that is a 10 cm slab, and a screenful of them read as white glass
- * shards rather than as electricity. Length carries an arc; width kills it.
- */
-const ARC_CORE_THICK = 0.018;
-const ARC_GLOW_THICK = 0.05;
-const ARC_CORE_HEX = 0xe8ffff;
-const ARC_GLOW_HEX = 0x40c0ff;
-/** Streaks per burst, and how often bursts land at the ends vs at the swap. */
-const ARC_PER_BURST = 8;
-const ARC_INTERVAL_CALM = 0.07;
-const ARC_INTERVAL_PEAK = 0.025;
-
-/**
- * Derived, not picked. At the peak an emitter holds one burst for every
- * ARC_INTERVAL_PEAK of ARC_LIFE, so the ceiling is emitters x burst x that
- * ratio — measured at 32 live streaks for a single transformation, which is
- * exactly what this computes.
- *
- * It was a hand-set 128, and 4 x 32 is 128: four simultaneous transformations
- * sat precisely on the ceiling, where a frame landing between two bursts starts
- * silently dropping streaks. One spare burst of headroom, and the number now
- * follows whoever retunes the density instead of quietly becoming wrong.
- *
- * `spawn` returning false is what dropping looks like, and it is the one way
- * arcCore and arcGlow could disagree — they are spawned as a pair, share a cap
- * and a lifetime, and age on the same clock, so they fill and drain in lockstep
- * and only a cap this tight could have split them.
- */
-export const ARC_CAP =
-  ARC_EMITTERS * ARC_PER_BURST * Math.ceil(ARC_LIFE / ARC_INTERVAL_PEAK) + ARC_PER_BURST;
-/**
- * The discharge that covers the mesh swap, at the halfway point of the lock.
- *
- * It borrows the explosion SPRITE but not the explosion POOL. The sprite,
- * because the muzzle particle is a 32x32 red puff and blown up over a
- * transforming mech it read as a pink pixel blob, where the explosion ball tints
- * cleanly to the arc palette. Its own pool, because everything in this effect
- * has to age on the sim clock: parked in the shared pools, the flash and the
- * ring decayed on wall time while the arcs around them stayed frozen, so a
- * paused mid-transformation frame lost exactly the beat worth photographing.
- */
-/**
- * Two per emitter. Each transformation spawns exactly one flash and one ring, so
- * one apiece would do; the spare covers a flash still fading when the same
- * avatar transforms straight back. With headroom this size neither spawn can
- * fail, which is what keeps the pair a pair — the flash marks the emitter fired
- * before spawning, deliberately, because a discharge that arrives late is worse
- * than one that never arrives.
- */
-const TRANSFORM_FLASH_CAP = ARC_EMITTERS * 2;
-const TRANSFORM_FLASH_START = 0.45;
-const TRANSFORM_FLASH_END = 1.9;
-const TRANSFORM_FLASH_LIFE = 0.22;
-const TRANSFORM_RING_START = 0.4;
-const TRANSFORM_RING_END = 3.2;
-const TRANSFORM_RING_LIFE = 0.3;
-
-/**
- * Cpyr particle ids per role, read off the contact sheet (gen:fxsheet).
- *
- * Sizes and paint coverage from that run: 8 is 126x128 at 24% paint and the
- * densest of the set; 5 is 125x126 at 18%, the same ball burnt hollow with a
- * bright yellow rim; 6 is 32x32 at 27% with a strong red; 7 is 16x16 at 31%,
- * the densest per area. 3/11/1/10 are the medium puffs and stay unused.
- */
-export const PARTICLE_ID = {
-  explosion: 8,
-  explosionAlt: 5,
-  muzzle: 6,
-  spark: 7,
-} as const;
-
-const ATLAS_URL = "/fx/particles.png";
-const ATLAS_META_URL = "/fx/particles.json";
-
-interface ParticleSpriteRect {
-  atlas_x: number;
-  atlas_y: number;
-  w: number;
-  h: number;
-}
-
-interface ParticleMeta {
-  size: [number, number];
-  particles: Array<{ id: number; sprites: ParticleSpriteRect[] }>;
-}
+const TRAILS_ATLAS_URL = "/fx/trails.png";
+/** The Mini Gun's code (`weapons.ts` 0x00) and the Laser's (0x01). */
+const MINI_GUN = 0x00;
+const LASER = 0x01;
+/** The Mini Gun's byte is set by each shot and cleared when none comes: a sim tick and a frame. */
+const RIBBON_HOLD = 15;
 
 /**
  * Fills `out` with world pose `[x, height, z, yaw]` for the event, or returns
@@ -217,890 +76,283 @@ export type FxPoseResolver = (
   out: Float32Array,
 ) => boolean;
 
+export interface FxOptions {
+  /** The rendered pose of every entity this frame (main.ts's entity pass). */
+  readonly poses?: FxPoses;
+  /** The ground under (x, z), metres: the node and trail floor tests. */
+  readonly ground?: (x: number, z: number) => number;
+  /** A dying archetype's model, for the shatter. */
+  readonly shatter?: ShatterSource;
+  /** The drawing buffer's height in device pixels (the 640x480 rects scale to it). */
+  readonly viewportHeight?: () => number;
+}
+
 export interface ShotFx {
-  /** Drain this tick's events into the pools (call once per sim step). */
+  /** The executable's own drawings off this tick's events (tracers, the ribbon). */
   pump(events: EventBuffer, resolve: FxPoseResolver): void;
   /**
-   * Age live effects and rewrite instance matrices (call once per frame).
-   * Pass the active camera so Cpyr billboards face the viewer.
-   *
-   * `simDtSec` is how far the sim moved this frame, and only the transformation
-   * discharge uses it: that effect spans a sim window (the transform lock) and
-   * has to stay in step with the morph it plays over, while a tracer or a
-   * fireball is a sub-frame flash that should burn out in real time whatever the
-   * sim is doing. Omit it and the discharge falls back to the frame's own delta.
+   * A world round of `row` drawn this frame at (x, y, z) metres, heading `yaw`
+   * and climbing at `pitch` radians: its Cobj's line facers. False when the
+   * row's round is a model instead (the caller draws its bucket).
+   */
+  bolt(row: number, x: number, y: number, z: number, yaw: number, pitch: number): boolean;
+  /**
+   * Age live effects and rewrite their buffers (once per frame). `simDtSec`
+   * is how far the sim moved this frame: the effects run on the sim's clock.
+   * Without it they fall back to the frame's own delta.
    */
   update(dtSec: number, camera?: THREE.Camera, simDtSec?: number): void;
-  /**
-   * Drop every live effect immediately. Call on match teardown: update() only
-   * runs while a match is on, so anything still in flight when the player
-   * quits would otherwise freeze over the menu backdrop for good.
-   */
+  /** A new match on `mapId`: its trail texels, nothing in flight. */
+  begin(mapId: string): void;
+  /** Drop every live effect immediately (match teardown). */
   reset(): void;
-  /** Test/debug: live slot counts per pool. */
+  /** Live instances per class (tests and the debug HUD). */
   debugCounts(): {
+    flashes: number;
+    shells: number;
+    particles: number;
+    nodes: number;
+    trails: number;
+    links: number;
     tracers: number;
-    muzzles: number;
-    explosions: number;
-    sparks: number;
-    shockwaves: number;
-    /** Bolts in flight, by which of the original's two the shooter throws. */
-    boltsSingle: number;
-    boltsTwin: number;
-    /** Live arc streaks (core pool; the glow pool mirrors it one for one). */
-    arcs: number;
-    /** Transformations currently discharging. */
-    arcEmitters: number;
-    /** Live swap flashes (the ground ring is spawned one for one with these). */
-    transformFlashes: number;
+    ribbons: number;
+    /** Bolts the last frame drew. */
+    bolts: number;
+    shatter: number;
   };
-  /** Test/debug: world length of the newest live tracer, or 0 when there is none. */
-  debugTracerLength(): number;
-  /** Test/debug: distance the newest live bolt will cover, or 0 when there is none. */
-  debugBoltReach(): number;
-  /** True once the original Cpyr atlas has been applied to the sprite pools. */
+  /** True once the original's particle atlas is bound. */
   readonly atlasReady: boolean;
 }
 
-interface Pool {
-  readonly mesh: THREE.InstancedMesh;
-  readonly life: Float32Array;
-  readonly maxLife: Float32Array;
-  readonly x: Float32Array;
-  readonly y: Float32Array;
-  readonly z: Float32Array;
-  readonly yaw: Float32Array;
-  /** Extra param: tracer length, explosion end-scale, etc. */
-  readonly param: Float32Array;
-  count: number;
-}
+const pose = new Float32Array(5);
 
 /**
- * A transformation in progress: where it is, how far through it is, and when it
- * next spits arcs. Fixed slots, filled in place — an emitter outlives the single
- * event that starts it, so unlike every other effect in here it cannot just be a
- * pool entry that ages out.
+ * The Riot Shield's strike (EV_SHIELD_ARC): `sustain_sphere_tick`'s link from a
+ * charged arc to the body (0x0044c8d1..0x0044c91f) — 32 segments, one strand,
+ * (0x7f, 0x7f, 0xff), fade 0x2aa, amplitude 0x4000, both ends 0x18 wide. The
+ * event names no arc point, so it starts at the sphere's centre.
  */
-interface ArcEmitters {
-  readonly x: Float32Array;
-  readonly y: Float32Array;
-  readonly z: Float32Array;
-  /** Seconds since the transform started. */
-  readonly elapsed: Float32Array;
-  /** Total seconds this discharge runs — the sim's lock, carried in the event. */
-  readonly duration: Float32Array;
-  /** Seconds until the next burst of streaks. */
-  readonly nextBurst: Float32Array;
-  /** 0 until the mid-point flash has been fired, 1 after. */
-  readonly flashed: Uint8Array;
-  readonly live: Uint8Array;
-}
+const SHIELD_LINK: Fx88 = {
+  type: 88,
+  next: 0,
+  delay: 0,
+  repeats: -1,
+  period: 0,
+  life: 0,
+  flags: 0,
+  offset: 0,
+  placeY: 0,
+  placeX: 0,
+  attach: 255,
+  scatter: 0,
+  segments: 0x20,
+  strands: 1,
+  rgb: [0x7f, 0x7f, 0xff],
+  fadeTicks: 0x2aa,
+  amplitude: 0x4000,
+  endHalfWidth: 0x18,
+  linkFlags: 1,
+};
+const shieldAt = makeRaiseAt();
 
-// Module-scope scratch — never allocate inside pump/update.
-const scratchMatrix = new THREE.Matrix4();
-const scratchQuat = new THREE.Quaternion();
-const scratchRoll = new THREE.Quaternion();
-const scratchPos = new THREE.Vector3();
-const scratchScale = new THREE.Vector3(1, 1, 1);
-const scratchColor = new THREE.Color();
-const camQuat = new THREE.Quaternion();
-const UP = new THREE.Vector3(0, 1, 0);
-/** Roll axis for arc streaks: the quad's own normal, so it spins in screen space. */
-const FORWARD = new THREE.Vector3(0, 0, 1);
-// Five slots: x, height, z, yaw, and the shooter's archetype (main.ts
-// entityPose fills the last one only because this buffer asks for it).
-const poseScratch = new Float32Array(5);
-let hasCamera = false;
-
-function makeAdditiveMaterial(hex: number, opacity = 0.95): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
-    color: hex,
-    transparent: true,
-    opacity,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    toneMapped: false,
-    side: THREE.DoubleSide,
-  });
-}
-
-function makePool(
-  scene: THREE.Scene,
-  geometry: THREE.BufferGeometry,
-  material: THREE.Material,
-  capacity: number,
-  withInstanceColor = false,
-): Pool {
-  const mesh = new THREE.InstancedMesh(geometry, material, capacity);
-  mesh.count = 0;
-  mesh.frustumCulled = false;
-  mesh.matrixAutoUpdate = false;
-  mesh.renderOrder = 10; // draw on top of solid units
-  mesh.updateMatrix();
-  if (withInstanceColor) {
-    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
+export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOptions = {}): ShotFx {
+  const flashes = new Flashes(scene);
+  const shells = new Shells(scene);
+  const particles = new Particles(scene);
+  const nodes = new Nodes(scene);
+  const ribbons = new Ribbons(scene);
+  const shatter = new Shatter(scene);
+  const view = new FxView();
+  const poses = options.poses ?? null;
+  if (options.ground) {
+    nodes.groundAt = options.ground;
+    ribbons.groundAt = options.ground;
+    shatter.groundAt = options.ground;
   }
-  scene.add(mesh);
-  return {
-    mesh,
-    life: new Float32Array(capacity),
-    maxLife: new Float32Array(capacity),
-    x: new Float32Array(capacity),
-    y: new Float32Array(capacity),
-    z: new Float32Array(capacity),
-    yaw: new Float32Array(capacity),
-    param: new Float32Array(capacity),
-    count: 0,
+  if (options.shatter) shatter.source = options.shatter;
+  // A shatter's reap and reference effects go through the chain like any
+  // install; its faces and whole objects are references in the pose table.
+  shatter.setPoses(poses);
+  shatter.raise = (bank, id, at) => chain.raise(bank, id, at);
+
+  const listener: EffectListener = {
+    install(bank: number, id: number, rec: FxRecord | undefined, at: Readonly<RaiseAt>): void {
+      void bank;
+      void id;
+      if (!rec) return;
+      switch (rec.type) {
+        case 87:
+          ribbons.trail(bank, id, rec, at, at.hold);
+          return;
+        case 88:
+          ribbons.link(rec, at);
+          return;
+        case 89:
+          flashes.spawn(rec, at);
+          return;
+        case 90:
+          shatter.spawn(rec, at, bank);
+          return;
+        case 92:
+          shells.spawn(rec, at);
+          return;
+        case 93:
+          particles.spawn(rec, at);
+          return;
+        case 94:
+          nodes.burst(rec, at);
+          return;
+        default:
+          return;
+      }
+    },
+    hold(bank: number, id: number, attach: number, ticks: number): void {
+      ribbons.hold(bank, id, attach, ticks);
+    },
+    rebind(token: number, entity: number): void {
+      flashes.rebind(token, entity);
+      shells.rebind(token, entity);
+      particles.rebind(token, entity);
+      ribbons.rebind(token, entity);
+    },
   };
-}
+  chain.addListener(listener);
 
-function spawn(
-  pool: Pool,
-  life: number,
-  x: number,
-  y: number,
-  z: number,
-  yaw: number,
-  param: number,
-): boolean {
-  const i = pool.count;
-  if (i >= pool.life.length) return false;
-  pool.life[i] = life;
-  pool.maxLife[i] = life;
-  pool.x[i] = x;
-  pool.y[i] = y;
-  pool.z[i] = z;
-  pool.yaw[i] = yaw;
-  pool.param[i] = param;
-  pool.count = i + 1;
-  return true;
-}
-
-function kill(pool: Pool, i: number): void {
-  const last = pool.count - 1;
-  if (i !== last) {
-    pool.life[i] = pool.life[last];
-    pool.maxLife[i] = pool.maxLife[last];
-    pool.x[i] = pool.x[last];
-    pool.y[i] = pool.y[last];
-    pool.z[i] = pool.z[last];
-    pool.yaw[i] = pool.yaw[last];
-    pool.param[i] = pool.param[last];
-    if (pool.mesh.instanceColor) {
-      scratchColor.fromArray(pool.mesh.instanceColor.array as Float32Array, last * 3);
-      pool.mesh.setColorAt(i, scratchColor);
-    }
+  if (typeof document !== "undefined") {
+    const loader = new THREE.TextureLoader();
+    loader.load(PARTICLE_ATLAS_URL, (t) => particles.setAtlas(t));
+    loader.load(TRAILS_ATLAS_URL, (t) => ribbons.setAtlas(t));
   }
-  pool.count = last;
-}
-
-function makeArcEmitters(): ArcEmitters {
-  return {
-    x: new Float32Array(ARC_EMITTERS),
-    y: new Float32Array(ARC_EMITTERS),
-    z: new Float32Array(ARC_EMITTERS),
-    elapsed: new Float32Array(ARC_EMITTERS),
-    duration: new Float32Array(ARC_EMITTERS),
-    nextBurst: new Float32Array(ARC_EMITTERS),
-    flashed: new Uint8Array(ARC_EMITTERS),
-    live: new Uint8Array(ARC_EMITTERS),
-  };
-}
-
-function age(pool: Pool, dt: number): void {
-  let i = 0;
-  while (i < pool.count) {
-    pool.life[i] -= dt;
-    if (pool.life[i] <= 0) {
-      kill(pool, i);
-      continue;
-    }
-    i += 1;
-  }
-}
-
-function explosionTint(kind: number): number {
-  if (kind === PROJ_SPECIAL || kind === PROJ_MORTAR) return PROJECTILE_HEX[6] ?? 0xffa060;
-  if (kind === PROJ_WARDEN) return PROJECTILE_HEX[3] ?? paletteHex("warden_bomb");
-  if (kind === PROJ_HYPER) return PROJECTILE_HEX[7] ?? 0xffe8a0;
-  if (kind === PROJ_MINE) return PROJECTILE_HEX[10] ?? 0xff9040;
-  if (kind === PROJ_SHOCKWAVE) return PROJECTILE_HEX[11] ?? 0xa0d8ff;
-  return 0xffffff; // original fireball colors when atlas is bound
-}
-
-interface HitscanLook {
-  length: number;
-  core: number;
-  halo: number;
-  thick: number;
-}
-
-/**
- * Tracer colors for an avatar weapon, at the reach the shot actually had.
- *
- * `reach` comes from the event (events.ts `weaponShotPayload`), which never
- * packs a positive reach down to zero — a point-blank shot reports one
- * decimetre rather than rounding into the fallback below. So the fallback only
- * covers a payload that carried no reach at all, i.e. a non-hitscan delivery
- * that has no tracer to size anyway.
- */
-function hitscanLook(w: WeaponDef | undefined, reach: number): HitscanLook {
-  const vfx = w?.vfx ?? "minigun";
-  const length = reach > 0 ? reach : (w?.range ?? 0) || AVATAR_LOCK_RANGE;
-  if (vfx === "laser") return { length, core: 0xffffff, halo: 0x7ef2ff, thick: 1.1 };
-  if (vfx === "flame") return { length, core: 0xffe080, halo: 0xff6020, thick: 1.8 };
-  if (vfx === "beam") return { length, core: 0xffffff, halo: 0xd080ff, thick: 1.4 };
-  if (vfx === "electric") return { length, core: 0xe8ffff, halo: 0x40c0ff, thick: 1.25 };
-  // minigun default
-  return { length, core: 0xffffff, halo: 0xffe08a, thick: 1 };
-}
-
-/**
- * Swaps an FX model into a pool's InstancedMesh, keeping the pool's instance
- * data. Same contract as unitMeshes.ts's bucket swap: init-time, fire and
- * forget, and a missing or broken asset simply keeps the stand-in.
- */
-async function swapPoolGeometry(pool: Pool, key: string): Promise<void> {
-  try {
-    const { geometry, material } = await loadUnitAsset(key, "fx", true);
-    // Authored +Z forward (assets.md §4); the sim's frame is +X forward.
-    geometry.rotateY(Math.PI / 2);
-    pool.mesh.geometry.dispose();
-    pool.mesh.geometry = geometry;
-    (pool.mesh.material as THREE.Material).dispose();
-    material.depthWrite = false;
-    material.transparent = true;
-    pool.mesh.material = material;
-  } catch (err) {
-    console.warn(`[fx] no usable FX asset for ${key}, keeping the stand-in: ${err}`);
-  }
-}
-
-function findSprite(meta: ParticleMeta, id: number): ParticleSpriteRect | null {
-  for (let i = 0; i < meta.particles.length; i++) {
-    if (meta.particles[i].id === id && meta.particles[i].sprites.length > 0) {
-      return meta.particles[i].sprites[0];
-    }
-  }
-  return null;
-}
-
-/** Crops one particle rect from the shared atlas image (NearestFilter, PS1). */
-function cropAtlasMap(
-  atlas: THREE.Texture,
-  rect: ParticleSpriteRect,
-  atlasW: number,
-  atlasH: number,
-): THREE.Texture {
-  const map = atlas.clone();
-  map.colorSpace = THREE.SRGBColorSpace;
-  map.magFilter = THREE.NearestFilter;
-  map.minFilter = THREE.NearestFilter;
-  map.generateMipmaps = false;
-  map.wrapS = THREE.ClampToEdgeWrapping;
-  map.wrapT = THREE.ClampToEdgeWrapping;
-  // Three UV origin is bottom-left; PYDT y is top-left.
-  map.offset.set(rect.atlas_x / atlasW, 1 - (rect.atlas_y + rect.h) / atlasH);
-  map.repeat.set(rect.w / atlasW, rect.h / atlasH);
-  map.needsUpdate = true;
-  return map;
-}
-
-function bindSpriteMap(material: THREE.MeshBasicMaterial, map: THREE.Texture): void {
-  material.map = map;
-  material.color.setHex(0xffffff);
-  material.opacity = 1;
-  material.needsUpdate = true;
-}
-
-export function createFx(scene: THREE.Scene): ShotFx {
-  // --- Emplacement/unit bolts: the original's own flying object --------------
-  // Two pools because the original has two bolts and hands them out by shooter:
-  // the twin to turrets (all 64 turret and neutral-turret shooters on
-  // la-cantina), the single to ground units and aircraft. Each keeps its
-  // authored 1 m length and travels; it does not stretch to the shot's reach.
-  // The stand-in below is that length as a thin box, so the swap changes the
-  // shape and never the scale — the same rule greybox.ts follows.
-  const boltStandIn = new THREE.BoxGeometry(1.02, 0.12, 0.12);
-  const boltsSingle = makePool(
-    scene,
-    boltStandIn,
-    makeAdditiveMaterial(0xffe08a, 1),
-    BOLT_CAP,
-    false,
-  );
-  const boltsTwin = makePool(
-    scene,
-    boltStandIn.clone(),
-    makeAdditiveMaterial(0xffe08a, 1),
-    BOLT_CAP,
-    false,
-  );
-  // The models carry the original's own colours in COLOR_0, and no team tint:
-  // unlike the player's weapons, the AI bolt rows name exactly ONE mesh each,
-  // with no second team variant (docs/specs/fcop-fx.md §4).
-  void swapPoolGeometry(boltsSingle, "bolt-single");
-  void swapPoolGeometry(boltsTwin, "bolt-twin");
-
-  // --- Procedural: laser/MG tracers (core + soft halo) -----------------------
-  const tracerGeom = new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
-  tracerGeom.rotateZ(-Math.PI / 2);
-  const tracerCore = makePool(
-    scene,
-    tracerGeom,
-    makeAdditiveMaterial(0xffffff, 0.95),
-    TRACER_CAP,
-    true,
-  );
-  const tracerHalo = makePool(
-    scene,
-    tracerGeom,
-    makeAdditiveMaterial(0xffffff, 0.45),
-    TRACER_CAP,
-    true,
-  );
-
-  // --- Procedural: ground shockwave ring (no original ring sprite exists) ----
-  const ringGeom = new THREE.RingGeometry(0.42, 0.55, 40);
-  ringGeom.rotateX(-Math.PI / 2);
-  const shockwaves = makePool(
-    scene,
-    ringGeom,
-    makeAdditiveMaterial(paletteHex("explosion"), 0.75),
-    SHOCKWAVE_CAP,
-    true,
-  );
-
-  // --- Cpyr billboards (planes); solid fallback until atlas loads ------------
-  const quadGeom = new THREE.PlaneGeometry(1, 1);
-  const muzzleMat = makeAdditiveMaterial(0xfff2a8, 1);
-  const explosionMat = makeAdditiveMaterial(0xffffff, 0.9);
-  const sparkMat = makeAdditiveMaterial(paletteHex("muzzle"), 1);
-  const muzzles = makePool(scene, quadGeom, muzzleMat, MUZZLE_CAP);
-  const explosionLateMat = makeAdditiveMaterial(0xffffff, 0.75);
-  const explosions = makePool(scene, quadGeom, explosionMat, EXPLOSION_CAP, true);
-  const explosionsLate = makePool(scene, quadGeom, explosionLateMat, EXPLOSION_CAP, true);
-  const sparks = makePool(scene, quadGeom, sparkMat, SPARK_CAP);
-
-  // --- Transformation discharge: arc streaks (core + glow) -------------------
-  // Deliberately NOT sprite-backed. The Cpyr atlas is fireballs and puffs; there
-  // is no arc frame in the extract, and stretching a puff into a streak reads as
-  // a smear rather than electricity.
-  const arcCore = makePool(scene, quadGeom, makeAdditiveMaterial(ARC_CORE_HEX, 1), ARC_CAP);
-  const arcGlow = makePool(scene, quadGeom, makeAdditiveMaterial(ARC_GLOW_HEX, 0.35), ARC_CAP);
-  // The flash and the ground ring belong to the discharge, not to the explosion
-  // and shockwave pools they look like — they age on the sim clock with the arcs.
-  // Under 1: the Cpyr ball is a dense speckled sprite at NearestFilter, and at
-  // full opacity it goes opaque enough to read as static rather than as light.
-  const transformFlashMat = makeAdditiveMaterial(ARC_CORE_HEX, 0.8);
-  const transformFlashes = makePool(scene, quadGeom, transformFlashMat, TRANSFORM_FLASH_CAP);
-  const transformRings = makePool(
-    scene,
-    ringGeom,
-    makeAdditiveMaterial(ARC_GLOW_HEX, 0.7),
-    TRANSFORM_FLASH_CAP,
-  );
-  const arcEmitters = makeArcEmitters();
-
-  let atlasReady = false;
-
-  // Fire-and-forget atlas load. Missing file keeps the solid additive fallback
-  // so greybox / tests / offline still show shot feedback.
-  void loadCpyrAtlas().then((loaded) => {
-    if (!loaded) return;
-    bindSpriteMap(muzzleMat, loaded.maps.muzzle);
-    bindSpriteMap(explosionMat, loaded.maps.explosion);
-    bindSpriteMap(explosionLateMat, loaded.maps.explosionLate);
-    bindSpriteMap(sparkMat, loaded.maps.spark);
-    // Same round soft ball, kept tinted: bindSpriteMap whitens the material so
-    // the sprite's own colours show, which is right for a fireball and wrong for
-    // a discharge.
-    bindSpriteMap(transformFlashMat, loaded.maps.explosion);
-    transformFlashMat.color.setHex(ARC_CORE_HEX);
-    atlasReady = true;
-  });
 
   function pump(events: EventBuffer, resolve: FxPoseResolver): void {
     const data = events.data;
-    const n = events.count;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < events.count; i++) {
       const o = i * EVENT_STRIDE;
-      const type = data[o];
-      const a = data[o + 1];
-      const b = data[o + 2];
-      const c = data[o + 3];
-      if (!resolve(type, a, b, c, poseScratch)) continue;
-      const px = poseScratch[0];
-      const py = poseScratch[1];
-      const pz = poseScratch[2];
-      const yaw = poseScratch[3];
-
-      if (type === EV_SHOT) {
-        const cos = Math.cos(yaw);
-        const sin = Math.sin(yaw);
-        const mx = px + cos * MUZZLE_OFFSET;
-        const mz = pz + sin * MUZZLE_OFFSET;
-        const my = py + MUZZLE_HEIGHT;
-        // What `c` means depends on `b` — see events.ts. Slots 0/1/2 are the
-        // avatar's and pack a catalog id with the shot's reach;
-        // SHOT_SLOT_HITSCAN carries a reach in decimetres; SHOT_SLOT_LAUNCH
-        // carries nothing and is a muzzle flash for a shell that renders as its
-        // own entity.
-        const emplacement = b === SHOT_SLOT_HITSCAN;
-        // Only the avatar's three slots index the catalog. Resolving any other
-        // slot through weaponById lands on id 0, the Mini-Gun, which is how a
-        // bomb launch came to draw a 40 m hitscan streak next to its own shell.
-        const avatarSlot = b <= SHOT_SLOT_SPECIAL;
-        const w = avatarSlot ? weaponById(shotPayloadWeaponId(c)) : undefined;
-        const muzzleScale = w?.vfx === "flame" ? MUZZLE_SCALE * 1.5 : MUZZLE_SCALE;
-        spawn(muzzles, MUZZLE_LIFE, mx, my, mz, yaw, muzzleScale);
-        // Emplacements and units throw the original's bolt: a ~1 m object that
-        // flies to where the shot actually reached. The avatar does NOT — its
-        // four hitscan guns are among the seven weapons whose row in the
-        // original's table is EMPTY, i.e. they spawn no object at all, so the
-        // streak below stays ours rather than being dressed up as extraction
-        // (docs/specs/fcop-fx.md §3).
-        if (emplacement) {
-          const reach = shotPayloadToReach(c);
-          const pool = poseScratch[4] === ARCHETYPE.TURRET ? boltsTwin : boltsSingle;
-          const life = reach / BOLT_SPEED;
-          if (life > 0) spawn(pool, life, mx, my, mz, yaw, reach);
-        } else if (w?.delivery === "hitscan" || w?.delivery === "flame" || w?.delivery === "beam") {
-          // Length is the shot's own reach, carried in the event — where it hit
-          // a body, where a wall stopped it, or the full range. It used to be
-          // the weapon's nominal range, so a burst into a wall three metres off
-          // still drew forty metres of bolt straight through it.
-          const look = hitscanLook(w, shotPayloadWeaponReach(c));
-          const half = look.length * 0.5;
-          const cx = mx + cos * half;
-          const cz = mz + sin * half;
-          const coreSlot = tracerCore.count;
-          if (spawn(tracerCore, TRACER_LIFE, cx, my, cz, yaw, look.length)) {
-            scratchColor.setHex(look.core);
-            tracerCore.mesh.setColorAt(coreSlot, scratchColor);
-            if (tracerCore.mesh.instanceColor) tracerCore.mesh.instanceColor.needsUpdate = true;
-          }
-          const haloSlot = tracerHalo.count;
-          if (spawn(tracerHalo, TRACER_LIFE, cx, my, cz, yaw, look.length * look.thick)) {
-            scratchColor.setHex(look.halo);
-            tracerHalo.mesh.setColorAt(haloSlot, scratchColor);
-            if (tracerHalo.mesh.instanceColor) tracerHalo.mesh.instanceColor.needsUpdate = true;
-          }
+      if (data[o] === EV_SHIELD_ARC && poses) {
+        const a = data[o + 1];
+        const t = data[o + 2];
+        if (
+          a >= 0 &&
+          a < MAX_ENTITIES &&
+          t >= 0 &&
+          t < MAX_ENTITIES &&
+          poses.live[a] &&
+          poses.live[t]
+        ) {
+          const fa = a * POSE_STRIDE;
+          const ft = t * POSE_STRIDE;
+          shieldAt.x = poses.table[fa];
+          shieldAt.y = poses.table[fa + 1] + SHIELD_CENTRE_RAISE;
+          shieldAt.z = poses.table[fa + 2];
+          shieldAt.yaw = poses.table[fa + 3];
+          shieldAt.endX = poses.table[ft];
+          shieldAt.endY = poses.table[ft + 1] + SHIELD_CENTRE_RAISE;
+          shieldAt.endZ = poses.table[ft + 2];
+          ribbons.link(SHIELD_LINK, shieldAt);
         }
-      } else if (type === EV_EXPLOSION) {
-        // c = projectile kind (mode).
-        const endScale =
-          c === PROJ_SHOCKWAVE
-            ? 9.0
-            : c === PROJ_SPECIAL || c === PROJ_MORTAR || c === PROJ_MINE
-              ? 5.5
-              : c === PROJ_WARDEN
-                ? 7.0
-                : c === PROJ_HYPER
-                  ? 3.2
-                  : EXPLOSION_END;
-        const slot = explosions.count;
-        if (spawn(explosions, EXPLOSION_LIFE, px, py + 0.6, pz, 0, endScale)) {
-          scratchColor.setHex(explosionTint(c));
-          explosions.mesh.setColorAt(slot, scratchColor);
-          if (explosions.mesh.instanceColor) explosions.mesh.instanceColor.needsUpdate = true;
-        }
-        // Second phase on Cpyr id 5. The contact sheet (gen:fxsheet) settles what
-        // the two large sprites are: id 8 is a dense hot ball, id 5 is the same
-        // ball burnt hollow with a bright yellow rim. That is a sequence, so it
-        // is drawn as one — 8 first, 5 outliving it and expanding past it.
-        const lslot = explosionsLate.count;
-        if (spawn(explosionsLate, EXPLOSION_LATE_LIFE, px, py + 0.6, pz, 0, endScale * 1.35)) {
-          scratchColor.setHex(explosionTint(c));
-          explosionsLate.mesh.setColorAt(lslot, scratchColor);
-          if (explosionsLate.mesh.instanceColor)
-            explosionsLate.mesh.instanceColor.needsUpdate = true;
-        }
-        // Shockwave rides the ground under the fireball (procedural — no ring sprite).
-        const waveEnd =
-          c === PROJ_SHOCKWAVE
-            ? 14
-            : c === PROJ_WARDEN
-              ? 10
-              : c === PROJ_SPECIAL || c === PROJ_MORTAR || c === PROJ_MINE
-                ? 7
-                : c === PROJ_HYPER
-                  ? 3
-                  : SHOCKWAVE_END;
-        const wslot = shockwaves.count;
-        if (spawn(shockwaves, SHOCKWAVE_LIFE, px, py + 0.15, pz, 0, waveEnd)) {
-          const tint = explosionTint(c);
-          scratchColor.setHex(tint === 0xffffff ? paletteHex("explosion") : tint);
-          shockwaves.mesh.setColorAt(wslot, scratchColor);
-          if (shockwaves.mesh.instanceColor) shockwaves.mesh.instanceColor.needsUpdate = true;
-        }
-      } else if (type === EV_HIT) {
-        spawn(sparks, SPARK_LIFE, px, py + 1.0, pz, 0, SPARK_SCALE);
-      } else if (type === EV_TRANSFORM) {
-        // c = the sim's lock in ticks, so the discharge is exactly as long as
-        // the window the avatar is frozen for, whatever balance.ts says today.
-        startArcEmitter(px, py, pz, c / TICK_HZ);
-      }
-    }
-  }
-
-  function liveArcEmitters(): number {
-    let n = 0;
-    for (let i = 0; i < ARC_EMITTERS; i++) n += arcEmitters.live[i];
-    return n;
-  }
-
-  /** Claims an emitter slot for a transformation starting now. */
-  function startArcEmitter(px: number, py: number, pz: number, duration: number): void {
-    let slot = -1;
-    for (let i = 0; i < ARC_EMITTERS; i++) {
-      if (arcEmitters.live[i] === 0) {
-        slot = i;
-        break;
-      }
-    }
-    // Full means more avatars are transforming than can be on screen at once,
-    // which cannot happen from the sim side. Dropping it loses the arcs, not the
-    // transformation.
-    if (slot === -1) return;
-    arcEmitters.live[slot] = 1;
-    arcEmitters.x[slot] = px;
-    arcEmitters.y[slot] = py;
-    arcEmitters.z[slot] = pz;
-    arcEmitters.elapsed[slot] = 0;
-    arcEmitters.duration[slot] = duration;
-    arcEmitters.nextBurst[slot] = 0; // first burst on the frame it starts
-    arcEmitters.flashed[slot] = 0;
-  }
-
-  /** One burst of streaks scattered over the cage around the mech. */
-  function spawnArcBurst(px: number, py: number, pz: number): void {
-    for (let i = 0; i < ARC_PER_BURST; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const radius = ARC_RADIUS * (0.45 + Math.random() * 0.55);
-      const ax = px + Math.cos(angle) * radius;
-      const az = pz + Math.sin(angle) * radius;
-      const ay = py + Math.random() * ARC_HEIGHT;
-      const roll = Math.random() * Math.PI * 2;
-      const length = ARC_LEN_MIN + Math.random() * ARC_LEN_SPAN;
-      spawn(arcCore, ARC_LIFE, ax, ay, az, roll, length);
-      spawn(arcGlow, ARC_LIFE, ax, ay, az, roll, length);
-    }
-  }
-
-  /**
-   * Ages the emitters and lets them fire.
-   *
-   * Bursts come faster towards the middle of the window, so the discharge builds
-   * into the swap and dies away after it instead of crackling at one flat rate
-   * for eight tenths of a second.
-   */
-  function advanceArcEmitters(dtSec: number): void {
-    for (let i = 0; i < ARC_EMITTERS; i++) {
-      if (arcEmitters.live[i] === 0) continue;
-      const duration = arcEmitters.duration[i];
-      arcEmitters.elapsed[i] += dtSec;
-      const elapsed = arcEmitters.elapsed[i];
-      if (elapsed >= duration) {
-        arcEmitters.live[i] = 0;
         continue;
       }
-      const px = arcEmitters.x[i];
-      const py = arcEmitters.y[i];
-      const pz = arcEmitters.z[i];
-      const t = duration > 0 ? elapsed / duration : 1;
-
-      // The swap happens halfway (render/morph.ts): flash over it once.
-      if (arcEmitters.flashed[i] === 0 && t >= 0.5) {
-        arcEmitters.flashed[i] = 1;
-        spawn(
-          transformFlashes,
-          TRANSFORM_FLASH_LIFE,
-          px,
-          py + ARC_HEIGHT * 0.5,
-          pz,
-          0,
-          TRANSFORM_FLASH_END,
-        );
-        spawn(transformRings, TRANSFORM_RING_LIFE, px, py + 0.1, pz, 0, TRANSFORM_RING_END);
+      if (data[o] !== EV_SHOT) continue;
+      const shooter = data[o + 1];
+      const slot = data[o + 2];
+      const c = data[o + 3];
+      if (!resolve(EV_SHOT, shooter, slot, c, pose)) continue;
+      const yaw = pose[3];
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const mx = pose[0] + cos * MUZZLE_OFFSET;
+      const my = pose[1] + MUZZLE_HEIGHT;
+      const mz = pose[2] + sin * MUZZLE_OFFSET;
+      if (slot <= SHOT_SLOT_SPECIAL) {
+        const w = weaponById(shotPayloadWeaponId(c));
+        if (!w) continue;
+        if (w.code === MINI_GUN) {
+          ribbons.ribbon(shooter, mx, my, mz, yaw, RIBBON_HOLD);
+        } else if (w.code === LASER) {
+          // DAT_0048c854 / 0048c858: block B red, block A green.
+          const reach = shotPayloadWeaponReach(c) || w.range;
+          ribbons.tracer(
+            shotPayloadPowered(c) ? "laserB" : "laserA",
+            mx,
+            my,
+            mz,
+            mx + cos * reach,
+            my,
+            mz + sin * reach,
+          );
+        }
+      } else if (slot === SHOT_SLOT_HITSCAN) {
+        // The world hitscan (row 7, the Sky Captain's gun): its tracer.
+        const reach = shotPayloadToReach(c);
+        ribbons.tracer("world", mx, my, mz, mx + cos * reach, my, mz + sin * reach);
       }
-
-      // Triangular density: calm at both ends, peak at the swap.
-      const peak = 1 - Math.abs(2 * t - 1);
-      const interval = ARC_INTERVAL_CALM - (ARC_INTERVAL_CALM - ARC_INTERVAL_PEAK) * peak;
-      arcEmitters.nextBurst[i] -= dtSec;
-      // `while`, not `if`: a long frame owes more than one burst, and `interval`
-      // is never zero so this cannot spin.
-      while (arcEmitters.nextBurst[i] <= 0) {
-        spawnArcBurst(px, py, pz);
-        arcEmitters.nextBurst[i] += interval;
-      }
     }
-  }
-
-  function writeOriented(
-    pool: Pool,
-    billboard: boolean,
-    scaleFor: (i: number, t: number) => void,
-  ): void {
-    const n = pool.count;
-    for (let i = 0; i < n; i++) {
-      const t = 1 - pool.life[i] / pool.maxLife[i];
-      scaleFor(i, t);
-      scratchPos.set(pool.x[i], pool.y[i], pool.z[i]);
-      if (billboard && hasCamera) {
-        // True camera-facing sprite (Cpyr frames).
-        scratchQuat.copy(camQuat);
-      } else {
-        scratchQuat.setFromAxisAngle(UP, -pool.yaw[i]);
-      }
-      scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
-      pool.mesh.setMatrixAt(i, scratchMatrix);
-    }
-    pool.mesh.count = n;
-    pool.mesh.instanceMatrix.needsUpdate = true;
-  }
-
-  /**
-   * Bolts, which are the one pool that MOVES: everything else ages in place.
-   * Position comes from the stored muzzle point plus how far the bolt has flown,
-   * so no per-instance velocity arrays are needed — `param` holds the distance
-   * to cover and the life fraction says how much of it is behind us.
-   */
-  function writeBolts(pool: Pool): void {
-    const n = pool.count;
-    for (let i = 0; i < n; i++) {
-      const t = 1 - pool.life[i] / pool.maxLife[i];
-      const travelled = pool.param[i] * t;
-      const yaw = pool.yaw[i];
-      scratchPos.set(
-        pool.x[i] + Math.cos(yaw) * travelled,
-        pool.y[i],
-        pool.z[i] + Math.sin(yaw) * travelled,
-      );
-      scratchQuat.setFromAxisAngle(UP, -yaw);
-      scratchScale.set(1, 1, 1);
-      scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
-      pool.mesh.setMatrixAt(i, scratchMatrix);
-    }
-    pool.mesh.count = n;
-    pool.mesh.instanceMatrix.needsUpdate = true;
-  }
-
-  /**
-   * Camera-facing streak: the billboard quat with a roll about its own normal,
-   * so `pool.yaw` reads as an angle on screen rather than a heading in the world.
-   * Everything else here orients in the world; an arc has no world heading to
-   * orient to.
-   */
-  function writeRolled(pool: Pool, scaleFor: (i: number, t: number) => void): void {
-    const n = pool.count;
-    for (let i = 0; i < n; i++) {
-      const t = 1 - pool.life[i] / pool.maxLife[i];
-      scaleFor(i, t);
-      scratchPos.set(pool.x[i], pool.y[i], pool.z[i]);
-      if (hasCamera) scratchQuat.copy(camQuat);
-      else scratchQuat.identity();
-      scratchRoll.setFromAxisAngle(FORWARD, pool.yaw[i]);
-      scratchQuat.multiply(scratchRoll);
-      scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
-      pool.mesh.setMatrixAt(i, scratchMatrix);
-    }
-    pool.mesh.count = n;
-    pool.mesh.instanceMatrix.needsUpdate = true;
   }
 
   function update(dtSec: number, camera?: THREE.Camera, simDtSec?: number): void {
-    hasCamera = camera !== undefined;
-    if (camera) camera.getWorldQuaternion(camQuat);
-    const arcDt = simDtSec ?? dtSec;
-
-    if (dtSec > 0) {
-      age(boltsSingle, dtSec);
-      age(boltsTwin, dtSec);
-      age(tracerCore, dtSec);
-      age(tracerHalo, dtSec);
-      age(muzzles, dtSec);
-      age(explosions, dtSec);
-      age(explosionsLate, dtSec);
-      age(sparks, dtSec);
-      age(shockwaves, dtSec);
-    }
-    // The discharge runs on the sim's clock, so it freezes with a paused sim
-    // and cannot be fast-forwarded by a long frame — the streaks age on the same
-    // clock that schedules them, or a freeze would drain the pool and leave a
-    // mid-transformation pin with nothing to look at.
-    if (arcDt > 0) {
-      age(arcCore, arcDt);
-      age(arcGlow, arcDt);
-      age(transformFlashes, arcDt);
-      age(transformRings, arcDt);
-      // AFTER the ages: a streak spawned this frame should get its whole life,
-      // and at ARC_LIFE it only has about three frames to give away.
-      advanceArcEmitters(arcDt);
-    }
-
-    writeBolts(boltsSingle);
-    writeBolts(boltsTwin);
-    writeOriented(tracerCore, false, (i, t) => {
-      const fade = 1 - t;
-      scratchScale.set(tracerCore.param[i], TRACER_CORE_THICK * fade, TRACER_CORE_THICK * fade);
-    });
-    writeOriented(tracerHalo, false, (i, t) => {
-      const fade = (1 - t) * 0.85;
-      scratchScale.set(tracerHalo.param[i], TRACER_HALO_THICK * fade, TRACER_HALO_THICK * fade);
-    });
-    writeOriented(muzzles, true, (i, t) => {
-      const s = muzzles.param[i] * (1 + t * 0.6);
-      const fade = 1 - t;
-      scratchScale.set(s * fade, s * fade, s * fade);
-    });
-    writeOriented(explosions, true, (i, t) => {
-      const s = EXPLOSION_START + (explosions.param[i] - EXPLOSION_START) * t;
-      const envelope = t < 0.25 ? t / 0.25 : 1 - (t - 0.25) / 0.75;
-      const f = Math.max(0.08, envelope);
-      scratchScale.set(s * f, s * f, s * f);
-    });
-    // Phase two grows past the first ball and fades from a hot rim to nothing.
-    // No initial punch-in: by the time this is visible the id-8 ball already
-    // did that, and re-doing it reads as two explosions rather than one.
-    writeOriented(explosionsLate, true, (i, t) => {
-      const s = EXPLOSION_START + (explosionsLate.param[i] - EXPLOSION_START) * Math.sqrt(t);
-      const f = Math.max(0.05, 1 - t * t);
-      scratchScale.set(s * f, s * f, s * f);
-    });
-    writeOriented(sparks, true, (i, t) => {
-      const s = sparks.param[i] * (1 + t * 0.8);
-      const fade = 1 - t;
-      scratchScale.set(s * fade, s * fade, s * fade);
-    });
-    writeOriented(shockwaves, false, (i, t) => {
-      // Expanding ground disk; RingGeometry already has thickness in UV space.
-      const s = 0.8 + shockwaves.param[i] * t;
-      scratchScale.set(s, 1, s);
-    });
-    // Punch in hard, then fade — the swap happens under the brightest frame.
-    writeOriented(transformFlashes, true, (i, t) => {
-      const s = TRANSFORM_FLASH_START + (transformFlashes.param[i] - TRANSFORM_FLASH_START) * t;
-      const f = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
-      scratchScale.set(s * f, s * f, s * f);
-    });
-    writeOriented(transformRings, false, (i, t) => {
-      const s = TRANSFORM_RING_START + transformRings.param[i] * t;
-      scratchScale.set(s, 1, s);
-    });
-    // Arcs snap to full length and thin out rather than shrinking: a discharge
-    // that scales down reads as a receding object, not as one going out.
-    writeRolled(arcCore, (i, t) => {
-      scratchScale.set(arcCore.param[i], ARC_CORE_THICK * (1 - t), 1);
-    });
-    writeRolled(arcGlow, (i, t) => {
-      const fade = 1 - t;
-      scratchScale.set(arcGlow.param[i] * (1 + t * 0.25), ARC_GLOW_THICK * fade, 1);
-    });
+    const dt = Math.max(0, (simDtSec ?? dtSec) * ENGINE_HZ);
+    view.set(camera, options.viewportHeight ? options.viewportHeight() : 480);
+    // First: the faces publish their reference poses for what rides them.
+    shatter.update(dt);
+    flashes.update(dt, poses, view);
+    shells.update(dt, poses, view);
+    particles.update(dt, poses, view);
+    ribbons.update(dt, poses, view, particles, MUZZLE_OFFSET, MUZZLE_HEIGHT);
+    particles.flush();
+    nodes.update(dt, poses, view);
   }
 
-  const reset = (): void => {
-    const pools = [
-      boltsSingle,
-      boltsTwin,
-      tracerCore,
-      tracerHalo,
-      shockwaves,
-      muzzles,
-      explosions,
-      explosionsLate,
-      sparks,
-      arcCore,
-      arcGlow,
-      transformFlashes,
-      transformRings,
-    ];
-    for (const pool of pools) {
-      pool.count = 0;
-      pool.mesh.count = 0;
-    }
-    arcEmitters.live.fill(0);
-  };
+  function reset(): void {
+    flashes.reset();
+    shells.reset();
+    particles.reset();
+    nodes.reset();
+    ribbons.reset();
+    shatter.reset();
+  }
+
+  function bolt(row: number, x: number, y: number, z: number, yaw: number, pitch: number): boolean {
+    const c = Math.cos(pitch);
+    return ribbons.bolt(row, x, y, z, Math.cos(yaw) * c, Math.sin(pitch), Math.sin(yaw) * c);
+  }
 
   return {
     pump,
+    bolt,
     update,
     reset,
+    begin(mapId: string): void {
+      reset();
+      ribbons.setTrailRow(FX_ARENAS[mapId]?.trailRow ?? FX_ARENAS["la-cantina"]?.trailRow ?? 0);
+    },
     get atlasReady() {
-      return atlasReady;
+      return particles.atlasReady;
     },
-    debugTracerLength: () => (tracerCore.count > 0 ? tracerCore.param[tracerCore.count - 1] : 0),
-    debugBoltReach: () => {
-      const pool = boltsTwin.count > 0 ? boltsTwin : boltsSingle;
-      return pool.count > 0 ? pool.param[pool.count - 1] : 0;
+    debugCounts: () => {
+      const r = ribbons.counts();
+      return {
+        flashes: flashes.count,
+        shells: shells.count,
+        particles: particles.count,
+        nodes: nodes.count,
+        trails: r.trails,
+        links: r.links,
+        tracers: r.tracers,
+        ribbons: r.ribbons,
+        bolts: r.bolts,
+        shatter: shatter.faces(),
+      };
     },
-    debugCounts: () => ({
-      tracers: tracerCore.count,
-      muzzles: muzzles.count,
-      explosions: explosions.count,
-      sparks: sparks.count,
-      shockwaves: shockwaves.count,
-      boltsSingle: boltsSingle.count,
-      boltsTwin: boltsTwin.count,
-      arcs: arcCore.count,
-      arcEmitters: liveArcEmitters(),
-      transformFlashes: transformFlashes.count,
-    }),
   };
 }
 
-interface LoadedAtlas {
-  maps: {
-    explosion: THREE.Texture;
-    explosionLate: THREE.Texture;
-    muzzle: THREE.Texture;
-    spark: THREE.Texture;
+/**
+ * The pose table main.ts fills for the effects that ride an entity, and after
+ * the sim's ids the shatter's references (its peered faces, its whole objects).
+ */
+export function createFxPoses(): FxPoses {
+  return {
+    table: new Float32Array((MAX_ENTITIES + FACE_REFS) * POSE_STRIDE),
+    live: new Uint8Array(MAX_ENTITIES + FACE_REFS),
   };
-}
-
-async function loadCpyrAtlas(): Promise<LoadedAtlas | null> {
-  try {
-    const metaRes = await fetch(ATLAS_META_URL);
-    if (!metaRes.ok) return null;
-    const meta = (await metaRes.json()) as ParticleMeta;
-    const [atlasW, atlasH] = meta.size;
-
-    const expRect = findSprite(meta, PARTICLE_ID.explosion);
-    const expLateRect = findSprite(meta, PARTICLE_ID.explosionAlt);
-    const muzRect = findSprite(meta, PARTICLE_ID.muzzle);
-    const spkRect = findSprite(meta, PARTICLE_ID.spark);
-    if (!expRect || !expLateRect || !muzRect || !spkRect) return null;
-
-    const atlas = await loadTexture(ATLAS_URL);
-    if (!atlas) return null;
-    atlas.colorSpace = THREE.SRGBColorSpace;
-    atlas.magFilter = THREE.NearestFilter;
-    atlas.minFilter = THREE.NearestFilter;
-    atlas.generateMipmaps = false;
-    atlas.needsUpdate = true;
-
-    return {
-      maps: {
-        explosion: cropAtlasMap(atlas, expRect, atlasW, atlasH),
-        explosionLate: cropAtlasMap(atlas, expLateRect, atlasW, atlasH),
-        muzzle: cropAtlasMap(atlas, muzRect, atlasW, atlasH),
-        spark: cropAtlasMap(atlas, spkRect, atlasW, atlasH),
-      },
-    };
-  } catch {
-    return null;
-  }
-}
-
-function loadTexture(url: string): Promise<THREE.Texture | null> {
-  return new Promise((resolve) => {
-    const loader = new THREE.TextureLoader();
-    loader.load(
-      url,
-      (tex) => resolve(tex),
-      undefined,
-      () => resolve(null),
-    );
-  });
 }

@@ -34,7 +34,6 @@ import {
   AIRCRAFT_SEARCH_JITTER,
   AIRCRAFT_SEARCH_TICKS,
   AIRCRAFT_STANDOFF,
-  ARCHETYPE_RADIUS,
   AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HOVER_SPEED,
   AVATAR_WALKER_MAX_SLOPE,
@@ -42,6 +41,7 @@ import {
   FORTRESS_DETECT_RANGE,
   FORTRESS_LEASH_X,
   FORTRESS_LEASH_Y,
+  FRAME_CLOCK_PER_TICK,
   GUARDIAN_AIRCRAFT_SPEED,
   GUARDIAN_DETECT_RANGE,
   GUARDIAN_LEASH_X,
@@ -58,6 +58,7 @@ import {
   ROUTE_SCORE_PREV,
   ROUTE_SCORE_PREV2,
   ROUTE_SEEK_RANGE,
+  ROUTE_SPEED_UNIT,
   ROUTE_TOP_SPEED,
   ROUTE_WANDER,
   TARGET_PRIORITY_AVATAR,
@@ -70,8 +71,9 @@ import {
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
 import { type MapData, resolveHeight, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
-import { ANIM_MOVING, rideHeight, type SimState, STEP_SNAP } from "./sim";
+import { ANIM_MOVING, entityRadius, rideHeight, type SimState, STEP_SNAP } from "./sim";
 import { atan2Poly, cosLUT, rand01, randInt, sinLUT } from "./simMath";
+import { animStep, T_MODE } from "./walker";
 
 /**
  * An aircraft's anchor, the spawner it was built at (moveAircraft): 0 the base
@@ -107,6 +109,33 @@ export function nearestEnemyInRange(
   lineOfSight = true,
 ): number {
   const ent = state.ent;
+  return nearestEnemyFrom(
+    state,
+    id,
+    ent.posX[id],
+    ent.posY[id],
+    range,
+    skipStructures,
+    byPriority,
+    lineOfSight,
+  );
+}
+
+/**
+ * nearestEnemyInRange measured from (x, y) for `id`'s team: the Dreadnought's
+ * guns search from their own mounts (sim.ts shooterDreadnought).
+ */
+export function nearestEnemyFrom(
+  state: SimState,
+  id: number,
+  x: number,
+  y: number,
+  range: number,
+  skipStructures = false,
+  byPriority = false,
+  lineOfSight = true,
+): number {
+  const ent = state.ent;
   // Invisible avatars are unacquirable (rules.md §9). Resolved to entity ids up
   // front so the hot loop stays a plain comparison; -1 when the arena has no
   // pickups, which never matches a live id.
@@ -116,8 +145,6 @@ export function nearestEnemyInRange(
     if (state.buffInvis[0] > 0) hidden0 = state.avatarId[0];
     if (state.buffInvis[1] > 0) hidden1 = state.avatarId[1];
   }
-  const x = ent.posX[id];
-  const y = ent.posY[id];
   const team = ent.team[id];
   // Outpost consoles cannot be destroyed on any arena (fcop-fidelity.md R14,
   // sim.ts applyDamage), so nothing shoots at one.
@@ -185,7 +212,13 @@ export function systemUnitMovement(state: SimState): void {
     if (!ent.alive[id]) continue;
     switch (ent.archetype[id]) {
       case ARCHETYPE.RUNNER:
+        if (routes) moveRouteFollower(state, id);
+        else moveGroundUnit(state, id, ROUTE_TOP_SPEED);
+        break;
       case ARCHETYPE.JUGGERNAUT:
+        // The type-5 tick's order (type5.c 469-494): the hull's walk by the
+        // speed the last move left, then the move.
+        stepHullWalk(state, id);
         if (routes) moveRouteFollower(state, id);
         else moveGroundUnit(state, id, ROUTE_TOP_SPEED);
         break;
@@ -198,6 +231,25 @@ export function systemUnitMovement(state: SimState): void {
     }
   }
   if (!routes) separateGroundUnits(state);
+}
+
+/**
+ * The Dreadnought hull's walk where its model animates (Joke's; sim.ts
+ * hullWalk): `cact_anim_step` on its block by `dt` for a track in mode 1, else
+ * by `velocity_84 * dt` (RE type5.c 469-472) -- the speed word the last move
+ * left, world units per engine tick (ROUTE_SPEED_UNIT: 54 at the top speed),
+ * times the frame delta -- so a frame passes each `period` world units the hull
+ * has travelled (775 on Joke). A halted hull steps nothing.
+ */
+function stepHullWalk(state: SimState, id: number): void {
+  const ent = state.ent;
+  const walk = state.hullWalk[ent.team[id]];
+  if (!walk) return;
+  const v = Math.sqrt(ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id]);
+  const speed = Math.floor(v / ROUTE_SPEED_UNIT + 0.5);
+  const track = walk.tracks[walk.index[id]];
+  const step = track[T_MODE] === 1 ? FRAME_CLOCK_PER_TICK : speed * FRAME_CLOCK_PER_TICK;
+  animStep(walk, id, step, 0);
 }
 
 /**
@@ -568,7 +620,7 @@ function routeTraffic(state: SimState, id: number, hx: number, hy: number): void
   const x = ent.posX[id];
   const y = ent.posY[id];
   const h = ent.height[id];
-  const r = ARCHETYPE_RADIUS[ent.archetype[id]];
+  const r = entityRadius(state, id);
   let near = -1;
   let nearGap = ROUTE_NEAR_GAP;
   for (let t = 0; t < ent.high; t++) {
@@ -579,7 +631,7 @@ function routeTraffic(state: SimState, id: number, hx: number, hy: number): void
     if (dz > ROUTE_NEAR_RISE || dz < -ROUTE_NEAR_RISE) continue;
     const dx = ent.posX[t] - x;
     const dy = ent.posY[t] - y;
-    const gap = Math.sqrt(dx * dx + dy * dy) - r - ARCHETYPE_RADIUS[a];
+    const gap = Math.sqrt(dx * dx + dy * dy) - r - entityRadius(state, t);
     if (gap < nearGap) {
       nearGap = gap;
       near = t;

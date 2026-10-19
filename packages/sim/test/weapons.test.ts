@@ -10,6 +10,9 @@ import { ARCHETYPE } from "../src/archetypes";
 import {
   AVATAR_HP,
   AVATAR_LOCK_RANGE,
+  DIFFICULTY_EASY,
+  DIFFICULTY_HARD,
+  DIFFICULTY_NORMAL,
   PICKUP_POWER_GUN,
   PICKUP_POWER_HEAVY,
   PICKUP_POWER_SPECIAL,
@@ -37,6 +40,8 @@ import {
 import { createSim, type SimState, step } from "../src/sim";
 import {
   DEFAULT_LOADOUT,
+  difficultyAmmo,
+  EXTRA_WEAPONS_ALL,
   GUNS,
   gapUnits,
   HEAVIES,
@@ -58,6 +63,9 @@ const EVIDENCE = JSON.parse(
     "utf8",
   ),
 ) as { weapons: Record<string, Record<string, Record<string, unknown>>> };
+
+/** A record's magazine on the default NORMAL pick. */
+const normal = (raw: number) => difficultyAmmo(raw, DIFFICULTY_NORMAL);
 
 const ALL: readonly WeaponDef[] = [...GUNS, ...HEAVIES, ...SPECIALS];
 
@@ -132,8 +140,13 @@ function flatArena(): MapJson {
 const FLAT = loadMapFromJson(flatArena());
 
 /** A duel on the flat arena: p0 at (20, 30) facing +x, p1 `dx` m east of it. */
-function duel(loadout: Partial<typeof DEFAULT_LOADOUT>, dx: number, dy = 0) {
-  const sim = createSim(FLAT, 1, { loadouts: [loadout, DEFAULT_LOADOUT] });
+function duel(
+  loadout: Partial<typeof DEFAULT_LOADOUT>,
+  dx: number,
+  dy = 0,
+  extraWeapons = EXTRA_WEAPONS_ALL,
+) {
+  const sim = createSim(FLAT, 1, { loadouts: [loadout, DEFAULT_LOADOUT], extraWeapons });
   const a0 = sim.avatarId[0];
   const a1 = sim.avatarId[1];
   sim.ent.posX[a1] = 20 + dx;
@@ -164,34 +177,48 @@ describe("weapon catalog", () => {
     expect([kit.gun.code, kit.heavy.code, kit.special.code]).toEqual([0x00, 0x10, 0x20]);
   });
 
-  test("catalog is the ten original PA weapons, mapped to their codes", () => {
+  test("catalog is the ten PA weapons, then the five extras, mapped to their codes", () => {
     expect(GUNS.map((w) => [w.name, w.code])).toEqual([
       ["Powered Mini-Gun", 0x00],
       ["Gatling Laser", 0x01],
       ["Flamethrower", 0x02],
       ["Electric Gun", 0x03],
+      ["Riot Shield", 0x05],
     ]);
     expect(HEAVIES.map((w) => [w.name, w.code])).toEqual([
       ["Hell Fire 2000", 0x10],
       ["Concussion Beam", 0x12],
       ["Hyper Velocity Rocket", 0x13],
+      ["K-9 Drone", 0x15],
+      ["Fusion Torpedo", 0x14],
     ]);
     expect(SPECIALS.map((w) => [w.name, w.code])).toEqual([
       ["Mortar Launcher", 0x20],
       ["Pop-Up Mines", 0x22],
       ["Shockwave Generator", 0x23],
+      ["Grenade Launcher", 0x24],
+      ["Plasma Flare", 0x21],
     ]);
-    // The other five records exist in the original and are not offered.
-    const offered = new Set(ALL.map((w) => w.code));
-    for (const c of NOT_ADOPTED_CODES) expect(offered.has(c)).toBe(false);
-    expect(offered.size + NOT_ADOPTED_CODES.length).toBe(15);
+    // All fifteen of the original's records are in the catalogue now.
+    expect(NOT_ADOPTED_CODES).toEqual([]);
+    expect(new Set(ALL.map((w) => w.code)).size).toBe(15);
+    // The ten Precinct Assault offers need no bit; each of the five has its own.
+    expect(ALL.filter((w) => w.extraBit === 0).length).toBe(10);
+    expect(ALL.map((w) => w.extraBit).filter((b) => b !== 0)).toEqual([1, 2, 8, 4, 16]);
   });
 
   test("normalizeLoadout clamps out-of-range picks", () => {
+    // Without the extra weapons the last pick is the slot's last PA weapon,
+    // where it was before the five were appended.
     expect(normalizeLoadout({ gun: 99, heavy: -3, special: 1.7 })).toEqual({
-      gun: GUNS.length - 1,
+      gun: 3,
       heavy: 0,
       special: 1,
+    });
+    expect(normalizeLoadout({ gun: 99, heavy: 99, special: 99 }, EXTRA_WEAPONS_ALL)).toEqual({
+      gun: GUNS.length - 1,
+      heavy: HEAVIES.length - 1,
+      special: SPECIALS.length - 1,
     });
   });
 
@@ -220,7 +247,7 @@ describe("weapon catalog", () => {
  * halfwords the way the loader does, and the two must agree.
  */
 describe("the original's records (fcop-fidelity.md W1)", () => {
-  test("damage, NORMAL ammunition and gaps", () => {
+  test("damage, ammunition on every difficulty, and gaps", () => {
     for (const w of ALL) {
       for (const [blk, ev] of [
         [w.a, evidence(w, "A_normal")],
@@ -228,8 +255,20 @@ describe("the original's records (fcop-fidelity.md W1)", () => {
       ] as const) {
         const raw = ev.raw as Record<string, number>;
         expect(blk.damage).toBe(ev.damage as number);
-        expect(blk.ammo).toBe((ev.ammo_start as Record<string, number>).normal);
-        expect(blk.ammoCap).toBe((ev.ammo_cap as Record<string, number>).normal);
+        // The tables hold the record's own magazines, HARD's; each difficulty
+        // scales them the way the stock and the ceiling do.
+        const start = ev.ammo_start as Record<string, number>;
+        const cap = ev.ammo_cap as Record<string, number>;
+        expect(blk.ammo).toBe(start.hard);
+        expect(blk.ammoCap).toBe(cap.hard);
+        for (const [d, key] of [
+          [DIFFICULTY_HARD, "hard"],
+          [DIFFICULTY_NORMAL, "normal"],
+          [DIFFICULTY_EASY, "easy"],
+        ] as const) {
+          expect(difficultyAmmo(blk.ammo, d)).toBe(start[key]);
+          expect(difficultyAmmo(blk.ammoCap, d)).toBe(cap[key]);
+        }
         expect(blk.rounds).toBe(raw.rounds_per_burst);
         const units = ev.gap_units_1_300s as Record<string, number>;
         expect(blk.burstGap).toBe(units.burst);
@@ -299,7 +338,7 @@ describe("the cooldown machine (`player_fire_slot`)", () => {
     inputs.players[0].buttons = BTN_GUN;
     for (let t = 0; t < TICK_HZ; t++) step(sim, inputs);
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - TICK_HZ);
-    expect(sim.gunAmmo[0]).toBe(GUNS[0].a.ammoCap - TICK_HZ);
+    expect(sim.gunAmmo[0]).toBe(normal(GUNS[0].a.ammoCap) - TICK_HZ);
   });
 
   test("the Electric Gun's 18-unit gap fires on every other tick", () => {
@@ -319,7 +358,7 @@ describe("the cooldown machine (`player_fire_slot`)", () => {
     }
     // 450 - 3 * 37 = 339 units after the fourth: 34 ticks, so a 37-tick cycle.
     expect(fired.slice(0, 8)).toEqual([0, 1, 2, 3, 37, 38, 39, 40]);
-    expect(sim.ent.ammoA[a0]).toBe(HEAVIES[2].a.ammoCap - fired.length);
+    expect(sim.ent.ammoA[a0]).toBe(normal(HEAVIES[2].a.ammoCap) - fired.length);
   });
 
   test("the Mortar's 601-unit gap is 61 ticks: the cooldown floors at zero", () => {
@@ -362,9 +401,9 @@ describe("the cooldown machine (`player_fire_slot`)", () => {
   });
 
   test("a kept-round block (flag 4) makes Special fire on the press instead", () => {
-    // Neither flag-4 record (the Plasma Flare, the Grenade) is in the catalogue,
-    // so the Mortar's block A borrows the flag for this test only.
-    for (const w of ALL) expect(w.a.flags & 4).toBe(0);
+    // The two flag-4 records (the Plasma Flare, the Grenade Launcher) are extra
+    // weapons; here the Mortar's block A borrows the flag for this test only.
+    for (const w of ALL) expect((w.a.flags & 4) !== 0).toBe(w.code === 0x21 || w.code === 0x24);
     const a = SPECIALS[0].a as { flags: number };
     const flags = a.flags;
     a.flags = flags | 4;
@@ -618,10 +657,18 @@ describe("ammunition", () => {
         [["gun", "heavy", "special"][w.slot]]: w.index,
       };
       const { sim, inputs } = duel(loadout, 8);
+      // One idle tick first: the Riot Shield's toggle flips only once the
+      // frame clock is past its hold, which starts at 0.
+      step(sim, inputs);
       inputs.players[0].buttons = [BTN_GUN, BTN_HEAVY, BTN_SPECIAL][w.slot];
       step(sim, inputs);
-      if (w.slot === 2) step(sim, inputs); // Special: the second tick held
-      expect(firedWeaponIds(sim)).toContain(w.id);
+      const fired = firedWeaponIds(sim);
+      // Special: the second tick held (a kept-round weapon fires on the press).
+      if (w.slot === 2) {
+        step(sim, inputs);
+        fired.push(...firedWeaponIds(sim));
+      }
+      expect(fired).toContain(w.id);
     }
   });
 });
@@ -654,10 +701,10 @@ describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
     ] as const) {
       const { sim, inputs } = onPickup(kind);
       step(sim, inputs);
-      expect(sim.powerAmmo[slot]).toBe(w.b.ammoCap);
+      expect(sim.powerAmmo[slot]).toBe(normal(w.b.ammoCap));
       for (let s = 0; s < 3; s++) if (s !== slot) expect(sim.powerAmmo[s]).toBe(0);
     }
-    expect(HEAVIES[0].b.ammoCap).toBe(18); // Hell Fire B: 15 x 1.25
+    expect(normal(HEAVIES[0].b.ammoCap)).toBe(18); // Hell Fire B: 15 x 1.25
   });
 
   test("a powered Hell Fire fires its B block — three missiles — until empty, then A", () => {

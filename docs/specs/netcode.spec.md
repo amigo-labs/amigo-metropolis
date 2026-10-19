@@ -103,6 +103,52 @@ defuses the input delay then.
 
 ---
 
+### The networked lobby (protocol 4)
+
+A match does not start when the second player arrives. As in the original's
+networked Precinct Assault (RE `src/game/frontend/input.c`, 0x00401990, the
+front end's DirectPlay pump), the two sides first sit in the lobby: both pick,
+both press START, and the match begins when both ready bits are set.
+
+- **Messages** (`MSG_LOBBY`, peer to peer; the relay forwards them to the other
+  slot unread, P2P sends them on the control channel) carry the original's ids:
+  setup choice `0x09` (index 0, the host's map row), name `0x0a` (15
+  single-byte characters; "Player1" / "Player2" until it arrives), selection
+  `0x0b` / `0x0c` (HARD / NORMAL / EASY), loadout `0x0d` / `0x0e` (three ids,
+  `slot << 4 | entry`), ready `0x10` / `0x15`. `0x20` is Metropolis' own: the
+  host's extra-weapon switches (`fcop-fidelity.md` F23). Not carried, because
+  Metropolis has none of them: the Crime War pick, the split-screen byte
+  (`0x16`), the game mode (`0x17`). The original's hello / ack / refusal and
+  "peer gone" are the transports' HELLO / WELCOME / ERROR and PEER / close.
+- **Order:** on the link the host sends its half as the hello's arm does (map,
+  name, selection, loadout, the rules, its ready bit if set), the joiner its
+  own as the ack's arm does (name, selection, loadout). Every change goes out
+  when it is made. Each side owns its own picks and ready bit, the host the
+  setup; the receivers apply the original's role gates
+  (`menu/frontend/netLobby.ts`).
+- **Ready:** START sets this side's bit and sends it; any mouse button while
+  it is set takes it back first and sends that.
+- **The start (where Metropolis differs):** the original's two machines each
+  start on their own copy of the flags, so a ready crossing a take-back on the
+  wire leaves one in the mission and one in the lobby. Lockstep needs one
+  config on both, so the host decides: when its copy says both, it sends the
+  agreed config — its map and seed (as the original's mission handshake sends
+  the host's seed, `session.c` 0x00406160), both players' loadouts and
+  difficulties, its rules — as `MSG_BEGIN`; the relay seals it, keeps it as
+  the match config and broadcasts `MSG_START` carrying it. Over P2P the host
+  sends `MSG_START` itself. Both build their sim from those bytes; whatever
+  the joiner did after the host decided changes nothing.
+- **Versions:** `PROTOCOL_VERSION` 4. `MatchConfig` carries each player's
+  loadout after the mapId and the extra-weapons mask. An older client's
+  HELLO does not decode (its config is shorter); the relay reads its protocol
+  byte (`peekProtocol`) and answers `ERR_VERSION_MISMATCH`, which the old
+  client reports as such. The P2P lobby DO refuses a create / join without
+  protocol 4 as `versionMismatch` before any signaling; a P2P peer refuses an
+  undecodable old HELLO likewise. A fresh HELLO into a running room is
+  `ERR_ROOM_FULL` (only REJOIN enters a match).
+- **Open:** the replay header (format 4) has no loadouts and no rules, so a
+  desync dump of an online match replays the default kit.
+
 ## 5. Role of the Durable Object
 
 The DO is an **authoritative relay + input orderer + tick barrier**, **not** a
@@ -110,7 +156,8 @@ full sim server (the sim stays on the clients, the DO stays cheap).
 
 Responsible for:
 - Match/session lifecycle, membership, **seed and config distribution** (both
-  clients start bit-identical).
+  clients start bit-identical): the lobby's messages relayed between the
+  slots, the host's agreed config sealed into START (§4, protocol 4).
 - Receiving the per-tick `InputCommand`s, ordering/stamping, **broadcasting the
   confirmed input set** per tick.
 - Tick cadence/laggard handling (input timeout → defined fallback: "repeat the
@@ -135,7 +182,7 @@ an idle room cheap).
 | Synchronized (deterministic, lockstep) | Local (never synchronized) |
 | --- | --- |
 | `InputCommand`s (see `input.spec`) | Camera (`camera.spec`) |
-| Seed, match config | Audio, particles, cosmetic RNG |
+| Seed, match config (the lobby's agreed picks) | Audio, particles, cosmetic RNG |
 | Tick numbers | UI, local config/keybindings |
 | periodic state hashes | View prediction (if any, render-only) |
 

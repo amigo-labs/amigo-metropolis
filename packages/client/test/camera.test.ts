@@ -1,287 +1,244 @@
+// The original's chase cameras (render/camera.ts) against the RE's own numbers:
+// camera.json's pitch curve table and the converged eye of each camera for a
+// walker standing at height 0 and facing yaw 0.
+
 import { describe, expect, test } from "bun:test";
 import {
-  type CameraInput,
-  type CameraState,
-  createCameraState,
-  DEFAULT_RIG_CONFIG,
-  deriveCameraPose,
-  smoothstep,
-  updateCamera,
-  type Vec3,
-  wrapAngle,
+  CAMERA_COUNT,
+  CAMERA_VFOV_DEG,
+  type ChaseCamera,
+  type ChasePose,
+  type ChaseSubject,
+  type ChaseTrace,
+  cameraInPa,
+  cameraName,
+  createChaseCamera,
+  createChasePose,
+  ENGINE_HZ,
+  foldAngle,
+  gateCrowdControl,
+  pitchCurve,
+  pressCameraKey,
+  stepChaseCamera,
+  turnToward,
+  WU_PER_M,
 } from "../src/render/camera";
+import { CAMERA_CAPTION, CAMERA_STEADY_EYES } from "../src/render/fcopPresentation.generated";
 
-const cfg = DEFAULT_RIG_CONFIG;
-
-function neutralInput(over: Partial<CameraInput> = {}): CameraInput {
-  return {
-    zoomDelta: 0,
-    yawAbsolute: null,
-    yawDelta: 0,
-    panDelta: { x: 0, y: 0, z: 0 },
-    recenter: false,
-    snapTarget: null,
-    ...over,
-  };
+function subject(over: Partial<ChaseSubject> = {}): ChaseSubject {
+  return { x: 0, y: 0, height: 0, facing: 0, hover: false, ...over };
 }
 
-const ORIGIN: Vec3 = { x: 0, y: 0, z: 0 };
-const STILL: Vec3 = { x: 0, y: 0, z: 0 };
+/** Runs the camera for `seconds` at `fps`; returns the last pose. */
+function run(
+  cam: ChaseCamera,
+  subj: ChaseSubject,
+  seconds: number,
+  fps = 60,
+  trace: ChaseTrace | null = null,
+): ChasePose {
+  const pose = createChasePose();
+  const frames = Math.round(seconds * fps);
+  for (let i = 0; i < frames; i++) stepChaseCamera(cam, subj, ENGINE_HZ / fps, trace, 0.5, pose);
+  return pose;
+}
 
-/** Runs the rig for `seconds` at a fixed `fps`, holding a constant input. */
-function run(state: CameraState, input: CameraInput, target: Vec3, fps: number, seconds: number) {
-  const dt = 1 / fps;
-  const steps = Math.round(seconds * fps);
-  for (let i = 0; i < steps; i++) {
-    updateCamera(state, input, target, STILL, true, cfg, dt);
+/** The eye in the RE's runtime frame (position[0], [1], [2]), world units. */
+function runtimeEye(p: ChasePose): [number, number, number] {
+  return [p.eyeZ * WU_PER_M, p.eyeY * WU_PER_M, p.eyeX * WU_PER_M];
+}
+
+describe("pitch curve (view_pitch_curve 0x00445f60)", () => {
+  // camera.json pitch_curve.table.
+  const table: [number, number][] = [
+    [255, 36864],
+    [330, 55296],
+    [430, 95344],
+    [512, 122754],
+    [530, 128114],
+    [768, 176814],
+    [930, 186368],
+  ];
+  for (const [pitch, height] of table) {
+    test(`pitch ${pitch} -> ${height} wu`, () => {
+      expect(Math.abs(pitchCurve(pitch) - height)).toBeLessThan(4);
+    });
   }
-  return state;
-}
+});
 
-describe("smoothstep", () => {
-  test("clamped Hermite, monotone through the ends and midpoint", () => {
-    expect(smoothstep(-1)).toBe(0);
-    expect(smoothstep(0)).toBe(0);
-    expect(smoothstep(0.5)).toBeCloseTo(0.5, 12);
-    expect(smoothstep(1)).toBe(1);
-    expect(smoothstep(2)).toBe(1);
-    expect(smoothstep(0.25)).toBeLessThan(0.25); // eased-in below the mid
+describe("steady-state eyes (camera.json steady_state_walker_subject_y0)", () => {
+  for (let name = 0; name < CAMERA_COUNT; name++) {
+    test(`${name}: ${cameraName({ ...createChaseCamera(), name })}`, () => {
+      const cam = createChaseCamera();
+      cam.name = name; // no gate: Crowd Control's steady state is defined too
+      const eye = runtimeEye(run(cam, subject(), 6));
+      const want = CAMERA_STEADY_EYES[name].eye;
+      // The RE's numbers are floating point over the game's integers.
+      for (let i = 0; i < 3; i++) expect(Math.abs(eye[i] - want[i])).toBeLessThan(8);
+    });
+  }
+
+  test("Standard: 6.75 m up, 8.57 m behind, pitched 29.0 degrees", () => {
+    const pose = run(createChaseCamera(), subject({ x: 100, y: 50, facing: Math.PI / 2 }), 6);
+    // Facing +y (three +z): the eye sits behind at -y.
+    expect(pose.eyeX).toBeCloseTo(100, 2);
+    expect(pose.eyeY).toBeCloseTo(6.75, 2);
+    expect(pose.eyeZ).toBeCloseTo(50 - 70188 / WU_PER_M, 2);
+    expect((pose.pitch * 180) / Math.PI).toBeCloseTo(29.0039, 2);
+  });
+
+  test("the plane rises by half the subject's height", () => {
+    const pose = run(createChaseCamera(), subject({ height: 4 }), 8);
+    expect(pose.eyeY).toBeCloseTo(6.75 + 2, 1);
+  });
+
+  test("the hover's sink lowers the aim point by 5376 wu", () => {
+    const walker = runtimeEye(run(createChaseCamera(), subject(), 6));
+    const hover = runtimeEye(run(createChaseCamera(), subject({ hover: true }), 6));
+    // Same plane; the pull-back grows by cot(pitch) x the lowered aim point.
+    expect(hover[1]).toBeCloseTo(walker[1], 3);
+    const cot = 1 / Math.tan((330 * 2 * Math.PI) / 4096);
+    expect(walker[2] - hover[2]).toBeCloseTo(cot * 5376, 0);
+  });
+
+  test("the vertical field of view is the original's 26.38 degrees", () => {
+    expect(CAMERA_VFOV_DEG).toBeCloseTo(2 * Math.atan(15 / 64) * (180 / Math.PI), 2);
   });
 });
 
-describe("updateCamera — framerate stability (DoD §10)", () => {
-  // The core determinism-adjacent guarantee: exponential smoothing with
-  // 1-exp(-dt/tau) reaches the same value over a fixed wall-clock span no matter
-  // how it is subdivided. Three very different framerates must converge alike.
-  test("t damping (pure exponential, no deadzone) is EXACTLY framerate-identical", () => {
-    // tTarget is pinned so the only variable is the damping cadence.
-    const mk = () => {
-      const s = createCameraState(ORIGIN, 0);
-      s.tTarget = 1;
-      return s;
-    };
-    const a = run(mk(), neutralInput(), ORIGIN, 30, 2);
-    const b = run(mk(), neutralInput(), ORIGIN, 60, 2);
-    const c = run(mk(), neutralInput(), ORIGIN, 144, 2);
-    expect(a.t).toBeCloseTo(b.t, 9);
-    expect(b.t).toBeCloseTo(c.t, 9);
+describe("the Camera Key", () => {
+  test("cycles five cameras in Precinct Assault: Crowd Control drops to Standard", () => {
+    const cam = createChaseCamera();
+    const seen: string[] = [cameraName(cam)];
+    for (let i = 0; i < 6; i++) {
+      pressCameraKey(cam, false);
+      gateCrowdControl(cam, false); // no PA arena has a volume trigger
+      seen.push(cameraName(cam));
+    }
+    expect(seen).toEqual([
+      "Standard Camera",
+      "Close-Up Camera",
+      "Standard Side Camera",
+      "Close-Up Side Camera",
+      "Sky Camera",
+      "Standard Camera",
+      "Close-Up Camera",
+    ]);
+    for (let n = 0; n < CAMERA_COUNT; n++) expect(cameraInPa(n)).toBe(n < 5);
   });
 
-  test("focus damping matches across framerates while actively closing (gap >> deadzone)", () => {
-    // Far target + a 0.5 s span (an exact integer frame count at all three
-    // framerates: 15 / 30 / 72) → the focus stays well outside the deadzone the
-    // whole time, so the exponential closes identically regardless of fps.
-    const target: Vec3 = { x: 100, y: 0, z: -100 };
-    const a = run(createCameraState(ORIGIN, 0), neutralInput(), target, 30, 0.5);
-    const b = run(createCameraState(ORIGIN, 0), neutralInput(), target, 60, 0.5);
-    const c = run(createCameraState(ORIGIN, 0), neutralInput(), target, 144, 0.5);
-    expect(a.focus.x).toBeCloseTo(b.focus.x, 6);
-    expect(b.focus.x).toBeCloseTo(c.focus.x, 6);
-    expect(a.focus.z).toBeCloseTo(c.focus.z, 6);
-    // …and each matches the closed-form continuous solution 100·(1−e^(−T/τ)).
-    const closed = 100 * (1 - Math.exp(-0.5 / cfg.followSmoothTime));
-    expect(a.focus.x).toBeCloseTo(closed, 6);
+  test("inside a volume trigger the key reaches both Crowd Control cameras", () => {
+    const cam = createChaseCamera();
+    for (let i = 0; i < 6; i++) {
+      pressCameraKey(cam, false);
+      gateCrowdControl(cam, true);
+    }
+    expect(cameraName(cam)).toBe("Crowd Control Side Camera");
+    pressCameraKey(cam, false);
+    expect(cam.name).toBe(0); // 7 wraps to 0
   });
 
-  test("focus homes onto a static target to within the deadzone, at any framerate", () => {
-    const target: Vec3 = { x: 4, y: 1, z: 2 };
-    for (const fps of [30, 60, 144]) {
-      const s = run(createCameraState(ORIGIN, 0), neutralInput(), target, fps, 5);
-      const dx = s.focus.x - target.x;
-      const dy = s.focus.y - (target.y + cfg.focusHeight);
-      const dz = s.focus.z - target.z;
-      expect(Math.sqrt(dx * dx + dy * dy + dz * dz)).toBeLessThanOrEqual(cfg.deadzone + 1e-6);
+  test("a press arms the caption for 900 ticks; it counts down; paused, nothing", () => {
+    const cam = createChaseCamera();
+    expect(cam.caption).toBe(CAMERA_CAPTION.ticks); // armed at construct
+    run(cam, subject(), 3.1);
+    expect(cam.caption).toBeLessThanOrEqual(0);
+    pressCameraKey(cam, true);
+    expect(cam.name).toBe(0);
+    expect(cam.caption).toBeLessThanOrEqual(0);
+    pressCameraKey(cam, false);
+    expect(cam.name).toBe(1);
+    expect(cam.caption).toBe(900);
+    run(cam, subject(), 1);
+    expect(cam.caption).toBeCloseTo(600, 6);
+  });
+});
+
+describe("follow (view_turn_toward, rate caps)", () => {
+  test("the turn takes the short way round", () => {
+    expect(foldAngle(turnToward(2000, -2000, 1))).toBeGreaterThan(2000);
+    expect(foldAngle(turnToward(-2000, 2000, 1))).toBeLessThan(-2000);
+  });
+
+  test("time constant ~63 ticks: (31/32)^(ticks/2)", () => {
+    // One 1000-unit gap, no cap in the way: half a step per tick.
+    const after = turnToward(0, 1000, 63 / 2);
+    expect(1000 - after).toBeCloseTo(1000 * (31 / 32) ** 31.5, 6);
+  });
+
+  test("yaw never moves more than 4 units a tick, pitch 2", () => {
+    const cam = createChaseCamera();
+    run(cam, subject(), 4);
+    const before = cam.yaw;
+    const pose = createChasePose();
+    stepChaseCamera(cam, subject({ facing: Math.PI }), 10, null, 0.5, pose);
+    expect(Math.abs(foldAngle(cam.yaw - before))).toBeCloseTo(40, 6);
+    pressCameraKey(cam, false);
+    pressCameraKey(cam, false);
+    pressCameraKey(cam, false);
+    pressCameraKey(cam, false); // Sky: pitch 330 -> 430
+    // A 100-unit gap: the 1/32 follow wants 14.7 in 10 ticks, under the cap.
+    const p0 = cam.pitch;
+    stepChaseCamera(cam, subject({ facing: Math.PI }), 10, null, 0.5, pose);
+    expect(cam.pitch - p0).toBeCloseTo(100 * (1 - (31 / 32) ** 5), 6);
+    // Standard's last fallback, preset 2 (930), from 330: the follow wants
+    // more than 20 in 10 ticks, the cap gives 20.
+    const std = createChaseCamera();
+    run(std, subject(), 2);
+    std.live = 3;
+    expect(turnToward(std.pitch, 930, 5) - std.pitch).toBeGreaterThan(20);
+    const before330 = std.pitch;
+    stepChaseCamera(std, subject(), 10, null, 0.5, pose);
+    expect(std.pitch - before330).toBeCloseTo(20, 6);
+  });
+
+  test("frame-rate stable: 30, 60 and 144 fps arrive at the same camera", () => {
+    const final = [30, 60, 144].map((fps) => {
+      const cam = createChaseCamera();
+      run(cam, subject(), 2, fps);
+      pressCameraKey(cam, false); // Close-Up: retract and offset walk
+      const pose = run(cam, subject({ facing: 1.2, height: 2 }), 1.5, fps);
+      return [pose.eyeX, pose.eyeY, pose.eyeZ, cam.yaw, cam.retract];
+    });
+    for (let i = 0; i < final[0].length; i++) {
+      expect(Math.abs(final[1][i] - final[0][i])).toBeLessThan(0.05);
+      expect(Math.abs(final[2][i] - final[0][i])).toBeLessThan(0.05);
     }
   });
 });
 
-describe("updateCamera — view continuum", () => {
-  test("zoom raises tTarget and t chases it, clamped to [0,1]", () => {
-    const s = run(createCameraState(ORIGIN, 0), neutralInput({ zoomDelta: 0.5 }), ORIGIN, 60, 3);
-    expect(s.tTarget).toBe(1);
-    expect(s.t).toBeGreaterThan(0.9);
-    const s2 = run(createCameraState(ORIGIN, 0), neutralInput({ zoomDelta: -0.5 }), ORIGIN, 60, 1);
-    expect(s2.tTarget).toBe(0);
-  });
-
-  test("snapTarget overrides accumulation", () => {
-    const s = createCameraState(ORIGIN, 0);
-    updateCamera(
-      s,
-      neutralInput({ zoomDelta: 0.9, snapTarget: 0.3 }),
-      ORIGIN,
-      STILL,
-      true,
-      cfg,
-      1 / 60,
-    );
-    expect(s.tTarget).toBe(0.3);
-  });
-
-  test("transform bias shifts the resting t but the player still wins", () => {
-    // Pursuit biases toward TACTICAL, walker toward ACTION, for the SAME tTarget.
-    const pursuit = createCameraState(ORIGIN, 0);
-    const walker = createCameraState(ORIGIN, 0);
-    const dt = 1 / 60;
-    for (let i = 0; i < 300; i++) {
-      updateCamera(pursuit, neutralInput({ snapTarget: 0.5 }), ORIGIN, STILL, true, cfg, dt);
-      updateCamera(walker, neutralInput({ snapTarget: 0.5 }), ORIGIN, STILL, false, cfg, dt);
-    }
-    expect(pursuit.t).toBeGreaterThan(walker.t);
-    expect(pursuit.t).toBeCloseTo(0.5 + cfg.transformBias, 3);
-    expect(walker.t).toBeCloseTo(0.5 - cfg.transformBias, 3);
+describe("the height follower (view_track_height)", () => {
+  test("a small bump is ignored, a storey is followed", () => {
+    const cam = createChaseCamera();
+    run(cam, subject(), 2);
+    const bump = run(cam, subject({ height: 0.05 }), 2);
+    expect(bump.eyeY).toBeCloseTo(6.75, 3);
+    const storey = run(cam, subject({ height: 4 }), 6);
+    expect(storey.eyeY).toBeCloseTo(6.75 + 2, 1);
   });
 });
 
-describe("updateCamera — yaw policy (§3)", () => {
-  test("nothing steers the yaw while locked", () => {
-    const locked = { ...cfg, yawLocked: true };
-    const s = createCameraState(ORIGIN, 0);
-    const dt = 1 / 60;
-    for (let i = 0; i < 120; i++) {
-      updateCamera(
-        s,
-        neutralInput({ yawDelta: 0.2, yawAbsolute: 1 }),
-        ORIGIN,
-        STILL,
-        true,
-        locked,
-        dt,
-      );
-    }
-    expect(s.yaw).toBe(0);
-    expect(s.yawTarget).toBe(0);
+describe("the occlusion machine", () => {
+  // A wall at x (three) < -5 blocks: the Standard eye (8.6 m behind at -x when
+  // facing +x) is behind it; preset 1 (46.6 degrees, 15.6 m plane) is not.
+  const facingX = subject({ facing: 0 });
+  const wall: ChaseTrace = (_ax, _ay, _az, ex, ey) => ex < -5 && ey < 12;
+
+  test("after 120 blocked ticks the first fallback goes live", () => {
+    const cam = createChaseCamera();
+    run(cam, facingX, 0.39, 300, wall);
+    expect(cam.live).toBe(1);
+    run(cam, facingX, 0.02, 300, wall);
+    expect(cam.live).toBe(2);
+    const pose = run(cam, facingX, 4, 60, wall);
+    expect((pose.pitch * 4096) / (2 * Math.PI)).toBeCloseTo(530, 0);
   });
 
-  test("an absolute heading is taken as the target, not accumulated", () => {
-    // The chase rig's contract: the mouse owns the heading outright. Feeding the
-    // same value every frame has to settle there rather than integrate away.
-    const s = createCameraState(ORIGIN, 0);
-    const dt = 1 / 60;
-    for (let i = 0; i < 240; i++) {
-      updateCamera(s, neutralInput({ yawAbsolute: 1.2 }), ORIGIN, STILL, true, cfg, dt);
-    }
-    expect(s.yawTarget).toBeCloseTo(1.2, 6);
-    expect(s.yaw).toBeCloseTo(1.2, 3);
-  });
-
-  test("yawDelta still integrates when no absolute heading is given", () => {
-    const s = createCameraState(ORIGIN, 0);
-    const dt = 1 / 60;
-    for (let i = 0; i < 120; i++) {
-      updateCamera(s, neutralInput({ yawDelta: 0.01 }), ORIGIN, STILL, true, cfg, dt);
-    }
-    expect(s.yawTarget).toBeCloseTo(1.2, 6);
-    expect(s.yaw).toBeGreaterThan(1.0);
-  });
-
-  test("crossing the ±PI seam takes the short way round", () => {
-    // Raw lerping between +3.1 and -3.1 sweeps almost a full turn the wrong way,
-    // which is a whole camera spin every time the player drives north.
-    const s = createCameraState(ORIGIN, 3.1);
-    const dt = 1 / 60;
-    let maxStep = 0;
-    let prev = s.yaw;
-    for (let i = 0; i < 120; i++) {
-      updateCamera(s, neutralInput({ yawAbsolute: -3.1 }), ORIGIN, STILL, true, cfg, dt);
-      maxStep = Math.max(maxStep, Math.abs(wrapAngle(s.yaw - prev)));
-      prev = s.yaw;
-    }
-    // Total travel is the short arc (~0.083 rad), so no single frame can exceed it.
-    expect(maxStep).toBeLessThan(0.09);
-    expect(Math.abs(wrapAngle(s.yaw - -3.1))).toBeLessThan(0.01);
-  });
-});
-
-describe("updateCamera — free-look (§4.4)", () => {
-  test("pan only accumulates in the tactical range; recenter zeroes it", () => {
-    const pan = neutralInput({ panDelta: { x: 1, y: 0, z: 0 } });
-    // Below threshold: focus stays hard on the unit, pan does not build up.
-    const low = createCameraState(ORIGIN, 0);
-    low.t = 0.2;
-    low.tTarget = 0.2;
-    run(low, pan, ORIGIN, 60, 1);
-    expect(Math.abs(low.panOffset.x)).toBeLessThan(0.05);
-
-    // Tactical: pan accumulates and moves the focus off the unit.
-    const high = createCameraState(ORIGIN, 0);
-    high.t = 0.9;
-    high.tTarget = 0.9;
-    run(high, pan, ORIGIN, 60, 1);
-    expect(high.panOffset.x).toBeGreaterThan(1);
-
-    // Recenter damps the offset back toward the unit.
-    run(high, neutralInput({ recenter: true }), ORIGIN, 60, 3);
-    expect(Math.abs(high.panOffset.x)).toBeLessThan(0.05);
-  });
-});
-
-describe("updateCamera — look-ahead (§4.2)", () => {
-  test("focus leads the unit toward its velocity, saturating at lookAheadMax", () => {
-    const s = createCameraState(ORIGIN, 0);
-    const vel: Vec3 = { x: 100, y: 0, z: 0 }; // well past the saturation speed
-    const dt = 1 / 60;
-    for (let i = 0; i < 600; i++) updateCamera(s, neutralInput(), ORIGIN, vel, true, cfg, dt);
-    // Settles within the deadzone of the full lookAheadMax lead.
-    expect(cfg.lookAheadMax - s.focus.x).toBeLessThanOrEqual(cfg.deadzone + 1e-6);
-    expect(s.focus.x).toBeGreaterThan(cfg.lookAheadMax - cfg.deadzone - 1e-6);
-    expect(Math.abs(s.focus.z)).toBeLessThan(0.05);
-  });
-});
-
-describe("deriveCameraPose", () => {
-  const eye: Vec3 = { x: 0, y: 0, z: 0 };
-  const target: Vec3 = { x: 0, y: 0, z: 0 };
-
-  test("target is the focus; eye sits behind and above by t-eased anchors", () => {
-    const s = createCameraState({ x: 5, y: 1, z: -2 }, 0);
-    s.t = 0; // ACTION
-    const fov = deriveCameraPose(s, cfg, eye, target);
-    expect(target).toEqual({ x: 5, y: 1, z: -2 });
-    expect(fov).toBeCloseTo(cfg.action.fovDeg, 6);
-    // yaw 0 → ground-forward +x → eye is pulled back along -x and lifted.
-    expect(eye.x).toBeLessThan(target.x);
-    expect(eye.y).toBeGreaterThan(target.y);
-    expect(eye.z).toBeCloseTo(target.z, 6);
-  });
-
-  test("t no longer moves the framing — pitch, dolly and fov are fixed", () => {
-    // This used to assert the opposite ("higher t frames higher and farther").
-    // The chase rig collapses both anchors onto one, so the whole t continuum is
-    // inert by construction: that is the original's single fixed camera, and it
-    // is what makes a walk cycle judgeable frame to frame.
-    const s = createCameraState(ORIGIN, 0);
-    s.t = 0;
-    const fovLow = deriveCameraPose(s, cfg, eye, target);
-    const lowRise = eye.y;
-    const lowRun = Math.abs(eye.x);
-    s.t = 1;
-    const fovHigh = deriveCameraPose(s, cfg, eye, target);
-    expect(eye.y).toBeCloseTo(lowRise, 10);
-    expect(Math.abs(eye.x)).toBeCloseTo(lowRun, 10);
-    expect(fovHigh).toBeCloseTo(fovLow, 10);
-    expect(fovHigh).toBeCloseTo(cfg.action.fovDeg, 6);
-  });
-
-  test("the fixed pitch is a real downward tilt, not top-down and not flat", () => {
-    // Two things depend on the number itself: a near-zero pitch puts the eye in
-    // the road, and a near-90 one makes cameraGroundForward degenerate, which is
-    // the basis WASD is rotated by.
-    const s = createCameraState(ORIGIN, 0);
-    deriveCameraPose(s, cfg, eye, target);
-    const rise = eye.y - target.y;
-    const run = Math.hypot(eye.x - target.x, eye.z - target.z);
-    const pitchDeg = (Math.atan2(rise, run) * 180) / Math.PI;
-    expect(pitchDeg).toBeGreaterThan(15);
-    expect(pitchDeg).toBeLessThan(45);
-    expect(run).toBeGreaterThan(5);
-  });
-
-  test("yaw orients the pull-back direction in the ground plane", () => {
-    const s = createCameraState(ORIGIN, Math.PI / 2); // ground-forward +z
-    s.t = 0.5;
-    deriveCameraPose(s, cfg, eye, target);
-    expect(eye.x).toBeCloseTo(0, 6);
-    expect(eye.z).toBeLessThan(0); // pulled back along -z
+  test("once the primary is clear again it comes back", () => {
+    const cam = createChaseCamera();
+    run(cam, facingX, 1, 60, wall);
+    expect(cam.live).toBe(2);
+    run(cam, facingX, 0.5, 60, () => false);
+    expect(cam.live).toBe(1);
   });
 });

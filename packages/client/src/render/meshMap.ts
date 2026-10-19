@@ -9,6 +9,19 @@ import { MAP_ALIGN } from "./mapAlign.generated";
 const loader = new GLTFLoader();
 
 /**
+ * The same loader with the Classic atlas read in place of the HD one each
+ * arena .glb names (`atlas.png` -> `atlas-original.png`, one pack layout, so
+ * the UVs hold). Classic is the default (texVariants.ts), and reading it here
+ * spares the 2-8 MB HD atlas a Classic player would otherwise download and see
+ * flash up before the switch.
+ */
+const classicManager = new THREE.LoadingManager();
+classicManager.setURLModifier((url) =>
+  url.endsWith("/atlas.png") ? `${url.slice(0, -"atlas.png".length)}atlas-original.png` : url,
+);
+const classicLoader = new GLTFLoader(classicManager);
+
+/**
  * Loads the textured map mesh for `map.id` into `group`. When no asset exists
  * for the map (assets live outside this repo), warns and calls `onMissing` so
  * the caller can build the greybox terrain instead of leaving the world empty.
@@ -17,9 +30,9 @@ const loader = new GLTFLoader();
  * the greybox/collision frame.
  *
  * `onMaterials` (optional) receives every MeshStandardMaterial of the loaded
- * mesh once — the debug texture-variant switcher (render/texVariants.ts) uses
- * it to swap material.map at runtime. Purely additive; existing callers are
- * unaffected.
+ * mesh once — the texture-variant switcher (render/texVariants.ts) uses it to
+ * swap material.map at runtime. `classic` loads the mesh with the Classic atlas
+ * in place of the HD one; the switcher is told which one it got.
  */
 export function loadMapMesh(
   map: MapData,
@@ -27,9 +40,10 @@ export function loadMapMesh(
   onMissing?: () => void,
   onMaterials?: (materials: THREE.MeshStandardMaterial[]) => void,
   cancelled?: () => boolean,
+  classic = false,
 ): void {
   const url = `/models/${map.id}/${map.id}.glb`;
-  loader.loadAsync(url).then(
+  (classic ? classicLoader : loader).loadAsync(url).then(
     (gltf) => {
       // A preview swap can outrun this load: the group is already out of the
       // scene and disposed, so attaching (or arming onMaterials for the wrong

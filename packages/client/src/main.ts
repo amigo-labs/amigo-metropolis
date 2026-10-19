@@ -19,10 +19,15 @@
 
 import {
   ANIM_HOVER,
-  ANIM_TRANSFORMING,
   ARCHETYPE,
+  ARCHETYPE_RADIUS,
+  AVATAR_SNAP_CLOAK,
+  AVATAR_SNAP_STRIDE,
+  AVATAR_SNAPSHOT_LEN,
   createSim,
   createTickInputs,
+  DEFAULT_DIFFICULTIES,
+  DEFAULT_LOADOUTS,
   EV_CAPTURE,
   EV_DEATH,
   EV_EXPLOSION,
@@ -32,6 +37,8 @@ import {
   EV_SHOT,
   EV_TRANSFORM,
   EVENT_STRIDE,
+  GUN_SNAP_STRIDE,
+  GUN_SNAPSHOT_LEN,
   GUNS,
   getMapById,
   HEAVIES,
@@ -39,7 +46,9 @@ import {
   LOCAL_INPUT_DELAY_TICKS,
   type Loadout,
   MATCH_SLOT_AVATAR_ID,
-  MATCH_SLOT_POINTS,
+  MATCH_SLOT_HP_MAX,
+  MATCH_SLOT_LOCK,
+  MATCH_SLOT_RESPAWN_TICKS,
   MATCH_SNAPSHOT_LEN,
   MATCH_TICK,
   MATCH_WARDEN_DIFFICULTY,
@@ -49,18 +58,24 @@ import {
   type MatchConfig,
   matchSlotOffset,
   type PlayerInput,
+  RESULTS_SNAPSHOT_LEN,
   SIM_VERSION,
   type SimState,
   SNAPSHOT_STRIDE,
   SPECIALS,
+  sampleHeight,
   spawnUnit,
   step,
   TICK_HZ,
   type TickInputs,
   URBAN_JUNGLE_ID,
+  wardenLevel,
   worldExtent,
+  writeAvatarSnapshot,
+  writeGunSnapshot,
   writeLiftSnapshot,
   writeMatchSnapshot,
+  writeResultsSnapshot,
   writeSnapshot,
 } from "@metropolis/sim";
 import * as THREE from "three";
@@ -84,46 +99,89 @@ import {
 } from "./debug/pinSession";
 import type { PinEntity } from "./debug/pinTypes";
 import { createSandboxPanel, type SandboxPanel } from "./debug/sandboxPanel";
+import { makeRaiseAt } from "./effects/chain";
 import { loadControls } from "./input/controlsStore";
 import { PlayerOneInput } from "./input/keyboard";
 import { isTextEntryTarget } from "./input/textEntry";
 import type { LocalInputSource } from "./input/types";
 import {
   buildModeQuery,
+  createInGameMenu,
+  difficultyFromParams,
+  extraFromParams,
   loadoutFromParams,
   type MenuChoice,
   type MenuHandle,
+  recordSoloWin,
   runMenu,
 } from "./menu";
+import type { GameRules } from "./menu/dialogs/OptionsDialog";
+import { entriesOfLoadout, rowOfMap } from "./menu/frontend/model";
+import { type LobbyLink, loadPlayerName, NetLobby } from "./menu/frontend/netLobby";
 import { createDemoSim, demoFeeder, updateFlyoverCamera, zeroPlayerInput } from "./menuWorld";
 import { NetLockstep } from "./net/lockstep";
 import { P2pLockstep } from "./net/p2pLockstep";
 import { openP2pSession, readP2pBootstrap } from "./net/p2pSession";
 import { WsTransport } from "./net/wsTransport";
+import { type ArenaUnitsRenderer, createArenaUnits } from "./render/arenaUnits";
 import { type AvatarRig, createAvatarRig } from "./render/avatarRig";
-import { DEFAULT_RIG_CONFIG, deriveCameraPose, updateCamera } from "./render/camera";
-import { applyBlend, beginBlend, createCameraBlend } from "./render/cameraBlend";
-import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
-import { createFx } from "./render/fx";
-import { bucketFor, createGreyboxMeshes, tintFor } from "./render/greybox";
-import { createMatchHud, type MatchHud } from "./render/hud/hud";
-import { loadLifts, updateLifts } from "./render/lifts";
-import { matchClock, matchEndText } from "./render/matchEnd";
-import { loadMapMesh } from "./render/meshMap";
 import {
-  createAvatarMorph,
-  MORPH_DRAW_HOVER,
-  MORPH_FOLD,
-  MORPH_OUT_LEN,
-  MORPH_SCALE_XZ,
-  MORPH_SCALE_Y,
-  MORPH_SPIN,
-} from "./render/morph";
+  CAMERA_VFOV_DEG,
+  ENGINE_HZ,
+  gateCrowdControl,
+  pressCameraKey,
+  stepChaseCamera,
+} from "./render/camera";
+import { applyBlend, createCameraBlend } from "./render/cameraBlend";
+import {
+  applyCameraShake,
+  resetCameraShake,
+  shakeDamage,
+  shakeEffect,
+  vecMagnitudeWu,
+} from "./render/cameraShake";
+import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
+import { setDecalWindow } from "./render/decals";
+import {
+  cellXOf,
+  cellZOf,
+  createDrawWindow,
+  inDrawWindow,
+  inView,
+  placeDrawWindow,
+} from "./render/drawWindow";
+import { lerpGunYaws } from "./render/dreadnoughtGuns";
+import { setEmitterWindow } from "./render/emitterProps";
+import { drawFacers, initFacers } from "./render/facers";
+import { materialList } from "./render/fcopModel";
+import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
+import { createFx, createFxPoses, POSE_STRIDE } from "./render/fx";
+import { bucketFor, createGreyboxMeshes } from "./render/greybox";
+import { type CameraCaption, createCameraCaption } from "./render/hud/caption";
+import { createMatchHud, type MatchHud } from "./render/hud/hud";
+import { snapshotIndexOf } from "./render/hud/hudRules";
+import { loadLifts, updateLifts } from "./render/lifts";
+import {
+  createMapScreen,
+  mapBounds,
+  mapWindow,
+  panMapScreen,
+  toggleMapScreen,
+} from "./render/mapScreen";
+import { loadMapMesh } from "./render/meshMap";
 import { ATMOSPHERE_HEX } from "./render/palette";
 import { loadPickups, updatePickups } from "./render/pickups";
-import { createPlayerViews, layoutViews, type PlayerView } from "./render/playerView";
+import {
+  applyChasePose,
+  createPlayerViews,
+  layoutViews,
+  type PlayerView,
+} from "./render/playerView";
 import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
-import { loadProps } from "./render/props";
+import { loadProps, updateProps } from "./render/props";
+import { createResultsPage } from "./render/results/resultsPage";
+import { createShieldSpheres } from "./render/shieldSphere";
+import { sideName, sideOfTeam } from "./render/sides";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
   buildDeckMeshes,
@@ -141,6 +199,7 @@ import {
   variantOfPref,
 } from "./render/texVariants";
 import { loadUnitMeshes } from "./render/unitMeshes";
+import { aimPitchModel, aimX1, aimYawModel, createX1Walk, tickX1Walk } from "./render/x1Walk";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -178,7 +237,8 @@ const renderMode: "mesh" | "greybox" = params.get("render") === "greybox" ? "gre
 // structures; on, it is the only way to see where the gate and pad VOLUMES
 // actually are, which matters when checking an imported layout.
 const showGreyboxStructures = params.get("structures") === "greybox";
-// Player texture preference (HD = shipped atlas, Original = 1998 texels).
+// Player texture preference: Classic (the 1998 texels, the default) or HD (the
+// upscaled atlas the .glb names).
 // ?tex=hd|original is a session override and is NOT persisted back (like ?aim=);
 // the menu's Graphics drawer writes the stored preference. Mutable: the menu
 // updates it live via onTexPref. Applied whenever a map mesh loads (see
@@ -209,6 +269,16 @@ const explicitMode =
   params.has("debug");
 /** Loadout for the local human (menu pick or ?gun=&heavy=&special= deep link). */
 let playerLoadout: Loadout = loadoutFromParams(params);
+/**
+ * The local human's difficulty, HARD / NORMAL / EASY (0 / 1 / 2): the menu's
+ * plates or ?difficulty=hard|easy. Solo only — a net match plays NORMAL.
+ */
+let playerDifficulty: number = difficultyFromParams(params);
+/**
+ * The "Spielregeln" extra-weapons mask for a local match (the front end's
+ * Preferences, or ?extra=<mask>). Online the host's lobby agrees it.
+ */
+let playerExtraWeapons: number = extraFromParams(params);
 // Offline match modes build the sim now; a net mode defers — to the server's
 // authoritative config (arrives in MSG_WELCOME) or the lobby-brokered P2P
 // session — so both peers build a byte-identical sim. The menu instead shows
@@ -220,6 +290,8 @@ let sim: SimState = netMode
     ? createSim(map, seed, {
         ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
         loadouts: [playerLoadout],
+        difficulties: [playerDifficulty],
+        extraWeapons: playerExtraWeapons,
       })
     : createDemoSim(map);
 
@@ -259,24 +331,34 @@ if (params.has("debug") && !netMode) {
       notes?: string;
       parentId?: string | null;
     }) => Promise<{ id: string; message: string }>;
-    metropolisRig?: () => {
+    metropolisRig?: (slot?: number) => {
       ready: boolean;
-      legL: number;
-      legR: number;
-      stride: number;
-      components: number;
-      legVertices: number;
+      legsFrame: number;
+      cockpitFrame: number;
+      state: number;
+      track: number;
+      form: number;
+      aimYaw: number;
+      aimPitch: number;
     } | null;
-    metropolisMorph?: (id: number) => {
-      morphing: boolean;
-      scaleXZ: number;
-      scaleY: number;
-      spin: number;
-      fold: number;
-      drawingHover: boolean;
-      arcs: number;
-      emitters: number;
-    };
+    /** Live effect instances per class (render/fx.ts). */
+    metropolisFx?: () => ReturnType<typeof fx.debugCounts>;
+    /** The world row a round was matched to (effects/rounds.ts), 0 unknown. */
+    metropolisRoundRow?: (id: number) => number;
+    /**
+     * Raises effect (bank, id) at (x, height, z) through the same chain the
+     * cues raise through, as a death of `archetype` / `team` would: a
+     * screenshot of one record without staging its event. Presentation only.
+     */
+    metropolisFxRaise?: (
+      bank: number,
+      id: number,
+      x: number,
+      height: number,
+      z: number,
+      archetype: number,
+      team: number,
+    ) => void;
   };
   dbg.metropolisSim = sim;
   // Debug-only spawner + freeze + snapshot for the verify:units screenshot
@@ -356,39 +438,33 @@ if (params.has("debug") && !netMode) {
   // The agent's equivalent of pressing P.
   dbg.metropolisPin = (opts) => capturePinNow(opts?.notes ?? "", opts?.parentId ?? null);
 
-  // Walk-rig readout. A screenshot shows legs; only this shows them SWINGING,
-  // so the harness checks the angles rather than the pixels.
-  dbg.metropolisRig = () =>
+  // X1 readout (render/x1Walk.ts): a screenshot shows a pose; this says which
+  // walker state, leg track and frames the sim's machine is on.
+  dbg.metropolisRig = (slot = 0) =>
     avatarRig === null
       ? null
       : {
           ready: avatarRig.ready,
-          legL: avatarRig.angleAt(0, 0),
-          legR: avatarRig.angleAt(0, 1),
-          stride: avatarRig.stride,
-          components: avatarRig.split?.componentCount ?? 0,
-          legVertices: avatarRig.split?.legVertexCount ?? 0,
+          legsFrame: x1Walk.legsFrame[slot],
+          cockpitFrame: x1Walk.cockpitFrame[slot],
+          state: x1Walk.state[slot],
+          track: x1Walk.legsTrack[slot],
+          form: x1Walk.form[slot],
+          aimYaw: x1Walk.aimYaw[slot],
+          aimPitch: x1Walk.aimPitch[slot],
         };
-
-  // Transformation readout, same reasoning as the rig hook above: a single
-  // screenshot of a morph always looks plausible, so the harness reads the
-  // curve it is being posed by rather than trusting the picture. Sampled off a
-  // scratch buffer of its own — the frame loop's is mid-sweep whenever this is
-  // called from a pin.
-  const morphProbe = new Float32Array(MORPH_OUT_LEN);
-  dbg.metropolisMorph = (id) => {
-    const counts = fx.debugCounts();
-    const morphing = avatarMorph.sample(id, morphProbe);
-    return {
-      morphing,
-      scaleXZ: morphing ? morphProbe[MORPH_SCALE_XZ] : 1,
-      scaleY: morphing ? morphProbe[MORPH_SCALE_Y] : 1,
-      spin: morphing ? morphProbe[MORPH_SPIN] : 0,
-      fold: morphing ? morphProbe[MORPH_FOLD] : 0,
-      drawingHover: morphing && morphProbe[MORPH_DRAW_HOVER] === 1,
-      arcs: counts.arcs,
-      emitters: counts.arcEmitters,
-    };
+  dbg.metropolisFx = () => fx.debugCounts();
+  dbg.metropolisRoundRow = (id) => sounds.effects.rounds.row[id] ?? 0;
+  const debugRaise = makeRaiseAt();
+  dbg.metropolisFxRaise = (bank, id, x, height, z, archetype, team) => {
+    const at = debugRaise;
+    at.x = x;
+    at.y = height;
+    at.z = z;
+    at.archetype = archetype;
+    at.team = team;
+    at.raiserScale = Math.round((ARCHETYPE_RADIUS[archetype] ?? 0.25) * 512) || 0x100;
+    sounds.effects.raise(bank, id, at);
   };
 }
 
@@ -468,16 +544,45 @@ function sizeLiftSnapshots(lifts: number): boolean {
   return true;
 }
 
+// The Dreadnought guns' yaws, two ticks for interpolation (writeGunSnapshot):
+// per entity id, the hull's guns relative to it. Read for a Juggernaut only.
+let gunPrev = new Float32Array(GUN_SNAPSHOT_LEN);
+let gunCurr = new Float32Array(GUN_SNAPSHOT_LEN);
+/** One Juggernaut's gun yaws this frame, between the two ticks (renderEntities). */
+const gunYaws = new Float32Array(GUN_SNAP_STRIDE);
+
 // The original's controls: the keyboard on its bindings (input.spec.md). The
 // mouse plays no part in a match, and touch waits for the modernisation.
 const keyboard = new PlayerOneInput(window);
 // The stored bindings (the original's controls.txt; input/controlsStore.ts).
 keyboard.setTable(loadControls()[0]);
-// The Map Key pauses a solo match, as the original's does in a one-viewport
-// game; online it pauses nothing (the original only parks that player's
-// camera). Its map screen comes with the presentation wave.
+// The Map Key opens the map screen (render/mapScreen.ts): in a solo match the
+// sim pauses with it, as the original's one-viewport game does; online the
+// match runs on and only this player's view is parked, its X1 reading no
+// buttons, as the original's two-player game parks one view. Under the debug
+// cameras (no HUD, no map screen) it pauses a solo match as before.
 keyboard.onMap = () => {
-  if (!net && phase === "match" && !matchEndShown) setMatchPaused(!matchPaused);
+  if (phase !== "match" || matchEndShown || inGameMenu.isOpen()) return;
+  const view = views[0];
+  if (!matchHud || !view) {
+    if (!net) setMatchPaused(!matchPaused);
+    return;
+  }
+  const pose = avatarPoses[view.slot];
+  toggleMapScreen(mapScreen, pose[0], pose[1]);
+  if (mapScreen.open) mapBounds(map, mapBox);
+  // The original's pause silences everything (0x00434530); online the match
+  // and its sound run on.
+  if (!net && !matchPaused) {
+    if (mapScreen.open) audio.pause();
+    else audio.resume();
+  }
+};
+// The Camera Key cycles the local view's chase camera (render/camera.ts). A
+// client-local choice like the original's: the bit never reaches the sim.
+keyboard.onCamera = () => {
+  const view = views[0];
+  if (phase === "match" && view && cameraCaption) pressCameraKey(view.cam, mapScreen.open);
 };
 const localInput: LocalInputSource = keyboard;
 const audio = new AudioEngine();
@@ -492,6 +597,41 @@ if (params.has("debug")) (globalThis as { metropolisAudio?: AudioEngine }).metro
  * play La Cantina's sounds — the Mp bank (fcop-fidelity.md A20).
  */
 const FALLBACK_SOUND_ARENA = "la-cantina";
+/** The local eye's 5 x 5 block of cells (render/drawWindow.ts). */
+const drawWindow = createDrawWindow();
+/** The prop emitters' cells, ground and whether the eye draws them (audio/cues.ts). */
+let emitterCellZ = new Int16Array(0);
+let emitterCellX = new Int16Array(0);
+let emitterHeight = new Float32Array(0);
+let emitterDrawn = new Uint8Array(0);
+/** A leaf of the block's visibility quadtree is 4 m square: its half diagonal. */
+const EMITTER_LEAF_RADIUS = 2.83;
+const emitterViewProj = new THREE.Matrix4();
+
+/**
+ * `snd_emit_draw_block`'s test, a tick at a time: an emitter is drawn when it
+ * hangs in the eye's 5 x 5 block and its leaf is on screen. Null before the
+ * block is placed (the listener's range stands in).
+ */
+function drawnEmitters(): Uint8Array | undefined {
+  const view = views[0];
+  if (!view || !drawWindow.placed) return undefined;
+  const cam = view.camera;
+  emitterViewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+  const m = emitterViewProj.elements;
+  const data = FCOP_ARENA_AUDIO[map.id] ?? FCOP_ARENA_AUDIO[FALLBACK_SOUND_ARENA];
+  const emitters = data?.emitters ?? [];
+  for (let k = 0; k < emitterDrawn.length && k < emitters.length; k++) {
+    const e = emitters[k];
+    emitterDrawn[k] =
+      inDrawWindow(drawWindow, emitterCellZ[k], emitterCellX[k]) &&
+      inView(m, e.x, emitterHeight[k], e.z, EMITTER_LEAF_RADIUS)
+        ? 1
+        : 0;
+  }
+  return emitterDrawn;
+}
+
 /** The camera's right vector on the ground, for the listener's pan. */
 let listenerRightX = 1;
 let listenerRightZ = 0;
@@ -513,7 +653,15 @@ function beginMatchSounds(): void {
     voiceUrls: FCOP_VOICE_FILES,
     musicUrl: data.music,
   });
-  sounds.begin(data, FCOP_PLAYER_WEAPONS, map.lifts);
+  sounds.begin(data, FCOP_PLAYER_WEAPONS, map.lifts, map.id);
+  // Where each prop emitter hangs, for `snd_emit_draw_block`'s claim.
+  const n = data.emitters.length;
+  emitterCellZ = Int16Array.from(data.emitters, (e) => cellZOf(e.x));
+  emitterCellX = Int16Array.from(data.emitters, (e) => cellXOf(e.z));
+  emitterHeight = Float32Array.from(data.emitters, (e) => sampleHeight(map, e.x, e.z));
+  emitterDrawn = new Uint8Array(n);
+  // The effects' trail texels are the arena's own tex10 (render/fx.ts).
+  fx.begin(map.id);
   audio.startMatch();
 }
 
@@ -631,6 +779,8 @@ function makeSkyTexture(): THREE.Texture {
 }
 
 const scene = new THREE.Scene();
+// The models' camera-facing facers join it as their models load (render/facers.ts).
+initFacers(scene);
 scene.background = makeSkyTexture();
 // Distance fog fades the far ground into the dusk haze before the arena edge /
 // void can be framed (at the ACTION pitch the camera sees ~170u past its focus).
@@ -664,6 +814,8 @@ scene.add(fillLight);
 // already removed and disposed — the stale load must throw its parse away
 // (and must not re-arm texSwitcher for the wrong map).
 let arenaEpoch = 0;
+/** The arena's own unit models (render/arenaUnits.ts); set once the buckets exist. */
+let arenaUnits: ArenaUnitsRenderer | null = null;
 function buildArenaGroup(m: typeof map): THREE.Group {
   const epoch = ++arenaEpoch;
   const stale = () => epoch !== arenaEpoch;
@@ -691,7 +843,10 @@ function buildArenaGroup(m: typeof map): THREE.Group {
   if (renderMode === "mesh") {
     // Async: textured terrain mesh (incl. decks) added when loaded; maps
     // without a local asset fall back to greybox terrain instead of nothing.
-    // The materials callback arms the debug texture-variant switcher (0/1/2/3).
+    // The materials callback arms the texture-variant switcher (the Textures
+    // option, and the debug hotkeys 0/1/2). The mesh loads with the preferred
+    // atlas already in place, so a Classic player never fetches the HD one.
+    const loadedAs = variantOfPref(texPref);
     loadMapMesh(
       m,
       group,
@@ -700,20 +855,28 @@ function buildArenaGroup(m: typeof map): THREE.Group {
         buildGreyboxStructures();
       },
       (materials) => {
-        texSwitcher = createVariantSwitcher(m.id, materials);
-        // Player preference first (boot AND every map swap); the debug hotkeys
-        // 0-3 can still override it temporarily afterwards.
+        texSwitcher = createVariantSwitcher(m.id, materials, loadedAs);
+        // Player preference first (boot AND every map swap; it may have changed
+        // while the mesh loaded); the debug hotkeys can still override it
+        // temporarily afterwards.
         texSwitcher.setVariant(variantOfPref(texPref));
         refreshDebugLabel();
       },
       stale,
+      loadedAs === "original",
     );
     // Original scenery actors, on the mesh path only: they are the arena's own
     // art, so they belong with the textured terrain and not on top of greybox
-    // blocks (render/props.ts). No-op on arenas that carry no `props`.
+    // blocks (render/props.ts). No-op on a map of no mission (test-128).
     loadProps(m, group, stale);
+    // The arena's own units: its mission's Cobjs and texture pages, swapped
+    // into the unit buckets (render/arenaUnits.ts). Null on the first build,
+    // which runs before the buckets exist; boot loads that arena below.
+    arenaUnits?.load(m, stale, true);
     if (showGreyboxStructures) buildGreyboxStructures();
   } else {
+    // The stand-ins keep their boxes but take the arena's sides.
+    arenaUnits?.load(m, stale, false);
     buildGreyboxTerrain();
     buildGreyboxStructures();
   }
@@ -726,26 +889,70 @@ function buildArenaGroup(m: typeof map): THREE.Group {
 let arenaGroup = buildArenaGroup(map);
 scene.add(arenaGroup);
 const greybox = createGreyboxMeshes(scene);
-// Client-only shot VFX (tracers, muzzle flashes, explosions) — same event
-// buffer as audio, independent of sim hash.
-const fx = createFx(scene);
+/** The Riot Shield's spheres, off the avatar snapshot (render/shieldSphere.ts). */
+const shieldSpheres = createShieldSpheres(scene);
+// The original's weapon effects (render/fx.ts): the effect chain's other
+// listener, beside the sounds (audio/cues.ts raises every install once for
+// both). Render-only — nothing reaches the sim.
+const fxPoses = createFxPoses();
+/**
+ * A dying archetype's model for the shatter: its greybox bucket's current mesh
+ * and the texture offset its team's instances carry (render/arenaUnits.ts).
+ */
+const shatterModel = {
+  geometry: new THREE.BufferGeometry(),
+  material: null as unknown as THREE.Material,
+  teamU: 0,
+  teamV: 0,
+};
+const shatterUv = new Float32Array(2);
+const fx = createFx(scene, sounds.effects, {
+  poses: fxPoses,
+  ground: (x, z) => sampleHeight(map, x, z),
+  shatter: (archetype, team) => {
+    const b = bucketFor(greybox, archetype, 0, 0);
+    if (!b) return null;
+    shatterModel.geometry = b.mesh.geometry;
+    shatterModel.material = b.mesh.material as THREE.Material;
+    const offset = units.teamUv(b, team, shatterUv);
+    shatterModel.teamU = offset ? shatterUv[0] : 0;
+    shatterModel.teamV = offset ? shatterUv[1] : 0;
+    return shatterModel;
+  },
+  viewportHeight: () => renderer.domElement.height,
+});
 // Instantiate the composer only when bloom actually starts on — its render
 // targets are the cost, and a SwiftShader run never pays it.
 if (bloomOn) setBloom(true);
 // Stage B unit models upgrade the greybox buckets in place as they load;
-// missing assets keep their greybox mesh (render/unitMeshes.ts).
+// missing assets keep their greybox mesh (render/unitMeshes.ts). The X1 and the
+// projectiles at boot, the arena's own units with the arena.
 if (renderMode === "mesh") loadUnitMeshes(greybox);
-// Walking avatars come off the greybox bucket and onto the three-part rig once
-// avatar-walker.glb has loaded and split (render/avatarRig.ts). Until then — and
-// forever in ?render=greybox — the bucket keeps drawing them.
-const avatarRig: AvatarRig | null = renderMode === "mesh" ? createAvatarRig(scene) : null;
-// Walker <-> hover transformation (render/morph.ts). Client-local clock started
-// by EV_TRANSFORM; drives which of the two forms is on screen and how squashed.
-const avatarMorph = createAvatarMorph();
-/** Preallocated sample buffer — one avatar is posed at a time in the sweep. */
-const morphScratch = new Float32Array(MORPH_OUT_LEN);
+arenaUnits = createArenaUnits(scene, greybox);
+{
+  const bootEpoch = arenaEpoch;
+  arenaUnits.load(map, () => arenaEpoch !== bootEpoch, renderMode === "mesh");
+}
+/** Non-null from here on: the frame loop's handle on the arena's units. */
+const units: ArenaUnitsRenderer = arenaUnits;
+// The X1s come off the greybox buckets and onto the rig once avatar-x1.glb and
+// its bone table have loaded (render/avatarRig.ts): one mesh, posed by the
+// original's frames, walker, transform and hover alike. Until then — and
+// forever in ?render=greybox — the buckets keep drawing them.
+// `?x1rig=off` keeps them there, the RE's two rest poses, for a side-by-side.
+const avatarRig: AvatarRig | null =
+  renderMode === "mesh" && params.get("x1rig") !== "off" ? createAvatarRig(scene) : null;
+// The X1s' frames and codes per player slot (render/x1Walk.ts): the sim's
+// walker machine, read once a sim tick off the avatar snapshot (animateAvatars).
+const x1Walk = createX1Walk();
+/** The X1's per-slot snapshot (sim avatarSnapshot.ts), refilled every tick. */
+const avatarSnap = new Float32Array(AVATAR_SNAPSHOT_LEN);
 
 let extent = worldExtent(map);
+/** The chase cameras' line-of-sight test over the arena's ground and decks. */
+let chaseTrace = makeTerrainTrace(map);
+/** The lock beam's first terrain hit toward its target (hud_draw_lock_beam). */
+let lockHit = makeTerrainHit(map);
 
 /**
  * Online only: the server's MSG_WELCOME config is authoritative. If it names a
@@ -756,6 +963,8 @@ function rebuildArena(mapId: string): void {
   if (mapId === map.id) return;
   map = getMapById(mapId);
   extent = worldExtent(map);
+  chaseTrace = makeTerrainTrace(map);
+  lockHit = makeTerrainHit(map);
   // Debug variant textures are per-map: free them before the arena they
   // belong to goes away (the switcher is re-armed by buildArenaGroup's
   // onMaterials callback once the new mesh loads).
@@ -767,9 +976,11 @@ function rebuildArena(mapId: string): void {
     const mesh = obj as THREE.Mesh;
     if (mesh.isMesh) {
       mesh.geometry.dispose();
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-      mat.map?.dispose(); // free loaded textures on map swap (mesh render path)
-      mat.dispose();
+      // A model's draw modes are several materials on one atlas (render/fcopModel.ts).
+      for (const m of materialList(mesh.material)) {
+        (m as THREE.MeshStandardMaterial).map?.dispose(); // free loaded textures on map swap
+        m.dispose();
+      }
     }
   });
   arenaGroup = buildArenaGroup(map);
@@ -799,14 +1010,10 @@ const MAX_STEPS_PER_FRAME = 5;
 // counter), so slow motion cannot change what the sim computes — only when.
 let timeScale = 1;
 
-const scratchMatrix = new THREE.Matrix4();
 const scratchQuat = new THREE.Quaternion();
 const scratchPitch = new THREE.Quaternion();
 const scratchPos = new THREE.Vector3();
 const scratchScale = new THREE.Vector3(1, 1, 1);
-const camTarget = new THREE.Vector3();
-const rigFocus = { x: 0, y: 0, z: 0 };
-const rigVel = { x: 0, y: 0, z: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 /**
  * Local axis a nose pitches about. Models are baked +Z -> +X (unitMeshes.ts), so
@@ -816,10 +1023,34 @@ const UP = new THREE.Vector3(0, 1, 0);
 const PITCH_AXIS = new THREE.Vector3(0, 0, 1);
 const TAU = Math.PI * 2;
 
-// The chase rig has no zoom to give the wheel (camera.spec §3), and under
-// pointer lock there is no cursor for the reticle to follow — it sits in the
-// middle of the view, where the gun points, and CSS keeps it there.
-const reticle = document.getElementById("reticle") as HTMLDivElement;
+/**
+ * The occlusion trace's anchor above the avatar's feet, m: the original traces
+ * from the mech's model point (+0x5c); 0.5 m is the walker's middle, which keeps
+ * a trace from starting inside a slope it stands on.
+ */
+const CHASE_ANCHOR_LIFT = 0.5;
+/** The camera caption (render/hud/caption.ts), present while a chase camera is. */
+let cameraCaption: CameraCaption | undefined;
+
+/** The Map Key's map screen (render/mapScreen.ts): client-local view state. */
+const mapScreen = createMapScreen();
+/** [half width m, half height m, CSS px a sample] of the map window. */
+const mapWin = new Float64Array(3);
+/** The world the window stays inside, [minX, maxX, minY, maxY] (mapBounds). */
+const mapBox = new Float64Array(4);
+/** The keyboard's word for the map screen's pan, sampled per frame. */
+const panInput = createTickInputs().players[0];
+/** Straight down onto the window: screen right is +x, screen down +y (three +z). */
+const mapCam = new THREE.OrthographicCamera(-16, 16, 12, -12, 1, 1000);
+mapCam.up.set(0, 0, -1);
+mapCam.matrixAutoUpdate = true;
+/** The map camera's height over the arena, m: above every deck. */
+const MAP_CAM_HEIGHT = 400;
+/** Scene children hidden for the top-down render (reused; no per-frame growth). */
+const mapHidden: THREE.Object3D[] = [];
+const MAP_CLEAR = new THREE.Color(0, 0, 0);
+const savedClear = new THREE.Color();
+
 const unitCounts = new Int32Array(2);
 
 // Full-screen status overlay for online mode (connecting / waiting / desync).
@@ -853,113 +1084,88 @@ function refreshOverlay(): void {
   setOverlay(text);
 }
 
-// --- In-match pause (ESC) + quit to title menu --------------------------------
-// Solo / fly / sandbox / online all need a way to release the pointer and leave.
-// Browser ESC already exits pointer lock; a second ESC (or ESC while unlocked)
-// opens this overlay. Offline freezes ticks; online keeps lockstep running so
-// the peer is not starved, and Leave disconnects cleanly.
+// --- In-match pause (ESC) and the original's in-game menu --------------------
+// Escape opens the original's in-game menu, dialog 0xa6 (menu/inGame.tsx): a
+// Preact island outside the frame loop (docs/specs/ui.md §1). Solo it freezes
+// the sim and silences the sound, as the original's step before its modal
+// dialog does (0x00407d70); online the lockstep runs on behind it so the peer
+// is not starved (fcop-fidelity.md F16).
 let matchPaused = false;
-/** Suppresses opening the pause card on the same ESC that released pointer lock. */
+/** Suppresses opening the in-game menu on the same ESC that released pointer lock. */
 let suppressPauseForUnlock = false;
 
-const pauseEl = document.createElement("div");
-pauseEl.id = "pause-menu";
-pauseEl.setAttribute("role", "dialog");
-pauseEl.setAttribute("aria-modal", "true");
-pauseEl.setAttribute("aria-label", "Paused");
-const pauseCard = document.createElement("div");
-pauseCard.className = "pause-card";
-const pauseTitle = document.createElement("h1");
-pauseTitle.textContent = "Paused";
-const pauseHint = document.createElement("p");
-pauseHint.textContent = "ESC resumes · click canvas to recapture the mouse";
-const pauseActions = document.createElement("div");
-pauseActions.className = "pause-actions";
-const pauseResumeBtn = document.createElement("button");
-pauseResumeBtn.type = "button";
-pauseResumeBtn.className = "pause-btn pause-btn--primary";
-pauseResumeBtn.textContent = "Resume";
-const pauseQuitBtn = document.createElement("button");
-pauseQuitBtn.type = "button";
-pauseQuitBtn.className = "pause-btn";
-pauseQuitBtn.textContent = "Quit to menu";
-pauseActions.append(pauseResumeBtn, pauseQuitBtn);
-pauseCard.append(pauseTitle, pauseHint, pauseActions);
-pauseEl.appendChild(pauseCard);
-document.body.appendChild(pauseEl);
+const inGameMenu = createInGameMenu({
+  audio,
+  onResume: () => {
+    setMatchPaused(false);
+    refreshCapture();
+  },
+  onAbort: () => returnToMenu(),
+  // The controls screen saved; player 1's table applies at once.
+  onControls: (tables) => keyboard.setTable(tables[0]),
+});
 
-// --- Match-end screen ----------------------------------------------------------
-// Shown a beat after the sim freezes on a winner (the banner and death FX get
-// their moment first). Raw DOM like the pause card; Rematch is offline-only —
-// online peers each return to the menu, there is no rematch handshake.
-const endEl = document.createElement("div");
-endEl.id = "match-end";
-endEl.setAttribute("role", "dialog");
-endEl.setAttribute("aria-modal", "true");
-endEl.setAttribute("aria-label", "Match over");
-const endCard = document.createElement("div");
-endCard.className = "pause-card";
-const endTitle = document.createElement("h1");
-const endSubtitle = document.createElement("p");
-const endStats = document.createElement("div");
-endStats.className = "end-stats";
-const endStatTime = document.createElement("div");
-const endStatPoints = document.createElement("div");
-const endStatKills = document.createElement("div");
-endStats.append(endStatTime, endStatPoints, endStatKills);
-const endActions = document.createElement("div");
-endActions.className = "pause-actions";
-const endRematchBtn = document.createElement("button");
-endRematchBtn.type = "button";
-endRematchBtn.className = "pause-btn pause-btn--primary";
-endRematchBtn.textContent = "Rematch";
-const endMenuBtn = document.createElement("button");
-endMenuBtn.type = "button";
-endMenuBtn.className = "pause-btn";
-endMenuBtn.textContent = "Return to menu";
-endActions.append(endRematchBtn, endMenuBtn);
-endCard.append(endTitle, endSubtitle, endStats, endActions);
-endEl.appendChild(endCard);
-document.body.appendChild(endEl);
+/** Opens the in-game menu; solo, the match stops under it. */
+function openInGameMenu(): void {
+  if (inGameMenu.isOpen()) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  document.body.style.cursor = "default";
+  flyState.keys.clear();
+  inGameMenu.open();
+  if (!net) setMatchPaused(true, true);
+  refreshCapture();
+}
+
+/** The bound keys are the game's only while it is live, not paused and no menu is up. */
+function refreshCapture(): void {
+  keyboard.capture = !matchPaused && !inGameMenu.isOpen() && isMatchLive() && !matchEndShown;
+  if (keyboard.capture) document.body.style.cursor = "";
+}
+
+// --- The results page -----------------------------------------------------------
+// The original's page (render/results/resultsPage.ts; fcop-fidelity.md V7),
+// opened as the sim freezes on a winner — the outro was the original's
+// countdown — on the figures of that moment. Its two keys are the way out: the
+// Map Key plays again (the next level after a solo win against the Sky
+// Captain), the Camera Key quits; online only the Camera Key.
+const results = createResultsPage({
+  bindings: () => keyboard.getTable(),
+  onAgain: () => rematchSolo(),
+  onQuit: () => returnToMenu(),
+});
+/** The results page's figures, read once when it opens (writeResultsSnapshot). */
+const resultsSnap = new Float32Array(RESULTS_SNAPSHOT_LEN);
 
 /** -1 until a winner is first seen; then the wall-clock ms it was seen at. */
 let winSeenAtMs = -1;
 let matchEndShown = false;
-/** EV_DEATH events credited to the local slot this match (pumpCosmetics). */
-let localKills = 0;
-/** Delay between the sim freezing and the card appearing. */
-const MATCH_END_DELAY_MS = 2500;
+/** The original opens its page on the frame the countdown runs out. */
+const MATCH_END_DELAY_MS = 0;
 
 function resetMatchEnd(): void {
   winSeenAtMs = -1;
-  localKills = 0;
   matchEndShown = false;
-  endEl.classList.remove("is-open");
+  results.close();
 }
 
 function showMatchEnd(winner: number): void {
   matchEndShown = true;
-  setMatchPaused(false); // the end card replaces the pause card, never stacks
+  inGameMenu.close();
+  setMatchPaused(false); // the page replaces the in-game menu, never stacks
+  mapScreen.open = false;
   const slot = views[0]?.slot ?? 0;
-  // Every arena ends at a gate since SIM_VERSION 32 (the original has no core).
-  const text = matchEndText(winner, slot);
-  endTitle.textContent = text.title;
-  endCard.classList.toggle("is-victory", winner === slot);
-  endSubtitle.textContent = text.subtitle;
-  const mine = matchSlotOffset(slot);
-  const other = matchSlotOffset(slot === 0 ? 1 : 0);
-  endStatTime.textContent = `Time ${matchClock(matchSnap[MATCH_TICK] | 0, TICK_HZ)}`;
-  endStatPoints.textContent = `Points ${matchSnap[mine + MATCH_SLOT_POINTS] | 0} — ${
-    matchSnap[other + MATCH_SLOT_POINTS] | 0
-  }`;
-  endStatKills.textContent = `Kills ${localKills}`;
-  endRematchBtn.style.display = netMode ? "none" : "";
-  endEl.classList.add("is-open");
+  // A solo win over the Sky Captain moves the map's progress (0x00409630).
+  if (warden && !net && winner === slot) recordSoloWin(map.id, wardenDifficulty);
+  writeResultsSnapshot(sim, resultsSnap);
+  // LEVEL is the Sky Captain's, one viewport only; the next round after a win
+  // plays the level above it (results.c 0x00408121).
+  const level = warden && !netMode ? matchSnap[MATCH_WARDEN_DIFFICULTY] | 0 : 0;
+  if (level > 0 && winner === 0) wardenDifficulty = wardenLevel(level + 1) + 1;
+  const sides: [number, number] = [sideOfTeam(map.id, 0), sideOfTeam(map.id, 1)];
+  results.open({ figures: resultsSnap, winner, online: netMode, level, sides });
   if (document.pointerLockElement) document.exitPointerLock();
   document.body.style.cursor = "default";
-  reticle.style.display = "none";
   keyboard.capture = false;
-  (netMode ? endMenuBtn : endRematchBtn).focus();
 }
 
 /** Seed of the running local match; each rematch derives the next from it. */
@@ -967,6 +1173,7 @@ let matchSeed = seed;
 
 /** Offline rematch: same arena, same opponent, a fresh derived seed. */
 function rematchSolo(): void {
+  if (netMode) return;
   resetMatchEnd();
   // Derived from the PREVIOUS match's seed, not the boot constant: seeding
   // from (bootSeed + tick) alone has a fixed point — two matches of equal
@@ -976,40 +1183,33 @@ function rematchSolo(): void {
     createSim(map, matchSeed, {
       ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
       loadouts: [playerLoadout],
+      difficulties: [playerDifficulty],
+      extraWeapons: playerExtraWeapons,
     }),
   );
   startMatch([{ slot: 0, input: localInput }]);
 }
 
-endRematchBtn.addEventListener("click", () => rematchSolo());
-endMenuBtn.addEventListener("click", () => returnToMenu());
-
 function isMatchLive(): boolean {
   return phase === "match" || phase === "connecting";
 }
 
-function setMatchPaused(paused: boolean): void {
+function setMatchPaused(paused: boolean, menu = false): void {
   if (paused === matchPaused) return;
   matchPaused = paused;
-  // The original's pause (0x00434530): everything silenced, the menu's sound.
-  // Online the match runs on behind the card, and so does its sound.
+  // The pause (0x00434530): everything silenced, the pause's sound. The
+  // in-game menu (0x00407d70) silences without one. Online the match runs on
+  // behind the dialog, and so does its sound.
   if (!net && phase === "match") {
-    if (paused) audio.pause();
-    else audio.resume();
+    if (paused && menu) audio.suspend();
+    else if (paused) audio.pause();
+    else if (!mapScreen.open) audio.resume(); // the map screen keeps its pause
   }
-  pauseEl.classList.toggle("is-open", paused);
-  // The bound keys are the game's only while it is live and not paused: the
-  // cards' buttons take Tab and Space.
-  keyboard.capture = !paused && isMatchLive() && !matchEndShown;
   if (paused) {
     if (document.pointerLockElement) document.exitPointerLock();
-    document.body.style.cursor = "default";
     flyState.keys.clear();
-    pauseResumeBtn.focus();
-  } else if (isMatchLive()) {
-    // Hidden cursor again; in fly mode a click re-engages pointer lock.
-    document.body.style.cursor = "";
   }
+  refreshCapture();
 }
 
 /**
@@ -1017,7 +1217,9 @@ function setMatchPaused(paused: boolean): void {
  * a fresh demo backdrop. Works for solo, online, fly and sandbox.
  */
 function returnToMenu(): void {
+  inGameMenu.close();
   setMatchPaused(false);
+  mapScreen.open = false;
   audio.stopMatch();
   if (document.pointerLockElement) document.exitPointerLock();
 
@@ -1031,6 +1233,8 @@ function returnToMenu(): void {
 
   matchHud?.destroy();
   matchHud = undefined;
+  cameraCaption?.destroy();
+  cameraCaption = undefined;
   document.body.classList.remove("hud-text-hidden");
 
   // fx.update only runs while a match is on — anything still in flight would
@@ -1058,7 +1262,6 @@ function returnToMenu(): void {
   timeScale = 1;
   debugPaused = false;
   setFlyCrosshairVisible(false);
-  reticle.style.display = "none";
   keyboard.capture = false;
   document.body.style.cursor = "default";
 
@@ -1073,34 +1276,17 @@ function returnToMenu(): void {
   // Drop mode query so refresh lands on the title screen, not back into the match.
   history.pushState(null, "", location.pathname + location.hash);
 
-  if (!document.querySelector(".menu-root")) {
-    menuHandle = runMenu({
-      audio,
-      onChoice: handleMenuChoice,
-      onSelect: previewArena,
-      initialLoadout: playerLoadout,
-      onTexPref: (pref) => {
-        texPref = pref;
-        texSwitcher?.setVariant(variantOfPref(pref));
-        refreshDebugLabel();
-      },
-      onBloomPref: setBloom,
-      onControls: (table) => keyboard.setTable(table),
-    });
-  }
+  if (!document.querySelector(".menu-root")) menuHandle = runMenu(menuOptions());
   refreshDebugLabel();
 }
-
-pauseResumeBtn.addEventListener("click", () => setMatchPaused(false));
-pauseQuitBtn.addEventListener("click", () => returnToMenu());
 
 document.addEventListener("pointerlockchange", () => {
   if (document.pointerLockElement) {
     // Canvas recaptured — hide the system cursor again.
-    if (isMatchLive() && !matchPaused) document.body.style.cursor = "";
+    if (isMatchLive() && !matchPaused && !inGameMenu.isOpen()) document.body.style.cursor = "";
     return;
   }
-  if (!isMatchLive() || matchPaused) return;
+  if (!isMatchLive() || matchPaused || inGameMenu.isOpen()) return;
   // Browser ESC (and our own exitPointerLock) both land here. Mark the unlock
   // so the same keypress does not immediately open the pause card.
   suppressPauseForUnlock = true;
@@ -1127,13 +1313,11 @@ addEventListener("keydown", (e) => {
     return;
   }
   e.preventDefault();
-  // The end card owns ESC once it is up: the match is over, so "pause" has
-  // nothing left to pause — ESC means leave.
-  if (matchEndShown) {
-    returnToMenu();
-    return;
-  }
-  setMatchPaused(!matchPaused);
+  // The results page answers only its two keys (render/results/resultsPage.ts).
+  if (matchEndShown) return;
+  // The in-game menu's procedure ignores IDCANCEL: Escape opens it, and only
+  // Resume Game closes it.
+  openInGameMenu();
 });
 
 // --- Debug tooling: texture-variant switcher + fly-cam label -------------------
@@ -1145,11 +1329,11 @@ const flyState = createFlyState();
 
 // Small fixed DOM label (overlay idiom: only write on change). Shows the fly
 // controls and the active texture variant while debugging.
-// Sits above the HUD's ammo row rather than on it: the ammo numbers are the
-// game, this is scaffolding, so the scaffolding is what moves.
+// Top centre, which the original's HUD leaves empty: the HUD is the game, this
+// is scaffolding, so the scaffolding is what moves.
 const debugLabelEl = document.createElement("div");
 debugLabelEl.style.cssText =
-  "position:fixed;left:8px;bottom:56px;z-index:30;padding:4px 8px;" +
+  "position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:30;padding:4px 8px;" +
   "font:12px/1.4 monospace;color:#cfd8e3;background:rgba(10,14,20,.7);" +
   "border-radius:4px;pointer-events:none;display:none;white-space:pre";
 document.body.appendChild(debugLabelEl);
@@ -1162,7 +1346,7 @@ function refreshDebugLabel(): void {
   // Title-menu backdrop also arms the switcher (Graphics drawer live preview),
   // but the hotkey legend sits over the console footer — hide it until a match.
   if (texSwitcher && phase !== "menu") {
-    parts.push(`${texSwitcher.status()}  [0]=default [1]=original [2]=esrgan`);
+    parts.push(`${texSwitcher.status()}  [0]=hd [1]=original [2]=esrgan`);
   }
   if (flyMode) {
     parts.push("fly: WASD+QE move, Shift fast, click=mouse-look");
@@ -1170,7 +1354,7 @@ function refreshDebugLabel(): void {
   }
   if (sandboxMode) parts.push("sandbox: F2 = spawn + weapon panel");
   if (phase === "match" || phase === "connecting") {
-    parts.push(flyMode ? "ESC: release mouse · pause · quit to menu" : "ESC: pause · quit to menu");
+    parts.push(flyMode ? "ESC: release mouse · game menu" : "ESC: game menu");
   }
   const text = parts.join("\n");
   if (text === debugLabelText) return;
@@ -1340,9 +1524,10 @@ function ensureSandboxPanel(): void {
       avatarRig === null || !avatarRig.ready
         ? null
         : {
-            legL: avatarRig.angleAt(0, 0),
-            legR: avatarRig.angleAt(0, 1),
-            stride: avatarRig.stride,
+            legsFrame: avatarRig.legsAt(0),
+            cockpitFrame: avatarRig.cockpitAt(0),
+            state: x1Walk.state[views[0]?.slot ?? 0],
+            track: x1Walk.legsTrack[views[0]?.slot ?? 0],
           },
   });
 }
@@ -1360,7 +1545,7 @@ addEventListener("keydown", (e) => {
 // WASD/JKL, see input/keyboard.ts BUTTON_KEYS) — safe for debug bindings.
 addEventListener("keydown", (e) => {
   if (!texSwitcher) return;
-  if (e.code === "Digit0") texSwitcher.setVariant("default");
+  if (e.code === "Digit0") texSwitcher.setVariant("hd");
   else if (e.code === "Digit1") texSwitcher.setVariant("original");
   else if (e.code === "Digit2") texSwitcher.setVariant("esrgan");
   else return;
@@ -1379,12 +1564,11 @@ function downloadReplay(bytes: Uint8Array, name: string): void {
   URL.revokeObjectURL(url);
 }
 
-// Per-player avatar render state, filled by renderEntities for the chase rigs:
-// [threeX, threeZ, height, found(0/1), pursuit(0/1), velX, velZ, yaw]. velX/velZ
-// are world u/s in render space, from the raw per-tick snapshot delta; yaw is
-// the interpolated hull heading (sim radians).
+// Per-player avatar render state, filled by renderEntities for the chase
+// cameras: [threeX, threeZ, height, found(0/1), hover(0/1), yaw], all
+// interpolated; yaw is the hull heading (sim radians).
 const avatarPoses: Float32Array[] = [];
-for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses.push(new Float32Array(8));
+for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses.push(new Float32Array(6));
 
 function wrapAngleDelta(d: number): number {
   return ((((d + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
@@ -1403,8 +1587,11 @@ function runTick(): void {
   const queued = inputQueue[futureTick % QUEUE_SIZE];
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const view = viewBySlot[p];
-    if (view) view.input.sample(queued.players[p]);
-    else if (p !== sim.wardenPlayer) scriptOpponent(sim, p, queued.players[p]);
+    if (view) {
+      view.input.sample(queued.players[p]);
+      // A parked view's X1 reads no buttons (player.c:1420, player_fire.c:864).
+      if (mapScreen.open && view === views[0]) queued.players[p].buttons = 0;
+    } else if (p !== sim.wardenPlayer) scriptOpponent(sim, p, queued.players[p]);
   }
 
   step(sim, inputQueue[sim.tick % QUEUE_SIZE]);
@@ -1412,6 +1599,7 @@ function runTick(): void {
   // so the tick itself never sees them — same host-side contract as
   // metropolisSpawn. Null unless ?sandbox=1, so a normal match pays nothing.
   sandboxPanel?.afterTick();
+  animateAvatars(sim);
   // The demo battle stays calm — music only, no SFX/VFX.
   if (phase === "match") pumpCosmetics(sim.events);
   rotateSnapshot();
@@ -1506,18 +1694,63 @@ function resolveEventPosition(
 /** Audio + VFX share the event buffer; VFX resolves positions here. */
 function pumpCosmetics(events: typeof sim.events): void {
   buildAudioIndex();
+  pumpShake(events);
   pumpSounds(events);
   fx.pump(events, resolveEventPosition);
-  startMorphs(events);
-  matchHud?.pumpEvents(events, performance.now());
-  // Kills credited to the local player, for the match-end stats row.
-  // EV_DEATH.b is the killer's player slot (-1 for unowned deaths).
-  const localSlot = views[0]?.slot ?? 0;
-  for (let i = 0; i < events.count; i++) {
-    const o = i * EVENT_STRIDE;
-    if (events.data[o] === EV_DEATH && events.data[o + 2] === localSlot) localKills += 1;
+}
+
+/**
+ * The camera shake's damage half (render/cameraShake.ts): a new avatar is a
+ * `player_reset`, and every hit on a view's X1 is `player_take_amount`'s share
+ * against the X1's health, halved by Precinct Assault's team-game word.
+ */
+function pumpShake(events: typeof sim.events): void {
+  const d = events.data;
+  for (let v = 0; v < views.length; v++) {
+    const view = views[v];
+    const o = matchSlotOffset(view.slot);
+    const avatar = matchSnap[o + MATCH_SLOT_AVATAR_ID] | 0;
+    if (avatar !== view.shake.avatar) resetCameraShake(view.shake, avatar);
+    if (avatar < 0) continue;
+    const maxHp = matchSnap[o + MATCH_SLOT_HP_MAX];
+    for (let i = 0; i < events.count; i++) {
+      const e = i * EVENT_STRIDE;
+      if (d[e] !== EV_HIT || d[e + 1] !== avatar) continue;
+      shakeDamage(view.shake, d[e + 3], maxHp, PA_TEAM_GAME);
+    }
   }
 }
+
+/**
+ * Mission-state word 23, which every Precinct Assault mission sets: it halves
+ * the damage share (`player_take_amount`) and keeps damage off the other slot.
+ */
+const PA_TEAM_GAME = true;
+/** Scratch for the shake's X1 position (an effect install within 0x20000 of it). */
+const shakePose = new Float32Array(3);
+/**
+ * The camera shake's effect half (`cact_effect_install` 0x0042d020): an install
+ * whose record has a `shake` (+0x32 bit 4 or 13) shakes team slot 0's X1 and,
+ * in the two-viewport network game, slot 1's — so every local view here. One
+ * with a `flash` (bit 5) sets the viewport's screen flash by the same octagonal
+ * distance (`mission_flash_near` 0x00405c40; render/hud/screenFlash.ts).
+ */
+sounds.effects.addListener({
+  install(_bank, _id, rec, at) {
+    if (!rec || (!rec.shake && !rec.flash)) return;
+    for (let v = 0; v < views.length; v++) {
+      const view = views[v];
+      const avatar = view.shake.avatar;
+      if (avatar < 0 || !entityPose(avatar, shakePose)) continue;
+      const dx = at.x - shakePose[0];
+      const dy = at.y - shakePose[1];
+      const dz = at.z - shakePose[2];
+      shakeEffect(view.shake, rec.shake, dx, dy, dz);
+      // The HUD is the first view's (refreshMatchHud).
+      if (rec.flash && v === 0) matchHud?.flash(rec.flash, vecMagnitudeWu(dx, dy, dz));
+    }
+  },
+});
 
 /** Scratch for the listener's position (the local mech, `snd_set_listener`). */
 const listenerPose = new Float32Array(3);
@@ -1543,23 +1776,48 @@ function pumpSounds(events: typeof sim.events): void {
     captainSlot: sim.wardenPlayer,
     captainLevel: level > 0 ? level : 0,
     lifts: liftCurr,
+    walker: x1Walk,
+    ground: groundUnder,
+    emitterDrawn: drawnEmitters(),
   });
 }
 
+/** The ground under (x, z) on the arena in play (an effect with no height of its own). */
+function groundUnder(x: number, z: number): number {
+  return sampleHeight(map, x, z);
+}
+
 /**
- * Starts a mesh morph for every avatar that just changed form.
- *
- * Separate from fx.pump because the two want different things out of the same
- * event: the arcs need a world position and nothing else, while the morph needs
- * the entity id and the form being entered, and would have to resolve a pose it
- * never uses to get them through the fx resolver.
+ * One sim tick of the X1s' animation (render/x1Walk.ts): the avatar snapshot,
+ * the sim machine's frames, form and codes off it, then the cockpit's aim. Runs
+ * after every sim step and before the sounds, which play the legs' codes the
+ * same tick (audio/cues.ts).
  */
-function startMorphs(events: typeof sim.events): void {
-  const data = events.data;
-  for (let i = 0; i < events.count; i++) {
-    const o = i * EVENT_STRIDE;
-    if (data[o] !== EV_TRANSFORM) continue;
-    avatarMorph.start(data[o + 1], data[o + 2] === 1);
+function animateAvatars(stepped: SimState): void {
+  writeAvatarSnapshot(stepped, avatarSnap);
+  tickX1Walk(x1Walk, avatarSnap);
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const avatar = matchSnap[matchSlotOffset(p) + MATCH_SLOT_AVATAR_ID] | 0;
+    const lock = matchSnap[matchSlotOffset(p) + MATCH_SLOT_LOCK] | 0;
+    const a = avatar >= 0 ? snapshotIndexOf(snapCurr, countCurr, avatar) : -1;
+    const t = lock >= 0 && a >= 0 ? snapshotIndexOf(snapCurr, countCurr, lock) : -1;
+    if (a < 0 || t < 0) {
+      aimX1(x1Walk, p, false, 0, 0, 0, 0);
+      continue;
+    }
+    const ao = a * SNAPSHOT_STRIDE;
+    const to = t * SNAPSHOT_STRIDE;
+    // From the cockpit's mount to the target's middle (the lock beam's end).
+    const mount = avatarRig ? avatarRig.mountHeight(x1Walk.legsFrame[p]) : 0;
+    aimX1(
+      x1Walk,
+      p,
+      true,
+      snapCurr[to + 3] - snapCurr[ao + 3],
+      snapCurr[to + 4] - snapCurr[ao + 4],
+      snapCurr[to + 5] + LOCK_TO_LIFT - (snapCurr[ao + 5] + mount),
+      snapCurr[ao + 6],
+    );
   }
 }
 
@@ -1569,6 +1827,8 @@ function rotateSnapshot(): void {
   snapCurr = swap;
   countPrev = countCurr;
   countCurr = writeSnapshot(sim, snapCurr);
+  // The tick's launches meet the rounds they spawned (effects/rounds.ts).
+  sounds.effects.rounds.bind(snapCurr, countCurr, SNAPSHOT_STRIDE);
   // Per-match scalars for the graphical HUD. Written into a preallocated buffer
   // right beside the entity snapshot so the HUD reads only the snapshot
   // interface (renderer rule 4), never sim internals.
@@ -1582,22 +1842,32 @@ function rotateSnapshot(): void {
   liftCurr = liftSwap;
   writeLiftSnapshot(sim, liftCurr);
   if (fresh) liftPrev.set(liftCurr);
+  const gunSwap = gunPrev;
+  gunPrev = gunCurr;
+  gunCurr = gunSwap;
+  writeGunSnapshot(sim, gunCurr);
 }
 
-function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
+function renderEntities(alpha: number, simDtSec: number): void {
   // Once per frame, ahead of the sweep that samples it. This is the one place
   // the entity pass runs, however many views the frame ends up drawing. On the
   // SIM's clock, not the frame's — see advanceSimClock.
-  avatarMorph.advance(simDtSec);
   updatePickups(matchSnap, alpha);
   updateLifts(liftPrev, liftCurr, alpha);
   for (let i = 0; i < greybox.all.length; i++) {
     greybox.all[i].count = 0;
   }
+  // The Sky Captain's model is its level's (match config, via the snapshot).
+  units.setCaptainLevel(wardenLevel(matchSnap[MATCH_WARDEN_DIFFICULTY]));
+  units.begin(simDtSec);
   if (avatarRig) avatarRig.begin();
   // Readiness cannot change mid-frame, so resolve it once instead of per entity.
   const readyRig = avatarRig?.ready ? avatarRig : null;
+  // The cloak's v offset: the frame clock (300 Hz units) >> 2 & 0x3f
+  // (RE player_partner.c 289-293), on the sim's clock as the original's is.
+  const cloakV = (Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ)) >> 2) & 0x3f;
   for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses[p][3] = 0;
+  fxPoses.live.fill(0);
   let p = 0;
   for (let c = 0; c < countCurr; c++) {
     const o = c * SNAPSHOT_STRIDE;
@@ -1611,33 +1881,14 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
     const animState = snapCurr[o + 7];
     const aux = snapCurr[o + 9];
 
-    // Mid-transformation the form on screen is NOT the one in ANIM_HOVER: the
-    // sim flips the mode byte on the first tick of the lock, so the snapshot
-    // already reads as the destination while the mech is still collapsing out of
-    // the form it is leaving. render/morph.ts owns that half-and-half decision.
-    let morph: Float32Array | null = null;
-    if (archetype === ARCHETYPE.AVATAR) {
-      if ((animState & ANIM_TRANSFORMING) === 0) {
-        // The lock ended (or was cut short by a death or a rollback) before the
-        // client's own clock ran out. The sim is the authority on that.
-        avatarMorph.release(id);
-      } else if (avatarMorph.sample(id, morphScratch)) {
-        morph = morphScratch;
-      }
-    }
-    const drawHover = morph ? morph[MORPH_DRAW_HOVER] === 1 : (animState & ANIM_HOVER) !== 0;
-
-    // Walking avatars go to the three-part walk rig instead of a single bucket
-    // instance (render/avatarRig.ts). Hovering ones, and every avatar before the
-    // rig's asset lands, keep their bucket.
-    const rig = archetype === ARCHETYPE.AVATAR && !drawHover ? readyRig : null;
-    // The bucket picks walker vs hover off ANIM_HOVER too, and it is what draws
-    // the avatar whenever the rig is unavailable (?render=greybox, or the asset
-    // still loading). Hand it the form actually being drawn, or the fallback
-    // would swap meshes half a morph before the rig path does.
-    const bucketAnim = drawHover ? animState | ANIM_HOVER : animState & ~ANIM_HOVER;
-    const bucket = rig ? undefined : bucketFor(greybox, archetype, bucketAnim, aux);
-    if (!rig && !bucket) continue;
+    // Every X1 — walking, transforming or hovering — goes to the rig, posed by
+    // its slot's frames (render/avatarRig.ts, render/x1Walk.ts). Before the
+    // rig's asset lands, and in ?render=greybox, the buckets draw it by form.
+    const rig = archetype === ARCHETYPE.AVATAR ? readyRig : null;
+    // A world round wears its row's model: which launch it came from is the
+    // effect chain's round tracker's (effects/rounds.ts).
+    const row = archetype === ARCHETYPE.PROJECTILE ? sounds.effects.rounds.row[id] : 0;
+    const greyboxBucket = rig ? undefined : bucketFor(greybox, archetype, animState, aux, row);
 
     let x = snapCurr[o + 3];
     let y = snapCurr[o + 4];
@@ -1649,6 +1900,34 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
       height = snapPrev[po + 5] + (height - snapPrev[po + 5]) * alpha;
       yaw = snapPrev[po + 6] + wrapAngleDelta(yaw - snapPrev[po + 6]) * alpha;
     }
+    // Where it is drawn, for the effects that ride it (render/fx.ts).
+    if (id >= 0 && id < MAX_ENTITIES) {
+      const f = id * POSE_STRIDE;
+      fxPoses.table[f] = x;
+      fxPoses.table[f + 1] = height;
+      fxPoses.table[f + 2] = y;
+      fxPoses.table[f + 3] = yaw;
+      fxPoses.live[id] = 1;
+    }
+    // A bolt row's round is its Cobj's line facers (rows 1, 3 and 6), drawn by
+    // the effects between the two ticks' positions' heading, not as a mesh.
+    if (archetype === ARCHETYPE.PROJECTILE && row > 0) {
+      let pitch = 0;
+      if (hasPrev) {
+        const dh = snapCurr[o + 5] - snapPrev[po + 5];
+        const dx = snapCurr[o + 3] - snapPrev[po + 3];
+        const dy = snapCurr[o + 4] - snapPrev[po + 4];
+        const run = Math.sqrt(dx * dx + dy * dy);
+        if (dh !== 0 || run !== 0) pitch = Math.atan2(dh, run);
+      }
+      if (fx.bolt(row, x, height, y, yaw, pitch)) continue;
+    }
+    if (!rig && !greyboxBucket) continue;
+    // A turret is found by where it stands (render/arenaUnits.ts spotKey): the
+    // snapshot's own position, not an interpolation of it.
+    const spotX = snapCurr[o + 3];
+    const spotY = snapCurr[o + 4];
+    const bucket = greyboxBucket && units.route(greyboxBucket, archetype, aux, spotX, spotY);
 
     // Player avatars (archetype AVATAR, team === player slot) feed that
     // player's chase camera and HUD.
@@ -1659,22 +1938,30 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
       pose[1] = y; // three z (sim y)
       pose[2] = height; // three y
       pose[3] = 1; // found
-      pose[4] = (animState & ANIM_HOVER) !== 0 ? 1 : 0; // pursuit/hover framing
-      // Look-ahead velocity: raw per-tick delta → world u/s, in render space.
-      if (hasPrev) {
-        pose[5] = (snapCurr[o + 3] - snapPrev[po + 3]) * TICK_HZ;
-        pose[6] = (snapCurr[o + 4] - snapPrev[po + 4]) * TICK_HZ;
-      } else {
-        pose[5] = 0;
-        pose[6] = 0;
-      }
-      pose[7] = yaw; // the hull's heading, which the chase camera follows
+      pose[4] = (animState & ANIM_HOVER) !== 0 ? 1 : 0; // the chase camera's sink
+      pose[5] = yaw; // the hull's heading, which the chase camera follows
     }
 
     if (rig) {
-      // The rig poses all three of its parts and keeps its own gait state; a
-      // false return means it is out of capacity and has already said so.
-      rig.place(id, x, height, y, yaw, animState, team, dtSec, morph);
+      // The slot's frames once the snapshot has carried this X1, else the
+      // reset's pose by form (a spawn this frame). A false return is the rig
+      // out of capacity, which has already said so.
+      const slot = team >= 0 && team < MAX_PLAYERS ? team : -1;
+      const known = slot >= 0 && x1Walk.owner[slot] === id;
+      const hovering = (animState & ANIM_HOVER) !== 0;
+      const cloaked = slot >= 0 && avatarSnap[slot * AVATAR_SNAP_STRIDE + AVATAR_SNAP_CLOAK] > 0;
+      rig.place(
+        x,
+        height,
+        y,
+        yaw,
+        team,
+        known ? x1Walk.legsFrame[slot] : hovering ? 359 : 0,
+        known ? x1Walk.cockpitFrame[slot] : hovering ? 29 : 0,
+        known ? aimYawModel(x1Walk.aimYaw[slot]) : 0,
+        known ? aimPitchModel(x1Walk.aimPitch[slot]) : 0,
+        cloaked ? cloakV : -1,
+      );
     } else if (bucket) {
       const slot = bucket.count;
       if (slot >= bucket.tintCache.length) {
@@ -1693,21 +1980,13 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
 
       // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
       scratchPos.set(x, height, y);
-      scratchQuat.setFromAxisAngle(UP, -yaw - (morph ? morph[MORPH_SPIN] : 0));
-      if (morph) {
-        scratchScale.set(morph[MORPH_SCALE_XZ], morph[MORPH_SCALE_Y], morph[MORPH_SCALE_XZ]);
-      } else {
-        // Shared module scratch: a morphing avatar earlier in the sweep left its
-        // squash in here, and every later instance would inherit it.
-        scratchScale.set(1, 1, 1);
-      }
+      scratchQuat.setFromAxisAngle(UP, -yaw);
       // A shell points where it is going, in the vertical too. The snapshot
       // carries no vertical velocity, but the two ticks being interpolated
       // between do: rise over run across that step IS the flight angle. Costs
       // nothing while projectiles fly flat (the delta is zero, atan2 gives
       // zero) and turns the mortar's arc into a shell that noses over at the
-      // top of it. No allocation — both quaternions are module scratch. Never
-      // collides with the morph above: a projectile is not an avatar.
+      // top of it. No allocation — both quaternions are module scratch.
       if (archetype === ARCHETYPE.PROJECTILE && hasPrev) {
         const dh = snapCurr[o + 5] - snapPrev[po + 5];
         const dx = snapCurr[o + 3] - snapPrev[po + 3];
@@ -1718,14 +1997,27 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
           scratchQuat.multiply(scratchPitch);
         }
       }
-      scratchMatrix.compose(scratchPos, scratchQuat, scratchScale);
-      bucket.mesh.setMatrixAt(slot, scratchMatrix);
-
-      if (bucket.tintCache[slot] !== team) {
-        bucket.tintCache[slot] = team;
-        bucket.mesh.setColorAt(slot, tintFor(team));
-        if (bucket.mesh.instanceColor) bucket.mesh.instanceColor.needsUpdate = true;
+      // A Dreadnought's guns turn on their mounts, between the two ticks on the
+      // shortest arc like the hull's own yaw (render/dreadnoughtGuns.ts).
+      if (archetype === ARCHETYPE.JUGGERNAUT) {
+        const gunsPrev = hasPrev && snapPrev[po + 1] === archetype;
+        lerpGunYaws(gunPrev, gunCurr, id, alpha, gunsPrev, gunYaws);
       }
+      // Matrix, parts (a turret's base and a Dreadnought's guns) and team
+      // colour (render/arenaUnits.ts).
+      units.place(
+        bucket,
+        slot,
+        id,
+        archetype,
+        team,
+        spotX,
+        spotY,
+        scratchPos,
+        scratchQuat,
+        scratchScale,
+        gunYaws,
+      );
     }
   }
   for (let i = 0; i < greybox.all.length; i++) {
@@ -1733,32 +2025,167 @@ function renderEntities(alpha: number, dtSec: number, simDtSec: number): void {
     b.mesh.count = b.count;
     b.mesh.instanceMatrix.needsUpdate = true;
   }
+  shieldSpheres.update(avatarSnap, avatarPoses);
+  units.end();
+  // The scenery by its outpost's claim: the console until then, the terminals
+  // after, the flags in the claimer's half of the page; the cloth's frame on
+  // the sim's clock (render/props.ts).
+  updateProps(units.outpostSides, matchSnap, simDtSec);
   if (avatarRig) avatarRig.end();
 }
 
 /**
- * Orbit-follow rig (camera.spec): world-fixed yaw, a stepless pitch+zoom `t`
- * continuum, look-ahead and a walker/pursuit resting-point bias. Client-local
- * render state — reads only the interpolated avatar pose, never the sim. Per
- * view; framerate-stable in real `dt` seconds.
+ * `world_view_focus` for the local view: the block about the ground focus of
+ * its camera over its X1's height; the Props and DCSQuads follow it.
  */
-function updateRigCamera(view: PlayerView, dtSec: number): void {
+function placeViewWindow(view: PlayerView): void {
+  view.camera.updateMatrixWorld();
+  const height = avatarPoses[view.slot][2];
+  if (placeDrawWindow(drawWindow, view.camera.matrixWorld.elements, height)) {
+    setEmitterWindow(drawWindow);
+    setDecalWindow(drawWindow);
+  }
+}
+
+/**
+ * The original's chase camera for one view (camera.spec, render/camera.ts): the
+ * interpolated avatar is its subject, the frame's real time its clock in the
+ * engine's 300 Hz ticks. Client-local render state — reads only the
+ * interpolated avatar pose, never the sim. Frozen while the match is paused.
+ */
+function updateChaseCamera(view: PlayerView, dtSec: number): void {
   const pose = avatarPoses[view.slot];
   if (pose[3] === 0) return; // avatar not present this frame
-  rigFocus.x = pose[0];
-  rigFocus.y = pose[2]; // three y (height) — the rig adds focusHeight
-  rigFocus.z = pose[1];
-  rigVel.x = pose[5];
-  rigVel.y = 0;
-  rigVel.z = pose[6];
-  const pursuit = pose[4] !== 0;
-  updateCamera(view.cam, view.camInput, rigFocus, rigVel, pursuit, DEFAULT_RIG_CONFIG, dtSec);
-  const fov = deriveCameraPose(view.cam, DEFAULT_RIG_CONFIG, view.camera.position, camTarget);
-  if (view.camera.fov !== fov) {
-    view.camera.fov = fov;
+  const subject = view.subject;
+  subject.x = pose[0];
+  subject.y = pose[1];
+  subject.height = pose[2];
+  subject.facing = pose[5];
+  subject.hover = pose[4] !== 0;
+  // No Precinct Assault arena has a volume trigger (camera.json pa_volume_triggers).
+  gateCrowdControl(view.cam, false);
+  const ticks = matchPaused ? 0 : dtSec * ENGINE_HZ;
+  stepChaseCamera(view.cam, subject, ticks, chaseTrace, CHASE_ANCHOR_LIFT, view.pose);
+  // The shake moves the eye only after the trace and the occlusion machine,
+  // as the camera tick's last arm does (view_place.c 0x00445d10).
+  applyCameraShake(view.shake, ticks, view.pose);
+  applyChasePose(view.camera, view.pose);
+  // The menu blend animates the fov; the chase owns it again afterwards.
+  if (view.camera.fov !== CAMERA_VFOV_DEG) {
+    view.camera.fov = CAMERA_VFOV_DEG;
     view.camera.updateProjectionMatrix();
   }
-  view.camera.lookAt(camTarget);
+}
+
+/**
+ * The map screen's frame: the pan from the keyboard's word, then the terrain
+ * window drawn from straight above (the arena alone: units, effects and the sky
+ * are left out, as the original's `draw_pause_map_cell` draws only terrain).
+ */
+function renderMapScreen(dtSec: number): void {
+  const view = views[0];
+  if (!view) return;
+  mapWindow(innerWidth, innerHeight, mapWin);
+  const pose = avatarPoses[view.slot];
+  keyboard.sample(panInput);
+  const ticks = Math.min(dtSec * ENGINE_HZ, 60);
+  panMapScreen(mapScreen, panInput.buttons, ticks, pose[0], pose[1], mapBox, mapWin[0], mapWin[1]);
+  mapCam.left = -mapWin[0];
+  mapCam.right = mapWin[0];
+  mapCam.top = mapWin[1];
+  mapCam.bottom = -mapWin[1];
+  mapCam.updateProjectionMatrix();
+  mapCam.position.set(mapScreen.cx, MAP_CAM_HEIGHT, mapScreen.cy);
+  mapCam.lookAt(mapScreen.cx, 0, mapScreen.cy);
+  mapCam.updateMatrixWorld();
+  mapHidden.length = 0;
+  const children = scene.children;
+  for (let i = 0; i < children.length; i++) {
+    const c = children[i];
+    if (c === arenaGroup || (c as THREE.Light).isLight || !c.visible) continue;
+    c.visible = false;
+    mapHidden.push(c);
+  }
+  const fog = scene.fog;
+  const background = scene.background;
+  scene.fog = null;
+  scene.background = null;
+  renderer.getClearColor(savedClear);
+  const clearAlpha = renderer.getClearAlpha();
+  renderer.setClearColor(MAP_CLEAR, 1);
+  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  renderer.setScissor(0, 0, innerWidth, innerHeight);
+  renderer.render(scene, mapCam);
+  renderer.setClearColor(savedClear, clearAlpha);
+  scene.fog = fog;
+  scene.background = background;
+  for (let i = 0; i < mapHidden.length; i++) mapHidden[i].visible = true;
+}
+
+/** The lock's two ends above the entities' feet, m: the X1's gun, the target's middle. */
+const LOCK_FROM_LIFT = 0.6;
+const LOCK_TO_LIFT = 0.5;
+
+/**
+ * The graphical HUD for the local view: the snapshots, the 300 Hz frame clock
+ * (sim tick x 10, interpolated) and the X1's interpolated pose for the radar;
+ * then the lock beam and reticle onto the posed camera.
+ */
+function refreshMatchHud(view: PlayerView, alpha: number): void {
+  const hud = matchHud;
+  if (!hud) return;
+  const pose = avatarPoses[view.slot];
+  // The frame clock runs on through the map screen's pause (its rings pulse).
+  const clock = mapScreen.open
+    ? Math.floor(performance.now() * (ENGINE_HZ / 1000))
+    : Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ));
+  const ov = hud.radar.overview;
+  ov.open = mapScreen.open;
+  ov.cx = mapScreen.cx;
+  ov.cy = mapScreen.cy;
+  ov.halfX = mapWin[0];
+  ov.halfY = mapWin[1];
+  hud.refresh(matchSnap, snapCurr, countCurr, clock, pose[0], pose[1], pose[5]);
+  hud.map.draw(
+    mapScreen.open,
+    matchSnap,
+    snapCurr,
+    countCurr,
+    clock,
+    mapScreen.cx,
+    mapScreen.cy,
+    mapWin[2],
+    view.slot,
+  );
+  if (mapScreen.open) {
+    hud.drawLock(view.camera, false, 0, 0, 0, 0, 0, 0, 1);
+    return;
+  }
+  const mine = matchSlotOffset(view.slot);
+  const lock = matchSnap[mine + MATCH_SLOT_LOCK] | 0;
+  const down = (matchSnap[mine + MATCH_SLOT_RESPAWN_TICKS] | 0) > 0;
+  const c = lock >= 0 && !down && pose[3] !== 0 ? snapshotIndexOf(snapCurr, countCurr, lock) : -1;
+  if (c < 0) {
+    hud.drawLock(view.camera, false, 0, 0, 0, 0, 0, 0, 1);
+    return;
+  }
+  const o = c * SNAPSHOT_STRIDE;
+  let tx = snapCurr[o + 3];
+  let ty = snapCurr[o + 5];
+  let tz = snapCurr[o + 4];
+  const p = snapshotIndexOf(snapPrev, countPrev, lock);
+  if (p >= 0) {
+    const po = p * SNAPSHOT_STRIDE;
+    tx = snapPrev[po + 3] + (tx - snapPrev[po + 3]) * alpha;
+    ty = snapPrev[po + 5] + (ty - snapPrev[po + 5]) * alpha;
+    tz = snapPrev[po + 4] + (tz - snapPrev[po + 4]) * alpha;
+  }
+  ty += LOCK_TO_LIFT;
+  const fx = pose[0];
+  const fy = pose[2] + LOCK_FROM_LIFT;
+  const fz = pose[1];
+  const hit = lockHit(fx, fy, fz, tx, ty, tz);
+  hud.drawLock(view.camera, true, fx, fy, fz, tx, ty, tz, hit);
 }
 
 // --- HUD (1 Hz, host-side debug UI; reads sim directly) ----------------------
@@ -1786,7 +2213,9 @@ function refreshHud(fps: number): void {
     if (archetype >= 1 && archetype <= 4 && (team === 0 || team === 1)) unitCounts[team] += 1;
   }
   const banner =
-    sim.winner >= 0 ? `\nMATCH OVER — ${sim.winner === 0 ? "BLUE" : "RED"} BREACHED THE GATE` : "";
+    sim.winner >= 0
+      ? `\nMATCH OVER — ${sideName(sideOfTeam(map.id, sim.winner))} BREACHED THE GATE`
+      : "";
   for (let v = 0; v < views.length; v++) {
     views[v].hud.textContent = hudText(views[v], fps, banner);
   }
@@ -1806,7 +2235,8 @@ function hudText(view: PlayerView, fps: number, banner: string): string {
     if (sim.outpostOwner[k] === slot) ownOutposts += 1;
   }
   if (ownOutposts > 0) progress += `  outposts ${ownOutposts}`;
-  const tag = slot === 0 ? "BLUE" : "RED";
+  // The original's side colour of the team (render/sides.ts).
+  const tag = sideName(sideOfTeam(map.id, slot));
   return (
     `P${slot + 1} ${tag}  ${status}  points ${sim.points[slot]}  units ${unitCounts[0]}v${unitCounts[1]}${progress}\n` +
     `tick ${sim.tick}  fps ${fps}  entities ${countCurr}  sfx ${audio.lastPlayed || "-"}  map ${map.id}` +
@@ -1858,6 +2288,18 @@ function advanceSimClock(alpha: number): number {
 function frame(now: number): void {
   // A pad's Map Key, polled per frame so it can also resume a paused match.
   keyboard.pollPad();
+  // The original's front end has no world behind it: while the menu (or a
+  // connecting lobby's status card) is up, nothing is stepped or drawn.
+  if (phase !== "match" && views.length === 0) {
+    last = now;
+    accumulator = 0;
+    if (net) refreshOverlay();
+    renderer.setViewport(0, 0, innerWidth, innerHeight);
+    renderer.setScissor(0, 0, innerWidth, innerHeight);
+    renderer.clear();
+    requestAnimationFrame(frame);
+    return;
+  }
   const dtMs = Math.min(now - last, 250);
   // timeScale is 1 everywhere except sandbox slow motion; net matches never see
   // it (the panel is solo-only), so lockstep pacing is unchanged.
@@ -1876,6 +2318,7 @@ function frame(now: number): void {
     } else if (sim) {
       if (debugPaused) break; // ?debug harness freeze (metropolisPause)
       if (matchPaused) break; // ESC pause freezes offline / fly / sandbox
+      if (mapScreen.open) break; // the Map Key's pause, one viewport
       runTick();
     } else {
       break; // online deep link: no sim at all until MSG_WELCOME
@@ -1894,29 +2337,25 @@ function frame(now: number): void {
     countCurr = writeSnapshot(sim, snapCurr);
   }
 
-  // dtSec before renderEntities: the walk rig fades its swing in and out in real
-  // seconds (the stride itself is distance-driven — render/avatarRig.ts).
   const dtSec = dtMs / 1000;
   const alpha = accumulator / TICK_MS;
   const simDtSec = advanceSimClock(alpha);
-  renderEntities(alpha, dtSec, simDtSec);
+  renderEntities(alpha, simDtSec);
   if (views.length === 0) {
-    // No views yet: menu / lobby / waiting-for-opponent — flyover over the demo.
+    // A match with no views yet (the menu and the connecting card return
+    // above): the flyover.
     updateFlyoverCamera(flyCam, now / 1000, extent);
     if (phase === "match") fx.update(dtSec, flyCam, simDtSec);
+    drawFacers(flyCam, renderer.domElement.height);
     renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.setScissor(0, 0, innerWidth, innerHeight);
     renderScene(flyCam);
+  } else if (mapScreen.open && matchHud) {
+    // The map screen in place of the view (view 0 only: one local player).
+    renderMapScreen(dtSec);
   } else {
-    // Drain accumulated wheel into the pointer view's rig (scroll up → zoom in
-    // → toward ACTION). Only the pointer view takes zoom.
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
-      // Chase rig: the camera follows the hull's heading, as the original's
-      // sits behind the X1; nothing is left for the wheel (camera.spec §3).
-      const pose = avatarPoses[view.slot];
-      view.camInput.yawAbsolute = pose[3] !== 0 ? pose[7] : null;
-      view.camInput.zoomDelta = 0;
       if (flyMode && v === 0) {
         // Free-fly debug camera owns view 0's posing (render/flyCamera.ts) —
         // rig and blend are skipped, exactly like orbit below. Skip while the
@@ -1925,12 +2364,18 @@ function frame(now: number): void {
       } else if (orbitControls && v === 0) {
         orbitControls.update();
       } else {
-        updateRigCamera(view, dtSec);
+        updateChaseCamera(view, dtSec);
         if (blend.active) applyBlend(blend, view.camera, dtSec);
+        if (v === 0 && cameraCaption) cameraCaption.update(view.cam.name, view.cam.caption > 0);
       }
       // Billboards face the local view's camera (view 0); update once after
       // that camera is posed, before any scissored draw.
       if (v === 0 && phase === "match") fx.update(dtSec, view.camera, simDtSec);
+      // The Props and DCSQuads in the eye's 5 x 5 block of cells only.
+      if (v === 0 && phase === "match") placeViewWindow(view);
+      // The models' camera-facing facers, on every instance matrix written
+      // this frame (render/facers.ts), turned to the local view's camera.
+      if (v === 0) drawFacers(view.camera, renderer.domElement.height);
       const vp = view.viewport;
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
@@ -1947,27 +2392,29 @@ function frame(now: number): void {
     }
   }
 
-  // Graphical HUD at 10 Hz. It writes only on change and allocates nothing, but
-  // the radar still clears and redraws a canvas, so it gets its own cadence
-  // rather than riding the frame. 100 ms is under the health bar's 0.18 s
-  // transition, so damage still reads as a smooth drain.
+  // The original's HUD, every frame: each of its canvases redraws only when a
+  // value it shows changed (render/hud/hud.ts), the radar and the lock follow
+  // the interpolated poses.
+  if (matchHud && views.length > 0) refreshMatchHud(views[0], alpha);
   if (matchHud && now - matchHudLastUpdate > 100) {
     matchHudLastUpdate = now;
-    matchHud.refresh(matchSnap, snapCurr, countCurr, extent);
-    // Match end rides the same cadence: once the sim freezes on a winner, give
-    // the banner and the death FX a beat, then put up the end card. Debug
-    // camera modes skip it — they exist to look at the world (matchHud is
-    // undefined there anyway, which is why this lives inside the guard).
+    // Match end on a 10 Hz cadence: once the sim freezes on a winner the
+    // results page opens, as the original's does when its countdown runs out
+    // (render/results/resultsPage.ts). Debug camera modes skip it —
+    // they exist to look at the world (matchHud is undefined there anyway,
+    // which is why this lives inside the guard).
     const endWinner = matchSnap[MATCH_WINNER] | 0;
     if (endWinner < 0) {
       winSeenAtMs = -1; // no winner (or a fresh sim): the clock re-arms
     } else if (winSeenAtMs < 0) {
       winSeenAtMs = now;
     }
-    if (winSeenAtMs >= 0 && !matchEndShown && now - winSeenAtMs > MATCH_END_DELAY_MS) {
+    if (winSeenAtMs >= 0 && !matchEndShown && now - winSeenAtMs >= MATCH_END_DELAY_MS) {
       showMatchEnd(endWinner);
     }
   }
+
+  results.frame(now);
 
   hudFrames++;
   if (now - hudLastUpdate > 1000) {
@@ -1994,6 +2441,8 @@ function frame(now: number): void {
  */
 function resetForMatch(newSim: SimState): void {
   sim = newSim;
+  // A new match's X1s start from their reset, whatever ids they reuse.
+  x1Walk.owner.fill(-1);
   // A rematch must not inherit the previous match's in-flight effects.
   fx.reset();
   resetMatchEnd();
@@ -2008,12 +2457,14 @@ function resetForMatch(newSim: SimState): void {
   sizeLiftSnapshots(map.lifts.length);
   writeLiftSnapshot(sim, liftCurr);
   liftPrev.set(liftCurr);
+  writeGunSnapshot(sim, gunCurr);
   if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
 }
 
 function startMatch(localPlayers: readonly { slot: number; input: LocalInputSource }[]): void {
   phase = "match";
   setMatchPaused(false);
+  mapScreen.open = false;
   beginMatchSounds();
   views = createPlayerViews(localPlayers, map.spawns);
   keyboard.capture = true;
@@ -2030,10 +2481,13 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   matchHud =
     flyMode || orbitMode
       ? undefined
-      : createMatchHud(views[0]?.slot ?? 0, {
-          outpostTotal: map.outpostSpots.length,
-        });
+      : createMatchHud(views[0]?.slot ?? 0, { mapId: map.id, online: netMode });
+  matchHud?.layout(innerWidth, innerHeight);
   layoutViews(views, "v", innerWidth, innerHeight, textHudInset());
+  // The camera caption rides with the chase camera: not under fly or orbit.
+  cameraCaption?.destroy();
+  cameraCaption = flyMode || orbitMode ? undefined : createCameraCaption();
+  cameraCaption?.layout(innerWidth, innerHeight);
 
   // The text HUD keeps being written in every mode — globalThis.metropolisHud()
   // is what the e2e and verification-pin harnesses assert against, so its
@@ -2055,9 +2509,6 @@ function startMatch(localPlayers: readonly { slot: number; input: LocalInputSour
   }
   if (sandboxMode) ensureSandboxPanel();
   setFlyCrosshairVisible(flyMode && views.length === 1);
-  // The reticle marks where the hull points for a single full-window player —
-  // not under fly (fly uses a fixed center crosshair).
-  reticle.style.display = views.length === 1 && !flyMode ? "block" : "none";
   document.body.style.cursor = ""; // back to the stylesheet crosshair
 }
 
@@ -2082,7 +2533,10 @@ function makeNetSampler(): () => PlayerInput {
   const localInput = createTickInputs().players[0];
   return () => {
     const view = views[0];
-    if (view) view.input.sample(localInput);
+    if (view) {
+      view.input.sample(localInput);
+      if (mapScreen.open) localInput.buttons = 0; // the parked view (see runTick)
+    }
     return localInput;
   };
 }
@@ -2095,42 +2549,108 @@ function netConfig(matchSeed: number): MatchConfig {
     mapId: map.id,
     wardenPlayer: -1,
     wardenDifficulty: 0,
+    // The HELLO's config; the lobby's agreed one comes with START.
+    difficulties: DEFAULT_DIFFICULTIES,
+    loadouts: DEFAULT_LOADOUTS,
+    extraWeapons: 0,
   };
 }
 
-/**
- * Online 1v1: connect to the relay, then let the netcode drive. The local
- * device samples for whichever slot the server assigns; the sim it builds from
- * the authoritative MSG_WELCOME config replaces the (deferred) module sim, and
- * the frame loop steps it through net.tryStep(). Everything else — render,
- * chase cam, HUD — is unchanged from solo, since only the input source differs.
- */
-function connectOnline(code: string): void {
-  const config = netConfig(seedFromCode(code));
+/** This side's slot in the net session (0 the host), once seated. */
+let netSlot = -1;
 
-  net = new NetLockstep(new WsTransport(relayUrl(code)), {
+/**
+ * A deep link's lobby (?online= / ?p2p=, no menu): its picks are the URL's,
+ * and with nobody to press START it is ready the moment it is linked.
+ */
+function deepLinkLobby(): NetLobby {
+  const own = { loadout: entriesOfLoadout(playerLoadout), difficulty: playerDifficulty };
+  return new NetLobby({
+    name: loadPlayerName(),
+    picks: [own, own],
+    mapRow: rowOfMap(map.id),
+    mapId: map.id,
+    extraWeapons: playerExtraWeapons,
+    autoReady: true,
+  });
+}
+
+/**
+ * Where a session's news goes: the menu's lobby (the dialog's status line,
+ * the networked screen) or, on a deep link, the overlay card.
+ */
+interface NetUi {
+  readonly fromMenu: boolean;
+  readonly lobby: NetLobby;
+}
+
+function netStatusText(ui: NetUi, text: string): void {
+  if (ui.fromMenu) {
+    ui.lobby.setStatus(text);
+    return;
+  }
+  netStatus = text;
+  refreshOverlay();
+}
+
+/** The session could not open, or died before START. */
+function netFailed(ui: NetUi, text: string): void {
+  if (ui.fromMenu) {
+    if (ui.lobby.phase === "linked") ui.lobby.peerGone();
+    else ui.lobby.fail(text);
+    net = undefined;
+    return;
+  }
+  netStatus = text;
+  refreshOverlay();
+}
+
+/** START: the menu shows its loading screen first; a deep link goes straight in. */
+function netStarted(ui: NetUi, config: MatchConfig, matchSim: SimState): void {
+  ui.lobby.started(config);
+  if (ui.fromMenu) return;
+  netStatus = null;
+  refreshOverlay();
+  enterNetMatch(config.mapId, matchSim, netSlot);
+}
+
+/**
+ * Online 1v1 through the relay: connect, sit in the networked lobby (the
+ * original's exchange, menu/frontend/netLobby.ts), and once the host's agreed
+ * config comes back as START, let the netcode drive. The local device samples
+ * for whichever slot the relay assigns; the frame loop steps the sim through
+ * net.tryStep(). Everything else — render, chase cam, HUD — is unchanged from
+ * solo, since only the input source differs.
+ */
+function connectOnline(code: string, ui: NetUi): void {
+  const config = netConfig(seedFromCode(code));
+  const lobby = ui.lobby;
+  const relay: NetLockstep = new NetLockstep(new WsTransport(relayUrl(code)), {
     sampleInput: makeNetSampler(),
     onStep: (_tick, stepped) => {
+      animateAvatars(stepped);
       pumpCosmetics(stepped.events);
       rotateSnapshot();
     },
-    onWelcome: (slotIdx, welcomed, welcomedConfig) => {
-      if (views.length === 0) {
-        fadeCover(() => {
-          rebuildArena(welcomedConfig.mapId); // host map wins; joiner ?map is moot
-          resetForMatch(welcomed);
-          startMatch([{ slot: slotIdx, input: localInput }]);
-        });
-      } else {
-        rebuildArena(welcomedConfig.mapId);
-        resetForMatch(welcomed);
+    onWelcome: (slotIdx) => {
+      netSlot = slotIdx;
+      lobby.attach(lobbyLink(relay), slotIdx, config.seed);
+      // host_dialog.c / join_dialog.c: "Waiting for someone to join" while
+      // hosting, "Waiting for confirmation..." while joining.
+      netStatusText(
+        ui,
+        slotIdx === 0 ? "Waiting for someone to join" : "Waiting for confirmation...",
+      );
+    },
+    onLobby: (m) => lobby.receive(m),
+    onStart: (started, startedConfig) => netStarted(ui, startedConfig, started),
+    onPeer: (slot, present) => {
+      if (slot === netSlot) return;
+      if (!relay.isStarted) {
+        if (present) lobby.linked();
+        else lobby.peerGone();
+        return;
       }
-    },
-    onStart: () => {
-      netStatus = null;
-      refreshOverlay();
-    },
-    onPeer: (_slot, present) => {
       netStatus = present ? null : "Opponent disconnected — waiting to reconnect…";
       refreshOverlay();
     },
@@ -2140,37 +2660,71 @@ function connectOnline(code: string): void {
       downloadReplay(replay, `desync-${code}-t${tick}.mrep`);
     },
     onError: (errCode) => {
-      netStatus = `Cannot join room ${code}: ${NET_ERROR_TEXT[errCode] ?? "unknown error"}`;
-      refreshOverlay();
+      netFailed(ui, netErrorText(errCode, `room ${code}`));
     },
     onClose: () => {
       // A desync already sets its own final status; don't overwrite it.
-      if (net?.isEnded === "desync") return;
+      if (relay.isEnded === "desync") return;
+      if (!relay.isStarted) {
+        netFailed(ui, "Connection lost");
+        return;
+      }
       netStatus = `Connection lost — reload to rejoin room ${code}.`;
       refreshOverlay();
     },
   });
+  net = relay;
+  lobby.preLink(lobbyLink(relay));
+  netStatusText(ui, `Room ${code} — connecting…`);
+  relay.start(config);
+}
 
-  netStatus = `Room ${code} — waiting for opponent…`;
-  setOverlay(netStatus);
-  net.start(config);
+/** The lockstep under a lobby: its sends, the host's begin, and leaving. */
+function lobbyLink(l: NetLockstep | P2pLockstep): LobbyLink {
+  return {
+    send: (m) => l.sendLobby(m),
+    begin: (c) => l.begin(c),
+    close: () => {
+      if (net === l) net = undefined;
+      l.close();
+    },
+  };
+}
+
+/**
+ * The original's refusals all read "Connection Denied!" (join_dialog.c,
+ * the 0x13 arm): a version mismatch and a second joiner alike.
+ */
+function netErrorText(errCode: number, where: string): string {
+  if (errCode === 1 || errCode === 2) return "Connection Denied!";
+  return `Cannot join ${where}: ${NET_ERROR_TEXT[errCode] ?? "unknown error"}`;
 }
 
 /**
  * P2P 1v1 (hosting.spec.md §5): open/join the lobby by code, run WebRTC
- * signaling through it, then hand the open channel pair to P2pLockstep. The
+ * signaling through it, then hand the open channel pair to P2pLockstep, whose
+ * control channel carries the networked lobby until the host's START. The
  * role and lobby options ride sessionStorage from the menu; a bare pasted
- * ?p2p link joins passwordless. Unlike the relay mode there is no WELCOME —
- * the sim exists as soon as the session resolves.
+ * ?p2p link joins passwordless.
  */
-function connectP2pMode(code: string): void {
+function connectP2pMode(code: string, ui: NetUi): void {
   const boot = readP2pBootstrap(code);
-  netStatus = `Lobby ${code} — connecting…`;
-  setOverlay(netStatus);
+  const lobby = ui.lobby;
+  const config = netConfig(seedFromCode(code));
+  netStatusText(ui, `Lobby ${code} — connecting…`);
+  let dropped = false;
+  // The dialog's Cancel before the channels open: nothing to attach to yet.
+  lobby.preLink({
+    send: () => {},
+    begin: () => {},
+    close: () => {
+      dropped = true;
+    },
+  });
   openP2pSession({
     url: lobbyUrl(code),
     role: boot.role,
-    config: netConfig(seedFromCode(code)),
+    config,
     hostSetup:
       boot.role === "host"
         ? {
@@ -2181,12 +2735,16 @@ function connectP2pMode(code: string): void {
         : undefined,
     joinPasswordHash: boot.role === "join" ? boot.passwordHash : undefined,
     onStatus: (text) => {
-      netStatus = text;
-      refreshOverlay();
+      netStatusText(ui, text.startsWith("Lobby open") ? "Waiting for someone to join" : text);
     },
   })
     .then((session) => {
-      const p2pNet = new P2pLockstep(
+      if (dropped) {
+        session.channels.close();
+        return;
+      }
+      netSlot = session.slot;
+      const p2pNet: P2pLockstep = new P2pLockstep(
         session.slot,
         session.config,
         session.channels.control,
@@ -2194,50 +2752,78 @@ function connectP2pMode(code: string): void {
         {
           sampleInput: makeNetSampler(),
           onStep: (_tick, stepped) => {
+            animateAvatars(stepped);
             pumpCosmetics(stepped.events);
             rotateSnapshot();
           },
-          onStart: () => {
-            netStatus = null;
-            refreshOverlay();
-          },
+          onLinked: () => lobby.linked(),
+          onLobby: (m) => lobby.receive(m),
+          onStart: (started, startedConfig) => netStarted(ui, startedConfig, started),
           onDesync: (tick, replay) => {
             netStatus = `Desync detected at tick ${tick} — match ended. Replay downloaded.`;
             refreshOverlay();
             downloadReplay(replay, `desync-${code}-t${tick}.mrep`);
           },
-          onError: (errCode) => {
-            netStatus = `Lobby ${code}: ${NET_ERROR_TEXT[errCode] ?? "unknown error"}`;
-            refreshOverlay();
-          },
+          onError: (errCode) => netFailed(ui, netErrorText(errCode, `lobby ${code}`)),
           onClose: () => {
-            if (net?.isEnded === "desync") return;
+            if (p2pNet.isEnded === "desync") return;
+            if (!p2pNet.isStarted) {
+              netFailed(ui, "Connection lost");
+              return;
+            }
             netStatus = `Connection to opponent lost — match over. Return to the menu to rematch.`;
             refreshOverlay();
           },
         },
       );
       net = p2pNet;
-      // Same swap the relay path does on WELCOME: fade the (demo) world into
-      // the real match sim the lockstep just built — on the host's arena.
-      if (views.length === 0) {
-        fadeCover(() => {
-          rebuildArena(session.config.mapId);
-          resetForMatch(p2pNet.simState);
-          startMatch([{ slot: session.slot, input: localInput }]);
-        });
-      } else {
-        rebuildArena(session.config.mapId);
-        resetForMatch(p2pNet.simState);
-      }
+      lobby.attach(lobbyLink(p2pNet), session.slot, session.config.seed);
+      p2pNet.start();
     })
     .catch((err: unknown) => {
-      netStatus = `Lobby ${code}: ${err instanceof Error ? err.message : "connection failed"}`;
-      refreshOverlay();
+      if (dropped) return;
+      netFailed(ui, `Lobby ${code}: ${err instanceof Error ? err.message : "connection failed"}`);
     });
 }
 
+/**
+ * The agreed config's START: fade the (demo) world into the match sim the
+ * lockstep just built, on the host's arena.
+ */
+function enterNetMatch(mapId: string, matchSim: SimState, slot: number): void {
+  if (views.length === 0) {
+    fadeCover(() => {
+      rebuildArena(mapId);
+      resetForMatch(matchSim);
+      startMatch([{ slot, input: localInput }]);
+    });
+  } else {
+    rebuildArena(mapId);
+    resetForMatch(matchSim);
+  }
+}
+
 let menuHandle: MenuHandle | undefined;
+
+/** The front end's hooks into the client (menu/index.ts). */
+function menuOptions(): Parameters<typeof runMenu>[0] {
+  return {
+    audio,
+    onChoice: handleMenuChoice,
+    openNet,
+    // START: the arena loads under the loading screen.
+    onSelect: previewArena,
+    // PREFERENCES' HD textures option applies at once to a loaded arena;
+    // persisting is the dialog's job.
+    onTexPref: (pref) => {
+      texPref = pref;
+      texSwitcher?.setVariant(variantOfPref(pref));
+      refreshDebugLabel();
+    },
+    // The controls screen saves the bindings; they apply at once.
+    onControls: (table) => keyboard.setTable(table),
+  };
+}
 
 /**
  * Menu arena preview: swap the live backdrop world to the picked arena so the
@@ -2260,9 +2846,17 @@ function previewArena(mapId: string): void {
  * deep link (carrying a ?relay override), so it stays shareable and a refresh
  * re-enters through the deep-link path exactly as before.
  */
-function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): void {
+function handleMenuChoice(
+  choice: MenuChoice,
+  mapId: string,
+  loadout: Loadout,
+  difficulty: number,
+  rules: GameRules,
+): void {
   playerLoadout = loadout;
-  const query = buildModeQuery(choice, mapId, loadout);
+  playerDifficulty = difficulty;
+  playerExtraWeapons = rules.extraWeapons;
+  const query = buildModeQuery(choice, mapId, loadout, difficulty, rules.extraWeapons);
   const relay = params.get("relay");
   history.pushState(null, "", relay ? `${query}&relay=${encodeURIComponent(relay)}` : query);
   menuHandle?.dismiss();
@@ -2279,21 +2873,27 @@ function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): 
         createSim(map, seed, {
           ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
           loadouts: [playerLoadout],
+          difficulties: [playerDifficulty],
+          extraWeapons: playerExtraWeapons,
         }),
       );
-      // The flagship transition: one continuous shot from flyover to chase rig.
-      if (!orbitMode) beginBlend(blend, flyCam, 1.2);
       startMatch([{ slot: 0, input: localInput }]);
       break;
     }
     case "fly": {
       // Localhost debug: sandbox sim (base + capturable turrets on the map) +
-      // free-fly cam. Unit GLBs (incl. turret-standard / turret-defense) already
-      // load via loadUnitMeshes when renderMode is mesh (the default).
+      // free-fly cam. The arena's unit models (turrets included) already load
+      // with the arena when renderMode is mesh (render/arenaUnits.ts).
       flyMode = true;
       warden = false;
       wardenDifficulty = 0;
-      resetForMatch(createSim(map, seed, { loadouts: [playerLoadout] }));
+      resetForMatch(
+        createSim(map, seed, {
+          loadouts: [playerLoadout],
+          difficulties: [playerDifficulty],
+          extraWeapons: playerExtraWeapons,
+        }),
+      );
       // No flyover→chase blend — fly cam owns posing from the first frame.
       startMatch([{ slot: 0, input: localInput }]);
       break;
@@ -2307,53 +2907,57 @@ function handleMenuChoice(choice: MenuChoice, mapId: string, loadout: Loadout): 
       opponentMode = "idle";
       warden = false;
       wardenDifficulty = 0;
-      resetForMatch(createSim(map, seed, { loadouts: [playerLoadout] }));
+      resetForMatch(
+        createSim(map, seed, {
+          loadouts: [playerLoadout],
+          difficulties: [playerDifficulty],
+          extraWeapons: playerExtraWeapons,
+        }),
+      );
       startMatch([{ slot: 0, input: localInput }]);
       break;
     }
     case "online":
+    case "p2p": {
+      // The menu's lobby has run its course: the lockstep it opened holds the
+      // match the host's START agreed (openNet below).
       flyMode = false;
-      phase = "connecting"; // demo battle keeps running under the net overlay,
-      resetForMatch(createDemoSim(map)); // re-seated on the picked arena
-      connectOnline(choice.code);
+      const live = net;
+      if (live?.isStarted) {
+        const startedSim = live.simState;
+        if (startedSim) enterNetMatch(mapId, startedSim, netSlot);
+      }
       break;
-    case "p2p":
-      flyMode = false;
-      phase = "connecting"; // ditto — the P2P lobby handshake runs on top
-      resetForMatch(createDemoSim(map));
-      connectP2pMode(choice.code);
-      break;
+    }
   }
 }
 
+/**
+ * HOST / JOIN accepted in the menu: open the session the dialog chose, under
+ * the lobby the menu holds (menu/index.ts). The dialog shows its progress; the
+ * networked screen its exchange; START's loading screen ends in onChoice.
+ */
+function openNet(choice: MenuChoice, lobby: NetLobby): void {
+  if (net) {
+    net.close();
+    net = undefined;
+  }
+  netSlot = -1;
+  const ui: NetUi = { fromMenu: true, lobby };
+  if (choice.mode === "online") connectOnline(choice.code, ui);
+  else if (choice.mode === "p2p") connectP2pMode(choice.code, ui);
+}
+
 if (online) {
-  connectOnline(onlineCode as string);
+  connectOnline(onlineCode as string, { fromMenu: false, lobby: deepLinkLobby() });
 } else if (p2p) {
-  connectP2pMode(p2pCode as string);
+  connectP2pMode(p2pCode as string, { fromMenu: false, lobby: deepLinkLobby() });
 } else if (explicitMode) {
   startMatch([{ slot: 0, input: localInput }]);
 } else {
-  // Bare URL: title screen over the live demo world; a choice starts its mode
-  // in-process. The reticle/crosshair only makes sense in a live match.
-  reticle.style.display = "none";
+  // Bare URL: the original's front end; a choice starts its mode in-process.
   document.body.style.cursor = "default";
-  menuHandle = runMenu({
-    audio,
-    onChoice: handleMenuChoice,
-    onSelect: previewArena,
-    initialLoadout: playerLoadout,
-    // Graphics drawer: apply a texture-preference change immediately to the
-    // (possibly already loaded) backdrop arena; persisting is menu.ts's job.
-    onTexPref: (pref) => {
-      texPref = pref;
-      texSwitcher?.setVariant(variantOfPref(pref));
-      refreshDebugLabel();
-    },
-    // Bloom applies live to the backdrop; persistence is the drawer's job.
-    onBloomPref: setBloom,
-    // The controls screen saves the bindings; they apply at once.
-    onControls: (table) => keyboard.setTable(table),
-  });
+  menuHandle = runMenu(menuOptions());
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
@@ -2372,6 +2976,8 @@ addEventListener("resize", () => {
   flyCam.aspect = innerWidth / innerHeight;
   flyCam.updateProjectionMatrix();
   if (views.length > 0) layoutViews(views, "v", innerWidth, innerHeight, textHudInset());
+  cameraCaption?.layout(innerWidth, innerHeight);
+  matchHud?.layout(innerWidth, innerHeight);
 });
 
 // The single persistent frame loop — every phase renders through it.

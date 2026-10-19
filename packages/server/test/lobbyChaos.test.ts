@@ -11,7 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import { LOBBY_OPEN_TTL_MS, LobbyLogic, type LobbyResult } from "@metropolis/server/lobby";
 import { normalizeIceServers } from "@metropolis/server/turn";
-import type { MatchConfig } from "@metropolis/sim";
+import { DEFAULT_LOADOUTS, type MatchConfig, PROTOCOL_VERSION } from "@metropolis/sim";
 
 const T0 = 9_000_000;
 const CFG: MatchConfig = {
@@ -20,6 +20,9 @@ const CFG: MatchConfig = {
   mapId: "district01",
   wardenPlayer: -1,
   wardenDifficulty: 0,
+  difficulties: [1, 1],
+  loadouts: DEFAULT_LOADOUTS,
+  extraWeapons: 0,
 };
 
 /** Executes effects the way lobbyDo.ts does, with invariant checks. */
@@ -96,8 +99,14 @@ class Harness {
   }
 }
 
-const createMsg = { t: "create", name: "Chaos", visibility: "public", config: CFG };
-const joinMsg = { t: "join", simVersion: 7 };
+const createMsg = {
+  t: "create",
+  protocol: PROTOCOL_VERSION,
+  name: "Chaos",
+  visibility: "public",
+  config: CFG,
+};
+const joinMsg = { t: "join", protocol: PROTOCOL_VERSION, simVersion: 7 };
 
 describe("lobby chaos — no ghost lobbies", () => {
   test("abort at every deterministic lifecycle stage settles clean", () => {
@@ -166,7 +175,7 @@ describe("lobby chaos — no ghost lobbies", () => {
         joinMsg,
         { t: "signal", data: { x: 1 } },
         { t: "matchStarted" },
-        { t: "join", simVersion: 99 }, // version mismatch
+        { t: "join", protocol: PROTOCOL_VERSION, simVersion: 99 }, // version mismatch
         { nonsense: true }, // protocol garbage
         "not even json-shaped",
       ];

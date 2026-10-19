@@ -31,7 +31,33 @@ import { createSim, step } from "../src/sim";
 // buttons, turning toward each route cell before they walk it, and fire Special
 // from its latch's held state, so the fight in the middle plays out
 // differently; one of player 0's tanks gets through player 1's ring at 83 s.
-const BREACH_TICK_PIN = 2498;
+// 2498 -> none at SIM_VERSION 78: every hit radius is the original's (the mech
+// 0.553 m walking, was 0.4; the tank 0.943, was 0.76), so the fight's and the
+// rings' rounds find more: the mechs go down 11 times in the 200 s (were 5), both
+// rings lose a turret, and all ten tanks die short of the gates (the nearest 19 m
+// off; player 0's breaching tank was killed at 25.6 m).
+// none -> 2483 at SIM_VERSION 79: la-cantina's teams take the original's player
+// slots, so each player starts, buys and fights from the other base; the mechs
+// go down 5 times, nine tanks die, and one of player 1's gets through player 0's
+// ring into the gate box at 82.8 s (player 0's nearest came to 21.4 m).
+// 2483 -> 2289 at SIM_VERSION 83: the mechs walk on the original's walker state
+// machine (the reset's step without control, each move finishing the legs' step
+// before the next, the jumps after their wind-ups), so the fight in the middle
+// plays out differently: the mechs go down 4 times, and one of player 0's tanks
+// gets through player 1's ring into the gate box at 76.3 s.
+// 2289 -> none at SIM_VERSION 84: the spawn queues poll on the original's
+// engine-tick countdowns (from `rand % period`, periods no longer rounded to
+// sim ticks), so each side's five tanks leave on other ticks and meet the fight
+// and the rings otherwise: all ten die short of the gates (player 0's nearest
+// came to 20.7 m, player 1's to 31.8 m), and the mechs go down 12 times.
+// none as before at SIM_VERSION 86: the turrets stand at their record's yaw
+// (pi/2 - a until then); the mechs still go down 12 times, the ten tanks die
+// short (player 0's nearest now 29.4 m off, player 1's 31.6 m).
+// none as before at SIM_VERSION 87: a turret gun whose target is gone turns
+// back to its rest yaw (it kept its last aim); the mechs still go down 12
+// times, the ten tanks die short (player 0's nearest 27.4 m off, player 1's
+// 31.7 m), and one ring turret falls (none did).
+const BREACH_TICK_PIN = -1;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {
@@ -81,7 +107,8 @@ describe("golden-03-match beats", () => {
     expect(respawns[0]).toBeGreaterThanOrEqual(1);
     expect(respawns[1]).toBeGreaterThanOrEqual(1);
     expect(runnerDeaths).toBeGreaterThanOrEqual(3);
-    // The breach as recorded: player 0's tank at 83 s since SIM_VERSION 69.
+    // The breach as recorded: player 1's tank at 82.8 s since SIM_VERSION 79
+    // (none at 78; player 0's at 83 s from 69).
     expect(breaches).toBe(BREACH_TICK_PIN < 0 ? 0 : 1);
     expect(breachTick).toBe(BREACH_TICK_PIN);
     expect(breachTeam).toBe(BREACH_TICK_PIN < 0 ? -1 : BREACH_TEAM_PIN);

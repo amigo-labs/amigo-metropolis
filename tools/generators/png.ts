@@ -156,3 +156,18 @@ export function encodePng(image: DecodedImage): Uint8Array {
   }
   return out;
 }
+
+/**
+ * Whether two PNGs hold the same pixels, however each was encoded: the deflate
+ * stream is the encoder's (another zlib, another level, another filter choice
+ * gives other bytes for one image), the pixels are the asset's.
+ */
+export function samePixels(a: Uint8Array, b: Uint8Array): boolean {
+  const pa = decodePng(a);
+  const pb = decodePng(b);
+  if (pa.width !== pb.width || pa.height !== pb.height) return false;
+  const n = pa.pixels.length;
+  if (pb.pixels.length !== n) return false;
+  for (let i = 0; i < n; i++) if (pa.pixels[i] !== pb.pixels[i]) return false;
+  return true;
+}

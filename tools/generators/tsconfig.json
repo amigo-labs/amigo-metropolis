@@ -12,6 +12,7 @@
     "fcopArenas.ts",
     "fcopLogic.ts",
     "fcopWalls.ts",
+    "fcopUnits.ts",
     "enrichArena.ts"
   ]
 }

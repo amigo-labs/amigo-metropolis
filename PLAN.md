@@ -171,7 +171,9 @@ avatar is the one exception: `render/avatarRig.ts` recovers its parts by
 labelling connected components in the shipped glb (the largest island is exactly
 the original's 648-vertex legs mesh) and swings the hips from distance
 travelled — client-only, no asset change. Knee bend still wants the generator to
-emit joints, which waits on `gen:units` becoming byte-reproducible.
+emit joints, which waits on `gen:units` becoming byte-reproducible. (Phase 14
+wave 5 replaced the swing and the morph below with the original's own
+animation: `bun run gen:x1`, `render/avatarRig.ts`, `render/x1Walk.ts`.)
 The transformation itself is no longer a one-frame mesh swap: `render/morph.ts`
 plays it as collapse → discharge → unfold over the sim's lock, off a single
 `EV_TRANSFORM` event, with arc streaks in the Electric Gun's palette
@@ -623,7 +625,7 @@ Waves, in this order:
    Classic textures by default, the X1's animations
 6. Presentation: camera presets, HUD and radar, the results page, the original's
    names (tank, jet, Dreadnought, Flying Fortress, Sky Captain)
-7. Front end: the original's menus and UI sounds
+7. Front end: the original's menus and UI sounds (below)
 
 ### Wave 1 — Audio
 
@@ -651,7 +653,7 @@ sound plays for which event is read from code and data, not picked by ear (#27).
       loops / launch one-shots), world weapons, effects and death chains, hover
       loop, ambient queue and prop emitters, purchases, capture, pickups, pause,
       speech with ducking (all 86 lines by the scripts' rules), music per arena.
-      The walker's loop waits on the X1's animations (ledger A9, wave 5)
+      The walker's loop plays off the X1's leg tracks since wave 5 (ledger A9)
 - [x] The three original sliders (Sound Effects, Music, Movies, 0..127) with the
       original's defaults
 - [x] Remove the sfxr synth, the synth music and the owner's mp3s from the game
@@ -674,6 +676,8 @@ commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
 - [x] The rule data imported from the RE (`gen:parules`)
 - [x] Spawn facing and hover form from the X1Alpha records (P10; v57)
 - [x] The bases' floors hurt the enemy mech; Hk's spawn guards (P11; v58)
+- [x] The floors and the lifts' tagged tops count each mech's own steps, its
+      carry of the clock's eighths, not the tick's (P11, P4; v89)
 - [x] Water on Hk and Ovmp, NORMAL's auto-hover (P13; v59)
 - [x] Dreadnought and Fortress at their own zones, opened by the points poll
       (R10; v60)
@@ -696,8 +700,18 @@ commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
       re-imported (`FcopArena.kerbs`, P15)
 - [x] Ovmp's slippery patches (surface code 4) — with the controls wave (3;
       v71)
-- [ ] HARD (sinking and drowning, 1000 HP, its ceilings) — with a difficulty
-      setting
+- [x] HARD (sinking and drowning, 1000 HP, its ceilings) — with a difficulty
+      setting: HARD / NORMAL / EASY per player in the sim, replay format 4 and
+      protocol 3; the solo menu's three plates (the online lobby's pick and the
+      original front end's screen wait for the front end) (P1, P2, P13, W1; v72)
+- [x] The base terminals (the Dreadnought's and the Fortress's kiosks) stand only
+      once fn30 / fn31 open their base's heavy zones, at a side's first 50 points
+      at a poll; the poll on `cfun_tick`'s engine-tick countdown from
+      `rand % period`; `MATCH_SLOT_TERMINALS`, drawn by `render/props.ts`
+      (R10, G2; v80)
+- [x] The spawn queues and Hk's guard resets on the same scheduler: engine-tick
+      countdowns from `rand % period`, the functions' time units × 5, 10 a tick
+      (R18, P11; v84)
 
 ### Wave 3 — Controls 1:1
 
@@ -717,9 +731,221 @@ The original's controls from the RE (`docs/behavior/camera-and-movement.md`
       walker's ledge hold (P4/P5; v70)
 - [x] Bindings, presets, the bindings file, the gamepad with the 25 % per-axis
       dead zone, the controls screen; the Map Key pauses (C2-C4)
-- [ ] The Camera Key's seven presets and the Map Key's map screen — with
-      wave 6
-- [ ] The controls screen's original look — with wave 7
+- [x] The Camera Key's seven presets and the Map Key's map screen — with
+      wave 6 (V1, V4)
+- [x] The controls screen's original look — with wave 7 (C2, F13)
+
+### Wave 4 — Weapon effects
+
+The original's effect records and what the executable draws without one, from the
+RE's effect export (`extracted/effects/`, `docs/formats/effects.md`); render-only,
+no golden moves (`docs/specs/fcop-fidelity.md` E1–E22).
+
+- [x] Import: `gen:fx` folds the records a raise can reach on the six arenas
+      (1,021 → 168 with the shatters' reap and reference effects), copies the particle atlas drawn through each particle's own
+      `PYPL` palette, crops each arena's trail rect, ribbon frames and bolt texels
+      from its `tex10`; `--check` (E1, E9)
+- [x] One effect chain for the sounds and the picture: successors, spawn delays,
+      repeats, bit 11, the range gate, timers that outlive the record (E2)
+- [x] Each class drawn as the RE reads its drawer: 87 trails, 88 links, 89
+      flashes (at their sort depth), 90 shatters (the dying model, its side's
+      texels), 92 shells, 93 particles, 94 node bursts; fixed pools, no
+      allocation in the frame loop (E3-E10)
+- [x] The executable's own: the tracers (world hitscan, the Laser's two) and the
+      Mini Gun's ribbon (E11, E12)
+- [x] The world rounds: rows 1, 3 and 6 as their Cobjs' line facers, rows 4, 8
+      and 9 as their Cobjs in their own colours; the launch effect rides the
+      round; `PROJECTILE_HEX`, the cylinder and `BOLT_SPEED` gone (E13-E15)
+- [x] The raise sites as the original's: muzzle, the actor's middle and radius,
+      the round, the impact scale, the transform's effect 4, the sustains held,
+      the hitscan's impact at the line's end; rows and death classes by side
+      (E16, E17)
+- [x] The effects' colours as the original's values on screen (E18)
+- [x] The outpost console on a claim: checked in the RE, nothing to raise (E21)
+- [x] The camera shake off each record's exported shake, and the screen flash as
+      the HUD's grey strip (header flags 0x10 / 0x2000 / 0x20; RE M3-OK, E19)
+- [x] The shatter in seconds with its fall, spins, pool, reaps, peered faces and
+      whole objects; the shell's sphere as the original's dome; the node burst's
+      spring walk and one-budget ramp (RE M3-OK, E7, E8, E10)
+- [x] Every launched round raises its block's own impact in its owner's bank
+      (RE M3-OK, E20)
+
+### Wave 5 — Assets
+
+Each mission's own models and textures, read from the RE's Cobj exports and the
+spawners that name them (`docs/specs/fcop-fidelity.md` "Assets", rows G*). Render-only:
+no golden moves.
+
+- [x] The jet and the Flying Fortress drawn with their own Cobjs, 22 and 41 (G1)
+- [x] Each arena's scenery drawn with its own mission's Cobjs and texels (G2)
+- [x] Classic textures (the original texels) by default, HD the option (G3; the
+      original's filter waits on RE)
+- [x] RE: the units by role per arena, with the team-colour offsets, the attach
+      points and the morph timing (`pa_models.json`, RE docs/formats/pa-models.md);
+      imported by `gen:paunits` into `render/arenaUnits.generated.ts`
+- [x] Each mission's own unit models for every role, loaded with the arena:
+      Ovmp's page 4, Hk's tank and second NeutralTurret set, Joke's units; a file
+      shared only where payload and sampled texels agree (G5)
+- [x] The turrets as the original's two parts: the base at its rest yaw, the gun
+      on its attach point (G6)
+- [x] One record angle, one turn (`render/recordYaw.ts`): the scenery as it was,
+      the turret bases at their own record's yaw (+0x42, not the gun's), the
+      lifts unmirrored, the pickups' spin; the kiosks' screens held to their
+      zones (G6, G12)
+- [x] `gen:units` byte-reproducible: a committed atlas's PNG bytes kept where a
+      rebuild's pixels agree; `gen:units --check`
+- [x] The turret guns' rest yaw: the record's a, where the sim had pi/2 - a
+      (`rotToYaw` with the -1024 bias); the six maps regenerated (G12; v86)
+- [x] A turret gun whose target is gone turns back to its rest yaw (RE turret.c
+      1157-1175), and holds within 3/16 of a turn of it where the record says:
+      no PA record says so (all 376 carry flag byte 0x07, no 0x20) (G12, W3; v87)
+- [x] Team colour by the original's texture offsets in place of the invented
+      desaturate-and-tint: per side, per capture state, the X1's beacon kept;
+      the side from `render/sides.ts` (G4)
+- [x] The outpost flags: hazard stripes until claimed, then the claimer's (G10)
+- [x] The Sky Captain's model by level (G7)
+- [x] The Dreadnought's four guns on their hull points (G8)
+- [x] The jet's rotor; Joke's Fortress and Sky Captain morphs (G9)
+- [x] The Dreadnought's guns aiming and slewing: their mounts are in the sim since
+      v77 (I6), each gun's yaw in `writeGunSnapshot`; drawing them by it (G8)
+- [x] Distance-driven morphs (Joke's tank and Dreadnought hull, a frame per 575 /
+      775 world units travelled), the skinned Joke jet (its skeleton's 15 frames
+      baked into morph targets), the flags' cloth (six frames at 20/300 s); every
+      unit's track from where it was built, not by its entity id (G9, G10)
+- [x] The outpost flags on La Cantina's decks: every type-11 record at the height
+      its construct takes on its layer (the topmost surface but for three flags an
+      arena) and at its own yaw — Hk's flags and base kiosks, Slim's and Joke's
+      flags were hidden too (G2, G10)
+- [x] The maps' render-only `props` and their invented yaws ("face the nearer
+      base core") dropped from enrichArena, the map JSONs and `MapData`; nothing
+      read them (G2; no hash moves)
+- [x] The outpost console as the original's: Cobj 29 on the pad until the claim,
+      the two terminals (Mp 27 and 33, the tank and jet shops) from it; no unit
+      model for the console entity (G5, G10)
+- [x] Joke's Dreadnought guns on the points of the hull's current frame: the RE
+      exports every animated model's attach points per frame (`pa_models.json`
+      `by_frame`), `gen:paunits` writes the hull's as each gun's `byFrame`, and each
+      gun stands on the frame the hull's morph shows; the guns wait for the hull's
+      model whichever lands last (G8, G9)
+- [x] The sim fires Joke's Dreadnought guns from the hull's current-frame points,
+      not frame 0's mounts — the hull's walk stepped in the sim (hashed), the
+      frames carried by `gen:pamodels` / `gen:arena`, the client's hull frame off
+      the gun snapshot (G8, I6; v85)
+- [x] The scenery the type-96 Props and type-97 DCSQuads place on Conft, Slim, Joke
+      and Hk (89 / 75 / 75 / 151 Props, 0 / 56 / 51 / 134 DCSQuads): built as the
+      loaders build them, the spins, swings and frames stepped, the DCSQuads'
+      additive haze (G13; the random yaws' seed a stand-in)
+- [x] The Props and DCSQuads drawn only in the eye's 5 x 5 block of 16 m cells
+      about its ground focus (G13)
+- [x] The Props' sounds: claimed by the draw in the eye's block, held on the
+      emitter voice table's countdowns while the queue hears them (G13, A10)
+- [x] The Props' camera-facing facers (Hk 65, Slim 63 / 83, Joke 62 / 82) and
+      every model's face draw modes (opaque, half, add): the RE's glbs carry both
+      (M3-OJ), `render/fcopModel.ts` blends the faces, `render/facers.ts` builds
+      the facers against the camera (G13; THRASH's blend pairs, the Glide tint,
+      the lighting materials, the X1's parts and the 3DAL colour ramps open)
+- [x] Per-arena hit radii for the models each arena draws (G1, G7; v78)
+- [x] Joke's Dreadnought hit at the radius of the frame its hull's walk shows:
+      `gen:pamodels` reads the hull's 3DBB box per frame (757 -> 548) (I6; v88)
+- [x] The X1's animations: the legs' and the cockpit's AnmD tracks by the
+      original's walker state machine and the transform's ramp, the hover's hold,
+      the cockpit on its mount and aiming at the lock, one InstancedMesh posed in
+      the vertex shader (`gen:x1`; G11); the walker's loop off the legs' codes (A9)
+- [x] The X1's cloak offset: the frame clock's v while the cloak runs (G4)
+- [x] The jumps' wind-ups: the walker's state machine and its legs in the sim,
+      hashed — the take-off in the launch state's arm once the wind-up track
+      reaches LAUNCH (0.4 s high jump, 0.2 s hop), the leap only from the run,
+      the push by the state (HOLD), Jump held repeats; the client reads the
+      machine off the avatar snapshot (G11, P4; v83)
+
+### Wave 6 — Presentation
+
+The original's cameras, HUD, radar and map screen, read from the RE's
+presentation exports (`extracted/presentation/camera.json`, `hud.json`,
+`radar_markers.json`) and imported by `bun run gen:presentation`
+(`docs/specs/fcop-fidelity.md` "Presentation", rows V*). Client-local: no golden
+moves.
+
+- [x] Import: the camera tables, the HUD's layout, palettes and font, the radar
+      markers by unit kind and side, each mission's objective contacts, the
+      HUD's atlas page, font and reticles (`public/hud/`)
+- [x] The seven chase cameras and the Camera Key: presets, follow and caps,
+      retract, offset walk, height follower, sink, occlusion fallbacks, the name
+      caption; the original's vertical FOV; Crowd Control unreachable in PA, as
+      in the original (V1; camera.spec.md v2)
+- [x] The original's names in the UI and the specs: tank, jet, Dreadnought,
+      Flying Fortress, Sky Captain, X1-Alpha (V5)
+- [x] Team colours by the original's sides, side 1 red and side 2 blue, per
+      arena (V6)
+- [x] The HUD on the original's 640 x 480 layout, scaled to the 4:3 box and
+      anchored to the edges: armour gauge, badge, weapon icons and counts, score
+      and tanks/jets plates, the opponent's row and gauge, `L%02d`, the lock beam
+      and reticle; the ticker, banners and crosshair gone (V2)
+- [x] The running radar: heading-up disc, octagonal range, rim tick and base
+      arrows, blips by marker (V3)
+- [x] The Map Key's map screen: the top-down window, the pan, arrows, rings, the
+      54-cell overview; solo pauses, online parks the view (V4)
+- [x] The results page: the original's twenty figures per side in the sim (V7;
+      v76) and its page, layout, font, colours and two keys
+- [x] The player's own Walker Kills: the Sky Captain's death credits the X1
+      whose own fire brought it down (V7; v81)
+- [x] The results page's stamps on the frame clock from 0, as the original's
+      frame loop zeroes it (V7; v82)
+- [x] A kill by a round's contact alone credits nobody (V7; v91)
+- [x] The damage shake: the second damage meter off the hits and the shaking
+      effects, the eye jittered along the camera's up and right rows (V1, E19)
+- [x] The invulnerable gauge's blink: the flat blue arm at x 2 off the sim's
+      invulnerability (V2; no PA pickup grants it)
+- [x] The radar's near-camera registry: the live list culled from the X1s by the
+      widening search, 0xfe at most; the consoles' diamonds gone at the claim, the
+      type-96 Props (no actors) off the radar (V3)
+- [x] Arrows for the placed actors on the map screen: the consoles until the
+      claim, the claim posts after it, the standing pickups, on their models'
+      3DBB boxes (V4; the Props are no actors)
+- [x] The issued magazine under each weapon while it is powered: block A off the
+      match snapshot, block B above it (V2)
+- [x] La Cantina's solo start on side 1's base, as the original's: the teams
+      are the original's player slots (V6; v79)
+- [ ] The owner's side-by-side look against the original
+
+### Wave 7 — Front end
+
+The original's front end from the RE (`extracted/frontend/screens.json`,
+`dialogs.json`, `ui_sounds.json`; `docs/specs/fcop-fidelity.md` "Front end",
+rows F*; `docs/specs/ui.md` §3). Menu-only: no golden moves.
+
+- [x] Import: the febmp pictures the two screen sets show, the six PA loading
+      screens and the UI WAVs, unchanged, with the screen and dialog data
+      (`bun run gen:frontend`, `--check`)
+- [x] The main screen: the 640 x 480 bitmap screen on a scaled, letterboxed
+      stage, the PA one-player set solo and the networked set online; panels
+      by kind (0 on the release, 4 radio), the map buttons, title plates,
+      COMPLETED, Bug Hunt's unlock, the Sky Captain's level limited to the
+      map's progress, the difficulty chevrons, the loadout columns with the
+      original's availability, the portraits and the animated strips; mouse
+      only (F1-F6, F22)
+- [x] START → the map's loading screen with the bar → the match (F18); no live
+      arena behind the menu
+- [x] SAVE GAME / LOAD GAME on the twenty slots; NEW GAME's box (F4, F21)
+- [x] HOST / JOIN: Metropolis' lobby in the host and join dialogs and the
+      networked set's "Connected To:" (F9)
+- [x] The dialogs in the Windows 9x look from their templates: PREFERENCES
+      (options), the controls screen with both players, the profile dialog,
+      Audio applied on Ok (F12-F15)
+- [x] Escape opens the in-game menu 0xa6 in place of the pause card (F16)
+- [x] The nine UI sounds on the original's slots and call sites (F17)
+- [x] Refused, as the ledger says: PA/CW and 1P/2P (no Crime War, no local
+      second player), HELP and the film strip (no movies), QUIT (F8, F10, F11)
+- [x] The original's five extra weapons (Riot Shield, K-9 Drone, Grenade
+      Launcher, Fusion Torpedo, Plasma Flare; F7, F23, W5) — in the sim behind
+      their switches, on their records and the original's code (v90)
+- [x] The lobby's loadout, difficulty and ready exchange, WAITING (F9) — with
+      a protocol change (protocol 4: the original's lobby messages, the
+      host's agreed config in START; netcode.spec §4)
+- [x] The owner's "Spielregeln": five extra-weapon switches, off by default
+      (F23; the weapons themselves are the extra weapons' wave)
+- [ ] The movies: HELP / BRIEFING's `multibrf.mpg`, the film strip's
+      `po_*.mpg` (F10)
 
 ## Backlog (post-v1, do not start)
 

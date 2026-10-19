@@ -12,6 +12,7 @@ import {
   ARCHETYPE_MAX_HP,
   ARCHETYPE_RADIUS,
   AVATAR_HP,
+  CFUN_DELTA_PER_TICK,
   COST_FORTRESS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -41,22 +42,37 @@ import {
 } from "../src/events";
 import { BTN_ACTION, BTN_GUN, BTN_HEAVY, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
-import { createSim, type SimState, spawnUnit, step, TURRET_CAPTURABLE } from "../src/sim";
+import {
+  createSim,
+  MATCH_SLOT_TERMINALS,
+  MATCH_SNAPSHOT_LEN,
+  matchSlotOffset,
+  type SimState,
+  spawnUnit,
+  step,
+  TURRET_CAPTURABLE,
+  writeMatchSnapshot,
+} from "../src/sim";
 import { UNIT_MODE_OUTPOST } from "../src/units";
 import { faceAlong, faceToward } from "./drive";
 
 // The original's Dreadnought and Fortress zones beside each base's consoles,
-// polled every 5 s (Mp's fn30).
-const HEAVY_POLL = 150;
+// polled every 5 s (Mp's fn30: 300 time units, 1500 engine ticks), and the two
+// terminals the opening run requests.
+const HEAVY_PERIOD = 1500;
+/** The poll's period in ticks. */
+const HEAVY_POLL = HEAVY_PERIOD / CFUN_DELTA_PER_TICK;
 const HEAVY_ZONES_WEST = {
   juggernaut: { x: 12, y: 14, radius: 0.8 },
   fortress: { x: 12, y: 22, radius: 0.8 },
-  pollTicks: HEAVY_POLL,
+  pollPeriod: HEAVY_PERIOD,
+  terminals: [50, 52],
 };
 const HEAVY_ZONES_EAST = {
   juggernaut: { x: 48, y: 14, radius: 0.8 },
   fortress: { x: 48, y: 22, radius: 0.8 },
-  pollTicks: HEAVY_POLL,
+  pollPeriod: HEAVY_PERIOD,
+  terminals: [54, 56],
 };
 
 // Flat 16×16 grid, 4 m cells → 60 m square. One lane along y=6, a neutral
@@ -240,7 +256,7 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     expect(sim.heavyUnlocked[0]).toBe(0);
     // The poll's first check falls inside its first period (a random phase).
     expect(sim.heavyPoll[0]).toBeGreaterThanOrEqual(0);
-    expect(sim.heavyPoll[0]).toBeLessThan(HEAVY_POLL);
+    expect(sim.heavyPoll[0]).toBeLessThan(HEAVY_PERIOD);
     sim.points[0] = HEAVY_UNLOCK_POINTS - 1;
     for (let t = 0; t < HEAVY_POLL + 1; t++) step(sim, inputs);
     expect(sim.heavyUnlocked[0]).toBe(0);
@@ -265,13 +281,77 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
   it("opens nothing for points held only between two polls", () => {
     reset();
     const sim = freshSim();
-    // Hold 50 for the ticks before the next poll only.
-    const before = sim.heavyPoll[0];
+    // Hold 50 for the ticks before the next poll only: the countdown, in
+    // engine ticks, runs out on the tick that takes it below 0.
+    const before = Math.floor(sim.heavyPoll[0] / CFUN_DELTA_PER_TICK);
     sim.points[0] = HEAVY_UNLOCK_POINTS;
     for (let t = 0; t < before; t++) step(sim, inputs);
     sim.points[0] = HEAVY_UNLOCK_POINTS - 1;
     for (let t = 0; t < HEAVY_POLL + 1; t++) step(sim, inputs);
     expect(sim.heavyUnlocked[0]).toBe(0);
+  });
+
+  it("polls from cfun_load's phase, the frame delta off an engine-tick countdown", () => {
+    reset();
+    const sim = freshSim();
+    // `game_rand() % period`: a whole engine tick inside the first period.
+    const phase = sim.heavyPoll[0];
+    expect(Number.isInteger(phase)).toBe(true);
+    expect(phase).toBeGreaterThanOrEqual(0);
+    expect(phase).toBeLessThan(HEAVY_PERIOD);
+    sim.points[0] = HEAVY_UNLOCK_POINTS;
+    let steps = 0;
+    while (sim.heavyUnlocked[0] === 0 && steps <= HEAVY_POLL) {
+      step(sim, inputs);
+      steps += 1;
+    }
+    // 10 engine ticks a tick; the poll runs on the tick its countdown goes negative.
+    expect(steps).toBe(Math.floor(phase / CFUN_DELTA_PER_TICK) + 1);
+    expect(sim.heavyPoll[0]).toBe(phase - steps * CFUN_DELTA_PER_TICK + HEAVY_PERIOD);
+  });
+
+  it("keeps an odd period's half frame: Mp's fn31 polls 152 and 153 ticks apart", () => {
+    reset();
+    const json = battleground();
+    json.bases[1].heavyZones = { ...HEAVY_ZONES_EAST, pollPeriod: 1525 }; // 305 time units
+    const sim = createSim(loadMapFromJson(json), 42);
+    const polls: number[] = [];
+    for (let t = 0; t < 152 * 5; t++) {
+      const before = sim.heavyPoll[1];
+      step(sim, inputs);
+      if (sim.heavyPoll[1] > before) polls.push(sim.tick);
+    }
+    const gaps = polls.slice(1).map((t, k) => t - polls[k]);
+    expect(gaps.length).toBeGreaterThanOrEqual(3);
+    for (const g of gaps) expect(g === 152 || g === 153).toBe(true);
+    expect(gaps).toContain(152);
+    expect(gaps).toContain(153);
+  });
+
+  it("stands the base's terminals the tick after the poll that opens its zones", () => {
+    reset();
+    const sim = freshSim();
+    const out = new Float32Array(MATCH_SNAPSHOT_LEN);
+    const terminals = () => {
+      writeMatchSnapshot(sim, out);
+      return out[matchSlotOffset(0) + MATCH_SLOT_TERMINALS];
+    };
+    expect(terminals()).toBe(0); // none at the start: the original spawns them
+    sim.points[0] = HEAVY_UNLOCK_POINTS - 1;
+    for (let t = 0; t < HEAVY_POLL + 1; t++) step(sim, inputs);
+    expect(terminals()).toBe(0); // 49 points: no poll opens anything
+    sim.points[0] = HEAVY_UNLOCK_POINTS;
+    while (sim.heavyUnlocked[0] === 0) step(sim, inputs);
+    // The poll's run requested them; the spawner pass of the next tick builds them.
+    expect(terminals()).toBe(0);
+    step(sim, inputs);
+    expect(terminals()).toBe(1);
+    expect(out[matchSlotOffset(1) + MATCH_SLOT_TERMINALS]).toBe(0); // per base
+    // They stand for good, whatever the points do after.
+    sim.points[0] = 0;
+    for (let t = 0; t < HEAVY_POLL + 1; t++) step(sim, inputs);
+    expect(terminals()).toBe(1);
+    expect(sim.map.bases[0].heavyZones?.terminals).toEqual([50, 52]);
   });
 
   it("a disabled zone is silent; an open one refuses short points out loud", () => {

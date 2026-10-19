@@ -1,412 +1,393 @@
+// render/fx.ts: the original's effect records drawn from the effect chain,
+// against la-cantina's (Mp's) own records. The chain is the one the sound cues
+// raise through; here it is driven directly, the way cues.ts drives it.
+
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
-  ARCHETYPE,
   createEventBuffer,
-  EV_EXPLOSION,
-  EV_HIT,
   EV_SHOT,
-  EV_TRANSFORM,
-  PROJ_HEAVY,
   pushEvent,
   reachToShotPayload,
+  SHOT_SLOT_GUN,
   SHOT_SLOT_HITSCAN,
-  SHOT_SLOT_LAUNCH,
-  shotPayloadToReach,
-  TICK_HZ,
-  TRANSFORM_LOCK_TICKS,
+  weaponShotPayload,
 } from "@metropolis/sim";
 import * as THREE from "three";
-import { ARC_CAP, createFx, type FxPoseResolver, PARTICLE_ID } from "../src/render/fx";
+import { EffectChain, fxArenaFor, makeRaiseAt, ROUND_TOKEN } from "../src/effects/chain";
+import { FX_EXE, FX_RECORDS } from "../src/effects/fcopEffects.generated";
+import { IMPACT_SCALE, SHELL_SPHERE } from "../src/effects/records";
+import { createFx, createFxPoses, type FxPoseResolver, POSE_STRIDE } from "../src/render/fx";
+import { rampNode } from "../src/render/fx/nodes";
+import { domeRingColour } from "../src/render/fx/shells";
+import { TEAM_UV_ATTR } from "../src/render/teamUv";
 
-/** Resolver that always places the event at the origin facing +X. */
+function rig() {
+  const scene = new THREE.Scene();
+  const chain = new EffectChain();
+  chain.begin(fxArenaFor("Mp"));
+  const poses = createFxPoses();
+  const fx = createFx(scene, chain, { poses });
+  fx.begin("la-cantina");
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+  camera.position.set(0, 5, 10);
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld(true);
+  const at = makeRaiseAt();
+  at.y = 0.6;
+  /** One sim tick: the chain's timers, then three frames of 1/90 s. */
+  const tick = () => {
+    chain.tick();
+    for (let k = 0; k < 3; k++) fx.update(1 / 90, camera, 1 / 90);
+  };
+  return { scene, chain, fx, poses, camera, at, tick };
+}
+
+/** Resolver that puts every event at the origin facing +X. */
 const atOrigin: FxPoseResolver = (_type, _a, _b, _c, out) => {
   out[0] = 0;
-  out[1] = 1;
+  out[1] = 0;
   out[2] = 0;
   out[3] = 0;
   return true;
 };
 
-const missing: FxPoseResolver = () => false;
+describe("each record draws as its class", () => {
+  test("a turret round's impact: flash 43 (89) and sparks 44 (94, 20 nodes)", () => {
+    const { chain, fx, at, tick } = rig();
+    at.scale = 0;
+    chain.raise(0, 43, at);
+    expect(fx.debugCounts().flashes).toBe(1);
+    expect(fx.debugCounts().nodes).toBe(20);
+    tick();
+    expect(fx.debugCounts().flashes).toBe(1);
+  });
 
-describe("shot VFX", () => {
-  test("EV_SHOT slot 0 spawns tracer core+halo and a muzzle flash", () => {
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, 0, 0);
+  test("a flash lives its lifetime: 43's 90 ticks are nine sim ticks", () => {
+    const { chain, fx, at, tick } = rig();
+    chain.raise(0, 43, at);
+    for (let t = 0; t < 8; t++) tick();
+    expect(fx.debugCounts().flashes).toBe(1);
+    tick();
+    tick();
+    expect(fx.debugCounts().flashes).toBe(0);
+  });
 
-    fx.pump(events, atOrigin);
-
+  test("the turret's launch: ring 220 (92) and its trail 221 (87)", () => {
+    const { chain, fx, at } = rig();
+    chain.raise(0, 220, at);
     const c = fx.debugCounts();
-    expect(c.tracers).toBe(1);
-    expect(c.muzzles).toBe(1);
-    expect(c.explosions).toBe(0);
-    expect(c.sparks).toBe(0);
-    expect(c.shockwaves).toBe(0);
+    expect(c.shells).toBe(1);
+    expect(c.trails).toBe(1);
   });
 
-  test("EV_SHOT heavy/special projectiles spawn only muzzle (entity draws the shell)", () => {
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    // c = weapon catalog id: 3 Hell Fire 2000, 7 Mortar (both projectile delivery).
-    pushEvent(events, EV_SHOT, 1, 1, 3);
-    pushEvent(events, EV_SHOT, 1, 2, 7);
-
-    fx.pump(events, atOrigin);
-
-    const c = fx.debugCounts();
-    expect(c.tracers).toBe(0);
-    expect(c.muzzles).toBe(2);
+  test("the Mini Gun's muzzle (93) and its impact sparks (94)", () => {
+    const { chain, fx, at } = rig();
+    chain.raise(1, 20, at);
+    expect(fx.debugCounts().particles).toBe(1);
+    at.scale = IMPACT_SCALE;
+    chain.raise(1, 21, at);
+    expect(fx.debugCounts().nodes).toBe(3);
   });
 
-  test("EV_SHOT concussion beam (heavy hitscan) still draws a tracer", () => {
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, 1, 8); // Concussion Beam (Heavy)
-
-    fx.pump(events, atOrigin);
-
-    expect(fx.debugCounts().tracers).toBe(1);
-    expect(fx.debugCounts().muzzles).toBe(1);
+  test("the transform's effect 4: a ten-strand link (88) and its flash 5 (89)", () => {
+    const { chain, fx, at } = rig();
+    chain.raise(1, 4, at);
+    expect(fx.debugCounts().links).toBe(1);
+    expect(fx.debugCounts().flashes).toBe(1);
   });
 
-  test("EV_EXPLOSION spawns fireball + shockwave; EV_HIT spawns spark", () => {
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    pushEvent(events, EV_EXPLOSION, 160, 320, PROJ_HEAVY);
-    pushEvent(events, EV_HIT, 5, 0, 8);
-
-    fx.pump(events, atOrigin);
-
-    const c = fx.debugCounts();
-    expect(c.explosions).toBe(1);
-    expect(c.shockwaves).toBe(1);
-    expect(c.sparks).toBe(1);
+  test("a turret's death chain installs its ring and flash, and its trail 29 ticks on", () => {
+    const { chain, fx, at, tick } = rig();
+    chain.raise(0, 107, at); // shatter 107 -> ring 106 -> flash 108
+    expect(fx.debugCounts().shells).toBe(1);
+    expect(fx.debugCounts().flashes).toBe(1);
+    // With no model to break (no source in a test), the shatter draws nothing.
+    expect(fx.debugCounts().shatter).toBe(0);
+    tick();
+    tick();
+    tick(); // 108's delay publishes trail 102
+    expect(fx.debugCounts().trails).toBeGreaterThanOrEqual(1);
   });
+});
 
-  test("unresolvable events are skipped", () => {
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, 0, 0);
-    pushEvent(events, EV_EXPLOSION, 0, 0, 1);
-
-    fx.pump(events, missing);
-
-    const c = fx.debugCounts();
-    expect(c.tracers).toBe(0);
-    expect(c.muzzles).toBe(0);
-    expect(c.explosions).toBe(0);
-    expect(c.shockwaves).toBe(0);
-  });
-
-  test("reset drops every live effect immediately", () => {
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, 0, 0);
-    pushEvent(events, EV_EXPLOSION, 0, 0, 0);
-    pushEvent(events, EV_HIT, 0, 0, 0);
-    pushEvent(events, EV_TRANSFORM, 1, 0, TRANSFORM_LOCK_TICKS);
-    fx.pump(events, atOrigin);
-    expect(fx.debugCounts().tracers).toBe(1);
-    expect(fx.debugCounts().arcEmitters).toBe(1);
-
-    fx.reset();
-
-    const c = fx.debugCounts();
-    expect(c.tracers).toBe(0);
-    expect(c.muzzles).toBe(0);
-    expect(c.explosions).toBe(0);
-    expect(c.sparks).toBe(0);
-    expect(c.shockwaves).toBe(0);
-    expect(c.boltsSingle).toBe(0);
-    expect(c.boltsTwin).toBe(0);
-    expect(c.arcs).toBe(0);
-    expect(c.arcEmitters).toBe(0);
-    expect(c.transformFlashes).toBe(0);
-  });
-
-  test("update drains effects after their lifetime", () => {
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, 0, 0);
-    pushEvent(events, EV_EXPLOSION, 0, 0, 1);
-    pushEvent(events, EV_HIT, 1, 0, 1);
-    fx.pump(events, atOrigin);
-
-    expect(fx.debugCounts().tracers).toBe(1);
-
-    fx.update(1);
-
-    const c = fx.debugCounts();
-    expect(c.tracers).toBe(0);
-    expect(c.muzzles).toBe(0);
-    expect(c.explosions).toBe(0);
-    expect(c.sparks).toBe(0);
-    expect(c.shockwaves).toBe(0);
-  });
-
-  test("overflow drops silently past pool capacity", () => {
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    for (let i = 0; i < 200; i++) pushEvent(events, EV_SHOT, 1, 0, 0);
-
-    fx.pump(events, atOrigin);
-
-    expect(fx.debugCounts().tracers).toBe(128);
-    expect(fx.debugCounts().muzzles).toBe(64);
-  });
-
-  test("Cpyr particle role ids match what the contact sheet shows", () => {
-    // Was "the by-eye mapping documented in fx.ts". It is now read off
-    // docs/renders/fx/particles-contact.png (bun run gen:fxsheet), which prints
-    // each sprite's size and paint coverage:
-    //   id 8  126x128, 24% paint, densest    -> the fireball itself
-    //   id 5  125x126, 18% paint, hollow with a bright yellow rim -> phase two
-    //   id 6  32x32,  27% paint, strong red  -> muzzle flash
-    //   id 7  16x16,  31% paint, the densest per area -> hit spark
-    // 8/6/7 were already right; 5 was declared and never bound.
-    expect(PARTICLE_ID.explosion).toBe(8);
-    expect(PARTICLE_ID.explosionAlt).toBe(5);
-    expect(PARTICLE_ID.muzzle).toBe(6);
-    expect(PARTICLE_ID.spark).toBe(7);
-  });
-
-  test("an emplacement throws a bolt that covers the gun's reach", () => {
-    // Two bugs are pinned here, one old and one the original's data settled.
-    //
-    // The old one: turrets and units pushed EV_SHOT with b=0, c=0, which the
-    // renderer resolved to weaponById(0) and drew at PRIMARY_RANGE = 40 m.
-    // la-cantina's turrets have an imported engage_range of 6 m, so 72
-    // emplacements each drew a streak seven times longer than their own shot.
-    // The reach still comes from the event, and it is still 6.
-    //
-    // The new one: it is not a streak at all. The original throws an OBJECT
-    // about a metre long that travels (docs/specs/fcop-fx.md §5), so the shot
-    // spawns a bolt and no tracer.
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, SHOT_SLOT_HITSCAN, reachToShotPayload(6));
-
-    fx.pump(events, atOrigin);
-
-    const c = fx.debugCounts();
-    expect(c.tracers).toBe(0);
-    expect(c.muzzles).toBe(1);
-    expect(c.boltsSingle + c.boltsTwin).toBe(1);
-    // param carries the distance the bolt covers before it expires.
-    expect(fx.debugBoltReach()).toBeCloseTo(6, 5);
-  });
-
-  test("turrets throw the twin bolt, units the single one", () => {
-    // The original's AI weapon table hands weapon_id 3 — every turret and
-    // neutral turret on la-cantina, 64 of 64 — the TWIN bolt, and weapon_id 1
-    // and 6, its ground units and aircraft, the single one
-    // (docs/specs/fcop-fx.md §4). The archetype is what the renderer has to go
-    // on, since the map JSON carries no weapon id.
-    const shooterArchetype =
-      (archetype: number): FxPoseResolver =>
-      (_type, _a, _b, _c, out) => {
-        out[0] = 0;
-        out[1] = 0;
-        out[2] = 0;
-        out[3] = 0;
-        if (out.length > 4) out[4] = archetype;
-        return true;
-      };
-
-    const turret = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, SHOT_SLOT_HITSCAN, reachToShotPayload(6));
-    turret.pump(events, shooterArchetype(ARCHETYPE.TURRET));
-    expect(turret.debugCounts().boltsTwin).toBe(1);
-    expect(turret.debugCounts().boltsSingle).toBe(0);
-
-    const unit = createFx(new THREE.Scene());
-    unit.pump(events, shooterArchetype(ARCHETYPE.RUNNER));
-    expect(unit.debugCounts().boltsSingle).toBe(1);
-    expect(unit.debugCounts().boltsTwin).toBe(0);
-  });
-
-  test("a bolt travels its reach and then expires", () => {
-    // The whole point of the change: it MOVES. Half a life in it is halfway
-    // down the shot, where the old streak covered the whole reach from frame
-    // one and never went anywhere.
+describe("the shatter", () => {
+  test("a dying model's faces fly with its own texels, its side's offset and all", () => {
     const scene = new THREE.Scene();
-    const fx = createFx(scene);
-    const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, SHOT_SLOT_HITSCAN, reachToShotPayload(6));
-    fx.pump(events, atOrigin);
+    const chain = new EffectChain();
+    chain.begin(fxArenaFor("Mp"));
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshBasicMaterial();
+    let asked = -2;
+    const fx = createFx(scene, chain, {
+      shatter: (_archetype, team) => {
+        asked = team;
+        return { geometry, material, teamU: 0.5, teamV: 0.25 };
+      },
+    });
+    fx.begin("la-cantina");
+    const at = makeRaiseAt();
+    at.archetype = 5;
+    at.team = 1;
+    chain.raise(0, 107, at); // the turret's shatter, 50 of the box's 12 triangles: 12
+    expect(asked).toBe(1);
+    expect(fx.debugCounts().shatter).toBe(12);
+    let offsets: ArrayLike<number> | null = null;
+    scene.traverse((o) => {
+      const g = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+      const a = g?.getAttribute(TEAM_UV_ATTR);
+      if (a && (o as THREE.Mesh).material === material) offsets = a.array;
+    });
+    expect(offsets).not.toBeNull();
+    const uv = offsets as unknown as Float32Array;
+    expect(uv[0]).toBe(0.5);
+    expect(uv[1]).toBe(0.25);
+  });
+});
 
-    const life = 6 / 90; // reach / BOLT_SPEED
-    fx.update(life * 0.5);
-    // Halfway through its life it is halfway down its reach — which is the same
-    // as saying it moves at BOLT_SPEED, and nothing else.
-    expect(fx.debugCounts().boltsSingle + fx.debugCounts().boltsTwin).toBe(1);
-
-    // atOrigin faces +X, so the bolt is 3 m along X, out of a 6 m reach, plus
-    // the muzzle offset it started from.
-    const bolt = scene.children.find(
-      (c): c is THREE.InstancedMesh => (c as THREE.InstancedMesh).isInstancedMesh && c.count === 1,
-    );
-    expect(bolt).toBeDefined();
-    const m = new THREE.Matrix4();
-    bolt?.getMatrixAt(0, m);
-    const at = new THREE.Vector3().setFromMatrixPosition(m);
-    expect(at.x).toBeCloseTo(0.6 + 3, 3);
-    expect(at.z).toBeCloseTo(0, 5);
-
-    fx.update(life * 0.6);
-    expect(fx.debugCounts().boltsSingle + fx.debugCounts().boltsTwin).toBe(0);
+describe("the dome", () => {
+  test("a type-92 sphere is a dome: the export's dome on every sphere record, none on a ring", () => {
+    let domes = 0;
+    for (const rec of FX_RECORDS) {
+      if (rec.type !== 92) continue;
+      if ((rec.shellFlags & SHELL_SPHERE) === 0) {
+        expect(rec.dome).toBeNull();
+        continue;
+      }
+      domes++;
+      const dome = rec.dome as NonNullable<typeof rec.dome>;
+      // 0x100 the flattened meridian, 0x80 open from 45 degrees, 0x104 oriented.
+      expect(dome.profile).toBe((rec.shellFlags & 0x100) !== 0 ? 1 : 0);
+      expect(dome.fromTheta).toBe((rec.shellFlags & 0x80) !== 0 ? 0x200 : 0);
+      expect(dome.oriented).toBe((rec.flags & 0x104) !== 0 ? 1 : 0);
+    }
+    expect(domes).toBeGreaterThan(0);
   });
 
-  test("a long shot's bolt still travels at BOLT_SPEED, it does not speed up", () => {
-    // There used to be a lifetime cap, which bounded the LIFE while the distance
-    // stayed the full reach — so past ~22 m the bolt covered more ground in the
-    // same time and quietly outran the constant that names its speed. A 40 m
-    // shot, the longest the catalog can produce, is the case that exposed it.
-    const scene = new THREE.Scene();
-    const fx = createFx(scene);
-    const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, SHOT_SLOT_HITSCAN, reachToShotPayload(40));
-    fx.pump(events, atOrigin);
-
-    fx.update(0.25);
-    const bolt = scene.children.find(
-      (c): c is THREE.InstancedMesh => (c as THREE.InstancedMesh).isInstancedMesh && c.count === 1,
-    );
-    expect(bolt).toBeDefined();
-    const m = new THREE.Matrix4();
-    bolt?.getMatrixAt(0, m);
-    // 0.25 s at 90 m/s is 22.5 m, from the muzzle — not the 40 m a capped life
-    // would have dragged it to.
-    expect(new THREE.Vector3().setFromMatrixPosition(m).x).toBeCloseTo(0.6 + 22.5, 2);
+  test("the meridians are the image's: the pole at 0x1000, the rim at r 0x1000, the flat top", () => {
+    const { unit, radial } = FX_EXE.spherePatch;
+    expect(unit[0]).toEqual([4096, 0]);
+    expect(unit[4]).toEqual([0, 4096]);
+    expect(radial[0]).toEqual([2048, 0]);
+    expect(radial[4]).toEqual([0, 4096]);
   });
 
-  test("a launch flash spawns no tracer — the shell is its own entity", () => {
-    // The Warden's heavy bomb pushed slot 1 with c=0, which resolved to the
-    // Mini-Gun: a 40 m hitscan streak alongside the bomb it had just spawned.
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    pushEvent(events, EV_SHOT, 1, SHOT_SLOT_LAUNCH, 0);
+  test("the colour steps ring by ring in 12.4, as derived.sphere.band_colours has it", () => {
+    // Conft 1:106: near (0, 0, 127) to far (96, 96, 0) over four rings.
+    expect([0, 1, 2, 3, 4].map((k) => domeRingColour(0, 96, k, 0))).toEqual([0, 24, 48, 72, 96]);
+    expect([0, 1, 2, 3, 4].map((k) => domeRingColour(127, 0, k, 0))).toEqual([127, 95, 63, 31, 0]);
+    // Conft 1:143, open at the top: near (0, 0, 0) to far (127, 96, 0) over two.
+    expect([2, 3, 4].map((k) => domeRingColour(0, 127, k, 2))).toEqual([0, 63, 127]);
+    expect([2, 3, 4].map((k) => domeRingColour(0, 96, k, 2))).toEqual([0, 48, 96]);
+  });
+});
 
-    fx.pump(events, atOrigin);
+describe("the node ramp (0x0042b090 / 0x0042a550 / 0x0042a4d0)", () => {
+  const rgb = new Float32Array(3);
+  const step = new Float32Array(3);
+  const from = new Float32Array(3);
+  const to = new Float32Array(3);
+  const set = (t: Float32Array, v: readonly number[]) => t.set(v);
 
-    expect(fx.debugCounts().tracers).toBe(0);
-    expect(fx.debugCounts().muzzles).toBe(1);
+  test("one budget drains blue, then green, then red, and never reads colour_b", () => {
+    set(rgb, [96, 96, 96]);
+    set(from, [96, 96, 96]);
+    set(to, [48, 96, 96]); // Mp 0:5's colour_b, unread
+    set(step, [144, 0, 0]); // (96 * 3 << 12) / 8192, a second
+    rampNode(1, rgb, 0, step, from, to, 0.5);
+    expect([...rgb]).toEqual([96, 96, 24]);
+    rampNode(1, rgb, 0, step, from, to, 0.5);
+    expect([...rgb]).toEqual([96, 48, 0]);
+    rampNode(1, rgb, 0, step, from, to, 1);
+    expect([...rgb]).toEqual([0, 0, 0]);
   });
 
-  test("reach survives the decimetre round trip at the ranges arenas use", () => {
-    for (const reach of [6, 14, 28, 40, 42, 0.1]) {
-      expect(shotPayloadToReach(reachToShotPayload(reach))).toBeCloseTo(reach, 5);
+  test("red gates the budget: with red at 0 nothing moves", () => {
+    set(rgb, [0, 75, 16]);
+    set(step, [90, 0, 0]);
+    rampNode(1, rgb, 0, step, from, to, 1);
+    expect([...rgb]).toEqual([0, 75, 16]);
+  });
+
+  test("each channel walks toward colour_b and stops there; a bounce turns back", () => {
+    set(rgb, [16, 75, 0]);
+    set(from, [16, 75, 0]);
+    set(to, [0, 0, 0]);
+    set(step, [-10, -50, 0]); // Conft 0:15, 1.5 s
+    rampNode(0, rgb, 0, step, from, to, 1);
+    expect([...rgb]).toEqual([6, 25, 0]);
+    rampNode(0, rgb, 0, step, from, to, 1);
+    expect([...rgb]).toEqual([0, 0, 0]);
+    set(rgb, [64, 96, 127]);
+    set(from, [64, 96, 127]);
+    set(to, [127, 127, 127]);
+    set(step, [63, 31, 0]); // Conft 0:32, a bounce
+    rampNode(2, rgb, 0, step, from, to, 1.5);
+    expect(rgb[0]).toBe(127);
+    expect(step[0]).toBe(-63);
+    rampNode(2, rgb, 0, step, from, to, 0.5);
+    expect(rgb[0]).toBeCloseTo(95.5, 5);
+  });
+
+  test("the reachable records carry the export's step: a budget one number, else three", () => {
+    for (const rec of FX_RECORDS) {
+      if (rec.type !== 94) continue;
+      expect(rec.rampStep.length).toBe((rec.rampFlags & 1) !== 0 ? 1 : 3);
     }
   });
 });
 
-describe("transformation discharge", () => {
-  // Off balance.ts, not a literal: the event carries the sim's own lock, so a
-  // hard-coded 24 would keep passing while testing a window the sim no longer
-  // uses the next time this is retuned.
-  const LOCK_TICKS = TRANSFORM_LOCK_TICKS;
-  const DURATION = LOCK_TICKS / TICK_HZ;
-
-  /** Pumps one EV_TRANSFORM and returns the fx it started. */
-  function startTransform(): ReturnType<typeof createFx> {
-    const fx = createFx(new THREE.Scene());
+describe("the executable's own drawings", () => {
+  test("the Mini Gun's ribbon while it fires; the Laser's tracer; the Sky Captain's", () => {
+    const { fx, tick } = rig();
     const events = createEventBuffer();
-    pushEvent(events, EV_TRANSFORM, 1, 1, LOCK_TICKS);
+    pushEvent(events, EV_SHOT, 1, SHOT_SLOT_GUN, weaponShotPayload(0, 10)); // Mini-Gun
+    pushEvent(events, EV_SHOT, 1, SHOT_SLOT_GUN, weaponShotPayload(1, 10)); // Gatling Laser
+    pushEvent(events, EV_SHOT, 2, SHOT_SLOT_HITSCAN, reachToShotPayload(12));
     fx.pump(events, atOrigin);
-    return fx;
-  }
-
-  test("EV_TRANSFORM starts an emitter but spawns nothing until the first frame", () => {
-    const fx = startTransform();
-
-    // pump only claims the emitter — arcs are spawned by update, so a tick that
-    // is never followed by a frame cannot leave streaks behind.
-    expect(fx.debugCounts().arcEmitters).toBe(1);
-    expect(fx.debugCounts().arcs).toBe(0);
+    const c = fx.debugCounts();
+    expect(c.ribbons).toBe(1);
+    expect(c.tracers).toBe(2);
+    // The ribbon holds for the tick after the shot, then goes.
+    tick();
+    tick();
+    expect(fx.debugCounts().ribbons).toBe(0);
   });
 
-  test("the emitter crackles: arcs appear on the first frame and keep coming", () => {
-    const fx = startTransform();
-
-    fx.update(1 / 60);
-    const first = fx.debugCounts().arcs;
-    expect(first).toBeGreaterThan(0);
-
-    // Well past one arc lifetime: old streaks have died and new ones replaced
-    // them, so the pool is still populated rather than drained once.
-    for (let i = 0; i < 12; i++) fx.update(1 / 60);
-    expect(fx.debugCounts().arcs).toBeGreaterThan(0);
-    expect(fx.debugCounts().arcEmitters).toBe(1);
-  });
-
-  test("the flash over the mesh swap fires once, at the halfway point", () => {
-    const fx = startTransform();
-
-    // Just short of half the lock: still only arcs.
-    let elapsed = 0;
-    while (elapsed < DURATION * 0.45) {
-      fx.update(1 / 60);
-      elapsed += 1 / 60;
-    }
-    expect(fx.debugCounts().transformFlashes).toBe(0);
-
-    while (elapsed < DURATION * 0.6) {
-      fx.update(1 / 60);
-      elapsed += 1 / 60;
-    }
-    // One flash, and it does not re-fire on later frames of the same morph.
-    expect(fx.debugCounts().transformFlashes).toBe(1);
-    // Comfortably past TRANSFORM_FLASH_LIFE: it ages out and nothing replaces it.
-    for (let i = 0; i < 24; i++) fx.update(1 / 60);
-    expect(fx.debugCounts().transformFlashes).toBe(0);
-    // And it never touched the shared explosion/shockwave pools, which age on a
-    // different clock.
-    expect(fx.debugCounts().shockwaves).toBe(0);
-    expect(fx.debugCounts().explosions).toBe(0);
-  });
-
-  test("the emitter releases itself when the lock is over", () => {
-    const fx = startTransform();
-
-    let elapsed = 0;
-    while (elapsed < DURATION + 0.05) {
-      fx.update(1 / 60);
-      elapsed += 1 / 60;
-    }
-    expect(fx.debugCounts().arcEmitters).toBe(0);
-
-    // And the streaks it left drain rather than sticking on screen.
-    for (let i = 0; i < 12; i++) fx.update(1 / 60);
-    expect(fx.debugCounts().arcs).toBe(0);
-  });
-
-  test("more transforms than emitter slots drops the extras, never overflows", () => {
-    const fx = createFx(new THREE.Scene());
+  test("a tracer dies when its head reaches the end", () => {
+    const { fx, tick } = rig();
     const events = createEventBuffer();
-    for (let id = 1; id <= 8; id++) pushEvent(events, EV_TRANSFORM, id, 1, LOCK_TICKS);
-
+    // The world hitscan slides at 0x30000 world units a second: 24 m/s.
+    pushEvent(events, EV_SHOT, 2, SHOT_SLOT_HITSCAN, reachToShotPayload(4.8));
     fx.pump(events, atOrigin);
+    for (let t = 0; t < 5; t++) tick();
+    expect(fx.debugCounts().tracers).toBe(1);
+    for (let t = 0; t < 2; t++) tick();
+    expect(fx.debugCounts().tracers).toBe(0);
+  });
+});
 
-    // Four slots, one per avatar the renderer can draw — the rest are dropped.
-    expect(fx.debugCounts().arcEmitters).toBe(4);
-    // Run every one of them through the densest part of its discharge. STRICTLY
-    // under capacity: at the ceiling `spawn` starts returning false, which drops
-    // streaks silently and is the only way the core and glow pools could ever
-    // come apart. The cap is sized off the burst numbers so this stays true when
-    // someone retunes the density.
-    for (let i = 0; i < 40; i++) fx.update(1 / 60);
-    expect(fx.debugCounts().arcs).toBeLessThan(ARC_CAP);
+describe("the bolts", () => {
+  test("a bolt row's round is drawn as its facers for the frame; a model row is not", () => {
+    const { fx, camera } = rig();
+    expect(fx.bolt(3, 0, 0.6, 0, 0, 0)).toBe(true);
+    expect(fx.bolt(1, 2, 0.6, 0, Math.PI / 2, 0.1)).toBe(true);
+    expect(fx.bolt(4, 0, 0.6, 0, 0, 0)).toBe(false);
+    expect(fx.bolt(0, 0, 0.6, 0, 0, 0)).toBe(false);
+    fx.update(1 / 60, camera, 1 / 60);
+    expect(fx.debugCounts().bolts).toBe(2);
+    // Queued per frame: the next frame draws only what the entity pass hands it.
+    fx.update(1 / 60, camera, 1 / 60);
+    expect(fx.debugCounts().bolts).toBe(0);
+  });
+});
+
+describe("riding a round", () => {
+  test("the launch's trail follows its round, and stops when the round is gone", () => {
+    const { chain, fx, poses, at, tick } = rig();
+    at.attach = ROUND_TOKEN;
+    chain.raise(0, 220, at); // 220 ring -> 221 trail, riding the token
+    chain.rebind(ROUND_TOKEN, 40);
+    // The round flies along +x at 0.25 m a tick.
+    for (let t = 0; t < 6; t++) {
+      poses.live.fill(0);
+      poses.live[40] = 1;
+      poses.table[40 * POSE_STRIDE] = t * 0.25;
+      poses.table[40 * POSE_STRIDE + 1] = 0.6;
+      tick();
+    }
+    expect(fx.debugCounts().trails).toBe(1);
+    // Gone: the trail stops emitting and retires once its nodes fade (102 ticks).
+    poses.live.fill(0);
+    for (let t = 0; t < 14; t++) tick();
+    expect(fx.debugCounts().trails).toBe(0);
+  });
+});
+
+describe("pools", () => {
+  test("a full pool drops the install, it does not grow", () => {
+    const { chain, fx, at } = rig();
+    for (let k = 0; k < 400; k++) chain.raise(1, 20, at);
+    expect(fx.debugCounts().particles).toBe(350);
+    for (let k = 0; k < 100; k++) chain.raise(0, 43, at);
+    expect(fx.debugCounts().nodes).toBe(700);
   });
 
-  test("an unresolvable position skips the discharge entirely", () => {
-    const fx = createFx(new THREE.Scene());
-    const events = createEventBuffer();
-    pushEvent(events, EV_TRANSFORM, 1, 1, LOCK_TICKS);
+  test("reset drops every live effect", () => {
+    const { chain, fx, at } = rig();
+    chain.raise(0, 107, at);
+    chain.raise(0, 220, at);
+    chain.raise(1, 4, at);
+    fx.reset();
+    const c = fx.debugCounts();
+    expect(c.flashes + c.shells + c.particles + c.nodes + c.trails + c.links).toBe(0);
+  });
 
-    fx.pump(events, missing);
+  test("the GPU buffers are the same arrays frame after frame (fixed pools)", () => {
+    const { scene, chain, fx, camera, at } = rig();
+    const arrays = () => {
+      const out: ArrayLike<number>[] = [];
+      scene.traverse((o) => {
+        const g = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+        if (!g) return;
+        for (const name of Object.keys(g.attributes)) out.push(g.attributes[name].array);
+        if (g.index) out.push(g.index.array);
+        const inst = o as THREE.InstancedMesh;
+        if (inst.isInstancedMesh) out.push(inst.instanceMatrix.array);
+      });
+      return out;
+    };
+    const before = arrays();
+    chain.raise(0, 107, at);
+    chain.raise(0, 220, at);
+    chain.raise(1, 4, at);
+    chain.raise(1, 40, at);
+    for (let k = 0; k < 120; k++) fx.update(1 / 60, camera, 1 / 60);
+    const after = arrays();
+    expect(after.length).toBe(before.length);
+    for (let k = 0; k < before.length; k++) expect(after[k]).toBe(before[k]);
+  });
 
-    expect(fx.debugCounts().arcEmitters).toBe(0);
+  test("the per-frame paths create no objects, arrays or closures", () => {
+    // A structural guard (CLAUDE.md renderer rule 1): the bodies of every
+    // update, draw, tick, put and strip function in the effect drawers.
+    const dir = join(import.meta.dir, "..", "src", "render", "fx");
+    const files = [...readdirSync(dir).map((f) => join(dir, f)), join(dir, "..", "fx.ts")];
+    const header =
+      /^\s*(?:private |export )?(?:function )?(update|draw\w*|tick\w*|put|flush|followAnchor|sides|plainStrip|texturedStrip|cornerQuad|bolt|ramp|drawNode|pump)\(/;
+    let bodies = 0;
+    for (const file of files) {
+      const lines = readFileSync(file, "utf8").split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        if (!header.test(lines[i])) continue;
+        let depth = 0;
+        let started = false;
+        const body: string[] = [];
+        for (let j = i; j < lines.length; j++) {
+          const line = lines[j].replace(/\/\/.*$/, "");
+          for (const ch of line) {
+            if (ch === "{") {
+              depth++;
+              started = true;
+            } else if (ch === "}") depth--;
+          }
+          if (j > i) body.push(line);
+          if (started && depth === 0) break;
+        }
+        bodies++;
+        const text = body.join("\n");
+        for (const bad of [
+          /\bnew\s+[A-Z]/,
+          /=\s*\[/,
+          /\.(map|filter|forEach|slice|concat)\(/,
+          /=>/,
+          /for \(const \w+ of/,
+        ]) {
+          expect(bad.test(text), `${file}:${i + 1} ${lines[i].trim()} matches ${bad}`).toBe(false);
+        }
+      }
+    }
+    expect(bodies).toBeGreaterThan(20);
   });
 });

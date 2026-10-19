@@ -308,9 +308,27 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // createSim moves the PRNG stream): 27 of 30 resolve, in 41-133 s. Re-measured
   // at SIM_VERSION 61 (its requests run through the shared spawn queues, from a
   // phase drawn at load, and leave the original's spawners): 19 of these four
-  // arenas' 20 resolve, in 53-121 s; urban-jungle seed 2 does not.
+  // arenas' 20 resolve, in 53-121 s; urban-jungle seed 2 does not. Re-measured
+  // at SIM_VERSION 73 (urban-jungle's and proving-ground's ground console moved
+  // onto the tank shop, so their tanks join the road at another node and the
+  // walls about both shops changed): 17 of 20 resolve, in 53-117 s; urban-jungle
+  // seeds 2 and 4 and proving-ground seed 2 do not, their opening order dying at
+  // the ring as above. Re-measured at SIM_VERSION 78 (every hit radius the
+  // original's, each arena's own models: La Cantina's, Urban Jungle's and Proving
+  // Ground's tank 0.943 m against 0.76, Bug Hunt's 0.721; the gate box a tank
+  // must touch grows or shrinks by as much, and the rounds find it sooner or
+  // later): 18 of 20 resolve, in 45-112 s. urban-jungle seed 4 and
+  // proving-ground seed 2 now breach (resolved at 93 s and 97 s); bug-hunt seed 2
+  // does not: both its opening tanks die, the nearer 13.6 m short of the gate,
+  // and it stays on 29 points from 29 captures, one short of an outpost.
+  // urban-jungle seed 2 as before (its two tanks die 11.8 m short).
+  // Re-measured at SIM_VERSION 84 (the spawn queues poll on cfun_tick's
+  // engine-tick countdowns from `rand % period`, the periods no longer rounded to
+  // sim ticks): 19 of 20 resolve, in 40-110 s; urban-jungle seed 2 and bug-hunt
+  // seed 2 now breach (86 s, 71 s), urban-jungle seed 4 does not: its opening
+  // order dies at the ring and it stays on 2 points.
   const UNRESOLVED: Record<string, number[]> = {
-    [URBAN_JUNGLE_ID]: [2],
+    [URBAN_JUNGLE_ID]: [4],
   };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {
