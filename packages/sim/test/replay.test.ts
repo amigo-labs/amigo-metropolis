@@ -4,6 +4,7 @@ import {
   BTN_BACK,
   BTN_FORWARD,
   BTN_GUN,
+  BTN_HEAVY,
   BTN_JUMP,
   BTN_TURN_LEFT,
   createTickInputs,
@@ -21,6 +22,7 @@ import {
 import { simulateReplayHashes } from "../src/runner";
 import { createSim, hash, step } from "../src/sim";
 import { SIM_VERSION } from "../src/version";
+import { EXTRA_WEAPON_K9_DRONE, EXTRA_WEAPON_PLASMA_FLARE } from "../src/weapons";
 
 describe("replay format", () => {
   it("round-trips header and frames byte-exactly", () => {
@@ -69,8 +71,8 @@ describe("replay format", () => {
       DIFFICULTY_EASY,
     ]);
     const bytes = encodeReplay(replay);
-    // One byte a player after the Warden's two, before the mapId's length.
-    expect([bytes[18], bytes[19], bytes[20]]).toEqual([0, 2, "venice-beach".length]);
+    // One byte a player after the Warden's two, then the extra weapons (20).
+    expect([bytes[18], bytes[19], bytes[20]]).toEqual([0, 2, 0]);
     const decoded = decodeReplay(bytes);
     expect(decoded.difficulties).toEqual([DIFFICULTY_HARD, DIFFICULTY_EASY]);
     expect(decoded.mapId).toBe("venice-beach");
@@ -178,10 +180,10 @@ describe("replay format", () => {
   });
 
   it("frames are 2 bytes per player, the u16 button word (network format contract)", () => {
-    expect(REPLAY_FORMAT_VERSION).toBe(4);
+    expect(REPLAY_FORMAT_VERSION).toBe(5);
     expect(FRAME_BYTES).toBe(4);
     const replay = createReplayData("m", 1, 7);
-    expect(encodeReplay(replay).length).toBe(21 + 1 + 7 * FRAME_BYTES);
+    expect(encodeReplay(replay).length).toBe(28 + 1 + 7 * FRAME_BYTES);
   });
 
   it("rejects bad magic and truncated files", () => {
@@ -196,7 +198,59 @@ describe("replay format", () => {
     expect(() => encodeReplay(createReplayData("x".repeat(256), 1, 0))).toThrow("mapId too long");
     expect(() => encodeReplay(createReplayData("täst", 1, 0))).toThrow("must be ASCII");
     const bytes = encodeReplay(createReplayData("test-128", 1, 0));
-    bytes[21] = 0xff; // corrupt the first mapId byte past the encoder's check
+    bytes[28] = 0xff; // corrupt the first mapId byte past the encoder's check
     expect(() => decodeReplay(bytes)).toThrow("mapId must be ASCII");
+  });
+
+  it("round-trips the extra weapons and the loadouts (in the header since format 5)", () => {
+    const replay = createReplayData("la-cantina", 3, 1, undefined, undefined, {
+      extraWeapons: EXTRA_WEAPON_K9_DRONE | EXTRA_WEAPON_PLASMA_FLARE,
+      loadouts: [{ gun: 4, heavy: 3, special: 4 }],
+    });
+    const bytes = encodeReplay(replay);
+    expect(bytes[20]).toBe(0x12);
+    expect(Array.from(bytes.subarray(21, 27))).toEqual([4, 3, 4, 0, 0, 0]);
+    const decoded = decodeReplay(bytes);
+    expect(decoded.extraWeapons).toBe(0x12);
+    expect(decoded.loadouts).toEqual([
+      { gun: 4, heavy: 3, special: 4 },
+      { gun: 0, heavy: 0, special: 0 },
+    ]);
+    // Bits past the five, and an index past a slot's catalogue, are refused.
+    const bad = bytes.slice();
+    bad[20] = 0x20;
+    expect(() => decodeReplay(bad)).toThrow("bad extraWeapons");
+    const badLoadout = bytes.slice();
+    badLoadout[21] = 5;
+    expect(() => decodeReplay(badLoadout)).toThrow("bad loadout");
+    expect(() => encodeReplay({ ...replay, extraWeapons: 0x40 })).toThrow("bad extraWeapons");
+  });
+
+  it("replays a match with an extra weapon through the header", () => {
+    // The runner hands the header's weapons to createSim: a K-9 Drone is in
+    // the air on the replay as it was in the match.
+    const replay = createReplayData("test-128", 5, 40, undefined, undefined, {
+      extraWeapons: EXTRA_WEAPON_K9_DRONE,
+      loadouts: [{ gun: 0, heavy: 3, special: 0 }],
+    });
+    const inputs = createTickInputs();
+    inputs.players[0].buttons = BTN_HEAVY;
+    for (let t = 0; t < 40; t++) writeFrame(replay, t, inputs);
+    const decoded = decodeReplay(encodeReplay(replay));
+    const sim = createSim(getMapById("test-128"), 5, {
+      extraWeapons: decoded.extraWeapons,
+      loadouts: decoded.loadouts,
+    });
+    const want: number[] = [];
+    for (let t = 0; t < 40; t++) {
+      readFrame(decoded, t, inputs);
+      step(sim, inputs);
+      want.push(hash(sim));
+    }
+    expect(Array.from(simulateReplayHashes(decoded))).toEqual(want);
+    expect(sim.loadoutHeavy[0]).toBe(3);
+    // Without the bit the same header's pick would have been refused.
+    const off = createSim(getMapById("test-128"), 5, { loadouts: decoded.loadouts });
+    expect(off.loadoutHeavy[0]).toBe(2);
   });
 });

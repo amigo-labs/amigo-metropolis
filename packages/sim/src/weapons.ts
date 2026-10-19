@@ -1,5 +1,10 @@
-// Avatar loadout catalog — Future Cop Precinct Assault, ten weapons only:
-// four Guns, three Heavies, three Specials (rules.md §2, SIM_VERSION 26).
+// Avatar loadout catalog — Future Cop Precinct Assault's ten weapons (four
+// Guns, three Heavies, three Specials; rules.md §2, SIM_VERSION 26), then the
+// original's other five, each behind its own bit of the "Spielregeln" switch
+// `SimOptions.extraWeapons` (SIM_VERSION 90, the owner's decision; all off by
+// default, which is the original's PA): Riot Shield after the Guns, K-9 Drone
+// and Fusion Torpedo after the Heavies, Grenade Launcher and Plasma Flare
+// after the Specials. Appended, so every earlier loadout index holds.
 // Defaults (index 0 in each slot) are the original kit: Powered Mini-Gun +
 // Hell Fire 2000 + Mortar Launcher (`config.c:80`).
 //
@@ -41,6 +46,31 @@ export const PROJ_SPLASH = 13;
  * PA catalogue's 7.62 m/s bolt (fcop-fidelity.md W3).
  */
 export const PROJ_ROUND = 14;
+/** The K-9 Drone's round (kind 0x15, the original's ground-hugging missile). */
+export const PROJ_K9 = 15;
+/** The Grenade Launcher's bouncing round (kind 9, the original's type-0x0f round). */
+export const PROJ_GRENADE = 16;
+/** The Fusion Torpedo (kind 3, homing, its blast falling off with the distance flown). */
+export const PROJ_TORPEDO = 17;
+/** The Plasma Flare's kept shell (kind 4; block B 0x14 bursts into four). */
+export const PROJ_PLASMA = 18;
+
+// The "Spielregeln" bits of SimOptions.extraWeapons: each of the original's
+// five weapons Precinct Assault never offers, switched on separately (the
+// owner's decision; the original's PA has all five off).
+export const EXTRA_WEAPON_RIOT_SHIELD = 1 << 0;
+export const EXTRA_WEAPON_K9_DRONE = 1 << 1;
+export const EXTRA_WEAPON_GRENADE_LAUNCHER = 1 << 2;
+export const EXTRA_WEAPON_FUSION_TORPEDO = 1 << 3;
+export const EXTRA_WEAPON_PLASMA_FLARE = 1 << 4;
+/** All five. */
+export const EXTRA_WEAPONS_ALL = 0x1f;
+
+/** A config value as the sim takes it: the five bits of an integer, 0 when unusable. */
+export function normalizeExtraWeapons(raw: number | undefined): number {
+  if (raw === undefined || !Number.isFinite(raw)) return 0;
+  return Math.floor(raw) & EXTRA_WEAPONS_ALL;
+}
 
 export const WEAPON_SLOT_GUN = 0;
 export const WEAPON_SLOT_HEAVY = 1;
@@ -66,6 +96,14 @@ export const WEAPON_SLOT_SPECIAL = 2;
  * - mine: the Pop-Up Mine (5), dropped at the shooter's feet.
  * - shockwave: the Shockwave Generator (0x0f), a self-centred pulse —
  *   Metropolis' instant pulse, the original's damage and radius.
+ * - sphere: the Riot Shield (0x0d, `sustain_sphere_toggle` 0x0044c1f0), a
+ *   sphere about the mech toggled by the trigger, hurting what it touches
+ *   every tick and spending its magazine while it is up (sim.ts systemShields).
+ * - drone: the K-9 Drone (0x15), the original's ground-hugging homing missile
+ *   with twice its damage as health (`missile.c`, CACT_MISSILE_KIND_HUG).
+ * - bounce: the Grenade Launcher (9, `cact_round_spawn_streamed` with the
+ *   ballistic solve): the type-0x0f round that falls, bounces and settles
+ *   (`type15.c`), on a random fuse.
  */
 export type WeaponDelivery =
   | "hitscan"
@@ -74,7 +112,10 @@ export type WeaponDelivery =
   | "arced"
   | "beam"
   | "mine"
-  | "shockwave";
+  | "shockwave"
+  | "sphere"
+  | "drone"
+  | "bounce";
 
 /**
  * Client VFX style key. The renderer maps these to tracers / sprites / rings;
@@ -90,7 +131,12 @@ export type WeaponVfx =
   | "mortar"
   | "beam"
   | "mine"
-  | "shockwave";
+  | "shockwave"
+  | "shield"
+  | "drone"
+  | "grenade"
+  | "torpedo"
+  | "plasma";
 
 /** One stat block in SI and sim units, converted from a WeaponRecord. */
 export interface WeaponBlock {
@@ -123,6 +169,10 @@ export interface WeaponBlock {
   readonly gravity: number;
   /** Fuse / lifetime, sim ticks. */
   readonly fuseTicks: number;
+  /** The same fuse in engine units (the bouncing round's lifetime base). */
+  readonly fuseUnits: number;
+  /** The raw record this block converts (the sphere reads its words as stored). */
+  readonly rec: WeaponRecord;
 }
 
 export interface WeaponDef {
@@ -151,6 +201,11 @@ export interface WeaponDef {
   readonly range: number;
   /** Starting magazine as the record holds it (HARD's; `difficultyAmmo`). */
   readonly ammo: number;
+  /**
+   * The SimOptions.extraWeapons bit that offers it (EXTRA_WEAPON_*), 0 for the
+   * ten Precinct Assault always offers.
+   */
+  readonly extraBit: number;
 }
 
 /** One pick per slot. Indices into GUNS / HEAVIES / SPECIALS. */
@@ -210,11 +265,16 @@ function acceleration(raw: number): number {
 
 const KIND_ARCED = 4;
 const KIND_DROPPED = 5;
+/** The streamed round with the ballistic solve (the Grenade Launcher). */
+const KIND_STREAMED_ARC = 9;
 const KIND_ARCED_CLUSTER = 0x14;
 
 function block(r: WeaponRecord): WeaponBlock {
   const ballistic =
-    r.kind === KIND_ARCED || r.kind === KIND_ARCED_CLUSTER || r.kind === KIND_DROPPED;
+    r.kind === KIND_ARCED ||
+    r.kind === KIND_ARCED_CLUSTER ||
+    r.kind === KIND_DROPPED ||
+    r.kind === KIND_STREAMED_ARC;
   const speed = topSpeed(r.speed);
   return {
     kind: r.kind,
@@ -228,11 +288,15 @@ function block(r: WeaponRecord): WeaponBlock {
     blast: metres(r.w0e),
     reach: metres(r.w10),
     speed,
-    launchSpeed: r.accel > 0 ? speed / 8 : speed,
+    // A ballistic round leaves at its speed (the arc's `speed << 4`); a missile
+    // with an acceleration at an eighth of it.
+    launchSpeed: !ballistic && r.accel > 0 ? speed / 8 : speed,
     accel: acceleration(r.accel),
     range: ballistic ? 0 : metres(r.range),
     gravity: ballistic ? metres(r.range) : 0,
     fuseTicks: Math.ceil(gapUnits(r.fuse) / WEAPON_UNITS_PER_TICK),
+    fuseUnits: gapUnits(r.fuse),
+    rec: r,
   };
 }
 
@@ -268,13 +332,16 @@ function def(
   delivery: WeaponDelivery,
   projKind: number,
   vfx: WeaponVfx,
+  extraBit = 0,
 ): WeaponDef {
   const rec = WEAPON_RECORDS[code];
   const a = block(rec.a);
   const b = block(rec.b);
   const cycle = delivery === "flame" ? FLAME_PULSE_TICKS : cycleTicks(a);
   const range =
-    a.gravity > 0 && delivery === "arced" ? (a.launchSpeed * a.launchSpeed) / a.gravity : a.range;
+    a.gravity > 0 && (delivery === "arced" || delivery === "bounce")
+      ? (a.launchSpeed * a.launchSpeed) / a.gravity
+      : a.range;
   return {
     id,
     slot,
@@ -291,6 +358,7 @@ function def(
     cooldownTicks: cycle / a.rounds,
     range,
     ammo: a.ammo,
+    extraBit,
   };
 }
 
@@ -341,6 +409,19 @@ export const GUNS: readonly WeaponDef[] = [
     0,
     "electric",
   ),
+  // The original's Gun 0x05, a campaign weapon (EXTRA_WEAPON_RIOT_SHIELD).
+  def(
+    15,
+    0,
+    4,
+    "Riot Shield",
+    "A sphere toggled on: 20 a tick to what it touches, 1.6 m.",
+    0x05,
+    "sphere",
+    0,
+    "shield",
+    EXTRA_WEAPON_RIOT_SHIELD,
+  ),
 ];
 
 export const HEAVIES: readonly WeaponDef[] = [
@@ -380,6 +461,32 @@ export const HEAVIES: readonly WeaponDef[] = [
     PROJ_HYPER,
     "hyper",
   ),
+  // The original's Heavy 0x15 (the executable's "Robo Dog"; EXTRA_WEAPON_K9_DRONE).
+  def(
+    16,
+    1,
+    3,
+    "K-9 Drone",
+    "A ground-hugging homing drone, 150 damage, 300 health, every 3 s.",
+    0x15,
+    "drone",
+    PROJ_K9,
+    "drone",
+    EXTRA_WEAPON_K9_DRONE,
+  ),
+  // The original's Heavy 0x14 (EXTRA_WEAPON_FUSION_TORPEDO).
+  def(
+    17,
+    1,
+    4,
+    "Fusion Torpedo",
+    "Homing torpedo, 100 in a 1 m blast that weakens with the distance flown.",
+    0x14,
+    "missile",
+    PROJ_TORPEDO,
+    "torpedo",
+    EXTRA_WEAPON_FUSION_TORPEDO,
+  ),
 ];
 
 export const SPECIALS: readonly WeaponDef[] = [
@@ -416,6 +523,32 @@ export const SPECIALS: readonly WeaponDef[] = [
     PROJ_SHOCKWAVE,
     "shockwave",
   ),
+  // The original's Special 0x24 (the executable's "Grenade"; EXTRA_WEAPON_GRENADE_LAUNCHER).
+  def(
+    18,
+    2,
+    3,
+    "Grenade Launcher",
+    "A bouncing grenade, 400 in a 4.2 m blast after 3-4.5 s, or on the next press.",
+    0x24,
+    "bounce",
+    PROJ_GRENADE,
+    "grenade",
+    EXTRA_WEAPON_GRENADE_LAUNCHER,
+  ),
+  // The original's Special 0x21 (EXTRA_WEAPON_PLASMA_FLARE).
+  def(
+    19,
+    2,
+    4,
+    "Plasma Flare",
+    "Lobbed flare, 250 in a 6 m blast where it lands, or on the next press.",
+    0x21,
+    "arced",
+    PROJ_PLASMA,
+    "plasma",
+    EXTRA_WEAPON_PLASMA_FLARE,
+  ),
 ];
 
 const BY_SLOT: readonly (readonly WeaponDef[])[] = [GUNS, HEAVIES, SPECIALS];
@@ -431,36 +564,55 @@ export function weaponById(id: number): WeaponDef | undefined {
   return BY_ID.get(id);
 }
 
-/** Clamp a loadout index into the slot's catalog. */
-export function clampLoadoutIndex(slot: 0 | 1 | 2, index: number): number {
+/** How many of each slot's weapons Precinct Assault always offers (the ten). */
+const BASE_COUNT: readonly number[] = [4, 3, 3];
+
+/**
+ * Clamp a loadout index into the slot's catalog, refusing an extra weapon whose
+ * bit `extraWeapons` (SimOptions.extraWeapons, EXTRA_WEAPON_*) does not carry: a
+ * refused index lands on the slot's last Precinct Assault weapon, where every
+ * out-of-range index landed before the five were appended — so with no bits set
+ * the clamp is exactly the ten-weapon catalogue's, and no peer, replay or deep
+ * link can smuggle one in.
+ */
+export function clampLoadoutIndex(slot: 0 | 1 | 2, index: number, extraWeapons = 0): number {
   const list = BY_SLOT[slot];
   if (!Number.isFinite(index)) return 0;
-  const i = Math.floor(index);
+  let i = Math.floor(index);
   if (i < 0) return 0;
-  if (i >= list.length) return list.length - 1;
+  if (i >= list.length) i = list.length - 1;
+  if ((list[i].extraBit & ~extraWeapons) !== 0) return BASE_COUNT[slot] - 1;
   return i;
 }
 
-export function normalizeLoadout(raw?: Partial<Loadout> | null): Loadout {
+/** Whether `extraWeapons` offers `w` (always, for the ten). */
+export function weaponOffered(w: WeaponDef, extraWeapons: number): boolean {
+  return (w.extraBit & ~extraWeapons) === 0;
+}
+
+export function normalizeLoadout(raw?: Partial<Loadout> | null, extraWeapons = 0): Loadout {
   return {
-    gun: clampLoadoutIndex(0, raw?.gun ?? 0),
-    heavy: clampLoadoutIndex(1, raw?.heavy ?? 0),
-    special: clampLoadoutIndex(2, raw?.special ?? 0),
+    gun: clampLoadoutIndex(0, raw?.gun ?? 0, extraWeapons),
+    heavy: clampLoadoutIndex(1, raw?.heavy ?? 0, extraWeapons),
+    special: clampLoadoutIndex(2, raw?.special ?? 0, extraWeapons),
   };
 }
 
-export function weaponInSlot(slot: 0 | 1 | 2, index: number): WeaponDef {
+export function weaponInSlot(slot: 0 | 1 | 2, index: number, extraWeapons = 0): WeaponDef {
   const list = BY_SLOT[slot];
-  return list[clampLoadoutIndex(slot, index)];
+  return list[clampLoadoutIndex(slot, index, extraWeapons)];
 }
 
 /** Resolve the three weapons a player is carrying. */
-export function resolveLoadout(loadout: Loadout): {
+export function resolveLoadout(
+  loadout: Loadout,
+  extraWeapons = 0,
+): {
   gun: WeaponDef;
   heavy: WeaponDef;
   special: WeaponDef;
 } {
-  const l = normalizeLoadout(loadout);
+  const l = normalizeLoadout(loadout, extraWeapons);
   return {
     gun: GUNS[l.gun],
     heavy: HEAVIES[l.heavy],
@@ -469,9 +621,9 @@ export function resolveLoadout(loadout: Loadout): {
 }
 
 /**
- * Weapons the original has and the catalogue does not offer, with their codes:
- * the menu's three slots carry the ten above (rules.md §2), so these are not
- * adopted (fcop-fidelity.md W1): Riot Shield 0x05, Fusion Torpedo 0x14, K-9 Drone
- * 0x15, Plasma Flare 0x21, Grenade Launcher 0x24.
+ * The original's weapons the catalogue does not carry: none since SIM_VERSION
+ * 90. The five Precinct Assault never offers (Riot Shield 0x05, Fusion Torpedo
+ * 0x14, K-9 Drone 0x15, Plasma Flare 0x21, Grenade Launcher 0x24) are appended
+ * above, each behind its SimOptions.extraWeapons bit (fcop-fidelity.md W1, W5).
  */
-export const NOT_ADOPTED_CODES: readonly number[] = [0x05, 0x14, 0x15, 0x21, 0x24];
+export const NOT_ADOPTED_CODES: readonly number[] = [];

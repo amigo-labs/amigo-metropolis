@@ -38,7 +38,14 @@ import {
   TURRET_DUMMY,
 } from "../src/sim";
 import { UNIT_MODE_OUTPOST } from "../src/units";
-import { difficultyAmmo, GUNS, HEAVIES, resolveLoadout, SPECIALS } from "../src/weapons";
+import {
+  difficultyAmmo,
+  EXTRA_WEAPONS_ALL,
+  GUNS,
+  HEAVIES,
+  resolveLoadout,
+  SPECIALS,
+} from "../src/weapons";
 
 /** A record's magazine on the default NORMAL pick. */
 const normal = (raw: number) => difficultyAmmo(raw, DIFFICULTY_NORMAL);
@@ -383,7 +390,11 @@ describe("setSandboxLoadout", () => {
     // Player 99 clamps to the last slot; over-high indices clamp to the last
     // weapon in the slot, negatives to the first.
     setSandboxLoadout(sim, 99, { gun: 99, heavy: -3, special: 99 });
-    expect(sandboxLoadout(sim, 1)).toEqual({
+    // Without the extra weapons: the slot's last Precinct Assault weapon.
+    expect(sandboxLoadout(sim, 1)).toEqual({ gun: 3, heavy: 0, special: 2 });
+    const all = createSim(loadMapFromJson(range()), 42, { extraWeapons: EXTRA_WEAPONS_ALL });
+    setSandboxLoadout(all, 99, { gun: 99, heavy: -3, special: 99 });
+    expect(sandboxLoadout(all, 1)).toEqual({
       gun: GUNS.length - 1,
       heavy: 0,
       special: SPECIALS.length - 1,
@@ -391,7 +402,7 @@ describe("setSandboxLoadout", () => {
   });
 
   it("reaches every weapon in the catalog", () => {
-    const sim = rangeSim();
+    const sim = createSim(loadMapFromJson(range()), 42, { extraWeapons: EXTRA_WEAPONS_ALL });
     for (let g = 0; g < GUNS.length; g++) {
       for (let h = 0; h < HEAVIES.length; h++) {
         for (let s = 0; s < SPECIALS.length; s++) {

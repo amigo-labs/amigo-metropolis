@@ -8,13 +8,13 @@
 // already; this only copies it out. A pure read, like writeMatchSnapshot:
 // never hashed, never written back.
 
-import { MAX_PLAYERS, WALK_CODES_PER_TICK } from "./balance";
+import { MAX_PLAYERS, RAW_PER_METRE, WALK_CODES_PER_TICK } from "./balance";
 import type { SimState } from "./sim";
 
 /** Length of the codes block at AVATAR_SNAP_CODES. */
 export const AVATAR_SNAP_CODE_SLOTS = WALK_CODES_PER_TICK;
 /** Floats per player slot. */
-export const AVATAR_SNAP_STRIDE = 25 + AVATAR_SNAP_CODE_SLOTS;
+export const AVATAR_SNAP_STRIDE = 27 + AVATAR_SNAP_CODE_SLOTS;
 /** Length of the buffer writeAvatarSnapshot fills. */
 export const AVATAR_SNAPSHOT_LEN = MAX_PLAYERS * AVATAR_SNAP_STRIDE;
 /** The slot's X1 entity id, -1 while it is down -- and always for the Warden's slot. */
@@ -64,6 +64,19 @@ export const AVATAR_SNAP_CARRY = 23;
 /** How many codes the legs passed this tick, then the codes, low first (AVATAR_SNAP_CODE_SLOTS). */
 export const AVATAR_SNAP_CODE_COUNT = 24;
 export const AVATAR_SNAP_CODES = 25;
+/**
+ * The Riot Shield's sphere (sim.ts ShieldState): its radius in metres while it
+ * is up, 0 when it is down or the match offers no Riot Shield. Drawn about the
+ * mech's position raised 0.5 m (SHIELD_CENTRE_RAISE).
+ */
+export const AVATAR_SNAP_SHIELD_RADIUS = 25 + AVATAR_SNAP_CODE_SLOTS;
+/**
+ * Its look: SHIELD_SNAP_WHOLE (block B, the whole sphere; else the front half
+ * of block A) and SHIELD_SNAP_FLASH (the flash after a contact).
+ */
+export const AVATAR_SNAP_SHIELD_FLAGS = 26 + AVATAR_SNAP_CODE_SLOTS;
+export const SHIELD_SNAP_WHOLE = 1;
+export const SHIELD_SNAP_FLASH = 2;
 
 /** Writes every player slot into `out` (length AVATAR_SNAPSHOT_LEN). */
 export function writeAvatarSnapshot(state: SimState, out: Float32Array): void {
@@ -106,5 +119,12 @@ export function writeAvatarSnapshot(state: SimState, out: Float32Array): void {
     for (let k = 0; k < AVATAR_SNAP_CODE_SLOTS; k++) {
       out[o + AVATAR_SNAP_CODES + k] = k < n ? w.codes[at + k] : 0;
     }
+    const sh = state.shield;
+    const on = (sh.flags[p] & 1) !== 0;
+    out[o + AVATAR_SNAP_SHIELD_RADIUS] = on ? sh.radius[p] / RAW_PER_METRE : 0;
+    out[o + AVATAR_SNAP_SHIELD_FLAGS] = on
+      ? ((sh.flags[p] & 4) !== 0 ? SHIELD_SNAP_WHOLE : 0) |
+        (sh.flash[p] > 0 ? SHIELD_SNAP_FLASH : 0)
+      : 0;
   }
 }

@@ -356,13 +356,13 @@ export function setSandboxLoadout(
   loadout: Partial<Loadout>,
 ): void {
   const p = clampPlayer(player);
-  const kit = normalizeLoadout(loadout);
+  const kit = normalizeLoadout(loadout, state.extraWeapons);
   state.loadoutGun[p] = kit.gun;
   state.loadoutHeavy[p] = kit.heavy;
   state.loadoutSpecial[p] = kit.special;
   const id = state.avatarId[p];
   if (id < 0 || !state.ent.alive[id]) return;
-  const resolved = resolveLoadout(kit);
+  const resolved = resolveLoadout(kit, state.extraWeapons);
   const d = state.difficulty[p];
   state.gunAmmo[p] = difficultyAmmo(resolved.gun.ammo, d);
   state.ent.ammoA[id] = difficultyAmmo(resolved.heavy.ammo, d);
@@ -406,11 +406,14 @@ export function reassertSandboxHp(state: SimState, player: number): void {
 }
 
 function kitFor(state: SimState, player: number) {
-  return resolveLoadout({
-    gun: state.loadoutGun[player],
-    heavy: state.loadoutHeavy[player],
-    special: state.loadoutSpecial[player],
-  });
+  return resolveLoadout(
+    {
+      gun: state.loadoutGun[player],
+      heavy: state.loadoutHeavy[player],
+      special: state.loadoutSpecial[player],
+    },
+    state.extraWeapons,
+  );
 }
 
 /** Full health of `archetype`; an avatar's is its slot's on that slot's difficulty. */

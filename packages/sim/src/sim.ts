@@ -39,6 +39,13 @@ import {
   FLOOR_DAMAGE_PER_STEP,
   FORTRESS_ALIVE_LIMIT,
   FRAME_CLOCK_PER_TICK,
+  GRENADE_BOUNCE_HORIZONTAL,
+  GRENADE_BOUNCE_VERTICAL,
+  GRENADE_FUSE_JITTER_DIV,
+  GRENADE_FUSE_JITTER_MASK,
+  GRENADE_MOVE_SCALE,
+  GRENADE_REST_SPEED,
+  GRENADE_TIME_DIVISOR,
   GUARDIAN_ALIVE_LIMIT,
   HEAVY_UNLOCK_POINTS,
   HELLFIRE_SPLIT_FAN,
@@ -61,12 +68,21 @@ import {
   HOVER_STOP_SPEED,
   HOVER_TURN_LIMIT,
   JUGGERNAUT_ALIVE_LIMIT,
+  K9_AVOID_BIAS,
+  K9_CLEARANCE,
+  K9_CLEARANCE_LIFT,
+  K9_CLEARANCE_RANGE,
   LIFT_RIM_SLACK,
   LIFT_STEP_UP,
   LOW_AMMO_WARNING,
   MATCH_OUTRO_TICKS,
   MAX_ENTITIES,
   MAX_PLAYERS,
+  MISSILE_ARRIVAL_WU,
+  MISSILE_FUSE_RENEW,
+  MISSILE_FUSE_UNITS,
+  MISSILE_MIN_SPEED,
+  MISSILE_ROUND_HEALTH,
   MISSILE_TURN_RATE,
   MORTAR_FRAGMENT_SPREAD,
   MUZZLE_HEIGHT,
@@ -93,10 +109,20 @@ import {
   POINTS_HEAVY_DIES,
   POINTS_TURRET_DIES,
   POINTS_UNIT_DIES,
+  RAW_PER_METRE,
   RESPAWN_SUNK_TICKS,
   RESPAWN_TICKS,
   RUNNER_ALIVE_LIMIT,
   retentionPerTick,
+  SHIELD_ARC_WAIT_BASE,
+  SHIELD_ARC_WAIT_MASK,
+  SHIELD_ARCS,
+  SHIELD_FLASH_DRAWS,
+  SHIELD_HOLD_UNITS,
+  SHIELD_RECOIL_A,
+  SHIELD_RECOIL_B,
+  SHIELD_ROUND_DAMAGE_A,
+  SHIELD_ROUND_DAMAGE_B,
   SHOOTER_RETRY_UNITS,
   SKY_BOMB_BLAST,
   SKY_BOMB_DAMAGE,
@@ -136,6 +162,8 @@ import {
   WARDEN_HEAVY_SPEED,
   WARDEN_HEAVY_TTL_TICKS,
   WEAPON_UNITS_PER_TICK,
+  type WeaponRecord,
+  WU_PER_METRE,
   wardenLevel,
   X1_DIAGONAL_SCALE,
   X1_GRAVITY,
@@ -169,6 +197,7 @@ import {
   EV_PURCHASE_REFUSED,
   EV_RESPAWN,
   EV_ROUND_IMPACT,
+  EV_SHIELD_ARC,
   EV_SHOT,
   EV_SUNK,
   EV_TRANSFORM,
@@ -220,7 +249,16 @@ import {
   waterHeightAt,
   worldExtent,
 } from "./map";
-import { atan2Poly, cosLUT, octagonalLength, rand01, randU32, sinLUT } from "./simMath";
+import {
+  atan2Poly,
+  cosLUT,
+  cosUnits,
+  octagonalLength,
+  rand01,
+  randU32,
+  sinLUT,
+  sinUnits,
+} from "./simMath";
 import {
   bumpStat,
   noteDown,
@@ -282,12 +320,16 @@ import {
 import {
   DEFAULT_LOADOUT,
   difficultyAmmo,
+  EXTRA_WEAPON_RIOT_SHIELD,
   type Loadout,
+  normalizeExtraWeapons,
   normalizeLoadout,
   PROJ_BEAM,
+  PROJ_K9,
   PROJ_MINE,
   PROJ_ROUND,
   PROJ_SPLASH,
+  PROJ_TORPEDO,
   PROJ_WARDEN,
   resolveLoadout,
   type WeaponBlock,
@@ -342,6 +384,15 @@ export interface SimOptions {
    * ignores it. Part of the replay header (format 4) and the online handshake.
    */
   difficulties?: readonly number[];
+  /**
+   * The "Spielregeln" switch for the original's five weapons Precinct Assault
+   * never offers, a bit each (weapons.ts EXTRA_WEAPON_*: 0 Riot Shield, 1 K-9
+   * Drone, 2 Grenade Launcher, 3 Fusion Torpedo, 4 Plasma Flare). 0 by default,
+   * the original's PA: a loadout naming a weapon whose bit is clear is refused
+   * (weapons.ts clampLoadoutIndex). Online the host sets it, solo the
+   * preferences. Part of the replay header (format 5) and the online handshake.
+   */
+  extraWeapons?: number;
 }
 
 /** A difficulty value as the sim takes it: an integer row 0..2, NORMAL when unusable. */
@@ -635,6 +686,26 @@ export interface SimState {
    * read by the next tick's velocity. Hashed on arenas with mode floors only.
    */
   readonly avatarMode: Uint8Array;
+
+  /**
+   * SimOptions.extraWeapons, normalized (config, like the loadouts). Everything
+   * the five weapons add is hashed only in a match where it is not 0.
+   */
+  readonly extraWeapons: number;
+  /**
+   * Each player's kept round (the Grenade Launcher's, the Plasma Flare's), the
+   * original's view `live_round`: the entity id, -1 none. A second Special press
+   * while it lives sets off every round of its class the player fired.
+   */
+  readonly keptRound: Int32Array;
+  /** The Riot Shield's sphere per player (systemShields). */
+  readonly shield: ShieldState;
+  /**
+   * A guided round's launch point and range (x, y, height, range at `id * 4`),
+   * the original's +0xa0..+0xa6: what its range and the Fusion Torpedo's falloff
+   * measure from. Read and hashed for live guided rounds only.
+   */
+  readonly roundLaunch: Float32Array;
 
   /** Per-tick transient events (NOT hashed). */
   readonly events: EventBuffer;
@@ -1013,6 +1084,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
       ? Math.min(Math.max(rawDifficulty >= 1 ? Math.floor(rawDifficulty) : 1, 1), 10)
       : 0;
   const loadouts = options?.loadouts;
+  const extraWeapons = normalizeExtraWeapons(options?.extraWeapons);
   const difficulties = options?.difficulties;
   const state: SimState = {
     tick: 0,
@@ -1102,12 +1174,16 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     avatarIdle: new Int32Array(MAX_PLAYERS),
     walker: createWalkerState(MAX_PLAYERS),
     avatarMode: new Uint8Array(MAX_PLAYERS),
+    extraWeapons,
+    keptRound: new Int32Array(MAX_PLAYERS).fill(-1),
+    shield: createShieldState(),
+    roundLaunch: new Float32Array(MAX_ENTITIES * 4),
     events: createEventBuffer(),
   };
   // Apply loadouts before avatars spawn so ammo capacities match the kit.
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const raw = loadouts?.[p] ?? (p === 0 ? loadouts?.[0] : undefined);
-    const kit = normalizeLoadout(raw ?? DEFAULT_LOADOUT);
+    const kit = normalizeLoadout(raw ?? DEFAULT_LOADOUT, extraWeapons);
     state.loadoutGun[p] = kit.gun;
     state.loadoutHeavy[p] = kit.heavy;
     state.loadoutSpecial[p] = kit.special;
@@ -2448,11 +2524,14 @@ function refillAmmo(state: SimState, player: number, id: number): void {
 }
 
 function loadoutOf(state: SimState, player: number) {
-  return resolveLoadout({
-    gun: state.loadoutGun[player],
-    heavy: state.loadoutHeavy[player],
-    special: state.loadoutSpecial[player],
-  });
+  return resolveLoadout(
+    {
+      gun: state.loadoutGun[player],
+      heavy: state.loadoutHeavy[player],
+      special: state.loadoutSpecial[player],
+    },
+    state.extraWeapons,
+  );
 }
 
 /** `player_target_hold`'s cooldown decay: 10 engine units a tick, floored at zero. */
@@ -2484,8 +2563,8 @@ function avatarWeapons(
   // paced by their cooldowns. Special fires from its latch: in the HELD state —
   // the second tick it is down, never the tick it goes down, so a one-tick tap
   // fires nothing — unless a slot's block A keeps its round (flag 4: the Plasma
-  // Flare and the Grenade, neither in the catalogue), which makes it fire on
-  // the press.
+  // Flare and the Grenade Launcher, extra weapons), which makes it fire on the
+  // press.
   const kit = loadoutOf(state, player);
   if ((buttons & BTN_GUN) !== 0) fireSlot(state, player, id, 0, kit.gun);
   if ((buttons & BTN_HEAVY) !== 0) fireSlot(state, player, id, 1, kit.heavy);
@@ -2498,6 +2577,8 @@ function avatarWeapons(
 
 /** Block A flag 4: the round is kept, and Special becomes press-to-fire. */
 const WEAPON_FLAG_KEEP = 4;
+/** Flag 2: a guided round's blast falls off with the distance flown (CACT_MISSILE_FALLOFF). */
+const WEAPON_FLAG_FALLOFF = 2;
 
 /**
  * One slot's trigger, `player_fire_slot` (retail 0x00458ed0): refused while its
@@ -2507,6 +2588,16 @@ const WEAPON_FLAG_KEEP = 4;
  */
 function fireSlot(state: SimState, player: number, id: number, slot: number, w: WeaponDef): void {
   const ent = state.ent;
+  // The Special with a kept round alive sets it off instead, before the
+  // cooldown is read; a stale one is only forgotten (0x00458f06).
+  if (slot === 2 && state.keptRound[player] >= 0) {
+    const kept = state.keptRound[player];
+    state.keptRound[player] = -1;
+    if (keptAlive(state, player, kept)) {
+      detonateKept(state, player, kept);
+      return;
+    }
+  }
   const cd = slot === 0 ? ent.cooldownA : slot === 1 ? ent.cooldownB : ent.cooldownC;
   if (cd[id] > 0) return;
   const k = player * 3 + slot;
@@ -2556,6 +2647,7 @@ function powerUp(state: SimState, player: number, slot: number): void {
       : slot === 1
         ? state.loadoutHeavy[player]
         : state.loadoutSpecial[player],
+    state.extraWeapons,
   );
   if (state.powerAmmo[k] === 0) state.burstLeft[k] = w.b.rounds;
   state.powerAmmo[k] = difficultyAmmo(w.b.ammoCap, state.difficulty[player]);
@@ -2607,6 +2699,24 @@ function deliver(
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       return true;
     }
+    case "sphere": {
+      // The Riot Shield: the toggle's answer is the shot's (0x00459575).
+      if (!shieldToggle(state, player, blk, powered)) return false;
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
+      return true;
+    }
+    case "drone": {
+      if (spawnGuided(state, shooter, player, w, blk, lock) < 0) return false;
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
+      return true;
+    }
+    case "bounce": {
+      const id = spawnBounce(state, shooter, player, w, blk, lock);
+      if (id < 0) return false;
+      if ((blk.flags & WEAPON_FLAG_KEEP) !== 0) state.keptRound[player] = id;
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
+      return true;
+    }
     case "arced": {
       const x = ent.posX[shooter] + fx * MUZZLE_OFFSET;
       const y = ent.posY[shooter] + fy * MUZZLE_OFFSET;
@@ -2628,10 +2738,19 @@ function deliver(
       const id = spawnArced(state, x, y, h, tx, ty, th, blk.launchSpeed, blk.gravity);
       if (id < 0) return false;
       armRound(state, id, shooter, player, w.projKind, blk, flags, -1);
+      // The Plasma Flare keeps its shell for the second press.
+      if ((blk.flags & WEAPON_FLAG_KEEP) !== 0) state.keptRound[player] = id;
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       return true;
     }
     default: {
+      // The Fusion Torpedo flies the original's guided round (missile.c), the
+      // K-9 Drone's model without the ground hugging.
+      if (w.projKind === PROJ_TORPEDO) {
+        if (spawnGuided(state, shooter, player, w, blk, lock) < 0) return false;
+        pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
+        return true;
+      }
       // "missile": kinds 3 and 0x12 home on the lock; kind 2 is lead-aimed at it
       // (`cact_discharge_lead`) and flies straight, as kind 1 does without one.
       const homing = blk.kind !== KIND_MISSILE_LEAD && lock >= 0;
@@ -2854,6 +2973,14 @@ const ROUND_FLAT_BLAST = 8;
  * (`round_spawn.c`), which is what the down's credit reads (SimState.rivalHit).
  */
 const ROUND_RIVAL = 16;
+/** The original's guided ordnance (the K-9 Drone, the Fusion Torpedo): guidedTick. */
+const ROUND_GUIDED = 32;
+/** The bouncing round (the Grenade Launcher): bounceTick. */
+const ROUND_BOUNCE = 64;
+/** A kept arced round the second press set off: it goes where it is, this tick. */
+const ROUND_DETONATE = 128;
+/** A guided round whose blast falls off with the distance flown (the Fusion Torpedo). */
+const ROUND_FALLOFF = 256;
 
 /**
  * A projectile's fields (the PROJECTILE archetype reuses the store):
@@ -3908,6 +4035,819 @@ function nearestEnemyAvatar(state: SimState, id: number, range: number): number 
  * Projectiles: fly, home, expire, burst at the apex, explode on contact or terrain.
  * Mines arm, wait, spring and blow.
  */
+
+// --- The five extra weapons (SimOptions.extraWeapons, SIM_VERSION 90) --------
+//
+// Each runs the original's own code for its kind, read off the RE's
+// decompilation: the Riot Shield the sustained sphere (`sustain_sphere.c`), the
+// K-9 Drone and the Fusion Torpedo the guided ordnance actor (`missile.c`), the
+// Grenade Launcher the bouncing round (`type15.c`), the Plasma Flare the arced
+// shell the Mortar already fires, kept for the second press. None of it runs
+// in a match without the bits: every guard below reads `state.extraWeapons`
+// or a round flag only these weapons set.
+
+/** The frame clock (DAT_00511ee4) the sustained effects compare against. */
+function engineClock(state: SimState): number {
+  return state.tick * WEAPON_UNITS_PER_TICK;
+}
+
+/** A 32-bit value as the original's 16-bit word. */
+function i16(v: number): number {
+  return (v << 16) >> 16;
+}
+
+/**
+ * The Riot Shield's sphere per player: `sustain_sphere` (0x1b0 bytes; one of the
+ * unit's four slots, a player's own). Hashed in a match with extra weapons.
+ */
+export interface ShieldState {
+  /** SHIELD_ON | SHIELD_B | SHIELD_MADE (`state` +0x52, and whether a record exists). */
+  readonly flags: Uint8Array;
+  /** Radius, its spring rate and target, the reach box and the hurt: raw words (512 a metre). */
+  readonly radius: Int16Array;
+  readonly rate: Int16Array;
+  readonly target: Int16Array;
+  readonly reach: Int16Array;
+  readonly amount: Int16Array;
+  /** `hold_until`, `spend_period`, `spend_next`: engine units on the frame clock. */
+  readonly hold: Int32Array;
+  readonly period: Int32Array;
+  readonly spendNext: Int32Array;
+  /** `byte_1ae`, the flash's draws left. Presentation only, NOT hashed. */
+  readonly flash: Uint8Array;
+  /** The twelve arcs per player (`sustain_sphere_arc`): direction in the sphere's axes. */
+  readonly arcDir: Float32Array;
+  /** Their angle pairs (12-bit angles, `phase` picks the one written next). */
+  readonly arcYaw: Int16Array;
+  readonly arcPitch: Int16Array;
+  readonly arcNext: Int32Array;
+  readonly arcPhase: Uint8Array;
+  readonly arcCharged: Uint8Array;
+}
+
+const SHIELD_ON = 1;
+const SHIELD_B = 4;
+const SHIELD_MADE = 0x80;
+
+function createShieldState(): ShieldState {
+  const arcs = MAX_PLAYERS * SHIELD_ARCS;
+  return {
+    flags: new Uint8Array(MAX_PLAYERS),
+    radius: new Int16Array(MAX_PLAYERS),
+    rate: new Int16Array(MAX_PLAYERS),
+    target: new Int16Array(MAX_PLAYERS),
+    reach: new Int16Array(MAX_PLAYERS),
+    amount: new Int16Array(MAX_PLAYERS),
+    hold: new Int32Array(MAX_PLAYERS),
+    period: new Int32Array(MAX_PLAYERS),
+    spendNext: new Int32Array(MAX_PLAYERS),
+    flash: new Uint8Array(MAX_PLAYERS),
+    arcDir: new Float32Array(arcs * 3),
+    arcYaw: new Int16Array(arcs * 2),
+    arcPitch: new Int16Array(arcs * 2),
+    arcNext: new Int32Array(arcs),
+    arcPhase: new Uint8Array(arcs),
+    arcCharged: new Uint8Array(arcs),
+  };
+}
+
+/**
+ * `sustain_sphere_create` (0x0044bf70) for a player: nothing switched on, every
+ * counter zero, the twelve arcs as `sustain_sphere_arc_init` (0x0044c1c0) leaves
+ * them — direction (0, 0, 1), the first angle pair zero, phase 1. Its radius
+ * target is the toggle's to take.
+ */
+function shieldCreate(state: SimState, p: number): void {
+  const s = state.shield;
+  s.flags[p] = SHIELD_MADE;
+  s.hold[p] = 0;
+  s.radius[p] = 0;
+  s.rate[p] = 0;
+  s.amount[p] = 0;
+  s.spendNext[p] = 0;
+  for (let k = 0; k < SHIELD_ARCS; k++) {
+    const i = p * SHIELD_ARCS + k;
+    s.arcNext[i] = 0;
+    s.arcYaw[i * 2] = 0;
+    s.arcPitch[i * 2] = 0;
+    s.arcPhase[i] = 1;
+    s.arcCharged[i] = 0;
+    s.arcDir[i * 3] = 0;
+    s.arcDir[i * 3 + 1] = 0;
+    s.arcDir[i * 3 + 2] = 1;
+  }
+}
+
+/**
+ * The toggle's three numbers (0x0044c248..0x0044c276): the radius target, the
+ * reach box (the second word, or 8/5 of the radius when that is larger) and
+ * the hurt, all sixteen bits.
+ */
+function shieldTakeStats(state: SimState, p: number, r: WeaponRecord): void {
+  const s = state.shield;
+  s.target[p] = r.w0e;
+  s.reach[p] = r.w10 < r.w0e ? i16(Math.trunc((r.w0e * 8) / 5)) : r.w10;
+  s.amount[p] = r.damage;
+}
+
+/**
+ * The Riot Shield's trigger, `sustain_sphere_toggle`'s player arm (0x0044c1f0):
+ * past the hold the sphere flips; every call renews the hold, so a held trigger
+ * flips it once and a fresh press after a release flips it back. On, it takes
+ * the block's numbers (B's while the slot is powered: the whole sphere and the
+ * arcs) and answers true — the caller spends a round and its gap. Off, false.
+ */
+function shieldToggle(state: SimState, p: number, blk: WeaponBlock, powered: boolean): boolean {
+  const s = state.shield;
+  if ((s.flags[p] & SHIELD_MADE) === 0) {
+    shieldCreate(state, p);
+    shieldTakeStats(state, p, blk.rec);
+  }
+  const now = engineClock(state);
+  if (now > s.hold[p]) s.flags[p] ^= SHIELD_ON;
+  s.hold[p] = now + SHIELD_HOLD_UNITS;
+  if ((s.flags[p] & SHIELD_ON) === 0) return false;
+  s.period[p] = blk.roundGap;
+  if (powered) s.flags[p] |= SHIELD_B;
+  else s.flags[p] &= ~SHIELD_B;
+  shieldTakeStats(state, p, blk.rec);
+  return true;
+}
+
+/**
+ * The fold of an arc's angle (0x0044cbec / 0x0044cc35): past `q` reflected about
+ * it, one short of -q about that — one reflection, in sixteen bits.
+ */
+function arcFold(angle: number, q: number): number {
+  const a = angle & 0xffff;
+  if (i16(q - a) < 0) return i16(2 * q - a);
+  if (i16(a + q) < 0) return i16(-2 * q - a);
+  return angle;
+}
+
+/**
+ * One arc, `sustain_sphere_arc_step` (0x0044caf0): past its time it waits 0x3f
+ * plus `rand & 0x7f` more, jitters both angles by `rand >> 22` (up to an eighth
+ * of a turn either way), folds the yaw to the front half on a half sphere and
+ * the pitch to +-0x200 (the player's patch is built ramped), takes row 2 of the
+ * angles' matrix as its direction and, one time in eight, charges.
+ */
+function shieldArcStep(state: SimState, p: number, k: number, half: boolean, now: number): void {
+  const s = state.shield;
+  const i = p * SHIELD_ARCS + k;
+  if (now <= s.arcNext[i]) return;
+  const phase = s.arcPhase[i];
+  const next = phase ^ 1;
+  s.arcNext[i] = (randU32(state) & SHIELD_ARC_WAIT_MASK) + now + SHIELD_ARC_WAIT_BASE;
+  let yaw = i16(((randU32(state) | 0) >> 22) + s.arcYaw[i * 2 + next]);
+  let pitch = i16(((randU32(state) | 0) >> 22) + s.arcPitch[i * 2 + next]);
+  if (half) yaw = arcFold(yaw, 0x400);
+  pitch = arcFold(pitch, 0x200);
+  s.arcYaw[i * 2 + phase] = yaw;
+  s.arcPitch[i * 2 + phase] = pitch;
+  // Row 2 of `math_matrix_from_angles(yaw, pitch, 0)`: (cx sy, -sx, cx cy).
+  const cp = cosUnits(pitch);
+  s.arcDir[i * 3] = cp * sinUnits(yaw);
+  s.arcDir[i * 3 + 1] = -sinUnits(pitch);
+  s.arcDir[i * 3 + 2] = cp * cosUnits(yaw);
+  s.arcPhase[i] = next;
+  if ((randU32(state) & 7) === 7) s.arcCharged[i] = 1;
+}
+
+/**
+ * `sustain_sphere_take_arc` (0x0044c9f0) on the whole sphere: the first charged
+ * arc, refused (and left charged) when the actor at (dx, dy, dh) from the centre
+ * lies behind its point; else its charge is spent. The sphere's axes are the
+ * mech's: x its right, y up, z its facing.
+ */
+function shieldTakeArc(
+  state: SimState,
+  p: number,
+  dx: number,
+  dy: number,
+  dh: number,
+  fx: number,
+  fy: number,
+): boolean {
+  const s = state.shield;
+  for (let k = 0; k < SHIELD_ARCS; k++) {
+    const i = p * SHIELD_ARCS + k;
+    if (s.arcCharged[i] === 0) continue;
+    const ax = s.arcDir[i * 3];
+    const ay = s.arcDir[i * 3 + 1];
+    const az = s.arcDir[i * 3 + 2];
+    const r = s.radius[p];
+    const px = (ax * fy + az * fx) * r;
+    const py = (-ax * fx + az * fy) * r;
+    const ph = ay * r;
+    if (px * dx + py * dy + ph * dh < 0) return false;
+    s.arcCharged[i] = 0;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The hurt (0x0044c927..0x0044c98c): a round — the original's types 2, 7 and
+ * 0x0f — takes 1000 in block B and in A 300 one draw in eight; anything else
+ * the sphere's own amount, credited to the mech.
+ */
+function shieldHurt(state: SimState, p: number, t: number): void {
+  const ent = state.ent;
+  const s = state.shield;
+  if (ent.archetype[t] === ARCHETYPE.PROJECTILE) {
+    const amount =
+      (s.flags[p] & SHIELD_B) !== 0
+        ? SHIELD_ROUND_DAMAGE_B
+        : (randU32(state) & 7) === 7
+          ? SHIELD_ROUND_DAMAGE_A
+          : 0;
+    if (amount <= 0) return;
+    ent.hp[t] -= amount;
+    if (ent.hp[t] <= 0) roundDestroyed(state, t);
+    return;
+  }
+  applyDamage(state, t, s.amount[p], p, true);
+}
+
+/** A round whose health ran out goes off as its class does on expiry. */
+function roundDestroyed(state: SimState, id: number): void {
+  if ((state.ent.ammoB[id] & ROUND_GUIDED) !== 0) guidedExpire(state, id);
+  else explode(state, id);
+}
+
+/**
+ * A player's spend (0x0044c6ae..0x0044c74e): once the trigger's hold and the
+ * spend period have both passed, one round of the gun slot's magazine — block
+ * B's while it lasts — and at none the sphere goes off.
+ */
+function shieldSpend(state: SimState, p: number, now: number): void {
+  const s = state.shield;
+  if (now <= s.hold[p] || now <= s.spendNext[p]) return;
+  const k = p * 3;
+  const second = state.powerAmmo[k] > 0;
+  let left = second ? state.powerAmmo[k] : state.gunAmmo[p];
+  if (left > 0) left -= 1;
+  if (left <= 0) s.flags[p] &= ~SHIELD_ON;
+  if (second) state.powerAmmo[k] = left;
+  else state.gunAmmo[p] = left;
+  s.spendNext[p] = s.period[p] + now;
+}
+
+/**
+ * Every player's sphere, once a tick: `sustain_sphere_tick` (0x0044c5e0). Its
+ * owner gone (down), the record goes. Off, its radius and rate are zero. On: the
+ * radius springs toward its target, `rate += ((2 (target - r) - 8 rate) delta)
+ * >> 8`; the twelve arcs step; the mech spends; and every body of another side
+ * inside the reach box — and, on the half sphere of block A, in front of the
+ * mech — is hurt while it is inside the sphere grown by its own radius, which
+ * also recoils the sphere and flashes it. In block B the first body in the box
+ * then takes a hurt more for each charged arc on its side.
+ */
+function systemShields(state: SimState): void {
+  if ((state.extraWeapons & EXTRA_WEAPON_RIOT_SHIELD) === 0) return;
+  const ent = state.ent;
+  const s = state.shield;
+  const now = engineClock(state);
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    if ((s.flags[p] & SHIELD_MADE) === 0) continue;
+    const a = state.avatarId[p];
+    if (a < 0 || !ent.alive[a]) {
+      s.flags[p] = 0;
+      s.flash[p] = 0;
+      continue;
+    }
+    if (s.flash[p] > 0) s.flash[p] -= 1;
+    if ((s.flags[p] & SHIELD_ON) === 0) {
+      s.radius[p] = 0;
+      s.rate[p] = 0;
+      continue;
+    }
+    const r = s.radius[p];
+    const rate = s.rate[p];
+    const pull = 2 * (s.target[p] - r) - 8 * rate;
+    const newRate = i16(((pull * WEAPON_UNITS_PER_TICK) >> 8) + rate);
+    s.rate[p] = newRate;
+    s.radius[p] = newRate + r;
+    const powered = (s.flags[p] & SHIELD_B) !== 0;
+    for (let k = 0; k < SHIELD_ARCS; k++) shieldArcStep(state, p, k, !powered, now);
+    shieldSpend(state, p, now);
+
+    const fx = ent.aimX[a];
+    const fy = ent.aimY[a];
+    const reach = s.reach[p] / RAW_PER_METRE;
+    const rm = r / RAW_PER_METRE; // the inside test reads the radius before the step
+    const team = ent.team[a];
+    let take = true;
+    for (let t = 0; t < ent.high; t++) {
+      if (!ent.alive[t] || t === a || ent.team[t] === team) continue;
+      if (ent.archetype[t] === ARCHETYPE.CONSOLE) continue;
+      const dx = ent.posX[t] - ent.posX[a];
+      const dy = ent.posY[t] - ent.posY[a];
+      // Both heights are the feet: the centre's 0x1000 lift and the body's
+      // reference point are taken to be the same height above them.
+      const dh = ent.height[t] - ent.height[a];
+      if (Math.abs(dx) >= reach || Math.abs(dy) >= reach || Math.abs(dh) >= reach) continue;
+      if (!powered && dx * fx + dy * fy < 0) continue;
+      const reachR = rm + entityRadius(state, t);
+      if (dx * dx + dy * dy + dh * dh < reachR * reachR) {
+        s.flash[p] = SHIELD_FLASH_DRAWS;
+        s.rate[p] = powered ? SHIELD_RECOIL_B : SHIELD_RECOIL_A;
+        shieldHurt(state, p, t);
+      }
+      while (ent.alive[t]) {
+        if (!powered || !take || !shieldTakeArc(state, p, dx, dy, dh, fx, fy)) {
+          take = false;
+          break;
+        }
+        pushEvent(state.events, EV_SHIELD_ARC, a, t, p);
+        shieldHurt(state, p, t);
+      }
+    }
+    if (take) {
+      for (let k = 0; k < SHIELD_ARCS; k++) s.arcCharged[p * SHIELD_ARCS + k] = 0;
+    }
+  }
+}
+
+// The guided ordnance's states (`cact_missile` +0xe0).
+const GUIDED_COAST = 0;
+const GUIDED_HOME = 1;
+const GUIDED_AVOID = 3;
+const GUIDED_ACQUIRE = 4;
+
+/**
+ * Launches one guided round, `cact_missile_spawn` (0x0044d000) from the player's
+ * launch path (0x004590d0): from the muzzle along the unit vector to the aim
+ * point — the lock's, or the facing — homing on the lock when there is one.
+ * With an acceleration it starts at twice the record's speed word and caps at
+ * sixteen times it (an eighth); the K-9 Drone carries twice its damage as
+ * health, everything else the round's 40.
+ *
+ * A guided round's fields: posX/posY/height; velX/velY/timerB its heading (a 3D
+ * unit vector); cooldownA its speed and aimX its cap (world units an engine
+ * unit), aimY its acceleration word; timerA the homing fuse (engine units);
+ * timerC its state; cooldownC its target; hp, ammoA damage, aux blast radius,
+ * ammoB ROUND_GUIDED (| ROUND_FALLOFF) | ROUND_RIVAL; and `roundLaunch` its
+ * launch point and range.
+ */
+function spawnGuided(
+  state: SimState,
+  shooter: number,
+  player: number,
+  w: WeaponDef,
+  blk: WeaponBlock,
+  lock: number,
+): number {
+  const ent = state.ent;
+  const fx = ent.aimX[shooter];
+  const fy = ent.aimY[shooter];
+  const x = ent.posX[shooter] + fx * MUZZLE_OFFSET;
+  const y = ent.posY[shooter] + fy * MUZZLE_OFFSET;
+  const h = ent.height[shooter] + MUZZLE_HEIGHT;
+  let dx = fx;
+  let dy = fy;
+  let dh = 0;
+  if (lock >= 0) {
+    const tx = ent.posX[lock] - x;
+    const ty = ent.posY[lock] - y;
+    const th = ent.height[lock] + MUZZLE_HEIGHT - h;
+    const len = Math.sqrt(tx * tx + ty * ty + th * th);
+    if (len > 1e-9) {
+      dx = tx / len;
+      dy = ty / len;
+      dh = th / len;
+    }
+  }
+  const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
+  if (id < 0) return -1;
+  const r = blk.rec;
+  const top = Math.trunc(r.speed / 300);
+  ent.posX[id] = x;
+  ent.posY[id] = y;
+  ent.height[id] = h;
+  ent.velX[id] = dx;
+  ent.velY[id] = dy;
+  ent.timerB[id] = dh;
+  ent.yaw[id] = atan2Poly(dy, dx);
+  ent.cooldownA[id] = r.accel !== 0 ? top * 2 : top << 4;
+  ent.aimX[id] = top << 4;
+  ent.aimY[id] = Math.trunc((r.accel * 256) / 300);
+  ent.timerA[id] = MISSILE_FUSE_UNITS;
+  ent.timerC[id] = lock >= 0 ? GUIDED_HOME : GUIDED_COAST;
+  ent.cooldownC[id] = lock;
+  const hug = w.projKind === PROJ_K9;
+  ent.hp[id] = hug ? (r.damage * 2) & 0xffff : MISSILE_ROUND_HEALTH;
+  ent.ammoA[id] = r.damage;
+  ent.aux[id] = blk.blast;
+  ent.ammoB[id] =
+    ROUND_GUIDED | ROUND_RIVAL | ((r.flags & WEAPON_FLAG_FALLOFF) !== 0 ? ROUND_FALLOFF : 0);
+  ent.mode[id] = w.projKind;
+  ent.ownerId[id] = player;
+  const L = id * 4;
+  state.roundLaunch[L] = x;
+  state.roundLaunch[L + 1] = y;
+  state.roundLaunch[L + 2] = h;
+  state.roundLaunch[L + 3] = blk.range;
+  return id;
+}
+
+/**
+ * ACQUIRE (0x004231f0): the nearest body its owner could lock within the
+ * round's range of the owner, other than the target it had; found, it homes
+ * with a fresh fuse at a sixteenth of its cap, else it coasts.
+ */
+function guidedAcquire(state: SimState, id: number): void {
+  const ent = state.ent;
+  const p = ent.ownerId[id];
+  const a = p >= 0 && p < MAX_PLAYERS ? state.avatarId[p] : -1;
+  let found = -1;
+  if (a >= 0 && ent.alive[a]) {
+    const range = state.roundLaunch[id * 4 + 3];
+    let best = range * range;
+    const exclude = ent.cooldownC[id];
+    for (let t = 0; t < ent.high; t++) {
+      if (t === exclude || !isLockable(state, p, a, t)) continue;
+      const dx = ent.posX[t] - ent.posX[a];
+      const dy = ent.posY[t] - ent.posY[a];
+      const d2 = dx * dx + dy * dy;
+      if (d2 < best) {
+        best = d2;
+        found = t;
+      }
+    }
+  }
+  if (found >= 0) {
+    ent.timerA[id] = MISSILE_FUSE_UNITS;
+    ent.timerC[id] = GUIDED_HOME;
+    ent.cooldownC[id] = found;
+    ent.cooldownA[id] = Math.floor(ent.aimX[id] / 16);
+  } else {
+    ent.timerC[id] = GUIDED_COAST;
+  }
+}
+
+/**
+ * A guided round's end, operation 4 (0x00422e62): its blast, if it has one — the
+ * Fusion Torpedo's, its damage first cut by the distance it flew from its launch
+ * point over its range, in 256-unit steps and sixteen bits, so a torpedo that
+ * outran its range does nothing. The K-9 Drone has none; its effect still
+ * plays.
+ */
+function guidedExpire(state: SimState, id: number): void {
+  const ent = state.ent;
+  const x = ent.posX[id];
+  const y = ent.posY[id];
+  const team = ent.team[id];
+  const owner = ent.ownerId[id];
+  const kind = ent.mode[id];
+  const radius = ent.aux[id];
+  let damage = ent.ammoA[id];
+  if ((ent.ammoB[id] & ROUND_FALLOFF) !== 0) {
+    const L = id * 4;
+    const dx = x - state.roundLaunch[L];
+    const dy = y - state.roundLaunch[L + 1];
+    const dh = ent.height[id] - state.roundLaunch[L + 2];
+    const flown = Math.floor((Math.sqrt(dx * dx + dy * dy + dh * dh) * WU_PER_METRE) / 256);
+    const range = Math.floor((state.roundLaunch[L + 3] * WU_PER_METRE) / 256);
+    if (range !== 0) damage = i16(damage - Math.floor((flown * damage) / range));
+  }
+  despawn(ent, id);
+  pushEvent(state.events, EV_EXPLOSION, Math.floor(x * 16), Math.floor(y * 16), kind);
+  if (radius > 0 && damage > 0) {
+    blastAt(state, x, y, team, owner, damage, radius, kind, BLAST_RIVAL);
+  }
+}
+
+/**
+ * One guided round's tick, `cact_missile_tick` (0x004231d0) in its order:
+ * acquire, the range from the launch point, then (not expiring) the
+ * acceleration, the state's steering, the move, the K-9's ground clearance, the
+ * wall and floor sweeps — and the collision notice (operation 0x0b), which
+ * kills a torpedo outright and costs the drone the larger of the body's health
+ * and 2, and sends it hunting again.
+ *
+ * Steering, HOME and AVOID (0x004236ac): the fuse runs down while it homes and
+ * at zero halves the speed and the cap and renews by 0x12c, expiring the round
+ * under 0x10; the aim is the target's reference point (its height plus the
+ * muzzle's, as the sim's other rounds aim); a step that reaches it lands on it,
+ * otherwise the heading takes a quarter of the way to it. AVOID adds 0xa000 up
+ * to the unit vector and reads the distance off that sum — the original's.
+ */
+function guidedTick(state: SimState, id: number): void {
+  const ent = state.ent;
+  const map = state.map;
+  const hug = ent.mode[id] === PROJ_K9;
+  if (ent.timerC[id] === GUIDED_ACQUIRE) guidedAcquire(state, id);
+  const L = id * 4;
+  {
+    const dx = ent.posX[id] - state.roundLaunch[L];
+    const dy = ent.posY[id] - state.roundLaunch[L + 1];
+    const dh = ent.height[id] - state.roundLaunch[L + 2];
+    if (dx * dx + dy * dy + dh * dh > state.roundLaunch[L + 3] * state.roundLaunch[L + 3]) {
+      guidedExpire(state, id);
+      return;
+    }
+  }
+  const px = ent.posX[id];
+  const py = ent.posY[id];
+  const ph = ent.height[id];
+  let speed = ent.cooldownA[id];
+  const accel = ent.aimY[id];
+  if (accel !== 0 && speed < ent.aimX[id]) {
+    speed += Math.trunc((WEAPON_UNITS_PER_TICK * accel) / 16);
+    if (speed > ent.aimX[id]) speed = ent.aimX[id];
+  }
+  let step = WEAPON_UNITS_PER_TICK * speed; // world units
+  let hx = ent.velX[id];
+  let hy = ent.velY[id];
+  let hh = ent.timerB[id];
+  let expiring = false;
+  let target = -1;
+  let ax = 0;
+  let ay = 0;
+  const st = ent.timerC[id];
+  if (st === GUIDED_HOME || st === GUIDED_AVOID) {
+    let fuse = ent.timerA[id] - WEAPON_UNITS_PER_TICK;
+    if (fuse < 0) {
+      speed = Math.trunc(speed / 2);
+      ent.aimX[id] = (speed >> 4) << 4;
+      fuse += MISSILE_FUSE_RENEW;
+      if (speed < MISSILE_MIN_SPEED) expiring = true;
+    }
+    ent.timerA[id] = fuse;
+    const t = ent.cooldownC[id];
+    if (t < 0 || !homingValid(state, id, t)) {
+      ent.timerC[id] = GUIDED_COAST;
+      ent.cooldownC[id] = -1;
+    } else {
+      target = t;
+      ax = ent.posX[t];
+      ay = ent.posY[t];
+      let tx = (ax - px) * WU_PER_METRE;
+      let ty = (ay - py) * WU_PER_METRE;
+      let th = (ent.height[t] + MUZZLE_HEIGHT - ph) * WU_PER_METRE;
+      let dist = Math.sqrt(tx * tx + ty * ty + th * th);
+      if (dist > 0) {
+        tx /= dist;
+        ty /= dist;
+        th /= dist;
+      }
+      if (st === GUIDED_AVOID) {
+        th += K9_AVOID_BIAS;
+        const l = Math.sqrt(tx * tx + ty * ty + th * th);
+        dist = l * 65536;
+        tx /= l;
+        ty /= l;
+        th /= l;
+      }
+      if (step >= dist) {
+        if (dist < MISSILE_ARRIVAL_WU) {
+          ent.timerC[id] = GUIDED_COAST;
+        } else {
+          hx = tx;
+          hy = ty;
+          hh = th;
+        }
+        step = dist;
+      } else {
+        hx = (3 * hx + tx) / 4;
+        hy = (3 * hy + ty) / 4;
+        hh = (3 * hh + th) / 4;
+        const l = Math.sqrt(hx * hx + hy * hy + hh * hh);
+        if (l > 0) {
+          hx /= l;
+          hy /= l;
+          hh /= l;
+        }
+      }
+    }
+  }
+  const m = step / WU_PER_METRE;
+  let x = px + hx * m;
+  let y = py + hy * m;
+  let h = ph + hh * m;
+  if (hug) {
+    if (ent.timerC[id] === GUIDED_AVOID) ent.timerC[id] = GUIDED_HOME;
+    if (target >= 0) {
+      const cx = x - ax;
+      const cy = y - ay;
+      if (cx * cx + cy * cy > K9_CLEARANCE_RANGE * K9_CLEARANCE_RANGE) {
+        if (h - sampleHeight(map, x, y) < K9_CLEARANCE) {
+          h += K9_CLEARANCE_LIFT;
+          speed = Math.trunc(speed / 2);
+          ent.timerC[id] = GUIDED_AVOID;
+        }
+      }
+    }
+  }
+  const wallT = segmentBlockT(map, px, py, x, y);
+  if (wallT >= 0) {
+    x = px + (x - px) * wallT;
+    y = py + (y - py) * wallT;
+    h = ph + (h - ph) * wallT;
+    expiring = true;
+  } else {
+    const extent = worldExtent(map);
+    if (x <= 0 || x >= extent || y <= 0 || y >= extent) {
+      expiring = true;
+    } else if (h < sampleHeight(map, x, y)) {
+      // Below the floor: halfway back, the height unclamped (0x0042395f).
+      x = (px + x) / 2;
+      y = (py + y) / 2;
+      h = (ph + h) / 2;
+      expiring = true;
+    }
+  }
+  ent.posX[id] = x;
+  ent.posY[id] = y;
+  ent.height[id] = h;
+  ent.velX[id] = hx;
+  ent.velY[id] = hy;
+  ent.timerB[id] = hh;
+  ent.cooldownA[id] = speed;
+  ent.yaw[id] = atan2Poly(hy, hx);
+  if (!expiring) {
+    for (let t = 0; t < ent.high; t++) {
+      if (!ent.alive[t] || t === id) continue;
+      if (ent.team[t] === ent.team[id]) continue;
+      if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
+      const r = entityRadius(state, t) + 0.5;
+      const dx = ent.posX[t] - x;
+      const dy = ent.posY[t] - y;
+      if (dx * dx + dy * dy > r * r) continue;
+      const before = ent.hp[t];
+      applyDamage(state, t, ent.ammoA[id], ent.ownerId[id], true);
+      if (hug) {
+        ent.hp[id] -= before > 2 ? before : 2;
+        ent.timerC[id] = GUIDED_ACQUIRE;
+        if (ent.hp[id] <= 0) expiring = true;
+      } else {
+        expiring = true;
+      }
+      break;
+    }
+  }
+  if (expiring) guidedExpire(state, id);
+}
+
+/**
+ * Launches the Grenade Launcher's round: the ballistic solve (`cact_discharge_arc`,
+ * as the Mortar's) from the muzzle to the lock or 8 m ahead, then the streamed
+ * spawner with that velocity (`cact_round_spawn_streamed` 0x0044d7c0, flag 1),
+ * whose lifetime is the record's fuse plus `fuse * (rand & 0x1f) / 64`: 3.0 to
+ * 4.5 s. Its velocity is the original's, world units a second: velX/velY the
+ * ground plane, timerB up; aimX its gravity, world units a second².
+ */
+function spawnBounce(
+  state: SimState,
+  shooter: number,
+  player: number,
+  w: WeaponDef,
+  blk: WeaponBlock,
+  lock: number,
+): number {
+  const ent = state.ent;
+  const fx = ent.aimX[shooter];
+  const fy = ent.aimY[shooter];
+  const x = ent.posX[shooter] + fx * MUZZLE_OFFSET;
+  const y = ent.posY[shooter] + fy * MUZZLE_OFFSET;
+  const h = ent.height[shooter] + MUZZLE_HEIGHT;
+  let tx: number;
+  let ty: number;
+  let th: number;
+  if (lock >= 0) {
+    tx = ent.posX[lock];
+    ty = ent.posY[lock];
+    th = ent.height[lock];
+  } else {
+    tx = x + fx * ARC_FREE_AIM_DISTANCE;
+    ty = y + fy * ARC_FREE_AIM_DISTANCE;
+    th = h;
+  }
+  const id = spawnArced(state, x, y, h, tx, ty, th, blk.launchSpeed, blk.gravity);
+  if (id < 0) return -1;
+  ent.team[id] = ent.team[shooter];
+  ent.velX[id] = Math.trunc(ent.velX[id] * WU_PER_METRE);
+  ent.velY[id] = Math.trunc(ent.velY[id] * WU_PER_METRE);
+  ent.timerB[id] = Math.trunc(ent.timerB[id] * WU_PER_METRE);
+  ent.aimX[id] = blk.rec.range << 4;
+  const base = blk.fuseUnits;
+  const jitter = randU32(state) & GRENADE_FUSE_JITTER_MASK;
+  ent.timerA[id] = base + Math.trunc((base * jitter) / GRENADE_FUSE_JITTER_DIV);
+  ent.mode[id] = w.projKind;
+  ent.ownerId[id] = player;
+  ent.ammoA[id] = blk.damage;
+  ent.aux[id] = blk.blast;
+  ent.ammoB[id] = ROUND_BOUNCE | ROUND_RIVAL;
+  return id;
+}
+
+/**
+ * The bouncing round's tick, `cact_bounce_advance` (0x00424370): above the ground
+ * gravity takes `gravity * delta / 300` off its rise (a rise smaller than the
+ * fall stops at zero); at the ground it comes to rest — and goes off — when every
+ * axis is under 0x1800 wu/s, or bounces, keeping -5/8 of its vertical speed and
+ * 7/8 of the horizontal, each truncated; it moves `v * 218 * delta`, factored as
+ * the original's `vec_mac`; a wall on that segment sets it off where it hit
+ * (floors are not traced); then its lifetime loses the delta. It also goes off
+ * on a collision with a body of another side (operation 0x0b), and on the
+ * owner's second press (its lifetime cleared).
+ */
+function bounceTick(state: SimState, id: number): void {
+  const ent = state.ent;
+  const map = state.map;
+  let vx = ent.velX[id];
+  let vy = ent.velY[id];
+  let vh = ent.timerB[id];
+  const ground = sampleHeight(map, ent.posX[id], ent.posY[id]);
+  if (ent.height[id] > ground) {
+    const fall = Math.trunc((ent.aimX[id] * WEAPON_UNITS_PER_TICK) / GRENADE_TIME_DIVISOR);
+    if (vh > 0 && fall > vh) vh = 0;
+    else vh -= fall;
+  } else if (
+    Math.abs(vh) < GRENADE_REST_SPEED &&
+    Math.abs(vx) < GRENADE_REST_SPEED &&
+    Math.abs(vy) < GRENADE_REST_SPEED
+  ) {
+    ent.height[id] = ground;
+    explode(state, id);
+    return;
+  } else {
+    ent.height[id] = ground;
+    vh = Math.trunc((-GRENADE_BOUNCE_VERTICAL * vh) / 8);
+    vx = Math.trunc((GRENADE_BOUNCE_HORIZONTAL * vx) / 8);
+    vy = Math.trunc((GRENADE_BOUNCE_HORIZONTAL * vy) / 8);
+  }
+  ent.velX[id] = vx;
+  ent.velY[id] = vy;
+  ent.timerB[id] = vh;
+  const scale = (GRENADE_MOVE_SCALE * WEAPON_UNITS_PER_TICK) >> 2;
+  const px = ent.posX[id];
+  const py = ent.posY[id];
+  let x = px + (((vx >> 2) * scale) >> 12) / WU_PER_METRE;
+  let y = py + (((vy >> 2) * scale) >> 12) / WU_PER_METRE;
+  const h = ent.height[id] + (((vh >> 2) * scale) >> 12) / WU_PER_METRE;
+  const wallT = segmentBlockT(map, px, py, x, y);
+  if (wallT >= 0) {
+    x = px + (x - px) * wallT;
+    y = py + (y - py) * wallT;
+  }
+  ent.posX[id] = x;
+  ent.posY[id] = y;
+  ent.height[id] = h;
+  const extent = worldExtent(map);
+  if (wallT >= 0 || x <= 0 || x >= extent || y <= 0 || y >= extent) {
+    explode(state, id);
+    return;
+  }
+  if (vx !== 0 || vy !== 0) ent.yaw[id] = atan2Poly(vy, vx);
+  ent.timerA[id] -= WEAPON_UNITS_PER_TICK;
+  let boom = ent.timerA[id] <= 0;
+  if (!boom) {
+    for (let t = 0; t < ent.high; t++) {
+      if (!ent.alive[t] || t === id) continue;
+      if (ent.team[t] === ent.team[id]) continue;
+      if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
+      const r = entityRadius(state, t) + 0.5;
+      const dx = ent.posX[t] - x;
+      const dy = ent.posY[t] - y;
+      if (dx * dx + dy * dy <= r * r) {
+        boom = true;
+        break;
+      }
+    }
+  }
+  if (boom) explode(state, id);
+}
+
+/** Whether `id` is still `player`'s kept round (the original checks its serial). */
+function keptAlive(state: SimState, player: number, id: number): boolean {
+  const ent = state.ent;
+  return (
+    ent.alive[id] === 1 &&
+    ent.archetype[id] === ARCHETYPE.PROJECTILE &&
+    ent.ownerId[id] === player &&
+    (ent.ammoB[id] & (ROUND_BOUNCE | ROUND_ARC)) !== 0
+  );
+}
+
+/**
+ * The second press (0x00459062..0x004590b4): every live round of the kept one's
+ * class the player fired goes — a bouncing round by its lifetime cleared (it
+ * still moves this tick), an arced one by its health, where it is.
+ */
+function detonateKept(state: SimState, player: number, kept: number): void {
+  const ent = state.ent;
+  const cls = ent.ammoB[kept] & (ROUND_BOUNCE | ROUND_ARC);
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.PROJECTILE) continue;
+    if (ent.ownerId[id] !== player || (ent.ammoB[id] & cls) === 0) continue;
+    if (cls === ROUND_BOUNCE) ent.timerA[id] = 0;
+    else ent.ammoB[id] |= ROUND_DETONATE;
+  }
+}
+
 function systemProjectiles(state: SimState): void {
   const ent = state.ent;
   const map = state.map;
@@ -3956,6 +4896,19 @@ function systemProjectiles(state: SimState): void {
     }
 
     const flags = ent.ammoB[id];
+    // The extra weapons' rounds run the original's own ticks.
+    if ((flags & ROUND_GUIDED) !== 0) {
+      guidedTick(state, id);
+      continue;
+    }
+    if ((flags & ROUND_BOUNCE) !== 0) {
+      bounceTick(state, id);
+      continue;
+    }
+    if ((flags & ROUND_DETONATE) !== 0) {
+      explode(state, id);
+      continue;
+    }
     ent.timerA[id] -= 1;
     let vx = ent.velX[id];
     let vy = ent.velY[id];
@@ -4614,11 +5567,20 @@ function systemPickups(state: SimState): void {
       // fcop-re/player-and-weapons.md §6).
       const d = state.difficulty[p];
       if (kind === PICKUP_GUN_AMMO) {
-        state.gunAmmo[p] = difficultyAmmo(weaponInSlot(0, state.loadoutGun[p]).a.ammoCap, d);
+        state.gunAmmo[p] = difficultyAmmo(
+          weaponInSlot(0, state.loadoutGun[p], state.extraWeapons).a.ammoCap,
+          d,
+        );
       } else if (kind === PICKUP_HEAVY_AMMO) {
-        ent.ammoA[a] = difficultyAmmo(weaponInSlot(1, state.loadoutHeavy[p]).a.ammoCap, d);
+        ent.ammoA[a] = difficultyAmmo(
+          weaponInSlot(1, state.loadoutHeavy[p], state.extraWeapons).a.ammoCap,
+          d,
+        );
       } else if (kind === PICKUP_SPECIAL_AMMO) {
-        ent.ammoB[a] = difficultyAmmo(weaponInSlot(2, state.loadoutSpecial[p]).a.ammoCap, d);
+        ent.ammoB[a] = difficultyAmmo(
+          weaponInSlot(2, state.loadoutSpecial[p], state.extraWeapons).a.ammoCap,
+          d,
+        );
       } else if (kind === PICKUP_HEALTH) {
         // Full heal: the grant passes amount -1, "fill" (fcop-fidelity.md P6).
         ent.hp[a] = avatarMaxHp(state, p);
@@ -4857,6 +5819,9 @@ export function step(state: SimState, inputs: TickInputs): void {
     systemUnitMovement(state);
     systemTargeting(state);
     systemProjectiles(state);
+    // The Riot Shield's spheres, after the rounds have moved (inert unless the
+    // match offers it).
+    systemShields(state);
     systemDamageDeath(state);
     systemCapture(state);
     // Precinct Assault systems (rules.md §9), inert on arenas without PA data.
@@ -5079,6 +6044,37 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, (legs.frame[p] & 0xffff) | (legs.target[p] << 16));
     h = fnv1aU32(h, legs.clock[p] >>> 0);
     h = fnv1aU32(h, (legs.direction[p] & 0xff) | (legs.flags[p] << 8));
+  }
+  // Appended at SIM_VERSION 90, only in a match that offers an extra weapon: the
+  // kept rounds, the Riot Shield's spheres and the guided rounds' launch points.
+  if (state.extraWeapons !== 0) {
+    h = fnv1aU32(h, state.extraWeapons);
+    const sh = state.shield;
+    for (let p = 0; p < MAX_PLAYERS; p++) {
+      h = fnv1aU32(h, state.keptRound[p] >>> 0);
+      h = fnv1aU32(h, sh.flags[p]);
+      h = fnv1aU32(h, (sh.radius[p] & 0xffff) | (sh.rate[p] << 16));
+      h = fnv1aU32(h, (sh.target[p] & 0xffff) | (sh.reach[p] << 16));
+      h = fnv1aU32(h, sh.amount[p] & 0xffff);
+      h = fnv1aU32(h, sh.hold[p] >>> 0);
+      h = fnv1aU32(h, sh.period[p] >>> 0);
+      h = fnv1aU32(h, sh.spendNext[p] >>> 0);
+      for (let k = 0; k < SHIELD_ARCS; k++) {
+        const i = p * SHIELD_ARCS + k;
+        h = fnv1aU32(h, sh.arcNext[i] >>> 0);
+        h = fnv1aU32(h, (sh.arcYaw[i * 2] & 0xffff) | (sh.arcYaw[i * 2 + 1] << 16));
+        h = fnv1aU32(h, (sh.arcPitch[i * 2] & 0xffff) | (sh.arcPitch[i * 2 + 1] << 16));
+        h = fnv1aU32(h, sh.arcPhase[i] | (sh.arcCharged[i] << 8));
+        h = fnv1aF32(h, sh.arcDir[i * 3]);
+        h = fnv1aF32(h, sh.arcDir[i * 3 + 1]);
+        h = fnv1aF32(h, sh.arcDir[i * 3 + 2]);
+      }
+    }
+    for (let id = 0; id < ent.high; id++) {
+      if (!ent.alive[id] || (ent.ammoB[id] & ROUND_GUIDED) === 0) continue;
+      if (ent.archetype[id] !== ARCHETYPE.PROJECTILE) continue;
+      for (let k = 0; k < 4; k++) h = fnv1aF32(h, state.roundLaunch[id * 4 + k]);
+    }
   }
   return h;
 }

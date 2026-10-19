@@ -1328,4 +1328,29 @@
 //     its 2 on the wrong tick.
 //     No golden stands a respawned mech on an enemy floor: every golden's
 //     hashes hold, re-recorded for the header.
-export const SIM_VERSION = 89;
+// v90: the original's five weapons Precinct Assault never offers, each behind
+//     its own bit of the "Spielregeln" switch (the owner's decision;
+//     fcop-fidelity.md W5): SimOptions.extraWeapons (weapons.ts EXTRA_WEAPON_*,
+//     0 by default, the original's PA), the host's online and the preferences'
+//     solo. Appended to their slots so every index holds: Riot Shield (Gun 4),
+//     K-9 Drone and Fusion Torpedo (Heavy 3, 4), Grenade Launcher and Plasma
+//     Flare (Special 3, 4), on their records (WEAPON_RECORDS 0x05, 0x15, 0x14,
+//     0x24, 0x21; fcop-re/player-weapons.json). Each runs the original's code
+//     for its kind (RE src/game/actor/): the Riot Shield the sustained sphere
+//     (sustain_sphere.c: the trigger's toggle with its 0x3c hold, the radius
+//     spring, the front half in block A and the whole sphere with its twelve
+//     arcs in B, the hurt every tick and the spend every round gap); the K-9
+//     Drone and the Fusion Torpedo the guided ordnance actor (missile.c: the
+//     launch at an eighth, the fuse's halving, the quarter-step homing, AVOID's
+//     bias, the drone's ground clearance and doubled health, re-acquiring after
+//     a hit; the torpedo's blast cut by the distance flown); the Grenade
+//     Launcher the bouncing round (type15.c, round_spawn.c: the random fuse,
+//     5/8 and 7/8 per bounce, rest below 0x1800, collision); the Plasma Flare
+//     the Mortar's arced shell; both kept for the second press. normalizeLoadout
+//     refuses a weapon whose bit is clear (onto the slot's last PA weapon, where
+//     an out-of-range index always landed). New state — the kept rounds, the
+//     spheres, the guided rounds' launch points — is hashed only in a match that
+//     offers one; the replay header (format 5) carries the byte and the
+//     loadouts. Nothing runs without the bits: every golden's hashes hold,
+//     re-recorded for the header.
+export const SIM_VERSION = 90;

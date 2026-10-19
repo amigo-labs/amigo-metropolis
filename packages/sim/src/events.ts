@@ -259,3 +259,10 @@ export const EV_LIFT_ARRIVE = 26; // a=lift index (map.lifts), b=the stop it rea
  * 0.5 s respawn. The client draws and plays nothing for that EV_DEATH.
  */
 export const EV_SUNK = 27; // a=avatar id, b=player
+/**
+ * The Riot Shield's powered sphere strikes a body with a charged arc
+ * (`sustain_sphere_tick` 0x0044c8c1..0x0044c91f): a link of 32 segments, one
+ * strand, (0x7f, 0x7f, 0xff), from the arc's point on the sphere to the body.
+ * Pushed before the hurt's EV_HIT.
+ */
+export const EV_SHIELD_ARC = 28; // a=avatar id, b=struck entity id, c=player

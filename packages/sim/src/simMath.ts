@@ -23,6 +23,19 @@ export function sinLUT(angle: number): number {
   return SIN_TABLE[Math.floor(angle * ANGLE_TO_INDEX) & SIN_TABLE_MASK];
 }
 
+/**
+ * Table sine of an angle in the original's 12-bit units (4096 a turn), exact on
+ * the table: the angle is an integer index, masked like `math_sincos`.
+ */
+export function sinUnits(units: number): number {
+  return SIN_TABLE[units & SIN_TABLE_MASK];
+}
+
+/** Table cosine of a 12-bit angle (a quarter turn on). */
+export function cosUnits(units: number): number {
+  return SIN_TABLE[(units + (SIN_TABLE_SIZE >> 2)) & SIN_TABLE_MASK];
+}
+
 /** Table cosine: sin shifted by a quarter turn (1024 table entries). */
 export function cosLUT(angle: number): number {
   return SIN_TABLE[(Math.floor(angle * ANGLE_TO_INDEX) + (SIN_TABLE_SIZE >> 2)) & SIN_TABLE_MASK];

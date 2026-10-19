@@ -1,13 +1,14 @@
 // Replay byte format. A replay is {mapId, seed, version, inputFrames[]}
 // (architecture.md §6) plus, since format 2, the match's Warden config — the
 // AI runs inside the sim, so replay-stable AI matches need it in the header —
-// and, since format 4, each player's difficulty. The per-tick frame encoding
+// since format 4, each player's difficulty and, since format 5, the extra
+// weapons the match offers and each player's loadout. The per-tick frame encoding
 // doubles as the network input-frame format (§5), so this file defines it
 // exactly once.
 //
-// Little-endian layout (format 4):
+// Little-endian layout (format 5):
 //   offset 0  u8×4  magic "MREP"
-//          4  u16   format version (4)
+//          4  u16   format version (5)
 //          6  u16   simVersion the replay was recorded against
 //          8  u32   seed
 //         12  u32   tickCount
@@ -15,21 +16,37 @@
 //         17  u8    wardenDifficulty (0 when no Warden)
 //         18  u8×MAX_PLAYERS  difficulty per player (balance.ts DIFFICULTY_*:
 //                   0 HARD, 1 NORMAL, 2 EASY; the Warden's slot reads none)
-//         20  u8    mapId byte length, followed by that many ASCII bytes
+//         20  u8    extraWeapons (SimOptions.extraWeapons, weapons.ts EXTRA_WEAPON_*)
+//         21  u8×3×MAX_PLAYERS  loadout per player: gun, heavy, special index
+//         27  u8    mapId byte length, followed by that many ASCII bytes
 //   then tickCount frames of MAX_PLAYERS × 2 bytes:
 //         buttons u16 (the original's button word, inputs.ts)
 // Formats 1 and 2 carried stick and aim axes (5 bytes a player), which no sim
 // since SIM_VERSION 68 reads; format 3 carried no difficulty, which every sim
-// since SIM_VERSION 72 reads. All three are refused.
+// since SIM_VERSION 72 reads; format 4 carried neither the extra weapons nor
+// the loadouts, which a match since SIM_VERSION 90 may need. All four are refused.
 
 import { DIFFICULTY_NORMAL, DIFFICULTY_ROWS, MAX_PLAYERS } from "./balance";
 import type { TickInputs } from "./inputs";
 import { SIM_VERSION } from "./version";
+import {
+  DEFAULT_LOADOUT,
+  EXTRA_WEAPONS_ALL,
+  GUNS,
+  HEAVIES,
+  type Loadout,
+  SPECIALS,
+} from "./weapons";
 
-export const REPLAY_FORMAT_VERSION = 4;
+export const REPLAY_FORMAT_VERSION = 5;
 const MAGIC = [0x4d, 0x52, 0x45, 0x50]; // "MREP"
 /** Header offset of the per-player difficulty bytes (format 4). */
 const DIFFICULTIES_AT = 18;
+/** Header offset of the extra-weapons byte, then the loadouts (format 5). */
+const EXTRA_AT = DIFFICULTIES_AT + MAX_PLAYERS;
+const LOADOUTS_AT = EXTRA_AT + 1;
+/** Header offset of the mapId's length byte. */
+const MAP_ID_AT = LOADOUTS_AT + 3 * MAX_PLAYERS;
 const PLAYER_BYTES = 2;
 export const FRAME_BYTES = MAX_PLAYERS * PLAYER_BYTES;
 
@@ -45,6 +62,10 @@ export interface ReplayData {
   readonly wardenDifficulty: number;
   /** Each player's difficulty (DIFFICULTY_*), MAX_PLAYERS entries. */
   readonly difficulties: readonly number[];
+  /** SimOptions.extraWeapons: the original's five extra weapons the match offers. */
+  readonly extraWeapons: number;
+  /** Each player's loadout (catalogue indices), MAX_PLAYERS entries. */
+  readonly loadouts: readonly Loadout[];
   /** Raw frame bytes, tickCount * FRAME_BYTES. */
   readonly frames: Uint8Array;
 }
@@ -60,6 +81,14 @@ export const DEFAULT_DIFFICULTIES: readonly number[] = new Array(MAX_PLAYERS).fi
   DIFFICULTY_NORMAL,
 );
 
+/** The match's weapon rules a replay carries beside its difficulties (format 5). */
+export interface ReplayWeapons {
+  /** SimOptions.extraWeapons; 0 when absent. */
+  readonly extraWeapons?: number;
+  /** Slot-indexed; a missing slot carries the default kit. */
+  readonly loadouts?: readonly (Loadout | undefined)[];
+}
+
 /**
  * Allocates an all-idle replay of the given length (fill via writeFrame).
  * `difficulties` is slot-indexed; a missing slot is NORMAL.
@@ -70,9 +99,12 @@ export function createReplayData(
   tickCount: number,
   warden?: WardenConfig,
   difficulties?: readonly number[],
+  weapons?: ReplayWeapons,
 ): ReplayData {
   const d: number[] = [];
   for (let p = 0; p < MAX_PLAYERS; p++) d.push(difficulties?.[p] ?? DIFFICULTY_NORMAL);
+  const l: Loadout[] = [];
+  for (let p = 0; p < MAX_PLAYERS; p++) l.push(weapons?.loadouts?.[p] ?? DEFAULT_LOADOUT);
   return {
     formatVersion: REPLAY_FORMAT_VERSION,
     simVersion: SIM_VERSION,
@@ -82,6 +114,8 @@ export function createReplayData(
     wardenPlayer: warden ? warden.player : -1,
     wardenDifficulty: warden ? warden.difficulty : 0,
     difficulties: d,
+    extraWeapons: weapons?.extraWeapons ?? 0,
+    loadouts: l,
     frames: new Uint8Array(tickCount * FRAME_BYTES),
   };
 }
@@ -89,6 +123,23 @@ export function createReplayData(
 /** True for a difficulty a header may carry: an integer row 0..DIFFICULTY_ROWS - 1. */
 export function isDifficulty(v: unknown): v is number {
   return Number.isInteger(v) && (v as number) >= 0 && (v as number) < DIFFICULTY_ROWS;
+}
+
+/** True for a byte a header may carry as extraWeapons: the five bits, nothing above. */
+export function isExtraWeapons(v: unknown): v is number {
+  return Number.isInteger(v) && ((v as number) & ~EXTRA_WEAPONS_ALL) === 0 && (v as number) >= 0;
+}
+
+const SLOT_LISTS = [GUNS, HEAVIES, SPECIALS] as const;
+
+/** True for a loadout a header may carry: an index into each slot's catalogue. */
+export function isReplayLoadout(l: Loadout | undefined): boolean {
+  if (!l) return false;
+  const v = [l.gun, l.heavy, l.special];
+  for (let s = 0; s < 3; s++) {
+    if (!Number.isInteger(v[s]) || v[s] < 0 || v[s] >= SLOT_LISTS[s].length) return false;
+  }
+  return true;
 }
 
 export function writeFrame(replay: ReplayData, tick: number, inputs: TickInputs): void {
@@ -144,7 +195,16 @@ export function encodeReplay(replay: ReplayData): Uint8Array {
       throw new Error(`bad difficulty ${replay.difficulties[p]}`);
     }
   }
-  const mapIdAt = DIFFICULTIES_AT + MAX_PLAYERS;
+  if (!isExtraWeapons(replay.extraWeapons)) {
+    throw new Error(`bad extraWeapons ${replay.extraWeapons}`);
+  }
+  if (replay.loadouts.length !== MAX_PLAYERS) {
+    throw new Error(`loadouts needs ${MAX_PLAYERS} entries`);
+  }
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    if (!isReplayLoadout(replay.loadouts[p])) throw new Error(`bad loadout for slot ${p}`);
+  }
+  const mapIdAt = MAP_ID_AT;
   const headerBytes = mapIdAt + 1 + replay.mapId.length;
   const out = new Uint8Array(headerBytes + replay.frames.length);
   out[0] = MAGIC[0];
@@ -160,6 +220,13 @@ export function encodeReplay(replay: ReplayData): Uint8Array {
   out[16] = replay.wardenPlayer >= 0 ? replay.wardenPlayer : 0xff;
   out[17] = replay.wardenPlayer >= 0 ? replay.wardenDifficulty : 0;
   for (let p = 0; p < MAX_PLAYERS; p++) out[DIFFICULTIES_AT + p] = replay.difficulties[p];
+  out[EXTRA_AT] = replay.extraWeapons;
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const l = replay.loadouts[p];
+    out[LOADOUTS_AT + p * 3] = l.gun;
+    out[LOADOUTS_AT + p * 3 + 1] = l.heavy;
+    out[LOADOUTS_AT + p * 3 + 2] = l.special;
+  }
   out[mapIdAt] = replay.mapId.length;
   for (let i = 0; i < replay.mapId.length; i++) {
     const c = replay.mapId.charCodeAt(i);
@@ -187,7 +254,7 @@ export function decodeReplay(bytes: Uint8Array): ReplayData {
   const simVersion = bytes[6] | (bytes[7] << 8);
   const seed = readU32(bytes, 8);
   const tickCount = readU32(bytes, 12);
-  const mapIdAt = DIFFICULTIES_AT + MAX_PLAYERS;
+  const mapIdAt = MAP_ID_AT;
   if (bytes.length < mapIdAt + 1) throw new Error("truncated replay header");
   const wardenPlayer = bytes[16] === 0xff ? -1 : bytes[16];
   const wardenDifficulty = bytes[17];
@@ -196,6 +263,18 @@ export function decodeReplay(bytes: Uint8Array): ReplayData {
     const d = bytes[DIFFICULTIES_AT + p];
     if (!isDifficulty(d)) throw new Error(`bad difficulty ${d}`);
     difficulties.push(d);
+  }
+  const extraWeapons = bytes[EXTRA_AT];
+  if (!isExtraWeapons(extraWeapons)) throw new Error(`bad extraWeapons ${extraWeapons}`);
+  const loadouts: Loadout[] = [];
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const l = {
+      gun: bytes[LOADOUTS_AT + p * 3],
+      heavy: bytes[LOADOUTS_AT + p * 3 + 1],
+      special: bytes[LOADOUTS_AT + p * 3 + 2],
+    };
+    if (!isReplayLoadout(l)) throw new Error(`bad loadout for slot ${p}`);
+    loadouts.push(l);
   }
   if (wardenPlayer >= MAX_PLAYERS) {
     throw new Error(`bad wardenPlayer ${wardenPlayer}`);
@@ -229,6 +308,8 @@ export function decodeReplay(bytes: Uint8Array): ReplayData {
     wardenPlayer,
     wardenDifficulty,
     difficulties,
+    extraWeapons,
+    loadouts,
     frames: bytes.slice(headerBytes),
   };
 }

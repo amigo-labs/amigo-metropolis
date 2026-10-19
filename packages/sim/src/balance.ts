@@ -464,8 +464,9 @@ export const WALK_CODES_PER_TICK = 16;
 // including the six PA maps: `{key, key >> 4, 0, 0, block A[0x20], block B[0x20]}`,
 // A the weapon as issued and B the weapon after that slot's power-up
 // (fcop-re/player-and-weapons.md §7, player-weapons.json; loader 0x00458c60, the
-// rescale helpers 0x00458d30 / 0x0044eb10). These are the raw halfwords of the ten
-// Metropolis offers (weapons.ts maps them to its catalogue); weapons.ts converts
+// rescale helpers 0x00458d30 / 0x0044eb10). These are the raw halfwords of all
+// fifteen: the ten Precinct Assault offers and, since SIM_VERSION 90, the five
+// behind SimOptions.extraWeapons (weapons.ts maps them to its catalogue); weapons.ts converts
 // them the way the loader does:
 //   - gaps (`burstGap`, `roundGap`, `fuse`): raw * 4096 / 218, C-truncated, in
 //     engine units of 1/300 s (~raw * 0.0626 s); the X1 spends 10 a sim tick;
@@ -639,6 +640,41 @@ export const WEAPON_RECORDS: Readonly<Record<number, { a: WeaponRecord; b: Weapo
       fuse: 80,
     },
   },
+  // Riot Shield (the executable's "Riot Shield") — an extra weapon (SimOptions.extraWeapons)
+  5: {
+    a: {
+      kind: 13,
+      flags: 0,
+      ammo: 600,
+      cap: 600,
+      rounds: 1,
+      burstGap: 1,
+      roundGap: 1,
+      damage: 20,
+      w0e: 819,
+      w10: 0,
+      speed: 8192,
+      accel: 0,
+      range: 12288,
+      fuse: 80,
+    },
+    b: {
+      kind: 13,
+      flags: 0,
+      ammo: 0,
+      cap: 300,
+      rounds: 1,
+      burstGap: 1,
+      roundGap: 1,
+      damage: 40,
+      w0e: 1228,
+      w10: 2048,
+      speed: 8192,
+      accel: 0,
+      range: 12288,
+      fuse: 80,
+    },
+  },
   // Hell Fire 2000 (the executable's "Helfire")
   16: {
     a: {
@@ -744,6 +780,76 @@ export const WEAPON_RECORDS: Readonly<Record<number, { a: WeaponRecord; b: Weapo
       fuse: 48,
     },
   },
+  // Fusion Torpedo (the executable's "Fusion Torpedo") — an extra weapon (SimOptions.extraWeapons)
+  20: {
+    a: {
+      kind: 3,
+      flags: 3,
+      ammo: 40,
+      cap: 40,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 16,
+      damage: 100,
+      w0e: 512,
+      w10: 0,
+      speed: 6144,
+      accel: 24,
+      range: 8192,
+      fuse: 120,
+    },
+    b: {
+      kind: 3,
+      flags: 3,
+      ammo: 0,
+      cap: 10,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 16,
+      damage: 150,
+      w0e: 1024,
+      w10: 0,
+      speed: 6144,
+      accel: 24,
+      range: 8192,
+      fuse: 120,
+    },
+  },
+  // K-9 Drone (the executable's "Robo Dog") — an extra weapon (SimOptions.extraWeapons)
+  21: {
+    a: {
+      kind: 21,
+      flags: 1,
+      ammo: 25,
+      cap: 25,
+      rounds: 1,
+      burstGap: 48,
+      roundGap: 0,
+      damage: 150,
+      w0e: 0,
+      w10: 0,
+      speed: 2457,
+      accel: 40,
+      range: 8192,
+      fuse: 48,
+    },
+    b: {
+      kind: 21,
+      flags: 1,
+      ammo: 0,
+      cap: 18,
+      rounds: 3,
+      burstGap: 64,
+      roundGap: 0,
+      damage: 200,
+      w0e: 0,
+      w10: 0,
+      speed: 2457,
+      accel: 40,
+      range: 8192,
+      fuse: 48,
+    },
+  },
   // Mortar Launcher (the executable's "Mortar")
   32: {
     a: {
@@ -776,6 +882,41 @@ export const WEAPON_RECORDS: Readonly<Record<number, { a: WeaponRecord; b: Weapo
       speed: 4096,
       accel: 0,
       range: 3072,
+      fuse: 48,
+    },
+  },
+  // Plasma Flare (the executable's "Plasma Flare") — an extra weapon (SimOptions.extraWeapons)
+  33: {
+    a: {
+      kind: 4,
+      flags: 13,
+      ammo: 30,
+      cap: 30,
+      rounds: 1,
+      burstGap: 32,
+      roundGap: 32,
+      damage: 250,
+      w0e: 3072,
+      w10: 0,
+      speed: 4096,
+      accel: 0,
+      range: 2662,
+      fuse: 48,
+    },
+    b: {
+      kind: 20,
+      flags: 13,
+      ammo: 0,
+      cap: 15,
+      rounds: 1,
+      burstGap: 48,
+      roundGap: 0,
+      damage: 200,
+      w0e: 3072,
+      w10: 0,
+      speed: 4096,
+      accel: 0,
+      range: 2662,
       fuse: 48,
     },
   },
@@ -845,6 +986,41 @@ export const WEAPON_RECORDS: Readonly<Record<number, { a: WeaponRecord; b: Weapo
       w10: 0,
       speed: 4096,
       accel: 0,
+      range: 4096,
+      fuse: 48,
+    },
+  },
+  // Grenade Launcher (the executable's "Grenade") — an extra weapon (SimOptions.extraWeapons)
+  36: {
+    a: {
+      kind: 9,
+      flags: 13,
+      ammo: 30,
+      cap: 30,
+      rounds: 1,
+      burstGap: 16,
+      roundGap: 0,
+      damage: 400,
+      w0e: 2150,
+      w10: 0,
+      speed: 4096,
+      accel: 4096,
+      range: 4096,
+      fuse: 48,
+    },
+    b: {
+      kind: 9,
+      flags: 13,
+      ammo: 0,
+      cap: 16,
+      rounds: 2,
+      burstGap: 16,
+      roundGap: 1,
+      damage: 600,
+      w0e: 2150,
+      w10: 0,
+      speed: 4096,
+      accel: 4096,
       range: 4096,
       fuse: 48,
     },
@@ -927,6 +1103,71 @@ export const SPECIAL_MINE_TTL_TICKS = 900; // 30 s
 export const SPECIAL_MINE_ARM_TICKS = 15; // 0.5 s
 /** Sprung -> blast: 1.0 s (player-weapons.json `mine.sprung_fuse_s`). */
 export const SPECIAL_MINE_FUSE_TICKS = 30;
+
+// --- The five extra weapons (SimOptions.extraWeapons, SIM_VERSION 90) --------
+// Their records are WEAPON_RECORDS 0x05, 0x14, 0x15, 0x21 and 0x24; these are the
+// engine's own numbers the code that runs them uses, each from the RE's
+// decompilation (fcop-reverse-engineering src/game/actor/…). Lengths stay in
+// the original's units where the arithmetic is integer: world units (8192 a
+// metre), the records' raw words (512 a metre, the `<< 4` the loader applies),
+// engine units of the 300 Hz clock (10 a sim tick).
+
+/** World units a metre. */
+export const WU_PER_METRE = 8192;
+/** A record's raw length words a metre (the loader's `<< 4` of 8192). */
+export const RAW_PER_METRE = 512;
+/** A guided round's health, CACT_ROUND_HEALTH (the K-9 Drone's is twice its damage). */
+export const MISSILE_ROUND_HEALTH = 40;
+
+// The Riot Shield: the sustained sphere (`sustain_sphere.c`).
+/** The toggle flips only past this hold, renewed by every trigger call: 0x3c units (0x0044c2c5). */
+export const SHIELD_HOLD_UNITS = 0x3c;
+/** A player's sphere is centred 0x1000 wu above its position (0x0044c66e). */
+export const SHIELD_CENTRE_RAISE = 0x1000 / WU_PER_METRE;
+/** The spring's rate on contact: -0x50 in block B, -0x10 in A (0x0044c88f / 0x0044c89a). */
+export const SHIELD_RECOIL_B = -0x50;
+export const SHIELD_RECOIL_A = -0x10;
+/** What it does to a round (actor types 2, 7, 0x0f): 1000 in B (0x0044c94b) ... */
+export const SHIELD_ROUND_DAMAGE_B = 1000;
+/** ... and in A 300 one draw in eight (`(rand & 7) == 7`), else nothing (0x0044c954). */
+export const SHIELD_ROUND_DAMAGE_A = 300;
+/** The sphere's twelve arcs (`cmp eax, 0xc` at 0x0044ca08). */
+export const SHIELD_ARCS = 12;
+/** An arc waits `rand & 0x7f` plus 0x3f units between steps (0x0044cb23). */
+export const SHIELD_ARC_WAIT_MASK = 0x7f;
+export const SHIELD_ARC_WAIT_BASE = 0x3f;
+/** The flash after a contact lasts four draws (`byte_1ae` = 4, 0x0044c885). */
+export const SHIELD_FLASH_DRAWS = 4;
+
+// The K-9 Drone and the Fusion Torpedo: the guided ordnance actor (`missile.c`).
+/** The homing fuse: 0x5dc units, renewed by 0x12c each time it runs out (actor_missile.h). */
+export const MISSILE_FUSE_UNITS = 0x5dc;
+export const MISSILE_FUSE_RENEW = 0x12c;
+/** Below 0x10 wu a unit after a halving the missile expires. */
+export const MISSILE_MIN_SPEED = 0x10;
+/** The K-9's clearance: 0x800 wu over the ground, lifted 0x200 at a time (0x004238f9). */
+export const K9_CLEARANCE = 0x800 / WU_PER_METRE;
+export const K9_CLEARANCE_LIFT = 0x200 / WU_PER_METRE;
+/** Within 0x300 wu of its target, horizontally, it stops caring about the ground. */
+export const K9_CLEARANCE_RANGE = 0x300 / WU_PER_METRE;
+/** AVOID's upward bias on the 16.16 unit steering vector: 0xa000 (0x004237e5). */
+export const K9_AVOID_BIAS = 0xa000 / 65536;
+/** Homing gives up on arrival when the target is under 8 wu away. */
+export const MISSILE_ARRIVAL_WU = 8;
+
+// The Grenade Launcher: the bouncing round (`type15.c`, `round_spawn.c`).
+/** Its lifetime is `s + s * (rand & 0x1f) / 64` of the record's fuse (0x0044d8a0). */
+export const GRENADE_FUSE_JITTER_MASK = 0x1f;
+export const GRENADE_FUSE_JITTER_DIV = 64;
+/** At the ground a round slower than 0x1800 wu/s on every axis comes to rest (and goes off). */
+export const GRENADE_REST_SPEED = 0x1800;
+/** A bounce keeps 5/8 of the vertical speed, reversed, and 7/8 of the horizontal. */
+export const GRENADE_BOUNCE_VERTICAL = 5;
+export const GRENADE_BOUNCE_HORIZONTAL = 7;
+/** Its move: velocity (wu/s) times 218 x the frame delta, factored as `vec_mac` (0x00424708). */
+export const GRENADE_MOVE_SCALE = 218;
+/** Its fall: gravity times the delta over 300, truncated (0x00424771). */
+export const GRENADE_TIME_DIVISOR = 300;
 
 // Muzzle geometry, shared by the sim and by the renderer's muzzle flash. They
 // lived in sim.ts, where render/fx.ts could only keep a hand-copied duplicate
