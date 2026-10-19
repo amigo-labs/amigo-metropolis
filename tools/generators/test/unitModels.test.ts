@@ -159,15 +159,16 @@ describe("committed FX models match the manifest contract", () => {
       expect(root.listAnimations().length).toBe(0);
       expect(root.listSkins().length).toBe(0);
       expect(root.listTextures().length).toBeLessThanOrEqual(1);
-      // The bolts are line facers only (render/fx/ribbons.ts draws them): no
-      // mesh, the records on the root node, the atlas their page is on.
+      // The bolts are line facers only (render/fx/ribbons.ts draws them), Cobj
+      // 46 a star (render/facers.ts): no mesh, the records on the root node,
+      // the atlas a textured one's page is on.
       const prims = expectFaceModes(document);
       const facers = (root.listNodes()[0].getExtras() as { fcop?: { facers?: { kind: string }[] } })
         .fcop?.facers;
       const rawDoc = await io.read(join(RAW_DIR, spec.raw));
       if (prims.length === 0) {
         expect(facers?.length).toBeGreaterThan(0);
-        expect(facers?.every((f) => f.kind === "line")).toBe(true);
+        expect(facers?.every((f) => f.kind === "line" || f.kind === "star")).toBe(true);
         expect(faceBounds(rawDoc).tris).toBe(0);
         return;
       }

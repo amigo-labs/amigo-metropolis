@@ -70,7 +70,8 @@ export interface GreyboxMeshes {
   readonly projGrenade: Bucket;
   /**
    * The Fusion Torpedo's and the Plasma Flare's: Cobj 46, a star facer — an
-   * additive disc 0.074 m across, red (128, 17, 12) doubled to a black rim.
+   * additive disc of radius 0.074 m, red (128, 17, 12) doubled to a black rim,
+   * drawn from its record (render/facers.ts) once `star-46.glb` lands.
    */
   readonly projTorpedo: Bucket;
   readonly projPlasma: Bucket;
@@ -202,8 +203,11 @@ const NATIVE: Record<string, { footprint: number; height: number }> = {
 /**
  * Cobj 46's star (the Fusion Torpedo's and the Plasma Flare's round): `at`
  * (0, 0.008, 0), radius 0.074 m, centre (128, 17, 12) to a black rim, each
- * colour doubled, added (docs/formats/objects.md "star"). A small additive
- * sphere stands in for the screen-facing disc; its colour is the centre's.
+ * colour doubled. The star itself is a camera-facing facer that
+ * render/facers.ts builds from `fx/star-46.glb`'s record, on this bucket's
+ * instance matrices (the bucket's own geometry is then hidden); until then,
+ * and in ?render=greybox, a plain sphere of its radius in the centre's colour
+ * stands in, as every greybox stand-in is a plain shape.
  */
 const STAR_RADIUS = 0.07421875;
 const STAR_COLOUR = new THREE.Color().setRGB(
@@ -217,11 +221,7 @@ function starBucket(scene: THREE.Scene, capacity: number): Bucket {
   const geometry = new THREE.SphereGeometry(STAR_RADIUS, 8, 6);
   geometry.translate(0, 0.0078125, 0);
   const b = bucket(scene, geometry, capacity, true);
-  const m = b.mesh.material as THREE.MeshBasicMaterial;
-  m.color.copy(STAR_COLOUR);
-  m.blending = THREE.AdditiveBlending;
-  m.transparent = true;
-  m.depthWrite = false;
+  (b.mesh.material as THREE.MeshBasicMaterial).color.copy(STAR_COLOUR);
   b.untinted = true;
   return b;
 }

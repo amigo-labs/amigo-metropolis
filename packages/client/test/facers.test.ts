@@ -23,6 +23,7 @@ import {
   viewDepth,
 } from "../src/render/facers";
 import { FxView } from "../src/render/fx/common";
+import { createGreyboxMeshes } from "../src/render/greybox";
 
 const PROPS = join(import.meta.dir, "..", "public", "models", "props");
 
@@ -309,5 +310,28 @@ describe("the Props of facers only are their facers", () => {
     expect(star?.wedgeCap).toBe(8);
     expect(star?.h[0]).toBeCloseTo(1.199, 3);
     expect(Array.from(star?.rim ?? [])).toEqual([0, 0, 0]);
+  });
+});
+
+describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star", () => {
+  test("fx/star-46.glb is one star, (128, 17, 12) doubled to a black rim", () => {
+    const set = parseFacers(
+      rootExtras(join(import.meta.dir, "..", "public", "models", "fx", "star-46.glb")),
+      true,
+    );
+    expect(set?.facers.length).toBe(1);
+    const star = set?.facers[0];
+    expect(star?.kind).toBe(FACER_STAR);
+    expect(star?.h[0]).toBeCloseTo(0.0742, 4);
+    expect(Array.from(star?.colour ?? []).map((v) => Math.round(v * 255))).toEqual([256, 34, 24]);
+    expect(Array.from(star?.rim ?? [])).toEqual([0, 0, 0]);
+  });
+
+  test("its greybox stand-in adds nothing: no AdditiveBlending anywhere", () => {
+    const grey = createGreyboxMeshes(new THREE.Scene());
+    for (const b of grey.all) {
+      const list = Array.isArray(b.mesh.material) ? b.mesh.material : [b.mesh.material];
+      for (const m of list) expect(m.blending).not.toBe(THREE.AdditiveBlending);
+    }
   });
 });

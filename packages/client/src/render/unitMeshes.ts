@@ -17,7 +17,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { parseFacers, registerFacers } from "./facers";
-import { faceMaterials, materialList, mergeFcopModel } from "./fcopModel";
+import { type FcopModel, faceMaterials, materialList, mergeFcopModel } from "./fcopModel";
 import type { Bucket, GreyboxMeshes } from "./greybox";
 import { patchTeamUv, prepareTeamUvMask } from "./teamUv";
 
@@ -42,6 +42,9 @@ const FX_MODEL_KEYS = [
   // The extra weapons' (SimOptions.extraWeapons): Cobj 48 and 52.
   ["projK9", "drone-k9"],
   ["projGrenade", "grenade"],
+  // The Fusion Torpedo's and the Plasma Flare's: Cobj 46, a star facer alone.
+  ["projTorpedo", "star-46"],
+  ["projPlasma", "star-46"],
   // The Sky Captain's bomb is world row 9: Cobj 49 (the mortar shell's payload).
   ["projWarden", "round-row9"],
   // The world rows' rounds that are models, in the original's own colours
@@ -99,7 +102,16 @@ export async function loadUnitAsset(
 ): Promise<UnitAsset> {
   const url = `/models/${dir}/${key}.glb`;
   // Init-time, so allocations are fine here.
-  const model = await mergeFcopModel(await loader.loadAsync(url));
+  return unitAssetOf(await mergeFcopModel(await loader.loadAsync(url)), url, dir, unlit);
+}
+
+/** A loaded model as a unit asset; throws when it has no faces. */
+function unitAssetOf(
+  model: FcopModel,
+  url: string,
+  dir: "units" | "fx",
+  unlit: boolean,
+): UnitAsset {
   const geometry = model.geometry;
   if (!geometry) throw new Error(`no faces in unit asset at ${url}`);
   // PS1-era atlas sampling (assets.md §3): hard pixels, no mips. One atlas
@@ -121,8 +133,21 @@ export async function loadUnitAsset(
 }
 
 function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean): void {
-  loadUnitAsset(key, dir, unlit).then(
-    ({ geometry, material, map, extras }) => {
+  const url = `/models/${dir}/${key}.glb`;
+  loader
+    .loadAsync(url)
+    .then(mergeFcopModel)
+    .then((model) => {
+      if (!model.geometry) {
+        // A model of facers alone (Cobj 46's star): its records ride the
+        // bucket's instance matrices (render/facers.ts), its stand-in hidden.
+        const facers = parseFacers(model.extras, true);
+        if (!facers) throw new Error(`nothing to draw in ${url}`);
+        registerFacers(bucket.mesh, facers, model.map);
+        bucket.mesh.visible = false;
+        return;
+      }
+      const { geometry, material, map, extras } = unitAssetOf(model, url, dir, unlit);
       // Models are authored +Z forward (assets.md §4); the sim/greybox frame
       // is +X forward, so bake the quarter turn into the geometry once — and
       // into the facers (the rockets' glows are stars: render/facers.ts).
@@ -135,9 +160,8 @@ function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean):
       // Belt and braces: re-write every instance tint on the next frame so no
       // slot can carry a stale cache entry across the swap.
       bucket.tintCache.fill(-2);
-    },
-    (err) => {
+    })
+    .catch((err) => {
       console.warn(`[unitMeshes] no usable unit asset for ${key}, keeping greybox: ${err}`);
-    },
-  );
+    });
 }

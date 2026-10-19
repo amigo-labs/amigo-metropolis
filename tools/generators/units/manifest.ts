@@ -387,6 +387,27 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     maxTris: 1500,
     neutralizeColors: true,
   },
+  // The Fusion Torpedo's and the Plasma Flare's round: Cobj 46, one star facer
+  // and no faces, so the glb is its record (render/facers.ts draws it on the
+  // rounds' buckets, render/greybox.ts projTorpedo / projPlasma).
+  {
+    key: "star-46",
+    cobj: 46,
+    raw: "fcop-fx/mp-obj046-glow-a.glb",
+    source: {
+      title: "Star glow (Mp Cobj 46, player weapons 0x14 and 0x21)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "player Fusion Torpedo and Plasma Flare — PROJ_TORPEDO, PROJ_PLASMA",
+    rotateQuarterY: 0,
+    // A star of radius 0.074 m at (0, 0.008, 0): its size is the facer's.
+    footprint: 0.15,
+    maxHeight: 0.15,
+    maxTris: 1500,
+    neutralizeColors: false,
+  },
   // The world rows' rounds that are models (Phase 14 wave 4): each type-98 row
   // names its projectile Cobj once — no team variant — so these keep the
   // original's own colours and are drawn untinted. One payload on all six
