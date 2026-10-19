@@ -25,6 +25,16 @@
 }
 
 /* The lock beam and reticle: the whole view, drawn per frame while locked. */
+/* The screen flash (screenFlash.ts): the viewport's grey strip, added to the
+   frame below it (blend byte 2). Outside .mhud's stacking context, under it. */
+.mhud-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  mix-blend-mode: plus-lighter;
+}
+
 .mhud-lock {
   position: absolute;
   left: 0;

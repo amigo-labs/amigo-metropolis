@@ -133,7 +133,13 @@ import {
   stepChaseCamera,
 } from "./render/camera";
 import { applyBlend, createCameraBlend } from "./render/cameraBlend";
-import { applyCameraShake, resetCameraShake, shakeDamage, shakeEffect } from "./render/cameraShake";
+import {
+  applyCameraShake,
+  resetCameraShake,
+  shakeDamage,
+  shakeEffect,
+  vecMagnitudeWu,
+} from "./render/cameraShake";
 import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
 import { setDecalWindow } from "./render/decals";
 import {
@@ -1719,22 +1725,23 @@ const shakePose = new Float32Array(3);
 /**
  * The camera shake's effect half (`cact_effect_install` 0x0042d020): an install
  * whose record has a `shake` (+0x32 bit 4 or 13) shakes team slot 0's X1 and,
- * in the two-viewport network game, slot 1's — so every local view here.
+ * in the two-viewport network game, slot 1's — so every local view here. One
+ * with a `flash` (bit 5) sets the viewport's screen flash by the same octagonal
+ * distance (`mission_flash_near` 0x00405c40; render/hud/screenFlash.ts).
  */
 sounds.effects.addListener({
   install(_bank, _id, rec, at) {
-    if (!rec?.shake) return;
+    if (!rec || (!rec.shake && !rec.flash)) return;
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
       const avatar = view.shake.avatar;
       if (avatar < 0 || !entityPose(avatar, shakePose)) continue;
-      shakeEffect(
-        view.shake,
-        rec.shake,
-        at.x - shakePose[0],
-        at.y - shakePose[1],
-        at.z - shakePose[2],
-      );
+      const dx = at.x - shakePose[0];
+      const dy = at.y - shakePose[1];
+      const dz = at.z - shakePose[2];
+      shakeEffect(view.shake, rec.shake, dx, dy, dz);
+      // The HUD is the first view's (refreshMatchHud).
+      if (rec.flash && v === 0) matchHud?.flash(rec.flash, vecMagnitudeWu(dx, dy, dz));
     }
   },
 });

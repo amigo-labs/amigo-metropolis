@@ -34,6 +34,7 @@ import {
   matchSlotOffset,
 } from "@metropolis/sim";
 import type * as THREE from "three";
+import type { FxFlash } from "../../effects/records";
 import { ARENA_PRESENTATION, HUD } from "../fcopPresentation.generated";
 import { sideOfTeam, sideTextColour } from "../sides";
 import { type BitmapFont, drawChar, drawNumber, hudFont } from "./bitmapText";
@@ -53,6 +54,7 @@ import {
 } from "./hudRules";
 import { createMapOverlay, type MapOverlay } from "./mapOverlay";
 import { createRadar, type Radar } from "./radar";
+import { armScreenFlash, createScreenFlash, stepScreenFlash } from "./screenFlash";
 
 export interface MatchHudOptions {
   /** The arena: its sides, its reticle, its radar markers. */
@@ -95,6 +97,11 @@ export interface MatchHud {
     tz: number,
     hit: number,
   ): void;
+  /**
+   * `mission_flash_near` for this viewport (screenFlash.ts): an install with a
+   * `flash` at `distWu` world units (octagonal) from this view's player.
+   */
+  flash(flash: FxFlash, distWu: number): void;
   /** The radar; the map screen writes its overview state (radar.ts). */
   readonly radar: Radar;
   /** The map screen's arrows and rings over the top-down window (mapOverlay.ts). */
@@ -246,6 +253,10 @@ export function createMatchHud(
   opts: MatchHudOptions,
   parent: HTMLElement = document.body,
 ): MatchHud {
+  // The screen flash's strip: a sibling under the HUD, so its additive blend
+  // reaches the frame (a child of the HUD's stacking context would blend with
+  // the HUD's own transparent layer only).
+  const screenFlash = createScreenFlash(parent);
   const root = document.createElement("div");
   root.className = "mhud";
   parent.appendChild(root);
@@ -292,12 +303,17 @@ export function createMatchHud(
   return {
     radar,
     map,
+    flash(flash, distWu) {
+      armScreenFlash(screenFlash, flash, distWu);
+    },
     refresh(match, snapshot, count, clock, selfX, selfY, facing) {
       const mine = matchSlotOffset(slot);
       const theirs = matchSlotOffset(other);
       const ready = (font.ready ? 1 : 0) + (page.ready ? 2 : 0);
       const respawn = match[mine + MATCH_SLOT_RESPAWN_TICKS] | 0;
       const down = respawn > 0;
+      // mission_draw_hud's flash arm: frozen while the down timer runs.
+      stepScreenFlash(screenFlash, clock, down);
       const hp = down ? 0 : match[mine + MATCH_SLOT_HP_FRAC];
       const power = match[mine + MATCH_SLOT_POWER] | 0;
 
@@ -480,6 +496,7 @@ export function createMatchHud(
 
     destroy() {
       root.remove();
+      screenFlash.el?.remove();
     },
   };
 }
