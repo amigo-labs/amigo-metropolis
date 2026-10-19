@@ -348,6 +348,45 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     maxTris: 1500,
     neutralizeColors: true,
   },
+  // The extra weapons' rounds (SimOptions.extraWeapons, SIM_VERSION 90): each
+  // player row names its Cobj for both blocks (player-weapons.json `models`).
+  {
+    key: "drone-k9",
+    cobj: 48,
+    raw: "fcop-fx/mp-obj048-robodog.glb",
+    source: {
+      title: "K-9 Drone (Mp Cobj 48, the executable's Robo Dog, player weapon 0x15)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    // A morph of eleven frames in the original (its run); frame 0 here.
+    role: "player K-9 Drone — PROJ_K9",
+    rotateQuarterY: 0,
+    // Native 0.223 x 0.367 x 0.715, standing on its origin.
+    footprint: 0.72,
+    maxHeight: 0.46,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
+  {
+    key: "grenade",
+    cobj: 52,
+    raw: "fcop-fx/mp-obj052-grenade.glb",
+    source: {
+      title: "Grenade (Mp Cobj 52, player weapon 0x24)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "player Grenade Launcher — PROJ_GRENADE",
+    rotateQuarterY: 0,
+    // Native 0.207 x 0.238 x 0.180.
+    footprint: 0.24,
+    maxHeight: 0.24,
+    maxTris: 1500,
+    neutralizeColors: true,
+  },
   // The world rows' rounds that are models (Phase 14 wave 4): each type-98 row
   // names its projectile Cobj once — no team variant — so these keep the
   // original's own colours and are drawn untinted. One payload on all six

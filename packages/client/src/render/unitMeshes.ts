@@ -38,6 +38,9 @@ const FX_MODEL_KEYS = [
   ["projHyper", "rocket-hyper"],
   ["projMortar", "shell-mortar"],
   ["projMine", "mine"],
+  // The extra weapons' (SimOptions.extraWeapons): Cobj 48 and 52.
+  ["projK9", "drone-k9"],
+  ["projGrenade", "grenade"],
   // The Sky Captain's bomb is world row 9: Cobj 49 (the mortar shell's payload).
   ["projWarden", "round-row9"],
   // The world rows' rounds that are models, in the original's own colours

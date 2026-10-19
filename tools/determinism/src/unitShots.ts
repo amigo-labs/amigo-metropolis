@@ -70,6 +70,8 @@ const FX_GLBS = [
   "rocket-hyper",
   "shell-mortar",
   "mine",
+  "drone-k9",
+  "grenade",
   "rocket-heavy",
   "bolt-single",
   "bolt-twin",

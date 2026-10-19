@@ -10,12 +10,16 @@ import {
   ARCHETYPE,
   getMapById,
   MAP_REGISTRY,
+  PROJ_GRENADE,
   PROJ_HEAVY,
   PROJ_HYPER,
+  PROJ_K9,
   PROJ_MINE,
   PROJ_MORTAR,
+  PROJ_PLASMA,
   PROJ_ROUND,
   PROJ_SPECIAL,
+  PROJ_TORPEDO,
   PROJ_WARDEN,
   TURRET_DEFENSE,
 } from "@metropolis/sim";
@@ -61,6 +65,15 @@ export interface GreyboxMeshes {
   readonly projMortar: Bucket;
   readonly projMine: Bucket;
   readonly projWarden: Bucket;
+  /** The extra weapons' rounds: the K-9 Drone (Cobj 48) and the grenade (Cobj 52). */
+  readonly projK9: Bucket;
+  readonly projGrenade: Bucket;
+  /**
+   * The Fusion Torpedo's and the Plasma Flare's: Cobj 46, a star facer — an
+   * additive disc 0.074 m across, red (128, 17, 12) doubled to a black rim.
+   */
+  readonly projTorpedo: Bucket;
+  readonly projPlasma: Bucket;
   /**
    * A world shooter's round (PROJ_ROUND), by the type-98 row that fired it:
    * row 1 the first side's tanks and jets, 3 turrets and the Dreadnought's
@@ -177,7 +190,37 @@ const NATIVE: Record<string, { footprint: number; height: number }> = {
   // are bolts, their Cobjs' line facers, drawn by render/fx.ts.
   roundRow4: { footprint: 0.54, height: 0.2 },
   roundRow8: { footprint: 0.39, height: 0.15 },
+  // The extra weapons' rounds: Cobj 48 (the K-9 Drone) and 52 (the grenade).
+  projK9: { footprint: 0.72, height: 0.46 },
+  projGrenade: { footprint: 0.24, height: 0.24 },
 };
+
+/**
+ * Cobj 46's star (the Fusion Torpedo's and the Plasma Flare's round): `at`
+ * (0, 0.008, 0), radius 0.074 m, centre (128, 17, 12) to a black rim, each
+ * colour doubled, added (docs/formats/objects.md "star"). A small additive
+ * sphere stands in for the screen-facing disc; its colour is the centre's.
+ */
+const STAR_RADIUS = 0.07421875;
+const STAR_COLOUR = new THREE.Color().setRGB(
+  Math.min(1, (128 * 2) / 255),
+  (17 * 2) / 255,
+  (12 * 2) / 255,
+  THREE.SRGBColorSpace,
+);
+
+function starBucket(scene: THREE.Scene, capacity: number): Bucket {
+  const geometry = new THREE.SphereGeometry(STAR_RADIUS, 8, 6);
+  geometry.translate(0, 0.0078125, 0);
+  const b = bucket(scene, geometry, capacity, true);
+  const m = b.mesh.material as THREE.MeshBasicMaterial;
+  m.color.copy(STAR_COLOUR);
+  m.blending = THREE.AdditiveBlending;
+  m.transparent = true;
+  m.depthWrite = false;
+  b.untinted = true;
+  return b;
+}
 
 /**
  * Scales an authored silhouette onto its native size and grounds it, applying
@@ -363,6 +406,22 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   const projMine = bucket(scene, projMineGeometry, 32, true);
   const projWarden = bucket(scene, projWardenGeometry, 16, true);
   projWarden.untinted = true;
+  // The extra weapons' rounds (SimOptions.extraWeapons): a dog and a grenade
+  // until their .glb lands, then the original's Cobjs; the two stars.
+  const projK9 = bucket(
+    scene,
+    fitNative(new THREE.BoxGeometry(0.22, 0.37, 0.72), "projK9", false),
+    32,
+    true,
+  );
+  const projGrenade = bucket(
+    scene,
+    fitNative(new THREE.SphereGeometry(0.12, 8, 6), "projGrenade", false),
+    32,
+    true,
+  );
+  const projTorpedo = starBucket(scene, 32);
+  const projPlasma = starBucket(scene, 32);
   // Every PA shooter's round since SIM_VERSION 42 (PROJ_ROUND), by row: the
   // Fortress's (4) and the Sky Captain's missile (8) are models; the bolts of
   // the turrets and the tanks and jets (rows 3, 1, 6) are render/fx.ts's.
@@ -388,6 +447,10 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     projMortar,
     projMine,
     projWarden,
+    projK9,
+    projGrenade,
+    projTorpedo,
+    projPlasma,
     roundRow4,
     roundRow8,
     projectile,
@@ -407,6 +470,10 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
       projMortar,
       projMine,
       projWarden,
+      projK9,
+      projGrenade,
+      projTorpedo,
+      projPlasma,
       roundRow4,
       roundRow8,
       projectile,
@@ -451,6 +518,14 @@ export function bucketFor(
         return greybox.projMine;
       case PROJ_WARDEN:
         return greybox.projWarden;
+      case PROJ_K9:
+        return greybox.projK9;
+      case PROJ_GRENADE:
+        return greybox.projGrenade;
+      case PROJ_TORPEDO:
+        return greybox.projTorpedo;
+      case PROJ_PLASMA:
+        return greybox.projPlasma;
       case PROJ_ROUND:
         // Rows 1, 3 and 6 never get here: their bolts are render/fx.ts's.
         return row === 4 ? greybox.roundRow4 : row === 8 ? greybox.roundRow8 : greybox.projectile;

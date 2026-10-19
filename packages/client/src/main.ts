@@ -172,6 +172,7 @@ import {
 import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
 import { loadProps, updateProps } from "./render/props";
 import { createResultsPage } from "./render/results/resultsPage";
+import { createShieldSpheres } from "./render/shieldSphere";
 import { sideName, sideOfTeam } from "./render/sides";
 import { buildBaseStructures, buildSpawnMarkers } from "./render/structures";
 import {
@@ -878,6 +879,8 @@ function buildArenaGroup(m: typeof map): THREE.Group {
 let arenaGroup = buildArenaGroup(map);
 scene.add(arenaGroup);
 const greybox = createGreyboxMeshes(scene);
+/** The Riot Shield's spheres, off the avatar snapshot (render/shieldSphere.ts). */
+const shieldSpheres = createShieldSpheres(scene);
 // The original's weapon effects (render/fx.ts): the effect chain's other
 // listener, beside the sounds (audio/cues.ts raises every install once for
 // both). Render-only — nothing reaches the sim.
@@ -2009,6 +2012,7 @@ function renderEntities(alpha: number, simDtSec: number): void {
     b.mesh.count = b.count;
     b.mesh.instanceMatrix.needsUpdate = true;
   }
+  shieldSpheres.update(avatarSnap, avatarPoses);
   units.end();
   // The scenery by its outpost's claim: the console until then, the terminals
   // after, the flags in the claimer's half of the page; the cloth's frame on

@@ -39,6 +39,7 @@
     "verify:arenas": "bun run tools/determinism/src/arenaShots.ts",
     "verify:units": "bun run tools/determinism/src/unitShots.ts",
     "verify:x1": "bun run tools/determinism/src/x1Shots.ts",
+    "verify:weapons": "bun run tools/determinism/src/weaponShots.ts",
     "pin:serve": "bun run tools/determinism/src/pinServer.ts",
     "pin:drive": "bun run tools/determinism/src/pinDrive.ts",
     "pin:cmd": "bun run tools/determinism/src/pinCmd.ts",

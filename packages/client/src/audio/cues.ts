@@ -1275,6 +1275,10 @@ const PROJ_CODE: Readonly<Record<number, number>> = {
   10: 0x22, // PROJ_MINE
   11: 0x23, // PROJ_SHOCKWAVE
   12: 0x12, // PROJ_BEAM
+  15: 0x15, // PROJ_K9: the K-9 Drone
+  16: 0x24, // PROJ_GRENADE
+  17: 0x14, // PROJ_TORPEDO: the Fusion Torpedo
+  18: 0x21, // PROJ_PLASMA: the Plasma Flare
 };
 /** weapons.ts PROJ_WARDEN: the captain's bomb. */
 const PROJ_WARDEN = 3;
