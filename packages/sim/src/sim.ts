@@ -552,9 +552,10 @@ export interface SimState {
   readonly avatarSinking: Uint8Array;
   /**
    * Per player: 1 when the last hit on its mech came from the rival's own craft
-   * — the Sky Captain's gun, or a missile or bomb it fired; in a match without
-   * one, the other X1-Alpha's weapons and their rounds — 0 for anyone else's
-   * (tanks, jets and turrets included) or nobody's. The original remembers the
+   * — the Sky Captain's gun, or the blast of a missile or bomb it fired; in a
+   * match without one, the other X1-Alpha's weapons and their rounds' blasts —
+   * 0 for anyone else's (tanks, jets and turrets included), for a round's
+   * contact (its own serial, gone with it: SIM_VERSION 91) or nobody's. The original remembers the
    * actor whose hit took the mech below zero (+0x8c) and, at the down, credits
    * the captain (its tally, its rethink zeroed) or, with two viewports, the
    * other slot's Walker Kills, only when that actor, or the owner a round's id
@@ -4677,7 +4678,9 @@ function guidedTick(state: SimState, id: number): void {
       const dy = ent.posY[t] - y;
       if (dx * dx + dy * dy > r * r) continue;
       const before = ent.hp[t];
-      applyDamage(state, t, ent.ammoA[id], ent.ownerId[id], true);
+      // A contact: the round's own serial is the credit, which resolves to
+      // nobody (0x0041a811), so it is no rival's hit.
+      applyDamage(state, t, ent.ammoA[id], ent.ownerId[id], false);
       if (hug) {
         ent.hp[id] -= before > 2 ? before : 2;
         ent.timerC[id] = GUIDED_ACQUIRE;
@@ -5119,7 +5122,11 @@ function explode(state: SimState, id: number, struck = -1): void {
         state.roundFrom[id],
       );
     }
-    if (struck >= 0) applyDamage(state, struck, damage, owner, byRival);
+    // A round with no blast hurts by its contact, and a contact leaves the
+    // round's own serial as the credit (`cact_base_op9` 0x0041a811), gone once
+    // the round has died: it credits nobody (RE aircraft.c 0x00420e1c,
+    // player.c 0x004477ab; fcop-fidelity.md V7).
+    if (struck >= 0) applyDamage(state, struck, damage, owner, false);
   }
 }
 

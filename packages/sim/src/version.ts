@@ -1353,4 +1353,15 @@
 //     offers one; the replay header (format 5) carries the byte and the
 //     loadouts. Nothing runs without the bits: every golden's hashes hold,
 //     re-recorded for the header.
-export const SIM_VERSION = 90;
+// v91: a kill by a round's contact alone credits nobody (fcop-fidelity.md V7;
+//     RE M3-OK: +0x8c is the last below-zero hit's credit — a blast its
+//     owner's serial (base.c 0x0041a707), a damage message its source's
+//     (0x0041a800), a contact the other actor's own (0x0041a811), a round's,
+//     which no longer resolves once the round has died; aircraft.c
+//     0x00420e1c..0x00420e57, player.c 0x004477ab..0x00447821). A round with no
+//     blast that strikes a body (explode's struck path) and the guided round's
+//     contact (the K-9 Drone's and the Fusion Torpedo's hit) now leave
+//     SimState.rivalHit 0, so neither the Sky Captain's death nor a mech's
+//     down credits the shooter's Walker Kills, or the captain's tally, for
+//     them; blasts and direct weapons credit as before.
+export const SIM_VERSION = 91;

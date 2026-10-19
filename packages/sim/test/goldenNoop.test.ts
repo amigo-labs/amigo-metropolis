@@ -120,7 +120,12 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 03, 04 and 07 re-frozen at SIM_VERSION 82: the hashed First Death and
   // First Outpost stamps read the frame clock from 0 on the first tick (one
   // frame delta earlier); nothing in the tick reads them.
-  "golden-03-match": { last: 2972253947, count: 6000 },
+  // 03 and 04 re-frozen at SIM_VERSION 91: a kill by a round's contact alone
+  // credits nobody. 03's second mech down (tick 2564, a blastless round) no
+  // longer adds to side 0's Walker Kills; 04's X1 down by the captain's
+  // missile (tick 2892) no longer credits the captain, whose rethink is no
+  // longer zeroed, so it plays differently from there.
+  "golden-03-match": { last: 3687110505, count: 6000 },
   // 04 and 07 re-frozen at SIM_VERSION 54: the captain takes its target without
   // a line of sight and walls stop its gun and missile at ground units too.
   // 03, 04 and 07 re-frozen at SIM_VERSION 55: captures by the octagonal estimate.
@@ -146,7 +151,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 03, 04 and 07 re-frozen at SIM_VERSION 82: the hashed First Death and
   // First Outpost stamps read the frame clock from 0 on the first tick (one
   // frame delta earlier); nothing in the tick reads them.
-  "golden-04-warden": { last: 4172189360, count: 4500 },
+  // Re-frozen at SIM_VERSION 91: see golden-03 above.
+  "golden-04-warden": { last: 2023891494, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
