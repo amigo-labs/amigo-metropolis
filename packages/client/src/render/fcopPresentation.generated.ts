@@ -2,13 +2,13 @@
 // Re-run `bun run gen:presentation --re <RE checkout>`.
 //
 // The original's presentation, from amigo-labs/fcop-reverse-engineering
-// @ 4f5418716c356fa80aa2e36f9ee53272fa069b91: extracted/presentation/camera.json, hud.json and
+// @ 04711efd5ad60260c8a1d73be7797b4096ce4077: extracted/presentation/camera.json, hud.json and
 // radar_markers.json (tools/logic/presentation_data.py, every value cited there to
 // the decompiled C), extracted/fonts/font3.json, and each PA mission's type-35
 // objective record. Positions are in the Metropolis map frame (actors.json x + 16).
 
 /** The RE commit the tables were read at. */
-export const PRESENTATION_RE_COMMIT = "4f5418716c356fa80aa2e36f9ee53272fa069b91";
+export const PRESENTATION_RE_COMMIT = "04711efd5ad60260c8a1d73be7797b4096ce4077";
 
 // --- cameras (camera.json) -----------------------------------------------------
 

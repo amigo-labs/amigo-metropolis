@@ -31,7 +31,7 @@
 // Usage: bun run gen:presentation --re ../fcop-reverse-engineering
 // Authoring-time only.
 
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SCENERY_PLACEMENTS } from "../../packages/client/src/render/arenaScenery.generated";
 import { FCOP_ARENAS } from "./fcopArenas";
@@ -51,8 +51,20 @@ function argValue(flag: string): string | undefined {
 
 const reArg = argValue("--re") ?? process.env.FCOP_RE_REPO;
 if (!reArg) {
-  console.error("usage: bun run gen:presentation --re <RE checkout>");
+  console.error("usage: bun run gen:presentation --re <RE checkout> [--check]");
   process.exit(2);
+}
+/** --check: regenerate in memory and fail when a committed file differs. */
+const CHECK = process.argv.includes("--check");
+const stale: string[] = [];
+/** Write `bytes` to `path`, or, with --check, note it when the committed file differs. */
+function emit(path: string, bytes: Uint8Array): void {
+  if (!CHECK) {
+    writeFileSync(path, bytes);
+    return;
+  }
+  const was = existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
+  if (!was || was.length !== bytes.length || was.some((b, i) => b !== bytes[i])) stale.push(path);
 }
 const RE = resolve(reArg);
 const readJson = <T>(...p: string[]): T => JSON.parse(readFileSync(join(RE, ...p), "utf8")) as T;
@@ -397,19 +409,25 @@ FCOP_ARENAS.forEach((arena, reticleIndex) => {
   }
 
   // Placed actors that carry a marker and live, which Metropolis draws as no
-  // entity: the outposts' green diamonds (their consoles). Not the type-96
-  // Props radar_markers.json lists (Hk 45, Joke 4, Slim 4): `cact_load` hands a
-  // type 96 to `cact_load_type96` and returns (RE game/actor/load.c:68), which
-  // builds a sound emitter and no actor, so no registry or live-list walk ever
-  // sees its byte 26.
+  // entity: the outposts' green diamonds (their consoles). Types 87..99 build
+  // no actor (`cact_load` 0x0043af20 hands each to a loader of its own and
+  // returns, RE game/actor/load.c), so the export marks them not live (RE
+  // b344262: the type-96 Props of Hk, Joke and Slim lost their markers); a
+  // live one here would be an export regression.
+  for (const a of m.actors) {
+    if (a.resource === "Cact" && a.type >= 87 && a.type <= 99 && a.on_radar_when_live) {
+      throw new Error(
+        `${arena.mission}: Cact ${a.actor_id} (type ${a.type}) on the radar, but builds no actor`,
+      );
+    }
+  }
   const staticMarkers = m.actors
     .filter(
       (a) =>
         a.resource === "Cact" &&
         a.on_radar_when_live &&
         a.type !== 1 && // the X1-Alpha: an entity
-        a.type !== 37 && // the Sky Captain: an entity
-        a.type !== 96, // a Prop: a sound emitter, not an actor
+        a.type !== 37, // the Sky Captain: an entity
     )
     .map((a) => ({
       record: `Cact ${a.actor_id}`,
@@ -462,7 +480,7 @@ FCOP_ARENAS.forEach((arena, reticleIndex) => {
 
 // --- images ----------------------------------------------------------------------
 
-mkdirSync(PUBLIC_HUD, { recursive: true });
+if (!CHECK) mkdirSync(PUBLIC_HUD, { recursive: true });
 
 /** Black is the original's transparent texel: alpha 0, everything else opaque. */
 function keyBlack(pixels: Uint8Array): void {
@@ -476,9 +494,12 @@ const tex11 = decodePng(
 );
 const tex11Px = new Uint8Array(tex11.pixels);
 keyBlack(tex11Px);
-writeFileSync(join(PUBLIC_HUD, "tex11.png"), encodePng({ ...tex11, pixels: tex11Px }));
+emit(join(PUBLIC_HUD, "tex11.png"), encodePng({ ...tex11, pixels: tex11Px }));
 
-copyFileSync(join(RE, "extracted", "fonts", "font3.png"), join(PUBLIC_HUD, "font3.png"));
+emit(
+  join(PUBLIC_HUD, "font3.png"),
+  new Uint8Array(readFileSync(join(RE, "extracted", "fonts", "font3.png"))),
+);
 
 const ret = hud.lock.reticle;
 const strip = new Uint8Array(ret.w * FCOP_ARENAS.length * ret.h * 4);
@@ -495,7 +516,7 @@ FCOP_ARENAS.forEach((arena, k) => {
   }
 });
 keyBlack(strip);
-writeFileSync(
+emit(
   join(PUBLIC_HUD, "reticles.png"),
   encodePng({ width: ret.w * FCOP_ARENAS.length, height: ret.h, pixels: strip }),
 );
@@ -737,9 +758,18 @@ export interface ArenaPresentation {
 export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = ${j(arenas)} as unknown as Readonly<Record<string, ArenaPresentation>>;
 `;
 
-writeFileSync(OUT_TS, ts);
-const fmt = Bun.spawnSync(["bunx", "biome", "format", "--write", OUT_TS], { cwd: ROOT });
+// Formatted through biome's stdin, so --check compares what a write would leave.
+const fmt = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=${OUT_TS}`], {
+  cwd: ROOT,
+  stdin: new TextEncoder().encode(ts),
+});
 if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+emit(OUT_TS, new Uint8Array(fmt.stdout));
 console.log(
   `importFcopPresentation: ${FCOP_ARENAS.length} arenas, RE ${reCommit.slice(0, 8)} -> ${OUT_TS}`,
 );
+if (CHECK) {
+  for (const p of stale) console.error(`stale: ${p}`);
+  if (stale.length > 0) process.exit(1);
+  console.log("--check: every committed file matches");
+}
