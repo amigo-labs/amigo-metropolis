@@ -1717,20 +1717,20 @@ const PA_TEAM_GAME = true;
 /** Scratch for the shake's X1 position (an effect install within 0x20000 of it). */
 const shakePose = new Float32Array(3);
 /**
- * The camera shake's effect half (`cact_effect_install` 0x0042d248): an install
- * whose record carries +0x32 bit 4 or 13 shakes team slot 0's X1 and, in the
- * two-viewport network game, slot 1's — so every local view here.
+ * The camera shake's effect half (`cact_effect_install` 0x0042d020): an install
+ * whose record has a `shake` (+0x32 bit 4 or 13) shakes team slot 0's X1 and,
+ * in the two-viewport network game, slot 1's — so every local view here.
  */
 sounds.effects.addListener({
   install(_bank, _id, rec, at) {
-    if (!rec) return;
+    if (!rec?.shake) return;
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
       const avatar = view.shake.avatar;
       if (avatar < 0 || !entityPose(avatar, shakePose)) continue;
       shakeEffect(
         view.shake,
-        rec.flags,
+        rec.shake,
         at.x - shakePose[0],
         at.y - shakePose[1],
         at.z - shakePose[2],

@@ -12,20 +12,24 @@
 //   construct and the respawn); the share passed on is the same sum clamped to
 //   0..0x200, halved under mission-state word 23, which Precinct Assault sets;
 // - an effect whose record carries +0x32 bit 4 or 13 (`cact_effect_install`
-//   0x0042d248): 300, or 1000 with bit 13, to team slot 0 and, with two
-//   viewports (the network game's), slot 1, each when within 0x20000 world
-//   units by `vec_magnitude` (max + (mid + min) / 4).
+//   0x0042d020, the test at 0x0042d24c): the record's `shake` as the effect
+//   export gives it (`screen.shake`: 300, or 1000 with bit 13), to team slot 0
+//   and, with two viewports (the network game's), slot 1, each when within
+//   its range (0x20000 world units) by `vec_magnitude` (max + (mid + min) / 4).
 //
 // `view_player_camera_tick` (RE game/frame/view_place.c, 0x00445d10..0x00445dc4)
-// spends it: while it is non-zero the eye moves along the camera's up row and
-// then its right row by `((rand & (span - 1)) - span / 2) << 3` world units
-// each, `span` the top bit of min(meter, 0xff), and then the frame's ticks are
-// taken off it, down to 0. The draws come from the client's own stream: they
-// decide what is seen, never what happens (A18).
+// spends it: while it is non-zero the eye moves along the camera's up row
+// (+0x64) and then its right row (+0x58) by `((rand & (span - 1)) - span / 2)
+// << 3` world units each, `span` the top bit of min(meter, 0xff), and then the
+// frame's ticks are taken off it, down to 0. The original draws `rand` from
+// `game_rand` (0x0043fe30), the simulation's own stream; here it is the
+// client's (mulberry32, seeded per view), because a renderer that read the
+// lockstep sim's stream would desync the peers (fcop-fidelity.md E19, A18).
 //
 // Client-local render state, read only from the snapshots and the events;
 // nothing allocates per frame (CLAUDE.md renderer rule 1).
 
+import type { FxShake } from "../effects/records";
 import { type ChasePose, WU_PER_M } from "./camera";
 
 /** The second meter's gate: above it, nothing more is added. */
@@ -33,14 +37,6 @@ export const SHAKE_METER_GATE = 0xff;
 /** The first meter's clamp (+0xa2) and the share's (passed on). */
 export const DAMAGE_METER_MAX = 0x1c2;
 export const DAMAGE_SHARE_MAX = 0x200;
-/** The effect install's two shakes: 300, and 300 + 700 with bit 13. */
-export const EFFECT_SHAKE_LIGHT = 0x12c;
-export const EFFECT_SHAKE_HARD = 1000;
-/** +0x32 bits 4 and 13 shake; bit 13 hard. */
-export const FX_SHAKE_BITS = 0x2010;
-export const FX_SHAKE_HARD_BIT = 0x2000;
-/** The install's range for the shake, world units. */
-export const EFFECT_SHAKE_RANGE_WU = 0x20000;
 /** The engine clamps a frame to 0x3c ticks (frame.h), and the camera's `dt` with it. */
 const MAX_FRAME_TICKS = 0x3c;
 
@@ -88,12 +84,6 @@ export function shakeDamage(s: CameraShake, amount: number, maxHp: number, halve
   shakeAdd(s, share);
 }
 
-/** The shake an effect record's +0x32 flags ask for: 0, 300 or 1000. */
-export function effectShake(flags: number): number {
-  if ((flags & FX_SHAKE_BITS) === 0) return 0;
-  return (flags & FX_SHAKE_HARD_BIT) !== 0 ? EFFECT_SHAKE_HARD : EFFECT_SHAKE_LIGHT;
-}
-
 /** `vec_magnitude` (0x00457b10) of an offset in metres, in world units: max + (mid + min) / 4. */
 export function vecMagnitudeWu(dx: number, dy: number, dz: number): number {
   let a = Math.abs(Math.trunc(dx * WU_PER_M));
@@ -112,17 +102,19 @@ export function vecMagnitudeWu(dx: number, dy: number, dz: number): number {
   return a + ((b + c) >> 2);
 }
 
-/** `install_shake`: the effect's shake to an X1 within 0x20000 of it (metres apart). */
+/**
+ * The install's shake arm: a record's `shake` to an X1 within its range of
+ * the effect's point (`cmp edi, 0x20000; jge`, 0x0042d2c6), metres apart.
+ */
 export function shakeEffect(
   s: CameraShake,
-  flags: number,
+  shake: FxShake | undefined,
   dx: number,
   dy: number,
   dz: number,
 ): void {
-  const shake = effectShake(flags);
-  if (shake === 0) return;
-  if (vecMagnitudeWu(dx, dy, dz) < EFFECT_SHAKE_RANGE_WU) shakeAdd(s, shake);
+  if (!shake) return;
+  if (vecMagnitudeWu(dx, dy, dz) < shake.range) shakeAdd(s, shake.amount);
 }
 
 /** The highest power of two not above `m` (1 << math_top_bit(m)), m >= 1. */

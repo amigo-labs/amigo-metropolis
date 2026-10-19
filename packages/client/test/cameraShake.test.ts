@@ -1,14 +1,15 @@
 // The camera shake (render/cameraShake.ts) against the original's two damage
 // meters and the camera tick's last arm (RE game/actor/player.c 0x00446200,
-// 0x00446720; game/actor/effect.c 0x0042d248; game/frame/view_place.c
-// 0x00445d10..0x00445dc4).
+// 0x00446720; game/actor/effect.c 0x0042d020; game/frame/view_place.c
+// 0x00445d10..0x00445dc4), and the records' exported shakes.
 
 import { describe, expect, test } from "bun:test";
+import { FX_RECORDS } from "../src/effects/fcopEffects.generated";
+import { FXF_HARD_SHAKE, FXF_SHAKE, type FxShake } from "../src/effects/records";
 import { createChasePose, WU_PER_M } from "../src/render/camera";
 import {
   applyCameraShake,
   createCameraShake,
-  effectShake,
   resetCameraShake,
   shakeAdd,
   shakeDamage,
@@ -78,23 +79,37 @@ describe("player_take_amount: the share", () => {
 });
 
 describe("cact_effect_install: the effect's shake", () => {
-  test("bit 4 shakes 300, bit 13 (with or without bit 4) 1000", () => {
-    expect(effectShake(0)).toBe(0);
-    expect(effectShake(0x0010)).toBe(300);
-    expect(effectShake(0x2000)).toBe(1000);
-    expect(effectShake(0x2010)).toBe(1000);
-    expect(effectShake(0x0020)).toBe(0);
+  test("every record's exported shake is its +0x32 bits: 300 with bit 4, 1000 with bit 13", () => {
+    let shaking = 0;
+    for (const rec of FX_RECORDS) {
+      const bits = rec.flags & (FXF_SHAKE | FXF_HARD_SHAKE);
+      if (bits === 0) {
+        expect(rec.shake).toBeUndefined();
+        continue;
+      }
+      shaking++;
+      const shake = rec.shake as FxShake;
+      expect(shake.amount).toBe((rec.flags & FXF_HARD_SHAKE) !== 0 ? 1000 : 300);
+      // player_damage_meter's add, and the install's range.
+      expect(shake.add).toBe(Math.min(Math.trunc(shake.amount / 4), 0xff));
+      expect(shake.range).toBe(0x20000);
+    }
+    expect(shaking).toBeGreaterThan(0);
   });
 
-  test("within 0x20000 by vec_magnitude: max + (mid + min) / 4", () => {
+  test("within the range by vec_magnitude: max + (mid + min) / 4", () => {
+    const hard: FxShake = { amount: 1000, add: 250, range: 0x20000 };
+    const light: FxShake = { amount: 300, add: 75, range: 0x20000 };
     expect(vecMagnitudeWu(3, 0, 4)).toBe(4 * WU_PER_M + ((3 * WU_PER_M) >> 2));
     const s = createCameraShake();
-    shakeEffect(s, 0x2000, 15.9, 0, 0);
+    shakeEffect(s, hard, 15.9, 0, 0);
     expect(s.meter).toBe(250);
     const far = createCameraShake();
-    shakeEffect(far, 0x2000, 14, 4, 4); // 14 + 8 / 4 = 16 m: out of range
+    shakeEffect(far, hard, 14, 4, 4); // 14 + 8 / 4 = 16 m: out of range
     expect(far.meter).toBe(0);
-    shakeEffect(far, 0x0010, 1, 0, 0);
+    shakeEffect(far, undefined, 1, 0, 0); // a record without one
+    expect(far.meter).toBe(0);
+    shakeEffect(far, light, 1, 0, 0);
     expect(far.meter).toBe(75);
   });
 });
