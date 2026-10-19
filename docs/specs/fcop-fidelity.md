@@ -189,7 +189,7 @@ presentation-only fields the sim gained (`moveCue`, `roundFrom`) are outside `ha
 | A18 | — | The death coin and the scripts' dice come from the game's own random stream | keep | drawn from the client's: they decide what is heard, never what happens, so they stay out of the lockstep sim. Two online peers can hear different lines (platform exception) |
 | A19 | — | A downed aircraft or Sky Captain tumbles and raises its death effects on impact; a collision clears the death mask | RE | not modelled, as the sim has no tumble (U3): the effects are raised at the death, the mask is never cleared |
 | A20 | — | No original | keep | the debug maps (test-128, layered-test) play the Mp bank and music |
-| A21 | — | The Riot Shield's block has no fire sound | n/a | Metropolis has no Riot Shield |
+| A21 | — | The Riot Shield's block has no fire sound | adopt | adopted with the Riot Shield (W5, SIM_VERSION 90): its toggle raises no fire sound; the toggle-off sound the original plays on every call is not played yet (W5's open list) |
 
 ### Weapon effects (`packages/client/src/effects/`, `render/fx.ts`, `render/fx/`, PLAN.md Phase 14 wave 4)
 
@@ -309,7 +309,8 @@ the front end never reaches the sim.
 - Projectile speed scale of Sky Captain weapons 8/9; the aircraft turn rate in °/s.
 - The player-block words that make the captain ignore a player. (The kill-side per-class
   statistics are decompiled now: V7.)
-- How the flamethrower, beam, shockwave and riot shield spread damage over time; whether an
+- How the flamethrower, beam and shockwave spread damage over time (the Riot Shield's
+  is `sustain_sphere.c`'s, adopted in W5); whether an
   untriggered mine detonates after its 5 s lifetime.
 - How retail's six-slot weapon table serves the other nine weapons.
 - Jet behaviour beyond routing (air units keep §4's patrol/assault model).
@@ -322,5 +323,5 @@ the front end never reaches the sim.
   gravity statistic: a dropped round at rest expires, 0x00424606; E20), type 88's
   `word_14` (an offsets array no drawer reads).
 - Front end: the gun slot's code order (F7), the dialog fonts' metrics (F14); and, not RE
-  but Metropolis' own gaps, the three campaign weapons (F7), the movies (F10); the
-  replay header's loadouts (F9).
+  but Metropolis' own gap, the movies (F10). (The five extra weapons are in since
+  SIM_VERSION 90, W5; replay format 5 carries the loadouts and the switches, F9.)
