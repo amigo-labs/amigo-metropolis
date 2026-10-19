@@ -41,6 +41,7 @@ import {
   MSG_REJOIN,
   MSG_START,
   MSG_WELCOME,
+  normalizeLoadout,
   ONLINE_INPUT_DELAY_TICKS,
   type PlayerInput,
   PROTOCOL_VERSION,
@@ -276,8 +277,7 @@ export class NetLockstep {
         : {}),
       difficulties: config.difficulties,
       loadouts: config.loadouts,
-      // SimOptions.extraWeapons, the extra weapons' switches (by name).
-      ...{ extraWeapons: config.extraWeapons },
+      extraWeapons: config.extraWeapons,
     });
   }
 
@@ -300,6 +300,11 @@ export class NetLockstep {
       tickCount,
       warden,
       config.difficulties,
+      // The weapons as the sim took them (normalizeLoadout under the switches).
+      {
+        extraWeapons: config.extraWeapons,
+        loadouts: config.loadouts.map((l) => normalizeLoadout(l, config.extraWeapons)),
+      },
     );
     for (let t = 0; t < tickCount; t++) {
       const frame = this.confirmed[t];

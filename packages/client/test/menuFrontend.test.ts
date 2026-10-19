@@ -239,15 +239,25 @@ describe("the pointer", () => {
 });
 
 describe("the loadout column", () => {
-  test("the original's rule offers exactly the ten weapons the sim has", () => {
+  test("the original's rule offers exactly the ten weapons the sim always has", () => {
+    // The sim's other five wait on their switches (SimOptions.extraWeapons).
+    const lists = [GUNS, HEAVIES, SPECIALS];
     for (let slot = 0; slot < 3; slot++) {
       for (let e = 0; e < 5; e++) {
-        expect(originalAllows(slot, e)).toBe(simIndexOf(slot, e) >= 0);
+        const i = simIndexOf(slot, e);
+        expect(i >= 0).toBe(true); // every entry names a sim weapon now
+        expect(originalAllows(slot, e)).toBe(lists[slot][i].extraBit === 0);
         expect(entryAllowed(slot, e)).toBe(originalAllows(slot, e));
+        // The menu's switch is the sim's bit.
+        expect(extraBitOf(slot, e)).toBe(lists[slot][i].extraBit);
       }
     }
     const offered = [0, 1, 2].map((s) => [0, 1, 2, 3, 4].filter((e) => entryAllowed(s, e)).length);
-    expect(offered).toEqual([GUNS.length, HEAVIES.length, SPECIALS.length]);
+    expect(offered).toEqual(lists.map((l) => l.filter((w) => w.extraBit === 0).length));
+    const all = [0, 1, 2].map(
+      (s) => [0, 1, 2, 3, 4].filter((e) => entryAllowed(s, e, EXTRA_ALL)).length,
+    );
+    expect(all).toEqual([GUNS.length, HEAVIES.length, SPECIALS.length]);
   });
 
   test("outside the campaign 13 of 15 are available; the three fifths need Crime War", () => {

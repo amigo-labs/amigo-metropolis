@@ -43,6 +43,7 @@ import {
   MSG_HELLO,
   MSG_LOBBY,
   MSG_START,
+  normalizeLoadout,
   ONLINE_INPUT_DELAY_TICKS,
   P2P_INPUT_REDUNDANCY_TICKS,
   type PlayerInput,
@@ -219,8 +220,7 @@ export class P2pLockstep {
     this.sim = createSim(getMapById(config.mapId), config.seed, {
       difficulties: config.difficulties,
       loadouts: config.loadouts,
-      // SimOptions.extraWeapons, the extra weapons' switches (by name).
-      ...{ extraWeapons: config.extraWeapons },
+      extraWeapons: config.extraWeapons,
     });
     this.started = true;
     this.cb.onStart?.(this.sim, config);
@@ -358,6 +358,11 @@ export class P2pLockstep {
       tickCount,
       undefined,
       this.config.difficulties,
+      // The weapons as the sim took them (normalizeLoadout under the switches).
+      {
+        extraWeapons: this.config.extraWeapons,
+        loadouts: this.config.loadouts.map((l) => normalizeLoadout(l, this.config.extraWeapons)),
+      },
     );
     for (let t = 0; t < tickCount; t++) {
       const local = this.localInputs[t];

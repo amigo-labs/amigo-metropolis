@@ -270,13 +270,6 @@ let playerDifficulty: number = difficultyFromParams(params);
  * Preferences, or ?extra=<mask>). Online the host's lobby agrees it.
  */
 let playerExtraWeapons: number = extraFromParams(params);
-/**
- * SimOptions.extraWeapons (the extra weapons' own wave adds it to the sim):
- * spread into createSim, so it rides along by that name before and after.
- */
-function ruleOptions(extraWeapons: number): { extraWeapons: number } {
-  return { extraWeapons };
-}
 // Offline match modes build the sim now; a net mode defers — to the server's
 // authoritative config (arrives in MSG_WELCOME) or the lobby-brokered P2P
 // session — so both peers build a byte-identical sim. The menu instead shows
@@ -289,7 +282,7 @@ let sim: SimState = netMode
         ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
         loadouts: [playerLoadout],
         difficulties: [playerDifficulty],
-        ...ruleOptions(playerExtraWeapons),
+        extraWeapons: playerExtraWeapons,
       })
     : createDemoSim(map);
 
@@ -1176,7 +1169,7 @@ function rematchSolo(): void {
       ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
       loadouts: [playerLoadout],
       difficulties: [playerDifficulty],
-      ...ruleOptions(playerExtraWeapons),
+      extraWeapons: playerExtraWeapons,
     }),
   );
   startMatch([{ slot: 0, input: localInput }]);
@@ -2860,7 +2853,7 @@ function handleMenuChoice(
           ...(warden ? { wardenPlayer: 1, wardenDifficulty } : {}),
           loadouts: [playerLoadout],
           difficulties: [playerDifficulty],
-          ...ruleOptions(playerExtraWeapons),
+          extraWeapons: playerExtraWeapons,
         }),
       );
       startMatch([{ slot: 0, input: localInput }]);
@@ -2877,7 +2870,7 @@ function handleMenuChoice(
         createSim(map, seed, {
           loadouts: [playerLoadout],
           difficulties: [playerDifficulty],
-          ...ruleOptions(playerExtraWeapons),
+          extraWeapons: playerExtraWeapons,
         }),
       );
       // No flyover→chase blend — fly cam owns posing from the first frame.
@@ -2897,7 +2890,7 @@ function handleMenuChoice(
         createSim(map, seed, {
           loadouts: [playerLoadout],
           difficulties: [playerDifficulty],
-          ...ruleOptions(playerExtraWeapons),
+          extraWeapons: playerExtraWeapons,
         }),
       );
       startMatch([{ slot: 0, input: localInput }]);

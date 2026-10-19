@@ -17,7 +17,19 @@
 // no Crime War and no local second player, so the PRECINCT ASSAULT / CRIME WAR
 // and 1 PLAYER / 2 PLAYER buttons are refused (fcop-fidelity.md "Front end").
 
-import { GUNS, HEAVIES, type Loadout, SPECIALS, type WeaponDef } from "@metropolis/sim";
+import {
+  EXTRA_WEAPON_FUSION_TORPEDO,
+  EXTRA_WEAPON_GRENADE_LAUNCHER,
+  EXTRA_WEAPON_K9_DRONE,
+  EXTRA_WEAPON_PLASMA_FLARE,
+  EXTRA_WEAPON_RIOT_SHIELD,
+  EXTRA_WEAPONS_ALL,
+  GUNS,
+  HEAVIES,
+  type Loadout,
+  SPECIALS,
+  type WeaponDef,
+} from "@metropolis/sim";
 import { FE_GROUPS, FE_LOADOUT, FE_PA_MAPS, FE_SETS } from "./frontendData.generated";
 import type { FeGroup, FeMenu, FePanel, FePicture } from "./types";
 
@@ -140,12 +152,12 @@ export function normalizeConfig(raw: unknown): FeConfig {
  * two its availability row DAT_00487610 turns off
  * (`frontend_loadout_avail_default`, panel_callbacks.c).
  */
-export const EXTRA_RIOT_SHIELD = 1 << 0;
-export const EXTRA_K9_DRONE = 1 << 1;
-export const EXTRA_GRENADE_LAUNCHER = 1 << 2;
-export const EXTRA_FUSION_TORPEDO = 1 << 3;
-export const EXTRA_PLASMA_FLARE = 1 << 4;
-export const EXTRA_ALL = 0x1f;
+export const EXTRA_RIOT_SHIELD = EXTRA_WEAPON_RIOT_SHIELD;
+export const EXTRA_K9_DRONE = EXTRA_WEAPON_K9_DRONE;
+export const EXTRA_GRENADE_LAUNCHER = EXTRA_WEAPON_GRENADE_LAUNCHER;
+export const EXTRA_FUSION_TORPEDO = EXTRA_WEAPON_FUSION_TORPEDO;
+export const EXTRA_PLASMA_FLARE = EXTRA_WEAPON_PLASMA_FLARE;
+export const EXTRA_ALL = EXTRA_WEAPONS_ALL;
 
 /** The five switches in the order Preferences lists them, with their entries. */
 export const EXTRA_WEAPONS: readonly {

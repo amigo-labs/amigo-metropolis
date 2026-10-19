@@ -113,13 +113,19 @@ export function difficultyFromParams(params: URLSearchParams): number {
   return i >= 0 ? i : DIFFICULTY_NORMAL;
 }
 
-/** Parse ?gun=&heavy=&special= from a URLSearchParams (defaults on garbage). */
+/**
+ * Parse ?gun=&heavy=&special= from a URLSearchParams (defaults on garbage),
+ * under the ?extra= switches: an extra weapon whose bit is clear is refused.
+ */
 export function loadoutFromParams(params: URLSearchParams): Loadout {
-  return normalizeLoadout({
-    gun: Number(params.get("gun") ?? 0),
-    heavy: Number(params.get("heavy") ?? 0),
-    special: Number(params.get("special") ?? 0),
-  });
+  return normalizeLoadout(
+    {
+      gun: Number(params.get("gun") ?? 0),
+      heavy: Number(params.get("heavy") ?? 0),
+      special: Number(params.get("special") ?? 0),
+    },
+    extraFromParams(params),
+  );
 }
 
 /** Gates localhost-only debug UI (Fly cam button). */
