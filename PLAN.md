@@ -627,6 +627,10 @@ Waves, in this order:
    names (tank, jet, Dreadnought, Flying Fortress, Sky Captain)
 7. Front end: the original's menus and UI sounds (below)
 
+Waves 1–7 landed with PR #68 (SIM_VERSION 91). What is still open after them —
+Metropolis-only gaps, RE exports and questions, the older boxes below — is
+collected in [`docs/plans/open-items-2026-10.md`](docs/plans/open-items-2026-10.md).
+
 ### Wave 1 — Audio
 
 The RE repo has the whole sound module decompiled (`src/game/snd/`), so which
