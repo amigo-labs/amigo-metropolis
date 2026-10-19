@@ -188,8 +188,28 @@ Design pillars, in priority order:
   | Heavy | Hell Fire 2000 0x10, Concussion Beam 0x12, Hyper Velocity Rocket 0x13 |
   | Special | Mortar Launcher 0x20, Pop-Up Mines 0x22, Shockwave Generator 0x23 |
   The original's other five — Riot Shield 0x05, Fusion Torpedo 0x14, K-9 Drone
-  0x15, Plasma Flare 0x21, Grenade Launcher 0x24 — are not offered by the menu
-  and not adopted (`weapons.ts` NOT_ADOPTED_CODES).
+  0x15, Plasma Flare 0x21, Grenade Launcher 0x24 — Precinct Assault never
+  offers; Metropolis offers each behind its own "Spielregeln" switch (below).
+- **The extra weapons** (SIM_VERSION 90; the owner's decision,
+  `fcop-fidelity.md` W5, F23): `SimOptions.extraWeapons`, a bit each —
+  0 Riot Shield, 1 K-9 Drone, 2 Grenade Launcher, 3 Fusion Torpedo, 4 Plasma
+  Flare (`weapons.ts` EXTRA_WEAPON_*) — **all off by default, the original's
+  PA**. Online the host sets them (`MatchConfig.extraWeapons`), solo the
+  preferences (`?extra=<mask>` in a deep link); the replay header carries them
+  with every loadout (format 5). They are appended to their slots, so the ten's
+  indices hold: Gun 4 Riot Shield; Heavy 3 K-9 Drone, 4 Fusion Torpedo;
+  Special 3 Grenade Launcher, 4 Plasma Flare. A loadout naming one whose bit is
+  clear is refused onto the slot's last PA weapon. Each is the original's, on
+  its record and its kind's code (NORMAL's rounds):
+  | Weapon | Block A | Block B (powered) |
+  |---|---|---|
+  | Riot Shield | the trigger toggles a sphere about the mech, the front half: 20 a tick to what it touches, 1.6 m, a gun round every 0.06 s while up, 750 | the whole sphere, 40, 2.4 m, its arcs strike again, 375 |
+  | K-9 Drone | ground-hugging homing drone, 150 on its hit, 300 health (a weak body costs it that body's health and it hunts again), every 3.0 s, 0.59 → 4.69 m/s, 16 m, 31 | three on three ticks, 200, every 4.0 s, 22 |
+  | Fusion Torpedo | homing torpedo, 100 on its hit and in a 1 m blast cut by the distance flown over its 16 m, every 1.0 s, 1.46 → 11.7 m/s, 50 | 150, 2 m, 12 |
+  | Grenade Launcher | a bouncing grenade on the ballistic solve (7.6 m/s against 8 m/s², 7.25 m): 5/8 vertical and 7/8 horizontal kept per bounce, off at rest, on a body, after 3.0-4.5 s, or on the next press; 400 in 4.2 m, every 1.0 s, 37 | a burst of two, 0.06 s apart (each its own press, as the second press of a live one sets it off), 600, 20 |
+  | Plasma Flare | lobbed flare (7.6 m/s against 5.2 m/s², 11.2 m), off where it lands or on the next press; 250 in 6 m, every 2.0 s, 37 | bursts into four at its apex, 200 each, 6 m, every 3.0 s, 18 |
+  Rounds inside a Riot Shield take 300 one tick in eight (powered: 1000). The
+  Sky Captain never carries them: its weapons are the aircraft's own.
 - **Every number is the original's own weapon record** (SIM_VERSION 41;
   `fcop-fidelity.md` W1; `fcop-re/player-and-weapons.md` §7,
   `player-weapons.json`): each weapon's block A (as issued) and block B (powered
@@ -222,7 +242,7 @@ Design pillars, in priority order:
   ⌈g / 10⌉ ticks, and a negative round gap carries over (the Hyper Velocity
   Rocket's burst). Special is held-fire too; it becomes press-to-fire, with a
   second press detonating the kept round, only with a kept-round weapon (Plasma
-  Flare, Grenade), neither of which is offered.
+  Flare, Grenade Launcher: extra weapons, above).
 - **The lock decides what is hit** (`fcop-fidelity.md` W2; `input.spec.md`
   §4.4): 12 m horizontal, acquired within ±12.5° of the facing (automatically
   whenever there is none), held within ±25°. The hitscan guns damage **only the

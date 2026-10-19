@@ -932,8 +932,9 @@ rows F*; `docs/specs/ui.md` §3). Menu-only: no golden moves.
 - [x] The nine UI sounds on the original's slots and call sites (F17)
 - [x] Refused, as the ledger says: PA/CW and 1P/2P (no Crime War, no local
       second player), HELP and the film strip (no movies), QUIT (F8, F10, F11)
-- [ ] The three campaign weapons (Riot Shield, K-9 Drone, Grenade Launcher;
-      F7) — with the weapons
+- [x] The original's five extra weapons (Riot Shield, K-9 Drone, Grenade
+      Launcher, Fusion Torpedo, Plasma Flare; F7, F23, W5) — in the sim behind
+      their switches, on their records and the original's code (v90)
 - [x] The lobby's loadout, difficulty and ready exchange, WAITING (F9) — with
       a protocol change (protocol 4: the original's lobby messages, the
       host's agreed config in START; netcode.spec §4)
