@@ -19,6 +19,8 @@ not answered yet.
    - Work: carry `color_anims` through `gen:units` / `gen:paunits` and animate
      them in `render/facers.ts`. Allocate nothing in the frame loop.
    - Ledger: G13.
+   - **Done** in "feat: ramp the mine's star through its 3DAL colour animation" (`raw/fcop-fx/anims.json` -> the star's
+     `colour_anim` -> `render/facers.ts` on the 300 Hz clock).
 2. **Riot Shield toggle-off sound.** The original plays the block's sound on every
    call. Metropolis is silent when the call finds the sphere down.
    - Ledger: W5 (declared), A21.

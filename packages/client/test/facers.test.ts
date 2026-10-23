@@ -18,6 +18,8 @@ import {
   initFacers,
   lineCorners,
   parseFacers,
+  rampByte,
+  rampColour,
   registerFacers,
   starWedges,
   viewDepth,
@@ -346,5 +348,75 @@ describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star, 4
       const list = Array.isArray(b.mesh.material) ? b.mesh.material : [b.mesh.material];
       for (const m of list) expect(m.blending).not.toBe(THREE.AdditiveBlending);
     }
+  });
+});
+
+describe("a star's 3DAL colour ramp runs on the clock (cobj_tick_color_anims 0x0041a1a0)", () => {
+  test("a triangle wave of clock * speed, 4096 units a period, retail's rounding", () => {
+    // The mine's: grey (128, 128, 128) to magenta (255, 0, 255) at speed 16.
+    const to = [255, 0, 255];
+    const at = (clock: number) => [0, 1, 2].map((c) => rampByte(128, to[c], 16, clock));
+    expect(at(0)).toEqual([128, 128, 128]);
+    // Phase 1024: up by (to - from + 1) * 1024 >> 11; down biased by 0x7ff first.
+    expect(at(64)).toEqual([192, 65, 192]);
+    // Phase 2048 folds to 2047, the top of the wave.
+    expect(at(128)).toEqual([255, 2, 255]);
+    // And back down: phase 3072 folds to 1023.
+    expect(at(192)).toEqual([191, 65, 191]);
+    // 4096 / 16 clock units a period.
+    expect(at(256)).toEqual(at(0));
+    expect(at(256 * 1000 + 64)).toEqual(at(64));
+  });
+
+  test("the record's ramp writes the star's centre, doubled, every frame", () => {
+    const set = parseFacers({
+      fcop: {
+        frames: 1,
+        facers: [
+          {
+            kind: "star",
+            mode: "add",
+            at: [[0, 0.1, 0]],
+            radius: [0.1],
+            centre_rgb: [128, 128, 128],
+            rim_rgb: [32, 32, 32],
+            wedge_cap: 8,
+            texture: null,
+            colour_anim: { speed: 16, from: [128, 128, 128], to: [255, 0, 255] },
+          },
+        ],
+      },
+    });
+    const star = set?.facers[0];
+    if (!star) throw new Error("no star");
+    expect(Array.from(star.ramp ?? [])).toEqual([16, 128, 128, 128, 255, 0, 255]);
+    rampColour(star, 128);
+    expect(Array.from(star.colour).map((v) => Math.round(v * 255))).toEqual([510, 4, 510]);
+    // The rim does not ramp.
+    expect(Array.from(star.rim).map((v) => Math.round(v * 255))).toEqual([64, 64, 64]);
+
+    // drawFacers runs it at the clock it is handed.
+    const scene = new THREE.Scene();
+    initFacers(scene);
+    const mesh = new THREE.InstancedMesh(new THREE.BufferGeometry(), undefined, 1);
+    scene.add(mesh);
+    registerFacers(mesh, set, null);
+    const { camera } = viewOf(new THREE.Vector3(0, 1, 5), new THREE.Vector3(0, 0, 0));
+    drawFacers(camera, 480, 0);
+    expect(Array.from(star.colour).map((v) => Math.round(v * 255))).toEqual([256, 256, 256]);
+    drawFacers(camera, 480, 64);
+    expect(Array.from(star.colour).map((v) => Math.round(v * 255))).toEqual([384, 130, 384]);
+    scene.remove(mesh);
+    drawFacers(camera, 480, 0);
+  });
+
+  test("the committed mine carries Mp 50's ramp on its star (prim 4)", () => {
+    const b = readFileSync(join(import.meta.dir, "..", "public", "models", "fx", "mine.glb"));
+    const json = JSON.parse(b.subarray(20, 20 + b.readUInt32LE(12)).toString("utf8")) as {
+      nodes: { extras?: unknown }[];
+    };
+    const set = parseFacers(json.nodes[0].extras, true);
+    const star = set?.facers.find((f) => f.kind === FACER_STAR);
+    expect(Array.from(star?.ramp ?? [])).toEqual([16, 128, 128, 128, 255, 0, 255]);
   });
 });

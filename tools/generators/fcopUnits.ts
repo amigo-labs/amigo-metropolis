@@ -41,7 +41,13 @@
 //
 // The weapons' models ride along: every `raw/fcop-fx/mp-objNNN-<what>.glb`
 // (units/manifest.ts FX_MODELS and the evidence raws beside them) is Mp's
-// export of Cobj NNN, copied unchanged.
+// export of Cobj NNN, copied unchanged. What the original does with them that
+// the glb does not carry goes beside them into `raw/fcop-fx/anims.json`, which
+// gen:units reads:
+// - the 3DAL colour animations (the RE's object manifest `color_anims`):
+//   `cobj_tick_color_anims` 0x0041a1a0 ramps a primitive's bytes 5..7 — a
+//   star's centre colour — between two colours on a triangle wave of the
+//   clock; the chunk's first record only (its repeat count is 1 on all 36).
 //
 //   bun run gen:paunits [--check] [--re-repo <path>]
 //
@@ -66,6 +72,8 @@ import { decodePng } from "./png";
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const RAW_DIR = join(import.meta.dir, "units", "raw");
 const OUT_TS = join(REPO_ROOT, "packages", "client", "src", "render", "arenaUnits.generated.ts");
+/** The weapons' models' animations, beside their raws (gen:units reads it). */
+const OUT_FX_ANIMS = join(RAW_DIR, "fcop-fx", "anims.json");
 /** enrichArena.ts LOGIC_OFFSET_X / _Z: the actor frame's shift onto the sim grid. */
 const LOGIC_OFFSET_X = 16;
 const LOGIC_OFFSET_Z = 0;
@@ -135,6 +143,19 @@ interface PaModels {
   readonly map: string;
   readonly roles: Readonly<Record<string, readonly PaRole[]>>;
   readonly models: Readonly<Record<string, PaModel>>;
+}
+
+// --- extracted/objects/<Mission>/manifest.json (the fields read here) -------
+
+interface ReColourAnim {
+  readonly face_index: number;
+  readonly speed_raw: number;
+  readonly color0: readonly number[];
+  readonly color1: readonly number[];
+}
+interface ReObject {
+  readonly id: number;
+  readonly color_anims?: readonly { readonly entries: readonly ReColourAnim[] }[];
 }
 
 // --- committed inputs read alongside -------------------------------------
@@ -781,9 +802,38 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
   return lines.join("\n");
 }
 
+/**
+ * A primitive's colour ramp (`cobj_tick_color_anims` 0x0041a1a0): bytes 5..7 of
+ * 3DQL primitive `prim` from `from` to `to` on a triangle wave of `clock * speed`.
+ */
+interface ColourAnim {
+  prim: number;
+  speed: number;
+  from: number[];
+  to: number[];
+}
+
+/** What gen:units carries onto one weapon raw beyond its glb. */
+interface FxAnims {
+  colourAnims?: ColourAnim[];
+}
+
+/** The 3DAL records of Mp's Cobj `cobj` (each chunk's first: its loop never advances). */
+function colourAnimsOf(objects: readonly ReObject[], cobj: number): ColourAnim[] {
+  const obj = objects.find((o) => o.id === cobj);
+  if (!obj) throw new Error(`Mp Cobj ${cobj}: not in the object manifest`);
+  return (obj.color_anims ?? []).map((chunk) => {
+    if (chunk.entries.length !== 1) {
+      throw new Error(`Mp Cobj ${cobj}: a 3DAL chunk of ${chunk.entries.length} records`);
+    }
+    const e = chunk.entries[0];
+    return { prim: e.face_index, speed: e.speed_raw, from: [...e.color0], to: [...e.color1] };
+  });
+}
+
 /** The table as the formatter writes it, so a re-run and `--check` agree with lint. */
-function biomeFormat(text: string): string {
-  const fmt = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=${OUT_TS}`], {
+function biomeFormat(text: string, path = OUT_TS): string {
+  const fmt = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=${path}`], {
     cwd: REPO_ROOT,
     stdin: new TextEncoder().encode(text),
   });
@@ -884,8 +934,13 @@ async function main(): Promise<void> {
       stale++;
     }
   }
-  // The weapons' models: Mp's exports under the names manifest.ts gives them.
+  // The weapons' models: Mp's exports under the names manifest.ts gives them,
+  // and what the original animates on them that the glb does not carry.
   let weapons = 0;
+  const mpObjects = JSON.parse(
+    readFileSync(join(reRepo, "extracted", "objects", "Mp", "manifest.json"), "utf8"),
+  ) as ReObject[];
+  const anims: Record<string, FxAnims> = {};
   for (const name of readdirSync(join(RAW_DIR, "fcop-fx")).sort()) {
     const m = /^mp-obj(\d{3})-.+\.glb$/.exec(name);
     if (!m) continue;
@@ -897,6 +952,20 @@ async function main(): Promise<void> {
       console.log(`${to} is not ${from}`);
       stale++;
     }
+    const entry: FxAnims = {};
+    const colourAnims = colourAnimsOf(mpObjects, Number(m[1]));
+    if (colourAnims.length > 0) entry.colourAnims = colourAnims;
+    if (Object.keys(entry).length > 0) anims[name] = entry;
+  }
+  const animsText = biomeFormat(
+    `${JSON.stringify({ source: "RE extracted/objects/Mp/manifest.json", models: anims })}
+`,
+    OUT_FX_ANIMS,
+  );
+  if (!check) writeFileSync(OUT_FX_ANIMS, animsText);
+  else if (!existsSync(OUT_FX_ANIMS) || readFileSync(OUT_FX_ANIMS, "utf8") !== animsText) {
+    console.log(`${OUT_FX_ANIMS} is stale`);
+    stale++;
   }
   for (const { arena, units: u } of reads) {
     console.log(

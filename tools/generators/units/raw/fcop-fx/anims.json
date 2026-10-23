@@ -1,0 +1,8 @@
+{
+  "source": "RE extracted/objects/Mp/manifest.json",
+  "models": {
+    "mp-obj050-mine.glb": {
+      "colourAnims": [{ "prim": 4, "speed": 16, "from": [128, 128, 128], "to": [255, 0, 255] }]
+    }
+  }
+}

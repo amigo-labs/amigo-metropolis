@@ -33,6 +33,13 @@
 // 0x00427f0d). Not reproduced: the depth sort (each at its centre's depth
 // less 0x100; here the depth buffer tests them, after the opaque scene).
 //
+// A star with a 3DAL colour ramp (`colour_anim`, gen:units; the mine's, Mp 50)
+// takes its centre colour off the clock every frame, as
+// `cobj_tick_color_anims` (RE 0x0041a1a0) rewrites the primitive's bytes 5..7
+// before the draw: a triangle wave of `clock * speed`, 4096 clock units a
+// period per unit of speed, from one colour to the other and back. The clock is
+// the engine's 300 Hz one, on the sim's time (drawFacers' caller).
+//
 // Renderer rules: one dynamic batch per model and blend (render/fx/ribbons.ts'
 // RibbonBuffer: preallocated, rebuilt every frame, nothing allocated once the
 // models are in), reading each instance's matrix off the archetype's own
@@ -71,6 +78,11 @@ export interface Facer {
   /** A star's rim colour, doubled. */
   readonly rim: Float32Array;
   readonly wedgeCap: number;
+  /**
+   * A star's colour ramp, or null: [speed, from r, g, b, to r, g, b]. Each
+   * frame writes its centre into `colour` (rampColour).
+   */
+  readonly ramp: Int32Array | null;
 }
 
 /** A model's facers, as one archetype's instances wear them. */
@@ -93,6 +105,7 @@ interface RawFacer {
   centre_rgb?: number[];
   rim_rgb?: number[];
   wedge_cap?: number;
+  colour_anim?: { speed?: number; from?: number[]; to?: number[] };
 }
 
 const KINDS: Readonly<Record<string, number>> = {
@@ -143,7 +156,11 @@ export function parseFacers(extras: unknown, turn = false): FacerSet | null {
     }
     const textured = kind !== FACER_STAR && f.texture !== null && f.texture !== undefined && f.uv;
     const uv = textured ? Float32Array.from((f.uv ?? []).flatMap((c) => [c[0], c[1]])) : null;
-    facers.push({ kind, mode, a, b, h, uv, colour, rim, wedgeCap: f.wedge_cap ?? 4 });
+    const anim = kind === FACER_STAR ? f.colour_anim : undefined;
+    const ramp = anim
+      ? Int32Array.from([anim.speed ?? 0, ...(anim.from ?? [0, 0, 0]), ...(anim.to ?? [0, 0, 0])])
+      : null;
+    facers.push({ kind, mode, a, b, h, uv, colour, rim, wedgeCap: f.wedge_cap ?? 4, ramp });
   }
   return facers.length > 0 ? { frames, facers } : null;
 }
@@ -160,6 +177,26 @@ function put(out: Float32Array, k: number, p: number[] | undefined, turn: boolea
 /** A colour's bytes doubled, 0x80 unity (colour mode 0x30 / 0x50). */
 function doubled(rgb: readonly number[] | undefined, out: Float32Array): void {
   for (let i = 0; i < 3; i++) out[i] = ((rgb?.[i] ?? 0x80) * 2) / 255;
+}
+
+/**
+ * One byte of a 3DAL ramp at `clock` (RE `cobj_tick_color_anims` 0x0041a1a0):
+ * the phase `(clock * speed) & 0xfff` folded at 0x7ff into a triangle wave,
+ * then `from + ((to - from + 1) * phase >> 11)`, a negative span biased by
+ * 0x7ff before the shift (retail's rounding toward zero), stored as a byte.
+ */
+export function rampByte(from: number, to: number, speed: number, clock: number): number {
+  let phase = Math.imul(clock, speed) & 0xfff;
+  if (phase > 0x7ff) phase = 0xfff - phase;
+  const span = (to - from + 1) * phase;
+  return (((span + ((span >> 31) & 0x7ff)) >> 11) + from) & 0xff;
+}
+
+/** A ramped star's centre at `clock` into its `colour`, doubled as the star draws it. */
+export function rampColour(f: Facer, clock: number): void {
+  const r = f.ramp;
+  if (!r) return;
+  for (let i = 0; i < 3; i++) f.colour[i] = (rampByte(r[1 + i], r[4 + i], r[0], clock) * 2) / 255;
 }
 
 // --- the geometry -------------------------------------------------------------
@@ -376,6 +413,8 @@ interface Source {
   readonly frames: ArrayLike<number> | null;
   readonly teamUv: boolean;
   readonly batches: (RibbonBuffer | null)[];
+  /** Some facer of the set ramps its colour. */
+  readonly ramped: boolean;
 }
 
 let sceneRef: THREE.Scene | null = null;
@@ -423,6 +462,7 @@ export function registerFacers(
     frames: options.frames ?? null,
     teamUv: options.teamUv === true,
     batches,
+    ramped: set.facers.some((f) => f.ramp !== null),
   });
 }
 
@@ -451,15 +491,20 @@ function inScene(obj: THREE.Object3D): boolean {
 
 /**
  * Per frame, after every instance matrix is written and before the draw: each
- * registered model's facers, rebuilt for `camera`. Allocates nothing.
+ * registered model's facers, rebuilt for `camera`, the colour ramps at `clock`
+ * (the engine's 300 Hz units on the sim's time). Allocates nothing.
  */
-export function drawFacers(camera: THREE.Camera, viewportHeight: number): void {
+export function drawFacers(camera: THREE.Camera, viewportHeight: number, clock = 0): void {
   view.set(camera, viewportHeight);
   for (let s = sources.length - 1; s >= 0; s--) {
     const src = sources[s];
     if (!inScene(src.mesh)) {
       unregisterFacers(src.mesh);
       continue;
+    }
+    if (src.ramped) {
+      const facers = src.set.facers;
+      for (let k = 0; k < facers.length; k++) rampColour(facers[k], clock);
     }
     for (let p = 0; p < PASSES; p++) src.batches[p]?.begin();
     // A mesh of facers alone is hidden (no faces): its matrices still count.

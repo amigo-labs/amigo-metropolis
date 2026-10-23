@@ -2345,12 +2345,14 @@ function frame(now: number): void {
   const alpha = accumulator / TICK_MS;
   const simDtSec = advanceSimClock(alpha);
   renderEntities(alpha, simDtSec);
+  // The engine's 300 Hz clock on the sim's time: the facers' colour ramps.
+  const engineNow = Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ));
   if (views.length === 0) {
     // A match with no views yet (the menu and the connecting card return
     // above): the flyover.
     updateFlyoverCamera(flyCam, now / 1000, extent);
     if (phase === "match") fx.update(dtSec, flyCam, simDtSec);
-    drawFacers(flyCam, renderer.domElement.height);
+    drawFacers(flyCam, renderer.domElement.height, engineNow);
     renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.setScissor(0, 0, innerWidth, innerHeight);
     renderScene(flyCam);
@@ -2379,7 +2381,7 @@ function frame(now: number): void {
       if (v === 0 && phase === "match") placeViewWindow(view);
       // The models' camera-facing facers, on every instance matrix written
       // this frame (render/facers.ts), turned to the local view's camera.
-      if (v === 0) drawFacers(view.camera, renderer.domElement.height);
+      if (v === 0) drawFacers(view.camera, renderer.domElement.height, engineNow);
       const vp = view.viewport;
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);

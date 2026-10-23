@@ -337,9 +337,10 @@ export const FX_MODELS: readonly FxModelSpec[] = [
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
-    // The original blinks this one through a `color_anim` on face 4
-    // (grey -> magenta, speed 16). The pipeline has no path for per-face colour
-    // animation, so it ships static; the arming blink stays the client's job.
+    // The original blinks its star (primitive 4) through a 3DAL colour ramp,
+    // grey -> magenta at speed 16: gen:paunits carries it beside the raw
+    // (raw/fcop-fx/anims.json), gen:units onto the star's record, and
+    // render/facers.ts runs it.
     role: "player Mine — PROJ_MINE",
     rotateQuarterY: 0,
     // Native 0.324 x 0.215 x 0.369.

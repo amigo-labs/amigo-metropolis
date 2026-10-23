@@ -40,7 +40,12 @@
 //
 // `--check` builds every model in memory and exits 1 if any differs from the
 // committed file (by its pixels for the atlas, by its bytes for the rest).
+//
+// The weapons' raws carry what the original animates on them beside them, in
+// `raw/fcop-fx/anims.json` (gen:paunits, from the RE's object manifest): a
+// star's 3DAL colour ramp rides its facer's record as `colour_anim`.
 
+import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
@@ -125,6 +130,32 @@ interface ModelPass {
   readonly keepMorph?: "morph" | "skeleton";
   /** The frames a kept morph has, base included: what the bake must produce. */
   readonly morphFrames?: number;
+  /** The 3DAL colour ramps on its primitives (`raw/fcop-fx/anims.json`). */
+  readonly colourAnims?: readonly ColourAnim[];
+}
+
+/**
+ * `cobj_tick_color_anims` (RE 0x0041a1a0): bytes 5..7 of 3DQL primitive `prim`
+ * (a star's centre colour) from `from` to `to` on a triangle wave of
+ * `clock * speed` (render/facers.ts).
+ */
+interface ColourAnim {
+  readonly prim: number;
+  readonly speed: number;
+  readonly from: readonly number[];
+  readonly to: readonly number[];
+}
+
+/** What gen:paunits put beside the weapons' raws, by raw file name. */
+const FX_ANIMS = (
+  JSON.parse(readFileSync(join(RAW_DIR, "fcop-fx", "anims.json"), "utf8")) as {
+    models: Readonly<Record<string, { readonly colourAnims?: readonly ColourAnim[] }>>;
+  }
+).models;
+
+/** The animations gen:paunits carried for a weapon raw (`fcop-fx/<name>`). */
+function fxAnimsOf(raw: string): { readonly colourAnims?: readonly ColourAnim[] } {
+  return FX_ANIMS[raw.slice(raw.lastIndexOf("/") + 1)] ?? {};
 }
 
 const PASSES: readonly ModelPass[] = [
@@ -195,6 +226,7 @@ const PASSES: readonly ModelPass[] = [
     // flies about its own centre rather than standing on anything.
     centreXZ: false,
     groundY: false,
+    colourAnims: fxAnimsOf(spec.raw).colourAnims,
   })),
 ];
 
@@ -1401,7 +1433,16 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
       return { offset: offsets[s], width: pages[s].width, atlasWidth: width };
     };
     const { facers, frames } = placeFacers(facerSource, placed, spec.keepMorph !== undefined, slot);
+    for (const anim of spec.colourAnims ?? []) {
+      // Bytes 5..7 are a star's centre colour; on any other primitive they are
+      // vertex indices, which no shipped ramp touches.
+      const star = facers.find((f) => f.prim === anim.prim && f.kind === "star");
+      if (!star) throw new Error(`${spec.key}: a colour ramp on primitive ${anim.prim}, no star`);
+      star.colour_anim = { speed: anim.speed, from: [...anim.from], to: [...anim.to] };
+    }
     node.setExtras({ fcop: { facers, frames } });
+  } else if (spec.colourAnims?.length) {
+    throw new Error(`${spec.key}: a colour ramp on a model without facers`);
   }
 
   // Exact weld: identical position/normal/color tuples share one index —
