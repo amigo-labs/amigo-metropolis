@@ -10,7 +10,14 @@ import {
   type SceneryProp,
   type SceneryQuad,
 } from "../src/render/arenaScenery.generated";
-import { quadGeometry, quadMatrix, quadRotation } from "../src/render/decals";
+import {
+  QUAD_DEPTH_VERTEX,
+  QUAD_NEAR,
+  quadGeometry,
+  quadMatrix,
+  quadRotation,
+  useQuadDepth,
+} from "../src/render/decals";
 import {
   emitterFrame,
   emitterMatrix,
@@ -172,6 +179,55 @@ describe("a DCSQuad", () => {
     const uv = g.getAttribute("uv");
     expect([uv.getX(0), uv.getY(0)]).toEqual([0, 1]);
     expect(uv.getX(1)).toBeCloseTo(62 / 63, 6);
+  });
+
+  test("the corner the drawer's depth leaves out is pyro_place's fourth, (-x, -z)", () => {
+    // The key reads the centre and points 1..3 (pyro_draw.c 0x0043783d):
+    // (-x, +z), (+x, +z), (+x, -z); QUAD_DEPTH_VERTEX names them by the unit
+    // quad's corners, and leaves (-1, 0, -1) out.
+    for (const yaw of [0, 777, 2900]) {
+      const q = quadOf({ yaw });
+      const m = quadMatrix(q, new THREE.Matrix4());
+      const a = (yaw * 2 * Math.PI) / 4096;
+      const my = [
+        [Math.cos(a), 0, -Math.sin(a)],
+        [0, 1, 0],
+        [Math.sin(a), 0, Math.cos(a)],
+      ];
+      const at = new THREE.Vector3(q.x, q.h, q.y);
+      const corners: [number, number, number, number][] = [
+        [1, -1, -1, 1],
+        [1, 1, 1, 1],
+        [-1, 1, 1, -1],
+        [-1, -1, -1, -1],
+      ];
+      for (const [ux, uz, sx, sz] of corners) {
+        const want = original(my, new THREE.Vector3(sx * q.halfX, 0, sz * q.halfZ)).add(at);
+        expect(new THREE.Vector3(ux, 0, uz).applyMatrix4(m).distanceTo(want)).toBeLessThan(1e-9);
+      }
+    }
+    expect(QUAD_DEPTH_VERTEX).toContain("float key = (zc + za + zb + zcc) * 0.25;");
+    expect(QUAD_DEPTH_VERTEX).toContain("vec4(-1.0, 0.0, -1.0, 1.0)");
+    expect(QUAD_NEAR).toBeCloseTo(1029 / 512, 12);
+    expect(QUAD_DEPTH_VERTEX).toContain(`<= ${QUAD_NEAR.toFixed(9)}`);
+  });
+
+  test("its material draws at the drawer's depth, no polygon offset", () => {
+    const material = new THREE.MeshBasicMaterial();
+    useQuadDepth(material);
+    expect(material.polygonOffset).toBe(false);
+    const shader = {
+      vertexShader: THREE.ShaderLib.basic.vertexShader,
+      fragmentShader: THREE.ShaderLib.basic.fragmentShader,
+      uniforms: {},
+    } as unknown as THREE.WebGLProgramParametersWithUniforms;
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    expect(shader.vertexShader).toContain("mvPosition.xyz *= key / -mvPosition.z;");
+    // three's own projection still runs first: the key slides what it placed.
+    expect(shader.vertexShader.indexOf("#include <project_vertex>")).toBeLessThan(
+      shader.vertexShader.indexOf("quadView"),
+    );
+    expect(material.customProgramCacheKey()).toBe("dcsquad-depth");
   });
 
   test("on Slim, Joke and Hk: the additive haze of one cloud each", () => {

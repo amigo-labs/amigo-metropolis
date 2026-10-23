@@ -17,10 +17,12 @@ import {
   facerSourceCount,
   initFacers,
   lineCorners,
+  onSortPlane,
   parseFacers,
   rampByte,
   rampColour,
   registerFacers,
+  sortFarToNear,
   starWedges,
   viewDepth,
 } from "../src/render/facers";
@@ -348,6 +350,74 @@ describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star, 4
       const list = Array.isArray(b.mesh.material) ? b.mesh.material : [b.mesh.material];
       for (const m of list) expect(m.blending).not.toBe(THREE.AdditiveBlending);
     }
+  });
+});
+
+describe("the facers sort as the original's display list does (draw_list_submit 0x0040ca10)", () => {
+  test("a corner slid onto the sort plane stays where the screen shows it", () => {
+    const { camera, view } = viewOf(new THREE.Vector3(4, 3, 6), new THREE.Vector3(0, 1, 0));
+    const out = new Float32Array(12);
+    lineCorners(view, 0, 0, 0, 0.5, 2, -3, 0.2, 0.1, out);
+    const before = [0, 1, 2, 3].map((k) => ndc(camera, corner(out, k)));
+    onSortPlane(view, 7, out);
+    for (let k = 0; k < 4; k++) {
+      const after = ndc(camera, corner(out, k));
+      expect(after.x).toBeCloseTo(before[k].x, 6);
+      expect(after.y).toBeCloseTo(before[k].y, 6);
+      expect(viewDepth(view, out[k * 3], out[k * 3 + 1], out[k * 3 + 2])).toBeCloseTo(7, 5);
+    }
+  });
+
+  test("far to near, the references along", () => {
+    const keys = Float32Array.from([3, 9, 1, 9.5, 0]);
+    const refs = Int32Array.from([0, 1, 2, 3, 4]);
+    sortFarToNear(keys, refs, 4);
+    expect(Array.from(keys)).toEqual([9.5, 9, 3, 1, 0]);
+    expect(Array.from(refs)).toEqual([3, 1, 0, 2, 4]);
+  });
+
+  test("a half line lies flat at its ends' mean, and its batch is drawn far to near", () => {
+    const scene = new THREE.Scene();
+    initFacers(scene);
+    const mesh = new THREE.InstancedMesh(new THREE.BufferGeometry(), undefined, 2);
+    scene.add(mesh);
+    const set = parseFacers({
+      fcop: {
+        frames: 1,
+        facers: [
+          {
+            kind: "line",
+            mode: "half",
+            from: [[0, 0, 0]],
+            to: [[0, 2, -4]],
+            half: [[0.1, 0.1]],
+            uv: [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+            ],
+            texture: 0,
+          },
+        ],
+      },
+    });
+    registerFacers(mesh, set, new THREE.Texture());
+    const m = new THREE.Matrix4();
+    mesh.setMatrixAt(0, m.makeTranslation(0, 0, 0));
+    mesh.setMatrixAt(1, m.makeTranslation(1, 0, -12));
+    const { camera, view } = viewOf(new THREE.Vector3(0, 1, 8), new THREE.Vector3(0, 1, 0));
+    drawFacers(camera, 480);
+    const batch = scene.children.find((c) => c !== mesh) as THREE.Mesh;
+    expect(batch.geometry.drawRange.count).toBe(2 * 6);
+    const pos = batch.geometry.getAttribute("position").array as Float32Array;
+    const depth = (v: number) => viewDepth(view, pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]);
+    // The far instance first: its ends at 20 and 24 m, its key 22 m.
+    const key = (z: number) => (viewDepth(view, 0, 0, z) + viewDepth(view, 0, 2, z - 4)) / 2;
+    for (let v = 0; v < 4; v++) expect(depth(v)).toBeCloseTo(key(-12), 4);
+    for (let v = 4; v < 8; v++) expect(depth(v)).toBeCloseTo(key(0), 4);
+    scene.remove(mesh);
+    drawFacers(camera, 480);
   });
 });
 

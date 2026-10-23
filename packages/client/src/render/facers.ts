@@ -30,8 +30,23 @@
 // Textured facers take the face's mode — add (tint x 2 / 255, ONE / ONE),
 // half (the bit-15 texels 50/50) or opaque — and the instance's team offset,
 // which `cact_model_shade_face` adds to every (u, v) (RE model_shade.c
-// 0x00427f0d). Not reproduced: the depth sort (each at its centre's depth
-// less 0x100; here the depth buffer tests them, after the opaque scene).
+// 0x00427f0d).
+//
+// The sort. The original has no depth buffer: every record goes into the
+// display list at a sort key and the list is drawn far to near
+// (`draw_list_submit` 0x0040ca10). A facer's key is its point's depth (a
+// line's, its ends' mean `(z1 + z0) / 2`; RE cobj_prim.c, 0x004288bf for the
+// billboard), less the 0x100 the model walker hands every primitive of the
+// model, faces as well (`cact_model_draw_prims` 0x004284ea). Here the depth
+// buffer stands in for the list, so each facer is laid on its key's plane: a
+// billboard, rect and star already are; a line's corners slide along their
+// view rays onto the plane at its ends' mean, its screen shape unchanged and
+// its texture mapped across the screen as THRASH maps every record (one w for
+// every vertex, 0x00456315). The half facers, the one blend whose order shows,
+// are written far to near within their batch. The 0x100 is not applied: it is
+// the same on the model's faces, which the depth buffer tests at their own
+// depth (against the terrain plates, which carry none, `terrain_plate.c`
+// 0x004539ea, every model sorts 0x100 nearer in the original).
 //
 // A star with a 3DAL colour ramp (`colour_anim`, gen:units; the mine's, Mp 50)
 // takes its centre colour off the clock every frame, as
@@ -415,12 +430,17 @@ interface Source {
   readonly batches: (RibbonBuffer | null)[];
   /** Some facer of the set ramps its colour. */
   readonly ramped: boolean;
+  /** A frame's half facers, sorted far to near: each one's key, and instance * facers + facer. */
+  readonly sortKey: Float32Array;
+  readonly sortRef: Int32Array;
 }
 
 let sceneRef: THREE.Scene | null = null;
 const sources: Source[] = [];
 const view = new FxView();
 const corners = new Float32Array(12);
+/** The transformed point (and a line's other end) of the facer being drawn. */
+const ends = new Float32Array(6);
 
 /** The scene the batches join. Once, at boot. */
 export function initFacers(scene: THREE.Scene): void {
@@ -444,9 +464,11 @@ export function registerFacers(
   if (!set || !scene) return;
   const capacity = mesh.instanceMatrix.count;
   const verts = new Int32Array(PASSES);
+  let halves = 0;
   for (const f of set.facers) {
     const pass = passOf(f);
     if (pass >= 0) verts[pass] += pass === PASS_STAR ? Math.max(4, f.wedgeCap) + 2 : 4;
+    if (pass === PASS_HALF) halves++;
   }
   const batches: (RibbonBuffer | null)[] = [];
   for (let pass = 0; pass < PASSES; pass++) {
@@ -463,6 +485,8 @@ export function registerFacers(
     teamUv: options.teamUv === true,
     batches,
     ramped: set.facers.some((f) => f.ramp !== null),
+    sortKey: new Float32Array(halves * capacity),
+    sortRef: new Int32Array(halves * capacity),
   });
 }
 
@@ -515,54 +539,143 @@ export function drawFacers(camera: THREE.Camera, viewportHeight: number, clock =
 
 function drawSource(src: Source): void {
   const m = src.mesh.instanceMatrix.array as Float32Array;
-  const team = src.teamUv
-    ? (src.mesh.geometry.getAttribute(TEAM_UV_ATTR) as THREE.InstancedBufferAttribute | undefined)
-    : undefined;
-  const teamArray = team ? (team.array as Float32Array) : null;
   const count = src.mesh.count;
   const facers = src.set.facers;
+  let sorted = 0;
   for (let i = 0; i < count; i++) {
     const o = i * 16;
     // A hidden instance stands at a zero scale (or the zero matrix).
     if (m[o] === 0 && m[o + 1] === 0 && m[o + 2] === 0) continue;
-    const frame = src.frames ? Math.max(0, Math.min(src.set.frames - 1, src.frames[i] | 0)) : 0;
-    const du = teamArray ? teamArray[i * 2] : 0;
-    const dv = teamArray ? teamArray[i * 2 + 1] : 0;
     for (let k = 0; k < facers.length; k++) {
       const f = facers[k];
       const pass = passOf(f);
       const buf = pass >= 0 ? src.batches[pass] : null;
       if (!buf) continue;
-      const a = frame * 3;
-      const ax = f.a[a];
-      const ay = f.a[a + 1];
-      const az = f.a[a + 2];
-      // The point through the instance's matrix (column-major).
-      const x0 = m[o] * ax + m[o + 4] * ay + m[o + 8] * az + m[o + 12];
-      const y0 = m[o + 1] * ax + m[o + 5] * ay + m[o + 9] * az + m[o + 13];
-      const z0 = m[o + 2] * ax + m[o + 6] * ay + m[o + 10] * az + m[o + 14];
-      const d0 = viewDepth(view, x0, y0, z0);
-      if (d0 <= FACER_NEAR) continue;
-      const h0 = f.h[frame * 2];
-      const h1 = f.h[frame * 2 + 1];
-      if (f.kind === FACER_STAR) {
-        star(buf, f, x0, y0, z0, h0, d0);
+      if (pass !== PASS_HALF) {
+        emitFacer(src, buf, f, i);
         continue;
       }
-      if (f.kind === FACER_LINE) {
-        const bx = f.b[a];
-        const by = f.b[a + 1];
-        const bz = f.b[a + 2];
-        const x1 = m[o] * bx + m[o + 4] * by + m[o + 8] * bz + m[o + 12];
-        const y1 = m[o + 1] * bx + m[o + 5] * by + m[o + 9] * bz + m[o + 13];
-        const z1 = m[o + 2] * bx + m[o + 6] * by + m[o + 10] * bz + m[o + 14];
-        if (viewDepth(view, x1, y1, z1) <= FACER_NEAR) continue;
-        lineCorners(view, x0, y0, z0, x1, y1, z1, h0, h1, corners);
-      } else {
-        billboardCorners(view, x0, y0, z0, h0, h1, corners);
-      }
-      quad(buf, f, du, dv);
+      // A half facer waits for its batch's order: far to near by its key.
+      const key = facerKey(src, f, i);
+      if (key <= 0 || sorted >= src.sortKey.length) continue;
+      src.sortKey[sorted] = key;
+      src.sortRef[sorted] = i * facers.length + k;
+      sorted++;
     }
+  }
+  if (sorted === 0) return;
+  sortFarToNear(src.sortKey, src.sortRef, sorted);
+  const buf = src.batches[PASS_HALF];
+  if (!buf) return;
+  for (let n = 0; n < sorted; n++) {
+    const ref = src.sortRef[n];
+    const i = Math.floor(ref / facers.length);
+    emitFacer(src, buf, facers[ref - i * facers.length], i);
+  }
+}
+
+/** The frame instance `i` of `src` shows. */
+function frameOf(src: Source, i: number): number {
+  return src.frames ? Math.max(0, Math.min(src.set.frames - 1, src.frames[i] | 0)) : 0;
+}
+
+/**
+ * Facer `f` of instance `i` through its matrix into `ends` (its point, and a
+ * line's other end), and its sort key: the point's view depth, a line's ends'
+ * mean. 0 when an end is at or inside the near plane, where the arm drops it.
+ */
+function facerKey(src: Source, f: Facer, i: number): number {
+  const m = src.mesh.instanceMatrix.array as Float32Array;
+  const o = i * 16;
+  const a = frameOf(src, i) * 3;
+  const ax = f.a[a];
+  const ay = f.a[a + 1];
+  const az = f.a[a + 2];
+  // The point through the instance's matrix (column-major).
+  ends[0] = m[o] * ax + m[o + 4] * ay + m[o + 8] * az + m[o + 12];
+  ends[1] = m[o + 1] * ax + m[o + 5] * ay + m[o + 9] * az + m[o + 13];
+  ends[2] = m[o + 2] * ax + m[o + 6] * ay + m[o + 10] * az + m[o + 14];
+  const d0 = viewDepth(view, ends[0], ends[1], ends[2]);
+  if (d0 <= FACER_NEAR) return 0;
+  if (f.kind !== FACER_LINE) return d0;
+  const bx = f.b[a];
+  const by = f.b[a + 1];
+  const bz = f.b[a + 2];
+  ends[3] = m[o] * bx + m[o + 4] * by + m[o + 8] * bz + m[o + 12];
+  ends[4] = m[o + 1] * bx + m[o + 5] * by + m[o + 9] * bz + m[o + 13];
+  ends[5] = m[o + 2] * bx + m[o + 6] * by + m[o + 10] * bz + m[o + 14];
+  const d1 = viewDepth(view, ends[3], ends[4], ends[5]);
+  if (d1 <= FACER_NEAR) return 0;
+  return (d0 + d1) / 2;
+}
+
+/** Facer `f` of instance `i` into `buf`, on its key's plane. */
+function emitFacer(src: Source, buf: RibbonBuffer, f: Facer, i: number): void {
+  const key = facerKey(src, f, i);
+  if (key <= 0) return;
+  const frame = frameOf(src, i);
+  const h0 = f.h[frame * 2];
+  const h1 = f.h[frame * 2 + 1];
+  if (f.kind === FACER_STAR) {
+    star(buf, f, ends[0], ends[1], ends[2], h0, key);
+    return;
+  }
+  if (f.kind === FACER_LINE) {
+    lineCorners(view, ends[0], ends[1], ends[2], ends[3], ends[4], ends[5], h0, h1, corners);
+    onSortPlane(view, key, corners);
+  } else {
+    billboardCorners(view, ends[0], ends[1], ends[2], h0, h1, corners);
+  }
+  let du = 0;
+  let dv = 0;
+  if (src.teamUv) {
+    const team = src.mesh.geometry.getAttribute(TEAM_UV_ATTR) as
+      | THREE.InstancedBufferAttribute
+      | undefined;
+    if (team) {
+      const t = team.array as Float32Array;
+      du = t[i * 2];
+      dv = t[i * 2 + 1];
+    }
+  }
+  quad(buf, f, du, dv);
+}
+
+/**
+ * Slides four corners (12 floats) along their view rays onto the plane at
+ * view depth `depth`: the screen shows them where it did, and the depth buffer
+ * meets them at the record's sort key. Each corner must lie in front of the
+ * eye.
+ */
+export function onSortPlane(view: FxView, depth: number, out: Float32Array): void {
+  const p = view.pos;
+  for (let k = 0; k < 4; k++) {
+    const x = out[k * 3];
+    const y = out[k * 3 + 1];
+    const z = out[k * 3 + 2];
+    const s = depth / viewDepth(view, x, y, z);
+    out[k * 3] = p.x + (x - p.x) * s;
+    out[k * 3 + 1] = p.y + (y - p.y) * s;
+    out[k * 3 + 2] = p.z + (z - p.z) * s;
+  }
+}
+
+/**
+ * Sorts the first `n` keys descending, far to near, `refs` along (an insertion
+ * sort: a batch's half facers are few). In place.
+ */
+export function sortFarToNear(keys: Float32Array, refs: Int32Array, n: number): void {
+  for (let i = 1; i < n; i++) {
+    const key = keys[i];
+    const ref = refs[i];
+    let j = i - 1;
+    while (j >= 0 && keys[j] < key) {
+      keys[j + 1] = keys[j];
+      refs[j + 1] = refs[j];
+      j--;
+    }
+    keys[j + 1] = key;
+    refs[j + 1] = ref;
   }
 }
 

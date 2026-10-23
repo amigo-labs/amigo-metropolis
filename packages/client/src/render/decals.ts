@@ -21,10 +21,23 @@
 // One InstancedMesh per decal image, an instance per quad, every matrix written
 // at load: nothing moves, and the frame loop never touches them.
 //
-// Not modelled: the drawer's depth (the mean of four points, less 0x100, in a
-// painter's sort) — a polygon offset keeps the quads off the surfaces they lie
-// on; additive blending adds in three's linear space, the original's in the
-// frame buffer's; the draw only within the viewer's 5x5 block of cells.
+// The drawer's depth (QUAD_DEPTH_VERTEX). The original sorts every record of
+// its display list by a key and draws far to near, with no depth buffer; a
+// quad's key is the mean of four view depths, `(zc + z1 + z2 + z3) >> 2` — the
+// centre's and corners 1 to 3, the fourth never read (pyro_draw.c
+// 0x0043783d..0x0043786a) — less 0x100. A quad with a corner at or inside the
+// near plane (view z <= 0x405, 512 a metre) is not drawn at all (0x004377c2).
+// Here each quad is laid on its key's plane in the vertex shader: every corner
+// slides along its view ray to that depth, so the screen shows it where the
+// drawer puts it, the depth buffer meets it at its key, and its texture is
+// mapped across the screen as THRASH maps every record (one w for every vertex,
+// 0x00456315). The 0x100 is not applied: the models' faces carry it too
+// (`cact_model_draw_prims` 0x004284ea) and the depth buffer tests them at
+// their own depth; only the terrain plates carry none (`terrain_plate.c`
+// 0x004539ea).
+//
+// Not modelled: additive blending adds in three's linear space, the original's
+// in the frame buffer's.
 
 import type { MapData } from "@metropolis/sim";
 import * as THREE from "three";
@@ -156,6 +169,47 @@ export function quadGeometry(decal: SceneryDecal): THREE.BufferGeometry {
   return g;
 }
 
+/** The drawer's near plane: a corner at or inside view z 0x405 (512 a metre) drops the quad. */
+export const QUAD_NEAR = 0x405 / 512;
+
+/**
+ * The vertex stage of a DCSQuad, after three's `project_vertex`: the quad's
+ * key from its instance (the unit quad's centre and corners A (1, 0, -1),
+ * B (1, 0, 1), C (-1, 0, 1); D (-1, 0, -1) is the corner the drawer never
+ * reads), every vertex slid along its view ray onto the key's plane; a quad
+ * with a corner within QUAD_NEAR of the eye collapses to a point.
+ */
+export const QUAD_DEPTH_VERTEX = /* glsl */ `#include <project_vertex>
+#ifdef USE_INSTANCING
+{
+  mat4 quadView = modelViewMatrix * instanceMatrix;
+  float zc = -(quadView * vec4(0.0, 0.0, 0.0, 1.0)).z;
+  float za = -(quadView * vec4(1.0, 0.0, -1.0, 1.0)).z;
+  float zb = -(quadView * vec4(1.0, 0.0, 1.0, 1.0)).z;
+  float zcc = -(quadView * vec4(-1.0, 0.0, 1.0, 1.0)).z;
+  float zd = -(quadView * vec4(-1.0, 0.0, -1.0, 1.0)).z;
+  if (min(min(za, zb), min(zcc, zd)) <= ${QUAD_NEAR.toFixed(9)}) {
+    gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+  } else {
+    float key = (zc + za + zb + zcc) * 0.25;
+    mvPosition.xyz *= key / -mvPosition.z;
+    gl_Position = projectionMatrix * mvPosition;
+  }
+}
+#endif
+`;
+
+/** Gives a decal material the drawer's depth (QUAD_DEPTH_VERTEX). */
+export function useQuadDepth(material: THREE.Material): void {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <project_vertex>",
+      QUAD_DEPTH_VERTEX,
+    );
+  };
+  material.customProgramCacheKey = () => "dcsquad-depth";
+}
+
 const textureLoader = new THREE.TextureLoader();
 
 /** The arena's DCSQuads, an InstancedMesh per decal image as it arrives. */
@@ -193,11 +247,9 @@ export function loadDecals(
           depthWrite: !additive,
           blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
           side: first.twoSided ? THREE.DoubleSide : THREE.FrontSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -4,
           toneMapped: false,
         });
+        useQuadDepth(material);
         const mesh = new THREE.InstancedMesh(quadGeometry(decal), material, quads.length);
         mesh.frustumCulled = false;
         mesh.matrixAutoUpdate = false;
