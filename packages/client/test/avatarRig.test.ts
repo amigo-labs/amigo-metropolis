@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { NodeIO } from "@gltf-transform/core";
 import { ANIM_AIRBORNE, ANIM_HOVER, ANIM_MOVING } from "@metropolis/sim";
 import {
@@ -15,7 +16,9 @@ import {
 // of the contract: these numbers are the regression net. If `bun run gen:units`
 // ever emits a walker that no longer falls apart along the original's part
 // seams, this fails here rather than shipping a mech that slides on stiff legs.
-const WALKER_GLB = new URL("../public/models/units/avatar-walker.glb", import.meta.url).pathname;
+const WALKER_GLB = fileURLToPath(
+  new URL("../public/models/units/avatar-walker.glb", import.meta.url),
+);
 
 /** Tight XYZ, the way gltf-transform stores it. */
 function packedReader(xyz: Float32Array): PositionReader {

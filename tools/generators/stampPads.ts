@@ -34,6 +34,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { getMapById, STEP_SNAP } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../packages/client/src/render/mapAlign.generated";
 import { readGlbPositions } from "./genMapAlign";
@@ -44,14 +45,15 @@ const HEIGHT_SCALE = 0.03125;
 /** The four arenas whose logic is imported from the original (rules.md §9). */
 const ARENAS = ["la-cantina", "urban-jungle", "proving-ground", "bug-hunt"];
 
-const MAPS_DIR = new URL("../../packages/sim/maps/", import.meta.url).pathname;
+const MAPS_DIR = fileURLToPath(new URL("../../packages/sim/maps/", import.meta.url));
 
 /** Highest mesh vertex per grid cell, in the sim's frame; NaN where none. */
 function meshTopPerCell(id: string, size: number): Float64Array {
   const align = MAP_ALIGN[id];
   if (!align) throw new Error(`${id}: no committed alignment`);
-  const path = new URL(`../../packages/client/public/models/${id}/${id}.glb`, import.meta.url)
-    .pathname;
+  const path = fileURLToPath(
+    new URL(`../../packages/client/public/models/${id}/${id}.glb`, import.meta.url),
+  );
   const mesh = readGlbPositions(path);
   const top = new Float64Array(size * size).fill(Number.NaN);
   const p = mesh.pos;

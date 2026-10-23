@@ -13,6 +13,7 @@
 // disagreeing with its fallback.
 
 import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { NodeIO } from "@gltf-transform/core";
 import {
   ARCHETYPE,
@@ -32,7 +33,7 @@ async function modelSize(
   key: string,
   dir: "units" | "fx" = "units",
 ): Promise<{ footprint: number; height: number }> {
-  const path = new URL(`../public/models/${dir}/${key}.glb`, import.meta.url).pathname;
+  const path = fileURLToPath(new URL(`../public/models/${dir}/${key}.glb`, import.meta.url));
   const doc = await new NodeIO().read(path);
   const lo = [Infinity, Infinity, Infinity];
   const hi = [-Infinity, -Infinity, -Infinity];

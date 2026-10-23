@@ -21,6 +21,7 @@
 // (determinismGuard.test.ts pins that), and this needs both sides.
 
 import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { getMapById, STEP_SNAP } from "@metropolis/sim";
 import { MAP_ALIGN } from "../../../packages/client/src/render/mapAlign.generated";
 import { readGlbPositions } from "../genMapAlign";
@@ -40,8 +41,9 @@ const BUDGET_MS = 30_000;
 function meshTopPerCell(id: string, size: number): Float64Array {
   const align = MAP_ALIGN[id];
   if (!align) throw new Error(`${id}: no committed alignment`);
-  const path = new URL(`../../../packages/client/public/models/${id}/${id}.glb`, import.meta.url)
-    .pathname;
+  const path = fileURLToPath(
+    new URL(`../../../packages/client/public/models/${id}/${id}.glb`, import.meta.url),
+  );
   const mesh = readGlbPositions(path);
   const top = new Float64Array(size * size).fill(Number.NaN);
   const p = mesh.pos;
