@@ -136,7 +136,9 @@ playtest on the live deploy.)
 
 - [x] Model pass (Quaternius/Kenney or direct rebuilds) mapped to archetypes, CREDITS.md
 - [x] Walker ↔ hover transformation: morph + arc discharge + cue (assets.md §4)
-- [ ] Pincel texture atlases + shared palette; NearestFilter pipeline
+- [x] ~~Pincel texture atlases + shared palette; NearestFilter pipeline~~ —
+      superseded by Phase 14: the original's own texels are the default look
+      (Classic, ledger G3); the original's filtering is an RE question there
 - [x] jsfxr SFX set wired to event buffer; CC0 music loop; volume settings
 - [x] PWA polish: manifest, icons, offline solo mode, install prompt
 - [x] Title screen with working title; menu flow (solo / online)
@@ -350,7 +352,8 @@ instead of a hand-authored approximation, and adopt the original rule set for it
 - [x] `golden-07-pa`: a 120 s Warden match on la-cantina, with beats asserting
       production cadence and capture, plus tests proving the core CAN be razed
       once its defenders are gone and that an unattended match correctly stalemates
-- [ ] Original `Cwav` sound effects: the pipeline is in place — `bun run gen:sfx`
+- [x] ~~Original `Cwav` sound effects~~ — superseded by Phase 14 wave 1, which
+      binds every cue from the decompiled sound module (#27 closed). Was: the pipeline is in place — `bun run gen:sfx`
       plus an additive per-cue upgrade in `audio/engine.ts`, with the sfxr synth
       as the permanent fallback — but `tools/generators/sfx/manifest.ts` is empty
       because the 348 unique extracted sounds carry no semantic labels. The RE
@@ -662,7 +665,8 @@ sound plays for which event is read from code and data, not picked by ear (#27).
       original's defaults
 - [x] Remove the sfxr synth, the synth music and the owner's mp3s from the game
 - [x] Ledger: an Audio section with the adopted rows and the RE gaps
-- [ ] Close #27
+- [x] Close #27 (closed 2026-10-14 with PR #67: every cue is bound from the
+      decompiled sound module, no ear pass needed)
 
 ### Wave 2 — Gameplay rules
 

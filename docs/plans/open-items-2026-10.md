@@ -120,10 +120,11 @@ not answered yet.
 26. **`hollywood-keys` and `venice-beach` deck import.** Blocked: their decks sit
     above the base surface, and the lane nodes land on the canal floor.
     - PLAN.md Phase 13.
-27. **Close issue #27.**
+27. ~~**Close issue #27.**~~ Done: #27 was closed 2026-10-14 with PR #67; the
+    PLAN.md box is ticked (wave 8).
     - PLAN.md Phase 14 wave 1.
-28. **Older boxes from before the original's assets arrived.** Check whether these
-    are obsolete and tick or drop them:
+28. ~~**Older boxes from before the original's assets arrived.**~~ Done (wave 8):
+    both are superseded by Phase 14 and ticked as such:
     - "Pincel texture atlases + shared palette", PLAN.md Phase 7;
     - "Original `Cwav` sound effects", PLAN.md Phase 12.
 
