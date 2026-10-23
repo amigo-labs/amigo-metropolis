@@ -46,6 +46,9 @@ not answered yet.
    comes from its model origin, not its box centre. The emitter's 4 m leaf test is
    approximated by a 2.83 m sphere.
    - Ledger: V4, G13.
+   - **The arrows: done** in "feat(hud): build the map-screen arrows on the box of
+     the current frame": box 0 of the current frame, read by frame from the mission
+     bytes. Every arrow model's frames carry one box, the flag's cloth included.
 8. **Facer depth sort and DCSQuad depth.** The original sorts each facer at its
    centre's depth less 0x100. Metropolis uses the depth buffer after the opaque
    scene, and a polygon offset stands in for the DCSQuads' drawer depth.

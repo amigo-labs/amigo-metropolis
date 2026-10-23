@@ -17,9 +17,10 @@
 //                                        the lock reticle (16 x 16 at 0,210)
 //   fixtures/missions/<Mission>          the type-35 objective record's eight
 //                                        radar contacts (no export carries them yet)
-//   extracted/objects/<Mission>/manifest.json
-//                                        the 3DBB box 0 of the models the map
-//                                        screen draws an arrow for (frame 0)
+//   fixtures/missions/<Mission>          the 3DBB boxes, frame by frame, of the
+//                                        models the map screen draws an arrow
+//                                        for (extracted/objects/<Mission>/
+//                                        manifest.json checks frame 0)
 //
 //     -> packages/client/public/hud/{font3.png,tex11.png,reticles.png}
 //     -> packages/client/src/render/fcopPresentation.generated.ts
@@ -562,10 +563,13 @@ interface ArenaOut {
   contacts: Contact[];
   staticMarkers: { record: string; marker: number; x: number; y: number }[];
   claimMarkers: { record: string; x: number; y: number; markers: [number, number] }[];
-  boxes: Record<number, [number, number, number, number]>;
+  boxes: Record<number, Box[]>;
   loadActors: LoadActor[];
   spawned: Spawned;
 }
+
+/** A 3DBB box as the arrow reads it: centre x and z, half x and z, metres. */
+type Box = [number, number, number, number];
 
 interface ObjectManifestEntry {
   id: number;
@@ -573,11 +577,47 @@ interface ObjectManifestEntry {
 }
 
 /**
- * The 3DBB box 0 of frame 0 of each model in `cobjs`, as the pause map reads it
- * (pause_map.c 0x004516e0): [cx, cz, lx, lz] in metres, the Cobj's own x (the
- * manifest's glb x is negated, tools/gfx/obj_mesh.py parse_3dbb).
+ * Every 3DBB entry of each model in `cobjs`, read out of the mission's Cobj
+ * resources: the pause map's arrow takes box 0 of the actor's current frame,
+ * `cobj_bbox_frame_box` = the table + 8 + frame x 16 (RE game/object/model.c,
+ * pause_map.c 0x004516e0), so entry f is frame f's (f below the 4DGI frame
+ * count). [cx, cz, lx, lz] in metres (a halfword is 16 world units, 1/512 m),
+ * the Cobj's own x; a model whose frames' boxes are all alike keeps one. Frame 0 is checked against the manifest's
+ * box (tools/gfx/obj_mesh.py parse_3dbb, x negated for the glb).
  */
 function modelBoxes(mission: string, cobjs: Iterable<number>): ArenaOut["boxes"] {
+  const ids = [...new Set(cobjs)].sort((a, b) => a - b);
+  const script = [
+    "import sys, struct, json",
+    `sys.path.insert(0, ${JSON.stringify(join(RE, "tools", "gfx"))})`,
+    "from fcop import extract, parse",
+    `b, res = parse(${JSON.stringify(join(RE, "fixtures", "missions", mission))})`,
+    `want = set(${JSON.stringify(ids)})`,
+    "out = {}",
+    "for r in res:",
+    "    if r['type'] != 'Cobj' or r['id'] not in want: continue",
+    "    p = extract(b, r)",
+    "    at = 0",
+    "    frames = 1",
+    "    boxes = None",
+    "    while at + 8 <= len(p):",
+    "        size = struct.unpack_from('<I', p, at + 4)[0]",
+    "        if size < 8 or at + size > len(p): break",
+    "        if p[at:at + 4] == b'IGD4':",
+    "            frames = max(1, struct.unpack_from('<H', p, at + 12)[0])",
+    "        if p[at:at + 4] == b'BBD3':",
+    "            amount = struct.unpack_from('<I', p, at + 12)[0]",
+    "            boxes = [list(struct.unpack_from('<3h3H', p, at + 16 + 16 * i)) for i in range(amount)]",
+    "        at += size",
+    "    if boxes is not None: out[r['id']] = {'frames': frames, 'boxes': boxes}",
+    "print(json.dumps(out))",
+  ].join("\n");
+  const r = Bun.spawnSync(["python3", "-I", "-c", script]);
+  if (r.exitCode !== 0) throw new Error(`${mission}: 3DBB read failed: ${r.stderr.toString()}`);
+  const raw = JSON.parse(r.stdout.toString()) as Record<
+    string,
+    { frames: number; boxes: number[][] }
+  >;
   const manifest = readJson<ObjectManifestEntry[]>(
     "extracted",
     "objects",
@@ -585,15 +625,28 @@ function modelBoxes(mission: string, cobjs: Iterable<number>): ArenaOut["boxes"]
     "manifest.json",
   );
   const out: ArenaOut["boxes"] = {};
-  for (const id of [...new Set(cobjs)].sort((a, b) => a - b)) {
+  const m = (v: number) => round4(v / 512);
+  for (const id of ids) {
+    const read = raw[id];
+    // Entry f for frame f, over the model's frames (4DGI): past them the table
+    // holds the frames' further boxes (Cobj 28's pole, box 1).
+    const entries = read?.boxes.slice(0, read.frames) ?? [];
+    if (entries.length === 0) throw new Error(`${mission}: Cobj ${id} has no 3DBB box`);
+    if (entries.length !== read.frames) {
+      throw new Error(`${mission}: Cobj ${id}: ${entries.length} boxes for ${read.frames} frames`);
+    }
+    const frames = entries.map((e) => [m(e[0]), m(e[2]), m(e[3]), m(e[5])] as Box);
     const bb = manifest.find((o) => o.id === id)?.bbox;
-    if (!bb) throw new Error(`${mission}: Cobj ${id} has no 3DBB box in the manifest`);
-    out[id] = [
-      round4(-bb.center[0] + 0),
-      round4(bb.center[2]),
-      round4(bb.half[0]),
-      round4(bb.half[2]),
-    ];
+    const f0 = bb
+      ? [round4(-bb.center[0] + 0), round4(bb.center[2]), round4(bb.half[0]), round4(bb.half[2])]
+      : null;
+    if (!f0 || f0.some((v, i) => v !== frames[0][i])) {
+      throw new Error(
+        `${mission}: Cobj ${id}'s frame-0 box ${frames[0]} is not the manifest's ${f0}`,
+      );
+    }
+    const alike = frames.every((f) => f.every((v, i) => v === frames[0][i]));
+    out[id] = alike ? [frames[0]] : frames;
   }
   return out;
 }
@@ -975,10 +1028,11 @@ export interface ArenaPresentation {
   /** The outposts' corner posts: [side 1's, side 2's] marker once claimed. */
   readonly claimMarkers: readonly { readonly record: string; readonly x: number; readonly y: number; readonly markers: P }[];
   /**
-   * By Cobj, the 3DBB box 0 (frame 0) the map screen's arrow is built on: centre x
-   * and z, half x and z, metres in the model's own frame (pause_map.c 0x004516e0).
+   * By Cobj, the 3DBB box the map screen's arrow is built on, one per frame (box 0
+   * of the actor's current frame, pause_map.c 0x004516e0; one entry where every
+   * frame's is alike): centre x and z, half x and z, metres in the model's frame.
    */
-  readonly boxes: Readonly<Record<number, readonly [number, number, number, number]>>;
+  readonly boxes: Readonly<Record<number, readonly (readonly [number, number, number, number])[]>>;
   /**
    * The live list at load, in the order \`cact_link\` appended it (creation order,
    * oldest first): the Cact records the factory builds in container order, an

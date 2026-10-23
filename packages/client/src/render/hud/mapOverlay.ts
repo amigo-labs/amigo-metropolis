@@ -7,11 +7,12 @@
 // (growing and snapping back every 256 ticks), the contact's colour at the
 // centre fading to a black rim.
 //
-// The placed actors Metropolis has no entity for get theirs too, on their
-// model's 3DBB box 0 (frame 0, gen:presentation `boxes`) turned by their
-// record's yaw: the outposts' consoles until the claim, the claim posts in the
-// claimer's marker after it, the standing pickups turning at their spin. The
-// type-96 Props are no actors and get none.
+// The placed actors Metropolis has no entity for get theirs too, on box 0 of
+// their model's current frame (`cobj_bbox_frame_box`: 3DBB entry f for frame f,
+// gen:presentation `boxes`) turned by their record's yaw: the outposts' consoles
+// until the claim, the claim posts in the claimer's marker after it (their cloth
+// steps its frames as the scenery draws it, `boxFrame`), the standing pickups
+// turning at their spin. The type-96 Props are no actors and get none.
 //
 // The original places the "P" at half the arrow's centroid in raw units, four
 // times its screen position (RE open item); Metropolis puts it on its arrow, as
@@ -47,6 +48,26 @@ const RING_PX = 64;
 const UNIT_RAD = (Math.PI * 2) / 4096;
 /** Engine ticks a sim tick: the pickups' spin clock (render/pickups.ts). */
 const ENGINE_TICKS_PER_SIM_TICK = 10;
+
+/** A model's arrow boxes, one per frame or one for all (gen:presentation `boxes`). */
+type Boxes = readonly (readonly [number, number, number, number])[];
+
+/**
+ * The box of frame `frame` (`cobj_bbox_frame_box`): entry f is frame f's, and a
+ * model whose frames share one box carries one.
+ */
+export function boxFrame(boxes: Boxes, frame: number): readonly [number, number, number, number] {
+  return boxes[frame < boxes.length ? frame : boxes.length - 1];
+}
+
+/**
+ * The frame a type-11 actor's looping morph shows at engine tick `clock`: track 0
+ * from frame 0 at load, a frame per `period` ticks (render/props.ts
+ * propMorphFrame, on the same 300 Hz clock).
+ */
+export function morphFrame(frames: number, period: number, clock: number): number {
+  return Math.floor(clock / period) % frames;
+}
 
 /**
  * An arrow's three corners (pause_map_draw_actor 0x004516e0): the box (cx, cz,
@@ -161,6 +182,7 @@ export function createMapOverlay(mapId: string, parent: HTMLElement = document.b
   const pickups = map?.pickups ?? [];
   const nPickups = pickups.length < 24 ? pickups.length : 24;
   const placements = SCENERY_PLACEMENTS[mapId]?.placements ?? [];
+  const morphs = SCENERY_PLACEMENTS[mapId]?.morphs ?? {};
   const boxes = presentation?.boxes ?? {};
   /**
    * The placed actors with a marker: their scenery placement, their marker (or
@@ -175,13 +197,17 @@ export function createMapOverlay(mapId: string, parent: HTMLElement = document.b
     /** Marker while standing, 0 for a claim post (its claimer's, below). */
     readonly marker: number;
     readonly claim: readonly [number, number] | null;
-    readonly box: readonly [number, number, number, number];
+    readonly boxes: Boxes;
+    /** Its model's morph (frames, period), or frames 1 when it stands still. */
+    readonly frames: number;
+    readonly period: number;
   }
   const placed: Placed[] = [];
   const addPlaced = (record: string, marker: number, claim: readonly [number, number] | null) => {
     const p = placements.find((q) => q.record === record);
-    const box = p ? boxes[p.cobj] : undefined;
-    if (!p || !box) return;
+    const b = p ? boxes[p.cobj] : undefined;
+    if (!p || !b) return;
+    const morph = morphs[p.cobj];
     placed.push({
       x: p.x,
       y: p.y,
@@ -190,12 +216,15 @@ export function createMapOverlay(mapId: string, parent: HTMLElement = document.b
       outpost: p.outpost,
       marker,
       claim,
-      box,
+      boxes: b,
+      frames: morph?.frames ?? 1,
+      period: morph?.period ?? 1,
     });
   };
   for (const m of presentation?.staticMarkers ?? []) addPlaced(m.record, m.marker, null);
   for (const m of presentation?.claimMarkers ?? []) addPlaced(m.record, 0, m.markers);
-  const pickupBox = pickups.map((k) => boxes[k.model] ?? null);
+  // A pickup steps no frames (pickup.c reads frame 0's box).
+  const pickupBox = pickups.map((k) => (boxes[k.model] ? boxFrame(boxes[k.model], 0) : null));
   const rings: (HTMLCanvasElement | null)[] = new Array(RADAR_PALETTE.length).fill(null);
   let vw = 1;
   let vh = 1;
@@ -262,7 +291,7 @@ export function createMapOverlay(mapId: string, parent: HTMLElement = document.b
         let marker = p.marker;
         if (p.claim) marker = side === SIDE_RED || side === SIDE_BLUE ? p.claim[side - 1] : 0;
         if (marker === 0) continue;
-        const b = p.box;
+        const b = boxFrame(p.boxes, morphFrame(p.frames, p.period, clock));
         const reach = (Math.abs(b[0]) + b[2] + Math.abs(b[1]) + b[3]) * pps;
         const px = (p.x - x0) * pps;
         const py = (p.y - y0) * pps;
