@@ -313,7 +313,7 @@ describe("the Props of facers only are their facers", () => {
   });
 });
 
-describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star", () => {
+describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star, 47 from block B", () => {
   test("fx/star-46.glb is one star, (128, 17, 12) doubled to a black rim", () => {
     const set = parseFacers(
       rootExtras(join(import.meta.dir, "..", "public", "models", "fx", "star-46.glb")),
@@ -324,6 +324,19 @@ describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star", 
     expect(star?.kind).toBe(FACER_STAR);
     expect(star?.h[0]).toBeCloseTo(0.0742, 4);
     expect(Array.from(star?.colour ?? []).map((v) => Math.round(v * 255))).toEqual([256, 34, 24]);
+    expect(Array.from(star?.rim ?? [])).toEqual([0, 0, 0]);
+  });
+
+  test("fx/star-47.glb, block B's, is the same star in blue: (31, 59, 128) doubled", () => {
+    const set = parseFacers(
+      rootExtras(join(import.meta.dir, "..", "public", "models", "fx", "star-47.glb")),
+      true,
+    );
+    expect(set?.facers.length).toBe(1);
+    const star = set?.facers[0];
+    expect(star?.kind).toBe(FACER_STAR);
+    expect(star?.h[0]).toBeCloseTo(0.0742, 4);
+    expect(Array.from(star?.colour ?? []).map((v) => Math.round(v * 255))).toEqual([62, 118, 256]);
     expect(Array.from(star?.rim ?? [])).toEqual([0, 0, 0]);
   });
 

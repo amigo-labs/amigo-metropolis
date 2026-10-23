@@ -59,6 +59,39 @@ describe("the round tracker", () => {
     expect(t.lastImpactId).toBe(0);
   });
 
+  test("a round knows its block, and a burst's fragments take their shell's (0x00423f97)", () => {
+    const { t } = tracker();
+    // A powered Plasma Flare (18) and one out of block A (an Ant Missile, 17).
+    t.launch(10, 10, 0, 1, 158, true);
+    t.launch(30, 10, 0, 1, 137, false);
+    t.bind(
+      snapshot([
+        [40, ARCHETYPE.PROJECTILE, 10.2, 10, 1, 18],
+        [41, ARCHETYPE.PROJECTILE, 30.2, 10, 1, 17],
+      ]),
+      2,
+      SNAPSHOT_STRIDE,
+    );
+    expect([t.powered[40], t.powered[41]]).toEqual([1, 0]);
+    // The shell bursts at its apex a tick on: four rounds beside it, no launch.
+    t.bind(
+      snapshot([
+        [41, ARCHETYPE.PROJECTILE, 30.8, 10, 1.2, 17],
+        [42, ARCHETYPE.PROJECTILE, 10.6, 10, 2, 18],
+        [43, ARCHETYPE.PROJECTILE, 10.6, 10, 2, 18],
+        [44, ARCHETYPE.PROJECTILE, 30.8, 10.5, 1.2, 17],
+        [45, ARCHETYPE.PROJECTILE, 60, 60, 2, 18],
+      ]),
+      5,
+      SNAPSHOT_STRIDE,
+    );
+    expect([t.powered[42], t.powered[43]]).toEqual([1, 1]);
+    // Not beside a block-B round of their kind: block A.
+    expect([t.powered[44], t.powered[45]]).toEqual([0, 0]);
+    // A round seen before keeps its block.
+    expect(t.powered[41]).toBe(0);
+  });
+
   test("a launch whose round never shows is answered with -1", () => {
     const { t, bound } = tracker();
     const token = t.launch(10, 10, 3);

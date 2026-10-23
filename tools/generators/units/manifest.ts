@@ -408,6 +408,25 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     maxTris: 1500,
     neutralizeColors: false,
   },
+  // Block B's: Cobj 47, the same star in blue (31, 59, 128) — both rows name 46
+  // in slot 0 and 47 in slot 3 (pa_models.json `player_weapons` 0x14 / 0x21).
+  {
+    key: "star-47",
+    cobj: 47,
+    raw: "fcop-fx/mp-obj047-glow-b.glb",
+    source: {
+      title: "Star glow (Mp Cobj 47, block B of player weapons 0x14 and 0x21)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "powered Fusion Torpedo and Plasma Flare — PROJ_TORPEDO, PROJ_PLASMA from block B",
+    rotateQuarterY: 0,
+    footprint: 0.15,
+    maxHeight: 0.15,
+    maxTris: 1500,
+    neutralizeColors: false,
+  },
   // The world rows' rounds that are models (Phase 14 wave 4): each type-98 row
   // names its projectile Cobj once — no team variant — so these keep the
   // original's own colours and are drawn untinted. One payload on all six

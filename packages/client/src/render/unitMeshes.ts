@@ -42,9 +42,12 @@ const FX_MODEL_KEYS = [
   // The extra weapons' (SimOptions.extraWeapons): Cobj 48 and 52.
   ["projK9", "drone-k9"],
   ["projGrenade", "grenade"],
-  // The Fusion Torpedo's and the Plasma Flare's: Cobj 46, a star facer alone.
+  // The Fusion Torpedo's and the Plasma Flare's: Cobj 46, a star facer alone;
+  // out of their block B, Cobj 47, the same star in blue.
   ["projTorpedo", "star-46"],
   ["projPlasma", "star-46"],
+  ["projTorpedoB", "star-47"],
+  ["projPlasmaB", "star-47"],
   // The Sky Captain's bomb is world row 9: Cobj 49 (the mortar shell's payload).
   ["projWarden", "round-row9"],
   // The world rows' rounds that are models, in the original's own colours

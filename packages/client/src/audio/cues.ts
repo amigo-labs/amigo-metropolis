@@ -505,11 +505,12 @@ export class OriginalSounds implements EffectListener {
       const w = weaponById(shotPayloadWeaponId(c));
       const rec = w ? this.weapons[w.code] : undefined;
       if (!w || !rec) return;
-      const blk = shotPayloadPowered(c) ? rec.b : rec.a;
+      const powered = shotPayloadPowered(c);
+      const blk = powered ? rec.b : rec.a;
       // A round the block launches carries its impact (+0x1a), raised in the
-      // partner's bank, 1, at its death (effects/rounds.ts).
+      // partner's bank, 1, at its death, and its block (effects/rounds.ts).
       this.roundToken = roundKind(blk.kind)
-        ? this.launchToken(shooter, 0, ctx, BANK_PLAYER, blk.impactFx)
+        ? this.launchToken(shooter, 0, ctx, BANK_PLAYER, blk.impactFx, powered)
         : -1;
       const placed = player !== ctx.localSlot;
       const direct = directKind(blk.kind);
@@ -611,7 +612,7 @@ export class OriginalSounds implements EffectListener {
   /**
    * Notes a launch from the shooter's muzzle (sim `spawnStraight`: MUZZLE_OFFSET
    * along its facing) for the next snapshot's new round, and returns the token
-   * its launch effects ride until then.
+   * its launch effects ride until then. `powered`: out of the block B.
    */
   private launchToken(
     shooter: number,
@@ -619,13 +620,14 @@ export class OriginalSounds implements EffectListener {
     ctx: CueContext,
     bank: number,
     impact: number,
+    powered = false,
   ): number {
     const o = this.offsetOf(shooter);
     if (o < 0) return -1;
     const yaw = ctx.snapshot[o + S_YAW];
     const x = ctx.snapshot[o + S_X] + Math.cos(yaw) * MUZZLE_OFFSET;
     const z = ctx.snapshot[o + S_Y] + Math.sin(yaw) * MUZZLE_OFFSET;
-    return this.effects.rounds.launch(x, z, row, bank, impact);
+    return this.effects.rounds.launch(x, z, row, bank, impact, powered);
   }
 
   /**

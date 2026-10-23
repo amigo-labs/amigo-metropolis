@@ -20,9 +20,11 @@ import {
   PROJ_HYPER,
   PROJ_MINE,
   PROJ_MORTAR,
+  PROJ_PLASMA,
   PROJ_ROUND,
   PROJ_SHOCKWAVE,
   PROJ_SPECIAL,
+  PROJ_TORPEDO,
   PROJ_WARDEN,
 } from "@metropolis/sim";
 import * as THREE from "three";
@@ -178,6 +180,20 @@ describe("projectile stand-ins match the FX models they stand in for", () => {
     expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, PROJ_SHOCKWAVE)).toBe(meshes.projectile);
     // A round whose launch the client never saw (row 0) still draws.
     expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, PROJ_ROUND, 0)).toBe(meshes.projectile);
+  });
+
+  test("the torpedo's and the flare's round wears its block's star: 46 in A, 47 in B", () => {
+    for (const [kind, a, b] of [
+      [PROJ_TORPEDO, meshes.projTorpedo, meshes.projTorpedoB],
+      [PROJ_PLASMA, meshes.projPlasma, meshes.projPlasmaB],
+    ] as const) {
+      expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, kind, 0, 0)).toBe(a);
+      expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, kind, 0, 1)).toBe(b);
+      expect(a).not.toBe(b);
+      expect(b.untinted).toBe(true);
+    }
+    // Another kind's block B keeps its one model (the Hell Fire names 43 twice).
+    expect(bucketFor(meshes, ARCHETYPE.PROJECTILE, 0, PROJ_HEAVY, 0, 1)).toBe(meshes.projHeavy);
   });
 
   test("the world rounds wear the original's own colours: no team tint", () => {

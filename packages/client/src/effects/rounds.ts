@@ -19,6 +19,14 @@
 // (`cact_effect_bank` 0x0042bf50: 1 for the player's partner, which launches
 // every player round, else 0). So the launch notes the block's impact and its
 // bank, and the round's death reads them back (`impact`).
+//
+// And the block it came from: the two blocks of a player weapon may name two
+// models (the Fusion Torpedo's and the Plasma Flare's star is Cobj 46 in block
+// A, 47 in block B; RE pa_models.json `player_weapons`), and the shot's
+// SHOT_POWERED bit is the only word of it. A burst's fragments are copies of
+// their shell, model and all (`cact_round_advance` 0x00423f97, a `rep movsd` of
+// the whole round): a new round no launch named takes the block of a block-B
+// round of its kind that stood within reach in the last snapshot.
 
 import { MAX_ENTITIES } from "@metropolis/sim";
 
@@ -29,6 +37,8 @@ export const ROUND_TOKEN = -2;
 export const MAX_LAUNCHES = 128;
 /** How far from its muzzle a new round can be (one tick of the fastest round). */
 const BIND_RADIUS_M = 3;
+/** Block-B rounds remembered from one snapshot to the next (their fragments' shells). */
+const MAX_SHELLS = 128;
 
 /** Snapshot fields (sim.ts writeSnapshot). */
 const S_ID = 0;
@@ -48,6 +58,8 @@ export class RoundTracker {
   /** Per entity: the impact its death raises (0 none known) and that impact's bank. */
   readonly impactId = new Uint16Array(MAX_ENTITIES);
   readonly impactBank = new Uint8Array(MAX_ENTITIES);
+  /** Per entity: 1 when its round came out of its weapon's block B (the power-up magazine). */
+  readonly powered = new Uint8Array(MAX_ENTITIES);
   /** The last `impact`'s round: its impact id (0 none known) and bank. */
   lastImpactId = 0;
   lastImpactBank = 0;
@@ -58,7 +70,13 @@ export class RoundTracker {
   private readonly launchRow = new Uint8Array(MAX_LAUNCHES);
   private readonly launchImpact = new Uint16Array(MAX_LAUNCHES);
   private readonly launchBank = new Uint8Array(MAX_LAUNCHES);
+  private readonly launchPowered = new Uint8Array(MAX_LAUNCHES);
   private launches = 0;
+  /** The last snapshot's block-B rounds: where each stood, and its kind. */
+  private readonly shellX = new Float32Array(MAX_SHELLS);
+  private readonly shellZ = new Float32Array(MAX_SHELLS);
+  private readonly shellKind = new Int16Array(MAX_SHELLS);
+  private shells = 0;
   private readonly listeners: BindListener[] = [];
 
   addListener(l: BindListener): void {
@@ -70,17 +88,19 @@ export class RoundTracker {
     this.row.fill(0);
     this.impactId.fill(0);
     this.impactBank.fill(0);
+    this.powered.fill(0);
     this.kind.fill(-1);
     this.launches = 0;
+    this.shells = 0;
   }
 
   /**
    * A shot launched a round from (x, z) — the muzzle — this tick, of world row
-   * `row` (0 a player's), whose death raises `impact` in `bank`. Returns the
-   * token its launch effects ride until the round is known, or -1 when the
-   * tick is full.
+   * `row` (0 a player's), whose death raises `impact` in `bank`; `powered` when
+   * it came out of the weapon's block B. Returns the token its launch effects
+   * ride until the round is known, or -1 when the tick is full.
    */
-  launch(x: number, z: number, row: number, bank = 0, impact = 0): number {
+  launch(x: number, z: number, row: number, bank = 0, impact = 0, powered = false): number {
     if (this.launches >= MAX_LAUNCHES) return -1;
     const n = this.launches++;
     this.launchX[n] = x;
@@ -88,6 +108,7 @@ export class RoundTracker {
     this.launchRow[n] = row;
     this.launchBank[n] = bank;
     this.launchImpact[n] = impact;
+    this.launchPowered[n] = powered ? 1 : 0;
     return ROUND_TOKEN - n;
   }
 
@@ -147,10 +168,10 @@ export class RoundTracker {
       this.row[id] = 0;
       this.impactId[id] = 0;
       this.impactBank[id] = 0;
-      if (open === 0) continue;
+      this.powered[id] = 0;
       let best = -1;
       let bestD = BIND_RADIUS_M * BIND_RADIUS_M;
-      for (let n = 0; n < this.launches; n++) {
+      for (let n = 0; open > 0 && n < this.launches; n++) {
         if (this.launchRow[n] === 255) continue; // taken
         const dx = snap[o + S_X] - this.launchX[n];
         const dz = snap[o + S_Y] - this.launchZ[n];
@@ -160,10 +181,15 @@ export class RoundTracker {
           best = n;
         }
       }
-      if (best < 0) continue;
+      if (best < 0) {
+        // No launch: a burst's fragment wears its shell's model.
+        this.powered[id] = this.shellNear(snap[o + S_X], snap[o + S_Y], k);
+        continue;
+      }
       this.row[id] = this.launchRow[best];
       this.impactId[id] = this.launchImpact[best];
       this.impactBank[id] = this.launchBank[best];
+      this.powered[id] = this.launchPowered[best];
       this.launchRow[best] = 255;
       open--;
       for (let i = 0; i < this.listeners.length; i++) this.listeners[i](ROUND_TOKEN - best, id);
@@ -173,5 +199,29 @@ export class RoundTracker {
       for (let i = 0; i < this.listeners.length; i++) this.listeners[i](ROUND_TOKEN - n, -1);
     }
     this.launches = 0;
+    // This snapshot's block-B rounds, for the next one's fragments.
+    this.shells = 0;
+    for (let c = 0; c < count && this.shells < MAX_SHELLS; c++) {
+      const o = c * stride;
+      const id = snap[o + S_ID];
+      if (id < 0 || id >= MAX_ENTITIES || snap[o + S_ARCH] !== PROJECTILE) continue;
+      if (this.powered[id] === 0) continue;
+      this.shellX[this.shells] = snap[o + S_X];
+      this.shellZ[this.shells] = snap[o + S_Y];
+      this.shellKind[this.shells] = snap[o + S_AUX];
+      this.shells++;
+    }
+  }
+
+  /** 1 when a block-B round of `kind` stood within reach of (x, z) in the last snapshot. */
+  private shellNear(x: number, z: number, kind: number): number {
+    const reach = BIND_RADIUS_M * BIND_RADIUS_M;
+    for (let n = 0; n < this.shells; n++) {
+      if (this.shellKind[n] !== kind) continue;
+      const dx = x - this.shellX[n];
+      const dz = z - this.shellZ[n];
+      if (dx * dx + dz * dz < reach) return 1;
+    }
+    return 0;
   }
 }

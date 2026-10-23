@@ -26,6 +26,8 @@ not answered yet.
    Metropolis draws block A's red star for both blocks.
    - Work: pick the star per block in the round renderer (`fx/star-46.glb` today).
    - Ledger: W5.
+   - **Done** in "feat: draw block B's blue star on the powered Fusion Torpedo and Plasma Flare rounds" (`fx/star-47.glb`; a burst's fragments take their
+     shell's block).
 4. **Riot Shield arcs.** The arcs' own links along the sphere's surface are not
    drawn, and the strike link starts at the sphere's centre because
    `EV_SHIELD_ARC` carries no arc point.

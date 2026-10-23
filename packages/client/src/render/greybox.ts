@@ -76,6 +76,13 @@ export interface GreyboxMeshes {
   readonly projTorpedo: Bucket;
   readonly projPlasma: Bucket;
   /**
+   * Their rounds from block B (the power-up magazine): Cobj 47, the same star
+   * in blue (31, 59, 128) from `star-47.glb` — both weapons name 46 in block A
+   * and 47 in block B (RE pa_models.json `player_weapons`).
+   */
+  readonly projTorpedoB: Bucket;
+  readonly projPlasmaB: Bucket;
+  /**
    * A world shooter's round (PROJ_ROUND), by the type-98 row that fired it:
    * row 1 the first side's tanks and jets, 3 turrets and the Dreadnought's
    * guns, 4 the Flying Fortress, 6 the second side's tanks and jets, 8 the Sky
@@ -216,12 +223,19 @@ const STAR_COLOUR = new THREE.Color().setRGB(
   (12 * 2) / 255,
   THREE.SRGBColorSpace,
 );
+/** Cobj 47's, block B's: the same star, centre (31, 59, 128) doubled. */
+const STAR_COLOUR_B = new THREE.Color().setRGB(
+  (31 * 2) / 255,
+  (59 * 2) / 255,
+  Math.min(1, (128 * 2) / 255),
+  THREE.SRGBColorSpace,
+);
 
-function starBucket(scene: THREE.Scene, capacity: number): Bucket {
+function starBucket(scene: THREE.Scene, capacity: number, colour = STAR_COLOUR): Bucket {
   const geometry = new THREE.SphereGeometry(STAR_RADIUS, 8, 6);
   geometry.translate(0, 0.0078125, 0);
   const b = bucket(scene, geometry, capacity, true);
-  (b.mesh.material as THREE.MeshBasicMaterial).color.copy(STAR_COLOUR);
+  (b.mesh.material as THREE.MeshBasicMaterial).color.copy(colour);
   b.untinted = true;
   return b;
 }
@@ -426,6 +440,8 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
   );
   const projTorpedo = starBucket(scene, 32);
   const projPlasma = starBucket(scene, 32);
+  const projTorpedoB = starBucket(scene, 32, STAR_COLOUR_B);
+  const projPlasmaB = starBucket(scene, 32, STAR_COLOUR_B);
   // Every PA shooter's round since SIM_VERSION 42 (PROJ_ROUND), by row: the
   // Fortress's (4) and the Sky Captain's missile (8) are models; the bolts of
   // the turrets and the tanks and jets (rows 3, 1, 6) are render/fx.ts's.
@@ -455,6 +471,8 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
     projGrenade,
     projTorpedo,
     projPlasma,
+    projTorpedoB,
+    projPlasmaB,
     roundRow4,
     roundRow8,
     projectile,
@@ -478,6 +496,8 @@ export function createGreyboxMeshes(scene: THREE.Scene): GreyboxMeshes {
       projGrenade,
       projTorpedo,
       projPlasma,
+      projTorpedoB,
+      projPlasmaB,
       roundRow4,
       roundRow8,
       projectile,
@@ -496,6 +516,8 @@ export function bucketFor(
   aux = 0,
   /** A PROJ_ROUND's world row (effects/rounds.ts), 0 unknown. */
   row = 0,
+  /** Non-zero: a player round from its weapon's block B (effects/rounds.ts `powered`). */
+  powered = 0,
 ): Bucket | undefined {
   if (archetype === ARCHETYPE.AVATAR) {
     return (animState & ANIM_HOVER) !== 0 ? greybox.avatarHover : greybox.avatarWalker;
@@ -527,9 +549,9 @@ export function bucketFor(
       case PROJ_GRENADE:
         return greybox.projGrenade;
       case PROJ_TORPEDO:
-        return greybox.projTorpedo;
+        return powered !== 0 ? greybox.projTorpedoB : greybox.projTorpedo;
       case PROJ_PLASMA:
-        return greybox.projPlasma;
+        return powered !== 0 ? greybox.projPlasmaB : greybox.projPlasma;
       case PROJ_ROUND:
         // Rows 1, 3 and 6 never get here: their bolts are render/fx.ts's.
         return row === 4 ? greybox.roundRow4 : row === 8 ? greybox.roundRow8 : greybox.projectile;
