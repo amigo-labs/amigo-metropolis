@@ -14,8 +14,8 @@
 //   bun run gen:palogic [all | <mapId> | <Mission>] [--re-repo <path>]
 //
 // Any spelling names the arena and tools/generators/fcopArenas.ts supplies the
-// rest; --map/--mission are accepted too. Default RE repo path: $FCOP_RE_REPO,
-// else /workspace/fcop-reverse-engineering.
+// rest; --map/--mission are accepted too. The RE repo is found by
+// tools/generators/reRepo.ts (--re-repo, then $FCOP_RE_REPO, then a sibling checkout).
 //
 // Authoring-time only, like convert.ts — the committed JSON is the artifact, so
 // any Math.* is fine here. The determinism guard only scans packages/sim/src.
@@ -28,10 +28,10 @@
 // its comment. Every raw value is preserved in the artifact next to its derived
 // value, so a later correction only changes this file, not the data.
 
-import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type FcopArena, logicFile, selectArenas } from "./fcopArenas";
+import { requireReRepo, reRepoCommit } from "./reRepo";
 
 // ---------------------------------------------------------------------------
 // Unit conversion
@@ -589,10 +589,7 @@ export function argOf(name: string, fallback: string): string {
 }
 
 function main(): void {
-  const reRepo = argOf(
-    "re-repo",
-    process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
-  );
+  const reRepo = requireReRepo();
   // Any spelling identifies the arena and the table supplies the rest: a bare
   // positional (matching gen:walls and gen:arena), --map, or --mission. `all`
   // extracts every mission.
@@ -604,14 +601,9 @@ function main(): void {
   const positional = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "";
   const named = positional || argOf("map", argOf("mission", "la-cantina"));
 
-  let commit = "unknown";
-  try {
-    commit = execFileSync("git", ["-C", reRepo, "rev-parse", "HEAD"], {
-      encoding: "utf8",
-    }).trim();
-  } catch {
+  const commit = reRepoCommit(reRepo);
+  if (commit === "unknown")
     console.warn(`[genPaLogic] could not read the RE repo commit at ${reRepo}`);
-  }
 
   for (const arena of selectArenas(named)) extract(arena, reRepo, commit);
 }

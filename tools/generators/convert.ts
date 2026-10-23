@@ -27,13 +27,17 @@
 // and validated against AVATAR_WALKER_MAX_SLOPE with the same bilinear sampler
 // the sim uses. The sanity report below re-checks all of it before commit.
 //
-// Usage: bun tools/generators/convert.ts [arena-id|all] [src-dir]
+// Usage: bun tools/generators/convert.ts [arena-id|all] [src-dir] [--re-repo <path>]
+// src-dir defaults to <RE repo>/extracted/heightmaps (tools/generators/reRepo.ts).
 
-const DEFAULT_SRC_DIR = "C:/MagiPacks/_fcop_audio_privat/heightmaps";
+import { join } from "node:path";
+import { requireReRepo } from "./reRepo";
+
 const HEIGHT_SCALE = 0.03125; // 1/32 m — keep in sync with packages/sim/src/map.ts
 // Mirrors AVATAR_WALKER_MAX_SLOPE in packages/sim/src/balance.ts. Redeclared, not
-// imported, because this file has NO imports on purpose: stage 1 runs against the
-// private heightmap dump without the workspace built. For the same reason it
+// imported, because this file has no workspace imports on purpose (only node
+// built-ins and the node-only reRepo.ts): stage 1 runs against the private
+// heightmap dump without the workspace built. For the same reason it
 // cannot use the sim's shared `worstUphillRise` — there is no MapData yet at this
 // point, only the raw walk_height grid and the local `sample()` closure. What it
 // CAN do is apply the same rule, which the uphill-only check below now does.
@@ -1023,8 +1027,11 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
   return problems;
 }
 
-const which = process.argv[2] ?? "all";
-const srcDir = process.argv[3] ?? DEFAULT_SRC_DIR;
+const positional = process.argv
+  .slice(2)
+  .filter((a, i, all) => !a.startsWith("--") && all[i - 1] !== "--re-repo");
+const which = positional[0] ?? "all";
+const srcDir = positional[1] ?? join(requireReRepo(), "extracted", "heightmaps");
 const selected = which === "all" ? ARENAS : ARENAS.filter((a) => a.id === which);
 if (selected.length === 0) {
   console.error(`unknown arena "${which}" — known: ${ARENAS.map((a) => a.id).join(", ")}, all`);
