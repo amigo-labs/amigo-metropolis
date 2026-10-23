@@ -328,6 +328,13 @@ export interface ArenaUnitsRenderer {
    */
   teamUv(bucket: Bucket, team: number, out: Float32Array): boolean;
   /**
+   * Plays `track` on `bucket`'s instances from now on: its model's `geometry`
+   * (morph targets, the quarter turn baked) steps a frame per `period` of the
+   * driver's delta, each instance from where its entity was first drawn (a
+   * round's model: render/unitMeshes.ts). Load time only.
+   */
+  playTrack(bucket: Bucket, geometry: THREE.BufferGeometry, track: UnitMorph): void;
+  /**
    * Draws the Sky Captain of `level` (0-9, the match's Warden difficulty - 1):
    * one model per level band, as the original loads one record per band (RE
    * pa_models.json `sky_captain` levels; Mp 54 / 56 / 57 / 58). Per frame; a
@@ -570,7 +577,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
           registerFacers(bucket.mesh, asset.facers, asset.map, { teamUv: true });
           // A greybox tint must not multiply into the texels.
           bucket.mesh.instanceColor = null;
-          bindMorph(bucket, file, asset.geometry);
+          bindMorph(bucket, MORPH_OF.get(file) ?? null, asset.geometry);
           showing.set(bucket, file);
           binding = binding ?? { attr, bySide: new Float32Array(6) };
           bindings.set(bucket, binding);
@@ -603,9 +610,12 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
     });
   }
 
-  /** Points the bucket's morph texture at the file's morph, or clears it. */
-  function bindMorph(bucket: Bucket, file: string, geometry: THREE.BufferGeometry): void {
-    const morph = MORPH_OF.get(file) ?? null;
+  /** Points the bucket's morph texture at `morph`, or clears it. */
+  function bindMorph(
+    bucket: Bucket,
+    morph: UnitMorph | null,
+    geometry: THREE.BufferGeometry,
+  ): void {
     const targets = geometry.morphAttributes.position?.length ?? 0;
     const old = morphs.get(bucket);
     if (!morph || targets !== morph.frames - 1) {
@@ -714,6 +724,9 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
     },
     get outpostSides() {
       return outpostSides;
+    },
+    playTrack(bucket, geometry, track) {
+      bindMorph(bucket, track, geometry);
     },
     setCaptainLevel(level) {
       if (level === captainLevel) return;

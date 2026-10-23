@@ -16,6 +16,7 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import type { UnitMorph } from "./arenaUnits.generated";
 import { parseFacers, registerFacers } from "./facers";
 import { type FcopModel, faceMaterials, materialList, mergeFcopModel } from "./fcopModel";
 import type { Bucket, GreyboxMeshes } from "./greybox";
@@ -56,17 +57,33 @@ const FX_MODEL_KEYS = [
   ["roundRow8", "round-row8"],
 ] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
 
+/** Hands a round's model and the track it plays to whoever steps the frames. */
+export type PlayTrack = (bucket: Bucket, geometry: THREE.BufferGeometry, track: UnitMorph) => void;
+
 /**
  * Kicks off the async model load for every model-backed bucket. Fire and
- * forget: buckets upgrade in place as their .glb arrives.
+ * forget: buckets upgrade in place as their .glb arrives. A model that plays a
+ * track (the K-9 Drone's run, `fcop.track` on its root) goes to `playTrack`.
  */
-export function loadUnitMeshes(buckets: GreyboxMeshes): void {
+export function loadUnitMeshes(buckets: GreyboxMeshes, playTrack?: PlayTrack): void {
   // Projectiles keep the unlit material their bucket was built with: a bolt or
   // a shell reads as a light source, not as a lit surface, which is also why
   // the original drew their glows as emissive facer geometry.
   for (const [bucketName, key] of FX_MODEL_KEYS) {
-    swapBucketMesh(buckets[bucketName], key, "fx", true);
+    swapBucketMesh(buckets[bucketName], key, "fx", true, playTrack);
   }
+}
+
+/**
+ * The track a round's root extras name (gen:units `fcop.track`), when its
+ * geometry carries the frames for it; else null (frame 0).
+ */
+export function roundTrackOf(extras: unknown, geometry: THREE.BufferGeometry): UnitMorph | null {
+  const t = (extras as { fcop?: { track?: Partial<UnitMorph> } } | undefined)?.fcop?.track;
+  if (!t || typeof t.frames !== "number" || typeof t.period !== "number") return null;
+  if (t.drivenBy !== "time" && t.drivenBy !== "distance") return null;
+  if ((geometry.morphAttributes.position?.length ?? 0) !== t.frames - 1) return null;
+  return { frames: t.frames, period: t.period, drivenBy: t.drivenBy, source: "morph" };
 }
 
 /**
@@ -135,7 +152,13 @@ function unitAssetOf(
   return { geometry, material, map, extras: model.extras };
 }
 
-function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean): void {
+function swapBucketMesh(
+  bucket: Bucket,
+  key: string,
+  dir: "fx",
+  unlit: boolean,
+  playTrack?: PlayTrack,
+): void {
   const url = `/models/${dir}/${key}.glb`;
   loader
     .loadAsync(url)
@@ -155,6 +178,12 @@ function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean):
       // is +X forward, so bake the quarter turn into the geometry once — and
       // into the facers (the rockets' glows are stars: render/facers.ts).
       geometry.rotateY(Math.PI / 2);
+      // A morph's deltas too, which BufferGeometry.rotateY leaves alone: the
+      // K-9 Drone runs (RE `missile_step_anim` 0x004232c2, render/arenaUnits.ts).
+      const turn = new THREE.Matrix4().makeRotationY(Math.PI / 2);
+      for (const delta of geometry.morphAttributes.position ?? []) delta.applyMatrix4(turn);
+      const track = roundTrackOf(extras, geometry);
+      if (track && playTrack) playTrack(bucket, geometry, track);
       registerFacers(bucket.mesh, parseFacers(extras, true), map);
       bucket.mesh.geometry.dispose();
       bucket.mesh.geometry = geometry;

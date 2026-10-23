@@ -927,8 +927,17 @@ if (bloomOn) setBloom(true);
 // Stage B unit models upgrade the greybox buckets in place as they load;
 // missing assets keep their greybox mesh (render/unitMeshes.ts). The X1 and the
 // projectiles at boot, the arena's own units with the arena.
-if (renderMode === "mesh") loadUnitMeshes(greybox);
 arenaUnits = createArenaUnits(scene, greybox);
+{
+  // A round's model that plays a track (the K-9 Drone's run) steps its frames
+  // on the arena units' clock, as a unit's does.
+  const tracksOn = arenaUnits;
+  if (renderMode === "mesh") {
+    loadUnitMeshes(greybox, (bucket, geometry, track) =>
+      tracksOn.playTrack(bucket, geometry, track),
+    );
+  }
+}
 {
   const bootEpoch = arenaEpoch;
   arenaUnits.load(map, () => arenaEpoch !== bootEpoch, renderMode === "mesh");

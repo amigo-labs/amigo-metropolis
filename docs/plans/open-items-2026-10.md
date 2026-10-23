@@ -37,6 +37,8 @@ not answered yet.
 5. **K-9 Drone model.** It is drawn at frame 0 of its 11-frame morph. Play the
    morph.
    - Ledger: W5.
+   - **Done** in "feat: run the K-9 Drone's eleven-frame morph by the distance it flies" (track 0: mode 2, a frame per 870 world units
+     flown, `missile_step_anim` 0x004232e4).
 6. **Radar live-list order.** The registry's order is approximated by descending
    entity id. Actors with no Metropolis entity are not counted: the X1's partner,
    the turret parts, and the flag-8 actors that are never culled.

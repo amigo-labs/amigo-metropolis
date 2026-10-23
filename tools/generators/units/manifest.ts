@@ -361,7 +361,9 @@ export const FX_MODELS: readonly FxModelSpec[] = [
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
-    // A morph of eleven frames in the original (its run); frame 0 here.
+    // A morph of eleven frames, its run: gen:paunits carries its track 0
+    // (raw/fcop-fx/anims.json), so gen:units keeps the frames and the client
+    // steps them by the distance the round flies (render/unitMeshes.ts).
     role: "player K-9 Drone — PROJ_K9",
     rotateQuarterY: 0,
     // Native 0.223 x 0.367 x 0.715, standing on its origin.

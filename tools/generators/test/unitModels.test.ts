@@ -5,6 +5,7 @@
 // manifest changes, `bun run gen:units` must be re-run in the same commit.
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getBounds, NodeIO, type Primitive } from "@gltf-transform/core";
 import { getMapById } from "@metropolis/sim";
@@ -205,6 +206,47 @@ describe("committed FX models match the manifest contract", () => {
       expect(Math.max(sizeX, sizeY, sizeZ)).toBeGreaterThan(0.05);
     });
   }
+});
+
+// What the original animates on a weapon's model beyond its glb rides beside
+// the raws (raw/fcop-fx/anims.json, gen:paunits): a round's track keeps its
+// morph and lands on the root node; a colour ramp lands on its star's record.
+describe("the weapons' models carry the original's animations", () => {
+  const anims = (
+    JSON.parse(readFileSync(join(RAW_DIR, "fcop-fx", "anims.json"), "utf8")) as {
+      models: Record<string, { track?: unknown; colourAnims?: { prim: number }[] }>;
+    }
+  ).models;
+
+  test("the K-9 Drone keeps its eleven frames and its track (870 wu a frame, by distance)", async () => {
+    const doc = await io.read(join(FX_DIR, "drone-k9.glb"));
+    const node = doc.getRoot().listNodes()[0];
+    expect(node.getExtras()).toEqual({
+      fcop: { track: { frames: 11, period: 870, drivenBy: "distance" } },
+    });
+    for (const prim of node.getMesh()?.listPrimitives() ?? []) {
+      expect(prim.listTargets().length).toBe(10);
+    }
+  });
+
+  test("every model keeps targets only for a track, and every track and ramp is built", async () => {
+    for (const spec of FX_MODELS) {
+      const entry = anims[spec.raw.slice(spec.raw.lastIndexOf("/") + 1)];
+      const doc = await io.read(join(FX_DIR, `${spec.key}.glb`));
+      const node = doc.getRoot().listNodes()[0];
+      const fcop = (node.getExtras() as { fcop?: { track?: unknown; facers?: unknown[] } }).fcop;
+      expect({ key: spec.key, track: fcop?.track ?? null }).toEqual({
+        key: spec.key,
+        track: entry?.track ?? null,
+      });
+      const targets = (node.getMesh()?.listPrimitives() ?? []).map((p) => p.listTargets().length);
+      if (!entry?.track) for (const n of targets) expect(n).toBe(0);
+      const ramps = (fcop?.facers ?? []).filter(
+        (f) => (f as { colour_anim?: unknown }).colour_anim,
+      );
+      expect(ramps.length).toBe(entry?.colourAnims?.length ?? 0);
+    }
+  });
 });
 
 // Every body's hit radius is the original's radius_68 of the model its arena

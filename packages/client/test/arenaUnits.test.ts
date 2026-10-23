@@ -4,12 +4,13 @@
 // each Metropolis team plays, and the turret lookups the frame loop makes.
 
 import { describe, expect, test } from "bun:test";
-import { getMapById, wardenLevel } from "@metropolis/sim";
+import { ARCHETYPE, getMapById, wardenLevel } from "@metropolis/sim";
 import * as THREE from "three";
 import { SCENERY_PLACEMENTS } from "../src/render/arenaScenery.generated";
 import {
   arenaUnitsFor,
   bakedPoint,
+  createArenaUnits,
   gunMatrix,
   gunPointOf,
   gunPointTable,
@@ -18,6 +19,7 @@ import {
   turretSpotsOf,
 } from "../src/render/arenaUnits";
 import { ARENA_UNITS, UNIT_MODEL_FILES } from "../src/render/arenaUnits.generated";
+import { createGreyboxMeshes } from "../src/render/greybox";
 import { recordYaw } from "../src/render/recordYaw";
 import { sideOfTeam } from "../src/render/sides";
 import {
@@ -27,6 +29,7 @@ import {
   TEAM_UV_ATTR,
   TEAM_UV_MASK,
 } from "../src/render/teamUv";
+import { roundTrackOf } from "../src/render/unitMeshes";
 import { TrackClock } from "../src/render/unitTracks";
 
 /** The mission and Cobj a file is, checking that the arena may draw it. */
@@ -616,5 +619,66 @@ describe("the tracks the units play (RE cact_anim_step)", () => {
     t.frameOf(5, 1, tread, 0.4, 0, 0);
     t.advance(0.1);
     expect(t.frameOf(5, 1, tread, 30, 0, 0)).toBe(0);
+  });
+});
+
+describe("a round's model plays its track (RE missile_step_anim 0x004232c2)", () => {
+  const k9 = { frames: 11, period: 870, drivenBy: "distance", source: "morph" } as const;
+  /** A geometry with `targets` morph targets, as gen:units keeps them. */
+  function morphed(targets: number): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    g.morphAttributes.position = Array.from(
+      { length: targets },
+      () => new THREE.BufferAttribute(new Float32Array(9), 3),
+    );
+    g.morphTargetsRelative = true;
+    return g;
+  }
+
+  test("the root's `fcop.track` is played only on a model that kept its frames", () => {
+    const extras = { fcop: { track: { frames: 11, period: 870, drivenBy: "distance" } } };
+    expect(roundTrackOf(extras, morphed(10))).toEqual(k9);
+    expect(roundTrackOf(extras, morphed(0))).toBeNull();
+    expect(roundTrackOf({ fcop: {} }, morphed(10))).toBeNull();
+  });
+
+  test("the K-9 Drone runs a frame per 870 world units it flies, each from its launch", () => {
+    const scene = new THREE.Scene();
+    const greybox = createGreyboxMeshes(scene);
+    const units = createArenaUnits(scene, greybox);
+    units.playTrack(greybox.projK9, morphed(10), k9);
+    const texture = greybox.projK9.mesh.morphTexture;
+    if (!texture) throw new Error("no morph texture");
+    const rows = texture.image.data as Float32Array;
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3(1, 1, 1);
+    const guns = new Float32Array(8);
+    const frameAt = (x: number, slot = 0, id = 9): number => {
+      pos.set(x, 1, 5);
+      units.place(greybox.projK9, slot, id, ARCHETYPE.PROJECTILE, 0, x, 5, pos, quat, scale, guns);
+      const row = rows.subarray(slot * 11, slot * 11 + 11);
+      expect(row[0]).toBe(1);
+      return row.findIndex((v, k) => k > 0 && v === 1);
+    };
+    units.begin(1 / 30);
+    expect(frameAt(0)).toBe(-1); // frame 0: no target on
+    units.end();
+    // 0.11 m is 901 world units: one frame on.
+    units.begin(1 / 30);
+    expect(frameAt(0.11)).toBe(1);
+    units.end();
+    // Eleven frames, 1.17 m, and it loops: 1.3 m in all is 1302 wu past the loop.
+    let x = 0.11;
+    let frame = 1;
+    for (let i = 0; i < 12; i++) {
+      x += 0.1;
+      units.begin(1 / 30);
+      frame = frameAt(x);
+      units.end();
+    }
+    const want = Math.floor((x * 8192) / 870 - 1e-9) % 11;
+    expect(frame === -1 ? 0 : frame).toBe(want);
   });
 });

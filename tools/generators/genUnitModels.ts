@@ -42,8 +42,10 @@
 // committed file (by its pixels for the atlas, by its bytes for the rest).
 //
 // The weapons' raws carry what the original animates on them beside them, in
-// `raw/fcop-fx/anims.json` (gen:paunits, from the RE's object manifest): a
-// star's 3DAL colour ramp rides its facer's record as `colour_anim`.
+// `raw/fcop-fx/anims.json` (gen:paunits, from the RE's object manifest and
+// pa_models.json): a star's 3DAL colour ramp rides its facer's record as
+// `colour_anim`, and a round's track (the K-9 Drone's run) keeps the model's
+// morph and rides the root node as `fcop.track` (render/unitMeshes.ts plays it).
 
 import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
@@ -132,6 +134,15 @@ interface ModelPass {
   readonly morphFrames?: number;
   /** The 3DAL colour ramps on its primitives (`raw/fcop-fx/anims.json`). */
   readonly colourAnims?: readonly ColourAnim[];
+  /** A round's track, written onto the root node (`raw/fcop-fx/anims.json`). */
+  readonly track?: FxTrack;
+}
+
+/** The track a round's model plays: a frame per `period` of its driver's step. */
+interface FxTrack {
+  readonly frames: number;
+  readonly period: number;
+  readonly drivenBy: "time" | "distance";
 }
 
 /**
@@ -146,15 +157,21 @@ interface ColourAnim {
   readonly to: readonly number[];
 }
 
+/** What gen:paunits put beside one weapon raw. */
+interface FxAnims {
+  readonly colourAnims?: readonly ColourAnim[];
+  readonly track?: FxTrack;
+}
+
 /** What gen:paunits put beside the weapons' raws, by raw file name. */
 const FX_ANIMS = (
   JSON.parse(readFileSync(join(RAW_DIR, "fcop-fx", "anims.json"), "utf8")) as {
-    models: Readonly<Record<string, { readonly colourAnims?: readonly ColourAnim[] }>>;
+    models: Readonly<Record<string, FxAnims>>;
   }
 ).models;
 
 /** The animations gen:paunits carried for a weapon raw (`fcop-fx/<name>`). */
-function fxAnimsOf(raw: string): { readonly colourAnims?: readonly ColourAnim[] } {
+function fxAnimsOf(raw: string): FxAnims {
   return FX_ANIMS[raw.slice(raw.lastIndexOf("/") + 1)] ?? {};
 }
 
@@ -227,6 +244,10 @@ const PASSES: readonly ModelPass[] = [
     centreXZ: false,
     groundY: false,
     colourAnims: fxAnimsOf(spec.raw).colourAnims,
+    // A round that plays a track keeps its frames (the K-9 Drone's eleven).
+    keepMorph: fxAnimsOf(spec.raw).track ? ("morph" as const) : undefined,
+    morphFrames: fxAnimsOf(spec.raw).track?.frames,
+    track: fxAnimsOf(spec.raw).track,
   })),
 ];
 
@@ -1443,6 +1464,11 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
     node.setExtras({ fcop: { facers, frames } });
   } else if (spec.colourAnims?.length) {
     throw new Error(`${spec.key}: a colour ramp on a model without facers`);
+  }
+  if (spec.track) {
+    const fcop = (node.getExtras() as { fcop?: Record<string, unknown> }).fcop ?? {};
+    const { frames, period, drivenBy } = spec.track;
+    node.setExtras({ fcop: { ...fcop, track: { frames, period, drivenBy } } });
   }
 
   // Exact weld: identical position/normal/color tuples share one index —

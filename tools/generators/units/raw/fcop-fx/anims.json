@@ -1,6 +1,7 @@
 {
-  "source": "RE extracted/objects/Mp/manifest.json",
+  "source": "RE extracted/objects/Mp/manifest.json, extracted/logic/Mp/pa_models.json",
   "models": {
+    "mp-obj048-robodog.glb": { "track": { "frames": 11, "period": 870, "drivenBy": "distance" } },
     "mp-obj050-mine.glb": {
       "colourAnims": [{ "prim": 4, "speed": 16, "from": [128, 128, 128], "to": [255, 0, 255] }]
     }

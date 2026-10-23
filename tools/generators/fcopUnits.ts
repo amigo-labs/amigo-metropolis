@@ -47,7 +47,13 @@
 // - the 3DAL colour animations (the RE's object manifest `color_anims`):
 //   `cobj_tick_color_anims` 0x0041a1a0 ramps a primitive's bytes 5..7 — a
 //   star's centre colour — between two colours on a triangle wave of the
-//   clock; the chunk's first record only (its repeat count is 1 on all 36).
+//   clock; the chunk's first record only (its repeat count is 1 on all 36);
+// - the track a round's model plays (Mp's pa_models.json `anim`): the guided
+//   missile that flies the K-9 Drone starts track 0 at its construct and steps
+//   it every tick (`missile_step_anim` 0x004232c2..0x00423320), reading the
+//   track's mode byte itself (0x004232e4) — the frame delta on mode 1, the
+//   distance it moves, `velocity_84 * delta`, on mode 2 — so a round's track
+//   is driven by its mode where the RE names no driver.
 //
 //   bun run gen:paunits [--check] [--re-repo <path>]
 //
@@ -816,6 +822,25 @@ interface ColourAnim {
 /** What gen:units carries onto one weapon raw beyond its glb. */
 interface FxAnims {
   colourAnims?: ColourAnim[];
+  /** The track its round plays: gen:units keeps the morph, the client steps it. */
+  track?: Omit<Morph, "source">;
+}
+
+/**
+ * The track a round's model plays, or null: as a unit's (morphOf), the driver
+ * the round's own step reads off the track's mode where the RE names none
+ * (`missile_step_anim` 0x004232e4: 1 time, 2 distance).
+ */
+function roundTrackOf(model: PaModel | undefined, what: string): Omit<Morph, "source"> | null {
+  const anim = model?.anim;
+  if (!model || anim?.kind !== "morph") return null;
+  const byMode = (mode: number) => (mode === 1 ? "time" : mode === 2 ? "distance" : null);
+  const tracks = (anim.tracks ?? []).map((t) => ({
+    ...t,
+    driven_by: t.driven_by ?? byMode(t.mode),
+  }));
+  const morph = morphOf({ ...model, anim: { ...anim, tracks } }, what);
+  return morph && { frames: morph.frames, period: morph.period, drivenBy: morph.drivenBy };
 }
 
 /** The 3DAL records of Mp's Cobj `cobj` (each chunk's first: its loop never advances). */
@@ -937,6 +962,7 @@ async function main(): Promise<void> {
   // The weapons' models: Mp's exports under the names manifest.ts gives them,
   // and what the original animates on them that the glb does not carry.
   let weapons = 0;
+  const mpModels = reads.find((r) => r.arena.mission === "Mp")?.pa.models ?? {};
   const mpObjects = JSON.parse(
     readFileSync(join(reRepo, "extracted", "objects", "Mp", "manifest.json"), "utf8"),
   ) as ReObject[];
@@ -955,10 +981,15 @@ async function main(): Promise<void> {
     const entry: FxAnims = {};
     const colourAnims = colourAnimsOf(mpObjects, Number(m[1]));
     if (colourAnims.length > 0) entry.colourAnims = colourAnims;
+    const track = roundTrackOf(mpModels[String(Number(m[1]))], `Mp Cobj ${Number(m[1])}`);
+    if (track) entry.track = track;
     if (Object.keys(entry).length > 0) anims[name] = entry;
   }
   const animsText = biomeFormat(
-    `${JSON.stringify({ source: "RE extracted/objects/Mp/manifest.json", models: anims })}
+    `${JSON.stringify({
+      source: "RE extracted/objects/Mp/manifest.json, extracted/logic/Mp/pa_models.json",
+      models: anims,
+    })}
 `,
     OUT_FX_ANIMS,
   );
