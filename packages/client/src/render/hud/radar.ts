@@ -8,12 +8,14 @@
 // sprite 6 x 6 (kind 0), triangle (1) or diamond (2+), coloured from the
 // 32-entry palette, blinking from index 23 on clock bit 7.
 //
-// Only actors in the registry get a blip (hud_radar_draw_contacts walks it):
-// the live list filtered by octagonal distance from the viewpoints — team slot
-// 0's X1 alone in one viewport (`cact_registry_build` 0x0043b520), the nearer
-// of both X1s in the two-viewport network game (`cact_registry_build_mp`
-// 0x0043b7a0) — at the widest of 0x38000, 0x34000 .. 0x24000 world units that
-// holds at most 0xfe actors (the team game's limit), newest actor first
+// Only actors in the registry get a blip, drawn in registry order
+// (`hud_radar_draw_contacts` 0x0043bfb0 walks it): the live list (liveList.ts:
+// creation order, oldest first, with the actors Metropolis has no entity for)
+// filtered by octagonal distance from the viewpoints — team slot 0's X1 alone in
+// one viewport (`cact_registry_build` 0x0043b520), the nearer of both X1s in the
+// two-viewport network game (`cact_registry_build_mp` 0x0043b7a0) — at the
+// widest of 0x38000, 0x34000 .. 0x24000 world units that holds at most 0xfe
+// actors (the team game's limit); a flag-8 actor is never culled
 // (`radarRegistry`).
 //
 // Markers come from radar_markers.json by unit kind and the team's original
@@ -29,9 +31,7 @@
 import {
   ARCHETYPE,
   getMapById,
-  MATCH_PICKUPS,
   MATCH_SLOT_AVATAR_ID,
-  MAX_ENTITIES,
   type MapData,
   matchSlotOffset,
   SNAPSHOT_STRIDE,
@@ -51,6 +51,7 @@ import { SIDE_BLUE, SIDE_RED, sideOfTeam } from "../sides";
 import { hudPage11 } from "./hudArt";
 import { type HudCanvas, hudCanvas } from "./hudLayout";
 import { snapshotIndexOf } from "./hudRules";
+import { createLiveList, LIVE_ENTITY, LIVE_PICKUP, LIVE_PLACED, NO_SPAWNED } from "./liveList";
 
 /**
  * The map screen's state as the radar needs it: while open the 54-cell overview
@@ -128,9 +129,9 @@ export function registryDistance(dx: number, dz: number): number {
  * metres `xs`, `ys`; NaN for one that is not alive): each is measured against
  * the nearest of `nv` viewpoints; the walk starts at 0x38000 and, whenever more
  * than `limit` are inside, is thrown away and run again 0x4000 tighter, giving
- * up after 0x24000 with what that pass held. Writes 1 into `member` for every
- * candidate the registry keeps and answers how many. A flag-8 actor (never
- * culled) has no Metropolis entity, so none is exempt.
+ * up after 0x24000 with what that pass held. A candidate with `noCull` set (the
+ * flag-8 actors) is inside at every radius. Writes 1 into `member` for every
+ * candidate the registry keeps and answers how many.
  */
 export function radarRegistry(
   xs: Float64Array,
@@ -141,6 +142,7 @@ export function radarRegistry(
   nv: number,
   limit: number,
   member: Uint8Array,
+  noCull: Uint8Array | null = null,
 ): number {
   let radius = REGISTRY_BAND_START;
   for (;;) {
@@ -150,13 +152,15 @@ export function radarRegistry(
     for (let k = 0; k < n; k++) {
       const x = xs[k];
       if (Number.isNaN(x)) continue;
-      let d = Number.POSITIVE_INFINITY;
-      for (let v = 0; v < nv; v++) {
-        // position[2] is the map's x, position[0] its y.
-        const e = registryDistance((ys[k] - vy[v]) * WU, (x - vx[v]) * WU);
-        if (e < d) d = e;
+      if (noCull === null || noCull[k] === 0) {
+        let d = Number.POSITIVE_INFINITY;
+        for (let v = 0; v < nv; v++) {
+          // position[2] is the map's x, position[0] its y.
+          const e = registryDistance((ys[k] - vy[v]) * WU, (x - vx[v]) * WU);
+          if (e < d) d = e;
+        }
+        if (d >= radius) continue;
       }
-      if (d >= radius) continue;
       if (count >= limit) {
         overflowed = true;
         break;
@@ -367,6 +371,8 @@ const EMPTY_ARENA: ArenaPresentation = {
   staticMarkers: [],
   claimMarkers: [],
   boxes: {},
+  loadActors: [],
+  spawned: NO_SPAWNED,
 };
 
 /**
@@ -407,30 +413,24 @@ export function createRadar(
   const spotSide = new Int32Array(spots.length);
   const extent = map ? worldExtent(map) : 1;
 
-  // The registry's candidates, in live-list order: the entities newest first
-  // (descending id stands in for the order they were made), then the placed
-  // actors — the pickups, then every type-11 record from the last loaded.
+  // The registry's candidates, in live-list order (liveList.ts), and what each
+  // placement shows: a console's marker until the claim, a claim post's
+  // claimer's after it.
   const placements = SCENERY_PLACEMENTS[mapId]?.placements ?? [];
   const pickups = map?.pickups ?? [];
-  const nPickups = pickups.length < 24 ? pickups.length : 24;
-  const placedOrder = placements
-    .map((p, k) => ({
-      k,
-      id: Number(p.record.split(" ")[1]) || 0,
-      csac: p.record.startsWith("Csac"),
-    }))
-    .sort((a, b) => Number(a.csac) - Number(b.csac) || b.id - a.id)
-    .map((e) => e.k);
-  const recordIndex = (record: string): number => placements.findIndex((p) => p.record === record);
-  const staticPlaced = Int32Array.from(arena.staticMarkers, (m) => recordIndex(m.record));
-  const claimPlaced = Int32Array.from(arena.claimMarkers, (m) => recordIndex(m.record));
-  const maxCandidates = MAX_ENTITIES + nPickups + placements.length;
-  const candX = new Float64Array(maxCandidates);
-  const candY = new Float64Array(maxCandidates);
-  const member = new Uint8Array(maxCandidates);
-  /** Where each placement and pickup sits among this frame's candidates. */
-  const placedAt = new Int32Array(placements.length);
-  const pickupAt = new Int32Array(nPickups);
+  const live = createLiveList(mapId, arena, placements, pickups);
+  const stands = new Uint8Array(placements.length);
+  const placedMarker = new Int32Array(placements.length);
+  const placedClaim = new Int32Array(placements.length).fill(-1);
+  for (const m of arena.staticMarkers) {
+    const j = placements.findIndex((p) => p.record === m.record);
+    if (j >= 0) placedMarker[j] = m.marker;
+  }
+  arena.claimMarkers.forEach((m, k) => {
+    const j = placements.findIndex((p) => p.record === m.record);
+    if (j >= 0) placedClaim[j] = k;
+  });
+  const member = new Uint8Array(live.out.x.length);
   const viewX = new Float64Array(2);
   const viewY = new Float64Array(2);
   const overview: RadarOverview = { open: false, cx: 0, cy: 0, halfX: 16, halfY: 12 };
@@ -470,87 +470,68 @@ export function createRadar(
       frame.facing = facing;
       frame.blink = (clock & BLIP_BLINK) !== 0;
 
-      // --- the outposts' owners: their consoles' teams.
+      // --- the outposts' owners: their consoles' teams; what stands by them.
       outpostSidesOf(snapshot, count, spots, mapId, spotSide);
-
-      // --- the registry: every live actor, newest first, by distance.
-      let n = 0;
-      for (let i = count - 1; i >= 0; i--) {
-        const o = i * SNAPSHOT_STRIDE;
-        candX[n] = snapshot[o + 3];
-        candY[n] = snapshot[o + 4];
-        n++;
-      }
-      const up = match[MATCH_PICKUPS] | 0;
-      for (let k = 0; k < nPickups; k++) {
-        pickupAt[k] = n;
-        const standing = (up & (1 << k)) !== 0;
-        candX[n] = standing ? pickups[k].x : Number.NaN;
-        candY[n] = pickups[k].y;
-        n++;
-      }
-      for (let q = 0; q < placedOrder.length; q++) {
-        const k = placedOrder[q];
-        const p = placements[k];
-        placedAt[k] = n;
+      for (let j = 0; j < placements.length; j++) {
+        const p = placements[j];
         const claimed = p.outpost >= 0 && (spotSide[p.outpost] ?? 0) !== 0;
-        candX[n] = standsAt(p.show, claimed) ? p.x : Number.NaN;
-        candY[n] = p.y;
-        n++;
+        stands[j] = standsAt(p.show, claimed) ? 1 : 0;
       }
+
+      // --- the registry: the live list, culled by distance.
+      live.build(match, snapshot, count, stands);
+      const c = live.out;
       viewX[0] = selfX;
       viewY[0] = selfY;
       let nv = 1;
       if (online) {
         // The two-viewport registry: the nearer of both team slots' X1s.
         const otherAvatar = match[matchSlotOffset(slot === 0 ? 1 : 0) + MATCH_SLOT_AVATAR_ID] | 0;
-        const c = otherAvatar >= 0 ? snapshotIndexOf(snapshot, count, otherAvatar) : -1;
-        if (c >= 0) {
-          viewX[1] = snapshot[c * SNAPSHOT_STRIDE + 3];
-          viewY[1] = snapshot[c * SNAPSHOT_STRIDE + 4];
+        const i = otherAvatar >= 0 ? snapshotIndexOf(snapshot, count, otherAvatar) : -1;
+        if (i >= 0) {
+          viewX[1] = snapshot[i * SNAPSHOT_STRIDE + 3];
+          viewY[1] = snapshot[i * SNAPSHOT_STRIDE + 4];
           nv = 2;
         }
       }
-      radarRegistry(candX, candY, n, viewX, viewY, nv, REGISTRY_LIMIT_TEAM_GAME, member);
+      radarRegistry(c.x, c.y, c.n, viewX, viewY, nv, REGISTRY_LIMIT_TEAM_GAME, member, c.noCull);
 
-      // --- the entities in the registry.
-      for (let i = 0; i < count; i++) {
-        if (member[count - 1 - i] === 0) continue;
-        const o = i * SNAPSHOT_STRIDE;
-        const archetype = snapshot[o + 1];
-        if (archetype === ARCHETYPE.CONSOLE) continue; // the console's marker is placed
-        const team = snapshot[o + 2];
-        blipAt(
-          markerOf(archetype, sideOfTeam(mapId, team), snapshot[o + 9]),
-          snapshot[o + 3],
-          snapshot[o + 4],
-        );
-      }
-
-      // --- the outposts' consoles, until the claim kills them.
-      for (let k = 0; k < arena.staticMarkers.length; k++) {
-        const pk = staticPlaced[k];
-        if (pk < 0 || member[placedAt[pk]] === 0) continue;
-        const m = arena.staticMarkers[k];
-        blipAt(m.marker, m.x, m.y);
-      }
-
-      // --- an outpost's claim posts carry its claimer's marker.
-      for (let k = 0; k < arena.claimMarkers.length; k++) {
-        const j = claimSpot[k];
-        if (j < 0) continue;
-        const side = spotSide[j];
-        if (side !== SIDE_RED && side !== SIDE_BLUE) continue;
-        const pk = claimPlaced[k];
-        if (pk >= 0 && member[placedAt[pk]] === 0) continue;
-        const m = arena.claimMarkers[k];
-        blipAt(m.markers[side - 1], m.x, m.y);
-      }
-
-      // --- the standing pickups carry the item marker.
-      for (let k = 0; k < nPickups; k++) {
-        if (member[pickupAt[k]] === 0) continue;
-        blipAt(UNIT_MARKERS.pickup, pickups[k].x, pickups[k].y);
+      // --- a blip per member, in registry order.
+      for (let k = 0; k < c.n; k++) {
+        if (member[k] === 0) continue;
+        const ref = c.ref[k];
+        switch (c.kind[k]) {
+          case LIVE_ENTITY: {
+            const o = ref * SNAPSHOT_STRIDE;
+            const archetype = snapshot[o + 1];
+            if (archetype === ARCHETYPE.CONSOLE) break; // the console's marker is placed
+            blipAt(
+              markerOf(archetype, sideOfTeam(mapId, snapshot[o + 2]), snapshot[o + 9]),
+              snapshot[o + 3],
+              snapshot[o + 4],
+            );
+            break;
+          }
+          case LIVE_PICKUP:
+            blipAt(UNIT_MARKERS.pickup, pickups[ref].x, pickups[ref].y);
+            break;
+          case LIVE_PLACED: {
+            const q = placedClaim[ref];
+            if (q < 0) {
+              blipAt(placedMarker[ref], placements[ref].x, placements[ref].y);
+              break;
+            }
+            // An outpost's claim posts carry its claimer's marker.
+            const j = claimSpot[q];
+            const side = j >= 0 ? spotSide[j] : 0;
+            if (side !== SIDE_RED && side !== SIDE_BLUE) break;
+            const m = arena.claimMarkers[q];
+            blipAt(m.markers[side - 1], m.x, m.y);
+            break;
+          }
+          default:
+            break;
+        }
       }
 
       // --- the contacts whose bit 2 asks for a blip (none on the PA arenas).

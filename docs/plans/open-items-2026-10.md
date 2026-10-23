@@ -37,6 +37,11 @@ not answered yet.
    entity id. Actors with no Metropolis entity are not counted: the X1's partner,
    the turret parts, and the flag-8 actors that are never culled.
    - Ledger: V3.
+   - **Done** in "feat(hud): walk the radar's registry in the original's live-list
+     order": creation order, oldest first (`cact_link` appends at the tail); the
+     mission's actors from `gen:presentation` `loadActors`, the partners, parts and
+     mounts counted, flag 8 never culled. Declared in V3: the order of actors that
+     appear on one frame, recycled ids, the downed X1's place, the effects' actors.
 7. **Map-screen arrows.** They use frame 0's 3DBB box only, and a Prop's cell
    comes from its model origin, not its box centre. The emitter's 4 m leaf test is
    approximated by a 2.83 m sphere.

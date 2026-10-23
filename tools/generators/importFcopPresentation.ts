@@ -330,6 +330,229 @@ function round4(v: number): number {
   return Math.round(v * 10000) / 10000;
 }
 
+// --- the live list at load (fixtures/missions/<Mission>) -----------------------
+
+/** One Cact or Csac record, read as `cact_base_construct` reads it. */
+interface ActorRecord {
+  res: "Cact" | "Csac";
+  id: number;
+  /** tACT payload +0. */
+  type: number;
+  /** position[0..2], world units: [0] is the map's y, [2] its x. */
+  pos: [number, number, number];
+  /** Payload +16, the flags word. */
+  flags: number;
+  /** Payload +24: the side (1 or 2, 0 nobody's). */
+  side: number;
+  /** Payload +25: a Csac's spawn class (1 tank, 2 jet, 3 Dreadnought, 4 Fortress). */
+  cls: number;
+  /** The Cobj ids of the aRSL list, in order, 0 for an empty entry. */
+  arsl: number[];
+}
+
+/**
+ * Every Cact and Csac record of a mission in container order — the order the
+ * streaming hands them to `cact_load` (RE game/res/stream.c, a FIFO) — through
+ * the RE's own container walker (tools/gfx/fcop.py).
+ */
+function actorRecordsOf(mission: string): ActorRecord[] {
+  const script = [
+    "import sys, struct, json",
+    `sys.path.insert(0, ${JSON.stringify(join(RE, "tools", "gfx"))})`,
+    "from fcop import extract, parse",
+    `b, res = parse(${JSON.stringify(join(RE, "fixtures", "missions", mission))})`,
+    "out = []",
+    "for r in res:",
+    "    if r['type'] not in ('Cact', 'Csac'): continue",
+    "    p = extract(b, r)",
+    "    if p[0:4] != b'TCAt': continue",
+    "    pay = p[12:]",
+    "    arsl = []",
+    "    at = p.find(b'LSRa')",
+    "    if at >= 0:",
+    "        n = (struct.unpack_from('<I', p, at + 4)[0] - 12) // 8",
+    "        arsl = [struct.unpack_from('<II', p, at + 12 + 8 * i)[1] for i in range(n)]",
+    "    out.append({'res': r['type'], 'id': r['id'], 'type': pay[0],",
+    "                'pos': list(struct.unpack_from('<3i', pay, 4)),",
+    "                'flags': struct.unpack_from('<I', pay, 16)[0], 'side': pay[24], 'cls': pay[25],",
+    "                'arsl': arsl})",
+    "print(json.dumps(out))",
+  ].join("\n");
+  const r = Bun.spawnSync(["python3", "-I", "-c", script]);
+  if (r.exitCode !== 0) throw new Error(`${mission}: actor records: ${r.stderr.toString()}`);
+  return JSON.parse(r.stdout.toString()) as ActorRecord[];
+}
+
+/**
+ * `cact_type_handler` (RE game/actor/factory.c 0x0041a950): the types the
+ * factory builds. Any other type below 87 has no handler and `cact_create`
+ * builds nothing; 87..99 go to loaders of their own and build no actor
+ * (`cact_load` 0x0043af20).
+ */
+const HANDLED_TYPES = new Set([
+  1, 5, 6, 8, 9, 10, 11, 12, 13, 14, 16, 20, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+  0x50,
+]);
+/** The registry's never-culled bit (`MISSION_FLAG_NO_CULL`, mission_frame.c 0x0043b5fb). */
+const FLAG_NO_CULL = 8;
+/** The X1-Alpha's construct sets it on the mech and its partner (`PLAYER_FLAGS_BOTH`, player.c 0x00446b44). */
+const TYPE_X1 = 1;
+/** `OBJECTIVE_FLAGS_SET` 0x20000d, ORed in by `objective_construct` (0x0043102f): bit 8 among them. */
+const TYPE_OBJECTIVE = 35;
+const OBJECTIVE_FLAGS_SET = 0x20000d;
+/** One Sky Captain record per level band, each behind its own load gate. */
+const TYPE_CAPTAIN = 37;
+const TYPE_PLACED = 11;
+
+/** One actor of the live list at load, in the order `cact_link` appended it. */
+interface LoadActor {
+  /**
+   * `x1` the X1-Alpha of `side`, `partner` its type-0x12 partner, `captain` the
+   * Sky Captain, `placed` a type-11 record (`record`, a scenery placement),
+   * `fixed` any other actor, standing where its record puts it.
+   */
+  kind: "x1" | "partner" | "captain" | "placed" | "fixed";
+  type: number;
+  x: number;
+  y: number;
+  noCull: boolean;
+  side?: number;
+  record?: string;
+  levels?: number[];
+}
+
+interface Spawned {
+  noCull: {
+    tank: boolean;
+    jet: boolean;
+    fortress: boolean;
+    dreadnought: boolean;
+    turret: boolean;
+    neutralTurret: boolean;
+    pickup: boolean;
+  };
+  turretParts: number;
+  dreadnoughtMounts: number;
+}
+
+/**
+ * The live list a mission starts with, and what its spawned actors bring.
+ *
+ * `cact_link` (0x0043ad70) appends at the tail, so the list is in creation
+ * order (RE disasm/map-done.md; game/actor/factory.c). At load that is the
+ * container order of the Cact records the factory builds — every PA one with an
+ * empty load gate, but for the second X1 (the two-player game's) and the Sky
+ * Captain (one record per level band, one player). A construct that builds an
+ * actor of its own builds it before its own `cact_link`: the X1's partner
+ * (`player_partner_create`, from `player_construct` 0x00446b25) stands in front
+ * of its X1. The flags are the record's (`cact_base_construct` 0x0041a530);
+ * the X1 and its partner get 8 (`PLAYER_FLAGS_BOTH`), the objective 8 with
+ * `OBJECTIVE_FLAGS_SET`.
+ */
+function liveListOf(
+  mission: string,
+  recs: ActorRecord[],
+  placements: readonly { record: string }[],
+): { loadActors: LoadActor[]; spawned: Spawned } {
+  // The Sky Captain's records and the levels each one's load gate passes
+  // (tools/gfx/pa_models.py reads the gates: `(viewports == 1) && (level ...)`).
+  const pa = readJson<{
+    roles: { sky_captain: { templates: { res: string; id: number }[]; levels: number[] }[] };
+  }>("extracted", "logic", mission, "pa_models.json");
+  const captainLevels = new Map<number, number[]>();
+  for (const c of pa.roles.sky_captain) {
+    for (const t of c.templates) if (t.res === "Cact") captainLevels.set(t.id, c.levels);
+  }
+  const at = (r: ActorRecord) => ({
+    x: round4(r.pos[2] / 8192 + LOGIC_OFFSET_X),
+    y: round4(r.pos[0] / 8192 + LOGIC_OFFSET_Z),
+  });
+  const loadActors: LoadActor[] = [];
+  for (const r of recs) {
+    if (r.res !== "Cact" || !HANDLED_TYPES.has(r.type)) continue;
+    const p = at(r);
+    if (r.type === TYPE_X1) {
+      const side = r.side;
+      loadActors.push({ kind: "partner", type: 0x12, ...p, noCull: true, side });
+      loadActors.push({ kind: "x1", type: TYPE_X1, ...p, noCull: true, side });
+      continue;
+    }
+    if (r.type === TYPE_CAPTAIN) {
+      // The load gate of each passes one level band (pa_models.json).
+      const levels = captainLevels.get(r.id);
+      if (!levels) throw new Error(`${mission}: Cact ${r.id}, a Sky Captain, has no level band`);
+      loadActors.push({
+        kind: "captain",
+        type: r.type,
+        ...p,
+        noCull: (r.flags & FLAG_NO_CULL) !== 0,
+        levels,
+      });
+      continue;
+    }
+    if ([6, 8, 20, 28, 30, 33, 36].includes(r.type)) {
+      // Their constructs build parts and mounts of their own; no PA mission
+      // places one.
+      throw new Error(`${mission}: Cact ${r.id} is a type ${r.type}, which builds sub-actors`);
+    }
+    const flags = r.type === TYPE_OBJECTIVE ? r.flags | OBJECTIVE_FLAGS_SET : r.flags;
+    if (r.type === TYPE_PLACED) {
+      const record = `Cact ${r.id}`;
+      if (!placements.some((q) => q.record === record)) {
+        throw new Error(`${mission}: ${record} is no scenery placement`);
+      }
+      loadActors.push({
+        kind: "placed",
+        type: r.type,
+        ...p,
+        noCull: (flags & FLAG_NO_CULL) !== 0,
+        record,
+      });
+      continue;
+    }
+    loadActors.push({ kind: "fixed", type: r.type, ...p, noCull: (flags & FLAG_NO_CULL) !== 0 });
+  }
+
+  // The spawned kinds: their Csac records' flag 8, which their constructs keep
+  // (type 5 and 9 add bits, `turret_construct` adds 0x800000).
+  const flagOf = (what: string, pick: (r: ActorRecord) => boolean): boolean => {
+    const set = new Set(recs.filter((r) => r.res === "Csac" && pick(r)).map((r) => r.flags & 8));
+    if (set.size !== 1) throw new Error(`${mission}: ${what}: flag 8 is ${[...set]}`);
+    return [...set][0] !== 0;
+  };
+  for (const r of recs) {
+    if (r.res === "Csac" && r.type === TYPE_PLACED && (r.flags & FLAG_NO_CULL) !== 0) {
+      // The client culls every spawned type-11 actor (liveList.ts).
+      throw new Error(`${mission}: Csac ${r.id}, a type-11 template, is never culled`);
+    }
+    if ([6, 30, 33].includes(r.type)) {
+      throw new Error(`${mission}: ${r.res} ${r.id} is a type-${r.type} turret`);
+    }
+  }
+  // cact_handler_type28 (mount.c 0x00426080): a mount per non-empty aRSL entry 3..6.
+  const mounts = new Set(
+    recs
+      .filter((r) => r.res === "Csac" && r.type === 28)
+      .map((r) => [3, 4, 5, 6].filter((k) => (r.arsl[k] ?? 0) !== 0).length),
+  );
+  if (mounts.size !== 1) throw new Error(`${mission}: Dreadnought mounts ${[...mounts]}`);
+  const spawned: Spawned = {
+    noCull: {
+      tank: flagOf("tanks", (r) => r.type === 5 && r.cls === 1),
+      jet: flagOf("jets", (r) => r.type === 9 && r.cls === 2),
+      fortress: flagOf("Fortresses", (r) => r.type === 9 && r.cls === 4),
+      dreadnought: flagOf("Dreadnoughts", (r) => r.type === 28),
+      turret: flagOf("turrets", (r) => r.type === 8),
+      neutralTurret: flagOf("neutral turrets", (r) => r.type === 36),
+      pickup: flagOf("pickups", (r) => r.type === 16),
+    },
+    // turret_construct (turret.c 0x0041bf90): types 8 and 36 build one base part.
+    turretParts: 1,
+    dreadnoughtMounts: [...mounts][0],
+  };
+  return { loadActors, spawned };
+}
+
 // --- per arena -----------------------------------------------------------------
 
 interface ArenaOut {
@@ -340,6 +563,8 @@ interface ArenaOut {
   staticMarkers: { record: string; marker: number; x: number; y: number }[];
   claimMarkers: { record: string; x: number; y: number; markers: [number, number] }[];
   boxes: Record<number, [number, number, number, number]>;
+  loadActors: LoadActor[];
+  spawned: Spawned;
 }
 
 interface ObjectManifestEntry {
@@ -475,6 +700,7 @@ FCOP_ARENAS.forEach((arena, reticleIndex) => {
     staticMarkers,
     claimMarkers,
     boxes: modelBoxes(arena.mission, cobjs),
+    ...liveListOf(arena.mission, actorRecordsOf(arena.mission), placements),
   };
 });
 
@@ -753,6 +979,52 @@ export interface ArenaPresentation {
    * and z, half x and z, metres in the model's own frame (pause_map.c 0x004516e0).
    */
   readonly boxes: Readonly<Record<number, readonly [number, number, number, number]>>;
+  /**
+   * The live list at load, in the order \`cact_link\` appended it (creation order,
+   * oldest first): the Cact records the factory builds in container order, an
+   * X1's partner in front of its X1. Map frame metres; \`noCull\` is the flag-8
+   * bit the registry never culls (render/hud/liveList.ts).
+   */
+  readonly loadActors: readonly LoadActor[];
+  /** What the spawned actors bring: flag 8 by kind, a turret's parts, a Dreadnought's mounts. */
+  readonly spawned: SpawnedActors;
+}
+
+/** One actor of the live list at load (\`ArenaPresentation.loadActors\`). */
+export interface LoadActor {
+  /**
+   * \`x1\` the X1-Alpha of \`side\`, \`partner\` its type-0x12 partner, \`captain\` the Sky
+   * Captain (the record of the level's band loads), \`placed\` a type-11 record (\`record\`,
+   * its scenery placement), \`fixed\` any other actor, where its record stands.
+   */
+  readonly kind: "x1" | "partner" | "captain" | "placed" | "fixed";
+  /** The original actor type (0x12 the partner). */
+  readonly type: number;
+  readonly x: number;
+  readonly y: number;
+  readonly noCull: boolean;
+  readonly side?: number;
+  readonly record?: string;
+  /** A Sky Captain record's level band: its load gate passes only these levels. */
+  readonly levels?: readonly number[];
+}
+
+/** The spawned actors' share of the live list. */
+export interface SpawnedActors {
+  /** Never culled (their Csac records' flag 8), by kind. */
+  readonly noCull: {
+    readonly tank: boolean;
+    readonly jet: boolean;
+    readonly fortress: boolean;
+    readonly dreadnought: boolean;
+    readonly turret: boolean;
+    readonly neutralTurret: boolean;
+    readonly pickup: boolean;
+  };
+  /** The base part \`turret_construct\` builds in front of each turret. */
+  readonly turretParts: number;
+  /** The mounts \`cact_handler_type28\` builds in front of each Dreadnought. */
+  readonly dreadnoughtMounts: number;
 }
 
 export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = ${j(arenas)} as unknown as Readonly<Record<string, ArenaPresentation>>;
