@@ -1,0 +1,14 @@
+{
+  "source": "RE extracted/x1/manifest.json parts[].layer_masks: the masks player_partner_draw (src/game/actor/player_partner.c 299-320) hands each block, by the transform's progress (walker 0, the ramp, hover 0x10000)",
+  "legs": {
+    "walker": 3,
+    "transform": 7,
+    "hover": 5
+  },
+  "cockpit": {
+    "walker": 5,
+    "transform": 15,
+    "hover": 11
+  },
+  "attached": 1
+}

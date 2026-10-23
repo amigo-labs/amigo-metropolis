@@ -68,9 +68,15 @@ not answered yet.
 
 ## B. Needs an RE export first (then a Metropolis pass)
 
-12. **The X1-Alpha's draw modes.** The X1's parts still go through the RE's old
+12. **The X1-Alpha's draw modes.** ~~The X1's parts still go through the RE's old
     export path (`extracted/x1`), so the X1 draws opaque. Its legs are half-alpha
-    throughout, and Cobj 15/16 sit on layer 1.
+    throughout, and Cobj 15/16 sit on layer 1.~~ **Done** in "feat(client): draw
+    the X1-Alpha's faces in the original's draw modes and layers" (RE "tools/gfx:
+    export the X1's parts with the faces' draw modes and layers" and "docs: the
+    X1's draw modes and the partner's layer masks"): a primitive per mode, the
+    half faces in two passes, and the layer-1 faces gated per instance by the
+    masks the partner reads off the transform's progress (legs 3 / 7 / 5,
+    cockpit 5 / 0xf / 0xb for walker / ramp / hover).
     - RE: export `extracted/x1` with the face modes, as `tools/gfx/obj_mesh.py`
       now does for the object glbs.
     - Metropolis: `gen:x1`, then `render/avatarRig.ts` materials.
