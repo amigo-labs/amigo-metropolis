@@ -584,6 +584,57 @@ ground lattice and the per-deck lattices are each measurably inert — so it is 
 deck movement #29 asked for, and restoring the finish is #31's balance pass. That
 moves the "ten-minute resolution" item above from two arenas to three.
 
+## Phase 14 — Original fidelity from the RE repo
+
+Owner direction (2026-10-23): take as much of the original as the RE repo
+(`amigo-labs/fcop-reverse-engineering`) can prove. Where a remake value was a
+deliberate deviation, switch it to the original wherever the RE data supports it;
+where the RE marks the behaviour OPEN, keep ours and say so. SFX are bound from
+data only (no ear pass); each arena plays its original track by default. One PR
+per item, ticked on merge. SIM_VERSION numbers are assigned in merge order.
+
+Shared groundwork
+- [x] `tools/generators/reRepo.ts`: one RE repo lookup (`--re-repo`, then
+      `$FCOP_RE_REPO`, then the sibling checkout) for `fcopLogic.ts`,
+      `analyzeGroundCast.ts` and `convert.ts` — the last one still pointed at a
+      private workspace that no longer exists
+
+Audio (render-only)
+- [ ] A1 original arena music, default per arena; owner tracks stay selectable
+- [ ] A2 SFX bound from data: `transform`, turret/unit fire, avatar wreck
+- A3 announcer voice: no PR — no event binding is provable yet (Cfun state-word
+  meaning and Trigger → script are OPEN); filed as RE issues instead
+
+HUD / menu art (render-only)
+- [ ] C1 HUD in the original's bitmap fonts, tex11 radar disc and weapon icons
+- [ ] C2 menu frontend art, loading screens, weapon panels in the loadout
+
+World visuals
+- [ ] D1 Hk/Ovmp per-deck walls and feature decks (sim)
+- [ ] D2 props: the right model per mission container, all type-96 placements,
+      original yaw and scale
+- [ ] D3 DCSQuad decals (Hk, Slim, Joke)
+- [ ] D4 X1 walker ↔ hover transform clip
+- [ ] D5 object animations: morph props, UV and colour face animation
+- [ ] D6 animated terrain tiles (Hk, Ovmp)
+- [ ] D7 TeamBase body model; the heavy unit gets its own model
+
+Gameplay data (sim, one SIM_VERSION each)
+- [ ] B0 RE: decode the type-98 world weapon table
+- [ ] B1 carry the weapon table and spawner sites; fix the misreadings in docs
+- [ ] B2 spatial grid for the range queries (hash-neutral)
+- [ ] B3 trigger volumes at 8× extent, single-fire triggers
+- [ ] B4 original unit HP and world weapon damage
+- [ ] B5 world shots are projectiles
+- [ ] B6 blast falloff (linear, cylinder, octagonal distance)
+- [ ] B7 spawners: alive cap, start phase, original outposts, tanks + jets + heavy
+- [ ] B8 original turret respawn (25 / 37.5 s)
+- [ ] B9 aircraft orbit parameters from the data
+- [ ] B10 reach: lock and engage ranges from the data
+- [ ] B11 X1 movement: push, drag, strafe
+- [ ] B12 X1 goes down instead of being removed
+- [ ] B13 original route following
+
 ## Backlog (post-v1, do not start)
 
 More arenas · map editor · rollback netcode upgrade · 2v2 ·
