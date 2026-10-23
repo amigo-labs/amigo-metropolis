@@ -3,15 +3,22 @@
 // the two block walkers (snd/emitter.c 0x0042fe20, world/pyro_chain.c 0x00437310).
 
 import { describe, expect, test } from "bun:test";
+import { getMapById, sampleHeight } from "@metropolis/sim";
 import * as THREE from "three";
+import { SCENERY_PLACEMENTS } from "../src/render/arenaScenery.generated";
 import {
   cellXOf,
   cellZOf,
   createDrawWindow,
+  createLeafView,
   DRAW_CELL_M,
+  emitterDrawn,
   inDrawWindow,
   inView,
+  type LeafTree,
+  leafMask,
   placeDrawWindow,
+  updateLeafView,
 } from "../src/render/drawWindow";
 
 function cameraAt(x: number, y: number, z: number, tx: number, ty: number, tz: number) {
@@ -74,5 +81,96 @@ describe("inView: a sphere against the frustum", () => {
     // 20 m ahead the half-height is ~4.7 m: 8 m up is out, unless the sphere reaches.
     expect(inView(m.elements, 20, 10, 0, 0.5)).toBe(false);
     expect(inView(m.elements, 20, 10, 0, 4)).toBe(true);
+  });
+});
+
+describe("the quadtree's leaves on screen (world_build_tile_block, draw_node_visible)", () => {
+  /** A tree whose cell and children reach everything and whose leaves are 0.1 m. */
+  function tree(cz: number, cx: number, leafHeight = 0): LeafTree {
+    const big = 20 * 512; // 20 m in 16-unit halfwords
+    const spheres = [big, 0, big, 0, big, 0, big, 0, big, 0];
+    for (let k = 0; k < 16; k++) spheres.push(51, leafHeight);
+    return { cz, cx, spheres };
+  }
+  function looking(x: number, y: number) {
+    // Straight down from 5 m: about 1.2 m of ground either way.
+    const cam = new THREE.PerspectiveCamera(26.38, 1, 0.1, 100);
+    cam.position.set(x, 5, y);
+    cam.up.set(1, 0, 0);
+    cam.lookAt(x, 0, y);
+    cam.updateMatrixWorld();
+    cam.updateProjectionMatrix();
+    return new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse)
+      .elements;
+  }
+
+  test("leaf (x, z) is bit 0x8000 >> (4 x + z): x along the map's y, z along its x", () => {
+    // Cell (cz 2, cx 3): map x 48..64, y 48..64. Leaf x 1, z 2: map x 58, y 54.
+    expect(leafMask(looking(58, 54), tree(2, 3))).toBe(0x8000 >> 6);
+    // Leaf x 3, z 0: map x 50, y 62.
+    expect(leafMask(looking(50, 62), tree(2, 3))).toBe(0x8000 >> 12);
+  });
+
+  test("a sphere stands at its height: lifted out of the view it is off", () => {
+    // 0x1000 halfwords: (0x1000 >> 4) x 256 units, 8 m up, above the camera.
+    expect(leafMask(looking(58, 54), tree(2, 3, 0x1000))).toBe(0);
+  });
+
+  test("the cell's sphere and its child's gate their leaves", () => {
+    const t = tree(2, 3);
+    const offCell = { ...t, spheres: [1, 0x3000, ...t.spheres.slice(2)] };
+    expect(leafMask(looking(58, 54), offCell)).toBe(0);
+    // Child 2 (x half 0, z half 1) holds leaf (1, 2).
+    const offChild = { ...t, spheres: [...t.spheres] };
+    offChild.spheres[2 + 1 * 2] = 1;
+    offChild.spheres[2 + 1 * 2 + 1] = 0x3000;
+    expect(leafMask(looking(58, 54), offChild)).toBe(0);
+  });
+
+  test("snd_emit_draw_block: in the block, and the footprint meets a leaf on screen", () => {
+    const win = createDrawWindow();
+    const view = createLeafView(1);
+    // Unplaced: everything.
+    expect(emitterDrawn(win, view, 2, 3, 0, 0x8000)).toBe(true);
+    win.placed = true;
+    win.cellZ = 0;
+    win.cellX = 1;
+    // No camera yet: the block alone.
+    expect(emitterDrawn(win, view, 2, 3, 0, 0x8000)).toBe(true);
+    updateLeafView(view, [tree(2, 3)], win, looking(58, 54));
+    expect(view.masks[0]).toBe(0x8000 >> 6);
+    expect(emitterDrawn(win, view, 2, 3, 0, 0x8000 >> 6)).toBe(true);
+    expect(emitterDrawn(win, view, 2, 3, 0, 0x8000)).toBe(false);
+    // A cell with no section, or outside the block, is not drawn.
+    expect(emitterDrawn(win, view, 2, 3, -1, 0xffff)).toBe(false);
+    expect(emitterDrawn(win, view, 9, 3, 0, 0xffff)).toBe(false);
+  });
+
+  test("every arena's leaves stand at its ground, x along the map's y", () => {
+    for (const [id, s] of Object.entries(SCENERY_PLACEMENTS)) {
+      if (s.leafTrees.length === 0) continue;
+      const map = getMapById(id);
+      let err = 0;
+      let swapped = 0;
+      let n = 0;
+      for (const t of s.leafTrees) {
+        for (let k = 0; k < 16; k++) {
+          const child = k >> 2;
+          const leaf = k & 3;
+          const qx = (child >> 1) * 2 + (leaf >> 1);
+          const qz = (child & 1) * 2 + (leaf & 1);
+          const h = ((t.spheres[10 + k * 2 + 1] >> 4) * 256) / 8192;
+          err += Math.abs(
+            h - sampleHeight(map, 16 + t.cz * 16 + qz * 4 + 2, t.cx * 16 + qx * 4 + 2),
+          );
+          swapped += Math.abs(
+            h - sampleHeight(map, 16 + t.cz * 16 + qx * 4 + 2, t.cx * 16 + qz * 4 + 2),
+          );
+          n++;
+        }
+      }
+      expect(err / n, id).toBeLessThan(1.5);
+      expect(err, id).toBeLessThan(swapped);
+    }
   });
 });

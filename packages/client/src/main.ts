@@ -123,6 +123,7 @@ import { NetLockstep } from "./net/lockstep";
 import { P2pLockstep } from "./net/p2pLockstep";
 import { openP2pSession, readP2pBootstrap } from "./net/p2pSession";
 import { WsTransport } from "./net/wsTransport";
+import { SCENERY_PLACEMENTS } from "./render/arenaScenery.generated";
 import { type ArenaUnitsRenderer, createArenaUnits } from "./render/arenaUnits";
 import { type AvatarRig, createAvatarRig } from "./render/avatarRig";
 import {
@@ -146,12 +147,15 @@ import {
   cellXOf,
   cellZOf,
   createDrawWindow,
+  createLeafView,
+  emitterDrawn,
   inDrawWindow,
-  inView,
+  type LeafTree,
   placeDrawWindow,
+  updateLeafView,
 } from "./render/drawWindow";
 import { lerpGunYaws } from "./render/dreadnoughtGuns";
-import { setEmitterWindow } from "./render/emitterProps";
+import { setEmitterView, setEmitterWindow } from "./render/emitterProps";
 import { drawFacers, initFacers } from "./render/facers";
 import { materialList } from "./render/fcopModel";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
@@ -599,38 +603,51 @@ if (params.has("debug")) (globalThis as { metropolisAudio?: AudioEngine }).metro
 const FALLBACK_SOUND_ARENA = "la-cantina";
 /** The local eye's 5 x 5 block of cells (render/drawWindow.ts). */
 const drawWindow = createDrawWindow();
-/** The prop emitters' cells, ground and whether the eye draws them (audio/cues.ts). */
+/**
+ * The prop emitters' cells, quadtrees and footprints, and whether the eye draws
+ * them (audio/cues.ts): each emitter's Prop's anchor (gen:scenery `ax`, `ay`,
+ * `leaf`, `quad`), found by its origin; an emitter with no Prop (the debug
+ * maps' borrowed sounds) hangs at its origin and is tested by the block alone.
+ */
 let emitterCellZ = new Int16Array(0);
 let emitterCellX = new Int16Array(0);
-let emitterHeight = new Float32Array(0);
-let emitterDrawn = new Uint8Array(0);
-/** A leaf of the block's visibility quadtree is 4 m square: its half diagonal. */
-const EMITTER_LEAF_RADIUS = 2.83;
+let emitterLeaf = new Int16Array(0);
+let emitterQuad = new Uint16Array(0);
+let emitterDrawnNow = new Uint8Array(0);
+/** The arena's cell quadtrees and this frame's leaves on screen (render/drawWindow.ts). */
+let leafArena = "";
+let leafTrees: readonly LeafTree[] = [];
+let leafView = createLeafView(0);
 const emitterViewProj = new THREE.Matrix4();
 
 /**
  * `snd_emit_draw_block`'s test, a tick at a time: an emitter is drawn when it
- * hangs in the eye's 5 x 5 block and its leaf is on screen. Null before the
- * block is placed (the listener's range stands in).
+ * hangs in the eye's 5 x 5 block and its footprint meets a leaf on screen
+ * (`emitterDrawn`). Null before the block is placed (the listener's range
+ * stands in).
  */
 function drawnEmitters(): Uint8Array | undefined {
-  const view = views[0];
-  if (!view || !drawWindow.placed) return undefined;
-  const cam = view.camera;
-  emitterViewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-  const m = emitterViewProj.elements;
-  const data = FCOP_ARENA_AUDIO[map.id] ?? FCOP_ARENA_AUDIO[FALLBACK_SOUND_ARENA];
-  const emitters = data?.emitters ?? [];
-  for (let k = 0; k < emitterDrawn.length && k < emitters.length; k++) {
-    const e = emitters[k];
-    emitterDrawn[k] =
-      inDrawWindow(drawWindow, emitterCellZ[k], emitterCellX[k]) &&
-      inView(m, e.x, emitterHeight[k], e.z, EMITTER_LEAF_RADIUS)
-        ? 1
-        : 0;
+  if (!views[0] || !drawWindow.placed) return undefined;
+  for (let k = 0; k < emitterDrawnNow.length; k++) {
+    emitterDrawnNow[k] = (
+      emitterLeaf[k] === NO_PROP
+        ? inDrawWindow(drawWindow, emitterCellZ[k], emitterCellX[k])
+        : emitterDrawn(
+            drawWindow,
+            leafView,
+            emitterCellZ[k],
+            emitterCellX[k],
+            emitterLeaf[k],
+            emitterQuad[k],
+          )
+    )
+      ? 1
+      : 0;
   }
-  return emitterDrawn;
+  return emitterDrawnNow;
 }
+/** `emitterLeaf` of an emitter that is no Prop's. */
+const NO_PROP = -2;
 
 /** The camera's right vector on the ground, for the listener's pan. */
 let listenerRightX = 1;
@@ -654,12 +671,18 @@ function beginMatchSounds(): void {
     musicUrl: data.music,
   });
   sounds.begin(data, FCOP_PLAYER_WEAPONS, map.lifts, map.id);
-  // Where each prop emitter hangs, for `snd_emit_draw_block`'s claim.
+  // Where each prop emitter hangs, for `snd_emit_draw_block`'s claim: its
+  // Prop's anchor (an emitter stands at its Prop's origin, gen:sfx).
   const n = data.emitters.length;
-  emitterCellZ = Int16Array.from(data.emitters, (e) => cellZOf(e.x));
-  emitterCellX = Int16Array.from(data.emitters, (e) => cellXOf(e.z));
-  emitterHeight = Float32Array.from(data.emitters, (e) => sampleHeight(map, e.x, e.z));
-  emitterDrawn = new Uint8Array(n);
+  const props = SCENERY_PLACEMENTS[map.id]?.props ?? [];
+  const propOf = data.emitters.map((e) =>
+    props.find((p) => Math.abs(p.x - e.x) < 0.01 && Math.abs(p.y - e.z) < 0.01),
+  );
+  emitterCellZ = Int16Array.from(data.emitters, (e, k) => cellZOf(propOf[k]?.ax ?? e.x));
+  emitterCellX = Int16Array.from(data.emitters, (e, k) => cellXOf(propOf[k]?.ay ?? e.z));
+  emitterLeaf = Int16Array.from(propOf, (p) => p?.leaf ?? NO_PROP);
+  emitterQuad = Uint16Array.from(propOf, (p) => p?.quad ?? 0);
+  emitterDrawnNow = new Uint8Array(n);
   // The effects' trail texels are the arena's own tex10 (render/fx.ts).
   fx.begin(map.id);
   audio.startMatch();
@@ -2045,6 +2068,16 @@ function placeViewWindow(view: PlayerView): void {
     setEmitterWindow(drawWindow);
     setDecalWindow(drawWindow);
   }
+  // The block's leaves on screen: which Props it draws (and whose sound it claims).
+  if (leafArena !== map.id) {
+    leafArena = map.id;
+    leafTrees = SCENERY_PLACEMENTS[map.id]?.leafTrees ?? [];
+    leafView = createLeafView(leafTrees.length);
+  }
+  const cam = view.camera;
+  emitterViewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+  updateLeafView(leafView, leafTrees, drawWindow, emitterViewProj.elements);
+  setEmitterView(leafView);
 }
 
 /**

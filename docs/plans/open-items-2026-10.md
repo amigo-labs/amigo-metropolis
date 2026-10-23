@@ -49,6 +49,12 @@ not answered yet.
    - **The arrows: done** in "feat(hud): build the map-screen arrows on the box of
      the current frame": box 0 of the current frame, read by frame from the mission
      bytes. Every arrow model's frames carry one box, the flag's cloth included.
+   - **The Prop's cell and the leaf test: done** in "feat(render): hang the Props on
+     their box's anchor and test their quadtree leaves": the anchor is box 0's
+     placed centre; a Prop is drawn, and claims its sound, where its footprint
+     meets a leaf of its cell's quadtree on screen. Declared in G13: the spheres
+     meet the view frustum, not `draw_point_visible`'s cone; the DCSQuads keep the
+     frustum clipping. RE error found: `DRAW_LEAF_SOURCE` reverses each nibble.
 8. **Facer depth sort and DCSQuad depth.** The original sorts each facer at its
    centre's depth less 0x100. Metropolis uses the depth buffer after the opaque
    scene, and a polygon offset stands in for the DCSQuads' drawer depth.

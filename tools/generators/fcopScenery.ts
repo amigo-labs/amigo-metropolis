@@ -54,6 +54,7 @@ import { argOf } from "./fcopLogic";
 import {
   type DecalRect,
   type PropRecord as EmitterRecord,
+  emitterAnchor,
   GameRand,
   type QuadRecord,
   RETAIL_SEED,
@@ -264,7 +265,30 @@ for mission in sys.argv[2:]:
             "heightOffset": struct.unpack_from("<i", pay, 0x24)[0], "group": pay[25],
             "terrain": terrain_height_at(world, pos, layer),
         })
-    out[mission] = {"props": recs, "turrets": turrets, "props96": props96, "quads": quads, "rects": rects}
+    # Box 0 of frame 0 of every Cobj (3DBB: u32, u32, then 16-byte boxes).
+    boxes = {}
+    for r in resources:
+        if r["type"] != "Cobj":
+            continue
+        p = extract(blob, r)
+        at = 0
+        while at + 8 <= len(p):
+            size = struct.unpack_from("<I", p, at + 4)[0]
+            if size < 8 or at + size > len(p):
+                break
+            if p[at:at + 4] == b"BBD3":
+                boxes[r["id"]] = list(struct.unpack_from("<3h3H", p, at + 16))
+            at += size
+    # Every cell's visibility quadtree: its Ctil section's 44 halfwords at +0x374
+    # (RE game/frame/draw.c DRAW_TILE_TREE_OFFSET), keyed "x>>17,z>>17".
+    trees = {}
+    for gx in range(world.height):
+        for gz in range(world.width):
+            sect = world.section_for(gx, gz)
+            if sect is not None:
+                trees["%d,%d" % (gx, gz)] = list(struct.unpack_from("<44h", sect, 0x374))
+    out[mission] = {"props": recs, "turrets": turrets, "props96": props96, "quads": quads, "rects": rects,
+                    "boxes": boxes, "trees": trees}
 print(json.dumps(out))
 `;
 
@@ -289,6 +313,10 @@ interface MissionRecords {
   readonly props96: EmitterRecord[];
   readonly quads: QuadRecord[];
   readonly rects: DecalRect[];
+  /** By Cobj: box 0 of frame 0, 3DBB halfwords (centre x, y, z, half x, y, z). */
+  readonly boxes: Record<string, number[]>;
+  /** By cell "x>>17,z>>17": its Ctil section's quadtree, 44 halfwords. */
+  readonly trees: Record<string, number[]>;
 }
 
 function readRecords(reRepo: string, missions: readonly string[]): Record<string, MissionRecords> {
@@ -508,6 +536,19 @@ interface PropRow {
   anim: string;
   period: number;
   sound: number;
+  ax: number;
+  ay: number;
+  quad: number;
+  leaf: number;
+}
+
+/** A cell's visibility quadtree, as the client tests it (render/drawWindow.ts). */
+interface LeafTree {
+  /** The cell: `z >> 17` (along the map's x) and `x >> 17` (its y). */
+  cz: number;
+  cx: number;
+  /** The node's (radius, height) and its four children's, then each child's four leaves'. */
+  spheres: number[];
 }
 
 interface QuadRow {
@@ -543,6 +584,8 @@ interface ArenaTable {
   props: PropRow[];
   /** By Cobj: its frame count and whether it is drawn (see emitterTables). */
   propModels: [number, { frames: number; drawn: boolean }][];
+  /** The quadtrees of the cells the Props hang in. */
+  leafTrees: LeafTree[];
   quads: QuadRow[];
   decals: [number, DecalFile][];
 }
@@ -583,7 +626,7 @@ function emitterTables(
   mission: string,
   own: MissionRecords,
   reRepo: string,
-): Pick<ArenaTable, "props" | "propModels" | "quads" | "decals"> {
+): Pick<ArenaTable, "props" | "propModels" | "leafTrees" | "quads" | "decals"> {
   const objects = JSON.parse(
     readFileSync(join(reRepo, "extracted", "objects", mission, "manifest.json"), "utf8"),
   ) as ObjectManifest | NonNullable<ObjectManifest["objects"]>;
@@ -597,10 +640,36 @@ function emitterTables(
   ].sort((a, b) => a.seq - b.seq);
   const props: PropRow[] = [];
   const quads: QuadRow[] = [];
+  const leafTrees: LeafTree[] = [];
+  /** The quadtree of cell (cz, cx) in `leafTrees`, -1 for a cell with no section. */
+  const leafOf = (cz: number, cx: number): number => {
+    const at = leafTrees.findIndex((t) => t.cz === cz && t.cx === cx);
+    if (at >= 0) return at;
+    const tree = own.trees[`${cx},${cz}`];
+    if (!tree) return -1;
+    // Node 0's pair and its children's (+0..+19), then nodes 1..4's four leaves
+    // (+16n+4..+16n+19): the halfwords `draw_node_visible` reads.
+    const spheres = [...tree.slice(0, 10)];
+    for (let n = 1; n <= 4; n++) spheres.push(...tree.slice(8 * n + 2, 8 * n + 10));
+    leafTrees.push({ cz, cx, spheres });
+    return leafTrees.length - 1;
+  };
   for (const load of loads) {
     if (load.prop) {
       const p = resolveProp(load.prop, rand, frames);
       if (!byId.has(p.cobj)) throw new Error(`${mapId} ${p.record}: Cobj ${p.cobj} not exported`);
+      const box = own.boxes[p.cobj];
+      if (!box) throw new Error(`${mapId} ${p.record}: Cobj ${p.cobj} has no 3DBB box`);
+      const anchor = emitterAnchor(p, box);
+      const ax = round4(anchor.at[2] / WU_PER_M + LOGIC_OFFSET_X);
+      const ay = round4(anchor.at[0] / WU_PER_M + LOGIC_OFFSET_Z);
+      // The client takes the cell from (ax, ay) (render/drawWindow.ts cellZOf).
+      if (
+        Math.floor((ax - LOGIC_OFFSET_X) / 16) !== anchor.cellZ ||
+        Math.floor((ay - LOGIC_OFFSET_Z) / 16) !== anchor.cellX
+      ) {
+        throw new Error(`${mapId} ${p.record}: its anchor rounds out of its cell`);
+      }
       props.push({
         record: p.record,
         cobj: p.cobj,
@@ -617,6 +686,10 @@ function emitterTables(
         anim: p.anim,
         period: p.period,
         sound: p.sound,
+        ax,
+        ay,
+        quad: anchor.quad,
+        leaf: leafOf(anchor.cellZ, anchor.cellX),
       });
     } else if (load.quad) {
       const q = resolveQuad(load.quad, rand, own.rects);
@@ -672,7 +745,7 @@ function emitterTables(
       }
       return [id, { file: decalFile(id), from: crop.file, w: rect.w, h: rect.h }];
     });
-  return { props, propModels, quads, decals };
+  return { props, propModels, leafTrees, quads, decals };
 }
 
 /** A decal's file name in the arena's folder. */
@@ -853,6 +926,29 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     "  readonly period: number;",
     "  /** The table-A sound the emitter plays where it stands, 0 none. */",
     "  readonly sound: number;",
+    "  /**",
+    "   * The anchor: box 0 of frame 0's centre placed through the built orientation",
+    "   * (`snd_emit_build` 0x0042f942..0x0042fa88), sim frame metres. Its cell is the",
+    "   * Prop's in the 5 x 5 block; `quad` the quarter-cells its unturned box spans",
+    "   * (`world_cell_quad_mask`, element 4 x + z at bit 0x8000 >> it).",
+    "   */",
+    "  readonly ax: number;",
+    "  readonly ay: number;",
+    "  readonly quad: number;",
+    "  /** Its cell's quadtree in `leafTrees`, -1 for a cell with none. */",
+    "  readonly leaf: number;",
+    "}",
+    "",
+    "/**",
+    " * A cell's visibility quadtree (its Ctil section at +0x374, RE draw.c",
+    " * `draw_node_visible`): (radius, height) halfwords, each 16 world units — the",
+    " * node's and its four children's, then children 1..4's four leaves each.",
+    " */",
+    "export interface SceneryLeafTree {",
+    "  /** The cell: `z >> 17` (along the map's x) and `x >> 17` (its y). */",
+    "  readonly cz: number;",
+    "  readonly cx: number;",
+    "  readonly spheres: readonly number[];",
     "}",
     "",
     "/**",
@@ -905,6 +1001,8 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     "  /** The type-96 Props, their models, the type-97 DCSQuads and their decals. */",
     "  readonly props: readonly SceneryProp[];",
     "  readonly propModels: Readonly<Record<number, SceneryPropModel>>;",
+    "  /** The quadtrees of the cells the Props hang in. */",
+    "  readonly leafTrees: readonly SceneryLeafTree[];",
     "  readonly quads: readonly SceneryQuad[];",
     "  readonly decals: Readonly<Record<number, SceneryDecal>>;",
     "}",
@@ -933,13 +1031,18 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     lines.push("    props: [");
     for (const p of t.props) {
       lines.push(
-        `      { record: ${JSON.stringify(p.record)}, cobj: ${p.cobj}, x: ${p.x}, y: ${p.y}, h: ${p.h}, yaw: ${p.yaw}, pitch: ${p.pitch}, roll: ${p.roll}, scale: [${p.scale.join(", ")}], spin: ${p.spin}, swing: ${p.swing}, park: ${p.park}, anim: ${JSON.stringify(p.anim)}, period: ${p.period}, sound: ${p.sound} },`,
+        `      { record: ${JSON.stringify(p.record)}, cobj: ${p.cobj}, x: ${p.x}, y: ${p.y}, h: ${p.h}, yaw: ${p.yaw}, pitch: ${p.pitch}, roll: ${p.roll}, scale: [${p.scale.join(", ")}], spin: ${p.spin}, swing: ${p.swing}, park: ${p.park}, anim: ${JSON.stringify(p.anim)}, period: ${p.period}, sound: ${p.sound}, ax: ${p.ax}, ay: ${p.ay}, quad: ${p.quad}, leaf: ${p.leaf} },`,
       );
     }
     lines.push("    ],");
     lines.push(
       `    propModels: { ${t.propModels.map(([c, m]) => `${c}: { frames: ${m.frames}, drawn: ${m.drawn} }`).join(", ")} },`,
     );
+    lines.push("    leafTrees: [");
+    for (const l of t.leafTrees) {
+      lines.push(`      { cz: ${l.cz}, cx: ${l.cx}, spheres: [${l.spheres.join(", ")}] },`);
+    }
+    lines.push("    ],");
     lines.push("    quads: [");
     for (const q of t.quads) {
       lines.push(
@@ -978,7 +1081,15 @@ function main(): void {
     reRepo,
     FCOP_ARENAS.map((a) => a.mission),
   );
-  const empty: MissionRecords = { props: [], turrets: [], props96: [], quads: [], rects: [] };
+  const empty: MissionRecords = {
+    props: [],
+    turrets: [],
+    props96: [],
+    quads: [],
+    rects: [],
+    boxes: {},
+    trees: {},
+  };
   const own = (mission: string): MissionRecords => records[mission] ?? empty;
   /** Copies `from` to `to`, or under --check counts it stale where they differ. */
   const copy = (from: string, to: string): void => {

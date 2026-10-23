@@ -9,12 +9,14 @@ import { join } from "node:path";
 import { SCENERY_PLACEMENTS } from "../../../packages/client/src/render/arenaScenery.generated";
 import {
   type DecalRect,
+  emitterAnchor,
   GameRand,
   type PropRecord,
   type QuadRecord,
   RETAIL_SEED,
   resolveProp,
   resolveQuad,
+  worldCellQuadMask,
 } from "../sceneryProps";
 
 const PUBLIC = join(import.meta.dir, "..", "..", "..", "packages", "client", "public");
@@ -207,5 +209,79 @@ describe("every arena's Props and DCSQuads", () => {
     expect(hk.length).toBe(44);
     expect(new Set(hk.map((p) => p.yaw)).size).toBeGreaterThan(40);
     for (const p of hk) expect(p.yaw >= 0 && p.yaw < 4096).toBe(true);
+  });
+});
+
+describe("the emitter's anchor (snd_emit_build 0x0042f942..0x0042fa88)", () => {
+  const rand = () => new GameRand(RETAIL_SEED);
+  const frames = () => 1;
+
+  test("box 0's centre through the orientation onto the position; the cell is >> 17", () => {
+    // Unturned, unit scale: the centre (2, 3, -1) halfwords is 32, 48, -16 wu off.
+    const p = resolveProp(prop({ pos: [0x20000 + 100, 0, 0x40000 + 200] }), rand(), frames);
+    const a = emitterAnchor(p, [2, 3, -1, 4, 4, 4]);
+    expect(a.at).toEqual([p.pos[0] + 32, p.pos[1] + 48, p.pos[2] - 16]);
+    expect([a.cellX, a.cellZ]).toEqual([1, 2]);
+  });
+
+  test("a quarter turn carries the centre across; a scale byte scales it", () => {
+    // My(0x400): the model's z goes to the game's -x... row 2 of My is (sin, 0, cos).
+    const turned = resolveProp(prop({ angleY: 0x400 }), rand(), frames);
+    const a = emitterAnchor(turned, [0, 0, 64, 1, 1, 1]);
+    expect(a.at[0] - turned.pos[0]).toBe(1024);
+    expect(a.at[2] - turned.pos[2]).toBe(0);
+    const big = resolveProp(prop({ scale: [64, 64, 128] }), rand(), frames);
+    const b = emitterAnchor(big, [0, 0, 64, 1, 1, 1]);
+    expect(b.at[2] - big.pos[2]).toBe(2048);
+  });
+
+  test("a spinning emitter's y row and column are flattened first", () => {
+    // Tilted about x, a spinner still lifts its centre straight up.
+    const p = resolveProp(prop({ angleX: 0x200, spin: 4 }), rand(), frames);
+    const a = emitterAnchor(p, [0, 64, 0, 1, 1, 1]);
+    expect(a.at[0] - p.pos[0]).toBe(0);
+    expect(a.at[1] - p.pos[1]).toBe(1024);
+    expect(a.at[2] - p.pos[2]).toBe(0);
+  });
+});
+
+describe("world_cell_quad_mask (RE world/grid.c 0x0042f600)", () => {
+  const cell = 0x20000 * 3;
+  test("element a + 4 b at bit 0x8000 >> it, a box's quarter-cells", () => {
+    // A point in the first quarter of both axes: element 0.
+    expect(worldCellQuadMask(cell + 10, cell + 10, cell + 5, cell + 15, cell + 5, cell + 15)).toBe(
+      0x8000,
+    );
+    // a (z) in quarter 2, b (x) in quarter 1: element 6.
+    const z = cell + 0x10000 + 10;
+    const x = cell + 0x8000 + 10;
+    expect(worldCellQuadMask(z, x, z, z, x, x)).toBe(0x8000 >> 6);
+    // Spanning a quarters 0..2 and b quarter 0: elements 0, 1 and 2.
+    expect(worldCellQuadMask(cell + 0x8000, cell, cell + 0x7000, cell + 0x11000, cell, cell)).toBe(
+      0x8000 | (0x8000 >> 1) | (0x8000 >> 2),
+    );
+  });
+
+  test("a bound off the cell takes its side's end, whichever way it fell", () => {
+    expect(
+      worldCellQuadMask(cell + 10, cell + 10, cell - 50, cell + 10, cell + 10, cell + 10),
+    ).toBe(0x8000);
+    expect(
+      worldCellQuadMask(cell + 10, cell + 10, cell + 10, cell + 0x30000, cell + 10, cell + 10),
+    ).toBe(0x8000 | 0x4000 | 0x2000 | 0x1000);
+  });
+
+  test("every Prop's footprint lies in its cell and its cell has a quadtree", () => {
+    for (const [mapId, s] of Object.entries(SCENERY_PLACEMENTS)) {
+      for (const p of s.props) {
+        expect(p.quad, `${mapId} ${p.record}`).toBeGreaterThan(0);
+        expect(p.leaf, `${mapId} ${p.record}`).toBeGreaterThanOrEqual(0);
+        const tree = s.leafTrees[p.leaf];
+        expect([tree.cz, tree.cx]).toEqual([Math.floor((p.ax - 16) / 16), Math.floor(p.ay / 16)]);
+        // The anchor is the model's box centre: within a few metres of its origin.
+        expect(Math.hypot(p.ax - p.x, p.ay - p.y), `${mapId} ${p.record}`).toBeLessThan(6);
+      }
+      for (const t of s.leafTrees) expect(t.spheres.length).toBe(42);
+    }
   });
 });
