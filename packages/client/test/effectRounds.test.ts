@@ -75,6 +75,29 @@ describe("the round tracker", () => {
     expect([t.powered[40], t.powered[41], t.powered[42]]).toEqual([1, 0, 0]);
   });
 
+  test("an owner that died since the launch answers bank 0 (cact_effect_bank 0x0042bf50)", () => {
+    const { t } = tracker();
+    // Two Plasma Flares of the X1 at id 7, then 7 goes down before the second lands.
+    t.launch(10, 10, 0, 1, 153, false, 7);
+    t.launch(30, 10, 0, 1, 153, false, 7);
+    const s = snapshot([
+      [40, ARCHETYPE.PROJECTILE, 10.2, 10, 0.6, 18],
+      [41, ARCHETYPE.PROJECTILE, 30.1, 10, 0.6, 18],
+    ]);
+    t.bind(s, 2, SNAPSHOT_STRIDE);
+    t.impact(10.2, 10, s, 2, SNAPSHOT_STRIDE);
+    expect([t.lastImpactBank, t.lastImpactId]).toEqual([1, 153]);
+    t.died(7);
+    t.impact(30.1, 10, s, 2, SNAPSHOT_STRIDE);
+    expect([t.lastImpactBank, t.lastImpactId]).toEqual([0, 153]);
+    // A round launched after the respawn is the new owner's again.
+    t.launch(50, 10, 0, 1, 153, false, 7);
+    const r = snapshot([[42, ARCHETYPE.PROJECTILE, 50, 10, 0.6, 18]]);
+    t.bind(r, 1, SNAPSHOT_STRIDE);
+    t.impact(50, 10, r, 1, SNAPSHOT_STRIDE);
+    expect(t.lastImpactBank).toBe(1);
+  });
+
   test("a launch whose round never shows is answered with -1", () => {
     const { t, bound } = tracker();
     const token = t.launch(10, 10, 3);

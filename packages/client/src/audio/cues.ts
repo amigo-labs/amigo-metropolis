@@ -626,7 +626,7 @@ export class OriginalSounds implements EffectListener {
     const yaw = ctx.snapshot[o + S_YAW];
     const x = ctx.snapshot[o + S_X] + Math.cos(yaw) * MUZZLE_OFFSET;
     const z = ctx.snapshot[o + S_Y] + Math.sin(yaw) * MUZZLE_OFFSET;
-    return this.effects.rounds.launch(x, z, row, bank, impact, powered);
+    return this.effects.rounds.launch(x, z, row, bank, impact, powered, shooter);
   }
 
   /**
@@ -677,6 +677,8 @@ export class OriginalSounds implements EffectListener {
   }
 
   private death(victim: number, killer: number, archetype: number, ctx: CueContext): void {
+    // Its rounds still in flight have lost their owner (effects/rounds.ts).
+    this.effects.rounds.died(victim);
     const data = this.data;
     if (!data) return;
     const team = this.teamOf(victim, ctx);
