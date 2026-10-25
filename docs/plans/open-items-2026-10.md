@@ -59,8 +59,34 @@ not answered yet.
 8. **Facer depth sort and DCSQuad depth.** The original sorts each facer at its
    centre's depth less 0x100. Metropolis uses the depth buffer after the opaque
    scene, and a polygon offset stands in for the DCSQuads' drawer depth.
+   - **Deferred (architecture):** every record of the original is sorted by its
+     mean depth less a bias: a model's faces and facers alike
+     (`CACT_MODEL_DEPTH_BIAS` 0x100), the DCSQuads (`PYRO_DRAW_DEPTH_BIAS`
+     0x100), the terrain without. That is a painter's sort per face, which a
+     depth buffer cannot reproduce per pixel. A constant depth pull of the bias
+     would show models through walls, which is worse than the declared gap.
+     What a z-buffer could take is only the order of overlapping half-alpha
+     facers among themselves, a small gain for a per-frame sort.
    - Ledger: G13 (not modelled).
 9. **Effects not drawn yet.** All are declared in the ledger:
+   - **Done:** the node ramp's stagger ("Ramp the node bursts one frame in
+     four") and the lapsed owner's bank 0 ("Raise a dead owner's round in
+     bank 0").
+   - **Moved to C (RE question), the killer's push:** the push needs the
+     killer to be a type-2 actor found by its serial at the victim's death
+     check (`cact_base_op4` 0x0041a309). A round that strikes expires and dies
+     a frame later, and a blast comes after the round has died, so whether the
+     push ever applies, and to which kills, turns on that timing.
+   - **Deferred (size), the skeleton shatter:** decompiled in the RE
+     (`shatter.c`, six functions), but it is a feature of its own: the X1's
+     bones flying as pieces, and a landing dropping a piece's faces. Worth its
+     own pass.
+   - **Moved to B (RE export first), a quad flying as one face:** the glbs are
+     triangles and carry no triangle-to-primitive map to pair them back.
+   - **No change needed, type 7's range kill:** it raises nothing, and
+     Metropolis' arced rounds land before their lifetime, so nothing differs on
+     screen.
+   Was:
    - the killer's push (0x00437aa0): the death event names no killer round;
    - the skeleton shatter (0x004298c0): the X1's 1:8 pieces fly as faces;
    - a quad flying as one face: it flies as two triangles;
