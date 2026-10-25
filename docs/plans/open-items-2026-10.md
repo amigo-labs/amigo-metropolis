@@ -1,9 +1,11 @@
 # Open items after Phase 14 waves 4–7
 
-> Status: **open, scheduled for the week of 2026-10-26.** Collected 2026-10-19
-> after PR #68 (Metropolis, SIM_VERSION 91) and amigo-labs/fcop-reverse-engineering#84
-> were merged. Nothing here is started. Each item names where it is recorded:
-> the ledger row in `docs/specs/fcop-fidelity.md`, a `PLAN.md` box, or both.
+> Status: **group A worked through 2026-10-25 (PR #71, SIM_VERSION 93)**; groups
+> B–E open. Collected 2026-10-19 after PR #68 (Metropolis, SIM_VERSION 91) and
+> amigo-labs/fcop-reverse-engineering#84 were merged. Each item names where it is
+> recorded: the ledger row in `docs/specs/fcop-fidelity.md`, a `PLAN.md` box, or
+> both. In group A every item is marked done, deferred with its reason, or moved
+> to B or C (listed again at the end of those groups).
 
 The owner's rule stands: only the original counts. The exceptions are online 1v1
 and its lobby, the debug tools, and the HD textures as an option. Every item below
@@ -97,14 +99,30 @@ not answered yet.
    - Some of these need a sim event field. That means a SIM_VERSION bump with
      goldens re-recorded in the same commit.
 10. **Extra weapons, small sim gaps.** Each is a SIM_VERSION bump if adopted:
-    - the shield and the target's reference heights are taken as equal;
-    - the drone reads the ground from the heightfield, not the original's coarse
-      envelope;
-    - the drone's health loss uses the body's health from before the hit;
-    - the grenade bounces without its model radius (+0x68 not read).
+    - ~~the grenade bounces without its model radius~~ **Done** ("Stand the
+      bouncing round on its model's radius", SIM_VERSION 92).
+    - **Deferred (scope), the shield and the target's reference heights:** the
+      original measures from the sphere's centre (0x1000 up) to the target's
+      reference point, its model's placed box-0 centre (`previous`,
+      `turret_reference_point`, player.c 0x004472fe). Every other aim in the sim
+      uses "the target's height plus the muzzle's" for the same point, the
+      drone's included. That belongs in one sim-wide change: a reference
+      height per body, carried from the 3DBB boxes as the radii are.
+    - **Moved to B (RE export first), the drone's ground:** the original reads
+      `cact_coarse_height_at` (0x00456180), a field `cact_coarse_height_build`
+      (0x00455e00) makes from the raw Ctil samples of all three channels (2x2
+      maxima, a blur, the max of both). The RE can export that field per map,
+      and Metropolis cannot rebuild it from its heightfield.
+    - **Moved to C (RE question), the drone's health loss:** the order of the
+      two notices is not established.
     - Ledger: W5.
 11. **Kerbs and spilled walls** on la-cantina, Hk and Ovmp. Each opens when its
     arena is re-imported (`FcopArena.kerbs`).
+    - ~~la-cantina~~ **Done** ("Open la-cantina's kerbs", SIM_VERSION 93: 2334
+      wall bits).
+    - **Waits on the deck import (Phase 13), Hk and Ovmp:** on their flattened
+      import the pass counts 4422 and 4060 bits but writes the same map byte
+      for byte.
     - Ledger: P15. PLAN.md Phase 14 wave 2, open box.
 
 ## B. Needs an RE export first (then a Metropolis pass)
@@ -119,6 +137,12 @@ not answered yet.
 13. **Lighting materials 0..5.** They shade the vertex colour and are not
     exported. The faces keep the loaders' lighting, and the facers draw unlit.
     - Ledger: G13.
+13a. **Moved from group A (2026-10-25):**
+    - the map screen's per-frame 3DBB boxes (item 7): the object manifests
+      carry frame 0's box only;
+    - a shatter quad flying as one face (item 9): the glbs carry no
+      triangle-to-primitive map;
+    - the coarse height field per map (item 10), for the K-9 Drone's ground.
 
 ## C. Open questions in the RE (research; Metropolis keeps its value until then)
 
@@ -150,6 +174,14 @@ not answered yet.
     - the voice lines' content;
     - audio: the X1's walker loop codes (A9), the listener's facing (A15),
       whether a channel is ever freed (A16), and the crash tumble (A19).
+23a. **Moved from group A (2026-10-25):**
+    - the terrain quadtree walk that builds the 4 m leaf mask (0x00452de0, a
+      stub in the RE), for the Props' and emitters' view test (item 7);
+    - which actors carry flag 8 (never culled) at load, and mission_frame.c's
+      "newest first" against `cact_link`'s tail append (item 6);
+    - the killer's push (item 9): whether the killing type-2 round is still
+      found by its serial at the victim's death check;
+    - the K-9 Drone's health loss: the order of its two notices (item 10).
 
 ## D. Older PLAN.md boxes still open
 
