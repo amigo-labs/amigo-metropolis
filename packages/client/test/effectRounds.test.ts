@@ -59,6 +59,22 @@ describe("the round tracker", () => {
     expect(t.lastImpactId).toBe(0);
   });
 
+  test("a round knows whether its launch fired block B, so it wears B's model", () => {
+    const { t } = tracker();
+    t.launch(10, 10, 0, 1, 158, true);
+    t.launch(30, 10, 0, 1, 153);
+    t.bind(
+      snapshot([
+        [40, ARCHETYPE.PROJECTILE, 10.2, 10, 0.6, 18],
+        [41, ARCHETYPE.PROJECTILE, 30.1, 10, 0.6, 18],
+        [42, ARCHETYPE.PROJECTILE, 50, 50, 1, 18],
+      ]),
+      3,
+      SNAPSHOT_STRIDE,
+    );
+    expect([t.powered[40], t.powered[41], t.powered[42]]).toEqual([1, 0, 0]);
+  });
+
   test("a launch whose round never shows is answered with -1", () => {
     const { t, bound } = tracker();
     const token = t.launch(10, 10, 3);

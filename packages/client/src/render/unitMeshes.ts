@@ -45,6 +45,9 @@ const FX_MODEL_KEYS = [
   // The Fusion Torpedo's and the Plasma Flare's: Cobj 46, a star facer alone.
   ["projTorpedo", "star-46"],
   ["projPlasma", "star-46"],
+  // Their block B's (powered): Cobj 47, the same star in blue.
+  ["projTorpedoB", "star-47"],
+  ["projPlasmaB", "star-47"],
   // The Sky Captain's bomb is world row 9: Cobj 49 (the mortar shell's payload).
   ["projWarden", "round-row9"],
   // The world rows' rounds that are models, in the original's own colours

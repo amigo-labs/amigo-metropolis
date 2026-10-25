@@ -48,6 +48,8 @@ export class RoundTracker {
   /** Per entity: the impact its death raises (0 none known) and that impact's bank. */
   readonly impactId = new Uint16Array(MAX_ENTITIES);
   readonly impactBank = new Uint8Array(MAX_ENTITIES);
+  /** Per entity: 1 when its launch fired its weapon's block B (powered). */
+  readonly powered = new Uint8Array(MAX_ENTITIES);
   /** The last `impact`'s round: its impact id (0 none known) and bank. */
   lastImpactId = 0;
   lastImpactBank = 0;
@@ -58,6 +60,7 @@ export class RoundTracker {
   private readonly launchRow = new Uint8Array(MAX_LAUNCHES);
   private readonly launchImpact = new Uint16Array(MAX_LAUNCHES);
   private readonly launchBank = new Uint8Array(MAX_LAUNCHES);
+  private readonly launchPowered = new Uint8Array(MAX_LAUNCHES);
   private launches = 0;
   private readonly listeners: BindListener[] = [];
 
@@ -70,17 +73,18 @@ export class RoundTracker {
     this.row.fill(0);
     this.impactId.fill(0);
     this.impactBank.fill(0);
+    this.powered.fill(0);
     this.kind.fill(-1);
     this.launches = 0;
   }
 
   /**
    * A shot launched a round from (x, z) — the muzzle — this tick, of world row
-   * `row` (0 a player's), whose death raises `impact` in `bank`. Returns the
-   * token its launch effects ride until the round is known, or -1 when the
-   * tick is full.
+   * `row` (0 a player's), whose death raises `impact` in `bank`, `powered`
+   * when the shot fired its weapon's block B. Returns the token its launch
+   * effects ride until the round is known, or -1 when the tick is full.
    */
-  launch(x: number, z: number, row: number, bank = 0, impact = 0): number {
+  launch(x: number, z: number, row: number, bank = 0, impact = 0, powered = false): number {
     if (this.launches >= MAX_LAUNCHES) return -1;
     const n = this.launches++;
     this.launchX[n] = x;
@@ -88,6 +92,7 @@ export class RoundTracker {
     this.launchRow[n] = row;
     this.launchBank[n] = bank;
     this.launchImpact[n] = impact;
+    this.launchPowered[n] = powered ? 1 : 0;
     return ROUND_TOKEN - n;
   }
 
@@ -147,6 +152,7 @@ export class RoundTracker {
       this.row[id] = 0;
       this.impactId[id] = 0;
       this.impactBank[id] = 0;
+      this.powered[id] = 0;
       if (open === 0) continue;
       let best = -1;
       let bestD = BIND_RADIUS_M * BIND_RADIUS_M;
@@ -164,6 +170,7 @@ export class RoundTracker {
       this.row[id] = this.launchRow[best];
       this.impactId[id] = this.launchImpact[best];
       this.impactBank[id] = this.launchBank[best];
+      this.powered[id] = this.launchPowered[best];
       this.launchRow[best] = 255;
       open--;
       for (let i = 0; i < this.listeners.length; i++) this.listeners[i](ROUND_TOKEN - best, id);

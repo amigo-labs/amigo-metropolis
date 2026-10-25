@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ARCHETYPE, PROJ_PLASMA, PROJ_TORPEDO } from "@metropolis/sim";
 import * as THREE from "three";
 import {
   billboardCorners,
@@ -23,7 +24,7 @@ import {
   viewDepth,
 } from "../src/render/facers";
 import { FxView } from "../src/render/fx/common";
-import { createGreyboxMeshes } from "../src/render/greybox";
+import { bucketFor, createGreyboxMeshes } from "../src/render/greybox";
 
 const PROPS = join(import.meta.dir, "..", "public", "models", "props");
 
@@ -325,6 +326,28 @@ describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star", 
     expect(star?.h[0]).toBeCloseTo(0.0742, 4);
     expect(Array.from(star?.colour ?? []).map((v) => Math.round(v * 255))).toEqual([256, 34, 24]);
     expect(Array.from(star?.rim ?? [])).toEqual([0, 0, 0]);
+  });
+
+  test("block B's fx/star-47.glb is the same star, (31, 59, 128) doubled", () => {
+    const set = parseFacers(
+      rootExtras(join(import.meta.dir, "..", "public", "models", "fx", "star-47.glb")),
+      true,
+    );
+    expect(set?.facers.length).toBe(1);
+    const star = set?.facers[0];
+    expect(star?.kind).toBe(FACER_STAR);
+    expect(star?.h[0]).toBeCloseTo(0.0742, 4);
+    expect(Array.from(star?.colour ?? []).map((v) => Math.round(v * 255))).toEqual([62, 118, 256]);
+    expect(Array.from(star?.rim ?? [])).toEqual([0, 0, 0]);
+  });
+
+  test("a powered round goes to block B's bucket", () => {
+    const grey = createGreyboxMeshes(new THREE.Scene());
+    const P = ARCHETYPE.PROJECTILE;
+    expect(bucketFor(grey, P, 0, PROJ_TORPEDO)).toBe(grey.projTorpedo);
+    expect(bucketFor(grey, P, 0, PROJ_TORPEDO, 0, true)).toBe(grey.projTorpedoB);
+    expect(bucketFor(grey, P, 0, PROJ_PLASMA)).toBe(grey.projPlasma);
+    expect(bucketFor(grey, P, 0, PROJ_PLASMA, 0, true)).toBe(grey.projPlasmaB);
   });
 
   test("its greybox stand-in adds nothing: no AdditiveBlending anywhere", () => {

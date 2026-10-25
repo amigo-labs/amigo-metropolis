@@ -1887,8 +1887,13 @@ function renderEntities(alpha: number, simDtSec: number): void {
     const rig = archetype === ARCHETYPE.AVATAR ? readyRig : null;
     // A world round wears its row's model: which launch it came from is the
     // effect chain's round tracker's (effects/rounds.ts).
-    const row = archetype === ARCHETYPE.PROJECTILE ? sounds.effects.rounds.row[id] : 0;
-    const greyboxBucket = rig ? undefined : bucketFor(greybox, archetype, animState, aux, row);
+    // A powered round wears its block B's (the torpedo's and the flare's blue star).
+    const rounds = sounds.effects.rounds;
+    const row = archetype === ARCHETYPE.PROJECTILE ? rounds.row[id] : 0;
+    const powered = archetype === ARCHETYPE.PROJECTILE && rounds.powered[id] === 1;
+    const greyboxBucket = rig
+      ? undefined
+      : bucketFor(greybox, archetype, animState, aux, row, powered);
 
     let x = snapCurr[o + 3];
     let y = snapCurr[o + 4];

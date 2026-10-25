@@ -22,9 +22,9 @@ not answered yet.
 2. **Riot Shield toggle-off sound.** The original plays the block's sound on every
    call. Metropolis is silent when the call finds the sphere down.
    - Ledger: W5 (declared), A21.
-3. **Powered Fusion Torpedo / Plasma Flare rounds.** Block B uses the blue star.
-   Metropolis draws block A's red star for both blocks.
-   - Work: pick the star per block in the round renderer (`fx/star-46.glb` today).
+3. ~~**Powered Fusion Torpedo / Plasma Flare rounds.**~~ **Done** ("Draw the
+   powered torpedo's and flare's round as Cobj 47's star"): block B's rounds
+   wear `fx/star-47.glb`, the blue star.
    - Ledger: W5.
 4. **Riot Shield arcs.** The arcs' own links along the sphere's surface are not
    drawn, and the strike link starts at the sphere's centre because
