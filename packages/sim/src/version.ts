@@ -1370,4 +1370,11 @@
 //     was the surface alone, so a grenade bounces and comes to rest 0.18 m
 //     higher. Only a match offering the Grenade Launcher moves: every golden's
 //     hashes hold, re-recorded for the header.
-export const SIM_VERSION = 92;
+// v93: la-cantina's kerbs open (fcop-fidelity.md P15): stage 2 runs the kerb
+//     pass on Mp as on Slim, Joke and Conft (FcopArena.kerbs), opening 2334
+//     wall bits that stand for a step the original's walker takes, or for a
+//     spill. The roads and both bases' routes are as before (the generator's
+//     lane and climb reports hold). golden-07-pa's 120 s on la-cantina never
+//     meets one of them: every golden's hashes hold, re-recorded for the
+//     header; any other la-cantina match may walk where it was walled.
+export const SIM_VERSION = 93;
