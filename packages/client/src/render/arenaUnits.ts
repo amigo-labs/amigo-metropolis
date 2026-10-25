@@ -114,10 +114,19 @@ export function writeX1Uv(
   side: number,
   cloakV = -1,
 ): void {
-  const o = current.x1.uv[side];
-  const map = materialMap(mesh.material);
-  atlasOffset(map, o.u, cloakV >= 0 ? cloakV : o.v, scratchUv, 0);
+  x1Uv(mesh.material, side, cloakV, scratchUv);
   writeTeamUv(mesh, slot, scratchUv[0], scratchUv[1]);
+}
+
+/** The X1-Alpha's offset for `side` (as writeX1Uv), atlas units, into `out`. */
+export function x1Uv(
+  material: THREE.Material | THREE.Material[],
+  side: number,
+  cloakV: number,
+  out: Float32Array,
+): void {
+  const o = current.x1.uv[side];
+  atlasOffset(materialMap(material), o.u, cloakV >= 0 ? cloakV : o.v, out, 0);
 }
 
 /**

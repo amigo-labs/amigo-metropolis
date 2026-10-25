@@ -55,6 +55,7 @@ import { PARTICLE_ATLAS_URL, Particles } from "./fx/particles";
 import { Ribbons } from "./fx/ribbons";
 import { FACE_REFS, Shatter, type ShatterSource } from "./fx/shatter";
 import { Shells } from "./fx/shells";
+import type { ShatterSkeletonSource } from "./fx/skeletonShatter";
 
 export type { FxPoses } from "./fx/common";
 export { POSE_STRIDE } from "./fx/common";
@@ -86,6 +87,8 @@ export interface FxOptions {
   readonly ground?: (x: number, z: number) => number;
   /** A dying archetype's model, for the shatter. */
   readonly shatter?: ShatterSource;
+  /** A dying raiser's skeleton, for the shatter's flag 0x10 (render/fx/skeletonShatter.ts). */
+  readonly shatterSkeleton?: ShatterSkeletonSource;
   /** The drawing buffer's height in device pixels (the 640x480 rects scale to it). */
   readonly viewportHeight?: () => number;
   /** The Riot Shield's radius around avatar entity `avatar`, metres (0 down). */
@@ -124,6 +127,8 @@ export interface ShotFx {
     /** Bolts the last frame drew. */
     bolts: number;
     shatter: number;
+    /** The skeleton shatter's triangles still drawn. */
+    bones: number;
   };
   /** True once the original's particle atlas is bound. */
   readonly atlasReady: boolean;
@@ -218,6 +223,7 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
     shatter.groundAt = options.ground;
   }
   if (options.shatter) shatter.source = options.shatter;
+  if (options.shatterSkeleton) shatter.skeleton = options.shatterSkeleton;
   // A shatter's reap and reference effects go through the chain like any
   // install; its faces and whole objects are references in the pose table.
   shatter.setPoses(poses);
@@ -408,6 +414,7 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
         ribbons: r.ribbons,
         bolts: r.bolts,
         shatter: shatter.faces(),
+        bones: shatter.skeletons.drawn(),
       };
     },
   };

@@ -25,8 +25,9 @@
 // `>> 2 & 0x3f` instead of the side's (player_partner.c 289-293).
 
 import * as THREE from "three";
-import { teamSide, writeX1Uv } from "./arenaUnits";
-import { createTeamUvAttribute, TEAM_UV_ATTR, TEAM_UV_MASK } from "./teamUv";
+import { teamSide, writeX1Uv, x1Uv } from "./arenaUnits";
+import type { ShatterSkeleton } from "./fx/skeletonShatter";
+import { createTeamUvAttribute, patchTeamUv, TEAM_UV_ATTR, TEAM_UV_MASK } from "./teamUv";
 import { loadUnitAsset } from "./unitMeshes";
 import {
   X1_ANIM_HEIGHT,
@@ -34,6 +35,7 @@ import {
   X1_COCKPIT_ROW,
   X1_COCKPIT_SLOT,
   X1_MOUNT_TEXEL,
+  X1_SLOTS,
 } from "./x1Rig.generated";
 
 /**
@@ -49,6 +51,11 @@ export const X1_BONE_ATTR = "x1Bone";
 const GLTF_BONE = "_x1bone";
 /** The bone table's sampler uniform. */
 const X1_ANIM_UNIFORM = "x1Anim";
+/**
+ * The cockpit skeleton's `3DHY` records, slots X1_COCKPIT_SLOT on in record
+ * order: the slots after them are the two guns and the beacon (gen:x1).
+ */
+export const X1_COCKPIT_BONES = X1_SLOTS - X1_COCKPIT_SLOT - 3;
 /**
  * Assets are authored +Z forward (assets.md §4); the sim frame is +X forward.
  * The rig folds the quarter turn into the per-instance yaw, so the cockpit's
@@ -129,6 +136,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 export interface X1RigCore {
   readonly mesh: THREE.InstancedMesh;
   readonly table: Float32Array;
+  /** The unit material without the pose, for the skeleton shatter's pieces. */
+  readonly plain: THREE.Material;
   /** Per slot: the side last written (-2 none), and the cloak's v (-1 none). */
   readonly sideCache: Int8Array;
   readonly cloakCache: Int16Array;
@@ -150,6 +159,10 @@ export function buildX1Rig(
   const pose = new THREE.InstancedBufferAttribute(new Float32Array(RIG_CAPACITY * 4), 4);
   pose.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute(X1_POSE_ATTR, pose);
+  // A clone keeps no patch (three copies no onBeforeCompile): the team offset again.
+  const plain = material.clone();
+  plain.userData.patchKeys = [];
+  patchTeamUv(plain);
   patchX1(material, createX1AnimTexture(table));
   const mesh = new THREE.InstancedMesh(geometry, material, RIG_CAPACITY);
   mesh.count = 0;
@@ -161,6 +174,7 @@ export function buildX1Rig(
   return {
     mesh,
     table,
+    plain,
     sideCache: new Int8Array(RIG_CAPACITY).fill(-2),
     cloakCache: new Int16Array(RIG_CAPACITY).fill(-1),
   };
@@ -211,6 +225,49 @@ export function placeX1(
   }
 }
 
+const scratchUv = new Float32Array(2);
+
+/**
+ * The wrecked X1's cockpit as the skeleton shatter takes it
+ * (render/fx/skeletonShatter.ts): its bones at `cockpitFrame`, its origin on
+ * the legs' mount at `legsFrame` for an X1 at sim (x, y, height) facing `yaw`,
+ * and `side`'s texels. The partner's own 3x3 is made the identity
+ * (0x004385b3), so neither the aim nor the hull's yaw turns the bones.
+ */
+export function x1CockpitSkeleton(
+  core: X1RigCore,
+  x: number,
+  height: number,
+  y: number,
+  yaw: number,
+  side: number,
+  legsFrame: number,
+  cockpitFrame: number,
+  out: ShatterSkeleton,
+): void {
+  out.geometry = core.mesh.geometry;
+  out.slotAttr = X1_BONE_ATTR;
+  out.material = core.plain;
+  x1Uv(core.plain, side, -1, scratchUv);
+  out.teamU = scratchUv[0];
+  out.teamV = scratchUv[1];
+  out.first = X1_COCKPIT_SLOT;
+  out.bones = X1_COCKPIT_BONES;
+  const t = core.table;
+  const row = (X1_COCKPIT_ROW + cockpitFrame) * X1_ANIM_WIDTH;
+  for (let n = 0; n < X1_COCKPIT_BONES; n++) {
+    for (let k = 0; k < 12; k++) out.matrices[n * 12 + k] = t[(row + n * 3) * 4 + k];
+  }
+  // The mount, turned with the hull as the rig turns it (placeX1).
+  const m = (legsFrame * X1_ANIM_WIDTH + X1_MOUNT_TEXEL) * 4;
+  const turn = MODEL_YAW - yaw;
+  const c = Math.cos(turn);
+  const s = Math.sin(turn);
+  out.x = x + t[m] * c + t[m + 2] * s;
+  out.y = height + t[m + 1];
+  out.z = y - t[m] * s + t[m + 2] * c;
+}
+
 export interface AvatarRig {
   /** False until the asset and its table have loaded; callers fall back meanwhile. */
   readonly ready: boolean;
@@ -238,6 +295,17 @@ export interface AvatarRig {
   end(): void;
   /** The cockpit's mount height above the X1's origin at a legs frame, m (0 until loaded). */
   mountHeight(legsFrame: number): number;
+  /** x1CockpitSkeleton for a team's X1; false until loaded. */
+  cockpitSkeleton(
+    x: number,
+    height: number,
+    y: number,
+    yaw: number,
+    team: number,
+    legsFrame: number,
+    cockpitFrame: number,
+    out: ShatterSkeleton,
+  ): boolean;
   /** Debug readout (`?debug` -> metropolisRig): the frames last written to a slot. */
   legsAt(slot: number): number;
   cockpitAt(slot: number): number;
@@ -324,6 +392,12 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
       const c = core;
       if (!c) return 0;
       return c.table[(legsFrame * X1_ANIM_WIDTH + X1_MOUNT_TEXEL) * 4 + 1];
+    },
+    cockpitSkeleton(x, height, y, yaw, team, legsFrame, cockpitFrame, out) {
+      const c = core;
+      if (!c) return false;
+      x1CockpitSkeleton(c, x, height, y, yaw, teamSide(team), legsFrame, cockpitFrame, out);
+      return true;
     },
     legsAt(slot) {
       const c = core;

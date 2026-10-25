@@ -465,6 +465,9 @@ if (params.has("debug") && !netMode) {
     at.z = z;
     at.archetype = archetype;
     at.team = team;
+    // Raised on an actor standing there, facing sim +x (the shatter's origin).
+    at.modelY = height;
+    at.yaw = 0;
     at.raiserScale = Math.round((ARCHETYPE_RADIUS[archetype] ?? 0.25) * 512) || 0x100;
     sounds.effects.raise(bank, id, at);
   };
@@ -931,6 +934,24 @@ const fx = createFx(scene, sounds.effects, {
     shatterModel.teamU = offset ? shatterUv[0] : 0;
     shatterModel.teamV = offset ? shatterUv[1] : 0;
     return shatterModel;
+  },
+  // Flag 0x10's skeleton: the wrecked X1's cockpit, its bones at the frames
+  // its slot was last drawn in (render/avatarRig.ts, render/fx/skeletonShatter.ts).
+  shatterSkeleton: (at, out) => {
+    const slot = at.team;
+    if (at.archetype !== ARCHETYPE.AVATAR || !avatarRig || slot < 0 || slot >= MAX_PLAYERS)
+      return false;
+    if (Number.isNaN(at.modelY)) return false;
+    return avatarRig.cockpitSkeleton(
+      at.x,
+      at.modelY,
+      at.z,
+      at.yaw,
+      slot,
+      x1Walk.legsFrame[slot],
+      x1Walk.cockpitFrame[slot],
+      out,
+    );
   },
   viewportHeight: () => renderer.domElement.height,
   // The Riot Shield's arcs sit on its sphere (render/fx.ts shieldArcPoint).

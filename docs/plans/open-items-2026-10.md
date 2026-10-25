@@ -79,10 +79,10 @@ not answered yet.
      check (`cact_base_op4` 0x0041a309). A round that strikes expires and dies
      a frame later, and a blast comes after the round has died, so whether the
      push ever applies, and to which kills, turns on that timing.
-   - **Deferred (size), the skeleton shatter:** decompiled in the RE
-     (`shatter.c`, six functions), but it is a feature of its own: the X1's
-     bones flying as pieces, and a landing dropping a piece's faces. Worth its
-     own pass.
+   - **Done, the skeleton shatter:** "Break the wrecked X1's cockpit bone by
+     bone" (`render/fx/skeletonShatter.ts`, RE `shatter.c`). The record is
+     1:8, chained from 1:9 on the X1's partner, so it is the cockpit that
+     breaks, not the legs.
    - **Moved to B (RE export first), a quad flying as one face:** the glbs are
      triangles and carry no triangle-to-primitive map to pair them back.
    - **No change needed, type 7's range kill:** it raises nothing, and

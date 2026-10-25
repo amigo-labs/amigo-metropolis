@@ -26,13 +26,15 @@
 //   or none; when it lands the reap effect starts at the instance's reference
 //   (where it was raised). Its reference effect rides it.
 //
+// - **Skeleton** (0x10, 0x08 clear, on a raiser with a skeleton): the bones
+//   fly as pieces (render/fx/skeletonShatter.ts, `shatter.c` 0x004298c0) —
+//   the wrecked X1's cockpit. A raiser without one has its faces fly.
+//
 // Drawn with the dying unit's own mesh and material (main.ts hands the greybox
 // bucket's) and its side's texture offset (0x004381e8). Metropolis' meshes are
 // triangles, so a quad of the original flies as its two triangles. Not drawn:
 // the killer's push (`mission_record_spawn_push` 0x00437aa0: the death event
-// names no killer round), the skeleton shatter 0x004298c0 that flag 0x10 hands
-// the X1's skeleton to (its pieces fly as faces here), and the fragmented
-// arena's halving. The rolls draw from the client's stream, not `game_rand`
+// names no killer round) and the fragmented arena's halving. The rolls draw from the client's stream, not `game_rand`
 // (fcop-fidelity.md E7, A18). One mesh per archetype, preallocated; nothing
 // allocates once a match runs.
 
@@ -45,12 +47,18 @@ import {
   FXF_LOCAL_SPACE,
   type Fx90,
   SHATTER_FLAT_Y,
+  SHATTER_SKELETON,
   SHATTER_WHOLE,
   TURN,
   WORLD_UNITS_PER_METRE,
 } from "../../effects/records";
 import { TEAM_UV_ATTR, TEAM_UV_MASK } from "../teamUv";
 import { type FxPoses, POSE_STRIDE, prepareMesh } from "./common";
+import {
+  makeShatterSkeleton,
+  type ShatterSkeletonSource,
+  SkeletonShatter,
+} from "./skeletonShatter";
 
 /**
  * The model a dying archetype of `team` is drawn with: main.ts hands the
@@ -176,6 +184,10 @@ export class Shatter {
   private readonly kinds: Kind[] = [];
   /** Where the dying models come from (main.ts); null draws nothing. */
   source: ShatterSource | null = null;
+  /** A dying raiser's skeleton for flag 0x10 (main.ts); null flies faces instead. */
+  skeleton: ShatterSkeletonSource | null = null;
+  private readonly bones: SkeletonShatter;
+  private readonly sk = makeShatterSkeleton();
   /** The chain's raise, for the reap and reference effects; null raises none. */
   raise: ShatterRaise | null = null;
   /** The terrain under (x, z), metres: the faces' ground test. */
@@ -210,6 +222,7 @@ export class Shatter {
   private poses: FxPoses | null = null;
 
   constructor(scene: THREE.Scene) {
+    this.bones = new SkeletonShatter(scene);
     for (let k = 0; k < KINDS; k++) {
       const n = TRIS_PER_KIND * 3;
       const geometry = new THREE.BufferGeometry();
@@ -272,8 +285,18 @@ export class Shatter {
     this.poses = poses;
   }
 
-  /** The filler 0x004388a0, or the whole-object init 0x00438610. False with no model. */
+  /**
+   * The filler 0x004388a0, the whole-object init 0x00438610, or the skeleton
+   * shatter 0x004298c0 (bit 3 is tested first, 0x004384c0). False with no model.
+   */
   spawn(rec: Fx90, at: Readonly<RaiseAt>, bank: number): boolean {
+    if (
+      (rec.shatterFlags & (SHATTER_WHOLE | SHATTER_SKELETON)) === SHATTER_SKELETON &&
+      this.skeleton?.(at, this.sk)
+    ) {
+      const sk = this.sk;
+      return this.bones.spawn(rec, sk, this.groundAt ? this.groundAt(sk.x, sk.z) : NO_GROUND);
+    }
     const kind = at.archetype >= 0 ? this.kinds[at.archetype] : undefined;
     const src = kind && this.source ? this.source(at.archetype, at.team) : null;
     if (!kind || !src) return false;
@@ -445,6 +468,7 @@ export class Shatter {
   }
 
   reset(): void {
+    this.bones.reset();
     for (let k = 0; k < this.kinds.length; k++) {
       const kind = this.kinds[k];
       for (let f = 0; f < kind.count; f++) this.dropRef(kind.ref[f]);
@@ -472,10 +496,16 @@ export class Shatter {
     return this.out;
   }
 
+  /** The skeleton shatter's pieces (tests). */
+  get skeletons(): SkeletonShatter {
+    return this.bones;
+  }
+
   /** The steps 0x00437e30 / 0x00437d00 for `dtTicks` engine ticks, the reapers, the draw. */
   update(dtTicks: number): void {
     const dt = dtTicks / 300;
     this.frames++;
+    this.bones.update(dtTicks);
     for (let k = 0; k < this.kinds.length; k++) {
       const kind = this.kinds[k];
       if (kind.count === 0) continue;
