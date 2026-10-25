@@ -12,7 +12,9 @@ not answered yet.
 
 ## A. Metropolis only (the RE data is already there)
 
-1. **3DAL colour animations on facers.** `cobj_tick_color_anims` 0x0041a1a0 runs a
+1. ~~**3DAL colour animations on facers.**~~ **Done** ("Pulse the mine's star
+   with its 3DAL colour animation").
+   Was: **3DAL colour animations on facers.** `cobj_tick_color_anims` 0x0041a1a0 runs a
    triangle wave of `clock * speed` over a primitive's bytes 5..7, on 36 models. The
    only one drawn in PA is the mine's star (Mp 50, grey → magenta, speed 16). The
    colours are in the RE manifest's `color_anims`, not in the glb.

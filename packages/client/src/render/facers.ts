@@ -71,6 +71,18 @@ export interface Facer {
   /** A star's rim colour, doubled. */
   readonly rim: Float32Array;
   readonly wedgeCap: number;
+  /** Its 3DAL colour animation, which rewrites `colour` every frame; null none. */
+  readonly anim: ColourAnim | null;
+}
+
+/**
+ * A 3DAL record on a facer's primitive (RE extracted/findings/cobj_face_anim.md):
+ * its colour bytes (a star's centre) run from `from` to `to` and back.
+ */
+export interface ColourAnim {
+  readonly speed: number;
+  readonly from: readonly number[];
+  readonly to: readonly number[];
 }
 
 /** A model's facers, as one archetype's instances wear them. */
@@ -93,6 +105,7 @@ interface RawFacer {
   centre_rgb?: number[];
   rim_rgb?: number[];
   wedge_cap?: number;
+  colour_anim?: { speed: number; from: number[]; to: number[] };
 }
 
 const KINDS: Readonly<Record<string, number>> = {
@@ -143,7 +156,9 @@ export function parseFacers(extras: unknown, turn = false): FacerSet | null {
     }
     const textured = kind !== FACER_STAR && f.texture !== null && f.texture !== undefined && f.uv;
     const uv = textured ? Float32Array.from((f.uv ?? []).flatMap((c) => [c[0], c[1]])) : null;
-    facers.push({ kind, mode, a, b, h, uv, colour, rim, wedgeCap: f.wedge_cap ?? 4 });
+    const ca = f.colour_anim;
+    const anim = ca ? { speed: ca.speed, from: [...ca.from], to: [...ca.to] } : null;
+    facers.push({ kind, mode, a, b, h, uv, colour, rim, wedgeCap: f.wedge_cap ?? 4, anim });
   }
   return facers.length > 0 ? { frames, facers } : null;
 }
@@ -155,6 +170,20 @@ function put(out: Float32Array, k: number, p: number[] | undefined, turn: boolea
   out[k * 3] = turn ? z : x;
   out[k * 3 + 1] = y;
   out[k * 3 + 2] = turn ? -x : z;
+}
+
+/**
+ * Byte `c` of a 3DAL animation at frame clock `clock` (`cobj_tick_color_anims`
+ * 0x0041a1a0): the triangle wave `(clock * speed) & 0xfff` folded at 0x7ff, and
+ * `from + ((to - from + 1) * t >> 11)`, rounded toward zero as retail biases a
+ * falling ramp.
+ */
+export function colourAnimByte(anim: ColourAnim, clock: number, c: number): number {
+  let t = (Math.imul(clock | 0, anim.speed) >>> 0) & 0xfff;
+  if (t > 0x7ff) t = 0xfff - t;
+  const from = anim.from[c];
+  const span = (anim.to[c] - from + 1) * t;
+  return (((span + ((span >> 31) & 0x7ff)) >> 11) + from) & 0xff;
 }
 
 /** A colour's bytes doubled, 0x80 unity (colour mode 0x30 / 0x50). */
@@ -461,10 +490,29 @@ export function drawFacers(camera: THREE.Camera, viewportHeight: number): void {
       unregisterFacers(src.mesh);
       continue;
     }
+    animateColours(src.set);
     for (let p = 0; p < PASSES; p++) src.batches[p]?.begin();
     // A mesh of facers alone is hidden (no faces): its matrices still count.
     if (view.has) drawSource(src);
     for (let p = 0; p < PASSES; p++) src.batches[p]?.end();
+  }
+}
+
+/** The 300 Hz frame clock the colour animations run on (setFacerClock). */
+let frameClock = 0;
+
+/** The frame clock this frame's facers are drawn at: the sim's, 300 a second. */
+export function setFacerClock(clock: number): void {
+  frameClock = clock;
+}
+
+/** Rewrites each animated facer's colour for the frame clock, doubled as drawn. */
+function animateColours(set: FacerSet): void {
+  const facers = set.facers;
+  for (let k = 0; k < facers.length; k++) {
+    const f = facers[k];
+    if (!f.anim) continue;
+    for (let c = 0; c < 3; c++) f.colour[c] = (colourAnimByte(f.anim, frameClock, c) * 2) / 255;
   }
 }
 

@@ -166,6 +166,12 @@ describe("committed FX models match the manifest contract", () => {
       const facers = (root.listNodes()[0].getExtras() as { fcop?: { facers?: { kind: string }[] } })
         .fcop?.facers;
       const rawDoc = await io.read(join(RAW_DIR, spec.raw));
+      // Each 3DAL animation rides the facer of its primitive, and nothing else does.
+      const anims = (facers ?? []).flatMap((f) => {
+        const a = (f as { prim?: number; colour_anim?: unknown }).colour_anim;
+        return a ? [{ face: (f as { prim?: number }).prim, ...(a as object) }] : [];
+      });
+      expect(anims).toEqual((spec.colorAnims ?? []).map((a) => ({ ...a })));
       if (prims.length === 0) {
         expect(facers?.length).toBeGreaterThan(0);
         expect(facers?.every((f) => f.kind === "line" || f.kind === "star")).toBe(true);

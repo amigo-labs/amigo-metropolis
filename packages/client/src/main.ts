@@ -154,7 +154,7 @@ import {
 } from "./render/drawWindow";
 import { lerpGunYaws } from "./render/dreadnoughtGuns";
 import { setEmitterWindow } from "./render/emitterProps";
-import { drawFacers, initFacers } from "./render/facers";
+import { drawFacers, initFacers, setFacerClock } from "./render/facers";
 import { materialList } from "./render/fcopModel";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx, createFxPoses, POSE_STRIDE } from "./render/fx";
@@ -1874,9 +1874,12 @@ function renderEntities(alpha: number, simDtSec: number): void {
   if (avatarRig) avatarRig.begin();
   // Readiness cannot change mid-frame, so resolve it once instead of per entity.
   const readyRig = avatarRig?.ready ? avatarRig : null;
-  // The cloak's v offset: the frame clock (300 Hz units) >> 2 & 0x3f
-  // (RE player_partner.c 289-293), on the sim's clock as the original's is.
-  const cloakV = (Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ)) >> 2) & 0x3f;
+  // The frame clock (300 Hz units), on the sim's clock as the original's is:
+  // the cloak's v offset is its >> 2 & 0x3f (RE player_partner.c 289-293), and
+  // the facers' 3DAL colours run on it (render/facers.ts).
+  const frameClock = Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ));
+  const cloakV = (frameClock >> 2) & 0x3f;
+  setFacerClock(frameClock);
   for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses[p][3] = 0;
   fxPoses.live.fill(0);
   let p = 0;

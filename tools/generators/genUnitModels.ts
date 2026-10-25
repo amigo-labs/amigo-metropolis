@@ -70,6 +70,7 @@ import { MeshoptSimplifier } from "meshoptimizer";
 import { type DecodedImage, decodePng, encodePng, samePixels } from "./png";
 import {
   ARENA_UNIT_MODELS,
+  type ColorAnim,
   EMITTER_PROP_MODELS,
   FX_MODELS,
   PROP_MODELS,
@@ -125,6 +126,8 @@ interface ModelPass {
   readonly keepMorph?: "morph" | "skeleton";
   /** The frames a kept morph has, base included: what the bake must produce. */
   readonly morphFrames?: number;
+  /** 3DAL colour animations, each written onto the facer of its primitive. */
+  readonly colorAnims?: readonly ColorAnim[];
 }
 
 const PASSES: readonly ModelPass[] = [
@@ -198,6 +201,8 @@ const PASSES: readonly ModelPass[] = [
     // The K-9 Drone's run (render/unitMeshes.ts plays it).
     keepMorph: spec.morphFrames ? ("morph" as const) : undefined,
     morphFrames: spec.morphFrames,
+    // The mine's pulsing star (render/facers.ts plays it).
+    colorAnims: spec.colorAnims,
   })),
 ];
 
@@ -700,6 +705,7 @@ function placeFacers(
   placed: readonly number[],
   keepFrames: boolean,
   slot: (texture: number) => { offset: number; width: number; atlasWidth: number },
+  colorAnims: readonly ColorAnim[] = [],
 ): { facers: Record<string, unknown>[]; frames: number } {
   const frames = keepFrames ? source.frames : 1;
   const scale = Math.hypot(placed[0], placed[1], placed[2]);
@@ -707,8 +713,15 @@ function placeFacers(
   const points = (list: readonly Vec3[] | undefined) => list?.slice(0, frames).map(point);
   const length = (v: number | readonly number[]): number | number[] =>
     typeof v === "number" ? round6(v * scale) : v.map((x) => round6(x * scale));
+  for (const anim of colorAnims) {
+    if (!source.records.some((f) => f.prim === anim.face)) {
+      throw new Error(`a colour animation on face ${anim.face}, which is no facer`);
+    }
+  }
   const facers = source.records.map((f) => {
     const out: Record<string, unknown> = { prim: f.prim, kind: f.kind, mode: f.mode };
+    const anim = colorAnims.find((a) => a.face === f.prim);
+    if (anim) out.colour_anim = { speed: anim.speed, from: anim.from, to: anim.to };
     if (f.kind === "star") {
       out.at = points(f.at);
       out.radius = f.radius?.slice(0, frames).map((r) => length(r));
@@ -1403,7 +1416,13 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
       if (s === undefined) throw new Error(`${spec.key}: facer texture ${texture} not packed`);
       return { offset: offsets[s], width: pages[s].width, atlasWidth: width };
     };
-    const { facers, frames } = placeFacers(facerSource, placed, spec.keepMorph !== undefined, slot);
+    const { facers, frames } = placeFacers(
+      facerSource,
+      placed,
+      spec.keepMorph !== undefined,
+      slot,
+      spec.colorAnims,
+    );
     node.setExtras({ fcop: { facers, frames } });
   }
 
