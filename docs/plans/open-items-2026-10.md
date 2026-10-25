@@ -37,7 +37,12 @@ not answered yet.
 5. ~~**K-9 Drone model.**~~ **Done** ("Run the K-9 Drone's eleven-frame
    morph"): a frame per 870 world units travelled, as `missile.c` steps it.
    - Ledger: W5.
-6. **Radar live-list order.** The registry's order is approximated by descending
+6. ~~**Radar live-list order.**~~ **Done** ("Walk the radar's registry in
+   creation order, with the actors that have no entity"). The live list is
+   oldest first (`cact_link` appends at the tail), the reverse of what
+   Metropolis assumed. **Moved to C:** which actors carry flag 8 at load, and
+   the RE's own contradiction (mission_frame.c says newest first).
+   Was: **Radar live-list order.** The registry's order is approximated by descending
    entity id. Actors with no Metropolis entity are not counted: the X1's partner,
    the turret parts, and the flag-8 actors that are never culled.
    - Ledger: V3.
