@@ -29,7 +29,7 @@ import {
   POSE_STRIDE,
   shieldArcPoint,
 } from "../src/render/fx";
-import { rampNode } from "../src/render/fx/nodes";
+import { rampDue, rampNode } from "../src/render/fx/nodes";
 import { domeRingColour } from "../src/render/fx/shells";
 import { TEAM_UV_ATTR } from "../src/render/teamUv";
 
@@ -238,6 +238,15 @@ describe("the node ramp (0x0042b090 / 0x0042a550 / 0x0042a4d0)", () => {
     expect(step[0]).toBe(-63);
     rampNode(2, rgb, 0, step, from, to, 0.5);
     expect(rgb[0]).toBeCloseTo(95.5, 5);
+  });
+
+  test("one pass in four per node, staggered: (passes ^ index) & 3 (0x0042a30b)", () => {
+    for (let i = 0; i < 8; i++) {
+      const due = [0, 1, 2, 3, 4, 5, 6, 7].filter((f) => rampDue(f, i));
+      expect(due.length).toBe(2);
+      expect(due[1] - due[0]).toBe(4);
+      expect(due[0]).toBe(i & 3);
+    }
   });
 
   test("the reachable records carry the export's step: a budget one number, else three", () => {
