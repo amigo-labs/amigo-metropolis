@@ -25,7 +25,10 @@
 // filled in place; nothing allocates once a match runs.
 
 import {
+  arcPitchOf,
+  arcYawOf,
   EV_SHIELD_ARC,
+  EV_SHIELD_ARC_STEP,
   EV_SHOT,
   EVENT_STRIDE,
   type EventBuffer,
@@ -85,6 +88,8 @@ export interface FxOptions {
   readonly shatter?: ShatterSource;
   /** The drawing buffer's height in device pixels (the 640x480 rects scale to it). */
   readonly viewportHeight?: () => number;
+  /** The Riot Shield's radius around avatar entity `avatar`, metres (0 down). */
+  readonly shieldRadius?: (avatar: number) => number;
 }
 
 export interface ShotFx {
@@ -128,9 +133,9 @@ const pose = new Float32Array(5);
 
 /**
  * The Riot Shield's strike (EV_SHIELD_ARC): `sustain_sphere_tick`'s link from a
- * charged arc to the body (0x0044c8d1..0x0044c91f) — 32 segments, one strand,
- * (0x7f, 0x7f, 0xff), fade 0x2aa, amplitude 0x4000, both ends 0x18 wide. The
- * event names no arc point, so it starts at the sphere's centre.
+ * charged arc's point on the sphere to the body (0x0044c8d1..0x0044c91f) — 32
+ * segments, one strand, (0x7f, 0x7f, 0xff), fade 0x2aa, amplitude 0x4000,
+ * both ends 0x18 wide.
  */
 const SHIELD_LINK: Fx88 = {
   type: 88,
@@ -153,7 +158,49 @@ const SHIELD_LINK: Fx88 = {
   endHalfWidth: 0x18,
   linkFlags: 1,
 };
+/**
+ * An arc's own step (EV_SHIELD_ARC_STEP): `sustain_sphere_arc_step`'s link from
+ * its old point on the sphere to its new one (0x0044cd3e) — 8 segments, one
+ * strand, (0x30, 0x30, 0x40), fade 0x200, amplitude 0x3000, both ends 0x10.
+ */
+const SHIELD_ARC_LINK: Fx88 = {
+  ...SHIELD_LINK,
+  segments: 8,
+  rgb: [0x30, 0x30, 0x40],
+  fadeTicks: 0x200,
+  amplitude: 0x3000,
+  endHalfWidth: 0x10,
+};
 const shieldAt = makeRaiseAt();
+const arcAt = new Float32Array(3);
+/** Radians per unit of the original's sixteen-bit angles (4096 a turn). */
+const ARC_UNIT = (2 * Math.PI) / 4096;
+
+/**
+ * Where the arc of `packed` angles (packArcAngles) sits on the sphere of radius
+ * `r` about pose `f` of `table`, into `out` (three x, y, z). The sphere's axes
+ * are the mech's: x its right, y up, z its facing (sim shieldTakeArc); its
+ * direction is row 2 of `math_matrix_from_angles(yaw, pitch, 0)`.
+ */
+export function shieldArcPoint(
+  table: Float32Array,
+  f: number,
+  packed: number,
+  r: number,
+  out: Float32Array,
+): void {
+  const yaw = arcYawOf(packed) * ARC_UNIT;
+  const pitch = arcPitchOf(packed) * ARC_UNIT;
+  const cp = Math.cos(pitch);
+  const ax = cp * Math.sin(yaw);
+  const ay = -Math.sin(pitch);
+  const az = cp * Math.cos(yaw);
+  const fx = Math.cos(table[f + 3]);
+  const fy = Math.sin(table[f + 3]);
+  out[0] = table[f] + (ax * fy + az * fx) * r;
+  out[1] = table[f + 1] + SHIELD_CENTRE_RAISE + ay * r;
+  out[2] = table[f + 2] + (-ax * fx + az * fy) * r;
+}
 
 export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOptions = {}): ShotFx {
   const flashes = new Flashes(scene);
@@ -164,6 +211,7 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
   const shatter = new Shatter(scene);
   const view = new FxView();
   const poses = options.poses ?? null;
+  const shieldRadius = options.shieldRadius ?? (() => 0);
   if (options.ground) {
     nodes.groundAt = options.ground;
     ribbons.groundAt = options.ground;
@@ -228,6 +276,24 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
     const data = events.data;
     for (let i = 0; i < events.count; i++) {
       const o = i * EVENT_STRIDE;
+      if (data[o] === EV_SHIELD_ARC_STEP && poses) {
+        const a = data[o + 1];
+        const r = shieldRadius(a);
+        if (a >= 0 && a < MAX_ENTITIES && poses.live[a] && r > 0) {
+          const fa = a * POSE_STRIDE;
+          shieldArcPoint(poses.table, fa, data[o + 2], r, arcAt);
+          shieldAt.x = arcAt[0];
+          shieldAt.y = arcAt[1];
+          shieldAt.z = arcAt[2];
+          shieldAt.yaw = poses.table[fa + 3];
+          shieldArcPoint(poses.table, fa, data[o + 3], r, arcAt);
+          shieldAt.endX = arcAt[0];
+          shieldAt.endY = arcAt[1];
+          shieldAt.endZ = arcAt[2];
+          ribbons.link(SHIELD_ARC_LINK, shieldAt);
+        }
+        continue;
+      }
       if (data[o] === EV_SHIELD_ARC && poses) {
         const a = data[o + 1];
         const t = data[o + 2];
@@ -241,9 +307,10 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
         ) {
           const fa = a * POSE_STRIDE;
           const ft = t * POSE_STRIDE;
-          shieldAt.x = poses.table[fa];
-          shieldAt.y = poses.table[fa + 1] + SHIELD_CENTRE_RAISE;
-          shieldAt.z = poses.table[fa + 2];
+          shieldArcPoint(poses.table, fa, data[o + 3], shieldRadius(a), arcAt);
+          shieldAt.x = arcAt[0];
+          shieldAt.y = arcAt[1];
+          shieldAt.z = arcAt[2];
           shieldAt.yaw = poses.table[fa + 3];
           shieldAt.endX = poses.table[ft];
           shieldAt.endY = poses.table[ft + 1] + SHIELD_CENTRE_RAISE;

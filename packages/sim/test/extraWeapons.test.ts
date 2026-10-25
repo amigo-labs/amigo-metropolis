@@ -11,9 +11,14 @@ import { ARCHETYPE } from "../src/archetypes";
 import { AVATAR_HP_BY_DIFFICULTY, DIFFICULTY_NORMAL, WEAPON_RECORDS } from "../src/balance";
 import { spawn } from "../src/entities";
 import {
+  arcPitchOf,
+  arcYawOf,
   EV_HIT,
+  EV_SHIELD_ARC,
+  EV_SHIELD_ARC_STEP,
   EV_SHOT,
   EVENT_STRIDE,
+  packArcAngles,
   SHOT_SLOT_SPECIAL,
   shotPayloadWeaponId,
 } from "../src/events";
@@ -330,6 +335,68 @@ describe("Riot Shield (0x05, sustain_sphere.c)", () => {
     e.cooldownC[r] = -1;
     step(sim, inputs);
     expect(e.alive[r] === 1 && e.mode[r] === PROJ_ROUND).toBe(false);
+  });
+
+  test("each arc's step is a link from its old point to its new (EV_SHIELD_ARC_STEP)", () => {
+    const { sim, a0, inputs } = duel({ gun: RIOT.index }, 30);
+    // The toggle makes the sphere and every arc is due at once, from (0, 0).
+    inputs.players[0].buttons = BTN_GUN;
+    step(sim, inputs);
+    const steps: [number, number][] = [];
+    for (let i = 0; i < sim.events.count; i++) {
+      const o = i * EVENT_STRIDE;
+      if (sim.events.data[o] !== EV_SHIELD_ARC_STEP) continue;
+      expect(sim.events.data[o + 1]).toBe(a0);
+      steps.push([sim.events.data[o + 2], sim.events.data[o + 3]]);
+    }
+    expect(steps.length).toBe(12);
+    const s = sim.shield;
+    for (let k = 0; k < 12; k++) {
+      expect(steps[k][0]).toBe(packArcAngles(0, 0));
+      expect(steps[k][1]).toBe(packArcAngles(s.arcYaw[k * 2 + 1], s.arcPitch[k * 2 + 1]));
+      // The half sphere's yaw folds to the front, the pitch to +-0x200.
+      expect(Math.abs(arcYawOf(steps[k][1]))).toBeLessThanOrEqual(0x400);
+      expect(Math.abs(arcPitchOf(steps[k][1]))).toBeLessThanOrEqual(0x200);
+    }
+  });
+
+  test("a strike names the charged arc it came from (EV_SHIELD_ARC)", () => {
+    const { sim, a0, a1, inputs } = duel({ gun: RIOT.index }, -1.5);
+    powerSlot(sim, RIOT);
+    inputs.players[0].buttons = BTN_GUN;
+    const s = sim.shield;
+    let strikes = 0;
+    for (let t = 0; t < 300; t++) {
+      // Held alive, so the sphere keeps striking it.
+      sim.ent.hp[a1] = AVATAR_HP;
+      step(sim, inputs);
+      const last = new Set<number>();
+      for (let k = 0; k < 12; k++) {
+        const j = k * 2 + (s.arcPhase[k] ^ 1);
+        last.add(packArcAngles(s.arcYaw[j], s.arcPitch[j]));
+      }
+      for (let i = 0; i < sim.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (sim.events.data[o] !== EV_SHIELD_ARC) continue;
+        expect([sim.events.data[o + 1], sim.events.data[o + 2]]).toEqual([a0, a1]);
+        expect(last.has(sim.events.data[o + 3])).toBe(true);
+        strikes++;
+      }
+    }
+    expect(strikes).toBeGreaterThan(0);
+  });
+
+  test("the packed angles round-trip, signed, sixteen bits each", () => {
+    for (const [y, p] of [
+      [0, 0],
+      [0x400, -0x200],
+      [-0x400, 0x1ff],
+      [-1, -1],
+      [0x7fff, -0x8000],
+    ]) {
+      const v = packArcAngles(y, p);
+      expect([arcYawOf(v), arcPitchOf(v)]).toEqual([y, p]);
+    }
   });
 
   test("its sphere is in the avatar snapshot: radius in metres, whole or half", async () => {

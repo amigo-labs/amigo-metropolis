@@ -26,9 +26,9 @@ not answered yet.
    powered torpedo's and flare's round as Cobj 47's star"): block B's rounds
    wear `fx/star-47.glb`, the blue star.
    - Ledger: W5.
-4. **Riot Shield arcs.** The arcs' own links along the sphere's surface are not
-   drawn, and the strike link starts at the sphere's centre because
-   `EV_SHIELD_ARC` carries no arc point.
+4. ~~**Riot Shield arcs.**~~ **Done** ("Draw the Riot Shield's arcs on its
+   sphere"): `EV_SHIELD_ARC_STEP` draws each arc's step, and `EV_SHIELD_ARC`
+   carries the taken arc's angles. Events are not hashed: no golden moved.
    - Ledger: W5.
 5. ~~**K-9 Drone model.**~~ **Done** ("Run the K-9 Drone's eleven-frame
    morph"): a frame per 870 world units travelled, as `missile.c` steps it.

@@ -263,6 +263,32 @@ export const EV_SUNK = 27; // a=avatar id, b=player
  * The Riot Shield's powered sphere strikes a body with a charged arc
  * (`sustain_sphere_tick` 0x0044c8c1..0x0044c91f): a link of 32 segments, one
  * strand, (0x7f, 0x7f, 0xff), from the arc's point on the sphere to the body.
- * Pushed before the hurt's EV_HIT.
+ * `c` is the arc's two angles (packArcAngles): its point is that direction on
+ * the sphere, in the mech's axes, at the sphere's radius. Pushed before the
+ * hurt's EV_HIT.
  */
-export const EV_SHIELD_ARC = 28; // a=avatar id, b=struck entity id, c=player
+export const EV_SHIELD_ARC = 28; // a=avatar id, b=struck entity id, c=the arc's angles
+/**
+ * One of a sphere's twelve arcs steps (`sustain_sphere_arc_step` 0x0044caf0):
+ * a link of 8 segments, one strand, (0x30, 0x30, 0x40), from the arc's old point
+ * on the sphere to its new one (0x0044cd3e). Both are packArcAngles values.
+ */
+export const EV_SHIELD_ARC_STEP = 29; // a=avatar id, b=the old angles, c=the new angles
+
+/**
+ * An arc's direction as one event field: its yaw in the low sixteen bits and its
+ * pitch in the high, each the original's sixteen-bit angle (4096 a turn).
+ */
+export function packArcAngles(yaw: number, pitch: number): number {
+  return (yaw & 0xffff) | (pitch << 16);
+}
+
+/** The yaw of a packArcAngles value, signed. */
+export function arcYawOf(packed: number): number {
+  return (packed << 16) >> 16;
+}
+
+/** The pitch of a packArcAngles value, signed. */
+export function arcPitchOf(packed: number): number {
+  return packed >> 16;
+}

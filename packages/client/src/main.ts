@@ -22,6 +22,8 @@ import {
   ARCHETYPE,
   ARCHETYPE_RADIUS,
   AVATAR_SNAP_CLOAK,
+  AVATAR_SNAP_ID,
+  AVATAR_SNAP_SHIELD_RADIUS,
   AVATAR_SNAP_STRIDE,
   AVATAR_SNAPSHOT_LEN,
   createSim,
@@ -920,6 +922,15 @@ const fx = createFx(scene, sounds.effects, {
     return shatterModel;
   },
   viewportHeight: () => renderer.domElement.height,
+  // The Riot Shield's arcs sit on its sphere (render/fx.ts shieldArcPoint).
+  shieldRadius: (avatar) => {
+    for (let p = 0; p < MAX_PLAYERS; p++) {
+      const o = p * AVATAR_SNAP_STRIDE;
+      if (avatarSnap[o + AVATAR_SNAP_ID] === avatar)
+        return avatarSnap[o + AVATAR_SNAP_SHIELD_RADIUS];
+    }
+    return 0;
+  },
 });
 // Instantiate the composer only when bloom actually starts on — its render
 // targets are the cost, and a SwiftShader run never pays it.

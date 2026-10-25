@@ -198,6 +198,7 @@ import {
   EV_RESPAWN,
   EV_ROUND_IMPACT,
   EV_SHIELD_ARC,
+  EV_SHIELD_ARC_STEP,
   EV_SHOT,
   EV_SUNK,
   EV_TRANSFORM,
@@ -205,6 +206,7 @@ import {
   EV_TURRET_LOST,
   EV_TURRET_UNDER_FIRE,
   type EventBuffer,
+  packArcAngles,
   pushEvent,
   reachToShotPayload,
   roundSource,
@@ -4200,12 +4202,23 @@ function shieldArcStep(state: SimState, p: number, k: number, half: boolean, now
   const phase = s.arcPhase[i];
   const next = phase ^ 1;
   s.arcNext[i] = (randU32(state) & SHIELD_ARC_WAIT_MASK) + now + SHIELD_ARC_WAIT_BASE;
-  let yaw = i16(((randU32(state) | 0) >> 22) + s.arcYaw[i * 2 + next]);
-  let pitch = i16(((randU32(state) | 0) >> 22) + s.arcPitch[i * 2 + next]);
+  // The old point is the pair the current direction came from (`next`).
+  const oldYaw = s.arcYaw[i * 2 + next];
+  const oldPitch = s.arcPitch[i * 2 + next];
+  let yaw = i16(((randU32(state) | 0) >> 22) + oldYaw);
+  let pitch = i16(((randU32(state) | 0) >> 22) + oldPitch);
   if (half) yaw = arcFold(yaw, 0x400);
   pitch = arcFold(pitch, 0x200);
   s.arcYaw[i * 2 + phase] = yaw;
   s.arcPitch[i * 2 + phase] = pitch;
+  // The link from the old point to the new (0x0044cd3e).
+  pushEvent(
+    state.events,
+    EV_SHIELD_ARC_STEP,
+    state.avatarId[p],
+    packArcAngles(oldYaw, oldPitch),
+    packArcAngles(yaw, pitch),
+  );
   // Row 2 of `math_matrix_from_angles(yaw, pitch, 0)`: (cx sy, -sx, cx cy).
   const cp = cosUnits(pitch);
   s.arcDir[i * 3] = cp * sinUnits(yaw);
@@ -4219,7 +4232,7 @@ function shieldArcStep(state: SimState, p: number, k: number, half: boolean, now
  * `sustain_sphere_take_arc` (0x0044c9f0) on the whole sphere: the first charged
  * arc, refused (and left charged) when the actor at (dx, dy, dh) from the centre
  * lies behind its point; else its charge is spent. The sphere's axes are the
- * mech's: x its right, y up, z its facing.
+ * mech's: x its right, y up, z its facing. Answers the arc taken, or -1.
  */
 function shieldTakeArc(
   state: SimState,
@@ -4229,7 +4242,7 @@ function shieldTakeArc(
   dh: number,
   fx: number,
   fy: number,
-): boolean {
+): number {
   const s = state.shield;
   for (let k = 0; k < SHIELD_ARCS; k++) {
     const i = p * SHIELD_ARCS + k;
@@ -4241,11 +4254,11 @@ function shieldTakeArc(
     const px = (ax * fy + az * fx) * r;
     const py = (-ax * fx + az * fy) * r;
     const ph = ay * r;
-    if (px * dx + py * dy + ph * dh < 0) return false;
+    if (px * dx + py * dy + ph * dh < 0) return -1;
     s.arcCharged[i] = 0;
-    return true;
+    return k;
   }
-  return false;
+  return -1;
 }
 
 /**
@@ -4357,11 +4370,21 @@ function systemShields(state: SimState): void {
         shieldHurt(state, p, t);
       }
       while (ent.alive[t]) {
-        if (!powered || !take || !shieldTakeArc(state, p, dx, dy, dh, fx, fy)) {
+        const k = powered && take ? shieldTakeArc(state, p, dx, dy, dh, fx, fy) : -1;
+        if (k < 0) {
           take = false;
           break;
         }
-        pushEvent(state.events, EV_SHIELD_ARC, a, t, p);
+        // The arc's direction came from the pair it last wrote, `phase ^ 1`.
+        const i = p * SHIELD_ARCS + k;
+        const last = i * 2 + (s.arcPhase[i] ^ 1);
+        pushEvent(
+          state.events,
+          EV_SHIELD_ARC,
+          a,
+          t,
+          packArcAngles(s.arcYaw[last], s.arcPitch[last]),
+        );
         shieldHurt(state, p, t);
       }
     }
