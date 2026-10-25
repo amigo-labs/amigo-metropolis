@@ -21,7 +21,9 @@ not answered yet.
    - Work: carry `color_anims` through `gen:units` / `gen:paunits` and animate
      them in `render/facers.ts`. Allocate nothing in the frame loop.
    - Ledger: G13.
-2. **Riot Shield toggle-off sound.** The original plays the block's sound on every
+2. ~~**Riot Shield toggle-off sound.**~~ **Done** ("Sound the Riot Shield's
+   block on every call"): EV_SHOT on every call; events are not hashed.
+   Was: **Riot Shield toggle-off sound.** The original plays the block's sound on every
    call. Metropolis is silent when the call finds the sphere down.
    - Ledger: W5 (declared), A21.
 3. ~~**Powered Fusion Torpedo / Plasma Flare rounds.**~~ **Done** ("Draw the

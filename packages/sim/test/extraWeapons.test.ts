@@ -252,6 +252,19 @@ describe("Riot Shield (0x05, sustain_sphere.c)", () => {
     expect(sim.shield.flags[0] & 1).toBe(1);
   });
 
+  test("every call sounds the block, the one that puts the sphere down too (0x004591f1)", () => {
+    const { sim, inputs } = duel({ gun: RIOT.index }, 30);
+    inputs.players[0].buttons = BTN_GUN;
+    step(sim, inputs);
+    expect(shots(sim)).toEqual([RIOT.id]);
+    inputs.players[0].buttons = 0;
+    for (let t = 0; t < 7; t++) step(sim, inputs);
+    inputs.players[0].buttons = BTN_GUN;
+    step(sim, inputs);
+    expect(sim.shield.flags[0] & 1).toBe(0);
+    expect(shots(sim)).toEqual([RIOT.id]);
+  });
+
   test("its radius springs toward the record's: rate += ((2 (819 - r) - 8 rate) * 10) >> 8", () => {
     const { sim, inputs } = duel({ gun: RIOT.index }, 30);
     inputs.players[0].buttons = BTN_GUN;

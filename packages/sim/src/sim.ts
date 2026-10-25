@@ -2703,10 +2703,12 @@ function deliver(
       return true;
     }
     case "sphere": {
-      // The Riot Shield: the toggle's answer is the shot's (0x00459575).
-      if (!shieldToggle(state, player, blk, powered)) return false;
+      // The Riot Shield: the toggle's answer is the shot's (0x00459575), but
+      // the block's fire sound plays on every call, before the kind's switch
+      // (0x004591f1) — the call that puts the sphere down included.
+      const up = shieldToggle(state, player, blk, powered);
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
-      return true;
+      return up;
     }
     case "drone": {
       if (spawnGuided(state, shooter, player, w, blk, lock) < 0) return false;
