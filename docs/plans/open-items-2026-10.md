@@ -30,8 +30,8 @@ not answered yet.
    drawn, and the strike link starts at the sphere's centre because
    `EV_SHIELD_ARC` carries no arc point.
    - Ledger: W5.
-5. **K-9 Drone model.** It is drawn at frame 0 of its 11-frame morph. Play the
-   morph.
+5. ~~**K-9 Drone model.**~~ **Done** ("Run the K-9 Drone's eleven-frame
+   morph"): a frame per 870 world units travelled, as `missile.c` steps it.
    - Ledger: W5.
 6. **Radar live-list order.** The registry's order is approximated by descending
    entity id. Actors with no Metropolis entity are not counted: the X1's partner,

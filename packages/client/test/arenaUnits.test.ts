@@ -27,6 +27,7 @@ import {
   TEAM_UV_ATTR,
   TEAM_UV_MASK,
 } from "../src/render/teamUv";
+import { FX_MORPHS } from "../src/render/unitMeshes";
 import { TrackClock } from "../src/render/unitTracks";
 
 /** The mission and Cobj a file is, checking that the arena may draw it. */
@@ -512,6 +513,22 @@ describe("the guns ride the hull's frame (RE cact_mount_step -> cact_model_point
 });
 
 describe("the tracks the units play (RE cact_anim_step)", () => {
+  test("the K-9 Drone runs a frame per 870 world units and loops its eleven", () => {
+    const run = FX_MORPHS["drone-k9"];
+    expect(run).toEqual({ frames: 11, period: 870, drivenBy: "distance", source: "morph" });
+    const t = new TrackClock();
+    t.advance(0);
+    // 13.5 periods at the drone's top speed, 4.7 m/s, a tick apart: frame 13
+    // of a loop of eleven is frame 2.
+    const metres = (13.5 * run.period) / 8192;
+    let frame = t.frameOf(4, 6, run, 0, 0, 0);
+    for (let x = 4.7 / 30; x <= metres; x += 4.7 / 30) {
+      t.advance(1 / 30);
+      frame = t.frameOf(4, 6, run, x, 0, 0);
+    }
+    expect(frame).toBe(2);
+  });
+
   test("the table's tracks: Joke's wing beat, its tank and hull by distance", () => {
     const morph = (mapId: string, file: string) =>
       UNIT_MODEL_FILES.find((f) => f.file === file && f.usedBy.includes(mapId))?.morph;

@@ -179,6 +179,34 @@ describe("committed FX models match the manifest contract", () => {
       // Every face of the raw but the facers' stand-ins.
       expect(tris).toBe(faceBounds(rawDoc).tris);
 
+      // A kept morph (the K-9 Drone's run) is the raw's frames, unmoved:
+      // frame k + 1 is target k. Every other FX model ships frame 0 alone.
+      const frames = spec.morphFrames ?? 1;
+      for (const prim of prims) expect(prim.listTargets().length).toBe(frames - 1);
+      if (frames > 1) {
+        const rawPrims = rawDoc
+          .getRoot()
+          .listMeshes()
+          .flatMap((m) => m.listPrimitives())
+          .filter((p) => !fcopOf(p.getMaterial()).standin);
+        const motion = (list: Primitive[], k: number) => {
+          let sum = 0;
+          const d = [0, 0, 0];
+          for (const p of list) {
+            const a = p.listTargets()[k].getAttribute("POSITION");
+            for (let i = 0; i < (a?.getCount() ?? 0); i++) {
+              a?.getElement(i, d);
+              sum += Math.abs(d[0]) + Math.abs(d[1]) + Math.abs(d[2]);
+            }
+          }
+          return sum;
+        };
+        for (let k = 0; k < frames - 1; k++) {
+          expect(motion(prims, k)).toBeGreaterThan(0);
+          expect(motion(prims, k)).toBeCloseTo(motion(rawPrims, k), 3);
+        }
+      }
+
       const scene = root.getDefaultScene() ?? root.listScenes()[0];
       const { min, max } = getBounds(scene);
 

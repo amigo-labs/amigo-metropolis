@@ -927,8 +927,8 @@ if (bloomOn) setBloom(true);
 // Stage B unit models upgrade the greybox buckets in place as they load;
 // missing assets keep their greybox mesh (render/unitMeshes.ts). The X1 and the
 // projectiles at boot, the arena's own units with the arena.
-if (renderMode === "mesh") loadUnitMeshes(greybox);
 arenaUnits = createArenaUnits(scene, greybox);
+if (renderMode === "mesh") loadUnitMeshes(greybox, arenaUnits.playMorph);
 {
   const bootEpoch = arenaEpoch;
   arenaUnits.load(map, () => arenaEpoch !== bootEpoch, renderMode === "mesh");

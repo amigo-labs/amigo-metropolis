@@ -195,6 +195,9 @@ const PASSES: readonly ModelPass[] = [
     // flies about its own centre rather than standing on anything.
     centreXZ: false,
     groundY: false,
+    // The K-9 Drone's run (render/unitMeshes.ts plays it).
+    keepMorph: spec.morphFrames ? ("morph" as const) : undefined,
+    morphFrames: spec.morphFrames,
   })),
 ];
 
