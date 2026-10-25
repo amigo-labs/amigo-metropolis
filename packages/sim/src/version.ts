@@ -1364,4 +1364,10 @@
 //     SimState.rivalHit 0, so neither the Sky Captain's death nor a mech's
 //     down credits the shooter's Walker Kills, or the captain's tally, for
 //     them; blasts and direct weapons credit as before.
-export const SIM_VERSION = 91;
+// v92: the bouncing round stands on its model's radius (fcop-fidelity.md W5;
+//     RE type15.c 0x00424582): its ground is the surface plus Cobj 52's
+//     `radius_68`, 93 << 4 world units (balance.ts GRENADE_RADIUS), where it
+//     was the surface alone, so a grenade bounces and comes to rest 0.18 m
+//     higher. Only a match offering the Grenade Launcher moves: every golden's
+//     hashes hold, re-recorded for the header.
+export const SIM_VERSION = 92;

@@ -44,6 +44,7 @@ import {
   GRENADE_FUSE_JITTER_DIV,
   GRENADE_FUSE_JITTER_MASK,
   GRENADE_MOVE_SCALE,
+  GRENADE_RADIUS,
   GRENADE_REST_SPEED,
   GRENADE_TIME_DIVISOR,
   GUARDIAN_ALIVE_LIMIT,
@@ -4788,7 +4789,8 @@ function bounceTick(state: SimState, id: number): void {
   let vx = ent.velX[id];
   let vy = ent.velY[id];
   let vh = ent.timerB[id];
-  const ground = sampleHeight(map, ent.posX[id], ent.posY[id]);
+  // The surface plus the round's model radius (0x00424582).
+  const ground = sampleHeight(map, ent.posX[id], ent.posY[id]) + GRENADE_RADIUS;
   if (ent.height[id] > ground) {
     const fall = Math.trunc((ent.aimX[id] * WEAPON_UNITS_PER_TICK) / GRENADE_TIME_DIVISOR);
     if (vh > 0 && fall > vh) vh = 0;

@@ -8,7 +8,12 @@
 
 import { describe, expect, test } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { AVATAR_HP_BY_DIFFICULTY, DIFFICULTY_NORMAL, WEAPON_RECORDS } from "../src/balance";
+import {
+  AVATAR_HP_BY_DIFFICULTY,
+  DIFFICULTY_NORMAL,
+  GRENADE_RADIUS,
+  WEAPON_RECORDS,
+} from "../src/balance";
 import { spawn } from "../src/entities";
 import {
   arcPitchOf,
@@ -639,7 +644,8 @@ describe("Grenade Launcher (0x24, type15.c and round_spawn.c)", () => {
     for (let t = 0; t < 200 && sim.ent.alive[g] && !bounced; t++) {
       const vx = sim.ent.velX[g];
       const vh = sim.ent.timerB[g];
-      const above = sim.ent.height[g] > 0;
+      // The ground is the surface (0 here) plus the model's radius (0x00424582).
+      const above = sim.ent.height[g] > GRENADE_RADIUS;
       step(sim, inputs);
       if (!sim.ent.alive[g]) break;
       if (above) {
@@ -682,6 +688,9 @@ describe("Grenade Launcher (0x24, type15.c and round_spawn.c)", () => {
     inputs.players[0].buttons = 0;
     step(sim, inputs);
     expect(sim.ent.alive[h]).toBe(1);
+    // A bounce stands it on its radius first: 93 << 4 world units up.
+    expect(sim.ent.height[h]).toBeGreaterThan(GRENADE_RADIUS);
+    expect(GRENADE_RADIUS * 8192).toBe(93 * 16);
     expect(sim.ent.velX[h]).toBe(Math.trunc((7 * 0x1800) / 8));
     expect(sim.ent.timerB[h]).toBe(Math.trunc((5 * 0x1000) / 8));
   });
