@@ -42,6 +42,12 @@ not answered yet.
 7. **Map-screen arrows.** They use frame 0's 3DBB box only, and a Prop's cell
    comes from its model origin, not its box centre. The emitter's 4 m leaf test is
    approximated by a 2.83 m sphere.
+   - ~~A Prop's cell~~ **Done** ("Hang each Prop in the cell of its box's placed
+     centre"): 22 Props change cells, Hk's lamps among them.
+   - **Moved to B (RE export first):** the arrows' per-frame boxes. The RE
+     object manifests carry frame 0's 3DBB box only.
+   - **Moved to C (RE question):** the 4 m leaf test. The terrain quadtree walk
+     that builds the leaf mask (0x00452de0) is still a stub in the RE.
    - Ledger: V4, G13.
 8. **Facer depth sort and DCSQuad depth.** The original sorts each facer at its
    centre's depth less 0x100. Metropolis uses the depth buffer after the opaque

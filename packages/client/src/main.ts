@@ -153,7 +153,7 @@ import {
   placeDrawWindow,
 } from "./render/drawWindow";
 import { lerpGunYaws } from "./render/dreadnoughtGuns";
-import { setEmitterWindow } from "./render/emitterProps";
+import { emitterHungAt, setEmitterWindow } from "./render/emitterProps";
 import { drawFacers, initFacers, setFacerClock } from "./render/facers";
 import { materialList } from "./render/fcopModel";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
@@ -180,7 +180,7 @@ import {
   type PlayerView,
 } from "./render/playerView";
 import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
-import { loadProps, updateProps } from "./render/props";
+import { loadProps, sceneryOf, updateProps } from "./render/props";
 import { createResultsPage } from "./render/results/resultsPage";
 import { createShieldSpheres } from "./render/shieldSphere";
 import { sideName, sideOfTeam } from "./render/sides";
@@ -604,6 +604,9 @@ const drawWindow = createDrawWindow();
 /** The prop emitters' cells, ground and whether the eye draws them (audio/cues.ts). */
 let emitterCellZ = new Int16Array(0);
 let emitterCellX = new Int16Array(0);
+/** Where each hangs (its Prop's box's placed centre, render/emitterProps.ts). */
+let emitterAtX = new Float32Array(0);
+let emitterAtY = new Float32Array(0);
 let emitterHeight = new Float32Array(0);
 let emitterDrawn = new Uint8Array(0);
 /** A leaf of the block's visibility quadtree is 4 m square: its half diagonal. */
@@ -624,10 +627,9 @@ function drawnEmitters(): Uint8Array | undefined {
   const data = FCOP_ARENA_AUDIO[map.id] ?? FCOP_ARENA_AUDIO[FALLBACK_SOUND_ARENA];
   const emitters = data?.emitters ?? [];
   for (let k = 0; k < emitterDrawn.length && k < emitters.length; k++) {
-    const e = emitters[k];
     emitterDrawn[k] =
       inDrawWindow(drawWindow, emitterCellZ[k], emitterCellX[k]) &&
-      inView(m, e.x, emitterHeight[k], e.z, EMITTER_LEAF_RADIUS)
+      inView(m, emitterAtX[k], emitterHeight[k], emitterAtY[k], EMITTER_LEAF_RADIUS)
         ? 1
         : 0;
   }
@@ -658,9 +660,18 @@ function beginMatchSounds(): void {
   sounds.begin(data, FCOP_PLAYER_WEAPONS, map.lifts, map.id);
   // Where each prop emitter hangs, for `snd_emit_draw_block`'s claim.
   const n = data.emitters.length;
-  emitterCellZ = Int16Array.from(data.emitters, (e) => cellZOf(e.x));
-  emitterCellX = Int16Array.from(data.emitters, (e) => cellXOf(e.z));
-  emitterHeight = Float32Array.from(data.emitters, (e) => sampleHeight(map, e.x, e.z));
+  const scenery = sceneryOf(map.id);
+  const hung = new Float32Array(2);
+  emitterAtX = new Float32Array(n);
+  emitterAtY = new Float32Array(n);
+  data.emitters.forEach((e, k) => {
+    emitterHungAt(scenery, e.x, e.z, e.sound, hung);
+    emitterAtX[k] = hung[0];
+    emitterAtY[k] = hung[1];
+  });
+  emitterCellZ = Int16Array.from(emitterAtX, (x) => cellZOf(x));
+  emitterCellX = Int16Array.from(emitterAtY, (y) => cellXOf(y));
+  emitterHeight = Float32Array.from(emitterAtX, (x, k) => sampleHeight(map, x, emitterAtY[k]));
   emitterDrawn = new Uint8Array(n);
   // The effects' trail texels are the arena's own tex10 (render/fx.ts).
   fx.begin(map.id);

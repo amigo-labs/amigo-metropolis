@@ -11,7 +11,7 @@
 // DCSQuad as `pyro_spawn` does (RE world/pyro_chain.c), their random angles
 // drawn from `game_rand` seeded 0x457 (a stand-in for the original's wall
 // clock). Read from the mission bytes, the outposts' scripts, pa_models.json
-// and the object and decal manifests at RE 04711ef.
+// and the object and decal manifests at RE ce4203f.
 
 /** When a placement stands: always, until its outpost is claimed, or from then on. */
 export type SceneryShow = "always" | "unclaimed" | "claimed";
@@ -86,12 +86,15 @@ export interface SceneryProp {
 }
 
 /**
- * A Prop model: its frame count, and whether it is drawn — every model the
- * RE exports with faces or camera-facing facers (render/facers.ts).
+ * A Prop model: its frame count, whether it is drawn — every model the
+ * RE exports with faces or camera-facing facers (render/facers.ts) — and the
+ * centre of its 3DBB box 0 of frame 0, metres in the glb's frame: the point
+ * the Prop hangs in the cell of, once placed (render/emitterProps.ts).
  */
 export interface SceneryPropModel {
   readonly frames: number;
   readonly drawn: boolean;
+  readonly centre: readonly [number, number, number];
 }
 
 /**
@@ -2087,13 +2090,13 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       },
     ],
     propModels: {
-      55: { frames: 1, drawn: true },
-      61: { frames: 1, drawn: true },
-      62: { frames: 1, drawn: true },
-      63: { frames: 1, drawn: true },
-      64: { frames: 1, drawn: true },
-      65: { frames: 1, drawn: true },
-      66: { frames: 1, drawn: true },
+      55: { frames: 1, drawn: true, centre: [0, 0.3672, 0] },
+      61: { frames: 1, drawn: true, centre: [0, 0.0996, 0] },
+      62: { frames: 1, drawn: true, centre: [0, -0.4258, 1.2207] },
+      63: { frames: 1, drawn: true, centre: [0, 1.0996, 1.043] },
+      64: { frames: 1, drawn: true, centre: [0, 2.0156, 2.0781] },
+      65: { frames: 1, drawn: true, centre: [0, 1.5, 0] },
+      66: { frames: 1, drawn: true, centre: [0, 1.8496, 0] },
     },
     quads: [],
     decals: {},
@@ -3800,33 +3803,33 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       },
     ],
     propModels: {
-      44: { frames: 1, drawn: true },
-      45: { frames: 1, drawn: true },
-      46: { frames: 1, drawn: true },
-      47: { frames: 1, drawn: true },
-      48: { frames: 1, drawn: true },
-      60: { frames: 1, drawn: true },
-      61: { frames: 15, drawn: true },
-      62: { frames: 1, drawn: true },
-      63: { frames: 1, drawn: true },
-      65: { frames: 1, drawn: true },
-      66: { frames: 1, drawn: true },
-      67: { frames: 1, drawn: true },
-      68: { frames: 1, drawn: true },
-      69: { frames: 1, drawn: true },
-      70: { frames: 1, drawn: true },
-      71: { frames: 1, drawn: true },
-      72: { frames: 1, drawn: true },
-      73: { frames: 1, drawn: true },
-      74: { frames: 1, drawn: true },
-      75: { frames: 1, drawn: true },
-      76: { frames: 1, drawn: true },
-      77: { frames: 1, drawn: true },
-      79: { frames: 1, drawn: true },
-      80: { frames: 1, drawn: true },
-      81: { frames: 1, drawn: true },
-      82: { frames: 1, drawn: true },
-      83: { frames: 10, drawn: true },
+      44: { frames: 1, drawn: true, centre: [0, 1, 0] },
+      45: { frames: 1, drawn: true, centre: [0, 0.1758, 0.9316] },
+      46: { frames: 1, drawn: true, centre: [0, -0.6562, 0.2969] },
+      47: { frames: 1, drawn: true, centre: [0, 0.6992, 0] },
+      48: { frames: 1, drawn: true, centre: [0, 0, 1.0117] },
+      60: { frames: 1, drawn: true, centre: [0, -0.4473, 1.2539] },
+      61: { frames: 15, drawn: true, centre: [0, 1.6523, 0.0176] },
+      62: { frames: 1, drawn: true, centre: [0, 1, 0] },
+      63: { frames: 1, drawn: true, centre: [0, 0.4141, 0.0039] },
+      65: { frames: 1, drawn: true, centre: [-1.9746, 0.0586, -0.0352] },
+      66: { frames: 1, drawn: true, centre: [0, -0.7012, 1.8457] },
+      67: { frames: 1, drawn: true, centre: [0, 0.3965, 0] },
+      68: { frames: 1, drawn: true, centre: [0.5, 0.5, 0] },
+      69: { frames: 1, drawn: true, centre: [0.5, 0.5, 0] },
+      70: { frames: 1, drawn: true, centre: [-1.1484, 0.4531, 0] },
+      71: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      72: { frames: 1, drawn: true, centre: [0, 0.2012, 0] },
+      73: { frames: 1, drawn: true, centre: [0, 0.5508, 0] },
+      74: { frames: 1, drawn: true, centre: [0, 0, 1.0117] },
+      75: { frames: 1, drawn: true, centre: [0, 0.375, 0.0098] },
+      76: { frames: 1, drawn: true, centre: [-0.0039, 0.3359, 0.0645] },
+      77: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      79: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      80: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      81: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      82: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      83: { frames: 10, drawn: true, centre: [0, 0.5059, 0] },
     },
     quads: [
       {
@@ -6810,33 +6813,33 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       },
     ],
     propModels: {
-      43: { frames: 1, drawn: true },
-      44: { frames: 1, drawn: true },
-      45: { frames: 1, drawn: true },
-      46: { frames: 1, drawn: true },
-      47: { frames: 1, drawn: true },
-      59: { frames: 1, drawn: true },
-      60: { frames: 15, drawn: true },
-      61: { frames: 1, drawn: true },
-      62: { frames: 1, drawn: true },
-      64: { frames: 1, drawn: true },
-      65: { frames: 1, drawn: true },
-      66: { frames: 1, drawn: true },
-      67: { frames: 1, drawn: true },
-      68: { frames: 1, drawn: true },
-      69: { frames: 1, drawn: true },
-      70: { frames: 1, drawn: true },
-      71: { frames: 1, drawn: true },
-      72: { frames: 1, drawn: true },
-      73: { frames: 1, drawn: true },
-      74: { frames: 1, drawn: true },
-      75: { frames: 1, drawn: true },
-      76: { frames: 1, drawn: true },
-      78: { frames: 1, drawn: true },
-      79: { frames: 1, drawn: true },
-      80: { frames: 1, drawn: true },
-      81: { frames: 1, drawn: true },
-      82: { frames: 10, drawn: true },
+      43: { frames: 1, drawn: true, centre: [0, 1, 0] },
+      44: { frames: 1, drawn: true, centre: [0, 0.1758, 0.9316] },
+      45: { frames: 1, drawn: true, centre: [0, -0.6562, 0.2969] },
+      46: { frames: 1, drawn: true, centre: [0, 0.6992, 0] },
+      47: { frames: 1, drawn: true, centre: [0, 0, 1.0117] },
+      59: { frames: 1, drawn: true, centre: [0, -0.4473, 1.2539] },
+      60: { frames: 15, drawn: true, centre: [0, 1.6523, 0.0176] },
+      61: { frames: 1, drawn: true, centre: [0, 1, 0] },
+      62: { frames: 1, drawn: true, centre: [0, 0.4141, 0.0039] },
+      64: { frames: 1, drawn: true, centre: [-1.9746, 0.0586, -0.0352] },
+      65: { frames: 1, drawn: true, centre: [0, -0.7012, 1.8457] },
+      66: { frames: 1, drawn: true, centre: [0, 0.3965, 0] },
+      67: { frames: 1, drawn: true, centre: [0.5, 0.5, 0] },
+      68: { frames: 1, drawn: true, centre: [0.5, 0.5, 0] },
+      69: { frames: 1, drawn: true, centre: [-1.1484, 0.4531, 0] },
+      70: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      71: { frames: 1, drawn: true, centre: [0, 0.2012, 0] },
+      72: { frames: 1, drawn: true, centre: [0, 0.5508, 0] },
+      73: { frames: 1, drawn: true, centre: [0, 0, 1.0117] },
+      74: { frames: 1, drawn: true, centre: [0, 0.375, 0.0098] },
+      75: { frames: 1, drawn: true, centre: [-0.0039, 0.3359, 0.0645] },
+      76: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      78: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      79: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      80: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      81: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
+      82: { frames: 10, drawn: true, centre: [0, 0.5059, 0] },
     },
     quads: [
       {
@@ -10607,16 +10610,16 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       },
     ],
     propModels: {
-      61: { frames: 9, drawn: true },
-      62: { frames: 9, drawn: true },
-      63: { frames: 1, drawn: true },
-      64: { frames: 1, drawn: true },
-      65: { frames: 1, drawn: true },
-      66: { frames: 1, drawn: true },
-      67: { frames: 1, drawn: true },
-      68: { frames: 1, drawn: true },
-      69: { frames: 1, drawn: true },
-      70: { frames: 1, drawn: true },
+      61: { frames: 9, drawn: true, centre: [0, 0, 4] },
+      62: { frames: 9, drawn: true, centre: [0, 0, 4] },
+      63: { frames: 1, drawn: true, centre: [0, 1.4004, 0] },
+      64: { frames: 1, drawn: true, centre: [0, 1.1289, 0] },
+      65: { frames: 1, drawn: true, centre: [0, 1.1992, 0] },
+      66: { frames: 1, drawn: true, centre: [0.2656, 0.6152, -0.0937] },
+      67: { frames: 1, drawn: true, centre: [0, -0.9062, 0.2969] },
+      68: { frames: 1, drawn: true, centre: [0.207, -1.0195, 0.2969] },
+      69: { frames: 1, drawn: true, centre: [0, -1.0176, 0.1934] },
+      70: { frames: 1, drawn: true, centre: [0, 1.4688, -0.7324] },
     },
     quads: [
       {

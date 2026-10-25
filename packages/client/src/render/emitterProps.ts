@@ -27,8 +27,9 @@
 //
 // Only the Props hung in the viewer's 5 x 5 block of cells are drawn
 // (`setEmitterWindow`, render/drawWindow.ts): the others stand at a zero
-// matrix until the block reaches them. A Prop hangs in the cell of its model's
-// origin (the original's of its box's placed centre, a few centimetres off).
+// matrix until the block reaches them. A Prop hangs in the cell of its box's
+// placed centre (`snd_emit_build` 0x0042f942..0x0042fa88), not its origin:
+// Hk's lamps (61 / 62) reach 4 m out from their poles (`emitterCentre`).
 // The sound a Prop plays is the audio's (audio/cues.ts).
 //
 // The camera-facing facers (stars, billboards, lines) of a model draw from its
@@ -95,6 +96,63 @@ function rad(raw: number): number {
 export function emitterOrientation(p: SceneryProp): number[][] {
   const m = mul(mul(mz(rad(p.roll)), mx(rad(p.pitch))), my(rad(p.yaw)));
   return m.map((row, r) => row.map((e) => (e * p.scale[r]) / SCALE_ONE));
+}
+
+/**
+ * Where `snd_emit_build` hangs Prop `p` (0x0042f942..0x0042fa88): its model's
+ * box centre (`centre`, the glb's frame) through the orientation the build
+ * left — for a spinning Prop the y row and column flattened first
+ * (0x0042f92b..0x0042f93b) — plus the origin. Into `out`: the sim frame's x, y.
+ */
+export function emitterCentre(
+  p: SceneryProp,
+  centre: readonly [number, number, number],
+  out: Float32Array,
+): Float32Array {
+  const m = emitterOrientation(p);
+  if (p.spin !== 0) {
+    m[1] = [0, 1, 0];
+    m[0][1] = 0;
+    m[2][1] = 0;
+  }
+  // The Cobj's x is the glb's negated; the game's (x, z) is the sim's (y, x).
+  const cx = -centre[0];
+  const cy = centre[1];
+  const cz = centre[2];
+  out[0] = p.x + cx * m[0][2] + cy * m[1][2] + cz * m[2][2];
+  out[1] = p.y + cx * m[0][0] + cy * m[1][0] + cz * m[2][0];
+  return out;
+}
+
+/**
+ * Where the Prop that stands at sim (x, y) and plays `sound` hangs (its box's
+ * placed centre), into `out`; (x, y) itself when `scenery` has no such Prop.
+ * For the audio's emitter table, which lists the Props that sound by origin.
+ */
+export function emitterHungAt(
+  scenery: ArenaScenery | null,
+  x: number,
+  y: number,
+  sound: number,
+  out: Float32Array,
+): Float32Array {
+  out[0] = x;
+  out[1] = y;
+  for (const p of scenery?.props ?? []) {
+    if (p.sound !== sound || Math.abs(p.x - x) > 0.01 || Math.abs(p.y - y) > 0.01) continue;
+    const c = scenery?.propModels[p.cobj]?.centre;
+    if (c) emitterCentre(p, c, out);
+    break;
+  }
+  return out;
+}
+
+/** The cell a Prop hangs in, by its box's placed centre: [cellZ, cellX]. */
+export function emitterCell(scenery: ArenaScenery, p: SceneryProp): [number, number] {
+  const c = scenery.propModels[p.cobj]?.centre;
+  if (!c) return [cellZOf(p.x), cellXOf(p.y)];
+  const at = emitterCentre(p, c, new Float32Array(2));
+  return [cellZOf(at[0]), cellXOf(at[1])];
 }
 
 /**
@@ -277,8 +335,8 @@ export function loadEmitters(
           props,
           frames,
           spinning: Int16Array.from(spinning),
-          cellZ: Int16Array.from(props, (p) => cellZOf(p.x)),
-          cellX: Int16Array.from(props, (p) => cellXOf(p.y)),
+          cellZ: Int16Array.from(props, (p) => emitterCell(scenery, p)[0]),
+          cellX: Int16Array.from(props, (p) => emitterCell(scenery, p)[1]),
           shown: new Uint8Array(props.length).fill(1),
           rest: Float32Array.from(mesh.instanceMatrix.array),
           animated,
