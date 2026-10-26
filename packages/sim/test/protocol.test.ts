@@ -215,9 +215,13 @@ describe("protocol codec", () => {
     expect(enc({ id: LOBBY_NAME, name: "x".repeat(LOBBY_NAME_BYTES + 1) })).toThrow(/long/);
     expect(enc({ id: LOBBY_NAME, name: "\u4e16" })).toThrow(/single-byte/);
     expect(enc({ id: LOBBY_P1_SELECTION, selection: 3 })).toThrow(/selection/);
-    // A code in the wrong slot's nibble, or past the slot's five entries.
+    // A code of another slot, or none of the slot's five original codes
+    // (0x04 and 0x11 are the holes 0x0040c2d0's table leaves; 0x05 and 0x15
+    // are codes, F7).
     expect(enc({ id: LOBBY_P1_LOADOUT, codes: [0x10, 0x10, 0x20] })).toThrow(/code/);
-    expect(enc({ id: LOBBY_P1_LOADOUT, codes: [0x00, 0x15, 0x20] })).toThrow(/code/);
+    expect(enc({ id: LOBBY_P1_LOADOUT, codes: [0x04, 0x10, 0x20] })).toThrow(/code/);
+    expect(enc({ id: LOBBY_P1_LOADOUT, codes: [0x00, 0x11, 0x20] })).toThrow(/code/);
+    expect(enc({ id: LOBBY_P1_LOADOUT, codes: [0x05, 0x15, 0x24] })).not.toThrow();
     expect(enc({ id: LOBBY_SETUP_CHOICE, index: 2, value: 0 })).toThrow(/index/);
     expect(() => decodeMessage(new Uint8Array([MSG_LOBBY, 0x17, 0]))).toThrow(/lobby message/);
     expect(() => decodeMessage(new Uint8Array([MSG_LOBBY, 0x10, 2]))).toThrow(/ready/);
@@ -240,7 +244,7 @@ describe("protocol codec", () => {
   });
 
   it("carries one player's input as a u16 LE word (since protocol 2)", () => {
-    expect(PROTOCOL_VERSION).toBe(4);
+    expect(PROTOCOL_VERSION).toBe(5);
     expect(PLAYER_INPUT_BYTES).toBe(2);
     const bytes = encodeMessage({ type: MSG_INPUT, tick: 900, input: INPUT_A });
     // tag(1) + tick(4) + buttons(2): 0x8410 is 10 84.

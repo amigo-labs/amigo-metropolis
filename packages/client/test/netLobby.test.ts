@@ -17,7 +17,9 @@ import {
   DIFFICULTY_NORMAL,
   decodeMessage,
   encodeMessage,
+  GUNS,
   getMapById,
+  HEAVIES,
   hash,
   LOBBY_EXTRA_WEAPONS,
   LOBBY_NAME,
@@ -32,10 +34,11 @@ import {
   MSG_LOBBY,
   type PlayerInput,
   SIM_VERSION,
+  SPECIALS,
   step,
 } from "@metropolis/sim";
 import { FE_PA_MAPS } from "../src/menu/frontend/frontendData.generated";
-import { loadoutOfEntries } from "../src/menu/frontend/model";
+import { entryWeapon, loadoutOfEntries } from "../src/menu/frontend/model";
 import {
   DEFAULT_NAMES,
   entriesOfCodes,
@@ -218,14 +221,14 @@ describe("the networked lobby through the relay", () => {
       { id: LOBBY_SETUP_CHOICE, index: 0, value: 4 },
       { id: LOBBY_NAME, name: "Ryan" },
       { id: LOBBY_P1_SELECTION, selection: DIFFICULTY_HARD },
-      { id: LOBBY_P1_LOADOUT, codes: [0x01, 0x12, 0x20] },
+      { id: LOBBY_P1_LOADOUT, codes: [0x02, 0x13, 0x20] },
       { id: LOBBY_EXTRA_WEAPONS, mask: 0 },
     ]);
     // The joiner's, as the ack's arm sends it.
     expect(hub.lobbyTo.h).toEqual([
       { id: LOBBY_NAME, name: "Jurgen" },
       { id: LOBBY_P2_SELECTION, selection: DIFFICULTY_EASY },
-      { id: LOBBY_P2_LOADOUT, codes: [0x03, 0x10, 0x21] },
+      { id: LOBBY_P2_LOADOUT, codes: [0x03, 0x10, 0x22] },
     ]);
   });
 
@@ -433,8 +436,29 @@ describe("the lobby's wire values", () => {
     expect(DEFAULT_NAMES).toEqual(["Player1", "Player2"]);
   });
 
-  it("a loadout's ids are slot << 4 | entry", () => {
+  it("a loadout's ids are the original's codes, not slot << 4 | entry (F7)", () => {
     expect(loadoutCodes([0, 0, 0])).toEqual([0x00, 0x10, 0x20]);
-    expect(entriesOfCodes([0x03, 0x12, 0x24])).toEqual([3, 2, 4]);
+    // frontend_commit_loadout's table (0x0040c2d0): entries 1 and 2 swap in
+    // the gun and special menus, the heavy menu skips 0x11.
+    const table = [0, 1, 2, 3, 4].map((e) => loadoutCodes([e, e, e]));
+    expect(table).toEqual([
+      [0x00, 0x10, 0x20],
+      [0x02, 0x12, 0x22],
+      [0x01, 0x13, 0x21],
+      [0x03, 0x14, 0x23],
+      [0x05, 0x15, 0x24],
+    ]);
+    for (let e = 0; e < 5; e++) expect(entriesOfCodes(loadoutCodes([e, e, e]))).toEqual([e, e, e]);
+    expect(entriesOfCodes([0x03, 0x13, 0x24])).toEqual([3, 2, 4]);
+    // Each code names the weapon the entry's picture does in the sim's
+    // catalogue, whose `code` is the type-99 key: the menu's by-name map and
+    // the wire's code agree on all fifteen.
+    const lists = [GUNS, HEAVIES, SPECIALS];
+    for (let slot = 0; slot < 3; slot++) {
+      for (let e = 0; e < 5; e++) {
+        const code = loadoutCodes([e, e, e])[slot];
+        expect(lists[slot].find((w) => w.code === code)?.name).toBe(entryWeapon(slot, e));
+      }
+    }
   });
 });

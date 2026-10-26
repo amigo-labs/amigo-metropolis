@@ -103,7 +103,7 @@ defuses the input delay then.
 
 ---
 
-### The networked lobby (protocol 4)
+### The networked lobby (since protocol 4)
 
 A match does not start when the second player arrives. As in the original's
 networked Precinct Assault (RE `src/game/frontend/input.c`, 0x00401990, the
@@ -114,8 +114,11 @@ both press START, and the match begins when both ready bits are set.
   slot unread, P2P sends them on the control channel) carry the original's ids:
   setup choice `0x09` (index 0, the host's map row), name `0x0a` (15
   single-byte characters; "Player1" / "Player2" until it arrives), selection
-  `0x0b` / `0x0c` (HARD / NORMAL / EASY), loadout `0x0d` / `0x0e` (three ids,
-  `slot << 4 | entry`), ready `0x10` / `0x15`. `0x20` is Metropolis' own: the
+  `0x0b` / `0x0c` (HARD / NORMAL / EASY), loadout `0x0d` / `0x0e` (three ids:
+  the original's codes, which `frontend_commit_loadout` 0x0040c2d0 looks a menu
+  entry up in -- 0, 2, 1, 3, 5 / 0x10, 0x12..0x15 / 0x20, 0x22, 0x21, 0x23,
+  0x24, the weapon catalogue's `code`; protocol 4 sent `slot << 4 | entry`,
+  `fcop-fidelity.md` F7), ready `0x10` / `0x15`. `0x20` is Metropolis' own: the
   host's extra-weapon switches (`fcop-fidelity.md` F23). Not carried, because
   Metropolis has none of them: the Crime War pick, the split-screen byte
   (`0x16`), the game mode (`0x17`). The original's hello / ack / refusal and
@@ -138,12 +141,14 @@ both press START, and the match begins when both ready bits are set.
   the match config and broadcasts `MSG_START` carrying it. Over P2P the host
   sends `MSG_START` itself. Both build their sim from those bytes; whatever
   the joiner did after the host decided changes nothing.
-- **Versions:** `PROTOCOL_VERSION` 4. `MatchConfig` carries each player's
+- **Versions:** `PROTOCOL_VERSION` 5 (5: the loadout messages carry the
+  original's codes; the bytes are laid out as in 4, but a code names another
+  weapon, so 4 and 5 must not meet). `MatchConfig` carries each player's
   loadout after the mapId and the extra-weapons mask. An older client's
   HELLO does not decode (its config is shorter); the relay reads its protocol
   byte (`peekProtocol`) and answers `ERR_VERSION_MISMATCH`, which the old
-  client reports as such. The P2P lobby DO refuses a create / join without
-  protocol 4 as `versionMismatch` before any signaling; a P2P peer refuses an
+  client reports as such. The P2P lobby DO refuses a create / join on another
+  protocol as `versionMismatch` before any signaling; a P2P peer refuses an
   undecodable old HELLO likewise. A fresh HELLO into a running room is
   `ERR_ROOM_FULL` (only REJOIN enters a match).
 - **Open:** the replay header (format 4) has no loadouts and no rules, so a

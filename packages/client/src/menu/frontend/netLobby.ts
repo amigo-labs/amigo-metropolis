@@ -53,7 +53,7 @@ import {
   type MatchConfig,
   SIM_VERSION,
 } from "@metropolis/sim";
-import { FE_PA_MAPS } from "./frontendData.generated";
+import { FE_LOADOUT, FE_PA_MAPS } from "./frontendData.generated";
 import { allowedEntries, loadoutOfEntries, PA_ROWS } from "./model";
 
 /** What carries the lobby: the relay's lockstep or the P2P control channel. */
@@ -106,14 +106,30 @@ export function lobbyName(raw: string): string {
   return out;
 }
 
-/** A column's entries as the original's ids, `slot << 4 | entry` (0x0040c1b0's defaults 0, 0x10, 0x20). */
+/**
+ * A column's entries as the original's ids: the code `frontend_commit_loadout`
+ * (0x0040c2d0) looks each entry up in (0x0040c1b0's defaults 0, 0x10, 0x20).
+ * Not `slot << 4 | entry`: the gun and special menus' entries 1 and 2 are
+ * codes 2 and 1, and the heavy menu skips 0x11 (fcop-fidelity.md F7).
+ */
 export function loadoutCodes(entries: readonly number[]): number[] {
-  return [0, 1, 2].map((slot) => (slot << 4) | (entries[slot] & 15));
+  return [0, 1, 2].map((slot) => {
+    const e = FE_LOADOUT.slots[slot].entries[entries[slot]] ?? FE_LOADOUT.slots[slot].entries[0];
+    return Number.parseInt(e.code, 16);
+  });
 }
 
-/** The ids back as entries. */
+/**
+ * The ids back as entries (`frontend_apply_loadout`, 0x0040bf80). A code the
+ * slot does not hold -- the protocol refuses one -- falls back on entry 0.
+ */
 export function entriesOfCodes(codes: readonly number[]): number[] {
-  return [0, 1, 2].map((slot) => codes[slot] & 15);
+  return [0, 1, 2].map((slot) => {
+    const e = FE_LOADOUT.slots[slot].entries.findIndex(
+      (x) => Number.parseInt(x.code, 16) === codes[slot],
+    );
+    return e < 0 ? 0 : e;
+  });
 }
 
 const SELECTION = [LOBBY_P1_SELECTION, LOBBY_P2_SELECTION] as const;
