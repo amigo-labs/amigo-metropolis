@@ -1521,4 +1521,23 @@
 //     1 m burst and the 6 m flat pulse. The trails and shells are hashed while
 //     any lives (appended). No golden fires the three: every hash holds,
 //     re-recorded for the header.
-export const SIM_VERSION = 105;
+// v106: the guns pitch as the original's (fcop-fidelity.md G12, I6).
+//     Every PA turret record carries flag byte 0x07, whose 0x02 the construct
+//     turns into TURRET_DF_PITCH (`turret_construct` 0x0041c222, turret.c
+//     874-877): the tick takes the elevation of its target's reference point
+//     over its own (the octagonal run, negated, `turret_tick`
+//     0x0041c5f8..0x0041c67e), clamps it to +-0x200 (an eighth of a turn) and
+//     turns it by the yaw's own 110 units a tick (0x0041c74f..0x0041c78c),
+//     levelling with no target (0x0041c687); `EntityStore.pitch`, hashed for
+//     live turrets. The gun stands on its base's point 0 and its round leaves
+//     from its model's point 0 through `math_matrix_from_angles(yaw, pitch, 0)`
+//     (`cact_weapon_discharge` 0x0044d98d; MapData.turretGuns from
+//     gen:pamodels' `turrets`), aimed and traced from there; it left 0.6 m ahead
+//     along the aim and 0.6 m up from the ground. The +-22.5° arc is the dot of
+//     the gun's row 2 with the aim in three dimensions (`discharge_arc_blocks`
+//     0x0044db71), for the turrets and for the Dreadnought's guns, which never
+//     pitch (mount byte 0 on all six arenas: no CACT_MOUNT_AIM_PITCH,
+//     0x004259d8) and so refuse an aim more than 22.5° above or below their
+//     level barrels; the arc was tested flat. Every golden that fights moves
+//     (02, 03, 04, 05, 07); golden-03's breach comes at 79.8 s (77.2 s).
+export const SIM_VERSION = 106;

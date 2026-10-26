@@ -266,7 +266,9 @@ forever as a debug render mode (`?render=greybox`).
   bounded exceptions to the one-mesh-per-archetype rule (the only ones: the X1
   is one mesh); still no `Object3D` tree, every matrix written straight into its
   slot. Each gun turns about its own origin on its point by the sim's gun
-  snapshot (`writeGunSnapshot`), between two ticks on the shortest arc.
+  snapshot (`writeGunSnapshot`), between two ticks on the shortest arc; a
+  turret's gun also pitches there by the same snapshot's turret row
+  (`GUN_SNAP_TURRET_PITCH`, `turretGunQuat`; the Dreadnought's guns never pitch).
 - **Team colour is a texture offset, not a tint** (`render/teamUv.ts`;
   fcop-fidelity.md G4). The original holds the art twice on a page and gives
   each actor an offset onto its side's half; the client adds it per instance to

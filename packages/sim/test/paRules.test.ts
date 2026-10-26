@@ -200,17 +200,19 @@ describe("the Juggernaut is the original Dreadnought", () => {
     const j = map.bases[0].juggernaut;
     if (!j) throw new Error("la-cantina must carry its Dreadnought");
     const id = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 0, j.x, j.y);
-    // Put the enemy avatar 5 m off, in the open by the Dreadnought's spawn.
+    // Put the enemy avatar 4 m ahead, in the open by the Dreadnought's spawn: far
+    // enough that the guns, which never pitch, see it inside their 22.5° arc
+    // (the arc is tested in three dimensions, discharge_arc_blocks).
     const foe = state.avatarId[1];
-    ent.posX[foe] = ent.posX[id] + 0.5;
-    ent.posY[foe] = ent.posY[id] + 0.5;
+    ent.posX[foe] = ent.posX[id] + 4;
+    ent.posY[foe] = ent.posY[id];
     ent.hp[foe] = 100000;
     let shots = 0;
     let damage = 0;
     // 601 engine units at 10 a tick, the reload clamping the leftover: 61 ticks.
     for (let t = 0; t < 61; t++) {
-      ent.posX[foe] = ent.posX[id] + 0.5;
-      ent.posY[foe] = ent.posY[id] + 0.5;
+      ent.posX[foe] = ent.posX[id] + 4;
+      ent.posY[foe] = ent.posY[id];
       step(state, idle);
       for (let i = 0; i < state.events.count; i++) {
         const o = i * EVENT_STRIDE;

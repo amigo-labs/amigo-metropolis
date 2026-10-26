@@ -61,7 +61,11 @@ import { createSim, step } from "../src/sim";
 // had written the bare lattice back over them), so player 0's tanks drive the
 // original's kerbed streets through to the gate and breach at 77.2 s; the mechs
 // go down 4 times.
-const BREACH_TICK_PIN = 2316;
+// 2217 at SIM_VERSION 106: the turrets pitch, fire from their gun's muzzle and
+// test their arc in three dimensions, and the Dreadnought's level guns refuse
+// what lies more than 22.5° below them (fcop-fidelity.md G12, I6); the fights
+// play differently and player 0's tank breaches at 79.8 s.
+const BREACH_TICK_PIN = 2394;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {
@@ -111,8 +115,8 @@ describe("golden-03-match beats", () => {
     expect(respawns[0]).toBeGreaterThanOrEqual(1);
     expect(respawns[1]).toBeGreaterThanOrEqual(1);
     expect(runnerDeaths).toBeGreaterThanOrEqual(3);
-    // The breach as recorded: player 0's tank at 77.2 s since SIM_VERSION 94
-    // (none from 84; the same side's at 82.8 s from 79).
+    // The breach as recorded: player 0's tank at 79.8 s since SIM_VERSION 106
+    // (77.2 s from 94; none from 84; the same side's at 82.8 s from 79).
     expect(breaches).toBe(BREACH_TICK_PIN < 0 ? 0 : 1);
     expect(breachTick).toBe(BREACH_TICK_PIN);
     expect(breachTeam).toBe(BREACH_TICK_PIN < 0 ? -1 : BREACH_TEAM_PIN);

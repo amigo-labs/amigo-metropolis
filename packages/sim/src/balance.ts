@@ -2181,6 +2181,12 @@ export const WORLD_KIND_GUIDED = 3;
  */
 export const SHOOTER_FRONT_ARC_COS = 0.9238795325112867;
 /**
+ * How far a turret's gun pitches up or down, the original's 12-bit angle units:
+ * an eighth of a turn (`turret_tick` 0x0041c664 / 0x0041c672, RE turret.h
+ * TURRET_PITCH_LIMIT; fcop-fidelity.md G12).
+ */
+export const TURRET_PITCH_LIMIT = 0x200;
+/**
  * A round refused by the arc or by the terrain line of sight is put back and the
  * fire clock is pushed back by `(rand - 0x38) & 0xff` engine units, 0-0.85 s.
  */

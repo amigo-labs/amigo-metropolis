@@ -156,7 +156,7 @@ import {
   placeDrawWindow,
   updateLeafView,
 } from "./render/drawWindow";
-import { lerpGunYaws } from "./render/dreadnoughtGuns";
+import { lerpGunYaws, lerpTurretPitch } from "./render/dreadnoughtGuns";
 import {
   emitterHungAt,
   emitterPropAt,
@@ -2112,6 +2112,12 @@ function renderEntities(alpha: number, simDtSec: number): void {
         const gunsPrev = hasPrev && snapPrev[po + 1] === archetype;
         lerpGunYaws(gunPrev, gunCurr, id, alpha, gunsPrev, gunYaws);
       }
+      // A turret's gun pitches on its base (fcop-fidelity.md G12), between the
+      // two ticks like its yaw.
+      const gunPitch =
+        archetype === ARCHETYPE.TURRET
+          ? lerpTurretPitch(gunPrev, gunCurr, id, alpha, hasPrev && snapPrev[po + 1] === archetype)
+          : 0;
       // Matrix, parts (a turret's base and a Dreadnought's guns) and team
       // colour (render/arenaUnits.ts).
       units.place(
@@ -2126,6 +2132,7 @@ function renderEntities(alpha: number, simDtSec: number): void {
         scratchQuat,
         scratchScale,
         gunYaws,
+        gunPitch,
       );
     }
   }

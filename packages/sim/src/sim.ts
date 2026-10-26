@@ -151,6 +151,7 @@ import {
   TRIGGER_WATCH_ENEMY_UNITS,
   TRIGGER_WATCH_OWN_AVATAR,
   TURRET_ALERT_COOLDOWN_TICKS,
+  TURRET_PITCH_LIMIT,
   UNIT_QUEUES,
   WALKER_AIR_DRAG,
   WALKER_DRAG,
@@ -253,6 +254,7 @@ import {
   type MapGunMount,
   type MapPoint,
   type MapTriggerVolume,
+  type MapTurretGun,
   type MapWeapon,
   type MapZone,
   resolveHeight,
@@ -863,6 +865,7 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   ent.weaponProfile[id] = state.map.turretParams[k];
   ent.radius[id] = state.map.radii.neutral[k];
   ent.refHeight[id] = state.map.refHeights.neutral[k];
+  ent.turretGun[id] = 1 + k;
   // The rest yaw. A turret's aimX/aimY are its shooter state (systemTargeting),
   // so they start at zero.
   if (state.map.turretYaw.length > 0) ent.yaw[id] = state.map.turretYaw[k];
@@ -3193,7 +3196,7 @@ function armRound(
 const ROUND_MAX_TICKS = 300;
 
 /** Scratch for leadAim (module scope: no allocation per shot). */
-const leadScratch = { x: 0, y: 0 };
+const leadScratch = { x: 0, y: 0, d: 0 };
 
 /**
  * Intercept lead (`cact_discharge_lead`): the horizontal direction from the
@@ -3246,6 +3249,7 @@ function leadAimFrom(
   if (len < 1e-6) return false;
   leadScratch.x = ax / len;
   leadScratch.y = ay / len;
+  leadScratch.d = len;
   return true;
 }
 
@@ -3697,31 +3701,120 @@ function shooterTurret(state: SimState, id: number, w: MapWeapon): void {
     return;
   }
   turretSlew(state, id, target, w);
-  if (!aimRound(state, id, target, w)) return;
-  const fx = cosLUT(ent.yaw[id]);
-  const fy = sinLUT(ent.yaw[id]);
-  const blocked = segmentBlocked(
-    state.map,
-    ent.posX[id],
-    ent.posY[id],
-    ent.posX[target],
-    ent.posY[target],
-  );
-  if (blocked || (w.arcCos > -1 && aimScratch.x * fx + aimScratch.y * fy < w.arcCos)) {
+  // The round leaves from the gun's muzzle, aimed from there (`cact_weapon_discharge`).
+  placeTurretMuzzle(state, id);
+  const mx = gunScratch.mx;
+  const my = gunScratch.my;
+  const mh = gunScratch.mh;
+  if (!aimFrom(state, mx, my, target, w)) return;
+  const blocked = segmentBlocked(state.map, mx, my, ent.posX[target], ent.posY[target]);
+  const dh = ent.height[target] + entityRefHeight(state, target) - mh;
+  const facing = arcDot(cosLUT(ent.yaw[id]), sinLUT(ent.yaw[id]), ent.pitch[id], dh);
+  if (blocked || (w.arcCos > -1 && facing < w.arcCos)) {
     // Put back: due again once the clock has run the retry delay back up.
     ent.aimY[id] = PHASE_INSIDE;
     ent.cooldownA[id] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
     return;
   }
-  fireRound(state, id, target, w);
+  const p = spawnStraightAt(
+    state,
+    ent.team[id],
+    mx,
+    my,
+    mh,
+    aimScratch.x,
+    aimScratch.y,
+    w.guided === 1 ? target : -1,
+    target,
+  );
+  if (p < 0) return;
+  armWorldRound(state, id, p, w);
+  ent.aimY[id] = PHASE_BETWEEN;
 }
 
-/** A turret's gun follows its target at the record's turn rate (instant without one). */
+/**
+ * A turret's gun follows its target at the record's turn rate (instant without
+ * one), in yaw and in pitch: every PA turret record sets flag 0x02, which the
+ * construct turns into TURRET_DF_PITCH 0x08 of +0xdf (`turret_construct`, RE
+ * turret.c 874-877), so the tick takes the target's elevation too
+ * (turretPitchWanted) and turns both axes by the same `turn_rate * dt`
+ * (0x0041c6fa / 0x0041c74f, `turret_turn`).
+ */
 function turretSlew(state: SimState, id: number, target: number, w: MapWeapon): void {
   const ent = state.ent;
   const bearing = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
   if (w.turnSpeed > 0) slewTo(ent, id, bearing, w.turnSpeed);
   else ent.yaw[id] = bearing;
+  turretPitchTo(ent, id, turretPitchWanted(state, id, target), w);
+}
+
+/** Turret `id`'s gun model (MapData.turretGuns): a neutral spot's, else the type-8 gun. */
+function turretGunOf(state: SimState, id: number): MapTurretGun {
+  const k = state.ent.turretGun[id];
+  const guns = state.map.turretGuns;
+  return k > 0 && k <= guns.neutral.length ? guns.neutral[k - 1] : guns.baseTurret;
+}
+
+/**
+ * The pitch turret `id`'s gun wants on `target` (`turret_tick`
+ * 0x0041c5f8..0x0041c67e): the elevation of the target's reference point over
+ * the gun's, the horizontal run the octagonal length of the world-unit delta
+ * (`turret_distance`, octagonalLength), negated before the shift — a target above
+ * is a negative pitch — and clamped to an eighth of a turn either way
+ * (TURRET_PITCH_LIMIT). The gun's reference point stands on its base's point 0
+ * (MapTurretGun.stand) plus its box's centre (entityRefHeight); the box's few
+ * centimetres across, and its turn with the pitch, are left out, as for every
+ * reference point (W5). `math_angle_of` is atan2Poly.
+ */
+function turretPitchWanted(state: SimState, id: number, target: number): number {
+  const ent = state.ent;
+  const dx = Math.trunc((ent.posX[target] - ent.posX[id]) * WU_PER_METRE);
+  const dz = Math.trunc((ent.posY[target] - ent.posY[id]) * WU_PER_METRE);
+  const gun = ent.height[id] + turretGunOf(state, id).stand + entityRefHeight(state, id);
+  const dy = (ent.height[target] + entityRefHeight(state, target) - gun) * WU_PER_METRE;
+  const want = Math.floor(-atan2Poly(dy, octagonalLength(dx, dz)) / ANGLE_UNIT);
+  if (want < -TURRET_PITCH_LIMIT) return -TURRET_PITCH_LIMIT;
+  if (want > TURRET_PITCH_LIMIT) return TURRET_PITCH_LIMIT;
+  return want;
+}
+
+/**
+ * Turns turret `id`'s pitch toward `want` by at most the yaw's own rate, in
+ * angle units (`turret_turn` on +0xf4, 0x0041c74b..0x0041c78c: the same
+ * `turn_rate * dt`, never past it; within +-0x200 the 12-bit fold never wraps).
+ */
+function turretPitchTo(ent: EntityStore, id: number, want: number, w: MapWeapon): void {
+  const now = ent.pitch[id];
+  if (now === want) return;
+  if (w.turnSpeed <= 0) {
+    ent.pitch[id] = want;
+    return;
+  }
+  const rate = Math.floor(w.turnSpeed / ANGLE_UNIT + 0.5);
+  const d = want - now;
+  ent.pitch[id] = d > rate ? now + rate : d < -rate ? now - rate : want;
+}
+
+/**
+ * Places turret `id`'s muzzle in the world into gunScratch.mx / my / mh: its gun
+ * model's point 0 (MapTurretGun) through `math_matrix_from_angles(yaw, pitch,
+ * 0)` — the pitch first, (y cos p - z sin p) up and (y sin p + z cos p) ahead,
+ * then the yaw, glb x across as the Dreadnought's muzzle (placeGun) — from the
+ * gun's position on its base's point 0 (`cact_weapon_discharge` 0x0044d98d).
+ */
+function placeTurretMuzzle(state: SimState, id: number): void {
+  const ent = state.ent;
+  const gun = turretGunOf(state, id);
+  const p = ent.pitch[id];
+  const cp = cosUnits(p);
+  const sp = sinUnits(p);
+  const up = gun.my * cp - gun.mz * sp;
+  const ahead = gun.my * sp + gun.mz * cp;
+  const c = cosLUT(ent.yaw[id]);
+  const s = sinLUT(ent.yaw[id]);
+  gunScratch.mx = ent.posX[id] + ahead * c + gun.mx * s;
+  gunScratch.my = ent.posY[id] + ahead * s - gun.mx * c;
+  gunScratch.mh = ent.height[id] + gun.stand + up;
 }
 
 /**
@@ -3738,6 +3831,8 @@ function turretRest(ent: EntityStore, id: number, w: MapWeapon): void {
   const rest = ent.restYaw[id];
   if (w.turnSpeed > 0) slewTo(ent, id, rest, w.turnSpeed);
   else ent.yaw[id] = rest;
+  // And the pitch back to level (0x0041c687: `xor eax, eax`).
+  turretPitchTo(ent, id, 0, w);
 }
 
 /**
@@ -3830,8 +3925,11 @@ function faceTarget(ent: EntityStore, id: number, target: number): void {
   ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
 }
 
-/** Scratch: the aim aimRound computed (module scope, no allocation per shot). */
-const aimScratch = { x: 0, y: 0 };
+/**
+ * Scratch: the aim aimRound computed, its horizontal unit vector and the
+ * horizontal distance to the point aimed at (module scope, no allocation per shot).
+ */
+const aimScratch = { x: 0, y: 0, d: 0 };
 
 /**
  * The round's horizontal aim at `target`: with an intercept lead for a lead-aimed
@@ -3839,19 +3937,7 @@ const aimScratch = { x: 0, y: 0 };
  * stands on the shooter.
  */
 function aimRound(state: SimState, id: number, target: number, w: MapWeapon): boolean {
-  if (w.lead === 1 && leadAim(state, id, target, w.speed)) {
-    aimScratch.x = leadScratch.x;
-    aimScratch.y = leadScratch.y;
-    return true;
-  }
-  const ent = state.ent;
-  const dx = ent.posX[target] - ent.posX[id];
-  const dy = ent.posY[target] - ent.posY[id];
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 1e-6) return false;
-  aimScratch.x = dx / len;
-  aimScratch.y = dy / len;
-  return true;
+  return aimFrom(state, state.ent.posX[id], state.ent.posY[id], target, w);
 }
 
 /**
@@ -4037,7 +4123,10 @@ function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
       ent.posX[target],
       ent.posY[target],
     );
-    if (blocked || aimScratch.x * cosLUT(yaw) + aimScratch.y * sinLUT(yaw) < w.arcCos) {
+    // Its gun never pitches (no mount sets CACT_MOUNT_AIM_PITCH; I6), so the arc
+    // is tested against a level barrel.
+    const dh = ent.height[target] + entityRefHeight(state, target) - gunScratch.mh;
+    if (blocked || arcDot(cosLUT(yaw), sinLUT(yaw), 0, dh) < w.arcCos) {
       state.gunPhase[k] = PHASE_INSIDE;
       state.gunClock[k] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
       continue;
@@ -4082,6 +4171,7 @@ function aimFrom(state: SimState, x: number, y: number, target: number, w: MapWe
   if (w.lead === 1 && leadAimFrom(state, x, y, target, w.speed)) {
     aimScratch.x = leadScratch.x;
     aimScratch.y = leadScratch.y;
+    aimScratch.d = leadScratch.d;
     return true;
   }
   const ent = state.ent;
@@ -4091,7 +4181,27 @@ function aimFrom(state: SimState, x: number, y: number, target: number, w: MapWe
   if (len < 1e-6) return false;
   aimScratch.x = dx / len;
   aimScratch.y = dy / len;
+  aimScratch.d = len;
   return true;
+}
+
+/**
+ * The firing arc's dot in three dimensions (`discharge_arc_blocks` 0x0044db71:
+ * row 2 of the gun's matrix dotted with the aim, the unit vector from the
+ * muzzle to the point aimed at, `discharge_aim_at` 0x0044daab or the lead's;
+ * fcop-fidelity.md G12). The gun's row 2 is `math_matrix_from_angles(yaw,
+ * pitch, 0)`'s, (cos p cos yaw, cos p sin yaw) across and -sin p up, `pitch` in
+ * the original's 12-bit units and sign; the aim is aimScratch's horizontal unit
+ * over its distance `aimScratch.d` and `dh` up. So a level gun (a Dreadnought's,
+ * pitch 0) refuses an aim more than 22.5° above or below it however well it is
+ * turned, and a turret's gun, which pitches, one beyond its pitch's reach.
+ */
+function arcDot(fx: number, fy: number, pitch: number, dh: number): number {
+  const d = aimScratch.d;
+  const len = Math.sqrt(d * d + dh * dh);
+  if (len < 1e-6) return 1;
+  const across = (aimScratch.x * fx + aimScratch.y * fy) * d;
+  return (across * cosUnits(pitch) - dh * sinUnits(pitch)) / len;
 }
 
 /** Phase 1 dummy-turret targeting: nearest VISIBLE enemy avatar in range. */
@@ -6289,6 +6399,11 @@ export function hash(state: SimState): number {
   // Appended at SIM_VERSION 105: the sustained weapons' live trails and shells
   // (sustain.ts); nothing while none is live.
   h = hashSustain(state, h);
+  // Appended at SIM_VERSION 106, every map: each live turret gun's pitch.
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.TURRET) continue;
+    h = fnv1aU32(h, ent.pitch[id] & 0xffff);
+  }
   return h;
 }
 
@@ -6418,13 +6533,28 @@ export function writeLiftSnapshot(state: SimState, out: Float32Array): void {
  */
 export const GUN_SNAP_STRIDE = DREADNOUGHT_GUNS + 1;
 export const GUN_SNAP_HULL_FRAME = DREADNOUGHT_GUNS;
+/**
+ * A turret's row of the same snapshot (fcop-fidelity.md G12): at `id *
+ * GUN_SNAP_STRIDE + GUN_SNAP_TURRET_PITCH` its gun's elevation, radians,
+ * positive raising the muzzle (EntityStore.pitch, the original's sign negated),
+ * about the gun's own origin on its base's point 0. Written for live turrets.
+ */
+export const GUN_SNAP_TURRET_PITCH = 0;
 export const GUN_SNAPSHOT_LEN = MAX_ENTITIES * GUN_SNAP_STRIDE;
 
-/** Writes each live Juggernaut's gun yaws and hull frame into `out` (length GUN_SNAPSHOT_LEN). */
+/**
+ * Writes each live Juggernaut's gun yaws and hull frame, and each live turret's
+ * gun pitch, into `out` (length GUN_SNAPSHOT_LEN).
+ */
 export function writeGunSnapshot(state: SimState, out: Float32Array): void {
   const ent = state.ent;
   for (let id = 0; id < ent.high; id++) {
-    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.JUGGERNAUT) continue;
+    if (!ent.alive[id]) continue;
+    if (ent.archetype[id] === ARCHETYPE.TURRET) {
+      out[id * GUN_SNAP_STRIDE + GUN_SNAP_TURRET_PITCH] = -ent.pitch[id] * ANGLE_UNIT;
+      continue;
+    }
+    if (ent.archetype[id] !== ARCHETYPE.JUGGERNAUT) continue;
     const o = id * GUN_SNAP_STRIDE;
     for (let g = 0; g < DREADNOUGHT_GUNS; g++) {
       out[o + g] = gunYawRadians(state.gunYaw[id * DREADNOUGHT_GUNS + g]);

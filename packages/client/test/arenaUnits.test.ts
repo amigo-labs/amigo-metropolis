@@ -15,6 +15,7 @@ import {
   gunPointTable,
   restKey,
   spotKey,
+  turretGunQuat,
   turretSpotsOf,
 } from "../src/render/arenaUnits";
 import { ARENA_UNITS, UNIT_MODEL_FILES } from "../src/render/arenaUnits.generated";
@@ -437,6 +438,38 @@ describe("the Dreadnought's guns on their hull points", () => {
     expect(p0.x).toBeCloseTo(0.283203, 6);
     expect(p0.y).toBeCloseTo(0.486328, 6);
     expect(p0.z).toBeCloseTo(0.267578, 6);
+  });
+});
+
+describe("a turret's gun pitches on its base (fcop-fidelity.md G12)", () => {
+  test("its muzzle lands where the sim fires the round from", () => {
+    // The sim's muzzle (sim.ts placeTurretMuzzle): the gun model's point 0
+    // through math_matrix_from_angles(yaw, pitch, 0), pitch p in the original's
+    // sign (negative up) — up' = y cos p - z sin p, ahead' = y sin p + z cos p —
+    // then across the yaw, glb x along (sin yaw, -cos yaw); here the drawn one,
+    // the entity's turn then turretGunQuat about the gun's own origin.
+    const gun = getMapById("la-cantina").turretGuns.baseTurret;
+    const muzzle = [gun.mx, gun.my, gun.mz] as const;
+    for (const yaw of [0, 0.7, -2.1]) {
+      for (const elev of [0, 0.4, -0.6]) {
+        const p = -elev;
+        const up = gun.my * Math.cos(p) - gun.mz * Math.sin(p);
+        const ahead = gun.my * Math.sin(p) + gun.mz * Math.cos(p);
+        const simX = ahead * Math.cos(yaw) + gun.mx * Math.sin(yaw);
+        const simY = ahead * Math.sin(yaw) - gun.mx * Math.cos(yaw);
+        const entity = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
+        const q = turretGunQuat(entity, elev, new THREE.Quaternion());
+        const drawn = bakedPoint(muzzle, new THREE.Vector3()).applyQuaternion(q);
+        expect(drawn.x).toBeCloseTo(simX, 9);
+        expect(drawn.y).toBeCloseTo(up, 9);
+        expect(drawn.z).toBeCloseTo(simY, 9);
+      }
+    }
+    // A positive elevation raises the barrel's forward (baked +x).
+    const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(
+      turretGunQuat(new THREE.Quaternion(), 0.3, new THREE.Quaternion()),
+    );
+    expect(fwd.y).toBeCloseTo(Math.sin(0.3), 9);
   });
 });
 
