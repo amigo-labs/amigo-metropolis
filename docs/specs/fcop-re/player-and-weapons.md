@@ -632,10 +632,11 @@ not done here. Reports: `scratchpad/diffexec-*.json`.
 
 ## 9. Could not establish
 
-1. **How the sustained weapons apply damage over time**: Flamethrower nodes,
-   Concussion Beam, Shockwave, and Riot Shield contact. I have their per-hit
-   damage and radius, but not the node/tick rate or lifetime in seconds
-   (`sustain*.c` not traced to SI).
+1. ~~How the sustained weapons apply damage over time~~ — answered by RE M3-OR
+   (fcop-fidelity.md W1): the flame's trail nodes (one every 2 frames at 30 fps,
+   each hurting each body it reaches once), the beam once per body per shot along
+   its segment, the shockwave an expanding shell blasting every fourth frame with
+   falloff from its current outer radius; the Riot Shield's is W5's.
 2. ~~**Mine lifetime semantics.**~~ **Settled (RE M3-OP):** nothing suppresses
    the rest-expiry. The tick sets health 0xffff the moment the round settles
    (0x00424606), whatever its fuse radius, and the expiry pass blows it there:
@@ -643,10 +644,10 @@ not done here. Reports: `scratchpad/diffexec-*.json`.
    the drop, and never waits for its 5.0 s lifetime.
 3. **Missile homing turn rate** (`missile_home`) and the HVR lead details.
    Speeds and accelerations are given; the steering rate is not.
-4. **The six-entry type-99 table.** Retail's loader keeps only the first 6
-   records (keys 0, 1, 2, 3, 5, 0x10). How PA loadouts using any other
-   heavy/special weapon find their stat block is an open question in the RE
-   tree (`prepare.c:363-388`). The stat values themselves are not in doubt.
+4. ~~The six-entry type-99 table~~ — answered by RE M3-OR: each type-99
+   record's resource header gates its load on state words 10..15 (the two
+   players' gun / heavy / special codes), so the six slots hold exactly the
+   two loadouts.
 5. **Names of the input bits.** Which keys or pad buttons map to 0x02000000
    (slow), 0x08000000 (jump/brake), 0x00800000 (lock-cycle) and so on is not
    in the code.

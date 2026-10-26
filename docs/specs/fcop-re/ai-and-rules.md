@@ -346,8 +346,9 @@ No diff points at a misreading of the rules above; most are layout/unmapped-glob
   proven" note is obsolete.
 
 ## 9. Could not establish
-* What the human view-block halfwords +0x324/+0x326 are (the captain ignores the human as a mode-0 /
-  bonus target while either is positive; HUD blinks blue on +0x326 > 0 - maybe invincibility/cloak).
+* ~~What the human view-block halfwords +0x324/+0x326 are~~ (RE M3-OR): the cloak (0x34bc = 45 s, pickup
+  bit 0x40000, 0x0041ea76) and invulnerability (0x1770 = 20 s, bit 0x80000, 0x0041ea8c) timers, counted
+  down in `player_tick` (0x0044708b, 0x004470a3).
 * Voice line content (no transcripts); meanings above are inferred from the triggering script.
 * Exact trigger box size in metres (raw 2457x1843 for gates; behaviour doc says x8 effective).
 * `csac_score_kill` (per-class "Destroyed" stats) is a stub; player block +0x40 gate on neutral-turret
