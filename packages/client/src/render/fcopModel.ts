@@ -28,6 +28,13 @@
 //   is light. No depth write, and fog fades it to nothing rather than to the
 //   fog's colour, which an additive face would otherwise add.
 //
+// These are the Glide and software readings, which agree; the D3D driver
+// does not (RE M3-OO): its pages are ARGB4444 with alpha 8/15 on bit 15 under
+// a standing SRC_ALPHA / INV_SRC_ALPHA, so it blends bit-15 texels at 53 % on
+// opaque faces too, and Glide keys a PX16 word of exactly 0x8000. Kept: half
+// on half faces, solid on opaque ones, 0x8000 a drawn black (G13). Its adds
+// are (ONE, ONE) as here, with the tint doubled as here.
+//
 // The lighting (RE docs/formats/objects.md "Face lighting", fcop-fidelity.md
 // G13). The same op0 bits are the face's lighting material, which
 // `cact_model_shade_face` (0x00428c70) turns into the vertex colour: 0 a grey

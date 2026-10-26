@@ -194,10 +194,10 @@ export function createVariantSwitcher(
         }
         // Match the glTF sampler the shipped atlas uses: glTF textures are NOT
         // v-flipped, sRGB base color, repeat wrap, trilinear + anisotropy.
-        // Classic too, over its nearest-x4 texels — not the original's filter,
-        // which the RE has not settled: its "Filtering" box (THRASH state 7) is
-        // on by default, i.e. probably bilinear on an accelerator, while the
-        // software renderer point-samples (fcop-fidelity.md G3).
+        // Classic too, over its nearest-x4 texels — not the original's filter:
+        // its "Filtering" box (THRASH state 7) is on by default, and d3da.dll
+        // makes state 7 bilinear without mipmaps (RE M3-OO), while the software
+        // renderer point-samples (fcop-fidelity.md G3).
         tex.flipY = false;
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.wrapS = THREE.RepeatWrapping;
