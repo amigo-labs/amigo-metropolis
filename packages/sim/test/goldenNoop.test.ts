@@ -162,7 +162,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // frame delta earlier); nothing in the tick reads them.
   // Re-frozen at SIM_VERSION 91: see golden-03 above.
   // Re-frozen at SIM_VERSION 99 and 100: see golden-02 above.
-  "golden-04-warden": { last: 3040240161, count: 4500 },
+  // Re-frozen at SIM_VERSION 102: see golden-07 below.
+  "golden-04-warden": { last: 4066316656, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -202,7 +203,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // First Outpost stamps read the frame clock from 0 on the first tick (one
   // frame delta earlier); nothing in the tick reads them.
   // Re-frozen at SIM_VERSION 100: see golden-02 above.
-  "golden-07-pa": { last: 3316762472, count: 3600 },
+  // 04 and 07 re-frozen at SIM_VERSION 102: the captain's missile and bomb fly
+  // at the original's speeds, the bomb on its arc.
+  "golden-07-pa": { last: 2416805858, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

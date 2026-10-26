@@ -47,7 +47,11 @@
 // 134 s); no breach. Since SIM_VERSION 99 the ring's grates carry a walker
 // (convert.ts coverPits): the same ten tanks, the jet and the claim, the
 // player down twice (94 s, 114 s), and between those it shoots the captain
-// down (113 s); no breach.
+// down (113 s); no breach. Since SIM_VERSION 100 every feature stands on the original's
+// surface: the same beats. Since SIM_VERSION 102 the captain's missile and bomb
+// fly at the original's speeds (the bomb on its arc): the same ten tanks, the
+// jet and the claim, the player down twice, and the player no longer shoots the
+// captain down; no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -108,7 +112,7 @@ describe("golden-04-warden beats", () => {
     expect(bought.get(ARCHETYPE.RUNNER)).toBe(10);
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
     expect(claims).toBe(1);
-    expect(wardenDeaths).toBe(1);
+    expect(wardenDeaths).toBe(0);
     expect(avatarDeaths).toBe(2);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);

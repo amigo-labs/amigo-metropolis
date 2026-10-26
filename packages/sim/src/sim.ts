@@ -134,8 +134,11 @@ import {
   SHOOTER_RETRY_UNITS,
   SKY_BOMB_BLAST,
   SKY_BOMB_DAMAGE,
+  SKY_BOMB_GRAVITY,
+  SKY_BOMB_SPEED_RAW,
   SKY_MISSILE_DAMAGE,
   SKY_MISSILE_FLIGHT,
+  SKY_MISSILE_SPEED_RAW,
   SKY_PICKUP_TOUCH_WU,
   STARTING_POINTS,
   SURFACE_REACH,
@@ -164,8 +167,6 @@ import {
   WALKER_STEEP_TILT,
   WALKER_STOP_SPEED,
   WARDEN_ALTITUDE,
-  WARDEN_HEAVY_SPEED,
-  WARDEN_HEAVY_TTL_TICKS,
   WEAPON_UNITS_PER_TICK,
   type WeaponRecord,
   WU_PER_METRE,
@@ -344,6 +345,7 @@ import {
   PROJ_TORPEDO,
   PROJ_WARDEN,
   resolveLoadout,
+  roundSpeed,
   type WeaponBlock,
   type WeaponDef,
   weaponInSlot,
@@ -3366,37 +3368,44 @@ export function hitscan(
 /**
  * The Warden's bomb (warden.ts): the Sky Captain's weapon 9, 200 damage in a
  * 3.2 m blast with the original's linear falloff (fcop-re/ai-and-rules.md §1.4).
- * Its speed and arc could not be established, so it keeps Metropolis' flight: a
- * flat round at WARDEN_HEAVY_SPEED for WARDEN_HEAVY_TTL_TICKS.
+ * A kind-4 round (`cact_round_spawn_arced`, 0x0044d440): the ballistic solve
+ * (spawnArced, the player's arced rounds' own) from the craft to the target's
+ * position at the catalogue's speed and drop (balance.ts SKY_BOMB_*); it flies
+ * until it lands or strikes.
  */
 export function spawnWardenBomb(
   state: SimState,
   shooter: number,
   player: number,
-  dx: number,
-  dy: number,
+  target: number,
 ): void {
   const ent = state.ent;
-  const id = spawnStraight(state, shooter, dx, dy, -1, -1);
+  const id = spawnArced(
+    state,
+    ent.posX[shooter],
+    ent.posY[shooter],
+    ent.height[shooter],
+    ent.posX[target],
+    ent.posY[target],
+    ent.height[target],
+    roundSpeed(SKY_BOMB_SPEED_RAW),
+    SKY_BOMB_GRAVITY,
+  );
   if (id < 0) return;
+  ent.team[id] = ent.team[shooter];
   ent.mode[id] = PROJ_WARDEN;
   ent.ownerId[id] = player;
   ent.ammoA[id] = SKY_BOMB_DAMAGE;
   ent.aux[id] = SKY_BOMB_BLAST;
-  ent.ammoB[id] = ROUND_RIVAL; // linear falloff, as the original's area damage
-  ent.timerA[id] = WARDEN_HEAVY_TTL_TICKS;
-  ent.cooldownA[id] = WARDEN_HEAVY_SPEED;
-  ent.velX[id] = dx * WARDEN_HEAVY_SPEED;
-  ent.velY[id] = dy * WARDEN_HEAVY_SPEED;
-  ent.cooldownB[id] = 0;
-  ent.aimX[id] = WARDEN_HEAVY_SPEED;
-  ent.aimY[id] = 0;
+  ent.ammoB[id] = ROUND_ARC | ROUND_RIVAL; // linear falloff, as the original's area damage
+  ent.timerA[id] = ROUND_MAX_TICKS;
 }
 
 /**
  * The Warden's missile (warden.ts): the Sky Captain's weapon 8, guided, 25
- * damage, flying 24 m (fcop-re/ai-and-rules.md §1.4), homing on `target`. Its
- * speed could not be established, so it flies at Metropolis' WARDEN_HEAVY_SPEED.
+ * damage, flying 24 m (fcop-re/ai-and-rules.md §1.4), homing on `target` at the
+ * catalogue's speed (balance.ts SKY_MISSILE_SPEED_RAW: 15.82 m/s, launched at
+ * it, no acceleration).
  */
 export function fireWardenMissile(
   state: SimState,
@@ -3408,7 +3417,7 @@ export function fireWardenMissile(
   const ent = state.ent;
   const p = spawnStraight(state, shooter, dx, dy, target, target);
   if (p < 0) return;
-  const speed = WARDEN_HEAVY_SPEED;
+  const speed = roundSpeed(SKY_MISSILE_SPEED_RAW);
   ent.mode[p] = PROJ_ROUND;
   state.roundFrom[p] = roundSource(ent.archetype[shooter], ent.team[shooter]);
   ent.ownerId[p] = ent.ownerId[shooter];

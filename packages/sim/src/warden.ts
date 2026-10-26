@@ -1104,7 +1104,7 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
       fireWardenMissile(state, id, t, ux, uy);
     } else {
       pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, SKY_WEAPON_BOMB);
-      spawnWardenBomb(state, id, me, ux, uy);
+      spawnWardenBomb(state, id, me, t);
     }
     c.gunPhase[k] = PHASE_BETWEEN;
   }

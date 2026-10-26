@@ -1693,9 +1693,6 @@ export const SKY_PICKUP_TOUCH_WU = 0x3000;
  *   (0.5 s), flies 24 m;
  * - 9, the bomb: 200 damage in a 3.2 m blast (linear falloff), every 601 units
  *   (2.0 s).
- * The projectile speed of 8 and 9 could not be established (catalogue
- * +0x12/+0x14 left raw), so both fly at Metropolis' WARDEN_HEAVY_SPEED, and the
- * bomb keeps Metropolis' flat flight and lifetime instead of the original's arc.
  * Was: a 10-damage cannon every 5 ticks at 42 m and a 60-damage 6 m bomb.
  */
 export const SKY_GUN_DAMAGE = 2;
@@ -1707,8 +1704,28 @@ export const SKY_MISSILE_FLIGHT = 24;
 export const SKY_BOMB_DAMAGE = 200;
 export const SKY_BOMB_REFIRE_UNITS = 601;
 export const SKY_BOMB_BLAST = 3.2;
-export const WARDEN_HEAVY_SPEED = 25;
-export const WARDEN_HEAVY_TTL_TICKS = 75;
+/**
+ * The missile's speed, the catalogue's +0x12 (RE M3-OR): 8192 raw, `trunc(raw /
+ * 300) << 4` = 432 wu per engine unit = 15.82 m/s (weapons.ts roundSpeed). With
+ * no acceleration (+0x14 is 0 on Mp, Conft, Hk and Ovmp) the round leaves at
+ * that speed and keeps it (`cact_missile_spawn` 0x0044d103: `top << 4` when
+ * the acceleration is 0). Slim's and Joke's entry carries an acceleration of
+ * 0x7a, so there it leaves at `top * 2` and speeds up to it within 0.2 s: not
+ * modelled, the captain's weapons are one table on every arena.
+ */
+export const SKY_MISSILE_SPEED_RAW = 8192;
+/**
+ * The bomb is a kind-4 round: `cact_round_spawn_arced` (0x0044d440) launches it
+ * on the ballistic solve `cact_discharge_arc` (0x0044d190) at the target's
+ * position, with the catalogue's +0x12 as its speed (4096 raw = 7.62 m/s) and
+ * its +0x16 (3072) as the drop term — the player's arced rounds' conversion
+ * (weapons.ts: gravity = range raw / 512). It flies until it lands or strikes
+ * (ROUND_ARC); its +0x18 is not read by the spawner.
+ */
+export const SKY_BOMB_SPEED_RAW = 4096;
+export const SKY_BOMB_DROP_RAW = 3072;
+/** The drop term as the arc solve takes it: raw << 4 wu, in metres (6). */
+export const SKY_BOMB_GRAVITY = SKY_BOMB_DROP_RAW / 512;
 /** With no target the shooters search by team on their targeting delay, 16 = 1.0 s. */
 export const SKY_SEARCH_UNITS = 300;
 /**

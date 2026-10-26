@@ -1470,4 +1470,12 @@
 //     Metropolis' 0.5 s arming delay, its 30 s silent despawn and its 1 s
 //     sprung fuse. No golden drops a mine: every hash holds, re-recorded for
 //     the header.
-export const SIM_VERSION = 101;
+// v102: the Sky Captain's missile and bomb fly at the original's speeds
+//     (fcop-fidelity.md U3; RE M3-OR). The missile (weapon 8, kind 3) leaves at
+//     its catalogue speed, 8192 raw = 15.82 m/s (`cact_missile_spawn` 0x0044d103:
+//     no acceleration, launched at the cap), where it flew Metropolis' 25 m/s;
+//     the bomb (weapon 9, kind 4) is the original's arced round
+//     (`cact_round_spawn_arced` 0x0044d440 -> `cact_discharge_arc`): the ballistic
+//     solve to the target's position at 7.62 m/s under the 3072-raw drop, where it
+//     flew flat at 25 m/s for 2.5 s. The Warden goldens play differently (04, 07).
+export const SIM_VERSION = 102;
