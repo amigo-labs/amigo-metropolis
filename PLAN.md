@@ -402,7 +402,7 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
 - [x] `urban-jungle.test.ts` folded into `fcop-arenas.test.ts`, so all four arenas
       run the lane-graph block; the mirror guard is per-arena and tied back to the
       vertex-correlated terrain footprint
-- [ ] `hollywood-keys` and `venice-beach`: **blocked, not skipped.** Their logic is
+- [x] `hollywood-keys` and `venice-beach`: **was blocked, not skipped.** Their logic is
       committed and stage 2 reports "OK — no problems" on them, and it is wrong
       anyway: every deck sits ≥0.594 m above the base surface against a 0.35 m
       step, decks are 62% / 44% of those grids, and importing puts all 140 of Hk's
@@ -410,8 +410,10 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       walls, a layer on each feature and a deck-aware flood. Pinned as a
       failing-when-fixed test in `layeredArenas.test.ts`. The lane nodes' layers
       landed at v23 and the per-layer walls at v95 (stage 1 re-run against the
-      RE dump; the flipped test asserts them). A layer on the other features is
-      still open
+      RE dump; the flipped test asserts them). A layer on the other features
+      landed at v100 ("Stand every feature on the original's surface"): each
+      feature takes the surface carrying the height the original's plate query
+      gives it, the flood is deck-aware, and both arenas play with their decks
 - [x] The lane nodes' missing Y was never missing: each `Cnet` node carries a
       `ground_cast` selecting which stacked surface it sits on (HIGH/LOW/MIDDLE),
       and the extract dropped it. Carried now, measured in `fcop-logic.md` §3.1 and
@@ -958,8 +960,10 @@ rows F*; `docs/specs/ui.md` §3). Menu-only: no golden moves.
       host's agreed config in START; netcode.spec §4)
 - [x] The owner's "Spielregeln": five extra-weapon switches, off by default
       (F23; the weapons themselves are the extra weapons' wave)
-- [ ] The movies: HELP / BRIEFING's `multibrf.mpg`, the film strip's
-      `po_*.mpg` (F10)
+- [x] The movies: HELP / BRIEFING's `multibrf.mpg`, the film strip's
+      `po_*.mpg` (F10) — and the boot's `ea_logo` / `intro` and a finished map's
+      `po_*`: all 27 re-encoded to AV1 by `gen:movies` ("Play the original's
+      movies where the original does")
 
 ## Backlog (post-v1, do not start)
 
