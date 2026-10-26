@@ -19,6 +19,7 @@ import {
   DREADNOUGHT_GUNS,
   DREADNOUGHT_MOUNTS,
   MUZZLE_HEIGHT,
+  MUZZLE_OFFSET,
   NEUTRAL_TURRET_RADIUS,
   ORIGINAL_BUY_HALF_L,
   ORIGINAL_BUY_HALF_W,
@@ -171,6 +172,33 @@ export interface MapRadii {
   readonly neutral: readonly number[];
   /** The Sky Captain's model by level 0..9 (balance.ts wardenLevel). */
   readonly skyCaptain: readonly number[];
+}
+
+/**
+ * A turret's gun (fcop-fidelity.md G12). The gun is the turret actor: it stands
+ * on its base's attach point 0 (`turret_construct`, RE turret.c 913-918), turns
+ * and pitches there (`turret_tick` 0x0041c3e0: `math_matrix_from_angles(yaw,
+ * pitch, 0)` at 0x0041c7a9), and its round leaves from its model's point 0
+ * through that matrix (`cact_weapon_discharge` 0x0044d98d). Metres, from
+ * gen:pamodels' `turrets` (RE pa_models.json).
+ */
+export interface MapTurretGun {
+  /**
+   * The base's point 0's height over the turret's spot: the gun's position. Its
+   * horizontal offset (8 mm at most on the six arenas, in the base's own yaw)
+   * is left out.
+   */
+  readonly stand: number;
+  /** The muzzle in the gun's frame at zero yaw and pitch: right (glb x), up, forward. */
+  readonly mx: number;
+  readonly my: number;
+  readonly mz: number;
+}
+
+/** The type-8 (ring and outpost plate) turret's gun, and a neutral's per turret spot. */
+export interface MapTurretGuns {
+  readonly baseTurret: MapTurretGun;
+  readonly neutral: readonly MapTurretGun[];
 }
 
 /**
@@ -704,6 +732,13 @@ export interface MapData {
    * every role where the arena imports none.
    */
   readonly refHeights: MapRadii;
+  /**
+   * Each turret's gun as it aims and fires (fcop-fidelity.md G12): where it
+   * stands on its base and its muzzle, the type-8 gun's and a neutral's per
+   * `turretSpots` entry (MapTurretGun). Metropolis' stand-in muzzle on the
+   * ground (MUZZLE_OFFSET ahead, MUZZLE_HEIGHT up) where the arena imports none.
+   */
+  readonly turretGuns: MapTurretGuns;
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
   readonly laneGraph: MapLaneGraph | undefined;
   /** Power-up spots. EMPTY → no pickups on this arena. */
@@ -1025,6 +1060,14 @@ export interface MapJson {
     neutral: number[];
     skyCaptain: number[];
   };
+  /**
+   * OPTIONAL: each turret's gun (MapData.turretGuns): `stand` metres, `muzzle`
+   * [x, y, z] metres in the gun's glb frame; `neutral` parallel to turretSpots.
+   */
+  turretGuns?: {
+    baseTurret: { stand: number; muzzle: number[] };
+    neutral: { stand: number; muzzle: number[] }[];
+  };
   /** Original Cnet graph. `edges` is one 4-tuple per node, -1 = no edge. */
   laneGraph?: {
     nodes: (number[] | { x: number; y: number; layer?: number })[];
@@ -1282,6 +1325,42 @@ function parseRefHeights(raw: MapJson["refHeights"], radii: MapRadii, id: string
     baseTurret: r(raw.baseTurret, "baseTurret"),
     neutral: list(raw.neutral, radii.neutral.length, "neutral"),
     skyCaptain: list(raw.skyCaptain, 10, "skyCaptain"),
+  };
+}
+
+/** Metropolis' stand-in gun where the arena imports none: on the ground, the muzzle ahead and up. */
+const DEFAULT_TURRET_GUN: MapTurretGun = { stand: 0, mx: 0, my: MUZZLE_HEIGHT, mz: MUZZLE_OFFSET };
+
+function defaultTurretGuns(spots: number): MapTurretGuns {
+  return {
+    baseTurret: DEFAULT_TURRET_GUN,
+    neutral: new Array<MapTurretGun>(spots).fill(DEFAULT_TURRET_GUN),
+  };
+}
+
+/** The arena's turret guns: finite numbers, a neutral per turret spot. */
+function parseTurretGuns(raw: MapJson["turretGuns"], spots: number, id: string): MapTurretGuns {
+  if (raw === undefined) return defaultTurretGuns(spots);
+  const gun = (v: { stand: number; muzzle: number[] } | undefined, what: string): MapTurretGun => {
+    const m = v?.muzzle;
+    if (
+      v === undefined ||
+      typeof v.stand !== "number" ||
+      !Number.isFinite(v.stand) ||
+      !Array.isArray(m) ||
+      m.length !== 3 ||
+      !m.every((x) => typeof x === "number" && Number.isFinite(x))
+    ) {
+      fail(id, `turretGuns ${what} needs a finite stand and a 3-number muzzle`);
+    }
+    return { stand: v.stand, mx: m[0], my: m[1], mz: m[2] };
+  };
+  if (!Array.isArray(raw.neutral) || raw.neutral.length !== spots) {
+    fail(id, `turretGuns neutral needs ${spots} entries`);
+  }
+  return {
+    baseTurret: gun(raw.baseTurret, "baseTurret"),
+    neutral: raw.neutral.map((v, i) => gun(v, `neutral[${i}]`)),
   };
 }
 
@@ -2180,6 +2259,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     captureRange,
     radii,
     refHeights: parseRefHeights(raw.refHeights, radii, id),
+    turretGuns: parseTurretGuns(raw.turretGuns, radii.neutral.length, id),
     laneGraph,
     pickups,
     triggerVolumes,
@@ -2344,6 +2424,7 @@ export function createTestMap(): MapData {
     captureRange: ORIGINAL_CAPTURE_RANGE,
     radii: defaultRadii(0),
     refHeights: defaultRefHeights(0),
+    turretGuns: defaultTurretGuns(0),
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],

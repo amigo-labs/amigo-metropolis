@@ -1296,6 +1296,23 @@ function refHeightsOf(models: ModelsArtifact, spots: number, mapId: string) {
   };
 }
 
+/**
+ * Each turret's gun (fcop-fidelity.md G12): its base's point 0's height, where
+ * the gun stands, and its muzzle, the gun model's point 0 (gen:pamodels
+ * `turrets`), a neutral per turret spot in the radii's order.
+ */
+function turretGunsOf(models: ModelsArtifact, spots: number, mapId: string) {
+  const t = models.turrets;
+  if (t.neutral.length !== spots) {
+    throw new Error(`${mapId}: ${t.neutral.length} neutral turret guns for ${spots} turret spots`);
+  }
+  const gun = (g: ModelsArtifact["turrets"]["baseTurret"]) => ({
+    stand: g.stand[1],
+    muzzle: [g.muzzle[0], g.muzzle[1], g.muzzle[2]],
+  });
+  return { baseTurret: gun(t.baseTurret), neutral: t.neutral.map(gun) };
+}
+
 /** The record's gun count, which must be the hull's mount count. */
 function gunsOnMounts(guns: number, mounts: number, mapId: string): number {
   if (guns !== mounts) throw new Error(`${mapId}: ${guns} Dreadnought guns on ${mounts} mounts`);
@@ -2678,6 +2695,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     radii: radiiOf(models, turretSpots.length, mapId),
     // Every body's reference point over its position (fcop-fidelity.md W5).
     refHeights: refHeightsOf(models, turretSpots.length, mapId),
+    // Each turret's gun on its base and its muzzle (fcop-fidelity.md G12).
+    turretGuns: turretGunsOf(models, turretSpots.length, mapId),
     laneGraph: {
       nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,

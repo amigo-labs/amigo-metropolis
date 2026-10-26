@@ -56,6 +56,8 @@ interface ReRole {
   parts: RePart[];
   templates?: { res: string; id: number }[];
   levels?: number[];
+  /** A turret's: its base's attach point 0, where the gun stands (turret.c 913-918). */
+  gun_point?: { index: number; glb_xyz: number[] };
 }
 interface ReModels {
   roles: {
@@ -137,6 +139,24 @@ export interface ModelsRadii {
   readonly skyCaptain: readonly number[];
 }
 
+/**
+ * A turret's gun as the sim aims and fires it (fcop-fidelity.md G12): the gun is
+ * the turret actor, standing on its base's attach point 0 (`turret_construct`,
+ * turret.c 913-918, once, frame 0: no shipped base animates); its round leaves
+ * from the gun model's point 0 (`cact_weapon_discharge` 0x0044d98d reads the
+ * point the shooter's +0x23 names, 0 from `cact_shooter_init` 0x0044ea00 and
+ * never toggled: no PA turret's bitfield has ALTERNATE 0x20), placed through the
+ * gun's matrix `math_matrix_from_angles(yaw, pitch, 0)` (0x0041c7a9).
+ */
+export interface ModelsTurretGun {
+  readonly gun: number;
+  readonly base: number;
+  /** The base's attach point 0, base glb frame. */
+  readonly stand: readonly number[];
+  /** The gun model's point 0, gun glb frame. */
+  readonly muzzle: readonly number[];
+}
+
 export interface ModelsArtifact {
   readonly mission: string;
   readonly source: { readonly repo: string; readonly commit: string; readonly tool: string };
@@ -158,6 +178,11 @@ export interface ModelsArtifact {
      */
     readonly walk?: ModelsTrack;
     readonly guns: readonly ModelsGun[];
+  };
+  /** The type-8 turret's gun, and a neutral's per turret spot (the radii's order). */
+  readonly turrets: {
+    readonly baseTurret: ModelsTurretGun;
+    readonly neutral: readonly ModelsTurretGun[];
   };
 }
 
@@ -411,6 +436,41 @@ function hullWalk(
   return { walk, frames: anim.frames };
 }
 
+/** One turret role's gun: where it stands on its base and its muzzle. */
+function turretGunOf(arena: FcopArena, re: ReModels, role: ReRole, what: string): ModelsTurretGun {
+  const gun = role.parts.find((p) => p.part === "gun");
+  const base = role.parts.find((p) => p.part === "base");
+  if (!gun || !base) throw new Error(`${arena.mission}: the ${what} has no gun or no base`);
+  const stand = re.models[String(base.cobj)]?.attach?.points.find((p) => p.index === 0);
+  if (!stand) throw new Error(`${arena.mission}: ${what} base ${base.cobj} has no point 0`);
+  if (role.gun_point && JSON.stringify(role.gun_point.glb_xyz) !== JSON.stringify(stand.glb_xyz)) {
+    throw new Error(`${arena.mission}: the ${what}'s gun point is not its base's point 0`);
+  }
+  const muzzle = re.models[String(gun.cobj)]?.attach?.points.find((p) => p.index === 0);
+  if (!muzzle) throw new Error(`${arena.mission}: ${what} gun ${gun.cobj} has no point 0`);
+  return { gun: gun.cobj, base: base.cobj, stand: stand.glb_xyz, muzzle: muzzle.glb_xyz };
+}
+
+/** The turrets' guns: the type-8 one, and a neutral per turret spot (buildRadii's order). */
+function buildTurrets(arena: FcopArena, re: ReModels): ModelsArtifact["turrets"] {
+  if (re.roles.base_turret.length !== 1) {
+    throw new Error(`${arena.mission}: ${re.roles.base_turret.length} base turret model sets`);
+  }
+  const logic = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
+  ) as { neutrals: { id: number }[] };
+  const sets = re.roles.neutral_turret.map((role) => ({
+    ids: new Set((role.templates ?? []).filter((t) => t.res === "Csac").map((t) => t.id)),
+    gun: turretGunOf(arena, re, role, "neutral turret"),
+  }));
+  const neutral = logic.neutrals.map((rec) => {
+    const set = sets.find((n) => n.ids.has(rec.id));
+    if (!set) throw new Error(`${arena.mission}: NeutralTurret ${rec.id} is in no model set`);
+    return set.gun;
+  });
+  return { baseTurret: turretGunOf(arena, re, re.roles.base_turret[0], "base turret"), neutral };
+}
+
 function buildModels(
   arena: FcopArena,
   re: ReModels,
@@ -480,6 +540,7 @@ function buildModels(
       ...(walk ? { walk } : {}),
       guns,
     },
+    turrets: buildTurrets(arena, re),
   };
   return artifact;
 }
