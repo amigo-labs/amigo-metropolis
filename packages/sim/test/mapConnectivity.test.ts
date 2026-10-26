@@ -11,15 +11,55 @@
 // walls, so it could not see either a deck or a road under one. See that file.
 import { describe, expect, it } from "bun:test";
 import { ORIGINAL_CAPTURE_RANGE } from "../src/balance";
-import { getMapById, MAP_REGISTRY, type MapData } from "../src/map";
+import { getMapById, MAP_REGISTRY, type MapData, resolveHeight } from "../src/map";
 import { type ReachSet, reachableFrom } from "../src/reach";
+import { rideHeight } from "../src/sim";
 
 // Water is not blocked: on NORMAL a walker that enters it becomes a hover and
 // crosses it (fcop-fidelity.md P13), and on Hk the spawns stand on it. Ovmp's
 // neutral pad at (173, 193.5) is reached only across it. (Until the water plate
 // was read as water on deck 1 too, the walk-only flood stepped over it there.)
-function floodHas(map: MapData, ax: number, ay: number): ReachSet {
-  return reachableFrom(map, ax, ay);
+function floodHas(map: MapData, ax: number, ay: number, startLayer?: number): ReachSet {
+  return reachableFrom(map, ax, ay, startLayer === undefined ? {} : { startLayer });
+}
+
+/**
+ * Deck-aware: is the feature at (x, y) on `layer` served by a surface the flood
+ * stands on — its own, or one within `reach` in plan and `rise` in height of it
+ * (`sphere`: both together, as a 3D touch is measured). The ground counts at the
+ * water's surface where there is water: a walker that enters it hovers. The
+ * same test tools/generators/enrichArena.ts repairReachability holds the
+ * generator to.
+ */
+function served(
+  map: MapData,
+  f: ReachSet,
+  p: { x: number; y: number; layer: number },
+  reach: number,
+  rise: number,
+  sphere = false,
+  lift = 0,
+): boolean {
+  if (f.hasLayer(p.x, p.y, p.layer)) return true;
+  const th = resolveHeight(map, p.x, p.y, p.layer) + lift;
+  const ci = Math.floor(p.x);
+  const cj = Math.floor(p.y);
+  const r = Math.ceil(reach);
+  for (let i = ci - r; i <= ci + r; i++) {
+    for (let j = cj - r; j <= cj + r; j++) {
+      const cx = i + 0.5;
+      const cy = j + 0.5;
+      const flat = (cx - p.x) ** 2 + (cy - p.y) ** 2;
+      if (flat > reach * reach && (i !== ci || j !== cj)) continue;
+      for (let L = 0; L <= map.layerHeights.length; L++) {
+        if (!f.hasLayer(cx, cy, L)) continue;
+        const h = L === 0 ? rideHeight(map, cx, cy, true) : resolveHeight(map, cx, cy, L);
+        const dh = h - th;
+        if (sphere ? flat + dh * dh <= reach * reach : Math.abs(dh) <= rise) return true;
+      }
+    }
+  }
+  return false;
 }
 
 const PLAYABLE_IDS = MAP_REGISTRY.map((m) => m.id);
@@ -32,16 +72,25 @@ for (const id of PLAYABLE_IDS) {
       for (let team = 0; team < 2; team++) {
         const spawn = map.spawns[team];
         const base = map.bases[team];
-        const f = floodHas(map, spawn.x, spawn.y);
+        const f = floodHas(map, spawn.x, spawn.y, spawn.layer);
         expect(f.size).toBeGreaterThan(20);
-        const pts: { name: string; x: number; y: number }[] = [
-          { name: "gate", x: base.gate.x, y: base.gate.y },
-          { name: "core", x: base.core.x, y: base.core.y },
-          { name: "groundConsole", x: base.groundConsole.x, y: base.groundConsole.y },
-          { name: "airConsole", x: base.airConsole.x, y: base.airConsole.y },
-        ];
-        for (const p of pts) {
-          expect(f.has(p.x, p.y)).toBe(true);
+        // The gate and the core are a produced unit's to reach (the
+        // Dreadnought stands on its node's surface itself): their cell will do.
+        expect(f.has(base.gate.x, base.gate.y)).toBe(true);
+        expect(f.has(base.core.x, base.core.y)).toBe(true);
+        // A shop answers inside its trigger box about the console, on the
+        // console's own surface, grown by the buyer's radius (fcop-fidelity.md
+        // R17): Hk's stand on a deck over the canal and are bought from the water.
+        const r = spawn.hover ? map.radii.hover : map.radii.walker;
+        for (const [c, box] of [
+          [base.groundConsole, base.groundBuy],
+          [base.airConsole, base.airBuy],
+        ] as const) {
+          // Every PA shop box is 2 m high either way (raw 2048, the trigger's
+          // half-extent raw/1024).
+          if (!served(map, f, c, box.halfW + r, 2 + r)) {
+            throw new Error(`base ${team} console (${c.x}, ${c.y}) on surface ${c.layer} unserved`);
+          }
         }
         // Ring turrets are shot at, not stood on, so requiring their own cell to
         // be walkable would forbid the plinths and parapets the original mounts
@@ -85,7 +134,7 @@ for (const id of PLAYABLE_IDS) {
 
     it("neutral turrets and outposts are capturable from spawn 0", () => {
       // On FCOP maps both teams share one ground component; spawn 0 is enough.
-      const f = floodHas(map, map.spawns[0].x, map.spawns[0].y);
+      const f = floodHas(map, map.spawns[0].x, map.spawns[0].y, map.spawns[0].layer);
       // Capturing is PROXIMITY, not occupancy: sim.ts gives a pad to a press
       // within the arena's capture range plus the avatar's radius — at least
       // 4.0 + 0.4 m on every imported arena — and ORIGINAL_CAPTURE_RANGE, 4 m, is
@@ -97,28 +146,45 @@ for (const id of PLAYABLE_IDS) {
       // only way to grant it is to knock the original's parapets down, which is
       // what the generator used to do. Same reasoning the ring-turret check above
       // already applies.
+      // A capture is measured in 3D (sim.ts withinCapture), so a pad on a deck
+      // needs an approach within the range of the deck, not of the ground
+      // under it. An outpost's zone and pads are touched in 3D as well, its
+      // radius plus the mech's (sim.ts touchesZone).
       const reach = ORIGINAL_CAPTURE_RANGE;
-      const capturable = (p: { x: number; y: number }): boolean => {
-        const cell = map.cellSize;
-        for (let dx = -reach; dx <= reach; dx += cell) {
-          for (let dy = -reach; dy <= reach; dy += cell) {
-            if (dx * dx + dy * dy > reach * reach) continue;
-            if (f.has(p.x + dx, p.y + dy)) return true;
+      for (const p of map.turretSpots) {
+        if (!served(map, f, p, reach, reach, true)) {
+          throw new Error(`capture pad (${p.x}, ${p.y}) on surface ${p.layer} has no approach`);
+        }
+      }
+      const r = map.spawns[0].hover ? map.radii.hover : map.radii.walker;
+      map.outposts.forEach((o, k) => {
+        for (const p of [map.outpostSpots[k], o.tankPad, o.jetPad]) {
+          if (!served(map, f, p, o.zone + r, o.zone + r, true)) {
+            throw new Error(`outpost ${k} zone (${p.x}, ${p.y}) on surface ${p.layer} untouched`);
           }
         }
-        return false;
-      };
-      for (const p of map.turretSpots) {
-        if (!capturable(p)) throw new Error(`capture pad (${p.x}, ${p.y}) has no approach`);
-      }
-      for (const p of map.outpostSpots) {
-        if (!capturable(p)) throw new Error(`outpost (${p.x}, ${p.y}) has no approach`);
-      }
+      });
     });
 
     it("teams can reach each other on the ground graph", () => {
-      const f = floodHas(map, map.spawns[0].x, map.spawns[0].y);
-      expect(f.has(map.spawns[1].x, map.spawns[1].y)).toBe(true);
+      const s = map.spawns;
+      const f = floodHas(map, s[0].x, s[0].y, s[0].layer);
+      // On the surface the other spawn stands on (Hk's: the canal's water).
+      expect(f.hasLayer(s[1].x, s[1].y, s[1].layer)).toBe(true);
+    });
+
+    it("every pickup is collected walking, but the one on Slim's platform", () => {
+      // A pickup's box: its narrower half-extent in plan, its half-height about
+      // its lift (sim.ts systemPickups). The exception is the original's: the
+      // pickup at (146.06, 124.06) on proving-ground and bug-hunt (Slim and Joke
+      // share the ground) stands on a 1.8 m platform no walkable surface leads
+      // onto; the flood walks and does not jump. Pinned so the list cannot grow.
+      const f = floodHas(map, map.spawns[0].x, map.spawns[0].y, map.spawns[0].layer);
+      const unwalked = map.pickups
+        .filter((p) => !served(map, f, p, Math.min(p.halfW, p.halfL), p.halfH, false, p.lift))
+        .map((p) => `${p.x},${p.y}`);
+      const known = id === "proving-ground" || id === "bug-hunt" ? ["146.064,124.0625"] : [];
+      expect(unwalked).toEqual(known);
     });
   });
 }

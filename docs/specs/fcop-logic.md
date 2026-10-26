@@ -69,10 +69,22 @@ missing: Y is not a number in this format, it is a **raycast against terrain**, 
 
 | `v&3` | mode | resolves to |
 |---|---|---|
-| 0 | `HIGH` | the topmost surface at the node's cell |
+| 0 | `HIGH` | the topmost plate over the node's point |
 | 1 | `LOW` | the bottommost — i.e. the base heightfield (`walk_height`) |
-| 2 | `NONE` | unused; no arena sets it |
-| 3 | `MIDDLE` | the surface between; only Hk uses it |
+| 2 | `NONE` | the lowest again (layer 0 from the bottom); no arena sets it |
+| 3 | `MIDDLE` | the second from the bottom (0 if there is none); only Hk uses it |
+
+Read from the retail loader since (`cnet_load` 0x00441900): the mode is the low
+nibble of the word, 5 stores the height in its upper bits, and any other value is
+remapped `0 → -1, 1 → -2, n → n - 2` and handed to `terrain_height_at`
+(0x004545d0), which sorts every plate over the point by height and answers the
+topmost (-1), the lowest (-2) or the n-th from the bottom. Every shipped node is
+mode 0, 1 or 3. Every actor construct asks the same query with a selector byte
+of its own record (`tools/generators/fcopLogic.ts` `HEIGHT_SELECTOR`), and
+`gen:palogic` carries the answer over the shipped plates as `groundY` on records
+and nodes alike (`tools/generators/fcopTerrain.ts`); stage 2 stands a feature on
+the sim surface carrying that height (fcop-fidelity.md I13). The measurements
+below were taken on the extracted decks, before that, and stand as such.
 
 Measured by `bun run tools/generators/analyzeGroundCast.ts`, which re-derives all
 of the following from the RE dumps:

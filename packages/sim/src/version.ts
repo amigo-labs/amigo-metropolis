@@ -1435,4 +1435,27 @@
 //     floor around it: 248 points, the deck gone there. 7 lane edges a walker
 //     cannot climb, was 13. urban-jungle's goldens play differently (02, 04,
 //     05).
-export const SIM_VERSION = 99;
+// v100: every feature stands on the surface the original stands it on (issue
+//     #33; PLAN.md Phase 13; fcop-fidelity.md F-row "feature surfaces"). No
+//     actor's Y is stored: each construct asks `terrain_height_at` (0x004545d0)
+//     with a selector byte of its own record — X1Alpha 0x00446b66, turret base
+//     0x0041cff1, pickup 0x0041e7db, type-14 zone 0x0041f719, trigger
+//     0x0041fdb1 — remapped as `cnet_load` remaps a node's mode (0x00441981).
+//     gen:palogic runs the query over the shipped plates (fcopTerrain.ts) and
+//     carries the answer as `groundY`; stage 2 puts spawns, gates, consoles,
+//     ring and plate turrets, capture pads, outpost zones and pads, heavy
+//     zones, pickups, intrusion and guard boxes, the Dreadnought and tank
+//     spawners (their spawn node's), the aircraft spawners (what
+//     `terrain_surface_at` 0x00453ef0 answers under them from y 0: Hk's canal
+//     water, Ovmp's base decks) and every lane node on the sim surface
+//     carrying that height, where it used to take the topmost deck present at
+//     the cell's corner vertex (nodes) or the ground (everything else). The
+//     reachability repair and mapConnectivity.test.ts ask for the feature's own
+//     surface. hollywood-keys and venice-beach are imported with their decks
+//     (Hk: both mechs, both bases' gates and shops on the canal's water plate,
+//     8 ring guns on the street deck); on the other four the turrets on
+//     plinths and the deck-edge lane nodes move (29 to 51 nodes an arena).
+//     Wall lattices are unchanged. Every golden on la-cantina and urban-jungle
+//     (02, 03, 04, 05, 07) diverges at tick 0, where the ring turrets on their
+//     plinths spawn at their new height; 01 and 06 hold.
+export const SIM_VERSION = 100;
