@@ -22,6 +22,8 @@ import {
   ARCHETYPE,
   ARCHETYPE_RADIUS,
   AVATAR_SNAP_CLOAK,
+  AVATAR_SNAP_ID,
+  AVATAR_SNAP_SHIELD_RADIUS,
   AVATAR_SNAP_STRIDE,
   AVATAR_SNAPSHOT_LEN,
   createSim,
@@ -151,8 +153,8 @@ import {
   placeDrawWindow,
 } from "./render/drawWindow";
 import { lerpGunYaws } from "./render/dreadnoughtGuns";
-import { setEmitterWindow } from "./render/emitterProps";
-import { drawFacers, initFacers } from "./render/facers";
+import { emitterHungAt, setEmitterWindow } from "./render/emitterProps";
+import { drawFacers, initFacers, setFacerClock } from "./render/facers";
 import { materialList } from "./render/fcopModel";
 import { createFlyState, initFlyInput, poseFlyStart, updateFlyCamera } from "./render/flyCamera";
 import { createFx, createFxPoses, POSE_STRIDE } from "./render/fx";
@@ -178,7 +180,7 @@ import {
   type PlayerView,
 } from "./render/playerView";
 import { createPost, isSoftwareRenderer, type PostPipeline } from "./render/post";
-import { loadProps, updateProps } from "./render/props";
+import { loadProps, sceneryOf, updateProps } from "./render/props";
 import { createResultsPage } from "./render/results/resultsPage";
 import { createShieldSpheres } from "./render/shieldSphere";
 import { sideName, sideOfTeam } from "./render/sides";
@@ -463,6 +465,9 @@ if (params.has("debug") && !netMode) {
     at.z = z;
     at.archetype = archetype;
     at.team = team;
+    // Raised on an actor standing there, facing sim +x (the shatter's origin).
+    at.modelY = height;
+    at.yaw = 0;
     at.raiserScale = Math.round((ARCHETYPE_RADIUS[archetype] ?? 0.25) * 512) || 0x100;
     sounds.effects.raise(bank, id, at);
   };
@@ -602,6 +607,9 @@ const drawWindow = createDrawWindow();
 /** The prop emitters' cells, ground and whether the eye draws them (audio/cues.ts). */
 let emitterCellZ = new Int16Array(0);
 let emitterCellX = new Int16Array(0);
+/** Where each hangs (its Prop's box's placed centre, render/emitterProps.ts). */
+let emitterAtX = new Float32Array(0);
+let emitterAtY = new Float32Array(0);
 let emitterHeight = new Float32Array(0);
 let emitterDrawn = new Uint8Array(0);
 /** A leaf of the block's visibility quadtree is 4 m square: its half diagonal. */
@@ -622,10 +630,9 @@ function drawnEmitters(): Uint8Array | undefined {
   const data = FCOP_ARENA_AUDIO[map.id] ?? FCOP_ARENA_AUDIO[FALLBACK_SOUND_ARENA];
   const emitters = data?.emitters ?? [];
   for (let k = 0; k < emitterDrawn.length && k < emitters.length; k++) {
-    const e = emitters[k];
     emitterDrawn[k] =
       inDrawWindow(drawWindow, emitterCellZ[k], emitterCellX[k]) &&
-      inView(m, e.x, emitterHeight[k], e.z, EMITTER_LEAF_RADIUS)
+      inView(m, emitterAtX[k], emitterHeight[k], emitterAtY[k], EMITTER_LEAF_RADIUS)
         ? 1
         : 0;
   }
@@ -656,9 +663,18 @@ function beginMatchSounds(): void {
   sounds.begin(data, FCOP_PLAYER_WEAPONS, map.lifts, map.id);
   // Where each prop emitter hangs, for `snd_emit_draw_block`'s claim.
   const n = data.emitters.length;
-  emitterCellZ = Int16Array.from(data.emitters, (e) => cellZOf(e.x));
-  emitterCellX = Int16Array.from(data.emitters, (e) => cellXOf(e.z));
-  emitterHeight = Float32Array.from(data.emitters, (e) => sampleHeight(map, e.x, e.z));
+  const scenery = sceneryOf(map.id);
+  const hung = new Float32Array(2);
+  emitterAtX = new Float32Array(n);
+  emitterAtY = new Float32Array(n);
+  data.emitters.forEach((e, k) => {
+    emitterHungAt(scenery, e.x, e.z, e.sound, hung);
+    emitterAtX[k] = hung[0];
+    emitterAtY[k] = hung[1];
+  });
+  emitterCellZ = Int16Array.from(emitterAtX, (x) => cellZOf(x));
+  emitterCellX = Int16Array.from(emitterAtY, (y) => cellXOf(y));
+  emitterHeight = Float32Array.from(emitterAtX, (x, k) => sampleHeight(map, x, emitterAtY[k]));
   emitterDrawn = new Uint8Array(n);
   // The effects' trail texels are the arena's own tex10 (render/fx.ts).
   fx.begin(map.id);
@@ -919,7 +935,34 @@ const fx = createFx(scene, sounds.effects, {
     shatterModel.teamV = offset ? shatterUv[1] : 0;
     return shatterModel;
   },
+  // Flag 0x10's skeleton: the wrecked X1's cockpit, its bones at the frames
+  // its slot was last drawn in (render/avatarRig.ts, render/fx/skeletonShatter.ts).
+  shatterSkeleton: (at, out) => {
+    const slot = at.team;
+    if (at.archetype !== ARCHETYPE.AVATAR || !avatarRig || slot < 0 || slot >= MAX_PLAYERS)
+      return false;
+    if (Number.isNaN(at.modelY)) return false;
+    return avatarRig.cockpitSkeleton(
+      at.x,
+      at.modelY,
+      at.z,
+      at.yaw,
+      slot,
+      x1Walk.legsFrame[slot],
+      x1Walk.cockpitFrame[slot],
+      out,
+    );
+  },
   viewportHeight: () => renderer.domElement.height,
+  // The Riot Shield's arcs sit on its sphere (render/fx.ts shieldArcPoint).
+  shieldRadius: (avatar) => {
+    for (let p = 0; p < MAX_PLAYERS; p++) {
+      const o = p * AVATAR_SNAP_STRIDE;
+      if (avatarSnap[o + AVATAR_SNAP_ID] === avatar)
+        return avatarSnap[o + AVATAR_SNAP_SHIELD_RADIUS];
+    }
+    return 0;
+  },
 });
 // Instantiate the composer only when bloom actually starts on — its render
 // targets are the cost, and a SwiftShader run never pays it.
@@ -927,8 +970,8 @@ if (bloomOn) setBloom(true);
 // Stage B unit models upgrade the greybox buckets in place as they load;
 // missing assets keep their greybox mesh (render/unitMeshes.ts). The X1 and the
 // projectiles at boot, the arena's own units with the arena.
-if (renderMode === "mesh") loadUnitMeshes(greybox);
 arenaUnits = createArenaUnits(scene, greybox);
+if (renderMode === "mesh") loadUnitMeshes(greybox, arenaUnits.playMorph);
 {
   const bootEpoch = arenaEpoch;
   arenaUnits.load(map, () => arenaEpoch !== bootEpoch, renderMode === "mesh");
@@ -1863,9 +1906,12 @@ function renderEntities(alpha: number, simDtSec: number): void {
   if (avatarRig) avatarRig.begin();
   // Readiness cannot change mid-frame, so resolve it once instead of per entity.
   const readyRig = avatarRig?.ready ? avatarRig : null;
-  // The cloak's v offset: the frame clock (300 Hz units) >> 2 & 0x3f
-  // (RE player_partner.c 289-293), on the sim's clock as the original's is.
-  const cloakV = (Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ)) >> 2) & 0x3f;
+  // The frame clock (300 Hz units), on the sim's clock as the original's is:
+  // the cloak's v offset is its >> 2 & 0x3f (RE player_partner.c 289-293), and
+  // the facers' 3DAL colours run on it (render/facers.ts).
+  const frameClock = Math.floor((matchSnap[MATCH_TICK] + alpha) * (ENGINE_HZ / TICK_HZ));
+  const cloakV = (frameClock >> 2) & 0x3f;
+  setFacerClock(frameClock);
   for (let p = 0; p < MAX_PLAYERS; p++) avatarPoses[p][3] = 0;
   fxPoses.live.fill(0);
   let p = 0;
@@ -1887,8 +1933,13 @@ function renderEntities(alpha: number, simDtSec: number): void {
     const rig = archetype === ARCHETYPE.AVATAR ? readyRig : null;
     // A world round wears its row's model: which launch it came from is the
     // effect chain's round tracker's (effects/rounds.ts).
-    const row = archetype === ARCHETYPE.PROJECTILE ? sounds.effects.rounds.row[id] : 0;
-    const greyboxBucket = rig ? undefined : bucketFor(greybox, archetype, animState, aux, row);
+    // A powered round wears its block B's (the torpedo's and the flare's blue star).
+    const rounds = sounds.effects.rounds;
+    const row = archetype === ARCHETYPE.PROJECTILE ? rounds.row[id] : 0;
+    const powered = archetype === ARCHETYPE.PROJECTILE && rounds.powered[id] === 1;
+    const greyboxBucket = rig
+      ? undefined
+      : bucketFor(greybox, archetype, animState, aux, row, powered);
 
     let x = snapCurr[o + 3];
     let y = snapCurr[o + 4];

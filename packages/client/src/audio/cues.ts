@@ -509,7 +509,7 @@ export class OriginalSounds implements EffectListener {
       // A round the block launches carries its impact (+0x1a), raised in the
       // partner's bank, 1, at its death (effects/rounds.ts).
       this.roundToken = roundKind(blk.kind)
-        ? this.launchToken(shooter, 0, ctx, BANK_PLAYER, blk.impactFx)
+        ? this.launchToken(shooter, 0, ctx, BANK_PLAYER, blk.impactFx, shotPayloadPowered(c))
         : -1;
       const placed = player !== ctx.localSlot;
       const direct = directKind(blk.kind);
@@ -619,13 +619,14 @@ export class OriginalSounds implements EffectListener {
     ctx: CueContext,
     bank: number,
     impact: number,
+    powered = false,
   ): number {
     const o = this.offsetOf(shooter);
     if (o < 0) return -1;
     const yaw = ctx.snapshot[o + S_YAW];
     const x = ctx.snapshot[o + S_X] + Math.cos(yaw) * MUZZLE_OFFSET;
     const z = ctx.snapshot[o + S_Y] + Math.sin(yaw) * MUZZLE_OFFSET;
-    return this.effects.rounds.launch(x, z, row, bank, impact);
+    return this.effects.rounds.launch(x, z, row, bank, impact, powered, shooter);
   }
 
   /**
@@ -676,6 +677,8 @@ export class OriginalSounds implements EffectListener {
   }
 
   private death(victim: number, killer: number, archetype: number, ctx: CueContext): void {
+    // Its rounds still in flight have lost their owner (effects/rounds.ts).
+    this.effects.rounds.died(victim);
     const data = this.data;
     if (!data) return;
     const team = this.teamOf(victim, ctx);

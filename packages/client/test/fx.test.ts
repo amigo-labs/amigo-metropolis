@@ -7,9 +7,13 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   createEventBuffer,
+  EV_SHIELD_ARC,
+  EV_SHIELD_ARC_STEP,
   EV_SHOT,
+  packArcAngles,
   pushEvent,
   reachToShotPayload,
+  SHIELD_CENTRE_RAISE,
   SHOT_SLOT_GUN,
   SHOT_SLOT_HITSCAN,
   weaponShotPayload,
@@ -18,8 +22,14 @@ import * as THREE from "three";
 import { EffectChain, fxArenaFor, makeRaiseAt, ROUND_TOKEN } from "../src/effects/chain";
 import { FX_EXE, FX_RECORDS } from "../src/effects/fcopEffects.generated";
 import { IMPACT_SCALE, SHELL_SPHERE } from "../src/effects/records";
-import { createFx, createFxPoses, type FxPoseResolver, POSE_STRIDE } from "../src/render/fx";
-import { rampNode } from "../src/render/fx/nodes";
+import {
+  createFx,
+  createFxPoses,
+  type FxPoseResolver,
+  POSE_STRIDE,
+  shieldArcPoint,
+} from "../src/render/fx";
+import { rampDue, rampNode } from "../src/render/fx/nodes";
 import { domeRingColour } from "../src/render/fx/shells";
 import { TEAM_UV_ATTR } from "../src/render/teamUv";
 
@@ -230,6 +240,15 @@ describe("the node ramp (0x0042b090 / 0x0042a550 / 0x0042a4d0)", () => {
     expect(rgb[0]).toBeCloseTo(95.5, 5);
   });
 
+  test("one pass in four per node, staggered: (passes ^ index) & 3 (0x0042a30b)", () => {
+    for (let i = 0; i < 8; i++) {
+      const due = [0, 1, 2, 3, 4, 5, 6, 7].filter((f) => rampDue(f, i));
+      expect(due.length).toBe(2);
+      expect(due[1] - due[0]).toBe(4);
+      expect(due[0]).toBe(i & 3);
+    }
+  });
+
   test("the reachable records carry the export's step: a budget one number, else three", () => {
     for (const rec of FX_RECORDS) {
       if (rec.type !== 94) continue;
@@ -265,6 +284,55 @@ describe("the executable's own drawings", () => {
     expect(fx.debugCounts().tracers).toBe(1);
     for (let t = 0; t < 2; t++) tick();
     expect(fx.debugCounts().tracers).toBe(0);
+  });
+});
+
+describe("the Riot Shield's arcs (sustain_sphere.c)", () => {
+  /** A mech at three (3, 1, 4) heading `yaw`. */
+  const mech = (yaw: number) => {
+    const table = new Float32Array(POSE_STRIDE);
+    table.set([3, 1, 4, yaw]);
+    return table;
+  };
+  const at = new Float32Array(3);
+
+  test("an arc's point is its direction in the mech's axes at the radius", () => {
+    // (0, 0) is straight ahead; the sphere's centre is raised as the sim's.
+    shieldArcPoint(mech(0), 0, packArcAngles(0, 0), 2, at);
+    expect([at[0], at[1], at[2]].map((v) => +v.toFixed(5))).toEqual([
+      5,
+      1 + SHIELD_CENTRE_RAISE,
+      4,
+    ]);
+    // Facing +sim y (three +z), ahead is +z.
+    shieldArcPoint(mech(Math.PI / 2), 0, packArcAngles(0, 0), 2, at);
+    expect(at[2]).toBeCloseTo(6, 5);
+    // The sim's shieldTakeArc axes: a quarter turn of yaw is (fy, -fx) * r.
+    shieldArcPoint(mech(0), 0, packArcAngles(0x400, 0), 2, at);
+    expect([at[0], at[2]].map((v) => +v.toFixed(5))).toEqual([3, 2]);
+    // The pitch's direction row is -sin(pitch) up.
+    shieldArcPoint(mech(0), 0, packArcAngles(0, 0x400), 2, at);
+    expect(at[1]).toBeCloseTo(1 + SHIELD_CENTRE_RAISE - 2, 5);
+  });
+
+  test("a step and a strike each draw one link on the sphere", () => {
+    const scene = new THREE.Scene();
+    const chain = new EffectChain();
+    chain.begin(fxArenaFor("Mp"));
+    const poses = createFxPoses();
+    const fx = createFx(scene, chain, { poses, shieldRadius: (a) => (a === 1 ? 1.6 : 0) });
+    fx.begin("la-cantina");
+    for (const id of [1, 2]) {
+      poses.table.set([id, 0, id, 0], id * POSE_STRIDE);
+      poses.live[id] = 1;
+    }
+    const events = createEventBuffer();
+    pushEvent(events, EV_SHIELD_ARC_STEP, 1, packArcAngles(0, 0), packArcAngles(0x100, -0x80));
+    pushEvent(events, EV_SHIELD_ARC, 1, 2, packArcAngles(0x100, -0x80));
+    // Without a sphere (radius 0) a step draws nothing.
+    pushEvent(events, EV_SHIELD_ARC_STEP, 2, packArcAngles(0, 0), packArcAngles(0x100, 0));
+    fx.pump(events, atOrigin);
+    expect(fx.debugCounts().links).toBe(2);
   });
 });
 

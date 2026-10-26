@@ -18,7 +18,9 @@
 // as the effect id itself (0x0042b92e), in the bank of its owner
 // (`cact_effect_bank` 0x0042bf50: 1 for the player's partner, which launches
 // every player round, else 0). So the launch notes the block's impact and its
-// bank, and the round's death reads them back (`impact`).
+// bank, and the round's death reads them back (`impact`). The bank is asked of
+// the round's owner at its death, so an owner that has died since the launch
+// — its partner gone with it, the serial lapsed — answers 0 (`died`).
 
 import { MAX_ENTITIES } from "@metropolis/sim";
 
@@ -48,6 +50,12 @@ export class RoundTracker {
   /** Per entity: the impact its death raises (0 none known) and that impact's bank. */
   readonly impactId = new Uint16Array(MAX_ENTITIES);
   readonly impactBank = new Uint8Array(MAX_ENTITIES);
+  /** Per entity: 1 when its launch fired its weapon's block B (powered). */
+  readonly powered = new Uint8Array(MAX_ENTITIES);
+  /** Per entity: its deaths so far; per round: its owner and the owner's deaths at the launch. */
+  private readonly deaths = new Uint16Array(MAX_ENTITIES);
+  private readonly owner = new Int32Array(MAX_ENTITIES).fill(-1);
+  private readonly ownerDeaths = new Uint16Array(MAX_ENTITIES);
   /** The last `impact`'s round: its impact id (0 none known) and bank. */
   lastImpactId = 0;
   lastImpactBank = 0;
@@ -58,6 +66,8 @@ export class RoundTracker {
   private readonly launchRow = new Uint8Array(MAX_LAUNCHES);
   private readonly launchImpact = new Uint16Array(MAX_LAUNCHES);
   private readonly launchBank = new Uint8Array(MAX_LAUNCHES);
+  private readonly launchPowered = new Uint8Array(MAX_LAUNCHES);
+  private readonly launchOwner = new Int32Array(MAX_LAUNCHES);
   private launches = 0;
   private readonly listeners: BindListener[] = [];
 
@@ -70,17 +80,29 @@ export class RoundTracker {
     this.row.fill(0);
     this.impactId.fill(0);
     this.impactBank.fill(0);
+    this.powered.fill(0);
+    this.deaths.fill(0);
+    this.owner.fill(-1);
     this.kind.fill(-1);
     this.launches = 0;
   }
 
   /**
    * A shot launched a round from (x, z) — the muzzle — this tick, of world row
-   * `row` (0 a player's), whose death raises `impact` in `bank`. Returns the
-   * token its launch effects ride until the round is known, or -1 when the
-   * tick is full.
+   * `row` (0 a player's), whose death raises `impact` in `bank`, `powered`
+   * when the shot fired its weapon's block B, fired by entity `owner`.
+   * Returns the token its launch effects ride until the round is known, or -1
+   * when the tick is full.
    */
-  launch(x: number, z: number, row: number, bank = 0, impact = 0): number {
+  launch(
+    x: number,
+    z: number,
+    row: number,
+    bank = 0,
+    impact = 0,
+    powered = false,
+    owner = -1,
+  ): number {
     if (this.launches >= MAX_LAUNCHES) return -1;
     const n = this.launches++;
     this.launchX[n] = x;
@@ -88,7 +110,14 @@ export class RoundTracker {
     this.launchRow[n] = row;
     this.launchBank[n] = bank;
     this.launchImpact[n] = impact;
+    this.launchPowered[n] = powered ? 1 : 0;
+    this.launchOwner[n] = owner;
     return ROUND_TOKEN - n;
+  }
+
+  /** Entity `id` died (EV_DEATH): a round it launched before answers bank 0. */
+  died(id: number): void {
+    if (id >= 0 && id < MAX_ENTITIES) this.deaths[id]++;
   }
 
   /**
@@ -119,7 +148,10 @@ export class RoundTracker {
     if (id >= 0 && id < MAX_ENTITIES) {
       this.kind[id] = -1;
       this.lastImpactId = this.impactId[id];
-      this.lastImpactBank = this.impactBank[id];
+      // `cact_effect_bank` (0x0042bf50) asks the owner now: a lapsed one is 0.
+      const owner = this.owner[id];
+      const lapsed = owner >= 0 && this.deaths[owner] !== this.ownerDeaths[id];
+      this.lastImpactBank = lapsed ? 0 : this.impactBank[id];
     }
     return snap[best + S_HEIGHT];
   }
@@ -147,6 +179,8 @@ export class RoundTracker {
       this.row[id] = 0;
       this.impactId[id] = 0;
       this.impactBank[id] = 0;
+      this.powered[id] = 0;
+      this.owner[id] = -1;
       if (open === 0) continue;
       let best = -1;
       let bestD = BIND_RADIUS_M * BIND_RADIUS_M;
@@ -164,6 +198,10 @@ export class RoundTracker {
       this.row[id] = this.launchRow[best];
       this.impactId[id] = this.launchImpact[best];
       this.impactBank[id] = this.launchBank[best];
+      this.powered[id] = this.launchPowered[best];
+      const owner = this.launchOwner[best];
+      this.owner[id] = owner;
+      this.ownerDeaths[id] = owner >= 0 && owner < MAX_ENTITIES ? this.deaths[owner] : 0;
       this.launchRow[best] = 255;
       open--;
       for (let i = 0; i < this.listeners.length; i++) this.listeners[i](ROUND_TOKEN - best, id);

@@ -1364,4 +1364,75 @@
 //     SimState.rivalHit 0, so neither the Sky Captain's death nor a mech's
 //     down credits the shooter's Walker Kills, or the captain's tally, for
 //     them; blasts and direct weapons credit as before.
-export const SIM_VERSION = 91;
+// v92: the bouncing round stands on its model's radius (fcop-fidelity.md W5;
+//     RE type15.c 0x00424582): its ground is the surface plus Cobj 52's
+//     `radius_68`, 93 << 4 world units (balance.ts GRENADE_RADIUS), where it
+//     was the surface alone, so a grenade bounces and comes to rest 0.18 m
+//     higher. Only a match offering the Grenade Launcher moves: every golden's
+//     hashes hold, re-recorded for the header.
+// v93: la-cantina's kerbs open (fcop-fidelity.md P15): stage 2 runs the kerb
+//     pass on Mp as on Slim, Joke and Conft (FcopArena.kerbs), opening 2334
+//     wall bits that stand for a step the original's walker takes, or for a
+//     spill. The roads and both bases' routes are as before (the generator's
+//     lane and climb reports hold). golden-07-pa's 120 s on la-cantina never
+//     meets one of them: every golden's hashes hold, re-recorded for the
+//     header; any other la-cantina match may walk where it was walled.
+// v94: every arena's ground keeps its kerbs and lift shafts (fcop-fidelity.md
+//     P12, P15). Stage 2's road carve read the bare wall snapshot and wrote it
+//     back over the ground lattice, so the kerbs and shafts the passes before it
+//     had opened there were lost on every arena (the decks kept theirs). With
+//     them kept, the carve drops to 43 / 33 / 12 / 34 bits on Conft, Slim, Mp
+//     and Joke (was 199 / 135 / 36 / 139); Hk and Ovmp, with no kerb pass and
+//     no lifts, are unchanged. urban-jungle's and la-cantina's goldens play
+//     differently (02, 03, 04, 05, 07); golden-03's tanks now breach player
+//     1's gate at 77.2 s.
+// v95: Hk's and Ovmp's decks carry their own walls and their kerbs open
+//     (fcop-fidelity.md P15). Stage 1 (convert.ts) re-run against the RE dump
+//     takes the ground's own lattice (`rank0_walls*`) and each deck's, where
+//     until now a deck collided against the ground's: 80 of Hk's and 4 of
+//     Ovmp's bits move up to a deck, the union is the old lattice bit for bit,
+//     and no height or deck mask moves. The kerb pass then opens 9932 and 8159
+//     bits over the three lattices; the road carve opens 0 and 56 (was 7 and
+//     246). No golden plays these arenas: every hash holds, re-recorded for
+//     the header.
+// v96: the K-9 Drone reads the body it strikes in the pair walk's order
+//     (fcop-fidelity.md W5; RE objects.c 0x0044fe40, collide.c 0x00450190,
+//     missile.c 0x00422dc9): the two operation-0x0b notices go first to the
+//     body in the earlier 4 m pair cell (the sim's x, then y), in one cell to
+//     the later-made (EntityStore.born, an unhashed side array). Told second,
+//     the drone reads the body's health after the body has taken its damage,
+//     so a body it kills costs it 2. Extra weapons are off in every golden:
+//     every hash holds, re-recorded for the header.
+// v97: the K-9 Drone keeps its clearance over the original's coarse ground
+//     envelope (fcop-fidelity.md W5; RE prepare.c 0x00455e00 / 0x00456180,
+//     missile.c 0x004238f9), where it read the heightfield. gen:coarse builds
+//     the field from each mission's Cptc and Ctil sections (one byte per two
+//     samples, the 2x2 maximum over all three channels, blurred and maxed
+//     again); stage 2 carries it into every FCOP arena's map as `coarse`, and
+//     `coarseHeightAt` samples it in the original's integer steps, 4 m off the
+//     field. Other maps keep the heightfield. Extra weapons are off in every
+//     golden: every hash holds, re-recorded for the header.
+// v98: aims reach for the original's reference point (fcop-fidelity.md W5):
+//     the target's model's box-0 centre placed over its position as
+//     `math_matrix_place_point` (0x00458850) places it, the box's 1/512 units
+//     added as world units — a few centimetres, per role and frame from
+//     gen:pamodels (`refs`), carried into each FCOP map as `refHeights`
+//     (sim.ts entityRefHeight). The straight round's climb, the guided launch
+//     and homing, and the homing missile aimed at the target's height plus
+//     MUZZLE_HEIGHT; the Riot Shield measured feet to feet, and now measures
+//     from its centre (the mech's position raised 0x1000, 0x0044c66e) to the
+//     body's reference point. Maps without models keep MUZZLE_HEIGHT.
+//     golden-03 (la-cantina) diverges at tick 660, 07 at 469, 04 at 2220 and
+//     ends where it ended; 02 and 05 hold.
+// v99: urban-jungle's covered pits carry a walker on their grates (fcop-
+//     fidelity.md P16). The extractor's ground is the lowest floor drawn at a
+//     point, so under the ring's fourteen grates and the two outpost pads it
+//     was the pit floor 1.2 m (0.4 m) down, the cells around each pit sloped
+//     into it, and a mech walking on slid under the grate and fell in; the
+//     original's walker stands on the highest plate (terrain_surface_at
+//     0x00453ef0) and never leaves the grate. Stage 1 (convert.ts coverPits)
+//     lifts the ground onto a deck that roofs a pit completely, flush with the
+//     floor around it: 248 points, the deck gone there. 7 lane edges a walker
+//     cannot climb, was 13. urban-jungle's goldens play differently (02, 04,
+//     05).
+export const SIM_VERSION = 99;

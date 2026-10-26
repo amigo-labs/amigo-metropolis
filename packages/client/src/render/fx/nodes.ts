@@ -23,9 +23,10 @@
 // colour_a) << 12 / |ramp|`, is spent from blue down to 0, then green, then
 // red, and nothing moves once red is 0 — a drain to black that never reads
 // colour_b; otherwise each channel walks from colour_a toward colour_b and
-// stops there, or with bit 1 turns back at either end. The original applies
-// it on one frame in four with four frames' delta; here every frame with its
-// own.
+// stops there, or with bit 1 turns back at either end. It runs on one frame
+// in four with four times the frame's delta, staggered by the node (`rampDue`;
+// effect_walk.c 0x0042a1ba, 0x0042a30b). The original's integer truncation of
+// that delta is not kept: the steps here are a second's, in floats.
 
 import * as THREE from "three";
 import type { RaiseAt } from "../../effects/chain";
@@ -113,6 +114,14 @@ export function rampNode(
     }
     rgb[k] = v;
   }
+}
+
+/**
+ * Whether node `i` ramps its colour on pass `frames`: one pass in four, the
+ * nodes staggered, `(passes ^ index) & 3` (effect_walk.c 0x0042a30b).
+ */
+export function rampDue(frames: number, i: number): boolean {
+  return ((frames ^ i) & 3) === 0;
 }
 
 const VERTEX = /* glsl */ `
@@ -388,7 +397,11 @@ export class Nodes {
       this.x[i] += this.vx[i] * s;
       this.y[i] += this.vy[i] * s;
       this.z[i] += this.vz[i] * s;
-      rampNode(this.rampMode[i], this.rgb, i * 3, this.step, this.from, this.to, s);
+      // The colour, one frame in four with four frames' delta, staggered by
+      // the node (effect_walk.c 0x0042a1ba, 0x0042a30b: `(passes ^ index) & 3`).
+      if (rampDue(this.frames, i)) {
+        rampNode(this.rampMode[i], this.rgb, i * 3, this.step, this.from, this.to, 4 * s);
+      }
       // The floor, one frame in eight, for a falling node.
       if (
         this.ground[i] !== 0 &&

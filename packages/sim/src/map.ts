@@ -18,6 +18,7 @@ import {
   DREADNOUGHT_GUN_TURN,
   DREADNOUGHT_GUNS,
   DREADNOUGHT_MOUNTS,
+  MUZZLE_HEIGHT,
   NEUTRAL_TURRET_RADIUS,
   ORIGINAL_BUY_HALF_L,
   ORIGINAL_BUY_HALF_W,
@@ -479,6 +480,23 @@ export interface MapSpawnGuard {
 }
 
 /**
+ * The original's coarse ground-height field (RE prepare.c,
+ * `cact_coarse_height_build` 0x00455e00): one signed byte (1/32 m) per two
+ * terrain samples each way, the maximum over a 2x2 block of samples and their
+ * three channels, blurred and maxed again — an upper envelope of the ground
+ * and the decks. The K-9 Drone keeps its clearance over it (coarseHeightAt).
+ * Field row R begins at the sim's y = originY + 2R, column C at x = originX + 2C.
+ */
+export interface MapCoarse {
+  readonly originX: number;
+  readonly originY: number;
+  readonly rows: number;
+  readonly stride: number;
+  /** rows * stride bytes, row-major. */
+  readonly data: Int8Array;
+}
+
+/**
  * One of the original's lifts (type-10 actor, `elevator.c`; fcop-fidelity.md
  * P12; RE `camera-and-movement.md` "Lifts"). It moves only its height, between
  * `stops` above the ground it was built on: from a stop whose `dwell` is 0 it
@@ -677,6 +695,15 @@ export interface MapData {
    * ARCHETYPE_RADIUS's Mp values where it imports none).
    */
   readonly radii: MapRadii;
+  /**
+   * How far each role's reference point stands above its position, metres:
+   * the box-0 centre of the same model and frame as its radius, placed as
+   * the original places it (`math_matrix_place_point` 0x00458850, the box's
+   * 1/512 units added as world units, so a few centimetres). It is what the
+   * original aims at and measures to (fcop-fidelity.md W5). MUZZLE_HEIGHT on
+   * every role where the arena imports none.
+   */
+  readonly refHeights: MapRadii;
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
   readonly laneGraph: MapLaneGraph | undefined;
   /** Power-up spots. EMPTY → no pickups on this arena. */
@@ -698,6 +725,8 @@ export interface MapData {
   readonly spawnGuards: readonly MapSpawnGuard[];
   /** The lifts (Conft, Slim, Joke). EMPTY elsewhere. */
   readonly lifts: readonly MapLift[];
+  /** The original's coarse ground-height field; null off the FCOP arenas. */
+  readonly coarse: MapCoarse | null;
 }
 
 /**
@@ -983,6 +1012,19 @@ export interface MapJson {
     neutral: number[];
     skyCaptain: number[];
   };
+  /** OPTIONAL: each role's reference height (MapData.refHeights), the radii's shape. */
+  refHeights?: {
+    walker: number;
+    hover: number;
+    tank: number;
+    jet: number;
+    fortress: number;
+    dreadnought: number;
+    dreadnoughtByFrame?: number[];
+    baseTurret: number;
+    neutral: number[];
+    skyCaptain: number[];
+  };
   /** Original Cnet graph. `edges` is one 4-tuple per node, -1 = no edge. */
   laneGraph?: {
     nodes: (number[] | { x: number; y: number; layer?: number })[];
@@ -1052,6 +1094,14 @@ export interface MapJson {
     model: number;
     yaw: number;
   }[];
+  /** OPTIONAL: the coarse ground-height field (MapCoarse), its rows as hex bytes. */
+  coarse?: {
+    originX: number;
+    originY: number;
+    rows: number;
+    stride: number;
+    field: string[];
+  };
 }
 
 /** JSON shape of one base; point lists are [x, y] pairs or {x,y,layer?} objects. */
@@ -1184,6 +1234,53 @@ function parseRadii(raw: MapJson["radii"], spots: number, id: string): MapRadii 
         : list(raw.dreadnoughtByFrame, raw.dreadnoughtByFrame.length, "dreadnoughtByFrame"),
     baseTurret: r(raw.baseTurret, "baseTurret"),
     neutral: list(raw.neutral, spots, "neutral"),
+    skyCaptain: list(raw.skyCaptain, 10, "skyCaptain"),
+  };
+}
+
+/** Every role's reference height where the arena imports none: Metropolis' muzzle height. */
+function defaultRefHeights(spots: number): MapRadii {
+  return {
+    walker: MUZZLE_HEIGHT,
+    hover: MUZZLE_HEIGHT,
+    tank: MUZZLE_HEIGHT,
+    jet: MUZZLE_HEIGHT,
+    fortress: MUZZLE_HEIGHT,
+    dreadnought: MUZZLE_HEIGHT,
+    dreadnoughtByFrame: [],
+    baseTurret: MUZZLE_HEIGHT,
+    neutral: new Array<number>(spots).fill(MUZZLE_HEIGHT),
+    skyCaptain: new Array<number>(10).fill(MUZZLE_HEIGHT),
+  };
+}
+
+/** The arena's reference heights: finite numbers (a box can sit below its origin), the radii's lengths. */
+function parseRefHeights(raw: MapJson["refHeights"], radii: MapRadii, id: string): MapRadii {
+  if (raw === undefined) return defaultRefHeights(radii.neutral.length);
+  const r = (v: unknown, what: string): number => {
+    if (typeof v !== "number" || !Number.isFinite(v)) {
+      fail(id, `refHeights ${what} is not a number (got ${String(v)})`);
+    }
+    return v;
+  };
+  const list = (v: unknown, n: number, what: string): number[] => {
+    if (!Array.isArray(v) || v.length !== n) fail(id, `refHeights ${what} needs ${n} entries`);
+    return v.map((x, i) => r(x, `${what}[${i}]`));
+  };
+  return {
+    walker: r(raw.walker, "walker"),
+    hover: r(raw.hover, "hover"),
+    tank: r(raw.tank, "tank"),
+    jet: r(raw.jet, "jet"),
+    fortress: r(raw.fortress, "fortress"),
+    dreadnought: r(raw.dreadnought, "dreadnought"),
+    dreadnoughtByFrame: list(
+      raw.dreadnoughtByFrame ?? [],
+      radii.dreadnoughtByFrame.length,
+      "dreadnoughtByFrame",
+    ),
+    baseTurret: r(raw.baseTurret, "baseTurret"),
+    neutral: list(raw.neutral, radii.neutral.length, "neutral"),
     skyCaptain: list(raw.skyCaptain, 10, "skyCaptain"),
   };
 }
@@ -2082,6 +2179,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     turretHp,
     captureRange,
     radii,
+    refHeights: parseRefHeights(raw.refHeights, radii, id),
     laneGraph,
     pickups,
     triggerVolumes,
@@ -2089,7 +2187,59 @@ export function loadMapFromJson(raw: MapJson): MapData {
     modeFloors,
     spawnGuards,
     lifts,
+    coarse: parseCoarse(id, raw.coarse),
   };
+}
+
+function parseCoarse(id: string, raw: MapJson["coarse"]): MapCoarse | null {
+  if (raw === undefined) return null;
+  const { originX, originY, rows, stride, field } = raw;
+  if (!Number.isFinite(originX) || !Number.isFinite(originY)) fail(id, "coarse origin");
+  if (!Number.isInteger(rows) || !Number.isInteger(stride) || rows < 2 || stride < 2) {
+    fail(id, "coarse needs integer rows and stride of at least 2");
+  }
+  if (!Array.isArray(field) || field.length !== rows) fail(id, `coarse needs ${rows} rows`);
+  const data = new Int8Array(rows * stride);
+  for (let r = 0; r < rows; r++) {
+    const row = field[r];
+    if (typeof row !== "string" || row.length !== stride * 2 || !/^[0-9a-f]+$/.test(row)) {
+      fail(id, `coarse row ${r} needs ${stride * 2} hex digits`);
+    }
+    for (let c = 0; c < stride; c++) data[r * stride + c] = parseInt(row.substr(c * 2, 2), 16);
+  }
+  return { originX, originY, rows, stride, data };
+}
+
+/** World units a metre, and the coarse field's cell (two terrain samples): `>> 14`. */
+const COARSE_WU_PER_METRE = 8192;
+const COARSE_SHIFT = 14;
+const COARSE_FRAC = (1 << COARSE_SHIFT) - 1;
+/** What the query answers off the field, metres: 0x8000 world units, a height to its callers. */
+export const COARSE_OFFMAP = 0x8000 / COARSE_WU_PER_METRE;
+
+/**
+ * `cact_coarse_height_at` (0x00456180): the field at sim (x, y), metres — a
+ * bilinear sample in the original's integer steps, along the row first on
+ * both rows, then between them. COARSE_OFFMAP outside, where the original's
+ * callers take the sentinel for a height.
+ */
+export function coarseHeightAt(f: MapCoarse, x: number, y: number): number {
+  const dz = Math.floor((x - f.originX) * COARSE_WU_PER_METRE);
+  const dx = Math.floor((y - f.originY) * COARSE_WU_PER_METRE);
+  const fz = dz & COARSE_FRAC;
+  const fx = dx & COARSE_FRAC;
+  const iz = dz >> COARSE_SHIFT;
+  const ix = dx >> COARSE_SHIFT;
+  if (iz < 0 || iz > f.stride - 2 || ix < 0 || ix > f.rows - 2) return COARSE_OFFMAP;
+  const p = ix * f.stride + iz;
+  const n0 = f.data[p] << 8;
+  const n1 = f.data[p + 1] << 8;
+  const near = n0 + (((n1 - n0) * fz) >> COARSE_SHIFT);
+  const q = p + f.stride;
+  const f0 = f.data[q] << 8;
+  const f1 = f.data[q + 1] << 8;
+  const far = f0 + (((f1 - f0) * fz) >> COARSE_SHIFT);
+  return (near + (((far - near) * fx) >> COARSE_SHIFT)) / COARSE_WU_PER_METRE;
 }
 
 export const TEST_MAP_ID = "test-128";
@@ -2193,6 +2343,7 @@ export function createTestMap(): MapData {
     turretHp: [],
     captureRange: ORIGINAL_CAPTURE_RANGE,
     radii: defaultRadii(0),
+    refHeights: defaultRefHeights(0),
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],
@@ -2200,5 +2351,6 @@ export function createTestMap(): MapData {
     modeFloors: false,
     spawnGuards: [],
     lifts: [],
+    coarse: null,
   };
 }

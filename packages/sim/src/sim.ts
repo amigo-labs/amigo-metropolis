@@ -44,6 +44,7 @@ import {
   GRENADE_FUSE_JITTER_DIV,
   GRENADE_FUSE_JITTER_MASK,
   GRENADE_MOVE_SCALE,
+  GRENADE_RADIUS,
   GRENADE_REST_SPEED,
   GRENADE_TIME_DIVISOR,
   GUARDIAN_ALIVE_LIMIT,
@@ -93,6 +94,7 @@ import {
   ORIGINAL_TANK_QUEUE_PERIOD,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_TURRET_RESPAWN_TICKS,
+  PAIR_CELL,
   PICKUP_GUN_AMMO,
   PICKUP_HEALTH,
   PICKUP_HEAVY_AMMO,
@@ -117,6 +119,7 @@ import {
   SHIELD_ARC_WAIT_BASE,
   SHIELD_ARC_WAIT_MASK,
   SHIELD_ARCS,
+  SHIELD_CENTRE_RAISE,
   SHIELD_FLASH_DRAWS,
   SHIELD_HOLD_UNITS,
   SHIELD_RECOIL_A,
@@ -198,6 +201,7 @@ import {
   EV_RESPAWN,
   EV_ROUND_IMPACT,
   EV_SHIELD_ARC,
+  EV_SHIELD_ARC_STEP,
   EV_SHOT,
   EV_SUNK,
   EV_TRANSFORM,
@@ -205,6 +209,7 @@ import {
   EV_TURRET_LOST,
   EV_TURRET_UNDER_FIRE,
   type EventBuffer,
+  packArcAngles,
   pushEvent,
   reachToShotPayload,
   roundSource,
@@ -234,6 +239,7 @@ import {
   TRANSFORM_KEEPS,
 } from "./inputs";
 import {
+  coarseHeightAt,
   insideGate,
   isWater,
   type MapBaseTurret,
@@ -740,7 +746,11 @@ export function spawnAvatar(state: SimState, player: number): number {
   ent.hp[id] = warden ? captainMaxHp(state) : avatarMaxHp(state, player);
   // The Sky Captain's level's model; the mech's radius follows its form
   // (entityRadius).
-  if (warden) ent.radius[id] = state.map.radii.skyCaptain[wardenLevel(state.wardenDifficulty)];
+  if (warden) {
+    const level = wardenLevel(state.wardenDifficulty);
+    ent.radius[id] = state.map.radii.skyCaptain[level];
+    ent.refHeight[id] = state.map.refHeights.skyCaptain[level];
+  }
   // Spawn form (fcop-fidelity.md P2): every respawn comes back in the form the
   // spawn record asks for, as `player_respawn` resets the row from the record.
   const hover = !warden && s.hover;
@@ -820,6 +830,7 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   // imports none).
   ent.weaponProfile[id] = state.map.turretParams[k];
   ent.radius[id] = state.map.radii.neutral[k];
+  ent.refHeight[id] = state.map.refHeights.neutral[k];
   // The rest yaw. A turret's aimX/aimY are its shooter state (systemTargeting),
   // so they start at zero.
   if (state.map.turretYaw.length > 0) ent.yaw[id] = state.map.turretYaw[k];
@@ -850,6 +861,7 @@ function spawnPlateTurret(state: SimState, j: number): number {
   ent.mode[id] = TURRET_DEFENSE;
   ent.weaponProfile[id] = spot.weapon;
   ent.radius[id] = state.map.radii.baseTurret;
+  ent.refHeight[id] = state.map.refHeights.baseTurret;
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   ent.restYaw[id] = ent.yaw[id];
   state.plateTurretEntity[j] = id;
@@ -920,6 +932,7 @@ function spawnBaseTurret(state: SimState, k: number): number {
   ent.mode[id] = TURRET_DEFENSE;
   ent.weaponProfile[id] = spot.weapon;
   ent.radius[id] = state.map.radii.baseTurret;
+  ent.refHeight[id] = state.map.refHeights.baseTurret;
   // Rest yaw only: aimX/aimY are the shooter's state (systemTargeting).
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   ent.restYaw[id] = ent.yaw[id];
@@ -968,6 +981,7 @@ export function spawnUnit(
   // and weapon (fcop-fidelity.md W3): 150 / 150 / 2000 HP, on every arena.
   const base = state.map.bases[team];
   const radii = state.map.radii;
+  const refs = state.map.refHeights;
   ent.radius[id] =
     archetype === ARCHETYPE.RUNNER
       ? radii.tank
@@ -976,6 +990,14 @@ export function spawnUnit(
         : archetype === ARCHETYPE.JUGGERNAUT
           ? radii.dreadnought
           : radii.fortress;
+  ent.refHeight[id] =
+    archetype === ARCHETYPE.RUNNER
+      ? refs.tank
+      : archetype === ARCHETYPE.GUARDIAN
+        ? refs.jet
+        : archetype === ARCHETYPE.JUGGERNAUT
+          ? refs.dreadnought
+          : refs.fortress;
   if (archetype === ARCHETYPE.JUGGERNAUT) {
     ent.hp[id] = base.juggernaut.hp;
     ent.weaponProfile[id] = base.juggernaut.weapon;
@@ -2701,10 +2723,12 @@ function deliver(
       return true;
     }
     case "sphere": {
-      // The Riot Shield: the toggle's answer is the shot's (0x00459575).
-      if (!shieldToggle(state, player, blk, powered)) return false;
+      // The Riot Shield: the toggle's answer is the shot's (0x00459575), but
+      // the block's fire sound plays on every call, before the kind's switch
+      // (0x004591f1) — the call that puts the sphere down included.
+      const up = shieldToggle(state, player, blk, powered);
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
-      return true;
+      return up;
     }
     case "drone": {
       if (spawnGuided(state, shooter, player, w, blk, lock) < 0) return false;
@@ -3048,7 +3072,7 @@ function spawnStraightAt(
     const tx = ent.posX[aimAt] - x;
     const ty = ent.posY[aimAt] - y;
     const d = Math.sqrt(tx * tx + ty * ty);
-    if (d > 0.5) ent.timerB[id] = (ent.height[aimAt] + MUZZLE_HEIGHT - h) / d; // per metre
+    if (d > 0.5) ent.timerB[id] = (ent.height[aimAt] + entityRefHeight(state, aimAt) - h) / d; // per metre
   }
   return id;
 }
@@ -3405,6 +3429,28 @@ export function entityRadius(state: SimState, id: number): number {
   if (r > 0) return r;
   if (arch === ARCHETYPE.TURRET && ent.mode[id] !== TURRET_DEFENSE) return NEUTRAL_TURRET_RADIUS;
   return ARCHETYPE_RADIUS[arch];
+}
+
+/**
+ * How far `id`'s reference point stands above its height, metres: what the
+ * original aims at and measures to (`previous`, box 0 of the model's frame
+ * placed through the orientation — player.c 0x0044702f, turret.c, aircraft.c,
+ * mount.c). The mech's follows its form and a walking hull's its frame, as
+ * their radii do; a body with none imported stands at MUZZLE_HEIGHT.
+ */
+export function entityRefHeight(state: SimState, id: number): number {
+  const ent = state.ent;
+  const arch = ent.archetype[id];
+  const refs = state.map.refHeights;
+  if (arch === ARCHETYPE.AVATAR) return ent.mode[id] === MODE_HOVER ? refs.hover : refs.walker;
+  if (arch === ARCHETYPE.JUGGERNAUT) {
+    const byFrame = refs.dreadnoughtByFrame;
+    const team = ent.team[id];
+    const walk = team === 0 || team === 1 ? state.hullWalk[team] : null;
+    if (walk && byFrame.length > 0) return byFrame[walk.frame[id]];
+  }
+  const h = ent.refHeight[id];
+  return Number.isNaN(h) ? MUZZLE_HEIGHT : h;
 }
 
 /**
@@ -4200,12 +4246,23 @@ function shieldArcStep(state: SimState, p: number, k: number, half: boolean, now
   const phase = s.arcPhase[i];
   const next = phase ^ 1;
   s.arcNext[i] = (randU32(state) & SHIELD_ARC_WAIT_MASK) + now + SHIELD_ARC_WAIT_BASE;
-  let yaw = i16(((randU32(state) | 0) >> 22) + s.arcYaw[i * 2 + next]);
-  let pitch = i16(((randU32(state) | 0) >> 22) + s.arcPitch[i * 2 + next]);
+  // The old point is the pair the current direction came from (`next`).
+  const oldYaw = s.arcYaw[i * 2 + next];
+  const oldPitch = s.arcPitch[i * 2 + next];
+  let yaw = i16(((randU32(state) | 0) >> 22) + oldYaw);
+  let pitch = i16(((randU32(state) | 0) >> 22) + oldPitch);
   if (half) yaw = arcFold(yaw, 0x400);
   pitch = arcFold(pitch, 0x200);
   s.arcYaw[i * 2 + phase] = yaw;
   s.arcPitch[i * 2 + phase] = pitch;
+  // The link from the old point to the new (0x0044cd3e).
+  pushEvent(
+    state.events,
+    EV_SHIELD_ARC_STEP,
+    state.avatarId[p],
+    packArcAngles(oldYaw, oldPitch),
+    packArcAngles(yaw, pitch),
+  );
   // Row 2 of `math_matrix_from_angles(yaw, pitch, 0)`: (cx sy, -sx, cx cy).
   const cp = cosUnits(pitch);
   s.arcDir[i * 3] = cp * sinUnits(yaw);
@@ -4219,7 +4276,7 @@ function shieldArcStep(state: SimState, p: number, k: number, half: boolean, now
  * `sustain_sphere_take_arc` (0x0044c9f0) on the whole sphere: the first charged
  * arc, refused (and left charged) when the actor at (dx, dy, dh) from the centre
  * lies behind its point; else its charge is spent. The sphere's axes are the
- * mech's: x its right, y up, z its facing.
+ * mech's: x its right, y up, z its facing. Answers the arc taken, or -1.
  */
 function shieldTakeArc(
   state: SimState,
@@ -4229,7 +4286,7 @@ function shieldTakeArc(
   dh: number,
   fx: number,
   fy: number,
-): boolean {
+): number {
   const s = state.shield;
   for (let k = 0; k < SHIELD_ARCS; k++) {
     const i = p * SHIELD_ARCS + k;
@@ -4241,11 +4298,11 @@ function shieldTakeArc(
     const px = (ax * fy + az * fx) * r;
     const py = (-ax * fx + az * fy) * r;
     const ph = ay * r;
-    if (px * dx + py * dy + ph * dh < 0) return false;
+    if (px * dx + py * dy + ph * dh < 0) return -1;
     s.arcCharged[i] = 0;
-    return true;
+    return k;
   }
-  return false;
+  return -1;
 }
 
 /**
@@ -4345,9 +4402,9 @@ function systemShields(state: SimState): void {
       if (ent.archetype[t] === ARCHETYPE.CONSOLE) continue;
       const dx = ent.posX[t] - ent.posX[a];
       const dy = ent.posY[t] - ent.posY[a];
-      // Both heights are the feet: the centre's 0x1000 lift and the body's
-      // reference point are taken to be the same height above them.
-      const dh = ent.height[t] - ent.height[a];
+      // From the centre, the mech's position raised 0x1000 (0x0044c66e), to
+      // the body's reference point (0x0044c7c5).
+      const dh = ent.height[t] + entityRefHeight(state, t) - (ent.height[a] + SHIELD_CENTRE_RAISE);
       if (Math.abs(dx) >= reach || Math.abs(dy) >= reach || Math.abs(dh) >= reach) continue;
       if (!powered && dx * fx + dy * fy < 0) continue;
       const reachR = rm + entityRadius(state, t);
@@ -4357,11 +4414,21 @@ function systemShields(state: SimState): void {
         shieldHurt(state, p, t);
       }
       while (ent.alive[t]) {
-        if (!powered || !take || !shieldTakeArc(state, p, dx, dy, dh, fx, fy)) {
+        const k = powered && take ? shieldTakeArc(state, p, dx, dy, dh, fx, fy) : -1;
+        if (k < 0) {
           take = false;
           break;
         }
-        pushEvent(state.events, EV_SHIELD_ARC, a, t, p);
+        // The arc's direction came from the pair it last wrote, `phase ^ 1`.
+        const i = p * SHIELD_ARCS + k;
+        const last = i * 2 + (s.arcPhase[i] ^ 1);
+        pushEvent(
+          state.events,
+          EV_SHIELD_ARC,
+          a,
+          t,
+          packArcAngles(s.arcYaw[last], s.arcPitch[last]),
+        );
         shieldHurt(state, p, t);
       }
     }
@@ -4412,7 +4479,7 @@ function spawnGuided(
   if (lock >= 0) {
     const tx = ent.posX[lock] - x;
     const ty = ent.posY[lock] - y;
-    const th = ent.height[lock] + MUZZLE_HEIGHT - h;
+    const th = ent.height[lock] + entityRefHeight(state, lock) - h;
     const len = Math.sqrt(tx * tx + ty * ty + th * th);
     if (len > 1e-9) {
       dx = tx / len;
@@ -4521,12 +4588,34 @@ function guidedExpire(state: SimState, id: number): void {
 }
 
 /**
+ * Whether `a` is told of its contact with `b` before `b` is (operation 0x0b,
+ * `cact_pair_test` 0x00450190). The pair walk (`objects_pick_targets`
+ * 0x0044fe40) goes over the pair grid's cells by the original's x, then z —
+ * the sim's x, then y — pairing each cell with itself and its forward
+ * neighbours, the earlier cell's body first; in one cell the chain is the
+ * gather's in reverse (`paint_grid_insert` puts each at its head), so the
+ * later-made body comes first. The bodies stand at their positions, not
+ * their reference points.
+ */
+export function toldFirst(state: SimState, a: number, b: number): boolean {
+  const ent = state.ent;
+  const ax = Math.floor(ent.posX[a] / PAIR_CELL);
+  const bx = Math.floor(ent.posX[b] / PAIR_CELL);
+  if (ax !== bx) return ax < bx;
+  const ay = Math.floor(ent.posY[a] / PAIR_CELL);
+  const by = Math.floor(ent.posY[b] / PAIR_CELL);
+  if (ay !== by) return ay < by;
+  return ent.born[a] > ent.born[b];
+}
+
+/**
  * One guided round's tick, `cact_missile_tick` (0x004231d0) in its order:
  * acquire, the range from the launch point, then (not expiring) the
  * acceleration, the state's steering, the move, the K-9's ground clearance, the
  * wall and floor sweeps — and the collision notice (operation 0x0b), which
  * kills a torpedo outright and costs the drone the larger of the body's health
- * and 2, and sends it hunting again.
+ * and 2, and sends it hunting again: the health from before the body's own
+ * notice or after it, in the pair walk's order (toldFirst).
  *
  * Steering, HOME and AVOID (0x004236ac): the fuse runs down while it homes and
  * at zero halves the speed and the cap and renews by 0x12c, expiring the round
@@ -4587,7 +4676,7 @@ function guidedTick(state: SimState, id: number): void {
       ay = ent.posY[t];
       let tx = (ax - px) * WU_PER_METRE;
       let ty = (ay - py) * WU_PER_METRE;
-      let th = (ent.height[t] + MUZZLE_HEIGHT - ph) * WU_PER_METRE;
+      let th = (ent.height[t] + entityRefHeight(state, t) - ph) * WU_PER_METRE;
       let dist = Math.sqrt(tx * tx + ty * ty + th * th);
       if (dist > 0) {
         tx /= dist;
@@ -4634,7 +4723,10 @@ function guidedTick(state: SimState, id: number): void {
       const cx = x - ax;
       const cy = y - ay;
       if (cx * cx + cy * cy > K9_CLEARANCE_RANGE * K9_CLEARANCE_RANGE) {
-        if (h - sampleHeight(map, x, y) < K9_CLEARANCE) {
+        // The original's coarse envelope where the arena has one, the
+        // heightfield elsewhere (coarseHeightAt; prepare.c 0x00456180).
+        const ground = map.coarse ? coarseHeightAt(map.coarse, x, y) : sampleHeight(map, x, y);
+        if (h - ground < K9_CLEARANCE) {
           h += K9_CLEARANCE_LIFT;
           speed = Math.trunc(speed / 2);
           ent.timerC[id] = GUIDED_AVOID;
@@ -4678,11 +4770,15 @@ function guidedTick(state: SimState, id: number): void {
       const dy = ent.posY[t] - y;
       if (dx * dx + dy * dy > r * r) continue;
       const before = ent.hp[t];
+      const droneFirst = toldFirst(state, id, t);
       // A contact: the round's own serial is the credit, which resolves to
       // nobody (0x0041a811), so it is no rival's hit.
       applyDamage(state, t, ent.ammoA[id], ent.ownerId[id], false);
       if (hug) {
-        ent.hp[id] -= before > 2 ? before : 2;
+        // The body's health as the drone reads it: before its own notice
+        // when the drone is told first, after it otherwise.
+        const read = droneFirst ? before : ent.alive[t] ? ent.hp[t] : 0;
+        ent.hp[id] -= read > 2 ? read : 2;
         ent.timerC[id] = GUIDED_ACQUIRE;
         if (ent.hp[id] <= 0) expiring = true;
       } else {
@@ -4763,7 +4859,8 @@ function bounceTick(state: SimState, id: number): void {
   let vx = ent.velX[id];
   let vy = ent.velY[id];
   let vh = ent.timerB[id];
-  const ground = sampleHeight(map, ent.posX[id], ent.posY[id]);
+  // The surface plus the round's model radius (0x00424582).
+  const ground = sampleHeight(map, ent.posX[id], ent.posY[id]) + GRENADE_RADIUS;
   if (ent.height[id] > ground) {
     const fall = Math.trunc((ent.aimX[id] * WEAPON_UNITS_PER_TICK) / GRENADE_TIME_DIVISOR);
     if (vh > 0 && fall > vh) vh = 0;
@@ -4953,7 +5050,8 @@ function systemProjectiles(state: SimState): void {
               uy = ux * s + uy * c;
               ux = nx;
             }
-            ent.timerB[id] = (ent.height[target] + MUZZLE_HEIGHT - ent.height[id]) / d;
+            ent.timerB[id] =
+              (ent.height[target] + entityRefHeight(state, target) - ent.height[id]) / d;
           }
         }
       }

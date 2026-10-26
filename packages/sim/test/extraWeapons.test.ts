@@ -8,18 +8,29 @@
 
 import { describe, expect, test } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
-import { AVATAR_HP_BY_DIFFICULTY, DIFFICULTY_NORMAL, WEAPON_RECORDS } from "../src/balance";
+import {
+  AVATAR_HP_BY_DIFFICULTY,
+  DIFFICULTY_NORMAL,
+  GRENADE_RADIUS,
+  PAIR_CELL,
+  WEAPON_RECORDS,
+} from "../src/balance";
 import { spawn } from "../src/entities";
 import {
+  arcPitchOf,
+  arcYawOf,
   EV_HIT,
+  EV_SHIELD_ARC,
+  EV_SHIELD_ARC_STEP,
   EV_SHOT,
   EVENT_STRIDE,
+  packArcAngles,
   SHOT_SLOT_SPECIAL,
   shotPayloadWeaponId,
 } from "../src/events";
 import { BTN_GUN, BTN_HEAVY, BTN_SPECIAL, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
-import { createSim, hash, type SimState, step } from "../src/sim";
+import { createSim, hash, type SimState, step, toldFirst } from "../src/sim";
 import {
   DEFAULT_LOADOUT,
   difficultyAmmo,
@@ -247,6 +258,19 @@ describe("Riot Shield (0x05, sustain_sphere.c)", () => {
     expect(sim.shield.flags[0] & 1).toBe(1);
   });
 
+  test("every call sounds the block, the one that puts the sphere down too (0x004591f1)", () => {
+    const { sim, inputs } = duel({ gun: RIOT.index }, 30);
+    inputs.players[0].buttons = BTN_GUN;
+    step(sim, inputs);
+    expect(shots(sim)).toEqual([RIOT.id]);
+    inputs.players[0].buttons = 0;
+    for (let t = 0; t < 7; t++) step(sim, inputs);
+    inputs.players[0].buttons = BTN_GUN;
+    step(sim, inputs);
+    expect(sim.shield.flags[0] & 1).toBe(0);
+    expect(shots(sim)).toEqual([RIOT.id]);
+  });
+
   test("its radius springs toward the record's: rate += ((2 (819 - r) - 8 rate) * 10) >> 8", () => {
     const { sim, inputs } = duel({ gun: RIOT.index }, 30);
     inputs.players[0].buttons = BTN_GUN;
@@ -332,6 +356,68 @@ describe("Riot Shield (0x05, sustain_sphere.c)", () => {
     expect(e.alive[r] === 1 && e.mode[r] === PROJ_ROUND).toBe(false);
   });
 
+  test("each arc's step is a link from its old point to its new (EV_SHIELD_ARC_STEP)", () => {
+    const { sim, a0, inputs } = duel({ gun: RIOT.index }, 30);
+    // The toggle makes the sphere and every arc is due at once, from (0, 0).
+    inputs.players[0].buttons = BTN_GUN;
+    step(sim, inputs);
+    const steps: [number, number][] = [];
+    for (let i = 0; i < sim.events.count; i++) {
+      const o = i * EVENT_STRIDE;
+      if (sim.events.data[o] !== EV_SHIELD_ARC_STEP) continue;
+      expect(sim.events.data[o + 1]).toBe(a0);
+      steps.push([sim.events.data[o + 2], sim.events.data[o + 3]]);
+    }
+    expect(steps.length).toBe(12);
+    const s = sim.shield;
+    for (let k = 0; k < 12; k++) {
+      expect(steps[k][0]).toBe(packArcAngles(0, 0));
+      expect(steps[k][1]).toBe(packArcAngles(s.arcYaw[k * 2 + 1], s.arcPitch[k * 2 + 1]));
+      // The half sphere's yaw folds to the front, the pitch to +-0x200.
+      expect(Math.abs(arcYawOf(steps[k][1]))).toBeLessThanOrEqual(0x400);
+      expect(Math.abs(arcPitchOf(steps[k][1]))).toBeLessThanOrEqual(0x200);
+    }
+  });
+
+  test("a strike names the charged arc it came from (EV_SHIELD_ARC)", () => {
+    const { sim, a0, a1, inputs } = duel({ gun: RIOT.index }, -1.5);
+    powerSlot(sim, RIOT);
+    inputs.players[0].buttons = BTN_GUN;
+    const s = sim.shield;
+    let strikes = 0;
+    for (let t = 0; t < 300; t++) {
+      // Held alive, so the sphere keeps striking it.
+      sim.ent.hp[a1] = AVATAR_HP;
+      step(sim, inputs);
+      const last = new Set<number>();
+      for (let k = 0; k < 12; k++) {
+        const j = k * 2 + (s.arcPhase[k] ^ 1);
+        last.add(packArcAngles(s.arcYaw[j], s.arcPitch[j]));
+      }
+      for (let i = 0; i < sim.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (sim.events.data[o] !== EV_SHIELD_ARC) continue;
+        expect([sim.events.data[o + 1], sim.events.data[o + 2]]).toEqual([a0, a1]);
+        expect(last.has(sim.events.data[o + 3])).toBe(true);
+        strikes++;
+      }
+    }
+    expect(strikes).toBeGreaterThan(0);
+  });
+
+  test("the packed angles round-trip, signed, sixteen bits each", () => {
+    for (const [y, p] of [
+      [0, 0],
+      [0x400, -0x200],
+      [-0x400, 0x1ff],
+      [-1, -1],
+      [0x7fff, -0x8000],
+    ]) {
+      const v = packArcAngles(y, p);
+      expect([arcYawOf(v), arcPitchOf(v)]).toEqual([y, p]);
+    }
+  });
+
   test("its sphere is in the avatar snapshot: radius in metres, whole or half", async () => {
     const {
       AVATAR_SNAP_SHIELD_RADIUS,
@@ -409,6 +495,48 @@ describe("K-9 Drone (0x15, missile.c CACT_MISSILE_KIND_HUG)", () => {
     expect(sim.ent.timerC[d]).toBe(4); // ACQUIRE
   });
 
+  test("the body's health it reads is before the body's own notice or after it, in the pair walk's order", () => {
+    // From the east onto a body standing just west of a 4 m pair cell's edge:
+    // the body's cell comes first in the walk, so the body is told first, takes
+    // the drone's 150 and is at -30 when the drone reads it: the drone loses 2.
+    const { sim, a0, a1, inputs } = duel({ heavy: K9.index }, -8.1);
+    sim.ent.yaw[a0] = Math.PI;
+    sim.ent.aimX[a0] = -1;
+    sim.ent.aimY[a0] = 0;
+    sim.ent.hp[a1] = 120;
+    expect(Math.floor(sim.ent.posX[a1] / PAIR_CELL)).toBe(2);
+    inputs.players[0].buttons = BTN_HEAVY;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    let d = -1;
+    for (let t = 0; t < 90; t++) {
+      [d] = rounds(sim, PROJ_K9);
+      step(sim, inputs);
+      if (hits(sim, a1).length > 0) break;
+    }
+    expect(Math.floor(sim.ent.posX[d] / PAIR_CELL)).toBe(3);
+    expect(sim.ent.hp[d]).toBe(300 - 2);
+  });
+
+  test("the pair walk tells the earlier cell's body first, by x then y, and in one cell the later-made", () => {
+    const { sim, a0, a1 } = duel({ heavy: K9.index }, 8);
+    const put = (e: number, x: number, y: number) => {
+      sim.ent.posX[e] = x;
+      sim.ent.posY[e] = y;
+    };
+    put(a0, 3.9, 30);
+    put(a1, 4.1, 0);
+    expect(toldFirst(sim, a0, a1)).toBe(true);
+    expect(toldFirst(sim, a1, a0)).toBe(false);
+    put(a1, 3.0, 28.1);
+    expect(toldFirst(sim, a1, a0)).toBe(true);
+    // One cell: the chain is the gather's in reverse.
+    put(a1, 3.0, 30.5);
+    expect(sim.ent.born[a1]).toBeGreaterThan(sim.ent.born[a0]);
+    expect(toldFirst(sim, a1, a0)).toBe(true);
+    expect(toldFirst(sim, a0, a1)).toBe(false);
+  });
+
   test("without a lock it coasts its 16 m from the launch point and ends", () => {
     const { sim, a1, inputs } = duel({ heavy: K9.index }, 0);
     sim.ent.posY[a1] = 50; // nothing ahead
@@ -447,6 +575,38 @@ describe("K-9 Drone (0x15, missile.c CACT_MISSILE_KIND_HUG)", () => {
     }
     expect(avoided).toBe(true);
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 150);
+  });
+
+  test("on an arena with the original's coarse field it keeps its clearance over that, not the heightfield", () => {
+    // Flat ground, but a 1.5 m envelope over it (prepare.c 0x00455e00): the
+    // drone flies low and climbs for the envelope as it would for a hill.
+    const coarse = (byte: string) => ({
+      originX: 0,
+      originY: 0,
+      rows: 32,
+      stride: 32,
+      field: Array.from({ length: 32 }, () => byte.repeat(32)),
+    });
+    const flown = (map: MapJson) => {
+      const { sim, inputs } = duel(
+        { heavy: K9.index },
+        11,
+        EXTRA_WEAPONS_ALL,
+        loadMapFromJson(map),
+      );
+      inputs.players[0].buttons = BTN_HEAVY;
+      step(sim, inputs);
+      inputs.players[0].buttons = 0;
+      const [d] = rounds(sim, PROJ_K9);
+      let avoided = false;
+      for (let t = 0; t < 40 && sim.ent.alive[d] && sim.ent.mode[d] === PROJ_K9; t++) {
+        step(sim, inputs);
+        if (sim.ent.timerC[d] === 3) avoided = true;
+      }
+      return avoided;
+    };
+    expect(flown({ ...flatArena(), coarse: coarse("30") })).toBe(true);
+    expect(flown({ ...flatArena(), coarse: coarse("00") })).toBe(false);
   });
 
   test("powered: three drones on three ticks, then 1202 units (121 ticks)", () => {
@@ -559,7 +719,8 @@ describe("Grenade Launcher (0x24, type15.c and round_spawn.c)", () => {
     for (let t = 0; t < 200 && sim.ent.alive[g] && !bounced; t++) {
       const vx = sim.ent.velX[g];
       const vh = sim.ent.timerB[g];
-      const above = sim.ent.height[g] > 0;
+      // The ground is the surface (0 here) plus the model's radius (0x00424582).
+      const above = sim.ent.height[g] > GRENADE_RADIUS;
       step(sim, inputs);
       if (!sim.ent.alive[g]) break;
       if (above) {
@@ -602,6 +763,9 @@ describe("Grenade Launcher (0x24, type15.c and round_spawn.c)", () => {
     inputs.players[0].buttons = 0;
     step(sim, inputs);
     expect(sim.ent.alive[h]).toBe(1);
+    // A bounce stands it on its radius first: 93 << 4 world units up.
+    expect(sim.ent.height[h]).toBeGreaterThan(GRENADE_RADIUS);
+    expect(GRENADE_RADIUS * 8192).toBe(93 * 16);
     expect(sim.ent.velX[h]).toBe(Math.trunc((7 * 0x1800) / 8));
     expect(sim.ent.timerB[h]).toBe(Math.trunc((5 * 0x1000) / 8));
   });

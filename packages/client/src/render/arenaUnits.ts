@@ -114,10 +114,19 @@ export function writeX1Uv(
   side: number,
   cloakV = -1,
 ): void {
-  const o = current.x1.uv[side];
-  const map = materialMap(mesh.material);
-  atlasOffset(map, o.u, cloakV >= 0 ? cloakV : o.v, scratchUv, 0);
+  x1Uv(mesh.material, side, cloakV, scratchUv);
   writeTeamUv(mesh, slot, scratchUv[0], scratchUv[1]);
+}
+
+/** The X1-Alpha's offset for `side` (as writeX1Uv), atlas units, into `out`. */
+export function x1Uv(
+  material: THREE.Material | THREE.Material[],
+  side: number,
+  cloakV: number,
+  out: Float32Array,
+): void {
+  const o = current.x1.uv[side];
+  atlasOffset(materialMap(material), o.u, cloakV >= 0 ? cloakV : o.v, out, 0);
 }
 
 /**
@@ -339,6 +348,12 @@ export interface ArenaUnitsRenderer {
    * index, as the sweep last saw its console. For render/props.ts' flags.
    */
   readonly outpostSides: Int8Array;
+  /**
+   * Plays `track` on a bucket whose geometry carries its frames as morph
+   * targets, frame by frame per instance on the units' clock: the projectiles'
+   * models, loaded at boot (the K-9 Drone's run, render/unitMeshes.ts).
+   */
+  playMorph(bucket: Bucket, track: UnitMorph, geometry: THREE.BufferGeometry): void;
 }
 
 /**
@@ -605,7 +620,15 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
 
   /** Points the bucket's morph texture at the file's morph, or clears it. */
   function bindMorph(bucket: Bucket, file: string, geometry: THREE.BufferGeometry): void {
-    const morph = MORPH_OF.get(file) ?? null;
+    bindTrack(bucket, MORPH_OF.get(file) ?? null, geometry);
+  }
+
+  /** Points the bucket's morph texture at `morph`, or clears it. */
+  function bindTrack(
+    bucket: Bucket,
+    morph: UnitMorph | null,
+    geometry: THREE.BufferGeometry,
+  ): void {
     const targets = geometry.morphAttributes.position?.length ?? 0;
     const old = morphs.get(bucket);
     if (!morph || targets !== morph.frames - 1) {
@@ -714,6 +737,9 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
     },
     get outpostSides() {
       return outpostSides;
+    },
+    playMorph(bucket, track, geometry) {
+      bindTrack(bucket, track, geometry);
     },
     setCaptainLevel(level) {
       if (level === captainLevel) return;

@@ -16,6 +16,7 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import type { UnitMorph } from "./arenaUnits.generated";
 import { parseFacers, registerFacers } from "./facers";
 import { type FcopModel, faceMaterials, materialList, mergeFcopModel } from "./fcopModel";
 import type { Bucket, GreyboxMeshes } from "./greybox";
@@ -45,6 +46,9 @@ const FX_MODEL_KEYS = [
   // The Fusion Torpedo's and the Plasma Flare's: Cobj 46, a star facer alone.
   ["projTorpedo", "star-46"],
   ["projPlasma", "star-46"],
+  // Their block B's (powered): Cobj 47, the same star in blue.
+  ["projTorpedoB", "star-47"],
+  ["projPlasmaB", "star-47"],
   // The Sky Captain's bomb is world row 9: Cobj 49 (the mortar shell's payload).
   ["projWarden", "round-row9"],
   // The world rows' rounds that are models, in the original's own colours
@@ -54,15 +58,29 @@ const FX_MODEL_KEYS = [
 ] as const satisfies readonly (readonly [keyof GreyboxMeshes, string])[];
 
 /**
+ * The FX models that play their morph, by key: the K-9 Drone's run, Cobj 48's
+ * AnmD track 0 (RE pa_models.json: frames 0-10, mode 2, period 870, looping;
+ * one payload on all six arenas). The guided ordnance actor steps a mode-2
+ * track by `velocity_84 * delta` (RE missile.c 0x004232e4), the world units it
+ * travels, so the dog runs a frame per 870 world units (0.106 m).
+ */
+export const FX_MORPHS: Readonly<Record<string, UnitMorph>> = {
+  "drone-k9": { frames: 11, period: 870, drivenBy: "distance", source: "morph" },
+};
+
+/** Plays a track on a bucket's morph targets (render/arenaUnits.ts playMorph). */
+export type PlayMorph = (bucket: Bucket, track: UnitMorph, geometry: THREE.BufferGeometry) => void;
+
+/**
  * Kicks off the async model load for every model-backed bucket. Fire and
  * forget: buckets upgrade in place as their .glb arrives.
  */
-export function loadUnitMeshes(buckets: GreyboxMeshes): void {
+export function loadUnitMeshes(buckets: GreyboxMeshes, playMorph?: PlayMorph): void {
   // Projectiles keep the unlit material their bucket was built with: a bolt or
   // a shell reads as a light source, not as a lit surface, which is also why
   // the original drew their glows as emissive facer geometry.
   for (const [bucketName, key] of FX_MODEL_KEYS) {
-    swapBucketMesh(buckets[bucketName], key, "fx", true);
+    swapBucketMesh(buckets[bucketName], key, "fx", true, playMorph);
   }
 }
 
@@ -132,7 +150,13 @@ function unitAssetOf(
   return { geometry, material, map, extras: model.extras };
 }
 
-function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean): void {
+function swapBucketMesh(
+  bucket: Bucket,
+  key: string,
+  dir: "fx",
+  unlit: boolean,
+  playMorph?: PlayMorph,
+): void {
   const url = `/models/${dir}/${key}.glb`;
   loader
     .loadAsync(url)
@@ -152,11 +176,16 @@ function swapBucketMesh(bucket: Bucket, key: string, dir: "fx", unlit: boolean):
       // is +X forward, so bake the quarter turn into the geometry once — and
       // into the facers (the rockets' glows are stars: render/facers.ts).
       geometry.rotateY(Math.PI / 2);
+      // A morph's deltas too, which BufferGeometry.rotateY leaves alone.
+      const turn = new THREE.Matrix4().makeRotationY(Math.PI / 2);
+      for (const delta of geometry.morphAttributes.position ?? []) delta.applyMatrix4(turn);
       registerFacers(bucket.mesh, parseFacers(extras, true), map);
       bucket.mesh.geometry.dispose();
       bucket.mesh.geometry = geometry;
       for (const m of materialList(bucket.mesh.material)) m.dispose();
       bucket.mesh.material = material;
+      const track = FX_MORPHS[key];
+      if (track && playMorph) playMorph(bucket, track, geometry);
       // Belt and braces: re-write every instance tint on the next frame so no
       // slot can carry a stale cache entry across the swap.
       bucket.tintCache.fill(-2);

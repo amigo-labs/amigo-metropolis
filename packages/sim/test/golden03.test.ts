@@ -57,7 +57,11 @@ import { createSim, step } from "../src/sim";
 // back to its rest yaw (it kept its last aim); the mechs still go down 12
 // times, the ten tanks die short (player 0's nearest 27.4 m off, player 1's
 // 31.7 m), and one ring turret falls (none did).
-const BREACH_TICK_PIN = -1;
+// 2316 at SIM_VERSION 94: la-cantina's ground keeps its kerbs (stage 2's carve
+// had written the bare lattice back over them), so player 0's tanks drive the
+// original's kerbed streets through to the gate and breach at 77.2 s; the mechs
+// go down 4 times.
+const BREACH_TICK_PIN = 2316;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {
@@ -107,8 +111,8 @@ describe("golden-03-match beats", () => {
     expect(respawns[0]).toBeGreaterThanOrEqual(1);
     expect(respawns[1]).toBeGreaterThanOrEqual(1);
     expect(runnerDeaths).toBeGreaterThanOrEqual(3);
-    // The breach as recorded: player 1's tank at 82.8 s since SIM_VERSION 79
-    // (none at 78; player 0's at 83 s from 69).
+    // The breach as recorded: player 0's tank at 77.2 s since SIM_VERSION 94
+    // (none from 84; the same side's at 82.8 s from 79).
     expect(breaches).toBe(BREACH_TICK_PIN < 0 ? 0 : 1);
     expect(breachTick).toBe(BREACH_TICK_PIN);
     expect(breachTeam).toBe(BREACH_TICK_PIN < 0 ? -1 : BREACH_TEAM_PIN);

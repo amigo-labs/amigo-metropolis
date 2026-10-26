@@ -9,16 +9,28 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { NodeIO } from "@gltf-transform/core";
 import * as THREE from "three";
+import { FX_ARENAS, FX_RECORDS } from "../src/effects/fcopEffects.generated";
+import type { Fx90 } from "../src/effects/records";
 import {
   buildX1Rig,
   createX1AnimTexture,
   placeX1,
   RIG_CAPACITY,
   X1_BONE_ATTR,
+  X1_COCKPIT_BONES,
   X1_POSE_ATTR,
+  x1CockpitSkeleton,
 } from "../src/render/avatarRig";
+import { makeShatterSkeleton, SkeletonShatter } from "../src/render/fx/skeletonShatter";
 import { patchTeamUv, prepareTeamUvMask, TEAM_UV_ATTR } from "../src/render/teamUv";
-import { X1_ANIM_HEIGHT, X1_ANIM_WIDTH } from "../src/render/x1Rig.generated";
+import { poseX1Vertex } from "../src/render/x1Pose";
+import {
+  X1_ANIM_HEIGHT,
+  X1_ANIM_WIDTH,
+  X1_COCKPIT_ROW,
+  X1_COCKPIT_SLOT,
+  X1_MOUNT_TEXEL,
+} from "../src/render/x1Rig.generated";
 
 const GLB = new URL("../public/models/units/avatar-x1.glb", import.meta.url).pathname;
 const BIN = new URL("../public/models/units/avatar-x1.anim.bin", import.meta.url).pathname;
@@ -124,5 +136,84 @@ describe("the X1's rig", () => {
     placeX1(core, 1, 10, 2, 20, Math.PI / 2, 1, 317, 0, 0.1, -0.2, 40);
     expect(team.array[2]).toBeCloseTo(0.5, 6);
     expect(team.array[3]).toBeCloseTo(40 / 256, 6);
+  });
+
+  test("the wrecked cockpit hands the skeleton shatter its seven bones, unturned, on the mount", async () => {
+    const { core, scene } = await loadRig();
+    const out = makeShatterSkeleton();
+    x1CockpitSkeleton(core, 10, 2, 20, Math.PI / 2, 1, 316, 5, out);
+    expect([out.first, out.bones]).toEqual([X1_COCKPIT_SLOT, 7]);
+    expect(X1_COCKPIT_BONES).toBe(7);
+    const row = (X1_COCKPIT_ROW + 5) * X1_ANIM_WIDTH;
+    for (let n = 0; n < 7; n++) {
+      for (let k = 0; k < 12; k++) {
+        expect(out.matrices[n * 12 + k]).toBe(core.table[(row + n * 3) * 4 + k]);
+      }
+    }
+    // Facing sim +y the rig turns nothing: the mount as the table has it.
+    const m = (316 * X1_ANIM_WIDTH + X1_MOUNT_TEXEL) * 4;
+    expect(out.x).toBeCloseTo(10 + core.table[m], 5);
+    expect(out.y).toBeCloseTo(2 + core.table[m + 1], 5);
+    expect(out.z).toBeCloseTo(20 + core.table[m + 2], 5);
+    // Facing sim +x: the quarter turn, (x, z) -> (z, -x).
+    x1CockpitSkeleton(core, 10, 2, 20, 0, 1, 316, 5, out);
+    expect(out.x).toBeCloseTo(10 + core.table[m + 2], 5);
+    expect(out.z).toBeCloseTo(20 - core.table[m], 5);
+    // Side 1's texels, through a material with the team offset and no pose.
+    expect([out.teamU, out.teamV]).toEqual([0.5, 0]);
+    const shader = {
+      uniforms: {},
+      vertexShader: "#include <common>\n#include <uv_vertex>\n#include <begin_vertex>\n",
+      fragmentShader: "",
+    };
+    out.material.onBeforeCompile(shader as never, {} as never);
+    expect(shader.vertexShader).toContain("instanceTeamUv");
+    expect(shader.vertexShader).not.toContain("x1Anim");
+    // The cockpit's faces wholly inside one bone, 126; a face across two
+    // bones is never drawn.
+    const rec = FX_RECORDS[FX_ARENAS["la-cantina"].banks[1][8]] as Fx90;
+    expect(rec.shatterFlags & 0x10).toBe(0x10);
+    const bones = new SkeletonShatter(scene);
+    expect(bones.spawn(rec, out, 0)).toBe(true);
+    expect(bones.drawn()).toBe(126);
+    expect(bones.left(0)).toBe(7);
+    // Before the first tick every corner is where the rig draws it on an X1
+    // facing sim +x with its aim at rest: the identity is that X1.
+    const drawnPos = scene.children
+      .map((c) => (c as THREE.Mesh).geometry)
+      .find((g) => g?.drawRange.count === 126 * 3)
+      ?.getAttribute("position").array as Float32Array;
+    const geo = core.mesh.geometry;
+    const position = geo.getAttribute("position");
+    const slot = geo.getAttribute(X1_BONE_ATTR);
+    const posed = new Float32Array(3);
+    let f = 0;
+    for (let t = 0; t < position.count / 3; t++) {
+      const b = slot.getX(t * 3);
+      if (b < X1_COCKPIT_SLOT || b >= X1_COCKPIT_SLOT + 7) continue;
+      if (slot.getX(t * 3 + 1) !== b || slot.getX(t * 3 + 2) !== b) continue;
+      for (let k = 0; k < 3; k++) {
+        const v = t * 3 + k;
+        poseX1Vertex(
+          core.table,
+          b,
+          316,
+          5,
+          0,
+          0,
+          position.getX(v),
+          position.getY(v),
+          position.getZ(v),
+          posed,
+          0,
+        );
+        const o = (f * 3 + k) * 3;
+        expect(drawnPos[o]).toBeCloseTo(10 + posed[2], 4);
+        expect(drawnPos[o + 1]).toBeCloseTo(2 + posed[1], 4);
+        expect(drawnPos[o + 2]).toBeCloseTo(20 - posed[0], 4);
+      }
+      f++;
+    }
+    expect(f).toBe(126);
   });
 });

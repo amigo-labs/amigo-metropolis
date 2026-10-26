@@ -63,6 +63,7 @@ import {
   WORLD_KIND_GUIDED,
   WORLD_KIND_LEAD,
   WORLD_WEAPONS,
+  WU_PER_METRE,
   walkRoad,
   worstHoverRise,
   worstUphillRise,
@@ -76,6 +77,7 @@ import {
   selectArenas,
   wallsFile,
 } from "./fcopArenas";
+import { readCoarse } from "./fcopCoarse";
 import {
   captureRangeToCells,
   fovToCos,
@@ -1123,6 +1125,33 @@ function radiiOf(models: ModelsArtifact, spots: number, mapId: string) {
   };
 }
 
+/**
+ * Every role's reference height, metres: its box-0 centre y, which the
+ * original adds to the position unshifted (`math_matrix_place_point`
+ * 0x00458850: the box's 1/512 units as world units), so raw / 8192.
+ */
+function refHeightsOf(models: ModelsArtifact, spots: number, mapId: string) {
+  const r = models.refs;
+  if (r.neutral.length !== spots) {
+    throw new Error(
+      `${mapId}: ${r.neutral.length} neutral reference heights for ${spots} turret spots`,
+    );
+  }
+  const m = (raw: number) => raw / WU_PER_METRE;
+  return {
+    walker: m(r.x1.walker),
+    hover: m(r.x1.hover),
+    tank: m(r.tank),
+    jet: m(r.jet),
+    fortress: m(r.fortress),
+    dreadnought: m(r.dreadnought),
+    ...(r.dreadnoughtByFrame ? { dreadnoughtByFrame: r.dreadnoughtByFrame.map(m) } : {}),
+    baseTurret: m(r.baseTurret),
+    neutral: r.neutral.map(m),
+    skyCaptain: r.skyCaptain.map(m),
+  };
+}
+
 /** The record's gun count, which must be the hull's mount count. */
 function gunsOnMounts(guns: number, mounts: number, mapId: string): number {
   if (guns !== mounts) throw new Error(`${mapId}: ${guns} Dreadnought guns on ${mounts} mounts`);
@@ -1622,11 +1651,16 @@ function repairReachability(
     }
   };
 
+  /** The ground has no wall between neighbouring cells (i, j) and (ni, nj). */
+  const groundOpen = (i: number, j: number, ni: number, nj: number): boolean =>
+    i !== ni ? v[j][Math.max(i, ni)] !== "1" : h[Math.max(j, nj)][i] !== "1";
+
   // One breach per pass, because each breach can pull a whole region into the
   // flood and make most of the remaining targets reachable for free.
   for (let pass = 0; pass < 200; pass++) {
     const map = rebuild();
-    const reached = reachableFrom(map, raw.spawns[0].x, raw.spawns[0].y).cellKeys;
+    const reach = reachableFrom(map, raw.spawns[0].x, raw.spawns[0].y);
+    const reached = reach.cellKeys;
     const ci = (val: number): number => Math.min(size - 1, Math.max(0, Math.floor(val)));
     // Euclidean, on cell centres, so `reach` means the same thing the sim's
     // radius checks mean rather than a Manhattan approximation of it.
@@ -1678,6 +1712,16 @@ function repairReachability(
         if (ni < 0 || nj < 0 || ni >= size || nj >= size) continue;
         const nk = ni * size + nj;
         if (from[nk] !== -1) continue;
+        // A breach is a ground bit. Across an edge the ground already has open,
+        // from a cell the flood stands on only on a deck, there is nothing to
+        // clear: the deck's own parapet holds it. Reach the far cell some other
+        // way, or the walk below opens nothing and the repair never converges.
+        if (
+          reached.has(at) &&
+          groundOpen(i, j, ni, nj) &&
+          !reach.hasLayer((i + 0.5) * map.cellSize, (j + 0.5) * map.cellSize, 0)
+        )
+          continue;
         from[nk] = at;
         queue.push(nk);
       }
@@ -1800,8 +1844,11 @@ function terrainOnly(raw: MapJson): MapJson {
   // The render-only `props` this stage used to write (their yaws Metropolis'
   // own, "face the nearer base core") are dropped: the client draws the scenery
   // from render/arenaScenery.generated.ts, and nothing read them.
-  const { props, spawnGuards, ...kept } = raw as MapJson & { props?: unknown };
+  // `coarse` is rebuilt below too, and dropped here so it is always emitted in
+  // the same place whatever the map on disk carries.
+  const { props, spawnGuards, coarse, ...kept } = raw as MapJson & { props?: unknown };
   void props;
+  void coarse;
   void spawnGuards;
   // A fresh stage-1 terrain still carries convert.ts's hand outpost spots but no
   // outposts, which the loader refuses; every feature list is rebuilt below.
@@ -2243,12 +2290,12 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   let repairedFor = new Map<string, number>();
   let entries: string[] = [];
   if (wallsV.length > 0) {
-    // Wall queries must see the PRISTINE lattice, not whatever is on disk.
-    const pristineMap = loadMapFromJson({
-      ...raw,
-      wallsV: pristine.wallsV,
-      wallsH: pristine.wallsH,
-    });
+    // Wall queries must see the lattice built from the committed pristine
+    // snapshot, not whatever is on disk: the snapshot with the shafts and the
+    // kerbs opened above, on the ground and on every deck. Reading the bare
+    // snapshot here threw the ground's shafts and kerbs away, since the carve
+    // writes its lattice back over `wallsV`/`wallsH`.
+    const pristineMap = loadMapFromJson({ ...raw, layers, wallsV, wallsH });
     // RoadBase only needs gate + groundConsole x/y.
     const roadBases = bases.map((b) => ({
       gate: { x: b.gate.x, y: b.gate.y },
@@ -2337,6 +2384,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     captureRange: round4(captureRangeToCells(arena.neutralCaptureRaw)),
     // Every body's hit radius, the arena's own mission's models (fcop-fidelity.md G1).
     radii: radiiOf(models, turretSpots.length, mapId),
+    // Every body's reference point over its position (fcop-fidelity.md W5).
+    refHeights: refHeightsOf(models, turretSpots.length, mapId),
     laneGraph: {
       nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,
@@ -2350,6 +2399,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     spawnGuards: spawnGuards.length > 0 ? spawnGuards : undefined,
     lifts: lifts.length > 0 ? lifts : undefined,
     layers,
+    // The original's coarse ground envelope (gen:coarse, fcopCoarse.ts): what
+    // the K-9 Drone keeps its clearance over.
+    coarse: coarseOf(arena),
   };
 
   // Load it back through the real validator before returning: an arena that only
@@ -2372,6 +2424,20 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       field,
       map: loaded,
     },
+  };
+}
+
+/** The arena's committed coarse field (tools/generators/fcop/<mission>-coarse.json), as the map carries it. */
+function coarseOf(arena: FcopArena): MapJson["coarse"] {
+  const f = readCoarse(arena);
+  if (!f) return undefined;
+  // Into the sim's frame as every actor goes (sx, sz).
+  return {
+    originX: sx(f.origin),
+    originY: sz(f.origin),
+    rows: f.rows,
+    stride: f.stride,
+    field: f.field,
   };
 }
 

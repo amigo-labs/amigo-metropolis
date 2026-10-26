@@ -166,6 +166,12 @@ describe("committed FX models match the manifest contract", () => {
       const facers = (root.listNodes()[0].getExtras() as { fcop?: { facers?: { kind: string }[] } })
         .fcop?.facers;
       const rawDoc = await io.read(join(RAW_DIR, spec.raw));
+      // Each 3DAL animation rides the facer of its primitive, and nothing else does.
+      const anims = (facers ?? []).flatMap((f) => {
+        const a = (f as { prim?: number; colour_anim?: unknown }).colour_anim;
+        return a ? [{ face: (f as { prim?: number }).prim, ...(a as object) }] : [];
+      });
+      expect(anims).toEqual((spec.colorAnims ?? []).map((a) => ({ ...a })));
       if (prims.length === 0) {
         expect(facers?.length).toBeGreaterThan(0);
         expect(facers?.every((f) => f.kind === "line" || f.kind === "star")).toBe(true);
@@ -178,6 +184,34 @@ describe("committed FX models match the manifest contract", () => {
       expect(tris).toBeLessThanOrEqual(spec.maxTris);
       // Every face of the raw but the facers' stand-ins.
       expect(tris).toBe(faceBounds(rawDoc).tris);
+
+      // A kept morph (the K-9 Drone's run) is the raw's frames, unmoved:
+      // frame k + 1 is target k. Every other FX model ships frame 0 alone.
+      const frames = spec.morphFrames ?? 1;
+      for (const prim of prims) expect(prim.listTargets().length).toBe(frames - 1);
+      if (frames > 1) {
+        const rawPrims = rawDoc
+          .getRoot()
+          .listMeshes()
+          .flatMap((m) => m.listPrimitives())
+          .filter((p) => !fcopOf(p.getMaterial()).standin);
+        const motion = (list: Primitive[], k: number) => {
+          let sum = 0;
+          const d = [0, 0, 0];
+          for (const p of list) {
+            const a = p.listTargets()[k].getAttribute("POSITION");
+            for (let i = 0; i < (a?.getCount() ?? 0); i++) {
+              a?.getElement(i, d);
+              sum += Math.abs(d[0]) + Math.abs(d[1]) + Math.abs(d[2]);
+            }
+          }
+          return sum;
+        };
+        for (let k = 0; k < frames - 1; k++) {
+          expect(motion(prims, k)).toBeGreaterThan(0);
+          expect(motion(prims, k)).toBeCloseTo(motion(rawPrims, k), 3);
+        }
+      }
 
       const scene = root.getDefaultScene() ?? root.listScenes()[0];
       const { min, max } = getBounds(scene);

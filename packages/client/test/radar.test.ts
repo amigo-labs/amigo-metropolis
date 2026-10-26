@@ -3,7 +3,7 @@
 // scale, the markers by unit kind and side.
 
 import { describe, expect, test } from "bun:test";
-import { ARCHETYPE, TURRET_CAPTURABLE, TURRET_DEFENSE } from "@metropolis/sim";
+import { ARCHETYPE, SNAPSHOT_STRIDE, TURRET_CAPTURABLE, TURRET_DEFENSE } from "@metropolis/sim";
 import { SCENERY_PLACEMENTS } from "../src/render/arenaScenery.generated";
 import {
   ARENA_PRESENTATION,
@@ -12,6 +12,8 @@ import {
   UNIT_MARKERS,
 } from "../src/render/fcopPresentation.generated";
 import {
+  entityCandidates,
+  LiveOrder,
   markerOf,
   REGISTRY_LIMIT_TEAM_GAME,
   radarInRange,
@@ -157,6 +159,77 @@ describe("the registry (cact_registry_build 0x0043b520, _mp 0x0043b7a0)", () => 
     expect(radarRegistry(xs, ys, 2, two.x, two.y, 1, 0xfe, member)).toBe(0);
     expect(radarRegistry(xs, ys, 2, two.x, two.y, 2, 0xfe, member)).toBe(1);
     expect([...member]).toEqual([1, 0]);
+  });
+});
+
+describe("the live list's order (cact_link 0x0043ad70: creation order, oldest first)", () => {
+  /** A snapshot of [id, archetype, x, y] rows. */
+  const snap = (rows: [number, number, number, number][]) => {
+    const s = new Float32Array(rows.length * SNAPSHOT_STRIDE);
+    rows.forEach(([id, arch, x, y], i) => {
+      s[i * SNAPSHOT_STRIDE] = id;
+      s[i * SNAPSHOT_STRIDE + 1] = arch;
+      s[i * SNAPSHOT_STRIDE + 3] = x;
+      s[i * SNAPSHOT_STRIDE + 4] = y;
+    });
+    return s;
+  };
+  const ids = (live: LiveOrder, s: Float32Array, m: number) =>
+    [...live.order.subarray(0, m)].map((i) => s[i * SNAPSHOT_STRIDE]);
+
+  test("born together they stand in id order; a reused id is the newest", () => {
+    const live = new LiveOrder();
+    const T = ARCHETYPE.TURRET;
+    const R = ARCHETYPE.RUNNER;
+    let s = snap([
+      [1, T, 0, 0],
+      [2, R, 0, 0],
+      [3, R, 0, 0],
+    ]);
+    expect(ids(live, s, live.update(s, 3))).toEqual([1, 2, 3]);
+    // 2 dies; the next unit takes id 2 back, after 4 was made.
+    s = snap([
+      [1, T, 0, 0],
+      [3, R, 0, 0],
+      [4, R, 0, 0],
+    ]);
+    expect(ids(live, s, live.update(s, 3))).toEqual([1, 3, 4]);
+    s = snap([
+      [1, T, 0, 0],
+      [2, R, 0, 0],
+      [3, R, 0, 0],
+      [4, R, 0, 0],
+    ]);
+    expect(ids(live, s, live.update(s, 4))).toEqual([1, 3, 4, 2]);
+    // An id that turns into another archetype is a new actor too.
+    s = snap([
+      [1, ARCHETYPE.PROJECTILE, 0, 0],
+      [2, R, 0, 0],
+      [3, R, 0, 0],
+      [4, R, 0, 0],
+    ]);
+    expect(ids(live, s, live.update(s, 4))).toEqual([3, 4, 2, 1]);
+  });
+
+  test("the actors with no entity count where they stand: base part, mounts, partner", () => {
+    const s = snap([
+      [1, ARCHETYPE.TURRET, 1, 2],
+      [2, ARCHETYPE.JUGGERNAUT, 3, 4],
+      [3, ARCHETYPE.AVATAR, 5, 6],
+      [4, ARCHETYPE.RUNNER, 7, 8],
+    ]);
+    const live = new LiveOrder();
+    const m = live.update(s, 4);
+    const xs = new Float64Array(32);
+    const ys = new Float64Array(32);
+    const at = new Int32Array(4);
+    // After two placed candidates.
+    const n = entityCandidates(s, live.order, m, xs, ys, 2, at);
+    expect(n).toBe(2 + 2 + 5 + 2 + 1);
+    // The turret's part before it, the four mounts before the hull, the partner after the X1.
+    expect([...at]).toEqual([3, 8, 9, 11]);
+    expect([...xs.subarray(2, n)]).toEqual([1, 1, 3, 3, 3, 3, 3, 5, 5, 7]);
+    expect([...ys.subarray(2, n)]).toEqual([2, 2, 4, 4, 4, 4, 4, 6, 6, 8]);
   });
 });
 

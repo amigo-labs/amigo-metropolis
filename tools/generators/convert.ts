@@ -95,6 +95,11 @@ interface ArenaSpec {
    *  three remaining single-story arenas leave this unset — their minor ledges
    *  are not real decks (Stage-0 decision) and they stay byte-identical. */
   layered?: boolean;
+  /** Lift the ground onto the deck over every COVERED PIT (`coverPits` below):
+   *  a sunken floor the first deck roofs over completely, flush with the floor
+   *  around it. Only Conft's ring grates are that; Slim's and Joke's few flush
+   *  spots are holes the original's walker drops into, and stay as they are. */
+  coveredPits?: boolean;
 }
 
 // --- Arena specs --------------------------------------------------------------
@@ -110,6 +115,7 @@ const URBAN_JUNGLE: ArenaSpec = {
   id: "urban-jungle",
   mission: "Conft",
   layered: true,
+  coveredPits: true,
   spawns: [
     { x: 90.5, y: 71.5, yaw: 1.302 }, // X1Alpha N
     { x: 117.5, y: 169.5, yaw: -1.84 }, // X1Alpha S
@@ -700,9 +706,118 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+/** Two surfaces this far apart (int8 units, 0.5 m) are two floors: the
+ *  extractor's MULTI_THRESH. */
+const FLOOR_GAP = 16;
+
+/**
+ * COVERED PITS. The extractor's ground (`walk_height`) is the LOWEST drawn floor
+ * at a point, and a deck is any floor above it. That is right under a bridge,
+ * where the road goes on beyond it. It is wrong over a pit roofed by a grate
+ * flush with the floor around it — Conft's ring has fourteen, a -3.2 m pit under
+ * a -2.0 m grate. The original's walker stands on the highest plate below it
+ * (RE `terrain_surface_at` 0x00453ef0) and never leaves the grate. The sim's
+ * ground is one height a POINT, and the pit's rim points carry the pit floor,
+ * so every cell beside a pit sloped down into it — and a deck present at a
+ * cell's corner point only, so a walker slid down that slope under the grate
+ * and dropped into the pit.
+ *
+ * A pit is a 4-connected run of points where the first deck stands more than
+ * FLOOR_GAP above the ground, every neighbour outside it has its ground within
+ * FLOOR_GAP of that deck — nothing reaches the lower floor but the grate, and
+ * the grate is level with the floor. There the ground takes the deck's height
+ * and the deck goes; a ground wall edge touching such a point takes the deck's
+ * bit, so the grate keeps the walls it had as a deck, none of the pit's.
+ * Returns the points lifted.
+ */
+function coverPits(src: TerrainJson): number {
+  const deck = src.layers?.[0];
+  if (!deck || !deck.wallsV || !deck.wallsH || !src.rank0_wallsV || !src.rank0_wallsH) {
+    throw new Error("coveredPits needs the per-deck dump (layers[0] walls, rank0_walls*)");
+  }
+  const [W, H] = src.size;
+  const g = src.walk_height;
+  const low = (r: number, c: number): boolean =>
+    deck.mask[r][c] === "1" && g[r][c] < deck.heights[r][c] - FLOOR_GAP;
+  const lifted = new Uint8Array(W * H);
+  const seen = new Uint8Array(W * H);
+  const steps: P[] = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  let count = 0;
+  for (let r0 = 0; r0 < H; r0++) {
+    for (let c0 = 0; c0 < W; c0++) {
+      if (seen[r0 * W + c0] === 1 || !low(r0, c0)) continue;
+      const run: P[] = [[r0, c0]];
+      seen[r0 * W + c0] = 1;
+      let covered = true;
+      for (let k = 0; k < run.length; k++) {
+        const [r, c] = run[k];
+        for (const [dr, dc] of steps) {
+          const rr = r + dr;
+          const cc = c + dc;
+          if (rr < 0 || rr >= H || cc < 0 || cc >= W) {
+            covered = false;
+            continue;
+          }
+          if (low(rr, cc)) {
+            if (seen[rr * W + cc] === 0) {
+              seen[rr * W + cc] = 1;
+              run.push([rr, cc]);
+            }
+          } else if (Math.abs(g[rr][cc] - deck.heights[r][c]) > FLOOR_GAP) {
+            covered = false;
+          }
+        }
+      }
+      if (!covered) continue;
+      for (const [r, c] of run) lifted[r * W + c] = 1;
+      count += run.length;
+    }
+  }
+  if (count === 0) return 0;
+  const at = (r: number, c: number): boolean =>
+    r >= 0 && r < H && c >= 0 && c < W && lifted[r * W + c] === 1;
+  const mask: string[] = [];
+  for (let r = 0; r < H; r++) {
+    let m = "";
+    for (let c = 0; c < W; c++) {
+      if (at(r, c)) {
+        g[r][c] = deck.heights[r][c];
+        m += "0";
+      } else m += deck.mask[r][c];
+    }
+    mask.push(m);
+  }
+  deck.mask = mask;
+  // wallsV[r][c] runs down point column c + 1 from row r to r + 1; wallsH[r][c]
+  // along point row r + 1 from column c to c + 1 (the dump's tile edges).
+  const swap = (ground: string[], own: string[], ends: (r: number, c: number) => boolean) =>
+    ground.map((row, r) => {
+      let out = "";
+      for (let c = 0; c < row.length; c++) out += ends(r, c) ? own[r][c] : row[c];
+      return out;
+    });
+  src.rank0_wallsV = swap(
+    src.rank0_wallsV,
+    deck.wallsV,
+    (r, c) => at(r, c + 1) || at(r + 1, c + 1),
+  );
+  src.rank0_wallsH = swap(
+    src.rank0_wallsH,
+    deck.wallsH,
+    (r, c) => at(r + 1, c) || at(r + 1, c + 1),
+  );
+  return count;
+}
+
 async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
   const srcPath = `${srcDir}/${spec.mission}_terrain.json`;
   const src = (await Bun.file(srcPath).json()) as TerrainJson;
+  const pitPoints = spec.coveredPits ? coverPits(src) : 0;
 
   const [SRC_W, SRC_H] = src.size;
   const wh = src.walk_height;
@@ -1021,6 +1136,7 @@ async function convertArena(spec: ArenaSpec, srcDir: string): Promise<number> {
     `  height range: int [${minQ}, ${maxQ}] = [${(minQ * HEIGHT_SCALE).toFixed(3)}, ${(maxQ * HEIGHT_SCALE).toFixed(3)}] m`,
   );
   console.log(`  walls: ${wallVCount} vertical + ${wallHCount} horizontal segments`);
+  if (spec.coveredPits) console.log(`  covered pits: ${pitPoints} points lifted onto their grates`);
   const s0 = spec.spawns[0];
   const s1 = spec.spawns[1];
   console.log(

@@ -5,14 +5,19 @@
 
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
+import { FCOP_ARENA_AUDIO } from "../src/audio/fcopAudio.generated";
 import {
   SCENERY_PLACEMENTS,
   type SceneryProp,
   type SceneryQuad,
 } from "../src/render/arenaScenery.generated";
 import { quadGeometry, quadMatrix, quadRotation } from "../src/render/decals";
+import { cellXOf, cellZOf } from "../src/render/drawWindow";
 import {
+  emitterCell,
+  emitterCentre,
   emitterFrame,
+  emitterHungAt,
   emitterMatrix,
   emitterOrientation,
   emitterYaw,
@@ -48,6 +53,69 @@ function original(m: number[][], v: THREE.Vector3): THREE.Vector3 {
   const w = [0, 1, 2].map((j) => c[0] * m[0][j] + c[1] * m[1][j] + c[2] * m[2][j]);
   return new THREE.Vector3(w[2], w[1], w[0]);
 }
+
+describe("the cell a Prop hangs in (snd_emit_build 0x0042f942..0x0042fa88)", () => {
+  test("its box's centre, placed as its model is: the matrix's image of the centre", () => {
+    const out = new Float32Array(2);
+    const centre = [0.3, 0.7, 4] as const;
+    for (const p of [
+      prop({}),
+      prop({ yaw: 1024 }),
+      prop({ yaw: 300, pitch: 200, scale: [64, 80, 96] }),
+    ]) {
+      emitterCentre(p, centre, out);
+      const at = new THREE.Vector3(...centre).applyMatrix4(emitterMatrix(p, new THREE.Matrix4()));
+      expect(out[0]).toBeCloseTo(at.x, 5);
+      expect(out[1]).toBeCloseTo(at.z, 5);
+    }
+  });
+
+  test("a spinning Prop's orientation is flattened first", () => {
+    const out = new Float32Array(2);
+    // Tilted, the centre's height would swing it sideways; flattened it does not.
+    emitterCentre(prop({ spin: 4, pitch: 512 }), [0, 2, 0], out);
+    expect([out[0], out[1]]).toEqual([10, 20]);
+  });
+
+  test("22 Props hang in another cell than their origin's: lamps and arms reaching out", () => {
+    const moved: Record<string, number> = {};
+    for (const [mapId, t] of Object.entries(SCENERY_PLACEMENTS)) {
+      for (const p of t.props) {
+        const [z, x] = emitterCell(t, p);
+        if (z === cellZOf(p.x) && x === cellXOf(p.y)) continue;
+        const key = `${mapId}/${p.cobj}`;
+        moved[key] = (moved[key] ?? 0) + 1;
+      }
+    }
+    expect(moved).toEqual({
+      "proving-ground/66": 3,
+      "proving-ground/65": 1,
+      "bug-hunt/65": 3,
+      "bug-hunt/64": 1,
+      "hollywood-keys/61": 7,
+      "hollywood-keys/62": 5,
+      "hollywood-keys/68": 2,
+    });
+  });
+
+  test("every emitter the audio lists is a Prop, found where it stands", () => {
+    const out = new Float32Array(2);
+    for (const [mapId, data] of Object.entries(FCOP_ARENA_AUDIO)) {
+      const t = SCENERY_PLACEMENTS[mapId] ?? null;
+      for (const e of data.emitters) {
+        const p = t?.props.find(
+          (q) => q.sound === e.sound && Math.abs(q.x - e.x) <= 0.01 && Math.abs(q.y - e.z) <= 0.01,
+        );
+        expect({ mapId, found: !!p }).toEqual({ mapId, found: true });
+        if (!p || !t) continue;
+        const c = t.propModels[p.cobj].centre;
+        emitterHungAt(t, e.x, e.z, e.sound, out);
+        const want = emitterCentre(p, c, new Float32Array(2));
+        expect([out[0], out[1]]).toEqual([want[0], want[1]]);
+      }
+    }
+  });
+});
 
 describe("a Prop's matrix", () => {
   test("with a yaw only, is the one mapping's turn", () => {

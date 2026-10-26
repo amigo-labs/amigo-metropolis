@@ -173,7 +173,9 @@ const ARENAS: ArenaExpectation[] = [
     // Layered since SIM_VERSION 67 (fcop-fidelity.md P12): the two sunken
     // outpost pads at x 86 / 153, y 120-121 stand on their -2.41 m deck, so the
     // pad stamp that lifted those 8 ground cells is gone; no other height moved.
-    heightsPin: 264067427,
+    // SIM_VERSION 99: the ground under the ring's fourteen grates (and the two
+    // outpost pads') stands at the grate, 248 points (convert.ts coverPits).
+    heightsPin: 4061570539,
     // 262 bits carved to open the original roads + 21 to reconnect the ring
     // and the base's own structures, of 4327 (6.5%). Up from 242: the carve now
     // walks each road the way a unit steps rather than in fixed 0.25 m slices,
@@ -187,10 +189,15 @@ const ARENAS: ArenaExpectation[] = [
     // spills over all three lattices (fcop-fidelity.md P15), carves 199 for the
     // roads and opens 11 to reconnect (was 205 and 10 while the ground console
     // stood on the jet shop; one of the 11 now opens the tank shop's leg).
-    wallsVPin: 338467895,
-    wallsHPin: 3590047211,
-    // Conft's decks, less the lift shafts, with the two landing patches.
-    layerCells: [2126, 17],
+    // SIM_VERSION 94: the ground lattice keeps its own kerbs and shafts (the
+    // carve used to read the bare snapshot and write it back over them), so
+    // the carve drops to 43 bits and the reconnect to 2, for a ring turret.
+    // SIM_VERSION 99: with the covered pits lifted onto their grates, 26.
+    wallsVPin: 158890231,
+    wallsHPin: 442669547,
+    // Conft's decks, less the lift shafts, with the two landing patches, and
+    // since SIM_VERSION 99 less the grates over the covered pits (now ground).
+    layerCells: [1878, 17],
     turretSpots: 32,
     outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)
     dummySpots: 0,
@@ -212,20 +219,22 @@ const ARENAS: ArenaExpectation[] = [
     // its jumps climb nothing the walk cannot (JUMPABLE_RISE 1.4 -> 0). So
     // 40 -> 15 steep edges, and every one is a wall (was 8). 15 -> 13 at
     // SIM_VERSION 67 with the outpost pads' stamp gone (their decks carry them).
-    steepLaneEdges: 13,
-    hardWallLaneEdges: 13, // of 518 edges; smallest blocking rise 0.89 m
+    // 13 -> 7 at SIM_VERSION 99: the six that sloped into a grate's pit.
+    steepLaneEdges: 7,
+    hardWallLaneEdges: 7, // of 518 edges
     // SIM_VERSION 32: the committed route now ends at the node nearest the
     // enemy GATE (was: nearest the Dreadnought spot), three nodes shorter. Since
-    // v39 one of its steps is a wall for the walker (it jumped all four before);
-    // the walker routes around it on the graph (escortable, asserted above).
-    steepLaneSteps: 1,
-    hardWallLaneSteps: 1,
+    // v39 one of its steps was a wall for the walker (it jumped all four
+    // before), a grate's pit rim; flat since SIM_VERSION 99.
+    steepLaneSteps: 0,
+    hardWallLaneSteps: 0,
     // v39: the hover's tick travel follows its top speed (9 -> 9.38 m/s), which
-    // moves where worstHoverRise samples: 20 -> 19.
-    hoverBlockedEdges: 19,
-    walkerOnlyEdges: 8, // 6 -> 8 at SIM_VERSION 67 (the pad stamp)
-    hoverOnlyEdges: 2,
-    hoverBlockedLaneSteps: 1,
+    // moves where worstHoverRise samples: 20 -> 19. 19 -> 9 at SIM_VERSION 99,
+    // the grates' pit rims gone (walker-only 8 -> 2, hover-only 2 -> 0).
+    hoverBlockedEdges: 9,
+    walkerOnlyEdges: 2,
+    hoverOnlyEdges: 0,
+    hoverBlockedLaneSteps: 0,
     hoverDrivableTeams: 2,
   },
   {
@@ -250,8 +259,11 @@ const ARENAS: ArenaExpectation[] = [
     // 424 kerbs over all three lattices (fcop-fidelity.md P15), carves 135 for the
     // roads (was 308, then 139 while the ground console stood on the jet shop)
     // and opens 10 to reconnect, one of them the tank shop's leg.
-    wallsVPin: 4113043016,
-    wallsHPin: 957207801,
+    // SIM_VERSION 94: the ground lattice keeps its own kerbs and shafts (the
+    // carve used to read the bare snapshot and write it back over them): 2676
+    // kerbs over all three lattices, 33 carved, 7 to reconnect.
+    wallsVPin: 1752677752,
+    wallsHPin: 4213323856,
     // Slim's decks, less the lift shafts: the spawns' platforms and the bridges.
     layerCells: [1847, 98],
     turretSpots: 29,
@@ -309,8 +321,11 @@ const ARENAS: ArenaExpectation[] = [
     // original's gate box, not at the Dreadnought spot). The ring turret's two
     // moved one cell each at SIM_VERSION 79: the repair floods from spawn 0,
     // which became the other base's when the teams took the player slots.
-    wallsVPin: 1495349930,
-    wallsHPin: 3669756659,
+    // SIM_VERSION 94: the ground lattice keeps its own kerbs (the carve used to
+    // read the bare snapshot and write it back over them): 2334 kerbs, 12
+    // carved, 2 to reconnect, and team 0 joins its road at the Cnet's node #0.
+    wallsVPin: 2147304755,
+    wallsHPin: 2646815651,
     // Mp's two bridge decks: 2398 cells over the roads, and 108 above those.
     layerCells: [2398, 108],
     turretSpots: 32, // every original NeutralTurret pad
@@ -353,8 +368,9 @@ const ARENAS: ArenaExpectation[] = [
     // Ground-deck walls since SIM_VERSION 65 (as proving-ground): 27 bits in the
     // lift shafts, 424 kerbs, 139 carved for the roads (was 312), 11 to
     // reconnect.
-    wallsVPin: 1693058243,
-    wallsHPin: 1220730748,
+    // SIM_VERSION 94: as proving-ground, 2668 kerbs, 34 carved, 7 to reconnect.
+    wallsVPin: 2597345913,
+    wallsHPin: 488937988,
     layerCells: [1839, 98],
     turretSpots: 29,
     outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)

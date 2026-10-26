@@ -13,8 +13,14 @@
 // 0's X1 alone in one viewport (`cact_registry_build` 0x0043b520), the nearer
 // of both X1s in the two-viewport network game (`cact_registry_build_mp`
 // 0x0043b7a0) — at the widest of 0x38000, 0x34000 .. 0x24000 world units that
-// holds at most 0xfe actors (the team game's limit), newest actor first
-// (`radarRegistry`).
+// holds at most 0xfe actors (the team game's limit), in the live list's order:
+// creation order, oldest first, as `cact_link` (0x0043ad70) appends every new
+// actor at the tail (`radarRegistry`, `LiveOrder`). The actors Metropolis has
+// no entity for count against the limit where they stand: each X1's partner
+// (type 0x12, `player_partner_create`, made right after it), each turret's base
+// part (`part_b`, made in the turret's construct, so before it; no PA turret is
+// type 0x21 with a gun part too) and each Dreadnought's four gun mounts
+// (0x00425fa0, made in its construct).
 //
 // Markers come from radar_markers.json by unit kind and the team's original
 // side (render/sides.ts); the placed actors Metropolis has no entity for — the
@@ -169,6 +175,97 @@ export function radarRegistry(
     if (radius <= REGISTRY_BAND_MIN) return count;
   }
 }
+
+/**
+ * The client's copy of the live list's order: `cact_link` (0x0043ad70) appends
+ * every new actor at the tail, so the list runs in creation order, oldest first
+ * (RE game/actor/factory.c; mission_frame.c's "newest actor first" is the
+ * other way round). The snapshot carries no birth, so an entity is born on the
+ * first refresh that shows it (an id that was missing from the last refresh,
+ * or now another archetype, is a new actor); the ones born together are in id
+ * order. Render-only, and nothing allocates after construction.
+ */
+export class LiveOrder {
+  private readonly born = new Uint32Array(MAX_ENTITIES);
+  private readonly seen = new Uint32Array(MAX_ENTITIES);
+  private readonly kind = new Int16Array(MAX_ENTITIES).fill(-1);
+  /** Snapshot indices in creation order, the first `update` answers of them. */
+  readonly order = new Int32Array(MAX_ENTITIES);
+  private refreshes = 1;
+  private births = 0;
+
+  /** Orders `count` snapshot entities by creation into `order`; answers `count`. */
+  update(snapshot: Float32Array, count: number): number {
+    const prev = this.refreshes++;
+    let m = 0;
+    for (let i = 0; i < count; i++) {
+      const o = i * SNAPSHOT_STRIDE;
+      const id = snapshot[o] | 0;
+      if (id < 0 || id >= MAX_ENTITIES) continue;
+      const kind = snapshot[o + 1];
+      if (this.seen[id] !== prev || this.kind[id] !== kind) this.born[id] = ++this.births;
+      this.seen[id] = this.refreshes;
+      this.kind[id] = kind;
+      // Insertion by birth: the snapshot is in id order, so only a reused id moves.
+      const b = this.born[id];
+      let j = m - 1;
+      while (j >= 0 && this.born[snapshot[this.order[j] * SNAPSHOT_STRIDE] | 0] > b) {
+        this.order[j + 1] = this.order[j];
+        j--;
+      }
+      this.order[j + 1] = i;
+      m++;
+    }
+    return m;
+  }
+}
+
+/**
+ * Writes the entities, in `order` (LiveOrder), into the registry's candidates
+ * from `n` on, each with the actors that stand with it and have no entity: a
+ * turret's base part before it, a Dreadnought's four mounts before it, an X1's
+ * partner after it. `entityAt[i]` takes snapshot entity i's own candidate.
+ * Answers the next free candidate.
+ */
+export function entityCandidates(
+  snapshot: Float32Array,
+  order: Int32Array,
+  m: number,
+  xs: Float64Array,
+  ys: Float64Array,
+  n: number,
+  entityAt: Int32Array,
+): number {
+  for (let q = 0; q < m; q++) {
+    const i = order[q];
+    const o = i * SNAPSHOT_STRIDE;
+    const archetype = snapshot[o + 1];
+    const x = snapshot[o + 3];
+    const y = snapshot[o + 4];
+    const before =
+      archetype === ARCHETYPE.TURRET ? 1 : archetype === ARCHETYPE.JUGGERNAUT ? MOUNTS : 0;
+    for (let k = 0; k < before; k++) {
+      xs[n] = x;
+      ys[n] = y;
+      n++;
+    }
+    entityAt[i] = n;
+    xs[n] = x;
+    ys[n] = y;
+    n++;
+    if (archetype === ARCHETYPE.AVATAR) {
+      xs[n] = x;
+      ys[n] = y;
+      n++;
+    }
+  }
+  return n;
+}
+
+/** A Dreadnought's gun mounts, each an actor of its own (RE mount.c 0x00425fa0). */
+const MOUNTS = 4;
+/** Candidates an entity can bring at most: itself and its four mounts. */
+const MAX_CANDIDATES_PER_ENTITY = 1 + MOUNTS;
 
 /**
  * The side (0 nobody's, SIDE_RED, SIDE_BLUE) holding each of `spots` (the map's
@@ -407,9 +504,12 @@ export function createRadar(
   const spotSide = new Int32Array(spots.length);
   const extent = map ? worldExtent(map) : 1;
 
-  // The registry's candidates, in live-list order: the entities newest first
-  // (descending id stands in for the order they were made), then the placed
-  // actors — the pickups, then every type-11 record from the last loaded.
+  // The registry's candidates, in live-list order, oldest first: the placed
+  // actors the mission load made — every type-11 record in load order, then
+  // the pickups — and then the entities in the order they were made
+  // (LiveOrder). Where the load interleaves its records with the entities'
+  // (the turrets and consoles are records too) is not kept: the placed ones
+  // stand first.
   const placements = SCENERY_PLACEMENTS[mapId]?.placements ?? [];
   const pickups = map?.pickups ?? [];
   const nPickups = pickups.length < 24 ? pickups.length : 24;
@@ -419,12 +519,14 @@ export function createRadar(
       id: Number(p.record.split(" ")[1]) || 0,
       csac: p.record.startsWith("Csac"),
     }))
-    .sort((a, b) => Number(a.csac) - Number(b.csac) || b.id - a.id)
+    .sort((a, b) => Number(b.csac) - Number(a.csac) || a.id - b.id)
     .map((e) => e.k);
   const recordIndex = (record: string): number => placements.findIndex((p) => p.record === record);
   const staticPlaced = Int32Array.from(arena.staticMarkers, (m) => recordIndex(m.record));
   const claimPlaced = Int32Array.from(arena.claimMarkers, (m) => recordIndex(m.record));
-  const maxCandidates = MAX_ENTITIES + nPickups + placements.length;
+  const maxCandidates = MAX_ENTITIES * MAX_CANDIDATES_PER_ENTITY + nPickups + placements.length;
+  const live = new LiveOrder();
+  const entityAt = new Int32Array(MAX_ENTITIES);
   const candX = new Float64Array(maxCandidates);
   const candY = new Float64Array(maxCandidates);
   const member = new Uint8Array(maxCandidates);
@@ -473,12 +575,15 @@ export function createRadar(
       // --- the outposts' owners: their consoles' teams.
       outpostSidesOf(snapshot, count, spots, mapId, spotSide);
 
-      // --- the registry: every live actor, newest first, by distance.
+      // --- the registry: every live actor, oldest first, by distance.
       let n = 0;
-      for (let i = count - 1; i >= 0; i--) {
-        const o = i * SNAPSHOT_STRIDE;
-        candX[n] = snapshot[o + 3];
-        candY[n] = snapshot[o + 4];
+      for (let q = 0; q < placedOrder.length; q++) {
+        const k = placedOrder[q];
+        const p = placements[k];
+        placedAt[k] = n;
+        const claimed = p.outpost >= 0 && (spotSide[p.outpost] ?? 0) !== 0;
+        candX[n] = standsAt(p.show, claimed) ? p.x : Number.NaN;
+        candY[n] = p.y;
         n++;
       }
       const up = match[MATCH_PICKUPS] | 0;
@@ -489,15 +594,8 @@ export function createRadar(
         candY[n] = pickups[k].y;
         n++;
       }
-      for (let q = 0; q < placedOrder.length; q++) {
-        const k = placedOrder[q];
-        const p = placements[k];
-        placedAt[k] = n;
-        const claimed = p.outpost >= 0 && (spotSide[p.outpost] ?? 0) !== 0;
-        candX[n] = standsAt(p.show, claimed) ? p.x : Number.NaN;
-        candY[n] = p.y;
-        n++;
-      }
+      const m = live.update(snapshot, count);
+      n = entityCandidates(snapshot, live.order, m, candX, candY, n, entityAt);
       viewX[0] = selfX;
       viewY[0] = selfY;
       let nv = 1;
@@ -515,7 +613,7 @@ export function createRadar(
 
       // --- the entities in the registry.
       for (let i = 0; i < count; i++) {
-        if (member[count - 1 - i] === 0) continue;
+        if (member[entityAt[i]] === 0) continue;
         const o = i * SNAPSHOT_STRIDE;
         const archetype = snapshot[o + 1];
         if (archetype === ARCHETYPE.CONSOLE) continue; // the console's marker is placed

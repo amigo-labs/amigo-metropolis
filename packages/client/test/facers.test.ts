@@ -6,9 +6,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ARCHETYPE, PROJ_PLASMA, PROJ_TORPEDO } from "@metropolis/sim";
 import * as THREE from "three";
 import {
   billboardCorners,
+  colourAnimByte,
   drawFacers,
   FACER_LINE,
   FACER_NEAR,
@@ -23,7 +25,7 @@ import {
   viewDepth,
 } from "../src/render/facers";
 import { FxView } from "../src/render/fx/common";
-import { createGreyboxMeshes } from "../src/render/greybox";
+import { bucketFor, createGreyboxMeshes } from "../src/render/greybox";
 
 const PROPS = join(import.meta.dir, "..", "public", "models", "props");
 
@@ -313,6 +315,41 @@ describe("the Props of facers only are their facers", () => {
   });
 });
 
+describe("the 3DAL colour animations (cobj_tick_color_anims 0x0041a1a0)", () => {
+  const MINE = join(import.meta.dir, "..", "public", "models", "fx", "mine.glb");
+
+  test("fx/mine.glb's star pulses grey to magenta, speed 16", () => {
+    // A model with faces: its facers are on the root node all the same.
+    const b = readFileSync(MINE);
+    const json = JSON.parse(b.subarray(20, 20 + b.readUInt32LE(12)).toString("utf8")) as {
+      nodes: { extras?: unknown }[];
+    };
+    const star = parseFacers(json.nodes[0].extras, true)?.facers[0];
+    expect(star?.kind).toBe(FACER_STAR);
+    expect(star?.anim).toEqual({ speed: 16, from: [128, 128, 128], to: [255, 0, 255] });
+  });
+
+  test("a triangle wave of 4096 / speed clock units: from, to at the fold, from again", () => {
+    const anim = { speed: 16, from: [128, 128, 128], to: [255, 0, 255] };
+    const at = (clock: number) => [0, 1, 2].map((c) => colourAnimByte(anim, clock, c));
+    expect(at(0)).toEqual([128, 128, 128]);
+    // 128 * 16 = 0x800 folds to 0x7ff: 128 + (128 * 0x7ff >> 11), 128 - 126.
+    expect(at(128)).toEqual([255, 2, 255]);
+    // A quarter of the way: t = 0x200.
+    expect(at(32)).toEqual([128 + ((128 * 0x200) >> 11), 128 - ((127 * 0x200) >> 11), 160]);
+    expect(at(256)).toEqual(at(0));
+    expect(at(256 + 77)).toEqual(at(77));
+  });
+
+  test("a model without one has none", () => {
+    const set = parseFacers(
+      rootExtras(join(import.meta.dir, "..", "public", "models", "fx", "star-46.glb")),
+      true,
+    );
+    expect(set?.facers[0].anim).toBeNull();
+  });
+});
+
 describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star", () => {
   test("fx/star-46.glb is one star, (128, 17, 12) doubled to a black rim", () => {
     const set = parseFacers(
@@ -325,6 +362,28 @@ describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star", 
     expect(star?.h[0]).toBeCloseTo(0.0742, 4);
     expect(Array.from(star?.colour ?? []).map((v) => Math.round(v * 255))).toEqual([256, 34, 24]);
     expect(Array.from(star?.rim ?? [])).toEqual([0, 0, 0]);
+  });
+
+  test("block B's fx/star-47.glb is the same star, (31, 59, 128) doubled", () => {
+    const set = parseFacers(
+      rootExtras(join(import.meta.dir, "..", "public", "models", "fx", "star-47.glb")),
+      true,
+    );
+    expect(set?.facers.length).toBe(1);
+    const star = set?.facers[0];
+    expect(star?.kind).toBe(FACER_STAR);
+    expect(star?.h[0]).toBeCloseTo(0.0742, 4);
+    expect(Array.from(star?.colour ?? []).map((v) => Math.round(v * 255))).toEqual([62, 118, 256]);
+    expect(Array.from(star?.rim ?? [])).toEqual([0, 0, 0]);
+  });
+
+  test("a powered round goes to block B's bucket", () => {
+    const grey = createGreyboxMeshes(new THREE.Scene());
+    const P = ARCHETYPE.PROJECTILE;
+    expect(bucketFor(grey, P, 0, PROJ_TORPEDO)).toBe(grey.projTorpedo);
+    expect(bucketFor(grey, P, 0, PROJ_TORPEDO, 0, true)).toBe(grey.projTorpedoB);
+    expect(bucketFor(grey, P, 0, PROJ_PLASMA)).toBe(grey.projPlasma);
+    expect(bucketFor(grey, P, 0, PROJ_PLASMA, 0, true)).toBe(grey.projPlasmaB);
   });
 
   test("its greybox stand-in adds nothing: no AdditiveBlending anywhere", () => {

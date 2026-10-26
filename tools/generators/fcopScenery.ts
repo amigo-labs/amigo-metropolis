@@ -541,8 +541,8 @@ interface ArenaTable {
   morphs: [number, Morph][];
   turretBases: TurretBase[];
   props: PropRow[];
-  /** By Cobj: its frame count and whether it is drawn (see emitterTables). */
-  propModels: [number, { frames: number; drawn: boolean }][];
+  /** By Cobj: its frame count, whether it is drawn and its box's centre (see emitterTables). */
+  propModels: [number, PropModelRow][];
   quads: QuadRow[];
   decals: [number, DecalFile][];
 }
@@ -556,7 +556,16 @@ interface ObjectManifest {
     quads: number;
     /** Its camera-facing billboards, lines and stars (RE objects.md "Facers"). */
     facers?: number;
+    /** The 3DBB box 0 of frame 0, metres in the glb's frame (the Cobj's x negated). */
+    bbox?: { center: [number, number, number] } | null;
   }[];
+}
+
+/** A Prop model's row: frames, drawn, and its box's centre in the glb's frame. */
+interface PropModelRow {
+  frames: number;
+  drawn: boolean;
+  centre: [number, number, number];
 }
 
 interface DecalManifest {
@@ -645,14 +654,17 @@ function emitterTables(
   // (RE objects.md "Facers"), which render/facers.ts turns to the camera, so
   // the five Props of facers only (Hk 65, Slim 63 / 83, Joke 62 / 82) draw
   // too. The RE's static white stand-ins for them are dropped by gen:units.
-  const propModels: [number, { frames: number; drawn: boolean }][] = [
-    ...new Set(props.map((p) => p.cobj)),
-  ]
+  // Its box's centre: `snd_emit_build` hangs the Prop in the cell of that
+  // centre placed by its orientation (0x0042f942..0x0042fa88), not its origin.
+  const propModels: [number, PropModelRow][] = [...new Set(props.map((p) => p.cobj))]
     .sort((a, b) => a - b)
     .map((cobj) => {
       const o = byId.get(cobj);
       const drawn = !!o?.glb && (o.tris + o.quads > 0 || (o.facers ?? 0) > 0);
-      return [cobj, { frames: frames(cobj), drawn }];
+      const c = o?.bbox?.center;
+      if (!c) throw new Error(`${mapId}: Prop Cobj ${cobj} has no 3DBB box in the manifest`);
+      const centre: [number, number, number] = [round4(c[0]), round4(c[1]), round4(c[2])];
+      return [cobj, { frames: frames(cobj), drawn, centre }];
     });
   const manifest = JSON.parse(
     readFileSync(join(reRepo, "extracted", "decals", "manifest.json"), "utf8"),
@@ -856,12 +868,15 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     "}",
     "",
     "/**",
-    " * A Prop model: its frame count, and whether it is drawn — every model the",
-    " * RE exports with faces or camera-facing facers (render/facers.ts).",
+    " * A Prop model: its frame count, whether it is drawn — every model the",
+    " * RE exports with faces or camera-facing facers (render/facers.ts) — and the",
+    " * centre of its 3DBB box 0 of frame 0, metres in the glb's frame: the point",
+    " * the Prop hangs in the cell of, once placed (render/emitterProps.ts).",
     " */",
     "export interface SceneryPropModel {",
     "  readonly frames: number;",
     "  readonly drawn: boolean;",
+    "  readonly centre: readonly [number, number, number];",
     "}",
     "",
     "/**",
@@ -938,7 +953,7 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     }
     lines.push("    ],");
     lines.push(
-      `    propModels: { ${t.propModels.map(([c, m]) => `${c}: { frames: ${m.frames}, drawn: ${m.drawn} }`).join(", ")} },`,
+      `    propModels: { ${t.propModels.map(([c, m]) => `${c}: { frames: ${m.frames}, drawn: ${m.drawn}, centre: [${m.centre.join(", ")}] }`).join(", ")} },`,
     );
     lines.push("    quads: [");
     for (const q of t.quads) {

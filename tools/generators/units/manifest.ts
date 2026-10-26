@@ -202,6 +202,26 @@ export interface FxModelSpec {
    * 46/47 is one geometry in two colours). We ship one mesh and tint it.
    */
   readonly neutralizeColors: boolean;
+  /**
+   * Keep the morph's frames, base included (render/unitMeshes.ts plays them);
+   * absent ships frame 0 and no targets.
+   */
+  readonly morphFrames?: number;
+  /** Its 3DAL colour animations (RE manifest `color_anims`), carried onto the facers. */
+  readonly colorAnims?: readonly ColorAnim[];
+}
+
+/**
+ * One 3DAL record (RE extracted/findings/cobj_face_anim.md): primitive `face`'s
+ * colour bytes 5..7 (a star's centre) run a triangle wave from `from` to `to`
+ * and back, `(clock * speed) & 0xfff` on the 300 Hz frame clock
+ * (`cobj_tick_color_anims` 0x0041a1a0).
+ */
+export interface ColorAnim {
+  readonly face: number;
+  readonly speed: number;
+  readonly from: readonly [number, number, number];
+  readonly to: readonly [number, number, number];
 }
 
 // The eight type-99 rows and the two AI bolts that PA actually fires. Not
@@ -337,9 +357,6 @@ export const FX_MODELS: readonly FxModelSpec[] = [
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
-    // The original blinks this one through a `color_anim` on face 4
-    // (grey -> magenta, speed 16). The pipeline has no path for per-face colour
-    // animation, so it ships static; the arming blink stays the client's job.
     role: "player Mine — PROJ_MINE",
     rotateQuarterY: 0,
     // Native 0.324 x 0.215 x 0.369.
@@ -347,6 +364,9 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     maxHeight: 0.22,
     maxTris: 1500,
     neutralizeColors: true,
+    // Its star (face 4) pulses grey -> magenta, speed 16: the RE manifest's
+    // `color_anims` of Mp 50 and 51, the same on all six arenas' mines.
+    colorAnims: [{ face: 4, speed: 16, from: [128, 128, 128], to: [255, 0, 255] }],
   },
   // The extra weapons' rounds (SimOptions.extraWeapons, SIM_VERSION 90): each
   // player row names its Cobj for both blocks (player-weapons.json `models`).
@@ -360,7 +380,6 @@ export const FX_MODELS: readonly FxModelSpec[] = [
       url: RE_REPO,
       license: FCOP_LICENSE,
     },
-    // A morph of eleven frames in the original (its run); frame 0 here.
     role: "player K-9 Drone — PROJ_K9",
     rotateQuarterY: 0,
     // Native 0.223 x 0.367 x 0.715, standing on its origin.
@@ -368,6 +387,10 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     maxHeight: 0.46,
     maxTris: 1500,
     neutralizeColors: true,
+    // Its run: eleven frames, one payload on all six arenas (Mp 48, Conft 49,
+    // Hk 51, Joke 53, Ovmp 48, Slim 54; RE pa_models.json sha256_16
+    // 0dfa187af30dadb1).
+    morphFrames: 11,
   },
   {
     key: "grenade",
@@ -403,6 +426,25 @@ export const FX_MODELS: readonly FxModelSpec[] = [
     role: "player Fusion Torpedo and Plasma Flare — PROJ_TORPEDO, PROJ_PLASMA",
     rotateQuarterY: 0,
     // A star of radius 0.074 m at (0, 0.008, 0): its size is the facer's.
+    footprint: 0.15,
+    maxHeight: 0.15,
+    maxTris: 1500,
+    neutralizeColors: false,
+  },
+  // Block B's: the two weapons' powered records name Cobj 47, the same star
+  // in blue (render/greybox.ts projTorpedoB / projPlasmaB).
+  {
+    key: "star-47",
+    cobj: 47,
+    raw: "fcop-fx/mp-obj047-glow-b.glb",
+    source: {
+      title: "Star glow (Mp Cobj 47, player weapons 0x14 and 0x21, block B)",
+      author: EA,
+      url: RE_REPO,
+      license: FCOP_LICENSE,
+    },
+    role: "player Fusion Torpedo and Plasma Flare powered — PROJ_TORPEDO, PROJ_PLASMA",
+    rotateQuarterY: 0,
     footprint: 0.15,
     maxHeight: 0.15,
     maxTris: 1500,
