@@ -119,6 +119,7 @@ import {
   SHIELD_ARC_WAIT_BASE,
   SHIELD_ARC_WAIT_MASK,
   SHIELD_ARCS,
+  SHIELD_CENTRE_RAISE,
   SHIELD_FLASH_DRAWS,
   SHIELD_HOLD_UNITS,
   SHIELD_RECOIL_A,
@@ -745,7 +746,11 @@ export function spawnAvatar(state: SimState, player: number): number {
   ent.hp[id] = warden ? captainMaxHp(state) : avatarMaxHp(state, player);
   // The Sky Captain's level's model; the mech's radius follows its form
   // (entityRadius).
-  if (warden) ent.radius[id] = state.map.radii.skyCaptain[wardenLevel(state.wardenDifficulty)];
+  if (warden) {
+    const level = wardenLevel(state.wardenDifficulty);
+    ent.radius[id] = state.map.radii.skyCaptain[level];
+    ent.refHeight[id] = state.map.refHeights.skyCaptain[level];
+  }
   // Spawn form (fcop-fidelity.md P2): every respawn comes back in the form the
   // spawn record asks for, as `player_respawn` resets the row from the record.
   const hover = !warden && s.hover;
@@ -825,6 +830,7 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   // imports none).
   ent.weaponProfile[id] = state.map.turretParams[k];
   ent.radius[id] = state.map.radii.neutral[k];
+  ent.refHeight[id] = state.map.refHeights.neutral[k];
   // The rest yaw. A turret's aimX/aimY are its shooter state (systemTargeting),
   // so they start at zero.
   if (state.map.turretYaw.length > 0) ent.yaw[id] = state.map.turretYaw[k];
@@ -855,6 +861,7 @@ function spawnPlateTurret(state: SimState, j: number): number {
   ent.mode[id] = TURRET_DEFENSE;
   ent.weaponProfile[id] = spot.weapon;
   ent.radius[id] = state.map.radii.baseTurret;
+  ent.refHeight[id] = state.map.refHeights.baseTurret;
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   ent.restYaw[id] = ent.yaw[id];
   state.plateTurretEntity[j] = id;
@@ -925,6 +932,7 @@ function spawnBaseTurret(state: SimState, k: number): number {
   ent.mode[id] = TURRET_DEFENSE;
   ent.weaponProfile[id] = spot.weapon;
   ent.radius[id] = state.map.radii.baseTurret;
+  ent.refHeight[id] = state.map.refHeights.baseTurret;
   // Rest yaw only: aimX/aimY are the shooter's state (systemTargeting).
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   ent.restYaw[id] = ent.yaw[id];
@@ -973,6 +981,7 @@ export function spawnUnit(
   // and weapon (fcop-fidelity.md W3): 150 / 150 / 2000 HP, on every arena.
   const base = state.map.bases[team];
   const radii = state.map.radii;
+  const refs = state.map.refHeights;
   ent.radius[id] =
     archetype === ARCHETYPE.RUNNER
       ? radii.tank
@@ -981,6 +990,14 @@ export function spawnUnit(
         : archetype === ARCHETYPE.JUGGERNAUT
           ? radii.dreadnought
           : radii.fortress;
+  ent.refHeight[id] =
+    archetype === ARCHETYPE.RUNNER
+      ? refs.tank
+      : archetype === ARCHETYPE.GUARDIAN
+        ? refs.jet
+        : archetype === ARCHETYPE.JUGGERNAUT
+          ? refs.dreadnought
+          : refs.fortress;
   if (archetype === ARCHETYPE.JUGGERNAUT) {
     ent.hp[id] = base.juggernaut.hp;
     ent.weaponProfile[id] = base.juggernaut.weapon;
@@ -3055,7 +3072,7 @@ function spawnStraightAt(
     const tx = ent.posX[aimAt] - x;
     const ty = ent.posY[aimAt] - y;
     const d = Math.sqrt(tx * tx + ty * ty);
-    if (d > 0.5) ent.timerB[id] = (ent.height[aimAt] + MUZZLE_HEIGHT - h) / d; // per metre
+    if (d > 0.5) ent.timerB[id] = (ent.height[aimAt] + entityRefHeight(state, aimAt) - h) / d; // per metre
   }
   return id;
 }
@@ -3412,6 +3429,28 @@ export function entityRadius(state: SimState, id: number): number {
   if (r > 0) return r;
   if (arch === ARCHETYPE.TURRET && ent.mode[id] !== TURRET_DEFENSE) return NEUTRAL_TURRET_RADIUS;
   return ARCHETYPE_RADIUS[arch];
+}
+
+/**
+ * How far `id`'s reference point stands above its height, metres: what the
+ * original aims at and measures to (`previous`, box 0 of the model's frame
+ * placed through the orientation — player.c 0x0044702f, turret.c, aircraft.c,
+ * mount.c). The mech's follows its form and a walking hull's its frame, as
+ * their radii do; a body with none imported stands at MUZZLE_HEIGHT.
+ */
+export function entityRefHeight(state: SimState, id: number): number {
+  const ent = state.ent;
+  const arch = ent.archetype[id];
+  const refs = state.map.refHeights;
+  if (arch === ARCHETYPE.AVATAR) return ent.mode[id] === MODE_HOVER ? refs.hover : refs.walker;
+  if (arch === ARCHETYPE.JUGGERNAUT) {
+    const byFrame = refs.dreadnoughtByFrame;
+    const team = ent.team[id];
+    const walk = team === 0 || team === 1 ? state.hullWalk[team] : null;
+    if (walk && byFrame.length > 0) return byFrame[walk.frame[id]];
+  }
+  const h = ent.refHeight[id];
+  return Number.isNaN(h) ? MUZZLE_HEIGHT : h;
 }
 
 /**
@@ -4363,9 +4402,9 @@ function systemShields(state: SimState): void {
       if (ent.archetype[t] === ARCHETYPE.CONSOLE) continue;
       const dx = ent.posX[t] - ent.posX[a];
       const dy = ent.posY[t] - ent.posY[a];
-      // Both heights are the feet: the centre's 0x1000 lift and the body's
-      // reference point are taken to be the same height above them.
-      const dh = ent.height[t] - ent.height[a];
+      // From the centre, the mech's position raised 0x1000 (0x0044c66e), to
+      // the body's reference point (0x0044c7c5).
+      const dh = ent.height[t] + entityRefHeight(state, t) - (ent.height[a] + SHIELD_CENTRE_RAISE);
       if (Math.abs(dx) >= reach || Math.abs(dy) >= reach || Math.abs(dh) >= reach) continue;
       if (!powered && dx * fx + dy * fy < 0) continue;
       const reachR = rm + entityRadius(state, t);
@@ -4440,7 +4479,7 @@ function spawnGuided(
   if (lock >= 0) {
     const tx = ent.posX[lock] - x;
     const ty = ent.posY[lock] - y;
-    const th = ent.height[lock] + MUZZLE_HEIGHT - h;
+    const th = ent.height[lock] + entityRefHeight(state, lock) - h;
     const len = Math.sqrt(tx * tx + ty * ty + th * th);
     if (len > 1e-9) {
       dx = tx / len;
@@ -4637,7 +4676,7 @@ function guidedTick(state: SimState, id: number): void {
       ay = ent.posY[t];
       let tx = (ax - px) * WU_PER_METRE;
       let ty = (ay - py) * WU_PER_METRE;
-      let th = (ent.height[t] + MUZZLE_HEIGHT - ph) * WU_PER_METRE;
+      let th = (ent.height[t] + entityRefHeight(state, t) - ph) * WU_PER_METRE;
       let dist = Math.sqrt(tx * tx + ty * ty + th * th);
       if (dist > 0) {
         tx /= dist;
@@ -5011,7 +5050,8 @@ function systemProjectiles(state: SimState): void {
               uy = ux * s + uy * c;
               ux = nx;
             }
-            ent.timerB[id] = (ent.height[target] + MUZZLE_HEIGHT - ent.height[id]) / d;
+            ent.timerB[id] =
+              (ent.height[target] + entityRefHeight(state, target) - ent.height[id]) / d;
           }
         }
       }

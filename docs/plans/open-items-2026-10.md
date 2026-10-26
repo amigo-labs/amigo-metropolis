@@ -101,13 +101,12 @@ not answered yet.
 10. **Extra weapons, small sim gaps.** Each is a SIM_VERSION bump if adopted:
     - ~~the grenade bounces without its model radius~~ **Done** ("Stand the
       bouncing round on its model's radius", SIM_VERSION 92).
-    - **Deferred (scope), the shield and the target's reference heights:** the
-      original measures from the sphere's centre (0x1000 up) to the target's
-      reference point, its model's placed box-0 centre (`previous`,
-      `turret_reference_point`, player.c 0x004472fe). Every other aim in the sim
-      uses "the target's height plus the muzzle's" for the same point, the
-      drone's included. That belongs in one sim-wide change: a reference
-      height per body, carried from the 3DBB boxes as the radii are.
+    - **Done, the shield and the target's reference heights** (SIM_VERSION
+      98): one sim-wide change, as planned. gen:pamodels reads each role's
+      box-0 centre y (`refs`), and stage 2 carries it as `refHeights`. Every
+      aim and the sphere reach for the target's reference point, which the
+      original places unshifted (`math_matrix_place_point` 0x00458850), so a
+      few centimetres over its position rather than the muzzle's 0.6 m.
     - **Done, the drone's ground** (SIM_VERSION 97): no RE export was needed,
       since the mission containers are in the RE repo. gen:coarse
       (`tools/generators/fcopCoarse.ts`) builds `cact_coarse_height_build`'s

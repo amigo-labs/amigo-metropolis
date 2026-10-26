@@ -141,6 +141,13 @@ export interface ModelsArtifact {
   readonly mission: string;
   readonly source: { readonly repo: string; readonly commit: string; readonly tool: string };
   readonly radii: ModelsRadii;
+  /**
+   * Each role's box-0 centre y, raw, at the same model and frame as its radius:
+   * the height its reference point stands above its position (the box's
+   * centre placed through the orientation, `math_matrix_place_point`
+   * 0x00458850, unshifted — 1/512 units added as world units).
+   */
+  readonly refs: ModelsRadii;
   readonly dreadnought: {
     readonly hull: number;
     readonly hullSha: string;
@@ -246,11 +253,15 @@ function extractCobj(b: Uint8Array, at: { pos: number; size: number; total: numb
   return out.subarray(0, len);
 }
 
+/** 3DBB box fields (RE fcop/model.h): the centre's y, and the `radius_68` halfword. */
+const BOX_CY = 2;
+const BOX_RADIUS = 12;
+
 /**
- * The model's `radius_68` at `frame`: the i16 at +12 of 3DBB box `frame`
- * (`bbox_at`, object/model.c: header 8, a box every 16 bytes).
+ * The i16 at `off` of 3DBB box `frame` (`bbox_at`, object/model.c: header 8, a
+ * box every 16 bytes): +12 the model's `radius_68`, +2 its centre's y.
  */
-function radiusRaw(cobj: Uint8Array, frame: number, what: string): number {
+function boxRaw(cobj: Uint8Array, frame: number, off: number, what: string): number {
   let pos = 0;
   while (pos + 8 <= cobj.length) {
     const size = u32(cobj, pos + 4);
@@ -259,7 +270,7 @@ function radiusRaw(cobj: Uint8Array, frame: number, what: string): number {
     if (tag === "3DBB") {
       const box = pos + 8 + 8 + frame * 16;
       if (box + 16 > pos + size) throw new Error(`${what}: no 3DBB box for frame ${frame}`);
-      const v = cobj[box + 12] | (cobj[box + 13] << 8);
+      const v = cobj[box + off] | (cobj[box + off + 1] << 8);
       return v >= 0x8000 ? v - 0x10000 : v;
     }
     pos += size;
@@ -267,11 +278,16 @@ function radiusRaw(cobj: Uint8Array, frame: number, what: string): number {
   throw new Error(`${what}: no 3DBB chunk`);
 }
 
+/**
+ * Each role's 3DBB halfword at `off`, at the frame the role is read at:
+ * BOX_RADIUS its `radius_68`, BOX_CY its box-0 centre's y.
+ */
 function buildRadii(
   arena: FcopArena,
   re: ReModels,
   reRepo: string,
   hullFrames: number,
+  off: number,
 ): ModelsRadii {
   const container = new Uint8Array(
     readFileSync(join(reRepo, "fixtures", "missions", arena.mission)),
@@ -280,7 +296,7 @@ function buildRadii(
   const at = (cobj: number, frame: number, what: string): number => {
     const entry = index.get(cobj);
     if (!entry) throw new Error(`${arena.mission}: no Cobj ${cobj} (${what})`);
-    return radiusRaw(extractCobj(container, entry), frame, `${arena.mission} Cobj ${cobj}`);
+    return boxRaw(extractCobj(container, entry), frame, off, `${arena.mission} Cobj ${cobj}`);
   };
   const one = (roles: ReRole[], part: string, what: string): number => {
     if (roles.length !== 1) throw new Error(`${arena.mission}: ${roles.length} ${what} model sets`);
@@ -456,7 +472,8 @@ function buildModels(
   const artifact: ModelsArtifact = {
     mission: arena.mission,
     source,
-    radii: buildRadii(arena, re, reRepo, walkFrames),
+    radii: buildRadii(arena, re, reRepo, walkFrames, BOX_RADIUS),
+    refs: buildRadii(arena, re, reRepo, walkFrames, BOX_CY),
     dreadnought: {
       hull: hull.cobj,
       hullSha: re.models[String(hull.cobj)].sha256_16,

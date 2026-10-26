@@ -18,6 +18,7 @@ import {
   DREADNOUGHT_GUN_TURN,
   DREADNOUGHT_GUNS,
   DREADNOUGHT_MOUNTS,
+  MUZZLE_HEIGHT,
   NEUTRAL_TURRET_RADIUS,
   ORIGINAL_BUY_HALF_L,
   ORIGINAL_BUY_HALF_W,
@@ -694,6 +695,15 @@ export interface MapData {
    * ARCHETYPE_RADIUS's Mp values where it imports none).
    */
   readonly radii: MapRadii;
+  /**
+   * How far each role's reference point stands above its position, metres:
+   * the box-0 centre of the same model and frame as its radius, placed as
+   * the original places it (`math_matrix_place_point` 0x00458850, the box's
+   * 1/512 units added as world units, so a few centimetres). It is what the
+   * original aims at and measures to (fcop-fidelity.md W5). MUZZLE_HEIGHT on
+   * every role where the arena imports none.
+   */
+  readonly refHeights: MapRadii;
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
   readonly laneGraph: MapLaneGraph | undefined;
   /** Power-up spots. EMPTY → no pickups on this arena. */
@@ -1002,6 +1012,19 @@ export interface MapJson {
     neutral: number[];
     skyCaptain: number[];
   };
+  /** OPTIONAL: each role's reference height (MapData.refHeights), the radii's shape. */
+  refHeights?: {
+    walker: number;
+    hover: number;
+    tank: number;
+    jet: number;
+    fortress: number;
+    dreadnought: number;
+    dreadnoughtByFrame?: number[];
+    baseTurret: number;
+    neutral: number[];
+    skyCaptain: number[];
+  };
   /** Original Cnet graph. `edges` is one 4-tuple per node, -1 = no edge. */
   laneGraph?: {
     nodes: (number[] | { x: number; y: number; layer?: number })[];
@@ -1211,6 +1234,53 @@ function parseRadii(raw: MapJson["radii"], spots: number, id: string): MapRadii 
         : list(raw.dreadnoughtByFrame, raw.dreadnoughtByFrame.length, "dreadnoughtByFrame"),
     baseTurret: r(raw.baseTurret, "baseTurret"),
     neutral: list(raw.neutral, spots, "neutral"),
+    skyCaptain: list(raw.skyCaptain, 10, "skyCaptain"),
+  };
+}
+
+/** Every role's reference height where the arena imports none: Metropolis' muzzle height. */
+function defaultRefHeights(spots: number): MapRadii {
+  return {
+    walker: MUZZLE_HEIGHT,
+    hover: MUZZLE_HEIGHT,
+    tank: MUZZLE_HEIGHT,
+    jet: MUZZLE_HEIGHT,
+    fortress: MUZZLE_HEIGHT,
+    dreadnought: MUZZLE_HEIGHT,
+    dreadnoughtByFrame: [],
+    baseTurret: MUZZLE_HEIGHT,
+    neutral: new Array<number>(spots).fill(MUZZLE_HEIGHT),
+    skyCaptain: new Array<number>(10).fill(MUZZLE_HEIGHT),
+  };
+}
+
+/** The arena's reference heights: finite numbers (a box can sit below its origin), the radii's lengths. */
+function parseRefHeights(raw: MapJson["refHeights"], radii: MapRadii, id: string): MapRadii {
+  if (raw === undefined) return defaultRefHeights(radii.neutral.length);
+  const r = (v: unknown, what: string): number => {
+    if (typeof v !== "number" || !Number.isFinite(v)) {
+      fail(id, `refHeights ${what} is not a number (got ${String(v)})`);
+    }
+    return v;
+  };
+  const list = (v: unknown, n: number, what: string): number[] => {
+    if (!Array.isArray(v) || v.length !== n) fail(id, `refHeights ${what} needs ${n} entries`);
+    return v.map((x, i) => r(x, `${what}[${i}]`));
+  };
+  return {
+    walker: r(raw.walker, "walker"),
+    hover: r(raw.hover, "hover"),
+    tank: r(raw.tank, "tank"),
+    jet: r(raw.jet, "jet"),
+    fortress: r(raw.fortress, "fortress"),
+    dreadnought: r(raw.dreadnought, "dreadnought"),
+    dreadnoughtByFrame: list(
+      raw.dreadnoughtByFrame ?? [],
+      radii.dreadnoughtByFrame.length,
+      "dreadnoughtByFrame",
+    ),
+    baseTurret: r(raw.baseTurret, "baseTurret"),
+    neutral: list(raw.neutral, radii.neutral.length, "neutral"),
     skyCaptain: list(raw.skyCaptain, 10, "skyCaptain"),
   };
 }
@@ -2109,6 +2179,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     turretHp,
     captureRange,
     radii,
+    refHeights: parseRefHeights(raw.refHeights, radii, id),
     laneGraph,
     pickups,
     triggerVolumes,
@@ -2272,6 +2343,7 @@ export function createTestMap(): MapData {
     turretHp: [],
     captureRange: ORIGINAL_CAPTURE_RANGE,
     radii: defaultRadii(0),
+    refHeights: defaultRefHeights(0),
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],

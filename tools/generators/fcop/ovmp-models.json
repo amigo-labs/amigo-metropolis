@@ -2,7 +2,7 @@
   "mission": "Ovmp",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "4f5418716c356fa80aa2e36f9ee53272fa069b91",
+    "commit": "ce4203f465f39265e37ee631ed713b98a3c71692",
     "tool": "tools/gfx/pa_models.py; fixtures/missions (3DBB)"
   },
   "radii": {
@@ -22,6 +22,24 @@
       463
     ],
     "skyCaptain": [671, 671, 671, 952, 952, 952, 994, 994, 994, 1155]
+  },
+  "refs": {
+    "x1": {
+      "cobj": 15,
+      "walker": 189,
+      "hover": 88
+    },
+    "tank": -4,
+    "jet": -24,
+    "fortress": 21,
+    "dreadnought": 247,
+    "baseTurret": 193,
+    "neutral": [
+      167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167,
+      167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167, 167,
+      167
+    ],
+    "skyCaptain": [-70, -70, -70, -49, -49, -49, -227, -227, -227, -196]
   },
   "dreadnought": {
     "hull": 36,

@@ -63,6 +63,7 @@ import {
   WORLD_KIND_GUIDED,
   WORLD_KIND_LEAD,
   WORLD_WEAPONS,
+  WU_PER_METRE,
   walkRoad,
   worstHoverRise,
   worstUphillRise,
@@ -1117,6 +1118,33 @@ function radiiOf(models: ModelsArtifact, spots: number, mapId: string) {
     fortress: m(r.fortress),
     dreadnought: m(r.dreadnought),
     // A walking hull's (Joke's): its radius in each frame its walk shows.
+    ...(r.dreadnoughtByFrame ? { dreadnoughtByFrame: r.dreadnoughtByFrame.map(m) } : {}),
+    baseTurret: m(r.baseTurret),
+    neutral: r.neutral.map(m),
+    skyCaptain: r.skyCaptain.map(m),
+  };
+}
+
+/**
+ * Every role's reference height, metres: its box-0 centre y, which the
+ * original adds to the position unshifted (`math_matrix_place_point`
+ * 0x00458850: the box's 1/512 units as world units), so raw / 8192.
+ */
+function refHeightsOf(models: ModelsArtifact, spots: number, mapId: string) {
+  const r = models.refs;
+  if (r.neutral.length !== spots) {
+    throw new Error(
+      `${mapId}: ${r.neutral.length} neutral reference heights for ${spots} turret spots`,
+    );
+  }
+  const m = (raw: number) => raw / WU_PER_METRE;
+  return {
+    walker: m(r.x1.walker),
+    hover: m(r.x1.hover),
+    tank: m(r.tank),
+    jet: m(r.jet),
+    fortress: m(r.fortress),
+    dreadnought: m(r.dreadnought),
     ...(r.dreadnoughtByFrame ? { dreadnoughtByFrame: r.dreadnoughtByFrame.map(m) } : {}),
     baseTurret: m(r.baseTurret),
     neutral: r.neutral.map(m),
@@ -2356,6 +2384,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     captureRange: round4(captureRangeToCells(arena.neutralCaptureRaw)),
     // Every body's hit radius, the arena's own mission's models (fcop-fidelity.md G1).
     radii: radiiOf(models, turretSpots.length, mapId),
+    // Every body's reference point over its position (fcop-fidelity.md W5).
+    refHeights: refHeightsOf(models, turretSpots.length, mapId),
     laneGraph: {
       nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,

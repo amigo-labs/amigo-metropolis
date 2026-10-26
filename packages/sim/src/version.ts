@@ -1412,4 +1412,16 @@
 //     `coarseHeightAt` samples it in the original's integer steps, 4 m off the
 //     field. Other maps keep the heightfield. Extra weapons are off in every
 //     golden: every hash holds, re-recorded for the header.
-export const SIM_VERSION = 97;
+// v98: aims reach for the original's reference point (fcop-fidelity.md W5):
+//     the target's model's box-0 centre placed over its position as
+//     `math_matrix_place_point` (0x00458850) places it, the box's 1/512 units
+//     added as world units — a few centimetres, per role and frame from
+//     gen:pamodels (`refs`), carried into each FCOP map as `refHeights`
+//     (sim.ts entityRefHeight). The straight round's climb, the guided launch
+//     and homing, and the homing missile aimed at the target's height plus
+//     MUZZLE_HEIGHT; the Riot Shield measured feet to feet, and now measures
+//     from its centre (the mech's position raised 0x1000, 0x0044c66e) to the
+//     body's reference point. Maps without models keep MUZZLE_HEIGHT.
+//     golden-03 (la-cantina) diverges at tick 660, 07 at 469, 04 at 2220 and
+//     ends where it ended; 02 and 05 hold.
+export const SIM_VERSION = 98;

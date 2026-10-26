@@ -106,7 +106,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // hashed countdown is cfun_tick's, in engine ticks from u32 % period (the same
   // PRNG step); no golden's side reaches 50 points, so none plays differently.
   // 02, 03, 04, 05 and 07 re-frozen at SIM_VERSION 94: urban-jungle's and
-  // la-cantina's ground lattices keep their kerbs and shafts.
+  // la-cantina's ground lattices keep their kerbs and shafts. 03 and 07 at 98:
+  // the aims reach for the original's reference point (fcop-fidelity.md W5).
   "golden-02-combat": { last: 2883820012, count: 3600 },
   // Re-frozen at SIM_VERSION 50 (the original's 37.5 s ring respawn, R16): 03's
   // script was rewritten around it (player 1 is put down at the outpost, the wave
@@ -127,7 +128,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // longer adds to side 0's Walker Kills; 04's X1 down by the captain's
   // missile (tick 2892) no longer credits the captain, whose rethink is no
   // longer zeroed, so it plays differently from there.
-  "golden-03-match": { last: 1029577492, count: 6000 },
+  "golden-03-match": { last: 482913924, count: 6000 },
   // 04 and 07 re-frozen at SIM_VERSION 54: the captain takes its target without
   // a line of sight and walls stop its gun and missile at ground units too.
   // 03, 04 and 07 re-frozen at SIM_VERSION 55: captures by the octagonal estimate.
@@ -192,7 +193,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 03, 04 and 07 re-frozen at SIM_VERSION 82: the hashed First Death and
   // First Outpost stamps read the frame clock from 0 on the first tick (one
   // frame delta earlier); nothing in the tick reads them.
-  "golden-07-pa": { last: 525158370, count: 3600 },
+  "golden-07-pa": { last: 1189644195, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };
