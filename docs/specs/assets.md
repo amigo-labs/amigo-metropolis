@@ -123,13 +123,36 @@ forever as a debug render mode (`?render=greybox`).
   two guns (the cockpit skeleton's records 2 and 4) and the beacon (its point 2),
   into a bone table, `avatar-x1.anim.bin` (30 x 401 RGBA float texels, a 3x4
   matrix per slot per frame), and merges the five parts into one bind-pose
-  primitive, `avatar-x1.glb`, whose `_X1BONE` names each vertex's slot. The
+  primitive, `avatar-x1.glb`, whose `_X1BONE` names each vertex's slot and
+  `_X1FACE` its face (the 3DQL primitive its triangle came from, paired back by
+  the corners' positions from `faces.json`, so a quad's two triangles share
+  one; the skeleton shatter tests a quad whole by it). The
   vertex shader fetches the slot's matrix by the instance's legs and cockpit
   frames (`instanceX1`: legs frame, cockpit frame, the cockpit's aim yaw and
   pitch) — `render/x1Pose.ts` is its CPU twin, held against the RE's own
   assembled walker, hover and transform. Walker, transformation and hover are
   the same mesh at other frames, so nothing swaps and nothing is split: the
   one-mesh-per-archetype rule holds for the X1 again.
+- **The X1's faces keep the original's draw modes and layers** (fcop-fidelity.md
+  G13; RE `docs/formats/x1-alpha.md` "Draw modes and layers"). `avatar-x1.glb`
+  has a primitive per mode, opaque then half — the legs are half throughout —
+  which `render/fcopModel.ts` turns into geometry groups of the X1's one
+  InstancedMesh, as it does a unit's: the opaque faces cut at alpha 0.25, the
+  half faces **drawn twice over the same instanced triangles**, their solid
+  texels with the opaque faces and their bit-15 texels blended 50/50 without a
+  depth write. That second draw is the declared exception rule 3 asks for in
+  writing, and the same one every unit with half faces takes: it is a draw call
+  of the same mesh, not a second InstancedMesh — one geometry, one set of
+  instance matrices, pose, layer masks and team offset, a material per pass,
+  each with the same pose patch — because one pass cannot both write depth for
+  the solid texels and blend the bit-15 ones behind what is drawn after them.
+  Each face's layer (op1 bits 4..6) rides in `_X1LAYER`; per instance the
+  shader gets the two masks the original's partner draws the legs and the
+  cockpit with, read off the transform's progress (walker 3 / 5, the ramp
+  7 / 0xf, hover 5 / 0xb; the guns and the beacon 1), and collapses a face whose
+  layer bit is clear onto the model's origin, where it covers no pixel. The
+  draw form comes off the avatar snapshot (`render/x1Walk.ts` `x1DrawForm`: the
+  walker's tick, the legs on their hover track, else the ramp).
 - **The frames are the original's state machine's**, which runs in the sim
   (`packages/sim/src/walker.ts`, SIM_VERSION 83): the walker's tick, the
   transform's mode-3 ramp (legs track 0x0c 330 -> 359, cockpit track 2 0 -> 29,
@@ -273,7 +296,12 @@ forever as a debug render mode (`?render=greybox`).
   rebuilds to its committed file. `bun run gen:units --check` builds every model
   in memory and fails on any difference.
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
-- Materials: single atlas texture, `flatShading: true`, no PBR maps.
+- Materials: single atlas texture, no PBR maps. An FCOP model's faces carry the
+  original's lighting inputs per corner (`_FCOP_LIGHT`: the material and its 3DTL
+  colour bytes; NORMAL the normal it is lit against; a kept morph's NORMAL
+  targets), and `render/fcopModel.ts` shades them as the original does, unlit
+  by three's lights (`fcop-fidelity.md` G13). Anything without the attribute
+  keeps `flatShading: true` under the scene's lights.
 
 ## 5. Audio
 

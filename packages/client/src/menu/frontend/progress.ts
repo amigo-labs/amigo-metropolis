@@ -115,13 +115,17 @@ export function loadFromSlot(file: SaveFile, slot: number): FeConfig | null {
 
 /**
  * A won match against the Sky Captain, credited to the stored config
- * (recordPaWin): `mapId`'s row at `level` (1..10). Answers whether it moved.
+ * (recordPaWin): `mapId`'s row at `level` (1..10). Answers what moved:
+ * nothing, the next level, or -- frame_step_game's finished arm (0x004096b6),
+ * the map's level byte 9 or more -- the map finished, which also plays the
+ * map's post-mission movie (0x00409762).
  */
-export function recordSoloWin(mapId: string, level: number): boolean {
+export function recordSoloWin(mapId: string, level: number): "none" | "level" | "finished" {
   const row = rowOfMap(mapId);
-  if (row < 0) return false;
+  if (row < 0) return "none";
   const config = loadConfig();
-  if (!recordPaWin(config, row, level - 1)) return false;
+  const before = config.paLevel[row];
+  if (!recordPaWin(config, row, level - 1)) return "none";
   storeConfig(config);
-  return true;
+  return before >= 9 ? "finished" : "level";
 }

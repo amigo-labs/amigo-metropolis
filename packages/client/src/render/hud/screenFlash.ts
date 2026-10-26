@@ -20,8 +20,9 @@
 // changes (at most once per 1.33 ticks), and it is hidden at 0.
 //
 // In Precinct Assault the one flashing record, GlblData's 0:78, is raised only
-// as 0:83's reap effect, which no PA weapon or death starts — so, as in the
-// original, the flash practically never shows.
+// as 0:83's reap effect, and only campaign actors raise 0:83 (M3a's turrets and
+// tanks, Un's type-11 actors: their class rows name it; RE M3-OP) — so, as in
+// the original, the flash never shows in a Precinct Assault match.
 
 import type { FxFlash } from "../../effects/records";
 

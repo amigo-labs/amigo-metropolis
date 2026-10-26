@@ -1435,4 +1435,67 @@
 //     floor around it: 248 points, the deck gone there. 7 lane edges a walker
 //     cannot climb, was 13. urban-jungle's goldens play differently (02, 04,
 //     05).
-export const SIM_VERSION = 99;
+// v100: every feature stands on the surface the original stands it on (issue
+//     #33; PLAN.md Phase 13; fcop-fidelity.md F-row "feature surfaces"). No
+//     actor's Y is stored: each construct asks `terrain_height_at` (0x004545d0)
+//     with a selector byte of its own record — X1Alpha 0x00446b66, turret base
+//     0x0041cff1, pickup 0x0041e7db, type-14 zone 0x0041f719, trigger
+//     0x0041fdb1 — remapped as `cnet_load` remaps a node's mode (0x00441981).
+//     gen:palogic runs the query over the shipped plates (fcopTerrain.ts) and
+//     carries the answer as `groundY`; stage 2 puts spawns, gates, consoles,
+//     ring and plate turrets, capture pads, outpost zones and pads, heavy
+//     zones, pickups, intrusion and guard boxes, the Dreadnought and tank
+//     spawners (their spawn node's), the aircraft spawners (what
+//     `terrain_surface_at` 0x00453ef0 answers under them from y 0: Hk's canal
+//     water, Ovmp's base decks) and every lane node on the sim surface
+//     carrying that height, where it used to take the topmost deck present at
+//     the cell's corner vertex (nodes) or the ground (everything else). The
+//     reachability repair and mapConnectivity.test.ts ask for the feature's own
+//     surface. hollywood-keys and venice-beach are imported with their decks
+//     (Hk: both mechs, both bases' gates and shops on the canal's water plate,
+//     8 ring guns on the street deck); on the other four the turrets on
+//     plinths and the deck-edge lane nodes move (29 to 51 nodes an arena).
+//     Wall lattices are unchanged. Every golden on la-cantina and urban-jungle
+//     (02, 03, 04, 05, 07) diverges at tick 0, where the ring turrets on their
+//     plinths spawn at their new height; 01 and 06 hold.
+// v101: the Pop-Up Mine is the original's dropped round (fcop-fidelity.md W1,
+//     E20; RE M3-OP: round_spawn.c 0x0044d6a0, type15.c 0x00424370). It leaves
+//     the muzzle with no speed under the spawner's fixed gravity 0x10000 (not
+//     the record's), falls and bounces as the grenade does, and the tick that
+//     brings it to rest blows it (0x00424606) -- about 1.4 s after the drop
+//     from MUZZLE_HEIGHT on flat ground; the record's 5.01 s lifetime, a wall
+//     and a body's contact blow it too. An enemy within its reach (2 m) plus
+//     its radius springs it first: 300 units to live, flung down at -0x8000
+//     wu/s under 0x8000, so it pops back up and goes off in the air. Gone:
+//     Metropolis' 0.5 s arming delay, its 30 s silent despawn and its 1 s
+//     sprung fuse. No golden drops a mine: every hash holds, re-recorded for
+//     the header.
+// v102: the Sky Captain's missile and bomb fly at the original's speeds
+//     (fcop-fidelity.md U3; RE M3-OR). The missile (weapon 8, kind 3) leaves at
+//     its catalogue speed, 8192 raw = 15.82 m/s (`cact_missile_spawn` 0x0044d103:
+//     no acceleration, launched at the cap), where it flew Metropolis' 25 m/s;
+//     the bomb (weapon 9, kind 4) is the original's arced round
+//     (`cact_round_spawn_arced` 0x0044d440 -> `cact_discharge_arc`): the ballistic
+//     solve to the target's position at 7.62 m/s under the 3072-raw drop, where it
+//     flew flat at 25 m/s for 2.5 s. The Warden goldens play differently (04, 07).
+// v103: every aircraft turns as the original's (fcop-fidelity.md U3, U4; RE
+//     M3-OR, `aircraft_fly` 0x00420977..0x00420b84): it flies its heading, and
+//     each tick the vector to its steer point, shifted to a 15-bit cheap
+//     magnitude and scaled by `turn * delta >> 3` (jets and Flying Fortress
+//     5120, the Sky Captain 4096), is added to that unit heading
+//     (units.ts steerHeading). It turned at once until now. The captain's turn
+//     is quadrupled once on its way home damaged, within 10 m of home or of
+//     the pickup it is after (`sky_boost_turn_rate` 0x00421761 / 0x004217dd),
+//     and put back by a restore or a respawn; `captain.turn` is hashed. The
+//     Warden goldens play differently (04, 07).
+// v104: the PA jets and Flying Fortresses dwell as the original's aircraft
+//     (fcop-fidelity.md U4; RE M3-OR, `aircraft_step` 0x00420752..0x00420d3c):
+//     a search that finds nothing drops the target; ENGAGE and CRUISE each last
+//     their record's dwell (jet 20 s / 5 s, Fortress 100 s / 1 s, plus up to a
+//     quarter, kept as a halfword), an ENGAGE that runs out drawing a new
+//     destination; ENGAGE without a target CRUISEs at once; a new aircraft
+//     starts in CRUISE to a drawn destination; the gun fires in ENGAGE only;
+//     the standoff is the octagonal estimate; the box is ±20 x ±24 m (jet) and
+//     ±28 x ±30 m (Fortress), its axes the right way round (they were crossed).
+//     Timers in engine units. The Warden goldens play differently (04, 07).
+export const SIM_VERSION = 104;

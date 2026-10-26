@@ -112,3 +112,29 @@
   background: transparent;
   overflow: visible;
 }
+
+/* The original's movies (frontend/movie.ts): over everything, the 640 x 480
+   stage letterboxed as the front end's, black once the movie runs (movie_play
+   clears the screen after Run, 0x00408a72), the picture stretched to the
+   rectangle the caller gives as DirectShow's video window stretches it. */
+.fe-movie {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  cursor: default;
+}
+.fe-movie.is-playing {
+  background: #000;
+}
+.fe-movie-stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  overflow: hidden;
+  transform-origin: 50% 50%;
+}
+.fe-movie-video {
+  position: absolute;
+  object-fit: fill;
+  background: #000;
+}

@@ -53,7 +53,7 @@ import {
   TURRET_CAPTURABLE,
   writeMatchSnapshot,
 } from "../src/sim";
-import { UNIT_MODE_OUTPOST } from "../src/units";
+import { AIR_ANCHOR_MASK, UNIT_MODE_OUTPOST } from "../src/units";
 import { faceAlong, faceToward } from "./drive";
 
 // The original's Dreadnought and Fortress zones beside each base's consoles,
@@ -629,7 +629,8 @@ describe("outposts (rules.md §5, fcop-fidelity.md R14)", () => {
     bought = findEvents(sim, EV_PURCHASE);
     expect(bought.length).toBe(1);
     expect(bought[0][2]).toBe(ARCHETYPE.GUARDIAN);
-    expect(sim.ent.mode[bought[0][0]]).toBe(UNIT_MODE_OUTPOST + 0);
+    // The anchor (mode's low bits; its top bit is the aircraft's state).
+    expect(sim.ent.mode[bought[0][0]] & AIR_ANCHOR_MASK).toBe(UNIT_MODE_OUTPOST + 0);
     expect(sim.points[0]).toBe(
       afterClaim - (COST_RUNNER + COST_GUARDIAN) * OUTPOST_COST_MULTIPLIER,
     );

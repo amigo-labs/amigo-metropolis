@@ -28,9 +28,33 @@
 //   is light. No depth write, and fog fades it to nothing rather than to the
 //   fog's colour, which an additive face would otherwise add.
 //
-// The lighting materials 0..5 are not exported (the RE draws the texture
-// unlit), so opaque and half faces keep the material each loader gave them
-// before: lit for units and scenery, unlit for the weapons.
+// These are the Glide and software readings, which agree; the D3D driver
+// does not (RE M3-OO): its pages are ARGB4444 with alpha 8/15 on bit 15 under
+// a standing SRC_ALPHA / INV_SRC_ALPHA, so it blends bit-15 texels at 53 % on
+// opaque faces too, and Glide keys a PX16 word of exactly 0x8000. Kept: half
+// on half faces, solid on opaque ones, 0x8000 a drawn black (G13). Its adds
+// are (ONE, ONE) as here, with the tint doubled as here.
+//
+// The lighting (RE docs/formats/objects.md "Face lighting", fcop-fidelity.md
+// G13). The same op0 bits are the face's lighting material, which
+// `cact_model_shade_face` (0x00428c70) turns into the vertex colour: 0 a grey
+// (3DTL byte 1), 1 a colour (bytes 1..3), 2 / 3 those shaded at the face's
+// first normal, 4 / 5 at each corner's own. The shade (0x00427fb0, 0x00428000)
+// is the normal against ONE light, fixed in the world for every mission (RE
+// 0x0048b7a8): 0x20 when turned away, else 0x20 + cos x byte, capped at 0xff;
+// a lit colour loses its blue (0x00428000 answers byte 3 zero). On the screen
+// 0x80 is unity and the colour multiplies the texel (THRASH `colour_of`
+// 0x004568b2: grey and r, g, b doubled and clamped; a grey on a textured face
+// through the palette row, `(grey >> 2) << 3`). Every RE glb carries the
+// inputs per corner: `_FCOP_LIGHT` (material, bytes 1..3) and the NORMAL the
+// corner is lit against. So an opaque or half face of a model that has them
+// draws unlit by three's lights (MeshBasicMaterial) with the original's shade:
+// `fcopLightPatch` computes it per vertex — interpolated over a smooth face,
+// constant over a flat one — and takes the product in display values, as the
+// `add` faces do. The normal goes through the instance's 3x3 unnormalised,
+// as the engine's transpose does (a Prop's scaled rows scale its shade), and
+// a morph's frame through its own normals. A model without the attribute
+// keeps the loader's lighting: lit, or unlit for the weapons.
 //
 // Init-time only: nothing here runs in the frame loop.
 
@@ -134,6 +158,141 @@ export async function mergeFcopModel(gltf: GLTF): Promise<FcopModel> {
   return { geometry: merged, groups, map: keys[0].map, extras };
 }
 
+/** The geometry attribute GLTFLoader makes of the RE glbs' `_FCOP_LIGHT`. */
+export const LIGHT_ATTRIBUTE = "_fcop_light";
+
+/**
+ * The original's one light, the three 16.16 words at RE 0x0048b7a8 (0x6fba,
+ * 0xdf75, 0x37dd), which are the game's (x, y, z): `draw_light_prepare`
+ * (0x00426eb0) puts them through the camera and the model draw back through
+ * the placement's transpose (0x00458770), so the light is fixed in the world.
+ * Three's axes are the game's (z, y, x) (render/recordYaw.ts: sim x = game z,
+ * sim y = game x, three (x, h, y)), so this is (0x37dd, 0xdf75, 0x6fba) /
+ * 0x10000: from above, the +x and +z side.
+ */
+export const FCOP_LIGHT: readonly [number, number, number] = [
+  0x37dd / 0x10000,
+  0xdf75 / 0x10000,
+  0x6fba / 0x10000,
+];
+
+/**
+ * One byte through `cact_model_shade_grey` / `_rgb` (0x00427fb0, 0x00428000):
+ * `cos` is the dot in 4.12 (`dot >> 16`, floored); turned away is 0x20, else
+ * `(cos * byte >> 12) + 0x20`, capped at 0xff.
+ */
+export function fcopShadeByte(byte: number, cos: number): number {
+  if (cos < 0) return 0x20;
+  return Math.min(Math.floor((cos * byte) / 4096) + 0x20, 0xff);
+}
+
+/**
+ * The display factor, 0..1 per channel, a corner's texel is multiplied by:
+ * its `_FCOP_LIGHT` (material, bytes 1..3) and its cosine in 4.12 through
+ * `cact_model_shade_face`'s undamaged table (0x0042900c), then THRASH's
+ * `colour_of`: the grey materials 0 and 2 (colour mode 0x20, every shipped one
+ * textured) through the palette row `(grey >> 2) << 3`, capped, its low bits
+ * from its top three (0x004568ec..0x00456936); 4 doubled (0x00456a17); the
+ * colours doubled per channel (0x00456a49), a lit one's blue zero. The mirror
+ * of `fcopLightPatch`'s GLSL, for the tests.
+ */
+export function fcopLightFactor(
+  light: readonly number[],
+  cos: number,
+  out: [number, number, number],
+): [number, number, number] {
+  const [material, b1, b2, b3] = light;
+  const doubled = (c: number) => Math.min(2 * c, 0xff) / 0xff;
+  if (material === 0 || material === 2) {
+    const grey = material === 2 ? fcopShadeByte(b1, cos) : b1;
+    let level = Math.min((grey >> 2) << 3, 0xff);
+    level |= (level >> 5) & 7;
+    out[0] = out[1] = out[2] = level / 0xff;
+  } else if (material === 4) {
+    out[0] = out[1] = out[2] = doubled(fcopShadeByte(b1, cos));
+  } else if (material === 3 || material === 5) {
+    out[0] = doubled(fcopShadeByte(b1, cos));
+    out[1] = doubled(fcopShadeByte(b2, cos));
+    out[2] = 0;
+  } else if (material === 1 || material === 6) {
+    out[0] = doubled(b1);
+    out[1] = doubled(b2);
+    out[2] = doubled(b3);
+  } else {
+    // Material 7 has no arm (`ja` at 0x00428e32); none is shipped.
+    out[0] = out[1] = out[2] = 1;
+  }
+  return out;
+}
+
+const LIGHT_VERTEX_DECL = `attribute vec4 ${LIGHT_ATTRIBUTE};
+varying vec3 vFcopShade;
+const vec3 FCOP_LIGHT = vec3( ${FCOP_LIGHT.map((c) => c.toFixed(10)).join(", ")} );
+float fcopShadeByte( float c, float cosine ) {
+	return cosine < 0.0 ? 32.0 : min( floor( cosine * c / 4096.0 ) + 32.0, 255.0 );
+}
+float fcopDoubled( float c ) {
+	return min( 2.0 * c, 255.0 ) / 255.0;
+}
+void main() {`;
+
+const LIGHT_VERTEX = `vec3 fcopNormal = vec3( normal );
+#if defined( USE_MORPHNORMALS ) && defined( USE_MORPHTARGETS )
+	fcopNormal *= morphTargetBaseInfluence;
+	for ( int i = 0; i < MORPHTARGETS_COUNT; i ++ ) {
+		if ( morphTargetInfluences[ i ] != 0.0 ) fcopNormal += getMorph( gl_VertexID, i, 1 ).xyz * morphTargetInfluences[ i ];
+	}
+#endif
+#ifdef USE_INSTANCING
+	fcopNormal = mat3( instanceMatrix ) * fcopNormal;
+#endif
+	fcopNormal = mat3( modelMatrix ) * fcopNormal;
+	float fcopCos = floor( dot( fcopNormal, FCOP_LIGHT ) * 4096.0 );
+	float fcopMaterial = ${LIGHT_ATTRIBUTE}.x;
+	vec3 fcopBytes = ${LIGHT_ATTRIBUTE}.yzw;
+	if ( fcopMaterial < 0.5 || ( fcopMaterial > 1.5 && fcopMaterial < 2.5 ) ) {
+		float grey = fcopMaterial > 1.5 ? fcopShadeByte( fcopBytes.x, fcopCos ) : fcopBytes.x;
+		float level = min( floor( grey / 4.0 ) * 8.0, 255.0 );
+		level += level < 255.0 ? mod( floor( level / 32.0 ), 8.0 ) : 0.0;
+		vFcopShade = vec3( level / 255.0 );
+	} else if ( fcopMaterial > 3.5 && fcopMaterial < 4.5 ) {
+		vFcopShade = vec3( fcopDoubled( fcopShadeByte( fcopBytes.x, fcopCos ) ) );
+	} else if ( ( fcopMaterial > 2.5 && fcopMaterial < 3.5 ) || ( fcopMaterial > 4.5 && fcopMaterial < 5.5 ) ) {
+		vFcopShade = vec3( fcopDoubled( fcopShadeByte( fcopBytes.x, fcopCos ) ), fcopDoubled( fcopShadeByte( fcopBytes.y, fcopCos ) ), 0.0 );
+	} else if ( fcopMaterial < 6.5 ) {
+		vFcopShade = vec3( fcopDoubled( fcopBytes.x ), fcopDoubled( fcopBytes.y ), fcopDoubled( fcopBytes.z ) );
+	} else {
+		vFcopShade = vec3( 1.0 );
+	}
+#include <begin_vertex>`;
+
+const LIGHT_FRAGMENT_DECL = `varying vec3 vFcopShade;
+void main() {`;
+
+/** The texel times the shade, in display values, handed on as linear light. */
+const LIGHT_MAP = `#ifdef USE_MAP
+	vec4 fcopTexel = texture2D( map, vMapUv );
+	diffuseColor *= vec4( sRGBTransferEOTF( vec4( sRGBTransferOETF( fcopTexel ).rgb * vFcopShade, 1.0 ) ).rgb, fcopTexel.a );
+#else
+	diffuseColor.rgb *= sRGBTransferEOTF( vec4( vFcopShade, 1.0 ) ).rgb;
+#endif`;
+
+/**
+ * The original's lighting on an opaque or half face material (see the head of
+ * this file): the shade per vertex out of `_fcop_light`, the normal and the
+ * fixed light, multiplied into the texel in display values.
+ */
+export function fcopLightPatch(material: THREE.Material): void {
+  chainPatch(material, "fcopLight", (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("void main() {", LIGHT_VERTEX_DECL)
+      .replace("#include <begin_vertex>", LIGHT_VERTEX);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("void main() {", LIGHT_FRAGMENT_DECL)
+      .replace("#include <map_fragment>", LIGHT_MAP);
+  });
+}
+
 /** How a loader draws the faces it does not blend: lit, or unlit (the weapons). */
 export interface FaceMaterialOptions {
   readonly unlit?: boolean;
@@ -161,7 +320,17 @@ export function faceMaterials(
 ): THREE.Material | THREE.Material[] {
   const geometry = model.geometry;
   if (!geometry) throw new Error("a model of facers only has no faces to draw");
-  const vertexColors = geometry.hasAttribute("color");
+  // The original's lighting where the glb carries its inputs; its COLOR_0 is
+  // then only gen:units' white fill or the RE's stand-in grey of an untextured
+  // face, whose colour the light attribute holds.
+  const lit = geometry.hasAttribute(LIGHT_ATTRIBUTE);
+  const vertexColors = !lit && geometry.hasAttribute("color");
+  const solid = (map: THREE.Texture | null): THREE.Material => {
+    if (!lit) return solidMaterial(map, vertexColors, options.unlit === true);
+    const m = new THREE.MeshBasicMaterial({ map, toneMapped: options.unlit !== true });
+    fcopLightPatch(m);
+    return m;
+  };
   const materials: THREE.Material[] = [];
   const add = (material: THREE.Material, pass: FacePass): number => {
     material.userData.facePass = pass;
@@ -172,15 +341,15 @@ export function faceMaterials(
   geometry.clearGroups();
   for (const g of model.groups) {
     if (g.mode === "opaque") {
-      const m = solidMaterial(g.map, vertexColors, options.unlit === true);
+      const m = solid(g.map);
       m.alphaTest = 0.25;
       geometry.addGroup(g.start, g.count, add(m, "opaque"));
     } else if (g.mode === "half") {
-      const solid = solidMaterial(g.map, vertexColors, options.unlit === true);
+      const solidTexels = solid(g.map);
       // Alpha 255 only: the key (0) and the bit-15 texels (128) are the other pass's.
-      solid.alphaTest = 0.75;
-      geometry.addGroup(g.start, g.count, add(solid, "half-solid"));
-      const blend = solidMaterial(g.map, vertexColors, options.unlit === true);
+      solidTexels.alphaTest = 0.75;
+      geometry.addGroup(g.start, g.count, add(solidTexels, "half-solid"));
+      const blend = solid(g.map);
       blend.alphaTest = 0.25;
       blend.transparent = true;
       blend.blending = THREE.NormalBlending;

@@ -3,14 +3,14 @@
 // output changed → regenerate the map JSON (tools/generators/convert.ts) and, if any
 // golden runs on it, bump SIM_VERSION + re-record in the same commit.
 //
-// WHY THESE TWO STILL CARRY HAND-AUTHORED FEATURES
-// Issue #30 rebuilt four arenas from their original Precinct Assault logic, and
+// WHY THESE TWO ARE SEPARATE
+// Issue #30 rebuilt the arenas from their original Precinct Assault logic, and
 // issue #29 turned la-cantina into the multi-deck arena it always was. These two
-// are still excluded, and not for want of data — hk-logic.json and ovmp-logic.json
-// are committed. What is missing is per-FEATURE layer information, not sim
-// machinery; the wall pins plus the tests below are what stop stage 2 being
-// pointed at them by accident. See the last describe block for the numbers, and
-// note that its original vertical-gap argument was RETIRED as circular — the
+// were held back longest because most of their ground is a deck: Hk's canal and
+// Ovmp's are water plates over a floor, and the streets are decks over those.
+// Stage 2 imports them like the other four since every feature carries the
+// surface the original stands it on (the last describe block). Its first
+// argument — a vertical-gap measurement — was RETIRED as circular; the
 // reasoning there is worth reading before re-deriving it.
 import { describe, expect, it } from "bun:test";
 import { fnv1aBytes, fnv1aInit } from "../src/hash";
@@ -173,12 +173,7 @@ describe("hollywood-keys (layered)", () => checkArena(HOLLYWOOD_KEYS_ID, "Hollyw
 describe("venice-beach (layered)", () => checkArena(VENICE_BEACH_ID, "Venice Beach"));
 
 /**
- * Why the original layouts are still not imported here (issue #33).
- *
- * The extracted logic exists in-tree — hk-logic.json, ovmp-logic.json — and
- * `bun run gen:arena hollywood-keys` reports "OK — no problems". It is wrong
- * anyway, and these tests are the record of why, so the deferral is a measurement
- * rather than a note someone has to trust.
+ * The layered arenas' layouts, imported with their decks (issue #33).
  *
  * WHAT THIS BLOCK USED TO ASSERT, AND WHY IT WAS RETIRED
  * It measured the vertical gap from each deck cell to the ground under it, found
@@ -190,35 +185,26 @@ describe("venice-beach (layered)", () => checkArena(VENICE_BEACH_ID, "Venice Bea
  * 0.5 m above the floor" is a restatement of the extractor's clustering constant,
  * not a fact about Hollywood Keys, and any arena it is ever run on will pass it.
  *
- * WHAT REPLACES IT
+ * WHAT REPLACED IT
  * The question a walker actually asks. A deck is not entered from below, it is
  * entered SIDEWAYS, at its edge, where the ground has risen to meet it — which is
  * what a ramp is, and why the extractor keeps ramps in layer 0. Measured that way
  * the decks are enterable: 616 + 1374 entry cells on hollywood-keys, 998 + 130 on
- * venice-beach, and `resolveWalker` already makes the transition (la-cantina's
- * 1180 are live since #29). So issue #33's open question 6 is answered — the
- * original needs no hovering and the extractor drops no ramps — and the walker
- * model needs no change.
+ * venice-beach, and `resolveWalker` already makes the transition.
  *
- * WHAT IS ACTUALLY LEFT FOR #33
- * Not the sim's movement or its wall model; #29 landed per-layer lattices and a
- * layer-aware flood, and proved them on la-cantina. What remains is per-FEATURE:
- *   - a `layer` field on spawns/bases/pads/lanes, because Hk puts 8 Turret, 3
- *     NeutralTurret and 2 TeamBase? on cells that have a deck overhead (Ovmp: 4
- *     ItemPickup and 1 NeutralTurret), and nothing can say which storey they are
- *     on. la-cantina needed none of this — all 15 of its actors under a deck are
- *     scenery, so every gameplay feature there is layer 0.
- *   - render/structures.ts drawing a structure at its feature's layer instead of
- *     at sampleHeight.
- *   - the actor-Y blocker is CLOSED, and not the way #33 expected: ACT `pos_h` is
- *     0.0 on every actor of every PC mission, so it cannot come from the
- *     container at all. Deck membership is inferred from the terrain instead —
- *     annotate_actor_layers.py in the RE repo, `actors.layered.json`.
- *
- * When these assertions start failing, that model has landed: update them, do not
- * delete them.
+ * WHAT CLOSED #33
+ * Not the sim's movement or its wall model (#29: per-layer lattices and a
+ * layer-aware flood). Per-FEATURE surfaces. No actor's Y is stored — ACT `pos_h`
+ * is 0 on every PC record — because every construct asks the terrain with a
+ * selector byte of its own record (`terrain_height_at`, 0x004545d0; the bytes in
+ * tools/generators/fcopLogic.ts HEIGHT_SELECTOR), as `cnet_load` does for a node.
+ * gen:palogic runs that query over the shipped plates and stage 2 stands each
+ * feature on the sim surface carrying its answer; the generator's reachability
+ * repair and mapConnectivity.test.ts ask whether the mech can serve a feature ON
+ * that surface. tools/generators/test/featureLayers.test.ts holds every feature
+ * of all six arenas to the original's height.
  */
-describe("the layered arenas' decks are enterable but their layouts are not imported (issue #33)", () => {
+describe("the layered arenas carry the original's layout on its decks (issue #33)", () => {
   for (const id of [HOLLYWOOD_KEYS_ID, VENICE_BEACH_ID]) {
     const map = getMapById(id);
     const s = map.size;
@@ -273,23 +259,43 @@ describe("the layered arenas' decks are enterable but their layouts are not impo
       expect(minGap).toBeGreaterThan(STEP_SNAP);
     });
 
-    it(`${id}: carries the imported PA layout with deck-aware lane nodes`, () => {
-      // Issue #33 foundation + ground_cast on Cnet nodes: stage 2 is adopted.
-      // Spawns/bases/turrets stay layer 0 until actors.layered.json can name
-      // which under-deck cells are on the deck vs under it; the road network
-      // uses the authored cast, which is what made Hk's streets unusable when
-      // flattened to the canal floor.
+    it(`${id}: carries the imported PA layout, its features on their decks`, () => {
       expect(map.laneGraph).toBeDefined();
       expect(map.laneGraph?.nodes.length).toBeGreaterThan(50);
       expect(map.weapons.length).toBeGreaterThan(0);
       expect(map.turretSpots.length).toBeGreaterThan(4);
-      // At least some lane nodes sit on a deck (Hk: all of them; Ovmp: ~20%).
-      let onDeck = 0;
-      const nodes = map.laneGraph!.nodes;
-      for (const n of nodes) {
-        if (n.layer > 0) onDeck += 1;
+      const nodes = map.laneGraph?.nodes ?? [];
+      const onDeck = (ps: readonly { layer: number }[]): number =>
+        ps.filter((p) => p.layer > 0).length;
+      // The bases' structures and ring guns stand on decks on both arenas: it was
+      // the flattening of these to the canal floor that kept the two out.
+      for (const b of map.bases) {
+        expect(onDeck([b.gate, b.groundConsole, b.airConsole, ...b.turrets])).toBeGreaterThan(2);
       }
-      expect(onDeck).toBeGreaterThan(0);
+      expect(onDeck(map.triggerVolumes)).toBe(map.triggerVolumes.length);
+      if (id === HOLLYWOOD_KEYS_ID) {
+        // Hk's canal is a water plate over its floor (deck 1 at the water level),
+        // the streets a deck over that. The original stands both mechs, both
+        // shops of each base, its gate and every node of both roads on the
+        // water — the shops' topmost plate is the canal's, at the foot of the
+        // street deck beside them — and 8 of the 12 ring guns up on the street.
+        const onWater = [
+          ...map.spawns,
+          ...map.bases.flatMap((b) => [b.gate, b.groundConsole, b.airConsole]),
+        ];
+        for (const p of onWater) {
+          expect(p.layer).toBe(1);
+          expect(Math.abs(resolveHeight(map, p.x, p.y, 1) - map.waterLevel)).toBeLessThan(0.01);
+        }
+        expect(onDeck(nodes)).toBe(nodes.length);
+        expect(map.bases.flatMap((b) => b.turrets).filter((t) => t.layer === 2).length).toBe(8);
+        expect(onDeck(map.turretSpots)).toBe(19);
+      } else {
+        // Ovmp's spawns are dry ground; about a quarter of its road is a deck.
+        expect(onDeck(map.spawns)).toBe(0);
+        expect(onDeck(nodes)).toBe(123);
+        expect(onDeck(map.pickups)).toBe(6);
+      }
     });
 
     it(`${id}: carries a wall lattice of its own on every deck`, () => {

@@ -3,8 +3,8 @@
 // bug-hunt (Joke). All four are now rebuilt from their own original Precinct
 // Assault logic (tools/generators/enrichArena.ts), so all four run the same
 // assertions — including the lane-graph block, which used to be la-cantina's
-// alone. hollywood-keys and venice-beach are layered and stay in
-// layeredArenas.test.ts; see that file for why they are not imported yet.
+// alone. hollywood-keys and venice-beach, whose ground is mostly decks, have
+// their own pins in layeredArenas.test.ts.
 //
 // The heightfields are extracted 1:1 from the original missions (int8, 1/32 m
 // units) by tools/generators/convert.ts; regenerating one changes gameplay

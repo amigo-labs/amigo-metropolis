@@ -35,8 +35,17 @@ import {
   pointerButton,
   pointerMove,
   rowOfMap,
+  SND_REFUSED,
   tickMenus,
 } from "./frontend/model";
+import {
+  MOVIE_BOX_FULL,
+  type MovieBox,
+  type MovieEnd,
+  type MoviePlayback,
+  movieBoxHelp,
+  playMovie,
+} from "./frontend/movie";
 import { NetLobby } from "./frontend/netLobby";
 import { loadConfig, storeConfig } from "./frontend/progress";
 import { stageScale, toScreen } from "./frontend/stage";
@@ -46,6 +55,22 @@ import type { MenuDialog, MenuState } from "./state";
 import { W9MessageBox } from "./win9x/Win9x";
 
 export { recordSoloWin } from "./frontend/progress";
+
+/**
+ * frame_step_game's finished arm (0x00409762..0x00409794): the map's
+ * post-mission movie over the whole width, on a cleared screen, waited out
+ * before the session goes on. The front end is down: Space or a left click
+ * skips it (0x0045a666, 0x0045a85e).
+ */
+export function playPostMissionMovie(mapId: string, audio: AudioEngine): Promise<MovieEnd> {
+  const row = rowOfMap(mapId);
+  if (row < 0) return Promise.resolve("unavailable");
+  return playMovie(FE_PA_MAPS[row].postMovie, MOVIE_BOX_FULL, {
+    level: audio.getLevels().movies,
+    frontEnd: false,
+    clearFirst: true,
+  }).done;
+}
 export { createInGameMenu, type InGameMenu } from "./inGame";
 // Re-exported so `import { buildModeQuery } from "./menu"` keeps working for
 // main.ts and the routing tests. The implementations are pure and live apart
@@ -84,6 +109,12 @@ export interface MenuOptions {
   onTexPref(pref: TexPref): void;
   /** The controls screen saved; player 1's table applies at once. */
   onControls(table: Binding[]): void;
+  /**
+   * The boot's two movies before the screen takes input: `ea_logo` waited out,
+   * then `intro` under the front end (game_main 0x0045af0d, 0x0045af46). Only
+   * the bare URL's first mount asks for them; `?movies=0` leaves them out.
+   */
+  bootMovies?: boolean;
 }
 
 /** Handle returned by runMenu so a late `beforeinstallprompt` can add Install. */
@@ -130,6 +161,39 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   let last = performance.now();
   let loadingStart = -1;
   let gone = false;
+  /** The movie on the screen (frontend/movie.ts): the front end is frozen under it. */
+  let movie: MoviePlayback | null = null;
+
+  /**
+   * movie_play over the front end: nothing steps or takes a click while it
+   * runs; afterwards the screen is drawn again (frontend_first_frame). A movie
+   * this browser cannot show is today's refusal, sound 3.
+   */
+  const showMovie = (
+    name: string,
+    box: MovieBox,
+    then?: (end: MovieEnd) => void,
+    frontEnd = true,
+    clearFirst = false,
+  ): void => {
+    if (gone || movie) return;
+    const playing = playMovie(name, box, {
+      level: opts.audio.getLevels().movies,
+      frontEnd,
+      clearFirst,
+      stopUiSound: () => uiSounds.stop(),
+    });
+    movie = playing;
+    void playing.done.then((end) => {
+      if (movie === playing) movie = null;
+      if (gone) return;
+      if (end === "unavailable" && frontEnd && !then) uiSounds.play(SND_REFUSED);
+      last = performance.now();
+      draw();
+      then?.(end);
+    });
+  };
+  const fullScreen = (): boolean => !!document.fullscreenElement;
 
   const config = () => state.screen.config;
 
@@ -261,6 +325,18 @@ export function runMenu(opts: MenuOptions): MenuHandle {
       case "start":
         start();
         return;
+      // HELP: multibrf.mpg in Precinct Assault (0x00409c4e), 512 x 288.
+      case "help":
+        showMovie("multibrf.mpg", movieBoxHelp(fullScreen()));
+        return;
+      // BRIEFING: the row's briefing (0x00409dfa) -- disabled in PA by the gate.
+      case "briefing":
+        showMovie(FE_PA_MAPS[config().pick0].briefing, movieBoxHelp(fullScreen()));
+        return;
+      // The film strip: the row's post-mission movie, full width (0x0040ac08).
+      case "replay":
+        showMovie(FE_PA_MAPS[config().pick0].postMovie, MOVIE_BOX_FULL, undefined, true, true);
+        return;
       case "cancel":
         leaveLobby();
         return;
@@ -300,6 +376,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
   // Both ready is the start: the screen takes no more clicks while the host's
   // START is on its way (the original's next state 4).
   const blocked = (): boolean =>
+    movie !== null ||
     state.dialog !== null ||
     state.loading !== null ||
     gone ||
@@ -370,7 +447,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
         );
         return;
       }
-    } else if (!state.dialog && tickMenus(state.screen, dt)) {
+    } else if (!state.dialog && !movie && tickMenus(state.screen, dt)) {
       redraw = true;
     }
     if (redraw) draw();
@@ -474,6 +551,17 @@ export function runMenu(opts: MenuOptions): MenuHandle {
 
   draw();
   raf = requestAnimationFrame(step);
+  if (opts.bootMovies) {
+    // ea_logo with the front end down (a left click or Space skips it), then
+    // intro with it up (any button skips it), both on a cleared screen.
+    showMovie(
+      "ea_logo.mpg",
+      MOVIE_BOX_FULL,
+      () => showMovie("intro.mpg", MOVIE_BOX_FULL, () => {}, true, true),
+      false,
+      true,
+    );
+  }
 
   return {
     offerInstall(prompt: () => void): void {
@@ -483,6 +571,7 @@ export function runMenu(opts: MenuOptions): MenuHandle {
     dismiss(): void {
       if (gone) return;
       gone = true;
+      movie?.stop();
       cancelAnimationFrame(raf);
       root.removeEventListener("pointermove", onMove);
       root.removeEventListener("pointerdown", onDown);

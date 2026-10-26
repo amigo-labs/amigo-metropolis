@@ -27,10 +27,21 @@ import {
   AVATAR_SNAP_WALK_STATE,
   MAX_PLAYERS,
   WALK_CODES_PER_TICK,
+  X1_HOVER_LEG_TRACK,
 } from "@metropolis/sim";
 
 /** At most this many codes a slot a tick (the sim's WALK_CODES_PER_TICK). */
 export const X1_CODES_PER_TICK = WALK_CODES_PER_TICK;
+
+/**
+ * The three draw forms the original's partner tells apart by the transform's
+ * progress `chase_sink` (player_partner.c 299-320): 0 the walker, 0x10000 the
+ * hover, anything between the ramp. Indices into x1Rig.generated.ts' layer
+ * masks.
+ */
+export const X1_FORM_WALKER = 0;
+export const X1_FORM_RAMP = 1;
+export const X1_FORM_HOVER = 2;
 
 export interface X1Walk {
   /** Each slot's X1 entity id, -1 while it has none. */
@@ -109,6 +120,27 @@ export function tickX1Walk(w: X1Walk, snap: Float32Array): void {
   }
 }
 
+/**
+ * Slot `s`'s draw form off the snapshot: the walker while the walker's tick
+ * runs it (the progress is 0 exactly then: out of the walker `row` turns 1 as
+ * the ramp starts, and back only at the walker end, player.c 1442-1483); the
+ * hover while the legs hold their hover track (put there at the hover end and
+ * by a hover reset, with the progress at 0x10000, player.c 1484-1500,
+ * player_transform.c 344-359; either ramp moves them onto 0x0c on the tick it
+ * starts); the ramp otherwise. The sim's ramp moves 1600 a tick (walker.ts), so
+ * no ramp tick lands on 0 or 0x10000 exactly.
+ */
+export function x1DrawForm(w: X1Walk, s: number): number {
+  // Every load and compare on every call, no early return: an operation the
+  // walker never reaches has no type feedback until the first transform, and
+  // the frame loop, optimised before then, deopts on it and comes back
+  // allocating (x1Alloc.test.ts). X1_FORM_* are 0 / 1 / 2: the ramp times two
+  // on the hover track.
+  const moving = w.form[s] !== 0 ? X1_FORM_RAMP : X1_FORM_WALKER;
+  const hover = w.legsTrack[s] === X1_HOVER_LEG_TRACK ? X1_FORM_HOVER : X1_FORM_RAMP;
+  return moving * hover;
+}
+
 // --- the cockpit's aim (player_partner_tick, player.c 1611-1690) -----------------
 
 /** A step of the aim a partner tick (PLAYER_AIM_STEP) and its limits, 4096 a turn. */
@@ -120,9 +152,9 @@ const TURN = 4096;
 
 /** `aim_step`: toward `target`, at most AIM_STEP a tick. */
 function aimStep(current: number, target: number): number {
-  const d = target - current;
-  if (d < 0) return d > -AIM_STEP ? target : current - AIM_STEP;
-  return d < AIM_STEP ? target : current + AIM_STEP;
+  // At most AIM_STEP either way, onto the target within it; a clamp rather
+  // than branches, for the reason aimX1 gives.
+  return current + Math.max(-AIM_STEP, Math.min(AIM_STEP, target - current));
 }
 
 /**
@@ -141,19 +173,20 @@ export function aimX1(
   dz: number,
   yaw: number,
 ): void {
-  let pitch = 0;
-  let turn = 0;
-  if (locked) {
-    // `(-math_angle_of(horizontal, dy)) >> 12`: the negated angle rounded down.
-    pitch = Math.floor((-Math.atan2(dz, Math.sqrt(dx * dx + dy * dy)) * TURN) / TAU);
-    if (pitch < -AIM_PITCH_LIMIT) pitch = -AIM_PITCH_LIMIT;
-    else if (pitch > AIM_PITCH_LIMIT) pitch = AIM_PITCH_LIMIT;
-    // The bearing less the facing, to the nearest turn (above 0x800 loses one).
-    turn = Math.floor(((Math.atan2(dy, dx) - yaw) * TURN) / TAU) & 0xfff;
-    if (turn > 0x800) turn -= 0x1000;
-    if (turn < -AIM_YAW_LIMIT) turn = -AIM_YAW_LIMIT;
-    else if (turn > AIM_YAW_LIMIT) turn = AIM_YAW_LIMIT;
-  }
+  // Every operation on every call, the lock picking the result at the end:
+  // an operation behind `if (locked)` has no type feedback while nothing is
+  // locked, and the frame loop, optimised before the first lock, deopts on it
+  // and comes back allocating (x1Alloc.test.ts). With nothing locked the
+  // callers pass zeros, whose angles are 0.
+  // `(-math_angle_of(horizontal, dy)) >> 12`: the negated angle rounded down.
+  const rawPitch = Math.floor((-Math.atan2(dz, Math.sqrt(dx * dx + dy * dy)) * TURN) / TAU);
+  // The bearing less the facing, to the nearest turn (above 0x800 loses one).
+  const bearing = Math.floor(((Math.atan2(dy, dx) - yaw) * TURN) / TAU) & 0xfff;
+  const rawTurn = bearing - (bearing > 0x800 ? 0x1000 : 0);
+  const clampedPitch = Math.max(-AIM_PITCH_LIMIT, Math.min(AIM_PITCH_LIMIT, rawPitch));
+  const clampedTurn = Math.max(-AIM_YAW_LIMIT, Math.min(AIM_YAW_LIMIT, rawTurn));
+  const pitch = locked ? clampedPitch : 0;
+  const turn = locked ? clampedTurn : 0;
   w.aimPitch[s] = aimStep(w.aimPitch[s], pitch);
   w.aimYaw[s] = aimStep(w.aimYaw[s], turn);
 }

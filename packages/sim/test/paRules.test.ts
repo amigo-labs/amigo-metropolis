@@ -55,7 +55,7 @@ import {
   step,
   TURRET_DEFENSE,
 } from "../src/sim";
-import { nearestEnemyInRange } from "../src/units";
+import { AIR_ANCHOR_MASK, nearestEnemyInRange } from "../src/units";
 import { faceAlong } from "./drive";
 
 const idle = createTickInputs();
@@ -685,7 +685,7 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     const jet = pressPad(o.jetPad.x, o.jetPad.y);
     expect(jet).toBeGreaterThanOrEqual(0);
     expect(ent.archetype[jet]).toBe(ARCHETYPE.GUARDIAN);
-    expect(ent.mode[jet]).toBe(1); // patrols outpost 0, the spawner it was built at
+    expect(ent.mode[jet] & AIR_ANCHOR_MASK).toBe(1); // patrols outpost 0, the spawner it was built at
     expect(state.points[0]).toBe(16);
     // Not the other side's: player 1 on the same pad buys nothing.
     const other = createSim(map, 1);

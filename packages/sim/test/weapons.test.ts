@@ -13,15 +13,18 @@ import {
   DIFFICULTY_EASY,
   DIFFICULTY_HARD,
   DIFFICULTY_NORMAL,
+  MINE_RADIUS,
   PICKUP_POWER_GUN,
   PICKUP_POWER_HEAVY,
   PICKUP_POWER_SPECIAL,
-  SPECIAL_MINE_ARM_TICKS,
-  SPECIAL_MINE_FUSE_TICKS,
   TICK_HZ,
   WEAPON_UNITS_PER_TICK,
 } from "../src/balance";
 import {
+  directionAxis,
+  EV_DEATH,
+  EV_EXPLOSION,
+  EV_KILL_PUSH,
   EV_SHOT,
   EVENT_STRIDE,
   SHOT_SLOT_SPECIAL,
@@ -505,6 +508,60 @@ describe("missiles", () => {
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 25);
   });
 
+  // The killer's push (RE M3-OP): a body a missile-class round's contact kills
+  // dies with the round's heading and damage word in its death's context.
+  test("a Hell Fire's killing contact carries its heading and damage to the death", () => {
+    const { sim, a1, inputs } = duel({ heavy: 0 }, 6);
+    sim.ent.hp[a1] = 10;
+    inputs.players[0].buttons = BTN_HEAVY;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    let push = -1;
+    let death = -1;
+    let dir = 0;
+    let damage = 0;
+    for (let t = 0; t < 60 && death < 0; t++) {
+      step(sim, inputs);
+      for (let i = 0; i < sim.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        const kind = sim.events.data[o];
+        if (kind === EV_KILL_PUSH && sim.events.data[o + 1] === a1) {
+          push = i;
+          dir = sim.events.data[o + 2];
+          damage = sim.events.data[o + 3];
+        }
+        if (kind === EV_DEATH && sim.events.data[o + 1] === a1) death = i;
+      }
+    }
+    expect(death).toBeGreaterThan(0);
+    expect(push).toBe(death - 1); // just before the death
+    expect(damage).toBe(25);
+    // Fired along +x at a target straight ahead.
+    expect(directionAxis(dir, 0)).toBeGreaterThan(0.95);
+    expect(Math.abs(directionAxis(dir, 1))).toBeLessThan(0.1);
+  });
+
+  test("a Mortar shell's kill carries no push: it is no missile", () => {
+    const { sim, a1, inputs } = duel({ special: 0 }, 7);
+    sim.ent.hp[a1] = 10;
+    inputs.players[0].buttons = BTN_SPECIAL;
+    step(sim, inputs);
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    let pushes = 0;
+    let died = false;
+    for (let t = 0; t < 120 && !died; t++) {
+      step(sim, inputs);
+      for (let i = 0; i < sim.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (sim.events.data[o] === EV_KILL_PUSH) pushes++;
+        if (sim.events.data[o] === EV_DEATH && sim.events.data[o + 1] === a1) died = true;
+      }
+    }
+    expect(died).toBe(true);
+    expect(pushes).toBe(0);
+  });
+
   test("a missile without a lock flies straight and ends at its 16 m range", () => {
     const { sim, inputs } = duel({ heavy: 0 }, 0, 25);
     inputs.players[0].buttons = BTN_HEAVY;
@@ -569,26 +626,89 @@ describe("arced rounds", () => {
 });
 
 describe("mines and the pulse", () => {
-  test("a mine springs on an enemy within 2 m + its radius and blows a second later", () => {
+  // The dropped round (RE M3-OP): 0x0044d6a0 stores gravity 0x10000 and no
+  // velocity; the type-0x0f tick falls `gravity * delta / 300`, 0x10000 * 10 /
+  // 300 = 2184 wu/s a tick, and the tick that settles it expires it.
+  test("a mine leaves the muzzle with no speed and falls 2184 wu/s a tick", () => {
+    const { sim, inputs } = duel({ special: 1 }, 30);
+    inputs.players[0].buttons = BTN_SPECIAL;
+    step(sim, inputs);
+    step(sim, inputs); // dropped on the second tick held, and ticked once
+    inputs.players[0].buttons = 0;
+    const [mine] = projectiles(sim, PROJ_MINE);
+    expect(sim.ent.velX[mine]).toBe(0);
+    expect(sim.ent.velY[mine]).toBe(0);
+    expect(sim.ent.timerB[mine]).toBe(-2184);
+    step(sim, inputs);
+    expect(sim.ent.timerB[mine]).toBe(-4368);
+    expect(sim.ent.timerA[mine]).toBe(1503 - 20); // the record's 5.01 s, two deltas spent
+  });
+
+  test("nobody near: it bounces, and goes off where it settles, not at its 5 s lifetime", () => {
+    const { sim, a1, inputs } = duel({ special: 1 }, 30);
+    inputs.players[0].buttons = BTN_SPECIAL;
+    step(sim, inputs);
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    const [mine] = projectiles(sim, PROJ_MINE);
+    let ticks = 0;
+    let bounces = 0;
+    let lastVh = 0;
+    let lastH = 0;
+    let lastLife = 0;
+    let lastVhSeen = sim.ent.timerB[mine];
+    while (sim.ent.alive[mine] && ticks < 5 * TICK_HZ) {
+      lastVh = sim.ent.timerB[mine];
+      lastH = sim.ent.height[mine];
+      lastLife = sim.ent.timerA[mine];
+      step(sim, inputs);
+      ticks++;
+      if (sim.ent.alive[mine] && lastVhSeen < 0 && sim.ent.timerB[mine] > 0) bounces++;
+      lastVhSeen = sim.ent.timerB[mine];
+    }
+    expect(sim.ent.alive[mine]).toBe(0);
+    expect(bounces).toBeGreaterThan(0);
+    // The tick it went: at the ground, slower than 0x1800 wu/s, life to spare.
+    expect(lastH).toBeLessThanOrEqual(MINE_RADIUS);
+    expect(Math.abs(lastVh)).toBeLessThan(0x1800);
+    expect(lastLife).toBeGreaterThan(10);
+    expect(ticks).toBeLessThan(2 * TICK_HZ);
+    // It went off (a blast), not quietly.
+    let blasts = 0;
+    for (let i = 0; i < sim.events.count; i++) {
+      if (sim.events.data[i * EVENT_STRIDE] === EV_EXPLOSION) blasts++;
+    }
+    expect(blasts).toBe(1);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP); // 30 m away
+  });
+
+  test("an enemy within 2 m + its radius springs it: flung down, it pops up and goes off 300 units later", () => {
     const { sim, a0, a1, inputs } = duel({ special: 1 }, 30);
     inputs.players[0].buttons = BTN_SPECIAL;
     step(sim, inputs);
-    step(sim, inputs); // dropped on the second tick held
+    step(sim, inputs);
     inputs.players[0].buttons = 0;
     const [mine] = projectiles(sim, PROJ_MINE);
-    expect(sim.ent.timerB[mine]).toBe(SPECIAL_MINE_ARM_TICKS - 1); // armed one tick already
-    // p0 walks off; once armed, p1 steps 2.2 m from it (inside 2 + 0.4).
+    // p0 walks off; p1 steps 2.2 m from it (inside 2 + its radius).
     sim.ent.posX[a0] = 0.5;
     sim.ent.posY[a0] = 0.5;
-    for (let t = 0; t < SPECIAL_MINE_ARM_TICKS + 1; t++) step(sim, inputs);
     sim.ent.posX[a1] = sim.ent.posX[mine] + 2.2;
     sim.ent.posY[a1] = sim.ent.posY[mine];
     step(sim, inputs);
-    expect(sim.ent.cooldownA[mine]).toBe(SPECIAL_MINE_FUSE_TICKS);
-    for (let t = 0; t < SPECIAL_MINE_FUSE_TICKS - 1; t++) step(sim, inputs);
-    expect(sim.ent.alive[mine]).toBe(1);
-    step(sim, inputs);
+    expect(sim.ent.cooldownA[mine]).toBe(1);
+    expect(sim.ent.cooldownC[mine]).toBe(0);
+    expect(sim.ent.aimX[mine]).toBe(0x8000);
+    expect(sim.ent.timerA[mine]).toBe(300 - 10);
+    let rose = false;
+    let ticks = 1;
+    while (sim.ent.alive[mine] && ticks < 60) {
+      step(sim, inputs);
+      ticks++;
+      if (sim.ent.alive[mine] && sim.ent.timerB[mine] > 0) rose = true;
+    }
+    expect(rose).toBe(true);
     expect(sim.ent.alive[mine]).toBe(0);
+    expect(ticks).toBeLessThanOrEqual(30);
     // 600 * (5.6 - 2.2) / 5.6, truncated.
     expect(AVATAR_HP - sim.ent.hp[a1]).toBe(Math.floor((600 * (5.599609375 - 2.2)) / 5.599609375));
   });

@@ -53,6 +53,7 @@ import {
   reachableFrom,
   resolveHeight,
   resolveWalker,
+  rideHeight,
   roadProbes,
   roundSpeed,
   SHOOTER_FRONT_ARC_COS,
@@ -143,7 +144,7 @@ const WATCH_ENEMY_UNITS = 1 << 1;
 interface Logic {
   mission: string;
   mapId: string;
-  spawns: { id: number; x: number; z: number }[];
+  spawns: { id: number; x: number; z: number; groundCast: number; groundY: number | null }[];
   /** The type-28 records: the two Dreadnoughts (fcopLogic.ts PaDreadnought). */
   dreadnoughts: {
     id: number;
@@ -158,7 +159,13 @@ interface Logic {
   /** Tank (Runner) spawner records; spawnLimit 20 marks the purchasable ones. */
   units: { id: number; team: number; health: number; spawnLimit?: number; shooter: Shooter }[];
   /** Jet (Guardian) and Flying Fortress records. */
-  aircraft: { id: number; team: number; health: number; shooter: Shooter }[];
+  aircraft: {
+    id: number;
+    team: number;
+    health: number;
+    shooter: Shooter;
+    groundY: number | null;
+  }[];
   turrets: Turret[];
   neutrals: Turret[];
   pickups: {
@@ -168,6 +175,8 @@ interface Logic {
     grants: string[];
     spawnTicks: number;
     rotationalSpeed: number;
+    groundCast: number;
+    groundY: number | null;
   }[];
   triggers: {
     id: number;
@@ -175,13 +184,26 @@ interface Logic {
     z: number;
     widthRaw: number;
     lengthRaw: number;
+    heightRaw: number;
     flags: string[];
     watchesActor: number;
+    groundCast: number;
+    groundY: number | null;
   }[];
   nets: {
     netId: number;
-    nodes: { x: number; z: number; neighbours: number[]; groundCast?: number }[];
+    nodes: {
+      x: number;
+      z: number;
+      neighbours: number[];
+      groundCast: number;
+      groundY: number | null;
+    }[];
   }[];
+  /** The type-14 zones: claim zones, pads, heavy zones (fcopLogic.ts markers). */
+  markers: {
+    type14: { id: number; x: number; z: number; groundCast: number; groundY: number | null }[];
+  };
 }
 
 interface Turret {
@@ -194,6 +216,8 @@ interface Turret {
   turnSpeedRaw: number;
   shooter: Shooter;
   spawnTicks: number;
+  groundCast: number;
+  groundY: number | null;
 }
 
 /** A BaseShooter block as fcopLogic.ts carries it. */
@@ -229,50 +253,121 @@ const round4 = (v: number): number => Math.round(v * 10000) / 10000;
 // Feature layer (issue #33)
 // ---------------------------------------------------------------------------
 //
-// ACT pos_h is 0 on every PC mission, so deck membership cannot come from the
-// container. Surfaces at a cell are the ground + any present deck masks; the
-// original Cnet's ground_cast picks among them for lane nodes (HIGH / LOW /
-// MIDDLE). Gameplay actors without a cast sit on the topmost surface — the same
-// reading as RE's actors.layered.json `layer_top`. Layer 0 is omitted from JSON
-// so existing single-storey maps stay byte-identical when re-emitted.
+// ACT pos_h is 0 on every PC record: no actor's Y is stored. Every construct asks
+// the terrain instead, `terrain_height_at(position, layer)` (0x004545d0), with a
+// layer from a selector byte in its own record (fcopLogic.ts HEIGHT_SELECTOR) —
+// the same remap `cnet_load` (0x00441981) applies to a Cnet node's mode. The
+// query collects every plate over the point, sorts them by height and answers
+// the one the layer names. gen:palogic runs that query over the shipped plates
+// and carries its answer per record and per node as `groundY`; here a feature
+// takes whichever sim surface carries that height. Layer 0 is omitted from
+// JSON, so a feature on the ground re-emits byte-identical.
 
-/** Cnet ground_cast enums, as carried in the committed logic JSON. */
-const CAST_HIGH = 0;
-const CAST_LOW = 1;
-// const CAST_NONE = 2; // engine default = topmost
-const CAST_MIDDLE = 3;
-
-/** Every present surface at a cell, ascending by height, as sim layer indices. */
+/**
+ * Every surface the sim has over the cell containing (x, y), with its height at
+ * the point: the ground, and each deck present at any of the cell's four
+ * corners (a deck's mask is per vertex, and its heights are edge-extended, so a
+ * plate whose edge runs through the cell is a deck present at some corner).
+ */
 function surfacesAt(map: MapData, x: number, y: number): { layer: number; h: number }[] {
   const s = map.size;
-  const i = Math.min(s - 1, Math.max(0, Math.floor(x / map.cellSize)));
-  const j = Math.min(s - 1, Math.max(0, Math.floor(y / map.cellSize)));
+  const i = Math.min(s - 2, Math.max(0, Math.floor(x / map.cellSize)));
+  const j = Math.min(s - 2, Math.max(0, Math.floor(y / map.cellSize)));
   const out: { layer: number; h: number }[] = [{ layer: 0, h: resolveHeight(map, x, y, 0) }];
   for (let L = 0; L < map.layerHeights.length; L++) {
-    if (map.layerMask[L][j * s + i] !== 1) continue;
+    const m = map.layerMask[L];
+    const k = j * s + i;
+    if (m[k] !== 1 && m[k + 1] !== 1 && m[k + s] !== 1 && m[k + s + 1] !== 1) continue;
     out.push({ layer: L + 1, h: resolveHeight(map, x, y, L + 1) });
   }
-  out.sort((a, b) => a.h - b.h || a.layer - b.layer);
   return out;
 }
 
 /**
- * Surface selected by a Cnet node's ground_cast (fcop-logic.md §3.1).
- * LOW = bottom of the stack, HIGH = top, MIDDLE = the one between when present.
- *
- * Non-Cnet features (bases, turrets, pickups) stay on layer 0 for now.
- * RE's actors.layered.json `layer_top` would place some of them on decks, but
- * sampling the topmost surface at every cell is the wrong default — la-cantina's
- * cores sit under bridges and must stay on the ground. Until that side-file is
- * committed in-tree, only nodes with an authored cast leave layer 0.
+ * Worst distance between the original's height and the sim surface a feature
+ * is put on, metres, across every arena: the plate query and stage 1's decks
+ * agree to a few centimetres except where the sim's bilinear ground runs
+ * through a kerb the original draws as a vertical step (three of Hk's ring
+ * turrets, 0.51 m). Past it the frame or the decks are wrong, not the feature.
  */
-function layerFromCast(map: MapData, x: number, y: number, cast: number | undefined): number {
-  const stack = surfacesAt(map, x, y);
-  if (stack.length === 1 || cast === undefined) return stack[0].layer;
-  if (cast === CAST_LOW) return stack[0].layer;
-  if (cast === CAST_MIDDLE) return stack[Math.floor((stack.length - 1) / 2)].layer;
-  if (cast === CAST_HIGH) return stack[stack.length - 1].layer;
-  return stack[0].layer; // NONE → ground (safe for flattened import)
+const SURFACE_MATCH = 0.6;
+
+/**
+ * The sim surface a record stands on: the one carrying the height the original
+ * gives it — `terrain_height_at` over the shipped plates with the record's own
+ * selector (fcopLogic.ts HEIGHT_SELECTOR, fcopTerrain.ts), carried in the logic
+ * JSON as `groundY`. Matched by height and not by index, because stage 1's
+ * decks are a clustering of those plates (two plates half a metre apart are
+ * one surface), so the original's "topmost" is not the sim's topmost deck at
+ * the edge of one. The lower layer wins a tie.
+ */
+function layerAtHeight(map: MapData, x: number, y: number, groundY: number | null): number {
+  if (groundY === null) throw new Error(`no plate under (${x}, ${y}): the original answers 0`);
+  let best = { layer: 0, h: Number.NaN, d: Number.POSITIVE_INFINITY };
+  for (const q of surfacesAt(map, x, y)) {
+    const d = Math.abs(q.h - groundY);
+    if (d < best.d) best = { ...q, d };
+  }
+  if (best.d > SURFACE_MATCH) {
+    throw new Error(
+      `no sim surface at (${x}, ${y}) within ${SURFACE_MATCH} m of the original's ${groundY} m ` +
+        `(nearest ${best.h.toFixed(3)} on surface ${best.layer})`,
+    );
+  }
+  return best.layer;
+}
+
+/** A feature point in the sim frame and the surface it stands on. */
+interface Spot {
+  x: number;
+  y: number;
+  layer: number;
+}
+
+/** The surfaces the original stands an arena's records on. */
+interface Surfaces {
+  /** The surface carrying the original's height `groundY` at sim (x, y). */
+  at(x: number, y: number, groundY: number | null): number;
+  /** A type-14 zone's, by record id, at its sim (x, y). */
+  zone(id: number, x: number, y: number): number;
+  /**
+   * A pathed actor's (a tank's, a Dreadnought's), placed at actor-frame (x, z)
+   * on net `netId`: `cnet_route_init` (0x004415f0) stands it on its spawn node —
+   * the first node of its net at its position in node units — at that node's
+   * height (0x00441899), which `cnet_load` took from the node's own mode.
+   */
+  node(netId: number, x: number, z: number): number;
+  /** An aircraft's, by its record id, at its sim (x, y): what it is placed over. */
+  aircraft(id: number, x: number, y: number): number;
+}
+
+function surfacesOf(logic: Logic, terrain: MapData): Surfaces {
+  const at = (x: number, y: number, groundY: number | null): number =>
+    layerAtHeight(terrain, x, y, groundY);
+  const zones = new Map(logic.markers.type14.map((m) => [m.id, m] as const));
+  return {
+    at,
+    zone: (id, x, y) => {
+      const m = zones.get(id);
+      if (!m) throw new Error(`${logic.mission}: no type-14 record ${id}`);
+      return at(x, y, m.groundY);
+    },
+    aircraft: (id, x, y) => {
+      const a = logic.aircraft.find((q) => q.id === id);
+      if (!a) throw new Error(`${logic.mission}: no aircraft record ${id}`);
+      return at(x, y, a.groundY);
+    },
+    node: (netId, x, z) => {
+      const net = logic.nets.find((n) => n.netId === netId);
+      if (!net) throw new Error(`${logic.mission}: no Cnet ${netId}`);
+      // `sar 8` of the position: node units are 1/32 m, floored. The extract
+      // rounds positions to 1e-4 m, so match within a node unit's rounding.
+      const unit = (v: number): number => Math.floor(v * 32 + 1e-3);
+      const n = net.nodes.find((q) => unit(q.x) === unit(x) && unit(q.z) === unit(z));
+      if (!n) throw new Error(`${logic.mission}: Cnet ${netId} has no node at (${x}, ${z})`);
+      return at(round4(sx(n.x)), round4(sz(n.z)), n.groundY);
+    },
+  };
 }
 
 /** Point as [x,y] or {x,y,layer} when the feature is off the ground. */
@@ -283,6 +378,11 @@ function emitPoint(
 ): number[] | { x: number; y: number; layer: number } {
   if (layer <= 0) return [x, y];
   return { x, y, layer };
+}
+
+/** `p` with its `layer` when it is off the ground, so a ground feature emits as before. */
+function withLayer<T extends object>(p: T, layer: number): T | (T & { layer: number }) {
+  return layer > 0 ? { ...p, layer } : p;
 }
 
 /**
@@ -393,8 +493,15 @@ function teamsOf<
  * record agrees with on Mp only.
  */
 function out0Spawns(
-  spawns: readonly { id: number; x: number; z: number }[],
+  spawns: readonly {
+    id: number;
+    x: number;
+    z: number;
+    groundCast: number;
+    groundY: number | null;
+  }[],
   rules: FcopRules,
+  terrain: MapData,
 ): { x: number; y: number; yaw: number; layer?: number; hover?: boolean }[] {
   return spawns.map((s) => {
     const rec = rules.x1alpha.find((r) => r.id === s.id);
@@ -403,11 +510,16 @@ function out0Spawns(
     let raw = Math.abs(rec.facingRaw) % ROTATION_TURN;
     if (raw > ROTATION_TURN / 2) raw -= ROTATION_TURN;
     // The form is written only where it is hover, so a walker arena's JSON
-    // carries no field it does not need.
+    // carries no field it does not need. The height: `player_view_construct`
+    // stands the mech on its record's selector (0x00446b66), plus 0x200 wu.
+    const x = round4(sx(s.x));
+    const y = round4(sz(s.z));
+    const layer = layerAtHeight(terrain, x, y, s.groundY);
     return {
-      x: round4(sx(s.x)),
-      y: round4(sz(s.z)),
+      x,
+      y,
       yaw: (raw * Math.PI) / (ROTATION_TURN / 2),
+      ...(layer > 0 ? { layer } : {}),
       ...(rec.hover ? { hover: true } : {}),
     };
   });
@@ -791,14 +903,15 @@ function heavyOf(
   teamOfSlot: (slot: number) => number,
   dreadX: number,
   dreadY: number,
+  surf: Surfaces,
 ): {
   heavyZones: {
-    juggernaut: { x: number; y: number; radius: number };
-    fortress: { x: number; y: number; radius: number };
+    juggernaut: { x: number; y: number; radius: number; layer?: number };
+    fortress: { x: number; y: number; radius: number; layer?: number };
     pollPeriod: number;
     terminals: number[];
   };
-  fortressSpawn: number[];
+  fortressSpawn: number[] | { x: number; y: number; layer: number };
 } {
   const zones = rules.heavyZones.filter((z) => teamOfSlot(z.slot) === team);
   const enable = rules.heavyEnable.filter((e) => teamOfSlot(e.slot) === team);
@@ -817,11 +930,12 @@ function heavyOf(
     throw new Error(`${rules.mapId}: team ${team}'s Dreadnought spawner is not its record`);
   }
   const f = spawner(fort.template);
-  const zone = (z: (typeof zones)[number]) => ({
-    x: round4(sx(z.x)),
-    y: round4(sz(z.z)),
-    radius: round4(rangeToCells(z.radiusRaw)),
-  });
+  // Each zone is a type-14 record (z.id), standing on its own selector.
+  const zone = (z: (typeof zones)[number]) => {
+    const x = round4(sx(z.x));
+    const y = round4(sz(z.z));
+    return withLayer({ x, y, radius: round4(rangeToCells(z.radiusRaw)) }, surf.zone(z.id, x, y));
+  };
   return {
     heavyZones: {
       juggernaut: zone(dread),
@@ -829,7 +943,7 @@ function heavyOf(
       pollPeriod: enable[0].pollUnits * CFUN_TICKS_PER_UNIT,
       terminals: [...enable[0].terminals],
     },
-    fortressSpawn: [round4(sx(f.x)), round4(sz(f.z))],
+    fortressSpawn: spotJson(spawnerAt(rules, f.template, surf)),
   };
 }
 
@@ -847,11 +961,30 @@ function RULES_PICKUP_KIND(p: FcopRules["pickups"][number]): number {
   return kind;
 }
 
-/** A spawner's position in sim coordinates, by its Csac template. */
-function spawnerAt(rules: FcopRules, template: number): number[] {
+/**
+ * A spawner's position in sim coordinates, by its Csac template, and the surface
+ * what it spawns starts on. A tank's is its spawn node's (Surfaces.node). An
+ * aircraft's is the one `aircraft_construct` places it over (0x00420501): the
+ * surface query from its record's y, 0 on every record — the highest plate
+ * below 0x200 wu, else the lowest (Hk's: the canal's water) — over which it
+ * then takes its cruise height.
+ */
+function spawnerAt(rules: FcopRules, template: number, surf: Surfaces): Spot {
   const s = rules.spawners.find((q) => q.template === template);
   if (!s) throw new Error(`${rules.mapId}: no spawner for template ${template}`);
-  return [round4(sx(s.x)), round4(sz(s.z))];
+  return {
+    x: round4(sx(s.x)),
+    y: round4(sz(s.z)),
+    layer:
+      s.netId === null
+        ? surf.aircraft(template, round4(sx(s.x)), round4(sz(s.z)))
+        : surf.node(s.netId, s.x, s.z),
+  };
+}
+
+/** A spot as the map JSON carries a point: [x, y] on the ground, else {x, y, layer}. */
+function spotJson(p: Spot): number[] | { x: number; y: number; layer: number } {
+  return emitPoint(p.x, p.y, p.layer);
 }
 
 /**
@@ -877,7 +1010,12 @@ function queuePeriodOf(
 function baseQueuesOf(
   rules: FcopRules,
   slot: number,
-): { tankSpawn: number[]; jetSpawn: number[]; queuePeriod: { tank: number; jet: number } } {
+  surf: Surfaces,
+): {
+  tankSpawn: number[] | { x: number; y: number; layer: number };
+  jetSpawn: number[] | { x: number; y: number; layer: number };
+  queuePeriod: { tank: number; jet: number };
+} {
   const shop = (kind: string) => {
     const b = rules.buyTriggers.find((t) => t.slot === slot && t.kind === kind);
     if (!b) throw new Error(`${rules.mapId}: slot ${slot} has no ${kind} shop`);
@@ -887,8 +1025,8 @@ function baseQueuesOf(
   const base = (q: FcopRules["queues"][number]) => q.outpost === null;
   const ownJet = rules.queues.some((q) => base(q) && q.kind === "jet" && q.slot === slot);
   return {
-    tankSpawn: spawnerAt(rules, tank.template),
-    jetSpawn: spawnerAt(rules, shop("jet").template),
+    tankSpawn: spotJson(spawnerAt(rules, tank.template, surf)),
+    jetSpawn: spotJson(spawnerAt(rules, shop("jet").template, surf)),
     queuePeriod: {
       tank: queuePeriodOf(rules, (q) => q.fn === tank.queueFn),
       jet: queuePeriodOf(rules, (q) => base(q) && q.kind === "jet" && (!ownJet || q.slot === slot)),
@@ -907,24 +1045,25 @@ function outpostQueuesOf(
   rules: FcopRules,
   k: number,
   slots: number[],
-  tankPad: number[],
+  tankPad: Spot,
+  surf: Surfaces,
 ): {
-  tankSpawn: number[][];
-  jetSpawn: number[][];
+  tankSpawn: (number[] | { x: number; y: number; layer: number })[];
+  jetSpawn: (number[] | { x: number; y: number; layer: number })[];
   queuePeriod: { tank: number; jet: number }[];
 } {
   const out = slots.map((slot) => {
     const shop = rules.outpostShop.find((o) => o.outpost === k && o.slot === slot);
     if (!shop) throw new Error(`${rules.mapId}: outpost ${k} has no shop for slot ${slot}`);
-    const tankSpawn = spawnerAt(rules, shop.tankTemplate);
-    if (Math.hypot(tankSpawn[0] - tankPad[0], tankSpawn[1] - tankPad[1]) > 12) {
+    const tankSpawn = spawnerAt(rules, shop.tankTemplate, surf);
+    if (Math.hypot(tankSpawn.x - tankPad.x, tankSpawn.y - tankPad.y) > 12) {
       throw new Error(`${rules.mapId}: outpost ${k}'s tank spawner is not by its tank pad`);
     }
     const jets = (q: FcopRules["queues"][number]) => q.outpost === k && q.kind === "jet";
     const ownJet = rules.queues.some((q) => jets(q) && q.slot === slot);
     return {
-      tankSpawn,
-      jetSpawn: spawnerAt(rules, shop.jetTemplate),
+      tankSpawn: spotJson(tankSpawn),
+      jetSpawn: spotJson(spawnerAt(rules, shop.jetTemplate, surf)),
       queuePeriod: {
         tank: queuePeriodOf(rules, (q) => q.fn === shop.tankQueueFn),
         jet: queuePeriodOf(rules, (q) => jets(q) && (!ownJet || q.slot === slot)),
@@ -1007,8 +1146,13 @@ interface PlateRecord {
 /** One outpost as outposts.json carries it, in the extract_logic frame. */
 interface EvidenceOutpost {
   index: number;
-  claim_zone: { x: number; z: number; radius_m: number };
-  sides: Record<string, { pads: { unit: string; cost: number; x: number; z: number }[] }>;
+  /** `cact` is the zone's type-14 record. */
+  claim_zone: { cact: number; x: number; z: number; radius_m: number };
+  /** Each pad's `id` is its type-14 activation zone. */
+  sides: Record<
+    string,
+    { pads: { id: number; unit: string; cost: number; x: number; z: number }[] }
+  >;
   plates: { x: number; z: number; records: PlateRecord[] }[];
 }
 
@@ -1297,7 +1441,7 @@ function buildGraph(
       nodes.push({
         x,
         z,
-        layer: layerFromCast(terrain, x, z, n.groundCast),
+        layer: layerAtHeight(terrain, x, z, n.groundY),
       });
     }
     for (const n of net.nodes) {
@@ -1618,8 +1762,31 @@ function carveRoads(
 interface RepairTarget {
   x: number;
   y: number;
+  /**
+   * The surface the target stands on. The flood must reach a surface that
+   * serves it there: a console on a deck is not served by a canal floor two
+   * metres under its box.
+   */
+  layer: number;
   /** Reachable cells within this many cells satisfy the target. Default 0. */
   reach?: number;
+  /**
+   * How far a reached surface may sit above or below the target and still
+   * serve it, in metres — the vertical reach of the test the target answers
+   * (a capture's 3D range, a trigger box's half-height). Default 0: the
+   * target's own surface. Infinity for what nobody stands at: a ring turret is
+   * shot at, and a lane node or the Dreadnought's stand is a produced unit's,
+   * which takes the node's surface itself (units.ts) on edges `segmentWalkable`
+   * checks below.
+   */
+  rise?: number;
+  /** Metres above its surface the target's own test is centred (a pickup's lift). */
+  lift?: number;
+  /**
+   * The test is a sphere of radius `reach` (a capture, a zone touch): plan and
+   * height distance together, not each on its own.
+   */
+  sphere?: boolean;
   /** What this is, for the report — so a residual breach says what it bought. */
   kind: string;
 }
@@ -1629,8 +1796,15 @@ function repairReachability(
   wallsH: string[],
   targets: RepairTarget[],
   limit: number,
-): { opened: number; forKind: Map<string, number> } {
+): { opened: number; forKind: Map<string, number>; stranded: RepairTarget[] } {
   const size = raw.size;
+  /**
+   * Targets whose cell the flood reaches only on another surface. Opening
+   * ground walls cannot put the flood on a deck — the walk below would open
+   * nothing and the repair never converge — so they are counted and reported
+   * instead.
+   */
+  const stranded: RepairTarget[] = [];
   const v = wallsV.map((row) => row.split(""));
   const h = wallsH.map((row) => row.split(""));
   let opened = 0;
@@ -1659,15 +1833,25 @@ function repairReachability(
   // flood and make most of the remaining targets reachable for free.
   for (let pass = 0; pass < 200; pass++) {
     const map = rebuild();
-    const reach = reachableFrom(map, raw.spawns[0].x, raw.spawns[0].y);
+    // From spawn 0 on the surface it stands on.
+    const reach = reachableFrom(map, raw.spawns[0].x, raw.spawns[0].y, {
+      startLayer: raw.spawns[0].layer ?? 0,
+    });
     const reached = reach.cellKeys;
     const ci = (val: number): number => Math.min(size - 1, Math.max(0, Math.floor(val)));
+    const surfaces = map.layerHeights.length + 1;
     // Euclidean, on cell centres, so `reach` means the same thing the sim's
-    // radius checks mean rather than a Manhattan approximation of it.
+    // radius checks mean rather than a Manhattan approximation of it; and on
+    // the target's own surface, or one within `reach` of its height.
     const satisfied = (t: RepairTarget): boolean => {
       const r = t.reach ?? 0;
-      if (reached.has(ci(t.x) * size + ci(t.y))) return true;
-      if (r <= 0) return false;
+      const rise = t.rise ?? 0;
+      if (reach.hasLayer(t.x, t.y, t.layer)) return true;
+      if (r <= 0 && rise <= 0) return false;
+      if (rise === Number.POSITIVE_INFINITY && r <= 0) {
+        return reached.has(ci(t.x) * size + ci(t.y));
+      }
+      const th = resolveHeight(map, t.x, t.y, t.layer) + (t.lift ?? 0);
       const i0 = ci(t.x - r);
       const i1 = ci(t.x + r);
       const j0 = ci(t.y - r);
@@ -1675,17 +1859,30 @@ function repairReachability(
       for (let i = i0; i <= i1; i++) {
         for (let j = j0; j <= j1; j++) {
           if (!reached.has(i * size + j)) continue;
-          const dx = i + 0.5 - t.x;
-          const dy = j + 0.5 - t.y;
-          if (dx * dx + dy * dy <= r * r) return true;
+          const cx = i + 0.5;
+          const cy = j + 0.5;
+          const dx = cx - t.x;
+          const dy = cy - t.y;
+          const flat = dx * dx + dy * dy;
+          // The target's own cell always counts: its centre need not be within
+          // a zero reach of a point inside it.
+          if (flat > r * r && (i !== ci(t.x) || j !== ci(t.y))) continue;
+          for (let L = 0; L < surfaces; L++) {
+            if (!reach.hasLayer(cx, cy, L)) continue;
+            // On the ground the mech stands on the water where there is any: a
+            // walker that enters it becomes a hover (fcop-fidelity.md P13).
+            const h = L === 0 ? rideHeight(map, cx, cy, true) : resolveHeight(map, cx, cy, L);
+            const dh = h - th;
+            if (t.sphere === true ? flat + dh * dh <= r * r : Math.abs(dh) <= rise) return true;
+          }
         }
       }
       return false;
     };
-    const missing = targets.filter((t) => !satisfied(t));
+    const missing = targets.filter((t) => !satisfied(t) && !stranded.includes(t));
     if (missing.length === 0) {
       writeBack();
-      return { opened, forKind };
+      return { opened, forKind, stranded };
     }
 
     // Cell BFS that ignores walls, from the whole reached set outward, so each
@@ -1757,6 +1954,8 @@ function repairReachability(
     }
     if (opened > before) {
       forKind.set(target.kind, (forKind.get(target.kind) ?? 0) + (opened - before));
+    } else {
+      stranded.push(target);
     }
     if (opened > limit) {
       throw new Error(
@@ -1790,7 +1989,8 @@ function gateOf(
   logic: Logic,
   enemyId: number,
   ownId: number,
-): { x: number; y: number; radius: number; halfW: number; halfL: number } {
+  surf: Surfaces,
+): { x: number; y: number; radius: number; halfW: number; halfL: number; layer?: number } {
   const hits = logic.triggers.filter((t) => isGateTrigger(t) && t.watchesActor === enemyId);
   if (hits.length !== 1) {
     throw new Error(
@@ -1801,13 +2001,14 @@ function gateOf(
   const t = hits[0];
   const halfW = round4(triggerHalfExtent(t.widthRaw));
   const halfL = round4(triggerHalfExtent(t.lengthRaw));
-  return {
-    x: round4(sx(t.x)),
-    y: round4(sz(t.z)),
-    radius: Math.max(halfW, halfL),
-    halfW,
-    halfL,
-  };
+  const x = round4(sx(t.x));
+  const y = round4(sz(t.z));
+  // The box's centre stands on its record's selector (`cact_load_type95`,
+  // 0x0041fdb1).
+  return withLayer(
+    { x, y, radius: Math.max(halfW, halfL), halfW, halfL },
+    surf.at(x, y, t.groundY),
+  );
 }
 
 /**
@@ -1899,7 +2100,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   const slotOfTeam = (team: number): number => (teamOfSlot(0) === team ? 0 : 1);
   const teamNet = [teamBases[0].netId, teamBases[1].netId];
   // Each side's gate: the trigger that watches the ENEMY's Dreadnought.
-  const gates = teamBases.map((own, team) => gateOf(logic, teamBases[1 - team].id, own.id));
+  const surf = surfacesOf(logic, terrain);
+  const gates = teamBases.map((own, team) => gateOf(logic, teamBases[1 - team].id, own.id, surf));
   // A team's road leads to the enemy GATE — the objective since SIM_VERSION 32.
   const enemyBase = [
     { x: gates[1].x, z: gates[1].y },
@@ -1907,6 +2109,22 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   ];
 
   const table = new WeaponTable();
+  // A turret record as the map carries it: its own shooter, on the surface its
+  // base part's selector names (turret_part 0x0041cff1).
+  const turretJson = (t: Turret, tbl: WeaponTable) => {
+    const x = round4(sx(t.x));
+    const y = round4(sz(t.z));
+    return withLayer(
+      {
+        x,
+        y,
+        weapon: turretWeapon(t, tbl, true),
+        hp: t.health,
+        yaw: round4(rotToYaw(t.gunRotationRaw)),
+      },
+      surf.at(x, y, t.groundY),
+    );
+  };
 
   // --- bases -------------------------------------------------------------
   // The two `action_button` triggers per base are the base's own interaction
@@ -1927,10 +2145,21 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     );
     const coreX = round4(sx(base.x));
     const coreY = round4(sz(base.z));
-    const gcx = round4(sx(buttons[0].x));
-    const gcy = round4(sz(buttons[0].z));
-    const acx = round4(sx(buttons[1].x));
-    const acy = round4(sz(buttons[1].z));
+    // The Dreadnought stands on its spawn node (node 0 of its Cnet); the two
+    // shop triggers on their own selectors.
+    const core: Spot = { x: coreX, y: coreY, layer: surf.node(base.netId, base.x, base.z) };
+    const shopAt = (t: (typeof buttons)[number]): Spot & { halfH: number } => {
+      const x = round4(sx(t.x));
+      const y = round4(sz(t.z));
+      return {
+        x,
+        y,
+        layer: surf.at(x, y, t.groundY),
+        halfH: triggerHalfExtent(t.heightRaw),
+      };
+    };
+    const ground = shopAt(buttons[0]);
+    const air = shopAt(buttons[1]);
     // Each console's trigger box: a purchase answers inside it, widened by the
     // buyer's radius (fcop-fidelity.md R17), as the gates are measured.
     const buyBox = (t: (typeof buttons)[number]) => ({
@@ -1982,29 +2211,25 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     }
 
     return {
-      // The original's gate trigger box (gateOf). Features without a Cnet
-      // ground_cast stay layer 0 (see layerFromCast).
+      // The original's gate trigger box (gateOf), on its own surface.
       gate: gates[team],
       // The HQ anchor, at the Dreadnought record — which is where the original
       // stands its Dreadnought by node 0 of the Cnet, next to the HQ. No HP: the
       // original has no destructible core (fcop-fidelity.md I6/R1).
-      core: [coreX, coreY],
-      groundConsole: [gcx, gcy],
+      core: spotJson(core),
+      coreSpot: core,
+      groundConsole: spotJson(ground),
+      groundSpot: ground,
       groundBuy: buyBox(buttons[0]),
-      airConsole: [acx, acy],
+      airConsole: spotJson(air),
+      airSpot: air,
       airBuy: buyBox(buttons[1]),
       // The ring carries each Turret actor's OWN shooter block, not just its
       // position. Dropping it once left the ring on the then-global 28 m TURRET_RANGE
       // against an imported engage_range of 12 m — see spawnBaseTurret in sim.ts.
       // Every mission's ring shares the neutrals' parameters exactly, so these
       // intern to the same profile the capturable pads already use.
-      turrets: ring.map((t) => ({
-        x: round4(sx(t.x)),
-        y: round4(sz(t.z)),
-        weapon: turretWeapon(t, table, true),
-        hp: t.health,
-        yaw: round4(rotToYaw(t.gunRotationRaw)),
-      })),
+      turrets: ring.map((t) => turretJson(t, table)),
       turretRespawnTicks,
       // The type-28 record IS the Dreadnought (fcop-re/ranges-turrets-capture.md
       // top + Q4): the Juggernaut spawns where it stands, with its 3000 HP and its
@@ -2014,6 +2239,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       juggernaut: {
         x: coreX,
         y: coreY,
+        ...(core.layer > 0 ? { layer: core.layer } : {}),
         hp: base.health,
         guns: gunsOnMounts(base.gunCount, mounts.mounts.length, mapId),
         weapon: table.intern(
@@ -2025,8 +2251,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       },
       // The tank, jet and Flying Fortress spawner records (fcop-fidelity.md W3).
       ...unitProfiles(logic, base.team, table),
-      ...heavyOf(rules, team, teamOfSlot, coreX, coreY),
-      ...baseQueuesOf(rules, slotOfTeam(team)),
+      ...heavyOf(rules, team, teamOfSlot, coreX, coreY, surf),
+      ...baseQueuesOf(rules, slotOfTeam(team), surf),
     };
   });
 
@@ -2034,14 +2260,12 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // The build area only: gate/core/consoles/pad/spawn. Ring turrets spread up to
   // ~20 cells along the base approach in the original, so a plot containing them
   // would cover a quarter of the arena.
-  const pointXY = (p: number[] | { x: number; y: number }): [number, number] =>
-    Array.isArray(p) ? [p[0], p[1]] : [p.x, p.y];
   const basePlots = bases.map((b, team) => {
     const pts = [
       [b.gate.x, b.gate.y],
-      b.core as number[],
-      b.groundConsole as number[],
-      b.airConsole as number[],
+      [b.coreSpot.x, b.coreSpot.y],
+      [b.groundSpot.x, b.groundSpot.y],
+      [b.airSpot.x, b.airSpot.y],
       [round4(sx(teamSpawns[team].x)), round4(sz(teamSpawns[team].z))],
     ];
     const cx = (Math.min(...pts.map((p) => p[0])) + Math.max(...pts.map((p) => p[0]))) / 2;
@@ -2053,7 +2277,11 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
 
   // --- capturable turrets ------------------------------------------------
   const neutrals = [...logic.neutrals].sort((a, b) => a.id - b.id);
-  const turretSpots = neutrals.map((t) => [round4(sx(t.x)), round4(sz(t.z))] as number[]);
+  const turretSpots: Spot[] = neutrals.map((t) => {
+    const x = round4(sx(t.x));
+    const y = round4(sz(t.z));
+    return { x, y, layer: surf.at(x, y, t.groundY) };
+  });
   const turretParams = neutrals.map((t) => turretWeapon(t, table, false));
   const turretYaw = neutrals.map((t) => round4(rotToYaw(t.gunRotationRaw)));
   // The original's Turret health, rather than the Phase-1 ARCHETYPE_MAX_HP
@@ -2070,7 +2298,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   // teams' type-8 records, the plate turret a claim opens.
   const neutralIndex = new Map(neutrals.map((t, k) => [t.id, k] as const));
   const turretById = new Map(logic.turrets.map((t) => [t.id, t] as const));
-  const padOf = (o: EvidenceOutpost, unit: string): number[] => {
+  const padOf = (o: EvidenceOutpost, unit: string): Spot => {
     const at = Object.values(o.sides).map((side) => {
       const pad = side.pads.find((p) => p.unit === unit);
       if (!pad) throw new Error(`${mapId}: outpost ${o.index} has a side with no ${unit} pad`);
@@ -2082,18 +2310,24 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         throw new Error(`${mapId}: outpost ${o.index}'s two ${unit} pads stand apart`);
       }
     }
-    return [round4(sx(at[0].x)), round4(sz(at[0].z))];
+    // Each pad is a type-14 activation zone, standing on its own selector.
+    const x = round4(sx(at[0].x));
+    const y = round4(sz(at[0].z));
+    return { x, y, layer: surf.zone(at[0].id, x, y) };
   };
   const evOutposts = [...evidence.outposts].sort((a, b) => a.index - b.index);
-  const outpostSpots = evOutposts.map((o) => [
-    round4(sx(o.claim_zone.x)),
-    round4(sz(o.claim_zone.z)),
-  ]);
-  const outposts = evOutposts.map((o) => ({
+  const outpostSpots: Spot[] = evOutposts.map((o) => {
+    // The claim zone is a type-14 record too (claim_zone.cact).
+    const x = round4(sx(o.claim_zone.x));
+    const y = round4(sz(o.claim_zone.z));
+    return { x, y, layer: surf.zone(o.claim_zone.cact, x, y) };
+  });
+  const pads = evOutposts.map((o) => ({ tank: padOf(o, "tank"), jet: padOf(o, "jet") }));
+  const outposts = evOutposts.map((o, k) => ({
     zone: round4(o.claim_zone.radius_m),
-    tankPad: padOf(o, "tank"),
-    jetPad: padOf(o, "jet"),
-    ...outpostQueuesOf(rules, o.index, [slotOfTeam(0), slotOfTeam(1)], padOf(o, "tank")),
+    tankPad: spotJson(pads[k].tank),
+    jetPad: spotJson(pads[k].jet),
+    ...outpostQueuesOf(rules, o.index, [slotOfTeam(0), slotOfTeam(1)], pads[k].tank, surf),
     plates: o.plates.map((plate) => {
       const neutral = plate.records.filter((r) => r.type === 36);
       if (neutral.length !== 1 || !neutralIndex.has(neutral[0].id)) {
@@ -2109,13 +2343,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
               `${mapId}: outpost ${o.index} plate has no team-${b.team} type-8 record`,
             );
           }
-          return {
-            x: round4(sx(t.x)),
-            y: round4(sz(t.z)),
-            weapon: turretWeapon(t, table, true),
-            hp: t.health,
-            yaw: round4(rotToYaw(t.gunRotationRaw)),
-          };
+          return turretJson(t, table);
         }),
       };
     }),
@@ -2140,11 +2368,16 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       if (RULES_PICKUP_KIND(r) !== kind) {
         throw new Error(`${mapId}: pickup ${p.id} is kind ${kind} by its grant, not ${r.kind}`);
       }
+      // The pickup construct stands it on its selector (0x0041e7db).
+      const x = round4(sx(p.x));
+      const y = round4(sz(p.z));
+      const layer = surf.at(x, y, p.groundY);
       return {
-        x: round4(sx(p.x)),
-        y: round4(sz(p.z)),
+        x,
+        y,
         kind,
         respawnTicks: toSimTicks(p.spawnTicks, TICK_HZ),
+        ...(layer > 0 ? { layer } : {}),
         // Record halfwords << 4 wu: +0x2a bounds runtime axis 2 (actors x, the
         // sim's x), +0x26 axis 0 (actors z, the sim's y), +0x28 the height.
         halfW: round4(rangeToCells(r.halfRaw[2])),
@@ -2172,6 +2405,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     halfL: number;
     team: number;
     watch: number;
+    layer?: number;
   }[] = [];
   for (const t of [...logic.triggers].sort((a, b) => a.id - b.id)) {
     if (t.flags.includes("action_button")) continue; // those are the consoles
@@ -2185,34 +2419,42 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // original's test does.
     const halfW = round4(triggerHalfExtent(t.widthRaw));
     const halfL = round4(triggerHalfExtent(t.lengthRaw));
-    const c0 = bases[0].core as number[];
-    const c1 = bases[1].core as number[];
-    const team = Math.hypot(x - c0[0], y - c0[1]) < Math.hypot(x - c1[0], y - c1[1]) ? 0 : 1;
+    const c0 = bases[0].coreSpot;
+    const c1 = bases[1].coreSpot;
+    const team = Math.hypot(x - c0.x, y - c0.y) < Math.hypot(x - c1.x, y - c1.y) ? 0 : 1;
     const key = `${x}|${y}|${halfW}|${halfL}|${team}`;
     if (seenVolume.has(key)) continue;
     seenVolume.add(key);
-    triggerVolumes.push({
-      x,
-      y,
-      halfW,
-      halfL,
-      team,
-      watch: WATCH_ENEMY_AVATAR | WATCH_ENEMY_UNITS,
-    });
+    triggerVolumes.push(
+      withLayer(
+        { x, y, halfW, halfL, team, watch: WATCH_ENEMY_AVATAR | WATCH_ENEMY_UNITS },
+        surf.at(x, y, t.groundY),
+      ),
+    );
   }
 
   // Hk's spawn guards (fcop-fidelity.md P11): each trigger box watches the enemy
   // mech; the first box halfword bounds actors x (the sim's x), the second z.
-  const spawnGuards = rules.spawnGuards.map((g) => ({
-    x: round4(sx(g.x)),
-    y: round4(sz(g.z)),
-    halfW: round4(triggerHalfExtent(g.widthRaw)),
-    halfL: round4(triggerHalfExtent(g.lengthRaw)),
-    halfH: round4(triggerHalfExtent(g.heightRaw)),
-    hurtsTeam: teamOfSlot(g.hurtsSlot),
-    damage: g.damage,
-    resetPeriod: g.resetUnits * CFUN_TICKS_PER_UNIT,
-  }));
+  // The box's centre stands on its trigger record's selector.
+  const spawnGuards = rules.spawnGuards.map((g) => {
+    const rec = logic.triggers.find((t) => t.id === g.id);
+    if (!rec) throw new Error(`${mapId}: spawn guard ${g.id} is not a trigger record`);
+    const x = round4(sx(g.x));
+    const y = round4(sz(g.z));
+    return withLayer(
+      {
+        x,
+        y,
+        halfW: round4(triggerHalfExtent(g.widthRaw)),
+        halfL: round4(triggerHalfExtent(g.lengthRaw)),
+        halfH: round4(triggerHalfExtent(g.heightRaw)),
+        hurtsTeam: teamOfSlot(g.hurtsSlot),
+        damage: g.damage,
+        resetPeriod: g.resetUnits * CFUN_TICKS_PER_UNIT,
+      },
+      surf.at(x, y, rec.groundY),
+    );
+  });
 
   // --- walls -------------------------------------------------------------
   // Start from the PRISTINE stage-1 lattice, never from the map on disk. This
@@ -2288,6 +2530,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   let carved = 0;
   let repaired = 0;
   let repairedFor = new Map<string, number>();
+  let stranded: RepairTarget[] = [];
   let entries: string[] = [];
   if (wallsV.length > 0) {
     // Wall queries must see the lattice built from the committed pristine
@@ -2299,7 +2542,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // RoadBase only needs gate + groundConsole x/y.
     const roadBases = bases.map((b) => ({
       gate: { x: b.gate.x, y: b.gate.y },
-      groundConsole: pointXY(b.groundConsole as number[] | { x: number; y: number }),
+      groundConsole: [b.groundSpot.x, b.groundSpot.y] as [number, number],
       juggernaut: [b.juggernaut.x, b.juggernaut.y],
     }));
     const roads = carveRoads(pristineMap, wallsV, wallsH, graph, roadBases, arena.carveLimit);
@@ -2308,55 +2551,99 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // Opening the lane edges is not enough on its own: a corridor can be
     // drivable end to end and still be sealed off from the rest of the arena,
     // which is what leaves the outer ring's capture pads unreachable.
-    const spawns = out0Spawns(teamSpawns, rules);
+    const spawns = out0Spawns(teamSpawns, rules, terrain);
+    // The mech in the form it spawns in (fcop-fidelity.md G1).
+    const radii = radiiOf(models, turretSpots.length, mapId);
+    const mechRadius = spawns[0].hover === true ? radii.hover : radii.walker;
     const repair = repairReachability(
       { ...raw, layers, lifts: lifts.length > 0 ? lifts : undefined, spawns, wallsV, wallsH },
       wallsV,
       wallsH,
       [
-        ...graph.nodes.map((n) => ({ x: n.x, y: n.z, kind: "lane node" })),
+        ...graph.nodes.map((n) => ({
+          x: n.x,
+          y: n.z,
+          layer: n.layer,
+          rise: Number.POSITIVE_INFINITY,
+          kind: "lane node",
+        })),
         // Capture pads and outposts are taken from NEAR them, not on them — see
         // RepairTarget. ORIGINAL_CAPTURE_RANGE, 4 m, is the smallest imported
         // capture range (the avatar's radius comes on top), so it is the bound to
         // hold the map to.
-        ...turretSpots.map(([x, y]) => ({
-          x,
-          y,
+        // A capture is measured in 3D (sim.ts withinCapture), so the range
+        // bounds the height too.
+        ...turretSpots.map((p) => ({
+          ...p,
           reach: ORIGINAL_CAPTURE_RANGE,
+          rise: ORIGINAL_CAPTURE_RANGE,
+          sphere: true,
           kind: "capture pad",
         })),
         // An outpost's claim zone and pads are touched (1.2 m + the mech's
         // radius), so the bound is the ring turrets' 1 m.
-        ...outpostSpots.map(([x, y]) => ({ x, y, reach: 1, kind: "outpost" })),
-        ...outposts.flatMap((o) => [
-          { x: o.tankPad[0], y: o.tankPad[1], reach: 1, kind: "outpost pad" },
-          { x: o.jetPad[0], y: o.jetPad[1], reach: 1, kind: "outpost pad" },
-        ]),
-        ...pickups.map((p) => ({ x: p.x, y: p.y, kind: "pickup" })),
+        // A zone is touched in 3D too: its radius plus the mech's (sim.ts
+        // touchesZone, the type-14 pair test).
+        ...outpostSpots.flatMap((p, k) => {
+          const touch = outposts[k].zone + mechRadius;
+          const at = (q: Spot, kind: string): RepairTarget => ({
+            ...q,
+            reach: touch,
+            rise: touch,
+            sphere: true,
+            kind,
+          });
+          return [
+            at(p, "outpost"),
+            at(pads[k].tank, "outpost pad"),
+            at(pads[k].jet, "outpost pad"),
+          ];
+        }),
+        // A pickup's box: half its depth in plan (the narrower half-extent,
+        // so the circle stays inside the box), half its height about its lift.
+        ...pickups.map((p) => ({
+          x: p.x,
+          y: p.y,
+          layer: p.layer ?? 0,
+          reach: Math.min(p.halfW, p.halfL),
+          rise: p.halfH,
+          lift: p.lift,
+          kind: "pickup",
+        })),
         // The base's own structures, or the player cannot walk from their spawn
         // to a buy console and back out onto the road. Mp's happened to land in
         // the spawn component already; Conft's, Slim's and Joke's do not, and
         // without these the arena generates clean and plays unbuyable.
         ...bases.flatMap((b) => [
-          { x: (b.core as number[])[0], y: (b.core as number[])[1], kind: "core" },
-          {
-            x: (b.groundConsole as number[])[0],
-            y: (b.groundConsole as number[])[1],
+          { ...b.coreSpot, rise: Number.POSITIVE_INFINITY, kind: "core" },
+          // The shop trigger's box about its centre, grown by the intruder's
+          // radius (cact_load_type95, the trigger test; fcop-fidelity.md R17).
+          ...[b.groundSpot, b.airSpot].map((c, k) => ({
+            ...c,
+            reach: (k === 0 ? b.groundBuy : b.airBuy).halfW + mechRadius,
+            rise: c.halfH + mechRadius,
             kind: "console",
-          },
-          { x: (b.airConsole as number[])[0], y: (b.airConsole as number[])[1], kind: "console" },
+          })),
           // Ring turrets too: one the player can neither reach nor shoot past is
           // dead content, and mapConnectivity.test.ts treats it as an error. Its
           // own cell need not be walkable — that test asks only that a
           // NEIGHBOURING cell is, for the same plinth reason capture pads have.
-          ...b.turrets.map((t) => ({ x: t.x, y: t.y, reach: 1, kind: "ring turret" })),
+          ...b.turrets.map((t) => ({
+            x: t.x,
+            y: t.y,
+            layer: "layer" in t ? t.layer : 0,
+            reach: 1,
+            rise: Number.POSITIVE_INFINITY,
+            kind: "ring turret",
+          })),
         ]),
-        ...spawns.map((s) => ({ x: s.x, y: s.y, kind: "spawn" })),
+        ...spawns.map((s) => ({ x: s.x, y: s.y, layer: s.layer ?? 0, kind: "spawn" })),
       ],
       arena.repairLimit,
     );
     repaired = repair.opened;
     repairedFor = repair.forKind;
+    stranded = repair.stranded;
   }
 
   // --- emit --------------------------------------------------------------
@@ -2366,12 +2653,17 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     wallsV,
     wallsH,
     // Where and how each X1Alpha record stands, facing included.
-    spawns: out0Spawns(teamSpawns, rules),
+    spawns: out0Spawns(teamSpawns, rules, terrain),
     basePlots,
-    bases: bases as MapJson["bases"],
+    bases: bases.map(({ coreSpot, groundSpot, airSpot, ...b }) => {
+      void coreSpot;
+      void groundSpot;
+      void airSpot;
+      return b;
+    }) as MapJson["bases"],
     lanes,
-    turretSpots,
-    outpostSpots,
+    turretSpots: turretSpots.map(spotJson),
+    outpostSpots: outpostSpots.map(spotJson),
     outposts,
     // No original counterpart: dummy turrets are a Phase-1 sandbox concept.
     dummySpots: [],
@@ -2418,6 +2710,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       landingCells,
       repaired,
       repairedFor,
+      stranded,
       entries,
       ringDropped,
       unownedNets: logic.nets.length - ownedNets(logic, teamNet).length,
@@ -2608,6 +2901,8 @@ interface EnrichStats {
   repaired: number;
   /** Bits the repair opened, per target kind — so a residual says what it bought. */
   repairedFor: Map<string, number>;
+  /** Targets the flood reaches only on another surface (repairReachability). */
+  stranded: RepairTarget[];
   /** Where each team's produced units join the road, and why (carveRoads). */
   entries: string[];
   /** Ring turrets the MapBase cap of 16 dropped, across both bases. */
@@ -2678,6 +2973,15 @@ function report(arena: FcopArena, stats: EnrichStats, graph: Graph): number {
     problems++;
     console.log(`  PROBLEM ${msg}`);
   };
+  // Not a PROBLEM: the original stands it there, and no wall breach puts a
+  // walker on a deck. The flood walks and does not jump; mapConnectivity.test.ts
+  // pins the list so it cannot grow unseen.
+  for (const t of stats.stranded) {
+    console.log(
+      `  UNWALKED ${t.kind} (${t.x}, ${t.y}) on surface ${t.layer}: ` +
+        "the flood reaches its cell on another surface only",
+    );
+  }
 
   for (let team = 0; team < 2; team++) {
     const s = map.spawns[team];

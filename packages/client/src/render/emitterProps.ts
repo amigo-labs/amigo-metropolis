@@ -26,10 +26,12 @@
 // matrices and the frames that changed, and allocates nothing.
 //
 // Only the Props hung in the viewer's 5 x 5 block of cells are drawn
-// (`setEmitterWindow`, render/drawWindow.ts): the others stand at a zero
-// matrix until the block reaches them. A Prop hangs in the cell of its box's
-// placed centre (`snd_emit_build` 0x0042f942..0x0042fa88), not its origin:
-// Hk's lamps (61 / 62) reach 4 m out from their poles (`emitterCentre`).
+// (`setEmitterWindow`, render/drawWindow.ts), and of those only the ones whose
+// footprint meets a leaf of their cell's quadtree on screen (`setEmitterView`,
+// `emitterDrawn`; gen:scenery `quad`, `leaf`): the others stand at a zero
+// matrix. A Prop hangs in the cell of its box's placed centre (`snd_emit_build`
+// 0x0042f942..0x0042fa88), not its origin: Hk's lamps (61 / 62) reach 4 m out
+// from their poles (`emitterCentre`).
 // The sound a Prop plays is the audio's (audio/cues.ts).
 //
 // The camera-facing facers (stars, billboards, lines) of a model draw from its
@@ -39,7 +41,14 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { ArenaScenery, SceneryProp } from "./arenaScenery.generated";
-import { cellXOf, cellZOf, type DrawWindow, inDrawWindow } from "./drawWindow";
+import {
+  cellXOf,
+  cellZOf,
+  createLeafView,
+  type DrawWindow,
+  emitterDrawn,
+  type LeafView,
+} from "./drawWindow";
 import { parseFacers, registerFacers } from "./facers";
 import { faceMaterials, mergeFcopModel } from "./fcopModel";
 import { disposeSubtree } from "./meshMap";
@@ -138,13 +147,26 @@ export function emitterHungAt(
 ): Float32Array {
   out[0] = x;
   out[1] = y;
-  for (const p of scenery?.props ?? []) {
-    if (p.sound !== sound || Math.abs(p.x - x) > 0.01 || Math.abs(p.y - y) > 0.01) continue;
-    const c = scenery?.propModels[p.cobj]?.centre;
-    if (c) emitterCentre(p, c, out);
-    break;
-  }
+  const p = emitterPropAt(scenery, x, y, sound);
+  const c = p ? scenery?.propModels[p.cobj]?.centre : undefined;
+  if (p && c) emitterCentre(p, c, out);
   return out;
+}
+
+/**
+ * The Prop that stands at sim (x, y) and plays `sound`, null when `scenery`
+ * has none: the audio's emitter table lists the Props that sound by origin.
+ */
+export function emitterPropAt(
+  scenery: ArenaScenery | null,
+  x: number,
+  y: number,
+  sound: number,
+): SceneryProp | null {
+  for (const p of scenery?.props ?? []) {
+    if (p.sound === sound && Math.abs(p.x - x) <= 0.01 && Math.abs(p.y - y) <= 0.01) return p;
+  }
+  return null;
 }
 
 /** The cell a Prop hangs in, by its box's placed centre: [cellZ, cellX]. */
@@ -235,9 +257,14 @@ interface EmitterMesh {
   readonly frames: number;
   /** The instances that turn every frame. */
   readonly spinning: Int16Array;
-  /** Each instance's cell (render/drawWindow.ts), whether it is drawn, its standing matrix. */
+  /**
+   * Each instance's cell, its quadtree and footprint (render/drawWindow.ts),
+   * whether it is drawn, its standing matrix.
+   */
   readonly cellZ: Int16Array;
   readonly cellX: Int16Array;
+  readonly leaf: Int16Array;
+  readonly quad: Uint16Array;
   readonly shown: Uint8Array;
   readonly rest: Float32Array;
   /** Some record steps the model's frames. */
@@ -265,6 +292,8 @@ export function loadEmitters(
   cancelled?: () => boolean,
 ): void {
   meshes = [];
+  // The last arena's leaves name its own quadtrees.
+  lastView = NO_VIEW;
   const byModel = new Map<number, SceneryProp[]>();
   for (const p of scenery.props) {
     if (!scenery.propModels[p.cobj]?.drawn) continue;
@@ -337,6 +366,8 @@ export function loadEmitters(
           spinning: Int16Array.from(spinning),
           cellZ: Int16Array.from(props, (p) => emitterCell(scenery, p)[0]),
           cellX: Int16Array.from(props, (p) => emitterCell(scenery, p)[1]),
+          leaf: Int16Array.from(props, (p) => p.leaf),
+          quad: Uint16Array.from(props, (p) => p.quad),
           shown: new Uint8Array(props.length).fill(1),
           rest: Float32Array.from(mesh.instanceMatrix.array),
           animated,
@@ -346,7 +377,7 @@ export function loadEmitters(
         // A model that arrives late stands at the clock it arrives on, in the
         // block the viewer has.
         updateEmitters(lastNow);
-        if (lastWindow) setEmitterWindow(lastWindow);
+        applyEmitterWindow();
       },
       () => {
         console.warn(`[props] no prop asset at ${at}, skipping`);
@@ -357,6 +388,9 @@ export function loadEmitters(
 
 let lastNow = 0;
 let lastWindow: DrawWindow | null = null;
+/** No camera yet: the block alone decides. */
+const NO_VIEW: LeafView = createLeafView(0);
+let lastView: LeafView = NO_VIEW;
 
 /** The spinning instance `i` of `em` at `now`, into its matrix. */
 function spinAt(em: EmitterMesh, i: number, now: number): void {
@@ -366,18 +400,35 @@ function spinAt(em: EmitterMesh, i: number, now: number): void {
   em.mesh.setMatrixAt(i, scratchMatrix.compose(scratchPosition, scratchQuat, UNIT));
 }
 
-/**
- * The viewer's block moved (render/drawWindow.ts): every Prop outside it stands
- * at a zero matrix, every one inside at its own. Writes only what changed.
- */
+/** The viewer's block moved (render/drawWindow.ts). */
 export function setEmitterWindow(win: DrawWindow): void {
   lastWindow = win;
+  applyEmitterWindow();
+}
+
+/**
+ * This frame's leaves on screen (render/drawWindow.ts `updateLeafView`): a Prop
+ * whose footprint meets none is not drawn.
+ */
+export function setEmitterView(view: LeafView): void {
+  lastView = view;
+  applyEmitterWindow();
+}
+
+/**
+ * Every Prop outside the block, or off its cell's leaves on screen, stands at a
+ * zero matrix, every other at its own. Writes only what changed.
+ */
+function applyEmitterWindow(): void {
+  const win = lastWindow;
+  if (!win) return;
   for (let m = 0; m < meshes.length; m++) {
     const em = meshes[m];
     const a = em.mesh.instanceMatrix.array as Float32Array;
     let dirty = false;
     for (let i = 0; i < em.props.length; i++) {
-      const want = inDrawWindow(win, em.cellZ[i], em.cellX[i]) ? 1 : 0;
+      const drawn = emitterDrawn(win, lastView, em.cellZ[i], em.cellX[i], em.leaf[i], em.quad[i]);
+      const want = drawn ? 1 : 0;
       if (want === em.shown[i]) continue;
       em.shown[i] = want;
       dirty = true;

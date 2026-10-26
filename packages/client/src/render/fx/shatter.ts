@@ -32,9 +32,11 @@
 //
 // Drawn with the dying unit's own mesh and material (main.ts hands the greybox
 // bucket's) and its side's texture offset (0x004381e8). Metropolis' meshes are
-// triangles, so a quad of the original flies as its two triangles. Not drawn:
-// the killer's push (`mission_record_spawn_push` 0x00437aa0: the death event
-// names no killer round) and the fragmented arena's halving. The rolls draw from the client's stream, not `game_rand`
+// triangles, so a quad of the original flies as its two triangles. The killer's
+// push (`mission_record_spawn_push` 0x00437aa0) since EV_KILL_PUSH: a death by
+// a missile-class round's contact hands its record the round's heading times
+// its damage word (RaiseAt.push*, x16 wu/s), added to every face's roll. Not
+// drawn: the fragmented arena's halving. The rolls draw from the client's stream, not `game_rand`
 // (fcop-fidelity.md E7, A18). One mesh per archetype, preallocated; nothing
 // allocates once a match runs.
 
@@ -45,6 +47,8 @@ import {
   directionOf,
   FXF_IN_FRAME,
   FXF_LOCAL_SPACE,
+  FXF_NO_PUSH,
+  FXF_PUSH_REVERSED,
   type Fx90,
   SHATTER_FLAT_Y,
   SHATTER_SKELETON,
@@ -343,6 +347,13 @@ export class Shatter {
       if ((rec.shatterFlags & SHATTER_FLAT_Y) !== 0) wvy = 0;
       this.instRef[inst] = this.takeRef(at.x, originY, at.z);
     }
+    // The killer's push (0x00437aa0): header bit 9 refuses it, bit 10 reverses
+    // it (0x00437ab9, 0x00437ac2). The whole object's init takes none.
+    const pushSign =
+      (rec.flags & FXF_NO_PUSH) !== 0 ? 0 : (rec.flags & FXF_PUSH_REVERSED) !== 0 ? -X16_M : X16_M;
+    const pushX = at.pushX * pushSign;
+    const pushY = at.pushY * pushSign;
+    const pushZ = at.pushZ * pushSign;
     const wFall = shatterFall(rec.fallScale, Math.floor(Math.random() * 0x20)) * WU_M;
     const wSpinY = draw(rec.spinLo, rec.spinHi) * SPIN_RAD_S;
     const wSpinX = draw(rec.spinLo, rec.spinHi) * SPIN_RAD_S;
@@ -440,6 +451,11 @@ export class Shatter {
         vx += dir[0] * drift;
         vy += dir[1] * drift;
         vz += dir[2] * drift;
+        // The killer's push, after the drift and before y is zeroed (the roll's
+        // `add_offset`, 0x00437c8d..0x00437c9f).
+        vx += pushX;
+        vy += pushY;
+        vz += pushZ;
         if ((rec.shatterFlags & SHATTER_FLAT_Y) !== 0) vy = 0;
         kind.vx[f] = vx;
         kind.vy[f] = vy;

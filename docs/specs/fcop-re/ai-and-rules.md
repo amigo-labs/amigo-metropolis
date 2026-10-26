@@ -90,8 +90,11 @@ comment says "nothing decompiled reads bits 0..2" - discharge.c does; arc readin
 | 9 | ai->weapon[1] | 4 arced round | 200 | 601 ticks (2.0 s) | 100 | range field 6 m | 3.2 m |
 Refire = catalogue burst_gap `raw*4096/218` ticks (block.c:436, prepare.c loader); damage +0x0c,
 blast +0x0e<<4, range +0x16<<4 (actor_discharge.h:335-343); magazines unlimited. [A] for numbers,
-[B] for "range" meaning of kind 4 (it is the ballistic drop term). Projectile speed fields left raw
-(8192/4096): their per-tick scale is **not established** here.
+[B] for "range" meaning of kind 4 (it is the ballistic drop term). Speeds (RE M3-OR): weapon 8 is a
+kind-3 round launched by `cact_missile_spawn` (0x0044d000) at `trunc(8192/300) << 4` = 432 wu per engine
+unit = 15.82 m/s, already at its cap because +0x14 is 0 (0x0044d103; Slim and Joke carry 0x7a: launched at
+`top * 2`, accelerating); weapon 9 is a kind-4 round, `cact_round_spawn_arced` (0x0044d440) on the
+ballistic solve `cact_discharge_arc` (0x0044d190) at 4096 -> 7.62 m/s with +0x16 = 3072 as the drop. [A]
 All three shooters share one target: `sky_aim` 0x00421820 writes weapon[1]->weapon[0]->instance. Aim
 is only assigned when target is inside engage range 12 m (true hypotenuse, `sky_in_weapon_range`). [A]
 
@@ -139,8 +142,11 @@ target's position, otherwise at `destination`. Reverse direction while within 1 
 what makes it circle/jitter on a target. Altitude: saturating P-controller around
 `envelope + 1.28 m`, clamped hard to the envelope. Turning: steer = horizontal unit direction
 (15-bit) x `turn_rate*dt>>3` (16.16), low-passed (`acc=(3acc+in)/4`), added to the unit heading and
-renormalised; pitch clamped +-0x8000. Effective max yaw rate ~ **40-70 deg/s** at turn 4096
-(my estimate, **[C]**), x4 when boosted. Weapon 7 fires every tick it has a target; weapons 8/9 are
+renormalised; pitch clamped +-0x8000. **Retracted (RE M3-OR):** the heading accumulates the
+unfiltered step (`heading += [ebp-0x14..]` at 0x00420b2a), not the low-passed `steer` (that only banks the
+model), and the 15-bit rescale is a pure shift, so the step is 2^15..2^16 x turn x delta / 2^35 of the unit
+heading: at 30 fps 65-152 deg/s at turn 4096 (the captain), 81-190 deg/s at 5120 (jets, Fortress), by the
+distance's bit pattern; 262-621 deg/s boosted. **[A]** Weapon 7 fires every tick it has a target; weapons 8/9 are
 ticked in `sky_tick` (0x0042169b).
 
 ### 1.6 Retreat and heal (tick 0x004215b0) [A]
@@ -340,11 +346,10 @@ No diff points at a misreading of the rules above; most are layout/unmapped-glob
   proven" note is obsolete.
 
 ## 9. Could not establish
-* What the human view-block halfwords +0x324/+0x326 are (the captain ignores the human as a mode-0 /
-  bonus target while either is positive; HUD blinks blue on +0x326 > 0 - maybe invincibility/cloak).
+* ~~What the human view-block halfwords +0x324/+0x326 are~~ (RE M3-OR): the cloak (0x34bc = 45 s, pickup
+  bit 0x40000, 0x0041ea76) and invulnerability (0x1770 = 20 s, bit 0x80000, 0x0041ea8c) timers, counted
+  down in `player_tick` (0x0044708b, 0x004470a3).
 * Voice line content (no transcripts); meanings above are inferred from the triggering script.
-* Projectile speed scale for weapons 8/9 (catalogue +0x12/+0x14 after the /300 rescale).
-* Turn rate in deg/s (estimate only); the aircraft heading integrator is a vector low-pass, not an angle.
 * Exact trigger box size in metres (raw 2457x1843 for gates; behaviour doc says x8 effective).
 * `csac_score_kill` (per-class "Destroyed" stats) is a stub; player block +0x40 gate on neutral-turret
   capture is a stub.

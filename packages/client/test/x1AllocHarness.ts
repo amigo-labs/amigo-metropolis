@@ -26,7 +26,7 @@ import * as THREE from "three";
 import { buildX1Rig, placeX1 } from "../src/render/avatarRig";
 import { patchTeamUv, prepareTeamUvMask } from "../src/render/teamUv";
 import { X1_ANIM_HEIGHT, X1_ANIM_WIDTH } from "../src/render/x1Rig.generated";
-import { aimX1, createX1Walk, tickX1Walk } from "../src/render/x1Walk";
+import { aimX1, createX1Walk, tickX1Walk, x1DrawForm } from "../src/render/x1Walk";
 
 const gc = (globalThis as { gc?: () => void }).gc;
 if (!gc) throw new Error("run with --expose-gc");
@@ -69,6 +69,8 @@ const scriptLength = ticks;
 const geometry = new THREE.BufferGeometry();
 geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
 geometry.setAttribute("_x1bone", new THREE.BufferAttribute(new Float32Array([0, 9, 17]), 1));
+geometry.setAttribute("_x1layer", new THREE.BufferAttribute(new Float32Array([0, 1, 0]), 1));
+geometry.setAttribute("_x1face", new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 1));
 geometry.setAttribute("_teamuv", new THREE.BufferAttribute(new Float32Array([1, 1, 0]), 1));
 prepareTeamUvMask(geometry);
 const material = new THREE.MeshStandardMaterial({ flatShading: true });
@@ -106,6 +108,7 @@ function frame(t: number): void {
       walk.aimYaw[0] * 0.001,
       walk.aimPitch[0] * 0.001,
       (t & 128) !== 0 ? (t >> 2) & 63 : -1,
+      x1DrawForm(walk, 0),
     );
   }
 }

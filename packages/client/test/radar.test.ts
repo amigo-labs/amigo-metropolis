@@ -120,6 +120,8 @@ describe("the registry (cact_registry_build 0x0043b520, _mp 0x0043b7a0)", () => 
   const WU = 8192;
   const vx = new Float64Array([100, 0]);
   const vy = new Float64Array([100, 0]);
+  /** No candidate with flag 8. */
+  const none = new Uint8Array(512);
 
   test("the octagonal distance is |dx| + |dz| - min / 2", () => {
     expect(registryDistance(0x10000, 0)).toBe(0x10000);
@@ -130,7 +132,7 @@ describe("the registry (cact_registry_build 0x0043b520, _mp 0x0043b7a0)", () => 
     const xs = new Float64Array([100, 100 + 0x37fff / WU, 100 + 0x38000 / WU, Number.NaN]);
     const ys = new Float64Array([100, 100, 100, 100]);
     const member = new Uint8Array(4);
-    expect(radarRegistry(xs, ys, 4, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member)).toBe(2);
+    expect(radarRegistry(xs, ys, 4, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member, none)).toBe(2);
     expect([...member]).toEqual([1, 1, 0, 0]);
   });
 
@@ -141,12 +143,12 @@ describe("the registry (cact_registry_build 0x0043b520, _mp 0x0043b7a0)", () => 
     const ys = new Float64Array(n).fill(100);
     for (let k = 0; k < n; k++) xs[k] = 100 + (k < 100 ? 0x33000 : 0x10000) / WU;
     const member = new Uint8Array(n);
-    expect(radarRegistry(xs, ys, n, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member)).toBe(200);
+    expect(radarRegistry(xs, ys, n, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member, none)).toBe(200);
     expect(member[0]).toBe(0);
     expect(member[299]).toBe(1);
     // Everything in reach: the last pass (0x24000) keeps the first 0xfe.
     xs.fill(100);
-    expect(radarRegistry(xs, ys, n, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member)).toBe(0xfe);
+    expect(radarRegistry(xs, ys, n, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member, none)).toBe(0xfe);
     expect(member[0xfd]).toBe(1);
     expect(member[0xfe]).toBe(0);
   });
@@ -156,9 +158,29 @@ describe("the registry (cact_registry_build 0x0043b520, _mp 0x0043b7a0)", () => 
     const xs = new Float64Array([200 + 1, 150]);
     const ys = new Float64Array([100, 100]);
     const member = new Uint8Array(2);
-    expect(radarRegistry(xs, ys, 2, two.x, two.y, 1, 0xfe, member)).toBe(0);
-    expect(radarRegistry(xs, ys, 2, two.x, two.y, 2, 0xfe, member)).toBe(1);
+    expect(radarRegistry(xs, ys, 2, two.x, two.y, 1, 0xfe, member, none)).toBe(0);
+    expect(radarRegistry(xs, ys, 2, two.x, two.y, 2, 0xfe, member, none)).toBe(1);
     expect([...member]).toEqual([1, 0]);
+  });
+
+  test("flag 8 keeps an actor at any distance, and it still counts toward the limit", () => {
+    // 0xfe near, and one far away with flag 8 ahead of them in the list.
+    const n = 0xff;
+    const xs = new Float64Array(n).fill(100);
+    const ys = new Float64Array(n).fill(100);
+    xs[0] = 100 + 0x100000 / WU;
+    const keep = new Uint8Array(n);
+    keep[0] = 1;
+    const member = new Uint8Array(n);
+    expect(radarRegistry(xs, ys, n, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member, keep)).toBe(0xfe);
+    expect(member[0]).toBe(1);
+    expect(member[0xfd]).toBe(1);
+    expect(member[0xfe]).toBe(0); // the far one took a slot
+    // Without the flag it is culled and the near ones all fit.
+    keep[0] = 0;
+    expect(radarRegistry(xs, ys, n, vx, vy, 1, REGISTRY_LIMIT_TEAM_GAME, member, keep)).toBe(0xfe);
+    expect(member[0]).toBe(0);
+    expect(member[0xfe]).toBe(1);
   });
 });
 
@@ -223,13 +245,17 @@ describe("the live list's order (cact_link 0x0043ad70: creation order, oldest fi
     const xs = new Float64Array(32);
     const ys = new Float64Array(32);
     const at = new Int32Array(4);
+    const keep = new Uint8Array(32).fill(9);
     // After two placed candidates.
-    const n = entityCandidates(s, live.order, m, xs, ys, 2, at);
+    const n = entityCandidates(s, live.order, m, xs, ys, keep, 2, at);
     expect(n).toBe(2 + 2 + 5 + 2 + 1);
     // The turret's part before it, the four mounts before the hull, the partner after the X1.
     expect([...at]).toEqual([3, 8, 9, 11]);
     expect([...xs.subarray(2, n)]).toEqual([1, 1, 3, 3, 3, 3, 3, 5, 5, 7]);
     expect([...ys.subarray(2, n)]).toEqual([2, 2, 4, 4, 4, 4, 4, 6, 6, 8]);
+    // Flag 8: not the base part, the turret, the mounts and the hull, not the
+    // X1 or its partner, the tank.
+    expect([...keep.subarray(2, n)]).toEqual([0, 1, 1, 1, 1, 1, 1, 0, 0, 1]);
   });
 });
 

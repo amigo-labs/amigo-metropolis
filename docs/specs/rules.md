@@ -227,7 +227,7 @@ Design pillars, in priority order:
   | Concussion Beam | beam to the lock bursting for 50 in 1 m, every 1.0 s, 93 rounds, 8 m |
   | Hyper Velocity Rocket | 4 lead-aimed rockets on 4 ticks every 1.23 s, 30 dmg, 150 rounds, 2.5 → 19.9 m/s, 16 m |
   | Mortar Launcher | lobbed shell, 200 in a 3.2 m blast, every 2.03 s, 31 rounds, 7.6 m/s under 6 m/s² (reach 9.7 m) |
-  | Pop-Up Mines | dropped charge, sprung by an enemy within 2 m + its radius, 600 in a 5.6 m blast 1 s later, every 1.0 s, 37 |
+  | Pop-Up Mines | dropped charge: falls from the muzzle, bounces, and blows where it settles (about 1.4 s); an enemy within 2 m + its radius springs it first (it pops up and blows 1 s later); 600 in a 5.6 m blast, every 1.0 s, 37 |
   | Shockwave Generator | self-centred pulse, 300 within 6 m, every 3.03 s, 25 |
   The rounds above are NORMAL's: the records hold HARD's magazines, NORMAL adds
   a quarter and EASY a half (truncated, the loader's shifts; SIM_VERSION 72 —
@@ -265,11 +265,14 @@ Design pillars, in priority order:
   2. The homing turn rate (`MISSILE_TURN_RATE`, ours: 180°/s), the Hyper
      Velocity Rocket's exact lead, the powered Hell Fire's split (three missiles
      fanned at launch, ours) and the powered Mortar's fragment spread (ours).
-  3. Mines: whether an untriggered mine goes off after its 5 s lifetime; it
-     keeps Metropolis' 30 s silent despawn and 0.5 s arming delay, and is
-     placed at the feet rather than dropped.
+  3. ~~Mines: whether an untriggered mine goes off after its 5 s lifetime~~
+     **settled** (RE M3-OP, SIM_VERSION 101): it never waits. The dropped round
+     goes off the tick it comes to rest, so the arming delay, the 30 s silent
+     despawn and the placing at the feet are gone. Kept: the fuse measures the
+     ground plane from the body's position (the original: three axes from its
+     reference point).
   4. The powered Electric Gun's arc to two more targets is not modelled.
-- **Deliveries:** Pop-Up Mines place a proximity charge at the avatar's feet.
+- **Deliveries:** Pop-Up Mines drop a bouncing proximity charge from the muzzle.
   Shockwave Generator is a self-centred pulse — no aim, no projectile travel.
 - Slot membership: the **Concussion Beam is a Heavy**, not a Special.
 - **No pad refills or repairs a mech** (SIM_VERSION 53; `fcop-fidelity.md` P1,

@@ -17,6 +17,7 @@
     "gen:units": "bun run tools/generators/genUnitModels.ts",
     "gen:sfx": "bun run tools/generators/genSfx.ts",
     "gen:frontend": "bun run tools/generators/importFcopFrontend.ts",
+    "gen:movies": "bun run tools/generators/importFcopMovies.ts",
     "gen:results": "bun run tools/generators/importFcopResults.ts",
     "gen:fxsheet": "bun run tools/generators/fx/particleSheet.ts",
     "gen:fx": "bun run tools/generators/fcopEffects.ts",

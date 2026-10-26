@@ -23,6 +23,7 @@ import { segmentBlocked } from "../src/collision";
 import { createTickInputs } from "../src/inputs";
 import { getMapById, LA_CANTINA_ID } from "../src/map";
 import { createSim, type SimState, spawnUnit, step } from "../src/sim";
+import { aircraftEngaged } from "../src/units";
 
 const map = getMapById(LA_CANTINA_ID);
 const idle = createTickInputs();
@@ -111,20 +112,34 @@ describe("a PA jet is the original's aircraft", () => {
   }
 
   it("flies at a target inside its leash and circles it without ever stopping", () => {
+    // It starts in CRUISE on its 5 s cruise dwell, then ENGAGEs (20 s, or until
+    // it leaves its box) and CRUISEs again (aircraft_step 0x004207eb). In
+    // ENGAGE it flies at the target, bending its heading toward it
+    // (steerHeading, 81-190 degrees a second at 4 m/s: a turning circle
+    // 2.4-5.6 m across) and reversing inside the 1 m standoff, so it loops
+    // about the target rather than sitting on it.
     const { state, ent, g, foe, park } = jetWith(10, 6);
-    let near = 0;
-    for (let t = 0; t < 30 * 20; t++) {
+    const ds: number[] = [];
+    let engagedAt = -1;
+    let cruisedAgain = false;
+    for (let t = 0; t < 30 * 60; t++) {
       park();
       step(state, idle);
       const v = Math.hypot(ent.velX[g], ent.velY[g]);
       expect(v).toBeCloseTo(GUARDIAN_AIRCRAFT_SPEED, 5);
-      if (t > 30 * 6) {
-        const d = Math.hypot(ent.posX[g] - ent.posX[foe], ent.posY[g] - ent.posY[foe]);
-        if (d < 4) near += 1;
+      if (aircraftEngaged(state, g)) {
+        if (engagedAt < 0) engagedAt = t;
+        ds.push(Math.hypot(ent.posX[g] - ent.posX[foe], ent.posY[g] - ent.posY[foe]));
+      } else if (engagedAt >= 0) {
+        cruisedAgain = true;
       }
     }
+    expect(engagedAt).toBe(150); // 1500 units of cruise dwell, 10 a tick: below 0 on the 151st
+    expect(cruisedAgain).toBe(true);
     expect(ent.ammoB[g] - 1).toBe(foe);
-    expect(near / (30 * 14)).toBeGreaterThan(0.9);
+    ds.sort((a, b) => a - b);
+    expect(ds[ds.length >> 1]).toBeLessThan(10);
+    expect(ds[0]).toBeLessThan(2);
   });
 
   it("stays on its leash chasing a target outside it", () => {
@@ -137,7 +152,9 @@ describe("a PA jet is the original's aircraft", () => {
       maxDx = Math.max(maxDx, Math.abs(ent.posX[g] - c.x));
     }
     expect(ent.ammoB[g]).toBeGreaterThan(0); // it holds the target...
-    expect(maxDx).toBeLessThan(GUARDIAN_LEASH_X + 0.5); // ...and never chases it off the leash
+    // ...and never chases it off the leash: past the box it turns back to a new
+    // destination, overshooting by at most its turn.
+    expect(maxDx).toBeLessThan(GUARDIAN_LEASH_X + 8);
   });
 
   it("detects at 56 m (jet) and 63.2 m (Flying Fortress)", () => {

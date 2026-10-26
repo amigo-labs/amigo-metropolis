@@ -202,16 +202,20 @@ describe("the pointer", () => {
     expect(menuSelection(s, g, 0)).toBe(4); // the title plate
   });
 
-  test("the PA/CW and 1P/2P buttons, HELP and QUIT are refused with sound 3", () => {
+  test("the PA/CW and 1P/2P buttons and QUIT are refused with sound 3", () => {
     for (const [x, y, action] of [
       [466, 33, "refused_mode"],
       [466, 63, "refused_players"],
-      [70, 260, "refused_help"],
       [70, 290, "refused_quit"],
     ] as const) {
       const s = createScreen(newGameConfig());
       expect(click(s, x, y)).toEqual({ sounds: [SND_CLICK, SND_REFUSED], actions: [action] });
     }
+  });
+
+  test("HELP asks for its movie with sound 0 alone (the menu refuses when it cannot play)", () => {
+    const s = createScreen(newGameConfig());
+    expect(click(s, 70, 260)).toEqual({ sounds: [SND_CLICK], actions: ["help"] });
   });
 
   test("BRIEFING is disabled in Precinct Assault: not drawn, a press there is over nothing", () => {

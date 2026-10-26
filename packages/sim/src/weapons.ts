@@ -93,7 +93,8 @@ export const WEAPON_SLOT_SPECIAL = 2;
  * - beam: the Concussion Beam (0x11), an aimed sustained effect, here an
  *   instant line to the lock (or its range ahead) with the record's blast at the
  *   end — Metropolis' time profile, the original's damage, radius and reach.
- * - mine: the Pop-Up Mine (5), dropped at the shooter's feet.
+ * - mine: the Pop-Up Mine (5), the dropped bouncing round: it falls from the
+ *   muzzle, bounces and goes off where it settles, unless an enemy springs it.
  * - shockwave: the Shockwave Generator (0x0f), a self-centred pulse —
  *   Metropolis' instant pulse, the original's damage and radius.
  * - sphere: the Riot Shield (0x0d, `sustain_sphere_toggle` 0x0044c1f0), a

@@ -17,7 +17,9 @@ export interface BaseUnits {
  * Base units of the four faces the templates name, at 96 dpi. MS Sans Serif 8
  * (and MS Shell Dlg 8, which Windows 9x maps to it) is the well-known 6 x 13.
  * Small Fonts 7 and Courier 10 are estimates from those raster faces' cells
- * (fcop-fidelity.md F14): the retail metrics are not measured.
+ * (fcop-fidelity.md F14): the retail metrics are not measured, and the
+ * executable does not carry them -- USER32 takes them from the system's raster
+ * font files when it builds the dialog (RE M3-OQ).
  */
 export const FONT_BASE_UNITS: Readonly<Record<string, BaseUnits>> = {
   "MS Sans Serif 8": {

@@ -33,6 +33,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type FcopArena, logicFile, selectArenas } from "./fcopArenas";
+import { containerIndex, containerResource } from "./fcopCoarse";
+import { plateStackOf, selectedHeight, surfaceHeight } from "./fcopTerrain";
 
 // ---------------------------------------------------------------------------
 // Unit conversion
@@ -253,16 +255,27 @@ interface RawActor {
   net_id?: number;
   spawn_ticks?: number;
   spawn_limit?: number;
+  /** Resource id and container family ("Cact" / "Csac"), as extract_logic writes them. */
+  res_id?: number;
+  container?: string;
+  /** The record's height selector (HEIGHT_SELECTOR), read from the container here. */
+  ground_cast?: number;
+  /** The height the original stands it at, metres (fcopTerrain.ts); null where no plate is. */
+  ground_y?: number | null;
 }
 
 interface RawNetNode {
   i: number;
   x: number;
   z: number;
+  raw_x: number;
+  raw_z: number;
   height_offset: number;
   state: number;
   ground_cast: number;
   neighbours: number[];
+  /** Filled in by readGroundCasts. */
+  ground_y?: number | null;
 }
 
 interface RawNet {
@@ -291,6 +304,103 @@ export const ACT = {
   MARKER_89: 89,
 } as const;
 
+/**
+ * Where each record type keeps its HEIGHT SELECTOR, by tACT payload offset (the
+ * construct's record pointer is payload - 4, so `[reg + off + 4]` in the
+ * listing), and the instruction that reads it.
+ *
+ * ACT `pos_h` is 0 on every PC record: no actor's Y is stored. Every construct
+ * asks the terrain instead, `terrain_height_at(position, layer)` (0x004545d0),
+ * with a layer remapped from this byte as `cnet_load` remaps a Cnet node's
+ * mode (0x00441981): 0 -> -1 the topmost plate, 1 -> -2 the lowest, n -> n - 2
+ * the n-2-th from the bottom (0 when the stack is shallower). So it is the same
+ * field as a node's `groundCast`, and carried under that name.
+ *
+ *   type 1  X1Alpha      0x22 i8   player_view_construct  movsx [edx+0x26] 0x00446b66
+ *   type 8  Turret       0x30 i8   turret_part (base)     movsx [edi+0x34] 0x0041cff1
+ *   type 36 NeutralTurret 0x30 i8  the same construct, the same branch (0x0041cfc5)
+ *   type 16 ItemPickup   0x20 i8   pickup construct       movsx [edi+0x24] 0x0041e7db
+ *   type 14 zone         0x22 i16  type-14 construct      movsx [edi+0x26] 0x0041f719 (word)
+ *   type 95 Trigger      0x16 i8   cact_load_type95       movsx [edi+0x1a] 0x0041fdb1
+ *
+ * A turret stands on attachment point 0 of its base part, whose own Y is this
+ * query plus the record's height offset (turret.c, turret_part.c).
+ */
+const HEIGHT_SELECTOR: Readonly<Record<number, { offset: number; word: boolean }>> = {
+  1: { offset: 0x22, word: false },
+  8: { offset: 0x30, word: false },
+  36: { offset: 0x30, word: false },
+  16: { offset: 0x20, word: false },
+  14: { offset: 0x22, word: true },
+  95: { offset: 0x16, word: false },
+};
+
+/** The tACT chunk header ahead of the payload (tag, size, matching id). */
+const TACT_PAYLOAD = 12;
+
+/**
+ * Annotates every record of a HEIGHT_SELECTOR type with its selector, read from
+ * the shipped container's bytes (the RE extract does not decode it).
+ */
+export function readGroundCasts(
+  container: Uint8Array,
+  actors: RawActor[],
+  nets: RawNet[] = [],
+): void {
+  const res = containerIndex(container);
+  const stack = plateStackOf(container);
+  const i32 = (b: Uint8Array, o: number): number =>
+    b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24);
+  const recordOf = (a: RawActor): Uint8Array => {
+    if (a.res_id === undefined || (a.container !== "Cact" && a.container !== "Csac")) {
+      throw new Error(`type-${a.act_type} record ${a.matching} has no resource id`);
+    }
+    const tag = a.container.split("").reverse().join("");
+    const at = res.get(`${tag}:${a.res_id}`);
+    if (!at) throw new Error(`${a.container} ${a.res_id} is not in the container`);
+    const blob = containerResource(container, at);
+    if (String.fromCharCode(blob[3], blob[2], blob[1], blob[0]) !== "tACT") {
+      throw new Error(`${a.container} ${a.res_id} does not start with a tACT chunk`);
+    }
+    if (blob[TACT_PAYLOAD] !== a.act_type) {
+      throw new Error(
+        `${a.container} ${a.res_id} is type ${blob[TACT_PAYLOAD]}, not ${a.act_type}`,
+      );
+    }
+    return blob;
+  };
+  // The query's point is the record's position triple (payload +4): its first
+  // word is the engine's x, which the extract calls z, and its third the
+  // extract's x.
+  const platesOf = (blob: Uint8Array): number[] =>
+    stack(i32(blob, TACT_PAYLOAD + 4), i32(blob, TACT_PAYLOAD + 12));
+  const metres = (y: number | null): number | null =>
+    y === null ? null : Math.round(y * 10000) / 10000;
+  for (const a of actors) {
+    if (a.act_type === ACT.AIRCRAFT) {
+      // No selector: `aircraft_construct` places it by the surface query from
+      // its record's own point (0x00420501), whose y is 0 on every record.
+      a.ground_y = metres(surfaceHeight(platesOf(recordOf(a)), 0));
+      continue;
+    }
+    const sel = HEIGHT_SELECTOR[a.act_type];
+    if (!sel) continue;
+    const blob = recordOf(a);
+    const o = TACT_PAYLOAD + sel.offset;
+    const lo = blob[o];
+    a.ground_cast = sel.word ? ((lo | (blob[o + 1] << 8)) << 16) >> 16 : (lo << 24) >> 24;
+    a.ground_y = metres(selectedHeight(platesOf(blob), a.ground_cast));
+  }
+  // A Cnet node's point is (node +8, 0, node +6) << 8 — the extract's z, then
+  // its x (0x00441957..0x00441968) — and its mode is the same selector.
+  for (const net of nets) {
+    for (const n of net.nodes) {
+      const y = selectedHeight(stack(n.raw_z * 256, n.raw_x * 256), n.ground_cast);
+      n.ground_y = y === null ? null : Math.round(y * 10000) / 10000;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shape of the committed artifact (output)
 // ---------------------------------------------------------------------------
@@ -308,6 +418,18 @@ export interface PaSpawn {
   readonly id: number;
   readonly x: number;
   readonly z: number;
+  /**
+   * The record's height selector (HEIGHT_SELECTOR): which of the stacked
+   * surfaces the construct stands the actor on. Absent on a type that reads none
+   * (type 89).
+   */
+  readonly groundCast?: number;
+  /**
+   * The height the original stands the record at, metres: `terrain_height_at`
+   * over the shipped plates with that selector (fcopTerrain.ts). null where it
+   * answers 0 for want of a plate.
+   */
+  readonly groundY?: number | null;
 }
 
 /**
@@ -353,6 +475,10 @@ export interface PaTurret {
   /** Respawn delay in original ticks (negative in the source = after death). */
   readonly spawnTicks: number;
   readonly spawnLimit: number;
+  /** Height selector (HEIGHT_SELECTOR): the surface its base part stands on. */
+  readonly groundCast: number;
+  /** The height that selector answers there, metres (PaSpawn.groundY). */
+  readonly groundY: number | null;
 }
 
 export interface PaPickup {
@@ -363,6 +489,10 @@ export interface PaPickup {
   readonly grants: readonly string[];
   readonly spawnTicks: number;
   readonly rotationalSpeed: number;
+  /** Height selector (HEIGHT_SELECTOR). */
+  readonly groundCast: number;
+  /** The height that selector answers there, metres (PaSpawn.groundY). */
+  readonly groundY: number | null;
 }
 
 export interface PaTrigger {
@@ -375,6 +505,10 @@ export interface PaTrigger {
   readonly flags: readonly string[];
   /** Actor whose entry fires this volume (fcop-logic.md §8.6). */
   readonly watchesActor: number;
+  /** Height selector (HEIGHT_SELECTOR): the surface the box's centre stands on. */
+  readonly groundCast: number;
+  /** The height that selector answers there, metres (PaSpawn.groundY). */
+  readonly groundY: number | null;
 }
 
 export interface PaUnit {
@@ -405,6 +539,11 @@ export interface PaAircraft {
   readonly timeToDescend: number;
   readonly shooter: PaShooter;
   readonly spawnTicks: number;
+  /**
+   * The surface it is placed over, metres: `terrain_surface_at` from its
+   * record's point at y 0 (fcopTerrain.ts surfaceHeight). null where no plate is.
+   */
+  readonly groundY: number | null;
 }
 
 export interface PaProp {
@@ -439,6 +578,12 @@ export interface PaNetNode {
    * heightfield puts the HIGH ones under the deck they belong on top of.
    */
   readonly groundCast: number;
+  /**
+   * The height `cnet_load` (0x00441900) gives the node: `terrain_height_at` at
+   * its point with the layer its mode names (fcopTerrain.ts), metres; null where
+   * the original answers 0 for want of a plate.
+   */
+  readonly groundY: number | null;
 }
 
 export interface PaNet {
@@ -515,7 +660,17 @@ function turret(a: RawActor): PaTurret {
     shooter: shooter(p),
     spawnTicks: a.spawn_ticks ?? 0,
     spawnLimit: a.spawn_limit ?? 0,
+    groundCast: castOf(a),
+    groundY: a.ground_y ?? null,
   };
+}
+
+/** The record's height selector, which every type that reads one must carry. */
+function castOf(a: RawActor): number {
+  if (a.ground_cast === undefined) {
+    throw new Error(`type-${a.act_type} record ${a.matching} carries no height selector`);
+  }
+  return a.ground_cast;
 }
 
 export function buildPaLogic(
@@ -530,7 +685,10 @@ export function buildPaLogic(
   const byId = [...actors].sort((a, b) => a.matching - b.matching);
   const of = (t: number): RawActor[] => byId.filter((a) => a.act_type === t);
 
-  const marker = (a: RawActor): PaSpawn => ({ id: a.matching, x: a.x, z: a.z });
+  const marker = (a: RawActor): PaSpawn =>
+    a.ground_cast === undefined
+      ? { id: a.matching, x: a.x, z: a.z }
+      : { id: a.matching, x: a.x, z: a.z, groundCast: a.ground_cast, groundY: a.ground_y ?? null };
 
   return {
     mission,
@@ -558,7 +716,13 @@ export function buildPaLogic(
         "retail code (docs/specs/fcop-re/ranges-turrets-capture.md) and applied in " +
         "tools/generators/fcopLogic.ts; raw values are preserved here.",
     },
-    spawns: of(ACT.X1ALPHA).map(marker),
+    spawns: of(ACT.X1ALPHA).map((a) => ({
+      id: a.matching,
+      x: a.x,
+      z: a.z,
+      groundCast: castOf(a),
+      groundY: a.ground_y ?? null,
+    })),
     dreadnoughts: of(ACT.DREADNOUGHT).map((a) => {
       const p = a.params ?? {};
       // The extractor still calls the gun blocks "defense_weapon".
@@ -597,6 +761,8 @@ export function buildPaLogic(
         grants: p.grants ?? [],
         spawnTicks: a.spawn_ticks ?? 0,
         rotationalSpeed: p.rotational_speed ?? 0,
+        groundCast: castOf(a),
+        groundY: a.ground_y ?? null,
       };
     }),
     triggers: of(ACT.TRIGGER).map((a) => {
@@ -610,6 +776,8 @@ export function buildPaLogic(
         heightRaw: p.height_raw ?? 0,
         flags: Array.isArray(p.flags) ? p.flags : [],
         watchesActor: p.triggering_actor_id ?? -1,
+        groundCast: castOf(a),
+        groundY: a.ground_y ?? null,
       };
     }),
     units: of(ACT.PATHED_ACTOR).map((a) => {
@@ -644,6 +812,7 @@ export function buildPaLogic(
         timeToDescend: p.time_to_descend ?? 0,
         shooter: shooter(p),
         spawnTicks: a.spawn_ticks ?? 0,
+        groundY: a.ground_y ?? null,
       };
     }),
     props: of(ACT.DYNAMIC_PROP).map((a) => ({
@@ -667,6 +836,7 @@ export function buildPaLogic(
           neighbours: [0, 1, 2, 3].map((k) => n.neighbours[k] ?? -1),
           state: n.state,
           groundCast: n.ground_cast,
+          groundY: n.ground_y ?? null,
         })),
       })),
     markers: {
@@ -722,6 +892,11 @@ function extract(arena: FcopArena, reRepo: string, commit: string): void {
 
   const actors = JSON.parse(readFileSync(join(src, "actors.json"), "utf8")) as RawActor[];
   const nets = JSON.parse(readFileSync(join(src, "nets.json"), "utf8")) as RawNet[];
+  readGroundCasts(
+    new Uint8Array(readFileSync(join(reRepo, "fixtures", "missions", mission))),
+    actors,
+    nets,
+  );
 
   const logic = buildPaLogic(mission, mapId, actors, nets, {
     repo: "amigo-labs/fcop-reverse-engineering",

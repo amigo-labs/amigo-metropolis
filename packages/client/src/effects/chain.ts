@@ -75,6 +75,14 @@ export interface RaiseAt {
    * aimed one): engine ticks it is held without another shot; 0 for none.
    */
   hold: number;
+  /**
+   * The killer's push (`mission_record_spawn_push` 0x00437aa0), x16 world units
+   * a second in this frame's axes: what a type-90 shatter adds to every face's
+   * roll. Only the record a death raises with its context carries it; 0 else.
+   */
+  pushX: number;
+  pushY: number;
+  pushZ: number;
 }
 
 export function makeRaiseAt(): RaiseAt {
@@ -96,6 +104,9 @@ export function makeRaiseAt(): RaiseAt {
     team: -1,
     repeat: false,
     hold: 0,
+    pushX: 0,
+    pushY: 0,
+    pushZ: 0,
   };
 }
 
@@ -117,6 +128,11 @@ export function copyRaiseAt(from: Readonly<RaiseAt>, to: RaiseAt): void {
   to.team = from.team;
   to.repeat = from.repeat;
   to.hold = from.hold;
+  // A successor or a repeat is installed with no context (0x0042d5fe passes
+  // NULL), so the killer's push stays with the record the death raised.
+  to.pushX = 0;
+  to.pushY = 0;
+  to.pushZ = 0;
 }
 
 /** The effect banks of the arena whose mission is `mission` (e.g. "Mp"), or null. */

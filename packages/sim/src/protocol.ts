@@ -20,6 +20,9 @@
 // peers exchange their names, picks and ready bits as the original's front end
 // does (MSG_LOBBY, its message ids), and the host seals the agreed setup once
 // both are ready (MSG_BEGIN through the relay, which answers MSG_START with it).
+// Protocol 5 sends the loadout messages' codes as the original's (0x0040c2d0),
+// where protocol 4 sent `slot << 4 | entry`; the bytes are laid out the same,
+// but a code names another weapon, so the two do not meet.
 
 import { MAX_PLAYERS } from "./balance";
 import type { PlayerInput } from "./inputs";
@@ -32,7 +35,7 @@ import { DEFAULT_LOADOUT, GUNS, HEAVIES, type Loadout, SPECIALS } from "./weapon
  * rejects clients whose SIM_VERSION differs (goldens would already be broken),
  * and this guards the framing itself.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 // --- Message type tags -------------------------------------------------------
 // Client → server (1–9).
@@ -117,7 +120,11 @@ export const LOBBY_NAME = 0x0a;
 /** Host -> joiner / joiner -> host: the sender's HARD / NORMAL / EASY entry. */
 export const LOBBY_P1_SELECTION = 0x0b;
 export const LOBBY_P2_SELECTION = 0x0c;
-/** The sender's three loadout codes, `slot << 4 | entry` (0x00, 0x10, 0x20 the defaults). */
+/**
+ * The sender's three loadout codes, the original's (0x0040c2d0's table, the
+ * weapon catalogue's `code`; 0x00, 0x10, 0x20 the defaults). Protocol 4 sent
+ * `slot << 4 | entry` instead, which names other weapons (F7).
+ */
 export const LOBBY_P1_LOADOUT = 0x0d;
 export const LOBBY_P2_LOADOUT = 0x0e;
 /** The sender's ready bit: lobby flag bit 0 (host) or bit 1 (joiner). */
@@ -148,7 +155,7 @@ export type LobbyMessage =
     }
   | {
       readonly id: typeof LOBBY_P1_LOADOUT | typeof LOBBY_P2_LOADOUT;
-      /** Three codes, slot order: `slot << 4 | entry`, entry 0..4. */
+      /** Three codes, slot order: each one of its slot's five original codes. */
       readonly codes: readonly number[];
     }
   | { readonly id: typeof LOBBY_P1_READY | typeof LOBBY_P2_READY; readonly ready: boolean }
@@ -393,9 +400,15 @@ function readConfig(r: Reader): MatchConfig {
 // [u8 id][payload]: SETUP_CHOICE index u8, value u8 · NAME len u8, len bytes
 // (single-byte characters) · SELECTION u8 · LOADOUT three u8 codes · READY u8.
 
-/** Whether a code is entry 0..4 of `slot`, as the original's ids are. */
+/**
+ * Whether a code is one of `slot`'s five, as the original's ids are: the code
+ * `frontend_commit_loadout` (0x0040c2d0) saves an entry as, which is the
+ * type-99 key and the weapon catalogue's own `code` -- not `slot << 4 | entry`
+ * (0x05 and 0x15 are codes, 0x04 and 0x11 are not; fcop-fidelity.md F7).
+ */
 function loadoutCodeOk(slot: number, code: unknown): boolean {
-  return Number.isInteger(code) && (code as number) >> 4 === slot && ((code as number) & 15) < 5;
+  const list = LOADOUT_LISTS[slot];
+  return Number.isInteger(code) && (list?.some((w) => w.code === code) ?? false);
 }
 
 function lobbyBytes(m: LobbyMessage): number {

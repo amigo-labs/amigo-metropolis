@@ -18,7 +18,21 @@
 // Renderer rules: one InstancedMesh for the archetype (no exception any more:
 // the three-part hip-swing rig this replaced was one), capacity 4,
 // `matrixAutoUpdate = false`, no Object3D tree; `place` writes the slot's
-// matrix and its four-float pose and allocates nothing.
+// matrix, its four-float pose and its two layer masks and allocates nothing.
+//
+// The faces keep the original's draw modes (fcop-fidelity.md G13; RE
+// x1-alpha.md "Draw modes and layers"): `avatar-x1.glb` has a primitive per
+// mode, opaque then half -- the legs are half throughout -- which
+// render/fcopModel.ts turns into groups of this one mesh, the half group drawn
+// twice (its solid texels with the opaque faces, its bit-15 texels blended
+// without a depth write), every material carrying the same pose patch. And
+// the layers: each face's `_X1LAYER` (op1 bits 4..6) shows only while its bit
+// is in the mask its block is drawn with. The original's partner reads both
+// masks off the transform's progress (player_partner.c 299-320): the legs 3 as
+// a walker, 7 through the ramp, 5 as a hover; the cockpit 5, 0xf, 0xb; the
+// guns and the beacon 1. So the legs' 16 layer-1 faces show as a walker and
+// through the ramp, the cockpit's 6 as a hover and through it. The shader
+// collapses a hidden face onto the model's origin, where it covers no pixel.
 //
 // Team colour is the original's texture offset (render/teamUv.ts), kept off the
 // beacon by `_TEAMUV`; while the cloak runs, the offset's v is the frame clock
@@ -26,14 +40,19 @@
 
 import * as THREE from "three";
 import { teamSide, writeX1Uv, x1Uv } from "./arenaUnits";
+import { chainPatch, materialList } from "./fcopModel";
 import type { ShatterSkeleton } from "./fx/skeletonShatter";
-import { createTeamUvAttribute, patchTeamUv, TEAM_UV_ATTR, TEAM_UV_MASK } from "./teamUv";
+import { createTeamUvAttribute, TEAM_UV_ATTR, TEAM_UV_MASK } from "./teamUv";
 import { loadUnitAsset } from "./unitMeshes";
 import {
   X1_ANIM_HEIGHT,
   X1_ANIM_WIDTH,
+  X1_ATTACHED_LAYER_MASK,
+  X1_COCKPIT_LAYER_MASKS,
   X1_COCKPIT_ROW,
   X1_COCKPIT_SLOT,
+  X1_GUN_SLOT,
+  X1_LEGS_LAYER_MASKS,
   X1_MOUNT_TEXEL,
   X1_SLOTS,
 } from "./x1Rig.generated";
@@ -49,6 +68,18 @@ export const X1_POSE_ATTR = "instanceX1";
 /** Per-vertex matrix slot (`_X1BONE`, which GLTFLoader lowercases). */
 export const X1_BONE_ATTR = "x1Bone";
 const GLTF_BONE = "_x1bone";
+/**
+ * Per-vertex face (`_X1FACE`, gen:x1): the primitive its triangle came from
+ * (the part's place in the mesh x 1024 plus its 3DQL index), so a quad's two
+ * triangles share one. The skeleton shatter tests a quad whole by it.
+ */
+export const X1_FACE_ATTR = "x1Face";
+const GLTF_FACE = "_x1face";
+/** Per-vertex layer of the vertex's face (`_X1LAYER`). */
+export const X1_LAYER_ATTR = "x1Layer";
+const GLTF_LAYER = "_x1layer";
+/** Per-instance layer masks: the legs' block's, the cockpit's. */
+export const X1_LAYERS_ATTR = "instanceX1Layers";
 /** The bone table's sampler uniform. */
 const X1_ANIM_UNIFORM = "x1Anim";
 /**
@@ -65,7 +96,9 @@ const MODEL_YAW = Math.PI / 2;
 
 const VERTEX_DECL = `#include <common>
 attribute float ${X1_BONE_ATTR};
+attribute float ${X1_LAYER_ATTR};
 attribute vec4 ${X1_POSE_ATTR};
+attribute vec2 ${X1_LAYERS_ATTR};
 uniform highp sampler2D ${X1_ANIM_UNIFORM};`;
 
 // render/x1Pose.ts in GLSL: the slot's 3x4 matrix is three texels of its row.
@@ -90,20 +123,22 @@ const VERTEX_POSE = `#include <begin_vertex>
 		x1Q = vec3(x1Cy * x1Q.x + x1Sy * x1Q.z, x1Q.y, -x1Sy * x1Q.x + x1Cy * x1Q.z);
 		x1Q += texelFetch(${X1_ANIM_UNIFORM}, ivec2(${X1_MOUNT_TEXEL}, x1Legs), 0).xyz;
 	}
+	// The layer gate (cact_model_draw_prims): the face shows while its layer's
+	// bit is in its block's mask, else it collapses to a point and draws nothing.
+	int x1Mask = x1Slot >= ${X1_GUN_SLOT} ? ${X1_ATTACHED_LAYER_MASK}
+		: int((x1Rides ? ${X1_LAYERS_ATTR}.y : ${X1_LAYERS_ATTR}.x) + 0.5);
+	if (((x1Mask >> int(${X1_LAYER_ATTR} + 0.5)) & 1) == 0) x1Q = vec3(0.0);
 	transformed = x1Q;
 }`;
 
-/** Chains the pose onto the unit material's own patch (the team offset). */
+/** Chains the pose onto each material's own patches (the team offset, the half pass). */
 function patchX1(material: THREE.Material, table: THREE.DataTexture): void {
-  const before = material.onBeforeCompile;
-  material.onBeforeCompile = (shader, renderer) => {
-    before.call(material, shader, renderer);
+  chainPatch(material, "x1", (shader) => {
     shader.uniforms[X1_ANIM_UNIFORM] = { value: table };
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", VERTEX_DECL)
       .replace("#include <begin_vertex>", VERTEX_POSE);
-  };
-  material.customProgramCacheKey = () => "teamUv+x1";
+  });
 }
 
 /** The bone table as the shader samples it: RGBA float texels, never filtered. */
@@ -136,34 +171,68 @@ const UP = new THREE.Vector3(0, 1, 0);
 export interface X1RigCore {
   readonly mesh: THREE.InstancedMesh;
   readonly table: Float32Array;
-  /** The unit material without the pose, for the skeleton shatter's pieces. */
-  readonly plain: THREE.Material;
+  /**
+   * The unit's materials without the pose, one per geometry group as the
+   * mesh's (its draw-mode passes), for the skeleton shatter's pieces.
+   */
+  readonly plain: THREE.Material | THREE.Material[];
   /** Per slot: the side last written (-2 none), and the cloak's v (-1 none). */
   readonly sideCache: Int8Array;
   readonly cloakCache: Int16Array;
 }
 
-/** Builds the mesh from a loaded asset and its bone table. Load time only. */
+/** A generator attribute under its shader name (GLTFLoader lowercases `_X1…`). */
+function renameAttribute(geometry: THREE.BufferGeometry, gltf: string, name: string): void {
+  const attr = geometry.getAttribute(gltf) ?? geometry.getAttribute(name);
+  if (!attr) throw new Error(`avatar-x1.glb has no ${gltf.toUpperCase()} attribute`);
+  geometry.setAttribute(name, attr);
+  if (geometry.getAttribute(gltf)) geometry.deleteAttribute(gltf);
+}
+
+/**
+ * Copies of the asset's materials with the patches they have so far (the team
+ * offset, a half face's bit-15 pass) and not the pose chained on after: a clone
+ * keeps no onBeforeCompile, so the copy takes the original's patch function,
+ * which none of the patches binds to its material. Load time only.
+ */
+function plainMaterials(
+  material: THREE.Material | THREE.Material[],
+): THREE.Material | THREE.Material[] {
+  const copy = (m: THREE.Material): THREE.Material => {
+    const c = m.clone();
+    c.onBeforeCompile = m.onBeforeCompile;
+    c.customProgramCacheKey = m.customProgramCacheKey;
+    return c;
+  };
+  return Array.isArray(material) ? material.map(copy) : copy(material);
+}
+
+/**
+ * Builds the mesh from a loaded asset and its bone table. Load time only.
+ * `material` is the asset's: one, or one per geometry group (its draw modes,
+ * render/fcopModel.ts faceMaterials), each given the pose.
+ */
 export function buildX1Rig(
   scene: THREE.Scene,
   geometry: THREE.BufferGeometry,
-  material: THREE.Material,
+  material: THREE.Material | THREE.Material[],
   table: Float32Array,
 ): X1RigCore {
-  const bone = geometry.getAttribute(GLTF_BONE) ?? geometry.getAttribute(X1_BONE_ATTR);
-  if (!bone) throw new Error("avatar-x1.glb has no _X1BONE attribute");
-  geometry.setAttribute(X1_BONE_ATTR, bone);
-  if (geometry.getAttribute(GLTF_BONE)) geometry.deleteAttribute(GLTF_BONE);
+  renameAttribute(geometry, GLTF_BONE, X1_BONE_ATTR);
+  renameAttribute(geometry, GLTF_LAYER, X1_LAYER_ATTR);
+  renameAttribute(geometry, GLTF_FACE, X1_FACE_ATTR);
   if (!geometry.getAttribute(TEAM_UV_MASK)) throw new Error("avatar-x1.glb has no _TEAMUV");
   geometry.setAttribute(TEAM_UV_ATTR, createTeamUvAttribute(RIG_CAPACITY));
   const pose = new THREE.InstancedBufferAttribute(new Float32Array(RIG_CAPACITY * 4), 4);
   pose.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute(X1_POSE_ATTR, pose);
-  // A clone keeps no patch (three copies no onBeforeCompile): the team offset again.
-  const plain = material.clone();
-  plain.userData.patchKeys = [];
-  patchTeamUv(plain);
-  patchX1(material, createX1AnimTexture(table));
+  const layers = new THREE.InstancedBufferAttribute(new Float32Array(RIG_CAPACITY * 2), 2);
+  layers.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute(X1_LAYERS_ATTR, layers);
+  // Taken before the pose is chained on: the shatter's pieces keep the passes.
+  const plain = plainMaterials(material);
+  const anim = createX1AnimTexture(table);
+  for (const m of materialList(material)) patchX1(m, anim);
   const mesh = new THREE.InstancedMesh(geometry, material, RIG_CAPACITY);
   mesh.count = 0;
   // The shader moves every vertex; the bind pose's bounds say nothing.
@@ -181,8 +250,9 @@ export function buildX1Rig(
 }
 
 /**
- * Writes slot `slot` of the rig: its matrix, its pose and, when the side or the
- * cloak's v changed, its texture offset. Returns false past capacity.
+ * Writes slot `slot` of the rig: its matrix, its pose, the layer masks of its
+ * draw form (X1_FORM_*, render/x1Walk.ts x1DrawForm) and, when the side or the
+ * cloak's v changed, its texture offset.
  */
 export function placeX1(
   core: X1RigCore,
@@ -197,6 +267,7 @@ export function placeX1(
   aimYaw: number,
   aimPitch: number,
   cloakV: number,
+  form: number,
 ): void {
   // sim (x, y, height, yaw) -> three (x, height, z), model +Z forward folded in.
   scratchPos.set(x, height, y);
@@ -218,6 +289,20 @@ export function placeX1(
     a[o + 3] = aimPitch;
     pose.needsUpdate = true;
   }
+  // The masks change only at a transform, so nothing here may wait behind an
+  // `if` for one: an operation the walker never reaches has no type feedback,
+  // and the frame loop, optimised before the first transform, deopts there and
+  // comes back allocating (x1Alloc.test.ts). Written every call, uploaded only
+  // on a change (`needsUpdate = false` bumps no version).
+  const layers = core.mesh.geometry.getAttribute(X1_LAYERS_ATTR) as THREE.InstancedBufferAttribute;
+  const l = layers.array as Float32Array;
+  const i = slot * 2;
+  const legsMask = X1_LEGS_LAYER_MASKS[form];
+  const cockpitMask = X1_COCKPIT_LAYER_MASKS[form];
+  const changed = l[i] !== legsMask || l[i + 1] !== cockpitMask;
+  l[i] = legsMask;
+  l[i + 1] = cockpitMask;
+  layers.needsUpdate = changed;
   if (core.sideCache[slot] !== side || core.cloakCache[slot] !== cloakV) {
     core.sideCache[slot] = side;
     core.cloakCache[slot] = cloakV;
@@ -247,6 +332,7 @@ export function x1CockpitSkeleton(
 ): void {
   out.geometry = core.mesh.geometry;
   out.slotAttr = X1_BONE_ATTR;
+  out.faceAttr = X1_FACE_ATTR;
   out.material = core.plain;
   x1Uv(core.plain, side, -1, scratchUv);
   out.teamU = scratchUv[0];
@@ -275,9 +361,10 @@ export interface AvatarRig {
   begin(): void;
   /**
    * Poses one X1 -- walker, transforming or hover alike -- by its frames
-   * (render/x1Walk.ts) and the cockpit's aim. `cloakV` is the cloak's v
-   * offset in texels, or -1. Returns false when the rig cannot take it (not
-   * loaded yet, or out of capacity): then the caller uses its bucket.
+   * (render/x1Walk.ts) and the cockpit's aim, its faces gated by the layer
+   * masks of its draw form (X1_FORM_*). `cloakV` is the cloak's v offset in
+   * texels, or -1. Returns false when the rig cannot take it (not loaded yet,
+   * or out of capacity): then the caller uses its bucket.
    */
   place(
     x: number,
@@ -290,6 +377,7 @@ export interface AvatarRig {
     aimYaw: number,
     aimPitch: number,
     cloakV: number,
+    form: number,
   ): boolean;
   /** Publishes the count and the matrices. Call after the entity sweep. */
   end(): void;
@@ -331,8 +419,6 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
   ]).then(
     ([{ geometry, material }, bin]) => {
       try {
-        // gen:x1's parts come through the RE's old path: all opaque, one material.
-        if (Array.isArray(material)) throw new Error("avatar-x1.glb has several draw modes");
         core = buildX1Rig(scene, geometry, material, new Float32Array(bin));
       } catch (err) {
         console.warn(`[avatarRig] unusable avatar-x1 asset, keeping greybox: ${err}`);
@@ -350,7 +436,7 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
     begin() {
       count = 0;
     },
-    place(x, height, y, yaw, team, legsFrame, cockpitFrame, aimYaw, aimPitch, cloakV) {
+    place(x, height, y, yaw, team, legsFrame, cockpitFrame, aimYaw, aimPitch, cloakV, form) {
       const c = core;
       if (!c) return false;
       if (count >= RIG_CAPACITY) {
@@ -379,6 +465,7 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
         aimYaw,
         aimPitch,
         cloakV,
+        form,
       );
       return true;
     },

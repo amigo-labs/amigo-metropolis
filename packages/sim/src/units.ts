@@ -27,23 +27,32 @@
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
   AIR_ALTITUDE,
+  AIRCRAFT_CRUISE_DWELL_MIN,
   AIRCRAFT_CRUISE_JITTER,
-  AIRCRAFT_CRUISE_TICKS,
+  AIRCRAFT_DELTA_UNITS,
+  AIRCRAFT_DWELL_JITTER,
+  AIRCRAFT_HEADING_ONE,
   AIRCRAFT_REVERSE_JITTER,
-  AIRCRAFT_REVERSE_TICKS,
+  AIRCRAFT_REVERSE_UNITS,
   AIRCRAFT_SEARCH_JITTER,
-  AIRCRAFT_SEARCH_TICKS,
+  AIRCRAFT_SEARCH_UNITS,
   AIRCRAFT_STANDOFF,
+  AIRCRAFT_STEP_BITS,
+  AIRCRAFT_TURN_RATE,
   AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HOVER_SPEED,
   AVATAR_WALKER_MAX_SLOPE,
   FORTRESS_AIRCRAFT_SPEED,
   FORTRESS_DETECT_RANGE,
+  FORTRESS_DWELL_CRUISE,
+  FORTRESS_DWELL_ENGAGE,
   FORTRESS_LEASH_X,
   FORTRESS_LEASH_Y,
   FRAME_CLOCK_PER_TICK,
   GUARDIAN_AIRCRAFT_SPEED,
   GUARDIAN_DETECT_RANGE,
+  GUARDIAN_DWELL_CRUISE,
+  GUARDIAN_DWELL_ENGAGE,
   GUARDIAN_LEASH_X,
   GUARDIAN_LEASH_Y,
   HOVER_CUSHION_SPAN,
@@ -68,6 +77,7 @@ import {
   UNIT_SEPARATION_PUSH,
   UNIT_SEPARATION_RADIUS,
   WAYPOINT_RADIUS,
+  WU_PER_METRE,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
 import { type MapData, resolveHeight, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
@@ -253,20 +263,27 @@ function stepHullWalk(state: SimState, id: number): void {
 }
 
 /**
+ * An aircraft's `mode` holds its anchor (below) and, in this bit, its state:
+ * set CRUISE (fly to the destination, gun silent), clear ENGAGE.
+ */
+const AIR_CRUISE = 0x80;
+export const AIR_ANCHOR_MASK = 0x7f;
+
+/**
  * A PA aircraft's anchor — the spawner it was built at, which its patrol leash
  * is measured from (the original's `anchor`, the record's own position): the
  * base air console for a base-built one (mode 0), outpost k's spot for one built
  * there (mode 1 + k).
  */
 function aircraftAnchorX(state: SimState, id: number): number {
-  const m = state.ent.mode[id];
+  const m = state.ent.mode[id] & AIR_ANCHOR_MASK;
   const spots = state.map.outpostSpots;
   if (m >= 1 && m - 1 < spots.length) return spots[m - 1].x;
   return state.map.bases[state.ent.team[id]].airConsole.x;
 }
 
 function aircraftAnchorY(state: SimState, id: number): number {
-  const m = state.ent.mode[id];
+  const m = state.ent.mode[id] & AIR_ANCHOR_MASK;
   const spots = state.map.outpostSpots;
   if (m >= 1 && m - 1 < spots.length) return spots[m - 1].y;
   return state.map.bases[state.ent.team[id]].airConsole.y;
@@ -284,13 +301,27 @@ function insideLeash(state: SimState, id: number): boolean {
 }
 
 /**
- * Is this aircraft engaging — holding a move target, inside its leash and not
- * cruising? Its shooter fires only then (sim.ts shooterUnit; the original steps
- * an aircraft's weapon in STATE_ENGAGE only).
+ * Is this aircraft in ENGAGE? Its shooter fires only then (sim.ts shooterUnit;
+ * the original steps an aircraft's weapon in STATE_ENGAGE only, 0x00420c32,
+ * after the state switch).
  */
 export function aircraftEngaged(state: SimState, id: number): boolean {
-  const ent = state.ent;
-  return ent.ammoB[id] > 0 && ent.timerC[id] <= 0 && insideLeash(state, id);
+  return (state.ent.mode[id] & AIR_CRUISE) === 0;
+}
+
+/** The halfword the original keeps a state timer in (`mov word ptr [esi + 0x100]`). */
+function toHalfword(v: number): number {
+  return ((v + 0x8000) & 0xffff) - 0x8000;
+}
+
+/**
+ * An ENGAGE / CRUISE dwell reload (0x00420833..0x0042085f): the dwell plus
+ * `(rand & 0xff) * dwell >> 10`, kept as a halfword — so a Flying Fortress's
+ * long ENGAGE can wrap negative and flip back on the next tick, as it does in
+ * the original.
+ */
+function dwellReload(state: SimState, dwell: number): number {
+  return toHalfword(((randInt(state, AIRCRAFT_DWELL_JITTER) * dwell) >> 10) + dwell);
 }
 
 /** A new patrol destination inside half the leash (`aircraft_pick_destination`). */
@@ -345,32 +376,39 @@ function aircraftSearch(state: SimState, id: number): number {
 
 /**
  * A PA jet or Flying Fortress, the original's aircraft (`aircraft_step`, retail
- * 0x00420700; fcop-re/ai-and-rules.md §4, camera-and-movement.md "Aircraft"):
- * - every 900 + rand 0..511 engine units (3.0-4.7 s) it searches for a target
- *   (aircraftSearch) and keeps it until it dies;
- * - engaging (a target, inside its leash) it flies at the target and its gun
- *   fires; outside the leash — ±24 × ±20 m around its anchor for a jet,
- *   ±30 × ±28 m for a Fortress (orbit_area raw / 1024) — it picks a destination
- *   inside half the leash and cruises there for 4.0-10.8 s (0x4b0 + rand 0..0x7ff
- *   units) with its gun silent; with no target it cruises to a destination;
- * - inside the 1 m standoff of whatever it flies at it reverses, and keeps
- *   reversing for 0.5-0.9 s (150 + rand 0..127 units): it circles and jitters
- *   about its target instead of stopping. It never halts.
- * Field reuse: timerA/timerB the destination, timerC the cruise countdown,
- * cooldownB the search countdown (ticks), ammoB the target + 1, aimX the
- * reverse countdown (ticks), mode the anchor (aircraftAnchorX).
- * Not modelled (not in the extracted records): the ENGAGE / CRUISE dwell timers
- * of a target-less patrol (it re-draws its destination on arrival instead), the
- * turn rate (it turns at once) and the altitude controller (AIR_ALTITUDE).
+ * 0x00420700; RE M3-OR, fcop-re/ai-and-rules.md §4), once a tick of 10 engine
+ * units:
+ * - every 0x384 + rand 0..0x1ff units (3.0-4.7 s) it searches (aircraftSearch)
+ *   and takes what it finds, or nothing; a target that dies is dropped and a
+ *   new destination drawn;
+ * - ENGAGE and CRUISE each last their dwell (balance.ts GUARDIAN_/FORTRESS_
+ *   DWELL_*: the jet 20 s / 5 s), an ENGAGE that runs out drawing a destination;
+ * - in ENGAGE, out of its box — ±20 x ±24 m about its anchor for a jet, ±28 x
+ *   ±30 m for a Fortress — it draws a destination and CRUISEs 4.0-10.8 s; in the
+ *   box it flies at its target, or with none CRUISEs to its destination for
+ *   max(4 s, the cruise dwell); in CRUISE it flies to its destination. Its gun
+ *   fires only in ENGAGE;
+ * - inside the 1 m standoff (by the octagonal estimate, 0x00458000) it
+ *   reverses, and keeps reversing for 0.5-0.9 s;
+ * - it turns as the original does (steerHeading, the record's turn 5120): it
+ *   flies its heading and bends it toward the point, so it loops about what it
+ *   attacks and circles its destination. It never halts.
+ * Field reuse: timerA/timerB the destination, timerC the state timer (engine
+ * units), cooldownB the search timer (engine units), ammoB the target + 1, aimX
+ * the reverse timer (engine units), mode the anchor and AIR_CRUISE, velX/velY
+ * the heading times the speed.
+ * Not modelled: the altitude controller (AIR_ALTITUDE), the launch climb.
  */
 function moveAircraft(state: SimState, id: number): void {
   const ent = state.ent;
-  ent.cooldownB[id] -= 1;
+  const fortress = ent.archetype[id] === ARCHETYPE.FORTRESS;
+  // 0x00420752: the search, which replaces the target with what it finds.
+  ent.cooldownB[id] -= AIRCRAFT_DELTA_UNITS;
   if (ent.cooldownB[id] < 0) {
-    ent.cooldownB[id] = AIRCRAFT_SEARCH_TICKS + randInt(state, AIRCRAFT_SEARCH_JITTER);
-    const found = aircraftSearch(state, id);
-    if (found >= 0) ent.ammoB[id] = found + 1;
+    ent.cooldownB[id] = AIRCRAFT_SEARCH_UNITS + randInt(state, AIRCRAFT_SEARCH_JITTER);
+    ent.ammoB[id] = aircraftSearch(state, id) + 1;
   }
+  // 0x004207c1: a target that is gone is dropped, with a new destination.
   let target = ent.ammoB[id] - 1;
   if (target >= 0) {
     const tt = ent.team[target];
@@ -380,65 +418,137 @@ function moveAircraft(state: SimState, id: number): void {
       pickDestination(state, id);
     }
   }
-  if (ent.timerC[id] > 0) ent.timerC[id] -= 1;
-  let tx: number;
-  let ty: number;
-  if (ent.timerC[id] <= 0 && target >= 0 && !insideLeash(state, id)) {
-    // Off the leash: a fresh destination and a long cruise, gun silent.
-    pickDestination(state, id);
-    ent.timerC[id] = AIRCRAFT_CRUISE_TICKS + randInt(state, AIRCRAFT_CRUISE_JITTER);
+  // 0x004207eb: the dwell.
+  ent.timerC[id] -= AIRCRAFT_DELTA_UNITS;
+  if (ent.timerC[id] < 0) {
+    if ((ent.mode[id] & AIR_CRUISE) === 0) {
+      pickDestination(state, id);
+      ent.mode[id] |= AIR_CRUISE;
+      ent.timerC[id] = dwellReload(state, fortress ? FORTRESS_DWELL_CRUISE : GUARDIAN_DWELL_CRUISE);
+    } else {
+      ent.mode[id] &= AIR_ANCHOR_MASK;
+      ent.timerC[id] = dwellReload(state, fortress ? FORTRESS_DWELL_ENGAGE : GUARDIAN_DWELL_ENGAGE);
+    }
   }
-  if (ent.timerC[id] <= 0 && target >= 0) {
-    tx = ent.posX[target];
-    ty = ent.posY[target];
-  } else {
-    tx = ent.timerA[id];
-    ty = ent.timerB[id];
+  // 0x00420867: the state switch.
+  let tx = ent.timerA[id];
+  let ty = ent.timerB[id];
+  if ((ent.mode[id] & AIR_CRUISE) === 0) {
+    if (!insideLeash(state, id)) {
+      pickDestination(state, id);
+      tx = ent.timerA[id];
+      ty = ent.timerB[id];
+      ent.mode[id] |= AIR_CRUISE;
+      ent.timerC[id] = AIRCRAFT_CRUISE_DWELL_MIN + randInt(state, AIRCRAFT_CRUISE_JITTER);
+    } else if (target >= 0) {
+      tx = ent.posX[target];
+      ty = ent.posY[target];
+    } else {
+      const cruise = fortress ? FORTRESS_DWELL_CRUISE : GUARDIAN_DWELL_CRUISE;
+      ent.mode[id] |= AIR_CRUISE;
+      ent.timerC[id] = cruise > AIRCRAFT_CRUISE_DWELL_MIN ? cruise : AIRCRAFT_CRUISE_DWELL_MIN;
+    }
   }
-  let dx = tx - ent.posX[id];
-  let dy = ty - ent.posY[id];
-  const d = Math.sqrt(dx * dx + dy * dy);
-  if (target < 0 && d < AIRCRAFT_STANDOFF) {
-    pickDestination(state, id); // a target-less patrol moves on
-  }
-  // The standoff reverse, and its countdown.
+  // 0x004209a2: the standoff reverse and its timer.
+  const dx = tx - ent.posX[id];
+  const dy = ty - ent.posY[id];
+  if (ent.aimX[id] > 0) ent.aimX[id] -= AIRCRAFT_DELTA_UNITS;
+  const ax = dx < 0 ? -dx : dx;
+  const ay = dy < 0 ? -dy : dy;
+  const octagonal = ax > ay ? ax + ay / 2 : ay + ax / 2;
   let reverse = false;
-  if (d < AIRCRAFT_STANDOFF) {
+  if (octagonal < AIRCRAFT_STANDOFF || ent.aimX[id] > 0) {
     reverse = true;
     if (ent.aimX[id] <= 0) {
-      ent.aimX[id] = AIRCRAFT_REVERSE_TICKS + randInt(state, AIRCRAFT_REVERSE_JITTER);
+      ent.aimX[id] = AIRCRAFT_REVERSE_UNITS + randInt(state, AIRCRAFT_REVERSE_JITTER);
     }
-  } else if (ent.aimX[id] > 0) {
-    reverse = true;
-  }
-  if (ent.aimX[id] > 0) ent.aimX[id] -= 1;
-  if (d > 1e-6) {
-    dx /= d;
-    dy /= d;
-  } else {
-    dx = cosLUT(ent.yaw[id]);
-    dy = sinLUT(ent.yaw[id]);
-  }
-  if (reverse) {
-    dx = -dx;
-    dy = -dy;
   }
   const speed = airSpeed(state, id);
-  ent.velX[id] = dx * speed;
-  ent.velY[id] = dy * speed;
-  ent.yaw[id] = atan2Poly(dy, dx);
+  // The original's turn (steerHeading) toward the steer point, reversed inside
+  // the standoff: it flies its heading, not straight at the point.
+  aircraftHeading(state, id);
+  steerHeading(
+    headingScratch.x,
+    headingScratch.y,
+    reverse ? -dx : dx,
+    reverse ? -dy : dy,
+    AIRCRAFT_TURN_RATE,
+  );
+  ent.velX[id] = headingScratch.x * speed;
+  ent.velY[id] = headingScratch.y * speed;
+  ent.yaw[id] = atan2Poly(headingScratch.y, headingScratch.x);
   stepAndSnap(state, id, true);
 }
 
+/** Scratch for aircraftHeading / steerHeading (module scope, no allocation per tick). */
+export const headingScratch = { x: 0, y: 0 };
+
 /**
- * Starts a PA aircraft: its destination is where it was built and it searches on
- * its first tick.
+ * An aircraft's unit heading into headingScratch: the direction it flies (its
+ * velocity), or its facing before it has flown.
+ */
+export function aircraftHeading(state: SimState, id: number): void {
+  const ent = state.ent;
+  const vx = ent.velX[id];
+  const vy = ent.velY[id];
+  const l = Math.sqrt(vx * vx + vy * vy);
+  if (l > 1e-9) {
+    headingScratch.x = vx / l;
+    headingScratch.y = vy / l;
+  } else {
+    headingScratch.x = cosLUT(ent.yaw[id]);
+    headingScratch.y = sinLUT(ent.yaw[id]);
+  }
+}
+
+/**
+ * One frame of the original's aircraft turn (`aircraft_fly`, retail
+ * 0x00420a0f..0x00420b84; balance.ts AIRCRAFT_TURN_RATE): the horizontal vector
+ * (dx, dy) to the steer point, in world units, is shifted until its cheap
+ * magnitude (`max + min / 4`, 0x00457b10) has AIRCRAFT_STEP_BITS bits
+ * (`vec_rescale_15`, 0x00457f60) — a pure shift, so the step keeps the
+ * direction and not the length — scaled 16.16 by `turn * delta >> 3`
+ * (0x004584a0) and added to the unit heading (hx, hy) x 0x10000, which is then
+ * normalised. Writes the new unit heading to headingScratch.
+ */
+export function steerHeading(hx: number, hy: number, dx: number, dy: number, turn: number): void {
+  let ix = Math.floor(dx * WU_PER_METRE);
+  let iy = Math.floor(dy * WU_PER_METRE);
+  const ax = ix < 0 ? -ix : ix;
+  const ay = iy < 0 ? -iy : iy;
+  const mag = ax > ay ? ax + (ay >> 2) : ay + (ax >> 2);
+  const bits = topBit(mag);
+  if (bits > AIRCRAFT_STEP_BITS) {
+    ix >>= bits - AIRCRAFT_STEP_BITS;
+    iy >>= bits - AIRCRAFT_STEP_BITS;
+  } else {
+    ix <<= AIRCRAFT_STEP_BITS - bits;
+    iy <<= AIRCRAFT_STEP_BITS - bits;
+  }
+  const scale = (turn * AIRCRAFT_DELTA_UNITS) >> 3;
+  const nx = hx * AIRCRAFT_HEADING_ONE + ((ix * scale) >> 16);
+  const ny = hy * AIRCRAFT_HEADING_ONE + ((iy * scale) >> 16);
+  const l = Math.sqrt(nx * nx + ny * ny);
+  if (l > 1e-9) {
+    headingScratch.x = nx / l;
+    headingScratch.y = ny / l;
+  } else {
+    headingScratch.x = hx;
+    headingScratch.y = hy;
+  }
+}
+
+/**
+ * Starts a PA aircraft as the construct does (0x00420380): in CRUISE (the
+ * records' state byte 1) on its cruise dwell, to a destination drawn inside its
+ * box (0x00420607), searching on its first tick (the timer starts at -1).
  */
 export function startAircraft(state: SimState, id: number): void {
   const ent = state.ent;
-  ent.timerA[id] = ent.posX[id];
-  ent.timerB[id] = ent.posY[id];
-  ent.timerC[id] = 0;
+  const fortress = ent.archetype[id] === ARCHETYPE.FORTRESS;
+  ent.mode[id] |= AIR_CRUISE;
+  ent.timerC[id] = fortress ? FORTRESS_DWELL_CRUISE : GUARDIAN_DWELL_CRUISE;
+  pickDestination(state, id);
   ent.cooldownB[id] = 0;
   ent.ammoB[id] = 0;
   ent.aimX[id] = 0;

@@ -1092,17 +1092,29 @@ export const HELLFIRE_SPLIT_FAN = 0.35;
  */
 export const MORTAR_FRAGMENT_SPREAD = 1.5;
 
-// Pop-Up Mines: the record gives the trigger reach (w10 1024 = 2 m, plus the
-// intruder's own radius), the 1.0 s fuse once sprung, and the blast. The record's
-// 5.0 s lifetime field is not used: whether an untriggered mine goes off after
-// 5 s or waits was not established (player-and-weapons.md §9.2). So a mine keeps
-// Metropolis' 30 s silent despawn and its arming delay, both ours.
-/** Live lifetime once placed; despawns without a blast if nobody trips it. Ours. */
-export const SPECIAL_MINE_TTL_TICKS = 900; // 30 s
-/** Ticks after placing before an enemy can spring the fuse (owner walk-off). Ours. */
-export const SPECIAL_MINE_ARM_TICKS = 15; // 0.5 s
-/** Sprung -> blast: 1.0 s (player-weapons.json `mine.sprung_fuse_s`). */
-export const SPECIAL_MINE_FUSE_TICKS = 30;
+// Pop-Up Mines: the dropped round (`cact_round_spawn_dropped` 0x0044d6a0), the
+// bouncing round's class (`type15.c`) with a fuse (RE M3-OP). It leaves the
+// muzzle with no speed, falls, bounces like the grenade and goes off where it
+// comes to rest (0x00424606: the tick that settles it expires it) -- an
+// unsprung mine never waits, and its 5.0 s lifetime (the record's +0x18, 1503
+// units) is not reached on open ground. An enemy within the record's reach
+// (w10 1024 = 2 m) plus its own radius springs it first: flung down, it pops
+// back up off the ground and goes off when its new lifetime runs out.
+/** Its gravity, world units a second²: the spawner's constant, not the record's (0x0044d746). */
+export const MINE_GRAVITY = 0x10000;
+/**
+ * Its ground is the surface plus its model's `radius_68`: the halfword at +12
+ * of the mine's 3DBB box 0, 130, << 4 world units -- both blocks' models on
+ * all six arenas (Mp 50/51, Conft 51/52, Hk 53/54, Joke 55/56, Ovmp 50/51,
+ * Slim 56/57).
+ */
+export const MINE_RADIUS = (130 << 4) / 8192;
+/** Sprung (`bounce_spring`, 0x004244b9..0x00424505): 300 units to live ... */
+export const MINE_SPRING_UNITS = 300;
+/** ... flung at -0x8000 world units a second, vertically ... */
+export const MINE_SPRING_VELOCITY = -0x8000;
+/** ... under a gravity of 0x8000 world units a second². */
+export const MINE_SPRING_GRAVITY = 0x8000;
 
 // --- The five extra weapons (SimOptions.extraWeapons, SIM_VERSION 90) --------
 // Their records are WEAPON_RECORDS 0x05, 0x14, 0x15, 0x21 and 0x24; these are the
@@ -1497,38 +1509,93 @@ export const ROUTE_CONE_COS = 0xf600 / 0x10000;
 export const GUARDIAN_AIRCRAFT_SPEED = 2048 / 512; // (raw << 12) / 300 >> 8 per tick at 300 Hz
 export const FORTRESS_AIRCRAFT_SPEED = 2457 / 512;
 /**
- * The PA aircraft's target search (`aircraft_step` 0x00420752): every 900 + rand
- * 0..511 engine units (3.0-4.7 s), the nearest enemy within the record's
- * target_detection_range raw / 512 m — the jet's 28672 = 56 m, the Flying
- * Fortress' 32358 = 63.2 m (fcop-fidelity.md I2, `rangeToCells`;
- * camera-and-movement.md "Aircraft").
+ * The PA aircraft's target search (`aircraft_step` 0x00420752): every 0x384 +
+ * rand 0..0x1ff engine units (3.0-4.7 s) it takes the nearest enemy within the
+ * record's target_detection_range raw / 512 m — the jet's 28672 = 56 m, the
+ * Flying Fortress' 32358 = 63.2 m (fcop-fidelity.md I2) — or none: each search
+ * replaces the target, so one that flew out of range is dropped (RE M3-OR).
  */
-export const AIRCRAFT_SEARCH_TICKS = 90;
-export const AIRCRAFT_SEARCH_JITTER = 52; // rand 0..511 engine units, in ticks
+export const AIRCRAFT_SEARCH_UNITS = 0x384;
+export const AIRCRAFT_SEARCH_JITTER = 0x200;
 export const GUARDIAN_DETECT_RANGE = 28672 / 512;
 export const FORTRESS_DETECT_RANGE = 32358 / 512;
 /**
- * The patrol leash: orbit_area raw / 1024 m half-extents about the aircraft's
- * anchor (I2, `orbitLeashToCells`): jet 24576 x 20480 = ±24 x ±20 m, Fortress
- * 30720 x 28672 = ±30 x ±28 m; destinations are drawn inside half of it. x is
- * orbit_area_x on the world x axis (the original tests its axes crosswise
- * against two record halfwords; for the jet the difference is 4 m).
+ * The patrol box about the aircraft's anchor (`aircraft_step` 0x004208d6): `|dx|
+ * >> 8 > patrol_x` or `|dz| >> 8 > patrol_z`, the two extents the record's
+ * +0x46 and +0x44 shifted down five (the construct 0x00420472..0x00420489), so
+ * a half-extent of raw / 1024 m: the jet ±20 m on x and ±24 m on z, the Flying
+ * Fortress ±28 x ±30 m (Mp, Conft, Slim, Joke, Ovmp's jets; RE M3-OR). Until
+ * SIM_VERSION 104 Metropolis crossed them (±24 x ±20, ±30 x ±28). Destinations
+ * are drawn inside half of it (`aircraft_pick_destination` 0x00420680). Kept
+ * from Mp for every arena: Hk's two base jet spawners carry the two swapped,
+ * its and Ovmp's Fortress 32763 / 31744 on both.
  */
-export const GUARDIAN_LEASH_X = 24576 / 1024;
-export const GUARDIAN_LEASH_Y = 20480 / 1024;
-export const FORTRESS_LEASH_X = 30720 / 1024;
-export const FORTRESS_LEASH_Y = 28672 / 1024;
-/** Off the leash it cruises 0x4b0 + rand 0..0x7ff engine units (4.0-10.8 s). */
-export const AIRCRAFT_CRUISE_TICKS = 120;
-export const AIRCRAFT_CRUISE_JITTER = 205;
+export const GUARDIAN_LEASH_X = 20480 / 1024;
+export const GUARDIAN_LEASH_Y = 24576 / 1024;
+export const FORTRESS_LEASH_X = 28672 / 1024;
+export const FORTRESS_LEASH_Y = 30720 / 1024;
 /**
- * Inside the standoff (record 512 << 4 wu = 1 m, the Sky Captain's; the PA
- * jets' is not in the extracted records) it reverses, for 150 + rand 0..127
- * engine units.
+ * The ENGAGE / CRUISE dwell (`aircraft_step` 0x004207eb; RE M3-OR): in either
+ * state the timer runs down by the delta, and when it goes below zero an
+ * ENGAGE draws a new destination and CRUISEs, a CRUISE ENGAGEs, each reloaded
+ * with its dwell plus `(rand & 0xff) * dwell >> 10` and kept as a halfword. The
+ * dwells are the record's +0x48 / +0x4a times 300 >> 8 (0x004203d3..0x00420400):
+ * the jet 5120 / 1280 raw = 6000 / 1500 engine units (20 s / 5 s), the Flying
+ * Fortress 25600 / 256 = 30000 / 300 (its ENGAGE reload overflows the halfword
+ * whenever the draw is 95 or more, and a wrapped, negative timer flips it back
+ * at once). A new aircraft starts in CRUISE on the CRUISE dwell (state byte 1).
+ */
+export const GUARDIAN_DWELL_ENGAGE = (5120 * 300) >> 8;
+export const GUARDIAN_DWELL_CRUISE = (1280 * 300) >> 8;
+export const FORTRESS_DWELL_ENGAGE = (25600 * 300) >> 8;
+export const FORTRESS_DWELL_CRUISE = (256 * 300) >> 8;
+export const AIRCRAFT_DWELL_JITTER = 0x100;
+/**
+ * In ENGAGE without a target it CRUISEs to its destination on `max(0x4b0,
+ * cruise dwell)` (0x00420d02); out of its box it draws a destination and
+ * CRUISEs for 0x4b0 + rand 0..0x7ff engine units (4.0-10.8 s, 0x004208d6).
+ */
+export const AIRCRAFT_CRUISE_DWELL_MIN = 0x4b0;
+export const AIRCRAFT_CRUISE_JITTER = 0x800;
+/**
+ * Inside the standoff (record 512 << 4 wu = 1 m, every PA aircraft's) it
+ * reverses, and keeps reversing while the timer it then loads, 0x96 + rand
+ * 0..0x7f engine units, runs (0x004209bc..0x00420a08).
  */
 export const AIRCRAFT_STANDOFF = 1;
-export const AIRCRAFT_REVERSE_TICKS = 15;
-export const AIRCRAFT_REVERSE_JITTER = 13;
+export const AIRCRAFT_REVERSE_UNITS = 0x96;
+export const AIRCRAFT_REVERSE_JITTER = 0x80;
+/**
+ * How an aircraft turns (`aircraft_fly`, retail 0x00420977..0x00420b84; RE
+ * M3-OR): there is no angular rate. Each frame the horizontal vector to the
+ * steer point is rescaled by a pure shift until its cheap magnitude (`max +
+ * min / 4`, 0x00457b10) has 15 bits (0x00457f60), multiplied 16.16 by `turn *
+ * delta >> 3` (0x00420a1f, 0x004584a0) and added to the unit (0x10000) heading,
+ * which is normalised again (0x00420b2a..0x00420b84; the low-passed `steer` only
+ * banks the model). So the step is 2^15..2^16 x turn x delta / 2^35 of a unit,
+ * the shift's leftover making it depend on the distance's bit pattern: a jet's
+ * hardest turn (5120) is 81..190°/s at 30 fps, the Sky Captain's (4096) 65..152°/s,
+ * 262..621°/s boosted. Every PA jet and Flying Fortress record carries 5120,
+ * every Sky Captain 4096 (all six arenas). Metropolis steps it once a tick with
+ * delta = AIRCRAFT_DELTA_UNITS; the heading's Y (the altitude command, its 7/8
+ * decay and the pitch clamp) and the bank's speed penalty are not modelled.
+ */
+export const AIRCRAFT_TURN_RATE = 5120;
+export const SKY_TURN_RATE = 4096;
+/** The engine units one sim tick stands for in the steering step (10 at 30 Hz). */
+export const AIRCRAFT_DELTA_UNITS = 300 / TICK_HZ;
+/** The heading's unit: 1.0 in 16.16, which the step is added to. */
+export const AIRCRAFT_HEADING_ONE = 0x10000;
+/** The bits `vec_rescale_15` pins the step's cheap magnitude to (floor log2 = 15). */
+export const AIRCRAFT_STEP_BITS = 15;
+/**
+ * The Sky Captain's turn is quadrupled, once (`sky_boost_turn_rate`, 0x00421761 /
+ * 0x004217dd: `shl 2` of the block's copy), when it cruises home damaged within
+ * 0x14000 wu (10 m) of the restoring pickup it is after or, with none, of home;
+ * a restore or a respawn puts the record's back.
+ */
+export const SKY_TURN_BOOST_SHIFT = 2;
+export const SKY_TURN_BOOST_RADIUS = 0x14000 / 8192;
 
 export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart
 export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tick
@@ -1681,9 +1748,6 @@ export const SKY_PICKUP_TOUCH_WU = 0x3000;
  *   (0.5 s), flies 24 m;
  * - 9, the bomb: 200 damage in a 3.2 m blast (linear falloff), every 601 units
  *   (2.0 s).
- * The projectile speed of 8 and 9 could not be established (catalogue
- * +0x12/+0x14 left raw), so both fly at Metropolis' WARDEN_HEAVY_SPEED, and the
- * bomb keeps Metropolis' flat flight and lifetime instead of the original's arc.
  * Was: a 10-damage cannon every 5 ticks at 42 m and a 60-damage 6 m bomb.
  */
 export const SKY_GUN_DAMAGE = 2;
@@ -1695,8 +1759,28 @@ export const SKY_MISSILE_FLIGHT = 24;
 export const SKY_BOMB_DAMAGE = 200;
 export const SKY_BOMB_REFIRE_UNITS = 601;
 export const SKY_BOMB_BLAST = 3.2;
-export const WARDEN_HEAVY_SPEED = 25;
-export const WARDEN_HEAVY_TTL_TICKS = 75;
+/**
+ * The missile's speed, the catalogue's +0x12 (RE M3-OR): 8192 raw, `trunc(raw /
+ * 300) << 4` = 432 wu per engine unit = 15.82 m/s (weapons.ts roundSpeed). With
+ * no acceleration (+0x14 is 0 on Mp, Conft, Hk and Ovmp) the round leaves at
+ * that speed and keeps it (`cact_missile_spawn` 0x0044d103: `top << 4` when
+ * the acceleration is 0). Slim's and Joke's entry carries an acceleration of
+ * 0x7a, so there it leaves at `top * 2` and speeds up to it within 0.2 s: not
+ * modelled, the captain's weapons are one table on every arena.
+ */
+export const SKY_MISSILE_SPEED_RAW = 8192;
+/**
+ * The bomb is a kind-4 round: `cact_round_spawn_arced` (0x0044d440) launches it
+ * on the ballistic solve `cact_discharge_arc` (0x0044d190) at the target's
+ * position, with the catalogue's +0x12 as its speed (4096 raw = 7.62 m/s) and
+ * its +0x16 (3072) as the drop term — the player's arced rounds' conversion
+ * (weapons.ts: gravity = range raw / 512). It flies until it lands or strikes
+ * (ROUND_ARC); its +0x18 is not read by the spawner.
+ */
+export const SKY_BOMB_SPEED_RAW = 4096;
+export const SKY_BOMB_DROP_RAW = 3072;
+/** The drop term as the arc solve takes it: raw << 4 wu, in metres (6). */
+export const SKY_BOMB_GRAVITY = SKY_BOMB_DROP_RAW / 512;
 /** With no target the shooters search by team on their targeting delay, 16 = 1.0 s. */
 export const SKY_SEARCH_UNITS = 300;
 /**

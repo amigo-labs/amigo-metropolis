@@ -20,7 +20,10 @@
 // (type 0x12, `player_partner_create`, made right after it), each turret's base
 // part (`part_b`, made in the turret's construct, so before it; no PA turret is
 // type 0x21 with a gun part too) and each Dreadnought's four gun mounts
-// (0x00425fa0, made in its construct).
+// (0x00425fa0, made in its construct). An actor with flag 8 is kept at any
+// distance and still counts (0x0043b61b): every unit, turret and round, a
+// Dreadnought's mounts, and the type-11 records whose flags carry it -- never
+// an X1, its partner, a turret's base part or a pickup (RE M3-OP).
 //
 // Markers come from radar_markers.json by unit kind and the team's original
 // side (render/sides.ts); the placed actors Metropolis has no entity for — the
@@ -135,8 +138,9 @@ export function registryDistance(dx: number, dz: number): number {
  * the nearest of `nv` viewpoints; the walk starts at 0x38000 and, whenever more
  * than `limit` are inside, is thrown away and run again 0x4000 tighter, giving
  * up after 0x24000 with what that pass held. Writes 1 into `member` for every
- * candidate the registry keeps and answers how many. A flag-8 actor (never
- * culled) has no Metropolis entity, so none is exempt.
+ * candidate the registry keeps and answers how many. A candidate with `keep`
+ * set carries flag 8 (`test al, 8` at 0x0043b61b, ahead of the distance
+ * compare): it is kept at any distance, and still counts toward the limit.
  */
 export function radarRegistry(
   xs: Float64Array,
@@ -147,6 +151,7 @@ export function radarRegistry(
   nv: number,
   limit: number,
   member: Uint8Array,
+  keep: Uint8Array,
 ): number {
   let radius = REGISTRY_BAND_START;
   for (;;) {
@@ -156,6 +161,15 @@ export function radarRegistry(
     for (let k = 0; k < n; k++) {
       const x = xs[k];
       if (Number.isNaN(x)) continue;
+      if (keep[k] !== 0) {
+        if (count >= limit) {
+          overflowed = true;
+          break;
+        }
+        member[k] = 1;
+        count++;
+        continue;
+      }
       let d = Number.POSITIVE_INFINITY;
       for (let v = 0; v < nv; v++) {
         // position[2] is the map's x, position[0] its y.
@@ -221,11 +235,36 @@ export class LiveOrder {
 }
 
 /**
+ * Flag 8 by archetype (RE M3-OP): every tank, jet, Flying Fortress, turret,
+ * Dreadnought and Sky Captain record of the six arenas carries it, and every
+ * round has it from its spawner; an X1-Alpha's record does not (nor its
+ * partner, which copies the X1's flags), and a console is Metropolis' own.
+ */
+const KEPT_ARCHETYPES: readonly boolean[] = (() => {
+  const kept: boolean[] = [];
+  for (const a of [
+    ARCHETYPE.RUNNER,
+    ARCHETYPE.GUARDIAN,
+    ARCHETYPE.JUGGERNAUT,
+    ARCHETYPE.FORTRESS,
+    ARCHETYPE.TURRET,
+    ARCHETYPE.PROJECTILE,
+    ARCHETYPE.WARDEN,
+  ]) {
+    kept[a] = true;
+  }
+  return kept;
+})();
+
+/**
  * Writes the entities, in `order` (LiveOrder), into the registry's candidates
  * from `n` on, each with the actors that stand with it and have no entity: a
  * turret's base part before it, a Dreadnought's four mounts before it, an X1's
- * partner after it. `entityAt[i]` takes snapshot entity i's own candidate.
- * Answers the next free candidate.
+ * partner after it. `entityAt[i]` takes snapshot entity i's own candidate, and
+ * `keep` each candidate's flag 8: the entity's by its archetype, the mounts'
+ * their Dreadnought's (0x00425fdd keeps it), the base part's clear (the part's
+ * construct masks it off, 0x0041cfdd) and the partner's the X1's. Answers the
+ * next free candidate.
  */
 export function entityCandidates(
   snapshot: Float32Array,
@@ -233,6 +272,7 @@ export function entityCandidates(
   m: number,
   xs: Float64Array,
   ys: Float64Array,
+  keep: Uint8Array,
   n: number,
   entityAt: Int32Array,
 ): number {
@@ -242,20 +282,25 @@ export function entityCandidates(
     const archetype = snapshot[o + 1];
     const x = snapshot[o + 3];
     const y = snapshot[o + 4];
+    const kept = KEPT_ARCHETYPES[archetype] === true ? 1 : 0;
     const before =
       archetype === ARCHETYPE.TURRET ? 1 : archetype === ARCHETYPE.JUGGERNAUT ? MOUNTS : 0;
+    const beforeKept = archetype === ARCHETYPE.JUGGERNAUT ? kept : 0;
     for (let k = 0; k < before; k++) {
       xs[n] = x;
       ys[n] = y;
+      keep[n] = beforeKept;
       n++;
     }
     entityAt[i] = n;
     xs[n] = x;
     ys[n] = y;
+    keep[n] = kept;
     n++;
     if (archetype === ARCHETYPE.AVATAR) {
       xs[n] = x;
       ys[n] = y;
+      keep[n] = 0;
       n++;
     }
   }
@@ -530,6 +575,9 @@ export function createRadar(
   const candX = new Float64Array(maxCandidates);
   const candY = new Float64Array(maxCandidates);
   const member = new Uint8Array(maxCandidates);
+  /** Flag 8 per candidate: kept at any distance (radarRegistry). */
+  const candKeep = new Uint8Array(maxCandidates);
+  const placedKeep = Uint8Array.from(placements, (p) => (p.keep === true ? 1 : 0));
   /** Where each placement and pickup sits among this frame's candidates. */
   const placedAt = new Int32Array(placements.length);
   const pickupAt = new Int32Array(nPickups);
@@ -584,6 +632,7 @@ export function createRadar(
         const claimed = p.outpost >= 0 && (spotSide[p.outpost] ?? 0) !== 0;
         candX[n] = standsAt(p.show, claimed) ? p.x : Number.NaN;
         candY[n] = p.y;
+        candKeep[n] = placedKeep[k];
         n++;
       }
       const up = match[MATCH_PICKUPS] | 0;
@@ -592,10 +641,11 @@ export function createRadar(
         const standing = (up & (1 << k)) !== 0;
         candX[n] = standing ? pickups[k].x : Number.NaN;
         candY[n] = pickups[k].y;
+        candKeep[n] = 0; // a pickup's record has no flag 8
         n++;
       }
       const m = live.update(snapshot, count);
-      n = entityCandidates(snapshot, live.order, m, candX, candY, n, entityAt);
+      n = entityCandidates(snapshot, live.order, m, candX, candY, candKeep, n, entityAt);
       viewX[0] = selfX;
       viewY[0] = selfY;
       let nv = 1;
@@ -609,7 +659,7 @@ export function createRadar(
           nv = 2;
         }
       }
-      radarRegistry(candX, candY, n, viewX, viewY, nv, REGISTRY_LIMIT_TEAM_GAME, member);
+      radarRegistry(candX, candY, n, viewX, viewY, nv, REGISTRY_LIMIT_TEAM_GAME, member, candKeep);
 
       // --- the entities in the registry.
       for (let i = 0; i < count; i++) {

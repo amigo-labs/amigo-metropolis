@@ -20,6 +20,7 @@ import {
   emitterHungAt,
   emitterMatrix,
   emitterOrientation,
+  emitterPropAt,
   emitterYaw,
 } from "../src/render/emitterProps";
 import { recordTurn } from "../src/render/recordYaw";
@@ -43,6 +44,8 @@ function prop(over: Partial<SceneryProp>): SceneryProp {
     anim: "none",
     period: 0,
     sound: 0,
+    quad: 0xffff,
+    leaf: -1,
     ...over,
   };
 }
@@ -108,10 +111,71 @@ describe("the cell a Prop hangs in (snd_emit_build 0x0042f942..0x0042fa88)", () 
         );
         expect({ mapId, found: !!p }).toEqual({ mapId, found: true });
         if (!p || !t) continue;
+        expect(emitterPropAt(t, e.x, e.z, e.sound)).toBe(p);
         const c = t.propModels[p.cobj].centre;
         emitterHungAt(t, e.x, e.z, e.sound, out);
         const want = emitterCentre(p, c, new Float32Array(2));
         expect([out[0], out[1]]).toEqual([want[0], want[1]]);
+      }
+    }
+  });
+});
+
+describe("a Prop's footprint and quadtree (snd_emit_build 0x0042fa7f, gen:scenery)", () => {
+  test("gen:scenery's anchor, in world units, hangs every Prop in the cell this one does", () => {
+    // gen:scenery computes the footprint from its own anchor (exact 3DBB
+    // halfwords, world units) and names the quadtree of that anchor's cell;
+    // the client hangs the Prop by `emitterCell`. One cell, or the footprint
+    // describes another cell's quarters.
+    let n = 0;
+    for (const [mapId, t] of Object.entries(SCENERY_PLACEMENTS)) {
+      for (const p of t.props) {
+        expect(p.leaf, `${mapId} ${p.record}`).toBeGreaterThanOrEqual(0);
+        const tree = t.leafTrees[p.leaf];
+        expect([tree.cz, tree.cx], `${mapId} ${p.record}`).toEqual(emitterCell(t, p));
+        n++;
+      }
+    }
+    expect(n).toBe(89 + 75 + 75 + 151);
+  });
+
+  test("every footprint covers a quarter, and the trees are 21 pairs of distinct cells", () => {
+    for (const [mapId, t] of Object.entries(SCENERY_PLACEMENTS)) {
+      for (const p of t.props) {
+        expect(p.quad, `${mapId} ${p.record}`).toBeGreaterThan(0);
+        expect(p.quad).toBeLessThanOrEqual(0xffff);
+      }
+      const cells = new Set(t.leafTrees.map((l) => `${l.cz},${l.cx}`));
+      expect(cells.size).toBe(t.leafTrees.length);
+      for (const l of t.leafTrees) expect(l.spheres.length).toBe(42);
+    }
+  });
+
+  test("a footprint is its box about its anchor: a point Prop sets the one quarter it is in", () => {
+    // Every quarter a footprint sets is one its anchor's box reaches: the box
+    // about the client's anchor, widened by a quarter, contains each set
+    // quarter's square (the half extents are not in the table, so this bounds
+    // them by the model's own size, 8 m).
+    for (const t of Object.values(SCENERY_PLACEMENTS)) {
+      for (const p of t.props) {
+        const c = t.propModels[p.cobj].centre;
+        const at = emitterCentre(p, c, new Float32Array(2));
+        const [cz, cx] = emitterCell(t, p);
+        // The quarter the anchor itself stands in is always set: x along the
+        // map's y, z along its x, at 0x8000 >> (4 x + z).
+        const ax = Math.floor((at[1] - cx * 16) / 4);
+        const az = Math.floor((at[0] - 16 - cz * 16) / 4);
+        expect(p.quad & (0x8000 >> (4 * ax + az)), p.record).not.toBe(0);
+        for (let e = 0; e < 16; e++) {
+          if ((p.quad & (0x8000 >> e)) === 0) continue;
+          const qx = e >> 2;
+          const qz = e & 3;
+          // Quarter (x, z): map y from cx * 16 + 4 qx, map x from 16 + cz * 16 + 4 qz.
+          const mx = 16 + cz * 16 + qz * 4 + 2;
+          const my = cx * 16 + qx * 4 + 2;
+          expect(Math.abs(mx - at[0])).toBeLessThan(8 + 2);
+          expect(Math.abs(my - at[1])).toBeLessThan(8 + 2);
+        }
       }
     }
   });

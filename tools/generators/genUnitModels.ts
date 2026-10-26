@@ -277,6 +277,13 @@ function transformDirection(m: readonly number[], v: readonly number[]): number[
 
 /** Stash name of a kept morph target's POSITION delta (see processModel). */
 const MORPH_PREFIX = "_MORPH";
+/**
+ * Stash name of its NORMAL delta: a frame's own 4DNL is what the original
+ * lights that frame against (RE docs/formats/objects.md "Face lighting";
+ * `cact_model_project` 0x0042832e reads the frame's normals), so the shading
+ * of a turning part (Slim's and Joke's turbines) turns with it.
+ */
+const NORMAL_MORPH_PREFIX = "_NMORPH";
 
 /** Column-major TRS matrix, as glTF composes a node's local transform. */
 function composeTrs(t: readonly number[], q: readonly number[], s: readonly number[]): number[] {
@@ -322,8 +329,9 @@ function composeTrs(t: readonly number[], q: readonly number[], s: readonly numb
  * one keyframe per frame, and frame k is every joint at keyframe k. The skin is
  * evaluated at each (jointWorld * inverseBind, blended by weight, as
  * bakeSkinRestPose does for one pose); POSITION and NORMAL become frame 0 and
- * frame k's POSITION, less frame 0's, is stashed as `_MORPH{k - 1}` for the
- * pipeline to carry and restore. The skin is then dropped.
+ * frame k's POSITION, less frame 0's, is stashed as `_MORPH{k - 1}` (its
+ * NORMAL as `_NMORPH{k - 1}`) for the pipeline to carry and restore. The skin
+ * is then dropped.
  */
 function bakeSkinFrames(document: Document, frames: number, key: string): void {
   const root = document.getRoot();
@@ -400,7 +408,9 @@ function bakeSkinFrames(document: Document, frames: number, key: string): void {
       const ids = [0, 0, 0, 0];
       const w = [0, 0, 0, 0];
       const skinMatrix = new Array<number>(16);
-      const normals = normal ? new Float32Array(count * 3) : null;
+      const normals = normal
+        ? Array.from({ length: frames }, () => new Float32Array(count * 3))
+        : null;
       for (let i = 0; i < count; i++) {
         jointIds.getElement(i, ids);
         weights.getElement(i, w);
@@ -423,7 +433,7 @@ function bakeSkinFrames(document: Document, frames: number, key: string): void {
                   p,
                 );
           posed[f].set(q, i * 3);
-          if (f === 0 && normals && normal) {
+          if (normals && normal) {
             normal.getElement(i, n);
             const m =
               total === 0
@@ -432,12 +442,12 @@ function bakeSkinFrames(document: Document, frames: number, key: string): void {
                     skinMatrix.map((v) => v / total),
                     n,
                   );
-            normals.set(m ?? n, i * 3);
+            normals[f].set(m ?? n, i * 3);
           }
         }
       }
       position.setArray(posed[0]);
-      if (normal && normals) normal.setArray(normals);
+      if (normal && normals) normal.setArray(normals[0]);
       for (let f = 1; f < frames; f++) {
         const delta = new Float32Array(count * 3);
         for (let e = 0; e < delta.length; e++) delta[e] = posed[f][e] - posed[0][e];
@@ -448,6 +458,13 @@ function bakeSkinFrames(document: Document, frames: number, key: string): void {
             .setType("VEC3")
             .setArray(delta)
             .setBuffer(root.listBuffers()[0]),
+        );
+        if (!normals) continue;
+        const turn = new Float32Array(count * 3);
+        for (let e = 0; e < turn.length; e++) turn[e] = normals[f][e] - normals[0][e];
+        prim.setAttribute(
+          `${NORMAL_MORPH_PREFIX}${f - 1}`,
+          document.createAccessor().setType("VEC3").setArray(turn).setBuffer(root.listBuffers()[0]),
         );
       }
     }
@@ -576,10 +593,11 @@ function fcopOf(material: Material | null): FcopMaterialExtras {
 }
 
 /**
- * The key of a primitive's face. A material without a mode (the X1 parts,
- * which the RE still exports through its old path) is opaque; a non-zero
- * layer (op1 bits 4..6, only the X1's Cobj 15 / 16 carry one) is refused,
- * since nothing here would honour the caller's layer mask.
+ * The key of a primitive's face. A material without a mode (the greybox
+ * avatar-walker / -hover raws, the RE's assembled X1 poses from before it
+ * exported the modes) is opaque; a non-zero layer (op1 bits 4..6, only the
+ * X1's Cobj 15 / 16 carry one; gen:x1 draws those) is refused, since nothing
+ * here would honour the caller's layer mask.
  */
 function faceKeyOf(prim: Primitive, key: string): FaceKey {
   const fcop = fcopOf(prim.getMaterial());
@@ -788,6 +806,7 @@ function assertUnsharedVertexData(document: Document, key: string): void {
  * Turns the stashed `_MORPHk` attributes back into morph targets, in order,
  * with zero weights: frame k + 1 is target k at weight 1, as the RE's glb
  * animates it. On every primitive: a model's faces come one per draw mode.
+ * A stashed `_NMORPHk` becomes target k's NORMAL.
  */
 function restoreMorphTargets(document: Document, mesh: Mesh, key: string, frames: number): void {
   for (const prim of mesh.listPrimitives()) {
@@ -813,6 +832,19 @@ function restoreMorphTargets(document: Document, mesh: Mesh, key: string, frames
             .setBuffer(document.getRoot().listBuffers()[0]),
         );
       prim.setAttribute(name, null);
+      const normalName = `${NORMAL_MORPH_PREFIX}${name.slice(MORPH_PREFIX.length)}`;
+      const turn = prim.getAttribute(normalName)?.getArray();
+      if (turn) {
+        target.setAttribute(
+          "NORMAL",
+          document
+            .createAccessor()
+            .setType("VEC3")
+            .setArray(new Float32Array(turn))
+            .setBuffer(document.getRoot().listBuffers()[0]),
+        );
+        prim.setAttribute(normalName, null);
+      }
       prim.addTarget(target);
     }
   }
@@ -1017,6 +1049,17 @@ async function processModel(spec: ModelPass): Promise<Report | null> {
               .setArray(new Float32Array(delta))
               .setBuffer(root.listBuffers()[0]),
           );
+          const turn = target.getAttribute("NORMAL")?.getArray();
+          if (turn) {
+            prim.setAttribute(
+              `${NORMAL_MORPH_PREFIX}${k}`,
+              document
+                .createAccessor()
+                .setType("VEC3")
+                .setArray(new Float32Array(turn))
+                .setBuffer(root.listBuffers()[0]),
+            );
+          }
         });
       }
       for (const target of prim.listTargets()) {

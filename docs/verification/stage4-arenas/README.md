@@ -30,6 +30,12 @@ All 6 arenas load textured, error-free, aligned with the greybox/markers;
 `venice-beach` upper decks render. See `<id>-mesh.png` vs `<id>-greybox.png`
 per arena, plus `venice-beach-mesh-decks.png` for the deck angle.
 
+`hollywood-keys-fidelity-*.png` and `venice-beach-fidelity-*.png` were added
+with SIM_VERSION 100 (fcop-fidelity.md I13), when their features took the
+surfaces the original stands them on: Ovmp's ring guns stand on the base wall's
+top and Hk's on the street deck, where on the flattened import they stood at the
+ground under them, inside the geometry.
+
 ## Alignment fix found here
 
 The first run showed every mesh floating off the arena (bases sitting on water):

@@ -7,6 +7,7 @@
 //   - navigations: network-first, falling back to the cached app shell offline
 //     (so any ?warden=… / ?online=… deep link still opens the game offline);
 //   - same-origin GETs (JS, icons, manifest): stale-while-revalidate;
+//   - /movies/: untouched (the network only, never cached);
 //   - everything else (cross-origin, the relay WebSocket): untouched.
 //
 // Bump CACHE to invalidate old assets; activate() drops every other cache.
@@ -45,6 +46,10 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return; // never touch the relay / CDNs
+  // The original's movies (/movies/, ~23 MB): fetched on demand and never
+  // cached -- a <video> asks for byte ranges, which Cache.put refuses, and
+  // offline the player falls back to no movie (menu/frontend/movie.ts).
+  if (url.pathname.startsWith("/movies/")) return;
 
   if (req.mode === "navigate") {
     event.respondWith(

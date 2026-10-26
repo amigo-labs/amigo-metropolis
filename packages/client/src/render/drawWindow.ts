@@ -9,9 +9,20 @@
 //
 // Cells are the original's: its world origin is the Metropolis map frame's
 // (16, 0) m (the generators' LOGIC_OFFSET_X / _Z), a cell 0x20000 world units,
-// 16 m. The block's per-cell visibility mask (the quadtree's 4 m leaves on
-// screen) is the frustum's business here: the renderer clips what is off it,
-// and the sound's claim tests the item against the frustum (`inView`).
+// 16 m.
+//
+// Within the block a Prop is drawn, and claims its sound, only where its
+// footprint meets a leaf on screen: `world_build_tile_block` (draw.c 0x00452a20)
+// walks each cell's quadtree (`draw_node_visible` 0x00452de0,
+// `draw_quad_visible` 0x00453070) — the cell's sphere, then its four 8 m
+// children's, then the four 4 m leaves of each child on screen, each a
+// (radius, height) pair of its Ctil section — and packs the leaves on screen
+// into a 4 x 4 raster (0x00452cb3..0x00452d7e: leaf (x, z) at bit
+// 0x8000 >> (4 x + z)), which `snd_emit_draw_block` ands with the Prop's
+// `world_cell_quad_mask` (0x0042feb8; `leafMask`, `emitterDrawn`). A sphere is
+// tested against the view frustum (`inView`), not `draw_point_visible`'s
+// fixed-point cone (0x00452fd0). The DCSQuads keep the renderer's frustum
+// clipping.
 //
 // Pure arithmetic over a camera's world matrix; nothing allocates per frame.
 
@@ -79,6 +90,125 @@ export function inDrawWindow(win: DrawWindow, z: number, x: number): boolean {
     x >= win.cellX &&
     x < win.cellX + DRAW_BLOCK_CELLS
   );
+}
+
+/** A quadtree halfword, radius or height, is 16 world units (draw.c 0x00452e76). */
+const TREE_UNIT_M = 16 / 8192;
+/** The quadtree's steps: a cell's children are 8 m, their leaves 4 m. */
+const CHILD_M = 8;
+const LEAF_M = 4;
+
+/** One cell's visibility quadtree (gen:scenery `leafTrees`). */
+export interface LeafTree {
+  /** The cell: `z >> 17` (along the map's x) and `x >> 17` (along its y). */
+  readonly cz: number;
+  readonly cx: number;
+  /**
+   * 21 (radius, height) halfword pairs, pair k at [2 k, 2 k + 1] being tree bit
+   * k of `draw_node_visible`: the cell's (0), child (x, z) half's (1 + 2 x + z),
+   * and that child's leaf (x, z) quarter's (4 n + 1 + 2 x + z, n the child's 1..4).
+   */
+  readonly spheres: readonly number[];
+}
+
+/** Whether quadtree pair `pair`, centred (x, z) m into its cell, touches the view. */
+function pairInView(
+  m: ArrayLike<number>,
+  tree: LeafTree,
+  pair: number,
+  x: number,
+  z: number,
+): boolean {
+  const r = tree.spheres[2 * pair] * TREE_UNIT_M;
+  // `(h >> 4)` times the camera's y row, `>> 8` (draw.c 0x00452e3a..0x00452e44):
+  // a lift of (h >> 4) * 256 world units.
+  const h = ((tree.spheres[2 * pair + 1] >> 4) * 256) / 8192;
+  // The game's x is the map's y, its z the map's x less the origin's 16.
+  return inView(
+    m,
+    WORLD_ORIGIN_X + tree.cz * DRAW_CELL_M + z,
+    h,
+    WORLD_ORIGIN_Y + tree.cx * DRAW_CELL_M + x,
+    r,
+  );
+}
+
+/**
+ * The cell's leaves on screen (`world_build_tile_block`'s record word, packed):
+ * leaf (x, z) — 4 m quarters, x along the map's y, z along its x — at bit
+ * 0x8000 >> (4 x + z) when the cell's sphere, its child's and its own all touch
+ * the view of the camera whose projection-times-inverse-world is `m`.
+ *
+ * `draw_node_visible`'s order: the cell's sphere first, out at once
+ * (0x00452e87); the four children (0x00452e95); each child's four leaves only
+ * when the child is in (0x00452ee8). Child n (1..4) stands at x half
+ * (n - 1) >> 1 and z half (n - 1) & 1 — the walk steps z inside x (0x00452f3f,
+ * 0x00452f7a) — and its leaf p at (p >> 1, p & 1). The prunes (0x00452f0c,
+ * 0x00452fb3) clear only the node's and children's bits, never a leaf's, so the
+ * packed word is the OR of the visible children's visible leaves.
+ */
+export function leafMask(m: ArrayLike<number>, tree: LeafTree): number {
+  if (!pairInView(m, tree, 0, CHILD_M, CHILD_M)) return 0;
+  let mask = 0;
+  for (let child = 0; child < 4; child++) {
+    const hx = child >> 1;
+    const hz = child & 1;
+    if (!pairInView(m, tree, 1 + child, hx * CHILD_M + LEAF_M, hz * CHILD_M + LEAF_M)) continue;
+    for (let leaf = 0; leaf < 4; leaf++) {
+      const qx = hx * 2 + (leaf >> 1);
+      const qz = hz * 2 + (leaf & 1);
+      const pair = 4 * (child + 1) + 1 + leaf;
+      if (pairInView(m, tree, pair, qx * LEAF_M + LEAF_M / 2, qz * LEAF_M + LEAF_M / 2)) {
+        mask |= 0x8000 >> (4 * qx + qz);
+      }
+    }
+  }
+  return mask;
+}
+
+/** This frame's leaf masks, one per quadtree of the arena (0 outside the block). */
+export interface LeafView {
+  readonly masks: Uint16Array;
+  /** False until a camera has set it: the block alone decides until then. */
+  set: boolean;
+}
+
+export function createLeafView(trees: number): LeafView {
+  return { masks: new Uint16Array(trees), set: false };
+}
+
+/** The masks of the quadtrees in the block, for the camera `m`. Allocates nothing. */
+export function updateLeafView(
+  view: LeafView,
+  trees: readonly LeafTree[],
+  win: DrawWindow,
+  m: ArrayLike<number>,
+): void {
+  for (let t = 0; t < trees.length && t < view.masks.length; t++) {
+    const tree = trees[t];
+    view.masks[t] = inDrawWindow(win, tree.cz, tree.cx) ? leafMask(m, tree) : 0;
+  }
+  view.set = true;
+}
+
+/**
+ * `snd_emit_draw_block`'s test (snd/emitter.c 0x0042fe20) for a Prop hung in
+ * cell (cz, cx) with quadtree `leaf` (-1: a cell with no section, which the
+ * rebuild skips) and footprint `quad`: in the block, and its footprint meets a
+ * leaf on screen (`test edx, eax` at 0x0042feb8).
+ */
+export function emitterDrawn(
+  win: DrawWindow,
+  view: LeafView,
+  cz: number,
+  cx: number,
+  leaf: number,
+  quad: number,
+): boolean {
+  if (!win.placed) return true;
+  if (!inDrawWindow(win, cz, cx)) return false;
+  if (!view.set) return true;
+  return leaf >= 0 && leaf < view.masks.length && (view.masks[leaf] & quad) !== 0;
 }
 
 /**

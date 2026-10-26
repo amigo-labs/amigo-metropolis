@@ -203,6 +203,16 @@ on a cell with a deck overhead and **all 15 are scenery** (9 `DynamicProp`, 6
 69 of 592 — including 8 `Turret`, 3 `NeutralTurret` and 2 `TeamBase?` — and Ovmp 5
 of 265. Those are issue #33's.
 
+**Superseded (SIM_VERSION 100):** the storey is not inferred any more, it is
+read. `pos_h` is 0 because no construct reads it: each asks `terrain_height_at`
+(0x004545d0) with a selector byte of its own record, as `cnet_load` does with a
+node's mode. `gen:palogic` reads the byte out of the mission and runs that query
+over the shipped plates (`tools/generators/fcopTerrain.ts`), and stage 2 stands
+each feature on the sim surface carrying the answer (fcop-fidelity.md I13). The
+"cell with a deck overhead" counts above over-count: on Mp the original's
+topmost plate under 8 ring turrets is their plinth, and under many "covered"
+actors it is the ground beside a deck edge.
+
 ## 7. Note
 `public/models/la-cantina/` has stray `tex0X.png.bak` backups committed alongside
 the active textures — probably unintended.
