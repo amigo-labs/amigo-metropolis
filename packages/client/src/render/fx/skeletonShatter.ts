@@ -23,14 +23,21 @@
 // - **The draw.** A vertex goes through its bone, then the piece's turn
 //   (`Mx(angle_x) My(angle_y)`, about the MODEL's origin, not the bone's), then
 //   the piece's offset. Only a face wholly inside its first corner's bone is
-//   drawn at all, and when a piece lands every face not wholly inside that
+//   drawn at all (`prim_inside` 0x00429e41..0x00429ee6: slots 0-2, and slot 3
+//   of a quad), and when a piece lands every face not wholly inside that
 //   piece's bone is dropped: the first piece down is all that is left drawn,
 //   the second leaves nothing, and the actor dies with the last.
 //
-// Not drawn (Metropolis'): the killer's push (as the faces', render/fx/shatter.ts),
-// and a quad tested whole — Metropolis' meshes are triangles, so each half is
-// tested on its own. The rolls are the client's stream, not `game_rand` (A18).
-// Fixed pools; nothing allocates once a match runs.
+// A face is the original's primitive: the mesh is triangles, and the skeleton's
+// face attribute (`_X1FACE`, gen:x1: each vertex's primitive) joins a quad's
+// two triangles, which gen:x1 keeps one after the other, so a quad is tested
+// whole and flies whole, as one face. (On the X1's cockpit no quad straddles
+// two bones, 43 quads and 40 triangles all inside one, so the whole test
+// changes no face there; it is the rule all the same.)
+//
+// Not drawn (Metropolis'): the killer's push (as the faces', render/fx/shatter.ts).
+// The rolls are the client's stream, not `game_rand` (A18). Fixed pools; nothing
+// allocates once a match runs.
 
 import * as THREE from "three";
 import type { RaiseAt } from "../../effects/chain";
@@ -67,6 +74,12 @@ export interface ShatterSkeleton {
   /** The per-vertex slot attribute (render/avatarRig.ts X1_BONE_ATTR). */
   slotAttr: string;
   /**
+   * The per-vertex face attribute (render/avatarRig.ts X1_FACE_ATTR): consecutive
+   * triangles that carry the same value are one face, a quad. "" or a geometry
+   * without it: every triangle is a face of its own.
+   */
+  faceAttr: string;
+  /**
    * What draws the geometry where it is put (no pose of its own): one
    * material, or one per group of `geometry` (its draw-mode passes), whose
    * faces keep their pass.
@@ -96,6 +109,7 @@ export function makeShatterSkeleton(): ShatterSkeleton {
   return {
     geometry: new THREE.BufferGeometry(),
     slotAttr: "",
+    faceAttr: "",
     material: new THREE.MeshBasicMaterial(),
     teamU: 0,
     teamV: 0,
@@ -280,8 +294,9 @@ export class SkeletonShatter {
       s.spin[b] = skeletonSpin(draw(rec.spinLo, rec.spinHi));
     }
 
-    // The faces: through their bone at the frame, kept when all three corners
-    // are the bone's (the mask's rule, per triangle here). Every layer: the
+    // The faces: through their bone at the frame, kept when every corner of the
+    // face -- a triangle's three, a quad's two triangles' -- is the first
+    // corner's bone (the mask's rule, 0x00429e7d). Every layer: the
     // shatter submits its pieces with mask 0xff (`push -1`, 0x004385cb). A
     // list of materials keeps the source's groups -- a face keeps its draw
     // mode -- and a group drawn twice (a half face's two passes) draws the
@@ -336,8 +351,9 @@ export class SkeletonShatter {
   }
 
   /**
-   * Triangles `t0 .. t1 - 1` of `sk`'s geometry that lie wholly in one bone,
-   * through it, into `s` from triangle `f` on; returns the next free triangle.
+   * The faces among triangles `t0 .. t1 - 1` of `sk`'s geometry that lie wholly
+   * in one bone -- a quad's two triangles tested and taken together -- through
+   * it, into `s` from triangle `f` on; returns the next free triangle.
    */
   private collect(
     s: Skeleton,
@@ -348,57 +364,83 @@ export class SkeletonShatter {
     start: number,
   ): number {
     const g = sk.geometry;
-    const m = sk.matrices;
     const position = g.getAttribute("position") as THREE.BufferAttribute;
     const slot = g.getAttribute(sk.slotAttr) as THREE.BufferAttribute;
     const index = g.getIndex();
     const uv = g.getAttribute("uv") as THREE.BufferAttribute | undefined;
     const normal = g.getAttribute("normal") as THREE.BufferAttribute | undefined;
     const mask = g.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute | undefined;
+    const face = sk.faceAttr
+      ? (g.getAttribute(sk.faceAttr) as THREE.BufferAttribute | undefined)
+      : undefined;
     let f = start;
-    for (let t = t0; t < t1 && f < SKELETON_TRIS; t++) {
+    for (let t = t0, span = 1; t < t1; t += span) {
       const v0 = index ? index.getX(t * 3) : t * 3;
+      // The face's triangles: this one and, for a quad, the next.
+      span = 1;
+      if (face !== undefined && t + 1 < t1) {
+        const v3 = index ? index.getX(t * 3 + 3) : t * 3 + 3;
+        if (face.getX(v3) === face.getX(v0)) span = 2;
+      }
+      if (f + span > SKELETON_TRIS) break;
       const b = Math.round(slot.getX(v0)) - sk.first;
       if (b < 0 || b >= bones) continue;
       let whole = true;
-      for (let k = 1; k < 3; k++) {
+      for (let k = 1; k < span * 3; k++) {
         const vk = index ? index.getX(t * 3 + k) : t * 3 + k;
         if (Math.round(slot.getX(vk)) - sk.first !== b) whole = false;
       }
       if (!whole) continue;
-      const o = b * 12;
-      for (let k = 0; k < 3; k++) {
-        const vi = index ? index.getX(t * 3 + k) : t * 3 + k;
-        const x = position.getX(vi);
-        const y = position.getY(vi);
-        const z = position.getZ(vi);
-        const qx = m[o] * x + m[o + 1] * y + m[o + 2] * z + m[o + 3];
-        const qy = m[o + 4] * x + m[o + 5] * y + m[o + 6] * z + m[o + 7];
-        const qz = m[o + 8] * x + m[o + 9] * y + m[o + 10] * z + m[o + 11];
-        // The model's own axes (x unmirrored), in model units.
-        s.local[f * 9 + k * 3] = -qx * MODEL_UNITS_PER_METRE;
-        s.local[f * 9 + k * 3 + 1] = qy * MODEL_UNITS_PER_METRE;
-        s.local[f * 9 + k * 3 + 2] = qz * MODEL_UNITS_PER_METRE;
-        const c3 = (f * 3 + k) * 3;
-        const c2 = (f * 3 + k) * 2;
-        s.uv[c2] = uv ? uv.getX(vi) : 0;
-        s.uv[c2 + 1] = uv ? uv.getY(vi) : 0;
-        // The bind normal in three's frame for the identity: (z, y, -x).
-        const nx = normal ? normal.getX(vi) : 0;
-        const ny = normal ? normal.getY(vi) : 1;
-        const nz = normal ? normal.getZ(vi) : 0;
-        s.normal[c3] = nz;
-        s.normal[c3 + 1] = ny;
-        s.normal[c3 + 2] = -nx;
-        s.teamMask[f * 3 + k] = mask ? mask.getX(vi) : 1;
-        s.teamUv[c2] = sk.teamU;
-        s.teamUv[c2 + 1] = sk.teamV;
-      }
-      s.piece[f] = b;
-      s.drawn[f] = 1;
-      f++;
+      for (let h = 0; h < span; h++, f++)
+        this.put(s, sk, b, t + h, f, index, position, uv, normal, mask);
     }
     return f;
+  }
+
+  /** Triangle `t` of `sk`'s geometry through bone `b`, into `s`'s triangle `f`. */
+  private put(
+    s: Skeleton,
+    sk: Readonly<ShatterSkeleton>,
+    b: number,
+    t: number,
+    f: number,
+    index: THREE.BufferAttribute | null,
+    position: THREE.BufferAttribute,
+    uv: THREE.BufferAttribute | undefined,
+    normal: THREE.BufferAttribute | undefined,
+    mask: THREE.BufferAttribute | undefined,
+  ): void {
+    const m = sk.matrices;
+    const o = b * 12;
+    for (let k = 0; k < 3; k++) {
+      const vi = index ? index.getX(t * 3 + k) : t * 3 + k;
+      const x = position.getX(vi);
+      const y = position.getY(vi);
+      const z = position.getZ(vi);
+      const qx = m[o] * x + m[o + 1] * y + m[o + 2] * z + m[o + 3];
+      const qy = m[o + 4] * x + m[o + 5] * y + m[o + 6] * z + m[o + 7];
+      const qz = m[o + 8] * x + m[o + 9] * y + m[o + 10] * z + m[o + 11];
+      // The model's own axes (x unmirrored), in model units.
+      s.local[f * 9 + k * 3] = -qx * MODEL_UNITS_PER_METRE;
+      s.local[f * 9 + k * 3 + 1] = qy * MODEL_UNITS_PER_METRE;
+      s.local[f * 9 + k * 3 + 2] = qz * MODEL_UNITS_PER_METRE;
+      const c3 = (f * 3 + k) * 3;
+      const c2 = (f * 3 + k) * 2;
+      s.uv[c2] = uv ? uv.getX(vi) : 0;
+      s.uv[c2 + 1] = uv ? uv.getY(vi) : 0;
+      // The bind normal in three's frame for the identity: (z, y, -x).
+      const nx = normal ? normal.getX(vi) : 0;
+      const ny = normal ? normal.getY(vi) : 1;
+      const nz = normal ? normal.getZ(vi) : 0;
+      s.normal[c3] = nz;
+      s.normal[c3 + 1] = ny;
+      s.normal[c3 + 2] = -nx;
+      s.teamMask[f * 3 + k] = mask ? mask.getX(vi) : 1;
+      s.teamUv[c2] = sk.teamU;
+      s.teamUv[c2 + 1] = sk.teamV;
+    }
+    s.piece[f] = b;
+    s.drawn[f] = 1;
   }
 
   reset(): void {

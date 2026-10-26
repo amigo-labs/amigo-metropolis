@@ -6,9 +6,13 @@ import { describe, expect, test } from "bun:test";
 import { ARCHETYPE } from "@metropolis/sim";
 import * as THREE from "three";
 import { EffectChain, fxArenaFor, makeRaiseAt } from "../src/effects/chain";
+import { FX_ARENAS, FX_RECORDS } from "../src/effects/fcopEffects.generated";
+import type { Fx90 } from "../src/effects/records";
 import { createFx } from "../src/render/fx";
 import {
+  makeShatterSkeleton,
   type ShatterSkeleton,
+  SkeletonShatter,
   skeletonFloor,
   skeletonGravity,
   skeletonSpin,
@@ -194,5 +198,50 @@ describe("1:8 on the wrecked X1", () => {
     // once it is 4 m below its start, below the ground (1 m).
     expect(lowest).toBeLessThan(1);
     expect(r.fx.debugCounts().bones).toBeLessThan(4);
+  });
+});
+
+describe("a quad is one face (prim_inside, 0x00429e41..0x00429ee6)", () => {
+  /**
+   * Two quads of two triangles each, by the face attribute, and a triangle:
+   * quad 7 has its first half wholly in bone 1 and its second half's last
+   * corner in bone 2; quad 9 is wholly in bone 2; triangle 11 in bone 0.
+   */
+  function quads(withFaces: boolean): ShatterSkeleton {
+    const out = makeShatterSkeleton();
+    const slots = [9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 8, 8, 8];
+    const faces = [7, 7, 7, 7, 7, 7, 9, 9, 9, 9, 9, 9, 11, 11, 11];
+    const pos = new Float32Array(slots.length * 3);
+    for (let v = 0; v < slots.length; v++) pos[v * 3 + (v % 3)] = 0.25;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("x1Bone", new THREE.BufferAttribute(new Float32Array(slots), 1));
+    if (withFaces) g.setAttribute("x1Face", new THREE.BufferAttribute(new Float32Array(faces), 1));
+    out.geometry = g;
+    out.slotAttr = "x1Bone";
+    out.faceAttr = withFaces ? "x1Face" : "";
+    out.first = 8;
+    out.bones = 3;
+    for (let b = 0; b < 3; b++) {
+      out.matrices[b * 12] = 1;
+      out.matrices[b * 12 + 5] = 1;
+      out.matrices[b * 12 + 10] = 1;
+    }
+    return out;
+  }
+  const rec = FX_RECORDS[FX_ARENAS["la-cantina"].banks[1][8]] as Fx90;
+
+  test("a quad with a corner outside its first corner's bone is not drawn, either half", () => {
+    const bones = new SkeletonShatter(new THREE.Scene());
+    expect(bones.spawn(rec, quads(true), 0)).toBe(true);
+    // Quad 9's two triangles and triangle 11; neither half of quad 7.
+    expect(bones.drawn()).toBe(3);
+  });
+
+  test("without the face map each triangle is tested on its own", () => {
+    const bones = new SkeletonShatter(new THREE.Scene());
+    expect(bones.spawn(rec, quads(false), 0)).toBe(true);
+    // Quad 7's first half is wholly in bone 1, so it is drawn.
+    expect(bones.drawn()).toBe(4);
   });
 });

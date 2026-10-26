@@ -68,6 +68,7 @@ const rig = await (async () => {
     ),
     position: attr("POSITION"),
     slot: attr("_X1BONE"),
+    face: attr("_X1FACE"),
     team: attr("_TEAMUV"),
     layer: attr("_X1LAYER"),
     uv: attr("TEXCOORD_0"),
@@ -321,6 +322,42 @@ describe("the X1's rig", () => {
     // keeps every face, as the ramp's masks show every one.
     const file = join(X1_RAW_DIR, "x1_alpha_transform.glb");
     for (const i of [0, 7, 14, 21, 29]) await expectPose(file, 330 + i, i, X1_FORM_RAMP, i);
+  });
+
+  test("names every triangle's face: a quad's two halves one after the other", () => {
+    // faces.json's 3DQL per part (legs, cockpit, the gun twice, the beacon):
+    // each face once, in one mode's primitive, two triangles for a quad (arm 4)
+    // and one for a triangle (arms 1-3), its id the part's place x 1024 + index.
+    const raw = JSON.parse(readFileSync(join(X1_RAW_DIR, "faces.json"), "utf8")) as {
+      parts: Record<string, { prims: number[][] }>;
+    };
+    const order = ["legs", "cockpit", "weapon", "weapon", "beacon_lights"];
+    const want = new Map<number, number>();
+    order.forEach((role, i) => {
+      raw.parts[role].prims.forEach(([arm], k) => {
+        if (arm === 4) want.set(i * 1024 + k, 2);
+        else if (arm >= 1 && arm <= 3) want.set(i * 1024 + k, 1);
+      });
+    });
+    const got = new Map<number, number>();
+    const tris = rig.face.length / 3;
+    let last = -1;
+    for (let t = 0; t < tris; t++) {
+      const f = rig.face[t * 3];
+      expect(rig.face[t * 3 + 1]).toBe(f);
+      expect(rig.face[t * 3 + 2]).toBe(f);
+      // A face's triangles are consecutive: an id seen before is the last one.
+      if (got.has(f)) expect(f).toBe(last);
+      got.set(f, (got.get(f) ?? 0) + 1);
+      last = f;
+    }
+    expect([...got.entries()].sort((a, b) => a[0] - b[0])).toEqual(
+      [...want.entries()].sort((a, b) => a[0] - b[0]),
+    );
+    // The cockpit, the shatter's model: 43 quads and 40 triangles, 126 triangles.
+    const cockpit = [...got.entries()].filter(([f]) => f >= 1024 && f < 2048);
+    expect(cockpit.filter(([, n]) => n === 2).length).toBe(43);
+    expect(cockpit.filter(([, n]) => n === 1).length).toBe(40);
   });
 
   test("hands the sim the legs' 62 AnmD tracks, the transform's at 0x0c", () => {

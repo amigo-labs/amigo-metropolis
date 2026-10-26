@@ -123,7 +123,10 @@ forever as a debug render mode (`?render=greybox`).
   two guns (the cockpit skeleton's records 2 and 4) and the beacon (its point 2),
   into a bone table, `avatar-x1.anim.bin` (30 x 401 RGBA float texels, a 3x4
   matrix per slot per frame), and merges the five parts into one bind-pose
-  primitive, `avatar-x1.glb`, whose `_X1BONE` names each vertex's slot. The
+  primitive, `avatar-x1.glb`, whose `_X1BONE` names each vertex's slot and
+  `_X1FACE` its face (the 3DQL primitive its triangle came from, paired back by
+  the corners' positions from `faces.json`, so a quad's two triangles share
+  one; the skeleton shatter tests a quad whole by it). The
   vertex shader fetches the slot's matrix by the instance's legs and cockpit
   frames (`instanceX1`: legs frame, cockpit frame, the cockpit's aim yaw and
   pitch) — `render/x1Pose.ts` is its CPU twin, held against the RE's own

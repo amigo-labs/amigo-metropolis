@@ -21,6 +21,7 @@ import {
   RIG_CAPACITY,
   X1_BONE_ATTR,
   X1_COCKPIT_BONES,
+  X1_FACE_ATTR,
   X1_LAYER_ATTR,
   X1_LAYERS_ATTR,
   X1_POSE_ATTR,
@@ -52,8 +53,8 @@ const BIN = fileURLToPath(new URL("../public/models/units/avatar-x1.anim.bin", i
 
 /**
  * The glb as the loader hands it over (render/fcopModel.ts mergeFcopModel):
- * its primitives back to back with a group each, `_X1BONE`, `_TEAMUV` and
- * `_X1LAYER` lowercased, the materials faceMaterials makes with the team
+ * its primitives back to back with a group each, `_X1BONE`, `_TEAMUV`,
+ * `_X1LAYER` and `_X1FACE` lowercased, the materials faceMaterials makes with the team
  * offset.
  */
 async function loadRig() {
@@ -74,6 +75,7 @@ async function loadRig() {
       ["_X1BONE", "_x1bone"],
       ["_TEAMUV", "_teamuv"],
       ["_X1LAYER", "_x1layer"],
+      ["_X1FACE", "_x1face"],
     ]) {
       const a = p.getAttribute(gltf);
       if (!a) throw new Error(`no ${gltf}`);
@@ -131,6 +133,8 @@ describe("the X1's rig", () => {
     expect(g.getAttribute("_x1bone")).toBeUndefined();
     expect(g.getAttribute(X1_LAYER_ATTR)).toBeDefined();
     expect(g.getAttribute("_x1layer")).toBeUndefined();
+    expect(g.getAttribute(X1_FACE_ATTR)).toBeDefined();
+    expect(g.getAttribute("_x1face")).toBeUndefined();
     expect((g.getAttribute(X1_POSE_ATTR) as THREE.InstancedBufferAttribute).meshPerAttribute).toBe(
       1,
     );

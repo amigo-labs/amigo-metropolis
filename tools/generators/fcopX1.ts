@@ -12,6 +12,8 @@
 //     -> tools/generators/units/raw/fcop-x1/layers.json           (the partner's masks)
 //   <RE>/fixtures/missions/Mp, Cobj 15 and 16 (the legs and the cockpit), 3DHS
 //     -> tools/generators/units/raw/fcop-x1/channels.json         (the mount points)
+//   <RE>/fixtures/missions/Mp, Cobj 15-18 (every part), 3DQL and 4DVL
+//     -> tools/generators/units/raw/fcop-x1/faces.json            (the faces)
 //   raws
 //     -> packages/client/public/models/units/avatar-x1.glb        (bind pose, a primitive per draw mode)
 //     -> packages/client/public/models/units/avatar-x1.anim.bin   (the bone table)
@@ -36,6 +38,17 @@
 // and 4; the beacon lights on the cockpit's model point 2, in the cockpit's
 // orientation. The pilot is not drawn with the mech.
 //
+// The faces: the RE's glbs are triangles, a quad split in two (obj_mesh.py
+// QUAD_SPLIT, wound back by FLIP_WINDING), and carry no map back to the 3DQL.
+// faces.json holds each part's 3DQL and its 4DVL, and the build pairs the glb's
+// triangles back to their primitives by the corners' positions -- a quad's two
+// halves, emitted one after the other, or a triangle -- and every vertex gets
+// its face (`_X1FACE`: the part's place in the merged mesh x 1024 plus the 3DQL
+// index, so no two faces share one). The skeleton shatter tests a quad whole,
+// as the original's mask does (render/fx/skeletonShatter.ts, RE shatter.c
+// `prim_inside`, 0x00429e41..0x00429ee6).
+//
+// The glbs' skins are rigid (one joint per vertex, weight 1), so a skin matrix
 // The glbs' skins are rigid (one joint per vertex, weight 1), so a skin matrix
 // per joint per frame is the whole animation: the legs' 371 frames by 8 joints,
 // the cockpit's 30 by 7, plus the two guns and the beacon per cockpit frame.
@@ -96,6 +109,10 @@ interface FormMasks {
 }
 /** The Cobj each part is in Mp's container, by the RE manifest (`cobj_id_by_map.Mp`). */
 const CHANNEL_PARTS = ["legs", "cockpit"] as const;
+/** The parts whose triangles are paired back to their 3DQL faces, in PART_FILES order. */
+const FACE_PARTS = ["legs", "cockpit", "weapon", "beacon_lights"] as const;
+/** `_X1FACE` is the part's place in the merged mesh times this, plus the 3DQL index. */
+const FACE_STRIDE = 1024;
 
 /** int16 vertex units to metres, x mirrored: obj_mesh.FIXED_POINT and channel_pos. */
 const FIXED_POINT = 1 / 512;
@@ -131,6 +148,90 @@ function channelPos(set: ChannelSet, channel: number, frame: number): [number, n
   const v = set.xyz[set.count * frame + channel];
   if (!v) throw new Error(`3DHS: no channel ${channel} at frame ${frame}`);
   return [-v[0] * FIXED_POINT, v[1] * FIXED_POINT, v[2] * FIXED_POINT];
+}
+
+/** faces.json: each part's 3DQL and the 4DVL its glb was built from. */
+interface Faces {
+  readonly source: string;
+  readonly parts: Readonly<Record<(typeof FACE_PARTS)[number], FaceSet>>;
+}
+interface FaceSet {
+  readonly cobj: number;
+  readonly sha256: string;
+  /** Per 3DQL primitive: its arm (op1 & 7) and its four vertex slots. */
+  readonly prims: readonly (readonly [number, number, number, number, number])[];
+  /** The 4DVL of the lowest frame id, raw int16 (x, y, z): obj_mesh.build_mesh's frame. */
+  readonly verts: readonly (readonly [number, number, number])[];
+}
+
+/** obj_mesh.py's arms: 3 a triangle (1 and 2 its unused variants), 4 a quad. */
+const PRIM_QUAD = 4;
+const TRI_ARMS = [1, 2, 3];
+/**
+ * The corners of the triangles obj_mesh.build_mesh emits for a primitive, in
+ * order: QUAD_SPLIT ((0, 1, 3), (2, 3, 1)) and a triangle's (0, 1, 2), each
+ * reversed by FLIP_WINDING.
+ */
+const QUAD_TRIS = [3, 1, 0, 1, 3, 2] as const;
+const TRI_TRIS = [2, 1, 0] as const;
+
+/**
+ * Per vertex of `part`, the 3DQL index of the face its triangle came from: the
+ * glb's triangles paired back to `set`'s primitives by their corners' positions
+ * (`_to_world`: int16 / 512, x negated). A quad's two halves are emitted one
+ * after the other, so a quad is two consecutive triangles matching its six
+ * corners; a triangle its three. Each primitive is taken once, the first
+ * unused one that matches; every triangle must find one and every face must be
+ * found, else the build stops.
+ */
+function faceMap(part: Part, set: FaceSet, file: string): Float32Array {
+  const P = (v: number): string => {
+    const r = set.verts[v];
+    if (!r) throw new Error(`${file}: faces.json has no vertex ${v}`);
+    return `${Math.fround(-r[0] / 512)},${Math.fround(r[1] / 512)},${Math.fround(r[2] / 512)}`;
+  };
+  const key = (corners: string[]): string => corners.join(";");
+  // Each face's corner sequence, keyed; the 3DQL indices that have it, in order.
+  const byKey = new Map<string, number[]>();
+  let faces = 0;
+  set.prims.forEach(([arm, ...v], i) => {
+    const order = arm === PRIM_QUAD ? QUAD_TRIS : TRI_ARMS.includes(arm) ? TRI_TRIS : null;
+    if (!order) return;
+    faces++;
+    const k = key(order.map((c) => P(v[c])));
+    const list = byKey.get(k);
+    if (list) list.push(i);
+    else byKey.set(k, [i]);
+  });
+  const at = (vertex: number): string => {
+    const o = vertex * 3;
+    return `${part.position[o]},${part.position[o + 1]},${part.position[o + 2]}`;
+  };
+  const out = new Float32Array(part.count);
+  const tris = part.count / 3;
+  let found = 0;
+  for (let t = 0; t < tris; ) {
+    let span = 0;
+    let face = -1;
+    for (const n of [2, 1]) {
+      if (t + n > tris) continue;
+      const corners: string[] = [];
+      for (let c = 0; c < n * 3; c++) corners.push(at(t * 3 + c));
+      const list = byKey.get(key(corners));
+      if (list && list.length > 0) {
+        face = list.shift() as number;
+        span = n;
+        break;
+      }
+    }
+    if (span === 0) throw new Error(`${file}: triangle ${t} is no face of faces.json`);
+    out.fill(face, t * 3, (t + span) * 3);
+    found++;
+    t += span;
+  }
+  if (found !== faces) throw new Error(`${file}: ${found} faces in the glb, ${faces} in its 3DQL`);
+  if (set.prims.length > FACE_STRIDE) throw new Error(`${file}: ${set.prims.length} primitives`);
+  return out;
 }
 
 // --- column-major 4x4 helpers (glTF's convention) ----------------------------
@@ -384,6 +485,10 @@ export async function buildX1(): Promise<X1Build> {
   const io = new NodeIO();
   const [legs, cockpit, gun, beacon] = await Promise.all(PART_FILES.map((f) => readPart(io, f)));
   const channels = JSON.parse(readFileSync(join(X1_RAW_DIR, "channels.json"), "utf8")) as Channels;
+  const facesJson = JSON.parse(readFileSync(join(X1_RAW_DIR, "faces.json"), "utf8")) as Faces;
+  const [legFaces, cockpitFaces, gunFaces, beaconFaces] = [legs, cockpit, gun, beacon].map((p, i) =>
+    faceMap(p, facesJson.parts[FACE_PARTS[i]], PART_FILES[i]),
+  );
   if (legs.world[0]?.length !== 8) throw new Error("the legs should have 8 joints");
   if (cockpit.world[0]?.length !== 7) throw new Error("the cockpit should have 7 joints");
   if (channels.legs.frames !== legs.frames || channels.cockpit.frames !== cockpit.frames)
@@ -439,12 +544,15 @@ export async function buildX1(): Promise<X1Build> {
   // follow one another in this order, each in the RE's own face order.
   const cockpitSlot = legBones;
   const gunSlot = cockpitSlot + 7;
-  const parts: { part: Part; slot: (v: number) => number; team: number }[] = [
-    { part: legs, slot: (v) => legs.joint[v], team: 1 },
-    { part: cockpit, slot: (v) => cockpitSlot + cockpit.joint[v], team: 1 },
-    { part: gun, slot: () => gunSlot, team: 1 },
-    { part: gun, slot: () => gunSlot + 1, team: 1 },
-    { part: beacon, slot: () => gunSlot + 2, team: 0 },
+  // Each vertex's face (`_X1FACE`): unique over the merged mesh, the part's
+  // place in it x FACE_STRIDE plus the 3DQL index. A face's triangles share a
+  // mode, so a quad's two halves stay one after the other in its primitive.
+  const parts: { part: Part; slot: (v: number) => number; team: number; face: Float32Array }[] = [
+    { part: legs, slot: (v) => legs.joint[v], team: 1, face: legFaces },
+    { part: cockpit, slot: (v) => cockpitSlot + cockpit.joint[v], team: 1, face: cockpitFaces },
+    { part: gun, slot: () => gunSlot, team: 1, face: gunFaces },
+    { part: gun, slot: () => gunSlot + 1, team: 1, face: gunFaces },
+    { part: beacon, slot: () => gunSlot + 2, team: 0, face: beaconFaces },
   ];
 
   // Every part embeds the same page; the mesh carries it once.
@@ -476,8 +584,9 @@ export async function buildX1(): Promise<X1Build> {
     const slotAttr = new Float32Array(total);
     const teamUv = new Float32Array(total);
     const layerAttr = new Float32Array(total);
+    const faceAttr = new Float32Array(total);
     let at = 0;
-    for (const { part, slot, team } of parts) {
+    parts.forEach(({ part, slot, team, face }, i) => {
       for (let v = 0; v < part.count; v++) {
         if (part.mode[v] !== m) continue;
         position.set(part.position.subarray(v * 3, v * 3 + 3), at * 3);
@@ -486,9 +595,10 @@ export async function buildX1(): Promise<X1Build> {
         slotAttr[at] = slot(v);
         teamUv[at] = team;
         layerAttr[at] = part.layer[v];
+        faceAttr[at] = i * FACE_STRIDE + face[v];
         at++;
       }
-    }
+    });
     // As gen:units writes a unit's (genUnitModels.ts createFaceMaterial): the
     // key texels (alpha 0) cut at 0.25 on the opaque faces, the half faces
     // blended; the extras name the mode for render/fcopModel.ts.
@@ -515,7 +625,8 @@ export async function buildX1(): Promise<X1Build> {
         .setAttribute("TEXCOORD_0", accessor("TEXCOORD_0", "VEC2", uv))
         .setAttribute("_X1BONE", accessor("_X1BONE", "SCALAR", slotAttr))
         .setAttribute("_TEAMUV", accessor("_TEAMUV", "SCALAR", teamUv))
-        .setAttribute("_X1LAYER", accessor("_X1LAYER", "SCALAR", layerAttr)),
+        .setAttribute("_X1LAYER", accessor("_X1LAYER", "SCALAR", layerAttr))
+        .setAttribute("_X1FACE", accessor("_X1FACE", "SCALAR", faceAttr)),
     );
   });
   const node = doc.createNode("x1").setMesh(mesh);
@@ -553,12 +664,14 @@ export async function buildX1(): Promise<X1Build> {
     if ((t.flags & 0x60) !== 0) throw new Error(`track ${t.track} sets flag 0x20 / 0x40`);
   }
 
-  const sources = [...PART_FILES, "tracks.json", "channels.json", "layers.json"].map((f) => {
-    const sha = createHash("sha256")
-      .update(readFileSync(join(X1_RAW_DIR, f)))
-      .digest("hex");
-    return `//   ${f} ${sha.slice(0, 16)}`;
-  });
+  const sources = [...PART_FILES, "tracks.json", "channels.json", "layers.json", "faces.json"].map(
+    (f) => {
+      const sha = createHash("sha256")
+        .update(readFileSync(join(X1_RAW_DIR, f)))
+        .digest("hex");
+      return `//   ${f} ${sha.slice(0, 16)}`;
+    },
+  );
   const row = (t: RawTrack): string =>
     `  [${t.from}, ${t.to}, ${t.mode}, ${t.end}, ${t.link}, ${t.link_b}, ${t.link_c}, ${t.flags}, ${t.period}, ${t.event ? (t.event.code << 10) | t.event.frame : 0}],`;
   const ts = [
@@ -770,6 +883,49 @@ function readChannels(
   throw new Error("no 3DHS chunk");
 }
 
+/** A Cobj's 3DQL primitives and the 4DVL of its lowest frame id (obj_mesh.parse_3dql, parse_vec_frame). */
+function readFaces(blob: Uint8Array): Pick<FaceSet, "prims" | "verts"> {
+  const view = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
+  let prims: [number, number, number, number, number][] | null = null;
+  let verts: [number, number, number][] | null = null;
+  let frame = Number.POSITIVE_INFINITY;
+  let pos = 0;
+  while (pos + 8 <= blob.length) {
+    const tag = tagAt(blob, pos).split("").reverse().join("");
+    const size = view.getUint32(pos + 4, true);
+    if (size < 8 || pos + size > blob.length) break;
+    const off = pos + 8;
+    if (tag === "3DQL") {
+      const count = view.getUint32(off + 4, true);
+      if (8 + count * 12 !== size - 8)
+        throw new Error(`3DQL: ${count} records in ${size - 8} bytes`);
+      prims = [];
+      for (let i = 0; i < count; i++) {
+        const q = off + 8 + i * 12;
+        prims.push([blob[q + 1] & 7, blob[q + 4], blob[q + 5], blob[q + 6], blob[q + 7]]);
+      }
+    } else if (tag === "4DVL") {
+      const id = view.getUint32(off, true);
+      if (id < frame) {
+        frame = id;
+        const count = view.getUint32(off + 4, true);
+        verts = [];
+        for (let i = 0; i < count; i++) {
+          const v = off + 8 + i * 8;
+          verts.push([
+            view.getInt16(v, true),
+            view.getInt16(v + 2, true),
+            view.getInt16(v + 4, true),
+          ]);
+        }
+      }
+    }
+    pos += size;
+  }
+  if (!prims || !verts) throw new Error("no 3DQL or no 4DVL chunk");
+  return { prims, verts };
+}
+
 function importRaws(reRepo: string): void {
   const x1 = join(reRepo, "extracted", "x1");
   mkdirSync(X1_RAW_DIR, { recursive: true });
@@ -809,6 +965,7 @@ function importRaws(reRepo: string): void {
   };
   writeFileSync(join(X1_RAW_DIR, "layers.json"), `${JSON.stringify(layers, null, 2)}\n`);
   const container = new Uint8Array(readFileSync(join(reRepo, "fixtures", "missions", "Mp")));
+  writeFaces(container, manifest.parts);
   const sets: Record<string, ChannelSet> = {};
   for (const role of CHANNEL_PARTS) {
     const part = manifest.parts.find((p) => p.role === role);
@@ -838,6 +995,34 @@ function importRaws(reRepo: string): void {
     "",
   ];
   writeFileSync(join(X1_RAW_DIR, "channels.json"), lines.join("\n"));
+}
+
+/** faces.json: every part's 3DQL and 4DVL, read out of Mp's container. */
+function writeFaces(
+  container: Uint8Array,
+  parts: readonly { role: string; sha256: string; cobj_id_by_map: Record<string, number> }[],
+): void {
+  const lines = [
+    "{",
+    `  "source": ${JSON.stringify("fixtures/missions/Mp, Cobj 15-18 (legs, cockpit, weapon, beacon lights): per 3DQL primitive its arm (op1 & 7) and four vertex slots; the 4DVL of the lowest frame id, raw int16 (x, y, z) (RE tools/gfx/obj_mesh.py parse_3dql, parse_vec_frame)")},`,
+    '  "parts": {',
+  ];
+  FACE_PARTS.forEach((role, i) => {
+    const part = parts.find((p) => p.role === role);
+    if (!part) throw new Error(`manifest: no ${role}`);
+    const cobj = part.cobj_id_by_map.Mp;
+    const blob = containerResource(container, "Cobj", cobj);
+    const sha = createHash("sha256").update(blob).digest("hex");
+    if (sha !== part.sha256) throw new Error(`Mp Cobj ${cobj} is not the manifest's ${role}`);
+    const { prims, verts } = readFaces(blob);
+    const list = (rows: readonly (readonly number[])[]) =>
+      rows.map((r) => `[${r.join(", ")}]`).join(", ");
+    lines.push(
+      `    "${role}": { "cobj": ${cobj}, "sha256": "${sha}", "prims": [${list(prims)}], "verts": [${list(verts)}] }${i + 1 < FACE_PARTS.length ? "," : ""}`,
+    );
+  });
+  lines.push("  }", "}", "");
+  writeFileSync(join(X1_RAW_DIR, "faces.json"), lines.join("\n"));
 }
 
 // --- main -------------------------------------------------------------------------

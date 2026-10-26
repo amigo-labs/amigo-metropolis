@@ -68,6 +68,13 @@ export const X1_POSE_ATTR = "instanceX1";
 /** Per-vertex matrix slot (`_X1BONE`, which GLTFLoader lowercases). */
 export const X1_BONE_ATTR = "x1Bone";
 const GLTF_BONE = "_x1bone";
+/**
+ * Per-vertex face (`_X1FACE`, gen:x1): the primitive its triangle came from
+ * (the part's place in the mesh x 1024 plus its 3DQL index), so a quad's two
+ * triangles share one. The skeleton shatter tests a quad whole by it.
+ */
+export const X1_FACE_ATTR = "x1Face";
+const GLTF_FACE = "_x1face";
 /** Per-vertex layer of the vertex's face (`_X1LAYER`). */
 export const X1_LAYER_ATTR = "x1Layer";
 const GLTF_LAYER = "_x1layer";
@@ -213,6 +220,7 @@ export function buildX1Rig(
 ): X1RigCore {
   renameAttribute(geometry, GLTF_BONE, X1_BONE_ATTR);
   renameAttribute(geometry, GLTF_LAYER, X1_LAYER_ATTR);
+  renameAttribute(geometry, GLTF_FACE, X1_FACE_ATTR);
   if (!geometry.getAttribute(TEAM_UV_MASK)) throw new Error("avatar-x1.glb has no _TEAMUV");
   geometry.setAttribute(TEAM_UV_ATTR, createTeamUvAttribute(RIG_CAPACITY));
   const pose = new THREE.InstancedBufferAttribute(new Float32Array(RIG_CAPACITY * 4), 4);
@@ -324,6 +332,7 @@ export function x1CockpitSkeleton(
 ): void {
   out.geometry = core.mesh.geometry;
   out.slotAttr = X1_BONE_ATTR;
+  out.faceAttr = X1_FACE_ATTR;
   out.material = core.plain;
   x1Uv(core.plain, side, -1, scratchUv);
   out.teamU = scratchUv[0];
