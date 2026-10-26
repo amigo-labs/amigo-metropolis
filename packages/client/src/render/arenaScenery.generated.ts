@@ -10,8 +10,10 @@
 // Prop as `snd_emit_build` stands it (RE snd/emitter.c) and every type-97
 // DCSQuad as `pyro_spawn` does (RE world/pyro_chain.c), their random angles
 // drawn from `game_rand` seeded 0x457 (a stand-in for the original's wall
-// clock). Read from the mission bytes, the outposts' scripts, pa_models.json
-// and the object and decal manifests at RE ce4203f.
+// clock), with its footprint and the visibility quadtree of the cell it hangs
+// in (RE game/frame/draw.c 0x00452de0). Read from the mission bytes, the
+// outposts' scripts, pa_models.json
+// and the object and decal manifests at RE ce4203f4.
 
 /** When a placement stands: always, until its outpost is claimed, or from then on. */
 export type SceneryShow = "always" | "unclaimed" | "claimed";
@@ -83,6 +85,28 @@ export interface SceneryProp {
   readonly period: number;
   /** The table-A sound the emitter plays where it stands, 0 none. */
   readonly sound: number;
+  /**
+   * Its footprint: the quarter-cells of its anchor's cell its unturned box
+   * spans (`world_cell_quad_mask` 0x0042f600 from `snd_emit_build` 0x0042fa7f),
+   * quarter (x, z) at bit 0x8000 >> (4 x + z), x along the map's y.
+   */
+  readonly quad: number;
+  /** Its cell's quadtree in `leafTrees`, -1 for a cell with no section. */
+  readonly leaf: number;
+}
+
+/**
+ * A cell's visibility quadtree: its Ctil section's 21 (radius, height) pairs
+ * from +0x374, each halfword 16 world units (RE game/frame/draw.c
+ * `draw_node_visible` 0x00452de0). Pair k is tree bit k: the cell's at 0, its
+ * four 8 m children's at 1..4 (child (x, z) half at 1 + 2 x + z), then child
+ * n's four 4 m leaves at 4 n + 1..4 n + 4 (leaf (x, z) at 2 x + z within it).
+ */
+export interface SceneryLeafTree {
+  /** The cell: `z >> 17` (along the map's x) and `x >> 17` (its y). */
+  readonly cz: number;
+  readonly cx: number;
+  readonly spheres: readonly number[];
 }
 
 /**
@@ -138,6 +162,8 @@ export interface ArenaScenery {
   /** The type-96 Props, their models, the type-97 DCSQuads and their decals. */
   readonly props: readonly SceneryProp[];
   readonly propModels: Readonly<Record<number, SceneryPropModel>>;
+  /** The quadtrees of the cells the Props hang in. */
+  readonly leafTrees: readonly SceneryLeafTree[];
   readonly quads: readonly SceneryQuad[];
   readonly decals: Readonly<Record<number, SceneryDecal>>;
 }
@@ -591,6 +617,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32768,
+        leaf: 14,
       },
       {
         record: "Cact 86",
@@ -608,6 +636,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 52224,
+        leaf: 14,
       },
       {
         record: "Cact 89",
@@ -625,6 +655,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1088,
+        leaf: 14,
       },
       {
         record: "Cact 92",
@@ -642,6 +674,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 64,
+        leaf: 14,
       },
       {
         record: "Cact 94",
@@ -659,6 +693,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 32,
+        leaf: 14,
       },
       {
         record: "Cact 96",
@@ -676,6 +712,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 544,
+        leaf: 14,
       },
       {
         record: "Cact 98",
@@ -693,6 +731,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 13056,
+        leaf: 14,
       },
       {
         record: "Cact 110",
@@ -710,6 +750,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 4096,
+        leaf: 14,
       },
       {
         record: "Cact 114",
@@ -727,6 +769,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1,
+        leaf: 13,
       },
       {
         record: "Cact 117",
@@ -744,6 +788,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 12,
+        leaf: 13,
       },
       {
         record: "Cact 121",
@@ -761,6 +807,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 16,
+        leaf: 5,
       },
       {
         record: "Cact 123",
@@ -778,6 +826,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 5,
       },
       {
         record: "Cact 125",
@@ -795,6 +845,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 4096,
+        leaf: 12,
       },
       {
         record: "Cact 127",
@@ -812,6 +864,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 12,
       },
       {
         record: "Cact 129",
@@ -829,6 +883,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 11,
       },
       {
         record: "Cact 131",
@@ -846,6 +902,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 204,
+        leaf: 11,
       },
       {
         record: "Cact 133",
@@ -863,6 +921,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 11,
       },
       {
         record: "Cact 135",
@@ -880,6 +940,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 11,
       },
       {
         record: "Cact 137",
@@ -897,6 +959,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 48,
+        leaf: 11,
       },
       {
         record: "Cact 139",
@@ -914,6 +978,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1,
+        leaf: 11,
       },
       {
         record: "Cact 141",
@@ -931,6 +997,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 512,
+        leaf: 11,
       },
       {
         record: "Cact 143",
@@ -948,6 +1016,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 1024,
+        leaf: 11,
       },
       {
         record: "Cact 159",
@@ -965,6 +1035,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 2048,
+        leaf: 20,
       },
       {
         record: "Cact 161",
@@ -982,6 +1054,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1024,
+        leaf: 20,
       },
       {
         record: "Cact 164",
@@ -999,6 +1073,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 12,
+        leaf: 8,
       },
       {
         record: "Cact 177",
@@ -1016,6 +1092,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1,
+        leaf: 19,
       },
       {
         record: "Cact 178",
@@ -1033,6 +1111,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 2048,
+        leaf: 7,
       },
       {
         record: "Cact 179",
@@ -1050,6 +1130,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 128,
+        leaf: 7,
       },
       {
         record: "Cact 183",
@@ -1067,6 +1149,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 52224,
+        leaf: 8,
       },
       {
         record: "Cact 187",
@@ -1084,6 +1168,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 48,
+        leaf: 8,
       },
       {
         record: "Cact 194",
@@ -1101,6 +1187,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 2048,
+        leaf: 10,
       },
       {
         record: "Cact 195",
@@ -1118,6 +1206,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 3072,
+        leaf: 10,
       },
       {
         record: "Cact 196",
@@ -1135,6 +1225,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 768,
+        leaf: 10,
       },
       {
         record: "Cact 197",
@@ -1152,6 +1244,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 48,
+        leaf: 10,
       },
       {
         record: "Cact 200",
@@ -1169,6 +1263,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 102,
+        leaf: 9,
       },
       {
         record: "Cact 201",
@@ -1186,6 +1282,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 102,
+        leaf: 5,
       },
       {
         record: "Cact 218",
@@ -1203,6 +1301,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 2,
+        leaf: 22,
       },
       {
         record: "Cact 219",
@@ -1220,6 +1320,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 3,
+        leaf: 22,
       },
       {
         record: "Cact 221",
@@ -1237,6 +1339,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 3072,
+        leaf: 17,
       },
       {
         record: "Cact 222",
@@ -1254,6 +1358,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 51,
+        leaf: 17,
       },
       {
         record: "Cact 223",
@@ -1271,6 +1377,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 192,
+        leaf: 10,
       },
       {
         record: "Cact 225",
@@ -1288,6 +1396,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 16,
       },
       {
         record: "Cact 249",
@@ -1305,6 +1415,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 24576,
+        leaf: 16,
       },
       {
         record: "Cact 262",
@@ -1322,6 +1434,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 768,
+        leaf: 16,
       },
       {
         record: "Cact 263",
@@ -1339,6 +1453,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 256,
+        leaf: 18,
       },
       {
         record: "Cact 281",
@@ -1356,6 +1472,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 18,
       },
       {
         record: "Cact 282",
@@ -1373,6 +1491,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 52224,
+        leaf: 6,
       },
       {
         record: "Cact 283",
@@ -1390,6 +1510,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 192,
+        leaf: 19,
       },
       {
         record: "Cact 335",
@@ -1407,6 +1529,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 85,
+        quad: 1632,
+        leaf: 23,
       },
       {
         record: "Cact 336",
@@ -1424,6 +1548,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 85,
+        quad: 1632,
+        leaf: 2,
       },
       {
         record: "Cact 337",
@@ -1441,6 +1567,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 12288,
+        leaf: 20,
       },
       {
         record: "Cact 338",
@@ -1458,6 +1586,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1632,
+        leaf: 20,
       },
       {
         record: "Cact 339",
@@ -1475,6 +1605,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 102,
+        leaf: 20,
       },
       {
         record: "Cact 340",
@@ -1492,6 +1624,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 24576,
+        leaf: 21,
       },
       {
         record: "Cact 341",
@@ -1509,6 +1643,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1632,
+        leaf: 21,
       },
       {
         record: "Cact 342",
@@ -1526,6 +1662,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 0,
       },
       {
         record: "Cact 343",
@@ -1543,6 +1681,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 192,
+        leaf: 0,
       },
       {
         record: "Cact 344",
@@ -1560,6 +1700,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 6,
+        leaf: 1,
       },
       {
         record: "Cact 345",
@@ -1577,6 +1719,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1632,
+        leaf: 1,
       },
       {
         record: "Cact 346",
@@ -1594,6 +1738,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 24576,
+        leaf: 24,
       },
       {
         record: "Cact 347",
@@ -1611,6 +1757,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1632,
+        leaf: 24,
       },
       {
         record: "Cact 348",
@@ -1628,6 +1776,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 768,
+        leaf: 25,
       },
       {
         record: "Cact 349",
@@ -1645,6 +1795,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 3,
+        leaf: 25,
       },
       {
         record: "Cact 350",
@@ -1662,6 +1814,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 15,
       },
       {
         record: "Cact 351",
@@ -1679,6 +1833,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 768,
+        leaf: 15,
       },
       {
         record: "Cact 352",
@@ -1696,6 +1852,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 96,
+        leaf: 15,
       },
       {
         record: "Cact 353",
@@ -1713,6 +1871,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 192,
+        leaf: 15,
       },
       {
         record: "Cact 354",
@@ -1730,6 +1890,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 192,
+        leaf: 9,
       },
       {
         record: "Cact 355",
@@ -1747,6 +1909,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1632,
+        leaf: 5,
       },
       {
         record: "Cact 356",
@@ -1764,6 +1928,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1536,
+        leaf: 5,
       },
       {
         record: "Cact 357",
@@ -1781,6 +1947,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 12,
+        leaf: 5,
       },
       {
         record: "Cact 358",
@@ -1798,6 +1966,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 6,
+        leaf: 4,
       },
       {
         record: "Cact 359",
@@ -1815,6 +1985,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1632,
+        leaf: 4,
       },
       {
         record: "Cact 360",
@@ -1832,6 +2004,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 256,
+        leaf: 2,
       },
       {
         record: "Cact 361",
@@ -1849,6 +2023,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 2,
       },
       {
         record: "Cact 362",
@@ -1866,6 +2042,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 128,
+        leaf: 23,
       },
       {
         record: "Cact 363",
@@ -1883,6 +2061,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 2048,
+        leaf: 23,
       },
       {
         record: "Cact 364",
@@ -1900,6 +2080,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1024,
+        leaf: 23,
       },
       {
         record: "Cact 365",
@@ -1917,6 +2099,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 23,
       },
       {
         record: "Cact 366",
@@ -1934,6 +2118,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 2,
       },
       {
         record: "Cact 367",
@@ -1951,6 +2137,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 2,
       },
       {
         record: "Cact 368",
@@ -1968,6 +2156,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 768,
+        leaf: 16,
       },
       {
         record: "Cact 369",
@@ -1985,6 +2175,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 768,
+        leaf: 20,
       },
       {
         record: "Cact 370",
@@ -2002,6 +2194,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 4352,
+        leaf: 17,
       },
       {
         record: "Cact 371",
@@ -2019,6 +2213,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 13056,
+        leaf: 19,
       },
       {
         record: "Cact 372",
@@ -2036,6 +2232,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 768,
+        leaf: 6,
       },
       {
         record: "Cact 373",
@@ -2053,6 +2251,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 204,
+        leaf: 6,
       },
       {
         record: "Cact 374",
@@ -2070,6 +2270,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 3,
       },
       {
         record: "Cact 375",
@@ -2087,6 +2289,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 17408,
+        leaf: 3,
       },
     ],
     propModels: {
@@ -2098,6 +2302,242 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       65: { frames: 1, drawn: true, centre: [0, 1.5, 0] },
       66: { frames: 1, drawn: true, centre: [0, 1.8496, 0] },
     },
+    leafTrees: [
+      {
+        cz: 4,
+        cx: 4,
+        spheres: [
+          5978, -56, 2982, 712, 2982, 712, 3163, -264, 3252, -56, 1533, 504, 1564, 592, 1533, 504,
+          1613, 712, 1603, 688, 1603, 688, 1603, 688, 1613, 712, 1533, 504, 1533, 504, 1639, 48,
+          1639, -768, 1533, 504, 1613, 712, 1639, -768, 1573, -616,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 5,
+        spheres: [
+          5932, -256, 3166, -256, 3166, -256, 3024, 152, 3024, 152, 1639, 48, 1678, -688, 1536, 512,
+          1536, 512, 1678, -688, 1606, -536, 1536, 512, 1513, -280, 1536, 512, 1536, 512, 1690, 152,
+          1690, 152, 1536, 512, 1513, -280, 1690, 152, 1513, -280,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 7,
+        spheres: [
+          6026, -336, 3220, -592, 3340, -336, 3220, -592, 3340, -336, 1773, -208, 1498, -848, 2019,
+          -592, 1498, -1616, 1639, -464, 1536, -208, 1850, -848, 1773, 304, 2019, -592, 1498, -1616,
+          1773, -208, 1498, -848, 1850, -848, 1773, 304, 1639, -464, 1536, -208,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 8,
+        spheres: [
+          5843, 48, 2996, 48, 2909, -440, 2996, 48, 2909, -440, 1639, 48, 1593, -56, 1639, 48, 1639,
+          48, 1475, -440, 1475, -440, 1475, -440, 1475, -440, 1639, 48, 1639, 48, 1639, 48, 1475,
+          -440, 1475, -440, 1475, -440, 1475, -440, 1475, -440,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 9,
+        spheres: [
+          5932, -256, 3024, 152, 3024, 152, 3166, -256, 3166, -256, 1639, 48, 1513, -280, 1536, 512,
+          1536, 512, 1513, -280, 1513, -280, 1536, 512, 1513, -280, 1536, 512, 1536, 512, 1690, 152,
+          1932, -256, 1536, 512, 1513, -280, 1932, -256, 1596, -512,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 10,
+        spheres: [
+          5910, -360, 3125, -360, 2996, -768, 2924, 408, 2924, 408, 1639, 48, 1850, -384, 1504, 408,
+          1498, 384, 1639, -768, 1564, -592, 1448, 0, 1448, 0, 1504, 408, 1498, 384, 1504, 408,
+          1504, 408, 1498, 384, 1498, 384, 1504, 408, 1504, 408,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 6,
+        spheres: [
+          5830, -360, 2971, -360, 2971, -360, 2971, -360, 2907, -768, 1536, -208, 1536, -208, 1536,
+          -208, 1593, -360, 1536, -208, 1536, -208, 1593, -360, 1593, -360, 1536, -208, 1593, -360,
+          1536, -208, 1593, -360, 1470, -768, 1470, -768, 1470, -768, 1470, -768,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 7,
+        spheres: [
+          5872, -664, 2971, -360, 2917, -1280, 2971, -360, 2917, -1280, 1536, -208, 1593, -360,
+          1536, -208, 1593, -360, 1479, -1328, 1490, -1280, 1479, -1328, 1490, -1280, 1536, -208,
+          1593, -360, 1536, -208, 1593, -360, 1479, -1328, 1490, -1280, 1479, -1328, 1490, -1280,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 8,
+        spheres: [
+          5830, -360, 2971, -360, 2907, -768, 2971, -360, 2971, -360, 1536, -208, 1593, -360, 1536,
+          -208, 1593, -360, 1470, -768, 1470, -768, 1470, -768, 1470, -768, 1536, -208, 1593, -360,
+          1536, -208, 1536, -208, 1593, -360, 1593, -360, 1536, -208, 1536, -208,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 10,
+        spheres: [
+          5850, 104, 2990, 24, 3011, 104, 2924, 408, 2933, 464, 1492, -360, 1492, -360, 1498, 384,
+          1498, 384, 1492, -360, 1492, -360, 1498, 384, 1520, 464, 1498, 384, 1498, 384, 1504, 408,
+          1504, 408, 1498, 384, 1520, 464, 1504, 408, 1504, 408,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 4,
+        spheres: [
+          5870, 232, 2924, 408, 2956, 592, 2990, 24, 3048, 232, 1504, 408, 1504, 408, 1498, 384,
+          1498, 384, 1504, 408, 1504, 408, 1498, 384, 1564, 592, 1498, 384, 1498, 384, 1492, -360,
+          1492, -360, 1498, 384, 1564, 592, 1492, -360, 1492, -360,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 5,
+        spheres: [
+          5817, -328, 2945, -328, 2945, -328, 2945, -328, 2945, -328, 1448, -720, 1463, -512, 1448,
+          -720, 1544, -328, 1463, -512, 1448, -720, 1544, -328, 1448, -720, 1544, -328, 1544, -328,
+          1544, -328, 1544, -328, 1544, -328, 1544, -328, 1544, -328, 1544, -328,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 6,
+        spheres: [
+          5937, -376, 3056, -48, 3056, -48, 2920, -1304, 2920, -1304, 1583, -80, 1666, 104, 1650,
+          -232, 1746, -48, 1666, 104, 1583, -80, 1746, -48, 1650, -232, 1484, -1352, 1484, -1352,
+          1496, -1304, 1496, -1304, 1484, -1352, 1484, -1352, 1496, -1304, 1448, -976,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 8,
+        spheres: [
+          5937, -376, 2920, -1304, 2920, -1304, 3056, -48, 3056, -48, 1448, -976, 1496, -1304, 1484,
+          -1352, 1484, -1352, 1496, -1304, 1496, -1304, 1484, -1352, 1484, -1352, 1650, -232, 1746,
+          -48, 1583, -80, 1666, 104, 1746, -48, 1650, -232, 1666, 104, 1583, -80,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 9,
+        spheres: [
+          5817, -328, 2945, -328, 2945, -328, 2945, -328, 2945, -328, 1544, -328, 1544, -328, 1544,
+          -328, 1544, -328, 1544, -328, 1544, -328, 1544, -328, 1544, -328, 1448, -720, 1544, -328,
+          1448, -720, 1463, -512, 1544, -328, 1448, -720, 1463, -512, 1448, -720,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 10,
+        spheres: [
+          5850, 104, 3011, 104, 2990, 24, 2933, 464, 2924, 408, 1492, -360, 1492, -360, 1520, 464,
+          1498, 384, 1492, -360, 1492, -360, 1498, 384, 1498, 384, 1520, 464, 1498, 384, 1504, 408,
+          1504, 408, 1498, 384, 1498, 384, 1504, 408, 1504, 408,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 4,
+        spheres: [
+          5870, 232, 2956, 592, 2924, 408, 3048, 232, 2990, 24, 1504, 408, 1504, 408, 1564, 592,
+          1498, 384, 1504, 408, 1504, 408, 1498, 384, 1498, 384, 1564, 592, 1498, 384, 1492, -360,
+          1492, -360, 1498, 384, 1498, 384, 1492, -360, 1492, -360,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 6,
+        spheres: [
+          5830, -360, 2971, -360, 2971, -360, 2907, -768, 2971, -360, 1536, -208, 1536, -208, 1593,
+          -360, 1593, -360, 1536, -208, 1536, -208, 1593, -360, 1536, -208, 1470, -768, 1470, -768,
+          1470, -768, 1470, -768, 1593, -360, 1536, -208, 1593, -360, 1536, -208,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 7,
+        spheres: [
+          5872, -664, 2917, -1280, 2971, -360, 2917, -1280, 2971, -360, 1490, -1280, 1479, -1328,
+          1490, -1280, 1479, -1328, 1593, -360, 1536, -208, 1593, -360, 1536, -208, 1490, -1280,
+          1479, -1328, 1490, -1280, 1479, -1328, 1593, -360, 1536, -208, 1593, -360, 1536, -208,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 8,
+        spheres: [
+          5830, -360, 2907, -768, 2971, -360, 2971, -360, 2971, -360, 1470, -768, 1470, -768, 1470,
+          -768, 1470, -768, 1593, -360, 1536, -208, 1593, -360, 1536, -208, 1593, -360, 1593, -360,
+          1536, -208, 1536, -208, 1593, -360, 1536, -208, 1536, -208, 1536, -208,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 4,
+        spheres: [
+          5910, -360, 2924, 408, 2924, 408, 2996, -768, 3125, -360, 1504, 408, 1504, 408, 1498, 384,
+          1498, 384, 1504, 408, 1504, 408, 1498, 384, 1504, 408, 1448, 0, 1448, 0, 1564, -592, 1639,
+          -768, 1498, 384, 1504, 408, 1850, -384, 1639, 48,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 5,
+        spheres: [
+          5932, -256, 3166, -256, 3166, -256, 3024, 152, 3024, 152, 1596, -512, 1932, -256, 1513,
+          -280, 1536, 512, 1932, -256, 1690, 152, 1536, 512, 1536, 512, 1513, -280, 1536, 512, 1513,
+          -280, 1513, -280, 1536, 512, 1536, 512, 1513, -280, 1639, 48,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 6,
+        spheres: [
+          5843, 48, 2909, -440, 2996, 48, 2909, -440, 2996, 48, 1475, -440, 1475, -440, 1475, -440,
+          1475, -440, 1475, -440, 1639, 48, 1639, 48, 1639, 48, 1475, -440, 1475, -440, 1475, -440,
+          1475, -440, 1639, 48, 1639, 48, 1593, -56, 1639, 48,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 7,
+        spheres: [
+          6026, -336, 3340, -336, 3220, -592, 3340, -336, 3220, -592, 1536, -208, 1639, -464, 1773,
+          304, 1850, -848, 1498, -848, 1773, -208, 1498, -1616, 2019, -592, 1773, 304, 1850, -848,
+          1536, -208, 1639, -464, 1498, -1616, 2019, -592, 1498, -848, 1773, -208,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 9,
+        spheres: [
+          5932, -256, 3024, 152, 3024, 152, 3166, -256, 3166, -256, 1513, -280, 1690, 152, 1513,
+          -280, 1536, 512, 1690, 152, 1690, 152, 1536, 512, 1536, 512, 1513, -280, 1536, 512, 1606,
+          -536, 1678, -688, 1536, 512, 1536, 512, 1678, -688, 1639, 48,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 10,
+        spheres: [
+          5955, -152, 3210, -152, 3125, -360, 2961, 616, 2961, 616, 1573, -616, 1639, -768, 1573,
+          616, 1504, 408, 1639, -768, 1639, 48, 1504, 408, 1504, 408, 1573, 616, 1573, 616, 1573,
+          616, 1573, 616, 1573, 616, 1504, 408, 1528, 488, 1504, 408,
+        ],
+      },
+    ],
     quads: [],
     decals: {},
   },
@@ -2542,6 +2982,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 86,
+        quad: 1024,
+        leaf: 2,
       },
       {
         record: "Cact 52",
@@ -2559,6 +3001,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 2,
       },
       {
         record: "Cact 54",
@@ -2576,6 +3020,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1536,
+        leaf: 2,
       },
       {
         record: "Cact 55",
@@ -2593,6 +3039,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 256,
+        leaf: 2,
       },
       {
         record: "Cact 56",
@@ -2610,6 +3058,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 2,
       },
       {
         record: "Cact 57",
@@ -2627,6 +3077,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 96,
+        leaf: 2,
       },
       {
         record: "Cact 58",
@@ -2644,6 +3096,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 12,
       },
       {
         record: "Cact 59",
@@ -2661,6 +3115,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8192,
+        leaf: 12,
       },
       {
         record: "Cact 62",
@@ -2678,6 +3134,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 4096,
+        leaf: 12,
       },
       {
         record: "Cact 63",
@@ -2695,6 +3153,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 15,
       },
       {
         record: "Cact 64",
@@ -2712,6 +3172,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 192,
+        leaf: 7,
       },
       {
         record: "Cact 65",
@@ -2729,6 +3191,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 16,
+        leaf: 7,
       },
       {
         record: "Cact 66",
@@ -2746,6 +3210,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 192,
+        leaf: 1,
       },
       {
         record: "Cact 67",
@@ -2763,6 +3229,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 3,
+        leaf: 10,
       },
       {
         record: "Cact 68",
@@ -2780,6 +3248,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 768,
+        leaf: 11,
       },
       {
         record: "Cact 69",
@@ -2797,6 +3267,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 64,
+        leaf: 11,
       },
       {
         record: "Cact 129",
@@ -2814,6 +3286,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 7,
       },
       {
         record: "Cact 130",
@@ -2831,6 +3305,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 7,
       },
       {
         record: "Cact 131",
@@ -2848,6 +3324,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 12288,
+        leaf: 7,
       },
       {
         record: "Cact 132",
@@ -2865,6 +3343,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 6,
       },
       {
         record: "Cact 133",
@@ -2882,6 +3362,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1,
+        leaf: 6,
       },
       {
         record: "Cact 134",
@@ -2899,6 +3381,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 20,
         sound: 85,
+        quad: 8704,
+        leaf: 8,
       },
       {
         record: "Cact 135",
@@ -2916,6 +3400,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 21,
         sound: 0,
+        quad: 13056,
+        leaf: 8,
       },
       {
         record: "Cact 136",
@@ -2933,6 +3419,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 3072,
+        leaf: 4,
       },
       {
         record: "Cact 137",
@@ -2950,6 +3438,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 512,
+        leaf: 4,
       },
       {
         record: "Cact 138",
@@ -2967,6 +3457,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 4,
       },
       {
         record: "Cact 139",
@@ -2984,6 +3476,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 51,
+        leaf: 18,
       },
       {
         record: "Cact 140",
@@ -3001,6 +3495,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 34,
+        leaf: 15,
       },
       {
         record: "Cact 141",
@@ -3018,6 +3514,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 19,
       },
       {
         record: "Cact 142",
@@ -3035,6 +3533,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 19,
       },
       {
         record: "Cact 143",
@@ -3052,6 +3552,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 19,
       },
       {
         record: "Cact 156",
@@ -3069,6 +3571,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 19,
       },
       {
         record: "Cact 159",
@@ -3086,6 +3590,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 19,
       },
       {
         record: "Cact 160",
@@ -3103,6 +3609,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 19,
       },
       {
         record: "Cact 161",
@@ -3120,6 +3628,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 128,
+        leaf: 19,
       },
       {
         record: "Cact 163",
@@ -3137,6 +3647,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 19,
       },
       {
         record: "Cact 183",
@@ -3154,6 +3666,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 17,
+        leaf: 0,
       },
       {
         record: "Cact 194",
@@ -3171,6 +3685,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 89,
+        quad: 256,
+        leaf: 0,
       },
       {
         record: "Cact 195",
@@ -3188,6 +3704,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 128,
+        leaf: 10,
       },
       {
         record: "Cact 196",
@@ -3205,6 +3723,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 256,
+        leaf: 6,
       },
       {
         record: "Cact 197",
@@ -3222,6 +3742,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 89,
+        quad: 64,
+        leaf: 10,
       },
       {
         record: "Cact 200",
@@ -3239,6 +3761,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 52224,
+        leaf: 3,
       },
       {
         record: "Cact 201",
@@ -3256,6 +3780,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 87,
+        quad: 816,
+        leaf: 3,
       },
       {
         record: "Cact 218",
@@ -3273,6 +3799,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 102,
+        leaf: 3,
       },
       {
         record: "Cact 219",
@@ -3290,6 +3818,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 2048,
+        leaf: 4,
       },
       {
         record: "Cact 221",
@@ -3307,6 +3837,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 4,
       },
       {
         record: "Cact 222",
@@ -3324,6 +3856,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 88,
+        quad: 544,
+        leaf: 5,
       },
       {
         record: "Cact 223",
@@ -3341,6 +3875,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 5,
       },
       {
         record: "Cact 225",
@@ -3358,6 +3894,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 88,
+        quad: 26112,
+        leaf: 9,
       },
       {
         record: "Cact 264",
@@ -3375,6 +3913,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 51,
+        leaf: 5,
       },
       {
         record: "Cact 281",
@@ -3392,6 +3932,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 68,
+        leaf: 5,
       },
       {
         record: "Cact 282",
@@ -3409,6 +3951,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 14,
       },
       {
         record: "Cact 283",
@@ -3426,6 +3970,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 2,
+        leaf: 14,
       },
       {
         record: "Cact 284",
@@ -3443,6 +3989,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 2,
+        leaf: 21,
       },
       {
         record: "Cact 285",
@@ -3460,6 +4008,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1,
+        leaf: 21,
       },
       {
         record: "Cact 286",
@@ -3477,6 +4027,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 88,
+        quad: 102,
+        leaf: 21,
       },
       {
         record: "Cact 287",
@@ -3494,6 +4046,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 21,
       },
       {
         record: "Cact 288",
@@ -3511,6 +4065,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 1536,
+        leaf: 20,
       },
       {
         record: "Cact 289",
@@ -3528,6 +4084,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 816,
+        leaf: 13,
       },
       {
         record: "Cact 290",
@@ -3545,6 +4103,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 192,
+        leaf: 13,
       },
       {
         record: "Cact 291",
@@ -3562,6 +4122,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 17,
       },
       {
         record: "Cact 329",
@@ -3579,6 +4141,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 19,
       },
       {
         record: "Cact 330",
@@ -3596,6 +4160,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 17408,
+        leaf: 19,
       },
       {
         record: "Cact 331",
@@ -3613,6 +4179,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 19,
       },
       {
         record: "Cact 332",
@@ -3630,6 +4198,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 19,
       },
       {
         record: "Cact 333",
@@ -3647,6 +4217,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 89,
+        quad: 64,
+        leaf: 16,
       },
       {
         record: "Cact 334",
@@ -3664,6 +4236,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 89,
+        quad: 1024,
+        leaf: 19,
       },
       {
         record: "Cact 335",
@@ -3681,6 +4255,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 19,
       },
       {
         record: "Cact 337",
@@ -3698,6 +4274,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 86,
+        quad: 64,
+        leaf: 19,
       },
       {
         record: "Cact 341",
@@ -3715,6 +4293,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 26112,
+        leaf: 19,
       },
       {
         record: "Cact 342",
@@ -3732,6 +4312,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 204,
+        leaf: 0,
       },
       {
         record: "Cact 343",
@@ -3749,6 +4331,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 21,
         sound: 0,
+        quad: 16384,
+        leaf: 5,
       },
       {
         record: "Cact 344",
@@ -3766,6 +4350,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 23,
         sound: 0,
+        quad: 16384,
+        leaf: 5,
       },
       {
         record: "Cact 345",
@@ -3783,6 +4369,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 20,
         sound: 0,
+        quad: 1024,
+        leaf: 5,
       },
       {
         record: "Cact 346",
@@ -3800,6 +4388,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 18,
         sound: 0,
+        quad: 1024,
+        leaf: 5,
       },
     ],
     propModels: {
@@ -3831,6 +4421,206 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       82: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
       83: { frames: 10, drawn: true, centre: [0, 0.5059, 0] },
     },
+    leafTrees: [
+      {
+        cz: 4,
+        cx: 4,
+        spheres: [
+          5881, 1016, 2941, 512, 3069, 1016, 2941, 512, 2941, 512, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1769, 1016, 1536, 512, 1453, 128, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1453, 128, 1536, 512, 1453, 128,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 5,
+        spheres: [
+          5882, 0, 2941, 512, 2941, 512, 3072, 0, 2941, 512, 1536, 512, 1448, 0, 1536, 512, 1536,
+          512, 1448, 0, 1448, 0, 1536, 512, 1448, 0, 1773, 0, 1773, 0, 1773, 0, 1773, 0, 1536, 512,
+          1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 6,
+        spheres: [
+          5882, 0, 3072, 0, 2941, -512, 3072, 0, 2961, -408, 1773, 0, 1536, -512, 1773, 0, 1536,
+          -512, 1536, -512, 1536, -512, 1536, -512, 1536, -512, 1773, 0, 1536, -512, 1773, 0, 1536,
+          -512, 1536, -512, 1573, -408, 1536, -512, 1536, -512,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 8,
+        spheres: [
+          5990, -504, 3274, -504, 3069, -1016, 3274, -504, 3069, -1016, 2105, -504, 1769, -1016,
+          2105, -504, 1769, -1016, 1769, -1016, 1769, -1016, 1769, -1016, 1769, -1016, 2105, -504,
+          1769, -1016, 2105, -504, 1769, -1016, 1769, -1016, 1769, -1016, 1769, -1016, 1536, -512,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 9,
+        spheres: [
+          5882, 0, 3072, 0, 2941, -512, 3072, 0, 2941, -512, 1773, 0, 1536, -512, 1773, 0, 1536,
+          -512, 1536, -512, 1536, -512, 1536, -512, 1536, -512, 1773, 0, 1536, -512, 1773, 0, 1536,
+          -512, 1498, -640, 1536, -512, 1536, -512, 1536, -512,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 10,
+        spheres: [
+          5906, 128, 3117, 128, 2941, 512, 2966, 640, 2941, 512, 1773, 0, 1773, 0, 1536, 512, 1583,
+          640, 1453, 128, 1453, 128, 1536, 512, 1448, 0, 1536, 512, 1583, 640, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 4,
+        spheres: [
+          5861, 896, 3031, 896, 3031, 896, 2990, 744, 2918, 360, 1536, 512, 1702, 896, 1628, 744,
+          1628, 744, 1702, 896, 1536, 512, 1702, 896, 1702, 896, 1628, 744, 1628, 744, 1536, 512,
+          1536, 512, 1492, 360, 1492, 360, 1492, 360, 1492, 360,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 5,
+        spheres: [
+          5827, -384, 2899, 128, 2899, 128, 2899, 128, 2941, -512, 1448, 0, 1448, 0, 1453, 128,
+          1453, 128, 1448, 0, 1448, 0, 1448, 0, 1453, 128, 1448, 0, 1448, 0, 1453, 128, 1453, 128,
+          1536, -512, 1536, -512, 1536, -512, 1536, -512,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 6,
+        spheres: [
+          5882, 0, 2966, -384, 2941, -512, 3072, 0, 2941, -512, 1583, -384, 1583, -384, 1583, -384,
+          1583, -384, 1536, -512, 1536, -512, 1536, -512, 1536, -512, 1583, -384, 1583, -384, 1536,
+          512, 1536, 512, 1536, -512, 1536, -512, 1536, -512, 1536, -512,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 10,
+        spheres: [
+          5815, 512, 2941, 512, 2941, 512, 2941, 512, 2941, 512, 1453, 128, 1536, 512, 1448, 0,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 4,
+        spheres: [
+          5881, 1016, 3069, 1016, 2941, 512, 2941, 512, 2941, 512, 1769, 1016, 1769, 1016, 1448, 0,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512, 1448, 0, 1536, 512, 1453, 128,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 5,
+        spheres: [
+          5843, -256, 2996, -256, 2996, -256, 2996, -256, 2921, 128, 1448, 0, 1536, -512, 1448, 0,
+          1639, -256, 1536, -512, 1536, -512, 1639, -256, 1639, -256, 1583, -384, 1639, -256, 1583,
+          -384, 1639, -256, 1498, 128, 1498, 128, 1498, 128, 1498, 128,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 6,
+        spheres: [
+          5882, 0, 3072, 0, 3072, 0, 3072, 0, 2941, 512, 1583, -384, 1639, -256, 1583, -384, 1536,
+          512, 1639, -256, 1536, -512, 1536, 512, 1536, 512, 1448, 0, 1470, 256, 1536, -512, 1536,
+          512, 1536, 512, 1536, 512, 1536, 512, 1448, 0,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 9,
+        spheres: [
+          5896, 80, 3099, 80, 3099, 80, 2996, -256, 2996, -256, 1639, -256, 1821, 80, 1639, -256,
+          1639, -256, 1821, 80, 1536, -512, 1662, -208, 1536, -512, 1639, -256, 1639, -256, 1470,
+          256, 1536, 0, 1639, -256, 1639, -256, 1536, 0, 1470, 256,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 10,
+        spheres: [
+          5881, 1016, 2941, 512, 2941, 512, 2941, 512, 3069, 1016, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1453, 128, 1536, 512, 1448, 0, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1448, 0, 1536, 512, 1769, 1016,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 4,
+        spheres: [
+          5827, 640, 2966, 640, 2941, 512, 2966, 640, 2941, 512, 1536, 512, 1536, 512, 1583, 640,
+          1583, 640, 1536, 512, 1536, 512, 1536, 512, 1536, 512, 1583, 640, 1583, 640, 1536, 512,
+          1536, 512, 1536, 512, 1448, 0, 1536, 512, 1453, 128,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 7,
+        spheres: [
+          5882, 0, 2996, -256, 3072, 0, 3072, 0, 3072, 0, 1536, -512, 1639, -256, 1536, -512, 1639,
+          -256, 1536, -512, 1773, 0, 1639, -256, 1773, 0, 1536, -512, 1639, -256, 1536, -512, 1773,
+          0, 1639, -256, 1639, -256, 1536, 512, 1498, 128,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 10,
+        spheres: [
+          5861, 896, 2918, 360, 2990, 744, 3031, 896, 3031, 896, 1492, 360, 1492, 360, 1492, 360,
+          1492, 360, 1536, 512, 1536, 512, 1628, 744, 1628, 744, 1702, 896, 1702, 896, 1536, 512,
+          1702, 896, 1628, 744, 1628, 744, 1702, 896, 1536, 512,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 4,
+        spheres: [
+          5827, 640, 2941, 512, 2966, 640, 2941, 512, 2941, 512, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 768, 1536, 768, 1583, 640, 1583, 640, 1448, 0, 1536, 512, 1453, 128,
+          1453, 128, 1536, 512, 1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 5,
+        spheres: [
+          5878, 24, 3064, 24, 3064, 24, 3064, 24, 3064, 24, 1528, -488, 1759, 24, 1528, -488, 1759,
+          24, 1536, 512, 1536, 512, 1759, 24, 1536, 512, 1759, 24, 1759, 24, 1759, 24, 1528, -488,
+          1759, 24, 1536, 512, 1573, -360, 1536, 512,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 9,
+        spheres: [
+          5932, 256, 3072, 0, 2996, 768, 3072, 0, 2941, 512, 1536, -512, 1536, -512, 1773, 0, 1773,
+          0, 1639, 768, 1639, 768, 1639, 768, 1639, 768, 1773, 0, 1773, 0, 1536, -512, 1773, 0,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 10,
+        spheres: [
+          5881, 1016, 2941, 512, 2966, 640, 3069, 1016, 3069, 1016, 1453, 128, 1536, 512, 1453, 128,
+          1536, 512, 1536, 512, 1583, 640, 1536, 512, 1583, 640, 1453, 128, 1536, 512, 1769, 1016,
+          1536, 512, 1536, 512, 1536, 512, 1769, 1016, 1769, 1016,
+        ],
+      },
+    ],
     quads: [
       {
         record: "Cact 70",
@@ -5108,6 +5898,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
     ],
     props: [],
     propModels: {},
+    leafTrees: [],
     quads: [],
     decals: {},
   },
@@ -5552,6 +6343,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 86,
+        quad: 1024,
+        leaf: 2,
       },
       {
         record: "Cact 52",
@@ -5569,6 +6362,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 2,
       },
       {
         record: "Cact 54",
@@ -5586,6 +6381,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1536,
+        leaf: 2,
       },
       {
         record: "Cact 55",
@@ -5603,6 +6400,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 256,
+        leaf: 2,
       },
       {
         record: "Cact 56",
@@ -5620,6 +6419,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 2,
       },
       {
         record: "Cact 57",
@@ -5637,6 +6438,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 96,
+        leaf: 2,
       },
       {
         record: "Cact 58",
@@ -5654,6 +6457,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 11,
       },
       {
         record: "Cact 59",
@@ -5671,6 +6476,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8192,
+        leaf: 11,
       },
       {
         record: "Cact 62",
@@ -5688,6 +6495,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 4096,
+        leaf: 11,
       },
       {
         record: "Cact 63",
@@ -5705,6 +6514,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 14,
       },
       {
         record: "Cact 64",
@@ -5722,6 +6533,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 192,
+        leaf: 7,
       },
       {
         record: "Cact 65",
@@ -5739,6 +6552,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 16,
+        leaf: 7,
       },
       {
         record: "Cact 66",
@@ -5756,6 +6571,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 192,
+        leaf: 1,
       },
       {
         record: "Cact 67",
@@ -5773,6 +6590,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 3,
+        leaf: 9,
       },
       {
         record: "Cact 68",
@@ -5790,6 +6609,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 768,
+        leaf: 10,
       },
       {
         record: "Cact 69",
@@ -5807,6 +6628,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 64,
+        leaf: 10,
       },
       {
         record: "Cact 129",
@@ -5824,6 +6647,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 7,
       },
       {
         record: "Cact 130",
@@ -5841,6 +6666,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 7,
       },
       {
         record: "Cact 131",
@@ -5858,6 +6685,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 12288,
+        leaf: 7,
       },
       {
         record: "Cact 132",
@@ -5875,6 +6704,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 6,
       },
       {
         record: "Cact 133",
@@ -5892,6 +6723,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1,
+        leaf: 6,
       },
       {
         record: "Cact 134",
@@ -5909,6 +6742,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 20,
         sound: 85,
+        quad: 4,
+        leaf: 14,
       },
       {
         record: "Cact 135",
@@ -5926,6 +6761,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 21,
         sound: 0,
+        quad: 4,
+        leaf: 14,
       },
       {
         record: "Cact 136",
@@ -5943,6 +6780,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 3072,
+        leaf: 4,
       },
       {
         record: "Cact 137",
@@ -5960,6 +6799,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 512,
+        leaf: 4,
       },
       {
         record: "Cact 138",
@@ -5977,6 +6818,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 4,
       },
       {
         record: "Cact 139",
@@ -5994,6 +6837,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 51,
+        leaf: 17,
       },
       {
         record: "Cact 140",
@@ -6011,6 +6856,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 34,
+        leaf: 14,
       },
       {
         record: "Cact 141",
@@ -6028,6 +6875,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 18,
       },
       {
         record: "Cact 142",
@@ -6045,6 +6894,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 18,
       },
       {
         record: "Cact 143",
@@ -6062,6 +6913,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 18,
       },
       {
         record: "Cact 156",
@@ -6079,6 +6932,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 18,
       },
       {
         record: "Cact 159",
@@ -6096,6 +6951,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 18,
       },
       {
         record: "Cact 160",
@@ -6113,6 +6970,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 18,
       },
       {
         record: "Cact 161",
@@ -6130,6 +6989,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 128,
+        leaf: 18,
       },
       {
         record: "Cact 163",
@@ -6147,6 +7008,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 18,
       },
       {
         record: "Cact 183",
@@ -6164,6 +7027,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 17,
+        leaf: 0,
       },
       {
         record: "Cact 194",
@@ -6181,6 +7046,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 89,
+        quad: 256,
+        leaf: 0,
       },
       {
         record: "Cact 195",
@@ -6198,6 +7065,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 128,
+        leaf: 9,
       },
       {
         record: "Cact 196",
@@ -6215,6 +7084,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 256,
+        leaf: 6,
       },
       {
         record: "Cact 197",
@@ -6232,6 +7103,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 89,
+        quad: 64,
+        leaf: 9,
       },
       {
         record: "Cact 200",
@@ -6249,6 +7122,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 52224,
+        leaf: 3,
       },
       {
         record: "Cact 201",
@@ -6266,6 +7141,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 87,
+        quad: 816,
+        leaf: 3,
       },
       {
         record: "Cact 218",
@@ -6283,6 +7160,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 102,
+        leaf: 3,
       },
       {
         record: "Cact 219",
@@ -6300,6 +7179,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 2048,
+        leaf: 4,
       },
       {
         record: "Cact 221",
@@ -6317,6 +7198,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 4,
       },
       {
         record: "Cact 222",
@@ -6334,6 +7217,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 88,
+        quad: 544,
+        leaf: 5,
       },
       {
         record: "Cact 223",
@@ -6351,6 +7236,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 5,
       },
       {
         record: "Cact 225",
@@ -6368,6 +7255,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 88,
+        quad: 26112,
+        leaf: 8,
       },
       {
         record: "Cact 264",
@@ -6385,6 +7274,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 51,
+        leaf: 5,
       },
       {
         record: "Cact 281",
@@ -6402,6 +7293,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 68,
+        leaf: 5,
       },
       {
         record: "Cact 282",
@@ -6419,6 +7312,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 13,
       },
       {
         record: "Cact 283",
@@ -6436,6 +7331,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 2,
+        leaf: 13,
       },
       {
         record: "Cact 284",
@@ -6453,6 +7350,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 2,
+        leaf: 20,
       },
       {
         record: "Cact 285",
@@ -6470,6 +7369,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1,
+        leaf: 20,
       },
       {
         record: "Cact 286",
@@ -6487,6 +7388,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 88,
+        quad: 102,
+        leaf: 20,
       },
       {
         record: "Cact 287",
@@ -6504,6 +7407,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 20,
       },
       {
         record: "Cact 288",
@@ -6521,6 +7426,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 1536,
+        leaf: 19,
       },
       {
         record: "Cact 289",
@@ -6538,6 +7445,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 816,
+        leaf: 12,
       },
       {
         record: "Cact 290",
@@ -6555,6 +7464,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 90,
+        quad: 192,
+        leaf: 12,
       },
       {
         record: "Cact 291",
@@ -6572,6 +7483,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 16,
       },
       {
         record: "Cact 329",
@@ -6589,6 +7502,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 18,
       },
       {
         record: "Cact 330",
@@ -6606,6 +7521,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 17408,
+        leaf: 18,
       },
       {
         record: "Cact 331",
@@ -6623,6 +7540,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 18,
       },
       {
         record: "Cact 332",
@@ -6640,6 +7559,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 18,
       },
       {
         record: "Cact 333",
@@ -6657,6 +7578,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 89,
+        quad: 64,
+        leaf: 15,
       },
       {
         record: "Cact 334",
@@ -6674,6 +7597,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 89,
+        quad: 1024,
+        leaf: 18,
       },
       {
         record: "Cact 335",
@@ -6691,6 +7616,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 18,
       },
       {
         record: "Cact 337",
@@ -6708,6 +7635,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 86,
+        quad: 64,
+        leaf: 18,
       },
       {
         record: "Cact 341",
@@ -6725,6 +7654,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 26112,
+        leaf: 18,
       },
       {
         record: "Cact 342",
@@ -6742,6 +7673,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 204,
+        leaf: 0,
       },
       {
         record: "Cact 343",
@@ -6759,6 +7692,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 21,
         sound: 0,
+        quad: 16384,
+        leaf: 5,
       },
       {
         record: "Cact 344",
@@ -6776,6 +7711,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 23,
         sound: 0,
+        quad: 16384,
+        leaf: 5,
       },
       {
         record: "Cact 345",
@@ -6793,6 +7730,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 20,
         sound: 0,
+        quad: 1024,
+        leaf: 5,
       },
       {
         record: "Cact 346",
@@ -6810,6 +7749,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 18,
         sound: 0,
+        quad: 1024,
+        leaf: 5,
       },
     ],
     propModels: {
@@ -6841,6 +7782,197 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       81: { frames: 1, drawn: true, centre: [0, 0.5, 0] },
       82: { frames: 10, drawn: true, centre: [0, 0.5059, 0] },
     },
+    leafTrees: [
+      {
+        cz: 4,
+        cx: 4,
+        spheres: [
+          5881, 1016, 2941, 512, 3069, 1016, 2941, 512, 2941, 512, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1769, 1016, 1536, 512, 1453, 128, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1453, 128, 1536, 512, 1453, 128,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 5,
+        spheres: [
+          5882, 0, 2941, 512, 2941, 512, 3072, 0, 2941, 512, 1536, 512, 1448, 0, 1536, 512, 1536,
+          512, 1448, 0, 1448, 0, 1536, 512, 1448, 0, 1773, 0, 1773, 0, 1773, 0, 1773, 0, 1536, 512,
+          1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 6,
+        spheres: [
+          5882, 0, 3072, 0, 2941, -512, 3072, 0, 2961, -408, 1773, 0, 1536, -512, 1773, 0, 1536,
+          -512, 1536, -512, 1536, -512, 1536, -512, 1536, -512, 1773, 0, 1536, -512, 1773, 0, 1536,
+          -512, 1536, -512, 1573, -408, 1536, -512, 1536, -512,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 8,
+        spheres: [
+          5990, -504, 3274, -504, 3069, -1016, 3274, -504, 3069, -1016, 2105, -504, 1769, -1016,
+          2105, -504, 1769, -1016, 1769, -1016, 1769, -1016, 1769, -1016, 1769, -1016, 2105, -504,
+          1769, -1016, 2105, -504, 1769, -1016, 1769, -1016, 1769, -1016, 1769, -1016, 1536, -512,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 9,
+        spheres: [
+          5882, 0, 3072, 0, 2941, -512, 3072, 0, 2941, -512, 1773, 0, 1536, -512, 1773, 0, 1536,
+          -512, 1536, -512, 1536, -512, 1536, -512, 1536, -512, 1773, 0, 1536, -512, 1773, 0, 1536,
+          -512, 1498, -640, 1536, -512, 1536, -512, 1536, -512,
+        ],
+      },
+      {
+        cz: 4,
+        cx: 10,
+        spheres: [
+          5906, 128, 3117, 128, 2941, 512, 2966, 640, 2941, 512, 1773, 0, 1773, 0, 1536, 512, 1583,
+          640, 1453, 128, 1453, 128, 1536, 512, 1448, 0, 1536, 512, 1583, 640, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 4,
+        spheres: [
+          5861, 896, 3031, 896, 3031, 896, 2990, 744, 2918, 360, 1536, 512, 1702, 896, 1628, 744,
+          1628, 744, 1702, 896, 1536, 512, 1702, 896, 1702, 896, 1628, 744, 1628, 744, 1536, 512,
+          1536, 512, 1492, 360, 1492, 360, 1492, 360, 1492, 360,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 5,
+        spheres: [
+          5827, -384, 2899, 128, 2899, 128, 2899, 128, 2941, -512, 1448, 0, 1448, 0, 1453, 128,
+          1453, 128, 1448, 0, 1448, 0, 1448, 0, 1453, 128, 1448, 0, 1448, 0, 1453, 128, 1453, 128,
+          1536, -512, 1536, -512, 1536, -512, 1536, -512,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 10,
+        spheres: [
+          5815, 512, 2941, 512, 2941, 512, 2941, 512, 2941, 512, 1453, 128, 1536, 512, 1448, 0,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 4,
+        spheres: [
+          5881, 1016, 3069, 1016, 2941, 512, 2941, 512, 2941, 512, 1769, 1016, 1769, 1016, 1448, 0,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512, 1448, 0, 1536, 512, 1453, 128,
+          1536, 512, 1536, 512, 1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 5,
+        spheres: [
+          5843, -256, 2996, -256, 2996, -256, 2996, -256, 2921, 128, 1448, 0, 1536, -512, 1448, 0,
+          1639, -256, 1536, -512, 1536, -512, 1639, -256, 1639, -256, 1583, -384, 1639, -256, 1583,
+          -384, 1639, -256, 1498, 128, 1498, 128, 1498, 128, 1498, 128,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 6,
+        spheres: [
+          5882, 0, 3072, 0, 3072, 0, 3072, 0, 2996, 256, 1583, -384, 1639, -256, 1583, -384, 1536,
+          512, 1639, -256, 1536, -512, 1536, 512, 1536, 512, 1448, 0, 1470, 256, 1536, -512, 1536,
+          512, 1536, 512, 1536, 512, 1536, 512, 1470, -256,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 9,
+        spheres: [
+          5896, 80, 3099, 80, 3099, 80, 2996, -256, 2996, -256, 1639, -256, 1821, 80, 1639, -256,
+          1639, -256, 1821, 80, 1536, -512, 1662, -208, 1536, -512, 1639, -256, 1639, -256, 1470,
+          256, 1536, 0, 1639, -256, 1639, -256, 1536, 0, 1470, 256,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 10,
+        spheres: [
+          5881, 1016, 2941, 512, 2941, 512, 2941, 512, 3069, 1016, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1453, 128, 1536, 512, 1448, 0, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 512, 1448, 0, 1536, 512, 1769, 1016,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 4,
+        spheres: [
+          5827, 640, 2966, 640, 2941, 512, 2966, 640, 2941, 512, 1536, 512, 1536, 512, 1583, 640,
+          1583, 640, 1536, 512, 1536, 512, 1536, 512, 1536, 512, 1583, 640, 1583, 640, 1536, 512,
+          1536, 512, 1536, 512, 1448, 0, 1536, 512, 1453, 128,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 7,
+        spheres: [
+          5882, 0, 2996, -256, 3072, 0, 3072, 0, 3072, 0, 1536, -512, 1639, -256, 1536, -512, 1639,
+          -256, 1536, -512, 1773, 0, 1639, -256, 1773, 0, 1536, -512, 1639, -256, 1536, -512, 1773,
+          0, 1639, -256, 1639, -256, 1536, 512, 1498, 128,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 10,
+        spheres: [
+          5861, 896, 2918, 360, 2990, 744, 3031, 896, 3031, 896, 1492, 360, 1492, 360, 1492, 360,
+          1492, 360, 1536, 512, 1536, 512, 1628, 744, 1628, 744, 1702, 896, 1702, 896, 1536, 512,
+          1702, 896, 1628, 744, 1628, 744, 1702, 896, 1536, 512,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 4,
+        spheres: [
+          5827, 640, 2941, 512, 2966, 640, 2941, 512, 2941, 512, 1536, 512, 1536, 512, 1536, 512,
+          1536, 512, 1536, 768, 1536, 768, 1583, 640, 1583, 640, 1448, 0, 1536, 512, 1453, 128,
+          1453, 128, 1536, 512, 1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 5,
+        spheres: [
+          5878, 24, 3064, 24, 3064, 24, 3064, 24, 3064, 24, 1528, -488, 1759, 24, 1528, -488, 1759,
+          24, 1536, 512, 1536, 512, 1759, 24, 1536, 512, 1759, 24, 1759, 24, 1759, 24, 1528, -488,
+          1759, 24, 1536, 512, 1573, -360, 1536, 512,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 9,
+        spheres: [
+          5932, 256, 3072, 0, 2996, 768, 3072, 0, 2941, 512, 1536, -512, 1536, -512, 1773, 0, 1773,
+          0, 1639, 768, 1639, 768, 1639, 768, 1639, 768, 1773, 0, 1773, 0, 1448, 0, 1536, 512, 1536,
+          512, 1536, 512, 1536, 512, 1536, 512,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 10,
+        spheres: [
+          5881, 1016, 2941, 512, 2966, 640, 3069, 1016, 3069, 1016, 1453, 128, 1536, 512, 1453, 128,
+          1536, 512, 1536, 512, 1583, 640, 1536, 512, 1583, 640, 1453, 128, 1536, 512, 1769, 1016,
+          1536, 512, 1536, 512, 1536, 512, 1769, 1016, 1769, 1016,
+        ],
+      },
+    ],
     quads: [
       {
         record: "Cact 70",
@@ -8057,6 +9189,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 21,
       },
       {
         record: "Cact 112",
@@ -8074,6 +9208,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 16,
+        leaf: 22,
       },
       {
         record: "Cact 118",
@@ -8091,6 +9227,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 21,
       },
       {
         record: "Cact 120",
@@ -8108,6 +9246,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 21,
       },
       {
         record: "Cact 121",
@@ -8125,6 +9265,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 21,
       },
       {
         record: "Cact 122",
@@ -8142,6 +9284,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 21,
       },
       {
         record: "Cact 123",
@@ -8159,6 +9303,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 2176,
+        leaf: 33,
       },
       {
         record: "Cact 124",
@@ -8176,6 +9322,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 32768,
+        leaf: 34,
       },
       {
         record: "Cact 125",
@@ -8193,6 +9341,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 128,
+        leaf: 32,
       },
       {
         record: "Cact 126",
@@ -8210,6 +9360,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 512,
+        leaf: 27,
       },
       {
         record: "Cact 127",
@@ -8227,6 +9379,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 16,
+        leaf: 2,
       },
       {
         record: "Cact 128",
@@ -8244,6 +9398,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 32,
+        leaf: 7,
       },
       {
         record: "Cact 129",
@@ -8261,6 +9417,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 1,
+        leaf: 6,
       },
       {
         record: "Cact 130",
@@ -8278,6 +9436,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 17,
+        leaf: 1,
       },
       {
         record: "Cact 131",
@@ -8295,6 +9455,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 85,
+        quad: 512,
+        leaf: 21,
       },
       {
         record: "Cact 132",
@@ -8312,6 +9474,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 21,
       },
       {
         record: "Cact 133",
@@ -8329,6 +9493,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 21,
       },
       {
         record: "Cact 134",
@@ -8346,6 +9512,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 21,
       },
       {
         record: "Cact 139",
@@ -8363,6 +9531,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 16,
+        leaf: 16,
       },
       {
         record: "Cact 140",
@@ -8380,6 +9550,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 8192,
+        leaf: 24,
       },
       {
         record: "Cact 141",
@@ -8397,6 +9569,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 4096,
+        leaf: 19,
       },
       {
         record: "Cact 142",
@@ -8414,6 +9588,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 16384,
+        leaf: 30,
       },
       {
         record: "Cact 143",
@@ -8431,6 +9607,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 18,
       },
       {
         record: "Cact 156",
@@ -8448,6 +9626,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 17,
+        leaf: 18,
       },
       {
         record: "Cact 159",
@@ -8465,6 +9645,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 17,
+        leaf: 18,
       },
       {
         record: "Cact 160",
@@ -8482,6 +9664,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 18,
       },
       {
         record: "Cact 161",
@@ -8499,6 +9683,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 14,
       },
       {
         record: "Cact 163",
@@ -8516,6 +9702,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 52224,
+        leaf: 8,
       },
       {
         record: "Cact 164",
@@ -8533,6 +9721,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 8,
       },
       {
         record: "Cact 177",
@@ -8550,6 +9740,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 34,
+        leaf: 8,
       },
       {
         record: "Cact 178",
@@ -8567,6 +9759,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 34,
+        leaf: 8,
       },
       {
         record: "Cact 179",
@@ -8584,6 +9778,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 8,
       },
       {
         record: "Cact 181",
@@ -8601,6 +9797,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 52224,
+        leaf: 9,
       },
       {
         record: "Cact 183",
@@ -8618,6 +9816,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 84,
+        quad: 13056,
+        leaf: 29,
       },
       {
         record: "Cact 187",
@@ -8635,6 +9835,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 26112,
+        leaf: 34,
       },
       {
         record: "Cact 194",
@@ -8652,6 +9854,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 52224,
+        leaf: 34,
       },
       {
         record: "Cact 195",
@@ -8669,6 +9873,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 48,
+        leaf: 34,
       },
       {
         record: "Cact 201",
@@ -8686,6 +9892,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 14,
       },
       {
         record: "Cact 209",
@@ -8703,6 +9911,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 14,
       },
       {
         record: "Cact 218",
@@ -8720,6 +9930,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 14,
       },
       {
         record: "Cact 219",
@@ -8737,6 +9949,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 192,
+        leaf: 14,
       },
       {
         record: "Cact 221",
@@ -8754,6 +9968,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 4096,
+        leaf: 14,
       },
       {
         record: "Cact 222",
@@ -8771,6 +9987,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1024,
+        leaf: 22,
       },
       {
         record: "Cact 223",
@@ -8788,6 +10006,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1024,
+        leaf: 22,
       },
       {
         record: "Cact 225",
@@ -8805,6 +10025,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 22,
       },
       {
         record: "Cact 249",
@@ -8822,6 +10044,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 14,
       },
       {
         record: "Cact 262",
@@ -8839,6 +10063,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 14,
       },
       {
         record: "Cact 263",
@@ -8856,6 +10082,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 128,
+        leaf: 22,
       },
       {
         record: "Cact 269",
@@ -8873,6 +10101,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1088,
+        leaf: 22,
       },
       {
         record: "Cact 270",
@@ -8890,6 +10120,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1024,
+        leaf: 22,
       },
       {
         record: "Cact 272",
@@ -8907,6 +10139,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 3,
+        leaf: 14,
       },
       {
         record: "Cact 273",
@@ -8924,6 +10158,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 14,
       },
       {
         record: "Cact 275",
@@ -8941,6 +10177,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 68,
+        leaf: 18,
       },
       {
         record: "Cact 280",
@@ -8958,6 +10196,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 18,
       },
       {
         record: "Cact 281",
@@ -8975,6 +10215,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 68,
+        leaf: 18,
       },
       {
         record: "Cact 282",
@@ -8992,6 +10234,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 18,
       },
       {
         record: "Cact 283",
@@ -9009,6 +10253,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8704,
+        leaf: 22,
       },
       {
         record: "Cact 284",
@@ -9026,6 +10272,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8192,
+        leaf: 22,
       },
       {
         record: "Cact 285",
@@ -9043,6 +10291,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8192,
+        leaf: 22,
       },
       {
         record: "Cact 286",
@@ -9060,6 +10310,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 256,
+        leaf: 21,
       },
       {
         record: "Cact 287",
@@ -9077,6 +10329,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 128,
+        leaf: 14,
       },
       {
         record: "Cact 288",
@@ -9094,6 +10348,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 14,
       },
       {
         record: "Cact 289",
@@ -9111,6 +10367,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1,
+        leaf: 13,
       },
       {
         record: "Cact 290",
@@ -9128,6 +10386,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8,
+        leaf: 17,
       },
       {
         record: "Cact 291",
@@ -9145,6 +10405,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 1,
+        leaf: 13,
       },
       {
         record: "Cact 292",
@@ -9162,6 +10424,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 4096,
+        leaf: 14,
       },
       {
         record: "Cact 293",
@@ -9179,6 +10443,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32768,
+        leaf: 18,
       },
       {
         record: "Cact 294",
@@ -9196,6 +10462,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 14,
       },
       {
         record: "Cact 295",
@@ -9213,6 +10481,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 128,
+        leaf: 14,
       },
       {
         record: "Cact 296",
@@ -9230,6 +10500,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 48,
+        leaf: 21,
       },
       {
         record: "Cact 297",
@@ -9247,6 +10519,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 86,
+        quad: 128,
+        leaf: 26,
       },
       {
         record: "Cact 298",
@@ -9264,6 +10538,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 512,
+        leaf: 21,
       },
       {
         record: "Cact 299",
@@ -9281,6 +10557,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 256,
+        leaf: 21,
       },
       {
         record: "Cact 300",
@@ -9298,6 +10576,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 64,
+        leaf: 21,
       },
       {
         record: "Cact 301",
@@ -9315,6 +10595,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 21,
       },
       {
         record: "Cact 302",
@@ -9332,6 +10614,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 21,
       },
       {
         record: "Cact 303",
@@ -9349,6 +10633,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 21,
       },
       {
         record: "Cact 315",
@@ -9366,6 +10652,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 21,
       },
       {
         record: "Cact 316",
@@ -9383,6 +10671,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 86,
+        quad: 64,
+        leaf: 21,
       },
       {
         record: "Cact 325",
@@ -9400,6 +10690,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 8192,
+        leaf: 14,
       },
       {
         record: "Cact 326",
@@ -9417,6 +10709,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 8192,
+        leaf: 23,
       },
       {
         record: "Cact 327",
@@ -9434,6 +10728,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 4096,
+        leaf: 18,
       },
       {
         record: "Cact 328",
@@ -9451,6 +10747,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 2,
+        leaf: 20,
       },
       {
         record: "Cact 329",
@@ -9468,6 +10766,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 1,
+        leaf: 15,
       },
       {
         record: "Cact 330",
@@ -9485,6 +10785,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 8192,
+        leaf: 20,
       },
       {
         record: "Cact 331",
@@ -9502,6 +10804,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 4096,
+        leaf: 15,
       },
       {
         record: "Cact 332",
@@ -9519,6 +10823,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 16384,
+        leaf: 25,
       },
       {
         record: "Cact 333",
@@ -9536,6 +10842,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 68,
+        leaf: 28,
       },
       {
         record: "Cact 334",
@@ -9553,6 +10861,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 8,
+        leaf: 34,
       },
       {
         record: "Cact 335",
@@ -9570,6 +10880,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 128,
+        leaf: 35,
       },
       {
         record: "Cact 336",
@@ -9587,6 +10899,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 32768,
+        leaf: 32,
       },
       {
         record: "Cact 337",
@@ -9604,6 +10918,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 16384,
+        leaf: 26,
       },
       {
         record: "Cact 338",
@@ -9621,6 +10937,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 64,
+        leaf: 26,
       },
       {
         record: "Cact 339",
@@ -9638,6 +10956,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 32768,
+        leaf: 31,
       },
       {
         record: "Cact 340",
@@ -9655,6 +10975,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 4096,
+        leaf: 4,
       },
       {
         record: "Cact 341",
@@ -9672,6 +10994,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 1,
+        leaf: 4,
       },
       {
         record: "Cact 342",
@@ -9689,6 +11013,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 1,
+        leaf: 0,
       },
       {
         record: "Cact 343",
@@ -9706,6 +11032,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 4352,
+        leaf: 0,
       },
       {
         record: "Cact 344",
@@ -9723,6 +11051,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 8192,
+        leaf: 11,
       },
       {
         record: "Cact 345",
@@ -9740,6 +11070,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 8704,
+        leaf: 12,
       },
       {
         record: "Cact 346",
@@ -9757,6 +11089,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 256,
+        leaf: 8,
       },
       {
         record: "Cact 347",
@@ -9774,6 +11108,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 256,
+        leaf: 3,
       },
       {
         record: "Cact 348",
@@ -9791,6 +11127,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 2,
+        leaf: 12,
       },
       {
         record: "Cact 349",
@@ -9808,6 +11146,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 272,
+        leaf: 13,
       },
       {
         record: "Cact 350",
@@ -9825,6 +11165,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 816,
+        leaf: 8,
       },
       {
         record: "Cact 351",
@@ -9842,6 +11184,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 32768,
+        leaf: 19,
       },
       {
         record: "Cact 352",
@@ -9859,6 +11203,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 4096,
+        leaf: 10,
       },
       {
         record: "Cact 353",
@@ -9876,6 +11222,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 4096,
+        leaf: 6,
       },
       {
         record: "Cact 354",
@@ -9893,6 +11241,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 16384,
+        leaf: 12,
       },
       {
         record: "Cact 355",
@@ -9910,6 +11260,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 8192,
+        leaf: 5,
       },
       {
         record: "Cact 356",
@@ -9927,6 +11279,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 16384,
+        leaf: 11,
       },
       {
         record: "Cact 357",
@@ -9944,6 +11298,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "loop",
         period: 37,
         sound: 0,
+        quad: 49152,
+        leaf: 15,
       },
       {
         record: "Cact 385",
@@ -9961,6 +11317,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 8,
       },
       {
         record: "Cact 387",
@@ -9978,6 +11336,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 8,
       },
       {
         record: "Cact 395",
@@ -9995,6 +11355,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 8,
       },
       {
         record: "Cact 405",
@@ -10012,6 +11374,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 8,
       },
       {
         record: "Cact 406",
@@ -10029,6 +11393,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32768,
+        leaf: 8,
       },
       {
         record: "Cact 410",
@@ -10046,6 +11412,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 34816,
+        leaf: 8,
       },
       {
         record: "Cact 426",
@@ -10063,6 +11431,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 17408,
+        leaf: 8,
       },
       {
         record: "Cact 429",
@@ -10080,6 +11450,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 52224,
+        leaf: 8,
       },
       {
         record: "Cact 430",
@@ -10097,6 +11469,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 8,
       },
       {
         record: "Cact 432",
@@ -10114,6 +11488,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 8,
       },
       {
         record: "Cact 437",
@@ -10131,6 +11507,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 8,
       },
       {
         record: "Cact 439",
@@ -10148,6 +11526,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16384,
+        leaf: 8,
       },
       {
         record: "Cact 444",
@@ -10165,6 +11545,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 8,
       },
       {
         record: "Cact 447",
@@ -10182,6 +11564,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 8,
       },
       {
         record: "Cact 448",
@@ -10199,6 +11583,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32768,
+        leaf: 8,
       },
       {
         record: "Cact 450",
@@ -10216,6 +11602,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 49152,
+        leaf: 8,
       },
       {
         record: "Cact 451",
@@ -10233,6 +11621,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 8,
       },
       {
         record: "Cact 453",
@@ -10250,6 +11640,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 34,
+        leaf: 8,
       },
       {
         record: "Cact 455",
@@ -10267,6 +11659,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 34,
+        leaf: 8,
       },
       {
         record: "Cact 460",
@@ -10284,6 +11678,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 34,
+        leaf: 8,
       },
       {
         record: "Cact 473",
@@ -10301,6 +11697,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 34,
+        leaf: 8,
       },
       {
         record: "Cact 475",
@@ -10318,6 +11716,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 8,
       },
       {
         record: "Cact 477",
@@ -10335,6 +11735,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 34,
+        leaf: 8,
       },
       {
         record: "Cact 479",
@@ -10352,6 +11754,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 48,
+        leaf: 8,
       },
       {
         record: "Cact 489",
@@ -10369,6 +11773,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 16,
+        leaf: 8,
       },
       {
         record: "Cact 494",
@@ -10386,6 +11792,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 17,
+        leaf: 8,
       },
       {
         record: "Cact 502",
@@ -10403,6 +11811,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 102,
+        leaf: 8,
       },
       {
         record: "Cact 503",
@@ -10420,6 +11830,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 96,
+        leaf: 8,
       },
       {
         record: "Cact 507",
@@ -10437,6 +11849,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 8,
       },
       {
         record: "Cact 514",
@@ -10454,6 +11868,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 96,
+        leaf: 8,
       },
       {
         record: "Cact 515",
@@ -10471,6 +11887,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 102,
+        leaf: 8,
       },
       {
         record: "Cact 525",
@@ -10488,6 +11906,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 102,
+        leaf: 8,
       },
       {
         record: "Cact 530",
@@ -10505,6 +11925,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 96,
+        leaf: 8,
       },
       {
         record: "Cact 534",
@@ -10522,6 +11944,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 32,
+        leaf: 8,
       },
       {
         record: "Cact 537",
@@ -10539,6 +11963,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 96,
+        leaf: 8,
       },
       {
         record: "Cact 538",
@@ -10556,6 +11982,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 96,
+        leaf: 8,
       },
       {
         record: "Cact 546",
@@ -10573,6 +12001,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 68,
+        leaf: 8,
       },
       {
         record: "Cact 549",
@@ -10590,6 +12020,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 68,
+        leaf: 8,
       },
       {
         record: "Cact 550",
@@ -10607,6 +12039,8 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         anim: "none",
         period: 0,
         sound: 0,
+        quad: 68,
+        leaf: 8,
       },
     ],
     propModels: {
@@ -10621,6 +12055,332 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
       69: { frames: 1, drawn: true, centre: [0, -1.0176, 0.1934] },
       70: { frames: 1, drawn: true, centre: [0, 1.4688, -0.7324] },
     },
+    leafTrees: [
+      {
+        cz: 5,
+        cx: 5,
+        spheres: [
+          5876, -528, 3061, -528, 3061, -528, 3061, -528, 3061, -528, 1448, 464, 1755, -528, 1448,
+          464, 1448, 464, 1755, -528, 1536, -1008, 1755, -528, 1536, -1008, 1448, 464, 1448, 464,
+          1448, 464, 1755, -528, 1755, -528, 1536, -1008, 1755, -528, 1536, -1008,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 6,
+        spheres: [
+          5876, -528, 3061, -528, 3061, -528, 3061, -528, 3061, -528, 1448, 464, 1755, -528, 1448,
+          464, 1448, 464, 1755, -528, 1536, -1008, 1755, -528, 1536, -1008, 1448, 464, 1448, 464,
+          1448, 464, 1755, -528, 1755, -528, 1536, -1008, 1755, -528, 1536, -1008,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 7,
+        spheres: [
+          5906, -368, 3117, -368, 3061, -528, 3080, -472, 2941, -1008, 1850, -368, 1787, -472, 1850,
+          -368, 1787, -472, 1755, -528, 1536, -1008, 1536, -1008, 1536, -1008, 1787, -472, 1787,
+          -472, 1787, -472, 1787, -472, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 8,
+        spheres: [
+          5886, -472, 3080, -472, 2941, -1008, 3061, -528, 3061, -528, 1787, -472, 1787, -472, 1449,
+          520, 1787, -472, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1448, 464, 1755,
+          -528, 1448, 464, 1755, -528, 1536, -1008, 1536, -1008, 1755, -528, 1536, -1008,
+        ],
+      },
+      {
+        cz: 5,
+        cx: 9,
+        spheres: [
+          5876, -528, 3061, -528, 3061, -528, 3061, -528, 3061, -528, 1448, 464, 1755, -528, 1448,
+          464, 1448, 464, 1755, -528, 1536, -1008, 1755, -528, 1536, -1008, 1448, 464, 1448, 464,
+          1448, 464, 1755, -528, 1755, -528, 1536, -1008, 1755, -528, 1536, -1008,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 5,
+        spheres: [
+          5953, -144, 2941, -1008, 2941, -1008, 3206, -144, 2941, -1008, 1536, -1008, 1536, -1008,
+          1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1830, -400,
+          1830, -400, 1997, -144, 1997, -144, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 6,
+        spheres: [
+          5891, -448, 3038, -600, 3088, -448, 3009, -704, 3009, -704, 1536, -1008, 1536, -1008,
+          1536, -1008, 1715, -600, 1801, -448, 1801, -448, 1773, -496, 1773, -496, 1613, -808, 1662,
+          -704, 1570, -912, 1570, -912, 1662, -704, 1662, -704, 1570, -912, 1536, -1008,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 7,
+        spheres: [
+          5824, -912, 2941, -1008, 2959, -912, 2941, -1008, 2941, -1008, 1536, -1008, 1536, -1008,
+          1536, -1008, 1536, -1008, 1536, -1008, 1570, -912, 1536, -1008, 1570, -912, 1536, -1008,
+          1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 8,
+        spheres: [
+          5895, -424, 3072, -496, 2941, -1008, 3096, -424, 3096, -424, 1773, -496, 1773, -496, 1773,
+          -496, 1773, -496, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1816,
+          -424, 1603, -832, 1816, -424, 1816, -424, 1639, -752, 1816, -424, 1639, -752,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 9,
+        spheres: [
+          5882, -496, 3072, -496, 2941, -1008, 2941, -1008, 2941, -1008, 1773, -496, 1773, -496,
+          1773, -496, 1773, -496, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+          1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 6,
+        cx: 10,
+        spheres: [
+          6033, 168, 3166, -240, 3166, -240, 3352, 168, 3352, 168, 1932, -240, 1932, -240, 1932,
+          -240, 1932, -240, 1932, -240, 1755, -528, 1932, -240, 1755, -528, 2224, 168, 1520, 576,
+          1617, 1136, 1690, 984, 1456, -40, 2224, 168, 1773, 832, 1773, 832,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 5,
+        spheres: [
+          5876, -528, 2971, -856, 2959, -912, 3061, -528, 2959, -912, 1570, -912, 1570, -912, 1593,
+          -856, 1593, -856, 1536, -1008, 1536, -1008, 1536, -1008, 1570, -912, 1755, -528, 1755,
+          -528, 1686, -656, 1624, -784, 1536, -1008, 1570, -912, 1570, -912, 1570, -912,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 6,
+        spheres: [
+          5872, -552, 2941, -1008, 2959, -912, 2941, -1008, 3053, -552, 1536, -1008, 1536, -1008,
+          1536, -1008, 1536, -1008, 1570, -912, 1448, -304, 1570, -912, 1448, -304, 1536, -1008,
+          1536, -1008, 1536, -1008, 1536, -1008, 1570, -912, 1492, 56, 1570, -912, 1492, 56,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 8,
+        spheres: [
+          5948, -168, 2959, -912, 2959, -912, 2959, -912, 3196, -168, 1536, -1008, 1570, -912, 1536,
+          -1008, 1570, -912, 1570, -912, 1570, -912, 1570, -912, 1536, -1008, 1536, -1008, 1536,
+          -1008, 1570, -912, 1570, -912, 1536, -1008, 1536, -1008, 1850, -368, 1981, -168,
+        ],
+      },
+      {
+        cz: 7,
+        cx: 9,
+        spheres: [
+          6047, 216, 3376, 216, 3108, 824, 3376, 216, 3376, 216, 1932, -240, 2260, 216, 1932, -240,
+          1835, 824, 1835, 824, 1821, 800, 1835, 824, 1821, 800, 1932, -240, 1835, 824, 1570, -912,
+          1570, -912, 1835, 824, 1821, 800, 1755, -528, 1755, -528,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 5,
+        spheres: [
+          5824, -912, 2959, -912, 2941, -1008, 2959, -912, 2941, -1008, 1536, -1008, 1536, -1008,
+          1570, -912, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1570, -912,
+          1561, -936, 1570, -912, 1561, -936, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 7,
+        spheres: [
+          5972, -64, 3241, -64, 3105, -400, 3156, -264, 3105, -400, 1678, 544, 1570, -912, 1448,
+          -304, 1570, -912, 1715, -600, 1830, -400, 1715, -600, 1830, -400, 1916, -264, 1570, -912,
+          1916, -264, 1570, -912, 1715, -600, 1830, -400, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 8,
+        spheres: [
+          5948, -168, 2959, -912, 2941, -1008, 3196, -168, 2941, -1008, 1570, -912, 1570, -912,
+          1570, -912, 1570, -912, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+          1536, -1008, 1981, -168, 1570, -912, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 9,
+        spheres: [
+          6054, 240, 3364, 192, 2959, -912, 3389, 240, 3196, -168, 2242, 192, 1570, -912, 2242, 192,
+          1570, -912, 1536, -1008, 1536, -1008, 1570, -912, 1570, -912, 1850, 848, 1850, 848, 2181,
+          112, 2181, 112, 1628, 440, 1628, 440, 1981, -168, 1981, -168,
+        ],
+      },
+      {
+        cz: 8,
+        cx: 10,
+        spheres: [
+          5876, -528, 2941, -1008, 2941, -1008, 3061, -528, 3061, -528, 1536, -1008, 1536, -1008,
+          1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1755, -528,
+          1755, -528, 1448, 464, 1448, 464, 1755, -528, 1755, -528, 1448, 464, 1448, 464,
+        ],
+      },
+      {
+        cz: 9,
+        cx: 5,
+        spheres: [
+          5932, -240, 3166, -240, 3166, -240, 3166, -240, 3166, -240, 1536, -1008, 1536, -1008,
+          1536, -1008, 1932, -240, 1536, -1008, 1536, -1008, 1835, -88, 1536, -1008, 1536, -1008,
+          1932, -240, 1536, -1008, 1536, -1008, 1932, -240, 1536, -1008, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 9,
+        cx: 6,
+        spheres: [
+          6033, 168, 3166, -240, 3166, -240, 3091, 776, 3352, 168, 1570, -912, 1570, -912, 1650,
+          -728, 1932, -240, 1570, -912, 1570, -912, 1596, 368, 1596, 368, 1459, -120, 1806, 776,
+          1498, 80, 1806, 776, 1806, 776, 1806, 776, 2224, 168, 2224, 168,
+        ],
+      },
+      {
+        cz: 9,
+        cx: 7,
+        spheres: [
+          5984, -16, 3105, -400, 3002, -728, 3263, -16, 3263, -16, 1484, 392, 1448, 64, 1830, -400,
+          1650, -728, 1650, -728, 1536, -1008, 1650, -728, 1536, -1008, 1830, -400, 1650, -728,
+          2087, -16, 2087, -16, 1536, -1008, 1570, -912, 2087, -16, 2087, -16,
+        ],
+      },
+      {
+        cz: 9,
+        cx: 9,
+        spheres: [
+          5824, -912, 2959, -912, 2941, -1008, 2959, -912, 2941, -1008, 1536, -1008, 1536, -1008,
+          1570, -912, 1570, -912, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1570, -912,
+          1570, -912, 1570, -912, 1570, -912, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 9,
+        cx: 10,
+        spheres: [
+          6033, 168, 2941, -1008, 3061, -528, 3061, -528, 3352, 168, 1536, -1008, 1536, -1008, 1536,
+          -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1755, -528, 1755, -528, 1755,
+          -528, 1448, 464, 1448, 464, 1755, -528, 2224, 168, 1448, 464, 1606, 1160,
+        ],
+      },
+      {
+        cz: 10,
+        cx: 5,
+        spheres: [
+          5967, -88, 2941, -1008, 2941, -1008, 2941, -1008, 3231, -88, 1536, -1008, 1536, -1008,
+          1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+          1536, -1008, 1536, -1008, 1536, -1008, 1830, -400, 1830, -400, 2036, -88, 2036, -88,
+        ],
+      },
+      {
+        cz: 10,
+        cx: 6,
+        spheres: [
+          6033, 168, 2959, -912, 2941, -1008, 3352, 168, 2941, -1008, 1570, -912, 1536, -1008, 1570,
+          -912, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 2224, 168, 1536,
+          -1008, 2224, 168, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 10,
+        cx: 7,
+        spheres: [
+          5984, -16, 2941, -1008, 2941, -1008, 3263, -16, 3231, -88, 1536, -1008, 1536, -1008, 1536,
+          -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1570, -912, 1536,
+          -1008, 2087, -16, 2087, -16, 1536, -1008, 1536, -1008, 2036, -88, 1570, -912,
+        ],
+      },
+      {
+        cz: 10,
+        cx: 8,
+        spheres: [
+          5984, -16, 3263, -16, 3231, -88, 3176, -216, 3176, -216, 2087, -16, 2087, -16, 1948, -216,
+          1773, -496, 2036, -88, 1773, -496, 1948, -216, 1948, -216, 1948, -216, 1536, -1008, 1536,
+          -1008, 1536, -1008, 1948, -216, 1948, -216, 1536, -1008, 1773, -496,
+        ],
+      },
+      {
+        cz: 10,
+        cx: 9,
+        spheres: [
+          5882, -496, 2941, -1008, 3072, -496, 2941, -1008, 2941, -1008, 1536, -1008, 1536, -1008,
+          1536, -1008, 1536, -1008, 1773, -496, 1773, -496, 1773, -496, 1773, -496, 1536, -1008,
+          1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008, 1536, -1008,
+        ],
+      },
+      {
+        cz: 10,
+        cx: 10,
+        spheres: [
+          6033, 168, 3166, -240, 3166, -240, 3352, 168, 3352, 168, 1755, -528, 1932, -240, 1755,
+          -528, 1932, -240, 1932, -240, 1932, -240, 1932, -240, 1932, -240, 2224, 168, 1456, -40,
+          1773, 832, 1773, 832, 1520, 576, 2224, 168, 1690, 984, 1617, 1136,
+        ],
+      },
+      {
+        cz: 11,
+        cx: 5,
+        spheres: [
+          5876, -528, 3061, -528, 3061, -528, 3061, -528, 3061, -528, 1536, -1008, 1755, -528, 1536,
+          -1008, 1755, -528, 1755, -528, 1448, 464, 1448, 464, 1448, 464, 1536, -1008, 1755, -528,
+          1536, -1008, 1755, -528, 1448, 464, 1448, 464, 1755, -528, 1448, 464,
+        ],
+      },
+      {
+        cz: 11,
+        cx: 6,
+        spheres: [
+          5886, -472, 3061, -528, 3061, -528, 2941, -1008, 3080, -472, 1536, -1008, 1755, -528,
+          1536, -1008, 1536, -1008, 1755, -528, 1448, 464, 1755, -528, 1448, 464, 1536, -1008, 1536,
+          -1008, 1536, -1008, 1536, -1008, 1787, -472, 1449, 520, 1787, -472, 1787, -472,
+        ],
+      },
+      {
+        cz: 11,
+        cx: 7,
+        spheres: [
+          5906, -368, 2941, -1008, 3080, -472, 3061, -528, 3117, -368, 1536, -1008, 1536, -1008,
+          1536, -1008, 1536, -1008, 1787, -472, 1787, -472, 1787, -472, 1787, -472, 1536, -1008,
+          1536, -1008, 1536, -1008, 1755, -528, 1787, -472, 1850, -368, 1787, -472, 1850, -368,
+        ],
+      },
+      {
+        cz: 11,
+        cx: 8,
+        spheres: [
+          5876, -528, 3061, -528, 3061, -528, 3061, -528, 3061, -528, 1536, -1008, 1755, -528, 1536,
+          -1008, 1755, -528, 1755, -528, 1448, 464, 1448, 464, 1448, 464, 1536, -1008, 1755, -528,
+          1536, -1008, 1755, -528, 1448, 464, 1448, 464, 1755, -528, 1448, 464,
+        ],
+      },
+      {
+        cz: 11,
+        cx: 9,
+        spheres: [
+          5876, -528, 3061, -528, 3061, -528, 3061, -528, 3061, -528, 1536, -1008, 1755, -528, 1536,
+          -1008, 1755, -528, 1755, -528, 1448, 464, 1448, 464, 1448, 464, 1536, -1008, 1755, -528,
+          1536, -1008, 1755, -528, 1448, 464, 1448, 464, 1755, -528, 1448, 464,
+        ],
+      },
+    ],
     quads: [
       {
         record: "Cact 383",
@@ -13066,6 +14826,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
     ],
     props: [],
     propModels: {},
+    leafTrees: [],
     quads: [],
     decals: {},
   },

@@ -206,6 +206,127 @@ export function resolveProp(
   };
 }
 
+/** A 4096-turn angle to radians. */
+function turn(a: number): number {
+  return (a * 2 * Math.PI) / 4096;
+}
+
+/**
+ * The orientation `snd_emit_build` leaves (rows, row-vector):
+ * `math_matrix_from_angles` = Mz Mx My, each row scaled by its byte / 64
+ * (0x0042f8df), and a spinning emitter's y row and column flattened to the unit
+ * axis (0x0042f922). The client's `emitterOrientation` with
+ * `emitterCentre`'s flatten (render/emitterProps.ts), in the generator.
+ */
+export function buildOrientation(p: ResolvedProp): number[][] {
+  const [cy, sy] = [Math.cos(turn(p.yaw)), Math.sin(turn(p.yaw))];
+  const [cx, sx] = [Math.cos(turn(p.pitch)), Math.sin(turn(p.pitch))];
+  const [cz, sz] = [Math.cos(turn(p.roll)), Math.sin(turn(p.roll))];
+  const my = [
+    [cy, 0, -sy],
+    [0, 1, 0],
+    [sy, 0, cy],
+  ];
+  const mx = [
+    [1, 0, 0],
+    [0, cx, sx],
+    [0, -sx, cx],
+  ];
+  const mz = [
+    [cz, sz, 0],
+    [-sz, cz, 0],
+    [0, 0, 1],
+  ];
+  const mul = (a: number[][], b: number[][]) =>
+    [0, 1, 2].map((r) =>
+      [0, 1, 2].map((c) => a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c]),
+    );
+  const m = mul(mul(mz, mx), my).map((row, r) => row.map((e) => (e * p.scale[r]) / SCALE_ONE));
+  if (p.spin !== 0) {
+    m[1] = [0, 1, 0];
+    m[0][1] = 0;
+    m[2][1] = 0;
+  }
+  return m;
+}
+
+/**
+ * `world_cell_quad_mask` (RE world/grid.c 0x0042f600): the quarter-cells of the
+ * reference's 0x20000-unit cell a box spans, element `a + 4 b` at bit
+ * `0x8000 >> index` (0x0042f69e); a bound outside the reference's cell takes 0
+ * (low) or 3 (high), whichever side it fell off (0x0042f618, 0x0042f633), and
+ * the walk starts at the low corner's element (0x0042f67f).
+ */
+export function worldCellQuadMask(
+  refA: number,
+  refB: number,
+  aLo: number,
+  aHi: number,
+  bLo: number,
+  bHi: number,
+): number {
+  const index = (v: number, ref: number, outside: number): number =>
+    ((v ^ ref) & 0xfffe0000) !== 0 ? outside : (v >> 15) & 3;
+  const loA = index(aLo, refA, 0);
+  const hiA = index(aHi, refA, 3);
+  const loB = index(bLo, refB, 0);
+  const hiB = index(bHi, refB, 3);
+  let mask = 0;
+  for (let i = loA + 4 * loB; i <= 0xf; i++) {
+    const a = i & 3;
+    const b = i >> 2;
+    if (a >= loA && a <= hiA && b >= loB && b <= hiB) mask |= 0x8000 >> i;
+  }
+  return mask;
+}
+
+/** A Cobj's 3DBB box 0 of frame 0: centre x, y, z and half x, y, z, halfwords of 16 world units. */
+export type BoxHalfwords = readonly [number, number, number, number, number, number];
+
+/** Where an emitter hangs, in world units, and what of its cell it covers. */
+export interface EmitterAnchor {
+  /** The placed box centre, world units, the game's frame (the model block's +0x34). */
+  readonly at: readonly [number, number, number];
+  /** Its cell: `x >> 17`, `z >> 17` (0x0042fa88). */
+  readonly cellX: number;
+  readonly cellZ: number;
+  /** `world_cell_quad_mask` over the box's unturned half extents (0x0042fa7f). */
+  readonly quad: number;
+}
+
+/**
+ * `snd_emit_build`'s anchor and footprint (0x0042f942..0x0042fa88): box 0 of
+ * the model's frame 0 placed through the orientation onto the emitter's
+ * position — the point the client hangs the Prop at (`emitterCentre`) — and
+ * the quarter-cells of that point's cell the box covers. The footprint's half
+ * extents are the **local** box's, not the turned one's: the sums at
+ * 0x0042f9f5..0x0042fa67 run over the untransformed matrix (RE snd/emitter.c,
+ * "Nine of the twelve transformed words are dead"). `quad`'s element is
+ * `z quarter + 4 x quarter`: the call passes z as `a` and x as `b`.
+ */
+export function emitterAnchor(p: ResolvedProp, box: BoxHalfwords): EmitterAnchor {
+  const m = buildOrientation(p);
+  const c = [box[0] * 16, box[1] * 16, box[2] * 16];
+  const at = [0, 1, 2].map((k) =>
+    Math.trunc(p.pos[k] + c[0] * m[0][k] + c[1] * m[1][k] + c[2] * m[2][k]),
+  ) as [number, number, number];
+  const halfX = Math.abs(box[3]) * 16;
+  const halfZ = Math.abs(box[5]) * 16;
+  return {
+    at,
+    cellX: at[0] >> 17,
+    cellZ: at[2] >> 17,
+    quad: worldCellQuadMask(
+      at[2],
+      at[0],
+      at[2] - halfZ,
+      at[2] + halfZ,
+      at[0] - halfX,
+      at[0] + halfX,
+    ),
+  };
+}
+
 /** A type-97 record, as the scenery reader takes it (the PYRO_REC_* fields). */
 export interface QuadRecord {
   /** The resource's place in the container: the order the mission loads it. */
