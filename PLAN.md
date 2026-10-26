@@ -136,7 +136,10 @@ playtest on the live deploy.)
 
 - [x] Model pass (Quaternius/Kenney or direct rebuilds) mapped to archetypes, CREDITS.md
 - [x] Walker ↔ hover transformation: morph + arc discharge + cue (assets.md §4)
-- [ ] Pincel texture atlases + shared palette; NearestFilter pipeline
+- [x] ~~Pincel texture atlases + shared palette; NearestFilter pipeline~~
+      Obsolete (2026-10-26): the original's own texture pages replaced authored
+      atlases (Phase 14; "only the original counts"), and the NearestFilter
+      pipeline is in place for them (`render/unitMeshes.ts`, `render/avatarRig.ts`)
 - [x] jsfxr SFX set wired to event buffer; CC0 music loop; volume settings
 - [x] PWA polish: manifest, icons, offline solo mode, install prompt
 - [x] Title screen with working title; menu flow (solo / online)
@@ -191,8 +194,8 @@ tint owns the hue), swapped into the live InstancedMesh buckets by
 `?render=greybox` keeps the full Stage A debug view. Verified by
 `tools/generators/test/unitModels.test.ts` (budgets/origin/footprint vs manifest) and
 `bun run verify:units` (SwiftShader lineup screenshots in
-`docs/verification/stage7-units/`). Still open on the look side: the Pincel
-texture-atlas / NearestFilter pipeline. The feel-tuning of the SFX presets
+`docs/verification/stage7-units/`). The Pincel texture-atlas
+box is obsolete since the original's own pages arrived (Phase 14). The feel-tuning of the SFX presets
 stays an open pass like the hover-feel / difficulty-curve passes.)
 
 ## Phase 8 — Netcode transport & hosting (P2P/TURN) — hosting.spec.md
@@ -350,7 +353,9 @@ instead of a hand-authored approximation, and adopt the original rule set for it
 - [x] `golden-07-pa`: a 120 s Warden match on la-cantina, with beats asserting
       production cadence and capture, plus tests proving the core CAN be razed
       once its defenders are gone and that an unattended match correctly stalemates
-- [ ] Original `Cwav` sound effects: the pipeline is in place — `bun run gen:sfx`
+- [x] ~~Original `Cwav` sound effects~~ — superseded (2026-10-26): Phase 14
+      wave 1 plays the original's sounds on every cue from the RE's tables
+      (`pa-audio.json`, `importFcopAudio.ts`) and removed the sfxr synth. Was: the pipeline is in place — `bun run gen:sfx`
       plus an additive per-cue upgrade in `audio/engine.ts`, with the sfxr synth
       as the permanent fallback — but `tools/generators/sfx/manifest.ts` is empty
       because the 348 unique extracted sounds carry no semantic labels. The RE
@@ -665,7 +670,7 @@ sound plays for which event is read from code and data, not picked by ear (#27).
       original's defaults
 - [x] Remove the sfxr synth, the synth music and the owner's mp3s from the game
 - [x] Ledger: an Audio section with the adopted rows and the RE gaps
-- [ ] Close #27
+- [x] Close #27 (closed 2026-10-14 by PR #67)
 
 ### Wave 2 — Gameplay rules
 
