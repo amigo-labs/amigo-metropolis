@@ -19,7 +19,6 @@
 import {
   DIFFICULTY_EASY,
   DIFFICULTY_NORMAL,
-  FLAME_PULSE_TICKS,
   WEAPON_RECORDS,
   WEAPON_UNITS_PER_TICK,
   type WeaponRecord,
@@ -83,20 +82,21 @@ export const WEAPON_SLOT_SPECIAL = 2;
  * - hitscan: the direct path — damages only the LOCK (Mini-Gun 0x0a, Electric
  *   0x0b, Laser 0x0c; fcop-fidelity.md W2). With no lock the line does nothing,
  *   except a block B with a blast, which area-damages at the line's end.
- * - flame: the Flamethrower (0x0e): the lock-only line, with Metropolis' pulse
- *   cadence (balance.ts FLAME_PULSE_TICKS).
+ * - flame: the Flamethrower (0x0e), the attached sustain: every call (every
+ *   tick it is held, gap 0) keeps a trail of nodes flying from the muzzle at
+ *   the lock, and the nodes hurt what they reach (sustain.ts; SIM_VERSION 105).
  * - missile: kinds 2/3/0x12 — a round that launches at an eighth of its top
  *   speed and accelerates, flies its record's range, and homes on the lock
  *   (3, 0x12) or is lead-aimed at it (2; straight ahead without a lock).
  * - arced: kinds 4/0x14 — a ballistic solve to the lock or 8 m ahead, under the
  *   record's own gravity; 0x14 bursts into four fragments at its apex.
- * - beam: the Concussion Beam (0x11), an aimed sustained effect, here an
- *   instant line to the lock (or its range ahead) with the record's blast at the
- *   end — Metropolis' time profile, the original's damage, radius and reach.
+ * - beam: the Concussion Beam (0x11), the aimed sustain: a trail from the
+ *   muzzle at 1.25 m a frame, cut at terrain, hurting every body near its
+ *   segment once a shot (block B adding a 50-point shell at each; sustain.ts).
  * - mine: the Pop-Up Mine (5), the dropped bouncing round: it falls from the
  *   muzzle, bounces and goes off where it settles, unless an enemy springs it.
- * - shockwave: the Shockwave Generator (0x0f), a self-centred pulse —
- *   Metropolis' instant pulse, the original's damage and radius.
+ * - shockwave: the Shockwave Generator (0x0f), an expanding type-92 shell on
+ *   the mech blasting the band it swept every fourth frame (sustain.ts).
  * - sphere: the Riot Shield (0x0d, `sustain_sphere_toggle` 0x0044c1f0), a
  *   sphere about the mech toggled by the trigger, hurting what it touches
  *   every tick and spending its magazine while it is up (sim.ts systemShields).
@@ -338,7 +338,7 @@ function def(
   const rec = WEAPON_RECORDS[code];
   const a = block(rec.a);
   const b = block(rec.b);
-  const cycle = delivery === "flame" ? FLAME_PULSE_TICKS : cycleTicks(a);
+  const cycle = cycleTicks(a);
   const range =
     a.gravity > 0 && (delivery === "arced" || delivery === "bounce")
       ? (a.launchSpeed * a.launchSpeed) / a.gravity
@@ -391,7 +391,7 @@ export const GUNS: readonly WeaponDef[] = [
     0,
     2,
     "Flamethrower", // the original's front-end spelling
-    "A stream of fire on the lock: 6 damage a hit.",
+    "A stream of fire at the lock: 6 from each node to everything it reaches, about 6 m.",
     0x02,
     "flame",
     0,
@@ -444,7 +444,7 @@ export const HEAVIES: readonly WeaponDef[] = [
     1,
     1,
     "Concussion Beam",
-    "A beam to the lock that bursts for 50 in a 1 m radius.",
+    "A beam that hurts everything along it once a shot: 50 each.",
     0x12,
     "beam",
     PROJ_BEAM,
@@ -518,7 +518,7 @@ export const SPECIALS: readonly WeaponDef[] = [
     2,
     2,
     "Shockwave Generator",
-    "Self-centred pulse: 300 within 6 m.",
+    "An expanding shell from the mech: up to 300 a pass as it sweeps out.",
     0x23,
     "shockwave",
     PROJ_SHOCKWAVE,

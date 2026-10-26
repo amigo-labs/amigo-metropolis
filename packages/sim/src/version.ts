@@ -1498,4 +1498,27 @@
 //     the standoff is the octagonal estimate; the box is ±20 x ±24 m (jet) and
 //     ±28 x ±30 m (Fortress), its axes the right way round (they were crossed).
 //     Timers in engine units. The Warden goldens play differently (04, 07).
-export const SIM_VERSION = 104;
+// v105: the Flamethrower, the Concussion Beam and the Shockwave Generator
+//     spread their damage as the original's effects do (fcop-fidelity.md W1;
+//     RE M3-OR; sustain.ts). The flame fires every tick it is held (gap 0, no
+//     more 5-tick pulse) and keeps a trail (records 40 / 45) flying from the
+//     muzzle at the lock at 2048 (4.69 m/s), a node per 134 / 132 sixteenths;
+//     each node not waiting hurts every body it reaches by `(half_10 + half_h)
+//     * 16` within 8 m of the shooter, 6 (B 10) -- the lock twice, as retail's
+//     sweep asks the target and then the registry (0x0044b2fc, 0x0044b3b1) --
+//     waits 10 and ends the stream there; nodes live ~39 (B ~60) frames by
+//     their colour ramp, a wall ends the stream. The beam is the aimed trail
+//     (100 / 105) from the muzzle at 16384 (1.25 m a frame) for 0x96 units,
+//     cut at walls, hurting every body near its head-to-end segment once a
+//     shot (ten at most) while the segment is under 0x14000 on every axis;
+//     block B raises record 107 at each body and terrain hit: a 50-point
+//     expanding shell. The shockwave raises its expanding shell (170 / 175) on
+//     the mech, growing 95 / 111 sixteenths a frame from 409 (the client's
+//     scale; the original's could not be established), blasting the band
+//     [last radius, radius + thickness) << 4 on every tick with both low bits
+//     set, at its limit and when its colours fade, each body `300 * (outer -
+//     d) / outer`, d octagonal. Gone: FLAME_PULSE_TICKS, the instant beam's
+//     1 m burst and the 6 m flat pulse. The trails and shells are hashed while
+//     any lives (appended). No golden fires the three: every hash holds,
+//     re-recorded for the header.
+export const SIM_VERSION = 105;

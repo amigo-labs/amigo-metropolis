@@ -633,8 +633,10 @@ not done here. Reports: `scratchpad/diffexec-*.json`.
 ## 9. Could not establish
 
 1. ~~How the sustained weapons apply damage over time~~ — answered by RE M3-OR
-   (fcop-fidelity.md W1): the flame's trail nodes (one every 2 frames at 30 fps,
-   each hurting each body it reaches once), the beam once per body per shot along
+   (fcop-fidelity.md W1, modelled in SIM_VERSION 105, `sim/src/sustain.ts`): the
+   flame's trail nodes (one every 2 frames at 30 fps, each hurting each body it
+   reaches once -- the lock twice, asked as the target and again in the registry
+   walk, 0x0044b2fc / 0x0044b3b1), the beam once per body per shot along
    its segment, the shockwave an expanding shell blasting every fourth frame with
    falloff from its current outer radius; the Riot Shield's is W5's.
 2. ~~**Mine lifetime semantics.**~~ **Settled (RE M3-OP):** nothing suppresses

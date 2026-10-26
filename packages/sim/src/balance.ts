@@ -1055,14 +1055,185 @@ export const AVATAR_LOCK_ACQUIRE_COS = 0xf9ee / 65536;
 /** The hold cone, cos 0xe804 (+-25°): a lock outside it (or past 12 m) drops. */
 export const AVATAR_LOCK_HOLD_COS = 0xe804 / 65536;
 
+// --- The sustained weapons: what spreads their damage (fcop-fidelity.md W1) ---
+//
+// None of the Flamethrower (kind 0x0e), the Concussion Beam (0x11) and the
+// Shockwave Generator (0x0f) hurts through the direct or the launch path
+// (`player_fire_direct` skips its message for the flame at 0x004598ff; 0x11 and
+// 0x0f return from `player_fire_launch`'s switch). Their damage comes from the
+// effects they raise (RE M3-OR, `disasm/map-open.md` "Flame, beam and
+// shockwave"; src/game/actor/sustain*.c, effect_trail_node.c, effect_type92.c,
+// damage.c), which sustain.ts models: type-87 trails of nodes and type-92
+// expanding shells. Their numbers are GlblData's effect records (bank 1, the
+// same bytes in all six PA missions; RE extracted/effects/*.json), at the
+// retail offsets the factories read, in the original's units: world units
+// (8192 a metre), sixteenths of a world unit for widths and radii, engine
+// units of the 300 Hz clock (10 a sim tick, the delta at 30 fps).
+
+/** A type-87 trail record as `cact_effect_create_type87` (0x00449cc0) reads it. */
+export interface TrailRecord {
+  /** The bank-1 effect id. */
+  readonly id: number;
+  /** +0x34: a new node's half-width, sixteenths (`cact_trail_node_init` 0x00449bba). */
+  readonly headHalf: number;
+  /** +0x36: the width the nodes grow by over the three stages, sixteenths. */
+  readonly widthGrowth: number;
+  /** +0x38..+0x40: the three stages' red, green and blue. */
+  readonly rgb: readonly number[];
+  /** +0x42/+0x44/+0x46: the three stages' lengths, engine units. */
+  readonly stageLength: readonly number[];
+  /** +0x48: a node per `spacing` sixteenths the head is from the emission point (0x00449625). */
+  readonly spacing: number;
+  /** +0x4e: the emission speed, the node velocity's halfword length (0x0044b061). */
+  readonly emitSpeed: number;
+}
+
+/** The Flamethrower's trail, block A: record 40 (bank 1). */
+export const TRAIL_FLAME_A: TrailRecord = {
+  id: 40,
+  headHalf: 16,
+  widthGrowth: 244,
+  rgb: [255, 128, 0, 0, 0, 0, 0, 0, 0],
+  stageLength: [6144, 0, 0],
+  spacing: 134,
+  emitSpeed: 2048,
+};
+/** Block B's: record 45. */
+export const TRAIL_FLAME_B: TrailRecord = {
+  id: 45,
+  headHalf: 18,
+  widthGrowth: 407,
+  rgb: [220, 150, 64, 16, 0, 0, 0, 0, 16],
+  stageLength: [6144, 3072, 1024],
+  spacing: 132,
+  emitSpeed: 2048,
+};
+/** The Concussion Beam's trail, block A: record 100. */
+export const TRAIL_BEAM_A: TrailRecord = {
+  id: 100,
+  headHalf: 38,
+  widthGrowth: 39,
+  rgb: [32, 32, 64, 32, 32, 96, 0, 0, 0],
+  stageLength: [1228, 37, 0],
+  spacing: 406,
+  emitSpeed: 16384,
+};
+/** Block B's: record 105. */
+export const TRAIL_BEAM_B: TrailRecord = {
+  id: 105,
+  headHalf: 39,
+  widthGrowth: 60,
+  rgb: [127, 127, 255, 0, 0, 64, 0, 0, 0],
+  stageLength: [1228, 37, 0],
+  spacing: 406,
+  emitSpeed: 16384,
+};
+
+/** A type-92 shell record as `cact_effect_create_type92` (0x004196e0) reads it. */
+export interface ShellRecord {
+  /** The bank-1 effect id. */
+  readonly id: number;
+  /** +0x2e: the amount each blast deals at its centre (the shockwave's is stamped from its block, 0x0044b5a5). */
+  readonly amount: number;
+  /** +0x34: growth, the radius gains `elapsed * growth >> 8` sixteenths a pass (0x00418a28). */
+  readonly growth: number;
+  /** +0x36: the growth's decay (0 in all three). */
+  readonly decay: number;
+  /** +0x38: the radius it blasts once more at and retires (0x00418b14). */
+  readonly limit: number;
+  /** +0x3a: thickness, sixteenths (doubled with SHELL_FLAG_DOUBLE). */
+  readonly thickness: number;
+  /** +0x42..+0x47: the two colours the fade empties. */
+  readonly rgb: readonly number[];
+  /** +0x48: the fade's parameter (the intensity, 0x004199d0). */
+  readonly fade: number;
+  /** +0x4c: the start radius, sixteenths (negative: relative to the raiser's scale). */
+  readonly start: number;
+  /** +0x52: the shape flags. */
+  readonly flags: number;
+}
+
+/** The Shockwave Generator's shell, block A: record 170 (its +0x2e takes the block's 300). */
+export const SHELL_SHOCKWAVE_A: ShellRecord = {
+  id: 170,
+  amount: 300,
+  growth: 2454,
+  decay: 0,
+  limit: 2048,
+  thickness: 1228,
+  rgb: [127, 96, 0, 0, 0, 127],
+  fade: 4096,
+  start: -6554,
+  flags: 0x1c2,
+};
+/** Block B's: record 175 (+0x2e 200 in the record, 300 from the block). */
+export const SHELL_SHOCKWAVE_B: ShellRecord = {
+  id: 175,
+  amount: 300,
+  growth: 2866,
+  decay: 0,
+  limit: 2866,
+  thickness: 407,
+  rgb: [127, 96, 0, 0, 0, 127],
+  fade: 3686,
+  start: -6554,
+  flags: 0x1c2,
+};
 /**
- * The Flamethrower's damage cadence: Metropolis' own. The original's fire is a
- * sustained effect whose nodes each carry the record's 6 (B: 10) damage, and how
- * often a node hits was not established (fcop-re/player-and-weapons.md §9.1). So
- * the time profile stays Metropolis' (one hit every 5 ticks, as the old flame
- * did) and the per-hit damage, reach and ammunition are the record's.
+ * The powered Concussion Beam's impact: record 107, 50 with blast 2048, raised
+ * at every body the beam hurts and where it meets terrain. Block A's impact,
+ * record 102, carries no amount and hurts nothing.
  */
-export const FLAME_PULSE_TICKS = 5;
+export const SHELL_BEAM_IMPACT_B: ShellRecord = {
+  id: 107,
+  amount: 50,
+  growth: 2867,
+  decay: 0,
+  limit: 2048,
+  thickness: 409,
+  rgb: [0, 0, 0, 127, 96, 0],
+  fade: 1024,
+  start: 0,
+  flags: 0x1c,
+};
+/** Shape flag 0x10: the blast's outer radius takes the thickness twice (0x00418c8c). */
+export const SHELL_FLAG_DOUBLE = 0x10;
+/** Shape flag 0x40: the blast's vertical gate has no floor (0x00418c98). */
+export const SHELL_FLAG_NO_FLOOR = 0x40;
+/**
+ * The Shockwave's start radius, sixteenths: COULD NOT ESTABLISH. The record's
+ * -6554 is relative, `-scale * field >> 12` (`cact_effect_place` 0x0042c9ad),
+ * and the raiser's scale for the mech is open (RE M3-OK). Metropolis takes the
+ * client's 0x100: 409 sixteenths, 0.8 m.
+ */
+export const SHOCKWAVE_START_RADIUS = (-0x100 * -6554) >> 12;
+
+/** The attached sustain's countdown, refreshed by every call: 0x32 units (0x0044af58, 0x0044afa7). */
+export const SUSTAIN_ATTACHED_UNITS = 0x32;
+/** The aimed sustain's: 0x96 units (0x0044b791). */
+export const SUSTAIN_AIMED_UNITS = 0x96;
+/** A trail node that hurt waits 10 trail ticks, then ends the stream there (0x0044b526, 0x00449670). */
+export const SUSTAIN_TOUCH_WAIT = 10;
+/** The flame asks a body only within 0x10000 wu of the shooter on every axis (0x0044b384). */
+export const SUSTAIN_SWEEP_BOX = 0x10000;
+/** The beam touches only while its segment is under 0x14000 wu on every axis (0x0044bb10). */
+export const SUSTAIN_BEAM_BOX = 0x14000;
+/** A beam node hurts at most ten bodies (`cmp dl, 0xa` at 0x0044bee9). */
+export const SUSTAIN_HIT_SLOTS = 10;
+/** One terrain impact of the beam's in six raises its effect (0x0044becc). */
+export const SUSTAIN_IMPACT_WAIT = 5;
+/** A trail's node pool: 0x28 (`node_pool_init(+0x64, 0x30, 0x28)` at 0x00449cec). */
+export const TRAIL_NODES = 0x28;
+/** The band gate's margin about a body's reference point, wu (CACT_BLAST_BAND_MARGIN, 0x0042f2c4). */
+export const BLAST_BAND_MARGIN = 0x1000;
+/**
+ * Trails a player can hold at once: Metropolis'. The original's two pools hold
+ * ten sustains each for every shooter in the mission (0x0044ce50); a stream
+ * still burning out after a release is one, the next press another.
+ */
+export const SUSTAIN_TRAILS_PER_PLAYER = 4;
+/** Type-92 shells alive at once in the sim: Metropolis' bound (the original allocates each). */
+export const SUSTAIN_SHELLS = 24;
 
 /**
  * A homing missile's turn rate, rad/s: Metropolis' own. The original's

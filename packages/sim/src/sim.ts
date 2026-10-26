@@ -35,7 +35,6 @@ import {
   DREADNOUGHT_GUNS,
   DROWN_DEPTH,
   DUMMY_RESPAWN_TICKS,
-  FLAME_PULSE_TICKS,
   FLOOR_DAMAGE_PER_STEP,
   FORTRESS_ALIVE_LIMIT,
   FRAME_CLOCK_PER_TICK,
@@ -131,6 +130,7 @@ import {
   SHIELD_RECOIL_B,
   SHIELD_ROUND_DAMAGE_A,
   SHIELD_ROUND_DAMAGE_B,
+  SHOCKWAVE_START_RADIUS,
   SHOOTER_RETRY_UNITS,
   SKY_BOMB_BLAST,
   SKY_BOMB_DAMAGE,
@@ -282,6 +282,16 @@ import {
   systemStats,
   unitStatKey,
 } from "./stats";
+import {
+  beamFire,
+  createSustainState,
+  flameFire,
+  hashSustain,
+  type SustainHost,
+  type SustainState,
+  shockwaveFire,
+  systemSustain,
+} from "./sustain";
 import {
   aircraftEngaged,
   isAirUnit,
@@ -723,6 +733,12 @@ export interface SimState {
   readonly keptRound: Int32Array;
   /** The Riot Shield's sphere per player (systemShields). */
   readonly shield: ShieldState;
+  /**
+   * The sustained weapons' trails and shells (sustain.ts, SIM_VERSION 105): the
+   * Flamethrower's and the Concussion Beam's nodes, the Shockwave's and the
+   * powered beam's expanding shells. Hashed while any is live.
+   */
+  readonly sustain: SustainState;
   /**
    * A guided round's launch point and range (x, y, height, range at `id * 4`),
    * the original's +0xa0..+0xa6: what its range and the Fusion Torpedo's falloff
@@ -1218,6 +1234,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     extraWeapons,
     keptRound: new Int32Array(MAX_PLAYERS).fill(-1),
     shield: createShieldState(),
+    sustain: createSustainState(),
     roundLaunch: new Float32Array(MAX_ENTITIES * 4),
     events: createEventBuffer(),
   };
@@ -2666,8 +2683,6 @@ function fireSlot(state: SimState, player: number, id: number, slot: number, w: 
     gap = blk.roundGap;
   }
   state.burstLeft[k] = left;
-  // The Flamethrower's time profile is Metropolis' (balance.ts FLAME_PULSE_TICKS).
-  if (w.delivery === "flame") gap = FLAME_PULSE_TICKS * WEAPON_UNITS_PER_TICK;
   cd[id] += gap;
   // The last powered round: back to block A, its burst counter from A.
   if (powered && allowance - 1 <= 0) state.burstLeft[k] = w.a.rounds;
@@ -2713,26 +2728,21 @@ function deliver(
   const fy = ent.aimY[shooter];
   switch (w.delivery) {
     case "hitscan":
-    case "flame":
       directShot(state, shooter, player, w, blk, slot, lock, powered);
+      return true;
+    case "flame":
+      // The attached sustain (sustain.ts flameFire): its trail's nodes hurt.
+      // No line's end: the reach the event carries is zero.
+      flameFire(state, SUSTAIN_HOST, shooter, player, lock, blk.damage, powered);
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       return true;
     case "beam":
       beamShot(state, shooter, player, w, blk, slot, lock, powered);
       return true;
     case "shockwave": {
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
-      // Self-centred pulse at the shooter's feet — ignores aim and lock.
-      blastAt(
-        state,
-        ent.posX[shooter],
-        ent.posY[shooter],
-        ent.team[shooter],
-        player,
-        blk.damage,
-        blk.blast,
-        w.projKind,
-        BLAST_FLAT | BLAST_RIVAL,
-      );
+      // The block's shell on the mech (sustain.ts shockwaveFire).
+      shockwaveFire(state, shooter, player, blk.damage, powered, SHOCKWAVE_START_RADIUS);
       return true;
     }
     case "mine": {
@@ -2895,12 +2905,13 @@ function directShot(
 }
 
 /**
- * The Concussion Beam (kind 0x11, `sustain_aimed_fire_block`): an aimed beam to
- * the lock — or its range ahead, or as far toward the lock as its range goes —
- * that bursts with the record's blast and linear falloff at its end. How the
- * original spreads the beam's damage over time was not established; this is
- * Metropolis' instant beam carrying the original's per-hit damage, radius and
- * reach (fcop-re/player-and-weapons.md §9.1).
+ * The Concussion Beam (kind 0x11, `sustain_aimed_fire_block` 0x0044b5b0): the
+ * aimed sustain from the muzzle (sustain.ts beamFire), whose trail's segment
+ * hurts every body it reaches once a shot. Its direction: with a lock and the
+ * record's positive speed, the intercept lead (`cact_discharge_lead`, here
+ * leadAim at the block's speed as for kind 2, its details not established),
+ * climbing to the lock's reference point; with no lock the gun block's own
+ * orientation, the facing.
  */
 function beamShot(
   state: SimState,
@@ -2913,42 +2924,41 @@ function beamShot(
   powered: boolean,
 ): void {
   const ent = state.ent;
-  const ox = ent.posX[shooter];
-  const oy = ent.posY[shooter];
   let ux = ent.aimX[shooter];
-  let uy = ent.aimY[shooter];
-  let len = blk.range;
+  let uz = ent.aimY[shooter];
+  let uy = 0;
   if (lock >= 0) {
-    const dx = ent.posX[lock] - ox;
-    const dy = ent.posY[lock] - oy;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d > 1e-6) {
-      ux = dx / d;
-      uy = dy / d;
-      if (d < len) len = d;
+    const mx = ent.posX[shooter] + ux * MUZZLE_OFFSET;
+    const my = ent.posY[shooter] + uz * MUZZLE_OFFSET;
+    let dx = ent.posX[lock] - mx;
+    let dz = ent.posY[lock] - my;
+    const flat = Math.sqrt(dx * dx + dz * dz);
+    if (blk.speed > 0 && leadAimFrom(state, mx, my, lock, blk.speed)) {
+      dx = leadScratch.x * flat;
+      dz = leadScratch.y * flat;
+    }
+    const dh =
+      ent.height[lock] + entityRefHeight(state, lock) - (ent.height[shooter] + MUZZLE_HEIGHT);
+    const len = Math.sqrt(dx * dx + dz * dz + dh * dh);
+    if (len > 1e-6) {
+      ux = dx / len;
+      uz = dz / len;
+      uy = dh / len;
     }
   }
-  let ex = ox + ux * len;
-  let ey = oy + uy * len;
-  const wallT = segmentBlockT(state.map, ox, oy, ex, ey);
-  if (wallT >= 0) {
-    len *= wallT;
-    ex = ox + ux * len;
-    ey = oy + uy * len;
-  }
-  pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, len, powered));
-  blastAt(
-    state,
-    ex,
-    ey,
-    ent.team[shooter],
-    player,
-    blk.damage,
-    blk.blast,
-    PROJ_BEAM,
-    BLAST_EMIT | BLAST_RIVAL,
-  );
+  beamFire(state, SUSTAIN_HOST, shooter, player, lock, blk.damage, powered, ux, uy, uz);
+  pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
 }
+
+/**
+ * What sustain.ts asks of the sim: the damage bookkeeping (an X1-Alpha's
+ * weapon, so `byRival`) and the bodies' sizes.
+ */
+const SUSTAIN_HOST: SustainHost = {
+  hurt: (state, target, amount, player) => applyDamage(state, target, amount, player, true),
+  radius: (state, id) => entityRadius(state, id),
+  refHeight: (state, id) => entityRefHeight(state, id),
+};
 
 /** blastAt options. */
 const BLAST_EMIT = 1;
@@ -2965,9 +2975,9 @@ const BLAST_RIVAL = 4;
  * 0x0042f170) falls off linearly over HORIZONTAL distance, centre to centre:
  * damage * (r - d) / r inside r, truncated, nothing at 0 (fcop-fidelity.md W1).
  * BLAST_FLAT keeps Metropolis' full-damage pulse to the radius plus the target's
- * own: the Shockwave Generator's (whose time profile was not established) and the
- * Warden's bomb (Metropolis' own weapon). Own team and projectiles are skipped
- * (Metropolis has no friendly fire).
+ * own: the Warden's bomb's (Metropolis' own weapon; the Shockwave Generator's is
+ * the original's expanding shell since SIM_VERSION 105, sustain.ts). Own team and
+ * projectiles are skipped (Metropolis has no friendly fire).
  */
 function blastAt(
   state: SimState,
@@ -6017,6 +6027,9 @@ export function step(state: SimState, inputs: TickInputs): void {
     // The Riot Shield's spheres, after the rounds have moved (inert unless the
     // match offers it).
     systemShields(state);
+    // The sustained weapons' trails and shells: the effect module's frame,
+    // after every actor (sustain.ts).
+    systemSustain(state, SUSTAIN_HOST, PROJ_BEAM);
     systemDamageDeath(state);
     systemCapture(state);
     // Precinct Assault systems (rules.md §9), inert on arenas without PA data.
@@ -6273,6 +6286,9 @@ export function hash(state: SimState): number {
       for (let k = 0; k < 4; k++) h = fnv1aF32(h, state.roundLaunch[id * 4 + k]);
     }
   }
+  // Appended at SIM_VERSION 105: the sustained weapons' live trails and shells
+  // (sustain.ts); nothing while none is live.
+  h = hashSustain(state, h);
   return h;
 }
 
