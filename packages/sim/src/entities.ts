@@ -94,6 +94,15 @@ export interface EntityStore {
    * and where, never changed after. 0 for everything else.
    */
   readonly restYaw: Float32Array;
+  /**
+   * The order an entity was made in, 1 for the first of the match: the
+   * original's live list is in creation order, and where it decides an order
+   * (the pair walk's chains, guidedContactOrder) a recycled id must not. A
+   * side array, as the four above, and derived from the spawn order alone.
+   */
+  readonly born: Uint32Array;
+  /** The last `born` handed out. */
+  births: number;
 }
 
 const FLOAT_FIELDS = 16;
@@ -149,6 +158,8 @@ export function createEntityStore(cap: number = MAX_ENTITIES): EntityStore {
     weaponProfile: new Int16Array(cap).fill(-1),
     radius: new Float32Array(cap),
     restYaw: new Float32Array(cap),
+    born: new Uint32Array(cap),
+    births: 0,
   };
 }
 
@@ -170,6 +181,8 @@ export function spawn(store: EntityStore, archetype: Archetype, team: number): n
   store.alive[id] = 1;
   store.archetype[id] = archetype;
   store.team[id] = team;
+  store.births += 1;
+  store.born[id] = store.births;
   return id;
 }
 
@@ -206,6 +219,7 @@ export function despawn(store: EntityStore, id: number): void {
   store.weaponProfile[id] = -1; // -1, not 0: see the field comment
   store.radius[id] = 0;
   store.restYaw[id] = 0;
+  store.born[id] = 0;
   store.freeList[store.freeCount] = id;
   store.freeCount += 1;
 }

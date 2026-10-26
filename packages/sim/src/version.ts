@@ -1395,4 +1395,12 @@
 //     bits over the three lattices; the road carve opens 0 and 56 (was 7 and
 //     246). No golden plays these arenas: every hash holds, re-recorded for
 //     the header.
-export const SIM_VERSION = 95;
+// v96: the K-9 Drone reads the body it strikes in the pair walk's order
+//     (fcop-fidelity.md W5; RE objects.c 0x0044fe40, collide.c 0x00450190,
+//     missile.c 0x00422dc9): the two operation-0x0b notices go first to the
+//     body in the earlier 4 m pair cell (the sim's x, then y), in one cell to
+//     the later-made (EntityStore.born, an unhashed side array). Told second,
+//     the drone reads the body's health after the body has taken its damage,
+//     so a body it kills costs it 2. Extra weapons are off in every golden:
+//     every hash holds, re-recorded for the header.
+export const SIM_VERSION = 96;

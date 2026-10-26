@@ -94,6 +94,7 @@ import {
   ORIGINAL_TANK_QUEUE_PERIOD,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_TURRET_RESPAWN_TICKS,
+  PAIR_CELL,
   PICKUP_GUN_AMMO,
   PICKUP_HEALTH,
   PICKUP_HEAVY_AMMO,
@@ -4547,12 +4548,34 @@ function guidedExpire(state: SimState, id: number): void {
 }
 
 /**
+ * Whether `a` is told of its contact with `b` before `b` is (operation 0x0b,
+ * `cact_pair_test` 0x00450190). The pair walk (`objects_pick_targets`
+ * 0x0044fe40) goes over the pair grid's cells by the original's x, then z —
+ * the sim's x, then y — pairing each cell with itself and its forward
+ * neighbours, the earlier cell's body first; in one cell the chain is the
+ * gather's in reverse (`paint_grid_insert` puts each at its head), so the
+ * later-made body comes first. The bodies stand at their positions, not
+ * their reference points.
+ */
+export function toldFirst(state: SimState, a: number, b: number): boolean {
+  const ent = state.ent;
+  const ax = Math.floor(ent.posX[a] / PAIR_CELL);
+  const bx = Math.floor(ent.posX[b] / PAIR_CELL);
+  if (ax !== bx) return ax < bx;
+  const ay = Math.floor(ent.posY[a] / PAIR_CELL);
+  const by = Math.floor(ent.posY[b] / PAIR_CELL);
+  if (ay !== by) return ay < by;
+  return ent.born[a] > ent.born[b];
+}
+
+/**
  * One guided round's tick, `cact_missile_tick` (0x004231d0) in its order:
  * acquire, the range from the launch point, then (not expiring) the
  * acceleration, the state's steering, the move, the K-9's ground clearance, the
  * wall and floor sweeps — and the collision notice (operation 0x0b), which
  * kills a torpedo outright and costs the drone the larger of the body's health
- * and 2, and sends it hunting again.
+ * and 2, and sends it hunting again: the health from before the body's own
+ * notice or after it, in the pair walk's order (toldFirst).
  *
  * Steering, HOME and AVOID (0x004236ac): the fuse runs down while it homes and
  * at zero halves the speed and the cap and renews by 0x12c, expiring the round
@@ -4704,11 +4727,15 @@ function guidedTick(state: SimState, id: number): void {
       const dy = ent.posY[t] - y;
       if (dx * dx + dy * dy > r * r) continue;
       const before = ent.hp[t];
+      const droneFirst = toldFirst(state, id, t);
       // A contact: the round's own serial is the credit, which resolves to
       // nobody (0x0041a811), so it is no rival's hit.
       applyDamage(state, t, ent.ammoA[id], ent.ownerId[id], false);
       if (hug) {
-        ent.hp[id] -= before > 2 ? before : 2;
+        // The body's health as the drone reads it: before its own notice
+        // when the drone is told first, after it otherwise.
+        const read = droneFirst ? before : ent.alive[t] ? ent.hp[t] : 0;
+        ent.hp[id] -= read > 2 ? read : 2;
         ent.timerC[id] = GUIDED_ACQUIRE;
         if (ent.hp[id] <= 0) expiring = true;
       } else {

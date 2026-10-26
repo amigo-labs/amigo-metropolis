@@ -1174,6 +1174,13 @@ export const GRENADE_TIME_DIVISOR = 300;
  * on all six arenas (Mp 52, Conft 53, Hk 55, Joke 57, Ovmp 52, Slim 58).
  */
 export const GRENADE_RADIUS = (93 << 4) / 8192;
+/**
+ * The pair grid's cell, metres: a quarter of a terrain cell, `>> 15` world
+ * units (objects.c paint_grid_insert, OBJECTS_QUARTER_SHIFT). The pair walk
+ * (`objects_pick_targets` 0x0044fe40) goes over these cells row by row, and
+ * that is the order two colliding bodies are told of their contact in.
+ */
+export const PAIR_CELL = (1 << 15) / WU_PER_METRE;
 
 // Muzzle geometry, shared by the sim and by the renderer's muzzle flash. They
 // lived in sim.ts, where render/fx.ts could only keep a hand-copied duplicate

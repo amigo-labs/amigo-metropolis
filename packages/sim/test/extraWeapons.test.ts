@@ -12,6 +12,7 @@ import {
   AVATAR_HP_BY_DIFFICULTY,
   DIFFICULTY_NORMAL,
   GRENADE_RADIUS,
+  PAIR_CELL,
   WEAPON_RECORDS,
 } from "../src/balance";
 import { spawn } from "../src/entities";
@@ -29,7 +30,7 @@ import {
 } from "../src/events";
 import { BTN_GUN, BTN_HEAVY, BTN_SPECIAL, createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson } from "../src/map";
-import { createSim, hash, type SimState, step } from "../src/sim";
+import { createSim, hash, type SimState, step, toldFirst } from "../src/sim";
 import {
   DEFAULT_LOADOUT,
   difficultyAmmo,
@@ -492,6 +493,48 @@ describe("K-9 Drone (0x15, missile.c CACT_MISSILE_KIND_HUG)", () => {
     expect(sim.ent.alive[d]).toBe(1);
     expect(sim.ent.hp[d]).toBe(300 - 120);
     expect(sim.ent.timerC[d]).toBe(4); // ACQUIRE
+  });
+
+  test("the body's health it reads is before the body's own notice or after it, in the pair walk's order", () => {
+    // From the east onto a body standing just west of a 4 m pair cell's edge:
+    // the body's cell comes first in the walk, so the body is told first, takes
+    // the drone's 150 and is at -30 when the drone reads it: the drone loses 2.
+    const { sim, a0, a1, inputs } = duel({ heavy: K9.index }, -8.1);
+    sim.ent.yaw[a0] = Math.PI;
+    sim.ent.aimX[a0] = -1;
+    sim.ent.aimY[a0] = 0;
+    sim.ent.hp[a1] = 120;
+    expect(Math.floor(sim.ent.posX[a1] / PAIR_CELL)).toBe(2);
+    inputs.players[0].buttons = BTN_HEAVY;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    let d = -1;
+    for (let t = 0; t < 90; t++) {
+      [d] = rounds(sim, PROJ_K9);
+      step(sim, inputs);
+      if (hits(sim, a1).length > 0) break;
+    }
+    expect(Math.floor(sim.ent.posX[d] / PAIR_CELL)).toBe(3);
+    expect(sim.ent.hp[d]).toBe(300 - 2);
+  });
+
+  test("the pair walk tells the earlier cell's body first, by x then y, and in one cell the later-made", () => {
+    const { sim, a0, a1 } = duel({ heavy: K9.index }, 8);
+    const put = (e: number, x: number, y: number) => {
+      sim.ent.posX[e] = x;
+      sim.ent.posY[e] = y;
+    };
+    put(a0, 3.9, 30);
+    put(a1, 4.1, 0);
+    expect(toldFirst(sim, a0, a1)).toBe(true);
+    expect(toldFirst(sim, a1, a0)).toBe(false);
+    put(a1, 3.0, 28.1);
+    expect(toldFirst(sim, a1, a0)).toBe(true);
+    // One cell: the chain is the gather's in reverse.
+    put(a1, 3.0, 30.5);
+    expect(sim.ent.born[a1]).toBeGreaterThan(sim.ent.born[a0]);
+    expect(toldFirst(sim, a1, a0)).toBe(true);
+    expect(toldFirst(sim, a0, a1)).toBe(false);
   });
 
   test("without a lock it coasts its 16 m from the launch point and ends", () => {

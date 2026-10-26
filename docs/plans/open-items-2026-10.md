@@ -113,8 +113,10 @@ not answered yet.
       (0x00455e00) makes from the raw Ctil samples of all three channels (2x2
       maxima, a blur, the max of both). The RE can export that field per map,
       and Metropolis cannot rebuild it from its heightfield.
-    - **Moved to C (RE question), the drone's health loss:** the order of the
-      two notices is not established.
+    - **Done, the drone's health loss** (SIM_VERSION 96): the RE settles the
+      order. The pair walk (`objects_pick_targets` 0x0044fe40 over
+      `paint_grid_insert`'s 4 m cells) tells the body in the earlier cell
+      first, and in one cell the later-made.
     - Ledger: W5.
 11. **Kerbs and spilled walls** on la-cantina, Hk and Ovmp. Each opens when its
     arena is re-imported (`FcopArena.kerbs`).
@@ -187,7 +189,8 @@ not answered yet.
       "newest first" against `cact_link`'s tail append (item 6);
     - the killer's push (item 9): whether the killing type-2 round is still
       found by its serial at the victim's death check;
-    - the K-9 Drone's health loss: the order of its two notices (item 10).
+    - ~~the K-9 Drone's health loss: the order of its two notices (item 10)~~
+      **answered and done** (SIM_VERSION 96: the pair walk's order).
 
 ## D. Older PLAN.md boxes still open
 
