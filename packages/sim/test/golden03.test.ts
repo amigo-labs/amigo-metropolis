@@ -65,7 +65,11 @@ import { createSim, step } from "../src/sim";
 // test their arc in three dimensions, and the Dreadnought's level guns refuse
 // what lies more than 22.5° below them (fcop-fidelity.md G12, I6); the fights
 // play differently and player 0's tank breaches at 79.8 s.
-const BREACH_TICK_PIN = 2394;
+// 2363 at SIM_VERSION 107: a capture is asked only of a pair the broad phase's
+// 4 m cells offer (fcop-fidelity.md R12), so the script's first capture comes
+// later (the replay diverges at tick 821) and player 0's tanks breach at 78.8 s.
+// 2309 with both (77.0 s).
+const BREACH_TICK_PIN = 2309;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {

@@ -518,20 +518,25 @@ describe("K-9 Drone (0x15, missile.c CACT_MISSILE_KIND_HUG)", () => {
     expect(sim.ent.hp[d]).toBe(300 - 2);
   });
 
-  test("the pair walk tells the earlier cell's body first, by x then y, and in one cell the later-made", () => {
+  test("the pair walk tells the earlier cell's body first, by the sim's y (the original's x) then x, and in one cell the later-made", () => {
     const { sim, a0, a1 } = duel({ heavy: K9.index }, 8);
     const put = (e: number, x: number, y: number) => {
       sim.ent.posX[e] = x;
       sim.ent.posY[e] = y;
     };
-    put(a0, 3.9, 30);
-    put(a1, 4.1, 0);
+    // The walk's rows are `previous[0] >> 15`, the sim's y.
+    put(a0, 30, 3.9);
+    put(a1, 0, 4.1);
     expect(toldFirst(sim, a0, a1)).toBe(true);
     expect(toldFirst(sim, a1, a0)).toBe(false);
-    put(a1, 3.0, 28.1);
+    // One row: its columns, the sim's x.
+    put(a1, 0, 3.0);
+    expect(toldFirst(sim, a1, a0)).toBe(true);
+    expect(toldFirst(sim, a0, a1)).toBe(false);
+    put(a1, 28.1, 3.0);
     expect(toldFirst(sim, a1, a0)).toBe(true);
     // One cell: the chain is the gather's in reverse.
-    put(a1, 3.0, 30.5);
+    put(a1, 30.5, 3.0);
     expect(sim.ent.born[a1]).toBeGreaterThan(sim.ent.born[a0]);
     expect(toldFirst(sim, a1, a0)).toBe(true);
     expect(toldFirst(sim, a0, a1)).toBe(false);

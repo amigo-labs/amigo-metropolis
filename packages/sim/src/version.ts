@@ -1540,4 +1540,25 @@
 //     0x004259d8) and so refuse an aim more than 22.5° above or below their
 //     level barrels; the arc was tested flat. Every golden that fights moves
 //     (02, 03, 04, 05, 07); golden-03's breach comes at 79.8 s (77.2 s).
-export const SIM_VERSION = 106;
+// v107: four of the original's smaller rules (fcop-fidelity.md P8, E20, R12,
+//     U4). The powered Electric Gun jumps from its lock to at most two more
+//     bodies of another side whose reference points lie inside a 4 m cube about
+//     the lock's, each sent block B's 6 (`player_arc` 0x00459bd0: one PRNG draw
+//     starts a wrapping walk over the entity slots). An arced round (type 7:
+//     the Mortar's shells and fragments, the Plasma Flare, the Sky Captain's
+//     bomb) has no lifetime; past 44 m (0x58000 wu, `vec_distance_xz`) from its
+//     owner's point at launch it is killed silently (`round_orient`
+//     0x00423b28), and that point is hashed. A neutral turret's capture is
+//     asked only of a body the broad phase pairs with it, one 4 m cell off at
+//     most on each axis (`objects_pick_targets` 0x0044fe40), so Hk's 6.15 m
+//     (and Slim's, Joke's, even Mp's reach past 4 m) is clipped by the cell
+//     lines; and the pair walk's order goes by the sim's y first (the
+//     original's x, its rows), then x (toldFirst had them crossed). Team
+//     turrets search by team and find the other side's turrets (`target_type`
+//     4, no type test in `cact_find_target`). 01 and 02 move only by the
+//     arced rounds' hashed words (no lifetime, the owner point); 03, 04 and 07
+//     play differently from their first capture clipped by the cells (ticks
+//     821, 235, 182), 04 and 07 also from turrets firing on turrets; golden-04's
+//     tanks now breach at tick 3134. No golden fires the powered Electric Gun or
+//     flies a round past 44 m.
+export const SIM_VERSION = 107;

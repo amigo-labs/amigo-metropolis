@@ -273,7 +273,10 @@ Design pillars, in priority order:
      despawn and the placing at the feet are gone. Kept: the fuse measures the
      ground plane from the body's position (the original: three axes from its
      reference point).
-  4. The powered Electric Gun's arc to two more targets is not modelled.
+  4. ~~The powered Electric Gun's arc to two more targets is not modelled.~~
+     **Modelled** (SIM_VERSION 107, `player_arc` 0x00459bd0): block B jumps from
+     a lock it reached to at most two more enemy bodies inside a 4 m cube about
+     the lock, 6 damage each.
 - **Deliveries:** Pop-Up Mines drop a bouncing proximity charge from the muzzle.
   Shockwave Generator is an expanding shell riding the mech — no aim, no projectile travel.
 - Slot membership: the **Concussion Beam is a Heavy**, not a Special.

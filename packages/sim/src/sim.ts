@@ -13,6 +13,7 @@
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
   ARC_FREE_AIM_DISTANCE,
+  ARC_ROUND_RANGE_WU,
   ARCHETYPE_MAX_HP,
   ARCHETYPE_RADIUS,
   AVATAR_HOVER_MAX_SLOPE,
@@ -35,6 +36,8 @@ import {
   DREADNOUGHT_GUNS,
   DROWN_DEPTH,
   DUMMY_RESPAWN_TICKS,
+  ELECTRIC_ARC_AXIS_WU,
+  ELECTRIC_ARC_HITS,
   FLOOR_DAMAGE_PER_STEP,
   FORTRESS_ALIVE_LIMIT,
   FRAME_CLOCK_PER_TICK,
@@ -195,6 +198,7 @@ import {
   EV_DEATH,
   EV_DRY_FIRE,
   EV_EXPLOSION,
+  EV_GUN_ARC,
   EV_HIT,
   EV_KILL_PUSH,
   EV_LIFT_ARRIVE,
@@ -744,7 +748,9 @@ export interface SimState {
   /**
    * A guided round's launch point and range (x, y, height, range at `id * 4`),
    * the original's +0xa0..+0xa6: what its range and the Fusion Torpedo's falloff
-   * measure from. Read and hashed for live guided rounds only.
+   * measure from; an arced round's owner point (x, y, 0, 0; noteArcOwner), what
+   * its range kill measures from. Read and hashed for live guided and arced
+   * rounds only.
    */
   readonly roundLaunch: Float32Array;
 
@@ -2905,6 +2911,62 @@ function directShot(
   } else if (lock >= 0) {
     applyDamage(state, lock, blk.damage, player, true);
   }
+  // 0x00459a6a: the Electric Gun's block B jumps on from the lock it reached.
+  if (powered && blk.kind === KIND_DIRECT_ELECTRIC && lock >= 0) {
+    electricArcs(state, shooter, player, w, blk, lock);
+  }
+}
+
+/** The Electric Gun's kind byte (0x0b), the one `player_fire_direct` links. */
+const KIND_DIRECT_ELECTRIC = 0x0b;
+
+/**
+ * The powered Electric Gun's jump, `player_arc` (retail 0x00459bd0, RE M3-GL):
+ * one draw of the PRNG picks where a walk over every entity slot starts
+ * (`game_rand() % n`, then on with a wrap, 0x00459bf6..0x00459dc2); a body the
+ * player's lock could take (the walk's refusals: dead, the lock itself, the
+ * shooter's own team, flag bit 0 — isLockable's reading of that bit) whose
+ * reference point is inside a cube of half-side 4 m about the lock's (each axis
+ * `< 0x8000` wu, 0x00459c54..0x00459ca4) is sent block B's damage, at most
+ * ELECTRIC_ARC_HITS of them: the third that fits ends the walk. Each jump draws
+ * a link from the lock to the body (EV_GUN_ARC). The jumps start from the lock,
+ * not from each other, and a line that hit a wall never gets here
+ * (0x00459a7a hands `player_arc` no source then).
+ */
+function electricArcs(
+  state: SimState,
+  shooter: number,
+  player: number,
+  w: WeaponDef,
+  blk: WeaponBlock,
+  source: number,
+): void {
+  const ent = state.ent;
+  const n = ent.high;
+  const drawn = randU32(state); // 0x00459bf6, before the count is tested
+  if (n <= 0) return;
+  const sx = Math.floor(ent.posX[source] * WU_PER_METRE);
+  const sy = Math.floor(ent.posY[source] * WU_PER_METRE);
+  const sh = Math.floor((ent.height[source] + entityRefHeight(state, source)) * WU_PER_METRE);
+  let remaining = ELECTRIC_ARC_HITS;
+  let index = drawn % n;
+  for (let walked = 0; walked < n; walked++) {
+    const c = index;
+    index += 1;
+    if (index >= n) index = 0;
+    if (c === source || !isLockable(state, player, shooter, c)) continue;
+    const dx = Math.abs(Math.floor(ent.posX[c] * WU_PER_METRE) - sx);
+    if (dx >= ELECTRIC_ARC_AXIS_WU) continue;
+    const dy = Math.abs(Math.floor(ent.posY[c] * WU_PER_METRE) - sy);
+    if (dy >= ELECTRIC_ARC_AXIS_WU) continue;
+    const ch = Math.floor((ent.height[c] + entityRefHeight(state, c)) * WU_PER_METRE);
+    if (Math.abs(ch - sh) >= ELECTRIC_ARC_AXIS_WU) continue;
+    remaining -= 1;
+    if (remaining < 0) return;
+    pushEvent(state.events, EV_GUN_ARC, source, c, weaponShotPayload(w.id, 0, true));
+    // Operation 0x0e, kind 8, the block's +0x0c (0x00459d88..0x00459dab).
+    applyDamage(state, c, blk.damage, player, true);
+  }
 }
 
 /**
@@ -3179,8 +3241,12 @@ function armRound(
   ent.ammoA[id] = blk.damage;
   ent.aux[id] = blk.blast;
   ent.ammoB[id] = flags;
-  ent.timerA[id] = blk.fuseTicks > 0 ? blk.fuseTicks : ROUND_MAX_TICKS;
-  if ((flags & ROUND_ARC) === 0) {
+  if ((flags & ROUND_ARC) !== 0) {
+    // Type 7 has no lifetime: the ground, a body, the second press or its range.
+    ent.timerA[id] = 0;
+    noteArcOwner(state, id, shooter);
+  } else {
+    ent.timerA[id] = blk.fuseTicks > 0 ? blk.fuseTicks : ROUND_MAX_TICKS;
     // A missile: launch speed along its direction, accelerating to its top.
     const sp = blk.launchSpeed;
     ent.cooldownA[id] = sp;
@@ -3194,6 +3260,40 @@ function armRound(
 
 /** A safety lifetime for a round whose record carries no fuse, ticks. */
 const ROUND_MAX_TICKS = 300;
+
+/**
+ * An arced round keeps its owner's reference point at its launch
+ * (`cact_round_construct` 0x00423d06, +0xc8) for its range kill, in
+ * `roundLaunch` (x, y; the other two words zero). The owner is the craft that
+ * launched it (the X1's partner, its upper half, stands on the mech; the Sky
+ * Captain), its point taken at its position: Metropolis places no reference
+ * point off a body's axis.
+ */
+function noteArcOwner(state: SimState, id: number, owner: number): void {
+  const L = id * 4;
+  state.roundLaunch[L] = state.ent.posX[owner];
+  state.roundLaunch[L + 1] = state.ent.posY[owner];
+  state.roundLaunch[L + 2] = 0;
+  state.roundLaunch[L + 3] = 0;
+}
+
+/**
+ * Type 7's range kill (`round_orient` 0x00423b28): `vec_distance_xz` (0x00458000,
+ * the larger plus the smaller's half rounded up, in world units) from the
+ * round's position to its owner's launch point, over ARC_ROUND_RANGE_WU.
+ */
+function arcOutOfRange(state: SimState, id: number): boolean {
+  const L = id * 4;
+  const ent = state.ent;
+  let dx =
+    Math.floor(ent.posX[id] * WU_PER_METRE) - Math.floor(state.roundLaunch[L] * WU_PER_METRE);
+  let dz =
+    Math.floor(ent.posY[id] * WU_PER_METRE) - Math.floor(state.roundLaunch[L + 1] * WU_PER_METRE);
+  if (dx < 0) dx = -dx;
+  if (dz < 0) dz = -dz;
+  const smaller = dx < dz ? dx : dz;
+  return dx + dz - (smaller >> 1) > ARC_ROUND_RANGE_WU;
+}
 
 /** Scratch for leadAim (module scope: no allocation per shot). */
 const leadScratch = { x: 0, y: 0, d: 0 };
@@ -3412,7 +3512,8 @@ export function spawnWardenBomb(
   ent.ammoA[id] = SKY_BOMB_DAMAGE;
   ent.aux[id] = SKY_BOMB_BLAST;
   ent.ammoB[id] = ROUND_ARC | ROUND_RIVAL; // linear falloff, as the original's area damage
-  ent.timerA[id] = ROUND_MAX_TICKS;
+  ent.timerA[id] = 0;
+  noteArcOwner(state, id, shooter);
 }
 
 /**
@@ -3565,8 +3666,14 @@ function angleDelta(from: number, to: number): number {
 
 /**
  * Turrets and units acquire a hostile and fire. Owned turrets defend against
- * avatars AND units; neutral dummies keep their Phase 1 role and only ever
- * engage avatars. Turrets never target turrets.
+ * avatars, units AND the other side's turrets; neutral dummies keep their Phase
+ * 1 role and only ever engage avatars. A team turret's record searches by team
+ * (`target_type` 4, `cact_find_target` 0x0043bceb: the candidate's +0x18 against
+ * the other side's), and nothing in that search looks at a type: a turret of
+ * the other side carries no flag bit 0 (record flags 0x148, `turret_construct`
+ * sets bit 0 only on a NeutralTurret, 0x0041c1ec, which its capture clears,
+ * 0x0041cb55) and is found
+ * like any body, at priority 0 (fcop-fidelity.md U4).
  *
  * Every shooter runs the original's model on its weapon profile (the arena's
  * records, or balance.ts ORIGINAL_WEAPON_PROFILES where it has none;
@@ -3689,7 +3796,7 @@ function shooterTurret(state: SimState, id: number, w: MapWeapon): void {
       found =
         ent.ownerId[id] < 0
           ? nearestEnemyAvatar(state, id, w.range)
-          : nearestEnemyInRange(state, id, w.range, true, w.priority === 1);
+          : nearestEnemyInRange(state, id, w.range, false, w.priority === 1);
     }
     if (found >= 0) target = found;
   }
@@ -4742,21 +4849,37 @@ function guidedExpire(state: SimState, id: number): void {
  * Whether `a` is told of its contact with `b` before `b` is (operation 0x0b,
  * `cact_pair_test` 0x00450190). The pair walk (`objects_pick_targets`
  * 0x0044fe40) goes over the pair grid's cells by the original's x, then z —
- * the sim's x, then y — pairing each cell with itself and its forward
- * neighbours, the earlier cell's body first; in one cell the chain is the
- * gather's in reverse (`paint_grid_insert` puts each at its head), so the
- * later-made body comes first. The bodies stand at their positions, not
- * their reference points.
+ * its rows are `previous[0] >> 15` (`paint_grid_insert` 0x004509dd), the sim's
+ * y, its columns `previous[2] >> 15`, the sim's x (stage 2 puts the original's
+ * z on the sim's x, fcop-re/ranges-turrets-capture.md) — pairing each cell
+ * with itself and its forward neighbours, the earlier cell's body first; in
+ * one cell the chain is the gather's in reverse (`paint_grid_insert` puts each
+ * at its head), so the later-made body comes first. The bodies stand at their
+ * positions, not their reference points.
  */
 export function toldFirst(state: SimState, a: number, b: number): boolean {
   const ent = state.ent;
-  const ax = Math.floor(ent.posX[a] / PAIR_CELL);
-  const bx = Math.floor(ent.posX[b] / PAIR_CELL);
-  if (ax !== bx) return ax < bx;
   const ay = Math.floor(ent.posY[a] / PAIR_CELL);
   const by = Math.floor(ent.posY[b] / PAIR_CELL);
   if (ay !== by) return ay < by;
+  const ax = Math.floor(ent.posX[a] / PAIR_CELL);
+  const bx = Math.floor(ent.posX[b] / PAIR_CELL);
+  if (ax !== bx) return ax < bx;
   return ent.born[a] > ent.born[b];
+}
+
+/**
+ * Whether the pair walk offers `a` and `b` to each other at all: it pairs a
+ * cell of the paint grid (a quarter of a terrain cell, 4 m) only with itself
+ * and its eight neighbours (`objects_pick_targets` 0x0044fe40, each pair once
+ * through the four forward offsets), so two bodies more than one cell apart on
+ * either axis are never asked operation 0x0a — whatever their distance.
+ */
+function pairCellsMeet(ent: EntityStore, a: number, b: number): boolean {
+  const dx = Math.floor(ent.posX[a] / PAIR_CELL) - Math.floor(ent.posX[b] / PAIR_CELL);
+  if (dx > 1 || dx < -1) return false;
+  const dy = Math.floor(ent.posY[a] / PAIR_CELL) - Math.floor(ent.posY[b] / PAIR_CELL);
+  return dy <= 1 && dy >= -1;
 }
 
 /**
@@ -5169,10 +5292,10 @@ function systemProjectiles(state: SimState): void {
       explode(state, id);
       continue;
     }
-    ent.timerA[id] -= 1;
+    const arc = (flags & ROUND_ARC) !== 0;
+    if (!arc) ent.timerA[id] -= 1;
     let vx = ent.velX[id];
     let vy = ent.velY[id];
-    const arc = (flags & ROUND_ARC) !== 0;
     let speed = arc ? 0 : ent.cooldownA[id];
     if (!arc) {
       // A missile accelerates from its launch speed to its top speed.
@@ -5234,7 +5357,7 @@ function systemProjectiles(state: SimState): void {
       ent.posX[id] = x;
       ent.posY[id] = y;
     }
-    let expired = ent.timerA[id] <= 0;
+    let expired = !arc && ent.timerA[id] <= 0;
     if (arc) {
       // Semi-implicit Euler under the round's own gravity (its record's range
       // field): velocity first, then the position.
@@ -5243,6 +5366,13 @@ function systemProjectiles(state: SimState): void {
       ent.height[id] += ent.timerB[id] * TICK_DT;
       if ((flags & ROUND_CLUSTER) !== 0 && before > 0 && ent.timerB[id] <= 0) {
         burstCluster(state, id);
+        continue;
+      }
+      // The tick's second half kills it past its range before anything sees
+      // its contact: a killed round is neither reaped by its health (no blast,
+      // no impact) nor paired.
+      if (arcOutOfRange(state, id)) {
+        despawn(ent, id);
         continue;
       }
     } else {
@@ -5344,6 +5474,8 @@ function burstCluster(state: SimState, id: number): void {
     ent.timerA[f] = ent.timerA[id];
     ent.cooldownC[f] = -1;
     ent.aimX[f] = ent.aimX[id];
+    // A fragment is a copy of the whole shell (0x00423f97): its owner's point too.
+    for (let k = 0; k < 4; k++) state.roundLaunch[f * 4 + k] = state.roundLaunch[id * 4 + k];
   }
   despawn(ent, id);
 }
@@ -5684,8 +5816,13 @@ export function captureRange(map: MapData): number {
  * world units with its octagonal estimate: flat first, then (except for the Sky
  * Captain, `flat`) once more with the height difference folded in
  * (`turret_op10`, fcop-re/ranges-turrets-capture.md Q2; fcop-fidelity.md R12).
+ * It is asked only of a pair the broad phase offers (pairCellsMeet): Hk's
+ * 6.15 m, Slim's and Joke's 5.75 m and even Mp's 4.55 m reach past the
+ * neighbouring 4 m cell, so whether a capture at that distance holds depends on
+ * where the cell lines fall.
  */
 function withinCapture(ent: EntityStore, id: number, tid: number, reach: number, flat: boolean) {
+  if (!pairCellsMeet(ent, id, tid)) return false;
   const r = Math.trunc(reach * CAPTURE_WU_PER_METRE);
   let d = octagonalLength(
     Math.trunc((ent.posX[id] - ent.posX[tid]) * CAPTURE_WU_PER_METRE),
@@ -6403,6 +6540,14 @@ export function hash(state: SimState): number {
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.TURRET) continue;
     h = fnv1aU32(h, ent.pitch[id] & 0xffff);
+  }
+  // Appended at SIM_VERSION 107, every map: an arced round's owner point, what
+  // its range kill measures from (noteArcOwner).
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.PROJECTILE) continue;
+    if ((ent.ammoB[id] & ROUND_ARC) === 0) continue;
+    h = fnv1aF32(h, state.roundLaunch[id * 4]);
+    h = fnv1aF32(h, state.roundLaunch[id * 4 + 1]);
   }
   return h;
 }

@@ -165,17 +165,39 @@ describe("base structures", () => {
     expect(sim.ent.hp[back]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
   });
 
-  it("owned turrets never fight each other, even in mutual range", () => {
+  it("owned turrets of the two sides fight each other in mutual range (the original's search by team, U4)", () => {
     reset();
-    // Both rings authored 8 m apart mid-map — well inside a turret's 12 m.
+    // Both rings authored 8 m apart mid-map — well inside a turret's 12 m. A
+    // team turret searches by team (`target_type` 4) and nothing in that search
+    // looks at a type, so each finds the other.
     const sim = createSim(loadMapFromJson(warzone({ west: [[26, 30]], east: [[34, 30]] })), 42);
     const w = sim.baseTurretEntity[0];
     const e = sim.baseTurretEntity[1];
     for (let t = 0; t < 300; t++) step(sim, inputs);
-    expect(sim.ent.alive[w]).toBe(1);
-    expect(sim.ent.alive[e]).toBe(1);
-    expect(sim.ent.hp[w]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
-    expect(sim.ent.hp[e]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
+    expect(sim.ent.hp[w]).toBeLessThan(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
+    expect(sim.ent.hp[e]).toBeLessThan(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
+  });
+
+  it("owned turrets of one side never fight each other", () => {
+    reset();
+    const sim = createSim(
+      loadMapFromJson(
+        warzone({
+          west: [
+            [26, 30],
+            [30, 30],
+          ],
+          east: [],
+        }),
+      ),
+      42,
+    );
+    for (let t = 0; t < 300; t++) step(sim, inputs);
+    for (let id = 0; id < sim.ent.high; id++) {
+      if (sim.ent.alive[id] && sim.ent.archetype[id] === ARCHETYPE.TURRET) {
+        expect(sim.ent.hp[id]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
+      }
+    }
   });
 
   it("nothing at a base repairs a damaged avatar (the original has no pad)", () => {

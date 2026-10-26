@@ -336,9 +336,11 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // search that finds nothing drops the target, the box's axes the right way
   // round): 9 of 12 resolve, in 48-100 s; urban-jungle seeds 2 and 4 and
   // proving-ground seed 2 do not in the twelve minutes, bug-hunt seed 4 does.
+  // Re-measured at SIM_VERSION 107 (the guns pitch, the sustained weapons, the
+  // broad phase's capture cells, turrets against turrets): 10 of 12 resolve, in
+  // 70-113 s; proving-ground seed 2 does now (113 s).
   const UNRESOLVED: Record<string, number[]> = {
     [URBAN_JUNGLE_ID]: [2, 4],
-    [PROVING_GROUND_ID]: [2],
   };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {

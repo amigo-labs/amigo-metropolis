@@ -1365,6 +1365,26 @@ export const GRENADE_RADIUS = (93 << 4) / 8192;
  */
 export const PAIR_CELL = (1 << 15) / WU_PER_METRE;
 
+// The powered Electric Gun's jump (`player_arc` 0x00459bd0, RE M3-GL), called
+// by `player_fire_direct` 0x00459a89 with block B only and only when the line
+// reached its lock: from the lock to at most two other bodies, each one sent
+// block B's damage.
+/** At most two jumps: `mov [esp+0x14], 2` at 0x00459be7, `dec; js` at 0x00459cae. */
+export const ELECTRIC_ARC_HITS = 2;
+/**
+ * A jump's reach: a cube on the reference points, each axis `< 0x8000` wu
+ * (4 m), exclusive (0x00459c75, 0x00459c89, 0x00459c9e `jge`).
+ */
+export const ELECTRIC_ARC_AXIS_WU = 0x8000;
+
+/**
+ * Type 7's range kill (RE M3-KH, `round_orient` 0x00423b28): an arced round
+ * whose position is more than 0x58000 wu (44 m) from its owner's reference
+ * point at its launch, by `vec_distance_xz` (0x00458000), is killed silently
+ * (`cact_kill` 0x0043b170: no blast, no impact).
+ */
+export const ARC_ROUND_RANGE_WU = 0x58000;
+
 // Muzzle geometry, shared by the sim and by the renderer's muzzle flash. They
 // lived in sim.ts, where render/fx.ts could only keep a hand-copied duplicate
 // and a comment asking the next reader to keep the two in lockstep.

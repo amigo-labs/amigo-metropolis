@@ -56,7 +56,15 @@
 // twice, and the captain's tanks breach the player's gate at tick 3657 (122 s).
 // Since SIM_VERSION 104 the jets dwell in ENGAGE and CRUISE as the original's
 // (gun silent in CRUISE): the same ten tanks, the jet and the claim, the
-// player down once; no breach.
+// player down once; no breach. Since SIM_VERSION 107 a neutral turret is
+// captured only by a body the broad phase pairs with it (one 4 m cell apart at
+// most), and team turrets fire on the other side's turrets: the same ten tanks,
+// the jet and the claim; the player shoots the captain down (90 s), goes down
+// once (94 s), and the captain's tanks breach its gate at tick 3146 (105 s), so
+// the captain wins.
+// Integrated on top of SIM_VERSION 105-106 (the sustained weapons, the guns'
+// pitch): twenty tanks and the jet, no claim; the player shoots the captain
+// down twice and goes down once; no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -114,10 +122,10 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    expect(bought.get(ARCHETYPE.RUNNER)).toBe(10);
+    expect(bought.get(ARCHETYPE.RUNNER)).toBe(20);
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
-    expect(claims).toBe(1);
-    expect(wardenDeaths).toBe(0);
+    expect(claims).toBe(0);
+    expect(wardenDeaths).toBe(2);
     expect(avatarDeaths).toBe(1);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);

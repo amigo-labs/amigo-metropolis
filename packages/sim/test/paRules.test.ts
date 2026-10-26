@@ -17,6 +17,7 @@ import {
   ORIGINAL_CAPTURE_RANGE,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_TURRET_RESPAWN_TICKS,
+  PAIR_CELL,
   PICKUP_HEALTH,
   PICKUP_INVIS,
   PICKUP_INVIS_TICKS,
@@ -505,6 +506,42 @@ describe("capture on the imported arenas (fcop-fidelity.md R12)", () => {
     expect(ent.ownerId[tid]).toBe(-1);
     pressAt(reach - 0.05);
     expect(ent.ownerId[tid]).toBe(0);
+  });
+
+  it("asks only a pair the broad phase offers: Hk's 6.15 m is clipped by the 4 m cells", () => {
+    // `turret_op10` is operation 0x0a, asked only by the pair walk, which
+    // pairs a 4 m cell with its eight neighbours (`objects_pick_targets`
+    // 0x0044fe40). 6 m from the turret, inside Hk's 5.6 m + the mech's radius,
+    // the mech is two cells off on one side of the turret's cell line and one
+    // on the other.
+    const hk = getMapById("hollywood-keys");
+    const cell = PAIR_CELL;
+    const tryFrom = (dx: number): boolean => {
+      const state = createSim(hk, 1);
+      const ent = state.ent;
+      const tid = state.neutralTurretEntity[0];
+      const a = state.avatarId[0];
+      const press = createTickInputs();
+      for (const buttons of [0, BTN_ACTION]) {
+        ent.posX[a] = ent.posX[tid] + dx;
+        ent.posY[a] = ent.posY[tid];
+        ent.height[a] = ent.height[tid];
+        press.players[0].buttons = buttons;
+        step(state, press);
+      }
+      return ent.ownerId[tid] === 0;
+    };
+    const state = createSim(hk, 1);
+    const tx = state.ent.posX[state.neutralTurretEntity[0]];
+    const frac = tx - Math.floor(tx / cell) * cell;
+    expect(Math.abs(frac - 2)).toBeGreaterThan(0.01);
+    // West the mech is two cells off when the turret stands less than 2 m into
+    // its cell; east, when it stands more.
+    expect(tryFrom(-6)).toBe(frac >= 2);
+    expect(tryFrom(6)).toBe(frac <= 2);
+    // Inside one cell's reach both ways capture.
+    expect(tryFrom(-3.9)).toBe(true);
+    expect(tryFrom(3.9)).toBe(true);
   });
 });
 

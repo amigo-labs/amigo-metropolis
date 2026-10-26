@@ -397,8 +397,8 @@ export const GUNS: readonly WeaponDef[] = [
     0,
     "flame",
   ),
-  // Original Gun id 0x03. Block B arcs to two more targets in the original;
-  // the arc is not modelled (its reach was not read), so B is a harder link only.
+  // Original Gun id 0x03. Block B jumps on from its lock to two more bodies
+  // inside a 4 m cube (`player_arc` 0x00459bd0; sim.ts electricArcs).
   def(
     9,
     0,

@@ -97,9 +97,11 @@ export const UNIT_MODE_OUTPOST = 1;
  * Nearest live enemy of `id` within `range` (dense id order; ties keep the
  * lowest id). Neutral entities are never engaged by units, and projectiles
  * are never targets. Shared by unit movement AND the targeting system so
- * "halts the unit" and "gets shot" agree exactly. Turret callers pass
- * `skipStructures` — turrets only ever fire at mobile targets, never at
- * turrets or consoles — while units DO engage structures in their path.
+ * "halts the unit" and "gets shot" agree exactly. Turrets, units and the
+ * Dreadnought's guns all engage the other side's turrets (the original's
+ * search by team has no type test, fcop-fidelity.md U4); `skipStructures`
+ * leaves them out for a caller that wants mobile bodies only (none since
+ * SIM_VERSION 107).
  */
 export function nearestEnemyInRange(
   state: SimState,
