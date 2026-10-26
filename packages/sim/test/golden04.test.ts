@@ -54,6 +54,9 @@
 // captain down; no breach. Since SIM_VERSION 103 every aircraft turns as the
 // original's: the same ten tanks, the jet and the claim, the player down
 // twice, and the captain's tanks breach the player's gate at tick 3657 (122 s).
+// Since SIM_VERSION 104 the jets dwell in ENGAGE and CRUISE as the original's
+// (gun silent in CRUISE): the same ten tanks, the jet and the claim, the
+// player down once; no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -115,9 +118,9 @@ describe("golden-04-warden beats", () => {
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
     expect(claims).toBe(1);
     expect(wardenDeaths).toBe(0);
-    expect(avatarDeaths).toBe(2);
-    expect(breachTick).toBe(3657);
-    expect(breachTeam).toBe(1);
-    expect(sim.winner).toBe(1);
+    expect(avatarDeaths).toBe(1);
+    expect(breachTick).toBe(-1);
+    expect(breachTeam).toBe(-1);
+    expect(sim.winner).toBe(-1);
   });
 });

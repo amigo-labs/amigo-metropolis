@@ -1509,38 +1509,62 @@ export const ROUTE_CONE_COS = 0xf600 / 0x10000;
 export const GUARDIAN_AIRCRAFT_SPEED = 2048 / 512; // (raw << 12) / 300 >> 8 per tick at 300 Hz
 export const FORTRESS_AIRCRAFT_SPEED = 2457 / 512;
 /**
- * The PA aircraft's target search (`aircraft_step` 0x00420752): every 900 + rand
- * 0..511 engine units (3.0-4.7 s), the nearest enemy within the record's
- * target_detection_range raw / 512 m — the jet's 28672 = 56 m, the Flying
- * Fortress' 32358 = 63.2 m (fcop-fidelity.md I2, `rangeToCells`;
- * camera-and-movement.md "Aircraft").
+ * The PA aircraft's target search (`aircraft_step` 0x00420752): every 0x384 +
+ * rand 0..0x1ff engine units (3.0-4.7 s) it takes the nearest enemy within the
+ * record's target_detection_range raw / 512 m — the jet's 28672 = 56 m, the
+ * Flying Fortress' 32358 = 63.2 m (fcop-fidelity.md I2) — or none: each search
+ * replaces the target, so one that flew out of range is dropped (RE M3-OR).
  */
-export const AIRCRAFT_SEARCH_TICKS = 90;
-export const AIRCRAFT_SEARCH_JITTER = 52; // rand 0..511 engine units, in ticks
+export const AIRCRAFT_SEARCH_UNITS = 0x384;
+export const AIRCRAFT_SEARCH_JITTER = 0x200;
 export const GUARDIAN_DETECT_RANGE = 28672 / 512;
 export const FORTRESS_DETECT_RANGE = 32358 / 512;
 /**
- * The patrol leash: orbit_area raw / 1024 m half-extents about the aircraft's
- * anchor (I2, `orbitLeashToCells`): jet 24576 x 20480 = ±24 x ±20 m, Fortress
- * 30720 x 28672 = ±30 x ±28 m; destinations are drawn inside half of it. x is
- * orbit_area_x on the world x axis (the original tests its axes crosswise
- * against two record halfwords; for the jet the difference is 4 m).
+ * The patrol box about the aircraft's anchor (`aircraft_step` 0x004208d6): `|dx|
+ * >> 8 > patrol_x` or `|dz| >> 8 > patrol_z`, the two extents the record's
+ * +0x46 and +0x44 shifted down five (the construct 0x00420472..0x00420489), so
+ * a half-extent of raw / 1024 m: the jet ±20 m on x and ±24 m on z, the Flying
+ * Fortress ±28 x ±30 m (Mp, Conft, Slim, Joke, Ovmp's jets; RE M3-OR). Until
+ * SIM_VERSION 104 Metropolis crossed them (±24 x ±20, ±30 x ±28). Destinations
+ * are drawn inside half of it (`aircraft_pick_destination` 0x00420680). Kept
+ * from Mp for every arena: Hk's two base jet spawners carry the two swapped,
+ * its and Ovmp's Fortress 32763 / 31744 on both.
  */
-export const GUARDIAN_LEASH_X = 24576 / 1024;
-export const GUARDIAN_LEASH_Y = 20480 / 1024;
-export const FORTRESS_LEASH_X = 30720 / 1024;
-export const FORTRESS_LEASH_Y = 28672 / 1024;
-/** Off the leash it cruises 0x4b0 + rand 0..0x7ff engine units (4.0-10.8 s). */
-export const AIRCRAFT_CRUISE_TICKS = 120;
-export const AIRCRAFT_CRUISE_JITTER = 205;
+export const GUARDIAN_LEASH_X = 20480 / 1024;
+export const GUARDIAN_LEASH_Y = 24576 / 1024;
+export const FORTRESS_LEASH_X = 28672 / 1024;
+export const FORTRESS_LEASH_Y = 30720 / 1024;
 /**
- * Inside the standoff (record 512 << 4 wu = 1 m, the Sky Captain's; the PA
- * jets' is not in the extracted records) it reverses, for 150 + rand 0..127
- * engine units.
+ * The ENGAGE / CRUISE dwell (`aircraft_step` 0x004207eb; RE M3-OR): in either
+ * state the timer runs down by the delta, and when it goes below zero an
+ * ENGAGE draws a new destination and CRUISEs, a CRUISE ENGAGEs, each reloaded
+ * with its dwell plus `(rand & 0xff) * dwell >> 10` and kept as a halfword. The
+ * dwells are the record's +0x48 / +0x4a times 300 >> 8 (0x004203d3..0x00420400):
+ * the jet 5120 / 1280 raw = 6000 / 1500 engine units (20 s / 5 s), the Flying
+ * Fortress 25600 / 256 = 30000 / 300 (its ENGAGE reload overflows the halfword
+ * whenever the draw is 95 or more, and a wrapped, negative timer flips it back
+ * at once). A new aircraft starts in CRUISE on the CRUISE dwell (state byte 1).
+ */
+export const GUARDIAN_DWELL_ENGAGE = (5120 * 300) >> 8;
+export const GUARDIAN_DWELL_CRUISE = (1280 * 300) >> 8;
+export const FORTRESS_DWELL_ENGAGE = (25600 * 300) >> 8;
+export const FORTRESS_DWELL_CRUISE = (256 * 300) >> 8;
+export const AIRCRAFT_DWELL_JITTER = 0x100;
+/**
+ * In ENGAGE without a target it CRUISEs to its destination on `max(0x4b0,
+ * cruise dwell)` (0x00420d02); out of its box it draws a destination and
+ * CRUISEs for 0x4b0 + rand 0..0x7ff engine units (4.0-10.8 s, 0x004208d6).
+ */
+export const AIRCRAFT_CRUISE_DWELL_MIN = 0x4b0;
+export const AIRCRAFT_CRUISE_JITTER = 0x800;
+/**
+ * Inside the standoff (record 512 << 4 wu = 1 m, every PA aircraft's) it
+ * reverses, and keeps reversing while the timer it then loads, 0x96 + rand
+ * 0..0x7f engine units, runs (0x004209bc..0x00420a08).
  */
 export const AIRCRAFT_STANDOFF = 1;
-export const AIRCRAFT_REVERSE_TICKS = 15;
-export const AIRCRAFT_REVERSE_JITTER = 13;
+export const AIRCRAFT_REVERSE_UNITS = 0x96;
+export const AIRCRAFT_REVERSE_JITTER = 0x80;
 /**
  * How an aircraft turns (`aircraft_fly`, retail 0x00420977..0x00420b84; RE
  * M3-OR): there is no angular rate. Each frame the horizontal vector to the

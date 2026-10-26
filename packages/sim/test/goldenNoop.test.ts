@@ -162,8 +162,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // frame delta earlier); nothing in the tick reads them.
   // Re-frozen at SIM_VERSION 91: see golden-03 above.
   // Re-frozen at SIM_VERSION 99 and 100: see golden-02 above.
-  // Re-frozen at SIM_VERSION 102 and 103: see golden-07 below.
-  "golden-04-warden": { last: 2916245401, count: 4500 },
+  // Re-frozen at SIM_VERSION 102, 103 and 104: see golden-07 below.
+  "golden-04-warden": { last: 2682143026, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -206,7 +206,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 04 and 07 re-frozen at SIM_VERSION 102: the captain's missile and bomb fly
   // at the original's speeds, the bomb on its arc. At SIM_VERSION 103: every
   // aircraft turns as the original's, and the captain's turn rate is hashed.
-  "golden-07-pa": { last: 3650496478, count: 3600 },
+  // At SIM_VERSION 104: the jets dwell in ENGAGE and CRUISE as the original's.
+  "golden-07-pa": { last: 3920141027, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

@@ -1488,4 +1488,14 @@
 //     the pickup it is after (`sky_boost_turn_rate` 0x00421761 / 0x004217dd),
 //     and put back by a restore or a respawn; `captain.turn` is hashed. The
 //     Warden goldens play differently (04, 07).
-export const SIM_VERSION = 103;
+// v104: the PA jets and Flying Fortresses dwell as the original's aircraft
+//     (fcop-fidelity.md U4; RE M3-OR, `aircraft_step` 0x00420752..0x00420d3c):
+//     a search that finds nothing drops the target; ENGAGE and CRUISE each last
+//     their record's dwell (jet 20 s / 5 s, Fortress 100 s / 1 s, plus up to a
+//     quarter, kept as a halfword), an ENGAGE that runs out drawing a new
+//     destination; ENGAGE without a target CRUISEs at once; a new aircraft
+//     starts in CRUISE to a drawn destination; the gun fires in ENGAGE only;
+//     the standoff is the octagonal estimate; the box is ±20 x ±24 m (jet) and
+//     ±28 x ±30 m (Fortress), its axes the right way round (they were crossed).
+//     Timers in engine units. The Warden goldens play differently (04, 07).
+export const SIM_VERSION = 104;

@@ -37,7 +37,7 @@ import {
   TURRET_DEFENSE,
   TURRET_DUMMY,
 } from "../src/sim";
-import { UNIT_MODE_OUTPOST } from "../src/units";
+import { AIR_ANCHOR_MASK, UNIT_MODE_OUTPOST } from "../src/units";
 import {
   difficultyAmmo,
   EXTRA_WEAPONS_ALL,
@@ -253,7 +253,8 @@ describe("spawnSandbox", () => {
   it("passes the unit mode through to spawnUnit", () => {
     const sim = rangeSim();
     const id = spawnSandbox(sim, "guardian", 0, 30, 6, UNIT_MODE_OUTPOST);
-    expect(sim.ent.mode[id]).toBe(UNIT_MODE_OUTPOST);
+    // The anchor (mode's low bits; its top bit is the aircraft's state).
+    expect(sim.ent.mode[id] & AIR_ANCHOR_MASK).toBe(UNIT_MODE_OUTPOST);
   });
 
   it("spawns the hover avatar in hover mode", () => {

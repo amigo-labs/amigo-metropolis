@@ -23,6 +23,7 @@ import { segmentBlocked } from "../src/collision";
 import { createTickInputs } from "../src/inputs";
 import { getMapById, LA_CANTINA_ID } from "../src/map";
 import { createSim, type SimState, spawnUnit, step } from "../src/sim";
+import { aircraftEngaged } from "../src/units";
 
 const map = getMapById(LA_CANTINA_ID);
 const idle = createTickInputs();
@@ -111,21 +112,30 @@ describe("a PA jet is the original's aircraft", () => {
   }
 
   it("flies at a target inside its leash and circles it without ever stopping", () => {
-    // It flies its heading and bends it toward the target (steerHeading, 81-190
-    // degrees a second at 4 m/s: a turning circle 2.4-5.6 m across), reversing
-    // inside the 1 m standoff, so it loops about the target rather than sitting
-    // on it.
+    // It starts in CRUISE on its 5 s cruise dwell, then ENGAGEs (20 s, or until
+    // it leaves its box) and CRUISEs again (aircraft_step 0x004207eb). In
+    // ENGAGE it flies at the target, bending its heading toward it
+    // (steerHeading, 81-190 degrees a second at 4 m/s: a turning circle
+    // 2.4-5.6 m across) and reversing inside the 1 m standoff, so it loops
+    // about the target rather than sitting on it.
     const { state, ent, g, foe, park } = jetWith(10, 6);
     const ds: number[] = [];
-    for (let t = 0; t < 30 * 20; t++) {
+    let engagedAt = -1;
+    let cruisedAgain = false;
+    for (let t = 0; t < 30 * 60; t++) {
       park();
       step(state, idle);
       const v = Math.hypot(ent.velX[g], ent.velY[g]);
       expect(v).toBeCloseTo(GUARDIAN_AIRCRAFT_SPEED, 5);
-      if (t > 30 * 6) {
+      if (aircraftEngaged(state, g)) {
+        if (engagedAt < 0) engagedAt = t;
         ds.push(Math.hypot(ent.posX[g] - ent.posX[foe], ent.posY[g] - ent.posY[foe]));
+      } else if (engagedAt >= 0) {
+        cruisedAgain = true;
       }
     }
+    expect(engagedAt).toBe(150); // 1500 units of cruise dwell, 10 a tick: below 0 on the 151st
+    expect(cruisedAgain).toBe(true);
     expect(ent.ammoB[g] - 1).toBe(foe);
     ds.sort((a, b) => a - b);
     expect(ds[ds.length >> 1]).toBeLessThan(10);
