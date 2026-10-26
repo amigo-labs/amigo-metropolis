@@ -13,7 +13,7 @@
 // clock), with its footprint and the visibility quadtree of the cell it hangs
 // in (RE game/frame/draw.c 0x00452de0). Read from the mission bytes, the
 // outposts' scripts, pa_models.json
-// and the object and decal manifests at RE 27da322a.
+// and the object and decal manifests at RE 5b0c6ab8.
 
 /** When a placement stands: always, until its outpost is claimed, or from then on. */
 export type SceneryShow = "always" | "unclaimed" | "claimed";
@@ -32,6 +32,8 @@ export interface SceneryPlacement {
   readonly show: SceneryShow;
   /** The outpost (map.outposts index) that claims, recolours or spawns it; -1 none. */
   readonly outpost: number;
+  /** Flag 8: the registry keeps it at any distance (RE 0x0043b61b); absent, false. */
+  readonly keep?: true;
 }
 
 /** A looping morph over every frame of the model, one frame per `period` / 300 s. */
@@ -2593,6 +2595,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         yaw: 0,
         show: "unclaimed",
         outpost: 0,
+        keep: true,
       },
       {
         record: "Cact 168",
@@ -2603,6 +2606,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         yaw: 2048,
         show: "unclaimed",
         outpost: 1,
+        keep: true,
       },
       {
         record: "Cact 190",
@@ -2613,6 +2617,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         yaw: 2048,
         show: "unclaimed",
         outpost: 2,
+        keep: true,
       },
       {
         record: "Cact 212",
@@ -2623,6 +2628,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         yaw: 1024,
         show: "unclaimed",
         outpost: 3,
+        keep: true,
       },
       {
         record: "Cact 245",
@@ -5954,6 +5960,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         yaw: 0,
         show: "unclaimed",
         outpost: 0,
+        keep: true,
       },
       {
         record: "Cact 168",
@@ -5964,6 +5971,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         yaw: 2048,
         show: "unclaimed",
         outpost: 1,
+        keep: true,
       },
       {
         record: "Cact 190",
@@ -5974,6 +5982,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         yaw: 2048,
         show: "unclaimed",
         outpost: 2,
+        keep: true,
       },
       {
         record: "Cact 212",
@@ -5984,6 +5993,7 @@ export const SCENERY_PLACEMENTS: Readonly<Record<string, ArenaScenery>> = {
         yaw: 1024,
         show: "unclaimed",
         outpost: 3,
+        keep: true,
       },
       {
         record: "Cact 245",

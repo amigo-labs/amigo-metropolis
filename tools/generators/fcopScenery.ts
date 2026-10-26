@@ -99,6 +99,8 @@ interface PropRecord {
   readonly yaw: number;
   readonly heightOffset: number;
   readonly group: number;
+  /** The record's flags dword (payload +16), the instance's +0x24 at load. */
+  readonly actorFlags: number;
   /** terrain_height_at(pos, remapped layer), world units. */
   readonly terrain: number;
 }
@@ -264,6 +266,7 @@ for mission in sys.argv[2:]:
             "res": r["type"], "id": r["id"], "cobj": cobjs[0] if cobjs else -1, "pos": pos,
             "layer": sel, "flags": pay[0x21], "yaw": struct.unpack_from("<h", pay, 0x22)[0],
             "heightOffset": struct.unpack_from("<i", pay, 0x24)[0], "group": pay[25],
+            "actorFlags": struct.unpack_from("<I", pay, 16)[0],
             "terrain": terrain_height_at(world, pos, layer),
         })
     # Every cell's visibility quadtree: its Ctil section's 21 (radius, height)
@@ -497,6 +500,8 @@ interface Placement {
   yaw: number;
   show: Show;
   outpost: number;
+  /** Flag 8 (never culled) from the record's flags, which a type-11 keeps. */
+  keep: boolean;
 }
 
 interface TurretBase {
@@ -824,6 +829,10 @@ function arenaTable(arena: FcopArena, own: MissionRecords, reRepo: string): Aren
       yaw: r.yaw,
       show,
       outpost,
+      // cact_base_construct copies the record's flags; a type-11 actor's
+      // construct leaves them alone (RE turret_part.c 0x0041cf9a), so bit 3 --
+      // never culled by the registry (0x0043b61b, RE M3-OP) -- is the record's.
+      keep: (r.actorFlags & 8) !== 0,
     });
   }
   placements.sort(byRecord);
@@ -884,6 +893,8 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     "  readonly show: SceneryShow;",
     "  /** The outpost (map.outposts index) that claims, recolours or spawns it; -1 none. */",
     "  readonly outpost: number;",
+    "  /** Flag 8: the registry keeps it at any distance (RE 0x0043b61b); absent, false. */",
+    "  readonly keep?: true;",
     "}",
     "",
     "/** A looping morph over every frame of the model, one frame per `period` / 300 s. */",
@@ -1027,7 +1038,7 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
     lines.push("    placements: [");
     for (const p of t.placements) {
       lines.push(
-        `      { record: ${JSON.stringify(p.record)}, cobj: ${p.cobj}, x: ${p.x}, y: ${p.y}, h: ${p.h}, yaw: ${p.yaw}, show: ${JSON.stringify(p.show)}, outpost: ${p.outpost} },`,
+        `      { record: ${JSON.stringify(p.record)}, cobj: ${p.cobj}, x: ${p.x}, y: ${p.y}, h: ${p.h}, yaw: ${p.yaw}, show: ${JSON.stringify(p.show)}, outpost: ${p.outpost}${p.keep ? ", keep: true" : ""} },`,
       );
     }
     lines.push("    ],");
