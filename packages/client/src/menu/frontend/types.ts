@@ -116,3 +116,20 @@ export interface FeUiSound {
   readonly playsWhen: readonly string[];
   readonly src: readonly string[];
 }
+
+/** One of the original's movies, transcoded for the browser (gen:movies). */
+export interface FeMovie {
+  /** The file under FE_MOVIE_BASE. */
+  readonly file: string;
+  /** The original's picture size and rate; the player stretches it to its rectangle. */
+  readonly width: number;
+  readonly height: number;
+  readonly fps: number;
+  readonly seconds: number;
+  readonly bytes: number;
+  readonly sha256: string;
+  /** The MIME type with its codecs, for canPlayType. */
+  readonly type: string;
+  /** The original it was made from (the RE's fixtures/movies/manifest.json). */
+  readonly source: { readonly name: string; readonly bytes: number; readonly sha256: string };
+}
