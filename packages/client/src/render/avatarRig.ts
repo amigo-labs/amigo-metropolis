@@ -281,15 +281,20 @@ export function placeX1(
     a[o + 3] = aimPitch;
     pose.needsUpdate = true;
   }
+  // The masks change only at a transform, so nothing here may wait behind an
+  // `if` for one: an operation the walker never reaches has no type feedback,
+  // and the frame loop, optimised before the first transform, deopts there and
+  // comes back allocating (x1Alloc.test.ts). Written every call, uploaded only
+  // on a change (`needsUpdate = false` bumps no version).
   const layers = core.mesh.geometry.getAttribute(X1_LAYERS_ATTR) as THREE.InstancedBufferAttribute;
   const l = layers.array as Float32Array;
+  const i = slot * 2;
   const legsMask = X1_LEGS_LAYER_MASKS[form];
   const cockpitMask = X1_COCKPIT_LAYER_MASKS[form];
-  if (l[slot * 2] !== legsMask || l[slot * 2 + 1] !== cockpitMask) {
-    l[slot * 2] = legsMask;
-    l[slot * 2 + 1] = cockpitMask;
-    layers.needsUpdate = true;
-  }
+  const changed = l[i] !== legsMask || l[i + 1] !== cockpitMask;
+  l[i] = legsMask;
+  l[i + 1] = cockpitMask;
+  layers.needsUpdate = changed;
   if (core.sideCache[slot] !== side || core.cloakCache[slot] !== cloakV) {
     core.sideCache[slot] = side;
     core.cloakCache[slot] = cloakV;
