@@ -7,7 +7,8 @@
 > fcop-reverse-engineering#86 and #87, SIM_VERSION 104): every item is done,
 > answered from the binary, or names what still blocks it — 25 (the owner's look)
 > and 29 (the RE CI's runner) are the owner's; a few remainders are noted in
-> 12, 13, 13a, 22 and 23. Collected 2026-10-19 after PR #68 (Metropolis, SIM_VERSION 91) and
+> 12, 13, 13a, 22 and 23. What still keeps Metropolis apart from the original is
+> ordered in `fidelity-gaps-2026-10.md`. Collected 2026-10-19 after PR #68 (Metropolis, SIM_VERSION 91) and
 > amigo-labs/fcop-reverse-engineering#84 were merged. Each item names where it is
 > recorded: the ledger row in `docs/specs/fcop-fidelity.md`, a `PLAN.md` box, or
 > both. In group A every item is marked done, deferred with its reason, or moved
