@@ -405,11 +405,13 @@ function assetOf(file: string): Promise<TurnedAsset> {
     pending = loadUnitAsset(file).then((asset) => {
       // Models are authored +Z forward (assets.md §4); the sim/greybox frame
       // is +X forward, so bake the quarter turn into the geometry once — and
-      // into a morph's deltas, which BufferGeometry.rotateY leaves alone, and
+      // into a morph's deltas (its normals' too: render/fcopModel.ts lights
+      // each frame by its own), which BufferGeometry.rotateY leaves alone, and
       // the facers' points (the Sky Captain's line facers, render/facers.ts).
       asset.geometry.rotateY(Math.PI / 2);
       const turn = new THREE.Matrix4().makeRotationY(Math.PI / 2);
       for (const delta of asset.geometry.morphAttributes.position ?? []) delta.applyMatrix4(turn);
+      for (const delta of asset.geometry.morphAttributes.normal ?? []) delta.applyMatrix4(turn);
       return { ...asset, facers: parseFacers(asset.extras, true) };
     });
     // A failed file may be retried on the next arena build.

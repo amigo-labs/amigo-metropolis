@@ -293,7 +293,12 @@ forever as a debug render mode (`?render=greybox`).
   rebuilds to its committed file. `bun run gen:units --check` builds every model
   in memory and fails on any difference.
 - Max ~1500 tris per standard unit, ~5000 for Juggernaut/Fortress/Avatar.
-- Materials: single atlas texture, `flatShading: true`, no PBR maps.
+- Materials: single atlas texture, no PBR maps. An FCOP model's faces carry the
+  original's lighting inputs per corner (`_FCOP_LIGHT`: the material and its 3DTL
+  colour bytes; NORMAL the normal it is lit against; a kept morph's NORMAL
+  targets), and `render/fcopModel.ts` shades them as the original does, unlit
+  by three's lights (`fcop-fidelity.md` G13). Anything without the attribute
+  keeps `flatShading: true` under the scene's lights.
 
 ## 5. Audio
 

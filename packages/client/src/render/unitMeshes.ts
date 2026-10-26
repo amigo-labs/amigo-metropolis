@@ -176,9 +176,11 @@ function swapBucketMesh(
       // is +X forward, so bake the quarter turn into the geometry once — and
       // into the facers (the rockets' glows are stars: render/facers.ts).
       geometry.rotateY(Math.PI / 2);
-      // A morph's deltas too, which BufferGeometry.rotateY leaves alone.
+      // A morph's deltas too, its normals' with them, which
+      // BufferGeometry.rotateY leaves alone.
       const turn = new THREE.Matrix4().makeRotationY(Math.PI / 2);
       for (const delta of geometry.morphAttributes.position ?? []) delta.applyMatrix4(turn);
+      for (const delta of geometry.morphAttributes.normal ?? []) delta.applyMatrix4(turn);
       registerFacers(bucket.mesh, parseFacers(extras, true), map);
       bucket.mesh.geometry.dispose();
       bucket.mesh.geometry = geometry;
