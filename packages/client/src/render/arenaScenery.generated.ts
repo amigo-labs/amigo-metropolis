@@ -13,7 +13,7 @@
 // clock), with its footprint and the visibility quadtree of the cell it hangs
 // in (RE game/frame/draw.c 0x00452de0). Read from the mission bytes, the
 // outposts' scripts, pa_models.json
-// and the object and decal manifests at RE ce4203f4.
+// and the object and decal manifests at RE 27da322a.
 
 /** When a placement stands: always, until its outpost is claimed, or from then on. */
 export type SceneryShow = "always" | "unclaimed" | "claimed";
