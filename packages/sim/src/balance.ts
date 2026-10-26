@@ -1092,17 +1092,29 @@ export const HELLFIRE_SPLIT_FAN = 0.35;
  */
 export const MORTAR_FRAGMENT_SPREAD = 1.5;
 
-// Pop-Up Mines: the record gives the trigger reach (w10 1024 = 2 m, plus the
-// intruder's own radius), the 1.0 s fuse once sprung, and the blast. The record's
-// 5.0 s lifetime field is not used: whether an untriggered mine goes off after
-// 5 s or waits was not established (player-and-weapons.md §9.2). So a mine keeps
-// Metropolis' 30 s silent despawn and its arming delay, both ours.
-/** Live lifetime once placed; despawns without a blast if nobody trips it. Ours. */
-export const SPECIAL_MINE_TTL_TICKS = 900; // 30 s
-/** Ticks after placing before an enemy can spring the fuse (owner walk-off). Ours. */
-export const SPECIAL_MINE_ARM_TICKS = 15; // 0.5 s
-/** Sprung -> blast: 1.0 s (player-weapons.json `mine.sprung_fuse_s`). */
-export const SPECIAL_MINE_FUSE_TICKS = 30;
+// Pop-Up Mines: the dropped round (`cact_round_spawn_dropped` 0x0044d6a0), the
+// bouncing round's class (`type15.c`) with a fuse (RE M3-OP). It leaves the
+// muzzle with no speed, falls, bounces like the grenade and goes off where it
+// comes to rest (0x00424606: the tick that settles it expires it) -- an
+// unsprung mine never waits, and its 5.0 s lifetime (the record's +0x18, 1503
+// units) is not reached on open ground. An enemy within the record's reach
+// (w10 1024 = 2 m) plus its own radius springs it first: flung down, it pops
+// back up off the ground and goes off when its new lifetime runs out.
+/** Its gravity, world units a second²: the spawner's constant, not the record's (0x0044d746). */
+export const MINE_GRAVITY = 0x10000;
+/**
+ * Its ground is the surface plus its model's `radius_68`: the halfword at +12
+ * of the mine's 3DBB box 0, 130, << 4 world units -- both blocks' models on
+ * all six arenas (Mp 50/51, Conft 51/52, Hk 53/54, Joke 55/56, Ovmp 50/51,
+ * Slim 56/57).
+ */
+export const MINE_RADIUS = (130 << 4) / 8192;
+/** Sprung (`bounce_spring`, 0x004244b9..0x00424505): 300 units to live ... */
+export const MINE_SPRING_UNITS = 300;
+/** ... flung at -0x8000 world units a second, vertically ... */
+export const MINE_SPRING_VELOCITY = -0x8000;
+/** ... under a gravity of 0x8000 world units a second². */
+export const MINE_SPRING_GRAVITY = 0x8000;
 
 // --- The five extra weapons (SimOptions.extraWeapons, SIM_VERSION 90) --------
 // Their records are WEAPON_RECORDS 0x05, 0x14, 0x15, 0x21 and 0x24; these are the

@@ -1458,4 +1458,16 @@
 //     Wall lattices are unchanged. Every golden on la-cantina and urban-jungle
 //     (02, 03, 04, 05, 07) diverges at tick 0, where the ring turrets on their
 //     plinths spawn at their new height; 01 and 06 hold.
-export const SIM_VERSION = 100;
+// v101: the Pop-Up Mine is the original's dropped round (fcop-fidelity.md W1,
+//     E20; RE M3-OP: round_spawn.c 0x0044d6a0, type15.c 0x00424370). It leaves
+//     the muzzle with no speed under the spawner's fixed gravity 0x10000 (not
+//     the record's), falls and bounces as the grenade does, and the tick that
+//     brings it to rest blows it (0x00424606) -- about 1.4 s after the drop
+//     from MUZZLE_HEIGHT on flat ground; the record's 5.01 s lifetime, a wall
+//     and a body's contact blow it too. An enemy within its reach (2 m) plus
+//     its radius springs it first: 300 units to live, flung down at -0x8000
+//     wu/s under 0x8000, so it pops back up and goes off in the air. Gone:
+//     Metropolis' 0.5 s arming delay, its 30 s silent despawn and its 1 s
+//     sprung fuse. No golden drops a mine: every hash holds, re-recorded for
+//     the header.
+export const SIM_VERSION = 101;

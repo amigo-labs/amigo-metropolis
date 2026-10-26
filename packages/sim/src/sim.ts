@@ -79,6 +79,11 @@ import {
   MATCH_OUTRO_TICKS,
   MAX_ENTITIES,
   MAX_PLAYERS,
+  MINE_GRAVITY,
+  MINE_RADIUS,
+  MINE_SPRING_GRAVITY,
+  MINE_SPRING_UNITS,
+  MINE_SPRING_VELOCITY,
   MISSILE_ARRIVAL_WU,
   MISSILE_FUSE_RENEW,
   MISSILE_FUSE_UNITS,
@@ -132,9 +137,6 @@ import {
   SKY_MISSILE_DAMAGE,
   SKY_MISSILE_FLIGHT,
   SKY_PICKUP_TOUCH_WU,
-  SPECIAL_MINE_ARM_TICKS,
-  SPECIAL_MINE_FUSE_TICKS,
-  SPECIAL_MINE_TTL_TICKS,
   STARTING_POINTS,
   SURFACE_REACH,
   skyRespawnTicks,
@@ -3011,11 +3013,11 @@ const ROUND_FALLOFF = 256;
  * A projectile's fields (the PROJECTILE archetype reuses the store):
  *   mode       payload kind (renderer + explosion kind)
  *   velX/velY  horizontal velocity, m/s
- *   timerA     ticks left before it expires
- *   timerB     vertical velocity, m/s (a mine: its arming delay, ticks)
- *   cooldownA  current speed, m/s (a mine: its sprung fuse, ticks; 0 = not sprung)
+ *   timerA     ticks left before it expires (a bouncing round or a mine: engine units)
+ *   timerB     vertical velocity, m/s (a bouncing round or a mine: world units a second)
+ *   cooldownA  current speed, m/s (a mine: 1 once sprung)
  *   cooldownB  flight distance left, m (0 = no limit)
- *   cooldownC  homing target id, -1 none (a mine: its trigger radius)
+ *   cooldownC  homing target id, -1 none (a mine: its trigger radius, m; 0 once sprung)
  *   aimX       top speed, m/s (arced: gravity, m/s²)
  *   aimY       acceleration, m/s²
  *   ammoA      damage; aux: blast radius, m; ammoB: ROUND_* bits
@@ -3222,10 +3224,13 @@ function leadAimFrom(
 }
 
 /**
- * Drop a Pop-Up Mine at the shooter's feet (the original drops it from the
- * muzzle and lets it fall; Metropolis places it). Live lifetime and arming delay
- * are Metropolis' own (balance.ts SPECIAL_MINE_*); the trigger reach, fuse,
- * damage and blast are the record's.
+ * Drop a Pop-Up Mine (`cact_round_spawn_dropped` 0x0044d6a0, RE M3-OP): the
+ * bouncing round's class, left at the muzzle with no velocity under the
+ * spawner's fixed gravity (MINE_GRAVITY, 0x0044d746), its record's lifetime
+ * (+0x18, the engine units `fuseUnits` holds: 1503) and its record's reach as
+ * the fuse (+0x10, 2 m). It falls and bounces as the grenade does and goes off
+ * where it settles (mineTick); there is no arming delay -- its owner's side
+ * never springs it.
  */
 function spawnMine(
   state: SimState,
@@ -3237,16 +3242,19 @@ function spawnMine(
   const ent = state.ent;
   const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
   if (id < 0) return false;
-  ent.posX[id] = ent.posX[shooter];
-  ent.posY[id] = ent.posY[shooter];
-  ent.height[id] = ent.height[shooter] + 0.25;
+  ent.posX[id] = ent.posX[shooter] + ent.aimX[shooter] * MUZZLE_OFFSET;
+  ent.posY[id] = ent.posY[shooter] + ent.aimY[shooter] * MUZZLE_OFFSET;
+  ent.height[id] = ent.height[shooter] + MUZZLE_HEIGHT;
   ent.yaw[id] = ent.yaw[shooter];
   ent.hp[id] = 1;
   ent.mode[id] = kind;
-  ent.timerA[id] = SPECIAL_MINE_TTL_TICKS; // live lifetime
-  ent.timerB[id] = SPECIAL_MINE_ARM_TICKS; // arming delay
+  ent.velX[id] = 0;
+  ent.velY[id] = 0;
+  ent.timerB[id] = 0; // vertical velocity, world units a second
+  ent.aimX[id] = MINE_GRAVITY;
+  ent.timerA[id] = blk.fuseUnits; // its lifetime, engine units
   ent.cooldownA[id] = 0; // not sprung
-  ent.cooldownC[id] = blk.reach; // trigger radius
+  ent.cooldownC[id] = blk.reach; // the fuse's reach, m
   ent.ammoA[id] = blk.damage;
   ent.aux[id] = blk.blast;
   ent.ammoB[id] = ROUND_RIVAL; // the mech's own, for the down's credit
@@ -4080,7 +4088,7 @@ function nearestEnemyAvatar(state: SimState, id: number, range: number): number 
 
 /**
  * Projectiles: fly, home, expire, burst at the apex, explode on contact or terrain.
- * Mines arm, wait, spring and blow.
+ * Mines fall, bounce, and blow where they settle unless an enemy springs them.
  */
 
 // --- The five extra weapons (SimOptions.extraWeapons, SIM_VERSION 90) --------
@@ -4853,14 +4861,14 @@ function spawnBounce(
  * on a collision with a body of another side (operation 0x0b), and on the
  * owner's second press (its lifetime cleared).
  */
-function bounceTick(state: SimState, id: number): void {
+function bounceTick(state: SimState, id: number, radius = GRENADE_RADIUS): void {
   const ent = state.ent;
   const map = state.map;
   let vx = ent.velX[id];
   let vy = ent.velY[id];
   let vh = ent.timerB[id];
   // The surface plus the round's model radius (0x00424582).
-  const ground = sampleHeight(map, ent.posX[id], ent.posY[id]) + GRENADE_RADIUS;
+  const ground = sampleHeight(map, ent.posX[id], ent.posY[id]) + radius;
   if (ent.height[id] > ground) {
     const fall = Math.trunc((ent.aimX[id] * WEAPON_UNITS_PER_TICK) / GRENADE_TIME_DIVISOR);
     if (vh > 0 && fall > vh) vh = 0;
@@ -4921,6 +4929,48 @@ function bounceTick(state: SimState, id: number): void {
   if (boom) explode(state, id);
 }
 
+/**
+ * The Pop-Up Mine's tick: `cact_bounce_advance` (0x00424370) with its fuse, run
+ * before anything else (0x004243a1): while it has a reach, an enemy body within
+ * that reach plus its own radius springs it (`bounce_spring` 0x004244b9) -- its
+ * lifetime becomes 300 units, its reach 0, its velocity -0x8000 world units a
+ * second straight down and its gravity 0x8000 -- and it raises nothing (the
+ * spring's effect start refuses a direct round, RE M3-OK). Then the bouncing
+ * round's fall, bounce and rest (bounceTick, the mine's own model radius): the
+ * tick that brings it to rest blows it (0x00424606), as its lifetime, a wall
+ * or a body's contact do. Kept from Metropolis: the fuse measures the ground
+ * plane from the body's position, where the original measures in three axes
+ * from its reference point with its horizontal half-extent.
+ */
+function mineTick(state: SimState, id: number): void {
+  const ent = state.ent;
+  const reach = ent.cooldownC[id];
+  if (reach > 0) {
+    const mx = ent.posX[id];
+    const my = ent.posY[id];
+    const team = ent.team[id];
+    for (let t = 0; t < ent.high; t++) {
+      if (!ent.alive[t] || t === id) continue;
+      if (ent.team[t] === team) continue;
+      if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
+      const r = reach + entityRadius(state, t);
+      const dx = ent.posX[t] - mx;
+      const dy = ent.posY[t] - my;
+      if (dx * dx + dy * dy <= r * r) {
+        ent.timerA[id] = MINE_SPRING_UNITS;
+        ent.cooldownA[id] = 1;
+        ent.cooldownC[id] = 0;
+        ent.velX[id] = 0;
+        ent.velY[id] = 0;
+        ent.timerB[id] = MINE_SPRING_VELOCITY;
+        ent.aimX[id] = MINE_SPRING_GRAVITY;
+        break;
+      }
+    }
+  }
+  bounceTick(state, id, MINE_RADIUS);
+}
+
 /** Whether `id` is still `player`'s kept round (the original checks its serial). */
 function keptAlive(state: SimState, player: number, id: number): boolean {
   const ent = state.ent;
@@ -4955,43 +5005,9 @@ function systemProjectiles(state: SimState): void {
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.PROJECTILE) continue;
 
-    // Pop-Up Mines: stationary proximity charges. Ground/wall contact must NOT
-    // detonate them (they sit on the floor by design). The arming delay in timerB
-    // lets the placer walk clear; a silent despawn on TTL keeps a forgotten mine
-    // from lingering forever (both Metropolis' own). An enemy within the record's
-    // trigger reach plus its own radius springs it, and it goes off a second
-    // later wherever that enemy has gone (fcop-re/player-and-weapons.md §7).
+    // Pop-Up Mines: the dropped bouncing round (mineTick).
     if (ent.mode[id] === PROJ_MINE) {
-      if (ent.cooldownA[id] > 0) {
-        ent.cooldownA[id] -= 1;
-        if (ent.cooldownA[id] <= 0) explode(state, id);
-        continue;
-      }
-      ent.timerA[id] -= 1;
-      if (ent.timerA[id] <= 0) {
-        despawn(ent, id);
-        continue;
-      }
-      if (ent.timerB[id] > 0) {
-        ent.timerB[id] -= 1;
-        continue;
-      }
-      const mx = ent.posX[id];
-      const my = ent.posY[id];
-      const team = ent.team[id];
-      const reach = ent.cooldownC[id];
-      for (let t = 0; t < ent.high; t++) {
-        if (!ent.alive[t] || t === id) continue;
-        if (ent.team[t] === team) continue;
-        if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-        const r = reach + entityRadius(state, t);
-        const dx = ent.posX[t] - mx;
-        const dy = ent.posY[t] - my;
-        if (dx * dx + dy * dy <= r * r) {
-          ent.cooldownA[id] = SPECIAL_MINE_FUSE_TICKS;
-          break;
-        }
-      }
+      mineTick(state, id);
       continue;
     }
 

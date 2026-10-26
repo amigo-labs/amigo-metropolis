@@ -549,7 +549,7 @@ slot's power-up pickup. HARD ammo shown; ×1.25 on NORMAL.
 | 0x15 | K-9 Drone | ground-hugging homing missile (health 2×dmg), 150 dmg, 1 per 3.0 s, 25, 0.6 → 4.7 m/s, 16 m | burst of 3, 200 dmg, 4.0 s, 18 |
 | 0x20 | Mortar Launcher | arced shell, 200 dmg, 3.2 m blast, 1 per 2.0 s, 25, launch 7.6 m/s, g = 6.0 m/s², max reach about 9.7 m | bursts into 4 at apex, 100 dmg each, 4 m, 1/1.0 s, 10 |
 | 0x21 | Plasma Flare | arced, kept round (press-to-fire, 2nd press detonates), 250 dmg, 6 m blast, 1 per 2.0 s, 30, 7.6 m/s, g = 5.2, reach about 11.2 m | bursts into 4, 200 dmg, 6 m, 1/3.0 s, 15 |
-| 0x22 | Pop-Up Mines | dropped mine, 600 dmg, **5.6 m blast**, 1 per 1.0 s, 30. Proximity trigger 2 m + target half-extent springs it, then explodes 1.0 s later; fuse/lifetime field 5.0 s (see "could not establish") | 1000 dmg, 8 m blast, 15 |
+| 0x22 | Pop-Up Mines | dropped mine, 600 dmg, **5.6 m blast**, 1 per 1.0 s, 30. Falls from the muzzle under a fixed 8 m/s² (the spawner's, not the record's), bounces, and explodes the tick it comes to rest (RE M3-OP). A proximity trigger of 2 m + target half-extent springs it first: flung down, it pops up and explodes 1.0 s later. Lifetime field 5.0 s, not reached on open ground | 1000 dmg, 8 m blast, 15 |
 | 0x23 | Shockwave Generator | self-centred sustained effect, 300 dmg, 6 m, 1 per 3.0 s, 20 | 300 dmg, 8 m, 1/1.0 s, 10 |
 | 0x24 | Grenade Launcher | ballistic-solved bouncing grenade (bounces 5/8 vertical, 7/8 horizontal), kept round, 400 dmg, 4.2 m blast, 1/1.0 s, 30, 7.6 m/s, g = 8.0 m/s², reach about 7.3 m, fuse 3.0-4.5 s random | burst of 2, 600 dmg, 16 |
 
@@ -636,11 +636,11 @@ not done here. Reports: `scratchpad/diffexec-*.json`.
    Concussion Beam, Shockwave, and Riot Shield contact. I have their per-hit
    damage and radius, but not the node/tick rate or lifetime in seconds
    (`sustain*.c` not traced to SI).
-2. **Mine lifetime semantics.** The dropped round's lifetime field gives 5.0 s,
-   but type 0x0f also "comes to rest and expires the same frame" when slow.
-   How a resting armed mine survives (whether a trigger radius suppresses the
-   rest-expiry) was not traced. So I cannot say whether an untriggered mine
-   explodes after 5 s or waits.
+2. ~~**Mine lifetime semantics.**~~ **Settled (RE M3-OP):** nothing suppresses
+   the rest-expiry. The tick sets health 0xffff the moment the round settles
+   (0x00424606), whatever its fuse radius, and the expiry pass blows it there:
+   an untriggered mine explodes where it comes to rest, a second or so after
+   the drop, and never waits for its 5.0 s lifetime.
 3. **Missile homing turn rate** (`missile_home`) and the HVR lead details.
    Speeds and accelerations are given; the steering rate is not.
 4. **The six-entry type-99 table.** Retail's loader keeps only the first 6
