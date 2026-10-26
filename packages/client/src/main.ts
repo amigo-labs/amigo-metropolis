@@ -956,6 +956,7 @@ const shatterModel = {
 const shatterUv = new Float32Array(2);
 const fx = createFx(scene, sounds.effects, {
   poses: fxPoses,
+  launchRecord: (payload) => sounds.launchRecord(payload),
   ground: (x, z) => sampleHeight(map, x, z),
   shatter: (archetype, team) => {
     const b = bucketFor(greybox, archetype, 0, 0);

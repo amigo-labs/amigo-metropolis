@@ -27,6 +27,7 @@
 import {
   arcPitchOf,
   arcYawOf,
+  EV_GUN_ARC,
   EV_SHIELD_ARC,
   EV_SHIELD_ARC_STEP,
   EV_SHOT,
@@ -93,6 +94,11 @@ export interface FxOptions {
   readonly viewportHeight?: () => number;
   /** The Riot Shield's radius around avatar entity `avatar`, metres (0 down). */
   readonly shieldRadius?: (avatar: number) => number;
+  /**
+   * The bank-1 record a shot's block names at +0x1b (EV_SHOT's payload): the
+   * Electric Gun's link, which its jump draws with (audio/cues.ts launchRecord).
+   */
+  readonly launchRecord?: (payload: number) => FxRecord | undefined;
 }
 
 export interface ShotFx {
@@ -177,6 +183,40 @@ const SHIELD_ARC_LINK: Fx88 = {
   endHalfWidth: 0x10,
 };
 const shieldAt = makeRaiseAt();
+
+/**
+ * The Electric Gun's jump with no type-88 record (EV_GUN_ARC, `player_arc`
+ * 0x00459d2a..0x00459d76): 6 segments, one strand, (0x7f, 0x7f, 0xff), fade
+ * 0x4b0, amplitude 0x7fff; both ends on the actors with a 0x30 scatter and no
+ * width.
+ */
+const GUN_ARC_DEFAULT: Fx88 = {
+  ...SHIELD_LINK,
+  scatter: 0x30,
+  segments: 6,
+  fadeTicks: 0x4b0,
+  amplitude: 0x7fff,
+  endHalfWidth: 0,
+};
+
+/**
+ * The jump drawn with the gun's record (0x00459cbf..0x00459d28): its columns,
+ * its segments halved (`sar edx, 1`), the record's +0x48 as both ends' scatter
+ * rather than their width. A new object only when the record changes (once a
+ * match), since a live link keeps the record it was laid with.
+ */
+function gunArcOf(rec: Fx88): Fx88 {
+  return {
+    ...rec,
+    next: 0,
+    repeats: -1,
+    life: 0,
+    offset: 0,
+    segments: rec.segments >> 1,
+    scatter: rec.endHalfWidth,
+    endHalfWidth: 0,
+  };
+}
 const arcAt = new Float32Array(3);
 /** Radians per unit of the original's sixteen-bit angles (4096 a turn). */
 const ARC_UNIT = (2 * Math.PI) / 4096;
@@ -217,6 +257,9 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
   const view = new FxView();
   const poses = options.poses ?? null;
   const shieldRadius = options.shieldRadius ?? (() => 0);
+  const launchRecord = options.launchRecord ?? (() => undefined);
+  let gunArcFrom: FxRecord | undefined;
+  let gunArc: Fx88 = GUN_ARC_DEFAULT;
   if (options.ground) {
     nodes.groundAt = options.ground;
     ribbons.groundAt = options.ground;
@@ -297,6 +340,36 @@ export function createFx(scene: THREE.Scene, chain: EffectChain, options: FxOpti
           shieldAt.endY = arcAt[1];
           shieldAt.endZ = arcAt[2];
           ribbons.link(SHIELD_ARC_LINK, shieldAt);
+        }
+        continue;
+      }
+      if (data[o] === EV_GUN_ARC && poses) {
+        const a = data[o + 1];
+        const t = data[o + 2];
+        if (
+          a >= 0 &&
+          a < MAX_ENTITIES &&
+          t >= 0 &&
+          t < MAX_ENTITIES &&
+          poses.live[a] &&
+          poses.live[t]
+        ) {
+          const rec = launchRecord(data[o + 3]);
+          if (rec !== gunArcFrom) {
+            gunArcFrom = rec;
+            gunArc = rec && rec.type === 88 ? gunArcOf(rec) : GUN_ARC_DEFAULT;
+          }
+          // Both ends at point -1, the actor's reference point.
+          const fa = a * POSE_STRIDE;
+          const ft = t * POSE_STRIDE;
+          shieldAt.x = poses.table[fa];
+          shieldAt.y = poses.table[fa + 1] + MUZZLE_HEIGHT;
+          shieldAt.z = poses.table[fa + 2];
+          shieldAt.yaw = poses.table[fa + 3];
+          shieldAt.endX = poses.table[ft];
+          shieldAt.endY = poses.table[ft + 1] + MUZZLE_HEIGHT;
+          shieldAt.endZ = poses.table[ft + 2];
+          ribbons.link(gunArc, shieldAt);
         }
         continue;
       }

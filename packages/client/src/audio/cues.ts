@@ -369,6 +369,19 @@ export class OriginalSounds implements EffectListener {
     this.started = false;
   }
 
+  /**
+   * The bank-1 record a player shot's block names at +0x1b (`payload` is
+   * EV_SHOT's): the Electric Gun's link record, which its jump (EV_GUN_ARC,
+   * render/fx.ts) draws with. Undefined for none.
+   */
+  launchRecord(payload: number): FxRecord | undefined {
+    const w = weaponById(shotPayloadWeaponId(payload));
+    const rec = w ? this.weapons[w.code] : undefined;
+    if (!rec) return undefined;
+    const blk = shotPayloadPowered(payload) ? rec.b : rec.a;
+    return blk.launchFx > 0 ? this.effects.record(1, blk.launchFx) : undefined;
+  }
+
   /** One tick's events, then the per-tick state the original reads each frame. */
   tick(events: EventBuffer, ctx: CueContext): void {
     const data = this.data;
