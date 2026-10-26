@@ -24,12 +24,17 @@
 // `walkerLegs`); a tick's second step runs whole after the movement, its lift
 // and impulse going into the velocity the next tick integrates.
 //
-// Not modelled: the stick (dead in retail), the facing snap, the bounds' pairs
-// (the crouch's lowered box; its bit 0x80 is kept), the contacts' push, block
-// +0xdf's lifts (bit 0 clear in PA) and the legs' model box per frame.
+// The facing snap (`player_snap_facing`, 0x004437d0) is here as `snapFacing`;
+// sim.ts runs it, with the wall contacts' push, on the facing it keeps.
+//
+// Not modelled: the stick (dead in retail), the bounds' pairs (the crouch's
+// lowered box; its bit 0x80 is kept), the actors' contacts' push
+// (`player_push_contacts`, Metropolis has no hit boxes for it), block +0xdf's
+// lifts (bit 0 clear in PA) and the legs' model box per frame.
 
 import {
   HOVER_IMPACT_HARD,
+  SNAP_STEP,
   TRANSFORM_LOCK_TICKS,
   WALK_ARMS,
   WALK_CODES_PER_TICK,
@@ -445,6 +450,7 @@ export function walkerArm(
   command: number,
   bits: number,
   speed: number,
+  snap = false,
 ): void {
   const legs = w.legs;
   const wanted = command & WALK_CMD_STATE;
@@ -485,6 +491,12 @@ export function walkerArm(
       turn -= Math.imul(speed, turn) >> WALK_TURN_SPEED_SHIFT;
       track = turn > 0 ? 0x0f : 0x0e;
     }
+  }
+  // 0x00444426: a pending snap (`snap`; sim.ts turns the facing) puts a moving
+  // state that differs from the command back to 0.
+  if (snap) {
+    const now = w.state[s];
+    if (now !== wanted && moving(now)) w.state[s] = 0;
   }
   // 0x00444497: the lunge countdown.
   if (w.lunge[s] !== 0) w.lunge[s] -= 1;
@@ -678,6 +690,45 @@ export function walkerLegs(
 }
 
 /**
+ * `player_snap_facing`'s target (0x004437d0, the jump table at 0x004438c4) for
+ * `snap`'s low three bits, a wall kind, and `facing` (4096 a turn): the
+ * direction that wall runs in -- kind 1 (a wall across the sim's y) 0, 0x800 or
+ * 0x1000, kind 2 (across x) 0x400 or 0xc00, the diagonals' 3 and 4 the eighths
+ * between; anything else 0. Not reduced modulo a turn (0x1000), and state 3's
+ * low arm is -1, as retail has them.
+ */
+export function snapTarget(snap: number, facing: number): number {
+  switch (snap & 7) {
+    case 1:
+      return facing < 0x400 ? 0 : facing <= 0xc00 ? 0x800 : 0x1000;
+    case 2:
+      return facing >= 0x800 ? 0xc00 : 0x400;
+    case 3:
+      return facing > 0xa00 ? 0xe00 : facing >= 0x200 ? 0x600 : -1;
+    case 4:
+      return facing < 0x600 ? 0x200 : facing <= 0xe00 ? 0xa00 : 0x1000;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * The facing (0..0xfff) after `steps` calls of `player_snap_facing` for `snap`:
+ * each moves it at most SNAP_STEP units toward its target, and the step masks
+ * it into a turn after (0x00444462, 0x004427fa).
+ */
+export function snapFacing(snap: number, facing: number, steps: number): number {
+  let f = facing;
+  for (let k = 0; k < steps; k++) {
+    let d = snapTarget(snap, f) - f;
+    if (d > SNAP_STEP) d = SNAP_STEP;
+    else if (d < -SNAP_STEP) d = -SNAP_STEP;
+    f = (f + d) & 0xfff;
+  }
+  return f;
+}
+
+/**
  * The hover's command state (player_hover.c 0x0044255b..0x00442644), which its
  * tick writes into `state_bb` each frame: the brake 0x13 over the rows.
  */
@@ -702,7 +753,9 @@ export function hoverCommandState(bits: number): number {
  * its surface (0x00442c7e..0x00442d3e) -- at its ride height (`grounded`) a
  * hover without control lands, over 0x50000 (`fall`, 16.16 a step) state
  * 0x12; held down within its band, nothing; above it (`airborne`) it loses
- * control. What the walker finds at the walker end.
+ * control. `ledge`: the slow row's ledge test ran (states 1 and 2 over the
+ * band, 0x00442d1e), which leaves state 0 whether it held or not. What the
+ * walker finds at the walker end.
  */
 export function walkerHover(
   w: WalkerState,
@@ -711,8 +764,10 @@ export function walkerHover(
   grounded: boolean,
   airborne: boolean,
   fall: number,
+  ledge = false,
 ): void {
   w.state[s] = hoverCommandState(bits);
+  if (ledge) w.state[s] = 0;
   if (grounded) {
     if ((w.flags[s] & WALK_AIRBORNE) !== 0) {
       w.flags[s] = (w.flags[s] & 0xfe) | WALK_LANDED;

@@ -1561,4 +1561,24 @@
 //     821, 235, 182), 04 and 07 also from turrets firing on turrets; golden-04's
 //     tanks now breach at tick 3134. No golden fires the powered Electric Gun or
 //     flies a round past 44 m.
-export const SIM_VERSION = 107;
+// v108: the X1-Alpha against walls, ceilings and the slow row's ledge as the
+//     original (fcop-fidelity.md P4, P5; RE `player_ground_push` 0x00443490,
+//     `player_apply_impulse` 0x00443370, `player_snap_facing` 0x004437d0,
+//     `player_walk_tick` 0x004448a6, `player_hover_tick` 0x00442cea). A move a
+//     wall stops is a contact: WALL_PUSH (0x24000 a step) along the wall's
+//     normal, away from it, into a pending impulse (SimState.avatarImpulse,
+//     hashed), and the wall's kind into the snap state (avatarSnap, hashed).
+//     The next tick spends the impulse -- halved airborne, halved again in the
+//     hover or on a mode floor; the velocity loses its component along it and
+//     decays by an eighth, a rise over 0x100 is cut, no stop test -- and turns
+//     the facing at most 8 units a step toward the wall's direction; while a
+//     snap is pending the hover's drag is 0.375 and it turns at an eighth of its
+//     rate, and a walker's moving state that differs from its command is 0.
+//     A rising walker whose head (1.15 m) passes up through a deck stops rising
+//     and halves its horizontal velocity. The grounded hover moves along the
+//     plane under it (the original's velocity loses its part along `up`), so a
+//     slope no longer reads as a drop: it stays on the ground down a slope and
+//     leaves it at an edge or a crest with the plane's vertical speed; on the
+//     slow row (states 1, 2) a step over its band but under 0.1 m is put back,
+//     its horizontal velocity zeroed. Every golden plays differently.
+export const SIM_VERSION = 108;

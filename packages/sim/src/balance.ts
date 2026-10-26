@@ -255,7 +255,8 @@ export const HOVER_CLEARANCE = 0x1000 / 8192;
 /**
  * Held down within 0xcc wu (2.5 cm) of its ride height a step, else airborne
  * (0x00442cea). Per tick it covers 1.25 steps of ground, so the band is scaled
- * to keep the same slope at which a fast hover leaves the ground.
+ * to keep the same bend in the ground (read along the plane it rides, sim.ts)
+ * at which a fast hover leaves it.
  */
 export const HOVER_HOLD_DOWN = (0xcc / 8192) * X1_STEPS_PER_TICK;
 /**
@@ -360,6 +361,40 @@ export const WALKER_LUNGE_MAX_RISE = 0x2333 / 8192;
 export const AVATAR_JUMP_SPEED = WALKER_HIGH_LIFT;
 /** A 16.16 velocity a movement step (the walker machine's integers) in m/s. */
 export const X1_STEP_SPEED = FX * X1_SPEED_UNIT;
+
+// --- Walls, the facing snap and the ceiling (fcop-fidelity.md P4, P5) --------
+//
+// `player_ground_push` (0x00443490): a contact with a wall plate adds
+// +-0x24000 (16.16 a step) along the wall's own normal, away from it, into the
+// ride block's impulse, once per wall kind, and leaves the kind in `snap_state`.
+// The next step `player_apply_impulse` (0x00443370) spends it: halved while
+// airborne (flags bit 0, 0x0044339f), halved again in the hover or on a mode
+// floor (block +0xad / +0x147, 0x004433bd); the velocity loses its component
+// along the impulse and decays by an eighth on every axis, a rise over 0x100
+// is cut (0x0044344b), and the step's stop test does not run. And
+// `player_snap_facing` (0x004437d0) turns the facing at most 8 units a step
+// toward the direction that wall runs in.
+/** A wall contact's push per axis: 0x24000 a step (0x0044360b), m/s. */
+export const WALL_PUSH = 0x24000;
+/** The facing snap's largest step: 8 units of 4096 a turn (0x0044388d). */
+export const SNAP_STEP = 8;
+/** A rise the impulse's decay leaves above 0x100 a step is cut (0x0044344b). */
+export const IMPULSE_RISE_CUT = 0x100;
+/** The hover's drag while a snap is pending: 0x6000 = 0.375 a step (0x004427d0). */
+export const HOVER_DRAG_SNAP = 0x6000 * FX;
+/**
+ * The walker's head: rising faster than 0x10 a step (0x004448a6), a trace from
+ * 0x24c0 wu (1.15 m) above where it was to 0x24c0 above where it is that meets a
+ * plate stops the rise and halves the horizontal velocity (0x00444904).
+ */
+export const WALKER_HEAD_HEIGHT = 0x24c0 / 8192;
+export const WALKER_RISE_GATE = 0x10;
+/**
+ * The hover's ledge on the slow row (0x00442cea..0x00442d47): in states 1 and
+ * 2, a step that leaves it more than its hold-down band but less than 0x333 wu
+ * (0.1 m) over its ride height puts it back, horizontal velocity zeroed.
+ */
+export const HOVER_LEDGE_DROP = 0x333 / 8192;
 
 // --- The walker's state machine (walker.ts; fcop-fidelity.md G11, P4) --------
 //

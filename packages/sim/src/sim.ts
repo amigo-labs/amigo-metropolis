@@ -56,10 +56,12 @@ import {
   HOVER_CLEARANCE,
   HOVER_CUSHION_SPAN,
   HOVER_DRAG,
+  HOVER_DRAG_SNAP,
   HOVER_HOLD_DOWN,
   HOVER_IDLE_CEILING,
   HOVER_IDLE_KNEE,
   HOVER_IDLE_SLOPE,
+  HOVER_LEDGE_DROP,
   HOVER_PROBE_LIFT,
   HOVER_PUSH_FORE,
   HOVER_PUSH_SLOW_FORE,
@@ -70,6 +72,7 @@ import {
   HOVER_SPEED_CAP,
   HOVER_STOP_SPEED,
   HOVER_TURN_LIMIT,
+  IMPULSE_RISE_CUT,
   JUGGERNAUT_ALIVE_LIMIT,
   K9_AVOID_BIAS,
   K9_CLEARANCE,
@@ -158,6 +161,7 @@ import {
   UNIT_QUEUES,
   WALKER_AIR_DRAG,
   WALKER_DRAG,
+  WALKER_HEAD_HEIGHT,
   WALKER_LEDGE_DROP,
   WALKER_MODE_DRAG,
   WALKER_MODE_OF_CODE,
@@ -165,11 +169,13 @@ import {
   WALKER_MODE_STOP,
   WALKER_PROBE_AHEAD,
   WALKER_PROBE_LIFT,
+  WALKER_RISE_GATE,
   WALKER_SINK_PER_TICK,
   WALKER_SLOPE_GAIN,
   WALKER_SLOPE_KNEE,
   WALKER_STEEP_TILT,
   WALKER_STOP_SPEED,
+  WALL_PUSH,
   WARDEN_ALTITUDE,
   WEAPON_UNITS_PER_TICK,
   type WeaponRecord,
@@ -263,6 +269,7 @@ import {
   type MapZone,
   resolveHeight,
   sampleHeight,
+  sampleLayerHeight,
   waterHeightAt,
   worldExtent,
 } from "./map";
@@ -321,6 +328,9 @@ import {
   animSetTrack,
   createAnimPlayer,
   createWalkerState,
+  hoverCommandState,
+  snapFacing,
+  WALK_AIRBORNE,
   WALK_ARM,
   type WalkerState,
   walkerArm,
@@ -725,6 +735,19 @@ export interface SimState {
    * read by the next tick's velocity. Hashed on arenas with mode floors only.
    */
   readonly avatarMode: Uint8Array;
+  /**
+   * The pending impulse of the mech's wall contacts (the ride block's +0x64,
+   * `player_ground_push` 0x00443490), 16.16 a movement step, x and y per
+   * player: written by a tick's blocked move, spent by the next tick's
+   * velocity (`player_apply_impulse` 0x00443370). Hashed.
+   */
+  readonly avatarImpulse: Int32Array;
+  /**
+   * `snap_state` (+0xb8): the wall kind of the last contact (1 a wall across
+   * y, 2 across x), 0 for none; the next tick snaps the facing toward that
+   * wall's direction and clears it (`player_snap_facing`). Hashed.
+   */
+  readonly avatarSnap: Uint8Array;
 
   /**
    * SimOptions.extraWeapons, normalized (config, like the loadouts). Everything
@@ -822,6 +845,10 @@ export function spawnAvatar(state: SimState, player: number): number {
   state.avatarIdle[player] = 0;
   if (!warden) walkerReset(state.walker, player, hover);
   state.avatarMode[player] = 0;
+  // `player_reset` clears the impulse (0x00441acc, 0x00441ad8).
+  state.avatarImpulse[player * 2] = 0;
+  state.avatarImpulse[player * 2 + 1] = 0;
+  state.avatarSnap[player] = 0;
   state.avatarSinking[player] = 0;
   state.rivalHit[player] = 0;
   return id;
@@ -1240,6 +1267,8 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     avatarIdle: new Int32Array(MAX_PLAYERS),
     walker: createWalkerState(MAX_PLAYERS),
     avatarMode: new Uint8Array(MAX_PLAYERS),
+    avatarImpulse: new Int32Array(MAX_PLAYERS * 2),
+    avatarSnap: new Uint8Array(MAX_PLAYERS),
     extraWeapons,
     keptRound: new Int32Array(MAX_PLAYERS).fill(-1),
     shield: createShieldState(),
@@ -1482,8 +1511,9 @@ function startTransform(state: SimState, id: number, hover: boolean): void {
  * input + avatar movement: the original's two movement models (rules.md §2,
  * fcop-fidelity.md P3-P5; the per-tick conversion is described in balance.ts
  * "X1-Alpha movement"), transform, jumps, gravity and landings, then weapons and
- * buying. Walls, decks and the two slope gates are Metropolis' collision and
- * are unchanged.
+ * buying. Walls, decks and the two slope gates are Metropolis' collision; a
+ * move a wall stops is the original's contact (its push and the facing snap,
+ * fcop-fidelity.md P4), and the walker's head meets the decks over it.
  */
 function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
   const ent = state.ent;
@@ -1607,7 +1637,14 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         rise = avatarSurface(state, ax, ay, h + WALKER_PROBE_LIFT, false).height - h;
       }
       command = walkerCommand(walk, p, bits, rise);
-      walkerArm(walk, p, command, bits, stepSpeed(ent.velX[id], ent.velY[id], vz) >> 11);
+      walkerArm(
+        walk,
+        p,
+        command,
+        bits,
+        stepSpeed(ent.velX[id], ent.velY[id], vz) >> 11,
+        state.avatarSnap[p] !== 0,
+      );
     }
     const liftOff = walkerTick && arm.lift > 0;
     const inAir = airborne || liftOff;
@@ -1629,7 +1666,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         else if (rate < -HOVER_TURN_LIMIT) rate = -HOVER_TURN_LIMIT;
       }
       state.avatarTurnRate[p] = rate;
-      dYaw = rate * 0.5 * X1_STEPS_PER_TICK * ANGLE_UNIT;
+      // While a wall snap is pending the facing gains an eighth of the rate, not
+      // a half (`neg al; sbb; and eax, 2; inc eax`, 0x00442756).
+      const share = state.avatarSnap[p] !== 0 ? 0.125 : 0.5;
+      dYaw = rate * share * X1_STEPS_PER_TICK * ANGLE_UNIT;
     } else if (arm.turn !== 0) {
       // Walker: the arm's turn, 0x20 a step less speed * 0x20 >> 9 (105°/s at
       // rest, nothing at 18.75 m/s), on the ground only and not on a jump's
@@ -1643,6 +1683,22 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       ent.yaw[id] = yaw;
       ent.aimX[id] = cosLUT(yaw);
       ent.aimY[id] = sinLUT(yaw);
+    }
+    // The facing snap (`player_snap_facing` 0x004437d0, run after the turn at
+    // 0x00444453 / 0x004427eb, in either form, on the ground or not): a wall
+    // contact last tick turns the facing at most 8 units a step toward the
+    // direction that wall runs in, on each of this tick's steps, and is spent.
+    const snap = state.avatarSnap[p];
+    if (snap !== 0) {
+      const f0 = Math.floor(ent.yaw[id] / ANGLE_UNIT + 0.5) & 0xfff;
+      const f1 = snapFacing(snap, f0, steps);
+      if (f1 !== f0) {
+        const yaw = (f1 > 2048 ? f1 - 4096 : f1) * ANGLE_UNIT;
+        ent.yaw[id] = yaw;
+        ent.aimX[id] = cosLUT(yaw);
+        ent.aimY[id] = sinLUT(yaw);
+      }
+      state.avatarSnap[p] = 0;
     }
     const fx = ent.aimX[id];
     const fy = ent.aimY[id];
@@ -1693,6 +1749,39 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       (brake ? MOVE_CUE_BRAKE : 0) |
       (ent.yaw[id] !== yaw0 ? MOVE_CUE_TURN : 0);
 
+    // The wall contacts' impulse from last tick (`player_apply_impulse`
+    // 0x00443370): halved while airborne, halved again in the hover or on a
+    // mode floor; the velocity loses its component along it and decays by an
+    // eighth, a rise over 0x100 a step is cut, and the stop test does not run.
+    // The push goes into the velocity after this tick's own change.
+    const k2 = p * 2;
+    let impX = 0;
+    let impY = 0;
+    const shoved = state.avatarImpulse[k2] !== 0 || state.avatarImpulse[k2 + 1] !== 0;
+    if (shoved) {
+      let ix = state.avatarImpulse[k2];
+      let iy = state.avatarImpulse[k2 + 1];
+      if ((walk.flags[p] & WALK_AIRBORNE) !== 0) {
+        ix >>= 1;
+        iy >>= 1;
+      }
+      const half = hoverPhys || state.avatarMode[p] !== 0 ? 1 : 0;
+      impX = (ix >> half) * X1_STEP_SPEED;
+      impY = (iy >> half) * X1_STEP_SPEED;
+      const len = Math.sqrt(ix * ix + iy * iy);
+      const nx = ix / len;
+      const ny = iy / len;
+      const ux = ent.velX[id];
+      const uy = ent.velY[id];
+      const along = ux * nx + uy * ny;
+      ent.velX[id] = (ux - along * nx) * (7 / 8);
+      ent.velY[id] = (uy - along * ny) * (7 / 8);
+      vz *= 7 / 8;
+      if (vz > IMPULSE_RISE_CUT * X1_STEP_SPEED) vz = 0;
+      state.avatarImpulse[k2] = 0;
+      state.avatarImpulse[k2 + 1] = 0;
+    }
+
     // Velocity: n = 1.25 steps of v += P - d v in closed form (balance.ts).
     let vx = ent.velX[id];
     let vy = ent.velY[id];
@@ -1704,6 +1793,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       state.avatarIdle[p] = idle;
       let d = HOVER_DRAG;
       if (idle > HOVER_IDLE_KNEE) d += ((idle - HOVER_IDLE_KNEE) * HOVER_IDLE_SLOPE) / 65536;
+      // A pending wall snap brakes it at 0.375 a step (0x004427d0); the brake's
+      // own drag is chosen after, and wins.
+      if (snap !== 0) d = HOVER_DRAG_SNAP;
       if (brake && !inAir) d = HOVER_BRAKE_DRAG;
       if (!inAir) {
         // With control, the tilted ground pushes it downhill.
@@ -1719,6 +1811,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       // after every step, so the test here is the tick's FIRST step: one that
       // ends under the threshold stops it, as it would have in the original.
       const settle =
+        !shoved &&
         !commanded &&
         !brake &&
         !inAir &&
@@ -1728,6 +1821,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       const r = retentionPerTick(d);
       vx = settle ? 0 : (pushX / d) * (1 - r) + vx * r;
       vy = settle ? 0 : (pushY / d) * (1 - r) + vy * r;
+      vx += impX;
+      vy += impY;
       const v2 = vx * vx + vy * vy;
       if (v2 > HOVER_SPEED_CAP * HOVER_SPEED_CAP) {
         const k = HOVER_SPEED_CAP / Math.sqrt(v2);
@@ -1765,7 +1860,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       // states whose arm runs it (0, 9, 0x12).
       const k = 1 - drag;
       const settle =
-        arm.settle && Math.abs(vx * k + pushX) < stop && Math.abs(vy * k + pushY) < stop;
+        arm.settle && !shoved && Math.abs(vx * k + pushX) < stop && Math.abs(vy * k + pushY) < stop;
       const r = retentionPerTick(drag);
       vx = settle ? 0 : (pushX / drag) * (1 - r) + vx * r;
       vy = settle ? 0 : (pushY / drag) * (1 - r) + vy * r;
@@ -1777,6 +1872,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       vx += pi * fx;
       vy += pi * fy;
       if (arm.lift > 0) vz = arm.lift * X1_STEP_SPEED;
+    }
+    if (!hoverPhys) {
+      vx += impX;
+      vy += impY;
     }
     ent.velX[id] = vx;
     ent.velY[id] = vy;
@@ -1791,10 +1890,20 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     const skipSlope = !hoverPhys && inAir;
     const fromX = x;
     const fromY = y;
+    // A move a wall stops is a contact (`player_ground_push` 0x00443490): the
+    // wall's kind -- 2 for a wall across x (the original's plates on a cell's
+    // other edge), 1 across y -- becomes the snap state, and a push of
+    // WALL_PUSH along its normal, away from it, the impulse the next tick
+    // spends; each kind once. Both in one tick: the y wall's kind is left.
     const stepX = vx * TICK_DT;
     if (stepX !== 0) {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
-      let ok = !crossesWallX(map, x, nx, y, wallLayer);
+      const wallX = crossesWallX(map, x, nx, y, wallLayer);
+      if (wallX) {
+        state.avatarImpulse[k2] += stepX > 0 ? -WALL_PUSH : WALL_PUSH;
+        state.avatarSnap[p] = 2;
+      }
+      let ok = !wallX;
       if (ok && !skipSlope && slopeBlocks(state, x, y, nx, y, hoverPhys, ent.height[id]))
         ok = false;
       if (ok) x = nx;
@@ -1803,7 +1912,12 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     const stepY = vy * TICK_DT;
     if (stepY !== 0) {
       const ny = Math.min(Math.max(y + stepY, 0), extent);
-      let ok = !crossesWallY(map, x, y, ny, wallLayer);
+      const wallY = crossesWallY(map, x, y, ny, wallLayer);
+      if (wallY) {
+        state.avatarImpulse[k2 + 1] += stepY > 0 ? -WALL_PUSH : WALL_PUSH;
+        state.avatarSnap[p] = 1;
+      }
+      let ok = !wallY;
       if (ok && !skipSlope && slopeBlocks(state, x, y, x, ny, hoverPhys, ent.height[id]))
         ok = false;
       if (ok) y = ny;
@@ -1811,10 +1925,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     }
     // The slow row's ledge (balance.ts WALKER_LEDGE_DROP): the walker in state
     // 1, 2 or 5 (slow forward, back or Jink Left) on the ground is put back from
-    // a drop of over 0.1 m, and its state is 0 again (walkerLand). The
-    // hover's slow row holds only at drops under 0.1 m (0x00442d36), which in
-    // Metropolis' hover — no push along the surface, so every downhill tick
-    // reads as a small drop — would stop it on any slope: not modelled.
+    // a drop of over 0.1 m, and its state is 0 again (walkerLand). The hover's
+    // (HOVER_LEDGE_DROP) is in its vertical step below.
     let ledge = false;
     const ws = walk.state[p];
     if (
@@ -1859,18 +1971,36 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     let carrier = -1;
     /** The landing's fall speed, m/s, 0 for none. */
     let fall = 0;
+    /** The hover's slow-row ledge test ran (walkerHover). */
+    let hoverLedge = false;
     if (hoverPhys) {
       // Snapped up to its ride height, held down within HOVER_HOLD_DOWN of it,
-      // and airborne above that — off a ledge it falls.
-      const hs = avatarSurface(state, x, y, h, true);
+      // and airborne above that — off a ledge it falls. With control its
+      // velocity lies in the plane of the surface under it (the push and the
+      // velocity lose their part along `up`, 0x00442911 / 0x00442d89), so a
+      // grounded hover's step carries it along that plane: what reads as a
+      // drop is ground falling away from the plane (an edge, a crest), not the
+      // slope it rides. It leaves the plane with that plane's vertical speed.
+      const h0 = h;
+      let hs = avatarSurface(state, x, y, h, true);
       ent.entLayer[id] = hs.layer;
       carrier = hs.lift;
       ride = hs.height + clearanceOf(ent, id);
-      const air = h > ride + HOVER_HOLD_DOWN || vz > 0;
+      let lift = 0;
+      if (!airborne && (x !== fromX || y !== fromY)) {
+        const t = surfaceTilt(state, fromX, fromY, true, h0, TILT_UNDERFOOT);
+        lift = t.gx * (x - fromX) + t.gy * (y - fromY);
+      }
+      const air = h + lift > ride + HOVER_HOLD_DOWN || vz > 0;
       if (air) {
-        vz -= X1_GRAVITY * TICK_DT;
-        if (vz < -X1_TERMINAL_FALL) vz = -X1_TERMINAL_FALL;
-        h += vz * TICK_DT;
+        if (!airborne) {
+          h += lift;
+          vz = lift / TICK_DT;
+        } else {
+          vz -= X1_GRAVITY * TICK_DT;
+          if (vz < -X1_TERMINAL_FALL) vz = -X1_TERMINAL_FALL;
+          h += vz * TICK_DT;
+        }
       }
       if (!air || h <= ride) {
         if (air && vz < 0) {
@@ -1879,6 +2009,30 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         }
         h = ride;
         vz = 0;
+      } else {
+        // The slow row's ledge (0x00442cea..0x00442d47): over the band in
+        // states 1 and 2 the state is 0 whatever follows, and it is put back
+        // where it was, its horizontal velocity zeroed, unless the surface it
+        // left is no higher than it is now and the drop is 0.1 m or more.
+        const cmd = hoverCommandState(bits);
+        if (cmd === 1 || cmd === 2) {
+          hoverLedge = true;
+          const behind = avatarSurface(state, fromX, fromY, h0, true).height;
+          if (behind > h || h - ride < HOVER_LEDGE_DROP) {
+            x = fromX;
+            y = fromY;
+            ent.posX[id] = x;
+            ent.posY[id] = y;
+            ent.velX[id] = 0;
+            ent.velY[id] = 0;
+            h = h0;
+            if (!airborne) vz = 0;
+            hs = avatarSurface(state, x, y, h, true);
+            ent.entLayer[id] = hs.layer;
+            carrier = hs.lift;
+            ride = hs.height + clearanceOf(ent, id);
+          }
+        }
       }
     } else if (sinking) {
       // HARD's sinking walker: its ground is its own height less 0xc0 wu a step
@@ -1897,9 +2051,20 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       carrier = wr.lift;
       ride = wr.height;
       if (vz !== 0 || h > ride + STEP_SNAP) {
+        const h0 = h;
         vz -= X1_GRAVITY * TICK_DT;
         if (vz < -X1_TERMINAL_FALL) vz = -X1_TERMINAL_FALL;
         h += vz * TICK_DT;
+        // The head (0x004448a6): still rising, a deck its head passes up
+        // through this tick stops the rise and halves the horizontal velocity.
+        if (
+          vz > WALKER_RISE_GATE * X1_STEP_SPEED &&
+          deckOverhead(map, x, y, h0 + WALKER_HEAD_HEIGHT, h + WALKER_HEAD_HEIGHT)
+        ) {
+          vz = 0;
+          ent.velX[id] /= 2;
+          ent.velY[id] /= 2;
+        }
         if (h <= ride) {
           if (vz < 0) {
             landingImpact(state, id, -vz);
@@ -1961,7 +2126,15 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         walkerLegs(walk, p, stepSpeed(ent.velX[id], ent.velY[id], ent.timerB[id]), lean, steep);
       }
     } else {
-      walkerHover(walk, p, bits, h <= ride, h > ride + HOVER_HOLD_DOWN, fall / X1_STEP_SPEED);
+      walkerHover(
+        walk,
+        p,
+        bits,
+        h <= ride,
+        h > ride + HOVER_HOLD_DOWN,
+        fall / X1_STEP_SPEED,
+        hoverLedge,
+      );
     }
     if (ent.timerA[id] > 0) walkerRamp(walk, p, ent.mode[id] === MODE_HOVER, ent.timerA[id]);
 
@@ -2552,6 +2725,32 @@ function inWater(state: SimState, id: number, x: number, y: number): boolean {
   const map = state.map;
   if (!isWater(map, x, y)) return false;
   return state.ent.height[id] - waterHeightAt(map, x, y) < SURFACE_REACH;
+}
+
+/**
+ * Whether a deck present over (x, y) lies above `from` and at or below `to`:
+ * the walker's head trace (`player_walk_tick` 0x004448a6, a segment 0x24c0 wu
+ * over its feet from where it was to where it is, `terrain_trace_segment` with
+ * floors on) meeting a plate from below. Metropolis' walls stop the walker at
+ * every height and its ground's rise is the gates', so only the decks over it
+ * are traced.
+ */
+function deckOverhead(map: MapData, x: number, y: number, from: number, to: number): boolean {
+  const layers = map.layerHeights.length;
+  if (layers === 0) return false;
+  const s = map.size;
+  let i = Math.floor(x / map.cellSize);
+  let j = Math.floor(y / map.cellSize);
+  if (i < 0) i = 0;
+  else if (i > s - 1) i = s - 1;
+  if (j < 0) j = 0;
+  else if (j > s - 1) j = s - 1;
+  for (let L = 0; L < layers; L++) {
+    if (map.layerMask[L][j * s + i] === 0) continue;
+    const top = sampleLayerHeight(map, L, x, y);
+    if (top > from && top <= to) return true;
+  }
+  return false;
 }
 
 /**
@@ -6410,6 +6609,12 @@ export function hash(state: SimState): number {
     // The rate moves in steps of 12.5 units, so twice it is an exact integer.
     h = fnv1aU32(h, (state.avatarTurnRate[p] * 2) >>> 0);
     h = fnv1aU32(h, state.avatarIdle[p] >>> 0);
+  }
+  // Appended at SIM_VERSION 108: the wall contacts' pending impulse and snap.
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    h = fnv1aU32(h, state.avatarImpulse[p * 2] >>> 0);
+    h = fnv1aU32(h, state.avatarImpulse[p * 2 + 1] >>> 0);
+    h = fnv1aU32(h, state.avatarSnap[p]);
   }
   // Appended at SIM_VERSION 40: which locks steer the hull (gone at 69, W2).
   // Appended at SIM_VERSION 43: the block-B magazines (replacing the x2 timer).

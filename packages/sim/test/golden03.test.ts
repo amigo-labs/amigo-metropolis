@@ -69,7 +69,13 @@ import { createSim, step } from "../src/sim";
 // 4 m cells offer (fcop-fidelity.md R12), so the script's first capture comes
 // later (the replay diverges at tick 821) and player 0's tanks breach at 78.8 s.
 // 2309 with both (77.0 s).
-const BREACH_TICK_PIN = 2309;
+// 2316 -> none at SIM_VERSION 108: a wall stops a mech's move with the
+// original's push back off it and turns its facing along it, and the hover
+// rides its slopes on the ground, so the script's walks and the fight play out
+// otherwise: the mechs go down 11 times and all ten tanks die short of the gates.
+// 2395 on top of SIM_VERSION 105-107 (79.8 s): player 0's tank breaches again,
+// the mechs go down 4 times.
+const BREACH_TICK_PIN = 2395;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {
