@@ -122,6 +122,12 @@ const GUN_RECORDS = [2, 4] as const;
 const BEACON_POINT = 2;
 /** The legs' model point the cockpit stands on (player.c 1621). */
 const MOUNT_POINT = 0;
+/**
+ * The cockpit's model point the lock beam leaves from: `hud_draw_lock_beam`
+ * takes point 0 of the partner's model (0x00435382), and the partner's model is
+ * the cockpit (aRSL slot 2, `player_partner_construct` 0x00447b15).
+ */
+const BEAM_POINT = 0;
 
 // --- the bone table's layout: one RGBA float texel per matrix row ------------
 
@@ -708,6 +714,17 @@ export async function buildX1(): Promise<X1Build> {
     " */",
     `export const X1_LEGS_LAYER_MASKS: readonly number[] = [${legMasks.join(", ")}];`,
     `export const X1_COCKPIT_LAYER_MASKS: readonly number[] = [${cockpitMasks.join(", ")}];`,
+    "/**",
+    " * The cockpit's model point 0 (3DHS channel 0) by cockpit frame, (x, y, z) in",
+    " * the cockpit's model space, metres: where the lock beam leaves the X1",
+    " * (`hud_draw_lock_beam` 0x00435382, the partner's model point 0), turned by",
+    " * the cockpit's aim and set on the mount as a cockpit vertex is",
+    " * (render/x1Pose.ts).",
+    " */",
+    `export const X1_BEAM_POINT: readonly number[] = [${Array.from(
+      { length: cockpit.frames },
+      (_, f) => channelPos(channels.cockpit, BEAM_POINT, f).join(", "),
+    ).join(", ")}];`,
     "",
   ].join("\n");
   const trackSource = sources.filter((line) => line.includes("tracks.json"));

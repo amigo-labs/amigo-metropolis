@@ -3,8 +3,8 @@
 // the FUTURE COP badge, the three weapon icons with their magazine counts, the
 // score plate ("%03ld", flashing while an outpost is affordable), the tanks/jets
 // counts ("%02ld/%02ld"), the opponent's row and gauge, the Sky Captain's level
-// ("L%02d"), the lock beam and reticle. The radar is render/hud/radar.ts; the
-// camera caption render/hud/caption.ts.
+// ("L%02d"), the lock reticle (its beam is drawn in the scene, render/lockBeam.ts).
+// The radar is render/hud/radar.ts; the camera caption render/hud/caption.ts.
 //
 // Laid out in the original's 640 x 480 space and placed by hudLayout.ts (4:3
 // box, left/right halves anchored to the edges). Drawn with the original's
@@ -82,20 +82,16 @@ export interface MatchHud {
     facing: number,
   ): void;
   /**
-   * The lock beam and reticle (hud_draw_lock_beam): from the X1's model point to
-   * the first terrain hit toward the target (`hit` in 0..1 of the segment), the
-   * reticle on the target. Three frame, metres. `active` false clears it.
+   * The lock's reticle (hud_draw_lock_beam): the arena's 32 px reticle centred
+   * on the target's projected point, half alpha. The beam is drawn in the scene
+   * (render/lockBeam.ts). Three frame, metres. `active` false clears it.
    */
   drawLock(
     camera: THREE.PerspectiveCamera,
     active: boolean,
-    fx: number,
-    fy: number,
-    fz: number,
     tx: number,
     ty: number,
     tz: number,
-    hit: number,
   ): void;
   /**
    * `mission_flash_near` for this viewport (screenFlash.ts): an install with a
@@ -121,7 +117,6 @@ const BACKING = css(HUD.gauge.backingRgb, 0.5);
 const TICKS = css(HUD.gauge.tickRgb);
 const PLATE = css(HUD.score.plateRgb, 0.5);
 const UNLIT = "rgba(0,0,0,0.247)"; // the icons' unlit tint 192/255
-const BEAM = css(HUD.beamRgb, 0.5);
 
 /**
  * The gauge's fill, a column of 1-px strips per gauge value and blink state: a
@@ -431,7 +426,7 @@ export function createMatchHud(
       radar.refresh(match, snapshot, count, clock, selfX, selfY, facing, down);
     },
 
-    drawLock(camera, active, fx, fy, fz, tx, ty, tz, hit) {
+    drawLock(camera, active, tx, ty, tz) {
       if (lockDrawn) {
         lockCtx.setTransform(1, 0, 0, 1, 0, 0);
         lockCtx.clearRect(0, 0, lockEl.width, lockEl.height);
@@ -443,22 +438,6 @@ export function createMatchHud(
       const cx = scratchPx[0];
       const cy = scratchPx[1];
       const s = hudScale(viewW, viewH);
-      // The beam: from the mech to the first terrain hit, half alpha.
-      const hx = fx + (tx - fx) * hit;
-      const hy = fy + (ty - fy) * hit;
-      const hz = fz + (tz - fz) * hit;
-      if (project(camera, fx, fy, fz, viewW, viewH, scratchPx)) {
-        const ax = scratchPx[0];
-        const ay = scratchPx[1];
-        if (project(camera, hx, hy, hz, viewW, viewH, scratchPx)) {
-          lockCtx.strokeStyle = BEAM;
-          lockCtx.lineWidth = Math.max(1, s);
-          lockCtx.beginPath();
-          lockCtx.moveTo(ax, ay);
-          lockCtx.lineTo(scratchPx[0], scratchPx[1]);
-          lockCtx.stroke();
-        }
-      }
       // The reticle: 16 x 16 texels drawn 32 x 32 (640 units), half alpha.
       if (reticles.ready) {
         const size = HUD.reticle.size * s;

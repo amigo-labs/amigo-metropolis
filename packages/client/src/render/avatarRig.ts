@@ -48,6 +48,7 @@ import {
   X1_ANIM_HEIGHT,
   X1_ANIM_WIDTH,
   X1_ATTACHED_LAYER_MASK,
+  X1_BEAM_POINT,
   X1_COCKPIT_LAYER_MASKS,
   X1_COCKPIT_ROW,
   X1_COCKPIT_SLOT,
@@ -354,6 +355,50 @@ export function x1CockpitSkeleton(
   out.z = y - t[m] * s + t[m + 2] * c;
 }
 
+/**
+ * Where the lock beam leaves an X1 (`hud_draw_lock_beam` 0x00435382): the
+ * partner's model point 0 -- the cockpit's, X1_BEAM_POINT at `cockpitFrame` --
+ * turned by the cockpit's aim (`aimYaw` / `aimPitch`, model space, as
+ * render/x1Pose.ts turns a cockpit vertex), set on the mount of `legsFrame`, and
+ * placed as placeX1 places the X1 at sim (x, y, height) facing `yaw`. Writes the
+ * three-frame point (x, height, sim y) into `out`. Allocates nothing.
+ */
+export function x1BeamPoint(
+  table: Float32Array,
+  x: number,
+  height: number,
+  y: number,
+  yaw: number,
+  legsFrame: number,
+  cockpitFrame: number,
+  aimYaw: number,
+  aimPitch: number,
+  out: Float32Array,
+): void {
+  const b = cockpitFrame * 3;
+  const px = X1_BEAM_POINT[b];
+  const py = X1_BEAM_POINT[b + 1];
+  const pz = X1_BEAM_POINT[b + 2];
+  // Pitch about +x, then yaw about +y (column vectors: Ry * Rx * p).
+  const cp = Math.cos(aimPitch);
+  const sp = Math.sin(aimPitch);
+  const y1 = cp * py - sp * pz;
+  const z1 = sp * py + cp * pz;
+  const cy = Math.cos(aimYaw);
+  const sy = Math.sin(aimYaw);
+  const m = (legsFrame * X1_ANIM_WIDTH + X1_MOUNT_TEXEL) * 4;
+  const mx = cy * px + sy * z1 + table[m];
+  const my = y1 + table[m + 1];
+  const mz = -sy * px + cy * z1 + table[m + 2];
+  // The hull's turn about +y, as placeX1's quaternion.
+  const turn = MODEL_YAW - yaw;
+  const c = Math.cos(turn);
+  const s = Math.sin(turn);
+  out[0] = x + mx * c + mz * s;
+  out[1] = height + my;
+  out[2] = y - mx * s + mz * c;
+}
+
 export interface AvatarRig {
   /** False until the asset and its table have loaded; callers fall back meanwhile. */
   readonly ready: boolean;
@@ -383,6 +428,18 @@ export interface AvatarRig {
   end(): void;
   /** The cockpit's mount height above the X1's origin at a legs frame, m (0 until loaded). */
   mountHeight(legsFrame: number): number;
+  /** x1BeamPoint on the loaded table; false (and `out` untouched) until loaded. */
+  beamPoint(
+    x: number,
+    height: number,
+    y: number,
+    yaw: number,
+    legsFrame: number,
+    cockpitFrame: number,
+    aimYaw: number,
+    aimPitch: number,
+    out: Float32Array,
+  ): boolean;
   /** x1CockpitSkeleton for a team's X1; false until loaded. */
   cockpitSkeleton(
     x: number,
@@ -479,6 +536,12 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
       const c = core;
       if (!c) return 0;
       return c.table[(legsFrame * X1_ANIM_WIDTH + X1_MOUNT_TEXEL) * 4 + 1];
+    },
+    beamPoint(x, height, y, yaw, legsFrame, cockpitFrame, aimYaw, aimPitch, out) {
+      const c = core;
+      if (!c) return false;
+      x1BeamPoint(c.table, x, height, y, yaw, legsFrame, cockpitFrame, aimYaw, aimPitch, out);
+      return true;
     },
     cockpitSkeleton(x, height, y, yaw, team, legsFrame, cockpitFrame, out) {
       const c = core;

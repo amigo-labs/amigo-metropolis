@@ -170,8 +170,10 @@ import { createFx, createFxPoses, POSE_STRIDE } from "./render/fx";
 import { bucketFor, createGreyboxMeshes } from "./render/greybox";
 import { type CameraCaption, createCameraCaption } from "./render/hud/caption";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
+import { hudScale } from "./render/hud/hudLayout";
 import { snapshotIndexOf } from "./render/hud/hudRules";
 import { loadLifts, updateLifts } from "./render/lifts";
+import { createLockBeam } from "./render/lockBeam";
 import {
   createMapScreen,
   mapBounds,
@@ -1678,6 +1680,8 @@ function wrapAngleDelta(d: number): number {
 // Set once the match starts (after the lobby, if any).
 let views: PlayerView[] = [];
 let matchHud: MatchHud | undefined;
+/** The lock beam, in the scene (render/lockBeam.ts). */
+const lockBeam = createLockBeam(scene);
 const viewBySlot: (PlayerView | undefined)[] = new Array(MAX_PLAYERS).fill(undefined);
 let orbitControls: OrbitControls | undefined;
 
@@ -2252,7 +2256,11 @@ function renderMapScreen(dtSec: number): void {
   for (let i = 0; i < mapHidden.length; i++) mapHidden[i].visible = true;
 }
 
-/** The lock's two ends above the entities' feet, m: the X1's gun, the target's middle. */
+/**
+ * The lock's two ends above the entities' feet, m: the beam's start before the
+ * X1's rig has loaded (then it leaves the cockpit's model point 0), the
+ * target's middle.
+ */
 const LOCK_FROM_LIFT = 0.6;
 const LOCK_TO_LIFT = 0.5;
 
@@ -2287,18 +2295,29 @@ function refreshMatchHud(view: PlayerView, alpha: number): void {
     mapWin[2],
     view.slot,
   );
-  if (mapScreen.open) {
-    hud.drawLock(view.camera, false, 0, 0, 0, 0, 0, 0, 1);
+  if (mapScreen.open || !lockTarget(view, alpha, lockPoint)) {
+    hud.drawLock(view.camera, false, 0, 0, 0);
     return;
   }
+  hud.drawLock(view.camera, true, lockPoint[0], lockPoint[1], lockPoint[2]);
+}
+
+/** The lock's target point and the beam's near end, three frame (x, height, sim y). */
+const lockPoint = new Float32Array(3);
+const beamFrom = new Float32Array(3);
+
+/**
+ * The locked target's point for `view` (its middle, interpolated) into `out`;
+ * false while there is no lock, the X1 is down or unseen (hud_draw_lock_beam's
+ * gates: no `cact_view::lock`, `CACT_FLAG_DYING`).
+ */
+function lockTarget(view: PlayerView, alpha: number, out: Float32Array): boolean {
+  const pose = avatarPoses[view.slot];
   const mine = matchSlotOffset(view.slot);
   const lock = matchSnap[mine + MATCH_SLOT_LOCK] | 0;
   const down = (matchSnap[mine + MATCH_SLOT_RESPAWN_TICKS] | 0) > 0;
   const c = lock >= 0 && !down && pose[3] !== 0 ? snapshotIndexOf(snapCurr, countCurr, lock) : -1;
-  if (c < 0) {
-    hud.drawLock(view.camera, false, 0, 0, 0, 0, 0, 0, 1);
-    return;
-  }
+  if (c < 0) return false;
   const o = c * SNAPSHOT_STRIDE;
   let tx = snapCurr[o + 3];
   let ty = snapCurr[o + 5];
@@ -2310,12 +2329,64 @@ function refreshMatchHud(view: PlayerView, alpha: number): void {
     ty = snapPrev[po + 5] + (ty - snapPrev[po + 5]) * alpha;
     tz = snapPrev[po + 4] + (tz - snapPrev[po + 4]) * alpha;
   }
-  ty += LOCK_TO_LIFT;
-  const fx = pose[0];
-  const fy = pose[2] + LOCK_FROM_LIFT;
-  const fz = pose[1];
+  out[0] = tx;
+  out[1] = ty + LOCK_TO_LIFT;
+  out[2] = tz;
+  return true;
+}
+
+/**
+ * The lock beam in the scene (render/lockBeam.ts), for `view` posed: from the
+ * cockpit's model point 0 (hud_draw_lock_beam 0x00435382) to the first terrain
+ * hit toward the target. Before the view is rendered; hidden on the map screen.
+ */
+function placeLockBeam(view: PlayerView, alpha: number): void {
+  const pose = avatarPoses[view.slot];
+  if (!matchHud || mapScreen.open || !lockTarget(view, alpha, lockPoint)) {
+    lockBeam.set(view.camera, false, 0, 0, 0, 0, 0, 0, 1, 1, 1);
+    return;
+  }
+  const slot = view.slot;
+  const known = x1Walk.owner[slot] >= 0;
+  if (
+    !avatarRig?.beamPoint(
+      pose[0],
+      pose[2],
+      pose[1],
+      pose[5],
+      known ? x1Walk.legsFrame[slot] : 0,
+      known ? x1Walk.cockpitFrame[slot] : 0,
+      known ? aimYawModel(x1Walk.aimYaw[slot]) : 0,
+      known ? aimPitchModel(x1Walk.aimPitch[slot]) : 0,
+      beamFrom,
+    )
+  ) {
+    beamFrom[0] = pose[0];
+    beamFrom[1] = pose[2] + LOCK_FROM_LIFT;
+    beamFrom[2] = pose[1];
+  }
+  const fx = beamFrom[0];
+  const fy = beamFrom[1];
+  const fz = beamFrom[2];
+  const tx = lockPoint[0];
+  const ty = lockPoint[1];
+  const tz = lockPoint[2];
   const hit = lockHit(fx, fy, fz, tx, ty, tz);
-  hud.drawLock(view.camera, true, fx, fy, fz, tx, ty, tz, hit);
+  const vp = view.viewport;
+  view.camera.updateMatrixWorld();
+  lockBeam.set(
+    view.camera,
+    true,
+    fx,
+    fy,
+    fz,
+    fx + (tx - fx) * hit,
+    fy + (ty - fy) * hit,
+    fz + (tz - fz) * hit,
+    vp.width,
+    vp.height,
+    hudScale(vp.width, vp.height),
+  );
 }
 
 // --- HUD (1 Hz, host-side debug UI; reads sim directly) ----------------------
@@ -2471,6 +2542,8 @@ function frame(now: number): void {
   const alpha = accumulator / TICK_MS;
   const simDtSec = advanceSimClock(alpha);
   renderEntities(alpha, simDtSec);
+  // Shown only where view 0 places it this frame (placeLockBeam).
+  lockBeam.mesh.visible = false;
   if (views.length === 0) {
     // A match with no views yet (the menu and the connecting card return
     // above): the flyover.
@@ -2506,6 +2579,8 @@ function frame(now: number): void {
       // The models' camera-facing facers, on every instance matrix written
       // this frame (render/facers.ts), turned to the local view's camera.
       if (v === 0) drawFacers(view.camera, renderer.domElement.height);
+      // The lock beam on the posed camera, sorted among the scene's blended draws.
+      if (v === 0) placeLockBeam(view, alpha);
       const vp = view.viewport;
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);

@@ -24,7 +24,7 @@
   image-rendering: pixelated;
 }
 
-/* The lock beam and reticle: the whole view, drawn per frame while locked. */
+/* The lock reticle (the beam is drawn in the scene): the whole view, drawn per frame while locked. */
 /* The screen flash (screenFlash.ts): the viewport's grey strip, added to the
    frame below it (blend byte 2). Outside .mhud's stacking context, under it. */
 .mhud-flash {
