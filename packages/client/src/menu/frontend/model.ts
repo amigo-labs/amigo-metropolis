@@ -519,12 +519,13 @@ export type FeAction =
   | "options"
   | "start"
   | "cancel"
-  | "refused_help"
+  // A movie (movie.ts); refused with sound 3 by the menu when it cannot play.
+  | "help"
+  | "briefing"
+  | "replay"
   | "refused_quit"
   | "refused_players"
   | "refused_mode"
-  | "refused_briefing"
-  | "refused_replay"
   // The networked lobby: what goes to the peer (netLobby.ts).
   | "unready"
   | "net_loadout"
@@ -687,17 +688,20 @@ function runCallback(screen: FeScreen, panel: FePanel, out: FeResult): void {
       out.sounds.push(SND_START);
       out.actions.push("start");
       return;
-    // The original plays a movie the repo does not have (multibrf.mpg) ...
+    // The movies (menu/frontend/movie.ts): HELP's multibrf.mpg (0x00409bf0),
+    // BRIEFING the row's briefing (0x00409db0; disabled in PA), the film strip
+    // the row's po_*.mpg (0x0040abd0). The callback's only effect is the
+    // movie; the menu plays it, or refuses with sound 3 when it cannot.
     case "frontend_panel_help":
-      refuse("refused_help");
+      out.actions.push("help");
       return;
     case "frontend_panel_briefing":
-      refuse("refused_briefing");
+      out.actions.push("briefing");
       return;
     case "frontend_panel_replay":
-      refuse("refused_replay");
+      out.actions.push("replay");
       return;
-    // ... quits to a desktop a browser does not have ...
+    // The original quits to a desktop a browser does not have ...
     case "frontend_panel_quit":
       refuse("refused_quit");
       return;

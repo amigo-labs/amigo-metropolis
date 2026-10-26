@@ -114,6 +114,7 @@ import {
   loadoutFromParams,
   type MenuChoice,
   type MenuHandle,
+  playPostMissionMovie,
   recordSoloWin,
   runMenu,
 } from "./menu";
@@ -1204,9 +1205,31 @@ function refreshCapture(): void {
 // Captain), the Camera Key quits; online only the Camera Key.
 const results = createResultsPage({
   bindings: () => keyboard.getTable(),
-  onAgain: () => rematchSolo(),
-  onQuit: () => returnToMenu(),
+  onAgain: () => afterPostMovie(rematchSolo),
+  onQuit: () => afterPostMovie(returnToMenu),
 });
+/** A won round finished the map: its po_*.mpg plays before either way out. */
+let postMovieDue = false;
+let postMoviePlaying = false;
+/**
+ * frame_step_game runs after the results page, whichever key left it, and
+ * plays a finished map's movie before the next round or the front end
+ * (0x00409762, waited out at 0x0040976a). A movie this browser cannot show is
+ * skipped, as before the import.
+ */
+function afterPostMovie(go: () => void): void {
+  if (postMoviePlaying) return;
+  if (!postMovieDue) {
+    go();
+    return;
+  }
+  postMovieDue = false;
+  postMoviePlaying = true;
+  void playPostMissionMovie(map.id, audio).then(() => {
+    postMoviePlaying = false;
+    go();
+  });
+}
 /** The results page's figures, read once when it opens (writeResultsSnapshot). */
 const resultsSnap = new Float32Array(RESULTS_SNAPSHOT_LEN);
 
@@ -1219,6 +1242,7 @@ const MATCH_END_DELAY_MS = 0;
 function resetMatchEnd(): void {
   winSeenAtMs = -1;
   matchEndShown = false;
+  postMovieDue = false;
   results.close();
 }
 
@@ -1228,8 +1252,10 @@ function showMatchEnd(winner: number): void {
   setMatchPaused(false); // the page replaces the in-game menu, never stacks
   mapScreen.open = false;
   const slot = views[0]?.slot ?? 0;
-  // A solo win over the Sky Captain moves the map's progress (0x00409630).
-  if (warden && !net && winner === slot) recordSoloWin(map.id, wardenDifficulty);
+  // A solo win over the Sky Captain moves the map's progress (0x00409630);
+  // one that finishes the map plays its post-mission movie on the way out.
+  postMovieDue =
+    warden && !net && winner === slot && recordSoloWin(map.id, wardenDifficulty) === "finished";
   writeResultsSnapshot(sim, resultsSnap);
   // LEVEL is the Sky Captain's, one viewport only; the next round after a win
   // plays the level above it (results.c 0x00408121).
@@ -3052,8 +3078,9 @@ if (online) {
   startMatch([{ slot: 0, input: localInput }]);
 } else {
   // Bare URL: the original's front end; a choice starts its mode in-process.
+  // The boot's movies first, as game_main plays them (`?movies=0` skips them).
   document.body.style.cursor = "default";
-  menuHandle = runMenu(menuOptions());
+  menuHandle = runMenu({ ...menuOptions(), bootMovies: params.get("movies") !== "0" });
   // The install prompt usually fires after the menu mounts; reveal it then.
   addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();

@@ -181,6 +181,33 @@ joiner, whose boxes show them greyed.
 In the host and join dialogs the lobby's password and listing, and the room
 code, marked the same way.
 
+### Movies
+
+The original's movies (`menu/frontend/movie.ts`; RE `docs/formats/movies.md`,
+`fcop-fidelity.md` F10), all 27 re-encoded by `gen:movies` to AV1 + AAC in MP4
+under `/movies/` at their own size and 30 fps. One `<video>` over everything on
+the 640 x 480 stage, stretched to the rectangle the original's call pushes:
+
+- **at boot** (bare URL only; `?movies=0` leaves them out): `ea_logo`, then
+  `intro`, full width at (0, 41) 640 x 398 on black (game_main);
+- **HELP:** `multibrf` in the 512 x 288 box at (64, 30), (60, 30) in
+  fullscreen; **BRIEFING** the row's briefing in the same box (disabled in PA);
+- **the film strip:** the row's `po_*` full width, on black;
+- **a won round that finishes a map** (`frame_step_game`'s finished arm): the
+  map's `po_*` after the results page, whichever key left it, before the next
+  round or the front end.
+
+Played once, at the Movies slider's level (0 silent, else
+`-(10000 - 10000 * level / 127) / 6` hundredths of a dB). Space skips; with the
+front end up any mouse button, pressed or released, skips and reaches no panel;
+with it down (the boot's first, the finished map's) a left press. The front end
+is frozen under a movie and drawn again after it; 200 ms in, the UI sound is
+cut. **Platform:** a movie the browser cannot show -- offline (the service
+worker never caches `/movies/`), a 404, no AV1 decoder (Safari before A17 Pro /
+M3) -- is no movie: HELP and the film strip answer with slot 3 as before the
+import, the boot and the finished map go straight on. A browser that will not
+start one with sound plays it muted.
+
 ### UI sounds
 
 The nine slots of `ui_sounds.json` on the original's call sites
