@@ -2,13 +2,13 @@
 // Re-run `bun run gen:presentation --re <RE checkout>`.
 //
 // The original's presentation, from amigo-labs/fcop-reverse-engineering
-// @ 04711efd5ad60260c8a1d73be7797b4096ce4077: extracted/presentation/camera.json, hud.json and
+// @ e2f91906f93d6febfeba3cc9598bcd67617f9306: extracted/presentation/camera.json, hud.json and
 // radar_markers.json (tools/logic/presentation_data.py, every value cited there to
 // the decompiled C), extracted/fonts/font3.json, and each PA mission's type-35
 // objective record. Positions are in the Metropolis map frame (actors.json x + 16).
 
 /** The RE commit the tables were read at. */
-export const PRESENTATION_RE_COMMIT = "04711efd5ad60260c8a1d73be7797b4096ce4077";
+export const PRESENTATION_RE_COMMIT = "e2f91906f93d6febfeba3cc9598bcd67617f9306";
 
 // --- cameras (camera.json) -----------------------------------------------------
 
@@ -464,10 +464,12 @@ export interface ArenaPresentation {
     readonly markers: P;
   }[];
   /**
-   * By Cobj, the 3DBB box 0 (frame 0) the map screen's arrow is built on: centre x
-   * and z, half x and z, metres in the model's own frame (pause_map.c 0x004516e0).
+   * By Cobj, the 3DBB box the map screen's arrow is built on, one per frame (box 0
+   * of the actor's current frame, pause_map_draw_actor 0x0045180d; one entry where
+   * every frame's is alike): centre x and z, half x and z, metres in the model's
+   * own frame.
    */
-  readonly boxes: Readonly<Record<number, readonly [number, number, number, number]>>;
+  readonly boxes: Readonly<Record<number, readonly (readonly [number, number, number, number])[]>>;
 }
 
 export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = {
@@ -508,13 +510,13 @@ export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = {
       { record: "Cact 261", x: 93.8123, y: 157.625, markers: [1, 2] },
     ],
     boxes: {
-      "23": [0, 0, 0.1406, 0.1855],
-      "24": [0, 0.0215, 0.0938, 0.2285],
-      "25": [0, -0.0117, 0.1113, 0.2246],
-      "26": [0, 0.043, 0.2148, 0.0488],
-      "28": [0, 0.3184, 0.0273, 0.3418],
-      "29": [0, 0.0527, 0.5, 0.5586],
-      "57": [0.043, 0.0762, 0.3066, 0.0762],
+      "23": [[0, 0, 0.1406, 0.1855]],
+      "24": [[0, 0.0215, 0.0938, 0.2285]],
+      "25": [[0, -0.0117, 0.1113, 0.2246]],
+      "26": [[0, 0.043, 0.2148, 0.0488]],
+      "28": [[0, 0.3184, 0.0273, 0.3418]],
+      "29": [[0, 0.0527, 0.5, 0.5586]],
+      "57": [[0.043, 0.0762, 0.3066, 0.0762]],
     },
   },
   "proving-ground": {
@@ -554,13 +556,13 @@ export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = {
       { record: "Cact 261", x: 109.4998, y: 148.5625, markers: [1, 2] },
     ],
     boxes: {
-      "23": [0, 0, 0.1406, 0.1855],
-      "24": [0, 0.0215, 0.0938, 0.2285],
-      "25": [0, -0.0117, 0.1113, 0.2246],
-      "26": [0, 0.043, 0.2148, 0.0488],
-      "28": [0, 0.3184, 0.0273, 0.3418],
-      "29": [0, 0.0527, 0.5, 0.5586],
-      "78": [0.043, 0.0762, 0.3066, 0.0762],
+      "23": [[0, 0, 0.1406, 0.1855]],
+      "24": [[0, 0.0215, 0.0938, 0.2285]],
+      "25": [[0, -0.0117, 0.1113, 0.2246]],
+      "26": [[0, 0.043, 0.2148, 0.0488]],
+      "28": [[0, 0.3184, 0.0273, 0.3418]],
+      "29": [[0, 0.0527, 0.5, 0.5586]],
+      "78": [[0.043, 0.0762, 0.3066, 0.0762]],
     },
   },
   "la-cantina": {
@@ -600,13 +602,13 @@ export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = {
       { record: "Cact 261", x: 90.1873, y: 133.1875, markers: [1, 2] },
     ],
     boxes: {
-      "23": [0, 0, 0.1406, 0.1855],
-      "24": [0, 0.0215, 0.0938, 0.2285],
-      "25": [0, -0.0117, 0.1113, 0.2246],
-      "26": [0, 0.043, 0.2148, 0.0488],
-      "28": [0, 0.3184, 0.0273, 0.3418],
-      "29": [0, 0.0527, 0.5, 0.5586],
-      "55": [0.043, 0.0762, 0.3066, 0.0762],
+      "23": [[0, 0, 0.1406, 0.1855]],
+      "24": [[0, 0.0215, 0.0938, 0.2285]],
+      "25": [[0, -0.0117, 0.1113, 0.2246]],
+      "26": [[0, 0.043, 0.2148, 0.0488]],
+      "28": [[0, 0.3184, 0.0273, 0.3418]],
+      "29": [[0, 0.0527, 0.5, 0.5586]],
+      "55": [[0.043, 0.0762, 0.3066, 0.0762]],
     },
   },
   "bug-hunt": {
@@ -646,13 +648,13 @@ export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = {
       { record: "Cact 261", x: 109.4998, y: 148.5625, markers: [1, 2] },
     ],
     boxes: {
-      "23": [0, 0, 0.1406, 0.1855],
-      "24": [0, 0.0215, 0.0938, 0.2285],
-      "25": [0, -0.0117, 0.1113, 0.2246],
-      "26": [0, 0.043, 0.2148, 0.0488],
-      "28": [0, 0.3184, 0.0273, 0.3418],
-      "29": [0, 0.0527, 0.5, 0.5586],
-      "77": [0.043, 0.0762, 0.3066, 0.0762],
+      "23": [[0, 0, 0.1406, 0.1855]],
+      "24": [[0, 0.0215, 0.0938, 0.2285]],
+      "25": [[0, -0.0117, 0.1113, 0.2246]],
+      "26": [[0, 0.043, 0.2148, 0.0488]],
+      "28": [[0, 0.3184, 0.0273, 0.3418]],
+      "29": [[0, 0.0527, 0.5, 0.5586]],
+      "77": [[0.043, 0.0762, 0.3066, 0.0762]],
     },
   },
   "hollywood-keys": {
@@ -692,13 +694,13 @@ export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = {
       { record: "Cact 261", x: 120.8123, y: 162.5, markers: [1, 2] },
     ],
     boxes: {
-      "23": [0, 0, 0.1406, 0.1855],
-      "24": [0, 0.0215, 0.0938, 0.2285],
-      "25": [0, -0.0117, 0.1113, 0.2246],
-      "26": [0, 0.043, 0.2148, 0.0488],
-      "28": [0, 0.3184, 0.0273, 0.3418],
-      "29": [0, 0.0527, 0.5, 0.5586],
-      "58": [0.043, 0.0762, 0.3066, 0.0762],
+      "23": [[0, 0, 0.1406, 0.1855]],
+      "24": [[0, 0.0215, 0.0938, 0.2285]],
+      "25": [[0, -0.0117, 0.1113, 0.2246]],
+      "26": [[0, 0.043, 0.2148, 0.0488]],
+      "28": [[0, 0.3184, 0.0273, 0.3418]],
+      "29": [[0, 0.0527, 0.5, 0.5586]],
+      "58": [[0.043, 0.0762, 0.3066, 0.0762]],
     },
   },
   "venice-beach": {
@@ -738,13 +740,13 @@ export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = {
       { record: "Cact 261", x: 122.9998, y: 173.9375, markers: [1, 2] },
     ],
     boxes: {
-      "23": [0, 0, 0.1406, 0.1855],
-      "24": [0, 0.0215, 0.0938, 0.2285],
-      "25": [0, -0.0117, 0.1113, 0.2246],
-      "26": [0, 0.043, 0.2148, 0.0488],
-      "28": [0, 0.3184, 0.0273, 0.3418],
-      "29": [0, 0.0527, 0.5, 0.5586],
-      "55": [0.043, 0.0762, 0.3066, 0.0762],
+      "23": [[0, 0, 0.1406, 0.1855]],
+      "24": [[0, 0.0215, 0.0938, 0.2285]],
+      "25": [[0, -0.0117, 0.1113, 0.2246]],
+      "26": [[0, 0.043, 0.2148, 0.0488]],
+      "28": [[0, 0.3184, 0.0273, 0.3418]],
+      "29": [[0, 0.0527, 0.5, 0.5586]],
+      "55": [[0.043, 0.0762, 0.3066, 0.0762]],
     },
   },
 } as unknown as Readonly<Record<string, ArenaPresentation>>;

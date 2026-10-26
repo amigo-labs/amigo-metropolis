@@ -17,9 +17,10 @@
 //                                        the lock reticle (16 x 16 at 0,210)
 //   fixtures/missions/<Mission>          the type-35 objective record's eight
 //                                        radar contacts (no export carries them yet)
-//   extracted/objects/<Mission>/manifest.json
-//                                        the 3DBB box 0 of the models the map
-//                                        screen draws an arrow for (frame 0)
+//   extracted/objects/<Mission>/bboxes.json
+//                                        the 3DBB box 0 of each frame of the
+//                                        models the map screen draws an arrow
+//                                        for (manifest.json checks frame 0's)
 //
 //     -> packages/client/public/hud/{font3.png,tex11.png,reticles.png}
 //     -> packages/client/src/render/fcopPresentation.generated.ts
@@ -339,7 +340,20 @@ interface ArenaOut {
   contacts: Contact[];
   staticMarkers: { record: string; marker: number; x: number; y: number }[];
   claimMarkers: { record: string; x: number; y: number; markers: [number, number] }[];
-  boxes: Record<number, [number, number, number, number]>;
+  boxes: Record<number, Box[]>;
+}
+
+/** A 3DBB box as the arrow reads it: centre x and z, half x and z, metres. */
+type Box = [number, number, number, number];
+
+/** One Cobj's 3DBB table (RE tools/gfx/extract_objects.py `bboxes.json`). */
+interface BboxTable {
+  id: number;
+  /** The 4DGI frame count. */
+  frames: number;
+  per_frame: number;
+  /** Box-major, eight raw halfwords a box: box i of frame f is entry i * frames + f. */
+  boxes: number[][];
 }
 
 interface ObjectManifestEntry {
@@ -348,27 +362,43 @@ interface ObjectManifestEntry {
 }
 
 /**
- * The 3DBB box 0 of frame 0 of each model in `cobjs`, as the pause map reads it
- * (pause_map.c 0x004516e0): [cx, cz, lx, lz] in metres, the Cobj's own x (the
- * manifest's glb x is negated, tools/gfx/obj_mesh.py parse_3dbb).
+ * Box 0 of every frame of each model in `cobjs`, as the pause map reads it: the
+ * arrow takes box 0 of the actor's current frame (`cobj_bbox_frame_box`, the
+ * table + 8 + frame x 16, pause_map_draw_actor 0x0045180d), which in the
+ * box-major table is entry f for frame f. [cx, cz, lx, lz] in metres (a
+ * halfword is 1/512 m), the Cobj's own x. A model whose frames' boxes are all
+ * alike keeps one entry; frame 0 is checked against the manifest's box (whose
+ * glb x is negated, tools/gfx/obj_mesh.py parse_3dbb).
  */
 function modelBoxes(mission: string, cobjs: Iterable<number>): ArenaOut["boxes"] {
+  const tables = readJson<{ objects: BboxTable[] }>("extracted", "objects", mission, "bboxes.json");
   const manifest = readJson<ObjectManifestEntry[]>(
     "extracted",
     "objects",
     mission,
     "manifest.json",
   );
+  const m = (v: number) => round4(v / 512);
   const out: ArenaOut["boxes"] = {};
   for (const id of [...new Set(cobjs)].sort((a, b) => a - b)) {
+    const t = tables.objects.find((o) => o.id === id);
+    if (!t || t.frames < 1 || t.boxes.length !== t.frames * t.per_frame) {
+      throw new Error(`${mission}: Cobj ${id} has no whole 3DBB table in bboxes.json`);
+    }
+    const frames = t.boxes
+      .slice(0, t.frames)
+      .map((e) => [m(e[0]), m(e[2]), m(e[3]), m(e[5])] as Box);
     const bb = manifest.find((o) => o.id === id)?.bbox;
-    if (!bb) throw new Error(`${mission}: Cobj ${id} has no 3DBB box in the manifest`);
-    out[id] = [
-      round4(-bb.center[0] + 0),
-      round4(bb.center[2]),
-      round4(bb.half[0]),
-      round4(bb.half[2]),
-    ];
+    const f0 = bb
+      ? [round4(-bb.center[0] + 0), round4(bb.center[2]), round4(bb.half[0]), round4(bb.half[2])]
+      : null;
+    if (!f0 || f0.some((v, i) => v !== frames[0][i])) {
+      throw new Error(
+        `${mission}: Cobj ${id}'s frame-0 box ${frames[0]} is not the manifest's ${f0}`,
+      );
+    }
+    const alike = frames.every((f) => f.every((v, i) => v === frames[0][i]));
+    out[id] = alike ? [frames[0]] : frames;
   }
   return out;
 }
@@ -749,10 +779,12 @@ export interface ArenaPresentation {
   /** The outposts' corner posts: [side 1's, side 2's] marker once claimed. */
   readonly claimMarkers: readonly { readonly record: string; readonly x: number; readonly y: number; readonly markers: P }[];
   /**
-   * By Cobj, the 3DBB box 0 (frame 0) the map screen's arrow is built on: centre x
-   * and z, half x and z, metres in the model's own frame (pause_map.c 0x004516e0).
+   * By Cobj, the 3DBB box the map screen's arrow is built on, one per frame (box 0
+   * of the actor's current frame, pause_map_draw_actor 0x0045180d; one entry where
+   * every frame's is alike): centre x and z, half x and z, metres in the model's
+   * own frame.
    */
-  readonly boxes: Readonly<Record<number, readonly [number, number, number, number]>>;
+  readonly boxes: Readonly<Record<number, readonly (readonly [number, number, number, number])[]>>;
 }
 
 export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = ${j(arenas)} as unknown as Readonly<Record<string, ArenaPresentation>>;
