@@ -12,9 +12,12 @@ import {
   UNIT_MARKERS,
 } from "../src/render/fcopPresentation.generated";
 import {
+  CANDIDATES_AVATARS,
+  CANDIDATES_OTHERS,
   entityCandidates,
   LiveOrder,
   markerOf,
+  placedLoadOrder,
   REGISTRY_LIMIT_TEAM_GAME,
   radarInRange,
   radarPlace,
@@ -82,6 +85,9 @@ describe("markers (radar_markers.json)", () => {
     expect(RADAR_PALETTE[red & 0x1f]).toEqual([255, 0, 0]);
     expect(RADAR_PALETTE[blue & 0x1f]).toEqual([0, 0, 255]);
     expect(markerOf(ARCHETYPE.WARDEN, SIDE_BLUE, 0)).toBe(UNIT_MARKERS.captain);
+    // The record's byte, 0x32, on whichever side it flies.
+    expect(UNIT_MARKERS.captain).toBe(0x32);
+    expect(markerOf(ARCHETYPE.WARDEN, SIDE_RED, 0)).toBe(0x32);
   });
 
   test("units: tanks and jets sprites, the Dreadnought and Flying Fortress diamonds", () => {
@@ -256,6 +262,42 @@ describe("the live list's order (cact_link 0x0043ad70: creation order, oldest fi
     // Flag 8: not the base part, the turret, the mounts and the hull, not the
     // X1 or its partner, the tank.
     expect([...keep.subarray(2, n)]).toEqual([0, 1, 1, 1, 1, 1, 1, 0, 0, 1]);
+  });
+
+  test("the X1s in a pass of their own; the frame start's positions", () => {
+    const s = snap([
+      [1, ARCHETYPE.TURRET, 1, 2],
+      [3, ARCHETYPE.AVATAR, 5, 6],
+      [4, ARCHETYPE.RUNNER, 7, 8],
+    ]);
+    // The tick began with the X1 elsewhere, no tank yet, and id 1 another actor.
+    const prev = snap([
+      [1, ARCHETYPE.PROJECTILE, 0, 0],
+      [3, ARCHETYPE.AVATAR, 50, 60],
+    ]);
+    const live = new LiveOrder();
+    const m = live.update(s, 3);
+    const xs = new Float64Array(32);
+    const ys = new Float64Array(32);
+    const at = new Int32Array(3);
+    const keep = new Uint8Array(32);
+    let n = entityCandidates(s, live.order, m, xs, ys, keep, 0, at, CANDIDATES_AVATARS, prev, 2);
+    expect(n).toBe(2);
+    expect([xs[0], ys[0], xs[1], ys[1]]).toEqual([50, 60, 50, 60]);
+    n = entityCandidates(s, live.order, m, xs, ys, keep, n, at, CANDIDATES_OTHERS, prev, 2);
+    expect(n).toBe(2 + 2 + 1);
+    // Neither the reused id's turret nor the new tank stood anywhere yet.
+    for (let k = 2; k < n; k++) expect(Number.isNaN(xs[k])).toBe(true);
+  });
+});
+
+describe("the placed records' load order (res_dispatch_chunks, cact_load)", () => {
+  test("every Cact in the container's file order, then the Csac records by id", () => {
+    const order = placedLoadOrder(
+      ["Csac 50", "Cact 10", "Cact 147", "Csac 43", "Cact 245"],
+      [245, 147, 10],
+    );
+    expect(order).toEqual([4, 2, 1, 3, 0]);
   });
 });
 

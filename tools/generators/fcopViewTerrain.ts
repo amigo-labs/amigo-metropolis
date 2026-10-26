@@ -18,6 +18,13 @@
 //    the surface stands for is see-through: the plate under the cell's centre
 //    (`platesOf`, the original's height query with each plate's material) whose
 //    height is nearest the surface's there, within MATCH_M.
+// 3. **The load order** of the placed type-11 records the radar registers
+//    (render/hud/radar.ts): `res_dispatch_chunks` (0x004063c0) hands the
+//    container's resources to their loaders in the order they arrive, and
+//    `cact_load` (0x0043af20) builds a `Cact`'s actor there and then, so the
+//    live list starts with the Cact actors in file order -- not by id, which
+//    differs on all six arenas. A `Csac` only registers a spawner
+//    (`csac_load` 0x0044eff0); its actor comes later.
 //
 //   bun run gen:viewterrain [--check] [--re-repo <path>]
 //
@@ -80,7 +87,14 @@ export interface ViewTerrain {
   world: [number, number, number, number];
   /** Per surface (0 the ground, k the k-th deck): the see-through cells, `row * cells + col`. */
   seeThrough: number[][];
+  /** The type-11 `Cact` records' ids in the container's file order: their load order. */
+  cactLoad: number[];
 }
+
+/** The tACT payload in a resource's bytes (fcopLogic.ts TACT_PAYLOAD): its type byte. */
+const TACT_PAYLOAD = 12;
+/** DynamicProp, the placed scenery the radar registers. */
+const TYPE_DYNAMIC_PROP = 11;
 
 function maskAt(layer: SimLayer, r: number, c: number): boolean {
   const row = layer.mask[r];
@@ -153,7 +167,13 @@ export function buildViewTerrain(container: Uint8Array, map: SimMap): ViewTerrai
       });
     }
   }
-  return { world, seeThrough };
+  const cactLoad: number[] = [];
+  for (const [key, at] of res) {
+    if (!key.startsWith("tcaC:")) continue;
+    const blob = containerResource(container, at);
+    if (blob[TACT_PAYLOAD] === TYPE_DYNAMIC_PROP) cactLoad.push(Number(key.slice(5)));
+  }
+  return { world, seeThrough, cactLoad };
 }
 
 function render(entries: readonly [string, ViewTerrain][]): string {
@@ -163,7 +183,8 @@ function render(entries: readonly [string, ViewTerrain][]): string {
     "// Per arena, from the original's containers and the sim's maps: the world the",
     "// map screen's window stays inside (`world_clamp_map_centre` 0x00452710 over",
     "// `cptc_load`'s bounds), and the see-through surfaces of the chase camera's",
-    "// line of sight (`view_trace` 0x00445df0, a plate material's bit 7).",
+    "// line of sight (`view_trace` 0x00445df0, a plate material's bit 7), and the",
+    "// load order of the placed type-11 records.",
     "",
     "export interface ViewTerrain {",
     "  /** [minX, maxX, minY, maxY], metres: the terrain grid less its margin. */",
@@ -173,6 +194,12 @@ function render(entries: readonly [string, ViewTerrain][]): string {
     "   * see-through plate, `row * (size - 1) + col`, ascending.",
     "   */",
     "  readonly seeThrough: readonly (readonly number[])[];",
+    "  /**",
+    "   * The type-11 `Cact` records' ids in the container's file order, which is",
+    "   * the order the load makes their actors (`res_dispatch_chunks` 0x004063c0,",
+    "   * `cact_load` 0x0043af20).",
+    "   */",
+    "  readonly cactLoad: readonly number[];",
     "}",
     "",
     "export const VIEW_TERRAIN: Readonly<Record<string, ViewTerrain>> = {",
@@ -181,6 +208,7 @@ function render(entries: readonly [string, ViewTerrain][]): string {
     lines.push(`  "${id}": {`);
     lines.push(`    world: [${t.world.join(", ")}],`);
     lines.push(`    seeThrough: [${t.seeThrough.map((s) => `[${s.join(", ")}]`).join(", ")}],`);
+    lines.push(`    cactLoad: [${t.cactLoad.join(", ")}],`);
     lines.push("  },");
   }
   lines.push("};", "");

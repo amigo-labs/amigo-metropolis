@@ -70,12 +70,15 @@ export interface MatchHudOptions {
 export interface MatchHud {
   /**
    * Draws what changed. `clock` is the 300 Hz frame clock (sim tick x 10); the
-   * radar takes the local X1-Alpha's interpolated pose (sim frame, radians).
+   * radar takes the local X1-Alpha's interpolated pose (sim frame, radians)
+   * and `prev`, the snapshot the last tick began from (its registry).
    */
   refresh(
     match: Float32Array,
     snapshot: Float32Array,
     count: number,
+    prev: Float32Array,
+    prevCount: number,
     clock: number,
     selfX: number,
     selfY: number,
@@ -301,7 +304,7 @@ export function createMatchHud(
     flash(flash, distWu) {
       armScreenFlash(screenFlash, flash, distWu);
     },
-    refresh(match, snapshot, count, clock, selfX, selfY, facing) {
+    refresh(match, snapshot, count, prev, prevCount, clock, selfX, selfY, facing) {
       const mine = matchSlotOffset(slot);
       const theirs = matchSlotOffset(other);
       const ready = (font.ready ? 1 : 0) + (page.ready ? 2 : 0);
@@ -423,7 +426,7 @@ export function createMatchHud(
         }
       }
 
-      radar.refresh(match, snapshot, count, clock, selfX, selfY, facing, down);
+      radar.refresh(match, snapshot, count, prev, prevCount, clock, selfX, selfY, facing, down);
     },
 
     drawLock(camera, active, tx, ty, tz) {

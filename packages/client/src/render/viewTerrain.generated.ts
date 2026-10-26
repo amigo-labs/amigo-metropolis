@@ -3,7 +3,8 @@
 // Per arena, from the original's containers and the sim's maps: the world the
 // map screen's window stays inside (`world_clamp_map_centre` 0x00452710 over
 // `cptc_load`'s bounds), and the see-through surfaces of the chase camera's
-// line of sight (`view_trace` 0x00445df0, a plate material's bit 7).
+// line of sight (`view_trace` 0x00445df0, a plate material's bit 7), and the
+// load order of the placed type-11 records.
 
 export interface ViewTerrain {
   /** [minX, maxX, minY, maxY], metres: the terrain grid less its margin. */
@@ -13,16 +14,30 @@ export interface ViewTerrain {
    * see-through plate, `row * (size - 1) + col`, ascending.
    */
   readonly seeThrough: readonly (readonly number[])[];
+  /**
+   * The type-11 `Cact` records' ids in the container's file order, which is
+   * the order the load makes their actors (`res_dispatch_chunks` 0x004063c0,
+   * `cact_load` 0x0043af20).
+   */
+  readonly cactLoad: readonly number[];
 }
 
 export const VIEW_TERRAIN: Readonly<Record<string, ViewTerrain>> = {
   "urban-jungle": {
     world: [80, 160, 64, 176],
     seeThrough: [[], [], []],
+    cactLoad: [
+      245, 246, 247, 248, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 147, 168, 190,
+      212, 10, 11, 17, 32,
+    ],
   },
   "proving-ground": {
     world: [80, 160, 64, 176],
     seeThrough: [[], [], []],
+    cactLoad: [
+      245, 246, 247, 248, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 147, 168, 190,
+      212, 35, 38, 32, 39,
+    ],
   },
   "la-cantina": {
     world: [80, 144, 64, 160],
@@ -51,17 +66,33 @@ export const VIEW_TERRAIN: Readonly<Record<string, ViewTerrain>> = {
       ],
       [22410, 22453, 22650, 22693, 23370, 23413, 30330, 30373, 31050, 31093, 31290],
     ],
+    cactLoad: [
+      245, 246, 247, 248, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 147, 168, 190,
+      212, 10, 11, 17, 32,
+    ],
   },
   "bug-hunt": {
     world: [80, 160, 64, 176],
     seeThrough: [[], [], []],
+    cactLoad: [
+      245, 246, 247, 248, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 147, 168, 190,
+      212, 35, 38, 32, 39,
+    ],
   },
   "hollywood-keys": {
     world: [80, 224, 64, 176],
     seeThrough: [[], [], []],
+    cactLoad: [
+      245, 246, 247, 248, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 147, 168, 190,
+      212, 10, 11, 17, 32,
+    ],
   },
   "venice-beach": {
     world: [80, 208, 64, 224],
     seeThrough: [[], [], []],
+    cactLoad: [
+      245, 246, 247, 248, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 147, 168, 190,
+      212, 10, 11, 17, 32,
+    ],
   },
 };

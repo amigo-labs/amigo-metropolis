@@ -23,7 +23,13 @@
 // (0x00425fa0, made in its construct). An actor with flag 8 is kept at any
 // distance and still counts (0x0043b61b): every unit, turret and round, a
 // Dreadnought's mounts, and the type-11 records whose flags carry it -- never
-// an X1, its partner, a turret's base part or a pickup (RE M3-OP).
+// an X1, its partner, a turret's base part or a pickup (RE M3-OP). The live
+// list starts with the load's `Cact` actors in the container's file order --
+// the X1s (with their partners) before every placed type-11 record -- and the
+// registry is the frame start's: built from the snapshot the tick began from,
+// so an actor made during the tick shows a tick later (mission_update
+// 0x00407360). An outpost's console entity is no actor of the original's (its
+// type-11 record is) and no candidate.
 //
 // Markers come from radar_markers.json by unit kind and the team's original
 // side (render/sides.ts); the placed actors Metropolis has no entity for — the
@@ -57,6 +63,7 @@ import {
 } from "../fcopPresentation.generated";
 import { mapCell } from "../mapScreen";
 import { SIDE_BLUE, SIDE_RED, sideOfTeam } from "../sides";
+import { VIEW_TERRAIN } from "../viewTerrain.generated";
 import { hudPage11 } from "./hudArt";
 import { type HudCanvas, hudCanvas } from "./hudLayout";
 import { snapshotIndexOf } from "./hudRules";
@@ -77,11 +84,17 @@ export interface RadarOverview {
 export interface Radar {
   /** Written by the map screen; read by refresh(). */
   readonly overview: RadarOverview;
-  /** Draws the radar for this frame (the local X1's interpolated pose, sim frame). */
+  /**
+   * Draws the radar for this frame (the local X1's interpolated pose, sim
+   * frame). `prev` is the snapshot the last tick began from: the registry is
+   * the frame start's (cact_registry_build), the blips the frame's.
+   */
   refresh(
     match: Float32Array,
     snapshot: Float32Array,
     count: number,
+    prev: Float32Array,
+    prevCount: number,
     clock: number,
     selfX: number,
     selfY: number,
@@ -238,7 +251,7 @@ export class LiveOrder {
  * Flag 8 by archetype (RE M3-OP): every tank, jet, Flying Fortress, turret,
  * Dreadnought and Sky Captain record of the six arenas carries it, and every
  * round has it from its spawner; an X1-Alpha's record does not (nor its
- * partner, which copies the X1's flags), and a console is Metropolis' own.
+ * partner, which copies the X1's flags). A console entity is no candidate.
  */
 const KEPT_ARCHETYPES: readonly boolean[] = (() => {
   const kept: boolean[] = [];
@@ -257,6 +270,30 @@ const KEPT_ARCHETYPES: readonly boolean[] = (() => {
 })();
 
 /**
+ * The placed records ("Cact 147", "Csac 43") in the order their actors join
+ * the live list, as indices into `records`: every `Cact` in `cactLoad`'s order
+ * (the container's file order, the load's), then every `Csac` by id.
+ */
+export function placedLoadOrder(records: readonly string[], cactLoad: readonly number[]): number[] {
+  return records
+    .map((record, k) => {
+      const id = Number(record.split(" ")[1]) || 0;
+      const csac = record.startsWith("Csac");
+      const at = csac ? -1 : cactLoad.indexOf(id);
+      return { k, id, csac, at: at >= 0 ? at : cactLoad.length + id };
+    })
+    .sort((a, b) => Number(a.csac) - Number(b.csac) || (a.csac ? a.id - b.id : a.at - b.at))
+    .map((e) => e.k);
+}
+
+/** Which entities an entityCandidates pass writes. */
+export const CANDIDATES_ALL = 0;
+/** The X1-Alphas only: their records load before every placed type-11 record. */
+export const CANDIDATES_AVATARS = 1;
+/** Every entity but the X1-Alphas. */
+export const CANDIDATES_OTHERS = 2;
+
+/**
  * Writes the entities, in `order` (LiveOrder), into the registry's candidates
  * from `n` on, each with the actors that stand with it and have no entity: a
  * turret's base part before it, a Dreadnought's four mounts before it, an X1's
@@ -265,6 +302,12 @@ const KEPT_ARCHETYPES: readonly boolean[] = (() => {
  * their Dreadnought's (0x00425fdd keeps it), the base part's clear (the part's
  * construct masks it off, 0x0041cfdd) and the partner's the X1's. Answers the
  * next free candidate.
+ *
+ * `which` picks the X1s, the others or all (CANDIDATES_*). With `prev` (the
+ * snapshot the tick began from) each candidate stands where its entity stood
+ * then, and an entity that was not there yet (or was another actor under the
+ * id) stands nowhere (NaN): `cact_registry_build` runs at the frame's start,
+ * before any actor moves or is made (mission_update 0x00407360, step 2).
  */
 export function entityCandidates(
   snapshot: Float32Array,
@@ -275,13 +318,34 @@ export function entityCandidates(
   keep: Uint8Array,
   n: number,
   entityAt: Int32Array,
+  which = CANDIDATES_ALL,
+  prev: Float32Array | null = null,
+  prevCount = 0,
 ): number {
   for (let q = 0; q < m; q++) {
     const i = order[q];
     const o = i * SNAPSHOT_STRIDE;
     const archetype = snapshot[o + 1];
-    const x = snapshot[o + 3];
-    const y = snapshot[o + 4];
+    const avatar = archetype === ARCHETYPE.AVATAR;
+    if (which === CANDIDATES_AVATARS ? !avatar : which === CANDIDATES_OTHERS && avatar) continue;
+    // An outpost's console entity is Metropolis' own: the original's actor is
+    // its type-11 record (Mp Cact 147 and kin, flags 0x208c0, no flag 8), a
+    // placed candidate of its own. No second candidate for it.
+    if (archetype === ARCHETYPE.CONSOLE) {
+      entityAt[i] = -1;
+      continue;
+    }
+    let x = snapshot[o + 3];
+    let y = snapshot[o + 4];
+    if (prev !== null) {
+      const p = snapshotIndexOf(prev, prevCount, snapshot[o]);
+      if (p >= 0 && prev[p * SNAPSHOT_STRIDE + 1] === archetype) {
+        x = prev[p * SNAPSHOT_STRIDE + 3];
+        y = prev[p * SNAPSHOT_STRIDE + 4];
+      } else {
+        x = Number.NaN;
+      }
+    }
     const kept = KEPT_ARCHETYPES[archetype] === true ? 1 : 0;
     const before =
       archetype === ARCHETYPE.TURRET ? 1 : archetype === ARCHETYPE.JUGGERNAUT ? MOUNTS : 0;
@@ -381,8 +445,12 @@ export function markerOf(archetype: number, side: number, aux: number): number {
   const i = side === SIDE_BLUE ? 1 : 0;
   switch (archetype) {
     case ARCHETYPE.AVATAR:
-    case ARCHETYPE.WARDEN: // the Sky Captain carries the X1's marker of its side (0x32)
       return side ? UNIT_MARKERS.avatar[i] : 0;
+    case ARCHETYPE.WARDEN:
+      // The Sky Captain's record byte (radar_markers.json): side 2's X1 marker,
+      // 0x32, whatever side it flies for -- in the original it is always side
+      // 2, and every Metropolis match seats it there too (wardenPlayer 1).
+      return UNIT_MARKERS.captain;
     case ARCHETYPE.RUNNER:
       return side ? UNIT_MARKERS.tank[i] : 0;
     case ARCHETYPE.GUARDIAN:
@@ -549,23 +617,22 @@ export function createRadar(
   const spotSide = new Int32Array(spots.length);
   const extent = map ? worldExtent(map) : 1;
 
-  // The registry's candidates, in live-list order, oldest first: the placed
-  // actors the mission load made — every type-11 record in load order, then
-  // the pickups — and then the entities in the order they were made
-  // (LiveOrder). Where the load interleaves its records with the entities'
-  // (the turrets and consoles are records too) is not kept: the placed ones
-  // stand first.
+  // The registry's candidates, in live-list order, oldest first. The load
+  // makes the `Cact` actors in the container's file order (res_dispatch_chunks
+  // 0x004063c0, cact_load 0x0043af20; gen:viewterrain `cactLoad`): the X1s
+  // (records 12 and 16, with their partners) before every placed type-11
+  // record on all six arenas, then those records. A `Csac` only registers a
+  // spawner (csac_load 0x0044eff0), so its type-11 records, the pickups and
+  // every other entity come after; among those Metropolis keeps the Csac
+  // records by id, then the pickups, then the entities in the order they
+  // were made (LiveOrder) -- when each spawner first fires is the scripts'.
   const placements = SCENERY_PLACEMENTS[mapId]?.placements ?? [];
   const pickups = map?.pickups ?? [];
   const nPickups = pickups.length < 24 ? pickups.length : 24;
-  const placedOrder = placements
-    .map((p, k) => ({
-      k,
-      id: Number(p.record.split(" ")[1]) || 0,
-      csac: p.record.startsWith("Csac"),
-    }))
-    .sort((a, b) => Number(b.csac) - Number(a.csac) || a.id - b.id)
-    .map((e) => e.k);
+  const placedOrder = placedLoadOrder(
+    placements.map((p) => p.record),
+    VIEW_TERRAIN[mapId]?.cactLoad ?? [],
+  );
   const recordIndex = (record: string): number => placements.findIndex((p) => p.record === record);
   const staticPlaced = Int32Array.from(arena.staticMarkers, (m) => recordIndex(m.record));
   const claimPlaced = Int32Array.from(arena.claimMarkers, (m) => recordIndex(m.record));
@@ -587,7 +654,7 @@ export function createRadar(
 
   return {
     overview,
-    refresh(match, snapshot, count, clock, selfX, selfY, facing, _down) {
+    refresh(match, snapshot, count, prev, prevCount, clock, selfX, selfY, facing, _down) {
       const ctx = canvas.ctx;
       canvas.dirty = false;
       canvas.begin();
@@ -623,8 +690,22 @@ export function createRadar(
       // --- the outposts' owners: their consoles' teams.
       outpostSidesOf(snapshot, count, spots, mapId, spotSide);
 
-      // --- the registry: every live actor, oldest first, by distance.
-      let n = 0;
+      // --- the registry: every live actor, oldest first, by distance, as the
+      // frame began. The X1s and their partners first.
+      const m = live.update(snapshot, count);
+      let n = entityCandidates(
+        snapshot,
+        live.order,
+        m,
+        candX,
+        candY,
+        candKeep,
+        0,
+        entityAt,
+        CANDIDATES_AVATARS,
+        prev,
+        prevCount,
+      );
       for (let q = 0; q < placedOrder.length; q++) {
         const k = placedOrder[q];
         const p = placements[k];
@@ -644,18 +725,33 @@ export function createRadar(
         candKeep[n] = 0; // a pickup's record has no flag 8
         n++;
       }
-      const m = live.update(snapshot, count);
-      n = entityCandidates(snapshot, live.order, m, candX, candY, candKeep, n, entityAt);
-      viewX[0] = selfX;
-      viewY[0] = selfY;
+      n = entityCandidates(
+        snapshot,
+        live.order,
+        m,
+        candX,
+        candY,
+        candKeep,
+        n,
+        entityAt,
+        CANDIDATES_OTHERS,
+        prev,
+        prevCount,
+      );
+      // The view's X1 where it stood as the frame began (the drawn pose until
+      // it has a previous tick).
+      const selfAvatar = match[matchSlotOffset(slot) + MATCH_SLOT_AVATAR_ID] | 0;
+      const ps = selfAvatar >= 0 ? snapshotIndexOf(prev, prevCount, selfAvatar) : -1;
+      viewX[0] = ps >= 0 ? prev[ps * SNAPSHOT_STRIDE + 3] : selfX;
+      viewY[0] = ps >= 0 ? prev[ps * SNAPSHOT_STRIDE + 4] : selfY;
       let nv = 1;
       if (online) {
         // The two-viewport registry: the nearer of both team slots' X1s.
         const otherAvatar = match[matchSlotOffset(slot === 0 ? 1 : 0) + MATCH_SLOT_AVATAR_ID] | 0;
-        const c = otherAvatar >= 0 ? snapshotIndexOf(snapshot, count, otherAvatar) : -1;
+        const c = otherAvatar >= 0 ? snapshotIndexOf(prev, prevCount, otherAvatar) : -1;
         if (c >= 0) {
-          viewX[1] = snapshot[c * SNAPSHOT_STRIDE + 3];
-          viewY[1] = snapshot[c * SNAPSHOT_STRIDE + 4];
+          viewX[1] = prev[c * SNAPSHOT_STRIDE + 3];
+          viewY[1] = prev[c * SNAPSHOT_STRIDE + 4];
           nv = 2;
         }
       }
@@ -663,10 +759,10 @@ export function createRadar(
 
       // --- the entities in the registry.
       for (let i = 0; i < count; i++) {
-        if (member[entityAt[i]] === 0) continue;
         const o = i * SNAPSHOT_STRIDE;
         const archetype = snapshot[o + 1];
         if (archetype === ARCHETYPE.CONSOLE) continue; // the console's marker is placed
+        if (member[entityAt[i]] === 0) continue;
         const team = snapshot[o + 2];
         blipAt(
           markerOf(archetype, sideOfTeam(mapId, team), snapshot[o + 9]),

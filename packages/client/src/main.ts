@@ -2283,7 +2283,17 @@ function refreshMatchHud(view: PlayerView, alpha: number): void {
   ov.cy = mapScreen.cy;
   ov.halfX = mapWin[0];
   ov.halfY = mapWin[1];
-  hud.refresh(matchSnap, snapCurr, countCurr, clock, pose[0], pose[1], pose[5]);
+  hud.refresh(
+    matchSnap,
+    snapCurr,
+    countCurr,
+    snapPrev,
+    countPrev,
+    clock,
+    pose[0],
+    pose[1],
+    pose[5],
+  );
   hud.map.draw(
     mapScreen.open,
     matchSnap,
