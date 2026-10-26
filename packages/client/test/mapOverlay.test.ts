@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { ARENA_PRESENTATION } from "../src/render/fcopPresentation.generated";
-import { arrowCorners, boxFrame, clothFrame } from "../src/render/hud/mapOverlay";
+import { arrowCorners, boxFrame, clothFrame, labelPen } from "../src/render/hud/mapOverlay";
 
 describe("the arrow (pause_map_draw_actor)", () => {
   const out = new Float64Array(6);
@@ -69,5 +69,27 @@ describe("the box of the current frame (cobj_bbox_frame_box)", () => {
       expect(flag?.length, id).toBe(1);
       expect(flag?.[0], id).toEqual([0, 0.3184, 0.0273, 0.3418]);
     }
+  });
+});
+
+describe('the player\'s "P" (0x00451995..0x00451a0a)', () => {
+  test("four times the arrow's centroid less 8 px, at 640 x 480", () => {
+    const out = new Float64Array(2);
+    // The original: cfnt_text_draw(sum / 6 - 4) in 320 x 240, doubled; the
+    // sum of three vertices in quarter pixels is 12 x the centroid in pixels.
+    const cx = 100;
+    const cy = 60;
+    const sumQ = 3 * 4 * cx;
+    const sumQy = 3 * 4 * cy;
+    labelPen(cx, cy, 1, out);
+    expect(out[0]).toBe(2 * (sumQ / 6 - 4));
+    expect(out[1]).toBe(2 * (sumQy / 6 - 4));
+  });
+
+  test("scaled with the view", () => {
+    const out = new Float64Array(2);
+    labelPen(200, 120, 2, out);
+    expect(out[0]).toBe(784);
+    expect(out[1]).toBe(464);
   });
 });

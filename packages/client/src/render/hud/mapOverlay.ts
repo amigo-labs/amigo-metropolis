@@ -15,9 +15,8 @@
 // standing pickups turning at their spin. The type-96 Props are no actors and
 // get none.
 //
-// The original places the "P" at half the arrow's centroid in raw units, four
-// times its screen position (RE open item); Metropolis puts it on its arrow, as
-// the RE suggests. The entities' boxes are their footprint radii (balance.ts
+// The "P" is the original's: at four times the arrow's centroid (labelPen; RE
+// M3-PA read the two coordinate spaces), so mostly off the view. The entities' boxes are their footprint radii (balance.ts
 // ARCHETYPE_RADIUS): Metropolis carries no unit bounding tables.
 //
 // Raw DOM: one full-view canvas, redrawn per frame while the screen is open (the
@@ -41,6 +40,8 @@ import { markerOf, outpostSidesOf, standsAt } from "./radar";
 
 /** The player's arrow: reach and box tripled (PAUSE_MAP_PLAYER_SCALE). */
 const PLAYER_SCALE = 3;
+/** The "P" label's offset, 640 x 480 px: PAUSE_MAP_LABEL_OFFSET 4 in 320 x 240. */
+const LABEL_OFFSET_PX = 8;
 /** The "P" label's colour in a team game (PAUSE_MAP_LABEL_TEAM_COLOUR). */
 const LABEL_COLOUR = 8;
 /** Ring sprites are drawn at this radius and scaled. */
@@ -98,6 +99,24 @@ export function arrowCorners(
   out[5] = py + c * (cx - lx) + s * (cz - lz);
 }
 const corners = new Float64Array(6);
+
+/**
+ * The "P" label's pen for the player's arrow centroid (gx, gy), view px from
+ * the window's top-left, `s` view px per 640 x 480 px (pause_map_draw_actor
+ * 0x00451995..0x00451a0a). The original passes `cfnt_text_draw` the three
+ * vertices' sum over six less four: half the centroid, in its 320 x 240 space,
+ * which it doubles into 640 x 480 pixels (0x00435fde; the glyph record, op
+ * 0x8e, is not scaled again). The arrow's own vertices are quarter pixels of
+ * 640 x 480 (`PAUSE_MAP_SCALE` 80 a sample; the walker scales a vertex record
+ * by the mode over four, fcop/draw_submit_soft.h). So the label stands at four
+ * times the arrow's centroid, less 8 px: on screen only while the arrow is in
+ * the window's top-left sixteenth. Writes [x, y] into `out`.
+ */
+export function labelPen(gx: number, gy: number, s: number, out: Float64Array): void {
+  out[0] = 4 * gx - LABEL_OFFSET_PX * s;
+  out[1] = 4 * gy - LABEL_OFFSET_PX * s;
+}
+const pen = new Float64Array(2);
 
 /** One arrow: the tip in half the colour, the base corners in the full one. */
 function drawArrow(
@@ -356,12 +375,12 @@ export function createMapOverlay(mapId: string, parent: HTMLElement = document.b
         ctx.closePath();
         ctx.fill();
         if (self) {
-          // "P" on the arrow's centroid, font 3 at the HUD's scale.
-          const gx = (tipX + lx + rx) / 3;
-          const gy = (tipY + ly + ry) / 3;
-          ctx.setTransform(s, 0, 0, s, gx, gy);
+          // "P", its pen at four times the arrow's centroid less 8 px
+          // (labelPen), font 3 at the HUD's scale; off the view it is clipped.
+          labelPen((tipX + lx + rx) / 3, (tipY + ly + ry) / 3, s, pen);
+          ctx.setTransform(s, 0, 0, s, pen[0], pen[1]);
           ctx.imageSmoothingEnabled = false;
-          drawChar(ctx, font, 80, -5, -10, LABEL_COLOUR);
+          drawChar(ctx, font, 80, 0, 0, LABEL_COLOUR);
           ctx.setTransform(1, 0, 0, 1, 0, 0);
         }
       }
