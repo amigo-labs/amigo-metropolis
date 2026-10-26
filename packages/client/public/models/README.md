@@ -9,13 +9,15 @@ texture pages packed as one atlas, so the runtime can swap it into its bucket's
 InstancedMesh. Provenance in `CREDITS.md`.
 
 - `avatar-x1.glb` + `avatar-x1.anim.bin`: the X1-Alpha as the original
-  animates it — its five parts merged into one bind-pose primitive whose
-  `_X1BONE` attribute names each vertex's matrix in the bone table (the legs'
-  371 frames by 8 joints and the cockpit mount, the cockpit's 30 frames by 7
-  joints, the two guns and the beacon). Built by `bun run gen:x1`
-  (`tools/generators/fcopX1.ts`) from the RE's `extracted/x1/` parts and the
-  3DHS mount points; posed per instance in the vertex shader
-  (`src/render/avatarRig.ts`), walker, transform and hover alike.
+  animates it — its five parts merged into a bind-pose primitive per face draw
+  mode (opaque, half) whose `_X1BONE` attribute names each vertex's matrix in
+  the bone table (the legs' 371 frames by 8 joints and the cockpit mount, the
+  cockpit's 30 frames by 7 joints, the two guns and the beacon) and whose
+  `_X1LAYER` its face's layer. Built by `bun run gen:x1`
+  (`tools/generators/fcopX1.ts`) from the RE's `extracted/x1/` parts, the 3DHS
+  mount points and the partner's layer masks; posed and layer-gated per
+  instance in the vertex shader (`src/render/avatarRig.ts`), walker, transform
+  and hover alike.
 - `avatar-walker`, `avatar-hover`: the X1-Alpha's two rest poses, assembled by
   the RE's `extract_x1.py`; the stand-ins while the rig loads.
 - `<map-id>/obj_NNN`: each arena's own units — the Cobj its own mission names

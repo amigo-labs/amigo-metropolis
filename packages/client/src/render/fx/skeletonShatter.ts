@@ -44,6 +44,12 @@ export const SKELETON_PIECES = 12;
 const SKELETONS = 4;
 /** Triangles a skeleton can carry (the X1's cockpit has 126 drawable). */
 const SKELETON_TRIS = 256;
+/**
+ * Material groups a skeleton keeps: the X1's draw-mode passes (opaque, a half
+ * face's solid and blended texels: render/fcopModel.ts faceMaterials).
+ */
+const SKELETON_GROUPS = 4;
+const NO_GROUPS: readonly THREE.GeometryGroup[] = [];
 /** Vertex units (int16 model coordinates, 1/512 m) per metre: obj_mesh.FIXED_POINT. */
 const MODEL_UNITS_PER_METRE = 512;
 /** `CACT_SHATTER_FLOOR_SHIFT`: the floor is world units `>> 3`. */
@@ -60,8 +66,12 @@ export interface ShatterSkeleton {
   geometry: THREE.BufferGeometry;
   /** The per-vertex slot attribute (render/avatarRig.ts X1_BONE_ATTR). */
   slotAttr: string;
-  /** A material that draws the geometry where it is put (no pose of its own). */
-  material: THREE.Material;
+  /**
+   * What draws the geometry where it is put (no pose of its own): one
+   * material, or one per group of `geometry` (its draw-mode passes), whose
+   * faces keep their pass.
+   */
+  material: THREE.Material | THREE.Material[];
   /** The side's texture offset, atlas units (render/teamUv.ts). */
   teamU: number;
   teamV: number;
@@ -128,6 +138,8 @@ interface Skeleton {
   readonly teamMask: Float32Array;
   /** Per triangle: its corners through their bone, the model's axes (x the model's own), model units. */
   readonly local: Float32Array;
+  /** The geometry's groups when the skeleton's material is a list, pooled. */
+  readonly groups: { start: number; count: number; materialIndex: number }[];
   /** Per triangle: its piece, and whether it is still drawn (the mask). */
   readonly piece: Int8Array;
   readonly drawn: Uint8Array;
@@ -188,6 +200,11 @@ export class SkeletonShatter {
         teamUv,
         teamMask,
         local: new Float32Array(SKELETON_TRIS * 9),
+        groups: Array.from({ length: SKELETON_GROUPS }, () => ({
+          start: 0,
+          count: 0,
+          materialIndex: 0,
+        })),
         piece: new Int8Array(SKELETON_TRIS),
         drawn: new Uint8Array(SKELETON_TRIS),
         px: new Float32Array(p),
@@ -264,18 +281,82 @@ export class SkeletonShatter {
     }
 
     // The faces: through their bone at the frame, kept when all three corners
-    // are the bone's (the mask's rule, per triangle here).
+    // are the bone's (the mask's rule, per triangle here). Every layer: the
+    // shatter submits its pieces with mask 0xff (`push -1`, 0x004385cb). A
+    // list of materials keeps the source's groups -- a face keeps its draw
+    // mode -- and a group drawn twice (a half face's two passes) draws the
+    // same pieces' triangles twice.
     const g = sk.geometry;
     const position = g.getAttribute("position") as THREE.BufferAttribute | undefined;
     const slot = g.getAttribute(sk.slotAttr) as THREE.BufferAttribute | undefined;
     if (!position || !slot) return false;
     const index = g.getIndex();
+    const tris = Math.floor((index ? index.count : position.count) / 3);
+    const listed = Array.isArray(sk.material);
+    const src = listed ? g.groups : NO_GROUPS;
+    const ranges = src.length > 0 ? Math.min(src.length, SKELETON_GROUPS) : 1;
+    const outGroups = s.geometry.groups;
+    outGroups.length = 0;
+    let f = 0;
+    for (let r = 0; r < ranges; r++) {
+      const grp = src.length > 0 ? src[r] : null;
+      const pooled = s.groups[r];
+      pooled.materialIndex = grp?.materialIndex ?? 0;
+      if (listed) outGroups.push(pooled);
+      const prev = r > 0 ? src[r - 1] : null;
+      if (grp && prev && grp.start === prev.start && grp.count === prev.count) {
+        pooled.start = s.groups[r - 1].start;
+        pooled.count = s.groups[r - 1].count;
+        continue;
+      }
+      const t0 = grp ? Math.floor(grp.start / 3) : 0;
+      const t1 = grp ? Math.min(tris, Math.floor((grp.start + grp.count) / 3)) : tris;
+      const from = f;
+      f = this.collect(s, sk, bones, t0, t1, f);
+      pooled.start = from * 3;
+      pooled.count = (f - from) * 3;
+    }
+    s.live = true;
+    s.tris = f;
+    s.pieces = bones;
+    s.left = bones;
+    s.floor = skeletonFloor(ground, sk.y);
+    s.ox = sk.x;
+    s.oy = sk.y;
+    s.oz = sk.z;
+    s.mesh.material = sk.material;
+    s.mesh.visible = true;
+    s.geometry.setDrawRange(0, f * 3);
+    (s.geometry.getAttribute("uv") as THREE.BufferAttribute).needsUpdate = true;
+    (s.geometry.getAttribute("normal") as THREE.BufferAttribute).needsUpdate = true;
+    (s.geometry.getAttribute(TEAM_UV_ATTR) as THREE.BufferAttribute).needsUpdate = true;
+    (s.geometry.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute).needsUpdate = true;
+    this.place(s);
+    return true;
+  }
+
+  /**
+   * Triangles `t0 .. t1 - 1` of `sk`'s geometry that lie wholly in one bone,
+   * through it, into `s` from triangle `f` on; returns the next free triangle.
+   */
+  private collect(
+    s: Skeleton,
+    sk: Readonly<ShatterSkeleton>,
+    bones: number,
+    t0: number,
+    t1: number,
+    start: number,
+  ): number {
+    const g = sk.geometry;
+    const m = sk.matrices;
+    const position = g.getAttribute("position") as THREE.BufferAttribute;
+    const slot = g.getAttribute(sk.slotAttr) as THREE.BufferAttribute;
+    const index = g.getIndex();
     const uv = g.getAttribute("uv") as THREE.BufferAttribute | undefined;
     const normal = g.getAttribute("normal") as THREE.BufferAttribute | undefined;
     const mask = g.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute | undefined;
-    const tris = Math.floor((index ? index.count : position.count) / 3);
-    let f = 0;
-    for (let t = 0; t < tris && f < SKELETON_TRIS; t++) {
+    let f = start;
+    for (let t = t0; t < t1 && f < SKELETON_TRIS; t++) {
       const v0 = index ? index.getX(t * 3) : t * 3;
       const b = Math.round(slot.getX(v0)) - sk.first;
       if (b < 0 || b >= bones) continue;
@@ -317,23 +398,7 @@ export class SkeletonShatter {
       s.drawn[f] = 1;
       f++;
     }
-    s.live = true;
-    s.tris = f;
-    s.pieces = bones;
-    s.left = bones;
-    s.floor = skeletonFloor(ground, sk.y);
-    s.ox = sk.x;
-    s.oy = sk.y;
-    s.oz = sk.z;
-    s.mesh.material = sk.material;
-    s.mesh.visible = true;
-    s.geometry.setDrawRange(0, f * 3);
-    (s.geometry.getAttribute("uv") as THREE.BufferAttribute).needsUpdate = true;
-    (s.geometry.getAttribute("normal") as THREE.BufferAttribute).needsUpdate = true;
-    (s.geometry.getAttribute(TEAM_UV_ATTR) as THREE.BufferAttribute).needsUpdate = true;
-    (s.geometry.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute).needsUpdate = true;
-    this.place(s);
-    return true;
+    return f;
   }
 
   reset(): void {

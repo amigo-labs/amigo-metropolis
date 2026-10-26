@@ -3,12 +3,13 @@
 // The X1-Alpha's bone table (public/models/units/avatar-x1.anim.bin): its
 // layout. The AnmD tracks that pick the frames are the sim's
 // (packages/sim/src/x1Tracks.generated.ts). From:
-//   x1_legs.glb 30ba17635af020aa
-//   x1_cockpit.glb 4ac2d19b4e430223
-//   x1_weapon.glb c24b0e7cbee89281
-//   x1_beacon_lights.glb d73750efe05e2fe8
+//   x1_legs.glb cd33246771600495
+//   x1_cockpit.glb 1fa1e3add0c1d4c1
+//   x1_weapon.glb 52c976744391f9a3
+//   x1_beacon_lights.glb af790e7556990f21
 //   tracks.json a01ee4b43a525c7d
 //   channels.json 46ca97ce62256449
+//   layers.json 2997ea41c5758da4
 
 /** Frames of the legs' timeline, and the cockpit's. */
 export const X1_LEGS_FRAMES = 371;
@@ -24,3 +25,15 @@ export const X1_MOUNT_TEXEL = 24;
 export const X1_COCKPIT_SLOT = 8;
 /** Matrix slots in all: legs joints, cockpit joints, two guns, the beacon. */
 export const X1_SLOTS = 18;
+/** The first slot drawn with the guns' and the beacon's mask: the two guns, then the beacon. */
+export const X1_GUN_SLOT = 15;
+/** The guns' and the beacon's layer mask, in every form. */
+export const X1_ATTACHED_LAYER_MASK = 1;
+/**
+ * The layer masks the original's partner draws the legs and the cockpit with
+ * (RE x1-alpha.md "Draw modes and layers"; player_partner.c 299-320), by form:
+ * the walker, the transform's ramp, the hover. A face (`_X1LAYER`) shows while
+ * its layer's bit is set.
+ */
+export const X1_LEGS_LAYER_MASKS: readonly number[] = [3, 7, 5];
+export const X1_COCKPIT_LAYER_MASKS: readonly number[] = [5, 15, 11];

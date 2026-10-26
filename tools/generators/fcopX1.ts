@@ -5,15 +5,28 @@
 //
 //   <RE>/extracted/x1/x1_{legs,cockpit,weapon,beacon_lights}.glb, tracks.json
 //     -> tools/generators/units/raw/fcop-x1/                      (unchanged)
-//   (and x1_alpha_transform.glb, the RE's assembled transform, which only the
-//   test reads: tools/generators/test/x1Rig.test.ts)
+//   (and x1_alpha.glb, x1_alpha_hover.glb and x1_alpha_transform.glb, the RE's
+//   assembled walker, hover and transform, which only the test reads:
+//   tools/generators/test/x1Rig.test.ts)
+//   <RE>/extracted/x1/manifest.json, each part's `layer_masks`
+//     -> tools/generators/units/raw/fcop-x1/layers.json           (the partner's masks)
 //   <RE>/fixtures/missions/Mp, Cobj 15 and 16 (the legs and the cockpit), 3DHS
 //     -> tools/generators/units/raw/fcop-x1/channels.json         (the mount points)
 //   raws
-//     -> packages/client/public/models/units/avatar-x1.glb        (bind pose, one primitive)
+//     -> packages/client/public/models/units/avatar-x1.glb        (bind pose, a primitive per draw mode)
 //     -> packages/client/public/models/units/avatar-x1.anim.bin   (the bone table)
-//     -> packages/client/src/render/x1Rig.generated.ts            (the bone table's layout)
+//     -> packages/client/src/render/x1Rig.generated.ts            (the bone table's layout, the masks)
 //     -> packages/sim/src/x1Tracks.generated.ts                    (the AnmD tracks)
+//
+// The faces keep the original's draw modes and layers (RE docs/formats/
+// objects.md "Face draw modes", x1-alpha.md "Draw modes and layers";
+// fcop-fidelity.md G13): each part's glb has a primitive per (mode, layer), and
+// the output a primitive per mode, opaque then half, as gen:units writes a
+// unit's -- render/fcopModel.ts turns them into groups of the one
+// InstancedMesh. A face's layer rides in `_X1LAYER`: the partner draws the legs
+// and the cockpit with a layer mask read off the transform's progress
+// (player_partner.c 299-320), which the vertex shader applies per instance
+// (render/avatarRig.ts).
 //
 // The assembly is the original's (RE tools/gfx/extract_x1.py, player.c 1621,
 // player_partner.c 1611-1739, player_bone.c): the legs stand at the actor's
@@ -60,6 +73,27 @@ export const X1_OUT_SIM_TS = join(REPO_ROOT, "packages", "sim", "src", "x1Tracks
 
 /** The parts the RE exports, by their file under extracted/x1/. */
 const PART_FILES = ["x1_legs.glb", "x1_cockpit.glb", "x1_weapon.glb", "x1_beacon_lights.glb"];
+/** The RE's assembled walker, hover and transform: the test's reference, not the build's. */
+const ASSEMBLED_FILES = ["x1_alpha.glb", "x1_alpha_hover.glb", "x1_alpha_transform.glb"];
+
+/** A face's draw mode, as the RE's export names it (`extras.fcop.mode`). */
+type FaceMode = "opaque" | "half" | "add";
+/** The output's primitives, in this order (gen:units' order: opaque, half, add). */
+const MODES: readonly FaceMode[] = ["opaque", "half"];
+
+/** layers.json: the partner's layer masks by form (RE manifest `parts[].layer_masks`). */
+interface Layers {
+  readonly source: string;
+  readonly legs: FormMasks;
+  readonly cockpit: FormMasks;
+  /** The guns' and the beacon's one mask. */
+  readonly attached: number;
+}
+interface FormMasks {
+  readonly walker: number;
+  readonly transform: number;
+  readonly hover: number;
+}
 /** The Cobj each part is in Mp's container, by the RE manifest (`cobj_id_by_map.Mp`). */
 const CHANNEL_PARTS = ["legs", "cockpit"] as const;
 
@@ -156,6 +190,9 @@ interface Part {
   readonly uv: Float32Array;
   /** Per vertex: its joint (skinned parts), else 0. */
   readonly joint: Uint8Array;
+  /** Per vertex: its face's draw mode (an index into MODES) and layer (op1 bits 4..6). */
+  readonly mode: Uint8Array;
+  readonly layer: Uint8Array;
   readonly count: number;
   /** Frames of the `full` clip, 0 for a static part. */
   readonly frames: number;
@@ -174,24 +211,74 @@ function arrayOf(a: Accessor | null, name: string): Float32Array {
   return Float32Array.from(arr as ArrayLike<number>);
 }
 
+/** A primitive's draw mode and layer, off its material's `extras.fcop`. */
+function faceKeyOf(prim: Primitive, file: string): { mode: number; layer: number } {
+  const fcop = (prim.getMaterial()?.getExtras() as { fcop?: { mode?: string; layer?: number } })
+    ?.fcop;
+  if (!fcop?.mode) throw new Error(`${file}: a primitive without its draw mode`);
+  const mode = MODES.indexOf(fcop.mode as FaceMode);
+  // The X1 has no add face; one would need its tint keyed as gen:units keys it.
+  if (mode < 0) throw new Error(`${file}: a face in mode ${fcop.mode}`);
+  return { mode, layer: fcop.layer ?? 0 };
+}
+
 async function readPart(io: NodeIO, file: string): Promise<Part> {
   const doc = await io.readBinary(new Uint8Array(readFileSync(join(X1_RAW_DIR, file))));
   const root = doc.getRoot();
   const meshes = root.listMeshes();
-  if (meshes.length !== 1 || meshes[0].listPrimitives().length !== 1)
-    throw new Error(`${file}: expected one mesh with one primitive`);
-  const prim: Primitive = meshes[0].listPrimitives()[0];
-  if (prim.getIndices()) throw new Error(`${file}: expected a non-indexed primitive`);
+  if (meshes.length !== 1) throw new Error(`${file}: expected one mesh`);
+  // A primitive per (page, mode, tint, layer), in the RE's key order: read them
+  // back to back, each vertex keeping its face's mode and layer.
+  const prims: Primitive[] = meshes[0].listPrimitives();
   const meshNode = root.listNodes().find((n) => n.getMesh() === meshes[0]);
   if (!meshNode) throw new Error(`${file}: no node draws the mesh`);
-  const position = arrayOf(prim.getAttribute("POSITION"), `${file} POSITION`);
-  const normal = arrayOf(prim.getAttribute("NORMAL"), `${file} NORMAL`);
-  const uv = arrayOf(prim.getAttribute("TEXCOORD_0"), `${file} TEXCOORD_0`);
-  const count = position.length / 3;
+  let count = 0;
+  for (const prim of prims) {
+    if (prim.getIndices()) throw new Error(`${file}: expected non-indexed primitives`);
+    count += prim.getAttribute("POSITION")?.getCount() ?? 0;
+  }
+  const position = new Float32Array(count * 3);
+  const normal = new Float32Array(count * 3);
+  const uv = new Float32Array(count * 2);
   const joint = new Uint8Array(count);
+  const mode = new Uint8Array(count);
+  const layer = new Uint8Array(count);
   const image = root.listTextures()[0]?.getImage() ?? null;
-
   const skin = meshNode.getSkin();
+  const jv: number[] = [];
+  const wv: number[] = [];
+  let at = 0;
+  for (const prim of prims) {
+    const p = arrayOf(prim.getAttribute("POSITION"), `${file} POSITION`);
+    const n = p.length / 3;
+    position.set(p, at * 3);
+    normal.set(arrayOf(prim.getAttribute("NORMAL"), `${file} NORMAL`), at * 3);
+    uv.set(arrayOf(prim.getAttribute("TEXCOORD_0"), `${file} TEXCOORD_0`), at * 2);
+    const key = faceKeyOf(prim, file);
+    mode.fill(key.mode, at, at + n);
+    layer.fill(key.layer, at, at + n);
+    if (skin) {
+      // Rigid skin: one joint at weight 1 per vertex.
+      const joints = prim.getAttribute("JOINTS_0");
+      const weights = prim.getAttribute("WEIGHTS_0");
+      if (!joints || !weights) throw new Error(`${file}: skinned without JOINTS_0 / WEIGHTS_0`);
+      for (let v = 0; v < n; v++) {
+        joints.getElement(v, jv);
+        weights.getElement(v, wv);
+        let best = 0;
+        for (let k = 1; k < 4; k++) if (wv[k] > wv[best]) best = k;
+        for (let k = 0; k < 4; k++) {
+          if (k !== best && wv[k] !== 0)
+            throw new Error(`${file}: vertex ${at + v} is not rigidly skinned`);
+        }
+        if (Math.abs(wv[best] - 1) > 1e-6)
+          throw new Error(`${file}: vertex ${at + v} weight ${wv[best]}`);
+        joint[at + v] = jv[best];
+      }
+    }
+    at += n;
+  }
+
   if (!skin) {
     // A static part: its node must not move it, since the original places it.
     const m = meshNode.getMatrix();
@@ -199,25 +286,19 @@ async function readPart(io: NodeIO, file: string): Promise<Part> {
       if (Math.abs(m[i] - (i % 5 === 0 ? 1 : 0)) > 1e-9)
         throw new Error(`${file}: posed mesh node`);
     }
-    return { position, normal, uv, joint, count, frames: 0, world: [], inverseBind: [], image };
-  }
-
-  // Rigid skin: one joint at weight 1 per vertex.
-  const joints = prim.getAttribute("JOINTS_0");
-  const weights = prim.getAttribute("WEIGHTS_0");
-  if (!joints || !weights) throw new Error(`${file}: skinned without JOINTS_0 / WEIGHTS_0`);
-  const jv: number[] = [];
-  const wv: number[] = [];
-  for (let v = 0; v < count; v++) {
-    joints.getElement(v, jv);
-    weights.getElement(v, wv);
-    let best = 0;
-    for (let k = 1; k < 4; k++) if (wv[k] > wv[best]) best = k;
-    for (let k = 0; k < 4; k++) {
-      if (k !== best && wv[k] !== 0) throw new Error(`${file}: vertex ${v} is not rigidly skinned`);
-    }
-    if (Math.abs(wv[best] - 1) > 1e-6) throw new Error(`${file}: vertex ${v} weight ${wv[best]}`);
-    joint[v] = jv[best];
+    return {
+      position,
+      normal,
+      uv,
+      joint,
+      mode,
+      layer,
+      count,
+      frames: 0,
+      world: [],
+      inverseBind: [],
+      image,
+    };
   }
 
   const jointNodes = skin.listJoints();
@@ -271,7 +352,7 @@ async function readPart(io: NodeIO, file: string): Promise<Part> {
     };
     world.push(jointNodes.map((n) => worldOf(n)));
   }
-  return { position, normal, uv, joint, count, frames, world, inverseBind, image };
+  return { position, normal, uv, joint, mode, layer, count, frames, world, inverseBind, image };
 }
 
 // --- the build ------------------------------------------------------------------
@@ -351,34 +432,20 @@ export async function buildX1(): Promise<X1Build> {
     );
   }
 
-  // One primitive: each vertex names its matrix slot (legs joints 0-7, cockpit
-  // joints 8-14, the guns 15 and 16, the beacon 17) and whether the team's
-  // texture offset applies (not on the beacon: player_partner.c 319-320).
+  // A primitive per draw mode, opaque then half: each vertex names its matrix
+  // slot (legs joints 0-7, cockpit joints 8-14, the guns 15 and 16, the beacon
+  // 17), whether the team's texture offset applies (not on the beacon:
+  // player_partner.c 319-320) and its face's layer. Within a mode the parts
+  // follow one another in this order, each in the RE's own face order.
   const cockpitSlot = legBones;
+  const gunSlot = cockpitSlot + 7;
   const parts: { part: Part; slot: (v: number) => number; team: number }[] = [
     { part: legs, slot: (v) => legs.joint[v], team: 1 },
     { part: cockpit, slot: (v) => cockpitSlot + cockpit.joint[v], team: 1 },
-    { part: gun, slot: () => cockpitSlot + 7, team: 1 },
-    { part: gun, slot: () => cockpitSlot + 8, team: 1 },
-    { part: beacon, slot: () => cockpitSlot + 9, team: 0 },
+    { part: gun, slot: () => gunSlot, team: 1 },
+    { part: gun, slot: () => gunSlot + 1, team: 1 },
+    { part: beacon, slot: () => gunSlot + 2, team: 0 },
   ];
-  const total = parts.reduce((n, p) => n + p.part.count, 0);
-  const position = new Float32Array(total * 3);
-  const normal = new Float32Array(total * 3);
-  const uv = new Float32Array(total * 2);
-  const slotAttr = new Float32Array(total);
-  const teamUv = new Float32Array(total);
-  let at = 0;
-  for (const { part, slot, team } of parts) {
-    position.set(part.position, at * 3);
-    normal.set(part.normal, at * 3);
-    uv.set(part.uv, at * 2);
-    for (let v = 0; v < part.count; v++) {
-      slotAttr[at + v] = slot(v);
-      teamUv[at + v] = team;
-    }
-    at += part.count;
-  }
 
   // Every part embeds the same page; the mesh carries it once.
   const image = legs.image;
@@ -397,29 +464,83 @@ export async function buildX1(): Promise<X1Build> {
     array: Float32Array<ArrayBuffer>,
   ) => doc.createAccessor(name).setType(type).setArray(array).setBuffer(buffer);
   const texture = doc.createTexture("tex09").setImage(image).setMimeType("image/png");
-  const material = doc
-    .createMaterial("x1")
-    .setBaseColorTexture(texture)
-    .setMetallicFactor(0)
-    .setRoughnessFactor(1);
-  material
-    .getBaseColorTextureInfo()
-    ?.setMagFilter(9728)
-    .setMinFilter(9728)
-    .setWrapS(10497)
-    .setWrapT(10497);
-  const prim = doc
-    .createPrimitive()
-    .setMaterial(material)
-    .setAttribute("POSITION", accessor("POSITION", "VEC3", position))
-    .setAttribute("NORMAL", accessor("NORMAL", "VEC3", normal))
-    .setAttribute("TEXCOORD_0", accessor("TEXCOORD_0", "VEC2", uv))
-    .setAttribute("_X1BONE", accessor("_X1BONE", "SCALAR", slotAttr))
-    .setAttribute("_TEAMUV", accessor("_TEAMUV", "SCALAR", teamUv));
-  const mesh = doc.createMesh("x1").addPrimitive(prim);
+  const mesh = doc.createMesh("x1");
+  MODES.forEach((faceMode, m) => {
+    let total = 0;
+    for (const { part } of parts)
+      for (let v = 0; v < part.count; v++) total += +(part.mode[v] === m);
+    if (total === 0) return;
+    const position = new Float32Array(total * 3);
+    const normal = new Float32Array(total * 3);
+    const uv = new Float32Array(total * 2);
+    const slotAttr = new Float32Array(total);
+    const teamUv = new Float32Array(total);
+    const layerAttr = new Float32Array(total);
+    let at = 0;
+    for (const { part, slot, team } of parts) {
+      for (let v = 0; v < part.count; v++) {
+        if (part.mode[v] !== m) continue;
+        position.set(part.position.subarray(v * 3, v * 3 + 3), at * 3);
+        normal.set(part.normal.subarray(v * 3, v * 3 + 3), at * 3);
+        uv.set(part.uv.subarray(v * 2, v * 2 + 2), at * 2);
+        slotAttr[at] = slot(v);
+        teamUv[at] = team;
+        layerAttr[at] = part.layer[v];
+        at++;
+      }
+    }
+    // As gen:units writes a unit's (genUnitModels.ts createFaceMaterial): the
+    // key texels (alpha 0) cut at 0.25 on the opaque faces, the half faces
+    // blended; the extras name the mode for render/fcopModel.ts.
+    const material = doc
+      .createMaterial(faceMode === "opaque" ? "x1" : `x1-${faceMode}`)
+      .setBaseColorTexture(texture)
+      .setMetallicFactor(0)
+      .setRoughnessFactor(1)
+      .setExtras({ fcop: { mode: faceMode } });
+    if (faceMode === "opaque") material.setAlphaMode("MASK").setAlphaCutoff(0.25);
+    else material.setAlphaMode("BLEND");
+    material
+      .getBaseColorTextureInfo()
+      ?.setMagFilter(9728)
+      .setMinFilter(9728)
+      .setWrapS(10497)
+      .setWrapT(10497);
+    mesh.addPrimitive(
+      doc
+        .createPrimitive()
+        .setMaterial(material)
+        .setAttribute("POSITION", accessor("POSITION", "VEC3", position))
+        .setAttribute("NORMAL", accessor("NORMAL", "VEC3", normal))
+        .setAttribute("TEXCOORD_0", accessor("TEXCOORD_0", "VEC2", uv))
+        .setAttribute("_X1BONE", accessor("_X1BONE", "SCALAR", slotAttr))
+        .setAttribute("_TEAMUV", accessor("_TEAMUV", "SCALAR", teamUv))
+        .setAttribute("_X1LAYER", accessor("_X1LAYER", "SCALAR", layerAttr)),
+    );
+  });
   const node = doc.createNode("x1").setMesh(mesh);
   doc.createScene("x1").addChild(node);
   const glb = await io.writeBinary(doc);
+
+  // The partner's masks (layers.json): a face shows while its layer's bit is
+  // in its block's mask. Every layer a part carries must be one a mask names.
+  const layers = JSON.parse(readFileSync(join(X1_RAW_DIR, "layers.json"), "utf8")) as Layers;
+  if (layers.attached !== 1) throw new Error("layers.json: the guns and the beacon draw with 1");
+  const formMasks = (f: FormMasks): number[] => [f.walker, f.transform, f.hover];
+  const legMasks = formMasks(layers.legs);
+  const cockpitMasks = formMasks(layers.cockpit);
+  const allOf = (masks: number[]) => masks.reduce((a, b) => a | b, 0);
+  for (const [part, masks] of [
+    [legs, legMasks],
+    [cockpit, cockpitMasks],
+    [gun, [layers.attached]],
+    [beacon, [layers.attached]],
+  ] as [Part, number[]][]) {
+    for (let v = 0; v < part.count; v++) {
+      if (((allOf(masks) >> part.layer[v]) & 1) === 0)
+        throw new Error(`a face on layer ${part.layer[v]} that no form draws`);
+    }
+  }
 
   const tracksJson = JSON.parse(readFileSync(join(X1_RAW_DIR, "tracks.json"), "utf8")) as {
     parts: Record<string, { tracks: RawTrack[] }>;
@@ -432,7 +553,7 @@ export async function buildX1(): Promise<X1Build> {
     if ((t.flags & 0x60) !== 0) throw new Error(`track ${t.track} sets flag 0x20 / 0x40`);
   }
 
-  const sources = [...PART_FILES, "tracks.json", "channels.json"].map((f) => {
+  const sources = [...PART_FILES, "tracks.json", "channels.json", "layers.json"].map((f) => {
     const sha = createHash("sha256")
       .update(readFileSync(join(X1_RAW_DIR, f)))
       .digest("hex");
@@ -462,6 +583,18 @@ export async function buildX1(): Promise<X1Build> {
     `export const X1_COCKPIT_SLOT = ${cockpitSlot};`,
     "/** Matrix slots in all: legs joints, cockpit joints, two guns, the beacon. */",
     `export const X1_SLOTS = ${cockpitSlot + COCKPIT_SLOTS};`,
+    "/** The first slot drawn with the guns' and the beacon's mask: the two guns, then the beacon. */",
+    `export const X1_GUN_SLOT = ${gunSlot};`,
+    "/** The guns' and the beacon's layer mask, in every form. */",
+    `export const X1_ATTACHED_LAYER_MASK = ${layers.attached};`,
+    "/**",
+    " * The layer masks the original's partner draws the legs and the cockpit with",
+    ' * (RE x1-alpha.md "Draw modes and layers"; player_partner.c 299-320), by form:',
+    " * the walker, the transform's ramp, the hover. A face (`_X1LAYER`) shows while",
+    " * its layer's bit is set.",
+    " */",
+    `export const X1_LEGS_LAYER_MASKS: readonly number[] = [${legMasks.join(", ")}];`,
+    `export const X1_COCKPIT_LAYER_MASKS: readonly number[] = [${cockpitMasks.join(", ")}];`,
     "",
   ].join("\n");
   const trackSource = sources.filter((line) => line.includes("tracks.json"));
@@ -640,8 +773,8 @@ function readChannels(
 function importRaws(reRepo: string): void {
   const x1 = join(reRepo, "extracted", "x1");
   mkdirSync(X1_RAW_DIR, { recursive: true });
-  // The RE's own assembled transform rides along for the test, not the build.
-  for (const f of [...PART_FILES, "tracks.json", "x1_alpha_transform.glb"]) {
+  // The RE's own assembled poses and transform ride along for the test, not the build.
+  for (const f of [...PART_FILES, "tracks.json", ...ASSEMBLED_FILES]) {
     copyFileSync(join(x1, f), join(X1_RAW_DIR, f));
   }
   const manifest = JSON.parse(readFileSync(join(x1, "manifest.json"), "utf8")) as {
@@ -650,8 +783,31 @@ function importRaws(reRepo: string): void {
       sha256: string;
       anim_frames: number;
       cobj_id_by_map: Record<string, number>;
+      layer_masks: Partial<FormMasks> & { all?: number };
     }[];
   };
+  const masksOf = (role: string): Partial<FormMasks> & { all?: number } => {
+    const part = manifest.parts.find((p) => p.role === role);
+    if (!part?.layer_masks) throw new Error(`manifest: no layer_masks for ${role}`);
+    return part.layer_masks;
+  };
+  const formsOf = (role: string): FormMasks => {
+    const m = masksOf(role);
+    if (m.walker === undefined || m.transform === undefined || m.hover === undefined)
+      throw new Error(`manifest: ${role}'s layer_masks lack a form`);
+    return { walker: m.walker, transform: m.transform, hover: m.hover };
+  };
+  const attached = masksOf("weapon").all;
+  if (attached === undefined || masksOf("beacon_lights").all !== attached)
+    throw new Error("manifest: the guns and the beacon should share one mask");
+  const layers: Layers = {
+    source:
+      "RE extracted/x1/manifest.json parts[].layer_masks: the masks player_partner_draw (src/game/actor/player_partner.c 299-320) hands each block, by the transform's progress (walker 0, the ramp, hover 0x10000)",
+    legs: formsOf("legs"),
+    cockpit: formsOf("cockpit"),
+    attached,
+  };
+  writeFileSync(join(X1_RAW_DIR, "layers.json"), `${JSON.stringify(layers, null, 2)}\n`);
   const container = new Uint8Array(readFileSync(join(reRepo, "fixtures", "missions", "Mp")));
   const sets: Record<string, ChannelSet> = {};
   for (const role of CHANNEL_PARTS) {

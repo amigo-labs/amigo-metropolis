@@ -2,10 +2,13 @@
 // committed mesh and bone table must be what the committed raws build, and
 // posed at the original's two spawn poses -- walker legs 0 / cockpit 0, hover
 // legs 359 / cockpit 29 (FC:MIT X1Alpha.cpp, RE manifest `poses`) -- they must
-// be the RE's own assembled walker and hover, vertex for vertex. That second
-// check is what says the assembly is the original's: the cockpit on the legs'
-// 3DHS point 0 of the frame, the guns on the cockpit's records 2 and 4, the
-// beacon on its point 2.
+// be the RE's own assembled walker and hover, vertex for vertex, face draw
+// mode by mode and layer by layer. That second check is what says the
+// assembly is the original's: the cockpit on the legs' 3DHS point 0 of the
+// frame, the guns on the cockpit's records 2 and 4, the beacon on its point 2;
+// and the RE's walker and hover keep only the faces the partner's layer masks
+// let through in that form (RE x1-alpha.md "Draw modes and layers"), which
+// must be the faces the rig's masks show.
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -15,15 +18,27 @@ import { poseX1Vertex } from "../../../packages/client/src/render/x1Pose";
 import {
   X1_ANIM_HEIGHT,
   X1_ANIM_WIDTH,
+  X1_ATTACHED_LAYER_MASK,
   X1_COCKPIT_FRAMES,
+  X1_COCKPIT_LAYER_MASKS,
+  X1_COCKPIT_SLOT,
+  X1_GUN_SLOT,
   X1_LEGS_FRAMES,
+  X1_LEGS_LAYER_MASKS,
   X1_SLOTS,
 } from "../../../packages/client/src/render/x1Rig.generated";
+import {
+  X1_FORM_HOVER,
+  X1_FORM_RAMP,
+  X1_FORM_WALKER,
+} from "../../../packages/client/src/render/x1Walk";
 import { X1_LEG_TRACKS } from "../../../packages/sim/src/x1Tracks.generated";
 import { buildX1, X1_OUT_BIN, X1_OUT_GLB, X1_OUT_SIM_TS, X1_OUT_TS, X1_RAW_DIR } from "../fcopX1";
 
 const io = new NodeIO();
-const RAW_FCOP = join(import.meta.dir, "..", "units", "raw", "fcop");
+
+/** The output's primitives' modes, in order. */
+const RIG_MODES = ["opaque", "half"];
 
 const rig = await (async () => {
   const doc = await io.read(X1_OUT_GLB);
@@ -31,27 +46,59 @@ const rig = await (async () => {
     .getRoot()
     .listMeshes()
     .flatMap((m) => m.listPrimitives());
-  const p = prims[0];
   const attr = (name: string) => {
-    const a = p.getAttribute(name);
-    if (!a) throw new Error(`avatar-x1.glb has no ${name}`);
-    return a.getArray() as Float32Array;
+    const out: number[] = [];
+    for (const p of prims) {
+      const a = p.getAttribute(name);
+      if (!a) throw new Error(`avatar-x1.glb has no ${name}`);
+      out.push(...(a.getArray() as Float32Array));
+    }
+    return Float32Array.from(out);
   };
+  const mode: string[] = [];
+  for (const p of prims) {
+    const m =
+      (p.getMaterial()?.getExtras() as { fcop?: { mode?: string } } | undefined)?.fcop?.mode ?? "";
+    for (let i = 0; i < (p.getAttribute("POSITION")?.getCount() ?? 0); i++) mode.push(m);
+  }
   const bin = readFileSync(X1_OUT_BIN);
   return {
-    prims: prims.length,
+    prims: prims.map(
+      (p) => (p.getMaterial()?.getExtras() as { fcop?: { mode?: string } } | undefined)?.fcop,
+    ),
     position: attr("POSITION"),
     slot: attr("_X1BONE"),
     team: attr("_TEAMUV"),
+    layer: attr("_X1LAYER"),
     uv: attr("TEXCOORD_0"),
+    mode,
     table: new Float32Array(bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength)),
   };
 })();
 
+/** The RE assembly's mesh node a rig slot's vertex belongs to. */
+function partOf(slot: number): string {
+  if (slot < X1_COCKPIT_SLOT) return "legs_mesh";
+  if (slot < X1_GUN_SLOT) return "cockpit_mesh";
+  if (slot === X1_GUN_SLOT) return "weapon_0_mesh";
+  if (slot === X1_GUN_SLOT + 1) return "weapon_1_mesh";
+  return "beacon_lights_mesh";
+}
+
+/** The layer mask a part is drawn with in a draw form. */
+function maskOf(part: string, form: number): number {
+  if (part === "legs_mesh") return X1_LEGS_LAYER_MASKS[form];
+  if (part === "cockpit_mesh") return X1_COCKPIT_LAYER_MASKS[form];
+  return X1_ATTACHED_LAYER_MASK;
+}
+
+/** `part/mode/layer`: how the RE's assembly and the rig are both cut up here. */
+const keyOf = (part: string, mode: string, layer: number) => `${part}/${mode}/${layer}`;
+
 /**
- * The RE's assembly, skinned with its own node pose, part by part: the static
- * walker and hover, or sample `sample` of the transform glb's
- * `transform_to_hover` clip.
+ * The RE's assembly, skinned with its own node pose, by part and by each
+ * primitive's draw mode and layer: the static walker and hover, or sample
+ * `sample` of the transform glb's `transform_to_hover` clip.
  */
 async function assembled(path: string, sample = -1): Promise<Map<string, Float32Array>> {
   const doc = await io.read(path);
@@ -126,92 +173,108 @@ async function assembled(path: string, sample = -1): Promise<Map<string, Float32
   for (const node of doc.getRoot().listNodes()) {
     const mesh = node.getMesh();
     if (!mesh) continue;
-    const prim = mesh.listPrimitives()[0];
-    const pos = prim.getAttribute("POSITION");
-    if (!pos) continue;
-    const n = pos.getCount();
-    const res = new Float32Array(n * 3);
-    const v: number[] = [];
-    const skin = node.getSkin();
-    if (skin) {
-      const joints = skin.listJoints();
-      const ibm = skin.getInverseBindMatrices()?.getArray() as Float32Array;
-      const skinMats = joints.map((j, k) => {
-        const w = worldOf(j);
-        const b = ibm.subarray(k * 16, k * 16 + 16);
-        const r = new Float64Array(16);
-        for (let c = 0; c < 4; c++)
-          for (let row = 0; row < 4; row++) {
-            let s = 0;
-            for (let q = 0; q < 4; q++) s += w[q * 4 + row] * b[c * 4 + q];
-            r[c * 4 + row] = s;
-          }
-        return r;
-      });
-      const jo = prim.getAttribute("JOINTS_0");
-      const wo = prim.getAttribute("WEIGHTS_0");
-      const jv: number[] = [];
-      const wv: number[] = [];
-      for (let i = 0; i < n; i++) {
-        pos.getElement(i, v);
-        jo?.getElement(i, jv);
-        wo?.getElement(i, wv);
-        let best = 0;
-        for (let k = 1; k < 4; k++) if (wv[k] > wv[best]) best = k;
-        apply(skinMats[jv[best]], v[0], v[1], v[2], res, i * 3);
+    for (const prim of mesh.listPrimitives()) {
+      const pos = prim.getAttribute("POSITION");
+      if (!pos) continue;
+      const fcop = (
+        prim.getMaterial()?.getExtras() as { fcop?: { mode?: string; layer?: number } } | undefined
+      )?.fcop;
+      const n = pos.getCount();
+      const res = new Float32Array(n * 3);
+      const v: number[] = [];
+      const skin = node.getSkin();
+      if (skin) {
+        const joints = skin.listJoints();
+        const ibm = skin.getInverseBindMatrices()?.getArray() as Float32Array;
+        const skinMats = joints.map((j, k) => {
+          const w = worldOf(j);
+          const b = ibm.subarray(k * 16, k * 16 + 16);
+          const r = new Float64Array(16);
+          for (let c = 0; c < 4; c++)
+            for (let row = 0; row < 4; row++) {
+              let s = 0;
+              for (let q = 0; q < 4; q++) s += w[q * 4 + row] * b[c * 4 + q];
+              r[c * 4 + row] = s;
+            }
+          return r;
+        });
+        const jo = prim.getAttribute("JOINTS_0");
+        const wo = prim.getAttribute("WEIGHTS_0");
+        const jv: number[] = [];
+        const wv: number[] = [];
+        for (let i = 0; i < n; i++) {
+          pos.getElement(i, v);
+          jo?.getElement(i, jv);
+          wo?.getElement(i, wv);
+          let best = 0;
+          for (let k = 1; k < 4; k++) if (wv[k] > wv[best]) best = k;
+          apply(skinMats[jv[best]], v[0], v[1], v[2], res, i * 3);
+        }
+      } else {
+        const w = worldOf(node);
+        for (let i = 0; i < n; i++) {
+          pos.getElement(i, v);
+          apply(w, v[0], v[1], v[2], res, i * 3);
+        }
       }
-    } else {
-      const w = worldOf(node);
-      for (let i = 0; i < n; i++) {
-        pos.getElement(i, v);
-        apply(w, v[0], v[1], v[2], res, i * 3);
-      }
+      const key = keyOf(node.getName(), fcop?.mode ?? "", fcop?.layer ?? 0);
+      if (out.has(key)) throw new Error(`${path}: two primitives ${key}`);
+      out.set(key, res);
     }
-    out.set(node.getName(), res);
   }
   return out;
 }
 
-const PART_ORDER = [
-  "legs_mesh",
-  "cockpit_mesh",
-  "weapon_0_mesh",
-  "weapon_1_mesh",
-  "beacon_lights_mesh",
-];
-
+/**
+ * The rig posed at (legs, cockpit) against the RE's assembly in `form`: every
+ * part, mode and layer the RE keeps vertex for vertex, and none it drops --
+ * which must be exactly the faces the rig's masks hide in that form.
+ */
 async function expectPose(
   path: string,
   legsFrame: number,
   cockpitFrame: number,
+  form: number,
   sample = -1,
 ): Promise<void> {
   const ref = await assembled(path, sample);
   const posed = new Float32Array(3);
-  let at = 0;
-  for (const name of PART_ORDER) {
-    const want = ref.get(name);
-    if (!want) throw new Error(`${path}: no ${name}`);
-    let worst = 0;
-    for (let i = 0; i < want.length / 3; i++, at++) {
-      poseX1Vertex(
-        rig.table,
-        rig.slot[at],
-        legsFrame,
-        cockpitFrame,
-        0,
-        0,
-        rig.position[at * 3],
-        rig.position[at * 3 + 1],
-        rig.position[at * 3 + 2],
-        posed,
-        0,
-      );
-      for (let k = 0; k < 3; k++) worst = Math.max(worst, Math.abs(posed[k] - want[i * 3 + k]));
-    }
-    expect(`${name} ${worst < 1e-5}`).toBe(`${name} true`);
+  const mine = new Map<string, number[]>();
+  for (let at = 0; at < rig.slot.length; at++) {
+    const part = partOf(rig.slot[at]);
+    const key = keyOf(part, rig.mode[at], rig.layer[at]);
+    poseX1Vertex(
+      rig.table,
+      rig.slot[at],
+      legsFrame,
+      cockpitFrame,
+      0,
+      0,
+      rig.position[at * 3],
+      rig.position[at * 3 + 1],
+      rig.position[at * 3 + 2],
+      posed,
+      0,
+    );
+    const list = mine.get(key) ?? [];
+    list.push(posed[0], posed[1], posed[2]);
+    mine.set(key, list);
   }
-  expect(at).toBe(rig.position.length / 3);
+  const shown = [...mine.keys()]
+    .filter((key) => {
+      const [part, , layer] = key.split("/");
+      return ((maskOf(part, form) >> Number(layer)) & 1) === 1;
+    })
+    .sort();
+  expect([...ref.keys()].sort()).toEqual(shown);
+  for (const key of shown) {
+    const want = ref.get(key) as Float32Array;
+    const got = mine.get(key) as number[];
+    expect(`${key} ${got.length}`).toBe(`${key} ${want.length}`);
+    let worst = 0;
+    for (let i = 0; i < want.length; i++) worst = Math.max(worst, Math.abs(got[i] - want[i]));
+    expect(`${key} ${worst < 1e-5}`).toBe(`${key} true`);
+  }
 }
 
 describe("the X1's rig", () => {
@@ -223,36 +286,41 @@ describe("the X1's rig", () => {
     expect(built.simTs).toBe(readFileSync(X1_OUT_SIM_TS, "utf8"));
   });
 
-  test("is one primitive over a table of both timelines", () => {
-    expect(rig.prims).toBe(1);
+  test("is a primitive per draw mode over a table of both timelines", () => {
+    expect(rig.prims).toEqual(RIG_MODES.map((mode) => ({ mode })));
     expect(X1_LEGS_FRAMES).toBe(371);
     expect(X1_COCKPIT_FRAMES).toBe(30);
     expect(rig.table.length).toBe(X1_ANIM_WIDTH * X1_ANIM_HEIGHT * 4);
     expect(X1_ANIM_HEIGHT).toBe(X1_LEGS_FRAMES + X1_COCKPIT_FRAMES);
     for (const s of rig.slot) expect(s >= 0 && s < X1_SLOTS && Number.isInteger(s)).toBe(true);
+    for (const l of rig.layer) expect(l === 0 || l === 1).toBe(true);
   });
 
   test("keeps the team's offset off the beacon lights only", () => {
-    // The beacon is the last 78 vertices (13 quads), slot 17.
+    // The beacon is 78 vertices (13 quads), slot 17.
+    let beacon = 0;
     for (let i = 0; i < rig.slot.length; i++) {
       expect(rig.team[i]).toBe(rig.slot[i] === X1_SLOTS - 1 ? 0 : 1);
+      beacon += +(rig.slot[i] === X1_SLOTS - 1);
     }
+    expect(beacon).toBe(78);
   });
 
   test("stands as the RE's assembled walker at legs 0 / cockpit 0", async () => {
-    await expectPose(join(RAW_FCOP, "x1-alpha-walker.glb"), 0, 0);
+    await expectPose(join(X1_RAW_DIR, "x1_alpha.glb"), 0, 0, X1_FORM_WALKER);
   });
 
   test("folds into the RE's assembled hover at legs 359 / cockpit 29", async () => {
-    await expectPose(join(RAW_FCOP, "x1-alpha-hover.glb"), 359, 29);
+    await expectPose(join(X1_RAW_DIR, "x1_alpha_hover.glb"), 359, 29, X1_FORM_HOVER);
   });
 
   test("passes through the RE's assembled transform: legs 330 + i with cockpit i", async () => {
     // The RE's transform glb keys both tracks on one 30-sample timeline, the
     // cockpit's frame equal to the legs' offset from 330 -- as the mode-3 ramp
-    // has them, both `from + (to - from) * progress >> 16` over 29 frames.
+    // has them, both `from + (to - from) * progress >> 16` over 29 frames. It
+    // keeps every face, as the ramp's masks show every one.
     const file = join(X1_RAW_DIR, "x1_alpha_transform.glb");
-    for (const i of [0, 7, 14, 21, 29]) await expectPose(file, 330 + i, i, i);
+    for (const i of [0, 7, 14, 21, 29]) await expectPose(file, 330 + i, i, X1_FORM_RAMP, i);
   });
 
   test("hands the sim the legs' 62 AnmD tracks, the transform's at 0x0c", () => {

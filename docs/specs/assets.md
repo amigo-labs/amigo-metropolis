@@ -130,6 +130,26 @@ forever as a debug render mode (`?render=greybox`).
   assembled walker, hover and transform. Walker, transformation and hover are
   the same mesh at other frames, so nothing swaps and nothing is split: the
   one-mesh-per-archetype rule holds for the X1 again.
+- **The X1's faces keep the original's draw modes and layers** (fcop-fidelity.md
+  G13; RE `docs/formats/x1-alpha.md` "Draw modes and layers"). `avatar-x1.glb`
+  has a primitive per mode, opaque then half — the legs are half throughout —
+  which `render/fcopModel.ts` turns into geometry groups of the X1's one
+  InstancedMesh, as it does a unit's: the opaque faces cut at alpha 0.25, the
+  half faces **drawn twice over the same instanced triangles**, their solid
+  texels with the opaque faces and their bit-15 texels blended 50/50 without a
+  depth write. That second draw is the declared exception rule 3 asks for in
+  writing, and the same one every unit with half faces takes: it is a draw call
+  of the same mesh, not a second InstancedMesh — one geometry, one set of
+  instance matrices, pose, layer masks and team offset, a material per pass,
+  each with the same pose patch — because one pass cannot both write depth for
+  the solid texels and blend the bit-15 ones behind what is drawn after them.
+  Each face's layer (op1 bits 4..6) rides in `_X1LAYER`; per instance the
+  shader gets the two masks the original's partner draws the legs and the
+  cockpit with, read off the transform's progress (walker 3 / 5, the ramp
+  7 / 0xf, hover 5 / 0xb; the guns and the beacon 1), and collapses a face whose
+  layer bit is clear onto the model's origin, where it covers no pixel. The
+  draw form comes off the avatar snapshot (`render/x1Walk.ts` `x1DrawForm`: the
+  walker's tick, the legs on their hover track, else the ramp).
 - **The frames are the original's state machine's**, which runs in the sim
   (`packages/sim/src/walker.ts`, SIM_VERSION 83): the walker's tick, the
   transform's mode-3 ramp (legs track 0x0c 330 -> 359, cockpit track 2 0 -> 29,

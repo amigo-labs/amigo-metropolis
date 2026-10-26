@@ -201,7 +201,16 @@ import {
   variantOfPref,
 } from "./render/texVariants";
 import { loadUnitMeshes } from "./render/unitMeshes";
-import { aimPitchModel, aimX1, aimYawModel, createX1Walk, tickX1Walk } from "./render/x1Walk";
+import {
+  aimPitchModel,
+  aimX1,
+  aimYawModel,
+  createX1Walk,
+  tickX1Walk,
+  X1_FORM_HOVER,
+  X1_FORM_WALKER,
+  x1DrawForm,
+} from "./render/x1Walk";
 
 // --- Mode + simulation setup -------------------------------------------------
 
@@ -2012,6 +2021,7 @@ function renderEntities(alpha: number, simDtSec: number): void {
         known ? aimYawModel(x1Walk.aimYaw[slot]) : 0,
         known ? aimPitchModel(x1Walk.aimPitch[slot]) : 0,
         cloaked ? cloakV : -1,
+        known ? x1DrawForm(x1Walk, slot) : hovering ? X1_FORM_HOVER : X1_FORM_WALKER,
       );
     } else if (bucket) {
       const slot = bucket.count;

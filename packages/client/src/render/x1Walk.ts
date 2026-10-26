@@ -27,10 +27,21 @@ import {
   AVATAR_SNAP_WALK_STATE,
   MAX_PLAYERS,
   WALK_CODES_PER_TICK,
+  X1_HOVER_LEG_TRACK,
 } from "@metropolis/sim";
 
 /** At most this many codes a slot a tick (the sim's WALK_CODES_PER_TICK). */
 export const X1_CODES_PER_TICK = WALK_CODES_PER_TICK;
+
+/**
+ * The three draw forms the original's partner tells apart by the transform's
+ * progress `chase_sink` (player_partner.c 299-320): 0 the walker, 0x10000 the
+ * hover, anything between the ramp. Indices into x1Rig.generated.ts' layer
+ * masks.
+ */
+export const X1_FORM_WALKER = 0;
+export const X1_FORM_RAMP = 1;
+export const X1_FORM_HOVER = 2;
 
 export interface X1Walk {
   /** Each slot's X1 entity id, -1 while it has none. */
@@ -107,6 +118,21 @@ export function tickX1Walk(w: X1Walk, snap: Float32Array): void {
       w.codes[s * X1_CODES_PER_TICK + k] = snap[o + AVATAR_SNAP_CODES + k];
     w.codeCount[s] = n;
   }
+}
+
+/**
+ * Slot `s`'s draw form off the snapshot: the walker while the walker's tick
+ * runs it (the progress is 0 exactly then: out of the walker `row` turns 1 as
+ * the ramp starts, and back only at the walker end, player.c 1442-1483); the
+ * hover while the legs hold their hover track (put there at the hover end and
+ * by a hover reset, with the progress at 0x10000, player.c 1484-1500,
+ * player_transform.c 344-359; either ramp moves them onto 0x0c on the tick it
+ * starts); the ramp otherwise. The sim's ramp moves 1600 a tick (walker.ts), so
+ * no ramp tick lands on 0 or 0x10000 exactly.
+ */
+export function x1DrawForm(w: X1Walk, s: number): number {
+  if (w.form[s] === 0) return X1_FORM_WALKER;
+  return w.legsTrack[s] === X1_HOVER_LEG_TRACK ? X1_FORM_HOVER : X1_FORM_RAMP;
 }
 
 // --- the cockpit's aim (player_partner_tick, player.c 1611-1690) -----------------

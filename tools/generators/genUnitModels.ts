@@ -576,10 +576,11 @@ function fcopOf(material: Material | null): FcopMaterialExtras {
 }
 
 /**
- * The key of a primitive's face. A material without a mode (the X1 parts,
- * which the RE still exports through its old path) is opaque; a non-zero
- * layer (op1 bits 4..6, only the X1's Cobj 15 / 16 carry one) is refused,
- * since nothing here would honour the caller's layer mask.
+ * The key of a primitive's face. A material without a mode (the greybox
+ * avatar-walker / -hover raws, the RE's assembled X1 poses from before it
+ * exported the modes) is opaque; a non-zero layer (op1 bits 4..6, only the
+ * X1's Cobj 15 / 16 carry one; gen:x1 draws those) is refused, since nothing
+ * here would honour the caller's layer mask.
  */
 function faceKeyOf(prim: Primitive, key: string): FaceKey {
   const fcop = fcopOf(prim.getMaterial());
