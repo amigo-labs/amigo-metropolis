@@ -34,6 +34,7 @@ import {
   CAPTAIN_ORDER_FORTRESS,
   CAPTAIN_ORDER_JETS,
   CAPTAIN_ORDER_TANKS,
+  directionAxis,
   EV_ALARM,
   EV_BREACH,
   EV_CAPTAIN_EVENT,
@@ -45,6 +46,7 @@ import {
   EV_DRY_FIRE,
   EV_EXPLOSION,
   EV_HIT,
+  EV_KILL_PUSH,
   EV_LIFT_ARRIVE,
   EV_LOW_AMMO,
   EV_PICKUP,
@@ -252,6 +254,17 @@ interface VoiceState {
   spent: boolean;
 }
 
+/**
+ * One axis of the killer's push (`mission_record_spawn_push` 0x00437aa0), x16
+ * world units a second: the heading as a 16.16 word, `>> 4`, times the scale
+ * `(i16)(damage << 3)` (`shl ax, 3`: a halfword, so it wraps), `>> 8`.
+ */
+export function killPush(axis: number, damage: number): number {
+  const heading = Math.trunc(axis * 0x10000);
+  const scale = ((damage << 3) << 16) >> 16;
+  return ((heading >> 4) * scale) >> 8;
+}
+
 export class OriginalSounds implements EffectListener {
   private data: ArenaAudio | null = null;
   /** The Metropolis map id, for the side each team holds (render/sides.ts). */
@@ -285,6 +298,10 @@ export class OriginalSounds implements EffectListener {
    * same tick, raises nothing — `player_op4` with the +0xde marker set.
    */
   private sunk = -1;
+  /** This tick's EV_KILL_PUSH, for the EV_DEATH that follows it (-1 none). */
+  private pushVictim = -1;
+  private pushDir = 0;
+  private pushDamage = 0;
   /** Per player, this tick's direct-fire hit kind and pending impact effect. */
   private readonly shotKind = new Uint8Array(MAX_PLAYERS);
   private readonly shotImpact = new Int16Array(MAX_PLAYERS);
@@ -373,6 +390,7 @@ export class OriginalSounds implements EffectListener {
     this.shotKind.fill(0);
     this.shotImpact.fill(-1);
     this.sunk = -1;
+    this.pushVictim = -1;
     const d = events.data;
     for (let i = 0; i < events.count; i++) {
       const o = i * EVENT_STRIDE;
@@ -461,6 +479,11 @@ export class OriginalSounds implements EffectListener {
         return;
       case EV_SUNK:
         this.sunk = a;
+        return;
+      case EV_KILL_PUSH:
+        this.pushVictim = a;
+        this.pushDir = b;
+        this.pushDamage = c;
         return;
       case EV_DEATH:
         this.death(a, b, c, ctx);
@@ -690,6 +713,15 @@ export class OriginalSounds implements EffectListener {
     // The death's raiser is the dying actor: its place, facing, model (the
     // shatter's) and scale (its radius >> 4).
     if (!this.atEntity(victim, ctx, false)) return;
+    if (this.pushVictim === victim) {
+      // `cact_base_op4`'s context (0x0041a30f..0x0041a330): the killer's
+      // heading and its +0x1a, which the push turns into ((heading >> 4) *
+      // scale) >> 8 with scale the halfword +0x1a << 3 (0x00437aa0).
+      this.at.pushX = killPush(directionAxis(this.pushDir, 0), this.pushDamage);
+      this.at.pushY = killPush(directionAxis(this.pushDir, 2), this.pushDamage);
+      this.at.pushZ = killPush(directionAxis(this.pushDir, 1), this.pushDamage);
+      this.pushVictim = -1;
+    }
     const d = data.deaths;
     switch (archetype) {
       case ARCHETYPE.AVATAR: {
@@ -828,6 +860,9 @@ export class OriginalSounds implements EffectListener {
     at.team = -1;
     at.repeat = false;
     at.hold = 0;
+    at.pushX = 0;
+    at.pushY = 0;
+    at.pushZ = 0;
     return at;
   }
 

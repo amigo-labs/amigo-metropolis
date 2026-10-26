@@ -4,8 +4,10 @@
 
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
+import { killPush } from "../src/audio/cues";
 import { EffectChain, fxArenaFor, makeRaiseAt } from "../src/effects/chain";
 import { createFx, createFxPoses } from "../src/render/fx";
+import { POSE_STRIDE } from "../src/render/fx/common";
 import {
   FACE_REF_BASE,
   shatterFaceCount,
@@ -111,6 +113,31 @@ describe("faces", () => {
     expect(r.fx.debugCounts().shatter).toBe(30);
     r.frames(Math.ceil(((375 + 256) * 30) / 300) + 1);
     expect(r.fx.debugCounts().shatter).toBe(0);
+  });
+});
+
+describe("the killer's push (0x00437aa0, RE M3-OP)", () => {
+  test("((heading >> 4) * (i16)(damage << 3)) >> 8, the scale a halfword", () => {
+    expect(killPush(1, 25)).toBe(3200); // 4096 * 200 / 256
+    expect(killPush(-1, 25)).toBe(-3200);
+    expect(killPush(0, 25)).toBe(0);
+    // 0x1000 << 3 is 0x8000, negative as a halfword: backwards; 0x2000 nothing.
+    expect(killPush(1, 0x1000)).toBeLessThan(0);
+    expect(killPush(1, 0x2000)).toBe(0);
+  });
+
+  test("a face's roll takes the push, so the faces fly the killer's way", () => {
+    const meanX = (push: number) => {
+      const r = rig(new THREE.SphereGeometry(1, 16, 8));
+      r.at.pushX = push;
+      r.chain.raise(0, 159, r.at); // the first six faces publish their place
+      r.frames(10);
+      let sum = 0;
+      for (let k = 0; k < 6; k++) sum += r.poses.table[(FACE_REF_BASE + k) * POSE_STRIDE];
+      return sum / 6;
+    };
+    // 3200 x16 wu/s is 6.25 m/s: a third of a second moves them about 2 m.
+    expect(meanX(3200) - meanX(0)).toBeGreaterThan(1);
   });
 });
 

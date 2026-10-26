@@ -13,15 +13,18 @@ import {
   DIFFICULTY_EASY,
   DIFFICULTY_HARD,
   DIFFICULTY_NORMAL,
+  MINE_RADIUS,
   PICKUP_POWER_GUN,
   PICKUP_POWER_HEAVY,
   PICKUP_POWER_SPECIAL,
-  MINE_RADIUS,
   TICK_HZ,
   WEAPON_UNITS_PER_TICK,
 } from "../src/balance";
 import {
+  directionAxis,
+  EV_DEATH,
   EV_EXPLOSION,
+  EV_KILL_PUSH,
   EV_SHOT,
   EVENT_STRIDE,
   SHOT_SLOT_SPECIAL,
@@ -503,6 +506,60 @@ describe("missiles", () => {
     for (let t = 0; t < 40 && sim.ent.alive[m]; t++) step(sim, inputs);
     // It found the target 1.5 m off its launch line and dealt its 25: no blast.
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 25);
+  });
+
+  // The killer's push (RE M3-OP): a body a missile-class round's contact kills
+  // dies with the round's heading and damage word in its death's context.
+  test("a Hell Fire's killing contact carries its heading and damage to the death", () => {
+    const { sim, a1, inputs } = duel({ heavy: 0 }, 6);
+    sim.ent.hp[a1] = 10;
+    inputs.players[0].buttons = BTN_HEAVY;
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    let push = -1;
+    let death = -1;
+    let dir = 0;
+    let damage = 0;
+    for (let t = 0; t < 60 && death < 0; t++) {
+      step(sim, inputs);
+      for (let i = 0; i < sim.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        const kind = sim.events.data[o];
+        if (kind === EV_KILL_PUSH && sim.events.data[o + 1] === a1) {
+          push = i;
+          dir = sim.events.data[o + 2];
+          damage = sim.events.data[o + 3];
+        }
+        if (kind === EV_DEATH && sim.events.data[o + 1] === a1) death = i;
+      }
+    }
+    expect(death).toBeGreaterThan(0);
+    expect(push).toBe(death - 1); // just before the death
+    expect(damage).toBe(25);
+    // Fired along +x at a target straight ahead.
+    expect(directionAxis(dir, 0)).toBeGreaterThan(0.95);
+    expect(Math.abs(directionAxis(dir, 1))).toBeLessThan(0.1);
+  });
+
+  test("a Mortar shell's kill carries no push: it is no missile", () => {
+    const { sim, a1, inputs } = duel({ special: 0 }, 7);
+    sim.ent.hp[a1] = 10;
+    inputs.players[0].buttons = BTN_SPECIAL;
+    step(sim, inputs);
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    let pushes = 0;
+    let died = false;
+    for (let t = 0; t < 120 && !died; t++) {
+      step(sim, inputs);
+      for (let i = 0; i < sim.events.count; i++) {
+        const o = i * EVENT_STRIDE;
+        if (sim.events.data[o] === EV_KILL_PUSH) pushes++;
+        if (sim.events.data[o] === EV_DEATH && sim.events.data[o + 1] === a1) died = true;
+      }
+    }
+    expect(died).toBe(true);
+    expect(pushes).toBe(0);
   });
 
   test("a missile without a lock flies straight and ends at its 16 m range", () => {

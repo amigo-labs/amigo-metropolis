@@ -35,9 +35,11 @@
 // two bones, 43 quads and 40 triangles all inside one, so the whole test
 // changes no face there; it is the rule all the same.)
 //
-// Not drawn (Metropolis'): the killer's push (as the faces', render/fx/shatter.ts).
-// The rolls are the client's stream, not `game_rand` (A18). Fixed pools; nothing
-// allocates once a match runs.
+// The killer's push never reaches a skeleton here: 1:8 is 1:9's successor,
+// which the wrecked X1's death starts with no context (player_op4), and a
+// successor is installed with none (0x0042d5fe; RE M3-OP). The rolls are the
+// client's stream, not `game_rand` (A18). Fixed pools; nothing allocates once
+// a match runs.
 
 import * as THREE from "three";
 import type { RaiseAt } from "../../effects/chain";

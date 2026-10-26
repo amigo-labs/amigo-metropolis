@@ -194,6 +194,7 @@ import {
   EV_DRY_FIRE,
   EV_EXPLOSION,
   EV_HIT,
+  EV_KILL_PUSH,
   EV_LIFT_ARRIVE,
   EV_LIFT_START,
   EV_LOW_AMMO,
@@ -212,6 +213,7 @@ import {
   EV_TURRET_UNDER_FIRE,
   type EventBuffer,
   packArcAngles,
+  packDirection,
   pushEvent,
   reachToShotPayload,
   roundSource,
@@ -333,6 +335,8 @@ import {
   normalizeExtraWeapons,
   normalizeLoadout,
   PROJ_BEAM,
+  PROJ_HEAVY,
+  PROJ_HYPER,
   PROJ_K9,
   PROJ_MINE,
   PROJ_ROUND,
@@ -457,6 +461,14 @@ export interface SimState {
    * spawns, read when it strikes.
    */
   readonly roundFrom: Uint8Array;
+  /**
+   * The killer's push a body's death carries (EV_KILL_PUSH), by entity id:
+   * the striking round's packDirection and its damage (0 none). Presentation
+   * only and NOT hashed: written at a missile-class round's killing contact,
+   * read and cleared when the death is collected.
+   */
+  readonly killPushDir: Int32Array;
+  readonly killPushDamage: Int32Array;
   /** Current Points per player: what a side spends (rules.md §3). */
   readonly points: Uint32Array;
   /**
@@ -1124,6 +1136,8 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     lastButtons: new Uint16Array(MAX_PLAYERS),
     moveCue: new Uint8Array(MAX_PLAYERS),
     roundFrom: new Uint8Array(MAX_ENTITIES),
+    killPushDir: new Int32Array(MAX_ENTITIES),
+    killPushDamage: new Int32Array(MAX_ENTITIES),
     points: new Uint32Array(MAX_PLAYERS).fill(STARTING_POINTS),
     heavyUnlocked: new Uint8Array(MAX_PLAYERS),
     heavyPoll: new Int32Array(MAX_PLAYERS),
@@ -4782,6 +4796,7 @@ function guidedTick(state: SimState, id: number): void {
       // A contact: the round's own serial is the credit, which resolves to
       // nobody (0x0041a811), so it is no rival's hit.
       applyDamage(state, t, ent.ammoA[id], ent.ownerId[id], false);
+      notePush(state, t, ent.born[id], missilePushDir(state, id), ent.ammoA[id]);
       if (hug) {
         // The body's health as the drone reads it: before its own notice
         // when the drone is told first, after it otherwise.
@@ -5220,6 +5235,8 @@ function explode(state: SimState, id: number, struck = -1): void {
   const y = ent.posY[id];
   const team = ent.team[id];
   const owner = ent.ownerId[id];
+  const pushDir = struck >= 0 ? missilePushDir(state, id) : 0;
+  const born = ent.born[id];
   // Despawn first so the blast loop never re-hits the shell itself.
   despawn(ent, id);
   if (radius > 0) {
@@ -5242,6 +5259,49 @@ function explode(state: SimState, id: number, struck = -1): void {
     // player.c 0x004477ab; fcop-fidelity.md V7).
     if (struck >= 0) applyDamage(state, struck, damage, owner, false);
   }
+  if (pushDir !== 0) notePush(state, struck, born, pushDir, damage);
+}
+
+/**
+ * The heading of round `id` as a packDirection value when it is the original's
+ * missile class -- actor type 2, the only killer `cact_base_op4` gives a
+ * context (0x0041a309): a world round, the Hell Fire 2000's and the Hyper
+ * Velocity Rocket's straight rounds, a guided round. 0 for any other (an arced
+ * shell, a bouncing round or a mine is type 7 or 0x0f; the Warden's bomb).
+ */
+function missilePushDir(state: SimState, id: number): number {
+  const ent = state.ent;
+  const flags = ent.ammoB[id];
+  if ((flags & ROUND_GUIDED) !== 0) {
+    return packDirection(ent.velX[id], ent.velY[id], ent.timerB[id]);
+  }
+  if ((flags & (ROUND_ARC | ROUND_BOUNCE | ROUND_FLAT_BLAST)) !== 0) return 0;
+  const kind = ent.mode[id];
+  if (kind !== PROJ_ROUND && kind !== PROJ_HEAVY && kind !== PROJ_HYPER) return 0;
+  const vx = ent.velX[id];
+  const vy = ent.velY[id];
+  // A straight round climbs timerB metres a metre flown.
+  return packDirection(vx, vy, ent.timerB[id] * Math.sqrt(vx * vx + vy * vy));
+}
+
+/**
+ * A missile-class round's contact left `target` dead (RE M3-OP): the contact's
+ * credit is the round's serial (0x0041a811), both die in the next frame's
+ * expiry pass in creation order, and only a body made before the round finds
+ * it still live there -- one made after it is re-credited by the round's own
+ * blast first. So a body older than the round carries the push to its death.
+ */
+function notePush(
+  state: SimState,
+  target: number,
+  roundBorn: number,
+  dir: number,
+  damage: number,
+): void {
+  const ent = state.ent;
+  if (target < 0 || ent.hp[target] > 0 || ent.born[target] >= roundBorn) return;
+  state.killPushDir[target] = dir;
+  state.killPushDamage[target] = damage;
 }
 
 /** Collects deaths: points, events, avatar/dummy respawn scheduling. */
@@ -5262,6 +5322,11 @@ function systemDamageDeath(state: SimState): void {
       state.avatarId[owner] === id &&
       state.avatarSinking[owner] !== 0;
     if (sunk) pushEvent(state.events, EV_SUNK, id, owner, 0);
+    if (state.killPushDamage[id] !== 0) {
+      pushEvent(state.events, EV_KILL_PUSH, id, state.killPushDir[id], state.killPushDamage[id]);
+      state.killPushDamage[id] = 0;
+      state.killPushDir[id] = 0;
+    }
     pushEvent(state.events, EV_DEATH, id, killer, archetype);
     // Earn table (rules.md §3, fcop-fidelity.md R4-R7): a death pays the OTHER
     // side whoever caused it, because the original pays from the dying actor's

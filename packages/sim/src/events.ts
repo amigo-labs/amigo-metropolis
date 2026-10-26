@@ -274,6 +274,30 @@ export const EV_SHIELD_ARC = 28; // a=avatar id, b=struck entity id, c=the arc's
  * on the sphere to its new one (0x0044cd3e). Both are packArcAngles values.
  */
 export const EV_SHIELD_ARC_STEP = 29; // a=avatar id, b=the old angles, c=the new angles
+/**
+ * The killer's push (RE M3-OP; `cact_base_op4` 0x0041a2c0, the push
+ * `mission_record_spawn_push` 0x00437aa0): a body killed by the contact of a
+ * missile-class round (the original's actor type 2: every world round, the Hell
+ * Fire 2000's, the Hyper Velocity Rocket's, the K-9 Drone's, the Fusion
+ * Torpedo's) that was made before the round. Its death's context then carries
+ * the round's heading and its damage word, and a shatter of its death flies
+ * its pieces that way. Pushed just before the body's EV_DEATH.
+ */
+export const EV_KILL_PUSH = 30; // a=victim id, b=packDirection(round heading), c=round damage
+
+/** A unit direction as one event field: x, y and up, ten signed bits each (/ 511). */
+export function packDirection(x: number, y: number, h: number): number {
+  const len = Math.sqrt(x * x + y * y + h * h);
+  if (len <= 0) return 0;
+  const q = (v: number) => Math.floor((v / len) * 511 + 0.5) & 0x3ff;
+  return q(x) | (q(y) << 10) | (q(h) << 20);
+}
+
+/** One axis (0 x, 1 y, 2 up) of a packDirection value, -1..1. */
+export function directionAxis(packed: number, axis: number): number {
+  const raw = (packed >> (10 * axis)) & 0x3ff;
+  return ((raw << 22) >> 22) / 511;
+}
 
 /**
  * An arc's direction as one event field: its yaw in the low sixteen bits and its
