@@ -72,6 +72,9 @@ import {
   SKY_SPEND_HOME,
   SKY_SPEND_HOME_PER_LEVEL,
   SKY_STANDOFF,
+  SKY_TURN_BOOST_RADIUS,
+  SKY_TURN_BOOST_SHIFT,
+  SKY_TURN_RATE,
   SKY_TURRET_COUNT,
   SKY_TURRET_PARTS,
   SKY_TURRETS_SAFE,
@@ -115,7 +118,13 @@ import {
   TURRET_DEFENSE,
 } from "./sim";
 import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
-import { nearestEnemyInRange, UNIT_MODE_PATROL } from "./units";
+import {
+  aircraftHeading,
+  headingScratch,
+  nearestEnemyInRange,
+  steerHeading,
+  UNIT_MODE_PATROL,
+} from "./units";
 
 /** Word 56's announcements the sim raises (EV_CAPTAIN_EVENT). */
 export const CAPTAIN_EVENT_FIRES_ON_PLAYER = 2;
@@ -162,6 +171,8 @@ export interface CaptainState {
   threshold: number;
   /** Current speed, m/s (raised on a retreat, reset by a restore or respawn). */
   speed: number;
+  /** Current turn rate (`+0xf8`): the record's, x4 once when boosted home. */
+  turn: number;
   /** `byte_1c`: the coin that picks its outpost order and gates two spend blocks. */
   order: number;
   /** The shooters' search countdown, engine units. */
@@ -182,6 +193,7 @@ export function createCaptainState(): CaptainState {
     destY: 0,
     threshold: 0,
     speed: 0,
+    turn: SKY_TURN_RATE,
     order: 0,
     search: 0,
     gunClock: new Float64Array(3),
@@ -274,6 +286,7 @@ export function captainConstruct(state: SimState): void {
   c.move = -1;
   c.fly = SKY_ENGAGE;
   c.speed = skySpeed(level);
+  c.turn = SKY_TURN_RATE;
   c.order = randInt(state, 2);
   redrawThreshold(state);
   refreshDestination(state);
@@ -298,6 +311,7 @@ export function captainRespawn(state: SimState): void {
   const c = state.captain;
   redrawThreshold(state);
   c.speed = skySpeed(captainLevel(state));
+  c.turn = SKY_TURN_RATE;
   c.think = 0;
   c.aim = -1;
   c.move = -1;
@@ -308,6 +322,9 @@ export function captainRespawn(state: SimState): void {
   state.ent.yaw[id] = yaw;
   state.ent.aimX[id] = cosLUT(yaw);
   state.ent.aimY[id] = sinLUT(yaw);
+  // It flies off along the new heading (steerHeading reads it from here).
+  state.ent.velX[id] = cosLUT(yaw) * c.speed;
+  state.ent.velY[id] = sinLUT(yaw) * c.speed;
 }
 
 /**
@@ -329,6 +346,7 @@ function restore(state: SimState, id: number): void {
   refreshDestination(state);
   c.think = 0;
   c.speed = skySpeed(captainLevel(state));
+  c.turn = SKY_TURN_RATE;
 }
 
 /**
@@ -416,6 +434,7 @@ function captainRetreat(state: SimState, id: number, level: number): boolean {
     }
   }
   if (pick >= 0) {
+    if (pickD < SKY_TURN_BOOST_RADIUS) boostTurn(state);
     if (pickD < SKY_PICKUP_RADIUS) {
       state.pickupCooldown[pick] = spots[pick].respawnTicks;
       restore(state, id);
@@ -428,9 +447,19 @@ function captainRetreat(state: SimState, id: number, level: number): boolean {
     }
     return true; // further than home: the rethink runs
   }
+  if (homeD < SKY_TURN_BOOST_RADIUS) boostTurn(state);
   c.destX = hx;
   c.destY = hy;
   return false;
+}
+
+/**
+ * Quadruple the turn rate, once (`sky_boost_turn_rate`, 0x00421761 / 0x004217dd):
+ * only while it still has the record's, which a restore or respawn puts back.
+ */
+function boostTurn(state: SimState): void {
+  const c = state.captain;
+  if (c.turn === SKY_TURN_RATE) c.turn = SKY_TURN_RATE << SKY_TURN_BOOST_SHIFT;
 }
 
 // --- The decision pass ------------------------------------------------------
@@ -1115,8 +1144,10 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
 /**
  * The commander's flight (`aircraft_fly`): in ENGAGE with a move target it flies
  * at the target, otherwise at its destination; inside the 1 m standoff it
- * reverses, which is what makes it circle and jitter on a target. It never
- * patrols. Level flight at its level's speed; terrain and walls are beneath it.
+ * reverses. It never patrols. It turns as every aircraft does (units.ts
+ * steerHeading, at `c.turn`: the record's 4096, x4 once when boosted home), so
+ * it flies its heading and circles what it attacks. Level flight at its level's
+ * speed; terrain and walls are beneath it.
  */
 function captainFly(state: SimState, id: number): void {
   const ent = state.ent;
@@ -1129,18 +1160,15 @@ function captainFly(state: SimState, id: number): void {
   }
   let dx = tx - ent.posX[id];
   let dy = ty - ent.posY[id];
-  const d = Math.sqrt(dx * dx + dy * dy);
-  if (d > 1e-6) {
-    dx /= d;
-    dy /= d;
-  } else {
-    dx = cosLUT(ent.yaw[id]);
-    dy = sinLUT(ent.yaw[id]);
-  }
-  if (d < SKY_STANDOFF) {
+  if (Math.sqrt(dx * dx + dy * dy) < SKY_STANDOFF) {
     dx = -dx;
     dy = -dy;
   }
+  // The aircraft's turn (units.ts steerHeading) at its current rate.
+  aircraftHeading(state, id);
+  steerHeading(headingScratch.x, headingScratch.y, dx, dy, c.turn);
+  dx = headingScratch.x;
+  dy = headingScratch.y;
   const extent = worldExtent(state.map);
   ent.velX[id] = dx * c.speed;
   ent.velY[id] = dy * c.speed;

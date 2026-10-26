@@ -1478,4 +1478,14 @@
 //     (`cact_round_spawn_arced` 0x0044d440 -> `cact_discharge_arc`): the ballistic
 //     solve to the target's position at 7.62 m/s under the 3072-raw drop, where it
 //     flew flat at 25 m/s for 2.5 s. The Warden goldens play differently (04, 07).
-export const SIM_VERSION = 102;
+// v103: every aircraft turns as the original's (fcop-fidelity.md U3, U4; RE
+//     M3-OR, `aircraft_fly` 0x00420977..0x00420b84): it flies its heading, and
+//     each tick the vector to its steer point, shifted to a 15-bit cheap
+//     magnitude and scaled by `turn * delta >> 3` (jets and Flying Fortress
+//     5120, the Sky Captain 4096), is added to that unit heading
+//     (units.ts steerHeading). It turned at once until now. The captain's turn
+//     is quadrupled once on its way home damaged, within 10 m of home or of
+//     the pickup it is after (`sky_boost_turn_rate` 0x00421761 / 0x004217dd),
+//     and put back by a restore or a respawn; `captain.turn` is hashed. The
+//     Warden goldens play differently (04, 07).
+export const SIM_VERSION = 103;

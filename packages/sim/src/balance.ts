@@ -1541,6 +1541,37 @@ export const AIRCRAFT_CRUISE_JITTER = 205;
 export const AIRCRAFT_STANDOFF = 1;
 export const AIRCRAFT_REVERSE_TICKS = 15;
 export const AIRCRAFT_REVERSE_JITTER = 13;
+/**
+ * How an aircraft turns (`aircraft_fly`, retail 0x00420977..0x00420b84; RE
+ * M3-OR): there is no angular rate. Each frame the horizontal vector to the
+ * steer point is rescaled by a pure shift until its cheap magnitude (`max +
+ * min / 4`, 0x00457b10) has 15 bits (0x00457f60), multiplied 16.16 by `turn *
+ * delta >> 3` (0x00420a1f, 0x004584a0) and added to the unit (0x10000) heading,
+ * which is normalised again (0x00420b2a..0x00420b84; the low-passed `steer` only
+ * banks the model). So the step is 2^15..2^16 x turn x delta / 2^35 of a unit,
+ * the shift's leftover making it depend on the distance's bit pattern: a jet's
+ * hardest turn (5120) is 81..190°/s at 30 fps, the Sky Captain's (4096) 65..152°/s,
+ * 262..621°/s boosted. Every PA jet and Flying Fortress record carries 5120,
+ * every Sky Captain 4096 (all six arenas). Metropolis steps it once a tick with
+ * delta = AIRCRAFT_DELTA_UNITS; the heading's Y (the altitude command, its 7/8
+ * decay and the pitch clamp) and the bank's speed penalty are not modelled.
+ */
+export const AIRCRAFT_TURN_RATE = 5120;
+export const SKY_TURN_RATE = 4096;
+/** The engine units one sim tick stands for in the steering step (10 at 30 Hz). */
+export const AIRCRAFT_DELTA_UNITS = 300 / TICK_HZ;
+/** The heading's unit: 1.0 in 16.16, which the step is added to. */
+export const AIRCRAFT_HEADING_ONE = 0x10000;
+/** The bits `vec_rescale_15` pins the step's cheap magnitude to (floor log2 = 15). */
+export const AIRCRAFT_STEP_BITS = 15;
+/**
+ * The Sky Captain's turn is quadrupled, once (`sky_boost_turn_rate`, 0x00421761 /
+ * 0x004217dd: `shl 2` of the block's copy), when it cruises home damaged within
+ * 0x14000 wu (10 m) of the restoring pickup it is after or, with none, of home;
+ * a restore or a respawn puts the record's back.
+ */
+export const SKY_TURN_BOOST_SHIFT = 2;
+export const SKY_TURN_BOOST_RADIUS = 0x14000 / 8192;
 
 export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart
 export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tick

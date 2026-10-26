@@ -29,11 +29,15 @@ import {
   AIR_ALTITUDE,
   AIRCRAFT_CRUISE_JITTER,
   AIRCRAFT_CRUISE_TICKS,
+  AIRCRAFT_DELTA_UNITS,
+  AIRCRAFT_HEADING_ONE,
   AIRCRAFT_REVERSE_JITTER,
   AIRCRAFT_REVERSE_TICKS,
   AIRCRAFT_SEARCH_JITTER,
   AIRCRAFT_SEARCH_TICKS,
   AIRCRAFT_STANDOFF,
+  AIRCRAFT_STEP_BITS,
+  AIRCRAFT_TURN_RATE,
   AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HOVER_SPEED,
   AVATAR_WALKER_MAX_SLOPE,
@@ -68,6 +72,7 @@ import {
   UNIT_SEPARATION_PUSH,
   UNIT_SEPARATION_RADIUS,
   WAYPOINT_RADIUS,
+  WU_PER_METRE,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
 import { type MapData, resolveHeight, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
@@ -359,9 +364,11 @@ function aircraftSearch(state: SimState, id: number): number {
  * Field reuse: timerA/timerB the destination, timerC the cruise countdown,
  * cooldownB the search countdown (ticks), ammoB the target + 1, aimX the
  * reverse countdown (ticks), mode the anchor (aircraftAnchorX).
- * Not modelled (not in the extracted records): the ENGAGE / CRUISE dwell timers
- * of a target-less patrol (it re-draws its destination on arrival instead), the
- * turn rate (it turns at once) and the altitude controller (AIR_ALTITUDE).
+ * It turns as the original does (steerHeading, the record's turn 5120): it
+ * flies its heading and bends it toward the point, so it circles what it
+ * attacks. Not modelled: the ENGAGE / CRUISE dwell timers of a target-less
+ * patrol (it re-draws its destination on arrival instead) and the altitude
+ * controller (AIR_ALTITUDE).
  */
 function moveAircraft(state: SimState, id: number): void {
   const ent = state.ent;
@@ -395,8 +402,8 @@ function moveAircraft(state: SimState, id: number): void {
     tx = ent.timerA[id];
     ty = ent.timerB[id];
   }
-  let dx = tx - ent.posX[id];
-  let dy = ty - ent.posY[id];
+  const dx = tx - ent.posX[id];
+  const dy = ty - ent.posY[id];
   const d = Math.sqrt(dx * dx + dy * dy);
   if (target < 0 && d < AIRCRAFT_STANDOFF) {
     pickDestination(state, id); // a target-less patrol moves on
@@ -412,22 +419,79 @@ function moveAircraft(state: SimState, id: number): void {
     reverse = true;
   }
   if (ent.aimX[id] > 0) ent.aimX[id] -= 1;
-  if (d > 1e-6) {
-    dx /= d;
-    dy /= d;
-  } else {
-    dx = cosLUT(ent.yaw[id]);
-    dy = sinLUT(ent.yaw[id]);
-  }
-  if (reverse) {
-    dx = -dx;
-    dy = -dy;
-  }
   const speed = airSpeed(state, id);
-  ent.velX[id] = dx * speed;
-  ent.velY[id] = dy * speed;
-  ent.yaw[id] = atan2Poly(dy, dx);
+  // The original's turn (steerHeading) toward the steer point, reversed inside
+  // the standoff: it flies its heading, not straight at the point.
+  aircraftHeading(state, id);
+  steerHeading(
+    headingScratch.x,
+    headingScratch.y,
+    reverse ? -dx : dx,
+    reverse ? -dy : dy,
+    AIRCRAFT_TURN_RATE,
+  );
+  ent.velX[id] = headingScratch.x * speed;
+  ent.velY[id] = headingScratch.y * speed;
+  ent.yaw[id] = atan2Poly(headingScratch.y, headingScratch.x);
   stepAndSnap(state, id, true);
+}
+
+/** Scratch for aircraftHeading / steerHeading (module scope, no allocation per tick). */
+export const headingScratch = { x: 0, y: 0 };
+
+/**
+ * An aircraft's unit heading into headingScratch: the direction it flies (its
+ * velocity), or its facing before it has flown.
+ */
+export function aircraftHeading(state: SimState, id: number): void {
+  const ent = state.ent;
+  const vx = ent.velX[id];
+  const vy = ent.velY[id];
+  const l = Math.sqrt(vx * vx + vy * vy);
+  if (l > 1e-9) {
+    headingScratch.x = vx / l;
+    headingScratch.y = vy / l;
+  } else {
+    headingScratch.x = cosLUT(ent.yaw[id]);
+    headingScratch.y = sinLUT(ent.yaw[id]);
+  }
+}
+
+/**
+ * One frame of the original's aircraft turn (`aircraft_fly`, retail
+ * 0x00420a0f..0x00420b84; balance.ts AIRCRAFT_TURN_RATE): the horizontal vector
+ * (dx, dy) to the steer point, in world units, is shifted until its cheap
+ * magnitude (`max + min / 4`, 0x00457b10) has AIRCRAFT_STEP_BITS bits
+ * (`vec_rescale_15`, 0x00457f60) — a pure shift, so the step keeps the
+ * direction and not the length — scaled 16.16 by `turn * delta >> 3`
+ * (0x004584a0) and added to the unit heading (hx, hy) x 0x10000, which is then
+ * normalised. Writes the new unit heading to headingScratch.
+ */
+export function steerHeading(hx: number, hy: number, dx: number, dy: number, turn: number): void {
+  let ix = Math.floor(dx * WU_PER_METRE);
+  let iy = Math.floor(dy * WU_PER_METRE);
+  const ax = ix < 0 ? -ix : ix;
+  const ay = iy < 0 ? -iy : iy;
+  const mag = ax > ay ? ax + (ay >> 2) : ay + (ax >> 2);
+  const bits = topBit(mag);
+  if (bits > AIRCRAFT_STEP_BITS) {
+    ix >>= bits - AIRCRAFT_STEP_BITS;
+    iy >>= bits - AIRCRAFT_STEP_BITS;
+  } else {
+    ix <<= AIRCRAFT_STEP_BITS - bits;
+    iy <<= AIRCRAFT_STEP_BITS - bits;
+  }
+  const scale = (turn * AIRCRAFT_DELTA_UNITS) >> 3;
+  const nx = hx * AIRCRAFT_HEADING_ONE + ((ix * scale) >> 16);
+  const ny = hy * AIRCRAFT_HEADING_ONE + ((iy * scale) >> 16);
+  const l = Math.sqrt(nx * nx + ny * ny);
+  if (l > 1e-9) {
+    headingScratch.x = nx / l;
+    headingScratch.y = ny / l;
+  } else {
+    headingScratch.x = hx;
+    headingScratch.y = hy;
+  }
 }
 
 /**

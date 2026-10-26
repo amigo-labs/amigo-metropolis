@@ -6195,6 +6195,8 @@ export function hash(state: SimState): number {
       h = fnv1aF32(h, c.gunClock[k]);
       h = fnv1aU32(h, c.gunPhase[k]);
     }
+    // Appended at SIM_VERSION 103: its turn rate (boosted home x4).
+    h = fnv1aU32(h, c.turn >>> 0);
   }
   // Appended at SIM_VERSION 76, every map: the rival-hit flags (hashed in a
   // Warden match only from 75) and the results page's figures (stats.ts).

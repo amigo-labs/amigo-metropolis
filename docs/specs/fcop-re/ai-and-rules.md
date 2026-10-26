@@ -142,8 +142,11 @@ target's position, otherwise at `destination`. Reverse direction while within 1 
 what makes it circle/jitter on a target. Altitude: saturating P-controller around
 `envelope + 1.28 m`, clamped hard to the envelope. Turning: steer = horizontal unit direction
 (15-bit) x `turn_rate*dt>>3` (16.16), low-passed (`acc=(3acc+in)/4`), added to the unit heading and
-renormalised; pitch clamped +-0x8000. Effective max yaw rate ~ **40-70 deg/s** at turn 4096
-(my estimate, **[C]**), x4 when boosted. Weapon 7 fires every tick it has a target; weapons 8/9 are
+renormalised; pitch clamped +-0x8000. **Retracted (RE M3-OR):** the heading accumulates the
+unfiltered step (`heading += [ebp-0x14..]` at 0x00420b2a), not the low-passed `steer` (that only banks the
+model), and the 15-bit rescale is a pure shift, so the step is 2^15..2^16 x turn x delta / 2^35 of the unit
+heading: at 30 fps 65-152 deg/s at turn 4096 (the captain), 81-190 deg/s at 5120 (jets, Fortress), by the
+distance's bit pattern; 262-621 deg/s boosted. **[A]** Weapon 7 fires every tick it has a target; weapons 8/9 are
 ticked in `sky_tick` (0x0042169b).
 
 ### 1.6 Retreat and heal (tick 0x004215b0) [A]
@@ -346,7 +349,6 @@ No diff points at a misreading of the rules above; most are layout/unmapped-glob
 * What the human view-block halfwords +0x324/+0x326 are (the captain ignores the human as a mode-0 /
   bonus target while either is positive; HUD blinks blue on +0x326 > 0 - maybe invincibility/cloak).
 * Voice line content (no transcripts); meanings above are inferred from the triggering script.
-* Turn rate in deg/s (estimate only); the aircraft heading integrator is a vector low-pass, not an angle.
 * Exact trigger box size in metres (raw 2457x1843 for gates; behaviour doc says x8 effective).
 * `csac_score_kill` (per-class "Destroyed" stats) is a stub; player block +0x40 gate on neutral-turret
   capture is a stub.

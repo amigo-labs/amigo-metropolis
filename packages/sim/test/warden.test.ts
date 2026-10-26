@@ -17,6 +17,7 @@ import {
   SKY_RETHINK_JITTER,
   SKY_RETHINK_JITTER_DEFEND,
   SKY_RETHINK_PER_LEVEL,
+  SKY_TURN_RATE,
   STARTING_POINTS,
   skyMaxHp,
   skyRespawnTicks,
@@ -354,15 +355,20 @@ describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
     const wid = sim.avatarId[1];
     step(sim, idle);
     const cruise = sim.captain.speed;
-    sim.ent.posX[wid] = 110; // 30 m out from home, chasing the player
-    sim.ent.posY[wid] = 125;
+    // 15 m out from home, heading home: it flies its heading and turns toward
+    // what it steers at (units.ts steerHeading), so a craft facing away would
+    // first run on and divert to a pickup nearer than home.
+    const home = LC.spawns[1];
+    sim.ent.posX[wid] = home.x;
+    sim.ent.posY[wid] = home.y + 15;
+    sim.ent.velX[wid] = 0;
+    sim.ent.velY[wid] = -cruise;
     sim.ent.hp[wid] = 50; // well below a quarter (defend halves the ~half threshold)
     step(sim, idle);
     expect(sim.captain.fly).toBe(SKY_CRUISE);
     expect(sim.captain.aim).toBe(-1);
     // Level 7: speed += speed >> (4 - 7 / 4) = an eighth.
     expect(sim.captain.speed).toBeCloseTo(cruise * 1.125, 6);
-    const home = LC.spawns[1];
     expect(sim.captain.destX).toBeCloseTo(home.x, 5);
     expect(sim.captain.destY).toBeCloseTo(home.y, 5);
     let restoredAt = -1;
@@ -372,6 +378,7 @@ describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
     }
     expect(restoredAt).toBeGreaterThan(0);
     expect(sim.captain.speed).toBeCloseTo(cruise, 6);
+    expect(sim.captain.turn).toBe(SKY_TURN_RATE); // the boost home is undone too
   });
 });
 

@@ -51,7 +51,9 @@
 // surface: the same beats. Since SIM_VERSION 102 the captain's missile and bomb
 // fly at the original's speeds (the bomb on its arc): the same ten tanks, the
 // jet and the claim, the player down twice, and the player no longer shoots the
-// captain down; no breach.
+// captain down; no breach. Since SIM_VERSION 103 every aircraft turns as the
+// original's: the same ten tanks, the jet and the claim, the player down
+// twice, and the captain's tanks breach the player's gate at tick 3657 (122 s).
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -114,8 +116,8 @@ describe("golden-04-warden beats", () => {
     expect(claims).toBe(1);
     expect(wardenDeaths).toBe(0);
     expect(avatarDeaths).toBe(2);
-    expect(breachTick).toBe(-1);
-    expect(breachTeam).toBe(-1);
-    expect(sim.winner).toBe(-1);
+    expect(breachTick).toBe(3657);
+    expect(breachTeam).toBe(1);
+    expect(sim.winner).toBe(1);
   });
 });

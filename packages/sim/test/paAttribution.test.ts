@@ -327,8 +327,15 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // sim ticks): 19 of 20 resolve, in 40-110 s; urban-jungle seed 2 and bug-hunt
   // seed 2 now breach (86 s, 71 s), urban-jungle seed 4 does not: its opening
   // order dies at the ring and it stays on 2 points.
+  // Re-measured at SIM_VERSION 103 (every aircraft turns as the original's:
+  // its jets and the captain fly their heading and loop about what they
+  // attack), on top of SIM_VERSION 100's feature surfaces: proving-ground seed
+  // 2 and bug-hunt seed 4 no longer resolve in the twelve minutes, the rest
+  // still do, in 44-107 s.
   const UNRESOLVED: Record<string, number[]> = {
     [URBAN_JUNGLE_ID]: [4],
+    [PROVING_GROUND_ID]: [2],
+    [BUG_HUNT_ID]: [4],
   };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {
