@@ -31,6 +31,7 @@
     "gen:x1": "bun run tools/generators/fcopX1.ts",
     "gen:walls": "bun run tools/generators/fcopWalls.ts",
     "gen:arena": "bun run tools/generators/enrichArena.ts",
+    "gen:coarse": "bun run tools/generators/fcopCoarse.ts",
     "gen:presentation": "bun run tools/generators/importFcopPresentation.ts",
     "gen:pads": "bun run tools/generators/stampPads.ts",
     "replay:record:all": "bun run tools/determinism/src/recordAll.ts",

@@ -1403,4 +1403,13 @@
 //     the drone reads the body's health after the body has taken its damage,
 //     so a body it kills costs it 2. Extra weapons are off in every golden:
 //     every hash holds, re-recorded for the header.
-export const SIM_VERSION = 96;
+// v97: the K-9 Drone keeps its clearance over the original's coarse ground
+//     envelope (fcop-fidelity.md W5; RE prepare.c 0x00455e00 / 0x00456180,
+//     missile.c 0x004238f9), where it read the heightfield. gen:coarse builds
+//     the field from each mission's Cptc and Ctil sections (one byte per two
+//     samples, the 2x2 maximum over all three channels, blurred and maxed
+//     again); stage 2 carries it into every FCOP arena's map as `coarse`, and
+//     `coarseHeightAt` samples it in the original's integer steps, 4 m off the
+//     field. Other maps keep the heightfield. Extra weapons are off in every
+//     golden: every hash holds, re-recorded for the header.
+export const SIM_VERSION = 97;

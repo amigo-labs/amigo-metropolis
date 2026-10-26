@@ -238,6 +238,7 @@ import {
   TRANSFORM_KEEPS,
 } from "./inputs";
 import {
+  coarseHeightAt,
   insideGate,
   isWater,
   type MapBaseTurret,
@@ -4683,7 +4684,10 @@ function guidedTick(state: SimState, id: number): void {
       const cx = x - ax;
       const cy = y - ay;
       if (cx * cx + cy * cy > K9_CLEARANCE_RANGE * K9_CLEARANCE_RANGE) {
-        if (h - sampleHeight(map, x, y) < K9_CLEARANCE) {
+        // The original's coarse envelope where the arena has one, the
+        // heightfield elsewhere (coarseHeightAt; prepare.c 0x00456180).
+        const ground = map.coarse ? coarseHeightAt(map.coarse, x, y) : sampleHeight(map, x, y);
+        if (h - ground < K9_CLEARANCE) {
           h += K9_CLEARANCE_LIFT;
           speed = Math.trunc(speed / 2);
           ent.timerC[id] = GUIDED_AVOID;

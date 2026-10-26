@@ -76,6 +76,7 @@ import {
   selectArenas,
   wallsFile,
 } from "./fcopArenas";
+import { readCoarse } from "./fcopCoarse";
 import {
   captureRangeToCells,
   fovToCos,
@@ -1815,8 +1816,11 @@ function terrainOnly(raw: MapJson): MapJson {
   // The render-only `props` this stage used to write (their yaws Metropolis'
   // own, "face the nearer base core") are dropped: the client draws the scenery
   // from render/arenaScenery.generated.ts, and nothing read them.
-  const { props, spawnGuards, ...kept } = raw as MapJson & { props?: unknown };
+  // `coarse` is rebuilt below too, and dropped here so it is always emitted in
+  // the same place whatever the map on disk carries.
+  const { props, spawnGuards, coarse, ...kept } = raw as MapJson & { props?: unknown };
   void props;
+  void coarse;
   void spawnGuards;
   // A fresh stage-1 terrain still carries convert.ts's hand outpost spots but no
   // outposts, which the loader refuses; every feature list is rebuilt below.
@@ -2365,6 +2369,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     spawnGuards: spawnGuards.length > 0 ? spawnGuards : undefined,
     lifts: lifts.length > 0 ? lifts : undefined,
     layers,
+    // The original's coarse ground envelope (gen:coarse, fcopCoarse.ts): what
+    // the K-9 Drone keeps its clearance over.
+    coarse: coarseOf(arena),
   };
 
   // Load it back through the real validator before returning: an arena that only
@@ -2387,6 +2394,20 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       field,
       map: loaded,
     },
+  };
+}
+
+/** The arena's committed coarse field (tools/generators/fcop/<mission>-coarse.json), as the map carries it. */
+function coarseOf(arena: FcopArena): MapJson["coarse"] {
+  const f = readCoarse(arena);
+  if (!f) return undefined;
+  // Into the sim's frame as every actor goes (sx, sz).
+  return {
+    originX: sx(f.origin),
+    originY: sz(f.origin),
+    rows: f.rows,
+    stride: f.stride,
+    field: f.field,
   };
 }
 

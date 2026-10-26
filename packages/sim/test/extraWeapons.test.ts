@@ -577,6 +577,38 @@ describe("K-9 Drone (0x15, missile.c CACT_MISSILE_KIND_HUG)", () => {
     expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 150);
   });
 
+  test("on an arena with the original's coarse field it keeps its clearance over that, not the heightfield", () => {
+    // Flat ground, but a 1.5 m envelope over it (prepare.c 0x00455e00): the
+    // drone flies low and climbs for the envelope as it would for a hill.
+    const coarse = (byte: string) => ({
+      originX: 0,
+      originY: 0,
+      rows: 32,
+      stride: 32,
+      field: Array.from({ length: 32 }, () => byte.repeat(32)),
+    });
+    const flown = (map: MapJson) => {
+      const { sim, inputs } = duel(
+        { heavy: K9.index },
+        11,
+        EXTRA_WEAPONS_ALL,
+        loadMapFromJson(map),
+      );
+      inputs.players[0].buttons = BTN_HEAVY;
+      step(sim, inputs);
+      inputs.players[0].buttons = 0;
+      const [d] = rounds(sim, PROJ_K9);
+      let avoided = false;
+      for (let t = 0; t < 40 && sim.ent.alive[d] && sim.ent.mode[d] === PROJ_K9; t++) {
+        step(sim, inputs);
+        if (sim.ent.timerC[d] === 3) avoided = true;
+      }
+      return avoided;
+    };
+    expect(flown({ ...flatArena(), coarse: coarse("30") })).toBe(true);
+    expect(flown({ ...flatArena(), coarse: coarse("00") })).toBe(false);
+  });
+
   test("powered: three drones on three ticks, then 1202 units (121 ticks)", () => {
     const { sim, inputs } = duel({ heavy: K9.index }, 12);
     powerSlot(sim, K9);

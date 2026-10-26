@@ -108,11 +108,12 @@ not answered yet.
       uses "the target's height plus the muzzle's" for the same point, the
       drone's included. That belongs in one sim-wide change: a reference
       height per body, carried from the 3DBB boxes as the radii are.
-    - **Moved to B (RE export first), the drone's ground:** the original reads
-      `cact_coarse_height_at` (0x00456180), a field `cact_coarse_height_build`
-      (0x00455e00) makes from the raw Ctil samples of all three channels (2x2
-      maxima, a blur, the max of both). The RE can export that field per map,
-      and Metropolis cannot rebuild it from its heightfield.
+    - **Done, the drone's ground** (SIM_VERSION 97): no RE export was needed,
+      since the mission containers are in the RE repo. gen:coarse
+      (`tools/generators/fcopCoarse.ts`) builds `cact_coarse_height_build`'s
+      field (0x00455e00) from the Cptc and Ctil sections, stage 2 carries it
+      into each map, and the drone samples it with `coarseHeightAt`
+      (0x00456180).
     - **Done, the drone's health loss** (SIM_VERSION 96): the RE settles the
       order. The pair walk (`objects_pick_targets` 0x0044fe40 over
       `paint_grid_insert`'s 4 m cells) tells the body in the earlier cell
@@ -150,7 +151,9 @@ not answered yet.
       carry frame 0's box only;
     - a shatter quad flying as one face (item 9): the glbs carry no
       triangle-to-primitive map;
-    - the coarse height field per map (item 10), for the K-9 Drone's ground.
+    - ~~the coarse height field per map (item 10), for the K-9 Drone's
+      ground~~ **done** from the containers themselves (gen:coarse,
+      SIM_VERSION 97).
 
 ## C. Open questions in the RE (research; Metropolis keeps its value until then)
 
