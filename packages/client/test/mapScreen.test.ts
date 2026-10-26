@@ -10,11 +10,13 @@ import {
   BTN_GUN,
   BTN_TURN_LEFT,
   BTN_TURN_RIGHT,
+  getMapById,
 } from "@metropolis/sim";
 import {
   createMapScreen,
   MAP_SAMPLES_X,
   MAP_SAMPLES_Y,
+  mapBounds,
   mapCell,
   mapWindow,
   panMapScreen,
@@ -93,12 +95,23 @@ describe("the pan bits (draw.c:1577-1650)", () => {
     expect(m.rateX).toBe(0);
   });
 
-  test("the window stays inside the world", () => {
+  test("the window overhangs the world by at most 2 m (world_clamp_map_centre)", () => {
     const m = opened(5, 995);
     panMapScreen(m, 0, 1, 0, 0, WORLD, 16, 12);
-    expect([m.cx, m.cy]).toEqual([16, 988]);
+    // Margins: the half less 0x4000 wu, 14 m across and 10 m down.
+    expect([m.cx, m.cy]).toEqual([14, 990]);
     panMapScreen(m, BTN_TURN_LEFT | BTN_BACK, 1000, 0, 0, WORLD, 16, 12);
-    expect([m.cx, m.cy]).toEqual([16, 988]);
+    expect([m.cx, m.cy]).toEqual([14, 990]);
+  });
+
+  test("a world narrower than the margins: the low bound wins below it, the high above", () => {
+    const narrow = Float64Array.of(100, 120, 0, 1000);
+    const m = opened(90, 500);
+    panMapScreen(m, 0, 1, 0, 0, narrow, 16, 12);
+    expect(m.cx).toBe(114);
+    m.cx = 130;
+    panMapScreen(m, 0, 1, 0, 0, narrow, 16, 12);
+    expect(m.cx).toBe(106);
   });
 
   test("closed, nothing pans", () => {
@@ -129,5 +142,14 @@ describe("the window (pause_map terrain_window)", () => {
     expect(mapCell(199.9, 200)).toBe(53);
     expect(mapCell(100, 200)).toBe(27);
     expect(mapCell(-5, 200)).toBe(0);
+  });
+});
+
+describe("mapBounds", () => {
+  test("an arena's world is the original's grid less its margin, in the sim's frame", () => {
+    const out = new Float64Array(4);
+    // Mp: GRDB width 13, height 15, margin 4; 16 m a cell, +16 m on x.
+    mapBounds(getMapById("la-cantina"), out);
+    expect([...out]).toEqual([80, 144, 64, 160]);
   });
 });
