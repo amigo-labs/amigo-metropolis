@@ -1,8 +1,9 @@
 # Open items after Phase 14 waves 4–7
 
-> Status: **group A worked through 2026-10-25/26 (PR #71, SIM_VERSION 98)**,
-> items 10 and 11 to the end (the skeleton shatter of item 9 too); groups B–E
-> open. Collected 2026-10-19 after PR #68 (Metropolis, SIM_VERSION 91) and
+> Status: **group A worked through 2026-10-25/26 (PR #71, SIM_VERSION 99)**,
+> items 10 and 11 to the end (the skeleton shatter of item 9 too), and a
+> reported fall through urban-jungle's ring grates fixed (fidelity P16); groups
+> B–E open. Collected 2026-10-19 after PR #68 (Metropolis, SIM_VERSION 91) and
 > amigo-labs/fcop-reverse-engineering#84 were merged. Each item names where it is
 > recorded: the ledger row in `docs/specs/fcop-fidelity.md`, a `PLAN.md` box, or
 > both. In group A every item is marked done, deferred with its reason, or moved

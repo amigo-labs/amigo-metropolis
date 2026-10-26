@@ -1424,4 +1424,15 @@
 //     body's reference point. Maps without models keep MUZZLE_HEIGHT.
 //     golden-03 (la-cantina) diverges at tick 660, 07 at 469, 04 at 2220 and
 //     ends where it ended; 02 and 05 hold.
-export const SIM_VERSION = 98;
+// v99: urban-jungle's covered pits carry a walker on their grates (fcop-
+//     fidelity.md P16). The extractor's ground is the lowest floor drawn at a
+//     point, so under the ring's fourteen grates and the two outpost pads it
+//     was the pit floor 1.2 m (0.4 m) down, the cells around each pit sloped
+//     into it, and a mech walking on slid under the grate and fell in; the
+//     original's walker stands on the highest plate (terrain_surface_at
+//     0x00453ef0) and never leaves the grate. Stage 1 (convert.ts coverPits)
+//     lifts the ground onto a deck that roofs a pit completely, flush with the
+//     floor around it: 248 points, the deck gone there. 7 lane edges a walker
+//     cannot climb, was 13. urban-jungle's goldens play differently (02, 04,
+//     05).
+export const SIM_VERSION = 99;

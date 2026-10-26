@@ -44,7 +44,10 @@
 // a jet, the claim, and the player down twice (98 s, 122 s); no breach. Since
 // SIM_VERSION 87 a turret gun whose target is gone turns back to its rest yaw:
 // the same ten tanks, the jet and the claim, the player down twice (96 s,
-// 134 s); no breach.
+// 134 s); no breach. Since SIM_VERSION 99 the ring's grates carry a walker
+// (convert.ts coverPits): the same ten tanks, the jet and the claim, the
+// player down twice (94 s, 114 s), and between those it shoots the captain
+// down (113 s); no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -105,7 +108,7 @@ describe("golden-04-warden beats", () => {
     expect(bought.get(ARCHETYPE.RUNNER)).toBe(10);
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
     expect(claims).toBe(1);
-    expect(wardenDeaths).toBe(0);
+    expect(wardenDeaths).toBe(1);
     expect(avatarDeaths).toBe(2);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);
