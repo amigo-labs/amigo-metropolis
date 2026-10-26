@@ -3,7 +3,7 @@
   "mapId": "hollywood-keys",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "9d9ce805944d7afb980f12dcc2cd20d6d967b28d",
+    "commit": "44fd3cc06234fed356bee3da3162d45bb88cf296",
     "extractor": "tools/gfx/extract_logic.py"
   },
   "frame": {
@@ -23,12 +23,16 @@
     {
       "id": 12,
       "x": 76.2175,
-      "z": 127.5
+      "z": 127.5,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 16,
       "x": 196.2495,
-      "z": 112.625
+      "z": 112.625,
+      "groundCast": 0,
+      "groundY": -0.9687
     }
   ],
   "dreadnoughts": [
@@ -93,7 +97,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 1.125
     },
     {
       "id": 18,
@@ -112,7 +118,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 1.125
     },
     {
       "id": 20,
@@ -131,7 +139,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 1.125
     },
     {
       "id": 21,
@@ -150,7 +160,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 1.125
     },
     {
       "id": 23,
@@ -169,7 +181,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 1.125
     },
     {
       "id": 25,
@@ -188,7 +202,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 1.125
     },
     {
       "id": 26,
@@ -207,7 +223,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 27,
@@ -226,7 +244,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 28,
@@ -245,7 +265,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 1.125
     },
     {
       "id": 30,
@@ -264,7 +286,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 1.125
     },
     {
       "id": 36,
@@ -283,7 +307,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 38,
@@ -302,7 +328,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -2250,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 45,
@@ -321,7 +349,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 85,
@@ -340,7 +370,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 157,
@@ -359,7 +391,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 158,
@@ -378,7 +412,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 162,
@@ -397,7 +433,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 176,
@@ -416,7 +454,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 180,
@@ -435,7 +475,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 182,
@@ -454,7 +496,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 184,
@@ -473,7 +517,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 198,
@@ -492,7 +538,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 199,
@@ -511,7 +559,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 202,
@@ -530,7 +580,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 203,
@@ -549,7 +601,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 217,
@@ -568,7 +622,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 220,
@@ -587,7 +643,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 224,
@@ -606,7 +664,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     }
   ],
   "neutrals": [
@@ -627,7 +687,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 1.4063
     },
     {
       "id": 15,
@@ -646,7 +708,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 19,
@@ -665,7 +729,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 24,
@@ -684,7 +750,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 37,
@@ -703,7 +771,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 39,
@@ -722,7 +792,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 40,
@@ -741,7 +813,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 41,
@@ -760,7 +834,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 42,
@@ -779,7 +855,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 44,
@@ -798,7 +876,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 59,
@@ -817,7 +897,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 61,
@@ -836,7 +918,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 62,
@@ -855,7 +939,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 63,
@@ -874,7 +960,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 65,
@@ -893,7 +981,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 67,
@@ -912,7 +1002,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.125
     },
     {
       "id": 70,
@@ -931,7 +1023,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 72,
@@ -950,7 +1044,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 73,
@@ -969,7 +1065,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 78,
@@ -988,7 +1086,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 113,
@@ -1007,7 +1107,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 119,
@@ -1026,7 +1128,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 148,
@@ -1045,7 +1149,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 165,
@@ -1064,7 +1170,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 216,
@@ -1083,7 +1191,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 265,
@@ -1102,7 +1212,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 266,
@@ -1121,7 +1233,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 267,
@@ -1140,7 +1254,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 268,
@@ -1159,7 +1275,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.125
     },
     {
       "id": 271,
@@ -1178,7 +1296,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 274,
@@ -1197,7 +1317,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 276,
@@ -1216,7 +1338,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 277,
@@ -1235,7 +1359,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     },
     {
       "id": 278,
@@ -1254,7 +1380,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 279,
@@ -1273,7 +1401,9 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": -1500,
-      "spawnLimit": 1
+      "spawnLimit": 1,
+      "groundCast": 0,
+      "groundY": 0.9063
     }
   ],
   "pickups": [
@@ -1283,7 +1413,9 @@
       "z": 89.75,
       "grants": ["invisibility", "is_set", "pickup_consume"],
       "spawnTicks": -6000,
-      "rotationalSpeed": -4916
+      "rotationalSpeed": -4916,
+      "groundCast": 0,
+      "groundY": 0.6211
     },
     {
       "id": 29,
@@ -1291,7 +1423,9 @@
       "z": 117.25,
       "grants": ["invisibility", "is_set", "pickup_consume"],
       "spawnTicks": -6000,
-      "rotationalSpeed": -4916
+      "rotationalSpeed": -4916,
+      "groundCast": 0,
+      "groundY": 1.4063
     },
     {
       "id": 98,
@@ -1299,7 +1433,9 @@
       "z": 100.625,
       "grants": ["power_up_gun", "is_set", "pickup_consume"],
       "spawnTicks": -6000,
-      "rotationalSpeed": -4916
+      "rotationalSpeed": -4916,
+      "groundCast": 0,
+      "groundY": 0.8945
     },
     {
       "id": 100,
@@ -1307,7 +1443,9 @@
       "z": 117.4375,
       "grants": ["reload_gun", "is_set", "pickup_consume"],
       "spawnTicks": -3000,
-      "rotationalSpeed": 1228
+      "rotationalSpeed": 1228,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 101,
@@ -1315,7 +1453,9 @@
       "z": 120.0625,
       "grants": ["reload_heavy", "is_set", "pickup_consume"],
       "spawnTicks": -3000,
-      "rotationalSpeed": 1228
+      "rotationalSpeed": 1228,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 102,
@@ -1323,7 +1463,9 @@
       "z": 120.0625,
       "grants": ["reload_special", "is_set", "pickup_consume"],
       "spawnTicks": -3000,
-      "rotationalSpeed": 1228
+      "rotationalSpeed": 1228,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 103,
@@ -1331,7 +1473,9 @@
       "z": 117.4375,
       "grants": ["restore_health", "is_set", "pickup_consume"],
       "spawnTicks": -3000,
-      "rotationalSpeed": 1228
+      "rotationalSpeed": 1228,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 105,
@@ -1339,7 +1483,9 @@
       "z": 153.0625,
       "grants": ["power_up_heavy", "is_set", "pickup_consume"],
       "spawnTicks": -6000,
-      "rotationalSpeed": -4916
+      "rotationalSpeed": -4916,
+      "groundCast": 0,
+      "groundY": -0.5937
     },
     {
       "id": 110,
@@ -1347,7 +1493,9 @@
       "z": 104.625,
       "grants": ["power_up_special", "is_set", "pickup_consume"],
       "spawnTicks": -6000,
-      "rotationalSpeed": -4916
+      "rotationalSpeed": -4916,
+      "groundCast": 0,
+      "groundY": -0.5937
     }
   ],
   "triggers": [
@@ -1359,7 +1507,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 57
+      "watchesActor": 57,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 9,
@@ -1369,7 +1519,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 7
+      "watchesActor": 7,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 35,
@@ -1379,7 +1531,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 7
+      "watchesActor": 7,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 58,
@@ -1389,7 +1543,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 57
+      "watchesActor": 57,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 81,
@@ -1399,7 +1555,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 77
+      "watchesActor": 77,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 104,
@@ -1409,7 +1567,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 172
+      "watchesActor": 172,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 106,
@@ -1419,7 +1579,9 @@
       "lengthRaw": 819,
       "heightRaw": 2048,
       "flags": ["retrigger", "action_button"],
-      "watchesActor": 12
+      "watchesActor": 12,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 107,
@@ -1429,7 +1591,9 @@
       "lengthRaw": 819,
       "heightRaw": 2048,
       "flags": ["retrigger", "action_button"],
-      "watchesActor": 12
+      "watchesActor": 12,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 108,
@@ -1439,7 +1603,9 @@
       "lengthRaw": 819,
       "heightRaw": 2048,
       "flags": ["retrigger", "action_button"],
-      "watchesActor": 16
+      "watchesActor": 16,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 109,
@@ -1449,7 +1615,9 @@
       "lengthRaw": 819,
       "heightRaw": 2048,
       "flags": ["retrigger", "action_button"],
-      "watchesActor": 16
+      "watchesActor": 16,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 115,
@@ -1459,7 +1627,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 185
+      "watchesActor": 185,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 226,
@@ -1469,7 +1639,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 204
+      "watchesActor": 204,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 227,
@@ -1479,7 +1651,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 154
+      "watchesActor": 154,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 228,
@@ -1489,7 +1663,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 16
+      "watchesActor": 16,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 229,
@@ -1499,7 +1675,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 75
+      "watchesActor": 75,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 230,
@@ -1509,7 +1687,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 87
+      "watchesActor": 87,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 231,
@@ -1519,7 +1699,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 173
+      "watchesActor": 173,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 232,
@@ -1529,7 +1711,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 144
+      "watchesActor": 144,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 233,
@@ -1539,7 +1723,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 205
+      "watchesActor": 205,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 234,
@@ -1549,7 +1735,9 @@
       "lengthRaw": 20480,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 12
+      "watchesActor": 12,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 235,
@@ -1559,7 +1747,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 172
+      "watchesActor": 172,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 236,
@@ -1569,7 +1759,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 77
+      "watchesActor": 77,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 237,
@@ -1579,7 +1771,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 185
+      "watchesActor": 185,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 238,
@@ -1589,7 +1783,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 204
+      "watchesActor": 204,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 239,
@@ -1599,7 +1795,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 154
+      "watchesActor": 154,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 240,
@@ -1609,7 +1807,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 75
+      "watchesActor": 75,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 241,
@@ -1619,7 +1819,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 87
+      "watchesActor": 87,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 242,
@@ -1629,7 +1831,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 173
+      "watchesActor": 173,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 243,
@@ -1639,7 +1843,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 144
+      "watchesActor": 144,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 244,
@@ -1649,7 +1855,9 @@
       "lengthRaw": 3276,
       "heightRaw": 2048,
       "flags": [],
-      "watchesActor": 205
+      "watchesActor": 205,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 377,
@@ -1659,7 +1867,9 @@
       "lengthRaw": 7372,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 12
+      "watchesActor": 12,
+      "groundCast": 0,
+      "groundY": -0.9687
     },
     {
       "id": 378,
@@ -1669,7 +1879,9 @@
       "lengthRaw": 7372,
       "heightRaw": 2048,
       "flags": ["retrigger"],
-      "watchesActor": 16
+      "watchesActor": 16,
+      "groundCast": 0,
+      "groundY": -0.9687
     }
   ],
   "units": [
@@ -1915,7 +2127,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 16
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 8,
@@ -1937,7 +2150,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 16
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 33,
@@ -1959,7 +2173,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 32
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 34,
@@ -1981,7 +2196,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 32
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 91,
@@ -2003,7 +2219,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 32
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 99,
@@ -2025,7 +2242,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 32
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 145,
@@ -2047,7 +2265,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 32
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 155,
@@ -2069,7 +2288,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 32
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 174,
@@ -2091,7 +2311,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 32
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 175,
@@ -2113,7 +2334,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 32
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 206,
@@ -2135,7 +2357,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 32
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     },
     {
       "id": 207,
@@ -2157,7 +2380,8 @@
         "engageRangeRaw": 6144,
         "targetingDelayRaw": 32
       },
-      "spawnTicks": 300
+      "spawnTicks": 300,
+      "groundY": -0.9687
     }
   ],
   "props": [
@@ -2459,504 +2683,576 @@
           "z": 123.0625,
           "neighbours": [44, -1, -1, -1],
           "state": 0,
-          "groundCast": 3
+          "groundCast": 3,
+          "groundY": -0.9687
         },
         {
           "x": 77,
           "z": 121,
           "neighbours": [6, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 171.0625,
           "z": 76.375,
           "neighbours": [7, -1, -1, -1],
           "state": 0,
-          "groundCast": 3
+          "groundCast": 3,
+          "groundY": -0.9687
         },
         {
           "x": 102.875,
           "z": 76.5625,
           "neighbours": [8, -1, -1, -1],
           "state": 0,
-          "groundCast": 3
+          "groundCast": 3,
+          "groundY": -0.9687
         },
         {
           "x": 102,
           "z": 163.3125,
           "neighbours": [10, -1, -1, -1],
           "state": 0,
-          "groundCast": 3
+          "groundCast": 3,
+          "groundY": -0.9687
         },
         {
           "x": 171.5625,
           "z": 163.5,
           "neighbours": [42, -1, -1, -1],
           "state": 0,
-          "groundCast": 3
+          "groundCast": 3,
+          "groundY": -0.9687
         },
         {
           "x": 87.875,
           "z": 120.625,
           "neighbours": [67, 58, 47, 68],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 171.0625,
           "z": 83.3125,
           "neighbours": [61, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 102.875,
           "z": 83,
           "neighbours": [23, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 160.1875,
           "z": 159.3125,
           "neighbours": [42, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 102,
           "z": 159.0625,
           "neighbours": [49, 43, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 137.5,
           "z": 83.5,
           "neighbours": [46, 26, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 185,
           "z": 119.75,
           "neighbours": [51, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 194.625,
           "z": 119.5,
           "neighbours": [14, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 198.25,
           "z": 119.3125,
           "neighbours": [15, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 198.1875,
           "z": 115.125,
           "neighbours": [64, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 93.75,
           "z": 99.375,
           "neighbours": [66, 57, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 105,
           "z": 97.5,
           "neighbours": [21, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 120.625,
           "z": 97.375,
           "neighbours": [22, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 121.5,
           "z": 92.25,
           "neighbours": [20, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 123.25,
           "z": 90.125,
           "neighbours": [24, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 119,
           "z": 97.25,
           "neighbours": [18, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 121,
           "z": 95.375,
           "neighbours": [19, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 123.25,
           "z": 83.375,
           "neighbours": [25, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 123.375,
           "z": 85.625,
           "neighbours": [23, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 125.75,
           "z": 83.375,
           "neighbours": [11, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 137.5,
           "z": 94.875,
           "neighbours": [59, 28, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 136.375,
           "z": 122.875,
           "neighbours": [30, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 136.25,
           "z": 97.875,
           "neighbours": [29, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 136.375,
           "z": 120.625,
           "neighbours": [27, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 137.625,
           "z": 123.4375,
           "neighbours": [31, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 148.5,
           "z": 123.4375,
           "neighbours": [55, 37, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 161.4375,
           "z": 113.9375,
           "neighbours": [70, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 181,
           "z": 119.8125,
           "neighbours": [12, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 118,
           "z": 134.5,
           "neighbours": [71, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 135.75,
           "z": 134.5,
           "neighbours": [45, 36, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 137.625,
           "z": 146.5625,
           "neighbours": [38, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 171.1875,
           "z": 123.4375,
           "neighbours": [33, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 160.3125,
           "z": 146.5,
           "neighbours": [56, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 110.375,
           "z": 159.125,
           "neighbours": [40, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 114.625,
           "z": 162.375,
           "neighbours": [41, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 150.125,
           "z": 162.375,
           "neighbours": [38, 9, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 171.5625,
           "z": 159.3125,
           "neighbours": [50, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 108.25,
           "z": 147.625,
           "neighbours": [34, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 72.8125,
           "z": 123.0625,
           "neighbours": [1, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 139.625,
           "z": 126.1875,
           "neighbours": [31, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 152.4375,
           "z": 81.75,
           "neighbours": [7, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 100.6875,
           "z": 122.5625,
           "neighbours": [34, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 96.625,
           "z": 144.125,
           "neighbours": [69, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 107.1875,
           "z": 159.0625,
           "neighbours": [39, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 178.375,
           "z": 154.0625,
           "neighbours": [56, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 186.25,
           "z": 119.4375,
           "neighbours": [13, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 96,
           "z": 135.875,
           "neighbours": [53, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 108.25,
           "z": 135.875,
           "neighbours": [34, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 105.0625,
           "z": 145.875,
           "neighbours": [49, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 156,
           "z": 118.5,
           "neighbours": [32, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 178.3125,
           "z": 143.1875,
           "neighbours": [63, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 97.25,
           "z": 88.4375,
           "neighbours": [8, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 93.25,
           "z": 111.125,
           "neighbours": [65, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 164.9375,
           "z": 94.6875,
           "neighbours": [60, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 173.3125,
           "z": 102.375,
           "neighbours": [12, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 176.6875,
           "z": 89.25,
           "neighbours": [62, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 177.125,
           "z": 98.5,
           "neighbours": [12, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 178.375,
           "z": 129.0625,
           "neighbours": [12, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 194.75,
           "z": 115.125,
           "neighbours": [13, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 93.5625,
           "z": 102.375,
           "neighbours": [16, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 97.125,
           "z": 98.8125,
           "neighbours": [17, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 94.5625,
           "z": 133.25,
           "neighbours": [52, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 95.3125,
           "z": 140.625,
           "neighbours": [48, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 100.75,
           "z": 144.9375,
           "neighbours": [54, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 169.125,
           "z": 113.9375,
           "neighbours": [33, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 131.875,
           "z": 134.375,
           "neighbours": [35, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         }
       ]
     },
@@ -2968,476 +3264,544 @@
           "z": 117.1875,
           "neighbours": [45, -1, -1, -1],
           "state": 0,
-          "groundCast": 3
+          "groundCast": 3,
+          "groundY": -0.9687
         },
         {
           "x": 169.4375,
           "z": 76.4375,
           "neighbours": [7, -1, -1, -1],
           "state": 0,
-          "groundCast": 3
+          "groundCast": 3,
+          "groundY": -0.9687
         },
         {
           "x": 101.6875,
           "z": 76.6875,
           "neighbours": [8, -1, -1, -1],
           "state": 0,
-          "groundCast": 3
+          "groundCast": 3,
+          "groundY": -0.9687
         },
         {
           "x": 100.6875,
           "z": 163.3125,
           "neighbours": [10, -1, -1, -1],
           "state": 0,
-          "groundCast": 3
+          "groundCast": 3,
+          "groundY": -0.9687
         },
         {
           "x": 170.125,
           "z": 163.5625,
           "neighbours": [9, -1, -1, -1],
           "state": 0,
-          "groundCast": 3
+          "groundCast": 3,
+          "groundY": -0.9687
         },
         {
           "x": 194.0625,
           "z": 119.75,
           "neighbours": [53, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 181.375,
           "z": 118.9375,
           "neighbours": [66, 56, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 169.4375,
           "z": 80.5,
           "neighbours": [52, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 101.6875,
           "z": 82.125,
           "neighbours": [57, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 170.125,
           "z": 157.875,
           "neighbours": [64, 47, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 100.6875,
           "z": 157.75,
           "neighbours": [55, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 181.125,
           "z": 111.5,
           "neighbours": [60, 58, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 137.75,
           "z": 82.4375,
           "neighbours": [20, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 138.875,
           "z": 93.6875,
           "neighbours": [12, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 86.625,
           "z": 120.125,
           "neighbours": [16, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 92.625,
           "z": 98,
           "neighbours": [49, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 77.75,
           "z": 120.375,
           "neighbours": [17, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 73.8125,
           "z": 120.375,
           "neighbours": [18, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 73.9375,
           "z": 124.5,
           "neighbours": [19, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 77.75,
           "z": 124.375,
           "neighbours": [16, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 122,
           "z": 82.125,
           "neighbours": [23, 8, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 122.125,
           "z": 90.125,
           "neighbours": [22, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 120.375,
           "z": 92.375,
           "neighbours": [24, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 122.125,
           "z": 88.5,
           "neighbours": [21, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 119.875,
           "z": 96.125,
           "neighbours": [26, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 105.5,
           "z": 96.125,
           "neighbours": [15, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 118.25,
           "z": 96,
           "neighbours": [25, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 160.9375,
           "z": 112.75,
           "neighbours": [28, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 154.75,
           "z": 117.9375,
           "neighbours": [29, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 147.875,
           "z": 122.625,
           "neighbours": [46, 32, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 137.625,
           "z": 122.625,
           "neighbours": [31, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 137.625,
           "z": 121,
           "neighbours": [33, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 138.625,
           "z": 122.625,
           "neighbours": [30, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 137.625,
           "z": 96.75,
           "neighbours": [13, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 135.25,
           "z": 133.25,
           "neighbours": [67, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 118.5,
           "z": 133.25,
           "neighbours": [48, 37, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 120.25,
           "z": 133.125,
           "neighbours": [35, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 105.5625,
           "z": 135.25,
           "neighbours": [54, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 87.9375,
           "z": 124.4375,
           "neighbours": [14, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 159.1875,
           "z": 145.5,
           "neighbours": [41, 40, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 139.125,
           "z": 145.5625,
           "neighbours": [34, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 151.5625,
           "z": 157.6875,
           "neighbours": [42, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 148.125,
           "z": 161.3125,
           "neighbours": [43, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 115,
           "z": 161.375,
           "neighbours": [44, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 110.75,
           "z": 158.125,
           "neighbours": [10, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 197.6875,
           "z": 117.1875,
           "neighbours": [5, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 139.0625,
           "z": 125.625,
           "neighbours": [34, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 150.5625,
           "z": 148.5,
           "neighbours": [40, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 101.125,
           "z": 121.75,
           "neighbours": [14, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 92.25,
           "z": 110.0625,
           "neighbours": [14, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 91.875,
           "z": 143.25,
           "neighbours": [38, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 177.375,
           "z": 152.4375,
           "neighbours": [64, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 151.875,
           "z": 80.625,
           "neighbours": [12, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 185.9375,
           "z": 119.5625,
           "neighbours": [62, 11, 6, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 96.5,
           "z": 135.25,
           "neighbours": [65, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 96,
           "z": 155.25,
           "neighbours": [50, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 169.625,
           "z": 122.625,
           "neighbours": [29, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 95.25,
           "z": 89.0625,
           "neighbours": [15, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 178,
           "z": 98,
           "neighbours": [59, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 177.4375,
           "z": 88.3125,
           "neighbours": [7, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 173.4375,
           "z": 101.375,
           "neighbours": [61, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 165,
           "z": 93.5,
           "neighbours": [13, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 177.375,
           "z": 129,
           "neighbours": [63, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 177.375,
           "z": 142.375,
           "neighbours": [51, 39, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 167.6875,
           "z": 157.75,
           "neighbours": [41, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 92.875,
           "z": 130.75,
           "neighbours": [38, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 168.9375,
           "z": 112.6875,
           "neighbours": [27, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         },
         {
           "x": 131.8125,
           "z": 133.25,
           "neighbours": [36, -1, -1, -1],
           "state": 0,
-          "groundCast": 0
+          "groundCast": 0,
+          "groundY": -0.9687
         }
       ]
     },
@@ -3449,287 +3813,328 @@
           "z": 84.375,
           "neighbours": [1, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 123.6875,
           "z": 86.625,
           "neighbours": [2, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 123.4375,
           "z": 89.5625,
           "neighbours": [6, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 119.9375,
           "z": 97.9375,
           "neighbours": [7, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 117.625,
           "z": 108.0625,
           "neighbours": [8, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 129.6875,
           "z": 84.375,
           "neighbours": [0, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 120.6875,
           "z": 93.25,
           "neighbours": [3, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 119.5625,
           "z": 102.5,
           "neighbours": [4, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 109.1875,
           "z": 110.75,
           "neighbours": [9, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 109.1875,
           "z": 119.8125,
           "neighbours": [10, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 113.125,
           "z": 126.125,
           "neighbours": [11, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 114.5625,
           "z": 133.1875,
           "neighbours": [13, 12, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 120.5,
           "z": 135.6875,
           "neighbours": [22, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 113.75,
           "z": 140.625,
           "neighbours": [14, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 111.0625,
           "z": 145.6875,
           "neighbours": [15, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 110.4375,
           "z": 156.8125,
           "neighbours": [16, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 115.5,
           "z": 161.875,
           "neighbours": [17, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 122.375,
           "z": 160.9375,
           "neighbours": [18, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 132.5625,
           "z": 160.8125,
           "neighbours": [19, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 145.625,
           "z": 160.5,
           "neighbours": [20, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 149.625,
           "z": 157.75,
           "neighbours": [21, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 150,
           "z": 148.125,
           "neighbours": [37, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 132.25,
           "z": 135.0625,
           "neighbours": [28, 23, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 135.6875,
           "z": 138.5625,
           "neighbours": [24, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 135.8125,
           "z": 144.75,
           "neighbours": [25, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 134.375,
           "z": 147.5625,
           "neighbours": [26, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 136.3125,
           "z": 149.25,
           "neighbours": [27, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 139,
           "z": 147.8125,
           "neighbours": [21, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 136.1875,
           "z": 132.8125,
           "neighbours": [29, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 136.5,
           "z": 127.875,
           "neighbours": [30, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 134.875,
           "z": 122.25,
           "neighbours": [31, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 137.125,
           "z": 114.375,
           "neighbours": [32, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 135.375,
           "z": 107.9375,
           "neighbours": [33, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 135.125,
           "z": 100.6875,
           "neighbours": [34, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 132.875,
           "z": 96.9375,
           "neighbours": [35, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 131.9375,
           "z": 91.9375,
           "neighbours": [36, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 132,
           "z": 87.25,
           "neighbours": [5, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 150.6875,
           "z": 146.25,
           "neighbours": [38, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 148.3125,
           "z": 144.4375,
           "neighbours": [39, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 143.0625,
           "z": 145.1875,
           "neighbours": [40, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         },
         {
           "x": 140.125,
           "z": 144.6875,
           "neighbours": [28, -1, -1, -1],
           "state": 0,
-          "groundCast": 1
+          "groundCast": 1,
+          "groundY": -2.9687
         }
       ]
     }
@@ -3739,122 +4144,170 @@
       {
         "id": 47,
         "x": 79.8762,
-        "z": 126.375
+        "z": 126.375,
+        "groundCast": 0,
+        "groundY": -0.9687
       },
       {
         "id": 51,
         "x": 79.8137,
-        "z": 128.75
+        "z": 128.75,
+        "groundCast": 0,
+        "groundY": -0.9687
       },
       {
         "id": 53,
         "x": 192.75,
-        "z": 113.5
+        "z": 113.5,
+        "groundCast": 0,
+        "groundY": -0.9687
       },
       {
         "id": 55,
         "x": 192.75,
-        "z": 110.625
+        "z": 110.625,
+        "groundCast": 0,
+        "groundY": -0.9687
       },
       {
         "id": 149,
         "x": 167.1877,
-        "z": 72.3125
+        "z": 72.3125,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 150,
         "x": 167.1877,
-        "z": 72.3125
+        "z": 72.3125,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 151,
         "x": 170.4993,
-        "z": 70.125
+        "z": 70.125,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 152,
         "x": 163.3748,
-        "z": 66.125
+        "z": 66.125,
+        "groundCast": 0,
+        "groundY": -0.375
       },
       {
         "id": 153,
         "x": 170.499,
-        "z": 70.125
+        "z": 70.125,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 166,
         "x": 104.752,
-        "z": 72.375
+        "z": 72.375,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 167,
         "x": 101.7488,
-        "z": 70.25
+        "z": 70.25,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 169,
         "x": 108.8142,
-        "z": 66.5
+        "z": 66.5,
+        "groundCast": 0,
+        "groundY": -0.375
       },
       {
         "id": 170,
         "x": 104.752,
-        "z": 72.375
+        "z": 72.375,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 171,
         "x": 101.749,
-        "z": 70.25
+        "z": 70.25,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 188,
         "x": 105.3762,
-        "z": 167.625
+        "z": 167.625,
+        "groundCast": 0,
+        "groundY": 0.2024
       },
       {
         "id": 189,
         "x": 101.8752,
-        "z": 169.8125
+        "z": 169.8125,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 191,
         "x": 109.3767,
-        "z": 173.8125
+        "z": 173.8125,
+        "groundCast": 0,
+        "groundY": -0.375
       },
       {
         "id": 192,
         "x": 105.3762,
-        "z": 167.625
+        "z": 167.625,
+        "groundCast": 0,
+        "groundY": 0.2024
       },
       {
         "id": 193,
         "x": 101.9368,
-        "z": 169.8125
+        "z": 169.8125,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 210,
         "x": 167.1262,
-        "z": 167.75
+        "z": 167.75,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 211,
         "x": 170.248,
-        "z": 170.125
+        "z": 170.125,
+        "groundCast": 1,
+        "groundY": 0.2188
       },
       {
         "id": 213,
         "x": 163.1875,
-        "z": 174.0625
+        "z": 174.0625,
+        "groundCast": 0,
+        "groundY": -0.375
       },
       {
         "id": 214,
         "x": 167.1262,
-        "z": 167.75
+        "z": 167.75,
+        "groundCast": 0,
+        "groundY": 0.2188
       },
       {
         "id": 215,
         "x": 170.2476,
-        "z": 170.125
+        "z": 170.125,
+        "groundCast": 1,
+        "groundY": 0.2188
       }
     ],
     "type89": [

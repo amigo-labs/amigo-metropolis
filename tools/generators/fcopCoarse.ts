@@ -146,6 +146,13 @@ function extract(b: Uint8Array, at: ResAt): Uint8Array {
   return out.subarray(0, len);
 }
 
+/**
+ * The container reader, for the other generators that read a record's bytes the
+ * RE extract does not carry (fcopLogic.ts: the actors' height selectors). Keys
+ * are the on-disk (byte-reversed) type tag and the resource id, `tcaC:12`.
+ */
+export { extract as containerResource, index as containerIndex };
+
 const i8 = (v: number): number => (v << 24) >> 24;
 
 /** `cact_coarse_height_build` (0x00455e00) over a container's bytes. */
