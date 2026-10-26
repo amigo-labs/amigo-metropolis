@@ -75,7 +75,9 @@ const ROADS: RoadExpectation[] = [
     // road, which is what you would expect of the pad that rolls ground units
     // out. Corroborates the shop reading in enrichArena's assignConsoles().
     // Team 0 is the player slot 0's side since SIM_VERSION 79 (it was team 1).
-    entry: [6, 143],
+    // Team 0 joins at the Cnet's own node #0 since its kerbs are open on the
+    // ground lattice too (SIM_VERSION 94); it was #6, #0 walled off.
+    entry: [0, 143],
     entryDistance: [3.1, 3.3],
     driveLimit: 40, // 18.9 s / 30.2 s measured to the gate box (Runner / Juggernaut step)
   },

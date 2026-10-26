@@ -1622,11 +1622,16 @@ function repairReachability(
     }
   };
 
+  /** The ground has no wall between neighbouring cells (i, j) and (ni, nj). */
+  const groundOpen = (i: number, j: number, ni: number, nj: number): boolean =>
+    i !== ni ? v[j][Math.max(i, ni)] !== "1" : h[Math.max(j, nj)][i] !== "1";
+
   // One breach per pass, because each breach can pull a whole region into the
   // flood and make most of the remaining targets reachable for free.
   for (let pass = 0; pass < 200; pass++) {
     const map = rebuild();
-    const reached = reachableFrom(map, raw.spawns[0].x, raw.spawns[0].y).cellKeys;
+    const reach = reachableFrom(map, raw.spawns[0].x, raw.spawns[0].y);
+    const reached = reach.cellKeys;
     const ci = (val: number): number => Math.min(size - 1, Math.max(0, Math.floor(val)));
     // Euclidean, on cell centres, so `reach` means the same thing the sim's
     // radius checks mean rather than a Manhattan approximation of it.
@@ -1678,6 +1683,16 @@ function repairReachability(
         if (ni < 0 || nj < 0 || ni >= size || nj >= size) continue;
         const nk = ni * size + nj;
         if (from[nk] !== -1) continue;
+        // A breach is a ground bit. Across an edge the ground already has open,
+        // from a cell the flood stands on only on a deck, there is nothing to
+        // clear: the deck's own parapet holds it. Reach the far cell some other
+        // way, or the walk below opens nothing and the repair never converges.
+        if (
+          reached.has(at) &&
+          groundOpen(i, j, ni, nj) &&
+          !reach.hasLayer((i + 0.5) * map.cellSize, (j + 0.5) * map.cellSize, 0)
+        )
+          continue;
         from[nk] = at;
         queue.push(nk);
       }
@@ -2243,12 +2258,12 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
   let repairedFor = new Map<string, number>();
   let entries: string[] = [];
   if (wallsV.length > 0) {
-    // Wall queries must see the PRISTINE lattice, not whatever is on disk.
-    const pristineMap = loadMapFromJson({
-      ...raw,
-      wallsV: pristine.wallsV,
-      wallsH: pristine.wallsH,
-    });
+    // Wall queries must see the lattice built from the committed pristine
+    // snapshot, not whatever is on disk: the snapshot with the shafts and the
+    // kerbs opened above, on the ground and on every deck. Reading the bare
+    // snapshot here threw the ground's shafts and kerbs away, since the carve
+    // writes its lattice back over `wallsV`/`wallsH`.
+    const pristineMap = loadMapFromJson({ ...raw, layers, wallsV, wallsH });
     // RoadBase only needs gate + groundConsole x/y.
     const roadBases = bases.map((b) => ({
       gate: { x: b.gate.x, y: b.gate.y },

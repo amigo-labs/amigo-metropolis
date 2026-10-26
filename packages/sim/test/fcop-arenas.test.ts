@@ -187,8 +187,11 @@ const ARENAS: ArenaExpectation[] = [
     // spills over all three lattices (fcop-fidelity.md P15), carves 199 for the
     // roads and opens 11 to reconnect (was 205 and 10 while the ground console
     // stood on the jet shop; one of the 11 now opens the tank shop's leg).
-    wallsVPin: 338467895,
-    wallsHPin: 3590047211,
+    // SIM_VERSION 94: the ground lattice keeps its own kerbs and shafts (the
+    // carve used to read the bare snapshot and write it back over them), so
+    // the carve drops to 43 bits and the reconnect to 2, for a ring turret.
+    wallsVPin: 2844950887,
+    wallsHPin: 3917163258,
     // Conft's decks, less the lift shafts, with the two landing patches.
     layerCells: [2126, 17],
     turretSpots: 32,
@@ -250,8 +253,11 @@ const ARENAS: ArenaExpectation[] = [
     // 424 kerbs over all three lattices (fcop-fidelity.md P15), carves 135 for the
     // roads (was 308, then 139 while the ground console stood on the jet shop)
     // and opens 10 to reconnect, one of them the tank shop's leg.
-    wallsVPin: 4113043016,
-    wallsHPin: 957207801,
+    // SIM_VERSION 94: the ground lattice keeps its own kerbs and shafts (the
+    // carve used to read the bare snapshot and write it back over them): 2676
+    // kerbs over all three lattices, 33 carved, 7 to reconnect.
+    wallsVPin: 1752677752,
+    wallsHPin: 4213323856,
     // Slim's decks, less the lift shafts: the spawns' platforms and the bridges.
     layerCells: [1847, 98],
     turretSpots: 29,
@@ -309,8 +315,11 @@ const ARENAS: ArenaExpectation[] = [
     // original's gate box, not at the Dreadnought spot). The ring turret's two
     // moved one cell each at SIM_VERSION 79: the repair floods from spawn 0,
     // which became the other base's when the teams took the player slots.
-    wallsVPin: 1495349930,
-    wallsHPin: 3669756659,
+    // SIM_VERSION 94: the ground lattice keeps its own kerbs (the carve used to
+    // read the bare snapshot and write it back over them): 2334 kerbs, 12
+    // carved, 2 to reconnect, and team 0 joins its road at the Cnet's node #0.
+    wallsVPin: 2147304755,
+    wallsHPin: 2646815651,
     // Mp's two bridge decks: 2398 cells over the roads, and 108 above those.
     layerCells: [2398, 108],
     turretSpots: 32, // every original NeutralTurret pad
@@ -353,8 +362,9 @@ const ARENAS: ArenaExpectation[] = [
     // Ground-deck walls since SIM_VERSION 65 (as proving-ground): 27 bits in the
     // lift shafts, 424 kerbs, 139 carved for the roads (was 312), 11 to
     // reconnect.
-    wallsVPin: 1693058243,
-    wallsHPin: 1220730748,
+    // SIM_VERSION 94: as proving-ground, 2668 kerbs, 34 carved, 7 to reconnect.
+    wallsVPin: 2597345913,
+    wallsHPin: 488937988,
     layerCells: [1839, 98],
     turretSpots: 29,
     outpostSpots: 4, // the original's four claim zones (fcop-re/outposts.md)

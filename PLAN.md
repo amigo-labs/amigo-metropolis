@@ -701,8 +701,8 @@ commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
 - [x] Conft imported with its decks, its four pit lifts and its kerbs (v67)
 - [x] The lifts drawn with their original models; travel and arrival sounds
 - [ ] Kerbs and spilled walls on la-cantina, Hk and Ovmp: each opens when it is
-      re-imported (`FcopArena.kerbs`, P15). la-cantina's are open (SIM_VERSION 93);
-      Hk and Ovmp wait on their deck import (Phase 13)
+      re-imported (`FcopArena.kerbs`, P15). la-cantina's are open (SIM_VERSION 93,
+      its ground's since 94); Hk and Ovmp wait on their deck import (Phase 13)
 - [x] Ovmp's slippery patches (surface code 4) — with the controls wave (3;
       v71)
 - [x] HARD (sinking and drowning, 1000 HP, its ceilings) — with a difficulty

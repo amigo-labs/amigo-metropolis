@@ -1377,4 +1377,13 @@
 //     lane and climb reports hold). golden-07-pa's 120 s on la-cantina never
 //     meets one of them: every golden's hashes hold, re-recorded for the
 //     header; any other la-cantina match may walk where it was walled.
-export const SIM_VERSION = 93;
+// v94: every arena's ground keeps its kerbs and lift shafts (fcop-fidelity.md
+//     P12, P15). Stage 2's road carve read the bare wall snapshot and wrote it
+//     back over the ground lattice, so the kerbs and shafts the passes before it
+//     had opened there were lost on every arena (the decks kept theirs). With
+//     them kept, the carve drops to 43 / 33 / 12 / 34 bits on Conft, Slim, Mp
+//     and Joke (was 199 / 135 / 36 / 139); Hk and Ovmp, with no kerb pass and
+//     no lifts, are unchanged. urban-jungle's and la-cantina's goldens play
+//     differently (02, 03, 04, 05, 07); golden-03's tanks now breach player
+//     1's gate at 77.2 s.
+export const SIM_VERSION = 94;
