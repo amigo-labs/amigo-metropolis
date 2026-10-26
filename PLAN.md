@@ -403,7 +403,10 @@ Phase 12 fixed `la-cantina` by adding stage 2; this points that stage at the res
       step, decks are 62% / 44% of those grids, and importing puts all 140 of Hk's
       lane nodes and both spawns on the canal floor under the city. Needs per-layer
       walls, a layer on each feature and a deck-aware flood. Pinned as a
-      failing-when-fixed test in `layeredArenas.test.ts`
+      failing-when-fixed test in `layeredArenas.test.ts`. The lane nodes' layers
+      landed at v23 and the per-layer walls at v95 (stage 1 re-run against the
+      RE dump; the flipped test asserts them). A layer on the other features is
+      still open
 - [x] The lane nodes' missing Y was never missing: each `Cnet` node carries a
       `ground_cast` selecting which stacked surface it sits on (HIGH/LOW/MIDDLE),
       and the extract dropped it. Carried now, measured in `fcop-logic.md` §3.1 and
@@ -700,9 +703,10 @@ commit and one SIM_VERSION per rule, goldens re-recorded in the same commit.
       heightfield bends it; spilled walls opened (v66)
 - [x] Conft imported with its decks, its four pit lifts and its kerbs (v67)
 - [x] The lifts drawn with their original models; travel and arrival sounds
-- [ ] Kerbs and spilled walls on la-cantina, Hk and Ovmp: each opens when it is
-      re-imported (`FcopArena.kerbs`, P15). la-cantina's are open (SIM_VERSION 93,
-      its ground's since 94); Hk and Ovmp wait on their deck import (Phase 13)
+- [x] Kerbs and spilled walls on la-cantina, Hk and Ovmp (`FcopArena.kerbs`,
+      P15): la-cantina's open (93), every arena's ground keeps its kerbs and
+      shafts through the road carve (94), Hk and Ovmp re-imported with their
+      decks' own walls and their kerbs opened (95)
 - [x] Ovmp's slippery patches (surface code 4) — with the controls wave (3;
       v71)
 - [x] HARD (sinking and drowning, 1000 HP, its ceilings) — with a difficulty

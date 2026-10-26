@@ -1386,4 +1386,13 @@
 //     no lifts, are unchanged. urban-jungle's and la-cantina's goldens play
 //     differently (02, 03, 04, 05, 07); golden-03's tanks now breach player
 //     1's gate at 77.2 s.
-export const SIM_VERSION = 94;
+// v95: Hk's and Ovmp's decks carry their own walls and their kerbs open
+//     (fcop-fidelity.md P15). Stage 1 (convert.ts) re-run against the RE dump
+//     takes the ground's own lattice (`rank0_walls*`) and each deck's, where
+//     until now a deck collided against the ground's: 80 of Hk's and 4 of
+//     Ovmp's bits move up to a deck, the union is the old lattice bit for bit,
+//     and no height or deck mask moves. The kerb pass then opens 9932 and 8159
+//     bits over the three lattices; the road carve opens 0 and 56 (was 7 and
+//     246). No golden plays these arenas: every hash holds, re-recorded for
+//     the header.
+export const SIM_VERSION = 95;

@@ -120,8 +120,9 @@ not answered yet.
     arena is re-imported (`FcopArena.kerbs`).
     - ~~la-cantina~~ **Done** ("Open la-cantina's kerbs", SIM_VERSION 93: 2334
       wall bits).
-    - **Waits on the deck import (Phase 13), Hk and Ovmp:** their decks share
-      the ground's lattice.
+    - **Done, Hk and Ovmp** (SIM_VERSION 95): stage 1 re-run against the RE
+      dump gives their decks their own walls (the union is the old lattice bit
+      for bit), and the kerb pass opens 9932 and 8159 bits.
     - **Done, the ground's kerbs on every arena** (SIM_VERSION 94): the "same
       map byte for byte" was not the missing decks. Stage 2's road carve read
       the bare snapshot and wrote it back over the ground lattice, so the

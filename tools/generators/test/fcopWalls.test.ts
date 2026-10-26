@@ -69,25 +69,25 @@ describe("committed wall snapshots", () => {
     });
   }
 
-  it("la-cantina, urban-jungle, proving-ground and bug-hunt are layered snapshots, two decks each", () => {
-    // Hk and Ovmp are layered arenas whose snapshots predate the per-deck split
-    // (their decks share layer 0's lattice); Conft, Slim and Joke were split when
-    // they were re-imported with their decks (fcop-fidelity.md P12).
-    const layered = ["la-cantina", "urban-jungle", "proving-ground", "bug-hunt"];
+  it("every arena's snapshot is layered, two decks each", () => {
+    // Conft, Slim and Joke were split per deck when they were re-imported with
+    // their decks (fcop-fidelity.md P12), Hk and Ovmp at SIM_VERSION 94.
     for (const arena of selectArenas("all")) {
       const snap = readSnapshot(arena);
-      const want = layered.includes(arena.mapId) ? 2 : 0;
-      expect(snap.layers?.length ?? 0).toBe(want);
+      expect(snap.layers?.length ?? 0).toBe(2);
     }
   });
 
-  it("re-attributing Conft's, Slim's and Joke's walls per deck lost none of them", () => {
+  it("re-attributing Conft's, Slim's, Joke's, Hk's and Ovmp's walls per deck lost none of them", () => {
     // The union is, bit for bit, the single-storey lattice each snapshot carried
-    // before the split (Slim and Joke until SIM_VERSION 64, Conft until 66).
+    // before the split (Slim and Joke until SIM_VERSION 64, Conft until 66, Hk
+    // and Ovmp until 93).
     const pins: Record<string, [number, number]> = {
       "urban-jungle": [3595907883, 3331597098],
       "proving-ground": [420789996, 3689709048],
       "bug-hunt": [293805412, 1740349393],
+      "hollywood-keys": [1087146293, 2860731642],
+      "venice-beach": [817673982, 2870618577],
     };
     for (const [mapId, [v, h]] of Object.entries(pins)) {
       const snap = readSnapshot(arenaOf(mapId));

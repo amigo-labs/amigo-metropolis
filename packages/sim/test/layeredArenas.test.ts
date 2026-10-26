@@ -50,18 +50,20 @@ const PINS: Record<string, Pins> = {
     heights: 3740312999,
     layerHeights: [2172217779, 623664885],
     layerMasks: [1005174504, 265879142],
-    // Stage-2 import carves the deck roads open (issue #33).
-    wallsV: 403770020,
-    wallsH: 2248086300,
+    // Stage 1 re-run with its per-deck walls and the kerbs opened on every
+    // lattice (SIM_VERSION 94); the carve opens nothing more.
+    wallsV: 276205368,
+    wallsH: 4011072299,
   },
   [VENICE_BEACH_ID]: {
     size: 305,
     heights: 2525341779,
     layerHeights: [3981683061, 2671519192],
     layerMasks: [3788166252, 1780779980],
-    wallsV: 3492741943,
-    // SIM_VERSION 32: the roads end at the original's gate box.
-    wallsH: 2183115802,
+    // SIM_VERSION 94: stage 1 re-run with its per-deck walls, the kerbs opened
+    // on every lattice.
+    wallsV: 242533927,
+    wallsH: 2735658924,
   },
 };
 
@@ -290,12 +292,12 @@ describe("the layered arenas' decks are enterable but their layouts are not impo
       expect(onDeck).toBeGreaterThan(0);
     });
 
-    it(`${id}: has no per-deck wall lattice yet, so it shares layer 0's`, () => {
-      // Stage 1 has not re-emitted per-deck walls for these two; collision on a
-      // deck still uses the ground lattice. When til_mesh / convert ships those
-      // lattices, this flips.
-      expect(map.layerWallsV.length).toBe(0);
-      expect(map.layerWallsH.length).toBe(0);
+    it(`${id}: carries a wall lattice of its own on every deck`, () => {
+      // Stage 1 re-run against the RE dump's per-deck walls (convert.ts
+      // `rank0_walls*` and each deck's own): collision on a deck reads that
+      // deck's parapets, and the road beneath it the ground's.
+      expect(map.layerWallsV.length).toBe(map.layerHeights.length);
+      expect(map.layerWallsH.length).toBe(map.layerHeights.length);
     });
   }
 });
