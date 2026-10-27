@@ -16,10 +16,11 @@
 // committed source; `bun run gen:sfx` then builds the client's lookup from
 // pa-audio.json and checks every file against it.
 //
-// Usage: bun run tools/generators/importFcopAudio.ts --re ../fcop-reverse-engineering
+// Usage: bun run tools/generators/importFcopAudio.ts [--re-repo <RE checkout>]
 
 import { copyFile, mkdir, readdir, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { requireReRepo } from "./reRepo";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const PUBLIC = join(ROOT, "packages", "client", "public");
@@ -37,17 +38,7 @@ interface Tables {
   maps: Record<string, { slots: { samples: { file: string }[] }[] }>;
 }
 
-function argValue(flag: string): string | undefined {
-  const i = process.argv.indexOf(flag);
-  return i >= 0 ? process.argv[i + 1] : undefined;
-}
-
-const re = argValue("--re");
-if (!re) {
-  console.error("usage: bun run tools/generators/importFcopAudio.ts --re <RE checkout>");
-  process.exit(2);
-}
-const RE = resolve(re);
+const RE = requireReRepo();
 
 const tablesPath = join(RE, "extracted", "audio", "pa_sound_tables.json");
 const tables = (await Bun.file(tablesPath).json()) as Tables;

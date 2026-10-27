@@ -10,27 +10,18 @@
 // The font (Cfnt 3) and the text colours are the HUD's, imported by
 // `gen:presentation` (render/hud/bitmapText.ts, fcopPresentation.generated.ts).
 //
-// Usage: bun run gen:results --re ../fcop-reverse-engineering
+// Usage: bun run gen:results [--re-repo <RE checkout>]
 // Authoring-time only: the client reads the generated module, never the RE.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { requireReRepo } from "./reRepo";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const OUT_DIR = join(ROOT, "packages", "client", "src", "render", "results");
 const OUT_TS = join(OUT_DIR, "fcopResults.generated.ts");
 
-function argValue(flag: string): string | undefined {
-  const i = process.argv.indexOf(flag);
-  return i >= 0 ? process.argv[i + 1] : undefined;
-}
-
-const reArg = argValue("--re") ?? process.env.FCOP_RE_REPO;
-if (!reArg) {
-  console.error("usage: bun run gen:results --re <RE checkout>");
-  process.exit(2);
-}
-const RE = resolve(reArg);
+const RE = requireReRepo();
 const readJson = <T>(...p: string[]): T => JSON.parse(readFileSync(join(RE, ...p), "utf8")) as T;
 const reCommit = (() => {
   const r = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], { cwd: RE });

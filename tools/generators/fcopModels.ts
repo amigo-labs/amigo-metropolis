@@ -33,6 +33,7 @@ import { NodeIO } from "@gltf-transform/core";
 import { UNIT_MODEL_FILES } from "../../packages/client/src/render/arenaUnits.generated";
 import { type FcopArena, logicFile, modelsFile, selectArenas } from "./fcopArenas";
 import { argOf } from "./fcopLogic";
+import { requireReRepo } from "./reRepo";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 
@@ -889,10 +890,7 @@ async function buildModels(
 }
 
 async function main(): Promise<void> {
-  const reRepo = argOf(
-    "re-repo",
-    process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
-  );
+  const reRepo = requireReRepo();
   const positional = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "";
   const named = positional || argOf("map", argOf("mission", "all"));
   let commit = "unknown";

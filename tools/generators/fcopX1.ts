@@ -79,7 +79,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Accessor, Document, type Node, NodeIO, type Primitive } from "@gltf-transform/core";
-import { argOf } from "./fcopLogic";
+import { requireReRepo } from "./reRepo";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 export const X1_RAW_DIR = join(import.meta.dir, "units", "raw", "fcop-x1");
@@ -1211,7 +1211,7 @@ function same(path: string, bytes: Uint8Array | string): boolean {
 async function main(): Promise<void> {
   const check = process.argv.includes("--check");
   if (process.argv.includes("--import")) {
-    importRaws(argOf("re-repo", process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering"));
+    importRaws(requireReRepo());
   }
   const built = await buildX1();
   const outputs: [string, Uint8Array | string][] = [

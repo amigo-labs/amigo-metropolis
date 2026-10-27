@@ -36,8 +36,8 @@ import { join } from "node:path";
 import { LOGIC_OFFSET_X, LOGIC_OFFSET_Z } from "./enrichArena";
 import { FCOP_ARENAS } from "./fcopArenas";
 import { containerIndex, containerResource } from "./fcopCoarse";
-import { argOf } from "./fcopLogic";
 import { platesOf } from "./fcopTerrain";
+import { requireReRepo } from "./reRepo";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 export const VIEW_TERRAIN_OUT = join(
@@ -226,10 +226,7 @@ function biomeFormat(text: string, path: string): string {
 }
 
 function main(): void {
-  const reRepo = argOf(
-    "re-repo",
-    process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
-  );
+  const reRepo = requireReRepo();
   const check = process.argv.includes("--check");
   const entries: [string, ViewTerrain][] = [];
   for (const a of FCOP_ARENAS) {

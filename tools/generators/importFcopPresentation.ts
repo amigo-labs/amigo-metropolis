@@ -29,14 +29,15 @@
 // original's transparent texel, gets alpha 0 (tex11, the reticles). The font is
 // copied byte for byte.
 //
-// Usage: bun run gen:presentation --re ../fcop-reverse-engineering
+// Usage: bun run gen:presentation [--re-repo <RE checkout>] [--check]
 // Authoring-time only.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { SCENERY_PLACEMENTS } from "../../packages/client/src/render/arenaScenery.generated";
 import { FCOP_ARENAS } from "./fcopArenas";
 import { decodePng, encodePng } from "./png";
+import { requireReRepo } from "./reRepo";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const PUBLIC_HUD = join(ROOT, "packages", "client", "public", "hud");
@@ -45,16 +46,7 @@ const OUT_TS = join(ROOT, "packages", "client", "src", "render", "fcopPresentati
 const LOGIC_OFFSET_X = 16;
 const LOGIC_OFFSET_Z = 0;
 
-function argValue(flag: string): string | undefined {
-  const i = process.argv.indexOf(flag);
-  return i >= 0 ? process.argv[i + 1] : undefined;
-}
-
-const reArg = argValue("--re") ?? process.env.FCOP_RE_REPO;
-if (!reArg) {
-  console.error("usage: bun run gen:presentation --re <RE checkout> [--check]");
-  process.exit(2);
-}
+const RE = requireReRepo();
 /** --check: regenerate in memory and fail when a committed file differs. */
 const CHECK = process.argv.includes("--check");
 const stale: string[] = [];
@@ -67,7 +59,6 @@ function emit(path: string, bytes: Uint8Array): void {
   const was = existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
   if (!was || was.length !== bytes.length || was.some((b, i) => b !== bytes[i])) stale.push(path);
 }
-const RE = resolve(reArg);
 const readJson = <T>(...p: string[]): T => JSON.parse(readFileSync(join(RE, ...p), "utf8")) as T;
 
 const reCommit = (() => {
