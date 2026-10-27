@@ -1,8 +1,9 @@
 // The map screen's marks over the top-down terrain window (RE hud.json
 // pause_map; src/game/frame/pause_map.c 139-337): an arrow per marked actor in
 // its marker's colour — tip at the middle of its box's +z face in half the
-// colour, base at the -z corners in the full colour, the player's box tripled
-// and labelled "P" (font 3, colour 8 in Precinct Assault's team game) — and a
+// colour, base at the -z corners in the full colour, every X1-Alpha's box
+// (type 1: both players') tripled and labelled "P" (font 3, colour 8 in
+// Precinct Assault's team game) — and a
 // ring per objective contact with bit 1, its radius the frame clock's low byte
 // (growing and snapping back every 256 ticks), the contact's colour at the
 // centre fading to a black rim.
@@ -16,24 +17,35 @@
 // get none.
 //
 // The "P" is the original's: at four times the arrow's centroid (labelPen; RE
-// M3-PA read the two coordinate spaces), so mostly off the view. The entities' boxes are their footprint radii (balance.ts
-// ARCHETYPE_RADIUS): Metropolis carries no unit bounding tables.
+// M3-PA read the two coordinate spaces), so mostly off the view. The entities'
+// arrows stand on box 0 of their model and test the window on its reach,
+// `radius_68` (gen:presentation `unitBoxes`, unitBox); an X1's box is its
+// view's shape block, the walker's or the hover's.
 //
 // Raw DOM: one full-view canvas, redrawn per frame while the screen is open (the
 // rings pulse on the clock), without allocating — colours and ring sprites are
 // built once.
 
 import {
+  ANIM_HOVER,
   ARCHETYPE,
   ARCHETYPE_RADIUS,
   getMapById,
   MATCH_PICKUPS,
   MATCH_TICK,
+  MATCH_WARDEN_DIFFICULTY,
   type MapData,
   SNAPSHOT_STRIDE,
+  TURRET_CAPTURABLE,
+  wardenLevel,
 } from "@metropolis/sim";
 import { SCENERY_PLACEMENTS } from "../arenaScenery.generated";
-import { ARENA_PRESENTATION, RADAR_PALETTE, UNIT_MARKERS } from "../fcopPresentation.generated";
+import {
+  ARENA_PRESENTATION,
+  RADAR_PALETTE,
+  type ReachBox,
+  UNIT_MARKERS,
+} from "../fcopPresentation.generated";
 import { SIDE_BLUE, SIDE_RED, sideOfTeam } from "../sides";
 import { drawChar, hudFont } from "./bitmapText";
 import { markerOf, outpostSidesOf, standsAt } from "./radar";
@@ -118,6 +130,46 @@ export function labelPen(gx: number, gy: number, s: number, out: Float64Array): 
 }
 const pen = new Float64Array(2);
 
+type UnitBoxes = NonNullable<(typeof ARENA_PRESENTATION)[string]["unitBoxes"]>;
+
+/**
+ * An entity's arrow box and reach (gen:presentation `unitBoxes`): its model's
+ * box 0 at frame 0 -- Metropolis does not follow the units' animation frames,
+ * and Joke's tank is the one unit model whose box moves with them -- the
+ * Sky Captain's by its level, a capturable turret's the first neutral set's
+ * gun (Hk's second set is not told apart), an X1's the walker's or the
+ * hover's shape. Null where the arena has no original or the entity no model.
+ */
+export function unitBox(
+  units: UnitBoxes | undefined,
+  archetype: number,
+  aux: number,
+  hover: boolean,
+  level: number,
+): ReachBox | null {
+  if (!units) return null;
+  switch (archetype) {
+    case ARCHETYPE.AVATAR:
+      return units.avatar[hover ? 1 : 0];
+    case ARCHETYPE.RUNNER:
+      return units.tank[0];
+    case ARCHETYPE.GUARDIAN:
+      return units.jet[0];
+    case ARCHETYPE.FORTRESS:
+      return units.fortress[0];
+    case ARCHETYPE.JUGGERNAUT:
+      return units.dreadnought[0];
+    case ARCHETYPE.TURRET:
+      return aux === TURRET_CAPTURABLE ? (units.neutralTurret[0]?.[0] ?? null) : units.turret[0];
+    case ARCHETYPE.WARDEN: {
+      for (const c of units.captain) if (c.levels.includes(level)) return c.box[0];
+      return units.captain[0]?.box[0] ?? null;
+    }
+    default:
+      return null;
+  }
+}
+
 /** One arrow: the tip in half the colour, the base corners in the full one. */
 function drawArrow(
   ctx: CanvasRenderingContext2D,
@@ -177,7 +229,6 @@ export interface MapOverlay {
     cx: number,
     cy: number,
     pps: number,
-    selfSlot: number,
   ): void;
   layout(vw: number, vh: number): void;
   destroy(): void;
@@ -204,6 +255,7 @@ export function createMapOverlay(mapId: string, parent: HTMLElement = document.b
   const placements = SCENERY_PLACEMENTS[mapId]?.placements ?? [];
   const morphs = SCENERY_PLACEMENTS[mapId]?.morphs ?? {};
   const boxes = presentation?.boxes ?? {};
+  const units = presentation?.unitBoxes;
   /**
    * The placed actors with a marker: their scenery placement, their marker (or
    * the claim's pair), and their model's box.
@@ -277,7 +329,7 @@ export function createMapOverlay(mapId: string, parent: HTMLElement = document.b
   for (let k = 0; k < contacts.length; k++) ringOf(contacts[k].colour);
 
   return {
-    draw(open, match, snapshot, count, clock, cx, cy, pps, selfSlot) {
+    draw(open, match, snapshot, count, clock, cx, cy, pps) {
       if (drawn) {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, el.width, el.height);
@@ -336,48 +388,42 @@ export function createMapOverlay(mapId: string, parent: HTMLElement = document.b
         drawArrow(ctx, px, py, yaw, b[0], b[1], b[2], b[3], pps, UNIT_MARKERS.pickup & 0x1f);
       }
 
-      // --- the entities' arrows, in id order.
+      // --- the entities' arrows, in id order: box 0 of each one's model (the
+      // X1s' the view's shape, both of them tripled and labelled), the window
+      // tested on its reach (`radius_68`).
+      const level = wardenLevel(match[MATCH_WARDEN_DIFFICULTY]);
       for (let i = 0; i < count; i++) {
         const o = i * SNAPSHOT_STRIDE;
         const archetype = snapshot[o + 1];
         const team = snapshot[o + 2];
-        const marker = markerOf(archetype, sideOfTeam(mapId, team), snapshot[o + 9]);
+        const aux = snapshot[o + 9];
+        const marker = markerOf(archetype, sideOfTeam(mapId, team), aux);
         if (marker === 0) continue;
-        const colour = marker & 0x1f;
-        const self = archetype === ARCHETYPE.AVATAR && team === selfSlot;
-        const reach = (ARCHETYPE_RADIUS[archetype] ?? 0.5) * (self ? PLAYER_SCALE : 1);
+        const avatar = archetype === ARCHETYPE.AVATAR;
+        const scale = avatar ? PLAYER_SCALE : 1;
+        const hover = (snapshot[o + 7] & ANIM_HOVER) !== 0;
+        const b = unitBox(units, archetype, aux, hover, level);
+        // A map with no original (the test maps): its footprint radius, a box
+        // as long as it is wide.
+        const r = ARCHETYPE_RADIUS[archetype] ?? 0.5;
+        const cx = b ? b[0] : 0;
+        const cz = b ? b[1] : 0;
+        const lx = (b ? b[2] : r) * scale;
+        const lz = (b ? b[3] : r) * scale;
+        const reach = (b ? b[4] : r) * scale * pps;
         const px = (snapshot[o + 3] - x0) * pps;
         const py = (snapshot[o + 4] - y0) * pps;
-        const rr = reach * pps;
-        if (px < -rr || py < -rr || px > vw + rr || py > vh + rr) continue;
-        const yaw = snapshot[o + 6];
-        const fx = Math.cos(yaw) * rr;
-        const fy = Math.sin(yaw) * rr;
-        const tipX = px + fx;
-        const tipY = py + fy;
-        const lx = px - fx - fy; // base corners: -z face, both sides
-        const ly = py - fy + fx;
-        const rx = px - fx + fy;
-        const ry = py - fy - fx;
-        ctx.fillStyle = FULL[colour];
-        ctx.beginPath();
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo(rx, ry);
-        ctx.lineTo(lx, ly);
-        ctx.closePath();
-        ctx.fill();
-        // The tip's half colour, fading to the full at the base: the front half.
-        ctx.fillStyle = HALF[colour];
-        ctx.beginPath();
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo((tipX + rx) / 2, (tipY + ry) / 2);
-        ctx.lineTo((tipX + lx) / 2, (tipY + ly) / 2);
-        ctx.closePath();
-        ctx.fill();
-        if (self) {
+        if (px < -reach || py < -reach || px > vw + reach || py > vh + reach) continue;
+        drawArrow(ctx, px, py, snapshot[o + 6], cx, cz, lx, lz, pps, marker & 0x1f);
+        if (avatar) {
           // "P", its pen at four times the arrow's centroid less 8 px
           // (labelPen), font 3 at the HUD's scale; off the view it is clipped.
-          labelPen((tipX + lx + rx) / 3, (tipY + ly + ry) / 3, s, pen);
+          labelPen(
+            (corners[0] + corners[2] + corners[4]) / 3,
+            (corners[1] + corners[3] + corners[5]) / 3,
+            s,
+            pen,
+          );
           ctx.setTransform(s, 0, 0, s, pen[0], pen[1]);
           ctx.imageSmoothingEnabled = false;
           drawChar(ctx, font, 80, 0, 0, LABEL_COLOUR);

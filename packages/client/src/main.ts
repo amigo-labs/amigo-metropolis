@@ -2310,7 +2310,6 @@ function refreshMatchHud(view: PlayerView, alpha: number): void {
     mapScreen.cx,
     mapScreen.cy,
     mapWin[2],
-    view.slot,
   );
   if (mapScreen.open || !lockTarget(view, alpha, lockPoint)) {
     hud.drawLock(view.camera, false, 0, 0, 0);
