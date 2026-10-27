@@ -1660,4 +1660,23 @@
 //     world unit, 1/16 of it, since v98; a turret's carries its base's point 0
 //     (the pitch's aim reads it whole), the tank's its grounding. Only arenas
 //     that import their models; the rest keep the circle.
-export const SIM_VERSION = 112;
+// v113: the mech is pushed by the actors it touches (fcop-fidelity.md P4;
+//     contact.ts pushContacts; RE `player_push_contacts` 0x00442e70,
+//     `player_push_pair` 0x00442f70, `player_push_apart` 0x00443070,
+//     `player_push_from_box` 0x004431d0, M3-OV, M3-OW): each tick, every body
+//     whose actors carry flag 0x40 (tanks, jets, Fortresses, the Dreadnought's
+//     hull and mounts, turrets' guns and bases, the Sky Captain) within 0.75 m
+//     of sphere gap of its legs -- and with two players the other mech -- is
+//     gated on the coarse half extents and met by the mech's own one-box
+//     contact model (SimState.avatarShape, hashed: built from the legs' frame
+//     at the reset and on every frame of the transform's ramp, its band lowered
+//     by the crouch, `player_transform_shape` 0x00441cf0, `player_bounds_pair`
+//     0x00444f00) against its hit boxes; every met box pushes the mech by
+//     0x2400 (the Dreadnought's 0x4000) per axis of its frame into the wall
+//     push's impulse, the snap goes to 0x10 when no wall set it, the tick's
+//     wall push is doubled, and the toucher deals its +0x1a a step (tank 1,
+//     Dreadnought and each mount 10, the other mech 1, credited as its hit). A
+//     tank's rear-end contact with a Dreadnought no longer counts its gun
+//     mounts (bit 31, 0x00425fdd / 0x004247e5). Every golden moves (the contact
+//     models are hashed on every map).
+export const SIM_VERSION = 113;

@@ -96,7 +96,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // units also target as the original's shooters and aircraft do.
   // Re-frozen at SIM_VERSION 19 (on top of v18 hover cushion): facing-aligned
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
-  "golden-01-drive": { last: 2604795024, count: 1800 },
+  "golden-01-drive": { last: 1651808796, count: 1800 },
   // 02-04 re-recorded at SIM_VERSION 52 when district-01 left the game (wave 2,
   // 2026-10-14): 02 combat on urban-jungle, 03 a two-player match on la-cantina,
   // 04 the Sky Captain (difficulty 3) on urban-jungle, 150 s.
@@ -124,7 +124,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // 02, 03, 04 and 07 re-frozen at SIM_VERSION 112: a round meets a body by the
   // original's pair test (contact.ts), the bodies' reference points at their
   // boxes' centres.
-  "golden-02-combat": { last: 3461971516, count: 3600 },
+  "golden-02-combat": { last: 1277998569, count: 3600 },
   // Re-frozen at SIM_VERSION 50 (the original's 37.5 s ring respawn, R16): 03's
   // script was rewritten around it (player 1 is put down at the outpost, the wave
   // goes in inside the ring's window) and runs 200 s.
@@ -152,7 +152,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 111: the units on the road net walk the original\'s
   // route cursor (fcop-fidelity.md U1, route.ts).
   // Re-frozen at SIM_VERSION 112: see golden-02 above.
-  "golden-03-match": { last: 2807826299, count: 6000 },
+  "golden-03-match": { last: 3653951372, count: 6000 },
   // 04 and 07 re-frozen at SIM_VERSION 54: the captain takes its target without
   // a line of sight and walls stop its gun and missile at ground units too.
   // 03, 04 and 07 re-frozen at SIM_VERSION 55: captures by the octagonal estimate.
@@ -186,7 +186,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 111: the units on the road net walk the original\'s
   // route cursor (fcop-fidelity.md U1, route.ts).
   // Re-frozen at SIM_VERSION 112: see golden-02 above.
-  "golden-04-warden": { last: 3268246698, count: 4500 },
+  "golden-04-warden": { last: 3325966030, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -212,8 +212,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 106: see golden-02 above.
   // Re-frozen at SIM_VERSION 111: the units on the road net walk the original\'s
   // route cursor (fcop-fidelity.md U1, route.ts).
-  "golden-05-fcop": { last: 1391810999, count: 2700 },
-  "golden-06-layered": { last: 2234822835, count: 600 },
+  "golden-05-fcop": { last: 4101981955, count: 2700 },
+  "golden-06-layered": { last: 3098366495, count: 600 },
   // Re-frozen with Warden soft-target wall pierce (still v24): only golden-07
   // runs a Warden on a core arena, so only its sequence moves.
   // Re-frozen at SIM_VERSION 44 (the original's route followers): 07's bought
@@ -240,7 +240,9 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 111: the units on the road net walk the original\'s
   // route cursor (fcop-fidelity.md U1, route.ts).
   // Re-frozen at SIM_VERSION 112: see golden-02 above.
-  "golden-07-pa": { last: 1849203310, count: 3600 },
+  // Every golden re-frozen at SIM_VERSION 113: the mechs' own contact models
+  // are hashed on every map, and the actors they touch push them (P4).
+  "golden-07-pa": { last: 1395443864, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

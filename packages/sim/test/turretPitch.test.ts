@@ -214,6 +214,10 @@ describe("the Dreadnought's guns never pitch (fcop-fidelity.md I6)", () => {
       ent.posY[foe] = y;
       ent.velX[foe] = 0;
       ent.velY[foe] = 0;
+      // Inside the hull's boxes the foe is pushed out (fcop-fidelity.md P4,
+      // SIM_VERSION 113): held where it is put, the impulse dropped.
+      state.avatarImpulse[2] = 0;
+      state.avatarImpulse[3] = 0;
       step(state, idle);
       shots += shotsBy(state, id);
     }

@@ -25,12 +25,14 @@
 // and impulse going into the velocity the next tick integrates.
 //
 // The facing snap (`player_snap_facing`, 0x004437d0) is here as `snapFacing`;
-// sim.ts runs it, with the wall contacts' push, on the facing it keeps.
+// sim.ts runs it, with the wall contacts' push, on the facing it keeps. The
+// bounds' pairs (the crouch's lowered contact box, `player_bounds_pair`) and
+// the actors' contacts' push (`player_push_contacts`) are sim.ts's and
+// contact.ts's, from this file's bit 0x80 (WALK_CROUCHED); the legs' model box
+// per frame is contact.ts's too.
 //
-// Not modelled: the stick (dead in retail), the bounds' pairs (the crouch's
-// lowered box; its bit 0x80 is kept), the actors' contacts' push
-// (`player_push_contacts`, Metropolis has no hit boxes for it), block +0xdf's
-// lifts (bit 0 clear in PA) and the legs' model box per frame.
+// Not modelled: the stick (dead in retail) and block +0xdf's lifts (bit 0
+// clear in PA).
 
 import {
   HOVER_IMPACT_HARD,
@@ -776,6 +778,17 @@ export function walkerHover(
   } else if (airborne) {
     w.flags[s] |= WALK_AIRBORNE;
   }
+}
+
+/**
+ * The ramp's progress (block +0x2c0, 0..0x10000) on a tick walkerRamp runs with
+ * `lock` ticks left toward `hover`, held at its end: what
+ * `player_transform_shape` reads on every ramp frame (0x004423af).
+ */
+export function rampProgress(hover: boolean, lock: number): number {
+  const ramp = X1_RAMP_RATE * X1_UNITS_PER_TICK * (TRANSFORM_LOCK_TICKS - lock + 1);
+  if (hover) return ramp > X1_RAMP_FULL ? X1_RAMP_FULL : ramp;
+  return X1_RAMP_FULL - ramp < 0 ? 0 : X1_RAMP_FULL - ramp;
 }
 
 /**

@@ -39,7 +39,16 @@
 // other at Metropolis' flat circle (sim.ts roundMeets).
 
 import { ARCHETYPE } from "./archetypes";
-import { DREADNOUGHT_GUNS } from "./balance";
+import {
+  DREADNOUGHT_GUNS,
+  PUSH_BOX_STEP,
+  PUSH_BOX_STEP_WIDE,
+  PUSH_TARGET_GAP,
+  SHAPE_BAND_CENTRE,
+  SHAPE_BAND_HALF,
+  SHAPE_CROUCH_DROP,
+  X1_RAMP_FULL,
+} from "./balance";
 import { type MapShapeTable, type MapTurretShape, SHAPE_WORDS } from "./map";
 import type { SimState } from "./sim";
 import { cosLUT, sinLUT } from "./simMath";
@@ -470,13 +479,21 @@ export function roundContact(
 /**
  * Whether bodies `a` and `b` touch by the original's ladder, any collider of one
  * against any of the other (each forwards its notice to its body), or -1 where
- * either has no imported hit boxes.
+ * either has no imported hit boxes. `bumpable`: only the colliders whose actor
+ * a route follower's contact answers -- the Dreadnought's hull, not its four
+ * gun mounts, which spawn with the hull's flags less bit 31 (`and` 0x7fffdfff
+ * at 0x00425fdd) that `cnet_route_contact` asks of the other party
+ * (0x004247e5), so a tank's touch on a mount alone transfers nothing.
  */
-export function bodiesContact(state: SimState, a: number, b: number): number {
-  const na = bodyColliders(state, a, partsA);
+export function bodiesContact(state: SimState, a: number, b: number, bumpable = false): number {
+  let na = bodyColliders(state, a, partsA);
   if (na < 0) return -1;
-  const nb = bodyColliders(state, b, partsB);
+  let nb = bodyColliders(state, b, partsB);
   if (nb < 0) return -1;
+  if (bumpable) {
+    if (state.ent.archetype[a] === ARCHETYPE.JUGGERNAUT) na = 1;
+    if (state.ent.archetype[b] === ARCHETYPE.JUGGERNAUT) nb = 1;
+  }
   for (let i = 0; i < na; i++) {
     for (let j = 0; j < nb; j++) if (pairTouches(partsA[i], partsB[j])) return 1;
   }
@@ -495,4 +512,300 @@ export function legsRadius(frame: number): number {
 export function legsRefHeight(frame: number): number {
   const f = frame >= 0 && frame < X1_LEGS_SHAPE.frames ? frame : 0;
   return X1_LEGS_SHAPE.boxes[f * SHAPE_WORDS + CY];
+}
+
+// ---------------------------------------------------------------------------
+// The actors' contacts' push (fcop-fidelity.md P4)
+// ---------------------------------------------------------------------------
+//
+// The mech's own contacts, every movement step of either form
+// (`player_push_contacts` 0x00442e70, from the walker's tick at 0x00444b6b and
+// the hover's at 0x00442dc1): who is tried is the viewport's target record --
+// every actor carrying flag 0x40 that `cact_pair_test` found within a sphere
+// gap of 0x1800 wu of the mech's legs (0x00450257..0x00450283; the mech carries
+// 0x40000000, 0x00446b22) -- and, with two viewports, the other mech
+// (0x00442f27..0x00442f4d). Each is met by the mech's own contact model, a
+// one-box model `player_shape_bind` (0x00441c40) plants and
+// `player_transform_shape` (0x00441cf0) / `player_bounds_pair` (0x00444f00)
+// fill (SimState.avatarShape): `player_push_pair` (0x00442f70) gates on the
+// horizontal octagon between the two reference points less sixteen times both
+// blocks' +0x46 and on |dy| less sixteen times both +0x44 -- no radii -- then
+// asks `cact_hit_boxes_blocks` (0x0044f640) with the contact model first; each
+// of the other's met boxes pushes the mech (`player_push_from_box` 0x004431d0):
+// the mech's reference point in that box's frame, against its centre, a step of
+// +-0x2400 per axis (0x4000 for an actor with flag 0x400), the vertical step
+// dropped and the horizontal ones halved or dropped while inside the box's
+// vertical half extent, back through the box's frame, and its horizontal part
+// x16 into the impulse the wall push fills (`cact_view` +0x150 is the ride
+// block's impulse, RE M3-OV). Every PA model carries hit boxes, so the sphere
+// arm (bit 0, a model without boxes) never runs there.
+
+/** Words a player's contact model holds in SimState.avatarShape (box halfwords). */
+export const SHAPE_STATE_WORDS = 8;
+/** Its box's centre x, y, z and half x, y, z; then the block's +0x44 and +0x46. */
+const S_HALF_Y = 6;
+const S_WORD_E = 7;
+
+/**
+ * `player_transform_shape` (0x00441cf0) at transform progress `progress`
+ * (0..0x10000) on the legs' frame `frame`: the legs' box 0 of that frame, its
+ * half x widened by a quarter, its centre z walked forward by its half depth and
+ * its half depth doubled at full progress; the vertical band A = 0x126 falling
+ * to 0x73, B = 0x19 falling to 0; the block's +0x44 = A and +0x46 the
+ * horizontal radius `math_sqrt_16_16(sum >> 8) >> 4`. Retail's shifts and
+ * truncations as written there.
+ */
+export function shapeTransform(state: SimState, p: number, frame: number, progress: number): void {
+  const f = frame >= 0 && frame < X1_LEGS_SHAPE.frames ? frame : 0;
+  const o = f * X1_BOX_WORDS;
+  const cx = X1_LEGS_BOXES[o];
+  const cz = X1_LEGS_BOXES[o + 2];
+  const hx = X1_LEGS_BOXES[o + 3];
+  const hz = X1_LEGS_BOXES[o + 5];
+  const wideX = hx + (Math.imul(progress >> 2, hx) >> 16);
+  const walkZ = cz + (Math.imul(hz, progress) >> 16);
+  const longZ = Math.imul((progress >> 4) + 0x1000, hz) >> 12;
+  const bandCentre = (-Math.imul(358, progress) >> 17) + SHAPE_BAND_CENTRE;
+  const bandHalf = Math.imul(X1_RAMP_FULL - progress, 51) >> 17;
+  const sum2d = Math.imul(longZ, longZ) + Math.imul(wideX, wideX);
+  const radius2d = Math.floor(Math.sqrt((sum2d >> 8) * 65536));
+  const s = state.avatarShape;
+  const b = p * SHAPE_STATE_WORDS;
+  s[b] = cx;
+  s[b + 1] = bandCentre + bandHalf;
+  s[b + 2] = walkZ;
+  s[b + 3] = wideX;
+  s[b + 4] = bandCentre - bandHalf;
+  s[b + 5] = longZ;
+  s[b + S_HALF_Y] = bandCentre;
+  s[b + S_WORD_E] = radius2d >> 4;
+}
+
+/**
+ * `player_bounds_pair` (0x00444f00): the contact box's centre y and half height
+ * standing (0x126 +- 0x19) or crouched (0x126 - 0x5a +- 0x19); nothing else.
+ */
+export function shapeBounds(state: SimState, p: number, lowered: boolean): void {
+  const centre = SHAPE_BAND_CENTRE - (lowered ? SHAPE_CROUCH_DROP : 0);
+  const b = p * SHAPE_STATE_WORDS;
+  state.avatarShape[b + 1] = centre + SHAPE_BAND_HALF;
+  state.avatarShape[b + 4] = centre - SHAPE_BAND_HALF;
+}
+
+/** The two players' contact models as tables (one box, one frame), metres. */
+const shapeTables: MapShapeTable[] = Array.from({ length: 2 }, () => ({
+  perFrame: 1,
+  frames: 1,
+  boxes: new Float64Array(SHAPE_WORDS),
+}));
+const mineC = collider();
+const theirsC = collider();
+const mineRef = new Float64Array(3);
+const theirRef = new Float64Array(3);
+const perS = new Int32Array(32);
+const stepW = new Float64Array(3);
+
+/** Player `p`'s contact model placed on its mech `id`, or false where it has no shape. */
+function placeShape(state: SimState, p: number, id: number, c: Collider): boolean {
+  if (p < 0 || p >= shapeTables.length) return false;
+  const t = shapeTables[p];
+  const s = state.avatarShape;
+  const b = p * SHAPE_STATE_WORDS;
+  for (let k = 0; k < 6; k++) t.boxes[k] = s[b + k] / RAW_PER_METRE;
+  t.boxes[RADIUS] = 0;
+  t.boxes[HALF_H] = s[b + S_WORD_E] / RAW_PER_METRE;
+  const ent = state.ent;
+  place(c, t, 0, ent.posX[id], ent.posY[id], ent.height[id], ent.yaw[id]);
+  return true;
+}
+
+/**
+ * `cact_hit_boxes_blocks`' both-boxes arm (0x0044f71a..0x0044f8f0) with `a`
+ * first: the boxes of `b` that a pair both passes name met, bit j for box j.
+ */
+function hitBoxMaskB(a: Collider, b: Collider): number {
+  for (let k = 0; k < 3; k++) {
+    const bk = axis(b, k);
+    for (let j = 0; j < 3; j++) {
+      const aj = axis(a, j);
+      rot[k * 3 + j] = bk[0] * aj[0] + bk[1] * aj[1] + bk[2] * aj[2];
+    }
+    trans[k] = bk[0] * (a.p[0] - b.p[0]) + bk[1] * (a.p[1] - b.p[1]) + bk[2] * (a.p[2] - b.p[2]);
+  }
+  const ta = a.table as MapShapeTable;
+  const tb = b.table as MapShapeTable;
+  let union = 0;
+  for (let i = firstBox(ta); i < ta.perFrame; i++) {
+    perS[i] = boxMask(a, i, rot, trans, b);
+    union |= perS[i];
+  }
+  if (union === 0) return 0;
+  for (let k = 0; k < 3; k++) {
+    for (let j = 0; j < 3; j++) rotT[k * 3 + j] = rot[j * 3 + k];
+  }
+  for (let k = 0; k < 3; k++) {
+    transT[k] = -(rotT[k * 3] * trans[0] + rotT[k * 3 + 1] * trans[1] + rotT[k * 3 + 2] * trans[2]);
+  }
+  let result = 0;
+  for (let j = firstBox(tb); j < tb.perFrame; j++) {
+    if ((union & (1 << j)) === 0) continue;
+    const mask = boxMask(b, j, rotT, transT, a);
+    for (let i = firstBox(ta); i < ta.perFrame; i++) {
+      if ((mask & (1 << i)) !== 0 && (perS[i] & (1 << j)) !== 0) result |= 1 << j;
+    }
+  }
+  return result;
+}
+
+/**
+ * `player_push_from_box` (0x004431d0): box `j` of `c` pushes the mech whose
+ * reference point is `mineRef` by `mag` per axis of the box's frame.
+ */
+function pushFromBox(c: Collider, j: number, mag: number, out: PushOut): void {
+  const rx = mineRef[0] - c.p[0];
+  const ry = mineRef[1] - c.p[1];
+  const rh = mineRef[2] - c.p[2];
+  for (let k = 0; k < 3; k++) {
+    const ak = axis(c, k);
+    const err = ak[0] * rx + ak[1] * ry + ak[2] * rh - word(c, j, k);
+    // `jge` (0x0044325e): an error of zero steps positive.
+    stepW[k] = err < 0 ? -mag : mag;
+    boxC[k] = err;
+  }
+  // 0x004432a0: gated on the box's vertical half extent alone.
+  if (Math.abs(boxC[1]) < word(c, j, 4)) {
+    stepW[1] = 0;
+    const in0 = Math.abs(boxC[0]) < word(c, j, 3);
+    const in2 = Math.abs(boxC[2]) < word(c, j, 5);
+    if (in0 && in2) {
+      stepW[0] /= 2;
+      stepW[2] /= 2;
+    } else if (in0) {
+      stepW[0] = 0;
+    } else if (in2) {
+      stepW[2] = 0;
+    }
+  }
+  // Back through the box's frame, its axes as the 16.16 words retail's matrix
+  // holds (`math_matrix_transform_i16`, the sum shifted down sixteen); only the
+  // two horizontal words, x16 (0x0044332a, 0x0044334d).
+  out.ix += placeStep(c.ax[0], c.ay[0], c.az[0]) * 16;
+  out.iy += placeStep(c.ax[1], c.ay[1], c.az[1]) * 16;
+}
+
+/** One world word of the step through a frame row (x, y, z), floored as `sar 16`. */
+function placeStep(x: number, y: number, z: number): number {
+  const sum =
+    Math.round(x * 65536) * stepW[0] +
+    Math.round(y * 65536) * stepW[1] +
+    Math.round(z * 65536) * stepW[2];
+  return Math.floor(sum / 65536);
+}
+
+/** What one mech's push met this step: the impulse it adds and who touched it. */
+export interface PushOut {
+  ix: number;
+  iy: number;
+  count: number;
+  /** The entity whose actor met the mech, one row per actor (a hull and two mounts: three). */
+  readonly touched: Int32Array;
+}
+
+export const PUSH_OUT: PushOut = { ix: 0, iy: 0, count: 0, touched: new Int32Array(64) };
+
+/**
+ * `player_push_pair` (0x00442f70) for the mech's contact model against `c`,
+ * whose coarse half extents are its box 0's (`halfH` +0x46, `halfY` +0x44):
+ * the two gates on the reference points, the boxes, the push. True when met.
+ */
+function pushPair(
+  state: SimState,
+  p: number,
+  c: Collider,
+  ref: Float64Array,
+  halfH: number,
+  halfY: number,
+  mag: number,
+  out: PushOut,
+): boolean {
+  const s = state.avatarShape;
+  const b = p * SHAPE_STATE_WORDS;
+  const flat = octagonalNorm(mineRef[0] - ref[0], mineRef[1] - ref[1]);
+  if (flat - halfH - s[b + S_WORD_E] / RAW_PER_METRE >= 0) return false;
+  if (Math.abs(mineRef[2] - ref[2]) - halfY - s[b + S_HALF_Y] / RAW_PER_METRE >= 0) return false;
+  const mask = hitBoxMaskB(mineC, c);
+  if (mask === 0) return false;
+  const t = c.table as MapShapeTable;
+  for (let j = 0; j < t.perFrame; j++) if ((mask & (1 << j)) !== 0) pushFromBox(c, j, mag, out);
+  return true;
+}
+
+/**
+ * Player `p`'s actors' contacts this step (`player_push_contacts` 0x00442e70):
+ * fills PUSH_OUT with the impulse (16.16 a step, sim x and y) and the touchers,
+ * and answers how many met. `twoViews`: the other mech is tried too, by its own
+ * contact model where it stands. Only on an arena that imports its models.
+ */
+export function pushContacts(state: SimState, p: number, twoViews: boolean): number {
+  const out = PUSH_OUT;
+  out.ix = 0;
+  out.iy = 0;
+  out.count = 0;
+  const ent = state.ent;
+  const id = state.avatarId[p];
+  if (id < 0 || state.map.shapes.tables.length === 0) return 0;
+  if (bodyColliders(state, id, partsA) < 0) return 0;
+  const legs = partsA[0];
+  refPoint(legs, mineRef);
+  const rLegs = word(legs, 0, RADIUS);
+  if (!placeShape(state, p, id, mineC)) return 0;
+  let met = 0;
+  for (let e = 0; e < ent.high; e++) {
+    if (!ent.alive[e] || e === id) continue;
+    const arch = ent.archetype[e];
+    // The bodies whose actors carry flag 0x40: tank 0x82148, jet 0x80148,
+    // Fortress 0x90348, Dreadnought 0x82748 (its mounts copy it, 0x00425fdd),
+    // turret 0x148 (gun and base part, 0x0041cfdd), neutral 0x110148, Sky
+    // Captain 0x92348. Not the mech (0x00446b22 clears it), not a round.
+    if (arch === ARCHETYPE.AVATAR || arch === ARCHETYPE.PROJECTILE || arch === ARCHETYPE.CONSOLE) {
+      continue;
+    }
+    const n = bodyColliders(state, e, partsB);
+    if (n < 0) continue;
+    const mag = arch === ARCHETYPE.JUGGERNAUT ? PUSH_BOX_STEP_WIDE : PUSH_BOX_STEP;
+    for (let i = 0; i < n; i++) {
+      const c = partsB[i];
+      refPoint(c, theirRef);
+      const flat = octagonalNorm(mineRef[0] - theirRef[0], mineRef[1] - theirRef[1]);
+      const gap = octagonalNorm(flat, mineRef[2] - theirRef[2]) - rLegs - word(c, 0, RADIUS);
+      if (gap >= PUSH_TARGET_GAP) continue;
+      if (pushPair(state, p, c, theirRef, word(c, 0, HALF_H), word(c, 0, HY), mag, out)) {
+        met++;
+        if (out.count < out.touched.length) out.touched[out.count++] = e;
+      }
+    }
+  }
+  if (twoViews) {
+    // The other slot (0x511fd4 - 4 * slot), by its contact model where it
+    // stands now: the shape its own last call filled.
+    const q = p ^ 1;
+    const other = q < state.avatarId.length ? state.avatarId[q] : -1;
+    if (
+      other >= 0 &&
+      ent.alive[other] &&
+      ent.archetype[other] === ARCHETYPE.AVATAR &&
+      bodyColliders(state, other, partsB) >= 0 &&
+      placeShape(state, q, other, theirsC)
+    ) {
+      refPoint(partsB[0], theirRef);
+      const b = q * SHAPE_STATE_WORDS;
+      const halfH = state.avatarShape[b + S_WORD_E] / RAW_PER_METRE;
+      const halfY = state.avatarShape[b + S_HALF_Y] / RAW_PER_METRE;
+      if (pushPair(state, p, theirsC, theirRef, halfH, halfY, PUSH_BOX_STEP, out)) {
+        met++;
+        if (out.count < out.touched.length) out.touched[out.count++] = other;
+      }
+    }
+  }
+  return met;
 }

@@ -871,8 +871,9 @@ function inContact(state: SimState, a: number, b: number): boolean {
   }
   // The whole ladder -- the spheres about the reference points, the coarse
   // cylinder, the hit boxes -- where both have imported models (contact.ts,
-  // fcop-fidelity.md G1); the sphere alone elsewhere.
-  const boxes = bodiesContact(state, a, b);
+  // fcop-fidelity.md G1); the sphere alone elsewhere. The Dreadnought's hull
+  // only: a gun mount lacks the bit 31 the contact asks of the other party.
+  const boxes = bodiesContact(state, a, b, true);
   if (boxes >= 0) return boxes === 1;
   return pairGap(state, a, b) < 0;
 }

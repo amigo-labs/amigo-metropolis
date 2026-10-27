@@ -152,11 +152,13 @@ import {
   SKY_MISSILE_FLIGHT,
   SKY_MISSILE_SPEED_RAW,
   SKY_PICKUP_TOUCH_WU,
+  SNAP_CONTACT,
   STARTING_POINTS,
   SURFACE_REACH,
   skyRespawnTicks,
   TICK_DT,
   TICK_HZ,
+  TOUCH_DAMAGE_PER_STEP,
   TRANSFORM_LOCK_TICKS,
   TRIGGER_REARM_TICKS,
   TRIGGER_WATCH_ENEMY_AVATAR,
@@ -192,13 +194,23 @@ import {
   X1_IMPACT_SCALE,
   X1_IMPACT_SPEED,
   X1_IMPACT_SPEED_MAX,
+  X1_RAMP_FULL,
   X1_STEP_SPEED,
   X1_STEPS_PER_TICK,
   X1_TERMINAL_FALL,
   X1_UNITS_PER_TICK,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked, segmentBlockT } from "./collision";
-import { legsRadius, legsRefHeight, roundContact } from "./contact";
+import {
+  legsRadius,
+  legsRefHeight,
+  PUSH_OUT,
+  pushContacts,
+  roundContact,
+  SHAPE_STATE_WORDS,
+  shapeBounds,
+  shapeTransform,
+} from "./contact";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
 import {
   clearEvents,
@@ -345,9 +357,11 @@ import {
   createAnimPlayer,
   createWalkerState,
   hoverCommandState,
+  rampProgress,
   snapFacing,
   WALK_AIRBORNE,
   WALK_ARM,
+  WALK_CROUCHED,
   type WalkerState,
   walkerArm,
   walkerCommand,
@@ -786,10 +800,21 @@ export interface SimState {
   readonly avatarImpulse: Int32Array;
   /**
    * `snap_state` (+0xb8): the wall kind of the last contact (1 a wall across
-   * y, 2 across x), 0 for none; the next tick snaps the facing toward that
-   * wall's direction and clears it (`player_snap_facing`). Hashed.
+   * y, 2 across x), 0x10 for an actor's touch alone (0x004431bb, a snap toward
+   * facing 0), 0 for none; the next tick snaps the facing toward that wall's
+   * direction and clears it (`player_snap_facing`). Hashed.
    */
   readonly avatarSnap: Uint8Array;
+  /**
+   * Each mech's own contact model (`player_shape_bind` 0x00441c40, block
+   * +0x25c; contact.ts SHAPE_STATE_WORDS a player): its one box's centre and
+   * half extents in box halfwords, then the block's +0x44 and +0x46. Written by
+   * the reset and every frame of the transform's ramp (`player_transform_shape`
+   * 0x00441cf0, from the legs' box of the frame they show then) and by the
+   * crouch (`player_bounds_pair` 0x00444f00); read by the actors' contacts'
+   * push (fcop-fidelity.md P4). Hashed.
+   */
+  readonly avatarShape: Int16Array;
 
   /**
    * SimOptions.extraWeapons, normalized (config, like the loadouts). Everything
@@ -891,7 +916,12 @@ export function spawnAvatar(state: SimState, player: number): number {
   state.avatarId[player] = id;
   state.avatarTurnRate[player] = 0;
   state.avatarIdle[player] = 0;
-  if (!warden) walkerReset(state.walker, player, hover);
+  if (!warden) {
+    walkerReset(state.walker, player, hover);
+    // `player_reset` binds the contact model and builds it from the legs' frame
+    // its track starts on, at progress 0 or full (0x00441b2b, 0x00441bdd).
+    shapeTransform(state, player, state.walker.legs.frame[player], hover ? X1_RAMP_FULL : 0);
+  }
   state.avatarMode[player] = 0;
   // `player_reset` clears the impulse (0x00441acc, 0x00441ad8).
   state.avatarImpulse[player * 2] = 0;
@@ -1317,6 +1347,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     avatarMode: new Uint8Array(MAX_PLAYERS),
     avatarImpulse: new Int32Array(MAX_PLAYERS * 2),
     avatarSnap: new Uint8Array(MAX_PLAYERS),
+    avatarShape: new Int16Array(MAX_PLAYERS * SHAPE_STATE_WORDS),
     extraWeapons,
     keptRound: new Int32Array(MAX_PLAYERS).fill(-1),
     shield: createShieldState(),
@@ -1540,6 +1571,19 @@ function landingImpact(state: SimState, id: number, speed: number): void {
   applyDamage(state, id, X1_IMPACT_HP * f, -1);
 }
 
+/**
+ * The crouch's bounds pair (`player_bounds_pair` 0x00444f00) after a walker
+ * step's arm, from the arm's change of WALK_CROUCHED (`crouched`, the bit before
+ * it): entering state 9 with the bit clear lowers the contact model's box
+ * (0x00444514), leaving it with the bit set puts the standing pair back
+ * (0x004444c3).
+ */
+function crouchBounds(state: SimState, p: number, crouched: number): void {
+  const now = state.walker.flags[p] & WALK_CROUCHED;
+  if (now !== 0 && crouched === 0) shapeBounds(state, p, true);
+  else if (now === 0 && crouched !== 0) shapeBounds(state, p, false);
+}
+
 /** The hover's ride height over its surface now: ramps through a change. */
 function clearanceOf(ent: EntityStore, id: number): number {
   const left = ent.timerA[id] / TRANSFORM_LOCK_TICKS;
@@ -1685,6 +1729,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         rise = avatarSurface(state, ax, ay, h + WALKER_PROBE_LIFT, false).height - h;
       }
       command = walkerCommand(walk, p, bits, rise);
+      const crouched = walk.flags[p] & WALK_CROUCHED;
       walkerArm(
         walk,
         p,
@@ -1693,6 +1738,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         stepSpeed(ent.velX[id], ent.velY[id], vz) >> 11,
         state.avatarSnap[p] !== 0,
       );
+      crouchBounds(state, p, crouched);
     }
     const liftOff = walkerTick && arm.lift > 0;
     const inAir = airborne || liftOff;
@@ -1944,11 +1990,14 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // WALL_PUSH along its normal, away from it, the impulse the next tick
     // spends; each kind once. Both in one tick: the y wall's kind is left.
     const stepX = vx * TICK_DT;
+    let wallPushX = 0;
+    let wallPushY = 0;
     if (stepX !== 0) {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
       const wallX = crossesWallX(map, x, nx, y, wallLayer);
       if (wallX) {
-        state.avatarImpulse[k2] += stepX > 0 ? -WALL_PUSH : WALL_PUSH;
+        wallPushX = stepX > 0 ? -WALL_PUSH : WALL_PUSH;
+        state.avatarImpulse[k2] += wallPushX;
         state.avatarSnap[p] = 2;
       }
       let ok = !wallX;
@@ -1962,7 +2011,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       const ny = Math.min(Math.max(y + stepY, 0), extent);
       const wallY = crossesWallY(map, x, y, ny, wallLayer);
       if (wallY) {
-        state.avatarImpulse[k2 + 1] += stepY > 0 ? -WALL_PUSH : WALL_PUSH;
+        wallPushY = stepY > 0 ? -WALL_PUSH : WALL_PUSH;
+        state.avatarImpulse[k2 + 1] += wallPushY;
         state.avatarSnap[p] = 1;
       }
       let ok = !wallY;
@@ -2128,6 +2178,26 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     }
     ent.height[id] = h;
     ent.timerB[id] = vz;
+    // The actors' contacts (`player_push_contacts` 0x00442e70, before the wall
+    // push in each step of either tick: 0x00444b6b, 0x00442dc1): what met the
+    // mech's own contact model pushes it into the same impulse, a touch alone
+    // leaves the snap at 0x10 (a wall's kind overwrites it, 0x004435a2), the
+    // wall push of a step that met anything is doubled (0x0044361b), and each
+    // toucher deals its +0x1a a step (0x0044302c).
+    if (pushContacts(state, p, state.wardenPlayer < 0) > 0) {
+      state.avatarImpulse[k2] += PUSH_OUT.ix + wallPushX;
+      state.avatarImpulse[k2 + 1] += PUSH_OUT.iy + wallPushY;
+      if (state.avatarSnap[p] === 0) state.avatarSnap[p] = SNAP_CONTACT;
+      for (let t = 0; t < PUSH_OUT.count; t++) {
+        const toucher = PUSH_OUT.touched[t];
+        const arch = ent.archetype[toucher];
+        const dmg = TOUCH_DAMAGE_PER_STEP[arch] * steps;
+        if (dmg <= 0) continue;
+        const owner = ent.ownerId[toucher];
+        const by = owner >= 0 && owner < MAX_PLAYERS ? owner : -1;
+        applyDamage(state, id, dmg, by, arch === ARCHETYPE.AVATAR);
+      }
+    }
     // The ground's code under the walker sets its next tick's mode, felt within
     // SURFACE_REACH as the original's player_order is; a hover's step reads
     // none, and a lift's top carries no code.
@@ -2157,6 +2227,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       if (!sinking) walkerLand(walk, p, up, fall / X1_STEP_SPEED, ledge);
       walkerLegs(walk, p, stepSpeed(ent.velX[id], ent.velY[id], ent.timerB[id]), lean, steep);
       for (let e = 1; e < steps; e++) {
+        const crouched = walk.flags[p] & WALK_CROUCHED;
         walkerArm(
           walk,
           p,
@@ -2164,6 +2235,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
           bits,
           stepSpeed(ent.velX[id], ent.velY[id], ent.timerB[id]) >> 11,
         );
+        crouchBounds(state, p, crouched);
         if (arm.impulse) {
           const pi = arm.push * X1_STEP_SPEED;
           ent.velX[id] += pi * ent.aimX[id];
@@ -2184,7 +2256,13 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         hoverLedge,
       );
     }
-    if (ent.timerA[id] > 0) walkerRamp(walk, p, ent.mode[id] === MODE_HOVER, ent.timerA[id]);
+    if (ent.timerA[id] > 0) {
+      const toHover = ent.mode[id] === MODE_HOVER;
+      walkerRamp(walk, p, toHover, ent.timerA[id]);
+      // Every ramp frame rebuilds the contact model at its progress, from the
+      // legs' frame (`player_transform_shape` at 0x004423af).
+      shapeTransform(state, p, walk.legs.frame[p], rampProgress(toHover, ent.timerA[id]));
+    }
 
     ent.animState[id] =
       (commanded || ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id] > 1e-6
@@ -6818,6 +6896,10 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, state.avatarImpulse[p * 2] >>> 0);
     h = fnv1aU32(h, state.avatarImpulse[p * 2 + 1] >>> 0);
     h = fnv1aU32(h, state.avatarSnap[p]);
+  }
+  // Appended at SIM_VERSION 113: the mechs' own contact models.
+  for (let k = 0; k < state.avatarShape.length; k++) {
+    h = fnv1aU32(h, state.avatarShape[k] & 0xffff);
   }
   // Appended at SIM_VERSION 40: which locks steer the hull (gone at 69, W2).
   // Appended at SIM_VERSION 43: the block-B magazines (replacing the x2 timer).

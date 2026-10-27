@@ -374,7 +374,11 @@ export const X1_STEP_SPEED = FX * X1_SPEED_UNIT;
 // is cut (0x0044344b), and the step's stop test does not run. And
 // `player_snap_facing` (0x004437d0) turns the facing at most 8 units a step
 // toward the direction that wall runs in.
-/** A wall contact's push per axis: 0x24000 a step (0x0044360b), m/s. */
+/**
+ * A wall contact's push per axis: 0x24000 a step (0x0044360b), m/s; doubled on
+ * a step whose actors' push met anything (`player_ground_push`'s second
+ * argument, 0x0044361b).
+ */
 export const WALL_PUSH = 0x24000;
 /** The facing snap's largest step: 8 units of 4096 a turn (0x0044388d). */
 export const SNAP_STEP = 8;
@@ -395,6 +399,54 @@ export const WALKER_RISE_GATE = 0x10;
  * (0.1 m) over its ride height puts it back, horizontal velocity zeroed.
  */
 export const HOVER_LEDGE_DROP = 0x333 / 8192;
+
+// --- The actors' contacts' push (fcop-fidelity.md P4) -----------------------
+//
+// `player_push_contacts` 0x00442e70 -> `player_push_pair` 0x00442f70 ->
+// `player_push_apart` 0x00443070 -> `player_push_from_box` 0x004431d0, every
+// movement step of either form: the viewport's lock candidates (actors with
+// flag 0x40 whose sphere gap to the mech's legs is under 0x1800 wu,
+// `cact_pair_test` 0x00450265) and, with two viewports, the other mech's own
+// contact box; each gated on the two blocks' coarse half extents and met by the
+// mech's own one-box contact model (`player_shape_bind` 0x00441c40) against the
+// other's hit boxes; each met box pushes the mech by STEP per axis of its own
+// frame, horizontal only, into the wall push's impulse.
+/** The lock candidates' sphere gap: 0x1800 wu (0x00450265), metres. */
+export const PUSH_TARGET_GAP = 0x1800 / 8192;
+/** A met box's push per axis, box sixteenths (0x0044324f); x16 into the impulse. */
+export const PUSH_BOX_STEP = 0x2400;
+/** The same for an actor carrying flag 0x400 (the Dreadnought and its mounts, 0x00443259). */
+export const PUSH_BOX_STEP_WIDE = 0x4000;
+/** `snap_state |= 0x10` after a push (0x004431bb): the facing snaps toward 0. */
+export const SNAP_CONTACT = 0x10;
+/**
+ * A touch's damage to the mech per movement step, the toucher's +0x1a (tACT
+ * record word 22, `cact_base_construct`; credited at 0x0044302c), by archetype:
+ * the tank 1, the Dreadnought and each of its mounts 10 (0x00426003 copies the
+ * hull's), the X1-Alpha 1; the turrets, the jet, the Fortress and the Sky
+ * Captain 0. The same on all six Precinct Assault arenas.
+ */
+export const TOUCH_DAMAGE_PER_STEP: readonly number[] = [
+  1, // AVATAR
+  1, // RUNNER
+  0, // GUARDIAN
+  10, // JUGGERNAUT
+  0, // FORTRESS
+  0, // TURRET
+  0, // PROJECTILE
+  0, // CONSOLE
+  0, // WARDEN
+];
+/**
+ * The contact model's vertical band (`player_transform_shape` 0x00441cf0): its
+ * centre A = 0x126 - 179 * progress, its half-span B = 0x19 * (1 - progress),
+ * box halfwords; the box's centre is A + B and its half A - B. The crouch's
+ * `player_bounds_pair` (0x00444f00) sets 0x126 - 0x5a +- 0x19, the standing one
+ * 0x126 +- 0x19.
+ */
+export const SHAPE_BAND_CENTRE = 0x126;
+export const SHAPE_BAND_HALF = 0x19;
+export const SHAPE_CROUCH_DROP = 0x5a;
 
 // --- The walker's state machine (walker.ts; fcop-fidelity.md G11, P4) --------
 //
