@@ -11,6 +11,12 @@
 // `math_matrix_from_angles(facing + aim_yaw, aim_pitch, roll)`, player.c
 // 1676-1680) and set on the cockpit's mount, 3DHS channel 0 of the legs frame.
 // Model space throughout: +y up, +z forward, the RE glb's frame.
+//
+// A normal goes the same way without the translations (poseX1Normal): a
+// skeleton turns its 4DNL records through each bone's 3x3 alone and lights
+// them against the light in the same space (`cact_model_project`
+// 0x004281db..0x00428206, RE docs/formats/objects.md "Face lighting"), which
+// is what render/fcopModel.ts' shade then reads.
 
 import { X1_ANIM_WIDTH, X1_COCKPIT_ROW, X1_COCKPIT_SLOT, X1_MOUNT_TEXEL } from "./x1Rig.generated";
 
@@ -60,4 +66,46 @@ export function poseX1Vertex(
   out[at] = px;
   out[at + 1] = py;
   out[at + 2] = pz;
+}
+
+/**
+ * Turns one bind-pose normal of slot `slot` as poseX1Vertex turns its vertex:
+ * the slot's 3x3 of the frame, then for the cockpit's slots the aim's pitch
+ * and yaw; no translation, no mount, not renormalised. Writes into `out` at `at`.
+ */
+export function poseX1Normal(
+  table: Float32Array,
+  slot: number,
+  legsFrame: number,
+  cockpitFrame: number,
+  aimYaw: number,
+  aimPitch: number,
+  x: number,
+  y: number,
+  z: number,
+  out: Float32Array,
+  at: number,
+): void {
+  const cockpit = slot >= X1_COCKPIT_SLOT;
+  const row = cockpit ? X1_COCKPIT_ROW + cockpitFrame : legsFrame;
+  const texel = (cockpit ? slot - X1_COCKPIT_SLOT : slot) * X1_TEXELS_PER_MATRIX;
+  const o = (row * X1_ANIM_WIDTH + texel) * 4;
+  let nx = table[o] * x + table[o + 1] * y + table[o + 2] * z;
+  let ny = table[o + 4] * x + table[o + 5] * y + table[o + 6] * z;
+  let nz = table[o + 8] * x + table[o + 9] * y + table[o + 10] * z;
+  if (cockpit) {
+    const cp = Math.cos(aimPitch);
+    const sp = Math.sin(aimPitch);
+    const y1 = cp * ny - sp * nz;
+    const z1 = sp * ny + cp * nz;
+    const cy = Math.cos(aimYaw);
+    const sy = Math.sin(aimYaw);
+    const x2 = cy * nx + sy * z1;
+    nz = -sy * nx + cy * z1;
+    nx = x2;
+    ny = y1;
+  }
+  out[at] = nx;
+  out[at + 1] = ny;
+  out[at + 2] = nz;
 }

@@ -34,6 +34,14 @@
 // through the ramp, the cockpit's 6 as a hover and through it. The shader
 // collapses a hidden face onto the model's origin, where it covers no pixel.
 //
+// And the lighting (fcop-fidelity.md G13; RE objects.md "Face lighting"): every
+// vertex carries its face's `_FCOP_LIGHT` (the legs, the cockpit and the guns
+// smooth grey at 0x80, the beacon plain grey), so render/fcopModel.ts draws the
+// X1 as it draws every unit, shaded against the original's one light; the
+// pose chains its normal onto that shade, turned through the same bone and aim
+// as the vertex (x1PoseNormal, render/x1Pose.ts poseX1Normal), as a skeleton
+// turns its 4DNL through each bone (`cact_model_project` 0x004281db).
+//
 // Team colour is the original's texture offset (render/teamUv.ts), kept off the
 // beacon by `_TEAMUV`; while the cloak runs, the offset's v is the frame clock
 // `>> 2 & 0x3f` instead of the side's (player_partner.c 289-293).
@@ -100,7 +108,37 @@ attribute float ${X1_BONE_ATTR};
 attribute float ${X1_LAYER_ATTR};
 attribute vec4 ${X1_POSE_ATTR};
 attribute vec2 ${X1_LAYERS_ATTR};
-uniform highp sampler2D ${X1_ANIM_UNIFORM};`;
+uniform highp sampler2D ${X1_ANIM_UNIFORM};
+// render/x1Pose.ts poseX1Normal: the slot's 3x3 of the frame and, riding the
+// cockpit, the aim's pitch then yaw; no translation, not renormalised.
+vec3 x1PoseNormal( vec3 n ) {
+	int x1Slot = int(${X1_BONE_ATTR} + 0.5);
+	bool x1Rides = x1Slot >= ${X1_COCKPIT_SLOT};
+	int x1Row = x1Rides ? ${X1_COCKPIT_ROW} + int(${X1_POSE_ATTR}.y + 0.5) : int(${X1_POSE_ATTR}.x + 0.5);
+	int x1Texel = (x1Rides ? x1Slot - ${X1_COCKPIT_SLOT} : x1Slot) * 3;
+	vec3 q = vec3(
+		dot(texelFetch(${X1_ANIM_UNIFORM}, ivec2(x1Texel, x1Row), 0).xyz, n),
+		dot(texelFetch(${X1_ANIM_UNIFORM}, ivec2(x1Texel + 1, x1Row), 0).xyz, n),
+		dot(texelFetch(${X1_ANIM_UNIFORM}, ivec2(x1Texel + 2, x1Row), 0).xyz, n));
+	if (x1Rides) {
+		float cp = cos(${X1_POSE_ATTR}.w);
+		float sp = sin(${X1_POSE_ATTR}.w);
+		q = vec3(q.x, cp * q.y - sp * q.z, sp * q.y + cp * q.z);
+		float cy = cos(${X1_POSE_ATTR}.z);
+		float sy = sin(${X1_POSE_ATTR}.z);
+		q = vec3(cy * q.x + sy * q.z, q.y, -sy * q.x + cy * q.z);
+	}
+	return q;
+}`;
+
+/**
+ * The lighting's normal (render/fcopModel.ts fcopLightPatch) posed as the
+ * vertex is: a skeleton turns its normals through each bone and lights them
+ * against the light in the same space (`cact_model_project`
+ * 0x004281db..0x00428206), so the shade is the posed normal's.
+ */
+const LIGHT_NORMAL = "vec3 fcopNormal = vec3( normal );";
+const LIGHT_NORMAL_POSED = "vec3 fcopNormal = x1PoseNormal( normal );";
 
 // render/x1Pose.ts in GLSL: the slot's 3x4 matrix is three texels of its row.
 const VERTEX_POSE = `#include <begin_vertex>
@@ -138,6 +176,7 @@ function patchX1(material: THREE.Material, table: THREE.DataTexture): void {
     shader.uniforms[X1_ANIM_UNIFORM] = { value: table };
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", VERTEX_DECL)
+      .replace(LIGHT_NORMAL, LIGHT_NORMAL_POSED)
       .replace("#include <begin_vertex>", VERTEX_POSE);
   });
 }

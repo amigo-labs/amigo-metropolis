@@ -76,11 +76,12 @@ async function loadRig() {
       ["_TEAMUV", "_teamuv"],
       ["_X1LAYER", "_x1layer"],
       ["_X1FACE", "_x1face"],
+      ["_FCOP_LIGHT", "_fcop_light"],
     ]) {
       const a = p.getAttribute(gltf);
       if (!a) throw new Error(`no ${gltf}`);
       const list = arrays.get(three) ?? [];
-      list.push(...(a.getArray() as Float32Array));
+      list.push(...(a.getArray() as ArrayLike<number>));
       arrays.set(three, list);
     }
     const count = p.getAttribute("POSITION")?.getCount() ?? 0;
@@ -89,7 +90,7 @@ async function loadRig() {
     groups.push({ mode: mode ?? "opaque", tint: null, map, start, count });
     start += count;
   }
-  const sizes: Record<string, number> = { position: 3, normal: 3, uv: 2 };
+  const sizes: Record<string, number> = { position: 3, normal: 3, uv: 2, _fcop_light: 4 };
   const geometry = new THREE.BufferGeometry();
   for (const [name, list] of arrays) {
     geometry.setAttribute(
@@ -113,7 +114,8 @@ async function loadRig() {
 function patched(material: THREE.Material) {
   const shader = {
     uniforms: {} as Record<string, { value: unknown }>,
-    vertexShader: "#include <common>\n#include <uv_vertex>\n#include <begin_vertex>\n",
+    vertexShader:
+      "#include <common>\nvoid main() {\n#include <uv_vertex>\n#include <begin_vertex>\n",
     fragmentShader: "#include <map_fragment>\n#include <alphatest_fragment>\n",
   };
   material.onBeforeCompile(shader as never, {} as never);
@@ -170,9 +172,9 @@ describe("the X1's rig", () => {
     const { core } = await loadRig();
     const materials = materialList(core.mesh.material);
     expect(materials.map((m) => m.customProgramCacheKey())).toEqual([
-      "teamUv+x1",
-      "teamUv+x1",
-      "fcopHalf+teamUv+x1",
+      "fcopLight+teamUv+x1",
+      "fcopLight+teamUv+x1",
+      "fcopLight+fcopHalf+teamUv+x1",
     ]);
     for (const material of materials) {
       const shader = patched(material);
@@ -180,6 +182,9 @@ describe("the X1's rig", () => {
       expect(shader.vertexShader).toContain("texelFetch(x1Anim");
       expect(shader.vertexShader).toContain("(x1Mask >> int(x1Layer + 0.5)) & 1");
       expect(shader.vertexShader).toContain("transformed = x1Q;");
+      // The original's lighting, its normal posed as the vertex is.
+      expect(shader.vertexShader).toContain("vec3 fcopNormal = x1PoseNormal( normal );");
+      expect(shader.vertexShader).not.toContain("vec3 fcopNormal = vec3( normal );");
       expect((shader.uniforms.x1Anim.value as THREE.DataTexture).isDataTexture).toBe(true);
     }
     expect(patched(materials[2]).fragmentShader).toContain("if ( diffuseColor.a > 0.75 ) discard;");

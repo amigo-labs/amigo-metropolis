@@ -44,6 +44,7 @@
 import * as THREE from "three";
 import type { RaiseAt } from "../../effects/chain";
 import { type Fx90, SHATTER_FLAT_Y, TURN, WORLD_UNITS_PER_METRE } from "../../effects/records";
+import { LIGHT_ATTRIBUTE } from "../fcopModel";
 import { TEAM_UV_ATTR, TEAM_UV_MASK } from "../teamUv";
 import { prepareMesh } from "./common";
 
@@ -150,10 +151,14 @@ interface Skeleton {
   readonly pos: Float32Array;
   readonly uv: Float32Array;
   readonly normal: Float32Array;
+  /** Per vertex: the face's `_FCOP_LIGHT` (render/fcopModel.ts). */
+  readonly light: Float32Array;
   readonly teamUv: Float32Array;
   readonly teamMask: Float32Array;
   /** Per triangle: its corners through their bone, the model's axes (x the model's own), model units. */
   readonly local: Float32Array;
+  /** Per triangle: its corners' normals through their bone, the model's axes. */
+  readonly localNormal: Float32Array;
   /** The geometry's groups when the skeleton's material is a list, pooled. */
   readonly groups: { start: number; count: number; materialIndex: number }[];
   /** Per triangle: its piece, and whether it is still drawn (the mask). */
@@ -190,12 +195,14 @@ export class SkeletonShatter {
       const pos = new Float32Array(n * 3);
       const uv = new Float32Array(n * 2);
       const normal = new Float32Array(n * 3);
+      const light = new Float32Array(n * 4);
       const teamUv = new Float32Array(n * 2);
       const teamMask = new Float32Array(n);
       for (const [name, a, size] of [
         ["position", pos, 3],
         ["uv", uv, 2],
         ["normal", normal, 3],
+        [LIGHT_ATTRIBUTE, light, 4],
         [TEAM_UV_ATTR, teamUv, 2],
         [TEAM_UV_MASK, teamMask, 1],
       ] as const) {
@@ -213,9 +220,11 @@ export class SkeletonShatter {
         pos,
         uv,
         normal,
+        light,
         teamUv,
         teamMask,
         local: new Float32Array(SKELETON_TRIS * 9),
+        localNormal: new Float32Array(SKELETON_TRIS * 9),
         groups: Array.from({ length: SKELETON_GROUPS }, () => ({
           start: 0,
           count: 0,
@@ -345,7 +354,7 @@ export class SkeletonShatter {
     s.mesh.visible = true;
     s.geometry.setDrawRange(0, f * 3);
     (s.geometry.getAttribute("uv") as THREE.BufferAttribute).needsUpdate = true;
-    (s.geometry.getAttribute("normal") as THREE.BufferAttribute).needsUpdate = true;
+    (s.geometry.getAttribute(LIGHT_ATTRIBUTE) as THREE.BufferAttribute).needsUpdate = true;
     (s.geometry.getAttribute(TEAM_UV_ATTR) as THREE.BufferAttribute).needsUpdate = true;
     (s.geometry.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute).needsUpdate = true;
     this.place(s);
@@ -371,6 +380,7 @@ export class SkeletonShatter {
     const index = g.getIndex();
     const uv = g.getAttribute("uv") as THREE.BufferAttribute | undefined;
     const normal = g.getAttribute("normal") as THREE.BufferAttribute | undefined;
+    const light = g.getAttribute(LIGHT_ATTRIBUTE) as THREE.BufferAttribute | undefined;
     const mask = g.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute | undefined;
     const face = sk.faceAttr
       ? (g.getAttribute(sk.faceAttr) as THREE.BufferAttribute | undefined)
@@ -394,7 +404,7 @@ export class SkeletonShatter {
       }
       if (!whole) continue;
       for (let h = 0; h < span; h++, f++)
-        this.put(s, sk, b, t + h, f, index, position, uv, normal, mask);
+        this.put(s, sk, b, t + h, f, index, position, uv, normal, light, mask);
     }
     return f;
   }
@@ -410,6 +420,7 @@ export class SkeletonShatter {
     position: THREE.BufferAttribute,
     uv: THREE.BufferAttribute | undefined,
     normal: THREE.BufferAttribute | undefined,
+    light: THREE.BufferAttribute | undefined,
     mask: THREE.BufferAttribute | undefined,
   ): void {
     const m = sk.matrices;
@@ -426,17 +437,24 @@ export class SkeletonShatter {
       s.local[f * 9 + k * 3] = -qx * MODEL_UNITS_PER_METRE;
       s.local[f * 9 + k * 3 + 1] = qy * MODEL_UNITS_PER_METRE;
       s.local[f * 9 + k * 3 + 2] = qz * MODEL_UNITS_PER_METRE;
-      const c3 = (f * 3 + k) * 3;
       const c2 = (f * 3 + k) * 2;
       s.uv[c2] = uv ? uv.getX(vi) : 0;
       s.uv[c2 + 1] = uv ? uv.getY(vi) : 0;
-      // The bind normal in three's frame for the identity: (z, y, -x).
+      // The normal through the bone's 3x3 alone, into the model's axes as the
+      // corner (`cact_model_project_pieces` turns the bone's 4DNL through the
+      // joined bone, piece and view: 0x004293ae..0x004293d6); place() turns it
+      // with the piece.
       const nx = normal ? normal.getX(vi) : 0;
       const ny = normal ? normal.getY(vi) : 1;
       const nz = normal ? normal.getZ(vi) : 0;
-      s.normal[c3] = nz;
-      s.normal[c3 + 1] = ny;
-      s.normal[c3 + 2] = -nx;
+      s.localNormal[f * 9 + k * 3] = -(m[o] * nx + m[o + 1] * ny + m[o + 2] * nz);
+      s.localNormal[f * 9 + k * 3 + 1] = m[o + 4] * nx + m[o + 5] * ny + m[o + 6] * nz;
+      s.localNormal[f * 9 + k * 3 + 2] = m[o + 8] * nx + m[o + 9] * ny + m[o + 10] * nz;
+      const l4 = (f * 3 + k) * 4;
+      s.light[l4] = light ? light.getX(vi) : 0;
+      s.light[l4 + 1] = light ? light.getY(vi) : 0x80;
+      s.light[l4 + 2] = light ? light.getZ(vi) : 0x80;
+      s.light[l4 + 3] = light ? light.getW(vi) : 0x80;
       s.teamMask[f * 3 + k] = mask ? mask.getX(vi) : 1;
       s.teamUv[c2] = sk.teamU;
       s.teamUv[c2 + 1] = sk.teamV;
@@ -532,9 +550,18 @@ export class SkeletonShatter {
         s.pos[o + k * 3] = s.ox + gz / MODEL_UNITS_PER_METRE;
         s.pos[o + k * 3 + 1] = s.oy + gy / MODEL_UNITS_PER_METRE;
         s.pos[o + k * 3 + 2] = s.oz + gx / MODEL_UNITS_PER_METRE;
+        const nx = s.localNormal[o + k * 3];
+        const ny = s.localNormal[o + k * 3 + 1];
+        const nz = s.localNormal[o + k * 3 + 2];
+        const ny1 = ny * cx - nz * sx;
+        const nz1 = ny * sx + nz * cx;
+        s.normal[o + k * 3] = -nx * sy + nz1 * cy;
+        s.normal[o + k * 3 + 1] = ny1;
+        s.normal[o + k * 3 + 2] = nx * cy + nz1 * sy;
       }
     }
     (s.geometry.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
+    (s.geometry.getAttribute("normal") as THREE.BufferAttribute).needsUpdate = true;
   }
 
   private retire(s: Skeleton): void {

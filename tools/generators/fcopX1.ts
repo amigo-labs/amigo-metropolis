@@ -30,6 +30,15 @@
 // (player_partner.c 299-320), which the vertex shader applies per instance
 // (render/avatarRig.ts).
 //
+// And the original's lighting (RE docs/formats/objects.md "Face lighting";
+// fcop-fidelity.md G13): every vertex carries its face's `_FCOP_LIGHT` and the
+// NORMAL it is lit against, which the RE's parts carry since M3-OZ
+// (extract_x1.py builds them with `build_mesh(light=True)`). The legs, the
+// cockpit and the guns are smooth grey (material 4) at 0x80, the beacon plain
+// grey (0). A skeleton turns its normals through each bone's 3x3 and keeps the
+// light in camera space (`cact_model_project` 0x004281db..0x00428206), which
+// the rig's shader does with the same bone table it poses the vertices by.
+//
 // The assembly is the original's (RE tools/gfx/extract_x1.py, player.c 1621,
 // player_partner.c 1611-1739, player_bone.c): the legs stand at the actor's
 // origin; the cockpit rides on the legs' model point 0 -- 3DHS channel 0 of the
@@ -295,6 +304,11 @@ interface Part {
   readonly position: Float32Array;
   readonly normal: Float32Array;
   readonly uv: Float32Array;
+  /**
+   * Per vertex, four bytes: its face's `_FCOP_LIGHT` (lighting material, 3DTL
+   * bytes 1..3), what `cact_model_shade_face` (0x00428c70) shades it by.
+   */
+  readonly light: Uint8Array;
   /** Per vertex: its joint (skinned parts), else 0. */
   readonly joint: Uint8Array;
   /** Per vertex: its face's draw mode (an index into MODES) and layer (op1 bits 4..6). */
@@ -347,6 +361,7 @@ async function readPart(io: NodeIO, file: string): Promise<Part> {
   const position = new Float32Array(count * 3);
   const normal = new Float32Array(count * 3);
   const uv = new Float32Array(count * 2);
+  const light = new Uint8Array(count * 4);
   const joint = new Uint8Array(count);
   const mode = new Uint8Array(count);
   const layer = new Uint8Array(count);
@@ -361,6 +376,10 @@ async function readPart(io: NodeIO, file: string): Promise<Part> {
     position.set(p, at * 3);
     normal.set(arrayOf(prim.getAttribute("NORMAL"), `${file} NORMAL`), at * 3);
     uv.set(arrayOf(prim.getAttribute("TEXCOORD_0"), `${file} TEXCOORD_0`), at * 2);
+    const lit = prim.getAttribute("_FCOP_LIGHT")?.getArray();
+    if (!(lit instanceof Uint8Array) || lit.length !== n * 4)
+      throw new Error(`${file}: a primitive without its _FCOP_LIGHT bytes`);
+    light.set(lit, at * 4);
     const key = faceKeyOf(prim, file);
     mode.fill(key.mode, at, at + n);
     layer.fill(key.layer, at, at + n);
@@ -397,6 +416,7 @@ async function readPart(io: NodeIO, file: string): Promise<Part> {
       position,
       normal,
       uv,
+      light,
       joint,
       mode,
       layer,
@@ -459,7 +479,20 @@ async function readPart(io: NodeIO, file: string): Promise<Part> {
     };
     world.push(jointNodes.map((n) => worldOf(n)));
   }
-  return { position, normal, uv, joint, mode, layer, count, frames, world, inverseBind, image };
+  return {
+    position,
+    normal,
+    uv,
+    light,
+    joint,
+    mode,
+    layer,
+    count,
+    frames,
+    world,
+    inverseBind,
+    image,
+  };
 }
 
 // --- the build ------------------------------------------------------------------
@@ -587,6 +620,7 @@ export async function buildX1(): Promise<X1Build> {
     const position = new Float32Array(total * 3);
     const normal = new Float32Array(total * 3);
     const uv = new Float32Array(total * 2);
+    const light = new Uint8Array(total * 4);
     const slotAttr = new Float32Array(total);
     const teamUv = new Float32Array(total);
     const layerAttr = new Float32Array(total);
@@ -598,6 +632,7 @@ export async function buildX1(): Promise<X1Build> {
         position.set(part.position.subarray(v * 3, v * 3 + 3), at * 3);
         normal.set(part.normal.subarray(v * 3, v * 3 + 3), at * 3);
         uv.set(part.uv.subarray(v * 2, v * 2 + 2), at * 2);
+        light.set(part.light.subarray(v * 4, v * 4 + 4), at * 4);
         slotAttr[at] = slot(v);
         teamUv[at] = team;
         layerAttr[at] = part.layer[v];
@@ -629,6 +664,10 @@ export async function buildX1(): Promise<X1Build> {
         .setAttribute("POSITION", accessor("POSITION", "VEC3", position))
         .setAttribute("NORMAL", accessor("NORMAL", "VEC3", normal))
         .setAttribute("TEXCOORD_0", accessor("TEXCOORD_0", "VEC2", uv))
+        .setAttribute(
+          "_FCOP_LIGHT",
+          doc.createAccessor("_FCOP_LIGHT").setType("VEC4").setArray(light).setBuffer(buffer),
+        )
         .setAttribute("_X1BONE", accessor("_X1BONE", "SCALAR", slotAttr))
         .setAttribute("_TEAMUV", accessor("_TEAMUV", "SCALAR", teamUv))
         .setAttribute("_X1LAYER", accessor("_X1LAYER", "SCALAR", layerAttr))

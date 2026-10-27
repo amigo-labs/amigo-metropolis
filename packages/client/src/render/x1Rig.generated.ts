@@ -3,10 +3,10 @@
 // The X1-Alpha's bone table (public/models/units/avatar-x1.anim.bin): its
 // layout. The AnmD tracks that pick the frames are the sim's
 // (packages/sim/src/x1Tracks.generated.ts). From:
-//   x1_legs.glb cd33246771600495
-//   x1_cockpit.glb 1fa1e3add0c1d4c1
-//   x1_weapon.glb 52c976744391f9a3
-//   x1_beacon_lights.glb af790e7556990f21
+//   x1_legs.glb e420533ab90929eb
+//   x1_cockpit.glb 5746bb6a6bd138c9
+//   x1_weapon.glb 76096dd4aaa4e35b
+//   x1_beacon_lights.glb e7ed044e6ab1ac38
 //   tracks.json a01ee4b43a525c7d
 //   channels.json 46ca97ce62256449
 //   layers.json 2997ea41c5758da4

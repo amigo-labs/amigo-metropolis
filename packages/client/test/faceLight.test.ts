@@ -185,8 +185,9 @@ function gltfOf(path: string): Gltf {
 describe("every FCOP model the client draws carries the light's inputs", () => {
   const files = ["units", "props", "fx", "pa-props"]
     .flatMap((d) => glbs(join(MODELS, d)))
-    // The X1 still comes through the RE's old path (fcop-fidelity.md G13).
-    .filter((f) => !/avatar-/.test(f));
+    // The greybox fallbacks keep their raws from before the modes; the X1
+    // itself (avatar-x1, gen:x1) carries the light since RE M3-OZ.
+    .filter((f) => !/avatar-(walker|hover)/.test(f));
 
   test("the models are there", () => {
     expect(files.length).toBeGreaterThan(200);
