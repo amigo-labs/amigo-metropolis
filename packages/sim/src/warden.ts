@@ -69,6 +69,7 @@ import {
   SKY_ROAM_TANK,
   SKY_SCORE_ATTACK,
   SKY_SEARCH_UNITS,
+  SKY_SHOOTER_ALTERNATE,
   SKY_SPARE_BUDGET,
   SKY_SPEND_HOME,
   SKY_SPEND_HOME_PER_LEVEL,
@@ -105,10 +106,12 @@ import {
 import { resolveHeight } from "./map";
 import {
   avatarMaxHp,
+  bodyMuzzle,
   claimOutpostSlot,
   downEntity,
   downed,
   fireWardenMissile,
+  gunScratch,
   hitscan,
   type SimState,
   spawnUnit,
@@ -190,6 +193,13 @@ export interface CaptainState {
   /** Rate machines of weapons 7, 8, 9: clock (engine units) and phase. */
   readonly gunClock: Float64Array;
   readonly gunPhase: Uint8Array;
+  /**
+   * Their muzzle indices, the original's +0x23 of each shooter: 0 from
+   * `cact_shooter_init` at the construct, flipped by the ALTERNATE ones as
+   * each round comes due (SKY_SHOOTER_ALTERNATE); `sky_respawn` (0x00422bc0)
+   * re-inits no shooter, so they carry over a respawn.
+   */
+  readonly muzzle: Uint8Array;
 }
 
 export function createCaptainState(): CaptainState {
@@ -209,6 +219,7 @@ export function createCaptainState(): CaptainState {
     search: 0,
     gunClock: new Float64Array(3),
     gunPhase: new Uint8Array(3),
+    muzzle: new Uint8Array(3),
   };
 }
 
@@ -1089,7 +1100,11 @@ function gunDue(state: SimState, k: number): boolean {
   let clock = c.gunClock[k];
   if (phase === PHASE_INSIDE) {
     clock += WEAPON_UNITS_PER_TICK;
-    if (clock >= 0) phase = PHASE_DUE;
+    if (clock >= 0) {
+      phase = PHASE_DUE;
+      // A round coming due flips an ALTERNATE shooter's muzzle (0x0044e673).
+      if (SKY_SHOOTER_ALTERNATE[k] === 1) c.muzzle[k] ^= 1;
+    }
   } else if (phase === PHASE_BETWEEN) {
     clock += WEAPON_UNITS_PER_TICK;
     if (clock >= REFIRE[k]) {
@@ -1120,14 +1135,14 @@ function aimValid(state: SimState, id: number, t: number): boolean {
 }
 
 /**
- * A line the captain's missile can fly along: the default launch arm's trace,
- * which walls stop whatever the target is (`discharge.c` 0x0044de23,
- * fcop-fidelity.md U3). Metropolis let it fly over ground units until
- * SIM_VERSION 54 (the v24 "superplane" pierce).
+ * The captain's muzzle `index`: its level's model's point (MapShapes.skyCaptain
+ * by its `shape`) through its matrix (sim.ts bodyMuzzle), into gunScratch;
+ * false on an arena without the model points (the old muzzle stands).
  */
-function clearLine(state: SimState, id: number, t: number): boolean {
-  const ent = state.ent;
-  return !segmentBlocked(state.map, ent.posX[id], ent.posY[id], ent.posX[t], ent.posY[t]);
+function captainMuzzle(state: SimState, id: number, index: number): boolean {
+  const sh = state.map.shapes.skyCaptain;
+  const s = state.ent.shape[id];
+  return s >= 0 && s < sh.length && bodyMuzzle(state, id, sh[s], index);
 }
 
 /**
@@ -1171,22 +1186,60 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
   const uy = dy / len;
   const fx = cosLUT(ent.yaw[id]);
   const fy = sinLUT(ent.yaw[id]);
-  const facing = ux * fx + uy * fy;
   for (let k = 0; k < 3; k++) {
     if (!(k === 0 ? due0 : k === 1 ? due1 : due2)) continue;
-    const blocked = facing < arcCos(k, level) || (k === 1 && !clearLine(state, id, t));
+    // Each round from the model point its shooter's +0x23 names, through the
+    // craft's matrix, aimed and traced from there (`cact_weapon_discharge`
+    // 0x0044d98d; the hitscan's `cact_model_point` in discharge_instant.c).
+    let mx = ent.posX[id];
+    let my = ent.posY[id];
+    let mh = Number.NaN;
+    let aimX = ux;
+    let aimY = uy;
+    if (captainMuzzle(state, id, c.muzzle[k])) {
+      mx = gunScratch.mx;
+      my = gunScratch.my;
+      mh = gunScratch.mh;
+      const ax = ent.posX[t] - mx;
+      const ay = ent.posY[t] - my;
+      const al = Math.sqrt(ax * ax + ay * ay);
+      if (al > 1e-6) {
+        aimX = ax / al;
+        aimY = ay / al;
+      }
+    }
+    // The missile only along a line walls do not stop, from its muzzle: the
+    // default launch arm's trace, whatever the target is (`discharge.c`
+    // 0x0044de23, fcop-fidelity.md U3; Metropolis let it fly over ground
+    // units until SIM_VERSION 54).
+    const blocked =
+      aimX * fx + aimY * fy < arcCos(k, level) ||
+      (k === 1 && segmentBlocked(state.map, mx, my, ent.posX[t], ent.posY[t]));
     if (blocked) {
       c.gunPhase[k] = PHASE_INSIDE;
       c.gunClock[k] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
       continue;
     }
     if (k === 0) {
-      hitscan(state, id, me, ux, uy, SKY_GUN_REACH, SKY_GUN_DAMAGE, SHOT_SLOT_HITSCAN);
+      hitscan(
+        state,
+        id,
+        me,
+        aimX,
+        aimY,
+        SKY_GUN_REACH,
+        SKY_GUN_DAMAGE,
+        SHOT_SLOT_HITSCAN,
+        0,
+        mx,
+        my,
+      );
     } else if (k === 1) {
-      fireWardenMissile(state, id, t, ux, uy);
+      fireWardenMissile(state, id, t, aimX, aimY, mx, my, mh);
     } else {
       pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, SKY_WEAPON_BOMB);
-      spawnWardenBomb(state, id, me, t);
+      if (Number.isNaN(mh)) spawnWardenBomb(state, id, me, t);
+      else spawnWardenBomb(state, id, me, t, mx, my, mh);
     }
     c.gunPhase[k] = PHASE_BETWEEN;
   }

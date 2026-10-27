@@ -206,12 +206,13 @@ export interface ModelsUnitShape {
   readonly table: number;
   readonly lift: readonly number[];
   /**
-   * The model's point 0 at frame 0, glb frame (metres, +z forward, x the
-   * model's negated): where `cact_weapon_discharge` (0x0044d98d) puts the
-   * round of a shooter whose +0x23 is 0 -- the tank's (record bitfield 0x200,
-   * no ALTERNATE). null for a model with none.
+   * The model's points 0 and 1 at frame 0, glb frame (metres, +z forward, x
+   * the model's negated), as far as it has them: where `cact_weapon_discharge`
+   * (0x0044d98d) puts the round of a shooter whose +0x23 is 0 or 1 -- 0 for
+   * the tank and the jet, either for an ALTERNATE shooter (the Flying
+   * Fortress, the Sky Captain's gun and missile). Empty for a model with none.
    */
-  readonly muzzle: readonly number[] | null;
+  readonly muzzles: readonly (readonly number[])[];
 }
 
 /**
@@ -535,11 +536,17 @@ async function buildShapes(arena: FcopArena, re: ReModels, reRepo: string): Prom
     const table = at(cobj, what);
     const payload = re.models[String(cobj)]?.sha256_16;
     if (!payload) throw new Error(`${arena.mission}: no payload hash for Cobj ${cobj}`);
-    const p0 = re.models[String(cobj)]?.attach?.points.find((x) => x.index === 0);
+    const points = re.models[String(cobj)]?.attach?.points ?? [];
+    const muzzles: number[][] = [];
+    for (let k = 0; k < 2; k++) {
+      const p = points.find((x) => x.index === k);
+      if (!p) break;
+      muzzles.push([...p.glb_xyz]);
+    }
     return {
       table,
       lift: await unitLift(arena, payload, cobj, tables[table].boxes[0]),
-      muzzle: p0 ? [...p0.glb_xyz] : null,
+      muzzles,
     };
   };
   const one = (roles: ReRole[], name: string, what: string): Promise<ModelsUnitShape> => {

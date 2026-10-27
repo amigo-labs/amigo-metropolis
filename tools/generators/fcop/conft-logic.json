@@ -1925,7 +1925,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
       "spawnLimit": 20,
@@ -1949,7 +1950,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
       "spawnLimit": 20,
@@ -1973,7 +1975,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
       "spawnLimit": 20,
@@ -1997,7 +2000,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
       "spawnLimit": 20,
@@ -2021,7 +2025,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
       "spawnLimit": 20,
@@ -2045,7 +2050,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
       "spawnLimit": 20,
@@ -2069,7 +2075,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
       "spawnLimit": 20,
@@ -2093,7 +2100,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
       "spawnLimit": 20,
@@ -2117,7 +2125,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
       "spawnLimit": 20,
@@ -2141,7 +2150,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
       "spawnLimit": 20,
@@ -2170,7 +2180,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 16
+        "targetingDelayRaw": 16,
+        "bitfield": 544
       },
       "spawnTicks": 300,
       "groundY": -1.6875,
@@ -2199,7 +2210,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 16
+        "targetingDelayRaw": 16,
+        "bitfield": 544
       },
       "spawnTicks": 300,
       "groundY": -1.6875,
@@ -2228,7 +2240,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
       "groundY": -1.1875,
@@ -2257,7 +2270,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
       "groundY": -1.1875,
@@ -2286,7 +2300,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
       "groundY": -1.4062,
@@ -2315,7 +2330,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
       "groundY": -1.4062,
@@ -2344,7 +2360,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
       "groundY": -1.4062,
@@ -2373,7 +2390,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
       "groundY": -1.4062,
@@ -2402,7 +2420,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
       "groundY": -1.4062,
@@ -2431,7 +2450,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
       "groundY": -1.4062,
@@ -2460,7 +2480,8 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
       "groundY": -1.4062,
@@ -2489,7 +2510,8 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
       "groundY": -1.4062,

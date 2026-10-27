@@ -269,6 +269,8 @@ interface RawActor {
   weapon_accel?: number;
   /** A pathed actor's route block (types 5 and 28), raw (readGroundCasts). */
   route?: PaRoute;
+  /** A tank's or an aircraft's shooter bitfield, raw (readGroundCasts). */
+  shooter_bits?: number;
 }
 
 interface RawNetNode {
@@ -402,6 +404,11 @@ export function readGroundCasts(
       };
       if (a.act_type === ACT.SKY_CAPTAIN) continue;
     }
+    if (a.act_type === ACT.PATHED_ACTOR || a.act_type === ACT.AIRCRAFT) {
+      // The BaseShooter block at payload +0x20 (type 5's CACT_TYPE5_REC_SHOOTER,
+      // type 9's AREC_SHOOTER): its bitfield, the halfword after the weapon id.
+      a.shooter_bits = i16(recordOf(a), TACT_PAYLOAD + 0x22) & 0xffff;
+    }
     if (a.act_type === ACT.PATHED_ACTOR || a.act_type === ACT.DREADNOUGHT) {
       // The route block `cnet_route_init` reads (0x004415f0, handed payload
       // +0x30 by the type-5 construct at 0x00425257): its flag word's low
@@ -457,6 +464,13 @@ export interface PaShooter {
   readonly fovRaw: number;
   readonly engageRangeRaw: number;
   readonly targetingDelayRaw: number;
+  /**
+   * The BaseShooter block's bitfield (`cact_shooter_init` 0x0044ea00, record
+   * +2), raw, where readGroundCasts reads it (a tank's and an aircraft's, at
+   * payload +0x22): 0x20 is ALTERNATE, which flips the muzzle index +0x23
+   * every round (`cact_shooter_step` 0x0044e673). Absent elsewhere.
+   */
+  readonly bitfield?: number;
 }
 
 export interface PaSpawn {
@@ -876,7 +890,7 @@ export function buildPaLogic(
         netId: a.net_id ?? -1,
         moveSpeed: p.move_speed ?? 0,
         acceleration: p.acceleration ?? 0,
-        shooter: shooter(p),
+        shooter: { ...shooter(p), bitfield: a.shooter_bits ?? 0 },
         spawnTicks: a.spawn_ticks ?? 0,
         spawnLimit: a.spawn_limit ?? 0,
         route: routeOf(a),
@@ -896,7 +910,7 @@ export function buildPaLogic(
         orbitAreaY: p.orbit_area_y ?? 0,
         targetDetectionRange: p.target_detection_range ?? 0,
         timeToDescend: p.time_to_descend ?? 0,
-        shooter: shooter(p),
+        shooter: { ...shooter(p), bitfield: a.shooter_bits ?? 0 },
         spawnTicks: a.spawn_ticks ?? 0,
         groundY: a.ground_y ?? null,
         flight: flightOf(a),

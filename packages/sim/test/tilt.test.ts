@@ -244,7 +244,7 @@ describe("a route follower's muzzle", () => {
     ent.hp[id] = 1e6;
     const foe = state.avatarId[1];
     ent.hp[foe] = 1e6;
-    const muzzle = state.map.shapes.tank?.muzzle;
+    const muzzle = state.map.shapes.tank?.muzzles[0];
     expect(muzzle).toEqual([0.003906, 0.154297, -0.105469]);
     const was = new Uint8Array(ent.cap);
     const f = createFrame();
@@ -270,6 +270,91 @@ describe("a route follower's muzzle", () => {
       }
     }
     expect(checked).toBeGreaterThan(0);
+  });
+});
+
+describe("the aircraft's muzzles", () => {
+  /** Rounds from team 0's `arch` over la-cantina, the foe held under it: [x, y, side]. */
+  function rounds(
+    arch: number,
+    want: number,
+  ): { x: number; y: number; mx: number[][]; side: number }[] {
+    const state = createSim(getMapById(LA_CANTINA_ID), 1);
+    const ent = state.ent;
+    const b = state.map.bases[0];
+    const id = spawnUnit(state, arch, 0, b.tankSpawn.x + 20, b.tankSpawn.y - 20);
+    ent.hp[id] = 1e6;
+    const foe = state.avatarId[1];
+    ent.hp[foe] = 1e6;
+    const shape = arch === ARCHETYPE.FORTRESS ? state.map.shapes.fortress : state.map.shapes.jet;
+    const was = new Uint8Array(ent.cap);
+    const f = createFrame();
+    const out: { x: number; y: number; mx: number[][]; side: number }[] = [];
+    for (let t = 0; t < 3000 && out.length < want; t++) {
+      ent.posX[foe] = ent.posX[id] + 4;
+      ent.posY[foe] = ent.posY[id];
+      ent.height[foe] = sampleHeight(state.map, ent.posX[foe], ent.posY[foe]);
+      for (let p = 0; p < ent.high; p++) was[p] = ent.alive[p];
+      step(state, idle);
+      for (let p = 0; p < ent.high; p++) {
+        if (was[p] || !ent.alive[p] || ent.archetype[p] !== ARCHETYPE.PROJECTILE) continue;
+        if (ent.team[p] !== 0) continue;
+        bodyFrame(f, state, id);
+        const mx = (shape?.muzzles ?? []).map(([x, y, z]) => [
+          ent.posX[id] - x * f.ax[0] + y * f.ay[0] + z * f.az[0],
+          ent.posY[id] - x * f.ax[1] + y * f.ay[1] + z * f.az[1],
+        ]);
+        out.push({
+          x: ent.posX[p] - ent.velX[p] * TICK_DT,
+          y: ent.posY[p] - ent.velY[p] * TICK_DT,
+          mx,
+          side: state.shooterMuzzle[id],
+        });
+      }
+    }
+    return out;
+  }
+
+  it("the Flying Fortress fires from its points 0 and 1 in turn (ALTERNATE 0x220)", () => {
+    expect(getMapById(LA_CANTINA_ID).weapons.filter((w) => w.alternate === 1).length).toBe(1);
+    const got = rounds(ARCHETYPE.FORTRESS, 4);
+    expect(got.length).toBe(4);
+    for (const [i, r] of got.entries()) {
+      // +0x23 flipped as the round came due: 1, 0, 1, 0 from the spawn's 0.
+      expect(r.side).toBe(i % 2 === 0 ? 1 : 0);
+      expect(r.x).toBeCloseTo(r.mx[r.side][0], 3);
+      expect(r.y).toBeCloseTo(r.mx[r.side][1], 3);
+    }
+    // The two points are a wing apart: the rounds alternate across the craft.
+    expect(Math.hypot(got[0].x - got[1].x, got[0].y - got[1].y)).toBeGreaterThan(1);
+  });
+
+  it("the jet fires from its point 0 (0x202)", () => {
+    const got = rounds(ARCHETYPE.GUARDIAN, 2);
+    expect(got.length).toBe(2);
+    for (const r of got) {
+      expect(r.side).toBe(0);
+      expect(r.x).toBeCloseTo(r.mx[0][0], 3);
+      expect(r.y).toBeCloseTo(r.mx[0][1], 3);
+    }
+  });
+
+  it("the Sky Captain's gun and missile alternate, its bomb does not", () => {
+    const state = createSim(getMapById(LA_CANTINA_ID), 0xc0ffee, {
+      wardenPlayer: 1,
+      wardenDifficulty: 8,
+    });
+    const c = state.captain;
+    const flips = [0, 0, 0];
+    for (let t = 0; t < 3000; t++) {
+      const before = [c.muzzle[0], c.muzzle[1], c.muzzle[2]];
+      step(state, idle);
+      for (let k = 0; k < 3; k++) if (c.muzzle[k] !== before[k]) flips[k]++;
+    }
+    expect(flips[0]).toBeGreaterThan(0);
+    expect(flips[1]).toBeGreaterThan(0);
+    expect(flips[2]).toBe(0);
+    expect(state.map.shapes.skyCaptain[0].muzzles.length).toBe(2);
   });
 });
 

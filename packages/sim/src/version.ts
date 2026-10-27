@@ -1707,4 +1707,17 @@
 //     per arena (gen:pamodels `muzzle`, MapUnitShape.muzzle: Mp's tank 0.154 m
 //     up, 0.105 m behind its origin; Hk's 0.553 up, 0.615 behind; Joke's frame
 //     0's). Every golden with a tank firing diverges.
-export const SIM_VERSION = 115;
+// v116: the aircraft fire from their model's points (fcop-fidelity.md U4, U3;
+//     `cact_weapon_discharge` 0x0044d98d, `cact_model_point` 0x00429830): the
+//     point their shooter's +0x23 names through their matrix (orient.ts
+//     airFrame), aimed and traced from there -- the jet's point 0 (record
+//     bitfield 0x202), the Flying Fortress's points 0 and 1 in turn (0x220:
+//     ALTERNATE flips +0x23 as each round comes due, `cact_shooter_step`
+//     0x0044e673; MapWeapon.alternate, gen:palogic reads the bitfields), the Sky
+//     Captain's gun and missile alternating too (its construct ORs 0x20 into
+//     both, 0x0042122d / 0x0042127c) and its bomb from point 0 (0x242); the
+//     hitscan gun's line starts at its muzzle (discharge_instant.c). The
+//     indices are hashed (SimState.shooterMuzzle, CaptainState.muzzle); the
+//     captain's carry over its respawn (`sky_respawn` 0x00422bc0 re-inits no
+//     shooter). gen:pamodels carries points 0 and 1 (MapUnitShape.muzzles).
+export const SIM_VERSION = 116;

@@ -133,6 +133,12 @@ export interface MapWeapon {
   /** 1: prefers the higher target priority (Dreadnought > tank > X1 > other). */
   readonly priority: number;
   /**
+   * 1: ALTERNATE (the record's shooter bitfield 0x20): the muzzle index +0x23
+   * flips between the body's model points 0 and 1 every round
+   * (`cact_shooter_step` 0x0044e673): the Flying Fortress's (0x220).
+   */
+  readonly alternate: number;
+  /**
    * Its round's 3DBB table in MapData.shapes (the catalogue entry's aRSL slot 0,
    * the model `cact_missile_spawn` binds), -1 for none: the round then meets a
    * body at Metropolis' 0.5 m (sim contact.ts).
@@ -256,11 +262,12 @@ export interface MapUnitShape {
   readonly ly: number;
   readonly lz: number;
   /**
-   * The model's point 0 at frame 0 in its glb frame (metres, +z forward, x the
-   * model's negated): the muzzle `cact_weapon_discharge` (0x0044d98d) places
-   * through the body's matrix for a shooter whose +0x23 is 0. null for none.
+   * The model's points 0 and 1 at frame 0 in its glb frame (metres, +z
+   * forward, x the model's negated), as far as it has them: the muzzle
+   * `cact_weapon_discharge` (0x0044d98d) places through the body's matrix for
+   * a shooter whose +0x23 is 0 or 1. Empty for none.
    */
-  readonly muzzle: readonly [number, number, number] | null;
+  readonly muzzles: readonly (readonly [number, number, number])[];
 }
 
 /**
@@ -1183,6 +1190,8 @@ export interface MapJson {
     arcCos?: number;
     hold?: number;
     priority?: number;
+    /** OPTIONAL: ALTERNATE (MapWeapon.alternate); absent -> 0. */
+    alternate?: number;
     /** OPTIONAL: its round's table in `shapes.tables` (MapWeapon.round), -1 none. */
     round?: number;
   }[];
@@ -1240,14 +1249,14 @@ export interface MapJson {
    */
   shapes?: {
     tables: { cobj?: number; perFrame: number; frames: number; boxes: number[][] }[];
-    tank: { table: number; lift: number[]; muzzle?: number[] };
-    jet: { table: number; lift: number[]; muzzle?: number[] };
-    fortress: { table: number; lift: number[]; muzzle?: number[] };
+    tank: { table: number; lift: number[]; muzzles?: number[][] };
+    jet: { table: number; lift: number[]; muzzles?: number[][] };
+    fortress: { table: number; lift: number[]; muzzles?: number[][] };
     dreadnought: number;
     dreadnoughtGuns: number[];
     baseTurret: { gun: number; base: number; point: number[] };
     neutral: { gun: number; base: number; point: number[] }[];
-    skyCaptain: { table: number; lift: number[]; muzzle?: number[] }[];
+    skyCaptain: { table: number; lift: number[]; muzzles?: number[][] }[];
     worldRounds: Record<string, number>;
     playerRounds: Record<string, number>;
   };
@@ -1632,15 +1641,16 @@ function parseShapes(raw: MapJson["shapes"], id: string): MapShapes {
     };
   };
   const unit = (
-    u: { table: number; lift: number[]; muzzle?: number[] },
+    u: { table: number; lift: number[]; muzzles?: number[][] },
     what: string,
   ): MapUnitShape => {
     if (!u || !Array.isArray(u.lift) || u.lift.length !== 3) fail(id, `shapes ${what} bad`);
     for (const v of u.lift) {
       if (typeof v !== "number" || !Number.isFinite(v)) fail(id, `shapes ${what} bad lift`);
     }
-    const m = u.muzzle;
-    if (m !== undefined) {
+    const ms = u.muzzles ?? [];
+    if (!Array.isArray(ms) || ms.length > 2) fail(id, `shapes ${what} bad muzzles`);
+    for (const m of ms) {
       if (!Array.isArray(m) || m.length !== 3) fail(id, `shapes ${what} bad muzzle`);
       for (const v of m) {
         if (typeof v !== "number" || !Number.isFinite(v)) fail(id, `shapes ${what} bad muzzle`);
@@ -1651,7 +1661,7 @@ function parseShapes(raw: MapJson["shapes"], id: string): MapShapes {
       lx: u.lift[0],
       ly: u.lift[1],
       lz: u.lift[2],
-      muzzle: m === undefined ? null : [m[0], m[1], m[2]],
+      muzzles: ms.map((m) => [m[0], m[1], m[2]] as const),
     };
   };
   const rounds = (r: Record<string, number>, what: string): Int16Array => {
@@ -1937,6 +1947,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
       arcCos,
       hold: opt(w.hold, "hold", 0) ? 1 : 0,
       priority: opt(w.priority, "priority", 0) ? 1 : 0,
+      alternate: opt(w.alternate, "alternate", 0) ? 1 : 0,
       round: shapeIndex(w.round, `weapon ${k} round`),
     };
   });

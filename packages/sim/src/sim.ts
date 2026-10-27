@@ -285,6 +285,7 @@ import {
   type MapPoint,
   type MapTriggerVolume,
   type MapTurretGun,
+  type MapUnitShape,
   type MapWeapon,
   type MapZone,
   resolveHeight,
@@ -733,6 +734,13 @@ export interface SimState {
    * collider and drawing. Hashed.
    */
   readonly cockpitAim: CockpitAim;
+  /**
+   * Each unit's shooter's muzzle index, the original's +0x23 (0 or 1), by
+   * entity id: 0 from `cact_shooter_init` at the spawn, flipped by an
+   * ALTERNATE shooter as each round comes due (0x0044e673). The Sky Captain's
+   * three are its own (CaptainState.muzzle). Hashed for live aircraft.
+   */
+  readonly shooterMuzzle: Uint8Array;
   /** Player slot the Warden AI drives, -1 for a match without one (config). */
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
@@ -1133,6 +1141,8 @@ export function spawnUnit(
   // (`csac_credit_spawn`, spawn.c 0x0044f4b6..0x0044f563).
   const created = unitStatKey(archetype, true);
   if (created >= 0) bumpStat(state, team, created);
+  // Its shooters' muzzle index starts at 0 (`cact_shooter_init` 0x0044ea00).
+  state.shooterMuzzle[id] = 0;
   ent.posX[id] = x;
   ent.posY[id] = y;
   // Seed height/layer before snapUnitHeight: resolveWalker picks surfaces within
@@ -1329,6 +1339,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     gunSearch: new Int32Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     route: createRouteCursors(map),
     cockpitAim: createCockpitAim(),
+    shooterMuzzle: new Uint8Array(MAX_ENTITIES),
     hullWalk: map.bases.map((b) => {
       const w = b.juggernaut.walk;
       if (w === undefined) return null;
@@ -3768,10 +3779,13 @@ export function hitscan(
   damage: number,
   shotSlot = -1,
   shotWeaponId = 0,
+  /** The line's start, metres: the shooter's position unless a muzzle is given. */
+  fromX = Number.NaN,
+  fromY = Number.NaN,
 ): void {
   const ent = state.ent;
-  const ox = ent.posX[shooter];
-  const oy = ent.posY[shooter];
+  const ox = Number.isNaN(fromX) ? ent.posX[shooter] : fromX;
+  const oy = Number.isNaN(fromY) ? ent.posY[shooter] : fromY;
   const team = ent.team[shooter];
   let bestT = range;
   let bestId = -1;
@@ -3845,13 +3859,17 @@ export function spawnWardenBomb(
   shooter: number,
   player: number,
   target: number,
+  /** Its muzzle, metres (warden.ts captainMuzzle); the craft's position by default. */
+  fromX = state.ent.posX[shooter],
+  fromY = state.ent.posY[shooter],
+  fromH = state.ent.height[shooter],
 ): void {
   const ent = state.ent;
   const id = spawnArced(
     state,
-    ent.posX[shooter],
-    ent.posY[shooter],
-    ent.height[shooter],
+    fromX,
+    fromY,
+    fromH,
     ent.posX[target],
     ent.posY[target],
     ent.height[target],
@@ -3882,9 +3900,15 @@ export function fireWardenMissile(
   target: number,
   dx: number,
   dy: number,
+  /** Its muzzle, metres (warden.ts captainMuzzle); NaN: the old muzzle off the craft. */
+  fromX = Number.NaN,
+  fromY = Number.NaN,
+  fromH = Number.NaN,
 ): void {
   const ent = state.ent;
-  const p = spawnStraight(state, shooter, dx, dy, target, target);
+  const p = Number.isNaN(fromX)
+    ? spawnStraight(state, shooter, dx, dy, target, target)
+    : spawnStraightAt(state, ent.team[shooter], fromX, fromY, fromH, dx, dy, target, target);
   if (p < 0) return;
   ent.shape[p] = state.map.shapes.worldRounds[SKY_WEAPON_MISSILE];
   const speed = roundSpeed(SKY_MISSILE_SPEED_RAW);
@@ -4445,6 +4469,7 @@ function shooterTargetValid(state: SimState, id: number, t: number, range: numbe
 function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
   const ent = state.ent;
   let target = ent.cooldownC[id] - 1;
+  const inside = ent.aimY[id] === PHASE_INSIDE;
   const due = shooterDue(ent, id, w);
   if (target >= 0 && !ent.alive[target]) target = -1;
   if (!due) {
@@ -4452,6 +4477,8 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
     if (target >= 0) faceTarget(ent, id, target);
     return;
   }
+  // A round coming due flips an ALTERNATE shooter's muzzle (0x0044e673).
+  if (inside && w.alternate === 1) state.shooterMuzzle[id] ^= 1;
   const range = unitRange(state, id);
   if (target >= 0 && !shooterTargetValid(state, id, target, range)) target = -1;
   if (target < 0) {
@@ -4470,9 +4497,9 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
   }
   faceTarget(ent, id, target);
   if (unitMuzzle(state, id)) {
-    // A route follower's round from its model's point 0 through its hull's
-    // matrix, aimed and traced from there (`cact_weapon_discharge` 0x0044d98d,
-    // `discharge_launch`'s trace from the muzzle).
+    // The round from the model point its shooter's +0x23 names, through the
+    // body's matrix, aimed and traced from there (`cact_weapon_discharge`
+    // 0x0044d98d, `discharge_launch`'s trace from the muzzle).
     if (!aimFrom(state, gunScratch.mx, gunScratch.my, target, w)) return;
     if (
       segmentBlocked(state.map, gunScratch.mx, gunScratch.my, ent.posX[target], ent.posY[target])
@@ -4507,22 +4534,43 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
 }
 
 /**
- * A route follower's muzzle (fcop-fidelity.md W5, U1): its model's point 0 --
- * the point the shooter's +0x23 names, 0 from `cact_shooter_init`
- * (0x0044ea00) and never toggled, the tank's record bitfield 0x200 lacking
- * ALTERNATE 0x20 -- placed through its hull's matrix at its position, the
- * model's origin (`cact_model_point` via 0x0044d98d; orient.ts bodyFrame), into
- * gunScratch.mx / my / mh. False where the unit is no route follower or its
- * arena imports no model point (the old muzzle then stands).
+ * A unit's muzzle (fcop-fidelity.md W5, U1, U4): the model point its shooter's
+ * +0x23 names -- 0 from `cact_shooter_init` (0x0044ea00), flipped between 0
+ * and 1 every round by an ALTERNATE shooter (`cact_shooter_step` 0x0044e673;
+ * SimState.shooterMuzzle) -- placed through the body's matrix at its position,
+ * the model's origin (`cact_model_point` via 0x0044d98d; orient.ts bodyFrame):
+ * a route follower's hull (the tank's bitfield 0x200, point 0), an aircraft's
+ * (the jet's 0x202, point 0; the Flying Fortress's 0x220, points 0 and 1).
+ * Into gunScratch.mx / my / mh. False for any other unit, a tank off the road
+ * graph, or an arena that imports no model point (the old muzzle then stands).
  */
 function unitMuzzle(state: SimState, id: number): boolean {
   const ent = state.ent;
-  if (ent.archetype[id] !== ARCHETYPE.RUNNER || !followsRoutes(state)) return false;
-  const tank = state.map.shapes.tank;
-  if (tank === null || tank.muzzle === null) return false;
+  const sh = state.map.shapes;
+  const a = ent.archetype[id];
+  const u =
+    a === ARCHETYPE.RUNNER
+      ? followsRoutes(state)
+        ? sh.tank
+        : null
+      : a === ARCHETYPE.GUARDIAN
+        ? sh.jet
+        : a === ARCHETYPE.FORTRESS
+          ? sh.fortress
+          : null;
+  return u !== null && bodyMuzzle(state, id, u, state.shooterMuzzle[id]);
+}
+
+/**
+ * Point `index` of unit shape `u` through body `id`'s matrix at its position,
+ * into gunScratch.mx / my / mh; false where the model has no such point.
+ */
+export function bodyMuzzle(state: SimState, id: number, u: MapUnitShape, index: number): boolean {
+  if (index >= u.muzzles.length) return false;
+  const ent = state.ent;
   const f = hullFrame;
   bodyFrame(f, state, id);
-  const [x, y, z] = tank.muzzle;
+  const [x, y, z] = u.muzzles[index];
   // The glb's x is the model's negated.
   gunScratch.mx = ent.posX[id] - x * f.ax[0] + y * f.ay[0] + z * f.az[0];
   gunScratch.my = ent.posY[id] - x * f.ax[1] + y * f.ay[1] + z * f.az[1];
@@ -4594,9 +4642,9 @@ function armWorldRound(state: SimState, id: number, p: number, w: MapWeapon): vo
 
 /**
  * Scratch: a gun's mount and muzzle in the world, and its barrel's forward
- * (module scope, no allocation per tick).
+ * (module scope, no allocation per tick). bodyMuzzle writes mx / my / mh.
  */
-const gunScratch = { x: 0, y: 0, h: 0, mx: 0, my: 0, mh: 0, fx: 0, fy: 0, fh: 0 };
+export const gunScratch = { x: 0, y: 0, h: 0, mx: 0, my: 0, mh: 0, fx: 0, fy: 0, fh: 0 };
 /** Scratch: the hull's matrix and a gun's on it. */
 const hullFrame = createFrame();
 
@@ -7222,6 +7270,16 @@ export function hash(state: SimState): number {
   for (let p = 0; p < MAX_PLAYERS; p++) {
     h = fnv1aU32(h, (aim.yaw[p] & 0xffff) | (aim.pitch[p] << 16));
   }
+  // Appended at SIM_VERSION 116: every live aircraft's muzzle index and the
+  // Sky Captain's three (the original's +0x23).
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id]) continue;
+    const a = ent.archetype[id];
+    if (a !== ARCHETYPE.GUARDIAN && a !== ARCHETYPE.FORTRESS) continue;
+    h = fnv1aU32(h, state.shooterMuzzle[id]);
+  }
+  const cm = state.captain.muzzle;
+  h = fnv1aU32(h, cm[0] | (cm[1] << 8) | (cm[2] << 16));
   return h;
 }
 

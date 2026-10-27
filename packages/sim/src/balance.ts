@@ -2186,6 +2186,15 @@ export const SKY_SEARCH_UNITS = 300;
  * read: all round here. [B] in the evidence (the reading of bits 0..2).
  */
 export const SKY_ARC_SIDE_COS = -0.9238795325112867; // cos 157.5°
+/**
+ * Which of the Sky Captain's three shooters (weapons 7, 8, 9) is ALTERNATE,
+ * its muzzle flipping between its model's points 0 and 1 every round
+ * (`cact_shooter_step` 0x0044e673): its construct ORs 0x20 into the record's
+ * bitfields of its own shooter (payload 0x22, 0x0042122d) and its first
+ * controller (0x56, 0x0042127c) before they are read; the second (0x66,
+ * weapon 9) keeps the record's 0x242 on every shipped type-37 record.
+ */
+export const SKY_SHOOTER_ALTERNATE: readonly number[] = [1, 1, 0];
 
 /** Its units' cap (SKY_UNIT_CAP 0x14), the same 20 the human pads check. */
 export const SKY_UNIT_CAP = 20;
@@ -2449,7 +2458,8 @@ export const TARGET_PRIORITY_AVATAR = 5;
  *     its own mount's yaw (the mounts since SIM_VERSION 77), no hold;
  *   2 tank and jet: weapon 1/6 — 50 dmg every 300 units (1.0 s), 12 m, re-search
  *     2.0 s;
- *   3 Flying Fortress: weapon 4 — guided 100 dmg every 150 units (0.5 s), flies
+ *   3 Flying Fortress: weapon 4 (bitfield 0x220: ALTERNATE, its muzzle flips
+ *     between its model's points 0 and 1 every round) — guided 100 dmg every 150 units (0.5 s), flies
  *     24 m, re-search 1.0 s;
  *   4 neutral turret (type 36): the team turret's gun without hold or priority.
  * None has a round's hit boxes (`round` -1): an arena that imports no profiles
@@ -2471,6 +2481,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 1,
     priority: 1,
+    alternate: 0,
     round: -1,
   },
   {
@@ -2488,6 +2499,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 0,
     priority: 0,
+    alternate: 0,
     round: -1,
   },
   {
@@ -2505,6 +2517,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: -1,
     hold: 0,
     priority: 0,
+    alternate: 0,
     round: -1,
   },
   {
@@ -2522,6 +2535,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: -1,
     hold: 0,
     priority: 0,
+    alternate: 1,
     round: -1,
   },
   {
@@ -2539,6 +2553,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 0,
     priority: 0,
+    alternate: 0,
     round: -1,
   },
 ] as const;

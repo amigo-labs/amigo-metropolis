@@ -264,7 +264,8 @@ describe("a Warden vs an idle player on la-cantina", () => {
   // after 30 captures; the match ends at tick 2151. Since SIM_VERSION 114 (the
   // route followers at their cursor's height on their hull's matrix, the
   // aircraft's and the cockpit's colliders turned as the original's) the
-  // match ends at tick 2156.
+  // match ends at tick 2156. Since SIM_VERSION 116 (the aircraft fire from
+  // their model's points) at tick 2151.
   const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
   const idle = createTickInputs();
   let captures = 0;
@@ -278,7 +279,7 @@ describe("a Warden vs an idle player on la-cantina", () => {
 
   it("resolves the match through the gate inside fifteen minutes (measured)", () => {
     expect(state.winner).toBe(1);
-    expect(state.tick).toBe(2156);
+    expect(state.tick).toBe(2151);
   });
 
   it("funds that push from capture income that is not absurd", () => {
@@ -370,7 +371,8 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // Re-measured at SIM_VERSION 114 (the route followers at their cursor's
   // height on their hull's matrix, the aircraft and the cockpit turned as the
   // original's): 19 of 20 resolve, in 49-114 s; urban-jungle seed c0ffee does
-  // not. Of the pinned seeds 11 of 12.
+  // not. Of the pinned seeds 11 of 12. At SIM_VERSION 116 (the aircraft fire
+  // from their model's points): the same 19 of 20, in 52-115 s.
   const UNRESOLVED: Record<string, number[]> = {
     [URBAN_JUNGLE_ID]: [0xc0ffee],
   };

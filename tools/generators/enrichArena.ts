@@ -240,6 +240,8 @@ interface Shooter {
   engageRangeRaw: number;
   targetingDelayRaw: number;
   fovRaw: number;
+  /** The record's shooter bitfield, raw, where gen:palogic reads it (tanks, aircraft). */
+  bitfield?: number;
 }
 
 interface Weapon {
@@ -257,6 +259,8 @@ interface Weapon {
   arcCos: number;
   hold: number;
   priority: number;
+  /** ALTERNATE (bitfield 0x20), emitted only when set (map.ts MapWeapon.alternate). */
+  alternate?: number;
   /** Its round's 3DBB table in the map's `shapes.tables` (the catalogue entry's aRSL slot 0), -1 none. */
   round: number;
 }
@@ -1438,9 +1442,9 @@ function shapesOf(models: ModelsArtifact, spots: number, mapId: string): MapJson
   // is the drawing's alone -- the sim's x, y are the actor's own). An
   // aircraft's height is its model's origin since SIM_VERSION 110 (the
   // altitude floor adds its half height, 0x00420a31): no lift.
-  // And each unit's point 0, its muzzle (glb frame), where it has one.
+  // And each unit's points 0 and 1, its muzzles (glb frame), where it has them.
   const muzzle = (u: (typeof sh.skyCaptain)[number]) =>
-    u.muzzle === null ? {} : { muzzle: [...u.muzzle] };
+    u.muzzles.length === 0 ? {} : { muzzles: u.muzzles.map((m) => [...m]) };
   const ground = (u: (typeof sh.skyCaptain)[number]) => ({
     table: u.table,
     lift: [0, u.lift[1], 0],
@@ -1526,9 +1530,13 @@ function shooterWeapon(
     arcCos: opts.arc ? SHOOTER_FRONT_ARC_COS : -1,
     hold: opts.hold ? 1 : 0,
     priority: opts.priority ? 1 : 0,
+    ...(((sh.bitfield ?? 0) & SHOOTER_ALTERNATE) !== 0 ? { alternate: 1 } : {}),
     round: rounds[String(sh.weaponId)] ?? -1,
   };
 }
+
+/** CACT_SHOOTER_ALTERNATE: the muzzle index flips every round (`cact_shooter_step` 0x0044e673). */
+const SHOOTER_ALTERNATE = 0x20;
 
 /** A team (type 8) turret holds its target and prefers priority; a neutral (36) does neither. */
 function turretWeapon(t: Turret, table: WeaponTable, team: boolean): number {
