@@ -5,7 +5,7 @@
 //     -> packages/client/src/render/viewTerrain.generated.ts
 //
 // 1. **The world** the map screen's window stays inside
-//    (`world_clamp_map_centre` 0x00452710 over the bounds `cptc_load` 0x00451560
+//    (`world_clamp_map_centre` 0x00452710 over the bounds `cptc_load` 0x00451510
 //    sets): grid cells `margin` .. `width - margin - 1` on the original's z (the
 //    sim's x), `margin` .. `height - margin - 1` on its x (the sim's y), 0x20000
 //    world units (16 m) a cell, the origins 0 in all six (GRDB words 3-5). In

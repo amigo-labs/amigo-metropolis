@@ -118,7 +118,7 @@ function clampAxis(c: number, half: number, lo: number, hi: number): number {
 
 /**
  * The world the window stays inside: the original's terrain grid less its
- * margin (`cptc_load` 0x00451560's bounds; gen:viewterrain `world`, in the
+ * margin (`cptc_load` 0x00451510's bounds; gen:viewterrain `world`, in the
  * sim's frame). A map the original has no grid for (the test maps) keeps the
  * whole of its own. Writes [minX, maxX, minY, maxY]. Not in the frame loop.
  */
