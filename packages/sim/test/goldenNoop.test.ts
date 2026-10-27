@@ -96,6 +96,8 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // units also target as the original's shooters and aircraft do.
   // Re-frozen at SIM_VERSION 19 (on top of v18 hover cushion): facing-aligned
   // drive, PA ring/console/X1 authoring, and combat script aim aligned with travel.
+  // 03, 04 and 07 re-frozen at SIM_VERSION 115: a tank's round leaves from its
+  // model's point 0 through its hull's matrix.
   // All seven re-frozen at SIM_VERSION 114: the cockpits' aims are hashed on
   // every map; the route followers stand at their cursor's height and turn by
   // their hull's matrix (07 and the PA arenas play differently).
@@ -155,7 +157,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 111: the units on the road net walk the original\'s
   // route cursor (fcop-fidelity.md U1, route.ts).
   // Re-frozen at SIM_VERSION 112: see golden-02 above.
-  "golden-03-match": { last: 4046072516, count: 6000 },
+  "golden-03-match": { last: 3540336675, count: 6000 },
   // 04 and 07 re-frozen at SIM_VERSION 54: the captain takes its target without
   // a line of sight and walls stop its gun and missile at ground units too.
   // 03, 04 and 07 re-frozen at SIM_VERSION 55: captures by the octagonal estimate.
@@ -189,7 +191,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 111: the units on the road net walk the original\'s
   // route cursor (fcop-fidelity.md U1, route.ts).
   // Re-frozen at SIM_VERSION 112: see golden-02 above.
-  "golden-04-warden": { last: 3155857520, count: 4500 },
+  "golden-04-warden": { last: 413947603, count: 4500 },
   // Re-frozen at SIM_VERSION 27: urban-jungle's two sunken outpost pads were
   // lifted onto the plate the terrain mesh draws over them (8 cells). This is
   // the only single-story golden on that map, and the only one of the seven
@@ -245,7 +247,7 @@ const FROZEN: Record<string, { last: number; count: number }> = {
   // Re-frozen at SIM_VERSION 112: see golden-02 above.
   // Every golden re-frozen at SIM_VERSION 113: the mechs' own contact models
   // are hashed on every map, and the actors they touch push them (P4).
-  "golden-07-pa": { last: 2616565308, count: 3600 },
+  "golden-07-pa": { last: 673940048, count: 3600 },
   // SIM_VERSION 26 (ten-weapon PA catalog): only golden-02-combat fires special
   // and moves mid-sequence; last-hash pins above stay the same numbers.
 };

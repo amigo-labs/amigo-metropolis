@@ -244,17 +244,23 @@ export interface MapTurretShape {
 }
 
 /**
- * A unit the client draws grounded and XZ-centred (the tank, the jet, the
- * Flying Fortress, the Sky Captain; gen:units' `unit`): its table and where its
- * model's own origin stands from the body's position (lx, ly, lz, the model's
- * axes, metres) -- gen:units' translation of the drawn mesh, so the boxes stand
- * where the unit is drawn.
+ * A unit (the tank, the jet, the Flying Fortress, the Sky Captain; gen:units'
+ * `unit`, drawn at its model's own origin): its table and where its model's
+ * origin stands from a body standing on the ground (lx, ly, lz, the model's
+ * axes, metres) -- the raw's grounding, read only for a tank off the road graph
+ * (contact.ts); a route follower's and an aircraft's position is its origin.
  */
 export interface MapUnitShape {
   readonly table: number;
   readonly lx: number;
   readonly ly: number;
   readonly lz: number;
+  /**
+   * The model's point 0 at frame 0 in its glb frame (metres, +z forward, x the
+   * model's negated): the muzzle `cact_weapon_discharge` (0x0044d98d) places
+   * through the body's matrix for a shooter whose +0x23 is 0. null for none.
+   */
+  readonly muzzle: readonly [number, number, number] | null;
 }
 
 /**
@@ -1234,14 +1240,14 @@ export interface MapJson {
    */
   shapes?: {
     tables: { cobj?: number; perFrame: number; frames: number; boxes: number[][] }[];
-    tank: { table: number; lift: number[] };
-    jet: { table: number; lift: number[] };
-    fortress: { table: number; lift: number[] };
+    tank: { table: number; lift: number[]; muzzle?: number[] };
+    jet: { table: number; lift: number[]; muzzle?: number[] };
+    fortress: { table: number; lift: number[]; muzzle?: number[] };
     dreadnought: number;
     dreadnoughtGuns: number[];
     baseTurret: { gun: number; base: number; point: number[] };
     neutral: { gun: number; base: number; point: number[] }[];
-    skyCaptain: { table: number; lift: number[] }[];
+    skyCaptain: { table: number; lift: number[]; muzzle?: number[] }[];
     worldRounds: Record<string, number>;
     playerRounds: Record<string, number>;
   };
@@ -1625,12 +1631,28 @@ function parseShapes(raw: MapJson["shapes"], id: string): MapShapes {
       pz: t.point[2],
     };
   };
-  const unit = (u: { table: number; lift: number[] }, what: string): MapUnitShape => {
+  const unit = (
+    u: { table: number; lift: number[]; muzzle?: number[] },
+    what: string,
+  ): MapUnitShape => {
     if (!u || !Array.isArray(u.lift) || u.lift.length !== 3) fail(id, `shapes ${what} bad`);
     for (const v of u.lift) {
       if (typeof v !== "number" || !Number.isFinite(v)) fail(id, `shapes ${what} bad lift`);
     }
-    return { table: at(u.table, what), lx: u.lift[0], ly: u.lift[1], lz: u.lift[2] };
+    const m = u.muzzle;
+    if (m !== undefined) {
+      if (!Array.isArray(m) || m.length !== 3) fail(id, `shapes ${what} bad muzzle`);
+      for (const v of m) {
+        if (typeof v !== "number" || !Number.isFinite(v)) fail(id, `shapes ${what} bad muzzle`);
+      }
+    }
+    return {
+      table: at(u.table, what),
+      lx: u.lift[0],
+      ly: u.lift[1],
+      lz: u.lift[2],
+      muzzle: m === undefined ? null : [m[0], m[1], m[2]],
+    };
   };
   const rounds = (r: Record<string, number>, what: string): Int16Array => {
     const out = new Int16Array(SHAPE_ROUND_SLOTS).fill(-1);

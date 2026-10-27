@@ -1438,11 +1438,19 @@ function shapesOf(models: ModelsArtifact, spots: number, mapId: string): MapJson
   // is the drawing's alone -- the sim's x, y are the actor's own). An
   // aircraft's height is its model's origin since SIM_VERSION 110 (the
   // altitude floor adds its half height, 0x00420a31): no lift.
+  // And each unit's point 0, its muzzle (glb frame), where it has one.
+  const muzzle = (u: (typeof sh.skyCaptain)[number]) =>
+    u.muzzle === null ? {} : { muzzle: [...u.muzzle] };
   const ground = (u: (typeof sh.skyCaptain)[number]) => ({
     table: u.table,
     lift: [0, u.lift[1], 0],
+    ...muzzle(u),
   });
-  const air = (u: (typeof sh.skyCaptain)[number]) => ({ table: u.table, lift: [0, 0, 0] });
+  const air = (u: (typeof sh.skyCaptain)[number]) => ({
+    table: u.table,
+    lift: [0, 0, 0],
+    ...muzzle(u),
+  });
   return {
     tables: sh.tables.map((t) => ({
       cobj: t.cobj,

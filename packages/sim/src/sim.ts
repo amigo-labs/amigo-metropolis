@@ -301,7 +301,13 @@ import {
   createFrame,
   systemCockpitAim,
 } from "./orient";
-import { createRouteCursors, type RouteCursors, releaseRoute, startRoute } from "./route";
+import {
+  createRouteCursors,
+  followsRoutes,
+  type RouteCursors,
+  releaseRoute,
+  startRoute,
+} from "./route";
 import {
   atan2Poly,
   cosLUT,
@@ -4463,6 +4469,34 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
     return;
   }
   faceTarget(ent, id, target);
+  if (unitMuzzle(state, id)) {
+    // A route follower's round from its model's point 0 through its hull's
+    // matrix, aimed and traced from there (`cact_weapon_discharge` 0x0044d98d,
+    // `discharge_launch`'s trace from the muzzle).
+    if (!aimFrom(state, gunScratch.mx, gunScratch.my, target, w)) return;
+    if (
+      segmentBlocked(state.map, gunScratch.mx, gunScratch.my, ent.posX[target], ent.posY[target])
+    ) {
+      ent.aimY[id] = PHASE_INSIDE;
+      ent.cooldownA[id] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
+      return;
+    }
+    const p = spawnStraightAt(
+      state,
+      ent.team[id],
+      gunScratch.mx,
+      gunScratch.my,
+      gunScratch.mh,
+      aimScratch.x,
+      aimScratch.y,
+      w.guided === 1 ? target : -1,
+      target,
+    );
+    if (p < 0) return;
+    armWorldRound(state, id, p, w);
+    ent.aimY[id] = PHASE_BETWEEN;
+    return;
+  }
   if (!aimRound(state, id, target, w)) return;
   if (segmentBlocked(state.map, ent.posX[id], ent.posY[id], ent.posX[target], ent.posY[target])) {
     ent.aimY[id] = PHASE_INSIDE;
@@ -4470,6 +4504,30 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
     return;
   }
   fireRound(state, id, target, w);
+}
+
+/**
+ * A route follower's muzzle (fcop-fidelity.md W5, U1): its model's point 0 --
+ * the point the shooter's +0x23 names, 0 from `cact_shooter_init`
+ * (0x0044ea00) and never toggled, the tank's record bitfield 0x200 lacking
+ * ALTERNATE 0x20 -- placed through its hull's matrix at its position, the
+ * model's origin (`cact_model_point` via 0x0044d98d; orient.ts bodyFrame), into
+ * gunScratch.mx / my / mh. False where the unit is no route follower or its
+ * arena imports no model point (the old muzzle then stands).
+ */
+function unitMuzzle(state: SimState, id: number): boolean {
+  const ent = state.ent;
+  if (ent.archetype[id] !== ARCHETYPE.RUNNER || !followsRoutes(state)) return false;
+  const tank = state.map.shapes.tank;
+  if (tank === null || tank.muzzle === null) return false;
+  const f = hullFrame;
+  bodyFrame(f, state, id);
+  const [x, y, z] = tank.muzzle;
+  // The glb's x is the model's negated.
+  gunScratch.mx = ent.posX[id] - x * f.ax[0] + y * f.ay[0] + z * f.az[0];
+  gunScratch.my = ent.posY[id] - x * f.ax[1] + y * f.ay[1] + z * f.az[1];
+  gunScratch.mh = ent.height[id] - x * f.ax[2] + y * f.ay[2] + z * f.az[2];
+  return true;
 }
 
 /** A unit's hull (or gun) turns to its target at once. */

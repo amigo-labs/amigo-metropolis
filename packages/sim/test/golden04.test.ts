@@ -80,7 +80,10 @@
 // bodies turn by their matrices (the captain banks and pitches with its up
 // row, the tanks stand at their cursor's height on their hull's slope): the
 // same seven tanks, three jets and claim, the captain is not shot down, the
-// player goes down once; no breach.
+// player goes down once; no breach. Since SIM_VERSION 115 a tank's round
+// leaves from its model's point 0 through its hull's matrix: thirteen tanks,
+// three jets and the claim, the captain is not shot down, the player goes down
+// twice; no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -138,11 +141,11 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    expect(bought.get(ARCHETYPE.RUNNER)).toBe(7);
+    expect(bought.get(ARCHETYPE.RUNNER)).toBe(13);
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(3);
     expect(claims).toBe(1);
     expect(wardenDeaths).toBe(0);
-    expect(avatarDeaths).toBe(1);
+    expect(avatarDeaths).toBe(2);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);
     expect(sim.winner).toBe(-1);

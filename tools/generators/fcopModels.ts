@@ -195,16 +195,23 @@ export interface ModelsTurretShape {
 }
 
 /**
- * A unit the client draws grounded and XZ-centred (gen:units' `unit`
- * treatment: the tank, the jet, the Flying Fortress, the Sky Captain): its
- * table, and where its model's own origin stands from the body's position --
- * the translation gen:units gives the drawn mesh (`-centre x, -min y, -centre
- * z` of the raw's body faces, the additive ones left out), so the boxes stand
- * where the unit is drawn. The model's own axes (x not negated), metres.
+ * A unit (gen:units' `unit` treatment: the tank, the jet, the Flying Fortress,
+ * the Sky Captain): its table, and the raw's grounding -- where its model's own
+ * origin stands from its body faces' footprint (`-centre x, -min y, -centre z`
+ * of the raw's body faces, the additive ones left out). The client draws the
+ * model at its origin; the sim reads the lift's y only for a tank standing on
+ * the ground off the road graph. The model's own axes (x not negated), metres.
  */
 export interface ModelsUnitShape {
   readonly table: number;
   readonly lift: readonly number[];
+  /**
+   * The model's point 0 at frame 0, glb frame (metres, +z forward, x the
+   * model's negated): where `cact_weapon_discharge` (0x0044d98d) puts the
+   * round of a shooter whose +0x23 is 0 -- the tank's (record bitfield 0x200,
+   * no ALTERNATE). null for a model with none.
+   */
+  readonly muzzle: readonly number[] | null;
 }
 
 /**
@@ -528,7 +535,12 @@ async function buildShapes(arena: FcopArena, re: ReModels, reRepo: string): Prom
     const table = at(cobj, what);
     const payload = re.models[String(cobj)]?.sha256_16;
     if (!payload) throw new Error(`${arena.mission}: no payload hash for Cobj ${cobj}`);
-    return { table, lift: await unitLift(arena, payload, cobj, tables[table].boxes[0]) };
+    const p0 = re.models[String(cobj)]?.attach?.points.find((x) => x.index === 0);
+    return {
+      table,
+      lift: await unitLift(arena, payload, cobj, tables[table].boxes[0]),
+      muzzle: p0 ? [...p0.glb_xyz] : null,
+    };
   };
   const one = (roles: ReRole[], name: string, what: string): Promise<ModelsUnitShape> => {
     if (roles.length !== 1) throw new Error(`${arena.mission}: ${roles.length} ${what} model sets`);

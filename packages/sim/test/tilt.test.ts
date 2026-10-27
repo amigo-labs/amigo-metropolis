@@ -20,6 +20,7 @@ import {
   AIRCRAFT_HEADING_ONE,
   COCKPIT_AIM_PITCH_LIMIT,
   COCKPIT_AIM_STEP,
+  TICK_DT,
   WU_PER_METRE,
 } from "../src/balance";
 import { EV_SHOT, EVENT_STRIDE } from "../src/events";
@@ -232,6 +233,43 @@ describe("the Dreadnought's guns stand on the tilted hull", () => {
   it("level, every gun fires; the nose 30 degrees up, the foe is under every arc", () => {
     expect(shots(0)).toBe(4);
     expect(shots(-0x155)).toBe(0);
+  });
+});
+
+describe("a route follower's muzzle", () => {
+  it("is its model's point 0 through its hull's matrix (0x0044d98d)", () => {
+    const state = createSim(getMapById(LA_CANTINA_ID), 1);
+    const ent = state.ent;
+    const id = tankAt(state, 0);
+    ent.hp[id] = 1e6;
+    const foe = state.avatarId[1];
+    ent.hp[foe] = 1e6;
+    const muzzle = state.map.shapes.tank?.muzzle;
+    expect(muzzle).toEqual([0.003906, 0.154297, -0.105469]);
+    const was = new Uint8Array(ent.cap);
+    const f = createFrame();
+    let checked = 0;
+    for (let t = 0; t < 600 && checked < 3; t++) {
+      // The foe 6 m ahead of the tank, where it can be shot.
+      ent.posX[foe] = ent.posX[id] + 6 * Math.cos(ent.yaw[id]);
+      ent.posY[foe] = ent.posY[id] + 6 * Math.sin(ent.yaw[id]);
+      ent.height[foe] = sampleHeight(state.map, ent.posX[foe], ent.posY[foe]);
+      for (let p = 0; p < ent.high; p++) was[p] = ent.alive[p];
+      step(state, idle);
+      for (let p = 0; p < ent.high; p++) {
+        if (was[p] || !ent.alive[p] || ent.archetype[p] !== ARCHETYPE.PROJECTILE) continue;
+        if (ent.team[p] !== 0) continue;
+        // The round, taken back over its one tick of flight.
+        bodyFrame(f, state, id);
+        const [x, y, z] = muzzle as readonly number[];
+        const mx = ent.posX[id] - x * f.ax[0] + y * f.ay[0] + z * f.az[0];
+        const my = ent.posY[id] - x * f.ax[1] + y * f.ay[1] + z * f.az[1];
+        expect(ent.posX[p] - ent.velX[p] * TICK_DT).toBeCloseTo(mx, 4);
+        expect(ent.posY[p] - ent.velY[p] * TICK_DT).toBeCloseTo(my, 4);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });
 

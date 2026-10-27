@@ -1699,4 +1699,12 @@
 //     (MapLaneGraph.runnerRoute / juggernautRoute); the tank's reference height
 //     is its origin's. The bank, the hull's angles, the up rows and the aims are
 //     hashed. Every golden diverges.
-export const SIM_VERSION = 114;
+// v115: a route follower's round leaves from its model's point 0 through its
+//     hull's matrix (fcop-fidelity.md W5, U1; `cact_weapon_discharge`
+//     0x0044d98d, the shooter's +0x23 0: the tank's record bitfield 0x200 has
+//     no ALTERNATE), aimed and traced from there -- in place of MUZZLE_HEIGHT
+//     over its position and MUZZLE_OFFSET along its yaw. The point is imported
+//     per arena (gen:pamodels `muzzle`, MapUnitShape.muzzle: Mp's tank 0.154 m
+//     up, 0.105 m behind its origin; Hk's 0.553 up, 0.615 behind; Joke's frame
+//     0's). Every golden with a tank firing diverges.
+export const SIM_VERSION = 115;
