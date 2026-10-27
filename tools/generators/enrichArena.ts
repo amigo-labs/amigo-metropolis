@@ -64,7 +64,6 @@ import {
   WORLD_KIND_GUIDED,
   WORLD_KIND_LEAD,
   WORLD_WEAPONS,
-  WU_PER_METRE,
   walkRoad,
   worstHoverRise,
   worstUphillRise,
@@ -249,6 +248,8 @@ interface Weapon {
   arcCos: number;
   hold: number;
   priority: number;
+  /** Its round's 3DBB table in the map's `shapes.tables` (the catalogue entry's aRSL slot 0), -1 none. */
+  round: number;
 }
 
 const sx = (x: number): number => x + LOGIC_OFFSET_X;
@@ -1151,6 +1152,11 @@ function skyMissileAccelOf(logic: Logic, mapId: string): number {
 /** Interns weapon profiles so identical originals share one index. */
 class WeaponTable {
   readonly list: Weapon[] = [];
+  /**
+   * A world weapon's round by its catalogue id (<mission>-models.json
+   * `shapes.worldRounds`), which `shooterWeapon` writes into the profile.
+   */
+  constructor(readonly rounds: Readonly<Record<string, number>>) {}
   intern(w: Weapon): number {
     const key = (x: Weapon) => JSON.stringify(x);
     const k = key(w);
@@ -1341,9 +1347,14 @@ function radiiOf(models: ModelsArtifact, spots: number, mapId: string) {
 }
 
 /**
- * Every role's reference height, metres: its box-0 centre y, which the
- * original adds to the position unshifted (`math_matrix_place_point`
- * 0x00458850: the box's 1/512 units as world units), so raw / 8192.
+ * Every role's reference height, metres: its box-0 centre y placed through the
+ * orientation (`math_matrix_place_point` 0x00458850: `(M * src) >> 12` with M in
+ * 16.16, so a box halfword is 16 world units -- raw / 512 m, the radius's own
+ * unit). A turret's gun stands on its base's attach point 0 (turret.c 914-917),
+ * so its point is that point's height plus the gun's centre (sim.ts turretPitch
+ * reads it whole); the tank, which the client draws grounded, stands its
+ * model's origin over its position by the drawing's lift. (Until SIM_VERSION
+ * 109 this read raw / 8192, the halfword taken as one world unit.)
  */
 function refHeightsOf(models: ModelsArtifact, spots: number, mapId: string) {
   const r = models.refs;
@@ -1352,18 +1363,71 @@ function refHeightsOf(models: ModelsArtifact, spots: number, mapId: string) {
       `${mapId}: ${r.neutral.length} neutral reference heights for ${spots} turret spots`,
     );
   }
-  const m = (raw: number) => raw / WU_PER_METRE;
+  const sh = models.shapes;
+  if (sh.neutral.length !== spots) {
+    throw new Error(`${mapId}: ${sh.neutral.length} neutral shapes for ${spots} turret spots`);
+  }
+  const m = (raw: number) => raw / RADIUS_UNIT;
   return {
     walker: m(r.x1.walker),
     hover: m(r.x1.hover),
-    tank: m(r.tank),
+    // The tank stands its model's origin over its position by the drawing's
+    // lift (ModelsUnitShape; shapesOf); an aircraft's position is its origin.
+    tank: round4(sh.tank.lift[1] + m(r.tank)),
     jet: m(r.jet),
     fortress: m(r.fortress),
     dreadnought: m(r.dreadnought),
     ...(r.dreadnoughtByFrame ? { dreadnoughtByFrame: r.dreadnoughtByFrame.map(m) } : {}),
-    baseTurret: m(r.baseTurret),
-    neutral: r.neutral.map(m),
+    baseTurret: round4(sh.baseTurret.point[1] + m(r.baseTurret)),
+    neutral: r.neutral.map((v, k) => round4(sh.neutral[k].point[1] + m(v))),
     skyCaptain: r.skyCaptain.map(m),
+  };
+}
+
+/**
+ * Every body's and round's 3DBB table (sim map.ts MapShapes, fcop-fidelity.md
+ * G1): the colliders `cact_pair_test` 0x00450190 tests, carried from the
+ * arena's models as they are (raw halfwords, the model's own axes); the
+ * neutral list must be the turret spots, in order.
+ */
+function shapesOf(models: ModelsArtifact, spots: number, mapId: string): MapJson["shapes"] {
+  const sh = models.shapes;
+  if (sh.neutral.length !== spots) {
+    throw new Error(`${mapId}: ${sh.neutral.length} neutral shapes for ${spots} turret spots`);
+  }
+  const turret = (t: (typeof sh.neutral)[number]) => ({
+    gun: t.gun,
+    base: t.base,
+    point: [...t.point],
+  });
+  // Where the sim's position stands from the model's origin. A ground unit's
+  // height is the ground under it, and the client stands it there by its
+  // drawing's lift: its model's origin is that high (the horizontal centring
+  // is the drawing's alone -- the sim's x, y are the actor's own). An
+  // aircraft's height is its model's origin since SIM_VERSION 110 (the
+  // altitude floor adds its half height, 0x00420a31): no lift.
+  const ground = (u: (typeof sh.skyCaptain)[number]) => ({
+    table: u.table,
+    lift: [0, u.lift[1], 0],
+  });
+  const air = (u: (typeof sh.skyCaptain)[number]) => ({ table: u.table, lift: [0, 0, 0] });
+  return {
+    tables: sh.tables.map((t) => ({
+      cobj: t.cobj,
+      perFrame: t.perFrame,
+      frames: t.frames,
+      boxes: t.boxes.map((b) => [...b]),
+    })),
+    tank: ground(sh.tank),
+    jet: air(sh.jet),
+    fortress: air(sh.fortress),
+    dreadnought: sh.dreadnought,
+    dreadnoughtGuns: [...sh.dreadnoughtGuns],
+    baseTurret: turret(sh.baseTurret),
+    neutral: sh.neutral.map(turret),
+    skyCaptain: sh.skyCaptain.map(air),
+    worldRounds: { ...sh.worldRounds },
+    playerRounds: { ...sh.playerRounds },
   };
 }
 
@@ -1394,6 +1458,7 @@ function shooterWeapon(
   sh: Shooter,
   turnSpeed: number,
   opts: { arc: boolean; hold: boolean; priority: boolean },
+  rounds: Readonly<Record<string, number>>,
 ): Weapon {
   const w = WORLD_WEAPONS[sh.weaponId];
   if (w === undefined) {
@@ -1421,17 +1486,19 @@ function shooterWeapon(
     arcCos: opts.arc ? SHOOTER_FRONT_ARC_COS : -1,
     hold: opts.hold ? 1 : 0,
     priority: opts.priority ? 1 : 0,
+    round: rounds[String(sh.weaponId)] ?? -1,
   };
 }
 
 /** A team (type 8) turret holds its target and prefers priority; a neutral (36) does neither. */
 function turretWeapon(t: Turret, table: WeaponTable, team: boolean): number {
   return table.intern(
-    shooterWeapon(t.shooter, round4(turnSpeedToRadPerTick(t.turnSpeedRaw, TICK_HZ)), {
-      arc: true,
-      hold: team,
-      priority: team,
-    }),
+    shooterWeapon(
+      t.shooter,
+      round4(turnSpeedToRadPerTick(t.turnSpeedRaw, TICK_HZ)),
+      { arc: true, hold: team, priority: team },
+      table.rounds,
+    ),
   );
 }
 
@@ -1455,7 +1522,7 @@ function unitProfiles(
     return {
       hp: u.health,
       weapon: table.intern(
-        shooterWeapon(u.shooter, 0, { arc: false, hold: false, priority: false }),
+        shooterWeapon(u.shooter, 0, { arc: false, hold: false, priority: false }, table.rounds),
       ),
     };
   };
@@ -2240,7 +2307,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     { x: gates[0].x, z: gates[0].y },
   ];
 
-  const table = new WeaponTable();
+  const table = new WeaponTable(models.shapes.worldRounds);
   // A turret record as the map carries it: its own shooter, on the surface its
   // base part's selector names (turret_part 0x0041cff1).
   const turretJson = (t: Turret, tbl: WeaponTable) => {
@@ -2375,7 +2442,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         hp: base.health,
         guns: gunsOnMounts(base.gunCount, mounts.mounts.length, mapId),
         weapon: table.intern(
-          shooterWeapon(base.gun, 0, { arc: true, hold: false, priority: false }),
+          shooterWeapon(base.gun, 0, { arc: true, hold: false, priority: false }, table.rounds),
         ),
         mounts: mounts.mounts,
         gunTurn: mounts.turn,
@@ -2827,6 +2894,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     ),
     // Its missile's catalogue acceleration, raw (entry 8's +0x14; U3).
     skyMissileAccel: skyMissileAccelOf(logic, mapId),
+    // Every body's and round's hit boxes, the same models (fcop-fidelity.md G1).
+    shapes: shapesOf(models, turretSpots.length, mapId),
     laneGraph: {
       nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,

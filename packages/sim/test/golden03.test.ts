@@ -78,7 +78,11 @@ import { createSim, step } from "../src/sim";
 // 2921 at SIM_VERSION 111: the tanks walk the original's route cursor (a leg
 // ahead, the corners cut, the legs' approximate lengths; fcop-fidelity.md U1);
 // player 0's tank breaches at 97.4 s, the mechs go down 5 times.
-const BREACH_TICK_PIN = 2921;
+// 2265 at SIM_VERSION 112: a round meets a body by the original's pair test
+// (its own model's hit boxes against the body's, the mech's legs and cockpit by
+// frame) and the reference points stand at their boxes' centres; player 0's
+// tank breaches at 75.5 s, the mechs go down 3 times.
+const BREACH_TICK_PIN = 2265;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {

@@ -443,8 +443,11 @@ for (const arena of ARENAS) {
       // the same order, so PROFILE_* indices mean the same on every arena. The
       // Dreadnought gun's fov differs on Slim and Joke; no refire shooter reads it.
       expect(map.weapons.length).toBe(ORIGINAL_WEAPON_PROFILES.length);
+      // Each imported entry also names its round's hit boxes, which the
+      // default profiles (an arena with no models) do not.
       for (let k = 0; k < map.weapons.length; k++) {
-        expect({ ...map.weapons[k], fovCos: 0 }).toEqual({
+        expect(map.weapons[k].round).toBeGreaterThanOrEqual(0);
+        expect({ ...map.weapons[k], fovCos: 0, round: -1 }).toEqual({
           ...ORIGINAL_WEAPON_PROFILES[k],
           fovCos: 0,
         });

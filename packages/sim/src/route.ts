@@ -51,9 +51,10 @@
 // * The pitch and the bank as drawn: the pitch channel is kept because it
 //   decides when a corner window opens; the snapshot carries yaw only. The
 //   bank (Hk's tanks, route flag 0x20) has no channel at all.
-// * The contact's hit-box confirmation (`cact_hit_boxes` 0x0044f640): a
-//   contact here is the pair test's sphere overlap (`cact_pair_test`
-//   0x00450190, gap < 0), which the boxes can only narrow.
+// * The contact's hit-box confirmation (`cact_hit_boxes` 0x0044f640) on an
+//   arena without imported models: there a contact is the sphere overlap
+//   (`cact_pair_test` 0x00450190, gap < 0). Where the models are imported the
+//   whole ladder decides since SIM_VERSION 112 (contact.ts bodiesContact).
 
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
@@ -80,6 +81,7 @@ import {
   ROUTE_WANDER,
   WU_PER_METRE,
 } from "./balance";
+import { bodiesContact } from "./contact";
 import { type MapData, type MapLaneGraph, resolveHeight } from "./map";
 import { ANIM_MOVING, entityRadius, entityRefHeight, type SimState, toldFirst } from "./sim";
 import { octagonalLength, randInt, TAU } from "./simMath";
@@ -839,8 +841,8 @@ export function releaseRoute(state: SimState, id: number): void {
 /**
  * The pair test's verdict on two bodies (`cact_pair_test` 0x00450190): the
  * octagonal gap between their reference points, horizontal then vertical, less
- * both radii, world units. A contact is a negative gap — the box test that
- * follows in the original is not modelled (see the file header).
+ * both radii, world units: where the two have no imported hit boxes, a contact
+ * is a negative gap (inContact).
  */
 function pairGap(state: SimState, a: number, b: number): number {
   const ent = state.ent;
@@ -859,7 +861,7 @@ function pairGap(state: SimState, a: number, b: number): number {
  * route followers, one of them a Dreadnought — the only route follower whose
  * record carries 0x200, the collision rung (`cact_pair_test` 0x00450257 tests
  * the pair's flags OR'd: the tank's 0x82148 lacks it, the Dreadnought's 0x82748
- * has it, so two tanks are never in contact) — and their spheres overlap.
+ * has it, so two tanks are never in contact) — and the pair test passes.
  */
 function inContact(state: SimState, a: number, b: number): boolean {
   const ent = state.ent;
@@ -867,6 +869,11 @@ function inContact(state: SimState, a: number, b: number): boolean {
   if (ent.archetype[a] !== ARCHETYPE.JUGGERNAUT && ent.archetype[b] !== ARCHETYPE.JUGGERNAUT) {
     return false;
   }
+  // The whole ladder -- the spheres about the reference points, the coarse
+  // cylinder, the hit boxes -- where both have imported models (contact.ts,
+  // fcop-fidelity.md G1); the sphere alone elsewhere.
+  const boxes = bodiesContact(state, a, b);
+  if (boxes >= 0) return boxes === 1;
   return pairGap(state, a, b) < 0;
 }
 

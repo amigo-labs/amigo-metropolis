@@ -83,7 +83,8 @@ function wanted(state: SimState, t: number, foe: number): number {
   const ent = state.ent;
   const dx = Math.trunc((ent.posX[foe] - ent.posX[t]) * WU_PER_METRE);
   const dz = Math.trunc((ent.posY[foe] - ent.posY[t]) * WU_PER_METRE);
-  const gun = ent.height[t] + state.map.turretGuns.baseTurret.stand + entityRefHeight(state, t);
+  // The gun's reference height carries its base's point 0 since SIM_VERSION 112.
+  const gun = ent.height[t] + entityRefHeight(state, t);
   const dy = (ent.height[foe] + entityRefHeight(state, foe) - gun) * WU_PER_METRE;
   const p = Math.floor(-Math.atan2(dy, octagonalLength(dx, dz)) / UNIT);
   return Math.max(-TURRET_PITCH_LIMIT, Math.min(TURRET_PITCH_LIMIT, p));
@@ -221,8 +222,10 @@ describe("the Dreadnought's guns never pitch (fcop-fidelity.md I6)", () => {
 
   it("fire level, and refuse a target more than 22.5° below their barrels", () => {
     expect(shotsAt(4)).toBe(4);
-    // A metre ahead of the hull's centre the foe's reference point lies 30-40°
-    // below every muzzle (the fore pair 0.49 m up, the aft pair 0.79 m).
-    expect(shotsAt(1)).toBe(0);
+    // Half a metre ahead of the hull's centre the foe's reference point (0.29-
+    // 0.37 m up, the legs' frame's box centre) lies 25-30° below every muzzle
+    // (the fore pair 0.49 m up, the aft pair 0.79 m). A metre ahead did until
+    // SIM_VERSION 112, when the reference point stood 0.023 m up.
+    expect(shotsAt(0.5)).toBe(0);
   });
 });

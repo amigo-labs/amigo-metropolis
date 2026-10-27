@@ -2,7 +2,7 @@
 // G1): an actor's radius_68, its own model's 3DBB box for the frame it holds,
 // raw / 512 m — read per arena from its own mission's models
 // (tools/generators/fcop/<mission>-models.json, MapData.radii) and picked per
-// body by sim.ts entityRadius.
+// body by sim.ts entityRadius -- the mech's by its legs' frame (SIM_VERSION 109).
 
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
@@ -50,17 +50,25 @@ describe("the arenas' radii", () => {
 });
 
 describe("entityRadius", () => {
-  it("gives the mech its form's, and every spawn its arena's model", () => {
+  it("gives the mech its legs' frame's, and every spawn its arena's model", () => {
     const state = createSim(getMapById("hollywood-keys"), 1, {
       wardenPlayer: 1,
       wardenDifficulty: 10,
     });
     const r = state.map.radii;
     const a = state.avatarId[0];
-    state.ent.mode[a] = MODE_WALKER;
+    // The walker's pose (frame 0) and the hover's (359) are the two poses'
+    // radii; the crouch's frames (track 3, 212-225) fold the legs to 250.
+    state.walker.legs.frame[0] = 0;
     expect(entityRadius(state, a)).toBe(r.walker);
-    state.ent.mode[a] = MODE_HOVER;
+    state.walker.legs.frame[0] = 359;
     expect(entityRadius(state, a)).toBe(r.hover);
+    state.walker.legs.frame[0] = 220;
+    expect(entityRadius(state, a)).toBe(raw(250));
+    // The form alone moves nothing: the frame is the radius.
+    state.ent.mode[a] = MODE_HOVER;
+    state.walker.legs.frame[0] = 0;
+    expect(entityRadius(state, a)).toBe(r.walker);
     expect(entityRadius(state, state.avatarId[1])).toBe(r.skyCaptain[9]);
     const tank = spawnUnit(state, ARCHETYPE.RUNNER, 0, 120, 120);
     expect(entityRadius(state, tank)).toBe(raw(646));
@@ -85,6 +93,8 @@ describe("entityRadius", () => {
       ent.posY[foe] = Y;
       ent.height[foe] = sampleHeight(state.map, X, Y);
       ent.mode[foe] = mode;
+      // The legs' frame is the radius (the walker's 0, the hover's 359).
+      state.walker.legs.frame[0] = mode === MODE_HOVER ? 359 : 0;
       ent.posX[me] = X - 6;
       ent.posY[me] = Y + 0.5;
       ent.height[me] = sampleHeight(state.map, X - 6, Y + 0.5);

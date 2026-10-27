@@ -114,6 +114,15 @@ export interface EntityStore {
    */
   readonly turretGun: Int16Array;
   /**
+   * The hit boxes it was spawned with (map.ts MapShapes; contact.ts): a round's
+   * or the Dreadnought hull's table in `shapes.tables`; a turret's set (0 the
+   * type-8 one, k + 1 neutral spot k's); the Sky Captain's level; 0 for a tank,
+   * jet or Fortress the arena has a model for. -1 none, which meets at
+   * Metropolis' flat circle. The mech's are its legs' and cockpit's by frame.
+   * A side array like `radius`.
+   */
+  readonly shape: Int16Array;
+  /**
    * The order an entity was made in, 1 for the first of the match: the
    * original's live list is in creation order, and where it decides an order
    * (the pair walk's chains, guidedContactOrder) a recycled id must not. A
@@ -180,6 +189,7 @@ export function createEntityStore(cap: number = MAX_ENTITIES): EntityStore {
     refHeight: new Float32Array(cap).fill(Number.NaN),
     pitch: new Int16Array(cap),
     turretGun: new Int16Array(cap),
+    shape: new Int16Array(cap).fill(-1),
     born: new Uint32Array(cap),
     births: 0,
   };
@@ -244,6 +254,7 @@ export function despawn(store: EntityStore, id: number): void {
   store.refHeight[id] = Number.NaN;
   store.pitch[id] = 0;
   store.turretGun[id] = 0;
+  store.shape[id] = -1;
   store.born[id] = 0;
   store.freeList[store.freeCount] = id;
   store.freeCount += 1;

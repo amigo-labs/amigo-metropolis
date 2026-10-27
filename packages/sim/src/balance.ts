@@ -2171,7 +2171,8 @@ export const SKY_OPENING_ORDER = 10;
 export const ARCHETYPE_RADIUS: readonly number[] = [
   // The mech's legs (Cobj 15, the type-1 actor's own model; the cockpit is its
   // partner) at the walker's pose, frame 0: 283. Its 371 frames run 232-365
-  // (0.45-0.71 m), which Metropolis, without the animation, does not follow.
+  // (0.45-0.71 m), which an arena that imports its models follows by the legs'
+  // frame (sim.ts entityRadius); this is the walker's pose elsewhere.
   // Was 0.4, half the assembled model's footprint.
   283 / 512, // AVATAR      0.5527 m
   // Cobj 30's 483 (Hk's own tank 646, Joke's 369: MapData.radii). Was 0.76.
@@ -2192,6 +2193,15 @@ export const ARCHETYPE_RADIUS: readonly number[] = [
   // The Sky Captain at levels 0-2, Cobj 54's box 0: 671; SKY_RADIUS by level.
   671 / 512, // WARDEN      1.3105 m
 ];
+
+/**
+ * A round's contact reach where it or the body it meets has no imported hit
+ * boxes (the test maps, the sandbox, a console): Metropolis' flat circle, the
+ * body's radius plus this, about the round's position. On an arena that imports
+ * its models the round meets a body by the original's pair test instead, at its
+ * own model's radius (sim contact.ts; fcop-fidelity.md G1).
+ */
+export const ROUND_CONTACT_RADIUS = 0.5;
 
 /**
  * The hover's radius: the legs folded, frame 359 (the hover's held pose), 232,
@@ -2379,6 +2389,8 @@ export const TARGET_PRIORITY_AVATAR = 5;
  *   3 Flying Fortress: weapon 4 — guided 100 dmg every 150 units (0.5 s), flies
  *     24 m, re-search 1.0 s;
  *   4 neutral turret (type 36): the team turret's gun without hold or priority.
+ * None has a round's hit boxes (`round` -1): an arena that imports no profiles
+ * imports no models either.
  */
 export const ORIGINAL_WEAPON_PROFILES = [
   {
@@ -2396,6 +2408,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 1,
     priority: 1,
+    round: -1,
   },
   {
     range: 12,
@@ -2412,6 +2425,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 0,
     priority: 0,
+    round: -1,
   },
   {
     range: 12,
@@ -2428,6 +2442,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: -1,
     hold: 0,
     priority: 0,
+    round: -1,
   },
   {
     range: 12,
@@ -2444,6 +2459,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: -1,
     hold: 0,
     priority: 0,
+    round: -1,
   },
   {
     range: 12,
@@ -2460,6 +2476,7 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 0,
     priority: 0,
+    round: -1,
   },
 ] as const;
 /** Indices into ORIGINAL_WEAPON_PROFILES (and every imported arena's table). */

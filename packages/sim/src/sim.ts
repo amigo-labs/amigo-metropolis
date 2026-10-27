@@ -129,6 +129,7 @@ import {
   RAW_PER_METRE,
   RESPAWN_SUNK_TICKS,
   RESPAWN_TICKS,
+  ROUND_CONTACT_RADIUS,
   RUNNER_ALIVE_LIMIT,
   retentionPerTick,
   SHIELD_ARC_WAIT_BASE,
@@ -197,6 +198,7 @@ import {
   X1_UNITS_PER_TICK,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked, segmentBlockT } from "./collision";
+import { legsRadius, legsRefHeight, roundContact } from "./contact";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
 import {
   clearEvents,
@@ -236,6 +238,7 @@ import {
   roundSource,
   SHOT_SLOT_HITSCAN,
   SHOT_SLOT_LAUNCH,
+  SKY_WEAPON_BOMB,
   SKY_WEAPON_MISSILE,
   weaponShotPayload,
 } from "./events";
@@ -273,6 +276,7 @@ import {
   type MapWeapon,
   type MapZone,
   resolveHeight,
+  SHAPE_ROUND_SLOTS,
   sampleHeight,
   sampleLayerHeight,
   waterHeightAt,
@@ -856,6 +860,7 @@ export function spawnAvatar(state: SimState, player: number): number {
     const level = wardenLevel(state.wardenDifficulty);
     ent.radius[id] = state.map.radii.skyCaptain[level];
     ent.refHeight[id] = state.map.refHeights.skyCaptain[level];
+    ent.shape[id] = level < state.map.shapes.skyCaptain.length ? level : -1;
   }
   // Spawn form (fcop-fidelity.md P2): every respawn comes back in the form the
   // spawn record asks for, as `player_respawn` resets the row from the record.
@@ -942,6 +947,7 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   ent.radius[id] = state.map.radii.neutral[k];
   ent.refHeight[id] = state.map.refHeights.neutral[k];
   ent.turretGun[id] = 1 + k;
+  ent.shape[id] = k < state.map.shapes.neutral.length ? k + 1 : -1;
   // The rest yaw. A turret's aimX/aimY are its shooter state (systemTargeting),
   // so they start at zero.
   if (state.map.turretYaw.length > 0) ent.yaw[id] = state.map.turretYaw[k];
@@ -973,6 +979,7 @@ function spawnPlateTurret(state: SimState, j: number): number {
   ent.weaponProfile[id] = spot.weapon;
   ent.radius[id] = state.map.radii.baseTurret;
   ent.refHeight[id] = state.map.refHeights.baseTurret;
+  ent.shape[id] = state.map.shapes.baseTurret ? 0 : -1;
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   ent.restYaw[id] = ent.yaw[id];
   state.plateTurretEntity[j] = id;
@@ -1044,6 +1051,7 @@ function spawnBaseTurret(state: SimState, k: number): number {
   ent.weaponProfile[id] = spot.weapon;
   ent.radius[id] = state.map.radii.baseTurret;
   ent.refHeight[id] = state.map.refHeights.baseTurret;
+  ent.shape[id] = state.map.shapes.baseTurret ? 0 : -1;
   // Rest yaw only: aimX/aimY are the shooter's state (systemTargeting).
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   ent.restYaw[id] = ent.yaw[id];
@@ -1109,6 +1117,17 @@ export function spawnUnit(
         : archetype === ARCHETYPE.JUGGERNAUT
           ? refs.dreadnought
           : refs.fortress;
+  const shapes = state.map.shapes;
+  ent.shape[id] =
+    archetype === ARCHETYPE.JUGGERNAUT
+      ? shapes.dreadnought
+      : (archetype === ARCHETYPE.RUNNER
+            ? shapes.tank
+            : archetype === ARCHETYPE.GUARDIAN
+              ? shapes.jet
+              : shapes.fortress) !== null
+        ? 0
+        : -1;
   if (archetype === ARCHETYPE.JUGGERNAUT) {
     ent.hp[id] = base.juggernaut.hp;
     ent.weaponProfile[id] = base.juggernaut.weapon;
@@ -2985,7 +3004,7 @@ function deliver(
       return true;
     }
     case "mine": {
-      if (!spawnMine(state, shooter, player, w.projKind, blk)) return false;
+      if (!spawnMine(state, shooter, player, w.projKind, blk, w.code)) return false;
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       return true;
     }
@@ -3030,6 +3049,7 @@ function deliver(
       const id = spawnArced(state, x, y, h, tx, ty, th, blk.launchSpeed, blk.gravity);
       if (id < 0) return false;
       armRound(state, id, shooter, player, w.projKind, blk, flags, -1);
+      state.ent.shape[id] = playerRoundShape(state, w.code);
       // The Plasma Flare keeps its shell for the second press.
       if ((blk.flags & WEAPON_FLAG_KEEP) !== 0) state.keptRound[player] = id;
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
@@ -3072,6 +3092,7 @@ function deliver(
         if (id < 0) break;
         const flags = (homing ? ROUND_HOMING : 0) | ROUND_RIVAL;
         armRound(state, id, shooter, player, w.projKind, blk, flags, lock);
+        state.ent.shape[id] = playerRoundShape(state, w.code);
         any = true;
       }
       if (!any) return false;
@@ -3598,6 +3619,7 @@ function spawnMine(
   player: number,
   kind: number,
   blk: WeaponBlock,
+  code: number,
 ): boolean {
   const ent = state.ent;
   const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
@@ -3619,6 +3641,7 @@ function spawnMine(
   ent.aux[id] = blk.blast;
   ent.ammoB[id] = ROUND_RIVAL; // the mech's own, for the down's credit
   ent.ownerId[id] = player;
+  ent.shape[id] = playerRoundShape(state, code);
   return true;
 }
 
@@ -3744,6 +3767,7 @@ export function spawnWardenBomb(
   ent.ammoB[id] = ROUND_ARC | ROUND_RIVAL; // linear falloff, as the original's area damage
   ent.timerA[id] = 0;
   noteArcOwner(state, id, shooter);
+  ent.shape[id] = state.map.shapes.worldRounds[SKY_WEAPON_BOMB];
 }
 
 /**
@@ -3762,6 +3786,7 @@ export function fireWardenMissile(
   const ent = state.ent;
   const p = spawnStraight(state, shooter, dx, dy, target, target);
   if (p < 0) return;
+  ent.shape[p] = state.map.shapes.worldRounds[SKY_WEAPON_MISSILE];
   const speed = roundSpeed(SKY_MISSILE_SPEED_RAW);
   // `cact_missile_spawn` (0x0044d103): with the catalogue's acceleration 0 it
   // leaves at its top speed (`top << 4`); with one (Slim's and Joke's 0x7a) at
@@ -3787,10 +3812,40 @@ export function fireWardenMissile(
   pushEvent(state.events, EV_SHOT, shooter, SHOT_SLOT_LAUNCH, SKY_WEAPON_MISSILE);
 }
 
+/** A player round's hit boxes: its loadout code's model (MapShapes.playerRounds), -1 none. */
+function playerRoundShape(state: SimState, code: number): number {
+  return code >= 0 && code < SHAPE_ROUND_SLOTS ? state.map.shapes.playerRounds[code] : -1;
+}
+
+/**
+ * Whether round `id`, at its position and flying along (dx, dy, dh), meets body
+ * `t` (the collision notice, operation 0x0b): the original's pair test against
+ * the body's colliders where both carry imported hit boxes (contact.ts,
+ * fcop-fidelity.md G1), else Metropolis' flat circle -- the body's radius plus
+ * ROUND_CONTACT_RADIUS about the round's position.
+ */
+function roundMeets(
+  state: SimState,
+  id: number,
+  t: number,
+  dx: number,
+  dy: number,
+  dh: number,
+): boolean {
+  const c = roundContact(state, id, t, dx, dy, dh);
+  if (c >= 0) return c === 1;
+  const ent = state.ent;
+  const r = entityRadius(state, t) + ROUND_CONTACT_RADIUS;
+  const ex = ent.posX[t] - ent.posX[id];
+  const ey = ent.posY[t] - ent.posY[id];
+  return ex * ex + ey * ey <= r * r;
+}
+
 /**
  * Entity `id`'s hit radius, the original's `radius_68` of the model and frame it
  * is on (balance.ts ARCHETYPE_RADIUS, MapData.radii; fcop-fidelity.md G1): the
- * mech by its form (the legs at the walker's pose, folded in hover); a
+ * mech by its legs' frame on an arena that imports its models (contact.ts
+ * legsRadius: the stride, the crouch, the ramp), else by its form; a
  * Dreadnought on a hull that walks by the frame its walk shows (I6: the type-28
  * tick re-reads the box each frame, `type5_model_select`); every other body as
  * it was spawned — its arena's own model for its role, a neutral turret by its
@@ -3801,6 +3856,18 @@ export function entityRadius(state: SimState, id: number): number {
   const ent = state.ent;
   const arch = ent.archetype[id];
   if (arch === ARCHETYPE.AVATAR) {
+    // On an arena that imports its models, the legs' box of the frame they show
+    // (`walk_select_frame` / `form_select_frame`: the crouch, the stride, the
+    // transform's ramp); else the two poses.
+    const p = ent.ownerId[id];
+    if (
+      state.map.shapes.tables.length > 0 &&
+      p >= 0 &&
+      p < MAX_PLAYERS &&
+      state.avatarId[p] === id
+    ) {
+      return legsRadius(state.walker.legs.frame[p]);
+    }
     return ent.mode[id] === MODE_HOVER ? state.map.radii.hover : state.map.radii.walker;
   }
   if (arch === ARCHETYPE.JUGGERNAUT) {
@@ -3819,14 +3886,26 @@ export function entityRadius(state: SimState, id: number): number {
  * How far `id`'s reference point stands above its height, metres: what the
  * original aims at and measures to (`previous`, box 0 of the model's frame
  * placed through the orientation — player.c 0x0044702f, turret.c, aircraft.c,
- * mount.c). The mech's follows its form and a walking hull's its frame, as
- * their radii do; a body with none imported stands at MUZZLE_HEIGHT.
+ * mount.c). The mech's follows its legs' frame and a walking hull's its
+ * frame, as their radii do; a body with none imported stands at MUZZLE_HEIGHT.
+ * The height only: the contact sweep places the whole centre (contact.ts).
  */
 export function entityRefHeight(state: SimState, id: number): number {
   const ent = state.ent;
   const arch = ent.archetype[id];
   const refs = state.map.refHeights;
-  if (arch === ARCHETYPE.AVATAR) return ent.mode[id] === MODE_HOVER ? refs.hover : refs.walker;
+  if (arch === ARCHETYPE.AVATAR) {
+    const p = ent.ownerId[id];
+    if (
+      state.map.shapes.tables.length > 0 &&
+      p >= 0 &&
+      p < MAX_PLAYERS &&
+      state.avatarId[p] === id
+    ) {
+      return legsRefHeight(state.walker.legs.frame[p]);
+    }
+    return ent.mode[id] === MODE_HOVER ? refs.hover : refs.walker;
+  }
   if (arch === ARCHETYPE.JUGGERNAUT) {
     const byFrame = refs.dreadnoughtByFrame;
     const team = ent.team[id];
@@ -4140,15 +4219,16 @@ function turretGunOf(state: SimState, id: number): MapTurretGun {
  * (`turret_distance`, octagonalLength), negated before the shift — a target above
  * is a negative pitch — and clamped to an eighth of a turn either way
  * (TURRET_PITCH_LIMIT). The gun's reference point stands on its base's point 0
- * (MapTurretGun.stand) plus its box's centre (entityRefHeight); the box's few
- * centimetres across, and its turn with the pitch, are left out, as for every
- * reference point (W5). `math_angle_of` is atan2Poly.
+ * plus its box's centre: entityRefHeight carries both (MapData.refHeights since
+ * SIM_VERSION 112); the box's horizontal offset, and its turn with the pitch,
+ * are left out, as for every reference point (W5). `math_angle_of` is
+ * atan2Poly.
  */
 function turretPitchWanted(state: SimState, id: number, target: number): number {
   const ent = state.ent;
   const dx = Math.trunc((ent.posX[target] - ent.posX[id]) * WU_PER_METRE);
   const dz = Math.trunc((ent.posY[target] - ent.posY[id]) * WU_PER_METRE);
-  const gun = ent.height[id] + turretGunOf(state, id).stand + entityRefHeight(state, id);
+  const gun = ent.height[id] + entityRefHeight(state, id);
   const dy = (ent.height[target] + entityRefHeight(state, target) - gun) * WU_PER_METRE;
   const want = Math.floor(-atan2Poly(dy, octagonalLength(dx, dz)) / ANGLE_UNIT);
   if (want < -TURRET_PITCH_LIMIT) return -TURRET_PITCH_LIMIT;
@@ -4344,6 +4424,7 @@ function fireRound(state: SimState, id: number, target: number, w: MapWeapon): v
 function armWorldRound(state: SimState, id: number, p: number, w: MapWeapon): void {
   const ent = state.ent;
   ent.mode[p] = PROJ_ROUND;
+  ent.shape[p] = w.round;
   state.roundFrom[p] = roundSource(ent.archetype[id], ent.team[id]);
   ent.ownerId[p] = ent.ownerId[id];
   ent.ammoA[p] = w.damage;
@@ -5018,6 +5099,7 @@ function spawnGuided(
   }
   const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
   if (id < 0) return -1;
+  ent.shape[id] = playerRoundShape(state, w.code);
   const r = blk.rec;
   const top = Math.trunc(r.speed / 300);
   ent.posX[id] = x;
@@ -5310,10 +5392,7 @@ function guidedTick(state: SimState, id: number): void {
       if (!ent.alive[t] || t === id) continue;
       if (ent.team[t] === ent.team[id]) continue;
       if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-      const r = entityRadius(state, t) + 0.5;
-      const dx = ent.posX[t] - x;
-      const dy = ent.posY[t] - y;
-      if (dx * dx + dy * dy > r * r) continue;
+      if (!roundMeets(state, id, t, hx, hy, hh)) continue;
       const before = ent.hp[t];
       const droneFirst = toldFirst(state, id, t);
       // A contact: the round's own serial is the credit, which resolves to
@@ -5381,6 +5460,7 @@ function spawnBounce(
   const base = blk.fuseUnits;
   const jitter = randU32(state) & GRENADE_FUSE_JITTER_MASK;
   ent.timerA[id] = base + Math.trunc((base * jitter) / GRENADE_FUSE_JITTER_DIV);
+  ent.shape[id] = playerRoundShape(state, w.code);
   ent.mode[id] = w.projKind;
   ent.ownerId[id] = player;
   ent.ammoA[id] = blk.damage;
@@ -5456,10 +5536,7 @@ function bounceTick(state: SimState, id: number, radius = GRENADE_RADIUS): void 
       if (!ent.alive[t] || t === id) continue;
       if (ent.team[t] === ent.team[id]) continue;
       if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-      const r = entityRadius(state, t) + 0.5;
-      const dx = ent.posX[t] - x;
-      const dy = ent.posY[t] - y;
-      if (dx * dx + dy * dy <= r * r) {
+      if (roundMeets(state, id, t, vx, vy, vh)) {
         boom = true;
         break;
       }
@@ -5670,15 +5747,14 @@ function systemProjectiles(state: SimState): void {
     }
     let struck = -1;
     if (!boom) {
-      // Contact fuze: any enemy non-projectile within its hit radius + 0.5.
+      // Contact fuze: the pair test against any enemy body (roundMeets). Its
+      // flight: a shell's velocity, a straight round's heading and climb.
+      const fh = arc ? ent.timerB[id] : ent.timerB[id] * speed;
       for (let t = 0; t < ent.high; t++) {
         if (!ent.alive[t] || t === id) continue;
         if (ent.team[t] === ent.team[id]) continue;
         if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-        const r = entityRadius(state, t) + 0.5;
-        const dx = ent.posX[t] - ent.posX[id];
-        const dy = ent.posY[t] - ent.posY[id];
-        if (dx * dx + dy * dy <= r * r) {
+        if (roundMeets(state, id, t, vx, vy, fh)) {
           boom = true;
           struck = t;
           break;
@@ -5745,6 +5821,7 @@ function burstCluster(state: SimState, id: number): void {
     ent.ammoA[f] = ent.ammoA[id];
     ent.aux[f] = ent.aux[id];
     ent.ammoB[f] = ROUND_ARC | (ent.ammoB[id] & ROUND_RIVAL);
+    ent.shape[f] = ent.shape[id];
     ent.timerA[f] = ent.timerA[id];
     ent.cooldownC[f] = -1;
     ent.aimX[f] = ent.aimX[id];

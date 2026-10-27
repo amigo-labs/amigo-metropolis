@@ -73,6 +73,10 @@
 // tanks walk the original's route cursor (a leg ahead, the corners cut, the
 // original's occupancy; fcop-fidelity.md U1): seven tanks and three jets, the
 // claim; the captain is not shot down, the player goes down once; no breach.
+// Since SIM_VERSION 112 a round meets a body by the original's pair test (its
+// own model's hit boxes against the body's, the mech's legs and cockpit by
+// frame): the same seven tanks, three jets and claim, the player shoots the
+// captain down once and goes down once; no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -133,7 +137,7 @@ describe("golden-04-warden beats", () => {
     expect(bought.get(ARCHETYPE.RUNNER)).toBe(7);
     expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(3);
     expect(claims).toBe(1);
-    expect(wardenDeaths).toBe(0);
+    expect(wardenDeaths).toBe(1);
     expect(avatarDeaths).toBe(1);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);

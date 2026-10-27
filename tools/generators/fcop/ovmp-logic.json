@@ -3,7 +3,7 @@
   "mapId": "venice-beach",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "c077cb2d088fbd2a011d2738dde848d3583cd4b0",
+    "commit": "26b7bdad5bf53761caac1126c4c2368a8e7b5c7f",
     "extractor": "tools/gfx/extract_logic.py"
   },
   "frame": {

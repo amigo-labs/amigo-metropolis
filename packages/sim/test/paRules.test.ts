@@ -200,14 +200,19 @@ describe("the Juggernaut is the original Dreadnought", () => {
     const ent = state.ent;
     const j = map.bases[0].juggernaut;
     if (!j) throw new Error("la-cantina must carry its Dreadnought");
-    const id = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 0, j.x, j.y);
     // Put the enemy avatar 4 m ahead, in the open by the Dreadnought's spawn: far
     // enough that the guns, which never pitch, see it inside their 22.5° arc
-    // (the arc is tested in three dimensions, discharge_arc_blocks).
+    // (the arc is tested in three dimensions, discharge_arc_blocks). It lands
+    // there first: a round meets the mech's boxes, not a flat circle, since
+    // SIM_VERSION 112, and a round aimed at a falling mech flies over it.
     const foe = state.avatarId[1];
-    ent.posX[foe] = ent.posX[id] + 4;
-    ent.posY[foe] = ent.posY[id];
     ent.hp[foe] = 100000;
+    for (let t = 0; t < 30; t++) {
+      ent.posX[foe] = j.x + 4;
+      ent.posY[foe] = j.y;
+      step(state, idle);
+    }
+    const id = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 0, j.x, j.y);
     let shots = 0;
     let damage = 0;
     // 601 engine units at 10 a tick, the reload clamping the leftover: 61 ticks.
@@ -595,11 +600,14 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     const reach = vb.outposts[0].zone + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
     state.points[0] = 40;
     const a = state.avatarId[0];
-    for (let t = 0; t < 10; t++) {
+    // Until the spawn's hard landing has played out: the legs back on frame 0,
+    // where the mech's radius is ARCHETYPE_RADIUS (the crouched legs' is less).
+    for (let t = 0; t < 30; t++) {
       ent.posX[a] = spot.x;
       ent.posY[a] = spot.y;
       step(state, idle);
     }
+    expect(state.walker.legs.frame[0]).toBe(0);
     expect(state.outpostOwner[0]).toBe(-1); // standing in it is not a claim
     pressAt(state, 0, spot.x + reach + 0.05, spot.y);
     expect(state.outpostOwner[0]).toBe(-1); // just outside the zone

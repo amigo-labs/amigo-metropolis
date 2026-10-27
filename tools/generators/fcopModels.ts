@@ -29,6 +29,8 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { NodeIO } from "@gltf-transform/core";
+import { UNIT_MODEL_FILES } from "../../packages/client/src/render/arenaUnits.generated";
 import { type FcopArena, logicFile, modelsFile, selectArenas } from "./fcopArenas";
 import { argOf } from "./fcopLogic";
 
@@ -70,6 +72,10 @@ interface ReModels {
     neutral_turret: ReRole[];
     sky_captain: ReRole[];
   };
+  /** The type-98 catalogue rows: a world weapon's id and its round's Cobj (aRSL slot 0). */
+  world_weapons: { weapon_id: number; kind: number; cobj: number | null }[];
+  /** The type-99 rows: a loadout code (`key`) and the Cobjs in aRSL slots 0 and 3. */
+  player_weapons: { key: number; cobj_a: number | null; cobj_b: number | null }[];
   models: Record<
     string,
     {
@@ -157,6 +163,76 @@ export interface ModelsTurretGun {
   readonly muzzle: readonly number[];
 }
 
+/**
+ * One model's whole 3DBB table, as the shipped Cobj holds it (RE
+ * docs/formats/objects.md "3DBB: the boxes per frame"): `perFrame` boxes in each
+ * of `frames` frames, box-major -- box i of frame f is row i * frames + f -- each
+ * row the box's eight halfwords: its centre x, y, z, its half extents x, y, z,
+ * the 3D radius (+0x0c, `radius_68` >> 4) and the horizontal one (+0x0e,
+ * `half_h`). The model's own axes (x NOT negated, unlike a glb), 1/512 m.
+ * `cact_pair_test` 0x00450190 reads box 0 of the frame for its sphere and
+ * cylinder, and `cact_hit_boxes` 0x0044f640 every box of the frame (box 0 only
+ * when it is the frame's one).
+ */
+export interface ModelsShapeTable {
+  /** The first Cobj read with this table (others may share it). */
+  readonly cobj: number;
+  readonly perFrame: number;
+  readonly frames: number;
+  readonly boxes: readonly (readonly number[])[];
+}
+
+/**
+ * A turret's two actors: its gun (the actor that aims and is placed on the
+ * base) and its base part (turret.c, the part at +0x104, which forwards a
+ * contact to the gun; turret_part.c op 0x0b), and the base's attach point 0
+ * the gun stands on (turret.c 914-917), glb frame (x negated), metres.
+ */
+export interface ModelsTurretShape {
+  readonly gun: number;
+  readonly base: number;
+  readonly point: readonly number[];
+}
+
+/**
+ * A unit the client draws grounded and XZ-centred (gen:units' `unit`
+ * treatment: the tank, the jet, the Flying Fortress, the Sky Captain): its
+ * table, and where its model's own origin stands from the body's position --
+ * the translation gen:units gives the drawn mesh (`-centre x, -min y, -centre
+ * z` of the raw's body faces, the additive ones left out), so the boxes stand
+ * where the unit is drawn. The model's own axes (x not negated), metres.
+ */
+export interface ModelsUnitShape {
+  readonly table: number;
+  readonly lift: readonly number[];
+}
+
+/**
+ * Every body's and every round's 3DBB table, by index into `tables` (one per
+ * distinct table): the colliders `cact_pair_test` tests (fcop-fidelity.md G1). The mech's
+ * legs and cockpit are not here: they are the same models on every arena and
+ * gen:x1 carries them (packages/sim/src/x1Shapes.generated.ts).
+ */
+export interface ModelsShapes {
+  readonly tables: readonly ModelsShapeTable[];
+  readonly tank: ModelsUnitShape;
+  readonly jet: ModelsUnitShape;
+  readonly fortress: ModelsUnitShape;
+  /** The hull, every frame (Joke's walks). */
+  readonly dreadnought: number;
+  /** Gun i's model (mount.c: each forwards a contact to the hull). */
+  readonly dreadnoughtGuns: readonly number[];
+  readonly baseTurret: ModelsTurretShape;
+  /** Per turret spot, in the record order enrichArena keeps. */
+  readonly neutral: readonly ModelsTurretShape[];
+  /** By level 0..9. */
+  readonly skyCaptain: readonly ModelsUnitShape[];
+  /** A world weapon's round, by the catalogue's weapon id (those with a Cobj). */
+  readonly worldRounds: Readonly<Record<string, number>>;
+  /** A player weapon's round, by loadout code (aRSL slot 0; slot 3's table is the same). */
+  readonly playerRounds: Readonly<Record<string, number>>;
+}
+
 export interface ModelsArtifact {
   readonly mission: string;
   readonly source: { readonly repo: string; readonly commit: string; readonly tool: string };
@@ -192,6 +268,8 @@ export interface ModelsArtifact {
     readonly baseTurret: ModelsTurretGun;
     readonly neutral: readonly ModelsTurretGun[];
   };
+  /** Every body's and round's 3DBB table (the pair test's colliders). */
+  readonly shapes: ModelsShapes;
 }
 
 /** An AnmD track: the block.c fields, the event packed `code << 10 | frame`. */
@@ -310,6 +388,224 @@ function boxRaw(cobj: Uint8Array, frame: number, off: number, what: string): num
     pos += size;
   }
   throw new Error(`${what}: no 3DBB chunk`);
+}
+
+/** The 4DGI flags word's hit-box bit (RE fcop/object.h COBJ_FLAG_HIT_BOXES, 0x0044f661). */
+const HIT_BOXES = 0x08000000;
+
+/**
+ * A Cobj's whole 3DBB table (ModelsShapeTable). The 4DGI's flags word (+4 of
+ * its payload: the frame count in its low half) must carry the hit-box bit --
+ * every Precinct Assault model does -- and the table must hold boxes per frame
+ * x frames rows, the layout `bbox_at` (object/model.c) reads.
+ */
+function shapeTable(cobj: Uint8Array, id: number, what: string): ModelsShapeTable {
+  let flags = -1;
+  let table: ModelsShapeTable | undefined;
+  let pos = 0;
+  while (pos + 8 <= cobj.length) {
+    const size = u32(cobj, pos + 4);
+    if (size < 8 || pos + size > cobj.length) break;
+    const tag = String.fromCharCode(cobj[pos + 3], cobj[pos + 2], cobj[pos + 1], cobj[pos]);
+    if (tag === "4DGI") flags = u32(cobj, pos + 8 + 4);
+    if (tag === "3DBB") {
+      const perFrame = u32(cobj, pos + 8);
+      const total = u32(cobj, pos + 12);
+      const boxes: number[][] = [];
+      for (let at = pos + 16; at + 16 <= pos + size; at += 16) {
+        const row: number[] = [];
+        for (let k = 0; k < 8; k++) {
+          const v = cobj[at + 2 * k] | (cobj[at + 2 * k + 1] << 8);
+          row.push(v >= 0x8000 ? v - 0x10000 : v);
+        }
+        boxes.push(row);
+      }
+      if (perFrame < 1 || boxes.length !== total || total % perFrame !== 0) {
+        throw new Error(
+          `${what}: 3DBB holds ${boxes.length} of ${total} boxes, ${perFrame} a frame`,
+        );
+      }
+      table = { cobj: id, perFrame, frames: total / perFrame, boxes };
+    }
+    pos += size;
+  }
+  if (!table) throw new Error(`${what}: no 3DBB chunk`);
+  if (flags < 0 || (flags & HIT_BOXES) === 0) throw new Error(`${what}: no hit-box bit in 4DGI`);
+  if ((flags & 0xffff) !== table.frames) {
+    throw new Error(`${what}: 4DGI says ${flags & 0xffff} frames, 3DBB ${table.frames}`);
+  }
+  return table;
+}
+
+/** Six decimals: the lift prints the same on every machine. */
+const r6 = (v: number): number => Math.round(v * 1e6) / 1e6 + 0;
+
+/**
+ * Where a `unit`'s model origin stands from the position the client draws it
+ * at (ModelsUnitShape.lift): gen:units' grounding of its raw (genUnitModels.ts
+ * `bodyBounds`, the non-additive faces). A skinned raw (Joke's jet) is posed
+ * by its bake, so its frame-0 box 0 stands in for the bounds.
+ */
+async function unitLift(
+  arena: FcopArena,
+  payload: string,
+  cobj: number,
+  box0: readonly number[],
+): Promise<number[]> {
+  // The file the arena draws it from: shared files are another arena's copy of
+  // the same payload.
+  const file = UNIT_MODEL_FILES.find(
+    (f) => f.payload === payload && f.usedBy.includes(arena.mapId),
+  );
+  if (file?.treatment !== "unit") {
+    throw new Error(`${arena.mission}: Cobj ${cobj} is not a unit gen:units grounds`);
+  }
+  const doc = await new NodeIO().read(
+    join(REPO_ROOT, "tools", "generators", "units", "raw", file.raw),
+  );
+  const root = doc.getRoot();
+  if (
+    root.listSkins().length > 0 ||
+    root.listNodes().some((n) => n.getMesh() && !isIdentity(n.getMatrix()))
+  ) {
+    const [cx, cy, cz, , hy] = box0;
+    return [r6(-cx / 512), r6((hy - cy) / 512), r6(-cz / 512)];
+  }
+  const min = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+  const max = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  const el = [0, 0, 0];
+  const prims = root.listMeshes().flatMap((m) => m.listPrimitives());
+  const mode = (p: (typeof prims)[number]) =>
+    (p.getMaterial()?.getExtras() as { fcop?: { mode?: string } } | undefined)?.fcop?.mode;
+  const body = prims.filter((p) => mode(p) !== "add");
+  for (const prim of body.length > 0 ? body : prims) {
+    const pos = prim.getAttribute("POSITION");
+    if (!pos) continue;
+    for (let i = 0; i < pos.getCount(); i++) {
+      pos.getElement(i, el);
+      for (let a = 0; a < 3; a++) {
+        if (el[a] < min[a]) min[a] = el[a];
+        if (el[a] > max[a]) max[a] = el[a];
+      }
+    }
+  }
+  // The glb's x is the model's negated: its centre's offset comes back unnegated.
+  return [r6((min[0] + max[0]) / 2), r6(-min[1]), r6(-(min[2] + max[2]) / 2)];
+}
+
+function isIdentity(m: readonly number[]): boolean {
+  return m.every((v, i) => v === (i % 5 === 0 ? 1 : 0));
+}
+
+/** Every body's and round's 3DBB table on `arena` (ModelsShapes). */
+async function buildShapes(arena: FcopArena, re: ReModels, reRepo: string): Promise<ModelsShapes> {
+  const container = new Uint8Array(
+    readFileSync(join(reRepo, "fixtures", "missions", arena.mission)),
+  );
+  const index = cobjIndex(container);
+  const tables: ModelsShapeTable[] = [];
+  const read = (cobj: number, what: string): ModelsShapeTable => {
+    const entry = index.get(cobj);
+    if (!entry) throw new Error(`${arena.mission}: no Cobj ${cobj} (${what})`);
+    return shapeTable(extractCobj(container, entry), cobj, `${arena.mission} Cobj ${cobj}`);
+  };
+  // One table per distinct box set: Mp's tank round (Cobj 12) and the second
+  // side's (53) are the same payload, so their profiles stay one.
+  const key = (t: ModelsShapeTable) => JSON.stringify([t.perFrame, t.frames, t.boxes]);
+  const at = (cobj: number, what: string): number => {
+    const t = read(cobj, what);
+    const have = tables.findIndex((x) => key(x) === key(t));
+    if (have >= 0) return have;
+    tables.push(t);
+    return tables.length - 1;
+  };
+  const part = (role: ReRole, name: string, what: string): number => {
+    const p = role.parts.find((x) => x.part === name);
+    if (!p) throw new Error(`${arena.mission}: the ${what} has no ${name}`);
+    return p.cobj;
+  };
+  const unit = async (cobj: number, what: string): Promise<ModelsUnitShape> => {
+    const table = at(cobj, what);
+    const payload = re.models[String(cobj)]?.sha256_16;
+    if (!payload) throw new Error(`${arena.mission}: no payload hash for Cobj ${cobj}`);
+    return { table, lift: await unitLift(arena, payload, cobj, tables[table].boxes[0]) };
+  };
+  const one = (roles: ReRole[], name: string, what: string): Promise<ModelsUnitShape> => {
+    if (roles.length !== 1) throw new Error(`${arena.mission}: ${roles.length} ${what} model sets`);
+    return unit(part(roles[0], name, what), what);
+  };
+  const point0 = (cobj: number, what: string): number[] => {
+    const p = re.models[String(cobj)]?.attach?.points.find((x) => x.index === 0);
+    if (!p) throw new Error(`${arena.mission}: the ${what}'s base ${cobj} has no point 0`);
+    return p.glb_xyz;
+  };
+  const turret = (role: ReRole, what: string): ModelsTurretShape => {
+    const base = part(role, "base", what);
+    return {
+      gun: at(part(role, "gun", what), what),
+      base: at(base, what),
+      point: point0(base, what),
+    };
+  };
+  if (re.roles.base_turret.length !== 1) {
+    throw new Error(`${arena.mission}: ${re.roles.base_turret.length} base turret model sets`);
+  }
+  // A neutral per spot, as buildRadii pairs them: the NeutralTurret records in order.
+  const logic = JSON.parse(
+    readFileSync(join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena)), "utf8"),
+  ) as { neutrals: { id: number }[] };
+  const neutral = logic.neutrals.map((rec) => {
+    const role = re.roles.neutral_turret.find((r) =>
+      (r.templates ?? []).some((t) => t.res === "Csac" && t.id === rec.id),
+    );
+    if (!role) throw new Error(`${arena.mission}: NeutralTurret ${rec.id} is in no model set`);
+    return turret(role, "neutral turret");
+  });
+  const skyCaptain: ModelsUnitShape[] = [];
+  for (const role of re.roles.sky_captain) {
+    const body = await unit(part(role, "body", "Sky Captain"), "Sky Captain");
+    for (const level of role.levels ?? []) skyCaptain[level] = body;
+  }
+  for (let level = 0; level < 10; level++) {
+    if (skyCaptain[level] === undefined)
+      throw new Error(`${arena.mission}: no Sky Captain ${level}`);
+  }
+  const hull = re.roles.dreadnought[0];
+  if (!hull) throw new Error(`${arena.mission}: no Dreadnought`);
+  const worldRounds: Record<string, number> = {};
+  for (const w of re.world_weapons) {
+    if (w.cobj !== null) worldRounds[String(w.weapon_id)] = at(w.cobj, `weapon ${w.weapon_id}`);
+  }
+  const playerRounds: Record<string, number> = {};
+  for (const w of re.player_weapons) {
+    if (w.cobj_a === null) continue;
+    const a = at(w.cobj_a, `loadout 0x${w.key.toString(16)}`);
+    // The shot's model is slot 0, or slot 3 after the swap (player_fire.c
+    // 0x0045904e); the shipped two are the same table, so either is the shape.
+    if (w.cobj_b !== null && w.cobj_b !== w.cobj_a) {
+      const b = read(w.cobj_b, `loadout 0x${w.key.toString(16)}`);
+      if (JSON.stringify(b.boxes) !== JSON.stringify(tables[a].boxes)) {
+        throw new Error(`${arena.mission}: loadout 0x${w.key.toString(16)}'s two models differ`);
+      }
+    }
+    playerRounds[String(w.key)] = a;
+  }
+  const tank = await one(re.roles.tank, "body", "tank");
+  const jet = await one(re.roles.jet, "body", "jet");
+  const fortress = await one(re.roles.flying_fortress, "body", "Flying Fortress");
+  return {
+    tables,
+    tank,
+    jet,
+    fortress,
+    dreadnought: at(part(hull, "hull", "Dreadnought"), "Dreadnought hull"),
+    dreadnoughtGuns: hull.guns.map((g) => at(g.cobj, `Dreadnought gun ${g.gun}`)),
+    baseTurret: turret(re.roles.base_turret[0], "base turret"),
+    neutral,
+    skyCaptain,
+    worldRounds,
+    playerRounds,
+  };
 }
 
 /**
@@ -496,7 +792,7 @@ function buildTurrets(arena: FcopArena, re: ReModels): ModelsArtifact["turrets"]
   return { baseTurret: turretGunOf(arena, re, re.roles.base_turret[0], "base turret"), neutral };
 }
 
-function buildModels(
+async function buildModels(
   arena: FcopArena,
   re: ReModels,
   source: ModelsArtifact["source"],
@@ -568,11 +864,12 @@ function buildModels(
       guns,
     },
     turrets: buildTurrets(arena, re),
+    shapes: await buildShapes(arena, re, reRepo),
   };
   return artifact;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const reRepo = argOf(
     "re-repo",
     process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
@@ -588,7 +885,7 @@ function main(): void {
   for (const arena of selectArenas(named)) {
     const src = join(reRepo, "extracted", "logic", arena.mission, "pa_models.json");
     const re = JSON.parse(readFileSync(src, "utf8")) as ReModels;
-    const models = buildModels(
+    const models = await buildModels(
       arena,
       re,
       {
@@ -608,4 +905,4 @@ function main(): void {
   }
 }
 
-if (import.meta.main) main();
+if (import.meta.main) await main();

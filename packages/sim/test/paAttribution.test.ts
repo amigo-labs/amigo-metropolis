@@ -258,7 +258,10 @@ describe("a Warden vs an idle player on la-cantina", () => {
   // 0 / 8 (seeds 1-4 resolve in 51-80 s, below). Since SIM_VERSION 111 (the
   // tanks walk the original's route cursor, fcop-fidelity.md U1) it resolves
   // again: its tanks breach at tick 2543 (84.8 s), after it has captured all
-  // 32 pads; the match ends one outro later, at tick 2718.
+  // 32 pads; the match ends one outro later, at tick 2718. Since SIM_VERSION
+  // 112 (a round meets a body by the original's pair test, the reference
+  // points at their boxes' centres) its tanks breach at tick 1976 (65.9 s),
+  // after 30 captures; the match ends at tick 2151.
   const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
   const idle = createTickInputs();
   let captures = 0;
@@ -272,7 +275,7 @@ describe("a Warden vs an idle player on la-cantina", () => {
 
   it("resolves the match through the gate inside fifteen minutes (measured)", () => {
     expect(state.winner).toBe(1);
-    expect(state.tick).toBe(2718);
+    expect(state.tick).toBe(2151);
   });
 
   it("funds that push from capture income that is not absurd", () => {
@@ -356,8 +359,13 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // original's occupancy nibble), seeds c0ffee/1/2/3/4, fifteen minutes: 18 of
   // 20 resolve, in 53-114 s; urban-jungle and proving-ground seed c0ffee do
   // not, la-cantina seed c0ffee does (91 s). Of the pinned seeds 10 of 12.
+  // Re-measured at SIM_VERSION 112 (a round meets a body by the original's pair
+  // test on both models' hit boxes, the mech's by its legs' frame; the
+  // reference points at their boxes' centres), seeds c0ffee/1/2/3/4, fifteen
+  // minutes: 16 of 20 resolve, in 53-114 s; urban-jungle seeds c0ffee, 3 and 4
+  // and proving-ground seed c0ffee do not. Of the pinned seeds 9 of 12.
   const UNRESOLVED: Record<string, number[]> = {
-    [URBAN_JUNGLE_ID]: [0xc0ffee],
+    [URBAN_JUNGLE_ID]: [0xc0ffee, 4],
     [PROVING_GROUND_ID]: [0xc0ffee],
   };
   const TWELVE_MINUTES = 12 * 60 * 30;

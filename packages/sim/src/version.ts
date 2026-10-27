@@ -1635,4 +1635,29 @@
 //     goes to next; units start on their spawn node and choose at once. The
 //     cursor and the occupancy are hashed on an arena with the graph. Every
 //     golden on an imported arena diverges (the first spawn's choice).
-export const SIM_VERSION = 111;
+// v112: a round meets a body as the original's pair test decides it
+//     (fcop-fidelity.md G1, I6, P4; contact.ts; RE `cact_pair_test` 0x00450190,
+//     `cact_hit_boxes` 0x0044f640, `box_against_boxes` 0x0044fad0, M3-OW): the
+//     octagonal distance between the two reference points (box 0's centre of
+//     the frame, placed) less the two models' radii below zero, the coarse
+//     cylinder (the boxes' horizontal radii and half heights), then the hit
+//     boxes both ways round, each rotated into the other's frame -- in place of
+//     one flat circle of the body's radius plus 0.5 m. Every round is its own
+//     model (the catalogue entry's aRSL slot 0: a world weapon's by its id, a
+//     player weapon's by its loadout code; MapWeapon.round, MapData.shapes);
+//     the mech is its legs at the legs' frame and its cockpit at the cockpit's,
+//     standing on the legs' model point 0 of the frame (the partner,
+//     player_partner.c op 0x0b), so the crouch, the stride and the transform's
+//     ramp move its boxes; a turret its gun on its base's point 0, on its yaw
+//     and pitch, and the base (turret_part.c op 0x0b); the Dreadnought its hull
+//     at its walk's frame and its four guns on their mounts (mount.c op 0x0b);
+//     the tank its model on its drawn grounding, an aircraft its model at its
+//     position (its origin since v110). A Dreadnought's rear-end contact with a
+//     follower takes the same ladder (route.ts inContact). The mech's radius
+//     and reference height follow its legs' frame (`walk_select_frame`). The
+//     reference heights are the box centre in 1/512 m (`math_matrix_place_point`
+//     0x00458850 shifts a 16.16 product by 12): they read the halfword as a
+//     world unit, 1/16 of it, since v98; a turret's carries its base's point 0
+//     (the pitch's aim reads it whole), the tank's its grounding. Only arenas
+//     that import their models; the rest keep the circle.
+export const SIM_VERSION = 112;
