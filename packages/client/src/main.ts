@@ -69,6 +69,7 @@ import {
   spawnUnit,
   step,
   TICK_HZ,
+  TILT_SNAPSHOT_LEN,
   type TickInputs,
   URBAN_JUNGLE_ID,
   wardenLevel,
@@ -79,6 +80,7 @@ import {
   writeMatchSnapshot,
   writeResultsSnapshot,
   writeSnapshot,
+  writeTiltSnapshot,
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -213,10 +215,10 @@ import {
   type VariantSwitcher,
   variantOfPref,
 } from "./render/texVariants";
+import { tiltQuat } from "./render/tilt";
 import { loadUnitMeshes } from "./render/unitMeshes";
 import {
   aimPitchModel,
-  aimX1,
   aimYawModel,
   createX1Walk,
   tickX1Walk,
@@ -578,6 +580,10 @@ function sizeLiftSnapshots(lifts: number): boolean {
 // per entity id, the hull's guns relative to it. Read for a Juggernaut only.
 let gunPrev = new Float32Array(GUN_SNAPSHOT_LEN);
 let gunCurr = new Float32Array(GUN_SNAPSHOT_LEN);
+// The bodies' model forward and up, two ticks (writeTiltSnapshot): a route
+// follower's hull and an aircraft, per entity id (render/tilt.ts).
+let tiltPrev = new Float32Array(TILT_SNAPSHOT_LEN);
+let tiltCurr = new Float32Array(TILT_SNAPSHOT_LEN);
 /** One Juggernaut's gun yaws this frame, between the two ticks (renderEntities). */
 const gunYaws = new Float32Array(GUN_SNAP_STRIDE);
 
@@ -1096,6 +1102,7 @@ let timeScale = 1;
 const scratchQuat = new THREE.Quaternion();
 const scratchPitch = new THREE.Quaternion();
 const scratchPos = new THREE.Vector3();
+const scratchLift = new THREE.Vector3();
 const scratchScale = new THREE.Vector3(1, 1, 1);
 const UP = new THREE.Vector3(0, 1, 0);
 /**
@@ -1907,36 +1914,15 @@ function groundUnder(x: number, z: number): number {
 
 /**
  * One sim tick of the X1s' animation (render/x1Walk.ts): the avatar snapshot,
- * the sim machine's frames, form and codes off it, then the cockpit's aim. Runs
+ * the sim machine's frames, form, codes and the cockpit's aim off it. Runs
  * after every sim step and before the sounds, which play the legs' codes the
  * same tick (audio/cues.ts).
  */
 function animateAvatars(stepped: SimState): void {
   writeAvatarSnapshot(stepped, avatarSnap);
+  // The frames, form and codes, and the cockpit's aim the sim stepped toward
+  // the lock (orient.ts systemCockpitAim).
   tickX1Walk(x1Walk, avatarSnap);
-  for (let p = 0; p < MAX_PLAYERS; p++) {
-    const avatar = matchSnap[matchSlotOffset(p) + MATCH_SLOT_AVATAR_ID] | 0;
-    const lock = matchSnap[matchSlotOffset(p) + MATCH_SLOT_LOCK] | 0;
-    const a = avatar >= 0 ? snapshotIndexOf(snapCurr, countCurr, avatar) : -1;
-    const t = lock >= 0 && a >= 0 ? snapshotIndexOf(snapCurr, countCurr, lock) : -1;
-    if (a < 0 || t < 0) {
-      aimX1(x1Walk, p, false, 0, 0, 0, 0);
-      continue;
-    }
-    const ao = a * SNAPSHOT_STRIDE;
-    const to = t * SNAPSHOT_STRIDE;
-    // From the cockpit's mount to the target's middle (the lock beam's end).
-    const mount = avatarRig ? avatarRig.mountHeight(x1Walk.legsFrame[p]) : 0;
-    aimX1(
-      x1Walk,
-      p,
-      true,
-      snapCurr[to + 3] - snapCurr[ao + 3],
-      snapCurr[to + 4] - snapCurr[ao + 4],
-      snapCurr[to + 5] + LOCK_TO_LIFT - (snapCurr[ao + 5] + mount),
-      snapCurr[ao + 6],
-    );
-  }
 }
 
 function rotateSnapshot(): void {
@@ -1964,6 +1950,10 @@ function rotateSnapshot(): void {
   gunPrev = gunCurr;
   gunCurr = gunSwap;
   writeGunSnapshot(sim, gunCurr);
+  const tiltSwap = tiltPrev;
+  tiltPrev = tiltCurr;
+  tiltCurr = tiltSwap;
+  writeTiltSnapshot(sim, tiltCurr);
 }
 
 function renderEntities(alpha: number, simDtSec: number): void {
@@ -2109,6 +2099,25 @@ function renderEntities(alpha: number, simDtSec: number): void {
       // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
       scratchPos.set(x, height, y);
       scratchQuat.setFromAxisAngle(UP, -yaw);
+      // A route follower's hull and an aircraft turn by their matrix: the
+      // slope's pitch, the bank, the crash's tumble (render/tilt.ts).
+      if (
+        tiltQuat(
+          tiltPrev,
+          tiltCurr,
+          id,
+          alpha,
+          hasPrev && snapPrev[po + 1] === archetype,
+          scratchQuat,
+        ) &&
+        archetype === ARCHETYPE.RUNNER
+      ) {
+        // The tank's position is its model's origin (the route cursor's
+        // height); the mesh is drawn grounded, its origin `ly` above its base.
+        const lift = map.shapes.tank;
+        if (lift !== null)
+          scratchPos.sub(scratchLift.set(0, lift.ly, 0).applyQuaternion(scratchQuat));
+      }
       // A shell points where it is going, in the vertical too. The snapshot
       // carries no vertical velocity, but the two ticks being interpolated
       // between do: rise over run across that step IS the flight angle. Costs
@@ -2686,6 +2695,8 @@ function resetForMatch(newSim: SimState): void {
   writeLiftSnapshot(sim, liftCurr);
   liftPrev.set(liftCurr);
   writeGunSnapshot(sim, gunCurr);
+  writeTiltSnapshot(sim, tiltCurr);
+  tiltPrev.set(tiltCurr);
   if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
 }
 

@@ -87,8 +87,12 @@ Flat `Float32Array`, stride 10 per entity:
   read it, its velocity, ANIM bits, the transform's lock, the ground's movement
   mode and the cloak, and the walker's state machine — its state, flags and
   last-asked track, the legs' and the cockpit's AnmD blocks and the codes the
-  legs passed this tick — which `render/x1Walk.ts` reads; the machine itself is
-  the sim's, `walker.ts`).
+  legs passed this tick, and the cockpit's aim — which `render/x1Walk.ts`
+  reads; the machine itself is the sim's, `walker.ts`, the aim `orient.ts`).
+  Two more per entity id: `writeGunSnapshot` (a Dreadnought's guns' yaws and
+  its walk's frame, a turret gun's pitch) and `writeTiltSnapshot` (`orient.ts`:
+  the model's forward and up for a body whose matrix is more than its yaw — a
+  route follower's hull, an aircraft — which `render/tilt.ts` turns it by).
 - Events that don't interpolate (shots fired, deaths, captures, purchases, UI
   pings) go through a per-tick **event ring buffer** `(tick, type, a, b, c)`
   consumed by renderer/audio/UI. Client cosmetics (SFX + shot VFX tracers /
