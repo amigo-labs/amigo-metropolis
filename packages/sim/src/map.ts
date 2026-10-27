@@ -454,6 +454,25 @@ export interface MapLaneGraph {
    * loader labels the two connected components by the entry each contains.
    */
   readonly net: Uint8Array;
+  /**
+   * Each node's height in node units (1/32 m): what `cnet_load` (0x00441900)
+   * writes at node +8, `(terrain_height_at + 0x7f) >> 8` over the shipped
+   * plates. The route cursor measures its legs and their pitch with it
+   * (route.ts). 0 where the arena imports none.
+   */
+  readonly heights: Int16Array;
+  /**
+   * 1 for a node a mission script has closed: bit 1 of its state
+   * (`CNET_NODE_STATE_SCRIPT`), refused by the step chooser. As shipped,
+   * cleared and set at run time by Cfun opcode 0x3b (0x00440060) and the route
+   * orders 0x14 / 0x15 (0x00440120); no Precinct Assault script uses either.
+   */
+  readonly closed: Uint8Array;
+  /**
+   * The merged index of each imported Cnet's node 0, ascending from 0: the
+   * original compares node indices within one net (route.ts localNode).
+   */
+  readonly netStart: readonly number[];
 }
 
 /** A power-up spot (original ItemPickup, act_type 16). */
@@ -1106,6 +1125,12 @@ export interface MapJson {
     nextHopA: number[][];
     nextHopB: number[][];
     entry: number[];
+    /** OPTIONAL node heights, node units (MapLaneGraph.heights); absent -> 0. */
+    heights?: number[];
+    /** OPTIONAL script-closed nodes, by index (MapLaneGraph.closed); absent -> none. */
+    closed?: number[];
+    /** OPTIONAL first node of each imported net (MapLaneGraph.netStart); absent -> [0]. */
+    netStart?: number[];
   };
   /** OPTIONAL box, lift, model and spin per pickup (MapPickup); absent -> Mp's box, no model. */
   pickups?: {
@@ -2101,6 +2126,32 @@ export function loadMapFromJson(raw: MapJson): MapData {
         at = nextHopA[team * n + at];
       }
     }
+    const heights = new Int16Array(n);
+    if (g.heights !== undefined) {
+      if (!Array.isArray(g.heights) || g.heights.length !== n) {
+        fail(id, `laneGraph heights has ${g.heights?.length} entries for ${n} nodes`);
+      }
+      for (let k = 0; k < n; k++) {
+        const h = g.heights[k];
+        if (!Number.isInteger(h) || h < -0x8000 || h > 0x7fff) {
+          fail(id, `laneGraph height ${k} is not a 16-bit integer (${h})`);
+        }
+        heights[k] = h;
+      }
+    }
+    const closed = new Uint8Array(n);
+    for (const k of g.closed ?? []) {
+      if (!Number.isInteger(k) || k < 0 || k >= n)
+        fail(id, `laneGraph closed node ${k} out of range`);
+      closed[k] = 1;
+    }
+    const netStart = g.netStart ?? [0];
+    if (netStart.length === 0 || netStart[0] !== 0) fail(id, "laneGraph netStart must start at 0");
+    for (let k = 1; k < netStart.length; k++) {
+      if (!Number.isInteger(netStart[k]) || netStart[k] <= netStart[k - 1] || netStart[k] >= n) {
+        fail(id, `laneGraph netStart ${netStart[k]} out of order`);
+      }
+    }
     laneGraph = {
       nodes,
       edges,
@@ -2108,6 +2159,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
       nextHopB,
       entry: [g.entry[0], g.entry[1]],
       net: labelNets(edges, n, g.entry),
+      heights,
+      closed,
+      netStart: [...netStart],
     };
   }
 

@@ -278,6 +278,7 @@ import {
   waterHeightAt,
   worldExtent,
 } from "./map";
+import { createRouteCursors, type RouteCursors, releaseRoute, startRoute } from "./route";
 import {
   atan2Poly,
   cosLUT,
@@ -327,7 +328,6 @@ import {
   resolveWalker,
   snapUnitHeight,
   startAircraft,
-  startRoute,
   surfaceBelow,
   systemUnitMovement,
   UNIT_MODE_OUTPOST,
@@ -690,6 +690,12 @@ export interface SimState {
   readonly gunPhase: Uint8Array;
   readonly gunTarget: Int16Array;
   readonly gunSearch: Int32Array;
+  /**
+   * Every route follower's cursor and each node's occupancy nibble (route.ts;
+   * fcop-fidelity.md U1): the original's route block on the imported arenas.
+   * Read and hashed only on an arena with the graph.
+   */
+  readonly route: RouteCursors;
   /** Player slot the Warden AI drives, -1 for a match without one (config). */
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
@@ -1139,26 +1145,10 @@ export function spawnUnit(
     const lanes = state.map.lanes;
     if (graph !== undefined) {
       // Original road graph (rules.md §9): a route follower on its own side's
-      // net (fcop-logic.md §8.1, each team drives its own Cnet). A base-built
-      // unit starts at its team's entry node; a forward (outpost) spawn joins at
-      // the nearest node of that net, scanned in index order so ties break
-      // identically on every peer. (It used to take the nearest node of either
-      // net, which on the enemy's directed net leads back to its own base.)
-      let node = graph.entry[team];
-      if (forward) {
-        let best = Infinity;
-        for (let k = 0; k < graph.nodes.length; k++) {
-          if (graph.net[k] !== team) continue;
-          const dx = graph.nodes[k].x - x;
-          const dy = graph.nodes[k].y - y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < best) {
-            best = d2;
-            node = k;
-          }
-        }
-      }
-      startRoute(state, id, node);
+      // net (fcop-logic.md §8.1, each team drives its own Cnet), put on it as
+      // the original's construct puts it, from the node it spawns on — every
+      // tank and Dreadnought spawner stands on one (route.ts startRoute).
+      startRoute(state, id);
     } else if (lanes.length > 0) {
       let lane: number;
       let wp: number;
@@ -1267,6 +1257,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     gunPhase: new Uint8Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     gunTarget: new Int16Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     gunSearch: new Int32Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
+    route: createRouteCursors(map),
     hullWalk: map.bases.map((b) => {
       const w = b.juggernaut.walk;
       if (w === undefined) return null;
@@ -6050,6 +6041,8 @@ export function downEntity(state: SimState, id: number): void {
     }
   }
   forgetTurretTarget(ent, id);
+  // A route follower leaves its node's occupancy (type-5 operation 5).
+  releaseRoute(state, id);
   despawn(ent, id);
 }
 
@@ -6908,6 +6901,33 @@ export function hash(state: SimState): number {
     if ((ent.ammoB[id] & ROUND_ARC) === 0) continue;
     h = fnv1aF32(h, state.roundLaunch[id * 4]);
     h = fnv1aF32(h, state.roundLaunch[id * 4 + 1]);
+  }
+  // Appended at SIM_VERSION 111, only on an arena with the graph: each node's
+  // occupancy and every live ground unit's route cursor, in id order (route.ts).
+  const lanes = state.map.laneGraph;
+  if (lanes !== undefined) {
+    const c = state.route;
+    for (let k = 0; k < c.occupancy.length; k++) h = fnv1aU32(h, c.occupancy[k]);
+    for (let id = 0; id < ent.high; id++) {
+      if (!ent.alive[id] || !isGroundUnit(ent.archetype[id])) continue;
+      const k3 = id * 3;
+      for (let a = 0; a < 3; a++) {
+        h = fnv1aU32(h, (c.legFrom[k3 + a] & 0xffff) | (c.leg[k3 + a] << 16));
+        h = fnv1aU32(h, (c.nextLeg[k3 + a] & 0xffff) | (c.corner[k3 + a] << 16));
+        h = fnv1aU32(h, c.heading[k3 + a] >>> 0);
+        h = fnv1aU32(h, c.nextDir[k3 + a] >>> 0);
+      }
+      h = fnv1aU32(h, c.travelled[id] >>> 0);
+      h = fnv1aU32(h, (c.legLength[id] & 0xffff) | (c.nextLegLength[id] << 16));
+      h = fnv1aU32(h, (c.cornerHalf[id] & 0xffff) | (c.cornerRecip[id] << 16));
+      h = fnv1aU32(h, (c.yawFrom[id] & 0xffff) | (c.yaw[id] << 16));
+      h = fnv1aU32(h, (c.yawTo[id] & 0xffff) | (c.yawTurn[id] << 16));
+      h = fnv1aU32(h, (c.pitchFrom[id] & 0xffff) | (c.pitch[id] << 16));
+      h = fnv1aU32(h, (c.pitchTo[id] & 0xffff) | (c.pitchTurn[id] << 16));
+      h = fnv1aU32(h, (c.speed[id] & 0xffff) | (c.hold[id] << 16));
+      h = fnv1aU32(h, c.velocity[id] >>> 0);
+      h = fnv1aU32(h, (c.next[id] & 0xffff) | (c.phase[id] << 16));
+    }
   }
   return h;
 }

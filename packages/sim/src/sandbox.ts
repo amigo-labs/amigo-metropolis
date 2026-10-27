@@ -40,6 +40,7 @@ import {
 } from "./balance";
 import { despawn, spawn } from "./entities";
 import { sampleHeight, worldExtent } from "./map";
+import { releaseRoute } from "./route";
 import {
   avatarMaxHp,
   forgetTurretTarget,
@@ -303,6 +304,7 @@ export function despawnSandbox(state: SimState, id: number): boolean {
   if (!ent.alive[id]) return false;
   if (isBookkept(state, id)) return false;
   forgetTurretTarget(ent, id);
+  releaseRoute(state, id);
   despawn(ent, id);
   return true;
 }
@@ -337,6 +339,7 @@ export function clearSandboxSpawns(state: SimState): number {
     if (ent.archetype[id] === ARCHETYPE.PROJECTILE) continue;
     if (isBookkept(state, id)) continue;
     forgetTurretTarget(ent, id);
+    releaseRoute(state, id);
     despawn(ent, id);
     n++;
   }

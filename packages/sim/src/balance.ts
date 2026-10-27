@@ -1674,8 +1674,8 @@ export const WAYPOINT_RADIUS = 3; // lane waypoint advance distance
  * Waypoint advance distance of the AUTHORING road walker (roads.ts `walkRoad`),
  * which stage 2 of the arena pipeline and paRoads.test.ts use to prove a road's
  * wall bits are open. The sim no longer reads it: since SIM_VERSION 44 a ground
- * unit on the original graph walks each leg to its full length (units.ts
- * moveRouteFollower), with no arrival radius, as the original does.
+ * unit on the original graph walks each leg to its full length (route.ts
+ * routeTick), with no arrival radius, as the original does.
  *
  * Why 0.5 for the walker: a Cnet edge is a metre-wide street in a wall lattice
  * imported at 1 m resolution, so a walker that advanced 3 m early (the polylines'
@@ -1687,7 +1687,7 @@ export const GRAPH_WAYPOINT_RADIUS = 0.5;
 
 // --- Route followers on the original road graph (fcop-fidelity.md U1/U2) ---
 // The PA tank (Runner) and the Dreadnought (Juggernaut) drive their side's Cnet
-// as the original's route followers do (units.ts moveRouteFollower;
+// as the original's route followers do (route.ts;
 // fcop-re/ai-and-rules.md §4, route.c / route_tick.c / route_near.c). Imported
 // arenas only: district-01 and the test maps keep Metropolis' polyline lanes.
 
@@ -1706,6 +1706,31 @@ export const ROUTE_TOP_SPEED = (54 * 300) / 8192;
  * 469-472, `velocity_84 * dt`).
  */
 export const ROUTE_SPEED_UNIT = 300 / 8192;
+/**
+ * The route block's three speeds as `cnet_route_init` (0x004415f0) stores them,
+ * `(raw << 8) / 300` truncated, the top shifted down four more: world units per
+ * engine tick, and per engine tick per engine tick for the ramp, which moves
+ * `(accel * delta) / 16` toward the commanded speed (`cnet_route_tick`
+ * 0x00440325, 0x00440342). Every PA tank and Dreadnought record carries move
+ * speed 1024, acceleration 1228, deceleration 614 (Mp, Conft, Hk, Joke, Ovmp,
+ * Slim: tACT payload +0x30): 54, 1047 and 523. At lockstep's delta of 10 both
+ * arms reach any target inside one frame.
+ */
+export const ROUTE_SPEED_WORD = ((1024 << 8) / 300) >> 4;
+export const ROUTE_ACCEL_WORD = Math.floor((1228 << 8) / 300);
+export const ROUTE_DECEL_WORD = Math.floor((614 << 8) / 300);
+/**
+ * A traffic slowdown's hold, engine ticks (`CNET_ROUTE_HOLD_TICKS`, written by
+ * `cnet_route_near_actor` 0x00424b09), and the one-tick hold that releases one
+ * (`CNET_ROUTE_HOLD_RELEASE`, 0x00424b30).
+ */
+export const ROUTE_HOLD_ENGINE_TICKS = 300;
+export const ROUTE_HOLD_RELEASE = 1;
+/**
+ * The rear-end contact's hold (`cnet_route_contact` 0x004248ad / 0x004248c4):
+ * -300 into the follower pushed ahead, +300 into the one behind.
+ */
+export const ROUTE_CONTACT_HOLD = 300;
 /** A tank's wander: 1638 of 4096 steps (40 %) are random (`cnet_route_next`). */
 export const ROUTE_WANDER = 1638;
 /** A tank's seek search: the nearest enemy-team actor within 8192 << 4 wu = 16 m. */
@@ -1716,8 +1741,8 @@ export const ROUTE_NODE_UNITS = 32;
 export const ROUTE_SCORE_NO_LINK = -4;
 export const ROUTE_SCORE_PREV = -2;
 export const ROUTE_SCORE_PREV2 = -1;
-/** Every traffic slowdown holds 300 engine ticks = 1 s (`CNET_ROUTE_HOLD_TICKS`). */
-export const ROUTE_HOLD_TICKS = 30;
+/** ...and a node a mission script has closed (`CNET_SCORE_BLOCKED`, 0x004410d8). */
+export const ROUTE_SCORE_CLOSED = -3;
 /** The pair test records a neighbour only inside a 0x4000 wu = 2 m gap. */
 export const ROUTE_NEAR_GAP = 2;
 /** A non-follower closer than 0x4000 wu = 2 m dead ahead stops the follower. */

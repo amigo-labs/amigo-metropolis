@@ -1618,4 +1618,21 @@
 //     (SimState.unitCount, hashed): raised at the purchase, lowered by a death,
 //     so a refused spawn drifts them. Every golden moves (the count words are
 //     hashed on every map); the PA and Warden goldens play differently.
-export const SIM_VERSION = 110;
+// v111: ground units on the road net walk the original's route cursor
+//     (fcop-fidelity.md U1; RE route_init.c, route.c, route_step.c,
+//     route_tick.c, route_near.c; route.ts), ported in integer arithmetic and
+//     checked frame for frame against the RE's transcription: the leg after the
+//     next is chosen on the leg (the look-ahead), not on arrival; a turning
+//     corner is rounded across its window (the heading linear, the position cut
+//     inside by the quadratic offset); legs are `vec3_length_approx` long over
+//     the nodes' imported heights; the speed word ramps and holds in engine
+//     ticks, contacts writing the hold signed; the occupancy is the original's
+//     nibble (inc/dec on the turn, dec on the way out, the first leg uncounted)
+//     instead of a live count; links are scored in the engine's order (the arena
+//     import writes them so); a script-closed node is refused (none on the six
+//     arenas); a Dreadnought touching a follower makes the rear-end transfer
+//     (`cnet_route_contact`); the traffic yield also answers to the node it
+//     goes to next; units start on their spawn node and choose at once. The
+//     cursor and the occupancy are hashed on an arena with the graph. Every
+//     golden on an imported arena diverges (the first spawn's choice).
+export const SIM_VERSION = 111;

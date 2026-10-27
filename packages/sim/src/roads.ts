@@ -281,7 +281,7 @@ export interface RoadWalk extends WalkResult {
  * Walks one unopposed Runner from its production console to the enemy gate,
  * following the committed signposts as `moveGroundUnit` did until SIM_VERSION
  * 44. The sim's route followers now choose their own way at every node
- * (units.ts `moveRouteFollower`), so this proves that ONE road through the net
+ * (route.ts `routeTick`), so this proves that ONE road through the net
  * is open end to end — the property the arena pipeline carves for — not the
  * path a given unit takes.
  *

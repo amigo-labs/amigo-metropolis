@@ -75,7 +75,10 @@ import { createSim, step } from "../src/sim";
 // otherwise: the mechs go down 11 times and all ten tanks die short of the gates.
 // 2395 on top of SIM_VERSION 105-107 (79.8 s): player 0's tank breaches again,
 // the mechs go down 4 times.
-const BREACH_TICK_PIN = 2395;
+// 2921 at SIM_VERSION 111: the tanks walk the original's route cursor (a leg
+// ahead, the corners cut, the legs' approximate lengths; fcop-fidelity.md U1);
+// player 0's tank breaches at 97.4 s, the mechs go down 5 times.
+const BREACH_TICK_PIN = 2921;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {

@@ -255,7 +255,10 @@ describe("a Warden vs an idle player on la-cantina", () => {
   // fly the original's altitude, launch and crash; the count words drift) this
   // seed does not resolve in the fifteen minutes: its opening order dies at the
   // ring, it captures all 32 pads and ends on 3 points with words 29 / 30 at
-  // 0 / 8 (seeds 1-4 resolve in 51-80 s, below).
+  // 0 / 8 (seeds 1-4 resolve in 51-80 s, below). Since SIM_VERSION 111 (the
+  // tanks walk the original's route cursor, fcop-fidelity.md U1) it resolves
+  // again: its tanks breach at tick 2543 (84.8 s), after it has captured all
+  // 32 pads; the match ends one outro later, at tick 2718.
   const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
   const idle = createTickInputs();
   let captures = 0;
@@ -267,9 +270,9 @@ describe("a Warden vs an idle player on la-cantina", () => {
     }
   }
 
-  it("plays the fifteen minutes on this seed without a breach (measured)", () => {
-    expect(state.winner).toBe(-1);
-    expect(state.tick).toBe(limit);
+  it("resolves the match through the gate inside fifteen minutes (measured)", () => {
+    expect(state.winner).toBe(1);
+    expect(state.tick).toBe(2718);
   });
 
   it("funds that push from capture income that is not absurd", () => {
@@ -348,9 +351,14 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // first; the count words drift), over seeds c0ffee/1/2/3/4 and fifteen
   // minutes: 17 of 20 resolve, in 51-116 s; la-cantina and urban-jungle seed
   // c0ffee and proving-ground seed 3 do not. Of the pinned seeds 10 of 12.
+  // Re-measured at SIM_VERSION 111 (the tanks walk the original's route
+  // cursor: a leg ahead, the corners cut, the legs' approximate lengths, the
+  // original's occupancy nibble), seeds c0ffee/1/2/3/4, fifteen minutes: 18 of
+  // 20 resolve, in 53-114 s; urban-jungle and proving-ground seed c0ffee do
+  // not, la-cantina seed c0ffee does (91 s). Of the pinned seeds 10 of 12.
   const UNRESOLVED: Record<string, number[]> = {
-    [LA_CANTINA_ID]: [0xc0ffee],
     [URBAN_JUNGLE_ID]: [0xc0ffee],
+    [PROVING_GROUND_ID]: [0xc0ffee],
   };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {

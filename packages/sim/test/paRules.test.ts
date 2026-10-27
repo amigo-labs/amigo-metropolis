@@ -236,6 +236,9 @@ describe("the gate is the win condition (fcop-fidelity.md R1)", () => {
     const id = spawnUnit(state, archetype, team, x, y);
     state.ent.posX[id] = x;
     state.ent.posY[id] = y;
+    // Halted where it stands: a route follower placed off its road would walk
+    // its first leg from the node unit under it (route.ts startRoute).
+    state.ent.timerA[id] = -1;
     step(state, idle);
     return state;
   }

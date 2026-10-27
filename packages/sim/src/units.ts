@@ -5,8 +5,9 @@
 // followers (fcop-fidelity.md U1/U2; fcop-re/ai-and-rules.md §4): at every node
 // the step chooser picks one of up to four links — a Runner seeking the nearest
 // enemy within 16 m on 60 % of steps, at random otherwise; a Juggernaut always
-// at random — never stepping straight back; they walk the legs at 1.98 m/s, slow
-// for traffic in 1 s holds and never stop to fight (their guns fire on the move).
+// at random — never stepping straight back; they walk the legs at 1.98 m/s,
+// choosing a leg ahead and rounding the corners, slow for traffic in 1 s holds
+// and never stop to fight (their guns fire on the move). The cursor is route.ts.
 // Elsewhere they follow Metropolis' authored lane polylines toward the enemy
 // gate and halt for anything hostile in attack range (rules.md §4). Guardians
 // and Fortresses are the original's aircraft on the imported arenas (search,
@@ -15,11 +16,11 @@
 // Per-archetype field reuse on unit entities (see entities.ts):
 //   timerA    — ground: lane index, or on the graph the node it walks to (-1 halted)
 //               · air: patrol orbit angle (radians)
-//   timerB    — ground: current waypoint index (past either end = seek gate), or
-//               on the graph the traffic hold in ticks (0 = none)
+//   timerB    — ground off the graph: current waypoint index (past either end =
+//               seek gate)
 //   cooldownB — ground on the graph: the node it came from (-1 none)
 //   ammoB     — ground on the graph: the node before that, + 1 (0 = none)
-//   aimX      — ground on the graph: the commanded speed, m/s
+//   (the rest of a route follower's state is its cursor, SimState.route: route.ts)
 //   mode      — GUARDIAN: UNIT_MODE_PATROL | UNIT_MODE_ASSAULT (spawn-site switch);
 //               on a PA arena the aircraft's anchor (0 base, 1 + k outpost k)
 //   (a PA aircraft's own reuse is listed at moveAircraft)
@@ -65,20 +66,8 @@ import {
   GUARDIAN_LEASH_Y,
   HOVER_CUSHION_SPAN,
   MAX_ENTITIES,
-  ROUTE_CONE_COS,
-  ROUTE_HOLD_TICKS,
-  ROUTE_NEAR_BLOCK,
-  ROUTE_NEAR_GAP,
-  ROUTE_NEAR_MIN_LEN,
-  ROUTE_NEAR_RISE,
-  ROUTE_NODE_UNITS,
-  ROUTE_SCORE_NO_LINK,
-  ROUTE_SCORE_PREV,
-  ROUTE_SCORE_PREV2,
-  ROUTE_SEEK_RANGE,
   ROUTE_SPEED_UNIT,
   ROUTE_TOP_SPEED,
-  ROUTE_WANDER,
   TARGET_PRIORITY_AVATAR,
   TARGET_PRIORITY_JUGGERNAUT,
   TARGET_PRIORITY_RUNNER,
@@ -91,17 +80,13 @@ import {
   wardenLevel,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
-import {
-  coarseHeightAt,
-  type MapData,
-  resolveHeight,
-  sampleHeight,
-  sampleLayerHeight,
-  worldExtent,
-} from "./map";
+import { coarseHeightAt, type MapData, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
+import { followsRoutes, routeContacts, routeTick, routeTraffic } from "./route";
 import { ANIM_MOVING, entityRadius, rideHeight, type SimState, STEP_SNAP } from "./sim";
 import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
 import { animStep, T_MODE } from "./walker";
+
+export { followsRoutes };
 
 /**
  * An aircraft's anchor, the spawner it was built at (moveAircraft): 0 the base
@@ -242,14 +227,14 @@ export function systemUnitMovement(state: SimState): void {
     if (!ent.alive[id]) continue;
     switch (ent.archetype[id]) {
       case ARCHETYPE.RUNNER:
-        if (routes) moveRouteFollower(state, id);
+        if (routes) routeTick(state, id);
         else moveGroundUnit(state, id, ROUTE_TOP_SPEED);
         break;
       case ARCHETYPE.JUGGERNAUT:
         // The type-5 tick's order (type5.c 469-494): the hull's walk by the
         // speed the last move left, then the move.
         stepHullWalk(state, id);
-        if (routes) moveRouteFollower(state, id);
+        if (routes) routeTick(state, id);
         else moveGroundUnit(state, id, ROUTE_TOP_SPEED);
         break;
       case ARCHETYPE.GUARDIAN:
@@ -260,7 +245,18 @@ export function systemUnitMovement(state: SimState): void {
         break;
     }
   }
-  if (!routes) separateGroundUnits(state);
+  if (!routes) {
+    separateGroundUnits(state);
+    return;
+  }
+  // The frame's end on the graph, in the original's order: the pair walk's
+  // contacts (operation 0x0b, `objects_pick_targets` 0x0044fe40), then each
+  // actor's answer to its nearest neighbour (operation 0x0d,
+  // `cact_post_impulse` 0x0043bf00, the frame's last actor pass).
+  routeContacts(state);
+  for (let id = 0; id < ent.high; id++) {
+    if (ent.alive[id] && ent.archetype[id] === ARCHETYPE.RUNNER) routeTraffic(state, id);
+  }
 }
 
 /**
@@ -275,8 +271,11 @@ function stepHullWalk(state: SimState, id: number): void {
   const ent = state.ent;
   const walk = state.hullWalk[ent.team[id]];
   if (!walk) return;
+  // The speed word itself on the graph (route.ts); off it, read back from the velocity.
   const v = Math.sqrt(ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id]);
-  const speed = Math.floor(v / ROUTE_SPEED_UNIT + 0.5);
+  const speed = followsRoutes(state)
+    ? state.route.velocity[id]
+    : Math.floor(v / ROUTE_SPEED_UNIT + 0.5);
   const track = walk.tracks[walk.index[id]];
   const step = track[T_MODE] === 1 ? FRAME_CLOCK_PER_TICK : speed * FRAME_CLOCK_PER_TICK;
   animStep(walk, id, step, 0);
@@ -989,335 +988,9 @@ export function airSpeedRaw(state: SimState, id: number): number {
     : GUARDIAN_AIRCRAFT_SPEED_RAW;
 }
 
-/** True when ground units on this map follow the original's routes (rules.md §9). */
-export function followsRoutes(state: SimState): boolean {
-  return state.map.laneGraph !== undefined;
-}
-
 /** floor(log2(v)) for a positive 32-bit integer, 0 for 0 (`math_top_bit`). */
 function topBit(v: number): number {
   return v <= 0 ? 0 : 31 - Math.clz32(v);
-}
-
-/**
- * The original's step chooser (`cnet_route_next`, retail 0x00440f70;
- * fcop-re/ai-and-rules.md §4): which neighbour of `from` the follower walks to
- * next. Returns the node, or -1 when every link is refused (the follower halts).
- *
- * - A Runner (the PA tank: SEEK_TEAM, wander 1638/4096, search 16 m) first rolls
- *   the wander: 40 % of steps are random. Otherwise it looks for the nearest
- *   enemy-team actor within ROUTE_SEEK_RANGE; none found makes the step random.
- *   The target is found afresh at every step (retail drops the held one).
- * - A Juggernaut (the Dreadnought: mode 0) always steps at random.
- * - Each of up to four links is scored: no link -4, the node just left -2
- *   (refused), the node before that -1 (the dead-end escape, eligible but below
- *   every real score). Seeking scores the dot product of the step with the
- *   direction to the target, in node units (1/32 m), by octave:
- *   32 + floor(log2 dot) for dot >= 0, 31 - floor(log2 -dot) below. Random
- *   scores a 16-bit draw. Then the occupancy: a positive score is shifted right
- *   once per follower already heading to that node.
- * - The pick walks the links from the fourth to the first, keeping the higher
- *   score; a tie is a coin flip.
- *
- * Every draw is the sim PRNG, in a fixed order, so every peer picks the same.
- * The original's script-closed node bit is not imported (no PA script toggles
- * a node the routes use is not established either), so -3 never occurs.
- */
-function chooseNext(state: SimState, id: number, from: number): number {
-  const ent = state.ent;
-  const g = state.map.laneGraph;
-  if (g === undefined || from < 0 || from >= g.nodes.length) return -1;
-  const prev = ent.cooldownB[id];
-  const prev2 = ent.ammoB[id] - 1;
-  const here = g.nodes[from];
-  const hx = Math.round(here.x * ROUTE_NODE_UNITS);
-  const hy = Math.round(here.y * ROUTE_NODE_UNITS);
-
-  // The roll and the target, before any candidate (retail's order).
-  let seek = -1;
-  if (ent.archetype[id] === ARCHETYPE.RUNNER) {
-    if (randInt(state, 4096) >= ROUTE_WANDER) seek = seekTarget(state, id);
-  }
-  // Retail's `>> 8` of a world position is a floor in node units.
-  const tx = seek >= 0 ? Math.floor(ent.posX[seek] * ROUTE_NODE_UNITS) : 0;
-  const ty = seek >= 0 ? Math.floor(ent.posY[seek] * ROUTE_NODE_UNITS) : 0;
-
-  for (let s = 0; s < 4; s++) {
-    const link = g.edges[from * 4 + s];
-    let score: number;
-    if (link < 0) score = ROUTE_SCORE_NO_LINK;
-    else if (link === prev) score = ROUTE_SCORE_PREV;
-    else if (link === prev2) score = ROUTE_SCORE_PREV2;
-    else {
-      if (seek >= 0) {
-        const c = g.nodes[link];
-        const cx = Math.round(c.x * ROUTE_NODE_UNITS);
-        const cy = Math.round(c.y * ROUTE_NODE_UNITS);
-        const dot = (cx - hx) * (tx - hx) + (cy - hy) * (ty - hy);
-        score = dot >= 0 ? topBit(dot) + 0x20 : 0x1f - topBit(-dot);
-      } else {
-        score = randInt(state, 0x10000);
-      }
-      const crowd = occupancy(state, id, link);
-      if (crowd > 0 && score > 0) score = Math.floor(score / (1 << crowd));
-    }
-    routeScores[s] = score;
-  }
-  let best = ROUTE_SCORE_NO_LINK;
-  let chosen = -1;
-  for (let s = 3; s >= 0; s--) {
-    const score = routeScores[s];
-    if (score < ROUTE_SCORE_PREV2 || score < best) continue;
-    if (score === best && randInt(state, 2) !== 0) continue;
-    best = score;
-    chosen = s;
-  }
-  return chosen < 0 ? -1 : g.edges[from * 4 + chosen];
-}
-
-/** Per-candidate scores of the step chooser (module scratch, no allocation). */
-const routeScores = new Int32Array(4);
-
-/**
- * How many route followers on the same net are already heading to `node` (the
- * original's occupancy nibble, saturating at 15). Each team's units walk their
- * own net, so only the follower's own team counts.
- */
-function occupancy(state: SimState, id: number, node: number): number {
-  const ent = state.ent;
-  const team = ent.team[id];
-  let n = 0;
-  for (let t = 0; t < ent.high; t++) {
-    if (!ent.alive[t] || t === id || ent.team[t] !== team) continue;
-    if (!isGroundUnit(ent.archetype[t]) || ent.timerA[t] !== node) continue;
-    if (++n === 15) break;
-  }
-  return n;
-}
-
-/**
- * The SEEK_TEAM search: the nearest live enemy-team actor within
- * ROUTE_SEEK_RANGE (horizontal), in dense id order (`cact_find_target`, mode
- * NEAREST, no cone, no line of sight). Projectiles and Metropolis' outpost
- * consoles are not actors of the original; a cloaked avatar is skipped as the
- * original's searches skip it (fcop-fidelity.md P7). -1 for none.
- */
-function seekTarget(state: SimState, id: number): number {
-  const ent = state.ent;
-  const team = ent.team[id];
-  const x = ent.posX[id];
-  const y = ent.posY[id];
-  let hidden0 = -1;
-  let hidden1 = -1;
-  if (state.buffInvis.length > 0) {
-    if (state.buffInvis[0] > 0) hidden0 = state.avatarId[0];
-    if (state.buffInvis[1] > 0) hidden1 = state.avatarId[1];
-  }
-  let best = -1;
-  let bestD2 = ROUTE_SEEK_RANGE * ROUTE_SEEK_RANGE;
-  for (let t = 0; t < ent.high; t++) {
-    if (!ent.alive[t] || t === id || t === hidden0 || t === hidden1) continue;
-    const tt = ent.team[t];
-    if (tt === team || tt === TEAM_NEUTRAL) continue;
-    const a = ent.archetype[t];
-    if (a === ARCHETYPE.PROJECTILE || a === ARCHETYPE.CONSOLE) continue;
-    const dx = ent.posX[t] - x;
-    const dy = ent.posY[t] - y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      best = t;
-    }
-  }
-  return best;
-}
-
-/**
- * The original's answer to "something came close" (`cnet_route_near_actor`,
- * retail 0x004248f0; fcop-re/ai-and-rules.md §4): it decides how fast, never
- * where. The follower reacts to its single nearest neighbour (the pair test's)
- * whose gap — centre distance less both radii — is under ROUTE_NEAR_GAP, within
- * ROUTE_NEAR_RISE vertically and inside the ROUTE_CONE_COS cone ahead:
- * - another route follower: on the same net heading for the same node, the one
- *   with more of its leg left yields; for another node, it yields only if the
- *   other comes from where it is going (else its hold is released). Yielding
- *   is half the other's speed, capped at its own top, for ROUTE_HOLD_TICKS, and
- *   releases the other's hold (the deadlock breaker). The other net (the enemy
- *   team's) always yields.
- * - anything else: within ROUTE_NEAR_BLOCK dead ahead it stops; otherwise half
- *   its own speed plus a quarter of the top, for ROUTE_HOLD_TICKS.
- * The Juggernaut (the Dreadnought's route flag 0x8, CNET_ROUTE_NO_TRAFFIC)
- * does not react at all. Aircraft sit far outside the vertical band.
- */
-function routeTraffic(state: SimState, id: number, hx: number, hy: number): void {
-  const ent = state.ent;
-  const x = ent.posX[id];
-  const y = ent.posY[id];
-  const h = ent.height[id];
-  const r = entityRadius(state, id);
-  let near = -1;
-  let nearGap = ROUTE_NEAR_GAP;
-  for (let t = 0; t < ent.high; t++) {
-    if (!ent.alive[t] || t === id) continue;
-    const a = ent.archetype[t];
-    if (a === ARCHETYPE.PROJECTILE || a === ARCHETYPE.CONSOLE) continue;
-    const dz = ent.height[t] - h;
-    if (dz > ROUTE_NEAR_RISE || dz < -ROUTE_NEAR_RISE) continue;
-    const dx = ent.posX[t] - x;
-    const dy = ent.posY[t] - y;
-    const gap = Math.sqrt(dx * dx + dy * dy) - r - entityRadius(state, t);
-    if (gap < nearGap) {
-      nearGap = gap;
-      near = t;
-    }
-  }
-  if (near < 0) return;
-  const dx = ent.posX[near] - x;
-  const dy = ent.posY[near] - y;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len >= ROUTE_NEAR_MIN_LEN && (dx * hx + dy * hy) / len <= ROUTE_CONE_COS) return;
-
-  const top = ROUTE_TOP_SPEED;
-  if (isGroundUnit(ent.archetype[near]) && followsRoutes(state)) {
-    let yieldNow = true;
-    if (ent.team[near] === ent.team[id]) {
-      const node = ent.timerA[id];
-      if (ent.timerA[near] === node) {
-        yieldNow = legLeft(state, near) < legLeft(state, id);
-      } else if (ent.cooldownB[near] !== node) {
-        ent.timerB[id] = 1; // not in each other's way: release the hold
-        return;
-      }
-    }
-    if (!yieldNow) return;
-    const other = Math.sqrt(ent.velX[near] * ent.velX[near] + ent.velY[near] * ent.velY[near]);
-    ent.aimX[id] = Math.min(other * 0.5, top);
-    ent.timerB[id] = ROUTE_HOLD_TICKS;
-    if (ent.timerB[near] > 0 && ent.archetype[near] !== ARCHETYPE.JUGGERNAUT) ent.timerB[near] = 1;
-    return;
-  }
-  if (len < ROUTE_NEAR_BLOCK) {
-    ent.aimX[id] = 0;
-  } else {
-    const own = Math.sqrt(ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id]);
-    ent.aimX[id] = own * 0.5 + top * 0.25;
-  }
-  ent.timerB[id] = ROUTE_HOLD_TICKS;
-}
-
-/** Metres left of a follower's current leg (to its target node). */
-function legLeft(state: SimState, id: number): number {
-  const g = state.map.laneGraph;
-  const node = state.ent.timerA[id];
-  if (g === undefined || node < 0) return 0;
-  const dx = g.nodes[node].x - state.ent.posX[id];
-  const dy = g.nodes[node].y - state.ent.posY[id];
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-/**
- * A route follower's tick (`cnet_route_tick`, retail 0x004402a0): the hold
- * clock, the traffic reaction, then the walk. The walk is along the leg itself —
- * a leg is complete when the distance travelled reaches it, with no arrival
- * radius, and an overshoot carries into the next leg — so a follower is on the
- * original's road at every tick and neither walls nor a separation push move
- * it (the original's route followers collide with neither; the arena pipeline
- * opened every road's wall bits). Acceleration is the original's full speed in
- * one engine tick, so the commanded speed is the speed.
- *
- * Not modelled: the corner window's heading blend and inward cut (position on
- * the straight leg, heading snapped at the node), and the look-ahead (the
- * original chooses the next node when a leg starts; this chooses on arrival).
- */
-function moveRouteFollower(state: SimState, id: number): void {
-  const ent = state.ent;
-  const g = state.map.laneGraph;
-  if (g === undefined) return;
-
-  // The hold clock: when it runs out the commanded speed is the top again.
-  if (ent.timerB[id] > 0) {
-    ent.timerB[id] -= 1;
-    if (ent.timerB[id] <= 0) {
-      ent.timerB[id] = 0;
-      ent.aimX[id] = ROUTE_TOP_SPEED;
-    }
-  }
-
-  let node = ent.timerA[id];
-  if (node < 0) {
-    halt(ent, id);
-    snapUnitHeight(state, id, false);
-    return;
-  }
-  let nd = g.nodes[node];
-  let dx = nd.x - ent.posX[id];
-  let dy = nd.y - ent.posY[id];
-  let d = Math.sqrt(dx * dx + dy * dy);
-  let hx = d > 1e-6 ? dx / d : cosLUT(ent.yaw[id]);
-  let hy = d > 1e-6 ? dy / d : sinLUT(ent.yaw[id]);
-  if (ent.archetype[id] !== ARCHETYPE.JUGGERNAUT) routeTraffic(state, id, hx, hy);
-
-  const speed = ent.aimX[id];
-  let travel = speed * TICK_DT;
-  // Arrival is a loop: an overshoot walks on into the next leg.
-  for (let guard = 0; guard < 8 && travel >= d; guard++) {
-    travel -= d;
-    ent.posX[id] = nd.x;
-    ent.posY[id] = nd.y;
-    if (nd.layer !== ent.entLayer[id]) {
-      // Deck roads (issue #33): the node is on the surface the road is on.
-      ent.height[id] = resolveHeight(state.map, nd.x, nd.y, nd.layer);
-      ent.entLayer[id] = nd.layer;
-    }
-    const next = chooseNext(state, id, node);
-    ent.ammoB[id] = ent.cooldownB[id] + 1;
-    ent.cooldownB[id] = node;
-    ent.timerA[id] = next;
-    if (next < 0) {
-      halt(ent, id);
-      snapUnitHeight(state, id, false);
-      return;
-    }
-    node = next;
-    nd = g.nodes[node];
-    dx = nd.x - ent.posX[id];
-    dy = nd.y - ent.posY[id];
-    d = Math.sqrt(dx * dx + dy * dy);
-    if (d > 1e-6) {
-      hx = dx / d;
-      hy = dy / d;
-    }
-  }
-  if (travel > 0 && d > 1e-6) {
-    ent.posX[id] += hx * travel;
-    ent.posY[id] += hy * travel;
-  }
-  ent.velX[id] = hx * speed;
-  ent.velY[id] = hy * speed;
-  ent.yaw[id] = atan2Poly(hy, hx);
-  ent.animState[id] = speed > 0 ? ANIM_MOVING : 0;
-  snapUnitHeight(state, id, false);
-}
-
-function halt(ent: SimState["ent"], id: number): void {
-  ent.velX[id] = 0;
-  ent.velY[id] = 0;
-  ent.animState[id] = 0;
-}
-
-/**
- * Starts a ground unit on its team's road: `start` is the node it walks to
- * first (the entry node, or for an outpost spawn the nearest node of its own
- * net). From the production console that first leg is a straight walk to the
- * node, as before.
- */
-export function startRoute(state: SimState, id: number, start: number): void {
-  const ent = state.ent;
-  ent.timerA[id] = start;
-  ent.cooldownB[id] = -1;
-  ent.ammoB[id] = 0;
-  ent.timerB[id] = 0;
-  ent.aimX[id] = ROUTE_TOP_SPEED;
 }
 
 /**
@@ -1328,7 +1001,7 @@ export function startRoute(state: SimState, id: number, start: number): void {
  * It drives at the original's speed and, like the original's route follower,
  * never stops to fight: its guns fire on the move (SIM_VERSION 52; until then
  * anything hostile in its reach halted it, rules.md §4's Metropolis rule). On an
- * arena with the graph the unit is a route follower instead (moveRouteFollower).
+ * arena with the graph the unit is a route follower instead (route.ts routeTick).
  */
 function moveGroundUnit(state: SimState, id: number, speed: number): void {
   const ent = state.ent;

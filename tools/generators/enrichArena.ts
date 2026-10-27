@@ -201,6 +201,7 @@ interface Logic {
       x: number;
       z: number;
       neighbours: number[];
+      state: number;
       groundCast: number;
       groundY: number | null;
     }[];
@@ -1482,10 +1483,47 @@ function unitProfiles(
 
 interface Graph {
   nodes: { x: number; z: number; layer: number }[];
+  /** Per node, its links in the engine's order (engineLinkOrder). */
   edges: number[][];
   nextHopA: number[][];
   nextHopB: number[][];
   entry: number[];
+  /** Per node, its height in node units (cnetNodeHeight). */
+  heights: number[];
+  /** The nodes whose state carries the script bit, ascending. */
+  closed: number[];
+  /** The merged index of each imported net's node 0. */
+  netStart: number[];
+}
+
+/**
+ * A node's links in the order the step chooser considers them
+ * (`cnet_route_next` 0x00440f70, 0x0044104c..0x00441077): the first word's
+ * bits 22-31, 12-21 and 2-11, then the second word's bits 6-15. The RE's
+ * extractor (`extract_logic.py` parse_net) lists the first word's fields from
+ * the bottom up, skipping empty ones, then the second word's. In every node of
+ * the six Precinct Assault arenas' Cnets (2,618, read from the shipped
+ * containers' node words) the links fill the fields from the engine's first
+ * without a gap — 2,346 nodes one link, 262 two, 9 three, Hk's one node four —
+ * so the engine's order is the first word's run reversed, then the rest.
+ */
+export function engineLinkOrder(neighbours: readonly number[]): number[] {
+  const links = neighbours.filter((v) => v >= 0);
+  const first = links.slice(0, 3).reverse();
+  const out = [...first, ...links.slice(3)];
+  while (out.length < 4) out.push(-1);
+  return out;
+}
+
+/**
+ * A node's height as `cnet_load` (0x00441900) stores it at node +8, node units:
+ * `(terrain_height_at + 0x7f) >> 8` over the shipped plates by the node's
+ * height mode, which gen:palogic carries as `groundY` (metres, to 1e-4, so
+ * world units come back exact); a node over no plate stands at 0.
+ */
+export function cnetNodeHeight(groundY: number | null): number {
+  const wu = groundY === null ? 0 : Math.round(groundY * 8192);
+  return (wu + 0x7f) >> 8;
 }
 
 /**
@@ -1517,22 +1555,29 @@ function buildGraph(
 ): Graph {
   const nodes: { x: number; z: number; layer: number }[] = [];
   const edges: number[][] = [];
+  const heights: number[] = [];
+  const closed: number[] = [];
+  const netStart: number[] = [];
   const offsetOf = new Map<number, number>();
 
   for (const net of ownedNets(logic, teamNet)) {
     offsetOf.set(net.netId, nodes.length);
     const base = nodes.length;
+    netStart.push(base);
     for (const n of net.nodes) {
       const x = round4(sx(n.x));
       const z = round4(sz(n.z));
+      // The script bit, bit 1 of the node's state (CNET_NODE_STATE_SCRIPT).
+      if ((n.state & 2) !== 0) closed.push(nodes.length);
       nodes.push({
         x,
         z,
         layer: layerAtHeight(terrain, x, z, n.groundY),
       });
+      heights.push(cnetNodeHeight(n.groundY));
     }
     for (const n of net.nodes) {
-      edges.push(n.neighbours.map((nb) => (nb < 0 ? -1 : base + nb)));
+      edges.push(engineLinkOrder(n.neighbours).map((nb) => (nb < 0 ? -1 : base + nb)));
     }
   }
 
@@ -1609,7 +1654,7 @@ function buildGraph(
     }
   }
 
-  return { nodes, edges, nextHopA, nextHopB, entry };
+  return { nodes, edges, nextHopA, nextHopB, entry, heights, closed, netStart };
 }
 
 /** Walks the committed signposts into a plain polyline, for `lanes`. */
@@ -2788,6 +2833,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       nextHopA: graph.nextHopA,
       nextHopB: graph.nextHopB,
       entry: graph.entry,
+      heights: graph.heights,
+      closed: graph.closed,
+      netStart: graph.netStart,
     },
     pickups,
     triggerVolumes,
