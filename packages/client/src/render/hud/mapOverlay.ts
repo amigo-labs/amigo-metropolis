@@ -50,6 +50,8 @@ import { SIDE_BLUE, SIDE_RED, sideOfTeam } from "../sides";
 import { drawChar, hudFont } from "./bitmapText";
 import { markerOf, outpostSidesOf, standsAt } from "./radar";
 
+/** World units a metre: the unit boxes' (gen:presentation `unitBoxes`). */
+const WU = 8192;
 /** The player's arrow: reach and box tripled (PAUSE_MAP_PLAYER_SCALE). */
 const PLAYER_SCALE = 3;
 /** The "P" label's offset, 640 x 480 px: PAUSE_MAP_LABEL_OFFSET 4 in 320 x 240. */
@@ -406,11 +408,11 @@ export function createMapOverlay(mapId: string, parent: HTMLElement = document.b
         // A map with no original (the test maps): its footprint radius, a box
         // as long as it is wide.
         const r = ARCHETYPE_RADIUS[archetype] ?? 0.5;
-        const cx = b ? b[0] : 0;
-        const cz = b ? b[1] : 0;
-        const lx = (b ? b[2] : r) * scale;
-        const lz = (b ? b[3] : r) * scale;
-        const reach = (b ? b[4] : r) * scale * pps;
+        const cx = b ? b[0] / WU : 0;
+        const cz = b ? b[1] / WU : 0;
+        const lx = (b ? b[2] / WU : r) * scale;
+        const lz = (b ? b[3] / WU : r) * scale;
+        const reach = (b ? b[4] / WU : r) * scale * pps;
         const px = (snapshot[o + 3] - x0) * pps;
         const py = (snapshot[o + 4] - y0) * pps;
         if (px < -reach || py < -reach || px > vw + reach || py > vh + reach) continue;

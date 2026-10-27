@@ -346,7 +346,7 @@ interface ArenaOut {
 
 /** A 3DBB box as the arrow reads it: centre x and z, half x and z, metres. */
 type Box = [number, number, number, number];
-/** An entity's arrow box and the window test's reach (`radius_68`), metres. */
+/** An entity's arrow box and the window test's reach (`radius_68`), world units (1/8192 m). */
 type ReachBox = [number, number, number, number, number];
 
 /**
@@ -395,13 +395,7 @@ export function x1ShapeBox(box: readonly number[], progress: number): ReachBox {
   const bandCentre = (-(358 * progress) >> 17) + 0x126;
   const sum = bandCentre * bandCentre + longZ * longZ + wideX * wideX;
   const radius = sqrt1616(sum >> 8);
-  return [
-    round4(cx / 512),
-    round4(walkZ / 512),
-    round4(wideX / 512),
-    round4(longZ / 512),
-    round4(radius / 8192),
-  ];
+  return [cx * 16, walkZ * 16, wideX * 16, longZ * 16, radius];
 }
 
 function unitBoxesOf(mission: string): UnitBoxes {
@@ -423,16 +417,7 @@ function unitBoxesOf(mission: string): UnitBoxes {
     if (!t) throw new Error(`${mission}: no 3DBB table for Cobj ${cobj}`);
     const frames = t.boxes
       .slice(0, t.frames)
-      .map(
-        (e) =>
-          [
-            round4(e[0] / 512),
-            round4(e[2] / 512),
-            round4(e[3] / 512),
-            round4(e[5] / 512),
-            round4(e[6] / 512),
-          ] as ReachBox,
-      );
+      .map((e) => [e[0] * 16, e[2] * 16, e[3] * 16, e[5] * 16, e[6] * 16] as ReachBox);
     const alike = frames.every((f) => f.every((v, i) => v === frames[0][i]));
     return alike ? [frames[0]] : frames;
   };
@@ -904,7 +889,7 @@ export interface ArenaPresentation {
    * The entities' arrow boxes (pause_map_draw_actor 0x004516e0): box 0 of the
    * actor's model by frame (one where all are alike) and its reach \`radius_68\`
    * (the box's +0x0c << 4, 0x004297e0), [centre x, centre z, half x, half z,
-   * reach] metres. A turret's model is its gun, the Dreadnought's its hull,
+   * reach] world units. A turret's model is its gun, the Dreadnought's its hull,
    * the captain's by level. The X1-Alphas' are the view's shape block
    * (player_transform_shape 0x00441cf0) on the legs: [the walker's (frame 0,
    * progress 0), the hover's (frame 359, 0x10000)]. Absent on a map with no
@@ -922,7 +907,7 @@ export interface ArenaPresentation {
   };
 }
 
-/** [centre x, centre z, half x, half z, reach], metres. */
+/** [centre x, centre z, half x, half z, reach], world units (1/8192 m). */
 export type ReachBox = readonly [number, number, number, number, number];
 
 export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = ${j(arenas)} as unknown as Readonly<Record<string, ArenaPresentation>>;

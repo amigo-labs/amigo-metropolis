@@ -106,9 +106,9 @@ describe("the entities' boxes (gen:presentation unitBoxes)", () => {
 
   test("units stand on box 0 of their model, reach its radius_68 (Mp Cobj 30: 483)", () => {
     const tank = unitBox(units, ARCHETYPE.RUNNER, 0, false, 0);
-    expect(tank?.[4]).toBeCloseTo(483 / 512, 4);
-    // Cobj 30's box: centre z 138, halves 268 x 389, 1/512 m.
-    expect(tank?.slice(0, 4)).toEqual([0, 0.2695, 0.5234, 0.7598]);
+    expect(tank?.[4]).toBe(483 * 16);
+    // Cobj 30's box: centre z 138, halves 268 x 389, 1/512 m, in world units.
+    expect(tank?.slice(0, 4)).toEqual([0, 138 * 16, 268 * 16, 389 * 16]);
     expect(unitBox(units, ARCHETYPE.TURRET, TURRET_CAPTURABLE, false, 0)).toBe(
       units?.neutralTurret[0][0],
     );
@@ -127,9 +127,9 @@ describe("the entities' boxes (gen:presentation unitBoxes)", () => {
     // The walker, progress 0, legs Cobj 15 frame 0: the box's own halves 132 x
     // 164 and centre z 16; the radius 16 * sqrt(0x126^2 + 164^2 + 132^2) wu.
     const walker = unitBox(units, ARCHETYPE.AVATAR, 0, false, 0);
-    expect(walker?.slice(0, 4)).toEqual([0, 0.0313, 0.2578, 0.3203]);
+    expect(walker?.slice(0, 4)).toEqual([0, 16 * 16, 132 * 16, 164 * 16]);
     const r = Math.floor(Math.sqrt(((0x126 * 0x126 + 164 * 164 + 132 * 132) >> 8) * 65536));
-    expect(walker?.[4]).toBeCloseTo(r / 8192, 4);
+    expect(walker?.[4]).toBe(r);
     // The hover: half x a quarter wider, half z doubled, the centre a half z on.
     const hover = unitBox(units, ARCHETYPE.AVATAR, 0, true, 0);
     expect(hover).not.toEqual(walker);
