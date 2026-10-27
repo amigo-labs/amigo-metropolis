@@ -5,7 +5,7 @@
 > "Not modelled", "Could not establish" and "waits on RE" in
 > `docs/specs/fcop-fidelity.md` on `main` fd89483. Each item names its ledger row;
 > the row stays the record, this list only orders the work.
-> **Worked through 2026-10-26/27** (amigo-metropolis#74, SIM_VERSION 105-114;
+> **Worked through 2026-10-26/27** (amigo-metropolis#74, SIM_VERSION 105-116;
 > fcop-reverse-engineering#88, RE M3-OU, OV, OW, OZ, PA, PB): every item of
 > groups 1 and 2 is done or answered from the binary; what remains is listed under
 > "Kept" at the end and in group 3.
