@@ -546,8 +546,10 @@ export interface ArenaUnitModelSpec {
  * another mission's units.
  *
  * The treatment is the role's (`gen:paunits` names it):
- * - `unit` (tank, jet, Flying Fortress, Sky Captain): grounded and XZ-centred
- *   like every unit before, FX attachments dropped;
+ * - `unit` (tank, jet, Flying Fortress, Sky Captain): the original's own
+ *   origin kept, which is the sim's position (the route cursor's height, the
+ *   flight's), FX attachments dropped; until the tilt follow-up grounded and
+ *   XZ-centred like every unit before;
  * - `part` (a turret's gun and base, the Dreadnought's hull and guns): the
  *   original's own origin kept, because the gun stands on the base's attach
  *   point 0, the Dreadnought's guns on the hull's attach points 0-3, and each

@@ -295,8 +295,9 @@ describe("hit radii follow the models each arena draws", () => {
 // Each arena's own units (fcop-fidelity.md G1): the files gen:paunits names in
 // arenaUnits.generated.ts, built by gen:units. Same one-mesh / one-material
 // contract; the size is the raw's own, measured over what the pipeline keeps
-// (FX attachments go), and a `part` keeps the raw's origin and bounds exactly,
-// because its attach points and its pivot are measured in that frame.
+// (FX attachments go), and every file keeps the raw's origin and bounds
+// exactly: a `part` because its attach points and its pivot are measured in
+// that frame, a `unit` because its origin is the sim's position.
 describe("committed arena unit models match the table", () => {
   for (const spec of ARENA_UNIT_MODELS) {
     test(spec.file, async () => {
@@ -325,24 +326,15 @@ describe("committed arena unit models match the table", () => {
       expect(tris).toBeGreaterThan(0);
       expect(tris).toBeLessThanOrEqual(spec.maxTris);
       expect(tris).toBe(kept.tris);
-      if (spec.treatment === "part") {
-        // Origin and bounds are the raw's, triangle for triangle.
-        for (const axis of [0, 1, 2]) {
-          expect(Math.abs(out.min[axis] - kept.min[axis])).toBeLessThanOrEqual(0.002);
-          expect(Math.abs(out.max[axis] - kept.max[axis])).toBeLessThanOrEqual(0.002);
-        }
-      } else {
-        // The body grounded and centred, at the raw's own size.
-        expect(Math.abs(out.min[1])).toBeLessThanOrEqual(0.02);
-        expect(Math.abs(out.min[0] + out.max[0])).toBeLessThanOrEqual(0.04);
-        expect(Math.abs(out.min[2] + out.max[2])).toBeLessThanOrEqual(0.04);
-        // A skinned raw (Joke's jet) holds its bind pose; gen:units bakes its
-        // frame 0, so its vertices are not the raw's to measure against.
-        if (rawRoot.listSkins().length > 0) return;
-        for (const axis of [0, 1, 2]) {
-          const size = out.max[axis] - out.min[axis];
-          expect(Math.abs(size - (kept.max[axis] - kept.min[axis]))).toBeLessThanOrEqual(0.002);
-        }
+      // Every arena unit keeps the raw's origin and bounds, triangle for
+      // triangle: a part's attach points and pivot are measured there, and a
+      // unit's origin is the sim's position. A skinned raw (Joke's jet) holds
+      // its bind pose; gen:units bakes its frame 0, so its vertices are not the
+      // raw's to measure against.
+      if (rawRoot.listSkins().length > 0) return;
+      for (const axis of [0, 1, 2]) {
+        expect(Math.abs(out.min[axis] - kept.min[axis])).toBeLessThanOrEqual(0.002);
+        expect(Math.abs(out.max[axis] - kept.max[axis])).toBeLessThanOrEqual(0.002);
       }
     });
   }

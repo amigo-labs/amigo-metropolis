@@ -1102,7 +1102,6 @@ let timeScale = 1;
 const scratchQuat = new THREE.Quaternion();
 const scratchPitch = new THREE.Quaternion();
 const scratchPos = new THREE.Vector3();
-const scratchLift = new THREE.Vector3();
 const scratchScale = new THREE.Vector3(1, 1, 1);
 const UP = new THREE.Vector3(0, 1, 0);
 /**
@@ -2100,24 +2099,17 @@ function renderEntities(alpha: number, simDtSec: number): void {
       scratchPos.set(x, height, y);
       scratchQuat.setFromAxisAngle(UP, -yaw);
       // A route follower's hull and an aircraft turn by their matrix: the
-      // slope's pitch, the bank, the crash's tumble (render/tilt.ts).
-      if (
-        tiltQuat(
-          tiltPrev,
-          tiltCurr,
-          id,
-          alpha,
-          hasPrev && snapPrev[po + 1] === archetype,
-          scratchQuat,
-        ) &&
-        archetype === ARCHETYPE.RUNNER
-      ) {
-        // The tank's position is its model's origin (the route cursor's
-        // height); the mesh is drawn grounded, its origin `ly` above its base.
-        const lift = map.shapes.tank;
-        if (lift !== null)
-          scratchPos.sub(scratchLift.set(0, lift.ly, 0).applyQuaternion(scratchQuat));
-      }
+      // slope's pitch, the bank, the crash's tumble (render/tilt.ts). Every
+      // arena unit's mesh keeps its model's origin (gen:units), which is the
+      // sim's position: no lift to take off.
+      tiltQuat(
+        tiltPrev,
+        tiltCurr,
+        id,
+        alpha,
+        hasPrev && snapPrev[po + 1] === archetype,
+        scratchQuat,
+      );
       // A shell points where it is going, in the vertical too. The snapshot
       // carries no vertical velocity, but the two ticks being interpolated
       // between do: rise over run across that step IS the flight angle. Costs
