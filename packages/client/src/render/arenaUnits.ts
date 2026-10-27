@@ -59,8 +59,9 @@ import {
   UNIT_MODEL_FILES,
   type UnitMorph,
 } from "./arenaUnits.generated";
+import { createHitAttribute, isHit, writeHit } from "./damaged";
 import { type FacerSet, parseFacers, registerFacers } from "./facers";
-import { materialList, materialMap } from "./fcopModel";
+import { HIT_ATTRIBUTE, materialList, materialMap } from "./fcopModel";
 import type { Bucket, GreyboxMeshes } from "./greybox";
 import { SIDE_RAMPS } from "./palette";
 import { BAKED_TURN, recordYaw, yawTurn } from "./recordYaw";
@@ -495,6 +496,7 @@ function colour(bucket: Bucket, binding: UvBinding | undefined, slot: number, te
 function wrapGeometry(
   source: THREE.BufferGeometry,
   attr: THREE.InstancedBufferAttribute,
+  hit: THREE.InstancedBufferAttribute,
 ): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   for (const name of Object.keys(source.attributes)) g.setAttribute(name, source.attributes[name]);
@@ -504,6 +506,8 @@ function wrapGeometry(
   g.morphAttributes = source.morphAttributes;
   g.morphTargetsRelative = source.morphTargetsRelative;
   g.setAttribute(TEAM_UV_ATTR, attr);
+  // Its per-instance CACT_FLAG_DAMAGED (render/damaged.ts).
+  g.setAttribute(HIT_ATTRIBUTE, hit);
   return g;
 }
 
@@ -584,6 +588,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
   const tracks = new TrackClock();
   /** Per bucket, the wrapped geometry of every file it has shown. */
   const wrapped = new Map<Bucket, Map<string, THREE.BufferGeometry>>();
+  /** Per bucket, its instances' hit flags (render/damaged.ts), shared by its files. */
+  const hits = new Map<Bucket, THREE.InstancedBufferAttribute>();
 
   function swap(bucket: Bucket, file: string, uv: SideUv, cancelled: () => boolean): Promise<void> {
     return assetOf(file).then(
@@ -603,9 +609,14 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
             byFile = new Map();
             wrapped.set(bucket, byFile);
           }
+          let hit = hits.get(bucket);
+          if (!hit) {
+            hit = createHitAttribute(bucket.tintCache.length);
+            hits.set(bucket, hit);
+          }
           let geometry = byFile.get(file);
           if (!geometry) {
-            geometry = wrapGeometry(asset.geometry, attr);
+            geometry = wrapGeometry(asset.geometry, attr, hit);
             byFile.set(file, geometry);
           }
           bucket.mesh.geometry = geometry;
@@ -807,6 +818,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
           scratchMatrix.compose(pos, scratchRest, scale);
           set.base.mesh.setMatrixAt(baseSlot, scratchMatrix);
           colour(set.base, bindings.get(set.base), baseSlot, team);
+          // The parts take their owner's damaged flag (RE turret.c 674-690).
+          writeHit(set.base.mesh, baseSlot, isHit(id));
         }
         scratchAt.copy(set.point).multiply(scale).applyQuaternion(scratchRest).add(pos);
         // And pitches there, about its own origin (fcop-fidelity.md G12).
@@ -816,6 +829,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       }
       bucket.mesh.setMatrixAt(slot, scratchMatrix);
       colour(bucket, bindings.get(bucket), slot, team);
+      // Red the frame after a hit: the damaged arms (render/damaged.ts).
+      writeHit(bucket.mesh, slot, isHit(id));
       const morph = morphs.get(bucket);
       let frame = 0;
       if (morph) {
@@ -845,6 +860,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
             gunMatrix(scratchMatrix, scratchGunPoint, guns[i], scratchGunOut),
           );
           colour(gb, bindings.get(gb), gs, team);
+          // A mount takes its hull's damaged flag (RE mount.c 0x0042580a).
+          writeHit(gb.mesh, gs, isHit(id));
         }
       }
     },

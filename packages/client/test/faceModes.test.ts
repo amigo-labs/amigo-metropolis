@@ -109,7 +109,8 @@ describe("a face's draw mode is its material's", () => {
     expect(add.color.g).toBeCloseTo((0x59 * 2) / 255, 6);
     expect(add.color.b).toBeCloseTo(2, 6);
     const fragment = patched(add);
-    expect(fragment).toContain("sRGBTransferOETF( fcopTexel ).rgb * diffuse");
+    expect(fragment).toContain("sRGBTransferOETF( fcopTexel ).rgb * fcopTint");
+    expect(fragment).toContain("vec3 fcopTint = diffuse;");
     expect(fragment).toContain("diffuseColor.a = 1.0;");
     expect(fragment).toContain("gl_FragColor.rgb *= 1.0 - fcopFog;");
   });

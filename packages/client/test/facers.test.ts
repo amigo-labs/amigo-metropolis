@@ -394,3 +394,59 @@ describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star", 
     }
   });
 });
+
+describe("the damaged arms on a facer (0x00428ff0)", () => {
+  test("an add facer's tint loses half its green and blue; a star keeps its colours", () => {
+    const set = parseFacers({
+      fcop: {
+        frames: 1,
+        facers: [
+          {
+            kind: "line",
+            mode: "add",
+            rgb: [128, 100, 64],
+            uv: [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+            ],
+            texture: 0,
+            from: [[0, 0, 0]],
+            to: [[0, 1, 0]],
+            half: [[0.1, 0.1]],
+          },
+          {
+            kind: "line",
+            mode: "half",
+            rgb: [128, 128, 128],
+            uv: [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+            ],
+            texture: 0,
+            from: [[0, 0, 0]],
+            to: [[0, 1, 0]],
+            half: [[0.1, 0.1]],
+          },
+          {
+            kind: "star",
+            at: [[0, 0, 0]],
+            radius: [1],
+            centre_rgb: [128, 106, 56],
+            rim_rgb: [0, 0, 0],
+            wedge_cap: 8,
+          },
+        ],
+      },
+    });
+    const [add, grey, star] = set?.facers ?? [];
+    expect([...add.hitColour]).toEqual([...Float32Array.of(256 / 255, 100 / 255, 64 / 255)]);
+    // Material 0 grey 0x80: (g, g >> 1, g >> 1) doubled, a colour now.
+    expect([...grey.colour]).toEqual([1, 1, 1]);
+    expect([...grey.hitColour]).toEqual([...Float32Array.of(1, 128 / 255, 128 / 255)]);
+    expect([...star.hitColour]).toEqual([...star.colour]);
+  });
+});

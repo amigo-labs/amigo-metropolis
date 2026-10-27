@@ -61,7 +61,7 @@ import {
   TURN,
   WORLD_UNITS_PER_METRE,
 } from "../../effects/records";
-import { LIGHT_ATTRIBUTE } from "../fcopModel";
+import { HIT_ATTRIBUTE, LIGHT_ATTRIBUTE } from "../fcopModel";
 import { TEAM_UV_ATTR, TEAM_UV_MASK } from "../teamUv";
 import { type FxPoses, POSE_STRIDE, prepareMesh } from "./common";
 import {
@@ -264,6 +264,10 @@ export class Shatter {
         attr.setUsage(THREE.DynamicDrawUsage);
         geometry.setAttribute(name, attr);
       }
+      // The unit's materials read a hit flag (render/damaged.ts): a face that
+      // has left the model is drawn undamaged. Not read: the flag the
+      // original's flying faces are submitted with.
+      geometry.setAttribute(HIT_ATTRIBUTE, new THREE.BufferAttribute(new Float32Array(n), 1));
       geometry.setDrawRange(0, 0);
       const mesh = prepareMesh(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()), scene);
       mesh.visible = false;

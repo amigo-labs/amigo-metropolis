@@ -23,7 +23,7 @@ import {
   writeAvatarSnapshot,
 } from "@metropolis/sim";
 import * as THREE from "three";
-import { buildX1Rig, placeX1 } from "../src/render/avatarRig";
+import { buildX1Rig, markX1Hit, placeX1 } from "../src/render/avatarRig";
 import { patchTeamUv, prepareTeamUvMask } from "../src/render/teamUv";
 import { X1_ANIM_HEIGHT, X1_ANIM_WIDTH } from "../src/render/x1Rig.generated";
 import { aimX1, createX1Walk, tickX1Walk, x1DrawForm } from "../src/render/x1Walk";
@@ -110,6 +110,8 @@ function frame(t: number): void {
       (t & 128) !== 0 ? (t >> 2) & 63 : -1,
       x1DrawForm(walk, 0),
     );
+    // The damaged flag, on and off as a fight sets it (render/damaged.ts).
+    markX1Hit(core, s, (t & 96) === 32);
   }
 }
 

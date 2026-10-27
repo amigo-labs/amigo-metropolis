@@ -145,6 +145,7 @@ import {
   vecMagnitudeWu,
 } from "./render/cameraShake";
 import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
+import { isHit, noteHits } from "./render/damaged";
 import { setDecalWindow } from "./render/decals";
 import {
   cellXOf,
@@ -366,6 +367,8 @@ if (params.has("debug") && !netMode) {
     } | null;
     /** Live effect instances per class (render/fx.ts). */
     metropolisFx?: () => ReturnType<typeof fx.debugCounts>;
+    /** Whether the latest step hit entity `id`: the damaged arms (render/damaged.ts). */
+    metropolisHit?: (id: number) => boolean;
     /** The world row a round was matched to (effects/rounds.ts), 0 unknown. */
     metropolisRoundRow?: (id: number) => number;
     /**
@@ -477,6 +480,7 @@ if (params.has("debug") && !netMode) {
           aimPitch: x1Walk.aimPitch[slot],
         };
   dbg.metropolisFx = () => fx.debugCounts();
+  dbg.metropolisHit = (id) => isHit(id);
   dbg.metropolisRoundRow = (id) => sounds.effects.rounds.row[id] ?? 0;
   const debugRaise = makeRaiseAt();
   dbg.metropolisFxRaise = (bank, id, x, height, z, archetype, team) => {
@@ -1805,6 +1809,8 @@ function resolveEventPosition(
 
 /** Audio + VFX share the event buffer; VFX resolves positions here. */
 function pumpCosmetics(events: typeof sim.events): void {
+  // The damaged arms: this step's hits draw red until the next (render/damaged.ts).
+  noteHits(events);
   buildAudioIndex();
   pumpShake(events);
   pumpSounds(events);
@@ -2082,6 +2088,7 @@ function renderEntities(alpha: number, simDtSec: number): void {
         known ? aimPitchModel(x1Walk.aimPitch[slot]) : 0,
         cloaked ? cloakV : -1,
         known ? x1DrawForm(x1Walk, slot) : hovering ? X1_FORM_HOVER : X1_FORM_WALKER,
+        isHit(id),
       );
     } else if (bucket) {
       const slot = bucket.count;

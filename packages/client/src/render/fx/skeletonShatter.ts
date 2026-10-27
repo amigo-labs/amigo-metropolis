@@ -44,7 +44,7 @@
 import * as THREE from "three";
 import type { RaiseAt } from "../../effects/chain";
 import { type Fx90, SHATTER_FLAT_Y, TURN, WORLD_UNITS_PER_METRE } from "../../effects/records";
-import { LIGHT_ATTRIBUTE } from "../fcopModel";
+import { HIT_ATTRIBUTE, LIGHT_ATTRIBUTE } from "../fcopModel";
 import { TEAM_UV_ATTR, TEAM_UV_MASK } from "../teamUv";
 import { prepareMesh } from "./common";
 
@@ -210,6 +210,8 @@ export class SkeletonShatter {
         attr.setUsage(THREE.DynamicDrawUsage);
         geometry.setAttribute(name, attr);
       }
+      // The pieces are never drawn damaged: the masked walk passes 0.
+      geometry.setAttribute(HIT_ATTRIBUTE, new THREE.BufferAttribute(new Float32Array(n), 1));
       geometry.setDrawRange(0, 0);
       const mesh = prepareMesh(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()), scene);
       mesh.visible = false;

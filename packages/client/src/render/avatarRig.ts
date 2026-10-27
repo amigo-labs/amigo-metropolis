@@ -48,7 +48,8 @@
 
 import * as THREE from "three";
 import { teamSide, writeX1Uv, x1Uv } from "./arenaUnits";
-import { chainPatch, materialList } from "./fcopModel";
+import { createHitAttribute } from "./damaged";
+import { chainPatch, HIT_ATTRIBUTE, materialList } from "./fcopModel";
 import type { ShatterSkeleton } from "./fx/skeletonShatter";
 import { createTeamUvAttribute, TEAM_UV_ATTR, TEAM_UV_MASK } from "./teamUv";
 import { loadUnitAsset } from "./unitMeshes";
@@ -219,6 +220,9 @@ export interface X1RigCore {
   /** Per slot: the side last written (-2 none), and the cloak's v (-1 none). */
   readonly sideCache: Int8Array;
   readonly cloakCache: Int16Array;
+  /** The per-instance damaged flag (render/damaged.ts), HIT_ATTRIBUTE. */
+  readonly hit: THREE.InstancedBufferAttribute;
+  readonly hitCache: Uint8Array;
 }
 
 /** A generator attribute under its shader name (GLTFLoader lowercases `_X1…`). */
@@ -269,6 +273,10 @@ export function buildX1Rig(
   const layers = new THREE.InstancedBufferAttribute(new Float32Array(RIG_CAPACITY * 2), 2);
   layers.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute(X1_LAYERS_ATTR, layers);
+  // The mech's and its partner's CACT_FLAG_DAMAGED, set together by
+  // `player_credit_amount` (render/damaged.ts).
+  const hit = createHitAttribute(RIG_CAPACITY);
+  geometry.setAttribute(HIT_ATTRIBUTE, hit);
   // Taken before the pose is chained on: the shatter's pieces keep the passes.
   const plain = plainMaterials(material);
   const anim = createX1AnimTexture(table);
@@ -286,6 +294,8 @@ export function buildX1Rig(
     plain,
     sideCache: new Int8Array(RIG_CAPACITY).fill(-2),
     cloakCache: new Int16Array(RIG_CAPACITY).fill(-1),
+    hit,
+    hitCache: new Uint8Array(RIG_CAPACITY),
   };
 }
 
@@ -348,6 +358,19 @@ export function placeX1(
     core.cloakCache[slot] = cloakV;
     writeX1Uv(core.mesh, slot, side, cloakV);
   }
+}
+
+/**
+ * Slot `slot`'s damaged flag (render/damaged.ts), written every call and
+ * uploaded on a change, as the masks are. Its own function: placeX1 grown
+ * past V8's inlining budget takes its doubles boxed (x1Alloc.test.ts).
+ */
+export function markX1Hit(core: X1RigCore, slot: number, hit: boolean): void {
+  const hv = hit ? 1 : 0;
+  const changed = core.hitCache[slot] !== hv;
+  core.hitCache[slot] = hv;
+  (core.hit.array as Float32Array)[slot] = hv;
+  core.hit.needsUpdate = changed;
 }
 
 const scratchUv = new Float32Array(2);
@@ -447,8 +470,9 @@ export interface AvatarRig {
    * Poses one X1 -- walker, transforming or hover alike -- by its frames
    * (render/x1Walk.ts) and the cockpit's aim, its faces gated by the layer
    * masks of its draw form (X1_FORM_*). `cloakV` is the cloak's v offset in
-   * texels, or -1. Returns false when the rig cannot take it (not loaded yet,
-   * or out of capacity): then the caller uses its bucket.
+   * texels, or -1; `hit` draws it in the damaged arms (render/damaged.ts).
+   * Returns false when the rig cannot take it (not loaded yet, or out of
+   * capacity): then the caller uses its bucket.
    */
   place(
     x: number,
@@ -462,6 +486,7 @@ export interface AvatarRig {
     aimPitch: number,
     cloakV: number,
     form: number,
+    hit?: boolean,
   ): boolean;
   /** Publishes the count and the matrices. Call after the entity sweep. */
   end(): void;
@@ -532,7 +557,7 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
     begin() {
       count = 0;
     },
-    place(x, height, y, yaw, team, legsFrame, cockpitFrame, aimYaw, aimPitch, cloakV, form) {
+    place(x, height, y, yaw, team, legsFrame, cockpitFrame, aimYaw, aimPitch, cloakV, form, hit) {
       const c = core;
       if (!c) return false;
       if (count >= RIG_CAPACITY) {
@@ -563,6 +588,7 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
         cloakV,
         form,
       );
+      markX1Hit(c, slot, hit === true);
       return true;
     },
     end() {

@@ -30,8 +30,12 @@
 // Textured facers take the face's mode — add (tint x 2 / 255, ONE / ONE),
 // half (the bit-15 texels 50/50) or opaque — and the instance's team offset,
 // which `cact_model_shade_face` adds to every (u, v) (RE model_shade.c
-// 0x00427f0d). Not reproduced: the depth sort (each at its centre's depth
-// less 0x100; here the depth buffer tests them, after the opaque scene).
+// 0x00427f0d). A billboard, rect or line of an instance hit this tick takes
+// the damaged arms as a face does (render/damaged.ts; 0x00428ff0: an add's
+// tint and a colour with green and blue `shr 1`, a grey g as (g, g >> 1,
+// g >> 1), all doubled); a star does not pass through `cact_model_shade_face`
+// and keeps its colours. Not reproduced: the depth sort (each at its centre's
+// depth less 0x100; here the depth buffer tests them, after the opaque scene).
 //
 // Renderer rules: one dynamic batch per model and blend (render/fx/ribbons.ts'
 // RibbonBuffer: preallocated, rebuilt every frame, nothing allocated once the
@@ -41,7 +45,7 @@
 // every InstancedMesh this reads hangs at the identity.
 
 import * as THREE from "three";
-import type { FaceMode } from "./fcopModel";
+import { type FaceMode, HIT_ATTRIBUTE } from "./fcopModel";
 import { FX_OUTPUT, FxView } from "./fx/common";
 import { RibbonBuffer } from "./fx/ribbons";
 import { TEAM_UV_ATTR } from "./teamUv";
@@ -68,6 +72,8 @@ export interface Facer {
   readonly uv: Float32Array | null;
   /** What the texel is multiplied by (display values): an add's tint x 2 / 255, else 1; a star's centre. */
   readonly colour: Float32Array;
+  /** The same on an instance hit this tick: the damaged arms (0x00428ff0). */
+  readonly hitColour: Float32Array;
   /** A star's rim colour, doubled. */
   readonly rim: Float32Array;
   readonly wedgeCap: number;
@@ -94,6 +100,7 @@ export interface FacerSet {
 interface RawFacer {
   kind?: string;
   mode?: string;
+  material?: number;
   rgb?: number[];
   uv?: number[][];
   texture?: number | null;
@@ -143,22 +150,36 @@ export function parseFacers(extras: unknown, turn = false): FacerSet | null {
       h[k * 2 + 1] = typeof v === "number" ? v : v[1];
     }
     const colour = new Float32Array(3);
+    const hitColour = new Float32Array(3);
     const rim = new Float32Array(3);
     if (kind === FACER_STAR) {
       doubled(f.centre_rgb, colour);
       doubled(f.rim_rgb, rim);
-    } else if (mode === "add") {
-      doubled(f.rgb, colour);
+      hitColour.set(colour);
     } else {
-      // The lighting materials are not exported: the texture drawn unlit, as
-      // every face is (render/fcopModel.ts).
-      colour.fill(1);
+      if (mode === "add") doubled(f.rgb, colour);
+      // No shipped facer is lit (RE objects.md "Face lighting"): two material-0
+      // lines at grey 0x80, which the palette arm draws at unity, the rest add.
+      else colour.fill(1);
+      damagedColour(f.material ?? (mode === "add" ? 6 : 0), f.rgb, hitColour, colour);
     }
     const textured = kind !== FACER_STAR && f.texture !== null && f.texture !== undefined && f.uv;
     const uv = textured ? Float32Array.from((f.uv ?? []).flatMap((c) => [c[0], c[1]])) : null;
     const ca = f.colour_anim;
     const anim = ca ? { speed: ca.speed, from: [...ca.from], to: [...ca.to] } : null;
-    facers.push({ kind, mode, a, b, h, uv, colour, rim, wedgeCap: f.wedge_cap ?? 4, anim });
+    facers.push({
+      kind,
+      mode,
+      a,
+      b,
+      h,
+      uv,
+      colour,
+      hitColour,
+      rim,
+      wedgeCap: f.wedge_cap ?? 4,
+      anim,
+    });
   }
   return facers.length > 0 ? { frames, facers } : null;
 }
@@ -184,6 +205,36 @@ export function colourAnimByte(anim: ColourAnim, clock: number, c: number): numb
   const from = anim.from[c];
   const span = (anim.to[c] - from + 1) * t;
   return (((span + ((span >> 31) & 0x7ff)) >> 11) + from) & 0xff;
+}
+
+/**
+ * A billboard's, rect's or line's colour through the damaged table
+ * (0x00428ff0): grey g as (g, g >> 1, g >> 1), a colour or an add's tint with
+ * green and blue `shr 1`, then doubled (mode 0x30; clamped but on an add,
+ * whose excess the walk draws in a second pass). gen:units does not carry a
+ * facer's material: an add facer is 6 and the rest are 0, the only other one
+ * shipped. A lit material (none is shipped on a facer) keeps `fallback`.
+ */
+function damagedColour(
+  material: number,
+  rgb: readonly number[] | undefined,
+  out: Float32Array,
+  fallback: Float32Array,
+): void {
+  const c = rgb ?? [0x80, 0x80, 0x80];
+  if (material === 6) {
+    doubled([c[0], c[1] >> 1, c[2] >> 1], out);
+    return;
+  }
+  // A solid face's colour, doubled and clamped (THRASH `rgb_doubled` 0x00456a49).
+  const solid = (r: number, g: number, b: number) => {
+    out[0] = Math.min(2 * r, 0xff) / 0xff;
+    out[1] = Math.min(2 * g, 0xff) / 0xff;
+    out[2] = Math.min(2 * b, 0xff) / 0xff;
+  };
+  if (material === 0) solid(c[0], c[0] >> 1, c[0] >> 1);
+  else if (material === 1) solid(c[0], c[1] >> 1, c[2] >> 1);
+  else out.set(fallback);
 }
 
 /** A colour's bytes doubled, 0x80 unity (colour mode 0x30 / 0x50). */
@@ -522,6 +573,11 @@ function drawSource(src: Source): void {
     ? (src.mesh.geometry.getAttribute(TEAM_UV_ATTR) as THREE.InstancedBufferAttribute | undefined)
     : undefined;
   const teamArray = team ? (team.array as Float32Array) : null;
+  // The instance's CACT_FLAG_DAMAGED, where its mesh carries one (render/damaged.ts).
+  const hitAttr = src.mesh.geometry.getAttribute(HIT_ATTRIBUTE) as
+    | THREE.InstancedBufferAttribute
+    | undefined;
+  const hits = hitAttr ? (hitAttr.array as Float32Array) : null;
   const count = src.mesh.count;
   const facers = src.set.facers;
   for (let i = 0; i < count; i++) {
@@ -564,14 +620,14 @@ function drawSource(src: Source): void {
       } else {
         billboardCorners(view, x0, y0, z0, h0, h1, corners);
       }
-      quad(buf, f, du, dv);
+      quad(buf, f, du, dv, hits !== null && hits[i] > 0.5);
     }
   }
 }
 
-function quad(buf: RibbonBuffer, f: Facer, du: number, dv: number): void {
+function quad(buf: RibbonBuffer, f: Facer, du: number, dv: number, hit: boolean): void {
   if (!buf.room(4, 2) || !f.uv) return;
-  const c = f.colour;
+  const c = hit ? f.hitColour : f.colour;
   const uv = f.uv;
   const base = buf.v;
   for (let k = 0; k < 4; k++) {
