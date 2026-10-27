@@ -863,7 +863,7 @@ describe("Plasma Flare (0x21, the arced shell, kept)", () => {
     expect(dealt).toBeLessThanOrEqual(250);
   });
 
-  test("powered it bursts into four at the top of its arc", () => {
+  test("powered it bursts into four at the top of its arc, and the shell flies on (0x00423e40)", () => {
     const { sim, inputs } = duel({ special: PLASMA.index }, 10);
     powerSlot(sim, PLASMA);
     inputs.players[0].buttons = BTN_SPECIAL;
@@ -874,6 +874,6 @@ describe("Plasma Flare (0x21, the arced shell, kept)", () => {
       step(sim, inputs);
       most = Math.max(most, rounds(sim, PROJ_PLASMA).length);
     }
-    expect(most).toBe(4);
+    expect(most).toBe(5);
   });
 });

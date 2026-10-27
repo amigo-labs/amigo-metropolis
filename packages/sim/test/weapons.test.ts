@@ -959,21 +959,51 @@ describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
     expect(sim.powerAmmo[0]).toBe(749);
   });
 
-  test("a powered Mortar bursts into four fragments at its apex", () => {
+  test("a powered Mortar bursts into four fragments at its apex, and the shell flies on", () => {
     const { sim, inputs } = duel({ special: 0 }, 0, 25);
     sim.powerAmmo[2] = 12;
     inputs.players[0].buttons = BTN_SPECIAL;
     step(sim, inputs);
     step(sim, inputs); // fires on the second tick held
     inputs.players[0].buttons = 0;
-    expect(projectiles(sim, PROJ_MORTAR).length).toBe(1);
-    let most = 1;
-    for (let t = 0; t < 120; t++) {
+    const [shell] = projectiles(sim, PROJ_MORTAR);
+    expect(shell).toBeDefined();
+    let fragments: number[] = [];
+    for (let t = 0; t < 120 && fragments.length === 0; t++) {
       step(sim, inputs);
-      most = Math.max(most, projectiles(sim, PROJ_MORTAR).length);
+      fragments = projectiles(sim, PROJ_MORTAR).filter((e) => e !== shell);
     }
-    expect(most).toBe(4);
+    // `cact_round_advance` 0x00423e40: four copies, and nothing kills the shell.
+    expect(fragments.length).toBe(4);
+    expect(sim.ent.alive[shell]).toBe(1);
     expect(sim.powerAmmo[2]).toBe(11);
+    // Each in its own quadrant, at most 2 m/s off the shell (0x3fff wu/s), the
+    // original's x on the sim's y and its z on the sim's x; fragment i drops
+    // i to i + 1 m/s faster (0x2000 * i plus up to 0x1fff).
+    const vx = sim.ent.velX[shell];
+    const vy = sim.ent.velY[shell];
+    const vh = sim.ent.timerB[shell];
+    fragments.sort((a, b) => a - b);
+    const quadrants = new Set<string>();
+    for (const f of fragments) {
+      const dx = sim.ent.velX[f] - vx;
+      const dy = sim.ent.velY[f] - vy;
+      const drop = vh - sim.ent.timerB[f];
+      expect(Math.abs(dx)).toBeLessThan(2);
+      expect(Math.abs(dy)).toBeLessThan(2);
+      expect(drop).toBeGreaterThanOrEqual(0);
+      expect(drop).toBeLessThan(4);
+      quadrants.add(`${Math.sign(dx)}${Math.sign(dy)}`);
+    }
+    expect(quadrants.size).toBe(4);
+    // The shell keeps falling and goes off where it lands, after its fragments.
+    let lastDeath = -1;
+    for (let t = 0; t < 200 && sim.ent.alive[shell]; t++) {
+      step(sim, inputs);
+      lastDeath = t;
+    }
+    expect(sim.ent.alive[shell]).toBe(0);
+    expect(lastDeath).toBeGreaterThan(0);
   });
 
   test("going down loses it", () => {

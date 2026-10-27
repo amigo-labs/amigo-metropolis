@@ -1292,11 +1292,21 @@ export const ARC_FREE_AIM_DISTANCE = 0x10000 / 8192;
 export const HELLFIRE_SPLIT_FAN = 0.35;
 
 /**
- * The powered Mortar's shell (kind 0x14) bursts into four kind-4 fragments at its
- * apex (player-weapons.json); how they spread was not read. Metropolis throws
- * them as a cross at this horizontal speed relative to the shell, m/s: ours.
+ * The burst of a kind-0x14 shell (the powered Mortar's and Plasma Flare's) at its
+ * apex, `cact_round_advance` 0x00423f55..0x00424069 (RE type7.c): fragment i of
+ * four (the sink runs 0, 0x2000 .. while `< 0x8000`) is a copy of the shell
+ * (kind 4) whose velocity, in world units a second, takes three draws: the
+ * original's x `+ (rand & 0x3fff) - 0x2000 + (i & 1 ? 0x2000 : -0x2000)`
+ * (0x00423fd3), its y `- ((rand & 0x1fff) + 0x2000 * i)` (0x00423ff8), its z as
+ * x on bit 1 of i (0x00424025). So each fragment flies into its own quadrant at
+ * up to 2 m/s off the shell and drops 0..1 m/s faster per i. The shell is not
+ * killed: it falls on and goes off where it lands.
  */
-export const MORTAR_FRAGMENT_SPREAD = 1.5;
+export const CLUSTER_SINK_STEP = 0x2000;
+export const CLUSTER_SINK_END = 0x8000;
+export const CLUSTER_SIDE_MASK = 0x3fff;
+export const CLUSTER_SIDE_HALF = 0x2000;
+export const CLUSTER_DOWN_MASK = 0x1fff;
 
 // Pop-Up Mines: the dropped round (`cact_round_spawn_dropped` 0x0044d6a0), the
 // bouncing round's class (`type15.c`) with a fuse (RE M3-OP). It leaves the

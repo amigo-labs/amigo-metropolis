@@ -25,6 +25,11 @@ import {
   BASE_TURRET_RESPAWN_TICKS,
   CFUN_DELTA_PER_TICK,
   CLOAK_DISARM_RADIUS,
+  CLUSTER_DOWN_MASK,
+  CLUSTER_SIDE_HALF,
+  CLUSTER_SIDE_MASK,
+  CLUSTER_SINK_END,
+  CLUSTER_SINK_STEP,
   COST_FORTRESS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -95,7 +100,6 @@ import {
   MISSILE_MIN_SPEED,
   MISSILE_ROUND_HEALTH,
   MISSILE_TURN_RATE,
-  MORTAR_FRAGMENT_SPREAD,
   MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
   NEUTRAL_TURRET_RADIUS,
@@ -5563,9 +5567,11 @@ function systemProjectiles(state: SimState): void {
       const before = ent.timerB[id];
       ent.timerB[id] -= ent.aimX[id] * TICK_DT;
       ent.height[id] += ent.timerB[id] * TICK_DT;
-      if ((flags & ROUND_CLUSTER) !== 0 && before > 0 && ent.timerB[id] <= 0) {
+      // The apex (0x00423e9c): the vertical speed was not negative and now is.
+      // The shell bursts and flies on (cact_round_advance has nothing after
+      // its burst loop, 0x0042406f).
+      if ((flags & ROUND_CLUSTER) !== 0 && before >= 0 && ent.timerB[id] < 0) {
         burstCluster(state, id);
-        continue;
       }
       // The tick's second half kills it past its range before anything sees
       // its contact: a killed round is neither reaped by its health (no blast,
@@ -5640,29 +5646,29 @@ function homingValid(state: SimState, id: number, target: number): boolean {
 }
 
 /**
- * The powered Mortar's shell bursts at its apex into four fragments of its own
- * block (kind 4, the B record's damage and blast). The spread is Metropolis' own
- * (balance.ts MORTAR_FRAGMENT_SPREAD): a cross about the shell's heading.
+ * A kind-0x14 shell's burst at its apex (`cact_round_advance` 0x00423f55..
+ * 0x00424069; balance.ts CLUSTER_*): four copies of the shell, kind 4, each
+ * pushed into its own quadrant by three PRNG draws, in world units a second
+ * (8192 a metre): the original's x is the sim's y, its z the sim's x, its y
+ * up. A fragment the store cannot hold takes no draws (0x00423f82). The shell
+ * itself is left as it was.
  */
 function burstCluster(state: SimState, id: number): void {
   const ent = state.ent;
-  const vx = ent.velX[id];
-  const vy = ent.velY[id];
-  const sp = Math.sqrt(vx * vx + vy * vy);
-  const fx = sp > 1e-6 ? vx / sp : 1;
-  const fy = sp > 1e-6 ? vy / sp : 0;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0, sink = 0; sink < CLUSTER_SINK_END; i++, sink += CLUSTER_SINK_STEP) {
     const f = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[id]);
-    if (f < 0) break;
-    // Forward, back, left, right of the heading.
-    const ax = i === 0 ? fx : i === 1 ? -fx : i === 2 ? -fy : fy;
-    const ay = i === 0 ? fy : i === 1 ? -fy : i === 2 ? fx : -fx;
+    if (f < 0) continue;
+    const sideX = (i & 1) !== 0 ? CLUSTER_SIDE_HALF : -CLUSTER_SIDE_HALF;
+    const sideZ = (i & 2) !== 0 ? CLUSTER_SIDE_HALF : -CLUSTER_SIDE_HALF;
+    const ox = (randU32(state) & CLUSTER_SIDE_MASK) - CLUSTER_SIDE_HALF + sideX;
+    const down = (randU32(state) & CLUSTER_DOWN_MASK) + sink;
+    const oz = (randU32(state) & CLUSTER_SIDE_MASK) - CLUSTER_SIDE_HALF + sideZ;
     ent.posX[f] = ent.posX[id];
     ent.posY[f] = ent.posY[id];
     ent.height[f] = ent.height[id];
-    ent.velX[f] = vx + ax * MORTAR_FRAGMENT_SPREAD;
-    ent.velY[f] = vy + ay * MORTAR_FRAGMENT_SPREAD;
-    ent.timerB[f] = 0;
+    ent.velX[f] = ent.velX[id] + oz / WU_PER_METRE;
+    ent.velY[f] = ent.velY[id] + ox / WU_PER_METRE;
+    ent.timerB[f] = ent.timerB[id] - down / WU_PER_METRE;
     ent.yaw[f] = ent.yaw[id];
     ent.hp[f] = 1;
     ent.mode[f] = ent.mode[id];
@@ -5676,7 +5682,6 @@ function burstCluster(state: SimState, id: number): void {
     // A fragment is a copy of the whole shell (0x00423f97): its owner's point too.
     for (let k = 0; k < 4; k++) state.roundLaunch[f * 4 + k] = state.roundLaunch[id * 4 + k];
   }
-  despawn(ent, id);
 }
 
 /**

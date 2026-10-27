@@ -266,7 +266,9 @@ Design pillars, in priority order:
      half-extent, the wall lattice for the terrain trace.
   2. The homing turn rate (`MISSILE_TURN_RATE`, ours: 180°/s), the Hyper
      Velocity Rocket's exact lead, the powered Hell Fire's split (three missiles
-     fanned at launch, ours) and the powered Mortar's fragment spread (ours).
+     fanned at launch, ours). ~~The powered Mortar's fragment spread (ours)~~
+     **the original's** since SIM_VERSION 109: four fragments, one per quadrant,
+     and the shell itself flies on and goes off where it lands.
   3. ~~Mines: whether an untriggered mine goes off after its 5 s lifetime~~
      **settled** (RE M3-OP, SIM_VERSION 101): it never waits. The dropped round
      goes off the tick it comes to rest, so the arming delay, the 30 s silent

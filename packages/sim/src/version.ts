@@ -1581,4 +1581,14 @@
 //     leaves it at an edge or a crest with the plane's vertical speed; on the
 //     slow row (states 1, 2) a step over its band but under 0.1 m is put back,
 //     its horizontal velocity zeroed. Every golden plays differently.
-export const SIM_VERSION = 108;
+// v109: a kind-0x14 shell (the powered Mortar's, the powered Plasma Flare's)
+//     bursts as the original's (fcop-fidelity.md P8; `cact_round_advance`
+//     0x00423e40): at the apex (vertical speed not negative, then negative) four
+//     copies, each pushed into its own quadrant by three PRNG draws (the
+//     original's x and z `(rand & 0x3fff) - 0x2000 +- 0x2000`, its y down by
+//     `(rand & 0x1fff) + 0x2000 * i`, world units a second), where Metropolis
+//     threw a cross at 1.5 m/s with no vertical speed; and the shell is not
+//     killed, so it falls on and goes off where it lands, a fifth blast. No
+//     golden fires a powered Mortar or Plasma Flare: every hash holds,
+//     re-recorded for the header.
+export const SIM_VERSION = 109;
