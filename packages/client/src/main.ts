@@ -111,6 +111,7 @@ import {
   createInGameMenu,
   difficultyFromParams,
   extraFromParams,
+  finishedMapEndsSession,
   loadoutFromParams,
   type MenuChoice,
   type MenuHandle,
@@ -1208,11 +1209,15 @@ function refreshCapture(): void {
 // Captain), the Camera Key quits; online only the Camera Key.
 const results = createResultsPage({
   bindings: () => keyboard.getTable(),
-  onAgain: () => afterPostMovie(rematchSolo),
+  // On Bug Hunt a round that finished the map goes back to the front end on
+  // another round too (frame_step_game 0x004097a8).
+  onAgain: () => afterPostMovie(postMovieEnds ? returnToMenu : rematchSolo),
   onQuit: () => afterPostMovie(returnToMenu),
 });
 /** A won round finished the map: its po_*.mpg plays before either way out. */
 let postMovieDue = false;
+/** ... and the map was Bug Hunt: another round leaves for the front end too. */
+let postMovieEnds = false;
 let postMoviePlaying = false;
 /**
  * frame_step_game runs after the results page, whichever key left it, and
@@ -1246,6 +1251,7 @@ function resetMatchEnd(): void {
   winSeenAtMs = -1;
   matchEndShown = false;
   postMovieDue = false;
+  postMovieEnds = false;
   results.close();
 }
 
@@ -1259,6 +1265,7 @@ function showMatchEnd(winner: number): void {
   // one that finishes the map plays its post-mission movie on the way out.
   postMovieDue =
     warden && !net && winner === slot && recordSoloWin(map.id, wardenDifficulty) === "finished";
+  postMovieEnds = postMovieDue && finishedMapEndsSession(map.id);
   writeResultsSnapshot(sim, resultsSnap);
   // LEVEL is the Sky Captain's, one viewport only; the next round after a win
   // plays the level above it (results.c 0x00408121).
